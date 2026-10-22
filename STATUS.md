@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-10-21._
+_Updated 2026-10-22._
 
 ## Open findings
 
@@ -22,10 +22,10 @@ _None._
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
-| codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`adb92492c`](https://github.com/addlayer-io/dbine/commit/adb92492c9d0) | 0 open | — |
+| codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`82df3021b`](https://github.com/addlayer-io/dbine/commit/82df3021b4bb) | 0 open | — |
 | scorecard | 2026-10-21 | repository settings and workflows at [`adb92492c`](https://github.com/addlayer-io/dbine/commit/adb92492c9d0) | score 5.8/10 | — |
-| trivy | 2026-10-21 | whole repository at [`adb92492c`](https://github.com/addlayer-io/dbine/commit/adb92492c9d0) | 0 open | — |
+| trivy | 2026-10-22 | whole repository at [`82df3021b`](https://github.com/addlayer-io/dbine/commit/82df3021b4bb) | 0 open | — |
 
 ## Not counted, and why
 

@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-10-21",
-      "revision": "adb92492c9d0",
+      "date": "2026-10-22",
+      "revision": "82df3021b4bb",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
     },
     {
       "source": "trivy",
-      "date": "2026-10-21",
-      "revision": "adb92492c9d0",
+      "date": "2026-10-22",
+      "revision": "82df3021b4bb",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-10-21",
+      "date": "2026-10-22",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
