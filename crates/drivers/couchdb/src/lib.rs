@@ -477,8 +477,8 @@ pub fn parse_script(text: &str) -> std::result::Result<Vec<Stmt>, String> {
 pub fn parse_located(text: &str) -> std::result::Result<Vec<(Stmt, usize)>, (String, usize)> {
     // Blocks: an HTTP line plus the lines until the next HTTP line, or the
     // loose JSON before the first one.
-    let mut blocks: Vec<(Option<(String, String)>, String, Option<usize>)> =
-        vec![(None, String::new(), None)];
+    type Block = (Option<(String, String)>, String, Option<usize>);
+    let mut blocks: Vec<Block> = vec![(None, String::new(), None)];
     let mut at = 0;
     for line in text.split_inclusive('\n') {
         let start = at + (line.len() - line.trim_start().len());
@@ -663,7 +663,7 @@ pub fn infer_columns(docs: &[Value]) -> Vec<ColumnInfo> {
                     None => types.push((t, 1)),
                 }
             }
-            types.sort_by(|a, b| b.1.cmp(&a.1));
+            types.sort_by_key(|t| std::cmp::Reverse(t.1));
             ColumnInfo {
                 data_type: if types.is_empty() {
                     "null".into()

@@ -52,6 +52,9 @@ pub struct Ready {
 }
 
 /// App → host.
+// Wire messages, built once per call and serialized right away; boxing the
+// big variants would touch every construction and match site.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ToHost {
     Call {
@@ -520,6 +523,9 @@ pub enum Call {
 }
 
 /// Host → app.
+// Wire messages, built once per call and serialized right away; boxing the
+// big variants would touch every construction and match site.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum FromHost {
     Reply {
@@ -567,6 +573,9 @@ pub enum FromHost {
     },
 }
 
+// Wire messages, built once per call and serialized right away; boxing the
+// big variants would touch every construction and match site.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Reply {
     Unit,

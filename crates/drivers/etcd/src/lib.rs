@@ -1339,7 +1339,7 @@ mod tests {
         for d in drivers() {
             assert_eq!(d.filtered_browse("get k", &[]).unwrap(), "get k");
             assert!(matches!(
-                d.filtered_browse("get k", &[f.clone()]),
+                d.filtered_browse("get k", std::slice::from_ref(&f)),
                 Err(Error::Unsupported(_))
             ));
         }

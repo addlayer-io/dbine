@@ -397,7 +397,6 @@ impl Driver for SnowflakeDriver {
             kill_session: true,
             processes: true,
             cancel_query: true,
-            ..Default::default()
         }
     }
 

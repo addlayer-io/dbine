@@ -225,9 +225,13 @@ pub fn analyze(
     (candidates, out.notes)
 }
 
+/// A rule's raw candidate: rule id, its parameters, the edits and its
+/// `Candidate::verify` flag.
+type RawCandidate = (&'static str, BTreeMap<String, String>, Vec<Edit>, bool);
+
 #[derive(Default)]
 struct Out {
-    candidates: Vec<(&'static str, BTreeMap<String, String>, Vec<Edit>, bool)>,
+    candidates: Vec<RawCandidate>,
     notes: Vec<Note>,
 }
 
@@ -595,7 +599,7 @@ fn scalar_to_join(cx: &Ctx, b: &Block, out: &mut Out) {
         let is_agg = sql.kw_any(f, &["count", "sum", "min", "max", "avg"])
             && sql.close.get(f + 1).copied().flatten() == Some(agg.end - 1);
         if !is_agg
-            || sql.calls(f + 2..agg.end - 1, AGGREGATES).len() > 0
+            || !sql.calls(f + 2..agg.end - 1, AGGREGATES).is_empty()
             || sql.mentions(f..agg.end, &["over"])
         {
             continue;

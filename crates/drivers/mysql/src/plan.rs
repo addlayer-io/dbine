@@ -797,12 +797,10 @@ mod tests {
             ("Table scan", Some("b"))
         );
         assert!(b.warnings.iter().any(|w| w.starts_with("Estimación")));
-        assert!(
-            b.warnings
-                .iter()
-                .any(|w| w.starts_with("Recorrido completo"))
-                == false
-        );
+        assert!(!b
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("Recorrido completo")));
         assert!((b.actual_ms.unwrap() - 0.038).abs() < 1e-9);
         assert!(b
             .props

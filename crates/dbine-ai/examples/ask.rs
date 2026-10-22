@@ -13,13 +13,15 @@ use std::io::Write;
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut ep = Endpoints::default();
-    ep.models_dir = std::env::var("DBINE_MODELS_DIR")
-        .map(Into::into)
-        .unwrap_or_else(|_| {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                .join("Library/Application Support/io.addlayer.dbine/models")
-        });
+    let ep = Endpoints {
+        models_dir: std::env::var("DBINE_MODELS_DIR")
+            .map(Into::into)
+            .unwrap_or_else(|_| {
+                std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                    .join("Library/Application Support/io.addlayer.dbine/models")
+            }),
+        ..Default::default()
+    };
     if args.first().map(String::as_str) == Some("detect") {
         println!(
             "{}",

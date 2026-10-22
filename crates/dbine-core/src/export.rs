@@ -184,6 +184,8 @@ fn as_number(v: &Value, numeric_col: bool) -> Option<f64> {
     }
 }
 
+// One per export, held for its whole run: the size difference doesn't matter.
+#[allow(clippy::large_enum_variant)]
 enum Writer {
     Text(BufWriter<File>),
     Csv(csv::Writer<BufWriter<File>>),
@@ -478,7 +480,7 @@ impl Exporter {
                 }
             }
         }
-        if n % 5_000 == 0 {
+        if n.is_multiple_of(5_000) {
             if let Some(p) = self.progress.as_mut() {
                 p(self.rows);
             }

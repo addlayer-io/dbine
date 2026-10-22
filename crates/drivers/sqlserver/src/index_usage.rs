@@ -325,6 +325,37 @@ pub(crate) async fn report(
     })
 }
 
+/// "Deshabilitar / Habilitar índice": `ALTER INDEX … DISABLE` and
+/// `ALTER INDEX … REBUILD` (enabling a disabled index rebuilds it whole).
+pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> SyncScript {
+    let owner = qualified_name(Quote::Bracket, table.schema(), &table.name);
+    let name = dbine_driver::sql::quote_ident(Quote::Bracket, &index.name);
+    let kind = index.kind.to_uppercase();
+    let clustered = kind.contains("CLUSTERED") && !kind.contains("NONCLUSTERED");
+    let mut warnings = Vec::new();
+    if enable {
+        warnings.push("Habilitar un índice deshabilitado lo reconstruye entero (REBUILD): en una tabla grande tarda y la bloquea mientras tanto.".to_string());
+        if index.primary_key || index.unique {
+            warnings.push("Las claves foráneas que se deshabilitaron con este índice siguen deshabilitadas: hay que habilitarlas aparte (ALTER TABLE … WITH CHECK CHECK CONSTRAINT).".to_string());
+        }
+    } else {
+        if clustered {
+            warnings.push("Es el índice clustered: mientras esté deshabilitado no se puede leer ni escribir la tabla.".to_string());
+        }
+        if index.primary_key || index.unique {
+            warnings.push("Las claves foráneas que apuntan a este índice también se deshabilitan, y no vuelven solas al habilitarlo.".to_string());
+        }
+        warnings.push("SQL Server deja de mantenerlo y libera su espacio: para volver a usarlo hay que reconstruirlo.".to_string());
+    }
+    SyncScript {
+        statements: vec![format!(
+            "ALTER INDEX {name} ON {owner} {}",
+            if enable { "REBUILD" } else { "DISABLE" }
+        )],
+        warnings,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,36 +764,5 @@ mod tests {
         assert!(usage_note(Variant::SqlServer).contains("VIEW SERVER STATE"));
         assert!(usage_note(Variant::AzureSql).contains("VIEW DATABASE STATE"));
         assert!(usage_note(Variant::Babelfish).contains("Babelfish"));
-    }
-}
-
-/// "Deshabilitar / Habilitar índice": `ALTER INDEX … DISABLE` and
-/// `ALTER INDEX … REBUILD` (enabling a disabled index rebuilds it whole).
-pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> SyncScript {
-    let owner = qualified_name(Quote::Bracket, table.schema(), &table.name);
-    let name = dbine_driver::sql::quote_ident(Quote::Bracket, &index.name);
-    let kind = index.kind.to_uppercase();
-    let clustered = kind.contains("CLUSTERED") && !kind.contains("NONCLUSTERED");
-    let mut warnings = Vec::new();
-    if enable {
-        warnings.push("Habilitar un índice deshabilitado lo reconstruye entero (REBUILD): en una tabla grande tarda y la bloquea mientras tanto.".to_string());
-        if index.primary_key || index.unique {
-            warnings.push("Las claves foráneas que se deshabilitaron con este índice siguen deshabilitadas: hay que habilitarlas aparte (ALTER TABLE … WITH CHECK CHECK CONSTRAINT).".to_string());
-        }
-    } else {
-        if clustered {
-            warnings.push("Es el índice clustered: mientras esté deshabilitado no se puede leer ni escribir la tabla.".to_string());
-        }
-        if index.primary_key || index.unique {
-            warnings.push("Las claves foráneas que apuntan a este índice también se deshabilitan, y no vuelven solas al habilitarlo.".to_string());
-        }
-        warnings.push("SQL Server deja de mantenerlo y libera su espacio: para volver a usarlo hay que reconstruirlo.".to_string());
-    }
-    SyncScript {
-        statements: vec![format!(
-            "ALTER INDEX {name} ON {owner} {}",
-            if enable { "REBUILD" } else { "DISABLE" }
-        )],
-        warnings,
     }
 }

@@ -495,9 +495,7 @@ pub(crate) fn tree_text(statement: &str, raw: &str) -> Plan {
                 .trim_start_matches([' ', '│', '├', '└', '─', '→'])
                 .chars()
                 .count();
-        if !arrows {
-            items.push((depth, tree_node(body)));
-        } else if line.trim_start().starts_with('→') {
+        if !arrows || line.trim_start().starts_with('→') {
             items.push((depth, tree_node(body)));
         } else if let Some((_, n)) = items.last_mut().filter(|(d, _)| depth > *d) {
             n.props.push(split_prop(body));

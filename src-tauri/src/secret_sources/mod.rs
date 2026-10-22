@@ -14,7 +14,7 @@
 //!   error carries what to show (`secret_source_approval`) and the UI asks.
 
 #[path = "../../../crates/drivers/postgres/src/cloud_auth.rs"]
-#[allow(dead_code, unused_imports)]
+#[allow(unused_imports)]
 pub(crate) mod cloud_auth;
 
 pub mod accounts;

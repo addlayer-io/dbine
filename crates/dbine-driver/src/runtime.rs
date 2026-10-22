@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 static DIR: OnceLock<PathBuf> = OnceLock::new();
-static SINK: OnceLock<Box<dyn Fn(&ComponentProgress) + Send + Sync>> = OnceLock::new();
+type ProgressSink = Box<dyn Fn(&ComponentProgress) + Send + Sync>;
+static SINK: OnceLock<ProgressSink> = OnceLock::new();
 
 /// A component download's progress, in bytes.
 #[derive(Debug, Clone, Serialize, Deserialize)]

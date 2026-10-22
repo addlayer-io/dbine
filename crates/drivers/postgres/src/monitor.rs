@@ -2028,11 +2028,9 @@ async fn h2(m: &mut Mon<'_>) {
         m.table("locks", "Bloqueos", &["Esquema", "Tabla", "Sesión", "Tipo"], &rows, &[]);
     }
     if let Some(rows) = m
-        .quiet(&format!(
-            "SELECT table_schema, table_name, row_count_estimate FROM information_schema.tables
+        .quiet("SELECT table_schema, table_name, row_count_estimate FROM information_schema.tables
              WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('INFORMATION_SCHEMA', 'pg_catalog')
-             ORDER BY row_count_estimate DESC LIMIT 20"
-        ))
+             ORDER BY row_count_estimate DESC LIMIT 20")
         .await
     {
         m.table("top_objects", "Tablas con más filas", &["Esquema", "Tabla", "Filas (estim.)"], &rows, &[]);

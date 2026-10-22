@@ -298,7 +298,7 @@ pub fn value_of(p: &NotebookParameter, v: &Value) -> Result<ParamValue, ParamErr
         },
         ParamType::List => {
             let s = text().ok_or_else(|| bad("tiene que ser uno de los valores de la lista"))?;
-            if !p.options.iter().any(|o| *o == s) {
+            if !p.options.contains(&s) {
                 return Err(bad("tiene que ser uno de los valores de la lista"));
             }
             Ok(ParamValue::Text(s))

@@ -564,7 +564,7 @@ async fn connect_once(config: Config) -> tiberius::Result<Client<Compat<TcpStrea
             Err(_) => {
                 return Err(tiberius::error::Error::Io {
                     kind: std::io::ErrorKind::TimedOut,
-                    message: no_answer(&config).into(),
+                    message: no_answer(&config),
                 })
             }
         }

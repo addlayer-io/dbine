@@ -910,6 +910,7 @@ pub fn preview_limits(state: &AppState) -> super::PreviewLimits {
 /// Run every SQL cell of the notebook in order; stop at the first that
 /// fails. `key`: the run's session prefix (`cancel_query` takes its
 /// sessions). Sessions opened here are closed at the end.
+#[cfg(test)]
 pub async fn run(
     state: &AppState,
     key: &str,

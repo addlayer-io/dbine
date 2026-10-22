@@ -197,10 +197,13 @@ fn plannable(stmt: &str) -> bool {
     )
 }
 
+/// One result set: column names and rows.
+type ResultSet = (Vec<String>, Vec<Vec<Option<String>>>);
+
 /// Everything a statement answers, every cell as text.
 #[derive(Default)]
 struct Collected {
-    sets: Vec<(Vec<String>, Vec<Vec<Option<String>>>)>,
+    sets: Vec<ResultSet>,
     messages: Vec<String>,
 }
 

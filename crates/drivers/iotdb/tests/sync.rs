@@ -71,7 +71,7 @@ async fn iotdb_sync() {
             cols.contains(&"hum") && cols.contains(&"temp") && !cols.contains(&"gone"),
             "{name}: {cols:?}"
         );
-        assert_eq!(t.options.get("aligned").is_some(), name == "d2");
+        assert_eq!(t.options.contains_key("aligned"), name == "d2");
     }
     let mut other = after.iter().find(|t| t.name == "d1").cloned().unwrap();
     other.name = "d3".into();

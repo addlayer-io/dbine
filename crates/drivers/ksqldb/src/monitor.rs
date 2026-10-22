@@ -273,7 +273,7 @@ impl KsqlSession {
             totals
                 .get(k)
                 .copied()
-                .or(Some(0.0).filter(|_| !sources.is_empty()))
+                .or((!sources.is_empty()).then_some(0.0))
         };
         snap.metrics = vec![
             Metric::new(

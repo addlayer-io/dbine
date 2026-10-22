@@ -630,7 +630,7 @@ pub fn json_spatial_bytes(b: &[u8]) -> serde_json::Value {
 /// `geography`, `POINT`, `ST_GEOMETRY(4326)`, `MULTIPOLYGON`…).
 pub fn is_spatial_type(name: &str) -> bool {
     let n = name.trim().to_ascii_lowercase();
-    let base = n.split(|c: char| c == '(' || c == ' ').next().unwrap_or("");
+    let base = n.split(['(', ' ']).next().unwrap_or("");
     matches!(
         base,
         "geometry"

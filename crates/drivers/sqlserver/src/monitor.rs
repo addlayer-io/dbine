@@ -1278,39 +1278,6 @@ async fn warehouse(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &
         .push("Query Insights guarda las consultas terminadas con unos minutos de demora.".into());
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn permission_errors_fold_into_one_note() {
-        let mut g = Gaps::default();
-        assert!(denied(
-            "VIEW SERVER STATE permission was denied on object 'server'"
-        ));
-        assert!(!denied("Invalid object name 'sys.dm_os_ring_buffers'."));
-        g.denied.extend(["el uso de CPU", "la memoria"]);
-        g.notes.push("No se pudo leer x: y".into());
-        let n = g.into_notes("VIEW SERVER STATE");
-        assert_eq!(
-            n[0],
-            "Sin el permiso VIEW SERVER STATE no se ven: el uso de CPU, la memoria."
-        );
-        assert_eq!(n.len(), 2);
-    }
-
-    #[test]
-    fn counters_match_any_instance_prefix() {
-        let c = Counters(vec![(
-            "MSSQL$SQLEXPRESS:Buffer Manager".into(),
-            "Page life expectancy".into(),
-            300.0,
-        )]);
-        assert_eq!(c.get("Buffer Manager", "Page life expectancy"), Some(300.0));
-        assert_eq!(c.get("Buffer Manager", "Other"), None);
-    }
-}
-
 /// The sessions in blocking chains: every session waiting on another
 /// (`blocking_session_id`) and the ones they wait for, even idle ones holding
 /// an open transaction (the usual culprit). The text is what the client
@@ -1368,4 +1335,37 @@ pub async fn kill(s: &mut SqlServerSession, id: &str) -> Result<()> {
         dbine_driver::Error::Query(format!("«{id}» no es un id de sesión de SQL Server"))
     })?;
     s.rows(&format!("KILL {id}"), &[]).await.map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn permission_errors_fold_into_one_note() {
+        let mut g = Gaps::default();
+        assert!(denied(
+            "VIEW SERVER STATE permission was denied on object 'server'"
+        ));
+        assert!(!denied("Invalid object name 'sys.dm_os_ring_buffers'."));
+        g.denied.extend(["el uso de CPU", "la memoria"]);
+        g.notes.push("No se pudo leer x: y".into());
+        let n = g.into_notes("VIEW SERVER STATE");
+        assert_eq!(
+            n[0],
+            "Sin el permiso VIEW SERVER STATE no se ven: el uso de CPU, la memoria."
+        );
+        assert_eq!(n.len(), 2);
+    }
+
+    #[test]
+    fn counters_match_any_instance_prefix() {
+        let c = Counters(vec![(
+            "MSSQL$SQLEXPRESS:Buffer Manager".into(),
+            "Page life expectancy".into(),
+            300.0,
+        )]);
+        assert_eq!(c.get("Buffer Manager", "Page life expectancy"), Some(300.0));
+        assert_eq!(c.get("Buffer Manager", "Other"), None);
+    }
 }

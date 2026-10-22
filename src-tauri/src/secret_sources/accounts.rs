@@ -1865,7 +1865,7 @@ mod tests {
         ))
         .unwrap();
         let x = expand_with(&store, &src, Secrets::new(), keychain(asked_id)).unwrap();
-        assert!(x.slots.get("").is_none(), "not asked yet");
+        assert!(!x.slots.contains_key(""), "not asked yet");
         let typed: Secrets = [(String::new(), "typed".to_string())].into();
         let x = expand_with(&store, &src, typed, keychain(asked_id)).unwrap();
         assert_eq!(x.slots.get("").map(String::as_str), Some("typed"));
@@ -1878,11 +1878,10 @@ mod tests {
         );
         after_run(&y, Err(zoho::WRONG_PASSPHRASE));
         assert!(
-            expand_with(&store, &src, Secrets::new(), keychain(asked_id))
+            !expand_with(&store, &src, Secrets::new(), keychain(asked_id))
                 .unwrap()
                 .slots
-                .get("")
-                .is_none(),
+                .contains_key(""),
             "a wrong one is dropped"
         );
         // Removed: its connections get the missing-account error.
@@ -1925,7 +1924,8 @@ mod tests {
     fn every_kind_expands_through_its_account() {
         let store = StateStore::open_in_memory().unwrap();
         let id = "6f1c2d4e-0000-4000-8000-000000000010";
-        let cases: Vec<(AccountConfig, &str, Vec<(&str, &str)>)> = vec![
+        type Case<'a> = (AccountConfig, &'a str, Vec<(&'a str, &'a str)>);
+        let cases: Vec<Case> = vec![
             (
                 AccountConfig::Bitwarden {
                     server: "bitwarden.eu".into(),
@@ -2212,11 +2212,10 @@ mod tests {
         );
         after_run(&y, Err(bitwarden::WRONG_PASSWORD));
         assert!(
-            expand_with(&store, &src, Secrets::new(), kept(id))
+            !expand_with(&store, &src, Secrets::new(), kept(id))
                 .unwrap()
                 .slots
-                .get("")
-                .is_none(),
+                .contains_key(""),
             "a wrong one is dropped"
         );
         store

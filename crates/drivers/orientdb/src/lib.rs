@@ -968,7 +968,7 @@ pub fn infer_columns(records: &[Vec<(String, Value)>]) -> Vec<ColumnInfo> {
                     None => types.push((t, 1)),
                 }
             }
-            types.sort_by(|a, b| b.1.cmp(&a.1));
+            types.sort_by_key(|t| std::cmp::Reverse(t.1));
             ColumnInfo {
                 data_type: if types.is_empty() {
                     "ANY".into()
@@ -1194,13 +1194,13 @@ impl Session for OrientSession {
                 let r = self
                     .command(&format!("SELECT name, code, language, parameters, idempotent FROM OFunction WHERE name = {}", ddl::string(&obj.name)), 1)
                     .await?;
-                Ok(r.records.first().map(ddl::function_statement))
+                Ok(r.records.first().map(|r| ddl::function_statement(r)))
             }
             k if k == kinds::SEQUENCE => {
                 let r = self
                     .command(&format!("SELECT name, type, value, incr, start, cacheSize FROM OSequence WHERE name = {}", ddl::string(&obj.name)), 1)
                     .await?;
-                Ok(r.records.first().map(ddl::sequence_statement))
+                Ok(r.records.first().map(|r| ddl::sequence_statement(r)))
             }
             _ => Ok(None),
         }

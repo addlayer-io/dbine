@@ -36,6 +36,8 @@ pub struct DriverPackages {
 
 #[derive(Deserialize)]
 pub struct PackageArgs {
+    // Sent by the UI in every build; only the plugins build reads it.
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
     pub package: String,
 }
 

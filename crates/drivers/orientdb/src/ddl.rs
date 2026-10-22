@@ -414,7 +414,7 @@ fn field<'a>(r: &'a [(String, Value)], k: &str) -> Option<&'a Value> {
         .filter(|v| !v.is_null())
 }
 
-pub fn function_statement(r: &Vec<(String, Value)>) -> String {
+pub fn function_statement(r: &[(String, Value)]) -> String {
     let name = field(r, "name").map(as_text).unwrap_or_default();
     let code = field(r, "code").map(as_text).unwrap_or_default();
     let mut s = format!(
@@ -440,7 +440,7 @@ pub fn function_statement(r: &Vec<(String, Value)>) -> String {
     s
 }
 
-pub fn sequence_statement(r: &Vec<(String, Value)>) -> String {
+pub fn sequence_statement(r: &[(String, Value)]) -> String {
     let name = field(r, "name").map(as_text).unwrap_or_default();
     let mut s = format!(
         "CREATE SEQUENCE {} TYPE {}",

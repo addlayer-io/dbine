@@ -172,7 +172,8 @@ impl Net {
         Net {
             aws_profile,
             azure_account,
-            ..Default::default()
+            #[cfg(test)]
+            test: None,
         }
     }
 
@@ -624,13 +625,16 @@ fn origin(u: &Url) -> (String, Option<String>, Option<u16>) {
     )
 }
 
+/// Makes the headers for a request to a URL.
+type Signer<'a> = dyn Fn(&reqwest::Method, &Url) -> Vec<(String, String)> + Sync + 'a;
+
 /// `method url`, the headers made for each URL it goes to (`sign`),
 /// following redirects only within the same scheme, host and port.
 async fn send(
     net: &Net,
     method: reqwest::Method,
     url: Url,
-    sign: &(dyn Fn(&reqwest::Method, &Url) -> Vec<(String, String)> + Sync),
+    sign: &Signer<'_>,
 ) -> Result<(reqwest::Response, Url), String> {
     let mut url = url;
     for _ in 0..=MAX_REDIRECTS {
@@ -1240,7 +1244,7 @@ fn tags<'x>(xml: &'x str, open: &str) -> Vec<&'x str> {
     let close = open.replacen('<', "</", 1);
     let mut out = Vec::new();
     let mut at = 0;
-    while let Some(i) = xml[at..].find(&open) {
+    while let Some(i) = xml[at..].find(open) {
         let from = at + i + open.len();
         let Some(j) = xml[from..].find(&close) else {
             break;

@@ -105,8 +105,8 @@ pub fn scope(edges: &[Edge], start: usize, children_depth: Option<u32>) -> Scope
             let mut next = Vec::new();
             for &t in &frontier {
                 for e in edges.iter().filter(|e| e.parent == t && e.child != t) {
-                    if !members.contains_key(&e.child) {
-                        members.insert(e.child, (Role::Child, depth));
+                    if let std::collections::btree_map::Entry::Vacant(v) = members.entry(e.child) {
+                        v.insert((Role::Child, depth));
                         next.push(e.child);
                     }
                 }
@@ -120,8 +120,8 @@ pub fn scope(edges: &[Edge], start: usize, children_depth: Option<u32>) -> Scope
     let mut work: Vec<(usize, u32)> = members.keys().map(|&t| (t, 0)).collect();
     while let Some((t, up)) = work.pop() {
         for e in edges.iter().filter(|e| e.child == t && e.parent != t) {
-            if !members.contains_key(&e.parent) {
-                members.insert(e.parent, (Role::Parent, up + 1));
+            if let std::collections::btree_map::Entry::Vacant(v) = members.entry(e.parent) {
+                v.insert((Role::Parent, up + 1));
                 work.push((e.parent, up + 1));
             }
         }

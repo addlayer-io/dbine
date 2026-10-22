@@ -1229,12 +1229,10 @@ fn run_script_tx(
             (Ok(()), "begin" | "start") => tx.state = TxState::Open,
             (_, "commit" | "end" | "rollback" | "abort") => tx.state = TxState::Idle,
             (Err(Error::Cancelled), _) => {}
-            (Err(_), _) if tx.state == TxState::Open => {
-                // Execution errors abort the transaction; parser and binder
-                // errors don't.
-                if c.execute_batch("SELECT 1").is_err() {
-                    tx.state = TxState::Failed;
-                }
+            // Execution errors abort the transaction; parser and binder
+            // errors don't.
+            (Err(_), _) if tx.state == TxState::Open && c.execute_batch("SELECT 1").is_err() => {
+                tx.state = TxState::Failed;
             }
             _ => {}
         }

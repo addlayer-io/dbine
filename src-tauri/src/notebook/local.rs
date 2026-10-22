@@ -450,7 +450,7 @@ fn decimal_shape(v: &Value) -> Option<(usize, usize)> {
         && digits(frac)
         && !(int.len() > 1 && int.starts_with('0'))
         && (frac.is_empty() || !s.ends_with('.'));
-    ok.then(|| (int.len(), frac.len()))
+    ok.then_some((int.len(), frac.len()))
 }
 
 /// The narrowest exact type for numbers written as text: `BIGINT`,
@@ -1712,6 +1712,9 @@ where
 /// The tab's DuckDB session with every table `sql` needs loaded: what a
 /// DataFrame SQL cell's run and a write cell's DataFrame share. `sql`
 /// comes back with each reader call replaced by its table.
+// One per cell run, consumed right away: boxing `Ready` would only add an
+// allocation and touch every match site.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Staged {
     Ready {
         entry: Arc<SessionEntry>,

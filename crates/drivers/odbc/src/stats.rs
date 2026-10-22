@@ -193,7 +193,7 @@ fn comments(preset: &Preset, rows: &Rows) -> Vec<ObjectComment> {
             let schema = schema_of(preset, col(r, 1))?;
             let name = col(r, 2)?.trim_end().to_string();
             let comment = col(r, 3)?.trim().to_string();
-            (!comment.is_empty()).then(|| ObjectComment {
+            (!comment.is_empty()).then_some(ObjectComment {
                 object: ObjectRef { kind, schema, name },
                 comment,
             })

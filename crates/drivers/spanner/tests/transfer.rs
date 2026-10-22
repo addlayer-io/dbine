@@ -13,10 +13,12 @@ use std::time::Instant;
 const ROWS: usize = 50_000;
 
 /// The emulator runs one schema change at a time and refuses a concurrent
-/// one, so these tests (each with its own DDL) run one after another.
-fn serial() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+/// one, so these tests (each with its own DDL) run one after another. Each
+/// test holds its turn across awaits, so the lock is tokio's: a std guard
+/// held there would block the runtime thread while another test waits.
+async fn serial() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    LOCK.lock().await
 }
 
 async fn open(url: &str, read_only: bool) -> Box<dyn Session> {
@@ -127,7 +129,7 @@ async fn transfer_types_and_nulls() {
     let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else {
         return;
     };
-    let _serial = serial();
+    let _serial = serial().await;
     let mut s = open(&url, false).await;
     let mut out = QueryOutcome::default();
     let _ = s.execute("DROP TABLE xfer_types", 10, &mut out).await;
@@ -369,7 +371,7 @@ async fn transfer_50k_rows() {
     let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else {
         return;
     };
-    let _serial = serial();
+    let _serial = serial().await;
     let mut s = open(&url, false).await;
     let mut out = QueryOutcome::default();
     let _ = s
@@ -475,7 +477,7 @@ async fn transfer_value_edges() {
     let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else {
         return;
     };
-    let _serial = serial();
+    let _serial = serial().await;
     let mut s = open(&url, false).await;
     let mut out = QueryOutcome::default();
     let _ = s.execute("DROP TABLE xfer_edges", 10, &mut out).await;
@@ -614,7 +616,7 @@ async fn transfer_data_errors_commit_nothing_of_the_window() {
     let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else {
         return;
     };
-    let _serial = serial();
+    let _serial = serial().await;
     let mut s = open(&url, false).await;
     let mut out = QueryOutcome::default();
     let _ = s.execute("DROP TABLE xfer_window", 10, &mut out).await;

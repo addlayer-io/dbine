@@ -42,7 +42,7 @@ fn config_dirs(base: &Path) -> Vec<PathBuf> {
             )
         })
         .collect();
-    v.sort_by(|a, b| b.0.cmp(&a.0));
+    v.sort_by_key(|e| std::cmp::Reverse(e.0));
     v.into_iter().map(|(_, p)| p).collect()
 }
 
@@ -149,7 +149,7 @@ pub fn read(path: &Path) -> Result<Found> {
                 .or_else(|| child_text(ds, "user-name"));
             let mut c = map(ds, user);
             let mut folder = f.folder.clone();
-            folder.extend(c.folder.drain(..));
+            folder.append(&mut c.folder);
             c.folder = folder;
             candidates.push(c);
         }

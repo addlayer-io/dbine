@@ -4,6 +4,7 @@
 //! - dbine-test-ssh on 127.0.0.1:25022, user dbine / pw, the key's public half authorized;
 //! - dbine-test-ssh-bastion on 127.0.0.1:25023, same user, reaches dbine-test-ssh:22;
 //! - PostgreSQL reachable from them at host.docker.internal:25010.
+//!
 //! The key's passphrase is `frase123`.
 
 use dbine_tunnel::{open, trusted_entry, Auth, Error, Hop, Spec};

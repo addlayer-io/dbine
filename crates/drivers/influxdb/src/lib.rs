@@ -274,7 +274,7 @@ mod tests {
         };
         for d in drivers() {
             assert!(matches!(
-                d.update_script(&target, &[change.clone()]),
+                d.update_script(&target, std::slice::from_ref(&change)),
                 Err(Error::Unsupported(_))
             ));
         }

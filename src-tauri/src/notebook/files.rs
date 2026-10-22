@@ -1605,6 +1605,13 @@ impl Drop for TempDir {
     }
 }
 
+/// A SQLite read: its columns, its rows and whether there were more.
+type SqliteRead = (
+    Vec<dbine_driver::ResultColumn>,
+    Vec<Vec<serde_json::Value>>,
+    bool,
+);
+
 /// The rows of a `sqlite_scan` read by DBine: up to `cap`, and whether there
 /// were more. The file is opened read-only and `immutable` (nothing is
 /// written next to it). A file with a pending `-wal` or `-journal` (open in
@@ -1615,14 +1622,7 @@ pub fn read_sqlite(
     r: &FileRead,
     cap: u64,
     interrupt: &dyn Fn(rusqlite::InterruptHandle),
-) -> Result<
-    (
-        Vec<dbine_driver::ResultColumn>,
-        Vec<Vec<serde_json::Value>>,
-        bool,
-    ),
-    String,
-> {
+) -> Result<SqliteRead, String> {
     use rusqlite::types::ValueRef;
     use rusqlite::OpenFlags;
     let ReadKind::Sqlite { table } = &r.kind else {

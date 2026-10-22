@@ -1304,7 +1304,8 @@ impl MySqlSession {
             )
             .await;
         // instance → (cpu %, mem used, mem total)
-        let mut per: HashMap<String, (Option<f64>, Option<f64>, Option<f64>)> = HashMap::new();
+        type Triple = (Option<f64>, Option<f64>, Option<f64>);
+        let mut per: HashMap<String, Triple> = HashMap::new();
         match load {
             Ok(rows) => {
                 for r in &rows {

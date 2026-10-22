@@ -1042,7 +1042,7 @@ fn jsbn_private_key(text: &str) -> Option<rsa::RsaPrivateKey> {
             .ok()
             .filter(|k| trim(&k.n().as_ref().to_be_bytes()) == trim(&parts[0]))
     });
-    parts.iter_mut().for_each(|p| wipe_bytes(p));
+    parts.iter_mut().for_each(wipe_bytes);
     key.flatten()
 }
 

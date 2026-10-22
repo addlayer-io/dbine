@@ -467,12 +467,12 @@ mod tests {
         // published: an older signed index (a replay, a rolled-back mirror)
         // is refused; the same or newer is taken.
         assert_eq!(
-            verify(IDX50, SIG50, PK, 0u64.max(100)).unwrap_err(),
+            verify(IDX50, SIG50, PK, 100).unwrap_err(),
             VerifyError::OldSeq { got: 50, have: 100 }
         );
-        assert_eq!(verify(IDX100, SIG100, PK, 0u64.max(100)).unwrap().seq, 100);
+        assert_eq!(verify(IDX100, SIG100, PK, 100).unwrap().seq, 100);
         assert_eq!(
-            verify(IDX100, SIG100, PK, 0u64.max(101)).unwrap_err(),
+            verify(IDX100, SIG100, PK, 101).unwrap_err(),
             VerifyError::OldSeq {
                 got: 100,
                 have: 101

@@ -638,7 +638,7 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
                 cell.kind = CellKind::Write;
                 cell.language = None;
                 cell.write = Some(read_write_cell(d.get("write"), w));
-                cell.write_result = d.get("write_result").and_then(|r| read_write_summary(r));
+                cell.write_result = d.get("write_result").and_then(read_write_summary);
             } else if let Some(d) = meta.get("dbine").and_then(Value::as_object) {
                 flag_credentials(d, w);
                 cell.kind = CellKind::Sql;

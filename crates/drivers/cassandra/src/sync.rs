@@ -63,8 +63,11 @@ fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
         && a.options == b.options
 }
 
+/// Partition key, and the clustering columns with their order (descending?).
+type KeyShape = (Vec<String>, Vec<(String, bool)>);
+
 /// Partition key, clustering columns and their order, lower-cased.
-fn key_shape(t: &TableSchema) -> Result<(Vec<String>, Vec<(String, bool)>)> {
+fn key_shape(t: &TableSchema) -> Result<KeyShape> {
     let (pk, ck) = keys(t)?;
     let desc = |c: &ColumnDef| {
         c.options

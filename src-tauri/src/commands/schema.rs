@@ -391,7 +391,7 @@ pub async fn drop_objects(
         .dedicated_session(&key, &args.connection_id, &args.database, false)
         .await?;
     let mut dropped = Vec::new();
-    let result = async {
+    async {
         let mut pending = work;
         while !pending.is_empty() {
             let mut failed = Vec::new();
@@ -422,7 +422,6 @@ pub async fn drop_objects(
         }
     }
     .await;
-    let _ = result;
     progress(dropped.len() + errors.len(), true);
     state.sessions.remove(&key);
     Ok(DropObjectsResult { dropped, errors })

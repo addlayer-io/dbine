@@ -113,7 +113,7 @@ pub async fn ai_detect(ai: State<'_, AiRuntime>) -> CommandResult<DetectOut> {
         .iter()
         .filter(|m| u64::from(m.min_ram_gb) <= ram)
         .map(|m| m.id)
-        .last();
+        .next_back();
     Ok(DetectOut {
         providers,
         catalog: embedded::CATALOG
@@ -273,7 +273,7 @@ pub async fn ai_chat(
         // before it came separately).
         if args.provider == ProviderKind::Embedded {
             let progress = |done: u64, total: u64| {
-                let pct = if total > 0 { done * 100 / total } else { 0 };
+                let pct = (done * 100).checked_div(total).unwrap_or(0);
                 let note = format!("{pct} % de {} MB", total.div_ceil(1_000_000));
                 let _ = app.emit("ai-status", StatusEvent { chat_id: &id, phase: "engine", note: Some(note) });
             };
@@ -314,11 +314,12 @@ pub async fn ai_chat(
                     }
                     h.0.push_str(&t);
                     let start = h.0.trim_start();
-                    if start.len() >= TOOL_OPEN.len() || !TOOL_OPEN.starts_with(start) {
-                        if !start.starts_with(TOOL_OPEN) && !start.starts_with('{') {
-                            h.1 = true;
-                            emit(Delta::Text(std::mem::take(&mut h.0)));
-                        }
+                    if (start.len() >= TOOL_OPEN.len() || !TOOL_OPEN.starts_with(start))
+                        && !start.starts_with(TOOL_OPEN)
+                        && !start.starts_with('{')
+                    {
+                        h.1 = true;
+                        emit(Delta::Text(std::mem::take(&mut h.0)));
                     }
                 }
                 other => emit(other),

@@ -189,7 +189,6 @@ fn statement(v: &Json) -> Option<ProfiledStatement> {
             .map(|b| b as u64),
         // Nothing reports what a job wrote (DML counts rows, in `rows`).
         writes: None,
-        ..Default::default()
     })
 }
 

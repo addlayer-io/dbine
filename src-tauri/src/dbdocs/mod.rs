@@ -244,7 +244,7 @@ pub(crate) fn thousands(n: u64) -> String {
     let d = n.to_string();
     let mut out = String::new();
     for (i, c) in d.chars().enumerate() {
-        if i > 0 && (d.len() - i) % 3 == 0 {
+        if i > 0 && (d.len() - i).is_multiple_of(3) {
             out.push('.');
         }
         out.push(c);
@@ -510,7 +510,7 @@ pub async fn collect(
                 schema: o.schema.clone(),
                 name: o.name.clone(),
                 columns: cols,
-                primary_key: (!pk.is_empty()).then(|| KeyDef {
+                primary_key: (!pk.is_empty()).then_some(KeyDef {
                     name: None,
                     columns: pk,
                 }),
@@ -721,8 +721,7 @@ pub async fn collect(
             )
         });
         for g in &mut sd.groups {
-            g.items
-                .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            g.items.sort_by_key(|a| a.name.to_lowercase());
         }
     }
     doc.schemas = by_schema

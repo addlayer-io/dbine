@@ -407,7 +407,7 @@ mod tests {
         }
         // A column called `paging` in a statement isn't a command.
         assert_eq!(script("SELECT paging FROM t").len(), 1);
-        assert!(script("SELECT paging FROM t")[0].command == false);
+        assert!(!script("SELECT paging FROM t")[0].command);
         assert!(script("PAGING")[0].command);
         assert!(script("-- only\n/* comments */").is_empty());
     }

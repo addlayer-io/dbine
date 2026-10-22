@@ -423,14 +423,13 @@ async fn performance_schema(
     // CPU_TIME (MySQL 8.0.28+) is measured only while the
     // events_statements_cpu consumer is on; otherwise it reads 0.
     const CPU: &str = "events_statements_cpu";
-    let has_cpu = s
+    let has_cpu = !s
         .optional_rows(
             "SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'performance_schema' \
              AND TABLE_NAME = 'events_statements_current' AND COLUMN_NAME = 'CPU_TIME'",
         )
         .await
-        .first()
-        .is_some();
+        .is_empty();
     let cpu_off = has_cpu && !off(&[CPU]).is_empty();
     let history = |table, cpu| {
         History::new(

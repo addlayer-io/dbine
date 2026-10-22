@@ -39,10 +39,7 @@ impl CloudStore for FolderStore {
     async fn stat(&self, name: &str) -> Result<Option<RemoteMeta>> {
         match tokio::fs::metadata(self.dir.join(name)).await {
             Ok(m) => {
-                let modified = m
-                    .modified()
-                    .ok()
-                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t));
+                let modified = m.modified().ok().map(chrono::DateTime::<chrono::Utc>::from);
                 let nanos = modified
                     .map(|t| t.timestamp_nanos_opt().unwrap_or_default())
                     .unwrap_or_default();

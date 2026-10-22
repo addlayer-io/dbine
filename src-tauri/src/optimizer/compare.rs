@@ -93,7 +93,7 @@ impl Hasher {
 fn cell(v: &serde_json::Value, out: &mut String) {
     match v {
         serde_json::Value::Number(n) => match n.as_f64() {
-            Some(f) if f == 0.0 => out.push('0'),
+            Some(0.0) => out.push('0'),
             Some(f) => out.push_str(&format!("{f}")),
             None => out.push_str(&n.to_string()),
         },

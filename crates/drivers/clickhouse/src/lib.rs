@@ -940,8 +940,9 @@ async fn read_text(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: us
     while let Some(line) = lines.next().await? {
         if line.trim() == "__exception__" {
             let rest = lines.rest().await;
-            return Err(body_exception(&format!("__exception__\n{rest}"))
-                .unwrap_or_else(|| Error::Query(rest)));
+            return Err(
+                body_exception(&format!("__exception__\n{rest}")).unwrap_or(Error::Query(rest))
+            );
         }
         out.push_row(vec![line.into()], max_rows);
     }

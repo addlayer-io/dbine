@@ -675,11 +675,12 @@ mod tests {
     }
 
     /// The file key is process-wide: tests that touch pairing files take turns.
-    static FILES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// A tokio lock, because the async test holds its turn across awaits.
+    static FILES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[test]
     fn the_pairing_is_sealed_at_rest() {
-        let _turn = FILES.lock().unwrap_or_else(|e| e.into_inner());
+        let _turn = FILES.blocking_lock();
         let dir = std::env::temp_dir().join(format!("dbine-mobile-seal-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -713,7 +714,7 @@ mod tests {
 
     #[tokio::test]
     async fn news_arrive_once_and_survive_restarts() {
-        let _turn = FILES.lock().unwrap_or_else(|e| e.into_inner());
+        let _turn = FILES.lock().await;
         let dir = std::env::temp_dir().join(format!("dbine-mobile-news-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

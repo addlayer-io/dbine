@@ -26,8 +26,10 @@ const DEFAULT_MAX_ROWS: usize = 100_000;
 /// Structure read for the rules and the AI, per connection + database.
 const SCHEMA_TTL: Duration = Duration::from_secs(600);
 
-fn schemas() -> &'static DashMap<String, (Instant, Arc<Vec<TableSchema>>)> {
-    static S: OnceLock<DashMap<String, (Instant, Arc<Vec<TableSchema>>)>> = OnceLock::new();
+type SchemaCache = DashMap<String, (Instant, Arc<Vec<TableSchema>>)>;
+
+fn schemas() -> &'static SchemaCache {
+    static S: OnceLock<SchemaCache> = OnceLock::new();
     S.get_or_init(DashMap::new)
 }
 

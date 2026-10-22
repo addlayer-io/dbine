@@ -2364,7 +2364,7 @@ mod tests {
                 Some("db"),
                 "t",
                 &["a".into(), "b".into()],
-                &[row.clone()],
+                std::slice::from_ref(&row),
             );
             assert!(
                 ins.contains("'O\\'Brien'") && !ins.contains("''"),

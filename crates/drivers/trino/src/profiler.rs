@@ -148,7 +148,6 @@ fn statement(q: &Value) -> ProfiledStatement {
             .or_else(|| st["rawInputPositions"].as_u64()),
         // Presto's list doesn't have it.
         writes: text_of(&st["physicalWrittenDataSize"]).and_then(|d| data_size_bytes(&d)),
-        ..Default::default()
     }
 }
 
@@ -171,7 +170,7 @@ fn iso_utc(t: &str) -> String {
         Some(i) => format!(
             "{}.{:0<3}",
             &t[..i],
-            &t[i + 1..].chars().take(3).collect::<String>()
+            t[i + 1..].chars().take(3).collect::<String>()
         ),
         None => format!("{t}.000"),
     }

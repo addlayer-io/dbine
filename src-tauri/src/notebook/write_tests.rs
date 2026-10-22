@@ -900,7 +900,8 @@ async fn notebook_write_live_sqlserver_postgres_mongodb() {
             table: "dbine_nbw_resumen".into(),
             create: false,
         };
-        let cases: [(WriteMode, (u64, u64, u64), Vec<Vec<Value>>); 4] = [
+        type Case = (WriteMode, (u64, u64, u64), Vec<Vec<Value>>);
+        let cases: [Case; 4] = [
             (WriteMode::Insert, (0, 0, 0), vec![]),
             (
                 WriteMode::Update,
@@ -1071,6 +1072,8 @@ async fn notebook_write_live_sqlserver_postgres_mongodb() {
 
 /// The DataFrame of [`two_engine_sources`] written in each mode into
 /// `table` (reset by `reset`, read back ordered by key with `read`).
+// Test helper: one argument per engine-specific piece of the scenario.
+#[allow(clippy::too_many_arguments)]
 async fn every_mode(
     state: &AppState,
     s: &mut dyn Session,

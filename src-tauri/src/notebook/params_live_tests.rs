@@ -130,6 +130,8 @@ fn ids(rows: &[Vec<Value>]) -> Vec<i64> {
 
 /// One SQL engine: the table, a lookup by each parameter type, the evil
 /// value, and the table still there.
+// Test helper: one argument per engine-specific piece of the scenario.
+#[allow(clippy::too_many_arguments)]
 async fn sql_engine(
     driver_id: &str,
     cfg: ConnectionConfig,

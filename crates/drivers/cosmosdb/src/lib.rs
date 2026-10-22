@@ -1345,7 +1345,7 @@ pub fn infer_columns(docs: &[Value]) -> Vec<ColumnInfo> {
                     None => types.push((t, 1)),
                 }
             }
-            types.sort_by(|a, b| b.1.cmp(&a.1));
+            types.sort_by_key(|t| std::cmp::Reverse(t.1));
             ColumnInfo {
                 data_type: if types.is_empty() {
                     "null".into()

@@ -101,28 +101,28 @@ async fn round_trip(driver: &str, url: &str) {
     assert!(s.definition(&key("missing")).await.unwrap().is_none());
 
     // Browse queries run and have the documented shapes.
-    let browse = |s: &Box<dyn Session>, k: &str| s.browse_query(&key(k), 3);
-    assert_eq!(browse(&s, "str"), "GET str");
-    assert_eq!(browse(&s, "key with space"), "GET \"key with space\"");
-    let q = browse(&s, "list");
+    let browse = |s: &dyn Session, k: &str| s.browse_query(&key(k), 3);
+    assert_eq!(browse(&*s, "str"), "GET str");
+    assert_eq!(browse(&*s, "key with space"), "GET \"key with space\"");
+    let q = browse(&*s, "list");
     assert_eq!(q, "LRANGE list 0 2");
     let out = run(&mut s, &q, 100).await;
     assert_eq!(out.results[0].rows.len(), 3);
-    let q = browse(&s, "user:1");
+    let q = browse(&*s, "user:1");
     let out = run(&mut s, &q, 100).await;
     assert_eq!(out.results[0].columns[0].name, "field");
     assert_eq!(out.results[0].rows.len(), 2);
-    let q = browse(&s, "board");
+    let q = browse(&*s, "board");
     let out = run(&mut s, &q, 100).await;
     assert_eq!(
         out.results[0].rows[0],
         vec![serde_json::json!("alice"), serde_json::json!(1.5)]
     );
-    let q = browse(&s, "events");
+    let q = browse(&*s, "events");
     let out = run(&mut s, &q, 100).await;
     assert_eq!(out.results[0].columns.len(), 3);
     assert_eq!(out.results[0].rows[1][2], serde_json::json!("ana"));
-    let q = browse(&s, "tags");
+    let q = browse(&*s, "tags");
     let out = run(&mut s, &q, 100).await;
     assert_eq!(out.results[0].rows.len(), 3);
     assert!(out.messages[0].contains("cursor"));
