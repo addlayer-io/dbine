@@ -377,8 +377,16 @@ jobs:
           app=$(ls -d target/${{ matrix.target }}/release/bundle/macos/*.app | head -1)
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -dvv "$app" 2>&1 | grep -E "^(Authority|TeamIdentifier|Runtime)"
-          xcrun stapler validate "$app"
-          spctl -a -vv -t exec "$app"
+          # The ticket of a just-accepted notarization can take a moment to
+          # be served: if Tauri's stapling missed it, staple again.
+          for i in 1 2 3 4 5 6; do
+            xcrun stapler validate "$app" && break
+            sleep 20
+            xcrun stapler staple "$app" || true
+          done
+          xcrun stapler validate "$app" || echo "::warning::$app has no stapled ticket; Gatekeeper checks the notarization online"
+          spctl -a -vv -t exec "$app" 2>&1 | tee spctl.txt
+          grep -q "source=Notarized Developer ID" spctl.txt
 
       # The installer and the app it installs are signed by Certum's
       # certificate with a timestamp, and Windows accepts the signature. The
