@@ -3,7 +3,6 @@
 ## [1.1.0] - 2026-10-21
 
 ### Novedades
-- **Licencia:** DBine ahora se distribuye bajo la licencia Apache 2.0 (hasta la 1.0.0 era MIT). Un archivo NOTICE acompaña cualquier redistribución, y la licencia no concede el uso de los nombres ni de los logos de DBine y AddLayer.
 - **Estado de la sincronización en la nube de un vistazo:** la barra de estado muestra **Sincronizado** con un punto verde, **Por subir** en ámbar mientras un cambio espera para subirse, y rojo ante un error; pasá el mouse para ver la hora de la última sincronización y hacé clic para abrir la configuración de sincronización.
 - **Copiar cadena de conexión:** hacé clic derecho en una conexión (o usá el botón de su formulario) y elegí **Copiar cadena de conexión…** para obtenerla como cadena URI, ADO.NET, JDBC, SQLAlchemy, ODBC, libpq, Node.js o Go, las que correspondan a su motor, para cualquier base de datos, con su configuración de TLS e inicio de sesión. La contraseña queda afuera (un marcador `${DB_PASSWORD}`) salvo que actives **Incluir contraseña**; en ese caso se obtiene al copiar y se borra del portapapeles un minuto después si sigue ahí.
 - **Paso Enviar un mensaje** en las tareas programadas: publicá cómo salió la ejecución en Microsoft Teams, Slack, Telegram o ntfy, con las variables de la tarea (`{results}` lista lo que hizo cada paso), **Solo si…** como el paso de correo y un botón **Probar**. La URL del webhook y los tokens se guardan en el llavero, nunca en la tarea, y los mensajes viajan solo por HTTPS a los servidores del propio servicio.

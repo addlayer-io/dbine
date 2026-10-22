@@ -85,7 +85,9 @@ in `scripts/i18n/languages.json` and in the lists the check verifies.
 the update notice and the release notes show. It is in **English** and is the
 source. Every change the user notices adds a line under `## [Unreleased]`, in
 the same commit or in its own, using the format of the `changelog` agent
-(`.claude/agents/changelog.md`).
+(`.claude/agents/changelog.md`). Only product changes go in (new features,
+improvements, fixes, security fixes that protect the user); never project or
+legal matters such as the license, logos, badges, CI or the website.
 
 The translations are in
 `changelog/CHANGELOG.{es,pt,fr,it,de,ru,zh,ja,ko}.md`: the same published

@@ -5,7 +5,6 @@
 ## [1.1.0] - 2026-10-21
 
 ### New
-- **License:** DBine is now licensed under the Apache License 2.0 (up to 1.0.0 it was MIT). A NOTICE file travels with any redistribution, and the license doesn't grant use of the DBine and AddLayer names or logos.
 - **Cloud sync status at a glance:** the status bar shows **Synced** with a green dot, **Pending** in amber while a change waits to upload, and red on an error; hover for the last sync time, click for the sync settings.
 - **Copy connection string:** right-click a connection (or use the button in its form) and pick **Copy connection string…** to get it as a URI, ADO.NET, JDBC, SQLAlchemy, ODBC, libpq, Node.js or Go string, whichever apply to its engine, for any database, with its TLS and sign-in settings. The password is left out (a `${DB_PASSWORD}` placeholder) unless you turn on **Include password**; then it's fetched when you copy, and cleared from the clipboard a minute later if it's still there.
 - **Send a message** step in scheduled tasks: post how the run went to Microsoft Teams, Slack, Telegram or ntfy, with the task's variables (`{results}` lists what each step did), **Only if…** like the email step, and a **Test** button. The webhook URL and tokens are kept in the keychain, never in the task, and messages go only over HTTPS to the service's own servers.

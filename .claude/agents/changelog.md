@@ -46,6 +46,14 @@ notes otherwise. You write English only; the translations come from the
   feature into one bullet. Leave out refactors, tests, CI, translations of
   existing text, docs-only changes and internal tooling, unless the user
   notices them (for example, "the app updates itself").
+- **Product only.** Every bullet has to tell the person using DBine something
+  about the product: a new feature, a better one, a fix, a security fix that
+  protects them. It can be technical (the users are technical), but always
+  about what DBine does for them. Leave out project and legal matters even
+  when they're news: the license and its terms (NOTICE, use of the names or
+  logos), badges and certifications (OpenSSF, Scorecard), CI and release
+  pipeline changes, the website, repository housekeeping. Those go in the
+  README, the docs or the GitHub release text, never in this file.
 - Engines: say which ones when it isn't all of them; "on every engine" when
   it is.
 - Subsections in this order and only when they have bullets: New,
