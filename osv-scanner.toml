@@ -13,18 +13,18 @@ reason = "Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only 
 id = "GHSA-cq8v-f236-94qc"
 reason = "Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only)."
 
-# zip 8 (DuckDB and llama.cpp downloads, spreadsheets) and zip 6 (libduckdb-sys build script).
+# zip 8 (llama.cpp downloads, spreadsheets).
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0367"
-reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive."
+reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter."
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0368"
-reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive."
+reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter."
 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0369"
-reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive."
+reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter."
 
 # Unmaintained notices: no known vulnerability, the author stopped
 # maintaining the crate. They come through other crates (Tauri's Linux

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **DuckDB engine updated to 2.0.0:** local DuckDB files and DataFrame SQL in notebooks now run on DuckDB 2.0.0 (up from 1.5.5). New database files use DuckDB 2.0's storage format, which older DuckDB versions cannot open; existing files continue to open and remain readable by the version that created them.
+
 ### Fixes
 - **HashiCorp Vault, security:** a password source's Vault address must be `https://`; plain `http://` is accepted only for a Vault on this computer, as for the other secret managers, so the Vault token never travels in clear over the network.
 

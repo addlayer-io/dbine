@@ -225,7 +225,7 @@ async fn plans() {
     // Actual: the script runs once, reads carry measured figures.
     let mut out = QueryOutcome::default();
     s.explain(
-        "SELECT count(*) FROM a WHERE g = 3; DELETE FROM b WHERE id < 100; SELECT count(*) FROM b",
+        "SELECT count(*) FROM a WHERE g = 3; DELETE FROM b WHERE id < 100; SELECT sum(id) FROM b",
         true,
         10,
         &mut out,
@@ -235,7 +235,9 @@ async fn plans() {
     assert_eq!(out.plans.len(), 3);
     assert_eq!(out.results.len(), 3);
     assert_eq!(count(&out, 0), serde_json::json!(2000));
-    assert_eq!(count(&out, 2), serde_json::json!(4900));
+    // ids 100..=4999. A bare count(*) has no measured profile in DuckDB 2.0
+    // (it is answered from table metadata), so this sum is what carries one.
+    assert_eq!(count(&out, 2), serde_json::json!(12_492_550));
     assert!(out.plans[0].actual && !out.plans[1].actual && out.plans[2].actual);
     fn any_actual(n: &dbine_driver::PlanNode) -> bool {
         n.actual_rows.is_some() || n.children.iter().any(any_actual)

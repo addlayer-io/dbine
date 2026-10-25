@@ -552,6 +552,8 @@ macro_rules! api_table {
             duckdb_selection_vector_get_data_ptr: sym($lib, b"duckdb_selection_vector_get_data_ptr\0"),
             duckdb_vector_copy_sel: sym($lib, b"duckdb_vector_copy_sel\0"),
             duckdb_unsafe_vector_assign_string_element_len: sym($lib, b"duckdb_unsafe_vector_assign_string_element_len\0"),
+            duckdb_create_timestamp_tz_ns: sym($lib, b"duckdb_create_timestamp_tz_ns\0"),
+            duckdb_get_timestamp_tz_ns: sym($lib, b"duckdb_get_timestamp_tz_ns\0"),
         }
     };
 }

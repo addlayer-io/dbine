@@ -102,13 +102,13 @@ modules:
     sources:
       - type: archive
         only-arches: [x86_64]
-        url: https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip
-        sha256: 1fb8ce388157d84a25abe685a8a2520bf00c00321821968e4bb398fd766e7abb
+        url: https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-shared-libs-linux-amd64.tar.gz
+        sha256: 993ad89e7dfca66cd6da994c2cad090c2fc160ddf9f550498a098ab4bb13cfb1
         strip-components: 0
       - type: archive
         only-arches: [aarch64]
-        url: https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-arm64.zip
-        sha256: abe4f6f005ee0b448a058322f4263584b4bd1b6faf7ab4637b79eeaf978f8e9c
+        url: https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-shared-libs-linux-arm64.tar.gz
+        sha256: c60eecf91143ca6bbac55c4f4d40dc22520488b0ac257c86e0fe9a2b451cf2b7
         strip-components: 0
 
   # llama.cpp's server for the AI assistant's built-in model, built from

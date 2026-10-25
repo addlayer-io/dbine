@@ -179,11 +179,11 @@ bundle it inside the app: it downloads it the first time someone uses it and
 loads it at runtime. Whoever doesn't use that engine doesn't pay for its
 weight. It's the same strategy as the built-in AI model.
 
-Today it applies to DuckDB (`crates/drivers/duckdb/src/loader.rs`, about
-31 MB less in the executable):
+Today it applies to DuckDB (`crates/drivers/duckdb/src/loader.rs`; the
+shared library stays out of the executable):
 
 - **What is downloaded:** the official DuckDB build for the platform
-  (`libduckdb-<platform>.zip` from its GitHub releases), with the version and
+  (`duckdb-shared-libs-<platform>.tar.gz` from its GitHub releases), with the version and
   SHA-256 fixed in the code. It includes `parquet`, `json` and `icu`, so the
   files preset works without further downloads.
 - **When:** on the first `connect`. The download resumes if it's cut off, the

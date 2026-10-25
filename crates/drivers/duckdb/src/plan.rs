@@ -1,7 +1,8 @@
 //! DuckDB's `EXPLAIN (FORMAT JSON)` and `EXPLAIN (ANALYZE, FORMAT JSON)`
 //! as [`PlanNode`] trees. DuckDB reports no costs; estimates come as
-//! `Estimated Cardinality`, measurements as `operator_cardinality` and
-//! `operator_timing` (seconds).
+//! `Estimated Cardinality`. A measured plan (DuckDB 2.0) is a profile
+//! object whose `operator` tree carries `intermediate_rows` and `timing`
+//! (seconds).
 
 use dbine_driver::{Plan, PlanNode};
 use serde_json::Value;
@@ -106,8 +107,9 @@ fn num(v: Option<&Value>) -> Option<f64> {
 }
 
 /// The JSON of either form into a plan. Estimated plans are an array of
-/// operators; analyzed ones an object with query metrics whose child is
-/// an `EXPLAIN_ANALYZE` wrapper around the real root.
+/// operators. A measured plan is a profile object: its `operator` array
+/// wraps the real root in `RESULT_COLLECTOR`, `EXECUTE` and
+/// `EXPLAIN_ANALYZE`, and `query.total_time` is the whole query.
 pub(crate) fn duck_json(statement: &str, raw: &str, actual: bool) -> Result<Plan, String> {
     let v: Value = serde_json::from_str(raw).map_err(|e| format!("plan JSON ilegible: {e}"))?;
     let root = match &v {
@@ -119,37 +121,7 @@ pub(crate) fn duck_json(statement: &str, raw: &str, actual: bool) -> Result<Plan
                 ..Default::default()
             },
         },
-        Value::Object(m) => {
-            let mut top = m
-                .get("children")
-                .and_then(Value::as_array)
-                .and_then(|c| c.first())
-                .ok_or("plan sin operadores")?;
-            // Skip the EXPLAIN_ANALYZE operator itself.
-            while top.get("operator_type").and_then(Value::as_str) == Some("EXPLAIN_ANALYZE") {
-                match top
-                    .get("children")
-                    .and_then(Value::as_array)
-                    .and_then(|c| c.first())
-                {
-                    Some(c) => top = c,
-                    None => break,
-                }
-            }
-            let mut root = node(top);
-            for (k, val) in m {
-                if !matches!(k.as_str(), "children" | "extra_info" | "query_name")
-                    && !val.is_object()
-                {
-                    root.props.push((format!("query {k}"), text(val)));
-                }
-            }
-            if let Some(latency) = num(m.get("latency")) {
-                root.props
-                    .push(("Tiempo total (ms)".into(), fmt_num(latency * 1000.0)));
-            }
-            root
-        }
+        Value::Object(m) => profile(m)?,
         _ => return Err("plan JSON inesperado".into()),
     };
     Ok(Plan {
@@ -161,12 +133,71 @@ pub(crate) fn duck_json(statement: &str, raw: &str, actual: bool) -> Result<Plan
     })
 }
 
+/// A measured profile. DuckDB 2.0 puts the tree under `operator`; the
+/// previous shape put it under `children` with `latency` beside it.
+fn profile(m: &serde_json::Map<String, Value>) -> Result<PlanNode, String> {
+    let (mut top, skip) = if let Some(ops) = m.get("operator").and_then(Value::as_array) {
+        (ops.first().ok_or("plan sin operadores")?, WRAPPERS)
+    } else {
+        (
+            m.get("children")
+                .and_then(Value::as_array)
+                .and_then(|c| c.first())
+                .ok_or("plan sin operadores")?,
+            &["EXPLAIN_ANALYZE"][..],
+        )
+    };
+    while skip.contains(
+        &top.get("type")
+            .or_else(|| top.get("operator_type"))
+            .and_then(Value::as_str)
+            .unwrap_or(""),
+    ) {
+        match top
+            .get("children")
+            .and_then(Value::as_array)
+            .and_then(|c| c.first())
+        {
+            Some(c) => top = c,
+            None => break,
+        }
+    }
+    let mut root = node(top);
+    for (k, val) in m {
+        if !matches!(
+            k.as_str(),
+            "children" | "extra_info" | "query_name" | "operator"
+        ) && !val.is_object()
+        {
+            root.props.push((format!("query {k}"), text(val)));
+        }
+    }
+    let latency =
+        num(m.get("latency")).or_else(|| num(m.get("query").and_then(|q| q.get("total_time"))));
+    if let Some(latency) = latency {
+        root.props
+            .push(("Tiempo total (ms)".into(), fmt_num(latency * 1000.0)));
+    }
+    Ok(root)
+}
+
+const WRAPPERS: &[&str] = &["RESULT_COLLECTOR", "EXECUTE", "EXPLAIN_ANALYZE"];
+
+/// `true` when a measured `EXPLAIN` came back as `{"result":"error"}`
+/// with no operator tree.
+pub(crate) fn unmeasured(raw: &str) -> bool {
+    serde_json::from_str::<Value>(raw).ok().is_some_and(|v| {
+        v.get("result").and_then(Value::as_str) == Some("error") && v.get("operator").is_none()
+    })
+}
+
 fn node(v: &Value) -> PlanNode {
     let extra = v.get("extra_info").cloned().unwrap_or(Value::Null);
     let e = |k: &str| extra.get(k).map(text).filter(|s| !s.is_empty());
     let op = v
         .get("name")
         .or_else(|| v.get("operator_name"))
+        .or_else(|| v.get("type"))
         .map(text)
         .unwrap_or_default()
         .trim()
@@ -179,14 +210,17 @@ fn node(v: &Value) -> PlanNode {
         detail.push(t);
     }
     let est_rows = num(extra.get("Estimated Cardinality"));
-    let actual_rows = num(v.get("operator_cardinality"));
+    let actual_rows =
+        num(v.get("operator_cardinality")).or_else(|| num(v.get("intermediate_rows")));
     let mut n = PlanNode {
         op,
         detail: detail.join(" · "),
         object: e("Table").or_else(|| e("Function")),
         est_rows,
         actual_rows,
-        actual_ms: num(v.get("operator_timing")).map(|s| s * 1000.0),
+        actual_ms: num(v.get("operator_timing"))
+            .or_else(|| num(v.get("timing")))
+            .map(|s| s * 1000.0),
         ..Default::default()
     };
     if let (Some(e), Some(a)) = (est_rows, actual_rows) {
@@ -199,7 +233,7 @@ fn node(v: &Value) -> PlanNode {
         for (k, val) in m {
             if !matches!(
                 k.as_str(),
-                "children" | "extra_info" | "name" | "operator_name"
+                "children" | "extra_info" | "name" | "operator_name" | "type"
             ) && !val.is_object()
             {
                 n.props.push((k.clone(), text(val)));
@@ -301,6 +335,12 @@ mod tests {
             .iter()
             .any(|(k, v)| k == "operator_rows_scanned" && v == "96256"));
         assert!(scan.warnings.iter().any(|w| w.starts_with("Estimación")));
+    }
+
+    #[test]
+    fn an_unmeasured_profile_is_recognized() {
+        assert!(unmeasured(r#"{"result": "error"}"#));
+        assert!(!unmeasured(ANALYZED));
     }
 
     #[test]

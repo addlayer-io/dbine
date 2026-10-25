@@ -1229,8 +1229,9 @@ fn run_script_tx(
             (Ok(()), "begin" | "start") => tx.state = TxState::Open,
             (_, "commit" | "end" | "rollback" | "abort") => tx.state = TxState::Idle,
             (Err(Error::Cancelled), _) => {}
-            // Execution errors abort the transaction; parser and binder
-            // errors don't.
+            // An error that leaves the connection unable to run SQL aborted
+            // the transaction. DuckDB 2.0 does that for catalog errors as
+            // well as execution errors; a parser error still does not.
             (Err(_), _) if tx.state == TxState::Open && c.execute_batch("SELECT 1").is_err() => {
                 tx.state = TxState::Failed;
             }
@@ -1318,6 +1319,12 @@ fn plan_of(c: &Connection, stmt: &str, actual: bool) -> Result<dbine_driver::Pla
         format!("EXPLAIN (FORMAT JSON) {stmt}")
     };
     let raw: String = c.query_row(&q, [], |r| r.get(1)).map_err(duck_error)?;
+    // A `count` answered from table metadata has no operator tree, and
+    // DuckDB 2.0 then returns `{"result":"error"}` instead of a profile.
+    // The estimated plan still describes the statement.
+    if actual && plan::unmeasured(&raw) {
+        return plan_of(c, stmt, false);
+    }
     plan::duck_json(stmt, &raw, actual).map_err(Error::Query)
 }
 
@@ -1570,11 +1577,11 @@ mod tests {
         assert_eq!(tx.state, TxState::Idle);
         assert!(go("SELECT * FROM t", &mut tx).is_err(), "rolled back");
         go("CREATE TABLE t (a INT PRIMARY KEY)", &mut tx).unwrap();
+        assert!(go("selec 1", &mut tx).is_err());
+        assert_eq!(tx.state, TxState::Open, "a parser error doesn't abort");
         go("INSERT INTO t VALUES (1)", &mut tx).unwrap();
         assert!(go("SELECT * FROM nope", &mut tx).is_err());
-        assert_eq!(tx.state, TxState::Open, "a binder error doesn't abort");
-        assert!(go("INSERT INTO t VALUES (1)", &mut tx).is_err());
-        assert_eq!(tx.state, TxState::Failed);
+        assert_eq!(tx.state, TxState::Failed, "a catalog error aborts");
         go("ROLLBACK", &mut tx).unwrap();
         let mut auto = Tx::default();
         go("BEGIN", &mut auto).unwrap();
