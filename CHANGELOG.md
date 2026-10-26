@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### New
+- **Ukrainian and Polish:** DBine and the phone app are available in Українська and Polski, including server messages and the AI assistant. Pick the language in **Settings › General › Language**, or DBine follows the system's.
+
 ### Improvements
 - **Connection encryption for SQL Server, PostgreSQL and MySQL:** the connection form shows each engine's own TLS options, with the names its tools use: `Encrypt` (Optional, Mandatory, Strict), `TrustServerCertificate`, `ServerCertificate` and `HostNameInCertificate` for SQL Server and Azure SQL; `sslmode` and `sslrootcert` for PostgreSQL and its family; `ssl-mode` and `ssl-ca` for MySQL and its family; `ssl`, `ssl-verify-server-cert` and `ssl-ca` for MariaDB and OceanBase. New connections are encrypted and check the server's certificate, and each setting can be turned off. Saved connections keep working exactly as before. Through an SSH tunnel the certificate is checked against the real server's name, and a certificate failure says which option to change. MySQL's `PREFERRED` falls back to an unencrypted connection only when the server doesn't offer TLS, before any password is sent.
 - **Keyboard and screen readers:** a visible focus ring shows where the keyboard is; list rows, cards, sortable headers and collapsible sections can be reached with Tab and used with Enter or Space; context menus work with the arrow keys; icon-only buttons have names a screen reader reads; the result of a query (finished, or failed with its error) is announced; animations stop when the system asks for reduced motion; and secondary text has more contrast in both themes.
