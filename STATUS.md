@@ -27,9 +27,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
 | codeql | 2026-10-26 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-26 | every lockfile (Cargo, npm) at [`640e4cbc6`](https://github.com/addlayer-io/dbine/commit/640e4cbc6e18) | 3 open | — |
-| scorecard | 2026-10-26 | repository settings and workflows at [`ceaf232b3`](https://github.com/addlayer-io/dbine/commit/ceaf232b388d) | score 5.7/10 | — |
-| trivy | 2026-10-26 | whole repository at [`640e4cbc6`](https://github.com/addlayer-io/dbine/commit/640e4cbc6e18) | 0 open | — |
+| osv | 2026-10-26 | every lockfile (Cargo, npm) at [`dd7f2cb74`](https://github.com/addlayer-io/dbine/commit/dd7f2cb74b28) | 3 open | — |
+| scorecard | 2026-10-26 | repository settings and workflows at [`640e4cbc6`](https://github.com/addlayer-io/dbine/commit/640e4cbc6e18) | score 5.7/10 | — |
+| trivy | 2026-10-26 | whole repository at [`dd7f2cb74`](https://github.com/addlayer-io/dbine/commit/dd7f2cb74b28) | 0 open | — |
 
 ## Not counted, and why
 
