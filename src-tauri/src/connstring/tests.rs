@@ -503,3 +503,248 @@ fn every_engine_has_a_format_and_is_documented() {
         "engines not in docs/connection-strings.md: {undocumented:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// TLS: the saved bools (legacy) and the engine's own options.
+
+/// The four `(encrypt, trust)` combinations, as `[ff, ft, tf, tt]`.
+const COMBOS: [(bool, bool); 4] = [(false, false), (false, true), (true, false), (true, true)];
+
+fn legacy(driver: &str, port: u16, user: &str, (encrypt, trust): (bool, bool)) -> Conn {
+    let mut x = cfg(driver, "h", port, "d", user);
+    x.encrypt = encrypt;
+    x.trust_server_certificate = trust;
+    conn_of(&x)
+}
+
+/// A connection whose driver also declares `fields` (the engine's own TLS
+/// options), with `options` saved.
+fn native(
+    x: &ConnectionConfig,
+    fields: Vec<dbine_driver::Field>,
+    options: &[(&str, &str)],
+) -> Conn {
+    let mut info = dbine_drivers::find(&x.driver).unwrap().info().clone();
+    info.fields.extend(fields);
+    let mut x = x.clone();
+    for (k, v) in options {
+        x.options.insert(k.to_string(), v.to_string());
+    }
+    Conn::new("Ventas", &x, Some(&info), "")
+}
+
+fn pg_sslmode_field() -> dbine_driver::Field {
+    use dbine_driver::TlsLevel::*;
+    dbine_driver::Field::tls_mode(
+        "sslmode",
+        "sslmode",
+        &[
+            ("disable", "disable", Off),
+            ("allow", "allow", Optional),
+            ("prefer", "prefer", Optional),
+            ("require", "require", Unverified),
+            ("verify-ca", "verify-ca", VerifyCa),
+            ("verify-full", "verify-full", VerifyFull),
+        ],
+        "verify-full",
+        ["", "", "verify-full", "require"],
+    )
+}
+
+#[test]
+fn legacy_tls_exports_what_it_always_did() {
+    let ph = &Fill::Placeholder;
+    let pg = ["", "", "?sslmode=verify-full", "?sslmode=require"];
+    let ado = [
+        "Encrypt=False;TrustServerCertificate=True;",
+        "Encrypt=False;TrustServerCertificate=True;",
+        "Encrypt=True;",
+        "Encrypt=True;TrustServerCertificate=True;",
+    ];
+    for (i, combo) in COMBOS.into_iter().enumerate() {
+        let c = legacy("postgres", 5432, "u", combo);
+        assert_eq!(
+            text(&c, "uri", ph),
+            format!("postgresql://u:${{DB_PASSWORD}}@h:5432/d{}", pg[i]),
+            "{combo:?}"
+        );
+        let m = legacy("sqlserver", 1433, "sa", combo);
+        assert_eq!(
+            text(&m, "adonet", ph),
+            format!(
+                "Server=tcp:h,1433;Database=d;User ID=sa;Password=${{DB_PASSWORD}};{}",
+                ado[i]
+            ),
+            "{combo:?}"
+        );
+    }
+}
+
+#[test]
+fn postgres_exports_its_saved_sslmode() {
+    let ph = &Fill::Placeholder;
+    let x = cfg("postgres", "h", 5432, "d", "u");
+    for (mode, npgsql) in [
+        ("disable", "Disable"),
+        ("prefer", "Prefer"),
+        ("verify-ca", "VerifyCA"),
+        ("verify-full", "VerifyFull"),
+    ] {
+        let c = native(&x, vec![pg_sslmode_field()], &[("sslmode", mode)]);
+        assert!(
+            text(&c, "uri", ph).ends_with(&format!("/d?sslmode={mode}")),
+            "{mode}"
+        );
+        assert!(text(&c, "libpq", ph).contains(&format!("sslmode={mode}")));
+        assert!(text(&c, "adonet", ph).contains(&format!("SSL Mode={npgsql};")));
+    }
+    // Not saved yet: the legacy table (encrypt, verified → verify-full; no
+    // TLS → nothing, the client's default).
+    let mut old = x.clone();
+    old.encrypt = true;
+    let c = native(&old, vec![pg_sslmode_field()], &[]);
+    assert!(text(&c, "uri", ph).ends_with("?sslmode=verify-full"));
+    let c = native(&x, vec![pg_sslmode_field()], &[]);
+    assert!(!text(&c, "uri", ph).contains("sslmode"));
+    // The engine's own CA option.
+    let c = native(
+        &x,
+        vec![
+            pg_sslmode_field(),
+            dbine_driver::Field::tls_ca_file("sslrootcert", "sslrootcert"),
+        ],
+        &[("sslmode", "verify-ca"), ("sslrootcert", "/certs/ca.pem")],
+    );
+    assert!(text(&c, "uri", ph).contains("sslrootcert=%2Fcerts%2Fca.pem"));
+}
+
+#[test]
+fn mysql_exports_every_tls_level() {
+    use dbine_driver::TlsLevel::*;
+    let ph = &Fill::Placeholder;
+    let field = dbine_driver::Field::tls_mode(
+        "ssl-mode",
+        "ssl-mode",
+        &[
+            ("DISABLED", "DISABLED", Off),
+            ("PREFERRED", "PREFERRED", Optional),
+            ("REQUIRED", "REQUIRED", Unverified),
+            ("VERIFY_CA", "VERIFY_CA", VerifyCa),
+            ("VERIFY_IDENTITY", "VERIFY_IDENTITY", VerifyFull),
+        ],
+        "VERIFY_IDENTITY",
+        ["", "", "VERIFY_IDENTITY", "REQUIRED"],
+    );
+    let x = cfg("mysql", "h", 3306, "d", "u");
+    for (mode, ado, go) in [
+        ("DISABLED", "Disabled", "false"),
+        ("PREFERRED", "Preferred", "preferred"),
+        ("REQUIRED", "Required", "skip-verify"),
+        ("VERIFY_CA", "VerifyCA", "true"),
+        ("VERIFY_IDENTITY", "VerifyFull", "true"),
+    ] {
+        let c = native(&x, vec![field.clone()], &[("ssl-mode", mode)]);
+        assert!(
+            text(&c, "uri", ph).ends_with(&format!("?ssl-mode={mode}")),
+            "{mode}"
+        );
+        assert!(text(&c, "adonet", ph).contains(&format!("SslMode={ado};")));
+        assert!(
+            text(&c, "go", ph).starts_with(&format!("u:${{DB_PASSWORD}}@tcp(h:3306)/d?tls={go}&"))
+        );
+    }
+    let c = native(&x, vec![field], &[("ssl-mode", "PREFERRED")]);
+    assert!(!text(&c, "node", ph).contains("ssl="));
+}
+
+#[test]
+fn sql_server_exports_encrypt_trust_and_host_name() {
+    use dbine_driver::TlsLevel::*;
+    let ph = &Fill::Placeholder;
+    let fields = || {
+        vec![
+            dbine_driver::Field::tls_mode(
+                "Encrypt",
+                "Encrypt",
+                &[
+                    ("Optional", "Optional", Optional),
+                    ("Mandatory", "Mandatory", VerifyFull),
+                    ("Strict", "Strict", VerifyFull),
+                ],
+                "Mandatory",
+                ["Optional", "Optional", "Mandatory", "Mandatory"],
+            ),
+            dbine_driver::Field::tls_skip_verify(
+                "TrustServerCertificate",
+                "TrustServerCertificate",
+                false,
+                ["true", "true", "false", "true"],
+            ),
+            dbine_driver::Field::tls_server_name("HostNameInCertificate", "HostNameInCertificate"),
+        ]
+    };
+    let x = cfg("sqlserver", "h", 1433, "d", "sa");
+    // A new connection saves both options.
+    let c = native(
+        &x,
+        fields(),
+        &[("Encrypt", "Strict"), ("TrustServerCertificate", "false")],
+    );
+    assert!(text(&c, "adonet", ph).ends_with("Encrypt=Strict;"));
+    assert!(text(&c, "jdbc", ph).contains(";encrypt=strict;"));
+    assert!(text(&c, "go", ph).contains("encrypt=strict"));
+
+    let c = native(
+        &x,
+        fields(),
+        &[("Encrypt", "Mandatory"), ("TrustServerCertificate", "true")],
+    );
+    let b = build(&c, "adonet", ph).unwrap();
+    assert!(b
+        .text
+        .ends_with("Encrypt=True;TrustServerCertificate=True;"));
+    assert!(b.notes.iter().any(|n| n.code == "tls_unverified"));
+
+    let c = native(&x, fields(), &[("Encrypt", "Optional")]);
+    assert!(text(&c, "adonet", ph).ends_with("Encrypt=Optional;TrustServerCertificate=True;"));
+    assert!(text(&c, "odbc", ph).contains("Encrypt=optional;"));
+
+    let c = native(
+        &x,
+        fields(),
+        &[
+            ("Encrypt", "Mandatory"),
+            ("TrustServerCertificate", "false"),
+            ("HostNameInCertificate", "db.example.com"),
+        ],
+    );
+    let ado = text(&c, "adonet", ph);
+    assert!(
+        ado.ends_with("Encrypt=True;HostNameInCertificate=db.example.com;"),
+        "{ado}"
+    );
+    assert!(text(&c, "jdbc", ph).contains(";hostNameInCertificate=db.example.com"));
+}
+
+#[test]
+fn python_export_uses_the_same_sslmode() {
+    let x = cfg("postgres", "h", 5432, "d", "u");
+    let mut info = dbine_drivers::find("postgres").unwrap().info().clone();
+    info.fields.push(pg_sslmode_field());
+    let mut y = x.clone();
+    y.options.insert("sslmode".into(), "verify-ca".into());
+    let p = PyConn::new("k", "Ventas", &y, Some(&info), "");
+    assert_eq!(libpq_sslmode(&p.tls, false).as_deref(), Some("verify-ca"));
+    // A legacy connection that verifies: verify-full, as the copied strings
+    // (it used to export `require`).
+    let mut old = x;
+    old.encrypt = true;
+    let p = PyConn::new(
+        "k",
+        "Ventas",
+        &old,
+        dbine_drivers::find("postgres").map(|d| d.info()),
+        "",
+    );
+    assert_eq!(libpq_sslmode(&p.tls, false).as_deref(), Some("verify-full"));
+}

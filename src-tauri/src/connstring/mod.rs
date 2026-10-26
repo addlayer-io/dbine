@@ -13,7 +13,7 @@
 //! (notebook::python::sqlalchemy_url), rendered as a string.
 
 use crate::notebook::python::{self, PyConn, SaUrl};
-use dbine_driver::{ConnectionConfig, DriverInfo};
+use dbine_driver::{ConnectionConfig, DriverInfo, TlsLevel, TlsRole};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -52,8 +52,11 @@ pub struct Conn {
     pub port: u16,
     pub database: String,
     pub user: String,
+    /// TLS required / certificate not checked: the saved bools, or the
+    /// projection of the engine's own TLS options when the driver has them.
     pub encrypt: bool,
     pub trust: bool,
+    pub tls: Tls,
     pub read_only: bool,
     /// Only options that aren't secret.
     pub opts: BTreeMap<String, String>,
@@ -123,6 +126,7 @@ impl Conn {
         } else {
             database.to_string()
         };
+        let tls = Tls::of(cfg, info);
         Conn {
             driver: cfg.driver.clone(),
             dialect: info.map(|i| i.dialect.to_string()).unwrap_or_default(),
@@ -134,8 +138,9 @@ impl Conn {
             },
             database: database.clone(),
             user: cfg.username_or_empty().trim().to_string(),
-            encrypt: cfg.encrypt,
-            trust: cfg.trust_server_certificate,
+            encrypt: tls.encrypt,
+            trust: tls.trust,
+            tls,
             read_only: cfg.read_only,
             opts,
             auth,
@@ -162,6 +167,97 @@ impl Conn {
     /// `host:port` (IPv6 in brackets), or the host alone without a port.
     fn hp(&self) -> String {
         hp(self.host_or_localhost(), self.port)
+    }
+}
+
+/// A connection's TLS settings as the exports need them. With a driver that
+/// declares the engine's own TLS options ([`TlsRole`]), they come from those
+/// (the saved value, else what a connection saved before them behaves as);
+/// otherwise from the legacy `encrypt` / `trust_server_certificate` bools.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Tls {
+    /// TLS required, and the certificate isn't checked (projected from
+    /// `level` when there is one).
+    pub encrypt: bool,
+    pub trust: bool,
+    /// The engine's level; `None`: the driver has no TLS mode option, or the
+    /// connection runs its legacy path.
+    pub level: Option<TlsLevel>,
+    /// The engine's TLS mode option, `(key, value)` as the engine spells it.
+    pub mode: Option<(String, String)>,
+    pub ca_file: Option<String>,
+    /// A host-name override for the certificate check.
+    pub server_name: Option<String>,
+}
+
+impl Tls {
+    pub fn of(cfg: &ConnectionConfig, info: Option<&DriverInfo>) -> Tls {
+        let mut t = Tls {
+            encrypt: cfg.encrypt,
+            trust: cfg.trust_server_certificate,
+            ..Tls::default()
+        };
+        let Some(info) = info else { return t };
+        for f in &info.fields {
+            let Some(role) = &f.tls else { continue };
+            let Some(v) = cfg.tls_value(f).map(str::trim).filter(|v| !v.is_empty()) else {
+                continue;
+            };
+            match role {
+                TlsRole::Mode { .. } => t.mode = Some((f.key.to_string(), v.to_string())),
+                TlsRole::CaFile => t.ca_file = Some(v.to_string()),
+                TlsRole::ServerName => t.server_name = Some(v.to_string()),
+                TlsRole::SkipVerify { .. } | TlsRole::SkipHostname => {}
+            }
+        }
+        if let Some(level) = cfg.tls_level(&info.fields) {
+            t.level = Some(level);
+            (t.encrypt, t.trust) = level.legacy_pair();
+        }
+        t
+    }
+
+    /// The level to export, `None` for "say nothing" (a legacy connection
+    /// without TLS: the client's default). `forced`: the engine or the
+    /// sign-in always uses TLS, so a lower level becomes a verified one.
+    pub fn export_level(&self, forced: bool) -> Option<TlsLevel> {
+        let legacy = || {
+            if self.trust {
+                TlsLevel::Unverified
+            } else {
+                TlsLevel::VerifyFull
+            }
+        };
+        match self.level {
+            Some(l) if forced && l < TlsLevel::Unverified => Some(TlsLevel::VerifyFull),
+            Some(l) => Some(l),
+            None => (self.encrypt || forced).then(legacy),
+        }
+    }
+
+    /// The engine's mode value as is, when its option is `key` and `forced`
+    /// didn't raise the level.
+    pub fn native(&self, key: &str, forced: bool) -> Option<&str> {
+        if forced && self.level.is_some_and(|l| l < TlsLevel::Unverified) {
+            return None;
+        }
+        self.mode
+            .as_ref()
+            .filter(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.as_str())
+    }
+}
+
+/// The value of a level in a format's own vocabulary:
+/// `[off, optional, unverified, verify-ca, verify-full]`; `None` there means
+/// the format has no such value and says nothing.
+fn tls_word(level: Option<TlsLevel>, words: [Option<&'static str>; 5]) -> Option<&'static str> {
+    match level? {
+        TlsLevel::Off => words[0],
+        TlsLevel::Optional => words[1],
+        TlsLevel::Unverified => words[2],
+        TlsLevel::VerifyCa => words[3],
+        TlsLevel::VerifyFull => words[4],
     }
 }
 
@@ -662,14 +758,29 @@ fn jdbc_notes(user: &str, pw: bool) -> Vec<Note> {
 // ---------------------------------------------------------------------------
 // PostgreSQL and the engines that speak its protocol.
 
-/// libpq's sslmode for the connection: DBine requires TLS with `encrypt`,
-/// and checks the certificate unless "trust the server certificate".
-fn pg_sslmode(c: &Conn) -> Option<&'static str> {
-    match (c.encrypt || c.driver == "dsql", c.trust) {
-        (false, _) => None,
-        (true, true) => Some("require"),
-        (true, false) => Some("verify-full"),
+/// libpq's sslmode for the connection: the saved `sslmode` as is, else by
+/// the TLS level (a legacy connection: `require` when it trusts the
+/// certificate, `verify-full` otherwise, nothing without TLS).
+fn pg_sslmode(c: &Conn) -> Option<String> {
+    libpq_sslmode(&c.tls, c.driver == "dsql")
+}
+
+/// [`pg_sslmode`] from the TLS settings alone (also the Python export's).
+pub fn libpq_sslmode(tls: &Tls, forced: bool) -> Option<String> {
+    if let Some(v) = tls.native("sslmode", forced) {
+        return Some(v.to_string());
     }
+    tls_word(
+        tls.export_level(forced),
+        [
+            Some("disable"),
+            Some("prefer"),
+            Some("require"),
+            Some("verify-ca"),
+            Some("verify-full"),
+        ],
+    )
+    .map(str::to_string)
 }
 
 fn postgres(b: &mut B) {
@@ -691,14 +802,18 @@ fn postgres(b: &mut B) {
         b.s("password")
     };
     let ssl = pg_sslmode(c);
-    let root = c.opt("ssl_root_cert").map(str::to_string);
+    let root = c
+        .tls
+        .ca_file
+        .clone()
+        .or_else(|| c.opt("ssl_root_cert").map(str::to_string));
     let mut notes = Vec::new();
     if c.trust && c.encrypt {
         notes.push(note("tls_unverified", &[]));
     }
     let mut q: Vec<(&str, V)> = Vec::new();
-    if let Some(m) = ssl {
-        q.push(("sslmode", V::t(m)));
+    if let Some(m) = &ssl {
+        q.push(("sslmode", V::t(m.clone())));
     }
     if let Some(r) = &root {
         q.push(("sslrootcert", V::t(r.clone())));
@@ -731,7 +846,7 @@ fn postgres(b: &mut B) {
     if let Some(p) = &pw {
         kv.push(format!("password={}", p.esc(libpq_val)));
     }
-    if let Some(m) = ssl {
+    if let Some(m) = &ssl {
         kv.push(format!("sslmode={m}"));
     }
     if let Some(r) = &root {
@@ -744,13 +859,15 @@ fn postgres(b: &mut B) {
         notes.clone(),
     );
 
-    // Npgsql.
-    let npg_ssl = ssl.map(|m| {
-        if m == "require" {
-            "Require"
-        } else {
-            "VerifyFull"
-        }
+    // Npgsql spells libpq's modes in Pascal case.
+    let npg_ssl = ssl.as_deref().and_then(|m| match m {
+        "disable" => Some("Disable"),
+        "allow" => Some("Allow"),
+        "prefer" => Some("Prefer"),
+        "require" => Some("Require"),
+        "verify-ca" => Some("VerifyCA"),
+        "verify-full" => Some("VerifyFull"),
+        _ => None,
     });
     let ado = pairs(
         &[
@@ -779,7 +896,7 @@ fn postgres(b: &mut B) {
     if let Some(p) = pw.clone() {
         jq.push(("password", p));
     }
-    if c.driver == "redshift" && ssl.is_some() {
+    if c.driver == "redshift" && ssl.as_deref().is_some_and(|m| m != "disable") {
         jq.push(("ssl", V::t("true")));
     }
     jq.extend(q.iter().cloned());
@@ -807,7 +924,7 @@ fn postgres(b: &mut B) {
             ("DATABASE", some_t(&db)),
             ("UID", some_t(&user)),
             ("PWD", pw.clone()),
-            ("SSLmode", ssl.map(V::t)),
+            ("SSLmode", ssl.clone().map(V::t)),
         ],
         odbc_val,
     );
@@ -830,13 +947,29 @@ fn mysql(b: &mut B) {
     let c = b.c;
     let pw = b.pw();
     let mariadb = c.driver == "mariadb";
-    let tls = c.encrypt || c.iam;
-    let ca = c.opt("ca_cert").map(str::to_string);
-    let notes: Vec<Note> = if tls && c.trust {
+    // Cloud IAM tokens only go over TLS.
+    let level = c.tls.export_level(c.iam);
+    let ca = c
+        .tls
+        .ca_file
+        .clone()
+        .or_else(|| c.opt("ca_cert").map(str::to_string));
+    let notes: Vec<Note> = if level == Some(TlsLevel::Unverified) {
         vec![note("tls_unverified", &[])]
     } else {
         vec![]
     };
+    // MySQL's own --ssl-mode values (also Connector/J's sslMode and ODBC's).
+    let ssl_mode = tls_word(
+        level,
+        [
+            Some("DISABLED"),
+            Some("PREFERRED"),
+            Some("REQUIRED"),
+            Some("VERIFY_CA"),
+            Some("VERIFY_IDENTITY"),
+        ],
+    );
     let path = if c.database.is_empty() {
         String::new()
     } else {
@@ -844,15 +977,8 @@ fn mysql(b: &mut B) {
     };
 
     let mut q: Vec<(&str, V)> = Vec::new();
-    if tls {
-        q.push((
-            "ssl-mode",
-            V::t(if c.trust {
-                "REQUIRED"
-            } else {
-                "VERIFY_IDENTITY"
-            }),
-        ));
+    if let Some(m) = ssl_mode {
+        q.push(("ssl-mode", V::t(m)));
     }
     if let Some(ca) = &ca {
         q.push(("ssl-ca", V::t(ca.clone())));
@@ -878,7 +1004,17 @@ fn mysql(b: &mut B) {
             ("Password", pw.clone()),
             (
                 "SslMode",
-                tls.then(|| V::t(if c.trust { "Required" } else { "VerifyFull" })),
+                tls_word(
+                    level,
+                    [
+                        Some("Disabled"),
+                        Some("Preferred"),
+                        Some("Required"),
+                        Some("VerifyCA"),
+                        Some("VerifyFull"),
+                    ],
+                )
+                .map(V::t),
             ),
             ("SslCa", ca.clone().map(V::t)),
         ],
@@ -892,22 +1028,23 @@ fn mysql(b: &mut B) {
     if let Some(p) = pw.clone() {
         jq.push(("password", p));
     }
-    if tls {
-        if mariadb {
-            jq.push((
-                "sslMode",
-                V::t(if c.trust { "trust" } else { "verify-full" }),
-            ));
-        } else {
-            jq.push((
-                "sslMode",
-                V::t(if c.trust {
-                    "REQUIRED"
-                } else {
-                    "VERIFY_IDENTITY"
-                }),
-            ));
-        }
+    // MariaDB Connector/J has no "preferred": it says nothing there.
+    let jdbc_mode = if mariadb {
+        tls_word(
+            level,
+            [
+                Some("disable"),
+                None,
+                Some("trust"),
+                Some("verify-ca"),
+                Some("verify-full"),
+            ],
+        )
+    } else {
+        ssl_mode
+    };
+    if let Some(m) = jdbc_mode {
+        jq.push(("sslMode", V::t(m)));
     }
     let scheme = if mariadb { "mariadb" } else { "mysql" };
     b.push(
@@ -937,16 +1074,7 @@ fn mysql(b: &mut B) {
             ("DATABASE", some_t(&c.database)),
             ("UID", some_t(&c.user)),
             ("PWD", pw.clone()),
-            (
-                "SSLMODE",
-                tls.then(|| {
-                    V::t(if c.trust {
-                        "REQUIRED"
-                    } else {
-                        "VERIFY_IDENTITY"
-                    })
-                }),
-            ),
+            ("SSLMODE", ssl_mode.map(V::t)),
             ("SSLCA", ca.clone().map(V::t)),
         ],
         odbc_val,
@@ -958,14 +1086,13 @@ fn mysql(b: &mut B) {
     ));
     b.push("odbc", "ODBC", odbc, on);
 
-    // mysql2 reads `ssl` as JSON.
-    let nq: Vec<(&str, V)> = if tls {
-        vec![(
+    // mysql2 reads `ssl` as JSON; it has no "TLS if offered".
+    let nq: Vec<(&str, V)> = match level {
+        Some(l) if l >= TlsLevel::Unverified => vec![(
             "ssl",
-            V::t(format!("{{\"rejectUnauthorized\":{}}}", !c.trust)),
-        )]
-    } else {
-        vec![]
+            V::t(format!("{{\"rejectUnauthorized\":{}}}", l.verified())),
+        )],
+        _ => vec![],
     };
     b.push(
         "node",
@@ -989,11 +1116,18 @@ fn mysql(b: &mut B) {
         (false, Some(p)) => format!("{}:{}@", c.user, p.esc(|s| s.to_string())),
     };
     let mut gq: Vec<String> = vec!["parseTime=true".into()];
-    if tls {
-        gq.insert(
-            0,
-            format!("tls={}", if c.trust { "skip-verify" } else { "true" }),
-        );
+    // go-sql-driver's `tls`: no separate "chain only" check.
+    if let Some(t) = tls_word(
+        level,
+        [
+            Some("false"),
+            Some("preferred"),
+            Some("skip-verify"),
+            Some("true"),
+            Some("true"),
+        ],
+    ) {
+        gq.insert(0, format!("tls={t}"));
     }
     b.push(
         "go",
@@ -1029,7 +1163,17 @@ fn mssql(b: &mut B) {
         }
     });
     let forced = matches!(c.driver.as_str(), "azuresql" | "fabric") || auth == "entra_token";
-    let encrypt = c.encrypt || forced;
+    let level = c.tls.export_level(forced);
+    // TLS required; `optional`: TLS when the server offers it; `strict`:
+    // TDS 8 (TLS before the login); `tsc`: TrustServerCertificate.
+    let encrypt = level.is_some_and(|l| l >= TlsLevel::Unverified);
+    let optional = level == Some(TlsLevel::Optional);
+    let strict = encrypt
+        && c.tls
+            .native("Encrypt", forced)
+            .is_some_and(|v| v.eq_ignore_ascii_case("strict"));
+    let tsc = !level.is_some_and(TlsLevel::verified);
+    let cert_host = c.tls.server_name.clone();
     let (host, instance) = mssql_instance(c.host_or_localhost());
     let tenant = c.opt("tenant_id").map(str::to_string);
     let client = c.opt("client_id").map(str::to_string);
@@ -1057,7 +1201,7 @@ fn mssql(b: &mut B) {
         }
         _ => {}
     }
-    if encrypt && c.trust {
+    if encrypt && tsc {
         notes.push(note("tls_unverified", &[]));
     }
     let ado_auth = match auth.as_str() {
@@ -1090,12 +1234,15 @@ fn mssql(b: &mut B) {
             ("Password", pw.clone()),
             (
                 "Encrypt",
-                Some(V::t(if encrypt { "True" } else { "False" })),
+                Some(V::t(match (strict, encrypt, optional) {
+                    (true, _, _) => "Strict",
+                    (_, true, _) => "True",
+                    (_, _, true) => "Optional",
+                    _ => "False",
+                })),
             ),
-            (
-                "TrustServerCertificate",
-                (c.trust || !encrypt).then(|| V::t("True")),
-            ),
+            ("TrustServerCertificate", tsc.then(|| V::t("True"))),
+            ("HostNameInCertificate", cert_host.clone().map(V::t)),
             ("ApplicationIntent", c.read_only.then(|| V::t("ReadOnly"))),
         ],
         ado_val,
@@ -1118,12 +1265,14 @@ fn mssql(b: &mut B) {
         ("databaseName", some_t(&c.database)),
         (
             "encrypt",
-            Some(V::t(if encrypt { "true" } else { "false" })),
+            Some(V::t(match (strict, encrypt) {
+                (true, _) => "strict",
+                (_, true) => "true",
+                _ => "false",
+            })),
         ),
-        (
-            "trustServerCertificate",
-            (c.trust || !encrypt).then(|| V::t("true")),
-        ),
+        ("trustServerCertificate", tsc.then(|| V::t("true"))),
+        ("hostNameInCertificate", cert_host.clone().map(V::t)),
         ("authentication", jdbc_auth.clone().map(V::t)),
         (
             "integratedSecurity",
@@ -1178,11 +1327,17 @@ fn mssql(b: &mut B) {
             ),
             ("UID", some_t(&user)),
             ("PWD", pw.clone()),
-            ("Encrypt", Some(V::t(if encrypt { "yes" } else { "no" }))),
             (
-                "TrustServerCertificate",
-                (c.trust || !encrypt).then(|| V::t("yes")),
+                "Encrypt",
+                Some(V::t(match (strict, encrypt, optional) {
+                    (true, _, _) => "strict",
+                    (_, true, _) => "yes",
+                    (_, _, true) => "optional",
+                    _ => "no",
+                })),
             ),
+            ("TrustServerCertificate", tsc.then(|| V::t("yes"))),
+            ("HostnameInCertificate", cert_host.clone().map(V::t)),
             ("ApplicationIntent", c.read_only.then(|| V::t("ReadOnly"))),
         ],
         odbc_val,
@@ -1254,8 +1409,15 @@ fn mssql(b: &mut B) {
         (
             "options",
             obj(vec![
-                ("encrypt", json!(encrypt)),
-                ("trustServerCertificate", json!(c.trust || !encrypt)),
+                (
+                    "encrypt",
+                    if strict {
+                        json!("strict")
+                    } else {
+                        json!(encrypt)
+                    },
+                ),
+                ("trustServerCertificate", json!(tsc)),
                 ("instanceName", instance.map(js).unwrap_or(Value::Null)),
                 (
                     "readOnlyIntent",
@@ -1280,9 +1442,21 @@ fn mssql(b: &mut B) {
     if !c.database.is_empty() {
         gq.push(("database", V::t(c.database.clone())));
     }
-    gq.push(("encrypt", V::t(if encrypt { "true" } else { "disable" })));
-    if c.trust && encrypt {
+    gq.push((
+        "encrypt",
+        V::t(match (strict, encrypt, optional) {
+            (true, _, _) => "strict",
+            (_, true, _) => "true",
+            // go-mssqldb's "false": TLS for the login only.
+            (_, _, true) => "false",
+            _ => "disable",
+        }),
+    ));
+    if tsc && encrypt {
         gq.push(("TrustServerCertificate", V::t("true")));
+    }
+    if let Some(h) = &cert_host {
+        gq.push(("hostNameInCertificate", V::t(h.clone())));
     }
     let fedauth = match auth.as_str() {
         "entra_password" => Some("ActiveDirectoryPassword"),
