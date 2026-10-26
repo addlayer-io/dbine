@@ -3403,4 +3403,857 @@ mod tests {
         let d = differences(&a, &[col("s", "text")]);
         assert_eq!(d.len(), 2, "{d:?}");
     }
+
+    // ---- `inspect`, against a scripted session ----------------------------
+
+    use super::super::test_session::{row, Rows, Scripted};
+
+    fn one_value(v: &str) -> Rows {
+        vec![row(&[Some(v)])]
+    }
+
+    fn postgres() -> std::sync::Arc<dyn Driver> {
+        dbine_drivers::find("postgres")
+            .expect("postgres driver")
+            .clone()
+    }
+
+    /// `public.t` as PostgreSQL 16's catalog describes it. Rules match in
+    /// order: the narrower ones go first.
+    fn catalog() -> Scripted {
+        Scripted::new()
+            .on(
+                &["current_setting('server_version_num')"],
+                one_value("160004"),
+            )
+            .on(
+                &["SELECT count(*) FROM pg_class c JOIN pg_namespace n"],
+                one_value("1"),
+            )
+            .on(&["SELECT relkind::text"], one_value("r"))
+            .on(&["extname = 'timescaledb'"], one_value("0"))
+            .on(&["string_agg(inhparent"], vec![row(&[None])])
+            .on(&["FROM pg_inherits WHERE inhparent"], one_value("0"))
+            .on(
+                &["format_type(a.atttypid"],
+                vec![
+                    row(&[
+                        Some("id"),
+                        Some("integer"),
+                        Some("a"),
+                        Some(""),
+                        None,
+                        None,
+                        Some("public.t_id_seq"),
+                        Some("false"),
+                        Some("true"),
+                        None,
+                        Some("the key"),
+                    ]),
+                    row(&[
+                        Some("name"),
+                        Some("text"),
+                        Some(""),
+                        Some(""),
+                        Some("'x'::text"),
+                        Some("\"C\""),
+                        Some(""),
+                        Some("false"),
+                        Some("false"),
+                        None,
+                        None,
+                    ]),
+                ],
+            )
+            .on(
+                &["UNION SELECT t.typname"],
+                vec![
+                    row(&[Some("t")]),
+                    row(&[Some("t_pkey")]),
+                    row(&[Some("mood")]),
+                ],
+            )
+            .on(
+                &[
+                    "SELECT conname::text, pg_get_constraintdef(oid)",
+                    "contype = 'c'",
+                ],
+                vec![
+                    row(&[Some("ck_plain"), Some("CHECK ((id > 0))")]),
+                    row(&[Some("ck_late"), Some("CHECK ((id < 100)) NOT VALID")]),
+                    row(&[Some("ck_own"), Some("CHECK ((id <> 5)) NO INHERIT")]),
+                ],
+            )
+            .on(
+                &[
+                    "SELECT conname::text FROM pg_constraint",
+                    "NOT convalidated",
+                ],
+                one_value("fk_late"),
+            )
+            .on(
+                &["SELECT pg_get_constraintdef(oid) FROM pg_constraint"],
+                vec![
+                    row(&[Some("CHECK ((id > 0))")]),
+                    row(&[Some("CHECK ((id < 100)) NOT VALID")]),
+                ],
+            )
+            .on(
+                &["SELECT count(*) FROM pg_constraint", "NOT convalidated"],
+                one_value("1"),
+            )
+            .on(
+                &["SELECT count(*) FROM pg_constraint", "contype = 'f'"],
+                one_value("2"),
+            )
+            .on(
+                &["SELECT count(*) FROM pg_index", "indisprimary"],
+                one_value("1"),
+            )
+            .on(&["SELECT count(*) FROM pg_index"], one_value("3"))
+            .on(&["SELECT relpersistence::text"], one_value("p"))
+            .on(
+                &["pg_get_constraintdef(c.oid)", "c.contype = 'f'"],
+                vec![
+                    row(&[
+                        Some("fk_parent"),
+                        Some("FOREIGN KEY (parent) REFERENCES t(id) ON DELETE CASCADE"),
+                        Some("id"),
+                        None,
+                    ]),
+                    row(&[
+                        Some("fk_late"),
+                        Some("FOREIGN KEY (k) REFERENCES other(id) MATCH FULL NOT VALID"),
+                        Some("id"),
+                        Some("public.other"),
+                    ]),
+                ],
+            )
+            .on(
+                &["JOIN pg_description d"],
+                vec![
+                    row(&[Some("i"), Some("t_pkey"), Some("the key's index")]),
+                    row(&[Some("c"), Some("ck_plain"), Some("positive")]),
+                ],
+            )
+            .on(
+                &["unnest(reloptions)"],
+                vec![
+                    row(&[Some("toast.autovacuum_enabled=false")]),
+                    row(&[Some("fillfactor=70")]),
+                ],
+            )
+            .on(
+                &["a.attstorage <> t.typstorage"],
+                vec![
+                    row(&[Some("id"), None, None, None]),
+                    row(&[Some("name"), Some("m"), Some("500"), Some("l")]),
+                ],
+            )
+            .on(
+                &["SELECT relrowsecurity::text"],
+                vec![row(&[Some("true"), Some("false")])],
+            )
+            .on(
+                &["FROM pg_policies p"],
+                vec![row(&[
+                    Some("own_rows"),
+                    Some("PERMISSIVE"),
+                    Some("SELECT"),
+                    Some("PUBLIC"),
+                    Some("(name = CURRENT_USER)"),
+                    None,
+                ])],
+            )
+            .on(&["row_security_active("], one_value("false"))
+            .on(&["SELECT relreplident::text"], one_value("f"))
+            .on(&["x.indisreplident"], vec![])
+            .on(
+                &["x.indisclustered"],
+                vec![row(&[Some("t_pkey"), Some("true")])],
+            )
+            .on(
+                &["st.stxrelid"],
+                vec![row(&[
+                    Some("public"),
+                    Some("t_stats"),
+                    Some(" (ndistinct) ON id, name FROM public.t"),
+                    Some("200"),
+                    None,
+                ])],
+            )
+            .on(
+                &["st.stxname::text FROM pg_statistic_ext"],
+                vec![row(&[Some("public"), Some("t_stats")])],
+            )
+    }
+
+    #[tokio::test]
+    async fn inspect_reads_what_database_schema_leaves_out() {
+        let driver = postgres();
+        let mut s = catalog();
+        let pg = inspect(&mut s, &*driver, Some("public"), "t")
+            .await
+            .unwrap();
+        assert_eq!(pg.version, 160004);
+        assert!(!pg.cockroach);
+        assert_eq!(
+            pg.columns[0],
+            PgColumn {
+                name: "id".into(),
+                type_name: "integer".into(),
+                identity: "a".into(),
+                sequence: Some("public.t_id_seq".into()),
+                not_null: true,
+                comment: Some("the key".into()),
+                ..Default::default()
+            }
+        );
+        assert_eq!(pg.columns[1].default.as_deref(), Some("'x'::text"));
+        assert_eq!(pg.columns[1].collation.as_deref(), Some("\"C\""));
+        assert_eq!(pg.columns[1].sequence, None);
+        assert_eq!(pg.taken, ["t", "t_pkey", "mood"]);
+        // Only the CHECKs CREATE TABLE can't write as they are.
+        assert_eq!(
+            pg.deferred_checks,
+            vec![
+                (
+                    "ck_late".to_string(),
+                    "CHECK ((id < 100)) NOT VALID".to_string()
+                ),
+                (
+                    "ck_own".to_string(),
+                    "CHECK ((id <> 5)) NO INHERIT".to_string()
+                ),
+            ]
+        );
+        assert_eq!(pg.not_valid_fks, ["fk_late"]);
+        assert_eq!(
+            pg.parts,
+            Parts {
+                checks: vec![
+                    "CHECK ((id < 100)) NOT VALID".into(),
+                    "CHECK ((id > 0))".into()
+                ],
+                foreign_keys: 2,
+                not_valid_fks: 1,
+                fk_defs: vec![
+                    "FOREIGN KEY (k) REFERENCES public.other(id) MATCH FULL NOT VALID".into(),
+                    "FOREIGN KEY (parent) REFERENCES (la misma tabla)(id) ON DELETE CASCADE".into(),
+                ],
+                indexes: 3,
+                primary: 1,
+                persistence: "p".into(),
+            }
+        );
+        assert_eq!(pg.foreign_keys.len(), 2);
+        assert_eq!(pg.foreign_keys[0].target, None);
+        assert_eq!(pg.foreign_keys[1].rest, "(id) MATCH FULL NOT VALID");
+        // Comments: constraints first, then indexes.
+        let comments = pg.comments.unwrap();
+        assert_eq!(
+            comments
+                .iter()
+                .map(|c| (c.index, c.name.as_str()))
+                .collect::<Vec<_>>(),
+            [(false, "ck_plain"), (true, "t_pkey")]
+        );
+        assert_eq!(
+            pg.settings.options,
+            ["fillfactor=70", "toast.autovacuum_enabled=false"]
+        );
+        assert_eq!(
+            pg.settings.columns,
+            vec![ColumnSettings {
+                name: "name".into(),
+                storage: Some("m".into()),
+                statistics: Some("500".into()),
+                compression: Some("l".into()),
+            }]
+        );
+        assert!(pg.settings.rls && !pg.settings.force_rls);
+        assert_eq!(
+            pg.settings.policies[0].using.as_deref(),
+            Some("(name = CURRENT_USER)")
+        );
+        // The owner reads every row.
+        assert!(!pg.rls_hides_rows);
+        assert_eq!(pg.extras.replica, "f");
+        assert_eq!(pg.extras.replica_index, None);
+        assert_eq!(
+            pg.extras.clustered,
+            Some(PgIndexRef {
+                name: "t_pkey".into(),
+                primary: true
+            })
+        );
+        assert_eq!(
+            pg.extras.statistics,
+            vec![PgStatistics {
+                schema: "public".into(),
+                name: "t_stats".into(),
+                body: "(ndistinct) ON id, name".into(),
+                target: Some("200".into()),
+                comment: None,
+            }]
+        );
+        assert_eq!(
+            pg.extras.statistics_taken,
+            [("public".to_string(), "t_stats".to_string())]
+        );
+        // The column settings' statements.
+        assert_eq!(
+            pg.settings.columns[0].sql("\"public\".\"t_c\"").unwrap(),
+            [
+                "ALTER TABLE \"public\".\"t_c\" ALTER COLUMN \"name\" SET STORAGE MAIN",
+                "ALTER TABLE \"public\".\"t_c\" ALTER COLUMN \"name\" SET STATISTICS 500",
+                "ALTER TABLE \"public\".\"t_c\" ALTER COLUMN \"name\" SET COMPRESSION lz4",
+            ]
+        );
+    }
+
+    /// The catalog with one answer changed (put before the others).
+    fn catalog_with(fragments: &[&str], rows: Rows) -> Scripted {
+        Scripted::new().on(fragments, rows).chain(catalog())
+    }
+
+    #[tokio::test]
+    async fn inspect_refuses_tables_a_plain_clone_cant_be() {
+        let driver = postgres();
+        async fn refusal(driver: &dyn Driver, mut s: Scripted) -> String {
+            match inspect(&mut s, driver, Some("public"), "t").await {
+                Err(e) => e.to_string(),
+                Ok(_) => panic!("accepted"),
+            }
+        }
+        let e = refusal(
+            &*driver,
+            catalog_with(
+                &["SELECT count(*) FROM pg_class c JOIN pg_namespace n"],
+                one_value("0"),
+            ),
+        )
+        .await;
+        assert_eq!(e, "no se encontró la tabla «t»");
+        let e = refusal(
+            &*driver,
+            catalog_with(&["SELECT relkind::text"], one_value("p")),
+        )
+        .await;
+        assert!(e.contains("PARTITION BY"), "{e}");
+        let hypertable = catalog_with(&["extname = 'timescaledb'"], one_value("1"));
+        let mut hypertable = Scripted::new()
+            .on(&["_timescaledb_catalog.hypertable"], one_value("1"))
+            .chain(hypertable);
+        let e = match inspect(&mut hypertable, &*driver, Some("public"), "t").await {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("accepted"),
+        };
+        assert!(e.contains("hypertable"), "{e}");
+        let e = refusal(
+            &*driver,
+            catalog_with(&["string_agg(inhparent"], one_value("parent_t")),
+        )
+        .await;
+        assert!(e.contains("hereda de parent_t"), "{e}");
+        let e = refusal(
+            &*driver,
+            catalog_with(&["FROM pg_inherits WHERE inhparent"], one_value("2")),
+        )
+        .await;
+        assert!(e.contains("2 tabla(s) heredan"), "{e}");
+        // Row-level security on, and its policies unreadable.
+        let mut s = Scripted::new()
+            .fail(&["FROM pg_policies p"], "permission denied")
+            .chain(catalog());
+        let e = match inspect(&mut s, &*driver, Some("public"), "t").await {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("accepted"),
+        };
+        assert!(e.contains("no se pudieron leer sus políticas"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn rows_hidden_by_row_level_security() {
+        let driver = postgres();
+        let mut s = catalog_with(&["row_security_active("], one_value("true"));
+        let pg = inspect(&mut s, &*driver, None, "t").await.unwrap();
+        assert!(pg.rls_hides_rows);
+        // Without row_security_active (CockroachDB): by role and ownership.
+        let fallback = |super_user: &str, owner: &str, force: &str| {
+            Scripted::new()
+                .fail(&["row_security_active("], "no such function")
+                .on(
+                    &["rolbypassrls"],
+                    vec![row(&[Some(super_user), Some(owner), Some(force)])],
+                )
+        };
+        assert!(!rls_active(&mut fallback("true", "false", "true"), "'t'").await);
+        assert!(!rls_active(&mut fallback("false", "true", "false"), "'t'").await);
+        assert!(rls_active(&mut fallback("false", "true", "true"), "'t'").await);
+        assert!(rls_active(&mut fallback("false", "false", "false"), "'t'").await);
+        // Unknown: as if it did.
+        let mut unknown = Scripted::new().fail(&["row_security_active("], "x");
+        assert!(rls_active(&mut unknown, "'t'").await);
+    }
+
+    /// The clone `public.t_c` as it should come out: the original's
+    /// catalog, with its own primary key and statistics names.
+    fn clone_catalog() -> Scripted {
+        Scripted::new()
+            .on(
+                &["x.indexrelid WHERE x.indrelid"],
+                vec![
+                    row(&[Some("t_c_pkey"), Some("true")]),
+                    row(&[Some("t_c_name_idx"), Some("false")]),
+                ],
+            )
+            .on(
+                &["x.indisclustered"],
+                vec![row(&[Some("t_c_pkey"), Some("true")])],
+            )
+            .on(
+                &["st.stxrelid"],
+                vec![row(&[
+                    Some("public"),
+                    Some("t_c_stats"),
+                    Some(" (ndistinct) ON id, name FROM public.t_c"),
+                    Some("200"),
+                    None,
+                ])],
+            )
+            .chain(catalog())
+    }
+
+    fn clone_table() -> TableSchema {
+        TableSchema {
+            schema: Some("public".into()),
+            name: "t_c".into(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn verify_accepts_a_faithful_clone() {
+        let driver = postgres();
+        let pg = inspect(&mut catalog(), &*driver, Some("public"), "t")
+            .await
+            .unwrap();
+        let mut tgt = clone_catalog();
+        verify(&mut tgt, &pg, &clone_table(), &[], true)
+            .await
+            .unwrap();
+        // Every read is of the clone.
+        assert!(
+            tgt.ran()
+                .iter()
+                .filter(|q| q.contains("::regclass"))
+                .all(|q| q.contains("'public.t_c'") || q.contains("\"public\".\"t_c\"")),
+            "{:?}",
+            tgt.ran()
+        );
+    }
+
+    #[tokio::test]
+    async fn verify_lists_every_difference() {
+        let driver = postgres();
+        let pg = inspect(&mut catalog(), &*driver, Some("public"), "t")
+            .await
+            .unwrap();
+        let mut tgt = Scripted::new()
+            .on(&["SELECT relpersistence::text"], one_value("u"))
+            .on(
+                &["SELECT count(*) FROM pg_index", "indisprimary"],
+                one_value("1"),
+            )
+            .on(&["SELECT count(*) FROM pg_index"], one_value("2"))
+            .on(
+                &["SELECT count(*) FROM pg_constraint", "NOT convalidated"],
+                one_value("0"),
+            )
+            .on(&["SELECT relreplident::text"], one_value("d"))
+            .on(&["x.indisclustered"], vec![])
+            .on(&["st.stxrelid"], vec![])
+            .on(&["unnest(reloptions)"], vec![])
+            .chain(clone_catalog());
+        let e = verify(&mut tgt, &pg, &clone_table(), &[], true)
+            .await
+            .unwrap_err()
+            .to_string();
+        for part in [
+            "1 claves foráneas NOT VALID en el original, 0 en el clon",
+            "3 índices en el original, 2 en el clon",
+            "tabla con registro (logged) / UNLOGGED",
+            "fillfactor=70",
+        ] {
+            assert!(e.contains(part), "{part}: {e}");
+        }
+        // Without indexes the clone has only the primary key's.
+        let mut tgt = Scripted::new()
+            .on(
+                &["SELECT count(*) FROM pg_index", "indisprimary"],
+                one_value("1"),
+            )
+            .on(&["SELECT count(*) FROM pg_index"], one_value("3"))
+            .chain(clone_catalog());
+        let e = verify(&mut tgt, &pg, &clone_table(), &[], false)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("sin índices el clon debía tener 1 (el de la clave primaria) y tiene 3"),
+            "{e}"
+        );
+    }
+
+    fn statements(s: &Scripted, prefixes: &[&str]) -> Vec<String> {
+        s.ran()
+            .into_iter()
+            .filter(|q| prefixes.iter().any(|p| q.starts_with(p)))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn sequences_continue_where_the_originals_do() {
+        let driver = postgres();
+        let pg = inspect(&mut catalog(), &*driver, Some("public"), "t")
+            .await
+            .unwrap();
+        // A descending sequence, at -40 and already used.
+        let mut src = Scripted::new()
+            .on(
+                &["FROM pg_sequence WHERE seqrelid = 'public.t_id_seq'::regclass"],
+                vec![row(&[
+                    Some("-1"),
+                    Some("-1"),
+                    Some("-1000"),
+                    Some("-1"),
+                    Some("1"),
+                    Some("false"),
+                ])],
+            )
+            .on(
+                &["SELECT last_value, is_called FROM public.t_id_seq"],
+                vec![row(&[Some("-40"), Some("true")])],
+            );
+        let mut tgt = Scripted::new()
+            .on(
+                &["SELECT pg_get_serial_sequence('\"public\".\"t_c\"', 'id')"],
+                one_value("public.t_c_id_seq"),
+            )
+            .on(&["ALTER "], vec![])
+            .on(&["SELECT setval("], vec![]);
+        after_load(&mut src, &mut tgt, &pg, &clone_table(), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            statements(&tgt, &["ALTER", "SELECT setval"]),
+            [
+                "ALTER SEQUENCE public.t_c_id_seq INCREMENT BY -1 MINVALUE -1000 MAXVALUE -1 START WITH -1 RESTART WITH -1 CACHE 1 NO CYCLE",
+                "SELECT setval('public.t_c_id_seq', -40, true)",
+                // GENERATED ALWAYS back once the rows are in.
+                "ALTER TABLE \"public\".\"t_c\" ALTER COLUMN \"id\" SET GENERATED ALWAYS",
+            ]
+        );
+        // Without the rows: restarted.
+        let mut tgt = Scripted::new()
+            .on(&["pg_get_serial_sequence("], one_value("public.t_c_id_seq"))
+            .on(&["ALTER "], vec![]);
+        after_load(&mut src, &mut tgt, &pg, &clone_table(), false)
+            .await
+            .unwrap();
+        assert!(tgt
+            .ran()
+            .contains(&"ALTER SEQUENCE public.t_c_id_seq RESTART".to_string()));
+        // The clone's column lost its sequence.
+        let mut tgt = Scripted::new().on(&["pg_get_serial_sequence("], vec![row(&[None])]);
+        let e = after_load(&mut src, &mut tgt, &pg, &clone_table(), true)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("quedó sin su secuencia"), "{e}");
+        // The original's sequence can't be read.
+        let mut empty = Scripted::new().on(&["FROM pg_sequence"], vec![]);
+        let e = after_load(&mut empty, &mut tgt, &pg, &clone_table(), true)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("no se pudo leer la secuencia public.t_id_seq"),
+            "{e}"
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_settings_right_after_the_create() {
+        let driver = postgres();
+        let pg = inspect(&mut catalog(), &*driver, Some("public"), "t")
+            .await
+            .unwrap();
+        // The clone came out with a default of its own and without the
+        // original's.
+        let mut tgt = Scripted::new()
+            .on(
+                &["unnest(reloptions)"],
+                vec![
+                    row(&[Some("autovacuum_enabled=true")]),
+                    row(&[Some("fillfactor=70")]),
+                ],
+            )
+            .on(&["a.attstorage <> t.typstorage"], vec![])
+            .on(
+                &["SELECT relrowsecurity::text"],
+                vec![row(&[Some("false"), Some("false")])],
+            )
+            .on(&["FROM pg_policies p"], vec![])
+            .on(&["ALTER TABLE"], vec![]);
+        after_create(&mut tgt, &pg, &clone_table(), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            statements(&tgt, &["ALTER"]),
+            [
+                "ALTER TABLE \"public\".\"t_c\" RESET (autovacuum_enabled)",
+                "ALTER TABLE \"public\".\"t_c\" SET (toast.autovacuum_enabled = 'false')",
+                "ALTER TABLE \"public\".\"t_c\" ALTER COLUMN \"name\" SET STORAGE MAIN",
+                "ALTER TABLE \"public\".\"t_c\" ALTER COLUMN \"name\" SET STATISTICS 500",
+                "ALTER TABLE \"public\".\"t_c\" ALTER COLUMN \"name\" SET COMPRESSION lz4",
+            ]
+        );
+        // A refused setting is reported as the storage options'.
+        let mut tgt = Scripted::new()
+            .on(&["unnest(reloptions)"], vec![])
+            .on(&["a.attstorage <> t.typstorage"], vec![])
+            .on(
+                &["SELECT relrowsecurity::text"],
+                vec![row(&[Some("false"), Some("false")])],
+            )
+            .on(&["FROM pg_policies p"], vec![])
+            .fail(&["ALTER TABLE"], "permission denied");
+        let e = after_create(&mut tgt, &pg, &clone_table(), true)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string().starts_with("opciones de almacenamiento"),
+            "{e}"
+        );
+        // Rows hidden by row-level security: refused with the data, not
+        // without it.
+        let hidden = PgTable {
+            rls_hides_rows: true,
+            ..pg.clone()
+        };
+        let e = after_create(&mut Scripted::new(), &hidden, &clone_table(), true)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("ROW LEVEL SECURITY"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn finishing_adds_policies_security_and_extras() {
+        let driver = postgres();
+        let mut pg = inspect(&mut catalog(), &*driver, Some("public"), "t")
+            .await
+            .unwrap();
+        pg.settings.force_rls = true;
+        pg.extras.statistics[0].comment = Some("it's".into());
+        let mut tgt = Scripted::new()
+            .on(
+                &["x.indexrelid WHERE x.indrelid"],
+                vec![row(&[Some("t_c_pkey"), Some("true")])],
+            )
+            .on(&["ALTER "], vec![])
+            .on(&["CREATE "], vec![])
+            .on(&["COMMENT "], vec![]);
+        let notes = finish(&mut tgt, &pg, &clone_table(), &[], true)
+            .await
+            .unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            statements(&tgt, &["ALTER", "CREATE", "COMMENT"]),
+            [
+                "CREATE POLICY \"own_rows\" ON \"public\".\"t_c\" AS PERMISSIVE FOR SELECT TO PUBLIC USING ((name = CURRENT_USER))",
+                "ALTER TABLE \"public\".\"t_c\" REPLICA IDENTITY FULL",
+                "ALTER TABLE \"public\".\"t_c\" CLUSTER ON \"t_c_pkey\"",
+                "CREATE STATISTICS \"public\".\"t_c_stats\" (ndistinct) ON id, name FROM \"public\".\"t_c\"",
+                "ALTER STATISTICS \"public\".\"t_c_stats\" SET STATISTICS 200",
+                "COMMENT ON STATISTICS \"public\".\"t_c_stats\" IS 'it''s'",
+                "ALTER TABLE \"public\".\"t_c\" ENABLE ROW LEVEL SECURITY",
+                "ALTER TABLE \"public\".\"t_c\" FORCE ROW LEVEL SECURITY",
+            ]
+        );
+        // Without the indexes: no CLUSTER ON, a replica identity on an
+        // index falls back to the default; both noted.
+        pg.extras.replica = "i".into();
+        pg.extras.replica_index = Some(PgIndexRef {
+            name: "t_name_idx".into(),
+            primary: false,
+        });
+        let mut tgt = Scripted::new()
+            .on(&["x.indexrelid WHERE x.indrelid"], vec![])
+            .on(&["ALTER "], vec![])
+            .on(&["CREATE "], vec![])
+            .on(&["COMMENT "], vec![]);
+        let notes = finish(&mut tgt, &pg, &clone_table(), &[], false)
+            .await
+            .unwrap();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert!(
+            notes[0].contains("REPLICA IDENTITY USING INDEX t_name_idx"),
+            "{notes:?}"
+        );
+        assert!(
+            notes[1].contains("CLUSTER (el original lo está sobre t_pkey)"),
+            "{notes:?}"
+        );
+        assert!(!tgt.ran().iter().any(|q| q.contains("CLUSTER ON")));
+        // A refused policy is reported as row-level security's.
+        let mut tgt = Scripted::new().fail(&["CREATE POLICY"], "role \"x\" does not exist");
+        let e = finish(&mut tgt, &pg, &clone_table(), &[], true)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().starts_with("seguridad por filas"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn comments_follow_the_renamed_indexes_and_constraints() {
+        let driver = postgres();
+        let pg = inspect(&mut catalog(), &*driver, Some("public"), "t")
+            .await
+            .unwrap();
+        let renames = vec![
+            super::super::Rename {
+                from: "ck_plain".into(),
+                to: "t_c_ck_plain".into(),
+                shortened: false,
+            },
+            super::super::Rename {
+                from: "t_pkey".into(),
+                to: "t_c_pkey".into(),
+                shortened: false,
+            },
+        ];
+        let read_back = vec![
+            row(&[Some("c"), Some("t_c_ck_plain"), Some("positive")]),
+            row(&[Some("i"), Some("t_c_pkey"), Some("the key's index")]),
+        ];
+        let clone = |indexes: Rows, comments: Rows| {
+            Scripted::new()
+                .on(&["SELECT ic.relname::text FROM pg_index x"], indexes)
+                .on(
+                    &["SELECT conname::text, convalidated::text"],
+                    vec![row(&[Some("t_c_ck_plain"), Some("true")])],
+                )
+                .on(&["COMMENT ON"], vec![])
+                .on(&["JOIN pg_description d"], comments)
+        };
+        let mut tgt = clone(one_value("t_c_pkey"), read_back.clone());
+        let notes = copy_comments(&mut tgt, &pg, &clone_table(), &renames)
+            .await
+            .unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(
+            statements(&tgt, &["COMMENT"]),
+            [
+                "COMMENT ON CONSTRAINT \"t_c_ck_plain\" ON \"public\".\"t_c\" IS 'positive'",
+                "COMMENT ON INDEX \"public\".\"t_c_pkey\" IS 'the key''s index'",
+            ]
+        );
+        // Cloned without its indexes: the index's comment can't come.
+        let mut tgt = clone(vec![], vec![read_back[0].clone()]);
+        let notes = copy_comments(&mut tgt, &pg, &clone_table(), &renames)
+            .await
+            .unwrap();
+        assert_eq!(
+            notes,
+            ["sin índices: tampoco se copian sus comentarios (t_pkey)"]
+        );
+        // Read back otherwise: refused.
+        let mut tgt = clone(one_value("t_c_pkey"), vec![read_back[0].clone()]);
+        let e = copy_comments(&mut tgt, &pg, &clone_table(), &renames)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("comentarios de índices y restricciones"),
+            "{e}"
+        );
+        // No comments: nothing is read.
+        let none = PgTable {
+            comments: Some(vec![]),
+            ..pg.clone()
+        };
+        let mut quiet = Scripted::new();
+        assert!(copy_comments(&mut quiet, &none, &clone_table(), &renames)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(quiet.ran().is_empty());
+        // CockroachDB's index comments name the table.
+        let c = PgComment {
+            index: true,
+            name: "ix".into(),
+            text: "x".into(),
+        };
+        assert_eq!(
+            comment_sql(true, Some("public"), "t_c", &c),
+            "COMMENT ON INDEX \"public\".\"t_c\"@\"ix\" IS 'x'"
+        );
+    }
+
+    #[test]
+    fn column_settings_the_clone_cant_have() {
+        let odd = ColumnSettings {
+            name: "c".into(),
+            storage: Some("z".into()),
+            ..Default::default()
+        };
+        assert!(odd
+            .sql("t")
+            .unwrap_err()
+            .to_string()
+            .contains("almacenamiento desconocido"));
+        let odd = ColumnSettings {
+            name: "c".into(),
+            compression: Some("q".into()),
+            ..Default::default()
+        };
+        assert!(odd
+            .sql("t")
+            .unwrap_err()
+            .to_string()
+            .contains("compresión desconocida"));
+        let odd = ColumnSettings {
+            name: "c".into(),
+            statistics: Some("many".into()),
+            ..Default::default()
+        };
+        assert!(odd.sql("t").is_err());
+        let plain = ColumnSettings {
+            name: "c".into(),
+            storage: Some("p".into()),
+            compression: Some("p".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            plain.sql("t").unwrap(),
+            [
+                "ALTER TABLE t ALTER COLUMN \"c\" SET STORAGE PLAIN",
+                "ALTER TABLE t ALTER COLUMN \"c\" SET COMPRESSION pglz"
+            ]
+        );
+        let p = Policy {
+            name: "p".into(),
+            permissive: "RESTRICTIVE".into(),
+            cmd: "UPDATE".into(),
+            roles: "alice".into(),
+            using: Some("true".into()),
+            check: Some("(a > 0)".into()),
+        };
+        assert_eq!(
+            p.sql("t"),
+            "CREATE POLICY \"p\" ON t AS RESTRICTIVE FOR UPDATE TO alice USING (true) WITH CHECK ((a > 0))"
+        );
+        assert!(truth(Some(" t ".into())) && truth(Some("1".into())) && !truth(None));
+        assert_eq!(number(Some(" 42 ".into()), "x").unwrap(), "42");
+    }
 }

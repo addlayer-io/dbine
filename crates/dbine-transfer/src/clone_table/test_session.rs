@@ -7,8 +7,8 @@
 //! up.
 
 use dbine_driver::{
-    async_trait, ColumnInfo, DbObject, Error, ObjectRef, QueryOutcome, Result, Session,
-    StatementResult,
+    async_trait, ColumnInfo, DbObject, Error, ObjectRef, QueryOutcome, Result, ResultColumn,
+    Session, StatementResult,
 };
 
 pub(super) type Rows = Vec<Vec<Option<String>>>;
@@ -65,6 +65,12 @@ impl Scripted {
         self.rule(fragments, vec![Answer::Fail(error.into())])
     }
 
+    /// `other`'s rules after these (these win).
+    pub fn chain(mut self, other: Scripted) -> Self {
+        self.rules.extend(other.rules);
+        self
+    }
+
     /// The statements run, in order.
     pub fn ran(&self) -> Vec<String> {
         self.log.clone()
@@ -104,7 +110,14 @@ impl Session for Scripted {
         rule.used += 1;
         match &rule.answers[at] {
             Answer::Rows(rows) => {
+                let width = rows.iter().map(Vec::len).max().unwrap_or(1).max(1);
                 out.results.push(StatementResult {
+                    columns: (0..width)
+                        .map(|i| ResultColumn {
+                            name: format!("c{i}"),
+                            type_name: String::new(),
+                        })
+                        .collect(),
                     rows: rows
                         .iter()
                         .map(|r| {
