@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-10-22",
-      "revision": "2936964383c5",
+      "date": "2026-10-26",
+      "revision": "d144bfcce926",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 2
+      "found": 3
     },
     {
       "source": "trivy",
-      "date": "2026-10-22",
-      "revision": "2936964383c5",
+      "date": "2026-10-26",
+      "revision": "d144bfcce926",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-10-22",
+      "date": "2026-10-26",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -36,11 +36,11 @@
     },
     {
       "source": "scorecard",
-      "date": "2026-10-22",
+      "date": "2026-10-26",
       "revision": "2936964383c5",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.9
+      "score": 5.7
     }
   ],
   "findings": [
@@ -3815,27 +3815,39 @@
       "by": "mpanichella"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0384-tokio-13ee4b",
+      "id": "OSV-RUSTSEC-2026-0385-ctutils-13ee4b",
       "source": "osv",
       "severity": "MEDIUM",
       "kind": "Vulnerable dependency",
-      "title": "tokio 1.54.0: Race condition in `tokio::time::Interval` on Tokio v1.54.0",
+      "title": "ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons",
       "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0384",
-      "fixed_version": "1.54.1",
-      "found": "2026-10-22",
+      "advisory": "RUSTSEC-2026-0385",
+      "fixed_version": "0.4.4",
+      "found": "2026-10-26",
       "status": "open"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0384-tokio-9761a8",
+      "id": "OSV-RUSTSEC-2026-0385-ctutils-9761a8",
       "source": "osv",
       "severity": "MEDIUM",
       "kind": "Vulnerable dependency",
-      "title": "tokio 1.54.0: Race condition in `tokio::time::Interval` on Tokio v1.54.0",
+      "title": "ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons",
       "component": "mobile/src-tauri/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0384",
-      "fixed_version": "1.54.1",
-      "found": "2026-10-22",
+      "advisory": "RUSTSEC-2026-0385",
+      "fixed_version": "0.4.4",
+      "found": "2026-10-26",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0387",
+      "fixed_version": "0.7.6",
+      "found": "2026-10-26",
       "status": "open"
     },
     {
@@ -3843,7 +3855,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Binary-Artifacts: 8/10 — binaries present in source code",
+      "title": "Binary-Artifacts: 9/10 — binaries present in source code",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts",
       "found": "2026-10-21",
@@ -3953,7 +3965,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 4/10 — 6 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 1/10 — 9 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
