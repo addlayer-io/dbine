@@ -33,8 +33,9 @@ use dbine_driver::{
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
     Family, Field, FieldKind, Language, Message, MessageLevel, ObjectKindInfo, ObjectRef,
     ParamValue, QueryOutcome, Result, ResultColumn, ScriptDefaults, ScriptDialect, ScriptError,
-    ScriptMode, Session, StatementEnd, TableSchema, TxState,
+    ScriptMode, Session, StatementEnd, TableSchema, TlsLevel, TlsSupport, TxState,
 };
+use dbine_driver::{ConnectFailure, ConnectFailureKind, TUNNEL_ORIGIN_HOST};
 use oracledb::{Connection, Cursor, OracleNumber, OracleTimestamp, Row};
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,6 +43,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const DEFAULT_PORT: u16 = 1521;
+/// The port Oracle listeners usually take TCPS on.
+const TCPS_PORT: u16 = 2484;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Characters of a CLOB / LONG shown in a cell.
 const TEXT_CAP: usize = 64 * 1024;
@@ -67,12 +70,49 @@ struct OracleDriver {
     autonomous: bool,
 }
 
+/// Oracle Net's `PROTOCOL` (`TCP` / `TCPS`): new connections use TCPS
+/// (port 2484); one saved before the field existed keeps what its
+/// "encrypt" checkbox said. The thin client always verifies the certificate
+/// (chain and host name): there is nothing to skip.
+fn protocol_field() -> Field {
+    Field::tls_mode(
+        "PROTOCOL",
+        "PROTOCOL",
+        &[
+            ("TCP", "TCP", TlsLevel::Off),
+            ("TCPS", "TCPS", TlsLevel::VerifyFull),
+        ],
+        "TCPS",
+        ["TCP", "TCP", "TCPS", "TCPS"],
+    )
+    .help(
+        "TCPS cifra la conexión y verifica el certificado del servidor (el listener suele \
+         atenderlo en el puerto 2484); TCP no cifra (puerto 1521). Con un descriptor de conexión \
+         manda su propio PROTOCOL. Por un túnel SSH el certificado se verifica contra 127.0.0.1: \
+         el cliente de Oracle no permite indicar el nombre real del servidor.",
+    )
+}
+
+/// `WALLET_LOCATION`: a folder with `ewallet.pem` whose certificates are
+/// trusted besides the public CAs (with a private key in it, the client's
+/// certificate for mTLS instead).
+fn wallet_location_field() -> Field {
+    Field::tls_ca_file("WALLET_LOCATION", "WALLET_LOCATION")
+        .placeholder("/ruta/wallet")
+        .help(
+            "Carpeta con ewallet.pem (o un archivo de adentro): sus certificados de CA se suman a \
+             las autoridades públicas para verificar el servidor. Si trae una clave privada, es el \
+             certificado del cliente (mTLS).",
+        )
+        .when("PROTOCOL", &["TCPS"])
+}
+
 fn info() -> DriverInfo {
     let mut host = Field::host();
     host.required = false;
     DriverInfo {
-        tls: Default::default(),
-        tls_port: None,
+        tls: TlsSupport::Configurable,
+        tls_port: Some(TCPS_PORT),
         id: "oracle",
         name: "Oracle",
         family: Family::Relational,
@@ -106,7 +146,8 @@ fn info() -> DriverInfo {
                 .placeholder("(la de TNS_ADMIN)")
                 .help("Dónde buscar tnsnames.ora para resolver alias. No hace falta instalar Instant Client.")
                 .advanced(),
-            Field::encrypt().help("Usa TCPS (el puerto suele ser 2484)."),
+            protocol_field(),
+            wallet_location_field(),
             Field::new("autocommit", "Confirmar automáticamente (autocommit)", FieldKind::Bool)
                 .default_value("true")
                 .help("Si está apagado, los cambios esperan un COMMIT explícito.")
@@ -137,7 +178,8 @@ fn info() -> DriverInfo {
 fn autonomous_info() -> DriverInfo {
     let base = info();
     DriverInfo {
-        tls: Default::default(),
+        // Always TCPS, verified; the wallet is the mTLS identity / trust.
+        tls: TlsSupport::Forced,
         tls_port: None,
         id: "oracle_adb",
         name: "Oracle Autonomous Database",
@@ -289,11 +331,133 @@ fn connect_string(cfg: &ConnectionConfig) -> Result<String> {
     } else {
         "SERVICE_NAME"
     };
-    let protocol = if cfg.encrypt { "TCPS" } else { "TCP" };
-    let port = cfg.port_or(DEFAULT_PORT);
+    let protocol = if tcps(cfg) { "TCPS" } else { "TCP" };
+    // No port typed: TCPS's when the connection chose it, 1521 for one saved
+    // before the PROTOCOL option (it used 1521 for both).
+    let port = if protocol == "TCPS" && cfg.option(PROTOCOL).is_some() {
+        cfg.port_or(TCPS_PORT)
+    } else {
+        cfg.port_or(DEFAULT_PORT)
+    };
     Ok(format!(
         "(DESCRIPTION=(ADDRESS=(PROTOCOL={protocol})(HOST={host})(PORT={port}))(CONNECT_DATA=({key}={service})))"
     ))
+}
+
+const PROTOCOL: &str = "PROTOCOL";
+
+/// The host/port/service form asks for TCPS: the `PROTOCOL` option, or the
+/// legacy "encrypt" checkbox of a connection saved before it.
+fn tcps(cfg: &ConnectionConfig) -> bool {
+    cfg.tls_value(&protocol_field())
+        .is_some_and(|v| v.eq_ignore_ascii_case("TCPS"))
+}
+
+/// The connection goes over TLS, as far as its settings say: TCPS in the
+/// form, or in the descriptor / Easy Connect string typed instead.
+fn uses_tls(cfg: &ConnectionConfig, autonomous: bool) -> bool {
+    if autonomous {
+        return true;
+    }
+    match cfg.option("connect_descriptor") {
+        Some(d) => {
+            let d = d.to_ascii_lowercase().replace(' ', "");
+            d.contains("protocol=tcps") || d.starts_with("tcps:")
+        }
+        None => tcps(cfg),
+    }
+}
+
+/// The folder of `WALLET_LOCATION` (a file inside it stands for it), for
+/// the host/port/service form over TCPS.
+fn wallet_location(cfg: &ConnectionConfig) -> Option<String> {
+    let field = wallet_location_field();
+    let v = cfg.tls_value(&field)?.trim();
+    let p = std::path::Path::new(v);
+    let dir = if p.is_file() { p.parent()? } else { p };
+    Some(dir.to_string_lossy().into_owned())
+}
+
+/// A failed connect over TLS, explained with the option to change: the
+/// certificate (Oracle can't skip its check, nor check it against the real
+/// server through an SSH tunnel), or a listener without TCPS.
+fn tls_connect_err(cfg: &ConnectionConfig, autonomous: bool, e: Error) -> Error {
+    let Error::Connect(text) = &e else {
+        return e;
+    };
+    if !uses_tls(cfg, autonomous) {
+        return e;
+    }
+    let kind = ConnectFailure::from_message(text.clone()).kind;
+    let tunnel = cfg.option(TUNNEL_ORIGIN_HOST).is_some();
+    let failure = match kind {
+        ConnectFailureKind::TlsUntrusted if tunnel => ConnectFailure::new(
+            kind,
+            if autonomous {
+                format!(
+                    "Por un túnel SSH, Oracle verifica el certificado del servidor contra 127.0.0.1 y \
+                     no contra su nombre real (el cliente de Oracle no permite indicarlo): conectate \
+                     sin el túnel ({text})"
+                )
+            } else {
+                format!(
+                    "Por un túnel SSH, Oracle verifica el certificado del servidor contra 127.0.0.1 y \
+                     no contra su nombre real (el cliente de Oracle no permite indicarlo): conectate \
+                     sin el túnel o elegí TCP en PROTOCOL ({text})"
+                )
+            },
+        ),
+        ConnectFailureKind::TlsUntrusted => ConnectFailure::new(
+            kind,
+            if autonomous {
+                format!("No se pudo verificar el certificado del servidor ({text})")
+            } else {
+                format!(
+                    "No se pudo verificar el certificado del servidor: indicá en WALLET_LOCATION una \
+                     carpeta con ewallet.pem que tenga su CA; el cliente de Oracle no permite saltear \
+                     la verificación ({text})"
+                )
+            },
+        ),
+        _ if autonomous => return e,
+        ConnectFailureKind::Tls | ConnectFailureKind::TlsNotOffered | ConnectFailureKind::Refused => {
+            ConnectFailure::new(
+            if kind == ConnectFailureKind::Refused {
+                kind
+            } else {
+                ConnectFailureKind::TlsNotOffered
+            },
+            format!(
+                "No se pudo abrir la conexión TCPS ({text}). El listener de Oracle suele atender TCPS \
+                 en el puerto 2484; si no tiene TCPS configurado, elegí TCP en PROTOCOL (puerto 1521)."
+            ),
+            )
+        }
+        // The listener answered TCPS with something that isn't TLS.
+        ConnectFailureKind::Unknown if stream_broke(text) => ConnectFailure::new(
+            ConnectFailureKind::TlsNotOffered,
+            format!(
+                "No se pudo abrir la conexión TCPS ({text}). El listener de Oracle suele atender TCPS \
+                 en el puerto 2484; si no tiene TCPS configurado, elegí TCP en PROTOCOL (puerto 1521)."
+            ),
+        ),
+        _ => return e,
+    };
+    Error::connect_failed(failure)
+}
+
+/// The connection broke during the handshake (a peer that doesn't speak
+/// TLS closes it or answers garbage).
+fn stream_broke(text: &str) -> bool {
+    let t = text.to_ascii_lowercase();
+    [
+        "stream operation failed",
+        "connection reset",
+        "unexpected eof",
+        "broken pipe",
+    ]
+    .iter()
+    .any(|m| t.contains(m))
 }
 
 fn build_config(cfg: &ConnectionConfig, autonomous: bool) -> Result<oracledb::Config> {
@@ -309,6 +473,16 @@ fn build_config(cfg: &ConnectionConfig, autonomous: bool) -> Result<oracledb::Co
     let mut config = oracledb::Config::default();
     if let Some(dir) = cfg.option("tns_admin") {
         config = config.set_config_dir(dir);
+    }
+    if !autonomous && cfg.option("connect_descriptor").is_none() && tcps(cfg) {
+        if let Some(dir) = wallet_location(cfg) {
+            if !std::path::Path::new(&dir).join("ewallet.pem").is_file() {
+                return Err(Error::Connect(format!(
+                    "WALLET_LOCATION ({dir}) no tiene un ewallet.pem."
+                )));
+            }
+            config = config.set_wallet_location(dir);
+        }
     }
     if autonomous {
         if let Some(dir) = wallet_dir(cfg) {
@@ -596,12 +770,22 @@ impl Driver for OracleDriver {
         let (conn, ids, schema) = tokio::time::timeout(CONNECT_TIMEOUT, task)
             .await
             .map_err(|_| {
-                Error::Connect(format!(
-                    "El servidor no respondió en {} s.",
-                    CONNECT_TIMEOUT.as_secs()
-                ))
+                let secs = CONNECT_TIMEOUT.as_secs();
+                if !self.autonomous && uses_tls(cfg, false) {
+                    // A TCP listener waits for TNS while TCPS waits for TLS.
+                    Error::connect_failed(ConnectFailure::new(
+                        ConnectFailureKind::Timeout,
+                        format!(
+                            "El servidor no respondió en {secs} s. Si el listener no atiende TCPS en \
+                             ese puerto, elegí TCP en PROTOCOL (puerto 1521)."
+                        ),
+                    ))
+                } else {
+                    Error::Connect(format!("El servidor no respondió en {secs} s."))
+                }
             })?
-            .map_err(join_err)??;
+            .map_err(join_err)?
+            .map_err(|e| tls_connect_err(cfg, self.autonomous, e))?;
         Ok(Box::new(OracleSession {
             shared: Arc::new(Shared {
                 conn: Mutex::new(conn),
@@ -3301,6 +3485,168 @@ mod tests {
         cfg.options
             .insert("connect_descriptor".into(), " MY_ALIAS ".into());
         assert_eq!(connect_string(&cfg).unwrap(), "MY_ALIAS");
+    }
+
+    fn tls_cfg(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
+        let mut cfg = ConnectionConfig {
+            host: "db.local".into(),
+            username: Some("u".into()),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        };
+        cfg.options.insert("service".into(), "FREEPDB1".into());
+        for (k, v) in options {
+            cfg.options.insert(k.to_string(), v.to_string());
+        }
+        cfg
+    }
+
+    fn address(cfg: &ConnectionConfig) -> String {
+        let s = connect_string(cfg).unwrap();
+        s[s.find("(PROTOCOL").unwrap()..s.find("(CONNECT_DATA").unwrap()].to_string()
+    }
+
+    #[test]
+    fn saved_connections_keep_their_protocol_and_port() {
+        // [ff, ft, tf, tt]: the trust checkbox was never read; port 1521 for both.
+        let tcp = "(PROTOCOL=TCP)(HOST=db.local)(PORT=1521))";
+        let tcps = "(PROTOCOL=TCPS)(HOST=db.local)(PORT=1521))";
+        assert_eq!(address(&tls_cfg(false, false, &[])), tcp);
+        assert_eq!(address(&tls_cfg(false, true, &[])), tcp);
+        assert_eq!(address(&tls_cfg(true, false, &[])), tcps);
+        assert_eq!(address(&tls_cfg(true, true, &[])), tcps);
+        let fields = info().fields;
+        for (e, t, level) in [
+            (false, false, TlsLevel::Off),
+            (false, true, TlsLevel::Off),
+            (true, false, TlsLevel::VerifyFull),
+            (true, true, TlsLevel::VerifyFull),
+        ] {
+            assert_eq!(tls_cfg(e, t, &[]).tls_level(&fields), Some(level));
+        }
+    }
+
+    #[test]
+    fn new_connections_use_verified_tcps_on_2484() {
+        let i = info();
+        assert_eq!((i.tls, i.tls_port), (TlsSupport::Configurable, Some(2484)));
+        assert!(!i.fields.iter().any(Field::is_legacy_tls));
+        let mode = i.fields.iter().find(|f| f.key == "PROTOCOL").unwrap();
+        assert_eq!(mode.default, "TCPS");
+        assert_eq!(mode.tls_level_of(mode.default), Some(TlsLevel::VerifyFull));
+        // What the form saves for a new connection.
+        assert_eq!(
+            address(&tls_cfg(false, false, &[("PROTOCOL", "TCPS")])),
+            "(PROTOCOL=TCPS)(HOST=db.local)(PORT=2484))"
+        );
+        let mut c = tls_cfg(true, false, &[("PROTOCOL", "TCP")]);
+        assert_eq!(address(&c), "(PROTOCOL=TCP)(HOST=db.local)(PORT=1521))");
+        c.port = 1530;
+        c.options.insert("PROTOCOL".into(), "tcps".into());
+        assert_eq!(address(&c), "(PROTOCOL=TCPS)(HOST=db.local)(PORT=1530))");
+        let adb = autonomous_info();
+        assert_eq!((adb.tls, adb.tls_port), (TlsSupport::Forced, None));
+        assert!(!adb
+            .fields
+            .iter()
+            .any(|f| f.tls.is_some() || f.is_legacy_tls()));
+    }
+
+    #[test]
+    fn wallet_location_must_hold_ewallet_pem() {
+        let dir = std::env::temp_dir().join(format!("dbine-ora-ca-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let d = dir.to_string_lossy().to_string();
+        let c = tls_cfg(
+            false,
+            false,
+            &[("PROTOCOL", "TCPS"), ("WALLET_LOCATION", &d)],
+        );
+        let e = build_config(&c, false).err().unwrap().to_string();
+        assert!(e.contains("ewallet.pem"), "{e}");
+        let pem = dir.join("ewallet.pem");
+        std::fs::write(&pem, "x").unwrap();
+        assert!(build_config(&c, false).is_ok());
+        // A file inside it stands for the folder.
+        let c = tls_cfg(
+            false,
+            false,
+            &[
+                ("PROTOCOL", "TCPS"),
+                ("WALLET_LOCATION", &pem.to_string_lossy()),
+            ],
+        );
+        assert_eq!(wallet_location(&c).as_deref(), Some(d.as_str()));
+        assert!(build_config(&c, false).is_ok());
+        // Plain TCP ignores it.
+        let c = tls_cfg(
+            false,
+            false,
+            &[("PROTOCOL", "TCP"), ("WALLET_LOCATION", "/nope")],
+        );
+        assert!(build_config(&c, false).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tls_failures_name_the_option_to_change() {
+        let kind = |e: Error| match e {
+            Error::ConnectFailed(f) => (f.kind, f.message),
+            other => (ConnectFailureKind::Unknown, other.to_string()),
+        };
+        let tcps = tls_cfg(false, false, &[("PROTOCOL", "TCPS")]);
+        let untrusted = || {
+            Error::Connect("TLS operation failed: invalid peer certificate: UnknownIssuer".into())
+        };
+        let (k, m) = kind(tls_connect_err(&tcps, false, untrusted()));
+        assert_eq!(k, ConnectFailureKind::TlsUntrusted);
+        assert!(m.contains("WALLET_LOCATION"), "{m}");
+        // A listener without TCPS.
+        for text in [
+            "stream operation failed: Connection reset by peer (os error 54)",
+            "TLS operation failed: received corrupt message of type InvalidContentType",
+            "stream operation failed: Connection refused (os error 61)",
+        ] {
+            let (k, m) = kind(tls_connect_err(&tcps, false, Error::Connect(text.into())));
+            assert!(k.is_tls() || k == ConnectFailureKind::Refused, "{text}");
+            assert!(m.contains("TCP en PROTOCOL") && m.contains("2484"), "{m}");
+        }
+        // Through an SSH tunnel: the check is against 127.0.0.1.
+        let mut tunnelled = tcps.clone();
+        tunnelled
+            .options
+            .insert(TUNNEL_ORIGIN_HOST.into(), "db.example.com".into());
+        let (k, m) = kind(tls_connect_err(&tunnelled, false, untrusted()));
+        assert_eq!(k, ConnectFailureKind::TlsUntrusted);
+        assert!(
+            m.contains("127.0.0.1") && m.contains("TCP en PROTOCOL"),
+            "{m}"
+        );
+        // Plain TCP, or an error that isn't about TLS: unchanged.
+        let tcp = tls_cfg(false, false, &[("PROTOCOL", "TCP")]);
+        assert!(matches!(
+            tls_connect_err(&tcp, false, untrusted()),
+            Error::Connect(_)
+        ));
+        assert!(matches!(
+            tls_connect_err(&tcps, false, Error::Connect("ORA-12514: no service".into())),
+            Error::Connect(_)
+        ));
+        // A descriptor with TCPS counts as TLS.
+        let d = tls_cfg(
+            false,
+            false,
+            &[(
+                "connect_descriptor",
+                "(DESCRIPTION=(ADDRESS=(PROTOCOL = tcps)(HOST=h)(PORT=2484)))",
+            )],
+        );
+        assert!(uses_tls(&d, false));
+        assert!(matches!(
+            tls_connect_err(&d, false, untrusted()),
+            Error::ConnectFailed(_)
+        ));
     }
 
     #[test]

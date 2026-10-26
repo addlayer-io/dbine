@@ -10,7 +10,7 @@
 mod aws;
 
 use aws_credential_types::provider::ProvideCredentials;
-use dbine_driver::{ConnectionConfig, Error, Result};
+use dbine_driver::{ConnectionConfig, Error, Field, Result, TlsLevel};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest::Method;
 use serde::de::{Deserializer, MapAccess, SeqAccess, Visitor};
@@ -32,6 +32,64 @@ pub struct Client {
     )>,
 }
 
+/// TinkerPop's `enableSsl`: HTTPS.
+pub fn enable_ssl() -> Field {
+    Field::tls_switch(
+        "enableSsl",
+        "enableSsl",
+        TlsLevel::VerifyFull,
+        TlsLevel::Off,
+        true,
+        ["", "", "true", "true"],
+    )
+    .help("Neptune solo acepta HTTPS; sin enableSsl la conexión va por http (un proxy o un túnel propio).")
+}
+
+/// TinkerPop's `sslSkipCertValidation`.
+pub fn skip_cert_validation() -> Field {
+    Field::tls_skip_verify(
+        "sslSkipCertValidation",
+        "sslSkipCertValidation",
+        false,
+        ["false", "true", "false", "true"],
+    )
+}
+
+/// HTTPS: `enableSsl`, or (a connection saved before it, plain) IAM.
+fn https(cfg: &ConnectionConfig) -> bool {
+    match cfg.tls_value(&enable_ssl()) {
+        Some(v) => v == "true",
+        None => cfg.option("iam") == Some("true"),
+    }
+}
+
+/// Through an SSH tunnel: the real server's name, to put in the URL (the
+/// certificate is checked against it and SigV4 signs it as `Host`) while
+/// the socket goes to the tunnel.
+fn tunnel_name(cfg: &ConnectionConfig) -> Option<&str> {
+    cfg.option(dbine_driver::TUNNEL_ORIGIN_HOST)
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+}
+
+/// A request that didn't reach Neptune, with its causes (the TLS one names
+/// the option to change).
+fn send_error(e: reqwest::Error) -> Error {
+    let mut text = e.to_string();
+    let mut cur = std::error::Error::source(&e);
+    while let Some(s) = cur {
+        text.push_str(&format!(": {s}"));
+        cur = s.source();
+    }
+    if text.to_lowercase().contains("certificate") {
+        Error::Connect(format!(
+            "no se pudo verificar el certificado de Neptune ({text}): activá sslSkipCertValidation para no verificarlo"
+        ))
+    } else {
+        Error::Connect(format!("no se pudo llegar a Neptune: {text}"))
+    }
+}
+
 pub fn base_url(cfg: &ConnectionConfig) -> String {
     let host = cfg.host.trim();
     let host = if host.is_empty() { "localhost" } else { host };
@@ -39,11 +97,8 @@ pub fn base_url(cfg: &ConnectionConfig) -> String {
         return host.trim_end_matches('/').to_string();
     }
     // Neptune only takes TLS; plain http is left for proxies / tunnels.
-    let scheme = if cfg.encrypt || cfg.option("iam") == Some("true") {
-        "https"
-    } else {
-        "http"
-    };
+    let scheme = if https(cfg) { "https" } else { "http" };
+    let host = tunnel_name(cfg).unwrap_or(host);
     format!("{scheme}://{host}:{}", cfg.port_or(8182))
 }
 
@@ -194,12 +249,28 @@ fn error_of(status: reqwest::StatusCode, body: &str) -> Error {
 
 impl Client {
     pub async fn new(cfg: &ConnectionConfig) -> Result<Client> {
-        let http = reqwest::Client::builder()
+        let skip = cfg
+            .tls_value(&skip_cert_validation())
+            .is_some_and(|v| v == "true");
+        let mut http = reqwest::Client::builder()
             .connect_timeout(TIMEOUT)
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .user_agent("DBine")
-            .build()
-            .map_err(Error::connect)?;
+            .danger_accept_invalid_certs(skip)
+            .user_agent("DBine");
+        let host = cfg.host.trim();
+        if let (Some(name), false) = (
+            tunnel_name(cfg),
+            host.starts_with("http://") || host.starts_with("https://"),
+        ) {
+            // The URL names the real server; the socket goes to the tunnel
+            // (the URL's port wins over this one).
+            let local = format!("{}:0", if host.is_empty() { "127.0.0.1" } else { host });
+            if let Ok(Some(addr)) =
+                std::net::ToSocketAddrs::to_socket_addrs(&local.as_str()).map(|mut a| a.next())
+            {
+                http = http.resolve(name, addr);
+            }
+        }
+        let http = http.build().map_err(Error::connect)?;
         let iam = if cfg.option("iam") == Some("true") {
             let conf = aws::sdk_config(cfg).await?;
             let region = conf.region().map(|r| r.to_string()).unwrap_or_default();
@@ -244,10 +315,7 @@ impl Client {
         if let Some(b) = body {
             rq = rq.body(b);
         }
-        let resp = rq
-            .send()
-            .await
-            .map_err(|e| Error::Connect(format!("no se pudo llegar a Neptune: {e}")))?;
+        let resp = rq.send().await.map_err(send_error)?;
         let status = resp.status();
         let text = resp
             .text()
@@ -420,6 +488,56 @@ mod tests {
         );
         c.host = "http://localhost:8182/".into();
         assert_eq!(base_url(&c), "http://localhost:8182");
+        c.host = "db".into();
+        // Saved before enableSsl: [ff, ft] plain unless IAM, [tf, tt] https.
+        let url = |encrypt: bool, trust: bool, iam: bool| {
+            let mut c = ConnectionConfig {
+                host: "db".into(),
+                encrypt,
+                trust_server_certificate: trust,
+                ..Default::default()
+            };
+            if iam {
+                c.options.insert("iam".into(), "true".into());
+            }
+            base_url(&c)
+        };
+        assert_eq!(url(false, false, false), "http://db:8182");
+        assert_eq!(url(false, true, false), "http://db:8182");
+        assert_eq!(url(false, false, true), "https://db:8182");
+        assert_eq!(url(true, false, false), "https://db:8182");
+        assert_eq!(url(true, true, false), "https://db:8182");
+        // The option decides; a new connection is https.
+        assert_eq!(enable_ssl().default, "true");
+        c.options.insert("enableSsl".into(), "false".into());
+        assert_eq!(base_url(&c), "http://db:8182");
+        c.options.insert("enableSsl".into(), "true".into());
+        c.encrypt = false;
+        assert_eq!(base_url(&c), "https://db:8182");
+        // Through a tunnel the URL names the real endpoint.
+        c.host = "127.0.0.1".into();
+        c.port = 40123;
+        c.options.insert(
+            dbine_driver::TUNNEL_ORIGIN_HOST.into(),
+            "db.cluster-x.neptune.amazonaws.com".into(),
+        );
+        assert_eq!(
+            base_url(&c),
+            "https://db.cluster-x.neptune.amazonaws.com:40123"
+        );
+        // sslSkipCertValidation: [ff, ft, tf, tt] → false, true, false, true.
+        let skip = skip_cert_validation();
+        let skips = |encrypt: bool, trust: bool| {
+            ConnectionConfig {
+                encrypt,
+                trust_server_certificate: trust,
+                ..Default::default()
+            }
+            .tls_value(&skip)
+                == Some("true")
+        };
+        assert!(!skips(false, false) && skips(false, true));
+        assert!(!skips(true, false) && skips(true, true));
         assert_eq!(
             form(&[("query", "RETURN 1 AS a"), ("explain", "static")]),
             "query=RETURN%201%20AS%20a&explain=static"
