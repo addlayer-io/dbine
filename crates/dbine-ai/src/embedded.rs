@@ -1220,6 +1220,73 @@ mod tests {
         assert!(!d.path().join("m.gguf").exists());
     }
 
+    /// A stand-in `llama-server`: a shell script.
+    #[cfg(unix)]
+    fn fake_engine(dir: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let engine = engine_dir(dir);
+        std::fs::create_dir_all(&engine).unwrap();
+        let exe = engine.join(SERVER_EXE);
+        std::fs::write(&exe, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// The engine as a process: one that dies while loading the model says
+    /// why (its last log lines), and a cancel stops the wait. One test, as
+    /// the running engine is one for the whole process.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_engine_process_failing_or_cancelled() {
+        if bundled_engine().is_some() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let m = &CATALOG[0];
+        std::fs::File::create(model_path(d.path(), m))
+            .unwrap()
+            .set_len(m.size)
+            .unwrap();
+        // A pid file left by a run that didn't close: read and removed.
+        fake_engine(
+            d.path(),
+            "echo 'llama_model_load: error loading model: bad magic' >&2\nsleep 0.5\nexit 1",
+        );
+        std::fs::write(engine_dir(d.path()).join("server.pid"), "not a pid").unwrap();
+        let req = ChatRequest {
+            kind: crate::ProviderKind::Embedded,
+            model: Some(m.id.into()),
+            system: String::new(),
+            messages: vec![],
+            lang: "es",
+        };
+        let cancel = Cancel::new();
+        let e = chat(d.path(), &req, &|_| {}, &cancel).await.unwrap_err();
+        let msg = e.to_string();
+        assert!(msg.contains("se cerró al cargar el modelo"), "{msg}");
+        assert!(msg.contains("bad magic"), "{msg}");
+        // The stale pid file was read, and the failed engine's own removed
+        // when it was stopped.
+        assert!(!engine_dir(d.path()).join("server.pid").exists());
+
+        // One that never gets ready: the cancel ends the wait and stops it.
+        fake_engine(d.path(), "sleep 30");
+        let c = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            c.cancel();
+        });
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            server::ready(&engine_dir(d.path()), &model_path(d.path(), m), &cancel),
+        )
+        .await
+        .expect("the cancel ends the wait");
+        assert!(matches!(r, Err(AiError::Cancelled)), "{r:?}");
+        // Deleting the model stops an engine that has it loaded; nothing runs now.
+        delete(d.path(), m).unwrap();
+        shutdown();
+    }
+
     /// End to end with the real engine and a real model: downloads llama.cpp
     /// into the folder and chats. `DBINE_TEST_MODELS=<folder with a catalog
     /// model> cargo test -p dbine-ai -- --ignored`.
