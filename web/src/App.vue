@@ -211,33 +211,33 @@ watch(
         <div class="ide-activity-logo" title="DBine">
           <img src="/dbine.png" alt="DBine" width="26" height="26" />
         </div>
-        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'explorer' }" :title="$t('workbench:app.explorer')" @click="toggleView('explorer')">
+        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'explorer' }" :title="$t('workbench:app.explorer')" :aria-label="$t('workbench:app.explorer')" @click="toggleView('explorer')">
           <el-icon :size="22"><ei-coin /></el-icon>
         </button>
-        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'projects' }" :title="$t('workbench:app.projects')" @click="toggleView('projects')">
+        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'projects' }" :title="$t('workbench:app.projects')" :aria-label="$t('workbench:app.projects')" @click="toggleView('projects')">
           <el-icon :size="21"><ei-folder-opened /></el-icon>
           <span v-if="projects.totalChanges" class="ide-activity-badge" :aria-label="$t('workbench:app.projectChanges', { count: projects.totalChanges })">{{ projects.totalChanges > 99 ? '99+' : projects.totalChanges }}</span>
         </button>
-        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'library' }" :title="$t('workbench:app.library')" @click="toggleView('library')">
+        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'library' }" :title="$t('workbench:app.library')" :aria-label="$t('workbench:app.library')" @click="toggleView('library')">
           <el-icon :size="21"><ei-star /></el-icon>
         </button>
-        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'history' }" :title="$t('history:title')" @click="toggleView('history')">
+        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'history' }" :title="$t('history:title')" :aria-label="$t('history:title')" @click="toggleView('history')">
           <el-icon :size="21"><ei-clock /></el-icon>
         </button>
-        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'scheduled' }" :title="$t('scheduled:title')" @click="toggleView('scheduled')">
+        <button class="ide-activity-item" :class="{ active: sidebarOpen && ui.sidebarView === 'scheduled' }" :title="$t('scheduled:title')" :aria-label="$t('scheduled:title')" @click="toggleView('scheduled')">
           <el-icon :size="21"><ei-alarm-clock /></el-icon>
         </button>
-        <button class="ide-activity-item" :title="$t('workbench:app.newQuery')" @click="newQueryHere">
+        <button class="ide-activity-item" :title="$t('workbench:app.newQuery')" :aria-label="$t('workbench:app.newQuery')" @click="newQueryHere">
           <el-icon :size="22"><ei-document-add /></el-icon>
         </button>
         <div style="flex: 1;" />
-        <button class="ide-activity-item" :class="{ active: panelOpen }" :title="$t('workbench:app.output')" @click="panelOpen = !panelOpen">
+        <button class="ide-activity-item" :class="{ active: panelOpen }" :title="$t('workbench:app.output')" :aria-label="$t('workbench:app.output')" @click="panelOpen = !panelOpen">
           <el-icon :size="20"><ei-tickets /></el-icon>
         </button>
-        <button class="ide-activity-item" :class="{ active: ui.aiOpen }" :title="$t('workbench:app.ai')" @click="ui.aiOpen = !ui.aiOpen">
+        <button class="ide-activity-item" :class="{ active: ui.aiOpen }" :title="$t('workbench:app.ai')" :aria-label="$t('workbench:app.ai')" @click="ui.aiOpen = !ui.aiOpen">
           <el-icon :size="21"><SparklesIcon /></el-icon>
         </button>
-        <button class="ide-activity-item" :class="{ active: ui.settingsSection }" :title="$t('workbench:app.settings')" @click="ui.openSettings()">
+        <button class="ide-activity-item" :class="{ active: ui.settingsSection }" :title="$t('workbench:app.settings')" :aria-label="$t('workbench:app.settings')" @click="ui.openSettings()">
           <el-icon :size="21"><ei-setting /></el-icon>
         </button>
         <!-- Not a tool: last, smaller and dimmer than the rest. -->
