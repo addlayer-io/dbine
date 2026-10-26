@@ -1776,4 +1776,1098 @@ mod tests {
         ));
         assert!(e.to_string().contains("clave foránea DBINE.FK_X"), "{e}");
     }
+
+    // ---- `complete` and `adjust` with the Oracle driver's own DDL ----------
+
+    use dbine_driver::{CheckDef, ColumnDef, ForeignKeyDef, IndexDef, KeyDef};
+
+    fn oracle_driver() -> std::sync::Arc<dyn Driver> {
+        dbine_drivers::find("oracle")
+            .expect("oracle driver")
+            .clone()
+    }
+
+    fn column(name: &str, data_type: &str, nullable: bool) -> ColumnDef {
+        ColumnDef {
+            name: name.into(),
+            data_type: data_type.into(),
+            nullable,
+            ..Default::default()
+        }
+    }
+
+    /// A unique constraint as the Oracle driver reports it.
+    fn unique(name: &str, col: &str) -> IndexDef {
+        IndexDef {
+            name: name.into(),
+            columns: vec![col.into()],
+            unique: true,
+            kind: Some("CONSTRAINT".into()),
+            ..Default::default()
+        }
+    }
+
+    /// `DBINE.T`: a key, a CHECK, two unique constraints (one named by
+    /// the server) and a foreign key.
+    fn source_table() -> TableSchema {
+        TableSchema {
+            kind: "table".into(),
+            schema: Some("DBINE".into()),
+            name: "T".into(),
+            columns: vec![
+                column("ID", "NUMBER(10)", false),
+                column("V", "NUMBER", false),
+                column("U", "VARCHAR2(10)", true),
+                column("W", "VARCHAR2(10)", true),
+            ],
+            primary_key: Some(KeyDef {
+                name: Some("PK_T".into()),
+                columns: vec!["ID".into()],
+            }),
+            checks: vec![CheckDef {
+                name: Some("CK_POS".into()),
+                expression: "V > 0".into(),
+            }],
+            indexes: vec![unique("UQ_U", "U"), unique("SYS_C77", "W")],
+            foreign_keys: vec![ForeignKeyDef {
+                name: Some("FK_V".into()),
+                columns: vec!["V".into()],
+                ref_schema: Some("DBINE".into()),
+                ref_table: "P".into(),
+                ref_columns: vec!["ID".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The plan, completed with the original's catalog, and its DDL.
+    fn plan_for(
+        driver: &dyn Driver,
+        o: &Original,
+        source: &TableSchema,
+        options: &CloneOptions,
+    ) -> (ClonePlan, Ddl) {
+        let mut p = super::super::plan_clone(driver, source, "T_C").unwrap();
+        complete(o, &mut p, "T", "T_C", 128, &[]);
+        let ddl = super::super::ddl_of(driver, &p.table, options).unwrap();
+        (p, ddl)
+    }
+
+    fn renamed_to(p: &ClonePlan, from: &str) -> String {
+        p.renames
+            .iter()
+            .find(|r| r.from == from)
+            .unwrap_or_else(|| panic!("{from} not renamed: {:?}", p.renames))
+            .to
+            .clone()
+    }
+
+    #[test]
+    fn constraint_states_go_into_the_clones_ddl() {
+        let driver = oracle_driver();
+        let source = source_table();
+        let mut ck = con("CK_POS", "C");
+        ck.enabled = false;
+        ck.validated = false;
+        ck.condition = "V > 0".into();
+        // Enabled but not validated, on an index of its own.
+        let mut pk = con("PK_T", "P");
+        pk.validated = false;
+        pk.columns = vec!["ID".into()];
+        let nn = Con {
+            condition: "\"V\" IS NOT NULL".into(),
+            ..con("NN_V", "C")
+        };
+        let mut uq = con("UQ_U", "U");
+        uq.deferrable = true;
+        uq.deferred = true;
+        uq.columns = vec!["U".into()];
+        let mut sys = con("SYS_C77", "U");
+        sys.generated = true;
+        sys.columns = vec!["W".into()];
+        let mut fk = con("FK_V", "R");
+        fk.enabled = false;
+        fk.validated = false;
+        fk.columns = vec!["V".into()];
+        let o = Original {
+            cons: vec![ck, pk, nn, uq, sys, fk],
+            backing: vec![Backing {
+                constraint: "PK_T".into(),
+                name: "IX_T_ID".into(),
+                unique: false,
+                columns: vec!["ID".into()],
+            }],
+            ..Default::default()
+        };
+        let options = CloneOptions::default();
+        let (p, mut ddl) = plan_for(&*driver, &o, &source, &options);
+        // The server-named unique keeps its name (the server names the
+        // clone's); the key's index and the named NOT NULL are renamed.
+        assert!(p.renames.iter().all(|r| r.from != "SYS_C77"));
+        assert_eq!(p.table.indexes[1].name, "SYS_C77");
+        let ix = renamed_to(&p, "IX_T_ID");
+        let nn_to = renamed_to(&p, "NN_V");
+        assert_ne!(ix, "IX_T_ID");
+
+        let after = adjust(&*driver, &o, &source, &p, &options, &mut ddl).unwrap();
+
+        // The disabled CHECK leaves the CREATE and is added after the rows.
+        assert!(!ddl.create.contains("CHECK"), "{}", ddl.create);
+        let ck_to = renamed_to(&p, "CK_POS");
+        assert!(
+            after.statements.iter().any(|(n, s)| *n == ck_to
+                && s == &format!(
+                    "ALTER TABLE \"DBINE\".\"T_C\" ADD CONSTRAINT \"{ck_to}\" CHECK (V > 0) DISABLE"
+                )),
+            "{:?}",
+            after.statements
+        );
+        // The key is created disabled, then enabled without validating,
+        // with the original's kind of index.
+        assert!(
+            ddl.create.contains("PRIMARY KEY (\"ID\") DISABLE"),
+            "{}",
+            ddl.create
+        );
+        let pk_to = renamed_to(&p, "PK_T");
+        assert!(
+            after.statements.iter().any(|(n, s)| *n == pk_to
+                && s == &format!(
+                    "ALTER TABLE \"DBINE\".\"T_C\" ENABLE NOVALIDATE PRIMARY KEY USING INDEX (CREATE INDEX \"DBINE\".\"{ix}\" ON \"DBINE\".\"T_C\" (\"ID\"))"
+                )),
+            "{:?}",
+            after.statements
+        );
+        // No NOT NULL constraint declared on the key column: none added.
+        assert!(ddl.create.contains("\"ID\" NUMBER(10),"), "{}", ddl.create);
+        assert!(
+            ddl.create.contains("\"V\" NUMBER NOT NULL,"),
+            "{}",
+            ddl.create
+        );
+        assert_eq!(after.not_null, vec![("V".to_string(), nn_to)]);
+        assert_eq!(after.table.as_ref().unwrap().name, "T_C");
+
+        let indexes = ddl.indexes.clone().unwrap();
+        let uq_to = renamed_to(&p, "UQ_U");
+        assert!(
+            indexes.contains(&format!(
+                "ADD CONSTRAINT \"{uq_to}\" UNIQUE (\"U\") DEFERRABLE INITIALLY DEFERRED;"
+            )),
+            "{indexes}"
+        );
+        assert!(indexes.contains("ADD UNIQUE (\"W\");"), "{indexes}");
+        assert!(!indexes.contains("SYS_C77"), "{indexes}");
+
+        let fks = ddl.foreign_keys.clone().unwrap();
+        assert!(
+            fks.ends_with("REFERENCES \"DBINE\".\"P\" (\"ID\") DISABLE;"),
+            "{fks}"
+        );
+    }
+
+    #[test]
+    fn a_validated_key_keeps_its_index_and_declared_not_null() {
+        let driver = oracle_driver();
+        let mut source = source_table();
+        source.checks.clear();
+        source.indexes.clear();
+        source.foreign_keys.clear();
+        let mut pk = con("PK_T", "P");
+        pk.rely = true;
+        pk.columns = vec!["ID".into()];
+        let nn = Con {
+            condition: "\"ID\" IS NOT NULL".into(),
+            generated: true,
+            ..con("SYS_C1", "C")
+        };
+        let o = Original {
+            cons: vec![pk, nn],
+            backing: vec![Backing {
+                constraint: "PK_T".into(),
+                name: "UX_T".into(),
+                unique: true,
+                columns: vec!["ID".into(), "V".into()],
+            }],
+            ..Default::default()
+        };
+        let options = CloneOptions::default();
+        let (p, mut ddl) = plan_for(&*driver, &o, &source, &options);
+        let after = adjust(&*driver, &o, &source, &p, &options, &mut ddl).unwrap();
+        let ux = renamed_to(&p, "UX_T");
+        assert!(
+            ddl.create.contains(&format!(
+                "PRIMARY KEY (\"ID\") RELY USING INDEX (CREATE UNIQUE INDEX \"DBINE\".\"{ux}\" ON \"DBINE\".\"T_C\" (\"ID\", \"V\"))"
+            )),
+            "{}",
+            ddl.create
+        );
+        // Declared in the original: the key column stays NOT NULL.
+        assert!(
+            ddl.create.contains("\"ID\" NUMBER(10) NOT NULL,"),
+            "{}",
+            ddl.create
+        );
+        // Enabled and validated: nothing to do after the rows; the
+        // server-named NOT NULL isn't renamed.
+        assert!(after.statements.is_empty(), "{:?}", after.statements);
+        assert!(after.not_null.is_empty());
+        assert!(p.renames.iter().all(|r| r.from != "SYS_C1"));
+    }
+
+    #[test]
+    fn an_unnamed_check_is_found_by_its_condition() {
+        let driver = oracle_driver();
+        let mut source = source_table();
+        source.primary_key = None;
+        source.indexes.clear();
+        source.foreign_keys.clear();
+        source.checks = vec![CheckDef {
+            name: None,
+            expression: " V > 0 ".into(),
+        }];
+        let mut ck = con("SYS_C9", "C");
+        ck.generated = true;
+        ck.enabled = true;
+        ck.validated = false;
+        ck.condition = "V > 0".into();
+        let o = Original {
+            cons: vec![ck],
+            ..Default::default()
+        };
+        let options = CloneOptions::default();
+        let (p, mut ddl) = plan_for(&*driver, &o, &source, &options);
+        let after = adjust(&*driver, &o, &source, &p, &options, &mut ddl).unwrap();
+        assert_eq!(
+            after.statements,
+            vec![(
+                "SYS_C9".to_string(),
+                "ALTER TABLE \"DBINE\".\"T_C\" ADD CHECK (V > 0) ENABLE NOVALIDATE".to_string()
+            )]
+        );
+        assert!(!ddl.create.contains("CHECK"), "{}", ddl.create);
+    }
+
+    #[test]
+    fn without_indexes_unique_constraints_are_left_alone() {
+        let driver = oracle_driver();
+        let source = source_table();
+        let mut sys = con("SYS_C77", "U");
+        sys.generated = true;
+        sys.columns = vec!["W".into()];
+        let o = Original {
+            cons: vec![sys],
+            ..Default::default()
+        };
+        let options = CloneOptions {
+            with_indexes: false,
+            ..Default::default()
+        };
+        let (p, mut ddl) = plan_for(&*driver, &o, &source, &options);
+        assert!(ddl.indexes.is_none());
+        let fks_before = ddl.foreign_keys.clone();
+        adjust(&*driver, &o, &source, &p, &options, &mut ddl).unwrap();
+        assert!(ddl.indexes.is_none());
+        // A foreign key in its usual state is written as the driver does.
+        assert_eq!(ddl.foreign_keys, fks_before);
+    }
+
+    #[test]
+    fn a_server_named_unique_written_as_an_index_is_refused() {
+        let driver = oracle_driver();
+        let mut source = source_table();
+        // Reported as a plain unique index: the driver writes CREATE UNIQUE INDEX.
+        source.indexes = vec![IndexDef {
+            kind: None,
+            ..unique("SYS_C77", "W")
+        }];
+        let mut sys = con("SYS_C77", "U");
+        sys.generated = true;
+        sys.columns = vec!["W".into()];
+        let o = Original {
+            cons: vec![sys],
+            ..Default::default()
+        };
+        let options = CloneOptions::default();
+        let (p, mut ddl) = plan_for(&*driver, &o, &source, &options);
+        let err = adjust(&*driver, &o, &source, &p, &options, &mut ddl).expect_err("refused");
+        assert!(err.to_string().contains("nombre del sistema"), "{err}");
+    }
+
+    #[test]
+    fn completed_names_avoid_the_schemas_names() {
+        let o = Original {
+            cons: vec![Con {
+                condition: "\"V\" IS NOT NULL".into(),
+                ..con("NN_V", "C")
+            }],
+            backing: vec![Backing {
+                constraint: "PK_T".into(),
+                name: "IX_T_ID".into(),
+                unique: false,
+                columns: vec!["ID".into()],
+            }],
+            ..Default::default()
+        };
+        let empty = ClonePlan {
+            table: TableSchema::default(),
+            renames: vec![],
+            notes: vec![],
+        };
+        // The names they'd get without anything in the way.
+        let mut free = empty.clone();
+        complete(&o, &mut free, "T", "T_C", 128, &[]);
+        assert_eq!(free.renames.len(), 2);
+        assert!(free.notes.is_empty());
+        // Taken by other objects of the schema (in another case): changed,
+        // with a note.
+        let taken: Vec<String> = free.renames.iter().map(|r| r.to.to_lowercase()).collect();
+        let mut p = empty.clone();
+        complete(&o, &mut p, "T", "T_C", 128, &taken);
+        for (r, f) in p.renames.iter().zip(&free.renames) {
+            assert_eq!(r.from, f.from);
+            assert_ne!(r.to, f.to);
+            assert!(r.to.starts_with(&f.to), "{} / {}", r.to, f.to);
+        }
+        assert_eq!(p.notes.len(), 2, "{:?}", p.notes);
+        assert!(p.notes[0].contains("ya usaba otro objeto"), "{:?}", p.notes);
+        // A name already renamed by the plan is kept.
+        let mut pre = empty.clone();
+        pre.renames.push(Rename {
+            from: "NN_V".into(),
+            to: "MINE".into(),
+            shortened: false,
+        });
+        complete(&o, &mut pre, "T", "T_C", 128, &[]);
+        assert_eq!(renamed_to(&pre, "NN_V"), "MINE");
+        // Too long for the engine: shortened, with a note.
+        let long = Original {
+            backing: vec![Backing {
+                name: "IX_T_A_RATHER_LONG_INDEX_NAME".into(),
+                ..o.backing[0].clone()
+            }],
+            ..o.clone()
+        };
+        let mut short = empty;
+        complete(&long, &mut short, "T", "T_C", 16, &[]);
+        assert!(
+            short.renames.iter().all(|r| r.to.len() <= 16),
+            "{:?}",
+            short.renames
+        );
+        assert!(short.renames[0].shortened && !short.renames[1].shortened);
+        assert_eq!(short.notes.len(), 1, "{:?}", short.notes);
+        assert!(short.notes[0].contains("acortado"), "{:?}", short.notes);
+    }
+
+    #[test]
+    fn key_index_statements_and_lookups() {
+        let clone = TableSchema {
+            schema: Some("S".into()),
+            name: "T_C".into(),
+            ..Default::default()
+        };
+        let b = Backing {
+            constraint: "PK".into(),
+            name: "IX".into(),
+            unique: true,
+            columns: vec!["A".into(), "B".into()],
+        };
+        let renames = vec![Rename {
+            from: "IX".into(),
+            to: "IX_C".into(),
+            shortened: false,
+        }];
+        assert_eq!(
+            backing_sql(&b, &clone, &renames),
+            "CREATE UNIQUE INDEX \"S\".\"IX_C\" ON \"S\".\"T_C\" (\"A\", \"B\")"
+        );
+        let plain = TableSchema {
+            name: "T_C".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            backing_sql(&Backing { unique: false, ..b }, &plain, &[]),
+            "CREATE INDEX \"IX\" ON \"T_C\" (\"A\", \"B\")"
+        );
+        let mut gen_fk = con("SYS_C5", "R");
+        gen_fk.generated = true;
+        gen_fk.columns = vec!["A".into()];
+        let o = Original {
+            cons: vec![con("FK_A", "R"), gen_fk],
+            ..Default::default()
+        };
+        assert_eq!(
+            find(&o, "R", Some("FK_A"), &[], None).map(|c| c.name.as_str()),
+            Some("FK_A")
+        );
+        assert_eq!(find(&o, "R", Some("FK_B"), &[], None), None);
+        // Unnamed: the server-named one on the same columns.
+        assert_eq!(
+            find(&o, "R", Some(""), &["A".to_string()], None).map(|c| c.name.as_str()),
+            Some("SYS_C5")
+        );
+        assert_eq!(find(&o, "R", None, &["B".to_string()], None), None);
+        assert_eq!(owner(Some("")), "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')");
+        assert_eq!(owner(Some("O'K")), "'O''K'");
+    }
+
+    #[test]
+    fn physical_description_in_spanish() {
+        assert_eq!(
+            Physical::default().describe(),
+            "permanente, sin compresión, organizada como heap, sin particionar, sin ROW MOVEMENT"
+        );
+        let all = Physical {
+            temporary: Some("ON COMMIT DELETE ROWS".into()),
+            compression: Some("COMPRESS BASIC".into()),
+            iot: Some("PCTTHRESHOLD 50".into()),
+            partitioning: Some("PARTITION BY HASH (\"ID\")".into()),
+            row_movement: true,
+        };
+        assert_eq!(
+            all.describe(),
+            "temporal global (ON COMMIT DELETE ROWS), comprimida (COMPRESS BASIC), organizada por índice (PCTTHRESHOLD 50), particionada (PARTITION BY HASH (\"ID\")), con ROW MOVEMENT"
+        );
+        assert_eq!(
+            all.clauses(),
+            (
+                " ON COMMIT DELETE ROWS ORGANIZATION INDEX".to_string(),
+                " COMPRESS BASIC PCTTHRESHOLD 50 PARTITION BY HASH (\"ID\") ENABLE ROW MOVEMENT"
+                    .to_string()
+            )
+        );
+        assert_eq!(number(Some(&" 50.0 ".to_string())), Some(50));
+        assert_eq!(number(Some(&"x".to_string())), None);
+        assert_eq!(number(None), None);
+    }
+
+    // ---- The catalog readers, against a scripted session ----------------
+
+    use super::super::test_session::{row, Scripted};
+
+    const CONSTRAINTS: &str = "FROM all_constraints c";
+    const KEY_INDEX: &str = "FROM all_indexes i JOIN all_ind_columns ic";
+    const TABLE: &str = "FROM all_tables t LEFT JOIN all_indexes i";
+    const PART_TABLE: &str = "SELECT partitioning_type";
+    const AUTOLIST: &str = "SELECT autolist";
+    const PART_KEYS: &str = "FROM all_part_key_columns";
+    const PARTITIONS: &str = "FROM all_tab_partitions WHERE table_owner";
+    const LOCAL: &str = "pi.locality = 'LOCAL'";
+
+    /// A constraint row as ALL_CONSTRAINTS gives it.
+    #[allow(clippy::too_many_arguments)]
+    fn con_row(
+        name: &str,
+        kind: &str,
+        enabled: bool,
+        validated: bool,
+        generated: bool,
+        index: Option<(&str, &str)>,
+        cols: &str,
+        condition: Option<&str>,
+    ) -> Vec<Option<String>> {
+        row(&[
+            Some(name),
+            Some(kind),
+            Some(if enabled { "ENABLED" } else { "DISABLED" }),
+            Some(if validated {
+                "VALIDATED"
+            } else {
+                "NOT VALIDATED"
+            }),
+            Some("NOT DEFERRABLE"),
+            Some("IMMEDIATE"),
+            None,
+            Some(if generated {
+                "GENERATED NAME"
+            } else {
+                "USER NAME"
+            }),
+            index.map(|(o, _)| o),
+            index.map(|(_, i)| i),
+            Some(cols),
+            condition,
+        ])
+    }
+
+    /// ALL_TABLES' row: iot_type, partitioned, row_movement, pct_threshold,
+    /// compression (index), prefix_length, overflow count, temporary,
+    /// duration, compression, compress_for.
+    fn table_row(cells: [Option<&str>; 11]) -> Vec<Vec<Option<String>>> {
+        vec![row(&cells)]
+    }
+
+    fn heap() -> Vec<Vec<Option<String>>> {
+        table_row([
+            None,
+            Some("NO"),
+            Some("DISABLED"),
+            None,
+            None,
+            None,
+            Some("0"),
+            Some("N"),
+            None,
+            Some("DISABLED"),
+            None,
+        ])
+    }
+
+    fn t() -> TableSchema {
+        TableSchema {
+            schema: Some("DBINE".into()),
+            name: "T".into(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn inspect_keeps_only_the_indexes_oracle_wouldnt_make() {
+        let mut s = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![
+                    con_row(
+                        "PK_T",
+                        "P",
+                        true,
+                        true,
+                        false,
+                        Some(("DBINE", "UXI_T")),
+                        "ID",
+                        None,
+                    ),
+                    con_row(
+                        "UQ_A",
+                        "U",
+                        true,
+                        true,
+                        false,
+                        Some(("DBINE", "UQ_A")),
+                        "A",
+                        None,
+                    ),
+                    con_row(
+                        "NN_A",
+                        "C",
+                        true,
+                        true,
+                        false,
+                        None,
+                        "A",
+                        Some("\"A\" IS NOT NULL"),
+                    ),
+                    con_row("CK_OFF", "C", false, false, false, None, "", Some("A > 0")),
+                ],
+            )
+            .on(
+                &[KEY_INDEX, "'UXI_T'"],
+                vec![
+                    row(&[Some("UNIQUE"), Some("ID"), Some("ASC")]),
+                    row(&[Some("UNIQUE"), Some("B"), Some("ASC")]),
+                ],
+            )
+            .on(
+                &[KEY_INDEX, "'UQ_A'"],
+                vec![row(&[Some("UNIQUE"), Some("A"), Some("ASC")])],
+            )
+            .on(&[TABLE], heap());
+        let o = inspect(&mut s, &t()).await.unwrap();
+        assert_eq!(o.cons.len(), 4);
+        // UQ_A uses the index Oracle makes for it: nothing to carry.
+        assert_eq!(
+            o.backing,
+            vec![Backing {
+                constraint: "PK_T".into(),
+                name: "UXI_T".into(),
+                unique: true,
+                columns: vec!["ID".into(), "B".into()],
+            }]
+        );
+        assert_eq!(o.physical, Physical::default());
+        assert!(o.local.is_empty());
+        // Every query is for the table's owner and name.
+        let ran = s.ran();
+        assert!(
+            ran[0].contains("c.owner = 'DBINE' AND c.table_name = 'T'"),
+            "{}",
+            ran[0]
+        );
+        assert!(ran.iter().all(|q| !q.contains(LOCAL)));
+    }
+
+    #[tokio::test]
+    async fn inspect_refuses_what_the_clone_cant_have() {
+        let msg = |r: Result<Original>| match r {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("accepted"),
+        };
+        // DISABLE VALIDATE: the table takes no rows.
+        let mut s = Scripted::new().on(
+            &[CONSTRAINTS],
+            vec![con_row(
+                "CK_RO",
+                "C",
+                false,
+                true,
+                false,
+                None,
+                "",
+                Some("A > 0"),
+            )],
+        );
+        assert!(msg(inspect(&mut s, &t()).await).contains("DISABLE VALIDATE"));
+        // A key on a descending index.
+        let mut s = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![con_row(
+                    "PK_T",
+                    "P",
+                    true,
+                    true,
+                    false,
+                    Some(("DBINE", "IX_D")),
+                    "ID",
+                    None,
+                )],
+            )
+            .on(
+                &[KEY_INDEX],
+                vec![row(&[Some("UNIQUE"), Some("ID"), Some("DESC")])],
+            );
+        assert!(msg(inspect(&mut s, &t()).await).contains("descendentes o expresiones"));
+        // A key on an index of another schema.
+        let mut s = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![con_row(
+                    "PK_T",
+                    "P",
+                    true,
+                    true,
+                    false,
+                    Some(("OTRO", "IX_O")),
+                    "ID",
+                    None,
+                )],
+            )
+            .on(
+                &[KEY_INDEX, "i.owner = 'OTRO'"],
+                vec![row(&[Some("NONUNIQUE"), Some("ID"), Some("ASC")])],
+            );
+        assert!(msg(inspect(&mut s, &t()).await).contains("otro esquema"));
+        // The key's index can't be read.
+        let mut s = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![con_row(
+                    "PK_T",
+                    "P",
+                    true,
+                    true,
+                    false,
+                    Some(("DBINE", "IX_X")),
+                    "ID",
+                    None,
+                )],
+            )
+            .fail(&[KEY_INDEX], "ORA-00942");
+        assert!(msg(inspect(&mut s, &t()).await).contains("no se pudo leer el índice «IX_X»"));
+        // The constraints can't be read.
+        let mut s = Scripted::new().fail(&[CONSTRAINTS], "ORA-01031: insufficient privileges");
+        assert!(msg(inspect(&mut s, &t()).await).contains("estado de las restricciones"));
+    }
+
+    fn physical_of(rows: Vec<Vec<Option<String>>>) -> Scripted {
+        Scripted::new().on(&[TABLE], rows)
+    }
+
+    #[tokio::test]
+    async fn physical_temporary_compressed_and_index_organized() {
+        let mut cells = [
+            None,
+            Some("NO"),
+            Some("ENABLED"),
+            None,
+            None,
+            None,
+            Some("0"),
+            Some("Y"),
+            Some("SYS$TRANSACTION"),
+            Some("ENABLED"),
+            Some("ADVANCED"),
+        ];
+        let mut s = physical_of(table_row(cells));
+        let p = physical(&mut s, None, "T").await.unwrap();
+        assert_eq!(p.temporary.as_deref(), Some("ON COMMIT DELETE ROWS"));
+        assert_eq!(
+            p.compression.as_deref(),
+            Some("ROW STORE COMPRESS ADVANCED")
+        );
+        assert!(p.row_movement);
+        assert!(s.ran()[0].contains("SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')"));
+
+        cells[8] = Some("SYS$SESSION");
+        cells[9] = Some("DISABLED");
+        let p = physical(&mut physical_of(table_row(cells)), None, "T")
+            .await
+            .unwrap();
+        assert_eq!(p.temporary.as_deref(), Some("ON COMMIT PRESERVE ROWS"));
+        assert_eq!(p.compression, None);
+
+        cells[8] = Some("SYS$OTHER");
+        let e = physical(&mut physical_of(table_row(cells)), None, "T")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("SYS$OTHER"), "{e}");
+
+        // Index-organized, with key compression.
+        let iot = [
+            Some("IOT"),
+            Some("NO"),
+            Some("DISABLED"),
+            Some("40"),
+            Some("ENABLED"),
+            Some("2"),
+            Some("0"),
+            Some("N"),
+            None,
+            Some("ENABLED"),
+            Some("BASIC"),
+        ];
+        let p = physical(&mut physical_of(table_row(iot)), None, "T")
+            .await
+            .unwrap();
+        assert_eq!(p.iot.as_deref(), Some("PCTTHRESHOLD 40 COMPRESS 2"));
+        // An IOT's compression is its key's, not the table's.
+        assert_eq!(p.compression, None);
+        // With an overflow segment: refused.
+        let mut overflow = iot;
+        overflow[6] = Some("1");
+        let e = physical(&mut physical_of(table_row(overflow)), None, "T")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("OVERFLOW"), "{e}");
+        // A compression the clone can't have.
+        let mut odd = cells;
+        odd[7] = Some("N");
+        odd[9] = Some("ENABLED");
+        odd[10] = Some("WEIRD");
+        let e = physical(&mut physical_of(table_row(odd)), None, "T")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("(WEIRD)"), "{e}");
+        // Nothing found: a plain table.
+        let p = physical(&mut physical_of(vec![]), None, "T").await.unwrap();
+        assert_eq!(p, Physical::default());
+        let e = physical(&mut Scripted::new().fail(&[TABLE], "x"), None, "T")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("organización física"), "{e}");
+    }
+
+    fn partitioned() -> Vec<Vec<Option<String>>> {
+        table_row([
+            None,
+            Some("YES"),
+            Some("DISABLED"),
+            None,
+            None,
+            None,
+            Some("0"),
+            Some("N"),
+            None,
+            Some("DISABLED"),
+            None,
+        ])
+    }
+
+    fn range_table(part_table: Vec<Option<String>>) -> Scripted {
+        Scripted::new()
+            .on(&[TABLE], partitioned())
+            .on(&[PART_TABLE], vec![part_table])
+            .on(&[AUTOLIST], vec![row(&[Some("NO")])])
+            .on(&[PART_KEYS], vec![row(&[Some("D")])])
+            .on(
+                &[PARTITIONS],
+                vec![
+                    row(&[Some("P2024"), Some("ENABLED"), Some("BASIC"), Some("10")]),
+                    row(&[Some("SYS_P99"), Some("DISABLED"), None, Some("MAXVALUE")]),
+                ],
+            )
+    }
+
+    #[tokio::test]
+    async fn physical_partitions_by_range() {
+        let mut s = range_table(row(&[
+            Some("RANGE"),
+            Some("NONE"),
+            None,
+            Some("DISABLED"),
+            None,
+        ]));
+        let p = physical(&mut s, Some("DBINE"), "T").await.unwrap();
+        // The first partition is compressed on its own; the server-named
+        // one is left unnamed.
+        assert_eq!(
+            p.partitioning.as_deref(),
+            Some("PARTITION BY RANGE (\"D\") (PARTITION \"P2024\" VALUES LESS THAN (10) COMPRESS BASIC, PARTITION VALUES LESS THAN (MAXVALUE))")
+        );
+        // Compressed by default: an uncompressed partition says NOCOMPRESS.
+        let mut s = range_table(row(&[
+            Some("RANGE"),
+            None,
+            None,
+            Some("ENABLED"),
+            Some("BASIC"),
+        ]));
+        let p = physical(&mut s, Some("DBINE"), "T").await.unwrap();
+        assert_eq!(p.compression.as_deref(), Some("COMPRESS BASIC"));
+        assert!(
+            p.partitioning
+                .as_deref()
+                .unwrap()
+                .ends_with("PARTITION VALUES LESS THAN (MAXVALUE) NOCOMPRESS)"),
+            "{:?}",
+            p.partitioning
+        );
+    }
+
+    #[tokio::test]
+    async fn physical_refuses_partitionings_the_clone_cant_have() {
+        async fn refused(mut s: Scripted) -> String {
+            match physical(&mut s, Some("DBINE"), "T").await {
+                Err(e) => e.to_string(),
+                Ok(p) => panic!("accepted: {p:?}"),
+            }
+        }
+        let e = refused(range_table(row(&[
+            Some("REFERENCE"),
+            None,
+            None,
+            None,
+            None,
+        ])))
+        .await;
+        assert!(e.contains("por REFERENCE"), "{e}");
+        let e = refused(range_table(row(&[
+            Some("RANGE"),
+            Some("HASH"),
+            None,
+            None,
+            None,
+        ])))
+        .await;
+        assert!(e.contains("subparticiones (RANGE-HASH)"), "{e}");
+        let e = refused(range_table(row(&[
+            Some("RANGE"),
+            Some("NONE"),
+            Some("NUMTOYMINTERVAL(1,'MONTH')"),
+            None,
+            None,
+        ])))
+        .await;
+        assert!(e.contains("INTERVAL NUMTOYMINTERVAL"), "{e}");
+        // AUTOMATIC list partitioning (12.2 and later).
+        let automatic = Scripted::new()
+            .on(&[AUTOLIST], vec![row(&[Some("YES")])])
+            .on(&[TABLE], partitioned())
+            .on(
+                &[PART_TABLE],
+                vec![row(&[Some("LIST"), None, None, Some("DISABLED"), None])],
+            );
+        let e = refused(automatic).await;
+        assert!(e.contains("AUTOMATIC"), "{e}");
+        // No partitioning keys found.
+        let mut s = Scripted::new()
+            .on(&[TABLE], partitioned())
+            .on(
+                &[PART_TABLE],
+                vec![row(&[Some("HASH"), None, None, None, None])],
+            )
+            .on(&[AUTOLIST], vec![])
+            .on(&[PART_KEYS], vec![])
+            .on(&[PARTITIONS], vec![row(&[Some("P1"), None, None, None])]);
+        let e = physical(&mut s, Some("DBINE"), "T").await.unwrap_err();
+        assert!(e.to_string().contains("el particionado"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn local_index_partitions_with_their_own_names() {
+        let mut s = range_table(row(&[Some("RANGE"), None, None, None, None]))
+            .on(&[CONSTRAINTS], vec![])
+            .on(
+                &[LOCAL],
+                vec![
+                    // Named like the table's partitions: nothing to carry.
+                    row(&[Some("IX_SAME"), Some("P2024"), Some("P2024")]),
+                    row(&[Some("IX_SAME"), Some("SYS_P99"), Some("SYS_P99")]),
+                    // Its own names.
+                    row(&[Some("IX_OWN"), Some("LP1"), Some("P2024")]),
+                    row(&[Some("IX_OWN"), Some("SYS_P120"), Some("SYS_P99")]),
+                ],
+            );
+        let o = inspect(&mut s, &t()).await.unwrap();
+        assert!(o.physical.partitioning.is_some());
+        assert_eq!(
+            o.local,
+            vec![(
+                "IX_OWN".to_string(),
+                vec!["LP1".to_string(), "SYS_P120".to_string()]
+            )]
+        );
+        assert_eq!(
+            local_clause(&o.local[0].1),
+            "LOCAL (PARTITION \"LP1\", PARTITION)"
+        );
+    }
+
+    #[tokio::test]
+    async fn after_the_rows_names_and_states_are_applied() {
+        let clone = TableSchema {
+            schema: Some("DBINE".into()),
+            name: "T_C".into(),
+            ..Default::default()
+        };
+        let a = AfterLoad {
+            statements: vec![(
+                "CK_C".into(),
+                "ALTER TABLE \"DBINE\".\"T_C\" ADD CONSTRAINT \"CK_C\" CHECK (A > 0) DISABLE"
+                    .into(),
+            )],
+            table: Some(clone.clone()),
+            not_null: vec![("A".into(), "NN_A_C".into()), ("B".into(), "NN_B_C".into())],
+        };
+        let mut s = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![con_row(
+                    "SYS_C42",
+                    "C",
+                    true,
+                    true,
+                    true,
+                    None,
+                    "A",
+                    Some("\"A\" IS NOT NULL"),
+                )],
+            )
+            .on(&["ALTER TABLE"], vec![]);
+        after_load(&mut s, &a).await.unwrap();
+        let ran = s.ran();
+        // B has no server-named NOT NULL in the clone: nothing to rename.
+        assert_eq!(
+            &ran[1..],
+            [
+                "ALTER TABLE \"DBINE\".\"T_C\" RENAME CONSTRAINT \"SYS_C42\" TO \"NN_A_C\"",
+                "ALTER TABLE \"DBINE\".\"T_C\" ADD CONSTRAINT \"CK_C\" CHECK (A > 0) DISABLE",
+            ]
+        );
+        // A statement the server refuses: its ORA code in the message.
+        let mut s = Scripted::new().on(&[CONSTRAINTS], vec![]).fail(
+            &["ADD CONSTRAINT"],
+            "ORA-02293: cannot validate (DBINE.CK_C)",
+        );
+        let e = after_load(&mut s, &a).await.unwrap_err().to_string();
+        assert!(e.contains("«CK_C»") && e.contains("ORA-02293"), "{e}");
+        // The rename refused.
+        let mut s = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![con_row(
+                    "SYS_C42",
+                    "C",
+                    true,
+                    true,
+                    true,
+                    None,
+                    "A",
+                    Some("\"A\" IS NOT NULL"),
+                )],
+            )
+            .fail(&["RENAME CONSTRAINT"], "ORA-02264");
+        let e = after_load(&mut s, &a).await.unwrap_err().to_string();
+        assert!(e.contains("NOT NULL de «A»") && e.contains("NN_A_C"), "{e}");
+        // Nothing to do: no statement runs.
+        let mut s = Scripted::new();
+        after_load(&mut s, &AfterLoad::default()).await.unwrap();
+        assert!(s.ran().is_empty());
+    }
+
+    #[tokio::test]
+    async fn verify_compares_constraints_and_storage() {
+        let plan = ClonePlan {
+            table: TableSchema {
+                schema: Some("DBINE".into()),
+                name: "T_C".into(),
+                ..Default::default()
+            },
+            renames: vec![Rename {
+                from: "PK_T".into(),
+                to: "PK_T_C".into(),
+                shortened: false,
+            }],
+            notes: vec![],
+        };
+        let mut pk = con("PK_T", "P");
+        pk.columns = vec!["ID".into()];
+        pk.index = Some("PK_T".into());
+        let o = Original {
+            cons: vec![pk],
+            ..Default::default()
+        };
+        let clone_cons = || {
+            vec![con_row(
+                "PK_T_C",
+                "P",
+                true,
+                true,
+                false,
+                Some(("DBINE", "PK_T_C")),
+                "ID",
+                None,
+            )]
+        };
+        let mut s = Scripted::new()
+            .on(&[CONSTRAINTS], clone_cons())
+            .on(&[TABLE], heap());
+        verify(&mut s, &o, &plan, true).await.unwrap();
+        // The clone came out with row movement: a difference.
+        let mut s = Scripted::new().on(&[CONSTRAINTS], clone_cons()).on(
+            &[TABLE],
+            table_row([
+                None,
+                Some("NO"),
+                Some("ENABLED"),
+                None,
+                None,
+                None,
+                Some("0"),
+                Some("N"),
+                None,
+                Some("DISABLED"),
+                None,
+            ]),
+        );
+        let e = verify(&mut s, &o, &plan, true)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("sin ROW MOVEMENT y el clon") && e.contains("con ROW MOVEMENT"),
+            "{e}"
+        );
+        // The clone's key missing.
+        let mut s = Scripted::new()
+            .on(&[CONSTRAINTS], vec![])
+            .on(&[TABLE], heap());
+        let e = verify(&mut s, &o, &plan, true)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.starts_with("el clon no quedó igual al original"), "{e}");
+    }
 }

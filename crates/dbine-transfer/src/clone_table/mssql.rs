@@ -2645,4 +2645,592 @@ mod tests {
         assert_eq!(drop, ["ix_tv3 c hist"]);
         assert_eq!(create[0].name, "ix_tv3 c hist");
     }
+
+    /// Each index's statement, as the SQL Server driver writes it, gets
+    /// the original's `ON …`.
+    #[test]
+    fn index_statements_get_the_originals_storage() {
+        let driver = dbine_drivers::find("sqlserver")
+            .expect("sqlserver driver")
+            .clone();
+        let index = |name: &str, col: &str| IndexDef {
+            name: name.into(),
+            columns: vec![col.into()],
+            ..Default::default()
+        };
+        let clone = TableSchema {
+            schema: Some("dbo".into()),
+            name: "t_c".into(),
+            indexes: vec![index("ix_a", "a"), index("ix_b", "b"), index("ix_c", "c")],
+            ..Default::default()
+        };
+        let mut sql = driver
+            .table_ddl(
+                &clone,
+                DdlParts {
+                    indexes: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let before = sql.clone();
+        let placed = |at: usize, kind: u8, name: &str, default: bool| Placed {
+            at,
+            kind,
+            space: Space {
+                name: name.into(),
+                column: None,
+                default,
+            },
+            compression: vec![],
+        };
+        let l = Layout {
+            table: Some(Space {
+                name: "PRIMARY".into(),
+                column: None,
+                default: true,
+            }),
+            indexes: vec![
+                placed(0, 2, "FG2", false),
+                // On the default filegroup of a table that isn't
+                // partitioned: nothing to say.
+                placed(1, 2, "PRIMARY", true),
+                // An index the clone doesn't have: skipped.
+                placed(7, 2, "FG3", false),
+            ],
+            ..Default::default()
+        };
+        place_indexes(&*driver, &mut sql, &clone, &l).unwrap();
+        let lines: Vec<&str> = sql.lines().filter(|l| l.contains("INDEX")).collect();
+        assert_eq!(lines.len(), 3, "{sql}");
+        assert!(
+            lines[0].contains("[ix_a]") && lines[0].ends_with(" ON [FG2];"),
+            "{sql}"
+        );
+        assert!(!lines[1].contains(" ON [PRIMARY]"), "{sql}");
+        assert!(!sql.contains("FG3"), "{sql}");
+        assert_eq!(sql.len(), before.len() + " ON [FG2]".len());
+
+        // The statement isn't in the script (it changed): refused.
+        let mut other = before.replace("[ix_a]", "[ix_z]");
+        let err = place_indexes(&*driver, &mut other, &clone, &l).expect_err("refused");
+        assert!(err.to_string().contains("«ix_a»"), "{err}");
+        // Memory-optimized: nothing is placed.
+        let mut same = before.clone();
+        place_indexes(
+            &*driver,
+            &mut same,
+            &clone,
+            &Layout {
+                memory: true,
+                ..l.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(same, before);
+    }
+
+    #[test]
+    fn storage_described_in_spanish() {
+        let fg = Space {
+            name: "FG2".into(),
+            column: None,
+            default: false,
+        };
+        assert_eq!(fg.describe(), "el filegroup FG2");
+        assert_eq!(Space::default().describe(), "el filegroup por omisión");
+        let ps = Space {
+            name: "ps".into(),
+            column: Some("Id".into()),
+            default: false,
+        };
+        assert_eq!(ps.describe(), "el esquema de partición ps(Id)");
+        assert!(ps.same(&Space {
+            name: "PS".into(),
+            column: Some("id".into()),
+            default: true,
+        }));
+        assert!(!ps.same(&fg));
+        // A spatial index takes only a filegroup; XML and columnstore
+        // indexes are left where the server puts them.
+        let l = Layout {
+            indexes: vec![
+                Placed {
+                    at: 0,
+                    kind: 4,
+                    space: fg.clone(),
+                    compression: vec![],
+                },
+                Placed {
+                    at: 1,
+                    kind: 4,
+                    space: ps.clone(),
+                    compression: vec![],
+                },
+                Placed {
+                    at: 2,
+                    kind: 3,
+                    space: fg.clone(),
+                    compression: vec![],
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(index_ons(&l), vec![(0, " ON [FG2]".to_string())]);
+        let t = TableSchema {
+            schema: Some("dbo".into()),
+            name: "o'k".into(),
+            ..Default::default()
+        };
+        assert_eq!(literal(&t), "[dbo].[o''k]");
+        assert!(constraints_sql(&t).contains("OBJECT_ID(N'[dbo].[o''k]')"));
+    }
+
+    // ---- The catalog readers, against a scripted session ----------------
+
+    use super::super::test_session::{row, Rows, Scripted};
+
+    const CONSTRAINTS: &str = "FROM sys.check_constraints";
+    const FK_CLAUSE: &str = "delete_referential_action_desc";
+    const IDENTITY: &str = "IDENT_CURRENT";
+
+    fn table(name: &str) -> TableSchema {
+        TableSchema {
+            schema: Some("dbo".into()),
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// A row of `constraints_sql`: kind, name, system named, disabled, not
+    /// trusted, not for replication, key, definition.
+    fn con_row(
+        kind: &str,
+        name: &str,
+        flags: [bool; 4],
+        key: &str,
+        definition: &str,
+    ) -> Vec<Option<String>> {
+        let f = |b: bool| Some(if b { "1" } else { "0" });
+        row(&[
+            Some(kind),
+            Some(name),
+            f(flags[0]),
+            f(flags[1]),
+            f(flags[2]),
+            f(flags[3]),
+            Some(key),
+            Some(definition),
+        ])
+    }
+
+    /// The original: a CHECK of its own disabled, and a server-named
+    /// foreign key not trusted and NOT FOR REPLICATION.
+    fn wanted() -> Rows {
+        vec![
+            con_row(
+                "C",
+                "ck_a",
+                [false, true, true, false],
+                "([a]>(0))|a",
+                "([a]>(0))",
+            ),
+            con_row("F", "FK__t__b__1", [true, false, true, true], "b>id@77", ""),
+        ]
+    }
+
+    #[tokio::test]
+    async fn constraints_get_the_originals_state() {
+        let mut src = Scripted::new().on(&[CONSTRAINTS], wanted());
+        let renames = vec![Rename {
+            from: "ck_a".into(),
+            to: "ck_a_c".into(),
+            shortened: false,
+        }];
+        let clone_fk = |nfr: bool, untrusted: bool| {
+            con_row(
+                "F",
+                "FK__t_c__b__9",
+                [true, false, untrusted, nfr],
+                "b>id@77",
+                "",
+            )
+        };
+        let clone_ck = |disabled: bool| {
+            con_row(
+                "C",
+                "ck_a_c",
+                [false, disabled, disabled, false],
+                "([a]>(0))|a",
+                "([a]>(0))",
+            )
+        };
+        let mut tgt = Scripted::new()
+            .on_seq(
+                &[CONSTRAINTS],
+                vec![
+                    // As created: enabled, trusted, no NOT FOR REPLICATION.
+                    vec![clone_ck(false), clone_fk(false, false)],
+                    // The foreign key made again.
+                    vec![clone_ck(false), clone_fk(true, false)],
+                    // In the original's states.
+                    vec![clone_ck(true), clone_fk(true, true)],
+                ],
+            )
+            .on(
+                &[FK_CLAUSE, "fk.name = N'FK__t_c__b__9'"],
+                vec![row(&[
+                    Some("[b]"),
+                    Some("[dbo].[p]"),
+                    Some("[id]"),
+                    Some("CASCADE"),
+                    Some("NO_ACTION"),
+                ])],
+            )
+            .on(&["ALTER TABLE"], vec![]);
+        constraints(&mut src, &mut tgt, &table("t"), &table("t_c"), &renames)
+            .await
+            .unwrap();
+        let alters: Vec<String> = tgt
+            .ran()
+            .into_iter()
+            .filter(|q| q.starts_with("ALTER TABLE"))
+            .collect();
+        assert_eq!(
+            alters,
+            [
+                // Server-named: the server names it again.
+                "ALTER TABLE [dbo].[t_c] DROP CONSTRAINT [FK__t_c__b__9];\nALTER TABLE [dbo].[t_c] WITH NOCHECK ADD FOREIGN KEY ([b]) REFERENCES [dbo].[p] ([id]) ON DELETE CASCADE NOT FOR REPLICATION",
+                "ALTER TABLE [dbo].[t_c] NOCHECK CONSTRAINT [ck_a_c]",
+                "ALTER TABLE [dbo].[t_c] NOCHECK CONSTRAINT [FK__t_c__b__9];\nALTER TABLE [dbo].[t_c] CHECK CONSTRAINT [FK__t_c__b__9]",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_check_remade_for_replication_keeps_its_name() {
+        let mut src = Scripted::new().on(
+            &[CONSTRAINTS],
+            vec![con_row(
+                "C",
+                "ck_r",
+                [false, false, false, true],
+                "([a]>(0))|a",
+                "([a]>(0))",
+            )],
+        );
+        let mut tgt = Scripted::new()
+            .on_seq(
+                &[CONSTRAINTS],
+                vec![
+                    vec![con_row(
+                        "C",
+                        "ck_r",
+                        [false, false, false, false],
+                        "([a]>(0))|a",
+                        "([a]>(0))",
+                    )],
+                    vec![con_row(
+                        "C",
+                        "ck_r",
+                        [false, false, false, true],
+                        "([a]>(0))|a",
+                        "([a]>(0))",
+                    )],
+                ],
+            )
+            .on(&["ALTER TABLE"], vec![]);
+        constraints(&mut src, &mut tgt, &table("t"), &table("t_c"), &[])
+            .await
+            .unwrap();
+        assert!(tgt.ran().contains(
+            &"ALTER TABLE [dbo].[t_c] DROP CONSTRAINT [ck_r];\nALTER TABLE [dbo].[t_c] WITH NOCHECK ADD CONSTRAINT [ck_r] CHECK NOT FOR REPLICATION ([a]>(0))".to_string()
+        ));
+    }
+
+    #[tokio::test]
+    async fn constraints_the_clone_cant_match_are_refused() {
+        async fn run(mut tgt: Scripted) -> String {
+            let renames = vec![Rename {
+                from: "ck_a".into(),
+                to: "ck_a_c".into(),
+                shortened: false,
+            }];
+            let mut src = Scripted::new().on(&[CONSTRAINTS], wanted());
+            constraints(&mut src, &mut tgt, &table("t"), &table("t_c"), &renames)
+                .await
+                .unwrap_err()
+                .to_string()
+        }
+        // The clone lacks the CHECK.
+        let e = run(Scripted::new().on(
+            &[CONSTRAINTS],
+            vec![con_row(
+                "F",
+                "FK__x",
+                [true, false, true, true],
+                "b>id@77",
+                "",
+            )],
+        ))
+        .await;
+        assert!(e.contains("le falta la restricción «ck_a»"), "{e}");
+        // The foreign key can't be read back to be made again.
+        let e = run(Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![
+                    con_row("C", "ck_a_c", [false, true, true, false], "k", ""),
+                    con_row("F", "FK__x", [true, false, true, false], "b>id@77", ""),
+                ],
+            )
+            .on(&[FK_CLAUSE], vec![]))
+        .await;
+        assert!(
+            e.contains("no se pudo leer la clave foránea «FK__x»"),
+            "{e}"
+        );
+        // Validating the clone's foreign key fails: its rows break it.
+        let mut src = Scripted::new().on(
+            &[CONSTRAINTS],
+            vec![con_row(
+                "F",
+                "fk_ok",
+                [false, false, false, false],
+                "b>id@77",
+                "",
+            )],
+        );
+        let mut tgt = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![con_row(
+                    "F",
+                    "fk_ok",
+                    [false, false, true, false],
+                    "b>id@77",
+                    "",
+                )],
+            )
+            .fail(&["WITH CHECK CHECK CONSTRAINT"], "547");
+        let e = constraints(&mut src, &mut tgt, &table("t"), &table("t_c"), &[])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("las filas del clon no cumplen la clave foránea «fk_ok»"),
+            "{e}"
+        );
+        // The state didn't take.
+        let mut src = Scripted::new().on(
+            &[CONSTRAINTS],
+            vec![con_row("C", "ck_off", [false, true, true, false], "k", "")],
+        );
+        let mut tgt = Scripted::new()
+            .on(
+                &[CONSTRAINTS],
+                vec![con_row(
+                    "C",
+                    "ck_off",
+                    [false, false, false, false],
+                    "k",
+                    "",
+                )],
+            )
+            .on(&["ALTER TABLE"], vec![]);
+        let e = constraints(&mut src, &mut tgt, &table("t"), &table("t_c"), &[])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("«ck_off» está desactivada en el original y activa y validada en el clon"),
+            "{e}"
+        );
+        // Without constraints, the clone isn't even read.
+        let mut src = Scripted::new().on(&[CONSTRAINTS], vec![]);
+        let mut tgt = Scripted::new();
+        constraints(&mut src, &mut tgt, &table("t"), &table("t_c"), &[])
+            .await
+            .unwrap();
+        assert!(tgt.ran().is_empty());
+        let mut src = Scripted::new().fail(&[CONSTRAINTS], "denied");
+        let e = constraints(&mut src, &mut tgt, &table("t"), &table("t_c"), &[])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("no se pudo leer el estado de las restricciones"),
+            "{e}"
+        );
+    }
+
+    fn ident(current: &str, incr: &str, used: bool) -> Rows {
+        vec![row(&[
+            Some(current),
+            Some(incr),
+            Some(if used { "1" } else { "0" }),
+        ])]
+    }
+
+    #[tokio::test]
+    async fn the_identity_continues_where_the_originals_does() {
+        // IDENTITY(1,10) at 60 with rows ever: the next one is 70.
+        let mut src = Scripted::new().on(&[IDENTITY], ident("60", "10", true));
+        // A fresh clone (no row ever): reseeded to 70 itself.
+        let mut tgt = Scripted::new()
+            .on_seq(
+                &[IDENTITY],
+                vec![ident("1", "10", false), ident("70", "10", false)],
+            )
+            .on(&["DBCC CHECKIDENT"], vec![]);
+        resync_identity(&mut src, &mut tgt, &table("t"), &table("t_c"))
+            .await
+            .unwrap();
+        assert!(tgt.ran().contains(
+            &"DBCC CHECKIDENT (N'[dbo].[t_c]', RESEED, 70) WITH NO_INFOMSGS".to_string()
+        ));
+        // A clone with rows: reseeded to one step before.
+        let mut tgt = Scripted::new()
+            .on_seq(
+                &[IDENTITY],
+                vec![ident("30", "10", true), ident("60", "10", true)],
+            )
+            .on(&["DBCC CHECKIDENT"], vec![]);
+        resync_identity(&mut src, &mut tgt, &table("t"), &table("t_c"))
+            .await
+            .unwrap();
+        assert!(tgt.ran().iter().any(|q| q.contains("RESEED, 60)")));
+    }
+
+    #[tokio::test]
+    async fn identity_problems_are_reported() {
+        let mut src = Scripted::new().on(&[IDENTITY], ident("60", "10", true));
+        // The reseed didn't take.
+        let mut tgt = Scripted::new()
+            .on(&[IDENTITY], ident("1", "10", false))
+            .on(&["DBCC CHECKIDENT"], vec![]);
+        let e = resync_identity(&mut src, &mut tgt, &table("t"), &table("t_c"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("daría 1 a la próxima fila y el del original 70"),
+            "{e}"
+        );
+        // The reseed failed.
+        let mut tgt = Scripted::new()
+            .on(&[IDENTITY], ident("1", "10", false))
+            .fail(&["DBCC CHECKIDENT"], "denied");
+        let e = resync_identity(&mut src, &mut tgt, &table("t"), &table("t_c"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("su valor actual es 60"), "{e}");
+        // At the end of its type: no next value.
+        let max = i128::MAX.to_string();
+        let mut at_max = Scripted::new().on(&[IDENTITY], ident(&max, "1", true));
+        let mut tgt = Scripted::new().on(&[IDENTITY], ident("1", "1", false));
+        assert!(
+            resync_identity(&mut at_max, &mut tgt, &table("t"), &table("t_c"))
+                .await
+                .is_err()
+        );
+        // A value that isn't a number.
+        let mut odd = Scripted::new().on(&[IDENTITY], ident("1e3", "1", true));
+        let e = resync_identity(&mut odd, &mut tgt, &table("t"), &table("t_c"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("«1e3»"), "{e}");
+        // No IDENTITY (NULLs): nothing to do.
+        let mut none = Scripted::new().on(&[IDENTITY], vec![row(&[None, None, Some("0")])]);
+        let mut untouched = Scripted::new();
+        resync_identity(&mut none, &mut untouched, &table("t"), &table("t_c"))
+            .await
+            .unwrap();
+        assert!(untouched.ran().is_empty());
+        let mut broken = Scripted::new().fail(&[IDENTITY], "x");
+        let e = resync_identity(&mut broken, &mut untouched, &table("t"), &table("t_c"))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("contador del IDENTITY"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn graph_tables_are_refused_before_reading() {
+        let graph = |node: &str, edge: &str| {
+            Scripted::new().on(&["t.is_node"], vec![row(&[Some(node), Some(edge)])])
+        };
+        let e = refuse_graph(&mut graph("1", "0"), Some("dbo"), "n")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("AS NODE"), "{e}");
+        let e = refuse_graph(&mut graph("0", "1"), Some("dbo"), "e")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("AS EDGE"), "{e}");
+        refuse_graph(&mut graph("0", "0"), Some("dbo"), "t")
+            .await
+            .unwrap();
+        // A catalog without is_node (older servers): not a graph table.
+        let mut old = Scripted::new().fail(&["t.is_node"], "Invalid column name 'is_node'");
+        refuse_graph(&mut old, None, "t").await.unwrap();
+        assert!(
+            old.ran()[0].contains("OBJECT_ID(N'[t]')"),
+            "{:?}",
+            old.ran()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_full_text_key_named_by_the_server_is_read_from_the_clone() {
+        let fulltext = |key: &str| IndexDef {
+            name: String::new(),
+            columns: vec!["body".into()],
+            kind: Some("FULLTEXT".into()),
+            options: [(KEY_INDEX.to_string(), key.to_string())].into(),
+            ..Default::default()
+        };
+        let mut clone = TableSchema {
+            primary_key: Some(dbine_driver::KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![fulltext("PK__t__3213E83F")],
+            ..table("t_c")
+        };
+        let mut s = Scripted::new().on(
+            &["sys.key_constraints"],
+            vec![row(&[Some("PK__t_c__3213E83FAB")])],
+        );
+        assert!(resolve_key_index(&mut s, &mut clone).await.unwrap());
+        assert_eq!(clone.indexes[0].options[KEY_INDEX], "PK__t_c__3213E83FAB");
+        // Now it names an index the clone has: nothing to do.
+        let mut quiet = Scripted::new();
+        let mut known = TableSchema {
+            indexes: vec![
+                fulltext("ux_body"),
+                IndexDef {
+                    name: "ux_body".into(),
+                    ..Default::default()
+                },
+            ],
+            ..table("t_c")
+        };
+        assert!(!resolve_key_index(&mut quiet, &mut known).await.unwrap());
+        assert!(quiet.ran().is_empty());
+        // The key the original's names isn't one the clone gets from the
+        // server: refused.
+        let mut named_pk = TableSchema {
+            primary_key: Some(dbine_driver::KeyDef {
+                name: Some("pk_t_c".into()),
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![fulltext("ux_gone")],
+            ..table("t_c")
+        };
+        let e = resolve_key_index(&mut s, &mut named_pk).await.unwrap_err();
+        assert!(e.to_string().contains("texto completo"), "{e}");
+    }
 }
