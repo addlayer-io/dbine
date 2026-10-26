@@ -18,6 +18,7 @@ mod processes;
 mod profiler;
 mod rename;
 mod stats;
+mod tls;
 mod transfer;
 
 use base64::Engine as _;
@@ -29,7 +30,7 @@ use dbine_driver::{
     async_trait, json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig,
     CreateTemplate, DbObject, Driver, DriverInfo, Error, Family, Field, Language, Metric,
     MetricUnit, MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result,
-    ResultColumn, RowChange, Session,
+    ResultColumn, RowChange, Session, TlsLevel, TlsSupport,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -46,9 +47,41 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(DrillDriver { info: info() })]
 }
 
+/// The TLS options, by the Drill JDBC driver's names (`enableTLS`,
+/// `disableCertificateVerification`, `disableHostVerification`,
+/// `trustStorePath`). Saved connections from before them: `encrypt` gives
+/// https, `trust` doesn't verify.
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_switch(
+            "enableTLS",
+            "enableTLS",
+            TlsLevel::VerifyFull,
+            TlsLevel::Off,
+            true,
+            ["false", "false", "true", "true"],
+        ),
+        Field::tls_skip_verify(
+            "disableCertificateVerification",
+            "disableCertificateVerification",
+            false,
+            ["false", "true", "false", "true"],
+        ),
+        Field::tls_skip_hostname(
+            "disableHostVerification",
+            "disableHostVerification",
+            false,
+            ["false"; 4],
+        ),
+        Field::tls_ca_file("trustStorePath", "trustStorePath")
+            .ca_required_at(&[TlsLevel::VerifyCa])
+            .help("El certificado de la CA en PEM (Drill JDBC usa un almacén JKS)."),
+    ]
+}
+
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "drill",
         name: "Apache Drill",
@@ -69,10 +102,11 @@ fn info() -> DriverInfo {
             Field::username()
                 .help("Solo si Drill tiene autenticación; sin ella, el usuario se ignora."),
             Field::password(),
-            Field::encrypt(),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        ]
+        .into_iter()
+        .chain(tls_fields())
+        .chain([Field::read_only()])
+        .collect(),
         databases_label: "Esquemas",
         has_schemas: false,
         object_kinds: vec![
@@ -211,16 +245,19 @@ impl Driver for DrillDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() {
+        let tls = tls::HttpTls::new(cfg, &tls_fields(), None)?;
+        let scheme = tls.scheme();
+        let host = tls.url_host(if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
-        };
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .redirect(reqwest::redirect::Policy::none())
+        });
+        let http = tls
+            .builder(
+                reqwest::Client::builder()
+                    .connect_timeout(Duration::from_secs(15))
+                    .redirect(reqwest::redirect::Policy::none()),
+            )?
             .build()
             .map_err(Error::connect)?;
         let conn = Arc::new(Conn {
@@ -253,7 +290,8 @@ impl Driver for DrillDriver {
         };
         tokio::time::timeout(Duration::from_secs(30), check)
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| tls.explain(e))?;
         Ok(Box::new(s))
     }
 }
@@ -267,7 +305,9 @@ struct Conn {
 }
 
 fn http_error(e: reqwest::Error) -> Error {
-    if e.is_connect() || e.is_timeout() {
+    if e.is_connect() {
+        tls::net_error(&e)
+    } else if e.is_timeout() {
         Error::Connect(e.to_string())
     } else {
         Error::Query(e.to_string())
@@ -1623,5 +1663,56 @@ mod tests {
             s.browse_query(&o, 5),
             "SELECT *\nFROM `dfs.tmp`.`a b.csv`\nLIMIT 5"
         );
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        tls::HttpTls::new(c, &tls_fields(), None).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("enableTLS".into(), "false".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options
+            .insert("disableCertificateVerification".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
     }
 }

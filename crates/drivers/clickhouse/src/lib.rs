@@ -23,6 +23,7 @@ mod search;
 mod security;
 mod stats;
 mod sync;
+mod tls;
 mod transfer;
 
 use async_trait::async_trait;
@@ -33,7 +34,7 @@ use dbine_driver::{
     json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language,
     ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, ScriptError, Session,
-    TableSchema,
+    TableSchema, TlsLevel, TlsSupport,
 };
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -81,8 +82,40 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
     ]
 }
 
+/// The TLS options, by clickhouse-client's names (`--secure`,
+/// `--accept-invalid-certificate`, `openSSL.client.caConfig`). Saved
+/// connections from before them: `encrypt` gives https on 8443, `trust`
+/// doesn't verify.
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_switch(
+            "secure",
+            "secure",
+            TlsLevel::VerifyFull,
+            TlsLevel::Off,
+            true,
+            ["false", "false", "true", "true"],
+        ),
+        Field::tls_skip_verify(
+            "accept-invalid-certificate",
+            "accept-invalid-certificate",
+            false,
+            ["false", "false", "false", "true"],
+        ),
+        Field::tls_ca_file("caConfig", "caConfig"),
+    ]
+}
+
 fn info(flavor: Flavor) -> DriverInfo {
-    let mut fields = Field::server_set();
+    let mut fields = vec![
+        Field::host(),
+        Field::port(),
+        Field::database(),
+        Field::username(),
+        Field::password(),
+    ];
+    fields.extend(tls_fields());
+    fields.push(Field::read_only());
     fields[1] = Field::port()
         .placeholder("8123")
         .help("HTTP: 8123; con TLS, 8443.");
@@ -120,8 +153,8 @@ fn info(flavor: Flavor) -> DriverInfo {
         }
     };
     DriverInfo {
-        tls: Default::default(),
-        tls_port: None,
+        tls: TlsSupport::Configurable,
+        tls_port: Some(8443),
         id,
         name,
         family,
@@ -352,16 +385,16 @@ impl Driver for ClickHouseDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() {
+        let tls = tls::HttpTls::new(cfg, &tls_fields(), None)?;
+        let scheme = tls.scheme();
+        let host = tls.url_host(if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
-        };
-        let port = cfg.port_or(if cfg.encrypt { 8443 } else { 8123 });
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
+        });
+        let port = cfg.port_or(if tls.https() { 8443 } else { 8123 });
+        let http = tls
+            .builder(reqwest::Client::builder().connect_timeout(Duration::from_secs(15)))?
             .build()
             .map_err(Error::connect)?;
         let database = database
@@ -392,7 +425,8 @@ impl Driver for ClickHouseDriver {
         };
         tokio::time::timeout(Duration::from_secs(20), s.server_version())
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| tls.explain(e))?;
         Ok(Box::new(s))
     }
 }
@@ -489,7 +523,9 @@ impl ClickHouseSession {
                 .send()
                 .await
                 .map_err(|e| {
-                    if e.is_connect() || e.is_timeout() {
+                    if e.is_connect() {
+                        tls::net_error(&e)
+                    } else if e.is_timeout() {
                         Error::Connect(e.to_string())
                     } else {
                         Error::Query(e.to_string())
@@ -1730,5 +1766,56 @@ mod tests {
         );
         assert_eq!(kind_of("Dictionary", Flavor::ClickHouse), DICTIONARY);
         assert_eq!(kind_of("Stream", Flavor::Timeplus), kinds::STREAM);
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        tls::HttpTls::new(c, &tls_fields(), None).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("secure".into(), "false".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options
+            .insert("accept-invalid-certificate".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
     }
 }

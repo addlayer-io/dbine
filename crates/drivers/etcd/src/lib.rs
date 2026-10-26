@@ -18,6 +18,7 @@ mod prom;
 mod security;
 mod stats;
 mod steps;
+mod tls;
 mod transfer;
 
 use base64::engine::general_purpose::STANDARD as B64;
@@ -28,7 +29,7 @@ use dbine_driver::{
     CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
     FieldKind, KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax, Language, Metric, MetricUnit,
     MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
-    Session, TableSchema,
+    Session, TableSchema, TlsLevel, TlsSupport,
 };
 use serde_json::{json, Value};
 use std::future::Future;
@@ -44,9 +45,32 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(EtcdDriver { info: info() })]
 }
 
+/// The TLS options, by etcdctl's names (`--insecure-transport`,
+/// `--insecure-skip-tls-verify`, `--cacert`). Saved connections from before
+/// them: `encrypt` gives https, `trust` doesn't verify.
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_switch(
+            "insecure-transport",
+            "insecure-transport",
+            TlsLevel::Off,
+            TlsLevel::VerifyFull,
+            false,
+            ["true", "true", "false", "false"],
+        ),
+        Field::tls_skip_verify(
+            "insecure-skip-tls-verify",
+            "insecure-skip-tls-verify",
+            false,
+            ["false", "false", "false", "true"],
+        ),
+        Field::tls_ca_file("cacert", "cacert"),
+    ]
+}
+
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "etcd",
         name: "etcd",
@@ -63,10 +87,11 @@ fn info() -> DriverInfo {
                 .placeholder("(todas)")
                 .help("El explorador lista solo las claves que empiezan con este prefijo.")
                 .advanced(),
-            Field::encrypt(),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        ]
+        .into_iter()
+        .chain(tls_fields())
+        .chain([Field::read_only()])
+        .collect(),
         databases_label: "",
         has_schemas: false,
         object_kinds: vec![ObjectKindInfo::new(kinds::KEY, "Claves", true, true, true)],
@@ -203,15 +228,15 @@ impl Driver for EtcdDriver {
         cfg: &ConnectionConfig,
         _database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() {
+        let tls = tls::HttpTls::new(cfg, &tls_fields(), None)?;
+        let scheme = tls.scheme();
+        let host = tls.url_host(if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
-        };
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
+        });
+        let http = tls
+            .builder(reqwest::Client::builder().connect_timeout(Duration::from_secs(15)))?
             .build()
             .map_err(Error::connect)?;
         let conn = Arc::new(Conn {
@@ -229,7 +254,8 @@ impl Driver for EtcdDriver {
         };
         tokio::time::timeout(Duration::from_secs(20), check)
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| tls.explain(e))?;
         Ok(Box::new(EtcdSession {
             conn,
             read_only: cfg.read_only,
@@ -248,7 +274,9 @@ struct Conn {
 }
 
 fn http_error(e: reqwest::Error) -> Error {
-    if e.is_connect() || e.is_timeout() {
+    if e.is_connect() {
+        tls::net_error(&e)
+    } else if e.is_timeout() {
         Error::Connect(e.to_string())
     } else {
         Error::Query(e.to_string())
@@ -1404,5 +1432,58 @@ mod tests {
             s.browse_query(&o("/cfg/"), 10),
             "get /cfg/ --prefix --limit=10"
         );
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        tls::HttpTls::new(c, &tls_fields(), None).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain
+            .options
+            .insert("insecure-transport".into(), "true".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options
+            .insert("insecure-skip-tls-verify".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
     }
 }

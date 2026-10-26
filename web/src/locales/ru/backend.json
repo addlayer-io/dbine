@@ -11237,5 +11237,12 @@
   "trustStore ({0}) no tiene certificados": "в trustStore ({0}) нет сертификатов",
   "trustedCertificates ({0}) no tiene certificados PEM": "в trustedCertificates ({0}) нет сертификатов PEM",
   "{0} (el certificado del nodo no es de confianza: indicá su CA en certfile, o desactivá validate para no verificarlo)": "{0} (сертификат узла не является доверенным: укажите его CA в certfile или отключите validate, чтобы не проверять его)",
-  "{0} (falló la negociación TLS: si el servidor no usa TLS, desactivá ssl)": "{0} (не удалось согласовать TLS: если сервер не использует TLS, отключите ssl)"
+  "{0} (falló la negociación TLS: si el servidor no usa TLS, desactivá ssl)": "{0} (не удалось согласовать TLS: если сервер не использует TLS, отключите ssl)",
+  "El certificado de la CA en PEM (Drill JDBC usa un almacén JKS).": "Сертификат центра сертификации в формате PEM (Drill JDBC использует хранилище JKS).",
+  "El certificado del servidor no se pudo verificar: indicá la CA en {0} o, si confiás en el servidor, usá {1}.": "Не удалось проверить сертификат сервера: укажите центр сертификации в {0} или, если вы доверяете серверу, используйте {1}.",
+  "El servidor no respondió con TLS en ese puerto: usá el puerto TLS del servidor o {0}={1}.": "Сервер не ответил по TLS на этом порту: используйте TLS-порт сервера или {0}={1}.",
+  "No se pudo leer {0} ({1}): {2}": "Не удалось прочитать {0} ({1}): {2}",
+  "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "URL, указанный в поле сервера, использует свою схему (http:// или https://).",
+  "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "У параметра TLS значение, которое этот драйвер не знает: проверьте {0}.",
+  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) не содержит сертификатов PEM."
 }

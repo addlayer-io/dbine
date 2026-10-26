@@ -11237,5 +11237,12 @@
   "trustStore ({0}) no tiene certificados": "trustStore ({0}) ne contient aucun certificat",
   "trustedCertificates ({0}) no tiene certificados PEM": "trustedCertificates ({0}) ne contient aucun certificat PEM",
   "{0} (el certificado del nodo no es de confianza: indicá su CA en certfile, o desactivá validate para no verificarlo)": "{0} (le certificat du nœud n'est pas approuvé : indiquez sa CA dans certfile, ou désactivez validate pour ne pas le vérifier)",
-  "{0} (falló la negociación TLS: si el servidor no usa TLS, desactivá ssl)": "{0} (échec de la négociation TLS : si le serveur n'utilise pas TLS, désactivez ssl)"
+  "{0} (falló la negociación TLS: si el servidor no usa TLS, desactivá ssl)": "{0} (échec de la négociation TLS : si le serveur n'utilise pas TLS, désactivez ssl)",
+  "El certificado de la CA en PEM (Drill JDBC usa un almacén JKS).": "Le certificat de l'autorité de certification au format PEM (Drill JDBC utilise un magasin JKS).",
+  "El certificado del servidor no se pudo verificar: indicá la CA en {0} o, si confiás en el servidor, usá {1}.": "Le certificat du serveur n'a pas pu être vérifié : indiquez l'autorité de certification dans {0} ou, si vous faites confiance au serveur, utilisez {1}.",
+  "El servidor no respondió con TLS en ese puerto: usá el puerto TLS del servidor o {0}={1}.": "Le serveur n'a pas répondu en TLS sur ce port : utilisez le port TLS du serveur ou {0}={1}.",
+  "No se pudo leer {0} ({1}): {2}": "Impossible de lire {0} ({1}) : {2}",
+  "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "Une URL saisie dans le serveur utilise son propre schéma (http:// ou https://).",
+  "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "Une option TLS a une valeur que ce pilote ne connaît pas : vérifiez {0}.",
+  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) ne contient aucun certificat PEM."
 }
