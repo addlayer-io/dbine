@@ -11167,5 +11167,9 @@
   "{0} no puede llevar usuario ni contraseña": "{0} не может содержать имя пользователя и пароль",
   "{0} tiene que empezar con https://": "{0} должен начинаться с https://",
   "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": "«{0}» указывает на {1} (этот компьютер, локальную сеть или внутренний облачный сервис): сообщения отправляются только на публичные серверы",
-  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "«{0}» — это этот компьютер, локальная сеть или внутренний сервис: сообщения отправляются только на публичные серверы"
+  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "«{0}» — это этот компьютер, локальная сеть или внутренний сервис: сообщения отправляются только на публичные серверы",
+  "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "PEM-файл центра сертификации, подписавшего сертификат сервера (как curl --cacert).",
+  "Este modo de TLS necesita el archivo de la CA: completá {0}.": "Этому режиму TLS нужен файл центра сертификации: укажите {0}.",
+  "No verifica el certificado del servidor (como curl --insecure).": "Не проверяет сертификат сервера (как curl --insecure).",
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "Для {0}={1} нужен файл центра сертификации: укажите {2} или выберите другое значение {3}."
 }

@@ -146,6 +146,17 @@ pub enum TlsRole {
         #[serde(deserialize_with = "crate::serde_static::level_pairs")]
         levels: Vec<(&'static str, TlsLevel)>,
     },
+    /// A select that says how much of the certificate is checked, next to
+    /// the mode: `(value, level)` pairs, each value with the highest level
+    /// it allows (Trino `SSLVerification` `FULL` / `CA` / `NONE`,
+    /// Elasticsearch `verification_mode` `full` / `certificate` / `none`,
+    /// Avatica `hostname_verification` `STRICT` / `NONE`). It caps the
+    /// mode's level and never raises it. An older app reads it as no role,
+    /// so a driver that declares one needs an app that knows it.
+    Verify {
+        #[serde(deserialize_with = "crate::serde_static::level_pairs")]
+        levels: Vec<(&'static str, TlsLevel)>,
+    },
     /// A checkbox that skips the certificate checks when "true"
     /// (`TrustServerCertificate`, `tlsAllowInvalidCertificates`, `insecure`…).
     /// `inverted`: "false" skips them (`validateCertificate`…).
@@ -153,10 +164,28 @@ pub enum TlsRole {
         #[serde(default)]
         inverted: bool,
     },
-    /// A checkbox that skips only the host-name check when "true".
-    SkipHostname,
-    /// The CA / trust-store file.
-    CaFile,
+    /// A checkbox that skips only the host-name check when "true"
+    /// (`tlsAllowInvalidHostnames`, `disableHostVerification`…), capping the
+    /// level at [`TlsLevel::VerifyCa`]. `inverted`: "false" skips it
+    /// (`ssl_assert_hostname`, `verifyHost`, `check_hostname`…). `inverted`
+    /// is written only when true, so a plain one serializes as before.
+    SkipHostname {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        inverted: bool,
+    },
+    /// The CA / trust-store file. `required_at`: the levels the driver can't
+    /// verify at without it (no system roots for them: MySQL `VERIFY_CA`,
+    /// Netezza `onlySecured`…): the form requires it there and
+    /// [`crate::ConnectionConfig::require_tls_ca`] refuses to connect
+    /// without it. Empty (and not written): always optional.
+    CaFile {
+        #[serde(
+            default,
+            skip_serializing_if = "Vec::is_empty",
+            deserialize_with = "crate::serde_static::levels"
+        )]
+        required_at: Vec<TlsLevel>,
+    },
     /// A host-name override for the certificate check
     /// (`HostNameInCertificate`…).
     ServerName,
@@ -380,9 +409,74 @@ impl Field {
             .tls(TlsRole::SkipVerify { inverted })
             .legacy(legacy)
     }
+    /// A checkbox that skips only the host-name check
+    /// (`tlsAllowInvalidHostnames`, `disableHostVerification`…), capping the
+    /// level at [`TlsLevel::VerifyCa`]; `inverted`: unchecking it skips the
+    /// check (`ssl_assert_hostname`, `verifyHost`). A new connection checks
+    /// the host name.
+    pub fn tls_skip_hostname(
+        key: &'static str,
+        label: &'static str,
+        inverted: bool,
+        legacy: [&'static str; 4],
+    ) -> Self {
+        Self::new(key, label, FieldKind::Bool)
+            .default_value(if inverted { "true" } else { "false" })
+            .tls(TlsRole::SkipHostname { inverted })
+            .legacy(legacy)
+    }
+    /// How much of the certificate is checked, as a select next to the mode
+    /// (Trino `SSLVerification`, Elasticsearch `verification_mode`…):
+    /// `options` are its values with a short gloss and the highest level
+    /// each one allows (`("CA", "CA", VerifyCa)`). It caps the mode's level.
+    /// `default` is a new connection's value (a verified one); `legacy` what
+    /// a saved connection from before the field behaves as.
+    pub fn tls_verify(
+        key: &'static str,
+        label: &'static str,
+        options: &[(&'static str, &'static str, TlsLevel)],
+        default: &'static str,
+        legacy: [&'static str; 4],
+    ) -> Self {
+        Self::new(
+            key,
+            label,
+            FieldKind::Select(options.iter().map(|(v, l, _)| (*v, *l)).collect()),
+        )
+        .default_value(default)
+        .tls(TlsRole::Verify {
+            levels: options.iter().map(|(v, _, lv)| (*v, *lv)).collect(),
+        })
+        .legacy(legacy)
+    }
     /// The CA / trust-store file (`sslrootcert`, `ssl-ca`, `tlsCAFile`…).
     pub fn tls_ca_file(key: &'static str, label: &'static str) -> Self {
-        Self::new(key, label, FieldKind::File).tls(TlsRole::CaFile)
+        Self::new(key, label, FieldKind::File).tls(TlsRole::CaFile {
+            required_at: vec![],
+        })
+    }
+    /// Makes a CA file ([`Field::tls_ca_file`]) required at these levels,
+    /// the ones the driver can't verify at without it. The form marks it
+    /// required there; the driver calls
+    /// [`crate::ConnectionConfig::require_tls_ca`] before connecting.
+    pub fn ca_required_at(mut self, levels: &[TlsLevel]) -> Self {
+        if let Some(TlsRole::CaFile { required_at }) = &mut self.tls {
+            *required_at = levels.to_vec();
+        }
+        self
+    }
+    /// curl's `insecure` (`-k`): the skip-verify option of an engine whose
+    /// clients have no name of their own for it.
+    pub fn tls_insecure(legacy: [&'static str; 4]) -> Self {
+        Self::tls_skip_verify("insecure", "insecure", false, legacy)
+            .help("No verifica el certificado del servidor (como curl --insecure).")
+    }
+    /// curl's `cacert`: the CA file of an engine whose clients have no name
+    /// of their own for it.
+    pub fn tls_cacert() -> Self {
+        Self::tls_ca_file("cacert", "cacert").help(
+            "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).",
+        )
     }
     /// A host-name override for the certificate check
     /// (`HostNameInCertificate`…).
@@ -397,10 +491,11 @@ impl Field {
     }
 
     /// The level a value of this field gives, when it's the engine's TLS
-    /// mode ([`TlsRole::Mode`]).
+    /// mode ([`TlsRole::Mode`]), or the highest level it allows when it's a
+    /// verification select ([`TlsRole::Verify`]).
     pub fn tls_level_of(&self, value: &str) -> Option<TlsLevel> {
         match &self.tls {
-            Some(TlsRole::Mode { levels }) => levels
+            Some(TlsRole::Mode { levels } | TlsRole::Verify { levels }) => levels
                 .iter()
                 .find(|(v, _)| *v == value)
                 .map(|(_, level)| *level),
@@ -413,10 +508,16 @@ impl Field {
     /// ([`TlsRole::SkipHostname`]).
     pub fn tls_skips(&self, value: &str) -> bool {
         match &self.tls {
-            Some(TlsRole::SkipVerify { inverted }) => (value == "true") != *inverted,
-            Some(TlsRole::SkipHostname) => value == "true",
+            Some(TlsRole::SkipVerify { inverted } | TlsRole::SkipHostname { inverted }) => {
+                (value == "true") != *inverted
+            }
             _ => false,
         }
+    }
+
+    /// The CA file ([`TlsRole::CaFile`]) is required at this level.
+    pub fn tls_ca_required_at(&self, level: TlsLevel) -> bool {
+        matches!(&self.tls, Some(TlsRole::CaFile { required_at }) if required_at.contains(&level))
     }
 
     // The usual ones.
@@ -672,7 +773,12 @@ mod tests {
             back.fields[2].tls,
             Some(TlsRole::SkipVerify { inverted: false })
         );
-        assert_eq!(back.fields[3].tls, Some(TlsRole::CaFile));
+        assert_eq!(
+            back.fields[3].tls,
+            Some(TlsRole::CaFile {
+                required_at: vec![]
+            })
+        );
         assert_eq!(back.fields[4].tls, Some(TlsRole::ServerName));
         assert!(back.fields[0].tls.is_none() && back.fields[0].legacy.is_none());
     }
@@ -734,8 +840,155 @@ mod tests {
         let validate = Field::tls_skip_verify("validate", "validate", true, ["true"; 4]);
         assert!(validate.tls_skips("false") && !validate.tls_skips("true"));
         assert_eq!(validate.default, "true");
-        let host =
-            Field::new("tlsAllowInvalidHostnames", "x", FieldKind::Bool).tls(TlsRole::SkipHostname);
-        assert!(host.tls_skips("true") && host.section == FieldSection::Ssl);
+        let host = Field::tls_skip_hostname(
+            "tlsAllowInvalidHostnames",
+            "tlsAllowInvalidHostnames",
+            false,
+            ["false"; 4],
+        );
+        assert!(host.tls_skips("true") && !host.tls_skips("false"));
+        assert_eq!(host.default, "false");
+        assert_eq!(host.section, FieldSection::Ssl);
+        let assert_host = Field::tls_skip_hostname(
+            "ssl_assert_hostname",
+            "ssl_assert_hostname",
+            true,
+            ["true"; 4],
+        );
+        assert!(assert_host.tls_skips("false") && !assert_host.tls_skips("true"));
+        assert_eq!(assert_host.default, "true");
+    }
+
+    fn ssl_verification() -> Field {
+        Field::tls_verify(
+            "SSLVerification",
+            "SSLVerification",
+            &[
+                ("FULL", "FULL", TlsLevel::VerifyFull),
+                ("CA", "CA", TlsLevel::VerifyCa),
+                ("NONE", "NONE", TlsLevel::Unverified),
+            ],
+            "FULL",
+            ["FULL", "NONE", "FULL", "NONE"],
+        )
+    }
+
+    #[test]
+    fn verification_select_gives_the_level_each_value_allows() {
+        let f = ssl_verification();
+        assert_eq!(f.section, FieldSection::Ssl);
+        assert_eq!(f.default, "FULL");
+        assert_eq!(f.tls_level_of("CA"), Some(TlsLevel::VerifyCa));
+        assert_eq!(f.tls_level_of("NONE"), Some(TlsLevel::Unverified));
+        assert_eq!(f.tls_level_of("bogus"), None);
+        assert!(!f.tls_skips("NONE"));
+        let json = serde_json::to_value(&f).unwrap();
+        assert_eq!(json["tls"]["role"], "verify");
+        assert_eq!(json["tls"]["levels"][1][1], "verify_ca");
+        let back: Field = read(json);
+        assert_eq!(back.tls, f.tls);
+        assert_eq!(back.legacy, f.legacy);
+    }
+
+    #[test]
+    fn a_ca_file_can_be_required_at_some_levels() {
+        let plain = Field::tls_ca_file("ssl-ca", "ssl-ca");
+        assert!(!plain.tls_ca_required_at(TlsLevel::VerifyCa));
+        let ca = Field::tls_ca_file("ssl-ca", "ssl-ca").ca_required_at(&[TlsLevel::VerifyCa]);
+        assert!(ca.tls_ca_required_at(TlsLevel::VerifyCa));
+        assert!(!ca.tls_ca_required_at(TlsLevel::VerifyFull));
+        // Only a CA file takes it.
+        let host = Field::host().ca_required_at(&[TlsLevel::VerifyCa]);
+        assert!(host.tls.is_none() && !host.tls_ca_required_at(TlsLevel::VerifyCa));
+        let mut json = serde_json::to_value(&ca).unwrap();
+        assert_eq!(
+            json["tls"],
+            serde_json::json!({"role": "ca_file", "required_at": ["verify_ca"]})
+        );
+        // A level this build doesn't know is dropped.
+        json["tls"]["required_at"] = serde_json::json!(["post_quantum", "verify_full"]);
+        let back: Field = read(json);
+        assert_eq!(
+            back.tls,
+            Some(TlsRole::CaFile {
+                required_at: vec![TlsLevel::VerifyFull]
+            })
+        );
+    }
+
+    #[test]
+    fn plain_roles_serialize_as_before_the_new_options() {
+        // A non-inverted skip-hostname and an optional CA file are written
+        // exactly as before `inverted` / `required_at` existed, and what an
+        // older driver wrote reads as them.
+        let host = Field::tls_skip_hostname("h", "h", false, ["false"; 4]);
+        let ca = Field::tls_cacert();
+        assert_eq!(
+            serde_json::to_value(&host).unwrap()["tls"],
+            serde_json::json!({"role": "skip_hostname"})
+        );
+        assert_eq!(
+            serde_json::to_value(&ca).unwrap()["tls"],
+            serde_json::json!({"role": "ca_file"})
+        );
+        assert_eq!(
+            read::<TlsRole>(serde_json::json!({"role": "skip_hostname"})),
+            TlsRole::SkipHostname { inverted: false }
+        );
+        assert_eq!(
+            read::<TlsRole>(serde_json::json!({"role": "ca_file"})),
+            TlsRole::CaFile {
+                required_at: vec![]
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(Field::tls_skip_hostname("h", "h", true, ["true"; 4])).unwrap()
+                ["tls"],
+            serde_json::json!({"role": "skip_hostname", "inverted": true})
+        );
+    }
+
+    #[test]
+    fn an_older_app_reads_the_new_options() {
+        // TlsRole as it was before `Verify`, `SkipHostname { inverted }` and
+        // `CaFile { required_at }`, read the way `Field::tls` reads it.
+        #[derive(Debug, PartialEq, Deserialize)]
+        #[serde(rename_all = "snake_case", tag = "role")]
+        enum OldRole {
+            Mode {
+                #[serde(deserialize_with = "crate::serde_static::level_pairs")]
+                levels: Vec<(&'static str, TlsLevel)>,
+            },
+            SkipVerify {
+                #[serde(default)]
+                inverted: bool,
+            },
+            SkipHostname,
+            CaFile,
+            ServerName,
+        }
+        #[derive(Deserialize)]
+        struct OldField {
+            #[serde(default, deserialize_with = "crate::serde_static::lenient")]
+            tls: Option<OldRole>,
+        }
+        let old = |f: Field| read::<OldField>(serde_json::to_value(f).unwrap()).tls;
+        let ca = Field::tls_ca_file("c", "c").ca_required_at(&[TlsLevel::VerifyCa]);
+        assert_eq!(old(ca), Some(OldRole::CaFile));
+        let host = Field::tls_skip_hostname("h", "h", true, ["true"; 4]);
+        assert_eq!(old(host), Some(OldRole::SkipHostname));
+        // An unknown role: a plain select, no TLS part.
+        assert_eq!(old(ssl_verification()), None);
+    }
+
+    #[test]
+    fn curl_names_for_engines_without_their_own() {
+        let k = Field::tls_insecure(["false", "true", "false", "true"]);
+        assert_eq!((k.key, k.label), ("insecure", "insecure"));
+        assert_eq!(k.tls, Some(TlsRole::SkipVerify { inverted: false }));
+        assert!(k.tls_skips("true") && !k.help.is_empty());
+        let ca = Field::tls_cacert();
+        assert_eq!((ca.key, ca.label), ("cacert", "cacert"));
+        assert!(matches!(ca.kind, FieldKind::File) && !ca.help.is_empty());
     }
 }

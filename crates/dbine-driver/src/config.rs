@@ -92,9 +92,13 @@ impl ConnectionConfig {
     }
 
     /// The connection's TLS level by the driver's fields: its
-    /// [`crate::TlsRole::Mode`] value, lowered by a skip-verify or
-    /// skip-hostname option that is on. `None` when the driver has no mode
-    /// field or the connection runs the driver's legacy path.
+    /// [`crate::TlsRole::Mode`] value, capped by a verification select
+    /// ([`crate::TlsRole::Verify`]: the level its value allows) and by a
+    /// skip-verify or skip-hostname option that is on. A cap never raises
+    /// the mode (`SSL=false` with `SSLVerification=FULL` is off). `None` when
+    /// the driver has no mode field, the connection runs the driver's legacy
+    /// path, or the mode or the verification select holds a value that isn't
+    /// one of its own.
     pub fn tls_level(&self, fields: &[Field]) -> Option<TlsLevel> {
         let mut level = fields
             .iter()
@@ -104,16 +108,69 @@ impl ConnectionConfig {
             return Some(level);
         }
         for f in fields {
-            let skips = self.tls_value(f).is_some_and(|v| f.tls_skips(v));
+            let Some(v) = self.tls_value(f) else {
+                continue;
+            };
             match f.tls {
-                Some(TlsRole::SkipVerify { .. }) if skips => {
+                Some(TlsRole::SkipVerify { .. }) if f.tls_skips(v) => {
                     level = level.min(TlsLevel::Unverified)
                 }
-                Some(TlsRole::SkipHostname) if skips => level = level.min(TlsLevel::VerifyCa),
+                Some(TlsRole::SkipHostname { .. }) if f.tls_skips(v) => {
+                    level = level.min(TlsLevel::VerifyCa)
+                }
+                Some(TlsRole::Verify { .. }) => level = level.min(f.tls_level_of(v)?),
                 _ => {}
             }
         }
         Some(level)
+    }
+
+    /// The CA file ([`crate::TlsRole::CaFile`]) that this connection's level
+    /// can't verify without (its `required_at`) and that is empty.
+    pub fn tls_ca_missing<'f>(&self, fields: &'f [Field]) -> Option<&'f Field> {
+        let level = self.tls_level(fields)?;
+        fields
+            .iter()
+            .find(|f| f.tls_ca_required_at(level) && self.tls_value(f).is_none())
+    }
+
+    /// Refuses a verified mode that needs a CA file it doesn't have
+    /// ([`Self::tls_ca_missing`]), with a message that names the option that
+    /// set the mode and the CA option, instead of connecting unverified.
+    /// Drivers whose CA file has a `required_at` call it before connecting.
+    pub fn require_tls_ca(&self, fields: &[Field]) -> crate::Result<()> {
+        let Some(ca) = self.tls_ca_missing(fields) else {
+            return Ok(());
+        };
+        let level = self.tls_level(fields);
+        // The option that asked for this level: the verification select when
+        // it's the one that set it, else the mode.
+        let by = fields
+            .iter()
+            .filter(|f| matches!(f.tls, Some(TlsRole::Verify { .. })))
+            .chain(
+                fields
+                    .iter()
+                    .filter(|f| matches!(f.tls, Some(TlsRole::Mode { .. }))),
+            )
+            .find_map(|f| {
+                let v = self.tls_value(f)?;
+                (f.tls_level_of(v) == level).then_some((f.key, v))
+            });
+        let message = match by {
+            Some((key, value)) => format!(
+                "{key}={value} necesita el archivo de la CA: completá {} o elegí otro valor de {key}.",
+                ca.label
+            ),
+            None => format!(
+                "Este modo de TLS necesita el archivo de la CA: completá {}.",
+                ca.label
+            ),
+        };
+        Err(crate::Error::connect_failed(crate::ConnectFailure::new(
+            crate::ConnectFailureKind::TlsUntrusted,
+            message,
+        )))
     }
 }
 
@@ -225,7 +282,8 @@ mod tests {
                 false,
                 ["false", "true", "false", "true"],
             ),
-            Field::new("tlsAllowInvalidHostnames", "x", FieldKind::Bool).tls(TlsRole::SkipHostname),
+            Field::new("tlsAllowInvalidHostnames", "x", FieldKind::Bool)
+                .tls(TlsRole::SkipHostname { inverted: false }),
         ];
         let level = |c: ConnectionConfig| c.tls_level(&fields);
         assert_eq!(
@@ -295,6 +353,183 @@ mod tests {
         assert_eq!(
             cfg(true, false, &[]).tls_level(&inv),
             Some(TlsLevel::VerifyFull)
+        );
+    }
+
+    /// Trino: the `SSL` switch, `SSLVerification` and the trust store.
+    fn trino() -> Vec<Field> {
+        vec![
+            Field::tls_switch(
+                "SSL",
+                "SSL",
+                TlsLevel::VerifyFull,
+                TlsLevel::Off,
+                true,
+                ["false", "false", "true", "true"],
+            ),
+            Field::tls_verify(
+                "SSLVerification",
+                "SSLVerification",
+                &[
+                    ("FULL", "FULL", TlsLevel::VerifyFull),
+                    ("CA", "CA", TlsLevel::VerifyCa),
+                    ("NONE", "NONE", TlsLevel::Unverified),
+                ],
+                "FULL",
+                ["FULL", "NONE", "FULL", "NONE"],
+            ),
+            Field::tls_ca_file("SSLTrustStorePath", "SSLTrustStorePath"),
+        ]
+    }
+
+    #[test]
+    fn a_verification_select_caps_the_mode() {
+        let f = trino();
+        let level = |opts: &[(&str, &str)]| cfg(false, false, opts).tls_level(&f);
+        assert_eq!(
+            level(&[("SSL", "true"), ("SSLVerification", "FULL")]),
+            Some(TlsLevel::VerifyFull)
+        );
+        assert_eq!(
+            level(&[("SSL", "true"), ("SSLVerification", "CA")]),
+            Some(TlsLevel::VerifyCa)
+        );
+        assert_eq!(
+            level(&[("SSL", "true"), ("SSLVerification", "NONE")]),
+            Some(TlsLevel::Unverified)
+        );
+        // It never raises the mode.
+        assert_eq!(
+            level(&[("SSL", "false"), ("SSLVerification", "FULL")]),
+            Some(TlsLevel::Off)
+        );
+        // Not set and no legacy value: no cap.
+        assert_eq!(level(&[("SSL", "true")]), Some(TlsLevel::VerifyFull));
+        // A value that isn't one of its own: no level, like the mode's.
+        assert_eq!(
+            level(&[("SSL", "true"), ("SSLVerification", "bogus")]),
+            None
+        );
+        // The legacy pairs: ff, ft off; tf verified; tt unverified.
+        let legacy = |e, t| cfg(e, t, &[]).tls_level(&f);
+        assert_eq!(legacy(false, false), Some(TlsLevel::Off));
+        assert_eq!(legacy(false, true), Some(TlsLevel::Off));
+        assert_eq!(legacy(true, false), Some(TlsLevel::VerifyFull));
+        assert_eq!(legacy(true, true), Some(TlsLevel::Unverified));
+        // With a skip option too: the lowest cap wins.
+        let mut g = f.clone();
+        g.push(Field::tls_insecure(["false"; 4]));
+        assert_eq!(
+            cfg(
+                false,
+                false,
+                &[
+                    ("SSL", "true"),
+                    ("SSLVerification", "CA"),
+                    ("insecure", "true")
+                ]
+            )
+            .tls_level(&g),
+            Some(TlsLevel::Unverified)
+        );
+    }
+
+    #[test]
+    fn an_inverted_skip_hostname_skips_when_false() {
+        let fields = vec![
+            Field::tls_switch(
+                "use_ssl",
+                "use_ssl",
+                TlsLevel::VerifyFull,
+                TlsLevel::Off,
+                true,
+                ["false", "false", "true", "true"],
+            ),
+            Field::tls_skip_hostname(
+                "ssl_assert_hostname",
+                "ssl_assert_hostname",
+                true,
+                ["true"; 4],
+            ),
+        ];
+        let level = |opts: &[(&str, &str)]| cfg(false, false, opts).tls_level(&fields);
+        assert_eq!(
+            level(&[("use_ssl", "true"), ("ssl_assert_hostname", "false")]),
+            Some(TlsLevel::VerifyCa)
+        );
+        assert_eq!(
+            level(&[("use_ssl", "true"), ("ssl_assert_hostname", "true")]),
+            Some(TlsLevel::VerifyFull)
+        );
+        // The legacy table keeps the host-name check.
+        assert_eq!(
+            cfg(true, false, &[]).tls_level(&fields),
+            Some(TlsLevel::VerifyFull)
+        );
+    }
+
+    /// MySQL-like: `VERIFY_CA` can't verify without `ssl-ca`,
+    /// `VERIFY_IDENTITY` uses the system roots.
+    fn ca_required() -> Vec<Field> {
+        vec![
+            Field::tls_mode(
+                "ssl-mode",
+                "ssl-mode",
+                &[
+                    ("DISABLED", "DISABLED", TlsLevel::Off),
+                    ("REQUIRED", "REQUIRED", TlsLevel::Unverified),
+                    ("VERIFY_CA", "VERIFY_CA", TlsLevel::VerifyCa),
+                    ("VERIFY_IDENTITY", "VERIFY_IDENTITY", TlsLevel::VerifyFull),
+                ],
+                "VERIFY_IDENTITY",
+                ["DISABLED", "DISABLED", "VERIFY_IDENTITY", "REQUIRED"],
+            ),
+            Field::tls_ca_file("ca_cert", "ssl-ca").ca_required_at(&[TlsLevel::VerifyCa]),
+        ]
+    }
+
+    #[test]
+    fn a_verified_mode_that_needs_a_ca_refuses_without_it() {
+        let f = ca_required();
+        let c = cfg(false, false, &[("ssl-mode", "VERIFY_CA")]);
+        assert_eq!(c.tls_ca_missing(&f).map(|x| x.key), Some("ca_cert"));
+        let e = c.require_tls_ca(&f).unwrap_err();
+        let failure = e.connect_failure().unwrap();
+        assert_eq!(failure.kind, crate::ConnectFailureKind::TlsUntrusted);
+        assert!(
+            failure.message.contains("ssl-mode=VERIFY_CA") && failure.message.contains("ssl-ca"),
+            "{}",
+            failure.message
+        );
+        // With the CA, or in a mode that doesn't need it: fine.
+        let with = cfg(
+            false,
+            false,
+            &[("ssl-mode", "VERIFY_CA"), ("ca_cert", "/ca.pem")],
+        );
+        assert!(with.require_tls_ca(&f).is_ok());
+        for mode in ["VERIFY_IDENTITY", "REQUIRED", "DISABLED"] {
+            assert!(cfg(false, false, &[("ssl-mode", mode)])
+                .require_tls_ca(&f)
+                .is_ok());
+        }
+        // The legacy path and a driver without a mode: nothing to check.
+        assert!(cfg(true, false, &[]).require_tls_ca(&f).is_ok());
+        assert!(cfg(true, false, &[])
+            .require_tls_ca(&Field::server_set())
+            .is_ok());
+    }
+
+    #[test]
+    fn the_refusal_names_the_verification_select_that_set_the_level() {
+        let mut f = trino();
+        f[2] = Field::tls_ca_file("SSLTrustStorePath", "SSLTrustStorePath")
+            .ca_required_at(&[TlsLevel::VerifyCa]);
+        let c = cfg(false, false, &[("SSL", "true"), ("SSLVerification", "CA")]);
+        let msg = c.require_tls_ca(&f).unwrap_err().to_string();
+        assert!(
+            msg.starts_with("SSLVerification=CA ") && msg.contains("SSLTrustStorePath"),
+            "{msg}"
         );
     }
 

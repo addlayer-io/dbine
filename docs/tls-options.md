@@ -52,13 +52,16 @@ The types live in `crates/dbine-driver/src/info.rs` and
 | `Field::tls_mode(key, label, &[(value, gloss, level)], default, legacy)` | A select that sets the level (`sslmode`, `Encrypt`, `ssl-mode`, `PROTOCOL`…). At most one per driver. |
 | `Field::tls_switch(key, label, on, off, default, legacy)` | A checkbox that sets the level (`tls`, `ssl`, `SSL`, `secure`…). It counts as the mode field. `on` and `off` may be flipped (etcd's `insecure-transport`). |
 | `Field::tls_skip_verify(key, label, inverted, legacy)` | A checkbox that skips the certificate checks. It caps the level at `Unverified`. `inverted`: "false" skips (`validateCertificate`, `validate`, `verify_certs`). |
-| `TlsRole::SkipHostname` | A checkbox that skips only the host-name check, capping the level at `VerifyCa`. There is no constructor yet: `Field::new(key, label, FieldKind::Bool).tls(TlsRole::SkipHostname).legacy(..)`. |
-| `Field::tls_ca_file(key, label)` | CA / trust-store file. It has no legacy table. |
+| `Field::tls_skip_hostname(key, label, inverted, legacy)` | A checkbox that skips only the host-name check, capping the level at `VerifyCa`. `inverted`: "false" skips (`ssl_assert_hostname`, `verifyHost`, `check_hostname`). |
+| `Field::tls_verify(key, label, &[(value, gloss, level)], default, legacy)` | A verification select next to the mode (`SSLVerification`, `verification_mode`, `hostname_verification`): each value gives the highest level it allows, and it caps the mode's level without raising it. At most one per driver, with a mode field, a verified default and a legacy table (the registry guard checks). An older app reads it as a plain select, so a driver that declares one needs this app version. |
+| `Field::tls_ca_file(key, label)` | CA / trust-store file. It has no legacy table. `.ca_required_at(&[levels])`: the levels the driver can't verify at without it; the form marks it required there. |
+| `Field::tls_insecure(legacy)`, `Field::tls_cacert()` | curl's `insecure` and `cacert`, for engines whose clients have no names of their own. |
 | `Field::tls_server_name(key, label)` | Host-name override for the check (`HostNameInCertificate`). |
 | `DriverInfo.tls: TlsSupport` | `Configurable` (has a mode field), `Forced` (always TLS and verified), `InUrl` (the URL or endpoint the user types decides), `None` (no TLS: must be listed in `docs/engine-support.md`), `NotApplicable` (a local file). |
 | `DriverInfo.tls_port` | The TLS port when it differs from `default_port`. The form swaps ports when the mode changes (`portForLevel`). |
 | `ConnectionConfig::tls_value(field)` | The saved value, else the legacy table's entry. `None`: the legacy path. |
-| `ConnectionConfig::tls_level(fields)` | The effective level, lowered by any skip option that is on. |
+| `ConnectionConfig::tls_level(fields)` | The effective level: the mode's, capped by the verification select and by any skip option that is on. |
+| `ConnectionConfig::tls_ca_missing(fields)`, `require_tls_ca(fields)` | The CA file the current level needs and doesn't have; `require_tls_ca` returns a `TlsUntrusted` connect error that names the option that set the level and the CA option. Drivers with a `ca_required_at` call it before connecting. |
 | `ConnectionConfig::tls_server_name()` | The real host when the connection goes through an SSH tunnel (`tunnel.origin_host`), else `host`. |
 
 ### Rules for every driver
@@ -154,11 +157,13 @@ of deriving them from `encrypt`/`trust`. The places today are SQL Server
 `:1181`, PostgreSQL `pg_sslmode` `:667`, MySQL `:833-900`, Oracle `:1324-1420`
 and ODBC `:1689`.
 
-### Contract additions needed
+### Contract additions (batch 0, done)
 
-`crates/dbine-driver/src/*` is a shared file, so these need coordination and
-belong in a "batch 0" that lands before the batches that use them. Each batch
-can start without them and leave the affected option out.
+These landed in batch 0, before the batches that use them (see the table in
+[The contract, in short](#the-contract-in-short)). A skip-hostname option is a
+checkbox ("true" / "false"); a driver whose engine spells it otherwise (Db2
+`SSLClientHostnameValidation=Basic|OFF`) writes its own values when it builds
+the connection string.
 
 1. **`Field::tls_skip_hostname(key, label, inverted, legacy)`** with
    `TlsRole::SkipHostname { inverted }`. Inverted host-name checks are common:
@@ -167,8 +172,8 @@ can start without them and leave the affected option out.
    - Solr `solr.ssl.checkPeerName`
    - newer cqlsh `check_hostname`
    - Db2 `SSLClientHostnameValidation=Basic|OFF`
-2. **A verification select that caps the level**, e.g. `TlsRole::Verify
-   { levels }`. Without it the level chip can't see the option:
+2. **A verification select that caps the level**: `Field::tls_verify` with
+   `TlsRole::Verify { levels }`:
    - Trino `SSLVerification` FULL / CA / NONE
    - Avatica `hostname_verification` STRICT / NONE
    - Elasticsearch `verification_mode`

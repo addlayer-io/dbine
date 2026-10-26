@@ -42,9 +42,13 @@ export type TlsLevel = 'off' | 'optional' | 'unverified' | 'verify_ca' | 'verify
 /** The part a field plays in the engine's TLS settings (dbine_driver::TlsRole). */
 export type TlsRole =
   | { role: 'mode'; levels: [string, TlsLevel][] }
+  /** A verification select: each value with the highest level it allows; it caps the mode's. */
+  | { role: 'verify'; levels: [string, TlsLevel][] }
   | { role: 'skip_verify'; inverted?: boolean }
-  | { role: 'skip_hostname' }
-  | { role: 'ca_file' }
+  /** inverted: "false" skips the host-name check (absent: false). */
+  | { role: 'skip_hostname'; inverted?: boolean }
+  /** required_at: the levels that can't verify without it (absent: none). */
+  | { role: 'ca_file'; required_at?: TlsLevel[] }
   | { role: 'server_name' };
 
 /** How a driver's connections are encrypted (dbine_driver::TlsSupport). */

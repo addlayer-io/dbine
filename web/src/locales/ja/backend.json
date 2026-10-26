@@ -11167,5 +11167,9 @@
   "{0} no puede llevar usuario ni contraseña": "{0} にユーザー名やパスワードを含めることはできません",
   "{0} tiene que empezar con https://": "{0} は https:// で始まる必要があります",
   "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": "「{0}」は {1}（このコンピューター、ローカルネットワーク、またはクラウドの内部サービス）を指しています。メッセージは公開サーバーにのみ送信されます",
-  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "「{0}」はこのコンピューター、ローカルネットワーク、または内部サービスです。メッセージは公開サーバーにのみ送信されます"
+  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "「{0}」はこのコンピューター、ローカルネットワーク、または内部サービスです。メッセージは公開サーバーにのみ送信されます",
+  "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "サーバー証明書に署名した CA の PEM ファイル（curl --cacert と同じ）。",
+  "Este modo de TLS necesita el archivo de la CA: completá {0}.": "この TLS モードには CA ファイルが必要です。{0} を指定してください。",
+  "No verifica el certificado del servidor (como curl --insecure).": "サーバー証明書を検証しません（curl --insecure と同じ）。",
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} には CA ファイルが必要です。{2} を指定するか、{3} に別の値を選んでください。"
 }

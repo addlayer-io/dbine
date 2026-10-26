@@ -22,7 +22,7 @@ import { mcpApi, type McpLevel } from '../api/mcp';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 import { inFocusedEditor } from '../stores/editorGroups';
 import { openConnString } from '../composables/connString';
-import { formValue, legacyTlsValues, newConnectionPort, portForLevel, tlsLevel, tlsOn, tlsWarning, writeTls, type TlsOriginal } from '../composables/tlsFields';
+import { fieldRequired, formValue, legacyTlsValues, newConnectionPort, portForLevel, tlsLevel, tlsOn, tlsWarning, writeTls, type TlsOriginal } from '../composables/tlsFields';
 
 // New / edit connection, as an editor tab. Step 1 picks the engine; step 2 is
 // the form the driver declares (its `fields`). Secret fields are never read
@@ -322,7 +322,7 @@ function userField(s: Section): Field | undefined {
 
 const missing = computed(() => {
   const out: { label: string; section: Section }[] = shownFields.value
-    .filter((f) => f.required && !(f.secret && (editing.value || drafts[f.key]?.kind !== 'saved')) && !(f.key === 'username' && userFromSecret.value) && String(values[f.key] ?? '').trim() === '')
+    .filter((f) => fieldRequired(f, formTlsLevel.value) && !(f.secret && (editing.value || drafts[f.key]?.kind !== 'saved')) && !(f.key === 'username' && userFromSecret.value) && String(values[f.key] ?? '').trim() === '')
     .map((f) => ({ label: tb(f.label), section: sectionOf(f) }));
   // A source without what it needs (the command, the Vault path…).
   const inputs = (key: string, label: string, section: Section) => {
@@ -641,7 +641,7 @@ function selectOptions(f: Field): [string, string][] {
               <el-form-item
                 v-else
                 :label="f.kind.type === 'bool' ? '' : tb(f.label)"
-                :required="f.required"
+                :required="fieldRequired(f, formTlsLevel)"
                 :class="{ 'cd-wide': ['textarea', 'file'].includes(f.kind.type) || f.key === 'host' || controllers.has(f.key), 'cd-bool': f.kind.type === 'bool' }"
               >
                 <el-checkbox v-if="f.kind.type === 'bool'" v-model="values[f.key] as boolean">{{ tb(f.label) }}</el-checkbox>

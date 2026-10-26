@@ -11167,5 +11167,9 @@
   "{0} no puede llevar usuario ni contraseña": "{0} darf weder Benutzer noch Passwort enthalten",
   "{0} tiene que empezar con https://": "{0} muss mit https:// beginnen",
   "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": "„{0}“ zeigt auf {1} (diesen Computer, das lokale Netzwerk oder einen internen Cloud-Dienst): Nachrichten gehen nur an öffentliche Server",
-  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "„{0}“ ist dieser Computer, das lokale Netzwerk oder ein interner Dienst: Nachrichten gehen nur an öffentliche Server"
+  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "„{0}“ ist dieser Computer, das lokale Netzwerk oder ein interner Dienst: Nachrichten gehen nur an öffentliche Server",
+  "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "PEM-Datei der Zertifizierungsstelle, die das Serverzertifikat signiert hat (wie curl --cacert).",
+  "Este modo de TLS necesita el archivo de la CA: completá {0}.": "Dieser TLS-Modus braucht die CA-Datei: Geben Sie {0} an.",
+  "No verifica el certificado del servidor (como curl --insecure).": "Prüft das Zertifikat des Servers nicht (wie curl --insecure).",
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} braucht die CA-Datei: Geben Sie {2} an oder wählen Sie einen anderen Wert für {3}."
 }

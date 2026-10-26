@@ -11167,5 +11167,9 @@
   "{0} no puede llevar usuario ni contraseña": "{0} 不能包含用户名或密码",
   "{0} tiene que empezar con https://": "{0} 必须以 https:// 开头",
   "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": "“{0}”指向 {1}（本机、本地网络或云端内部服务）：消息只会发送到公开服务器",
-  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "“{0}”是本机、本地网络或内部服务：消息只会发送到公开服务器"
+  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "“{0}”是本机、本地网络或内部服务：消息只会发送到公开服务器",
+  "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "签发服务器证书的 CA 的 PEM 文件（同 curl --cacert）。",
+  "Este modo de TLS necesita el archivo de la CA: completá {0}.": "此 TLS 模式需要 CA 文件：请填写 {0}。",
+  "No verifica el certificado del servidor (como curl --insecure).": "不验证服务器证书（同 curl --insecure）。",
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} 需要 CA 文件：请填写 {2}，或为 {3} 选择其他值。"
 }

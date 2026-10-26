@@ -1363,6 +1363,9 @@
  "Archivo (.accdb / .mdb)": [
   "crates/drivers/odbc/src/presets.rs"
  ],
+ "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": [
+  "crates/dbine-driver/src/info.rs"
+ ],
  "Archivo de Data Pump": [
   "crates/drivers/oracle/src/backup.rs"
  ],
@@ -8912,6 +8915,9 @@
  "Este es un mail de prueba de DBine. Si te llegó, las tareas programadas pueden enviar mails con este servidor.": [
   "src-tauri/src/commands/mail.rs"
  ],
+ "Este modo de TLS necesita el archivo de la CA: completá {0}.": [
+  "crates/dbine-driver/src/config.rs"
+ ],
  "Este motor": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -15194,6 +15200,9 @@
  "No todos los conectores guardan json (Hive e Iceberg no): ahí va varchar.": [
   "crates/dbine-schema/src/dialect/trino.rs"
  ],
+ "No verifica el certificado del servidor (como curl --insecure).": [
+  "crates/dbine-driver/src/info.rs"
+ ],
  "No: ahorra disco en campos que no se ordenan ni se agregan.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
@@ -18580,9 +18589,6 @@
  ],
  "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": [
   "crates/drivers/influxdb/src/monitor.rs"
- ],
- "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": [
-  "crates/drivers/neo4j/src/monitor.rs"
  ],
  "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -35858,6 +35864,9 @@
  ],
  "{0}; además, {1} usa tablas u objetos que no se clonan": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": [
+  "crates/dbine-driver/src/config.rs"
  ],
  "{0}Int{1}": [
   "crates/dbine-schema/src/dialect/clickhouse.rs",
