@@ -58,6 +58,8 @@ struct HanaDriver {
 
 fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "hana",
         name: "SAP HANA",
         family: Family::Relational,

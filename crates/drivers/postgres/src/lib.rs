@@ -343,6 +343,8 @@ impl Variant {
         };
         object_kinds.extend(compare::object_kinds(self));
         DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name,
             family,

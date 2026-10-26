@@ -83,6 +83,8 @@ pub(crate) enum Flavor {
 
 fn keyspaces_info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "keyspaces",
         name: "Amazon Keyspaces",
         family: Family::WideColumn,
@@ -113,6 +115,8 @@ fn keyspaces_info() -> DriverInfo {
 
 fn info(id: &'static str, name: &'static str) -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id,
         name,
         family: Family::WideColumn,

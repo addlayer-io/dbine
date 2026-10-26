@@ -29,7 +29,26 @@ export interface Field {
   when?: { key: string; values: string[] } | null;
   /** Its group in a long form (a tab of "Nueva base de datos"); '' : the first. */
   group?: string;
+  /** Its part in the engine's TLS settings (dbine_driver::TlsRole); absent: none. */
+  tls?: TlsRole | null;
+  /** What a saved connection without this option behaves as, by its legacy
+   *  (encrypt, trust_server_certificate): [ff, ft, tf, tt]; '' : not set. */
+  legacy?: [string, string, string, string] | null;
 }
+
+/** How sure a TLS setting is about the server (dbine_driver::TlsLevel). */
+export type TlsLevel = 'off' | 'optional' | 'unverified' | 'verify_ca' | 'verify_full';
+
+/** The part a field plays in the engine's TLS settings (dbine_driver::TlsRole). */
+export type TlsRole =
+  | { role: 'mode'; levels: [string, TlsLevel][] }
+  | { role: 'skip_verify'; inverted?: boolean }
+  | { role: 'skip_hostname' }
+  | { role: 'ca_file' }
+  | { role: 'server_name' };
+
+/** How a driver's connections are encrypted (dbine_driver::TlsSupport). */
+export type TlsSupport = 'configurable' | 'forced' | 'in_url' | 'none' | 'not_applicable' | 'unknown';
 
 /** One read-only fact of a database's properties. */
 export interface PropertyInfo {
@@ -77,6 +96,10 @@ export interface DriverInfo {
   databases_label: string;
   has_schemas: boolean;
   object_kinds: ObjectKindInfo[];
+  /** How its connections are encrypted (absent in older drivers: 'configurable'). */
+  tls?: TlsSupport;
+  /** The port it listens on for TLS when it isn't `default_port`; null: the same. */
+  tls_port?: number | null;
   /** Help on the query syntax (plain text), empty when there's none. */
   query_help: string;
   /** Offers estimated / actual execution plans. */
@@ -581,7 +604,7 @@ export interface ConnectResult {
 }
 
 /** Why a connect failed (dbine_driver::ConnectFailureKind). */
-export type ConnectFailureKind = 'firewall' | 'timeout' | 'refused' | 'dns' | 'tls' | 'auth' | 'unknown';
+export type ConnectFailureKind = 'firewall' | 'timeout' | 'refused' | 'dns' | 'tls' | 'tls_not_offered' | 'tls_untrusted' | 'auth' | 'unknown';
 
 /** "Agregar mi IP al firewall de Azure": the rule that would be created
  *  (src-tauri commands/azure_firewall.rs FirewallPlan). */

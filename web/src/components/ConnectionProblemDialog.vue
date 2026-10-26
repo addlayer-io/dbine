@@ -178,7 +178,7 @@ function editConnection() {
         <p v-else-if="azureSql" class="cp-note">{{ $t('connection:problem.network.azureSql') }}</p>
       </template>
       <p v-else-if="kind === 'dns'">{{ $t('connection:problem.kind.dns.body', { host: bareHost }) }}</p>
-      <p v-else-if="kind === 'tls'">{{ $t('connection:problem.kind.tls.body') }}</p>
+      <p v-else-if="kind === 'tls' || kind === 'tls_not_offered' || kind === 'tls_untrusted'">{{ $t(`connection:problem.kind.${kind}.body`) }}</p>
       <p v-else-if="kind === 'auth'">{{ $t('connection:problem.kind.auth.body') }}</p>
       <template v-else>
         <p v-if="detail?.code === '40613'">{{ $t('connection:problem.azure.unavailable') }}</p>

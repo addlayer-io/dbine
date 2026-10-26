@@ -189,6 +189,8 @@ fn info(p: &'static Preset) -> DriverInfo {
     }
     object_kinds.extend(structure::object_kinds(design::eng(p)));
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: p.id,
         name: p.name,
         family: p.family,

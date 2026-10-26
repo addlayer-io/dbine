@@ -23,6 +23,8 @@ pub const SINGLE: &str = "single";
 
 pub fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "duckdb_files",
         name: "Archivos CSV / Parquet / JSON",
         family: Family::Analytical,

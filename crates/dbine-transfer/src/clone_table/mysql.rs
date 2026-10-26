@@ -1058,6 +1058,8 @@ PARTITIONS 3 */";
 
     fn driver(id: &'static str, dialect: &'static str) -> D {
         D(dbine_driver::DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family: dbine_driver::Family::Relational,

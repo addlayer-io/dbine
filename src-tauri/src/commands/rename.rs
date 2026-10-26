@@ -1208,6 +1208,8 @@ mod tests {
     fn fake(replace: ReplaceStyle) -> Fake {
         Fake {
             info: DriverInfo {
+                tls: Default::default(),
+                tls_port: None,
                 id: "fake",
                 name: "Fake",
                 family: Family::Relational,

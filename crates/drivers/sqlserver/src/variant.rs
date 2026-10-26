@@ -233,6 +233,8 @@ pub fn info(v: Variant) -> DriverInfo {
         }
     };
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id,
         name,
         family: if v == Variant::Fabric {

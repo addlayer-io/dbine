@@ -47,6 +47,8 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "snowflake",
         name: "Snowflake",
         family: Family::Analytical,

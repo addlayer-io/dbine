@@ -59,6 +59,8 @@ struct FirebirdDriver {
 
 fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "firebird",
         name: "Firebird",
         family: Family::Relational,

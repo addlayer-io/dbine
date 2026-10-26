@@ -73,6 +73,8 @@ fn info() -> DriverInfo {
     }));
     fields.push(Field::read_only());
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "dsql",
         name: "Amazon Aurora DSQL",
         family: Family::Relational,

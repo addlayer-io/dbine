@@ -274,6 +274,8 @@ mod tests {
 
     fn driver(id: &'static str, family: Family) -> D {
         D(DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family,

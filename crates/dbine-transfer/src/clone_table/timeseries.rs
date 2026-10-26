@@ -500,6 +500,8 @@ mod tests {
 
     fn info(id: &'static str, dialect: &'static str, language: Language) -> DriverInfo {
         DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family: Family::TimeSeries,

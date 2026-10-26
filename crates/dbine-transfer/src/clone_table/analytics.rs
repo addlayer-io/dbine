@@ -1669,6 +1669,8 @@ mod tests {
     #[test]
     fn engine_copies_its_own_definition() {
         let info = |id: &'static str, dialect: &'static str| DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family: dbine_driver::Family::Analytical,
@@ -1706,6 +1708,8 @@ mod tests {
 
     fn test_info(id: &'static str, dialect: &'static str) -> DriverInfo {
         DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family: dbine_driver::Family::Analytical,

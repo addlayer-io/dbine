@@ -282,6 +282,8 @@ impl Variant {
         managed_fields(product, &mut fields);
         cloud_auth::adapt(&mut fields, product.cloud_offer());
         DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name,
             family,

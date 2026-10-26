@@ -317,8 +317,317 @@ pub async fn open_session(
     )
 }
 
+/// Drivers still on the legacy `encrypt` / `trust_server_certificate`
+/// fields, or that don't say how they're encrypted yet (`DriverInfo::tls`).
+/// Each TLS batch (docs/engine-support.md, "Connection encryption") takes
+/// its drivers out; the registry test fails for a driver listed here that's
+/// already migrated, and for one not listed that isn't.
+pub const NOT_YET_MIGRATED: &[&str] = &[
+    "access",
+    "alloydb",
+    "altibase",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cosmosdb",
+    "couchbase",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "databricks",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "dremio",
+    "drill",
+    "dsql",
+    "duckdb",
+    "duckdb_files",
+    "dynamodb",
+    "edb",
+    "elasticsearch",
+    "etcd",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb",
+    "influxdb1",
+    "influxdb3",
+    "informix",
+    "ingres",
+    "iotdb",
+    "iris",
+    "keyspaces",
+    "kingbase",
+    "ksqldb",
+    "kyuubi",
+    "libsql",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "neptune",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "opendistro",
+    "openedge",
+    "opengauss",
+    "opensearch",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redis",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "solr",
+    "spanner",
+    "spark",
+    "sqlanywhere",
+    "sqlite",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "valkey",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen",
+];
+
 #[cfg(test)]
 mod tests {
+    use dbine_driver::{DriverInfo, Field, TlsRole, TlsSupport};
+
+    /// What's wrong with a driver's TLS declaration.
+    fn tls_problems(i: &DriverInfo, docs: &str) -> Vec<String> {
+        let mut out = vec![];
+        let id = i.id;
+        let modes: Vec<&Field> = i
+            .fields
+            .iter()
+            .filter(|f| matches!(f.tls, Some(TlsRole::Mode { .. })))
+            .collect();
+        if modes.len() > 1 {
+            out.push(format!("{id}: more than one TLS mode field"));
+        }
+        // A declared mode is well formed, migrated or not.
+        for f in &modes {
+            let key = f.key;
+            let Some(TlsRole::Mode { levels }) = &f.tls else {
+                continue;
+            };
+            let known = |v: &str| levels.iter().any(|(x, _)| *x == v);
+            match f.tls_level_of(f.default) {
+                Some(l) if l.verified() => {}
+                _ => out.push(format!(
+                    "{id}: `{key}`'s default {:?} isn't a verified TLS level",
+                    f.default
+                )),
+            }
+            match &f.legacy {
+                None => out.push(format!("{id}: `{key}` has no legacy table")),
+                Some(l) => {
+                    for v in l.0.iter().filter(|v| !v.is_empty() && !known(v)) {
+                        out.push(format!(
+                            "{id}: `{key}`'s legacy value {v:?} isn't one of its values"
+                        ));
+                    }
+                }
+            }
+            if i.tls != TlsSupport::Configurable {
+                out.push(format!(
+                    "{id}: has a TLS mode field but declares {:?}",
+                    i.tls
+                ));
+            }
+        }
+        if i.tls == TlsSupport::None && !docs.contains(&format!("`{id}`")) {
+            out.push(format!(
+                "{id}: declares no TLS but docs/engine-support.md doesn't list `{id}`"
+            ));
+        }
+        let legacy_fields = i.fields.iter().any(Field::is_legacy_tls);
+        let migrated = !legacy_fields && (!modes.is_empty() || i.tls != TlsSupport::Configurable);
+        match (super::NOT_YET_MIGRATED.contains(&id), migrated) {
+            (true, true) => out.push(format!(
+                "{id}: is migrated: take it out of NOT_YET_MIGRATED"
+            )),
+            (false, false) => out.push(format!(
+                "{id}: needs its engine's TLS options (a TlsRole::Mode field) or a DriverInfo::tls declaration, without the legacy encrypt/trust fields"
+            )),
+            _ => {}
+        }
+        out
+    }
+
+    /// Every engine says how its connections are encrypted: its own TLS
+    /// options (a mode field with a secure default and a legacy table) or
+    /// `DriverInfo::tls`. The drivers not migrated yet are listed.
+    #[test]
+    fn every_driver_declares_its_tls() {
+        let docs = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/engine-support.md"
+        ))
+        .unwrap_or_default();
+        let problems: Vec<String> = super::all()
+            .iter()
+            .flat_map(|d| tls_problems(d.info(), &docs))
+            .collect();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+
+    #[test]
+    fn the_tls_check_catches_bad_declarations() {
+        use dbine_driver::{Family, Language, TlsLevel};
+        let info = |fields: Vec<Field>, tls: TlsSupport| DriverInfo {
+            id: "tls-check-test",
+            name: "x",
+            family: Family::Relational,
+            language: Language::Sql,
+            dialect: "",
+            default_port: 1,
+            fields,
+            databases_label: "",
+            has_schemas: false,
+            object_kinds: vec![],
+            tls,
+            tls_port: None,
+        };
+        let mode = |default: &'static str, legacy: [&'static str; 4]| {
+            Field::tls_mode(
+                "sslmode",
+                "sslmode",
+                &[
+                    ("disable", "disable", TlsLevel::Off),
+                    ("require", "require", TlsLevel::Unverified),
+                    ("verify-full", "verify-full", TlsLevel::VerifyFull),
+                ],
+                default,
+                legacy,
+            )
+        };
+        let ok = mode(
+            "verify-full",
+            ["disable", "require", "verify-full", "require"],
+        );
+        assert!(tls_problems(
+            &info(vec![Field::host(), ok.clone()], TlsSupport::Configurable),
+            ""
+        )
+        .is_empty());
+        assert!(tls_problems(&info(vec![], TlsSupport::Forced), "").is_empty());
+        // Legacy fields, nothing declared.
+        assert_eq!(
+            tls_problems(&info(Field::server_set(), TlsSupport::Configurable), "").len(),
+            1
+        );
+        // A plaintext default, an unknown legacy value, no legacy table.
+        assert_eq!(
+            tls_problems(
+                &info(
+                    vec![mode(
+                        "require",
+                        ["disable", "require", "verify-full", "require"]
+                    )],
+                    TlsSupport::Configurable
+                ),
+                ""
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            tls_problems(
+                &info(
+                    vec![mode(
+                        "verify-full",
+                        ["off", "require", "verify-full", "require"]
+                    )],
+                    TlsSupport::Configurable
+                ),
+                ""
+            )
+            .len(),
+            1
+        );
+        let mut no_table = ok.clone();
+        no_table.legacy = None;
+        assert_eq!(
+            tls_problems(&info(vec![no_table], TlsSupport::Configurable), "").len(),
+            1
+        );
+        // No TLS needs its line in the docs.
+        assert_eq!(tls_problems(&info(vec![], TlsSupport::None), "").len(), 1);
+        assert!(tls_problems(
+            &info(vec![], TlsSupport::None),
+            "- `tls-check-test`: no TLS"
+        )
+        .is_empty());
+    }
+
     #[test]
     fn driver_ids_are_unique() {
         let mut ids: Vec<_> = super::all().iter().map(|d| d.info().id).collect();

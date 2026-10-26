@@ -18,6 +18,8 @@ use std::collections::HashMap;
 
 pub(crate) fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "avatica",
         name: "Apache Calcite Avatica",
         family: Family::Relational,

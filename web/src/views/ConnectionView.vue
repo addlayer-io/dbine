@@ -22,6 +22,7 @@ import { mcpApi, type McpLevel } from '../api/mcp';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 import { inFocusedEditor } from '../stores/editorGroups';
 import { openConnString } from '../composables/connString';
+import { formValue, legacyTlsValues, newConnectionPort, portForLevel, tlsLevel, tlsOn, tlsWarning, writeTls, type TlsOriginal } from '../composables/tlsFields';
 
 // New / edit connection, as an editor tab. Step 1 picks the engine; step 2 is
 // the form the driver declares (its `fields`). Secret fields are never read
@@ -65,6 +66,12 @@ const tagOptions = computed(() => {
   return all.filter((t, i) => all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === i);
 });
 const values = reactive<Record<string, string | boolean>>({});
+/** The existing connection's TLS state before the form changed anything:
+ *  its bools and the TLS options it had no value for (tlsFields.ts). */
+const tlsOriginal = ref<TlsOriginal | null>(null);
+/** Bumped on every pick: a level change that comes from loading another
+ *  connection doesn't swap the port. */
+const picks = ref(0);
 /** Where each secret field takes its value (docs/secret-sources.md), by
  *  field key; the SSH tunnel's as `ssh.password` / `ssh.passphrase`. */
 const drafts = reactive<Record<string, SourceDraft>>({});
@@ -178,11 +185,14 @@ function engineKind(d: DriverInfo): string {
 }
 
 function pick(d: DriverInfo, existing: SavedConnection | null = null) {
+  picks.value++;
   driver.value = d;
   for (const k of Object.keys(values)) delete values[k];
   for (const f of d.fields) {
-    values[f.key] = f.kind.type === 'bool' ? f.default === 'true' : f.key === 'port' ? String(d.default_port || '') : f.default;
+    // A new connection: the field's default (a verified TLS mode), on the TLS port when it has one.
+    values[f.key] = f.kind.type === 'bool' ? f.default === 'true' : f.key === 'port' ? newConnectionPort(d) : f.default;
   }
+  tlsOriginal.value = null;
   const o = existing?.config.options ?? {};
   const sources = readSources(o);
   for (const k of Object.keys(drafts)) delete drafts[k];
@@ -200,6 +210,13 @@ function pick(d: DriverInfo, existing: SavedConnection | null = null) {
       const v = (TYPED_FIELDS as readonly string[]).includes(f.key) ? cfg[f.key] : existing.config.options[f.key];
       if (v === undefined || v === null) continue;
       values[f.key] = f.kind.type === 'bool' ? v === true || v === 'true' : String(f.key === 'port' && v === 0 ? '' : v);
+    }
+    // TLS options it was saved without: what it behaves as (its legacy
+    // encrypt / trust pair), never the new secure default.
+    tlsOriginal.value = legacyTlsValues(d, existing.config);
+    for (const [k, v] of Object.entries(tlsOriginal.value.legacy)) {
+      const f = d.fields.find((x) => x.key === k);
+      if (f) values[k] = formValue(f, v);
     }
     name.value = existing.name;
     color.value = existing.color ?? '';
@@ -239,6 +256,8 @@ function buildConfig(): ConnectionConfig {
   // Only the fields that apply: another auth method's leftovers aren't saved.
   for (const f of d.fields.filter((f) => visible(f))) {
     if (f.secret && sourced(f.key)) continue;
+    // The engine's own TLS options: below, all together.
+    if (f.tls) continue;
     const v = values[f.key];
     switch (f.key) {
       case 'host': cfg.host = String(v ?? '').trim(); break;
@@ -254,6 +273,9 @@ function buildConfig(): ConnectionConfig {
         else if (String(v ?? '') !== '') cfg.options[f.key] = String(v);
     }
   }
+  // Untouched on an existing connection: not written, its encrypt / trust
+  // kept. Otherwise written, with the closest encrypt / trust pair.
+  writeTls(d.fields.filter((f) => visible(f)), values, tlsOriginal.value, cfg);
   const s = ssh.value;
   if (networked.value && s.enabled) {
     const set = (k: string, v: string) => { if (v.trim()) cfg.options[`ssh.${k}`] = v.trim(); };
@@ -266,6 +288,18 @@ function buildConfig(): ConnectionConfig {
   writeSources(cfg.options, sources);
   return cfg;
 }
+
+/** The TLS level the form's values give (null: no mode field). */
+const formTlsLevel = computed(() => (driver.value ? tlsLevel(driver.value.fields, (k) => values[k]) : null));
+/** The SSL tab's chip: "Sin cifrar" / "Sin verificar". */
+const tlsChip = computed(() => (driver.value ? tlsWarning(driver.value, (k) => values[k]) : null));
+// The mode went between plaintext and TLS: the port follows when it's still
+// the other one's default (ClickHouse 8123 ↔ 8443, Oracle 1521 ↔ 2484…).
+watch([picks, formTlsLevel], ([p, now], [pBefore, before]) => {
+  const d = driver.value;
+  if (!d || p !== pBefore || tlsOn(now) === tlsOn(before ?? null)) return;
+  values.port = portForLevel(d, String(values.port ?? ''), now);
+});
 
 function defaultName(): string {
   const cfg = buildConfig();
@@ -475,6 +509,7 @@ function selectOptions(f: Field): [string, string][] {
           @click="section = s"
         >
           {{ $t(`tunnel:tabs.${s}`) }}<span v-if="sectionOn(s)" class="cd-tab-dot" />
+          <span v-if="s === 'ssl' && tlsChip" class="cd-tab-chip" :class="`cd-tab-chip-${tlsChip}`">{{ $t(`connection:tls.${tlsChip}`) }}</span>
         </button>
       </div>
       <div class="cd-panel">
@@ -725,6 +760,11 @@ function selectOptions(f: Field): [string, string][] {
 .cd-tab:hover { color: var(--nm-text-strong); }
 .cd-tab.active { color: var(--nm-text-strong); border-bottom-color: var(--ide-focus, var(--el-color-primary)); }
 .cd-tab-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--nm-success); }
+.cd-tab-chip {
+  font-size: 10.5px; line-height: 1; padding: 2px 6px; border-radius: 8px;
+  color: var(--nm-warn-fg); border: 1px solid var(--nm-warn-fg);
+}
+.cd-tab-chip-off { color: var(--nm-error-fg); border-color: var(--nm-error-fg); }
 .cd-panel { max-width: 1100px; }
 .cd-empty { color: var(--nm-text-dim); font-size: 12.5px; padding: 12px 0; }
 .cd-fields { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }

@@ -76,6 +76,14 @@
         "title": "La connexion sécurisée (TLS) a échoué",
         "body": "Le certificat du serveur n’est pas approuvé ou ne correspond pas au nom d’hôte. Vérifiez les options de chiffrement de la connexion : utilisez le nom indiqué dans le certificat, ou faites confiance au certificat du serveur seulement si vous savez que c’est le bon."
       },
+      "tls_not_offered": {
+        "title": "Le serveur ne propose pas TLS",
+        "body": "La connexion demande le chiffrement et le serveur ne l'a pas activé (fréquent sur les serveurs de développement). Activez TLS sur le serveur ou, si vous acceptez que les données et le mot de passe circulent en clair, choisissez un mode sans chiffrement dans l'onglet SSL/TLS."
+      },
+      "tls_untrusted": {
+        "title": "Impossible de vérifier le certificat du serveur",
+        "body": "Le certificat du serveur n'est pas signé par une autorité de confiance ou ne correspond pas au nom d'hôte (fréquent avec les certificats auto-signés). Dans l'onglet SSL/TLS, indiquez le fichier de l'autorité de certification ou, seulement si vous savez que le serveur est le bon, choisissez un mode qui ne vérifie pas le certificat."
+      },
       "auth": {
         "title": "Connexion refusée",
         "body": "Le serveur a refusé l’utilisateur ou le mot de passe. Vérifiez les identifiants et la méthode d’authentification (par exemple Microsoft Entra), et que l’utilisateur existe dans cette base."
@@ -335,5 +343,9 @@
       "loaded": "{{n}} champs dans l'entrée.",
       "hint": "Choisissez une entrée pour voir ses champs."
     }
+  },
+  "tls": {
+    "off": "Non chiffré",
+    "unverified": "Non vérifié"
   }
 }

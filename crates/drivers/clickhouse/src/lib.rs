@@ -120,6 +120,8 @@ fn info(flavor: Flavor) -> DriverInfo {
         }
     };
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id,
         name,
         family,

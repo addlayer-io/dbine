@@ -14,7 +14,7 @@ path = "src/main.rs"
 # in dbine-driver / dbine-plugin they should all get. Part of each
 # published file's id (docs/on-demand-drivers.md).
 [package.metadata.dbine]
-drivers-epoch = 3
+drivers-epoch = 4
 
 [dependencies]
 # One process-wide TLS crypto provider, installed at start: with several

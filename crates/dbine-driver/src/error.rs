@@ -136,12 +136,27 @@ pub enum ConnectFailureKind {
     Dns,
     /// The TLS handshake or the server's certificate failed.
     Tls,
+    /// TLS was asked for and the server has none (a development server
+    /// without TLS): the connection's TLS mode has to allow plaintext. An
+    /// older app reads it as `Unknown`.
+    TlsNotOffered,
+    /// The server's certificate couldn't be verified (unknown CA, self-signed,
+    /// another host name): the CA file, or a mode that doesn't verify. An
+    /// older app reads it as `Unknown`.
+    TlsUntrusted,
     /// The login was rejected.
     Auth,
     /// Anything else (and kinds a newer driver sends that this app doesn't know).
     #[default]
     #[serde(other)]
     Unknown,
+}
+
+impl ConnectFailureKind {
+    /// A TLS failure of any kind.
+    pub fn is_tls(self) -> bool {
+        matches!(self, Self::Tls | Self::TlsNotOffered | Self::TlsUntrusted)
+    }
 }
 
 /// A failed connect, classified. Crosses the plugin protocol as an optional
@@ -291,6 +306,31 @@ pub fn classify_message(text: &str) -> ConnectFailureKind {
         r"invalid username",
     ]) {
         ConnectFailureKind::Auth
+    } else if has(&[
+        r"server does not support ssl",
+        r"server does not support tls",
+        r"ssl is not enabled on the server",
+        r"server doesn't support ssl",
+        r"does not support ssl connections",
+        r"ssl connection is required but the server",
+        r"tls not supported",
+        r"ssl not supported",
+    ]) {
+        ConnectFailureKind::TlsNotOffered
+    } else if has(&[
+        r"unknownissuer",
+        r"unknown issuer",
+        r"notvalidforname",
+        r"not valid for name",
+        r"self signed",
+        r"self-signed",
+        r"certificate verify failed",
+        r"unable to get local issuer certificate",
+        r"certificate is not trusted",
+        r"hostname mismatch",
+        r"invalid peer certificate",
+    ]) {
+        ConnectFailureKind::TlsUntrusted
     } else if has(&[r"certificate", r"tls", r"ssl", r"handshake", r"x509"]) {
         ConnectFailureKind::Tls
     } else {
@@ -343,8 +383,14 @@ mod tests {
         );
         assert_eq!(
             k("invalid peer certificate: UnknownIssuer"),
-            ConnectFailureKind::Tls
+            ConnectFailureKind::TlsUntrusted
         );
+        assert_eq!(
+            k("error performing TLS handshake: server does not support TLS"),
+            ConnectFailureKind::TlsNotOffered
+        );
+        assert_eq!(k("tls handshake eof"), ConnectFailureKind::Tls);
+        assert!(ConnectFailureKind::TlsUntrusted.is_tls() && !ConnectFailureKind::Auth.is_tls());
         assert_eq!(k("algo raro"), ConnectFailureKind::Unknown);
     }
 

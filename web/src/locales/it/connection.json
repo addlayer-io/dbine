@@ -76,6 +76,14 @@
         "title": "La connessione sicura (TLS) non è riuscita",
         "body": "Il certificato del server non è attendibile o non corrisponde al nome host. Controlla le opzioni di crittografia della connessione: usa il nome indicato nel certificato, oppure considera attendibile il certificato del server solo se sai che è quello giusto."
       },
+      "tls_not_offered": {
+        "title": "Il server non offre TLS",
+        "body": "La connessione richiede la crittografia e il server non l'ha attivata (succede spesso sui server di sviluppo). Attiva TLS sul server oppure, se accetti che i dati e la password viaggino in chiaro, scegli una modalità senza crittografia nella scheda SSL/TLS."
+      },
+      "tls_untrusted": {
+        "title": "Impossibile verificare il certificato del server",
+        "body": "Il certificato del server non è firmato da un'autorità attendibile o non corrisponde al nome host (succede spesso con i certificati autofirmati). Nella scheda SSL/TLS indica il file della CA oppure, solo se sai che il server è quello giusto, scegli una modalità che non verifica il certificato."
+      },
       "auth": {
         "title": "Accesso rifiutato",
         "body": "Il server ha rifiutato l’utente o la password. Controlla le credenziali e il metodo di autenticazione (per esempio Microsoft Entra), e che l’utente esista in quel database."
@@ -335,5 +343,9 @@
       "loaded": "{{n}} campi nella voce.",
       "hint": "Scegli una voce per vedere i suoi campi."
     }
+  },
+  "tls": {
+    "off": "Non cifrata",
+    "unverified": "Non verificata"
   }
 }

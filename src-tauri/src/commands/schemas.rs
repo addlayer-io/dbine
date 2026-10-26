@@ -319,6 +319,8 @@ mod tests {
     fn fake(sep: &'static str) -> Fake {
         Fake(
             DriverInfo {
+                tls: Default::default(),
+                tls_port: None,
                 id: "fake",
                 name: "Fake",
                 family: Family::Relational,

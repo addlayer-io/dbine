@@ -63,7 +63,111 @@ pub struct DriverInfo {
     pub has_schemas: bool,
     /// Kinds of objects `list_objects` returns, in explorer order.
     pub object_kinds: Vec<ObjectKindInfo>,
+    /// How the engine's connections are encrypted (absent in older
+    /// manifests: [`TlsSupport::Configurable`]).
+    #[serde(default)]
+    pub tls: TlsSupport,
+    /// The port the engine listens on for TLS when it isn't `default_port`
+    /// (ClickHouse 8443, Oracle 2484…): a new connection whose TLS mode is on
+    /// starts with it. `None`: the same port.
+    #[serde(default)]
+    pub tls_port: Option<u16>,
 }
+
+/// How a driver's connections are encrypted, for the drivers that don't
+/// declare a [`TlsRole::Mode`] field (and for the registry's check that every
+/// engine says something about it).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsSupport {
+    /// The form's TLS fields set it (a [`TlsRole::Mode`] field, or the
+    /// legacy `encrypt` / `trust_server_certificate` ones).
+    #[default]
+    Configurable,
+    /// Always TLS, verified, nothing to choose (a cloud API, IAM sign-ins).
+    Forced,
+    /// The URL or connection string the user types says it (`https://`,
+    /// `libsql://`…).
+    InUrl,
+    /// The engine has no TLS (listed in docs/engine-support.md).
+    None,
+    /// Not a network connection (a local file).
+    NotApplicable,
+    /// A value a newer driver sends that this app doesn't know.
+    #[serde(other)]
+    Unknown,
+}
+
+/// How sure a TLS setting is about the server: for the form's warning chip,
+/// the projection to the legacy `encrypt` / `trust_server_certificate` pair
+/// and the connection-string export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TlsLevel {
+    /// Plaintext.
+    Off,
+    /// TLS when the server offers it (`prefer`, `PREFERRED`, `Optional`…).
+    Optional,
+    /// TLS required, the certificate isn't checked.
+    Unverified,
+    /// TLS required, the chain is checked but not the host name.
+    VerifyCa,
+    /// TLS required, chain and host name checked.
+    VerifyFull,
+}
+
+impl TlsLevel {
+    /// The closest legacy `(encrypt, trust_server_certificate)` pair, written
+    /// next to the native option so an older app or driver gets the nearest
+    /// behaviour instead of plaintext.
+    pub fn legacy_pair(self) -> (bool, bool) {
+        match self {
+            Self::Off | Self::Optional => (false, false),
+            Self::Unverified => (true, true),
+            Self::VerifyCa | Self::VerifyFull => (true, false),
+        }
+    }
+
+    /// Checks the server's certificate (chain at least).
+    pub fn verified(self) -> bool {
+        self >= Self::VerifyCa
+    }
+}
+
+/// The part a [`Field`] plays in the engine's TLS settings. Its `key` and
+/// `label` are the engine's own spelling (`sslmode`, `Encrypt`,
+/// `TrustServerCertificate`, `tls`…) and its values the engine's own values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "role")]
+pub enum TlsRole {
+    /// A select or a checkbox whose values set the level: `(value, level)`
+    /// pairs (`("verify-full", VerifyFull)`, `("true", VerifyFull)`…).
+    Mode {
+        #[serde(deserialize_with = "crate::serde_static::level_pairs")]
+        levels: Vec<(&'static str, TlsLevel)>,
+    },
+    /// A checkbox that skips the certificate checks when "true"
+    /// (`TrustServerCertificate`, `tlsAllowInvalidCertificates`, `insecure`…).
+    /// `inverted`: "false" skips them (`validateCertificate`…).
+    SkipVerify {
+        #[serde(default)]
+        inverted: bool,
+    },
+    /// A checkbox that skips only the host-name check when "true".
+    SkipHostname,
+    /// The CA / trust-store file.
+    CaFile,
+    /// A host-name override for the certificate check
+    /// (`HostNameInCertificate`…).
+    ServerName,
+}
+
+/// The value a saved connection that predates a TLS field behaves as, by its
+/// legacy `(encrypt, trust_server_certificate)`: `[ff, ft, tf, tt]` (see
+/// [`crate::ConnectionConfig::legacy_tls_index`]). An empty string means
+/// "not set": the driver keeps its legacy code path for that combination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Legacy(#[serde(deserialize_with = "crate::serde_static::str4")] pub [&'static str; 4]);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Field {
@@ -96,6 +200,15 @@ pub struct Field {
     /// the create-database dialog makes a tab of each. Empty: the first.
     #[serde(default, deserialize_with = "crate::serde_static::str")]
     pub group: &'static str,
+    /// Its part in the engine's TLS settings (absent: none). A role this
+    /// build doesn't know (a newer driver's) reads as none.
+    #[serde(default, deserialize_with = "crate::serde_static::lenient")]
+    pub tls: Option<TlsRole>,
+    /// What a saved connection without this option behaves as (TLS fields;
+    /// absent: the field's `default` applies to new connections only and
+    /// old ones have no value).
+    #[serde(default, deserialize_with = "crate::serde_static::lenient")]
+    pub legacy: Option<Legacy>,
 }
 
 /// Tabs of the connection form (besides the SSH tunnel's, which the app adds
@@ -152,6 +265,8 @@ impl Field {
             section: FieldSection::General,
             when: None,
             group: "",
+            tls: None,
+            legacy: None,
         }
     }
     pub fn required(mut self) -> Self {
@@ -198,6 +313,112 @@ impl Field {
         self
     }
 
+    /// Its part in the engine's TLS settings (in the SSL tab).
+    pub fn tls(mut self, role: TlsRole) -> Self {
+        self.tls = Some(role);
+        self.ssl()
+    }
+    /// What a saved connection without this option behaves as, by its legacy
+    /// `(encrypt, trust_server_certificate)`: `[ff, ft, tf, tt]`.
+    pub fn legacy(mut self, values: [&'static str; 4]) -> Self {
+        self.legacy = Some(Legacy(values));
+        self
+    }
+
+    /// The engine's TLS mode, as a select: `key` and `label` are its own
+    /// spelling (`sslmode`, `Encrypt`, `ssl-mode`…), `options` its values
+    /// with a short gloss and the level each one gives
+    /// (`("verify-full", "verify-full (CA y nombre)", VerifyFull)`).
+    /// `default` is a new connection's value (a verified one); `legacy` what
+    /// a saved connection from before the field behaves as.
+    pub fn tls_mode(
+        key: &'static str,
+        label: &'static str,
+        options: &[(&'static str, &'static str, TlsLevel)],
+        default: &'static str,
+        legacy: [&'static str; 4],
+    ) -> Self {
+        Self::new(
+            key,
+            label,
+            FieldKind::Select(options.iter().map(|(v, l, _)| (*v, *l)).collect()),
+        )
+        .default_value(default)
+        .tls(TlsRole::Mode {
+            levels: options.iter().map(|(v, _, lv)| (*v, *lv)).collect(),
+        })
+        .legacy(legacy)
+    }
+    /// The engine's TLS switch, as a checkbox (`tls`, `ssl`, `SSL`…): "true"
+    /// gives `on`, "false" gives `off`.
+    pub fn tls_switch(
+        key: &'static str,
+        label: &'static str,
+        on: TlsLevel,
+        off: TlsLevel,
+        default: bool,
+        legacy: [&'static str; 4],
+    ) -> Self {
+        Self::new(key, label, FieldKind::Bool)
+            .default_value(if default { "true" } else { "false" })
+            .tls(TlsRole::Mode {
+                levels: vec![("true", on), ("false", off)],
+            })
+            .legacy(legacy)
+    }
+    /// A checkbox that skips the certificate checks (`TrustServerCertificate`,
+    /// `tlsAllowInvalidCertificates`…); `inverted`: unchecking it skips them
+    /// (`validateCertificate`). A new connection verifies.
+    pub fn tls_skip_verify(
+        key: &'static str,
+        label: &'static str,
+        inverted: bool,
+        legacy: [&'static str; 4],
+    ) -> Self {
+        Self::new(key, label, FieldKind::Bool)
+            .default_value(if inverted { "true" } else { "false" })
+            .tls(TlsRole::SkipVerify { inverted })
+            .legacy(legacy)
+    }
+    /// The CA / trust-store file (`sslrootcert`, `ssl-ca`, `tlsCAFile`…).
+    pub fn tls_ca_file(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, FieldKind::File).tls(TlsRole::CaFile)
+    }
+    /// A host-name override for the certificate check
+    /// (`HostNameInCertificate`…).
+    pub fn tls_server_name(key: &'static str, label: &'static str) -> Self {
+        Self::new(key, label, FieldKind::Text).tls(TlsRole::ServerName)
+    }
+
+    /// The field is one of the legacy typed TLS bools (`encrypt`,
+    /// `trust_server_certificate`) instead of the engine's own options.
+    pub fn is_legacy_tls(&self) -> bool {
+        matches!(self.key, "encrypt" | "trust_server_certificate")
+    }
+
+    /// The level a value of this field gives, when it's the engine's TLS
+    /// mode ([`TlsRole::Mode`]).
+    pub fn tls_level_of(&self, value: &str) -> Option<TlsLevel> {
+        match &self.tls {
+            Some(TlsRole::Mode { levels }) => levels
+                .iter()
+                .find(|(v, _)| *v == value)
+                .map(|(_, level)| *level),
+            _ => None,
+        }
+    }
+
+    /// This value of the field turns the certificate checks off
+    /// ([`TlsRole::SkipVerify`]) or the host-name check
+    /// ([`TlsRole::SkipHostname`]).
+    pub fn tls_skips(&self, value: &str) -> bool {
+        match &self.tls {
+            Some(TlsRole::SkipVerify { inverted }) => (value == "true") != *inverted,
+            Some(TlsRole::SkipHostname) => value == "true",
+            _ => false,
+        }
+    }
+
     // The usual ones.
     pub fn host() -> Self {
         Self::new("host", "Servidor", FieldKind::Text)
@@ -216,9 +437,12 @@ impl Field {
     pub fn password() -> Self {
         Self::new("password", "Contraseña", FieldKind::Password).secret()
     }
+    /// Legacy, for the drivers not migrated to their engine's own TLS
+    /// options yet (a [`TlsRole::Mode`] field): the typed `encrypt` bool.
     pub fn encrypt() -> Self {
         Self::new("encrypt", "Cifrar la conexión (TLS)", FieldKind::Bool).ssl()
     }
+    /// Legacy, like [`Field::encrypt`]: the typed `trust_server_certificate`.
     pub fn trust_cert() -> Self {
         Self::new(
             "trust_server_certificate",
@@ -375,4 +599,143 @@ pub struct DatabaseProperties {
     /// Field key → what changing it does to the database or its users, shown
     /// before the change runs.
     pub warnings: std::collections::BTreeMap<String, String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read<T: Deserialize<'static>>(v: serde_json::Value) -> T {
+        T::deserialize(v).unwrap()
+    }
+
+    fn info(fields: Vec<Field>) -> DriverInfo {
+        DriverInfo {
+            id: "x",
+            name: "X",
+            family: Family::Relational,
+            language: Language::Sql,
+            dialect: "",
+            default_port: 1521,
+            fields,
+            databases_label: "",
+            has_schemas: false,
+            object_kinds: vec![],
+            tls: TlsSupport::Configurable,
+            tls_port: Some(2484),
+        }
+    }
+
+    #[test]
+    fn tls_fields_round_trip() {
+        let mode = Field::tls_mode(
+            "sslmode",
+            "sslmode",
+            &[
+                ("disable", "disable", TlsLevel::Off),
+                (
+                    "verify-full",
+                    "verify-full (CA y nombre)",
+                    TlsLevel::VerifyFull,
+                ),
+            ],
+            "verify-full",
+            ["disable", "disable", "verify-full", "disable"],
+        );
+        assert_eq!(mode.section, FieldSection::Ssl);
+        assert_eq!(mode.tls_level_of("verify-full"), Some(TlsLevel::VerifyFull));
+        assert_eq!(mode.tls_level_of("nope"), None);
+        let i = info(vec![
+            Field::host(),
+            mode,
+            Field::tls_skip_verify(
+                "TrustServerCertificate",
+                "TrustServerCertificate",
+                false,
+                ["false"; 4],
+            ),
+            Field::tls_ca_file("sslrootcert", "sslrootcert"),
+            Field::tls_server_name("HostNameInCertificate", "HostNameInCertificate"),
+        ]);
+        let json = serde_json::to_value(&i).unwrap();
+        assert_eq!(json["tls"], "configurable");
+        assert_eq!(json["tls_port"], 2484);
+        assert_eq!(json["fields"][1]["tls"]["role"], "mode");
+        assert_eq!(json["fields"][1]["tls"]["levels"][1][1], "verify_full");
+        assert_eq!(json["fields"][1]["legacy"][2], "verify-full");
+        assert_eq!(json["fields"][2]["tls"]["role"], "skip_verify");
+        let back: DriverInfo = read(json);
+        assert_eq!(back.tls_port, Some(2484));
+        assert_eq!(back.fields[1].tls, i.fields[1].tls);
+        assert_eq!(back.fields[1].legacy, i.fields[1].legacy);
+        assert_eq!(
+            back.fields[2].tls,
+            Some(TlsRole::SkipVerify { inverted: false })
+        );
+        assert_eq!(back.fields[3].tls, Some(TlsRole::CaFile));
+        assert_eq!(back.fields[4].tls, Some(TlsRole::ServerName));
+        assert!(back.fields[0].tls.is_none() && back.fields[0].legacy.is_none());
+    }
+
+    #[test]
+    fn an_older_manifest_reads_with_defaults() {
+        // A DriverInfo as published before the TLS fields existed.
+        let mut json = serde_json::to_value(info(Field::server_set())).unwrap();
+        let o = json.as_object_mut().unwrap();
+        o.remove("tls");
+        o.remove("tls_port");
+        for f in o["fields"].as_array_mut().unwrap() {
+            let f = f.as_object_mut().unwrap();
+            f.remove("tls");
+            f.remove("legacy");
+        }
+        let back: DriverInfo = read(json);
+        assert_eq!(back.tls, TlsSupport::Configurable);
+        assert_eq!(back.tls_port, None);
+        assert!(back
+            .fields
+            .iter()
+            .all(|f| f.tls.is_none() && f.legacy.is_none()));
+        assert!(back.fields.iter().filter(|f| f.is_legacy_tls()).count() == 2);
+    }
+
+    #[test]
+    fn a_newer_drivers_unknown_tls_values_dont_break_the_manifest() {
+        let mut json = serde_json::to_value(info(vec![Field::tls_switch(
+            "tls",
+            "tls",
+            TlsLevel::VerifyFull,
+            TlsLevel::Off,
+            true,
+            ["false", "false", "true", "true"],
+        )]))
+        .unwrap();
+        json["tls"] = "quantum".into();
+        json["fields"][0]["tls"]["levels"][0][1] = "post_quantum".into();
+        let back: DriverInfo = read(json.clone());
+        assert_eq!(back.tls, TlsSupport::Unknown);
+        assert_eq!(
+            back.fields[0].tls,
+            Some(TlsRole::Mode {
+                levels: vec![("false", TlsLevel::Off)]
+            })
+        );
+        json["fields"][0]["tls"] = serde_json::json!({"role": "pinned_key"});
+        json["fields"][0]["legacy"] = serde_json::json!(["a", "b"]);
+        let back: DriverInfo = read(json);
+        assert!(back.fields[0].tls.is_none() && back.fields[0].legacy.is_none());
+    }
+
+    #[test]
+    fn skip_fields_say_when_they_skip() {
+        let skip = Field::tls_skip_verify("insecure", "insecure", false, ["false"; 4]);
+        assert!(skip.tls_skips("true") && !skip.tls_skips("false"));
+        assert_eq!(skip.default, "false");
+        let validate = Field::tls_skip_verify("validate", "validate", true, ["true"; 4]);
+        assert!(validate.tls_skips("false") && !validate.tls_skips("true"));
+        assert_eq!(validate.default, "true");
+        let host =
+            Field::new("tlsAllowInvalidHostnames", "x", FieldKind::Bool).tls(TlsRole::SkipHostname);
+        assert!(host.tls_skips("true") && host.section == FieldSection::Ssl);
+    }
 }

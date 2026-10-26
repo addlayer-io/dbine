@@ -62,6 +62,8 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info(id: &'static str, name: &'static str) -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id,
         name,
         family: Family::KeyValue,
