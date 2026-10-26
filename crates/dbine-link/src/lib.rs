@@ -559,4 +559,188 @@ mod tests {
         assert!(connect(a, &other.public, &phone).await.is_err());
         let _ = server.await;
     }
+
+    /// The invite as JSON, encoded as the QR carries it.
+    fn encoded(v: serde_json::Value) -> String {
+        format!(
+            "{INVITE_LINK}{}",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&v).unwrap())
+        )
+    }
+
+    #[test]
+    fn invites_that_cant_be_used_are_refused() {
+        let key = URL_SAFE_NO_PAD.encode([1u8; 32]);
+        let secret = URL_SAFE_NO_PAD.encode([2u8; 32]);
+        let short = URL_SAFE_NO_PAD.encode([3u8; 16]);
+        let check = |v: serde_json::Value| Invite::decode(&encoded(v));
+        // Another protocol version.
+        let e = check(serde_json::json!({"v": 2, "key": key, "secret": secret, "addrs": ["a:1"], "name": "m"}))
+            .unwrap_err();
+        assert!(e.contains("otra versión"), "{e}");
+        // A key or secret of the wrong size, or nowhere to reach DBine.
+        for v in [
+            serde_json::json!({"v": 1, "key": short, "secret": secret, "addrs": ["a:1"], "name": "m"}),
+            serde_json::json!({"v": 1, "key": key, "secret": short, "addrs": ["a:1"], "name": "m"}),
+            serde_json::json!({"v": 1, "key": key, "secret": secret, "addrs": [], "name": "m"}),
+        ] {
+            assert_eq!(check(v).unwrap_err(), "el código está incompleto");
+        }
+        // Reachable only from outside the local network: fine.
+        let remote = check(serde_json::json!({
+            "v": 1, "key": key, "secret": secret, "addrs": [], "name": "m",
+            "remote": {"node": "abc"}
+        }))
+        .unwrap();
+        assert_eq!(remote.remote.unwrap().relays, Vec::<String>::new());
+        // Not base64 inside, or not an invite.
+        assert_eq!(
+            Invite::decode(&format!(
+                "{INVITE_LINK}{}",
+                URL_SAFE_NO_PAD.encode(b"[1,2]")
+            ))
+            .unwrap_err(),
+            "el código está dañado"
+        );
+        assert_eq!(
+            check(serde_json::json!({"v": 1, "key": "!!", "secret": secret, "addrs": ["a:1"], "name": "m"}))
+                .unwrap_err(),
+            "el código está dañado"
+        );
+        // Spaces around the scanned text are fine.
+        let ok = encoded(
+            serde_json::json!({"v": 1, "key": key, "secret": secret, "addrs": ["a:1"], "name": "m"}),
+        );
+        assert!(Invite::decode(&format!("  {ok}\n")).is_ok());
+        // Serialized without a remote: the field isn't written.
+        assert!(!serde_json::to_string(&Invite::decode(&ok).unwrap())
+            .unwrap()
+            .contains("remote"));
+    }
+
+    #[test]
+    fn keys_never_show_their_private_half() {
+        let k = Keys::generate().unwrap();
+        assert_eq!((k.private.len(), k.public.len()), (32, 32));
+        let shown = format!("{k:?}");
+        assert!(shown.contains(&fingerprint(&k.public)), "{shown}");
+        let private_hex: String = k.private.iter().map(|b| format!("{b:02X}")).collect();
+        assert!(!shown.contains(&private_hex[..12]), "{shown}");
+        assert!(!shown.contains("private"), "{shown}");
+        // Stored as base64 and read back.
+        let json = serde_json::to_string(&k).unwrap();
+        let back: Keys = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            (back.private, back.public),
+            (k.private.clone(), k.public.clone())
+        );
+        assert!(serde_json::from_str::<Keys>(r#"{"private":"!!","public":""}"#).is_err());
+        // Two keys, two random draws.
+        assert_ne!(Keys::generate().unwrap().public, k.public);
+        assert_ne!(random::<16>().unwrap(), random::<16>().unwrap());
+    }
+
+    #[tokio::test]
+    async fn unknown_or_unready_handshakes_are_refused() {
+        let desktop = Keys::generate().unwrap();
+        // An unknown first byte.
+        let (mut a, mut b) = duplex(1 << 10);
+        a.write_all(&[9]).await.unwrap();
+        assert_eq!(
+            read_mode(&mut b).await.unwrap_err(),
+            "protocolo desconocido"
+        );
+        // A phone that hangs up before saying anything.
+        let (a, mut b) = duplex(1 << 10);
+        drop(a);
+        assert!(read_mode(&mut b).await.is_err());
+        // A pairing with no invite open: refused before any crypto.
+        let (_a, b) = duplex(1 << 10);
+        let e = accept_mode(b, true, &desktop, None, |_| true)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(e, "no hay un código de vinculación abierto");
+        // A handshake message that isn't one.
+        let (mut a, b) = duplex(1 << 10);
+        send_raw(&mut a, b"not noise").await.unwrap();
+        let e = accept_mode(b, false, &desktop, None, |_| true)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(e, "handshake inválido");
+        // DBine hanging up mid-handshake: the phone says it was refused.
+        let phone = Keys::generate().unwrap();
+        let (a, mut b) = duplex(1 << 16);
+        let server = tokio::spawn(async move {
+            let mut mode = [0u8; 1];
+            b.read_exact(&mut mode).await.unwrap();
+            let _ = recv_raw(&mut b).await;
+            drop(b);
+        });
+        let e = connect(a, &desktop.public, &phone).await.err().unwrap();
+        assert_eq!(e, "DBine rechazó la conexión");
+        server.await.unwrap();
+    }
+
+    /// A connected pair of channels.
+    async fn channels() -> (
+        Channel<tokio::io::DuplexStream>,
+        Channel<tokio::io::DuplexStream>,
+    ) {
+        let desktop = Keys::generate().unwrap();
+        let phone = Keys::generate().unwrap();
+        let (a, b) = duplex(1 << 20);
+        let d2 = desktop.clone();
+        let known = phone.public.clone();
+        let server =
+            tokio::spawn(async move { accept(b, &d2, None, move |k| k == known.as_slice()).await });
+        let ch = connect(a, &desktop.public, &phone).await.unwrap();
+        let Accepted::Connected(sch) = server.await.unwrap().unwrap() else {
+            panic!("not a connection")
+        };
+        (ch, sch)
+    }
+
+    #[tokio::test]
+    async fn frames_that_dont_add_up_are_refused() {
+        // Bigger than any request may be: refused before sending.
+        let (mut ch, _) = channels().await;
+        assert_eq!(
+            ch.send(&vec![0u8; MAX_MESSAGE + 1]).await.unwrap_err(),
+            "mensaje demasiado grande"
+        );
+        // A frame that isn't encrypted with the channel's keys.
+        let (mut ch, mut sch) = channels().await;
+        send_raw(&mut ch.stream, b"forged").await.unwrap();
+        assert_eq!(sch.recv().await.unwrap_err(), "mensaje inválido");
+        // A first frame too short to carry the length.
+        let (mut ch, mut sch) = channels().await;
+        let mut out = vec![0u8; 1024];
+        let n = ch.noise.write_message(&[1, 2], &mut out).unwrap();
+        send_raw(&mut ch.stream, &out[..n]).await.unwrap();
+        assert_eq!(sch.recv().await.unwrap_err(), "mensaje inválido");
+        // A length past the limit.
+        let (mut ch, mut sch) = channels().await;
+        let n = ch
+            .noise
+            .write_message(&u32::MAX.to_be_bytes(), &mut out)
+            .unwrap();
+        send_raw(&mut ch.stream, &out[..n]).await.unwrap();
+        assert_eq!(sch.recv().await.unwrap_err(), "mensaje demasiado grande");
+        // More bytes than the length said.
+        let (mut ch, mut sch) = channels().await;
+        let mut plain = 2u32.to_be_bytes().to_vec();
+        plain.extend_from_slice(b"abc");
+        let n = ch.noise.write_message(&plain, &mut out).unwrap();
+        send_raw(&mut ch.stream, &out[..n]).await.unwrap();
+        assert_eq!(sch.recv().await.unwrap_err(), "mensaje inválido");
+        // Not the JSON asked for.
+        let (mut ch, mut sch) = channels().await;
+        ch.send(b"{not json").await.unwrap();
+        assert!(sch.recv_json::<serde_json::Value>().await.is_err());
+        // A raw frame too big for its 2-byte length.
+        let (mut ch, _) = channels().await;
+        assert!(send_raw(&mut ch.stream, &vec![0u8; 70_000]).await.is_err());
+    }
 }
