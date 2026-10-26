@@ -261,7 +261,7 @@ const activePath = computed(() => {
 </template>
 
 <style scoped>
-.ft { outline: none; padding-bottom: 4px; }
+.ft { padding-bottom: 4px; }
 .ft-note { padding: 4px 22px; font-size: 12px; color: var(--nm-text-dim); }
 .ft-note.err { color: var(--nm-danger); }
 .ft-row { display: flex; align-items: center; gap: 4px; height: 22px; padding-right: 10px; cursor: pointer; user-select: none; color: var(--nm-text); }

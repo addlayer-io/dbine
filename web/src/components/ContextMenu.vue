@@ -2,7 +2,9 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
 // A context menu at the pointer, VS Code style. Closes on any outside
-// click, Escape, scroll or window blur.
+// click, Escape, scroll or window blur. It takes the focus while open (and
+// gives it back on close): the arrows move through the items, Right and Left
+// open and leave a submenu, Enter or Space runs the item.
 
 export interface MenuItem {
   label: string;
@@ -31,6 +33,7 @@ const pos = ref({ left: props.x, top: props.y });
 function close() { emit('close'); }
 function run(item: MenuItem) {
   if (item.disabled || item.children) return;
+  giveFocusBack();
   close();
   item.action?.();
 }
@@ -40,7 +43,7 @@ function onDown(e: MouseEvent) {
 // -- submenu: one level, to the right of its item (left when there's no room).
 const sub = ref<{ at: number; left: number; top: number; flip: number } | null>(null);
 const subEl = ref<HTMLDivElement | null>(null);
-async function hover(e: MouseEvent, i: number) {
+async function hover(e: Event, i: number) {
   const item = props.items[i];
   if (!item.children?.length || item.disabled) { sub.value = null; return; }
   if (sub.value?.at === i) return;
@@ -56,12 +59,47 @@ async function hover(e: MouseEvent, i: number) {
     };
   }
 }
+/** The items of the menu (or submenu) that holds `from`. */
+function itemsOf(from: Element | null): HTMLElement[] {
+  const box = from?.closest('.cm') ?? el.value;
+  return box ? [...box.querySelectorAll<HTMLElement>(':scope > .cm-item:not(.disabled)')] : [];
+}
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') close();
+  if (e.key === 'Escape') { close(); return; }
+  const active = document.activeElement as HTMLElement | null;
+  const onItem = !!active?.classList.contains('cm-item') && !!el.value?.contains(active);
+  const inSub = onItem && !!subEl.value?.contains(active);
+  let handled = true;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+    const list = itemsOf(onItem ? active : null);
+    const at = onItem ? list.indexOf(active!) : -1;
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1
+      : e.key === 'ArrowDown' ? (at + 1) % list.length : (at <= 0 ? list.length : at) - 1;
+    list[next]?.focus();
+  } else if (onItem && (e.key === 'Enter' || e.key === ' ')) {
+    if (!inSub && sub.value) itemsOf(subEl.value?.querySelector('.cm-item') ?? null)[0]?.focus();
+    else active!.click();
+  } else if (onItem && e.key === 'ArrowRight' && !inSub && sub.value) {
+    itemsOf(subEl.value?.querySelector('.cm-item') ?? null)[0]?.focus();
+  } else if (inSub && e.key === 'ArrowLeft') {
+    el.value?.querySelectorAll<HTMLElement>(':scope > .cm-item')[sub.value!.at - headersBefore(sub.value!.at)]?.focus();
+  } else handled = false;
+  if (handled) { e.preventDefault(); e.stopPropagation(); }
+}
+/** Section titles before item `i` (they aren't `.cm-item`s). */
+function headersBefore(i: number) {
+  return props.items.slice(0, i).filter((x) => x.header).length;
 }
 
+let before: HTMLElement | null = null;
+/** Back to where the focus was before the menu (unless it already moved on). */
+function giveFocusBack() {
+  if (el.value?.contains(document.activeElement)) before?.focus({ preventScroll: true });
+}
 onMounted(async () => {
+  before = document.activeElement as HTMLElement | null;
   await nextTick();
+  el.value?.focus({ preventScroll: true });
   // Keep it on screen.
   const r = el.value?.getBoundingClientRect();
   if (r) {
@@ -76,6 +114,7 @@ onMounted(async () => {
   window.addEventListener('wheel', close, { passive: true });
 });
 onBeforeUnmount(() => {
+  giveFocusBack();
   window.removeEventListener('mousedown', onDown, true);
   window.removeEventListener('keydown', onKey, true);
   window.removeEventListener('blur', close);
@@ -85,28 +124,38 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div ref="el" class="cm" :style="{ left: pos.left + 'px', top: pos.top + 'px' }" @contextmenu.prevent>
+    <div ref="el" class="cm" role="menu" tabindex="-1" :style="{ left: pos.left + 'px', top: pos.top + 'px' }" @contextmenu.prevent>
       <template v-for="(item, i) in items" :key="i">
-        <div v-if="item.divided && i > 0" class="cm-sep" />
-        <div v-if="item.header" class="cm-header">{{ item.label }}</div>
+        <div v-if="item.divided && i > 0" class="cm-sep" role="separator" />
+        <div v-if="item.header" class="cm-header" role="presentation">{{ item.label }}</div>
         <div
           v-else
           class="cm-item"
           :class="{ danger: item.danger, disabled: item.disabled, open: sub?.at === i }"
+          :role="item.checked !== undefined ? 'menuitemcheckbox' : 'menuitem'"
+          tabindex="-1"
+          :aria-checked="item.checked"
+          :aria-disabled="item.disabled || undefined"
+          :aria-haspopup="item.children ? 'menu' : undefined"
+          :aria-expanded="item.children ? sub?.at === i : undefined"
           :title="item.hint"
           @click="run(item)"
           @mouseenter="hover($event, i)"
+          @focus="hover($event, i)"
         >
           <span><span v-if="item.checked !== undefined" class="cm-check">{{ item.checked ? '✓' : '' }}</span>{{ item.label }}</span>
           <span v-if="item.children" class="cm-key">›</span>
           <span v-else-if="item.shortcut" class="cm-key">{{ item.shortcut }}</span>
         </div>
       </template>
-      <div v-if="sub" ref="subEl" class="cm cm-sub" :style="{ left: sub.left + 'px', top: sub.top + 'px' }">
+      <div v-if="sub" ref="subEl" class="cm cm-sub" role="menu" :style="{ left: sub.left + 'px', top: sub.top + 'px' }">
         <template v-for="(child, k) in items[sub.at].children" :key="k">
-          <div v-if="child.divided && k > 0" class="cm-sep" />
-          <div v-if="child.header" class="cm-header">{{ child.label }}</div>
-          <div v-else class="cm-item" :class="{ danger: child.danger, disabled: child.disabled }" :title="child.hint" @click="run(child)">
+          <div v-if="child.divided && k > 0" class="cm-sep" role="separator" />
+          <div v-if="child.header" class="cm-header" role="presentation">{{ child.label }}</div>
+          <div
+            v-else class="cm-item" :class="{ danger: child.danger, disabled: child.disabled }"
+            role="menuitem" tabindex="-1" :aria-disabled="child.disabled || undefined" :title="child.hint" @click="run(child)"
+          >
             <span>{{ child.label }}</span>
             <span v-if="child.shortcut" class="cm-key">{{ child.shortcut }}</span>
           </div>
@@ -138,7 +187,8 @@ onBeforeUnmount(() => {
   cursor: pointer;
   white-space: nowrap;
 }
-.cm-item:hover, .cm-item.open { background: var(--ide-selection-focus); color: #fff; }
+.cm:focus { outline: none; }
+.cm-item:hover, .cm-item.open, .cm-item:focus { background: var(--ide-selection-focus); color: #fff; outline: none; }
 .cm-item.danger { color: var(--nm-error-fg); }
 .cm-item.danger:hover { color: #fff; }
 .cm-item.disabled { opacity: 0.45; cursor: default; background: transparent; }

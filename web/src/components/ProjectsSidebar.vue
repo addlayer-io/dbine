@@ -12,6 +12,7 @@ import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
 import ProjectChanges from './ProjectChanges.vue';
 import ProjectFileTree from './ProjectFileTree.vue';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // The Proyectos sidebar: the git repos of scripts linked on this machine.
 // Each project shows its branch and how far it is from the remote, its
@@ -183,9 +184,9 @@ const empty = computed(() => projects.loaded && !projects.list.length);
     <div class="ps-header">
       <span class="ps-title">{{ $t('projects:title') }}</span>
       <div style="flex: 1" />
-      <button class="ps-icon" :title="$t('projects:link.action')" @click="link"><el-icon><ei-plus /></el-icon></button>
-      <button class="ps-icon" :title="$t('projects:clone.action')" @click="clone"><el-icon><ei-download /></el-icon></button>
-      <button class="ps-icon" :title="$t('projects:refreshAll')" @click="refreshAll">
+      <button :aria-label="$t('projects:link.action')" class="ps-icon" :title="$t('projects:link.action')" @click="link"><el-icon><ei-plus /></el-icon></button>
+      <button :aria-label="$t('projects:clone.action')" class="ps-icon" :title="$t('projects:clone.action')" @click="clone"><el-icon><ei-download /></el-icon></button>
+      <button :aria-label="$t('projects:refreshAll')" class="ps-icon" :title="$t('projects:refreshAll')" @click="refreshAll">
         <el-icon :class="{ 'is-loading': refreshing }"><ei-refresh /></el-icon>
       </button>
     </div>
@@ -202,7 +203,7 @@ const empty = computed(() => projects.loaded && !projects.list.length);
       </div>
 
       <section v-for="p in projects.list" :key="p.id" class="ps-proj" :class="{ flash: flash === p.id }" :data-project="p.id">
-        <div class="ps-row" :title="p.path" @click="toggle(p)" @contextmenu="openMenu($event, p)">
+        <div v-key-activate class="ps-row" :title="p.path" @click="toggle(p)" @contextmenu="openMenu($event, p)">
           <el-icon class="ps-caret" :class="{ open: projects.expandedOf(p.id).open }"><ei-arrow-right /></el-icon>
           <span class="ps-name">{{ p.name }}</span>
           <span v-if="branchLabel(p.id)" class="ps-branch" :class="{ warn: status(p.id)?.detached }"><el-icon><ei-share /></el-icon>{{ branchLabel(p.id) }}</span>
@@ -210,13 +211,13 @@ const empty = computed(() => projects.loaded && !projects.list.length);
           <span v-if="status(p.id)?.behind" class="ps-ab" :title="$t('projects:git.behindTip', { count: status(p.id)!.behind })">↓{{ status(p.id)!.behind }}</span>
           <el-icon v-if="projects.busy[p.id]" class="ps-busy is-loading" :title="$t(`projects:op.${projects.busy[p.id]}`)"><ei-loading /></el-icon>
           <span class="ps-acts">
-            <button
+            <button :aria-label="$t('projects:op.sync')"
               class="ps-icon"
               :disabled="!!projects.busy[p.id] || !status(p.id)?.has_remote || !!status(p.id)?.detached"
               :title="$t('projects:op.sync')"
               @click.stop="projects.remoteOp(p.id, 'sync')"
             ><el-icon><ei-refresh /></el-icon></button>
-            <button class="ps-icon" :title="$t('projects:menu.more')" @click.stop="openMenu($event, p)"><el-icon><ei-more-filled /></el-icon></button>
+            <button :aria-label="$t('projects:menu.more')" class="ps-icon" :title="$t('projects:menu.more')" @click.stop="openMenu($event, p)"><el-icon><ei-more-filled /></el-icon></button>
           </span>
           <span v-if="changesOf(p.id)" class="ps-badge" :title="$t('projects:changes.badgeTip', { count: changesOf(p.id) })">{{ changesOf(p.id) }}</span>
         </div>
@@ -244,7 +245,7 @@ const empty = computed(() => projects.loaded && !projects.list.length);
                   <span class="ps-target" :class="{ missing: !conns.byId(p.binding.environments[e.name].connection_id) }">{{ targetLabel(p.binding.environments[e.name]) }}</span>
                 </template>
                 <span v-else class="ps-target ps-muted">{{ $t('projects:base.unassigned') }}</span>
-                <button class="ps-icon ps-pen" :title="$t('projects:base.mapEnv', { env: e.name })" @click.stop="pickBase(p, e.name)"><el-icon><ei-edit-pen /></el-icon></button>
+                <button :aria-label="$t('projects:base.mapEnv', { env: e.name })" class="ps-icon ps-pen" :title="$t('projects:base.mapEnv', { env: e.name })" @click.stop="pickBase(p, e.name)"><el-icon><ei-edit-pen /></el-icon></button>
               </div>
               <div v-if="projects.activeTarget(p.id).problem === 'missing-env'" class="ps-banner warn">
                 {{ $t('projects:base.missingEnv', { env: p.binding.active_environment ?? '' }) }}
@@ -282,18 +283,18 @@ const empty = computed(() => projects.loaded && !projects.list.length);
           <div v-if="projects.status[p.id]?.error" class="ps-banner err">{{ projects.status[p.id]!.error }}</div>
 
           <template v-if="p.exists">
-            <div class="ps-sec" @click="toggleSection(p, 'files')">
+            <button type="button" class="ps-sec nm-plain-btn" :aria-expanded="!!projects.expandedOf(p.id).files" @click="toggleSection(p, 'files')">
               <el-icon class="ps-caret" :class="{ open: projects.expandedOf(p.id).files }"><ei-arrow-right /></el-icon>
               {{ $t('projects:files.title') }}
-            </div>
+            </button>
             <ProjectFileTree v-if="projects.expandedOf(p.id).files" :project-id="p.id" />
 
             <template v-if="p.is_repo && status(p.id)?.git !== false">
-              <div class="ps-sec" @click="toggleSection(p, 'changes')">
+              <button type="button" class="ps-sec nm-plain-btn" :aria-expanded="!!projects.expandedOf(p.id).changes" @click="toggleSection(p, 'changes')">
                 <el-icon class="ps-caret" :class="{ open: projects.expandedOf(p.id).changes }"><ei-arrow-right /></el-icon>
                 {{ $t('projects:changes.title', { count: changesOf(p.id) }) }}
                 <span v-if="status(p.id)?.operation" class="ps-op">{{ $t(`projects:operation.${status(p.id)!.operation}`) }}</span>
-              </div>
+              </button>
               <ProjectChanges v-if="projects.expandedOf(p.id).changes" :project-id="p.id" />
               <div v-if="status(p.id)?.last_commit" class="ps-last" :title="$t('projects:git.lastCommit')">{{ status(p.id)!.last_commit }}</div>
             </template>
@@ -367,7 +368,7 @@ const empty = computed(() => projects.loaded && !projects.list.length);
 .ps-banner.err { border: 1px solid color-mix(in srgb, var(--nm-danger) 45%, transparent); background: color-mix(in srgb, var(--nm-danger) 10%, transparent); }
 .ps-banner-acts { display: flex; gap: 6px; margin-top: 6px; }
 .ps-sec {
-  display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 10px 0 12px; cursor: pointer; user-select: none;
+  display: flex; width: 100%; box-sizing: border-box; align-items: center; gap: 5px; height: 22px; padding: 0 10px 0 12px; cursor: pointer; user-select: none;
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--nm-text-dim);
 }
 .ps-sec:hover { color: var(--nm-text-strong); }

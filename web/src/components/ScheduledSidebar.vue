@@ -9,6 +9,7 @@ import { confirmNative } from '../native';
 import { useScheduledStore } from '../stores/scheduled';
 import { useTabsStore } from '../stores/tabs';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // "Tareas programadas" (the ⏰ in the activity bar; docs/scheduled-tasks.md):
 // each task with its schedule, its last run and the next one.
@@ -82,8 +83,8 @@ function openMenu(ev: MouseEvent, item: TaskItem) {
     <div class="ss-header">
       <span class="ss-title">{{ $t('scheduled:title') }}</span>
       <span style="flex: 1" />
-      <button class="ss-icon" :title="$t('scheduled:newTask')" @click="tabs.openScheduledTask(null)"><el-icon><ei-plus /></el-icon></button>
-      <button class="ss-icon" :title="$t('common:refresh')" @click="store.load()"><el-icon><ei-refresh /></el-icon></button>
+      <button :aria-label="$t('scheduled:newTask')" class="ss-icon" :title="$t('scheduled:newTask')" @click="tabs.openScheduledTask(null)"><el-icon><ei-plus /></el-icon></button>
+      <button :aria-label="$t('common:refresh')" class="ss-icon" :title="$t('common:refresh')" @click="store.load()"><el-icon><ei-refresh /></el-icon></button>
     </div>
     <div class="ss-list">
       <div v-if="store.loaded && !store.items.length" class="ss-empty">
@@ -94,6 +95,7 @@ function openMenu(ev: MouseEvent, item: TaskItem) {
       <div
         v-for="item in store.items"
         :key="item.id"
+        v-key-activate
         class="ss-item"
         :class="{ off: !item.enabled, [item.last_run?.status ?? 'none']: true }"
         @click="tabs.openScheduledTask(item.id)"

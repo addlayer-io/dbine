@@ -8,6 +8,7 @@ import { resolvedTheme } from '../composables/appearance';
 import { useTranslation } from 'i18next-vue';
 import { language } from '../i18n';
 import { CJK_FONTS } from '../styles/fonts';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // Entity-relationship diagram of a whole database: tables as cards (keys,
 // types, NOT NULL), foreign keys as curves from the FK column to the
@@ -771,6 +772,7 @@ const fmtRules = (f: ForeignKeyDef) =>
             v-for="n in visible"
             :key="n.key"
             v-memo="[pos[n.key]?.x, pos[n.key]?.y, views.get(n.key), cardState(n), language]"
+            v-key-activate.open
             class="dd-card"
             :class="{
               sel: selected === n.key,
@@ -835,12 +837,12 @@ const fmtRules = (f: ForeignKeyDef) =>
 
         <!-- zoom controls -->
         <div v-if="schema.length" class="dd-zoom" @pointerdown.stop>
-          <button :title="$t('diagram:zoom.zoomOut')" @click="zoomBy(1 / 1.2)"><el-icon><ei-minus /></el-icon></button>
+          <button :aria-label="$t('diagram:zoom.zoomOut')" :title="$t('diagram:zoom.zoomOut')" @click="zoomBy(1 / 1.2)"><el-icon><ei-minus /></el-icon></button>
           <button class="dd-zoom-pct" :title="$t('diagram:zoom.actualSize')" @click="actualSize">{{ Math.round(view.k * 100) }}%</button>
-          <button :title="$t('diagram:zoom.zoomIn')" @click="zoomBy(1.2)"><el-icon><ei-plus /></el-icon></button>
+          <button :aria-label="$t('diagram:zoom.zoomIn')" :title="$t('diagram:zoom.zoomIn')" @click="zoomBy(1.2)"><el-icon><ei-plus /></el-icon></button>
           <span class="dd-zoom-sep" />
-          <button :title="$t('diagram:zoom.fit')" @click="fit"><el-icon><ei-full-screen /></el-icon></button>
-          <button :class="{ on: showMini }" :title="$t('diagram:zoom.minimap')" @click="showMini = !showMini"><el-icon><ei-map-location /></el-icon></button>
+          <button :aria-label="$t('diagram:zoom.fit')" :title="$t('diagram:zoom.fit')" @click="fit"><el-icon><ei-full-screen /></el-icon></button>
+          <button :aria-label="$t('diagram:zoom.minimap')" :class="{ on: showMini }" :title="$t('diagram:zoom.minimap')" @click="showMini = !showMini"><el-icon><ei-map-location /></el-icon></button>
         </div>
 
         <!-- minimap -->
@@ -871,8 +873,8 @@ const fmtRules = (f: ForeignKeyDef) =>
             <strong>{{ sel.t.name }}</strong>
             <span>{{ [sel.t.schema, sel.t.kind !== 'table' ? sel.t.kind : ''].filter(Boolean).join(' · ') || $t('diagram:props.table') }}</span>
           </div>
-          <button class="ide-icon-btn" :title="$t('diagram:props.openTable')" @click="open(sel.t)"><el-icon><ei-top-right /></el-icon></button>
-          <button class="ide-icon-btn" :title="$t('diagram:props.close')" @click="selected = null"><el-icon><ei-close /></el-icon></button>
+          <button :aria-label="$t('diagram:props.openTable')" class="ide-icon-btn" :title="$t('diagram:props.openTable')" @click="open(sel.t)"><el-icon><ei-top-right /></el-icon></button>
+          <button :aria-label="$t('diagram:props.close')" class="ide-icon-btn" :title="$t('diagram:props.close')" @click="selected = null"><el-icon><ei-close /></el-icon></button>
         </header>
 
         <section v-if="sel.t.comment" class="dd-sec"><p class="dd-comment">{{ sel.t.comment }}</p></section>
@@ -972,7 +974,7 @@ const fmtRules = (f: ForeignKeyDef) =>
 /* canvas */
 .dd-body { flex: 1; min-height: 0; display: flex; }
 .dd-viewport {
-  position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; cursor: grab;
+  position: relative; flex: 1; min-width: 0; overflow: hidden; cursor: grab;
   background-color: var(--nm-canvas);
   background-image: radial-gradient(circle, var(--nm-canvas-dot) 1px, transparent 1.2px);
   background-size: 20px 20px;

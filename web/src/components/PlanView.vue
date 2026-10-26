@@ -7,6 +7,7 @@ import { saveTextFile } from '../composables/files';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // Execution plan as an SSMS-style tree on a pannable, zoomable canvas:
 // the statement on the left, the operators feeding it to the right, each
@@ -381,7 +382,7 @@ async function saveRaw() {
           <button :class="{ on: mode === 'raw' }" @click="mode = 'raw'">{{ $t('plan:rawPlan') }}</button>
         </div>
       </div>
-      <div v-if="plan?.statement" class="pv-sql nm-selectable" :class="{ open: stmtOpen }" :title="$t('plan:statementTitle')" @click="stmtOpen = !stmtOpen">
+      <div v-if="plan?.statement" v-key-activate :aria-expanded="stmtOpen" class="pv-sql nm-selectable" :class="{ open: stmtOpen }" :title="$t('plan:statementTitle')" @click="stmtOpen = !stmtOpen">
         {{ plan.statement }}
       </div>
     </div>
@@ -429,6 +430,7 @@ async function saveRaw() {
           <div
             v-for="n in layout.nodes"
             :key="n.key"
+            v-key-activate
             class="pv-node"
             :class="[`sev-${severity(n.pct)}`, `tone-${category(n.node.op).tone}`, { sel: selected === n.key, hot: n.hot, root: !n.parent }]"
             :style="{ left: n.x + 'px', top: n.y + 'px', width: W + 'px', height: H + 'px' }"
@@ -464,14 +466,14 @@ async function saveRaw() {
 
         <!-- zoom controls -->
         <div class="pv-zoom" @pointerdown.stop>
-          <button :title="$t('plan:zoom.zoomOut')" @click="zoomBy(1 / 1.2)"><el-icon><ei-minus /></el-icon></button>
+          <button :aria-label="$t('plan:zoom.zoomOut')" :title="$t('plan:zoom.zoomOut')" @click="zoomBy(1 / 1.2)"><el-icon><ei-minus /></el-icon></button>
           <button class="pv-zoom-pct" :title="$t('plan:zoom.actualSize')" @click="actualSize">{{ Math.round(view.k * 100) }}%</button>
-          <button :title="$t('plan:zoom.zoomIn')" @click="zoomBy(1.2)"><el-icon><ei-plus /></el-icon></button>
+          <button :aria-label="$t('plan:zoom.zoomIn')" :title="$t('plan:zoom.zoomIn')" @click="zoomBy(1.2)"><el-icon><ei-plus /></el-icon></button>
           <span class="pv-zoom-sep" />
-          <button :title="$t('plan:zoom.fit')" @click="fit"><el-icon><ei-full-screen /></el-icon></button>
-          <button :title="$t('plan:zoom.expandAll')" @click="expandAll"><el-icon><ei-expand /></el-icon></button>
-          <button :title="$t('plan:zoom.collapseBelow')" @click="collapseBelow(3)"><el-icon><ei-fold /></el-icon></button>
-          <button :class="{ on: showMini }" :title="$t('plan:zoom.minimap')" @click="showMini = !showMini"><el-icon><ei-map-location /></el-icon></button>
+          <button :aria-label="$t('plan:zoom.fit')" :title="$t('plan:zoom.fit')" @click="fit"><el-icon><ei-full-screen /></el-icon></button>
+          <button :aria-label="$t('plan:zoom.expandAll')" :title="$t('plan:zoom.expandAll')" @click="expandAll"><el-icon><ei-expand /></el-icon></button>
+          <button :aria-label="$t('plan:zoom.collapseBelow')" :title="$t('plan:zoom.collapseBelow')" @click="collapseBelow(3)"><el-icon><ei-fold /></el-icon></button>
+          <button :aria-label="$t('plan:zoom.minimap')" :class="{ on: showMini }" :title="$t('plan:zoom.minimap')" @click="showMini = !showMini"><el-icon><ei-map-location /></el-icon></button>
         </div>
 
         <!-- minimap -->
@@ -502,7 +504,7 @@ async function saveRaw() {
             <strong>{{ tb(sel.node.op) }}</strong>
             <span v-if="sel.node.detail">{{ tb(sel.node.detail) }}</span>
           </div>
-          <button class="ide-icon-btn" :title="$t('plan:props.close')" @click="selected = null"><el-icon><ei-close /></el-icon></button>
+          <button :aria-label="$t('plan:props.close')" class="ide-icon-btn" :title="$t('plan:props.close')" @click="selected = null"><el-icon><ei-close /></el-icon></button>
         </header>
 
         <section v-if="sel.node.warnings.length" class="pv-sec">
@@ -613,7 +615,7 @@ async function saveRaw() {
 /* canvas */
 .pv-body { flex: 1; min-height: 0; display: flex; }
 .pv-viewport {
-  position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; cursor: grab;
+  position: relative; flex: 1; min-width: 0; overflow: hidden; cursor: grab;
   background-color: var(--nm-canvas);
   background-image: radial-gradient(circle, var(--nm-canvas-dot) 1px, transparent 1.2px);
   background-size: 20px 20px;

@@ -542,6 +542,10 @@ function onHeadClick(e: MouseEvent, c: number) {
   if (!props.sortable || resized || e.button !== 0 || Math.abs(e.clientX - pressX) > 4) return;
   emit('sort', nextSort(props.sort ?? [], props.columns[c].name, e.shiftKey));
 }
+/** Enter or Space on a focused header sorts like a click (Shift adds the column). */
+function onHeadKey(e: KeyboardEvent, c: number) {
+  if (props.sortable) emit('sort', nextSort(props.sort ?? [], props.columns[c].name, e.shiftKey));
+}
 function headTitle(col: ResultColumn) {
   const name = col.type_name ? `${col.name} (${col.type_name})` : col.name;
   return props.sortable ? `${name}\n${t('results:grid.sortHint')}` : name;
@@ -858,8 +862,11 @@ function columnsMenu(e: MouseEvent) {
           :style="{ width: widths[c] + 'px' }"
           :title="headTitle(col)"
           :aria-sort="sortOf(col.name) ? (sortOf(col.name)!.desc ? 'descending' : 'ascending') : undefined"
+          :tabindex="sortable ? 0 : undefined"
           @mousedown="onHeadDown"
           @click="onHeadClick($event, c)"
+          @keydown.enter.self.prevent.stop="onHeadKey($event, c)"
+          @keydown.space.self.prevent.stop="onHeadKey($event, c)"
         >
           <span class="rg-hname">{{ col.name }}</span>
           <span v-if="sortOf(col.name)" class="rg-sort" :data-sort="sortOf(col.name)!.desc ? 'desc' : 'asc'">
@@ -890,7 +897,7 @@ function columnsMenu(e: MouseEvent) {
             @keydown="onFilterKey($event, c)"
             @blur="applyText(c)"
           />
-          <button class="rg-fmenu" :title="$t('results:grid.filterOptions')" @mousedown.prevent @click.stop="openFilterMenu($event, c)">
+          <button :aria-label="$t('results:grid.filterOptions')" class="rg-fmenu" :title="$t('results:grid.filterOptions')" @mousedown.prevent @click.stop="openFilterMenu($event, c)">
             <el-icon class="rg-kebab"><MoreFilled /></el-icon>
           </button>
         </div>
@@ -963,7 +970,6 @@ function columnsMenu(e: MouseEvent) {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  outline: none;
   font-family: var(--nm-mono);
   font-size: var(--nm-grid-font-size);
   background: var(--ide-editor);

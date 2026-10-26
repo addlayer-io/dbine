@@ -114,7 +114,7 @@ async function save() {
           <td><el-input v-model="e.description" size="small" /></td>
           <td class="c"><el-checkbox v-model="e.confirm_run" /></td>
           <td class="c"><el-radio v-model="defaultEnv" :value="e.name">&nbsp;</el-radio></td>
-          <td class="c"><button class="pe-del" :title="$t('common:delete')" @click="remove(i)"><el-icon><ei-delete /></el-icon></button></td>
+          <td class="c"><button :aria-label="$t('common:delete')" class="pe-del" :title="$t('common:delete')" @click="remove(i)"><el-icon><ei-delete /></el-icon></button></td>
         </tr>
       </tbody>
     </table>

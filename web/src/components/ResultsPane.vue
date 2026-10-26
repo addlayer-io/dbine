@@ -876,10 +876,18 @@ const statusText = computed(() => {
   const failed = !!o.error || !!o.errors?.length;
   return `${failed ? t('results:status.doneWithErrors') : t('results:status.done')} · ${t('results:messages.elapsed', { ms: o.elapsed_ms.toLocaleString(locale()) })}`;
 });
+/** What a screen reader announces when a run starts and ends (the hidden
+ *  live region): "Ejecutando…", then the status and the first error. */
+const liveText = computed(() => {
+  if (props.running) return t('results:running');
+  const err = props.outcome?.error ?? props.outcome?.errors?.[0]?.message;
+  return statusText.value && err ? `${statusText.value}. ${tb(err)}` : statusText.value;
+});
 </script>
 
 <template>
   <div ref="root" class="rp">
+    <div class="sr-only" aria-live="polite" aria-atomic="true">{{ liveText }}</div>
     <div class="nm-subtabs">
       <button
         v-for="s in sets"
@@ -924,10 +932,10 @@ const statusText = computed(() => {
         </template>
       </el-dropdown>
       <div v-if="current" class="rp-mode" role="group" :aria-label="$t('results:view.label')">
-        <button :class="{ on: view === 'table' }" :title="$t('results:view.table')" @click="setView('table')"><el-icon><ei-grid /></el-icon></button>
-        <button :class="{ on: view === 'tree' }" :title="$t('results:view.tree')" @click="setView('tree')"><span class="rp-json">{ }</span></button>
-        <button :class="{ on: view === 'chart' }" :title="$t('results:view.chart')" @click="setView('chart')"><el-icon><ei-histogram /></el-icon></button>
-        <button v-if="spatial" :class="{ on: view === 'map' }" :title="$t('results:view.map')" @click="setView('map')"><el-icon><ei-map-location /></el-icon></button>
+        <button :aria-label="$t('results:view.table')" :class="{ on: view === 'table' }" :title="$t('results:view.table')" @click="setView('table')"><el-icon><ei-grid /></el-icon></button>
+        <button :aria-label="$t('results:view.tree')" :class="{ on: view === 'tree' }" :title="$t('results:view.tree')" @click="setView('tree')"><span class="rp-json">{ }</span></button>
+        <button :aria-label="$t('results:view.chart')" :class="{ on: view === 'chart' }" :title="$t('results:view.chart')" @click="setView('chart')"><el-icon><ei-histogram /></el-icon></button>
+        <button v-if="spatial" :aria-label="$t('results:view.map')" :class="{ on: view === 'map' }" :title="$t('results:view.map')" @click="setView('map')"><el-icon><ei-map-location /></el-icon></button>
       </div>
       <!-- A notebook cell's charts (add, rename, remove, switch). -->
       <slot v-if="current && view === 'chart'" name="chartTabs" />

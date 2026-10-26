@@ -7,6 +7,7 @@ import { locksApi, type ServerProcess } from '../api/locks';
 import { newQuery } from '../composables/actions';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // The Monitor's process list (docs/processes.md): the server's sessions and
 // running requests, polled on their own while the tab shows them. Filters,
@@ -256,7 +257,7 @@ defineExpose({ refresh });
       <table class="pp-table">
         <thead>
           <tr>
-            <th v-for="c in columns" :key="c.key" :class="{ num: c.num, sorted: sortBy === c.key }" @click="sortOn(c.key)">
+            <th v-for="c in columns" :key="c.key" v-key-activate.native :class="{ num: c.num, sorted: sortBy === c.key }" @click="sortOn(c.key)">
               {{ $t(c.label) }}<span v-if="sortBy === c.key" class="pp-sort">{{ sortDesc ? '↓' : '↑' }}</span>
             </th>
           </tr>
@@ -265,6 +266,7 @@ defineExpose({ refresh });
           <tr
             v-for="p in rows"
             :key="p.id"
+            v-key-activate.native
             :class="{ sel: p.id === selectedId, blocker: blocks.has(p.id), blocked: !!p.blocked_by, idle: !p.active, own: p.own }"
             @click="select(p)"
           >
@@ -301,7 +303,7 @@ defineExpose({ refresh });
             {{ $t('processes:killAction') }}
           </el-button>
         </span>
-        <el-button size="small" text @click="selectedId = null"><el-icon><ei-close /></el-icon></el-button>
+        <el-button size="small" text :aria-label="$t('common:close')" @click="selectedId = null"><el-icon><ei-close /></el-icon></el-button>
       </div>
       <div v-if="selected.blocked_by || waitingOn.length" class="pp-chain">
         <span v-if="selected.blocked_by">

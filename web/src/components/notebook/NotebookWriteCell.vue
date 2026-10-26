@@ -152,8 +152,8 @@ const cellText = (v: unknown) => (v === null || v === undefined ? 'NULL' : typeo
         <button class="nc-btn nw-preview-btn" :disabled="busy || planning" :title="$t('notebook:write.previewTip')" @click="emit('preview')">
           <el-icon><ei-view /></el-icon><span>{{ $t('notebook:write.preview') }}</span>
         </button>
-        <button class="nc-btn" :disabled="index === 0" :title="$t('notebook:cell.moveUp')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></button>
-        <button class="nc-btn" :disabled="index === count - 1" :title="$t('notebook:cell.moveDown')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></button>
+        <button :aria-label="$t('notebook:cell.moveUp')" class="nc-btn" :disabled="index === 0" :title="$t('notebook:cell.moveUp')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></button>
+        <button :aria-label="$t('notebook:cell.moveDown')" class="nc-btn" :disabled="index === count - 1" :title="$t('notebook:cell.moveDown')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></button>
         <el-dropdown trigger="click" placement="bottom-end" @command="() => emit('remove')">
           <button class="nc-btn" :title="$t('notebook:cell.more')" :aria-label="$t('notebook:cell.more')"><el-icon><ei-more-filled /></el-icon></button>
           <template #dropdown>

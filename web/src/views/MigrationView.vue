@@ -866,10 +866,10 @@ function saveScript() {
           <label>{{ $t('migration:sync.maxCores') }} <span class="mg-muted">{{ $t('migration:sync.maxCoresHint') }}</span></label>
           <el-input-number v-model="sync.max_cores" :min="0" :max="256" size="small" style="width: 140px" />
         </template>
-        <div class="mg-adv-head" @click="showAdvanced = !showAdvanced">
+        <button type="button" class="mg-adv-head nm-plain-btn" :aria-expanded="showAdvanced" @click="showAdvanced = !showAdvanced">
           <el-icon class="mg-caret" :class="{ open: showAdvanced }"><ei-arrow-right /></el-icon>
           {{ $t('migration:advanced.title') }}
-        </div>
+        </button>
         <div v-if="showAdvanced" class="mg-adv">
           <label>{{ $t('migration:advanced.parallel') }} <span class="mg-muted">{{ $t('migration:advanced.parallelHint') }}</span></label>
           <el-input-number v-model="transfer.parallel" :min="1" :max="32" size="small" :disabled="!options.data && mode !== 'sync'" />
@@ -1008,10 +1008,10 @@ function saveScript() {
           <span class="mg-tact">
             <template v-if="running && movesData">
               <el-tooltip v-if="r.status === 'pending'" :content="$t('migration:grid.runNow')" placement="top" :show-after="300">
-                <el-button size="small" text @click="runNow(r.name)"><el-icon><ei-video-play /></el-icon></el-button>
+                <el-button :aria-label="$t('migration:grid.runNow')" size="small" text @click="runNow(r.name)"><el-icon><ei-video-play /></el-icon></el-button>
               </el-tooltip>
               <el-tooltip v-if="r.status === 'pending' || r.status === 'running' || r.status === 'copied'" :content="$t('migration:grid.cancel')" placement="top" :show-after="300">
-                <el-button size="small" text @click="cancelTable(r.name)"><el-icon><ei-close /></el-icon></el-button>
+                <el-button :aria-label="$t('migration:grid.cancel')" size="small" text @click="cancelTable(r.name)"><el-icon><ei-close /></el-icon></el-button>
               </el-tooltip>
             </template>
           </span>
@@ -1088,10 +1088,10 @@ function saveScript() {
           </div>
         </div>
 
-        <div v-if="plan.columns.length" class="mg-cols-head" @click="showColumns = !showColumns">
+        <button v-if="plan.columns.length" type="button" class="mg-cols-head nm-plain-btn" :aria-expanded="showColumns" @click="showColumns = !showColumns">
           <el-icon class="mg-caret" :class="{ open: showColumns }"><ei-arrow-right /></el-icon>
           {{ $t('migration:report.byColumn', { count: plan.columns.length }) }}
-        </div>
+        </button>
         <template v-if="showColumns && plan.columns.length">
           <el-input v-model="columnFilter" clearable size="small" :placeholder="$t('migration:report.filterColumns')" style="max-width: 320px; margin-bottom: 6px" />
           <div class="mg-cols">
@@ -1150,7 +1150,7 @@ function saveScript() {
 .mg-actions .el-button + .el-button { margin-left: 0; }
 .mg-progress { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
 .mg-runerr { margin: 6px 0 0; white-space: pre-wrap; font-size: 12px; color: var(--nm-danger); font-family: inherit; }
-.mg-adv-head { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 12.5px; color: var(--nm-text-strong); cursor: pointer; user-select: none; }
+.mg-adv-head { display: flex; width: 100%; align-items: center; gap: 5px; margin-top: 6px; font-size: 12.5px; color: var(--nm-text-strong); cursor: pointer; user-select: none; }
 .mg-adv { display: flex; flex-direction: column; gap: 4px; padding-left: 16px; }
 .mg-adv .el-select, .mg-adv .el-input-number { width: 180px; }
 .mg-phrase { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1210,7 +1210,7 @@ function saveScript() {
 .mg-where { color: var(--nm-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mg-msg { color: var(--nm-text); }
 .mg-ok { display: flex; align-items: center; gap: 6px; color: var(--nm-success); font-size: 12.5px; }
-.mg-cols-head { display: flex; align-items: center; gap: 5px; margin-top: 12px; font-size: 12.5px; color: var(--nm-text-strong); cursor: pointer; user-select: none; }
+.mg-cols-head { display: flex; width: 100%; align-items: center; gap: 5px; margin-top: 12px; font-size: 12.5px; color: var(--nm-text-strong); cursor: pointer; user-select: none; }
 .mg-caret { transition: transform 0.1s; font-size: 11px; }
 .mg-caret.open { transform: rotate(90deg); }
 .mg-cols { max-height: 320px; overflow: auto; font-size: 12px; }

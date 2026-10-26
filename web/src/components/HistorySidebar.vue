@@ -156,8 +156,8 @@ function onKey(ev: KeyboardEvent) {
       <span class="hs-title">{{ $t('history:title') }}</span>
       <div style="flex: 1" />
       <template v-if="mode === 'all'">
-        <button class="hs-icon" :title="$t('common:refresh')" @click="load()"><el-icon><ei-refresh /></el-icon></button>
-        <button class="hs-icon" :title="$t('history:clear')" :disabled="!items.length" @click="clearAll"><el-icon><ei-delete /></el-icon></button>
+        <button :aria-label="$t('common:refresh')" class="hs-icon" :title="$t('common:refresh')" @click="load()"><el-icon><ei-refresh /></el-icon></button>
+        <button :aria-label="$t('history:clear')" class="hs-icon" :title="$t('history:clear')" :disabled="!items.length" @click="clearAll"><el-icon><ei-delete /></el-icon></button>
       </template>
     </div>
     <div class="hs-modes" role="tablist">
@@ -224,7 +224,7 @@ function onKey(ev: KeyboardEvent) {
 .hs-mode { flex: 1; border: 0; border-radius: 4px; background: none; color: var(--nm-text-dim); font: inherit; font-size: 11.5px; padding: 3px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hs-mode.on { background: var(--ide-sidebar); color: var(--nm-text-strong); box-shadow: 0 0 0 1px var(--nm-border-soft); }
 .hs-filter { padding: 0 10px 8px; flex: none; }
-.hs-list { flex: 1; min-height: 0; overflow: auto; outline: none; padding-bottom: 12px; }
+.hs-list { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
 .hs-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 16px; color: var(--nm-text-dim); font-size: 12px; text-align: center; }
 .hs-host { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 10px; border: 0; background: none; color: var(--nm-text-strong); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: left; }
 .hs-host:hover { background: var(--ide-hover); }

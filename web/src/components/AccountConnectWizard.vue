@@ -355,7 +355,7 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
           </el-form-item>
           <el-form-item v-if="kind !== 'delinea'" :label="$t('secretAccounts:acct.input.ca_file')">
             <el-input v-model="s.ca_file" placeholder="~/ca.pem" spellcheck="false">
-              <template #append><el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+              <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
             </el-input>
           </el-form-item>
         </el-form>
@@ -415,12 +415,12 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
         <el-form label-position="top" class="aw-form" @submit.prevent="goNext">
           <el-form-item :label="$t('secretAccounts:acct.input.client_cert')">
             <el-input v-model="s.client_cert" placeholder="~/dbine.p12" spellcheck="false">
-              <template #append><el-button @click="browse('client_cert')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+              <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('client_cert')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
             </el-input>
           </el-form-item>
           <el-form-item :label="$t('secretAccounts:acct.input.client_key')">
             <el-input v-model="s.client_key" placeholder="~/dbine.key" spellcheck="false" :disabled="!s.client_cert.trim()">
-              <template #append><el-button :disabled="!s.client_cert.trim()" @click="browse('client_key')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+              <template #append><el-button :aria-label="$t('importConnections:chooseFile')" :disabled="!s.client_cert.trim()" @click="browse('client_key')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
             </el-input>
           </el-form-item>
           <el-form-item :label="$t('secretAccounts:acct.input.cert_passphrase')">
@@ -563,12 +563,12 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
         <el-form label-position="top" class="aw-form" @submit.prevent="goNext">
           <el-form-item :label="$t('secretAccounts:acct.input.file')" required>
             <el-input v-model="s.file" placeholder="~/Passwords/databases.kdbx" spellcheck="false">
-              <template #append><el-button @click="browse('file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+              <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
             </el-input>
           </el-form-item>
           <el-form-item :label="$t('secretAccounts:acct.input.key_file')">
             <el-input v-model="s.key_file" placeholder="~/Passwords/databases.keyx" spellcheck="false">
-              <template #append><el-button @click="browse('key_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+              <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('key_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
             </el-input>
           </el-form-item>
         </el-form>

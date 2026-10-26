@@ -237,7 +237,7 @@ async function run() {
                 </td>
                 <td v-if="grantOption" class="sd-center"><el-switch v-model="g.grantable" size="small" :disabled="running" /></td>
                 <td class="sd-center">
-                  <el-button size="small" text type="danger" :disabled="running" :title="$t('schemas:removeGrant')" @click="grants.splice(i, 1)">
+                  <el-button :aria-label="$t('schemas:removeGrant')" size="small" text type="danger" :disabled="running" :title="$t('schemas:removeGrant')" @click="grants.splice(i, 1)">
                     <el-icon><ei-delete /></el-icon>
                   </el-button>
                 </td>

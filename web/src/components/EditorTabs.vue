@@ -311,7 +311,7 @@ function onDrop(e: DragEvent) {
           :class="ui.unsaved[r.t.id]"
           :title="ui.unsaved[r.t.id] === 'error' ? $t('workbench:tabs.saveFailed') : $t('workbench:tabs.unsaved')"
         />
-        <button class="et-close ide-icon-btn" :title="$t('common:close')" @click.stop="tabs.close(r.t.id)">
+        <button :aria-label="$t('common:close')" class="et-close ide-icon-btn" :title="$t('common:close')" @click.stop="tabs.close(r.t.id)">
           <el-icon :size="13"><ei-close /></el-icon>
         </button>
       </div>

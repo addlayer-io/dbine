@@ -563,7 +563,7 @@ function cancelScript() {
     <header class="bv-head">
       <h2>{{ $t('backups:title') }} · {{ tab.database || conns.byId(tab.connectionId)?.name }}</h2>
       <span style="flex: 1" />
-      <el-button size="small" text :title="$t('common:refresh')" @click="load"><el-icon><ei-refresh /></el-icon></el-button>
+      <el-button :aria-label="$t('common:refresh')" size="small" text :title="$t('common:refresh')" @click="load"><el-icon><ei-refresh /></el-icon></el-button>
     </header>
     <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="load" />
     <div v-if="error" class="bv-error">{{ error }}</div>
