@@ -11244,5 +11244,17 @@
   "No se pudo leer {0} ({1}): {2}": "{0} ({1}) konnte nicht gelesen werden: {2}",
   "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "Eine im Server eingegebene URL verwendet ihr eigenes Schema (http:// oder https://).",
   "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "Eine TLS-Option hat einen Wert, den dieser Treiber nicht kennt: Prüfen Sie {0}.",
-  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) enthält keine PEM-Zertifikate."
+  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) enthält keine PEM-Zertifikate.",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "Mit TLS verwendet der Treiber den HTTPS-Port des Servers (HTTPS_PORT, 443), nicht den von TDMST.",
+  "El certificado se verifica con el almacén de certificados del sistema.": "Das Zertifikat wird mit dem Zertifikatspeicher des Systems geprüft.",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Über den SSH-Tunnel kann der ODBC-Treiber von MonetDB nicht prüfen, ob das Zertifikat zu {0} gehört: Pinne es mit CERTHASH in den zusätzlichen Attributen oder verbinde dich ohne Tunnel.",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Über den SSH-Tunnel kann der ODBC-Treiber nicht prüfen, ob das Zertifikat zu {0} gehört: Verwende {1} (prüft nur die Zertifizierungsstelle) oder verbinde dich ohne Tunnel.",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl prüft das Zertifikat mit dem Schlüsselspeicher des Clients (SSL_KEYSTORE_FILE in conssl.cfg).",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca und verify-full brauchen die root.crt der Zertifizierungsstelle auf dem Client."
 }

@@ -11244,5 +11244,17 @@
   "No se pudo leer {0} ({1}): {2}": "{0}({1})을(를) 읽을 수 없습니다: {2}",
   "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "서버에 입력한 URL은 자체 스킴(http:// 또는 https://)을 사용합니다.",
   "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "TLS 옵션에 이 드라이버가 알 수 없는 값이 있습니다. {0}을(를) 확인하세요.",
-  "{0} ({1}) no tiene certificados PEM.": "{0}({1})에 PEM 인증서가 없습니다."
+  "{0} ({1}) no tiene certificados PEM.": "{0}({1})에 PEM 인증서가 없습니다.",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "TLS를 사용하면 드라이버는 TDMST 포트가 아니라 서버의 HTTPS 포트(HTTPS_PORT, 443)를 사용합니다.",
+  "El certificado se verifica con el almacén de certificados del sistema.": "인증서는 시스템 인증서 저장소로 검증됩니다.",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "SSH 터널을 통해서는 MonetDB ODBC 드라이버가 인증서가 {0}의 것인지 확인할 수 없습니다. 추가 속성에서 CERTHASH로 인증서를 고정하거나 터널 없이 연결하세요.",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "SSH 터널을 통해서는 ODBC 드라이버가 인증서가 {0}의 것인지 확인할 수 없습니다. {1}(CA만 검증)을 사용하거나 터널 없이 연결하세요.",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl은 클라이언트의 키 저장소(conssl.cfg의 SSL_KEYSTORE_FILE)로 인증서를 검증합니다.",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca와 verify-full에는 클라이언트에 CA의 root.crt가 필요합니다."
 }

@@ -50,7 +50,7 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: dbine_driver::TlsSupport::NotApplicable,
         tls_port: None,
         id: "duckdb",
         name: "DuckDB",

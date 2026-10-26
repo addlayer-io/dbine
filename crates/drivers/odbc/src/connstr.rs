@@ -25,13 +25,7 @@ pub fn driver_value(name: &str) -> String {
     format!("{{{}}}", n.replace('}', "}}"))
 }
 
-fn has_key(conn_str: &str, key: &str) -> bool {
-    conn_str.split(';').any(|kv| {
-        kv.split('=')
-            .next()
-            .is_some_and(|k| k.trim().eq_ignore_ascii_case(key))
-    })
-}
+use crate::tls::has_key;
 
 /// The connection string for `preset`, on `database` (may be empty).
 pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<String> {
@@ -123,6 +117,14 @@ pub fn build(preset: &Preset, cfg: &ConnectionConfig, database: &str) -> Result<
         if !value.is_empty() {
             parts.push(format!("{key}={}", escape(&value)));
         }
+    }
+    // The engine's own TLS options (an attribute typed in `extra` wins).
+    for part in crate::tls::parts(preset, cfg, extra)? {
+        parts.push(if part.raw {
+            format!("{}={}", part.key, part.value)
+        } else {
+            format!("{}={}", part.key, escape(&part.value))
+        });
     }
     if !extra.is_empty() {
         parts.push(extra.to_string());
@@ -314,10 +316,8 @@ mod tests {
             "{s}"
         );
         let s = build(preset("cloudera"), &cfg(&[]), "").unwrap();
-        assert!(
-            s.contains("ThriftTransport=2;HTTPPath=cliservice;SSL=1"),
-            "{s}"
-        );
+        assert!(s.contains("ThriftTransport=2;HTTPPath=cliservice;"), "{s}");
+        assert!(s.ends_with(";PWD={s3cr;t}}x};SSL=1"), "{s}");
         // A format whose placeholders are all empty is left out.
         let mut c = cfg(&[]);
         c.host = String::new();

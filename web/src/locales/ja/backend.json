@@ -11244,5 +11244,17 @@
   "No se pudo leer {0} ({1}): {2}": "{0}（{1}）を読み取れませんでした: {2}",
   "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "サーバー欄に入力した URL は、その URL のスキーム（http:// または https://）を使います。",
   "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "TLS オプションに、このドライバーが認識できない値があります。{0} を確認してください。",
-  "{0} ({1}) no tiene certificados PEM.": "{0}（{1}）に PEM 証明書がありません。"
+  "{0} ({1}) no tiene certificados PEM.": "{0}（{1}）に PEM 証明書がありません。",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "TLS では、ドライバーは TDMST のポートではなくサーバーの HTTPS ポート（HTTPS_PORT、443）を使います。",
+  "El certificado se verifica con el almacén de certificados del sistema.": "証明書はシステムの証明書ストアで検証されます。",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "SSH トンネル経由では、MonetDB の ODBC ドライバーは証明書が {0} のものか確認できません。追加属性の CERTHASH で証明書を固定するか、トンネルを使わずに接続してください。",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "SSH トンネル経由では、ODBC ドライバーは証明書が {0} のものか確認できません。{1}（CA のみ検証）を使うか、トンネルを使わずに接続してください。",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl はクライアントのキーストア（conssl.cfg の SSL_KEYSTORE_FILE）で証明書を検証します。",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca と verify-full には、クライアントに CA の root.crt が必要です。"
 }

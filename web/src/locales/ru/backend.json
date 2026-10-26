@@ -11244,5 +11244,17 @@
   "No se pudo leer {0} ({1}): {2}": "Не удалось прочитать {0} ({1}): {2}",
   "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "URL, указанный в поле сервера, использует свою схему (http:// или https://).",
   "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "У параметра TLS значение, которое этот драйвер не знает: проверьте {0}.",
-  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) не содержит сертификатов PEM."
+  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) не содержит сертификатов PEM.",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "С TLS драйвер использует HTTPS-порт сервера (HTTPS_PORT, 443), а не порт TDMST.",
+  "El certificado se verifica con el almacén de certificados del sistema.": "Сертификат проверяется по системному хранилищу сертификатов.",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Через SSH-туннель ODBC-драйвер MonetDB не может проверить, что сертификат принадлежит {0}: закрепите его с помощью CERTHASH в дополнительных атрибутах или подключитесь без туннеля.",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Через SSH-туннель ODBC-драйвер не может проверить, что сертификат принадлежит {0}: используйте {1} (проверяется только центр сертификации) или подключитесь без туннеля.",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl проверяет сертификат по хранилищу ключей клиента (SSL_KEYSTORE_FILE в conssl.cfg).",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "Для verify-ca и verify-full на клиенте нужен root.crt центра сертификации."
 }

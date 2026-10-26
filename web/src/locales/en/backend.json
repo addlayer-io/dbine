@@ -11244,5 +11244,17 @@
   "No se pudo leer {0} ({1}): {2}": "Couldn't read {0} ({1}): {2}",
   "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "A URL typed in the server uses its own scheme (http:// or https://).",
   "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "A TLS option has a value this driver doesn't know: check {0}.",
-  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) has no PEM certificates."
+  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) has no PEM certificates.",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "With TLS the driver uses the server's HTTPS port (HTTPS_PORT, 443), not the TDMST one.",
+  "El certificado se verifica con el almacén de certificados del sistema.": "The certificate is verified against the system's certificate store.",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Through the SSH tunnel, MonetDB's ODBC driver can't check that the certificate belongs to {0}: pin it with CERTHASH in the additional attributes or connect without the tunnel.",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Through the SSH tunnel, the ODBC driver can't check that the certificate belongs to {0}: use {1} (it verifies only the CA) or connect without the tunnel.",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl verifies the certificate against the client's keystore (SSL_KEYSTORE_FILE in conssl.cfg).",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca and verify-full need the CA's root.crt on the client."
 }

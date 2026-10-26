@@ -3875,3 +3875,54 @@ mode, in the unit tests.
 | DuckDB, SQLite | Credentials | Embedded files: no server and no sign-in. A folder of files (CSV / Parquet / JSON) is only its path. |
 | Every engine | Secrets with Vault database credentials | Leased credentials DBine revokes on disconnect: not copied. |
 | Engines signed in with cloud IAM | The password | It is a temporary token: the string carries `${DB_IAM_TOKEN}`. |
+
+## Connection encryption
+
+Each engine's TLS options use its own names and values (docs/tls-options.md).
+New connections are encrypted with the server's certificate verified wherever
+the engine supports it. The engines below have no TLS, or their TLS can't be
+set from DBine yet.
+
+### Engines without TLS
+
+| Engine | Reason |
+|---|---|
+| `firebird` | Firebird has no TLS listener. Its wire protocol has its own encryption (SRP authentication plus Firebird's wire crypt), which DBine's client uses. |
+| `zen` | Actian Zen's wire encryption is its own (Blowfish), set in the client's and the server's configuration; it is not TLS, and the ODBC driver has no keyword for it. |
+| `mimer` | Mimer SQL encrypts with its own protocol (`NetworkEncryption` on the server), not TLS. |
+| `nuodb` | The NuoDB ODBC driver doesn't pass the TLS options (`trustStore`, `verifyHostname`) that the C++ and JDBC drivers have. |
+| `cubrid` | CUBRID encrypts only from JDBC and CCI (`useSSL`); the ODBC driver doesn't pass it. |
+
+`duckdb`, `duckdb_files` and `sqlite` are local files, and `access` and
+`dbase` local ODBC files: there is no connection to encrypt. `odbc` (a DSN or
+a typed connection string), `iris` and `cache` (`SSLDefs.ini`) take TLS from
+the driver's configuration or the string the user types.
+
+### ODBC presets: what the drivers can't do
+
+- **No server-name override** (Db2, Teradata, Vertica, Simba Hive / Impala /
+  Spark, MonetDB): through an SSH tunnel a mode that checks the host name is
+  refused, naming the option that verifies only the CA
+  (`SSLClientHostnameValidation=OFF`, `SSLMode=Verify-CA`,
+  `AllowHostNameCNMismatch=1`; MonetDB: `CERTHASH`). OpenEdge
+  (`HostNameInCertificate`) and SQL Anywhere (`certificate_name`) get the real
+  server's name.
+- **Chain only, never the host name:** Ignite and Ignite 3 (`SSL_MODE=require`),
+  Informix and GBase 8s (`onsocssl`), Netezza (`onlySecured`). Not documented
+  by the vendor, so not claimed: Db2 for i (`SSL=1`), Exasol, Ocient (`TLS=ON`)
+  and Altibase.
+- **No skip-verify option:** Db2, Informix / GBase 8s, Db2 for i, Ignite,
+  MonetDB (pin with `CERTHASH` instead), Teradata and Vertica (use `Require` /
+  `require`). Netezza encrypts without verifying only as `preferredSecured`.
+- **No CA keyword:** Informix / GBase 8s (the GSKit keystore in `conssl.cfg`),
+  Db2 for i (the system store), Vertica (`root.crt`), Ocient.
+- **No plaintext option:** Ocient's ODBC driver documents only `UNVERIFIED` and
+  `ON`.
+- **Pending confirmation** (still listed in `NOT_YET_MIGRATED`): `sybase` (FreeTDS and
+  SAP's driver spell TLS differently and the form can't tell them apart),
+  `sqream` (whether its `Ssl` verifies the certificate isn't documented),
+  `virtuoso` (verifying needs a client certificate; `ENCRYPT=1` doesn't
+  verify), `heavydb` (different keywords on Linux and Windows), `dameng` (the
+  server picks the mode; the client can't require TLS), `ingres` (TLS is the
+  `tls` protocol of the vnode; its use from ODBC isn't confirmed), `maxdb` and
+  `machbase` (no documented ODBC TLS).
