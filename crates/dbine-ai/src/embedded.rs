@@ -881,6 +881,345 @@ mod tests {
         assert!(!d.path().join("u.gguf.part").exists());
     }
 
+    /// A tar.gz release archive with these `(path, contents, mode)` entries.
+    fn tar_gz(path: &Path, entries: &[(&str, &[u8], u32)]) {
+        let gz = flate2::write::GzEncoder::new(
+            std::fs::File::create(path).unwrap(),
+            flate2::Compression::fast(),
+        );
+        let mut b = tar::Builder::new(gz);
+        for (name, data, mode) in entries {
+            let mut h = tar::Header::new_gnu();
+            h.set_size(data.len() as u64);
+            h.set_mode(*mode);
+            h.set_cksum();
+            b.append_data(&mut h, name, *data).unwrap();
+        }
+        b.into_inner().unwrap().finish().unwrap();
+    }
+
+    #[test]
+    fn unpacks_a_tar_gz_without_its_top_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let archive = d.path().join("llama.tar.gz");
+        let top = format!("llama-{ENGINE_TAG}");
+        tar_gz(
+            &archive,
+            &[
+                (&format!("{top}/{SERVER_EXE}"), b"#!/bin/sh\n", 0o755),
+                (&format!("{top}/lib/libggml.dylib"), b"lib", 0o644),
+            ],
+        );
+        let dest = d.path().join(format!("llama.cpp-{ENGINE_TAG}"));
+        // A previous install is replaced; a stale temp folder doesn't matter.
+        std::fs::create_dir_all(dest.join("old")).unwrap();
+        std::fs::create_dir_all(dest.with_file_name(format!("llama.cpp-{ENGINE_TAG}.tmp")))
+            .unwrap();
+        unpack(&archive, &dest).unwrap();
+        assert!(dest.join(SERVER_EXE).is_file());
+        assert_eq!(
+            std::fs::read(dest.join("lib/libggml.dylib")).unwrap(),
+            b"lib"
+        );
+        assert!(!dest.join("old").exists());
+        assert!(!d
+            .path()
+            .join(format!("llama.cpp-{ENGINE_TAG}.tmp"))
+            .exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dest.join(SERVER_EXE))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o111, 0o111, "the server stays executable");
+        }
+        assert!(engine_installed(d.path()) || bundled_engine().is_some());
+        if bundled_engine().is_none() {
+            assert_eq!(engine_pending(d.path()), 0);
+        }
+    }
+
+    #[test]
+    fn an_archive_without_the_server_is_refused() {
+        let d = tempfile::tempdir().unwrap();
+        let archive = d.path().join("llama.tar.gz");
+        tar_gz(&archive, &[("llama-b11213/README.md", b"hi", 0o644)]);
+        let dest = d.path().join("engine");
+        let err = unpack(&archive, &dest).unwrap_err();
+        assert!(err.to_string().contains(SERVER_EXE), "{err}");
+        // Nothing is left behind, not even the temp folder.
+        assert!(!dest.exists());
+        assert!(!d.path().join("engine.tmp").exists());
+        // Not an archive at all.
+        std::fs::write(&archive, b"not gzip").unwrap();
+        assert!(unpack(&archive, &dest).is_err());
+        assert!(unpack(&d.path().join("missing.tar.gz"), &dest).is_err());
+    }
+
+    #[test]
+    fn unpacks_a_zip_and_drops_special_bits() {
+        use std::io::Write;
+        let d = tempfile::tempdir().unwrap();
+        let archive = d.path().join("llama.zip");
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+        let opts = zip::write::SimpleFileOptions::default();
+        z.add_directory(format!("llama-{ENGINE_TAG}/sub/"), opts)
+            .unwrap();
+        z.start_file(
+            format!("llama-{ENGINE_TAG}/{SERVER_EXE}"),
+            opts.unix_permissions(0o4755),
+        )
+        .unwrap();
+        z.write_all(b"exe").unwrap();
+        z.start_file("ggml.dll", opts).unwrap();
+        z.write_all(b"dll").unwrap();
+        // Escaping the folder is skipped, not written.
+        z.start_file("../evil", opts).unwrap();
+        z.write_all(b"x").unwrap();
+        z.finish().unwrap();
+        let dest = d.path().join("out").join("engine");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        unpack(&archive, &dest).unwrap();
+        assert_eq!(std::fs::read(dest.join(SERVER_EXE)).unwrap(), b"exe");
+        assert_eq!(std::fs::read(dest.join("ggml.dll")).unwrap(), b"dll");
+        assert!(dest.join("sub").is_dir());
+        assert!(!d.path().join("out").join("evil").exists());
+        assert!(!d.path().join("evil").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dest.join(SERVER_EXE))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o7777, 0o755, "no setuid from an archive");
+        }
+    }
+
+    #[test]
+    fn an_empty_folder_has_no_engine_and_no_models() {
+        let d = tempfile::tempdir().unwrap();
+        if bundled_engine().is_none() {
+            assert!(!engine_installed(d.path()));
+            assert_eq!(engine_pending(d.path()), ENGINE.map_or(0, |e| e.size));
+        }
+        assert!(installed(d.path()).is_empty());
+    }
+
+    #[test]
+    fn only_complete_model_files_count_as_installed() {
+        let d = tempfile::tempdir().unwrap();
+        let m = &CATALOG[0];
+        // Sparse files: the size is what's checked, nothing is written.
+        let f = std::fs::File::create(model_path(d.path(), m)).unwrap();
+        f.set_len(m.size - 1).unwrap();
+        assert!(installed(d.path()).is_empty());
+        f.set_len(m.size).unwrap();
+        assert_eq!(
+            installed(d.path()).iter().map(|x| x.id).collect::<Vec<_>>(),
+            [m.id]
+        );
+        // Deleting removes the file and any partial download; twice is fine.
+        std::fs::write(d.path().join(format!("{}.part", m.file)), b"p").unwrap();
+        delete(d.path(), m).unwrap();
+        delete(d.path(), m).unwrap();
+        assert!(installed(d.path()).is_empty());
+        assert!(!d.path().join(format!("{}.part", m.file)).exists());
+    }
+
+    #[tokio::test]
+    async fn chat_needs_a_downloaded_model_and_the_engine() {
+        let d = tempfile::tempdir().unwrap();
+        let req = |model: Option<&str>| ChatRequest {
+            kind: crate::ProviderKind::Embedded,
+            model: model.map(str::to_string),
+            system: String::new(),
+            messages: vec![],
+            lang: "es",
+        };
+        let cb = |_: crate::Delta| {};
+        let cancel = Cancel::new();
+        let msg = |r: Result<String>| match r {
+            Err(AiError::NotAvailable(m)) => m,
+            other => panic!("expected NotAvailable, got {other:?}"),
+        };
+        assert_eq!(
+            msg(chat(d.path(), &req(None), &cb, &cancel).await),
+            "elegí un modelo integrado"
+        );
+        assert_eq!(
+            msg(chat(d.path(), &req(Some("gpt-9")), &cb, &cancel).await),
+            "elegí un modelo integrado"
+        );
+        let m = &CATALOG[0];
+        assert!(msg(chat(d.path(), &req(Some(m.id)), &cb, &cancel).await)
+            .contains("no está descargado"));
+        if bundled_engine().is_none() {
+            std::fs::File::create(model_path(d.path(), m))
+                .unwrap()
+                .set_len(m.size)
+                .unwrap();
+            assert!(msg(chat(d.path(), &req(Some(m.id)), &cb, &cancel).await)
+                .contains("falta el motor"));
+        }
+    }
+
+    /// A local HTTP server answering every request with `status` and `body`
+    /// (ignoring `Range`).
+    async fn plain_server(status: &'static str, body: Vec<u8>) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                let body = body.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let _ = s.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = s.write_all(head.as_bytes()).await;
+                    let _ = s.write_all(&body).await;
+                });
+            }
+        });
+        format!("http://{addr}/m.gguf")
+    }
+
+    fn test_model(size: u64, sha256: &'static str) -> CatalogModel {
+        CatalogModel {
+            id: "t",
+            label: "T",
+            detail: "",
+            file: "m.gguf",
+            url: "",
+            size,
+            sha256,
+            min_ram_gb: 0,
+        }
+    }
+
+    fn sha_of(data: &[u8]) -> &'static str {
+        let s: String = Sha256::digest(data)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        Box::leak(s.into_boxed_str())
+    }
+
+    #[tokio::test]
+    async fn a_server_ignoring_the_range_restarts_the_download() {
+        let content: Vec<u8> = (0..500u32).map(|i| (i % 13) as u8).collect();
+        let url = plain_server("200 OK", content.clone()).await;
+        let d = tempfile::tempdir().unwrap();
+        let m = test_model(500, sha_of(&content));
+        // A partial file the server won't resume, and one that's too long.
+        std::fs::write(d.path().join("m.gguf.part"), vec![9u8; 100]).unwrap();
+        let p = download_from(d.path(), &m, &url, &|_, _| {}, &Cancel::new())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&p).unwrap(), content);
+        assert!(!d.path().join("m.gguf.part").exists());
+        // Already complete: nothing is downloaded again.
+        let again = download_from(
+            d.path(),
+            &m,
+            "http://127.0.0.1:1/x",
+            &|_, _| {},
+            &Cancel::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(again, p);
+        std::fs::remove_file(&p).unwrap();
+        std::fs::write(d.path().join("m.gguf.part"), vec![9u8; 900]).unwrap();
+        let seen = std::sync::Mutex::new(Vec::new());
+        download_from(
+            d.path(),
+            &m,
+            &url,
+            &|a, t| seen.lock().unwrap().push((a, t)),
+            &Cancel::new(),
+        )
+        .await
+        .unwrap();
+        let seen = seen.into_inner().unwrap();
+        assert_eq!(seen.first(), Some(&(0, 500)), "started over");
+        assert_eq!(seen.last(), Some(&(500, 500)));
+    }
+
+    #[tokio::test]
+    async fn failed_and_short_downloads_are_errors() {
+        let d = tempfile::tempdir().unwrap();
+        let m = test_model(500, "00");
+        let url = plain_server("404 Not Found", b"no".to_vec()).await;
+        let e = download_from(d.path(), &m, &url, &|_, _| {}, &Cancel::new())
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("HTTP 404"), "{e}");
+        // Fewer bytes than the model has: kept to resume later.
+        let url = plain_server("200 OK", vec![1u8; 200]).await;
+        let e = download_from(d.path(), &m, &url, &|_, _| {}, &Cancel::new())
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("200 de 500"), "{e}");
+        assert_eq!(
+            std::fs::metadata(d.path().join("m.gguf.part"))
+                .unwrap()
+                .len(),
+            200
+        );
+        // Nobody listening.
+        let gone = {
+            let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            format!("http://{}/m.gguf", l.local_addr().unwrap())
+        };
+        let e = download_from(d.path(), &m, &gone, &|_, _| {}, &Cancel::new())
+            .await
+            .unwrap_err();
+        assert!(e.to_string().starts_with("no se pudo descargar T"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_download_keeps_the_partial_file() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // Sends half the model and then stalls.
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/m.gguf", l.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let _ = s.read(&mut buf).await;
+            let _ = s
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")
+                .await;
+            let _ = s.write_all(&[7u8; 500]).await;
+            let _ = s.flush().await;
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        let d = tempfile::tempdir().unwrap();
+        let m = test_model(1000, "00");
+        let cancel = Cancel::new();
+        let c = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            c.cancel();
+        });
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            download_from(d.path(), &m, &url, &|_, _| {}, &cancel),
+        )
+        .await
+        .expect("the cancel stops the download");
+        assert!(matches!(r, Err(AiError::Cancelled)), "{r:?}");
+        assert!(d.path().join("m.gguf.part").exists());
+        assert!(!d.path().join("m.gguf").exists());
+    }
+
     /// End to end with the real engine and a real model: downloads llama.cpp
     /// into the folder and chats. `DBINE_TEST_MODELS=<folder with a catalog
     /// model> cargo test -p dbine-ai -- --ignored`.
