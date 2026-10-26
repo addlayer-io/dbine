@@ -1363,6 +1363,11 @@
  "Archivo (.accdb / .mdb)": [
   "crates/drivers/odbc/src/presets.rs"
  ],
+ "Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades públicas habituales.": [
+  "crates/drivers/hana/src/lib.rs",
+  "crates/drivers/mongodb/src/lib.rs",
+  "crates/drivers/redis/src/lib.rs"
+ ],
  "Archivo de Data Pump": [
   "crates/drivers/oracle/src/backup.rs"
  ],
@@ -3294,6 +3299,9 @@
   "crates/drivers/solr/src/backup.rs",
   "src-tauri/src/commands/sync.rs"
  ],
+ "Carpeta con ewallet.pem (o un archivo de adentro): sus certificados de CA se suman a las autoridades públicas para verificar el servidor. Si trae una clave privada, es el certificado del cliente (mTLS).": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "Carpeta con los .dbf (o uno de sus archivos)": [
   "crates/drivers/odbc/src/presets.rs"
  ],
@@ -3449,8 +3457,9 @@
  "Certificado de la CA (PEM)": [
   "crates/drivers/mysql/src/lib.rs"
  ],
- "Certificado de la CA de AWS": [
-  "crates/drivers/mongodb/src/lib.rs"
+ "Certificados de CA (PEM) en los que confiar además de los del sistema.": [
+  "crates/drivers/cassandra/src/lib.rs",
+  "crates/drivers/neo4j/src/bolt.rs"
  ],
  "Changed database context": [
   "crates/drivers/sqlserver/src/script_live.rs"
@@ -3494,6 +3503,15 @@
  ],
  "Ciclo de claves foráneas: «{0}» ({1}) se copia con NULL y se completa al final, después de «{2}».": [
   "src-tauri/src/commands/subset/mod.rs"
+ ],
+ "Cifra la conexión (obligatorio en SAP HANA Cloud). Por un túnel SSH el certificado se verifica contra 127.0.0.1: el cliente no permite indicar el nombre real del servidor.": [
+  "crates/drivers/hana/src/lib.rs"
+ ],
+ "Cifra la conexión (rediss://) y verifica el certificado del servidor.": [
+  "crates/drivers/redis/src/lib.rs"
+ ],
+ "Cifra la conexión y verifica el certificado del servidor. Con una cadena de conexión no se aplica: manda la cadena.": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "Cifra las tablas nuevas. Requiere un keyring configurado en el servidor.": [
   "crates/drivers/mysql/src/properties.rs"
@@ -7729,6 +7747,9 @@
   "crates/drivers/hana/src/lib.rs",
   "crates/drivers/oracle/src/lib.rs"
  ],
+ "El servidor no respondió en {0} s. Si el listener no atiende TCPS en ese puerto, elegí TCP en PROTOCOL (puerto 1521).": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "El servidor sugiere índices: {0}": [
   "crates/drivers/cosmosdb/src/plan.rs"
  ],
@@ -9218,6 +9239,13 @@
  ],
  "Falló después de {0}: {1}": [
   "src-tauri/src/link.rs"
+ ],
+ "Falló la conexión TLS: si el servidor no tiene TLS, desactivá encrypt ({0})": [
+  "crates/drivers/hana/src/lib.rs"
+ ],
+ "Falló la conexión TLS: si el servidor no tiene TLS, desactivá tls ({0})": [
+  "crates/drivers/mongodb/src/lib.rs",
+  "crates/drivers/redis/src/lib.rs"
  ],
  "Falló.": [
   "src-tauri/src/link.rs",
@@ -14090,9 +14118,6 @@
  "Necesario para ordenar, facetar y agrupar eficientemente.": [
   "crates/drivers/solr/src/ddl.rs"
  ],
- "Necesario si te conectás por un túnel (el certificado no coincide con localhost).": [
-  "crates/drivers/mongodb/src/lib.rs"
- ],
  "Necesita superusuario. Vacío: RESET.": [
   "crates/drivers/postgres/src/properties.rs"
  ],
@@ -14146,6 +14171,9 @@
  ],
  "Neptune sin cliente HTTP": [
   "crates/drivers/neo4j/src/transfer.rs"
+ ],
+ "Neptune solo acepta HTTPS; sin enableSsl la conexión va por http (un proxy o un túnel propio).": [
+  "crates/drivers/neo4j/src/neptune.rs"
  ],
  "Neptune solo muestra las consultas en curso del cluster, sin usuario ni cliente: las que duran menos de una décima de segundo pueden no verse. El registro de auditoría va a CloudWatch, no a esta API.": [
   "crates/drivers/neo4j/src/profiler.rs"
@@ -14770,6 +14798,9 @@
  "No se pudieron listar los workgroups: {0}": [
   "crates/drivers/athena/src/monitor.rs"
  ],
+ "No se pudo abrir la conexión TCPS ({0}). El listener de Oracle suele atender TCPS en el puerto 2484; si no tiene TCPS configurado, elegí TCP en PROTOCOL (puerto 1521).": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "No se pudo activar el profiling de «{0}» ({1}): se muestran las operaciones en curso.": [
   "crates/drivers/mongodb/src/profiler.rs"
  ],
@@ -15103,6 +15134,21 @@
  "No se pudo terminar {0}: {1}": [
   "crates/drivers/neo4j/src/blocking.rs"
  ],
+ "No se pudo verificar el certificado del servidor ({0})": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
+ "No se pudo verificar el certificado del servidor: indicá en WALLET_LOCATION una carpeta con ewallet.pem que tenga su CA; el cliente de Oracle no permite saltear la verificación ({0})": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
+ "No se pudo verificar el certificado del servidor: indicá la CA en cacert o activá insecure ({0})": [
+  "crates/drivers/redis/src/lib.rs"
+ ],
+ "No se pudo verificar el certificado del servidor: indicá la CA en tlsCAFile o activá tlsAllowInvalidCertificates ({0})": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "No se pudo verificar el certificado del servidor: indicá la CA en trustStore o desactivá validateCertificate ({0})": [
+  "crates/drivers/hana/src/lib.rs"
+ ],
  "No se puede borrar el esquema de la conexión actual.": [
   "crates/drivers/hana/src/lib.rs"
  ],
@@ -15193,6 +15239,12 @@
  ],
  "No todos los conectores guardan json (Hive e Iceberg no): ahí va varchar.": [
   "crates/dbine-schema/src/dialect/trino.rs"
+ ],
+ "No verifica el certificado del servidor (autofirmado, otro nombre): la conexión queda expuesta a una suplantación. Por un túnel SSH el certificado se verifica contra 127.0.0.1, porque el cliente de MongoDB no permite indicar el nombre real del servidor.": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "No verifica el certificado del servidor (autofirmado, otro nombre): la conexión queda expuesta a una suplantación. Por un túnel SSH el certificado se verifica contra 127.0.0.1, porque el cliente de Redis no permite indicar el nombre real del servidor.": [
+  "crates/drivers/redis/src/lib.rs"
  ],
  "No: ahorra disco en campos que no se ordenan ni se agregan.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -16026,9 +16078,6 @@
  ],
  "Obligatorio": [
   "crates/drivers/mongodb/src/ddl.rs"
- ],
- "Obligatorio en SAP HANA Cloud.": [
-  "crates/drivers/hana/src/lib.rs"
  ],
  "Obligatorio para la entidad de servicio. Con los demás métodos, opcional: sin él vale el inquilino de la cuenta.": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -17010,6 +17059,21 @@
  ],
  "Por filas (ROW)": [
   "crates/drivers/hana/src/schema.rs"
+ ],
+ "Por un túnel SSH, MongoDB verifica el certificado contra 127.0.0.1 y no contra el nombre real del servidor: usá un certificado que incluya 127.0.0.1 o activá tlsAllowInvalidCertificates ({0})": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "Por un túnel SSH, Oracle verifica el certificado del servidor contra 127.0.0.1 y no contra su nombre real (el cliente de Oracle no permite indicarlo): conectate sin el túnel ({0})": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
+ "Por un túnel SSH, Oracle verifica el certificado del servidor contra 127.0.0.1 y no contra su nombre real (el cliente de Oracle no permite indicarlo): conectate sin el túnel o elegí TCP en PROTOCOL ({0})": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
+ "Por un túnel SSH, Redis verifica el certificado contra 127.0.0.1 y no contra el nombre real del servidor: usá un certificado que incluya 127.0.0.1 o activá insecure ({0})": [
+  "crates/drivers/redis/src/lib.rs"
+ ],
+ "Por un túnel SSH, SAP HANA verifica el certificado contra 127.0.0.1 y no contra el nombre real del servidor (el cliente no permite indicarlo): usá un certificado que incluya 127.0.0.1 o desactivá validateCertificate ({0})": [
+  "crates/drivers/hana/src/lib.rs"
  ],
  "Por versión: falla (version)": [
   "crates/drivers/orientdb/src/properties.rs"
@@ -18580,9 +18644,6 @@
  ],
  "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": [
   "crates/drivers/influxdb/src/monitor.rs"
- ],
- "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": [
-  "crates/drivers/neo4j/src/monitor.rs"
  ],
  "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -20696,6 +20757,9 @@
  "TABLE ACCESS FULL de tabla grande (~{0} filas)": [
   "crates/drivers/oracle/src/plan.rs"
  ],
+ "TCPS cifra la conexión y verifica el certificado del servidor (el listener suele atenderlo en el puerto 2484); TCP no cifra (puerto 1521). Con un descriptor de conexión manda su propio PROTOCOL. Por un túnel SSH el certificado se verifica contra 127.0.0.1: el cliente de Oracle no permite indicar el nombre real del servidor.": [
+  "crates/drivers/oracle/src/lib.rs"
+ ],
  "TDengine borra filas por su marca de tiempo: la clave de la fila tiene que incluir el timestamp": [
   "crates/drivers/tdengine/src/ddl.rs"
  ],
@@ -22418,9 +22482,6 @@
  "Uruguay": [
   "src-tauri/src/commands/datagen.rs"
  ],
- "Usa TCPS (el puerto suele ser 2484).": [
-  "crates/drivers/oracle/src/lib.rs"
- ],
  "Usado": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -23082,6 +23143,12 @@
  "Ver las propiedades de un esquema necesita leer DBA_USERS (SELECT_CATALOG_ROLE o un usuario DBA).": [
   "crates/drivers/oracle/src/properties.rs"
  ],
+ "Verifica el certificado del servidor: la CA y el nombre del servidor.": [
+  "crates/drivers/hana/src/lib.rs"
+ ],
+ "Verifica la cadena del certificado y que sea del nodo: su IP o el nombre escrito en Servidor.": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
  "Verificación de página": [
   "crates/drivers/sqlserver/src/properties.rs"
  ],
@@ -23351,6 +23418,9 @@
  ],
  "WAL y compresión": [
   "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "WALLET_LOCATION ({0}) no tiene un ewallet.pem.": [
+  "crates/drivers/oracle/src/lib.rs"
  ],
  "Waiting for": [
   "crates/drivers/mysql/src/processes.rs"
@@ -24029,6 +24099,15 @@
  ],
  "celular no vinculado": [
   "crates/dbine-link/src/lib.rs"
+ ],
+ "certfile ({0}) no tiene certificados PEM": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "certificado inválido en certfile: {0}": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "certificado inválido en trustedCertificates: {0}": [
+  "crates/drivers/neo4j/src/bolt.rs"
  ],
  "char admite hasta 65536: se usa varchar.": [
   "crates/dbine-schema/src/dialect/trino.rs"
@@ -25072,6 +25151,9 @@
   "src-tauri/src/secret_sources/https.rs",
   "src-tauri/src/secret_sources/vault.rs"
  ],
+ "el certificado del servidor no es de confianza ({0}): indicá su CA en trustedCertificates, o elegí bolt+ssc en scheme para no verificarlo": [
+  "crates/drivers/neo4j/src/bolt.rs"
+ ],
  "el chat de Telegram tiene que ser un número (-100…) o un @canal": [
   "src-tauri/src/tasks/message.rs"
  ],
@@ -26007,7 +26089,7 @@
  "el servidor no respondió": [
   "crates/drivers/libsql/src/hrana.rs"
  ],
- "el servidor no respondió al saludo Bolt (¿es el puerto Bolt, con TLS si hace falta?): {0}": [
+ "el servidor no respondió al saludo Bolt (¿es el puerto Bolt? Si el servidor solo acepta TLS, elegí bolt+s en scheme): {0}": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
  "el servidor no respondió el lote": [
@@ -27457,7 +27539,7 @@
  "falló la lectura: {0}": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
- "falló la negociación TLS: {0}": [
+ "falló la negociación TLS: {0} (si el servidor no usa TLS, elegí bolt en scheme)": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
  "false: los guarda sin indexarlos": [
@@ -31411,6 +31493,9 @@
  "no se pudo leer SPANNER_SYS.OLDEST_ACTIVE_QUERIES: {0}": [
   "crates/drivers/spanner/src/profiler.rs"
  ],
+ "no se pudo leer certfile ({0}): {1}": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
  "no se pudo leer dónde se guardan la tabla y sus índices (filegroups, esquemas de partición): el clon queda en el filegroup por omisión": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -31429,8 +31514,14 @@
  "no se pudo leer el archivo de KeePass «{0}»: {1}": [
   "src-tauri/src/secret_sources/keepass.rs"
  ],
+ "no se pudo leer el archivo de cacert {0}: {1}": [
+  "crates/drivers/redis/src/lib.rs"
+ ],
  "no se pudo leer el archivo de clave «{0}»: {1}": [
   "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "no se pudo leer el archivo de trustStore {0}: {1}": [
+  "crates/drivers/hana/src/lib.rs"
  ],
  "no se pudo leer el archivo: {0}": [
   "src-tauri/src/commands/imports.rs",
@@ -31581,6 +31672,9 @@
  "no se pudo leer si la tabla tiene columnas dispersas (SPARSE) o versiones del sistema (tabla temporal); no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "no se pudo leer trustedCertificates ({0}): {1}": [
+  "crates/drivers/neo4j/src/bolt.rs"
+ ],
  "no se pudo leer {0} ({1})": [
   "crates/drivers/mysql/src/profiler.rs"
  ],
@@ -31729,6 +31823,9 @@
  ],
  "no se pudo usar la sesión de Windows: {0}": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "no se pudo verificar el certificado de Neptune ({0}): activá sslSkipCertValidation para no verificarlo": [
+  "crates/drivers/neo4j/src/neptune.rs"
  ],
  "no se pudo volver a poner la restricción {0} en el clon: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
@@ -33634,6 +33731,12 @@
  "true: agrega los campos nuevos al mapping": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "trustStore ({0}) no tiene certificados": [
+  "crates/drivers/hana/src/lib.rs"
+ ],
+ "trustedCertificates ({0}) no tiene certificados PEM": [
+  "crates/drivers/neo4j/src/bolt.rs"
+ ],
  "tu cuenta de Zoho está en un centro de datos ({0}) donde DBine no conoce la dirección de Zoho Vault": [
   "src-tauri/src/secret_sources/accounts.rs"
  ],
@@ -34210,6 +34313,12 @@
  ],
  "{0} (archivo de datos)": [
   "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "{0} (el certificado del nodo no es de confianza: indicá su CA en certfile, o desactivá validate para no verificarlo)": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "{0} (falló la negociación TLS: si el servidor no usa TLS, desactivá ssl)": [
+  "crates/drivers/cassandra/src/lib.rs"
  ],
  "{0} (la transacción abierta se perdió: la sesión venció)": [
   "crates/drivers/spanner/src/lib.rs"
@@ -37089,9 +37198,6 @@
   "crates/drivers/athena/src/monitor.rs",
   "crates/drivers/bigquery/src/monitor.rs",
   "crates/drivers/databricks/src/monitor.rs"
- ],
- "Útil con un túnel SSH, donde el certificado no coincide con localhost.": [
-  "crates/drivers/neo4j/src/lib.rs"
  ],
  "árbitro": [
   "crates/drivers/mongodb/src/monitor.rs"

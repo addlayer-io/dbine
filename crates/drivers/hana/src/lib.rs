@@ -31,8 +31,9 @@ use dbine_driver::{
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
     Family, Field, FieldKind, Language, Message, MessageLevel, MonitorSnapshot, ObjectKindInfo,
     ObjectRef, Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema,
-    TxState,
+    TlsLevel, TlsSupport, TxState,
 };
+use dbine_driver::{ConnectFailure, ConnectFailureKind, TUNNEL_ORIGIN_HOST};
 use hdbconnect_async::{
     ConnectParams, ConnectParamsBuilder, Connection, HdbError, HdbResponse, HdbReturnValue,
     HdbValue, ResultSet, ServerCerts,
@@ -56,9 +57,55 @@ struct HanaDriver {
     info: DriverInfo,
 }
 
+/// The option key of SAP's `encrypt` (JDBC and hdbcli): `encrypt` itself is
+/// the typed legacy bool of `ConnectionConfig`, so it's stored under another
+/// key and shown with SAP's name.
+const ENCRYPT: &str = "hana_encrypt";
+
+/// SAP's `encrypt`: TLS, verified unless `validateCertificate` is off. New
+/// connections encrypt; one saved before the option keeps its "encrypt"
+/// checkbox.
+fn encrypt_field() -> Field {
+    Field::tls_switch(
+        ENCRYPT,
+        "encrypt",
+        TlsLevel::VerifyFull,
+        TlsLevel::Off,
+        true,
+        ["false", "false", "true", "true"],
+    )
+    .help(
+        "Cifra la conexión (obligatorio en SAP HANA Cloud). Por un túnel SSH el certificado se \
+         verifica contra 127.0.0.1: el cliente no permite indicar el nombre real del servidor.",
+    )
+}
+
+/// `validateCertificate`: unchecked, the server's certificate isn't
+/// checked (the legacy "trust the certificate" checkbox).
+fn validate_field() -> Field {
+    Field::tls_skip_verify(
+        "validateCertificate",
+        "validateCertificate",
+        true,
+        ["true", "true", "true", "false"],
+    )
+    .help("Verifica el certificado del servidor: la CA y el nombre del servidor.")
+    .when(ENCRYPT, &["true"])
+}
+
+/// `trustStore`: the PEM with the CA(s) to trust instead of the public ones.
+fn trust_store_field() -> Field {
+    Field::tls_ca_file("trustStore", "trustStore")
+        .help(
+            "Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades \
+             públicas habituales.",
+        )
+        .when(ENCRYPT, &["true"])
+}
+
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "hana",
         name: "SAP HANA",
@@ -77,8 +124,9 @@ fn info() -> DriverInfo {
                 .help("Opcional: nombre del tenant cuando el puerto es el de SYSTEMDB (3<instancia>13)."),
             Field::username().required(),
             Field::password(),
-            Field::encrypt().help("Obligatorio en SAP HANA Cloud."),
-            Field::trust_cert(),
+            encrypt_field(),
+            validate_field(),
+            trust_store_field(),
             Field::read_only(),
         ],
         databases_label: "Esquemas",
@@ -199,14 +247,125 @@ fn params(cfg: &ConnectionConfig) -> Result<ConnectParams> {
     if !cfg.database.trim().is_empty() {
         b.dbname(cfg.database.trim());
     }
-    if cfg.encrypt {
-        if cfg.trust_server_certificate {
+    if cfg.tls_value(&encrypt_field()) == Some("true") {
+        let validate = validate_field();
+        let store = trust_store_field();
+        if cfg
+            .tls_value(&validate)
+            .is_some_and(|v| validate.tls_skips(v))
+        {
             b.tls_without_server_verification();
+        } else if let Some(path) = cfg.tls_value(&store).map(str::trim) {
+            b.tls_with(ServerCerts::Directory(trust_store_dir(path)?));
         } else {
             b.tls_with(ServerCerts::RootCertificates);
         }
     }
     b.build().map_err(|e| Error::Connect(message(&e)))
+}
+
+/// The certificates of a `trustStore` file (PEM, or one DER certificate) as
+/// a folder of DER `.crt` files: hdbconnect reads each file of a folder as
+/// one DER certificate (its `Direct` takes DER too), not PEM. The folder is
+/// in the temp dir, named by the content, so reconnecting reuses it.
+fn trust_store_dir(path: &str) -> Result<String> {
+    let bytes = std::fs::read(path).map_err(|e| {
+        Error::Connect(format!(
+            "no se pudo leer el archivo de trustStore {path}: {e}"
+        ))
+    })?;
+    let certs = match std::str::from_utf8(&bytes) {
+        Ok(text) if text.contains("-----BEGIN") => pem_certificates(text),
+        _ => vec![bytes.clone()],
+    };
+    if certs.is_empty() {
+        return Err(Error::Connect(format!(
+            "trustStore ({path}) no tiene certificados"
+        )));
+    }
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    certs.hash(&mut h);
+    let dir = std::env::temp_dir().join(format!("dbine-hana-truststore-{:016x}", h.finish()));
+    std::fs::create_dir_all(&dir)?;
+    for (i, der) in certs.iter().enumerate() {
+        let file = dir.join(format!("ca{i}.crt"));
+        if std::fs::read(&file).ok().as_deref() != Some(der.as_slice()) {
+            std::fs::write(&file, der)?;
+        }
+    }
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// The DER bytes of each `CERTIFICATE` block of a PEM text.
+fn pem_certificates(text: &str) -> Vec<Vec<u8>> {
+    const BEGIN: &str = "-----BEGIN CERTIFICATE-----";
+    const END: &str = "-----END CERTIFICATE-----";
+    let mut out = vec![];
+    let mut rest = text;
+    while let Some(start) = rest.find(BEGIN) {
+        let body = &rest[start + BEGIN.len()..];
+        let Some(end) = body.find(END) else { break };
+        if let Some(der) = base64_decode(&body[..end]) {
+            out.push(der);
+        }
+        rest = &body[end + END.len()..];
+    }
+    out
+}
+
+/// Standard base64, whitespace ignored; `None` when it isn't base64.
+fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in text.bytes().filter(|c| !c.is_ascii_whitespace()) {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            _ => return None,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
+/// A failed connect over TLS, explained with the option to change. Through
+/// an SSH tunnel the client checks the certificate against 127.0.0.1 (it
+/// can't be told the real server's name).
+fn tls_connect_err(cfg: &ConnectionConfig, e: Error) -> Error {
+    let Error::Connect(text) = &e else {
+        return e;
+    };
+    if cfg.tls_value(&encrypt_field()) != Some("true") {
+        return e;
+    }
+    let kind = ConnectFailure::from_message(text.clone()).kind;
+    let message = match kind {
+        ConnectFailureKind::TlsUntrusted if cfg.option(TUNNEL_ORIGIN_HOST).is_some() => format!(
+            "Por un túnel SSH, SAP HANA verifica el certificado contra 127.0.0.1 y no contra el \
+             nombre real del servidor (el cliente no permite indicarlo): usá un certificado que \
+             incluya 127.0.0.1 o desactivá validateCertificate ({text})"
+        ),
+        ConnectFailureKind::TlsUntrusted => format!(
+            "No se pudo verificar el certificado del servidor: indicá la CA en trustStore o \
+             desactivá validateCertificate ({text})"
+        ),
+        ConnectFailureKind::Tls | ConnectFailureKind::TlsNotOffered => format!(
+            "Falló la conexión TLS: si el servidor no tiene TLS, desactivá encrypt ({text})"
+        ),
+        _ => return e,
+    };
+    Error::connect_failed(ConnectFailure::new(kind, message))
 }
 
 #[async_trait]
@@ -401,7 +560,8 @@ impl Driver for HanaDriver {
                     CONNECT_TIMEOUT.as_secs()
                 ))
             })?
-            .map_err(connect_err)?;
+            .map_err(connect_err)
+            .map_err(|e| tls_connect_err(cfg, e))?;
         conn.set_application("DBine").await;
         if let Some(schema) = database.filter(|d| !d.is_empty()) {
             conn.exec(format!("SET SCHEMA {}", quote(schema)))
@@ -1312,6 +1472,143 @@ mod tests {
         assert_eq!(p.addr(), "hana.local:39041");
         cfg.username = None;
         assert!(matches!(params(&cfg), Err(Error::AuthFailed(_))));
+    }
+
+    fn tls_cfg(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "hana.local".into(),
+            username: Some("SYSTEM".into()),
+            encrypt,
+            trust_server_certificate: trust,
+            options: options
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// (TLS, certificates checked against): what the client is set to.
+    fn tls_of(cfg: &ConnectionConfig) -> (bool, Option<Vec<ServerCerts>>) {
+        let p = params(cfg).unwrap();
+        (p.is_tls(), p.server_certs().cloned())
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls() {
+        let roots = Some(vec![ServerCerts::RootCertificates]);
+        // [ff, ft, tf, tt] as before the native options.
+        assert_eq!(tls_of(&tls_cfg(false, false, &[])), (false, None));
+        assert_eq!(tls_of(&tls_cfg(false, true, &[])), (false, None));
+        assert_eq!(tls_of(&tls_cfg(true, false, &[])), (true, roots));
+        assert_eq!(tls_of(&tls_cfg(true, true, &[])), (true, None));
+        let fields = info().fields;
+        for (e, t, level) in [
+            (false, false, TlsLevel::Off),
+            (false, true, TlsLevel::Off),
+            (true, false, TlsLevel::VerifyFull),
+            (true, true, TlsLevel::Unverified),
+        ] {
+            assert_eq!(tls_cfg(e, t, &[]).tls_level(&fields), Some(level));
+        }
+    }
+
+    #[test]
+    fn new_connections_encrypt_and_verify() {
+        let i = info();
+        assert_eq!((i.tls, i.tls_port), (TlsSupport::Configurable, None));
+        assert!(!i.fields.iter().any(Field::is_legacy_tls));
+        // A new connection: the fields' defaults.
+        let defaults: Vec<(&str, &str)> = i
+            .fields
+            .iter()
+            .filter(|f| f.tls.is_some() && !f.default.is_empty())
+            .map(|f| (f.key, f.default))
+            .collect();
+        let c = tls_cfg(false, false, &defaults);
+        assert_eq!(c.tls_level(&i.fields), Some(TlsLevel::VerifyFull));
+        assert_eq!(
+            tls_of(&c),
+            (true, Some(vec![ServerCerts::RootCertificates]))
+        );
+        // validateCertificate=false: no check; encrypt=false: plain.
+        let c = tls_cfg(true, false, &[("validateCertificate", "false")]);
+        assert_eq!(tls_of(&c), (true, None));
+        let c = tls_cfg(true, false, &[(ENCRYPT, "false")]);
+        assert_eq!(tls_of(&c), (false, None));
+        // trustStore: its certificates (as DER files), instead of the public roots.
+        let pem = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../tests/tls/ca.pem");
+        let c = tls_cfg(false, false, &[(ENCRYPT, "true"), ("trustStore", pem)]);
+        let (on, certs) = tls_of(&c);
+        let Some([ServerCerts::Directory(dir)]) = certs.as_deref() else {
+            panic!("{certs:?}")
+        };
+        assert!(on);
+        let der = std::fs::read(std::path::Path::new(dir).join("ca0.crt")).unwrap();
+        // A DER certificate: a SEQUENCE.
+        assert_eq!(der[0], 0x30);
+        assert!(!std::path::Path::new(dir).join("ca1.crt").exists());
+        let c = tls_cfg(
+            false,
+            false,
+            &[(ENCRYPT, "true"), ("trustStore", "/nope.pem")],
+        );
+        assert!(params(&c).unwrap_err().to_string().contains("trustStore"));
+    }
+
+    #[test]
+    fn pem_blocks_decode_to_der() {
+        assert_eq!(base64_decode("TWFu\nTWE=").unwrap(), b"ManMa");
+        assert_eq!(base64_decode("TQ==").unwrap(), b"M");
+        assert!(base64_decode("@@").is_none());
+        let pem = "junk\n-----BEGIN CERTIFICATE-----\nTWFu\n-----END CERTIFICATE-----\n\
+                   -----BEGIN CERTIFICATE-----\nTWE=\n-----END CERTIFICATE-----\n";
+        assert_eq!(pem_certificates(pem), vec![b"Man".to_vec(), b"Ma".to_vec()]);
+        let empty =
+            std::env::temp_dir().join(format!("dbine-hana-empty-{}.pem", std::process::id()));
+        std::fs::write(
+            &empty,
+            "-----BEGIN PRIVATE KEY-----\nTWFu\n-----END PRIVATE KEY-----\n",
+        )
+        .unwrap();
+        let e = trust_store_dir(&empty.to_string_lossy())
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("no tiene certificados"), "{e}");
+        let _ = std::fs::remove_file(empty);
+    }
+
+    #[test]
+    fn tls_failures_name_the_option_to_change() {
+        let untrusted = || Error::Connect("invalid peer certificate: UnknownIssuer".into());
+        let on = tls_cfg(true, false, &[]);
+        let Error::ConnectFailed(f) = tls_connect_err(&on, untrusted()) else {
+            panic!()
+        };
+        assert_eq!(f.kind, ConnectFailureKind::TlsUntrusted);
+        assert!(f.message.contains("trustStore") && f.message.contains("validateCertificate"));
+        let mut t = on.clone();
+        t.options
+            .insert(TUNNEL_ORIGIN_HOST.into(), "hana.example.com".into());
+        let Error::ConnectFailed(f) = tls_connect_err(&t, untrusted()) else {
+            panic!()
+        };
+        assert!(f.message.contains("127.0.0.1"), "{}", f.message);
+        let Error::ConnectFailed(f) =
+            tls_connect_err(&on, Error::Connect("tls handshake eof".into()))
+        else {
+            panic!()
+        };
+        assert!(f.message.contains("desactivá encrypt"), "{}", f.message);
+        // Plain connections, and other errors, unchanged.
+        assert!(matches!(
+            tls_connect_err(&tls_cfg(false, false, &[]), untrusted()),
+            Error::Connect(_)
+        ));
+        assert!(matches!(
+            tls_connect_err(&on, Error::Connect("[10] authentication failed".into())),
+            Error::Connect(_)
+        ));
     }
 
     #[test]

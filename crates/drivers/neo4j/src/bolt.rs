@@ -4,7 +4,7 @@
 //! Bolt servers speak it; one [`Conn`] is one socket, no pooling.
 
 use crate::packstream::{encode, encoded_len, map, Decoder, Value};
-use dbine_driver::{ConnectionConfig, Error, Result};
+use dbine_driver::{ConnectionConfig, Error, Field, Result, TlsLevel};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -88,6 +88,11 @@ pub struct Target {
     pub port: u16,
     pub tls: bool,
     pub trust_cert: bool,
+    /// The name the certificate is checked against (the real server's
+    /// through an SSH tunnel).
+    pub server_name: String,
+    /// `trustedCertificates`: extra CA certificates (PEM).
+    pub ca_file: Option<String>,
     pub user: String,
     pub password: String,
 }
@@ -98,28 +103,56 @@ impl std::fmt::Debug for Target {
     }
 }
 
-/// `host`, `host:port` or a URI (`neo4j://`, `neo4j+s://`, `bolt+ssc://`,
-/// `memgraph://`…): the `+s` schemes turn TLS on, `+ssc` also trusts any
-/// certificate.
-pub fn target(cfg: &ConnectionConfig, default_port: u16) -> Target {
-    let mut host = cfg.host.trim().to_string();
-    let mut tls = cfg.encrypt;
-    let mut trust = cfg.trust_server_certificate;
-    if let Some((scheme, rest)) = host.split_once("://") {
-        let scheme = scheme.to_ascii_lowercase();
-        if scheme.ends_with("+s") {
-            tls = true;
-        } else if scheme.ends_with("+ssc") {
-            tls = true;
-            trust = true;
-        }
+/// The scheme option: Neo4j's own URI schemes (`bolt`, `bolt+s`,
+/// `bolt+ssc`; `neo4j…` behave the same, DBine doesn't route).
+pub const SCHEME: &str = "scheme";
+/// The CA file option (the official drivers' `trustedCertificates`).
+pub const TRUSTED_CERTIFICATES: &str = "trustedCertificates";
+
+/// The engine's TLS options: the URI scheme and the CA file.
+pub fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_mode(
+            SCHEME,
+            "scheme",
+            &[
+                ("bolt", "bolt", TlsLevel::Off),
+                ("bolt+s", "bolt+s", TlsLevel::VerifyFull),
+                ("bolt+ssc", "bolt+ssc", TlsLevel::Unverified),
+            ],
+            "bolt+s",
+            ["bolt", "bolt", "bolt+s", "bolt+ssc"],
+        )
+        .help("bolt+s cifra y verifica el certificado; bolt+ssc cifra sin verificarlo; bolt no cifra. Un esquema escrito en el servidor (neo4j+s://…) tiene prioridad."),
+        Field::tls_ca_file(TRUSTED_CERTIFICATES, "trustedCertificates")
+            .help("Certificados de CA (PEM) en los que confiar además de los del sistema."),
+    ]
+}
+
+/// (TLS, skip the checks) of a scheme; `neo4j…` like `bolt…`. An unknown
+/// value verifies.
+fn scheme_tls(scheme: &str) -> (bool, bool) {
+    let s = scheme.trim().to_ascii_lowercase();
+    match s.strip_prefix("neo4j").or_else(|| s.strip_prefix("bolt")) {
+        Some("") => (false, false),
+        Some("+ssc") => (true, true),
+        _ => (true, false),
+    }
+}
+
+/// `host`, `host:port` or `scheme://host:port/…`: (scheme, host, port).
+fn split_host(text: &str) -> (Option<String>, String, Option<u16>) {
+    let mut host = text.trim().to_string();
+    let mut scheme = None;
+    if let Some((s, rest)) = host.split_once("://") {
+        scheme = Some(s.to_ascii_lowercase());
         host = rest.split('/').next().unwrap_or_default().to_string();
     }
-    let mut port = cfg.port_or(default_port);
+    let mut port = None;
     // host:port (not an IPv6 literal without brackets).
     if let Some((h, p)) = host.rsplit_once(':') {
         if let (Ok(p), false) = (p.parse::<u16>(), h.contains(':') && !h.ends_with(']')) {
-            port = p;
+            port = Some(p);
             host = h.to_string();
         }
     }
@@ -127,15 +160,47 @@ pub fn target(cfg: &ConnectionConfig, default_port: u16) -> Target {
         .trim_start_matches('[')
         .trim_end_matches(']')
         .to_string();
+    (scheme, host, port)
+}
+
+/// `host`, `host:port` or a URI (`neo4j://`, `neo4j+s://`, `bolt+ssc://`,
+/// `memgraph://`…). The `scheme` option sets TLS; a `+s` / `+ssc` scheme
+/// typed in the host wins over it (`+ssc` also skips the checks).
+pub fn target(cfg: &ConnectionConfig, default_port: u16) -> Target {
+    let fields = tls_fields();
+    let (mut tls, mut trust) = scheme_tls(cfg.tls_value(&fields[0]).unwrap_or("bolt+s"));
+    // Before the option existed the trust checkbox applied to a `+s` scheme
+    // typed in the host too (ft with neo4j+s:// skipped the checks).
+    if cfg.option(SCHEME).is_none() {
+        trust = cfg.trust_server_certificate;
+    }
+    let (scheme, host, port) = split_host(&cfg.host);
+    if let Some(scheme) = scheme {
+        if scheme.ends_with("+s") {
+            tls = true;
+        } else if scheme.ends_with("+ssc") {
+            tls = true;
+            trust = true;
+        }
+    }
+    let port = port.unwrap_or_else(|| cfg.port_or(default_port));
+    let host = if host.is_empty() {
+        "localhost".to_string()
+    } else {
+        host
+    };
+    let (_, name, _) = split_host(cfg.tls_server_name());
     Target {
-        host: if host.is_empty() {
-            "localhost".into()
-        } else {
-            host
-        },
+        server_name: if name.is_empty() { host.clone() } else { name },
+        host,
         port,
         tls,
         trust_cert: trust,
+        ca_file: cfg
+            .tls_value(&fields[1])
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(str::to_string),
         user: cfg.username_or_empty().to_string(),
         password: cfg.password_or_empty().to_string(),
     }
@@ -198,7 +263,7 @@ impl Conn {
             })?;
         tcp.set_nodelay(true).ok();
         let io: Box<dyn Io> = if t.tls {
-            Box::new(tls(tcp, &t.host, t.trust_cert).await?)
+            Box::new(tls(tcp, t).await?)
         } else {
             Box::new(tcp)
         };
@@ -221,7 +286,7 @@ impl Conn {
         self.io.write_all(&hs).await.map_err(io_err)?;
         let mut v = [0u8; 4];
         self.io.read_exact(&mut v).await.map_err(|e| {
-            Error::Connect(format!("el servidor no respondió al saludo Bolt (¿es el puerto Bolt, con TLS si hace falta?): {e}"))
+            Error::Connect(format!("el servidor no respondió al saludo Bolt (¿es el puerto Bolt? Si el servidor solo acepta TLS, elegí bolt+s en scheme): {e}"))
         })?;
         if v == [0x48, 0x54, 0x54, 0x50] {
             return Err(Error::Connect(
@@ -490,35 +555,71 @@ fn auth_error(meta: &Value) -> Error {
     }
 }
 
-async fn tls(
-    tcp: TcpStream,
-    host: &str,
-    trust_any: bool,
-) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
+async fn tls(tcp: TcpStream, t: &Target) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
     use rustls::pki_types::ServerName;
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
-        .with_safe_default_protocol_versions()
-        .map_err(Error::connect)?;
-    let config = if trust_any {
-        builder
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(AcceptAny(provider)))
-            .with_no_client_auth()
-    } else {
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        for cert in rustls_native_certs::load_native_certs().certs {
-            let _ = roots.add(cert);
-        }
-        builder.with_root_certificates(roots).with_no_client_auth()
-    };
-    let name = ServerName::try_from(host.to_string())
+    let config = client_config(t)?;
+    let name = ServerName::try_from(t.server_name.clone())
         .map_err(|e| Error::Connect(format!("nombre de servidor inválido: {e}")))?;
     tokio_rustls::TlsConnector::from(Arc::new(config))
         .connect(name, tcp)
         .await
-        .map_err(|e| Error::Connect(format!("falló la negociación TLS: {e}")))
+        .map_err(tls_error)
+}
+
+/// A target's rustls configuration: any certificate with `+ssc`, else the
+/// webpki and system roots plus `trustedCertificates`.
+fn client_config(t: &Target) -> Result<rustls::ClientConfig> {
+    use rustls::pki_types::{pem::PemObject, CertificateDer};
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .map_err(Error::connect)?;
+    if t.trust_cert {
+        return Ok(builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AcceptAny(provider)))
+            .with_no_client_auth());
+    }
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for cert in rustls_native_certs::load_native_certs().certs {
+        let _ = roots.add(cert);
+    }
+    if let Some(path) = &t.ca_file {
+        let certs = CertificateDer::pem_file_iter(path)
+            .and_then(|i| i.collect::<std::result::Result<Vec<_>, _>>())
+            .map_err(|e| {
+                Error::Connect(format!("no se pudo leer trustedCertificates ({path}): {e}"))
+            })?;
+        if certs.is_empty() {
+            return Err(Error::Connect(format!(
+                "trustedCertificates ({path}) no tiene certificados PEM"
+            )));
+        }
+        for cert in certs {
+            roots.add(cert).map_err(|e| {
+                Error::Connect(format!("certificado inválido en trustedCertificates: {e}"))
+            })?;
+        }
+    }
+    Ok(builder.with_root_certificates(roots).with_no_client_auth())
+}
+
+/// A failed handshake, naming the option to change.
+fn tls_error(e: std::io::Error) -> Error {
+    let untrusted = e
+        .get_ref()
+        .and_then(|r| r.downcast_ref::<rustls::Error>())
+        .is_some_and(|r| matches!(r, rustls::Error::InvalidCertificate(_)));
+    if untrusted {
+        Error::Connect(format!(
+            "el certificado del servidor no es de confianza ({e}): indicá su CA en trustedCertificates, o elegí bolt+ssc en scheme para no verificarlo"
+        ))
+    } else {
+        Error::Connect(format!(
+            "falló la negociación TLS: {e} (si el servidor no usa TLS, elegí bolt en scheme)"
+        ))
+    }
 }
 
 /// "Confiar en el certificado del servidor": any certificate, signatures still checked.
@@ -598,6 +699,82 @@ mod tests {
         c.host = "[::1]:9000".into();
         assert_eq!(target(&c, 7687).port, 9000);
         assert_eq!(target(&c, 7687).host, "::1");
+    }
+
+    fn legacy(encrypt: bool, trust: bool, host: &str) -> (bool, bool) {
+        let t = target(
+            &ConnectionConfig {
+                host: host.into(),
+                encrypt,
+                trust_server_certificate: trust,
+                ..Default::default()
+            },
+            7687,
+        );
+        (t.tls, t.trust_cert)
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls() {
+        // [ff, ft, tf, tt] → bolt, bolt, bolt+s, bolt+ssc, as before.
+        assert_eq!(legacy(false, false, "db"), (false, false));
+        assert_eq!(legacy(false, true, "db"), (false, true));
+        assert_eq!(legacy(true, false, "db"), (true, false));
+        assert_eq!(legacy(true, true, "db"), (true, true));
+        // A +s scheme in the host turned TLS on and kept the trust box.
+        assert_eq!(legacy(false, true, "neo4j+s://db"), (true, true));
+        assert_eq!(legacy(false, false, "neo4j+s://db"), (true, false));
+        // A plain scheme in the host never turned TLS off.
+        assert_eq!(legacy(true, false, "bolt://db"), (true, false));
+    }
+
+    #[test]
+    fn the_scheme_option_decides_and_new_connections_verify() {
+        let f = &tls_fields()[0];
+        assert_eq!(f.default, "bolt+s");
+        assert!(f.tls_level_of(f.default).unwrap().verified());
+        let t = |scheme: &str, host: &str| {
+            let mut c = ConnectionConfig {
+                host: host.into(),
+                // The bools are dual-written; the option wins.
+                encrypt: true,
+                trust_server_certificate: true,
+                ..Default::default()
+            };
+            c.options.insert(SCHEME.into(), scheme.into());
+            let t = target(&c, 7687);
+            (t.tls, t.trust_cert)
+        };
+        assert_eq!(t("bolt+s", "db"), (true, false));
+        assert_eq!(t("bolt+ssc", "db"), (true, true));
+        assert_eq!(t("bolt", "db"), (false, false));
+        assert_eq!(t("neo4j+s", "db"), (true, false));
+        assert_eq!(t("neo4j", "db"), (false, false));
+        // The host's scheme wins.
+        assert_eq!(t("bolt", "bolt+s://db"), (true, false));
+        assert_eq!(t("bolt+s", "neo4j+ssc://db"), (true, true));
+    }
+
+    #[test]
+    fn the_certificate_names_the_real_server_through_a_tunnel() {
+        let mut c = ConnectionConfig {
+            host: "127.0.0.1".into(),
+            port: 40001,
+            ..Default::default()
+        };
+        c.options.insert(
+            dbine_driver::TUNNEL_ORIGIN_HOST.into(),
+            "graph.example.com".into(),
+        );
+        c.options
+            .insert(TRUSTED_CERTIFICATES.into(), " /tmp/ca.pem ".into());
+        let t = target(&c, 7687);
+        assert_eq!((t.host.as_str(), t.port), ("127.0.0.1", 40001));
+        assert_eq!(t.server_name, "graph.example.com");
+        assert_eq!(t.ca_file.as_deref(), Some("/tmp/ca.pem"));
+        c.options.clear();
+        c.host = "neo4j+s://abc.databases.neo4j.io:7687".into();
+        assert_eq!(target(&c, 7687).server_name, "abc.databases.neo4j.io");
     }
 
     #[test]
