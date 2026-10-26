@@ -7,7 +7,8 @@
 
 use crate::entra;
 use dbine_driver::{
-    ConnectionConfig, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, Result,
+    ConnectionConfig, DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo,
+    Result, TlsLevel, TlsSupport,
 };
 use std::time::Duration;
 
@@ -190,7 +191,8 @@ pub fn info(v: Variant) -> DriverInfo {
             );
             f.push(Field::password().when("auth", USER_AUTH));
             f.extend(entra_fields());
-            f.extend([Field::encrypt(), Field::trust_cert(), Field::read_only()]);
+            f.extend(tls_fields(v));
+            f.push(Field::read_only());
             ("sqlserver", "SQL Server", f)
         }
         Variant::AzureSql => {
@@ -205,7 +207,8 @@ pub fn info(v: Variant) -> DriverInfo {
                 Field::password().when("auth", USER_AUTH),
             ];
             f.extend(entra_fields());
-            f.extend([Field::trust_cert(), Field::read_only()]);
+            f.extend(tls_fields(v));
+            f.push(Field::read_only());
             ("azuresql", "Azure SQL Database", f)
         }
         Variant::Fabric => {
@@ -226,14 +229,25 @@ pub fn info(v: Variant) -> DriverInfo {
             ("fabric", "Microsoft Fabric Data Warehouse", f)
         }
         Variant::Babelfish => {
-            let mut f = Field::server_set();
-            f[3] = Field::username().required();
-            f[1] = Field::port().placeholder("1433");
+            let mut f = vec![
+                Field::host(),
+                Field::port().placeholder("1433"),
+                Field::database(),
+                Field::username().required(),
+                Field::password(),
+            ];
+            f.extend(tls_fields(v));
+            f.push(Field::read_only());
             ("babelfish", "Babelfish for PostgreSQL", f)
         }
     };
     DriverInfo {
-        tls: Default::default(),
+        // Fabric always encrypts and verifies: nothing to choose.
+        tls: if v == Variant::Fabric {
+            TlsSupport::Forced
+        } else {
+            TlsSupport::Configurable
+        },
         tls_port: None,
         id,
         name,
@@ -250,6 +264,88 @@ pub fn info(v: Variant) -> DriverInfo {
         has_schemas: true,
         object_kinds: object_kinds(v),
     }
+}
+
+// ------------------------------------------------------------------- TLS
+
+/// The TLS options, keyed and spelled as ODBC Driver 18 and
+/// Microsoft.Data.SqlClient spell them.
+pub(crate) const ENCRYPT: &str = "Encrypt";
+pub(crate) const TRUST_SERVER_CERTIFICATE: &str = "TrustServerCertificate";
+pub(crate) const SERVER_CERTIFICATE: &str = "ServerCertificate";
+pub(crate) const HOST_NAME_IN_CERTIFICATE: &str = "HostNameInCertificate";
+
+/// `Encrypt`: `Optional` (SQL Server: TLS only around the login, the
+/// certificate not checked, as ODBC's `Encrypt=no`; Babelfish: plain TDS),
+/// `Mandatory` (everything encrypted, the certificate verified) or `Strict`
+/// (TDS 8.0). Azure SQL refuses plain TDS, so it has no `Optional`; Fabric
+/// has no field at all (always encrypted and verified).
+pub(crate) fn encrypt_field(v: Variant) -> Option<Field> {
+    const MANDATORY: (&str, &str, TlsLevel) = ("Mandatory", "Mandatory", TlsLevel::VerifyFull);
+    const STRICT: (&str, &str, TlsLevel) = ("Strict", "Strict (TDS 8.0)", TlsLevel::VerifyFull);
+    let (options, legacy): (Vec<_>, _) = match v {
+        Variant::SqlServer => (
+            vec![
+                (
+                    "Optional",
+                    "Optional (TLS solo en el inicio de sesión, sin verificar)",
+                    TlsLevel::Optional,
+                ),
+                MANDATORY,
+                STRICT,
+            ],
+            ["Optional", "Optional", "Mandatory", "Mandatory"],
+        ),
+        Variant::Babelfish => (
+            vec![("Optional", "Optional (sin TLS)", TlsLevel::Off), MANDATORY],
+            ["Optional", "Optional", "Mandatory", "Mandatory"],
+        ),
+        Variant::AzureSql => (vec![MANDATORY, STRICT], ["Mandatory"; 4]),
+        Variant::Fabric => return None,
+    };
+    Some(
+        Field::tls_mode(ENCRYPT, ENCRYPT, &options, "Mandatory", legacy).help(
+            "Mandatory cifra toda la conexión y verifica el certificado del servidor (salvo con \
+             TrustServerCertificate). Strict es TDS 8.0: SQL Server 2022 o posterior.",
+        ),
+    )
+}
+
+/// `TrustServerCertificate`: accept any certificate. Only with `Mandatory`:
+/// `Optional` never checks it and `Strict` ignores it, as in ODBC.
+pub(crate) fn trust_field(v: Variant) -> Option<Field> {
+    (v != Variant::Fabric).then(|| {
+        Field::tls_skip_verify(
+            TRUST_SERVER_CERTIFICATE,
+            TRUST_SERVER_CERTIFICATE,
+            false,
+            ["false", "true", "false", "true"],
+        )
+        .when(ENCRYPT, &["Mandatory"])
+    })
+}
+
+fn tls_fields(v: Variant) -> Vec<Field> {
+    let verified: &[&str] = if v == Variant::Babelfish {
+        &["Mandatory"]
+    } else {
+        &["Mandatory", "Strict"]
+    };
+    let mut f: Vec<Field> = encrypt_field(v).into_iter().chain(trust_field(v)).collect();
+    // Azure SQL's certificates come from a public CA.
+    if v != Variant::AzureSql {
+        f.push(
+            Field::tls_ca_file(SERVER_CERTIFICATE, SERVER_CERTIFICATE)
+                .help("Opcional: el certificado del servidor o la CA que lo firmó (PEM o DER), además de los del sistema.")
+                .when(ENCRYPT, verified),
+        );
+    }
+    f.push(
+        Field::tls_server_name(HOST_NAME_IN_CERTIFICATE, HOST_NAME_IN_CERTIFICATE)
+            .help("Opcional: el nombre que tiene que figurar en el certificado, si no es el del servidor.")
+            .when(ENCRYPT, verified),
+    );
+    f
 }
 
 // ------------------------------------------------------ Microsoft Entra ID
@@ -490,7 +586,7 @@ mod tests {
             "access_token"
         ]
         .contains(k)));
-        assert!(integrated.contains(&"host") && integrated.contains(&"encrypt"));
+        assert!(integrated.contains(&"host") && integrated.contains(&ENCRYPT));
         // A domain user: user and password (the password is a secret).
         let ntlm = shown(v, WINDOWS_NTLM);
         assert!(

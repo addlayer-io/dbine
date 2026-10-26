@@ -251,6 +251,7 @@ backend:Delta (fuera de línea)
 backend:Diseño
 backend:En línea
 backend:En línea (ONLINE)
+backend:Encrypt
 backend:Equipo
 backend:Escritor
 backend:Espacio de tablas
@@ -262,7 +263,9 @@ backend:Intercalación (COLLATE)
 backend:Intercalación (LC_COLLATE)
 backend:Lector
 backend:Líder
+backend:Mandatory
 backend:Nube
+backend:Optional
 backend:Particionador
 backend:Política
 backend:Por datacenter (NetworkTopologyStrategy)
@@ -276,6 +279,7 @@ backend:Réplica {0}
 backend:Servidor
 backend:Servidor {0}
 backend:Sesgo
+backend:Strict
 backend:Trabajo
 backend:archivo
 backend:base

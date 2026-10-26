@@ -1883,6 +1883,19 @@ not depend on the driver.
 | SQLite, DuckDB and other local-file engines | There is no server: a file on the machine is opened. |
 | ODBC with DSN | The connection is built by the system's ODBC driver from the DSN; DBine does not see the server to redirect it. A tunnel can be used with a DSN that points to `127.0.0.1`. |
 
+## Connection encryption
+
+Each engine shows its own TLS options, with its own names and values
+(`sslmode`, `Encrypt`, `ssl-mode`…). New connections encrypt and verify the
+server's certificate; connections saved before keep what they did. The
+per-engine design is in [`tls-options.md`](tls-options.md).
+
+Engines without TLS:
+
+| Engine | Reason |
+|---|---|
+| H2 (`h2`) | H2's PostgreSQL server has no TLS: it answers the TLS request with "no". |
+
 ## Locks
 
 The Monitor's locks panel ([`locks.md`](locks.md)). These have locks and

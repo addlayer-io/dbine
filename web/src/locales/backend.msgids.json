@@ -3446,12 +3446,6 @@
  "Cerrá antes las demás sesiones conectadas a la base: con alguna abierta, {0} puede rechazar el cambio. {1}": [
   "crates/drivers/postgres/src/rename.rs"
  ],
- "Certificado de CA (PEM)": [
-  "crates/drivers/postgres/src/lib.rs"
- ],
- "Certificado de la CA (PEM)": [
-  "crates/drivers/mysql/src/lib.rs"
- ],
  "Certificado de la CA de AWS": [
   "crates/drivers/mongodb/src/lib.rs"
  ],
@@ -5619,6 +5613,9 @@
  "DIFF o FULL agregan datos a cada transacción del log (para CDC): crece el log y escribir cuesta más.": [
   "crates/drivers/neo4j/src/properties.rs"
  ],
+ "DISABLED (sin TLS)": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
  "DPU asignadas": [
   "crates/drivers/athena/src/monitor.rs"
  ],
@@ -7709,6 +7706,15 @@
  "El servidor no mandó el snapshot": [
   "crates/drivers/etcd/src/backup.rs"
  ],
+ "El servidor no ofrece TLS: desmarcá ssl para conectar sin cifrar.": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "El servidor no ofrece TLS: elegí ssl-mode=PREFERRED o DISABLED para conectar sin cifrar.": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "El servidor no ofrece TLS: elegí sslmode=prefer o disable para conectar sin cifrar.": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "El servidor no permite listar las consultas (SHOW QUERIES): {0}": [
   "crates/drivers/iotdb/src/profiler.rs"
  ],
@@ -8193,6 +8199,12 @@
  ],
  "Encoding": [
   "crates/drivers/iotdb/src/lib.rs"
+ ],
+ "Encrypt": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Encrypt: «{0}» no es un valor que este motor acepte (Optional, Mandatory o Strict)": [
+  "crates/drivers/sqlserver/src/lib.rs"
  ],
  "Encrypted": [
   "crates/drivers/odbc/src/presets.rs"
@@ -11352,6 +11364,12 @@
  "La API SQL de Snowflake no acepta contraseña: usá un PAT o un par de claves.": [
   "crates/drivers/snowflake/src/lib.rs"
  ],
+ "La CA que firmó el certificado del servidor, en PEM: obligatoria con VERIFY_CA.": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "La CA que firmó el certificado del servidor, en PEM: obligatoria con verify-ca.": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "La CPU del sistema necesita el permiso MONITOR RESOURCE (MonitorPhysicalSummary).": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -12848,6 +12866,13 @@
  ],
  "Mail enviado a {0}": [
   "src-tauri/src/tasks/mail.rs"
+ ],
+ "Mandatory": [
+  "crates/drivers/sqlserver/src/lib.rs",
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Mandatory cifra toda la conexión y verifica el certificado del servidor (salvo con TrustServerCertificate). Strict es TDS 8.0: SQL Server 2022 o posterior.": [
+  "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Mango query": [
   "crates/drivers/couchdb/src/plan.rs"
@@ -15109,6 +15134,15 @@
  "No se pudo terminar {0}: {1}": [
   "crates/drivers/neo4j/src/blocking.rs"
  ],
+ "No se pudo verificar el certificado del servidor: indicá su CA en ssl-ca, o desmarcá ssl-verify-server-cert si confiás en la red.": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "No se pudo verificar el certificado del servidor: indicá su CA en ssl-ca, o elegí ssl-mode=REQUIRED si confiás en la red.": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "No se pudo verificar el certificado del servidor: indicá su CA en sslrootcert, o elegí sslmode=require si confiás en la red.": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "No se puede borrar el esquema de la conexión actual.": [
   "crates/drivers/hana/src/lib.rs"
  ],
@@ -16137,17 +16171,20 @@
  "Opcional: columna que da el tiempo del evento.": [
   "crates/drivers/ksqldb/src/ddl.rs"
  ],
+ "Opcional: el certificado del servidor o la CA que lo firmó (PEM o DER), además de los del sistema.": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
  "Opcional: el momento a copiar, por ejemplo -10s para no competir con las escrituras en curso.": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "Opcional: el nombre que tiene que figurar en el certificado, si no es el del servidor.": [
+  "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Opcional: esquema.tabla separadas por comas. Las tablas no pueden existir: borralas antes.": [
   "crates/drivers/postgres/src/backup.rs"
  ],
  "Opcional: esquema.tabla separadas por comas. Vacío: todo el clúster, con usuarios y configuración.": [
   "crates/drivers/postgres/src/backup.rs"
- ],
- "Opcional: la CA que firmó el certificado del servidor, en PEM.": [
-  "crates/drivers/postgres/src/lib.rs"
  ],
  "Opcional: la cuenta de gcloud que pide el token. Vacía: la activa en gcloud (gcloud auth login), las credenciales predeterminadas de la aplicación o la cuenta de servicio de la máquina.": [
   "crates/drivers/postgres/src/cloud_auth.rs"
@@ -16248,6 +16285,16 @@
  ],
  "Optimized": [
   "crates/drivers/sqlserver/src/plan.rs"
+ ],
+ "Optional": [
+  "crates/drivers/sqlserver/src/lib.rs",
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Optional (TLS solo en el inicio de sesión, sin verificar)": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Optional (sin TLS)": [
+  "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Opus: el más capaz": [
   "crates/dbine-ai/src/detect.rs"
@@ -16429,6 +16476,9 @@
  ],
  "PLUS ARCHIVELOG: el backup se puede restaurar sin el archivo de logs.": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "PREFERRED (TLS si el servidor lo ofrece, sin verificar)": [
+  "crates/drivers/mysql/src/lib.rs"
  ],
  "PRINT 'no';\nGO 0\n": [
   "crates/drivers/sqlserver/src/script_live.rs"
@@ -17493,6 +17543,9 @@
  ],
  "RENAME solo renombra objetos del propio esquema: para renombrar «{0}» hay que conectarse como el usuario {1}.": [
   "crates/drivers/oracle/src/rename.rs"
+ ],
+ "REQUIRED (TLS sin verificar el certificado)": [
+  "crates/drivers/mysql/src/lib.rs"
  ],
  "RESTRICTED deja las réplicas de las tablas regionales solo en su región.": [
   "crates/drivers/postgres/src/properties.rs"
@@ -20573,6 +20626,9 @@
  "Streams y tablas": [
   "crates/drivers/ksqldb/src/monitor.rs"
  ],
+ "Strict": [
+  "crates/drivers/sqlserver/src/variant.rs"
+ ],
  "String": [
   "crates/dbine-schema/src/dialect/clickhouse.rs",
   "crates/drivers/clickhouse/src/schema.rs",
@@ -20585,6 +20641,9 @@
  ],
  "String no tiene largo fijo.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
+ "Su certificado nombra la instancia, no la IP: verify-ca con la CA de la instancia en sslrootcert. Con el Auth Proxy en 127.0.0.1, disable: el proxy ya cifra la conexión.": [
+  "crates/drivers/postgres/src/lib.rs"
  ],
  "Su dueño (DEFINER)": [
   "crates/drivers/firebird/src/properties.rs"
@@ -22595,6 +22654,12 @@
  ],
  "VARCHAR({0}) supera los {1} de NVARCHAR: se usa NCLOB.": [
   "crates/dbine-schema/src/dialect/hana.rs"
+ ],
+ "VERIFY_CA (verifica la CA de ssl-ca, no el nombre)": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "VERIFY_IDENTITY (verifica la CA y el nombre)": [
+  "crates/drivers/mysql/src/lib.rs"
  ],
  "Vaciados del log": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -24709,6 +24774,9 @@
  "directa máx.": [
   "crates/drivers/drill/src/lib.rs"
  ],
+ "disable (sin TLS)": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "disco": [
   "crates/drivers/couchbase/src/lib.rs",
   "crates/drivers/mysql/src/monitor.rs"
@@ -25470,7 +25538,7 @@
  "el host SSH no es de confianza todavía: conectate una vez desde una terminal": [
   "src-tauri/src/commands/git_cli.rs"
  ],
- "el inicio de sesión con la nube manda un token que no puede ir a un servidor sin verificar: desmarcá «Confiar en el certificado del servidor» e indicá la CA si hace falta": [
+ "el inicio de sesión con la nube manda un token que no puede ir a un servidor sin verificar: elegí {0} e indicá la CA si hace falta": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "el inquilino (tenant ID) no es válido": [
@@ -32362,6 +32430,9 @@
  "predeterminada: «{0}» no es un valor válido": [
   "crates/drivers/influxdb/src/properties.rs"
  ],
+ "prefer (TLS si el servidor lo ofrece, sin verificar)": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
  "primario": [
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -32553,6 +32624,9 @@
   "crates/drivers/cassandra/src/create_db.rs",
   "crates/drivers/cassandra/src/properties.rs",
   "crates/drivers/mysql/src/properties.rs"
+ ],
+ "require (TLS sin verificar el certificado)": [
+  "crates/drivers/postgres/src/lib.rs"
  ],
  "respondió {0}": [
   "crates/drivers/postgres/src/cloud_auth.rs"
@@ -33293,6 +33367,18 @@
  ],
  "sql_id {0}, media de {1} ejecuciones": [
   "crates/drivers/oracle/src/profiler.rs"
+ ],
+ "ssl-mode: «{0}» no es un valor de MySQL (DISABLED, PREFERRED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY)": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "ssl-mode=VERIFY_CA necesita la CA del servidor en ssl-ca": [
+  "crates/drivers/mysql/src/lib.rs"
+ ],
+ "sslmode: «{0}» no es un valor de libpq (disable, prefer, require, verify-ca, verify-full)": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
+ "sslmode=verify-ca necesita la CA del servidor en sslrootcert": [
+  "crates/drivers/postgres/src/lib.rs"
  ],
  "stats_off mayor a 10 %: el planificador estima mal las filas y puede elegir distribuciones o joins lentos.": [
   "crates/drivers/postgres/src/health.rs"
@@ -34088,6 +34174,12 @@
  ],
  "verificación de página": [
   "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "verify-ca (verifica la CA, no el nombre)": [
+  "crates/drivers/postgres/src/lib.rs"
+ ],
+ "verify-full (verifica la CA y el nombre)": [
+  "crates/drivers/postgres/src/lib.rs"
  ],
  "versión": [
   "crates/drivers/cassandra/src/monitor.rs",
@@ -35321,6 +35413,9 @@
  ],
  "{0}. No se pudo confirmar si la última sentencia de la carga terminó: puede confirmarse igual y dejar filas en la tabla. Revisala; la versión Delta anterior a la carga es la {1} (RESTORE TABLE {2} TO VERSION AS OF {3}).": [
   "crates/drivers/databricks/src/transfer.rs"
+ ],
+ "{0}. No se pudo verificar el certificado del servidor: indicá su CA en ServerCertificate, revisá HostNameInCertificate o, si confiás en la red, marcá TrustServerCertificate.": [
+  "crates/drivers/sqlserver/src/lib.rs"
  ],
  "{0}. No se reintentó: revisá en DBine si la sesión terminó.": [
   "mobile/src-tauri/src/lib.rs"

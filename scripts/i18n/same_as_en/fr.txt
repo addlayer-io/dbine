@@ -277,6 +277,7 @@ backend:Distribución (DISTRIBUTE ON)
 backend:Distribución (DISTSTYLE)
 backend:Documentos
 backend:Documentos (objects)
+backend:Encrypt
 backend:Espacio de tablas
 backend:Espacios de tablas
 backend:Espacios de tablas (MON_GET_TABLESPACE)
@@ -296,6 +297,7 @@ backend:Hilos (threads)
 backend:Instancia
 backend:Intercalación
 backend:Líder
+backend:Mandatory
 backend:Mantenimiento
 backend:Mensaje
 backend:Modalidad
@@ -303,6 +305,7 @@ backend:Modo
 backend:Máximo (ms)
 backend:Nube
 backend:Opciones
+backend:Optional
 backend:Origen
 backend:Origen ({0})
 backend:Orígenes
@@ -324,6 +327,7 @@ backend:Sesiones (sys.sessions)
 backend:Sesiones (syssessions)
 backend:Sesión
 backend:Señal (ms)
+backend:Strict
 backend:Supertablas
 backend:Tabla
 backend:Tablas
