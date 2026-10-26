@@ -205,9 +205,10 @@ impl Tls {
             };
             match role {
                 TlsRole::Mode { .. } => t.mode = Some((f.key.to_string(), v.to_string())),
-                TlsRole::CaFile => t.ca_file = Some(v.to_string()),
+                TlsRole::CaFile { .. } => t.ca_file = Some(v.to_string()),
                 TlsRole::ServerName => t.server_name = Some(v.to_string()),
-                TlsRole::SkipVerify { .. } | TlsRole::SkipHostname => {}
+                // Skips and caps only lower the level: `tls_level` has them.
+                _ => {}
             }
         }
         if let Some(level) = cfg.tls_level(&info.fields) {
