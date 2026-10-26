@@ -1,0 +1,126 @@
+{
+  "title": "Asystent",
+  "defaultModel": "domyślny",
+  "reasoning": "Rozumowanie",
+  "head": {
+    "setup": "Modele i dostawcy",
+    "newChat": "Nowa rozmowa",
+    "close": "Zamknij (⌘I)",
+    "history": "Historia"
+  },
+  "context": {
+    "noDatabase": "Nie wybrano bazy",
+    "openQuery": "otwarte zapytanie",
+    "sent": "kontekst: {{context}}",
+    "objects_one": "{{count}} obiekt",
+    "objects_few": "{{count}} obiekty",
+    "objects_many": "{{count}} obiektów",
+    "objects_other": "{{count}} obiektu",
+    "tables_one": "{{count}} tabela",
+    "tables_few": "{{count}} tabele",
+    "tables_many": "{{count}} tabel",
+    "tables_other": "{{count}} tabeli",
+    "tablesOf_one": "{{shown}} z {{count}} tabeli",
+    "tablesOf_few": "{{shown}} z {{count}} tabel",
+    "tablesOf_many": "{{shown}} z {{count}} tabel",
+    "tablesOf_other": "{{shown}} z {{count}} tabeli",
+    "editor": "edytor",
+    "selection": "zaznaczenie",
+    "lastError": "ostatni błąd"
+  },
+  "suggest": {
+    "whyFails": "Dlaczego ostatnie uruchomienie kończy się błędem? Popraw je.",
+    "explain": "Wyjaśnij zapytanie z edytora",
+    "optimize": "Sprawdź i zoptymalizuj zapytanie z edytora",
+    "largestTables": "Napisz zapytanie, które wyświetla największe tabele",
+    "relatedTables": "Które tabele są powiązane z klientami?",
+    "joinAggregate": "Jak napisać JOIN z agregacją?"
+  },
+  "code": {
+    "appended": "Dodano na końcu zapytania. Sprawdź je i uruchom, kiedy zechcesz.",
+    "newQueryTitle": "Od asystenta",
+    "replaced": "Zapytanie zastąpiono (⌘Z, aby cofnąć).",
+    "code": "kod",
+    "appendHint": "Dodaj na końcu otwartego zapytania",
+    "newQueryHint": "Otwórz w nowym zapytaniu",
+    "append": "Dodaj do zapytania",
+    "newQuery": "Nowe zapytanie",
+    "replaceHint": "Zastąp całą zawartość edytora (⌘Z cofa)",
+    "replace": "Zastąp",
+    "destructive": "Zmienia dane lub strukturę. Nic nie zostało uruchomione: sprawdź to przed uruchomieniem.",
+    "asText": "Wstaw jako tekst",
+    "asTextHint": "Dodaj odpowiedź jako komórkę tekstową notebooka (niczego nie uruchamia)",
+    "textAdded": "Dodano jako komórkę tekstową.",
+    "cellAdded": "Dodano jako nową komórkę, bez uruchamiania. Sprawdź ją i uruchom, kiedy zechcesz."
+  },
+  "phase": {
+    "schema": "Odczytywanie struktury bazy…",
+    "engine": "Pobieranie silnika AI, tylko ten jeden raz…",
+    "thinking": "Myślenie…",
+    "retry": "Ponowne zadawanie pytania…",
+    "tool": "Odpytywanie połączenia:"
+  },
+  "setup": {
+    "detecting": "Wyszukiwanie narzędzi AI na tym komputerze…",
+    "lead": "Aby korzystać z asystenta, potrzebny jest model. Najprościej: pobierz {model}. Działa na tym komputerze, bez instalowania czegokolwiek i bez wysyłania czegokolwiek poza niego.",
+    "leadModel": "model wbudowany",
+    "embedded": "Wbudowany w DBine",
+    "embeddedUnavailable": "Model wbudowany nie jest dostępny na tej platformie.",
+    "recommended": "zalecany dla tego komputera",
+    "use": "Użyj",
+    "pause": "Wstrzymaj",
+    "pauseHint": "Wznowi pobieranie od miejsca, w którym je przerwano",
+    "download": "Pobierz ({{size}})",
+    "detected": "Wykryte na tym komputerze",
+    "pull": "Pobierz {{model}}",
+    "cliNote": "Claude Code i Codex używają Twojego własnego konta (subskrypcji lub API). Działają bez narzędzi: nie mogą czytać plików, uruchamiać poleceń ani łączyć się z Twoimi bazami.",
+    "redetect": "Wykryj ponownie"
+  },
+  "privacy": {
+    "local": "Lokalnie: nic nie opuszcza tego komputera.",
+    "remote": "Trafia do {{vendor}} z Twoim kontem: pytanie, struktura i edytor, nigdy dane."
+  },
+  "empty": {
+    "lead": "Poproś o zapytania, o wyjaśnienie lub poprawienie zapytania z edytora albo zapytaj o strukturę bazy.",
+    "neverRuns": "Asystent nigdy niczego nie uruchamia: to, co napisze, trafia do Twojego zapytania, a Ty decydujesz, czy je uruchomić."
+  },
+  "compose": {
+    "placeholder": "Zadaj pytanie lub poproś o zapytanie… (Enter wysyła, Shift+Enter nowy wiersz)",
+    "send": "Wyślij"
+  },
+  "better": {
+    "text": "Twój komputer może używać większego modelu: {{model}}. Lepiej rozumie trudne prośby i rzadziej myli się w SQL.",
+    "dismiss": "Nie teraz"
+  },
+  "history": {
+    "title": "Poprzednie rozmowy",
+    "empty": "Nie ma jeszcze poprzednich rozmów: „Nowa rozmowa” zapisuje tutaj bieżącą.",
+    "untitled": "(bez tytułu)",
+    "messages_one": "{{count}} wiadomość",
+    "messages_few": "{{count}} wiadomości",
+    "messages_many": "{{count}} wiadomości",
+    "messages_other": "{{count}} wiadomości",
+    "delete": "Usuń tę rozmowę",
+    "clear": "Wyczyść historię",
+    "clearConfirm": "Wszystkie poprzednie rozmowy zostaną usunięte. Bieżąca pozostanie bez zmian."
+  },
+  "tools": {
+    "read_one": "Odpytano połączenie {{count}} raz",
+    "read_few": "Odpytano połączenie {{count}} razy",
+    "read_many": "Odpytano połączenie {{count}} razy",
+    "read_other": "Odpytano połączenie {{count}} raza"
+  },
+  "approval": {
+    "title": "Model ({{model}}) chce odczytać dane z {{connection}} › {{database}} za pomocą tego zapytania:",
+    "local": "lokalny",
+    "approve": "Zatwierdź",
+    "reject": "Odrzuć",
+    "approveAll": "Zatwierdzaj odczyty w tej rozmowie",
+    "note": "Tylko do odczytu: DBine uruchamia je w sesji, która odrzuca każdą zmianę. Jeśli je odrzucisz, model nadal nie będzie mieć tych danych."
+  },
+  "link": {
+    "title": "Otwórz łącze",
+    "body": "Odpowiedź asystenta prowadzi pod ten adres. Otwórz go tylko, jeśli mu ufasz: łącze może przekazać dane z rozmowy na inną stronę.",
+    "open": "Otwórz w przeglądarce"
+  }
+}

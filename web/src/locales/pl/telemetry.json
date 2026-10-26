@@ -1,0 +1,14 @@
+{
+  "consent": {
+    "title": "Anonimowe dane o użyciu",
+    "text": "DBine wysyła anonimowe dane o użyciu. Pomagają nam ocenić, jak bardzo jest używany i nad czym warto pracować.",
+    "sent": "Wysyłane są: wersja DBine, system operacyjny, język, jakich silników baz danych oraz jakich modułów i funkcji DBine używasz (na przykład PostgreSQL, monitora lub asystenta AI, i czy jest to model lokalny, czy zewnętrzny) oraz przybliżony kraj.",
+    "notSent": "Nigdy nie są wysyłane: nazwy serwerów, użytkowników, baz, zapytania ani dane. Nie ma żadnego Twojego identyfikatora.",
+    "change": "Jeśli chcesz to wyłączyć, przejdź do Ustawienia › Ogólne › Udostępniaj anonimowe dane o użyciu.",
+    "ok": "Rozumiem"
+  },
+  "settings": {
+    "label": "Udostępniaj anonimowe dane o użyciu",
+    "help": "Wersja, system operacyjny, język, silniki, moduły i funkcje, których używasz, oraz przybliżony kraj. Nigdy serwery, zapytania ani dane."
+  }
+}

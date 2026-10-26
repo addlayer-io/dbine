@@ -1,0 +1,52 @@
+{
+  "app": {
+    "about": "O DBine",
+    "settings": "Ustawienia…",
+    "services": "Usługi",
+    "hide": "Ukryj DBine",
+    "hideOthers": "Ukryj pozostałe",
+    "showAll": "Pokaż wszystko",
+    "quit": "Zakończ DBine"
+  },
+  "file": {
+    "title": "Plik",
+    "newConnection": "Nowe połączenie",
+    "newQuery": "Nowe zapytanie",
+    "newNotebook": "Nowy notebook",
+    "newWindow": "Nowe okno",
+    "closeTab": "Zamknij kartę",
+    "open": "Otwórz plik…"
+  },
+  "edit": {
+    "title": "Edycja",
+    "undo": "Cofnij",
+    "redo": "Ponów",
+    "cut": "Wytnij",
+    "copy": "Kopiuj",
+    "paste": "Wklej",
+    "selectAll": "Zaznacz wszystko"
+  },
+  "view": {
+    "title": "Widok",
+    "explorer": "Eksplorator",
+    "output": "Dane wyjściowe",
+    "ai": "Asystent AI",
+    "fullscreen": "Pełny ekran"
+  },
+  "window": {
+    "title": "Okno",
+    "minimize": "Minimalizuj",
+    "zoom": "Powiększenie"
+  },
+  "help": {
+    "title": "Pomoc",
+    "checkUpdates": "Sprawdź aktualizacje…",
+    "support": "Wesprzyj projekt"
+  },
+  "palette": {
+    "open": "Paleta poleceń…"
+  },
+  "goto": {
+    "open": "Przejdź do…"
+  }
+}

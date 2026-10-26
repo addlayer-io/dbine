@@ -1,0 +1,12 @@
+{
+  "menu": "Właściwości…",
+  "title": "Właściwości „{{name}}”",
+  "apply": "Zastosuj",
+  "confirmTitle": "Zastosuj zmiany w „{{name}}”",
+  "warningsTitle": "Uwaga:",
+  "applied": "Właściwości „{{name}}” zaktualizowane",
+  "scriptName": "Właściwości {{name}}",
+  "nothing": "Ten silnik nie ma na tej karcie nic do pokazania ani zmiany.",
+  "readOnly": "Połączenie tylko do odczytu: właściwości można zobaczyć, ale nie można ich zmienić.",
+  "noChanges": "(bez zmian)"
+}

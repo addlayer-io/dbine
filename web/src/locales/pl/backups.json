@@ -1,0 +1,71 @@
+{
+  "tab": "Kopie zapasowe",
+  "menu": "Kopie zapasowe…",
+  "title": "Kopie zapasowe",
+  "copies": "Kopie DBine",
+  "copiesHint": "Skrypt ze strukturą i danymi w pliku. Działają z każdym silnikiem.",
+  "noCopies": "Nie ma jeszcze kopii tej bazy.",
+  "withData": "Struktura i dane",
+  "structureOnly": "Tylko struktura",
+  "server": "Kopie zapasowe serwera",
+  "noNative": "Ten silnik nie ma własnych kopii zapasowych, którymi można zarządzać z poziomu DBine. Kopie DBine działają.",
+  "noHistory": "Silnik nie udostępnia historii kopii zapasowych.",
+  "noNativeHistory": "Serwer nie ma zarejestrowanych kopii zapasowych.",
+  "wholeServer": "cały serwer",
+  "restore": "Przywróć",
+  "restoreFrom": "Przywróć z…",
+  "pick": "Wybierz…",
+  "seeScript": "Zobacz skrypt",
+  "reviewTitle": "Przejrzyj przed uruchomieniem",
+  "reviewHint": "To zostanie wykonane na serwerze, w {{db}}.",
+  "run": "Uruchom",
+  "copied": "Skopiowano",
+  "done": {
+    "backup": "Kopia zapasowa wykonana",
+    "restore": "Przywracanie zakończone",
+    "delete": "Kopia zapasowa usunięta"
+  },
+  "col": {
+    "date": "Data",
+    "content": "Zawartość",
+    "objects": "Obiekty",
+    "rows": "Wiersze",
+    "size": "Rozmiar",
+    "file": "Plik",
+    "kind": "Typ",
+    "database": "Baza",
+    "location": "Lokalizacja",
+    "status": "Stan"
+  },
+  "copy": {
+    "new": "Nowa kopia",
+    "file": "Plik",
+    "data": "Dołącz dane",
+    "hint": "Skrypt usuwa i tworzy ponownie każdy obiekt, więc jego przywrócenie zastępuje to, co jest w bazie docelowej.",
+    "run": "Utwórz kopię",
+    "done": "Kopia gotowa ({{size}})",
+    "cancelled": "Kopia anulowana",
+    "empty": "Baza nie ma obiektów do skopiowania."
+  },
+  "restoreCopy": {
+    "title": "Przywróć kopię",
+    "into": "Przywróć do bazy",
+    "continueOnError": "Kontynuuj mimo błędu instrukcji",
+    "hint": "Skrypt kopii zostanie wykonany w wybranej bazie.",
+    "confirm": "Obiekty kopii istniejące w {{db}} zostaną zastąpione. Kontynuować?",
+    "done": "Przywracanie zakończone (instrukcji: {{n}})",
+    "cancelled": "Przywracanie anulowane"
+  },
+  "deleteCopy": {
+    "title": "Usuń kopię",
+    "message": "Usunąć też plik {{path}}?",
+    "withFile": "Usuń też plik",
+    "listOnly": "Tylko usuń z listy"
+  },
+  "native": {
+    "new": "Utwórz kopię zapasową",
+    "source": "Kopia zapasowa do przywrócenia",
+    "sourceHint": "Z historii lub z lokalizacji",
+    "into": "Przywróć jako"
+  }
+}

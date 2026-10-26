@@ -1,0 +1,138 @@
+{
+  "actions": {
+    "createQueryFailed": "Nie udało się utworzyć zapytania: {{error}}",
+    "nameRequired": "Podaj nazwę",
+    "create": "Utwórz",
+    "renameQuery": {
+      "prompt": "Nazwa zapytania:",
+      "title": "Zmień nazwę"
+    },
+    "copyName": "{{name}} (kopia)",
+    "copyNameN": "{{name}} (kopia {{n}})",
+    "deleteQuery": {
+      "confirm": "Usunąć zapytanie „{{name}}”? Tej operacji nie można cofnąć.",
+      "title": "Usuń zapytanie"
+    },
+    "newObjectPrefix": "nowy_",
+    "createDatabase": {
+      "prompt": "Nazwa nowej bazy:",
+      "title": "Nowa baza danych",
+      "done": "Baza „{{name}}” utworzona"
+    },
+    "dropObjects": {
+      "more": "{{list}} i {{count}} więcej",
+      "confirmOne": "Usunąć „{{name}}” z {{where}}? Zostanie usunięte wraz ze wszystkimi danymi, bez możliwości cofnięcia.",
+      "confirmMany": "Z {{where}} zostanie usuniętych obiektów: {{count}}, wraz ze wszystkimi danymi: {{list}}.\n\nTej operacji nie można cofnąć. Wpisz „{{word}}”, aby potwierdzić:",
+      "titleMany": "Usuń obiekty: {{count}}",
+      "word": "usuń",
+      "typeWord": "Wpisz „{{word}}”",
+      "failed": "Nie udało się usunąć: {{failed}} z {{total}}",
+      "droppedOne": "Usunięto „{{name}}”",
+      "droppedMany": "Usunięte obiekty: {{count}}"
+    },
+    "dropDatabase": {
+      "confirm": "Spowoduje to usunięcie bazy „{{name}}” z {{server}} wraz z całą zawartością. Tej operacji nie można cofnąć.\n\nWpisz nazwę bazy, aby potwierdzić:",
+      "title": "Usuń bazę danych",
+      "mismatch": "Nazwa się nie zgadza",
+      "done": "Baza „{{name}}” usunięta"
+    }
+  },
+  "files": {
+    "saved": "Zapisano",
+    "saveFailed": "Nie udało się zapisać: {{error}}"
+  },
+  "format": {
+    "redis": "Polecenia Redis są zapisywane po jednym w wierszu: nie ma czego formatować.",
+    "unavailable": "Dla tego języka nie ma jeszcze formatera."
+  },
+  "copy": {
+    "withHeadersLabel": "Kopiuj z nagłówkami",
+    "withHeaders": "Z nagłówkami",
+    "withoutHeadersLabel": "Kopiuj bez nagłówków",
+    "withoutHeaders": "Bez nagłówków",
+    "headersOnlyLabel": "Kopiuj tylko nagłówki",
+    "headersOnly": "Tylko nagłówki",
+    "as": "Kopiuj jako {{format}}"
+  },
+  "export": {
+    "csvSemicolon": "CSV (rozdzielany średnikami)",
+    "csvExcel": "CSV dla MS Excel",
+    "tsv": "TSV (rozdzielany tabulatorami)",
+    "defaultTable": "tabela",
+    "defaultSheet": "Wynik",
+    "defaultFile": "wynik"
+  },
+  "filter": {
+    "clear": "Usuń filtr",
+    "values": "Filtruj według wielu wartości…",
+    "isNull": "Jest NULL",
+    "notNull": "Nie jest NULL",
+    "isTrue": "Jest prawdą",
+    "isFalse": "Jest fałszem",
+    "trueOrNull": "Jest prawdą lub NULL",
+    "falseOrNull": "Jest fałszem lub NULL",
+    "isEmpty": "Jest puste",
+    "notEmpty": "Nie jest puste",
+    "eq": "Równe…",
+    "ne": "Różne od…",
+    "contains": "Zawiera…",
+    "notContains": "Nie zawiera…",
+    "startsWith": "Zaczyna się od…",
+    "endsWith": "Kończy się na…",
+    "gt": "Większe niż…",
+    "ge": "Większe lub równe…",
+    "lt": "Mniejsze niż…",
+    "le": "Mniejsze lub równe…",
+    "sql": "Warunek SQL…",
+    "sqlRight": "Warunek SQL, prawa strona…",
+    "describeTrueOrNull": "TRUE lub NULL",
+    "describeFalseOrNull": "FALSE lub NULL"
+  },
+  "gridEdit": {
+    "notFind": "zapytanie nie jest operacją find na kolekcji",
+    "engineCantEdit": "ten silnik nie pozwala edytować wyników zapytania: otwórz obiekt z eksploratora",
+    "queryNotFound": "nie znaleziono zapytania, które wygenerowało ten wynik",
+    "usesWith": "zapytanie używa WITH: edytuj z poziomu tabeli",
+    "combinesRows": "wynik łączy lub grupuje wiersze: edytować można tylko zapytania do jednej tabeli",
+    "noTable": "zapytanie nie odczytuje z tabeli",
+    "tableUnknown": "nie rozpoznano tabeli zapytania",
+    "combinesTables": "wynik łączy tabele: edytować można tylko zapytania do jednej tabeli",
+    "missingKey": "wynik nie zawiera klucza głównego ({{columns}}): dodaj go do SELECT, aby móc edytować",
+    "noPrimaryKey": "Tabela nie ma klucza głównego: WHERE używa wszystkich kolumn (może dotyczyć więcej niż jednego wiersza, jeśli są duplikaty).",
+    "keyNotComparable": "klucz wiersza zawiera „{{column}}” z wartością binarną lub długą, której nie można porównać w WHERE",
+    "noComparableColumns": "żadnej kolumny wiersza nie można porównać w WHERE: wszystkie są binarne lub długie",
+    "skippedColumns": "Kolumny binarne lub długie ({{columns}}) są pomijane w WHERE."
+  },
+  "connections": {
+    "downloading": "Pobieranie: {{component}}, tylko ten jeden raz… {{pct}} % ({{done}} z {{total}} MB)",
+    "connected": "Połączono: {{version}}",
+    "connectFailed": "Nie udało się połączyć: {{error}}",
+    "password": "Hasło użytkownika {{user}} w {{connection}}:",
+    "queryName": "Zapytanie {{n}}"
+  },
+  "ai": {
+    "stopped": "Zatrzymano.",
+    "downloading": "pobieranie",
+    "starting": "uruchamianie"
+  },
+  "families": {
+    "relational": "Relacyjne",
+    "analytical": "Analityczne",
+    "document": "Dokumentowe",
+    "keyValue": "Klucz-wartość",
+    "wideColumn": "Szerokokolumnowe",
+    "search": "Wyszukiwanie",
+    "timeSeries": "Szeregi czasowe",
+    "streaming": "Strumieniowe",
+    "graph": "Grafowe"
+  },
+  "openFiles": {
+    "failed": "Nie udało się otworzyć „{{name}}”: {{error}}",
+    "opened": "Otwarto plik: {{name}}",
+    "dialogTitle": "Otwórz plik",
+    "filterName": "Bazy i pliki danych",
+    "saved": "„{{name}}” została zapisana w Twoich połączeniach",
+    "dropTitle": "Upuść, aby otworzyć",
+    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON lub Excel. Każdy plik jest otwierany jako połączenie tymczasowe."
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Nazwa",
+  "advanced": "Opcje zaawansowane",
+  "default": "Domyślne serwera",
+  "serverDefault": "Domyślnie: {{value}}",
+  "showScript": "Zobacz skrypt",
+  "script": "Skrypt",
+  "openInQuery": "Otwórz w zapytaniu",
+  "scriptName": "Utwórz {{name}}"
+}

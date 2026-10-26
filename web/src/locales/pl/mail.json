@@ -1,0 +1,30 @@
+{
+  "nav": "Poczta",
+  "title": "Poczta",
+  "intro": "Serwer, przez który zaplanowane zadania wysyłają e-maile. Jest zapisywany tylko na tym komputerze: zadania działają tutaj. Hasło trafia do pęku kluczy.",
+  "host": "Serwer SMTP",
+  "port": "Port",
+  "security": "Zabezpieczenia",
+  "securities": {
+    "starttls": "STARTTLS (port 587)",
+    "tls": "SSL/TLS (port 465)",
+    "none": "Bez szyfrowania"
+  },
+  "noneWarning": "Bez szyfrowania użytkownik, hasło i e-maile są przesyłane przez sieć w postaci jawnej. Używaj tego tylko z serwerem w sieci lokalnej.",
+  "user": "Użytkownik",
+  "userPlaceholder": "Puste, jeśli serwer nie wymaga logowania",
+  "password": "Hasło",
+  "passwordSaved": "Zapisane (pozostaw puste, aby nie zmieniać)",
+  "passwordHelp": "Jeśli hasło pozostanie puste, zachowane zostanie zapisane. Bez użytkownika żadne nie jest zapisywane.",
+  "fromAddress": "Adres nadawcy",
+  "fromName": "Nazwa nadawcy",
+  "save": "Zapisz",
+  "saved": "Konfiguracja poczty zapisana.",
+  "notConfigured": "Nie ma jeszcze zapisanego serwera.",
+  "test": "Wyślij testowy e-mail",
+  "testPrompt": "Na jaki adres go wysłać?",
+  "testSend": "Wyślij",
+  "testInvalid": "Wpisz adres e-mail",
+  "testOk": "Gotowe. {{summary}}",
+  "testFailed": "Nie udało się wysłać: {{error}}"
+}

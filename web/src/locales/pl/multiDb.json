@@ -1,0 +1,73 @@
+{
+  "action": "Uruchom w wielu bazach…",
+  "actionTip": "Uruchamia kod (lub zaznaczenie) w wielu bazach tego połączenia i łączy wyniki",
+  "dialog": {
+    "title": "Uruchom w wielu bazach",
+    "intro": "Kod z edytora (lub zaznaczenie) jest uruchamiany w każdej wybranej bazie, w osobnej sesji i po {{max}} naraz. Wyniki są łączone w panelu wyników.",
+    "filter": "Filtruj bazy (obsługuje *, na przykład *tenant-n*)",
+    "all": "Wszystkie",
+    "none": "Żadna",
+    "count": "Wybrane bazy: {{selected}} z {{total}}",
+    "shown": "Widoczne: {{shown}}",
+    "current": "bieżąca",
+    "noMatch": "Żadna baza nie pasuje do filtra.",
+    "loading": "Ładowanie baz…",
+    "noDatabases": "Nie udało się odczytać baz połączenia.",
+    "readOnly": "Połączenie jest tylko do odczytu: każda instrukcja, która nie jest odczytem, zostaje odrzucona.",
+    "run_one": "Uruchom w {{count}} bazie",
+    "run_few": "Uruchom w {{count}} bazach",
+    "run_many": "Uruchom w {{count}} bazach",
+    "run_other": "Uruchom w {{count}} bazy",
+    "progress": "Zakończone bazy: {{done}} z {{total}}",
+    "close": "Zamknij",
+    "empty": "Brak kodu do uruchomienia."
+  },
+  "confirm": {
+    "title": "Potwierdź zmiany w wielu bazach",
+    "write_one": "Kod nie jest wyłącznie do odczytu (zawiera {{keyword}}). Zostanie uruchomiony w {{count}} bazie i może ją zmienić.",
+    "write_few": "Kod nie jest wyłącznie do odczytu (zawiera {{keyword}}). Zostanie uruchomiony w {{count}} bazach i może zmienić je wszystkie.",
+    "write_many": "Kod nie jest wyłącznie do odczytu (zawiera {{keyword}}). Zostanie uruchomiony w {{count}} bazach i może zmienić je wszystkie.",
+    "write_other": "Kod nie jest wyłącznie do odczytu (zawiera {{keyword}}). Zostanie uruchomiony w {{count}} bazy i może zmienić je wszystkie.",
+    "unknown_one": "W tym silniku nie można zweryfikować, czy kod jest wyłącznie do odczytu. Zostanie uruchomiony w {{count}} bazie i może ją zmienić.",
+    "unknown_few": "W tym silniku nie można zweryfikować, czy kod jest wyłącznie do odczytu. Zostanie uruchomiony w {{count}} bazach i może zmienić je wszystkie.",
+    "unknown_many": "W tym silniku nie można zweryfikować, czy kod jest wyłącznie do odczytu. Zostanie uruchomiony w {{count}} bazach i może zmienić je wszystkie.",
+    "unknown_other": "W tym silniku nie można zweryfikować, czy kod jest wyłącznie do odczytu. Zostanie uruchomiony w {{count}} bazy i może zmienić je wszystkie.",
+    "run_one": "Uruchom w {{count}} bazie",
+    "run_few": "Uruchom w {{count}} bazach",
+    "run_many": "Uruchom w {{count}} bazach",
+    "run_other": "Uruchom w {{count}} bazy"
+  },
+  "status": {
+    "pending": "Oczekuje lub w toku",
+    "ok": "W porządku",
+    "error": "Błąd",
+    "cancelled": "Anulowano",
+    "skipped": "Nie uruchomiono"
+  },
+  "summary": {
+    "ok": "Bazy bez błędów: {{ok}} z {{total}}",
+    "error_one": "{{count}} z błędem",
+    "error_few": "{{count}} z błędem",
+    "error_many": "{{count}} z błędem",
+    "error_other": "{{count}} z błędem",
+    "cancelled_one": "{{count}} anulowana",
+    "cancelled_few": "{{count}} anulowane",
+    "cancelled_many": "{{count}} anulowanych",
+    "cancelled_other": "{{count}} anulowanej",
+    "messages": "Szczegóły dla poszczególnych baz znajdziesz w Komunikatach."
+  },
+  "results": {
+    "merged_one": "Wynik ({{count}} baza)",
+    "merged_few": "Wynik ({{count}} bazy)",
+    "merged_many": "Wynik ({{count}} baz)",
+    "merged_other": "Wynik ({{count}} bazy)",
+    "bar": "Wiele baz: {{summary}}"
+  },
+  "task": {
+    "title_one": "Uruchom w {{count}} bazie z {{connection}}",
+    "title_few": "Uruchom w {{count}} bazach z {{connection}}",
+    "title_many": "Uruchom w {{count}} bazach z {{connection}}",
+    "title_other": "Uruchom w {{count}} bazy z {{connection}}",
+    "unit": "baz"
+  }
+}

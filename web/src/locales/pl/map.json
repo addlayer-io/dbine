@@ -1,0 +1,70 @@
+{
+  "source": "Dane",
+  "latLon": "Szerokość / długość geograficzna",
+  "lat": "Szerokość geograficzna",
+  "lon": "Długość geograficzna",
+  "pick": "Wybierz kolumnę",
+  "count_one": "{{shown}} element",
+  "count_few": "{{shown}} elementy",
+  "count_many": "{{shown}} elementów",
+  "count_other": "{{shown}} elementu",
+  "fit": "Dopasuj",
+  "openSettings": "Skonfiguruj mapę",
+  "privacy": "Dostawca mapy widzi, jaki obszar oglądasz (nie widzi danych)",
+  "notice": {
+    "cap": "Rysowanych jest pierwszych {{cap}} elementów; kolejne wiersze ({{rest}}) nie są rysowane.",
+    "srid_one": "{{rows}} wiersz z SRID {{srid}} nie jest rysowany: mapa pokazuje WGS 84 (4326) i Web Mercator (3857).",
+    "srid_few": "{{rows}} wiersze z SRID {{srid}} nie są rysowane: mapa pokazuje WGS 84 (4326) i Web Mercator (3857).",
+    "srid_many": "{{rows}} wierszy z SRID {{srid}} nie jest rysowanych: mapa pokazuje WGS 84 (4326) i Web Mercator (3857).",
+    "srid_other": "{{rows}} wiersza z SRID {{srid}} nie jest rysowanego: mapa pokazuje WGS 84 (4326) i Web Mercator (3857).",
+    "range_one": "{{rows}} wiersz bez SRID ma współrzędne, które nie są stopniami: nie jest rysowany.",
+    "range_few": "{{rows}} wiersze bez SRID mają współrzędne, które nie są stopniami: nie są rysowane.",
+    "range_many": "{{rows}} wierszy bez SRID ma współrzędne, które nie są stopniami: nie są rysowane.",
+    "range_other": "{{rows}} wiersza bez SRID ma współrzędne, które nie są stopniami: nie jest rysowanego.",
+    "unreadable_one": "{{rows}} wartości nie udało się odczytać jako geometrii.",
+    "unreadable_few": "{{rows}} wartości nie udało się odczytać jako geometrii.",
+    "unreadable_many": "{{rows}} wartości nie udało się odczytać jako geometrii.",
+    "unreadable_other": "{{rows}} wartości nie udało się odczytać jako geometrii.",
+    "basemap": "Nie udało się załadować dołączonej mapy bazowej."
+  },
+  "attribution": {
+    "offline": "Mapa bazowa: Natural Earth (domena publiczna), offline",
+    "custom": "Kafelki: dostawca niestandardowy"
+  },
+  "popup": {
+    "row": "Wiersz {{row}}",
+    "rows_one": "Wiersz {{row}} i {{more}} więcej w tym punkcie",
+    "rows_few": "Wiersz {{row}} i {{more}} więcej w tym punkcie",
+    "rows_many": "Wiersz {{row}} i {{more}} więcej w tym punkcie",
+    "rows_other": "Wiersz {{row}} i {{more}} więcej w tym punkcie",
+    "geometry": "(geometria)"
+  },
+  "settings": {
+    "nav": "Mapy",
+    "title": "Mapy",
+    "help": "Mapa wyników rysuje geometrie na tym komputerze: dane wierszy nigdy go nie opuszczają.",
+    "offline": "Mapa bazowa offline",
+    "offlineHelp": "Kraje, prowincje i stany, wybrzeża, jeziora i miasta z Natural Earth (domena publiczna), dołączone do DBine.",
+    "online": "Kafelki online",
+    "onlineHelp": "Używa dostawcy kafelków z ulicami i rzeźbą terenu. Gdy opcja jest wyłączona, mapa nie wysyła żadnych żądań do internetu.",
+    "noticeTitle": "Kafelki online",
+    "noticeOk": "Włącz",
+    "provider": "Dostawca",
+    "providers": {
+      "osm": "OpenStreetMap (standardowy)",
+      "maptiler": "MapTiler (z kluczem)",
+      "stadia": "Stadia Maps (z kluczem)",
+      "custom": "Niestandardowy (szablon XYZ)"
+    },
+    "osmPolicy": "Kafelki Fundacji OpenStreetMap to usługa społecznościowa z polityką użytkowania (operations.osmfoundation.org/policies/tiles): nadają się do lekkiego użycia. Przy intensywnym użyciu wybierz innego dostawcę lub własny serwer.",
+    "url": "Szablon adresu URL",
+    "urlHelp": "https z {z}, {x} i {y}; {key} jest zastępowany kluczem. http tylko dla serwera na tym komputerze (localhost).",
+    "urlInvalid": "Szablon musi używać https (lub http do localhost) i zawierać {z}, {x} i {y}.",
+    "attribution": "Atrybucja",
+    "attributionHelp": "Tekst wymagany przez dostawcę; wyświetlany w rogu mapy.",
+    "key": "Klucz API",
+    "keyHelp": "Zapisywany tylko na tym komputerze: nie jest przesyłany przy synchronizacji.",
+    "needUrl": "Brakuje poprawnego szablonu adresu URL: do tego czasu mapa używa mapy bazowej offline.",
+    "needKey": "Brakuje klucza API: do tego czasu mapa używa mapy bazowej offline."
+  }
+}

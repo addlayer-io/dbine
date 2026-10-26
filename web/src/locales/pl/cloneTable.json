@@ -1,0 +1,25 @@
+{
+  "menu": "Klonuj…",
+  "title": "Klonuj {{name}}",
+  "name": "Nazwa nowej tabeli",
+  "nameHelp": "Zostanie utworzona w tym samym schemacie, z taką samą strukturą. Jej indeksy i ograniczenia otrzymają nazwy zawierające nową nazwę.",
+  "withData": "Kopiuj dane",
+  "withIndexes": "Dołącz indeksy",
+  "clone": "Klonuj",
+  "stop": "Zatrzymaj",
+  "starting": "Rozpoczynanie…",
+  "rows": "Skopiowane wiersze: {{done}}",
+  "rowsOf": "Skopiowane wiersze: {{done}} z {{total}}",
+  "done": "Sklonowano „{{name}}” z liczbą wierszy: {{rows}}",
+  "cancelled": "Klonowanie zatrzymano; po nowej tabeli nic nie zostało",
+  "notes": "Warto wiedzieć",
+  "phase": {
+    "read": "Odczytywanie struktury tabeli…",
+    "create": "Tworzenie nowej tabeli…",
+    "copy": "Kopiowanie danych…",
+    "identity": "Dostosowywanie licznika tożsamości…",
+    "indexes": "Tworzenie indeksów…",
+    "foreign_keys": "Tworzenie kluczy obcych…",
+    "cleanup": "Usuwanie niedokończonej tabeli…"
+  }
+}

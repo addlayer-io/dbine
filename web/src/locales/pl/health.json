@@ -1,0 +1,20 @@
+{
+  "menu": "Kontrola kondycji",
+  "tab": "Kondycja",
+  "title": "Kontrola kondycji · {{name}}",
+  "checkedAt": "Sprawdzono {{at}}",
+  "run": "Sprawdź ponownie",
+  "running": "Sprawdzanie bazy…",
+  "showOk": "Pokaż, co jest w porządku",
+  "severity": {
+    "critical": "Krytyczne",
+    "warning": "Ostrzeżenia",
+    "info": "Informacje",
+    "ok": "W porządku"
+  },
+  "openFix": "Otwórz w zapytaniu",
+  "fixName": "Poprawka: {{title}}",
+  "more": "i {{count}} więcej",
+  "allOk": "Nie znaleziono problemów.",
+  "skipped": "Nie udało się sprawdzić:"
+}
