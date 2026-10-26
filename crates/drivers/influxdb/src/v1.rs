@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 
 pub fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "influxdb1",
         name: "InfluxDB 1 (InfluxQL)",
         family: Family::TimeSeries,

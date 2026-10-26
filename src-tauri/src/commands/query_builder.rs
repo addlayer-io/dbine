@@ -1297,6 +1297,8 @@ mod tests {
 
     fn info(id: &'static str, language: Language, dialect: &'static str) -> DriverInfo {
         DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family: Family::Relational,

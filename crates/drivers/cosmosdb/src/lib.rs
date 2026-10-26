@@ -104,6 +104,8 @@ pub struct CosmosDriver;
 fn info() -> &'static DriverInfo {
     static INFO: OnceLock<DriverInfo> = OnceLock::new();
     INFO.get_or_init(|| DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "cosmosdb",
         name: "Azure Cosmos DB",
         family: Family::Document,

@@ -45,6 +45,8 @@ fn info() -> DriverInfo {
     fields.push(gcp::endpoint_field("http://localhost:9020"));
     fields.push(Field::read_only());
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "spanner",
         name: "Google Cloud Spanner",
         family: Family::Relational,

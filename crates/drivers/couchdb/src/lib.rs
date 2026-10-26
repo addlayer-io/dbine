@@ -94,6 +94,8 @@ pub struct CouchDriver;
 fn info() -> &'static DriverInfo {
     static INFO: OnceLock<DriverInfo> = OnceLock::new();
     INFO.get_or_init(|| DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "couchdb",
         name: "CouchDB",
         family: Family::Document,

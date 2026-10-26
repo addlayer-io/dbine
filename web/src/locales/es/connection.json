@@ -76,6 +76,14 @@
         "title": "Falló la conexión segura (TLS)",
         "body": "El certificado del servidor no es de confianza o no coincide con el nombre del host. Revisá las opciones de cifrado de la conexión: usar el nombre que figura en el certificado, o confiar en el certificado del servidor solo si sabés que es el correcto."
       },
+      "tls_not_offered": {
+        "title": "El servidor no ofrece TLS",
+        "body": "La conexión pide cifrado y el servidor no lo tiene activado (es habitual en servidores de desarrollo). Activá TLS en el servidor o, si aceptás que los datos y la contraseña viajen sin cifrar, elegí en la pestaña SSL/TLS un modo sin cifrado."
+      },
+      "tls_untrusted": {
+        "title": "No se pudo verificar el certificado del servidor",
+        "body": "El certificado del servidor no lo firmó una autoridad de confianza o no coincide con el nombre del host (es habitual con certificados autofirmados). En la pestaña SSL/TLS indicá el archivo de la CA o, solo si sabés que el servidor es el correcto, elegí un modo que no verifique el certificado."
+      },
       "auth": {
         "title": "Inicio de sesión rechazado",
         "body": "El servidor rechazó el usuario o la contraseña. Revisá las credenciales y el método de autenticación (por ejemplo, Microsoft Entra), y que el usuario exista en esa base."
@@ -335,5 +343,9 @@
       "loaded": "{{n}} campos de la entrada.",
       "hint": "Elegí una entrada para ver sus campos."
     }
+  },
+  "tls": {
+    "off": "Sin cifrar",
+    "unverified": "Sin verificar"
   }
 }

@@ -2763,6 +2763,8 @@ mod tests {
             }
         }
         let d = D(DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "postgres",
             name: "PostgreSQL",
             family: Family::Relational,

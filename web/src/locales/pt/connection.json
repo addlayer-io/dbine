@@ -76,6 +76,14 @@
         "title": "A conexão segura (TLS) falhou",
         "body": "O certificado do servidor não é confiável ou não corresponde ao nome do host. Revise as opções de criptografia da conexão: use o nome que consta no certificado, ou confie no certificado do servidor só se souber que é o correto."
       },
+      "tls_not_offered": {
+        "title": "O servidor não oferece TLS",
+        "body": "A conexão pede criptografia e o servidor não a tem ativada (comum em servidores de desenvolvimento). Ative o TLS no servidor ou, se você aceita que os dados e a senha trafeguem sem criptografia, escolha um modo sem criptografia na aba SSL/TLS."
+      },
+      "tls_untrusted": {
+        "title": "Não foi possível verificar o certificado do servidor",
+        "body": "O certificado do servidor não foi assinado por uma autoridade confiável ou não corresponde ao nome do host (comum com certificados autoassinados). Na aba SSL/TLS, informe o arquivo da CA ou, somente se você sabe que o servidor é o correto, escolha um modo que não verifique o certificado."
+      },
       "auth": {
         "title": "Login recusado",
         "body": "O servidor recusou o usuário ou a senha. Verifique as credenciais e o método de autenticação (por exemplo, Microsoft Entra), e se o usuário existe nesse banco."
@@ -335,5 +343,9 @@
       "loaded": "{{n}} campos na entrada.",
       "hint": "Escolha uma entrada para ver seus campos."
     }
+  },
+  "tls": {
+    "off": "Sem criptografia",
+    "unverified": "Sem verificação"
   }
 }

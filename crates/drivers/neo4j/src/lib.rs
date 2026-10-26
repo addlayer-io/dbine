@@ -155,6 +155,8 @@ fn info(f: Flavor) -> DriverInfo {
     };
     match f {
         Flavor::Neo4j => DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "neo4j",
             name: "Neo4j",
             family: Family::Graph,
@@ -171,6 +173,8 @@ fn info(f: Flavor) -> DriverInfo {
             object_kinds: kinds_for(f),
         },
         Flavor::Memgraph => DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "memgraph",
             name: "Memgraph",
             family: Family::Graph,
@@ -183,6 +187,8 @@ fn info(f: Flavor) -> DriverInfo {
             object_kinds: kinds_for(f),
         },
         Flavor::Neptune => DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "neptune",
             name: "Amazon Neptune",
             family: Family::Graph,

@@ -47,18 +47,7 @@ impl Tunnels {
         }
         let (spec, target) = spec(cfg)?;
         strip(cfg);
-        // Where the tunnel goes, for a cloud sign-in: the token is signed
-        // for the real endpoint (the RDS IAM token names host and port) and
-        // its certificate is verified by that name.
-        if matches!(
-            cfg.option("auth"),
-            Some("aws_iam" | "gcp_iam" | "azure_entra")
-        ) {
-            cfg.options
-                .insert("tunnel.origin_host".into(), spec.target_host.clone());
-            cfg.options
-                .insert("tunnel.origin_port".into(), spec.target_port.to_string());
-        }
+        mark_origin(cfg, &spec.target_host, spec.target_port);
         let tunnel = match connection_id {
             None => Arc::new(dbine_tunnel::open(&spec).await.map_err(error)?),
             Some(id) => {
@@ -90,8 +79,24 @@ impl Tunnels {
     }
 }
 
+/// Takes out the tunnel's settings, and any `tunnel.*` option a saved
+/// connection may carry: only a tunnel opened here sets them, so a direct
+/// connection never verifies its certificate against another name.
 fn strip(cfg: &mut ConnectionConfig) {
-    cfg.options.retain(|k, _| !k.starts_with("ssh."));
+    cfg.options
+        .retain(|k, _| !k.starts_with("ssh.") && !k.starts_with("tunnel."));
+}
+
+/// Where the tunnel goes, on every tunnelled connection: the driver dials
+/// the local end, but the server's certificate is verified by the real
+/// server's name (`ConnectionConfig::tls_server_name`), and a cloud
+/// sign-in's token is signed for the real endpoint (the RDS IAM token names
+/// host and port).
+fn mark_origin(cfg: &mut ConnectionConfig, host: &str, port: u16) {
+    cfg.options
+        .insert(dbine_driver::TUNNEL_ORIGIN_HOST.into(), host.to_string());
+    cfg.options
+        .insert(dbine_driver::TUNNEL_ORIGIN_PORT.into(), port.to_string());
 }
 
 fn error(e: dbine_tunnel::Error) -> CommandError {
@@ -404,6 +409,29 @@ mod tests {
                 0
             )
         );
+    }
+
+    #[test]
+    fn a_tunnelled_connection_verifies_the_real_servers_name() {
+        let mut c = cfg("db.interno", 6543);
+        c.options.insert("ssh.enabled".into(), "true".into());
+        // A stale or hand-written origin never survives the routing.
+        c.options
+            .insert(dbine_driver::TUNNEL_ORIGIN_HOST.into(), "evil".into());
+        let (host, port, target) = server(&c, 5432).unwrap();
+        strip(&mut c);
+        assert!(c.options.is_empty());
+        mark_origin(&mut c, &host, port);
+        target.rewrite(&mut c, 40000);
+        assert_eq!((c.host.as_str(), c.port), ("127.0.0.1", 40000));
+        assert_eq!(c.tls_server_name(), "db.interno");
+        assert_eq!(c.option(dbine_driver::TUNNEL_ORIGIN_PORT), Some("6543"));
+        // Without a tunnel: the host as typed, whatever the options said.
+        let mut d = cfg("db.interno", 0);
+        d.options
+            .insert(dbine_driver::TUNNEL_ORIGIN_HOST.into(), "evil".into());
+        strip(&mut d);
+        assert_eq!(d.tls_server_name(), "db.interno");
     }
 
     fn fp(c: char) -> String {

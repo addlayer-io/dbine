@@ -76,6 +76,14 @@
         "title": "The secure connection (TLS) failed",
         "body": "The server's certificate isn't trusted or doesn't match the host name. Check the connection's encryption options: use the name on the certificate, or trust the server's certificate only if you know it's the right one."
       },
+      "tls_not_offered": {
+        "title": "The server doesn't offer TLS",
+        "body": "The connection asks for encryption and the server doesn't have it turned on (common on development servers). Turn TLS on in the server or, if you accept that the data and the password travel unencrypted, choose a mode without encryption in the SSL/TLS tab."
+      },
+      "tls_untrusted": {
+        "title": "The server's certificate couldn't be verified",
+        "body": "The server's certificate isn't signed by a trusted authority or doesn't match the host name (common with self-signed certificates). In the SSL/TLS tab, set the CA file or, only if you know the server is the right one, choose a mode that doesn't verify the certificate."
+      },
       "auth": {
         "title": "Login rejected",
         "body": "The server rejected the user or password. Check the credentials and the authentication method (for example Microsoft Entra), and that the user exists in that database."
@@ -335,5 +343,9 @@
       "loaded": "{{n}} fields in the entry.",
       "hint": "Pick an entry to see its fields."
     }
+  },
+  "tls": {
+    "off": "Not encrypted",
+    "unverified": "Not verified"
   }
 }

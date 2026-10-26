@@ -76,6 +76,14 @@
         "title": "Die sichere Verbindung (TLS) ist fehlgeschlagen",
         "body": "Dem Zertifikat des Servers wird nicht vertraut, oder es passt nicht zum Hostnamen. Prüfen Sie die Verschlüsselungsoptionen der Verbindung: Verwenden Sie den Namen auf dem Zertifikat, und vertrauen Sie dem Zertifikat des Servers nur, wenn Sie wissen, dass es das richtige ist."
       },
+      "tls_not_offered": {
+        "title": "Der Server bietet kein TLS an",
+        "body": "Die Verbindung verlangt Verschlüsselung, aber der Server hat sie nicht aktiviert (häufig bei Entwicklungsservern). Aktivieren Sie TLS auf dem Server oder wählen Sie, wenn Sie akzeptieren, dass Daten und Passwort unverschlüsselt übertragen werden, im Tab SSL/TLS einen Modus ohne Verschlüsselung."
+      },
+      "tls_untrusted": {
+        "title": "Das Zertifikat des Servers konnte nicht geprüft werden",
+        "body": "Das Zertifikat des Servers ist nicht von einer vertrauenswürdigen Stelle signiert oder passt nicht zum Hostnamen (häufig bei selbstsignierten Zertifikaten). Geben Sie im Tab SSL/TLS die CA-Datei an oder wählen Sie, nur wenn Sie sicher sind, dass es der richtige Server ist, einen Modus, der das Zertifikat nicht prüft."
+      },
       "auth": {
         "title": "Anmeldung abgelehnt",
         "body": "Der Server hat den Benutzer oder das Passwort abgelehnt. Prüfen Sie die Anmeldedaten und das Authentifizierungsverfahren (zum Beispiel Microsoft Entra) sowie, ob der Benutzer in dieser Datenbank existiert."
@@ -335,5 +343,9 @@
       "loaded": "{{n}} Felder im Eintrag.",
       "hint": "Wählen Sie einen Eintrag, um seine Felder zu sehen."
     }
+  },
+  "tls": {
+    "off": "Unverschlüsselt",
+    "unverified": "Nicht verifiziert"
   }
 }

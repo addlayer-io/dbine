@@ -123,6 +123,8 @@ fn info(azure: bool) -> DriverInfo {
         Field::read_only(),
     ]);
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: if azure {
             "azure_databricks"
         } else {

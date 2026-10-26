@@ -71,6 +71,8 @@ fn info() -> DriverInfo {
     let mut host = Field::host();
     host.required = false;
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "oracle",
         name: "Oracle",
         family: Family::Relational,
@@ -135,6 +137,8 @@ fn info() -> DriverInfo {
 fn autonomous_info() -> DriverInfo {
     let base = info();
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "oracle_adb",
         name: "Oracle Autonomous Database",
         fields: vec![

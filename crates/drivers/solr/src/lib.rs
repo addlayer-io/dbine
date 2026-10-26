@@ -45,6 +45,8 @@ impl Solr {
     fn new() -> Self {
         Self {
             info: DriverInfo {
+                tls: Default::default(),
+                tls_port: None,
                 id: "solr",
                 name: "Apache Solr",
                 family: Family::Search,

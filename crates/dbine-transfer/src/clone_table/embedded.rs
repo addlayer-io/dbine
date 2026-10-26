@@ -1133,6 +1133,8 @@ mod tests {
 
     fn d(id: &'static str) -> D {
         D(DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family: Family::Relational,

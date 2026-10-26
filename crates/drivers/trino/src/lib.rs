@@ -71,6 +71,8 @@ fn info(flavor: Flavor) -> DriverInfo {
         Flavor::Starburst => ("starburst", "Starburst"),
     };
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id,
         name,
         family: Family::Analytical,

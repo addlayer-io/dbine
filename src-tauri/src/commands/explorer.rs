@@ -470,6 +470,8 @@ mod tests {
 
     fn engine(language: dbine_driver::Language) -> Engine {
         Engine(dbine_driver::DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "e",
             name: "E",
             family: dbine_driver::Family::Relational,

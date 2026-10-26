@@ -130,6 +130,8 @@ impl Es {
         }
         Self {
             info: DriverInfo {
+                tls: Default::default(),
+                tls_port: None,
                 id,
                 name,
                 family: Family::Search,

@@ -252,6 +252,8 @@ fn build_info(flavor: Flavor) -> DriverInfo {
     );
     fields.push(Field::read_only());
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id,
         name,
         family: Family::Document,

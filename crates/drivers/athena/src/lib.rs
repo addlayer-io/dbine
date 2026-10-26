@@ -64,6 +64,8 @@ fn info() -> DriverInfo {
         Field::read_only(),
     ]);
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "athena",
         name: "Amazon Athena",
         family: Family::Analytical,
