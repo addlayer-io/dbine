@@ -33,8 +33,8 @@ mod transfer;
 
 use dbine_driver::{
     async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver,
-    DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result,
-    ScriptDefaults, ScriptDialect, ScriptError, ScriptMode, Session, TableSchema,
+    DriverInfo, Error, Family, Field, Language, ObjectKindInfo, ObjectRef, Result, ScriptDefaults,
+    ScriptDialect, ScriptError, ScriptMode, Session, TableSchema, TlsLevel, TlsSupport,
 };
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, OptsBuilder, SslOpts};
@@ -223,6 +223,82 @@ impl Variant {
         )
     }
 
+    /// MariaDB's TLS names (`ssl`, `ssl-verify-server-cert`) instead of
+    /// MySQL's `ssl-mode`: MariaDB and OceanBase.
+    fn mariadb_tls(self) -> bool {
+        matches!(self, Variant::MariaDb | Variant::OceanBase)
+    }
+
+    /// The TLS options, as the engine's own client spells them: MySQL's
+    /// `ssl-mode` and `ssl-ca`, or MariaDB's `ssl`, `ssl-verify-server-cert`
+    /// and `ssl-ca`. New connections verify the certificate (Cloud SQL: the
+    /// chain, against its `server-ca.pem`). A connection saved before them
+    /// reads them from its `encrypt` / `trust_server_certificate` pair: ff and
+    /// ft plaintext, tf verified, tt TLS without checks.
+    fn tls_fields(self) -> Vec<Field> {
+        if self.mariadb_tls() {
+            return vec![
+                Field::tls_switch(
+                    SSL,
+                    SSL,
+                    TlsLevel::VerifyFull,
+                    TlsLevel::Off,
+                    true,
+                    ["false", "false", "true", "true"],
+                ),
+                Field::tls_skip_verify(
+                    SSL_VERIFY_SERVER_CERT,
+                    SSL_VERIFY_SERVER_CERT,
+                    true,
+                    ["true", "true", "true", "false"],
+                )
+                .when(SSL, &["true"]),
+                Field::tls_ca_file(CA_CERT, "ssl-ca")
+                    .help("Opcional, con TLS: el certificado raíz que firma el del servidor.")
+                    .when(SSL, &["true"]),
+            ];
+        }
+        let verified = if self == Variant::CloudSqlMySql {
+            "VERIFY_CA"
+        } else {
+            "VERIFY_IDENTITY"
+        };
+        vec![
+            Field::tls_mode(
+                SSL_MODE,
+                SSL_MODE,
+                &[
+                    ("DISABLED", "DISABLED (sin TLS)", TlsLevel::Off),
+                    (
+                        "PREFERRED",
+                        "PREFERRED (TLS si el servidor lo ofrece, sin verificar)",
+                        TlsLevel::Optional,
+                    ),
+                    (
+                        "REQUIRED",
+                        "REQUIRED (TLS sin verificar el certificado)",
+                        TlsLevel::Unverified,
+                    ),
+                    (
+                        "VERIFY_CA",
+                        "VERIFY_CA (verifica la CA de ssl-ca, no el nombre)",
+                        TlsLevel::VerifyCa,
+                    ),
+                    (
+                        "VERIFY_IDENTITY",
+                        "VERIFY_IDENTITY (verifica la CA y el nombre)",
+                        TlsLevel::VerifyFull,
+                    ),
+                ],
+                verified,
+                ["DISABLED", "DISABLED", "VERIFY_IDENTITY", "REQUIRED"],
+            ),
+            Field::tls_ca_file(CA_CERT, "ssl-ca").help(
+                "La CA que firmó el certificado del servidor, en PEM: obligatoria con VERIFY_CA.",
+            ),
+        ]
+    }
+
     fn info(product: Variant) -> DriverInfo {
         let (id, name, family) = match product {
             Variant::MySql => ("mysql", "MySQL", Family::Relational),
@@ -259,30 +335,17 @@ impl Variant {
         if v.has_sequences() {
             object_kinds.push(ObjectKindInfo::sequences());
         }
-        let mut fields: Vec<Field> = if v.single_namespace() {
-            Field::server_set()
-                .into_iter()
-                .filter(|f| f.key != "database")
-                .collect()
-        } else {
-            Field::server_set()
-        };
-        // A CA bundle for servers whose certificate isn't in the system store
-        // (Amazon RDS, Cloud SQL, self-signed…).
-        let at = fields
-            .iter()
-            .position(|f| f.key == "trust_server_certificate")
-            .map_or(fields.len(), |i| i + 1);
-        fields.insert(
-            at,
-            Field::new("ca_cert", "Certificado de la CA (PEM)", FieldKind::File)
-                .help("Opcional, con TLS: el certificado raíz que firma el del servidor.")
-                .ssl(),
-        );
+        let mut fields = vec![Field::host(), Field::port()];
+        if !v.single_namespace() {
+            fields.push(Field::database());
+        }
+        fields.extend([Field::username(), Field::password()]);
+        fields.extend(product.tls_fields());
+        fields.push(Field::read_only());
         managed_fields(product, &mut fields);
         cloud_auth::adapt(&mut fields, product.cloud_offer());
         DriverInfo {
-            tls: Default::default(),
+            tls: TlsSupport::Configurable,
             tls_port: None,
             id,
             name,
@@ -331,10 +394,7 @@ fn managed_fields(product: Variant, fields: &mut [Field]) {
     };
     for f in fields.iter_mut() {
         match f.key {
-            "encrypt" => {
-                f.default = "true";
-                f.help = encrypt_help;
-            }
+            SSL_MODE => f.help = encrypt_help,
             "password" if !password_help.is_empty() => f.help = password_help,
             _ => {}
         }
@@ -582,6 +642,9 @@ impl Driver for MySqlDriver {
             gcp_access_token: false,
             mysql: true,
         };
+        // Before any token is asked for: a cloud sign-in needs a verified
+        // server.
+        let level = tls_level(self.product, cfg)?;
         let cloud = cloud_auth::login(cfg, spec).await?;
         match &cloud {
             Some(login) => {
@@ -595,26 +658,32 @@ impl Driver for MySqlDriver {
             }
             None => builder = builder.pass(cfg.password.as_deref()),
         }
-        if cfg.encrypt || cloud.is_some() {
-            builder = builder.ssl_opts(ssl_opts(self.product, cfg, cloud.is_some()));
+        // PREFERRED: TLS when the server offers it, else plaintext.
+        let plain = (level == TlsLevel::Optional).then(|| builder.clone());
+        if level != TlsLevel::Off {
+            builder = builder.ssl_opts(ssl_opts(self.product, cfg, level)?);
             // IAM and Entra ID tokens go as mysql_clear_password, only over
-            // TLS whose peer was verified (never with "trust the server
-            // certificate", which the cloud sign-in refuses anyway).
-            if (self.product.iam_tokens() || cloud.is_some()) && !cfg.trust_server_certificate {
+            // TLS whose peer was verified.
+            if (self.product.iam_tokens() || cloud.is_some()) && level.verified() {
                 builder = builder.enable_cleartext_plugin(true);
             }
         }
-        let opts = Opts::from(builder);
-
-        let mut conn = tokio::time::timeout(Duration::from_secs(20), Conn::new(opts.clone()))
-            .await
-            .map_err(|_| {
-                Error::connect_failed(dbine_driver::ConnectFailure::new(
-                    dbine_driver::ConnectFailureKind::Timeout,
-                    "tiempo de espera agotado",
-                ))
-            })?
-            .map_err(connect_error)?;
+        let mut opts = Opts::from(builder);
+        let names = self.product.mariadb_tls();
+        let mut conn = match open(opts.clone()).await? {
+            Ok(conn) => conn,
+            // The server doesn't offer TLS: it said so in its greeting,
+            // before any credential went out.
+            Err(mysql_async::Error::Driver(
+                mysql_async::DriverError::NoClientSslFlagFromServer,
+            )) if plain.is_some() => {
+                opts = Opts::from(plain.expect("checked"));
+                open(opts.clone())
+                    .await?
+                    .map_err(|e| connect_error(e, names))?
+            }
+            Err(e) => return Err(connect_error(e, names)),
+        };
 
         // Best effort: an engine that refuses these still works, and the
         // ReadOnlySession wrapper guards read-only connections anyway.
@@ -638,56 +707,171 @@ impl Driver for MySqlDriver {
     }
 }
 
-/// TLS as the form asks. The CA file, when given, is trusted on top of the
-/// system's, and the certificate must name the host dialed, except:
-/// - through an SSH tunnel with a cloud sign-in (the client dials
-///   127.0.0.1), where the name checked is the real endpoint's;
-/// - Cloud SQL (or Google Cloud IAM) with its CA, whose certificate names
-///   the instance, not the IP dialed: only the chain is checked, so only
-///   that CA is trusted (the system roots are off), or any publicly
-///   trusted certificate would get the password or the token.
-fn ssl_opts(product: Variant, cfg: &ConnectionConfig, cloud: bool) -> SslOpts {
-    let ca = cfg
-        .option("ca_cert")
-        .map(str::trim)
-        .filter(|p| !p.is_empty());
-    let cloud_sql = ca.is_some()
-        && (product == Variant::CloudSqlMySql || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
-    let origin = cfg
-        .option(cloud_auth::ORIGIN_HOST)
-        .map(str::trim)
-        .filter(|h| cloud && !h.is_empty());
-    let mut ssl = SslOpts::default().with_danger_accept_invalid_certs(cfg.trust_server_certificate);
-    if cfg.trust_server_certificate {
-        ssl = ssl.with_danger_skip_domain_validation(true);
-    } else if cloud_sql {
-        ssl = ssl
-            .with_danger_skip_domain_validation(true)
-            .with_disable_built_in_roots(true);
-    } else if let Some(origin) = origin {
-        ssl = ssl.with_danger_tls_hostname_override(Some(origin.to_string()));
+/// A connect, in time or not.
+async fn open(opts: Opts) -> Result<std::result::Result<Conn, mysql_async::Error>> {
+    tokio::time::timeout(Duration::from_secs(20), Conn::new(opts))
+        .await
+        .map_err(|_| {
+            Error::connect_failed(dbine_driver::ConnectFailure::new(
+                dbine_driver::ConnectFailureKind::Timeout,
+                "tiempo de espera agotado",
+            ))
+        })
+}
+
+/// MySQL's `ssl-mode`.
+pub(crate) const SSL_MODE: &str = "ssl-mode";
+/// MariaDB's `ssl` switch.
+pub(crate) const SSL: &str = "ssl";
+/// MariaDB's `ssl-verify-server-cert`.
+pub(crate) const SSL_VERIFY_SERVER_CERT: &str = "ssl-verify-server-cert";
+/// `ssl-ca`, stored under the key it always had.
+pub(crate) const CA_CERT: &str = "ca_cert";
+
+/// The connection's TLS level by its options (see [`Variant::tls_fields`]).
+/// A cloud sign-in needs a verified one; a connection saved before the
+/// options with a cloud sign-in always went verified (and refused "trust
+/// the server certificate").
+fn tls_level(product: Variant, cfg: &ConnectionConfig) -> Result<TlsLevel> {
+    let fields = product.tls_fields();
+    let mode = &fields[0];
+    let cloud = cloud_auth::method(cfg).is_some();
+    let hint = if product.mariadb_tls() {
+        "ssl + ssl-verify-server-cert"
+    } else {
+        "ssl-mode=VERIFY_CA / VERIFY_IDENTITY"
+    };
+    if cloud && cfg.option(mode.key).is_none() {
+        return if cfg.trust_server_certificate {
+            Err(cloud_auth::unverified_tls(hint))
+        } else {
+            Ok(TlsLevel::VerifyFull)
+        };
     }
+    let value = cfg.tls_value(mode).unwrap_or("").trim();
+    let level = if product.mariadb_tls() {
+        let on = matches!(
+            value.to_ascii_lowercase().as_str(),
+            "true" | "1" | "on" | "yes"
+        );
+        let skip = cfg
+            .tls_value(&fields[1])
+            .is_some_and(|v| fields[1].tls_skips(v.trim()));
+        match (on, skip) {
+            (false, _) => TlsLevel::Off,
+            (true, false) => TlsLevel::VerifyFull,
+            (true, true) => TlsLevel::Unverified,
+        }
+    } else {
+        let value = value.to_ascii_uppercase().replace('-', "_");
+        mode.tls_level_of(&value).ok_or_else(|| {
+            Error::Connect(format!(
+                "ssl-mode: «{value}» no es un valor de MySQL (DISABLED, PREFERRED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY)"
+            ))
+        })?
+    };
+    if cloud && !level.verified() {
+        return Err(cloud_auth::unverified_tls(hint));
+    }
+    Ok(level)
+}
+
+/// TLS for a level above `Off`. Without checks (`PREFERRED`, `REQUIRED`)
+/// any certificate is accepted. `VERIFY_CA` checks the chain against
+/// `ssl-ca` only (the system roots off, as the MySQL client does), which it
+/// needs. `VERIFY_IDENTITY` checks chain and name, with `ssl-ca` on top of
+/// the system's roots, except Cloud SQL (or Google Cloud IAM) with its CA:
+/// its certificate names the instance, not the IP dialed, so only the chain
+/// is checked and only that CA anchors it (otherwise any publicly trusted
+/// certificate would get the password or the token). Aurora and AWS IAM
+/// trust Amazon's RDS CAs when `ssl-ca` is empty. Through an SSH tunnel the
+/// client dials 127.0.0.1: the name checked is the real server's.
+fn ssl_opts(product: Variant, cfg: &ConnectionConfig, level: TlsLevel) -> Result<SslOpts> {
+    let ca = cfg.option(CA_CERT).map(str::trim).filter(|p| !p.is_empty());
+    let rds = cloud_auth::method(cfg) == Some(cloud_auth::AWS) || product == Variant::AuroraMySql;
+    let mut ssl = SslOpts::default();
     if let Some(ca) = ca {
         ssl = ssl.with_root_certs(vec![std::path::PathBuf::from(ca).into()]);
-    } else if cloud_auth::method(cfg) == Some(cloud_auth::AWS) || product == Variant::AuroraMySql {
+    } else if rds {
         // Amazon's RDS CAs are in no system store.
         ssl = ssl.with_root_certs(vec![cloud_auth::RDS_CA_BUNDLE.into()]);
     }
-    ssl
+    let real = cfg.tls_server_name();
+    let tunnelled = real != cfg.host.trim();
+    let cloud_sql = ca.is_some()
+        && (product == Variant::CloudSqlMySql || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
+    Ok(match level {
+        TlsLevel::Off | TlsLevel::Optional | TlsLevel::Unverified => ssl
+            .with_danger_accept_invalid_certs(true)
+            .with_danger_skip_domain_validation(true),
+        TlsLevel::VerifyCa => {
+            if ca.is_none() && !rds {
+                return Err(Error::Connect(
+                    "ssl-mode=VERIFY_CA necesita la CA del servidor en ssl-ca".into(),
+                ));
+            }
+            ssl.with_danger_skip_domain_validation(true)
+                .with_disable_built_in_roots(true)
+        }
+        TlsLevel::VerifyFull if cloud_sql => ssl
+            .with_danger_skip_domain_validation(true)
+            .with_disable_built_in_roots(true),
+        TlsLevel::VerifyFull if tunnelled => {
+            ssl.with_danger_tls_hostname_override(Some(real.to_string()))
+        }
+        TlsLevel::VerifyFull => ssl,
+    })
 }
 
-fn connect_error(e: mysql_async::Error) -> Error {
-    match e {
+/// A failed connect, classified; a TLS failure says which option to change,
+/// in the engine's own names (`names`: MariaDB's).
+fn connect_error(e: mysql_async::Error, names: bool) -> Error {
+    let mut f = match e {
         // ER_ACCESS_DENIED_ERROR, ER_DBACCESS_DENIED_ERROR
         mysql_async::Error::Server(s) if s.code == 1045 || s.code == 1044 => {
-            Error::AuthFailed(s.message)
+            return Error::AuthFailed(s.message)
         }
         // Classified for the app's explanation (same messages as before).
-        mysql_async::Error::Server(s) => Error::connect_failed(
-            dbine_driver::ConnectFailure::from_message(s.message).with_code(s.code),
-        ),
-        other => Error::connect_failed(dbine_driver::ConnectFailure::from_error(&other)),
+        mysql_async::Error::Server(s) => {
+            dbine_driver::ConnectFailure::from_message(s.message).with_code(s.code)
+        }
+        mysql_async::Error::Driver(mysql_async::DriverError::NoClientSslFlagFromServer) => {
+            dbine_driver::ConnectFailure::new(
+                dbine_driver::ConnectFailureKind::TlsNotOffered,
+                e.to_string(),
+            )
+        }
+        other => dbine_driver::ConnectFailure::from_error(&other),
+    };
+    // The platform's TLS (Security.framework, SChannel) words a certificate
+    // it can't verify in ways the shared classification doesn't know ("The
+    // certificate was not trusted.").
+    if f.kind == dbine_driver::ConnectFailureKind::Tls
+        && f.message.to_ascii_lowercase().contains("certificate")
+    {
+        f.kind = dbine_driver::ConnectFailureKind::TlsUntrusted;
     }
+    let hint = match (f.kind, names) {
+        (dbine_driver::ConnectFailureKind::TlsNotOffered, false) => {
+            "El servidor no ofrece TLS: elegí ssl-mode=PREFERRED o DISABLED para conectar sin cifrar."
+        }
+        (dbine_driver::ConnectFailureKind::TlsNotOffered, true) => {
+            "El servidor no ofrece TLS: desmarcá ssl para conectar sin cifrar."
+        }
+        (dbine_driver::ConnectFailureKind::TlsUntrusted, false) => {
+            "No se pudo verificar el certificado del servidor: indicá su CA en ssl-ca, o elegí ssl-mode=REQUIRED \
+             si confiás en la red."
+        }
+        (dbine_driver::ConnectFailureKind::TlsUntrusted, true) => {
+            "No se pudo verificar el certificado del servidor: indicá su CA en ssl-ca, o desmarcá \
+             ssl-verify-server-cert si confiás en la red."
+        }
+        _ => "",
+    };
+    if !hint.is_empty() {
+        f.message = format!("{}. {hint}", f.message);
+    }
+    Error::connect_failed(f)
 }
 
 /// A statement's failure: the server's message; an interrupted statement
@@ -1013,7 +1197,7 @@ mod tests {
                 .find(|f| f.key == cloud_auth::AUTH)
                 .map(|f| f.kind.clone())
             {
-                Some(FieldKind::Select(o)) => o.into_iter().map(|o| o.0).collect(),
+                Some(dbine_driver::FieldKind::Select(o)) => o.into_iter().map(|o| o.0).collect(),
                 _ => vec![],
             }
         };
@@ -1062,37 +1246,56 @@ mod tests {
             assert_eq!(kinds(m), kinds(b));
             assert_eq!(m.capabilities().foreign_keys, b.capabilities().foreign_keys);
             assert!(m.capabilities().monitor);
-            assert_eq!(
-                m.info()
-                    .fields
-                    .iter()
-                    .find(|f| f.key == "encrypt")
-                    .unwrap()
-                    .default,
-                "true"
-            );
+            // Managed services keep the managed help on their TLS mode.
+            let mode = m.info().fields.iter().find(|f| f.key == SSL_MODE).unwrap();
+            assert!(!mode.help.is_empty(), "{managed}");
             assert!(m.designer().is_some());
         }
         assert!(get("mysql")
             .info()
             .fields
             .iter()
-            .any(|f| f.key == "ca_cert"));
-        assert_eq!(
-            get("mysql")
-                .info()
+            .any(|f| f.key == CA_CERT && f.label == "ssl-ca"));
+    }
+
+    #[test]
+    fn every_variant_declares_its_engines_tls_options() {
+        for v in Variant::ALL {
+            let info = Variant::info(v);
+            assert!(info.fields.iter().all(|f| !f.is_legacy_tls()), "{v:?}");
+            assert_eq!(info.tls, TlsSupport::Configurable);
+            let keys: Vec<_> = info
                 .fields
                 .iter()
-                .find(|f| f.key == "encrypt")
-                .unwrap()
-                .default,
-            ""
-        );
+                .filter(|f| f.tls.is_some())
+                .map(|f| f.key)
+                .collect();
+            if v.mariadb_tls() {
+                assert_eq!(keys, [SSL, SSL_VERIFY_SERVER_CERT, CA_CERT], "{v:?}");
+            } else {
+                assert_eq!(keys, [SSL_MODE, CA_CERT], "{v:?}");
+                let mode = info.fields.iter().find(|f| f.key == SSL_MODE).unwrap();
+                assert_eq!(
+                    mode.default,
+                    if v == Variant::CloudSqlMySql {
+                        "VERIFY_CA"
+                    } else {
+                        "VERIFY_IDENTITY"
+                    }
+                );
+            }
+        }
     }
 
     fn tls_cfg(options: &[(&str, &str)]) -> ConnectionConfig {
+        legacy_cfg(true, false, options)
+    }
+
+    fn legacy_cfg(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
         let mut cfg = ConnectionConfig {
-            encrypt: true,
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
             ..Default::default()
         };
         for (k, v) in options {
@@ -1101,92 +1304,285 @@ mod tests {
         cfg
     }
 
+    /// What reaches mysql_async: no TLS, or the TLS options' getters.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Seen {
+        accept_invalid: bool,
+        skip_domain: bool,
+        no_system_roots: bool,
+        roots: usize,
+        name: Option<String>,
+    }
+
+    fn seen(product: Variant, cfg: &ConnectionConfig) -> Result<Option<Seen>> {
+        let level = tls_level(product, cfg)?;
+        if level == TlsLevel::Off {
+            return Ok(None);
+        }
+        let s = ssl_opts(product, cfg, level)?;
+        Ok(Some(Seen {
+            accept_invalid: s.accept_invalid_certs(),
+            skip_domain: s.skip_domain_validation(),
+            no_system_roots: s.disable_built_in_roots(),
+            roots: s.root_certs().len(),
+            name: s.tls_hostname_override().map(str::to_string),
+        }))
+    }
+
+    fn tls(
+        accept_invalid: bool,
+        skip_domain: bool,
+        no_system_roots: bool,
+        roots: usize,
+    ) -> Option<Seen> {
+        Some(Seen {
+            accept_invalid,
+            skip_domain,
+            no_system_roots,
+            roots,
+            name: None,
+        })
+    }
+
+    /// A connection saved before the TLS options gets what it got before,
+    /// for each `(encrypt, trust_server_certificate)` pair: ff and ft
+    /// plaintext, tf verified (Cloud SQL with its CA: the chain only, that
+    /// CA only), tt TLS without checks; Aurora adds the RDS CAs.
+    #[test]
+    fn legacy_connections_keep_their_tls() {
+        let pairs = [(false, false), (false, true), (true, false), (true, true)];
+        for v in Variant::ALL {
+            let rds = usize::from(v == Variant::AuroraMySql);
+            let want = [
+                None,
+                None,
+                tls(false, false, false, rds),
+                tls(true, true, false, rds),
+            ];
+            for (i, (e, t)) in pairs.into_iter().enumerate() {
+                assert_eq!(
+                    seen(v, &legacy_cfg(e, t, &[])).unwrap(),
+                    want[i],
+                    "{v:?} encrypt={e} trust={t}"
+                );
+            }
+            let want = [
+                None,
+                None,
+                tls(false, false, false, 1),
+                tls(true, true, false, 1),
+            ];
+            let want_cloud_sql = tls(false, true, true, 1);
+            for (i, (e, t)) in pairs.into_iter().enumerate() {
+                let got = seen(v, &legacy_cfg(e, t, &[(CA_CERT, "/ca.pem")])).unwrap();
+                if v == Variant::CloudSqlMySql && i == 2 {
+                    assert_eq!(got, want_cloud_sql);
+                } else {
+                    assert_eq!(got, want[i], "{v:?} ca encrypt={e} trust={t}");
+                }
+            }
+        }
+        // A cloud sign-in went verified even with encrypt off, and refused
+        // "trust the server certificate".
+        for (e, t) in pairs {
+            let cfg = legacy_cfg(e, t, &[(cloud_auth::AUTH, cloud_auth::AWS)]);
+            if t {
+                assert!(matches!(
+                    seen(Variant::MySql, &cfg),
+                    Err(Error::AuthFailed(_))
+                ));
+            } else {
+                assert_eq!(
+                    seen(Variant::MySql, &cfg).unwrap(),
+                    tls(false, false, false, 1)
+                );
+            }
+        }
+        // The values the form shows for those pairs.
+        let mysql = Variant::MySql.tls_fields();
+        let maria = Variant::MariaDb.tls_fields();
+        let shown = |f: &Field| -> Vec<String> {
+            pairs
+                .iter()
+                .map(|(e, t)| legacy_cfg(*e, *t, &[]).tls_value(f).unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(
+            shown(&mysql[0]),
+            ["DISABLED", "DISABLED", "VERIFY_IDENTITY", "REQUIRED"]
+        );
+        assert_eq!(shown(&maria[0]), ["false", "false", "true", "true"]);
+        assert_eq!(shown(&maria[1]), ["true", "true", "true", "false"]);
+    }
+
+    /// A new connection's defaults verify the certificate.
+    #[test]
+    fn new_connections_verify() {
+        for v in Variant::ALL {
+            let fields = v.tls_fields();
+            let mut options: Vec<(&str, &str)> = fields
+                .iter()
+                .filter(|f| !f.default.is_empty())
+                .map(|f| (f.key, f.default))
+                .collect();
+            if v == Variant::CloudSqlMySql {
+                // VERIFY_CA needs the instance's server-ca.pem.
+                assert!(seen(v, &legacy_cfg(false, false, &options)).is_err());
+                options.push((CA_CERT, "/server-ca.pem"));
+            }
+            let cfg = legacy_cfg(false, false, &options);
+            let s = seen(v, &cfg).unwrap().unwrap();
+            assert!(!s.accept_invalid, "{v:?}");
+            assert!(
+                cfg.tls_level(&fields).is_some_and(|l| l.verified()),
+                "{v:?}"
+            );
+            if v == Variant::CloudSqlMySql {
+                assert!(s.skip_domain && s.no_system_roots && s.roots == 1);
+            } else {
+                assert!(!s.skip_domain && !s.no_system_roots, "{v:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn saved_options_mean_what_the_clients_mean() {
+        let v = Variant::MySql;
+        let get = |o: &[(&str, &str)]| seen(v, &legacy_cfg(true, false, o));
+        assert_eq!(get(&[(SSL_MODE, "DISABLED")]).unwrap(), None);
+        assert_eq!(
+            get(&[(SSL_MODE, "PREFERRED")]).unwrap(),
+            tls(true, true, false, 0)
+        );
+        assert_eq!(
+            get(&[(SSL_MODE, "REQUIRED")]).unwrap(),
+            tls(true, true, false, 0)
+        );
+        assert!(matches!(
+            get(&[(SSL_MODE, "VERIFY_CA")]),
+            Err(Error::Connect(_))
+        ));
+        assert_eq!(
+            get(&[(SSL_MODE, "VERIFY_CA"), (CA_CERT, "/ca.pem")]).unwrap(),
+            tls(false, true, true, 1)
+        );
+        assert_eq!(
+            get(&[(SSL_MODE, "verify_identity"), (CA_CERT, "/ca.pem")]).unwrap(),
+            tls(false, false, false, 1)
+        );
+        assert!(get(&[(SSL_MODE, "ALLOW")]).is_err());
+        // Aurora: the RDS CAs for VERIFY_CA when there's no file.
+        assert_eq!(
+            seen(
+                Variant::AuroraMySql,
+                &legacy_cfg(false, false, &[(SSL_MODE, "VERIFY_CA")])
+            )
+            .unwrap(),
+            tls(false, true, true, 1)
+        );
+        // A cloud sign-in needs a verified mode.
+        for mode in ["DISABLED", "PREFERRED", "REQUIRED"] {
+            assert!(
+                matches!(
+                    get(&[(SSL_MODE, mode), (cloud_auth::AUTH, cloud_auth::AZURE)]),
+                    Err(Error::AuthFailed(_))
+                ),
+                "{mode}"
+            );
+        }
+        // MariaDB's names.
+        let m = |o: &[(&str, &str)]| seen(Variant::MariaDb, &legacy_cfg(true, true, o));
+        assert_eq!(m(&[(SSL, "false")]).unwrap(), None);
+        assert_eq!(
+            m(&[(SSL, "true"), (SSL_VERIFY_SERVER_CERT, "true")]).unwrap(),
+            tls(false, false, false, 0)
+        );
+        assert_eq!(
+            m(&[(SSL, "true"), (SSL_VERIFY_SERVER_CERT, "false")]).unwrap(),
+            tls(true, true, false, 0)
+        );
+        assert!(matches!(
+            seen(
+                Variant::MariaDb,
+                &legacy_cfg(
+                    true,
+                    false,
+                    &[
+                        (SSL, "true"),
+                        (SSL_VERIFY_SERVER_CERT, "false"),
+                        (cloud_auth::AUTH, cloud_auth::AWS)
+                    ]
+                )
+            ),
+            Err(Error::AuthFailed(_))
+        ));
+    }
+
     /// Whenever the certificate's name isn't checked, only the given CA
     /// anchors the chain (no system roots).
     #[test]
     fn relaxed_hostname_checks_trust_only_the_given_ca() {
         let cases = [
-            (
-                Variant::CloudSqlMySql,
-                tls_cfg(&[("ca_cert", "/ca.pem")]),
-                false,
-            ),
+            (Variant::CloudSqlMySql, tls_cfg(&[(CA_CERT, "/ca.pem")])),
             (
                 Variant::MySql,
-                tls_cfg(&[("ca_cert", "/ca.pem"), (cloud_auth::AUTH, cloud_auth::GCP)]),
-                true,
+                tls_cfg(&[(CA_CERT, "/ca.pem"), (cloud_auth::AUTH, cloud_auth::GCP)]),
             ),
             (
                 Variant::MySql,
                 tls_cfg(&[
-                    ("ca_cert", "/ca.pem"),
+                    (CA_CERT, "/ca.pem"),
                     (cloud_auth::AUTH, cloud_auth::GCP),
                     (cloud_auth::ORIGIN_HOST, "10.0.0.5"),
                 ]),
-                true,
+            ),
+            (
+                Variant::MySql,
+                tls_cfg(&[(SSL_MODE, "VERIFY_CA"), (CA_CERT, "/ca.pem")]),
             ),
         ];
-        for (v, cfg, cloud) in cases {
-            let ssl = ssl_opts(v, &cfg, cloud);
-            assert!(ssl.skip_domain_validation(), "{v:?}");
-            assert!(ssl.disable_built_in_roots(), "{v:?}");
-            assert!(!ssl.accept_invalid_certs(), "{v:?}");
-            assert_eq!(ssl.root_certs().len(), 1, "{v:?}");
+        for (v, cfg) in cases {
+            let s = seen(v, &cfg).unwrap().unwrap();
+            assert_eq!(Some(s), tls(false, true, true, 1), "{v:?}");
         }
     }
 
     /// Through an SSH tunnel the client dials 127.0.0.1, but the name
-    /// checked is the real endpoint's.
+    /// checked is the real server's, with or without a cloud sign-in.
     #[test]
-    fn a_tunneled_cloud_sign_in_checks_the_real_endpoint_name() {
-        for auth in [cloud_auth::AWS, cloud_auth::AZURE, cloud_auth::GCP] {
-            let cfg = tls_cfg(&[
-                (cloud_auth::AUTH, auth),
-                (cloud_auth::ORIGIN_HOST, " db.example.com "),
-            ]);
-            let ssl = ssl_opts(Variant::MySql, &cfg, true);
-            assert!(!ssl.skip_domain_validation(), "{auth}");
-            assert_eq!(
-                ssl.tls_hostname_override(),
-                Some("db.example.com"),
-                "{auth}"
-            );
+    fn a_tunnel_checks_the_real_server_name() {
+        for auth in ["", cloud_auth::AWS, cloud_auth::AZURE, cloud_auth::GCP] {
+            let mut cfg = tls_cfg(&[(cloud_auth::ORIGIN_HOST, " db.example.com ")]);
+            if !auth.is_empty() {
+                cfg.options.insert(cloud_auth::AUTH.into(), auth.into());
+            }
+            cfg.host = "127.0.0.1".into();
+            let s = seen(Variant::MySql, &cfg).unwrap().unwrap();
+            assert!(!s.skip_domain, "{auth}");
+            assert_eq!(s.name.as_deref(), Some("db.example.com"), "{auth}");
         }
-        // AWS keeps Amazon's RDS roots (on top of the system's: the name is checked).
-        let cfg = tls_cfg(&[
-            (cloud_auth::AUTH, cloud_auth::AWS),
-            (cloud_auth::ORIGIN_HOST, "db.rds.amazonaws.com"),
-        ]);
-        assert_eq!(ssl_opts(Variant::MySql, &cfg, true).root_certs().len(), 1);
+        // Not tunnelled: the host dialed.
+        assert_eq!(
+            seen(Variant::MySql, &tls_cfg(&[])).unwrap().unwrap().name,
+            None
+        );
     }
 
     #[test]
-    fn plain_tls_checks_the_name_with_the_system_roots() {
-        for (v, cfg) in [
-            (Variant::MySql, tls_cfg(&[])),
-            (Variant::MySql, tls_cfg(&[("ca_cert", "/ca.pem")])),
-            (Variant::AuroraMySql, tls_cfg(&[])),
-            // Without a cloud sign-in the tunnel option says nothing.
-            (
-                Variant::MySql,
-                tls_cfg(&[(cloud_auth::ORIGIN_HOST, "db.example.com")]),
-            ),
-        ] {
-            let ssl = ssl_opts(v, &cfg, false);
-            assert!(
-                !ssl.skip_domain_validation()
-                    && !ssl.disable_built_in_roots()
-                    && !ssl.accept_invalid_certs(),
-                "{v:?}"
-            );
-            assert_eq!(ssl.tls_hostname_override(), None, "{v:?}");
-        }
-        // "Trust the server certificate" is the user's explicit choice.
-        let cfg = ConnectionConfig {
-            trust_server_certificate: true,
-            ..tls_cfg(&[])
-        };
-        let ssl = ssl_opts(Variant::MySql, &cfg, false);
-        assert!(ssl.skip_domain_validation() && ssl.accept_invalid_certs());
+    fn tls_failures_name_the_option_to_change() {
+        let e = connect_error(
+            mysql_async::Error::Driver(mysql_async::DriverError::NoClientSslFlagFromServer),
+            false,
+        );
+        assert!(
+            matches!(&e, Error::ConnectFailed(f) if f.kind == dbine_driver::ConnectFailureKind::TlsNotOffered
+                && f.message.contains("ssl-mode=PREFERRED")),
+            "{e:?}"
+        );
+        let e = connect_error(
+            mysql_async::Error::Driver(mysql_async::DriverError::NoClientSslFlagFromServer),
+            true,
+        );
+        assert!(e.to_string().contains("desmarcá ssl"), "{e}");
     }
 }

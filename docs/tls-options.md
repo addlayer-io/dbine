@@ -213,7 +213,7 @@ The **Mode** column is the native key of the mode field. "—" means none
 | `aurora_postgres` | postgres | Configurable | `sslmode` | `verify-full` | — | 1 | high |
 | `timescaledb`, `greenplum`, `cloudberry`, `greengage`, `edb`, `fujitsu`, `kingbase`, `opengauss`, `materialize`, `risingwave`, `cratedb`, `yellowbrick`, `denodo` | postgres | Configurable | `sslmode` | `verify-full` | — | 1 | low |
 | `h2` | postgres | None | — | — | — | 1 | low |
-| `dsql` | dsql | Configurable | `sslmode` | `verify-full` | — | 1 | medium |
+| `dsql` | dsql | Forced | — | — | — | 1 | medium |
 | `mysql`, `aurora-mysql` | mysql | Configurable | `ssl-mode` | `VERIFY_IDENTITY` | — | 1 | low-medium |
 | `cloudsql-mysql` | mysql | Configurable | `ssl-mode` | `VERIFY_CA` | — | 1 | medium |
 | `tidb`, `singlestore`, `starrocks`, `doris`, `velodb`, `databend`, `manticore`, `greptimedb` | mysql | Configurable | `ssl-mode` | `VERIFY_IDENTITY` | — | 1 | low (code) / medium (users) |
@@ -493,6 +493,14 @@ versus ft), one with a CA-signed certificate (`verify-ca` versus
 `verify-full`), and one behind a tunnel.
 
 ### Aurora DSQL: `dsql`
+
+**Done (batch 1): `TlsSupport::Forced`.** The real connect always used
+`SslMode::Require` (`DsqlDriver::connect`); `SslMode::Disable` below was only
+the `connect_with_password` test hook, which runs the session code against a
+local PostgreSQL. The driver now always verifies chain and name (the form never
+had a trust option) and, through an SSH tunnel, signs the token for and checks
+the certificate against the real endpoint while dialing the tunnel
+(`host` + `hostaddr`). The table below is the original analysis.
 
 **Crate:** `crates/drivers/dsql`. **Client:** tokio-postgres 0.7.18 and
 native-tls (`lib.rs:437-460`). **Today:** the form has no `encrypt` field, so

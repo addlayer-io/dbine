@@ -171,6 +171,7 @@ backend:Delta (fuera de línea)
 backend:Diseño
 backend:En línea
 backend:En línea (ONLINE)
+backend:Encrypt
 backend:Equipo
 backend:Espacio de tablas
 backend:Espacios de tablas
@@ -188,12 +189,15 @@ backend:Ingreso
 backend:Intercalación
 backend:Intercalación (COLLATE)
 backend:Intercalación (LC_COLLATE)
+backend:Mandatory
+backend:Optional
 backend:París
 backend:Perú
 backend:Rama / commit
 backend:Reflexiones
 backend:Registro
 backend:Rendimiento
+backend:Strict
 backend:Trabajo
 backend:Vista
 backend:Vistas
