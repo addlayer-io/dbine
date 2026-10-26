@@ -27,9 +27,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
 | codeql | 2026-10-26 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-26 | every lockfile (Cargo, npm) at [`d144bfcce`](https://github.com/addlayer-io/dbine/commit/d144bfcce926) | 3 open | — |
-| scorecard | 2026-10-26 | repository settings and workflows at [`293696438`](https://github.com/addlayer-io/dbine/commit/2936964383c5) | score 5.7/10 | — |
-| trivy | 2026-10-26 | whole repository at [`d144bfcce`](https://github.com/addlayer-io/dbine/commit/d144bfcce926) | 0 open | — |
+| osv | 2026-10-26 | every lockfile (Cargo, npm) at [`ceaf232b3`](https://github.com/addlayer-io/dbine/commit/ceaf232b388d) | 3 open | — |
+| scorecard | 2026-10-26 | repository settings and workflows at [`ceaf232b3`](https://github.com/addlayer-io/dbine/commit/ceaf232b388d) | score 5.7/10 | — |
+| trivy | 2026-10-26 | whole repository at [`ceaf232b3`](https://github.com/addlayer-io/dbine/commit/ceaf232b388d) | 0 open | — |
 
 ## Not counted, and why
 
@@ -329,6 +329,7 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/lib.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/lib.rs:1357 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai | mpanichella |
 | Trivy secret rule exception `bigquery-test-service-account` | `crates/drivers/bigquery/src/gcp.rs` | The unit test in gcp_tests builds a fake service-account JSON around the throwaway key in crates/drivers/bigquery/tests/test_key.pem; it holds no real credential. | trivy-secret.yaml |
 | Trivy secret rule exception `postgres-test-entra-token` | `crates/drivers/postgres/src/cloud_auth.rs` | The unit test entra_claims_say_who_signed_in decodes a made-up, unsigned JWT ({"upn":"ana@contoso.com"}); it grants nothing. | trivy-secret.yaml |
+| Trivy secret rule exception `tls-test-material` | `tests/tls/.*.(key\|p12)` | Throwaway test CA and server keys for the dbine-test-tls-* containers (tests/tls/README.md); they only sign certificates for localhost and host.docker.internal in tests and protect nothing. | trivy-secret.yaml |
 | Advisory GHSA-wrw7-89jp-8q8g | `dependencies` | Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side. | osv-scanner.toml |
 | Advisory GHSA-cq8v-f236-94qc | `dependencies` | Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only). | osv-scanner.toml |
 | Advisory RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369 | `dependencies` | Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive. | osv-scanner.toml |
@@ -350,12 +351,12 @@ OpenSSF Scorecard: **5.7/10** (2026-10-26). The checks below 10, with Scorecard'
 
 | Check | Risk | Docs |
 |---|---|---|
-| Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
+| Binary-Artifacts: 8/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 3/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
 | Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 1/10 — 9 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| Vulnerabilities: 2/10 — 8 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
