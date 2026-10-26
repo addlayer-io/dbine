@@ -2963,7 +2963,6 @@
   "No se pudo activar events_statements_history_long ({0})": "events_statements_history_long konnte nicht aktiviert werden ({0})",
   "No se pudo bajar tidb_slow_log_threshold a 0 ({0}): se muestrean las consultas en curso.": "tidb_slow_log_threshold konnte nicht auf 0 gesenkt werden ({0}): Die laufenden Abfragen werden per Sampling erfasst.",
   "No se pudo cambiar {0} de ScyllaDB: {1}": "{0} von ScyllaDB konnte nicht geändert werden: {1}",
-  "No se pudo conectar con el servidor: {0}": "Verbindung zum Server nicht möglich: {0}",
   "No se pudo crear el cliente HTTP: {0}": "Der HTTP-Client konnte nicht erstellt werden: {0}",
   "No se pudo crear el core {0}: {1}{2}": "Der Core {0} konnte nicht erstellt werden: {1}{2}",
   "No se pudo escribir el snapshot: {0}": "Der Snapshot konnte nicht geschrieben werden: {0}",
@@ -4483,7 +4482,6 @@
   "Usado": "Belegt",
   "Usado (bytes)": "Belegt (Bytes)",
   "Usage": "Usage",
-  "Usar https.": "https verwenden.",
   "User": "User",
   "Userid": "Userid",
   "Users": "Users",
@@ -10192,7 +10190,6 @@
   "SHOW FRONTENDS requiere privilegios de administrador (OPERATE o NODE) ({0}).": "SHOW FRONTENDS erfordert Administratorprivilegien (OPERATE oder NODE) ({0}).",
   "SHOW QUERIES necesita el servidor con enable-runtime-query-interrupt.": "SHOW QUERIES braucht den Server mit enable-runtime-query-interrupt.",
   "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": "SHOW QUERIES hat nicht geantwortet: Ein Administratorbenutzer ist nötig, um die laufenden Abfragen zu sehen.",
-  "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": "SHOW SERVERS (Server des Clusters) gibt es nur in Neo4j Enterprise.",
   "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": "SHOW STATS hat nicht geantwortet: Ein Administratorbenutzer ist nötig, um die Serverstatistiken zu sehen.",
   "SHOW USER SESSIONS solo lo puede usar un superusuario.": "SHOW USER SESSIONS kann nur ein Superuser verwenden.",
   "Sentencias CQL": "CQL-Anweisungen",
@@ -11256,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Über den SSH-Tunnel kann der ODBC-Treiber von MonetDB nicht prüfen, ob das Zertifikat zu {0} gehört: Pinne es mit CERTHASH in den zusätzlichen Attributen oder verbinde dich ohne Tunnel.",
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Über den SSH-Tunnel kann der ODBC-Treiber nicht prüfen, ob das Zertifikat zu {0} gehört: Verwende {1} (prüft nur die Zertifizierungsstelle) oder verbinde dich ohne Tunnel.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl prüft das Zertifikat mit dem Schlüsselspeicher des Clients (SSL_KEYSTORE_FILE in conssl.cfg).",
-  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca und verify-full brauchen die root.crt der Zertifizierungsstelle auf dem Client."
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca und verify-full brauchen die root.crt der Zertifizierungsstelle auf dem Client.",
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Optional: die CA, die das Serverzertifikat signiert hat, im PEM-Format."
 }

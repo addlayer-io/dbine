@@ -2963,7 +2963,6 @@
   "No se pudo activar events_statements_history_long ({0})": "events_statements_history_long을 켜지 못했습니다({0})",
   "No se pudo bajar tidb_slow_log_threshold a 0 ({0}): se muestrean las consultas en curso.": "tidb_slow_log_threshold를 0으로 낮추지 못했습니다({0}). 진행 중인 쿼리를 샘플링합니다.",
   "No se pudo cambiar {0} de ScyllaDB: {1}": "ScyllaDB의 {0}을(를) 변경하지 못했습니다: {1}",
-  "No se pudo conectar con el servidor: {0}": "서버에 연결하지 못했습니다: {0}",
   "No se pudo crear el cliente HTTP: {0}": "HTTP 클라이언트를 만들지 못했습니다: {0}",
   "No se pudo crear el core {0}: {1}{2}": "코어 {0}을(를) 만들지 못했습니다: {1}{2}",
   "No se pudo escribir el snapshot: {0}": "스냅샷을 쓰지 못했습니다: {0}",
@@ -4483,7 +4482,6 @@
   "Usado": "사용 중",
   "Usado (bytes)": "사용 중(바이트)",
   "Usage": "Usage",
-  "Usar https.": "https를 사용합니다.",
   "User": "User",
   "Userid": "Userid",
   "Users": "Users",
@@ -10192,7 +10190,6 @@
   "SHOW FRONTENDS requiere privilegios de administrador (OPERATE o NODE) ({0}).": "SHOW FRONTENDS에는 관리자 권한(OPERATE 또는 NODE)이 필요합니다({0}).",
   "SHOW QUERIES necesita el servidor con enable-runtime-query-interrupt.": "SHOW QUERIES를 사용하려면 서버에 enable-runtime-query-interrupt가 필요합니다.",
   "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": "SHOW QUERIES가 응답하지 않았습니다. 진행 중인 쿼리를 보려면 관리자 사용자가 필요합니다.",
-  "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": "SHOW SERVERS(클러스터 서버)는 Neo4j Enterprise에만 있습니다.",
   "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": "SHOW STATS가 응답하지 않았습니다. 서버 통계를 보려면 관리자 사용자가 필요합니다.",
   "SHOW USER SESSIONS solo lo puede usar un superusuario.": "SHOW USER SESSIONS는 슈퍼유저만 사용할 수 있습니다.",
   "Sentencias CQL": "CQL 문",
@@ -11256,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "SSH 터널을 통해서는 MonetDB ODBC 드라이버가 인증서가 {0}의 것인지 확인할 수 없습니다. 추가 속성에서 CERTHASH로 인증서를 고정하거나 터널 없이 연결하세요.",
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "SSH 터널을 통해서는 ODBC 드라이버가 인증서가 {0}의 것인지 확인할 수 없습니다. {1}(CA만 검증)을 사용하거나 터널 없이 연결하세요.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl은 클라이언트의 키 저장소(conssl.cfg의 SSL_KEYSTORE_FILE)로 인증서를 검증합니다.",
-  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca와 verify-full에는 클라이언트에 CA의 root.crt가 필요합니다."
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca와 verify-full에는 클라이언트에 CA의 root.crt가 필요합니다.",
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "선택 사항: 서버 인증서에 서명한 CA(PEM 형식)."
 }

@@ -2963,7 +2963,6 @@
   "No se pudo activar events_statements_history_long ({0})": "无法启用 events_statements_history_long（{0}）",
   "No se pudo bajar tidb_slow_log_threshold a 0 ({0}): se muestrean las consultas en curso.": "无法将 tidb_slow_log_threshold 降为 0（{0}）：对正在运行的查询进行采样。",
   "No se pudo cambiar {0} de ScyllaDB: {1}": "无法更改 ScyllaDB 的 {0}：{1}",
-  "No se pudo conectar con el servidor: {0}": "无法连接到服务器：{0}",
   "No se pudo crear el cliente HTTP: {0}": "无法创建 HTTP 客户端：{0}",
   "No se pudo crear el core {0}: {1}{2}": "无法创建 core {0}：{1}{2}",
   "No se pudo escribir el snapshot: {0}": "无法写入快照：{0}",
@@ -4483,7 +4482,6 @@
   "Usado": "已用",
   "Usado (bytes)": "已用（字节）",
   "Usage": "用量",
-  "Usar https.": "使用 https。",
   "User": "用户",
   "Userid": "用户 ID",
   "Users": "用户",
@@ -10192,7 +10190,6 @@
   "SHOW FRONTENDS requiere privilegios de administrador (OPERATE o NODE) ({0}).": "SHOW FRONTENDS 需要管理员权限（OPERATE 或 NODE）（{0}）。",
   "SHOW QUERIES necesita el servidor con enable-runtime-query-interrupt.": "SHOW QUERIES 需要服务器以 enable-runtime-query-interrupt 运行。",
   "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": "SHOW QUERIES 没有响应：查看正在运行的查询需要管理员用户。",
-  "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": "SHOW SERVERS（集群服务器）仅存在于 Neo4j Enterprise。",
   "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": "SHOW STATS 没有响应：查看服务器统计信息需要管理员用户。",
   "SHOW USER SESSIONS solo lo puede usar un superusuario.": "SHOW USER SESSIONS 只能由超级用户使用。",
   "Sentencias CQL": "CQL 语句",
@@ -11256,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "通过 SSH 隧道时，MonetDB 的 ODBC 驱动无法确认证书属于 {0}：请在附加属性中用 CERTHASH 固定证书，或不经隧道连接。",
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "通过 SSH 隧道时，ODBC 驱动无法确认证书属于 {0}：请使用 {1}（仅验证 CA），或不经隧道连接。",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl 使用客户端的密钥库（conssl.cfg 中的 SSL_KEYSTORE_FILE）验证证书。",
-  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca 和 verify-full 需要客户端上有 CA 的 root.crt。"
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca 和 verify-full 需要客户端上有 CA 的 root.crt。",
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "可选：签发服务器证书的 CA，PEM 格式。"
 }

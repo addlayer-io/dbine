@@ -2963,7 +2963,6 @@
   "No se pudo activar events_statements_history_long ({0})": "events_statements_history_long を有効にできませんでした({0})",
   "No se pudo bajar tidb_slow_log_threshold a 0 ({0}): se muestrean las consultas en curso.": "tidb_slow_log_threshold を 0 に下げられませんでした({0})。実行中のクエリがサンプリングされます。",
   "No se pudo cambiar {0} de ScyllaDB: {1}": "ScyllaDB の {0} を変更できませんでした: {1}",
-  "No se pudo conectar con el servidor: {0}": "サーバーに接続できませんでした: {0}",
   "No se pudo crear el cliente HTTP: {0}": "HTTP クライアントを作成できませんでした: {0}",
   "No se pudo crear el core {0}: {1}{2}": "コア {0} を作成できませんでした: {1}{2}",
   "No se pudo escribir el snapshot: {0}": "スナップショットを書き込めませんでした: {0}",
@@ -4483,7 +4482,6 @@
   "Usado": "使用済み",
   "Usado (bytes)": "使用済み(バイト)",
   "Usage": "Usage",
-  "Usar https.": "https を使用します。",
   "User": "User",
   "Userid": "Userid",
   "Users": "Users",
@@ -10192,7 +10190,6 @@
   "SHOW FRONTENDS requiere privilegios de administrador (OPERATE o NODE) ({0}).": "SHOW FRONTENDS には管理者権限(OPERATE または NODE)が必要です({0})。",
   "SHOW QUERIES necesita el servidor con enable-runtime-query-interrupt.": "SHOW QUERIES には、サーバーで enable-runtime-query-interrupt が必要です。",
   "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": "SHOW QUERIES が応答しませんでした。実行中のクエリを表示するには管理者ユーザーが必要です。",
-  "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": "SHOW SERVERS(クラスターのサーバー)は Neo4j Enterprise にのみあります。",
   "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": "SHOW STATS が応答しませんでした。サーバーの統計を表示するには管理者ユーザーが必要です。",
   "SHOW USER SESSIONS solo lo puede usar un superusuario.": "SHOW USER SESSIONS を使えるのはスーパーユーザーのみです。",
   "Sentencias CQL": "CQL 文",
@@ -11256,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "SSH トンネル経由では、MonetDB の ODBC ドライバーは証明書が {0} のものか確認できません。追加属性の CERTHASH で証明書を固定するか、トンネルを使わずに接続してください。",
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "SSH トンネル経由では、ODBC ドライバーは証明書が {0} のものか確認できません。{1}（CA のみ検証）を使うか、トンネルを使わずに接続してください。",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl はクライアントのキーストア（conssl.cfg の SSL_KEYSTORE_FILE）で証明書を検証します。",
-  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca と verify-full には、クライアントに CA の root.crt が必要です。"
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca と verify-full には、クライアントに CA の root.crt が必要です。",
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "任意: サーバー証明書に署名した CA(PEM 形式)。"
 }

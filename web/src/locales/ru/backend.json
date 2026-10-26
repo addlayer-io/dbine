@@ -2963,7 +2963,6 @@
   "No se pudo activar events_statements_history_long ({0})": "Не удалось включить events_statements_history_long ({0})",
   "No se pudo bajar tidb_slow_log_threshold a 0 ({0}): se muestrean las consultas en curso.": "Не удалось понизить tidb_slow_log_threshold до 0 ({0}): выполняющиеся запросы опрашиваются выборочно.",
   "No se pudo cambiar {0} de ScyllaDB: {1}": "Не удалось изменить {0} в ScyllaDB: {1}",
-  "No se pudo conectar con el servidor: {0}": "Не удалось подключиться к серверу: {0}",
   "No se pudo crear el cliente HTTP: {0}": "Не удалось создать клиент HTTP: {0}",
   "No se pudo crear el core {0}: {1}{2}": "Не удалось создать ядро (core) {0}: {1}{2}",
   "No se pudo escribir el snapshot: {0}": "Не удалось записать снимок: {0}",
@@ -4483,7 +4482,6 @@
   "Usado": "Используется",
   "Usado (bytes)": "Используется (байт)",
   "Usage": "Использование",
-  "Usar https.": "Используйте https.",
   "User": "Пользователь",
   "Userid": "Userid",
   "Users": "Пользователи",
@@ -10192,7 +10190,6 @@
   "SHOW FRONTENDS requiere privilegios de administrador (OPERATE o NODE) ({0}).": "SHOW FRONTENDS требует прав администратора (OPERATE или NODE) ({0}).",
   "SHOW QUERIES necesita el servidor con enable-runtime-query-interrupt.": "SHOW QUERIES требует, чтобы сервер был запущен с enable-runtime-query-interrupt.",
   "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": "SHOW QUERIES не ответил: чтобы видеть выполняющиеся запросы, нужен пользователь-администратор.",
-  "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": "SHOW SERVERS (серверы кластера) есть только в Neo4j Enterprise.",
   "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": "SHOW STATS не ответил: чтобы видеть статистику сервера, нужен пользователь-администратор.",
   "SHOW USER SESSIONS solo lo puede usar un superusuario.": "SHOW USER SESSIONS может использовать только суперпользователь.",
   "Sentencias CQL": "Инструкции CQL",
@@ -11256,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Через SSH-туннель ODBC-драйвер MonetDB не может проверить, что сертификат принадлежит {0}: закрепите его с помощью CERTHASH в дополнительных атрибутах или подключитесь без туннеля.",
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Через SSH-туннель ODBC-драйвер не может проверить, что сертификат принадлежит {0}: используйте {1} (проверяется только центр сертификации) или подключитесь без туннеля.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl проверяет сертификат по хранилищу ключей клиента (SSL_KEYSTORE_FILE в conssl.cfg).",
-  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "Для verify-ca и verify-full на клиенте нужен root.crt центра сертификации."
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "Для verify-ca и verify-full на клиенте нужен root.crt центра сертификации.",
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Необязательно: центр сертификации (CA), подписавший сертификат сервера, в формате PEM."
 }

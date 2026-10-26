@@ -16287,6 +16287,9 @@
   "Opcional: esquema.tabla separadas por comas. Vacío: todo el clúster, con usuarios y configuración.": [
     "crates/drivers/postgres/src/backup.rs"
   ],
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": [
+    "crates/drivers/odbc/src/tls.rs"
+  ],
   "Opcional: la cuenta de gcloud que pide el token. Vacía: la activa en gcloud (gcloud auth login), las credenciales predeterminadas de la aplicación o la cuenta de servicio de la máquina.": [
     "crates/drivers/postgres/src/cloud_auth.rs"
   ],

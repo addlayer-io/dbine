@@ -2963,7 +2963,6 @@
   "No se pudo activar events_statements_history_long ({0})": "Couldn't enable events_statements_history_long ({0})",
   "No se pudo bajar tidb_slow_log_threshold a 0 ({0}): se muestrean las consultas en curso.": "Couldn't lower tidb_slow_log_threshold to 0 ({0}): sampling running queries.",
   "No se pudo cambiar {0} de ScyllaDB: {1}": "Couldn't change ScyllaDB's {0}: {1}",
-  "No se pudo conectar con el servidor: {0}": "Couldn't connect to the server: {0}",
   "No se pudo crear el cliente HTTP: {0}": "Couldn't create the HTTP client: {0}",
   "No se pudo crear el core {0}: {1}{2}": "Couldn't create core {0}: {1}{2}",
   "No se pudo escribir el snapshot: {0}": "The snapshot could not be written: {0}",
@@ -4483,7 +4482,6 @@
   "Usado": "Used",
   "Usado (bytes)": "Used (bytes)",
   "Usage": "Usage",
-  "Usar https.": "Use https.",
   "User": "User",
   "Userid": "Userid",
   "Users": "Users",
@@ -10192,7 +10190,6 @@
   "SHOW FRONTENDS requiere privilegios de administrador (OPERATE o NODE) ({0}).": "SHOW FRONTENDS requires administrator privileges (OPERATE or NODE) ({0}).",
   "SHOW QUERIES necesita el servidor con enable-runtime-query-interrupt.": "SHOW QUERIES needs the server to run with enable-runtime-query-interrupt.",
   "SHOW QUERIES no respondió: hace falta un usuario administrador para ver las consultas en curso.": "SHOW QUERIES did not respond: an administrator user is needed to see the running queries.",
-  "SHOW SERVERS (servidores del cluster) solo existe en Neo4j Enterprise.": "SHOW SERVERS (cluster servers) only exists in Neo4j Enterprise.",
   "SHOW STATS no respondió: hace falta un usuario administrador para ver las estadísticas del servidor.": "SHOW STATS did not respond: an administrator user is needed to see the server statistics.",
   "SHOW USER SESSIONS solo lo puede usar un superusuario.": "SHOW USER SESSIONS can only be used by a superuser.",
   "Sentencias CQL": "CQL statements",
@@ -11256,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Through the SSH tunnel, MonetDB's ODBC driver can't check that the certificate belongs to {0}: pin it with CERTHASH in the additional attributes or connect without the tunnel.",
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Through the SSH tunnel, the ODBC driver can't check that the certificate belongs to {0}: use {1} (it verifies only the CA) or connect without the tunnel.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl verifies the certificate against the client's keystore (SSL_KEYSTORE_FILE in conssl.cfg).",
-  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca and verify-full need the CA's root.crt on the client."
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca and verify-full need the CA's root.crt on the client.",
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Optional: the CA that signed the server certificate, in PEM."
 }
