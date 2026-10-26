@@ -650,13 +650,13 @@ function onContext(e: MouseEvent, i: number) {
       <span v-if="search" class="jt-count">
         {{ search.order.length ? $t('results:tree.matches', { at: matchIndex + 1, count: search.order.length }) : $t('results:tree.noMatches') }}
       </span>
-      <button v-if="search?.order.length" class="jt-btn" :title="$t('results:tree.prevMatch')" @click="goMatch(-1)"><el-icon><ei-arrow-up /></el-icon></button>
-      <button v-if="search?.order.length" class="jt-btn" :title="$t('results:tree.nextMatch')" @click="goMatch(1)"><el-icon><ei-arrow-down /></el-icon></button>
+      <button v-if="search?.order.length" :aria-label="$t('results:tree.prevMatch')" class="jt-btn" :title="$t('results:tree.prevMatch')" @click="goMatch(-1)"><el-icon><ei-arrow-up /></el-icon></button>
+      <button v-if="search?.order.length" :aria-label="$t('results:tree.nextMatch')" class="jt-btn" :title="$t('results:tree.nextMatch')" @click="goMatch(1)"><el-icon><ei-arrow-down /></el-icon></button>
       <div class="nm-spacer" />
       <span class="jt-label">{{ $t('results:tree.expand') }}</span>
       <button v-for="l in [1, 2, 3]" :key="l" class="jt-btn" :title="$t('results:tree.levels', { count: l })" @click="expandLevels(l)">{{ l }}</button>
-      <button class="jt-btn" :title="$t('results:tree.expandAll')" @click="expandLevels(64)"><el-icon><ei-plus /></el-icon></button>
-      <button class="jt-btn" :title="$t('results:tree.collapseAll')" @click="collapseAll"><el-icon><ei-minus /></el-icon></button>
+      <button :aria-label="$t('results:tree.expandAll')" class="jt-btn" :title="$t('results:tree.expandAll')" @click="expandLevels(64)"><el-icon><ei-plus /></el-icon></button>
+      <button :aria-label="$t('results:tree.collapseAll')" class="jt-btn" :title="$t('results:tree.collapseAll')" @click="collapseAll"><el-icon><ei-minus /></el-icon></button>
     </div>
     <div ref="scroller" class="jt-body" tabindex="0" role="tree" @keydown="onKey" @scroll="scrollTop = ($event.target as HTMLElement).scrollTop">
       <div class="jt-inner" :style="{ height: flat.length * ROW_H + 'px' }">
@@ -742,7 +742,7 @@ function onContext(e: MouseEvent, i: number) {
   font: inherit; color: var(--nm-text); background: transparent; border: 1px solid var(--nm-border); border-radius: 3px; cursor: pointer;
 }
 .jt-btn:hover { color: var(--nm-text-strong); border-color: var(--nm-border-hover); }
-.jt-body { position: relative; flex: 1; min-height: 0; overflow: auto; outline: none; font-family: var(--nm-mono); font-size: 12px; }
+.jt-body { position: relative; flex: 1; min-height: 0; overflow: auto; font-family: var(--nm-mono); font-size: 12px; }
 .jt-inner { position: relative; min-width: 100%; }
 .jt-row {
   position: absolute; left: 0; right: 0; height: 22px; display: flex; align-items: center; gap: 4px;

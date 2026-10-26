@@ -415,7 +415,7 @@ watch(() => found.value, (f) => {
       <span v-if="result" class="mv-count">{{ $t('map:count', { count: result.features.length, shown: n(result.features.length) }) }}</span>
       <div class="nm-spacer" />
       <button class="mv-btn" :title="$t('map:fit')" @click="fitAll"><el-icon><ei-full-screen /></el-icon> {{ $t('map:fit') }}</button>
-      <button class="mv-btn" :title="$t('map:openSettings')" @click="ui.openSettings('maps')"><el-icon><ei-setting /></el-icon></button>
+      <button :aria-label="$t('map:openSettings')" class="mv-btn" :title="$t('map:openSettings')" @click="ui.openSettings('maps')"><el-icon><ei-setting /></el-icon></button>
     </div>
     <div v-for="(m, i) in notices" :key="i" class="mv-notice">{{ m }}</div>
     <div v-if="baseFailed" class="mv-notice">{{ $t('map:notice.basemap') }}</div>

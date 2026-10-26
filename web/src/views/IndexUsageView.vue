@@ -11,6 +11,7 @@ import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import DropIndexDialog from '../components/DropIndexDialog.vue';
 import { useConnectionsStore } from '../stores/connections';
 import type { IndexesTab } from '../stores/tabs';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // "Índices · <tabla>": every index of the table with its definition, size
 // and usage counters since the server started them, sortable and copyable.
@@ -148,7 +149,7 @@ async function copyGrid() {
         <table class="iu-table">
           <thead>
             <tr>
-              <th v-for="c in cols" :key="c.id" :class="{ n: c.num, sorted: sort?.col === c.id }" @click="sortBy(c.id)">
+              <th v-for="c in cols" :key="c.id" v-key-activate.native :class="{ n: c.num, sorted: sort?.col === c.id }" @click="sortBy(c.id)">
                 {{ c.label }}<span v-if="sort?.col === c.id" class="iu-arrow">{{ sort.desc ? '▼' : '▲' }}</span>
               </th>
             </tr>

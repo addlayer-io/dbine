@@ -375,7 +375,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.ca_file')">
           <el-input v-model="draft.ca_file" placeholder="~/vault-ca.pem">
-            <template #append><el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.auth')">
@@ -506,12 +506,12 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         <template v-if="!acctMode">
         <el-form-item :label="$t('connection:source.input.file')" :required="req('file')" class="ss-wide">
           <el-input v-model="draft.file" placeholder="~/Passwords/databases.kdbx" spellcheck="false">
-            <template #append><el-button @click="browse('file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.key_file')" :required="req('key_file')" class="ss-wide">
           <el-input v-model="draft.key_file" placeholder="~/Passwords/databases.keyx" spellcheck="false">
-            <template #append><el-button @click="browse('key_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('key_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         <SecretMasterInputs v-model="draft" :editing="editing" :required-command="req('master_command')" />
@@ -574,7 +574,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.ca_file')">
           <el-input v-model="draft.ca_file" placeholder="~/conjur-ca.pem">
-            <template #append><el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         </template>
@@ -599,17 +599,17 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.ca_file')">
           <el-input v-model="draft.ca_file" placeholder="~/ccp-ca.pem">
-            <template #append><el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.client_cert')">
           <el-input v-model="draft.client_cert" placeholder="~/dbine.p12" spellcheck="false">
-            <template #append><el-button @click="browse('client_cert')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFile')" @click="browse('client_cert')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.client_key')">
           <el-input v-model="draft.client_key" placeholder="~/dbine.key" spellcheck="false" :disabled="!draft.client_cert.trim()">
-            <template #append><el-button :disabled="!draft.client_cert.trim()" @click="browse('client_key')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFile')" :disabled="!draft.client_cert.trim()" @click="browse('client_key')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.cert_passphrase')" class="ss-wide">

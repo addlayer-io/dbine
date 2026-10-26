@@ -272,10 +272,10 @@ function openHeadMenu(e: MouseEvent) {
     <div class="lb-header">
       <span class="lb-title">{{ $t('library:sidebar.title') }}</span>
       <div style="flex: 1" />
-      <button class="lb-icon" :title="$t('library:sidebar.newScript')" @click="newScript"><el-icon><ei-plus /></el-icon></button>
-      <button class="lb-icon" :title="$t('library:folder.new')" @click="newFolder()"><el-icon><ei-folder-add /></el-icon></button>
-      <button class="lb-icon" :title="$t('library:sidebar.gitHint')" @click="gitOpen = true"><el-icon><ei-share /></el-icon></button>
-      <button class="lb-icon" :title="$t('library:sidebar.importExport')" @click="openHeadMenu"><el-icon><ei-more-filled /></el-icon></button>
+      <button :aria-label="$t('library:sidebar.newScript')" class="lb-icon" :title="$t('library:sidebar.newScript')" @click="newScript"><el-icon><ei-plus /></el-icon></button>
+      <button :aria-label="$t('library:folder.new')" class="lb-icon" :title="$t('library:folder.new')" @click="newFolder()"><el-icon><ei-folder-add /></el-icon></button>
+      <button :aria-label="$t('library:sidebar.gitHint')" class="lb-icon" :title="$t('library:sidebar.gitHint')" @click="gitOpen = true"><el-icon><ei-share /></el-icon></button>
+      <button :aria-label="$t('library:sidebar.importExport')" class="lb-icon" :title="$t('library:sidebar.importExport')" @click="openHeadMenu"><el-icon><ei-more-filled /></el-icon></button>
     </div>
     <div class="lb-filter">
       <el-input v-model="query" size="small" clearable :placeholder="$t('library:sidebar.search')">
@@ -307,10 +307,10 @@ function openHeadMenu(e: MouseEvent) {
         {{ $t('library:sidebar.noneFor', { engine: driver.name }) }}
       </div>
       <template v-for="section in [{ key: 'fit', list: fitting }, ...(others.length ? [{ key: 'other', list: others }] : [])]" :key="section.key">
-        <div v-if="section.key === 'other'" class="lb-section" :title="$t('library:sidebar.othersHint', { engine: driver?.name ?? '' })" @click="othersOpen = !othersOpen">
+        <button v-if="section.key === 'other'" type="button" class="lb-section nm-plain-btn" :title="$t('library:sidebar.othersHint', { engine: driver?.name ?? '' })" :aria-expanded="othersOpen" @click="othersOpen = !othersOpen">
           <el-icon class="lb-caret" :class="{ open: othersOpen }"><ei-arrow-right /></el-icon>
           {{ $t('library:sidebar.others', { n: others.length }) }}
-        </div>
+        </button>
         <template v-if="section.key === 'fit' || othersOpen">
         <div
           v-for="s in section.list.filter((x) => !x.folder)"
@@ -328,7 +328,7 @@ function openHeadMenu(e: MouseEvent) {
           <el-icon class="lb-star"><ei-star-filled /></el-icon>
           <span class="lb-name">{{ s.name }}</span>
           <span class="lb-engines">{{ s.engines.map(engineLabel).join(' · ') || $t('library:sidebar.noEngine') }}</span>
-          <button class="lb-act" :title="$t('common:edit')" @click.stop="edit(s)"><el-icon><ei-edit /></el-icon></button>
+          <button :aria-label="$t('common:edit')" class="lb-act" :title="$t('common:edit')" @click.stop="edit(s)"><el-icon><ei-edit /></el-icon></button>
         </div>
         <template v-for="f in folderRows(section.key, section.list)" :key="section.key + f.folder">
           <div
@@ -367,7 +367,7 @@ function openHeadMenu(e: MouseEvent) {
               <el-icon class="lb-star"><ei-star-filled /></el-icon>
               <span class="lb-name">{{ s.name }}</span>
               <span class="lb-engines">{{ s.engines.map(engineLabel).join(' · ') || $t('library:sidebar.noEngine') }}</span>
-              <button class="lb-act" :title="$t('common:edit')" @click.stop="edit(s)"><el-icon><ei-edit /></el-icon></button>
+              <button :aria-label="$t('common:edit')" class="lb-act" :title="$t('common:edit')" @click.stop="edit(s)"><el-icon><ei-edit /></el-icon></button>
             </div>
           </template>
         </template>
@@ -392,7 +392,7 @@ function openHeadMenu(e: MouseEvent) {
 .lb-empty p { margin: 0 0 8px; }
 .lb-empty code { font-family: var(--nm-mono); font-size: 12px; }
 .lb-muted { color: var(--nm-text-dim); font-size: 12px; }
-.lb-section { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; padding: 8px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--nm-text-dim); border-top: 1px solid var(--nm-border); margin-top: 6px; }
+.lb-section { display: flex; width: 100%; box-sizing: border-box; align-items: center; gap: 5px; cursor: pointer; user-select: none; padding: 8px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--nm-text-dim); border-top: 1px solid var(--nm-border); margin-top: 6px; }
 .lb-folder { display: flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; cursor: pointer; color: var(--nm-text); user-select: none; }
 .lb-folder:hover, .lb-item:hover { background: var(--ide-hover); }
 /* WebKit (Tauri on macOS) only drags elements marked like this. */
@@ -406,7 +406,6 @@ function openHeadMenu(e: MouseEvent) {
 .lb-item.nested { padding-left: 32px; }
 .lb-item.dim { opacity: 0.6; }
 .lb-item.selected { background: var(--ide-selection); }
-.lb-list { outline: none; }
 .lb-star { color: var(--nm-yellow); font-size: 12px; flex: none; }
 .lb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-text-strong); }
 .lb-engines { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--nm-text-dim); }

@@ -12,6 +12,7 @@ import { tb } from '../i18n/backend';
 import { lineComment } from '../composables/scriptComment';
 import { isProdConnection } from '../composables/tags';
 import { useConnectionsStore } from '../stores/connections';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // Designer for a new table / collection / index / key… in any engine. What
 // it offers comes entirely from the driver's DesignerSpec; it builds a
@@ -815,7 +816,7 @@ defineExpose({ table });
           </button>
         </template>
         <ul class="dz-issue-list">
-          <li v-for="(i, n) in issues" :key="n" :class="i.level" @click="section = i.section">
+          <li v-for="(i, n) in issues" :key="n" v-key-activate :class="i.level" @click="section = i.section">
             <el-icon><ei-circle-close-filled v-if="i.level === 'error'" /><ei-warning v-else /></el-icon>
             <span>{{ i.text }}</span>
           </li>
@@ -954,10 +955,10 @@ defineExpose({ table });
               </td>
               <td class="dz-actions">
                 <template v-if="!alter">
-                  <button class="ide-icon-btn" :title="$t('designer:columns.moveUp')" :disabled="i === 0" @click="moveCol(c, -1)"><el-icon><ei-arrow-up /></el-icon></button>
-                  <button class="ide-icon-btn" :title="$t('designer:columns.moveDown')" :disabled="i === cols.length - 1" @click="moveCol(c, 1)"><el-icon><ei-arrow-down /></el-icon></button>
+                  <button :aria-label="$t('designer:columns.moveUp')" class="ide-icon-btn" :title="$t('designer:columns.moveUp')" :disabled="i === 0" @click="moveCol(c, -1)"><el-icon><ei-arrow-up /></el-icon></button>
+                  <button :aria-label="$t('designer:columns.moveDown')" class="ide-icon-btn" :title="$t('designer:columns.moveDown')" :disabled="i === cols.length - 1" @click="moveCol(c, 1)"><el-icon><ei-arrow-down /></el-icon></button>
                 </template>
-                <button class="ide-icon-btn dz-del" :title="$t('designer:columns.removeTitle')" @click="removeCol(c)"><el-icon><ei-close /></el-icon></button>
+                <button :aria-label="$t('designer:columns.removeTitle')" class="ide-icon-btn dz-del" :title="$t('designer:columns.removeTitle')" @click="removeCol(c)"><el-icon><ei-close /></el-icon></button>
               </td>
             </tr>
           </tbody>
@@ -1004,7 +1005,7 @@ defineExpose({ table });
               <td class="dz-opt"><el-input v-model="x.kind" :placeholder="$t('designer:defaultPlaceholder')" spellcheck="false" /></td>
               <td class="dz-filter"><el-input v-model="x.filter" :placeholder="$t('designer:indexes.filterPlaceholder')" spellcheck="false" /></td>
               <td class="dz-actions">
-                <button class="ide-icon-btn dz-del" :title="$t('common:remove')" @click="idxs.splice(idxs.indexOf(x), 1)"><el-icon><ei-close /></el-icon></button>
+                <button :aria-label="$t('common:remove')" class="ide-icon-btn dz-del" :title="$t('common:remove')" @click="idxs.splice(idxs.indexOf(x), 1)"><el-icon><ei-close /></el-icon></button>
               </td>
             </tr>
           </tbody>
@@ -1069,7 +1070,7 @@ defineExpose({ table });
                 </el-select>
               </td>
               <td class="dz-actions">
-                <button class="ide-icon-btn dz-del" :title="$t('common:remove')" @click="fks.splice(fks.indexOf(f), 1)"><el-icon><ei-close /></el-icon></button>
+                <button :aria-label="$t('common:remove')" class="ide-icon-btn dz-del" :title="$t('common:remove')" @click="fks.splice(fks.indexOf(f), 1)"><el-icon><ei-close /></el-icon></button>
               </td>
             </tr>
           </tbody>

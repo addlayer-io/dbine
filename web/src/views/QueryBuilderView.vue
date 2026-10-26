@@ -21,6 +21,7 @@ import { useTabsStore, type QueryBuilderTab } from '../stores/tabs';
 import CodeEditor from '../components/CodeEditor.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import ResultGrid from '../components/ResultGrid.vue';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // "Diseñar consulta" (docs/query-builder.md). Tables dragged
 // from the list onto a canvas (same pan/zoom and SVG lines as the ER
@@ -504,6 +505,7 @@ function onSplitDown(e: PointerEvent) {
             <div
               v-for="o in g.items"
               :key="`${o.kind}:${o.name}`"
+              v-key-activate.open
               class="qb-item"
               :title="`${o.schema ? o.schema + '.' : ''}${o.name} · ${kindLabel(o.kind)}\n${$t('queryBuilder:dragHint')}`"
               @pointerdown="onItemDown($event, o)"
@@ -572,7 +574,7 @@ function onSplitDown(e: PointerEvent) {
                 <span v-if="st.schema" class="qb-sch">{{ st.schema }}.</span>{{ st.name }}
                 <em v-if="st.alias" class="qb-alias">{{ st.alias }}</em>
               </span>
-              <button class="qb-x" :title="$t('queryBuilder:removeTable')" @pointerdown.stop @click="removeTable(st.id)"><el-icon><ei-close /></el-icon></button>
+              <button :aria-label="$t('queryBuilder:removeTable')" class="qb-x" :title="$t('queryBuilder:removeTable')" @pointerdown.stop @click="removeTable(st.id)"><el-icon><ei-close /></el-icon></button>
             </div>
             <div class="qb-row qb-star" data-qb-col="*" :data-qb-table="st.id" @pointerdown.stop>
               <el-checkbox size="small" :model-value="isShown(st, '*')" @change="toggleColumn(st, '*')" />
@@ -601,7 +603,7 @@ function onSplitDown(e: PointerEvent) {
           <span>{{ oneTable ? $t('queryBuilder:empty.oneTable') : $t('queryBuilder:empty.text') }}</span>
         </div>
         <div v-if="spec.tables.length" class="qb-zoom" @pointerdown.stop>
-          <button :title="$t('diagram:zoom.fit')" @click="fit"><el-icon><ei-full-screen /></el-icon></button>
+          <button :aria-label="$t('diagram:zoom.fit')" :title="$t('diagram:zoom.fit')" @click="fit"><el-icon><ei-full-screen /></el-icon></button>
           <span class="qb-zoom-pct">{{ Math.round(view.k * 100) }}%</span>
         </div>
       </div>
@@ -623,8 +625,8 @@ function onSplitDown(e: PointerEvent) {
               <th :title="$t('queryBuilder:grid.sortOrderTip')">{{ $t('queryBuilder:grid.sortOrder') }}</th>
               <th v-for="g in spec.filter_groups" :key="g" class="qb-fh">
                 {{ g === 1 ? $t('queryBuilder:grid.filter') : $t('queryBuilder:grid.or') }}
-                <button v-if="g === spec.filter_groups && g > 1" class="qb-mini" :title="$t('queryBuilder:grid.removeOr')" @click="removeGroup"><el-icon><ei-minus /></el-icon></button>
-                <button v-if="g === spec.filter_groups && (features?.or_groups ?? true)" class="qb-mini" :title="$t('queryBuilder:grid.addOr')" @click="addGroup"><el-icon><ei-plus /></el-icon></button>
+                <button v-if="g === spec.filter_groups && g > 1" :aria-label="$t('queryBuilder:grid.removeOr')" class="qb-mini" :title="$t('queryBuilder:grid.removeOr')" @click="removeGroup"><el-icon><ei-minus /></el-icon></button>
+                <button v-if="g === spec.filter_groups && (features?.or_groups ?? true)" :aria-label="$t('queryBuilder:grid.addOr')" class="qb-mini" :title="$t('queryBuilder:grid.addOr')" @click="addGroup"><el-icon><ei-plus /></el-icon></button>
               </th>
               <th />
             </tr>
@@ -673,9 +675,9 @@ function onSplitDown(e: PointerEvent) {
                 </template>
               </td>
               <td class="qb-acts">
-                <button class="qb-mini" :title="$t('queryBuilder:grid.up')" :disabled="i === 0" @click="moveRow(i, -1)"><el-icon><ei-arrow-up /></el-icon></button>
-                <button class="qb-mini" :title="$t('queryBuilder:grid.down')" :disabled="i === spec.columns.length - 1" @click="moveRow(i, 1)"><el-icon><ei-arrow-down /></el-icon></button>
-                <button class="qb-mini" :title="$t('queryBuilder:grid.remove')" @click="removeRow(i)"><el-icon><ei-close /></el-icon></button>
+                <button :aria-label="$t('queryBuilder:grid.up')" class="qb-mini" :title="$t('queryBuilder:grid.up')" :disabled="i === 0" @click="moveRow(i, -1)"><el-icon><ei-arrow-up /></el-icon></button>
+                <button :aria-label="$t('queryBuilder:grid.down')" class="qb-mini" :title="$t('queryBuilder:grid.down')" :disabled="i === spec.columns.length - 1" @click="moveRow(i, 1)"><el-icon><ei-arrow-down /></el-icon></button>
+                <button :aria-label="$t('queryBuilder:grid.remove')" class="qb-mini" :title="$t('queryBuilder:grid.remove')" @click="removeRow(i)"><el-icon><ei-close /></el-icon></button>
               </td>
             </tr>
           </tbody>
@@ -766,7 +768,7 @@ function onSplitDown(e: PointerEvent) {
 .qb-item:hover { background: var(--ide-hover, rgba(255, 255, 255, 0.05)); }
 
 .qb-canvas {
-  position: relative; flex: 1; min-width: 0; overflow: hidden; outline: none; cursor: grab;
+  position: relative; flex: 1; min-width: 0; overflow: hidden; cursor: grab;
   background-color: var(--nm-canvas);
   background-image: radial-gradient(circle, var(--nm-canvas-dot) 1px, transparent 1.2px);
   background-size: 20px 20px;

@@ -67,9 +67,9 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
           <el-option value="continue" :label="$t('scheduled:step.onError.continue')" />
         </el-select>
       </span>
-      <el-button size="small" text :disabled="index === 0" :title="$t('scheduled:step.up')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></el-button>
-      <el-button size="small" text :disabled="index === count - 1" :title="$t('scheduled:step.down')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></el-button>
-      <el-button size="small" text :title="$t('scheduled:step.remove')" @click="emit('remove')"><el-icon><ei-delete /></el-icon></el-button>
+      <el-button :aria-label="$t('scheduled:step.up')" size="small" text :disabled="index === 0" :title="$t('scheduled:step.up')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></el-button>
+      <el-button :aria-label="$t('scheduled:step.down')" size="small" text :disabled="index === count - 1" :title="$t('scheduled:step.down')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></el-button>
+      <el-button :aria-label="$t('scheduled:step.remove')" size="small" text :title="$t('scheduled:step.remove')" @click="emit('remove')"><el-icon><ei-delete /></el-icon></el-button>
     </header>
 
     <el-form label-position="top" size="small" class="se-body">
@@ -147,7 +147,7 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
       <div v-if="step.kind === 'export' || step.kind === 'compare_schemas' || step.kind === 'document' || (step.kind === 'backup' && c.mode === 'copy')" class="se-row">
         <el-form-item :label="$t('scheduled:step.folder')" class="se-grow">
           <el-input v-model="c.folder" @input="emit('change')">
-            <template #append><el-button @click="browse"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('importConnections:chooseFolder')" @click="browse"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
         <el-form-item :label="$t('scheduled:step.fileName')" class="se-grow">

@@ -243,7 +243,7 @@ function openAsQuery() {
       <el-button v-if="view !== 'structure'" @click="openAsQuery">
         <el-icon><ei-document-add /></el-icon>&nbsp;{{ $t('query:object.openAsQuery') }}
       </el-button>
-      <el-button @click="refresh"><el-icon><ei-refresh /></el-icon></el-button>
+      <el-button :aria-label="$t('common:refresh')" @click="refresh"><el-icon><ei-refresh /></el-icon></el-button>
     </div>
 
     <div class="ov-body">

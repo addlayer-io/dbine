@@ -176,7 +176,7 @@ function back() {
         </el-input>
       </div>
       <div class="sb-crumbs">
-        <button type="button" class="sb-crumb" @click="goTop"><el-icon><ei-house /></el-icon></button>
+        <button type="button" class="sb-crumb" :aria-label="$t(`connection:source.kind.${kind}`)" @click="goTop"><el-icon><ei-house /></el-icon></button>
         <template v-for="c in crumbs" :key="c.i">
           <span class="sb-sep">/</span>
           <button type="button" class="sb-crumb" @click="goTo(c.i)">{{ c.name }}</button>
@@ -184,7 +184,7 @@ function back() {
       </div>
     </template>
     <div v-else class="sb-crumbs">
-      <button type="button" class="sb-crumb" @click="back"><el-icon><ei-back /></el-icon></button>
+      <button type="button" class="sb-crumb" :aria-label="$t('common:back')" @click="back"><el-icon><ei-back /></el-icon></button>
       <span class="sb-chosen">{{ chosen.name }}</span>
       <span v-if="chosen.detail" class="sb-detail">{{ chosen.detail }}</span>
     </div>
@@ -247,7 +247,7 @@ function back() {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 10px; border: 0; background: none; cursor: pointer;
   color: var(--nm-text); font: inherit; font-size: 12.5px; text-align: left; min-width: 0;
 }
-.sb-row:hover, .sb-row:focus-visible { background: var(--ide-hover); outline: none; }
+.sb-row:hover, .sb-row:focus-visible { background: var(--ide-hover); }
 .sb-icon { flex: none; color: var(--nm-text-dim); }
 .sb-row.group .sb-icon { color: var(--el-color-warning); }
 .sb-name { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-text-strong); }

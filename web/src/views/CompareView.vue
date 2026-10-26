@@ -21,6 +21,7 @@ import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore, type CompareTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
 // difference can be carried to the other side (→ / ←); that only edits an
@@ -1760,17 +1761,17 @@ async function runSync() {
           <template v-if="result && pendingCount(s)">
             <span class="cv-pend" :title="$t('compare:pendingChanges')">{{ pendingCount(s) }}</span>
             <el-tooltip :content="$t('compare:discard')" placement="bottom">
-              <el-button size="small" text circle @click="discard(s)"><el-icon><ei-close /></el-icon></el-button>
+              <el-button :aria-label="$t('compare:discard')" size="small" text circle @click="discard(s)"><el-icon><ei-close /></el-icon></el-button>
             </el-tooltip>
           </template>
         </div>
         <el-tooltip v-if="s === 'left'" :content="$t('compare:swap')" placement="bottom">
-          <el-button size="small" circle @click="swap"><el-icon><ei-sort /></el-icon></el-button>
+          <el-button :aria-label="$t('compare:swap')" size="small" circle @click="swap"><el-icon><ei-sort /></el-icon></el-button>
         </el-tooltip>
       </template>
       <div class="cv-actions">
         <el-tooltip v-if="result" :content="$t('compare:undo')" placement="bottom">
-          <el-button size="small" circle :disabled="!canUndo" @click="undo"><el-icon><ei-refresh-left /></el-icon></el-button>
+          <el-button :aria-label="$t('compare:undo')" size="small" circle :disabled="!canUndo" @click="undo"><el-icon><ei-refresh-left /></el-icon></el-button>
         </el-tooltip>
         <el-tooltip v-if="result" :content="syncTip" placement="bottom">
           <span class="cv-syncwrap">
@@ -1814,6 +1815,7 @@ async function runSync() {
             <div
               v-for="it in g.items"
               :key="it.id"
+              v-key-activate
               class="cv-item"
               :class="{ sel: selectedId === it.id }"
               @click="selectedId = it.id"
@@ -1826,7 +1828,7 @@ async function runSync() {
                   <button :class="{ on: lit(it.mark, 'right') }" :title="tip(it.mark, it.status, 'right', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'right')">←</button>
                   <button :class="{ on: lit(it.mark, 'left') }" :title="tip(it.mark, it.status, 'left', it.table || it.mark?.type === 'table' ? 'table' : 'object')" @click="arrowRow(it, 'left')">→</button>
                 </template>
-                <button class="cv-trash" :class="{ on: !!it.mark?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => rowDropMenu(it))"><el-icon><ei-delete /></el-icon></button>
+                <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!it.mark?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => rowDropMenu(it))"><el-icon><ei-delete /></el-icon></button>
               </span>
             </div>
           </template>
@@ -1848,7 +1850,7 @@ async function runSync() {
                 <button :class="{ on: lit(tableMark(selTable), 'right') }" :title="tip(tableMark(selTable), selTable.status, 'right', 'table')" @click="arrowTable(selTable, 'right')">←</button>
                 <button :class="{ on: lit(tableMark(selTable), 'left') }" :title="tip(tableMark(selTable), selTable.status, 'left', 'table')" @click="arrowTable(selTable, 'left')">→</button>
               </template>
-              <button class="cv-trash" :class="{ on: !!tableMark(selTable)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => tableDropMenu(selTable!))"><el-icon><ei-delete /></el-icon></button>
+              <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!tableMark(selTable)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => tableDropMenu(selTable!))"><el-icon><ei-delete /></el-icon></button>
             </div>
           </div>
           <div class="cv-grid">
@@ -1879,7 +1881,7 @@ async function runSync() {
                       <button :class="{ on: lit(itemMark(selTable, sec.id, d), 'left') }" :title="tip(itemMark(selTable, sec.id, d), d.status, 'left', 'item')" @click="arrowItem(selTable, sec.id, d, 'left')">→</button>
                     </template>
                     <span v-else-if="rowMark(itemKey(selTable, sec.id, d))" class="cv-dot" :title="$t('compare:pendingChanges')" />
-                    <button class="cv-trash" :class="{ on: !!itemMark(selTable, sec.id, d)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => itemDropMenu(selTable!, sec.id, d))"><el-icon><ei-delete /></el-icon></button>
+                    <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!itemMark(selTable, sec.id, d)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => itemDropMenu(selTable!, sec.id, d))"><el-icon><ei-delete /></el-icon></button>
                   </div>
                   <div class="cv-cell" :class="{ none: d.right === null }">
                     <template v-if="itemOf('right', sec.id, d)">
@@ -1902,7 +1904,7 @@ async function runSync() {
                   <div class="cv-mid">
                     <button :class="{ on: lit(gm, 'right') }" :title="tip(gm, 'equal', 'right', 'item')" @click="arrowGhost(gk, 'right')">←</button>
                     <button :class="{ on: lit(gm, 'left') }" :title="tip(gm, 'equal', 'left', 'item')" @click="arrowGhost(gk, 'left')">→</button>
-                    <button class="cv-trash" :class="{ on: !!gm.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => ghostItemDropMenu(gk, gm))"><el-icon><ei-delete /></el-icon></button>
+                    <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!gm.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => ghostItemDropMenu(gk, gm))"><el-icon><ei-delete /></el-icon></button>
                   </div>
                   <div class="cv-cell none"><b v-if="targets(gm).includes('right')" class="cv-ghost" :class="{ drop: !!gm.drop }">{{ gm.label }}</b></div>
                 </div>
@@ -1920,7 +1922,7 @@ async function runSync() {
                       <button :class="{ on: lit(keyMark(selTable, 'props'), 'left') }" :title="keyTip(selTable, 'props', 'left')" @click="arrowKey(selTable, 'props', 'left')">→</button>
                     </template>
                     <span v-else-if="rowMark(itemKey(selTable, 'props', null))" class="cv-dot" :title="$t('compare:pendingChanges')" />
-                    <button v-if="origTable('left')?.comment || origTable('right')?.comment" class="cv-trash" :class="{ on: !!keyMark(selTable, 'props')?.drop }" :title="$t('compare:drop.clearComment')" @click="openDrop($event, () => keyDropMenu(selTable!, 'props'))"><el-icon><ei-delete /></el-icon></button>
+                    <button v-if="origTable('left')?.comment || origTable('right')?.comment" :aria-label="$t('compare:drop.clearComment')" class="cv-trash" :class="{ on: !!keyMark(selTable, 'props')?.drop }" :title="$t('compare:drop.clearComment')" @click="openDrop($event, () => keyDropMenu(selTable!, 'props'))"><el-icon><ei-delete /></el-icon></button>
                   </div>
                 </div>
               </template>
@@ -1937,7 +1939,7 @@ async function runSync() {
                     <button :class="{ on: lit(keyMark(selTable, 'primary_key'), 'left') }" :title="keyTip(selTable, 'primary_key', 'left')" @click="arrowKey(selTable, 'primary_key', 'left')">→</button>
                   </template>
                   <span v-else-if="rowMark(itemKey(selTable, 'primary_key', null))" class="cv-dot" :title="$t('compare:pendingChanges')" />
-                  <button class="cv-trash" :class="{ on: !!keyMark(selTable, 'primary_key')?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => keyDropMenu(selTable!, 'primary_key'))"><el-icon><ei-delete /></el-icon></button>
+                  <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!keyMark(selTable, 'primary_key')?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => keyDropMenu(selTable!, 'primary_key'))"><el-icon><ei-delete /></el-icon></button>
                 </div>
                 <div class="cv-cell" :class="{ none: !pkText(tableOf('right')) }">
                   <span v-if="!pkText(tableOf('right')) && struck(keyMark(selTable, 'primary_key'), 'right')" class="cv-ghost drop" :title="$t('compare:drop.pending.right')">{{ pkText(origTable('right')) }}</span>
@@ -1974,7 +1976,7 @@ async function runSync() {
                 <button :class="{ on: lit(objectMark(selObject), 'right') }" :title="tip(objectMark(selObject), selObject.status, 'right', 'object')" @click="arrowObject(selObject, 'right')">←</button>
                 <button :class="{ on: lit(objectMark(selObject), 'left') }" :title="tip(objectMark(selObject), selObject.status, 'left', 'object')" @click="arrowObject(selObject, 'left')">→</button>
               </template>
-              <button class="cv-trash" :class="{ on: !!objectMark(selObject)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => objectDropMenu(selObject!))"><el-icon><ei-delete /></el-icon></button>
+              <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!objectMark(selObject)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => objectDropMenu(selObject!))"><el-icon><ei-delete /></el-icon></button>
             </div>
           </div>
           <CodeDiff :lines="codeDiff" />
@@ -1987,7 +1989,7 @@ async function runSync() {
             <div class="cv-mid">
               <button :class="{ on: lit(selected.mark, 'right') }" :title="tip(selected.mark, 'equal', 'right', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'right')">←</button>
               <button :class="{ on: lit(selected.mark, 'left') }" :title="tip(selected.mark, 'equal', 'left', selected.mark.type === 'table' ? 'table' : 'object')" @click="arrowGhost(selected.ghost, 'left')">→</button>
-              <button class="cv-trash" :class="{ on: !!selected.mark.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => ghostDropMenu(selected!.ghost!, selected!.mark!))"><el-icon><ei-delete /></el-icon></button>
+              <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!selected.mark.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => ghostDropMenu(selected!.ghost!, selected!.mark!))"><el-icon><ei-delete /></el-icon></button>
             </div>
             <div class="cv-dside"><span v-if="targets(selected.mark).includes('right')" class="cv-ghost" :class="{ drop: !!selected.mark.drop }">{{ selected.key }}</span><template v-else>—</template></div>
           </div>

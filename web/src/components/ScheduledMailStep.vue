@@ -75,9 +75,9 @@ async function browse(i: number | null) {
       <div class="sm-files">
         <div v-for="(_, i) in config.attachments" :key="i" class="sm-file">
           <el-input v-model="config.attachments[i]" placeholder="{steps.1.file}" @input="emit('change')">
-            <template #append><el-button :title="$t('scheduled:mail.pickFile')" @click="browse(i)"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+            <template #append><el-button :aria-label="$t('scheduled:mail.pickFile')" :title="$t('scheduled:mail.pickFile')" @click="browse(i)"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
-          <el-button text :title="$t('scheduled:mail.removeAttachment')" @click="removeAttachment(i)"><el-icon><ei-delete /></el-icon></el-button>
+          <el-button :aria-label="$t('scheduled:mail.removeAttachment')" text :title="$t('scheduled:mail.removeAttachment')" @click="removeAttachment(i)"><el-icon><ei-delete /></el-icon></el-button>
         </div>
         <div class="sm-file-actions">
           <el-button size="small" @click="addAttachment('{steps.1.file}')"><el-icon><ei-plus /></el-icon>&nbsp;{{ $t('scheduled:mail.addAttachment') }}</el-button>
