@@ -11171,5 +11171,17 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "PEM-Datei der Zertifizierungsstelle, die das Serverzertifikat signiert hat (wie curl --cacert).",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "Dieser TLS-Modus braucht die CA-Datei: Geben Sie {0} an.",
   "No verifica el certificado del servidor (como curl --insecure).": "Prüft das Zertifikat des Servers nicht (wie curl --insecure).",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} braucht die CA-Datei: Geben Sie {2} an oder wählen Sie einen anderen Wert für {3}."
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} braucht die CA-Datei: Geben Sie {2} an oder wählen Sie einen anderen Wert für {3}.",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "Mit TLS verwendet der Treiber den HTTPS-Port des Servers (HTTPS_PORT, 443), nicht den von TDMST.",
+  "El certificado se verifica con el almacén de certificados del sistema.": "Das Zertifikat wird mit dem Zertifikatspeicher des Systems geprüft.",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Über den SSH-Tunnel kann der ODBC-Treiber von MonetDB nicht prüfen, ob das Zertifikat zu {0} gehört: Pinne es mit CERTHASH in den zusätzlichen Attributen oder verbinde dich ohne Tunnel.",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Über den SSH-Tunnel kann der ODBC-Treiber nicht prüfen, ob das Zertifikat zu {0} gehört: Verwende {1} (prüft nur die Zertifizierungsstelle) oder verbinde dich ohne Tunnel.",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl prüft das Zertifikat mit dem Schlüsselspeicher des Clients (SSL_KEYSTORE_FILE in conssl.cfg).",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca und verify-full brauchen die root.crt der Zertifizierungsstelle auf dem Client."
 }

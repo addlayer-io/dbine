@@ -11171,5 +11171,17 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "Arquivo PEM da CA que assinou o certificado do servidor (como curl --cacert).",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "Este modo de TLS precisa do arquivo da CA: preencha {0}.",
   "No verifica el certificado del servidor (como curl --insecure).": "Não verifica o certificado do servidor (como curl --insecure).",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} precisa do arquivo da CA: preencha {2} ou escolha outro valor de {3}."
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} precisa do arquivo da CA: preencha {2} ou escolha outro valor de {3}.",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "Com TLS o driver usa a porta HTTPS do servidor (HTTPS_PORT, 443), não a do TDMST.",
+  "El certificado se verifica con el almacén de certificados del sistema.": "O certificado é verificado com o repositório de certificados do sistema.",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Pelo túnel SSH, o driver ODBC do MonetDB não consegue verificar se o certificado é de {0}: fixe-o com CERTHASH nos atributos adicionais ou conecte sem túnel.",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Pelo túnel SSH, o driver ODBC não consegue verificar se o certificado é de {0}: use {1} (verifica só a CA) ou conecte sem túnel.",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl verifica o certificado com o repositório de chaves do cliente (SSL_KEYSTORE_FILE em conssl.cfg).",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca e verify-full precisam do root.crt da CA no cliente."
 }

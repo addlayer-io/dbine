@@ -11171,5 +11171,17 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "Fichier PEM de l'autorité de certification qui a signé le certificat du serveur (comme curl --cacert).",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "Ce mode TLS a besoin du fichier de l'autorité de certification : renseignez {0}.",
   "No verifica el certificado del servidor (como curl --insecure).": "Ne vérifie pas le certificat du serveur (comme curl --insecure).",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} a besoin du fichier de l'autorité de certification : renseignez {2} ou choisissez une autre valeur de {3}."
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} a besoin du fichier de l'autorité de certification : renseignez {2} ou choisissez une autre valeur de {3}.",
+  "Allow": "Allow",
+  "Disable": "Disable",
+  "Encryption": "Encryption",
+  "Off": "Off",
+  "Prefer": "Prefer",
+  "Require": "Require",
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": "Avec TLS, le pilote utilise le port HTTPS du serveur (HTTPS_PORT, 443), pas celui de TDMST.",
+  "El certificado se verifica con el almacén de certificados del sistema.": "Le certificat est vérifié avec le magasin de certificats du système.",
+  "Por el túnel SSH, el driver ODBC de MonetDB no puede comprobar que el certificado sea de {0}: fijalo con CERTHASH en los atributos adicionales o conectate sin túnel.": "Par le tunnel SSH, le pilote ODBC de MonetDB ne peut pas vérifier que le certificat appartient à {0} : épinglez-le avec CERTHASH dans les attributs supplémentaires ou connectez-vous sans tunnel.",
+  "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Par le tunnel SSH, le pilote ODBC ne peut pas vérifier que le certificat appartient à {0} : utilisez {1} (vérifie seulement l'autorité de certification) ou connectez-vous sans tunnel.",
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl vérifie le certificat avec le magasin de clés du client (SSL_KEYSTORE_FILE dans conssl.cfg).",
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca et verify-full ont besoin du root.crt de l'autorité de certification sur le client."
 }
