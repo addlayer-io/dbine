@@ -61,8 +61,10 @@ const ORDER: TlsLevel[] = ['off', 'optional', 'unverified', 'verify_ca', 'verify
 const lower = (a: TlsLevel, b: TlsLevel): TlsLevel => (ORDER.indexOf(a) <= ORDER.indexOf(b) ? a : b);
 
 /** The level a set of values gives (as ConnectionConfig::tls_level): the
- *  mode field's, lowered by a skip-verify / skip-hostname that is on. Null
- *  when there's no mode field or its value isn't one of its own. */
+ *  mode field's, capped by a verification select (the level its value
+ *  allows) and by a skip-verify / skip-hostname that is on. A cap never
+ *  raises the mode. Null when there's no mode field, or the mode or the
+ *  verification select holds a value that isn't one of its own. */
 export function tlsLevel(fields: Field[], get: (key: string) => FormValue | undefined): TlsLevel | null {
   const mode = fields.find((f) => f.tls?.role === 'mode');
   if (!mode || mode.tls?.role !== 'mode') return null;
@@ -72,11 +74,25 @@ export function tlsLevel(fields: Field[], get: (key: string) => FormValue | unde
   for (const f of fields) {
     const r = f.tls;
     if (!r) continue;
-    const on = asText(get(f.key)) === 'true';
+    const text = asText(get(f.key));
+    const on = text === 'true';
     if (r.role === 'skip_verify' && on !== !!r.inverted) level = lower(level, 'unverified');
-    if (r.role === 'skip_hostname' && on) level = lower(level, 'verify_ca');
+    if (r.role === 'skip_hostname' && on !== !!r.inverted) level = lower(level, 'verify_ca');
+    if (r.role === 'verify' && text !== '') {
+      const cap = r.levels.find(([v]) => v === text)?.[1];
+      if (cap === undefined) return null;
+      level = lower(level, cap);
+    }
   }
   return level;
+}
+
+/** The field must be filled at this level: it's required, or it's a CA
+ *  file the level can't verify without (TlsRole::CaFile's `required_at`;
+ *  the driver refuses to connect without it, ConnectionConfig::require_tls_ca). */
+export function fieldRequired(f: Field, level: TlsLevel | null): boolean {
+  if (f.required) return true;
+  return f.tls?.role === 'ca_file' && level !== null && !!f.tls.required_at?.includes(level);
 }
 
 /** The closest legacy (encrypt, trust) pair of a level (TlsLevel::legacy_pair). */

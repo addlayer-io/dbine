@@ -3,7 +3,7 @@
 // strips the TypeScript types itself). Not part of the app's build.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asText, formValue, legacyIndex, legacyTlsValues, legacyValue, newConnectionPort, portForLevel, tlsLevel, tlsWarning, writeTls } from './tlsFields.ts';
+import { asText, fieldRequired, formValue, legacyIndex, legacyTlsValues, legacyValue, newConnectionPort, portForLevel, tlsLevel, tlsWarning, writeTls } from './tlsFields.ts';
 
 const field = (key, kind, extra = {}) => ({ key, label: key, kind: { type: kind }, required: false, secret: false, placeholder: '', default: '', help: '', ...extra });
 
@@ -141,6 +141,60 @@ test('the level follows the mode and the skip options', () => {
   assert.equal(tlsLevel(inverted, get({ sslmode: 'verify-full', validate: true })), 'verify_full');
   const host = [{ ...trust, key: 'noHost', tls: { role: 'skip_hostname' } }, sslmode];
   assert.equal(tlsLevel(host, get({ sslmode: 'verify-full', noHost: true })), 'verify_ca');
+  assert.equal(tlsLevel(host, get({ sslmode: 'verify-full', noHost: false })), 'verify_full');
+  // An inverted skip-hostname (ssl_assert_hostname=false skips the check).
+  const assertHost = [{ ...trust, key: 'ssl_assert_hostname', default: 'true', tls: { role: 'skip_hostname', inverted: true } }, sslmode];
+  assert.equal(tlsLevel(assertHost, get({ sslmode: 'verify-full', ssl_assert_hostname: false })), 'verify_ca');
+  assert.equal(tlsLevel(assertHost, get({ sslmode: 'verify-full', ssl_assert_hostname: true })), 'verify_full');
+});
+
+// Trino: the SSL switch and SSLVerification FULL / CA / NONE.
+const sslSwitch = { ...field('SSL', 'bool'), default: 'true', section: 'ssl', tls: { role: 'mode', levels: [['true', 'verify_full'], ['false', 'off']] }, legacy: ['false', 'false', 'true', 'true'] };
+const verification = {
+  ...field('SSLVerification', 'select'),
+  kind: { type: 'select', options: [['FULL', 'FULL'], ['CA', 'CA'], ['NONE', 'NONE']] },
+  default: 'FULL',
+  section: 'ssl',
+  tls: { role: 'verify', levels: [['FULL', 'verify_full'], ['CA', 'verify_ca'], ['NONE', 'unverified']] },
+  legacy: ['FULL', 'NONE', 'FULL', 'NONE'],
+};
+const trino = { ...pg, id: 'trino', default_port: 8080, tls_port: 8443, fields: [field('host', 'text'), sslSwitch, verification] };
+
+test('a verification select caps the mode, never raises it', () => {
+  const get = (v) => (k) => v[k];
+  assert.equal(tlsLevel(trino.fields, get({ SSL: true, SSLVerification: 'FULL' })), 'verify_full');
+  assert.equal(tlsLevel(trino.fields, get({ SSL: true, SSLVerification: 'CA' })), 'verify_ca');
+  assert.equal(tlsLevel(trino.fields, get({ SSL: true, SSLVerification: 'NONE' })), 'unverified');
+  assert.equal(tlsLevel(trino.fields, get({ SSL: false, SSLVerification: 'FULL' })), 'off');
+  assert.equal(tlsLevel(trino.fields, get({ SSL: true, SSLVerification: '' })), 'verify_full');
+  assert.equal(tlsLevel(trino.fields, get({ SSL: true, SSLVerification: 'bogus' })), null);
+  assert.equal(tlsWarning(trino, get({ SSL: true, SSLVerification: 'NONE' })), 'unverified');
+  assert.equal(newConnectionPort(trino), '8443');
+});
+
+test('a verification select keeps an old connection as it was and dual-writes when changed', () => {
+  for (const [enc, tr] of [[false, false], [false, true], [true, false], [true, true]]) {
+    const cfg = form(trino, saved(enc, tr)).build();
+    assert.deepEqual(cfg.options, {}, `${enc}/${tr}`);
+    assert.deepEqual([cfg.encrypt, cfg.trust_server_certificate], [enc, tr]);
+  }
+  const f = form(trino, saved(true, true));
+  assert.equal(f.values.SSLVerification, 'NONE');
+  f.values.SSLVerification = 'CA';
+  const cfg = f.build();
+  assert.deepEqual(cfg.options, { SSL: 'true', SSLVerification: 'CA' });
+  assert.deepEqual([cfg.encrypt, cfg.trust_server_certificate], [true, false]);
+  const fresh = form(trino, null).build();
+  assert.deepEqual(fresh.options, { SSL: 'true', SSLVerification: 'FULL' });
+});
+
+test('a CA file is required only at the levels that need it', () => {
+  const caAt = { ...ca, key: 'ssl-ca', tls: { role: 'ca_file', required_at: ['verify_ca'] } };
+  assert.equal(fieldRequired(caAt, 'verify_ca'), true);
+  assert.equal(fieldRequired(caAt, 'verify_full'), false);
+  assert.equal(fieldRequired(caAt, null), false);
+  assert.equal(fieldRequired(ca, 'verify_ca'), false);
+  assert.equal(fieldRequired({ ...field('host', 'text'), required: true }, null), true);
 });
 
 test('the chip warns about plaintext and unverified certificates', () => {

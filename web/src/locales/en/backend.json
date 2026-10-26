@@ -11167,5 +11167,9 @@
   "{0} no puede llevar usuario ni contraseña": "{0} can't contain a user name or password",
   "{0} tiene que empezar con https://": "{0} must start with https://",
   "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": "“{0}” points to {1} (this computer, the local network or an internal cloud service): messages go only to public servers",
-  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "“{0}” is this computer, the local network or an internal service: messages go only to public servers"
+  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "“{0}” is this computer, the local network or an internal service: messages go only to public servers",
+  "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "PEM file of the CA that signed the server's certificate (like curl --cacert).",
+  "Este modo de TLS necesita el archivo de la CA: completá {0}.": "This TLS mode needs the CA file: fill in {0}.",
+  "No verifica el certificado del servidor (como curl --insecure).": "Doesn't verify the server's certificate (like curl --insecure).",
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} needs the CA file: fill in {2} or choose another value of {3}."
 }

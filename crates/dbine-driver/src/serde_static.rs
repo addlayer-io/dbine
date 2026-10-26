@@ -58,6 +58,15 @@ pub fn level_pairs<'de, D: Deserializer<'de>>(
         .collect())
 }
 
+/// A list of TLS levels; one this build doesn't know (a newer driver's) is
+/// dropped instead of failing the whole manifest.
+pub fn levels<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<crate::TlsLevel>, D::Error> {
+    let v = Vec::<serde_json::Value>::deserialize(d)?;
+    Ok(v.into_iter()
+        .filter_map(|level| serde_json::from_value(level).ok())
+        .collect())
+}
+
 /// Exactly four strings (a TLS field's legacy table).
 pub fn str4<'de, D: Deserializer<'de>>(d: D) -> Result<[&'static str; 4], D::Error> {
     let v = <[String; 4]>::deserialize(d)?;

@@ -11167,5 +11167,9 @@
   "{0} no puede llevar usuario ni contraseña": "{0}에는 사용자 이름이나 비밀번호를 포함할 수 없습니다",
   "{0} tiene que empezar con https://": "{0}은(는) https://로 시작해야 합니다",
   "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": "“{0}”은(는) {1}(이 컴퓨터, 로컬 네트워크 또는 클라우드 내부 서비스)을(를) 가리킵니다. 메시지는 공개 서버로만 전송됩니다",
-  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "“{0}”은(는) 이 컴퓨터, 로컬 네트워크 또는 내부 서비스입니다. 메시지는 공개 서버로만 전송됩니다"
+  "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": "“{0}”은(는) 이 컴퓨터, 로컬 네트워크 또는 내부 서비스입니다. 메시지는 공개 서버로만 전송됩니다",
+  "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "서버 인증서에 서명한 CA의 PEM 파일(curl --cacert와 같음).",
+  "Este modo de TLS necesita el archivo de la CA: completá {0}.": "이 TLS 모드에는 CA 파일이 필요합니다. {0}을(를) 입력하세요.",
+  "No verifica el certificado del servidor (como curl --insecure).": "서버 인증서를 검증하지 않습니다(curl --insecure와 같음).",
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1}에는 CA 파일이 필요합니다. {2}을(를) 입력하거나 {3}에 다른 값을 선택하세요."
 }

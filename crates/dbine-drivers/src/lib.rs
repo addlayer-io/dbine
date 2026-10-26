@@ -503,6 +503,42 @@ mod tests {
                 ));
             }
         }
+        // A verification select caps a mode: one at most, next to a mode,
+        // verified by default, with a legacy table of its own values.
+        let verifies: Vec<&Field> = i
+            .fields
+            .iter()
+            .filter(|f| matches!(f.tls, Some(TlsRole::Verify { .. })))
+            .collect();
+        if verifies.len() > 1 {
+            out.push(format!("{id}: more than one TLS verification select"));
+        }
+        for f in &verifies {
+            let key = f.key;
+            if modes.is_empty() {
+                out.push(format!(
+                    "{id}: `{key}` is a TLS verification select without a mode field"
+                ));
+            }
+            if !f.tls_level_of(f.default).is_some_and(|l| l.verified()) {
+                out.push(format!(
+                    "{id}: `{key}`'s default {:?} isn't a verified TLS level",
+                    f.default
+                ));
+            }
+            match &f.legacy {
+                None => out.push(format!("{id}: `{key}` has no legacy table")),
+                Some(l) => {
+                    for v in l.0.iter().filter(|v| !v.is_empty()) {
+                        if f.tls_level_of(v).is_none() {
+                            out.push(format!(
+                                "{id}: `{key}`'s legacy value {v:?} isn't one of its values"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         if i.tls == TlsSupport::None && !docs.contains(&format!("`{id}`")) {
             out.push(format!(
                 "{id}: declares no TLS but docs/engine-support.md doesn't list `{id}`"
