@@ -3233,4 +3233,1051 @@ mod tests {
         let e = resolve_key_index(&mut s, &mut named_pk).await.unwrap_err();
         assert!(e.to_string().contains("texto completo"), "{e}");
     }
+
+    const COLUMNS_2016: &str = "c.generated_always_type";
+    const COLUMNS: &str = "FROM sys.columns c";
+    const PERIODS: &str = "FROM sys.periods p";
+    const TEMPORAL_RETENTION: &str = "history_retention_period";
+    const TEMPORAL: &str = "t.temporal_type";
+
+    /// A `sys.columns` row: name, sparse, column set, generated, hidden.
+    fn col(
+        name: &str,
+        sparse: &str,
+        set: &str,
+        generated: &str,
+        hidden: &str,
+    ) -> Vec<Option<String>> {
+        row(&[
+            Some(name),
+            Some(sparse),
+            Some(set),
+            Some(generated),
+            Some(hidden),
+        ])
+    }
+
+    #[tokio::test]
+    async fn extras_read_sparse_columns_and_the_period() {
+        let mut s = Scripted::new()
+            .on(
+                &[COLUMNS_2016],
+                vec![
+                    col("id", "0", "0", "0", "0"),
+                    col("color", "1", "0", "0", "0"),
+                    col("talle", "1", "0", "0", "0"),
+                    col("props", "0", "1", "0", "0"),
+                    col("desde", "0", "0", "1", "1"),
+                    col("hasta", "0", "0", "2", "0"),
+                ],
+            )
+            .on(&[PERIODS], vec![row(&[Some("desde"), Some("hasta")])])
+            .on(
+                &[TEMPORAL_RETENTION],
+                vec![row(&[
+                    Some("2"),
+                    Some("hist"),
+                    Some("t_historia"),
+                    Some("6"),
+                    Some("month"),
+                ])],
+            );
+        let x = extras(&mut s, &table("t")).await.unwrap();
+        assert_eq!(x.sparse, ["color", "talle"]);
+        assert_eq!(x.column_set.as_deref(), Some("props"));
+        let p = x.period.unwrap();
+        assert_eq!((p.start.as_str(), p.end.as_str()), ("desde", "hasta"));
+        // Only the period's own columns count as hidden.
+        assert_eq!(p.hidden, ["desde"]);
+        assert_eq!(
+            p.history,
+            Some(("hist".to_string(), "t_historia".to_string()))
+        );
+        assert_eq!(p.retention.as_deref(), Some("6 MONTHS"));
+    }
+
+    #[tokio::test]
+    async fn extras_on_older_and_other_catalogs() {
+        // Before 2016: no generated or hidden columns, no sys.periods.
+        let mut s = Scripted::new()
+            .fail(
+                &[COLUMNS_2016],
+                "Invalid column name 'generated_always_type'",
+            )
+            .on(&[COLUMNS], vec![row(&[Some("a"), Some("1"), Some("0")])])
+            .fail(&[PERIODS], "Invalid object name 'sys.periods'");
+        let x = extras(&mut s, &table("t")).await.unwrap();
+        assert_eq!(x.sparse, ["a"]);
+        assert!(x.period.is_none());
+        // Neither query works (Fabric, Babelfish): nothing special.
+        let mut s = Scripted::new().fail(&[COLUMNS], "no");
+        assert_eq!(
+            extras(&mut s, &table("t")).await.unwrap(),
+            Extras::default()
+        );
+        // SQL Server 2016: periods but no retention; a period table that
+        // isn't versioned has no history.
+        let mut s = Scripted::new()
+            .on(&[COLUMNS_2016], vec![col("d", "0", "0", "1", "0")])
+            .on(&[PERIODS], vec![row(&[Some("d"), Some("h")])])
+            .fail(&[TEMPORAL_RETENTION], "Invalid column name")
+            .on(&[TEMPORAL], vec![row(&[Some("0"), None, None])]);
+        let p = extras(&mut s, &table("t")).await.unwrap().period.unwrap();
+        assert_eq!(p.history, None);
+        assert_eq!(p.retention, None);
+    }
+
+    #[tokio::test]
+    async fn extras_refuse_what_the_clone_cant_reproduce() {
+        // A ledger table's generated columns.
+        let mut s = Scripted::new().on(
+            &[COLUMNS_2016],
+            vec![col("ledger_start", "0", "0", "5", "1")],
+        );
+        let e = extras(&mut s, &table("t")).await.unwrap_err();
+        assert!(e.to_string().contains("«ledger_start»"), "{e}");
+        // A period whose columns can't be named.
+        let mut s = Scripted::new()
+            .on(&[COLUMNS_2016], vec![])
+            .on(&[PERIODS], vec![row(&[Some("d"), None])]);
+        assert!(extras(&mut s, &table("t")).await.is_err());
+        // Versioned, with its history table unreadable.
+        let mut s = Scripted::new()
+            .on(&[COLUMNS_2016], vec![])
+            .on(&[PERIODS], vec![row(&[Some("d"), Some("h")])])
+            .on(
+                &[TEMPORAL_RETENTION],
+                vec![row(&[Some("2"), None, Some("x"), None, None])],
+            );
+        assert!(extras(&mut s, &table("t")).await.is_err());
+        // The table itself unreadable.
+        let mut s = Scripted::new()
+            .on(&[COLUMNS_2016], vec![])
+            .on(&[PERIODS], vec![row(&[Some("d"), Some("h")])])
+            .fail(&[TEMPORAL], "denied");
+        assert!(extras(&mut s, &table("t")).await.is_err());
+    }
+
+    const PK_HEAD: &str = "x.type_desc";
+    const PK_COLUMNS: &str = "FROM sys.index_columns x";
+    const PK_PARTITIONS: &str = "FROM sys.partitions x";
+    const PK_SEQUENTIAL: &str = "x.optimize_for_sequential_key";
+
+    #[tokio::test]
+    async fn the_primary_key_is_read_whole() {
+        // Clustered on a partition scheme, a descending key column, the
+        // partitioning column not in the key, compressed per partition.
+        let mut s = Scripted::new()
+            .on(
+                &[PK_HEAD],
+                vec![row(&[
+                    Some("CLUSTERED"),
+                    Some("80"),
+                    Some("1"),
+                    Some("0"),
+                    Some("1"),
+                    Some("0"),
+                    Some("1"),
+                    Some("ps_fecha"),
+                    Some("PS"),
+                    Some("0"),
+                    Some("PS"),
+                ])],
+            )
+            .on(
+                &[PK_COLUMNS],
+                vec![
+                    row(&[Some("id"), Some("0"), Some("1"), Some("0")]),
+                    row(&[Some("fecha"), Some("1"), Some("2"), Some("1")]),
+                    row(&[Some("extra"), Some("0"), Some("0"), Some("0")]),
+                ],
+            )
+            .on(
+                &[PK_PARTITIONS],
+                vec![row(&[Some("NONE")]), row(&[Some("PAGE")])],
+            )
+            .on(&[PK_SEQUENTIAL], vec![row(&[Some("1")])]);
+        let p = primary_key(&mut s, &table("t")).await.unwrap().unwrap();
+        assert_eq!(
+            p,
+            PrimaryKey {
+                kind: "CLUSTERED".into(),
+                keys: vec![("id".into(), false), ("fecha".into(), true)],
+                fill_factor: 80,
+                padded: true,
+                ignore_dup_key: false,
+                row_locks: true,
+                page_locks: false,
+                no_recompute: true,
+                sequential_key: true,
+                compression: vec!["NONE".into(), "PAGE".into()],
+                data_space: Some(("ps_fecha".into(), Some("fecha".into()))),
+            }
+        );
+        assert!(p.clustered());
+        assert_eq!(
+            compression_options(&p.compression),
+            ["DATA_COMPRESSION = PAGE ON PARTITIONS (2)"]
+        );
+        assert_eq!(
+            compression_options(&["ROW".into(), "ROW".into()]),
+            ["DATA_COMPRESSION = ROW"]
+        );
+        assert!(compression_options(&["NONE".into()]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_plain_or_missing_primary_key() {
+        // Nonclustered hash on the default filegroup, before SQL Server
+        // 2019 (no sequential key column).
+        let mut s = Scripted::new()
+            .on(
+                &[PK_HEAD],
+                vec![row(&[
+                    Some("NONCLUSTERED_HASH"),
+                    Some("0"),
+                    Some("0"),
+                    Some("0"),
+                    Some("1"),
+                    Some("1"),
+                    Some("0"),
+                    Some("PRIMARY"),
+                    Some("FG"),
+                    Some("1"),
+                    Some("FG"),
+                ])],
+            )
+            .on(
+                &[PK_COLUMNS],
+                vec![row(&[Some("id"), Some("0"), Some("1"), Some("0")])],
+            )
+            .on(&[PK_PARTITIONS], vec![row(&[Some("NONE")])])
+            .fail(&[PK_SEQUENTIAL], "Invalid column name");
+        let p = primary_key(&mut s, &table("t")).await.unwrap().unwrap();
+        assert_eq!(p.kind, "NONCLUSTERED HASH");
+        assert!(!p.clustered());
+        assert_eq!(p.data_space, None);
+        assert!(!p.sequential_key);
+        // A table without a key.
+        let mut s = Scripted::new().on(&[PK_HEAD], vec![]);
+        assert_eq!(primary_key(&mut s, &table("t")).await.unwrap(), None);
+        // Unreadable.
+        let mut s = Scripted::new().fail(&[PK_HEAD], "denied");
+        assert!(primary_key(&mut s, &table("t")).await.is_err());
+        let mut s = Scripted::new()
+            .on(&[PK_HEAD], vec![row(&[Some("CLUSTERED"), Some("0")])])
+            .fail(&[PK_COLUMNS], "denied");
+        assert!(primary_key(&mut s, &table("t")).await.is_err());
+    }
+
+    const LAYOUT_TABLE_2014: &str = "t.is_memory_optimized";
+    const LAYOUT_TABLE: &str = "t.lob_data_space_id";
+    const LAYOUT_INDEXES: &str = "x.is_hypothetical = 0";
+
+    /// A `sys.indexes` row of `read_layout`.
+    #[allow(clippy::too_many_arguments)]
+    fn ix_row(
+        name: &str,
+        id: &str,
+        kind: &str,
+        pk: &str,
+        space: &str,
+        space_type: &str,
+        default: &str,
+        part_col: Option<&str>,
+        compression: &str,
+    ) -> Vec<Option<String>> {
+        row(&[
+            Some(name),
+            Some(id),
+            Some(kind),
+            Some(pk),
+            Some(space),
+            Some(space_type),
+            Some(default),
+            part_col,
+            Some(compression),
+        ])
+    }
+
+    fn indexed(names: &[&str]) -> TableSchema {
+        TableSchema {
+            indexes: names
+                .iter()
+                .map(|n| IndexDef {
+                    name: n.to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..table("t")
+        }
+    }
+
+    #[tokio::test]
+    async fn the_layout_of_a_partitioned_table() {
+        let mut s = Scripted::new()
+            .on(
+                &[LAYOUT_TABLE_2014],
+                vec![row(&[Some("ps_fecha"), Some("PS"), Some("0"), Some("0")])],
+            )
+            .on(
+                &[LAYOUT_INDEXES],
+                vec![
+                    // The heap, on the scheme, compressed per partition.
+                    ix_row(
+                        "",
+                        "0",
+                        "0",
+                        "0",
+                        "ps_fecha",
+                        "PS",
+                        "0",
+                        Some("fecha"),
+                        "NONE,ROW",
+                    ),
+                    ix_row("ix_a", "2", "2", "0", "FG2", "FG", "0", None, "PAGE"),
+                    // The key's index: placed with the key, not here.
+                    ix_row("pk_t", "3", "2", "1", "PRIMARY", "FG", "1", None, "NONE"),
+                    // An index the clone doesn't have.
+                    ix_row("ix_gone", "4", "2", "0", "FG2", "FG", "0", None, "NONE"),
+                ],
+            );
+        let t = indexed(&["ix_b", "ix_a"]);
+        let l = layout(&mut s, &t).await.unwrap().unwrap();
+        assert_eq!(
+            l.table,
+            Some(Space {
+                name: "ps_fecha".into(),
+                column: Some("fecha".into()),
+                default: false,
+            })
+        );
+        assert_eq!(l.heap_compression, ["NONE", "ROW"]);
+        // The LOB columns follow the table's scheme.
+        assert_eq!(l.lob.as_ref().unwrap().column.as_deref(), Some("fecha"));
+        assert_eq!(l.indexes.len(), 1);
+        assert_eq!((l.indexes[0].at, l.indexes[0].kind), (1, 2));
+        assert_eq!(l.indexes[0].compression, ["PAGE"]);
+        assert!(!l.memory);
+    }
+
+    #[tokio::test]
+    async fn layouts_the_clone_cant_read_or_reproduce() {
+        // Before SQL Server 2014: no memory-optimized tables.
+        let mut s = Scripted::new()
+            .fail(&[LAYOUT_TABLE_2014], "Invalid column name")
+            .on(&[LAYOUT_TABLE], vec![row(&[None, None, None, Some("0")])])
+            .on(
+                &[LAYOUT_INDEXES],
+                vec![ix_row(
+                    "pk", "1", "1", "1", "PRIMARY", "FG", "1", None, "NONE",
+                )],
+            );
+        let l = layout(&mut s, &indexed(&[])).await.unwrap().unwrap();
+        assert!(l.lob.is_none());
+        assert_eq!(l.table.unwrap().name, "PRIMARY");
+        // Unreadable: no layout to carry (the clone goes where the server
+        // puts it).
+        let mut s = Scripted::new().fail(&[LAYOUT_TABLE], "denied");
+        assert_eq!(layout(&mut s, &indexed(&[])).await.unwrap(), None);
+        // A scheme whose partitioning column can't be read.
+        let mut s = Scripted::new().on(&[LAYOUT_TABLE_2014], vec![]).on(
+            &[LAYOUT_INDEXES],
+            vec![ix_row("", "0", "0", "0", "ps", "PS", "0", None, "NONE")],
+        );
+        let e = layout(&mut s, &indexed(&[])).await.unwrap_err();
+        assert!(
+            e.to_string().contains("columna de partición de la tabla"),
+            "{e}"
+        );
+        let mut s = Scripted::new().on(&[LAYOUT_TABLE_2014], vec![]).on(
+            &[LAYOUT_INDEXES],
+            vec![ix_row("ix_a", "2", "2", "0", "ps", "PS", "0", None, "NONE")],
+        );
+        let e = layout(&mut s, &indexed(&["ix_a"])).await.unwrap_err();
+        assert!(e.to_string().contains("el índice «ix_a»"), "{e}");
+        // A spatial index on another scheme than the table's.
+        let mut s = Scripted::new().on(&[LAYOUT_TABLE_2014], vec![]).on(
+            &[LAYOUT_INDEXES],
+            vec![
+                ix_row("", "0", "0", "0", "ps_t", "PS", "0", Some("id"), "NONE"),
+                ix_row("sx", "2", "4", "0", "ps_x", "PS", "0", Some("id"), "NONE"),
+            ],
+        );
+        let e = layout(&mut s, &indexed(&["sx"])).await.unwrap_err();
+        assert!(e.to_string().contains("índice espacial «sx»"), "{e}");
+        // Memory-optimized: none of it applies.
+        let mut s = Scripted::new()
+            .on(
+                &[LAYOUT_TABLE_2014],
+                vec![row(&[None, None, None, Some("1")])],
+            )
+            .on(
+                &[LAYOUT_INDEXES],
+                vec![ix_row("", "0", "0", "0", "ps", "PS", "0", None, "NONE")],
+            );
+        assert!(layout(&mut s, &indexed(&[])).await.unwrap().unwrap().memory);
+    }
+
+    #[tokio::test]
+    async fn the_clones_history_table_gets_a_free_name() {
+        let temporal = |history: &str| Extras {
+            period: Some(Period {
+                start: "d".into(),
+                end: "h".into(),
+                history: Some(("hist".into(), history.into())),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        // The first two names are taken.
+        let mut s = Scripted::new()
+            .on(
+                &["OBJECT_ID(N'[hist].[t_c_historia]')"],
+                vec![row(&[Some("0")])],
+            )
+            .on(
+                &["OBJECT_ID(N'[hist].[t_c_historia_2]')"],
+                vec![row(&[Some("0")])],
+            )
+            .on(
+                &["OBJECT_ID(N'[hist].[t_c_historia_3]')"],
+                vec![row(&[Some("1")])],
+            );
+        let mut x = temporal("t_historia");
+        plan_history(&mut s, &mut x, &table("t"), &table("t_c"))
+            .await
+            .unwrap();
+        assert_eq!(
+            x.period.unwrap().clone_history,
+            Some(("hist".to_string(), "t_c_historia_3".to_string()))
+        );
+        // The server named the original's: the server names the clone's.
+        let mut quiet = Scripted::new();
+        let mut x = temporal("MSSQL_TemporalHistoryFor_123");
+        plan_history(&mut quiet, &mut x, &table("t"), &table("t_c"))
+            .await
+            .unwrap();
+        assert_eq!(x.period.unwrap().clone_history, None);
+        assert!(quiet.ran().is_empty());
+        // Not temporal: nothing to do.
+        plan_history(
+            &mut quiet,
+            &mut Extras::default(),
+            &table("t"),
+            &table("t_c"),
+        )
+        .await
+        .unwrap();
+        // No name free, or the lookup fails: refused.
+        let mut taken = Scripted::new().on(&["OBJECT_ID("], vec![row(&[Some("0")])]);
+        let e = plan_history(&mut taken, &mut temporal("t_h"), &table("t"), &table("t_c"))
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("nombre libre"), "{e}");
+        assert_eq!(taken.ran().len(), 20);
+        let mut broken = Scripted::new().fail(&["OBJECT_ID("], "denied");
+        assert!(plan_history(
+            &mut broken,
+            &mut temporal("t_h"),
+            &table("t"),
+            &table("t_c")
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn the_clones_key_and_sparse_columns_are_checked() {
+        let original = PrimaryKey {
+            kind: "CLUSTERED".into(),
+            keys: vec![("Id".into(), false)],
+            fill_factor: 0,
+            row_locks: true,
+            page_locks: true,
+            compression: vec!["NONE".into()],
+            ..Default::default()
+        };
+        let key = |kind: &str| {
+            Scripted::new()
+                .on(
+                    &[PK_HEAD],
+                    vec![row(&[
+                        Some(kind),
+                        Some("0"),
+                        Some("0"),
+                        Some("0"),
+                        Some("1"),
+                        Some("1"),
+                        Some("0"),
+                        Some("PRIMARY"),
+                        Some("FG"),
+                        Some("1"),
+                        Some("FG"),
+                    ])],
+                )
+                // The catalog spells the column in another case: the same.
+                .on(
+                    &[PK_COLUMNS],
+                    vec![row(&[Some("id"), Some("0"), Some("1"), Some("0")])],
+                )
+                .on(&[PK_PARTITIONS], vec![row(&[Some("NONE")])])
+                .on(&[PK_SEQUENTIAL], vec![row(&[Some("0")])])
+        };
+        verify_primary_key(&mut key("CLUSTERED"), &table("t_c"), &original)
+            .await
+            .unwrap();
+        let e = verify_primary_key(&mut key("NONCLUSTERED"), &table("t_c"), &original)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("su clave primaria es «"), "{e}");
+        let e = verify_primary_key(
+            &mut Scripted::new().on(&[PK_HEAD], vec![]),
+            &table("t_c"),
+            &original,
+        )
+        .await
+        .unwrap_err();
+        assert!(e.to_string().contains("«ninguna»"), "{e}");
+
+        let sparse = Extras {
+            sparse: vec!["color".into()],
+            ..Default::default()
+        };
+        let clone_cols = |sparse: &str| {
+            Scripted::new()
+                .on(&[COLUMNS_2016], vec![col("color", sparse, "0", "0", "0")])
+                .fail(&[PERIODS], "none")
+        };
+        verify_sparse(&mut clone_cols("1"), &table("t_c"), &sparse)
+            .await
+            .unwrap();
+        let e = verify_sparse(&mut clone_cols("0"), &table("t_c"), &sparse)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("columnas dispersas (SPARSE) color / ninguna"),
+            "{e}"
+        );
+    }
+
+    /// A UNIQUE constraint as the SQL Server driver reports it.
+    fn unique_constraint(name: &str, cols: &[&str]) -> IndexDef {
+        IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            unique: true,
+            kind: Some("NONCLUSTERED".into()),
+            options: [("unique_constraint".to_string(), "1".to_string())].into(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn server_named_uniques_are_created_unnamed_and_read_back() {
+        let driver = dbine_drivers::find("sqlserver")
+            .expect("sqlserver driver")
+            .clone();
+        let mut clone = TableSchema {
+            indexes: vec![
+                unique_constraint("ph_1", &["Email"]),
+                unique_constraint("uq_named", &["code"]),
+            ],
+            ..table("t_c")
+        };
+        let mut s = Scripted::new().on(&["ALTER TABLE"], vec![]).on(
+            &["k.is_system_named = 1"],
+            vec![row(&[Some("UQ__t_c__3213E83F"), Some("email")])],
+        );
+        let more = server_named_uniques(&*driver, &mut s, &mut clone, &["ph_1".into()], None)
+            .await
+            .unwrap();
+        // No full-text index: nothing left to create.
+        assert_eq!(more, None);
+        // The placeholder took the server's name.
+        assert_eq!(clone.indexes[0].name, "UQ__t_c__3213E83F");
+        assert_eq!(clone.indexes[1].name, "uq_named");
+        let ran = s.ran();
+        assert!(
+            ran[0].contains("ALTER TABLE [dbo].[t_c] ADD UNIQUE NONCLUSTERED"),
+            "{ran:?}"
+        );
+        assert!(!ran[0].contains("ph_1"), "{ran:?}");
+        assert!(
+            ran[0].contains("ADD CONSTRAINT [uq_named] UNIQUE"),
+            "{ran:?}"
+        );
+
+        // The server made none on those columns.
+        let mut clone = TableSchema {
+            indexes: vec![unique_constraint("ph_1", &["a", "b"])],
+            ..table("t_c")
+        };
+        let mut s = Scripted::new().on(&["ALTER TABLE"], vec![]).on(
+            &["k.is_system_named = 1"],
+            vec![row(&[Some("UQ_x"), Some("b,a")])],
+        );
+        let e = server_named_uniques(&*driver, &mut s, &mut clone, &["ph_1".into()], None)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("le falta la restricción única sobre (a, b)"),
+            "{e}"
+        );
+
+        // A placeholder the driver didn't write as a constraint.
+        let mut clone = TableSchema {
+            indexes: vec![IndexDef {
+                name: "ph_2".into(),
+                columns: vec!["a".into()],
+                unique: true,
+                ..Default::default()
+            }],
+            ..table("t_c")
+        };
+        let e = server_named_uniques(
+            &*driver,
+            &mut Scripted::new(),
+            &mut clone,
+            &["ph_2".into()],
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("sin nombre la restricción única «ph_2»"),
+            "{e}"
+        );
+
+        // The server refusing the statements.
+        let mut clone = TableSchema {
+            indexes: vec![unique_constraint("ph_1", &["a"])],
+            ..table("t_c")
+        };
+        let mut s = Scripted::new().fail(&["ALTER TABLE"], "Msg 1505: duplicate key");
+        let e = server_named_uniques(&*driver, &mut s, &mut clone, &["ph_1".into()], None)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().starts_with("índices:"), "{e}");
+    }
+
+    fn temporal_extras(retention: Option<&str>) -> Extras {
+        Extras {
+            period: Some(Period {
+                start: "desde".into(),
+                end: "hasta".into(),
+                hidden: vec!["desde".into()],
+                history: Some(("hist".into(), "t_historia".into())),
+                retention: retention.map(str::to_string),
+                clone_history: Some(("hist".into(), "t_c_historia".into())),
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// The clone's catalog once versioned: its period and history table.
+    fn versioned_clone(retention: (&str, &str)) -> Scripted {
+        Scripted::new()
+            .on(
+                &["c.is_computed = 0"],
+                vec![
+                    row(&[Some("id")]),
+                    row(&[Some("desde")]),
+                    row(&[Some("hasta")]),
+                ],
+            )
+            .on(
+                &["OBJECT_NAME(history_table_id) FROM sys.tables"],
+                vec![row(&[Some("hist"), Some("t_c_historia")])],
+            )
+            .on(&["COUNT_BIG(*)"], vec![row(&[Some("5")])])
+            .on(
+                &[COLUMNS_2016],
+                vec![
+                    col("id", "0", "0", "0", "0"),
+                    col("desde", "0", "0", "1", "1"),
+                    col("hasta", "0", "0", "2", "0"),
+                ],
+            )
+            .on(&[PERIODS], vec![row(&[Some("desde"), Some("hasta")])])
+            .on(
+                &[TEMPORAL_RETENTION],
+                vec![row(&[
+                    Some("2"),
+                    Some("hist"),
+                    Some("t_c_historia"),
+                    Some(retention.0),
+                    Some(retention.1),
+                ])],
+            )
+            .on(&["ALTER TABLE"], vec![])
+            .on(&["INSERT INTO"], vec![])
+    }
+
+    #[tokio::test]
+    async fn a_temporal_clone_gets_its_period_versioning_and_history_rows() {
+        let x = temporal_extras(Some("6 MONTHS"));
+        let mut s = versioned_clone(("6", "MONTH"));
+        let note = make_temporal(&mut s, &table("t_c"), &x, true)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(note.contains("«hist.t_c_historia»"), "{note}");
+        assert!(
+            note.contains("5 filas de historial copiadas de «hist.t_historia»"),
+            "{note}"
+        );
+        let steps: Vec<String> = s
+            .ran()
+            .into_iter()
+            .filter(|q| q.starts_with("ALTER") || q.starts_with("INSERT"))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                "ALTER TABLE [dbo].[t_c] ADD PERIOD FOR SYSTEM_TIME ([desde], [hasta])",
+                "ALTER TABLE [dbo].[t_c] ALTER COLUMN [desde] ADD HIDDEN",
+                "ALTER TABLE [dbo].[t_c] SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [hist].[t_c_historia], DATA_CONSISTENCY_CHECK = ON, HISTORY_RETENTION_PERIOD = 6 MONTHS))",
+                "ALTER TABLE [dbo].[t_c] SET (SYSTEM_VERSIONING = OFF)",
+                "INSERT INTO [hist].[t_c_historia] ([id], [desde], [hasta]) SELECT [id], [desde], [hasta] FROM [hist].[t_historia]",
+                "ALTER TABLE [dbo].[t_c] SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [hist].[t_c_historia], DATA_CONSISTENCY_CHECK = ON, HISTORY_RETENTION_PERIOD = 6 MONTHS))",
+            ]
+        );
+        // Without the rows: no history copied.
+        let mut s = versioned_clone(("6", "MONTH"));
+        let note = make_temporal(&mut s, &table("t_c"), &x, false)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!note.contains("filas de historial"), "{note}");
+        assert!(!s.ran().iter().any(|q| q.starts_with("INSERT")));
+    }
+
+    #[tokio::test]
+    async fn temporal_clones_that_dont_come_out_right() {
+        // Versioned with another retention than the original's.
+        let x = temporal_extras(Some("6 MONTHS"));
+        let mut s = versioned_clone(("1", "YEAR"));
+        let e = make_temporal(&mut s, &table("t_c"), &x, false)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("sus versiones del sistema"), "{e}");
+        // The history rows refused: the clone's history table is dropped.
+        let mut s = Scripted::new()
+            .fail(&["INSERT INTO"], "Msg 13575")
+            .on(&["DROP TABLE"], vec![])
+            .chain(versioned_clone(("6", "MONTH")));
+        let e = make_temporal(&mut s, &table("t_c"), &x, true)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("filas de historial"), "{e}");
+        assert!(s
+            .ran()
+            .contains(&"DROP TABLE IF EXISTS [hist].[t_c_historia]".to_string()));
+        // The period refused.
+        let mut s = Scripted::new().fail(&["ADD PERIOD"], "Msg 13508");
+        let e = make_temporal(&mut s, &table("t_c"), &x, false)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("PERIOD FOR SYSTEM_TIME"), "{e}");
+        // A period without versioning: only the period.
+        let only_period = Extras {
+            period: Some(Period {
+                start: "a".into(),
+                end: "b".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut s = Scripted::new().on(&["ALTER TABLE"], vec![]);
+        let note = make_temporal(&mut s, &table("t_c"), &only_period, true)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(note.contains("PERIOD FOR SYSTEM_TIME (a, b)"), "{note}");
+        // Not temporal at all.
+        assert_eq!(
+            make_temporal(
+                &mut Scripted::new(),
+                &table("t_c"),
+                &Extras::default(),
+                true
+            )
+            .await
+            .unwrap(),
+            None
+        );
+        assert!(drop_temporal_sql(&table("t_c")).contains("SYSTEM_VERSIONING = OFF"));
+    }
+
+    #[tokio::test]
+    async fn the_clones_layout_is_compared_with_the_originals() {
+        let clone = indexed(&["ix_a"]);
+        // The clone, as read back: table on FG1, ix_a on FG2 with PAGE.
+        let read_back = |ix_space: &str, compression: &str| {
+            Scripted::new().on(&[LAYOUT_TABLE_2014], vec![]).on(
+                &[LAYOUT_INDEXES],
+                vec![
+                    ix_row("", "0", "0", "0", "FG1", "FG", "0", None, "ROW"),
+                    ix_row(
+                        "ix_a",
+                        "2",
+                        "2",
+                        "0",
+                        ix_space,
+                        "FG",
+                        "0",
+                        None,
+                        compression,
+                    ),
+                ],
+            )
+        };
+        let fg = |n: &str| Space {
+            name: n.into(),
+            column: None,
+            default: false,
+        };
+        let original = Layout {
+            table: Some(fg("fg1")),
+            heap_compression: vec!["ROW".into()],
+            indexes: vec![Placed {
+                at: 0,
+                kind: 2,
+                space: fg("FG2"),
+                compression: vec!["PAGE".into()],
+            }],
+            ..Default::default()
+        };
+        verify_layout(&mut read_back("FG2", "PAGE"), &clone, &original, true)
+            .await
+            .unwrap();
+        let e = verify_layout(&mut read_back("FG3", "PAGE"), &clone, &original, true)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string().contains(
+                "el índice «ix_a» está en el filegroup FG2 en el original y en el filegroup FG3"
+            ),
+            "{e}"
+        );
+        let e = verify_layout(&mut read_back("FG2", "NONE"), &clone, &original, true)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("PAGE en el original y NONE en el clon"),
+            "{e}"
+        );
+        // Without indexes, only the table is compared.
+        verify_layout(&mut read_back("FG3", "NONE"), &clone, &original, false)
+            .await
+            .unwrap();
+        // The table elsewhere, or other heap compression.
+        let elsewhere = Layout {
+            table: Some(fg("FG9")),
+            ..original.clone()
+        };
+        let e = verify_layout(&mut read_back("FG2", "PAGE"), &clone, &elsewhere, true)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string().contains("la tabla está en el filegroup FG9"),
+            "{e}"
+        );
+        let page = Layout {
+            heap_compression: vec!["PAGE".into()],
+            ..original.clone()
+        };
+        let e = verify_layout(&mut read_back("FG2", "PAGE"), &clone, &page, true)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("PAGE en el original y ROW en el clon"),
+            "{e}"
+        );
+        // LOB columns where the original doesn't have them.
+        let lob = Layout {
+            lob: Some(fg("LOBS")),
+            ..original.clone()
+        };
+        let e = verify_layout(&mut read_back("FG2", "PAGE"), &clone, &lob, true)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("TEXTIMAGE_ON"), "{e}");
+        // An index the clone lacks.
+        let mut missing = read_back("FG2", "PAGE");
+        missing = Scripted::new()
+            .on(
+                &[LAYOUT_INDEXES],
+                vec![ix_row("", "0", "0", "0", "FG1", "FG", "0", None, "ROW")],
+            )
+            .chain(missing);
+        let e = verify_layout(&mut missing, &clone, &original, true)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("le falta el índice «ix_a»"), "{e}");
+        // Memory-optimized: nothing to compare (and nothing read).
+        let mut quiet = Scripted::new();
+        let memory = Layout {
+            memory: true,
+            ..Default::default()
+        };
+        verify_layout(&mut quiet, &clone, &memory, true)
+            .await
+            .unwrap();
+        assert!(quiet.ran().is_empty());
+    }
+
+    fn history_table(schema: &str, name: &str, indexes: Vec<IndexDef>) -> TableSchema {
+        TableSchema {
+            schema: Some(schema.into()),
+            name: name.into(),
+            indexes,
+            ..Default::default()
+        }
+    }
+
+    fn plain_ix(name: &str, cols: &[&str], kind: &str) -> IndexDef {
+        IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            kind: Some(kind.into()),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn the_clones_history_table_gets_the_originals_indexes() {
+        let driver = dbine_drivers::find("sqlserver")
+            .expect("sqlserver driver")
+            .clone();
+        let x = temporal_extras(None);
+        let original = history_table(
+            "hist",
+            "t_historia",
+            vec![
+                plain_ix("ix_t_historia_desde", &["desde"], "NONCLUSTERED"),
+                plain_ix("ix_hasta", &["hasta"], "NONCLUSTERED"),
+            ],
+        );
+        // The server made one the original doesn't have.
+        let made = history_table(
+            "hist",
+            "t_c_historia",
+            vec![plain_ix("ix_server", &["hasta", "desde"], "CLUSTERED")],
+        );
+        let fixed = history_table(
+            "hist",
+            "t_c_historia",
+            vec![
+                plain_ix("ix_t_c_historia_desde", &["desde"], "NONCLUSTERED"),
+                plain_ix("ix_hasta", &["hasta"], "NONCLUSTERED"),
+            ],
+        );
+        let made_rows = vec![row(&[Some("hist"), Some("t_c_historia")])];
+        let mut s = Scripted::new()
+            .on(
+                &["OBJECT_NAME(history_table_id) FROM sys.tables"],
+                made_rows.clone(),
+            )
+            .on(&["DROP INDEX"], vec![])
+            .on(&["CREATE"], vec![])
+            .schemas(vec![
+                vec![original.clone(), made.clone()],
+                vec![original.clone(), fixed.clone()],
+            ]);
+        let notes = history_indexes(&*driver, &mut s, &table("t_c"), &x, true)
+            .await
+            .unwrap();
+        assert_eq!(notes.len(), 1);
+        assert!(
+            notes[0].contains("«ix_t_c_historia_desde», «ix_hasta»"),
+            "{notes:?}"
+        );
+        let ran = s.ran();
+        assert_eq!(ran[1], "DROP INDEX [ix_server] ON [hist].[t_c_historia]");
+        assert!(ran[2].contains("[ix_t_c_historia_desde]"), "{ran:?}");
+
+        // Without indexes: noted, nothing created.
+        let mut s = Scripted::new()
+            .on(
+                &["OBJECT_NAME(history_table_id) FROM sys.tables"],
+                made_rows.clone(),
+            )
+            .schemas(vec![vec![original.clone(), made.clone()]]);
+        let notes = history_indexes(&*driver, &mut s, &table("t_c"), &x, false)
+            .await
+            .unwrap();
+        assert!(notes[0].starts_with("sin índices"), "{notes:?}");
+        assert_eq!(s.ran().len(), 1);
+
+        // Already the same: nothing to do.
+        let mut s = Scripted::new()
+            .on(
+                &["OBJECT_NAME(history_table_id) FROM sys.tables"],
+                made_rows.clone(),
+            )
+            .schemas(vec![vec![original.clone(), fixed.clone()]]);
+        assert!(history_indexes(&*driver, &mut s, &table("t_c"), &x, true)
+            .await
+            .unwrap()
+            .is_empty());
+
+        // Still different afterwards: refused.
+        let mut s = Scripted::new()
+            .on(
+                &["OBJECT_NAME(history_table_id) FROM sys.tables"],
+                made_rows.clone(),
+            )
+            .on(&["DROP INDEX"], vec![])
+            .on(&["CREATE"], vec![])
+            .schemas(vec![vec![original.clone(), made.clone()]]);
+        let e = history_indexes(&*driver, &mut s, &table("t_c"), &x, true)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("los índices de su tabla de historial"),
+            "{e}"
+        );
+
+        // The history tables can't be found.
+        let mut s = Scripted::new()
+            .on(
+                &["OBJECT_NAME(history_table_id) FROM sys.tables"],
+                made_rows,
+            )
+            .schemas(vec![vec![made]]);
+        assert!(history_indexes(&*driver, &mut s, &table("t_c"), &x, true)
+            .await
+            .is_err());
+        // Not temporal: nothing read.
+        let mut quiet = Scripted::new();
+        assert!(history_indexes(
+            &*driver,
+            &mut quiet,
+            &table("t_c"),
+            &Extras::default(),
+            true
+        )
+        .await
+        .unwrap()
+        .is_empty());
+        assert!(quiet.ran().is_empty());
+    }
+
+    #[test]
+    fn history_retention_as_written() {
+        assert_eq!(retention("1", "DAY").as_deref(), Some("1 DAY"));
+        assert_eq!(retention(" 3 ", "year").as_deref(), Some("3 YEARS"));
+        // Infinite (-1), unknown units or nothing: no clause.
+        assert_eq!(retention("-1", "INFINITE"), None);
+        assert_eq!(retention("2", "HOUR"), None);
+        assert_eq!(retention("", ""), None);
+    }
 }

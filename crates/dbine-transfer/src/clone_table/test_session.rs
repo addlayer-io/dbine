@@ -8,7 +8,7 @@
 
 use dbine_driver::{
     async_trait, ColumnInfo, DbObject, Error, ObjectRef, QueryOutcome, Result, ResultColumn,
-    Session, StatementResult,
+    Session, StatementResult, TableSchema,
 };
 
 pub(super) type Rows = Vec<Vec<Option<String>>>;
@@ -28,6 +28,10 @@ struct Rule {
 pub(super) struct Scripted {
     rules: Vec<Rule>,
     log: Vec<String>,
+    /// `database_schema`'s answers, in turn (the last one from then on);
+    /// none: it fails.
+    schemas: Vec<Vec<TableSchema>>,
+    schema_reads: usize,
 }
 
 /// A row of text cells (`None`: NULL).
@@ -65,6 +69,12 @@ impl Scripted {
         self.rule(fragments, vec![Answer::Fail(error.into())])
     }
 
+    /// `database_schema` answers each of `schemas` in turn, then the last.
+    pub fn schemas(mut self, schemas: Vec<Vec<TableSchema>>) -> Self {
+        self.schemas = schemas;
+        self
+    }
+
     /// `other`'s rules after these (these win).
     pub fn chain(mut self, other: Scripted) -> Self {
         self.rules.extend(other.rules);
@@ -96,6 +106,14 @@ impl Session for Scripted {
     }
     fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
         String::new()
+    }
+    async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+        let Some(last) = self.schemas.len().checked_sub(1) else {
+            return Err(Error::Query("no schema scripted".into()));
+        };
+        let at = self.schema_reads.min(last);
+        self.schema_reads += 1;
+        Ok(self.schemas[at].clone())
     }
     async fn execute(&mut self, text: &str, _: usize, out: &mut QueryOutcome) -> Result<()> {
         self.log.push(text.to_string());
