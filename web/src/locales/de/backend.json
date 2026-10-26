@@ -11171,5 +11171,12 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "PEM-Datei der Zertifizierungsstelle, die das Serverzertifikat signiert hat (wie curl --cacert).",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "Dieser TLS-Modus braucht die CA-Datei: Geben Sie {0} an.",
   "No verifica el certificado del servidor (como curl --insecure).": "Prüft das Zertifikat des Servers nicht (wie curl --insecure).",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} braucht die CA-Datei: Geben Sie {2} an oder wählen Sie einen anderen Wert für {3}."
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} braucht die CA-Datei: Geben Sie {2} an oder wählen Sie einen anderen Wert für {3}.",
+  "El certificado de la CA en PEM (Drill JDBC usa un almacén JKS).": "Das Zertifikat der Zertifizierungsstelle im PEM-Format (Drill JDBC verwendet einen JKS-Speicher).",
+  "El certificado del servidor no se pudo verificar: indicá la CA en {0} o, si confiás en el servidor, usá {1}.": "Das Zertifikat des Servers konnte nicht überprüft werden: Geben Sie die Zertifizierungsstelle in {0} an oder verwenden Sie {1}, wenn Sie dem Server vertrauen.",
+  "El servidor no respondió con TLS en ese puerto: usá el puerto TLS del servidor o {0}={1}.": "Der Server hat auf diesem Port nicht mit TLS geantwortet: Verwenden Sie den TLS-Port des Servers oder {0}={1}.",
+  "No se pudo leer {0} ({1}): {2}": "{0} ({1}) konnte nicht gelesen werden: {2}",
+  "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "Eine im Server eingegebene URL verwendet ihr eigenes Schema (http:// oder https://).",
+  "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "Eine TLS-Option hat einen Wert, den dieser Treiber nicht kennt: Prüfen Sie {0}.",
+  "{0} ({1}) no tiene certificados PEM.": "{0} ({1}) enthält keine PEM-Zertifikate."
 }

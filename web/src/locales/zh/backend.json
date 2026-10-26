@@ -11171,5 +11171,12 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "签发服务器证书的 CA 的 PEM 文件（同 curl --cacert）。",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "此 TLS 模式需要 CA 文件：请填写 {0}。",
   "No verifica el certificado del servidor (como curl --insecure).": "不验证服务器证书（同 curl --insecure）。",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} 需要 CA 文件：请填写 {2}，或为 {3} 选择其他值。"
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} 需要 CA 文件：请填写 {2}，或为 {3} 选择其他值。",
+  "El certificado de la CA en PEM (Drill JDBC usa un almacén JKS).": "PEM 格式的 CA 证书（Drill JDBC 使用 JKS 存储）。",
+  "El certificado del servidor no se pudo verificar: indicá la CA en {0} o, si confiás en el servidor, usá {1}.": "无法验证服务器证书：请在 {0} 中指定 CA；如果你信任该服务器，也可以使用 {1}。",
+  "El servidor no respondió con TLS en ese puerto: usá el puerto TLS del servidor o {0}={1}.": "服务器在该端口上没有以 TLS 响应：请使用服务器的 TLS 端口，或设置 {0}={1}。",
+  "No se pudo leer {0} ({1}): {2}": "无法读取 {0}（{1}）：{2}",
+  "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": "在服务器中填写的 URL 使用其自身的协议（http:// 或 https://）。",
+  "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": "某个 TLS 选项的值无法被此驱动识别：请检查 {0}。",
+  "{0} ({1}) no tiene certificados PEM.": "{0}（{1}）中没有 PEM 证书。"
 }

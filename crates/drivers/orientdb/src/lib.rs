@@ -38,13 +38,14 @@ mod security;
 mod stats;
 mod steps;
 mod sync;
+mod tls;
 mod transfer;
 
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, IndexDef, Language,
     MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
-    Session, TableSchema,
+    Session, TableSchema, TlsLevel, TlsSupport,
 };
 use dbine_driver::{json_f64, json_i64, json_u64};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
@@ -87,7 +88,7 @@ pub struct OrientDriver;
 fn info() -> &'static DriverInfo {
     static INFO: OnceLock<DriverInfo> = OnceLock::new();
     INFO.get_or_init(|| DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "orientdb",
         name: "OrientDB",
@@ -101,10 +102,11 @@ fn info() -> &'static DriverInfo {
             Field::database(),
             Field::username().default_value("root"),
             Field::password(),
-            Field::encrypt().help("Usar https."),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        ]
+        .into_iter()
+        .chain(tls_fields())
+        .chain([Field::read_only()])
+        .collect(),
         databases_label: "Bases de datos",
         has_schemas: false,
         object_kinds: vec![
@@ -118,15 +120,46 @@ fn info() -> &'static DriverInfo {
     })
 }
 
+/// The TLS options: the URL's `scheme`, and curl's `insecure` / `cacert`
+/// (OrientDB's own documentation uses curl; it has no client names for
+/// them). Saved connections from before them: `encrypt` gives https,
+/// `trust` doesn't verify (an https URL typed in the host too).
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_mode(
+            "scheme",
+            "scheme",
+            &[
+                ("http", "http", TlsLevel::Off),
+                ("https", "https", TlsLevel::VerifyFull),
+            ],
+            "https",
+            ["http", "http", "https", "https"],
+        )
+        .help("Una URL escrita en el servidor usa su propio esquema (http:// o https://)."),
+        Field::tls_insecure(["false", "true", "false", "true"]),
+        Field::tls_cacert(),
+    ]
+}
+
+/// The TLS settings of a connection whose host may be a URL (its scheme
+/// decides over `scheme`).
+fn http_tls(cfg: &ConnectionConfig) -> Result<tls::HttpTls> {
+    let host = cfg.host.trim();
+    let url = (host.starts_with("http://") || host.starts_with("https://"))
+        .then(|| host.starts_with("https://"));
+    tls::HttpTls::new(cfg, &tls_fields(), url)
+}
+
 /// `http(s)://host:port`, without a trailing slash.
-pub fn base_url(cfg: &ConnectionConfig) -> String {
+pub fn base_url(cfg: &ConnectionConfig, tls: &tls::HttpTls) -> String {
     let host = cfg.host.trim();
     let host = if host.is_empty() { "localhost" } else { host };
     if host.starts_with("http://") || host.starts_with("https://") {
-        return host.trim_end_matches('/').to_string();
+        return tls.url(host.trim_end_matches('/').to_string());
     }
-    let scheme = if cfg.encrypt { "https" } else { "http" };
-    format!("{scheme}://{host}:{}", cfg.port_or(2480))
+    let scheme = tls.scheme();
+    format!("{scheme}://{}:{}", tls.url_host(host), cfg.port_or(2480))
 }
 
 fn seg(s: &str) -> String {
@@ -279,10 +312,13 @@ impl Driver for OrientDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(TIMEOUT)
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .user_agent("DBine")
+        let tls = http_tls(cfg)?;
+        let http = tls
+            .builder(
+                reqwest::Client::builder()
+                    .connect_timeout(TIMEOUT)
+                    .user_agent("DBine"),
+            )?
             .build()
             .map_err(Error::connect)?;
         let db = database
@@ -296,7 +332,7 @@ impl Driver for OrientDriver {
             .map(|u| (u, cfg.password.clone()));
         let mut s = OrientSession {
             http,
-            base: base_url(cfg),
+            base: base_url(cfg, &tls),
             db,
             auth,
             read_only: cfg.read_only,
@@ -306,14 +342,14 @@ impl Driver for OrientDriver {
             s.db = s
                 .list_databases()
                 .await
-                .map_err(to_connect)?
+                .map_err(|e| tls.explain(to_connect(e)))?
                 .into_iter()
                 .next()
                 .unwrap_or_default();
         } else {
             s.call(Method::GET, &format!("/database/{}", seg(&s.db)), None)
                 .await
-                .map_err(to_connect)?;
+                .map_err(|e| tls.explain(to_connect(e)))?;
         }
         Ok(Box::new(s))
     }
@@ -421,10 +457,13 @@ async fn request_coded(
     if let Some(b) = body {
         rq = rq.json(b);
     }
-    let resp = rq
-        .send()
-        .await
-        .map_err(|e| Error::Connect(format!("no se pudo llegar a OrientDB: {e}")))?;
+    let resp = rq.send().await.map_err(|e| {
+        if e.is_connect() {
+            tls::net_error(&e)
+        } else {
+            Error::Connect(format!("no se pudo llegar a OrientDB: {e}"))
+        }
+    })?;
     let status = resp.status();
     let text = resp
         .text()
@@ -1681,7 +1720,7 @@ mod tests {
             encrypt: true,
             ..Default::default()
         };
-        assert_eq!(base_url(&c), "https://db:2480");
+        assert_eq!(base_url(&c, &http_tls(&c).unwrap()), "https://db:2480");
         assert!(is_gremlin(" g.V().count()") && !is_gremlin("SELECT g.x FROM T"));
         assert!(gremlin_writes("g.addV('P')") && !gremlin_writes("g.V().has('name','x')"));
         assert_eq!(strip_plan_prefix("profile SELECT 1"), "SELECT 1");
@@ -1715,5 +1754,69 @@ mod tests {
         assert_eq!(c[1].data_type, "LINK");
         assert!(c[1].nullable && !c[0].nullable);
         assert_eq!(c[2].data_type, "EMBEDDED");
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        http_tls(c).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("scheme".into(), "http".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options.insert("insecure".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
+    }
+
+    #[test]
+    fn an_https_url_in_the_host_keeps_trust_from_saved_connections() {
+        // Today `trust` skips verification for an https URL typed in the
+        // host even with `encrypt` off.
+        let mut c = legacy(false, true);
+        c.host = "https://db.example.com:443".into();
+        assert_eq!(level(&c), TlsLevel::Unverified);
+        c.trust_server_certificate = false;
+        assert_eq!(level(&c), TlsLevel::VerifyFull);
+        let mut n = new_connection();
+        n.host = "http://db.example.com".into();
+        assert_eq!(level(&n), TlsLevel::Off);
     }
 }

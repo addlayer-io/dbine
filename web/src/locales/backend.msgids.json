@@ -7219,6 +7219,20 @@
  "El campo «{0}» tiene subcampos: su tipo tiene que ser object o nested, no {1}.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "El certificado de la CA en PEM (Drill JDBC usa un almacén JKS).": [
+  "crates/drivers/drill/src/lib.rs"
+ ],
+ "El certificado del servidor no se pudo verificar: indicá la CA en {0} o, si confiás en el servidor, usá {1}.": [
+  "crates/drivers/clickhouse/src/tls.rs",
+  "crates/drivers/couchbase/src/tls.rs",
+  "crates/drivers/couchdb/src/tls.rs",
+  "crates/drivers/dremio/src/tls.rs",
+  "crates/drivers/drill/src/tls.rs",
+  "crates/drivers/elasticsearch/src/tls.rs",
+  "crates/drivers/etcd/src/tls.rs",
+  "crates/drivers/orientdb/src/tls.rs",
+  "crates/drivers/trino/src/tls.rs"
+ ],
  "El cliente de Oracle no pudo leer la respuesta ({0}). Si el resultado tiene TIMESTAMP WITH TIME ZONE con región, convertilo con TO_CHAR(…, 'YYYY-MM-DD HH24:MI:SS.FF TZR').": [
   "crates/drivers/oracle/src/lib.rs"
  ],
@@ -7726,6 +7740,17 @@
  ],
  "El servidor no respondió como Solr: {0}": [
   "crates/drivers/solr/src/lib.rs"
+ ],
+ "El servidor no respondió con TLS en ese puerto: usá el puerto TLS del servidor o {0}={1}.": [
+  "crates/drivers/clickhouse/src/tls.rs",
+  "crates/drivers/couchbase/src/tls.rs",
+  "crates/drivers/couchdb/src/tls.rs",
+  "crates/drivers/dremio/src/tls.rs",
+  "crates/drivers/drill/src/tls.rs",
+  "crates/drivers/elasticsearch/src/tls.rs",
+  "crates/drivers/etcd/src/tls.rs",
+  "crates/drivers/orientdb/src/tls.rs",
+  "crates/drivers/trino/src/tls.rs"
  ],
  "El servidor no respondió en {0} s.": [
   "crates/drivers/firebird/src/lib.rs",
@@ -14791,9 +14816,6 @@
  "No se pudo cambiar {0} de ScyllaDB: {1}": [
   "crates/drivers/cassandra/src/profiler.rs"
  ],
- "No se pudo conectar con el servidor: {0}": [
-  "crates/drivers/elasticsearch/src/http.rs"
- ],
  "No se pudo confirmar cómo terminó la consulta {0} de Athena ({1}): si era un INSERT, puede haber cargado sus filas. Revisá la tabla antes de reanudar la carga.": [
   "crates/drivers/athena/src/transfer.rs"
  ],
@@ -15085,6 +15107,17 @@
  ],
  "No se pudo leer system.runtime.queries: {0}": [
   "crates/drivers/trino/src/monitor.rs"
+ ],
+ "No se pudo leer {0} ({1}): {2}": [
+  "crates/drivers/clickhouse/src/tls.rs",
+  "crates/drivers/couchbase/src/tls.rs",
+  "crates/drivers/couchdb/src/tls.rs",
+  "crates/drivers/dremio/src/tls.rs",
+  "crates/drivers/drill/src/tls.rs",
+  "crates/drivers/elasticsearch/src/tls.rs",
+  "crates/drivers/etcd/src/tls.rs",
+  "crates/drivers/orientdb/src/tls.rs",
+  "crates/drivers/trino/src/tls.rs"
  ],
  "No se pudo leer {0}: {1}": [
   "crates/drivers/cassandra/src/monitor.rs",
@@ -22249,6 +22282,12 @@
  "Una FK o CHECK creada o reactivada WITH NOCHECK no se usa para optimizar consultas y puede haber filas que no la cumplen. Revalidarla recorre la tabla.": [
   "crates/drivers/sqlserver/src/health.rs"
  ],
+ "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": [
+  "crates/drivers/couchdb/src/lib.rs",
+  "crates/drivers/elasticsearch/src/lib.rs",
+  "crates/drivers/orientdb/src/lib.rs",
+  "crates/drivers/solr/src/lib.rs"
+ ],
  "Una base de tipo «{0}» no se modifica con ALTER DATABASE.": [
   "crates/drivers/neo4j/src/properties.rs"
  ],
@@ -22316,6 +22355,17 @@
  ],
  "Una lectura protegida ejecuta una sola sentencia.": [
   "crates/drivers/postgres/src/session.rs"
+ ],
+ "Una opción de TLS tiene un valor que este driver no conoce: revisá {0}.": [
+  "crates/drivers/clickhouse/src/tls.rs",
+  "crates/drivers/couchbase/src/tls.rs",
+  "crates/drivers/couchdb/src/tls.rs",
+  "crates/drivers/dremio/src/tls.rs",
+  "crates/drivers/drill/src/tls.rs",
+  "crates/drivers/elasticsearch/src/tls.rs",
+  "crates/drivers/etcd/src/tls.rs",
+  "crates/drivers/orientdb/src/tls.rs",
+  "crates/drivers/trino/src/tls.rs"
  ],
  "Una partición": [
   "crates/drivers/cassandra/src/plan.rs"
@@ -22442,10 +22492,6 @@
  ],
  "Usage": [
   "crates/drivers/sqlserver/src/plan.rs"
- ],
- "Usar https.": [
-  "crates/drivers/couchdb/src/lib.rs",
-  "crates/drivers/orientdb/src/lib.rs"
  ],
  "User": [
   "crates/drivers/mysql/src/monitor.rs",
@@ -34255,6 +34301,17 @@
  ],
  "{0} ({1} libres, {2} de datos)": [
   "crates/drivers/mysql/src/health.rs"
+ ],
+ "{0} ({1}) no tiene certificados PEM.": [
+  "crates/drivers/clickhouse/src/tls.rs",
+  "crates/drivers/couchbase/src/tls.rs",
+  "crates/drivers/couchdb/src/tls.rs",
+  "crates/drivers/dremio/src/tls.rs",
+  "crates/drivers/drill/src/tls.rs",
+  "crates/drivers/elasticsearch/src/tls.rs",
+  "crates/drivers/etcd/src/tls.rs",
+  "crates/drivers/orientdb/src/tls.rs",
+  "crates/drivers/trino/src/tls.rs"
  ],
  "{0} ({1}): no se crea porque usa {2}, que no se clona: {3}": [
   "crates/drivers/sqlserver/src/clone.rs"
