@@ -3,7 +3,7 @@ import i18next from 'i18next';
 // The phone app's texts, in DBine's languages (Spanish is the source). The
 // list mirrors scripts/i18n/languages.json; `scripts/i18n/check.py` fails
 // when they differ, and checks every `locales/<lang>.json` against es.json.
-const LANGS = ['es', 'en', 'pt', 'fr', 'it', 'de', 'ru', 'zh', 'ja', 'ko', 'uk', 'pl'];
+const LANGS = ['es', 'en', 'pt', 'fr', 'it', 'de', 'ru', 'zh', 'ja', 'ko', 'uk', 'pl', 'id'];
 
 const files = import.meta.glob<Record<string, unknown>>('./locales/*.json', { eager: true, import: 'default' });
 const resources: Record<string, { translation: Record<string, unknown> }> = {};

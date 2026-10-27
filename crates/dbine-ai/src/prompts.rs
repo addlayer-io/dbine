@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 /// The languages with a prompt file; anything else gets English.
 /// The same list as scripts/i18n/languages.json (check.py verifies it).
 pub const LANGS: &[&str] = &[
-    "es", "en", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko", "uk", "pl",
+    "es", "en", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko", "uk", "pl", "id",
 ];
 
 fn source(lang: &str) -> &'static str {
@@ -30,6 +30,7 @@ fn source(lang: &str) -> &'static str {
         "ko" => include_str!("../prompts/ko.json"),
         "uk" => include_str!("../prompts/uk.json"),
         "pl" => include_str!("../prompts/pl.json"),
+        "id" => include_str!("../prompts/id.json"),
         _ => include_str!("../prompts/en.json"),
     }
 }

@@ -51,10 +51,10 @@ To comply:
 
 ## Conventions
 
-- UI texts in the twelve languages: Spanish `es` (the source of the UI
+- UI texts in the thirteen languages: Spanish `es` (the source of the UI
   strings), English `en`, Portuguese (Brazil) `pt`, French `fr`, Italian
   `it`, German `de`, Russian `ru`, Simplified Chinese `zh` (zh-CN), Japanese
-  `ja`, Korean `ko`, Ukrainian `uk` and Polish `pl`. The list lives in `scripts/i18n/languages.json`;
+  `ja`, Korean `ko`, Ukrainian `uk`, Polish `pl` and Indonesian `id`. The list lives in `scripts/i18n/languages.json`;
   documentation, markdown, agent instructions and the changelog in English;
   code, comments and commits in English.
 - Commits prefixed with `feat:`, `fix:` or `perf:`.
@@ -65,8 +65,8 @@ To comply:
 
 ## Every text in every language
 
-Every new UI or backend text, and every feature, ships in **all twelve
-languages** in the same batch of work: the Spanish source plus the eleven
+Every new UI or backend text, and every feature, ships in **all thirteen
+languages** in the same batch of work: the Spanish source plus the twelve
 translations in `web/src/locales/<lang>/` (UI keys and `backend.json`) and,
 for the AI assistant, `crates/dbine-ai/prompts/<lang>.json`. The `translator`
 agent (`.claude/agents/translator.md`) does the translating. A text isn't

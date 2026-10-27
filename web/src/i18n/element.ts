@@ -16,6 +16,7 @@ const loaders: Record<Lang, () => Promise<{ default: Language }>> = {
   ko: () => import('element-plus/es/locale/lang/ko.mjs'),
   uk: () => import('element-plus/es/locale/lang/uk.mjs'),
   pl: () => import('element-plus/es/locale/lang/pl.mjs'),
+  id: () => import('element-plus/es/locale/lang/id.mjs'),
 };
 
 /** Element Plus's texts per app language. The current language's entry is

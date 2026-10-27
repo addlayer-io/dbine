@@ -19,7 +19,7 @@ const SETTING_KEY: &str = "ui.language";
 
 /// The UI languages other than Spanish (the source), as in
 /// scripts/i18n/languages.json.
-const CATALOGS: [(&str, &str); 11] = [
+const CATALOGS: [(&str, &str); 12] = [
     (
         "en",
         include_str!("../../../web/src/locales/en/backend.json"),
@@ -63,6 +63,10 @@ const CATALOGS: [(&str, &str); 11] = [
     (
         "pl",
         include_str!("../../../web/src/locales/pl/backend.json"),
+    ),
+    (
+        "id",
+        include_str!("../../../web/src/locales/id/backend.json"),
     ),
 ];
 
@@ -119,7 +123,7 @@ struct Catalog {
 
 fn catalog(lang: &str) -> Option<&'static Catalog> {
     // Only the languages asked for are parsed: a OnceLock per language.
-    static SLOTS: [OnceLock<Option<Catalog>>; 11] = [const { OnceLock::new() }; 11];
+    static SLOTS: [OnceLock<Option<Catalog>>; 12] = [const { OnceLock::new() }; 12];
     let i = CATALOGS.iter().position(|(c, _)| *c == lang)?;
     SLOTS[i].get_or_init(|| compile(CATALOGS[i].1)).as_ref()
 }
