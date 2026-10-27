@@ -25,6 +25,9 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 pub struct Client {
     http: reqwest::Client,
     base: String,
+    /// `sslSkipCertValidation`: the certificate is pinned instead
+    /// (`dbine_tls::PinVerifier`); what the handshakes saw.
+    pub pin_watch: Option<dbine_tls::PinWatch>,
     /// SigV4 signing: (region, credentials provider).
     iam: Option<(
         String,
@@ -254,8 +257,16 @@ impl Client {
             .is_some_and(|v| v == "true");
         let mut http = reqwest::Client::builder()
             .connect_timeout(TIMEOUT)
-            .danger_accept_invalid_certs(skip)
             .user_agent("DBine");
+        // Not verifying the chain pins the certificate: the first one seen
+        // (saved by the app) and only that one afterwards.
+        let mut pin_watch = None;
+        if skip {
+            let (mut tls, watch) = dbine_tls::pinned_config(dbine_tls::pin_of(cfg))?;
+            tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+            http = http.use_preconfigured_tls(tls);
+            pin_watch = Some(watch);
+        }
         let host = cfg.host.trim();
         if let (Some(name), false) = (
             tunnel_name(cfg),
@@ -284,6 +295,7 @@ impl Client {
         Ok(Client {
             http,
             base: base_url(cfg),
+            pin_watch,
             iam,
         })
     }

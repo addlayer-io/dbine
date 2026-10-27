@@ -9,6 +9,7 @@ mod command;
 mod ddl;
 mod monitor;
 mod permissions;
+mod pinned;
 mod processes;
 mod profiler;
 mod properties;
@@ -344,7 +345,7 @@ impl Driver for RedisDriver {
         // redis' rustls needs a process-wide crypto provider when more
         // than one is compiled in; a second install is a no-op error.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let (addr, ca) = address(cfg, host, port)?;
+        let (mut addr, ca) = address(cfg, host.clone(), port)?;
         let mut redis_info = RedisConnectionInfo::default().set_db(db);
         if let Some(u) = cfg.username.as_deref().filter(|u| !u.is_empty()) {
             redis_info = redis_info.set_username(u);
@@ -352,6 +353,22 @@ impl Driver for RedisDriver {
         if let Some(p) = cfg.password.as_deref().filter(|p| !p.is_empty()) {
             redis_info = redis_info.set_password(p);
         }
+        // `insecure`: DBine opens the TLS connections itself and pins the
+        // certificate (pinned.rs); redis' client, used only for its
+        // settings then, would verify fully.
+        let pinned = match &mut addr {
+            ConnectionAddr::TcpTls { insecure, .. } if *insecure => {
+                *insecure = false;
+                Some(pinned::Pinned::new(
+                    host,
+                    port,
+                    cfg.tls_server_name(),
+                    dbine_tls::pin_of(cfg),
+                    redis_info.clone(),
+                )?)
+            }
+            _ => None,
+        };
         let conn_info = addr
             .into_connection_info()
             .map_err(connect_err)?
@@ -371,16 +388,29 @@ impl Driver for RedisDriver {
         let config = AsyncConnectionConfig::new()
             .set_connection_timeout(Some(Duration::from_secs(15)))
             .set_response_timeout(Some(Duration::from_secs(300)));
-        let conn = tokio::time::timeout(
-            Duration::from_secs(20),
-            client.get_multiplexed_async_connection_with_config(&config),
-        )
+        let conn = tokio::time::timeout(Duration::from_secs(20), async {
+            match &pinned {
+                Some(p) => p.connect(config).await,
+                None => {
+                    client
+                        .get_multiplexed_async_connection_with_config(&config)
+                        .await
+                }
+            }
+        })
         .await
         .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-        .map_err(|e| connect_failure(cfg, e))?;
+        .map_err(|e| {
+            let e = connect_failure(cfg, e);
+            match &pinned {
+                Some(p) => p.watch.explain(e),
+                None => e,
+            }
+        })?;
         Ok(Box::new(RedisSession {
             conn,
             client,
+            pinned,
             db,
             read_only: cfg.read_only,
             types: HashMap::new(),
@@ -446,6 +476,8 @@ pub struct RedisSession {
     conn: MultiplexedConnection,
     /// For the profiler's own `MONITOR` connection.
     client: redis::Client,
+    /// `insecure`: the connections DBine opens itself, pinned.
+    pinned: Option<pinned::Pinned>,
     db: i64,
     read_only: bool,
     /// Key types seen by `list_objects`/`columns`: `browse_query` is sync
@@ -637,6 +669,9 @@ fn type_label(t: &str) -> &str {
 
 #[async_trait]
 impl Session for RedisSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.pinned.as_ref()?.seen()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let text = shape::text_of(&self.run(&[b"INFO", b"server"]).await?);
         let field = |k: &str| {

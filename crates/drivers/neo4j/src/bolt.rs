@@ -93,6 +93,10 @@ pub struct Target {
     pub server_name: String,
     /// `trustedCertificates`: extra CA certificates (PEM).
     pub ca_file: Option<String>,
+    /// `+ssc`: the pinned certificate (`tls_pin`, `None` on first use) and
+    /// what the handshakes saw, shared by every reconnect.
+    pub pin: Option<String>,
+    pub watch: dbine_tls::PinWatch,
     pub user: String,
     pub password: String,
 }
@@ -201,6 +205,8 @@ pub fn target(cfg: &ConnectionConfig, default_port: u16) -> Target {
             .map(str::trim)
             .filter(|p| !p.is_empty())
             .map(str::to_string),
+        pin: dbine_tls::pin_of(cfg),
+        watch: dbine_tls::PinWatch::default(),
         user: cfg.username_or_empty().to_string(),
         password: cfg.password_or_empty().to_string(),
     }
@@ -563,11 +569,12 @@ async fn tls(tcp: TcpStream, t: &Target) -> Result<tokio_rustls::client::TlsStre
     tokio_rustls::TlsConnector::from(Arc::new(config))
         .connect(name, tcp)
         .await
-        .map_err(tls_error)
+        .map_err(|e| t.watch.explain(tls_error(e)))
 }
 
-/// A target's rustls configuration: any certificate with `+ssc`, else the
-/// webpki and system roots plus `trustedCertificates`.
+/// A target's rustls configuration: with `+ssc` the pinned certificate (any
+/// on first use, see `dbine_tls::PinVerifier`), else the webpki and system
+/// roots plus `trustedCertificates`.
 fn client_config(t: &Target) -> Result<rustls::ClientConfig> {
     use rustls::pki_types::{pem::PemObject, CertificateDer};
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -577,7 +584,10 @@ fn client_config(t: &Target) -> Result<rustls::ClientConfig> {
     if t.trust_cert {
         return Ok(builder
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(AcceptAny(provider)))
+            .with_custom_certificate_verifier(dbine_tls::PinVerifier::watched(
+                t.pin.clone(),
+                t.watch.clone(),
+            ))
             .with_no_client_auth());
     }
     let mut roots = rustls::RootCertStore::empty();
@@ -619,52 +629,6 @@ fn tls_error(e: std::io::Error) -> Error {
         Error::Connect(format!(
             "falló la negociación TLS: {e} (si el servidor no usa TLS, elegí bolt en scheme)"
         ))
-    }
-}
-
-/// "Confiar en el certificado del servidor": any certificate, signatures still checked.
-#[derive(Debug)]
-struct AcceptAny(Arc<rustls::crypto::CryptoProvider>);
-
-impl rustls::client::danger::ServerCertVerifier for AcceptAny {
-    fn verify_server_cert(
-        &self,
-        _: &rustls::pki_types::CertificateDer<'_>,
-        _: &[rustls::pki_types::CertificateDer<'_>],
-        _: &rustls::pki_types::ServerName<'_>,
-        _: &[u8],
-        _: rustls::pki_types::UnixTime,
-    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &self.0.signature_verification_algorithms,
-        )
-    }
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &self.0.signature_verification_algorithms,
-        )
-    }
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.0.signature_verification_algorithms.supported_schemes()
     }
 }
 

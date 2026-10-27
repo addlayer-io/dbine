@@ -1546,7 +1546,7 @@ mod tests {
         let c = tls_cfg(false, false, &[(ENCRYPT, "true"), ("trustStore", pem)]);
         let (on, certs) = tls_of(&c);
         let Some([ServerCerts::Directory(dir)]) = certs.as_deref() else {
-            panic!("{certs:?}")
+            panic!("trustStore didn't become a single certificate folder")
         };
         assert!(on);
         let der = std::fs::read(std::path::Path::new(dir).join("ca0.crt")).unwrap();

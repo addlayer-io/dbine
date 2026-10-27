@@ -137,12 +137,17 @@ impl PinVerifier {
     /// The verifier for `pin` (`None`: first use) and what it will see.
     pub fn new(pin: Option<String>) -> (Arc<Self>, PinWatch) {
         let watch = PinWatch::default();
-        let v = Arc::new(Self {
+        (Self::watched(pin, watch.clone()), watch)
+    }
+
+    /// A verifier that reports to an existing `watch` (a client that makes
+    /// a new config for each reconnect keeps one watch for the session).
+    pub fn watched(pin: Option<String>, watch: PinWatch) -> Arc<Self> {
+        Arc::new(Self {
             pin,
-            watch: watch.clone(),
+            watch,
             provider: provider(),
-        });
-        (v, watch)
+        })
     }
 }
 

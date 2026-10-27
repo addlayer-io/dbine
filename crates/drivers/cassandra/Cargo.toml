@@ -1,12 +1,13 @@
 [package]
 name = "dbine-driver-cassandra"
-version = "0.1.10"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.11"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 description = "DBine driver for Apache Cassandra and ScyllaDB (CQL native protocol)"
 
 [dependencies]
 dbine-driver = { path = "../../dbine-driver" }
+dbine-tls = { path = "../../dbine-tls" }
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

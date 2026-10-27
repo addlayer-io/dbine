@@ -412,8 +412,9 @@ impl Driver for CassandraDriver {
             b = b.prefer_datacenter(dc.to_string());
         }
         let tls = tls_settings(cfg, self.flavor);
+        let pin_watch = dbine_tls::PinWatch::default();
         if let Some(t) = &tls {
-            b = b.tls_context(Some(tls_config(t)?));
+            b = b.tls_context(Some(tls_config(t, &pin_watch)?));
         }
         if let Some(ks) = keyspace {
             b = b.use_keyspace(ks, true);
@@ -427,8 +428,14 @@ impl Driver for CassandraDriver {
         let session = tokio::time::timeout(Duration::from_secs(20), b.build())
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(|e| tls_hint(connect_err(e.to_string()), tls.as_ref()))?;
+            .map_err(|e| pin_watch.explain(tls_hint(connect_err(e.to_string()), tls.as_ref())))?;
+        // `validate=false` with no pin yet: the certificate to pin.
+        let pin_seen = tls
+            .as_ref()
+            .filter(|t| t.skip_verify && t.pin.is_none())
+            .and_then(|_| pin_watch.seen());
         Ok(Box::new(CassandraSession {
+            pin_seen,
             session,
             keyspace: keyspace.map(str::to_string),
             read_only: cfg.read_only,
@@ -493,8 +500,11 @@ fn connect_err(msg: String) -> Error {
 /// How a connection's TLS is set up (`None`: plaintext).
 #[derive(Debug, PartialEq)]
 struct TlsSettings {
-    /// `validate=false`: any certificate.
+    /// `validate=false`: no chain, the pinned certificate instead
+    /// (`dbine_tls::PinVerifier`; any on first use).
     skip_verify: bool,
+    /// `tls_pin`: the certificate pinned on the first connection.
+    pin: Option<String>,
     /// `certfile`.
     ca_file: Option<String>,
     /// The names the certificate may carry besides the node's IP: the
@@ -525,6 +535,7 @@ fn tls_settings(cfg: &ConnectionConfig, flavor: Flavor) -> Option<TlsSettings> {
             .filter(|p| !p.is_empty())
             .map(str::to_string),
         names,
+        pin: dbine_tls::pin_of(cfg),
     })
 }
 
@@ -539,7 +550,7 @@ fn node_host(h: &str) -> &str {
     h
 }
 
-fn tls_config(t: &TlsSettings) -> Result<Arc<rustls::ClientConfig>> {
+fn tls_config(t: &TlsSettings, watch: &dbine_tls::PinWatch) -> Result<Arc<rustls::ClientConfig>> {
     use rustls::pki_types::{pem::PemObject, CertificateDer};
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
@@ -549,7 +560,10 @@ fn tls_config(t: &TlsSettings) -> Result<Arc<rustls::ClientConfig>> {
         return Ok(Arc::new(
             builder
                 .dangerous()
-                .with_custom_certificate_verifier(Arc::new(AcceptAny(provider)))
+                .with_custom_certificate_verifier(dbine_tls::PinVerifier::watched(
+                    t.pin.clone(),
+                    watch.clone(),
+                ))
                 .with_no_client_auth(),
         ));
     }
@@ -686,57 +700,11 @@ impl rustls::client::danger::ServerCertVerifier for NodeOrName {
     }
 }
 
-/// "Trust the server certificate": any certificate, signatures still checked.
-#[derive(Debug)]
-struct AcceptAny(Arc<rustls::crypto::CryptoProvider>);
-
-impl rustls::client::danger::ServerCertVerifier for AcceptAny {
-    fn verify_server_cert(
-        &self,
-        _: &rustls::pki_types::CertificateDer<'_>,
-        _: &[rustls::pki_types::CertificateDer<'_>],
-        _: &rustls::pki_types::ServerName<'_>,
-        _: &[u8],
-        _: rustls::pki_types::UnixTime,
-    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &self.0.signature_verification_algorithms,
-        )
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &self.0.signature_verification_algorithms,
-        )
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.0.signature_verification_algorithms.supported_schemes()
-    }
-}
-
 pub struct CassandraSession {
     session: Session,
+    /// The certificate accepted on first use with `validate=false`, for
+    /// the app to pin.
+    pin_seen: Option<String>,
     keyspace: Option<String>,
     read_only: bool,
     flavor: Flavor,
@@ -1281,6 +1249,9 @@ fn type_name(t: &scylla::frame::response::result::ColumnType<'_>) -> String {
 
 #[async_trait]
 impl DbSession for CassandraSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.pin_seen.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let rows = self
             .rows("SELECT release_version FROM system.local", ())
