@@ -7,6 +7,7 @@ description = "DBine driver for Apache IoTDB through its REST API (v2)"
 
 [dependencies]
 dbine-driver = { path = "../../dbine-driver" }
+dbine-tls = { path = "../../dbine-tls" }
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

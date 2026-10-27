@@ -178,6 +178,7 @@ impl ClickHouseSession {
 /// check as 0 whatever the user holds.
 fn without_read_only(s: &ClickHouseSession) -> ClickHouseSession {
     ClickHouseSession {
+        tls_pin: None,
         conn: s.conn.clone(),
         flavor: s.flavor,
         database: s.database.clone(),

@@ -385,7 +385,8 @@ impl Driver for CouchbaseDriver {
         let bucket = database
             .filter(|d| !d.is_empty())
             .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
-        let s = CbSession {
+        let mut s = CbSession {
+            tls_pin: None,
             conn: Arc::new(Conn {
                 http,
                 query: format!(
@@ -418,6 +419,7 @@ impl Driver for CouchbaseDriver {
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
             .map_err(|e| tls.explain(e))?;
+        s.tls_pin = tls.pin_seen();
         Ok(Box::new(s))
     }
 }
@@ -647,6 +649,8 @@ impl Cancel {
 }
 
 pub struct CbSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     conn: Arc<Conn>,
     bucket: Option<String>,
     cancel: Arc<Cancel>,
@@ -1042,6 +1046,9 @@ impl CbSession {
 
 #[async_trait]
 impl Session for CbSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let v = self.conn.mgmt_get("/pools").await.ok();
         let impl_version = v
@@ -2128,6 +2135,7 @@ mod tests {
             .build()
             .unwrap();
         let s = CbSession {
+            tls_pin: None,
             conn: Arc::new(Conn {
                 http: reqwest::Client::new(),
                 query: String::new(),

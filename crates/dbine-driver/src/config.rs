@@ -180,6 +180,12 @@ pub const TUNNEL_ORIGIN_HOST: &str = "tunnel.origin_host";
 /// The real server's port, next to [`TUNNEL_ORIGIN_HOST`].
 pub const TUNNEL_ORIGIN_PORT: &str = "tunnel.origin_port";
 
+/// The SHA-256 of the server certificate (DER, in hex) that a mode which
+/// doesn't verify the chain (`TlsLevel::Unverified`) trusts: saved by the
+/// app from the first connection (`Session::tls_pin_seen`), checked on every
+/// later one. Not a secret; it is stored with the connection's options.
+pub const TLS_PIN: &str = "tls_pin";
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -360,3 +360,7 @@ mobile:conn.f.status
 mobile:conn.f.host
 notebook.json:summary.ms
 results.json:messages.elapsed
+backend:Advanced
+backend:Element
+backend:Instance
+backend:no schema scripted

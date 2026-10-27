@@ -69,6 +69,12 @@ const values = reactive<Record<string, string | boolean>>({});
 /** The existing connection's TLS state before the form changed anything:
  *  its bools and the TLS options it had no value for (tlsFields.ts). */
 const tlsOriginal = ref<TlsOriginal | null>(null);
+/** The certificate a mode that doesn't verify trusts (`tls_pin`, SHA-256
+ *  hex): saved by the app on the first connection; "Olvidar" clears it and
+ *  the next connection pins the server's certificate again. */
+const tlsPin = ref('');
+/** `AB:CD:…`, as people compare fingerprints. */
+const tlsPinShown = computed(() => (/^[0-9a-f]{64}$/i.test(tlsPin.value) ? tlsPin.value.toUpperCase().match(/../g)!.join(':') : tlsPin.value));
 /** Bumped on every pick: a level change that comes from loading another
  *  connection doesn't swap the port. */
 const picks = ref(0);
@@ -194,6 +200,7 @@ function pick(d: DriverInfo, existing: SavedConnection | null = null) {
   }
   tlsOriginal.value = null;
   const o = existing?.config.options ?? {};
+  tlsPin.value = o.tls_pin ?? '';
   const sources = readSources(o);
   for (const k of Object.keys(drafts)) delete drafts[k];
   for (const f of d.fields.filter((f) => f.secret)) drafts[f.key] = draftFrom(sources[f.key], f.key === 'password' && !!existing && !existing.save_password);
@@ -285,6 +292,7 @@ function buildConfig(): ConnectionConfig {
     if (s.auth === 'password' && !sourced('ssh.password') && s.password) cfg.options['ssh.password'] = s.password;
   }
   if (s.trusted.trim()) cfg.options['ssh.trusted'] = s.trusted.trim();
+  if (tlsPin.value.trim()) cfg.options.tls_pin = tlsPin.value.trim();
   writeSources(cfg.options, sources);
   return cfg;
 }
@@ -670,6 +678,14 @@ function selectOptions(f: Field): [string, string][] {
                 <div v-if="f.help" class="cd-help">{{ tb(f.help) }}</div>
               </el-form-item>
             </template>
+            <!-- A mode that doesn't verify the chain: the certificate pinned on the first connection. -->
+            <el-form-item v-if="section === 'ssl' && (tlsPin || tlsChip === 'unverified')" class="cd-wide" :label="$t('connection:tls.pin.label')">
+              <div v-if="tlsPin" class="cd-pin">
+                <code class="cd-pin-value nm-selectable">{{ tlsPinShown }}</code>
+                <el-button size="small" @click="tlsPin = ''">{{ $t('connection:tls.pin.forget') }}</el-button>
+              </div>
+              <div class="cd-help">{{ tlsPin ? $t('connection:tls.pin.help') : $t('connection:tls.pin.none') }}</div>
+            </el-form-item>
           </div>
           <div v-if="section !== 'general' && !fieldsIn(section).length" class="cd-empty">{{ $t('tunnel:tabs.empty') }}</div>
         </template>
@@ -770,6 +786,8 @@ function selectOptions(f: Field): [string, string][] {
 .cd-fields { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
 .cd-wide { grid-column: 1 / -1; }
 .cd-bool { margin-bottom: 4px; }
+.cd-pin { display: flex; align-items: center; gap: 8px; width: 100%; }
+.cd-pin-value { font-family: var(--nm-mono, monospace); font-size: 11.5px; word-break: break-all; flex: 1; }
 .cd-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.4; margin-top: 2px; }
 .cd-colors { display: flex; gap: 6px; }
 .cd-color {

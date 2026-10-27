@@ -33,6 +33,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod rustls_connect;
 mod schemas;
 mod script;
 mod search;
@@ -47,7 +48,7 @@ use dbine_driver::{
     DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result,
     Session, TableSchema, TlsLevel, TlsSupport,
 };
-use postgres_native_tls::MakeTlsConnector;
+use rustls_connect::MakeRustlsConnect;
 use session::PgSession;
 use std::sync::Arc;
 use std::time::Duration;
@@ -907,9 +908,13 @@ impl Driver for PgDriver {
             }
         }
 
-        let tls = MakeTlsConnector::new(tls_connector(cfg, plan)?);
+        let (tls, pin) = tls_connector(cfg, plan)?;
+        let explain = |e: Error| match &pin {
+            Some(w) => w.explain(e),
+            None => e,
+        };
 
-        let (mut client, mut notices) = open(v, &pg, &tls).await?;
+        let (mut client, mut notices) = open(v, &pg, &tls).await.map_err(explain)?;
         // Gateways and proxies that only take the simple protocol answer a
         // Parse with an error (and may leave the connection out of step):
         // found out on a probe, the session goes on a fresh connection.
@@ -927,7 +932,7 @@ impl Driver for PgDriver {
                         "{}: the server refuses the extended protocol; using the simple one",
                         self.info.id
                     );
-                    (client, notices) = open(v, &pg, &tls).await?;
+                    (client, notices) = open(v, &pg, &tls).await.map_err(explain)?;
                 }
                 refused
             }
@@ -962,6 +967,11 @@ impl Driver for PgDriver {
 
         let mut session = PgSession::new(client, tls, v, version, dbname, notices);
         session.simple = simple;
+        // First connection without a pin: the certificate it trusted, for
+        // the app to pin.
+        session.tls_pin_seen = pin
+            .filter(|_| dbine_tls::pin_of(cfg).is_none())
+            .and_then(|w| w.seen());
         session.identity = cloud.and_then(|l| l.identity);
         Ok(Box::new(session))
     }
@@ -984,7 +994,7 @@ const PROBE_LIMIT: Duration = Duration::from_secs(5);
 async fn open(
     v: Variant,
     pg: &tokio_postgres::Config,
-    tls: &MakeTlsConnector,
+    tls: &MakeRustlsConnect,
 ) -> Result<(
     tokio_postgres::Client,
     mpsc::UnboundedReceiver<tokio_postgres::error::DbError>,
@@ -1032,12 +1042,13 @@ fn extended_refused(e: &tokio_postgres::Error) -> bool {
     m.contains("extended query") || m.contains("extended protocol") || m.contains("simple query")
 }
 
-/// What the connection's TLS options ask of tokio-postgres and native-tls.
+/// What the connection's TLS options ask of tokio-postgres and rustls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TlsPlan {
     mode: tokio_postgres::config::SslMode,
-    /// Any certificate, for any name, is accepted.
-    accept_invalid: bool,
+    /// The chain isn't verified: the certificate is pinned instead (the
+    /// first one seen, then only that one; `dbine_tls::PinVerifier`).
+    pinned: bool,
     /// The certificate must name the server.
     hostname: bool,
     /// The system's roots anchor the chain (besides the CA file).
@@ -1068,7 +1079,7 @@ fn tls_plan(v: Variant, cfg: &ConnectionConfig) -> Result<TlsPlan> {
     use tokio_postgres::config::SslMode;
     let off = TlsPlan {
         mode: SslMode::Disable,
-        accept_invalid: false,
+        pinned: false,
         hostname: true,
         system_roots: true,
         rds_roots: false,
@@ -1091,7 +1102,7 @@ fn tls_plan(v: Variant, cfg: &ConnectionConfig) -> Result<TlsPlan> {
             } else {
                 SslMode::Prefer
             },
-            accept_invalid: !verify,
+            pinned: !verify,
             hostname: verify && !instance_ca,
             system_roots: !(verify && instance_ca),
             rds_roots: aws || (v == Variant::Aurora && cfg.encrypt),
@@ -1113,7 +1124,7 @@ fn tls_plan(v: Variant, cfg: &ConnectionConfig) -> Result<TlsPlan> {
     let rds_roots = aws || v == Variant::Aurora;
     let unverified = |mode| TlsPlan {
         mode,
-        accept_invalid: true,
+        pinned: true,
         hostname: false,
         system_roots: true,
         rds_roots: false,
@@ -1130,7 +1141,7 @@ fn tls_plan(v: Variant, cfg: &ConnectionConfig) -> Result<TlsPlan> {
             }
             TlsPlan {
                 mode: SslMode::Require,
-                accept_invalid: false,
+                pinned: false,
                 hostname: false,
                 system_roots: false,
                 rds_roots,
@@ -1138,7 +1149,7 @@ fn tls_plan(v: Variant, cfg: &ConnectionConfig) -> Result<TlsPlan> {
         }
         TlsLevel::VerifyFull => TlsPlan {
             mode: SslMode::Require,
-            accept_invalid: false,
+            pinned: false,
             hostname: true,
             system_roots: !instance_ca,
             rds_roots,
@@ -1153,14 +1164,24 @@ fn ca_path(cfg: &ConnectionConfig) -> Option<&str> {
         .filter(|p| !p.is_empty())
 }
 
-/// The TLS connector for a plan: the CA file, when given, every certificate
-/// of it (a bundle like AWS's global-bundle.pem), else Amazon's RDS CAs
-/// when the plan wants them.
-fn tls_connector(cfg: &ConnectionConfig, plan: TlsPlan) -> Result<native_tls::TlsConnector> {
-    let mut b = native_tls::TlsConnector::builder();
-    b.danger_accept_invalid_certs(plan.accept_invalid)
-        .danger_accept_invalid_hostnames(!plan.hostname)
-        .disable_built_in_roots(!plan.system_roots);
+/// The TLS connector for a plan, and what its pinning saw when it pins.
+/// Verified plans trust the CA file, when given, every certificate of it (a
+/// bundle like AWS's global-bundle.pem), else Amazon's RDS CAs when the plan
+/// wants them, besides the system's roots when it keeps them; without the
+/// host name (`verify-ca`) the chain is still checked whole.
+fn tls_connector(
+    cfg: &ConnectionConfig,
+    plan: TlsPlan,
+) -> Result<(MakeRustlsConnect, Option<dbine_tls::PinWatch>)> {
+    if plan.pinned {
+        let (c, watch) = dbine_tls::pinned_config(dbine_tls::pin_of(cfg))?;
+        return Ok((MakeRustlsConnect::new(c), Some(watch)));
+    }
+    let mut roots = if plan.system_roots {
+        dbine_tls::system_roots()
+    } else {
+        dbine_tls::rustls::RootCertStore::empty()
+    };
     if let Some(path) = ca_path(cfg) {
         let pem = std::fs::read(path).map_err(|e| {
             Error::Connect(format!(
@@ -1172,40 +1193,44 @@ fn tls_connector(cfg: &ConnectionConfig, plan: TlsPlan) -> Result<native_tls::Tl
                 "el certificado de CA «{path}» no es un PEM válido: {e}"
             ))
         };
-        let blocks = cloud_auth::pem_certificates(&pem);
-        if blocks.is_empty() {
-            b.add_root_certificate(
-                native_tls::Certificate::from_pem(&pem).map_err(|e| bad(e.to_string()))?,
-            );
+        let certs = dbine_tls::rustls::pki_types::pem::PemObject::pem_slice_iter(&pem)
+            .collect::<std::result::Result<Vec<dbine_tls::rustls::pki_types::CertificateDer<'static>>, _>>()
+            .map_err(|e| bad(e.to_string()))?;
+        if certs.is_empty() {
+            return Err(bad("no tiene certificados PEM".into()));
         }
-        for block in blocks {
-            b.add_root_certificate(
-                native_tls::Certificate::from_pem(block).map_err(|e| bad(e.to_string()))?,
-            );
+        for c in certs {
+            roots.add(c).map_err(|e| bad(e.to_string()))?;
         }
     } else if plan.rds_roots {
         for c in rds_certificates()? {
-            b.add_root_certificate(c);
+            let _ = roots.add(c);
         }
     }
-    b.build().map_err(|e| Error::Connect(format!("TLS: {e}")))
+    let config = if plan.hostname {
+        dbine_tls::verified_config(roots)?
+    } else {
+        dbine_tls::ca_only_config(roots)?
+    };
+    Ok((MakeRustlsConnect::new(config), None))
 }
 
+type Cert = dbine_tls::rustls::pki_types::CertificateDer<'static>;
+
 /// Amazon's RDS CAs, parsed once.
-fn rds_certificates() -> Result<Vec<native_tls::Certificate>> {
-    static CERTS: std::sync::OnceLock<Vec<native_tls::Certificate>> = std::sync::OnceLock::new();
+fn rds_certificates() -> Result<Vec<Cert>> {
+    static CERTS: std::sync::OnceLock<Vec<Cert>> = std::sync::OnceLock::new();
     if let Some(c) = CERTS.get() {
         return Ok(c.clone());
     }
-    let parsed = cloud_auth::pem_certificates(cloud_auth::RDS_CA_BUNDLE)
-        .into_iter()
-        .map(native_tls::Certificate::from_pem)
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| {
-            Error::Connect(format!(
-                "TLS: el paquete de CA de Amazon RDS no se pudo leer: {e}"
-            ))
-        })?;
+    let parsed =
+        dbine_tls::rustls::pki_types::pem::PemObject::pem_slice_iter(cloud_auth::RDS_CA_BUNDLE)
+            .collect::<std::result::Result<Vec<Cert>, _>>()
+            .map_err(|e| {
+                Error::Connect(format!(
+                    "TLS: el paquete de CA de Amazon RDS no se pudo leer: {e}"
+                ))
+            })?;
     Ok(CERTS.get_or_init(|| parsed).clone())
 }
 
@@ -1483,14 +1508,14 @@ mod tests {
 
     fn plan(
         mode: tokio_postgres::config::SslMode,
-        accept_invalid: bool,
+        pinned: bool,
         hostname: bool,
         system_roots: bool,
         rds_roots: bool,
     ) -> TlsPlan {
         TlsPlan {
             mode,
-            accept_invalid,
+            pinned,
             hostname,
             system_roots,
             rds_roots,
@@ -1727,12 +1752,12 @@ mod tests {
                             }
                             if let Ok(p) = tls_plan(v, &tls_cfg(e, t, &o)) {
                                 assert!(
-                                    p.hostname || !p.system_roots || p.accept_invalid,
+                                    p.hostname || !p.system_roots || p.pinned,
                                     "{v:?} {o:?} {e} {t}"
                                 );
                                 if !auth.is_empty() && v != Variant::H2 {
                                     assert!(
-                                        !p.accept_invalid
+                                        !p.pinned
                                             && p.mode == tokio_postgres::config::SslMode::Require,
                                         "{v:?} {o:?} {e} {t}"
                                     );
@@ -1757,21 +1782,31 @@ mod tests {
         // Any CA that didn't sign the site's certificate: Amazon's RDS bundle.
         std::fs::write(&ca, cloud_auth::RDS_CA_BUNDLE).unwrap();
         let cfg = tls_cfg(true, false, &[(SSL_ROOT_CERT, ca.to_str().unwrap())]);
-        let dial = |c: native_tls::TlsConnector| {
-            let tcp = std::net::TcpStream::connect("www.google.com:443").unwrap();
-            c.connect("not-this-host.invalid", tcp).map(|_| ())
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let dial = |mut c: MakeRustlsConnect| {
+            use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
+            rt.block_on(async move {
+                let tcp = tokio::net::TcpStream::connect("www.google.com:443")
+                    .await
+                    .unwrap();
+                let t = MakeTlsConnect::<tokio::net::TcpStream>::make_tls_connect(
+                    &mut c,
+                    "not-this-host.invalid",
+                )
+                .unwrap();
+                t.connect(tcp).await.map(|_| ())
+            })
         };
         for v in [Variant::CloudSql, Variant::AlloyDb] {
             let p = tls_plan(v, &cfg).unwrap();
             assert!(
-                dial(tls_connector(&cfg, p).unwrap()).is_err(),
+                dial(tls_connector(&cfg, p).unwrap().0).is_err(),
                 "{v:?} accepted a public certificate"
             );
         }
         // Control: with the system roots and no name check, it would pass.
-        let mut b = native_tls::TlsConnector::builder();
-        b.danger_accept_invalid_hostnames(true);
-        assert!(dial(b.build().unwrap()).is_ok());
+        let c = dbine_tls::ca_only_config(dbine_tls::system_roots()).unwrap();
+        assert!(dial(MakeRustlsConnect::new(c)).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

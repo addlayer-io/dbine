@@ -1282,10 +1282,15 @@ impl Driver for RemoteDriver {
             })
             .await?
         {
-            Reply::Session { id, interruptible } => Ok(Box::new(RemoteSession {
+            Reply::Session {
+                id,
+                interruptible,
+                tls_pin_seen,
+            } => Ok(Box::new(RemoteSession {
                 host,
                 id,
                 interruptible,
+                tls_pin_seen,
             })),
             _ => Err(unexpected()),
         }
@@ -1332,6 +1337,7 @@ pub struct RemoteSession {
     host: Arc<Host>,
     id: u64,
     interruptible: bool,
+    tls_pin_seen: Option<String>,
 }
 
 impl Drop for RemoteSession {
@@ -1600,6 +1606,9 @@ impl Session for RemoteSession {
             sink: out.sink.is_some(),
         };
         self.run(call, out).await
+    }
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin_seen.clone()
     }
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         if !self.interruptible {
@@ -2255,6 +2264,7 @@ mod tests {
             host,
             id: 1,
             interruptible: false,
+            tls_pin_seen: None,
         };
         let mut out = QueryOutcome::default();
         let r = tokio::time::timeout(
@@ -2310,11 +2320,13 @@ mod tests {
             host: host.clone(),
             id: 1,
             interruptible: false,
+            tls_pin_seen: None,
         };
         let mut other = RemoteSession {
             host: host.clone(),
             id: 2,
             interruptible: false,
+            tls_pin_seen: None,
         };
         let gate = Arc::new(Gate::default());
         let held = Arc::new(Mutex::new(Held {
@@ -2390,6 +2402,7 @@ mod tests {
                 Reply::Session {
                     id: s,
                     interruptible,
+                    tls_pin_seen,
                 } => frame(&|v| {
                     write_frame(
                         v,
@@ -2398,6 +2411,7 @@ mod tests {
                             result: Ok(Reply::Session {
                                 id: *s,
                                 interruptible: *interruptible,
+                                tls_pin_seen: tls_pin_seen.clone(),
                             }),
                         },
                     )
@@ -2497,6 +2511,7 @@ mod tests {
                 Reply::Session {
                     id: 1,
                     interruptible: false,
+                    tls_pin_seen: None,
                 },
                 Reply::Text(t.into()),
             ]

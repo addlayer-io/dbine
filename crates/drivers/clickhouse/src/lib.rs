@@ -411,6 +411,7 @@ impl Driver for ClickHouseDriver {
             .unwrap_or("default")
             .to_string();
         let mut s = ClickHouseSession {
+            tls_pin: None,
             conn: Arc::new(Conn {
                 http,
                 url: format!("{scheme}://{host}:{port}/"),
@@ -435,6 +436,7 @@ impl Driver for ClickHouseDriver {
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
             .map_err(|e| tls.explain(e))?;
+        s.tls_pin = tls.pin_seen();
         Ok(Box::new(s))
     }
 }
@@ -462,6 +464,8 @@ impl Conn {
 }
 
 pub struct ClickHouseSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     conn: Arc<Conn>,
     flavor: Flavor,
     database: String,
@@ -1164,6 +1168,9 @@ fn text(v: &Value) -> String {
 
 #[async_trait]
 impl Session for ClickHouseSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let rows = self.rows("SELECT version()", &[]).await?;
         let v = rows

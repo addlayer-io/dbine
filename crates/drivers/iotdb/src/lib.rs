@@ -309,7 +309,7 @@ impl Driver for IotDbDriver {
         let db = database
             .filter(|d| !d.is_empty())
             .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
-        let (base, http) = tls_http::client(
+        let (base, http, pin) = tls_http::client(
             cfg,
             &self.info.fields,
             base_url(cfg),
@@ -324,6 +324,7 @@ impl Driver for IotDbDriver {
             .unwrap_or("root")
             .to_string();
         let mut s = IotDbSession {
+            tls_pin: None,
             http,
             base,
             username,
@@ -335,10 +336,15 @@ impl Driver for IotDbDriver {
             metrics: metrics_url(cfg),
             profiler: None,
         };
-        let vars = s.query("SHOW VARIABLES", 1000).await.map_err(|e| match e {
-            Error::Query(m) => Error::Connect(m),
-            e => e,
-        })?;
+        let vars = s
+            .query("SHOW VARIABLES", 1000)
+            .await
+            .map_err(|e| match e {
+                Error::Query(m) => Error::Connect(m),
+                e => e,
+            })
+            .map_err(|e| pin.explain(e))?;
+        s.tls_pin = pin.seen();
         if let Some(p) = vars
             .rows
             .iter()
@@ -421,6 +427,8 @@ enum Precision {
 }
 
 struct IotDbSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     http: reqwest::Client,
     base: String,
     username: String,
@@ -1045,6 +1053,9 @@ fn sorted_browse(query: &str, sort: &[dbine_driver::SortKey]) -> Result<String> 
 
 #[async_trait]
 impl Session for IotDbSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let t = self.query("SHOW VERSION", 10).await?;
         Ok(format!(

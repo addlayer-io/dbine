@@ -91,6 +91,11 @@
       "unknown": {
         "title": "Nie udało się połączyć",
         "body": "Serwer lub sterownik odpowiedział tym komunikatem."
+      },
+      "tls_pin_changed": {
+        "title": "Certyfikat serwera się zmienił",
+        "body": "To połączenie nie weryfikuje łańcucha certyfikatu: przy pierwszym połączeniu zapisało odcisk certyfikatu serwera, a teraz serwer przedstawia inny. Być może serwer odnowił certyfikat, a być może ktoś przechwytuje połączenie. Zanim zaufasz nowemu certyfikatowi, porównaj odciski z komunikatu z odciskami na serwerze.",
+        "trust": "Zaufaj nowemu certyfikatowi"
       }
     },
     "network": {
@@ -346,6 +351,12 @@
   },
   "tls": {
     "off": "Bez szyfrowania",
-    "unverified": "Niezweryfikowane"
+    "unverified": "Niezweryfikowane",
+    "pin": {
+      "label": "Przypięty certyfikat (SHA-256)",
+      "forget": "Zapomnij",
+      "help": "Ten tryb nie weryfikuje łańcucha certyfikatu: akceptuje tylko certyfikat, który serwer przedstawił przy pierwszym połączeniu. „Zapomnij” sprawia, że następne połączenie przypnie certyfikat, który serwer wtedy przedstawi.",
+      "none": "Ten tryb nie weryfikuje łańcucha certyfikatu: pierwsze połączenie przypina certyfikat serwera, a kolejne akceptują tylko ten."
+    }
   }
 }

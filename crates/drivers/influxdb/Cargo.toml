@@ -7,6 +7,7 @@ description = "DBine driver for InfluxDB: v2 (Flux), v1 (InfluxQL) and v3 (SQL) 
 
 [dependencies]
 dbine-driver = { path = "../../dbine-driver" }
+dbine-tls = { path = "../../dbine-tls" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

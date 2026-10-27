@@ -646,6 +646,9 @@ impl Session for ReadOnlySession {
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         self.inner.interrupter()
     }
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.inner.tls_pin_seen()
+    }
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
         self.inner.transaction_state().await
     }

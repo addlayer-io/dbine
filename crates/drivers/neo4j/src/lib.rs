@@ -407,9 +407,15 @@ impl Driver for GraphDriver {
         let (transport, target) = if self.flavor == Flavor::Neptune {
             let c = neptune::Client::new(cfg).await?;
             // Proves the endpoint and the credentials.
-            c.json("/status").await.map_err(|e| match e {
-                Error::Query(m) => Error::Connect(m),
-                e => e,
+            c.json("/status").await.map_err(|e| {
+                let e = match e {
+                    Error::Query(m) => Error::Connect(m),
+                    e => e,
+                };
+                match &c.pin_watch {
+                    Some(w) => w.explain(e),
+                    None => e,
+                }
             })?;
             (Transport::Http(c), None)
         } else {
@@ -1516,6 +1522,13 @@ fn strip_plan_prefix(stmt: &str) -> &str {
 
 #[async_trait]
 impl Session for GraphSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        match (&self.transport, &self.target) {
+            (Transport::Http(c), _) => c.pin_watch.as_ref()?.seen(),
+            (_, Some(t)) if t.trust_cert && t.pin.is_none() => t.watch.seen(),
+            _ => None,
+        }
+    }
     async fn server_version(&mut self) -> Result<String> {
         match self.flavor {
             Flavor::Neo4j => {

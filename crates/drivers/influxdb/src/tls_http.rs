@@ -3,6 +3,11 @@
 //! server's name for the certificate check. Shared by the HTTP drivers of
 //! TLS batch 5 (InfluxDB, IoTDB, ksqlDB, TDengine, Phoenix, Cosmos DB,
 //! libSQL) with `#[path]`. Not every driver uses every function.
+//!
+//! Skipping the chain check pins the server's certificate instead
+//! (`dbine_tls::PinVerifier`, trust on first use), and skipping only the
+//! host name still checks the whole chain (`dbine_tls::CaOnlyVerifier`):
+//! both as a preconfigured rustls client.
 #![allow(dead_code)]
 
 use dbine_driver::{
@@ -145,24 +150,83 @@ pub fn connect_error(e: &reqwest::Error, message: impl FnOnce(String) -> String)
     Error::connect_failed(f)
 }
 
-/// The client and the base URL for a connection: the skip options, the CA
-/// file and the tunnel's server name applied to `b`.
+/// The certificate pinning of a client that doesn't verify the chain: what
+/// it saw, for the session (`Session::tls_pin_seen`) and its connect errors.
+#[derive(Debug, Clone, Default)]
+pub struct Pin(Option<dbine_tls::PinWatch>);
+
+impl Pin {
+    /// The fingerprint accepted on trust (the connection had no pin).
+    pub fn seen(&self) -> Option<String> {
+        self.0.as_ref()?.seen()
+    }
+
+    /// A connect error, as `TlsPinChanged` when the certificate isn't the
+    /// pinned one.
+    pub fn explain(&self, e: Error) -> Error {
+        match &self.0 {
+            Some(w) => w.explain(e),
+            None => e,
+        }
+    }
+}
+
+/// HTTP/2 or 1.1, as reqwest offers on its own config.
+fn with_alpn(mut c: dbine_tls::rustls::ClientConfig) -> dbine_tls::rustls::ClientConfig {
+    c.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    c
+}
+
+/// The CA file's certificates as rustls roots, if it has one.
+fn ca_roots(
+    cfg: &ConnectionConfig,
+    fields: &[Field],
+) -> Result<Option<dbine_tls::rustls::RootCertStore>> {
+    let Some(path) = fields
+        .iter()
+        .filter(|f| matches!(f.tls, Some(TlsRole::CaFile { .. })))
+        .find_map(|f| cfg.tls_value(f))
+    else {
+        return Ok(None);
+    };
+    let pem = std::fs::read(path).map_err(|e| {
+        Error::Connect(format!(
+            "no se pudo leer el certificado de CA «{path}»: {e}"
+        ))
+    })?;
+    let what = format!("el certificado de CA «{path}»");
+    let mut roots = dbine_tls::rustls::RootCertStore::empty();
+    dbine_tls::add_roots(&mut roots, dbine_tls::pem_certs(&pem, &what)?, &what)?;
+    Ok(Some(roots))
+}
+
+/// The client and the base URL for a connection: the skip options (the
+/// chain skipped: the pinned certificate; the name only: the chain without
+/// it), the CA file and the tunnel's server name applied to `b`.
 pub fn client(
     cfg: &ConnectionConfig,
     fields: &[Field],
     base: String,
     b: reqwest::ClientBuilder,
-) -> Result<(String, reqwest::Client)> {
+) -> Result<(String, reqwest::Client, Pin)> {
     let (chain, host) = skips(cfg, fields);
-    let mut b = b
-        .tls_danger_accept_invalid_certs(chain)
-        .tls_danger_accept_invalid_hostnames(host);
-    for c in ca_certs(cfg, fields)? {
-        b = b.add_root_certificate(c);
+    let mut pin = Pin::default();
+    let mut b = b;
+    if chain {
+        let (c, watch) = dbine_tls::pinned_config(dbine_tls::pin_of(cfg))?;
+        pin = Pin(Some(watch));
+        b = b.use_preconfigured_tls(with_alpn(c));
+    } else if host {
+        let roots = ca_roots(cfg, fields)?.unwrap_or_else(dbine_tls::system_roots);
+        b = b.use_preconfigured_tls(with_alpn(dbine_tls::ca_only_config(roots)?));
+    } else {
+        for c in ca_certs(cfg, fields)? {
+            b = b.add_root_certificate(c);
+        }
     }
     let (base, b) = tunnel(cfg, base, b);
     check_tunnel(cfg, &base, chain || host)?;
-    Ok((base, b.build().map_err(Error::connect)?))
+    Ok((base, b.build().map_err(Error::connect)?, pin))
 }
 
 /// Through a tunnel to a server known by its IP address the client can only

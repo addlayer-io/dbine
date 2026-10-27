@@ -91,6 +91,11 @@
       "unknown": {
         "title": "No se pudo conectar",
         "body": "El servidor o el driver respondieron con este mensaje."
+      },
+      "tls_pin_changed": {
+        "title": "El certificado del servidor cambió",
+        "body": "Esta conexión no verifica la cadena del certificado: en la primera conexión guardó la huella del certificado del servidor, y ahora el servidor presenta otro. Puede que el servidor haya renovado su certificado, o que alguien esté interceptando la conexión. Compará las huellas del mensaje con las del servidor antes de confiar en el certificado nuevo.",
+        "trust": "Confiar en el certificado nuevo"
       }
     },
     "network": {
@@ -346,6 +351,12 @@
   },
   "tls": {
     "off": "Sin cifrar",
-    "unverified": "Sin verificar"
+    "unverified": "Sin verificar",
+    "pin": {
+      "label": "Certificado fijado (SHA-256)",
+      "forget": "Olvidar",
+      "help": "Este modo no verifica la cadena del certificado: solo acepta el certificado que el servidor presentó en la primera conexión. «Olvidar» hace que la próxima conexión fije el certificado que presente el servidor entonces.",
+      "none": "Este modo no verifica la cadena del certificado: la primera conexión fija el certificado del servidor y las siguientes solo aceptan ese."
+    }
   }
 }

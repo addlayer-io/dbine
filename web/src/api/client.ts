@@ -56,6 +56,10 @@ export const api = {
   /** Trust an SSH tunnel server's key for a saved connection (docs/ssh-tunnels.md). */
   trustSshHost: (connectionId: string, fingerprint: string) =>
     invoke<void>('trust_ssh_host', { args: { connection_id: connectionId, fingerprint } }),
+  /** Forget the server certificate a connection pinned (`tls_pin`) and close
+   *  its sessions: the next connect pins the server's current certificate. */
+  forgetTlsPin: (connectionId: string) =>
+    invoke<void>('forget_tls_pin', { args: { connection_id: connectionId } }),
   /** Resolve one field's source as the form has it; says only how long the value is. */
   testSecretSource: (connectionId: string | null, driver: string, field: string, source: SecretSource, tokens: Record<string, string>, duplicateOf: string | null = null) =>
     invoke<SecretSourceTest>('test_secret_source', { args: { connection_id: connectionId, duplicate_of: duplicateOf, driver, field, source, tokens } }),

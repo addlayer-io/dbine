@@ -215,6 +215,7 @@ pub async fn save_connection(
     if let Some(old) = state.store.get_connection(&conn.id)? {
         keep_sessions = state.store.is_temporary_connection(&conn.id)?
             && serde_json::to_value(&old.config).ok() == serde_json::to_value(&conn.config).ok();
+        forget_pin_of_another_server(&old.config, &mut conn.config);
         let (a, b) = (&old.config, &conn.config);
         if a.driver != b.driver
             || a.host != b.host
@@ -233,6 +234,17 @@ pub async fn save_connection(
     state.typed_secrets.remove(&conn.id);
     state.keychain_cache.remove(&conn.id);
     Ok(state.store.save_connection(&conn)?)
+}
+
+/// The certificate pinned for one server (`dbine_driver::TLS_PIN`) isn't
+/// carried to another: a form pointed at another host, port or engine
+/// pins the new server's certificate on its first connect.
+fn forget_pin_of_another_server(old: &ConnectionConfig, new: &mut ConnectionConfig) {
+    let moved =
+        old.driver != new.driver || old.host.trim() != new.host.trim() || old.port != new.port;
+    if moved && new.option(dbine_driver::TLS_PIN) == old.option(dbine_driver::TLS_PIN) {
+        new.options.remove(dbine_driver::TLS_PIN);
+    }
 }
 
 /// Confirm the definitions saved for connection `id` that were typed in its
@@ -283,6 +295,34 @@ pub async fn trust_ssh_host(
         })?;
     crate::tunnels::trust(&mut conn.config, &args.fingerprint)?;
     state.store.save_connection(&conn)?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct ForgetTlsPinArgs {
+    pub connection_id: String,
+}
+
+/// "Confiar en el certificado nuevo": the connection forgets the server
+/// certificate it pinned (`dbine_driver::TLS_PIN`) and its sessions close;
+/// the next connect pins the certificate the server presents then. Only
+/// from the user's click on the TlsPinChanged explanation, which names both
+/// fingerprints.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn forget_tls_pin(
+    state: State<'_, AppState>,
+    args: ForgetTlsPinArgs,
+) -> CommandResult<()> {
+    if state.store.get_connection(&args.connection_id)?.is_none() {
+        return Err(CommandError::NotFound(format!(
+            "no existe la conexión '{}'",
+            args.connection_id
+        )));
+    }
+    state
+        .store
+        .set_connection_option(&args.connection_id, dbine_driver::TLS_PIN, None)?;
+    state.close_connection_sessions(&args.connection_id);
     Ok(())
 }
 
@@ -535,6 +575,35 @@ pub async fn disconnect(state: State<'_, AppState>, args: ConnectionIdArgs) -> C
 mod tests {
     use super::*;
     use source_defs::SecretSource;
+
+    #[test]
+    fn a_pin_stays_with_its_server() {
+        let pin = "ab".repeat(32);
+        let old = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "db1".into(),
+            port: 5432,
+            options: [(dbine_driver::TLS_PIN.to_string(), pin.clone())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        // Same server, other settings: kept.
+        let mut same = old.clone();
+        same.read_only = true;
+        forget_pin_of_another_server(&old, &mut same);
+        assert_eq!(same.option(dbine_driver::TLS_PIN), Some(pin.as_str()));
+        // Another host or port: dropped.
+        for change in [
+            |c: &mut ConnectionConfig| c.host = "db2".into(),
+            |c: &mut ConnectionConfig| c.port = 6432,
+        ] {
+            let mut moved = old.clone();
+            change(&mut moved);
+            forget_pin_of_another_server(&old, &mut moved);
+            assert_eq!(moved.option(dbine_driver::TLS_PIN), None);
+        }
+    }
 
     fn cmd(c: &str) -> SecretSource {
         SecretSource::Command {

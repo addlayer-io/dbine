@@ -423,6 +423,7 @@ impl Driver for Solr {
             if cloud { " (SolrCloud)" } else { "" }
         );
         Ok(Box::new(SolrSession {
+            tls_pin: tls.pin_seen(),
             client,
             base,
             read_only: cfg.read_only,
@@ -433,6 +434,8 @@ impl Driver for Solr {
 }
 
 struct SolrSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     client: reqwest::Client,
     base: String,
     read_only: bool,
@@ -853,6 +856,9 @@ fn push_json_facets(f: &J, max_rows: usize, out: &mut QueryOutcome) {
 
 #[async_trait]
 impl Session for SolrSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         Ok(self.version.clone())
     }

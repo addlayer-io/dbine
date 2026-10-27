@@ -91,6 +91,11 @@
       "unknown": {
         "title": "Couldn't connect",
         "body": "The server or the driver answered with this message."
+      },
+      "tls_pin_changed": {
+        "title": "The server's certificate changed",
+        "body": "This connection doesn't verify the certificate chain: on its first connection it saved the fingerprint of the server's certificate, and now the server presents a different one. The server may have renewed its certificate, or someone may be intercepting the connection. Compare the fingerprints in the message with the server's before trusting the new certificate.",
+        "trust": "Trust the new certificate"
       }
     },
     "network": {
@@ -346,6 +351,12 @@
   },
   "tls": {
     "off": "Not encrypted",
-    "unverified": "Not verified"
+    "unverified": "Not verified",
+    "pin": {
+      "label": "Pinned certificate (SHA-256)",
+      "forget": "Forget",
+      "help": "This mode doesn't verify the certificate chain: it only accepts the certificate the server presented on the first connection. \"Forget\" makes the next connection pin whatever certificate the server presents then.",
+      "none": "This mode doesn't verify the certificate chain: the first connection pins the server's certificate and later ones accept only that one."
+    }
   }
 }

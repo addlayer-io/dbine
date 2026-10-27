@@ -91,6 +91,11 @@
       "unknown": {
         "title": "Connexion impossible",
         "body": "Le serveur ou le pilote a répondu avec ce message."
+      },
+      "tls_pin_changed": {
+        "title": "Le certificat du serveur a changé",
+        "body": "Cette connexion ne vérifie pas la chaîne du certificat : lors de la première connexion, elle a enregistré l'empreinte du certificat du serveur, et le serveur en présente maintenant un autre. Le serveur a peut-être renouvelé son certificat, ou quelqu'un intercepte peut-être la connexion. Comparez les empreintes du message avec celles du serveur avant de faire confiance au nouveau certificat.",
+        "trust": "Faire confiance au nouveau certificat"
       }
     },
     "network": {
@@ -346,6 +351,12 @@
   },
   "tls": {
     "off": "Non chiffré",
-    "unverified": "Non vérifié"
+    "unverified": "Non vérifié",
+    "pin": {
+      "label": "Certificat épinglé (SHA-256)",
+      "forget": "Oublier",
+      "help": "Ce mode ne vérifie pas la chaîne du certificat : il n'accepte que le certificat présenté par le serveur lors de la première connexion. « Oublier » fait épingler à la prochaine connexion le certificat que le serveur présentera alors.",
+      "none": "Ce mode ne vérifie pas la chaîne du certificat : la première connexion épingle le certificat du serveur et les suivantes n'acceptent que celui-ci."
+    }
   }
 }

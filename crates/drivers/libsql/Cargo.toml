@@ -7,6 +7,7 @@ description = "libSQL / Turso driver for DBine (Hrana over HTTP, no native clien
 
 [dependencies]
 dbine-driver = { path = "../../dbine-driver" }
+dbine-tls = { path = "../../dbine-tls" }
 # The SQLite driver's designer, DDL, catalog reader, plans and monitor:
 # libSQL speaks SQLite's SQL.
 dbine-driver-sqlite = { path = "../sqlite" }

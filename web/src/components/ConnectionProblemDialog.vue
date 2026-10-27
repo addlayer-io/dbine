@@ -41,6 +41,25 @@ const network = computed(() => kind.value === 'timeout' || kind.value === 'refus
 // Connected after a retry: nothing left to explain.
 watch(() => live.value?.status, (s) => { if (s === 'connected') emit('close'); });
 
+// -- a pinned certificate that changed ---------------------------------------------------
+const trusting = ref(false);
+const trustError = ref<string | null>(null);
+/** Forget the pinned certificate and reconnect: the server's current one
+ *  gets pinned. Only on the user's click, after the message that names both
+ *  fingerprints. */
+async function trustNewCertificate() {
+  trusting.value = true;
+  trustError.value = null;
+  try {
+    await api.forgetTlsPin(props.connectionId);
+    emit('retry');
+  } catch (e) {
+    trustError.value = errorMessage(e);
+  } finally {
+    trusting.value = false;
+  }
+}
+
 // -- public IP (asked only on click) ----------------------------------------------------
 const publicIp = ref<string | null>(null);
 const ipLoading = ref(false);
@@ -179,6 +198,14 @@ function editConnection() {
       </template>
       <p v-else-if="kind === 'dns'">{{ $t('connection:problem.kind.dns.body', { host: bareHost }) }}</p>
       <p v-else-if="kind === 'tls' || kind === 'tls_not_offered' || kind === 'tls_untrusted'">{{ $t(`connection:problem.kind.${kind}.body`) }}</p>
+      <!-- The pinned certificate changed: trust the new one (the next connect pins it). -->
+      <template v-else-if="kind === 'tls_pin_changed'">
+        <p>{{ $t('connection:problem.kind.tls_pin_changed.body') }}</p>
+        <div class="cp-azure">
+          <el-button type="warning" plain :loading="trusting" @click="trustNewCertificate">{{ $t('connection:problem.kind.tls_pin_changed.trust') }}</el-button>
+          <div v-if="trustError" class="cp-error">{{ trustError }}</div>
+        </div>
+      </template>
       <p v-else-if="kind === 'auth'">{{ $t('connection:problem.kind.auth.body') }}</p>
       <template v-else>
         <p v-if="detail?.code === '40613'">{{ $t('connection:problem.azure.unavailable') }}</p>

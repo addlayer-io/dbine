@@ -351,3 +351,7 @@ scheduled.json:message.channels.ntfy
 scheduled.json:message.chatId
 scheduled.json:message.optional
 scheduled.json:message.text
+backend:Advanced
+backend:Element
+backend:Instance
+backend:no schema scripted

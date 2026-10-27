@@ -229,13 +229,14 @@ impl Driver for KsqlDriver {
         } else {
             cfg.host.trim()
         };
-        let (base, http) = tls_http::client(
+        let (base, http, pin) = tls_http::client(
             cfg,
             &self.info.fields,
             format!("{scheme}://{host}:{}", cfg.port_or(8088)),
             reqwest::Client::builder().connect_timeout(Duration::from_secs(15)),
         )?;
         let mut s = KsqlSession {
+            tls_pin: None,
             conn: Arc::new(Conn {
                 http,
                 base,
@@ -254,7 +255,9 @@ impl Driver for KsqlDriver {
         // /info doesn't check credentials; a harmless statement does.
         tokio::time::timeout(Duration::from_secs(20), s.ksql("SHOW PROPERTIES;"))
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| pin.explain(e))?;
+        s.tls_pin = pin.seen();
         Ok(Box::new(s))
     }
 }
@@ -287,6 +290,8 @@ struct InFlight {
 }
 
 pub struct KsqlSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     conn: Arc<Conn>,
     /// Streams properties set with `SET` (e.g. `auto.offset.reset`).
     properties: BTreeMap<String, String>,
@@ -890,6 +895,9 @@ fn apply_entities(ents: Vec<Value>, stmt: &str, max_rows: usize, out: &mut Query
 
 #[async_trait]
 impl Session for KsqlSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let rb = self
             .conn

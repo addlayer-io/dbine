@@ -331,6 +331,7 @@ impl Driver for OrientDriver {
             .filter(|u| !u.is_empty())
             .map(|u| (u, cfg.password.clone()));
         let mut s = OrientSession {
+            tls_pin: None,
             http,
             base: base_url(cfg, &tls),
             db,
@@ -351,6 +352,7 @@ impl Driver for OrientDriver {
                 .await
                 .map_err(|e| tls.explain(to_connect(e)))?;
         }
+        s.tls_pin = tls.pin_seen();
         Ok(Box::new(s))
     }
 }
@@ -363,6 +365,8 @@ fn to_connect(e: Error) -> Error {
 }
 
 pub struct OrientSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     http: reqwest::Client,
     base: String,
     db: String,
@@ -1085,6 +1089,9 @@ fn is_read(stmt: &str) -> bool {
 
 #[async_trait]
 impl Session for OrientSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let meta = self.metadata().await?;
         let v = meta

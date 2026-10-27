@@ -10,11 +10,14 @@
 #[path = "../../dynamodb/src/aws.rs"]
 mod aws;
 mod index_usage;
+// tokio-postgres over rustls, shared with the PostgreSQL driver.
 mod monitor;
 mod permissions;
 mod plan;
 mod processes;
 mod rename;
+#[path = "../../postgres/src/rustls_connect.rs"]
+mod rustls_connect;
 mod security;
 mod stats;
 mod structure;
@@ -35,7 +38,7 @@ use dbine_driver::{
     TxState,
 };
 use futures::StreamExt;
-use postgres_native_tls::MakeTlsConnector;
+use rustls_connect::MakeRustlsConnect as MakeTlsConnector;
 use serde_json::Value as Json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -462,12 +465,9 @@ async fn open_session(
         .application_name("DBine")
         .connect_timeout(Duration::from_secs(15))
         .ssl_mode(ssl);
-    // Always verified (`TlsSupport::Forced`): the system's roots, the
-    // endpoint's name.
-    let connector = native_tls::TlsConnector::builder()
-        .build()
-        .map_err(|e| Error::Connect(format!("TLS: {e}")))?;
-    let tls = MakeTlsConnector::new(connector);
+    // Always verified (`TlsSupport::Forced`): the web PKI's and the
+    // system's roots, the endpoint's name.
+    let tls = MakeTlsConnector::new(dbine_tls::verified_config(dbine_tls::system_roots())?);
 
     let (client, mut connection) =
         tokio::time::timeout(Duration::from_secs(20), pg.connect(tls.clone()))

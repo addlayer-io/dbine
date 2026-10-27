@@ -278,3 +278,57 @@ async fn new_connections_verify_by_default() {
         tls_failure(ssl(id, &c).await);
     }
 }
+
+/// The modes that don't verify the chain pin the certificate: the first
+/// connection reports it, the same certificate passes, another server's
+/// fails with `TlsPinChanged`. A saved connection without a pin (made
+/// before pinning) connects and pins.
+#[tokio::test]
+#[ignore]
+async fn unverified_modes_pin_the_certificate() {
+    use dbine_driver::{ConnectFailureKind, TLS_PIN};
+    let fp = |name: &str| {
+        let pem = std::fs::read(pem(name)).unwrap();
+        dbine_tls::fingerprint(&dbine_tls::pem_certs(&pem, name).unwrap()[0])
+    };
+    let server = fp("server.pem");
+    let other_fp = dbine_tls::display_fingerprint(&fp("selfsigned.pem"));
+    for (encrypt, trust, opts) in [
+        (false, false, vec![("sslmode", "require")]),
+        (false, false, vec![("sslmode", "prefer")]),
+        // Legacy tt (shown as sslmode=require), saved before pinning.
+        (true, true, vec![]),
+    ] {
+        let first = cfg(CA_SIGNED, encrypt, trust, &opts);
+        let s = driver("postgres").connect(&first, None).await.unwrap();
+        assert_eq!(
+            s.tls_pin_seen().as_deref(),
+            Some(server.as_str()),
+            "{opts:?}"
+        );
+        let mut opts = opts.clone();
+        opts.push((TLS_PIN, &server));
+        let pinned = cfg(CA_SIGNED, encrypt, trust, &opts);
+        let s = driver("postgres").connect(&pinned, None).await.unwrap();
+        assert_eq!(s.tls_pin_seen(), None);
+        let other = cfg(SELF_SIGNED, encrypt, trust, &opts);
+        match driver("postgres").connect(&other, None).await {
+            Err(Error::ConnectFailed(f)) => {
+                assert_eq!(f.kind, ConnectFailureKind::TlsPinChanged, "{f:?}");
+                assert!(f.message.contains(&other_fp), "{}", f.message);
+            }
+            Err(e) => panic!("{e}"),
+            Ok(_) => panic!("another certificate passed the pin"),
+        }
+    }
+    // Verified modes don't pin.
+    let ca = pem("ca.pem");
+    let v = cfg(
+        CA_SIGNED,
+        false,
+        false,
+        &[("sslmode", "verify-ca"), ("ssl_root_cert", &ca)],
+    );
+    let s = driver("postgres").connect(&v, None).await.unwrap();
+    assert_eq!(s.tls_pin_seen(), None);
+}

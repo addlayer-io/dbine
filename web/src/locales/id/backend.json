@@ -11261,5 +11261,17 @@
   "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Untuk emulator lokal, yang berkomunikasi lewat http:// tanpa TLS maupun autentikasi. Kosong = API Google, selalu lewat https dengan sertifikat terverifikasi.",
   "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT memeriksa bahwa nama server tercantum di sertifikatnya; NONE hanya memverifikasi rantai sertifikat.",
   "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Jika server berupa URL (http://… atau https://…), skemanya yang berlaku.",
-  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "melalui tunnel SSH, sertifikat diperiksa terhadap nama server, dan {0} adalah alamat IP: gunakan nama host yang tercantum di sertifikat"
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "melalui tunnel SSH, sertifikat diperiksa terhadap nama server, dan {0} adalah alamat IP: gunakan nama host yang tercantum di sertifikat",
+  "El certificado del servidor cambió desde la conexión en la que se lo aceptó: se esperaba la huella SHA-256 {0} y el servidor presentó {1}. Si el servidor renovó su certificado, confiá en el certificado nuevo; si no, alguien podría estar interceptando la conexión.": "Sertifikat server berubah sejak koneksi saat sertifikat itu diterima: sidik jari SHA-256 yang diharapkan {0}, tetapi server menunjukkan {1}. Jika server memperbarui sertifikatnya, percayai sertifikat baru; jika tidak, mungkin ada pihak yang menyadap koneksi.",
+  "certificado inválido en {0}: {1}": "sertifikat tidak valid di {0}: {1}",
+  "el certificado de CA «{0}»": "sertifikat CA \"{0}\"",
+  "{0} no es un PEM válido: {1}": "{0} bukan PEM yang valid: {1}",
+  "{0} no tiene certificados PEM.": "{0} tidak berisi sertifikat PEM.",
+  "no tiene certificados PEM": "tidak berisi sertifikat PEM",
+  "el nombre del servidor no resolvió a ninguna dirección": "nama server tidak terselesaikan ke alamat mana pun",
+  "no se pudo leer {0}: no tiene {1} ni {2}": "tidak dapat membaca {0}: tidak berisi {1} maupun {2}",
+  "Advanced": "Advanced",
+  "Element": "Element",
+  "Instance": "Instance",
+  "no schema scripted": "no schema scripted"
 }

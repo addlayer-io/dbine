@@ -77,11 +77,16 @@ pub(crate) async fn start(
         Err(_) => None,
     };
     let client = s.client.clone();
+    let pinned = s.pinned.clone();
     let (mut conn, id) = tokio::task::spawn_blocking(move || -> redis::RedisResult<_> {
-        let mut c = client.get_connection_with_timeout(Duration::from_secs(15))?;
-        let id: Option<i64> = redis::cmd("CLIENT").arg("ID").query(&mut c).ok();
-        c.send_packed_command(&redis::cmd("MONITOR").get_packed_command())?;
-        c.recv_response()?.extract_error()?;
+        let limit = Duration::from_secs(15);
+        let mut c = match pinned {
+            Some(p) => Monitor::Pinned(Box::new(p.blocking(limit)?)),
+            None => Monitor::Plain(client.get_connection_with_timeout(limit)?),
+        };
+        let id = c.client_id();
+        c.send(&redis::cmd("MONITOR"))?;
+        c.recv()?.extract_error()?;
         Ok((c, id))
     })
     .await
@@ -95,7 +100,7 @@ pub(crate) async fn start(
     let (sh, st) = (shared.clone(), stop.clone());
     std::thread::spawn(move || {
         let error = loop {
-            let v = conn.recv_response();
+            let v = conn.recv();
             if st.load(Ordering::SeqCst) {
                 break None;
             }
@@ -218,6 +223,42 @@ pub(crate) fn stamp(unix: &str) -> Option<String> {
         rem % 3600 / 60,
         rem % 60
     ))
+}
+
+/// The `MONITOR` connection: redis' own, or a pinned one (`insecure`).
+enum Monitor {
+    Plain(redis::Connection),
+    Pinned(Box<crate::pinned::Blocking>),
+}
+
+impl Monitor {
+    fn client_id(&mut self) -> Option<i64> {
+        let id = redis::cmd("CLIENT").arg("ID").clone();
+        match self {
+            Monitor::Plain(c) => id.query(c).ok(),
+            Monitor::Pinned(c) => {
+                c.send(&id).ok()?;
+                match c.recv().ok()? {
+                    Value::Int(n) => Some(n),
+                    _ => None,
+                }
+            }
+        }
+    }
+
+    fn send(&mut self, cmd: &redis::Cmd) -> redis::RedisResult<()> {
+        match self {
+            Monitor::Plain(c) => c.send_packed_command(&cmd.get_packed_command()),
+            Monitor::Pinned(c) => c.send(cmd),
+        }
+    }
+
+    fn recv(&mut self) -> redis::RedisResult<Value> {
+        match self {
+            Monitor::Plain(c) => c.recv_response(),
+            Monitor::Pinned(c) => c.recv(),
+        }
+    }
 }
 
 #[cfg(test)]

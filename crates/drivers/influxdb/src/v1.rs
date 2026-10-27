@@ -159,6 +159,8 @@ pub fn schema_tables(results: &[J]) -> Vec<TableSchema> {
 }
 
 pub struct InfluxQlSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     http: reqwest::Client,
     base: String,
     username: String,
@@ -175,8 +177,9 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
     let db = database
         .filter(|d| !d.is_empty())
         .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
-    let (http, base) = http::client(cfg, &info().fields, 8086)?;
+    let (http, base, pin) = http::client(cfg, &info().fields, 8086)?;
     let mut s = InfluxQlSession {
+        tls_pin: None,
         http,
         base,
         username: cfg.username_or_empty().to_string(),
@@ -187,12 +190,16 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
         profiler: None,
     };
     // Checks the credentials (with auth disabled anything passes).
-    s.query("SHOW DATABASES").await.map_err(|e| match e {
-        Error::Query(m) if m.contains("authorization") || m.contains("authentication") => {
-            Error::AuthFailed(m)
-        }
-        e => e,
-    })?;
+    s.query("SHOW DATABASES")
+        .await
+        .map_err(|e| match e {
+            Error::Query(m) if m.contains("authorization") || m.contains("authentication") => {
+                Error::AuthFailed(m)
+            }
+            e => e,
+        })
+        .map_err(|e| pin.explain(e))?;
+    s.tls_pin = pin.seen();
     Ok(Box::new(s))
 }
 
@@ -658,6 +665,9 @@ pub fn statement_tables(result: &J) -> Vec<(Vec<String>, Vec<Vec<J>>)> {
 
 #[async_trait]
 impl Session for InfluxQlSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     /// `SELECT *` chunked, in nanoseconds (see `transfer.rs`).
     async fn read_batches(
         &mut self,

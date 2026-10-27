@@ -39,6 +39,7 @@
 //!   an identity, and after the load moves its sequence past the loaded
 //!   maximum.
 
+use crate::rustls_connect::MakeRustlsConnect as MakeTlsConnector;
 use crate::{err, open_session, DsqlSession, Reopen};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::transfer::{
@@ -46,7 +47,6 @@ use dbine_driver::transfer::{
 };
 use dbine_driver::{ColumnInfo, Error, ObjectRef, Result, Session};
 use futures::{pin_mut, StreamExt};
-use postgres_native_tls::MakeTlsConnector;
 use std::fmt::Write as _;
 use std::sync::Mutex;
 use std::time::Duration;

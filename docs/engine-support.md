@@ -3992,6 +3992,35 @@ the driver's configuration or the string the user types.
   `tls` protocol of the vnode; its use from ODBC isn't confirmed), `maxdb` and
   `machbase` (no documented ODBC TLS).
 
+### Certificate pinning ("don't verify" modes)
+
+The modes that don't verify the chain pin the server's certificate on the
+first connection and accept only that one afterwards (`tls_pin`,
+[`tls-options.md`](tls-options.md)), and verify-ca checks the chain without
+the host name, on: PostgreSQL and its whole family (`sslmode=require`,
+`prefer`, `allow`), Aurora DSQL (always verified), the HTTP engines
+(ClickHouse, Couchbase, CouchDB, Dremio, Drill, Elasticsearch / OpenSearch,
+etcd, OrientDB, Trino, Solr, InfluxDB, IoTDB, ksqlDB, TDengine, Phoenix,
+Cosmos DB), Neo4j and Memgraph (`bolt+ssc`), Neptune
+(`sslSkipCertValidation`), Redis / Valkey / Dragonfly (`insecure`) and
+Cassandra / ScyllaDB (`validate=false`; one pin per connection, so on a
+cluster whose nodes each have their own self-signed certificate only the
+matching nodes are used).
+
+These keep accepting any certificate in their "don't verify" mode, because
+their client can't take a certificate verifier of DBine's:
+
+| Engine | Reason |
+|---|---|
+| SQL Server family (`sqlserver`, `azuresql`, `babelfish`) | tiberius only offers `trust_cert` / `trust_cert_ca`; it has no custom verifier (DBine's patched copy could add one later). |
+| MySQL family, MariaDB, OceanBase | mysql_async's `SslOpts` only takes root certificates and its `danger_accept_invalid_*` flags; no custom verifier. |
+| MongoDB family | The driver's `TlsOptions` only has `allow_invalid_certificates` / `allow_invalid_hostnames`. |
+| SAP HANA | hdbconnect_async builds its rustls config internally; it only offers the `ServerCerts` choices and `tls_without_server_verification()`. |
+| ODBC presets | TLS is the ODBC driver's own; DBine only passes its keywords. |
+
+Oracle and Arrow Flight SQL have no "don't verify" mode, and Firebird has no
+TLS.
+
 ### HTTP, gRPC and cloud engines: what the clients can't do
 
 | Engine | Missing | Reason |

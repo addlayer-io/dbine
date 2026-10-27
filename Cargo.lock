@@ -2839,6 +2839,7 @@ version = "0.1.11"
 dependencies = [
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "futures",
  "rustls",
  "rustls-native-certs",
@@ -2854,6 +2855,7 @@ version = "0.1.13"
 dependencies = [
  "async-trait",
  "dbine-driver",
+ "dbine-tls",
  "futures",
  "reqwest",
  "serde_json",
@@ -2869,6 +2871,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "hmac 0.12.1",
  "percent-encoding",
  "reqwest",
@@ -2884,6 +2887,7 @@ version = "0.1.10"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde_json",
  "tokio",
@@ -2896,6 +2900,7 @@ version = "0.1.12"
 dependencies = [
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "percent-encoding",
  "reqwest",
  "serde_json",
@@ -2921,6 +2926,7 @@ version = "0.1.11"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde_json",
  "tokio",
@@ -2934,6 +2940,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde_json",
  "tokio",
@@ -2948,12 +2955,13 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-dsql",
  "dbine-driver",
+ "dbine-tls",
  "futures",
- "native-tls",
- "postgres-native-tls",
  "serde_json",
+ "sha2 0.11.0",
  "tokio",
  "tokio-postgres",
+ "tokio-rustls",
  "tracing",
 ]
 
@@ -2997,6 +3005,7 @@ version = "0.1.11"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde",
  "serde_json",
@@ -3010,6 +3019,7 @@ version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde_json",
  "tokio",
@@ -3067,6 +3077,7 @@ version = "0.1.12"
 dependencies = [
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde",
  "serde_json",
@@ -3080,6 +3091,7 @@ version = "0.1.10"
 dependencies = [
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde_json",
  "tokio",
@@ -3092,6 +3104,7 @@ version = "0.1.10"
 dependencies = [
  "async-trait",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde_json",
  "tokio",
@@ -3105,6 +3118,7 @@ dependencies = [
  "base64 0.22.1",
  "dbine-driver",
  "dbine-driver-sqlite",
+ "dbine-tls",
  "reqwest",
  "rusqlite",
  "serde",
@@ -3149,6 +3163,7 @@ dependencies = [
  "aws-sigv4",
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "percent-encoding",
  "reqwest",
  "rustls",
@@ -3189,6 +3204,7 @@ name = "dbine-driver-orientdb"
 version = "0.1.12"
 dependencies = [
  "dbine-driver",
+ "dbine-tls",
  "percent-encoding",
  "reqwest",
  "serde",
@@ -3205,6 +3221,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "prost",
  "reqwest",
  "serde_json",
@@ -3218,13 +3235,13 @@ name = "dbine-driver-postgres"
 version = "0.1.19"
 dependencies = [
  "dbine-driver",
+ "dbine-tls",
  "futures",
- "native-tls",
- "postgres-native-tls",
  "serde_json",
  "sha2 0.11.0",
  "tokio",
  "tokio-postgres",
+ "tokio-rustls",
  "tracing",
 ]
 
@@ -3233,10 +3250,12 @@ name = "dbine-driver-redis"
 version = "0.1.10"
 dependencies = [
  "dbine-driver",
+ "dbine-tls",
  "redis",
  "rustls",
  "serde_json",
  "tokio",
+ "tokio-rustls",
  "tracing",
 ]
 
@@ -3319,6 +3338,7 @@ version = "0.1.11"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde_json",
  "tokio",
@@ -3332,6 +3352,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "dbine-driver",
+ "dbine-tls",
  "reqwest",
  "serde",
  "serde_json",
@@ -3471,6 +3492,17 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "dbine-tls"
+version = "1.1.0"
+dependencies = [
+ "dbine-driver",
+ "rustls",
+ "rustls-native-certs",
+ "sha2 0.10.9",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -8253,18 +8285,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "postgres-native-tls"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fef4de47bb81477e0c3deaf153a1b10ae176484713ff1640969f4cb96b653ebc"
-dependencies = [
- "native-tls",
- "tokio",
- "tokio-native-tls",
- "tokio-postgres",
 ]
 
 [[package]]

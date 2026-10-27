@@ -163,3 +163,7 @@ backend:región
 backend:árbitro
 mobile:conn.monitor
 mobile:conn.f.host
+backend:Advanced
+backend:Element
+backend:Instance
+backend:no schema scripted

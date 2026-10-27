@@ -833,11 +833,16 @@ async fn load_connection(s: &RedisSession) -> Result<MultiplexedConnection> {
     let config = AsyncConnectionConfig::new()
         .set_connection_timeout(Some(Duration::from_secs(15)))
         .set_response_timeout(Some(Duration::from_secs(300)));
-    let mut conn = tokio::time::timeout(
-        Duration::from_secs(20),
-        s.client
-            .get_multiplexed_async_connection_with_config(&config),
-    )
+    let mut conn = tokio::time::timeout(Duration::from_secs(20), async {
+        match &s.pinned {
+            Some(p) => p.connect(config).await,
+            None => {
+                s.client
+                    .get_multiplexed_async_connection_with_config(&config)
+                    .await
+            }
+        }
+    })
     .await
     .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
     .map_err(err)?;

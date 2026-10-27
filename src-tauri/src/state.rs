@@ -386,6 +386,7 @@ impl AppState {
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
         let session = dbine_drivers::open_session(&cfg, db).await?;
+        self.keep_tls_pin(connection_id, &cfg, session.as_ref());
         let entry = Arc::new(SessionEntry {
             connection_id: connection_id.to_string(),
             database: database.to_string(),
@@ -480,6 +481,7 @@ impl AppState {
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
         let session = dbine_drivers::open_session(&cfg, db).await?;
+        self.keep_tls_pin(connection_id, &cfg, session.as_ref());
         let entry = Arc::new(SessionEntry {
             connection_id: connection_id.to_string(),
             database: database.to_string(),
@@ -492,6 +494,27 @@ impl AppState {
         });
         self.sessions.insert(key.to_string(), entry.clone());
         Ok(entry)
+    }
+
+    /// A connection that doesn't verify the server's certificate and had
+    /// none pinned: the one this first session accepted is saved
+    /// (`dbine_driver::TLS_PIN`), so the next connections accept only it.
+    /// The fingerprint is public (not a secret); it's logged as such.
+    fn keep_tls_pin(&self, connection_id: &str, cfg: &ConnectionConfig, session: &dyn Session) {
+        if cfg.option(dbine_driver::TLS_PIN).is_some() {
+            return;
+        }
+        let Some(pin) = session.tls_pin_seen() else {
+            return;
+        };
+        match self
+            .store
+            .set_connection_option(connection_id, dbine_driver::TLS_PIN, Some(&pin))
+        {
+            Ok(true) => tracing::info!(connection_id, pin, "pinned the server's TLS certificate"),
+            Ok(false) => {}
+            Err(e) => tracing::warn!(connection_id, %e, "couldn't save the TLS certificate pin"),
+        }
     }
 
     /// Drop every session of a connection (disconnect, edit, delete). Every

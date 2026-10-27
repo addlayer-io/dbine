@@ -67,6 +67,8 @@ pub fn info() -> DriverInfo {
 }
 
 pub struct FluxSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     pub(crate) http: reqwest::Client,
     pub(crate) base: String,
     pub(crate) org: String,
@@ -88,8 +90,9 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
     let bucket = database
         .filter(|d| !d.is_empty())
         .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
-    let (http, base) = http::client(cfg, &info().fields, 8086)?;
-    let s = FluxSession {
+    let (http, base, pin) = http::client(cfg, &info().fields, 8086)?;
+    let mut s = FluxSession {
+        tls_pin: None,
         http,
         base,
         org,
@@ -106,7 +109,9 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
     .map_err(|e| match e {
         Error::Query(m) => Error::Connect(m),
         e => e,
-    })?;
+    })
+    .map_err(|e| pin.explain(e))?;
+    s.tls_pin = pin.seen();
     Ok(Box::new(s))
 }
 
@@ -289,6 +294,9 @@ const SCHEMA_RANGE: &str = crate::transfer::FLUX_ALL_TIME;
 
 #[async_trait]
 impl Session for FluxSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     /// The measurement pivoted, streamed as annotated CSV (see `transfer.rs`).
     async fn read_batches(
         &mut self,

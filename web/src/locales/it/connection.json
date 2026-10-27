@@ -91,6 +91,11 @@
       "unknown": {
         "title": "Impossibile connettersi",
         "body": "Il server o il driver hanno risposto con questo messaggio."
+      },
+      "tls_pin_changed": {
+        "title": "Il certificato del server è cambiato",
+        "body": "Questa connessione non verifica la catena del certificato: alla prima connessione ha salvato l'impronta del certificato del server, e ora il server ne presenta un altro. Il server potrebbe aver rinnovato il certificato, oppure qualcuno potrebbe intercettare la connessione. Confronta le impronte del messaggio con quelle del server prima di considerare attendibile il nuovo certificato.",
+        "trust": "Considera attendibile il nuovo certificato"
       }
     },
     "network": {
@@ -346,6 +351,12 @@
   },
   "tls": {
     "off": "Non cifrata",
-    "unverified": "Non verificata"
+    "unverified": "Non verificata",
+    "pin": {
+      "label": "Certificato fissato (SHA-256)",
+      "forget": "Dimentica",
+      "help": "Questa modalità non verifica la catena del certificato: accetta solo il certificato presentato dal server alla prima connessione. \"Dimentica\" fa sì che la connessione successiva fissi il certificato che il server presenterà in quel momento.",
+      "none": "Questa modalità non verifica la catena del certificato: la prima connessione fissa il certificato del server e le successive accettano solo quello."
+    }
   }
 }
