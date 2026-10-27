@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/dbine-driver", "crates/dbine-core", "crates/dbine-sync", "crates/dbine-schema", "crates/dbine-ai", "crates/dbine-drivers", "crates/dbine-plugin", "crates/dbine-plugin-host", "crates/dbine-tunnel", "crates/dbine-transfer", "crates/dbine-link", "crates/drivers/*", "src-tauri"]
+members = ["crates/dbine-driver", "crates/dbine-tls", "crates/dbine-core", "crates/dbine-sync", "crates/dbine-schema", "crates/dbine-ai", "crates/dbine-drivers", "crates/dbine-plugin", "crates/dbine-plugin-host", "crates/dbine-tunnel", "crates/dbine-transfer", "crates/dbine-link", "crates/drivers/*", "src-tauri"]
 resolver = "2"
 
 [workspace.package]

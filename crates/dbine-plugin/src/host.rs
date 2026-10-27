@@ -558,6 +558,7 @@ impl State {
                     .await?;
                 let interrupter = s.interrupter();
                 let interruptible = interrupter.is_some();
+                let tls_pin_seen = s.tls_pin_seen();
                 let sid = self.next_session.fetch_add(1, Ordering::Relaxed);
                 self.sessions.lock().unwrap().insert(
                     sid,
@@ -569,6 +570,7 @@ impl State {
                 Reply::Session {
                     id: sid,
                     interruptible,
+                    tls_pin_seen,
                 }
             }
             Call::SyncScript { driver, changes } => {
@@ -1668,7 +1670,9 @@ mod tests {
         )
         .await
         {
-            Ok(Reply::Session { id, interruptible }) => {
+            Ok(Reply::Session {
+                id, interruptible, ..
+            }) => {
                 assert!(interruptible);
                 id
             }

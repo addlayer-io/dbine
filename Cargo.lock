@@ -3474,6 +3474,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbine-tls"
+version = "1.1.0"
+dependencies = [
+ "dbine-driver",
+ "rustls",
+ "rustls-native-certs",
+ "sha2 0.10.9",
+ "webpki-roots",
+]
+
+[[package]]
 name = "dbine-transfer"
 version = "1.1.0"
 dependencies = [

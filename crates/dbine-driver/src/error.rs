@@ -144,6 +144,12 @@ pub enum ConnectFailureKind {
     /// another host name): the CA file, or a mode that doesn't verify. An
     /// older app reads it as `Unknown`.
     TlsUntrusted,
+    /// The server's certificate isn't the one pinned on the first
+    /// connection (a mode that doesn't verify the chain pins the
+    /// certificate instead, `config::TLS_PIN`): the server got a new
+    /// certificate, or something in between answers for it. An older app
+    /// reads it as `Unknown`.
+    TlsPinChanged,
     /// The login was rejected.
     Auth,
     /// Anything else (and kinds a newer driver sends that this app doesn't know).
@@ -155,7 +161,10 @@ pub enum ConnectFailureKind {
 impl ConnectFailureKind {
     /// A TLS failure of any kind.
     pub fn is_tls(self) -> bool {
-        matches!(self, Self::Tls | Self::TlsNotOffered | Self::TlsUntrusted)
+        matches!(
+            self,
+            Self::Tls | Self::TlsNotOffered | Self::TlsUntrusted | Self::TlsPinChanged
+        )
     }
 }
 

@@ -588,6 +588,10 @@ pub enum Reply {
     Session {
         id: u64,
         interruptible: bool,
+        /// `Session::tls_pin_seen`; absent from older hosts (nothing to
+        /// pin) and ignored by older apps.
+        #[serde(default)]
+        tls_pin_seen: Option<String>,
     },
     /// A run (`execute` / `explain`): what it produced, and the error that
     /// stopped it (what ran before stays in the outcome).
@@ -946,6 +950,42 @@ mod tests {
         let m: Meta = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(m.script_mode, Some(dbine_driver::ScriptMode::Batches));
         assert!(m.script_dialect.is_none());
+    }
+
+    #[test]
+    fn the_session_reply_reads_with_and_without_the_tls_pin() {
+        // An older host's reply: no tls_pin_seen.
+        #[derive(Serialize)]
+        enum OldReply {
+            Session { id: u64, interruptible: bool },
+        }
+        let body = rmp_serde::to_vec_named(&OldReply::Session {
+            id: 7,
+            interruptible: true,
+        })
+        .unwrap();
+        let r: Reply = rmp_serde::from_slice(&body).unwrap();
+        assert!(matches!(
+            r,
+            Reply::Session {
+                id: 7,
+                interruptible: true,
+                tls_pin_seen: None
+            }
+        ));
+        // A newer one, read by an older app: the field is ignored.
+        let body = rmp_serde::to_vec_named(&Reply::Session {
+            id: 7,
+            interruptible: false,
+            tls_pin_seen: Some("ab".repeat(32)),
+        })
+        .unwrap();
+        #[derive(Deserialize)]
+        enum OldRead {
+            Session { id: u64, interruptible: bool },
+        }
+        let OldRead::Session { id, interruptible } = rmp_serde::from_slice(&body).unwrap();
+        assert_eq!((id, interruptible), (7, false));
     }
 
     #[test]

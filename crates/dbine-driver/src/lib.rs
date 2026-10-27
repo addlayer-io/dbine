@@ -49,7 +49,7 @@ pub use aggregate::{
 };
 pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
-pub use config::{ConnectionConfig, TUNNEL_ORIGIN_HOST, TUNNEL_ORIGIN_PORT};
+pub use config::{ConnectionConfig, TLS_PIN, TUNNEL_ORIGIN_HOST, TUNNEL_ORIGIN_PORT};
 pub use dependencies::{
     Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation,
 };
@@ -953,6 +953,14 @@ pub trait Session: Send {
     /// (it keeps running a query nobody reads) or where work runs on a
     /// blocking thread.
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+        None
+    }
+
+    /// The SHA-256 (hex) of the server certificate this session accepted on
+    /// trust, when the connection doesn't verify the chain and had no pin
+    /// yet ([`TLS_PIN`]): the app saves it so the next connections accept
+    /// only that certificate. `None` when there's nothing to pin.
+    fn tls_pin_seen(&self) -> Option<String> {
         None
     }
 
