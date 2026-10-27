@@ -885,7 +885,7 @@ async fn lost_reply_leaves_no_lock() {
         .bulk_load(&load_spec(&t, &["id", "s"], 10_000), &[], &mut src, &|_| {})
         .await
         .unwrap_err();
-    assert!(matches!(e, Error::Connect(_)), "{e:?}");
+    assert!(e.is_connect(), "{e:?}");
     let start = Instant::now();
     run(
         &mut other,

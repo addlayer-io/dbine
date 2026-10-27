@@ -3862,3 +3862,15 @@ mode, in the unit tests.
 | DuckDB, SQLite | Credentials | Embedded files: no server and no sign-in. A folder of files (CSV / Parquet / JSON) is only its path. |
 | Every engine | Secrets with Vault database credentials | Leased credentials DBine revokes on disconnect: not copied. |
 | Engines signed in with cloud IAM | The password | It is a temporary token: the string carries `${DB_IAM_TOKEN}`. |
+
+## Connection encryption
+
+Each engine's TLS options, with their native names, are in
+[`tls-options.md`](tls-options.md). New connections use TLS and verify the
+server's certificate. These engines lack TLS or one of its options:
+
+| Engine | Missing | Reason |
+|---|---|---|
+| Arrow Flight SQL (`flightsql`) | `disableCertificateVerification` | tonic, the gRPC client, has no way to skip the certificate check (it would take a TLS connector of our own). A server with a private or self-signed certificate needs its CA in `tlsRootCerts`. |
+| Azure Cosmos DB (`cosmosdb`) | A CA file | The SDKs' connection string has no option for one. The emulator's self-signed certificate is accepted with `DisableServerCertificateValidation`. |
+| InfluxDB, IoTDB, TimechoDB, ksqlDB, TDengine, Phoenix, Avatica, Cosmos DB, libSQL through an SSH tunnel to a server given by its IP address | Verifying the certificate | The HTTP client checks the name it dials, and through the tunnel that is 127.0.0.1. With a host name the driver keeps it for the check; with an IP address it refuses to connect unless the host-name check (or the whole check) is off. |

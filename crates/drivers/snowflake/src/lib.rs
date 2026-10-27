@@ -47,7 +47,9 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        // Always https, verified (a typed http:// URL is only for test
+        // mocks).
+        tls: dbine_driver::TlsSupport::Forced,
         tls_port: None,
         id: "snowflake",
         name: "Snowflake",
@@ -1775,6 +1777,17 @@ fn timestamp_tz(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Always https: an account name becomes an https URL.
+    #[test]
+    fn tls_is_forced() {
+        assert_eq!(info().tls, dbine_driver::TlsSupport::Forced);
+        assert!(!info()
+            .fields
+            .iter()
+            .any(|f| f.is_legacy_tls() || f.tls.is_some()));
+        assert!(base_url("xy12345").starts_with("https://"));
+    }
 
     /// A read-only request always says how many statements it holds, so
     /// the server refuses one it would split into more.

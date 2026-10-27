@@ -3372,8 +3372,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "Чтобы загрузить строки в супертаблицу, нужен столбец tbname (подтаблица каждой строки).",
   "Para columnas autoincrementales (solo BIGINT).": "Для столбцов с автоинкрементом (только BIGINT).",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "Для полного монитора Dremio (активность, узлы, профили) используйте его подключение REST.",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "Для локальных эмуляторов. Пусто = конечная точка AWS региона.",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "Для локальных эмуляторов; без аутентификации. Пусто = API Google.",
   "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": "Для mTLS: распакованная папка кошелька (tnsnames.ora и ewallet.pem); можно выбрать любой файл внутри. Пусто, если база данных принимает TLS без кошелька.",
   "Para no consumir créditos, el historial se refresca cada 20 s, la carga y los créditos cada 5 min y el almacenamiento cada 15 min, y solo con el warehouse ya encendido.": "Чтобы не расходовать кредиты, история обновляется каждые 20 с, нагрузка и кредиты — каждые 5 мин, а хранилище — каждые 15 мин, и только пока склад уже запущен.",
   "Para un backup incremental: el TSO con el que terminó el backup anterior (BackupTS). Vacío: completo.": "Для инкрементной резервной копии: TSO, на котором закончилась предыдущая копия (BackupTS). Пусто: полная.",
@@ -11171,5 +11169,14 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "PEM-файл центра сертификации, подписавшего сертификат сервера (как curl --cacert).",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "Этому режиму TLS нужен файл центра сертификации: укажите {0}.",
   "No verifica el certificado del servidor (como curl --insecure).": "Не проверяет сертификат сервера (как curl --insecure).",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "Для {0}={1} нужен файл центра сертификации: укажите {2} или выберите другое значение {3}."
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "Для {0}={1} нужен файл центра сертификации: укажите {2} или выберите другое значение {3}.",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "Шифрует соединение с помощью TLS и проверяет сертификат сервера.",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "Шифрует соединение с помощью TLS и проверяет сертификат. Если сервер указан как URL, действует его схема.",
+  "Comprueba que el nombre del servidor figure en su certificado.": "Проверяет, что имя сервера указано в его сертификате.",
+  "No verifica el certificado del servidor.": "Не проверяет сертификат сервера.",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "Для локальных эмуляторов, таких как DynamoDB Local, которые работают по http:// без TLS. Пусто = конечная точка AWS региона, всегда по https с проверкой сертификата.",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Для локальных эмуляторов, которые работают по http:// без TLS и аутентификации. Пусто = API Google, всегда по https с проверкой сертификата.",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT проверяет, что имя сервера указано в его сертификате; NONE проверяет только цепочку.",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Если сервер указан как URL (http://… или https://…), действует его схема.",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "через SSH-туннель сертификат проверяется по имени сервера, а {0} — это IP-адрес: укажите имя хоста, указанное в сертификате"
 }

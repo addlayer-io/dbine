@@ -50,6 +50,8 @@ mod security;
 mod stats;
 mod steps;
 mod sync;
+#[path = "../../influxdb/src/tls_http.rs"]
+mod tls_http;
 mod transfer;
 
 use base64::engine::general_purpose::STANDARD as B64;
@@ -59,7 +61,7 @@ use dbine_driver::{
     async_trait, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo,
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
     Family, Field, FieldKind, IndexDef, KeyDef, Language, MonitorSnapshot, ObjectKindInfo,
-    ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema, TlsSupport,
 };
 use ddl::Admin;
 use hmac::{Hmac, Mac};
@@ -104,7 +106,9 @@ pub struct CosmosDriver;
 fn info() -> &'static DriverInfo {
     static INFO: OnceLock<DriverInfo> = OnceLock::new();
     INFO.get_or_init(|| DriverInfo {
-        tls: Default::default(),
+        // The endpoint URL says it (https://, or http:// typed for a local
+        // emulator that serves plain HTTP).
+        tls: TlsSupport::InUrl,
         tls_port: None,
         id: "cosmosdb",
         name: "Azure Cosmos DB",
@@ -122,7 +126,14 @@ fn info() -> &'static DriverInfo {
                 ),
             Field::new("account_key", "Clave de la cuenta", FieldKind::Password).required().secret(),
             Field::database(),
-            Field::trust_cert().help("Necesario para el emulador local (certificado autofirmado)."),
+            // The SDK connection string's DisableServerCertificateValidation.
+            Field::tls_skip_verify(
+                "DisableServerCertificateValidation",
+                "DisableServerCertificateValidation",
+                false,
+                ["false", "true", "false", "true"],
+            )
+            .help("Necesario para el emulador local (certificado autofirmado)."),
             Field::read_only(),
         ],
         databases_label: "Bases de datos",
@@ -344,15 +355,17 @@ impl Driver for CosmosDriver {
             .to_string();
         B64.decode(key.trim())
             .map_err(|_| Error::AuthFailed("La clave de la cuenta no es base64 válido.".into()))?;
-        let http = reqwest::Client::builder()
-            .connect_timeout(TIMEOUT)
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .user_agent("DBine")
-            .build()
-            .map_err(Error::connect)?;
+        let (base, http) = tls_http::client(
+            cfg,
+            &info().fields,
+            endpoint(cfg),
+            reqwest::Client::builder()
+                .connect_timeout(TIMEOUT)
+                .user_agent("DBine"),
+        )?;
         let mut s = CosmosSession {
             http,
-            base: endpoint(cfg),
+            base,
             key,
             db: database
                 .filter(|d| !d.is_empty())
@@ -446,7 +459,10 @@ impl CosmosSession {
         if let Some(b) = body {
             rq = rq.body(b.to_string());
         }
-        let resp = rq.send().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let resp = rq
+            .send()
+            .await
+            .map_err(|e| tls_http::connect_error(&e, |e| e))?;
         let status = resp.status();
         let h = resp.headers();
         let continuation = h
@@ -1562,7 +1578,9 @@ impl Session for CosmosSession {
                 charge += r.charge;
                 Some(r.body)
             }
-            Err(e @ (Error::Connect(_) | Error::AuthFailed(_))) => return Err(e),
+            Err(e @ (Error::Connect(_) | Error::ConnectFailed(_) | Error::AuthFailed(_))) => {
+                return Err(e)
+            }
             Err(_) => None,
         };
         let dbs = self
@@ -1924,7 +1942,9 @@ impl Session for CosmosSession {
             } else {
                 match self.query_plan(&coll, &sql).await {
                     Ok(qp) => out.plans.push(plan::from_query_plan(&sql, &coll, &qp)),
-                    Err(e @ (Error::Connect(_) | Error::AuthFailed(_))) => return Err(e),
+                    Err(
+                        e @ (Error::Connect(_) | Error::ConnectFailed(_) | Error::AuthFailed(_)),
+                    ) => return Err(e),
                     Err(e) => {
                         out.info(format!(
                             "El servidor no devolvió el plan de la consulta: {e}"
@@ -1975,6 +1995,26 @@ pub(crate) fn comment_text(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A saved connection skips the checks as `trust_server_certificate`
+    /// said; a new one verifies. The endpoint URL decides the scheme.
+    #[test]
+    fn tls_options() {
+        let f = &info().fields;
+        for (encrypt, trust) in [(false, false), (false, true), (true, false), (true, true)] {
+            let cfg = ConnectionConfig {
+                encrypt,
+                trust_server_certificate: trust,
+                ..Default::default()
+            };
+            assert_eq!(tls_http::skips(&cfg, f), (trust, false));
+        }
+        assert_eq!(
+            tls_http::skips(&tls_http::new_connection(f), f),
+            (false, false)
+        );
+        assert_eq!(info().tls, TlsSupport::InUrl);
+    }
 
     #[test]
     fn signature_matches_microsofts_example() {

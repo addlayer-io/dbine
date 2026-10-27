@@ -1,11 +1,13 @@
 //! What the three APIs share: the base URL, the HTTP client and how HTTP
 //! failures become DBine errors.
 
-use dbine_driver::{ConnectionConfig, Error, Result};
+use crate::tls_http;
+use dbine_driver::{ConnectionConfig, Error, Field, Result};
 use std::time::Duration;
 
-/// `http(s)://host:port`, from a bare host or a URL typed in the host field.
-pub fn base_url(cfg: &ConnectionConfig, default_port: u16) -> String {
+/// `http(s)://host:port`, from a bare host or a URL typed in the host field
+/// (whose scheme wins over the TLS mode).
+pub fn base_url(cfg: &ConnectionConfig, fields: &[Field], default_port: u16) -> String {
     let host = cfg.host.trim().trim_end_matches('/');
     let host = if host.is_empty() { "localhost" } else { host };
     if host.starts_with("http://") || host.starts_with("https://") {
@@ -16,17 +18,25 @@ pub fn base_url(cfg: &ConnectionConfig, default_port: u16) -> String {
             format!("{host}:{}", cfg.port)
         };
     }
-    let scheme = if cfg.encrypt { "https" } else { "http" };
+    let scheme = if tls_http::https(cfg, fields) {
+        "https"
+    } else {
+        "http"
+    };
     format!("{scheme}://{host}:{}", cfg.port_or(default_port))
 }
 
-pub fn client(cfg: &ConnectionConfig) -> Result<reqwest::Client> {
-    reqwest::Client::builder()
+/// The client and the base URL, with the connection's TLS options.
+pub fn client(
+    cfg: &ConnectionConfig,
+    fields: &[Field],
+    default_port: u16,
+) -> Result<(reqwest::Client, String)> {
+    let b = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(600))
-        .danger_accept_invalid_certs(cfg.trust_server_certificate)
-        .build()
-        .map_err(Error::connect)
+        .timeout(Duration::from_secs(600));
+    let (base, http) = tls_http::client(cfg, fields, base_url(cfg, fields, default_port), b)?;
+    Ok((http, base))
 }
 
 /// A request that didn't get an answer.
@@ -34,7 +44,7 @@ pub fn send_err(e: reqwest::Error) -> Error {
     if e.is_timeout() && !e.is_connect() {
         Error::Query(format!("tiempo de espera agotado: {e}"))
     } else {
-        Error::Connect(format!("no se pudo conectar con InfluxDB: {e}"))
+        tls_http::connect_error(&e, |e| format!("no se pudo conectar con InfluxDB: {e}"))
     }
 }
 
@@ -102,22 +112,53 @@ pub fn escape(s: &str, quote: char) -> String {
 mod tests {
     use super::*;
 
+    /// Saved connections keep `encrypt` / `trust_server_certificate`'s
+    /// scheme and checks; new ones are https, verified.
+    #[test]
+    fn tls_options() {
+        for f in [
+            crate::v1::info().fields,
+            crate::v2::info().fields,
+            crate::v3::info().fields,
+        ] {
+            tls_http::assert_legacy_and_defaults(&f);
+            let cfg = ConnectionConfig {
+                host: "db".into(),
+                ..tls_http::new_connection(&f)
+            };
+            assert_eq!(base_url(&cfg, &f, 8086), "https://db:8086");
+        }
+        // A URL typed in the host keeps its scheme.
+        let f = crate::v2::info().fields;
+        let cfg = ConnectionConfig {
+            host: "http://db:8086".into(),
+            ..tls_http::new_connection(&f)
+        };
+        assert_eq!(base_url(&cfg, &f, 8086), "http://db:8086");
+        // influxdb3's --tls-no-verify skips the checks.
+        let f = crate::v3::info().fields;
+        let mut cfg = tls_http::new_connection(&f);
+        cfg.options.insert("tls-no-verify".into(), "true".into());
+        assert_eq!(tls_http::effect(&cfg, &f), (true, true, false));
+    }
+
     #[test]
     fn urls() {
+        let f = crate::v2::info().fields;
         let mut cfg = ConnectionConfig {
             host: "db".into(),
             ..Default::default()
         };
-        assert_eq!(base_url(&cfg, 8086), "http://db:8086");
+        assert_eq!(base_url(&cfg, &f, 8086), "http://db:8086");
         cfg.encrypt = true;
         cfg.port = 443;
-        assert_eq!(base_url(&cfg, 8086), "https://db:443");
+        assert_eq!(base_url(&cfg, &f, 8086), "https://db:443");
         cfg.host = "https://cloud.example.com/".into();
         cfg.port = 0;
-        assert_eq!(base_url(&cfg, 8086), "https://cloud.example.com");
+        assert_eq!(base_url(&cfg, &f, 8086), "https://cloud.example.com");
         cfg.host = "http://x:9999".into();
         cfg.port = 1;
-        assert_eq!(base_url(&cfg, 8086), "http://x:9999");
+        assert_eq!(base_url(&cfg, &f, 8086), "http://x:9999");
     }
 
     #[test]

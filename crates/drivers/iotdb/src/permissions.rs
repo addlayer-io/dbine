@@ -45,7 +45,7 @@ pub(crate) fn decide(grants: &[Grant], database: Option<&str>) -> Permissions {
 pub(crate) async fn check(s: &IotDbSession, database: Option<&str>) -> Result<Permissions> {
     match crate::security::grants(s, &s.username).await {
         Ok(grants) => Ok(decide(&grants, database)),
-        Err(e @ Error::Connect(_)) => Err(e),
+        Err(e @ (Error::Connect(_) | Error::ConnectFailed(_))) => Err(e),
         Err(e) => {
             tracing::debug!("iotdb: permissions check refused: {e}");
             Ok(Permissions::default())

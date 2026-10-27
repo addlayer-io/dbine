@@ -32,7 +32,7 @@ const V3_ADMIN: &str = "un token de administrador";
 /// A check's outcome: the answer, or the refusal's error.
 fn classify<T>(r: Result<T>) -> Result<std::result::Result<T, Error>> {
     match r {
-        Err(e @ Error::Connect(_)) => Err(e),
+        Err(e @ (Error::Connect(_) | Error::ConnectFailed(_))) => Err(e),
         Err(e) => {
             tracing::debug!("influxdb: permissions check refused: {e}");
             Ok(Err(e))

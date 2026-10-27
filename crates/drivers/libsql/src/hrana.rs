@@ -228,14 +228,19 @@ enum Failure {
 }
 
 impl Client {
-    pub fn new(url: &str, token: Option<String>) -> Result<Self> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .map_err(|e| Error::Connect(e.to_string()))?;
+    /// A client for the URL in the host field. Through an SSH tunnel an
+    /// `https` URL keeps the real server's name for the certificate check.
+    pub fn new(cfg: &dbine_driver::ConnectionConfig, token: Option<String>) -> Result<Self> {
+        let (base, b) = crate::tls_http::tunnel(
+            cfg,
+            http_url(&cfg.host)?,
+            reqwest::Client::builder().connect_timeout(Duration::from_secs(15)),
+        );
+        crate::tls_http::check_tunnel(cfg, &base, false)?;
+        let http = b.build().map_err(|e| Error::Connect(e.to_string()))?;
         Ok(Self {
             http,
-            base: http_url(url)?,
+            base,
             token,
             baton: None,
             notices: Vec::new(),
@@ -296,10 +301,9 @@ impl Client {
         if is_local(&self.base) {
             req = req.header(reqwest::header::ACCEPT_ENCODING, "identity");
         }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| Error::Connect(format!("no se pudo llegar al servidor: {e}")))?;
+        let resp = req.send().await.map_err(|e| {
+            crate::tls_http::connect_error(&e, |e| format!("no se pudo llegar al servidor: {e}"))
+        })?;
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
@@ -353,9 +357,9 @@ impl Client {
             req = req.bearer_auth(t);
         }
         let resp = req.send().await.map_err(|e| {
-            Failure::Other(Error::Connect(format!(
-                "no se pudo llegar al servidor: {e}"
-            )))
+            Failure::Other(crate::tls_http::connect_error(&e, |e| {
+                format!("no se pudo llegar al servidor: {e}")
+            }))
         })?;
         let status = resp.status();
         let text = resp
@@ -682,10 +686,9 @@ impl Client {
         if let Some(t) = &self.token {
             req = req.bearer_auth(t);
         }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| Error::Connect(format!("no se pudo llegar al servidor: {e}")))?;
+        let resp = req.send().await.map_err(|e| {
+            crate::tls_http::connect_error(&e, |e| format!("no se pudo llegar al servidor: {e}"))
+        })?;
         let status = resp.status();
         let text = resp
             .text()

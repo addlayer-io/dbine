@@ -3372,8 +3372,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "要向超级表加载行，需要 tbname 列（每行的子表）。",
   "Para columnas autoincrementales (solo BIGINT).": "用于自增列（仅限 BIGINT）。",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "要使用 Dremio 的完整监视器（活动、节点、配置文件），请使用其 REST 连接。",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "用于本地模拟器。留空 = 使用该区域的 AWS 端点。",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "用于本地模拟器；无需身份验证。留空 = 使用 Google API。",
   "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": "用于 mTLS：解压后的钱包文件夹（tnsnames.ora 和 ewallet.pem）；可以选择其中任意文件。如果数据库接受不带钱包的 TLS，则留空。",
   "Para no consumir créditos, el historial se refresca cada 20 s, la carga y los créditos cada 5 min y el almacenamiento cada 15 min, y solo con el warehouse ya encendido.": "为避免消耗积分，历史记录每 20 秒刷新一次，负载和积分每 5 分钟刷新一次，存储每 15 分钟刷新一次，且仅在仓库已在运行时刷新。",
   "Para un backup incremental: el TSO con el que terminó el backup anterior (BackupTS). Vacío: completo.": "对于增量备份：上一个备份结束时的 TSO（BackupTS）。留空：完整备份。",
@@ -11171,5 +11169,14 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "签发服务器证书的 CA 的 PEM 文件（同 curl --cacert）。",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "此 TLS 模式需要 CA 文件：请填写 {0}。",
   "No verifica el certificado del servidor (como curl --insecure).": "不验证服务器证书（同 curl --insecure）。",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} 需要 CA 文件：请填写 {2}，或为 {3} 选择其他值。"
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} 需要 CA 文件：请填写 {2}，或为 {3} 选择其他值。",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "使用 TLS 加密连接并验证服务器证书。",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "使用 TLS 加密连接并验证证书。如果服务器是 URL，则以其协议为准。",
+  "Comprueba que el nombre del servidor figure en su certificado.": "检查服务器名称是否出现在其证书中。",
+  "No verifica el certificado del servidor.": "不验证服务器证书。",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "用于本地模拟器（如 DynamoDB Local），它们使用不带 TLS 的 http://。留空 = 使用该区域的 AWS 端点，始终通过 https 并验证证书。",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "用于本地模拟器，它们使用不带 TLS、无需身份验证的 http://。留空 = 使用 Google API，始终通过 https 并验证证书。",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT 检查服务器名称是否出现在其证书中；NONE 只验证证书链。",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "如果服务器是 URL（http://… 或 https://…），则以其协议为准。",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "通过 SSH 隧道时，证书按服务器名称验证，而 {0} 是 IP 地址：请使用证书中的主机名"
 }

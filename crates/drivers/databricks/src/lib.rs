@@ -123,7 +123,9 @@ fn info(azure: bool) -> DriverInfo {
         Field::read_only(),
     ]);
     DriverInfo {
-        tls: Default::default(),
+        // Always https, verified (a typed http:// URL is only for test
+        // mocks).
+        tls: dbine_driver::TlsSupport::Forced,
         tls_port: None,
         id: if azure {
             "azure_databricks"
@@ -1470,6 +1472,19 @@ fn cell(ty: &str, v: &Json) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Always https: a bare host becomes an https URL.
+    #[test]
+    fn tls_is_forced() {
+        for azure in [false, true] {
+            assert_eq!(info(azure).tls, dbine_driver::TlsSupport::Forced);
+            assert!(!info(azure)
+                .fields
+                .iter()
+                .any(|f| f.is_legacy_tls() || f.tls.is_some()));
+        }
+        assert!(base_url("adb-1.2.azuredatabricks.net").starts_with("https://"));
+    }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
     /// exactly where the engine writes them (`SchemaSpec::grant_option`).

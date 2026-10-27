@@ -83,7 +83,7 @@ pub(crate) async fn check(s: &TdSession, database: Option<&str>) -> Result<Permi
                 None => Me::default(),
             }
         }
-        Err(e @ Error::Connect(_)) => return Err(e),
+        Err(e @ (Error::Connect(_) | Error::ConnectFailed(_))) => return Err(e),
         Err(e) if permission_denied(&e) => Me {
             superuser: Some(false),
             sysinfo: Some(false),

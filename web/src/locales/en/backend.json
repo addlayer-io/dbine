@@ -3372,8 +3372,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "To load rows into a supertable, the tbname column (each row's subtable) is required.",
   "Para columnas autoincrementales (solo BIGINT).": "For autoincrement columns (BIGINT only).",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "For Dremio's full monitor (activity, nodes, profiles) use its REST connection.",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "For local emulators. Empty = the region's AWS endpoint.",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "For local emulators; no authentication. Empty = the Google API.",
   "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": "For mTLS: the unzipped wallet folder (tnsnames.ora and ewallet.pem); you can pick any file inside it. Empty if the database accepts TLS without a wallet.",
   "Para no consumir créditos, el historial se refresca cada 20 s, la carga y los créditos cada 5 min y el almacenamiento cada 15 min, y solo con el warehouse ya encendido.": "To avoid consuming credits, history refreshes every 20 s, load and credits every 5 min and storage every 15 min, and only while the warehouse is already running.",
   "Para un backup incremental: el TSO con el que terminó el backup anterior (BackupTS). Vacío: completo.": "For an incremental backup: the TSO the previous backup ended with (BackupTS). Empty: full.",
@@ -11171,5 +11169,14 @@
   "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": "PEM file of the CA that signed the server's certificate (like curl --cacert).",
   "Este modo de TLS necesita el archivo de la CA: completá {0}.": "This TLS mode needs the CA file: fill in {0}.",
   "No verifica el certificado del servidor (como curl --insecure).": "Doesn't verify the server's certificate (like curl --insecure).",
-  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} needs the CA file: fill in {2} or choose another value of {3}."
+  "{0}={1} necesita el archivo de la CA: completá {2} o elegí otro valor de {3}.": "{0}={1} needs the CA file: fill in {2} or choose another value of {3}.",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "Encrypts the connection with TLS and verifies the server certificate.",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "Encrypts the connection with TLS and verifies the certificate. If the server is a URL, its scheme wins.",
+  "Comprueba que el nombre del servidor figure en su certificado.": "Checks that the server's name is in its certificate.",
+  "No verifica el certificado del servidor.": "Doesn't verify the server certificate.",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "For local emulators such as DynamoDB Local, which speak http:// without TLS. Empty = the region's AWS endpoint, always over https with the certificate verified.",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "For local emulators, which speak http:// without TLS or authentication. Empty = the Google API, always over https with the certificate verified.",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT checks that the server's name is in its certificate; NONE only verifies the chain.",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "If the server is a URL (http://… or https://…), its scheme wins.",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "through an SSH tunnel the certificate is checked against the server's name, and {0} is an IP address: use the host name in the certificate"
 }

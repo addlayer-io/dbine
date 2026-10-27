@@ -41,7 +41,9 @@ fn info() -> DriverInfo {
     fields.push(aws::endpoint_field("http://localhost:8000"));
     fields.push(Field::read_only());
     DriverInfo {
-        tls: Default::default(),
+        // AWS's endpoints are always https, verified; the endpoint field's
+        // scheme decides for DynamoDB Local (plain http).
+        tls: dbine_driver::TlsSupport::InUrl,
         tls_port: None,
         id: "dynamodb",
         name: "Amazon DynamoDB",
@@ -1290,6 +1292,14 @@ fn table_json(d: &TableDescription) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AWS's endpoints are https; only a typed endpoint (DynamoDB Local)
+    /// changes the scheme.
+    #[test]
+    fn tls_is_in_the_url() {
+        assert_eq!(info().tls, dbine_driver::TlsSupport::InUrl);
+        assert!(!info().fields.iter().any(|f| f.is_legacy_tls()));
+    }
     use aws_sdk_dynamodb::primitives::Blob;
 
     fn s(v: &str) -> AttributeValue {
