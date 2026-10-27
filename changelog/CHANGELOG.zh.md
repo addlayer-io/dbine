@@ -14,6 +14,7 @@
 - **键盘和屏幕阅读器：** 可见的焦点环显示键盘当前位置；列表行、卡片、可排序的表头和可折叠的区域可以用 Tab 到达，并用 Enter 或空格操作；上下文菜单可用方向键操作；仅有图标的按钮带有屏幕阅读器可朗读的名称；查询的结果（完成，或失败及其错误）会被播报；系统要求减少动态效果时动画会停止；两种主题下次要文字的对比度都更高。
 
 ### 修复
+- **“不验证”现在会固定服务器证书，安全:** 不验证服务器证书的连接（`sslmode=require`, `insecure`, `bolt+ssc`, `validate=false`…）会接受服务器首次出示的证书，此后只接受该证书，适用于 PostgreSQL 及其同系列、HTTP 引擎（ClickHouse、Elasticsearch 和 OpenSearch、CouchDB、Trino、InfluxDB 等）、Neo4j、Neptune、Redis 和 Cassandra。如果证书发生变化，连接会中断并显示两个指纹；对于已更新证书的服务器，可使用**信任新证书**；SSL/TLS 选项卡会显示已固定的指纹，并提供**忘记**。已保存的连接会在下次连接时固定证书。`verify-ca` 以及仅跳过主机名检查的选项现在会对照 CA 检查整条证书链，而不是接受任何证书。SQL Server、MySQL、MariaDB、MongoDB 和 SAP HANA 保持其客户端自身的行为。
 - **新数据库无需重新连接即可显示：** 在查询中用 `CREATE DATABASE` 创建（或删除、重命名）的数据库会立即出现在资源管理器和数据库列表中，打开数据库列表（迁移、比较、subset、备份、权限、查询的数据库选择器等）时会重新读取，因此从其他工具创建的数据库也会显示。
 - **从 SQL Server Management Studio 导入：** 除已注册的服务器外，DBine 现在还会导入 SSMS 连接对话框记住的服务器（其连接历史），包括登录名、数据库和加密设置，支持 SSMS 18 到 20 以及 SSMS 21 及更高版本的新文件夹。在 macOS 和 Linux 上，文件对话框现在接受 `RegSrvr.xml`、`UserSettings.xml` 和 `.regsrvr` 文件（以及 DataGrip 的 `dataSources.xml`）；此前只能选择 JSON 文件。
 - **导入连接字符串时保留加密设置：** 粘贴或导入的字符串现在会带上各引擎自己的 TLS 选项：SQL Server 的 `Encrypt`（包括 `Strict`）和 `HostNameInCertificate`，PostgreSQL 的 `sslmode` 按原样保留（`require` 不再变成经过校验的连接），MySQL 的 `ssl-mode` 和 Connector/J 的 `useSSL`，MariaDB 的 `sslMode`，以及 `rediss://`、`bolt+s://` 和 `bolt+ssc://` 协议。不含 TLS 设置的字符串按其自身客户端的连接方式导入。从 DBeaver、DataGrip 及其他 JetBrains IDE、DbGate 和 Azure Data Studio 导入的连接同样适用。
