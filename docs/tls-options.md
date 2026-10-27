@@ -40,6 +40,39 @@ It ends with the implementation batches and the risks.
 8. `drivers-epoch` is already 4.
 9. The legacy PostgreSQL default (ff) shows as `prefer`.
 
+## Certificate pinning and verify-ca (crates/dbine-tls)
+
+The modes that don't verify the chain keep their native names
+(`sslmode=require`, `insecure`, `bolt+ssc`, `validate=false`,
+`TrustServerCertificate`…), but where the client lets DBine supply the
+certificate check they no longer accept any certificate:
+
+- **Unverified (and PostgreSQL's `prefer`/`allow`) pin the certificate on
+  first use.** The first connection accepts the server's certificate and
+  reports the SHA-256 of its DER (`Session::tls_pin_seen`); the app saves it
+  in the connection's options as `tls_pin` (`dbine_driver::TLS_PIN`, hex,
+  not a secret). Later connections accept only that certificate. Another one
+  fails with `ConnectFailureKind::TlsPinChanged`, whose message names both
+  fingerprints; the problem dialog offers "Confiar en el certificado nuevo"
+  (`forget_tls_pin`: the pin is cleared, the sessions close and the next
+  connect pins the new one). The connection form shows the pinned
+  fingerprint in the SSL/TLS tab, with "Olvidar". A connection pointed at
+  another host, port or engine drops its pin. Connections saved before this
+  have no pin and pin on their next connect. The handshake signatures are
+  still verified, so the server must hold the certificate's key.
+- **VerifyCa checks the whole chain against the configured roots** (the CA
+  file; without one, the system and web PKI roots, or Amazon's RDS bundle
+  where it applied) and forgives only the host-name mismatch
+  (`CertificateError::NotValidForName*`, which rustls checks after the
+  chain). No `danger_accept_invalid_*`.
+
+`crates/dbine-tls` has both rustls verifiers (`PinVerifier` with its
+`PinWatch`, `CaOnlyVerifier`) and the configs the drivers use
+(`pinned_config`, `ca_only_config`, `verified_config`), on rustls' `ring`
+provider. Which engines pin, and which keep their client's own "accept any
+certificate" because it can't take a verifier, is in
+`docs/engine-support.md` ("Connection encryption").
+
 ## The contract, in short
 
 The types live in `crates/dbine-driver/src/info.rs` and
