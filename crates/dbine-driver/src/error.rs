@@ -329,6 +329,14 @@ pub fn classify_message(text: &str) -> ConnectFailureKind {
         r"certificate is not trusted",
         r"hostname mismatch",
         r"invalid peer certificate",
+        // macOS (Security.framework, native-tls).
+        r"certificate was not trusted",
+        r"invalid certificate chain",
+        r"certificate is not standards compliant",
+        // Windows (Schannel): SQL Server's usual ones.
+        r"issued by an authority that is not trusted",
+        r"target principal name is incorrect",
+        r"certificate chain was issued",
     ]) {
         ConnectFailureKind::TlsUntrusted
     } else if has(&[r"certificate", r"tls", r"ssl", r"handshake", r"x509"]) {
@@ -389,6 +397,14 @@ mod tests {
             k("error performing TLS handshake: server does not support TLS"),
             ConnectFailureKind::TlsNotOffered
         );
+        for m in [
+            "The certificate was not trusted.",
+            "Invalid certificate chain",
+            "TLS handshake failed: The certificate chain was issued by an authority that is not trusted.",
+            "The target principal name is incorrect.",
+        ] {
+            assert_eq!(k(m), ConnectFailureKind::TlsUntrusted, "{m}");
+        }
         assert_eq!(k("tls handshake eof"), ConnectFailureKind::Tls);
         assert!(ConnectFailureKind::TlsUntrusted.is_tls() && !ConnectFailureKind::Auth.is_tls());
         assert_eq!(k("algo raro"), ConnectFailureKind::Unknown);

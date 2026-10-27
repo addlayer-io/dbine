@@ -1931,14 +1931,35 @@ not depend on the driver.
 
 Each engine shows its own TLS options, with its own names and values
 (`sslmode`, `Encrypt`, `ssl-mode`…). New connections encrypt and verify the
-server's certificate; connections saved before keep what they did. The
-per-engine design is in [`tls-options.md`](tls-options.md).
+server's certificate, and each setting can be turned off (a self-signed
+certificate, a server without TLS); connections saved before keep what they
+did. A certificate the client doesn't trust, or a server that doesn't offer
+TLS, says which option to change. The per-engine design is in
+[`tls-options.md`](tls-options.md). Each driver declares what it does
+(`DriverInfo.tls`, or a TLS mode field), and a registry test keeps every
+engine without TLS listed here.
+
+Always encrypted and verified, with nothing to choose: Amazon Aurora DSQL,
+Amazon Keyspaces, Microsoft Fabric Data Warehouse, Oracle Autonomous
+Database and Oracle NetSuite (SuiteAnalytics Connect).
+
+Decided by the address or the driver's own configuration (`https://` in an
+endpoint, the scheme of a URL, the ODBC driver's settings): InterSystems
+IRIS, InterSystems Caché and ODBC (genérico).
+
+Not applicable, files on this computer: DuckDB, Archivos CSV / Parquet /
+JSON, SQLite, Microsoft Access and Archivos dBase (DBF).
 
 Engines without TLS:
 
 | Engine | Reason |
 |---|---|
-| H2 (`h2`) | H2's PostgreSQL server has no TLS: it answers the TLS request with "no". |
+| H2 (servidor PostgreSQL) | H2's PostgreSQL server has no TLS: it answers the TLS request with "no". |
+| Firebird | Firebird has no TLS listener. Its wire protocol is encrypted with its own scheme (SRP sign-in plus wire encryption), which DBine uses. |
+| Actian Zen (Pervasive PSQL) | Zen encrypts with its own wire encryption, not TLS, configured in the client and server. |
+| Mimer SQL | Its ODBC client has no TLS option. |
+| NuoDB | Its ODBC driver has no TLS keywords (TLS is only in its JDBC driver). |
+| CUBRID | Its ODBC driver has no TLS option. |
 
 ## Locks
 
