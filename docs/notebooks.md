@@ -486,7 +486,7 @@ JOIN read_duckdb('~/datos/ventas.duckdb', 'arch.zonas') z ON z.cliente = c.id
   written.
 - **`read_duckdb('file.duckdb', 'tabla')`** (or `'esquema.tabla'`, or
   `table_name = '…'`, `schema_name = '…'`): DuckDB's own `read_duckdb`
-  (present in the bundled DuckDB 1.5), which attaches the file read-only,
+  (present in the bundled DuckDB 2.0), which attaches the file read-only,
   run in a reader session granted that file. Globs and lists work as for
   the other readers. DuckDB looks for the file's write-ahead log
   (`file.duckdb.wal`): that path is granted too; when it exists it is a
@@ -624,7 +624,7 @@ GROUP BY ALL
     without them and the computer's sign-in. Also refused: keys with `.` or
     `..` segments, and any other scheme (`file://`, `hf://`, `ftp://`…).
 - **Never DuckDB's network.** Neither the notebook's database nor the
-  reader session ever loads `httpfs` or reaches the network. DuckDB 1.5's
+  reader session ever loads `httpfs` or reaches the network. DuckDB 2.0's
   `allowed_paths` does filter URLs by their text (a URL not in the list is
   refused, tested), but `httpfs` would resolve the host itself (so a public
   name pointing at `127.0.0.1` or `169.254.169.254` couldn't be checked),
