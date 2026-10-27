@@ -7187,7 +7187,6 @@
   "claves": "klucze",
   "claves foráneas: {0}": "klucze obce: {0}",
   "claves foráneas: {0} / {1}": "klucze obce: {0} / {1}",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse: readonly profile, sending no output settings",
   "client URLs": "client URLs",
   "cliente": "klient",
   "clonar necesita PostgreSQL 10 o posterior en el origen": "klonowanie wymaga PostgreSQL 10 lub nowszego w źródle",
@@ -11254,5 +11253,6 @@
   "último error": "ostatni błąd",
   "último latido": "ostatni heartbeat",
   "último optime": "ostatni optime",
-  "… ({0} operadores más)": "… (jeszcze {0} operatorów)"
+  "… ({0} operadores más)": "… (jeszcze {0} operatorów)",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "Połączenie sprawdza również nazwę serwera w certyfikacie, co jest bardziej rygorystyczne niż w ciągu (verify-ca)."
 }

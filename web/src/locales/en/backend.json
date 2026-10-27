@@ -6977,7 +6977,6 @@
   "documentos": "documents",
   "claves": "keys",
   "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": "Oracle only shows each session's current and previous statement: very fast ones may not appear. The start time is accurate to the second; duration, CPU, reads (buffer gets) and writes (direct writes) are the cursor's average in V$SQLSTATS.",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse: readonly profile, sending no output settings",
   "entradas de índice: {0}": "index entries: {0}",
   "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": "CockroachDB wouldn't let us read the running queries ({0}; {1}). You need to be admin or have the VIEWACTIVITY privilege: GRANT SYSTEM VIEWACTIVITY TO <user>",
   "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": "CockroachDB only shows running queries. This user is not admin and doesn't have the VIEWACTIVITY system privilege: unless it has the VIEWACTIVITY role option, only its own queries are visible (GRANT SYSTEM VIEWACTIVITY TO <user>).",
@@ -11254,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Through the SSH tunnel, the ODBC driver can't check that the certificate belongs to {0}: use {1} (it verifies only the CA) or connect without the tunnel.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl verifies the certificate against the client's keystore (SSL_KEYSTORE_FILE in conssl.cfg).",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca and verify-full need the CA's root.crt on the client.",
-  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Optional: the CA that signed the server certificate, in PEM."
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Optional: the CA that signed the server certificate, in PEM.",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "The connection also checks the server's name in the certificate, stricter than the string (verify-ca)."
 }

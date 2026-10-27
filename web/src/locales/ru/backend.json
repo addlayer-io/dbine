@@ -6977,7 +6977,6 @@
   "documentos": "документы",
   "claves": "ключи",
   "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": "Oracle показывает только текущую и предыдущую инструкцию каждого сеанса: очень быстрые могут не появиться. Время начала точно до секунды; длительность, CPU, чтения (buffer gets) и записи (direct writes) — это среднее по курсору в V$SQLSTATS.",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse: readonly profile, sending no output settings",
   "entradas de índice: {0}": "записей индекса: {0}",
   "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": "CockroachDB не позволил прочитать выполняющиеся запросы ({0}; {1}). Нужно быть admin или иметь привилегию VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <user>",
   "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": "CockroachDB показывает только выполняющиеся запросы. Этот пользователь не admin и не имеет системной привилегии VIEWACTIVITY: если у него нет параметра роли VIEWACTIVITY, видны только его собственные запросы (GRANT SYSTEM VIEWACTIVITY TO <user>).",
@@ -11254,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Через SSH-туннель ODBC-драйвер не может проверить, что сертификат принадлежит {0}: используйте {1} (проверяется только центр сертификации) или подключитесь без туннеля.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl проверяет сертификат по хранилищу ключей клиента (SSL_KEYSTORE_FILE в conssl.cfg).",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "Для verify-ca и verify-full на клиенте нужен root.crt центра сертификации.",
-  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Необязательно: центр сертификации (CA), подписавший сертификат сервера, в формате PEM."
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Необязательно: центр сертификации (CA), подписавший сертификат сервера, в формате PEM.",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "Подключение также проверяет имя сервера в сертификате — строже, чем указано в строке (verify-ca)."
 }

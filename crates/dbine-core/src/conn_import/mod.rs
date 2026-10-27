@@ -559,7 +559,11 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
             .filter_map(|kv| kv.split_once('='))
             .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string())),
     );
+    let mut tls = Vec::new();
     for (k, v) in &params {
+        if TLS_KEYS.contains(&k.as_str()) {
+            tls.push((k.clone(), v.clone()));
+        }
         match k.as_str() {
             "databasename" | "database" => cfg.database = v.clone(),
             "user" | "username" if cfg.username.is_none() => cfg.username = Some(v.clone()),
@@ -570,7 +574,156 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
             _ => {}
         }
     }
+    if let Some(note) = native_tls(cfg, &tls) {
+        c.notes.push(note);
+    }
     true
+}
+
+/// The TLS keys of a JDBC URL, a URI or an ADO.NET string (lower case).
+const TLS_KEYS: &[&str] = &[
+    "encrypt",
+    "trustservercertificate",
+    "hostnameincertificate",
+    "servercertificate",
+    "ssl",
+    "sslmode",
+    "ssl-mode",
+    "usessl",
+    "verifyservercertificate",
+    "sslrootcert",
+    "ssl-ca",
+    "sslca",
+    "serversslcert",
+];
+
+/// The connection's TLS in its engine's own options
+/// (docs/tls-options.md, "Imported and exported connection strings"): a
+/// native key goes in as written, a JDBC alias maps to it, and a string
+/// without TLS settings gets the default of the client it was written
+/// for. The legacy bools stay as they were set, for older versions of
+/// DBine. Returns a note when the import is stricter than the source.
+fn native_tls(
+    cfg: &mut dbine_driver::ConnectionConfig,
+    tls: &[(String, String)],
+) -> Option<String> {
+    let get = |k: &str| {
+        tls.iter()
+            .rev()
+            .find(|(x, _)| x == k)
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let mut put = |k: &str, v: &str| {
+        cfg.options.insert(k.into(), v.into());
+    };
+    let driver = cfg.driver.clone();
+    match driver.as_str() {
+        "sqlserver" | "azuresql" | "fabric" | "babelfish" => {
+            // SqlClient 4+ and ODBC 18 encrypt by default.
+            let encrypt = match get("encrypt").map(|v| v.to_ascii_lowercase()).as_deref() {
+                Some("strict") => "Strict",
+                Some("false" | "no" | "optional" | "0") => "Optional",
+                _ => "Mandatory",
+            };
+            put("Encrypt", encrypt);
+            if get("trustservercertificate").is_some_and(|v| truthy(&v)) {
+                put("TrustServerCertificate", "true");
+            }
+            if let Some(v) = get("hostnameincertificate") {
+                put("HostNameInCertificate", &v);
+            }
+            if let Some(v) = get("servercertificate") {
+                put("ServerCertificate", &v);
+            }
+        }
+        "mariadb" | "oceanbase" => {
+            // MariaDB Connector/J: `sslMode`, or `useSsl` / `ssl`.
+            let (ssl, verify) = match get("sslmode").map(|v| v.to_ascii_lowercase()).as_deref() {
+                Some("disable" | "disabled") => (false, false),
+                Some("trust") => (true, false),
+                Some("verify-ca") => {
+                    put("ssl", "true");
+                    put("ssl-verify-server-cert", "true");
+                    return Some("La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).".into());
+                }
+                Some(_) => (true, true),
+                None => {
+                    let on = get("usessl")
+                        .or_else(|| get("ssl"))
+                        .is_some_and(|v| truthy(&v));
+                    (on, on)
+                }
+            };
+            put("ssl", if ssl { "true" } else { "false" });
+            if ssl {
+                put(
+                    "ssl-verify-server-cert",
+                    if verify { "true" } else { "false" },
+                );
+            }
+            if let Some(v) = get("ssl-ca").or_else(|| get("serversslcert")) {
+                put("ca_cert", &v);
+            }
+        }
+        "mysql" | "aurora-mysql" | "cloudsql-mysql" | "tidb" | "singlestore" | "starrocks"
+        | "doris" | "velodb" | "databend" | "manticore" | "greptimedb" => {
+            let mode = match get("ssl-mode").or_else(|| get("sslmode")) {
+                Some(v) => v.to_ascii_uppercase().replace('-', "_"),
+                // Connector/J's older keys.
+                None => match get("usessl") {
+                    Some(v) if !truthy(&v) => "DISABLED".into(),
+                    Some(_) if get("verifyservercertificate").is_some_and(|v| truthy(&v)) => {
+                        "VERIFY_CA".into()
+                    }
+                    Some(_) => "REQUIRED".into(),
+                    None => "PREFERRED".into(),
+                },
+            };
+            if [
+                "DISABLED",
+                "PREFERRED",
+                "REQUIRED",
+                "VERIFY_CA",
+                "VERIFY_IDENTITY",
+            ]
+            .contains(&mode.as_str())
+            {
+                put("ssl-mode", &mode);
+            }
+            if let Some(v) = get("ssl-ca").or_else(|| get("sslca")) {
+                put("ca_cert", &v);
+            }
+        }
+        "postgres" | "cockroachdb" | "redshift" | "greenplum" | "yugabytedb" | "timescaledb"
+        | "kingbase" | "denodo" | "alloydb" | "cloudsql_postgres" | "aurora_postgres" | "edb"
+        | "fujitsu" | "opengauss" | "cloudberry" | "greengage" | "risingwave" | "materialize"
+        | "cratedb" | "yellowbrick" => {
+            let mode = match get("sslmode").map(|v| v.to_ascii_lowercase()) {
+                Some(v) => v,
+                // PgJDBC: `ssl=true` alone verifies the certificate and the name.
+                None if get("ssl").is_some_and(|v| truthy(&v)) => "verify-full".into(),
+                None => "prefer".into(),
+            };
+            if [
+                "disable",
+                "allow",
+                "prefer",
+                "require",
+                "verify-ca",
+                "verify-full",
+            ]
+            .contains(&mode.as_str())
+            {
+                put("sslmode", &mode);
+            }
+            if let Some(v) = get("sslrootcert") {
+                put("ssl_root_cert", &v);
+            }
+        }
+        _ => {}
+    }
+    None
 }
 
 const WINDOWS_AUTH: &str =
@@ -580,6 +733,7 @@ const WINDOWS_AUTH: &str =
 /// for SQL Server, applied to `c`.
 fn apply_ado(c: &mut Candidate, s: &str) {
     let cfg = &mut c.config;
+    let mut tls = Vec::new();
     for part in split_ado(s) {
         let Some((k, v)) = part.split_once('=') else {
             continue;
@@ -604,8 +758,17 @@ fn apply_ado(c: &mut Candidate, s: &str) {
                 cfg.username = Some(v).filter(|x| !x.is_empty())
             }
             "password" | "pwd" => cfg.password = Some(v).filter(|x| !x.is_empty()),
-            "encrypt" => cfg.encrypt = truthy(&v),
-            "trustservercertificate" => cfg.trust_server_certificate = truthy(&v),
+            "encrypt" => {
+                cfg.encrypt = truthy(&v);
+                tls.push(("encrypt".into(), v));
+            }
+            "trustservercertificate" => {
+                cfg.trust_server_certificate = truthy(&v);
+                tls.push(("trustservercertificate".into(), v));
+            }
+            "hostnameincertificate" | "servercertificate" => {
+                tls.push((k.trim().to_ascii_lowercase().replace(' ', ""), v));
+            }
             "integratedsecurity" | "trusted_connection" if truthy(&v) => {
                 c.notes.push(WINDOWS_AUTH.into())
             }
@@ -631,6 +794,9 @@ fn apply_ado(c: &mut Candidate, s: &str) {
             }
             _ => {}
         }
+    }
+    if let Some(note) = native_tls(cfg, &tls) {
+        c.notes.push(note);
     }
 }
 

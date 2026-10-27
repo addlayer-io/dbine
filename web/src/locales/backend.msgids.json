@@ -8260,6 +8260,7 @@
     "crates/drivers/iotdb/src/lib.rs"
   ],
   "Encrypt": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
   "Encrypt: «{0}» no es un valor que este motor acepte (Optional, Mandatory o Strict)": [
@@ -11725,6 +11726,9 @@
   "La conexión es de solo lectura: no se permite {0}.": [
     "crates/drivers/libsql/src/lib.rs"
   ],
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": [
+    "crates/dbine-core/src/conn_import/mod.rs"
+  ],
   "La configuración del servidor (RDB$CONFIG) solo la ven SYSDBA y RDB$ADMIN.": [
     "crates/drivers/firebird/src/monitor.rs"
   ],
@@ -12937,6 +12941,7 @@
     "src-tauri/src/tasks/mail.rs"
   ],
   "Mandatory": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/lib.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
@@ -16391,6 +16396,7 @@
     "crates/drivers/sqlserver/src/plan.rs"
   ],
   "Optional": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/lib.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
@@ -20759,6 +20765,7 @@
     "crates/drivers/ksqldb/src/monitor.rs"
   ],
   "Strict": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
   "String": [
@@ -24327,9 +24334,6 @@
   "claves foráneas: {0} / {1}": [
     "crates/dbine-transfer/src/clone_table/pg.rs"
   ],
-  "clickhouse: readonly profile, sending no output settings": [
-    "crates/drivers/clickhouse/src/lib.rs"
-  ],
   "client URLs": [
     "crates/drivers/etcd/src/lib.rs"
   ],
@@ -25227,7 +25231,8 @@
     "crates/dbine-sync/src/folder.rs"
   ],
   "el archivo no trae {0}": [
-    "crates/dbine-ai/src/embedded.rs"
+    "crates/dbine-ai/src/embedded.rs",
+    "crates/drivers/duckdb/src/loader.rs"
   ],
   "el arreglo tiene un elemento que no es un valor simple: {0}": [
     "crates/drivers/phoenix/src/transfer.rs"

@@ -6977,7 +6977,6 @@
   "documentos": "文档",
   "claves": "键",
   "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": "Oracle 只显示每个会话的当前和上一条语句：非常快的可能不会出现。开始时间精确到秒；持续时间、CPU、读取（buffer gets）和写入（direct writes）是 V$SQLSTATS 中游标的平均值。",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse：只读配置文件，不发送输出设置",
   "entradas de índice: {0}": "索引条目：{0}",
   "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": "CockroachDB 不允许我们读取正在运行的查询（{0}；{1}）。你需要是 admin 或拥有 VIEWACTIVITY 权限：GRANT SYSTEM VIEWACTIVITY TO <user>",
   "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": "CockroachDB 只显示正在运行的查询。此用户不是 admin，也没有 VIEWACTIVITY 系统权限：除非它拥有 VIEWACTIVITY 角色选项，否则只能看到自己的查询（GRANT SYSTEM VIEWACTIVITY TO <user>）。",
@@ -11254,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "通过 SSH 隧道时，ODBC 驱动无法确认证书属于 {0}：请使用 {1}（仅验证 CA），或不经隧道连接。",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl 使用客户端的密钥库（conssl.cfg 中的 SSL_KEYSTORE_FILE）验证证书。",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca 和 verify-full 需要客户端上有 CA 的 root.crt。",
-  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "可选：签发服务器证书的 CA，PEM 格式。"
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "可选：签发服务器证书的 CA，PEM 格式。",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "连接还会校验证书中的服务器名称，比连接字符串更严格（verify-ca）。"
 }

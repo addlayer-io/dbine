@@ -6977,7 +6977,6 @@
   "documentos": "ドキュメント",
   "claves": "キー",
   "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": "Oracle は実行中の文と各セッションの直前の文のみを表示します。非常に高速なものは表示されない場合があります。開始時刻は秒単位です。所要時間、CPU、読み取り(buffer gets)、書き込み(direct writes)は V$SQLSTATS のカーソルの平均です。",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse: readonly profile, sending no output settings",
   "entradas de índice: {0}": "インデックスエントリ: {0}",
   "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": "CockroachDB は実行中のクエリの読み取りを許可しませんでした({0}; {1})。admin である必要があるか、VIEWACTIVITY 権限が必要です: GRANT SYSTEM VIEWACTIVITY TO <user>",
   "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": "CockroachDB は実行中のクエリのみを表示します。このユーザーは admin でも VIEWACTIVITY システム権限の保持者でもないため、VIEWACTIVITY ロールオプションがない限り、自分のクエリのみ表示されます(GRANT SYSTEM VIEWACTIVITY TO <user>)。",
@@ -11254,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "SSH トンネル経由では、ODBC ドライバーは証明書が {0} のものか確認できません。{1}（CA のみ検証）を使うか、トンネルを使わずに接続してください。",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl はクライアントのキーストア（conssl.cfg の SSL_KEYSTORE_FILE）で証明書を検証します。",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca と verify-full には、クライアントに CA の root.crt が必要です。",
-  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "任意: サーバー証明書に署名した CA(PEM 形式)。"
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "任意: サーバー証明書に署名した CA(PEM 形式)。",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "接続では証明書内のサーバー名も検証するため、接続文字列（verify-ca）より厳格です。"
 }

@@ -6977,7 +6977,6 @@
   "documentos": "문서",
   "claves": "키",
   "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": "Oracle은 각 세션의 진행 중인 문과 직전 문만 표시하므로 매우 빠른 문은 보이지 않을 수 있습니다. 시작 시각은 초 단위이며 소요 시간, CPU, 읽기(buffer gets), 쓰기(직접 쓰기)는 V$SQLSTATS의 커서 평균입니다.",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse: readonly profile, sending no output settings",
   "entradas de índice: {0}": "인덱스 항목: {0}",
   "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": "CockroachDB가 진행 중인 쿼리를 읽지 못하게 했습니다({0}, {1}). admin이거나 VIEWACTIVITY 권한이 있어야 합니다: GRANT SYSTEM VIEWACTIVITY TO <user>",
   "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": "CockroachDB는 진행 중인 쿼리만 표시합니다. 이 사용자는 admin이 아니고 VIEWACTIVITY 시스템 권한도 없습니다. VIEWACTIVITY 역할 옵션이 없으면 자신의 쿼리만 볼 수 있습니다(GRANT SYSTEM VIEWACTIVITY TO <user>).",
@@ -11254,5 +11253,6 @@
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "SSH 터널을 통해서는 ODBC 드라이버가 인증서가 {0}의 것인지 확인할 수 없습니다. {1}(CA만 검증)을 사용하거나 터널 없이 연결하세요.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl은 클라이언트의 키 저장소(conssl.cfg의 SSL_KEYSTORE_FILE)로 인증서를 검증합니다.",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca와 verify-full에는 클라이언트에 CA의 root.crt가 필요합니다.",
-  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "선택 사항: 서버 인증서에 서명한 CA(PEM 형식)."
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "선택 사항: 서버 인증서에 서명한 CA(PEM 형식).",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "연결은 인증서의 서버 이름도 확인하므로 연결 문자열(verify-ca)보다 엄격합니다."
 }
