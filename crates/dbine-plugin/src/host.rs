@@ -1404,6 +1404,8 @@ mod tests {
             databases_label: "",
             has_schemas: true,
             object_kinds: vec![],
+            tls: Default::default(),
+            tls_port: None,
         }))
     }
 
