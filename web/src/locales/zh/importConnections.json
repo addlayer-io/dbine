@@ -1,7 +1,7 @@
 {
   "title": "导入连接",
   "source": {
-    "ssmsHint": "已注册的服务器或导出的 .regsrvr",
+    "ssmsHint": "已注册的服务器、连接历史记录（UserSettings.xml）或导出的 .regsrvr 文件",
     "pasteUrls": "粘贴 URL",
     "found": "在这台电脑上找到",
     "notFound": "未找到：请选择位置"

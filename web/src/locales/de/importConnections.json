@@ -1,7 +1,7 @@
 {
   "title": "Verbindungen importieren",
   "source": {
-    "ssmsHint": "Registrierte Server oder eine exportierte .regsrvr",
+    "ssmsHint": "Registrierte Server, der Verbindungsverlauf (UserSettings.xml) oder eine exportierte .regsrvr-Datei",
     "pasteUrls": "URLs einfügen",
     "found": "Auf diesem Rechner gefunden",
     "notFound": "Nicht gefunden: Speicherort wählen"

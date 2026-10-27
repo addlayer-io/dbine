@@ -1,7 +1,7 @@
 {
   "title": "接続をインポート",
   "source": {
-    "ssmsHint": "登録済みサーバー、またはエクスポートした .regsrvr",
+    "ssmsHint": "登録済みサーバー、接続履歴（UserSettings.xml）、またはエクスポートした .regsrvr",
     "pasteUrls": "URL を貼り付け",
     "found": "このマシンで検出",
     "notFound": "見つかりません: 場所を選択してください"

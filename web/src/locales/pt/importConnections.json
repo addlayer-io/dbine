@@ -1,7 +1,7 @@
 {
   "title": "Importar conexões",
   "source": {
-    "ssmsHint": "Servidores registrados ou um .regsrvr exportado",
+    "ssmsHint": "Servidores registrados, o histórico de conexões (UserSettings.xml) ou um .regsrvr exportado",
     "pasteUrls": "Colar URLs",
     "found": "Encontrado nesta máquina",
     "notFound": "Não encontrado: escolha o local"

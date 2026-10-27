@@ -80,12 +80,21 @@ async function load() {
 
 watch(source, () => { path.value = null; load(); });
 
+/** What each tool's file is called and its extensions, for the file dialog. */
+const FILE_FILTERS: Partial<Record<Source, { name: string; extensions: string[] }>> = {
+  dbeaver: { name: 'data-sources.json', extensions: ['json'] },
+  dbgate: { name: 'connections.jsonl', extensions: ['jsonl'] },
+  datagrip: { name: 'dataSources.xml', extensions: ['xml'] },
+  azure_data_studio: { name: 'settings.json', extensions: ['json'] },
+  ssms: { name: 'RegSrvr.xml, UserSettings.xml, .regsrvr', extensions: ['xml', 'regsrvr'] },
+};
+
 async function choose(directory: boolean) {
   const r = await open({
     directory,
     multiple: false,
     title: directory ? t('importConnections:dialogFolder') : t('importConnections:dialogFile'),
-    filters: directory ? undefined : [{ name: source.value === 'dbgate' ? 'connections.jsonl' : 'data-sources.json', extensions: ['json', 'jsonl'] }],
+    filters: directory ? undefined : [FILE_FILTERS[source.value as Source] ?? { name: 'JSON', extensions: ['json', 'jsonl'] }],
   });
   if (typeof r === 'string') {
     path.value = r;
