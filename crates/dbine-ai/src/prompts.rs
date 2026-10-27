@@ -13,7 +13,9 @@ use std::sync::OnceLock;
 
 /// The languages with a prompt file; anything else gets English.
 /// The same list as scripts/i18n/languages.json (check.py verifies it).
-pub const LANGS: &[&str] = &["es", "en", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko", "uk", "pl"];
+pub const LANGS: &[&str] = &[
+    "es", "en", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko", "uk", "pl",
+];
 
 fn source(lang: &str) -> &'static str {
     match lang {
