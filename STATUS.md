@@ -2,14 +2,14 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-10-26._
+_Updated 2026-10-27._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 3 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
@@ -17,6 +17,8 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
+| OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
+| OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0385-ctutils-9761a8 | MEDIUM | osv | ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons | `mobile/src-tauri/Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b | MEDIUM | osv | crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time | `Cargo.lock` | upgrade to 0.7.6 |
@@ -26,10 +28,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
-| codeql | 2026-10-26 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-26 | every lockfile (Cargo, npm) at [`adc68279e`](https://github.com/addlayer-io/dbine/commit/adc68279eb72) | 3 open | — |
-| scorecard | 2026-10-26 | repository settings and workflows at [`dd7f2cb74`](https://github.com/addlayer-io/dbine/commit/dd7f2cb74b28) | score 5.7/10 | — |
-| trivy | 2026-10-26 | whole repository at [`adc68279e`](https://github.com/addlayer-io/dbine/commit/adc68279eb72) | 0 open | — |
+| codeql | 2026-10-27 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-10-27 | every lockfile (Cargo, npm) at [`2caa93827`](https://github.com/addlayer-io/dbine/commit/2caa93827f10) | 5 open | — |
+| scorecard | 2026-10-26 | repository settings and workflows at [`adc68279e`](https://github.com/addlayer-io/dbine/commit/adc68279eb72) | score 5.7/10 | — |
+| trivy | 2026-10-27 | whole repository at [`2caa93827`](https://github.com/addlayer-io/dbine/commit/2caa93827f10) | 0 open | — |
 
 ## Not counted, and why
 
@@ -332,7 +334,7 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | Trivy secret rule exception `tls-test-material` | `tests/tls/.*.(key\|p12)` | Throwaway test CA and server keys for the dbine-test-tls-* containers (tests/tls/README.md); they only sign certificates for localhost and host.docker.internal in tests and protect nothing. | trivy-secret.yaml |
 | Advisory GHSA-wrw7-89jp-8q8g | `dependencies` | Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side. | osv-scanner.toml |
 | Advisory GHSA-cq8v-f236-94qc | `dependencies` | Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only). | osv-scanner.toml |
-| Advisory RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369 | `dependencies` | Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive. | osv-scanner.toml |
+| Advisory RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369 | `dependencies` | Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. | osv-scanner.toml |
 | Advisory RUSTSEC-2024-0436 | `dependencies` | Notice, not a vulnerability: paste is no longer maintained (no known flaw; a build-time macro used by dependencies). | osv-scanner.toml |
 | Advisory RUSTSEC-2024-0370 | `dependencies` | Notice, not a vulnerability: proc-macro-error is unmaintained (no known flaw; a build-time macro used by dependencies). | osv-scanner.toml |
 | Advisory RUSTSEC-2025-0075, RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100 | `dependencies` | Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency). | osv-scanner.toml |

@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-10-26",
-      "revision": "adc68279eb72",
+      "date": "2026-10-27",
+      "revision": "2caa93827f10",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 3
+      "found": 5
     },
     {
       "source": "trivy",
-      "date": "2026-10-26",
-      "revision": "adc68279eb72",
+      "date": "2026-10-27",
+      "revision": "2caa93827f10",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-10-26",
+      "date": "2026-10-27",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -37,7 +37,7 @@
     {
       "source": "scorecard",
       "date": "2026-10-26",
-      "revision": "dd7f2cb74b28",
+      "revision": "adc68279eb72",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
@@ -3813,6 +3813,30 @@
       "dismissed": "2026-10-21",
       "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/lib.rs:1357 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai",
       "by": "mpanichella"
+    },
+    {
+      "id": "OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position",
+      "component": "Cargo.lock",
+      "advisory": "GHSA-qwgh-2vcv-g2f7",
+      "fixed_version": null,
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position",
+      "component": "mobile/src-tauri/Cargo.lock",
+      "advisory": "GHSA-qwgh-2vcv-g2f7",
+      "fixed_version": null,
+      "found": "2026-10-27",
+      "status": "open"
     },
     {
       "id": "OSV-RUSTSEC-2026-0385-ctutils-13ee4b",
