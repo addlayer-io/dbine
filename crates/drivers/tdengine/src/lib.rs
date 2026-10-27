@@ -266,7 +266,7 @@ impl Driver for TdDriver {
         } else {
             cfg.host.trim()
         };
-        let (base, http) = tls_http::client(
+        let (base, http, pin) = tls_http::client(
             cfg,
             &self.info.fields,
             format!("{scheme}://{host}:{}", cfg.port_or(6041)),
@@ -275,7 +275,8 @@ impl Driver for TdDriver {
         let db = database
             .filter(|d| !d.is_empty())
             .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
-        let s = TdSession {
+        let mut s = TdSession {
+            tls_pin: None,
             conn: Arc::new(Conn {
                 http,
                 base,
@@ -307,7 +308,9 @@ impl Driver for TdDriver {
         };
         tokio::time::timeout(Duration::from_secs(20), check)
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| pin.explain(e))?;
+        s.tls_pin = pin.seen();
         Ok(Box::new(s))
     }
 }
@@ -440,6 +443,8 @@ fn encode(s: &str) -> String {
 }
 
 pub struct TdSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     conn: Arc<Conn>,
     db: Option<String>,
     cancel: Arc<Cancel>,
@@ -720,6 +725,9 @@ fn num(v: Option<&Value>) -> Option<f64> {
 
 #[async_trait]
 impl Session for TdSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let rows = self.strings("SELECT SERVER_VERSION()").await?;
         Ok(format!(

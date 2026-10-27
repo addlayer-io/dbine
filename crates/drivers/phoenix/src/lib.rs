@@ -324,7 +324,7 @@ impl Driver for PhoenixDriver {
         } else {
             cfg.host.trim()
         };
-        let (url, http) = tls_http::client(
+        let (url, http, pin) = tls_http::client(
             cfg,
             &self.info.fields,
             format!(
@@ -365,13 +365,15 @@ impl Driver for PhoenixDriver {
         };
         let statement = tokio::time::timeout(Duration::from_secs(20), open)
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| pin.explain(e))?;
         let hbase = monitor::HBaseUis::from_config(
             host,
             cfg.option("hbase_master"),
             cfg.option("hbase_regionservers"),
         );
         Ok(Box::new(PhoenixSession {
+            tls_pin: pin.seen(),
             client,
             statement,
             hbase,
@@ -1031,6 +1033,8 @@ fn timestamp_from_millis(ms: i64) -> String {
 }
 
 pub struct PhoenixSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     client: Client,
     /// The statement handle every query runs on.
     statement: u32,
@@ -1172,6 +1176,9 @@ const UNSUPPORTED_PROCESSES: &str = "Phoenix no informa las consultas en curso: 
 
 #[async_trait]
 impl Session for PhoenixSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         if self.generic {
             return self.avatica_version().await;

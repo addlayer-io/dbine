@@ -317,6 +317,7 @@ impl Driver for CouchDriver {
             .filter(|u| !u.is_empty())
             .map(|u| (u, cfg.password.clone()));
         let mut s = CouchSession {
+            tls_pin: None,
             http,
             base: base_url(cfg, &tls),
             db,
@@ -345,11 +346,14 @@ impl Driver for CouchDriver {
                 .and_then(|v| v.into_iter().next())
                 .unwrap_or_default();
         }
+        s.tls_pin = tls.pin_seen();
         Ok(Box::new(s))
     }
 }
 
 pub struct CouchSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     http: reqwest::Client,
     base: String,
     db: String,
@@ -747,6 +751,9 @@ pub fn push_docs(out: &mut QueryOutcome, docs: &[Value], max_rows: usize) {
 
 #[async_trait]
 impl Session for CouchSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         Ok(format!("CouchDB {}", self.version))
     }

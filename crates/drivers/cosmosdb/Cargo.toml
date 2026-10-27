@@ -1,11 +1,12 @@
 [package]
 name = "dbine-driver-cosmosdb"
-version = "0.1.10"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.11"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 dbine-driver = { path = "../../dbine-driver" }
+dbine-tls = { path = "../../dbine-tls" }
 tokio.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true

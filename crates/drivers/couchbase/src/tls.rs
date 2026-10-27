@@ -6,6 +6,12 @@
 //! dials the tunnel's end, so the certificate is checked against the real
 //! name.
 //!
+//!
+//! The modes that don't verify the chain pin the server's certificate
+//! instead (`dbine_tls::PinVerifier`, trust on first use), and the one that
+//! skips only the host name checks the whole chain
+//! (`dbine_tls::CaOnlyVerifier`): both as a preconfigured rustls client.
+//!
 //! The same file is in every reqwest driver crate (a driver owns its folder
 //! and the contract crate has no HTTP client); keep the copies in step.
 
@@ -28,6 +34,15 @@ pub struct HttpTls {
     /// server doesn't speak TLS: the engine's own options.
     untrusted_hint: String,
     plain_hint: String,
+    /// `Unverified`: the pinning client config and what it sees (the
+    /// fingerprint to save on first use, a changed certificate).
+    pinned: Option<(dbine_tls::rustls::ClientConfig, dbine_tls::PinWatch)>,
+}
+
+/// HTTP/2 or 1.1, as reqwest offers on its own config.
+fn with_alpn(mut c: dbine_tls::rustls::ClientConfig) -> dbine_tls::rustls::ClientConfig {
+    c.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    c
 }
 
 fn mode_field(fields: &[Field]) -> Option<&Field> {
@@ -139,12 +154,19 @@ impl HttpTls {
             ),
             None => String::new(),
         };
+        let pinned = if level == TlsLevel::Unverified {
+            let (c, watch) = dbine_tls::pinned_config(dbine_tls::pin_of(cfg))?;
+            Some((with_alpn(c), watch))
+        } else {
+            None
+        };
         Ok(Self {
             level,
             ca,
             tunnel,
             untrusted_hint,
             plain_hint,
+            pinned,
         })
     }
 
@@ -197,28 +219,44 @@ impl HttpTls {
     }
 
     /// The client builder with these settings: the CA file as the only
-    /// trust anchors (like curl's `--cacert`), the skipped checks, and the
-    /// tunnel's address for the real name.
+    /// trust anchors (like curl's `--cacert`), the pinned certificate when
+    /// the chain isn't verified, the chain without the name for `VerifyCa`,
+    /// and the tunnel's address for the real name.
     pub fn builder(&self, mut b: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder> {
         if !self.https() {
             return Ok(b);
         }
-        if self.level.verified() {
-            if let Some((key, path)) = &self.ca {
-                let pem = std::fs::read(path)
-                    .map_err(|e| Error::Connect(format!("No se pudo leer {key} ({path}): {e}")))?;
-                let certs = reqwest::Certificate::from_pem_bundle(&pem)
-                    .ok()
-                    .filter(|c| !c.is_empty())
-                    .ok_or_else(|| {
-                        Error::Connect(format!("{key} ({path}) no tiene certificados PEM."))
-                    })?;
-                b = b.tls_certs_only(certs);
-            }
-        }
         match self.level {
-            TlsLevel::Unverified => b = b.danger_accept_invalid_certs(true),
-            TlsLevel::VerifyCa => b = b.tls_danger_accept_invalid_hostnames(true),
+            TlsLevel::Unverified => {
+                if let Some((c, _)) = &self.pinned {
+                    b = b.use_preconfigured_tls(c.clone());
+                }
+            }
+            TlsLevel::VerifyCa => {
+                let roots = match &self.ca {
+                    Some((key, path)) => {
+                        let mut r = dbine_tls::rustls::RootCertStore::empty();
+                        dbine_tls::add_roots(&mut r, dbine_tls::read_ca_file(path, key)?, key)?;
+                        r
+                    }
+                    None => dbine_tls::system_roots(),
+                };
+                b = b.use_preconfigured_tls(with_alpn(dbine_tls::ca_only_config(roots)?));
+            }
+            _ if self.level.verified() => {
+                if let Some((key, path)) = &self.ca {
+                    let pem = std::fs::read(path).map_err(|e| {
+                        Error::Connect(format!("No se pudo leer {key} ({path}): {e}"))
+                    })?;
+                    let certs = reqwest::Certificate::from_pem_bundle(&pem)
+                        .ok()
+                        .filter(|c| !c.is_empty())
+                        .ok_or_else(|| {
+                            Error::Connect(format!("{key} ({path}) no tiene certificados PEM."))
+                        })?;
+                    b = b.tls_certs_only(certs);
+                }
+            }
             _ => {}
         }
         if let Some((name, ip)) = &self.tunnel {
@@ -228,9 +266,20 @@ impl HttpTls {
         Ok(b)
     }
 
+    /// The fingerprint of the certificate accepted on trust, for the app to
+    /// pin (`Session::tls_pin_seen`): only when the connection had no pin.
+    pub fn pin_seen(&self) -> Option<String> {
+        self.pinned.as_ref()?.1.seen()
+    }
+
     /// A connect error with the engine's options to change when it's a TLS
-    /// one (see [`net_error`]).
+    /// one (see [`net_error`]); a certificate that isn't the pinned one
+    /// says so, with both fingerprints.
     pub fn explain(&self, e: Error) -> Error {
+        let e = match &self.pinned {
+            Some((_, watch)) => watch.explain(e),
+            None => e,
+        };
         let Error::ConnectFailed(mut f) = e else {
             return e;
         };

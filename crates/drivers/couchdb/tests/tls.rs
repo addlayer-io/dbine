@@ -269,3 +269,51 @@ async fn couchdb_tls_options() {
     )
     .await;
 }
+
+/// `insecure` pins the certificate on first use: the session reports it,
+/// the same certificate passes with the pin, and another one fails as
+/// `TlsPinChanged` (the self-signed certificate's fingerprint as the pin
+/// stands for a server whose certificate changed).
+#[tokio::test]
+#[ignore]
+async fn couchdb_insecure_pins_the_certificate() {
+    let Some(dir) = dir() else { return };
+    let fp = |f: &str| {
+        let c = dbine_tls::read_ca_file(&format!("{dir}/{f}"), f).unwrap();
+        dbine_tls::fingerprint(&c[0])
+    };
+    let (server, other) = (fp("server.pem"), fp("selfsigned.pem"));
+    let d = driver("couchdb");
+    let base = config(
+        d.as_ref(),
+        &case("insecure", "localhost", 26080, &[("insecure", "true")], Ok),
+        &dir,
+    );
+    // First use: accepted and reported.
+    let s = d.connect(&base, None).await.unwrap();
+    assert_eq!(s.tls_pin_seen().as_deref(), Some(server.as_str()));
+    // Pinned to it: accepted, nothing new to save.
+    let mut pinned = base.clone();
+    pinned
+        .options
+        .insert(dbine_driver::TLS_PIN.into(), server.clone());
+    let s = d.connect(&pinned, None).await.unwrap();
+    assert_eq!(s.tls_pin_seen(), None);
+    // Pinned to another certificate: refused, naming both.
+    pinned.options.insert(dbine_driver::TLS_PIN.into(), other);
+    let e = d.connect(&pinned, None).await.err().unwrap();
+    let f = e.connect_failure().unwrap();
+    assert_eq!(f.kind, ConnectFailureKind::TlsPinChanged, "{e}");
+    assert!(
+        f.message.contains(&dbine_tls::display_fingerprint(&server)),
+        "{e}"
+    );
+    // A verified mode never pins.
+    let ca = config(
+        d.as_ref(),
+        &case("cacert", "localhost", 26080, &[("cacert", "@ca")], Ok),
+        &dir,
+    );
+    let s = d.connect(&ca, None).await.unwrap();
+    assert_eq!(s.tls_pin_seen(), None);
+}

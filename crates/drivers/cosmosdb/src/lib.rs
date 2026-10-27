@@ -355,7 +355,7 @@ impl Driver for CosmosDriver {
             .to_string();
         B64.decode(key.trim())
             .map_err(|_| Error::AuthFailed("La clave de la cuenta no es base64 válido.".into()))?;
-        let (base, http) = tls_http::client(
+        let (base, http, pin) = tls_http::client(
             cfg,
             &info().fields,
             endpoint(cfg),
@@ -364,6 +364,7 @@ impl Driver for CosmosDriver {
                 .user_agent("DBine"),
         )?;
         let mut s = CosmosSession {
+            tls_pin: None,
             http,
             base,
             key,
@@ -381,9 +382,10 @@ impl Driver for CosmosDriver {
             if e.is_query() {
                 Error::Connect(e.to_string())
             } else {
-                e
+                pin.explain(e)
             }
         })?;
+        s.tls_pin = pin.seen();
         if s.db.is_empty() {
             s.db = dbs.into_iter().next().unwrap_or_default();
         }
@@ -392,6 +394,8 @@ impl Driver for CosmosDriver {
 }
 
 pub struct CosmosSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     http: reqwest::Client,
     base: String,
     key: String,
@@ -1545,6 +1549,9 @@ pub fn push_items(out: &mut QueryOutcome, items: &[Value], max_rows: usize) {
 
 #[async_trait]
 impl Session for CosmosSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let r = self.call(Method::GET, "", "", "/", None, &[]).await?;
         let id = r.body.get("id").and_then(Value::as_str).unwrap_or_default();

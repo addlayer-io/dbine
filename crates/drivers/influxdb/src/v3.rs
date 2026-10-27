@@ -69,6 +69,8 @@ pub fn info() -> DriverInfo {
 }
 
 pub struct SqlSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     pub(crate) http: reqwest::Client,
     pub(crate) base: String,
     token: String,
@@ -87,8 +89,9 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
         .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
         .unwrap_or("")
         .to_string();
-    let (http, base) = http::client(cfg, &info().fields, 8181)?;
-    let s = SqlSession {
+    let (http, base, pin) = http::client(cfg, &info().fields, 8181)?;
+    let mut s = SqlSession {
+        tls_pin: None,
         http,
         base,
         token,
@@ -96,10 +99,14 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
         read_only: cfg.read_only,
         profiler: None,
     };
-    s.databases().await.map_err(|e| match e {
-        Error::Query(m) => Error::Connect(m),
-        e => e,
-    })?;
+    s.databases()
+        .await
+        .map_err(|e| match e {
+            Error::Query(m) => Error::Connect(m),
+            e => e,
+        })
+        .map_err(|e| pin.explain(e))?;
+    s.tls_pin = pin.seen();
     Ok(Box::new(s))
 }
 
@@ -261,6 +268,9 @@ impl SqlSession {
 
 #[async_trait]
 impl Session for SqlSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     /// A `SELECT` streamed as JSON lines (see `transfer.rs`).
     async fn read_batches(
         &mut self,

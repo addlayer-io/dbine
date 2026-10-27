@@ -257,6 +257,7 @@ impl Driver for EtcdDriver {
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
             .map_err(|e| tls.explain(e))?;
         Ok(Box::new(EtcdSession {
+            tls_pin: tls.pin_seen(),
             conn,
             read_only: cfg.read_only,
             prefix: cfg.option("prefix").map(str::to_string),
@@ -412,6 +413,8 @@ impl Cancel {
 }
 
 pub struct EtcdSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     conn: Arc<Conn>,
     read_only: bool,
     prefix: Option<String>,
@@ -748,6 +751,9 @@ const NO_PROCESSES: &str = "etcd no tiene sesiones de servidor ni una vista de l
 
 #[async_trait]
 impl Session for EtcdSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let r = self.call("/v3/maintenance/status", json!({})).await?;
         Ok(format!(
@@ -1411,6 +1417,7 @@ mod tests {
     #[test]
     fn browse_prefix_or_key() {
         let s = EtcdSession {
+            tls_pin: None,
             conn: Arc::new(Conn {
                 http: reqwest::Client::new(),
                 base: String::new(),

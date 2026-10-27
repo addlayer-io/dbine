@@ -553,6 +553,7 @@ impl Driver for Es {
             (false, _) => format!("Elasticsearch {number}"),
         };
         Ok(Box::new(EsSession {
+            tls_pin: tls.pin_seen(),
             client,
             base,
             read_only: cfg.read_only,
@@ -570,6 +571,8 @@ impl Driver for Es {
 }
 
 struct EsSession {
+    /// The certificate accepted on trust, to pin (`Session::tls_pin_seen`).
+    tls_pin: Option<String>,
     client: reqwest::Client,
     base: String,
     read_only: bool,
@@ -972,6 +975,9 @@ impl EsSession {
 
 #[async_trait]
 impl Session for EsSession {
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin.clone()
+    }
     async fn server_version(&mut self) -> Result<String> {
         Ok(self.version.clone())
     }

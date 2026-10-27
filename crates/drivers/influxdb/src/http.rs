@@ -31,12 +31,12 @@ pub fn client(
     cfg: &ConnectionConfig,
     fields: &[Field],
     default_port: u16,
-) -> Result<(reqwest::Client, String)> {
+) -> Result<(reqwest::Client, String, tls_http::Pin)> {
     let b = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(600));
-    let (base, http) = tls_http::client(cfg, fields, base_url(cfg, fields, default_port), b)?;
-    Ok((http, base))
+    let (base, http, pin) = tls_http::client(cfg, fields, base_url(cfg, fields, default_port), b)?;
+    Ok((http, base, pin))
 }
 
 /// A request that didn't get an answer.
