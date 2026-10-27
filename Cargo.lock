@@ -3055,6 +3055,7 @@ version = "0.1.12"
 dependencies = [
  "dbine-driver",
  "hdbconnect_async",
+ "rustls",
  "serde_json",
  "tokio",
  "tracing",

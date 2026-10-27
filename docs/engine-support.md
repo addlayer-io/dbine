@@ -45,7 +45,7 @@ Three features depend only on the app, not on each engine, so they work in all o
 | Manticore | table | no foreign keys | no | — |
 | SQLite | table | yes | no | A database is a file; foreign keys come back unnamed. |
 | Oracle | table | yes | yes (as schema/user, 18c+) | Identity relocated after the data. When copying data to Oracle, an empty text or binary in a column that is not CLOB/BLOB stops the load: Oracle would store it as NULL. Time zone regions (`America/Argentina/Buenos_Aires`) and extended JSON scalars are only preserved from Oracle to Oracle; to other engines they travel as an offset (the same instant) and as standard JSON. Dates before year 1 travel as text with ` BC`. |
-| Firebird | table | yes | yes (via API) | Scripts carry the base type, not the domain. |
+| Firebird (`firebird`) | table | yes | yes (via API) | Scripts carry the base type, not the domain. |
 | SAP HANA | table | yes | yes (as schema) | — |
 | Aurora DSQL | table | no foreign keys | no | A single database. |
 | Cloud Spanner | table (with interleaving) | yes | yes (admin API) | The descending order of the primary key is not read back. |
@@ -404,7 +404,7 @@ documentation and need their ODBC driver installed.
 | Hive, Impala, Teradata, Vertica, Netezza, Dameng | the engine's `EXPLAIN` | estimated + results | fixture |
 | Ocient | text `EXPLAIN` | estimated + results | **untested** |
 | Exasol | **no**: it has no `EXPLAIN` | session profiling | fixture |
-| CUBRID | **no**: the estimated plan only exists in `csql` | `SET TRACE ON` | fixture |
+| CUBRID (`cubrid`) | **no**: the estimated plan only exists in `csql` | `SET TRACE ON` | fixture |
 | Informix, GBase 8s | **no** | **no** | `SET EXPLAIN` writes the plan to a file on the server, not over ODBC. |
 | Altibase | **no** | **no** | The plan only comes out through its iSQL client. |
 | Db2 for i | **no** | **no** | It has no `EXPLAIN` through SQL; plans are seen with Visual Explain. |
@@ -1936,8 +1936,8 @@ certificate, a server without TLS); connections saved before keep what they
 did. A certificate the client doesn't trust, or a server that doesn't offer
 TLS, says which option to change. The per-engine design is in
 [`tls-options.md`](tls-options.md). Each driver declares what it does
-(`DriverInfo.tls`, or a TLS mode field), and a registry test keeps every
-engine without TLS listed here.
+(`DriverInfo.tls`, or a TLS mode field), and a registry test
+(`every_driver_declares_its_tls`) keeps every engine without TLS listed here.
 
 Always encrypted and verified, with nothing to choose: Amazon Aurora DSQL,
 Amazon Keyspaces, Microsoft Fabric Data Warehouse, Oracle Autonomous
@@ -1954,11 +1954,11 @@ Engines without TLS:
 
 | Engine | Reason |
 |---|---|
-| H2 (servidor PostgreSQL) | H2's PostgreSQL server has no TLS: it answers the TLS request with "no". |
+| H2 (servidor PostgreSQL) (`h2`) | H2's PostgreSQL server has no TLS: it answers the TLS request with "no". |
 | Firebird | Firebird has no TLS listener. Its wire protocol is encrypted with its own scheme (SRP sign-in plus wire encryption), which DBine uses. |
-| Actian Zen (Pervasive PSQL) | Zen encrypts with its own wire encryption, not TLS, configured in the client and server. |
-| Mimer SQL | Its ODBC client has no TLS option. |
-| NuoDB | Its ODBC driver has no TLS keywords (TLS is only in its JDBC driver). |
+| Actian Zen (Pervasive PSQL) (`zen`) | Zen encrypts with its own wire encryption, not TLS, configured in the client and server. |
+| Mimer SQL (`mimer`) | Its ODBC client has no TLS option. |
+| NuoDB (`nuodb`) | Its ODBC driver has no TLS keywords (TLS is only in its JDBC driver). |
 | CUBRID | Its ODBC driver has no TLS option. |
 
 ## Locks
