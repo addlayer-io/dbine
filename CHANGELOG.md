@@ -4,6 +4,7 @@
 
 ### New
 - **Ukrainian and Polish:** DBine and the phone app are available in Українська and Polski, including server messages and the AI assistant. Pick the language in **Settings › General › Language**, or DBine follows the system's.
+- **Indonesian:** DBine and the phone app are available in Bahasa Indonesia, including server messages and the AI assistant. Pick the language in **Settings › General › Language**, or DBine follows the system's.
 
 ### Improvements
 - **Completion across databases:** on engines where one query can read another database of the same connection (ClickHouse, MySQL and MariaDB, SQL Server, Snowflake, Databricks, Trino, BigQuery, Oracle and more), the editor offers the other databases' names, their tables after `other_db.` and their columns after a table or an alias, also in joins between databases. Each database's tables are read the first time you type its name with a dot.
