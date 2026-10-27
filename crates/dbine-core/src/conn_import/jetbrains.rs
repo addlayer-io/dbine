@@ -223,6 +223,7 @@ fn map(ds: roxmltree::Node, user: Option<String>) -> Candidate {
             account,
         });
     }
+    let mut tls = Vec::new();
     for p in ds.descendants().filter(|n| n.has_tag_name("property")) {
         let (k, v) = (
             p.attribute("name").unwrap_or("").to_ascii_lowercase(),
@@ -233,6 +234,12 @@ fn map(ds: roxmltree::Node, user: Option<String>) -> Candidate {
             "trustservercertificate" => c.config.trust_server_certificate = super::truthy(v),
             _ => {}
         }
+        if super::TLS_KEYS.contains(&k.as_str()) {
+            tls.push((k, v.to_string()));
+        }
+    }
+    if let Some(note) = super::native_tls(&mut c.config, &tls) {
+        c.notes.push(note);
     }
     if ds.descendants().any(|n| {
         n.has_tag_name("ssh-properties") && child_text(n, "enabled").as_deref() == Some("true")
@@ -282,6 +289,20 @@ mod tests {
 
         let found = read(root.path()).unwrap();
         let c = &found.candidates;
+        let opt = |host: &str, k: &str| {
+            found
+                .candidates
+                .iter()
+                .find(|c| c.config.host.starts_with(host))
+                .and_then(|c| c.config.options.get(k).cloned())
+        };
+        // TLS as the engine's own options (docs/tls-options.md).
+        assert_eq!(opt("pg.local", "sslmode").as_deref(), Some("prefer"));
+        assert_eq!(opt("sql.local", "Encrypt").as_deref(), Some("Mandatory"));
+        assert_eq!(
+            opt("sql.local", "TrustServerCertificate").as_deref(),
+            Some("true")
+        );
         assert_eq!(c.len(), 3, "duplicate uuid skipped");
         let pg = &c[0];
         assert_eq!(

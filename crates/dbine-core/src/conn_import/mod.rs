@@ -581,7 +581,7 @@ fn apply_jdbc(c: &mut Candidate, url: &str) -> bool {
 }
 
 /// The TLS keys of a JDBC URL, a URI or an ADO.NET string (lower case).
-const TLS_KEYS: &[&str] = &[
+pub(super) const TLS_KEYS: &[&str] = &[
     "encrypt",
     "trustservercertificate",
     "hostnameincertificate",
@@ -603,7 +603,7 @@ const TLS_KEYS: &[&str] = &[
 /// without TLS settings gets the default of the client it was written
 /// for. The legacy bools stay as they were set, for older versions of
 /// DBine. Returns a note when the import is stricter than the source.
-fn native_tls(
+pub(super) fn native_tls(
     cfg: &mut dbine_driver::ConnectionConfig,
     tls: &[(String, String)],
 ) -> Option<String> {
@@ -614,6 +614,10 @@ fn native_tls(
             .map(|(_, v)| v.trim().to_string())
             .filter(|v| !v.is_empty())
     };
+    // A default (no TLS setting in this source) never replaces an option an
+    // earlier source of the same connection wrote (a URL, then properties).
+    let had: Vec<String> = cfg.options.keys().cloned().collect();
+    let has = |k: &str| had.iter().any(|x| x == k);
     let mut put = |k: &str, v: &str| {
         cfg.options.insert(k.into(), v.into());
     };
@@ -622,11 +626,15 @@ fn native_tls(
         "sqlserver" | "azuresql" | "fabric" | "babelfish" => {
             // SqlClient 4+ and ODBC 18 encrypt by default.
             let encrypt = match get("encrypt").map(|v| v.to_ascii_lowercase()).as_deref() {
-                Some("strict") => "Strict",
-                Some("false" | "no" | "optional" | "0") => "Optional",
-                _ => "Mandatory",
+                Some("strict") => Some("Strict"),
+                Some("false" | "no" | "optional" | "0") => Some("Optional"),
+                Some(_) => Some("Mandatory"),
+                None if has("Encrypt") => None,
+                None => Some("Mandatory"),
             };
-            put("Encrypt", encrypt);
+            if let Some(e) = encrypt {
+                put("Encrypt", e);
+            }
             if get("trustservercertificate").is_some_and(|v| truthy(&v)) {
                 put("TrustServerCertificate", "true");
             }
@@ -648,12 +656,11 @@ fn native_tls(
                     return Some("La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).".into());
                 }
                 Some(_) => (true, true),
-                None => {
-                    let on = get("usessl")
-                        .or_else(|| get("ssl"))
-                        .is_some_and(|v| truthy(&v));
-                    (on, on)
-                }
+                None => match get("usessl").or_else(|| get("ssl")) {
+                    Some(v) => (truthy(&v), truthy(&v)),
+                    None if has("ssl") => return None,
+                    None => (false, false),
+                },
             };
             put("ssl", if ssl { "true" } else { "false" });
             if ssl {
@@ -677,6 +684,7 @@ fn native_tls(
                         "VERIFY_CA".into()
                     }
                     Some(_) => "REQUIRED".into(),
+                    None if has("ssl-mode") => String::new(),
                     None => "PREFERRED".into(),
                 },
             };
@@ -703,6 +711,7 @@ fn native_tls(
                 Some(v) => v,
                 // PgJDBC: `ssl=true` alone verifies the certificate and the name.
                 None if get("ssl").is_some_and(|v| truthy(&v)) => "verify-full".into(),
+                None if has("sslmode") => String::new(),
                 None => "prefer".into(),
             };
             if [
