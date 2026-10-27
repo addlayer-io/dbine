@@ -508,19 +508,20 @@ and SAP HANA (other schemas); TDengine; and Virtuoso.
 ### Engines without it
 
 - **One query reads one database:** PostgreSQL and the engines on its
-  protocol that keep that rule (Aurora PostgreSQL, Cloud SQL and AlloyDB,
-  TimescaleDB, YugabyteDB, Greenplum, Greengage, Cloudberry, EDB,
-  Fujitsu Enterprise Postgres, Kingbase, openGauss),
-  Azure SQL Database and Babelfish (one database per connection), Spanner,
-  Cosmos DB, InfluxDB 3, OrientDB.
-- **Not SQL, or no database prefix:** MongoDB, DocumentDB, FerretDB,
+  protocol that keep that rule (Amazon Aurora PostgreSQL, Cloud SQL para
+  PostgreSQL, AlloyDB para PostgreSQL, TimescaleDB, YugabyteDB, Greenplum,
+  Greengage DB, Apache Cloudberry, EDB Postgres Advanced Server, Fujitsu
+  Enterprise Postgres, KingbaseES, openGauss), Azure SQL Database and
+  Babelfish for PostgreSQL (one database per connection), Google Cloud
+  Spanner, Azure Cosmos DB, InfluxDB 3 (SQL), OrientDB.
+- **Not SQL, or no database prefix:** MongoDB, Amazon DocumentDB, FerretDB,
   CouchDB, Redis, Valkey, Dragonfly, Neo4j, Memgraph, InfluxDB 2 (Flux).
-- **Another syntax for the prefix:** Informix and GBase 8s (`db:table`),
-  InfluxDB 1 (`"db"."retention"."measurement"`), Apache IoTDB and TimechoDB
-  (paths under `root`), Apache Drill (workspace names hold dots, such as
-  `dfs.tmp`). Each needs its own reading of the qualified name: pending.
-- **Depends on the server behind it:** Arrow Flight SQL and the generic
-  ODBC presets.
+- **Another syntax for the prefix:** IBM Informix and GBase 8s
+  (`db:table`), InfluxDB 1 (InfluxQL) (`"db"."retention"."measurement"`),
+  Apache IoTDB and TimechoDB (paths under `root`), Apache Drill (workspace
+  names hold dots, such as `dfs.tmp`). Each needs its own reading of the
+  qualified name: pending.
+- **Depends on the server behind it:** Arrow Flight SQL and ODBC (genérico).
 - **Not verified yet:** Denodo, RisingWave and Yellowbrick may read
   another database by its prefix; pending a test against a server before
   turning it on.
