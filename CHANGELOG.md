@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-27
+
 ### New
 - **Ukrainian and Polish:** DBine and the phone app are available in Українська and Polski, including server messages and the AI assistant. Pick the language in **Settings › General › Language**, or DBine follows the system's.
 - **Indonesian:** DBine and the phone app are available in Bahasa Indonesia, including server messages and the AI assistant. Pick the language in **Settings › General › Language**, or DBine follows the system's.

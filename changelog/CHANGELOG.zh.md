@@ -1,5 +1,27 @@
 # 更新日志
 
+## [1.2.0] - 2026-10-27
+
+### 新增
+- **乌克兰语和波兰语：** DBine 和手机应用现已提供 Українська 和 Polski，包括服务器消息和 AI 助手。在 **设置 › 常规 › 语言** 中选择语言，或让 DBine 跟随系统语言。
+- **印度尼西亚语：** DBine 和手机应用现已提供 Bahasa Indonesia，包括服务器消息和 AI 助手。在 **设置 › 常规 › 语言** 中选择语言，或让 DBine 跟随系统语言。
+
+### 改进
+- **跨数据库补全：** 对于一个查询可以读取同一连接中其他数据库的引擎（ClickHouse、MySQL 和 MariaDB、SQL Server、Snowflake、Databricks、Trino、BigQuery、Oracle 等），编辑器会提示其他数据库的名称、`other_db.` 之后的表，以及表或别名之后的列，跨数据库的联接中同样适用。每个数据库的表在你第一次输入其名称并加点号时读取。
+- **DuckDB 引擎更新到 2.0.0：** 本地 DuckDB 文件和笔记本中的 DataFrame SQL 现在运行在 DuckDB 2.0.0 上（此前为 1.5.5）。新的数据库文件使用 DuckDB 2.0 的存储格式，旧版 DuckDB 无法打开；已有文件仍可正常打开，并且创建它们的版本仍可读取。
+- **SQL Server、PostgreSQL 和 MySQL 的连接加密：** 连接表单显示各引擎自己的 TLS 选项，名称与其工具所用的一致：SQL Server 和 Azure SQL 为 `Encrypt`（Optional、Mandatory、Strict）、`TrustServerCertificate`、`ServerCertificate` 和 `HostNameInCertificate`；PostgreSQL 及其系列为 `sslmode` 和 `sslrootcert`；MySQL 及其系列为 `ssl-mode` 和 `ssl-ca`；MariaDB 和 OceanBase 为 `ssl`、`ssl-verify-server-cert` 和 `ssl-ca`。新连接默认加密并校验服务器证书，每项设置都可以关闭。已保存的连接保持原有行为不变。通过 SSH 隧道时，证书会按真实服务器的名称校验，证书失败时会提示应更改哪个选项。MySQL 的 `PREFERRED` 仅在服务器不提供 TLS 时才回退到未加密连接，且发生在发送任何密码之前。
+- **InfluxDB、IoTDB、ksqlDB、TDengine、Phoenix、Arrow Flight SQL 和云服务的连接加密：** 连接表单显示各引擎自己的 TLS 选项：InfluxDB 1 为 `ssl` 和 `unsafeSsl`；InfluxDB 2 为带 `skip-verify` 的 URL 协议，InfluxDB 3 为 `tls-no-verify` 和 `tls-ca`；IoTDB 和 TimechoDB 为 `use_ssl` 和 `ca_certs`；ksqlDB 为 `useTls`、`verifyHost` 和 `trustStore`；TDengine 为 `useSSL`；Phoenix 和 Avatica 为 URL 协议、`hostname_verification` 和 `truststore`；Flight SQL 为 `useEncryption` 和 `tlsRootCerts`；Cosmos DB 模拟器为 `DisableServerCertificateValidation`；当引擎的工具没有跳过校验或指定 CA 文件的名称时，使用 curl 的 `insecure` 和 `cacert`。新连接默认加密并校验服务器证书，每项设置都可以关闭。已保存的连接保持原有行为不变。通过 SSH 隧道时，证书会按真实服务器的名称校验，证书失败或服务器不支持 TLS 时会如实报告。BigQuery、Spanner、DynamoDB、Athena、Snowflake、Databricks 和 libSQL 始终使用经过校验的 HTTPS，但以 `http://` 输入的模拟器端点除外。
+- **键盘和屏幕阅读器：** 可见的焦点环显示键盘当前位置；列表行、卡片、可排序的表头和可折叠的区域可以用 Tab 到达，并用 Enter 或空格操作；上下文菜单可用方向键操作；仅有图标的按钮带有屏幕阅读器可朗读的名称；查询的结果（完成，或失败及其错误）会被播报；系统要求减少动态效果时动画会停止；两种主题下次要文字的对比度都更高。
+
+### 修复
+- **新数据库无需重新连接即可显示：** 在查询中用 `CREATE DATABASE` 创建（或删除、重命名）的数据库会立即出现在资源管理器和数据库列表中，打开数据库列表（迁移、比较、subset、备份、权限、查询的数据库选择器等）时会重新读取，因此从其他工具创建的数据库也会显示。
+- **从 SQL Server Management Studio 导入：** 除已注册的服务器外，DBine 现在还会导入 SSMS 连接对话框记住的服务器（其连接历史），包括登录名、数据库和加密设置，支持 SSMS 18 到 20 以及 SSMS 21 及更高版本的新文件夹。在 macOS 和 Linux 上，文件对话框现在接受 `RegSrvr.xml`、`UserSettings.xml` 和 `.regsrvr` 文件（以及 DataGrip 的 `dataSources.xml`）；此前只能选择 JSON 文件。
+- **导入连接字符串时保留加密设置：** 粘贴或导入的字符串现在会带上各引擎自己的 TLS 选项：SQL Server 的 `Encrypt`（包括 `Strict`）和 `HostNameInCertificate`，PostgreSQL 的 `sslmode` 按原样保留（`require` 不再变成经过校验的连接），MySQL 的 `ssl-mode` 和 Connector/J 的 `useSSL`，MariaDB 的 `sslMode`，以及 `rediss://`、`bolt+s://` 和 `bolt+ssc://` 协议。不含 TLS 设置的字符串按其自身客户端的连接方式导入。从 DBeaver、DataGrip 及其他 JetBrains IDE、DbGate 和 Azure Data Studio 导入的连接同样适用。
+- **macOS 和 Windows 上的证书错误：** 系统不信任的服务器证书（“The certificate was not trusted”“issued by an authority that is not trusted”“The target principal name is incorrect”）现在能被识别，消息会说明应更改哪个 TLS 选项，而不是显示笼统的 TLS 错误。
+- **ClickHouse 22.8 及更早版本：** 连接不再因 `Unknown setting http_write_exception_in_output_format` 而失败；DBine 不再向没有该设置的服务器请求它。
+- **笔记本，Python 导出：** 校验服务器证书的 PostgreSQL 连接现在导出为 `sslmode=verify-full`，与 **复制连接字符串** 一致，而不是不做校验的 `require`。
+- **HashiCorp Vault，安全：** 密码来源的 Vault 地址必须是 `https://`；仅本机上的 Vault 才接受明文 `http://`，与其他密钥管理器一致，因此 Vault 令牌绝不会在网络上以明文传输。
+
 ## [1.1.0] - 2026-10-21
 
 ### 新增

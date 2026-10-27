@@ -1,5 +1,27 @@
 # 변경 사항
 
+## [1.2.0] - 2026-10-27
+
+### 새로운 기능
+- **우크라이나어 및 폴란드어:** DBine과 휴대폰 앱이 Українська와 Polski로 제공되며, 서버 메시지와 AI 어시스턴트도 포함됩니다. **설정 › 일반 › 언어**에서 언어를 선택할 수 있으며, 선택하지 않으면 DBine이 시스템 언어를 따릅니다.
+- **인도네시아어:** DBine과 휴대폰 앱이 Bahasa Indonesia로 제공되며, 서버 메시지와 AI 어시스턴트도 포함됩니다. **설정 › 일반 › 언어**에서 언어를 선택할 수 있으며, 선택하지 않으면 DBine이 시스템 언어를 따릅니다.
+
+### 개선
+- **데이터베이스 간 자동 완성:** 하나의 쿼리가 같은 연결의 다른 데이터베이스를 읽을 수 있는 엔진(ClickHouse, MySQL 및 MariaDB, SQL Server, Snowflake, Databricks, Trino, BigQuery, Oracle 등)에서 편집기가 다른 데이터베이스의 이름, `other_db.` 뒤의 테이블, 테이블 또는 별칭 뒤의 열을 제안하며, 데이터베이스 간 조인에서도 동일합니다. 각 데이터베이스의 테이블은 그 이름과 점을 처음 입력할 때 읽어 옵니다.
+- **DuckDB 엔진을 2.0.0으로 업데이트:** 로컬 DuckDB 파일과 노트북의 DataFrame SQL이 이제 DuckDB 2.0.0(이전 1.5.5)에서 실행됩니다. 새 데이터베이스 파일은 DuckDB 2.0의 저장 형식을 사용하므로 이전 DuckDB 버전에서는 열 수 없습니다. 기존 파일은 계속 열리며, 해당 파일을 만든 버전에서도 읽을 수 있습니다.
+- **SQL Server, PostgreSQL, MySQL의 연결 암호화:** 연결 양식에 각 엔진의 도구가 사용하는 이름으로 해당 엔진 고유의 TLS 옵션이 표시됩니다. SQL Server와 Azure SQL은 `Encrypt`(Optional, Mandatory, Strict), `TrustServerCertificate`, `ServerCertificate`, `HostNameInCertificate`, PostgreSQL과 그 계열은 `sslmode`와 `sslrootcert`, MySQL과 그 계열은 `ssl-mode`와 `ssl-ca`, MariaDB와 OceanBase는 `ssl`, `ssl-verify-server-cert`, `ssl-ca`입니다. 새 연결은 암호화되고 서버 인증서를 검증하며, 각 설정은 끌 수 있습니다. 저장된 연결은 이전과 똑같이 동작합니다. SSH 터널을 통할 때는 인증서를 실제 서버의 이름으로 검증하고, 인증서 오류가 발생하면 변경할 옵션을 알려 줍니다. MySQL의 `PREFERRED`는 서버가 TLS를 제공하지 않을 때에만, 비밀번호를 보내기 전에 암호화되지 않은 연결로 전환됩니다.
+- **InfluxDB, IoTDB, ksqlDB, TDengine, Phoenix, Arrow Flight SQL 및 클라우드 서비스의 연결 암호화:** 연결 양식에 각 엔진 고유의 TLS 옵션이 표시됩니다. InfluxDB 1은 `ssl`과 `unsafeSsl`, InfluxDB 2는 `skip-verify`가 붙은 URL 스키마, InfluxDB 3은 `tls-no-verify`와 `tls-ca`, IoTDB와 TimechoDB는 `use_ssl`과 `ca_certs`, ksqlDB는 `useTls`, `verifyHost`, `trustStore`, TDengine은 `useSSL`, Phoenix와 Avatica는 URL 스키마, `hostname_verification`, `truststore`, Flight SQL은 `useEncryption`과 `tlsRootCerts`, Cosmos DB 에뮬레이터는 `DisableServerCertificateValidation`입니다. 엔진의 도구에 검증을 건너뛰거나 CA 파일을 지정하는 이름이 없는 경우에는 curl의 `insecure`와 `cacert`를 사용합니다. 새 연결은 암호화되고 서버 인증서를 검증하며, 각 설정은 끌 수 있습니다. 저장된 연결은 이전과 똑같이 동작합니다. SSH 터널을 통할 때는 인증서를 실제 서버의 이름으로 검증하고, 인증서 오류나 TLS를 지원하지 않는 서버는 그대로 보고됩니다. BigQuery, Spanner, DynamoDB, Athena, Snowflake, Databricks, libSQL은 항상 검증된 HTTPS를 사용합니다. 단, `http://`로 입력한 에뮬레이터 엔드포인트는 예외입니다.
+- **키보드와 화면 낭독기:** 보이는 포커스 링이 키보드 위치를 알려 줍니다. 목록 행, 카드, 정렬 가능한 헤더, 접을 수 있는 섹션은 Tab으로 이동하고 Enter 또는 Space로 사용할 수 있습니다. 컨텍스트 메뉴는 화살표 키로 작동합니다. 아이콘만 있는 버튼에 화면 낭독기가 읽어 주는 이름이 생겼습니다. 쿼리 결과(완료 또는 오류로 실패)가 안내됩니다. 시스템에서 동작 줄이기를 요청하면 애니메이션이 멈춥니다. 두 테마 모두에서 보조 텍스트의 대비가 높아졌습니다.
+
+### 수정
+- **다시 연결하지 않아도 새 데이터베이스 표시:** 쿼리에서 `CREATE DATABASE`로 만든(또는 삭제하거나 이름을 바꾼) 데이터베이스가 탐색기와 데이터베이스 목록에 즉시 나타나며, 데이터베이스 목록(마이그레이션, 비교, subset, 백업, 권한, 쿼리의 데이터베이스 선택기 등)을 열면 다시 읽어 오므로 다른 도구에서 만든 데이터베이스도 표시됩니다.
+- **SQL Server Management Studio에서 가져오기:** 등록된 서버 외에도 SSMS의 연결 대화상자가 기억하는 서버(연결 기록)를 로그인, 데이터베이스, 암호화 설정과 함께 가져옵니다. SSMS 18~20과 SSMS 21 이상의 새 폴더를 지원합니다. macOS와 Linux에서는 파일 대화상자가 이제 `RegSrvr.xml`, `UserSettings.xml`, `.regsrvr` 파일(및 DataGrip의 `dataSources.xml`)을 허용합니다. 이전에는 JSON 파일만 선택할 수 있었습니다.
+- **연결 문자열 가져오기에서 암호화 설정 유지:** 붙여넣거나 가져온 문자열이 이제 각 엔진 고유의 TLS 옵션을 그대로 가져옵니다. SQL Server의 `Encrypt`(`Strict` 포함)와 `HostNameInCertificate`, PostgreSQL의 `sslmode`는 적힌 그대로(`require`가 더 이상 검증된 연결이 되지 않음), MySQL의 `ssl-mode`와 Connector/J의 `useSSL`, MariaDB의 `sslMode`, 그리고 `rediss://`, `bolt+s://`, `bolt+ssc://` 스키마입니다. TLS 설정이 없는 문자열은 해당 클라이언트가 직접 연결하는 방식대로 가져옵니다. DBeaver, DataGrip 및 기타 JetBrains IDE, DbGate, Azure Data Studio에서 가져온 연결에도 동일하게 적용됩니다.
+- **macOS와 Windows의 인증서 오류:** 시스템이 신뢰하지 않는 서버 인증서("The certificate was not trusted", "issued by an authority that is not trusted", "The target principal name is incorrect")가 이제 그대로 인식되며, 일반적인 TLS 오류 대신 변경할 TLS 옵션을 메시지로 알려 줍니다.
+- **ClickHouse 22.8 이하:** 연결이 더 이상 `Unknown setting http_write_exception_in_output_format` 오류로 실패하지 않습니다. DBine은 해당 설정이 없는 서버에는 그 설정을 요청하지 않습니다.
+- **노트북, Python 내보내기:** 서버 인증서를 검증하는 PostgreSQL 연결은 검증하지 않는 `require` 대신 **연결 문자열 복사**와 같은 `sslmode=verify-full`로 내보냅니다.
+- **HashiCorp Vault, 보안:** 비밀번호 소스의 Vault 주소는 `https://`여야 합니다. 다른 시크릿 관리자와 마찬가지로 일반 `http://`는 이 컴퓨터의 Vault에만 허용되므로, Vault 토큰이 네트워크에서 평문으로 전송되는 일은 없습니다.
+
 ## [1.1.0] - 2026-10-21
 
 ### 새로운 기능

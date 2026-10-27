@@ -1,5 +1,27 @@
 # 変更履歴
 
+## [1.2.0] - 2026-10-27
+
+### 新機能
+- **ウクライナ語とポーランド語:** DBine とスマートフォンアプリが Українська と Polski に対応しました。サーバーメッセージと AI アシスタントも含まれます。言語は **設定 › 一般 › 言語** で選べます。選ばない場合は DBine がシステムの言語に従います。
+- **インドネシア語:** DBine とスマートフォンアプリが Bahasa Indonesia に対応しました。サーバーメッセージと AI アシスタントも含まれます。言語は **設定 › 一般 › 言語** で選べます。選ばない場合は DBine がシステムの言語に従います。
+
+### 改善
+- **データベースをまたぐ補完:** 1 つのクエリで同じ接続内の別のデータベースを読めるエンジン（ClickHouse、MySQL と MariaDB、SQL Server、Snowflake、Databricks、Trino、BigQuery、Oracle など）で、エディターが他のデータベースの名前、`other_db.` の後のテーブル、テーブルまたはエイリアスの後の列を候補に表示します。データベースをまたぐ結合でも同様です。各データベースのテーブルは、その名前とドットを最初に入力したときに読み込まれます。
+- **DuckDB エンジンを 2.0.0 に更新:** ローカルの DuckDB ファイルとノートブックの DataFrame SQL が DuckDB 2.0.0（従来は 1.5.5）で動作します。新しいデータベースファイルは DuckDB 2.0 のストレージ形式を使うため、古い DuckDB では開けません。既存のファイルは引き続き開け、作成したバージョンでも読み取れます。
+- **SQL Server、PostgreSQL、MySQL の接続の暗号化:** 接続フォームに、各エンジンのツールで使われる名前で、そのエンジン固有の TLS オプションが表示されます。SQL Server と Azure SQL は `Encrypt`（Optional、Mandatory、Strict）、`TrustServerCertificate`、`ServerCertificate`、`HostNameInCertificate`、PostgreSQL とその系列は `sslmode` と `sslrootcert`、MySQL とその系列は `ssl-mode` と `ssl-ca`、MariaDB と OceanBase は `ssl`、`ssl-verify-server-cert`、`ssl-ca` です。新しい接続は暗号化され、サーバー証明書を検証します。各設定はオフにできます。保存済みの接続は従来どおり動作します。SSH トンネル経由では、証明書は実際のサーバー名に対して検証され、証明書エラーでは変更すべきオプションが示されます。MySQL の `PREFERRED` は、サーバーが TLS を提供しない場合にのみ、パスワードを送信する前に暗号化なしの接続へフォールバックします。
+- **InfluxDB、IoTDB、ksqlDB、TDengine、Phoenix、Arrow Flight SQL、クラウドサービスの接続の暗号化:** 接続フォームに各エンジン固有の TLS オプションが表示されます。InfluxDB 1 は `ssl` と `unsafeSsl`、InfluxDB 2 は `skip-verify` 付きの URL スキーム、InfluxDB 3 は `tls-no-verify` と `tls-ca`、IoTDB と TimechoDB は `use_ssl` と `ca_certs`、ksqlDB は `useTls`、`verifyHost`、`trustStore`、TDengine は `useSSL`、Phoenix と Avatica は URL スキーム、`hostname_verification`、`truststore`、Flight SQL は `useEncryption` と `tlsRootCerts`、Cosmos DB エミュレーターは `DisableServerCertificateValidation` です。エンジンのツールに検証をスキップする名前や CA ファイルの名前がない場合は、curl の `insecure` と `cacert` を使います。新しい接続は暗号化され、サーバー証明書を検証します。各設定はオフにできます。保存済みの接続は従来どおり動作します。SSH トンネル経由では、証明書は実際のサーバー名に対して検証され、証明書エラーや TLS 非対応のサーバーはそのとおりに報告されます。BigQuery、Spanner、DynamoDB、Athena、Snowflake、Databricks、libSQL は常に検証付きの HTTPS を使います。ただし `http://` で入力したエミュレーターのエンドポイントは除きます。
+- **キーボードとスクリーンリーダー:** 見えるフォーカスリングでキーボードの位置が分かります。リストの行、カード、並べ替え可能なヘッダー、折りたたみ可能なセクションは Tab で移動でき、Enter またはスペースで操作できます。コンテキストメニューは矢印キーで操作できます。アイコンのみのボタンにはスクリーンリーダーが読み上げる名前が付きました。クエリの結果（完了、またはエラーによる失敗）が通知されます。システムがモーションの軽減を求める場合はアニメーションが停止します。どちらのテーマでも補助テキストのコントラストが高くなりました。
+
+### 修正
+- **再接続せずに新しいデータベースが表示:** クエリで `CREATE DATABASE` により作成（または削除、名前変更）したデータベースが、エクスプローラーとデータベース一覧にすぐ表示されます。また、データベース一覧（マイグレーション、比較、subset、バックアップ、権限、クエリのデータベース選択など）を開くと再読み込みされるため、別のツールで作成したデータベースも表示されます。
+- **SQL Server Management Studio からのインポート:** 登録済みサーバーに加えて、SSMS の接続ダイアログが記憶しているサーバー（接続履歴）も、ログイン、データベース、暗号化の設定とともにインポートされます。SSMS 18 から 20、および SSMS 21 以降の新しいフォルダーに対応します。macOS と Linux では、ファイルダイアログで `RegSrvr.xml`、`UserSettings.xml`、`.regsrvr` ファイル（および DataGrip の `dataSources.xml`）を選べるようになりました。以前は JSON ファイルしか選べませんでした。
+- **接続文字列のインポートで暗号化設定を保持:** 貼り付けまたはインポートした文字列が、各エンジン固有の TLS オプションを引き継ぎます。SQL Server の `Encrypt`（`Strict` を含む）と `HostNameInCertificate`、PostgreSQL の `sslmode` は記載どおり（`require` が検証付き接続になることはなくなりました）、MySQL の `ssl-mode` と Connector/J の `useSSL`、MariaDB の `sslMode`、そして `rediss://`、`bolt+s://`、`bolt+ssc://` スキームです。TLS 設定のない文字列は、そのクライアント自身が接続する場合と同じ設定でインポートされます。DBeaver、DataGrip やその他の JetBrains IDE、DbGate、Azure Data Studio からインポートした接続にも同様に適用されます。
+- **macOS と Windows での証明書エラー:** システムが信頼しないサーバー証明書（"The certificate was not trusted"、"issued by an authority that is not trusted"、"The target principal name is incorrect"）がそのものとして認識され、汎用的な TLS エラーではなく、変更すべき TLS オプションがメッセージに示されます。
+- **ClickHouse 22.8 以前:** 接続が `Unknown setting http_write_exception_in_output_format` で失敗しなくなりました。DBine はその設定を持たないサーバーには要求しません。
+- **ノートブック、Python エクスポート:** サーバー証明書を検証する PostgreSQL 接続は、検証しない `require` ではなく、**接続文字列をコピー** と同じ `sslmode=verify-full` でエクスポートされます。
+- **HashiCorp Vault、セキュリティ:** パスワードソースの Vault アドレスは `https://` である必要があります。他のシークレットマネージャーと同様、平文の `http://` はこのコンピューター上の Vault にのみ使えるため、Vault トークンがネットワーク上で平文で送られることはありません。
+
 ## [1.1.0] - 2026-10-21
 
 ### 新機能
