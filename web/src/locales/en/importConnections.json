@@ -1,7 +1,7 @@
 {
   "title": "Import connections",
   "source": {
-    "ssmsHint": "Registered servers or an exported .regsrvr",
+    "ssmsHint": "Registered servers, the connection history (UserSettings.xml) or an exported .regsrvr",
     "pasteUrls": "Paste URLs",
     "found": "Found on this machine",
     "notFound": "Not found: choose the location"

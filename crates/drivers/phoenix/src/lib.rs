@@ -17,6 +17,8 @@ mod plan;
 mod proto;
 mod stats;
 mod sync;
+#[path = "../../influxdb/src/tls_http.rs"]
+mod tls_http;
 mod transfer;
 
 use async_trait::async_trait;
@@ -29,7 +31,7 @@ use dbine_driver::{
     json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig,
     CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
     FieldKind, Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange,
-    ScriptError, Session, TableSchema, TxState,
+    ScriptError, Session, TableSchema, TlsLevel, TlsSupport, TxState,
 };
 use prost::Message;
 use serde_json::{json, Value};
@@ -52,9 +54,37 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
     ]
 }
 
+/// The TLS options, the thin JDBC driver's: the scheme of its
+/// `url=https://…`, `hostname_verification` and `truststore` (a PEM file
+/// here; Avatica's own is a JKS keystore). Skipping the check has no name of
+/// its own (curl's `insecure`).
+pub(crate) fn tls_fields() -> [Field; 4] {
+    [
+        Field::tls_mode(
+            "scheme",
+            "scheme",
+            &[("http", "http", TlsLevel::Off), ("https", "https", TlsLevel::VerifyFull)],
+            "https",
+            ["http", "http", "https", "https"],
+        ),
+        Field::tls_insecure(["false", "true", "false", "true"]),
+        Field::tls_verify(
+            "hostname_verification",
+            "hostname_verification",
+            &[("STRICT", "STRICT", TlsLevel::VerifyFull), ("NONE", "NONE", TlsLevel::VerifyCa)],
+            "STRICT",
+            ["STRICT", "STRICT", "STRICT", "STRICT"],
+        )
+        .help("STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena."),
+        Field::tls_ca_file("truststore", "truststore")
+            .help("Opcional: la CA que firmó el certificado del servidor, en PEM."),
+    ]
+}
+
 fn info() -> DriverInfo {
+    let [scheme, insecure, hostname_verification, truststore] = tls_fields();
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "phoenix",
         name: "Apache Phoenix",
@@ -67,8 +97,10 @@ fn info() -> DriverInfo {
             Field::port().placeholder("8765"),
             Field::username(),
             Field::password(),
-            Field::encrypt(),
-            Field::trust_cert(),
+            scheme,
+            insecure,
+            hostname_verification,
+            truststore,
             Field::new(
                 "serialization",
                 "Serialización",
@@ -282,20 +314,20 @@ impl Driver for PhoenixDriver {
         cfg: &ConnectionConfig,
         _database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
+        let scheme = if tls_http::https(cfg, &self.info.fields) {
+            "https"
+        } else {
+            "http"
+        };
         let host = if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
         };
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .build()
-            .map_err(Error::connect)?;
-        let client = Client {
-            http,
-            url: format!(
+        let (url, http) = tls_http::client(
+            cfg,
+            &self.info.fields,
+            format!(
                 "{scheme}://{host}:{}{}",
                 cfg.port_or(8765),
                 if self.generic {
@@ -304,6 +336,11 @@ impl Driver for PhoenixDriver {
                     "/".into()
                 }
             ),
+            reqwest::Client::builder().connect_timeout(Duration::from_secs(15)),
+        )?;
+        let client = Client {
+            http,
+            url,
             user: cfg.username.clone().filter(|u| !u.is_empty()),
             password: cfg.password.clone(),
             json: match cfg.option("serialization") {
@@ -423,7 +460,7 @@ struct FrameData {
 
 fn http_error(e: reqwest::Error) -> Error {
     if e.is_connect() || e.is_timeout() {
-        Error::Connect(e.to_string())
+        tls_http::connect_error(&e, |e| e)
     } else {
         Error::Query(e.to_string())
     }
@@ -1477,6 +1514,21 @@ impl Session for PhoenixSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Saved connections keep `encrypt` / `trust_server_certificate`'s
+    /// scheme and checks; new ones are https, verified;
+    /// `hostname_verification=NONE` skips only the host name.
+    #[test]
+    fn tls_options() {
+        for f in [info().fields, avatica::info().fields] {
+            tls_http::assert_legacy_and_defaults(&f);
+            let mut cfg = tls_http::new_connection(&f);
+            cfg.options
+                .insert("hostname_verification".into(), "NONE".into());
+            assert_eq!(tls_http::effect(&cfg, &f), (true, false, true));
+            assert_eq!(cfg.tls_level(&f), Some(TlsLevel::VerifyCa));
+        }
+    }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
     /// exactly where the engine writes them (`SchemaSpec::grant_option`).

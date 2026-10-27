@@ -273,6 +273,19 @@ fn map(id: &str, v: &Value, cred: Option<&Value>) -> Candidate {
             "require" | "verify-ca" | "verify-full"
         );
     cfg.trust_server_certificate = prop("trustservercertificate") == "true";
+    // The engine's own TLS options (docs/tls-options.md); file paths keep
+    // their case.
+    let mut tls: Vec<(String, String)> = conf
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|m| {
+            m.iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    tls.retain(|(k, _)| super::TLS_KEYS.contains(&k.as_str()));
+    super::native_tls(cfg, &tls);
 
     let pp = conf
         .get("provider-properties")
@@ -444,6 +457,20 @@ mod tests {
         let found = read(ws.path()).unwrap();
         assert!(found.warnings.is_empty(), "{:?}", found.warnings);
         let by = |n: &str| found.candidates.iter().find(|c| c.name == n).unwrap();
+        let opt = |host: &str, k: &str| {
+            found
+                .candidates
+                .iter()
+                .find(|c| c.config.host.starts_with(host))
+                .and_then(|c| c.config.options.get(k).cloned())
+        };
+        // TLS as the engine's own options: the URL's `encrypt=true` and the
+        // properties' `trustServerCertificate`.
+        assert_eq!(opt("sql.local", "Encrypt").as_deref(), Some("Mandatory"));
+        assert_eq!(
+            opt("sql.local", "TrustServerCertificate").as_deref(),
+            Some("true")
+        );
         let pg = by("App");
         assert_eq!(
             (

@@ -21,6 +21,8 @@ mod rename;
 mod script;
 mod security;
 mod sync;
+#[path = "../../influxdb/src/tls_http.rs"]
+mod tls_http;
 mod transfer;
 
 use dbine_driver::plan::tree_from_indented_text;
@@ -31,7 +33,7 @@ use dbine_driver::{
     ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec,
     Driver, DriverInfo, Error, Family, Field, FieldKind, Language, Metric, MetricUnit,
     MonitorSnapshot, MonitorTable, ObjectKindInfo, ObjectRef, Plan, PlanNode, QueryOutcome, Result,
-    ResultColumn, RowChange, Session, TableSchema,
+    ResultColumn, RowChange, Session, TableSchema, TlsLevel, TlsSupport,
 };
 use ddl::{lit, q, qualified, SUBTABLE, SUPERTABLE, TAG};
 use serde_json::Value;
@@ -51,7 +53,7 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "tdengine",
         name: "TDengine",
@@ -69,8 +71,19 @@ fn info() -> DriverInfo {
                 .placeholder("UTC")
                 .help("Zona IANA en la que se muestran las fechas (p. ej. America/Argentina/Buenos_Aires).")
                 .advanced(),
-            Field::encrypt(),
-            Field::trust_cert(),
+            // The JDBC REST / WebSocket connector's useSSL; skipping the
+            // check and the CA file have no names of their own (curl's).
+            Field::tls_switch(
+                "useSSL",
+                "useSSL",
+                TlsLevel::VerifyFull,
+                TlsLevel::Off,
+                true,
+                ["false", "false", "true", "true"],
+            )
+            .help("Cifra la conexión con TLS y verifica el certificado del servidor."),
+            Field::tls_insecure(["false", "true", "false", "true"]),
+            Field::tls_cacert(),
             Field::read_only(),
         ],
         databases_label: "Bases de datos",
@@ -243,24 +256,29 @@ impl Driver for TdDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
+        let scheme = if tls_http::https(cfg, &self.info.fields) {
+            "https"
+        } else {
+            "http"
+        };
         let host = if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
         };
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .build()
-            .map_err(Error::connect)?;
+        let (base, http) = tls_http::client(
+            cfg,
+            &self.info.fields,
+            format!("{scheme}://{host}:{}", cfg.port_or(6041)),
+            reqwest::Client::builder().connect_timeout(Duration::from_secs(15)),
+        )?;
         let db = database
             .filter(|d| !d.is_empty())
             .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
         let s = TdSession {
             conn: Arc::new(Conn {
                 http,
-                base: format!("{scheme}://{host}:{}", cfg.port_or(6041)),
+                base,
                 user: cfg
                     .username
                     .clone()
@@ -333,7 +351,7 @@ struct Answer {
 
 fn http_error(e: reqwest::Error) -> Error {
     if e.is_connect() || e.is_timeout() {
-        Error::Connect(e.to_string())
+        tls_http::connect_error(&e, |e| e)
     } else {
         Error::Query(e.to_string())
     }
@@ -1613,6 +1631,13 @@ fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> Resu
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Saved connections keep `encrypt` / `trust_server_certificate`'s
+    /// scheme and checks; new ones are https, verified.
+    #[test]
+    fn tls_options() {
+        tls_http::assert_legacy_and_defaults(&info().fields);
+    }
 
     #[test]
     fn sorted_browse_by_default_after_the_filter() {

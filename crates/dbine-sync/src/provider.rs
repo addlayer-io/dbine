@@ -91,3 +91,135 @@ pub(crate) async fn http_error(
 pub(crate) fn net_error(provider: ProviderKind, e: reqwest::Error) -> crate::SyncError {
     crate::SyncError::Remote(format!("no se pudo conectar con {}: {e}", provider.label()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SyncError;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A response with `status` and `body` from a local server.
+    async fn response(status: &str, body: &str) -> reqwest::Response {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        let reply = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf).await;
+            let _ = s.write_all(reply.as_bytes()).await;
+        });
+        reqwest::get(format!("http://{addr}/")).await.unwrap()
+    }
+
+    fn remote(e: SyncError) -> String {
+        match e {
+            SyncError::Remote(m) => m,
+            other => panic!("expected Remote, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_401_asks_to_sign_in_again() {
+        let e = http_error(
+            ProviderKind::Onedrive,
+            HttpOp::ReadAccount,
+            response("401 Unauthorized", "{}").await,
+        )
+        .await;
+        assert!(
+            matches!(&e, SyncError::AuthRequired(p) if p == "OneDrive"),
+            "{e:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_providers_message_is_kept_short() {
+        // Google's shape.
+        let e = http_error(
+            ProviderKind::GoogleDrive,
+            HttpOp::UploadBackup,
+            response("403 Forbidden", r#"{"error":{"message":"quota exceeded"}}"#).await,
+        )
+        .await;
+        assert_eq!(
+            remote(e),
+            "Google Drive: no se pudo subir el backup (HTTP 403): quota exceeded"
+        );
+        // OAuth's.
+        let e = http_error(
+            ProviderKind::Onedrive,
+            HttpOp::FindBackup,
+            response(
+                "400 Bad Request",
+                r#"{"error":"invalid_grant","error_description":"expired"}"#,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(
+            remote(e),
+            "OneDrive: no se pudo buscar el backup (HTTP 400): expired"
+        );
+        let e = http_error(
+            ProviderKind::Onedrive,
+            HttpOp::DeleteBackup,
+            response("409 Conflict", r#"{"error":"locked"}"#).await,
+        )
+        .await;
+        assert_eq!(
+            remote(e),
+            "OneDrive: no se pudo borrar el backup (HTTP 409): locked"
+        );
+        // Not JSON: the first 200 characters.
+        let long = "x".repeat(500);
+        let e = http_error(
+            ProviderKind::GoogleDrive,
+            HttpOp::DownloadBackup,
+            response("502 Bad Gateway", &long).await,
+        )
+        .await;
+        let m = remote(e);
+        assert!(
+            m.starts_with("Google Drive: no se pudo descargar el backup (HTTP 502): xxx"),
+            "{m}"
+        );
+        assert_eq!(m.matches('x').count(), 200);
+        let e = http_error(
+            ProviderKind::GoogleDrive,
+            HttpOp::ReadAccount,
+            response("500 Internal Server Error", "").await,
+        )
+        .await;
+        assert_eq!(
+            remote(e),
+            "Google Drive: no se pudo leer la cuenta (HTTP 500): "
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_provider() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        drop(l);
+        let err = reqwest::get(format!("http://{addr}/")).await.unwrap_err();
+        let m = remote(net_error(ProviderKind::Folder, err));
+        assert!(m.starts_with("no se pudo conectar con la carpeta: "), "{m}");
+    }
+
+    #[test]
+    fn kinds_are_named_and_serialized() {
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::GoogleDrive).unwrap(),
+            "\"google_drive\""
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderKind>("\"onedrive\"").unwrap(),
+            ProviderKind::Onedrive
+        );
+        assert_eq!(ProviderKind::Folder.label(), "la carpeta");
+    }
+}

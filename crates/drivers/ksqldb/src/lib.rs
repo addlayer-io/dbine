@@ -14,7 +14,7 @@ use dbine_driver::{
     json_f64, json_i64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind,
     Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange,
-    ScriptError, Session, TableSchema,
+    ScriptError, Session, TableSchema, TlsLevel, TlsSupport,
 };
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -29,6 +29,8 @@ mod plan;
 mod processes;
 mod steps;
 mod sync;
+#[path = "../../influxdb/src/tls_http.rs"]
+mod tls_http;
 mod transfer;
 
 const KSQL_JSON: &str = "application/vnd.ksql.v1+json";
@@ -42,7 +44,7 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "ksqldb",
         name: "ksqlDB",
@@ -55,8 +57,28 @@ fn info() -> DriverInfo {
             Field::port().placeholder("8088"),
             Field::username(),
             Field::password(),
-            Field::encrypt(),
-            Field::trust_cert(),
+            // The Java client's ClientOptions (setUseTls, setVerifyHost,
+            // setTrustStore); skipping the check has no name of its own
+            // (curl's `insecure`).
+            Field::tls_switch(
+                "useTls",
+                "useTls",
+                TlsLevel::VerifyFull,
+                TlsLevel::Off,
+                true,
+                ["false", "false", "true", "true"],
+            )
+            .help("Cifra la conexión con TLS y verifica el certificado del servidor."),
+            Field::tls_insecure(["false", "true", "false", "true"]),
+            Field::tls_skip_hostname(
+                "verifyHost",
+                "verifyHost",
+                true,
+                ["true", "true", "true", "true"],
+            )
+            .help("Comprueba que el nombre del servidor figure en su certificado."),
+            Field::tls_ca_file("trustStore", "trustStore")
+                .help("Opcional: la CA que firmó el certificado del servidor, en PEM."),
             Field::new(
                 "push_timeout",
                 "Límite de las consultas push (s)",
@@ -197,21 +219,26 @@ impl Driver for KsqlDriver {
         cfg: &ConnectionConfig,
         _database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
+        let scheme = if tls_http::https(cfg, &self.info.fields) {
+            "https"
+        } else {
+            "http"
+        };
         let host = if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
         };
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .build()
-            .map_err(Error::connect)?;
+        let (base, http) = tls_http::client(
+            cfg,
+            &self.info.fields,
+            format!("{scheme}://{host}:{}", cfg.port_or(8088)),
+            reqwest::Client::builder().connect_timeout(Duration::from_secs(15)),
+        )?;
         let mut s = KsqlSession {
             conn: Arc::new(Conn {
                 http,
-                base: format!("{scheme}://{host}:{}", cfg.port_or(8088)),
+                base,
                 user: cfg.username.clone().filter(|u| !u.is_empty()),
                 password: cfg.password.clone(),
             }),
@@ -270,7 +297,7 @@ pub struct KsqlSession {
 
 fn http_error(e: reqwest::Error) -> Error {
     if e.is_connect() || e.is_timeout() {
-        Error::Connect(e.to_string())
+        tls_http::connect_error(&e, |e| e)
     } else {
         Error::Query(e.to_string())
     }
@@ -1062,6 +1089,19 @@ impl Session for KsqlSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Saved connections keep `encrypt` / `trust_server_certificate`'s
+    /// scheme and checks; new ones are https, verified; `verifyHost=false`
+    /// skips only the host name.
+    #[test]
+    fn tls_options() {
+        let f = info().fields;
+        tls_http::assert_legacy_and_defaults(&f);
+        let mut cfg = tls_http::new_connection(&f);
+        cfg.options.insert("verifyHost".into(), "false".into());
+        assert_eq!(tls_http::effect(&cfg, &f), (true, false, true));
+        assert_eq!(cfg.tls_level(&f), Some(TlsLevel::VerifyCa));
+    }
 
     #[test]
     fn deletes_are_unsupported() {

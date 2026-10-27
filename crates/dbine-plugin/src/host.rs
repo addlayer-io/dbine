@@ -1378,4 +1378,637 @@ mod tests {
         drop(rx);
         assert!(send(&tx, FromHost::BatchAck { id: 3 }).is_err());
     }
+
+    // ---- Every call reaches the driver or session it names ---------------
+
+    use dbine_driver::{
+        ColumnInfo, ConnectionConfig, DbObject, DdlParts, DriverInfo, Family, IndexUsage, Language,
+        ObjectRef, StatementResult, SyncScript, TableChange, TableSchema,
+    };
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::AtomicBool;
+
+    /// A driver that answers each script with what it was asked.
+    struct Echo(DriverInfo);
+
+    fn echo() -> Arc<dyn Driver> {
+        Arc::new(Echo(DriverInfo {
+            id: "echo",
+            name: "Echo",
+            family: Family::Relational,
+            language: Language::Sql,
+            dialect: "postgres",
+            default_port: 0,
+            fields: vec![],
+            databases_label: "",
+            has_schemas: true,
+            object_kinds: vec![],
+            tls: Default::default(),
+            tls_port: None,
+        }))
+    }
+
+    #[dbine_driver::async_trait]
+    impl Driver for Echo {
+        fn info(&self) -> &DriverInfo {
+            &self.0
+        }
+        async fn connect(
+            &self,
+            cfg: &ConnectionConfig,
+            database: Option<&str>,
+        ) -> Result<Box<dyn Session>, Error> {
+            if cfg.host == "down" {
+                return Err(Error::Connect("no responde".into()));
+            }
+            Ok(Box::new(EchoSession {
+                database: database.unwrap_or("main").to_string(),
+                interrupted: Arc::new(AtomicBool::new(false)),
+            }))
+        }
+        fn map_login_script(
+            &self,
+            login: &str,
+            user: &str,
+            default_schema: Option<&str>,
+        ) -> Result<String, Error> {
+            Ok(format!("map {login} {user} {default_schema:?}"))
+        }
+        fn security_script(&self, action: &dbine_driver::SecurityAction) -> Result<String, Error> {
+            Ok(format!("security {action:?}"))
+        }
+        fn backup_script(&self, action: &dbine_driver::BackupAction) -> Result<String, Error> {
+            Ok(format!("backup {action:?}"))
+        }
+        fn create_database_script(
+            &self,
+            name: &str,
+            options: &BTreeMap<String, String>,
+        ) -> Result<String, Error> {
+            Ok(format!("create {name} {options:?}"))
+        }
+        fn alter_database_script(
+            &self,
+            database: &str,
+            changes: &BTreeMap<String, String>,
+        ) -> Result<String, Error> {
+            Ok(format!("alter {database} {changes:?}"))
+        }
+        fn create_schema_script(
+            &self,
+            database: Option<&str>,
+            name: &str,
+            owner: Option<&str>,
+        ) -> Result<String, Error> {
+            Ok(format!("schema {database:?} {name} {owner:?}"))
+        }
+        fn schema_owner_script(
+            &self,
+            database: Option<&str>,
+            name: &str,
+            owner: &str,
+        ) -> Result<Option<String>, Error> {
+            Ok(Some(format!("owner {database:?} {name} {owner}")))
+        }
+        fn drop_schema_script(
+            &self,
+            database: Option<&str>,
+            name: &str,
+            cascade: bool,
+        ) -> Result<String, Error> {
+            Ok(format!("drop {database:?} {name} {cascade}"))
+        }
+        fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String, Error> {
+            Ok(format!("ddl {} create={}", table.name, parts.create))
+        }
+        fn data_load_wrap(&self, table: &TableSchema) -> (String, String) {
+            (format!("before {}", table.name), "after".into())
+        }
+        fn sync_script(&self, changes: &[TableChange]) -> Result<SyncScript, Error> {
+            Ok(SyncScript {
+                statements: vec![format!("{} changes", changes.len())],
+                warnings: vec![],
+            })
+        }
+        fn index_toggle_script(
+            &self,
+            table: &ObjectRef,
+            index: &IndexUsage,
+            enable: bool,
+        ) -> Result<SyncScript, Error> {
+            Ok(SyncScript {
+                statements: vec![format!("{} {} {enable}", table.name, index.name)],
+                warnings: vec![],
+            })
+        }
+        fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<SyncScript, Error> {
+            Ok(SyncScript {
+                statements: vec![format!("rename to {}", req.new_name)],
+                warnings: vec![],
+            })
+        }
+        fn rename_database_script(
+            &self,
+            database: &str,
+            new_name: &str,
+            objects: &[dbine_driver::rename::DatabaseObject],
+        ) -> Result<SyncScript, Error> {
+            Ok(SyncScript {
+                statements: vec![format!("{database} {new_name} {}", objects.len())],
+                warnings: vec![],
+            })
+        }
+        fn param_literal(&self, value: &dbine_driver::ParamValue) -> Result<String, Error> {
+            Ok(format!("lit {value:?}"))
+        }
+    }
+
+    struct EchoSession {
+        database: String,
+        interrupted: Arc<AtomicBool>,
+    }
+
+    #[dbine_driver::async_trait]
+    impl Session for EchoSession {
+        async fn server_version(&mut self) -> Result<String, Error> {
+            Ok("echo 1.0".into())
+        }
+        async fn list_databases(&mut self) -> Result<Vec<String>, Error> {
+            Ok(vec![self.database.clone(), "otra".into()])
+        }
+        async fn list_objects(&mut self) -> Result<Vec<DbObject>, Error> {
+            Ok(vec![])
+        }
+        async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>, Error> {
+            Err(Error::Query(format!("no existe {}", obj.name)))
+        }
+        async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>, Error> {
+            Ok(Some(format!("def {}", obj.name)))
+        }
+        fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
+            format!("SELECT * FROM {} LIMIT {limit}", obj.name)
+        }
+        async fn execute(
+            &mut self,
+            text: &str,
+            _max_rows: usize,
+            out: &mut QueryOutcome,
+        ) -> Result<(), Error> {
+            let columns = vec![ResultColumn {
+                name: "n".into(),
+                type_name: "int".into(),
+            }];
+            let rows = vec![vec![json!(1)], vec![json!(2)]];
+            match &out.sink {
+                Some(s) => {
+                    let mut s = s.0.lock().unwrap();
+                    s.begin(0, &columns)?;
+                    for r in &rows {
+                        s.row(0, r)?;
+                    }
+                    out.results.push(StatementResult {
+                        columns,
+                        ..Default::default()
+                    });
+                }
+                None => out.results.push(StatementResult {
+                    columns,
+                    rows,
+                    ..Default::default()
+                }),
+            }
+            if text == "fail" {
+                return Err(Error::Query("falló".into()));
+            }
+            Ok(())
+        }
+        fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+            let flag = self.interrupted.clone();
+            Some(Arc::new(move || flag.store(true, Ordering::SeqCst)))
+        }
+        async fn create_database(&mut self, name: &str) -> Result<(), Error> {
+            if name.is_empty() {
+                return Err(Error::Query("sin nombre".into()));
+            }
+            Ok(())
+        }
+        async fn drop_database(&mut self, _name: &str) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn unmapped_logins(&mut self) -> Result<Vec<String>, Error> {
+            Ok(vec!["huérfano".into()])
+        }
+        async fn kill_session(&mut self, id: &str) -> Result<(), Error> {
+            match id {
+                "1" => Ok(()),
+                _ => Err(Error::Query(format!("no hay sesión {id}"))),
+            }
+        }
+        async fn cancel_query(&mut self, _id: &str) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn alter_database(
+            &mut self,
+            _database: &str,
+            _changes: &BTreeMap<String, String>,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn create_database_with(
+            &mut self,
+            _name: &str,
+            _options: &BTreeMap<String, String>,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn set_autocommit(&mut self, _on: bool) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn rollback(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    fn state() -> (Arc<State>, std::sync::mpsc::Receiver<FromHost>) {
+        let (tx, rx) = sync_channel::<FromHost>(QUEUE);
+        (
+            Arc::new(State {
+                package: "echo-pkg".into(),
+                drivers: vec![echo()],
+                sessions: Mutex::new(HashMap::new()),
+                next_session: AtomicU64::new(1),
+                calls: Mutex::new(HashMap::new()),
+                tx,
+            }),
+            rx,
+        )
+    }
+
+    /// `call` (as the app sends it, in JSON form) through the host.
+    async fn call(st: &State, id: u64, call: serde_json::Value) -> Result<Reply, Error> {
+        let call: Call = serde_json::from_value(call).expect("a valid call");
+        st.handle(id, call, Arc::new(Mutex::new(None)), CallIo::default())
+            .await
+    }
+
+    /// The reply's text form (what the assertions look into).
+    async fn answer(st: &State, c: serde_json::Value) -> String {
+        format!("{:?}", call(st, 1, c).await)
+    }
+
+    async fn connect(st: &State) -> u64 {
+        match call(
+            st,
+            1,
+            json!({"Connect": {"driver": "echo", "config": {"driver": "echo", "host": "h"}, "database": "ventas"}}),
+        )
+        .await
+        {
+            Ok(Reply::Session { id, interruptible }) => {
+                assert!(interruptible);
+                id
+            }
+            other => panic!("expected a session, got {other:?}"),
+        }
+    }
+
+    fn table() -> serde_json::Value {
+        json!({"kind": "table", "schema": "s", "name": "clientes", "columns": []})
+    }
+
+    fn obj() -> serde_json::Value {
+        json!({"kind": "table", "schema": "s", "name": "clientes"})
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn driver_calls_reach_the_driver_with_their_arguments() {
+        let (st, _rx) = state();
+        let d = "echo";
+        for (c, want) in [
+            (
+                json!({"MapLoginScript": {"driver": d, "login": "l", "user": "u", "default_schema": "dbo"}}),
+                "map l u Some(\\\"dbo\\\")",
+            ),
+            (
+                json!({"SecurityScript": {"driver": d, "action": {"action": "create_role", "name": "lectores"}}}),
+                "CreateRole { name: \\\"lectores\\\" }",
+            ),
+            (
+                json!({"BackupScript": {"driver": d, "action": {"action": "delete", "source": "/b.bak"}}}),
+                "Delete { source: \\\"/b.bak\\\" }",
+            ),
+            (
+                json!({"CreateDatabaseScript": {"driver": d, "name": "nueva", "options": {"k": "v"}}}),
+                "create nueva {\\\"k\\\": \\\"v\\\"}",
+            ),
+            (
+                json!({"AlterDatabaseScript": {"driver": d, "database": "db", "changes": {"x": "1"}}}),
+                "alter db {\\\"x\\\": \\\"1\\\"}",
+            ),
+            (
+                json!({"CreateSchemaScript": {"driver": d, "name": "rep", "owner": "ana", "database": "db"}}),
+                "schema Some(\\\"db\\\") rep Some(\\\"ana\\\")",
+            ),
+            (
+                json!({"SchemaOwnerScript": {"driver": d, "database": null, "name": "rep", "owner": "bot"}}),
+                "owner None rep bot",
+            ),
+            (
+                json!({"DropSchemaScript": {"driver": d, "name": "rep", "cascade": true}}),
+                "drop None rep true",
+            ),
+            (
+                json!({"TableDdl": {"driver": d, "table": table(), "parts": {"create": true}}}),
+                "ddl clientes create=true",
+            ),
+            (
+                json!({"DataLoadWrap": {"driver": d, "table": table()}}),
+                "Pair(\"before clientes\", \"after\")",
+            ),
+            (
+                json!({"SyncScript": {"driver": d, "changes": [{"op": "drop", "table": table()}]}}),
+                "1 changes",
+            ),
+            (
+                json!({"IndexToggleScript": {"driver": d, "table": obj(), "index": {"name": "ix", "kind": "B"}, "enable": false}}),
+                "clientes ix false",
+            ),
+            (
+                json!({"RenameScript": {"driver": d, "request": {"target": {"what": "schema", "schema": "s"}, "new_name": "t"}}}),
+                "rename to t",
+            ),
+            (
+                json!({"RenameDatabaseScript": {"driver": d, "database": "a", "new_name": "b", "objects": [{"kind": "table", "name": "x"}]}}),
+                "a b 1",
+            ),
+            (
+                json!({"ParamLiteral": {"driver": d, "value": {"type": "bool", "value": true}}}),
+                "lit Bool(true)",
+            ),
+            // The contract's own defaults, through the same path.
+            (
+                json!({"SchemaGrantScript": {"driver": d, "database": null, "name": "rep", "privileges": ["USAGE"], "to": "r", "grantable": false}}),
+                "security Grant",
+            ),
+            (
+                json!({"InsertScript": {"driver": d, "target": obj(), "columns": ["a"], "rows": [[1]]}}),
+                "INSERT INTO",
+            ),
+            (
+                json!({"UpdateScript": {"driver": d, "target": obj(), "changes": [{"key": [["id", 1]], "set": [["a", 2]]}]}}),
+                "UPDATE",
+            ),
+            (
+                json!({"DeleteScript": {"driver": d, "target": obj(), "keys": [[["id", 1]]]}}),
+                "DELETE FROM",
+            ),
+            (
+                json!({"FilteredBrowse": {"driver": d, "browse": "SELECT * FROM t", "filters": [{"column": "a", "op": "is_null"}]}}),
+                "IS NULL",
+            ),
+            (
+                json!({"SortedBrowse": {"driver": d, "query": "SELECT * FROM t", "sort": [{"column": "a", "descending": true}]}}),
+                "DESC",
+            ),
+            (
+                json!({"AggregateQuery": {"driver": d, "query": "SELECT * FROM t", "spec": {"x": "a", "measures": [{"func": "count"}]}}}),
+                "COUNT",
+            ),
+            (
+                json!({"SplitScript": {"driver": d, "text": "SELECT 1; SELECT 2;"}}),
+                "Units",
+            ),
+        ] {
+            let got = answer(&st, c.clone()).await;
+            assert!(got.starts_with("Ok("), "{c}: {got}");
+            assert!(got.contains(want), "{c}: {got} lacks {want}");
+        }
+        // A driver this process doesn't serve.
+        let got = answer(
+            &st,
+            json!({"TableDdl": {"driver": "otro", "table": table(), "parts": {}}}),
+        )
+        .await;
+        assert!(got.contains("no sirve el driver «otro»"), "{got}");
+        // The manifest describes what it serves.
+        match call(&st, 1, json!("Manifest")).await {
+            Ok(Reply::Manifest(m)) => {
+                assert_eq!(m.len(), 1);
+                assert_eq!((m[0].package.as_str(), m[0].info.id), ("echo-pkg", "echo"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn session_calls_reach_the_session() {
+        let (st, _rx) = state();
+        let s = connect(&st).await;
+        assert_eq!(
+            connect(&st).await,
+            s + 1,
+            "each connection a session of its own"
+        );
+        for (c, want) in [
+            (
+                json!({"ServerVersion": {"session": s}}),
+                "Text(\"echo 1.0\")",
+            ),
+            (
+                json!({"ListDatabases": {"session": s}}),
+                "Texts([\"ventas\", \"otra\"])",
+            ),
+            (json!({"ListObjects": {"session": s}}), "Objects([])"),
+            (
+                json!({"Definition": {"session": s, "obj": obj()}}),
+                "MaybeText(Some(\"def clientes\"))",
+            ),
+            (
+                json!({"BrowseQuery": {"session": s, "obj": obj(), "limit": 7}}),
+                "SELECT * FROM clientes LIMIT 7",
+            ),
+            (
+                json!({"CreateDatabase": {"session": s, "name": "x"}}),
+                "Ok(Unit)",
+            ),
+            (
+                json!({"DropDatabase": {"session": s, "name": "x"}}),
+                "Ok(Unit)",
+            ),
+            (
+                json!({"UnmappedLogins": {"session": s}}),
+                "Texts([\"huérfano\"])",
+            ),
+            (
+                json!({"KillSession": {"session": s, "id": "1"}}),
+                "Ok(Unit)",
+            ),
+            (
+                json!({"CancelQuery": {"session": s, "id": "1"}}),
+                "Ok(Unit)",
+            ),
+            (
+                json!({"SetAutocommit": {"session": s, "on": false}}),
+                "Ok(Unit)",
+            ),
+            (json!({"Commit": {"session": s}}), "Ok(Unit)"),
+            (json!({"Rollback": {"session": s}}), "Ok(Unit)"),
+            (
+                json!({"AlterDatabase": {"session": s, "database": "x", "changes": {}}}),
+                "Ok(Unit)",
+            ),
+            (
+                json!({"CreateDatabaseWith": {"session": s, "name": "x", "options": {}}}),
+                "Ok(Unit)",
+            ),
+        ] {
+            let got = answer(&st, c.clone()).await;
+            assert!(got.contains(want), "{c}: {got} lacks {want}");
+        }
+        // The session's own errors come back as they are.
+        let got = answer(&st, json!({"Columns": {"session": s, "obj": obj()}})).await;
+        assert!(got.contains("no existe clientes"), "{got}");
+        let got = answer(&st, json!({"KillSession": {"session": s, "id": "9"}})).await;
+        assert!(got.contains("no hay sesión 9"), "{got}");
+        let got = answer(&st, json!({"CreateDatabase": {"session": s, "name": ""}})).await;
+        assert!(got.contains("sin nombre"), "{got}");
+        // What the session doesn't do: the contract's refusal.
+        for c in [
+            json!({"Monitor": {"session": s}}),
+            json!({"Blocking": {"session": s}}),
+            json!({"Principals": {"session": s}}),
+            json!({"Grants": {"session": s, "principal": "ana"}}),
+            json!({"Backups": {"session": s, "database": null}}),
+            json!({"ProfilerStart": {"session": s, "opts": {"database": "x", "change_server": false}}}),
+            json!({"ProfilerPoll": {"session": s}}),
+            json!({"ProfilerStop": {"session": s}}),
+            json!({"ScanKeys": {"session": s, "scan": {"count": 10}}}),
+            json!({"Permissions": {"session": s, "database": null}}),
+            json!({"Processes": {"session": s}}),
+            json!({"CreateDatabaseChoices": {"session": s}}),
+            json!({"DatabaseProperties": {"session": s, "database": "x"}}),
+            json!({"HealthChecks": {"session": s, "database": "x"}}),
+            json!({"RowEstimates": {"session": s}}),
+            json!({"ObjectComments": {"session": s}}),
+            json!({"SearchCode": {"session": s, "query": {"text": "x"}}}),
+            json!({"IndexUsage": {"session": s, "table": obj()}}),
+            json!({"KeyRange": {"session": s, "table": obj(), "column": "id"}}),
+            json!({"TransactionState": {"session": s}}),
+            json!({"ListSchemas": {"session": s}}),
+            json!({"DatabaseSchema": {"session": s}}),
+        ] {
+            // Some have a default answer (an empty list, `None`); none fails
+            // in any other way than the contract's own.
+            let got = answer(&st, c.clone()).await;
+            assert!(
+                got.starts_with("Ok(") || got.contains("Unsupported"),
+                "{c}: {got}"
+            );
+        }
+        // A session that's gone.
+        let got = answer(&st, json!({"ServerVersion": {"session": 999}})).await;
+        assert!(got.contains("la sesión ya se cerró"), "{got}");
+        // A driver that can't connect.
+        let got = answer(
+            &st,
+            json!({"Connect": {"driver": "echo", "config": {"driver": "echo", "host": "down"}, "database": null}}),
+        )
+        .await;
+        assert!(got.contains("no responde"), "{got}");
+        assert_eq!(st.sessions.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn runs_stream_to_the_app_or_come_back_whole() {
+        let (st, rx) = state();
+        let s = connect(&st).await;
+        // Without a sink: the rows in the reply.
+        match call(
+            &st,
+            5,
+            json!({"Execute": {"session": s, "text": "SELECT", "max_rows": 10, "sink": false}}),
+        )
+        .await
+        {
+            Ok(Reply::Run(out, None)) => {
+                assert_eq!(out.results[0].rows.len(), 2);
+                assert!(out.sink.is_none());
+            }
+            other => panic!("{other:?}"),
+        }
+        // With a sink: each row goes to the app as it comes, tagged with
+        // the call's id, and the reply carries none.
+        match call(
+            &st,
+            6,
+            json!({"Execute": {"session": s, "text": "SELECT", "max_rows": 10, "sink": true, "live": true}}),
+        )
+        .await
+        {
+            Ok(Reply::Run(out, None)) => assert!(out.results[0].rows.is_empty()),
+            other => panic!("{other:?}"),
+        }
+        let frames: Vec<FromHost> = rx.try_iter().collect();
+        assert!(
+            matches!(&frames[0], FromHost::SinkBegin { id: 6, index: 0, columns } if columns[0].name == "n"),
+            "{frames:?}"
+        );
+        let rows: Vec<&Vec<Value>> = frames
+            .iter()
+            .filter_map(|f| match f {
+                FromHost::SinkRow { id: 6, row, .. } => Some(row),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rows, [&vec![json!(1)], &vec![json!(2)]]);
+        // An error keeps what ran before it.
+        match call(
+            &st,
+            7,
+            json!({"Execute": {"session": s, "text": "fail", "max_rows": 10, "sink": false, "continue_on_error": true}}),
+        )
+        .await
+        {
+            Ok(Reply::Run(out, Some(e))) => {
+                assert_eq!(out.results.len(), 1);
+                assert!(format!("{e:?}").contains("falló"), "{e:?}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // The app's sink failed: the run stops at its next row.
+        let failed = Arc::new(Mutex::new(Some("disco lleno".to_string())));
+        let c: Call = serde_json::from_value(
+            json!({"Execute": {"session": s, "text": "SELECT", "max_rows": 10, "sink": true}}),
+        )
+        .unwrap();
+        match st.handle(8, c, failed, CallIo::default()).await {
+            Ok(Reply::Run(_, Some(e))) => {
+                assert!(format!("{e:?}").contains("disco lleno"), "{e:?}")
+            }
+            other => panic!("{other:?}"),
+        }
+        // Explain, bound statements and server-enforced reads are runs
+        // too: here the contract's refusal comes back inside the run.
+        for c in [
+            json!({"Explain": {"session": s, "text": "SELECT", "analyze": false, "max_rows": 10, "sink": false}}),
+            json!({"RunReadOnly": {"session": s, "statement": "SELECT", "max_rows": 10, "sink": false}}),
+        ] {
+            let got = answer(&st, c.clone()).await;
+            assert!(got.starts_with("Ok(Run("), "{c}: {got}");
+        }
+        // A bulk load without its channel of batches is refused.
+        let got = answer(
+            &st,
+            json!({"BulkLoad": {"session": s, "spec": {"table": obj(), "columns": ["a"], "commit_rows": 10, "commit_bytes": 1000}, "columns": []}}),
+        )
+        .await;
+        assert!(got.contains("carga sin canal de lotes"), "{got}");
+        // The session's interrupter is kept apart, for a cancel mid-run.
+        let slot = st.slot(s).unwrap();
+        (slot.interrupter.as_ref().expect("interruptible"))();
+    }
 }

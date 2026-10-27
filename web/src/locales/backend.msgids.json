@@ -3511,6 +3511,15 @@
   "Cifra la conexión (rediss://) y verifica el certificado del servidor.": [
     "crates/drivers/redis/src/lib.rs"
   ],
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": [
+    "crates/drivers/flightsql/src/lib.rs",
+    "crates/drivers/ksqldb/src/lib.rs",
+    "crates/drivers/tdengine/src/lib.rs"
+  ],
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": [
+    "crates/drivers/influxdb/src/v1.rs",
+    "crates/drivers/iotdb/src/lib.rs"
+  ],
   "Cifra la conexión y verifica el certificado del servidor. Con una cadena de conexión no se aplica: manda la cadena.": [
     "crates/drivers/mongodb/src/lib.rs"
   ],
@@ -4224,6 +4233,9 @@
   ],
   "Comprobar el backup al terminar (RESTORE VERIFYONLY)": [
     "crates/drivers/sqlserver/src/backup.rs"
+  ],
+  "Comprueba que el nombre del servidor figure en su certificado.": [
+    "crates/drivers/ksqldb/src/lib.rs"
   ],
   "Con .zip o .tar queda en un solo archivo; terminado en / queda como carpeta. En Ruta del servidor, dentro de backups.allowed_path.": [
     "crates/drivers/clickhouse/src/backup.rs"
@@ -8260,6 +8272,7 @@
     "crates/drivers/iotdb/src/lib.rs"
   ],
   "Encrypt": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
   "Encrypt: «{0}» no es un valor que este motor acepte (Optional, Mandatory o Strict)": [
@@ -11725,6 +11738,9 @@
   "La conexión es de solo lectura: no se permite {0}.": [
     "crates/drivers/libsql/src/lib.rs"
   ],
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": [
+    "crates/dbine-core/src/conn_import/mod.rs"
+  ],
   "La configuración del servidor (RDB$CONFIG) solo la ven SYSDBA y RDB$ADMIN.": [
     "crates/drivers/firebird/src/monitor.rs"
   ],
@@ -12937,6 +12953,7 @@
     "src-tauri/src/tasks/mail.rs"
   ],
   "Mandatory": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/lib.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
@@ -15338,6 +15355,11 @@
   "No verifica el certificado del servidor (como curl --insecure).": [
     "crates/dbine-driver/src/info.rs"
   ],
+  "No verifica el certificado del servidor.": [
+    "crates/drivers/influxdb/src/v1.rs",
+    "crates/drivers/influxdb/src/v2.rs",
+    "crates/drivers/influxdb/src/v3.rs"
+  ],
   "No: ahorra disco en campos que no se ordenan ni se agregan.": [
     "crates/drivers/elasticsearch/src/ddl.rs"
   ],
@@ -16288,7 +16310,12 @@
     "crates/drivers/postgres/src/backup.rs"
   ],
   "Opcional: la CA que firmó el certificado del servidor, en PEM.": [
-    "crates/drivers/odbc/src/tls.rs"
+    "crates/drivers/flightsql/src/lib.rs",
+    "crates/drivers/influxdb/src/v3.rs",
+    "crates/drivers/iotdb/src/lib.rs",
+    "crates/drivers/ksqldb/src/lib.rs",
+    "crates/drivers/odbc/src/tls.rs",
+    "crates/drivers/phoenix/src/lib.rs"
   ],
   "Opcional: la cuenta de gcloud que pide el token. Vacía: la activa en gcloud (gcloud auth login), las credenciales predeterminadas de la aplicación o la cuenta de servicio de la máquina.": [
     "crates/drivers/postgres/src/cloud_auth.rs"
@@ -16391,6 +16418,7 @@
     "crates/drivers/sqlserver/src/plan.rs"
   ],
   "Optional": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/lib.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
@@ -16654,10 +16682,10 @@
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": [
     "crates/drivers/flightsql/src/lib.rs"
   ],
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": [
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": [
     "crates/drivers/dynamodb/src/aws.rs"
   ],
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": [
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": [
     "crates/drivers/bigquery/src/gcp.rs"
   ],
   "Para escribir puntos en InfluxDB hace falta una columna time (la marca de tiempo).": [
@@ -18963,6 +18991,9 @@
   "SSMS protege las contraseñas con la cuenta de Windows: se piden al conectar la primera vez.": [
     "crates/dbine-core/src/conn_import/ssms.rs"
   ],
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": [
+    "crates/drivers/phoenix/src/lib.rs"
+  ],
   "STRING no limita el largo.": [
     "crates/dbine-schema/src/dialect/graph.rs"
   ],
@@ -19685,6 +19716,10 @@
   ],
   "Si el origen es solo un nombre de archivo, el disco donde está.": [
     "crates/drivers/clickhouse/src/backup.rs"
+  ],
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": [
+    "crates/drivers/influxdb/src/v2.rs",
+    "crates/drivers/influxdb/src/v3.rs"
   ],
   "Si este índice respalda una restricción UNIQUE, Firebird no lo deja desactivar y el script falla.": [
     "crates/drivers/firebird/src/index_usage.rs"
@@ -20759,6 +20794,7 @@
     "crates/drivers/ksqldb/src/monitor.rs"
   ],
   "Strict": [
+    "crates/dbine-core/src/conn_import/mod.rs",
     "crates/drivers/sqlserver/src/variant.rs"
   ],
   "String": [
@@ -24327,9 +24363,6 @@
   "claves foráneas: {0} / {1}": [
     "crates/dbine-transfer/src/clone_table/pg.rs"
   ],
-  "clickhouse: readonly profile, sending no output settings": [
-    "crates/drivers/clickhouse/src/lib.rs"
-  ],
   "client URLs": [
     "crates/drivers/etcd/src/lib.rs"
   ],
@@ -25227,7 +25260,8 @@
     "crates/dbine-sync/src/folder.rs"
   ],
   "el archivo no trae {0}": [
-    "crates/dbine-ai/src/embedded.rs"
+    "crates/dbine-ai/src/embedded.rs",
+    "crates/drivers/duckdb/src/loader.rs"
   ],
   "el arreglo tiene un elemento que no es un valor simple: {0}": [
     "crates/drivers/phoenix/src/transfer.rs"
@@ -25301,6 +25335,7 @@
     "src-tauri/src/secret_sources/zoho.rs"
   ],
   "el certificado de CA «{0}» no es un PEM válido: {1}": [
+    "crates/drivers/influxdb/src/tls_http.rs",
     "crates/drivers/postgres/src/lib.rs"
   ],
   "el certificado de cliente o su clave no son válidos (PEM: el certificado y una clave PKCS#8, RSA o EC)": [
@@ -31687,6 +31722,8 @@
     "src-tauri/src/commands/projects.rs"
   ],
   "no se pudo leer el certificado de CA «{0}»: {1}": [
+    "crates/drivers/flightsql/src/lib.rs",
+    "crates/drivers/influxdb/src/tls_http.rs",
     "crates/drivers/postgres/src/lib.rs"
   ],
   "no se pudo leer el certificado de cliente {0}: {1}": [
@@ -32601,6 +32638,9 @@
   ],
   "por lista automática (AUTOMATIC)": [
     "crates/dbine-transfer/src/clone_table/oracle.rs"
+  ],
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": [
+    "crates/drivers/influxdb/src/tls_http.rs"
   ],
   "posesión": [
     "crates/drivers/cassandra/src/monitor.rs"

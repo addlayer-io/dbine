@@ -46,7 +46,7 @@ fn parse(n: usize, line: &str) -> Candidate {
             "mongodb" | "mongodb+srv" => "mongodb",
             "redis" | "rediss" => "redis",
             "sqlserver" | "mssql" => "sqlserver",
-            "neo4j" | "neo4j+s" | "bolt" | "bolt+s" => "neo4j",
+            "neo4j" | "neo4j+s" | "neo4j+ssc" | "bolt" | "bolt+s" | "bolt+ssc" => "neo4j",
             "libsql" => "libsql",
             "sqlite" => "sqlite",
             "duckdb" => "duckdb",
@@ -98,6 +98,27 @@ fn parse(n: usize, line: &str) -> Candidate {
                 apply_jdbc(&mut c, line);
                 if scheme.ends_with('s') && matches!(scheme, "rediss" | "neo4j+s" | "bolt+s") {
                     c.config.encrypt = true;
+                }
+                // The scheme says the TLS: written as the engine's option.
+                match scheme {
+                    "rediss" => {
+                        c.config.options.insert("tls".into(), "true".into());
+                    }
+                    "redis" => {
+                        c.config.options.insert("tls".into(), "false".into());
+                    }
+                    "bolt" | "neo4j" => {
+                        c.config.options.insert("scheme".into(), "bolt".into());
+                    }
+                    "bolt+s" | "neo4j+s" => {
+                        c.config.options.insert("scheme".into(), "bolt+s".into());
+                    }
+                    "bolt+ssc" | "neo4j+ssc" => {
+                        c.config.encrypt = true;
+                        c.config.trust_server_certificate = true;
+                        c.config.options.insert("scheme".into(), "bolt+ssc".into());
+                    }
+                    _ => {}
                 }
             }
         }
@@ -188,6 +209,115 @@ fn safe_line(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The TLS option a pasted string imports with (docs/tls-options.md,
+    /// "Imported and exported connection strings").
+    fn tls_of(line: &str) -> Vec<(String, String)> {
+        let f = read(line);
+        let c = &f.candidates[0].config;
+        let keys = [
+            "Encrypt",
+            "TrustServerCertificate",
+            "HostNameInCertificate",
+            "sslmode",
+            "ssl_root_cert",
+            "ssl-mode",
+            "ssl",
+            "ssl-verify-server-cert",
+            "ca_cert",
+            "tls",
+            "scheme",
+        ];
+        keys.iter()
+            .filter_map(|k| c.options.get(*k).map(|v| (k.to_string(), v.clone())))
+            .collect()
+    }
+    fn kv(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn sql_server_strings_keep_their_encrypt_setting() {
+        // Absent: SqlClient 4+ and ODBC 18 encrypt.
+        assert_eq!(
+            tls_of("Server=s;Database=d;User Id=u;Password=p"),
+            kv(&[("Encrypt", "Mandatory")])
+        );
+        assert_eq!(
+            tls_of("Server=s;Database=d;Encrypt=Strict;HostNameInCertificate=db.example.com"),
+            kv(&[
+                ("Encrypt", "Strict"),
+                ("HostNameInCertificate", "db.example.com")
+            ])
+        );
+        assert_eq!(
+            tls_of("Server=s;Database=d;Encrypt=False"),
+            kv(&[("Encrypt", "Optional")])
+        );
+        assert_eq!(
+            tls_of(
+                "jdbc:sqlserver://s:1433;databaseName=d;encrypt=true;trustServerCertificate=true"
+            ),
+            kv(&[("Encrypt", "Mandatory"), ("TrustServerCertificate", "true")])
+        );
+    }
+
+    #[test]
+    fn postgres_strings_keep_their_sslmode() {
+        // `require` stays `require` (it used to become verify-full).
+        assert_eq!(
+            tls_of("postgres://u@h/d?sslmode=require"),
+            kv(&[("sslmode", "require")])
+        );
+        assert_eq!(tls_of("postgres://u@h/d"), kv(&[("sslmode", "prefer")]));
+        // PgJDBC's `ssl=true` alone verifies certificate and name.
+        assert_eq!(
+            tls_of("jdbc:postgresql://h:5432/d?ssl=true"),
+            kv(&[("sslmode", "verify-full")])
+        );
+        assert_eq!(
+            tls_of("jdbc:postgresql://h/d?sslmode=verify-ca&sslrootcert=/ca.pem"),
+            kv(&[("sslmode", "verify-ca"), ("ssl_root_cert", "/ca.pem")])
+        );
+    }
+
+    #[test]
+    fn mysql_and_mariadb_strings_map_to_their_options() {
+        assert_eq!(
+            tls_of("jdbc:mysql://h:3306/d"),
+            kv(&[("ssl-mode", "PREFERRED")])
+        );
+        assert_eq!(
+            tls_of("jdbc:mysql://h/d?sslMode=verify_identity"),
+            kv(&[("ssl-mode", "VERIFY_IDENTITY")])
+        );
+        assert_eq!(
+            tls_of("jdbc:mysql://h/d?useSSL=true&verifyServerCertificate=true"),
+            kv(&[("ssl-mode", "VERIFY_CA")])
+        );
+        assert_eq!(
+            tls_of("jdbc:mysql://h/d?useSSL=false"),
+            kv(&[("ssl-mode", "DISABLED")])
+        );
+        assert_eq!(
+            tls_of("jdbc:mariadb://h/d?sslMode=trust"),
+            kv(&[("ssl", "true"), ("ssl-verify-server-cert", "false")])
+        );
+        assert_eq!(tls_of("jdbc:mariadb://h/d"), kv(&[("ssl", "false")]));
+        let f = read("jdbc:mariadb://h/d?sslMode=verify-ca");
+        assert_eq!(f.candidates[0].notes.len(), 1, "stricter than the source");
+    }
+
+    #[test]
+    fn uri_schemes_say_the_tls() {
+        assert_eq!(tls_of("rediss://:s@cache:6380/1"), kv(&[("tls", "true")]));
+        assert_eq!(tls_of("redis://cache:6379"), kv(&[("tls", "false")]));
+        assert_eq!(tls_of("bolt+ssc://g:7687"), kv(&[("scheme", "bolt+ssc")]));
+        assert_eq!(tls_of("neo4j+s://g:7687"), kv(&[("scheme", "bolt+s")]));
+    }
 
     #[test]
     fn reads_pasted_lines() {

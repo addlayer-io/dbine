@@ -3365,8 +3365,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "슈퍼테이블에 행을 로드하려면 tbname 열(각 행의 서브테이블)이 필요합니다.",
   "Para columnas autoincrementales (solo BIGINT).": "자동 증가 열용입니다(BIGINT만 가능).",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "Dremio의 전체 모니터(활동, 노드, 프로필)는 REST 연결을 사용하세요.",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "로컬 에뮬레이터용입니다. 비어 있으면 리전의 AWS 엔드포인트를 사용합니다.",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "로컬 에뮬레이터용이며 인증이 없습니다. 비어 있으면 Google API를 사용합니다.",
   "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": "mTLS용: 압축을 푼 월렛의 폴더입니다(tnsnames.ora와 ewallet.pem). 내부의 아무 파일이나 선택할 수 있습니다. 데이터베이스가 월렛 없이 TLS를 허용하면 비워 둡니다.",
   "Para no consumir créditos, el historial se refresca cada 20 s, la carga y los créditos cada 5 min y el almacenamiento cada 15 min, y solo con el warehouse ya encendido.": "크레딧을 소비하지 않도록 기록은 20초마다, 부하와 크레딧은 5분마다, 스토리지는 15분마다 새로 고치며 웨어하우스가 이미 켜져 있을 때만 갱신합니다.",
   "Para un backup incremental: el TSO con el que terminó el backup anterior (BackupTS). Vacío: completo.": "증분 백업용: 이전 백업이 끝난 TSO(BackupTS)입니다. 비어 있으면 전체 백업입니다.",
@@ -6977,7 +6975,6 @@
   "documentos": "문서",
   "claves": "키",
   "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": "Oracle은 각 세션의 진행 중인 문과 직전 문만 표시하므로 매우 빠른 문은 보이지 않을 수 있습니다. 시작 시각은 초 단위이며 소요 시간, CPU, 읽기(buffer gets), 쓰기(직접 쓰기)는 V$SQLSTATS의 커서 평균입니다.",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse: readonly profile, sending no output settings",
   "entradas de índice: {0}": "인덱스 항목: {0}",
   "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": "CockroachDB가 진행 중인 쿼리를 읽지 못하게 했습니다({0}, {1}). admin이거나 VIEWACTIVITY 권한이 있어야 합니다: GRANT SYSTEM VIEWACTIVITY TO <user>",
   "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": "CockroachDB는 진행 중인 쿼리만 표시합니다. 이 사용자는 admin이 아니고 VIEWACTIVITY 시스템 권한도 없습니다. VIEWACTIVITY 역할 옵션이 없으면 자신의 쿼리만 볼 수 있습니다(GRANT SYSTEM VIEWACTIVITY TO <user>).",
@@ -11254,5 +11251,15 @@
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "SSH 터널을 통해서는 ODBC 드라이버가 인증서가 {0}의 것인지 확인할 수 없습니다. {1}(CA만 검증)을 사용하거나 터널 없이 연결하세요.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl은 클라이언트의 키 저장소(conssl.cfg의 SSL_KEYSTORE_FILE)로 인증서를 검증합니다.",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca와 verify-full에는 클라이언트에 CA의 root.crt가 필요합니다.",
-  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "선택 사항: 서버 인증서에 서명한 CA(PEM 형식)."
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "선택 사항: 서버 인증서에 서명한 CA(PEM 형식).",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "연결은 인증서의 서버 이름도 확인하므로 연결 문자열(verify-ca)보다 엄격합니다.",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "TLS로 연결을 암호화하고 서버 인증서를 검증합니다.",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "TLS로 연결을 암호화하고 인증서를 검증합니다. 서버가 URL이면 해당 스킴이 우선합니다.",
+  "Comprueba que el nombre del servidor figure en su certificado.": "서버 이름이 인증서에 포함되어 있는지 확인합니다.",
+  "No verifica el certificado del servidor.": "서버 인증서를 검증하지 않습니다.",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "DynamoDB Local 같은 로컬 에뮬레이터용이며, 이들은 TLS 없이 http://를 사용합니다. 비어 있으면 리전의 AWS 엔드포인트를 사용하며, 항상 https로 인증서를 검증합니다.",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "로컬 에뮬레이터용이며, 이들은 TLS와 인증 없이 http://를 사용합니다. 비어 있으면 Google API를 사용하며, 항상 https로 인증서를 검증합니다.",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT는 서버 이름이 인증서에 포함되어 있는지 확인하고, NONE은 체인만 검증합니다.",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "서버가 URL(http://… 또는 https://…)이면 해당 스킴이 우선합니다.",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "SSH 터널을 통해서는 인증서를 서버 이름으로 검증하는데, {0}은(는) IP 주소입니다. 인증서에 있는 호스트 이름을 사용하세요"
 }

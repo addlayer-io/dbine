@@ -64,7 +64,8 @@ fn info() -> DriverInfo {
         Field::read_only(),
     ]);
     DriverInfo {
-        tls: Default::default(),
+        // Always https to AWS, verified: there is no endpoint to type.
+        tls: dbine_driver::TlsSupport::Forced,
         tls_port: None,
         id: "athena",
         name: "Amazon Athena",
@@ -1087,6 +1088,16 @@ pub(crate) fn plain_http_client() -> aws_sdk_athena::config::SharedHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Always https to AWS: nothing to choose.
+    #[test]
+    fn tls_is_forced() {
+        assert_eq!(info().tls, dbine_driver::TlsSupport::Forced);
+        assert!(!info()
+            .fields
+            .iter()
+            .any(|f| f.is_legacy_tls() || f.tls.is_some()));
+    }
     use serde_json::json;
 
     #[test]

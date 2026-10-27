@@ -331,4 +331,21 @@ mod tests {
             c
         );
     }
+
+    #[test]
+    fn answers_carry_a_value_or_an_error() {
+        let r = Response::ok(4, &QueriesView::default());
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            serde_json::json!({"id": 4, "ok": {"running": [], "recent": []}})
+        );
+        // A value JSON can't hold becomes the error.
+        let mut bad = std::collections::HashMap::new();
+        bad.insert(vec![1u8], 1);
+        let r = Response::ok(5, &bad);
+        assert_eq!((r.ok, r.error.is_some()), (None, true));
+        // Neither: an empty answer still reads.
+        let r: Response = serde_json::from_str(r#"{"id":6}"#).unwrap();
+        assert_eq!((r.ok, r.error), (None, None));
+    }
 }

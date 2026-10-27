@@ -3365,8 +3365,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "Zum Laden von Zeilen in eine Supertabelle ist die Spalte tbname nötig (die Untertabelle jeder Zeile).",
   "Para columnas autoincrementales (solo BIGINT).": "Für Autoinkrement-Spalten (nur BIGINT).",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "Für den vollständigen Monitor von Dremio (Aktivität, Knoten, Profile) verwenden Sie seine REST-Verbindung.",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "Für lokale Emulatoren. Leer = der AWS-Endpunkt der Region.",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "Für lokale Emulatoren; ohne Authentifizierung. Leer = die Google-API.",
   "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": "Für mTLS: der Ordner des entpackten Wallets (tnsnames.ora und ewallet.pem); Sie können eine beliebige Datei darin wählen. Leer, wenn die Datenbank TLS ohne Wallet akzeptiert.",
   "Para no consumir créditos, el historial se refresca cada 20 s, la carga y los créditos cada 5 min y el almacenamiento cada 15 min, y solo con el warehouse ya encendido.": "Um keine Credits zu verbrauchen, wird der Verlauf alle 20 s aktualisiert, Last und Credits alle 5 Min. und der Speicher alle 15 Min., und nur bei bereits eingeschaltetem Warehouse.",
   "Para un backup incremental: el TSO con el que terminó el backup anterior (BackupTS). Vacío: completo.": "Für ein inkrementelles Backup: der TSO, mit dem das vorherige Backup endete (BackupTS). Leer: vollständig.",
@@ -6977,7 +6975,6 @@
   "documentos": "Dokumente",
   "claves": "Schlüssel",
   "Oracle solo muestra la sentencia en curso y la anterior de cada sesión: las muy rápidas pueden no verse. La hora de inicio es al segundo; la duración, la CPU, las lecturas (buffer gets) y las escrituras (escrituras directas) son la media del cursor en V$SQLSTATS.": "Oracle zeigt nur die laufende und die vorherige Anweisung jeder Sitzung: Sehr schnelle sind möglicherweise nicht zu sehen. Die Startzeit ist sekundengenau; Dauer, CPU, Lesezugriffe (Buffer Gets) und Schreibzugriffe (direkte Schreibzugriffe) sind der Mittelwert des Cursors in V$SQLSTATS.",
-  "clickhouse: readonly profile, sending no output settings": "clickhouse: readonly profile, sending no output settings",
   "entradas de índice: {0}": "Indexeinträge: {0}",
   "CockroachDB no dejó leer las consultas en curso ({0}; {1}). Hace falta ser admin o tener el privilegio VIEWACTIVITY: GRANT SYSTEM VIEWACTIVITY TO <usuario>": "CockroachDB hat das Lesen der laufenden Abfragen nicht erlaubt ({0}; {1}). Man muss admin sein oder das Privileg VIEWACTIVITY haben: GRANT SYSTEM VIEWACTIVITY TO <benutzer>",
   "CockroachDB solo muestra las consultas en curso. Este usuario no es admin ni tiene el privilegio de sistema VIEWACTIVITY: salvo que tenga la opción de rol VIEWACTIVITY, solo se ven sus propias consultas (GRANT SYSTEM VIEWACTIVITY TO <usuario>).": "CockroachDB zeigt nur die laufenden Abfragen. Dieser Benutzer ist weder admin noch hat er das Systemprivileg VIEWACTIVITY: Ohne die Rollenoption VIEWACTIVITY sind nur seine eigenen Abfragen zu sehen (GRANT SYSTEM VIEWACTIVITY TO <benutzer>).",
@@ -11254,5 +11251,15 @@
   "Por el túnel SSH, el driver ODBC no puede comprobar que el certificado sea de {0}: usá {1} (verifica solo la CA) o conectate sin túnel.": "Über den SSH-Tunnel kann der ODBC-Treiber nicht prüfen, ob das Zertifikat zu {0} gehört: Verwende {1} (prüft nur die Zertifizierungsstelle) oder verbinde dich ohne Tunnel.",
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl prüft das Zertifikat mit dem Schlüsselspeicher des Clients (SSL_KEYSTORE_FILE in conssl.cfg).",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca und verify-full brauchen die root.crt der Zertifizierungsstelle auf dem Client.",
-  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Optional: die CA, die das Serverzertifikat signiert hat, im PEM-Format."
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Optional: die CA, die das Serverzertifikat signiert hat, im PEM-Format.",
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "Die Verbindung prüft auch den Servernamen im Zertifikat und ist damit strenger als die Zeichenfolge (verify-ca).",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "Verschlüsselt die Verbindung mit TLS und prüft das Serverzertifikat.",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "Verschlüsselt die Verbindung mit TLS und prüft das Zertifikat. Ist der Server eine URL, gilt deren Schema.",
+  "Comprueba que el nombre del servidor figure en su certificado.": "Prüft, ob der Name des Servers in seinem Zertifikat steht.",
+  "No verifica el certificado del servidor.": "Prüft das Serverzertifikat nicht.",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "Für lokale Emulatoren wie DynamoDB Local, die http:// ohne TLS sprechen. Leer = der AWS-Endpunkt der Region, immer über https mit geprüftem Zertifikat.",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Für lokale Emulatoren, die http:// ohne TLS und ohne Authentifizierung sprechen. Leer = die Google-API, immer über https mit geprüftem Zertifikat.",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT prüft, ob der Name des Servers in seinem Zertifikat steht; NONE prüft nur die Kette.",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Ist der Server eine URL (http://… oder https://…), gilt deren Schema.",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "über einen SSH-Tunnel wird das Zertifikat gegen den Namen des Servers geprüft, und {0} ist eine IP-Adresse: verwenden Sie den Hostnamen, der im Zertifikat steht"
 }

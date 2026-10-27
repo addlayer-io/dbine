@@ -847,4 +847,161 @@ mod tests {
         assert_eq!(t.indexes[0].columns, vec!["k(768)"]);
         assert_eq!(t.indexes.len(), 1, "JSON index dropped");
     }
+
+    /// The native name and the worst note's severity (None: exact).
+    fn render(t: L) -> (String, Option<Severity>) {
+        let r = MySql.render_type(&t);
+        (r.native, r.notes.iter().map(|n| n.severity).max())
+    }
+
+    #[test]
+    fn renders_every_type_within_mysqls_limits() {
+        use Severity::*;
+        let text = |len| L::Varchar { len, unicode: true };
+        let fixed = |len| L::Char {
+            len,
+            unicode: false,
+        };
+        let cases = [
+            (L::Bool, "tinyint(1)", None),
+            (
+                L::Int {
+                    bytes: 3,
+                    unsigned: true,
+                },
+                "mediumint unsigned",
+                None,
+            ),
+            (L::int(16), "decimal(39, 0)", Some(Info)),
+            (
+                L::Decimal {
+                    precision: Some(70),
+                    scale: Some(40),
+                },
+                // The 30 integer digits stay; the scale drops to MySQL's 30.
+                "decimal(60, 30)",
+                Some(Loss),
+            ),
+            (
+                L::Decimal {
+                    precision: Some(12),
+                    scale: None,
+                },
+                "decimal(12, 0)",
+                None,
+            ),
+            (
+                L::Decimal {
+                    precision: None,
+                    scale: None,
+                },
+                "decimal(65, 30)",
+                Some(Loss),
+            ),
+            (L::Float { bytes: 4 }, "float", None),
+            (L::Float { bytes: 8 }, "double", None),
+            (L::Money, "decimal(19, 4)", Some(Info)),
+            (fixed(None), "char(1)", None),
+            (fixed(Some(300)), "varchar(300)", Some(Info)),
+            (fixed(Some(20_000)), "longtext", Some(Info)),
+            (text(Some(16_383)), "varchar(16383)", None),
+            (text(Some(16_384)), "longtext", Some(Info)),
+            (text(None), "longtext", None),
+            (L::Binary { len: None }, "binary(1)", None),
+            (L::Binary { len: Some(1000) }, "varbinary(1000)", Some(Info)),
+            (L::Binary { len: Some(70_000) }, "longblob", None),
+            (L::Varbinary { len: Some(100) }, "varbinary(100)", None),
+            (L::Varbinary { len: Some(70_000) }, "longblob", None),
+            (L::Bit { len: Some(64) }, "bit(64)", None),
+            (L::Bit { len: Some(65) }, "longblob", Some(Warning)),
+            (L::Bit { len: None }, "longblob", Some(Warning)),
+            (
+                L::Time {
+                    precision: Some(3),
+                    tz: true,
+                },
+                "time(3)",
+                Some(Loss),
+            ),
+            (
+                L::Timestamp {
+                    precision: Some(9),
+                    tz: false,
+                },
+                "datetime(6)",
+                Some(Loss),
+            ),
+            (
+                L::Timestamp {
+                    precision: None,
+                    tz: true,
+                },
+                // Unknown precision: the most MySQL keeps.
+                "datetime(6)",
+                Some(Loss),
+            ),
+            (L::Interval, "varchar(64)", Some(Loss)),
+            (L::Year, "year", None),
+            (L::Uuid, "char(36)", Some(Info)),
+            (L::Json { binary: true }, "json", None),
+            (L::Xml, "longtext", Some(Info)),
+            (
+                L::Enum {
+                    values: vec!["a'b".into(), "c".into()],
+                },
+                "enum('a''b', 'c')",
+                None,
+            ),
+            (
+                L::Set {
+                    values: vec!["x".into(), "y".into()],
+                },
+                "set('x', 'y')",
+                None,
+            ),
+            (
+                L::Array {
+                    of: Box::new(L::int(4)),
+                },
+                "json",
+                Some(Warning),
+            ),
+            (
+                L::Geometry {
+                    kind: Some("point".into()),
+                    srid: Some(4326),
+                    geography: false,
+                },
+                "point",
+                Some(Info),
+            ),
+            (
+                L::Geometry {
+                    kind: None,
+                    srid: None,
+                    geography: false,
+                },
+                "geometry",
+                None,
+            ),
+            (L::Inet, "varchar(45)", Some(Info)),
+            (L::MacAddr, "varchar(17)", Some(Info)),
+            (L::RowVersion, "binary(8)", Some(Warning)),
+            (
+                L::Other {
+                    native: "vector(3)".into(),
+                },
+                "vector(3)",
+                None,
+            ),
+        ];
+        for (t, native, worst) in cases {
+            assert_eq!(render(t.clone()), (native.to_string(), worst), "{t:?}");
+        }
+        // More than 64 members: no SET, the longest value as text.
+        let many: Vec<String> = (0..65).map(|i| format!("v{i}")).collect();
+        let (native, worst) = render(L::Set { values: many });
+        assert!(native.starts_with("varchar("), "{native}");
+        assert_eq!(worst, Some(Warning));
+    }
 }

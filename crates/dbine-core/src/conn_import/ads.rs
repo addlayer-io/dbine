@@ -184,6 +184,22 @@ pub fn read(path: &Path) -> Result<Found> {
             .get("trustServerCertificate")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        // `encrypt` is a bool or Mandatory / Optional / Strict.
+        let text = |k: &str| {
+            o.get(k).map(|v| match v {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+        };
+        let tls: Vec<(String, String)> = [
+            ("encrypt", "encrypt"),
+            ("trustServerCertificate", "trustservercertificate"),
+            ("hostNameInCertificate", "hostnameincertificate"),
+        ]
+        .into_iter()
+        .filter_map(|(from, to)| text(from).map(|v| (to.to_string(), v)))
+        .collect();
+        super::native_tls(&mut c.config, &tls);
         match s("authenticationType").as_str() {
             "Integrated" => c.notes.push(super::WINDOWS_AUTH.into()),
             "AzureMFA" | "AzureMFAAndUser" => {
@@ -246,6 +262,10 @@ mod tests {
         .unwrap();
         let found = read(&f).unwrap();
         let c = &found.candidates;
+        assert_eq!(
+            c[0].config.options.get("Encrypt").map(String::as_str),
+            Some("Mandatory")
+        );
         assert_eq!(c.len(), 3);
         assert_eq!(
             (

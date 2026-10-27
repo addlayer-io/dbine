@@ -317,6 +317,48 @@ fn map(v: &Value, password: Option<String>) -> Candidate {
         }
     };
     c.config.driver = driver.to_string();
+    // DbGate's `useSsl` / `sslRejectUnauthorized` as the engine's own TLS
+    // options: its clients (node-postgres, mysql2, tedious) don't encrypt
+    // unless asked.
+    let ssl = b(v, "useSsl");
+    let verify = ssl && v.get("sslRejectUnauthorized").and_then(Value::as_bool) != Some(false);
+    let trust = b(v, "trustServerCertificate") || (ssl && !verify);
+    let pair = |k: &str, v: &str| (k.to_string(), v.to_string());
+    let tls = match driver {
+        "sqlserver" | "azuresql" => vec![
+            pair("encrypt", if ssl { "true" } else { "false" }),
+            pair(
+                "trustservercertificate",
+                if trust { "true" } else { "false" },
+            ),
+        ],
+        "mariadb" => vec![pair(
+            "sslmode",
+            match (ssl, verify) {
+                (false, _) => "disable",
+                (true, false) => "trust",
+                (true, true) => "verify-full",
+            },
+        )],
+        "mysql" => vec![pair(
+            "ssl-mode",
+            match (ssl, verify) {
+                (false, _) => "DISABLED",
+                (true, false) => "REQUIRED",
+                (true, true) => "VERIFY_IDENTITY",
+            },
+        )],
+        _ if c.config.options.contains_key("sslmode") => Vec::new(),
+        _ => vec![pair(
+            "sslmode",
+            match (ssl, verify) {
+                (false, _) => "disable",
+                (true, false) => "require",
+                (true, true) => "verify-full",
+            },
+        )],
+    };
+    super::native_tls(&mut c.config, &tls);
     c
 }
 
@@ -394,6 +436,24 @@ mod tests {
         .unwrap();
         let found = read(dir.path()).unwrap();
         let c = &found.candidates;
+        // DbGate without `useSsl`: its clients (tedious, node-postgres) don't
+        // encrypt, so the import connects as DbGate did; the certificate is
+        // trusted as configured.
+        assert_eq!(
+            c[0].config.options.get("Encrypt").map(String::as_str),
+            Some("Optional")
+        );
+        assert_eq!(
+            c[0].config
+                .options
+                .get("TrustServerCertificate")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            c[1].config.options.get("sslmode").map(String::as_str),
+            Some("disable")
+        );
         assert_eq!(c.len(), 5);
         assert_eq!(
             (

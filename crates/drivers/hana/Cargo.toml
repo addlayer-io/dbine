@@ -14,3 +14,5 @@ hdbconnect_async = "0.32"
 
 [dev-dependencies]
 tokio.workspace = true
+# The live TLS test (tests/tls.rs) installs the crypto provider.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

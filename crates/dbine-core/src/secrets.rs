@@ -731,6 +731,119 @@ mod tests {
     }
 
     #[test]
+    fn open_rejects_unknown_envelopes() {
+        let key = [3u8; 32];
+        let good: Envelope =
+            serde_json::from_slice(&seal(&key, &BTreeMap::new()).unwrap()).unwrap();
+        let reseal = |v: u32, nonce: &str, data: &str| {
+            serde_json::to_vec(&Envelope {
+                v,
+                nonce: nonce.to_string(),
+                data: data.to_string(),
+            })
+            .unwrap()
+        };
+        // Another format version, with otherwise valid contents.
+        assert!(open(&key, &reseal(2, &good.nonce, &good.data)).is_err());
+        // A nonce of the wrong size.
+        assert!(open(&key, &reseal(1, &B64.encode([0u8; 12]), &good.data)).is_err());
+        // Not base64.
+        assert!(open(&key, &reseal(1, "%%%", &good.data)).is_err());
+        assert!(open(&key, &reseal(1, &good.nonce, "%%%")).is_err());
+        // Not an envelope at all.
+        assert!(open(&key, b"not json").is_err());
+        // The untouched envelope still opens.
+        assert!(open(&key, &reseal(1, &good.nonce, &good.data))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn write_atomic_creates_the_folder_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/deeper/secrets.vault");
+        write_atomic(&path, b"first").unwrap();
+        write_atomic(&path, b"second").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+        let names: Vec<String> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["secrets.vault".to_string()]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "only the owner reads the vault");
+        }
+    }
+
+    #[test]
+    fn set_aside_keeps_the_unreadable_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secrets.vault");
+        std::fs::write(&path, b"someone else's vault").unwrap();
+        set_aside(&path);
+        assert!(!path.exists());
+        let kept: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(kept.len(), 1);
+        let name = kept[0].file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with("secrets.vault.unreadable-"), "{name}");
+        assert_eq!(std::fs::read(&kept[0]).unwrap(), b"someone else's vault");
+        // A missing file is not an error.
+        set_aside(&dir.path().join("missing.vault"));
+    }
+
+    /// A vault whose names were all looked up among the keychain items
+    /// already, so `get`, `set` and `delete` never reach the OS keychain.
+    fn checked_vault(path: PathBuf, key: [u8; 32], names: &[&str]) -> Vault {
+        Vault {
+            path,
+            key,
+            values: BTreeMap::new(),
+            checked: names.iter().map(|n| n.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn vault_set_get_delete_round_trip_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secrets.vault");
+        let key = [5u8; 32];
+        let mut v = checked_vault(path.clone(), key, &["c1", "c2", "gone"]);
+
+        assert_eq!(v.get("c1").unwrap(), None);
+        v.set("c1", r#"{"password":"uno"}"#).unwrap();
+        v.set("c2", "dos").unwrap();
+        assert_eq!(
+            v.get("c1").unwrap().as_deref(),
+            Some(r#"{"password":"uno"}"#)
+        );
+        // The file is sealed: no plaintext on disk, and it opens with the key.
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("uno"));
+        let on_disk = open(&key, &bytes).unwrap();
+        assert_eq!(on_disk.len(), 2);
+        assert_eq!(on_disk["c2"], "dos");
+
+        // Deleting a missing name doesn't rewrite the file.
+        let before = std::fs::read(&path).unwrap();
+        v.delete("gone").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        v.delete("c1").unwrap();
+        assert_eq!(v.get("c1").unwrap(), None);
+        let on_disk = open(&key, &std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            on_disk,
+            BTreeMap::from([("c2".to_string(), "dos".to_string())])
+        );
+    }
+
+    #[test]
     fn each_write_uses_a_new_nonce() {
         let values = BTreeMap::from([("c1".to_string(), "x".to_string())]);
         assert_ne!(

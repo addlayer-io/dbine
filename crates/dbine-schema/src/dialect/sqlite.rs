@@ -366,4 +366,281 @@ mod tests {
             assert_eq!(ty(&r.native), L::int(b));
         }
     }
+
+    /// The native name and the worst note's severity (None: exact).
+    fn render(t: L) -> (String, Option<Severity>) {
+        let r = Sqlite.render_type(&t);
+        (r.native, r.notes.iter().map(|n| n.severity).max())
+    }
+
+    #[test]
+    fn renders_every_type_and_says_what_it_loses() {
+        use Severity::*;
+        let cases = [
+            (L::Bool, "BOOLEAN", None),
+            (
+                L::Int {
+                    bytes: 8,
+                    unsigned: true,
+                },
+                "NUMERIC",
+                Some(Loss),
+            ),
+            (
+                L::Int {
+                    bytes: 4,
+                    unsigned: true,
+                },
+                "BIGINT",
+                None,
+            ),
+            (
+                L::Decimal {
+                    precision: Some(10),
+                    scale: Some(2),
+                },
+                "NUMERIC(10, 2)",
+                Some(Loss),
+            ),
+            (
+                L::Decimal {
+                    precision: Some(9),
+                    scale: None,
+                },
+                "NUMERIC(9)",
+                None,
+            ),
+            (
+                L::Decimal {
+                    precision: None,
+                    scale: None,
+                },
+                "NUMERIC",
+                Some(Loss),
+            ),
+            (L::Float { bytes: 4 }, "REAL", None),
+            (L::Money, "NUMERIC", Some(Loss)),
+            (
+                L::Char {
+                    len: None,
+                    unicode: false,
+                },
+                "CHAR",
+                None,
+            ),
+            (
+                L::Char {
+                    len: Some(2),
+                    unicode: false,
+                },
+                "CHAR(2)",
+                None,
+            ),
+            (
+                L::Varchar {
+                    len: Some(9),
+                    unicode: true,
+                },
+                "VARCHAR(9)",
+                None,
+            ),
+            (
+                L::Varchar {
+                    len: None,
+                    unicode: true,
+                },
+                "TEXT",
+                None,
+            ),
+            (L::Varbinary { len: Some(4) }, "BLOB", None),
+            (L::Bit { len: Some(8) }, "BLOB", Some(Warning)),
+            (L::Date, "DATE", None),
+            (
+                L::Time {
+                    precision: None,
+                    tz: false,
+                },
+                "TIME",
+                None,
+            ),
+            (
+                L::Time {
+                    precision: None,
+                    tz: true,
+                },
+                "TIME",
+                Some(Loss),
+            ),
+            (
+                L::Timestamp {
+                    precision: Some(3),
+                    tz: true,
+                },
+                "DATETIME",
+                Some(Loss),
+            ),
+            (L::Interval, "TEXT", Some(Warning)),
+            (L::Year, "INTEGER", None),
+            (L::Uuid, "TEXT", Some(Info)),
+            (L::Json { binary: true }, "TEXT", Some(Info)),
+            (L::Xml, "TEXT", None),
+            (
+                L::Set {
+                    values: vec!["a".into(), "b".into()],
+                },
+                "TEXT",
+                Some(Warning),
+            ),
+            (
+                L::Map {
+                    key: Box::new(L::Uuid),
+                    value: Box::new(L::Bool),
+                },
+                "TEXT",
+                Some(Warning),
+            ),
+            (
+                L::Geometry {
+                    kind: None,
+                    srid: None,
+                    geography: false,
+                },
+                "BLOB",
+                Some(Warning),
+            ),
+            (L::MacAddr, "TEXT", None),
+            (L::RowVersion, "BLOB", Some(Warning)),
+            (
+                L::Other {
+                    native: "STRING".into(),
+                },
+                "STRING",
+                None,
+            ),
+        ];
+        for (t, native, worst) in cases {
+            let got = render(t.clone());
+            assert_eq!(got, (native.to_string(), worst), "{t:?}");
+        }
+        // An enum's values are listed in its note.
+        let r = Sqlite.render_type(&L::Enum {
+            values: vec!["rojo".into(), "verde".into()],
+        });
+        assert!(r.notes[0].message.contains("rojo, verde"), "{:?}", r.notes);
+    }
+
+    #[test]
+    fn defaults_sqlite_can_compute() {
+        let uuid_text = Sqlite
+            .render_default(&DefaultValue::NewUuid, &L::Uuid)
+            .unwrap();
+        assert!(uuid_text.contains("randomblob"), "{uuid_text}");
+        assert_eq!(
+            Sqlite.render_default(
+                &DefaultValue::NewUuid,
+                &L::Varchar {
+                    len: Some(36),
+                    unicode: false
+                }
+            ),
+            Some(uuid_text)
+        );
+        assert_eq!(
+            Sqlite
+                .render_default(&DefaultValue::NewUuid, &L::Binary { len: Some(16) })
+                .as_deref(),
+            Some("(randomblob(16))")
+        );
+        // Too short to hold one: no default.
+        assert_eq!(
+            Sqlite.render_default(
+                &DefaultValue::NewUuid,
+                &L::Varchar {
+                    len: Some(10),
+                    unicode: false
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            Sqlite
+                .render_default(&DefaultValue::CurrentTimestamp, &L::Date)
+                .as_deref(),
+            Some("CURRENT_DATE")
+        );
+        assert_eq!(
+            Sqlite
+                .render_default(
+                    &DefaultValue::CurrentTimestamp,
+                    &L::Time {
+                        precision: None,
+                        tz: false
+                    }
+                )
+                .as_deref(),
+            Some("CURRENT_TIME")
+        );
+        assert_eq!(
+            Sqlite
+                .render_default(
+                    &DefaultValue::CurrentTimestamp,
+                    &L::Timestamp {
+                        precision: None,
+                        tz: false
+                    }
+                )
+                .as_deref(),
+            Some("CURRENT_TIMESTAMP")
+        );
+        let caps = Sqlite.caps();
+        assert!(caps.partial_indexes && !caps.supports_include && !caps.comments);
+    }
+
+    fn table(cols: &[(&str, &str, bool)], pk: &[&str]) -> TableSchema {
+        TableSchema {
+            name: "t".into(),
+            columns: cols
+                .iter()
+                .map(|(n, t, auto)| dbine_driver::ColumnDef {
+                    name: n.to_string(),
+                    data_type: t.to_string(),
+                    auto_increment: *auto,
+                    ..Default::default()
+                })
+                .collect(),
+            primary_key: (!pk.is_empty()).then(|| dbine_driver::KeyDef {
+                name: None,
+                columns: pk.iter().map(|s| s.to_string()).collect(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn only_an_integer_key_of_one_column_auto_increments() {
+        // A key of a whole-number type: INTEGER, quietly.
+        let mut t = table(&[("id", "BIGINT", true)], &["id"]);
+        let mut report = crate::issue::Report::default();
+        Sqlite.finalize(&mut t, &mut report);
+        assert_eq!(t.columns[0].data_type, "INTEGER");
+        assert!(t.columns[0].auto_increment);
+        assert!(report.issues.is_empty());
+        // Unsigned or wider than 8 bytes: INTEGER, with the range noted.
+        let mut t = table(&[("id", "NUMERIC(38)", true)], &["id"]);
+        Sqlite.finalize(&mut t, &mut report);
+        assert_eq!(t.columns[0].data_type, "INTEGER");
+        assert_eq!(report.issues.len(), 1);
+        assert_eq!(report.issues[0].code, IssueCode::RangeLoss);
+        // Not the key, a key of two columns, or not a whole number: dropped.
+        for mut t in [
+            table(&[("id", "INT", true), ("k", "INT", false)], &["k"]),
+            table(&[("id", "INT", true), ("k", "INT", false)], &["id", "k"]),
+            table(&[("id", "NUMERIC(10, 2)", true)], &["id"]),
+        ] {
+            let mut report = crate::issue::Report::default();
+            Sqlite.finalize(&mut t, &mut report);
+            assert!(!t.columns[0].auto_increment);
+            assert_eq!(report.issues[0].code, IssueCode::AutoIncrementDropped);
+        }
+    }
 }

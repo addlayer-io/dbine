@@ -15,6 +15,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod security;
+mod tls_http;
 mod transfer;
 mod v1;
 mod v2;

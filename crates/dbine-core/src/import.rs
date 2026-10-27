@@ -547,4 +547,213 @@ mod tests {
         assert_eq!(pv.rows[0], vec![json!(7), json!("Ana")]);
         assert_eq!(pv.sheets, ["Resultado"]);
     }
+
+    #[test]
+    fn detect_by_extension_unless_explicit() {
+        let f = |name: &str| detect(Path::new(name), ImportFormat::Auto);
+        assert_eq!(f("a.TSV"), ImportFormat::Tsv);
+        assert_eq!(f("a.tab"), ImportFormat::Tsv);
+        assert_eq!(f("a.ndjson"), ImportFormat::JsonLines);
+        assert_eq!(f("a.ods"), ImportFormat::Xlsx);
+        assert_eq!(f("a.xml"), ImportFormat::Xml);
+        assert_eq!(f("a.txt"), ImportFormat::Csv);
+        assert_eq!(f("noext"), ImportFormat::Csv);
+        assert_eq!(
+            detect(Path::new("a.json"), ImportFormat::Csv),
+            ImportFormat::Csv
+        );
+    }
+
+    #[test]
+    fn typed_keeps_codes_as_text() {
+        assert_eq!(typed("  "), Value::Null);
+        assert_eq!(typed("0"), json!(0));
+        assert_eq!(typed("-12"), json!(-12));
+        // Leading zeros are codes, not numbers.
+        assert_eq!(typed("-007"), json!("-007"));
+        assert_eq!(typed("007"), json!("007"));
+        assert_eq!(typed("-3.25"), json!(-3.25));
+        // No digit before the point, or no point at all: text.
+        assert_eq!(typed(".5"), json!(".5"));
+        assert_eq!(typed("1e5"), json!("1e5"));
+        assert_eq!(typed("TRUE"), json!(true));
+        assert_eq!(typed("False"), json!(false));
+        // Text keeps its original spacing.
+        assert_eq!(typed(" Ana "), json!(" Ana "));
+    }
+
+    #[test]
+    fn infer_type_ignores_nulls_and_mixes_to_text() {
+        let t = |v: &[Value]| infer_type(&v.iter().collect::<Vec<_>>());
+        assert_eq!(t(&[]), "text");
+        assert_eq!(t(&[Value::Null, Value::Null]), "text");
+        assert_eq!(t(&[json!(1), Value::Null, json!(2)]), "integer");
+        assert_eq!(t(&[json!(1), json!(2.5)]), "number");
+        assert_eq!(
+            t(&[
+                json!("2026-01-31 10:00:00"),
+                json!("2026-01-31T10:00:00"),
+                json!("2026-01-31T10:00:00+02:00")
+            ]),
+            "datetime"
+        );
+        assert_eq!(t(&[json!("2026-01-31"), json!("2026-02-30")]), "text");
+        assert_eq!(t(&[json!(true), json!(1)]), "text");
+    }
+
+    #[test]
+    fn csv_without_header_pads_and_truncates_rows() {
+        let (_d, p) = file("a.csv", b"1,a\n2,b,extra\n3\n");
+        let opts = ImportOptions {
+            header: false,
+            ..Default::default()
+        };
+        let r = open(&p, ImportFormat::Auto, &opts).unwrap();
+        assert_eq!(r.columns, ["columna1", "columna2"]);
+        let rows: Vec<_> = r.collect::<io::Result<_>>().unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                vec![json!(1), json!("a")],
+                vec![json!(2), json!("b")],
+                vec![json!(3), Value::Null],
+            ]
+        );
+    }
+
+    #[test]
+    fn csv_delimiters_explicit_tsv_and_sniffed_tabs() {
+        let (_d, p) = file("a.csv", b"a|b\n1|2\n");
+        let opts = ImportOptions {
+            delimiter: "|".into(),
+            ..Default::default()
+        };
+        let r = open(&p, ImportFormat::Csv, &opts).unwrap();
+        assert_eq!(r.columns, ["a", "b"]);
+        let (_d2, p2) = file("a.tsv", b"a\tb,c\n1\t2,3\n");
+        let rows: Vec<_> = open(&p2, ImportFormat::Auto, &ImportOptions::default())
+            .unwrap()
+            .collect::<io::Result<_>>()
+            .unwrap();
+        assert_eq!(rows, vec![vec![json!(1), json!("2,3")]]);
+        let (_d3, p3) = file("a.txt", b"a\tb\tc\n1\t2\t3\n");
+        let r = open(&p3, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(r.columns, ["a", "b", "c"]);
+        let (_d4, p4) = file("s.csv", b"a;b\n1;2\n");
+        let r = open(&p4, ImportFormat::CsvSemicolon, &ImportOptions::default()).unwrap();
+        assert_eq!(r.columns, ["a", "b"]);
+        // An empty file has no columns and no rows.
+        let (_d5, p5) = file("e.csv", b"");
+        let r = open(&p5, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert!(r.columns.is_empty());
+        assert_eq!(r.count(), 0);
+    }
+
+    #[test]
+    fn json_shapes_wrapped_and_scalar() {
+        let (_d, p) = file("w.json", br#"{"meta":{"n":2},"rows":[{"a":1},{"a":2}]}"#);
+        let r = open(&p, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(r.columns, ["a"]);
+        assert_eq!(r.count(), 2);
+        let (_d2, p2) = file("s.json", b"[1, \"x\", {\"a\": null}]");
+        let r = open(&p2, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(r.columns, ["valor", "a"]);
+        let rows: Vec<_> = r.collect::<io::Result<_>>().unwrap();
+        assert_eq!(rows[0], vec![json!(1), Value::Null]);
+        assert_eq!(rows[2], vec![Value::Null, Value::Null]);
+        let (_d3, p3) = file("one.json", b"42");
+        let r = open(&p3, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(r.columns, ["valor"]);
+        // An object without arrays has no rows.
+        let (_d4, p4) = file("o.json", br#"{"a":1}"#);
+        let r = open(&p4, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(r.count(), 0);
+        let (_d5, p5) = file("bad.json", b"[1,");
+        let err = open(&p5, ImportFormat::Auto, &ImportOptions::default()).err();
+        assert_eq!(err.map(|e| e.kind()), Some(io::ErrorKind::InvalidData));
+    }
+
+    #[test]
+    fn json_lines_scalars_and_bad_lines() {
+        let (_d, p) = file("a.jsonl", b"7\n{\"b\":1}\n");
+        let r = open(&p, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(r.columns, ["valor", "b"]);
+        let (_d2, p2) = file("b.jsonl", b"{\"a\":1}\nnot json\n");
+        let err = open(&p2, ImportFormat::Auto, &ImportOptions::default()).err();
+        assert_eq!(err.map(|e| e.kind()), Some(io::ErrorKind::InvalidData));
+    }
+
+    #[test]
+    fn xml_attributes_are_fields_and_bad_xml_fails() {
+        let (_d, p) = file(
+            "a.xml",
+            br#"<rows><row id="1"><n>ana</n></row><row id="2" extra="x"/></rows>"#,
+        );
+        let r = open(&p, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(r.columns, ["id", "n", "extra"]);
+        let rows: Vec<_> = r.collect::<io::Result<_>>().unwrap();
+        assert_eq!(rows[1], vec![json!(2), Value::Null, json!("x")]);
+        let (_d2, p2) = file("b.xml", b"<rows><row>");
+        let err = open(&p2, ImportFormat::Auto, &ImportOptions::default()).err();
+        assert_eq!(err.map(|e| e.kind()), Some(io::ErrorKind::InvalidData));
+    }
+
+    #[test]
+    fn xlsx_without_header_and_a_missing_sheet() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("a.xlsx");
+        let cols = vec![dbine_driver::ResultColumn {
+            name: "n".into(),
+            type_name: "int".into(),
+        }];
+        crate::export::export_rows(
+            &p,
+            crate::export::ExportOptions {
+                format: crate::export::Format::Xlsx,
+                ..Default::default()
+            },
+            &cols,
+            &[vec![json!(1)], vec![json!(2.5)]],
+        )
+        .unwrap();
+        let opts = ImportOptions {
+            header: false,
+            ..Default::default()
+        };
+        let r = open(&p, ImportFormat::Auto, &opts).unwrap();
+        assert_eq!(r.columns, ["columna1"]);
+        let rows: Vec<_> = r.collect::<io::Result<_>>().unwrap();
+        // The header row is data now; whole floats come back as integers.
+        assert_eq!(
+            rows,
+            vec![vec![json!("n")], vec![json!(1)], vec![json!(2.5)]]
+        );
+        let opts = ImportOptions {
+            sheet: Some("Otra".into()),
+            ..Default::default()
+        };
+        assert!(open(&p, ImportFormat::Auto, &opts).is_err());
+    }
+
+    #[test]
+    fn preview_limits_rows_but_infers_from_more() {
+        let mut csv = String::from("n\n");
+        for i in 0..10 {
+            csv.push_str(&format!("{i}\n"));
+        }
+        csv.push_str("x\n");
+        let (_d, p) = file("a.csv", csv.as_bytes());
+        let pv = preview(&p, ImportFormat::Auto, &ImportOptions::default(), 3).unwrap();
+        assert_eq!(pv.rows.len(), 3);
+        // The text value past the shown rows still makes the column text.
+        assert_eq!(pv.columns[0].inferred_type, "text");
+        assert_eq!(pv.format, ImportFormat::Csv);
+        assert!(preview(
+            Path::new("/nonexistent/a.csv"),
+            ImportFormat::Auto,
+            &ImportOptions::default(),
+            3
+        )
+        .is_err());
+    }
 }

@@ -1,7 +1,7 @@
 {
   "title": "Importa connessioni",
   "source": {
-    "ssmsHint": "Server registrati o un .regsrvr esportato",
+    "ssmsHint": "Server registrati, la cronologia delle connessioni (UserSettings.xml) o un .regsrvr esportato",
     "pasteUrls": "Incolla URL",
     "found": "Trovato su questo computer",
     "notFound": "Non trovato: scegli la posizione"

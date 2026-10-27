@@ -57,3 +57,29 @@ pub const BACKUP_FILE: &str = "dbine-backup.json";
 /// The backup that was there before this machine overwrote another
 /// machine's changes.
 pub const PREVIOUS_FILE: &str = "dbine-backup.previous.json";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errors_say_where_they_come_from() {
+        let e: SyncError = serde_json::from_str::<serde_json::Value>("{")
+            .unwrap_err()
+            .into();
+        assert!(matches!(e, SyncError::Format(_)));
+        let e: SyncError =
+            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied").into();
+        assert!(matches!(&e, SyncError::Local(m) if m == "denied"));
+        let e: SyncError = dbine_core::Error::Secrets("no keychain".into()).into();
+        assert!(matches!(&e, SyncError::Local(m) if m.contains("no keychain")));
+        assert_eq!(
+            SyncError::AuthRequired("Google Drive".into()).to_string(),
+            "la sesión con Google Drive venció o fue revocada: volvé a conectar la cuenta"
+        );
+        assert_eq!(SyncError::Cancelled.to_string(), "se canceló");
+        assert!(SyncError::WrongPassphrase
+            .to_string()
+            .contains("frase clave"));
+    }
+}
