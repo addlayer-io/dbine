@@ -1747,6 +1747,7 @@ async function runSync() {
           <el-select
             v-if="hasDatabases(sides[s].connectionId)" v-model="sides[s].database" class="cv-db" size="small" filterable allow-create default-first-option
             :loading="connecting(sides[s].connectionId)" :disabled="connecting(sides[s].connectionId)" :placeholder="$t('compare:database')"
+            @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(sides[s].connectionId)"
           >
             <el-option v-for="d in dbsOf(sides[s].connectionId)" :key="d" :label="d" :value="d" />
           </el-select>

@@ -329,7 +329,7 @@ async function copy() {
           <el-select v-model="target.connectionId" filterable size="small" class="sv-col" :placeholder="$t('subset:connection')">
             <el-option v-for="c in conns.list" :key="c.id" :label="c.name" :value="c.id" :disabled="c.config.read_only" />
           </el-select>
-          <el-select v-if="targetDbs.length" v-model="target.database" filterable size="small" class="sv-col">
+          <el-select v-if="targetDbs.length" v-model="target.database" filterable size="small" class="sv-col" @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(target.connectionId)">
             <el-option v-for="d in targetDbs" :key="d" :label="d" :value="d" />
           </el-select>
         </div>

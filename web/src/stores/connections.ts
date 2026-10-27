@@ -97,6 +97,9 @@ function failedLoad<T>(error: string): Loadable<T[]> {
   return { status: 'error', items: [], error };
 }
 
+/** When each connection's database list was last read again (`refreshDatabasesSoon`). */
+const lastDatabasesRead = new Map<string, number>();
+const DATABASES_REREAD_MS = 3000;
 export const dbKey = (connectionId: string, database: string) => `${connectionId}\u0000${database}`;
 export const objKey = (connectionId: string, database: string, schema: string | null, name: string) =>
   `${connectionId}\u0000${database}\u0000${schema ?? ''}\u0000${name}`;
@@ -380,6 +383,17 @@ export const useConnectionsStore = defineStore('connections', {
       const live = this.live[id];
       if (!live) return;
       live.databases = await api.listDatabases(id);
+    },
+
+    /** The database list read again when a picker opens, so one created
+     *  outside DBine's menus (a `CREATE DATABASE` in a query, another tool)
+     *  shows up: at most every few seconds, quietly, connected only. */
+    refreshDatabasesSoon(id: string) {
+      if (!id || this.live[id]?.status !== 'connected') return;
+      const now = Date.now();
+      if (now - (lastDatabasesRead.get(id) ?? 0) < DATABASES_REREAD_MS) return;
+      lastDatabasesRead.set(id, now);
+      void this.refreshDatabases(id).catch(() => {});
     },
 
     /** A load failed: with a connection error (kind "connect"), the

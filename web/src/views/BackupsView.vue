@@ -678,7 +678,7 @@ function cancelScript() {
     <el-dialog v-model="restoreCopy.open" :title="$t('backups:restoreCopy.title')" width="560px" append-to-body :close-on-click-modal="!restoreCopy.running" :show-close="!restoreCopy.running" @close="restoreCopy.running && sendToBackground(restoreTask)">
       <el-form label-position="top">
         <el-form-item :label="$t('backups:restoreCopy.into')">
-          <el-select v-model="restoreCopy.database" filterable allow-create :disabled="restoreCopy.running" style="width: 100%">
+          <el-select v-model="restoreCopy.database" filterable allow-create :disabled="restoreCopy.running" style="width: 100%" @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(props.tab.connectionId)">
             <el-option v-for="d in databases" :key="d" :label="d" :value="d" />
           </el-select>
         </el-form-item>
@@ -707,7 +707,7 @@ function cancelScript() {
             <el-input v-model="form.source" :placeholder="$t('backups:native.sourceHint')" />
           </el-form-item>
           <el-form-item v-if="!serverView || databases.length" :label="$t('backups:native.into')">
-            <el-select v-model="form.database" filterable allow-create clearable style="width: 100%">
+            <el-select v-model="form.database" filterable allow-create clearable style="width: 100%" @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(props.tab.connectionId)">
               <el-option v-for="d in databases" :key="d" :label="d" :value="d" />
             </el-select>
           </el-form-item>

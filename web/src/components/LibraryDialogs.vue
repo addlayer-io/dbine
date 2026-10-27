@@ -226,7 +226,7 @@ async function finish() {
               <span>{{ c.name }}</span><span class="ld-opt-detail">{{ conns.driverOf(c.id)?.name }}</span>
             </el-option>
           </el-select>
-          <el-select v-if="targetDbs.length" v-model="target.database" filterable :placeholder="$t('library:dialogs.db')" class="ld-db">
+          <el-select v-if="targetDbs.length" v-model="target.database" filterable :placeholder="$t('library:dialogs.db')" class="ld-db" @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(target.connectionId)">
             <el-option v-for="d in targetDbs" :key="d" :label="d" :value="d" />
           </el-select>
         </div>

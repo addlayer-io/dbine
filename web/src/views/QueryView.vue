@@ -91,7 +91,12 @@ const databases = computed(() => {
 const loadingDatabases = ref(false);
 /** Opening the database picker connects (if needed) and loads the rest. */
 async function loadDatabases() {
-  if (unbound.value || conns.live[props.tab.connectionId]?.databases?.length) return;
+  if (unbound.value) return;
+  // Already listed: read again, so a database created since shows up.
+  if (conns.live[props.tab.connectionId]?.databases?.length) {
+    conns.refreshDatabasesSoon(props.tab.connectionId);
+    return;
+  }
   loadingDatabases.value = true;
   try { await ensureConnection(); } finally { loadingDatabases.value = false; }
 }
@@ -171,6 +176,10 @@ async function followDatabase(db: string | null | undefined) {
   await doc.followDatabase(db);
   conns.loadObjects(props.tab.connectionId, db);
 }
+
+/** Statements that change the server's list of databases (keyspaces in
+ *  CQL, schemas where those are the databases, as in Oracle's users). */
+const CHANGES_DATABASES = /\b(?:create|drop|alter|rename)\s+(?:database|schema|keyspace|user)\b/i;
 
 // -- completion schema ------------------------------------------------------------
 type DbObject = NonNullable<(typeof conns.objects)[string]>['items'][number];
@@ -665,6 +674,9 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean)
       }
       txState.value = o.transaction ?? null;
       await followDatabase(o.database);
+      // A database created, dropped or renamed here: the explorer and the
+      // pickers list it right away.
+      if (CHANGES_DATABASES.test(script)) void conns.refreshDatabases(props.tab.connectionId).catch(() => {});
       const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
       if (o.error) output.add('error', `${firstLine}\n${tb(o.error)}`, { where, elapsedMs: o.elapsed_ms });
       else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });

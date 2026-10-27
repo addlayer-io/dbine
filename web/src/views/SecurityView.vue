@@ -539,7 +539,7 @@ function submitAddRole() {
           <el-select v-if="grant.scope === 'schema'" v-model="grant.object" size="small" filterable allow-create style="width: 200px">
             <el-option v-for="s in schemas" :key="s" :label="s" :value="s" />
           </el-select>
-          <el-select v-else-if="grant.scope === 'database'" v-model="grant.object" size="small" filterable allow-create style="width: 200px">
+          <el-select v-else-if="grant.scope === 'database'" v-model="grant.object" size="small" filterable allow-create style="width: 200px" @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(props.tab.connectionId)">
             <el-option v-for="d in databases" :key="d" :label="d" :value="d" />
           </el-select>
           <el-select v-else-if="grant.scope" v-model="grant.object" size="small" filterable style="width: 240px">

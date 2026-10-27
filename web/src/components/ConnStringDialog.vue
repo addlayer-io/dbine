@@ -196,7 +196,7 @@ const blockedText = computed(() => (blocked.value ? t(`connString:blocked.${bloc
       <p class="cs-sub">{{ conn?.name }}</p>
       <el-form label-position="left" label-width="150px" class="cs-form" @submit.prevent>
         <el-form-item v-if="usesDatabase" :label="$t('connString:database')">
-          <el-select v-model="database" filterable allow-create default-first-option :placeholder="$t('connString:databaseDefault')" style="width: 100%">
+          <el-select v-model="database" filterable allow-create default-first-option :placeholder="$t('connString:databaseDefault')" style="width: 100%" @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(id ?? '')">
             <el-option v-for="d in databases" :key="d" :label="d" :value="d" />
           </el-select>
         </el-form-item>

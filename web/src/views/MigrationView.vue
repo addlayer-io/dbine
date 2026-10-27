@@ -803,7 +803,7 @@ function saveScript() {
           </el-select>
           <template v-if="targetConnection && targetDbChoices.length">
             <label>{{ targetInfo?.databases_label ? tb(targetInfo.databases_label) : $t('migration:target.database') }}</label>
-            <el-select v-model="targetDatabase" filterable style="width: 100%" @visible-change="(open: boolean) => open && !targetDbs.length && conns.ensureConnected(targetConnection)">
+            <el-select v-model="targetDatabase" filterable style="width: 100%" @visible-change="(open: boolean) => open && (targetDbs.length ? conns.refreshDatabasesSoon(targetConnection) : conns.ensureConnected(targetConnection))">
               <el-option v-for="d in targetDbChoices" :key="d" :label="d" :value="d" />
             </el-select>
           </template>

@@ -579,6 +579,7 @@ watch(() => result.value?.id, () => {
         <el-select
           v-if="hasDatabases(p)" v-model="p.database" filterable allow-create default-first-option size="small" class="dc-db"
           :loading="connecting(p)" :disabled="connecting(p)"
+          @visible-change="(open: boolean) => open && conns.refreshDatabasesSoon(p.connectionId)"
         >
           <el-option v-for="d in dbsOf(p)" :key="d" :label="d" :value="d" />
         </el-select>

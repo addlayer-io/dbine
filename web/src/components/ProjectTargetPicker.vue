@@ -34,7 +34,12 @@ const databases = computed(() => {
 });
 
 async function loadDatabases() {
-  if (!connectionId.value || conns.live[connectionId.value]?.databases?.length) return;
+  if (!connectionId.value) return;
+  // Already listed: read again, so a database created since shows up.
+  if (conns.live[connectionId.value]?.databases?.length) {
+    conns.refreshDatabasesSoon(connectionId.value);
+    return;
+  }
   loading.value = true;
   try { await ensureConnectedOrTell(connectionId.value); } finally { loading.value = false; }
   if (!hasDatabases.value && !database.value) database.value = conns.live[connectionId.value]?.databases[0] ?? '';
