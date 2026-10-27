@@ -1,0 +1,85 @@
+{
+  "couldNotConnect": "Tidak dapat terhubung.",
+  "connection": "Koneksi",
+  "thisEngine": "Mesin ini",
+  "unsupported": "{{engine}} tidak memungkinkan melihat kueri dari klien lain.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2,5s",
+    "text": "berisi… · !tidak berisi · =sama dengan",
+    "database": "berisi… · !tidak berisi"
+  },
+  "menu": {
+    "filter": {
+      "user": "Saring menurut pengguna «{{value}}»",
+      "client": "Saring menurut klien «{{value}}»",
+      "application": "Saring menurut aplikasi «{{value}}»",
+      "database": "Saring menurut basis data «{{value}}»"
+    },
+    "filterSame": "Saring yang sama dengan kueri ini",
+    "copy": "Salin kueri"
+  },
+  "openInQuery": "Buka di kueri",
+  "column": {
+    "time": "Waktu",
+    "duration": "Durasi",
+    "query": "Kueri",
+    "database": "Basis data",
+    "user": "Pengguna",
+    "client": "Klien",
+    "application": "Aplikasi",
+    "rows": "Baris",
+    "cpu": "CPU",
+    "reads": "Pembacaan",
+    "writes": "Penulisan"
+  },
+  "columns": "Kolom",
+  "columnsHint": "Tampilkan atau sembunyikan kolom",
+  "showAll": "Tampilkan semua",
+  "status": {
+    "starting": "Memulai…",
+    "capturing": "Menangkap",
+    "stopped": "Dihentikan",
+    "notStarted": "Belum dimulai"
+  },
+  "source": "Sumber: {{source}}",
+  "mode": {
+    "complete": "Penangkapan lengkap",
+    "sampled": "Pengambilan sampel"
+  },
+  "clearFilters": "Hapus filter",
+  "resume": "Lanjutkan",
+  "sampledNote": "Mesin ini hanya menampilkan apa yang sedang berjalan: kueri yang kurang dari ~100 ms mungkin tidak muncul.",
+  "enabled": "{{source}} diaktifkan di server.",
+  "disabled": "{{source}} dinonaktifkan.",
+  "stats": {
+    "title": "Kueri ini",
+    "runs_other": "{n} eksekusi",
+    "avg": "rata-rata",
+    "min": "min",
+    "max": "maks"
+  },
+  "filtersHint": "Hanya kueri yang lolos filter yang disimpan",
+  "sameAs": "Sama dengan: {{label}}",
+  "removeFilter": "Hapus filter ini",
+  "noneYet": "Belum ada yang muncul",
+  "noValues": "Tanpa nilai",
+  "empty": {
+    "noMatch": "Tidak ada kueri yang cocok.",
+    "waitingFiltered": "Menunggu kueri yang lolos filter…",
+    "waiting": "Menunggu kueri…",
+    "none": "Tidak ada kueri yang ditangkap."
+  },
+  "dragHint": "Seret untuk mengubah tinggi",
+  "detail": {
+    "rows_other": "{{n}} baris"
+  },
+  "foot": {
+    "queries_other": "{{n}} kueri",
+    "passing": "{{n}} lolos filter",
+    "skipped": "{{n}} dibuang oleh filter",
+    "dropped": "{{n}} terlama dibuang ({{max}} terakhir disimpan)",
+    "arrivalOrder": "Kembali ke urutan kedatangan",
+    "toEnd": "Ke akhir"
+  },
+  "unitHint": "Dalam {{unit}}"
+}

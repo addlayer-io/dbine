@@ -1,0 +1,52 @@
+{
+  "app": {
+    "about": "Tentang DBine",
+    "settings": "Pengaturan…",
+    "services": "Layanan",
+    "hide": "Sembunyikan DBine",
+    "hideOthers": "Sembunyikan yang lain",
+    "showAll": "Tampilkan semua",
+    "quit": "Keluar dari DBine"
+  },
+  "file": {
+    "title": "Berkas",
+    "newConnection": "Koneksi baru",
+    "newQuery": "Kueri baru",
+    "newNotebook": "Notebook baru",
+    "newWindow": "Jendela baru",
+    "closeTab": "Tutup tab",
+    "open": "Buka berkas…"
+  },
+  "edit": {
+    "title": "Edit",
+    "undo": "Urungkan",
+    "redo": "Ulangi",
+    "cut": "Potong",
+    "copy": "Salin",
+    "paste": "Tempel",
+    "selectAll": "Pilih semua"
+  },
+  "view": {
+    "title": "Tampilan",
+    "explorer": "Penjelajah",
+    "output": "Keluaran",
+    "ai": "Asisten AI",
+    "fullscreen": "Layar penuh"
+  },
+  "window": {
+    "title": "Jendela",
+    "minimize": "Minimalkan",
+    "zoom": "Zoom"
+  },
+  "help": {
+    "title": "Bantuan",
+    "checkUpdates": "Periksa pembaruan…",
+    "support": "Dukung proyek ini"
+  },
+  "palette": {
+    "open": "Palet perintah…"
+  },
+  "goto": {
+    "open": "Buka ke…"
+  }
+}

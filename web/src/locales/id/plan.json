@@ -1,0 +1,57 @@
+{
+  "query": "Kueri {{n}}",
+  "actualPlan": "Rencana aktual",
+  "estimatedPlan": "Rencana perkiraan",
+  "diagram": "Diagram",
+  "rawPlan": "Rencana asli",
+  "statementTitle": "Klik untuk melihat lengkap",
+  "hint": "Seret untuk berpindah · ⌘/pinch + roda untuk zoom · F menyesuaikan",
+  "summary": {
+    "operators": "Operator",
+    "cost": "Biaya",
+    "time": "Waktu",
+    "rows": "Baris",
+    "firstWarning": "Ke peringatan pertama",
+    "warnings_other": "{{count}} peringatan"
+  },
+  "edge": {
+    "actualRows": "Baris aktual: {{rows}}",
+    "estimatedRows": "Baris perkiraan: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Biaya operator: {{pct}}%",
+    "noCost": "Tanpa biaya",
+    "actualEstimatedRows": "Baris aktual / perkiraan",
+    "estimatedRows": "Baris perkiraan",
+    "estimatedShort": "{{rows}} perk.",
+    "expand_other": "Perluas ({{count}} operator)",
+    "collapse": "Ciutkan"
+  },
+  "zoom": {
+    "zoomOut": "Perkecil (−)",
+    "actualSize": "Ukuran sebenarnya (0)",
+    "zoomIn": "Perbesar (+)",
+    "fit": "Sesuaikan dengan tampilan (F)",
+    "expandAll": "Perluas semua",
+    "collapseBelow": "Ciutkan di bawah level ke-3",
+    "minimap": "Peta mini"
+  },
+  "props": {
+    "close": "Tutup (Esc)",
+    "operator": "Dari operator",
+    "self": "Sendiri",
+    "subtree": "Subpohon",
+    "rowsAndTime": "Baris dan waktu",
+    "estimatedPerExecution": "Perkiraan (per eksekusi)",
+    "actualTotal": "Aktual (total)",
+    "executions": "Eksekusi",
+    "actualTime": "Waktu aktual",
+    "object": "Objek",
+    "properties": "Properti"
+  },
+  "raw": {
+    "save": "Simpan…",
+    "sqlServerPlan": "Rencana SQL Server",
+    "ssmsHint": "Dibuka di SQL Server Management Studio (.sqlplan)"
+  }
+}

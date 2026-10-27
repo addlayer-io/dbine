@@ -1,0 +1,11 @@
+{
+  "right": "Pisahkan ke kanan",
+  "down": "Pisahkan ke bawah",
+  "moveLeft": "Pindahkan ke grup di kiri",
+  "moveRight": "Pindahkan ke grup di kanan",
+  "moveUp": "Pindahkan ke grup di atas",
+  "moveDown": "Pindahkan ke grup di bawah",
+  "button": "Pisahkan editor ({{key}}) · {{alt}}+klik: ke bawah",
+  "closeGroup": "Tutup grup",
+  "empty": "Grup kosong: tab berikutnya yang Anda buka akan terbuka di sini. Anda juga dapat menyeret tab ke tempat ini."
+}

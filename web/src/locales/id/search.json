@@ -1,0 +1,23 @@
+{
+  "menu": "Cari di basis data…",
+  "tab": "Cari",
+  "placeholder": "Teks yang dicari pada nama dan kode tampilan, prosedur, fungsi, trigger…",
+  "search": "Cari",
+  "names": "Nama",
+  "code": "Kode",
+  "caseSensitive": "Peka huruf besar/kecil",
+  "wholeWord": "Kata utuh",
+  "allKinds": "Semua tipe",
+  "starting": "Mencari…",
+  "progress": "Memeriksa {{done}} dari {{total}} objek",
+  "found_other": "{{count}} objek",
+  "scanned_other": "{{count}} definisi diperiksa",
+  "cancelled": "Dibatalkan: hasil sebagian",
+  "truncated": "Dipotong pada jumlah hasil maksimum",
+  "unreadable_other": "{{count}} objek tidak dapat dibaca",
+  "inName": "pada nama",
+  "lines_other": "{{count}} baris",
+  "none": "Tidak ada hasil.",
+  "column": "Kolom",
+  "columns": "Kolom"
+}

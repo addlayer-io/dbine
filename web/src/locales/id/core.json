@@ -1,0 +1,138 @@
+{
+  "actions": {
+    "createQueryFailed": "Tidak dapat membuat kueri: {{error}}",
+    "nameRequired": "Masukkan nama",
+    "create": "Buat",
+    "renameQuery": {
+      "prompt": "Nama kueri:",
+      "title": "Ganti nama"
+    },
+    "copyName": "{{name}} (salinan)",
+    "copyNameN": "{{name}} (salinan {{n}})",
+    "deleteQuery": {
+      "confirm": "Hapus kueri \"{{name}}\"? Tindakan ini tidak dapat dibatalkan.",
+      "title": "Hapus kueri"
+    },
+    "newObjectPrefix": "baru_",
+    "createDatabase": {
+      "prompt": "Nama basis data baru:",
+      "title": "Basis data baru",
+      "done": "Basis data «{{name}}» dibuat"
+    },
+    "dropObjects": {
+      "more": "{{list}} dan {{count}} lainnya",
+      "confirmOne": "Hapus «{{name}}» dari {{where}}? Dihapus beserta seluruh datanya dan tidak dapat dibatalkan.",
+      "confirmMany": "{{count}} objek akan dihapus dari {{where}}, beserta seluruh datanya: {{list}}.\n\nTidak dapat dibatalkan. Ketik «{{word}}» untuk mengonfirmasi:",
+      "titleMany": "Hapus {{count}} objek",
+      "word": "hapus",
+      "typeWord": "Ketik «{{word}}»",
+      "failed": "{{failed}} dari {{total}} tidak dapat dihapus",
+      "droppedOne": "«{{name}}» dihapus",
+      "droppedMany": "{{count}} objek dihapus"
+    },
+    "dropDatabase": {
+      "confirm": "Ini menghapus basis data «{{name}}» dari {{server}} beserta seluruh isinya. Tidak dapat dibatalkan.\n\nKetik nama basis data untuk mengonfirmasi:",
+      "title": "Hapus basis data",
+      "mismatch": "Nama tidak cocok",
+      "done": "Basis data «{{name}}» dihapus"
+    }
+  },
+  "files": {
+    "saved": "Tersimpan",
+    "saveFailed": "Tidak dapat menyimpan: {{error}}"
+  },
+  "format": {
+    "redis": "Perintah Redis ditulis satu per baris: tidak ada yang perlu diformat.",
+    "unavailable": "Belum ada pemformat untuk bahasa ini."
+  },
+  "copy": {
+    "withHeadersLabel": "Salin dengan header",
+    "withHeaders": "Dengan header",
+    "withoutHeadersLabel": "Salin tanpa header",
+    "withoutHeaders": "Tanpa header",
+    "headersOnlyLabel": "Salin header saja",
+    "headersOnly": "Header saja",
+    "as": "Salin sebagai {{format}}"
+  },
+  "export": {
+    "csvSemicolon": "CSV (dipisah titik koma)",
+    "csvExcel": "CSV untuk MS Excel",
+    "tsv": "TSV (dipisah tab)",
+    "defaultTable": "tabel",
+    "defaultSheet": "Hasil",
+    "defaultFile": "hasil"
+  },
+  "filter": {
+    "clear": "Hapus filter",
+    "values": "Filter beberapa nilai…",
+    "isNull": "Adalah NULL",
+    "notNull": "Bukan NULL",
+    "isTrue": "Bernilai benar",
+    "isFalse": "Bernilai salah",
+    "trueOrNull": "Benar atau NULL",
+    "falseOrNull": "Salah atau NULL",
+    "isEmpty": "Kosong",
+    "notEmpty": "Tidak kosong",
+    "eq": "Sama dengan…",
+    "ne": "Tidak sama dengan…",
+    "contains": "Mengandung…",
+    "notContains": "Tidak mengandung…",
+    "startsWith": "Diawali dengan…",
+    "endsWith": "Diakhiri dengan…",
+    "gt": "Lebih besar dari…",
+    "ge": "Lebih besar atau sama dengan…",
+    "lt": "Lebih kecil dari…",
+    "le": "Lebih kecil atau sama dengan…",
+    "sql": "Kondisi SQL…",
+    "sqlRight": "Kondisi SQL, sisi kanan…",
+    "describeTrueOrNull": "TRUE atau NULL",
+    "describeFalseOrNull": "FALSE atau NULL"
+  },
+  "gridEdit": {
+    "notFind": "kueri bukan find pada sebuah koleksi",
+    "engineCantEdit": "mesin ini tidak mengizinkan pengeditan hasil kueri: buka objek dari penjelajah",
+    "queryNotFound": "kueri yang menghasilkan hasil ini tidak ditemukan",
+    "usesWith": "kueri menggunakan WITH: edit dari tabel",
+    "combinesRows": "hasil menggabungkan atau mengelompokkan baris: hanya kueri pada satu tabel yang dapat diedit",
+    "noTable": "kueri tidak membaca dari tabel",
+    "tableUnknown": "tabel dalam kueri tidak dikenali",
+    "combinesTables": "hasil menggabungkan tabel: hanya kueri pada satu tabel yang dapat diedit",
+    "missingKey": "hasil tidak menyertakan kunci primer ({{columns}}): tambahkan ke SELECT agar dapat diedit",
+    "noPrimaryKey": "Tabel tidak memiliki kunci primer: WHERE memakai semua kolom (dapat memengaruhi lebih dari satu baris jika ada duplikat).",
+    "keyNotComparable": "kunci baris mencakup «{{column}}», dengan nilai biner atau panjang yang tidak dapat dibandingkan di WHERE",
+    "noComparableColumns": "tidak ada kolom baris yang dapat dibandingkan di WHERE: semuanya biner atau panjang",
+    "skippedColumns": "Kolom biner atau panjang ({{columns}}) tidak disertakan di WHERE."
+  },
+  "connections": {
+    "downloading": "Mengunduh {{component}}, hanya sekali ini… {{pct}} % ({{done}} dari {{total}} MB)",
+    "connected": "Terhubung: {{version}}",
+    "connectFailed": "Tidak dapat terhubung: {{error}}",
+    "password": "Kata sandi {{user}} di {{connection}}:",
+    "queryName": "Kueri {{n}}"
+  },
+  "ai": {
+    "stopped": "Dihentikan.",
+    "downloading": "mengunduh",
+    "starting": "memulai"
+  },
+  "families": {
+    "relational": "Relasional",
+    "analytical": "Analitik",
+    "document": "Dokumen",
+    "keyValue": "Kunci-nilai",
+    "wideColumn": "Kolom lebar",
+    "search": "Pencarian",
+    "timeSeries": "Deret waktu",
+    "streaming": "Streaming",
+    "graph": "Graf"
+  },
+  "openFiles": {
+    "failed": "Tidak dapat membuka «{{name}}»: {{error}}",
+    "opened": "Berkas dibuka: {{name}}",
+    "dialogTitle": "Buka berkas",
+    "filterName": "Basis data dan berkas data",
+    "saved": "«{{name}}» disimpan di koneksi Anda",
+    "dropTitle": "Lepaskan untuk membuka",
+    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON, atau Excel. Setiap berkas dibuka sebagai koneksi sementara."
+  }
+}

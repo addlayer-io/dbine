@@ -1,0 +1,44 @@
+{
+  "title": "Impor koneksi",
+  "source": {
+    "ssmsHint": "Server terdaftar atau berkas .regsrvr yang diekspor",
+    "pasteUrls": "Tempel URL",
+    "found": "Ditemukan di komputer ini",
+    "notFound": "Tidak ditemukan: pilih lokasinya"
+  },
+  "urlsPlaceholder": "Satu per baris: postgres://pengguna:sandi@host:5432/basisdata, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=basisdata;User Id=…, atau jalur berkas SQLite",
+  "read": "Baca",
+  "chooseFolder": "Pilih folder…",
+  "chooseFile": "Pilih berkas…",
+  "dialogFolder": "Folder koneksi",
+  "dialogFile": "Berkas koneksi",
+  "reading": "Membaca koneksi…",
+  "noneInText": "Tidak ada koneksi yang ditemukan di teks.",
+  "noneAtPath": "Tidak ada koneksi di lokasi itu.",
+  "columns": {
+    "name": "Nama",
+    "engine": "Mesin",
+    "server": "Server",
+    "user": "Pengguna"
+  },
+  "hasSecret": "Memiliki kata sandi tersimpan",
+  "inKeychain": "Kata sandi ada di keychain sistem: saat mengimpor, sistem dapat meminta izin untuk membacanya",
+  "existsTitle": "Sudah ada koneksi ke server yang sama: «{{name}}»",
+  "exists": "Sudah ada",
+  "passwords": "Impor kata sandi (disimpan di keychain sistem)",
+  "importN": "Impor {{n}}",
+  "imported_other": "{{count}} koneksi diimpor",
+  "failedTitle": "Tidak diimpor",
+  "gotIt": "Mengerti",
+  "suggestion": {
+    "title": "Bawa koneksi Anda?",
+    "found": "Kami menemukan koneksi dari alat lain di komputer ini:",
+    "count_other": "{{count}} koneksi",
+    "hintBefore": "Koneksi diimpor beserta folder dan kata sandinya, yang disimpan di keychain sistem. Jika tidak, Anda dapat melakukannya kapan saja dari tombol",
+    "hintAfter": "di Penjelajah.",
+    "notNow": "Nanti saja",
+    "viewAndImport": "Lihat dan impor…"
+  },
+  "importedWithFolders_other": "{{count}} koneksi diimpor dan $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_other": "{{count}} folder"
+}

@@ -1,0 +1,33 @@
+{
+  "menu": {
+    "undo": "Urungkan",
+    "redo": "Ulangi",
+    "cut": "Potong",
+    "copy": "Salin",
+    "paste": "Tempel",
+    "selectAll": "Pilih semua",
+    "runSelection": "Jalankan pilihan",
+    "runAll": "Jalankan semua",
+    "runStatement": "Jalankan pernyataan di kursor",
+    "planEstimated": "Rencana perkiraan",
+    "planActual": "Jalankan dengan rencana aktual",
+    "comment": "Komentari atau batalkan komentar",
+    "format": "Format",
+    "find": "Cari dan ganti",
+    "gotoLine": "Ke baris…",
+    "optimize": "Optimalkan kueri",
+    "problems": "Lihat masalah",
+    "goToDefinition": "Ke definisi",
+    "revealInExplorer": "Tampilkan di penjelajah",
+    "detectParams": "Minta parameter saat menjalankan",
+    "click": "klik"
+  },
+  "nav": {
+    "notFound": "Tidak ada tabel, view, atau rutin dengan nama itu di basis data tab ini.",
+    "notLoaded": "Objek basis data belum dimuat: hubungkan untuk menuju definisi."
+  },
+  "insertColumn": "Kolom {{n}} dari {{total}}: {{name}}",
+  "insertExtra": "Nilai {{n}}: daftar memiliki {{total}} kolom",
+  "pickFile": "Pilih berkas…",
+  "dataFiles": "Berkas data (CSV, Parquet, JSON, Excel)"
+}

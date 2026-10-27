@@ -1,0 +1,49 @@
+{
+  "action": "Jalankan di beberapa basis data…",
+  "actionTip": "Menjalankan kode (atau pilihan) di beberapa basis data pada koneksi ini dan menggabungkan hasilnya",
+  "dialog": {
+    "title": "Jalankan di beberapa basis data",
+    "intro": "Kode di editor (atau pilihan) dijalankan di setiap basis data yang dipilih, masing-masing dalam sesinya sendiri dan {{max}} sekaligus. Hasilnya digabungkan di panel hasil.",
+    "filter": "Saring basis data (mendukung *, misalnya *tenant-n*)",
+    "all": "Semua",
+    "none": "Tidak ada",
+    "count": "{{selected}} dari {{total}} basis data dipilih",
+    "shown": "{{shown}} terlihat",
+    "current": "saat ini",
+    "noMatch": "Tidak ada basis data yang cocok dengan filter.",
+    "loading": "Memuat basis data…",
+    "noDatabases": "Basis data pada koneksi tidak dapat dibaca.",
+    "readOnly": "Koneksi bersifat baca-saja: semua pernyataan selain pembacaan ditolak.",
+    "run_other": "Jalankan di {{count}} basis data",
+    "progress": "{{done}} dari {{total}} basis data selesai",
+    "close": "Tutup",
+    "empty": "Tidak ada kode untuk dijalankan."
+  },
+  "confirm": {
+    "title": "Konfirmasi perubahan di beberapa basis data",
+    "write_other": "Kode ini tidak hanya membaca (mengandung {{keyword}}). Kode akan dijalankan di {{count}} basis data dan dapat mengubah semuanya.",
+    "unknown_other": "Pada mesin ini tidak dapat diverifikasi bahwa kode hanya membaca. Kode akan dijalankan di {{count}} basis data dan dapat mengubah semuanya.",
+    "run_other": "Jalankan di {{count}} basis data"
+  },
+  "status": {
+    "pending": "Menunggu atau berjalan",
+    "ok": "Berhasil",
+    "error": "Kesalahan",
+    "cancelled": "Dibatalkan",
+    "skipped": "Tidak dijalankan"
+  },
+  "summary": {
+    "ok": "{{ok}} dari {{total}} basis data berhasil",
+    "error_other": "{{count}} dengan kesalahan",
+    "cancelled_other": "{{count}} dibatalkan",
+    "messages": "Lihat rincian per basis data di Pesan."
+  },
+  "results": {
+    "merged_other": "Hasil ({{count}} basis data)",
+    "bar": "Beberapa basis data: {{summary}}"
+  },
+  "task": {
+    "title_other": "Jalankan di {{count}} basis data pada {{connection}}",
+    "unit": "basis data"
+  }
+}

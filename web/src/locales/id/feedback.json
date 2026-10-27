@@ -1,0 +1,53 @@
+{
+  "button": "Kirim masukan",
+  "title": "Kirim masukan",
+  "lead": "Sarankan perbaikan, laporkan masalah, minta mesin baru, atau ajukan pertanyaan.",
+  "kindLabel": "Jenis masukan",
+  "kinds": {
+    "bug": {
+      "name": "Laporkan kesalahan",
+      "hint": "Ada yang tidak berfungsi seperti yang diharapkan",
+      "titlePlaceholder": "Mis.: Editor menutup saat mengekspor ke Excel",
+      "placeholder": "Apa yang Anda lakukan, apa yang diharapkan terjadi, dan apa yang terjadi. Jika ada pesan kesalahan, salin."
+    },
+    "enhancement": {
+      "name": "Sarankan perbaikan",
+      "hint": "Ide agar DBine lebih baik",
+      "titlePlaceholder": "Mis.: Dapat menyematkan kolom di grid hasil",
+      "placeholder": "Apa yang Anda ingin DBine lakukan dan bagaimana hal itu membantu Anda."
+    },
+    "driver-request": {
+      "name": "Minta mesin baru",
+      "hint": "Basis data yang belum didukung DBine",
+      "titlePlaceholder": "Mis.: Firebird 5",
+      "placeholder": "Bagaimana Anda menggunakan mesin ini dan apa yang pertama kali Anda perlukan: menjelajah, membuat kueri, mengedit data, migrasi…"
+    },
+    "question": {
+      "name": "Ajukan pertanyaan",
+      "hint": "Cara melakukan sesuatu di DBine",
+      "titlePlaceholder": "Mis.: Bagaimana cara membandingkan dua basis data?",
+      "placeholder": "Apa yang ingin Anda lakukan dan apa yang sudah dicoba."
+    }
+  },
+  "titleField": "Judul",
+  "engine": "Mesin",
+  "description": "Deskripsi",
+  "steps": "Langkah untuk mereproduksi",
+  "stepsPlaceholder": "1. Hubungkan ke…\n2. Buka…\n3. …",
+  "optional": "(opsional)",
+  "diagnostics": "Sertakan data diagnostik",
+  "diagnosticsNever": "Hanya ini yang disertakan. Tidak pernah server, pengguna, nama basis data atau koneksi, kueri, maupun kata sandi.",
+  "truncated": "Deskripsi terlalu panjang untuk dikirim utuh: akan dipotong. Anda dapat melengkapinya di GitHub sebelum membuat issue.",
+  "publicNote": "GitHub dibuka dengan semuanya terisi: Anda tinggal menekan «Create». Diperlukan akun GitHub. Issue bersifat publik: jangan sertakan data pribadi.",
+  "continue": "Lanjutkan di GitHub",
+  "openAgain": "Buka lagi",
+  "done": {
+    "title": "GitHub dibuka di peramban Anda.",
+    "text": "Tinjau yang terisi lalu tekan «Create» untuk memublikasikannya. Terima kasih telah membantu kami memperbaiki DBine!"
+  },
+  "needs": {
+    "title": "Judul harus memiliki setidaknya {{n}} karakter.",
+    "engine": "Tulis nama mesinnya.",
+    "description": "Deskripsi harus memiliki setidaknya {{n}} karakter."
+  }
+}

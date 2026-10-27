@@ -1,0 +1,64 @@
+{
+  "tab": "Data",
+  "menu": "Bandingkan data…",
+  "left": "Kiri",
+  "right": "Kanan",
+  "table": "Tabel",
+  "key": "Kunci (kunci primer)",
+  "compare": "Bandingkan",
+  "pickBoth": "Pilih satu tabel di setiap sisi.",
+  "same": "sama",
+  "changed": "berbeda",
+  "onlyLeft": "hanya di kiri",
+  "onlyRight": "hanya di kanan",
+  "syncRight": "Samakan kanan →",
+  "syncLeft": "← Samakan kiri",
+  "truncated": "{{limit}} baris pertama di setiap sisi dibandingkan: tabel memiliki lebih banyak.",
+  "duplicates_other": "{{count}} baris dengan kunci berulang dibandingkan hanya sekali.",
+  "onlyLeftColumns": "Kolom yang hanya ada di kiri (tidak dibandingkan): {{list}}",
+  "onlyRightColumns": "Kolom yang hanya ada di kanan (tidak dibandingkan): {{list}}",
+  "nothing": "Tidak ada baris di sini.",
+  "showingFirst": "{{shown}} pertama dari {{total}} ditampilkan; tombol «Semua» juga menandai yang tidak terlihat.",
+  "hint": "Pilih tabel di setiap sisi lalu tekan Bandingkan. Baris dibandingkan berdasarkan kunci primernya, meskipun berada di koneksi lain atau mesin lain.",
+  "syncTitle": "Terapkan perubahan yang dipilih",
+  "scriptSummary": "{{parts}}, dalam bahasa tujuan. Tinjau sebelum menjalankannya.",
+  "noChanges": "Tidak ada perubahan untuk diterapkan.",
+  "copied": "Tersalin",
+  "openInQuery": "Buka di kueri",
+  "run": "Jalankan",
+  "applied": "Perubahan diterapkan",
+  "scriptName": "Sinkronkan data",
+  "keyLabel": "Kunci",
+  "matchHint": "Menandai baris yang berbeda dan yang tidak ada di sisi itu. Baris yang perlu dihapus dipilih terpisah, di tampilannya.",
+  "bulk_other": "{{n}} baris ditandai di tampilan ini.",
+  "allLeft": "← Semua",
+  "allRight": "Semua →",
+  "allNone": "Tidak ada",
+  "arrow": {
+    "update": {
+      "left": "Kiri akan memiliki nilai dari kanan",
+      "right": "Kanan akan memiliki nilai dari kiri"
+    },
+    "insert": {
+      "left": "Sisipkan baris ini di kiri",
+      "right": "Sisipkan baris ini di kanan"
+    },
+    "delete": {
+      "left": "Hapus baris ini dari kiri",
+      "right": "Hapus baris ini dari kanan"
+    }
+  },
+  "bothSides": "Kedua sisi berubah: saat dijalankan, skrip kiri berjalan lebih dulu lalu skrip kanan. Jika salah satu gagal, yang lain tidak berjalan.",
+  "failedOn": "Gagal di {{side}}: {{error}}",
+  "mismatch": {
+    "title": "Bukan tabel yang sama",
+    "name": "Perhatian: Anda tidak membandingkan tabel yang sama ({{left}} dengan {{right}}). Sinkronisasi akan mengubah data tabel lain.",
+    "schema": "Perhatian: ini tabel lain dengan nama yang sama di skema lain ({{left}} dengan {{right}}). Sinkronisasi akan mengubah data tabel lain.",
+    "runAnyway": "Tetap jalankan"
+  },
+  "count": {
+    "insert_other": "{{n}} penyisipan",
+    "update_other": "{{n}} pembaruan",
+    "delete_other": "{{n}} penghapusan"
+  }
+}

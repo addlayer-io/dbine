@@ -1,0 +1,243 @@
+{
+  "nav": "Kualitas kode",
+  "settings": {
+    "help": "Saat Anda mengetik, editor menandai hal-hal yang sering bermasalah: kueri lambat, hasil yang tidak sesuai harapan, atau perubahan yang memengaruhi lebih banyak baris daripada yang Anda kira. Analisis dilakukan pada teks, tanpa menanyakan ke basis data. Matikan aturan yang tidak berguna bagi Anda.",
+    "enabled": "Periksa kode saat saya mengetik",
+    "enabledHelp": "Menandai masalah di tepi editor dan menggarisbawahinya; arahkan kursor untuk melihat alasan dan cara memperbaikinya.",
+    "rules": "Aturan",
+    "engines": "Berlaku untuk",
+    "allOn": "Aktifkan semua",
+    "loadError": "Daftar aturan tidak dapat dimuat."
+  },
+  "severity": {
+    "error": "Kesalahan",
+    "warning": "Peringatan",
+    "info": "Saran"
+  },
+  "groups": {
+    "sql": "Semua mesin SQL",
+    "tsql": "SQL Server, Azure SQL, Fabric, dan Sybase",
+    "postgres": "Keluarga PostgreSQL",
+    "mysql": "Keluarga MySQL",
+    "oracle": "Oracle",
+    "influxql": "InfluxDB (InfluxQL dan SQL)",
+    "cql": "Cassandra, ScyllaDB, dan Amazon Keyspaces",
+    "mongodb": "MongoDB, FerretDB, dan DocumentDB",
+    "couchdb": "CouchDB",
+    "search": "Elasticsearch, OpenSearch, dan Solr",
+    "redis": "Redis, Valkey, dan Dragonfly",
+    "etcd": "etcd",
+    "cypher": "Neo4j, Memgraph, dan Neptune"
+  },
+  "problems": {
+    "button": "Lihat masalah",
+    "count_other": "{{count}} masalah",
+    "none": "Tidak ada masalah",
+    "title": "Masalah pada skrip",
+    "line": "Baris {{line}}",
+    "settings": "Atur aturan…"
+  },
+  "ruleId": "Aturan: {{id}}",
+  "rules": {
+    "select-star": {
+      "title": "SELECT *",
+      "message": "SELECT * mengambil semua kolom",
+      "why": "Mengambil kolom yang tidak digunakan, mencegah indeks mencakup kueri, dan berubah bentuk saat ada yang menambahkan kolom. Cantumkan hanya kolom yang dibutuhkan."
+    },
+    "dml-without-where": {
+      "title": "UPDATE atau DELETE tanpa WHERE",
+      "message": "{{keyword}} tanpa WHERE: memengaruhi semua baris tabel",
+      "why": "Tanpa kondisi, pernyataan ini mengubah atau menghapus seluruh tabel. Jika memang itu tujuannya, gunakan TRUNCATE untuk mengosongkannya; jika tidak, tambahkan WHERE yang membatasi baris."
+    },
+    "not-in-subquery": {
+      "title": "NOT IN dengan subkueri",
+      "message": "NOT IN (subkueri): jika mengembalikan NULL, tidak ada baris yang keluar",
+      "why": "Satu NULL saja di subkueri membuat kondisi tidak pernah benar sehingga kueri tidak mengembalikan apa pun. Gunakan NOT EXISTS, atau saring NULL di dalam subkueri."
+    },
+    "leading-wildcard": {
+      "title": "Wildcard di awal",
+      "message": "Pola {{pattern}} diawali wildcard: tidak dapat memakai indeks",
+      "why": "Pola yang diawali % (atau * / ?) memaksa pemeriksaan semua nilai. Jika bisa, jangkarkan awal teks ('abc%') atau gunakan pencarian teks lengkap."
+    },
+    "function-on-column": {
+      "title": "Fungsi pada kolom di WHERE",
+      "message": "{{fn}}(…) pada kolom mencegah penggunaan indeksnya",
+      "why": "Saat kolom dibungkus fungsi, mesin harus menghitungnya baris demi baris. Pindahkan transformasi ke sisi lain perbandingan (misalnya rentang tanggal alih-alih YEAR(col) = 2024) atau buat indeks pada ekspresinya."
+    },
+    "equals-null": {
+      "title": "= NULL atau <> NULL",
+      "message": "Membandingkan dengan NULL memakai = atau <> tidak pernah bernilai benar",
+      "why": "NULL tidak sama dan tidak berbeda dengan apa pun, bahkan dengan NULL lain: kondisinya bernilai tidak diketahui dan tidak meloloskan baris. Gunakan IS NULL atau IS NOT NULL."
+    },
+    "order-by-ordinal": {
+      "title": "ORDER BY berdasarkan posisi",
+      "message": "ORDER BY {{n}} mengurutkan berdasarkan posisi kolom",
+      "why": "Jika urutan kolom di SELECT diubah, hasil akan diurutkan berdasarkan kolom lain tanpa pemberitahuan. Tulis nama kolom atau aliasnya."
+    },
+    "order-by-random": {
+      "title": "Urutan acak",
+      "message": "{{call}} mengurutkan seluruh tabel untuk memilih baris secara acak",
+      "why": "Menghitung nilai acak untuk setiap baris lalu mengurutkan semuanya, meskipun Anda hanya meminta satu. Pada tabel besar, gunakan pengambilan sampel milik mesin (TABLESAMPLE, SAMPLE) atau pilih berdasarkan rentang kunci acak."
+    },
+    "implicit-cross-join": {
+      "title": "Join implisit tanpa kondisi",
+      "message": "«{{table}}» digabung dengan koma tanpa kondisi: hasil kali kartesius",
+      "why": "Tabel di FROM yang dipisahkan koma, tanpa kondisi di WHERE yang menghubungkannya dengan tabel lain, menggabungkan setiap baris dengan semua baris lainnya. Gunakan JOIN … ON dengan kondisinya; jika hasil kali itu disengaja, tulis CROSS JOIN."
+    },
+    "insert-without-columns": {
+      "title": "INSERT tanpa daftar kolom",
+      "message": "INSERT tanpa daftar kolom",
+      "why": "Nilai ditetapkan menurut posisi kolom tabel: jika ada yang menambah atau mengubah urutan kolom, INSERT gagal atau menyimpan data di kolom yang salah. Sebutkan nama kolomnya."
+    },
+    "distinct-group-by": {
+      "title": "DISTINCT bersama GROUP BY",
+      "message": "DISTINCT berlebihan: GROUP BY sudah mengembalikan baris unik",
+      "why": "Pengelompokan sudah menyisakan satu baris per grup; DISTINCT menambah pekerjaan tanpa mengubah hasil (kecuali SELECT tidak menyertakan semua kolom yang dikelompokkan). Hapus salah satunya."
+    },
+    "union-distinct": {
+      "title": "UNION alih-alih UNION ALL",
+      "message": "UNION menghapus duplikat; jika duplikat tidak mungkin ada, UNION ALL lebih cepat",
+      "why": "UNION mengurutkan atau membuat hash dari seluruh hasil untuk menghapus baris yang berulang. Jika bagian-bagiannya tidak tumpang tindih atau duplikat tidak masalah, gunakan UNION ALL."
+    },
+    "nolock": {
+      "title": "NOLOCK / READ UNCOMMITTED",
+      "message": "{{hint}} membaca data yang belum dikomit",
+      "why": "Dapat mengembalikan baris yang kemudian dibatalkan, baris ganda, atau baris yang hilang jika tabel ditata ulang selama pembacaan. Jika tujuannya agar pembacaan tidak menunggu, gunakan isolasi snapshot (READ_COMMITTED_SNAPSHOT)."
+    },
+    "cursor": {
+      "title": "Kursor",
+      "message": "Kursor: memproses baris satu per satu",
+      "why": "Kursor menelusuri baris demi baris apa yang dapat diselesaikan sekaligus oleh pernyataan berbasis himpunan (UPDATE … FROM, MERGE, subkueri). Jika memang diperlukan, deklarasikan sebagai LOCAL FAST_FORWARD."
+    },
+    "set-rowcount": {
+      "title": "SET ROWCOUNT",
+      "message": "SET ROWCOUNT tetap aktif di sesi dan sudah usang untuk INSERT, UPDATE, dan DELETE",
+      "why": "Memengaruhi semua pernyataan berikutnya di sesi, termasuk trigger, sampai ada yang mengembalikannya ke 0. Gunakan TOP (n) pada pernyataan."
+    },
+    "global-identity": {
+      "title": "@@IDENTITY",
+      "message": "@@IDENTITY dapat mengembalikan identitas yang dibuat oleh trigger",
+      "why": "Mengembalikan nilai identitas terakhir di sesi pada tabel mana pun, termasuk yang disisipkan oleh trigger. Gunakan SCOPE_IDENTITY() atau klausa OUTPUT."
+    },
+    "sp-prefix": {
+      "title": "Prosedur berawalan sp_",
+      "message": "«{{name}}»: awalan sp_ diperuntukkan bagi prosedur sistem",
+      "why": "SQL Server mencari sp_ di master terlebih dahulu, yang menambah satu pencarian pada setiap pemanggilan dan dapat menjalankan prosedur sistem bernama sama. Gunakan awalan lain (usp_) atau tanpa awalan."
+    },
+    "set-nocount": {
+      "title": "Prosedur tanpa SET NOCOUNT ON",
+      "message": "«{{name}}» tidak memiliki SET NOCOUNT ON",
+      "why": "Tanpa itu, setiap pernyataan mengirim pesan «N baris terpengaruh» ke klien: lalu lintas berlebih dan, pada beberapa klien, hasil tak terduga. Tambahkan SET NOCOUNT ON di awal isi prosedur."
+    },
+    "for-update-wait": {
+      "title": "FOR UPDATE yang menunggu kunci",
+      "message": "{{clause}} menunggu kunci dilepas",
+      "why": "Jika transaksi lain memegang barisnya, kueri menunggu. Untuk antrean kerja gunakan SKIP LOCKED; untuk langsung gagal, gunakan NOWAIT (di Oracle juga WAIT n)."
+    },
+    "serial-identity": {
+      "title": "serial alih-alih IDENTITY",
+      "message": "{{type}}: lebih baik gunakan GENERATED … AS IDENTITY",
+      "why": "serial membuat sekuens terpisah yang tidak ikut terbawa bersama izin maupun salinan tabel dan memungkinkan nilai dimasukkan manual tanpa kontrol. Kolom IDENTITY adalah standar SQL dan sekuensnya terikat pada kolom."
+    },
+    "group-by-nonaggregated": {
+      "title": "Kolom di luar GROUP BY",
+      "message": "«{{column}}» tidak dikelompokkan dan tidak berada di dalam fungsi agregasi",
+      "why": "MySQL tanpa ONLY_FULL_GROUP_BY mengembalikan nilai dari sembarang baris dalam grup, sedangkan dengan mode tersebut kueri gagal. Tambahkan kolom ke GROUP BY atau gunakan fungsi agregasi (MAX, ANY_VALUE…)."
+    },
+    "rownum-order-by": {
+      "title": "ROWNUM dengan ORDER BY",
+      "message": "ROWNUM diterapkan sebelum ORDER BY",
+      "why": "Dalam blok yang sama, Oracle memberi nomor dan memotong baris sebelum mengurutkannya: hasilnya bukan «N pertama» menurut urutan. Urutkan di subkueri dan saring ROWNUM di luarnya, atau gunakan FETCH FIRST n ROWS ONLY."
+    },
+    "outer-join-plus": {
+      "title": "Sintaks outer join (+)",
+      "message": "(+) adalah sintaks lama untuk outer join",
+      "why": "Memiliki batasan yang tidak ada pada LEFT/RIGHT JOIN (tidak mendukung OR maupun FULL OUTER) dan mudah terlupa di salah satu kondisi. Gunakan LEFT JOIN … ON."
+    },
+    "delete-without-time": {
+      "title": "DELETE tanpa rentang waktu",
+      "message": "DELETE tanpa kondisi pada time: menghapus seluruh riwayat seri",
+      "why": "Tanpa rentang time, menghapus semua titik yang memenuhi kondisi sejak awal. Tambahkan time >= … AND time < … untuk membatasinya."
+    },
+    "drop-series": {
+      "title": "DROP SERIES / MEASUREMENT",
+      "message": "DROP {{what}} menghapus seluruh riwayat, tanpa rentang waktu",
+      "why": "Tidak mendukung rentang time: menghapus semua titik dan indeks seri. Jika ingin menghapus suatu periode, gunakan DELETE dengan kondisi pada time."
+    },
+    "allow-filtering": {
+      "title": "ALLOW FILTERING",
+      "message": "ALLOW FILTERING menelusuri partisi untuk menyaring",
+      "why": "Koordinator membaca data dari banyak partisi dan membuang yang tidak memenuhi kondisi: biayanya tumbuh seiring ukuran tabel. Buat tabel khusus untuk kueri itu atau saring berdasarkan kunci partisi."
+    },
+    "no-partition-key": {
+      "title": "SELECT tanpa kunci partisi",
+      "message": "SELECT pada {{table}} tanpa WHERE: membaca semua partisi",
+      "why": "Tanpa membatasi kunci partisi, kueri menelusuri seluruh klaster. Saring berdasarkan kunci partisi atau lakukan penomoran halaman dengan token()."
+    },
+    "batch-partitions": {
+      "title": "BATCH lintas partisi",
+      "message": "BATCH menulis ke beberapa tabel atau partisi",
+      "why": "Batch dengan beberapa partisi tidak lebih cepat: membebani koordinator dan, jika LOGGED, juga menulis catatan batch. Gunakan untuk atomisitas dalam satu partisi; untuk memuat data, kirim pernyataan secara terpisah."
+    },
+    "write-all": {
+      "title": "Penulisan tanpa filter",
+      "message": "{{call}} tidak memiliki filter: memengaruhi semuanya",
+      "why": "Tanpa filter, operasi mengubah atau menghapus semua dokumen atau kunci. Jika memang itu tujuannya, tulis filter secara eksplisit atau gunakan operasi pengosongan milik mesin; jika tidak, tambahkan kondisinya."
+    },
+    "where-operator": {
+      "title": "$where",
+      "message": "$where menjalankan JavaScript untuk setiap dokumen",
+      "why": "Tidak memakai indeks, lambat, dan dinonaktifkan di banyak server. Ganti dengan operator kueri atau $expr."
+    },
+    "unanchored-regex": {
+      "title": "Ekspresi reguler tanpa jangkar",
+      "message": "Ekspresi {{pattern}} tidak diawali ^: menelusuri seluruh indeks",
+      "why": "Hanya ekspresi yang dijangkarkan di awal (^abc) dan peka huruf besar/kecil yang memanfaatkan indeks dengan baik. Jika mencari teks bebas, gunakan indeks teks."
+    },
+    "read-all": {
+      "title": "Pembacaan tanpa filter",
+      "message": "{{call}} tanpa filter membaca semuanya",
+      "why": "Mengambil semua dokumen atau kunci. Tambahkan filter, proyeksi, dan batas untuk mengambil hanya yang dibutuhkan."
+    },
+    "keys-command": {
+      "title": "KEYS",
+      "message": "KEYS {{pattern}} menelusuri semua kunci dan memblokir server",
+      "why": "Redis melayani satu perintah pada satu waktu: selama KEYS menelusuri basis data, server tidak merespons siapa pun. Gunakan SCAN dengan MATCH dan COUNT, yang bergerak secara bertahap."
+    },
+    "flush": {
+      "title": "FLUSHALL / FLUSHDB",
+      "message": "{{command}} menghapus semua kunci",
+      "why": "FLUSHDB mengosongkan basis data saat ini dan FLUSHALL semua basis data di server, tanpa bisa dibatalkan. Pastikan Anda terhubung ke server yang benar."
+    },
+    "big-read": {
+      "title": "Pembacaan penuh sebuah kunci",
+      "message": "{{command}} membaca seluruh kunci",
+      "why": "Pada kunci besar, respons lama dan memblokir server selama menyusunnya. Gunakan HSCAN / SSCAN, atau minta rentang yang terbatas."
+    },
+    "match-without-label": {
+      "title": "MATCH tanpa label",
+      "message": "Pola ini tidak memiliki label maupun properti: menelusuri semua node",
+      "why": "Tanpa label (:Person) atau filter properti, mesin harus memeriksa semua node di basis data. Tambahkan label agar dapat memakai indeksnya."
+    },
+    "cartesian-product": {
+      "title": "Pola yang tidak terhubung",
+      "message": "Pola ini tidak berbagi node dengan yang lain: hasil kali kartesius",
+      "why": "Dua pola yang dipisahkan koma tanpa variabel yang sama menggabungkan setiap hasil salah satunya dengan semua hasil yang lain. Hubungkan keduanya dalam pola yang sama atau dengan WHERE."
+    },
+    "detach-delete-all": {
+      "title": "DETACH DELETE tanpa WHERE",
+      "message": "DETACH DELETE tanpa WHERE menghapus semua node yang ditemukan MATCH",
+      "why": "Menghapus node beserta semua relasinya. Tanpa WHERE atau filter properti, semua node dalam pola ikut terhapus. Periksa MATCH-nya; untuk menghapus dalam jumlah besar, lakukan secara bertahap (CALL { … } IN TRANSACTIONS)."
+    },
+    "unknown-table": {
+      "title": "Tabel tidak dikenal",
+      "message": "«{{name}}» tidak ada di basis data ini",
+      "why": "Nama tersebut tidak termasuk objek basis data pada tab (menurut penjelajah). Bisa jadi salah ketik, objek dari basis data lain, atau objek yang belum ada. Tabel sementara, CTE, alias, dan objek yang dibuat oleh skrip itu sendiri tidak ditandai."
+    },
+    "unknown-column": {
+      "title": "Kolom tidak dikenal",
+      "message": "«{{table}}» tidak memiliki kolom «{{column}}»",
+      "why": "Kolom tersebut tidak termasuk kolom tabel yang sudah dimuat. Hanya kolom yang dikualifikasi (alias.kolom) atau dari daftar INSERT yang diperiksa, dan hanya jika tabelnya ada dan kolomnya sudah dimuat."
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "nav": "Pintasan keyboard",
+  "help": "Tombol untuk setiap tindakan. Klik sebuah kombinasi dan tekan yang baru (Esc membatalkan). Perubahan langsung berlaku dan ikut tersinkronisasi bersama pengaturan lainnya.",
+  "search": "Cari menurut tindakan atau tombol",
+  "none": "Tidak ada tindakan yang cocok dengan pencarian.",
+  "resetAll": "Atur ulang semua",
+  "reset": "Kembali ke kombinasi asli",
+  "remove": "Hapus kombinasi",
+  "change": "Ubah kombinasi",
+  "recording": "Tekan kombinasinya…",
+  "unbound": "Tanpa pintasan",
+  "conflict": "Juga digunakan oleh: {{names}}",
+  "reserved": "Ini pintasan sistem (salin, tempel, urungkan…): berhenti berfungsi di tempat tindakan berjalan.",
+  "group": {
+    "general": "Umum",
+    "view": "Tampilan",
+    "editor": "Editor",
+    "results": "Hasil",
+    "database": "Basis data",
+    "connection": "Koneksi",
+    "settings": "Preferensi",
+    "help": "Bantuan"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "Kueri baru",
+      "newWindow": "Jendela baru",
+      "closeTab": "Tutup tab",
+      "save": "Simpan",
+      "open": "Buka berkas…"
+    },
+    "app": {
+      "settings": "Pengaturan",
+      "quit": "Keluar dari DBine"
+    },
+    "view": {
+      "explorer": "Tampilkan atau sembunyikan penjelajah",
+      "output": "Tampilkan atau sembunyikan panel bawah",
+      "ai": "Tampilkan atau sembunyikan asisten AI"
+    },
+    "editor": {
+      "run": "Jalankan pilihan atau semuanya",
+      "runStatement": "Jalankan pernyataan di kursor",
+      "planEstimated": "Rencana perkiraan",
+      "planActual": "Jalankan dengan rencana aktual",
+      "format": "Format",
+      "comment": "Komentari atau batalkan komentar",
+      "find": "Cari dan ganti",
+      "gotoLine": "Ke baris…",
+      "autocomplete": "Saran pelengkapan otomatis",
+      "toggleVim": "Aktifkan atau nonaktifkan mode Vim"
+    },
+    "results": {
+      "export": "Ekspor hasil…"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "couldNotConnect": "Tidak dapat terhubung.",
+  "duration": {
+    "s": "{{s}} dtk",
+    "dh": "{{d}} h {{h}} j",
+    "hm": "{{h}} j {{m}} mnt",
+    "ms": "{{m}} mnt {{s}} dtk"
+  },
+  "level": {
+    "warn": "tinggi",
+    "crit": "kritis"
+  },
+  "justNow": "baru saja",
+  "secondsAgo": "{{s}} dtk lalu",
+  "connection": "Koneksi",
+  "paused": "Dijeda",
+  "every": "Setiap {{s}} dtk",
+  "resume": "Lanjutkan",
+  "pause": "Jeda",
+  "refresh": "Muat ulang",
+  "unsupported": "{{engine}} tidak menyediakan pemantauan.",
+  "thisEngine": "Mesin ini",
+  "measuring": "mengukur…",
+  "of": "dari {{max}}",
+  "filter": "Saring…",
+  "noMatch": "Tidak ada baris yang cocok.",
+  "noRows": "Tidak ada baris.",
+  "sparkline": {
+    "noData": "tanpa data"
+  }
+}

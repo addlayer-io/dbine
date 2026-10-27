@@ -1,0 +1,35 @@
+{
+  "dialog": {
+    "title": "Tersedia versi baru DBine",
+    "text": "Versi {{latest}} tersedia. Anda menggunakan versi {{current}}.",
+    "skip": "Lewati versi ini",
+    "later": "Nanti",
+    "download": "Unduh",
+    "updateNow": "Perbarui sekarang",
+    "downloading": "Mengunduh DBine {{latest}}…",
+    "progress": "{{done}} dari {{total}}",
+    "progressUnknown": "{{done}} terunduh",
+    "verifying": "Memverifikasi tanda tangan…",
+    "cancel": "Batal",
+    "readyTitle": "DBine {{latest}} siap",
+    "ready": "Pembaruan sudah diunduh dan diverifikasi. Mulai ulang DBine untuk menyelesaikan pemasangan.",
+    "restart": "Mulai ulang untuk menyelesaikan",
+    "failedTitle": "DBine tidak dapat diperbarui",
+    "failed": "Anda dapat mengunduh versi baru dari halamannya.",
+    "openPage": "Buka halaman unduhan",
+    "close": "Tutup"
+  },
+  "reason": {
+    "package": "Anda memasang DBine dengan paket sistem: unduh versi baru dari halamannya.",
+    "location": "Pindahkan DBine ke Applications agar diperbarui otomatis."
+  },
+  "settings": {
+    "installed": "Versi terpasang: {{version}}",
+    "help": "DBine memeriksa sendiri saat dibuka apakah ada versi baru, dan memperbarui dari sana.",
+    "check": "Periksa pembaruan"
+  },
+  "upToDate": "Anda menggunakan versi terbaru ({{version}}).",
+  "managedByFlatpak": "Anda menggunakan versi {{version}}. Pemasangan ini dari Flathub: Flatpak yang memperbaruinya (dari pusat perangkat lunak Anda atau dengan «flatpak update»).",
+  "busyInWindow": "Pembaruan sedang berjalan di jendela {{n}}.",
+  "failed": "Tidak dapat memeriksa pembaruan: {{error}}"
+}

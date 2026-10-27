@@ -1,0 +1,54 @@
+{
+  "folder": {
+    "new": "Folder baru",
+    "edit": "Edit folder · {{name}}",
+    "name": "Nama",
+    "namePlaceholder": "Klien, lingkungan…",
+    "nameRequired": "Masukkan nama",
+    "color": "Warna",
+    "noColor": "Tanpa warna",
+    "colorHelp": "Koneksi tanpa warna sendiri memakai warna foldernya (berguna untuk menandai produksi).",
+    "inside": "Di dalam",
+    "create": "Buat",
+    "topLevel": "(Tingkat teratas)"
+  },
+  "move": {
+    "title": "Pindahkan «{{name}}» ke…",
+    "move": "Pindahkan"
+  },
+  "database": {
+    "scriptTitle": "Buat skrip · {{db}}",
+    "scriptName": "Skrip {{db}}",
+    "scriptNameConverted": "Skrip {{db}} (dikonversi)",
+    "theDatabase": "basis data"
+  },
+  "drivers": {
+    "intro": "Setiap driver diunduh otomatis saat pertama kali Anda terhubung ke mesin itu. Di sini Anda dapat mengunduhnya lebih dulu (misalnya jika akan bekerja tanpa internet) atau menghapus yang tidak digunakan.",
+    "search": "Cari mesin",
+    "diskTitle": "Ruang disk yang dipakai driver yang diunduh",
+    "summary": "{{installed}} dari {{total}} diunduh · {{size}} MB",
+    "downloadAll": "Unduh semua ({{size}} MB)",
+    "downloading": "Mengunduh",
+    "download": "Unduh",
+    "remove": "Hapus",
+    "checkUpdates": "Periksa pembaruan",
+    "checking": "Memeriksa…",
+    "upToDateAll": "Driver sudah yang terbaru.",
+    "rollback": "Kembali ke sebelumnya",
+    "rollbackTitle": "Tinggalkan versi {{version}} dan kembali ke {{previous}}",
+    "rollbackConfirm": "Kembali ke versi {{previous}} driver {{label}}? Versi {{version}} tidak akan dipakai lagi. Koneksi yang terbuka tetap memakai versi saat ini sampai Anda menutupnya.",
+    "statusDownloading": "Mengunduh versi {{available}}…",
+    "statusReady": "Versi {{version}} dipakai mulai koneksi berikutnya",
+    "statusNeedsApp": "Ada versi lebih baru yang memerlukan DBine {{minApp}} atau lebih baru",
+    "statusRolledBack": "Versi {{from}} gagal dan kembali ke {{version}}",
+    "statusRolledBackUser": "Kembali ke versi {{version}}; {{from}} tidak akan dipakai",
+    "statusRestart": "Mulai ulang DBine untuk melihat opsi baru driver ini"
+  },
+  "support": {
+    "title": "Dukung DBine",
+    "text": "DBine gratis dan akan tetap begitu. Dukungan Anda membantu kami merawat aplikasi dan terus menambahkan fitur.",
+    "notPayment": "Ini dukungan, bukan pembayaran: aplikasi tetap berfungsi sama.",
+    "notNow": "Nanti saja",
+    "support": "Dukung proyek"
+  }
+}

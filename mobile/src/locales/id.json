@@ -1,0 +1,117 @@
+{
+  "pair": {
+    "intro": "Pantau penguncian dan kueri yang sedang berjalan di basis data Anda dari ponsel. Koneksi dan kata sandi tetap berada di komputer Anda.",
+    "name": "Nama ponsel ini",
+    "defaultName": "Ponsel saya",
+    "scan": "Tautkan dengan DBine",
+    "connecting": "Menghubungkan…",
+    "step1": "Di komputer, buka DBine › Pengaturan › Perangkat.",
+    "step2": "Aktifkan «Izinkan ponsel» lalu ketuk «Tautkan ponsel».",
+    "step3": "Pindai kode yang muncul. Jika ponsel tidak berada di jaringan yang sama, ponsel terhubung lewat internet (jika DBine mengizinkannya di «Di luar jaringan lokal»).",
+    "confirmOn": "Konfirmasikan di «{{desktop}}».",
+    "compare": "Pastikan komputer menampilkan kode yang sama:",
+    "noCamera": "Tanpa izin menggunakan kamera, kode tidak dapat dibaca.",
+    "fromLink": "Ponsel ini akan ditautkan dengan «{{desktop}}». Setelah itu, konfirmasikan di komputer tersebut bahwa kodenya sama.",
+    "pairLink": "Tautkan",
+    "scanInstead": "Pindai kode lain",
+    "alreadyPaired": "Ponsel ini sudah ditautkan dengan «{{desktop}}». Untuk menautkannya dengan komputer lain, lepaskan tautannya terlebih dahulu."
+  },
+  "connections": {
+    "filter": "Cari koneksi",
+    "none": "DBine tidak memiliki koneksi tersimpan.",
+    "loading": "Memuat…",
+    "thisPhone": "Ponsel ini: {{code}}",
+    "unpair": "Lepas tautan",
+    "unpairConfirm": "Lepas tautan ponsel ini? Untuk menggunakannya lagi, harus memindai kode baru.",
+    "via": {
+      "local": "Jaringan lokal",
+      "internet": "Lewat internet"
+    }
+  },
+  "conn": {
+    "monitor": "Monitor",
+    "locks": "Penguncian",
+    "processes": "Berjalan",
+    "health": "Kesehatan",
+    "unsupported": "{{engine}} tidak melaporkan status, penguncian, atau prosesnya.",
+    "noLocks": "Tidak ada sesi yang terblokir.",
+    "noProcesses": "Tidak ada kueri yang sedang berjalan.",
+    "session": "Sesi {{id}}",
+    "blocks_other": "memblokir {{count}} sesi",
+    "waitsFor": "menunggu {{id}}",
+    "kill": "Akhiri",
+    "killConfirm": "Akhiri sesi {{id}}? Transaksinya yang sedang berjalan akan dibatalkan.\n\n{{sql}}",
+    "killReason": "Akhiri sesi {{id}}",
+    "notConfirmed": "Tidak dikonfirmasi: sesi tetap berjalan.",
+    "killed": "Sesi {{id}} telah diakhiri.",
+    "notAllowed": "Untuk mengakhiri sesi dari ponsel ini, aktifkan di DBine › Pengaturan › Perangkat.",
+    "engineCantKill": "Koneksi ini tidak mengizinkan pengakhiran sesi (hanya-baca atau tidak didukung oleh mesinnya).",
+    "f": {
+      "status": "Status",
+      "user": "Pengguna",
+      "host": "Host",
+      "database": "Basis data",
+      "client": "Klien",
+      "object": "Objek",
+      "waitsFor": "Menunggu"
+    },
+    "loading": "Memuat dari {{engine}}…"
+  },
+  "nav": {
+    "connections": "Koneksi",
+    "activity": "Aktivitas"
+  },
+  "tasks": {
+    "title": "Tugas terjadwal",
+    "none": "DBine tidak memiliki tugas terjadwal.",
+    "neverRan": "Belum pernah dijalankan.",
+    "next": "Berikutnya: {{at}}",
+    "disabled": "Nonaktif",
+    "runNow": "Jalankan sekarang",
+    "runConfirm": "Jalankan «{{name}}» sekarang di komputer?",
+    "runReason": "Jalankan «{{name}}»",
+    "notConfirmed": "Tidak dikonfirmasi: tugas tidak dijalankan.",
+    "started": "Tugas telah dimulai di komputer. Setelah selesai, akan muncul di sini.",
+    "needsApproval": "Tugas ini mengubah data dan memiliki langkah yang belum disetujui: setujui di DBine, di komputer.",
+    "notAllowed": "Untuk menjalankan tugas dari ponsel ini, aktifkan di DBine › Pengaturan › Perangkat.",
+    "status": {
+      "running": "Berjalan",
+      "ok": "Berhasil",
+      "partial": "Dengan kesalahan",
+      "failed": "Gagal"
+    },
+    "at": "Langkah {{n}} dari {{total}}: {{name}}",
+    "cancel": "Batalkan tugas",
+    "cancelConfirm": "Batalkan «{{name}}»? Langkah yang sedang berjalan dihentikan dan langkah berikutnya tidak dijalankan.",
+    "cancelReason": "Batalkan «{{name}}»",
+    "cancelling": "Pembatalan tugas telah diminta: akan dihentikan dalam beberapa detik."
+  },
+  "health": {
+    "run": "Periksa basis data",
+    "running": "Memeriksa…",
+    "allGood": "Tidak ditemukan masalah.",
+    "fine_other": "{{count}} pemeriksaan tanpa masalah"
+  },
+  "activity": {
+    "title": "Aktivitas",
+    "queries": "Kueri",
+    "tasks": "Tugas terjadwal",
+    "running": "Berjalan",
+    "recent": "Selesai",
+    "none": "Tidak ada kueri yang sedang berjalan maupun yang baru selesai.",
+    "cancel": "Batalkan",
+    "cancelConfirm": "Batalkan kueri ini di komputer?\n\n{{sql}}",
+    "cancelReason": "Batalkan kueri",
+    "notConfirmed": "Tidak dikonfirmasi: kueri tetap berjalan.",
+    "cancelled": "Pembatalan kueri telah diminta.",
+    "done": "Selesai dengan baik",
+    "startedAt": "Dimulai pada {{at}}",
+    "hint": "Di sini muncul kueri yang Anda jalankan di editor DBine selama berjalan, dan kueri yang memakan waktu lebih dari 10 detik saat selesai. Jika diizinkan, ponsel memberi tahu saat kueri selesai: langsung jika aplikasi terbuka; jika aplikasi tertutup, pada pemeriksaan Android berikutnya (setiap 15 menit). Selama sebuah kueri berjalan lebih dari 30 detik, DBine mencegah komputer masuk ke mode tidur.",
+    "tapForDetail": "Ketuk untuk melihat detail",
+    "cancelNotAllowed": "Untuk membatalkan kueri dari ponsel ini, aktifkan di DBine › Pengaturan › Perangkat."
+  },
+  "update": {
+    "available": "Tersedia versi baru DBine ({{version}}).",
+    "download": "Unduh"
+  }
+}

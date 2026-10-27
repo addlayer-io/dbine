@@ -1,0 +1,105 @@
+{
+  "cmd": {
+    "file": {
+      "newConnection": "Koneksi baru…",
+      "newFolder": "Folder koneksi baru…",
+      "newScheduledTask": "Tugas terjadwal baru",
+      "newNotebook": "Notebook baru",
+      "closeOtherTabs": "Tutup tab lainnya",
+      "closeAllTabs": "Tutup semua tab"
+    },
+    "palette": {
+      "open": "Tampilkan semua perintah"
+    },
+    "goto": {
+      "open": "Buka ke…"
+    },
+    "view": {
+      "showExplorer": "Tampilkan penjelajah",
+      "showProjects": "Tampilkan Proyek",
+      "showLibrary": "Tampilkan pustaka skrip",
+      "showHistory": "Tampilkan riwayat",
+      "showScheduled": "Tampilkan tugas terjadwal",
+      "revealActive": "Tampilkan tab di penjelajah"
+    },
+    "editor": {
+      "runSelection": "Jalankan pilihan",
+      "cancel": "Batalkan eksekusi",
+      "optimize": "Optimalkan kueri",
+      "runMultiDb": "Jalankan di beberapa basis data…",
+      "saveToLibrary": "Simpan ke pustaka",
+      "showProblems": "Tampilkan masalah",
+      "commit": "Komit transaksi",
+      "rollback": "Batalkan transaksi",
+      "toggleManualTx": "Aktifkan atau nonaktifkan transaksi manual",
+      "toggleContinueOnError": "Aktifkan atau nonaktifkan \"Lanjutkan jika terjadi kesalahan\""
+    },
+    "database": {
+      "reveal": "Tampilkan di penjelajah",
+      "search": "Cari di basis data…",
+      "healthCheck": "Pemeriksaan kesehatan",
+      "designer": "Buka perancang tabel",
+      "newFromTemplate": "Objek baru dari templat…",
+      "diagram": "Diagram basis data",
+      "queryBuilder": "Rancang kueri…",
+      "document": "Dokumentasikan basis data…",
+      "profiler": "Profiler",
+      "scriptGenerator": "Buat skrip…",
+      "migrate": "Migrasikan…",
+      "compareSchemas": "Bandingkan skema…",
+      "compareData": "Bandingkan data…",
+      "usersAndPermissions": "Pengguna dan izin…",
+      "backups": "Cadangan…",
+      "importData": "Impor data…",
+      "runScriptFile": "Jalankan berkas skrip…",
+      "linkProject": "Tautkan proyek…"
+    },
+    "connection": {
+      "connect": "Hubungkan",
+      "disconnect": "Putuskan",
+      "monitor": "Monitor server",
+      "serverBackups": "Cadangan server…",
+      "newDatabase": "Basis data baru…",
+      "edit": "Edit koneksi…",
+      "duplicate": "Duplikasi koneksi"
+    },
+    "settings": {
+      "sync": "Sinkronisasi",
+      "drivers": "Driver",
+      "mcp": "Klien MCP (asisten AI)",
+      "devices": "Ponsel yang ditautkan",
+      "mail": "Surel",
+      "lint": "Aturan penganalisis kode",
+      "snippets": "Cuplikan kode",
+      "shortcuts": "Pintasan keyboard"
+    },
+    "help": {
+      "checkUpdates": "Periksa pembaruan…",
+      "support": "Dukung proyek ini",
+      "feedback": "Kirim masukan"
+    }
+  },
+  "commands": {
+    "placeholder": "Ketik nama perintah",
+    "empty": "Tidak ada perintah yang cocok",
+    "recent": "baru digunakan",
+    "other": "perintah lainnya"
+  },
+  "goto": {
+    "placeholder": "Cari koneksi, basis data, tabel, tampilan, rutin, kueri, atau tab (\">\" untuk perintah)",
+    "empty": "Tidak ada yang bernama itu",
+    "tabs": "tab yang terbuka",
+    "connections": "koneksi",
+    "tab": "Tab",
+    "connection": "Koneksi",
+    "database": "Basis data",
+    "query": "Kueri"
+  },
+  "pick": {
+    "connection": "Pilih koneksi",
+    "database": "Pilih basis data dari {{connection}}",
+    "noConnection": "Tidak ada koneksi yang memiliki tindakan ini",
+    "noDatabases": "Tidak ada basis data untuk dipilih",
+    "template": "Pilih templat"
+  }
+}

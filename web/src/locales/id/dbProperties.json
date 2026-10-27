@@ -1,0 +1,12 @@
+{
+  "menu": "Properti…",
+  "title": "Properti «{{name}}»",
+  "apply": "Terapkan",
+  "confirmTitle": "Terapkan perubahan pada «{{name}}»",
+  "warningsTitle": "Perhatian:",
+  "applied": "Properti «{{name}}» diperbarui",
+  "scriptName": "Properti {{name}}",
+  "nothing": "Mesin ini tidak memiliki apa pun untuk ditampilkan atau diubah di tab ini.",
+  "readOnly": "Koneksi hanya-baca: properti dapat dilihat tetapi tidak dapat diubah.",
+  "noChanges": "(tanpa perubahan)"
+}

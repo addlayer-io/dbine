@@ -1,0 +1,111 @@
+{
+  "title": "Asisten",
+  "defaultModel": "bawaan",
+  "reasoning": "Penalaran",
+  "head": {
+    "setup": "Model dan penyedia",
+    "newChat": "Percakapan baru",
+    "close": "Tutup (⌘I)",
+    "history": "Riwayat"
+  },
+  "context": {
+    "noDatabase": "Tidak ada basis data dipilih",
+    "openQuery": "kueri terbuka",
+    "sent": "konteks: {{context}}",
+    "objects_other": "{{count}} objek",
+    "tables_other": "{{count}} tabel",
+    "tablesOf_other": "{{shown}} dari {{count}} tabel",
+    "editor": "editor",
+    "selection": "pilihan",
+    "lastError": "kesalahan terakhir"
+  },
+  "suggest": {
+    "whyFails": "Mengapa eksekusi terakhir gagal? Perbaiki.",
+    "explain": "Jelaskan kueri di editor",
+    "optimize": "Tinjau dan optimalkan kueri di editor",
+    "largestTables": "Tulis kueri yang menampilkan tabel terbesar",
+    "relatedTables": "Tabel apa saja yang berhubungan dengan pelanggan?",
+    "joinAggregate": "Bagaimana menulis JOIN dengan agregasi?"
+  },
+  "code": {
+    "appended": "Ditambahkan di akhir kueri. Tinjau dan jalankan kapan pun Anda mau.",
+    "newQueryTitle": "Dari asisten",
+    "replaced": "Kueri diganti (⌘Z untuk membatalkan).",
+    "code": "kode",
+    "appendHint": "Tambahkan di akhir kueri yang terbuka",
+    "newQueryHint": "Buka di kueri baru",
+    "append": "Tambahkan ke kueri",
+    "newQuery": "Kueri baru",
+    "replaceHint": "Ganti seluruh isi editor (⌘Z membatalkan)",
+    "replace": "Ganti",
+    "destructive": "Mengubah data atau struktur. Tidak ada yang dijalankan: tinjau dulu sebelum menjalankannya sendiri.",
+    "asText": "Sisipkan sebagai teks",
+    "asTextHint": "Tambahkan jawaban sebagai sel teks di notebook (tidak menjalankan apa pun)",
+    "textAdded": "Ditambahkan sebagai sel teks.",
+    "cellAdded": "Ditambahkan sebagai sel baru, belum dijalankan. Tinjau dan jalankan kapan pun Anda mau."
+  },
+  "phase": {
+    "schema": "Membaca struktur basis data…",
+    "engine": "Mengunduh mesin AI, hanya sekali ini…",
+    "thinking": "Berpikir…",
+    "retry": "Bertanya ulang…",
+    "tool": "Mengakses koneksi:"
+  },
+  "setup": {
+    "detecting": "Mencari alat AI di komputer ini…",
+    "lead": "Untuk menggunakan asisten diperlukan sebuah model. Cara paling mudah: unduh {model}. Berjalan di komputer ini, tanpa instalasi apa pun dan tanpa ada data yang keluar.",
+    "leadModel": "model bawaan",
+    "embedded": "Terintegrasi di DBine",
+    "embeddedUnavailable": "Model bawaan tidak tersedia di platform ini.",
+    "recommended": "disarankan untuk komputer ini",
+    "use": "Gunakan",
+    "pause": "Jeda",
+    "pauseHint": "Dilanjutkan dari titik terakhir",
+    "download": "Unduh ({{size}})",
+    "detected": "Terdeteksi di komputer ini",
+    "pull": "Unduh {{model}}",
+    "cliNote": "Claude Code dan Codex menggunakan akun Anda sendiri (langganan atau API). Keduanya berjalan tanpa alat: tidak dapat membaca berkas, menjalankan perintah, atau terhubung ke basis data Anda.",
+    "redetect": "Deteksi ulang"
+  },
+  "privacy": {
+    "local": "Lokal: tidak ada yang keluar dari komputer ini.",
+    "remote": "Dikirim ke {{vendor}} dengan akun Anda: pertanyaan, struktur, dan editor, tidak pernah data."
+  },
+  "empty": {
+    "lead": "Minta kueri, minta penjelasan atau perbaikan untuk kueri di editor, atau tanyakan tentang struktur basis data.",
+    "neverRuns": "Asisten tidak pernah menjalankan apa pun: yang ditulisnya masuk ke kueri Anda dan Anda yang memutuskan untuk menjalankannya."
+  },
+  "compose": {
+    "placeholder": "Tanyakan atau minta kueri… (Enter mengirim, Shift+Enter baris baru)",
+    "send": "Kirim"
+  },
+  "better": {
+    "text": "Komputer Anda dapat menggunakan model yang lebih besar: {{model}}. Model ini lebih memahami permintaan yang sulit dan lebih jarang salah dalam SQL.",
+    "dismiss": "Nanti saja"
+  },
+  "history": {
+    "title": "Percakapan sebelumnya",
+    "empty": "Belum ada percakapan sebelumnya: «Percakapan baru» menyimpan percakapan saat ini di sini.",
+    "untitled": "(tanpa judul)",
+    "messages_other": "{{count}} pesan",
+    "delete": "Hapus percakapan ini",
+    "clear": "Hapus riwayat",
+    "clearConfirm": "Semua percakapan sebelumnya akan dihapus. Percakapan saat ini tidak diubah."
+  },
+  "tools": {
+    "read_other": "Mengakses koneksi {{count}} kali"
+  },
+  "approval": {
+    "title": "Model ({{model}}) ingin membaca data dari {{connection}} › {{database}} dengan kueri ini:",
+    "local": "lokal",
+    "approve": "Setujui",
+    "reject": "Tolak",
+    "approveAll": "Setujui pembacaan di percakapan ini",
+    "note": "Hanya baca: DBine menjalankannya dalam sesi yang menolak perubahan apa pun. Jika ditolak, model tetap tanpa data tersebut."
+  },
+  "link": {
+    "title": "Buka tautan",
+    "body": "Jawaban asisten mengarah ke alamat ini. Buka hanya jika Anda memercayainya: sebuah tautan dapat mengirim data percakapan ke situs lain.",
+    "open": "Buka di peramban"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "primaryKey": "Kunci primer",
+  "foreignKey": "Kunci asing",
+  "unnamedForeignKey": "Kunci asing tanpa nama",
+  "exportFailed": "Tidak dapat mengekspor gambar: {{error}}",
+  "busy": "Menata {{tables}} tabel dan {{relations}} relasi…",
+  "hint": "Seret untuk bergerak · ⌘/pinch + roda untuk zoom · klik dua kali membuka tabel",
+  "tab": {
+    "connectFailed": "Tidak dapat terhubung.",
+    "reading": "Membaca struktur basis data…",
+    "drawFailed": "Tidak dapat menggambar diagram: {{error}}",
+    "fileName": "diagram-{{name}}",
+    "fileNameDefault": "basis-data"
+  },
+  "toolbar": {
+    "tables": "Tabel",
+    "relations": "Relasi",
+    "simplifiedLayout": "tata letak disederhanakan",
+    "simplifiedLayoutTitle": "Tata letak otomatis gagal dengan struktur ini: tabel ditampilkan dalam grid (dapat dipindahkan secara manual).",
+    "searchPlaceholder": "Cari tabel…",
+    "allSchemas": "Semua skema",
+    "allColumns": "Semua kolom",
+    "keysOnly": "Hanya kunci",
+    "relayout": "Atur ulang",
+    "relayoutTitle": "Atur ulang tabel secara otomatis",
+    "svgImage": "Gambar SVG",
+    "pngImage": "Gambar PNG"
+  },
+  "card": {
+    "openHint": "Klik dua kali untuk membuka",
+    "nullable": "Mengizinkan NULL",
+    "noColumns": "tanpa kolom",
+    "moreColumns_other": "+{{count}} kolom",
+    "showLess": "Tampilkan lebih sedikit"
+  },
+  "empty": {
+    "title": "Tidak ada tabel untuk ditampilkan",
+    "text": "Basis data tidak memiliki tabel atau mesin tidak melaporkan strukturnya.",
+    "noRelations": "Tanpa relasi: basis data tidak mendeklarasikan kunci asing (atau mesin tidak melaporkannya). Hanya tabel yang ditampilkan."
+  },
+  "zoom": {
+    "zoomOut": "Perkecil (−)",
+    "actualSize": "Ukuran sebenarnya (0)",
+    "zoomIn": "Perbesar (+)",
+    "fit": "Sesuaikan dengan tampilan (F)",
+    "minimap": "Peta mini"
+  },
+  "props": {
+    "table": "tabel",
+    "openTable": "Buka tabel",
+    "close": "Tutup (Esc)",
+    "columns": "Kolom",
+    "unnamed": "(tanpa nama)",
+    "indexes": "Indeks",
+    "unique": "unik",
+    "references": "Merujuk ke",
+    "referencedBy": "Dirujuk oleh",
+    "outside": "di luar diagram"
+  }
+}

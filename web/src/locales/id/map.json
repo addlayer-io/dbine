@@ -1,0 +1,55 @@
+{
+  "source": "Data",
+  "latLon": "Lintang / bujur",
+  "lat": "Lintang",
+  "lon": "Bujur",
+  "pick": "Pilih kolom",
+  "count_other": "{{shown}} elemen",
+  "fit": "Sesuaikan",
+  "openSettings": "Atur peta",
+  "privacy": "Penyedia peta melihat area yang sedang Anda lihat (bukan datanya)",
+  "notice": {
+    "cap": "{{cap}} elemen pertama digambar; {{rest}} baris lainnya tidak digambar.",
+    "srid_other": "{{rows}} baris dengan SRID {{srid}} tidak digambar: peta menampilkan WGS 84 (4326) dan Web Mercator (3857).",
+    "range_other": "{{rows}} baris tanpa SRID memiliki koordinat yang bukan derajat: tidak digambar.",
+    "unreadable_other": "{{rows}} nilai tidak dapat dibaca sebagai geometri.",
+    "basemap": "Peta dasar bawaan tidak dapat dimuat."
+  },
+  "attribution": {
+    "offline": "Peta dasar: Natural Earth (domain publik), luring",
+    "custom": "Ubin: penyedia kustom"
+  },
+  "popup": {
+    "row": "Baris {{row}}",
+    "rows_other": "Baris {{row}} dan {{more}} lainnya di titik ini",
+    "geometry": "(geometri)"
+  },
+  "settings": {
+    "nav": "Peta",
+    "title": "Peta",
+    "help": "Peta hasil menggambar geometri di mesin ini: data baris tidak pernah keluar dari sini.",
+    "offline": "Peta dasar luring",
+    "offlineHelp": "Negara, provinsi dan negara bagian, garis pantai, danau, dan kota dari Natural Earth (domain publik), disertakan dalam DBine.",
+    "online": "Ubin daring",
+    "onlineHelp": "Menggunakan penyedia ubin dengan jalan dan relief. Jika dinonaktifkan, peta tidak melakukan permintaan apa pun ke internet.",
+    "noticeTitle": "Ubin daring",
+    "noticeOk": "Aktifkan",
+    "provider": "Penyedia",
+    "providers": {
+      "osm": "OpenStreetMap (standar)",
+      "maptiler": "MapTiler (dengan kunci)",
+      "stadia": "Stadia Maps (dengan kunci)",
+      "custom": "Kustom (templat XYZ)"
+    },
+    "osmPolicy": "Ubin OpenStreetMap Foundation adalah layanan komunitas dengan kebijakan penggunaan (operations.osmfoundation.org/policies/tiles): cocok untuk penggunaan ringan. Untuk penggunaan intensif, gunakan penyedia lain atau server Anda sendiri.",
+    "url": "Templat URL",
+    "urlHelp": "https dengan {z}, {x}, dan {y}; {key} diganti dengan kunci. http hanya untuk server di mesin ini (localhost).",
+    "urlInvalid": "Templat harus https (atau http ke localhost) dan memuat {z}, {x}, dan {y}.",
+    "attribution": "Atribusi",
+    "attributionHelp": "Teks yang diminta penyedia; ditampilkan di sudut peta.",
+    "key": "Kunci API",
+    "keyHelp": "Hanya disimpan di mesin ini: tidak ikut tersinkronisasi.",
+    "needUrl": "Templat URL yang valid belum ada: sementara itu peta memakai peta dasar luring.",
+    "needKey": "Kunci API belum ada: sementara itu peta memakai peta dasar luring."
+  }
+}

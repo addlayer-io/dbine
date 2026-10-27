@@ -1,0 +1,202 @@
+{
+  "status": {
+    "running_other": "{{count}} tugas berjalan",
+    "title": "Lihat tugas yang sedang berjalan",
+    "many": "{{count}} tugas",
+    "line": "{{title}}: {{elapsed}}",
+    "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
+  },
+  "panel": {
+    "title": "Tugas",
+    "empty": "Tidak ada tugas.",
+    "clearFinished": "Hapus yang selesai",
+    "cancel": "Batal",
+    "cancelling": "Membatalkan…",
+    "detail": "Lihat rincian",
+    "remove": "Hapus",
+    "background": "Lanjutkan di latar belakang"
+  },
+  "state": {
+    "running": "Berjalan",
+    "done": "Selesai",
+    "error": "Dengan kesalahan",
+    "cancelled": "Dibatalkan"
+  },
+  "progress": {
+    "of": "{{done}} dari {{total}} {{unit}}",
+    "count": "{{done}} {{unit}}"
+  },
+  "unit": {
+    "statements": "pernyataan",
+    "rows": "baris",
+    "bytes": "byte",
+    "tables": "tabel",
+    "objects": "objek"
+  },
+  "elapsed": {
+    "seconds": "{{n}} dtk",
+    "minutes": "{{n}} mnt {{s}} dtk",
+    "hours": "{{n}} j {{m}} mnt",
+    "days": "{{n}} h {{h}} j"
+  },
+  "eta": {
+    "calculating": "menghitung…",
+    "lessThanMinute": "kurang dari 1 mnt",
+    "minutes": "≈ {{n}} mnt",
+    "hours": "≈ {{h}} j {{m}} mnt",
+    "hoursExact": "≈ {{h}} j",
+    "days": "≈ {{d}} h {{h}} j",
+    "remaining": "sisa {{eta}}",
+    "phase": "{{eta}} untuk tahap ini",
+    "none": "tanpa perkiraan",
+    "low": "perkiraan awal, dapat berubah"
+  },
+  "detail": {
+    "title": "Rincian tugas",
+    "messages": "Pesan",
+    "noMessages": "Tidak ada pesan.",
+    "result": "Hasil",
+    "error": "Kesalahan",
+    "started": "Mulai",
+    "elapsed": "Berlalu",
+    "remaining": "Perkiraan sisa",
+    "ended": "Selesai",
+    "duration": "Total durasi"
+  },
+  "notify": {
+    "title": {
+      "done": "Tugas selesai",
+      "error": "Tugas dengan kesalahan",
+      "cancelled": "Tugas dibatalkan"
+    },
+    "done": "{{title}}: selesai dalam {{elapsed}}.",
+    "error": "{{title}}: selesai dengan kesalahan dalam {{elapsed}}.",
+    "cancelled": "{{title}}: dibatalkan setelah {{elapsed}}.",
+    "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
+    "failed": "{{title}}: gagal setelah {{elapsed}}. {{error}}"
+  },
+  "quit": {
+    "title": "Eksekusi di latar belakang",
+    "message_other": "Ada {{count}} eksekusi di latar belakang: {{list}}. Jika Anda menutup aplikasi, semuanya akan dibatalkan. Tetap tutup?",
+    "confirm": "Batalkan dan tutup",
+    "stay": "Lanjutkan bekerja",
+    "window": "{{title}} (jendela {{n}})"
+  },
+  "update": {
+    "title": "Eksekusi di latar belakang",
+    "message_other": "Ada {{count}} eksekusi di latar belakang: {{list}}. Untuk menyelesaikan pembaruan, DBine dimulai ulang dan semuanya akan dibatalkan. Tetap mulai ulang?",
+    "confirm": "Batalkan dan mulai ulang",
+    "stay": "Lanjutkan bekerja"
+  },
+  "closeWindow": {
+    "title": "Eksekusi di jendela ini",
+    "message_other": "Ada {{count}} eksekusi di latar belakang di jendela ini: {{list}}. Jika Anda menutup jendela, semuanya akan dibatalkan. Tetap tutup?",
+    "confirm": "Batalkan dan tutup jendela",
+    "stay": "Lanjutkan bekerja"
+  },
+  "dataSync": {
+    "title": "Sinkronisasi data {{table}} ({{where}})",
+    "unit": "pernyataan",
+    "phase": "Menerapkan di {{side}}: {{parts}}",
+    "applied": "Sudah diterapkan di {{sides}}",
+    "nothingApplied": "Tidak ada skrip lengkap yang sempat diterapkan",
+    "stoppedOn": "{{side}} berhenti di tengah: mungkin sebagian perubahan sudah diterapkan",
+    "lateCancel": "Pembatalan datang saat skrip sudah selesai: perubahan telah diterapkan.",
+    "stale": "Eksekusi berhenti di tengah dan data mungkin telah berubah: skrip ini tidak dapat dijalankan lagi. Perbandingan dimuat ulang.",
+    "regenerate": "Buat ulang skrip"
+  },
+  "compareSync": {
+    "title": "Sinkronisasi {{target}}",
+    "sideStart_other": "{{side}}: {{count}} pernyataan",
+    "summary": "{{count}} dari {{total}} pernyataan",
+    "summaryAll_other": "{{count}} pernyataan"
+  },
+  "backups": {
+    "copy": "Salinan {{where}}",
+    "copyDone": "{{size}} di {{path}}",
+    "restoreCopy": "Pulihkan salinan di {{where}}",
+    "statements": "{{n}} pernyataan",
+    "statementsWithErrors": "{{n}} pernyataan, {{errors}} dengan kesalahan",
+    "native": {
+      "backup": "Cadangan {{where}}",
+      "restore": "Pemulihan di {{where}}",
+      "delete": "Hapus cadangan di {{where}}"
+    }
+  },
+  "dialogs": {
+    "schemaCreate": "Buat skema {{name}} di {{db}}",
+    "schemaDrop": "Hapus skema {{name}} di {{db}}",
+    "dropIndex": "Hapus indeks {{name}} dari {{table}}",
+    "cloneTable": "Kloning {{table}} sebagai {{name}}",
+    "runScriptFile": "Jalankan {{file}} di {{db}}",
+    "applyEdits": "Simpan perubahan di {{table}}",
+    "saving": "Menyimpan…",
+    "rows_other": "{{n}} baris",
+    "statements_other": "{{n}} pernyataan",
+    "statementsWithErrors_other": "{{n}} pernyataan, {{errors}} dengan kesalahan"
+  },
+  "backupsSecurity": {
+    "run": "Perubahan pengguna dan izin di {{where}}"
+  },
+  "actions": {
+    "createDatabase": "Buat basis data {{name}} di {{server}}",
+    "dropDatabase": "Hapus basis data {{name}} dari {{server}}",
+    "dropOne": "Hapus {{name}} di {{db}}",
+    "dropMany": "Hapus {{count}} objek di {{db}}",
+    "dropped_other": "{{count}} objek dihapus",
+    "dropFailed": "{{failed}} dari {{total}} tidak dapat dihapus (rincian menjelaskan alasannya)"
+  },
+  "dataCompare": {
+    "buildTitle": "Skrip sinkronisasi data {{table}}",
+    "buildPhase": "Membuat skrip",
+    "applied": "Skrip ini sudah dijalankan dan perbandingan dimuat ulang: tidak dapat dijalankan lagi. Untuk sinkronisasi lain, buat ulang."
+  },
+  "settingsGit": {
+    "git": {
+      "link": "Tautkan pustaka dengan repo",
+      "commit": "Commit pustaka",
+      "pull": "Pull pustaka",
+      "push": "Push pustaka",
+      "sync": "Sinkronkan pustaka dengan repo",
+      "resolve": "Selesaikan konflik pustaka",
+      "unlink": "Putuskan tautan pustaka dari repo",
+      "conflicts_other": "{{count}} skrip berkonflik: buka «Pustaka di git» untuk menyelesaikannya"
+    },
+    "sync": {
+      "setupUpload": "Aktifkan sinkronisasi dan unggah cadangan",
+      "setupRestore": "Pulihkan cadangan di mesin ini",
+      "now": "Sinkronkan dengan cloud",
+      "upload": "Unggah cadangan ke cloud",
+      "restore": "Pulihkan dari cloud",
+      "change": "Ubah frasa sandi dan enkripsi ulang cadangan",
+      "disconnect": "Berhenti menyinkronkan dan hapus cadangan di cloud",
+      "local": "Pulihkan salinan lokal"
+    },
+    "drivers": {
+      "install": "Unduh driver {{label}}"
+    }
+  },
+  "genImportExport": {
+    "script": "Skrip {{db}}",
+    "scriptToFile": "Skrip {{db}} di {{file}}",
+    "withRows": "{{objects}}, {{rows}}",
+    "import": "Impor {{file}} ke {{table}}",
+    "export": "Ekspor {{file}}"
+  },
+  "nativeBackup": {
+    "phase": {
+      "backup": "Menyalin data",
+      "restore": "Memulihkan data",
+      "verify": "Memeriksa cadangan",
+      "export": "Mengekspor dengan Data Pump",
+      "import": "Mengimpor dengan Data Pump"
+    }
+  },
+  "importExport": {
+    "phase": {
+      "reading": "Membaca berkas",
+      "inserting": "Menyisipkan baris"
+    },
+    "estimated": "dari ~{{total}} perkiraan"
+  }
+}

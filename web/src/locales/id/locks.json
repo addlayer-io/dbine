@@ -1,0 +1,18 @@
+{
+  "title": "Kunci",
+  "none": "Tidak ada kunci",
+  "blocked_other": "{{count}} sesi menunggu",
+  "session": "Sesi",
+  "user": "Pengguna · klien",
+  "database": "Basis data",
+  "wait": "Menunggu",
+  "time": "Waktu",
+  "object": "Objek",
+  "sql": "Pernyataan",
+  "blocks_other": "memblokir {{count}}",
+  "blocksTitle": "Sesi yang menunggu sesi ini, secara langsung maupun tidak langsung",
+  "kill": "Akhiri",
+  "killTitle": "Akhiri sesi",
+  "killConfirm": "Akhiri sesi {{id}} ({{user}})? Transaksinya yang sedang berjalan akan dibatalkan.",
+  "killed": "Sesi {{id}} diakhiri"
+}

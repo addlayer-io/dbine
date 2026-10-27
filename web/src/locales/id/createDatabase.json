@@ -1,0 +1,10 @@
+{
+  "name": "Nama",
+  "advanced": "Opsi lanjutan",
+  "default": "Bawaan server",
+  "serverDefault": "Bawaan: {{value}}",
+  "showScript": "Lihat skrip",
+  "script": "Skrip",
+  "openInQuery": "Buka di kueri",
+  "scriptName": "Buat {{name}}"
+}

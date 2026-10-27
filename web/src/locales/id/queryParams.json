@@ -1,0 +1,22 @@
+{
+  "title": "Parameter kueri",
+  "intro": "Kueri ini memiliki parameter. Setiap nilai ditulis dalam teks sebagai literal mesin, dengan tanda kutip yang sesuai; di sebelah kanan terlihat hasilnya.",
+  "type": "Tipe",
+  "types": {
+    "text": "Teks",
+    "number": "Angka",
+    "date": "Tanggal",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Nilai",
+    "number": "Misalnya 42 atau 3.5",
+    "date": "YYYY-MM-DD atau YYYY-MM-DD hh:mm:ss"
+  },
+  "invalid": {
+    "number": "Bukan angka.",
+    "date": "Tulis tanggal sebagai YYYY-MM-DD, dengan waktu opsional (hh:mm atau hh:mm:ss)."
+  },
+  "disable": "Jangan minta parameter di tab ini",
+  "disableTip": "Menjalankan teks apa adanya dan berhenti mencari parameter di tab ini. Dapat diaktifkan kembali dari menu editor."
+}

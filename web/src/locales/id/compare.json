@@ -1,0 +1,172 @@
+{
+  "connectFailed": "tidak dapat terhubung",
+  "pickLeftDatabase": "Pilih basis data di sebelah kiri",
+  "pickRightConnection": "Pilih koneksi di sebelah kanan",
+  "pickDifferent": "Pilih dua basis data (atau dua skema) yang berbeda",
+  "kinds": {
+    "table": "Tabel",
+    "view": "View",
+    "materializedView": "View materialisasi",
+    "procedure": "Prosedur",
+    "function": "Fungsi",
+    "trigger": "Trigger",
+    "sequence": "Sekuens",
+    "synonym": "Sinonim",
+    "type": "Tipe",
+    "fulltextCatalog": "Katalog teks lengkap",
+    "fulltextStoplist": "Daftar kata henti",
+    "domain": "Domain",
+    "virtualTable": "Tabel virtual",
+    "dictionary": "Kamus"
+  },
+  "status": {
+    "equal": "Sama",
+    "changed": "Berbeda",
+    "onlyLeft": "Hanya di kiri",
+    "onlyRight": "Hanya di kanan"
+  },
+  "objectsSameEngine": "View dan prosedur hanya dipindahkan antar basis data dengan mesin yang sama",
+  "arrow": {
+    "revert": "Batalkan perubahan ini saja",
+    "table": {
+      "copyLeft": "Salin tabel ke kiri",
+      "copyRight": "Salin tabel ke kanan",
+      "createLeft": "Buat tabel di kiri",
+      "createRight": "Buat tabel di kanan",
+      "deleteLeft": "Hapus tabel di kiri",
+      "deleteRight": "Hapus tabel di kanan"
+    },
+    "object": {
+      "copyLeft": "Salin objek ke kiri",
+      "copyRight": "Salin objek ke kanan",
+      "createLeft": "Buat objek di kiri",
+      "createRight": "Buat objek di kanan",
+      "deleteLeft": "Hapus objek di kiri",
+      "deleteRight": "Hapus objek di kanan"
+    },
+    "item": {
+      "copyLeft": "Salin ini ke kiri",
+      "copyRight": "Salin ini ke kanan",
+      "createLeft": "Buat ini di kiri",
+      "createRight": "Buat ini di kanan",
+      "deleteLeft": "Hapus ini di kiri",
+      "deleteRight": "Hapus ini di kanan"
+    },
+    "pk": {
+      "copyLeft": "Salin kunci primer ke kiri",
+      "copyRight": "Salin kunci primer ke kanan"
+    },
+    "props": {
+      "copyLeft": "Salin komentar dan opsi ke kiri",
+      "copyRight": "Salin komentar dan opsi ke kanan"
+    }
+  },
+  "autoIncrement": "auto-increment",
+  "sections": {
+    "columns": "Kolom",
+    "indexes": "Indeks",
+    "foreignKeys": "Kunci asing",
+    "checks": "Batasan CHECK"
+  },
+  "primaryKey": "Kunci primer",
+  "sync": {
+    "button": "Sinkronkan",
+    "readOnly": "Koneksi hanya-baca",
+    "unsupported": "{{engine}} tidak menerapkan perubahan skema dari DBine",
+    "queryTitle": "Sinkronkan {{name}}",
+    "confirm_other": "{{count}} pernyataan akan dijalankan di {{where}}.{{warnings}}",
+    "confirmWarnings": " Tinjau peringatan sebelum melanjutkan.",
+    "failed": "Pernyataan {{n}} dari {{total}} gagal ({{done}} sudah dijalankan): {{message}}",
+    "done": "{{where}} disinkronkan",
+    "generating": "Membuat skrip…",
+    "openAsQuery": "Buka sebagai kueri",
+    "noChanges": "Tidak ada perubahan: pindahkan dengan panah → / ←",
+    "changes_other": "{{count}} perubahan (kiri: {{left}}, kanan: {{right}}): lihat skrip dan jalankan",
+    "confirmOrder": "Kiri lebih dulu, lalu kanan; jika ada yang gagal, proses berhenti di sana.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Sudah dijalankan",
+    "emptyScript": "Sisi ini memiliki perubahan yang belum diterapkan, tetapi skripnya kosong: tidak ada pernyataan yang menerapkannya. Tidak ada yang akan dijalankan di sini. Tinjau perubahannya atau buang.",
+    "destructiveTables_other": "{{count}} tabel dihapus beserta seluruh datanya: {{names}}",
+    "destructiveColumns_other": "{{count}} kolom dihapus beserta datanya: {{names}}",
+    "destructiveObjects_other": "{{count}} objek dihapus: {{names}}",
+    "confirmDestructive": "Ada tabel, kolom, atau objek yang akan dihapus dan tidak dapat dipulihkan.",
+    "confirmDependents_other": "{{count}} objek yang bergantung pada yang dihapus mungkin berhenti berfungsi.",
+    "confirmDepsPending": "Dependensi masih diperiksa.",
+    "confirmDepsFailed_other": "Dependensi dari {{count}} elemen yang dihapus tidak dapat diperiksa.",
+    "confirmDepsIncomplete_other": "Pemeriksaan dependensi untuk {{count}} elemen belum lengkap."
+  },
+  "left": "Kiri",
+  "right": "Kanan",
+  "connection": "Koneksi",
+  "database": "Basis data",
+  "schema": "Skema",
+  "allSchemas": "Semua skema",
+  "discard": "Buang perubahan di sisi ini",
+  "swap": "Tukar",
+  "undo": "Batalkan perubahan terakhir",
+  "compare": "Bandingkan",
+  "empty": {
+    "pick": "Pilih kedua basis data (atau dua skema) lalu tekan {compare}.",
+    "help": "Perbedaan dipindahkan dari satu sisi ke sisi lain dengan panah dan diterapkan dengan {sync}, yang menampilkan skrip sebelum dijalankan."
+  },
+  "onlyDiff": "Hanya perbedaan",
+  "ignoreCase": "Abaikan huruf besar/kecil",
+  "ignoreComments": "Abaikan komentar",
+  "noDifferences": "Tidak ada perbedaan.",
+  "noObjects": "Tidak ada objek.",
+  "pendingChanges": "Dengan perubahan belum diterapkan",
+  "pickItem": "Pilih tabel atau objek dari daftar.",
+  "tableProps": "Properti tabel",
+  "indexUsage": {
+    "share": "{{pct}} dari pembacaan tabel di basis data ini ({{reads}} pembacaan)",
+    "unused": "Tidak ada pembacaan di basis data ini dan {{updates}} penulisan sejak statistik dimulai"
+  },
+  "drop": {
+    "title": "Hapus…",
+    "left": "Hapus di kiri",
+    "right": "Hapus di kanan",
+    "both": "Hapus di kedua sisi",
+    "undo": "Batalkan: kembalikan",
+    "missing": "Tidak ada di sisi itu",
+    "inPk": "Hapus kunci primer terlebih dahulu",
+    "lastColumn": "Tabel membutuhkan setidaknya satu kolom",
+    "clearComment": "Hapus komentar",
+    "cascade_other": "{{side}}: {{count}} kunci asing yang mereferensikannya juga dihapus ({{tables}})",
+    "usage": "{{side}}: {{usage}}",
+    "referenced": "{{side}}: kunci asing {{fk}} dari {{table}} mengarah ke kunci ini; mesin dapat menolak penghapusan",
+    "referencedColumn": "{{side}}: kunci asing {{fk}} dari {{table}} mengarah ke kolom ini; mesin dapat menolak penghapusan",
+    "withColumn_other": "{{side}}: {{count}} elemen yang menggunakannya juga dihapus: {{items}}",
+    "what": {
+      "index": "indeks",
+      "fk": "kunci asing",
+      "check": "CHECK"
+    },
+    "computed": "{{side}}: kolom terhitung {{column}} menggunakannya; mesin dapat menolak penghapusan",
+    "pkRequired": "{{engine}} tidak mengizinkan tabel tanpa kunci primer",
+    "backsFk": "{{side}}: MySQL menggunakan indeks ini untuk kunci asing {{fk}}; penghapusan dapat gagal",
+    "hiddenEqual_other": "· {{count}} sama disembunyikan",
+    "hiddenEqualTip": "Hapus centang «Hanya perbedaan» untuk melihat dan menghapusnya",
+    "pending": {
+      "left": "Dihapus di kiri saat sinkronisasi",
+      "right": "Dihapus di kanan saat sinkronisasi",
+      "both": "Dihapus di kedua sisi saat sinkronisasi"
+    }
+  },
+  "dropComment": {
+    "left": "Hapus komentar di kiri",
+    "right": "Hapus komentar di kanan",
+    "both": "Hapus komentar di kedua sisi"
+  },
+  "deps": {
+    "title": "Yang bergantung pada yang dihapus",
+    "loading": "mencari dependensi…",
+    "failed": "dependensi tidak dapat diperiksa",
+    "tooMany": "Tidak diperiksa: hanya {{limit}} elemen pertama di setiap sisi yang diperiksa",
+    "stopped": "Tidak diperiksa: dialog ditutup sebelumnya",
+    "breaks_other": "{{count}} objek berhenti berfungsi",
+    "review_other": "{{count}} untuk ditinjau (SQL dinamis)",
+    "incomplete_other": "daftar tidak lengkap: {{count}} objek tidak dapat dibaca",
+    "none": "Tidak ada yang bergantung pada ini",
+    "noneFound": "Tidak ditemukan apa pun pada bagian yang dapat dibaca"
+  }
+}

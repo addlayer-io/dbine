@@ -1,0 +1,144 @@
+{
+  "action": "Optimalkan",
+  "actionTip": "Optimalkan kueri: penulisan ulang yang setara, saran indeks, dan perbandingan waktu (pilihan atau pernyataan di kursor)",
+  "tab": "Optimalkan",
+  "title": "Optimalkan kueri · {{name}}",
+  "queryName": "Dioptimalkan: {{title}}",
+  "indexQueryName": "Indeks yang disarankan: {{table}}",
+  "noStatement": "Letakkan kursor di sebuah kueri atau pilih kueri tersebut.",
+  "reanalyze": "Analisis ulang",
+  "analyzing": "Menganalisis kueri…",
+  "original": "Kueri asli",
+  "writesNote": "Kueri ini mengubah data: tidak pernah dijalankan. «Bandingkan» hanya membandingkan rencana perkiraannya.",
+  "skipped": "Tidak dapat dibaca:",
+  "alternatives": "Alternatif",
+  "noAlternatives": "Aturan tidak menemukan penulisan ulang yang aman untuk kueri ini. Anda dapat meminta alternatif dari AI atau menambahkan alternatif sendiri.",
+  "noRulesEngine": "Aturan penulisan ulang tidak berlaku untuk bahasa mesin ini. Anda dapat meminta alternatif dari AI atau menambahkan alternatif sendiri.",
+  "source": {
+    "rule": "Aturan",
+    "ai": "AI",
+    "user": "Milik Anda",
+    "original": "Asli"
+  },
+  "verify": "Belum terbukti setara dalam semua kasus: bandingkan sebelum menggunakannya.",
+  "showSql": "Lihat kueri",
+  "hideSql": "Sembunyikan kueri",
+  "remove": "Hapus",
+  "askAi": "Minta alternatif dari AI",
+  "askingAi": "Menanyakan ke AI…",
+  "aiMissing": "Belum ada asisten AI yang dikonfigurasi. Buka asisten untuk memilih satu: model bawaan DBine, Ollama atau LM Studio (berjalan di mesin ini), atau Claude Code atau Codex dengan akun Anda sendiri.",
+  "openAssistant": "Buka asisten",
+  "aiNone": "AI tidak menemukan perbaikan untuk kueri ini.",
+  "aiNothing": "Jawaban AI tidak memuat alternatif dalam format yang diminta. Coba lagi atau dengan model lain.",
+  "aiDiscarded_other": "{{count}} alternatif dibuang karena tidak dapat dikompilasi di basis data, bahkan setelah AI diminta memperbaikinya.",
+  "aiSent": "Kueri dan {{what}} dikirim ke {{provider}}. Baris tidak pernah dikirim.",
+  "aiSentOnly": "Hanya kueri yang dikirim ke {{provider}}. Baris tidak pernah dikirim.",
+  "aiTables": "{{count}} tabel",
+  "aiPlan": "rencana",
+  "addOwn": "Tambah alternatif",
+  "ownTitle": "Alternatif Anda",
+  "ownHint": "Tulis versi kueri yang setara: dibandingkan sama seperti yang lain.",
+  "ownName": "Alternatif {{n}}",
+  "add": "Tambah",
+  "compare": "Bandingkan",
+  "comparing": "Membandingkan… {{done}} dari {{total}}",
+  "compareTip": "Menjalankan kueri asli dan setiap alternatif dalam sesi baca-saja (sekali untuk pemanasan, lalu sebanyak yang ditentukan) dan membandingkan waktu, baris, dan hasil. Yang mengubah data tidak dijalankan: rencana perkiraannya yang dibandingkan.",
+  "runs": "Eksekusi",
+  "runsTip": "Berapa kali setiap versi dijalankan, setelah satu eksekusi pemanasan",
+  "maxRows": "Maks. baris",
+  "maxRowsTip": "Baris yang dibaca dan dibandingkan dari setiap versi. Jika ada yang mengembalikan lebih banyak, hasilnya tidak diverifikasi.",
+  "table": {
+    "version": "Versi",
+    "min": "Min.",
+    "avg": "Rata-rata",
+    "rows": "Baris",
+    "cost": "Biaya",
+    "result": "Hasil",
+    "speed": "vs. asli"
+  },
+  "result": {
+    "same": "Hasil sama",
+    "different": "TIDAK setara",
+    "unverified": "Belum diverifikasi",
+    "truncated": "Lebih dari {{count}} baris: tidak dibandingkan",
+    "error": "Kesalahan",
+    "planOnly": "Hanya rencana",
+    "pending": "Belum dibandingkan"
+  },
+  "recommended": "Direkomendasikan",
+  "faster": "{{x}}× lebih cepat",
+  "slower": "{{x}}× lebih lambat",
+  "cheaper": "biaya {{x}}× lebih rendah",
+  "viewPlan": "Lihat rencana",
+  "use": "Gunakan versi ini",
+  "useNew": "Buka di kueri baru",
+  "useReplace": "Ganti kueri di editornya",
+  "replaceGone": "Editor asal tidak lagi memiliki kueri ini (ditutup atau teksnya berubah): dibuka di kueri baru.",
+  "replaced": "Kueri diganti di editor. Tidak dijalankan.",
+  "confirmUse": {
+    "title": "Gunakan versi ini",
+    "different": "Versi ini TIDAK mengembalikan hasil yang sama dengan yang asli. Tetap gunakan?",
+    "unverified": "Versi ini belum diverifikasi terhadap yang asli. Tetap gunakan?",
+    "go": "Tetap gunakan"
+  },
+  "planTitle": "Rencana · {{name}}",
+  "hints": "Indeks yang disarankan",
+  "hintsNone": "Rencana tidak menunjukkan penelusuran penuh yang dapat dihindari oleh indeks.",
+  "hintsNoPlan": "Mesin ini tidak menampilkan rencana eksekusi, sehingga tidak ada saran indeks.",
+  "hint": {
+    "missing_index": "Mesin menyarankan indeks pada {{table}} ({{columns}})",
+    "full_scan": "{{table}} ditelusuri penuh; indeks pada ({{columns}}) dapat menghindarinya",
+    "scan": "{{table}} ditelusuri penuh",
+    "impact": "perkiraan dampak {{impact}} %",
+    "rows": "~{{rows}} baris diperkirakan"
+  },
+  "hintsNote": "Skrip hanya dibuka di kueri: periksa dan jalankan sendiri jika berguna. Indeks mempercepat pembacaan dan memperlambat penulisan.",
+  "openScript": "Buka di kueri",
+  "notes": "Catatan",
+  "planWarnings": "Peringatan rencana",
+  "rules": {
+    "in_to_exists": {
+      "title": "IN (subkueri) → EXISTS",
+      "explain": "{{column}} IN (subkueri) diubah menjadi EXISTS dengan kondisi di dalam subkueri: mesin dapat berhenti pada kecocokan pertama alih-alih menyusun daftar lengkap."
+    },
+    "not_in_to_not_exists": {
+      "title": "NOT IN → NOT EXISTS",
+      "explain": "Karena {{column}} dan kolom subkueri tidak menerima NULL, NOT EXISTS mengembalikan hasil yang sama dan biasanya diselesaikan sebagai anti-join yang lebih efisien."
+    },
+    "exists_to_in": {
+      "title": "EXISTS → IN",
+      "explain": "Subkueri berkorelasi dengan {{column}} diubah menjadi daftar IN yang dihitung sekali saja. Beberapa mesin menyelesaikannya lebih baik dengan cara ini."
+    },
+    "scalar_to_join": {
+      "title": "Subkueri per baris → LEFT JOIN terkelompok",
+      "explain": "Subkueri di SELECT ({{count}}) dijalankan untuk setiap baris; diubah menjadi LEFT JOIN dengan tabel terkelompok yang dihitung sekali saja. COUNT tanpa baris tetap menghasilkan 0."
+    },
+    "or_to_union": {
+      "title": "OR antar kolom berbeda → UNION ALL",
+      "explain": "OR pada {{columns}} mencegah penggunaan indeks untuk masing-masing kolom. Setiap cabang UNION ALL dapat memakai indeksnya sendiri, dan masing-masing mengecualikan baris yang sudah dikembalikan cabang sebelumnya sehingga tidak ada yang berulang."
+    },
+    "redundant_distinct": {
+      "title": "DISTINCT yang tidak perlu",
+      "explain": "Daftar menyertakan kunci dari {{tables}}: baris sudah unik dan DISTINCT hanya menambah pengurutan atau pengelompokan."
+    },
+    "function_to_range": {
+      "title": "Fungsi pada kolom terindeks → rentang",
+      "explain": "{{function}} menerapkan fungsi pada {{column}} sehingga indeksnya tidak dapat digunakan. Rentang tanggal yang setara dapat menggunakannya."
+    },
+    "count_to_exists": {
+      "title": "COUNT(*) > 0 → EXISTS",
+      "explain": "Untuk mengetahui apakah ada baris, tidak perlu menghitung semuanya: EXISTS berhenti pada baris pertama."
+    },
+    "mongo_where": {
+      "title": "$where → operator kueri",
+      "explain": "$where menjalankan JavaScript pada setiap dokumen dan tidak memakai indeks; operator yang setara memakainya. Pada field berupa array atau bertipe campuran hasilnya dapat berubah: bandingkan sebelum menggunakannya."
+    }
+  },
+  "notesText": {
+    "select_star": "SELECT * mengambil {{count}} kolom dari {{table}}. Meminta hanya yang digunakan membaca lebih sedikit data dan dapat memanfaatkan indeks yang mencakup kueri.",
+    "select_starOpen": "Buka dengan kolom",
+    "not_in_nullable": "NOT IN dengan {{column}}: jika subkueri mengembalikan NULL, kueri tidak mengembalikan baris apa pun. Jika bukan itu tujuannya, gunakan NOT EXISTS.",
+    "text_vs_number": "{{column}} bertipe {{type}} dan dibandingkan dengan angka {{value}}: mesin mengonversi kolom pada setiap baris dan tidak dapat memakai indeksnya. Jika nilainya teks, bandingkan dengan '{{value}}' (pastikan hasilnya sama).",
+    "nvarchar_literal": "{{column}} bertipe {{type}} dan dibandingkan dengan teks N'…' (Unicode): SQL Server mengonversi kolom dan mungkin tidak memakai indeksnya. Hapus N jika nilainya tidak memiliki karakter di luar code page kolom."
+  }
+}

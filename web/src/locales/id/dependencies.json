@@ -1,0 +1,41 @@
+{
+  "menu": "Lihat dependensi…",
+  "tab": "Dependensi",
+  "refresh": "Perbarui",
+  "copy": "Salin",
+  "copied": "Dependensi tersalin",
+  "summary": "{{confirmed}} terkonfirmasi, {{probable}} kemungkinan, dan {{review}} untuk ditinjau ({{scanned}} definisi dibaca).",
+  "outside": "Hanya yang ada di basis data yang terlihat: aplikasi, laporan, dan skrip eksternal yang menggunakannya tidak muncul di sini.",
+  "unreadable": "Definisi tidak dapat dibaca untuk: {{names}}. Yang bergantung pada objek di sana tidak ada dalam daftar.",
+  "none": "Tidak ada yang bergantung pada objek ini di basis data.",
+  "on": "di {{parent}}",
+  "dynamic": "SQL dinamis",
+  "relation": {
+    "foreign_key": "Kunci asing",
+    "index": "Indeks dan kunci primer",
+    "check": "Batasan CHECK",
+    "code": "View, rutin, dan trigger"
+  },
+  "confidence": {
+    "confirmed": "Terkonfirmasi",
+    "probable": "Kemungkinan",
+    "review": "Tinjau"
+  },
+  "confidenceTip": {
+    "confirmed": "Katalog mesin mencatat dependensi ini.",
+    "probable": "Kode objek menyebutkan objek ini (dan kolomnya, beserta tabelnya).",
+    "review": "Namanya muncul di dalam teks, kemungkinan SQL dinamis: perlu dibaca untuk mengetahui apakah digunakan."
+  },
+  "kind": {
+    "table": "Tabel",
+    "collection": "Koleksi",
+    "view": "View",
+    "materialized_view": "View materialisasi",
+    "procedure": "Prosedur",
+    "function": "Fungsi",
+    "trigger": "Trigger",
+    "synonym": "Sinonim",
+    "type": "Tipe",
+    "sequence": "Sekuens"
+  }
+}

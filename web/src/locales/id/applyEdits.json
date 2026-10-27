@@ -1,0 +1,11 @@
+{
+  "save": "Simpan",
+  "title": "Simpan perubahan",
+  "hint": "Pernyataan berikut akan dijalankan di server ({{list}}). Tinjau sebelum menyimpan.",
+  "run": "Simpan",
+  "done": "Perubahan disimpan",
+  "doneRows_other": "Perubahan disimpan: {{count}} baris diperbarui",
+  "hintBoth": "Pernyataan berikut akan dijalankan di server ({{list}}). Baris dihapus lebih dulu, lalu yang lain diperbarui. Tinjau sebelum menyimpan.",
+  "doneAffected_other": "Perubahan disimpan: {{count}} baris terpengaruh",
+  "hintInserts": "Pernyataan berikut akan dijalankan di server ({{list}}). Baris dihapus lebih dulu, lalu diperbarui, dan terakhir baris baru disisipkan. Tinjau sebelum menyimpan."
+}

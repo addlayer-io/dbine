@@ -1,0 +1,351 @@
+{
+  "title": {
+    "new": "Koneksi baru",
+    "edit": "Edit koneksi · {{name}}",
+    "duplicate": "Duplikat koneksi"
+  },
+  "missingDriver": "Versi ini tidak menyertakan driver \"{{driver}}\".",
+  "copyName": "{{name}} (salinan)",
+  "pick": {
+    "searchPlaceholder": "Cari mesin…",
+    "port": "Port {{port}}",
+    "localFile": "Berkas lokal",
+    "cloudService": "Layanan cloud",
+    "noMatch": "Tidak ada mesin yang cocok dengan «{{search}}».",
+    "available": "{{n}} mesin tersedia"
+  },
+  "family": {
+    "relational": "Relasional",
+    "analytical": "Analitik",
+    "document": "Dokumen",
+    "key_value": "Kunci-nilai",
+    "wide_column": "Kolom lebar",
+    "search": "Pencarian",
+    "time_series": "Deret waktu",
+    "streaming": "Streaming",
+    "graph": "Graf"
+  },
+  "form": {
+    "changeEngine": "Ganti mesin",
+    "name": "Nama",
+    "color": "Warna",
+    "noColor": "Tanpa warna",
+    "folder": "Folder",
+    "tags": "Tag",
+    "tagsPlaceholder": "prod, dev, qa… (ketik yang baru lalu tekan Enter)",
+    "secretKeptMasc": "(tersimpan; biarkan kosong untuk mempertahankannya)",
+    "secretKeptFem": "(tersimpan; biarkan kosong untuk mempertahankannya)",
+    "couldNotConnect": "Tidak dapat terhubung",
+    "testConnection": "Uji koneksi",
+    "connectionOk": "Koneksi berhasil",
+    "saveAndConnect": "Simpan dan hubungkan",
+    "missingFields": "Belum diisi: {{fields}}"
+  },
+  "problem": {
+    "title": "Masalah koneksi · {{name}}",
+    "connection": "Koneksi",
+    "server": "Server",
+    "message": "Pesan",
+    "kindLabel": "Jenis",
+    "clientIp": "IP klien",
+    "code": "kode {{code}}",
+    "copyDetail": "Salin detail",
+    "editConnection": "Edit koneksi",
+    "publicIp": "Lihat IP publik saya",
+    "yourIp": "IP publik Anda: {{ip}}",
+    "ipFromServer": "Server melaporkan bahwa Anda terhubung dari {{ip}} (belum diverifikasi: dengan «Lihat IP publik saya» dapat dipastikan).",
+    "kind": {
+      "firewall": {
+        "title": "Firewall server memblokir IP Anda",
+        "azure": "Azure SQL hanya menerima koneksi dari IP yang diizinkan di firewall server, dan IP Anda tidak ada di sana. Tambahkan sebagai aturan lalu hubungkan lagi (perubahan dapat memakan waktu beberapa menit).",
+        "other": "Server tidak menerima koneksi dari alamat Anda. Minta agar IP publik Anda diizinkan (misalnya di pg_hba.conf, di host yang diizinkan untuk pengguna MySQL, atau di firewall server)."
+      },
+      "timeout": {
+        "title": "Server tidak merespons",
+        "body": "Koneksi tidak sampai ke server tepat waktu. Penyebab yang paling umum:"
+      },
+      "refused": {
+        "title": "Server menolak koneksi",
+        "body": "Komputer tujuan terjangkau, tetapi tidak ada yang melayani di port itu, atau tidak ada rute ke sana. Penyebab yang paling umum:"
+      },
+      "dns": {
+        "title": "Server tidak ditemukan",
+        "body": "Nama {{host}} tidak dapat di-resolve. Periksa penulisannya dan, jika itu nama internal, pastikan Anda berada di jaringan atau VPN yang meresolusinya."
+      },
+      "tls": {
+        "title": "Koneksi aman (TLS) gagal",
+        "body": "Sertifikat server tidak tepercaya atau tidak cocok dengan nama host. Periksa opsi enkripsi koneksi: gunakan nama yang tercantum di sertifikat, atau percayai sertifikat server hanya jika Anda yakin itu benar."
+      },
+      "tls_not_offered": {
+        "title": "Server tidak menyediakan TLS",
+        "body": "Koneksi meminta enkripsi dan server tidak mengaktifkannya (hal umum pada server pengembangan). Aktifkan TLS di server atau, jika Anda menerima data dan kata sandi dikirim tanpa enkripsi, pilih mode tanpa enkripsi di tab SSL/TLS."
+      },
+      "tls_untrusted": {
+        "title": "Sertifikat server tidak dapat diverifikasi",
+        "body": "Sertifikat server tidak ditandatangani oleh otoritas tepercaya atau tidak cocok dengan nama host (hal umum pada sertifikat yang ditandatangani sendiri). Di tab SSL/TLS, tentukan berkas CA atau, hanya jika Anda yakin servernya benar, pilih mode yang tidak memverifikasi sertifikat."
+      },
+      "auth": {
+        "title": "Login ditolak",
+        "body": "Server menolak pengguna atau kata sandi. Periksa kredensial dan metode autentikasi (misalnya Microsoft Entra), serta pastikan pengguna ada di basis data itu."
+      },
+      "unknown": {
+        "title": "Tidak dapat terhubung",
+        "body": "Server atau driver merespons dengan pesan ini."
+      }
+    },
+    "network": {
+      "vpn": "VPN jaringan server tidak terhubung.",
+      "firewall": "Firewall di jalur (NSG atau WAF Azure, firewall mesin virtual, atau firewall jaringan Anda) membuang lalu lintas ke port {{port}}.",
+      "down": "Server atau layanan berhenti, atau mendengarkan di port lain.",
+      "azureVm": "{{host}} adalah mesin virtual Azure: SQL Server berjalan di VM, jadi aturannya ada di NSG atau WAF (atau di firewall Windows pada VM), bukan di firewall Azure SQL.",
+      "azureSql": "Pada Azure SQL, IP yang tidak diizinkan menghasilkan kesalahan firewall, bukan waktu habis: jika tidak ada respons, pastikan jaringan Anda mengizinkan keluar melalui port 1433."
+    },
+    "azure": {
+      "add": "Tambahkan IP saya ke firewall Azure",
+      "confirmTitle": "Aturan ini akan dibuat di akun Azure Anda",
+      "rule": "Aturan",
+      "ip": "IP",
+      "ipPlaceholder": "IP_ANDA",
+      "groupPlaceholder": "GRUP_SUMBER_DAYA",
+      "confirmNote": "Ini adalah perubahan pada firewall server Azure SQL, dilakukan dengan sesi CLI Azure (az) Anda.",
+      "prodConfirm": "Ini koneksi produksi. Ketik «{{name}}» untuk mengonfirmasi:",
+      "create": "Buat aturan",
+      "created": "Aturan {{rule}} dibuat di {{server}} (grup {{group}}) untuk {{ip}}. Penerapannya dapat memakan waktu beberapa menit: setelah itu, Coba lagi.",
+      "azMissing": "CLI Azure (az) tidak ditemukan di komputer ini. Anda dapat membuat aturan dengan salah satu cara berikut:",
+      "azLoggedOut": "CLI Azure (az) belum memiliki sesi login (jalankan «az login» lalu coba lagi). Sementara itu, Anda dapat membuat aturan dengan salah satu cara berikut:",
+      "azSandboxed": "DBine versi Flathub tidak dapat menggunakan CLI Azure (az): sandbox Flatpak tidak memiliki akses ke program sistem. Anda dapat membuat aturan dengan salah satu cara berikut:",
+      "byCli": "Dengan CLI Azure (isi grup sumber daya):",
+      "byPortal": "Di portal Azure: server › Jaringan › Aturan firewall › Tambahkan IP klien.",
+      "openPortal": "Buka portal",
+      "byTsql": "Dengan T-SQL, dari koneksi lain yang memiliki akses, di basis data master:",
+      "unavailable": "Azure melaporkan bahwa basis data sedang tidak tersedia (biasanya terjadi saat dipindahkan atau diubah skalanya). Tunggu semenit lalu coba lagi.",
+      "ipVerified": "IP publik Anda, diverifikasi melalui HTTPS"
+    },
+    "couldNotConnect": "Tidak dapat terhubung ke {{name}}: {{error}}",
+    "ipMismatch": "Server melaporkan IP lain ({{server}}): tidak cocok dengan IP publik Anda, sehingga tidak dipakai."
+  },
+  "source": {
+    "label": "Sumber",
+    "kind": {
+      "saved": "Simpan di keychain",
+      "ask": "Tanyakan setiap kali",
+      "command": "Baris perintah",
+      "onepassword": "1Password",
+      "vault": "HashiCorp Vault",
+      "aws": "AWS Secrets Manager",
+      "azure": "Azure Key Vault",
+      "gcp": "Google Secret Manager",
+      "keepass": "KeePass",
+      "zoho": "Zoho Vault",
+      "vault_db": "HashiCorp Vault (kredensial basis data)",
+      "conjur": "CyberArk Conjur",
+      "ccp": "CyberArk Central Credential Provider",
+      "delinea": "Delinea Secret Server",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
+      "ssm": "AWS Parameter Store"
+    },
+    "askHelp": "Diminta saat menghubungkan dan tidak disimpan.",
+    "askPlaceholder": "(hanya untuk pengujian; diminta saat menghubungkan)",
+    "input": {
+      "command": "Perintah",
+      "json_key": "Kunci JSON (opsional)",
+      "reference": "Referensi",
+      "account": "Akun (opsional)",
+      "address": "Alamat",
+      "path": "Jalur rahasia",
+      "key": "Kunci",
+      "namespace": "Namespace (opsional)",
+      "kv_version": "Versi KV",
+      "ca_file": "Sertifikat CA (opsional)",
+      "token": "Token (opsional)",
+      "secret_id": "Nama atau ARN rahasia",
+      "region": "Wilayah (opsional)",
+      "profile": "Profil AWS (opsional)",
+      "fill_username": "Ambil juga pengguna dari rahasia ini (kunci «username»)",
+      "vault_url": "URL vault",
+      "name": "Nama rahasia",
+      "version": "Versi (opsional)",
+      "project": "Proyek",
+      "secret": "Rahasia",
+      "file": "Berkas basis data (.kdbx)",
+      "entry": "Entri",
+      "attribute": "Bidang (opsional)",
+      "key_file": "Berkas kunci (opsional)",
+      "master": "Kata sandi utama",
+      "master_keepass": "Kata sandi utama",
+      "master_zoho": "Frasa sandi utama",
+      "master_value_keepass": "Kata sandi utama",
+      "master_value_zoho": "Frasa sandi utama",
+      "master_command": "Perintah yang mengembalikan kata sandi utama",
+      "data_center": "Pusat data",
+      "secret_name": "Nama atau ID rahasia",
+      "account_id": "Akun",
+      "client_id": "ID klien",
+      "client_secret": "Rahasia klien",
+      "refresh_token": "Token penyegaran",
+      "fill_username_keepass": "Ambil juga pengguna dari entri ini (bidang «UserName»)",
+      "fill_username_zoho": "Ambil juga pengguna dari rahasia ini (bidang «username»)",
+      "auth": "Login ke Vault",
+      "role_id": "Role ID",
+      "approle_secret_id": "Secret ID",
+      "approle_mount": "Jalur AppRole (opsional)",
+      "mount": "Mesin basis data (opsional)",
+      "role": "Peran",
+      "static_role": "Peran statis (pengguna tetap yang kata sandinya dirotasi Vault)",
+      "url": "URL",
+      "conjur_account": "Akun",
+      "login": "Login (host/<id> atau pengguna)",
+      "variable": "ID variabel",
+      "username_variable": "Variabel berisi pengguna (opsional)",
+      "api_key": "Kunci API",
+      "app_id": "AppID",
+      "safe": "Safe (opsional)",
+      "folder": "Folder (opsional)",
+      "object": "Objek",
+      "account_user": "Pengguna akun (opsional)",
+      "account_address": "Alamat akun (opsional)",
+      "client_cert": "Sertifikat klien (opsional)",
+      "client_key": "Kunci privat (opsional)",
+      "cert_passphrase": "Frasa sandi kunci atau PKCS#12 (opsional)",
+      "fill_username_ccp": "Ambil juga pengguna dari akun ini («UserName»)",
+      "platform_url": "URL Delinea Platform (opsional)",
+      "username": "Pengguna (atau ID klien)",
+      "domain": "Domain (opsional)",
+      "master_delinea": "Kata sandi",
+      "master_value_delinea": "Kata sandi (atau rahasia klien)",
+      "fill_username_delinea": "Ambil juga pengguna dari rahasia ini (bidang «username»)",
+      "server": "Server",
+      "item": "Item (ID atau nama)",
+      "secret_uuid": "ID rahasia",
+      "access_token": "Token akses",
+      "parameter": "Nama atau ARN parameter",
+      "list_index": "Elemen daftar (opsional)",
+      "master_bitwarden": "Kata sandi utama",
+      "master_value_bitwarden": "Kata sandi utama",
+      "fill_username_bitwarden": "Ambil juga pengguna dari item ini (nama penggunanya)",
+      "tenant": "Tenant (Microsoft Entra)"
+    },
+    "placeholder": {
+      "command": "pass show bases/produccion",
+      "token": "VAULT_TOKEN atau ~/.vault-token",
+      "latest": "terbaru",
+      "data_center": "Milik akun Zoho Anda",
+      "server": "bitwarden.com, bitwarden.eu atau https://bitwarden.contoh.com",
+      "ssmVersion": "terbaru (atau angka, atau label)"
+    },
+    "kvAuto": "Deteksi",
+    "help": {
+      "command": "Dijalankan dengan shell login Anda, tanpa input dan maksimal 30 detik; yang dicetak (tanpa baris baru di akhir) adalah rahasianya.",
+      "json_key": "Jika rahasia berupa objek JSON, kunci yang dipakai.",
+      "onepassword": "Dibaca dengan CLI 1Password («op read»): harus terpasang dan sudah login.",
+      "vault": "Tanpa token, VAULT_TOKEN atau token dari «vault login» (~/.vault-token) dipakai. Token yang Anda ketik disimpan di keychain sistem.",
+      "aws": "Dengan kredensial AWS komputer ini: variabel lingkungan, ~/.aws atau CLI AWS (SSO, peran).",
+      "azure": "Dengan sesi CLI Azure («az login»), Azure Developer CLI, atau identitas terkelola Anda.",
+      "gcp": "Dengan sesi gcloud («gcloud auth login») atau kredensial bawaan aplikasi.",
+      "entry": "Grup/Subgrup/Judul, judul saja jika tidak berulang, atau UUID entri.",
+      "keepass": "Basis data dibaca di komputer ini, tanpa program eksternal (KDBX 3.1 dan 4). Kata sandi utama yang Anda ketik disimpan di keychain sistem; dengan «Tanya saat menghubungkan» diminta saat pertama kali Anda menghubungkan dan hanya tersimpan di memori sampai DBine ditutup.",
+      "zoho": "Dengan klien sendiri («Self Client») dari konsol API Zoho dan token penyegaran dengan izin ZohoVault.secrets.READ dan ZohoVault.user.READ. Nilai didekripsi di komputer ini dengan frasa sandi utama; rahasia klien, token, dan frasa yang Anda ketik disimpan di keychain sistem.",
+      "vault_db": "Vault membuat pengguna dan kata sandi untuk koneksi ini dengan mesin basis data (atau memberikan milik peran statis), dan pengguna koneksi diambil dari sana. Kredensial dipakai ulang selama koneksi terbuka, diperbarui sebelum kedaluwarsa, dan dicabut saat memutuskan koneksi atau menutup DBine. Tanpa token, VAULT_TOKEN atau token dari «vault login» dipakai.",
+      "approle": "DBine login dengan AppRole (auth/<jalur>/login) dan mencabut token itu setelah selesai. Secret ID yang Anda ketik disimpan di keychain sistem.",
+      "conjur": "Dengan kunci API milik host atau pengguna Conjur, yang disimpan di keychain sistem. Conjur Cloud: https://<subdomain>.secretsmgr.cyberark.cloud/api dan akun «conjur». Hanya HTTPS (HTTP hanya untuk komputer ini).",
+      "ccp": "Meminta akun ke Central Credential Provider CyberArk (AIMWebService) dengan AppID dan, jika penyedia mewajibkan, sertifikat klien: PEM (dengan kunci di berkas yang sama atau terpisah) atau PKCS#12 (.p12/.pfx). Frasa sandi yang Anda ketik disimpan di keychain sistem. Hanya HTTPS.",
+      "delinea": "Login dengan OAuth2 ke Secret Server (pengguna atau akun aplikasi) dan membaca bidang rahasia berdasarkan slug-nya. Dengan Delinea Platform, token diminta ke tenant (https://<tenant>.delinea.app) dengan ID dan rahasia pengguna layanan. ID atau nama rahasia: jika ada lebih dari satu dengan nama itu, gunakan ID. Hanya HTTPS.",
+      "server": "bitwarden.com, bitwarden.eu atau URL server Anda sendiri (https://; http:// hanya di komputer ini).",
+      "bitwarden": "Dengan kunci API pribadi (Pengaturan akun › Keamanan › Kunci: client_id dan client_secret). Brankas didekripsi di komputer ini dengan kata sandi utama, tanpa program eksternal. Bidang: password, username, notes atau nama bidang kustom; jika nilainya JSON (misalnya catatan), tentukan kuncinya. client_secret dan kata sandi yang Anda ketik disimpan di keychain sistem.",
+      "bitwarden_sm": "Dengan token akses akun mesin; rahasia didekripsi di komputer ini. Tanpa token, BWS_ACCESS_TOKEN dipakai. Token yang Anda ketik disimpan di keychain sistem.",
+      "ssm": "Dengan kredensial AWS komputer ini, seperti AWS Secrets Manager. SecureString didekripsi (memerlukan kms:Decrypt); dari StringList, elemen yang ditentukan dipakai (1 adalah yang pertama)."
+    },
+    "test": "Uji",
+    "testOk": "OK · {{n}} karakter",
+    "testOkUser": "OK · {{n}} karakter, dengan pengguna",
+    "approval": {
+      "title": "Konfirmasi sumber rahasia",
+      "body": "Koneksi «{{name}}» mengambil «{{field}}» dari sumber ini, yang berasal dari luar komputer ini (impor atau cadangan yang dipulihkan). DBine akan menggunakannya persis seperti ini:",
+      "warning": "Konfirmasi hanya jika Anda mengenalinya: perintah berjalan dengan izin Anda dan pengelola rahasia menerima kredensial Anda.",
+      "confirm": "Konfirmasi dan gunakan"
+    },
+    "master": {
+      "keychain": "Tersimpan di keychain",
+      "ask": "Tanya saat menghubungkan",
+      "command": "Dari sebuah perintah",
+      "none": "Tidak ada (hanya berkas kunci)"
+    },
+    "dataCenter": {
+      "com": "Amerika Serikat ({{domain}})",
+      "eu": "Eropa ({{domain}})",
+      "in": "India ({{domain}})",
+      "com_au": "Australia ({{domain}})",
+      "jp": "Jepang ({{domain}})",
+      "ca": "Kanada ({{domain}})",
+      "sa": "Arab Saudi ({{domain}})",
+      "uk": "Inggris Raya ({{domain}})",
+      "ae": "Uni Emirat Arab ({{domain}})",
+      "sg": "Singapura ({{domain}})",
+      "com_cn": "Tiongkok ({{domain}})"
+    },
+    "unlock": {
+      "title": "Kata sandi utama",
+      "keepass": "Koneksi «{{name}}» mengambil «{{field}}» dari basis data KeePass. Ketik kata sandi utamanya (tidak disimpan):",
+      "zoho": "Koneksi «{{name}}» mengambil «{{field}}» dari Zoho Vault. Ketik frasa sandi utamanya (tidak disimpan):",
+      "wrong": "Kata sandi yang Anda ketik tidak dapat membukanya.",
+      "empty": "Ketik kata sandi utama",
+      "delinea": "Koneksi «{{name}}» mengambil «{{field}}» dari Delinea Secret Server. Ketik kata sandinya (tidak disimpan):",
+      "bitwarden": "Koneksi «{{name}}» mengambil «{{field}}» dari Bitwarden. Ketik kata sandi utamanya (tidak disimpan):",
+      "titles": {
+        "keepass": "Kata sandi utama",
+        "bitwarden": "Kata sandi utama",
+        "zoho": "Frasa sandi utama",
+        "delinea": "Kata sandi"
+      }
+    },
+    "vaultAuth": {
+      "token": "Token",
+      "approle": "AppRole"
+    },
+    "bitwardenCloud": {
+      "com": "Amerika Serikat ({{domain}})",
+      "eu": "Eropa ({{domain}})"
+    },
+    "credentials": "Kredensial",
+    "group": {
+      "local": "Di komputer ini",
+      "managers": "Pengelola rahasia"
+    },
+    "fillUser": "Gunakan juga pengguna dari entri",
+    "browse": {
+      "button": "Telusuri",
+      "title": "Telusuri {{source}}",
+      "search": "Filter",
+      "searchServer": "Cari di server",
+      "empty": "Tidak ada apa pun di sini.",
+      "truncated": "Daftar dipotong karena masih ada lagi. Gunakan filter untuk menemukan yang dicari.",
+      "pickField": "Pilih bidangnya:",
+      "wholeValue": "Seluruh nilai",
+      "noFields": "Item ini tidak memiliki bidang untuk dipilih.",
+      "useItem": "Gunakan ini",
+      "namesOnly": "Hanya nama yang ditampilkan, tidak pernah nilai.",
+      "fillFirst": "Lengkapi dulu: {{fields}}",
+      "pickRoles": "Pilih bidang mana yang menjadi pengguna dan mana yang menjadi kata sandi:"
+    },
+    "legacyUser": "Koneksi ini mengambil pengguna dari formulir, bukan dari entri.",
+    "useEntryUser": "Gunakan pengguna dari entri",
+    "advanced": {
+      "title": "Pengaturan lanjutan",
+      "userField": "Bidang pengguna",
+      "passwordField": "Bidang kata sandi",
+      "field": "Bidang",
+      "user": "Pengguna",
+      "password": "Kata sandi",
+      "loading": "Memuat bidang entri…",
+      "failed": "Bidang tidak dapat dimuat.",
+      "load": "Muat bidang",
+      "loaded": "{{n}} bidang dari entri.",
+      "hint": "Pilih entri untuk melihat bidangnya."
+    }
+  },
+  "tls": {
+    "off": "Tanpa enkripsi",
+    "unverified": "Tidak diverifikasi"
+  }
+}

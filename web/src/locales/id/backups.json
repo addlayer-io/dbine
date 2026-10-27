@@ -1,0 +1,71 @@
+{
+  "tab": "Cadangan",
+  "menu": "Cadangan…",
+  "title": "Cadangan",
+  "copies": "Salinan DBine",
+  "copiesHint": "Skrip berisi struktur dan data dalam satu berkas. Berlaku untuk semua mesin.",
+  "noCopies": "Belum ada salinan dari basis data ini.",
+  "withData": "Struktur dan data",
+  "structureOnly": "Hanya struktur",
+  "server": "Cadangan server",
+  "noNative": "Mesin ini tidak memiliki cadangan bawaan yang dapat dikelola dari DBine. Salinan DBine tetap dapat digunakan.",
+  "noHistory": "Mesin tidak melaporkan riwayat cadangannya.",
+  "noNativeHistory": "Server tidak memiliki cadangan yang tercatat.",
+  "wholeServer": "seluruh server",
+  "restore": "Pulihkan",
+  "restoreFrom": "Pulihkan dari…",
+  "pick": "Pilih…",
+  "seeScript": "Lihat skrip",
+  "reviewTitle": "Tinjau sebelum menjalankan",
+  "reviewHint": "Ini yang akan dijalankan di server, pada {{db}}.",
+  "run": "Jalankan",
+  "copied": "Tersalin",
+  "done": {
+    "backup": "Cadangan selesai",
+    "restore": "Pemulihan selesai",
+    "delete": "Cadangan dihapus"
+  },
+  "col": {
+    "date": "Tanggal",
+    "content": "Isi",
+    "objects": "Objek",
+    "rows": "Baris",
+    "size": "Ukuran",
+    "file": "Berkas",
+    "kind": "Jenis",
+    "database": "Basis data",
+    "location": "Lokasi",
+    "status": "Status"
+  },
+  "copy": {
+    "new": "Salinan baru",
+    "file": "Berkas",
+    "data": "Sertakan data",
+    "hint": "Skrip menghapus dan membuat ulang setiap objek, sehingga pemulihan menggantikan apa pun yang ada di basis data tujuan.",
+    "run": "Buat salinan",
+    "done": "Salinan siap ({{size}})",
+    "cancelled": "Salinan dibatalkan",
+    "empty": "Basis data tidak memiliki objek untuk disalin."
+  },
+  "restoreCopy": {
+    "title": "Pulihkan salinan",
+    "into": "Pulihkan ke basis data",
+    "continueOnError": "Lanjutkan meski ada pernyataan yang gagal",
+    "hint": "Skrip salinan dijalankan di basis data yang dipilih.",
+    "confirm": "Objek salinan yang sudah ada di {{db}} akan diganti. Lanjutkan?",
+    "done": "Pemulihan selesai ({{n}} pernyataan)",
+    "cancelled": "Pemulihan dibatalkan"
+  },
+  "deleteCopy": {
+    "title": "Hapus salinan",
+    "message": "Hapus juga berkas {{path}}?",
+    "withFile": "Hapus juga berkasnya",
+    "listOnly": "Hanya keluarkan dari daftar"
+  },
+  "native": {
+    "new": "Buat cadangan",
+    "source": "Cadangan yang dipulihkan",
+    "sourceHint": "Dari riwayat, atau sebuah lokasi",
+    "into": "Pulihkan sebagai"
+  }
+}

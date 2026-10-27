@@ -1,0 +1,30 @@
+{
+  "nav": "Surel",
+  "title": "Surel",
+  "intro": "Server yang digunakan tugas terjadwal untuk mengirim surel. Hanya disimpan di komputer ini: tugas dijalankan di sini. Kata sandi disimpan di keychain.",
+  "host": "Server SMTP",
+  "port": "Port",
+  "security": "Keamanan",
+  "securities": {
+    "starttls": "STARTTLS (port 587)",
+    "tls": "SSL/TLS (port 465)",
+    "none": "Tanpa enkripsi"
+  },
+  "noneWarning": "Tanpa enkripsi, nama pengguna, kata sandi, dan surel dikirim dalam bentuk terbaca melalui jaringan. Gunakan hanya dengan server di jaringan lokal Anda.",
+  "user": "Pengguna",
+  "userPlaceholder": "Kosongkan jika server tidak meminta login",
+  "password": "Kata sandi",
+  "passwordSaved": "Tersimpan (biarkan kosong agar tidak diubah)",
+  "passwordHelp": "Jika kata sandi dikosongkan, yang tersimpan tetap dipakai. Tanpa pengguna, tidak ada yang disimpan.",
+  "fromAddress": "Alamat pengirim",
+  "fromName": "Nama pengirim",
+  "save": "Simpan",
+  "saved": "Pengaturan surel disimpan.",
+  "notConfigured": "Belum ada server yang disimpan.",
+  "test": "Kirim surel uji",
+  "testPrompt": "Ke alamat mana akan dikirim?",
+  "testSend": "Kirim",
+  "testInvalid": "Masukkan alamat surel",
+  "testOk": "Selesai. {{summary}}",
+  "testFailed": "Gagal mengirim: {{error}}"
+}

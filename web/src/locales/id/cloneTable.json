@@ -1,0 +1,25 @@
+{
+  "menu": "Klon…",
+  "title": "Klon {{name}}",
+  "name": "Nama tabel baru",
+  "nameHelp": "Dibuat di skema yang sama, dengan struktur yang sama. Indeks dan batasannya memakai nama yang berisi nama baru.",
+  "withData": "Salin data",
+  "withIndexes": "Sertakan indeks",
+  "clone": "Klon",
+  "stop": "Hentikan",
+  "starting": "Memulai…",
+  "rows": "{{done}} baris disalin",
+  "rowsOf": "{{done}} dari {{total}} baris disalin",
+  "done": "«{{name}}» diklon dengan {{rows}} baris",
+  "cancelled": "Pengklonan dihentikan; tidak ada sisa dari tabel baru",
+  "notes": "Perlu diperhatikan",
+  "phase": {
+    "read": "Membaca struktur tabel…",
+    "create": "Membuat tabel baru…",
+    "copy": "Menyalin data…",
+    "identity": "Menyesuaikan penghitung identitas…",
+    "indexes": "Membuat indeks…",
+    "foreign_keys": "Membuat kunci asing…",
+    "cleanup": "Menghapus tabel yang belum selesai…"
+  }
+}

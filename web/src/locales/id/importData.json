@@ -1,0 +1,78 @@
+{
+  "title": "Impor data",
+  "steps": {
+    "file": "Berkas",
+    "preview": "Pratinjau",
+    "target": "Tujuan",
+    "import": "Impor"
+  },
+  "formats": {
+    "auto": "Otomatis (berdasarkan ekstensi)",
+    "csv": "CSV (koma)",
+    "csvSemicolon": "CSV (titik koma)",
+    "tsv": "TSV (tab)",
+    "json": "JSON (larik objek)",
+    "jsonLines": "JSON Lines (satu objek per baris)"
+  },
+  "types": {
+    "integer": "bilangan bulat",
+    "number": "angka",
+    "boolean": "boolean",
+    "date": "tanggal",
+    "datetime": "tanggal dan waktu",
+    "text": "teks"
+  },
+  "file": {
+    "filterData": "Data (CSV, TSV, JSON, JSONL, XLSX, XML)",
+    "pickHint": "Pilih berkas CSV, TSV, JSON, JSON Lines, Excel, atau XML.",
+    "format": "Format",
+    "delimiter": "Pemisah",
+    "tab": "tab",
+    "commaDefault": ", (atau milik format)",
+    "sheet": "Lembar",
+    "firstSheet": "Lembar pertama",
+    "header": "Baris pertama berisi nama kolom",
+    "detected_other": "{{count}} kolom terdeteksi · format {{format}}"
+  },
+  "preview": {
+    "caption_other": "{{rows}} baris pertama dari {file} · {{count}} kolom",
+    "empty": "Berkas tidak memiliki baris data."
+  },
+  "target": {
+    "existing": "Tabel yang sudah ada",
+    "new": "Tabel baru",
+    "pickTable": "Pilih tabel",
+    "schema": "skema",
+    "tableName": "nama tabel",
+    "batch": "Baris per batch",
+    "sourceColumn": "Kolom berkas",
+    "detectedType": "Tipe terdeteksi",
+    "targetColumn": "Kolom tujuan",
+    "ignore": "(abaikan)",
+    "name": "Nama",
+    "type": "Tipe",
+    "nulls": "Null",
+    "toImport_other": "{{count}} kolom akan diimpor",
+    "errors": {
+      "pickTable": "Pilih tabel tujuan",
+      "mapOne": "Petakan setidaknya satu kolom",
+      "mappedTwice": "Ada kolom tujuan yang dipetakan dua kali",
+      "newName": "Tulis nama tabel baru",
+      "exists": "Sudah ada tabel dengan nama itu",
+      "includeOne": "Sertakan setidaknya satu kolom",
+      "nameAndType": "Setiap kolom memerlukan nama dan tipe",
+      "duplicateNames": "Ada nama kolom yang berulang"
+    }
+  },
+  "run": {
+    "importing": "Mengimpor {{file}}…",
+    "rows_other": "baris",
+    "rowsPerSecond": "baris/dtk",
+    "done": "Impor selesai",
+    "doneDetail_other": "{{n}} baris di {table} · {{seconds}} dtk",
+    "partial_other": "{{n}} baris sempat diimpor sebelum berhenti.",
+    "cancelledMessage": "Impor dibatalkan.",
+    "cancelImport": "Batalkan impor",
+    "ofRows_other": "dari {{total}} baris"
+  }
+}

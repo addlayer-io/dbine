@@ -1,0 +1,20 @@
+{
+  "menu": "Pemeriksaan kesehatan",
+  "tab": "Kesehatan",
+  "title": "Pemeriksaan kesehatan · {{name}}",
+  "checkedAt": "Diperiksa pada {{at}}",
+  "run": "Periksa lagi",
+  "running": "Memeriksa basis data…",
+  "showOk": "Tampilkan yang baik",
+  "severity": {
+    "critical": "Kritis",
+    "warning": "Peringatan",
+    "info": "Informasi",
+    "ok": "Baik"
+  },
+  "openFix": "Buka di kueri",
+  "fixName": "Perbaikan: {{title}}",
+  "more": "dan {{count}} lainnya",
+  "allOk": "Tidak ditemukan masalah.",
+  "skipped": "Tidak dapat diperiksa:"
+}

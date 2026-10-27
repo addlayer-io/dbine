@@ -1,0 +1,262 @@
+{
+  "migrate": "Migrasikan",
+  "preview": "Pratinjau",
+  "pickEngine": "Pilih mesin tujuan",
+  "pickTable": "Pilih setidaknya satu tabel",
+  "intro": "Memindahkan tabel dari {database} ({{engine}}) ke basis data tujuan yang Anda pilih, meskipun dari mesin lain: membuat tabel hasil konversi (tipe, nilai bawaan, kunci, indeks, dan nama), menyalin data dengan pemuatan massal dan beberapa tabel sekaligus, lalu menambahkan kunci asing di akhir. Jika aplikasi tertutup di tengah jalan, migrasi dapat dilanjutkan. Dengan pratinjau, Anda melihat laporan setiap perubahan dan skripnya terlebih dahulu, tanpa mengubah apa pun.",
+  "severity": {
+    "dropped": "Dilewati",
+    "droppedHint": "Tujuan tidak dapat mengekspresikannya: tidak disertakan",
+    "loss": "Kehilangan",
+    "lossHint": "Nilai mungkin tidak muat atau kehilangan detail",
+    "warning": "Peringatan",
+    "warningHint": "Nilai sama, perilaku berbeda",
+    "info": "Info",
+    "infoHint": "Perubahan yang setia dan perlu diketahui"
+  },
+  "run": {
+    "cancelled": "Migrasi dibatalkan",
+    "finishedWithErrors": "Migrasi selesai dengan {{count}} kesalahan: periksa ringkasannya",
+    "finished": "Migrasi selesai",
+    "running": "Memigrasikan…",
+    "stopped": "Migrasi dihentikan",
+    "stepOf": "{{step}} dari {{total}}",
+    "fkErrors": "Kunci asing yang tidak dapat dibuat:",
+    "withErrors": "Migrasi selesai dengan kesalahan",
+    "progress": "{{done}} dari {{total}} tabel · {{rows}} baris · {{elapsed}}",
+    "parallel": "Tabel sekaligus",
+    "cancelAll": "Batalkan semua",
+    "retryFailed": "Coba lagi yang gagal",
+    "synced": "Sinkronisasi selesai",
+    "cloned": "Kloning selesai",
+    "afterErrors": "Pernyataan akhir yang tidak dapat dijalankan:"
+  },
+  "phase": {
+    "drop": "Menghapus tabel yang ada",
+    "create": "Membuat tabel",
+    "foreignKeys": "Membuat kunci asing",
+    "done": "Menyelesaikan",
+    "schemas": "Membuat skema",
+    "identity": "Menyesuaikan identitas tabel",
+    "script": "Membaca struktur sumber",
+    "before": "Menyiapkan tujuan",
+    "check": "Memverifikasi tabel tujuan",
+    "after": "Membuat batasan, kode, dan objek lainnya"
+  },
+  "script": {
+    "pickConnection": "Pilih koneksi tujuan (dari mesin yang dipilih) untuk membuka skrip di sana",
+    "queryTitle": "Migrasi dari {{name}}",
+    "copied": "Skrip disalin",
+    "fileName": "migrasi-{{database}}-ke-{{engine}}",
+    "fileNameDatabase": "basis-data",
+    "title": "Skrip struktur untuk {{engine}}",
+    "previewTag": "(pratinjau)",
+    "openInQuery": "Buka di kueri",
+    "saveAs": "Simpan sebagai berkas…",
+    "help": "Ini yang dibuat «Migrasikan» di tujuan sebelum menyalin data. Anda juga dapat membukanya di kueri, menyalin, atau menyimpannya."
+  },
+  "target": {
+    "title": "Tujuan",
+    "engine": "Mesin tujuan",
+    "pickEngine": "Pilih mesin",
+    "connection": "Koneksi tujuan",
+    "connectionHint": "(tempat semuanya dibuat)",
+    "connectionPlaceholder": "Koneksi",
+    "noConnections": "Tidak ada koneksi {{engine}}",
+    "thatEngine": "mesin tersebut",
+    "database": "Basis data",
+    "keepSchemas": "Pertahankan skema sumber (dibuat di tujuan)",
+    "singleSchema": "Skema tunggal",
+    "singleSchemaHint": "(opsional: semua tabel masuk ke skema ini)",
+    "eachInOwnSchema": "Setiap tabel di skemanya sendiri",
+    "engineDefault": "Bawaan mesin"
+  },
+  "tables": {
+    "title": "Tabel",
+    "pickedOf": "{{picked}} dari {{total}}",
+    "all": "Semua",
+    "none": "Tidak ada",
+    "loading": "Membaca tabel…",
+    "empty": "Basis data ini tidak memiliki tabel."
+  },
+  "options": {
+    "title": "Opsi",
+    "data": "Salin data",
+    "indexes": "Indeks",
+    "foreignKeys": "Kunci asing",
+    "foldCase": "Sesuaikan huruf besar / kecil pada nama dengan tujuan",
+    "drop": "Hapus tabel di tujuan sebelum membuatnya (DROP)",
+    "ifExists": "Gunakan IF EXISTS / IF NOT EXISTS",
+    "needConnection": "Untuk bermigrasi, pilih koneksi tujuan. Pratinjau menampilkan laporan dan skrip tanpa mengubah apa pun.",
+    "needConnectionSame": "Untuk mengkloning atau menyinkronkan, pilih koneksi tujuan."
+  },
+  "cols": {
+    "table": "Tabel",
+    "rows": "Baris",
+    "column": "Kolom",
+    "sourceType": "Tipe sumber",
+    "targetType": "Tipe tujuan",
+    "new": "(baru)"
+  },
+  "report": {
+    "title": "Laporan konversi",
+    "summary": "{{tables}} tabel · {{issues}} catatan",
+    "clean": "Konversi berjalan langsung: tidak ada catatan.",
+    "byColumn": "Konversi per kolom ({{count}})",
+    "filterColumns": "Saring kolom"
+  },
+  "status": {
+    "pending": "Dalam antrean",
+    "running": "Menyalin",
+    "check": "Memverifikasi",
+    "truncate": "Mengosongkan",
+    "indexes": "Indeks",
+    "copied": "Indeks",
+    "done": "Tersalin",
+    "failed": "Kesalahan",
+    "cancelled": "Dibatalkan",
+    "summary": "Meringkas",
+    "compare": "Membandingkan",
+    "apply": "Menerapkan",
+    "syncing": "Menyinkronkan",
+    "synced": "Tersinkronisasi"
+  },
+  "path": {
+    "native": "Salinan langsung",
+    "bulkLoad": "Pemuatan massal",
+    "insertScript": "INSERT berkelompok",
+    "delta": "Per baris"
+  },
+  "grid": {
+    "status": "Status",
+    "speed": "Baris/dtk",
+    "path": "Jalur",
+    "bottleneck": "Hambatan",
+    "source": "Sumber",
+    "destination": "Tujuan",
+    "perSecond": "{{n}}/dtk",
+    "runNow": "Jalankan sekarang",
+    "cancel": "Batalkan tabel ini",
+    "reviewed": "Baris diperiksa",
+    "changes": "Perubahan",
+    "changesValue": "{{inserted}} baru · {{updated}} berubah · {{deleted}} dihapus"
+  },
+  "advanced": {
+    "title": "Opsi lanjutan",
+    "parallel": "Tabel sekaligus",
+    "parallelHint": "(1 sampai 32; dapat diubah selama penyalinan)",
+    "order": "Urutan",
+    "largestFirst": "Terbesar lebih dulu",
+    "smallestFirst": "Terkecil lebih dulu",
+    "alphabetical": "Alfabetis",
+    "commitEvery_other": "Komit setiap {rows} baris"
+  },
+  "interrupted": {
+    "title": "Terhenti",
+    "hint": "Migrasi yang terputus saat aplikasi ditutup: dilanjutkan dari titik terakhir",
+    "tables": "{{done}} dari {{total}} tabel tersalin",
+    "resume": "Lanjutkan",
+    "forget": "Buang",
+    "forgetConfirm": "Migrasi ini dilupakan dan tidak dapat dilanjutkan lagi. Yang sudah disalin tetap berada di tujuan. Lanjutkan?"
+  },
+  "mode": {
+    "title": "Mode",
+    "pickEngineFirst": "Pilih mesin tujuan terlebih dahulu",
+    "noConvert": "Tidak ada konversi skema ke mesin ini",
+    "noClone": "Mesin-mesin ini tidak dapat saling dikloning",
+    "noSync": "Mesin-mesin ini tidak dapat saling disinkronkan",
+    "label": {
+      "convert": "Migrasikan (konversi)",
+      "clone": "Kloning",
+      "sync": "Sinkronkan"
+    },
+    "hint": {
+      "convert": "Mengonversi struktur ke mesin tujuan, membuat tabel, dan menyalin data.",
+      "clone": "Kloning (membuat tujuan identik): antar basis data dari mesin yang sama, membuat semuanya dengan skrip mesin itu sendiri dan menyalin data.",
+      "sync": "Sinkronkan hanya yang berubah: pada tabel yang sudah ada, menyisipkan, memperbarui, dan menghapus hanya baris yang berbeda."
+    },
+    "action": {
+      "convert": "Migrasikan",
+      "clone": "Kloning",
+      "sync": "Sinkronkan"
+    }
+  },
+  "clone": {
+    "needConnection": "Untuk melihat skrip kloning, pilih koneksi tujuan: skrip disesuaikan dengan yang didukung server tersebut (hanya dibaca).",
+    "help": "Tujuan menjadi sama dengan sumber: tabel beserta penyimpanannya, indeks, batasan, sekuens, kode, dan objek lainnya, dengan skrip mesin itu sendiri. Yang sudah ada di tujuan tidak diubah.",
+    "clean": "Tujuan dapat menjadi identik: tidak ada catatan.",
+    "reportTitle": "Catatan kloning",
+    "scriptTitle": "Skrip kloning untuk {{engine}}",
+    "scriptHelp": "Ini yang dijalankan «Kloning» di tujuan: pertama yang diperlukan sebelum tabel, lalu setiap tabel beserta indeksnya, dan di akhir batasan, kode, dan objek lainnya."
+  },
+  "sync": {
+    "help": "Tabel harus ada di tujuan dengan kolom yang sama: tidak ada yang dibuat atau dikosongkan. Hanya baris yang berbeda yang disisipkan, diperbarui, dan dihapus, dalam satu transaksi per tabel.",
+    "depth": "Apa yang dibandingkan",
+    "depths": {
+      "full": "Lengkap",
+      "fullHint": "Seluruh isi setiap baris.",
+      "sizes": "Hanya ukuran kolom besar",
+      "sizesHint": "Kolom besar dibandingkan menurut panjangnya: jauh lebih cepat, tetapi tidak mendeteksi perubahan yang mempertahankan ukuran yang sama.",
+      "keys": "Hanya kunci",
+      "keysHint": "Menemukan baris baru dan yang dihapus, bukan yang dimodifikasi."
+    },
+    "maxCores": "Inti server",
+    "maxCoresHint": "(0: ditentukan server)",
+    "keysTitle": "Kunci untuk sinkronisasi",
+    "keysSummary": "{{tables}} tabel · {{unsyncable}} tanpa kunci",
+    "keysHelp": "Setiap tabel dibandingkan menurut kunci utamanya; jika tidak ada, pilih kunci unik.",
+    "pickKey": "Pilih kunci",
+    "primaryKey": "Kunci utama ({{columns}})",
+    "uniqueKey": "Kunci unik ({{columns}})"
+  },
+  "panes": {
+    "preview": "Pratinjau",
+    "run": "Eksekusi"
+  },
+  "runFilter": {
+    "all": "Semua",
+    "pending": "Dalam antrean",
+    "active": "Berjalan",
+    "done": "Selesai",
+    "failed": "Dengan kesalahan",
+    "cancelled": "Dibatalkan",
+    "search": "Cari tabel…",
+    "none": "Tidak ada tabel yang cocok dengan filter."
+  },
+  "saved": {
+    "untitled": "Migrasi baru",
+    "mode": {
+      "convert": "Konversi",
+      "clone": "Kloning",
+      "sync": "Sinkronkan"
+    },
+    "notSaved": "Belum disimpan: tersimpan otomatis pada perubahan pertama",
+    "renameHint": "Nama migrasi (klik untuk mengubah)",
+    "renameTitle": "Ganti nama migrasi",
+    "renamePrompt": "Nama baru migrasi",
+    "delete": "Hapus",
+    "deleteTitle": "Hapus migrasi",
+    "deleteConfirm": "Migrasi «{{name}}» beserta konfigurasinya akan dihapus. Sumber maupun tujuan tidak diubah: yang sudah disalin tetap di tempatnya. Lanjutkan?",
+    "resume": "Lanjutkan",
+    "history": "Eksekusi migrasi ini",
+    "runElsewhere": "Migrasi ini memiliki eksekusi, tetapi tidak di mesin ini: di sini hanya konfigurasinya yang terlihat.",
+    "state": {
+      "draft": "Draf",
+      "elsewhere": "Tanpa eksekusi di mesin ini",
+      "running": "Berjalan",
+      "done": "Selesai",
+      "failed": "Dengan kesalahan",
+      "interrupted": "Terhenti",
+      "cancelled": "Dibatalkan"
+    }
+  },
+  "confirm": {
+    "create_other": "{{count}} tabel akan dibuat di {{where}} ({{engine}}). Lanjutkan?",
+    "createData_other": "{{count}} tabel akan dibuat di {{where}} ({{engine}}) dan semua datanya disalin. Lanjutkan?",
+    "createDrop_other": "{{count}} tabel akan dibuat di {{where}} ({{engine}}), dengan menghapus terlebih dahulu tabel yang bernama sama. Lanjutkan?",
+    "createDataDrop_other": "{{count}} tabel akan dibuat di {{where}} ({{engine}}) dan semua datanya disalin, dengan menghapus terlebih dahulu tabel yang bernama sama. Lanjutkan?",
+    "clone_other": "{{count}} tabel akan dikloning di {{where}} ({{engine}}) beserta struktur lengkapnya. Lanjutkan?",
+    "cloneWithData_other": "{{count}} tabel akan dikloning di {{where}} ({{engine}}) beserta struktur lengkap dan semua datanya. Lanjutkan?",
+    "sync_other": "{{count}} tabel akan disinkronkan di {{where}} ({{engine}}): baris yang berbeda dari sumber disisipkan, diperbarui, dan dihapus. Lanjutkan?"
+  }
+}

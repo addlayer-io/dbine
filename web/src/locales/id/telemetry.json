@@ -1,0 +1,14 @@
+{
+  "consent": {
+    "title": "Data penggunaan anonim",
+    "text": "DBine mengirim data penggunaan anonim. Data ini membantu kami mengetahui seberapa banyak DBine digunakan dan apa yang perlu dikerjakan.",
+    "sent": "Yang dikirim: versi DBine, sistem operasi, bahasa, mesin basis data apa serta modul dan fitur DBine apa yang Anda gunakan (misalnya PostgreSQL, monitor, atau asisten AI, dan apakah modelnya lokal atau eksternal), dan perkiraan negara.",
+    "notSent": "Tidak pernah dikirim: nama server, pengguna, basis data, kueri, maupun data. Tidak ada pengenal apa pun milik Anda.",
+    "change": "Jika ingin menonaktifkannya, buka Pengaturan › Umum › Bagikan data penggunaan anonim.",
+    "ok": "Mengerti"
+  },
+  "settings": {
+    "label": "Bagikan data penggunaan anonim",
+    "help": "Versi, sistem operasi, bahasa, mesin, modul dan fitur yang Anda gunakan, serta perkiraan negara. Tidak pernah server, kueri, atau data."
+  }
+}
