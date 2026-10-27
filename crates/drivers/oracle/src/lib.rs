@@ -509,6 +509,11 @@ fn build_config(cfg: &ConnectionConfig, autonomous: bool) -> Result<oracledb::Co
 
 #[async_trait]
 impl Driver for OracleDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     /// Identity columns restart past the loaded values.
     fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {
         let q = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));

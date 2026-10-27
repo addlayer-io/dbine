@@ -370,6 +370,11 @@ fn tls_connect_err(cfg: &ConnectionConfig, e: Error) -> Error {
 
 #[async_trait]
 impl Driver for HanaDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }

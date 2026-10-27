@@ -143,6 +143,11 @@ pub struct CouchbaseDriver {
 
 #[async_trait]
 impl Driver for CouchbaseDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }

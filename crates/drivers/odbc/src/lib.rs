@@ -211,6 +211,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[async_trait]
 impl Driver for OdbcDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        matches!(self.info.id, "sybase" | "netezza" | "virtuoso")
+    }
+
     /// Sybase ASE, like SQL Server, loads explicit identity values only
     /// with IDENTITY_INSERT on.
     fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {

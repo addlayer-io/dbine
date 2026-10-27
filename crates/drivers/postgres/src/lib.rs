@@ -501,6 +501,11 @@ pub struct PgDriver {
 
 #[async_trait]
 impl Driver for PgDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        matches!(self.info.id, "redshift" | "cockroachdb" | "materialize")
+    }
+
     /// Text the way this variant reads it (`E'…'` where
     /// `standard_conforming_strings` may be off, Redshift's backslashes);
     /// the rest as the contract writes it. Values go as literals: the

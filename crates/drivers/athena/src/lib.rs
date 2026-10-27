@@ -111,6 +111,11 @@ where
 
 #[async_trait]
 impl Driver for AthenaDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }

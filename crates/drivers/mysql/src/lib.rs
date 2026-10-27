@@ -411,6 +411,25 @@ pub struct MySqlDriver {
 
 #[async_trait]
 impl Driver for MySqlDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        matches!(
+            self.info.id,
+            "mysql"
+                | "mariadb"
+                | "aurora-mysql"
+                | "cloudsql-mysql"
+                | "tidb"
+                | "oceanbase"
+                | "singlestore"
+                | "doris"
+                | "starrocks"
+                | "databend"
+                | "velodb"
+                | "greptimedb"
+        )
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }

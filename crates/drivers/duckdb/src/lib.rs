@@ -127,6 +127,11 @@ fn open_database(key: &str, read_only: bool) -> Result<Arc<Database>> {
 
 #[async_trait]
 impl Driver for DuckDbDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        self.info.id == "duckdb"
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }

@@ -482,6 +482,49 @@ Unit tests only: Redshift, Yellowbrick, Denodo, KingbaseES, OceanBase,
 SingleStore, Doris, VeloDB, Databend, HANA, Snowflake, Athena, Databricks,
 Neptune and the ODBC presets without a driver on the machine.
 
+## Completion across databases
+
+In a query tab, completion also reaches the connection's other databases:
+their names where a table goes, their tables after `other_db.` (and
+`other_db.schema.` on engines with schemas), and their columns after a
+table or an alias, as in `SELECT a.…, b.… FROM db_a.t AS a JOIN db_b.u AS b`.
+A database's objects are read the first time its name is typed with a dot,
+and its tables' columns when the text names them; both stay cached like
+the explorer's. It needs nothing from the server beyond the lists the
+explorer already reads; the driver declares it with
+`Driver::cross_database`, true only where one query can read another
+database of the same connection.
+
+It is offered on ClickHouse and Timeplus; MySQL, MariaDB, Amazon Aurora
+MySQL, Cloud SQL for MySQL, TiDB, OceanBase, SingleStore, Apache Doris,
+StarRocks, Databend, VeloDB and GreptimeDB; SQL Server, Fabric Data
+Warehouse, SAP ASE (Sybase) and Netezza; Snowflake, Databricks (and Azure
+Databricks), Trino, Presto, Starburst, Dremio, Amazon Athena and BigQuery
+(other datasets); DuckDB (attached databases); Amazon Redshift, CockroachDB
+and Materialize; Couchbase (`bucket.scope.collection`); Cassandra, ScyllaDB
+and Amazon Keyspaces (`keyspace.table`); Oracle, Oracle Autonomous Database
+and SAP HANA (other schemas); TDengine; and Virtuoso.
+
+### Engines without it
+
+- **One query reads one database:** PostgreSQL and the engines on its
+  protocol that keep that rule (Aurora PostgreSQL, Cloud SQL and AlloyDB,
+  TimescaleDB, YugabyteDB, Greenplum, Greengage, Cloudberry, EDB,
+  Fujitsu Enterprise Postgres, Kingbase, openGauss),
+  Azure SQL Database and Babelfish (one database per connection), Spanner,
+  Cosmos DB, InfluxDB 3, OrientDB.
+- **Not SQL, or no database prefix:** MongoDB, DocumentDB, FerretDB,
+  CouchDB, Redis, Valkey, Dragonfly, Neo4j, Memgraph, InfluxDB 2 (Flux).
+- **Another syntax for the prefix:** Informix and GBase 8s (`db:table`),
+  InfluxDB 1 (`"db"."retention"."measurement"`), Apache IoTDB and TimechoDB
+  (paths under `root`), Apache Drill (workspace names hold dots, such as
+  `dfs.tmp`). Each needs its own reading of the qualified name: pending.
+- **Depends on the server behind it:** Arrow Flight SQL and the generic
+  ODBC presets.
+- **Not verified yet:** Denodo, RisingWave and Yellowbrick may read
+  another database by its prefix; pending a test against a server before
+  turning it on.
+
 ## Engines that are not there yet
 
 Known engines that DBine does not support, and why.

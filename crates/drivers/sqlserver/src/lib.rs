@@ -98,6 +98,11 @@ struct CancelTarget {
 
 #[async_trait]
 impl Driver for SqlServerDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        matches!(self.info.id, "sqlserver" | "fabric")
+    }
+
     /// Explicit identity values need IDENTITY_INSERT (one table at a time).
     fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {
         if !table.columns.iter().any(|c| c.auto_increment) {

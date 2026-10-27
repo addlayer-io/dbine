@@ -116,6 +116,11 @@ pub struct DremioDriver {
 
 #[async_trait]
 impl Driver for DremioDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }
