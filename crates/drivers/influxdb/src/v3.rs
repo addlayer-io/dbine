@@ -11,13 +11,14 @@ use dbine_driver::{
     async_trait, kinds, ColumnDef, ColumnInfo, ConnectionConfig, DbObject, DriverInfo, Error,
     Family, Field, FieldKind, KeyDef, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable,
     ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    TlsLevel, TlsSupport,
 };
 use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde_json::{json, Value as J};
 
 pub fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "influxdb3",
         name: "InfluxDB 3 (SQL)",
@@ -32,8 +33,27 @@ pub fn info() -> DriverInfo {
             Field::new("token", "Token", FieldKind::Password)
                 .secret()
                 .help("Vacío si el servidor corre sin autenticación."),
-            Field::encrypt(),
-            Field::trust_cert(),
+            // The URL scheme of the CLI's --host, and its --tls-no-verify.
+            Field::tls_mode(
+                "scheme",
+                "scheme",
+                &[
+                    ("http", "http", TlsLevel::Off),
+                    ("https", "https", TlsLevel::VerifyFull),
+                ],
+                "https",
+                ["http", "http", "https", "https"],
+            )
+            .help("Si el servidor es una URL (http://… o https://…), manda su esquema."),
+            Field::tls_skip_verify(
+                "tls-no-verify",
+                "tls-no-verify",
+                false,
+                ["false", "true", "false", "true"],
+            )
+            .help("No verifica el certificado del servidor."),
+            Field::tls_ca_file("tls-ca", "tls-ca")
+                .help("Opcional: la CA que firmó el certificado del servidor, en PEM."),
             Field::read_only(),
         ],
         databases_label: "Bases de datos",
@@ -67,9 +87,10 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
         .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
         .unwrap_or("")
         .to_string();
+    let (http, base) = http::client(cfg, &info().fields, 8181)?;
     let s = SqlSession {
-        http: http::client(cfg)?,
-        base: http::base_url(cfg, 8181),
+        http,
+        base,
         token,
         db: db.map(str::to_string),
         read_only: cfg.read_only,

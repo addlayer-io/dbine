@@ -323,33 +323,7 @@ pub async fn open_session(
 /// its drivers out; the registry test fails for a driver listed here that's
 /// already migrated, and for one not listed that isn't.
 pub const NOT_YET_MIGRATED: &[&str] = &[
-    "athena",
-    "avatica",
-    "azure_databricks",
-    "bigquery",
-    "cosmosdb",
-    "dameng",
-    "databricks",
-    "dynamodb",
-    "flightsql",
-    "heavydb",
-    "influxdb",
-    "influxdb1",
-    "influxdb3",
-    "ingres",
-    "iotdb",
-    "ksqldb",
-    "libsql",
-    "machbase",
-    "maxdb",
-    "phoenix",
-    "snowflake",
-    "spanner",
-    "sqream",
-    "sybase",
-    "tdengine",
-    "timechodb",
-    "virtuoso",
+    "dameng", "heavydb", "ingres", "machbase", "maxdb", "sqream", "sybase", "virtuoso",
 ];
 
 #[cfg(test)]

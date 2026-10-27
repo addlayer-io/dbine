@@ -4928,8 +4928,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "Aby ładować wiersze do supertabeli, potrzebna jest kolumna tbname (podtabela każdego wiersza).",
   "Para columnas autoincrementales (solo BIGINT).": "Dla kolumn autoinkrementowanych (tylko BIGINT).",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "Aby uzyskać pełny monitor Dremio (aktywność, węzły, profile), użyj jego połączenia REST.",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "Dla lokalnych emulatorów. Puste = punkt końcowy AWS regionu.",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "Dla lokalnych emulatorów; bez uwierzytelniania. Puste = API Google.",
   "Para escribir puntos en InfluxDB hace falta una columna time (la marca de tiempo).": "Aby zapisywać punkty w InfluxDB, potrzebna jest kolumna time (znacznik czasu).",
   "Para las suscripciones (TMQ); -1: sin límite.": "Dla subskrypcji (TMQ); -1: bez limitu.",
   "Para las suscripciones (TMQ); 0 o -1: sin límite.": "Dla subskrypcji (TMQ); 0 lub -1: bez limitu.",
@@ -11254,5 +11252,14 @@
   "último latido": "ostatni heartbeat",
   "último optime": "ostatni optime",
   "… ({0} operadores más)": "… (jeszcze {0} operatorów)",
-  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "Połączenie sprawdza również nazwę serwera w certyfikacie, co jest bardziej rygorystyczne niż w ciągu (verify-ca)."
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "Połączenie sprawdza również nazwę serwera w certyfikacie, co jest bardziej rygorystyczne niż w ciągu (verify-ca).",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "Szyfruje połączenie za pomocą TLS i weryfikuje certyfikat serwera.",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "Szyfruje połączenie za pomocą TLS i weryfikuje certyfikat. Jeśli serwer jest podany jako URL, obowiązuje jego schemat.",
+  "Comprueba que el nombre del servidor figure en su certificado.": "Sprawdza, czy nazwa serwera znajduje się w jego certyfikacie.",
+  "No verifica el certificado del servidor.": "Nie weryfikuje certyfikatu serwera.",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "Dla lokalnych emulatorów, takich jak DynamoDB Local, które używają http:// bez TLS. Puste = punkt końcowy AWS regionu, zawsze przez https ze zweryfikowanym certyfikatem.",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Dla lokalnych emulatorów, które używają http:// bez TLS i uwierzytelniania. Puste = API Google, zawsze przez https ze zweryfikowanym certyfikatem.",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT sprawdza, czy nazwa serwera znajduje się w jego certyfikacie; NONE weryfikuje tylko łańcuch.",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Jeśli serwer jest podany jako URL (http://… lub https://…), obowiązuje jego schemat.",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "przez tunel SSH certyfikat jest weryfikowany względem nazwy serwera, a {0} to adres IP: użyj nazwy hosta podanej w certyfikacie"
 }

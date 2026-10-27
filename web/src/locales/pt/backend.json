@@ -3365,8 +3365,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "Para carregar linhas em uma supertabela é preciso a coluna tbname (a subtabela de cada linha).",
   "Para columnas autoincrementales (solo BIGINT).": "Para colunas autoincrementais (só BIGINT).",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "Para o monitor completo do Dremio (atividade, nós, perfis) use a conexão REST dele.",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "Para emuladores locais. Vazio = o endpoint da AWS da região.",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "Para emuladores locais; sem autenticação. Vazio = a API do Google.",
   "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": "Para mTLS: a pasta do wallet descompactado (tnsnames.ora e ewallet.pem); você pode escolher qualquer arquivo dentro dela. Vazio se o banco aceita TLS sem wallet.",
   "Para no consumir créditos, el historial se refresca cada 20 s, la carga y los créditos cada 5 min y el almacenamiento cada 15 min, y solo con el warehouse ya encendido.": "Para não consumir créditos, o histórico é atualizado a cada 20 s, a carga e os créditos a cada 5 min e o armazenamento a cada 15 min, e só com o warehouse já ligado.",
   "Para un backup incremental: el TSO con el que terminó el backup anterior (BackupTS). Vacío: completo.": "Para um backup incremental: o TSO com o qual o backup anterior terminou (BackupTS). Vazio: completo.",
@@ -11254,5 +11252,14 @@
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl verifica o certificado com o repositório de chaves do cliente (SSL_KEYSTORE_FILE em conssl.cfg).",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca e verify-full precisam do root.crt da CA no cliente.",
   "Opcional: la CA que firmó el certificado del servidor, en PEM.": "Opcional: a CA que assinou o certificado do servidor, em PEM.",
-  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "A conexão também verifica o nome do servidor no certificado, mais rigorosa que a string (verify-ca)."
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "A conexão também verifica o nome do servidor no certificado, mais rigorosa que a string (verify-ca).",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "Criptografa a conexão com TLS e verifica o certificado do servidor.",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "Criptografa a conexão com TLS e verifica o certificado. Se o servidor for uma URL, vale o esquema dela.",
+  "Comprueba que el nombre del servidor figure en su certificado.": "Verifica se o nome do servidor consta no certificado dele.",
+  "No verifica el certificado del servidor.": "Não verifica o certificado do servidor.",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "Para emuladores locais como o DynamoDB Local, que usam http:// sem TLS. Vazio = o endpoint da AWS da região, sempre por https com o certificado verificado.",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Para emuladores locais, que usam http:// sem TLS nem autenticação. Vazio = a API do Google, sempre por https com o certificado verificado.",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT verifica se o nome do servidor consta no certificado dele; NONE só verifica a cadeia.",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Se o servidor for uma URL (http://… ou https://…), vale o esquema dela.",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "por um túnel SSH o certificado é verificado pelo nome do servidor, e {0} é um endereço IP: use o nome de host que consta no certificado"
 }

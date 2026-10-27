@@ -178,6 +178,10 @@ fn uncertain(e: Error, rows: usize) -> Error {
     match e {
         Error::Query(m) => Error::Query(m + &note),
         Error::Connect(m) => Error::Connect(m + &note),
+        Error::ConnectFailed(mut f) => {
+            f.message += &note;
+            Error::ConnectFailed(f)
+        }
         e => e,
     }
 }

@@ -44,7 +44,7 @@ pub fn fields() -> Vec<Field> {
 pub fn endpoint_field(placeholder: &'static str) -> Field {
     Field::new("endpoint_url", "Endpoint personalizado", FieldKind::Text)
         .placeholder(placeholder)
-        .help("Para emuladores locales; sin autenticación. Vacío = la API de Google.")
+        .help("Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.")
         .advanced()
 }
 

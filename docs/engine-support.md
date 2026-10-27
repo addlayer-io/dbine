@@ -3991,3 +3991,11 @@ the driver's configuration or the string the user types.
   server picks the mode; the client can't require TLS), `ingres` (TLS is the
   `tls` protocol of the vnode; its use from ODBC isn't confirmed), `maxdb` and
   `machbase` (no documented ODBC TLS).
+
+### HTTP, gRPC and cloud engines: what the clients can't do
+
+| Engine | Missing | Reason |
+|---|---|---|
+| Arrow Flight SQL (`flightsql`) | `disableCertificateVerification` | tonic, the gRPC client, has no way to skip the certificate check (it would take a TLS connector of our own). A server with a private or self-signed certificate needs its CA in `tlsRootCerts`. |
+| Azure Cosmos DB (`cosmosdb`) | A CA file | The SDKs' connection string has no option for one. The emulator's self-signed certificate is accepted with `DisableServerCertificateValidation`. |
+| InfluxDB, IoTDB, TimechoDB, ksqlDB, TDengine, Phoenix, Avatica, Cosmos DB, libSQL through an SSH tunnel to a server given by its IP address | Verifying the certificate | The HTTP client checks the name it dials, and through the tunnel that is 127.0.0.1. With a host name the driver keeps it for the check; with an IP address it refuses to connect unless the host-name check (or the whole check) is off. |

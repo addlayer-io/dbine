@@ -61,7 +61,9 @@ fn info() -> DriverInfo {
     fields.push(gcp::endpoint_field("http://localhost:9050"));
     fields.push(Field::read_only());
     DriverInfo {
-        tls: Default::default(),
+        // Google's API is always https, verified; the endpoint field's
+        // scheme decides for an emulator (plain http).
+        tls: dbine_driver::TlsSupport::InUrl,
         tls_port: None,
         id: "bigquery",
         name: "Google BigQuery",
@@ -1541,6 +1543,15 @@ fn timestamp(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Google API is https (verified by reqwest's roots); only a typed
+    /// emulator endpoint changes the scheme.
+    #[test]
+    fn tls_is_in_the_url() {
+        assert_eq!(info().tls, dbine_driver::TlsSupport::InUrl);
+        assert!(API.starts_with("https://"));
+        assert!(!info().fields.iter().any(|f| f.is_legacy_tls()));
+    }
 
     #[test]
     fn timestamps_in_both_encodings() {

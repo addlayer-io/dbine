@@ -4928,8 +4928,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "Щоб завантажити рядки в супертаблицю, потрібен стовпець tbname (підтаблиця кожного рядка).",
   "Para columnas autoincrementales (solo BIGINT).": "Для автоінкрементних стовпців (лише BIGINT).",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "Для повного монітора Dremio (активність, вузли, профілі) використовуйте його підключення REST.",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "Для локальних емуляторів. Порожньо = кінцева точка AWS регіону.",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "Для локальних емуляторів; без автентифікації. Порожньо = API Google.",
   "Para escribir puntos en InfluxDB hace falta una columna time (la marca de tiempo).": "Щоб записувати точки в InfluxDB, потрібен стовпець time (мітка часу).",
   "Para las suscripciones (TMQ); -1: sin límite.": "Для підписок (TMQ); -1: без обмежень.",
   "Para las suscripciones (TMQ); 0 o -1: sin límite.": "Для підписок (TMQ); 0 або -1: без обмежень.",
@@ -11254,5 +11252,14 @@
   "último latido": "останній heartbeat",
   "último optime": "останній optime",
   "… ({0} operadores más)": "… (ще операторів: {0})",
-  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "Підключення також перевіряє ім'я сервера в сертифікаті — суворіше, ніж зазначено в рядку (verify-ca)."
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "Підключення також перевіряє ім'я сервера в сертифікаті — суворіше, ніж зазначено в рядку (verify-ca).",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "Шифрує з'єднання за допомогою TLS і перевіряє сертифікат сервера.",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "Шифрує з'єднання за допомогою TLS і перевіряє сертифікат. Якщо сервер вказано як URL, діє його схема.",
+  "Comprueba que el nombre del servidor figure en su certificado.": "Перевіряє, що ім'я сервера вказано в його сертифікаті.",
+  "No verifica el certificado del servidor.": "Не перевіряє сертифікат сервера.",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "Для локальних емуляторів, як-от DynamoDB Local, що працюють через http:// без TLS. Порожньо = кінцева точка AWS регіону, завжди через https із перевіркою сертифіката.",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Для локальних емуляторів, що працюють через http:// без TLS і автентифікації. Порожньо = API Google, завжди через https із перевіркою сертифіката.",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT перевіряє, що ім'я сервера вказано в його сертифікаті; NONE перевіряє лише ланцюжок.",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Якщо сервер вказано як URL (http://… або https://…), діє його схема.",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "через SSH-тунель сертифікат перевіряється за ім'ям сервера, а {0} — це IP-адреса: вкажіть ім'я хоста, яке є в сертифікаті"
 }

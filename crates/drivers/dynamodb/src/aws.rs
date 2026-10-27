@@ -58,7 +58,7 @@ pub fn fields_by_auth() -> Vec<Field> {
 pub fn endpoint_field(placeholder: &'static str) -> Field {
     Field::new("endpoint_url", "Endpoint personalizado", FieldKind::Text)
         .placeholder(placeholder)
-        .help("Para emuladores locales. Vacío = el endpoint de AWS de la región.")
+        .help("Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.")
         .advanced()
 }
 

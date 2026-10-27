@@ -8,7 +8,7 @@ use dbine_driver::{
     async_trait, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo,
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
     Family, Field, FieldKind, KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
-    QueryOutcome, Result, ResultColumn, RowChange, Session, TableSchema,
+    QueryOutcome, Result, ResultColumn, RowChange, Session, TableSchema, TlsLevel, TlsSupport,
 };
 use serde_json::{json, Value as J};
 use std::collections::BTreeMap;
@@ -56,6 +56,8 @@ mod properties;
 mod script;
 mod security;
 mod sync;
+#[path = "../../influxdb/src/tls_http.rs"]
+mod tls_http;
 mod transfer;
 
 /// Apache IoTDB and TimechoDB (Timecho's commercial IoTDB: same REST API,
@@ -75,7 +77,7 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info(id: &'static str, name: &'static str) -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id,
         name,
@@ -83,24 +85,47 @@ fn info(id: &'static str, name: &'static str) -> DriverInfo {
         language: Language::Sql,
         dialect: "iotdb",
         default_port: 18080,
-        fields: vec![
-            Field::host().help("Servidor o URL del servicio REST (enable_rest_service=true)."),
-            Field::port().placeholder("18080"),
-            Field::new("database", "Base de datos", FieldKind::Text).placeholder("root.…"),
-            Field::username().placeholder("root"),
-            Field::password(),
-            Field::new("metrics_url", "URL de métricas (Prometheus)", FieldKind::Text)
-                .placeholder("http://servidor:9092/metrics")
-                .help("Opcional, para el monitor: el endpoint del DataNode (dn_metric_reporter_list=PROMETHEUS). Vacío = se prueba el puerto 9092 del mismo servidor.")
-                .advanced(),
-            Field::encrypt(),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        fields: fields(),
         databases_label: "Bases de datos",
         has_schemas: false,
-        object_kinds: vec![ObjectKindInfo::new(DEVICE, "Dispositivos", true, true, false)],
+        object_kinds: vec![ObjectKindInfo::new(
+            DEVICE,
+            "Dispositivos",
+            true,
+            true,
+            false,
+        )],
     }
+}
+
+/// The connection form, the same for both ids. The TLS options are the
+/// Python client's `use_ssl` and `ca_certs`; skipping the check has no name
+/// of its own (curl's `insecure`).
+fn fields() -> Vec<Field> {
+    vec![
+        Field::host().help("Servidor o URL del servicio REST (enable_rest_service=true)."),
+        Field::port().placeholder("18080"),
+        Field::new("database", "Base de datos", FieldKind::Text).placeholder("root.…"),
+        Field::username().placeholder("root"),
+        Field::password(),
+        Field::new("metrics_url", "URL de métricas (Prometheus)", FieldKind::Text)
+            .placeholder("http://servidor:9092/metrics")
+            .help("Opcional, para el monitor: el endpoint del DataNode (dn_metric_reporter_list=PROMETHEUS). Vacío = se prueba el puerto 9092 del mismo servidor.")
+            .advanced(),
+        Field::tls_switch(
+            "use_ssl",
+            "use_ssl",
+            TlsLevel::VerifyFull,
+            TlsLevel::Off,
+            true,
+            ["false", "false", "true", "true"],
+        )
+        .help("Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema."),
+        Field::tls_insecure(["false", "true", "false", "true"]),
+        Field::tls_ca_file("ca_certs", "ca_certs")
+            .help("Opcional: la CA que firmó el certificado del servidor, en PEM."),
+        Field::read_only(),
+    ]
 }
 
 struct IotDbDriver {
@@ -284,12 +309,14 @@ impl Driver for IotDbDriver {
         let db = database
             .filter(|d| !d.is_empty())
             .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(600))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .build()
-            .map_err(Error::connect)?;
+        let (base, http) = tls_http::client(
+            cfg,
+            &self.info.fields,
+            base_url(cfg),
+            reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(15))
+                .timeout(Duration::from_secs(600)),
+        )?;
         let username = cfg
             .username
             .as_deref()
@@ -298,7 +325,7 @@ impl Driver for IotDbDriver {
             .to_string();
         let mut s = IotDbSession {
             http,
-            base: base_url(cfg),
+            base,
             username,
             password: cfg.password_or_empty().to_string(),
             db: db.map(str::to_string),
@@ -335,7 +362,11 @@ fn base_url(cfg: &ConnectionConfig) -> String {
     }
     format!(
         "{}://{host}:{}",
-        if cfg.encrypt { "https" } else { "http" },
+        if tls_http::https(cfg, &fields()) {
+            "https"
+        } else {
+            "http"
+        },
         cfg.port_or(18080)
     )
 }
@@ -567,7 +598,9 @@ impl IotDbSession {
             .json(&body)
             .send()
             .await
-            .map_err(|e| Error::Connect(format!("no se pudo conectar con IoTDB: {e}")))?;
+            .map_err(|e| {
+                tls_http::connect_error(&e, |e| format!("no se pudo conectar con IoTDB: {e}"))
+            })?;
         let http_status = resp.status();
         let text = resp.text().await.map_err(Error::connect)?;
         let v: J = serde_json::from_str(&text).unwrap_or(J::Null);
@@ -1448,6 +1481,21 @@ impl Session for IotDbSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Saved connections keep `encrypt` / `trust_server_certificate`'s
+    /// scheme and checks; new ones are https, verified.
+    #[test]
+    fn tls_options() {
+        tls_http::assert_legacy_and_defaults(&fields());
+        let cfg = ConnectionConfig {
+            host: "iot".into(),
+            ..tls_http::new_connection(&fields())
+        };
+        assert_eq!(base_url(&cfg), "https://iot:18080");
+        let mut cfg = cfg;
+        cfg.options.insert("use_ssl".into(), "false".into());
+        assert_eq!(base_url(&cfg), "http://iot:18080");
+    }
 
     #[test]
     fn sorted_browse_names_measurements() {

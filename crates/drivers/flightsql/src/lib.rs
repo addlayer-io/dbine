@@ -31,7 +31,8 @@ use dbine_driver::sql::{
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, DbObject, Driver, DriverInfo,
     Error, Family, Field, FieldKind, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable,
-    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session, TxState,
+    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session, TlsLevel,
+    TlsRole, TlsSupport, TxState,
 };
 use futures::TryStreamExt;
 use prost::Message;
@@ -49,7 +50,7 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "flightsql",
         name: "Arrow Flight SQL",
@@ -70,13 +71,80 @@ fn info() -> DriverInfo {
                 .placeholder("database: mibase")
                 .help("Encabezados gRPC extra, uno por línea (clave: valor). InfluxDB 3 pide `database`.")
                 .advanced(),
-            Field::encrypt(),
+            // The Flight SQL JDBC driver's useEncryption and tlsRootCerts.
+            // Its disableCertificateVerification isn't offered: tonic has
+            // no way to skip the check (docs/engine-support.md).
+            Field::tls_switch(
+                "useEncryption",
+                "useEncryption",
+                TlsLevel::VerifyFull,
+                TlsLevel::Off,
+                true,
+                ["false", "false", "true", "true"],
+            )
+            .help("Cifra la conexión con TLS y verifica el certificado del servidor."),
+            Field::tls_ca_file("tlsRootCerts", "tlsRootCerts")
+                .help("Opcional: la CA que firmó el certificado del servidor, en PEM."),
             Field::read_only(),
         ],
         databases_label: "Catálogos",
         has_schemas: true,
         object_kinds: vec![ObjectKindInfo::tables(), ObjectKindInfo::views()],
     }
+}
+
+/// The TLS settings `useEncryption` asks for, `None` for plaintext. tonic
+/// verifies the certificate against the web PKI roots plus `tlsRootCerts`,
+/// for the server's real name (through an SSH tunnel, the one in front of
+/// it); it has no way to skip the check, so a saved connection that trusted
+/// the certificate (`trust_server_certificate`) has always verified it too.
+fn tls_config(cfg: &ConnectionConfig, fields: &[Field]) -> Result<Option<ClientTlsConfig>> {
+    // A value that isn't one of useEncryption's own is TLS too.
+    let mode = fields
+        .iter()
+        .find(|f| matches!(f.tls, Some(TlsRole::Mode { .. })));
+    let off = match mode.and_then(|f| Some((f, cfg.tls_value(f)?))) {
+        Some((f, v)) => f.tls_level_of(v) == Some(TlsLevel::Off),
+        None => !cfg.encrypt,
+    };
+    if off {
+        return Ok(None);
+    }
+    let mut tls = ClientTlsConfig::new()
+        .with_webpki_roots()
+        .domain_name(cfg.tls_server_name().to_string());
+    let ca = fields
+        .iter()
+        .filter(|f| matches!(f.tls, Some(TlsRole::CaFile { .. })))
+        .find_map(|f| cfg.tls_value(f));
+    if let Some(path) = ca {
+        let pem = std::fs::read(path).map_err(|e| {
+            Error::Connect(format!(
+                "no se pudo leer el certificado de CA «{path}»: {e}"
+            ))
+        })?;
+        tls = tls.ca_certificate(tonic::transport::Certificate::from_pem(pem));
+    }
+    Ok(Some(tls))
+}
+
+/// A channel that didn't open, with the whole chain of reasons (tonic's own
+/// text is just "transport error"), classified, so a certificate that isn't
+/// trusted or a server without TLS reads as such.
+fn connect_error(url: &str, e: &tonic::transport::Error) -> Error {
+    let mut text = e.to_string();
+    let mut cur = std::error::Error::source(e);
+    while let Some(x) = cur {
+        let s = x.to_string();
+        if !text.contains(&s) {
+            text.push_str(": ");
+            text.push_str(&s);
+        }
+        cur = x.source();
+    }
+    let mut f = dbine_driver::ConnectFailure::from_error(e);
+    f.message = format!("{url}: {text}");
+    Error::connect_failed(f)
 }
 
 pub struct FlightSqlDriver {
@@ -195,25 +263,21 @@ impl Driver for FlightSqlDriver {
         } else {
             cfg.host.trim()
         };
-        let scheme = if cfg.encrypt { "https" } else { "http" };
+        let tls = tls_config(cfg, &self.info.fields)?;
+        let scheme = if tls.is_some() { "https" } else { "http" };
         let url = format!("{scheme}://{host}:{}", cfg.port_or(31337));
         let mut ep = Endpoint::from_shared(url.clone())
             .map_err(Error::connect)?
             .connect_timeout(Duration::from_secs(15))
             .tcp_keepalive(Some(Duration::from_secs(30)))
             .http2_keep_alive_interval(Duration::from_secs(30));
-        if cfg.encrypt {
-            // tonic verifies certificates against the web PKI roots; it has
-            // no switch to skip verification, so the form has no "trust" box.
-            let tls = ClientTlsConfig::new()
-                .with_webpki_roots()
-                .domain_name(host.to_string());
+        if let Some(tls) = tls {
             ep = ep.tls_config(tls).map_err(Error::connect)?;
         }
         let channel = tokio::time::timeout(Duration::from_secs(20), ep.connect())
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(|e| Error::Connect(format!("{url}: {e}")))?;
+            .map_err(|e| connect_error(&url, &e))?;
         let headers: Vec<(String, String)> = cfg
             .option("headers")
             .unwrap_or("")
@@ -1671,6 +1735,36 @@ fn parse_size(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Saved connections keep `encrypt` (tonic always verified, so `trust`
+    /// changes nothing); a new one is TLS, verified; a CA file that can't be
+    /// read is an error, not an unverified connection.
+    #[test]
+    fn tls_options() {
+        let f = &info().fields;
+        for (encrypt, trust) in [(false, false), (false, true), (true, false), (true, true)] {
+            let cfg = ConnectionConfig {
+                encrypt,
+                trust_server_certificate: trust,
+                ..Default::default()
+            };
+            assert_eq!(tls_config(&cfg, f).unwrap().is_some(), encrypt);
+        }
+        let mut cfg = ConnectionConfig::default();
+        for x in f
+            .iter()
+            .filter(|x| x.tls.is_some() && !x.default.is_empty())
+        {
+            cfg.options.insert(x.key.into(), x.default.into());
+        }
+        assert_eq!(cfg.tls_level(f), Some(TlsLevel::VerifyFull));
+        assert!(tls_config(&cfg, f).unwrap().is_some());
+        cfg.options
+            .insert("tlsRootCerts".into(), "/nonexistent/ca.pem".into());
+        assert!(tls_config(&cfg, f).is_err());
+        cfg.options.insert("useEncryption".into(), "false".into());
+        assert!(tls_config(&cfg, f).unwrap().is_none());
+    }
 
     #[test]
     fn statements_and_sizes() {

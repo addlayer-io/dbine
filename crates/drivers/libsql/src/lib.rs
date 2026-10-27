@@ -5,6 +5,8 @@
 //! opens it.
 
 mod hrana;
+#[path = "../../influxdb/src/tls_http.rs"]
+mod tls_http;
 mod transfer;
 
 use dbine_driver::sql::{
@@ -31,7 +33,9 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        // The URL says it: libsql://, wss:// and https:// (and a bare host)
+        // verify the certificate; ws:// and http:// are plaintext.
+        tls: dbine_driver::TlsSupport::InUrl,
         tls_port: None,
         id: "libsql",
         name: "libSQL / Turso",
@@ -197,7 +201,7 @@ impl Driver for LibsqlDriver {
             .option("auth_token")
             .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
             .map(str::to_string);
-        let mut client = Client::new(&cfg.host, token)?;
+        let mut client = Client::new(cfg, token)?;
         // Re-applied whenever the server starts a new stream.
         client.init.push("PRAGMA foreign_keys = ON".into());
         if cfg.read_only {
@@ -792,6 +796,25 @@ impl Session for LibsqlSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Through an SSH tunnel an https URL checks the real server's name.
+    #[test]
+    fn a_tunnel_keeps_the_servers_name() {
+        let mut cfg = ConnectionConfig {
+            host: "libsql://127.0.0.1:40000".into(),
+            ..Default::default()
+        };
+        cfg.options.insert(
+            dbine_driver::TUNNEL_ORIGIN_HOST.into(),
+            "db-org.turso.io".into(),
+        );
+        let (url, _) = tls_http::tunnel(
+            &cfg,
+            hrana::http_url(&cfg.host).unwrap(),
+            reqwest::Client::builder(),
+        );
+        assert_eq!(url, "https://db-org.turso.io:40000");
+    }
 
     #[test]
     fn scripts_split_like_sqlite() {

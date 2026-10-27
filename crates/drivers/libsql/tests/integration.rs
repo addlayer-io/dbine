@@ -7,7 +7,7 @@
 //!
 //! For Turso, `DBINE_TEST_LIBSQL_URL=libsql://…` and `DBINE_TEST_LIBSQL_TOKEN`.
 
-use dbine_driver::{kinds, ConnectionConfig, DdlParts, Error, ObjectRef, QueryOutcome, Session};
+use dbine_driver::{kinds, ConnectionConfig, DdlParts, ObjectRef, QueryOutcome, Session};
 use std::sync::Arc;
 
 fn config() -> Option<ConnectionConfig> {
@@ -213,10 +213,11 @@ async fn full_session() {
 async fn bad_token_is_auth_failed_or_ignored() {
     let Some(mut cfg) = config() else { return };
     cfg.host = "http://127.0.0.1:9".into();
-    assert!(matches!(
-        driver().connect(&cfg, None).await.err(),
-        Some(Error::Connect(_))
-    ));
+    assert!(driver()
+        .connect(&cfg, None)
+        .await
+        .err()
+        .is_some_and(|e| e.is_connect()));
 }
 
 /// An idle stream expires on the server; the next statement runs on a new

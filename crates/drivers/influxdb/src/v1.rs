@@ -11,13 +11,14 @@ use dbine_driver::{
     async_trait, json_f64, json_i64, json_u64, kinds, ColumnDef, ColumnInfo, ConnectionConfig,
     CreateTemplate, DbObject, DriverInfo, Error, Family, Field, KeyDef, Language, MonitorSnapshot,
     ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    TlsLevel, TlsSupport,
 };
 use serde_json::Value as J;
 use std::collections::BTreeMap;
 
 pub fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "influxdb1",
         name: "InfluxDB 1 (InfluxQL)",
@@ -25,7 +26,28 @@ pub fn info() -> DriverInfo {
         language: Language::Sql,
         dialect: "influxql",
         default_port: 8086,
-        fields: Field::server_set(),
+        fields: vec![
+            Field::host(),
+            Field::port(),
+            Field::database(),
+            Field::username(),
+            Field::password(),
+            // The influx CLI's -ssl and -unsafeSsl.
+            Field::tls_switch(
+                "ssl",
+                "ssl",
+                TlsLevel::VerifyFull,
+                TlsLevel::Off,
+                true,
+                ["false", "false", "true", "true"],
+            )
+            .help("Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema."),
+            Field::tls_skip_verify("unsafeSsl", "unsafeSsl", false, ["false", "true", "false", "true"])
+                .help("No verifica el certificado del servidor."),
+            // The influx CLI has no CA option: curl's.
+            Field::tls_cacert(),
+            Field::read_only(),
+        ],
         databases_label: "Bases de datos",
         has_schemas: false,
         object_kinds: vec![ObjectKindInfo::new(
@@ -153,9 +175,10 @@ pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<B
     let db = database
         .filter(|d| !d.is_empty())
         .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
+    let (http, base) = http::client(cfg, &info().fields, 8086)?;
     let mut s = InfluxQlSession {
-        http: http::client(cfg)?,
-        base: http::base_url(cfg, 8086),
+        http,
+        base,
         username: cfg.username_or_empty().to_string(),
         password: cfg.password_or_empty().to_string(),
         db: db.map(str::to_string),
@@ -954,7 +977,7 @@ impl Session for InfluxQlSession {
         for q in ["SHOW STATS", "SHOW DIAGNOSTICS", "SHOW QUERIES"] {
             answers.push(match self.query(q).await {
                 Ok(r) => r.into_iter().next(),
-                Err(Error::Connect(m)) => return Err(Error::Connect(m)),
+                Err(e) if e.is_connect() => return Err(e),
                 Err(_) => None,
             });
         }

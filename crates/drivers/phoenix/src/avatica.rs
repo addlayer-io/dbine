@@ -11,14 +11,15 @@ use crate::{text, PhoenixSession, Req, Resp};
 use dbine_driver::sql::split_statements;
 use dbine_driver::{
     kinds, ColumnDef, ColumnInfo, DbObject, DriverInfo, Family, Field, FieldKind, Language,
-    ObjectKindInfo, ObjectRef, Plan, PlanNode, QueryOutcome, Result, TableSchema,
+    ObjectKindInfo, ObjectRef, Plan, PlanNode, QueryOutcome, Result, TableSchema, TlsSupport,
 };
 use serde_json::Value;
 use std::collections::HashMap;
 
 pub(crate) fn info() -> DriverInfo {
+    let [scheme, insecure, hostname_verification, truststore] = crate::tls_fields();
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "avatica",
         name: "Apache Calcite Avatica",
@@ -35,8 +36,10 @@ pub(crate) fn info() -> DriverInfo {
                 .advanced(),
             Field::username(),
             Field::password(),
-            Field::encrypt(),
-            Field::trust_cert(),
+            scheme,
+            insecure,
+            hostname_verification,
+            truststore,
             Field::new(
                 "serialization",
                 "Serialización",

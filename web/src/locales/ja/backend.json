@@ -3365,8 +3365,6 @@
   "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": "スーパーテーブルに行を読み込むには、tbname 列(各行のサブテーブル)が必要です。",
   "Para columnas autoincrementales (solo BIGINT).": "オートインクリメント列用(BIGINT のみ)。",
   "Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.": "Dremio の完全なモニター(アクティビティ、ノード、プロファイル)には、REST 接続を使用してください。",
-  "Para emuladores locales. Vacío = el endpoint de AWS de la región.": "ローカルのエミュレーター用。空 = リージョンの AWS エンドポイント。",
-  "Para emuladores locales; sin autenticación. Vacío = la API de Google.": "ローカルのエミュレーター用。認証なし。空 = Google の API。",
   "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": "mTLS の場合: 展開したウォレットのフォルダー(tnsnames.ora と ewallet.pem)。中の任意のファイルを選べます。データベースがウォレットなしの TLS を受け付ける場合は空欄。",
   "Para no consumir créditos, el historial se refresca cada 20 s, la carga y los créditos cada 5 min y el almacenamiento cada 15 min, y solo con el warehouse ya encendido.": "クレジットを消費しないよう、履歴は 20 秒ごと、負荷とクレジットは 5 分ごと、ストレージは 15 分ごとに更新され、ウェアハウスが既に起動している場合のみです。",
   "Para un backup incremental: el TSO con el que terminó el backup anterior (BackupTS). Vacío: completo.": "増分バックアップの場合: 前回のバックアップが終了した TSO(BackupTS)。空欄: 完全バックアップ。",
@@ -11254,5 +11252,14 @@
   "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": "onsocssl はクライアントのキーストア（conssl.cfg の SSL_KEYSTORE_FILE）で証明書を検証します。",
   "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": "verify-ca と verify-full には、クライアントに CA の root.crt が必要です。",
   "Opcional: la CA que firmó el certificado del servidor, en PEM.": "任意: サーバー証明書に署名した CA(PEM 形式)。",
-  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "接続では証明書内のサーバー名も検証するため、接続文字列（verify-ca）より厳格です。"
+  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": "接続では証明書内のサーバー名も検証するため、接続文字列（verify-ca）より厳格です。",
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": "TLS で接続を暗号化し、サーバー証明書を検証します。",
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": "TLS で接続を暗号化し、証明書を検証します。サーバーが URL の場合は、そのスキームが優先されます。",
+  "Comprueba que el nombre del servidor figure en su certificado.": "サーバー名が証明書に含まれていることを確認します。",
+  "No verifica el certificado del servidor.": "サーバー証明書を検証しません。",
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": "DynamoDB Local などのローカルのエミュレーター用で、TLS なしの http:// を使います。空 = リージョンの AWS エンドポイント（常に https で証明書を検証）。",
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "ローカルのエミュレーター用で、TLS も認証もない http:// を使います。空 = Google の API（常に https で証明書を検証）。",
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT はサーバー名が証明書に含まれていることを確認し、NONE はチェーンだけを検証します。",
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": "サーバーが URL（http://… または https://…）の場合は、そのスキームが優先されます。",
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "SSH トンネル経由では証明書をサーバー名で検証しますが、{0} は IP アドレスです。証明書に記載されているホスト名を使ってください"
 }
