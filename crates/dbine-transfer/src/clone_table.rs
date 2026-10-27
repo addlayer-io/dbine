@@ -49,6 +49,8 @@ mod mssql;
 mod mysql;
 mod oracle;
 mod pg;
+#[cfg(test)]
+mod test_session;
 mod timeseries;
 mod triggers;
 

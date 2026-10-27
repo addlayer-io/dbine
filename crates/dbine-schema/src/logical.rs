@@ -215,4 +215,171 @@ mod tests {
             r#"{"type":"varchar","len":10,"unicode":true}"#
         );
     }
+
+    #[test]
+    fn every_type_is_described_in_spanish() {
+        use LogicalType as T;
+        let cases = [
+            (T::Bool, "booleano"),
+            (T::int(8), "entero de 8 bytes"),
+            (
+                T::Int {
+                    bytes: 2,
+                    unsigned: true,
+                },
+                "entero sin signo de 2 bytes",
+            ),
+            (
+                T::Decimal {
+                    precision: Some(10),
+                    scale: Some(2),
+                },
+                "decimal(10, 2)",
+            ),
+            (
+                T::Decimal {
+                    precision: Some(5),
+                    scale: None,
+                },
+                "decimal(5, 0)",
+            ),
+            (
+                T::Decimal {
+                    precision: None,
+                    scale: None,
+                },
+                "decimal sin precisión fija",
+            ),
+            (T::Float { bytes: 4 }, "coma flotante de 4 bytes"),
+            (T::Money, "moneda"),
+            (
+                T::Char {
+                    len: None,
+                    unicode: false,
+                },
+                "texto fijo de 1",
+            ),
+            (
+                T::Char {
+                    len: Some(3),
+                    unicode: true,
+                },
+                "texto fijo de 3",
+            ),
+            (
+                T::Varchar {
+                    len: Some(40),
+                    unicode: false,
+                },
+                "texto de hasta 40",
+            ),
+            (
+                T::Varchar {
+                    len: None,
+                    unicode: true,
+                },
+                "texto sin límite",
+            ),
+            (T::Text { unicode: true }, "texto sin límite"),
+            (T::Binary { len: Some(16) }, "binario"),
+            (T::Varbinary { len: None }, "binario"),
+            (T::Blob, "binario"),
+            (T::Bit { len: Some(1) }, "bits"),
+            (T::Date, "fecha"),
+            (
+                T::Time {
+                    precision: None,
+                    tz: false,
+                },
+                "hora",
+            ),
+            (
+                T::Time {
+                    precision: Some(3),
+                    tz: true,
+                },
+                "hora con zona",
+            ),
+            (
+                T::Timestamp {
+                    precision: None,
+                    tz: false,
+                },
+                "fecha y hora",
+            ),
+            (
+                T::Timestamp {
+                    precision: Some(6),
+                    tz: true,
+                },
+                "fecha y hora con zona",
+            ),
+            (T::Interval, "intervalo"),
+            (T::Year, "año"),
+            (T::Uuid, "UUID"),
+            (T::Json { binary: true }, "JSON"),
+            (T::Xml, "XML"),
+            (
+                T::Enum {
+                    values: vec!["a".into()],
+                },
+                "enumerado",
+            ),
+            (T::Set { values: vec![] }, "conjunto"),
+            (
+                T::Array {
+                    of: Box::new(T::Array {
+                        of: Box::new(T::int(4)),
+                    }),
+                },
+                "arreglo de arreglo de entero de 4 bytes",
+            ),
+            (
+                T::Map {
+                    key: Box::new(T::Uuid),
+                    value: Box::new(T::Bool),
+                },
+                "mapa",
+            ),
+            (
+                T::Geometry {
+                    kind: Some("point".into()),
+                    srid: Some(4326),
+                    geography: true,
+                },
+                "espacial",
+            ),
+            (T::Inet, "dirección IP"),
+            (T::MacAddr, "dirección MAC"),
+            (T::RowVersion, "versión de fila"),
+            (
+                T::Other {
+                    native: "hstore".into(),
+                },
+                "«hstore»",
+            ),
+        ];
+        for (t, want) in cases {
+            assert_eq!(t.describe(), want, "{t:?}");
+            // And every one survives a round trip through its JSON form.
+            let back: LogicalType =
+                serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+            assert_eq!(back, t);
+        }
+    }
+
+    #[test]
+    fn only_char_varchar_and_text_are_text() {
+        assert!(LogicalType::Text { unicode: false }.is_text());
+        assert!(LogicalType::Char {
+            len: Some(1),
+            unicode: false
+        }
+        .is_text());
+        assert!(!LogicalType::Json { binary: false }.is_text());
+        assert!(!LogicalType::Blob.is_text());
+        for (bytes, want) in [(1, 2), (2, 4), (3, 4), (16, 16)] {
+            assert_eq!(LogicalType::signed_bytes_for(bytes, true), want);
+        }
+    }
 }

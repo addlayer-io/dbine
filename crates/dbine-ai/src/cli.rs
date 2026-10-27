@@ -383,4 +383,158 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("Not logged in"), "{err}");
     }
+
+    #[test]
+    fn claude_thinking_and_other_events() {
+        let t = r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hmm"}}}"#;
+        assert_eq!(parse_claude(t), Event::Delta(Delta::Thinking("hmm".into())));
+        let start = r#"{"type":"stream_event","event":{"type":"message_start"}}"#;
+        assert_eq!(parse_claude(start), Event::Other);
+        assert_eq!(
+            parse_claude(r#"{"type":"system","subtype":"init"}"#),
+            Event::Other
+        );
+        // A result without text or flag: empty and not an error.
+        assert_eq!(
+            parse_claude(r#"{"type":"result"}"#),
+            Event::Final {
+                text: String::new(),
+                is_error: false
+            }
+        );
+    }
+
+    #[test]
+    fn codex_reasoning_and_errors() {
+        assert_eq!(
+            parse_codex(r#"{"type":"item.completed","item":{"type":"reasoning","text":"pienso"}}"#),
+            Event::Delta(Delta::Thinking("pienso".into()))
+        );
+        assert_eq!(
+            parse_codex(r#"{"type":"item.completed","item":{"type":"command_execution"}}"#),
+            Event::Other
+        );
+        assert_eq!(
+            parse_codex(r#"{"type":"turn.failed"}"#),
+            Event::Error("Codex no pudo responder".into())
+        );
+        assert_eq!(
+            parse_codex(r#"{"type":"error","message":"stream disconnected"}"#),
+            Event::Error("stream disconnected".into())
+        );
+        assert_eq!(
+            parse_codex(r#"{"type":"error"}"#),
+            Event::Error("error de Codex".into())
+        );
+        assert_eq!(
+            parse_codex(r#"{"id":"1","msg":{"type":"agent_message","message":"SELECT 2"}}"#),
+            Event::Message("SELECT 2".into())
+        );
+        assert_eq!(
+            parse_codex(r#"{"id":"1","msg":{"type":"error","message":"quota"}}"#),
+            Event::Error("quota".into())
+        );
+        assert_eq!(parse_codex("{}"), Event::Other);
+        assert_eq!(parse_codex("not json"), Event::Other);
+    }
+
+    #[test]
+    fn scratch_folder_is_empty_and_removed() {
+        let s = Scratch::new().unwrap();
+        let dir = s.0.clone();
+        assert!(dir.is_dir());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::write(dir.join("system.md"), "x").unwrap();
+        drop(s);
+        assert!(!dir.exists());
+    }
+
+    /// Runs `script` (a shell script body) as a fake CLI.
+    #[cfg(unix)]
+    async fn fake_cli(body: &str, parse: fn(&str) -> Event) -> (Result<String>, Vec<Delta>) {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let script = d.path().join("fake");
+        std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let got = std::sync::Mutex::new(Vec::new());
+        let cb = |dl: Delta| got.lock().unwrap().push(dl);
+        let r = run(&script, &[], d.path(), "", parse, &cb, "fake").await;
+        let deltas = got.into_inner().unwrap();
+        (r, deltas)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_messages_are_joined_as_they_come() {
+        let (r, deltas) = fake_cli(
+            r#"echo '{"type":"item.completed","item":{"type":"reasoning","text":"r"}}'
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"uno"}}'
+echo '{"type":"item.completed","item":{"type":"agent_message","text":"dos"}}'"#,
+            parse_codex,
+        )
+        .await;
+        assert_eq!(r.unwrap(), "uno\n\ndos");
+        assert_eq!(
+            deltas,
+            vec![
+                Delta::Thinking("r".into()),
+                Delta::Text("uno".into()),
+                Delta::Text("\n\ndos".into()),
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_final_answer_is_sent_when_nothing_streamed() {
+        let (r, deltas) = fake_cli(
+            r#"echo '{"type":"result","is_error":false,"result":"respuesta entera"}'"#,
+            parse_claude,
+        )
+        .await;
+        assert_eq!(r.unwrap(), "respuesta entera");
+        assert_eq!(deltas, vec![Delta::Text("respuesta entera".into())]);
+        // Nothing at all: an empty answer, not an error.
+        let (r, deltas) = fake_cli("true", parse_claude).await;
+        assert_eq!(r.unwrap(), "");
+        assert!(deltas.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reported_errors_win_over_the_exit_status() {
+        let (r, _) = fake_cli(
+            r#"echo '{"type":"result","is_error":true,"result":" Not logged in · Please run /login "}'"#,
+            parse_claude,
+        )
+        .await;
+        assert_eq!(
+            r.unwrap_err().to_string(),
+            "fake: Not logged in · Please run /login"
+        );
+        let (r, _) = fake_cli(
+            r#"echo '{"type":"turn.failed","error":{"message":"quota"}}'"#,
+            parse_codex,
+        )
+        .await;
+        assert_eq!(r.unwrap_err().to_string(), "fake: quota");
+        // A failing exit after something streamed keeps the answer.
+        let (r, _) = fake_cli(
+            r#"echo '{"msg":{"type":"agent_message_delta","delta":"SEL"}}'
+exit 1"#,
+            parse_codex,
+        )
+        .await;
+        assert_eq!(r.unwrap(), "SEL");
+        // Only the last lines of stderr are reported.
+        let (r, _) = fake_cli(
+            "for i in 1 2 3 4 5 6 7 8; do echo \"line $i\" >&2; done\nexit 2",
+            parse_claude,
+        )
+        .await;
+        let err = r.unwrap_err().to_string();
+        assert!(err.contains("line 8") && err.contains("line 3"), "{err}");
+        assert!(!err.contains("line 2"), "{err}");
+    }
 }

@@ -451,4 +451,160 @@ mod tests {
         assert_eq!(valid_name("t"), "t__");
         assert_eq!(valid_name("mis ventas"), "mis_ventas");
     }
+
+    fn col(name: &str, ty: &str) -> dbine_driver::ColumnDef {
+        dbine_driver::ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            ..Default::default()
+        }
+    }
+
+    fn ix(name: &str, cols: &[&str], unique: bool) -> dbine_driver::IndexDef {
+        dbine_driver::IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            unique,
+            ..Default::default()
+        }
+    }
+
+    fn key_types(t: &TableSchema) -> Vec<(&str, &str)> {
+        t.columns
+            .iter()
+            .map(|c| {
+                (
+                    c.name.as_str(),
+                    c.options.get(KEY_TYPE).map(String::as_str).unwrap_or(""),
+                )
+            })
+            .collect()
+    }
+
+    fn codes(r: &Report) -> Vec<IssueCode> {
+        r.issues.iter().map(|i| i.code).collect()
+    }
+
+    #[test]
+    fn a_long_key_keeps_two_attributes_and_indexes_become_global() {
+        let mut t = TableSchema {
+            kind: "view".into(),
+            name: "mis pedidos".into(),
+            columns: vec![
+                col("cliente", "BOOL"),
+                col("fecha", "S"),
+                col("linea", "N"),
+                col("estado", "S"),
+                col("total", "N"),
+                col("datos", "M"),
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["cliente".into(), "fecha".into(), "linea".into()],
+            }),
+            indexes: vec![
+                // The key again.
+                ix("ix_key", &["cliente", "fecha"], false),
+                // A map can't be a key.
+                ix("ix_datos", &["datos"], false),
+                // Unique, three attributes, a name DynamoDB doesn't take.
+                ix("ix estado", &["estado", "total", "fecha"], true),
+            ],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        DynamoDb.finalize(&mut t, &mut report);
+        assert_eq!(t.kind, "table");
+        assert_eq!(t.name, "mis_pedidos");
+        assert_eq!(
+            t.primary_key.as_ref().unwrap().columns,
+            ["cliente", "fecha"]
+        );
+        assert_eq!(
+            key_types(&t),
+            [
+                ("cliente", "HASH"),
+                ("fecha", "RANGE"),
+                ("linea", "none"),
+                ("estado", "none"),
+                ("total", "none"),
+                ("datos", "none")
+            ]
+        );
+        // A key attribute must be S, N or B.
+        assert_eq!(t.columns[0].data_type, "S");
+        assert_eq!(t.indexes.len(), 1);
+        let gsi = &t.indexes[0];
+        assert_eq!(gsi.name, "ix_estado");
+        assert_eq!(gsi.columns, ["estado", "total"]);
+        assert!(!gsi.unique);
+        assert_eq!(gsi.kind.as_deref(), Some("GSI"));
+        let c = codes(&report);
+        for want in [
+            IssueCode::IdentifierRenamed,
+            IssueCode::PrimaryKeyDropped,
+            IssueCode::TypeChanged,
+            IssueCode::OptionAdded,
+            IssueCode::IndexDropped,
+            IssueCode::IndexChanged,
+        ] {
+            assert!(c.contains(&want), "{want:?} missing from {c:?}");
+        }
+        let dropped = report
+            .issues
+            .iter()
+            .find(|i| i.object.as_deref() == Some("ix_datos"))
+            .unwrap();
+        assert_eq!(dropped.severity, Severity::Dropped);
+    }
+
+    #[test]
+    fn a_table_without_a_key_gets_one() {
+        // From its unique index.
+        let mut t = TableSchema {
+            name: "clientes".into(),
+            columns: vec![col("id", "N"), col("email", "S")],
+            indexes: vec![ix("ux_email", &["email"], true)],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        DynamoDb.finalize(&mut t, &mut report);
+        assert_eq!(t.primary_key.unwrap().columns, ["email"]);
+        assert!(t.indexes.is_empty(), "the key's own index goes");
+        assert_eq!(report.issues[0].code, IssueCode::PrimaryKeyAdded);
+        assert!(report
+            .issues
+            .iter()
+            .any(|i| i.message == "Clave de partición (HASH): email."));
+        // From its first column.
+        let mut t = TableSchema {
+            name: "eventos".into(),
+            columns: vec![col("momento", "S"), col("dato", "S")],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        DynamoDb.finalize(&mut t, &mut report);
+        assert_eq!(t.primary_key.unwrap().columns, ["momento"]);
+        assert!(report.issues[0].message.contains("«momento»"));
+        // No columns at all: no key to make.
+        let mut empty = TableSchema {
+            name: "vacia".into(),
+            ..Default::default()
+        };
+        DynamoDb.finalize(&mut empty, &mut Report::default());
+        assert!(empty.primary_key.is_none());
+        // Already DynamoDB's (key types marked): left as it is.
+        let mut marked = TableSchema {
+            name: "t".into(),
+            columns: vec![dbine_driver::ColumnDef {
+                options: [(KEY_TYPE.to_string(), "hash".to_string())].into(),
+                ..col("pk", "S")
+            }],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        DynamoDb.finalize(&mut marked, &mut report);
+        assert_eq!(marked.name, "t");
+        assert!(report.issues.is_empty());
+    }
 }

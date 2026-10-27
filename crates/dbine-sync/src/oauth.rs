@@ -454,4 +454,274 @@ mod tests {
         });
         assert!(matches!(login.wait_code().await, Err(SyncError::Cancelled)));
     }
+
+    #[test]
+    fn client_ids_from_a_file_win_where_set() {
+        let built = ClientIds {
+            google_client_id: Some("g-build".into()),
+            google_client_secret: Some("s-build".into()),
+            microsoft_client_id: Some("m-build".into()),
+        };
+        let file = ClientIds {
+            google_client_id: Some("g-file".into()),
+            ..Default::default()
+        };
+        let ids = built.overridden_by(file);
+        assert_eq!(ids.google_client_id.as_deref(), Some("g-file"));
+        assert_eq!(ids.google_client_secret.as_deref(), Some("s-build"));
+        let g = ids.config(ProviderKind::GoogleDrive).unwrap();
+        assert_eq!(
+            (g.client_id.as_str(), g.client_secret.as_deref()),
+            ("g-file", Some("s-build"))
+        );
+        let m = ids.config(ProviderKind::Onedrive).unwrap();
+        assert_eq!(m.client_id, "m-build");
+        assert_eq!(m.redirect_host, "localhost");
+        assert!(ids.config(ProviderKind::Folder).is_none());
+        assert!(ClientIds::default()
+            .config(ProviderKind::GoogleDrive)
+            .is_none());
+    }
+
+    /// A token endpoint answering every request with `status` and `body`;
+    /// the form bodies it got.
+    async fn token_server(
+        status: &'static str,
+        body: &'static str,
+    ) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/token", l.local_addr().unwrap());
+        let got = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = got.clone();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 4096];
+                loop {
+                    let n = s.read(&mut tmp).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&tmp[..n]);
+                    let text = String::from_utf8_lossy(&buf).to_string();
+                    if let Some(i) = text.find("\r\n\r\n") {
+                        let len: usize = text
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length: ")
+                                    .and_then(|v| v.trim().parse().ok())
+                            })
+                            .unwrap_or(0);
+                        if buf.len() >= i + 4 + len {
+                            log.lock().unwrap().push(text[i + 4..].to_string());
+                            break;
+                        }
+                    }
+                }
+                let reply = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = s.write_all(reply.as_bytes()).await;
+            }
+        });
+        (url, got)
+    }
+
+    fn form(body: &str) -> std::collections::HashMap<String, String> {
+        url::form_urlencoded::parse(body.as_bytes())
+            .into_owned()
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_code_is_exchanged_with_the_verifier() {
+        let (token_url, got) = token_server(
+            "200 OK",
+            r#"{"access_token":"at","refresh_token":"rt","expires_in":120}"#,
+        )
+        .await;
+        let cfg = OAuthConfig {
+            token_url,
+            ..OAuthConfig::google("cid", Some("secret".into()))
+        };
+        let login = begin(cfg).await.unwrap();
+        let q: std::collections::HashMap<_, _> = url::Url::parse(&login.auth_url)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
+        assert_eq!(q["access_type"], "offline");
+        let redirect = q["redirect_uri"].clone();
+        let state = q["state"].clone();
+        let challenge = q["code_challenge"].clone();
+        tokio::spawn(
+            async move { reqwest::get(format!("{redirect}/?state={state}&code=c0de")).await },
+        );
+        let before = chrono::Utc::now().timestamp();
+        let t = login
+            .finish(&reqwest::Client::new(), Duration::from_secs(10))
+            .await
+            .unwrap();
+        assert_eq!(t.access_token, "at");
+        assert_eq!(t.refresh_token.as_deref(), Some("rt"));
+        assert!(t.expires_at >= before + 120 && t.expires_at <= before + 130);
+        let sent = form(&got.lock().unwrap()[0]);
+        assert_eq!(sent["grant_type"], "authorization_code");
+        assert_eq!(sent["code"], "c0de");
+        assert_eq!(sent["client_secret"], "secret");
+        // PKCE: the challenge in the browser's URL is the verifier's hash.
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(Sha256::digest(sent["code_verifier"].as_bytes())),
+            challenge
+        );
+    }
+
+    #[tokio::test]
+    async fn a_login_nobody_finishes_times_out() {
+        let login = begin(OAuthConfig::google("cid", None)).await.unwrap();
+        match login
+            .finish(&reqwest::Client::new(), Duration::from_millis(50))
+            .await
+        {
+            Err(SyncError::Remote(m)) => assert!(m.contains("se agotó el tiempo"), "{m}"),
+            other => panic!("expected a timeout, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_provider_refusing_the_login() {
+        let login = begin(OAuthConfig::google("cid", None)).await.unwrap();
+        let q: std::collections::HashMap<_, _> = url::Url::parse(&login.auth_url)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
+        let redirect = q["redirect_uri"].clone();
+        let state = q["state"].clone();
+        tokio::spawn(async move {
+            reqwest::get(format!(
+                "{redirect}/?state={state}&error=invalid_scope&error_description=nope"
+            ))
+            .await
+        });
+        match login.wait_code().await {
+            Err(SyncError::Remote(m)) => {
+                assert_eq!(
+                    m,
+                    "Google Drive rechazó el inicio de sesión: invalid_scope nope"
+                )
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn refreshing_keeps_the_old_refresh_token() {
+        let (token_url, got) = token_server("200 OK", r#"{"access_token":"at2"}"#).await;
+        let cfg = OAuthConfig {
+            token_url,
+            ..OAuthConfig::microsoft("mid")
+        };
+        let t = refresh(&reqwest::Client::new(), &cfg, "rt-old")
+            .await
+            .unwrap();
+        assert_eq!(t.access_token, "at2");
+        assert_eq!(t.refresh_token.as_deref(), Some("rt-old"));
+        let sent = form(&got.lock().unwrap()[0]);
+        assert_eq!(sent["grant_type"], "refresh_token");
+        // Microsoft wants the scopes again.
+        assert_eq!(
+            sent["scope"],
+            "Files.ReadWrite.AppFolder User.Read offline_access"
+        );
+        assert!(!sent.contains_key("client_secret"));
+    }
+
+    #[tokio::test]
+    async fn token_errors() {
+        let client = reqwest::Client::new();
+        let with = |url: String| OAuthConfig {
+            token_url: url,
+            ..OAuthConfig::google("cid", None)
+        };
+        // Revoked or expired: sign in again.
+        let (url, _) = token_server("400 Bad Request", r#"{"error":"invalid_grant"}"#).await;
+        assert!(matches!(
+            refresh(&client, &with(url), "rt").await,
+            Err(SyncError::AuthRequired(p)) if p == "Google Drive"
+        ));
+        let (url, _) = token_server("401 Unauthorized", "{}").await;
+        assert!(matches!(
+            refresh(&client, &with(url), "rt").await,
+            Err(SyncError::AuthRequired(_))
+        ));
+        // Another error: its description.
+        let (url, _) = token_server(
+            "400 Bad Request",
+            r#"{"error":"invalid_client","error_description":"The OAuth client was not found."}"#,
+        )
+        .await;
+        match refresh(&client, &with(url), "rt").await {
+            Err(SyncError::Remote(m)) => {
+                assert_eq!(m, "Google Drive: The OAuth client was not found.")
+            }
+            other => panic!("{other:?}"),
+        }
+        let (url, _) = token_server("500 Internal Server Error", r#"{"error":"boom"}"#).await;
+        match refresh(&client, &with(url), "rt").await {
+            Err(SyncError::Remote(m)) => assert_eq!(m, "Google Drive: boom"),
+            other => panic!("{other:?}"),
+        }
+        // Success without a token in it.
+        let (url, _) = token_server("200 OK", r#"{"nope":1}"#).await;
+        assert!(matches!(
+            refresh(&client, &with(url), "rt").await,
+            Err(SyncError::Remote(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_token_source_refreshes_only_when_due() {
+        let (token_url, got) =
+            token_server("200 OK", r#"{"access_token":"fresh","expires_in":3600}"#).await;
+        let cfg = OAuthConfig {
+            token_url,
+            ..OAuthConfig::google("cid", None)
+        };
+        let saved = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let s2 = saved.clone();
+        let now = chrono::Utc::now().timestamp();
+        let src = TokenSource::new(
+            cfg.clone(),
+            reqwest::Client::new(),
+            Tokens {
+                access_token: "valid".into(),
+                refresh_token: Some("rt".into()),
+                expires_at: now + 600,
+            },
+            Arc::new(move |t: &Tokens| s2.lock().unwrap().push(t.access_token.clone())),
+        );
+        assert_eq!(src.bearer(false).await.unwrap(), "valid");
+        assert!(got.lock().unwrap().is_empty());
+        // Forced (after a 401): refreshed and saved.
+        assert_eq!(src.bearer(true).await.unwrap(), "fresh");
+        assert_eq!(*saved.lock().unwrap(), ["fresh"]);
+        // About to expire, and nothing to refresh it with: sign in again.
+        let stale = TokenSource::new(
+            cfg,
+            reqwest::Client::new(),
+            Tokens {
+                access_token: "old".into(),
+                refresh_token: None,
+                expires_at: now + 30,
+            },
+            Arc::new(|_: &Tokens| {}),
+        );
+        assert!(matches!(
+            stale.bearer(false).await,
+            Err(SyncError::AuthRequired(_))
+        ));
+    }
 }

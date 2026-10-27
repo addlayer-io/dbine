@@ -188,4 +188,84 @@ mod tests {
         assert!(c[2].unsupported.is_some());
         assert_eq!(found.warnings.len(), 1);
     }
+
+    #[test]
+    fn picks_the_newest_ssms_version() {
+        let dir = tempfile::tempdir().unwrap();
+        for (version, with_file) in [("18.0", true), ("20.0", true), ("21.0", false), ("x", true)] {
+            let d = dir.path().join(version);
+            std::fs::create_dir_all(&d).unwrap();
+            if with_file {
+                std::fs::write(d.join("RegSrvr.xml"), "<x/>").unwrap();
+            }
+        }
+        // 21.0 has no RegSrvr.xml and "x" isn't a version: 20.0 wins.
+        assert_eq!(
+            newest_in(dir.path()),
+            Some(dir.path().join("20.0").join("RegSrvr.xml"))
+        );
+        // The folder of all versions reads the newest one.
+        assert_eq!(
+            read(dir.path()).unwrap().path,
+            dir.path().join("20.0").join("RegSrvr.xml")
+        );
+        assert_eq!(newest_in(&dir.path().join("missing")), None);
+    }
+
+    #[test]
+    fn folder_of_only_follows_server_groups() {
+        assert_eq!(
+            folder_of("/RegisteredServersStore/ServerGroup/DatabaseEngineServerGroup/ServerGroup/A%20B/ServerGroup/C"),
+            vec!["A B".to_string(), "C".to_string()]
+        );
+        assert!(folder_of("/RegisteredServersStore/ServerGroup/Other/ServerGroup/A").is_empty());
+        assert!(folder_of("").is_empty());
+        // A trailing half pair is ignored.
+        assert_eq!(
+            folder_of("/x/DatabaseEngineServerGroup/ServerGroup/A/ServerGroup"),
+            vec!["A".to_string()]
+        );
+    }
+
+    #[test]
+    fn minimal_server_uses_its_server_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("export.regsrvr");
+        std::fs::write(
+            &f,
+            r#"<model><RegisteredServer>
+                 <ServerName> db1.corp </ServerName>
+                 <UseCustomConnectionColor>false</UseCustomConnectionColor>
+                 <CustomConnectionColorArgb>-65536</CustomConnectionColorArgb>
+               </RegisteredServer></model>"#,
+        )
+        .unwrap();
+        let found = read(&f).unwrap();
+        assert_eq!(found.path, f);
+        let c = &found.candidates[0];
+        // No Name or ServerType: the server name, a database engine.
+        assert_eq!(c.name, "db1.corp");
+        assert_eq!(c.config.driver, "sqlserver");
+        assert_eq!(c.config.host, "db1.corp");
+        assert!(c.unsupported.is_none());
+        // The color only applies when it's turned on.
+        assert_eq!(c.color, None);
+        assert!(c.folder.is_empty());
+        assert!(found.warnings.is_empty());
+    }
+
+    #[test]
+    fn unreadable_or_invalid_files_are_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read(&dir.path().join("missing.regsrvr")).is_err());
+        // An empty folder looks for its RegSrvr.xml, which isn't there.
+        assert!(read(dir.path()).is_err());
+        let bad = dir.path().join("bad.regsrvr");
+        std::fs::write(&bad, "<model><unclosed></model>").unwrap();
+        let Err(err) = read(&bad) else {
+            panic!("invalid XML was read");
+        };
+        let err = err.to_string();
+        assert!(err.contains("XML"), "{err}");
+    }
 }

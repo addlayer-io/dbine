@@ -448,4 +448,193 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn removing_a_driver_takes_every_version_of_it_only() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in [
+            "dbine-driver-postgres-1.0.0+p1.e3",
+            "dbine-driver-postgres-1.1.0+p1.e3-x.gz.part",
+            "dbine-driver-postgresql-1.0.0",
+            "dbine-driver-mysql-1.0.0+p1.e3",
+            "state.json",
+        ] {
+            std::fs::write(dir.path().join(n), b"x").unwrap();
+        }
+        remove(dir.path(), "postgres").unwrap();
+        let mut left: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "dbine-driver-mysql-1.0.0+p1.e3",
+                "dbine-driver-postgresql-1.0.0",
+                "state.json"
+            ]
+        );
+        // No folder: nothing to remove.
+        remove(&dir.path().join("missing"), "postgres").unwrap();
+        // Sizes on disk, files only.
+        assert_eq!(installed_size(dir.path(), "mysql", "1.0.0+p1.e3"), Some(1));
+        assert_eq!(installed_size(dir.path(), "mysql", "9.9.9"), None);
+        std::fs::create_dir(dir.path().join(exe_name("dir", "1.0.0"))).unwrap();
+        assert_eq!(installed_size(dir.path(), "dir", "1.0.0"), None);
+    }
+
+    /// A gzip of `content` and its asset entry.
+    fn published(content: &[u8], file: &str) -> (Vec<u8>, HostAsset) {
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(content).unwrap();
+        let gz = enc.finish().unwrap();
+        let sha = Sha256::digest(&gz)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let asset = HostAsset {
+            version: "1.2.3+p1.e3".into(),
+            file: file.into(),
+            size: gz.len() as u64,
+            sha256: sha,
+        };
+        (gz, asset)
+    }
+
+    /// A release server: `body` for every request, honouring `Range` when
+    /// `ranges`; the paths and ranges asked for.
+    async fn release_server(
+        status: &'static str,
+        body: Vec<u8>,
+        ranges: bool,
+    ) -> (String, std::sync::Arc<Mutex<Vec<String>>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/drivers/", l.local_addr().unwrap());
+        let seen = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                let body = body.clone();
+                let log = log.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = s.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let path = req.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let from: usize = req
+                        .to_lowercase()
+                        .split("range: bytes=")
+                        .nth(1)
+                        .and_then(|r| r.split('-').next())
+                        .and_then(|x| x.parse().ok())
+                        .unwrap_or(0);
+                    log.lock().unwrap().push(format!("{path} {from}"));
+                    let (status, part) = if ranges && from > 0 {
+                        ("206 Partial Content", &body[from..])
+                    } else {
+                        (status, &body[..])
+                    };
+                    let head = format!(
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        part.len()
+                    );
+                    let _ = s.write_all(head.as_bytes()).await;
+                    let _ = s.write_all(part).await;
+                });
+            }
+        });
+        (base, seen)
+    }
+
+    #[tokio::test]
+    async fn a_host_is_downloaded_checked_and_unpacked_once() {
+        let (gz, asset) = published(b"#!/bin/sh\necho host\n", "dbine-driver-t1.gz");
+        let (base, seen) = release_server("200 OK", gz.clone(), true).await;
+        let dir = tempfile::tempdir().unwrap();
+        // A previous download cut halfway: resumed from there.
+        std::fs::write(
+            dir.path().join("dbine-driver-t1.gz.part"),
+            &gz[..gz.len() / 2],
+        )
+        .unwrap();
+        let exe = ensure_asset(dir.path(), &base, "t1", &asset, "T1", vec!["t1".into()])
+            .await
+            .unwrap();
+        assert_eq!(exe, dir.path().join(exe_name("t1", &asset.version)));
+        assert_eq!(std::fs::read(&exe).unwrap(), b"#!/bin/sh\necho host\n");
+        assert!(!dir.path().join("dbine-driver-t1.gz.part").exists());
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [format!("/drivers/dbine-driver-t1.gz {}", gz.len() / 2)]
+        );
+        // There already: nothing is downloaded.
+        ensure_asset(dir.path(), &base, "t1", &asset, "T1", vec![])
+            .await
+            .unwrap();
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_server_that_ignores_the_range_starts_over() {
+        let (gz, asset) = published(b"host two", "dbine-driver-t2.gz");
+        let (base, _) = release_server("200 OK", gz.clone(), false).await;
+        let dir = tempfile::tempdir().unwrap();
+        // Garbage that would break the checksum if appended to.
+        std::fs::write(dir.path().join("dbine-driver-t2.gz.part"), b"zz").unwrap();
+        let exe = ensure_asset(dir.path(), &base, "t2", &asset, "T2", vec![])
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(exe).unwrap(), b"host two");
+    }
+
+    #[tokio::test]
+    async fn bad_downloads_are_refused() {
+        let msg = |r: Result<PathBuf>| match r {
+            Err(Error::Connect(m)) => m,
+            other => panic!("expected a connect error, got {other:?}"),
+        };
+        // Not published there.
+        let (gz, asset) = published(b"host three", "dbine-driver-t3.gz");
+        let (base, _) = release_server("404 Not Found", Vec::new(), false).await;
+        let dir = tempfile::tempdir().unwrap();
+        let m = msg(ensure_asset(dir.path(), &base, "t3", &asset, "T3", vec![]).await);
+        assert!(m.contains("HTTP 404") && m.contains("T3"), "{m}");
+        // Another file than the one published: removed.
+        let (base, _) = release_server("200 OK", vec![0u8; gz.len()], false).await;
+        let m = msg(ensure_asset(dir.path(), &base, "t3", &asset, "T3", vec![]).await);
+        assert!(m.contains("SHA-256"), "{m}");
+        assert!(!dir.path().join("dbine-driver-t3.gz.part").exists());
+        // Cut short: kept to resume.
+        let (base, _) = release_server("200 OK", gz[..3].to_vec(), false).await;
+        let m = msg(ensure_asset(dir.path(), &base, "t3", &asset, "T3", vec![]).await);
+        assert!(m.contains("incompleta"), "{m}");
+        assert!(dir.path().join("dbine-driver-t3.gz.part").exists());
+        // A partial file longer than the asset is thrown away first.
+        std::fs::write(
+            dir.path().join("dbine-driver-t3.gz.part"),
+            vec![1u8; gz.len() + 10],
+        )
+        .unwrap();
+        let (base, _) = release_server("200 OK", gz, false).await;
+        let exe = ensure_asset(dir.path(), &base, "t3", &asset, "T3", vec![])
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(exe).unwrap(), b"host three");
+    }
+
+    #[tokio::test]
+    async fn a_driver_not_published_for_this_platform() {
+        let catalog = Catalog {
+            target: "riscv64-unknown-linux-gnu".into(),
+            ..Default::default()
+        };
+        match ensure(&catalog, "postgres", "PostgreSQL", vec![]).await {
+            Err(Error::Unsupported(m)) => {
+                assert!(m.contains("PostgreSQL") && m.contains("riscv64"), "{m}")
+            }
+            other => panic!("expected Unsupported, got {other:?}"),
+        }
+    }
 }
