@@ -6,6 +6,7 @@
 
 use crate::catalog::{cell, first_cell, info_type, lit, rows, system_schema, user_schema};
 use crate::plan::{self, StmtKind};
+use crate::rustls_connect::MakeRustlsConnect;
 use crate::script;
 use crate::{err, Variant};
 use dbine_driver::sql::{qualified_name, select_top, Limit, Quote, ScriptStatement};
@@ -15,7 +16,6 @@ use dbine_driver::{
     TxState,
 };
 use futures::{pin_mut, StreamExt};
-use postgres_native_tls::MakeTlsConnector;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_postgres::error::{DbError, SqlState};
@@ -23,7 +23,7 @@ use tokio_postgres::{Client, SimpleQueryMessage, SimpleQueryRow};
 
 pub struct PgSession {
     pub(crate) client: Client,
-    pub(crate) tls: MakeTlsConnector,
+    pub(crate) tls: MakeRustlsConnect,
     pub(crate) variant: Variant,
     /// Server version as `server_version_num` (e.g. 160002); 0 if unknown.
     pub(crate) version: i32,
@@ -49,6 +49,9 @@ pub struct PgSession {
     /// Who signed in with a cloud token, when "Probar" asked (it goes
     /// after the version).
     pub(crate) identity: Option<String>,
+    /// The certificate this session trusted with no pin yet
+    /// (`Session::tls_pin_seen`).
+    pub(crate) tls_pin_seen: Option<String>,
 }
 
 /// `$1`/`$2` (schema, name) resolved to a regclass; an empty schema means
@@ -64,7 +67,7 @@ const REGCLASS_OLD: &str = "(SELECT rc.oid FROM pg_class rc JOIN pg_namespace rn
 impl PgSession {
     pub(crate) fn new(
         client: Client,
-        tls: MakeTlsConnector,
+        tls: MakeRustlsConnect,
         variant: Variant,
         version: i32,
         database: String,
@@ -83,6 +86,7 @@ impl PgSession {
             tx_unsure: false,
             simple: false,
             identity: None,
+            tls_pin_seen: None,
         }
     }
 
@@ -1661,6 +1665,10 @@ impl Session for PgSession {
     ) -> Result<dbine_driver::DeltaResult> {
         self.require_extended()?;
         crate::delta::apply(self, spec, buckets, columns, source, progress).await
+    }
+
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.tls_pin_seen.clone()
     }
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {

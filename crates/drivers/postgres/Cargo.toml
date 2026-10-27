@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-postgres"
-version = "0.1.18"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.19"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
@@ -10,8 +10,8 @@ tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tokio-postgres = "0.7.18"
-postgres-native-tls = "0.5.3"
-native-tls = "0.2.18"
+dbine-tls = { path = "../../dbine-tls" }
+tokio-rustls = { version = "0.26", default-features = false }
 # Cloud sign-in (cloud_auth.rs): SHA-256 for the AWS SigV4 token, the same
 # release tokio-postgres already uses for SCRAM.
 sha2 = "0.11"
