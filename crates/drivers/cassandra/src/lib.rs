@@ -29,7 +29,7 @@ use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind,
     IndexDef, KeyDef, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, Plan, QueryOutcome,
-    Result, ResultColumn, ScriptError, Session as DbSession, TableSchema,
+    Result, ResultColumn, ScriptError, Session as DbSession, TableSchema, TlsLevel, TlsSupport,
 };
 use scylla::client::session::Session;
 use scylla::client::session_builder::SessionBuilder;
@@ -81,9 +81,41 @@ pub(crate) enum Flavor {
     Keyspaces,
 }
 
+/// cqlsh's `--ssl`.
+fn ssl_field() -> Field {
+    Field::tls_switch(
+        "ssl",
+        "ssl",
+        TlsLevel::VerifyFull,
+        TlsLevel::Off,
+        true,
+        ["false", "false", "true", "true"],
+    )
+}
+
+/// cqlsh's `[ssl] validate`: "false" skips the certificate checks. Keyspaces
+/// honoured the trust box even with TLS "off" (it's always on there).
+fn validate_field(flavor: Flavor) -> Field {
+    let legacy = if flavor == Flavor::Keyspaces {
+        ["true", "false", "true", "false"]
+    } else {
+        ["true", "true", "true", "false"]
+    };
+    Field::tls_skip_verify("validate", "validate", true, legacy).help(
+        "Verifica la cadena del certificado y que sea del nodo: su IP o el nombre escrito en Servidor.",
+    )
+}
+
+/// cqlsh's `[ssl] certfile`: CA certificates (PEM) trusted besides the
+/// system's.
+fn certfile_field() -> Field {
+    Field::tls_ca_file("certfile", "certfile")
+        .help("Certificados de CA (PEM) en los que confiar además de los del sistema.")
+}
+
 fn keyspaces_info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Forced,
         tls_port: None,
         id: "keyspaces",
         name: "Amazon Keyspaces",
@@ -103,8 +135,8 @@ fn keyspaces_info() -> DriverInfo {
                 .placeholder("us-east-1")
                 .help("En Keyspaces el datacenter es la región.")
                 .advanced(),
-            Field::encrypt().default_value("true").help("Keyspaces solo acepta conexiones TLS."),
-            Field::trust_cert(),
+            validate_field(Flavor::Keyspaces),
+            certfile_field(),
             Field::read_only(),
         ],
         databases_label: "Keyspaces",
@@ -135,8 +167,9 @@ fn info(id: &'static str, name: &'static str) -> DriverInfo {
                 .placeholder("(cualquiera)")
                 .help("Nodos preferidos para las consultas, p. ej. datacenter1.")
                 .advanced(),
-            Field::encrypt(),
-            Field::trust_cert(),
+            ssl_field(),
+            validate_field(Flavor::Cassandra),
+            certfile_field(),
             Field::read_only(),
         ],
         databases_label: "Keyspaces",
@@ -157,6 +190,11 @@ pub struct CassandraDriver {
 
 #[async_trait]
 impl Driver for CassandraDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }
@@ -373,9 +411,9 @@ impl Driver for CassandraDriver {
         if let Some(dc) = cfg.option("datacenter") {
             b = b.prefer_datacenter(dc.to_string());
         }
-        // Keyspaces only takes TLS.
-        if cfg.encrypt || self.flavor == Flavor::Keyspaces {
-            b = b.tls_context(Some(tls_config(cfg.trust_server_certificate)?));
+        let tls = tls_settings(cfg, self.flavor);
+        if let Some(t) = &tls {
+            b = b.tls_context(Some(tls_config(t)?));
         }
         if let Some(ks) = keyspace {
             b = b.use_keyspace(ks, true);
@@ -389,7 +427,7 @@ impl Driver for CassandraDriver {
         let session = tokio::time::timeout(Duration::from_secs(20), b.build())
             .await
             .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-            .map_err(|e| connect_err(e.to_string()))?;
+            .map_err(|e| tls_hint(connect_err(e.to_string()), tls.as_ref()))?;
         Ok(Box::new(CassandraSession {
             session,
             keyspace: keyspace.map(str::to_string),
@@ -452,24 +490,200 @@ fn connect_err(msg: String) -> Error {
     }
 }
 
-fn tls_config(trust_any: bool) -> Result<Arc<rustls::ClientConfig>> {
+/// How a connection's TLS is set up (`None`: plaintext).
+#[derive(Debug, PartialEq)]
+struct TlsSettings {
+    /// `validate=false`: any certificate.
+    skip_verify: bool,
+    /// `certfile`.
+    ca_file: Option<String>,
+    /// The names the certificate may carry besides the node's IP: the
+    /// contact points as typed (the real server through an SSH tunnel).
+    names: Vec<String>,
+}
+
+fn tls_settings(cfg: &ConnectionConfig, flavor: Flavor) -> Option<TlsSettings> {
+    // Keyspaces only takes TLS.
+    let on = flavor == Flavor::Keyspaces || cfg.tls_value(&ssl_field()) == Some("true");
+    if !on {
+        return None;
+    }
+    let validate = validate_field(flavor);
+    let names = cfg
+        .tls_server_name()
+        .split(',')
+        .map(|h| node_host(h.trim()).to_string())
+        .filter(|h| !h.is_empty())
+        .collect();
+    Some(TlsSettings {
+        skip_verify: cfg
+            .tls_value(&validate)
+            .is_some_and(|v| validate.tls_skips(v)),
+        ca_file: cfg
+            .tls_value(&certfile_field())
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(str::to_string),
+        names,
+    })
+}
+
+/// A contact point without its port (`host:9042`, `[v6]:9042`, `v6`).
+fn node_host(h: &str) -> &str {
+    if let Some(rest) = h.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or_default();
+    }
+    if has_port(h) {
+        return h.rsplit_once(':').map_or(h, |(host, _)| host);
+    }
+    h
+}
+
+fn tls_config(t: &TlsSettings) -> Result<Arc<rustls::ClientConfig>> {
+    use rustls::pki_types::{pem::PemObject, CertificateDer};
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
         .map_err(|e| Error::Connect(format!("TLS: {e}")))?;
-    let config = if trust_any {
+    if t.skip_verify {
+        return Ok(Arc::new(
+            builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(AcceptAny(provider)))
+                .with_no_client_auth(),
+        ));
+    }
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in rustls_native_certs::load_native_certs().certs {
+        let _ = roots.add(cert);
+    }
+    if let Some(path) = &t.ca_file {
+        let certs = CertificateDer::pem_file_iter(path)
+            .and_then(|i| i.collect::<std::result::Result<Vec<_>, _>>())
+            .map_err(|e| Error::Connect(format!("no se pudo leer certfile ({path}): {e}")))?;
+        if certs.is_empty() {
+            return Err(Error::Connect(format!(
+                "certfile ({path}) no tiene certificados PEM"
+            )));
+        }
+        for cert in certs {
+            roots
+                .add(cert)
+                .map_err(|e| Error::Connect(format!("certificado inválido en certfile: {e}")))?;
+        }
+    }
+    let verifier = NodeOrName::new(roots, &t.names, provider)?;
+    Ok(Arc::new(
         builder
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(AcceptAny(provider)))
-            .with_no_client_auth()
+            .with_custom_certificate_verifier(Arc::new(verifier))
+            .with_no_client_auth(),
+    ))
+}
+
+/// A connect error with TLS on, naming the option to change.
+fn tls_hint(e: Error, tls: Option<&TlsSettings>) -> Error {
+    let Some(t) = tls else { return e };
+    let Error::Connect(m) = e else { return e };
+    let l = m.to_lowercase();
+    if !t.skip_verify && (l.contains("certificate") || l.contains("unknownissuer")) {
+        Error::Connect(format!(
+            "{m} (el certificado del nodo no es de confianza: indicá su CA en certfile, o desactivá validate para no verificarlo)"
+        ))
+    } else if l.contains("tls") || l.contains("handshake") || l.contains("corrupt") {
+        Error::Connect(format!(
+            "{m} (falló la negociación TLS: si el servidor no usa TLS, desactivá ssl)"
+        ))
     } else {
-        let mut roots = rustls::RootCertStore::empty();
-        for cert in rustls_native_certs::load_native_certs().certs {
-            let _ = roots.add(cert);
+        Error::Connect(m)
+    }
+}
+
+/// The scylla crate checks a node's certificate against the node's IP. This
+/// verifier checks the chain against the roots and accepts the certificate
+/// for that IP (as before) or for one of the names the user typed (the real
+/// server through an SSH tunnel, a host-name certificate).
+#[derive(Debug)]
+struct NodeOrName {
+    inner: Arc<rustls::client::WebPkiServerVerifier>,
+    names: Vec<rustls::pki_types::ServerName<'static>>,
+}
+
+impl NodeOrName {
+    fn new(
+        roots: rustls::RootCertStore,
+        names: &[String],
+        provider: Arc<rustls::crypto::CryptoProvider>,
+    ) -> Result<Self> {
+        let inner =
+            rustls::client::WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider)
+                .build()
+                .map_err(|e| Error::Connect(format!("TLS: {e}")))?;
+        Ok(Self {
+            inner,
+            names: names
+                .iter()
+                .filter_map(|n| rustls::pki_types::ServerName::try_from(n.clone()).ok())
+                .collect(),
+        })
+    }
+}
+
+impl rustls::client::danger::ServerCertVerifier for NodeOrName {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        server_name: &rustls::pki_types::ServerName<'_>,
+        ocsp: &[u8],
+        now: rustls::pki_types::UnixTime,
+    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        let first =
+            self.inner
+                .verify_server_cert(end_entity, intermediates, server_name, ocsp, now);
+        let Err(e) = first else { return first };
+        let wrong_name = matches!(
+            e,
+            rustls::Error::InvalidCertificate(
+                rustls::CertificateError::NotValidForName
+                    | rustls::CertificateError::NotValidForNameContext { .. }
+            )
+        );
+        if !wrong_name {
+            return Err(e);
         }
-        builder.with_root_certificates(roots).with_no_client_auth()
-    };
-    Ok(Arc::new(config))
+        for name in &self.names {
+            if name == server_name {
+                continue;
+            }
+            if let Ok(ok) =
+                self.inner
+                    .verify_server_cert(end_entity, intermediates, name, ocsp, now)
+            {
+                return Ok(ok);
+            }
+        }
+        Err(e)
+    }
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
 }
 
 /// "Trust the server certificate": any certificate, signatures still checked.
@@ -1789,6 +2003,130 @@ mod tests {
             connect_err("Connection refused".into()),
             Error::Connect(_)
         ));
+    }
+
+    fn cfg(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "node1:9042, node2".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            options: options
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// (TLS on, skip the checks) as the connection runs.
+    fn run(c: &ConnectionConfig, flavor: Flavor) -> (bool, bool) {
+        tls_settings(c, flavor).map_or((false, false), |t| (true, t.skip_verify))
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls() {
+        // Cassandra / ScyllaDB: [ff, ft] plaintext, tf verified, tt any certificate.
+        for f in [Flavor::Cassandra, Flavor::Scylla] {
+            assert_eq!(run(&cfg(false, false, &[]), f), (false, false));
+            assert_eq!(run(&cfg(false, true, &[]), f), (false, false));
+            assert_eq!(run(&cfg(true, false, &[]), f), (true, false));
+            assert_eq!(run(&cfg(true, true, &[]), f), (true, true));
+        }
+        // Keyspaces: always TLS; the trust box skipped the checks with or
+        // without encrypt.
+        let k = Flavor::Keyspaces;
+        assert_eq!(run(&cfg(false, false, &[]), k), (true, false));
+        assert_eq!(run(&cfg(false, true, &[]), k), (true, true));
+        assert_eq!(run(&cfg(true, false, &[]), k), (true, false));
+        assert_eq!(run(&cfg(true, true, &[]), k), (true, true));
+    }
+
+    #[test]
+    fn options_decide_and_new_connections_verify() {
+        let ssl = ssl_field();
+        assert!(ssl.tls_level_of(ssl.default).unwrap().verified());
+        assert_eq!(validate_field(Flavor::Cassandra).default, "true");
+        let f = Flavor::Cassandra;
+        let new = cfg(false, false, &[("ssl", "true"), ("validate", "true")]);
+        assert_eq!(run(&new, f), (true, false));
+        assert_eq!(
+            run(&cfg(true, true, &[("ssl", "false")]), f),
+            (false, false)
+        );
+        assert_eq!(
+            run(
+                &cfg(false, false, &[("ssl", "true"), ("validate", "false")]),
+                f
+            ),
+            (true, true)
+        );
+        let t = tls_settings(
+            &cfg(false, false, &[("ssl", "true"), ("certfile", " /ca.pem ")]),
+            f,
+        )
+        .unwrap();
+        assert_eq!(t.ca_file.as_deref(), Some("/ca.pem"));
+        assert_eq!(t.names, ["node1", "node2"]);
+        // Through a tunnel: the real server's name.
+        let mut c = cfg(
+            true,
+            false,
+            &[(dbine_driver::TUNNEL_ORIGIN_HOST, "db.example.com")],
+        );
+        c.host = "127.0.0.1".into();
+        assert_eq!(tls_settings(&c, f).unwrap().names, ["db.example.com"]);
+        assert_eq!(node_host("[::1]:9042"), "::1");
+        assert_eq!(node_host("::1"), "::1");
+    }
+
+    fn pem(name: &str) -> Vec<rustls::pki_types::CertificateDer<'static>> {
+        use rustls::pki_types::pem::PemObject;
+        let path = format!("{}/../../../tests/tls/{name}", env!("CARGO_MANIFEST_DIR"));
+        rustls::pki_types::CertificateDer::pem_file_iter(path)
+            .unwrap()
+            .map(|c| c.unwrap())
+            .collect()
+    }
+
+    fn verifies(ca: &str, node: &str, names: &[&str]) -> bool {
+        use rustls::client::danger::ServerCertVerifier;
+        let mut roots = rustls::RootCertStore::empty();
+        for c in pem(ca) {
+            roots.add(c).unwrap();
+        }
+        let names: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+        let v = NodeOrName::new(
+            roots,
+            &names,
+            Arc::new(rustls::crypto::ring::default_provider()),
+        )
+        .unwrap();
+        let server = pem("server.pem");
+        let node = rustls::pki_types::ServerName::try_from(node.to_string()).unwrap();
+        v.verify_server_cert(
+            &server[0],
+            &[],
+            &node,
+            &[],
+            rustls::pki_types::UnixTime::now(),
+        )
+        .is_ok()
+    }
+
+    #[test]
+    fn the_verifier_takes_the_node_ip_or_the_typed_name() {
+        // tests/tls/server.pem: SAN localhost, 127.0.0.1, host.docker.internal.
+        assert!(verifies("ca.pem", "127.0.0.1", &[]));
+        assert!(verifies("ca.pem", "10.1.2.3", &["localhost"]));
+        assert!(verifies(
+            "ca.pem",
+            "10.1.2.3",
+            &["db.example.com", "host.docker.internal"]
+        ));
+        assert!(!verifies("ca.pem", "10.1.2.3", &[]));
+        assert!(!verifies("ca.pem", "10.1.2.3", &["db.example.com"]));
+        // Another CA: no name helps.
+        assert!(!verifies("selfsigned.pem", "127.0.0.1", &["localhost"]));
     }
 }
 

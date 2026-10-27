@@ -28,6 +28,7 @@ backend:Distribuidor
 backend:Edición
 backend:En línea
 backend:En línea (ONLINE)
+backend:Encrypt
 backend:Escritor
 backend:Espacio de tablas
 backend:Espacios de tablas
@@ -49,6 +50,7 @@ backend:Lector
 backend:Londres
 backend:Lotes (batch requests)
 backend:Líder
+backend:Mandatory
 backend:Motor
 backend:Motor (ms)
 backend:Máximo (MB)
@@ -57,6 +59,7 @@ backend:Nombre
 backend:Nube
 backend:Operación
 backend:Operador
+backend:Optional
 backend:Paralelo
 backend:Partición
 backend:Parámetro
@@ -76,6 +79,7 @@ backend:Servidor
 backend:Servidor {0}
 backend:Señal (ms)
 backend:Sistema
+backend:Strict
 backend:Subsistema
 backend:Texto
 backend:Trabajo

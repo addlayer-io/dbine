@@ -224,6 +224,11 @@ pub struct BigQuerySession {
 
 #[async_trait]
 impl Driver for BigQueryDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     /// "Nueva base de datos"'s options (see [`create_db`]).
     fn create_database_fields(&self) -> Vec<Field> {
         create_db::fields()

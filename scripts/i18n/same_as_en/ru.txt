@@ -68,10 +68,14 @@ backend:Cloud SQL para MySQL
 backend:Cloud SQL para PostgreSQL
 backend:Costa
 backend:Credenciales predeterminadas de la aplicación (ADC)
+backend:Encrypt
 backend:Escritor
 backend:Lector
+backend:Mandatory
 backend:Master de HBase
+backend:Optional
 backend:RegionServers de HBase
+backend:Strict
 backend:numérico
 scheduled.json:message.channels.teams
 scheduled.json:message.channels.slack

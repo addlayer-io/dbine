@@ -1,0 +1,22 @@
+{
+  "title": "Parametry zapytania",
+  "intro": "Zapytanie ma parametry. Każda wartość jest wpisywana w tekście jako literał silnika, z odpowiednimi cudzysłowami; po prawej widać, jak to wygląda.",
+  "type": "Typ",
+  "types": {
+    "text": "Tekst",
+    "number": "Liczba",
+    "date": "Data",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Wartość",
+    "number": "Na przykład 42 lub 3.5",
+    "date": "RRRR-MM-DD lub RRRR-MM-DD gg:mm:ss"
+  },
+  "invalid": {
+    "number": "To nie jest liczba.",
+    "date": "Wpisz datę jako RRRR-MM-DD, z opcjonalną godziną (gg:mm lub gg:mm:ss)."
+  },
+  "disable": "Nie pytaj o parametry na tej karcie",
+  "disableTip": "Uruchamia tekst bez zmian i przestaje szukać parametrów na tej karcie. Ponownie włączysz to z menu edytora."
+}

@@ -1,0 +1,147 @@
+{
+  "action": "Optymalizuj",
+  "actionTip": "Optymalizuj zapytanie: równoważne przepisania, sugerowane indeksy i porównanie czasów (zaznaczenie lub instrukcja w miejscu kursora)",
+  "tab": "Optymalizuj",
+  "title": "Optymalizuj zapytanie · {{name}}",
+  "queryName": "Zoptymalizowane: {{title}}",
+  "indexQueryName": "Sugerowany indeks: {{table}}",
+  "noStatement": "Ustaw kursor w zapytaniu lub je zaznacz.",
+  "reanalyze": "Analizuj ponownie",
+  "analyzing": "Analizowanie zapytania…",
+  "original": "Zapytanie oryginalne",
+  "writesNote": "To zapytanie modyfikuje dane: nigdy nie jest uruchamiane. „Porównaj” porównuje tylko jego szacunkowe plany.",
+  "skipped": "Nie udało się odczytać:",
+  "alternatives": "Alternatywy",
+  "noAlternatives": "Reguły nie znalazły bezpiecznych przepisań dla tego zapytania. Możesz poprosić AI o alternatywy lub dodać własną.",
+  "noRulesEngine": "Reguły przepisywania nie mają zastosowania do języka tego silnika. Możesz poprosić AI o alternatywy lub dodać własną.",
+  "source": {
+    "rule": "Reguła",
+    "ai": "IA",
+    "user": "Twoja",
+    "original": "Oryginał"
+  },
+  "verify": "Nie udowodniono, że jest równoważna we wszystkich przypadkach: porównaj ją przed użyciem.",
+  "showSql": "Zobacz zapytanie",
+  "hideSql": "Ukryj zapytanie",
+  "remove": "Usuń",
+  "askAi": "Poproś AI o alternatywy",
+  "askingAi": "Odpytywanie AI…",
+  "aiMissing": "Nie skonfigurowano żadnego asystenta AI. Otwórz asystenta, aby wybrać jednego: model wbudowany w DBine, Ollama lub LM Studio (działają na tym komputerze) albo Claude Code lub Codex z Twoim własnym kontem.",
+  "openAssistant": "Otwórz asystenta",
+  "aiNone": "AI nie znalazło ulepszeń dla tego zapytania.",
+  "aiNothing": "Odpowiedź AI nie zawierała alternatyw w żądanym formacie. Spróbuj ponownie lub z innym modelem.",
+  "aiDiscarded_one": "Odrzucono {{count}} alternatywę, ponieważ nie kompiluje się w bazie, nawet po poproszeniu AI o jej poprawienie.",
+  "aiDiscarded_few": "Odrzucono {{count}} alternatywy, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie.",
+  "aiDiscarded_many": "Odrzucono {{count}} alternatyw, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie.",
+  "aiDiscarded_other": "Odrzucono {{count}} alternatywy, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie.",
+  "aiSent": "Do {{provider}} wysłano zapytanie oraz {{what}}. Wiersze nigdy nie są wysyłane.",
+  "aiSentOnly": "Do {{provider}} wysłano tylko zapytanie. Wiersze nigdy nie są wysyłane.",
+  "aiTables": "tabele ({{count}})",
+  "aiPlan": "plan",
+  "addOwn": "Dodaj alternatywę",
+  "ownTitle": "Twoja alternatywa",
+  "ownHint": "Napisz równoważną wersję zapytania: jest porównywana tak samo jak pozostałe.",
+  "ownName": "Alternatywa {{n}}",
+  "add": "Dodaj",
+  "compare": "Porównaj",
+  "comparing": "Porównywanie… {{done}} z {{total}}",
+  "compareTip": "Uruchamia oryginał i każdą alternatywę w sesji tylko do odczytu (raz na rozgrzewkę, a potem wskazaną liczbę razy) i porównuje czasy, wiersze oraz wynik. To, co modyfikuje dane, nie jest uruchamiane: porównywane są jego szacunkowe plany.",
+  "runs": "Uruchomienia",
+  "runsTip": "Ile razy uruchamiana jest każda wersja, po jednym uruchomieniu rozgrzewkowym",
+  "maxRows": "Maks. wierszy",
+  "maxRowsTip": "Wiersze odczytywane i porównywane z każdej wersji. Jeśli któraś zwróci więcej, jej wynik nie jest weryfikowany.",
+  "table": {
+    "version": "Wersja",
+    "min": "Min.",
+    "avg": "Śr.",
+    "rows": "Wiersze",
+    "cost": "Koszt",
+    "result": "Wynik",
+    "speed": "vs oryginał"
+  },
+  "result": {
+    "same": "Ten sam wynik",
+    "different": "NIE jest równoważna",
+    "unverified": "Niezweryfikowana",
+    "truncated": "Więcej niż {{count}} wierszy: nie porównano",
+    "error": "Błąd",
+    "planOnly": "Tylko plan",
+    "pending": "Nieporównana"
+  },
+  "recommended": "Zalecana",
+  "faster": "{{x}}× szybsza",
+  "slower": "{{x}}× wolniejsza",
+  "cheaper": "koszt {{x}}× mniejszy",
+  "viewPlan": "Zobacz plan",
+  "use": "Użyj tej wersji",
+  "useNew": "Otwórz w nowym zapytaniu",
+  "useReplace": "Zastąp zapytanie w jego edytorze",
+  "replaceGone": "Edytor źródłowy nie ma już tego zapytania (został zamknięty lub tekst się zmienił): otwarto je w nowym zapytaniu.",
+  "replaced": "Zapytanie w edytorze zostało zastąpione. Nie zostało uruchomione.",
+  "confirmUse": {
+    "title": "Użyj tej wersji",
+    "different": "Ta wersja NIE zwróciła tego samego wyniku co oryginał. Użyć jej mimo to?",
+    "unverified": "Ta wersja nie została jeszcze zweryfikowana względem oryginału. Użyć jej mimo to?",
+    "go": "Użyj mimo to"
+  },
+  "planTitle": "Plan · {{name}}",
+  "hints": "Sugerowane indeksy",
+  "hintsNone": "Plan nie pokazuje pełnych przeglądań, których indeks mógłby uniknąć.",
+  "hintsNoPlan": "Ten silnik nie pokazuje planów wykonania, więc nie ma sugestii indeksów.",
+  "hint": {
+    "missing_index": "Silnik sugeruje indeks w {{table}} ({{columns}})",
+    "full_scan": "{{table}} jest przeglądana w całości; indeks w ({{columns}}) może tego uniknąć",
+    "scan": "{{table}} jest przeglądana w całości",
+    "impact": "szacowany wpływ {{impact}} %",
+    "rows": "~{{rows}} szacowanych wierszy"
+  },
+  "hintsNote": "Skrypt jest tylko otwierany w zapytaniu: sprawdź go i uruchom sam, jeśli się przyda. Indeks przyspiesza odczyty i spowalnia zapisy.",
+  "openScript": "Otwórz w zapytaniu",
+  "notes": "Uwagi",
+  "planWarnings": "Ostrzeżenia planu",
+  "rules": {
+    "in_to_exists": {
+      "title": "IN (podzapytanie) → EXISTS",
+      "explain": "{{column}} IN (podzapytanie) zmienia się w EXISTS z warunkiem wewnątrz podzapytania: silnik może zakończyć na pierwszym dopasowaniu zamiast budować pełną listę."
+    },
+    "not_in_to_not_exists": {
+      "title": "NOT IN → NOT EXISTS",
+      "explain": "Ponieważ {{column}} i kolumna podzapytania nie dopuszczają NULL, NOT EXISTS zwraca to samo i zwykle jest rozwiązywane jako wydajniejszy anti-join."
+    },
+    "exists_to_in": {
+      "title": "EXISTS → IN",
+      "explain": "Podzapytanie skorelowane z {{column}} zmienia się w listę IN obliczaną tylko raz. Niektóre silniki lepiej radzą sobie z taką postacią."
+    },
+    "scalar_to_join": {
+      "title": "Podzapytanie na wiersz → zgrupowany LEFT JOIN",
+      "explain": "Podzapytania w SELECT ({{count}}) były wykonywane dla każdego wiersza; zamieniane są na LEFT JOIN ze zgrupowaną tabelą obliczaną tylko raz. COUNT bez wierszy nadal daje 0."
+    },
+    "or_to_union": {
+      "title": "OR między różnymi kolumnami → UNION ALL",
+      "explain": "OR na {{columns}} uniemożliwia użycie indeksu dla każdej kolumny. Każda gałąź UNION ALL może użyć własnego, a każda wyklucza wiersze zwrócone już przez poprzednie, więc żaden się nie powtarza."
+    },
+    "redundant_distinct": {
+      "title": "Zbędny DISTINCT",
+      "explain": "Lista zawiera klucz {{tables}}: wiersze są już unikalne, a DISTINCT dodaje tylko sortowanie lub grupowanie."
+    },
+    "function_to_range": {
+      "title": "Funkcja na kolumnie z indeksem → zakres",
+      "explain": "{{function}} stosuje funkcję do {{column}}, przez co nie można użyć jej indeksu. Równoważny zakres dat go używa."
+    },
+    "count_to_exists": {
+      "title": "COUNT(*) > 0 → EXISTS",
+      "explain": "Aby sprawdzić, czy są wiersze, nie trzeba liczyć wszystkich: EXISTS kończy na pierwszym."
+    },
+    "mongo_where": {
+      "title": "$where → operatory zapytań",
+      "explain": "$where wykonuje JavaScript dla każdego dokumentu i nie używa indeksów; równoważne operatory używają. Przy polach będących tablicami lub mieszających typy wynik może się zmienić: porównaj go przed użyciem."
+    }
+  },
+  "notesText": {
+    "select_star": "SELECT * pobiera wszystkie kolumny ({{count}}) z {{table}}. Żądanie tylko używanych odczytuje mniej danych i może wykorzystać indeksy pokrywające zapytanie.",
+    "select_starOpen": "Otwórz z kolumnami",
+    "not_in_nullable": "NOT IN z {{column}}: jeśli podzapytanie zwróci jakikolwiek NULL, zapytanie nie zwróci żadnego wiersza. Jeśli nie o to chodzi, użyj NOT EXISTS.",
+    "text_vs_number": "{{column}} ma typ {{type}} i jest porównywana z liczbą {{value}}: silnik konwertuje kolumnę w każdym wierszu i nie może użyć jej indeksu. Jeśli wartości są tekstem, porównaj z '{{value}}' (sprawdź, czy wynik jest taki sam).",
+    "nvarchar_literal": "{{column}} ma typ {{type}} i jest porównywana z tekstem N'…' (Unicode): SQL Server konwertuje kolumnę i może nie użyć jej indeksu. Usuń N, jeśli wartość nie zawiera znaków spoza strony kodowej kolumny."
+  }
+}

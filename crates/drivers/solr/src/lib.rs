@@ -24,7 +24,8 @@ pub mod transfer;
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, MonitorSnapshot,
-    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema,
+    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema, TlsLevel,
+    TlsSupport,
 };
 use dbine_driver_elasticsearch::console::{self, Command, Request};
 use dbine_driver_elasticsearch::flatten;
@@ -45,7 +46,7 @@ impl Solr {
     fn new() -> Self {
         Self {
             info: DriverInfo {
-                tls: Default::default(),
+                tls: TlsSupport::Configurable,
                 tls_port: None,
                 id: "solr",
                 name: "Apache Solr",
@@ -60,16 +61,40 @@ impl Solr {
                     Field::port().default_value("8983"),
                     Field::username(),
                     Field::password(),
-                    Field::encrypt(),
-                    Field::trust_cert(),
-                    Field::read_only(),
-                ],
+                ]
+                .into_iter()
+                .chain(tls_fields())
+                .chain([Field::read_only()])
+                .collect(),
                 databases_label: "",
                 has_schemas: false,
                 object_kinds: vec![ObjectKindInfo::new(kinds::COLLECTION, "Colecciones", true, true, true)],
             },
         }
     }
+}
+
+/// The TLS options: Solr's `urlScheme` and `solr.ssl.checkPeerName`, and
+/// curl's `insecure` / `cacert` (Solr's clients have no names for them).
+/// Saved connections from before them: `encrypt` gives https, `trust`
+/// doesn't verify (an https URL typed in the host too).
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_mode(
+            "urlScheme",
+            "urlScheme",
+            &[
+                ("http", "http", TlsLevel::Off),
+                ("https", "https", TlsLevel::VerifyFull),
+            ],
+            "https",
+            ["http", "http", "https", "https"],
+        )
+        .help("Una URL escrita en el servidor usa su propio esquema (http:// o https://)."),
+        Field::tls_insecure(["false", "true", "false", "true"]),
+        Field::tls_skip_hostname("checkPeerName", "solr.ssl.checkPeerName", true, ["true"; 4]),
+        Field::tls_cacert().ca_required_at(&[TlsLevel::VerifyCa]),
+    ]
 }
 
 pub const QUERY_HELP: &str = "Sintaxis de consola: una petición por bloque, `MÉTODO /ruta` y un cuerpo JSON opcional; \
@@ -369,10 +394,13 @@ impl Driver for Solr {
         cfg: &ConnectionConfig,
         _database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let base = http::base_url(cfg, 8983);
-        let client = http::client(cfg, http::auth_from(cfg))?;
+        let tls = http::tls_for(cfg, &tls_fields())?;
+        let base = http::base_url(cfg, 8983, &tls);
+        let client = http::client(&tls, http::auth_from(cfg))?;
         let url = format!("{base}/solr/admin/info/system?wt=json");
-        let (status, body) = http::send(client.get(url).timeout(Duration::from_secs(20))).await?;
+        let (status, body) = http::send(client.get(url).timeout(Duration::from_secs(20)))
+            .await
+            .map_err(|e| tls.explain(e))?;
         if status == 401 || status == 403 {
             return Err(Error::AuthFailed(solr_error_message(status, &body)));
         }
@@ -1316,5 +1344,69 @@ mod tests {
             solr_error_message(404, "<html>nope</html>"),
             "HTTP 404: <html>nope</html>"
         );
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        http::tls_for(c, &tls_fields()).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("urlScheme".into(), "http".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options.insert("insecure".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
+    }
+
+    #[test]
+    fn an_https_url_in_the_host_keeps_trust_from_saved_connections() {
+        // Today `trust` skips verification for an https URL typed in the
+        // host even with `encrypt` off.
+        let mut c = legacy(false, true);
+        c.host = "https://db.example.com:443".into();
+        assert_eq!(level(&c), TlsLevel::Unverified);
+        c.trust_server_certificate = false;
+        assert_eq!(level(&c), TlsLevel::VerifyFull);
+        let mut n = new_connection();
+        n.host = "http://db.example.com".into();
+        assert_eq!(level(&n), TlsLevel::Off);
     }
 }

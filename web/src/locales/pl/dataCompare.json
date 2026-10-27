@@ -1,0 +1,79 @@
+{
+  "tab": "Dane",
+  "menu": "Porównaj dane…",
+  "left": "Lewa strona",
+  "right": "Prawa strona",
+  "table": "Tabela",
+  "key": "Klucz (główny)",
+  "compare": "Porównaj",
+  "pickBoth": "Wybierz tabelę z każdej strony.",
+  "same": "takie same",
+  "changed": "różne",
+  "onlyLeft": "tylko po lewej",
+  "onlyRight": "tylko po prawej",
+  "syncRight": "Wyrównaj prawą →",
+  "syncLeft": "← Wyrównaj lewą",
+  "truncated": "Porównano pierwsze {{limit}} wierszy z każdej strony: tabela ma ich więcej.",
+  "duplicates_one": "1 wiersz z powtórzonym kluczem został porównany tylko raz.",
+  "duplicates_few": "{{count}} wiersze z powtórzonym kluczem zostały porównane tylko raz.",
+  "duplicates_many": "{{count}} wierszy z powtórzonym kluczem zostało porównanych tylko raz.",
+  "duplicates_other": "{{count}} wiersza z powtórzonym kluczem zostało porównanych tylko raz.",
+  "onlyLeftColumns": "Kolumny, które ma tylko lewa strona (nie są porównywane): {{list}}",
+  "onlyRightColumns": "Kolumny, które ma tylko prawa strona (nie są porównywane): {{list}}",
+  "nothing": "Brak wierszy.",
+  "showingFirst": "Wyświetlono pierwsze {{shown}} z {{total}}; przyciski „Wszystkie” zaznaczają także te, których nie widać.",
+  "hint": "Wybierz tabelę z każdej strony i kliknij Porównaj. Wiersze są porównywane według klucza głównego, nawet jeśli znajdują się w innym połączeniu lub silniku.",
+  "syncTitle": "Zastosuj wybrane zmiany",
+  "scriptSummary": "{{parts}}, w języku docelowym. Sprawdź skrypt przed uruchomieniem.",
+  "noChanges": "Brak zmian do zastosowania.",
+  "copied": "Skopiowano",
+  "openInQuery": "Otwórz w zapytaniu",
+  "run": "Uruchom",
+  "applied": "Zmiany zastosowane",
+  "scriptName": "Synchronizuj dane",
+  "keyLabel": "Klucz",
+  "matchHint": "Zaznacza wiersze różne oraz te, których brakuje po tej stronie. Wiersze do usunięcia wybiera się osobno, w ich widoku.",
+  "bulk_one": "{{n}} wiersz zaznaczony w tym widoku.",
+  "bulk_few": "{{n}} wiersze zaznaczone w tym widoku.",
+  "bulk_many": "{{n}} wierszy zaznaczonych w tym widoku.",
+  "bulk_other": "{{n}} wiersza zaznaczonego w tym widoku.",
+  "allLeft": "← Wszystkie",
+  "allRight": "Wszystkie →",
+  "allNone": "Żadne",
+  "arrow": {
+    "update": {
+      "left": "Lewa strona otrzyma wartości z prawej",
+      "right": "Prawa strona otrzyma wartości z lewej"
+    },
+    "insert": {
+      "left": "Wstaw ten wiersz po lewej",
+      "right": "Wstaw ten wiersz po prawej"
+    },
+    "delete": {
+      "left": "Usuń ten wiersz po lewej",
+      "right": "Usuń ten wiersz po prawej"
+    }
+  },
+  "bothSides": "Zmieniają się obie strony: przy uruchomieniu najpierw działa skrypt lewej strony, potem prawej. Jeśli jeden się nie powiedzie, drugi nie zostanie uruchomiony.",
+  "failedOn": "Niepowodzenie po stronie {{side}}: {{error}}",
+  "mismatch": {
+    "title": "To nie ta sama tabela",
+    "name": "Uwaga: nie porównujesz tej samej tabeli ({{left}} z {{right}}). Synchronizacja zmieniłaby dane innej tabeli.",
+    "schema": "Uwaga: to inna tabela o tej samej nazwie w innym schemacie ({{left}} z {{right}}). Synchronizacja zmieniłaby dane innej tabeli.",
+    "runAnyway": "Uruchom mimo to"
+  },
+  "count": {
+    "insert_one": "{{n}} wstawienie",
+    "insert_few": "{{n}} wstawienia",
+    "insert_many": "{{n}} wstawień",
+    "insert_other": "{{n}} wstawienia",
+    "update_one": "{{n}} aktualizacja",
+    "update_few": "{{n}} aktualizacje",
+    "update_many": "{{n}} aktualizacji",
+    "update_other": "{{n}} aktualizacji",
+    "delete_one": "{{n}} usunięcie",
+    "delete_few": "{{n}} usunięcia",
+    "delete_many": "{{n}} usunięć",
+    "delete_other": "{{n}} usunięcia"
+  }
+}

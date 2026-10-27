@@ -1,0 +1,105 @@
+{
+  "cmd": {
+    "file": {
+      "newConnection": "Nowe połączenie…",
+      "newFolder": "Nowy folder połączeń…",
+      "newScheduledTask": "Nowe zaplanowane zadanie",
+      "newNotebook": "Nowy notebook",
+      "closeOtherTabs": "Zamknij pozostałe karty",
+      "closeAllTabs": "Zamknij wszystkie karty"
+    },
+    "palette": {
+      "open": "Pokaż wszystkie polecenia"
+    },
+    "goto": {
+      "open": "Przejdź do…"
+    },
+    "view": {
+      "showExplorer": "Pokaż eksplorator",
+      "showProjects": "Pokaż Projekty",
+      "showLibrary": "Pokaż bibliotekę skryptów",
+      "showHistory": "Pokaż historię",
+      "showScheduled": "Pokaż zaplanowane zadania",
+      "revealActive": "Pokaż kartę w eksploratorze"
+    },
+    "editor": {
+      "runSelection": "Uruchom zaznaczenie",
+      "cancel": "Anuluj wykonywanie",
+      "optimize": "Optymalizuj zapytanie",
+      "runMultiDb": "Uruchom w wielu bazach…",
+      "saveToLibrary": "Zapisz w bibliotece",
+      "showProblems": "Pokaż problemy",
+      "commit": "Zatwierdź transakcję",
+      "rollback": "Wycofaj transakcję",
+      "toggleManualTx": "Włącz lub wyłącz transakcje ręczne",
+      "toggleContinueOnError": "Włącz lub wyłącz „Kontynuuj po błędzie”"
+    },
+    "database": {
+      "reveal": "Pokaż w eksploratorze",
+      "search": "Szukaj w bazie…",
+      "healthCheck": "Kontrola kondycji",
+      "designer": "Otwórz projektanta tabel",
+      "newFromTemplate": "Nowy obiekt z szablonu…",
+      "diagram": "Diagram bazy",
+      "queryBuilder": "Zaprojektuj zapytanie…",
+      "document": "Udokumentuj bazę…",
+      "profiler": "Profiler",
+      "scriptGenerator": "Generuj skrypt…",
+      "migrate": "Migruj…",
+      "compareSchemas": "Porównaj schematy…",
+      "compareData": "Porównaj dane…",
+      "usersAndPermissions": "Użytkownicy i uprawnienia…",
+      "backups": "Kopie zapasowe…",
+      "importData": "Importuj dane…",
+      "runScriptFile": "Uruchom plik skryptu…",
+      "linkProject": "Połącz projekt…"
+    },
+    "connection": {
+      "connect": "Połącz",
+      "disconnect": "Rozłącz",
+      "monitor": "Monitor serwera",
+      "serverBackups": "Kopie zapasowe serwera…",
+      "newDatabase": "Nowa baza danych…",
+      "edit": "Edytuj połączenie…",
+      "duplicate": "Duplikuj połączenie"
+    },
+    "settings": {
+      "sync": "Synchronizacja",
+      "drivers": "Sterowniki",
+      "mcp": "Klienci MCP (asystenci AI)",
+      "devices": "Sparowane telefony",
+      "mail": "Poczta",
+      "lint": "Reguły analizatora kodu",
+      "snippets": "Fragmenty kodu",
+      "shortcuts": "Skróty klawiszowe"
+    },
+    "help": {
+      "checkUpdates": "Sprawdź aktualizacje…",
+      "support": "Wesprzyj projekt",
+      "feedback": "Wyślij opinię"
+    }
+  },
+  "commands": {
+    "placeholder": "Wpisz nazwę polecenia",
+    "empty": "Brak pasujących poleceń",
+    "recent": "ostatnio używane",
+    "other": "pozostałe polecenia"
+  },
+  "goto": {
+    "placeholder": "Szukaj połączenia, bazy, tabeli, widoku, procedury, zapytania lub karty („>” dla poleceń)",
+    "empty": "Nic o takiej nazwie",
+    "tabs": "otwarte karty",
+    "connections": "połączenia",
+    "tab": "Karta",
+    "connection": "Połączenie",
+    "database": "Baza",
+    "query": "Zapytanie"
+  },
+  "pick": {
+    "connection": "Wybierz połączenie",
+    "database": "Wybierz bazę z {{connection}}",
+    "noConnection": "Żadne połączenie nie ma tej akcji",
+    "noDatabases": "Brak baz do wyboru",
+    "template": "Wybierz szablon"
+  }
+}

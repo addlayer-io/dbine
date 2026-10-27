@@ -1,0 +1,11 @@
+{
+  "right": "Podziel w prawo",
+  "down": "Podziel w dół",
+  "moveLeft": "Przenieś do grupy po lewej",
+  "moveRight": "Przenieś do grupy po prawej",
+  "moveUp": "Przenieś do grupy powyżej",
+  "moveDown": "Przenieś do grupy poniżej",
+  "button": "Podziel edytor ({{key}}) · {{alt}}+kliknięcie: w dół",
+  "closeGroup": "Zamknij grupę",
+  "empty": "Pusta grupa: następna otwarta karta otworzy się tutaj. Możesz też przeciągnąć kartę w to miejsce."
+}

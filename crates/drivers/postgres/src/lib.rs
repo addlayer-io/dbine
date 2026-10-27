@@ -45,7 +45,7 @@ mod transfer;
 use dbine_driver::{
     async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver,
     DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result,
-    Session, TableSchema,
+    Session, TableSchema, TlsLevel, TlsSupport,
 };
 use postgres_native_tls::MakeTlsConnector;
 use session::PgSession;
@@ -343,7 +343,12 @@ impl Variant {
         };
         object_kinds.extend(compare::object_kinds(self));
         DriverInfo {
-            tls: Default::default(),
+            // H2's PostgreSQL server has no TLS.
+            tls: if self == Variant::H2 {
+                TlsSupport::None
+            } else {
+                TlsSupport::Configurable
+            },
             tls_port: None,
             id,
             name,
@@ -362,8 +367,62 @@ impl Variant {
         }
     }
 
-    /// The server form, plus the CA certificate; managed services start
-    /// with TLS on (they ask for it, or should).
+    /// libpq's `sslmode`, with its values. New connections verify the
+    /// certificate: chain and name (`verify-full`), or only the chain on
+    /// Cloud SQL and AlloyDB, whose certificates name the instance, not the
+    /// address dialed. A connection saved before the option reads it from
+    /// its `encrypt` / `trust_server_certificate` pair (see [`tls_plan`]).
+    /// H2 has no TLS.
+    pub(crate) fn sslmode_field(self) -> Option<Field> {
+        if self == Variant::H2 {
+            return None;
+        }
+        let instance_ca = matches!(self, Variant::CloudSql | Variant::AlloyDb);
+        let verified = if instance_ca {
+            "verify-ca"
+        } else {
+            "verify-full"
+        };
+        let f = Field::tls_mode(
+            SSLMODE,
+            SSLMODE,
+            &[
+                ("disable", "disable (sin TLS)", TlsLevel::Off),
+                (
+                    "prefer",
+                    "prefer (TLS si el servidor lo ofrece, sin verificar)",
+                    TlsLevel::Optional,
+                ),
+                (
+                    "require",
+                    "require (TLS sin verificar el certificado)",
+                    TlsLevel::Unverified,
+                ),
+                (
+                    "verify-ca",
+                    "verify-ca (verifica la CA, no el nombre)",
+                    TlsLevel::VerifyCa,
+                ),
+                (
+                    "verify-full",
+                    "verify-full (verifica la CA y el nombre)",
+                    TlsLevel::VerifyFull,
+                ),
+            ],
+            verified,
+            ["prefer", "prefer", verified, "require"],
+        );
+        Some(if instance_ca {
+            f.help(
+                "Su certificado nombra la instancia, no la IP: verify-ca con la CA de la instancia en sslrootcert. \
+                 Con el Auth Proxy en 127.0.0.1, disable: el proxy ya cifra la conexión.",
+            )
+        } else {
+            f
+        })
+    }
+
+    /// The server form, with libpq's TLS options.
     fn fields(self) -> Vec<Field> {
         let mut fields = self.server_fields();
         fields.push(
@@ -383,39 +442,30 @@ impl Variant {
     }
 
     fn server_fields(self) -> Vec<Field> {
-        let mut fields = Field::server_set();
+        let mut fields = vec![
+            Field::host(),
+            Field::port(),
+            Field::database(),
+            Field::username(),
+            Field::password(),
+        ];
         // H2's PostgreSQL server has no TLS.
         if self == Variant::H2 {
-            fields.retain(|f| !matches!(f.key, "encrypt" | "trust_server_certificate"));
-            for f in fields.iter_mut().filter(|f| f.key == "database") {
-                *f = f.clone().help("La base de H2: un nombre bajo el directorio base del servidor (-baseDir), como «test».");
-            }
+            fields[2] = Field::database().help(
+                "La base de H2: un nombre bajo el directorio base del servidor (-baseDir), como «test».",
+            );
+            fields.push(Field::read_only());
             return fields;
         }
-        if self == Variant::Denodo {
-            return fields;
-        }
-        if self.managed() || self == Variant::Redshift {
-            for f in fields.iter_mut().filter(|f| f.key == "encrypt") {
-                *f = f.clone().default_value("true");
-            }
-        }
+        fields.extend(self.sslmode_field());
         let help = match self {
             Variant::Aurora | Variant::Redshift => "Para verificar el servidor: el global-bundle.pem de AWS (RDS).",
             Variant::CloudSql => "Para verificar el servidor: el server-ca.pem de la instancia (consola de Cloud SQL).",
             Variant::AlloyDb => "Para verificar el servidor: la CA del clúster (gcloud alloydb clusters describe).",
-            _ => "Opcional: la CA que firmó el certificado del servidor, en PEM.",
+            _ => "La CA que firmó el certificado del servidor, en PEM: obligatoria con verify-ca.",
         };
-        let at = fields
-            .iter()
-            .position(|f| f.key == "trust_server_certificate")
-            .map_or(fields.len(), |i| i + 1);
-        fields.insert(
-            at,
-            Field::new("ssl_root_cert", "Certificado de CA (PEM)", FieldKind::File)
-                .help(help)
-                .ssl(),
-        );
+        fields.push(Field::tls_ca_file(SSL_ROOT_CERT, "sslrootcert").help(help));
+        fields.push(Field::read_only());
         if self.managed() {
             for f in fields.iter_mut().filter(|f| f.key == "host") {
                 *f = f.clone().help(match self {
@@ -451,6 +501,11 @@ pub struct PgDriver {
 
 #[async_trait]
 impl Driver for PgDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        matches!(self.info.id, "redshift" | "cockroachdb" | "materialize")
+    }
+
     /// Text the way this variant reads it (`E'…'` where
     /// `standard_conforming_strings` may be off, Redshift's backslashes);
     /// the rest as the contract writes it. Values go as literals: the
@@ -797,20 +852,18 @@ impl Driver for PgDriver {
             .unwrap_or(v.default_database())
             .to_string();
 
-        // A cloud sign-in through an SSH tunnel dials the local end but
-        // verifies the certificate against the real endpoint's name.
-        let tunnel = match (cloud_auth::method(cfg), cfg.option(cloud_auth::ORIGIN_HOST)) {
-            (Some(_), Some(origin)) => cfg
-                .host
-                .trim()
-                .parse::<std::net::IpAddr>()
-                .ok()
-                .map(|local| (origin.trim(), local)),
-            _ => None,
-        };
+        // Before any token is asked for: a cloud sign-in needs a verified
+        // server.
+        let plan = tls_plan(v, cfg)?;
+        // Through an SSH tunnel the client dials the local end but verifies
+        // the certificate against the real server's name.
+        let real = cfg.tls_server_name();
+        let tunnel = (real != cfg.host.trim())
+            .then(|| cfg.host.trim().parse::<std::net::IpAddr>().ok())
+            .flatten();
         let mut pg = tokio_postgres::Config::new();
         match tunnel {
-            Some((origin, local)) => pg.host(origin).hostaddr(local),
+            Some(local) => pg.host(real).hostaddr(local),
             None => pg.host(if cfg.host.is_empty() {
                 "localhost"
             } else {
@@ -820,11 +873,7 @@ impl Driver for PgDriver {
         pg.port(cfg.port_or(v.default_port()))
             .dbname(&dbname)
             .connect_timeout(Duration::from_secs(15))
-            .ssl_mode(if cfg.encrypt {
-                tokio_postgres::config::SslMode::Require
-            } else {
-                tokio_postgres::config::SslMode::Prefer
-            });
+            .ssl_mode(plan.mode);
         if v != Variant::Denodo {
             pg.application_name("DBine");
         }
@@ -843,8 +892,7 @@ impl Driver for PgDriver {
         let cloud = cloud_auth::login(cfg, spec).await?;
         match &cloud {
             Some(login) => {
-                pg.password(login.password.as_str())
-                    .ssl_mode(tokio_postgres::config::SslMode::Require);
+                pg.password(login.password.as_str());
                 if let (Some(u), true) = (
                     &login.user,
                     cfg.username.as_deref().is_none_or(|u| u.is_empty()),
@@ -859,9 +907,7 @@ impl Driver for PgDriver {
             }
         }
 
-        let rds_roots = cloud_auth::method(cfg) == Some(cloud_auth::AWS)
-            || (v == Variant::Aurora && cfg.encrypt);
-        let tls = MakeTlsConnector::new(tls_connector(v, cfg, rds_roots)?);
+        let tls = MakeTlsConnector::new(tls_connector(cfg, plan)?);
 
         let (mut client, mut notices) = open(v, &pg, &tls).await?;
         // Gateways and proxies that only take the simple protocol answer a
@@ -920,6 +966,11 @@ impl Driver for PgDriver {
         Ok(Box::new(session))
     }
 }
+
+/// libpq's TLS mode (`disable` … `verify-full`).
+pub(crate) const SSLMODE: &str = "sslmode";
+/// libpq's `sslrootcert`, stored under the key it always had.
+pub(crate) const SSL_ROOT_CERT: &str = "ssl_root_cert";
 
 /// The connection option that picks the query protocol: `auto` (extended,
 /// falling back to simple when the server refuses it) or `simple`.
@@ -981,62 +1032,136 @@ fn extended_refused(e: &tokio_postgres::Error) -> bool {
     m.contains("extended query") || m.contains("extended protocol") || m.contains("simple query")
 }
 
-/// How much of the server's certificate is checked.
+/// What the connection's TLS options ask of tokio-postgres and native-tls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TlsChecks {
-    /// The certificate must name the host dialed.
+struct TlsPlan {
+    mode: tokio_postgres::config::SslMode,
+    /// Any certificate, for any name, is accepted.
+    accept_invalid: bool,
+    /// The certificate must name the server.
     hostname: bool,
     /// The system's roots anchor the chain (besides the CA file).
     system_roots: bool,
-}
-
-/// Cloud SQL and AlloyDB certificates name the instance, not the IP the
-/// client dials, so with their CA only the chain is checked, and then only
-/// that CA anchors it: with the system roots too, any publicly trusted
-/// certificate for any name would get the password or the Google token.
-fn tls_checks(v: Variant, cfg: &ConnectionConfig, has_ca: bool) -> TlsChecks {
-    if cfg.trust_server_certificate {
-        return TlsChecks {
-            hostname: false,
-            system_roots: true,
-        };
-    }
-    // Also a Cloud SQL instance reached as PostgreSQL with Google Cloud IAM.
-    let instance_ca = has_ca
-        && (matches!(v, Variant::CloudSql | Variant::AlloyDb)
-            || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
-    if instance_ca {
-        TlsChecks {
-            hostname: false,
-            system_roots: false,
-        }
-    } else {
-        TlsChecks {
-            hostname: true,
-            system_roots: true,
-        }
-    }
-}
-
-/// TLS as the form asks: the CA file, when given, is trusted on top of the
-/// system's (every certificate of a bundle, like AWS's global-bundle.pem),
-/// except where `tls_checks` drops the name check. `rds_roots` (AWS IAM,
-/// Aurora) trusts Amazon's RDS CAs when no file is given.
-fn tls_connector(
-    v: Variant,
-    cfg: &ConnectionConfig,
+    /// Amazon's RDS CAs anchor it when there is no CA file.
     rds_roots: bool,
-) -> Result<native_tls::TlsConnector> {
-    let mut b = native_tls::TlsConnector::builder();
-    let ca = cfg
-        .option("ssl_root_cert")
+}
+
+/// The `sslmode` values a cloud sign-in takes.
+const VERIFIED_SSLMODES: &str = "sslmode=verify-ca / verify-full";
+
+/// The connection's `sslmode` and `sslrootcert`, as libpq reads them:
+/// `prefer` and `require` don't check the certificate, `verify-ca` checks the
+/// chain against the CA file only, `verify-full` the chain and the name.
+/// DBine's differences: `verify-full` trusts the CA file on top of the
+/// system's roots (libpq, only the file), and on Cloud SQL, AlloyDB and with
+/// Google Cloud IAM the CA file is the only anchor at both verify levels.
+/// Aurora and AWS IAM trust Amazon's RDS CAs when there is no file. A cloud
+/// sign-in needs a verify level.
+///
+/// A connection saved before `sslmode` existed has none: it keeps what its
+/// `encrypt` / `trust_server_certificate` pair did. ff (shown as `prefer`)
+/// negotiates TLS when offered and then verifies chain and name; ft
+/// (`prefer`) doesn't verify; tf (`verify-full`, `verify-ca` on Cloud SQL and
+/// AlloyDB) requires TLS and verifies, only the chain with the instance CA;
+/// tt (`require`) doesn't verify. A cloud sign-in requires verified TLS.
+fn tls_plan(v: Variant, cfg: &ConnectionConfig) -> Result<TlsPlan> {
+    use tokio_postgres::config::SslMode;
+    let off = TlsPlan {
+        mode: SslMode::Disable,
+        accept_invalid: false,
+        hostname: true,
+        system_roots: true,
+        rds_roots: false,
+    };
+    let Some(field) = v.sslmode_field() else {
+        return Ok(off);
+    };
+    let cloud = cloud_auth::method(cfg);
+    let instance_ca = ca_path(cfg).is_some()
+        && (matches!(v, Variant::CloudSql | Variant::AlloyDb) || cloud == Some(cloud_auth::GCP));
+    let aws = cloud == Some(cloud_auth::AWS);
+    if cfg.option(SSLMODE).is_none() {
+        if cloud.is_some() && cfg.trust_server_certificate {
+            return Err(cloud_auth::unverified_tls(VERIFIED_SSLMODES));
+        }
+        let verify = !cfg.trust_server_certificate;
+        return Ok(TlsPlan {
+            mode: if cfg.encrypt || cloud.is_some() {
+                SslMode::Require
+            } else {
+                SslMode::Prefer
+            },
+            accept_invalid: !verify,
+            hostname: verify && !instance_ca,
+            system_roots: !(verify && instance_ca),
+            rds_roots: aws || (v == Variant::Aurora && cfg.encrypt),
+        });
+    }
+    let mode = cfg
+        .tls_value(&field)
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let level = field.tls_level_of(&mode).ok_or_else(|| {
+        Error::Connect(format!(
+            "sslmode: «{mode}» no es un valor de libpq (disable, prefer, require, verify-ca, verify-full)"
+        ))
+    })?;
+    if cloud.is_some() && !level.verified() {
+        return Err(cloud_auth::unverified_tls(VERIFIED_SSLMODES));
+    }
+    let rds_roots = aws || v == Variant::Aurora;
+    let unverified = |mode| TlsPlan {
+        mode,
+        accept_invalid: true,
+        hostname: false,
+        system_roots: true,
+        rds_roots: false,
+    };
+    Ok(match level {
+        TlsLevel::Off => off,
+        TlsLevel::Optional => unverified(SslMode::Prefer),
+        TlsLevel::Unverified => unverified(SslMode::Require),
+        TlsLevel::VerifyCa => {
+            if ca_path(cfg).is_none() && !rds_roots {
+                return Err(Error::Connect(
+                    "sslmode=verify-ca necesita la CA del servidor en sslrootcert".into(),
+                ));
+            }
+            TlsPlan {
+                mode: SslMode::Require,
+                accept_invalid: false,
+                hostname: false,
+                system_roots: false,
+                rds_roots,
+            }
+        }
+        TlsLevel::VerifyFull => TlsPlan {
+            mode: SslMode::Require,
+            accept_invalid: false,
+            hostname: true,
+            system_roots: !instance_ca,
+            rds_roots,
+        },
+    })
+}
+
+/// The `sslrootcert` file, if any.
+fn ca_path(cfg: &ConnectionConfig) -> Option<&str> {
+    cfg.option(SSL_ROOT_CERT)
         .map(str::trim)
-        .filter(|p| !p.is_empty());
-    let checks = tls_checks(v, cfg, ca.is_some());
-    b.danger_accept_invalid_certs(cfg.trust_server_certificate)
-        .danger_accept_invalid_hostnames(!checks.hostname)
-        .disable_built_in_roots(!checks.system_roots);
-    if let Some(path) = ca {
+        .filter(|p| !p.is_empty())
+}
+
+/// The TLS connector for a plan: the CA file, when given, every certificate
+/// of it (a bundle like AWS's global-bundle.pem), else Amazon's RDS CAs
+/// when the plan wants them.
+fn tls_connector(cfg: &ConnectionConfig, plan: TlsPlan) -> Result<native_tls::TlsConnector> {
+    let mut b = native_tls::TlsConnector::builder();
+    b.danger_accept_invalid_certs(plan.accept_invalid)
+        .danger_accept_invalid_hostnames(!plan.hostname)
+        .disable_built_in_roots(!plan.system_roots);
+    if let Some(path) = ca_path(cfg) {
         let pem = std::fs::read(path).map_err(|e| {
             Error::Connect(format!(
                 "no se pudo leer el certificado de CA «{path}»: {e}"
@@ -1058,7 +1183,7 @@ fn tls_connector(
                 native_tls::Certificate::from_pem(block).map_err(|e| bad(e.to_string()))?,
             );
         }
-    } else if rds_roots {
+    } else if plan.rds_roots {
         for c in rds_certificates()? {
             b.add_root_certificate(c);
         }
@@ -1106,7 +1231,40 @@ fn connect_error(v: Variant, e: tokio_postgres::Error) -> Error {
         Some(c) => Error::connect_failed(
             dbine_driver::ConnectFailure::from_message(db_message(&e)).with_code(c.code()),
         ),
-        None => Error::connect_failed(dbine_driver::ConnectFailure::from_error(&e)),
+        None => {
+            let mut f = dbine_driver::ConnectFailure::from_error(&e);
+            // tokio-postgres says only "error performing TLS handshake":
+            // the reason is in its source.
+            if f.kind.is_tls() {
+                if let Some(cause) = std::error::Error::source(&e) {
+                    f.message = format!("{}: {cause}", f.message);
+                }
+                // The platform's TLS (Security.framework, SChannel) words a
+                // certificate it can't verify in ways the shared
+                // classification doesn't know ("One or more certificates
+                // required to validate this certificate cannot be found").
+                if f.kind == dbine_driver::ConnectFailureKind::Tls
+                    && f.message.to_ascii_lowercase().contains("certificate")
+                {
+                    f.kind = dbine_driver::ConnectFailureKind::TlsUntrusted;
+                }
+            }
+            // What to change, in libpq's terms.
+            let hint = match f.kind {
+                dbine_driver::ConnectFailureKind::TlsUntrusted => {
+                    "No se pudo verificar el certificado del servidor: indicá su CA en sslrootcert, o elegí \
+                     sslmode=require si confiás en la red."
+                }
+                dbine_driver::ConnectFailureKind::TlsNotOffered => {
+                    "El servidor no ofrece TLS: elegí sslmode=prefer o disable para conectar sin cifrar."
+                }
+                _ => "",
+            };
+            if !hint.is_empty() {
+                f.message = format!("{}. {hint}", f.message);
+            }
+            Error::connect_failed(f)
+        }
     }
 }
 
@@ -1287,39 +1445,34 @@ mod tests {
     }
 
     #[test]
-    fn managed_services_start_with_tls_and_take_a_ca() {
-        for v in Variant::ALL.into_iter().filter(|v| *v != Variant::H2) {
+    fn every_variant_declares_libpq_tls_options() {
+        for v in Variant::ALL {
             let info = v.info();
-            let encrypt = info.fields.iter().find(|f| f.key == "encrypt").unwrap();
+            let mode = info.fields.iter().find(|f| f.key == SSLMODE);
+            let ca = info.fields.iter().find(|f| f.key == SSL_ROOT_CERT);
+            assert!(info.fields.iter().all(|f| !f.is_legacy_tls()), "{v:?}");
+            if v == Variant::H2 {
+                assert!(mode.is_none() && ca.is_none());
+                assert_eq!(info.tls, TlsSupport::None);
+                continue;
+            }
+            let mode = mode.unwrap();
+            let cloud_ca = matches!(v, Variant::CloudSql | Variant::AlloyDb);
             assert_eq!(
-                encrypt.default == "true",
-                v.managed() || v == Variant::Redshift,
+                mode.default,
+                if cloud_ca { "verify-ca" } else { "verify-full" },
                 "{v:?}"
             );
-            assert_eq!(
-                info.fields.iter().any(|f| f.key == "ssl_root_cert"),
-                !v.info_schema_only(),
-                "{v:?}"
-            );
+            assert_eq!(ca.unwrap().label, "sslrootcert");
+            assert_eq!(info.tls, TlsSupport::Configurable);
         }
     }
 
-    #[test]
-    fn a_missing_ca_file_is_a_connect_error() {
-        let mut cfg = ConnectionConfig::default();
-        cfg.options
-            .insert("ssl_root_cert".into(), "/nonexistent/ca.pem".into());
-        assert!(matches!(
-            tls_connector(Variant::Aurora, &cfg, false),
-            Err(Error::Connect(_))
-        ));
-        assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), false).is_ok());
-        assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), true).is_ok());
-    }
-
-    fn ca_cfg(options: &[(&str, &str)]) -> ConnectionConfig {
+    fn tls_cfg(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
         let mut cfg = ConnectionConfig {
-            encrypt: true,
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
             ..Default::default()
         };
         for (k, v) in options {
@@ -1328,42 +1481,265 @@ mod tests {
         cfg
     }
 
-    /// Whenever the certificate's name isn't checked, only the CA file
-    /// anchors the chain (no system roots).
+    fn plan(
+        mode: tokio_postgres::config::SslMode,
+        accept_invalid: bool,
+        hostname: bool,
+        system_roots: bool,
+        rds_roots: bool,
+    ) -> TlsPlan {
+        TlsPlan {
+            mode,
+            accept_invalid,
+            hostname,
+            system_roots,
+            rds_roots,
+        }
+    }
+
+    /// A connection saved before `sslmode` gets what it got before, for each
+    /// `(encrypt, trust_server_certificate)` pair: ff `Prefer` and verified
+    /// when TLS happens, ft `Prefer` unchecked, tf `Require` verified, tt
+    /// `Require` unchecked; Cloud SQL / AlloyDB / GCP IAM with their CA check
+    /// only the chain against it; Aurora with `encrypt` and AWS IAM add the
+    /// RDS CAs.
     #[test]
-    fn relaxed_hostname_checks_trust_only_the_ca_file() {
-        let relaxed = TlsChecks {
-            hostname: false,
-            system_roots: false,
+    fn legacy_connections_keep_their_tls() {
+        use tokio_postgres::config::SslMode::{Prefer, Require};
+        let pairs = [(false, false), (false, true), (true, false), (true, true)];
+        let check = |v: Variant, options: &[(&str, &str)], want: [TlsPlan; 4]| {
+            for (i, (e, t)) in pairs.into_iter().enumerate() {
+                assert_eq!(
+                    tls_plan(v, &tls_cfg(e, t, options)).unwrap(),
+                    want[i],
+                    "{v:?} {options:?} encrypt={e} trust={t}"
+                );
+            }
         };
-        let strict = TlsChecks {
-            hostname: true,
-            system_roots: true,
-        };
-        assert_eq!(tls_checks(Variant::CloudSql, &ca_cfg(&[]), true), relaxed);
-        assert_eq!(tls_checks(Variant::AlloyDb, &ca_cfg(&[]), true), relaxed);
-        let gcp = ca_cfg(&[(cloud_auth::AUTH, cloud_auth::GCP)]);
-        assert_eq!(tls_checks(Variant::Postgres, &gcp, true), relaxed);
-        // Without a CA file the name is checked against the system roots.
-        assert_eq!(tls_checks(Variant::CloudSql, &ca_cfg(&[]), false), strict);
-        assert_eq!(tls_checks(Variant::Postgres, &gcp, false), strict);
-        // Any other CA file: on top of the system roots, with the name checked.
-        assert_eq!(tls_checks(Variant::Postgres, &ca_cfg(&[]), true), strict);
-        let aws = ca_cfg(&[(cloud_auth::AUTH, cloud_auth::AWS)]);
-        assert_eq!(tls_checks(Variant::Aurora, &aws, true), strict);
-        // "Trust the server certificate" is the user's explicit choice.
-        let trust = ConnectionConfig {
-            trust_server_certificate: true,
-            ..ca_cfg(&[])
-        };
-        assert!(!tls_checks(Variant::CloudSql, &trust, true).hostname);
-        // Every variant: never the name check off with the system roots on,
-        // unless the user chose to trust any certificate.
+        for v in Variant::ALL.into_iter().filter(|v| *v != Variant::H2) {
+            let rds = v == Variant::Aurora;
+            check(
+                v,
+                &[],
+                [
+                    plan(Prefer, false, true, true, false),
+                    plan(Prefer, true, false, true, false),
+                    plan(Require, false, true, true, rds),
+                    plan(Require, true, false, true, rds),
+                ],
+            );
+        }
+        for v in [Variant::CloudSql, Variant::AlloyDb] {
+            check(
+                v,
+                &[(SSL_ROOT_CERT, "/ca.pem")],
+                [
+                    plan(Prefer, false, false, false, false),
+                    plan(Prefer, true, false, true, false),
+                    plan(Require, false, false, false, false),
+                    plan(Require, true, false, true, false),
+                ],
+            );
+        }
+        // Google Cloud IAM on plain PostgreSQL with the instance CA: chain
+        // only, TLS required even with encrypt off.
+        let gcp = [
+            (cloud_auth::AUTH, cloud_auth::GCP),
+            (SSL_ROOT_CERT, "/ca.pem"),
+        ];
+        for e in [false, true] {
+            assert_eq!(
+                tls_plan(Variant::Postgres, &tls_cfg(e, false, &gcp)).unwrap(),
+                plan(Require, false, false, false, false)
+            );
+            // A token never goes to an unverified server.
+            assert!(matches!(
+                tls_plan(Variant::Postgres, &tls_cfg(e, true, &gcp)),
+                Err(Error::AuthFailed(_))
+            ));
+        }
+        let aws = [(cloud_auth::AUTH, cloud_auth::AWS)];
+        assert_eq!(
+            tls_plan(Variant::Postgres, &tls_cfg(false, false, &aws)).unwrap(),
+            plan(Require, false, true, true, true)
+        );
+        // The values the form shows for those pairs.
+        let f = Variant::Postgres.sslmode_field().unwrap();
+        let shown: Vec<_> = pairs
+            .iter()
+            .map(|(e, t)| tls_cfg(*e, *t, &[]).tls_value(&f).unwrap().to_string())
+            .collect();
+        assert_eq!(shown, ["prefer", "prefer", "verify-full", "require"]);
+        let f = Variant::CloudSql.sslmode_field().unwrap();
+        assert_eq!(tls_cfg(true, false, &[]).tls_value(&f), Some("verify-ca"));
+    }
+
+    /// A new connection's defaults verify: chain and name, or the chain
+    /// against the instance CA on Cloud SQL and AlloyDB.
+    #[test]
+    fn new_connections_verify() {
+        use tokio_postgres::config::SslMode::Require;
+        for v in Variant::ALL.into_iter().filter(|v| *v != Variant::H2) {
+            let f = v.sslmode_field().unwrap();
+            let mut options = vec![(SSLMODE, f.default)];
+            let cloud_ca = matches!(v, Variant::CloudSql | Variant::AlloyDb);
+            if cloud_ca {
+                // verify-ca needs the CA file.
+                assert!(tls_plan(v, &tls_cfg(false, false, &options)).is_err());
+                options.push((SSL_ROOT_CERT, "/ca.pem"));
+            }
+            let p = tls_plan(v, &tls_cfg(false, false, &options)).unwrap();
+            let rds = v == Variant::Aurora;
+            assert_eq!(
+                p,
+                if cloud_ca {
+                    plan(Require, false, false, false, false)
+                } else {
+                    plan(Require, false, true, true, rds)
+                },
+                "{v:?}"
+            );
+            let level = tls_cfg(false, false, &options).tls_level(&v.info().fields);
+            assert!(level.is_some_and(|l| l.verified()), "{v:?}");
+        }
+        // H2: no TLS at all.
+        assert_eq!(
+            tls_plan(Variant::H2, &tls_cfg(true, false, &[]))
+                .unwrap()
+                .mode,
+            tokio_postgres::config::SslMode::Disable
+        );
+    }
+
+    #[test]
+    fn saved_sslmode_means_what_libpq_means() {
+        use tokio_postgres::config::SslMode::{Disable, Prefer, Require};
+        let v = Variant::Postgres;
+        // The legacy bools don't count once sslmode is saved.
+        let get = |o: &[(&str, &str)]| tls_plan(v, &tls_cfg(true, false, o));
+        assert_eq!(
+            get(&[(SSLMODE, "disable")]).unwrap(),
+            plan(Disable, false, true, true, false)
+        );
+        assert_eq!(
+            get(&[(SSLMODE, "prefer")]).unwrap(),
+            plan(Prefer, true, false, true, false)
+        );
+        assert_eq!(
+            get(&[(SSLMODE, "require")]).unwrap(),
+            plan(Require, true, false, true, false)
+        );
+        // verify-ca: the chain against the CA file only, which it needs.
+        assert!(matches!(
+            get(&[(SSLMODE, "verify-ca")]),
+            Err(Error::Connect(_))
+        ));
+        assert_eq!(
+            get(&[(SSLMODE, "verify-ca"), (SSL_ROOT_CERT, "/ca.pem")]).unwrap(),
+            plan(Require, false, false, false, false)
+        );
+        assert_eq!(
+            get(&[(SSLMODE, "verify-full"), (SSL_ROOT_CERT, "/ca.pem")]).unwrap(),
+            plan(Require, false, true, true, false)
+        );
+        assert_eq!(
+            get(&[(SSLMODE, "VERIFY-FULL")]).unwrap(),
+            plan(Require, false, true, true, false)
+        );
+        assert!(get(&[(SSLMODE, "allow")]).is_err());
+        // Aurora: the RDS CAs at both verify levels when there's no file.
+        assert_eq!(
+            tls_plan(
+                Variant::Aurora,
+                &tls_cfg(false, false, &[(SSLMODE, "verify-ca")])
+            )
+            .unwrap(),
+            plan(Require, false, false, false, true)
+        );
+        // Cloud SQL with its CA under verify-full: the name too, the CA only.
+        assert_eq!(
+            tls_plan(
+                Variant::CloudSql,
+                &tls_cfg(
+                    false,
+                    false,
+                    &[(SSLMODE, "verify-full"), (SSL_ROOT_CERT, "/ca.pem")]
+                )
+            )
+            .unwrap(),
+            plan(Require, false, true, false, false)
+        );
+        // A cloud sign-in needs a verify level.
+        for mode in ["disable", "prefer", "require"] {
+            assert!(
+                matches!(
+                    get(&[(SSLMODE, mode), (cloud_auth::AUTH, cloud_auth::AZURE)]),
+                    Err(Error::AuthFailed(_))
+                ),
+                "{mode}"
+            );
+        }
+        assert!(get(&[
+            (SSLMODE, "verify-full"),
+            (cloud_auth::AUTH, cloud_auth::AZURE)
+        ])
+        .is_ok());
+    }
+
+    #[test]
+    fn a_missing_ca_file_is_a_connect_error() {
+        let cfg = tls_cfg(true, false, &[(SSL_ROOT_CERT, "/nonexistent/ca.pem")]);
+        let p = tls_plan(Variant::Aurora, &cfg).unwrap();
+        assert!(matches!(tls_connector(&cfg, p), Err(Error::Connect(_))));
+        let cfg = tls_cfg(true, false, &[]);
+        let p = tls_plan(Variant::Aurora, &cfg).unwrap();
+        assert!(p.rds_roots && tls_connector(&cfg, p).is_ok());
+    }
+
+    /// Whenever the certificate's name isn't checked, only the CA file (or
+    /// the RDS bundle) anchors the chain, unless the user chose to accept
+    /// any certificate.
+    #[test]
+    fn relaxed_hostname_checks_never_use_the_system_roots() {
+        let modes = [
+            "",
+            "disable",
+            "prefer",
+            "require",
+            "verify-ca",
+            "verify-full",
+        ];
+        let auths = ["", cloud_auth::AWS, cloud_auth::GCP, cloud_auth::AZURE];
         for v in Variant::ALL {
-            for cfg in [ca_cfg(&[]), gcp.clone(), aws.clone()] {
-                for has_ca in [false, true] {
-                    let c = tls_checks(v, &cfg, has_ca);
-                    assert!(c.hostname || !c.system_roots, "{v:?}");
+            for mode in modes {
+                for auth in auths {
+                    for ca in ["", "/ca.pem"] {
+                        for (e, t) in [(false, false), (false, true), (true, false), (true, true)] {
+                            let mut o = vec![];
+                            for (k, val) in [
+                                (SSLMODE, mode),
+                                (cloud_auth::AUTH, auth),
+                                (SSL_ROOT_CERT, ca),
+                            ] {
+                                if !val.is_empty() {
+                                    o.push((k, val));
+                                }
+                            }
+                            if let Ok(p) = tls_plan(v, &tls_cfg(e, t, &o)) {
+                                assert!(
+                                    p.hostname || !p.system_roots || p.accept_invalid,
+                                    "{v:?} {o:?} {e} {t}"
+                                );
+                                if !auth.is_empty() && v != Variant::H2 {
+                                    assert!(
+                                        !p.accept_invalid
+                                            && p.mode == tokio_postgres::config::SslMode::Require,
+                                        "{v:?} {o:?} {e} {t}"
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1380,19 +1756,18 @@ mod tests {
         let ca = dir.join("ca.pem");
         // Any CA that didn't sign the site's certificate: Amazon's RDS bundle.
         std::fs::write(&ca, cloud_auth::RDS_CA_BUNDLE).unwrap();
-        let cfg = ca_cfg(&[("ssl_root_cert", ca.to_str().unwrap())]);
+        let cfg = tls_cfg(true, false, &[(SSL_ROOT_CERT, ca.to_str().unwrap())]);
         let dial = |c: native_tls::TlsConnector| {
             let tcp = std::net::TcpStream::connect("www.google.com:443").unwrap();
             c.connect("not-this-host.invalid", tcp).map(|_| ())
         };
-        assert!(
-            dial(tls_connector(Variant::CloudSql, &cfg, false).unwrap()).is_err(),
-            "Cloud SQL accepted a public certificate"
-        );
-        assert!(
-            dial(tls_connector(Variant::AlloyDb, &cfg, false).unwrap()).is_err(),
-            "AlloyDB accepted a public certificate"
-        );
+        for v in [Variant::CloudSql, Variant::AlloyDb] {
+            let p = tls_plan(v, &cfg).unwrap();
+            assert!(
+                dial(tls_connector(&cfg, p).unwrap()).is_err(),
+                "{v:?} accepted a public certificate"
+            );
+        }
         // Control: with the system roots and no name check, it would pass.
         let mut b = native_tls::TlsConnector::builder();
         b.danger_accept_invalid_hostnames(true);

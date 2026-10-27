@@ -216,6 +216,14 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// A query on one database reads the other databases of the connection
+    /// by putting the database's name in front (`db.table`, or
+    /// `db.schema.table` when the engine has schemas): the editor's
+    /// completion then offers their tables and columns too.
+    fn cross_database(&self) -> bool {
+        false
+    }
+
     /// Its databases hold keys, too many to list at once: the explorer
     /// searches them on the server a page at a time ([`Session::scan_keys`])
     /// instead of listing them with `list_objects`. `None` for engines

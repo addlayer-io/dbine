@@ -1,0 +1,35 @@
+{
+  "dialog": {
+    "title": "Jest nowa wersja DBine",
+    "text": "Dostępna wersja {{latest}}. Masz wersję {{current}}.",
+    "skip": "Pomiń tę wersję",
+    "later": "Później",
+    "download": "Pobierz",
+    "updateNow": "Zaktualizuj teraz",
+    "downloading": "Pobieranie DBine {{latest}}…",
+    "progress": "{{done}} z {{total}}",
+    "progressUnknown": "Pobrano {{done}}",
+    "verifying": "Weryfikowanie podpisu…",
+    "cancel": "Anuluj",
+    "readyTitle": "DBine {{latest}} jest gotowy",
+    "ready": "Aktualizacja została pobrana i zweryfikowana. Uruchom ponownie DBine, aby dokończyć instalację.",
+    "restart": "Uruchom ponownie, aby dokończyć",
+    "failedTitle": "Nie udało się zaktualizować DBine",
+    "failed": "Możesz pobrać nową wersję ze strony programu.",
+    "openPage": "Otwórz stronę pobierania",
+    "close": "Zamknij"
+  },
+  "reason": {
+    "package": "DBine zainstalowano z pakietu systemowego: pobierz nową wersję ze strony programu.",
+    "location": "Przenieś DBine do Aplikacji, aby aktualizował się samodzielnie."
+  },
+  "settings": {
+    "installed": "Zainstalowana wersja: {{version}}",
+    "help": "DBine sam sprawdza po uruchomieniu, czy jest nowa wersja, i aktualizuje się stamtąd.",
+    "check": "Sprawdź aktualizacje"
+  },
+  "upToDate": "Masz najnowszą wersję ({{version}}).",
+  "managedByFlatpak": "Masz wersję {{version}}. Ta instalacja pochodzi z Flathub: aktualizuje ją Flatpak (z centrum oprogramowania lub poleceniem „flatpak update”).",
+  "busyInWindow": "Aktualizacja trwa w oknie {{n}}.",
+  "failed": "Nie udało się sprawdzić aktualizacji: {{error}}"
+}

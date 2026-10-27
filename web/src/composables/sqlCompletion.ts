@@ -8,6 +8,8 @@
 //   in a DataFrame SQL cell the cells above (each one a table) and the
 //   file readers.
 // - **After a dot** (`sales.`, `orders.`, an alias): what is under that name.
+//   On engines whose queries read other databases (`Driver::cross_database`)
+//   that includes `other_db.`: its tables, loaded the first time it's typed.
 // - **Anywhere else** (the select list, WHERE, ON…): the names at the top
 //   and the columns of the tables the statement reads.
 // - **Inside a reader's quotes** (`read_csv('|')`): "Elegir archivo…", which
@@ -25,26 +27,47 @@ export interface NameNode {
   /** From the top: `[schema, table]`, `[table]`… */
   path: string[];
   children: NameNode[];
+  /** The other database it lives in (`path` starts with it): the
+   *  database's own node and everything under it. */
+  database?: string;
+  /** A database whose objects aren't loaded yet. */
+  pending?: boolean;
 }
 
 /** The schemas, tables and columns of `schema` (table → columns; a
- *  `schema.table` key puts the table under its schema). A name can be a
+ *  `schema.table` key puts the table under its schema), and under each of
+ *  `databases` the same for that database (null: not loaded yet). A name can be a
  *  schema and a table at once (`Person` and `Person.Person`): both stay,
  *  each with its own icon. A table without columns (not loaded yet, or a
  *  notebook cell that hasn't run) is a table all the same. */
-export function nameTree(schema: Record<string, string[]>): NameNode {
+export function nameTree(
+  schema: Record<string, string[]>,
+  databases?: Record<string, Record<string, string[]> | null>,
+): NameNode {
   const top: NameNode = { label: '', type: 'namespace', path: [], children: [] };
-  const child = (parent: NameNode, label: string, type: NameNode['type']) => {
-    let n = parent.children.find((c) => c.label === label && c.type === type);
-    if (!n) parent.children.push((n = { label, type, path: [...parent.path, label], children: [] }));
+  const child = (parent: NameNode, label: string, type: NameNode['type'], database = parent.database) => {
+    let n = parent.children.find((c) => c.label === label && c.type === type && c.database === database);
+    if (!n) {
+      n = { label, type, path: [...parent.path, label], children: [] };
+      if (database !== undefined) n.database = database;
+      parent.children.push(n);
+    }
     return n;
   };
-  for (const [key, cols] of Object.entries(schema)) {
-    const dot = key.indexOf('.');
-    const table = dot < 0
-      ? child(top, key, 'class')
-      : child(child(top, key.slice(0, dot), 'namespace'), key.slice(dot + 1), 'class');
-    for (const c of cols) child(table, c, 'property');
+  const add = (root: NameNode, entries: Record<string, string[]>) => {
+    for (const [key, cols] of Object.entries(entries)) {
+      const dot = key.indexOf('.');
+      const table = dot < 0
+        ? child(root, key, 'class')
+        : child(child(root, key.slice(0, dot), 'namespace'), key.slice(dot + 1), 'class');
+      for (const c of cols) child(table, c, 'property');
+    }
+  };
+  add(top, schema);
+  for (const [db, entries] of Object.entries(databases ?? {})) {
+    const node = child(top, db, 'namespace', db);
+    if (entries) add(node, entries);
+    else node.pending = true;
   }
   return top;
 }
@@ -137,8 +160,12 @@ export interface NameAnswer {
   result: CompletionResult | null;
   /** Nothing to offer yet: ask for the names. */
   needNames?: boolean;
-  /** The table after the dot has no columns loaded: ask for them. */
+  /** The table after the dot has no columns loaded: ask for them (the
+   *  path within `columnsIn`, else within the tab's database). */
   needColumns?: string[];
+  columnsIn?: string;
+  /** The other database after the dot isn't loaded: ask for its objects. */
+  needDatabase?: string;
 }
 
 /** The columns of the tables `doc` reads (FROM, JOIN, an alias), once each. */
@@ -187,8 +214,11 @@ export function nameCompletion(ctx: CompletionContext, tree: NameNode, quote: (l
     level = level.flatMap((n) => childrenNamed(n, name));
     if (!level.length) return { result: null };
   }
+  const pending = parents.length ? level.find((n) => n.pending) : undefined;
+  if (pending) return { result: null, needDatabase: pending.database };
   if (parents.length && level.every((n) => !n.children.length)) {
     const table = level.find((n) => n.type === 'class');
+    if (table?.database !== undefined) return { result: null, needColumns: table.path.slice(1), columnsIn: table.database };
     return { result: null, needColumns: table?.path };
   }
 

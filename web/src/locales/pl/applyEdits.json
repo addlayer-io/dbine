@@ -1,0 +1,17 @@
+{
+  "save": "Zapisz",
+  "title": "Zapisz zmiany",
+  "hint": "Na serwerze ({{list}}) zostaną wykonane te instrukcje. Sprawdź je przed zapisem.",
+  "run": "Zapisz",
+  "done": "Zmiany zapisane",
+  "doneRows_one": "Zmiany zapisane: zaktualizowano 1 wiersz",
+  "doneRows_few": "Zmiany zapisane: zaktualizowano {{count}} wiersze",
+  "doneRows_many": "Zmiany zapisane: zaktualizowano {{count}} wierszy",
+  "doneRows_other": "Zmiany zapisane: zaktualizowano {{count}} wiersza",
+  "hintBoth": "Na serwerze ({{list}}) zostaną wykonane te instrukcje. Najpierw usuwane są wiersze, a potem aktualizowane pozostałe. Sprawdź je przed zapisem.",
+  "doneAffected_one": "Zmiany zapisane: dotyczyły 1 wiersza",
+  "doneAffected_few": "Zmiany zapisane: dotyczyły {{count}} wierszy",
+  "doneAffected_many": "Zmiany zapisane: dotyczyły {{count}} wierszy",
+  "doneAffected_other": "Zmiany zapisane: dotyczyły {{count}} wiersza",
+  "hintInserts": "Na serwerze ({{list}}) zostaną wykonane te instrukcje. Najpierw usuwane są wiersze, potem aktualizowane, a na końcu wstawiane nowe. Sprawdź je przed zapisem."
+}

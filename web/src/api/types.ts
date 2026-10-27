@@ -137,6 +137,9 @@ export interface DriverInfo {
   supports_manual_transactions?: boolean;
   /** A table's indexes with their usage (`Session::index_usage`). */
   supports_index_usage?: boolean;
+  /** Queries read other databases as `db.table` (`Driver::cross_database`):
+   *  the editor completes their tables and columns. */
+  cross_database?: boolean;
   /** "Ver dependencias…" (`Session::dependents`). */
   supports_dependencies?: boolean;
   /** "Deshabilitar / Habilitar índice" (`Driver::index_toggle_script`). */

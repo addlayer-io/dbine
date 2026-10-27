@@ -1,0 +1,63 @@
+{
+  "primaryKey": "Klucz główny",
+  "foreignKey": "Klucz obcy",
+  "unnamedForeignKey": "Klucz obcy bez nazwy",
+  "exportFailed": "Nie udało się wyeksportować obrazu: {{error}}",
+  "busy": "Rozmieszczanie tabel ({{tables}}) i relacji ({{relations}})…",
+  "hint": "Przeciągnij, aby się przesuwać · ⌘/pinch + kółko, aby powiększać · dwukrotne kliknięcie otwiera tabelę",
+  "tab": {
+    "connectFailed": "Nie udało się połączyć.",
+    "reading": "Odczytywanie struktury bazy…",
+    "drawFailed": "Nie udało się narysować diagramu: {{error}}",
+    "fileName": "diagram-{{name}}",
+    "fileNameDefault": "baza"
+  },
+  "toolbar": {
+    "tables": "Tabele",
+    "relations": "Relacje",
+    "simplifiedLayout": "uproszczony układ",
+    "simplifiedLayoutTitle": "Automatyczny układ nie powiódł się dla tej struktury: tabele są wyświetlane w siatce (możesz je przesuwać ręcznie).",
+    "searchPlaceholder": "Szukaj tabeli…",
+    "allSchemas": "Wszystkie schematy",
+    "allColumns": "Wszystkie kolumny",
+    "keysOnly": "Tylko klucze",
+    "relayout": "Uporządkuj",
+    "relayoutTitle": "Ponownie uporządkuj tabele automatycznie",
+    "svgImage": "Obraz SVG",
+    "pngImage": "Obraz PNG"
+  },
+  "card": {
+    "openHint": "Kliknij dwukrotnie, aby otworzyć",
+    "nullable": "Dopuszcza NULL",
+    "noColumns": "brak kolumn",
+    "moreColumns_one": "+{{count}} kolumna",
+    "moreColumns_few": "+{{count}} kolumny",
+    "moreColumns_many": "+{{count}} kolumn",
+    "moreColumns_other": "+{{count}} kolumny",
+    "showLess": "Pokaż mniej"
+  },
+  "empty": {
+    "title": "Brak tabel do wyświetlenia",
+    "text": "Baza nie ma tabel lub silnik nie udostępnia jej struktury.",
+    "noRelations": "Brak relacji: baza nie deklaruje kluczy obcych (lub silnik ich nie udostępnia). Wyświetlane są tylko tabele."
+  },
+  "zoom": {
+    "zoomOut": "Pomniejsz (−)",
+    "actualSize": "Rozmiar rzeczywisty (0)",
+    "zoomIn": "Powiększ (+)",
+    "fit": "Dopasuj do widoku (F)",
+    "minimap": "Minimapa"
+  },
+  "props": {
+    "table": "tabela",
+    "openTable": "Otwórz tabelę",
+    "close": "Zamknij (Esc)",
+    "columns": "Kolumny",
+    "unnamed": "(bez nazwy)",
+    "indexes": "Indeksy",
+    "unique": "unikalny",
+    "references": "Odwołuje się do",
+    "referencedBy": "Przywoływana przez",
+    "outside": "poza diagramem"
+  }
+}

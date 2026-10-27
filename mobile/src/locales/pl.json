@@ -1,0 +1,123 @@
+{
+  "pair": {
+    "intro": "Zobacz blokady i trwające zapytania swoich baz z telefonu. Połączenia i hasła pozostają na Twoim komputerze.",
+    "name": "Nazwa tego telefonu",
+    "defaultName": "Mój telefon",
+    "scan": "Sparuj z DBine",
+    "connecting": "Łączenie…",
+    "step1": "Na komputerze otwórz DBine › Ustawienia › Urządzenia.",
+    "step2": "Włącz „Zezwalaj na telefony” i kliknij „Sparuj telefon”.",
+    "step3": "Zeskanuj wyświetlony kod. Jeśli telefon nie jest w tej samej sieci, łączy się przez internet (jeśli DBine na to pozwala w „Poza siecią lokalną”).",
+    "confirmOn": "Potwierdź na „{{desktop}}”.",
+    "compare": "Sprawdź, czy komputer pokazuje ten sam kod:",
+    "noCamera": "Bez zgody na użycie aparatu nie można odczytać kodu.",
+    "fromLink": "Zamierzasz sparować ten telefon z „{{desktop}}”. Następnie potwierdzisz na tym komputerze, że kod jest taki sam.",
+    "pairLink": "Sparuj",
+    "scanInstead": "Zeskanuj inny kod",
+    "alreadyPaired": "Ten telefon jest już sparowany z „{{desktop}}”. Aby sparować go z innym komputerem, najpierw go odłącz."
+  },
+  "connections": {
+    "filter": "Szukaj połączenia",
+    "none": "DBine nie ma zapisanych połączeń.",
+    "loading": "Ładowanie…",
+    "thisPhone": "Ten telefon: {{code}}",
+    "unpair": "Odłącz",
+    "unpairConfirm": "Odłączyć ten telefon? Aby znów z niego korzystać, trzeba będzie zeskanować nowy kod.",
+    "via": {
+      "local": "Sieć lokalna",
+      "internet": "Przez internet"
+    }
+  },
+  "conn": {
+    "monitor": "Monitor",
+    "locks": "Blokady",
+    "processes": "W toku",
+    "health": "Kondycja",
+    "unsupported": "{{engine}} nie udostępnia swojego stanu, blokad ani procesów.",
+    "noLocks": "Brak zablokowanych sesji.",
+    "noProcesses": "Brak uruchomionych zapytań.",
+    "session": "Sesja {{id}}",
+    "blocks_one": "blokuje {{count}} sesję",
+    "blocks_few": "blokuje {{count}} sesje",
+    "blocks_many": "blokuje {{count}} sesji",
+    "blocks_other": "blokuje {{count}} sesji",
+    "waitsFor": "oczekuje na {{id}}",
+    "kill": "Zakończ",
+    "killConfirm": "Zakończyć sesję {{id}}? Jej bieżąca transakcja zostanie wycofana.\n\n{{sql}}",
+    "killReason": "Zakończ sesję {{id}}",
+    "notConfirmed": "Nie potwierdzono: sesja trwa dalej.",
+    "killed": "Sesja {{id}} została zakończona.",
+    "notAllowed": "Aby kończyć sesje z tego telefonu, włącz to w DBine › Ustawienia › Urządzenia.",
+    "engineCantKill": "To połączenie nie pozwala kończyć sesji (jest tylko do odczytu lub silnik tego nie obsługuje).",
+    "f": {
+      "status": "Stan",
+      "user": "Użytkownik",
+      "host": "Host",
+      "database": "Baza",
+      "client": "Klient",
+      "object": "Obiekt",
+      "waitsFor": "Oczekuje na"
+    },
+    "loading": "Odpytywanie {{engine}}…"
+  },
+  "nav": {
+    "connections": "Połączenia",
+    "activity": "Aktywność"
+  },
+  "tasks": {
+    "title": "Zaplanowane zadania",
+    "none": "DBine nie ma zaplanowanych zadań.",
+    "neverRan": "Jeszcze nie uruchomiono.",
+    "next": "Następne: {{at}}",
+    "disabled": "Wyłączone",
+    "runNow": "Uruchom teraz",
+    "runConfirm": "Uruchomić „{{name}}” teraz na komputerze?",
+    "runReason": "Uruchom „{{name}}”",
+    "notConfirmed": "Nie potwierdzono: zadanie nie zostało uruchomione.",
+    "started": "Zadanie wystartowało na komputerze. Gdy się zakończy, pojawi się tutaj.",
+    "needsApproval": "To zadanie zmienia dane i ma niezatwierdzone kroki: zatwierdza się je w DBine, na komputerze.",
+    "notAllowed": "Aby uruchamiać zadania z tego telefonu, włącz to w DBine › Ustawienia › Urządzenia.",
+    "status": {
+      "running": "W toku",
+      "ok": "W porządku",
+      "partial": "Z błędami",
+      "failed": "Niepowodzenie"
+    },
+    "at": "Krok {{n}} z {{total}}: {{name}}",
+    "cancel": "Anuluj zadanie",
+    "cancelConfirm": "Anulować „{{name}}”? Bieżący krok zostanie przerwany, a kolejne nie będą wykonywane.",
+    "cancelReason": "Anuluj „{{name}}”",
+    "cancelling": "Zażądano anulowania zadania: zostanie przerwane za kilka sekund."
+  },
+  "health": {
+    "run": "Sprawdź bazę",
+    "running": "Sprawdzanie…",
+    "allGood": "Nie znaleziono problemów.",
+    "fine_one": "{{count}} kontrola bez problemów",
+    "fine_few": "{{count}} kontrole bez problemów",
+    "fine_many": "{{count}} kontroli bez problemów",
+    "fine_other": "{{count}} kontroli bez problemów"
+  },
+  "activity": {
+    "title": "Aktywność",
+    "queries": "Zapytania",
+    "tasks": "Zaplanowane zadania",
+    "running": "W toku",
+    "recent": "Zakończone",
+    "none": "Brak trwających zapytań ani niedawno zakończonych.",
+    "cancel": "Anuluj",
+    "cancelConfirm": "Anulować to zapytanie na komputerze?\n\n{{sql}}",
+    "cancelReason": "Anuluj zapytanie",
+    "notConfirmed": "Nie potwierdzono: zapytanie trwa dalej.",
+    "cancelled": "Zażądano anulowania zapytania.",
+    "done": "Zakończone pomyślnie",
+    "startedAt": "Rozpoczęto {{at}}",
+    "hint": "Tutaj pojawiają się zapytania uruchamiane w edytorze DBine, gdy trwają, oraz te, które trwały dłużej niż 10 sekund, gdy się zakończą. Jeśli na to zezwolisz, telefon powiadamia o ich zakończeniu: przy otwartej aplikacji natychmiast, przy zamkniętej podczas następnego sprawdzenia Androida (co 15 minut). Gdy zapytanie trwa dłużej niż 30 sekund, DBine nie pozwala komputerowi przejść w stan uśpienia.",
+    "tapForDetail": "Dotknij, aby zobaczyć szczegóły",
+    "cancelNotAllowed": "Aby anulować zapytania z tego telefonu, włącz to w DBine › Ustawienia › Urządzenia."
+  },
+  "update": {
+    "available": "Dostępna jest nowa wersja DBine ({{version}}).",
+    "download": "Pobierz"
+  }
+}

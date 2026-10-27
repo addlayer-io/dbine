@@ -533,7 +533,19 @@ async fn notebook_geo_geojson_and_shapefile_join_a_cell_table_with_st_contains()
             )
             .await
         );
-        assert!(setup(w.as_mut(), &format!("COPY ({ZONAS}) TO {} WITH (FORMAT gdal, DRIVER 'ESRI Shapefile', SRS 'EPSG:4326')", lit(&format!("{d}/geo/zonas.shp")))).await);
+        // DuckDB 2.0 refuses a GDAL COPY that names an SRS until the axis
+        // order is chosen. `true` keeps longitude, latitude, which these
+        // polygons and ST_Point use.
+        assert!(
+            setup(
+                w.as_mut(),
+                &format!(
+                    "SET geometry_always_xy = true; COPY ({ZONAS}) TO {} WITH (FORMAT gdal, DRIVER 'ESRI Shapefile', SRS 'EPSG:4326')",
+                    lit(&format!("{d}/geo/zonas.shp"))
+                )
+            )
+            .await
+        );
     }
     assert!(dir.join("geo/zonas.dbf").exists() && dir.join("geo/zonas.shx").exists());
     let before = snapshot(&dir.join("geo"));

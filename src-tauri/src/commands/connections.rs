@@ -19,6 +19,8 @@ pub struct DriverDescriptor {
     supports_profiler: bool,
     /// A table's indexes with their usage (`Session::index_usage`).
     supports_index_usage: bool,
+    /// Queries read other databases as `db.table` (`Driver::cross_database`).
+    cross_database: bool,
     /// "Ver dependencias…" (`Session::dependents`).
     supports_dependencies: bool,
     /// "Deshabilitar / Habilitar índice" (`Driver::index_toggle_script`).
@@ -60,6 +62,7 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             supports_schema_sync: d.supports_schema_sync(),
             supports_profiler: d.supports_profiler(),
             supports_index_usage: d.supports_index_usage(),
+            cross_database: d.cross_database(),
             supports_dependencies: d.supports_dependencies(),
             supports_index_toggle: d.supports_index_toggle(),
             rename: d.rename_spec(),

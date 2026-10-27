@@ -158,3 +158,49 @@ test('folders and files with credentials are sensitive', () => {
   }
   for (const p of ['/Users/ana/Downloads/clientes.csv', '~/data/env.parquet', '/srv/exports/keys.xlsx']) assert.ok(!isSensitivePath(p), p);
 });
+
+// Other databases of the connection (`Driver::cross_database`, issue #20):
+// `database_a` is the tab's, `database_b` loaded, `logs` not yet, `dw` has
+// schemas.
+const CROSS = nameTree(
+  { table_a: ['id', 'name'] },
+  {
+    database_a: { table_a: ['id', 'name'] },
+    database_b: { table_b: ['id', 'amount'], empty_b: [] },
+    logs: null,
+    dw: { 'sales.orders': ['order_id'] },
+  },
+);
+
+test('other databases are offered where a table goes, with the tab\'s own tables', () => {
+  const r = nameCompletion(ctxOf('SELECT * FROM |'), CROSS, quote).result;
+  assert.deepEqual(labels(r).sort(), ['database_a', 'database_b', 'dw', 'logs', 'table_a']);
+});
+
+test('after `database_b.` its tables; after a schema-ful database, schema then table', () => {
+  assert.deepEqual(labels(nameCompletion(ctxOf('SELECT * FROM database_b.|'), CROSS, quote).result).sort(), ['empty_b', 'table_b']);
+  assert.deepEqual(labels(nameCompletion(ctxOf('SELECT * FROM dw.|'), CROSS, quote).result), ['sales']);
+  assert.deepEqual(labels(nameCompletion(ctxOf('SELECT * FROM dw.sales.|'), CROSS, quote).result), ['orders']);
+});
+
+test('a database not loaded yet is asked for; a table without columns asks in its database', () => {
+  const a = nameCompletion(ctxOf('SELECT * FROM logs.|'), CROSS, quote);
+  assert.equal(a.result, null);
+  assert.equal(a.needDatabase, 'logs');
+  const b = nameCompletion(ctxOf('SELECT database_b.empty_b.| FROM database_b.empty_b'), CROSS, quote);
+  assert.deepEqual(b.needColumns, ['empty_b']);
+  assert.equal(b.columnsIn, 'database_b');
+});
+
+test('aliases in a cross-database JOIN resolve to their own database\'s columns', () => {
+  const sql = (at) => `SELECT ${at}\nFROM database_a.table_a AS a\nJOIN database_b.table_b AS b ON a.id = b.id`;
+  assert.deepEqual(labels(nameCompletion(ctxOf(sql('a.|')), CROSS, quote).result).sort(), ['id', 'name']);
+  assert.deepEqual(labels(nameCompletion(ctxOf(sql('b.|')), CROSS, quote).result).sort(), ['amount', 'id']);
+  // The select list offers both tables' columns.
+  const all = labels(nameCompletion(ctxOf(sql('|')), CROSS, quote).result);
+  for (const c of ['amount', 'name']) assert.ok(all.includes(c), c);
+});
+
+test('without other databases nothing changes', () => {
+  assert.deepEqual(labels(nameCompletion(ctxOf('SELECT * FROM database_b.|'), nameTree({ table_a: [] }), quote).result), []);
+});

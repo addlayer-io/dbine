@@ -11,6 +11,8 @@
     { "code": "ru", "name": "Русский", "tag": "ru", "plurals": ["one", "few", "many", "other"], "changelog_after": "0.1.14" },
     { "code": "zh", "name": "中文（简体）", "tag": "zh-CN", "plurals": ["other"], "changelog_after": "0.1.14" },
     { "code": "ja", "name": "日本語", "tag": "ja", "plurals": ["other"], "changelog_after": "0.1.14" },
-    { "code": "ko", "name": "한국어", "tag": "ko", "plurals": ["other"], "changelog_after": "0.1.14" }
+    { "code": "ko", "name": "한국어", "tag": "ko", "plurals": ["other"], "changelog_after": "0.1.14" },
+    { "code": "uk", "name": "Українська", "tag": "uk", "plurals": ["one", "few", "many", "other"], "changelog_after": "1.1.0" },
+    { "code": "pl", "name": "Polski", "tag": "pl", "plurals": ["one", "few", "many", "other"], "changelog_after": "1.1.0" }
   ]
 }

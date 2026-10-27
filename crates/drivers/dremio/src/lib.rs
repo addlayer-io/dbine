@@ -23,6 +23,7 @@ mod script;
 mod security;
 mod stats;
 mod sync;
+mod tls;
 mod transfer;
 
 use base64::Engine as _;
@@ -32,6 +33,7 @@ use dbine_driver::{
     CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
     FieldKind, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable, ObjectKindInfo,
     ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, SchemaInfo, Session, TableSchema,
+    TlsLevel, TlsSupport,
 };
 use ddl::{lit, path};
 use serde_json::{json, Value};
@@ -48,9 +50,33 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(DremioDriver { info: info() })]
 }
 
+/// The TLS options, by the names Dremio documents for its Arrow Flight
+/// SQL JDBC driver (`useEncryption`, `disableCertificateVerification`,
+/// `tlsRootCerts`). Saved connections from before them: `encrypt` gives
+/// https, `trust` doesn't verify.
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_switch(
+            "useEncryption",
+            "useEncryption",
+            TlsLevel::VerifyFull,
+            TlsLevel::Off,
+            true,
+            ["false", "false", "true", "true"],
+        ),
+        Field::tls_skip_verify(
+            "disableCertificateVerification",
+            "disableCertificateVerification",
+            false,
+            ["false", "true", "false", "true"],
+        ),
+        Field::tls_ca_file("tlsRootCerts", "tlsRootCerts"),
+    ]
+}
+
 fn info() -> DriverInfo {
     DriverInfo {
-        tls: Default::default(),
+        tls: TlsSupport::Configurable,
         tls_port: None,
         id: "dremio",
         name: "Dremio",
@@ -73,10 +99,11 @@ fn info() -> DriverInfo {
             Field::new("token", "Token de acceso personal", FieldKind::Password)
                 .secret()
                 .help("En lugar de usuario y contraseña (Dremio Software 24 o posterior)."),
-            Field::encrypt(),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        ]
+        .into_iter()
+        .chain(tls_fields())
+        .chain([Field::read_only()])
+        .collect(),
         databases_label: "Espacios y orígenes",
         has_schemas: true,
         object_kinds: vec![ObjectKindInfo::tables(), ObjectKindInfo::views()],
@@ -89,6 +116,11 @@ pub struct DremioDriver {
 
 #[async_trait]
 impl Driver for DremioDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }
@@ -249,15 +281,15 @@ impl Driver for DremioDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() {
+        let tls = tls::HttpTls::new(cfg, &tls_fields(), None)?;
+        let scheme = tls.scheme();
+        let host = tls.url_host(if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
-        };
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
+        });
+        let http = tls
+            .builder(reqwest::Client::builder().connect_timeout(Duration::from_secs(15)))?
             .build()
             .map_err(Error::connect)?;
         let conn = Arc::new(Conn {
@@ -293,7 +325,8 @@ impl Driver for DremioDriver {
         };
         tokio::time::timeout(Duration::from_secs(30), check)
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| tls.explain(e))?;
         Ok(Box::new(s))
     }
 }
@@ -319,7 +352,9 @@ pub(crate) fn dialect() -> dbine_driver::ScriptDialect {
 }
 
 fn http_error(e: reqwest::Error) -> Error {
-    if e.is_connect() || e.is_timeout() {
+    if e.is_connect() {
+        tls::net_error(&e)
+    } else if e.is_timeout() {
         Error::Connect(e.to_string())
     } else {
         Error::Query(e.to_string())
@@ -1550,5 +1585,56 @@ mod tests {
             "SELECT *\nFROM \"$scratch\".\"t\"\nLIMIT 3"
         );
         assert!(drivers()[0].capabilities().monitor);
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        tls::HttpTls::new(c, &tls_fields(), None).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("useEncryption".into(), "false".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options
+            .insert("disableCertificateVerification".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
     }
 }

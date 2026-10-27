@@ -31,7 +31,9 @@ const TRANSLATION_PREFIX: &str = "https://raw.githubusercontent.com/addlayer-io/
 /// scripts/i18n/languages.json (check.py verifies it). A language added
 /// later has only the versions since it shipped: the older ones come in
 /// English (`localized_notes`).
-const TRANSLATED: [&str; 9] = ["es", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko"];
+const TRANSLATED: [&str; 11] = [
+    "es", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko", "uk", "pl",
+];
 /// How long the translation may take before the English notes are used.
 const TRANSLATION_TIMEOUT: Duration = Duration::from_secs(5);
 /// Versions shown at most, like the English notes (changelog.py recent --count 5).

@@ -246,17 +246,23 @@ pub fn with_identity(version: String, identity: Option<&str>) -> String {
     }
 }
 
+/// A cloud sign-in's token must only reach a server whose certificate was
+/// verified: the refusal when the connection's TLS doesn't verify it.
+/// `options` names the engine's own settings that do.
+pub fn unverified_tls(options: &str) -> Error {
+    auth(format!(
+        "el inicio de sesión con la nube manda un token que no puede ir a un servidor sin verificar: elegí {options} \
+         e indicá la CA si hace falta"
+    ))
+}
+
 /// The token for a cloud sign-in, or `None` for the password one.
 pub async fn login(cfg: &ConnectionConfig, spec: Spec) -> Result<Option<Login>> {
     let Some(m) = method(cfg) else {
         return Ok(None);
     };
-    if cfg.trust_server_certificate {
-        return Err(auth(
-            "el inicio de sesión con la nube manda un token que no puede ir a un servidor sin verificar: desmarcá \
-             «Confiar en el certificado del servidor» e indicá la CA si hace falta",
-        ));
-    }
+    // The driver has already checked that its TLS verifies the server
+    // (`unverified_tls`): the token goes nowhere else.
     let describe = cfg.option(DESCRIBE).is_some();
     let user_given = cfg
         .username
@@ -1881,19 +1887,17 @@ mod cloud_auth_tests {
 
     #[tokio::test]
     async fn tokens_never_go_to_an_unverified_server() {
-        let mut c = cfg(AWS);
-        c.trust_server_certificate = true;
+        // The drivers refuse before signing in, naming their own options.
+        let e = unverified_tls("sslmode=verify-ca / verify-full");
+        assert!(
+            matches!(e, Error::AuthFailed(_)) && e.to_string().contains("sslmode=verify-ca"),
+            "{e}"
+        );
         let spec = Spec {
             default_port: 5432,
             gcp_access_token: false,
             mysql: false,
         };
-        let e = login(&c, spec).await.unwrap_err();
-        assert!(
-            matches!(e, Error::AuthFailed(_))
-                && e.to_string().contains("Confiar en el certificado"),
-            "{e}"
-        );
         let mut c = cfg(AWS);
         c.username = None;
         assert!(login(&c, spec)

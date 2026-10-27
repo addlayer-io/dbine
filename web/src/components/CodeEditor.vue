@@ -62,6 +62,10 @@ const props = withDefaults(defineProps<{
   /** table → columns, for completion; `schema.table` keys put the table
    *  under its schema. */
   schema?: Record<string, string[]>;
+  /** The connection's other databases, for completion after `db.`, each
+   *  like `schema` (null: not loaded yet); only on engines whose queries
+   *  read them (`cross_database`). */
+  databases?: Record<string, Record<string, string[]> | null>;
   placeholder?: string;
   /** "Calidad de código": the problems of a text (QueryView asks the
    *  backend). Null: no marks. */
@@ -87,7 +91,7 @@ const props = withDefaults(defineProps<{
    *  (after `{{`, or with ⌃Space outside strings and comments). */
   params?: { name: string; detail?: string }[];
 }>(), {
-  language: 'sql', dialect: '', readOnly: false, schema: () => ({}), placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
+  language: 'sql', dialect: '', readOnly: false, schema: () => ({}), databases: undefined, placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
   fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [],
 });
 
@@ -103,8 +107,11 @@ const emit = defineEmits<{
   /** ⇧⌥F: format the code. */
   format: [];
   /** Completion reached a table whose columns aren't loaded: `[schema, table]`
-   *  or `[table]`. The list reopens when `schema` brings them. */
-  needColumns: [path: string[]];
+   *  or `[table]`, in `database` when it's another one. The list reopens
+   *  when `schema` (or `databases`) brings them. */
+  needColumns: [path: string[], database?: string];
+  /** Completion reached `db.` and that database's objects aren't loaded. */
+  needDatabase: [database: string];
   /** Completion was asked for while `schema` is empty. The list reopens
    *  when `schema` brings names. */
   needNames: [];
@@ -159,7 +166,7 @@ function nameSource(dialect: SQLDialect) {
   const quote = (label: string) => open + label + close;
 
   return (ctx: CompletionContext): CompletionResult | null => {
-    const { result, needNames, needColumns } = nameCompletion(ctx, names().tree, quote);
+    const { result, needNames, needColumns, columnsIn, needDatabase } = nameCompletion(ctx, names().tree, quote);
     const n = names();
     if (needNames && !n.namesAsked) {
       // No names yet (the tab's connection isn't open): ask once; the list
@@ -168,10 +175,16 @@ function nameSource(dialect: SQLDialect) {
       reopenAt = ctx.pos;
       emit('needNames');
     }
-    if (needColumns && !n.asked.has(needColumns.join('.'))) {
-      n.asked.add(needColumns.join('.'));
+    const asked = needColumns && [columnsIn ?? '', ...needColumns].join('\u0000');
+    if (needColumns && asked && !n.asked.has(asked)) {
+      n.asked.add(asked);
       reopenAt = ctx.pos;
-      emit('needColumns', needColumns);
+      emit('needColumns', needColumns, columnsIn);
+    }
+    if (needDatabase !== undefined && !n.asked.has(`\u0001${needDatabase}`)) {
+      n.asked.add(`\u0001${needDatabase}`);
+      reopenAt = ctx.pos;
+      emit('needDatabase', needDatabase);
     }
     return result;
   };
@@ -183,9 +196,23 @@ function nameSource(dialect: SQLDialect) {
  *  reconfigure the language, since CodeMirror then drops the open list and
  *  asks the new sources again as if nobody had asked (the list after
  *  FROM, opened by itself, closed at once). */
-let namesOf: { schema: Record<string, string[]>; tree: NameNode; asked: Set<string>; namesAsked: boolean } | null = null;
+let namesOf: {
+  schema: Record<string, string[]>;
+  databases: Record<string, Record<string, string[]> | null> | undefined;
+  tree: NameNode;
+  asked: Set<string>;
+  namesAsked: boolean;
+} | null = null;
 function names() {
-  if (namesOf?.schema !== props.schema) namesOf = { schema: props.schema, tree: nameTree(props.schema), asked: new Set(), namesAsked: false };
+  if (namesOf?.schema !== props.schema || namesOf.databases !== props.databases) {
+    namesOf = {
+      schema: props.schema,
+      databases: props.databases,
+      tree: nameTree(props.schema, props.databases),
+      asked: new Set(),
+      namesAsked: false,
+    };
+  }
   return namesOf;
 }
 
@@ -561,7 +588,7 @@ watch(() => [props.language, props.dialect], () => {
   view?.dispatch({ effects: lang.reconfigure(languageExt()) });
 });
 // New names: the sources read them when asked (names()), nothing to rebuild.
-watch(() => props.schema, () => {
+watch(() => [props.schema, props.databases], () => {
   if (!view) return;
   // The columns asked for after a dot arrived: show them if the cursor stayed.
   const at = reopenAt;

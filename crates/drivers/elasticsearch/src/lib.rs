@@ -25,6 +25,7 @@ mod security;
 mod stats;
 mod steps;
 mod sync;
+pub mod tls;
 mod transfer;
 
 use base64::Engine;
@@ -33,7 +34,7 @@ use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language,
     MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
-    Session, TableSchema,
+    Session, TableSchema, TlsLevel, TlsSupport,
 };
 use json::J;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -98,9 +99,8 @@ impl Es {
                     .help("Elastic Cloud: si se completa, reemplaza al servidor y al puerto."),
             );
         }
+        fields.extend(tls_fields());
         fields.extend([
-            Field::encrypt(),
-            Field::trust_cert(),
             Field::new(
                 "show_system",
                 "Mostrar índices del sistema",
@@ -130,7 +130,7 @@ impl Es {
         }
         Self {
             info: DriverInfo {
-                tls: Default::default(),
+                tls: TlsSupport::Configurable,
                 tls_port: None,
                 id,
                 name,
@@ -147,6 +147,39 @@ impl Es {
             flavor,
         }
     }
+}
+
+/// The TLS options, by the Elastic Stack's names (Beats, Logstash:
+/// `protocol`, `ssl.verification_mode`, `ssl.certificate_authorities`).
+/// Saved connections from before them: `encrypt` gives https, `trust`
+/// doesn't verify (an https URL typed in the host too).
+pub fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_mode(
+            "protocol",
+            "protocol",
+            &[
+                ("http", "http", TlsLevel::Off),
+                ("https", "https", TlsLevel::VerifyFull),
+            ],
+            "https",
+            ["http", "http", "https", "https"],
+        )
+        .help("Una URL escrita en el servidor usa su propio esquema (http:// o https://)."),
+        Field::tls_verify(
+            "verification_mode",
+            "ssl.verification_mode",
+            &[
+                ("full", "full", TlsLevel::VerifyFull),
+                ("certificate", "certificate", TlsLevel::VerifyCa),
+                ("none", "none", TlsLevel::Unverified),
+            ],
+            "full",
+            ["full", "none", "full", "none"],
+        ),
+        Field::tls_ca_file("certificate_authorities", "ssl.certificate_authorities")
+            .ca_required_at(&[TlsLevel::VerifyCa]),
+    ]
 }
 
 /// Elastic Cloud deployments only answer on 443 (and 9243), over HTTPS; the
@@ -462,22 +495,39 @@ impl Driver for Es {
         cfg: &ConnectionConfig,
         _database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let base = match cfg.option("cloud_id").filter(|_| !self.opensearch) {
-            Some(id) => cloud_id_url(id)
-                .ok_or_else(|| Error::Connect("El Cloud ID no es válido.".into()))?,
-            None => elastic_cloud_url(cfg).unwrap_or_else(|| http::base_url(cfg, 9200)),
+        let fields = tls_fields();
+        // Elastic Cloud is always https, with the connection's
+        // verification options.
+        let (base, tls) = match cfg.option("cloud_id").filter(|_| !self.opensearch) {
+            Some(id) => {
+                let url = cloud_id_url(id)
+                    .ok_or_else(|| Error::Connect("El Cloud ID no es válido.".into()))?;
+                let tls = tls::HttpTls::new(cfg, &fields, Some(true))?;
+                (url, tls)
+            }
+            None => match elastic_cloud_url(cfg) {
+                Some(url) => {
+                    let tls = tls::HttpTls::new(cfg, &fields, Some(true))?;
+                    (tls.url(url), tls)
+                }
+                None => {
+                    let tls = http::tls_for(cfg, &fields)?;
+                    (http::base_url(cfg, 9200, &tls), tls)
+                }
+            },
         };
         let auth = match cfg.option("api_key") {
             Some(k) => http::Auth::Token("ApiKey", k),
             None => http::auth_from(cfg),
         };
-        let client = http::client(cfg, auth)?;
+        let client = http::client(&tls, auth)?;
         let (status, body) = http::send(
             client
                 .get(format!("{base}/"))
                 .timeout(Duration::from_secs(20)),
         )
-        .await?;
+        .await
+        .map_err(|e| tls.explain(e))?;
         if status == 401 || status == 403 {
             return Err(Error::AuthFailed(es_error_message(status, &body)));
         }
@@ -1500,5 +1550,70 @@ mod tests {
         cfg.host = "es.local".into();
         cfg.port = 9200;
         assert_eq!(elastic_cloud_url(&cfg), None);
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        http::tls_for(c, &tls_fields()).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("protocol".into(), "http".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options
+            .insert("verification_mode".into(), "none".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
+    }
+
+    #[test]
+    fn an_https_url_in_the_host_keeps_trust_from_saved_connections() {
+        // Today `trust` skips verification for an https URL typed in the
+        // host even with `encrypt` off.
+        let mut c = legacy(false, true);
+        c.host = "https://db.example.com:443".into();
+        assert_eq!(level(&c), TlsLevel::Unverified);
+        c.trust_server_certificate = false;
+        assert_eq!(level(&c), TlsLevel::VerifyFull);
+        let mut n = new_connection();
+        n.host = "http://db.example.com".into();
+        assert_eq!(level(&n), TlsLevel::Off);
     }
 }

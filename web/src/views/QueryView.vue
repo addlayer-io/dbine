@@ -173,15 +173,31 @@ async function followDatabase(db: string | null | undefined) {
 }
 
 // -- completion schema ------------------------------------------------------------
-const schema = computed(() => {
-  const objs = conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? [];
+type DbObject = NonNullable<(typeof conns.objects)[string]>['items'][number];
+/** A database's tables and their loaded columns, as completion reads them. */
+function namesIn(database: string, objs: DbObject[]): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   for (const o of objs) {
     const kind = driver.value?.object_kinds.find((k) => k.id === o.kind);
     if (!kind?.has_columns) continue;
-    const cols = conns.columns[objKey(props.tab.connectionId, props.tab.database, o.schema, o.name)]?.items.map((c) => c.name) ?? [];
+    const cols = conns.columns[objKey(props.tab.connectionId, database, o.schema, o.name)]?.items.map((c) => c.name) ?? [];
     out[o.name] = cols;
     if (o.schema) out[`${o.schema}.${o.name}`] = cols;
+  }
+  return out;
+}
+const schema = computed(() => namesIn(props.tab.database, conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? []));
+
+/** On engines whose queries read the connection's other databases
+ *  (`db.table`), those databases for completion: each one's names once
+ *  loaded (on demand, when its name is typed with a dot), null before. */
+const otherDatabases = computed(() => {
+  if (!driver.value?.cross_database) return undefined;
+  const { connectionId } = props.tab;
+  const out: Record<string, Record<string, string[]> | null> = {};
+  for (const db of conns.live[connectionId]?.databases ?? []) {
+    const objs = conns.objects[dbKey(connectionId, db)]?.items;
+    out[db] = objs ? namesIn(db, objs) : null;
   }
   return out;
 });
@@ -204,30 +220,45 @@ function loadNames() {
 
 // Columns are loaded per table, only for the tables the text names.
 let columnsTimer: ReturnType<typeof setTimeout> | null = null;
-watch([text, () => conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items], () => {
+watch([text, () => conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items, otherDatabases], () => {
   if (columnsTimer) clearTimeout(columnsTimer);
   columnsTimer = setTimeout(loadReferencedColumns, 400);
 });
 onBeforeUnmount(() => { if (columnsTimer) clearTimeout(columnsTimer); });
 function loadReferencedColumns() {
   const { connectionId, database } = props.tab;
-  const objs = conns.objects[dbKey(connectionId, database)]?.items ?? [];
-  if (!objs.length) return;
   const words = new Set(text.value.toLowerCase().match(/[\w$#]+/g) ?? []);
   let started = 0;
-  for (const o of objs) {
-    if (started >= 20) break;
-    if (!words.has(o.name.toLowerCase()) || conns.columns[objKey(connectionId, database, o.schema, o.name)]) continue;
-    if (!driver.value?.object_kinds.find((k) => k.id === o.kind)?.has_columns) continue;
-    conns.loadColumns(connectionId, database, o);
-    started++;
+  const loadIn = (db: string, objs: DbObject[]) => {
+    for (const o of objs) {
+      if (started >= 20) break;
+      if (!words.has(o.name.toLowerCase()) || conns.columns[objKey(connectionId, db, o.schema, o.name)]) continue;
+      if (!driver.value?.object_kinds.find((k) => k.id === o.kind)?.has_columns) continue;
+      conns.loadColumns(connectionId, db, o);
+      started++;
+    }
+  };
+  loadIn(database, conns.objects[dbKey(connectionId, database)]?.items ?? []);
+  // Other databases the text names with a dot (`other_db.orders`): their
+  // objects first, then the columns of the tables named.
+  const lower = text.value.toLowerCase();
+  for (const db of Object.keys(otherDatabases.value ?? {})) {
+    if (db === database || !qualifiedRe(db).test(lower)) continue;
+    const objs = conns.objects[dbKey(connectionId, db)]?.items;
+    if (objs) loadIn(db, objs);
+    else void conns.loadObjects(connectionId, db);
   }
+}
+/** `db.` in lower-case text, bare or quoted (`"db".`, `[db].`, \`db\`.). */
+function qualifiedRe(db: string) {
+  const name = db.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^\\w$#])["\\[\x60]?${name}["\\]\x60]?\\s*\\.`);
 }
 
 /** The editor reached `table.` or `schema.table.` before the columns were
  *  loaded: load them now, without waiting for the text to settle. */
-function loadColumnsFor(path: string[]) {
-  const { connectionId, database } = props.tab;
+function loadColumnsFor(path: string[], database = props.tab.database) {
+  const { connectionId } = props.tab;
   const [schemaName, name] = path.length > 1 ? path : [null, path[0]];
   const obj = (conns.objects[dbKey(connectionId, database)]?.items ?? [])
     .find((o) => o.name === name && (schemaName === null || o.schema === schemaName));
@@ -1027,6 +1058,7 @@ function runOverflow(i: number) {
           :language="editorLanguage"
           :dialect="driver?.dialect"
           :schema="schema"
+          :databases="otherDatabases"
           :placeholder="$t('query:editorPlaceholder')"
           :lint="lintSource"
           @run="(t: string, from: number) => run(t, 'none', from)"
@@ -1035,6 +1067,7 @@ function runOverflow(i: number) {
           @save="save"
           @format="formatQuery"
           @need-columns="loadColumnsFor"
+          @need-database="(db: string) => conns.loadObjects(props.tab.connectionId, db)"
           @need-names="loadNames"
           run-actions
           :menu-items="editorMenu"

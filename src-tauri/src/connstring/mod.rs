@@ -198,17 +198,33 @@ impl Tls {
             ..Tls::default()
         };
         let Some(info) = info else { return t };
+        // A connection saved before the engine's mode option (its value
+        // comes from the legacy table) exports what it always did: the
+        // legacy bools, not the mode they map to.
+        let legacy = info.fields.iter().any(|f| {
+            matches!(f.tls, Some(TlsRole::Mode { .. }))
+                && cfg.option(f.key).is_none_or(|v| v.trim().is_empty())
+        });
         for f in &info.fields {
             let Some(role) = &f.tls else { continue };
-            let Some(v) = cfg.tls_value(f).map(str::trim).filter(|v| !v.is_empty()) else {
+            let saved = if legacy {
+                cfg.option(f.key)
+            } else {
+                cfg.tls_value(f)
+            };
+            let Some(v) = saved.map(str::trim).filter(|v| !v.is_empty()) else {
                 continue;
             };
             match role {
                 TlsRole::Mode { .. } => t.mode = Some((f.key.to_string(), v.to_string())),
-                TlsRole::CaFile => t.ca_file = Some(v.to_string()),
+                TlsRole::CaFile { .. } => t.ca_file = Some(v.to_string()),
                 TlsRole::ServerName => t.server_name = Some(v.to_string()),
-                TlsRole::SkipVerify { .. } | TlsRole::SkipHostname => {}
+                // Skips and caps only lower the level: `tls_level` has them.
+                _ => {}
             }
+        }
+        if legacy {
+            return t;
         }
         if let Some(level) = cfg.tls_level(&info.fields) {
             t.level = Some(level);

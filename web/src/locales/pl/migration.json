@@ -1,0 +1,286 @@
+{
+  "migrate": "Migruj",
+  "preview": "Podgląd",
+  "pickEngine": "Wybierz silnik docelowy",
+  "pickTable": "Wybierz co najmniej jedną tabelę",
+  "intro": "Przenosi tabele z {database} ({{engine}}) do wybranej bazy docelowej, nawet innego silnika: tworzy skonwertowane tabele (typy, wartości domyślne, klucze, indeksy i nazwy), kopiuje dane przez ładowanie zbiorcze i wiele tabel naraz, a na końcu dodaje klucze obce. Jeśli aplikacja zostanie zamknięta w trakcie, migrację można wznowić. W podglądzie możesz wcześniej zobaczyć raport z każdej zmiany i skrypt, niczego nie zmieniając.",
+  "severity": {
+    "dropped": "Pominięte",
+    "droppedHint": "Cel nie może tego wyrazić: zostaje pominięte",
+    "loss": "Utrata",
+    "lossHint": "Wartości mogą się nie zmieścić lub utracić szczegóły",
+    "warning": "Ostrzeżenie",
+    "warningHint": "Te same wartości, inne zachowanie",
+    "info": "Informacja",
+    "infoHint": "Wierna zmiana, o której warto wiedzieć"
+  },
+  "run": {
+    "cancelled": "Migracja anulowana",
+    "finishedWithErrors": "Migracja zakończona z błędami: {{count}}. Sprawdź podsumowanie",
+    "finished": "Migracja zakończona",
+    "running": "Migrowanie…",
+    "stopped": "Migracja została zatrzymana",
+    "stepOf": "{{step}} z {{total}}",
+    "fkErrors": "Klucze obce, których nie udało się utworzyć:",
+    "withErrors": "Migracja zakończona z błędami",
+    "progress": "Tabele: {{done}} z {{total}} · wiersze: {{rows}} · {{elapsed}}",
+    "parallel": "Tabele naraz",
+    "cancelAll": "Anuluj wszystko",
+    "retryFailed": "Ponów te, które się nie powiodły",
+    "synced": "Synchronizacja zakończona",
+    "cloned": "Klonowanie zakończone",
+    "afterErrors": "Końcowe instrukcje, których nie udało się wykonać:"
+  },
+  "phase": {
+    "drop": "Usuwanie istniejących tabel",
+    "create": "Tworzenie tabel",
+    "foreignKeys": "Tworzenie kluczy obcych",
+    "done": "Kończenie",
+    "schemas": "Tworzenie schematów",
+    "identity": "Dostosowywanie tożsamości tabel",
+    "script": "Odczytywanie struktury źródła",
+    "before": "Przygotowywanie celu",
+    "check": "Sprawdzanie tabel w celu",
+    "after": "Tworzenie ograniczeń, kodu i pozostałych obiektów"
+  },
+  "script": {
+    "pickConnection": "Wybierz połączenie docelowe (wybranego silnika), aby otworzyć tam skrypt",
+    "queryTitle": "Migracja z {{name}}",
+    "copied": "Skrypt skopiowany",
+    "fileName": "migracja-{{database}}-do-{{engine}}",
+    "fileNameDatabase": "baza",
+    "title": "Skrypt struktury dla {{engine}}",
+    "previewTag": "(podgląd)",
+    "openInQuery": "Otwórz w zapytaniu",
+    "saveAs": "Zapisz jako plik…",
+    "help": "To jest to, co „Migruj” tworzy w celu przed skopiowaniem danych. Możesz też otworzyć to w zapytaniu, skopiować lub zapisać."
+  },
+  "target": {
+    "title": "Cel",
+    "engine": "Silnik docelowy",
+    "pickEngine": "Wybierz silnik",
+    "connection": "Połączenie docelowe",
+    "connectionHint": "(gdzie wszystko jest tworzone)",
+    "connectionPlaceholder": "Połączenie",
+    "noConnections": "Brak połączeń {{engine}}",
+    "thatEngine": "ten silnik",
+    "database": "Baza danych",
+    "keepSchemas": "Zachowaj schematy źródła (zostaną utworzone w celu)",
+    "singleSchema": "Jeden schemat",
+    "singleSchemaHint": "(opcjonalnie: wszystkie tabele trafią do tego schematu)",
+    "eachInOwnSchema": "Każda tabela w swoim schemacie",
+    "engineDefault": "Domyślny dla silnika"
+  },
+  "tables": {
+    "title": "Tabele",
+    "pickedOf": "{{picked}} z {{total}}",
+    "all": "Wszystkie",
+    "none": "Żadna",
+    "loading": "Odczytywanie tabel…",
+    "empty": "Ta baza nie ma tabel."
+  },
+  "options": {
+    "title": "Opcje",
+    "data": "Kopiuj dane",
+    "indexes": "Indeksy",
+    "foreignKeys": "Klucze obce",
+    "foldCase": "Dostosuj wielkość liter w nazwach do celu",
+    "drop": "Usuń tabele w celu przed ich utworzeniem (DROP)",
+    "ifExists": "Użyj IF EXISTS / IF NOT EXISTS",
+    "needConnection": "Aby migrować, wybierz połączenie docelowe. Podgląd pokazuje raport i skrypt, niczego nie zmieniając.",
+    "needConnectionSame": "Aby sklonować lub zsynchronizować, wybierz połączenie docelowe."
+  },
+  "cols": {
+    "table": "Tabela",
+    "rows": "Wiersze",
+    "column": "Kolumna",
+    "sourceType": "Typ źródłowy",
+    "targetType": "Typ docelowy",
+    "new": "(nowa)"
+  },
+  "report": {
+    "title": "Raport konwersji",
+    "summary": "Tabele: {{tables}} · uwagi: {{issues}}",
+    "clean": "Konwersja jest bezpośrednia: brak uwag.",
+    "byColumn": "Konwersja według kolumn ({{count}})",
+    "filterColumns": "Filtruj kolumny"
+  },
+  "status": {
+    "pending": "W kolejce",
+    "running": "Kopiowanie",
+    "check": "Weryfikowanie",
+    "truncate": "Opróżnianie",
+    "indexes": "Indeksy",
+    "copied": "Indeksy",
+    "done": "Skopiowana",
+    "failed": "Błąd",
+    "cancelled": "Anulowana",
+    "summary": "Podsumowywanie",
+    "compare": "Porównywanie",
+    "apply": "Stosowanie",
+    "syncing": "Synchronizowanie",
+    "synced": "Zsynchronizowana"
+  },
+  "path": {
+    "native": "Kopia bezpośrednia",
+    "bulkLoad": "Ładowanie zbiorcze",
+    "insertScript": "INSERT partiami",
+    "delta": "Według wierszy"
+  },
+  "grid": {
+    "status": "Stan",
+    "speed": "Wiersze/s",
+    "path": "Ścieżka",
+    "bottleneck": "Wąskie gardło",
+    "source": "Źródło",
+    "destination": "Cel",
+    "perSecond": "{{n}}/s",
+    "runNow": "Uruchom teraz",
+    "cancel": "Anuluj tę tabelę",
+    "reviewed": "Sprawdzone wiersze",
+    "changes": "Zmiany",
+    "changesValue": "{{inserted}} nowych · {{updated}} zmienionych · {{deleted}} usuniętych"
+  },
+  "advanced": {
+    "title": "Opcje zaawansowane",
+    "parallel": "Tabele naraz",
+    "parallelHint": "(od 1 do 32; można zmienić podczas kopiowania)",
+    "order": "Kolejność",
+    "largestFirst": "Najpierw największe",
+    "smallestFirst": "Najpierw najmniejsze",
+    "alphabetical": "Alfabetycznie",
+    "commitEvery_one": "Zatwierdzaj co {rows} wiersz",
+    "commitEvery_few": "Zatwierdzaj co {rows} wiersze",
+    "commitEvery_many": "Zatwierdzaj co {rows} wierszy",
+    "commitEvery_other": "Zatwierdzaj co {rows} wiersza"
+  },
+  "interrupted": {
+    "title": "Przerwane",
+    "hint": "Migracje przerwane przez zamknięcie aplikacji: zostaną wznowione od miejsca, w którym się zatrzymały",
+    "tables": "Skopiowane tabele: {{done}} z {{total}}",
+    "resume": "Wznów",
+    "forget": "Odrzuć",
+    "forgetConfirm": "Ta migracja zostanie zapomniana i nie będzie można jej wznowić. To, co zostało skopiowane, pozostanie w celu. Kontynuować?"
+  },
+  "mode": {
+    "title": "Tryb",
+    "pickEngineFirst": "Najpierw wybierz silnik docelowy",
+    "noConvert": "Nie ma konwersji schematów do tego silnika",
+    "noClone": "Te silniki nie mogą być klonowane między sobą",
+    "noSync": "Te silniki nie mogą być synchronizowane między sobą",
+    "label": {
+      "convert": "Migruj (konwertuj)",
+      "clone": "Klonuj",
+      "sync": "Synchronizuj"
+    },
+    "hint": {
+      "convert": "Konwertuje strukturę do silnika docelowego, tworzy tabele i kopiuje dane.",
+      "clone": "Klonowanie (cel identyczny jak źródło): między bazami tego samego silnika tworzy wszystko za pomocą skryptu samego silnika i kopiuje dane.",
+      "sync": "Synchronizuj tylko to, co się zmieniło: w istniejących tabelach wstawia, aktualizuje i usuwa tylko wiersze, które się różnią."
+    },
+    "action": {
+      "convert": "Migruj",
+      "clone": "Klonuj",
+      "sync": "Synchronizuj"
+    }
+  },
+  "clone": {
+    "needConnection": "Aby zobaczyć skrypt klonowania, wybierz połączenie docelowe: skrypt dostosowuje się do tego, co obsługuje ten serwer (jest tylko odpytywany).",
+    "help": "Cel staje się identyczny ze źródłem: tabele wraz z przechowywaniem, indeksami, ograniczeniami, sekwencjami, kodem i pozostałymi obiektami, za pomocą skryptu samego silnika. To, co już istnieje w celu, nie jest zmieniane.",
+    "clean": "Cel może być identyczny: brak uwag.",
+    "reportTitle": "Uwagi do klonowania",
+    "scriptTitle": "Skrypt klonowania dla {{engine}}",
+    "scriptHelp": "To jest to, co „Klonuj” wykonuje w celu: najpierw to, co poprzedza tabele, potem każda tabela z indeksami, a na końcu ograniczenia, kod i pozostałe obiekty."
+  },
+  "sync": {
+    "help": "Tabele muszą istnieć w celu z tymi samymi kolumnami: nic nie jest tworzone ani opróżniane. Wstawiane, aktualizowane i usuwane są tylko wiersze, które się różnią, w jednej transakcji na tabelę.",
+    "depth": "Co porównywać",
+    "depths": {
+      "full": "Pełne",
+      "fullHint": "Cała zawartość każdego wiersza.",
+      "sizes": "Tylko rozmiary dużych kolumn",
+      "sizesHint": "Duże kolumny są porównywane według długości: znacznie szybciej, ale nie wykryje zmiany, która zachowuje ten sam rozmiar.",
+      "keys": "Tylko klucze",
+      "keysHint": "Znajduje nowe i usunięte wiersze, nie zmodyfikowane."
+    },
+    "maxCores": "Rdzenie serwera",
+    "maxCoresHint": "(0: decyduje serwer)",
+    "keysTitle": "Klucze do synchronizacji",
+    "keysSummary": "Tabele: {{tables}} · bez klucza: {{unsyncable}}",
+    "keysHelp": "Każda tabela jest porównywana według klucza głównego; jeśli go nie ma, wybierz klucz unikalny.",
+    "pickKey": "Wybierz klucz",
+    "primaryKey": "Klucz główny ({{columns}})",
+    "uniqueKey": "Klucz unikalny ({{columns}})"
+  },
+  "panes": {
+    "preview": "Podgląd",
+    "run": "Wykonanie"
+  },
+  "runFilter": {
+    "all": "Wszystkie",
+    "pending": "W kolejce",
+    "active": "W toku",
+    "done": "Zakończone",
+    "failed": "Z błędem",
+    "cancelled": "Anulowane",
+    "search": "Szukaj tabeli…",
+    "none": "Żadna tabela nie pasuje do filtra."
+  },
+  "saved": {
+    "untitled": "Nowa migracja",
+    "mode": {
+      "convert": "Konwertuj",
+      "clone": "Klonuj",
+      "sync": "Synchronizuj"
+    },
+    "notSaved": "Niezapisana: zapisze się sama po pierwszej zmianie",
+    "renameHint": "Nazwa migracji (kliknij, aby ją zmienić)",
+    "renameTitle": "Zmień nazwę migracji",
+    "renamePrompt": "Nowa nazwa migracji",
+    "delete": "Usuń",
+    "deleteTitle": "Usuń migrację",
+    "deleteConfirm": "Migracja „{{name}}” zostanie usunięta wraz z konfiguracją. Źródło i cel nie są zmieniane: to, co zostało skopiowane, pozostaje na miejscu. Kontynuować?",
+    "resume": "Wznów",
+    "history": "Wykonania tej migracji",
+    "runElsewhere": "Ta migracja ma wykonania, ale nie na tym komputerze: widać tu tylko jej konfigurację.",
+    "state": {
+      "draft": "Szkic",
+      "elsewhere": "Brak wykonań na tym komputerze",
+      "running": "W toku",
+      "done": "Zakończona",
+      "failed": "Z błędami",
+      "interrupted": "Przerwana",
+      "cancelled": "Anulowana"
+    }
+  },
+  "confirm": {
+    "create_one": "W {{where}} ({{engine}}) zostanie utworzona {{count}} tabela. Kontynuować?",
+    "create_few": "W {{where}} ({{engine}}) zostaną utworzone {{count}} tabele. Kontynuować?",
+    "create_many": "W {{where}} ({{engine}}) zostanie utworzonych {{count}} tabel. Kontynuować?",
+    "create_other": "W {{where}} ({{engine}}) zostanie utworzonej {{count}} tabeli. Kontynuować?",
+    "createData_one": "W {{where}} ({{engine}}) zostanie utworzona {{count}} tabela wraz ze skopiowaniem wszystkich jej danych. Kontynuować?",
+    "createData_few": "W {{where}} ({{engine}}) zostaną utworzone {{count}} tabele wraz ze skopiowaniem wszystkich ich danych. Kontynuować?",
+    "createData_many": "W {{where}} ({{engine}}) zostanie utworzonych {{count}} tabel wraz ze skopiowaniem wszystkich ich danych. Kontynuować?",
+    "createData_other": "W {{where}} ({{engine}}) zostanie utworzonej {{count}} tabeli wraz ze skopiowaniem wszystkich jej danych. Kontynuować?",
+    "createDrop_one": "W {{where}} ({{engine}}) zostanie utworzona {{count}} tabela; istniejąca tabela o tej samej nazwie zostanie wcześniej usunięta. Kontynuować?",
+    "createDrop_few": "W {{where}} ({{engine}}) zostaną utworzone {{count}} tabele; istniejące tabele o tych samych nazwach zostaną wcześniej usunięte. Kontynuować?",
+    "createDrop_many": "W {{where}} ({{engine}}) zostanie utworzonych {{count}} tabel; istniejące tabele o tych samych nazwach zostaną wcześniej usunięte. Kontynuować?",
+    "createDrop_other": "W {{where}} ({{engine}}) zostanie utworzonej {{count}} tabeli; istniejące tabele o tych samych nazwach zostaną wcześniej usunięte. Kontynuować?",
+    "createDataDrop_one": "W {{where}} ({{engine}}) zostanie utworzona {{count}} tabela wraz ze skopiowaniem wszystkich jej danych; istniejąca tabela o tej samej nazwie zostanie wcześniej usunięta. Kontynuować?",
+    "createDataDrop_few": "W {{where}} ({{engine}}) zostaną utworzone {{count}} tabele wraz ze skopiowaniem wszystkich ich danych; istniejące tabele o tych samych nazwach zostaną wcześniej usunięte. Kontynuować?",
+    "createDataDrop_many": "W {{where}} ({{engine}}) zostanie utworzonych {{count}} tabel wraz ze skopiowaniem wszystkich ich danych; istniejące tabele o tych samych nazwach zostaną wcześniej usunięte. Kontynuować?",
+    "createDataDrop_other": "W {{where}} ({{engine}}) zostanie utworzonej {{count}} tabeli wraz ze skopiowaniem wszystkich jej danych; istniejące tabele o tych samych nazwach zostaną wcześniej usunięte. Kontynuować?",
+    "clone_one": "W {{where}} ({{engine}}) zostanie sklonowana {{count}} tabela wraz z pełną strukturą. Kontynuować?",
+    "clone_few": "W {{where}} ({{engine}}) zostaną sklonowane {{count}} tabele wraz z pełną strukturą. Kontynuować?",
+    "clone_many": "W {{where}} ({{engine}}) zostanie sklonowanych {{count}} tabel wraz z pełną strukturą. Kontynuować?",
+    "clone_other": "W {{where}} ({{engine}}) zostanie sklonowanej {{count}} tabeli wraz z pełną strukturą. Kontynuować?",
+    "cloneWithData_one": "W {{where}} ({{engine}}) zostanie sklonowana {{count}} tabela wraz z pełną strukturą i wszystkimi danymi. Kontynuować?",
+    "cloneWithData_few": "W {{where}} ({{engine}}) zostaną sklonowane {{count}} tabele wraz z pełną strukturą i wszystkimi danymi. Kontynuować?",
+    "cloneWithData_many": "W {{where}} ({{engine}}) zostanie sklonowanych {{count}} tabel wraz z pełną strukturą i wszystkimi danymi. Kontynuować?",
+    "cloneWithData_other": "W {{where}} ({{engine}}) zostanie sklonowanej {{count}} tabeli wraz z pełną strukturą i wszystkimi danymi. Kontynuować?",
+    "sync_one": "W {{where}} ({{engine}}) zostanie zsynchronizowana {{count}} tabela: wiersze różniące się od źródła zostaną wstawione, zaktualizowane i usunięte. Kontynuować?",
+    "sync_few": "W {{where}} ({{engine}}) zostaną zsynchronizowane {{count}} tabele: wiersze różniące się od źródła zostaną wstawione, zaktualizowane i usunięte. Kontynuować?",
+    "sync_many": "W {{where}} ({{engine}}) zostanie zsynchronizowanych {{count}} tabel: wiersze różniące się od źródła zostaną wstawione, zaktualizowane i usunięte. Kontynuować?",
+    "sync_other": "W {{where}} ({{engine}}) zostanie zsynchronizowanej {{count}} tabeli: wiersze różniące się od źródła zostaną wstawione, zaktualizowane i usunięte. Kontynuować?"
+  }
+}
