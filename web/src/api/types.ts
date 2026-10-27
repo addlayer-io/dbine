@@ -611,7 +611,7 @@ export interface ConnectResult {
 }
 
 /** Why a connect failed (dbine_driver::ConnectFailureKind). */
-export type ConnectFailureKind = 'firewall' | 'timeout' | 'refused' | 'dns' | 'tls' | 'tls_not_offered' | 'tls_untrusted' | 'auth' | 'unknown';
+export type ConnectFailureKind = 'firewall' | 'timeout' | 'refused' | 'dns' | 'tls' | 'tls_not_offered' | 'tls_untrusted' | 'tls_pin_changed' | 'auth' | 'unknown';
 
 /** "Agregar mi IP al firewall de Azure": the rule that would be created
  *  (src-tauri commands/azure_firewall.rs FirewallPlan). */

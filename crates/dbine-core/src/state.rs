@@ -794,6 +794,53 @@ impl StateStore {
         })
     }
 
+    /// Set (`Some`) or remove (`None`) one of a connection's options without
+    /// touching the rest of it (the app saving the certificate pinned on a
+    /// first connection, `dbine_driver::TLS_PIN`). `Ok(false)`: no such
+    /// connection, or nothing changed.
+    pub fn set_connection_option(&self, id: &str, key: &str, value: Option<&str>) -> Result<bool> {
+        let changed = {
+            let c = self.lock()?;
+            let json: Option<String> = c
+                .query_row(
+                    "SELECT config_json FROM connections WHERE id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db_err)?;
+            let Some(json) = json else {
+                return Ok(false);
+            };
+            let mut config: ConnectionConfig = serde_json::from_str(&json)?;
+            let before = config.options.get(key).cloned();
+            match value {
+                Some(v) => {
+                    config.options.insert(key.to_string(), v.to_string());
+                }
+                None => {
+                    config.options.remove(key);
+                }
+            }
+            if config.options.get(key) == before.as_ref() {
+                false
+            } else {
+                config.password = None;
+                c.execute(
+                    "UPDATE connections SET config_json = ?2, updated_at = ?3 WHERE id = ?1",
+                    params![id, serde_json::to_string(&config)?, now()],
+                )
+                .map_err(db_err)?;
+                true
+            }
+        };
+        if changed {
+            self.touch()?;
+            self.notify(StateChange::new("connection", Some(id)));
+        }
+        Ok(changed)
+    }
+
     pub fn delete_connection(&self, id: &str) -> Result<()> {
         self.lock()?
             .execute("DELETE FROM connections WHERE id = ?1", [id])
@@ -2210,6 +2257,37 @@ mod tests {
 
     fn kinds(seen: &Arc<Mutex<Vec<StateChange>>>) -> Vec<String> {
         seen.lock().unwrap().drain(..).map(|c| c.kind).collect()
+    }
+
+    #[test]
+    fn one_option_is_set_and_removed_alone() {
+        let s = StateStore::open_in_memory().unwrap();
+        let mut c = conn("a");
+        c.config.options.insert("sslmode".into(), "require".into());
+        s.save_connection(&c).unwrap();
+        let tmp = s.add_temporary_connection(&conn("tmp")).unwrap();
+        let pin = "ab".repeat(32);
+        assert!(s.set_connection_option("a", "tls_pin", Some(&pin)).unwrap());
+        // Same value: nothing to do.
+        assert!(!s.set_connection_option("a", "tls_pin", Some(&pin)).unwrap());
+        let got = s.get_connection("a").unwrap().unwrap();
+        assert_eq!(got.config.options.get("tls_pin"), Some(&pin));
+        assert_eq!(
+            got.config.options.get("sslmode").map(String::as_str),
+            Some("require")
+        );
+        assert_eq!(got.name, c.name);
+        assert!(s.set_connection_option("a", "tls_pin", None).unwrap());
+        let got = s.get_connection("a").unwrap().unwrap();
+        assert!(!got.config.options.contains_key("tls_pin"));
+        // A temporary connection stays temporary.
+        assert!(s
+            .set_connection_option(&tmp.id, "tls_pin", Some(&pin))
+            .unwrap());
+        assert!(s.is_temporary_connection(&tmp.id).unwrap());
+        assert!(!s
+            .set_connection_option("missing", "tls_pin", Some(&pin))
+            .unwrap());
     }
 
     #[test]

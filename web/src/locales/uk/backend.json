@@ -11261,5 +11261,17 @@
   "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Для локальних емуляторів, що працюють через http:// без TLS і автентифікації. Порожньо = API Google, завжди через https із перевіркою сертифіката.",
   "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT перевіряє, що ім'я сервера вказано в його сертифікаті; NONE перевіряє лише ланцюжок.",
   "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Якщо сервер вказано як URL (http://… або https://…), діє його схема.",
-  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "через SSH-тунель сертифікат перевіряється за ім'ям сервера, а {0} — це IP-адреса: вкажіть ім'я хоста, яке є в сертифікаті"
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "через SSH-тунель сертифікат перевіряється за ім'ям сервера, а {0} — це IP-адреса: вкажіть ім'я хоста, яке є в сертифікаті",
+  "El certificado del servidor cambió desde la conexión en la que se lo aceptó: se esperaba la huella SHA-256 {0} y el servidor presentó {1}. Si el servidor renovó su certificado, confiá en el certificado nuevo; si no, alguien podría estar interceptando la conexión.": "Сертифікат сервера змінився з часу підключення, під час якого його було прийнято: очікувався відбиток SHA-256 {0}, а сервер пред'явив {1}. Якщо сервер оновив сертифікат, довіртеся новому сертифікату; якщо ні, можливо, хтось перехоплює підключення.",
+  "certificado inválido en {0}: {1}": "недійсний сертифікат у {0}: {1}",
+  "el certificado de CA «{0}»": "сертифікат ЦС «{0}»",
+  "{0} no es un PEM válido: {1}": "{0} — недійсний PEM: {1}",
+  "{0} no tiene certificados PEM.": "У {0} немає сертифікатів PEM.",
+  "no tiene certificados PEM": "у ньому немає сертифікатів PEM",
+  "el nombre del servidor no resolvió a ninguna dirección": "ім'я сервера не розв'язалося в жодну адресу",
+  "no se pudo leer {0}: no tiene {1} ni {2}": "не вдалося прочитати {0}: у ньому немає ні {1}, ні {2}",
+  "Advanced": "Advanced",
+  "Element": "Element",
+  "Instance": "Instance",
+  "no schema scripted": "no schema scripted"
 }

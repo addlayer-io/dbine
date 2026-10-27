@@ -63,3 +63,7 @@ snippets.json:families.db2
 snippets.json:families.flux
 snippets.json:families.etcd
 tunnel.json:jumpPlaceholder
+backend:Advanced
+backend:Element
+backend:Instance
+backend:no schema scripted

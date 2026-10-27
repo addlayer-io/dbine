@@ -91,6 +91,11 @@
       "unknown": {
         "title": "Verbindung nicht möglich",
         "body": "Der Server oder der Treiber hat mit dieser Meldung geantwortet."
+      },
+      "tls_pin_changed": {
+        "title": "Das Zertifikat des Servers hat sich geändert",
+        "body": "Diese Verbindung prüft die Zertifikatskette nicht: Bei der ersten Verbindung hat sie den Fingerabdruck des Serverzertifikats gespeichert, und jetzt legt der Server ein anderes vor. Möglicherweise hat der Server sein Zertifikat erneuert, oder jemand fängt die Verbindung ab. Vergleiche die Fingerabdrücke in der Meldung mit denen des Servers, bevor du dem neuen Zertifikat vertraust.",
+        "trust": "Dem neuen Zertifikat vertrauen"
       }
     },
     "network": {
@@ -346,6 +351,12 @@
   },
   "tls": {
     "off": "Unverschlüsselt",
-    "unverified": "Nicht verifiziert"
+    "unverified": "Nicht verifiziert",
+    "pin": {
+      "label": "Angeheftetes Zertifikat (SHA-256)",
+      "forget": "Vergessen",
+      "help": "Dieser Modus prüft die Zertifikatskette nicht: Er akzeptiert nur das Zertifikat, das der Server bei der ersten Verbindung vorgelegt hat. „Vergessen“ sorgt dafür, dass die nächste Verbindung das Zertifikat anheftet, das der Server dann vorlegt.",
+      "none": "Dieser Modus prüft die Zertifikatskette nicht: Die erste Verbindung heftet das Zertifikat des Servers an, und spätere akzeptieren nur dieses."
+    }
   }
 }

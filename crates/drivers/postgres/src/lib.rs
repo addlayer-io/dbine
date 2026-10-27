@@ -1197,7 +1197,7 @@ fn tls_connector(
             .collect::<std::result::Result<Vec<dbine_tls::rustls::pki_types::CertificateDer<'static>>, _>>()
             .map_err(|e| bad(e.to_string()))?;
         if certs.is_empty() {
-            return Err(bad("no PEM certificates".into()));
+            return Err(bad("no tiene certificados PEM".into()));
         }
         for c in certs {
             roots.add(c).map_err(|e| bad(e.to_string()))?;

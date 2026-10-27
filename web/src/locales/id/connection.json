@@ -91,6 +91,11 @@
       "unknown": {
         "title": "Tidak dapat terhubung",
         "body": "Server atau driver merespons dengan pesan ini."
+      },
+      "tls_pin_changed": {
+        "title": "Sertifikat server berubah",
+        "body": "Koneksi ini tidak memverifikasi rantai sertifikat: pada koneksi pertama, koneksi ini menyimpan sidik jari sertifikat server, dan sekarang server menunjukkan sertifikat lain. Mungkin server telah memperbarui sertifikatnya, atau mungkin ada pihak yang menyadap koneksi. Bandingkan sidik jari dalam pesan dengan milik server sebelum memercayai sertifikat baru.",
+        "trust": "Percayai sertifikat baru"
       }
     },
     "network": {
@@ -346,6 +351,12 @@
   },
   "tls": {
     "off": "Tanpa enkripsi",
-    "unverified": "Tidak diverifikasi"
+    "unverified": "Tidak diverifikasi",
+    "pin": {
+      "label": "Sertifikat yang disematkan (SHA-256)",
+      "forget": "Lupakan",
+      "help": "Mode ini tidak memverifikasi rantai sertifikat: hanya menerima sertifikat yang ditunjukkan server pada koneksi pertama. \"Lupakan\" membuat koneksi berikutnya menyematkan sertifikat yang ditunjukkan server saat itu.",
+      "none": "Mode ini tidak memverifikasi rantai sertifikat: koneksi pertama menyematkan sertifikat server dan koneksi berikutnya hanya menerima sertifikat itu."
+    }
   }
 }

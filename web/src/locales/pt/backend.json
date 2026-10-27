@@ -11261,5 +11261,17 @@
   "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": "Para emuladores locais, que usam http:// sem TLS nem autenticação. Vazio = a API do Google, sempre por https com o certificado verificado.",
   "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": "STRICT verifica se o nome do servidor consta no certificado dele; NONE só verifica a cadeia.",
   "Si el servidor es una URL (http://… o https://…), manda su esquema.": "Se o servidor for uma URL (http://… ou https://…), vale o esquema dela.",
-  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "por um túnel SSH o certificado é verificado pelo nome do servidor, e {0} é um endereço IP: use o nome de host que consta no certificado"
+  "por un túnel SSH el certificado se verifica contra el nombre del servidor, y {0} es una dirección IP: usá el nombre de host que figura en el certificado": "por um túnel SSH o certificado é verificado pelo nome do servidor, e {0} é um endereço IP: use o nome de host que consta no certificado",
+  "El certificado del servidor cambió desde la conexión en la que se lo aceptó: se esperaba la huella SHA-256 {0} y el servidor presentó {1}. Si el servidor renovó su certificado, confiá en el certificado nuevo; si no, alguien podría estar interceptando la conexión.": "O certificado do servidor mudou desde a conexão em que foi aceito: era esperada a impressão digital SHA-256 {0} e o servidor apresentou {1}. Se o servidor renovou o certificado, confie no novo certificado; caso contrário, alguém pode estar interceptando a conexão.",
+  "certificado inválido en {0}: {1}": "certificado inválido em {0}: {1}",
+  "el certificado de CA «{0}»": "o certificado de CA \"{0}\"",
+  "{0} no es un PEM válido: {1}": "{0} não é um PEM válido: {1}",
+  "{0} no tiene certificados PEM.": "{0} não tem certificados PEM.",
+  "no tiene certificados PEM": "não tem certificados PEM",
+  "el nombre del servidor no resolvió a ninguna dirección": "o nome do servidor não foi resolvido para nenhum endereço",
+  "no se pudo leer {0}: no tiene {1} ni {2}": "não foi possível ler {0}: não tem {1} nem {2}",
+  "Advanced": "Advanced",
+  "Element": "Element",
+  "Instance": "Instance",
+  "no schema scripted": "no schema scripted"
 }

@@ -89,7 +89,9 @@ impl Pinned {
         let addr = (self.host.as_str(), self.port)
             .to_socket_addrs()?
             .next()
-            .ok_or_else(|| std::io::Error::other("no address"))?;
+            .ok_or_else(|| {
+                std::io::Error::other("el nombre del servidor no resolvió a ninguna dirección")
+            })?;
         let tcp = std::net::TcpStream::connect_timeout(&addr, timeout)?;
         tcp.set_nodelay(true).ok();
         let conn = rustls::ClientConnection::new(self.config()?, self.name.clone())
