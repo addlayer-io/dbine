@@ -1,0 +1,63 @@
+{
+  "query": "Запит {{n}}",
+  "actualPlan": "Реальний план",
+  "estimatedPlan": "Орієнтовний план",
+  "diagram": "Діаграма",
+  "rawPlan": "Початковий план",
+  "statementTitle": "Клацніть, щоб побачити повністю",
+  "hint": "Перетягуйте для переміщення · ⌘/pinch + колесо для масштабу · F вміщує",
+  "summary": {
+    "operators": "Оператори",
+    "cost": "Вартість",
+    "time": "Час",
+    "rows": "Рядки",
+    "firstWarning": "Перейти до першого попередження",
+    "warnings_one": "{{count}} попередження",
+    "warnings_few": "{{count}} попередження",
+    "warnings_many": "{{count}} попереджень",
+    "warnings_other": "{{count}} попередження"
+  },
+  "edge": {
+    "actualRows": "Реальних рядків: {{rows}}",
+    "estimatedRows": "Орієнтовних рядків: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Вартість оператора: {{pct}}%",
+    "noCost": "Без вартості",
+    "actualEstimatedRows": "Реальні / орієнтовні рядки",
+    "estimatedRows": "Орієнтовні рядки",
+    "estimatedShort": "{{rows}} орієнт.",
+    "expand_one": "Розгорнути ({{count}} оператор)",
+    "expand_few": "Розгорнути ({{count}} оператори)",
+    "expand_many": "Розгорнути ({{count}} операторів)",
+    "expand_other": "Розгорнути ({{count}} оператора)",
+    "collapse": "Згорнути"
+  },
+  "zoom": {
+    "zoomOut": "Зменшити (−)",
+    "actualSize": "Реальний розмір (0)",
+    "zoomIn": "Збільшити (+)",
+    "fit": "Вмістити у вікно (F)",
+    "expandAll": "Розгорнути все",
+    "collapseBelow": "Згорнути нижче 3-го рівня",
+    "minimap": "Мінікарта"
+  },
+  "props": {
+    "close": "Закрити (Esc)",
+    "operator": "Оператора",
+    "self": "Власний",
+    "subtree": "Піддерево",
+    "rowsAndTime": "Рядки й час",
+    "estimatedPerExecution": "Орієнтовні (за виконання)",
+    "actualTotal": "Реальні (всього)",
+    "executions": "Виконань",
+    "actualTime": "Реальний час",
+    "object": "Об'єкт",
+    "properties": "Властивості"
+  },
+  "raw": {
+    "save": "Зберегти…",
+    "sqlServerPlan": "План SQL Server",
+    "ssmsHint": "Відкривається в SQL Server Management Studio (.sqlplan)"
+  }
+}

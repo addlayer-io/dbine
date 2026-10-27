@@ -88,7 +88,7 @@ use dbine_driver::{
     kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language,
     MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
-    Session, TableSchema,
+    Session, TableSchema, TlsLevel, TlsSupport, TUNNEL_ORIGIN_HOST,
 };
 use futures::TryStreamExt;
 use mongodb::bson::{doc, Bson, Document};
@@ -211,13 +211,8 @@ fn build_info(flavor: Flavor) -> DriverInfo {
                     .help("Nombre del replica set; vacío = conexión directa al servidor.")
                     .advanced(),
             );
-            fields.push(Field::encrypt());
-            fields.push(Field::trust_cert());
         }
-        Flavor::Ferret => {
-            fields.push(Field::encrypt());
-            fields.push(Field::trust_cert());
-        }
+        Flavor::Ferret => {}
         Flavor::DocumentDb => {
             fields.push(
                 Field::new("replica_set", "Replica set", FieldKind::Text)
@@ -225,18 +220,9 @@ fn build_info(flavor: Flavor) -> DriverInfo {
                     .help("rs0 para conectarse al cluster; vacío = conexión directa a la instancia (útil con un túnel SSH).")
                     .advanced(),
             );
-            fields.push(Field::encrypt().default_value("true"));
-            fields.push(Field::trust_cert().help(
-                "Necesario si te conectás por un túnel (el certificado no coincide con localhost).",
-            ));
-            fields.push(
-                Field::new("ca_file", "Certificado de la CA de AWS", FieldKind::File)
-                    .placeholder("global-bundle.pem")
-                    .help("El paquete de CA de Amazon RDS/DocumentDB (global-bundle.pem), descargable desde la documentación de AWS.")
-                    .ssl(),
-            );
         }
     }
+    fields.extend(tls_fields(flavor));
     fields.push(
         Field::new("connection_string", "Cadena de conexión", FieldKind::Password)
             .secret()
@@ -252,6 +238,8 @@ fn build_info(flavor: Flavor) -> DriverInfo {
     );
     fields.push(Field::read_only());
     DriverInfo {
+        tls: TlsSupport::Configurable,
+        tls_port: None,
         id,
         name,
         family: Family::Document,
@@ -266,6 +254,110 @@ fn build_info(flavor: Flavor) -> DriverInfo {
             ObjectKindInfo::views(),
         ],
     }
+}
+
+/// The `tls` URI option, as a checkbox. A saved connection from before it
+/// behaves as its `encrypt` said; DocumentDB's ff / ft keep the legacy rule
+/// "TLS when there is a CA file" (an empty legacy entry).
+fn tls_field(flavor: Flavor) -> Field {
+    Field::tls_switch(
+        "tls",
+        "tls",
+        TlsLevel::VerifyFull,
+        TlsLevel::Off,
+        true,
+        match flavor {
+            Flavor::DocumentDb => ["", "", "true", "true"],
+            _ => ["false", "false", "true", "true"],
+        },
+    )
+    .help("Cifra la conexión y verifica el certificado del servidor. Con una cadena de conexión no se aplica: manda la cadena.")
+}
+
+/// `tlsAllowInvalidCertificates`. Today's `trust_server_certificate` turned
+/// it on whenever TLS was on (a saved `tls=true` or DocumentDB's CA file
+/// with `encrypt` off too), so ft maps to `true`: it only matters when TLS
+/// is on.
+fn skip_verify_field() -> Field {
+    Field::tls_skip_verify(
+        "tlsAllowInvalidCertificates",
+        "tlsAllowInvalidCertificates",
+        false,
+        ["false", "true", "false", "true"],
+    )
+    .help("No verifica el certificado del servidor (autofirmado, otro nombre): la conexión queda expuesta a una suplantación. Por un túnel SSH el certificado se verifica contra 127.0.0.1, porque el cliente de MongoDB no permite indicar el nombre real del servidor.")
+}
+
+/// `tlsCAFile`. DocumentDB keeps the key it always stored the AWS bundle
+/// under (`ca_file`), so saved connections show it.
+fn ca_field(flavor: Flavor) -> Field {
+    match flavor {
+        Flavor::DocumentDb => Field::tls_ca_file("ca_file", "tlsCAFile")
+            .placeholder("global-bundle.pem")
+            .help("El paquete de CA de Amazon RDS/DocumentDB (global-bundle.pem), descargable desde la documentación de AWS."),
+        _ => Field::tls_ca_file("tlsCAFile", "tlsCAFile")
+            .help("Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades públicas habituales."),
+    }
+}
+
+fn tls_fields(flavor: Flavor) -> [Field; 3] {
+    [tls_field(flavor), skip_verify_field(), ca_field(flavor)]
+}
+
+/// The client's TLS options for the form's fields (not a connection
+/// string's: its own `tls` options apply).
+fn tls_options(cfg: &ConnectionConfig, flavor: Flavor) -> Option<Tls> {
+    let (ca_f, tls_f, skip_f) = (ca_field(flavor), tls_field(flavor), skip_verify_field());
+    let ca = cfg.tls_value(&ca_f);
+    let on = match cfg.tls_value(&tls_f) {
+        Some(v) => v == "true",
+        // DocumentDB's legacy rule (ff / ft): TLS when a CA file is set.
+        None => ca.is_some(),
+    };
+    if !on {
+        return None;
+    }
+    let mut t = TlsOptions::default();
+    if cfg.tls_value(&skip_f).is_some_and(|v| skip_f.tls_skips(v)) {
+        t.allow_invalid_certificates = Some(true);
+    }
+    if let Some(ca) = ca {
+        t.ca_file_path = Some(ca.into());
+    }
+    Some(Tls::Enabled(t))
+}
+
+/// A failed connect, with what to change when TLS is why: the native option
+/// to change, and the SSH tunnel limit (the client checks the certificate
+/// against the address it dials, 127.0.0.1, and can't be told the real
+/// name).
+fn connect_failure(cfg: &ConnectionConfig, e: mongodb::error::Error) -> Error {
+    let base = err(e);
+    let Error::Connect(text) = &base else {
+        return base;
+    };
+    let mut f = dbine_driver::ConnectFailure::from_message(text.clone());
+    // A failed handshake comes wrapped in "Server selection timeout: …
+    // Error: …": the wrapped error says why.
+    f.kind = dbine_driver::error::classify_message(&text.replace("Server selection timeout:", ""));
+    let tunnel = cfg.option(TUNNEL_ORIGIN_HOST).is_some();
+    let uri = cfg.option("connection_string").is_some();
+    f.message = match f.kind {
+        dbine_driver::ConnectFailureKind::TlsUntrusted if tunnel => format!(
+            "Por un túnel SSH, MongoDB verifica el certificado contra 127.0.0.1 y no contra el nombre real del servidor: usá un certificado que incluya 127.0.0.1 o activá tlsAllowInvalidCertificates ({})",
+            f.message
+        ),
+        dbine_driver::ConnectFailureKind::TlsUntrusted if !uri => format!(
+            "No se pudo verificar el certificado del servidor: indicá la CA en tlsCAFile o activá tlsAllowInvalidCertificates ({})",
+            f.message
+        ),
+        k if k.is_tls() && !uri => format!(
+            "Falló la conexión TLS: si el servidor no tiene TLS, desactivá tls ({})",
+            f.message
+        ),
+        _ => return base,
+    };
+    Error::ConnectFailed(Box::new(f))
 }
 
 fn err(e: mongodb::error::Error) -> Error {
@@ -324,7 +416,10 @@ async fn client_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<Client
     if flavor == Flavor::DocumentDb {
         // DocumentDB rejects retryable writes.
         o.retry_writes = Some(false);
-        if let Some(ca) = cfg.option("ca_file") {
+        // With a connection string the form's CA file still applies, as it
+        // always did (the form's own fields set it in `base_options`).
+        let uri = cfg.option("connection_string").is_some();
+        if let Some(ca) = cfg.option("ca_file").filter(|_| uri) {
             let mut t = match o.tls.take() {
                 Some(Tls::Enabled(t)) => t,
                 _ => TlsOptions::default(),
@@ -370,16 +465,7 @@ async fn base_options(cfg: &ConnectionConfig, flavor: Flavor) -> Result<ClientOp
         None if o.hosts.len() == 1 => o.direct_connection = Some(true),
         None => {}
     }
-    let tls = cfg.encrypt
-        || cfg.option("tls").is_some_and(|v| v == "true")
-        || (flavor == Flavor::DocumentDb && cfg.option("ca_file").is_some());
-    if tls {
-        let mut t = TlsOptions::default();
-        if cfg.trust_server_certificate {
-            t.allow_invalid_certificates = Some(true);
-        }
-        o.tls = Some(Tls::Enabled(t));
-    }
+    o.tls = tls_options(cfg, flavor);
     Ok(o)
 }
 
@@ -583,13 +669,13 @@ impl Driver for MongoDriver {
             .or_else(|| Some(cfg.database.clone()).filter(|d| !d.is_empty()))
             .or_else(|| o.default_database.clone())
             .unwrap_or_else(|| "test".into());
-        let client = Client::with_options(o).map_err(err)?;
+        let client = Client::with_options(o).map_err(|e| connect_failure(cfg, e))?;
         // The client is lazy: a ping proves the server and the login.
         client
             .database("admin")
             .run_command(doc! { "ping": 1 })
             .await
-            .map_err(err)?;
+            .map_err(|e| connect_failure(cfg, e))?;
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let tag = format!(
             "dbine-{}-{}",
@@ -1505,6 +1591,141 @@ mod tests {
             .fields
             .iter()
             .any(|x| x.key == "ca_file"));
+    }
+
+    /// (TLS on, skip verification, CA file) of the options a config gives.
+    async fn tls_of(c: &ConnectionConfig, flavor: Flavor) -> Option<(bool, Option<String>)> {
+        match client_options(c, flavor).await.unwrap().tls {
+            Some(Tls::Enabled(t)) => Some((
+                t.allow_invalid_certificates == Some(true),
+                t.ca_file_path.map(|p| p.display().to_string()),
+            )),
+            Some(Tls::Disabled) | None => None,
+        }
+    }
+
+    fn legacy(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "h".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            options: options
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_pairs_keep_todays_tls() {
+        for flavor in [Flavor::Mongo, Flavor::Ferret, Flavor::DocumentDb] {
+            // ff, ft: no TLS; tf: verified; tt: allow invalid certificates.
+            assert_eq!(tls_of(&legacy(false, false, &[]), flavor).await, None);
+            assert_eq!(tls_of(&legacy(false, true, &[]), flavor).await, None);
+            assert_eq!(
+                tls_of(&legacy(true, false, &[]), flavor).await,
+                Some((false, None))
+            );
+            assert_eq!(
+                tls_of(&legacy(true, true, &[]), flavor).await,
+                Some((true, None))
+            );
+        }
+        // A saved `tls=true` turned TLS on with `encrypt` off; trust applied.
+        for (trust, skip) in [(false, false), (true, true)] {
+            assert_eq!(
+                tls_of(&legacy(false, trust, &[("tls", "true")]), Flavor::Mongo).await,
+                Some((skip, None))
+            );
+        }
+        // DocumentDB: a CA file turned TLS on with `encrypt` off.
+        let ca = [("ca_file", "/b.pem")];
+        assert_eq!(
+            tls_of(&legacy(false, false, &ca), Flavor::DocumentDb).await,
+            Some((false, Some("/b.pem".into())))
+        );
+        assert_eq!(
+            tls_of(&legacy(false, true, &ca), Flavor::DocumentDb).await,
+            Some((true, Some("/b.pem".into())))
+        );
+        // MongoDB never read `ca_file`.
+        assert_eq!(
+            tls_of(&legacy(false, false, &ca), Flavor::Mongo).await,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn new_connections_verify_and_options_apply() {
+        for flavor in [Flavor::Mongo, Flavor::Ferret, Flavor::DocumentDb] {
+            let i = build_info(flavor);
+            assert!(i.fields.iter().all(|f| !f.is_legacy_tls()));
+            assert_eq!(i.tls, TlsSupport::Configurable);
+            // A new connection: the fields' defaults.
+            let defaults: Vec<(&str, &str)> = i
+                .fields
+                .iter()
+                .filter(|f| f.tls.is_some() && !f.default.is_empty())
+                .map(|f| (f.key, f.default))
+                .collect();
+            let c = legacy(false, false, &defaults);
+            assert_eq!(c.tls_level(&i.fields), Some(TlsLevel::VerifyFull));
+            assert_eq!(tls_of(&c, flavor).await, Some((false, None)));
+            let ca_key = ca_field(flavor).key;
+            let c = legacy(
+                false,
+                false,
+                &[
+                    ("tls", "true"),
+                    ("tlsAllowInvalidCertificates", "true"),
+                    (ca_key, "/ca.pem"),
+                ],
+            );
+            assert_eq!(c.tls_level(&i.fields), Some(TlsLevel::Unverified));
+            assert_eq!(
+                tls_of(&c, flavor).await,
+                Some((true, Some("/ca.pem".into())))
+            );
+            // Turned off, even with the bools and a CA file saying otherwise.
+            let c = legacy(true, true, &[("tls", "false"), (ca_key, "/ca.pem")]);
+            assert_eq!(tls_of(&c, flavor).await, None);
+        }
+        // A connection string: its own TLS, the fields don't apply.
+        let c = legacy(
+            true,
+            true,
+            &[("connection_string", "mongodb://h:27017/?tls=false")],
+        );
+        assert_eq!(tls_of(&c, Flavor::Mongo).await, None);
+    }
+
+    #[test]
+    fn tls_failures_name_the_option() {
+        let e = |m: &str| mongodb::error::Error::from(std::io::Error::other(m.to_string()));
+        let msg = |r: Error| match r {
+            Error::ConnectFailed(f) => (f.kind, f.message),
+            other => panic!("{other:?}"),
+        };
+        let c = legacy(false, false, &[]);
+        let (k, m) = msg(connect_failure(
+            &c,
+            e("invalid peer certificate: UnknownIssuer"),
+        ));
+        assert_eq!(k, dbine_driver::ConnectFailureKind::TlsUntrusted);
+        assert!(m.contains("tlsCAFile") && m.contains("UnknownIssuer"));
+        let mut t = c.clone();
+        t.options
+            .insert(TUNNEL_ORIGIN_HOST.into(), "db.example.com".into());
+        let (_, m) = msg(connect_failure(
+            &t,
+            e("invalid peer certificate: NotValidForName"),
+        ));
+        assert!(m.contains("127.0.0.1") && m.contains("tlsAllowInvalidCertificates"));
+        assert!(matches!(
+            connect_failure(&c, e("connection refused")),
+            Error::Connect(_)
+        ));
     }
 
     #[tokio::test]

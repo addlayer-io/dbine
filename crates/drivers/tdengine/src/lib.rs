@@ -51,6 +51,8 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "tdengine",
         name: "TDengine",
         family: Family::TimeSeries,
@@ -90,6 +92,11 @@ pub struct TdDriver {
 
 #[async_trait]
 impl Driver for TdDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }

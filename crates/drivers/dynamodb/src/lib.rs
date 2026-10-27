@@ -41,6 +41,8 @@ fn info() -> DriverInfo {
     fields.push(aws::endpoint_field("http://localhost:8000"));
     fields.push(Field::read_only());
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "dynamodb",
         name: "Amazon DynamoDB",
         family: Family::KeyValue,

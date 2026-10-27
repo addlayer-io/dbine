@@ -13,6 +13,7 @@ import { useTabsStore } from '../stores/tabs';
 import { locale } from '../i18n';
 import { markdownParts, withDestinations } from '../composables/markdown';
 import { confirmExternalLink, onMarkdownClick } from '../composables/externalLink';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // The AI assistant (right sidebar, ⌘I). It writes code; it never runs it:
 // its code goes into the open query (appended, or replacing it when it
@@ -223,10 +224,10 @@ const phaseText = computed(() => ({
         </el-option-group>
       </el-select>
       <div style="flex: 1" />
-      <button class="ai-icon" :title="$t('ai:head.history')" :class="{ on: showHistory }" @click="toggleHistory"><el-icon><ei-clock /></el-icon></button>
-      <button class="ai-icon" :title="$t('ai:head.setup')" :class="{ on: showSetup }" @click="showSetup = !showSetup; showHistory = false"><el-icon><ei-setting /></el-icon></button>
-      <button class="ai-icon" :title="$t('ai:head.newChat')" :disabled="!ai.messages.length" @click="ai.clear()"><el-icon><ei-document-add /></el-icon></button>
-      <button class="ai-icon" :title="$t('ai:head.close')" @click="$emit('close')"><el-icon><ei-close /></el-icon></button>
+      <button :aria-label="$t('ai:head.history')" class="ai-icon" :title="$t('ai:head.history')" :class="{ on: showHistory }" @click="toggleHistory"><el-icon><ei-clock /></el-icon></button>
+      <button :aria-label="$t('ai:head.setup')" class="ai-icon" :title="$t('ai:head.setup')" :class="{ on: showSetup }" @click="showSetup = !showSetup; showHistory = false"><el-icon><ei-setting /></el-icon></button>
+      <button :aria-label="$t('ai:head.newChat')" class="ai-icon" :title="$t('ai:head.newChat')" :disabled="!ai.messages.length" @click="ai.clear()"><el-icon><ei-document-add /></el-icon></button>
+      <button :aria-label="$t('ai:head.close')" class="ai-icon" :title="$t('ai:head.close')" @click="$emit('close')"><el-icon><ei-close /></el-icon></button>
     </header>
 
     <!-- Setup: no provider, or asked for -->
@@ -236,12 +237,12 @@ const phaseText = computed(() => ({
         <el-button v-if="ai.history.length" size="small" text @click="clearHistory">{{ $t('ai:history.clear') }}</el-button>
       </div>
       <p v-if="!ai.history.length" class="ai-muted">{{ $t('ai:history.empty') }}</p>
-      <div v-for="c in ai.history" :key="c.id" class="ai-chat-row" @click="openChat(c.id)">
+      <div v-for="c in ai.history" :key="c.id" class="ai-chat-row" v-key-activate @click="openChat(c.id)">
         <div class="ai-chat-main">
           <span class="ai-chat-title">{{ c.title || $t('ai:history.untitled') }}</span>
           <span class="ai-muted ai-small">{{ when(c.updated) }} · {{ $t('ai:history.messages', { count: c.messages.length }) }}</span>
         </div>
-        <button class="ai-icon" :title="$t('ai:history.delete')" @click.stop="ai.deleteChat(c.id)"><el-icon><ei-delete /></el-icon></button>
+        <button :aria-label="$t('ai:history.delete')" class="ai-icon" :title="$t('ai:history.delete')" @click.stop="ai.deleteChat(c.id)"><el-icon><ei-delete /></el-icon></button>
       </div>
     </section>
 
@@ -353,7 +354,7 @@ const phaseText = computed(() => ({
                     <button v-if="bridge && bridge.text().trim()" class="ai-act" :title="$t('ai:code.replaceHint')" @click="replaceQuery(p.code)">
                       <el-icon><ei-refresh-right /></el-icon>{{ $t('ai:code.replace') }}
                     </button>
-                    <button class="ai-act" :title="$t('common:copy')" @click="copy(p.code)"><el-icon><ei-copy-document /></el-icon></button>
+                    <button :aria-label="$t('common:copy')" class="ai-act" :title="$t('common:copy')" @click="copy(p.code)"><el-icon><ei-copy-document /></el-icon></button>
                   </template>
                 </div>
                 <pre class="nm-selectable"><code>{{ p.code }}</code></pre>

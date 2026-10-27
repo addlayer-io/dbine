@@ -1,0 +1,41 @@
+{
+  "menu": "Zobacz zależności…",
+  "tab": "Zależności",
+  "refresh": "Odśwież",
+  "copy": "Kopiuj",
+  "copied": "Skopiowano zależności",
+  "summary": "Potwierdzone: {{confirmed}}, prawdopodobne: {{probable}}, do sprawdzenia: {{review}} (odczytane definicje: {{scanned}}).",
+  "outside": "Widoczne jest tylko to, co jest w bazie: aplikacje, raporty i zewnętrzne skrypty, które jej używają, nie pojawiają się tutaj.",
+  "unreadable": "Nie udało się odczytać definicji: {{names}}. To, co zależy tam od obiektu, nie znajduje się na liście.",
+  "none": "Nic w bazie nie zależy od tego obiektu.",
+  "on": "w {{parent}}",
+  "dynamic": "dynamiczny SQL",
+  "relation": {
+    "foreign_key": "Klucze obce",
+    "index": "Indeksy i klucze główne",
+    "check": "Ograniczenia CHECK",
+    "code": "Widoki, procedury i wyzwalacze"
+  },
+  "confidence": {
+    "confirmed": "Potwierdzona",
+    "probable": "Prawdopodobna",
+    "review": "Do sprawdzenia"
+  },
+  "confidenceTip": {
+    "confirmed": "Katalog silnika rejestruje tę zależność.",
+    "probable": "Kod obiektu wymienia ten obiekt (oraz kolumnę wraz z tabelą).",
+    "review": "Nazwa występuje w tekście, prawdopodobnie w dynamicznym SQL: trzeba go przeczytać, aby wiedzieć, czy go używa."
+  },
+  "kind": {
+    "table": "Tabela",
+    "collection": "Kolekcja",
+    "view": "Widok",
+    "materialized_view": "Widok zmaterializowany",
+    "procedure": "Procedura",
+    "function": "Funkcja",
+    "trigger": "Wyzwalacz",
+    "synonym": "Synonim",
+    "type": "Typ",
+    "sequence": "Sekwencja"
+  }
+}

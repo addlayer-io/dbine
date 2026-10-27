@@ -16,6 +16,7 @@ import { matchesLocal, parseFilter, type ColumnFilter, type ColumnKind } from '.
 import { readJson, writeJson } from '../stores/storage';
 import { useConnectionsStore } from '../stores/connections';
 import { profilerAutostart, type ProfilerTab } from '../stores/tabs';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // The profiler: every statement run against the database, live (SQL Server
 // Profiler style). The driver's session keeps what arrives; this tab polls
@@ -511,16 +512,16 @@ const status = computed(() => {
           <table class="pv-table">
             <thead>
               <tr @contextmenu.prevent="columnsMenu">
-                <th v-if="vis('time')" class="c-time pv-sortable" @click="sortBy('time')">{{ $t('profiler:column.time') }}<span class="pv-arrow">{{ arrow('time') }}</span></th>
-                <th v-if="vis('duration_ms')" class="c-dur pv-sortable" @click="sortBy('duration_ms')">{{ $t('profiler:column.duration') }}<span class="pv-arrow">{{ arrow('duration_ms') }}</span></th>
-                <th class="c-text pv-sortable" @click="sortBy('text')">{{ $t('profiler:column.query') }}<span class="pv-arrow">{{ arrow('text') }}</span></th>
-                <th v-if="vis('database')" class="c-db pv-sortable" @click="sortBy('database')">{{ $t('profiler:column.database') }}<span class="pv-arrow">{{ arrow('database') }}</span></th>
-                <th v-if="vis('user')" class="c-user pv-sortable" @click="sortBy('user')">{{ $t('profiler:column.user') }}<span class="pv-arrow">{{ arrow('user') }}</span></th>
-                <th v-if="vis('client')" class="c-client pv-sortable" @click="sortBy('client')">{{ $t('profiler:column.client') }}<span class="pv-arrow">{{ arrow('client') }}</span></th>
-                <th v-if="vis('application')" class="c-app pv-sortable" @click="sortBy('application')">{{ $t('profiler:column.application') }}<span class="pv-arrow">{{ arrow('application') }}</span></th>
-                <th v-if="vis('rows')" class="c-rows pv-sortable" @click="sortBy('rows')">{{ $t('profiler:column.rows') }}<span class="pv-arrow">{{ arrow('rows') }}</span></th>
+                <th v-if="vis('time')" v-key-activate.native class="c-time pv-sortable" @click="sortBy('time')">{{ $t('profiler:column.time') }}<span class="pv-arrow">{{ arrow('time') }}</span></th>
+                <th v-if="vis('duration_ms')" v-key-activate.native class="c-dur pv-sortable" @click="sortBy('duration_ms')">{{ $t('profiler:column.duration') }}<span class="pv-arrow">{{ arrow('duration_ms') }}</span></th>
+                <th v-key-activate.native class="c-text pv-sortable" @click="sortBy('text')">{{ $t('profiler:column.query') }}<span class="pv-arrow">{{ arrow('text') }}</span></th>
+                <th v-if="vis('database')" v-key-activate.native class="c-db pv-sortable" @click="sortBy('database')">{{ $t('profiler:column.database') }}<span class="pv-arrow">{{ arrow('database') }}</span></th>
+                <th v-if="vis('user')" v-key-activate.native class="c-user pv-sortable" @click="sortBy('user')">{{ $t('profiler:column.user') }}<span class="pv-arrow">{{ arrow('user') }}</span></th>
+                <th v-if="vis('client')" v-key-activate.native class="c-client pv-sortable" @click="sortBy('client')">{{ $t('profiler:column.client') }}<span class="pv-arrow">{{ arrow('client') }}</span></th>
+                <th v-if="vis('application')" v-key-activate.native class="c-app pv-sortable" @click="sortBy('application')">{{ $t('profiler:column.application') }}<span class="pv-arrow">{{ arrow('application') }}</span></th>
+                <th v-if="vis('rows')" v-key-activate.native class="c-rows pv-sortable" @click="sortBy('rows')">{{ $t('profiler:column.rows') }}<span class="pv-arrow">{{ arrow('rows') }}</span></th>
                 <template v-for="m in METRICS" :key="m">
-                  <th v-if="vis(m)" class="c-metric pv-sortable" :title="unitHint(m)" @click="sortBy(m)">{{ $t(`profiler:column.${COLUMN_KEY[m]}`) }}<span class="pv-arrow">{{ arrow(m) }}</span></th>
+                  <th v-if="vis(m)" v-key-activate.native class="c-metric pv-sortable" :title="unitHint(m)" @click="sortBy(m)">{{ $t(`profiler:column.${COLUMN_KEY[m]}`) }}<span class="pv-arrow">{{ arrow(m) }}</span></th>
                 </template>
               </tr>
               <tr class="pv-filters" :title="$t('profiler:filtersHint')">
@@ -528,7 +529,7 @@ const status = computed(() => {
                 <th v-for="c in COLUMNS.filter((c) => vis(c.key))" :key="c.key" :class="`c-${c.key}`">
                   <span v-if="c.key === 'text' && sameAs" class="pv-same" :title="sameAs.label">
                     <span>{{ $t('profiler:sameAs', { label: sameAs.label }) }}</span>
-                    <button class="ide-icon-btn" :title="$t('profiler:removeFilter')" @click="sameAs = null"><el-icon :size="12"><ei-close /></el-icon></button>
+                    <button :aria-label="$t('profiler:removeFilter')" class="ide-icon-btn" :title="$t('profiler:removeFilter')" @click="sameAs = null"><el-icon :size="12"><ei-close /></el-icon></button>
                   </span>
                   <el-select
                     v-else-if="isPick(c.key)"
@@ -554,6 +555,7 @@ const status = computed(() => {
               <tr
                 v-for="r in shown"
                 :key="r.n"
+                v-key-activate.native.open
                 :class="{ sel: r.n === selected, err: !!r.error }"
                 @click="selected = r.n"
                 @dblclick="openInQuery(r)"
@@ -597,7 +599,7 @@ const status = computed(() => {
             <div class="pv-spacer" />
             <el-button size="small" text @click="copy(current.text)"><el-icon><ei-document-copy /></el-icon><span>{{ $t('common:copy') }}</span></el-button>
             <el-button size="small" text @click="openInQuery(current)"><el-icon><ei-document /></el-icon><span>{{ $t('profiler:openInQuery') }}</span></el-button>
-            <button class="ide-icon-btn" :title="$t('common:close')" @click="selected = null"><el-icon :size="13"><ei-close /></el-icon></button>
+            <button :aria-label="$t('common:close')" class="ide-icon-btn" :title="$t('common:close')" @click="selected = null"><el-icon :size="13"><ei-close /></el-icon></button>
           </div>
           <div v-if="current.error" class="pv-detail-error">{{ tb(current.error) }}</div>
           <div class="pv-sql">
@@ -613,8 +615,8 @@ const status = computed(() => {
         <template v-if="filtering"> · {{ $t('profiler:foot.passing', { n: num(shown.length) }) }}</template>
         <template v-if="skipped"> · {{ $t('profiler:foot.skipped', { n: num(skipped) }) }}</template>
         <template v-if="dropped"> · {{ $t('profiler:foot.dropped', { n: num(dropped), max: num(MAX_ROWS) }) }}</template>
-        <span v-if="sort" class="pv-follow" @click="sort = null">{{ $t('profiler:foot.arrivalOrder') }}</span>
-        <span v-else-if="!follow && running" class="pv-follow" @click="follow = true; list?.scrollTo({ top: list.scrollHeight })">{{ $t('profiler:foot.toEnd') }}</span>
+        <button v-if="sort" type="button" class="pv-follow nm-plain-btn" @click="sort = null">{{ $t('profiler:foot.arrivalOrder') }}</button>
+        <button v-else-if="!follow && running" type="button" class="pv-follow nm-plain-btn" @click="follow = true; list?.scrollTo({ top: list.scrollHeight })">{{ $t('profiler:foot.toEnd') }}</button>
       </footer>
     </template>
   </div>

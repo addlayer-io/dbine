@@ -142,19 +142,21 @@ fn kinds_for(f: Flavor) -> Vec<ObjectKindInfo> {
 
 fn info(f: Flavor) -> DriverInfo {
     let bolt_fields = |example: &'static str| {
-        vec![
+        let mut v = vec![
             Field::host().help(example),
             Field::port(),
             Field::database(),
             Field::username(),
             Field::password(),
-            Field::encrypt(),
-            Field::trust_cert(),
-            Field::read_only(),
-        ]
+        ];
+        v.extend(bolt::tls_fields());
+        v.push(Field::read_only());
+        v
     };
     match f {
         Flavor::Neo4j => DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "neo4j",
             name: "Neo4j",
             family: Family::Graph,
@@ -171,6 +173,8 @@ fn info(f: Flavor) -> DriverInfo {
             object_kinds: kinds_for(f),
         },
         Flavor::Memgraph => DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "memgraph",
             name: "Memgraph",
             family: Family::Graph,
@@ -183,6 +187,8 @@ fn info(f: Flavor) -> DriverInfo {
             object_kinds: kinds_for(f),
         },
         Flavor::Neptune => DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "neptune",
             name: "Amazon Neptune",
             family: Family::Graph,
@@ -195,8 +201,8 @@ fn info(f: Flavor) -> DriverInfo {
                         .placeholder("mi-cluster.cluster-xxxx.us-east-1.neptune.amazonaws.com")
                         .help("El endpoint del cluster (o una URL completa, p. ej. un túnel https://localhost:8182)."),
                     Field::port(),
-                    Field::encrypt().default_value("true").help("Neptune solo acepta HTTPS."),
-                    Field::trust_cert().help("Útil con un túnel SSH, donde el certificado no coincide con localhost."),
+                    neptune::enable_ssl(),
+                    neptune::skip_cert_validation(),
                     Field::new("iam", "Autenticación IAM (SigV4)", FieldKind::Bool)
                         .help("Activala si el cluster tiene la autenticación IAM habilitada: firma cada pedido con las credenciales de abajo."),
                 ];

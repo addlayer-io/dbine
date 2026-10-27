@@ -43,6 +43,47 @@ pub fn pairs<'de, D: Deserializer<'de>>(
         .map(|v| v.iter().map(|(a, b)| (intern(a), intern(b))).collect())
 }
 
+/// A TLS mode's `(value, level)` pairs; a level this build doesn't know (a
+/// newer driver's) drops its pair instead of failing the whole manifest.
+pub fn level_pairs<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<(&'static str, crate::TlsLevel)>, D::Error> {
+    let v = Vec::<(String, serde_json::Value)>::deserialize(d)?;
+    Ok(v.into_iter()
+        .filter_map(|(value, level)| {
+            serde_json::from_value::<crate::TlsLevel>(level)
+                .ok()
+                .map(|l| (intern(&value), l))
+        })
+        .collect())
+}
+
+/// A list of TLS levels; one this build doesn't know (a newer driver's) is
+/// dropped instead of failing the whole manifest.
+pub fn levels<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<crate::TlsLevel>, D::Error> {
+    let v = Vec::<serde_json::Value>::deserialize(d)?;
+    Ok(v.into_iter()
+        .filter_map(|level| serde_json::from_value(level).ok())
+        .collect())
+}
+
+/// Exactly four strings (a TLS field's legacy table).
+pub fn str4<'de, D: Deserializer<'de>>(d: D) -> Result<[&'static str; 4], D::Error> {
+    let v = <[String; 4]>::deserialize(d)?;
+    Ok([intern(&v[0]), intern(&v[1]), intern(&v[2]), intern(&v[3])])
+}
+
+/// An optional value that reads as `None` when this build can't read it (a
+/// newer driver's), instead of failing what contains it.
+pub fn lenient<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'static>,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(Option::<T>::deserialize(v).ok().flatten())
+}
+
 /// Metadata types (`Field`…) whose `&'static str`s serde only reads from
 /// `'static` input: read through an owned JSON value, whatever the input.
 pub fn owned<'de, D, T>(d: D) -> Result<T, D::Error>

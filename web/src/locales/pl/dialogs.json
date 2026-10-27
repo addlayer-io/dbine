@@ -1,0 +1,54 @@
+{
+  "folder": {
+    "new": "Nowy folder",
+    "edit": "Edytuj folder · {{name}}",
+    "name": "Nazwa",
+    "namePlaceholder": "Klient, środowisko…",
+    "nameRequired": "Podaj nazwę",
+    "color": "Kolor",
+    "noColor": "Bez koloru",
+    "colorHelp": "Połączenia bez własnego koloru przyjmują kolor swojego folderu (przydatne do oznaczania produkcji).",
+    "inside": "W",
+    "create": "Utwórz",
+    "topLevel": "(Najwyższy poziom)"
+  },
+  "move": {
+    "title": "Przenieś „{{name}}” do…",
+    "move": "Przenieś"
+  },
+  "database": {
+    "scriptTitle": "Generuj skrypt · {{db}}",
+    "scriptName": "Skrypt {{db}}",
+    "scriptNameConverted": "Skrypt {{db}} (skonwertowany)",
+    "theDatabase": "baza"
+  },
+  "drivers": {
+    "intro": "Każdy sterownik jest pobierany automatycznie przy pierwszym połączeniu z danym silnikiem. Tutaj możesz pobrać je wcześniej (na przykład przed pracą bez internetu) lub usunąć te, których nie używasz.",
+    "search": "Szukaj silnika",
+    "diskTitle": "Miejsce zajmowane na dysku przez pobrane sterowniki",
+    "summary": "Pobrane: {{installed}} z {{total}} · {{size}} MB",
+    "downloadAll": "Pobierz wszystkie ({{size}} MB)",
+    "downloading": "Pobieranie",
+    "download": "Pobierz",
+    "remove": "Usuń",
+    "checkUpdates": "Sprawdź aktualizacje",
+    "checking": "Sprawdzanie…",
+    "upToDateAll": "Sterowniki są aktualne.",
+    "rollback": "Wróć do poprzedniej",
+    "rollbackTitle": "Zrezygnuj z wersji {{version}} i wróć do {{previous}}",
+    "rollbackConfirm": "Wrócić do wersji {{previous}} sterownika {{label}}? Wersja {{version}} nie będzie już używana. Otwarte połączenia pozostaną przy bieżącej wersji do czasu ich zamknięcia.",
+    "statusDownloading": "Pobieranie wersji {{available}}…",
+    "statusReady": "Wersja {{version}} będzie używana od następnego połączenia",
+    "statusNeedsApp": "Dostępna jest nowsza wersja, która wymaga DBine {{minApp}} lub nowszego",
+    "statusRolledBack": "Wersja {{from}} nie zadziałała i przywrócono {{version}}",
+    "statusRolledBackUser": "Przywrócono wersję {{version}}; wersja {{from}} nie będzie używana",
+    "statusRestart": "Uruchom ponownie DBine, aby zobaczyć nowe opcje tego sterownika"
+  },
+  "support": {
+    "title": "Wesprzyj DBine",
+    "text": "DBine jest bezpłatny i taki pozostanie. Twoje wsparcie pomaga nam utrzymywać aplikację i dodawać do niej kolejne funkcje.",
+    "notPayment": "To wsparcie, a nie opłata: aplikacja działa tak samo.",
+    "notNow": "Nie teraz",
+    "support": "Wesprzyj projekt"
+  }
+}

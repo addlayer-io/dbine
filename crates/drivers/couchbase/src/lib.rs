@@ -23,6 +23,7 @@ mod security;
 mod stats;
 mod steps;
 mod sync;
+mod tls;
 mod transfer;
 
 use dbine_driver::sql::{
@@ -33,7 +34,7 @@ use dbine_driver::{
     CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
     FieldKind, Language, Message, MessageLevel, Metric, MetricUnit, MonitorSnapshot, MonitorTable,
     ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, Session,
-    TableSchema, TxState,
+    TableSchema, TlsLevel, TlsSupport, TxState,
 };
 use ddl::{path, q, split_schema};
 use serde_json::{json, Value};
@@ -65,8 +66,40 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(CouchbaseDriver { info: info() })]
 }
 
+/// The TLS options, by the Couchbase SDKs' connection-string names: the
+/// `couchbase://` / `couchbases://` scheme, `tls_verify` (`peer` / `none`)
+/// and `truststorepath`. Saved connections from before them: `encrypt`
+/// gives https on 18093 / 18091, `trust` doesn't verify.
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_mode(
+            "scheme",
+            "scheme",
+            &[
+                ("couchbase", "couchbase://", TlsLevel::Off),
+                ("couchbases", "couchbases://", TlsLevel::VerifyFull),
+            ],
+            "couchbases",
+            ["couchbase", "couchbase", "couchbases", "couchbases"],
+        ),
+        Field::tls_verify(
+            "tls_verify",
+            "tls_verify",
+            &[
+                ("peer", "peer", TlsLevel::VerifyFull),
+                ("none", "none", TlsLevel::Unverified),
+            ],
+            "peer",
+            ["peer", "peer", "peer", "none"],
+        ),
+        Field::tls_ca_file("truststorepath", "truststorepath"),
+    ]
+}
+
 fn info() -> DriverInfo {
     DriverInfo {
+        tls: TlsSupport::Configurable,
+        tls_port: Some(18093),
         id: "couchbase",
         name: "Couchbase",
         family: Family::Document,
@@ -89,10 +122,11 @@ fn info() -> DriverInfo {
             },
             Field::username().required(),
             Field::password(),
-            Field::encrypt(),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        ]
+        .into_iter()
+        .chain(tls_fields())
+        .chain([Field::read_only()])
+        .collect(),
         databases_label: "Buckets",
         has_schemas: true,
         object_kinds: vec![
@@ -109,6 +143,11 @@ pub struct CouchbaseDriver {
 
 #[async_trait]
 impl Driver for CouchbaseDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }
@@ -328,21 +367,21 @@ impl Driver for CouchbaseDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() {
+        let tls = tls::HttpTls::new(cfg, &tls_fields(), None)?;
+        let scheme = tls.scheme();
+        let host = tls.url_host(if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
-        };
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
+        });
+        let http = tls
+            .builder(reqwest::Client::builder().connect_timeout(Duration::from_secs(15)))?
             .build()
             .map_err(Error::connect)?;
         let mgmt_port: u16 = cfg
             .option("mgmt_port")
             .and_then(|p| p.trim().parse().ok())
-            .unwrap_or(if cfg.encrypt { 18091 } else { 8091 });
+            .unwrap_or(if tls.https() { 18091 } else { 8091 });
         let bucket = database
             .filter(|d| !d.is_empty())
             .or(Some(cfg.database.as_str()).filter(|d| !d.is_empty()));
@@ -351,12 +390,13 @@ impl Driver for CouchbaseDriver {
                 http,
                 query: format!(
                     "{scheme}://{host}:{}",
-                    cfg.port_or(if cfg.encrypt { 18093 } else { 8093 })
+                    cfg.port_or(if tls.https() { 18093 } else { 8093 })
                 ),
                 mgmt: format!("{scheme}://{host}:{mgmt_port}"),
                 user: cfg.username.clone().unwrap_or_default(),
                 password: cfg.password.clone().unwrap_or_default(),
                 read_only: cfg.read_only,
+                tls: tls.clone(),
             }),
             bucket: bucket.map(str::to_string),
             cancel: Arc::new(Cancel::default()),
@@ -376,7 +416,8 @@ impl Driver for CouchbaseDriver {
         };
         tokio::time::timeout(Duration::from_secs(20), check)
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| tls.explain(e))?;
         Ok(Box::new(s))
     }
 }
@@ -388,10 +429,14 @@ struct Conn {
     user: String,
     password: String,
     read_only: bool,
+    /// For another client (a cancelled load's watch, on its own runtime).
+    tls: tls::HttpTls,
 }
 
 fn http_error(e: reqwest::Error) -> Error {
-    if e.is_connect() || e.is_timeout() {
+    if e.is_connect() {
+        tls::net_error(&e)
+    } else if e.is_timeout() {
         Error::Connect(e.to_string())
     } else {
         Error::Query(e.to_string())
@@ -2090,6 +2135,7 @@ mod tests {
                 user: String::new(),
                 password: String::new(),
                 read_only: true,
+                tls: tls::HttpTls::new(&ConnectionConfig::default(), &tls_fields(), None).unwrap(),
             }),
             bucket: Some("b".into()),
             cancel: Arc::new(Cancel::default()),
@@ -2118,5 +2164,55 @@ mod tests {
         assert!(
             matches!(rt.block_on(s.drop_database("b")), Err(Error::Query(m)) if m.contains("solo lectura"))
         );
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        tls::HttpTls::new(c, &tls_fields(), None).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("scheme".into(), "couchbase".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options.insert("tls_verify".into(), "none".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
     }
 }

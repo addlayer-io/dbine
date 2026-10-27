@@ -49,7 +49,7 @@ pub use aggregate::{
 };
 pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
-pub use config::ConnectionConfig;
+pub use config::{ConnectionConfig, TUNNEL_ORIGIN_HOST, TUNNEL_ORIGIN_PORT};
 pub use dependencies::{
     Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation,
 };
@@ -58,7 +58,7 @@ pub use filter::{ColumnFilter, FilterOp};
 pub use index_usage::{IndexUsage, IndexUsageReport};
 pub use info::{
     kinds, DatabaseProperties, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection,
-    FieldWhen, Language, ObjectKindInfo, PropertyInfo,
+    FieldWhen, Language, Legacy, ObjectKindInfo, PropertyInfo, TlsLevel, TlsRole, TlsSupport,
 };
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
@@ -213,6 +213,14 @@ pub trait Driver: Send + Sync {
     /// Its sessions implement [`Session::index_usage`]: the explorer lists a
     /// table's indexes with their usage, and "Índices…" opens the details.
     fn supports_index_usage(&self) -> bool {
+        false
+    }
+
+    /// A query on one database reads the other databases of the connection
+    /// by putting the database's name in front (`db.table`, or
+    /// `db.schema.table` when the engine has schemas): the editor's
+    /// completion then offers their tables and columns too.
+    fn cross_database(&self) -> bool {
         false
     }
 
@@ -1337,6 +1345,8 @@ mod tests {
 
     fn bare() -> Bare {
         Bare(DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id: "bare",
             name: "Bare",
             family: Family::Relational,

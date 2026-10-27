@@ -30,6 +30,7 @@ mod stats;
 mod steps;
 mod structure;
 mod sync;
+mod tls;
 mod transfer;
 
 use dbine_driver::sql::{
@@ -178,7 +179,9 @@ fn info(p: &'static Preset) -> DriverInfo {
                 .advanced(),
         );
     }
+    fields.extend(tls::fields(p));
     fields.extend(common_tail(p));
+    let (tls, tls_port) = tls::support(p);
 
     let mut object_kinds = vec![ObjectKindInfo::tables(), ObjectKindInfo::views()];
     if p.procedures {
@@ -189,6 +192,8 @@ fn info(p: &'static Preset) -> DriverInfo {
     }
     object_kinds.extend(structure::object_kinds(design::eng(p)));
     DriverInfo {
+        tls,
+        tls_port,
         id: p.id,
         name: p.name,
         family: p.family,
@@ -206,6 +211,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[async_trait]
 impl Driver for OdbcDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        matches!(self.info.id, "sybase" | "netezza" | "virtuoso")
+    }
+
     /// Sybase ASE, like SQL Server, loads explicit identity values only
     /// with IDENTITY_INSERT on.
     fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {

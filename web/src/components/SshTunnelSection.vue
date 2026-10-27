@@ -99,7 +99,7 @@ function forget(i: number) {
         <el-form-item :label="$t('tunnel:keyPath')" required>
           <el-input v-model="model.key_path" placeholder="~/.ssh/id_ed25519">
             <template #append>
-              <el-button @click="browseKey"><el-icon><ei-folder-opened /></el-icon></el-button>
+              <el-button :aria-label="$t('importConnections:chooseFile')" @click="browseKey"><el-icon><ei-folder-opened /></el-icon></el-button>
             </template>
           </el-input>
         </el-form-item>

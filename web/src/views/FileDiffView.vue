@@ -79,7 +79,7 @@ const project = computed(() => projects.byId(props.tab.projectId));
       <el-button v-if="!conflict && !noChanges" size="small" @click="projects.discard(tab.projectId, [tab.path])">
         <el-icon><ei-refresh-left /></el-icon>&nbsp;{{ $t('projects:changes.discard') }}
       </el-button>
-      <el-button size="small" :loading="loading" :title="$t('common:refresh')" @click="load"><el-icon v-if="!loading"><ei-refresh /></el-icon></el-button>
+      <el-button :aria-label="$t('common:refresh')" size="small" :loading="loading" :title="$t('common:refresh')" @click="load"><el-icon v-if="!loading"><ei-refresh /></el-icon></el-button>
     </div>
     <div v-if="!noChanges" class="fd-heads">
       <div>{{ conflict ? $t('projects:diff.ours') : diff?.before === null ? $t('projects:diff.noBefore') : $t('projects:diff.before') }}</div>

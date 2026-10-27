@@ -1,0 +1,351 @@
+{
+  "title": {
+    "new": "Nowe połączenie",
+    "edit": "Edytuj połączenie · {{name}}",
+    "duplicate": "Duplikuj połączenie"
+  },
+  "missingDriver": "Ta wersja nie zawiera sterownika „{{driver}}”.",
+  "copyName": "{{name}} (kopia)",
+  "pick": {
+    "searchPlaceholder": "Szukaj silnika…",
+    "port": "Port {{port}}",
+    "localFile": "Plik lokalny",
+    "cloudService": "Usługa w chmurze",
+    "noMatch": "Żaden silnik nie pasuje do „{{search}}”.",
+    "available": "Dostępne silniki: {{n}}"
+  },
+  "family": {
+    "relational": "Relacyjne",
+    "analytical": "Analityczne",
+    "document": "Dokumentowe",
+    "key_value": "Klucz-wartość",
+    "wide_column": "Szerokokolumnowe",
+    "search": "Wyszukiwanie",
+    "time_series": "Szeregi czasowe",
+    "streaming": "Strumieniowe",
+    "graph": "Grafowe"
+  },
+  "form": {
+    "changeEngine": "Zmień silnik",
+    "name": "Nazwa",
+    "color": "Kolor",
+    "noColor": "Bez koloru",
+    "folder": "Folder",
+    "tags": "Tagi",
+    "tagsPlaceholder": "prod, dev, qa… (wpisz nowy i naciśnij Enter)",
+    "secretKeptMasc": "(zapisany; pozostaw puste, aby zachować)",
+    "secretKeptFem": "(zapisana; pozostaw puste, aby zachować)",
+    "couldNotConnect": "Nie udało się połączyć",
+    "testConnection": "Testuj połączenie",
+    "connectionOk": "Połączenie poprawne",
+    "saveAndConnect": "Zapisz i połącz",
+    "missingFields": "Do uzupełnienia: {{fields}}"
+  },
+  "problem": {
+    "title": "Problem z połączeniem · {{name}}",
+    "connection": "Połączenie",
+    "server": "Serwer",
+    "message": "Komunikat",
+    "kindLabel": "Typ",
+    "clientIp": "IP klienta",
+    "code": "kod {{code}}",
+    "copyDetail": "Kopiuj szczegóły",
+    "editConnection": "Edytuj połączenie",
+    "publicIp": "Pokaż mój publiczny adres IP",
+    "yourIp": "Twój publiczny adres IP: {{ip}}",
+    "ipFromServer": "Serwer podaje, że połączono się z adresu {{ip}} (niezweryfikowany: „Pokaż mój publiczny adres IP” potwierdza go).",
+    "kind": {
+      "firewall": {
+        "title": "Zapora serwera blokuje Twój adres IP",
+        "azure": "Azure SQL akceptuje połączenia tylko z adresów IP dozwolonych w zaporze serwera, a Twojego tam nie ma. Dodaj go jako regułę i połącz się ponownie (zmiana może potrwać kilka minut).",
+        "other": "Serwer nie akceptuje połączeń z Twojego adresu. Poproś o odblokowanie Twojego publicznego adresu IP (na przykład w pg_hba.conf, w dozwolonych hostach użytkownika MySQL lub w zaporze serwera)."
+      },
+      "timeout": {
+        "title": "Serwer nie odpowiedział",
+        "body": "Połączenie nie dotarło do serwera na czas. Najczęstsze przyczyny:"
+      },
+      "refused": {
+        "title": "Serwer odrzucił połączenie",
+        "body": "Maszyna została osiągnięta, ale nic nie nasłuchiwało na tym porcie albo nie ma trasy do niej. Najczęstsze przyczyny:"
+      },
+      "dns": {
+        "title": "Nie znaleziono serwera",
+        "body": "Nazwa {{host}} nie jest rozpoznawana. Sprawdź, czy jest poprawnie wpisana, a jeśli to nazwa wewnętrzna, czy jesteś w sieci lub VPN, która ją rozpoznaje."
+      },
+      "tls": {
+        "title": "Połączenie bezpieczne (TLS) nie powiodło się",
+        "body": "Certyfikat serwera nie jest zaufany lub nie zgadza się z nazwą hosta. Sprawdź opcje szyfrowania połączenia: użyj nazwy z certyfikatu albo ufaj certyfikatowi serwera tylko wtedy, gdy wiesz, że jest właściwy."
+      },
+      "tls_not_offered": {
+        "title": "Serwer nie oferuje TLS",
+        "body": "Połączenie wymaga szyfrowania, a serwer go nie ma włączonego (to częste na serwerach deweloperskich). Włącz TLS na serwerze lub, jeśli akceptujesz przesyłanie danych i hasła bez szyfrowania, wybierz na karcie SSL/TLS tryb bez szyfrowania."
+      },
+      "tls_untrusted": {
+        "title": "Nie udało się zweryfikować certyfikatu serwera",
+        "body": "Certyfikat serwera nie został podpisany przez zaufany urząd lub nie zgadza się z nazwą hosta (to częste przy certyfikatach z podpisem własnym). Na karcie SSL/TLS wskaż plik urzędu certyfikacji lub, tylko jeśli wiesz, że serwer jest właściwy, wybierz tryb, który nie weryfikuje certyfikatu."
+      },
+      "auth": {
+        "title": "Logowanie odrzucone",
+        "body": "Serwer odrzucił użytkownika lub hasło. Sprawdź dane uwierzytelniające i metodę uwierzytelniania (na przykład Microsoft Entra) oraz czy użytkownik istnieje w tej bazie."
+      },
+      "unknown": {
+        "title": "Nie udało się połączyć",
+        "body": "Serwer lub sterownik odpowiedział tym komunikatem."
+      }
+    },
+    "network": {
+      "vpn": "VPN sieci serwera nie jest połączona.",
+      "firewall": "Zapora na trasie (NSG lub WAF Azure, zapora maszyny wirtualnej albo Twojej sieci) odrzuca ruch do portu {{port}}.",
+      "down": "Serwer lub usługa są zatrzymane albo nasłuchują na innym porcie.",
+      "azureVm": "{{host}} to maszyna wirtualna Azure: SQL Server działa na maszynie wirtualnej, więc reguła powinna trafić do jej NSG lub WAF (albo do zapory Windows maszyny), a nie do zapory Azure SQL.",
+      "azureSql": "W Azure SQL niedozwolony adres IP powoduje błąd zapory, a nie przekroczenie czasu: jeśli nie ma odpowiedzi, sprawdź, czy Twoja sieć przepuszcza port 1433."
+    },
+    "azure": {
+      "add": "Dodaj mój adres IP do zapory Azure",
+      "confirmTitle": "Ta reguła zostanie utworzona na Twoim koncie Azure",
+      "rule": "Reguła",
+      "ip": "IP",
+      "ipPlaceholder": "TU_IP",
+      "groupPlaceholder": "GRUPO_DE_RECURSOS",
+      "confirmNote": "To zmiana w zaporze serwera Azure SQL, wykonana w ramach Twojej sesji w interfejsie wiersza poleceń Azure (az).",
+      "prodConfirm": "To połączenie produkcyjne. Wpisz „{{name}}”, aby potwierdzić:",
+      "create": "Utwórz regułę",
+      "created": "Reguła {{rule}} utworzona na {{server}} (grupa {{group}}) dla {{ip}}. Jej zastosowanie może potrwać kilka minut: potem kliknij Ponów.",
+      "azMissing": "Na tym komputerze nie znaleziono interfejsu wiersza poleceń Azure (az). Regułę można utworzyć na jeden z tych sposobów:",
+      "azLoggedOut": "Interfejs wiersza poleceń Azure (az) nie ma aktywnej sesji (uruchom „az login” i spróbuj ponownie). W międzyczasie regułę można utworzyć na jeden z tych sposobów:",
+      "azSandboxed": "Wersja DBine z Flathub nie może używać interfejsu wiersza poleceń Azure (az): piaskownica Flatpak nie ma dostępu do programów systemowych. Regułę można utworzyć na jeden z tych sposobów:",
+      "byCli": "Za pomocą interfejsu wiersza poleceń Azure (uzupełnij grupę zasobów):",
+      "byPortal": "W portalu Azure: serwer › Sieć › Reguły zapory › Dodaj adres IP klienta.",
+      "openPortal": "Otwórz portal",
+      "byTsql": "Za pomocą T-SQL, z innego połączenia, które ma dostęp, w bazie master:",
+      "unavailable": "Azure informuje, że baza jest w tej chwili niedostępna (zwykle dzieje się tak podczas jej przenoszenia lub skalowania). Poczekaj minutę i spróbuj ponownie.",
+      "ipVerified": "Twój publiczny adres IP, zweryfikowany przez HTTPS"
+    },
+    "couldNotConnect": "Nie udało się połączyć z {{name}}: {{error}}",
+    "ipMismatch": "Serwer podał inny adres IP ({{server}}): nie zgadza się z Twoim publicznym adresem IP, więc nie jest używany."
+  },
+  "source": {
+    "label": "Źródło",
+    "kind": {
+      "saved": "Zapisz w pęku kluczy",
+      "ask": "Pytaj za każdym razem",
+      "command": "Wiersz poleceń",
+      "onepassword": "1Password",
+      "vault": "HashiCorp Vault",
+      "aws": "AWS Secrets Manager",
+      "azure": "Azure Key Vault",
+      "gcp": "Google Secret Manager",
+      "keepass": "KeePass",
+      "zoho": "Zoho Vault",
+      "vault_db": "HashiCorp Vault (dane uwierzytelniające bazy danych)",
+      "conjur": "CyberArk Conjur",
+      "ccp": "CyberArk Central Credential Provider",
+      "delinea": "Delinea Secret Server",
+      "bitwarden": "Bitwarden",
+      "bitwarden_sm": "Bitwarden Secrets Manager",
+      "ssm": "AWS Parameter Store"
+    },
+    "askHelp": "Wymagane przy łączeniu i niezapisywane.",
+    "askPlaceholder": "(tylko do testowania; wymagane przy łączeniu)",
+    "input": {
+      "command": "Polecenie",
+      "json_key": "Klucz JSON (opcjonalnie)",
+      "reference": "Odwołanie",
+      "account": "Konto (opcjonalnie)",
+      "address": "Adres",
+      "path": "Ścieżka sekretu",
+      "key": "Klucz",
+      "namespace": "Przestrzeń nazw (opcjonalnie)",
+      "kv_version": "Wersja KV",
+      "ca_file": "Certyfikat urzędu certyfikacji (opcjonalnie)",
+      "token": "Token (opcjonalnie)",
+      "secret_id": "Nazwa lub ARN sekretu",
+      "region": "Region (opcjonalnie)",
+      "profile": "Profil AWS (opcjonalnie)",
+      "fill_username": "Pobierz też użytkownika z tego sekretu (jego klucz „username”)",
+      "vault_url": "Adres URL magazynu",
+      "name": "Nazwa sekretu",
+      "version": "Wersja (opcjonalnie)",
+      "project": "Projekt",
+      "secret": "Sekret",
+      "file": "Plik bazy (.kdbx)",
+      "entry": "Wpis",
+      "attribute": "Pole (opcjonalnie)",
+      "key_file": "Plik klucza (opcjonalnie)",
+      "master": "Hasło główne",
+      "master_keepass": "Hasło główne",
+      "master_zoho": "Fraza hasłowa główna",
+      "master_value_keepass": "Hasło główne",
+      "master_value_zoho": "Fraza hasłowa główna",
+      "master_command": "Polecenie zwracające hasło główne",
+      "data_center": "Centrum danych",
+      "secret_name": "Nazwa lub ID sekretu",
+      "account_id": "Konto",
+      "client_id": "ID klienta",
+      "client_secret": "Sekret klienta",
+      "refresh_token": "Token odświeżania",
+      "fill_username_keepass": "Pobierz też użytkownika z tego wpisu (jego pole „UserName”)",
+      "fill_username_zoho": "Pobierz też użytkownika z tego sekretu (jego pole „username”)",
+      "auth": "Logowanie do Vault",
+      "role_id": "Role ID",
+      "approle_secret_id": "Secret ID",
+      "approle_mount": "Ścieżka AppRole (opcjonalnie)",
+      "mount": "Silnik baz danych (opcjonalnie)",
+      "role": "Rola",
+      "static_role": "Rola statyczna (stały użytkownik, którego hasło rotuje Vault)",
+      "url": "URL",
+      "conjur_account": "Konto",
+      "login": "Login (host/<id> lub użytkownik)",
+      "variable": "ID zmiennej",
+      "username_variable": "Zmienna z użytkownikiem (opcjonalnie)",
+      "api_key": "Klucz API",
+      "app_id": "AppID",
+      "safe": "Safe (opcjonalnie)",
+      "folder": "Folder (opcjonalnie)",
+      "object": "Obiekt",
+      "account_user": "Użytkownik konta (opcjonalnie)",
+      "account_address": "Adres konta (opcjonalnie)",
+      "client_cert": "Certyfikat klienta (opcjonalnie)",
+      "client_key": "Klucz prywatny (opcjonalnie)",
+      "cert_passphrase": "Fraza hasłowa klucza lub PKCS#12 (opcjonalnie)",
+      "fill_username_ccp": "Pobierz też użytkownika z tego konta (jego „UserName”)",
+      "platform_url": "Adres URL Delinea Platform (opcjonalnie)",
+      "username": "Użytkownik (lub ID klienta)",
+      "domain": "Domena (opcjonalnie)",
+      "master_delinea": "Hasło",
+      "master_value_delinea": "Hasło (lub sekret klienta)",
+      "fill_username_delinea": "Pobierz też użytkownika z tego sekretu (jego pole „username”)",
+      "server": "Serwer",
+      "item": "Element (ID lub nazwa)",
+      "secret_uuid": "ID sekretu",
+      "access_token": "Token dostępu",
+      "parameter": "Nazwa lub ARN parametru",
+      "list_index": "Element listy (opcjonalnie)",
+      "master_bitwarden": "Hasło główne",
+      "master_value_bitwarden": "Hasło główne",
+      "fill_username_bitwarden": "Pobierz też użytkownika z tego elementu (jego nazwę użytkownika)",
+      "tenant": "Dzierżawa (Microsoft Entra)"
+    },
+    "placeholder": {
+      "command": "pass show bazy/produkcja",
+      "token": "VAULT_TOKEN lub ~/.vault-token",
+      "latest": "najnowsza",
+      "data_center": "Z Twojego konta Zoho",
+      "server": "bitwarden.com, bitwarden.eu lub https://bitwarden.przyklad.com",
+      "ssmVersion": "najnowsza (lub numer, albo etykieta)"
+    },
+    "kvAuto": "Wykryj",
+    "help": {
+      "command": "Uruchamiane w powłoce logowania, bez wejścia i maksymalnie przez 30 s; wynik polecenia (bez końcowego znaku nowego wiersza) jest sekretem.",
+      "json_key": "Jeśli sekret jest obiektem JSON, używany klucz.",
+      "onepassword": "Odczytywany za pomocą interfejsu wiersza poleceń 1Password („op read”): musi być zainstalowany i zalogowany.",
+      "vault": "Bez tokenu używany jest VAULT_TOKEN lub token z „vault login” (~/.vault-token). Wpisany token jest zapisywany w pęku kluczy systemu.",
+      "aws": "Za pomocą poświadczeń AWS z tego komputera: zmienne środowiskowe, ~/.aws lub interfejs wiersza poleceń AWS (SSO, role).",
+      "azure": "Za pomocą sesji interfejsu wiersza poleceń Azure („az login”), Azure Developer CLI lub tożsamości zarządzanej.",
+      "gcp": "Za pomocą sesji gcloud („gcloud auth login”) lub domyślnych poświadczeń aplikacji.",
+      "entry": "Grupa/Podgrupa/Tytuł, sam tytuł, jeśli się nie powtarza, lub UUID wpisu.",
+      "keepass": "Baza jest odczytywana na tym komputerze, bez zewnętrznych programów (KDBX 3.1 i 4). Wpisane hasło główne jest zapisywane w pęku kluczy systemu; przy opcji „Pytaj przy łączeniu” jest wymagane przy pierwszym połączeniu i pozostaje tylko w pamięci do zamknięcia DBine.",
+      "zoho": "Za pomocą własnego klienta („Self Client”) z konsoli API Zoho i tokenu odświeżania z uprawnieniami ZohoVault.secrets.READ i ZohoVault.user.READ. Wartości są odszyfrowywane na tym komputerze za pomocą głównej frazy hasłowej; sekret klienta, token i wpisana fraza są zapisywane w pęku kluczy systemu.",
+      "vault_db": "Vault tworzy użytkownika i hasło dla tego połączenia za pomocą silnika baz danych (lub podaje dane roli statycznej), a użytkownik połączenia jest stamtąd pobierany. Dane uwierzytelniające są używane ponownie, dopóki połączenie jest otwarte, odnawiane przed wygaśnięciem i unieważniane przy rozłączeniu lub zamknięciu DBine. Bez tokenu używany jest VAULT_TOKEN lub token z „vault login”.",
+      "approle": "DBine loguje się przez AppRole (auth/<ścieżka>/login) i unieważnia ten token po zakończeniu. Wpisany secret ID jest zapisywany w pęku kluczy systemu.",
+      "conjur": "Za pomocą klucza API hosta lub użytkownika Conjur, zapisywanego w pęku kluczy systemu. Conjur Cloud: https://<poddomena>.secretsmgr.cyberark.cloud/api i konto „conjur”. Tylko HTTPS (HTTP tylko dla tego komputera).",
+      "ccp": "Pobiera konto z CyberArk Central Credential Provider (AIMWebService) przy użyciu AppID oraz, jeśli dostawca tego wymaga, certyfikatu klienta: PEM (z kluczem w tym samym pliku lub osobno) albo PKCS#12 (.p12/.pfx). Wpisana fraza hasłowa jest zapisywana w pęku kluczy systemu. Tylko HTTPS.",
+      "delinea": "Loguje się przez OAuth2 do Secret Server (użytkownik lub konto aplikacji) i odczytuje pole sekretu według jego slug. W Delinea Platform token jest pobierany z dzierżawy (https://<dzierżawa>.delinea.app) za pomocą ID i sekretu użytkownika usługi. ID lub nazwa sekretu: jeśli istnieje więcej niż jeden o tej nazwie, użyj ID. Tylko HTTPS.",
+      "server": "bitwarden.com, bitwarden.eu lub adres URL własnego serwera (https://; http:// tylko dla tego komputera).",
+      "bitwarden": "Za pomocą osobistego klucza API (Ustawienia konta › Zabezpieczenia › Klucze: client_id i client_secret). Sejf jest odszyfrowywany na tym komputerze za pomocą hasła głównego, bez zewnętrznych programów. Pole: password, username, notes lub nazwa pola niestandardowego; jeśli wartość to JSON (na przykład notatki), podaj jej klucz. Wpisane client_secret i hasło są zapisywane w pęku kluczy systemu.",
+      "bitwarden_sm": "Za pomocą tokenu dostępu konta maszynowego; sekret jest odszyfrowywany na tym komputerze. Bez tokenu używany jest BWS_ACCESS_TOKEN. Wpisany token jest zapisywany w pęku kluczy systemu.",
+      "ssm": "Za pomocą poświadczeń AWS z tego komputera, tak jak w AWS Secrets Manager. SecureString jest odszyfrowywany (wymagane kms:Decrypt); z StringList używany jest wskazany element (1 to pierwszy)."
+    },
+    "test": "Testuj",
+    "testOk": "OK · znaków: {{n}}",
+    "testOkUser": "OK · znaków: {{n}}, z użytkownikiem",
+    "approval": {
+      "title": "Potwierdź źródło sekretu",
+      "body": "Połączenie „{{name}}” pobiera „{{field}}” z tego źródła, które pochodzi spoza tego komputera (z importu lub przywróconej kopii zapasowej). DBine użyje go dokładnie w tej postaci:",
+      "warning": "Potwierdź tylko wtedy, gdy je rozpoznajesz: polecenie jest uruchamiane z Twoimi uprawnieniami, a menedżer sekretów otrzymuje Twoje dane uwierzytelniające.",
+      "confirm": "Potwierdź i użyj"
+    },
+    "master": {
+      "keychain": "Zapisane w pęku kluczy",
+      "ask": "Pytaj przy łączeniu",
+      "command": "Z polecenia",
+      "none": "Brak (tylko plik klucza)"
+    },
+    "dataCenter": {
+      "com": "Stany Zjednoczone ({{domain}})",
+      "eu": "Europa ({{domain}})",
+      "in": "Indie ({{domain}})",
+      "com_au": "Australia ({{domain}})",
+      "jp": "Japonia ({{domain}})",
+      "ca": "Kanada ({{domain}})",
+      "sa": "Arabia Saudyjska ({{domain}})",
+      "uk": "Wielka Brytania ({{domain}})",
+      "ae": "Zjednoczone Emiraty Arabskie ({{domain}})",
+      "sg": "Singapur ({{domain}})",
+      "com_cn": "Chiny ({{domain}})"
+    },
+    "unlock": {
+      "title": "Hasło główne",
+      "keepass": "Połączenie „{{name}}” pobiera „{{field}}” z bazy KeePass. Wpisz jej hasło główne (nie zostanie zapisane):",
+      "zoho": "Połączenie „{{name}}” pobiera „{{field}}” z Zoho Vault. Wpisz główną frazę hasłową (nie zostanie zapisana):",
+      "wrong": "Wpisane hasło nie otworzyło bazy.",
+      "empty": "Wpisz hasło główne",
+      "delinea": "Połączenie „{{name}}” pobiera „{{field}}” z Delinea Secret Server. Wpisz hasło (nie zostanie zapisane):",
+      "bitwarden": "Połączenie „{{name}}” pobiera „{{field}}” z Bitwarden. Wpisz hasło główne (nie zostanie zapisane):",
+      "titles": {
+        "keepass": "Hasło główne",
+        "bitwarden": "Hasło główne",
+        "zoho": "Główna fraza hasłowa",
+        "delinea": "Hasło"
+      }
+    },
+    "vaultAuth": {
+      "token": "Token",
+      "approle": "AppRole"
+    },
+    "bitwardenCloud": {
+      "com": "Stany Zjednoczone ({{domain}})",
+      "eu": "Europa ({{domain}})"
+    },
+    "credentials": "Dane uwierzytelniające",
+    "group": {
+      "local": "Na tym komputerze",
+      "managers": "Menedżery sekretów"
+    },
+    "fillUser": "Użyj też użytkownika z wpisu",
+    "browse": {
+      "button": "Przeglądaj",
+      "title": "Przeglądaj {{source}}",
+      "search": "Filtruj",
+      "searchServer": "Szukaj na serwerze",
+      "empty": "Nic tu nie ma.",
+      "truncated": "Lista została skrócona, bo jest więcej wyników. Przefiltruj, aby znaleźć potrzebny element.",
+      "pickField": "Wybierz pole:",
+      "wholeValue": "Cała wartość",
+      "noFields": "Ten element nie ma pól do wyboru.",
+      "useItem": "Użyj tego",
+      "namesOnly": "Wyświetlane są tylko nazwy, nigdy wartości.",
+      "fillFirst": "Najpierw uzupełnij: {{fields}}",
+      "pickRoles": "Wybierz, które pole jest użytkownikiem, a które hasłem:"
+    },
+    "legacyUser": "To połączenie pobiera użytkownika z formularza, a nie z wpisu.",
+    "useEntryUser": "Użyj użytkownika z wpisu",
+    "advanced": {
+      "title": "Ustawienia zaawansowane",
+      "userField": "Pole użytkownika",
+      "passwordField": "Pole hasła",
+      "field": "Pole",
+      "user": "Użytkownik",
+      "password": "Hasło",
+      "loading": "Ładowanie pól wpisu…",
+      "failed": "Nie udało się załadować pól.",
+      "load": "Załaduj pola",
+      "loaded": "Pola wpisu: {{n}}.",
+      "hint": "Wybierz wpis, aby zobaczyć jego pola."
+    }
+  },
+  "tls": {
+    "off": "Bez szyfrowania",
+    "unverified": "Niezweryfikowane"
+  }
+}

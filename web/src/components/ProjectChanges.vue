@@ -5,6 +5,7 @@ import type { FileChange } from '../api/types';
 import { isScriptFile } from '../composables/tabDocument';
 import { useProjectsStore } from '../stores/projects';
 import { baseName, useTabsStore } from '../stores/tabs';
+import { vKeyActivate } from '../composables/keyActivate';
 
 // A project's "Cambios": what changed since the last commit, the message
 // and Confirmar (stages everything), and Pull / Push / Sincronizar. While a
@@ -74,7 +75,7 @@ function openFile(c: FileChange) {
         {{ $t('projects:conflicts.title', { op: $t(`projects:operation.${st.operation}`), count: conflicts.length }) }}
       </div>
       <div v-for="c in conflicts" :key="c.path" class="pc-conf">
-        <div class="pc-row" :title="c.path" @click="open(c)">
+        <div v-key-activate class="pc-row" :title="c.path" @click="open(c)">
           <span class="pc-name">{{ baseName(c.path) }}</span>
           <span class="pc-dir">{{ dirOf(c.path) }}</span>
           <span class="pc-mark m-C">!</span>
@@ -124,6 +125,7 @@ function openFile(c: FileChange) {
     <div
       v-for="c in changes"
       :key="c.path"
+      v-key-activate
       class="pc-row"
       :class="{ active: tabs.active?.kind === 'fileDiff' && tabs.active.projectId === projectId && tabs.active.path === c.path }"
       :title="c.orig_path ? `${c.orig_path} → ${c.path}` : c.path"
@@ -132,8 +134,8 @@ function openFile(c: FileChange) {
       <span class="pc-name" :class="`m-${c.mark}`">{{ baseName(c.path) }}</span>
       <span class="pc-dir">{{ dirOf(c.path) }}</span>
       <span class="pc-acts">
-        <button v-if="c.mark !== 'D' && isScriptFile(c.path)" :title="$t('projects:changes.openFile')" @click.stop="openFile(c)"><el-icon><ei-document /></el-icon></button>
-        <button :title="$t('projects:changes.discard')" @click.stop="projects.discard(projectId, [c.path])"><el-icon><ei-refresh-left /></el-icon></button>
+        <button v-if="c.mark !== 'D' && isScriptFile(c.path)" :aria-label="$t('projects:changes.openFile')" :title="$t('projects:changes.openFile')" @click.stop="openFile(c)"><el-icon><ei-document /></el-icon></button>
+        <button :aria-label="$t('projects:changes.discard')" :title="$t('projects:changes.discard')" @click.stop="projects.discard(projectId, [c.path])"><el-icon><ei-refresh-left /></el-icon></button>
       </span>
       <span class="pc-mark" :class="`m-${c.mark}`" :title="$t(`projects:mark.${c.mark}`)">{{ c.mark }}</span>
     </div>

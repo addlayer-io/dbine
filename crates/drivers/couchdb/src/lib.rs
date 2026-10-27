@@ -56,13 +56,14 @@ mod security;
 mod stats;
 mod steps;
 mod sync;
+mod tls;
 mod transfer;
 
 use dbine_driver::{
     async_trait, json_f64, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo,
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, Driver, DriverInfo, Error, Family, Field,
     Language, MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn,
-    Session, TableSchema,
+    Session, TableSchema, TlsLevel, TlsSupport,
 };
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use reqwest::{Method, StatusCode};
@@ -94,6 +95,8 @@ pub struct CouchDriver;
 fn info() -> &'static DriverInfo {
     static INFO: OnceLock<DriverInfo> = OnceLock::new();
     INFO.get_or_init(|| DriverInfo {
+        tls: TlsSupport::Configurable,
+        tls_port: Some(6984),
         id: "couchdb",
         name: "CouchDB",
         family: Family::Document,
@@ -108,10 +111,11 @@ fn info() -> &'static DriverInfo {
             Field::database(),
             Field::username(),
             Field::password(),
-            Field::encrypt().help("Usar https."),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        ]
+        .into_iter()
+        .chain(tls_fields())
+        .chain([Field::read_only()])
+        .collect(),
         databases_label: "Bases de datos",
         has_schemas: false,
         object_kinds: vec![
@@ -128,15 +132,46 @@ fn seg(s: &str) -> String {
     utf8_percent_encode(s, SEGMENT).to_string()
 }
 
+/// The TLS options: the URL's `scheme`, and curl's `insecure` / `cacert`
+/// (CouchDB's own documentation uses curl; it has no client names for
+/// them). Saved connections from before them: `encrypt` gives https,
+/// `trust` doesn't verify (an https URL typed in the host too).
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_mode(
+            "scheme",
+            "scheme",
+            &[
+                ("http", "http", TlsLevel::Off),
+                ("https", "https", TlsLevel::VerifyFull),
+            ],
+            "https",
+            ["http", "http", "https", "https"],
+        )
+        .help("Una URL escrita en el servidor usa su propio esquema (http:// o https://)."),
+        Field::tls_insecure(["false", "true", "false", "true"]),
+        Field::tls_cacert(),
+    ]
+}
+
+/// The TLS settings of a connection whose host may be a URL (its scheme
+/// decides over `scheme`).
+fn http_tls(cfg: &ConnectionConfig) -> Result<tls::HttpTls> {
+    let host = cfg.host.trim();
+    let url = (host.starts_with("http://") || host.starts_with("https://"))
+        .then(|| host.starts_with("https://"));
+    tls::HttpTls::new(cfg, &tls_fields(), url)
+}
+
 /// `http(s)://host:port`, without a trailing slash.
-pub fn base_url(cfg: &ConnectionConfig) -> String {
+pub fn base_url(cfg: &ConnectionConfig, tls: &tls::HttpTls) -> String {
     let host = cfg.host.trim();
     let host = if host.is_empty() { "localhost" } else { host };
     if host.starts_with("http://") || host.starts_with("https://") {
-        return host.trim_end_matches('/').to_string();
+        return tls.url(host.trim_end_matches('/').to_string());
     }
-    let scheme = if cfg.encrypt { "https" } else { "http" };
-    format!("{scheme}://{host}:{}", cfg.port_or(5984))
+    let scheme = tls.scheme();
+    format!("{scheme}://{}:{}", tls.url_host(host), cfg.port_or(5984))
 }
 
 #[async_trait]
@@ -263,10 +298,13 @@ impl Driver for CouchDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(TIMEOUT)
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
-            .user_agent("DBine")
+        let tls = http_tls(cfg)?;
+        let http = tls
+            .builder(
+                reqwest::Client::builder()
+                    .connect_timeout(TIMEOUT)
+                    .user_agent("DBine"),
+            )?
             .build()
             .map_err(Error::connect)?;
         let db = database
@@ -280,7 +318,7 @@ impl Driver for CouchDriver {
             .map(|u| (u, cfg.password.clone()));
         let mut s = CouchSession {
             http,
-            base: base_url(cfg),
+            base: base_url(cfg, &tls),
             db,
             auth,
             read_only: cfg.read_only,
@@ -290,7 +328,7 @@ impl Driver for CouchDriver {
             if e.is_query() {
                 Error::Connect(e.to_string())
             } else {
-                e
+                tls.explain(e)
             }
         })?;
         s.version = welcome
@@ -334,7 +372,13 @@ impl CouchSession {
         if let Some(b) = body {
             rq = rq.json(b);
         }
-        let resp = rq.send().await.map_err(|e| Error::Connect(e.to_string()))?;
+        let resp = rq.send().await.map_err(|e| {
+            if e.is_connect() {
+                tls::net_error(&e)
+            } else {
+                Error::Connect(e.to_string())
+            }
+        })?;
         let status = resp.status();
         let text = resp
             .text()
@@ -1380,12 +1424,77 @@ mod tests {
             host: "db.local".into(),
             ..Default::default()
         };
-        assert_eq!(base_url(&c), "http://db.local:5984");
+        let url = |c: &ConnectionConfig| base_url(c, &http_tls(c).unwrap());
+        assert_eq!(url(&c), "http://db.local:5984");
         c.encrypt = true;
         c.port = 6984;
-        assert_eq!(base_url(&c), "https://db.local:6984");
+        assert_eq!(url(&c), "https://db.local:6984");
         c.host = "https://x.example/couch/".into();
-        assert_eq!(base_url(&c), "https://x.example/couch");
+        assert_eq!(url(&c), "https://x.example/couch");
         assert_eq!(seg("a/b+c"), "a%2Fb%2Bc");
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        http_tls(c).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("scheme".into(), "http".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options.insert("insecure".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
+    }
+
+    #[test]
+    fn an_https_url_in_the_host_keeps_trust_from_saved_connections() {
+        // Today `trust` skips verification for an https URL typed in the
+        // host even with `encrypt` off.
+        let mut c = legacy(false, true);
+        c.host = "https://db.example.com:443".into();
+        assert_eq!(level(&c), TlsLevel::Unverified);
+        c.trust_server_certificate = false;
+        assert_eq!(level(&c), TlsLevel::VerifyFull);
+        let mut n = new_connection();
+        n.host = "http://db.example.com".into();
+        assert_eq!(level(&n), TlsLevel::Off);
     }
 }

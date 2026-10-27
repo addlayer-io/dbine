@@ -237,7 +237,7 @@ defineExpose({ load });
           {{ $t(k === 'version' ? 'history:tl.filterVersions' : k === 'run' ? 'history:tl.filterRuns' : 'history:tl.filterCommits') }}
         </button>
         <span class="tl-sp" />
-        <button class="tl-icon" :title="$t('common:refresh')" @click="load()"><el-icon :class="{ spin: loading }"><ei-refresh /></el-icon></button>
+        <button :aria-label="$t('common:refresh')" class="tl-icon" :title="$t('common:refresh')" @click="load()"><el-icon :class="{ spin: loading }"><ei-refresh /></el-icon></button>
       </div>
       <div class="tl-list" tabindex="0" @keydown="onKey">
         <el-alert v-if="error" type="error" :title="error" :closable="false" class="tl-error" />
@@ -316,7 +316,7 @@ defineExpose({ load });
 .tl-icon:hover { background: var(--ide-hover); color: var(--nm-text-strong); }
 .spin { animation: tl-spin 1s linear infinite; }
 @keyframes tl-spin { to { transform: rotate(360deg); } }
-.tl-list { flex: 1; min-height: 0; overflow: auto; outline: none; padding-bottom: 12px; }
+.tl-list { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
 .tl-error { margin: 8px 12px; width: auto; }
 .tl-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 40px 16px; color: var(--nm-text-dim); font-size: 12px; text-align: center; }
 .tl-day { padding: 8px 16px 2px; font-size: 11px; font-weight: 600; color: var(--nm-text-muted); text-transform: uppercase; letter-spacing: .04em; }

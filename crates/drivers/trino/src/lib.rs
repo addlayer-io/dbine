@@ -16,6 +16,7 @@ mod script;
 mod security;
 mod stats;
 mod sync;
+mod tls;
 mod transfer;
 
 use async_trait::async_trait;
@@ -25,7 +26,7 @@ use dbine_driver::{
     json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
     CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
     Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, SchemaInfo,
-    Session, TableSchema,
+    Session, TableSchema, TlsLevel, TlsSupport,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Deserialize;
@@ -64,6 +65,35 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
         .collect()
 }
 
+/// The TLS options, by the Trino JDBC driver's and CLI's names (`SSL`,
+/// `SSLVerification`, `SSLTrustStorePath`). Saved connections from before
+/// them: `encrypt` gives https on 8443, `trust` doesn't verify.
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_switch(
+            "SSL",
+            "SSL",
+            TlsLevel::VerifyFull,
+            TlsLevel::Off,
+            true,
+            ["false", "false", "true", "true"],
+        ),
+        Field::tls_verify(
+            "SSLVerification",
+            "SSLVerification",
+            &[
+                ("FULL", "FULL", TlsLevel::VerifyFull),
+                ("CA", "CA", TlsLevel::VerifyCa),
+                ("NONE", "NONE", TlsLevel::Unverified),
+            ],
+            "FULL",
+            ["FULL", "NONE", "FULL", "NONE"],
+        ),
+        Field::tls_ca_file("SSLTrustStorePath", "SSLTrustStorePath")
+            .ca_required_at(&[TlsLevel::VerifyCa]),
+    ]
+}
+
 fn info(flavor: Flavor) -> DriverInfo {
     let (id, name) = match flavor {
         Flavor::Trino => ("trino", "Trino"),
@@ -71,6 +101,8 @@ fn info(flavor: Flavor) -> DriverInfo {
         Flavor::Starburst => ("starburst", "Starburst"),
     };
     DriverInfo {
+        tls: TlsSupport::Configurable,
+        tls_port: Some(8443),
         id,
         name,
         family: Family::Analytical,
@@ -90,10 +122,11 @@ fn info(flavor: Flavor) -> DriverInfo {
             Field::new("schema", "Esquema", dbine_driver::FieldKind::Text).placeholder("(ninguno)"),
             Field::username().required(),
             Field::password().help("Solo con TLS: el servidor rechaza contraseñas por HTTP."),
-            Field::encrypt(),
-            Field::trust_cert(),
-            Field::read_only(),
-        ],
+        ]
+        .into_iter()
+        .chain(tls_fields())
+        .chain([Field::read_only()])
+        .collect(),
         databases_label: "Catálogos",
         has_schemas: true,
         object_kinds: vec![
@@ -111,6 +144,11 @@ pub struct TrinoDriver {
 
 #[async_trait]
 impl Driver for TrinoDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }
@@ -273,16 +311,16 @@ impl Driver for TrinoDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() {
+        let tls = tls::HttpTls::new(cfg, &tls_fields(), None)?;
+        let scheme = tls.scheme();
+        let host = tls.url_host(if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
-        };
-        let port = cfg.port_or(if cfg.encrypt { 8443 } else { 8080 });
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
+        });
+        let port = cfg.port_or(if tls.https() { 8443 } else { 8080 });
+        let http = tls
+            .builder(reqwest::Client::builder().connect_timeout(Duration::from_secs(15)))?
             .build()
             .map_err(Error::connect)?;
         let user = cfg
@@ -325,7 +363,8 @@ impl Driver for TrinoDriver {
         };
         tokio::time::timeout(Duration::from_secs(20), check)
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| tls.explain(e))?;
         Ok(Box::new(s))
     }
 }
@@ -448,7 +487,9 @@ fn statement_error(e: &QueryError, sql: &str) -> dbine_driver::ScriptError {
 }
 
 fn http_error(e: reqwest::Error) -> Error {
-    if e.is_connect() || e.is_timeout() {
+    if e.is_connect() {
+        tls::net_error(&e)
+    } else if e.is_timeout() {
         Error::Connect(e.to_string())
     } else {
         Error::Query(e.to_string())
@@ -1413,5 +1454,55 @@ mod tests {
         let se = statement_error(&qe, "select *\nfrom x");
         assert_eq!((se.line, se.offset), (Some(1), Some(7)));
         assert_eq!(lit("o'k"), "'o''k'");
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        tls::HttpTls::new(c, &tls_fields(), None).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("SSL".into(), "false".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options.insert("SSLVerification".into(), "NONE".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
     }
 }

@@ -33,8 +33,8 @@ const time = (d: Date) => d.toLocaleTimeString(locale(), { hour12: false });
       <div class="nm-spacer" />
       <el-input v-model="filter" size="small" :placeholder="$t('common:filter')" clearable style="width: 180px" />
       <el-checkbox v-model="onlyErrors" size="small">{{ $t('workbench:output.onlyErrors') }}</el-checkbox>
-      <button class="ide-icon-btn" :title="$t('common:clear')" @click="output.clear()"><el-icon><ei-delete /></el-icon></button>
-      <button class="ide-icon-btn" :title="$t('workbench:output.closePanel')" @click="$emit('close')"><el-icon><ei-close /></el-icon></button>
+      <button :aria-label="$t('common:clear')" class="ide-icon-btn" :title="$t('common:clear')" @click="output.clear()"><el-icon><ei-delete /></el-icon></button>
+      <button :aria-label="$t('workbench:output.closePanel')" class="ide-icon-btn" :title="$t('workbench:output.closePanel')" @click="$emit('close')"><el-icon><ei-close /></el-icon></button>
     </div>
     <div ref="list" class="op-list nm-selectable">
       <div v-for="e in entries" :key="e.id" class="op-line" :class="e.level">

@@ -112,6 +112,7 @@ backend:Elasticsearch {0}
 backend:Email
 backend:Enabled
 backend:Encoding
+backend:Encrypt
 backend:Encrypted
 backend:Endpoint
 backend:Error
@@ -210,6 +211,7 @@ backend:Login
 backend:Lookup
 backend:Machbase
 backend:Macros
+backend:Mandatory
 backend:Mango query
 backend:Manticore
 backend:Map
@@ -246,6 +248,7 @@ backend:Ollama
 backend:Operation
 backend:Operations
 backend:Optimized
+backend:Optional
 backend:Oracle
 backend:Ordered
 backend:Output
@@ -354,6 +357,7 @@ backend:Strategy
 backend:Stream
 backend:Streaming
 backend:Streams
+backend:Strict
 backend:String
 backend:Subquery index lookup
 backend:Succeeded

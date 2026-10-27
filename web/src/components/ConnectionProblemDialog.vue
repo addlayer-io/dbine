@@ -178,7 +178,7 @@ function editConnection() {
         <p v-else-if="azureSql" class="cp-note">{{ $t('connection:problem.network.azureSql') }}</p>
       </template>
       <p v-else-if="kind === 'dns'">{{ $t('connection:problem.kind.dns.body', { host: bareHost }) }}</p>
-      <p v-else-if="kind === 'tls'">{{ $t('connection:problem.kind.tls.body') }}</p>
+      <p v-else-if="kind === 'tls' || kind === 'tls_not_offered' || kind === 'tls_untrusted'">{{ $t(`connection:problem.kind.${kind}.body`) }}</p>
       <p v-else-if="kind === 'auth'">{{ $t('connection:problem.kind.auth.body') }}</p>
       <template v-else>
         <p v-if="detail?.code === '40613'">{{ $t('connection:problem.azure.unavailable') }}</p>
@@ -189,7 +189,7 @@ function editConnection() {
       <div v-if="kind === 'firewall' || network" class="cp-ip">
         <span v-if="publicIp">{{ $t('connection:problem.yourIp', { ip: publicIp }) }}</span>
         <span v-else-if="detail?.client_ip">{{ $t('connection:problem.ipFromServer', { ip: detail.client_ip }) }}</span>
-        <el-button v-if="knownIp" size="small" text :title="$t('common:copy')" @click="copy(knownIp)"><el-icon><ei-copy-document /></el-icon></el-button>
+        <el-button v-if="knownIp" :aria-label="$t('common:copy')" size="small" text :title="$t('common:copy')" @click="copy(knownIp)"><el-icon><ei-copy-document /></el-icon></el-button>
         <el-button v-if="!publicIp" size="small" :loading="ipLoading" @click="lookUpIp">{{ $t('connection:problem.publicIp') }}</el-button>
         <span v-if="ipMismatch" class="cp-error">{{ $t('connection:problem.ipMismatch', { server: detail?.client_ip }) }}</span>
         <span v-if="ipError" class="cp-error">{{ ipError }}</span>

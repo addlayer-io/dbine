@@ -2990,6 +2990,8 @@ mod tests {
 
     fn driver(id: &'static str, dialect: &'static str, family: Family, language: Language) -> D {
         D(DriverInfo {
+            tls: Default::default(),
+            tls_port: None,
             id,
             name: id,
             family,

@@ -1,0 +1,53 @@
+{
+  "button": "Wyślij opinię",
+  "title": "Wyślij opinię",
+  "lead": "Poleć ulepszenia, zgłoś problem, poproś o nowy silnik lub zadaj pytanie.",
+  "kindLabel": "Rodzaj opinii",
+  "kinds": {
+    "bug": {
+      "name": "Zgłoś błąd",
+      "hint": "Coś nie działa tak, jak oczekiwano",
+      "titlePlaceholder": "Np.: Edytor zamyka się podczas eksportu do Excela",
+      "placeholder": "Co zrobiono, czego oczekiwano i co się stało. Jeśli pojawił się komunikat o błędzie, skopiuj go."
+    },
+    "enhancement": {
+      "name": "Zaproponuj ulepszenie",
+      "hint": "Pomysł, jak ulepszyć DBine",
+      "titlePlaceholder": "Np.: Możliwość przypinania kolumn w siatce wyników",
+      "placeholder": "Co ma robić DBine i w czym by to pomogło."
+    },
+    "driver-request": {
+      "name": "Poproś o nowy silnik",
+      "hint": "Baza danych, której DBine jeszcze nie obsługuje",
+      "titlePlaceholder": "Np.: Firebird 5",
+      "placeholder": "Jak używasz tego silnika i czego potrzebujesz najpierw: przeglądania, zapytań, edycji danych, migracji…"
+    },
+    "question": {
+      "name": "Zadaj pytanie",
+      "hint": "Jak coś zrobić w DBine",
+      "titlePlaceholder": "Np.: Jak porównać dwie bazy?",
+      "placeholder": "Co chcesz zrobić i co już próbowano."
+    }
+  },
+  "titleField": "Tytuł",
+  "engine": "Silnik",
+  "description": "Opis",
+  "steps": "Kroki do odtworzenia",
+  "stepsPlaceholder": "1. Połącz się z…\n2. Otwórz…\n3. …",
+  "optional": "(opcjonalnie)",
+  "diagnostics": "Dołącz dane diagnostyczne",
+  "diagnosticsNever": "To wszystko, co zostanie dołączone. Nigdy serwery, użytkownicy, nazwy baz ani połączeń, zapytania ani hasła.",
+  "truncated": "Opis jest zbyt długi, aby wysłać go w całości: zostanie skrócony. Możesz go uzupełnić w GitHubie przed utworzeniem zgłoszenia.",
+  "publicNote": "GitHub otworzy się z wypełnionymi danymi: wystarczy kliknąć „Create”. Potrzebne jest konto GitHub. Zgłoszenie jest publiczne: nie podawaj danych prywatnych.",
+  "continue": "Kontynuuj w GitHubie",
+  "openAgain": "Otwórz ponownie",
+  "done": {
+    "title": "GitHub został otwarty w przeglądarce.",
+    "text": "Sprawdź wypełnione dane i kliknij „Create”, aby je opublikować. Dziękujemy za pomoc w ulepszaniu DBine!"
+  },
+  "needs": {
+    "title": "Tytuł musi mieć co najmniej {{n}} znaków.",
+    "engine": "Wpisz nazwę silnika.",
+    "description": "Opis musi mieć co najmniej {{n}} znaków."
+  }
+}

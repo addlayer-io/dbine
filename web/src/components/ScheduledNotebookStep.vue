@@ -116,7 +116,7 @@ const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024)
   <div class="sn">
     <el-form-item :label="$t('scheduled:notebook.file')">
       <el-input v-model="c.path" placeholder="/…/reporte.ipynb" @input="changed">
-        <template #append><el-button :title="$t('scheduled:notebook.pick')" @click="pickNotebook"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+        <template #append><el-button :aria-label="$t('scheduled:notebook.pick')" :title="$t('scheduled:notebook.pick')" @click="pickNotebook"><el-icon><ei-folder-opened /></el-icon></el-button></template>
       </el-input>
     </el-form-item>
     <p class="sn-hint">{{ $t('scheduled:notebook.hint') }}</p>
@@ -214,7 +214,7 @@ const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024)
     <div v-if="c.save.mode !== 'none'" class="sn-row">
       <el-form-item v-if="c.save.mode === 'folder'" :label="$t('scheduled:step.folder')" class="sn-grow">
         <el-input v-model="c.save.folder" @input="changed">
-          <template #append><el-button @click="pickFolder(c.save)"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+          <template #append><el-button :aria-label="$t('importConnections:chooseFolder')" @click="pickFolder(c.save)"><el-icon><ei-folder-opened /></el-icon></el-button></template>
         </el-input>
       </el-form-item>
       <el-form-item :label="$t('scheduled:step.fileName')" class="sn-grow">
@@ -231,7 +231,7 @@ const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024)
     <div v-if="c.export.format !== 'none'" class="sn-row">
       <el-form-item :label="$t('scheduled:step.folder')" class="sn-grow">
         <el-input v-model="c.export.folder" :placeholder="$t('scheduled:notebook.exportFolderHint')" @input="changed">
-          <template #append><el-button @click="pickFolder(c.export)"><el-icon><ei-folder-opened /></el-icon></el-button></template>
+          <template #append><el-button :aria-label="$t('importConnections:chooseFolder')" @click="pickFolder(c.export)"><el-icon><ei-folder-opened /></el-icon></el-button></template>
         </el-input>
       </el-form-item>
       <el-form-item :label="$t('scheduled:step.fileName')" class="sn-grow">

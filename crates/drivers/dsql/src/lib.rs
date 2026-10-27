@@ -31,7 +31,8 @@ use dbine_driver::{
     async_trait, ddl, json_bytes, json_f64, json_i64, kinds, ColumnDef, ColumnInfo,
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
     Family, Field, FieldKind, Language, Message, MessageLevel, ObjectKindInfo, ObjectRef,
-    QueryOutcome, Result, ResultColumn, SchemaInfo, ScriptError, Session, TableSchema, TxState,
+    QueryOutcome, Result, ResultColumn, SchemaInfo, ScriptError, Session, TableSchema, TlsSupport,
+    TxState,
 };
 use futures::StreamExt;
 use postgres_native_tls::MakeTlsConnector;
@@ -73,6 +74,10 @@ fn info() -> DriverInfo {
     }));
     fields.push(Field::read_only());
     DriverInfo {
+        // DSQL only takes TLS, and the IAM token only goes to a verified
+        // server: always `Require` with chain and name checked.
+        tls: TlsSupport::Forced,
+        tls_port: None,
         id: "dsql",
         name: "Amazon Aurora DSQL",
         family: Family::Relational,
@@ -117,7 +122,9 @@ fn region_from_host(host: &str) -> Option<String> {
 }
 
 fn target(cfg: &ConnectionConfig) -> Result<Target> {
-    let host = cfg.host.trim().to_string();
+    // Through an SSH tunnel the token and the certificate are the real
+    // endpoint's; the client dials the tunnel (`open_session`).
+    let host = cfg.tls_server_name().to_string();
     if host.is_empty() {
         return Err(Error::Connect("falta el endpoint del clúster".into()));
     }
@@ -442,17 +449,22 @@ async fn open_session(
     ssl: SslMode,
 ) -> Result<DsqlSession> {
     let mut pg = tokio_postgres::Config::new();
-    pg.host(&t.host)
-        .port(t.port)
+    pg.host(&t.host);
+    if t.host != cfg.host.trim() {
+        if let Ok(local) = cfg.host.trim().parse::<std::net::IpAddr>() {
+            pg.hostaddr(local);
+        }
+    }
+    pg.port(t.port)
         .user(&t.user)
         .password(password)
         .dbname(DATABASE)
         .application_name("DBine")
         .connect_timeout(Duration::from_secs(15))
         .ssl_mode(ssl);
+    // Always verified (`TlsSupport::Forced`): the system's roots, the
+    // endpoint's name.
     let connector = native_tls::TlsConnector::builder()
-        .danger_accept_invalid_certs(cfg.trust_server_certificate)
-        .danger_accept_invalid_hostnames(cfg.trust_server_certificate)
         .build()
         .map_err(|e| Error::Connect(format!("TLS: {e}")))?;
     let tls = MakeTlsConnector::new(connector);
@@ -1381,6 +1393,31 @@ mod tests {
         assert_eq!(t.region, "eu-central-1");
         assert!(target(&cfg("myhost", None, None)).is_err());
         assert!(target(&cfg("", None, Some("us-east-1"))).is_err());
+    }
+
+    /// Through an SSH tunnel the token, the region and the certificate's
+    /// name are the real endpoint's.
+    #[test]
+    fn a_tunnel_targets_the_real_endpoint() {
+        let mut c = cfg("127.0.0.1", None, None);
+        c.options.insert(
+            dbine_driver::config::TUNNEL_ORIGIN_HOST.into(),
+            "x.dsql.eu-west-1.on.aws".into(),
+        );
+        let t = target(&c).unwrap();
+        assert_eq!(t.host, "x.dsql.eu-west-1.on.aws");
+        assert_eq!(t.region, "eu-west-1");
+    }
+
+    /// DSQL is TLS-only and verified: no TLS fields, `Forced`.
+    #[test]
+    fn tls_is_forced() {
+        let i = info();
+        assert_eq!(i.tls, TlsSupport::Forced);
+        assert!(i
+            .fields
+            .iter()
+            .all(|f| f.tls.is_none() && !f.is_legacy_tls()));
     }
 
     #[tokio::test]

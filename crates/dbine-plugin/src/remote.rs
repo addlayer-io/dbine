@@ -825,6 +825,9 @@ impl Driver for RemoteDriver {
     fn supports_index_usage(&self) -> bool {
         self.meta.supports_index_usage
     }
+    fn cross_database(&self) -> bool {
+        self.meta.cross_database
+    }
     fn supports_index_toggle(&self) -> bool {
         self.meta.supports_index_toggle
     }

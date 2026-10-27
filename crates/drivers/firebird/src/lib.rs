@@ -59,6 +59,9 @@ struct FirebirdDriver {
 
 fn info() -> DriverInfo {
     DriverInfo {
+        // Its wire protocol has its own encryption (SRP + ChaCha/Arc4), not TLS.
+        tls: dbine_driver::TlsSupport::None,
+        tls_port: None,
         id: "firebird",
         name: "Firebird",
         family: Family::Relational,

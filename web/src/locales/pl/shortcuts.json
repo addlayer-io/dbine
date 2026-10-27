@@ -1,0 +1,57 @@
+{
+  "nav": "Skróty klawiszowe",
+  "help": "Klawisze każdej akcji. Kliknij kombinację i naciśnij nową (Esc anuluje). Zmiana jest stosowana od razu i jest przenoszona wraz z resztą konfiguracji.",
+  "search": "Szukaj według akcji lub klawisza",
+  "none": "Żadna akcja nie pasuje do wyszukiwania.",
+  "resetAll": "Przywróć wszystkie",
+  "reset": "Wróć do oryginalnej kombinacji",
+  "remove": "Usuń kombinację",
+  "change": "Zmień kombinację",
+  "recording": "Naciśnij kombinację…",
+  "unbound": "Bez skrótu",
+  "conflict": "Używa jej też: {{names}}",
+  "reserved": "To skrót systemowy (kopiowanie, wklejanie, cofanie…): przestaje działać tam, gdzie wykonywana jest akcja.",
+  "group": {
+    "general": "Ogólne",
+    "view": "Widok",
+    "editor": "Edytor",
+    "results": "Wyniki",
+    "database": "Baza danych",
+    "connection": "Połączenie",
+    "settings": "Preferencje",
+    "help": "Pomoc"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "Nowe zapytanie",
+      "newWindow": "Nowe okno",
+      "closeTab": "Zamknij kartę",
+      "save": "Zapisz",
+      "open": "Otwórz plik…"
+    },
+    "app": {
+      "settings": "Ustawienia",
+      "quit": "Zakończ DBine"
+    },
+    "view": {
+      "explorer": "Pokaż lub ukryj eksplorator",
+      "output": "Pokaż lub ukryj dolny panel",
+      "ai": "Pokaż lub ukryj asystenta AI"
+    },
+    "editor": {
+      "run": "Uruchom zaznaczenie lub całość",
+      "runStatement": "Uruchom instrukcję w miejscu kursora",
+      "planEstimated": "Plan szacunkowy",
+      "planActual": "Uruchom z planem rzeczywistym",
+      "format": "Formatuj",
+      "comment": "Zakomentuj lub odkomentuj",
+      "find": "Znajdź i zamień",
+      "gotoLine": "Przejdź do wiersza…",
+      "autocomplete": "Podpowiedzi autouzupełniania",
+      "toggleVim": "Włącz lub wyłącz tryb Vim"
+    },
+    "results": {
+      "export": "Eksportuj wyniki…"
+    }
+  }
+}

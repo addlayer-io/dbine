@@ -1,0 +1,63 @@
+{
+  "query": "Zapytanie {{n}}",
+  "actualPlan": "Plan rzeczywisty",
+  "estimatedPlan": "Plan szacunkowy",
+  "diagram": "Diagram",
+  "rawPlan": "Plan oryginalny",
+  "statementTitle": "Kliknij, aby zobaczyć w całości",
+  "hint": "Przeciągnij, aby się przesuwać · ⌘/pinch + kółko, aby powiększać · F dopasowuje",
+  "summary": {
+    "operators": "Operatory",
+    "cost": "Koszt",
+    "time": "Czas",
+    "rows": "Wiersze",
+    "firstWarning": "Przejdź do pierwszego ostrzeżenia",
+    "warnings_one": "{{count}} ostrzeżenie",
+    "warnings_few": "{{count}} ostrzeżenia",
+    "warnings_many": "{{count}} ostrzeżeń",
+    "warnings_other": "{{count}} ostrzeżenia"
+  },
+  "edge": {
+    "actualRows": "Wiersze rzeczywiste: {{rows}}",
+    "estimatedRows": "Wiersze szacowane: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Koszt operatora: {{pct}}%",
+    "noCost": "Bez kosztu",
+    "actualEstimatedRows": "Wiersze rzeczywiste / szacowane",
+    "estimatedRows": "Wiersze szacowane",
+    "estimatedShort": "{{rows}} szac.",
+    "expand_one": "Rozwiń ({{count}} operator)",
+    "expand_few": "Rozwiń ({{count}} operatory)",
+    "expand_many": "Rozwiń ({{count}} operatorów)",
+    "expand_other": "Rozwiń ({{count}} operatora)",
+    "collapse": "Zwiń"
+  },
+  "zoom": {
+    "zoomOut": "Pomniejsz (−)",
+    "actualSize": "Rozmiar rzeczywisty (0)",
+    "zoomIn": "Powiększ (+)",
+    "fit": "Dopasuj do widoku (F)",
+    "expandAll": "Rozwiń wszystko",
+    "collapseBelow": "Zwiń poniżej 3. poziomu",
+    "minimap": "Minimapa"
+  },
+  "props": {
+    "close": "Zamknij (Esc)",
+    "operator": "Operatora",
+    "self": "Własny",
+    "subtree": "Poddrzewo",
+    "rowsAndTime": "Wiersze i czas",
+    "estimatedPerExecution": "Szacowane (na wykonanie)",
+    "actualTotal": "Rzeczywiste (łącznie)",
+    "executions": "Wykonania",
+    "actualTime": "Czas rzeczywisty",
+    "object": "Obiekt",
+    "properties": "Właściwości"
+  },
+  "raw": {
+    "save": "Zapisz…",
+    "sqlServerPlan": "Plan SQL Server",
+    "ssmsHint": "Otwiera się w SQL Server Management Studio (.sqlplan)"
+  }
+}

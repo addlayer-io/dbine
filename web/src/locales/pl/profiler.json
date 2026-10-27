@@ -1,0 +1,94 @@
+{
+  "couldNotConnect": "Nie udało się połączyć.",
+  "connection": "Połączenie",
+  "thisEngine": "Ten silnik",
+  "unsupported": "{{engine}} nie pozwala zobaczyć zapytań innych klientów.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2,5s",
+    "text": "zawiera… · !nie zawiera · =równe",
+    "database": "zawiera… · !nie zawiera"
+  },
+  "menu": {
+    "filter": {
+      "user": "Filtruj według użytkownika „{{value}}”",
+      "client": "Filtruj według klienta „{{value}}”",
+      "application": "Filtruj według aplikacji „{{value}}”",
+      "database": "Filtruj według bazy „{{value}}”"
+    },
+    "filterSame": "Filtruj takie same jak to zapytanie",
+    "copy": "Kopiuj zapytanie"
+  },
+  "openInQuery": "Otwórz w zapytaniu",
+  "column": {
+    "time": "Czas",
+    "duration": "Czas trwania",
+    "query": "Zapytanie",
+    "database": "Baza",
+    "user": "Użytkownik",
+    "client": "Klient",
+    "application": "Aplikacja",
+    "rows": "Wiersze",
+    "cpu": "CPU",
+    "reads": "Odczyty",
+    "writes": "Zapisy"
+  },
+  "columns": "Kolumny",
+  "columnsHint": "Pokaż lub ukryj kolumny",
+  "showAll": "Pokaż wszystkie",
+  "status": {
+    "starting": "Uruchamianie…",
+    "capturing": "Przechwytywanie",
+    "stopped": "Zatrzymano",
+    "notStarted": "Nie uruchomiono"
+  },
+  "source": "Źródło: {{source}}",
+  "mode": {
+    "complete": "Pełne przechwytywanie",
+    "sampled": "Próbkowanie"
+  },
+  "clearFilters": "Usuń filtry",
+  "resume": "Wznów",
+  "sampledNote": "Ten silnik pokazuje tylko to, co jest aktualnie wykonywane: zapytania krótsze niż ~100 ms mogą się nie pojawić.",
+  "enabled": "Włączono {{source}} na serwerze.",
+  "disabled": "Wyłączono {{source}}.",
+  "stats": {
+    "title": "To zapytanie",
+    "runs_one": "{n} wykonanie",
+    "runs_few": "{n} wykonania",
+    "runs_many": "{n} wykonań",
+    "runs_other": "{n} wykonania",
+    "avg": "średnia",
+    "min": "min",
+    "max": "maks"
+  },
+  "filtersHint": "Zapisywane są tylko zapytania, które przechodzą filtry",
+  "sameAs": "Takie same jak: {{label}}",
+  "removeFilter": "Usuń ten filtr",
+  "noneYet": "Jeszcze żadne się nie pojawiło",
+  "noValues": "Brak wartości",
+  "empty": {
+    "noMatch": "Żadne zapytanie nie pasuje.",
+    "waitingFiltered": "Oczekiwanie na zapytania, które przejdą filtry…",
+    "waiting": "Oczekiwanie na zapytania…",
+    "none": "Brak przechwyconych zapytań."
+  },
+  "dragHint": "Przeciągnij, aby zmienić wysokość",
+  "detail": {
+    "rows_one": "{{n}} wiersz",
+    "rows_few": "{{n}} wiersze",
+    "rows_many": "{{n}} wierszy",
+    "rows_other": "{{n}} wiersza"
+  },
+  "foot": {
+    "queries_one": "{{n}} zapytanie",
+    "queries_few": "{{n}} zapytania",
+    "queries_many": "{{n}} zapytań",
+    "queries_other": "{{n}} zapytania",
+    "passing": "Przechodzi filtry: {{n}}",
+    "skipped": "Odrzucone przez filtry: {{n}}",
+    "dropped": "odrzucono {{n}} najstarszych (zachowywanych jest ostatnich {{max}})",
+    "arrivalOrder": "Wróć do kolejności napływania",
+    "toEnd": "Przejdź na koniec"
+  },
+  "unitHint": "W {{unit}}"
+}

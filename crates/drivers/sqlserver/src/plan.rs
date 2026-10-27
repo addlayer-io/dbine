@@ -331,13 +331,8 @@ fn warning_texts(w: Node) -> Vec<String> {
         };
         out.push(text);
     }
-    for (a, text) in [(
-        "NoJoinPredicate",
-        "Join sin predicado (producto cartesiano)",
-    )] {
-        if w.attribute(a) == Some("true") || w.attribute(a) == Some("1") {
-            out.push(text.to_string());
-        }
+    if matches!(w.attribute("NoJoinPredicate"), Some("true" | "1")) {
+        out.push("Join sin predicado (producto cartesiano)".to_string());
     }
     out
 }

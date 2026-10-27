@@ -1,0 +1,33 @@
+{
+  "menu": {
+    "undo": "Cofnij",
+    "redo": "Ponów",
+    "cut": "Wytnij",
+    "copy": "Kopiuj",
+    "paste": "Wklej",
+    "selectAll": "Zaznacz wszystko",
+    "runSelection": "Uruchom zaznaczenie",
+    "runAll": "Uruchom wszystko",
+    "runStatement": "Uruchom instrukcję w miejscu kursora",
+    "planEstimated": "Plan szacunkowy",
+    "planActual": "Uruchom z planem rzeczywistym",
+    "comment": "Zakomentuj lub odkomentuj",
+    "format": "Formatuj",
+    "find": "Znajdź i zamień",
+    "gotoLine": "Przejdź do wiersza…",
+    "optimize": "Optymalizuj zapytanie",
+    "problems": "Zobacz problemy",
+    "goToDefinition": "Przejdź do definicji",
+    "revealInExplorer": "Pokaż w eksploratorze",
+    "detectParams": "Pytaj o parametry przy uruchamianiu",
+    "click": "kliknięcie"
+  },
+  "nav": {
+    "notFound": "W bazie karty nie ma tabeli, widoku ani procedury o tej nazwie.",
+    "notLoaded": "Obiekty bazy nie zostały jeszcze załadowane: połącz się, aby przejść do definicji."
+  },
+  "insertColumn": "Kolumna {{n}} z {{total}}: {{name}}",
+  "insertExtra": "Wartość {{n}}: lista ma kolumn: {{total}}",
+  "pickFile": "Wybierz plik…",
+  "dataFiles": "Pliki danych (CSV, Parquet, JSON, Excel)"
+}

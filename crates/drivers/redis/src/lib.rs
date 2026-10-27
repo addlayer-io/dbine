@@ -24,7 +24,8 @@ use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, KeyEntry, KeyPage,
     KeyScan, KeySearch, KeySyntax, Language, MonitorSnapshot, ObjectKindInfo, ObjectRef,
-    QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema,
+    QueryOutcome, Result, ResultColumn, ScriptError, Session, TableSchema, TlsLevel, TlsSupport,
+    TUNNEL_ORIGIN_HOST,
 };
 use redis::aio::MultiplexedConnection;
 use redis::{
@@ -62,6 +63,8 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info(id: &'static str, name: &'static str) -> DriverInfo {
     DriverInfo {
+        tls: TlsSupport::Configurable,
+        tls_port: None,
         id,
         name,
         family: Family::KeyValue,
@@ -76,8 +79,9 @@ fn info(id: &'static str, name: &'static str) -> DriverInfo {
                 .help("Índice de la base lógica (0–15 en una instalación estándar)."),
             Field::username().help("Solo con ACL (Redis 6 o superior); vacío = default."),
             Field::password(),
-            Field::encrypt(),
-            Field::trust_cert(),
+            tls_field(),
+            insecure_field(),
+            cacert_field(),
             Field::read_only(),
         ],
         databases_label: "Bases de datos",
@@ -88,6 +92,90 @@ fn info(id: &'static str, name: &'static str) -> DriverInfo {
 
 pub struct RedisDriver {
     info: DriverInfo,
+}
+
+/// `--tls` (a `rediss://` URL), as a checkbox.
+fn tls_field() -> Field {
+    Field::tls_switch(
+        "tls",
+        "tls",
+        TlsLevel::VerifyFull,
+        TlsLevel::Off,
+        true,
+        ["false", "false", "true", "true"],
+    )
+    .help("Cifra la conexión (rediss://) y verifica el certificado del servidor.")
+}
+
+/// `--insecure`.
+fn insecure_field() -> Field {
+    Field::tls_skip_verify(
+        "insecure",
+        "insecure",
+        false,
+        ["false", "false", "false", "true"],
+    )
+    .help("No verifica el certificado del servidor (autofirmado, otro nombre): la conexión queda expuesta a una suplantación. Por un túnel SSH el certificado se verifica contra 127.0.0.1, porque el cliente de Redis no permite indicar el nombre real del servidor.")
+}
+
+/// `--cacert`.
+fn cacert_field() -> Field {
+    Field::tls_ca_file("cacert", "cacert")
+        .help("Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades públicas habituales.")
+}
+
+/// Where to connect (plain TCP, or TLS with its verification), and the CA
+/// file's PEM when one is set.
+fn address(
+    cfg: &ConnectionConfig,
+    host: String,
+    port: u16,
+) -> Result<(ConnectionAddr, Option<Vec<u8>>)> {
+    if cfg.tls_value(&tls_field()) != Some("true") {
+        return Ok((ConnectionAddr::Tcp(host, port), None));
+    }
+    let skip = insecure_field();
+    let insecure = cfg.tls_value(&skip).is_some_and(|v| skip.tls_skips(v));
+    let ca = match cfg.tls_value(&cacert_field()) {
+        Some(path) => Some(std::fs::read(path).map_err(|e| {
+            Error::Connect(format!("no se pudo leer el archivo de cacert {path}: {e}"))
+        })?),
+        None => None,
+    };
+    let addr = ConnectionAddr::TcpTls {
+        host,
+        port,
+        insecure,
+        tls_params: None,
+    };
+    Ok((addr, ca))
+}
+
+/// A failed connect, with what to change when TLS is why (see
+/// [`connect_err`]).
+fn connect_failure(cfg: &ConnectionConfig, e: RedisError) -> Error {
+    let base = connect_err(e);
+    let Error::Connect(text) = &base else {
+        return base;
+    };
+    let mut f = dbine_driver::ConnectFailure::from_message(text.clone());
+    let tunnel = cfg.option(TUNNEL_ORIGIN_HOST).is_some();
+    f.message = match f.kind {
+        dbine_driver::ConnectFailureKind::TlsUntrusted if tunnel => format!(
+            "Por un túnel SSH, Redis verifica el certificado contra 127.0.0.1 y no contra el nombre real del servidor: usá un certificado que incluya 127.0.0.1 o activá insecure ({})",
+            f.message
+        ),
+        dbine_driver::ConnectFailureKind::TlsUntrusted => format!(
+            "No se pudo verificar el certificado del servidor: indicá la CA en cacert o activá insecure ({})",
+            f.message
+        ),
+        k if k.is_tls() => format!(
+            "Falló la conexión TLS: si el servidor no tiene TLS, desactivá tls ({})",
+            f.message
+        ),
+        _ => return base,
+    };
+    Error::ConnectFailed(Box::new(f))
 }
 
 /// `db3`, `3` or empty (= 0).
@@ -253,19 +341,10 @@ impl Driver for RedisDriver {
             cfg.host.trim().to_string()
         };
         let port = cfg.port_or(6379);
-        let addr = if cfg.encrypt {
-            // redis' rustls needs a process-wide crypto provider when more
-            // than one is compiled in; a second install is a no-op error.
-            let _ = rustls::crypto::ring::default_provider().install_default();
-            ConnectionAddr::TcpTls {
-                host,
-                port,
-                insecure: cfg.trust_server_certificate,
-                tls_params: None,
-            }
-        } else {
-            ConnectionAddr::Tcp(host, port)
-        };
+        // redis' rustls needs a process-wide crypto provider when more
+        // than one is compiled in; a second install is a no-op error.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let (addr, ca) = address(cfg, host, port)?;
         let mut redis_info = RedisConnectionInfo::default().set_db(db);
         if let Some(u) = cfg.username.as_deref().filter(|u| !u.is_empty()) {
             redis_info = redis_info.set_username(u);
@@ -277,7 +356,18 @@ impl Driver for RedisDriver {
             .into_connection_info()
             .map_err(connect_err)?
             .set_redis_settings(redis_info);
-        let client = redis::Client::open(conn_info).map_err(connect_err)?;
+        let client = match ca {
+            // Only this CA is trusted, as `redis-cli --cacert`.
+            Some(pem) => redis::Client::build_with_tls(
+                conn_info,
+                redis::TlsCertificates {
+                    client_tls: None,
+                    root_cert: Some(pem),
+                },
+            ),
+            None => redis::Client::open(conn_info),
+        }
+        .map_err(connect_err)?;
         let config = AsyncConnectionConfig::new()
             .set_connection_timeout(Some(Duration::from_secs(15)))
             .set_response_timeout(Some(Duration::from_secs(300)));
@@ -287,7 +377,7 @@ impl Driver for RedisDriver {
         )
         .await
         .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
-        .map_err(connect_err)?;
+        .map_err(|e| connect_failure(cfg, e))?;
         Ok(Box::new(RedisSession {
             conn,
             client,
@@ -972,6 +1062,108 @@ impl Session for RedisSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cfg(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "h".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            options: options
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// TLS on, and `insecure`: None for plaintext.
+    fn tls_of(c: &ConnectionConfig) -> Option<bool> {
+        match address(c, "h".into(), 6379).unwrap().0 {
+            ConnectionAddr::TcpTls { insecure, .. } => Some(insecure),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn legacy_pairs_keep_todays_tls() {
+        assert_eq!(tls_of(&cfg(false, false, &[])), None);
+        assert_eq!(tls_of(&cfg(false, true, &[])), None);
+        assert_eq!(tls_of(&cfg(true, false, &[])), Some(false));
+        assert_eq!(tls_of(&cfg(true, true, &[])), Some(true));
+    }
+
+    #[test]
+    fn new_connections_verify_and_options_apply() {
+        for d in drivers() {
+            let i = d.info();
+            assert!(i.fields.iter().all(|f| !f.is_legacy_tls()));
+            assert_eq!(i.tls, TlsSupport::Configurable);
+            let defaults: Vec<(&str, &str)> = i
+                .fields
+                .iter()
+                .filter(|f| f.tls.is_some() && !f.default.is_empty())
+                .map(|f| (f.key, f.default))
+                .collect();
+            let c = cfg(false, false, &defaults);
+            assert_eq!(c.tls_level(&i.fields), Some(TlsLevel::VerifyFull));
+            assert_eq!(tls_of(&c), Some(false));
+        }
+        let c = cfg(false, false, &[("tls", "true"), ("insecure", "true")]);
+        assert_eq!(tls_of(&c), Some(true));
+        assert_eq!(tls_of(&cfg(true, true, &[("tls", "false")])), None);
+        // The CA file is read; a missing one fails before connecting.
+        let ca = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../tests/tls/ca.pem");
+        let (_, pem) = address(
+            &cfg(false, false, &[("tls", "true"), ("cacert", ca)]),
+            "h".into(),
+            1,
+        )
+        .unwrap();
+        assert!(pem.is_some_and(|p| p.starts_with(b"-----BEGIN")));
+        assert!(address(
+            &cfg(false, false, &[("tls", "true"), ("cacert", "/nope.pem")]),
+            "h".into(),
+            1
+        )
+        .is_err());
+        // Plaintext ignores the CA file.
+        assert!(address(
+            &cfg(false, false, &[("tls", "false"), ("cacert", "/nope.pem")]),
+            "h".into(),
+            1
+        )
+        .unwrap()
+        .1
+        .is_none());
+    }
+
+    #[test]
+    fn tls_failures_name_the_option() {
+        let e = |m: &str| RedisError::from(std::io::Error::other(m.to_string()));
+        let msg = |r: Error| match r {
+            Error::ConnectFailed(f) => (f.kind, f.message),
+            other => panic!("{other:?}"),
+        };
+        let c = cfg(true, false, &[]);
+        let (k, m) = msg(connect_failure(
+            &c,
+            e("invalid peer certificate: UnknownIssuer"),
+        ));
+        assert_eq!(k, dbine_driver::ConnectFailureKind::TlsUntrusted);
+        assert!(m.contains("cacert") && m.contains("insecure"));
+        let mut t = c.clone();
+        t.options
+            .insert(TUNNEL_ORIGIN_HOST.into(), "cache.example.com".into());
+        let (_, m) = msg(connect_failure(
+            &t,
+            e("invalid peer certificate: NotValidForName"),
+        ));
+        assert!(m.contains("127.0.0.1"));
+        assert!(matches!(
+            connect_failure(&c, e("connection refused")),
+            Error::Connect(_)
+        ));
+    }
 
     #[test]
     fn no_server_side_filters() {

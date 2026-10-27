@@ -1,0 +1,5 @@
+# The Rust release CI, release builds and every machine use, so they compile
+# (and lint) the same way. Raise it on purpose, in its own commit.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]

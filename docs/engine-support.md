@@ -482,6 +482,50 @@ Unit tests only: Redshift, Yellowbrick, Denodo, KingbaseES, OceanBase,
 SingleStore, Doris, VeloDB, Databend, HANA, Snowflake, Athena, Databricks,
 Neptune and the ODBC presets without a driver on the machine.
 
+## Completion across databases
+
+In a query tab, completion also reaches the connection's other databases:
+their names where a table goes, their tables after `other_db.` (and
+`other_db.schema.` on engines with schemas), and their columns after a
+table or an alias, as in `SELECT a.…, b.… FROM db_a.t AS a JOIN db_b.u AS b`.
+A database's objects are read the first time its name is typed with a dot,
+and its tables' columns when the text names them; both stay cached like
+the explorer's. It needs nothing from the server beyond the lists the
+explorer already reads; the driver declares it with
+`Driver::cross_database`, true only where one query can read another
+database of the same connection.
+
+It is offered on ClickHouse and Timeplus; MySQL, MariaDB, Amazon Aurora
+MySQL, Cloud SQL for MySQL, TiDB, OceanBase, SingleStore, Apache Doris,
+StarRocks, Databend, VeloDB and GreptimeDB; SQL Server, Fabric Data
+Warehouse, SAP ASE (Sybase) and Netezza; Snowflake, Databricks (and Azure
+Databricks), Trino, Presto, Starburst, Dremio, Amazon Athena and BigQuery
+(other datasets); DuckDB (attached databases); Amazon Redshift, CockroachDB
+and Materialize; Couchbase (`bucket.scope.collection`); Cassandra, ScyllaDB
+and Amazon Keyspaces (`keyspace.table`); Oracle, Oracle Autonomous Database
+and SAP HANA (other schemas); TDengine; and Virtuoso.
+
+### Engines without it
+
+- **One query reads one database:** PostgreSQL and the engines on its
+  protocol that keep that rule (Amazon Aurora PostgreSQL, Cloud SQL para
+  PostgreSQL, AlloyDB para PostgreSQL, TimescaleDB, YugabyteDB, Greenplum,
+  Greengage DB, Apache Cloudberry, EDB Postgres Advanced Server, Fujitsu
+  Enterprise Postgres, KingbaseES, openGauss), Azure SQL Database and
+  Babelfish for PostgreSQL (one database per connection), Google Cloud
+  Spanner, Azure Cosmos DB, InfluxDB 3 (SQL), OrientDB.
+- **Not SQL, or no database prefix:** MongoDB, Amazon DocumentDB, FerretDB,
+  CouchDB, Redis, Valkey, Dragonfly, Neo4j, Memgraph, InfluxDB 2 (Flux).
+- **Another syntax for the prefix:** IBM Informix and GBase 8s
+  (`db:table`), InfluxDB 1 (InfluxQL) (`"db"."retention"."measurement"`),
+  Apache IoTDB and TimechoDB (paths under `root`), Apache Drill (workspace
+  names hold dots, such as `dfs.tmp`). Each needs its own reading of the
+  qualified name: pending.
+- **Depends on the server behind it:** Arrow Flight SQL and ODBC (genérico).
+- **Not verified yet:** Denodo, RisingWave and Yellowbrick may read
+  another database by its prefix; pending a test against a server before
+  turning it on.
+
 ## Engines that are not there yet
 
 Known engines that DBine does not support, and why.
@@ -1882,6 +1926,19 @@ not depend on the driver.
 |---|---|
 | SQLite, DuckDB and other local-file engines | There is no server: a file on the machine is opened. |
 | ODBC with DSN | The connection is built by the system's ODBC driver from the DSN; DBine does not see the server to redirect it. A tunnel can be used with a DSN that points to `127.0.0.1`. |
+
+## Connection encryption
+
+Each engine shows its own TLS options, with its own names and values
+(`sslmode`, `Encrypt`, `ssl-mode`…). New connections encrypt and verify the
+server's certificate; connections saved before keep what they did. The
+per-engine design is in [`tls-options.md`](tls-options.md).
+
+Engines without TLS:
+
+| Engine | Reason |
+|---|---|
+| H2 (`h2`) | H2's PostgreSQL server has no TLS: it answers the TLS request with "no". |
 
 ## Locks
 
@@ -3862,3 +3919,54 @@ mode, in the unit tests.
 | DuckDB, SQLite | Credentials | Embedded files: no server and no sign-in. A folder of files (CSV / Parquet / JSON) is only its path. |
 | Every engine | Secrets with Vault database credentials | Leased credentials DBine revokes on disconnect: not copied. |
 | Engines signed in with cloud IAM | The password | It is a temporary token: the string carries `${DB_IAM_TOKEN}`. |
+
+## Connection encryption
+
+Each engine's TLS options use its own names and values (docs/tls-options.md).
+New connections are encrypted with the server's certificate verified wherever
+the engine supports it. The engines below have no TLS, or their TLS can't be
+set from DBine yet.
+
+### Engines without TLS
+
+| Engine | Reason |
+|---|---|
+| `firebird` | Firebird has no TLS listener. Its wire protocol has its own encryption (SRP authentication plus Firebird's wire crypt), which DBine's client uses. |
+| `zen` | Actian Zen's wire encryption is its own (Blowfish), set in the client's and the server's configuration; it is not TLS, and the ODBC driver has no keyword for it. |
+| `mimer` | Mimer SQL encrypts with its own protocol (`NetworkEncryption` on the server), not TLS. |
+| `nuodb` | The NuoDB ODBC driver doesn't pass the TLS options (`trustStore`, `verifyHostname`) that the C++ and JDBC drivers have. |
+| `cubrid` | CUBRID encrypts only from JDBC and CCI (`useSSL`); the ODBC driver doesn't pass it. |
+
+`duckdb`, `duckdb_files` and `sqlite` are local files, and `access` and
+`dbase` local ODBC files: there is no connection to encrypt. `odbc` (a DSN or
+a typed connection string), `iris` and `cache` (`SSLDefs.ini`) take TLS from
+the driver's configuration or the string the user types.
+
+### ODBC presets: what the drivers can't do
+
+- **No server-name override** (Db2, Teradata, Vertica, Simba Hive / Impala /
+  Spark, MonetDB): through an SSH tunnel a mode that checks the host name is
+  refused, naming the option that verifies only the CA
+  (`SSLClientHostnameValidation=OFF`, `SSLMode=Verify-CA`,
+  `AllowHostNameCNMismatch=1`; MonetDB: `CERTHASH`). OpenEdge
+  (`HostNameInCertificate`) and SQL Anywhere (`certificate_name`) get the real
+  server's name.
+- **Chain only, never the host name:** Ignite and Ignite 3 (`SSL_MODE=require`),
+  Informix and GBase 8s (`onsocssl`), Netezza (`onlySecured`). Not documented
+  by the vendor, so not claimed: Db2 for i (`SSL=1`), Exasol, Ocient (`TLS=ON`)
+  and Altibase.
+- **No skip-verify option:** Db2, Informix / GBase 8s, Db2 for i, Ignite,
+  MonetDB (pin with `CERTHASH` instead), Teradata and Vertica (use `Require` /
+  `require`). Netezza encrypts without verifying only as `preferredSecured`.
+- **No CA keyword:** Informix / GBase 8s (the GSKit keystore in `conssl.cfg`),
+  Db2 for i (the system store), Vertica (`root.crt`), Ocient.
+- **No plaintext option:** Ocient's ODBC driver documents only `UNVERIFIED` and
+  `ON`.
+- **Pending confirmation** (still listed in `NOT_YET_MIGRATED`): `sybase` (FreeTDS and
+  SAP's driver spell TLS differently and the form can't tell them apart),
+  `sqream` (whether its `Ssl` verifies the certificate isn't documented),
+  `virtuoso` (verifying needs a client certificate; `ENCRYPT=1` doesn't
+  verify), `heavydb` (different keywords on Linux and Windows), `dameng` (the
+  server picks the mode; the client can't require TLS), `ingres` (TLS is the
+  `tls` protocol of the vnode; its use from ODBC isn't confirmed), `maxdb` and
+  `machbase` (no documented ODBC TLS).

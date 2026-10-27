@@ -690,6 +690,10 @@ pub struct DriverMeta {
     /// in older manifests: not offered).
     #[serde(default)]
     pub supports_index_usage: bool,
+    /// Queries read other databases as `db.table` (`Driver::cross_database`;
+    /// absent in older manifests: not offered).
+    #[serde(default)]
+    pub cross_database: bool,
     /// "Deshabilitar / Habilitar índice" (`Driver::index_toggle_script`;
     /// absent in older manifests: not offered).
     #[serde(default)]
@@ -757,6 +761,7 @@ impl DriverMeta {
             script_defaults: Some(d.script_defaults()),
             supports_manual_transactions: d.supports_manual_transactions(),
             supports_index_usage: d.supports_index_usage(),
+            cross_database: d.cross_database(),
             supports_index_toggle: d.supports_index_toggle(),
             rename: d.rename_spec(),
             create_database_fields: d.create_database_fields(),

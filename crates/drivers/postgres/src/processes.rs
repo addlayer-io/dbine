@@ -772,7 +772,7 @@ async fn cratedb_cancel(s: &PgSession, id: &str) -> Result<()> {
             text(r, "sid").as_deref() == Some(id)
         }
     };
-    if own.is_some_and(&mine) {
+    if own.is_some_and(mine) {
         return Err(Error::Query(OWN.into()));
     }
     let jobs: Vec<String> = rows

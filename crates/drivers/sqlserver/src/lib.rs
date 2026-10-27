@@ -98,6 +98,11 @@ struct CancelTarget {
 
 #[async_trait]
 impl Driver for SqlServerDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        matches!(self.info.id, "sqlserver" | "fabric")
+    }
+
     /// Explicit identity values need IDENTITY_INSERT (one table at a time).
     fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {
         if !table.columns.iter().any(|c| c.auto_increment) {
@@ -509,7 +514,8 @@ impl SqlServerDriver {
     ) -> Result<SqlServerSession> {
         let login = variant::login(cfg, self.variant).await?;
         let config = build_config(cfg, database, self.variant, login)?;
-        let (client, config) = connect_routed(config).await.map_err(connect_error)?;
+        let named = cfg.option(variant::HOST_NAME_IN_CERTIFICATE).is_some();
+        let (client, config) = connect_routed(config, named).await.map_err(connect_error)?;
         let cancel = Arc::new(std::sync::Mutex::new(CancelTarget {
             attention: client.cancel_handle(),
             backend: None,
@@ -532,13 +538,21 @@ impl SqlServerDriver {
     }
 }
 
-/// Connect, following an Azure SQL redirect to another node.
-async fn connect_routed(config: Config) -> tiberius::Result<(Client<Compat<TcpStream>>, Config)> {
+/// Connect, following an Azure SQL redirect to another node. The node is
+/// dialed directly and its certificate names it, so the name checked becomes
+/// the node's, unless the user set `HostNameInCertificate` (`named`).
+async fn connect_routed(
+    config: Config,
+    named: bool,
+) -> tiberius::Result<(Client<Compat<TcpStream>>, Config)> {
     match connect_once(config.clone()).await {
         Err(tiberius::error::Error::Routing { host, port }) => {
             let mut c = config;
             c.host(&host);
             c.port(port);
+            if !named {
+                c.hostname_in_certificate(&host);
+            }
             Ok((connect_once(c.clone()).await?, c))
         }
         other => Ok((other?, config)),
@@ -632,7 +646,21 @@ fn connect_error(e: tiberius::error::Error) -> Error {
             };
             Error::connect_failed(ConnectFailure::new(kind, message.clone()))
         }
-        tiberius::error::Error::Tls(_) => Error::connect_failed(ConnectFailure::new(ConnectFailureKind::Tls, e.to_string())),
+        tiberius::error::Error::Tls(m) => {
+            let kind = match dbine_driver::error::classify_message(m) {
+                ConnectFailureKind::TlsUntrusted => ConnectFailureKind::TlsUntrusted,
+                _ => ConnectFailureKind::Tls,
+            };
+            let message = if kind == ConnectFailureKind::TlsUntrusted {
+                format!(
+                    "{e}. No se pudo verificar el certificado del servidor: indicá su CA en ServerCertificate, \
+                     revisá HostNameInCertificate o, si confiás en la red, marcá TrustServerCertificate."
+                )
+            } else {
+                e.to_string()
+            };
+            Error::connect_failed(ConnectFailure::new(kind, message))
+        }
         _ => Error::connect_failed(ConnectFailure::from_message(e.to_string())),
     }
 }
@@ -732,27 +760,111 @@ fn build_config(
     // tiberius 0.13 cuts commands at 30 s and the connection is unusable
     // afterwards. Long queries are the user's to cancel.
     c.command_timeout(None);
-    // Entra ID tokens only travel encrypted; Azure and Fabric refuse plain
-    // TDS anyway.
-    let encrypt = cfg.encrypt || variant.forces_encryption() || matches!(login, Login::Token(_));
-    c.encryption(match (encrypt, variant) {
-        (true, _) => EncryptionLevel::Required,
-        // Babelfish without SSL configured refuses even the login-only TLS
-        // that `Off` asks for.
-        (false, Variant::Babelfish) => EncryptionLevel::NotSupported,
-        (false, _) => EncryptionLevel::Off,
-    });
-    // Without encryption TLS only wraps the login packet, and like ODBC's
-    // Encrypt=no the certificate isn't checked (SQL Server's auto-generated
-    // one is self-signed and too old for rustls).
-    if cfg.trust_server_certificate || !encrypt {
+    let tls = tls_settings(cfg, variant, matches!(login, Login::Token(_)))?;
+    c.encryption(tls.level);
+    // tiberius panics when a CA is given with `trust_cert`: the skip wins.
+    if tls.trust {
         c.trust_cert();
+    } else if let Some(ca) = &tls.ca {
+        c.trust_cert_ca(ca);
+    }
+    if let Some(name) = &tls.server_name {
+        c.hostname_in_certificate(name);
     }
     if cfg.read_only {
         c.readonly(true);
     }
     c.authentication(auth_method(login)?);
     Ok(c)
+}
+
+/// What the connection's TLS options ask of tiberius.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Tls {
+    level: EncryptionLevel,
+    /// Accept any certificate (`trust_cert`).
+    trust: bool,
+    /// A certificate or CA trusted on top of the system's (`trust_cert_ca`).
+    ca: Option<String>,
+    /// The name the certificate must carry, when it isn't the host dialed.
+    server_name: Option<String>,
+}
+
+/// The connection's `Encrypt`, `TrustServerCertificate`, `ServerCertificate`
+/// and `HostNameInCertificate`. A connection saved before these options
+/// existed reads them from its `encrypt` / `trust_server_certificate` pair
+/// (the fields' legacy tables), which gives what it did before:
+/// ff and ft `Optional`, tf `Mandatory`, tt `Mandatory` with
+/// `TrustServerCertificate`.
+fn tls_settings(cfg: &ConnectionConfig, v: Variant, token: bool) -> Result<Tls> {
+    let explicit = cfg
+        .option(variant::HOST_NAME_IN_CERTIFICATE)
+        .map(str::trim)
+        .filter(|n| !n.is_empty());
+    // Through an SSH tunnel the client dials 127.0.0.1: the certificate
+    // must still name the real server.
+    let tunnelled = {
+        let (real, _, _) = parse_host(cfg.tls_server_name(), DEFAULT_PORT);
+        let (dialed, _, _) = parse_host(cfg.host.trim(), DEFAULT_PORT);
+        (real != dialed).then_some(real)
+    };
+    let server_name = explicit.or(tunnelled).map(str::to_string);
+    let Some(encrypt) = variant::encrypt_field(v) else {
+        // Fabric: always encrypted and verified.
+        return Ok(Tls {
+            level: EncryptionLevel::Required,
+            trust: false,
+            ca: None,
+            server_name,
+        });
+    };
+    let mut mode = cfg.tls_value(&encrypt).unwrap_or("Mandatory");
+    // Entra ID tokens only travel encrypted, and Azure SQL refuses plain
+    // TDS: `Optional` goes up to `Mandatory`.
+    if mode.eq_ignore_ascii_case("Optional") && (token || v.forces_encryption()) {
+        mode = "Mandatory";
+    }
+    let trust = variant::trust_field(v).is_some_and(|f| cfg.tls_value(&f) == Some("true"));
+    let ca = cfg
+        .option(variant::SERVER_CERTIFICATE)
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && v != Variant::AzureSql)
+        .map(str::to_string);
+    Ok(match mode.to_ascii_lowercase().as_str() {
+        // TLS only wraps the login packet and, as ODBC's Encrypt=no, the
+        // certificate isn't checked (SQL Server's auto-generated one is
+        // self-signed and too old for rustls). Babelfish without SSL
+        // configured refuses even that: plain TDS.
+        "optional" => Tls {
+            level: if v == Variant::Babelfish {
+                EncryptionLevel::NotSupported
+            } else {
+                EncryptionLevel::Off
+            },
+            trust: true,
+            ca: None,
+            server_name,
+        },
+        "mandatory" => Tls {
+            level: EncryptionLevel::Required,
+            trust,
+            ca: if trust { None } else { ca },
+            server_name,
+        },
+        // As in ODBC, Strict always verifies: TrustServerCertificate
+        // doesn't apply.
+        "strict" if v != Variant::Babelfish => Tls {
+            level: EncryptionLevel::Strict,
+            trust: false,
+            ca,
+            server_name,
+        },
+        _ => {
+            return Err(Error::Connect(format!(
+            "Encrypt: «{mode}» no es un valor que este motor acepte (Optional, Mandatory o Strict)"
+        )))
+        }
+    })
 }
 
 fn auth_method(login: Login) -> Result<AuthMethod> {
@@ -1846,6 +1958,10 @@ mod tests {
             kind(tiberius::error::Error::Tls(
                 "invalid peer certificate: UnknownIssuer".into()
             )),
+            ConnectFailureKind::TlsUntrusted
+        );
+        assert_eq!(
+            kind(tiberius::error::Error::Tls("handshake eof".into())),
             ConnectFailureKind::Tls
         );
         // The messages stay the same Spanish ones.
@@ -1927,6 +2043,166 @@ mod tests {
         assert!(
             matches!(&e, Error::AuthFailed(m) if m.contains("MSSQLSvc")),
             "{e:?}"
+        );
+    }
+
+    fn tls_cfg(encrypt: bool, trust: bool, options: &[(&str, &str)]) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "sql01.contoso.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            options: options
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    fn tls(level: EncryptionLevel, trust: bool) -> Tls {
+        Tls {
+            level,
+            trust,
+            ca: None,
+            server_name: None,
+        }
+    }
+
+    /// A connection saved before the TLS options gets exactly what it got
+    /// before, for each `(encrypt, trust_server_certificate)` pair.
+    #[test]
+    fn legacy_connections_keep_their_tls() {
+        use EncryptionLevel::{NotSupported, Off, Required};
+        let pairs = [(false, false), (false, true), (true, false), (true, true)];
+        let expect = |v: Variant| -> [Tls; 4] {
+            match v {
+                // ff/ft: login-only TLS, certificate not checked; tf:
+                // verified; tt: trust_cert.
+                Variant::SqlServer => [
+                    tls(Off, true),
+                    tls(Off, true),
+                    tls(Required, false),
+                    tls(Required, true),
+                ],
+                Variant::Babelfish => [
+                    tls(NotSupported, true),
+                    tls(NotSupported, true),
+                    tls(Required, false),
+                    tls(Required, true),
+                ],
+                Variant::AzureSql => [
+                    tls(Required, false),
+                    tls(Required, true),
+                    tls(Required, false),
+                    tls(Required, true),
+                ],
+                Variant::Fabric => [
+                    tls(Required, false),
+                    tls(Required, false),
+                    tls(Required, false),
+                    tls(Required, false),
+                ],
+            }
+        };
+        for v in Variant::ALL {
+            for (i, (e, t)) in pairs.into_iter().enumerate() {
+                assert_eq!(
+                    tls_settings(&tls_cfg(e, t, &[]), v, false).unwrap(),
+                    expect(v)[i],
+                    "{v:?} encrypt={e} trust={t}"
+                );
+            }
+        }
+        // An Entra ID token always went encrypted (and verified unless trusted).
+        assert_eq!(
+            tls_settings(&tls_cfg(false, false, &[]), Variant::SqlServer, true).unwrap(),
+            tls(Required, false)
+        );
+        assert_eq!(
+            tls_settings(&tls_cfg(false, true, &[]), Variant::SqlServer, true).unwrap(),
+            tls(Required, true)
+        );
+    }
+
+    /// A new connection's defaults encrypt and verify.
+    #[test]
+    fn new_connections_verify() {
+        for v in Variant::ALL {
+            let info = variant::info(v);
+            let mut cfg = tls_cfg(false, false, &[]);
+            for f in info.fields.iter().filter(|f| f.tls.is_some()) {
+                if !f.default.is_empty() {
+                    cfg.options.insert(f.key.into(), f.default.into());
+                }
+            }
+            assert_eq!(
+                tls_settings(&cfg, v, false).unwrap(),
+                tls(EncryptionLevel::Required, false),
+                "{v:?}"
+            );
+            if v != Variant::Fabric {
+                assert_eq!(
+                    cfg.tls_level(&info.fields),
+                    Some(dbine_driver::TlsLevel::VerifyFull),
+                    "{v:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_options_reach_tiberius() {
+        let v = Variant::SqlServer;
+        let get = |o: &[(&str, &str)]| tls_settings(&tls_cfg(false, false, o), v, false).unwrap();
+        // Strict ignores TrustServerCertificate, as ODBC does.
+        assert_eq!(
+            get(&[("Encrypt", "Strict"), ("TrustServerCertificate", "true")]),
+            tls(EncryptionLevel::Strict, false)
+        );
+        // The skip wins over a CA file (tiberius panics with both).
+        let t = get(&[
+            ("Encrypt", "Mandatory"),
+            ("TrustServerCertificate", "true"),
+            ("ServerCertificate", "/ca.pem"),
+        ]);
+        assert!(t.trust && t.ca.is_none());
+        let t = get(&[("Encrypt", "Mandatory"), ("ServerCertificate", " /ca.pem ")]);
+        assert_eq!(t.ca.as_deref(), Some("/ca.pem"));
+        assert!(!t.trust);
+        // The name checked: HostNameInCertificate, else the tunnel's far end.
+        let t = get(&[
+            ("Encrypt", "Mandatory"),
+            ("HostNameInCertificate", "db.contoso.com"),
+        ]);
+        assert_eq!(t.server_name.as_deref(), Some("db.contoso.com"));
+        let mut cfg = tls_cfg(
+            false,
+            false,
+            &[
+                ("Encrypt", "Mandatory"),
+                ("tunnel.origin_host", "sql01.contoso.com\\SQLEXPRESS"),
+            ],
+        );
+        cfg.host = "127.0.0.1".into();
+        let t = tls_settings(&cfg, v, false).unwrap();
+        assert_eq!(t.server_name.as_deref(), Some("sql01.contoso.com"));
+        // Not tunnelled: tiberius checks the host it dials.
+        assert_eq!(get(&[("Encrypt", "Mandatory")]).server_name, None);
+        // Babelfish has no Strict; Azure SQL no Optional.
+        assert!(tls_settings(
+            &tls_cfg(false, false, &[("Encrypt", "Strict")]),
+            Variant::Babelfish,
+            false
+        )
+        .is_err());
+        assert_eq!(
+            tls_settings(
+                &tls_cfg(false, false, &[("Encrypt", "Optional")]),
+                Variant::AzureSql,
+                false
+            )
+            .unwrap(),
+            tls(EncryptionLevel::Required, false)
         );
     }
 

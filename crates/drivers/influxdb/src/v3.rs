@@ -17,6 +17,8 @@ use serde_json::{json, Value as J};
 
 pub fn info() -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "influxdb3",
         name: "InfluxDB 3 (SQL)",
         family: Family::TimeSeries,

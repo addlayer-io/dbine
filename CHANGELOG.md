@@ -2,7 +2,18 @@
 
 ## [Unreleased]
 
+### New
+- **Ukrainian and Polish:** DBine and the phone app are available in Українська and Polski, including server messages and the AI assistant. Pick the language in **Settings › General › Language**, or DBine follows the system's.
+
+### Improvements
+- **Completion across databases:** on engines where one query can read another database of the same connection (ClickHouse, MySQL and MariaDB, SQL Server, Snowflake, Databricks, Trino, BigQuery, Oracle and more), the editor offers the other databases' names, their tables after `other_db.` and their columns after a table or an alias, also in joins between databases. Each database's tables are read the first time you type its name with a dot.
+- **DuckDB engine updated to 2.0.0:** local DuckDB files and DataFrame SQL in notebooks now run on DuckDB 2.0.0 (up from 1.5.5). New database files use DuckDB 2.0's storage format, which older DuckDB versions cannot open; existing files continue to open and remain readable by the version that created them.
+- **Connection encryption for SQL Server, PostgreSQL and MySQL:** the connection form shows each engine's own TLS options, with the names its tools use: `Encrypt` (Optional, Mandatory, Strict), `TrustServerCertificate`, `ServerCertificate` and `HostNameInCertificate` for SQL Server and Azure SQL; `sslmode` and `sslrootcert` for PostgreSQL and its family; `ssl-mode` and `ssl-ca` for MySQL and its family; `ssl`, `ssl-verify-server-cert` and `ssl-ca` for MariaDB and OceanBase. New connections are encrypted and check the server's certificate, and each setting can be turned off. Saved connections keep working exactly as before. Through an SSH tunnel the certificate is checked against the real server's name, and a certificate failure says which option to change. MySQL's `PREFERRED` falls back to an unencrypted connection only when the server doesn't offer TLS, before any password is sent.
+- **Keyboard and screen readers:** a visible focus ring shows where the keyboard is; list rows, cards, sortable headers and collapsible sections can be reached with Tab and used with Enter or Space; context menus work with the arrow keys; icon-only buttons have names a screen reader reads; the result of a query (finished, or failed with its error) is announced; animations stop when the system asks for reduced motion; and secondary text has more contrast in both themes.
+
 ### Fixes
+- **ClickHouse 22.8 and older:** connecting no longer fails with `Unknown setting http_write_exception_in_output_format`; DBine stops asking for that setting on servers that don't have it.
+- **Notebooks, Python export:** a PostgreSQL connection that checks the server's certificate is exported with `sslmode=verify-full`, as **Copy connection string** does, instead of `require`, which doesn't check it.
 - **HashiCorp Vault, security:** a password source's Vault address must be `https://`; plain `http://` is accepted only for a Vault on this computer, as for the other secret managers, so the Vault token never travels in clear over the network.
 
 ## [1.1.0] - 2026-10-21

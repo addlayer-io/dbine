@@ -520,10 +520,14 @@ impl Drop for InFlight {
                 // load's statements.
                 set.abort_all();
                 drop(set);
-                let (query, user, password) =
-                    (conn.query.clone(), conn.user.clone(), conn.password.clone());
+                let (query, user, password, tls) = (
+                    conn.query.clone(),
+                    conn.user.clone(),
+                    conn.password.clone(),
+                    conn.tls.clone(),
+                );
                 let waited = std::thread::spawn(move || {
-                    stop_and_wait_blocking(&query, &user, &password, &id)
+                    stop_and_wait_blocking(&query, &user, &password, &id, &tls)
                 })
                 .join();
                 if !matches!(waited, Ok(true)) {
@@ -540,16 +544,22 @@ impl Drop for InFlight {
 /// server runs none of them (none seen twice in a row, half a second apart,
 /// so one still in transit shows up), up to [`DROP_WAIT`]. Own runtime and
 /// HTTP client: the caller's are blocked. `true` once none is left.
-fn stop_and_wait_blocking(query: &str, user: &str, password: &str, id: &str) -> bool {
+fn stop_and_wait_blocking(
+    query: &str,
+    user: &str,
+    password: &str,
+    id: &str,
+    tls: &crate::tls::HttpTls,
+) -> bool {
     let Ok(rt) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     else {
         return false;
     };
-    let Ok(http) = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .build()
+    let Ok(http) = tls
+        .builder(reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(10)))
+        .and_then(|b| b.build().map_err(dbine_driver::Error::connect))
     else {
         return false;
     };

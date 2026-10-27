@@ -1,0 +1,99 @@
+{
+  "title": "Importuj dane",
+  "steps": {
+    "file": "Plik",
+    "preview": "Podgląd",
+    "target": "Cel",
+    "import": "Importuj"
+  },
+  "formats": {
+    "auto": "Automatycznie (według rozszerzenia)",
+    "csv": "CSV (przecinek)",
+    "csvSemicolon": "CSV (średnik)",
+    "tsv": "TSV (tabulator)",
+    "json": "JSON (tablica obiektów)",
+    "jsonLines": "JSON Lines (jeden obiekt w wierszu)"
+  },
+  "types": {
+    "integer": "liczba całkowita",
+    "number": "liczba",
+    "boolean": "wartość logiczna",
+    "date": "data",
+    "datetime": "data i godzina",
+    "text": "tekst"
+  },
+  "file": {
+    "filterData": "Dane (CSV, TSV, JSON, JSONL, XLSX, XML)",
+    "pickHint": "Wybierz plik CSV, TSV, JSON, JSON Lines, Excel lub XML.",
+    "format": "Format",
+    "delimiter": "Separator",
+    "tab": "tabulator",
+    "commaDefault": ", (lub z formatu)",
+    "sheet": "Arkusz",
+    "firstSheet": "Pierwszy arkusz",
+    "header": "Pierwszy wiersz zawiera nazwy kolumn",
+    "detected_one": "Wykryto {{count}} kolumnę · format {{format}}",
+    "detected_few": "Wykryto {{count}} kolumny · format {{format}}",
+    "detected_many": "Wykryto {{count}} kolumn · format {{format}}",
+    "detected_other": "Wykryto {{count}} kolumny · format {{format}}"
+  },
+  "preview": {
+    "caption_one": "Pierwsze wiersze ({{rows}}) z {file} · {{count}} kolumna",
+    "caption_few": "Pierwsze wiersze ({{rows}}) z {file} · {{count}} kolumny",
+    "caption_many": "Pierwsze wiersze ({{rows}}) z {file} · {{count}} kolumn",
+    "caption_other": "Pierwsze wiersze ({{rows}}) z {file} · {{count}} kolumny",
+    "empty": "Plik nie zawiera wierszy z danymi."
+  },
+  "target": {
+    "existing": "Istniejąca tabela",
+    "new": "Nowa tabela",
+    "pickTable": "Wybierz tabelę",
+    "schema": "schemat",
+    "tableName": "nazwa tabeli",
+    "batch": "Wierszy w partii",
+    "sourceColumn": "Kolumna z pliku",
+    "detectedType": "Wykryty typ",
+    "targetColumn": "Kolumna docelowa",
+    "ignore": "(ignoruj)",
+    "name": "Nazwa",
+    "type": "Typ",
+    "nulls": "Null",
+    "toImport_one": "{{count}} kolumna do zaimportowania",
+    "toImport_few": "{{count}} kolumny do zaimportowania",
+    "toImport_many": "{{count}} kolumn do zaimportowania",
+    "toImport_other": "{{count}} kolumny do zaimportowania",
+    "errors": {
+      "pickTable": "Wybierz tabelę docelową",
+      "mapOne": "Przypisz co najmniej jedną kolumnę",
+      "mappedTwice": "Niektóre kolumny docelowe są przypisane dwukrotnie",
+      "newName": "Wpisz nazwę nowej tabeli",
+      "exists": "Tabela o tej nazwie już istnieje",
+      "includeOne": "Uwzględnij co najmniej jedną kolumnę",
+      "nameAndType": "Każda kolumna wymaga nazwy i typu",
+      "duplicateNames": "Niektóre nazwy kolumn się powtarzają"
+    }
+  },
+  "run": {
+    "importing": "Importowanie {{file}}…",
+    "rows_one": "wiersz",
+    "rows_few": "wiersze",
+    "rows_many": "wierszy",
+    "rows_other": "wiersza",
+    "rowsPerSecond": "wierszy/s",
+    "done": "Import zakończony",
+    "doneDetail_one": "{{n}} wiersz w {table} · {{seconds}} s",
+    "doneDetail_few": "{{n}} wiersze w {table} · {{seconds}} s",
+    "doneDetail_many": "{{n}} wierszy w {table} · {{seconds}} s",
+    "doneDetail_other": "{{n}} wiersza w {table} · {{seconds}} s",
+    "partial_one": "Przed zatrzymaniem zaimportowano {{n}} wiersz.",
+    "partial_few": "Przed zatrzymaniem zaimportowano {{n}} wiersze.",
+    "partial_many": "Przed zatrzymaniem zaimportowano {{n}} wierszy.",
+    "partial_other": "Przed zatrzymaniem zaimportowano {{n}} wiersza.",
+    "cancelledMessage": "Import anulowany.",
+    "cancelImport": "Anuluj import",
+    "ofRows_one": "z {{total}} wiersza",
+    "ofRows_few": "z {{total}} wierszy",
+    "ofRows_many": "z {{total}} wierszy",
+    "ofRows_other": "z {{total}} wiersza"
+  }
+}

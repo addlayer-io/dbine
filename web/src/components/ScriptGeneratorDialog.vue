@@ -326,7 +326,7 @@ defineExpose({ run });
         <div class="sg-list" :class="{ disabled: running }">
           <template v-for="g in groups" :key="g.kind">
             <div class="sg-group">
-              <button class="sg-caret" type="button" @click="toggleCollapse(g.kind)">
+              <button class="sg-caret" type="button" :aria-expanded="!(collapsed.has(g.kind) && !filter)" :aria-label="collapsed.has(g.kind) && !filter ? $t('workbench:tabs.expandGroup') : $t('workbench:tabs.collapseGroup')" @click="toggleCollapse(g.kind)">
                 <el-icon><ei-arrow-right v-if="collapsed.has(g.kind) && !filter" /><ei-arrow-down v-else /></el-icon>
               </button>
               <el-checkbox

@@ -35,6 +35,8 @@ export const LANGUAGES = [
   { code: 'zh', name: '中文（简体）', tag: 'zh-CN', intl: 'zh-CN' },
   { code: 'ja', name: '日本語', tag: 'ja', intl: 'ja-JP' },
   { code: 'ko', name: '한국어', tag: 'ko', intl: 'ko-KR' },
+  { code: 'uk', name: 'Українська', tag: 'uk', intl: 'uk-UA' },
+  { code: 'pl', name: 'Polski', tag: 'pl', intl: 'pl-PL' },
 ] as const;
 export type Lang = (typeof LANGUAGES)[number]['code'];
 const info = (code: Lang) => LANGUAGES.find((l) => l.code === code)!;

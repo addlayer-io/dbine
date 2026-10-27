@@ -76,13 +76,22 @@ Each value is escaped for its format:
   `password=` lines (Java properties escaping) under the URL.
 - Node.js configuration objects: JSON.
 
-TLS follows the connection: with **encrypt** the server's certificate is
-checked unless the connection trusts it, as DBine does: `sslmode=verify-full`
-or `require` (libpq, pgjdbc; Npgsql `VerifyFull` / `Require`), `ssl-mode` /
-`sslMode` / `SslMode` (MySQL family), `tls=true` or `skip-verify` (Go),
-`Encrypt` and `TrustServerCertificate` (SQL Server; Azure SQL and Fabric
-always encrypt), `rediss://`, `tls=true` (MongoDB), `https` (HTTP engines),
-`neo4j+s` / `+ssc` (Bolt). SQL Server's sign-in methods map to each format's
+TLS follows the connection. When the engine has its own TLS options in the
+form (`sslmode`, `ssl-mode`, `Encrypt`, `TrustServerCertificate`,
+`HostNameInCertificate`…), the string carries them with the engine's own
+values: libpq's `sslmode` goes as saved (`disable`, `allow`, `prefer`,
+`require`, `verify-ca`, `verify-full`; Npgsql in its own spelling), MySQL gets
+all five `ssl-mode` levels (`DISABLED` … `VERIFY_IDENTITY`; Go `tls=false`,
+`preferred`, `skip-verify`, `true`), and SQL Server `Encrypt=Optional`,
+`True` or `Strict` with `TrustServerCertificate` and `HostNameInCertificate`.
+A connection saved before those options keeps exporting what it did. The
+other engines, and a connection with the older **encrypt** / **trust the
+server certificate** settings, map to: `sslmode=verify-full` or `require`
+(libpq, pgjdbc; Npgsql `VerifyFull` / `Require`), `ssl-mode` / `sslMode` /
+`SslMode` (MySQL family), `tls=true` or `skip-verify` (Go), `Encrypt` and
+`TrustServerCertificate` (SQL Server; Azure SQL and Fabric always encrypt),
+`rediss://`, `tls=true` (MongoDB), `https` (HTTP engines), `neo4j+s` / `+ssc`
+(Bolt). SQL Server's sign-in methods map to each format's
 own keyword (`Authentication=Active Directory …`,
 `authentication=ActiveDirectory…`, `Integrated Security`,
 `Trusted_Connection`, `fedauth`, tedious' `authentication.type`).

@@ -1,0 +1,99 @@
+{
+  "title": "Імпорт даних",
+  "steps": {
+    "file": "Файл",
+    "preview": "Попередній перегляд",
+    "target": "Призначення",
+    "import": "Імпорт"
+  },
+  "formats": {
+    "auto": "Автоматично (за розширенням)",
+    "csv": "CSV (кома)",
+    "csvSemicolon": "CSV (крапка з комою)",
+    "tsv": "TSV (табуляція)",
+    "json": "JSON (масив об'єктів)",
+    "jsonLines": "JSON Lines (один об'єкт на рядок)"
+  },
+  "types": {
+    "integer": "ціле число",
+    "number": "число",
+    "boolean": "логічне",
+    "date": "дата",
+    "datetime": "дата й час",
+    "text": "текст"
+  },
+  "file": {
+    "filterData": "Дані (CSV, TSV, JSON, JSONL, XLSX, XML)",
+    "pickHint": "Виберіть файл CSV, TSV, JSON, JSON Lines, Excel або XML.",
+    "format": "Формат",
+    "delimiter": "Роздільник",
+    "tab": "табуляція",
+    "commaDefault": ", (або з формату)",
+    "sheet": "Аркуш",
+    "firstSheet": "Перший аркуш",
+    "header": "Перший рядок містить назви стовпців",
+    "detected_one": "Виявлено {{count}} стовпець · формат {{format}}",
+    "detected_few": "Виявлено {{count}} стовпці · формат {{format}}",
+    "detected_many": "Виявлено {{count}} стовпців · формат {{format}}",
+    "detected_other": "Виявлено {{count}} стовпця · формат {{format}}"
+  },
+  "preview": {
+    "caption_one": "Перші {{rows}} рядків із {file} · {{count}} стовпець",
+    "caption_few": "Перші {{rows}} рядків із {file} · {{count}} стовпці",
+    "caption_many": "Перші {{rows}} рядків із {file} · {{count}} стовпців",
+    "caption_other": "Перші {{rows}} рядків із {file} · {{count}} стовпця",
+    "empty": "У файлі немає рядків даних."
+  },
+  "target": {
+    "existing": "Наявна таблиця",
+    "new": "Нова таблиця",
+    "pickTable": "Виберіть таблицю",
+    "schema": "схема",
+    "tableName": "назва таблиці",
+    "batch": "Рядків на пакет",
+    "sourceColumn": "Стовпець файлу",
+    "detectedType": "Виявлений тип",
+    "targetColumn": "Цільовий стовпець",
+    "ignore": "(ігнорувати)",
+    "name": "Назва",
+    "type": "Тип",
+    "nulls": "NULL",
+    "toImport_one": "{{count}} стовпець для імпорту",
+    "toImport_few": "{{count}} стовпці для імпорту",
+    "toImport_many": "{{count}} стовпців для імпорту",
+    "toImport_other": "{{count}} стовпця для імпорту",
+    "errors": {
+      "pickTable": "Виберіть цільову таблицю",
+      "mapOne": "Зіставте принаймні один стовпець",
+      "mappedTwice": "Деякі цільові стовпці зіставлено двічі",
+      "newName": "Вкажіть назву нової таблиці",
+      "exists": "Таблиця з такою назвою вже існує",
+      "includeOne": "Включіть принаймні один стовпець",
+      "nameAndType": "Кожному стовпцю потрібні назва й тип",
+      "duplicateNames": "Назви стовпців повторюються"
+    }
+  },
+  "run": {
+    "importing": "Імпорт {{file}}…",
+    "rows_one": "рядок",
+    "rows_few": "рядки",
+    "rows_many": "рядків",
+    "rows_other": "рядка",
+    "rowsPerSecond": "рядків/с",
+    "done": "Імпорт завершено",
+    "doneDetail_one": "{{n}} рядок у {table} · {{seconds}} с",
+    "doneDetail_few": "{{n}} рядки в {table} · {{seconds}} с",
+    "doneDetail_many": "{{n}} рядків у {table} · {{seconds}} с",
+    "doneDetail_other": "{{n}} рядка в {table} · {{seconds}} с",
+    "partial_one": "Перед зупинкою встигли імпортувати {{n}} рядок.",
+    "partial_few": "Перед зупинкою встигли імпортувати {{n}} рядки.",
+    "partial_many": "Перед зупинкою встигли імпортувати {{n}} рядків.",
+    "partial_other": "Перед зупинкою встигли імпортувати {{n}} рядка.",
+    "cancelledMessage": "Імпорт скасовано.",
+    "cancelImport": "Скасувати імпорт",
+    "ofRows_one": "із {{total}} рядка",
+    "ofRows_few": "із {{total}} рядків",
+    "ofRows_many": "із {{total}} рядків",
+    "ofRows_other": "із {{total}} рядка"
+  }
+}

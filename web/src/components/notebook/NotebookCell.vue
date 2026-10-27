@@ -7,6 +7,7 @@ import { onMarkdownClick } from '../../composables/externalLink';
 import { pickDataFile } from '../../composables/files';
 import CodeEditor from '../CodeEditor.vue';
 import NotebookResult from './NotebookResult.vue';
+import { vKeyActivate } from '../../composables/keyActivate';
 
 // One cell of a notebook: SQL (the query editor, its result under it),
 // text (Markdown, rendered; double click to edit) or a cell from another
@@ -195,11 +196,11 @@ function endRename(save: boolean) {
           <el-icon><ei-coin /></el-icon>{{ ctx.target }}<span v-if="ctx.localFiles" class="nc-engine">· DuckDB</span>
         </button>
         <span v-if="cell.kind === 'foreign'" class="nc-lang">{{ cell.language || '?' }}</span>
-        <button v-if="cell.kind === 'sql'" class="nc-btn" :disabled="busy" :title="$t('notebook:cell.runFrom')" @click="emit('runFrom')"><el-icon><ei-d-arrow-right /></el-icon></button>
-        <button v-if="cell.kind === 'markdown' && !editing" class="nc-btn" :title="$t('notebook:cell.edit')" @click="emit('edit', true)"><el-icon><ei-edit /></el-icon></button>
-        <button v-if="cell.kind === 'markdown' && editing" class="nc-btn" :title="$t('notebook:cell.render')" @click="emit('edit', false)"><el-icon><ei-check /></el-icon></button>
-        <button class="nc-btn" :disabled="index === 0" :title="$t('notebook:cell.moveUp')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></button>
-        <button class="nc-btn" :disabled="index === count - 1" :title="$t('notebook:cell.moveDown')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></button>
+        <button v-if="cell.kind === 'sql'" :aria-label="$t('notebook:cell.runFrom')" class="nc-btn" :disabled="busy" :title="$t('notebook:cell.runFrom')" @click="emit('runFrom')"><el-icon><ei-d-arrow-right /></el-icon></button>
+        <button v-if="cell.kind === 'markdown' && !editing" :aria-label="$t('notebook:cell.edit')" class="nc-btn" :title="$t('notebook:cell.edit')" @click="emit('edit', true)"><el-icon><ei-edit /></el-icon></button>
+        <button v-if="cell.kind === 'markdown' && editing" :aria-label="$t('notebook:cell.render')" class="nc-btn" :title="$t('notebook:cell.render')" @click="emit('edit', false)"><el-icon><ei-check /></el-icon></button>
+        <button :aria-label="$t('notebook:cell.moveUp')" class="nc-btn" :disabled="index === 0" :title="$t('notebook:cell.moveUp')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></button>
+        <button :aria-label="$t('notebook:cell.moveDown')" class="nc-btn" :disabled="index === count - 1" :title="$t('notebook:cell.moveDown')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></button>
         <el-dropdown trigger="click" placement="bottom-end" @command="(c: string) => c === 'sql' || c === 'markdown' ? emit('kind', c) : c === 'keep' ? emit('keep') : c === 'explain' ? emit('explain') : c === 'propose' ? emit('propose') : c === 'target' ? emit('target') : c === 'write' ? emit('writeTo') : emit('remove')">
           <button class="nc-btn" :title="$t('notebook:cell.more')" :aria-label="$t('notebook:cell.more')"><el-icon><ei-more-filled /></el-icon></button>
           <template #dropdown>
@@ -280,8 +281,8 @@ function endRename(save: boolean) {
         />
         <!-- Escaped first (composables/markdown.ts): no raw HTML. -->
         <!-- eslint-disable-next-line vue/no-v-html -->
-        <div v-else-if="cell.source.trim()" class="nc-md nm-selectable" :title="$t('notebook:cell.dblClickEdit')" @dblclick="emit('edit', true)" @click="onMarkdownClick" v-html="html" />
-        <div v-else class="nc-md empty" @dblclick="emit('edit', true)">{{ $t('notebook:cell.emptyText') }}</div>
+        <div v-else-if="cell.source.trim()" v-key-activate.native.open class="nc-md nm-selectable" :title="$t('notebook:cell.dblClickEdit')" @dblclick="emit('edit', true)" @click="onMarkdownClick" v-html="html" />
+        <div v-else v-key-activate.open class="nc-md empty" @dblclick="emit('edit', true)">{{ $t('notebook:cell.emptyText') }}</div>
       </template>
 
       <!-- From another tool: kept as it is, never run -->

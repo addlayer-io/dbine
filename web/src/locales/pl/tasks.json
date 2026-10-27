@@ -1,0 +1,235 @@
+{
+  "status": {
+    "running_one": "{{count}} zadanie w toku",
+    "running_few": "{{count}} zadania w toku",
+    "running_many": "{{count}} zadań w toku",
+    "running_other": "{{count}} zadania w toku",
+    "title": "Zobacz zadania w toku",
+    "many": "Zadania: {{count}}",
+    "line": "{{title}}: {{elapsed}}",
+    "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
+  },
+  "panel": {
+    "title": "Zadania",
+    "empty": "Brak zadań.",
+    "clearFinished": "Usuń zakończone",
+    "cancel": "Anuluj",
+    "cancelling": "Anulowanie…",
+    "detail": "Zobacz szczegóły",
+    "remove": "Usuń",
+    "background": "Kontynuuj w tle"
+  },
+  "state": {
+    "running": "W toku",
+    "done": "Zakończone",
+    "error": "Z błędami",
+    "cancelled": "Anulowane"
+  },
+  "progress": {
+    "of": "{{done}} z {{total}} {{unit}}",
+    "count": "{{done}} {{unit}}"
+  },
+  "unit": {
+    "statements": "instrukcji",
+    "rows": "wierszy",
+    "bytes": "bajtów",
+    "tables": "tabel",
+    "objects": "obiektów"
+  },
+  "elapsed": {
+    "seconds": "{{n}} s",
+    "minutes": "{{n}} min {{s}} s",
+    "hours": "{{n}} h {{m}} min",
+    "days": "{{n}} d {{h}} h"
+  },
+  "eta": {
+    "calculating": "obliczanie…",
+    "lessThanMinute": "mniej niż 1 min",
+    "minutes": "≈ {{n}} min",
+    "hours": "≈ {{h}} h {{m}} min",
+    "hoursExact": "≈ {{h}} h",
+    "days": "≈ {{d}} d {{h}} h",
+    "remaining": "pozostało {{eta}}",
+    "phase": "{{eta}} do końca tego etapu",
+    "none": "brak szacunku",
+    "low": "szacunek wstępny, może się zmienić"
+  },
+  "detail": {
+    "title": "Szczegóły zadania",
+    "messages": "Komunikaty",
+    "noMessages": "Brak komunikatów.",
+    "result": "Wynik",
+    "error": "Błąd",
+    "started": "Początek",
+    "elapsed": "Upłynęło",
+    "remaining": "Szacowany pozostały czas",
+    "ended": "Koniec",
+    "duration": "Całkowity czas trwania"
+  },
+  "notify": {
+    "title": {
+      "done": "Zadanie zakończone",
+      "error": "Zadanie z błędami",
+      "cancelled": "Zadanie anulowane"
+    },
+    "done": "{{title}}: zakończono w {{elapsed}}.",
+    "error": "{{title}}: zakończono z błędami w {{elapsed}}.",
+    "cancelled": "{{title}}: anulowano po {{elapsed}}.",
+    "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
+    "failed": "{{title}}: niepowodzenie po {{elapsed}}. {{error}}"
+  },
+  "quit": {
+    "title": "Wykonania w tle",
+    "message_one": "Trwa {{count}} wykonanie w tle: {{list}}. Zamknięcie aplikacji je anuluje. Zamknąć mimo to?",
+    "message_few": "Trwają {{count}} wykonania w tle: {{list}}. Zamknięcie aplikacji je anuluje. Zamknąć mimo to?",
+    "message_many": "Trwa {{count}} wykonań w tle: {{list}}. Zamknięcie aplikacji je anuluje. Zamknąć mimo to?",
+    "message_other": "Trwa {{count}} wykonania w tle: {{list}}. Zamknięcie aplikacji je anuluje. Zamknąć mimo to?",
+    "confirm": "Anuluj i zamknij",
+    "stay": "Kontynuuj pracę",
+    "window": "{{title}} (okno {{n}})"
+  },
+  "update": {
+    "title": "Wykonania w tle",
+    "message_one": "Trwa {{count}} wykonanie w tle: {{list}}. Aby dokończyć aktualizację, DBine uruchomi się ponownie i je anuluje. Uruchomić ponownie mimo to?",
+    "message_few": "Trwają {{count}} wykonania w tle: {{list}}. Aby dokończyć aktualizację, DBine uruchomi się ponownie i je anuluje. Uruchomić ponownie mimo to?",
+    "message_many": "Trwa {{count}} wykonań w tle: {{list}}. Aby dokończyć aktualizację, DBine uruchomi się ponownie i je anuluje. Uruchomić ponownie mimo to?",
+    "message_other": "Trwa {{count}} wykonania w tle: {{list}}. Aby dokończyć aktualizację, DBine uruchomi się ponownie i je anuluje. Uruchomić ponownie mimo to?",
+    "confirm": "Anuluj i uruchom ponownie",
+    "stay": "Kontynuuj pracę"
+  },
+  "closeWindow": {
+    "title": "Wykonania w tym oknie",
+    "message_one": "W tym oknie trwa {{count}} wykonanie w tle: {{list}}. Zamknięcie okna je anuluje. Zamknąć mimo to?",
+    "message_few": "W tym oknie trwają {{count}} wykonania w tle: {{list}}. Zamknięcie okna je anuluje. Zamknąć mimo to?",
+    "message_many": "W tym oknie trwa {{count}} wykonań w tle: {{list}}. Zamknięcie okna je anuluje. Zamknąć mimo to?",
+    "message_other": "W tym oknie trwa {{count}} wykonania w tle: {{list}}. Zamknięcie okna je anuluje. Zamknąć mimo to?",
+    "confirm": "Anuluj i zamknij okno",
+    "stay": "Kontynuuj pracę"
+  },
+  "dataSync": {
+    "title": "Synchronizacja danych {{table}} ({{where}})",
+    "unit": "instrukcji",
+    "phase": "Stosowanie w {{side}}: {{parts}}",
+    "applied": "Już zastosowano w {{sides}}",
+    "nothingApplied": "Nie zdążył zostać zastosowany żaden kompletny skrypt",
+    "stoppedOn": "{{side}} zatrzymano w połowie: może mieć częściowo zastosowane zmiany",
+    "lateCancel": "Anulowanie dotarło, gdy skrypty już się zakończyły: zmiany zostały zastosowane.",
+    "stale": "Wykonywanie zostało zatrzymane w połowie i dane mogły się zmienić: tych skryptów nie można już uruchomić. Porównanie zostało wczytane ponownie.",
+    "regenerate": "Wygeneruj skrypty ponownie"
+  },
+  "compareSync": {
+    "title": "Synchronizacja {{target}}",
+    "sideStart_one": "{{side}}: {{count}} instrukcja",
+    "sideStart_few": "{{side}}: {{count}} instrukcje",
+    "sideStart_many": "{{side}}: {{count}} instrukcji",
+    "sideStart_other": "{{side}}: {{count}} instrukcji",
+    "summary": "{{count}} z {{total}} instrukcji",
+    "summaryAll_one": "{{count}} instrukcja",
+    "summaryAll_few": "{{count}} instrukcje",
+    "summaryAll_many": "{{count}} instrukcji",
+    "summaryAll_other": "{{count}} instrukcji"
+  },
+  "backups": {
+    "copy": "Kopia {{where}}",
+    "copyDone": "{{size}} w {{path}}",
+    "restoreCopy": "Przywróć kopię w {{where}}",
+    "statements": "Instrukcje: {{n}}",
+    "statementsWithErrors": "Instrukcje: {{n}}, z błędem: {{errors}}",
+    "native": {
+      "backup": "Kopia zapasowa {{where}}",
+      "restore": "Przywracanie w {{where}}",
+      "delete": "Usuń kopię zapasową w {{where}}"
+    }
+  },
+  "dialogs": {
+    "schemaCreate": "Utwórz schemat {{name}} w {{db}}",
+    "schemaDrop": "Usuń schemat {{name}} w {{db}}",
+    "dropIndex": "Usuń indeks {{name}} z {{table}}",
+    "cloneTable": "Klonuj {{table}} jako {{name}}",
+    "runScriptFile": "Uruchom {{file}} w {{db}}",
+    "applyEdits": "Zapisz zmiany w {{table}}",
+    "saving": "Zapisywanie…",
+    "rows_one": "{{n}} wiersz",
+    "rows_few": "{{n}} wiersze",
+    "rows_many": "{{n}} wierszy",
+    "rows_other": "{{n}} wiersza",
+    "statements_one": "{{n}} instrukcja",
+    "statements_few": "{{n}} instrukcje",
+    "statements_many": "{{n}} instrukcji",
+    "statements_other": "{{n}} instrukcji",
+    "statementsWithErrors_one": "{{n}} instrukcja, {{errors}} z błędem",
+    "statementsWithErrors_few": "{{n}} instrukcje, {{errors}} z błędem",
+    "statementsWithErrors_many": "{{n}} instrukcji, {{errors}} z błędem",
+    "statementsWithErrors_other": "{{n}} instrukcji, {{errors}} z błędem"
+  },
+  "backupsSecurity": {
+    "run": "Zmiana użytkowników i uprawnień w {{where}}"
+  },
+  "actions": {
+    "createDatabase": "Utwórz bazę {{name}} na {{server}}",
+    "dropDatabase": "Usuń bazę {{name}} z {{server}}",
+    "dropOne": "Usuń {{name}} w {{db}}",
+    "dropMany": "Usuń obiekty ({{count}}) w {{db}}",
+    "dropped_one": "{{count}} obiekt usunięty",
+    "dropped_few": "{{count}} obiekty usunięte",
+    "dropped_many": "{{count}} obiektów usuniętych",
+    "dropped_other": "{{count}} obiektu usuniętego",
+    "dropFailed": "nie udało się usunąć {{failed}} z {{total}} (szczegóły mówią dlaczego)"
+  },
+  "dataCompare": {
+    "buildTitle": "Skrypty synchronizacji danych {{table}}",
+    "buildPhase": "Generowanie skryptów",
+    "applied": "Te skrypty zostały już uruchomione, a porównanie wczytane ponownie: nie można ich uruchomić ponownie. Aby wykonać kolejną synchronizację, wygeneruj je ponownie."
+  },
+  "settingsGit": {
+    "git": {
+      "link": "Połącz bibliotekę z repozytorium",
+      "commit": "Commit biblioteki",
+      "pull": "Pull biblioteki",
+      "push": "Push biblioteki",
+      "sync": "Synchronizuj bibliotekę z repozytorium",
+      "resolve": "Rozwiąż konflikty biblioteki",
+      "unlink": "Odłącz bibliotekę od repozytorium",
+      "conflicts_one": "{{count}} skrypt z konfliktem: otwórz „Biblioteka w git”, aby go rozwiązać",
+      "conflicts_few": "{{count}} skrypty z konfliktem: otwórz „Biblioteka w git”, aby je rozwiązać",
+      "conflicts_many": "{{count}} skryptów z konfliktem: otwórz „Biblioteka w git”, aby je rozwiązać",
+      "conflicts_other": "{{count}} skryptu z konfliktem: otwórz „Biblioteka w git”, aby je rozwiązać"
+    },
+    "sync": {
+      "setupUpload": "Włącz synchronizację i wyślij kopię zapasową",
+      "setupRestore": "Przywróć kopię zapasową na tym komputerze",
+      "now": "Synchronizuj z chmurą",
+      "upload": "Wyślij kopię zapasową do chmury",
+      "restore": "Przywróć z chmury",
+      "change": "Zmień frazę hasłową i zaszyfruj kopię zapasową ponownie",
+      "disconnect": "Przestań synchronizować i usuń kopię zapasową w chmurze",
+      "local": "Przywróć kopię lokalną"
+    },
+    "drivers": {
+      "install": "Pobierz sterownik {{label}}"
+    }
+  },
+  "genImportExport": {
+    "script": "Skrypt {{db}}",
+    "scriptToFile": "Skrypt {{db}} w {{file}}",
+    "withRows": "{{objects}}, {{rows}}",
+    "import": "Importuj {{file}} do {{table}}",
+    "export": "Eksportuj {{file}}"
+  },
+  "nativeBackup": {
+    "phase": {
+      "backup": "Kopiowanie danych",
+      "restore": "Przywracanie danych",
+      "verify": "Sprawdzanie kopii zapasowej",
+      "export": "Eksportowanie za pomocą Data Pump",
+      "import": "Importowanie za pomocą Data Pump"
+    }
+  },
+  "importExport": {
+    "phase": {
+      "reading": "Odczytywanie pliku",
+      "inserting": "Wstawianie wierszy"
+    },
+    "estimated": "z ~{{total}} szacowanych"
+  }
+}

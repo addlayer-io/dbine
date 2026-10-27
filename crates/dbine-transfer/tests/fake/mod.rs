@@ -250,6 +250,8 @@ pub struct FakeSession {
 
 fn info(id: &'static str) -> DriverInfo {
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id,
         name: "Fake",
         family: Family::Relational,

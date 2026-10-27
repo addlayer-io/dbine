@@ -123,6 +123,8 @@ fn info(azure: bool) -> DriverInfo {
         Field::read_only(),
     ]);
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: if azure {
             "azure_databricks"
         } else {
@@ -344,6 +346,11 @@ struct Statement {
 
 #[async_trait]
 impl Driver for DatabricksDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }

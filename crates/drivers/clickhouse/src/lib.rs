@@ -23,6 +23,7 @@ mod search;
 mod security;
 mod stats;
 mod sync;
+mod tls;
 mod transfer;
 
 use async_trait::async_trait;
@@ -33,7 +34,7 @@ use dbine_driver::{
     json_i64, json_u64, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate,
     DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language,
     ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, ScriptError, Session,
-    TableSchema,
+    TableSchema, TlsLevel, TlsSupport,
 };
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,13 +43,16 @@ use std::time::Duration;
 
 const FORMAT: &str = "JSONCompactEachRowWithNamesAndTypes";
 /// Asked for on every request unless the user's profile has `readonly = 1`,
-/// which refuses any setting that differs from the profile's. The JSON
+/// which refuses any setting that differs from the profile's, or the server
+/// predates them (22.8 has no `http_write_exception_in_output_format`). The JSON
 /// number quoting (`output_format_json_quote_*`) is left to the server, so
 /// every user sees values the same way; `split_row` reads numbers from their
 /// text, quoted or not, without losing digits.
 const OUTPUT_SETTINGS: [(&str, &str); 1] = [("http_write_exception_in_output_format", "0")];
 /// `READONLY`: "Cannot modify '…' setting in readonly mode".
 const READONLY: u32 = 164;
+/// `UNKNOWN_SETTING`: "Unknown setting …" (a server older than the setting).
+const UNKNOWN_SETTING: u32 = 115;
 const DICTIONARY: &str = "dictionary";
 const SESSION_IS_LOCKED: u32 = 373;
 
@@ -81,8 +85,40 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
     ]
 }
 
+/// The TLS options, by clickhouse-client's names (`--secure`,
+/// `--accept-invalid-certificate`, `openSSL.client.caConfig`). Saved
+/// connections from before them: `encrypt` gives https on 8443, `trust`
+/// doesn't verify.
+fn tls_fields() -> Vec<Field> {
+    vec![
+        Field::tls_switch(
+            "secure",
+            "secure",
+            TlsLevel::VerifyFull,
+            TlsLevel::Off,
+            true,
+            ["false", "false", "true", "true"],
+        ),
+        Field::tls_skip_verify(
+            "accept-invalid-certificate",
+            "accept-invalid-certificate",
+            false,
+            ["false", "false", "false", "true"],
+        ),
+        Field::tls_ca_file("caConfig", "caConfig"),
+    ]
+}
+
 fn info(flavor: Flavor) -> DriverInfo {
-    let mut fields = Field::server_set();
+    let mut fields = vec![
+        Field::host(),
+        Field::port(),
+        Field::database(),
+        Field::username(),
+        Field::password(),
+    ];
+    fields.extend(tls_fields());
+    fields.push(Field::read_only());
     fields[1] = Field::port()
         .placeholder("8123")
         .help("HTTP: 8123; con TLS, 8443.");
@@ -120,6 +156,8 @@ fn info(flavor: Flavor) -> DriverInfo {
         }
     };
     DriverInfo {
+        tls: TlsSupport::Configurable,
+        tls_port: Some(8443),
         id,
         name,
         family,
@@ -140,6 +178,11 @@ pub struct ClickHouseDriver {
 
 #[async_trait]
 impl Driver for ClickHouseDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     fn info(&self) -> &DriverInfo {
         &self.info
     }
@@ -350,16 +393,16 @@ impl Driver for ClickHouseDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let scheme = if cfg.encrypt { "https" } else { "http" };
-        let host = if cfg.host.trim().is_empty() {
+        let tls = tls::HttpTls::new(cfg, &tls_fields(), None)?;
+        let scheme = tls.scheme();
+        let host = tls.url_host(if cfg.host.trim().is_empty() {
             "localhost"
         } else {
             cfg.host.trim()
-        };
-        let port = cfg.port_or(if cfg.encrypt { 8443 } else { 8123 });
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .danger_accept_invalid_certs(cfg.trust_server_certificate)
+        });
+        let port = cfg.port_or(if tls.https() { 8443 } else { 8123 });
+        let http = tls
+            .builder(reqwest::Client::builder().connect_timeout(Duration::from_secs(15)))?
             .build()
             .map_err(Error::connect)?;
         let database = database
@@ -390,7 +433,8 @@ impl Driver for ClickHouseDriver {
         };
         tokio::time::timeout(Duration::from_secs(20), s.server_version())
             .await
-            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))??;
+            .map_err(|_| Error::Connect("tiempo de espera agotado".into()))?
+            .map_err(|e| tls.explain(e))?;
         Ok(Box::new(s))
     }
 }
@@ -400,7 +444,8 @@ struct Conn {
     url: String,
     user: String,
     password: String,
-    /// The server refused `OUTPUT_SETTINGS` (a `readonly = 1` profile):
+    /// The server refused `OUTPUT_SETTINGS` (a `readonly = 1` profile, or a
+    /// version without them):
     /// found on the first request and remembered for the connection.
     locked_settings: AtomicBool,
     /// The server refused `readonly = 1` from DBine's read-only mode and the
@@ -487,7 +532,9 @@ impl ClickHouseSession {
                 .send()
                 .await
                 .map_err(|e| {
-                    if e.is_connect() || e.is_timeout() {
+                    if e.is_connect() {
+                        tls::net_error(&e)
+                    } else if e.is_timeout() {
                         Error::Connect(e.to_string())
                     } else {
                         Error::Query(e.to_string())
@@ -500,7 +547,7 @@ impl ClickHouseSession {
             let text = resp.text().await.unwrap_or_default();
             match refused_setting(&text) {
                 Some(Refused::Output) if !locked => {
-                    tracing::debug!("clickhouse: readonly profile, sending no output settings");
+                    tracing::debug!("clickhouse: output settings refused, sending none");
                     self.conn.locked_settings.store(true, Ordering::Relaxed);
                     continue;
                 }
@@ -754,16 +801,22 @@ fn server_error(status: u16, text: &str) -> Error {
     }
 }
 
-/// A setting the user's read-only profile refused.
+/// A setting the server refused.
 #[derive(Debug, PartialEq)]
 enum Refused {
-    /// One of `OUTPUT_SETTINGS` (`readonly = 1`).
+    /// One of `OUTPUT_SETTINGS` (`readonly = 1`, or unknown to the server).
     Output,
     /// `readonly` itself (the profile has `readonly = 2`).
     ReadOnly,
 }
 
 fn refused_setting(text: &str) -> Option<Refused> {
+    if exception_code(text) == Some(UNKNOWN_SETTING) {
+        return OUTPUT_SETTINGS
+            .iter()
+            .any(|(k, _)| text.contains(k))
+            .then_some(Refused::Output);
+    }
     if exception_code(text) != Some(READONLY) {
         return None;
     }
@@ -1658,6 +1711,22 @@ mod tests {
     }
 
     #[test]
+    fn settings_unknown_to_old_servers_are_dropped() {
+        // ClickHouse 22.8 (issue #19).
+        assert_eq!(
+            refused_setting("Code: 115. DB::Exception: Unknown setting http_write_exception_in_output_format. (UNKNOWN_SETTING) (version 22.8.9.1 (official build))"),
+            Some(Refused::Output)
+        );
+        // A setting from the user's own statement stays an error.
+        assert_eq!(
+            refused_setting(
+                "Code: 115. DB::Exception: Unknown setting max_threadz. (UNKNOWN_SETTING)"
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn base_type_unwraps_wrappers() {
         assert_eq!(base_type("Nullable(LowCardinality(String))"), "string");
         assert_eq!(base_type("Array(Nullable(Int8))"), "array(nullable(int8))");
@@ -1728,5 +1797,56 @@ mod tests {
         );
         assert_eq!(kind_of("Dictionary", Flavor::ClickHouse), DICTIONARY);
         assert_eq!(kind_of("Stream", Flavor::Timeplus), kinds::STREAM);
+    }
+}
+
+#[cfg(test)]
+mod tls_options_tests {
+    use super::*;
+
+    fn legacy(encrypt: bool, trust: bool) -> ConnectionConfig {
+        ConnectionConfig {
+            host: "db.example.com".into(),
+            encrypt,
+            trust_server_certificate: trust,
+            ..Default::default()
+        }
+    }
+
+    /// What the form saves for a new connection: every field's default.
+    fn new_connection() -> ConnectionConfig {
+        let mut c = legacy(false, false);
+        for f in tls_fields() {
+            if !f.default.is_empty() {
+                c.options.insert(f.key.into(), f.default.into());
+            }
+        }
+        c
+    }
+
+    fn level(c: &ConnectionConfig) -> TlsLevel {
+        tls::HttpTls::new(c, &tls_fields(), None).unwrap().level
+    }
+
+    #[test]
+    fn saved_connections_keep_their_tls_and_new_ones_verify() {
+        // Today: ff and ft plain http, tf https verified, tt https without
+        // verifying.
+        assert_eq!(level(&legacy(false, false)), TlsLevel::Off);
+        assert_eq!(level(&legacy(false, true)), TlsLevel::Off);
+        assert_eq!(level(&legacy(true, false)), TlsLevel::VerifyFull);
+        assert_eq!(level(&legacy(true, true)), TlsLevel::Unverified);
+        // A new connection: TLS, verified.
+        assert_eq!(level(&new_connection()), TlsLevel::VerifyFull);
+        // Each one can be turned off.
+        let mut plain = new_connection();
+        plain.options.insert("secure".into(), "false".into());
+        assert_eq!(level(&plain), TlsLevel::Off);
+        let mut skip = new_connection();
+        skip.options
+            .insert("accept-invalid-certificate".into(), "true".into());
+        assert_eq!(level(&skip), TlsLevel::Unverified);
+        // No legacy field is left in the form.
+        assert!(!tls_fields().iter().any(Field::is_legacy_tls));
     }
 }

@@ -445,7 +445,7 @@ function submitAddRole() {
         <el-input v-model="search" size="small" clearable :placeholder="$t('security:search')">
           <template #prefix><el-icon><ei-search /></el-icon></template>
         </el-input>
-        <el-button size="small" text :title="$t('common:refresh')" @click="load"><el-icon><ei-refresh /></el-icon></el-button>
+        <el-button :aria-label="$t('common:refresh')" size="small" text :title="$t('common:refresh')" @click="load"><el-icon><ei-refresh /></el-icon></el-button>
       </div>
       <div class="sv-list-actions" v-if="spec && !readOnly" :title="noPermission">
         <el-button v-if="spec.create_user" size="small" :disabled="!canEdit" @click="openCreate('user')">{{ $t('security:newUser') }}</el-button>

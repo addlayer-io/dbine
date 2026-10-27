@@ -293,7 +293,7 @@ async function copy() {
               <el-option v-for="o in OPS" :key="o" :label="$t(`subset:ops.${o}`)" :value="o" />
             </el-select>
             <el-input v-if="!['is_null', 'not_null'].includes(f.op)" v-model="f.value" size="small" class="sv-val" :placeholder="f.op === 'in' ? $t('subset:inPlaceholder') : ''" />
-            <el-button size="small" text @click="colFilters.splice(i, 1)"><el-icon><ei-close /></el-icon></el-button>
+            <el-button size="small" text :aria-label="$t('common:remove')" @click="colFilters.splice(i, 1)"><el-icon><ei-close /></el-icon></el-button>
           </div>
           <div class="sv-row">
             <span class="sv-label" />

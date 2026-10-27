@@ -22,6 +22,7 @@
 use super::{
     local, preview, result_outputs, CellKind, Notebook, NotebookCell, NotebookTarget, PreviewLimits,
 };
+use crate::connstring::{libpq_sslmode, Tls};
 use dbine_driver::{ConnectionConfig, DriverInfo};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -89,7 +90,10 @@ pub struct PyConn {
     pub port: u16,
     pub database: String,
     pub username: String,
+    /// TLS required: the saved bool, or the engine's own TLS options when
+    /// the driver has them ([`Tls`]).
     pub encrypt: bool,
+    pub tls: Tls,
     /// Only [`KEPT_OPTIONS`], and none that look like a credential.
     pub options: HashMap<String, String>,
     /// The sign-in method (`auth` / `auth_mode`): "aws_iam", "keypair"…
@@ -200,6 +204,7 @@ impl PyConn {
             },
         };
         let host = strip_url_credentials(&cfg.host);
+        let tls = Tls::of(cfg, info);
         let username = cfg.username_or_empty().trim().to_string();
         let database = if database.is_empty() {
             cfg.database.clone()
@@ -224,7 +229,8 @@ impl PyConn {
             } else {
                 username
             },
-            encrypt: cfg.encrypt,
+            encrypt: tls.encrypt,
+            tls,
             options,
             auth: cfg
                 .option("auth")
@@ -1221,11 +1227,10 @@ fn setup_inner(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
 
     match c.dialect.as_str() {
         "postgres" => {
-            let q: Vec<(&str, String)> = if c.encrypt {
-                vec![("sslmode", "require".into())]
-            } else {
-                vec![]
-            };
+            // The same sslmode as DBine's copied connection strings.
+            let q: Vec<(&str, String)> = libpq_sslmode(&c.tls, false)
+                .map(|m| vec![("sslmode", m)])
+                .unwrap_or_default();
             let user = sec.user();
             let pw = sec.password();
             sa(

@@ -37,6 +37,8 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 
 fn info() -> DriverInfo {
     DriverInfo {
+        tls: dbine_driver::TlsSupport::NotApplicable,
+        tls_port: None,
         id: "sqlite",
         name: "SQLite",
         family: Family::Relational,

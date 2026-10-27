@@ -18,10 +18,10 @@ use tokio::io::AsyncWriteExt;
 include!("api_table.rs");
 
 /// Must match the `duckdb` crate's version (1.MAJOR_MINOR_PATCH.x).
-const VERSION: &str = "1.5.5";
+const VERSION: &str = "2.0.0";
 
-/// A release asset of github.com/duckdb/duckdb (sizes and SHA-256 as the
-/// release lists them).
+/// A release asset of github.com/duckdb/duckdb (sizes and SHA-256 of the
+/// gzipped tar the release publishes).
 struct Asset {
     archive: &'static str,
     lib: &'static str,
@@ -31,38 +31,38 @@ struct Asset {
 
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 const ASSET: Option<Asset> = Some(Asset {
-    archive: "libduckdb-windows-amd64.zip",
+    archive: "duckdb-shared-libs-windows-amd64.tar.gz",
     lib: "duckdb.dll",
-    size: 13_412_060,
-    sha256: "8375eb1fcf2212e8a0817950354815d4dde9dd383c2d9fa7b8975b71e278c1bd",
+    size: 19_833_650,
+    sha256: "2b83169128239de5f45fe21de80f99bf436e53aa4bb24020dd951a1ba8d4b95f",
 });
 #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
 const ASSET: Option<Asset> = Some(Asset {
-    archive: "libduckdb-windows-arm64.zip",
+    archive: "duckdb-shared-libs-windows-arm64.tar.gz",
     lib: "duckdb.dll",
-    size: 14_355_813,
-    sha256: "006f8df62957f640a100d673432a5b6f9a7002662822a4567ed06a436ee1d801",
+    size: 18_389_170,
+    sha256: "159ce60eb587112b8c5f290b8beea56af5f13be4d13679de127ad9bfaafb7447",
 });
 #[cfg(target_os = "macos")]
 const ASSET: Option<Asset> = Some(Asset {
-    archive: "libduckdb-osx-universal.zip",
+    archive: "duckdb-shared-libs-osx-universal.tar.gz",
     lib: "libduckdb.dylib",
-    size: 36_178_910,
-    sha256: "7b5b8915cc382d0708636fe6385c0cdad5a61c9ff8ba2638b3e2141640783155",
+    size: 40_361_654,
+    sha256: "14cd63180614cfd961f7959146ecd9087527ff20b67311efdc3fa1c29c18204d",
 });
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const ASSET: Option<Asset> = Some(Asset {
-    archive: "libduckdb-linux-amd64.zip",
+    archive: "duckdb-shared-libs-linux-amd64.tar.gz",
     lib: "libduckdb.so",
-    size: 41_300_590,
-    sha256: "1fb8ce388157d84a25abe685a8a2520bf00c00321821968e4bb398fd766e7abb",
+    size: 27_841_656,
+    sha256: "993ad89e7dfca66cd6da994c2cad090c2fc160ddf9f550498a098ab4bb13cfb1",
 });
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 const ASSET: Option<Asset> = Some(Asset {
-    archive: "libduckdb-linux-arm64.zip",
+    archive: "duckdb-shared-libs-linux-arm64.tar.gz",
     lib: "libduckdb.so",
-    size: 37_694_966,
-    sha256: "abe4f6f005ee0b448a058322f4263584b4bd1b6faf7ab4637b79eeaf978f8e9c",
+    size: 25_735_927,
+    sha256: "c60eecf91143ca6bbac55c4f4d40dc22520488b0ac257c86e0fe9a2b451cf2b7",
 });
 #[cfg(not(any(
     all(
@@ -121,13 +121,13 @@ async fn install() -> Result<PathBuf> {
         ))
     };
     tokio::fs::create_dir_all(&dir).await.map_err(io)?;
-    let zip = download(a, &dir).await?;
-    let (zip2, lib2, name) = (zip.clone(), lib.clone(), a.lib);
-    tokio::task::spawn_blocking(move || unpack(&zip2, name, &lib2))
+    let archive = download(a, &dir).await?;
+    let (archive2, lib2, name) = (archive.clone(), lib.clone(), a.lib);
+    tokio::task::spawn_blocking(move || unpack(&archive2, name, &lib2))
         .await
         .map_err(|e| Error::State(e.to_string()))?
         .map_err(io)?;
-    let _ = tokio::fs::remove_file(&zip).await;
+    let _ = tokio::fs::remove_file(&archive).await;
     Ok(lib)
 }
 
@@ -226,19 +226,37 @@ async fn download(a: &Asset, dir: &Path) -> Result<PathBuf> {
     Ok(part)
 }
 
-/// Take the library out of the archive; written aside and renamed, so a
-/// half-written file is never taken for the library.
-fn unpack(zip: &Path, name: &str, dest: &Path) -> std::io::Result<()> {
-    let mut archive =
-        zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(std::io::Error::other)?;
-    let mut entry = archive.by_name(name).map_err(std::io::Error::other)?;
-    let mut bytes = Vec::with_capacity(entry.size() as usize);
-    std::io::copy(&mut entry, &mut bytes)?;
-    #[cfg(target_os = "macos")]
-    let bytes = thin(bytes);
-    let tmp = dest.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, dest)
+/// Take the library out of the gzipped tar; written aside and renamed, so a
+/// half-written file is never taken for the library. Headers in the same
+/// archive are skipped. Only a regular file whose name is `name` is read.
+fn unpack(archive: &Path, name: &str, dest: &Path) -> std::io::Result<()> {
+    let file = std::fs::File::open(archive)?;
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    for entry in tar.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?;
+        let plain = path.components().all(|c| {
+            matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        });
+        if !plain || path.file_name().and_then(|s| s.to_str()) != Some(name) {
+            continue;
+        }
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        std::io::copy(&mut entry, &mut bytes)?;
+        #[cfg(target_os = "macos")]
+        let bytes = thin(bytes);
+        let tmp = dest.with_extension("tmp");
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, dest)?;
+        return Ok(());
+    }
+    Err(std::io::Error::other(format!("el archivo no trae {name}")))
 }
 
 /// The macOS build is universal (x86_64 + arm64, ~115 MB): keep only this

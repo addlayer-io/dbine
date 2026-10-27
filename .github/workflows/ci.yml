@@ -57,6 +57,16 @@ jobs:
       - name: Frontend lint
         run: npm run lint --prefix web
 
+      # The frontend's unit tests (src/**/*.test.mjs: completion, charts,
+      # notebooks, keybindings…). Node 24 strips their TypeScript imports.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Frontend unit tests
+        working-directory: web
+        run: node --test $(find src -name '*.test.mjs' | sort)
+
       # rustfmt's default style (CONTRIBUTING.md): run `cargo fmt` before committing.
       - name: Format
         run: |
@@ -71,3 +81,65 @@ jobs:
       # item with the reason.
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Fixes only a real server can show: a ClickHouse without the output
+  # settings DBine asks for (22.8, issue #19), and queries reading another
+  # database by its name in front, which completion offers (issue #20).
+  live:
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+      DBINE_TEST_CLICKHOUSE_22_URL: http://dbine:dbine@localhost:25124
+      DBINE_TEST_CLICKHOUSE_URL: http://dbine:dbine@localhost:25123
+      DBINE_TEST_MYSQL_URL: mysql://root:pw@localhost:25011
+      DBINE_TEST_MARIADB_URL: mysql://root:pw@localhost:25012
+    services:
+      clickhouse22:
+        image: clickhouse/clickhouse-server:22.8
+        env: { CLICKHOUSE_USER: dbine, CLICKHOUSE_PASSWORD: dbine }
+        ports: ['25124:8123']
+      clickhouse:
+        image: clickhouse/clickhouse-server
+        env: { CLICKHOUSE_USER: dbine, CLICKHOUSE_PASSWORD: dbine }
+        ports: ['25123:8123']
+      mysql:
+        image: mysql:8
+        env: { MYSQL_ROOT_PASSWORD: pw }
+        ports: ['25011:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ppw"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+      mariadb:
+        image: mariadb:11
+        env: { MARIADB_ROOT_PASSWORD: pw }
+        ports: ['25012:3306']
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libkrb5-dev
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      - name: Wait for ClickHouse
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:25124/ping && curl -sf http://localhost:25123/ping && exit 0
+            sleep 2
+          done
+          exit 1
+
+      - name: Live driver tests
+        run: |
+          cargo test -p dbine-driver-clickhouse --test old_server --test cross_database -- --ignored
+          cargo test -p dbine-driver-mysql --test cross_database -- --ignored

@@ -417,9 +417,9 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <div class="st-row">
           <div><strong>{{ $t('settings:general.zoom') }}</strong><span>{{ $t('settings:general.zoomHelp', { mod: zoomMod }) }}</span></div>
           <div class="st-zoom">
-            <el-button :disabled="zoom <= ZOOM_LEVELS[0]" :title="$t('settings:general.zoomOut')" @click="zoomStep(-1)"><el-icon><ei-minus /></el-icon></el-button>
+            <el-button :aria-label="$t('settings:general.zoomOut')" :disabled="zoom <= ZOOM_LEVELS[0]" :title="$t('settings:general.zoomOut')" @click="zoomStep(-1)"><el-icon><ei-minus /></el-icon></el-button>
             <el-button class="st-zoom-pct" :title="$t('settings:general.zoomReset')" @click="zoomStep(0)">{{ zoomPct }}</el-button>
-            <el-button :disabled="zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]" :title="$t('settings:general.zoomIn')" @click="zoomStep(1)"><el-icon><ei-plus /></el-icon></el-button>
+            <el-button :aria-label="$t('settings:general.zoomIn')" :disabled="zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]" :title="$t('settings:general.zoomIn')" @click="zoomStep(1)"><el-icon><ei-plus /></el-icon></el-button>
           </div>
         </div>
         <div class="st-row">

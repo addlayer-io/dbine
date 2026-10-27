@@ -1000,7 +1000,7 @@ fn field(item: &Value, key: &SymKey, attribute: &str, name: &str) -> Result<Stri
                 Some(101) => standard("password"),
                 _ => None,
             };
-            if let Some(Some(s)) = linked.map(&open).transpose()? {
+            if let Some(Some(s)) = linked.map(open).transpose()? {
                 return Ok(s);
             }
         } else if let Some(s) = open(get(f, "value"))? {

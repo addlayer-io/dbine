@@ -1294,19 +1294,19 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <div class="ex-header">
       <span class="nm-section-title" style="margin: 0">{{ $t('explorer:title') }}</span>
       <div class="nm-spacer" />
-      <button class="ide-icon-btn" :title="$t('explorer:header.newConnection')" @click="ui.newConnection()">
+      <button :aria-label="$t('explorer:header.newConnection')" class="ide-icon-btn" :title="$t('explorer:header.newConnection')" @click="ui.newConnection()">
         <el-icon><ei-plus /></el-icon>
       </button>
-      <button class="ide-icon-btn" :title="$t('explorer:header.openFile')" @click="pickAndOpen()">
+      <button :aria-label="$t('explorer:header.openFile')" class="ide-icon-btn" :title="$t('explorer:header.openFile')" @click="pickAndOpen()">
         <el-icon><ei-folder-opened /></el-icon>
       </button>
-      <button class="ide-icon-btn" :title="$t('explorer:header.newFolder')" @click="ui.newFolder(null)">
+      <button :aria-label="$t('explorer:header.newFolder')" class="ide-icon-btn" :title="$t('explorer:header.newFolder')" @click="ui.newFolder(null)">
         <el-icon><ei-folder-add /></el-icon>
       </button>
-      <button class="ide-icon-btn" :title="$t('explorer:header.importConnections')" @click="importing = true">
+      <button :aria-label="$t('explorer:header.importConnections')" class="ide-icon-btn" :title="$t('explorer:header.importConnections')" @click="importing = true">
         <el-icon><ei-download /></el-icon>
       </button>
-      <button class="ide-icon-btn" :title="$t('explorer:header.reload')" @click="conns.load()">
+      <button :aria-label="$t('explorer:header.reload')" class="ide-icon-btn" :title="$t('explorer:header.reload')" @click="conns.load()">
         <el-icon><ei-refresh /></el-icon>
       </button>
     </div>

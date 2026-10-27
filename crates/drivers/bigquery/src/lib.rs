@@ -61,6 +61,8 @@ fn info() -> DriverInfo {
     fields.push(gcp::endpoint_field("http://localhost:9050"));
     fields.push(Field::read_only());
     DriverInfo {
+        tls: Default::default(),
+        tls_port: None,
         id: "bigquery",
         name: "Google BigQuery",
         family: Family::Analytical,
@@ -220,6 +222,11 @@ pub struct BigQuerySession {
 
 #[async_trait]
 impl Driver for BigQueryDriver {
+    /// Other databases as `db.table` / `db.schema.table` in one query.
+    fn cross_database(&self) -> bool {
+        true
+    }
+
     /// "Nueva base de datos"'s options (see [`create_db`]).
     fn create_database_fields(&self) -> Vec<Field> {
         create_db::fields()

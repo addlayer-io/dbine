@@ -1,0 +1,31 @@
+{
+  "couldNotConnect": "Nie udało się połączyć.",
+  "duration": {
+    "s": "{{s}} s",
+    "dh": "{{d}} d {{h}} h",
+    "hm": "{{h}} h {{m}} min",
+    "ms": "{{m}} min {{s}} s"
+  },
+  "level": {
+    "warn": "wysoki",
+    "crit": "krytyczny"
+  },
+  "justNow": "przed chwilą",
+  "secondsAgo": "{{s}} s temu",
+  "connection": "Połączenie",
+  "paused": "Wstrzymano",
+  "every": "Co {{s}} s",
+  "resume": "Wznów",
+  "pause": "Wstrzymaj",
+  "refresh": "Odśwież",
+  "unsupported": "{{engine}} nie oferuje monitorowania.",
+  "thisEngine": "Ten silnik",
+  "measuring": "pomiar…",
+  "of": "z {{max}}",
+  "filter": "Filtruj…",
+  "noMatch": "Żaden wiersz nie pasuje.",
+  "noRows": "Brak wierszy.",
+  "sparkline": {
+    "noData": "brak danych"
+  }
+}
