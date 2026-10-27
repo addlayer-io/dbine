@@ -454,12 +454,16 @@ pub(super) fn rename_capped(
         return (full, false);
     }
     let suffix = format!("_{:08x}", fnv(&full));
-    let base = fit(
-        &full,
-        max.saturating_sub(suffix.len()),
-        chars,
-        bytes.saturating_sub(suffix.len()),
-    );
+    // What's left for the name beside the suffix; `fit` reads 0 as "no
+    // limit", so a limit the suffix fills leaves no room at all.
+    let room = |limit: usize| (limit > 0).then(|| limit.saturating_sub(suffix.len()));
+    let (by_len, by_bytes) = (room(max), room(bytes));
+    if by_len == Some(0) || by_bytes == Some(0) {
+        // A limit this small (no real engine has one): the hash alone, cut.
+        let hash = &suffix[1..];
+        return (fit(hash, max, chars, bytes).to_string(), true);
+    }
+    let base = fit(&full, by_len.unwrap_or(0), chars, by_bytes.unwrap_or(0));
     (format!("{base}{suffix}"), true)
 }
 
@@ -2964,6 +2968,21 @@ pub fn transfer_columns(cols: Vec<dbine_driver::ColumnInfo>) -> Vec<TransferColu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tiny_limit_still_caps_the_name() {
+        // Limits at or under the suffix's 9 characters used to leave the
+        // name whole.
+        for max in [1, 5, 8, 9] {
+            let (n, short) = rename_capped("orders_pk", "orders", "clients", max, true, 0);
+            assert!(short && n.chars().count() <= max, "{max}: {n}");
+            let (n, short) = rename_capped("orders_pk", "orders", "clients", 0, false, max);
+            assert!(short && n.len() <= max, "{max} bytes: {n}");
+        }
+        // Above it, the name keeps its start and the hash.
+        let (n, short) = rename_capped("orders_customer_fk", "orders", "clients", 12, true, 0);
+        assert!(short && n.starts_with("cli") && n.len() == 12, "{n}");
+    }
 
     #[test]
     fn integers_as_text_stay_exact() {
