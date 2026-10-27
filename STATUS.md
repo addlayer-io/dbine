@@ -11,12 +11,24 @@ _Updated 2026-10-27._
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
+| CodeQL (static analysis) | 0 | 12 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
+| CQ-357 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
+| CQ-358 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
+| CQ-359 | HIGH | codeql | Static analysis finding | `crates/drivers/clickhouse` | pending |
+| CQ-360 | HIGH | codeql | Static analysis finding | `crates/drivers/couchbase` | pending |
+| CQ-361 | HIGH | codeql | Static analysis finding | `crates/drivers/couchdb` | pending |
+| CQ-362 | HIGH | codeql | Static analysis finding | `crates/drivers/dremio` | pending |
+| CQ-363 | HIGH | codeql | Static analysis finding | `crates/drivers/drill` | pending |
+| CQ-364 | HIGH | codeql | Static analysis finding | `crates/drivers/elasticsearch` | pending |
+| CQ-365 | HIGH | codeql | Static analysis finding | `crates/drivers/etcd` | pending |
+| CQ-366 | HIGH | codeql | Static analysis finding | `crates/drivers/orientdb` | pending |
+| CQ-367 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
+| CQ-368 | HIGH | codeql | Static analysis finding | `crates/drivers/hana` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
@@ -28,10 +40,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
-| codeql | 2026-10-27 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-27 | every lockfile (Cargo, npm) at [`2caa93827`](https://github.com/addlayer-io/dbine/commit/2caa93827f10) | 5 open | — |
-| scorecard | 2026-10-26 | repository settings and workflows at [`adc68279e`](https://github.com/addlayer-io/dbine/commit/adc68279eb72) | score 5.7/10 | — |
-| trivy | 2026-10-27 | whole repository at [`2caa93827`](https://github.com/addlayer-io/dbine/commit/2caa93827f10) | 0 open | — |
+| codeql | 2026-10-27 | Rust, TypeScript/Vue and workflows | 12 open | — |
+| osv | 2026-10-27 | every lockfile (Cargo, npm) at [`6c6a2d284`](https://github.com/addlayer-io/dbine/commit/6c6a2d284618) | 5 open | — |
+| scorecard | 2026-10-27 | repository settings and workflows at [`2caa93827`](https://github.com/addlayer-io/dbine/commit/2caa93827f10) | score 5.4/10 | — |
+| trivy | 2026-10-27 | whole repository at [`6c6a2d284`](https://github.com/addlayer-io/dbine/commit/6c6a2d284618) | 0 open | — |
 
 ## Not counted, and why
 
@@ -349,18 +361,20 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.7/10** (2026-10-26). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.4/10** (2026-10-27). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 8/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 3/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 1/28 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 2/10 — 8 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| Vulnerabilities: 1/10 — 9 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
+| SAST: 8/10 — SAST tool detected but not run on all commits | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#sast) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
+| CI-Tests: 0/10 — 0 out of 3 merged PRs checked by a CI test -- score normalized to 0 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 0/10 — project has 0 contributing companies or organizations -- score normalized to 0 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

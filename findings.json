@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-10-27",
-      "revision": "2caa93827f10",
+      "revision": "6c6a2d284618",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 5
@@ -21,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-10-27",
-      "revision": "2caa93827f10",
+      "revision": "6c6a2d284618",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -32,15 +32,15 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
+      "found": 12
     },
     {
       "source": "scorecard",
-      "date": "2026-10-26",
-      "revision": "adc68279eb72",
+      "date": "2026-10-27",
+      "revision": "2caa93827f10",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.7
+      "score": 5.4
     }
   ],
   "findings": [
@@ -3373,6 +3373,114 @@
       "by": "mpanichella"
     },
     {
+      "id": "CQ-357",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/postgres",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-358",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/postgres",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-359",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/clickhouse",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-360",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/couchbase",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-361",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/couchdb",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-362",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/dremio",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-363",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/drill",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-364",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/elasticsearch",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-365",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/etcd",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-366",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/orientdb",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-367",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/trino",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
+      "id": "CQ-368",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/hana",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
       "id": "CQ-66",
       "source": "codeql",
       "severity": "HIGH",
@@ -3897,6 +4005,17 @@
       "status": "open"
     },
     {
+      "id": "SC-CI-Tests",
+      "source": "scorecard",
+      "severity": "LOW",
+      "kind": "Repository practice",
+      "title": "CI-Tests: 0/10 — 0 out of 3 merged PRs checked by a CI test -- score normalized to 0",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
       "id": "SC-CII-Best-Practices",
       "source": "scorecard",
       "severity": "LOW",
@@ -3912,7 +4031,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 1/28 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -3963,6 +4082,17 @@
       "status": "open"
     },
     {
+      "id": "SC-SAST",
+      "source": "scorecard",
+      "severity": "MEDIUM",
+      "kind": "Repository practice",
+      "title": "SAST: 8/10 — SAST tool detected but not run on all commits",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#sast",
+      "found": "2026-10-27",
+      "status": "open"
+    },
+    {
       "id": "SC-Security-Policy",
       "source": "scorecard",
       "severity": "MEDIUM",
@@ -3989,7 +4119,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 2/10 — 8 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 1/10 — 9 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
