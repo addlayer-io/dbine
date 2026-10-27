@@ -43,13 +43,16 @@ use std::time::Duration;
 
 const FORMAT: &str = "JSONCompactEachRowWithNamesAndTypes";
 /// Asked for on every request unless the user's profile has `readonly = 1`,
-/// which refuses any setting that differs from the profile's. The JSON
+/// which refuses any setting that differs from the profile's, or the server
+/// predates them (22.8 has no `http_write_exception_in_output_format`). The JSON
 /// number quoting (`output_format_json_quote_*`) is left to the server, so
 /// every user sees values the same way; `split_row` reads numbers from their
 /// text, quoted or not, without losing digits.
 const OUTPUT_SETTINGS: [(&str, &str); 1] = [("http_write_exception_in_output_format", "0")];
 /// `READONLY`: "Cannot modify '…' setting in readonly mode".
 const READONLY: u32 = 164;
+/// `UNKNOWN_SETTING`: "Unknown setting …" (a server older than the setting).
+const UNKNOWN_SETTING: u32 = 115;
 const DICTIONARY: &str = "dictionary";
 const SESSION_IS_LOCKED: u32 = 373;
 
@@ -436,7 +439,8 @@ struct Conn {
     url: String,
     user: String,
     password: String,
-    /// The server refused `OUTPUT_SETTINGS` (a `readonly = 1` profile):
+    /// The server refused `OUTPUT_SETTINGS` (a `readonly = 1` profile, or a
+    /// version without them):
     /// found on the first request and remembered for the connection.
     locked_settings: AtomicBool,
     /// The server refused `readonly = 1` from DBine's read-only mode and the
@@ -538,7 +542,7 @@ impl ClickHouseSession {
             let text = resp.text().await.unwrap_or_default();
             match refused_setting(&text) {
                 Some(Refused::Output) if !locked => {
-                    tracing::debug!("clickhouse: readonly profile, sending no output settings");
+                    tracing::debug!("clickhouse: output settings refused, sending none");
                     self.conn.locked_settings.store(true, Ordering::Relaxed);
                     continue;
                 }
@@ -792,16 +796,22 @@ fn server_error(status: u16, text: &str) -> Error {
     }
 }
 
-/// A setting the user's read-only profile refused.
+/// A setting the server refused.
 #[derive(Debug, PartialEq)]
 enum Refused {
-    /// One of `OUTPUT_SETTINGS` (`readonly = 1`).
+    /// One of `OUTPUT_SETTINGS` (`readonly = 1`, or unknown to the server).
     Output,
     /// `readonly` itself (the profile has `readonly = 2`).
     ReadOnly,
 }
 
 fn refused_setting(text: &str) -> Option<Refused> {
+    if exception_code(text) == Some(UNKNOWN_SETTING) {
+        return OUTPUT_SETTINGS
+            .iter()
+            .any(|(k, _)| text.contains(k))
+            .then_some(Refused::Output);
+    }
     if exception_code(text) != Some(READONLY) {
         return None;
     }
@@ -1693,6 +1703,22 @@ mod tests {
         );
         assert_eq!(refused("readonly"), Some(Refused::ReadOnly));
         assert_eq!(refused_setting("Code: 164. DB::Exception: ro_user: Cannot execute query in readonly mode. (READONLY)"), None);
+    }
+
+    #[test]
+    fn settings_unknown_to_old_servers_are_dropped() {
+        // ClickHouse 22.8 (issue #19).
+        assert_eq!(
+            refused_setting("Code: 115. DB::Exception: Unknown setting http_write_exception_in_output_format. (UNKNOWN_SETTING) (version 22.8.9.1 (official build))"),
+            Some(Refused::Output)
+        );
+        // A setting from the user's own statement stays an error.
+        assert_eq!(
+            refused_setting(
+                "Code: 115. DB::Exception: Unknown setting max_threadz. (UNKNOWN_SETTING)"
+            ),
+            None
+        );
     }
 
     #[test]

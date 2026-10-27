@@ -11,6 +11,7 @@
 - **Keyboard and screen readers:** a visible focus ring shows where the keyboard is; list rows, cards, sortable headers and collapsible sections can be reached with Tab and used with Enter or Space; context menus work with the arrow keys; icon-only buttons have names a screen reader reads; the result of a query (finished, or failed with its error) is announced; animations stop when the system asks for reduced motion; and secondary text has more contrast in both themes.
 
 ### Fixes
+- **ClickHouse 22.8 and older:** connecting no longer fails with `Unknown setting http_write_exception_in_output_format`; DBine stops asking for that setting on servers that don't have it.
 - **Notebooks, Python export:** a PostgreSQL connection that checks the server's certificate is exported with `sslmode=verify-full`, as **Copy connection string** does, instead of `require`, which doesn't check it.
 - **HashiCorp Vault, security:** a password source's Vault address must be `https://`; plain `http://` is accepted only for a Vault on this computer, as for the other secret managers, so the Vault token never travels in clear over the network.
 
