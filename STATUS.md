@@ -11,7 +11,7 @@ _Updated 2026-10-28._
 | claude-security (source-code review) | 0 | 0 | 0 | 1 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 2 | 38 | 0 | 0 |
+| CodeQL (static analysis) | 2 | 24 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
@@ -19,23 +19,6 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|---|
 | CQ-369 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
 | CQ-370 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-357 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
-| CQ-358 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
-| CQ-359 | HIGH | codeql | Static analysis finding | `crates/drivers/clickhouse` | pending |
-| CQ-360 | HIGH | codeql | Static analysis finding | `crates/drivers/couchbase` | pending |
-| CQ-361 | HIGH | codeql | Static analysis finding | `crates/drivers/couchdb` | pending |
-| CQ-362 | HIGH | codeql | Static analysis finding | `crates/drivers/dremio` | pending |
-| CQ-363 | HIGH | codeql | Static analysis finding | `crates/drivers/drill` | pending |
-| CQ-364 | HIGH | codeql | Static analysis finding | `crates/drivers/elasticsearch` | pending |
-| CQ-365 | HIGH | codeql | Static analysis finding | `crates/drivers/etcd` | pending |
-| CQ-366 | HIGH | codeql | Static analysis finding | `crates/drivers/orientdb` | pending |
-| CQ-367 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
-| CQ-368 | HIGH | codeql | Static analysis finding | `crates/drivers/hana` | pending |
-| CQ-371 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
-| CQ-372 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
-| CQ-373 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
-| CQ-374 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
-| CQ-375 | HIGH | codeql | Static analysis finding | `crates/drivers/iotdb` | pending |
 | CQ-376 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
 | CQ-377 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
 | CQ-378 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
@@ -57,6 +40,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | CQ-394 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
 | CQ-395 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
 | CQ-396 | HIGH | codeql | Static analysis finding | `crates/dbine-schema` | pending |
+| CQ-397 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
+| CQ-398 | HIGH | codeql | Static analysis finding | `crates/dbine-tls` | pending |
+| CQ-399 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
@@ -69,10 +55,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..ab37520b (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b) | 1 open | — |
-| codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 40 open | — |
-| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`ab37520b2`](https://github.com/addlayer-io/dbine/commit/ab37520b2750) | 5 open | — |
-| scorecard | 2026-10-27 | repository settings and workflows at [`6c6a2d284`](https://github.com/addlayer-io/dbine/commit/6c6a2d284618) | score 5.4/10 | — |
-| trivy | 2026-10-28 | whole repository at [`ab37520b2`](https://github.com/addlayer-io/dbine/commit/ab37520b2750) | 0 open | — |
+| codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 26 open | — |
+| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`fa099a727`](https://github.com/addlayer-io/dbine/commit/fa099a727eb3) | 5 open | — |
+| scorecard | 2026-10-28 | repository settings and workflows at [`ab37520b2`](https://github.com/addlayer-io/dbine/commit/ab37520b2750) | score 5.7/10 | — |
+| trivy | 2026-10-28 | whole repository at [`fa099a727`](https://github.com/addlayer-io/dbine/commit/fa099a727eb3) | 0 open | — |
 
 ## Not counted, and why
 
@@ -336,6 +322,11 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only: a fixed key used to check that each vault write gets a new nonce, inside the #[cfg(test)] module of secrets.rs. | mpanichella |
 | CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only: a fixed key used to check that each vault write gets a new nonce, inside the #[cfg(test)] module of secrets.rs. | mpanichella |
 | CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data | `src-tauri/src/secret_sources/zoho.rs` | won't fix — Zoho Vault's legacy 'SHA256' accounts define the passphrase check value as SHA-256(passphrase + salt), computed by Zoho's own client; DBine only recomputes it to compare with what Zoho's GET_LOGIN returns for that account, and takes this branch only when the server reports LOGIN= | mpanichella |
+| CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information | `crates/drivers/influxdb/src/v2.rs` | won't fix — By design (owner's decision, 2026-10-28): new connections use TLS by default; credentials go over plain HTTP only when the user turns TLS off for that connection, as the engine's own tools allow. | mpanichella |
+| CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information | `crates/drivers/influxdb/src/v1.rs` | won't fix — By design (owner's decision, 2026-10-28): new connections use TLS by default; credentials go over plain HTTP only when the user turns TLS off for that connection, as the engine's own tools allow. | mpanichella |
+| CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information | `crates/drivers/influxdb/src/v3.rs` | won't fix — By design (owner's decision, 2026-10-28): new connections use TLS by default; credentials go over plain HTTP only when the user turns TLS off for that connection, as the engine's own tools allow. | mpanichella |
+| CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information | `crates/drivers/influxdb/src/v1.rs` | won't fix — By design (owner's decision, 2026-10-28): new connections use TLS by default; credentials go over plain HTTP only when the user turns TLS off for that connection, as the engine's own tools allow. | mpanichella |
+| CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information | `crates/drivers/iotdb/src/lib.rs` | won't fix — By design (owner's decision, 2026-10-28): new connections use TLS by default; credentials go over plain HTTP only when the user turns TLS off for that connection, as the engine's own tools allow. | mpanichella |
 | CodeQL js/insufficient-key-size: Use of a weak cryptographic key | `src-tauri/src/secret_sources/testdata/zoho-vectors.mjs` | used in tests — src-tauri/src/secret_sources/testdata/zoho-vectors.mjs is a test-vector generator that reproduces Zoho Vault's RSA_1024 organization-key format with a throwaway key; it is not shipped. | mpanichella |
 | CodeQL js/incomplete-multi-character-sanitization: Incomplete multi-character sanitization | `web/src/composables/releaseNotes.ts` | false positive — noteBlocks returns plain text that UpdateNotice.vue renders only with text interpolation ({{ b.text }}, never v-html), so any leftover '<script' is shown as literal text and cannot create an element. | mpanichella |
 | CodeQL js/insecure-randomness: Insecure randomness | `web/src/components/GenerateDataDialog.vue` | false positive — Math.random here makes the data generator's run id (for progress events and cancel) and its reproducible fake-data seed; neither is a secret, token or key. | mpanichella |
@@ -390,20 +381,18 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.4/10** (2026-10-27). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.7/10** (2026-10-28). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 8/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 3/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 1/28 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
 | Vulnerabilities: 1/10 — 9 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
-| SAST: 8/10 — SAST tool detected but not run on all commits | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#sast) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
-| CI-Tests: 0/10 — 0 out of 3 merged PRs checked by a CI test -- score normalized to 0 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 0/10 — project has 0 contributing companies or organizations -- score normalized to 0 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
