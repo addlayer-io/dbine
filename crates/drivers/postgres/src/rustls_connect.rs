@@ -198,7 +198,12 @@ mod tests {
             env!("CARGO_MANIFEST_DIR")
         );
         let pem = std::fs::read(path).unwrap();
-        let cert = dbine_tls::pem_certs(&pem, "server.pem").unwrap().remove(0);
+        let Some(cert) = dbine_tls::pem_certs(&pem, "server.pem")
+            .ok()
+            .and_then(|c| c.into_iter().next())
+        else {
+            panic!("server.pem has no certificate");
+        };
         // The test certificates are sha256WithRSAEncryption.
         assert_eq!(
             signature_oid(&cert),

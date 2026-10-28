@@ -1676,7 +1676,7 @@ mod tests {
                 assert!(interruptible);
                 id
             }
-            other => panic!("expected a session, got {other:?}"),
+            _ => panic!("expected a session"),
         }
     }
 
@@ -1788,8 +1788,8 @@ mod tests {
             ),
         ] {
             let got = answer(&st, c.clone()).await;
-            assert!(got.starts_with("Ok("), "{c}: {got}");
-            assert!(got.contains(want), "{c}: {got} lacks {want}");
+            assert!(got.starts_with("Ok("), "{c}");
+            assert!(got.contains(want), "{c}");
         }
         // A driver this process doesn't serve.
         let got = answer(
@@ -1797,14 +1797,14 @@ mod tests {
             json!({"TableDdl": {"driver": "otro", "table": table(), "parts": {}}}),
         )
         .await;
-        assert!(got.contains("no sirve el driver «otro»"), "{got}");
+        assert!(got.contains("no sirve el driver «otro»"));
         // The manifest describes what it serves.
         match call(&st, 1, json!("Manifest")).await {
             Ok(Reply::Manifest(m)) => {
                 assert_eq!(m.len(), 1);
                 assert_eq!((m[0].package.as_str(), m[0].info.id), ("echo-pkg", "echo"));
             }
-            other => panic!("{other:?}"),
+            _ => panic!("unexpected reply"),
         }
     }
 
@@ -1871,15 +1871,15 @@ mod tests {
             ),
         ] {
             let got = answer(&st, c.clone()).await;
-            assert!(got.contains(want), "{c}: {got} lacks {want}");
+            assert!(got.contains(want), "{c}");
         }
         // The session's own errors come back as they are.
         let got = answer(&st, json!({"Columns": {"session": s, "obj": obj()}})).await;
-        assert!(got.contains("no existe clientes"), "{got}");
+        assert!(got.contains("no existe clientes"));
         let got = answer(&st, json!({"KillSession": {"session": s, "id": "9"}})).await;
-        assert!(got.contains("no hay sesión 9"), "{got}");
+        assert!(got.contains("no hay sesión 9"));
         let got = answer(&st, json!({"CreateDatabase": {"session": s, "name": ""}})).await;
-        assert!(got.contains("sin nombre"), "{got}");
+        assert!(got.contains("sin nombre"));
         // What the session doesn't do: the contract's refusal.
         for c in [
             json!({"Monitor": {"session": s}}),
@@ -1908,21 +1908,18 @@ mod tests {
             // Some have a default answer (an empty list, `None`); none fails
             // in any other way than the contract's own.
             let got = answer(&st, c.clone()).await;
-            assert!(
-                got.starts_with("Ok(") || got.contains("Unsupported"),
-                "{c}: {got}"
-            );
+            assert!(got.starts_with("Ok(") || got.contains("Unsupported"), "{c}");
         }
         // A session that's gone.
         let got = answer(&st, json!({"ServerVersion": {"session": 999}})).await;
-        assert!(got.contains("la sesión ya se cerró"), "{got}");
+        assert!(got.contains("la sesión ya se cerró"));
         // A driver that can't connect.
         let got = answer(
             &st,
             json!({"Connect": {"driver": "echo", "config": {"driver": "echo", "host": "down"}, "database": null}}),
         )
         .await;
-        assert!(got.contains("no responde"), "{got}");
+        assert!(got.contains("no responde"));
         assert_eq!(st.sessions.lock().unwrap().len(), 2);
     }
 
@@ -1942,7 +1939,7 @@ mod tests {
                 assert_eq!(out.results[0].rows.len(), 2);
                 assert!(out.sink.is_none());
             }
-            other => panic!("{other:?}"),
+            _ => panic!("unexpected reply"),
         }
         // With a sink: each row goes to the app as it comes, tagged with
         // the call's id, and the reply carries none.
@@ -1954,7 +1951,7 @@ mod tests {
         .await
         {
             Ok(Reply::Run(out, None)) => assert!(out.results[0].rows.is_empty()),
-            other => panic!("{other:?}"),
+            _ => panic!("unexpected reply"),
         }
         let frames: Vec<FromHost> = rx.try_iter().collect();
         assert!(
@@ -1979,9 +1976,9 @@ mod tests {
         {
             Ok(Reply::Run(out, Some(e))) => {
                 assert_eq!(out.results.len(), 1);
-                assert!(format!("{e:?}").contains("falló"), "{e:?}");
+                assert!(format!("{e:?}").contains("falló"));
             }
-            other => panic!("{other:?}"),
+            _ => panic!("unexpected reply"),
         }
         // The app's sink failed: the run stops at its next row.
         let failed = Arc::new(Mutex::new(Some("disco lleno".to_string())));
@@ -1991,9 +1988,9 @@ mod tests {
         .unwrap();
         match st.handle(8, c, failed, CallIo::default()).await {
             Ok(Reply::Run(_, Some(e))) => {
-                assert!(format!("{e:?}").contains("disco lleno"), "{e:?}")
+                assert!(format!("{e:?}").contains("disco lleno"))
             }
-            other => panic!("{other:?}"),
+            _ => panic!("unexpected reply"),
         }
         // Explain, bound statements and server-enforced reads are runs
         // too: here the contract's refusal comes back inside the run.
@@ -2002,7 +1999,7 @@ mod tests {
             json!({"RunReadOnly": {"session": s, "statement": "SELECT", "max_rows": 10, "sink": false}}),
         ] {
             let got = answer(&st, c.clone()).await;
-            assert!(got.starts_with("Ok(Run("), "{c}: {got}");
+            assert!(got.starts_with("Ok(Run("), "{c}");
         }
         // A bulk load without its channel of batches is refused.
         let got = answer(
@@ -2010,7 +2007,7 @@ mod tests {
             json!({"BulkLoad": {"session": s, "spec": {"table": obj(), "columns": ["a"], "commit_rows": 10, "commit_bytes": 1000}, "columns": []}}),
         )
         .await;
-        assert!(got.contains("carga sin canal de lotes"), "{got}");
+        assert!(got.contains("carga sin canal de lotes"));
         // The session's interrupter is kept apart, for a cancel mid-run.
         let slot = st.slot(s).unwrap();
         (slot.interrupter.as_ref().expect("interruptible"))();

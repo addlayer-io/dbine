@@ -534,7 +534,7 @@ mod tests {
         let uuid_text = Sqlite
             .render_default(&DefaultValue::NewUuid, &L::Uuid)
             .unwrap();
-        assert!(uuid_text.contains("randomblob"), "{uuid_text}");
+        assert!(uuid_text.contains("randomblob"));
         assert_eq!(
             Sqlite.render_default(
                 &DefaultValue::NewUuid,

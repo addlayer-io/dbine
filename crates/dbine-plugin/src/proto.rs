@@ -1567,7 +1567,7 @@ mod tests {
         let body = rmp_serde::to_vec_named(&WireError::from(&e)).unwrap();
         let back = Error::from(rmp_serde::from_slice::<WireError>(&body).unwrap());
         let Error::ConnectFailed(got) = back else {
-            panic!("{back:?}")
+            panic!("unexpected round-trip result")
         };
         assert_eq!(*got, f);
         assert_eq!(got.kind, ConnectFailureKind::Firewall);

@@ -383,7 +383,9 @@ mod tests {
     }
 
     fn check(v: &dyn ServerCertVerifier, cert: &str, host: &str) -> Result<(), rustls::Error> {
-        let c = pem(cert).remove(0);
+        let Some(c) = pem(cert).into_iter().next() else {
+            panic!("the test certificate has no PEM block");
+        };
         v.verify_server_cert(&c, &[], &name(host), &[], UnixTime::now())
             .map(|_| ())
     }
