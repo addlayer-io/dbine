@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Trino and Presto, security:** a column type nested deeper than any real schema (as a malicious server could send) is shown as it came instead of being parsed level by level, so it can no longer crash DBine.
+
 ## [1.2.1] - 2026-10-28
 
 ### Fixes

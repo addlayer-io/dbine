@@ -35,20 +35,41 @@ impl Ty {
     }
 }
 
+/// Deeper nesting (or a longer type string) than any real schema is shown
+/// as it came: the type comes from the server, and parsing it recursively
+/// without a limit could overflow the stack.
+const MAX_DEPTH: usize = 32;
+const MAX_TYPE_LEN: usize = 64 * 1024;
+
 /// Parses a Trino type string. Anything not understood is `Ty::Other`, so the
 /// value is shown as it came.
 pub(crate) fn parse(ty: &str) -> Ty {
+    if ty.len() > MAX_TYPE_LEN {
+        return Ty::Other;
+    }
+    parse_at(ty, 0)
+}
+
+fn parse_at(ty: &str, depth: usize) -> Ty {
+    if depth > MAX_DEPTH {
+        return Ty::Other;
+    }
     let t = ty.trim();
     if let Some(inner) = args(t, "row") {
-        return Ty::Row(split_top(inner).into_iter().map(field).collect());
+        return Ty::Row(
+            split_top(inner)
+                .into_iter()
+                .map(|f| field(f, depth + 1))
+                .collect(),
+        );
     }
     if let Some(inner) = args(t, "array") {
-        return Ty::Array(Box::new(parse(inner)));
+        return Ty::Array(Box::new(parse_at(inner, depth + 1)));
     }
     if let Some(inner) = args(t, "map") {
         let parts = split_top(inner);
         return match parts.as_slice() {
-            [_, v] => Ty::Map(Box::new(parse(v))),
+            [_, v] => Ty::Map(Box::new(parse_at(v, depth + 1))),
             _ => Ty::Other,
         };
     }
@@ -91,7 +112,7 @@ fn split_top(s: &str) -> Vec<&str> {
 }
 
 /// One row field: `name type`, `"quoted name" type` or just `type`.
-fn field(f: &str) -> (Option<String>, Ty) {
+fn field(f: &str, depth: usize) -> (Option<String>, Ty) {
     let f = f.trim();
     if let Some(rest) = f.strip_prefix('"') {
         let mut name = String::new();
@@ -102,7 +123,7 @@ fn field(f: &str) -> (Option<String>, Ty) {
                     chars.next();
                     name.push('"');
                 } else {
-                    return (Some(name), parse(&rest[i + 1..]));
+                    return (Some(name), parse_at(&rest[i + 1..], depth));
                 }
             } else {
                 name.push(c);
@@ -111,7 +132,7 @@ fn field(f: &str) -> (Option<String>, Ty) {
         return (None, Ty::Other);
     }
     let Some((head, rest)) = f.split_once(char::is_whitespace) else {
-        return (None, parse(f));
+        return (None, parse_at(f, depth));
     };
     let rest = rest.trim_start();
     let low = rest.to_ascii_lowercase();
@@ -124,9 +145,9 @@ fn field(f: &str) -> (Option<String>, Ty) {
         || (head.eq_ignore_ascii_case("interval")
             && (low.starts_with("day ") || low.starts_with("year ")));
     if unnamed {
-        (None, parse(f))
+        (None, parse_at(f, depth))
     } else {
-        (Some(head.to_string()), parse(rest))
+        (Some(head.to_string()), parse_at(rest, depth))
     }
 }
 
@@ -223,6 +244,21 @@ pub(crate) fn scalar(v: Value, ty: &Ty) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_or_huge_types_stay_as_they_came() {
+        // A server-supplied type nested far beyond any real schema.
+        let deep = format!("{}integer{}", "array(".repeat(20_000), ")".repeat(20_000));
+        assert!(matches!(parse(&deep), Ty::Other));
+        let rows = format!("{}x integer{}", "row(a ".repeat(5_000), ")".repeat(5_000));
+        // Rows stop at the depth cap: the top stays a row, the 33rd level is shown as it came.
+        assert!(matches!(parse(&rows), Ty::Row(_)));
+        // Real nesting still parses.
+        assert!(matches!(
+            parse("array(array(row(a integer)))"),
+            Ty::Array(_)
+        ));
+    }
     use serde_json::json;
 
     fn r(v: Value, ty: &str) -> String {
