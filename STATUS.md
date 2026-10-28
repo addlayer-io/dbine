@@ -8,7 +8,7 @@ _Updated 2026-10-28._
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
-| claude-security (source-code review) | 0 | 0 | 0 | 1 |
+| claude-security (source-code review) | 0 | 0 | 0 | 2 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
@@ -23,12 +23,13 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | OSV-RUSTSEC-2026-0385-ctutils-9761a8 | MEDIUM | osv | ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons | `mobile/src-tauri/Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b | MEDIUM | osv | crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time | `Cargo.lock` | upgrade to 0.7.6 |
 | CS-3edce89e04 | LOW | claude-security | Operation on a Resource after Expiration or Release | `crates/drivers/hana` | pending |
+| CS-9b9f60a30a | LOW | claude-security | Uncontrolled Recursion | `crates/drivers/trino` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..b8db8ed2 (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..b8db8ed2) | 1 open | — |
+| claude-security, release v1.2.1 | 2026-10-28 | b8db8ed2..5f114c79 (v1.2.0..release 1.2.1) | 2 open | — |
 | codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-10-28 | every lockfile (Cargo, npm) at [`5f114c791`](https://github.com/addlayer-io/dbine/commit/5f114c7917c0) | 5 open | — |
 | scorecard | 2026-10-28 | repository settings and workflows at [`5f114c791`](https://github.com/addlayer-io/dbine/commit/5f114c7917c0) | score 5.7/10 | — |

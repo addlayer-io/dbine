@@ -1,56 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.2.0",
-      "scan_id": "b58aa7f2-513c-4fbb-8a1f-4f49bf5b948c",
-      "date": "2026-10-28",
-      "revision": "2e7ef2d0a5f8",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 12
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.2.0",
-      "scan_id": "a4d325cf-65e7-4549-80c4-de20ebafdafd",
-      "date": "2026-10-28",
-      "revision": "ab37520b2750",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 1
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.2.0",
-      "scan_id": "3ffabd78-1a4a-463e-a8f3-32d35eb0c803",
-      "date": "2026-10-28",
-      "revision": "fa099a727eb3",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.2.0",
-      "scan_id": "8be20b80-5fb9-4e16-ae7e-d6c3c4263e55",
-      "date": "2026-10-28",
-      "revision": "effea24c489a",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.2.0",
-      "scan_id": "6370c684-4ce9-4080-a118-e3ed880cfb3c",
-      "date": "2026-10-28",
-      "revision": "b8db8ed2a9e9",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
       "source": "osv",
       "date": "2026-10-28",
       "revision": "5f114c7917c0",
@@ -81,6 +31,16 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.2.1",
+      "scan_id": "53a651af-f280-4a28-864d-4bea6015a987",
+      "date": "2026-10-28",
+      "revision": "5f114c7917c0",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 1
     }
   ],
   "findings": [
@@ -91,6 +51,16 @@
       "kind": "Operation on a Resource after Expiration or Release",
       "cwe": "CWE-672",
       "component": "crates/drivers/hana",
+      "found": "2026-10-28",
+      "status": "open"
+    },
+    {
+      "id": "CS-9b9f60a30a",
+      "source": "claude-security",
+      "severity": "LOW",
+      "kind": "Uncontrolled Recursion",
+      "cwe": "CWE-674",
+      "component": "crates/drivers/trino",
       "found": "2026-10-28",
       "status": "open"
     },
@@ -4112,8 +4082,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.2.0",
-    "scanned": "0faeba1c..b8db8ed2 (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..b8db8ed2)",
+    "release": "v1.2.1",
+    "scanned": "b8db8ed2..5f114c79 (v1.2.0..release 1.2.1)",
     "not_covered": ""
   }
 }
