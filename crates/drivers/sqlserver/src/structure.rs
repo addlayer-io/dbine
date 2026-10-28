@@ -528,7 +528,7 @@ SELECT s.name, t.name, cc.name, cc.definition
  WHERE t.is_ms_shipped = 0
  ORDER BY s.name, t.name, cc.name";
 
-type Key = (String, String);
+pub(crate) type Key = (String, String);
 
 /// A table's primary key (and whether it's nonclustered) and indexes.
 type TableIndexes = (Option<KeyDef>, bool, Vec<IndexDef>);
@@ -672,8 +672,15 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
 /// Everything `database_schema` reads beyond the basic query: indexes with
 /// their settings and the full-text index (SQL Server, Azure SQL), and
 /// CHECK constraints. A part the server refuses leaves what was there.
-pub(crate) async fn complete(s: &mut SqlServerSession, tables: &mut [TableSchema]) {
+/// `hidden`: definitions the column query got as NULL; with the CHECKs
+/// found the same way they become the tables' warnings.
+pub(crate) async fn complete(
+    s: &mut SqlServerSession,
+    tables: &mut [TableSchema],
+    mut hidden: Vec<(Key, Hidden)>,
+) {
     if s.variant == Variant::Fabric {
+        note_hidden(s, tables, hidden).await;
         return;
     }
     let at: HashMap<Key, usize> = tables
@@ -703,15 +710,93 @@ pub(crate) async fn complete(s: &mut SqlServerSession, tables: &mut [TableSchema
     match s.rows(CHECKS_SQL, &[]).await {
         Ok(rows) => {
             for r in rows {
-                if let Some(&i) = at.get(&(st(&r, 0), st(&r, 1))) {
-                    tables[i].checks.push(CheckDef {
+                let key = (st(&r, 0), st(&r, 1));
+                let Some(&i) = at.get(&key) else {
+                    continue;
+                };
+                // NULL without VIEW DEFINITION: said, never `CHECK ()`.
+                match text(&r, 3).filter(|d| dbine_driver::ddl::has_body(d)) {
+                    Some(expression) => tables[i].checks.push(CheckDef {
                         name: text(&r, 2),
-                        expression: st(&r, 3),
-                    });
+                        expression,
+                    }),
+                    None => hidden.push((key, Hidden::Check(st(&r, 2)))),
                 }
             }
         }
         Err(e) => tracing::warn!("sqlserver: CHECK constraints not read: {e}"),
+    }
+    note_hidden(s, tables, hidden).await;
+}
+
+/// A definition the catalog returned as NULL (the login lacks VIEW
+/// DEFINITION, or it's encrypted): what it belongs to.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Hidden {
+    /// A CHECK constraint, by name: left out.
+    Check(String),
+    /// A column's default: the column goes without it.
+    Default(String),
+    /// A computed column: it stays as a plain column of its type.
+    Computed(String),
+}
+
+/// Why the catalog hides definitions from this login: no VIEW DEFINITION on
+/// the database (with the GRANT that fixes it), or something per object.
+pub(crate) async fn hidden_cause(s: &mut SqlServerSession) -> String {
+    const SQL: &str = "SELECT CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'VIEW DEFINITION') AS int), USER_NAME()";
+    match s.rows(SQL, &[]).await {
+        Ok(rows) => match rows.first() {
+            Some(r) if ni(r, 0) == Some(0) => no_view_definition(&st(r, 1)),
+            _ => HIDDEN_OTHER.into(),
+        },
+        Err(_) => HIDDEN_OTHER.into(),
+    }
+}
+
+const HIDDEN_OTHER: &str =
+    "el servidor no devolvió la definición (falta VIEW DEFINITION sobre el objeto, o está cifrada)";
+
+fn no_view_definition(user: &str) -> String {
+    format!(
+        "el usuario {user} no tiene el permiso VIEW DEFINITION en esta base; con GRANT VIEW DEFINITION TO {} se puede leer",
+        q(user)
+    )
+}
+
+/// What a migration or script shows for a definition it couldn't read.
+pub(crate) fn hidden_note(table: &str, h: &Hidden, cause: &str) -> String {
+    match h {
+        Hidden::Check(name) => format!(
+            "{table}: no se pudo leer la definición de la restricción CHECK {name} y no se crea: {cause}"
+        ),
+        Hidden::Default(col) => format!(
+            "{table}: no se pudo leer el valor por defecto de la columna {col} y queda sin él: {cause}"
+        ),
+        Hidden::Computed(col) => format!(
+            "{table}: no se pudo leer la expresión de la columna calculada {col}; queda como columna común de su tipo: {cause}"
+        ),
+    }
+}
+
+/// Each table's hidden definitions, as its `warnings`.
+pub(crate) async fn note_hidden(
+    s: &mut SqlServerSession,
+    tables: &mut [TableSchema],
+    hidden: Vec<(Key, Hidden)>,
+) {
+    if hidden.is_empty() {
+        return;
+    }
+    let cause = hidden_cause(s).await;
+    for ((schema, name), h) in hidden {
+        if let Some(t) = tables
+            .iter_mut()
+            .find(|t| t.name == name && t.schema.as_deref().unwrap_or_default() == schema)
+        {
+            let note = hidden_note(&qn(Some(&schema), &name), &h, &cause);
+            t.warnings.push(note);
+        }
     }
 }
 

@@ -314,7 +314,7 @@ fn find_check<'c>(list: &'c [CheckDef], c: &CheckDef) -> Option<&'c CheckDef> {
 fn norm_default(d: &Option<String>) -> Option<String> {
     d.as_deref()
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .filter(|s| crate::ddl::has_body(s))
 }
 
 fn squash(t: &str) -> String {
@@ -764,6 +764,15 @@ fn alter_table(
         if kept {
             continue;
         }
+        // The new side couldn't read some definitions (its `warnings`): a
+        // CHECK missing there may only be hidden, so it isn't dropped.
+        if !new.warnings.is_empty() && find_check(&new.checks, o).is_none() {
+            p.warnings.push(format!(
+                "La restricción CHECK {} de {tname} se deja como está: del otro lado hay definiciones que no se pudieron leer.",
+                o.name.as_deref().unwrap_or_default()
+            ));
+            continue;
+        }
         match o.name.as_deref().filter(|n| !n.is_empty()) {
             Some(n) => p
                 .pre
@@ -776,6 +785,14 @@ fn alter_table(
     }
     for n in &new.checks {
         if find_check(&old.checks, n).is_some_and(|o| check_same(o, n)) {
+            continue;
+        }
+        // Read without its definition: never `ADD CHECK ()`.
+        if !crate::ddl::has_body(&n.expression) {
+            p.warnings.push(format!(
+                "La restricción CHECK {} de {tname} vino sin definición (no se pudo leer) y no se agrega.",
+                n.name.as_deref().unwrap_or_default()
+            ));
             continue;
         }
         let f = crate::ddl::SqlFlavor {
@@ -1074,6 +1091,28 @@ mod tests {
             s.statements,
             vec!["DROP FULLTEXT INDEX ON [dbo].[clientes];"]
         );
+    }
+
+    #[test]
+    fn unreadable_checks_are_neither_added_empty_nor_dropped() {
+        let chk = |n: &str, e: &str| CheckDef {
+            name: Some(n.into()),
+            expression: e.into(),
+        };
+        let mut old = table(vec![col("id", "int", false)]);
+        old.checks = vec![chk("CK_target", "id > 0")];
+        let mut new = table(vec![col("id", "int", false)]);
+        new.checks = vec![chk("CK_empty", "")];
+        new.warnings = vec!["no se pudo leer".into()];
+        let s = run(ColumnAlter::SqlServer, old, new);
+        assert!(
+            s.statements
+                .iter()
+                .all(|x| !x.contains("CHECK") && !x.contains("DROP")),
+            "{:?}",
+            s.statements
+        );
+        assert_eq!(s.warnings.len(), 2, "{:?}", s.warnings);
     }
 
     #[test]

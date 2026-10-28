@@ -524,6 +524,8 @@ pub(crate) fn constraint_clauses(t: &TableSchema) -> Vec<String> {
         .checks
         .iter()
         .enumerate()
+        // Read without its definition: never `CHECK` with nothing after it.
+        .filter(|(_, c)| dbine_driver::ddl::has_body(&c.expression))
         .map(|(i, c)| {
             format!(
                 "CONSTRAINT {} CHECK {}",

@@ -274,5 +274,10 @@
     "sync_one": "Verrà sincronizzata {{count}} tabella in {{where}} ({{engine}}): le righe che differiscono dall'origine vengono inserite, aggiornate ed eliminate. Continuare?",
     "sync_many": "Verranno sincronizzate {{count}} tabelle in {{where}} ({{engine}}): le righe che differiscono dall'origine vengono inserite, aggiornate ed eliminate. Continuare?",
     "sync_other": "Verranno sincronizzate {{count}} tabelle in {{where}} ({{engine}}): le righe che differiscono dall'origine vengono inserite, aggiornate ed eliminate. Continuare?"
+  },
+  "unreadable": {
+    "title": "Parti della struttura che l'origine non ha permesso di leggere ({{count}}): la migrazione le lascia fuori",
+    "runTitle": "Rimasto fuori ciò che l'origine non ha permesso di leggere ({{count}})",
+    "hint": "L'utente della connessione di origine non vede queste definizioni (in SQL Server gli manca il permesso VIEW DEFINITION). Concedi il permesso e rigenera l'anteprima, oppure creale a mano nella destinazione."
   }
 }

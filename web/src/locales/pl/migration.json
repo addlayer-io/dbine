@@ -282,5 +282,10 @@
     "sync_few": "W {{where}} ({{engine}}) zostaną zsynchronizowane {{count}} tabele: wiersze różniące się od źródła zostaną wstawione, zaktualizowane i usunięte. Kontynuować?",
     "sync_many": "W {{where}} ({{engine}}) zostanie zsynchronizowanych {{count}} tabel: wiersze różniące się od źródła zostaną wstawione, zaktualizowane i usunięte. Kontynuować?",
     "sync_other": "W {{where}} ({{engine}}) zostanie zsynchronizowanej {{count}} tabeli: wiersze różniące się od źródła zostaną wstawione, zaktualizowane i usunięte. Kontynuować?"
+  },
+  "unreadable": {
+    "title": "Części struktury, których źródło nie pozwoliło odczytać ({{count}}): migracja je pomija",
+    "runTitle": "Pominięto to, czego źródło nie pozwoliło odczytać ({{count}})",
+    "hint": "Użytkownik połączenia źródłowego nie widzi tych definicji (w SQL Server brakuje mu uprawnienia VIEW DEFINITION). Nadaj uprawnienie i wygeneruj podgląd ponownie albo utwórz je ręcznie w miejscu docelowym."
   }
 }

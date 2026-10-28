@@ -160,7 +160,12 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     }
     // Delta CHECK constraints are added once the table exists.
     if parts.create {
-        for c in &t.checks {
+        // One read without its definition is left out, never `CHECK ()`.
+        for c in t
+            .checks
+            .iter()
+            .filter(|c| dbine_driver::ddl::has_body(&c.expression))
+        {
             out.push(format!("ALTER TABLE {name} ADD {};", check_clause(c)));
         }
     }

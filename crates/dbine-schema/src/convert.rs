@@ -131,6 +131,20 @@ pub fn convert(
     };
     for t in tables {
         let mut report = Report::default();
+        // What the reader couldn't read, and anything that came empty
+        // anyway: said, and never written as `CHECK ()` or an empty DEFAULT.
+        let mut clean = t.clone();
+        let emptied = clean.drop_empty_definitions();
+        for w in t.warnings.iter().chain(emptied.iter()) {
+            report.push(
+                Severity::Dropped,
+                IssueCode::DefinitionUnreadable,
+                &t.name,
+                None,
+                w.clone(),
+            );
+        }
+        let t = &clean;
         for (from, to) in names.renames_of(t) {
             report.push(
                 Severity::Info,

@@ -266,5 +266,10 @@
     "cloneWithData_other": "{{count}} Tabellen werden mit ihrer vollständigen Struktur und allen ihren Daten in {{where}} ({{engine}}) geklont. Fortfahren?",
     "sync_one": "{{count}} Tabelle wird in {{where}} ({{engine}}) synchronisiert: Die Zeilen, die sich von der Quelle unterscheiden, werden eingefügt, aktualisiert und gelöscht. Fortfahren?",
     "sync_other": "{{count}} Tabellen werden in {{where}} ({{engine}}) synchronisiert: Die Zeilen, die sich von der Quelle unterscheiden, werden eingefügt, aktualisiert und gelöscht. Fortfahren?"
+  },
+  "unreadable": {
+    "title": "Teile der Struktur, die die Quelle nicht lesen ließ ({{count}}): Die Migration lässt sie aus",
+    "runTitle": "Ausgelassen, weil die Quelle das Lesen nicht zuließ ({{count}})",
+    "hint": "Der Benutzer der Quellverbindung sieht diese Definitionen nicht (bei SQL Server fehlt ihm die Berechtigung VIEW DEFINITION). Erteilen Sie die Berechtigung und erzeugen Sie die Vorschau neu, oder legen Sie die Objekte manuell im Ziel an."
   }
 }

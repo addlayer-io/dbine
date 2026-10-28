@@ -130,7 +130,7 @@ fn column_def_inner(
             AutoIncrement::SqliteAutoincrement | AutoIncrement::None => {}
         }
     }
-    if let Some(d) = c.default_value.as_deref().filter(|d| !d.is_empty()) {
+    if let Some(d) = c.default_value.as_deref().filter(|d| has_body(d)) {
         l.push_str(&format!(" DEFAULT {d}"));
     }
     if inline_pk {
@@ -212,7 +212,8 @@ pub fn table_ddl(f: &SqlFlavor, t: &TableSchema, parts: DdlParts) -> String {
                 lines.push(format!("    {}", fk_clause(f, t, fk)));
             }
         }
-        for c in &t.checks {
+        // A CHECK read without its definition is left out, never `CHECK ()`.
+        for c in t.checks.iter().filter(|c| has_body(&c.expression)) {
             lines.push(format!("    {}", check_clause(f, c)));
         }
         let mut create = format!(
@@ -281,6 +282,15 @@ pub fn table_ddl(f: &SqlFlavor, t: &TableSchema, parts: DdlParts) -> String {
     }
 
     out.join("\n")
+}
+
+/// An expression with something in it (not only blanks and parentheses): a
+/// CHECK or default read without its definition has none, and is left out
+/// of the DDL.
+pub fn has_body(expr: &str) -> bool {
+    !expr
+        .chars()
+        .all(|c| c.is_whitespace() || c == '(' || c == ')')
 }
 
 /// `[CONSTRAINT name] CHECK (expr)`, as CREATE TABLE and ALTER TABLE ADD write it.
@@ -475,6 +485,41 @@ pub fn delete_script(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_check_and_default_are_left_out_of_the_ddl() {
+        let t = TableSchema {
+            name: "t".into(),
+            columns: vec![crate::schema::ColumnDef {
+                name: "a".into(),
+                data_type: "int".into(),
+                default_value: Some(" ".into()),
+                ..Default::default()
+            }],
+            checks: vec![
+                crate::schema::CheckDef {
+                    name: Some("CK_x".into()),
+                    expression: String::new(),
+                },
+                crate::schema::CheckDef {
+                    name: Some("CK_y".into()),
+                    expression: "a > 0".into(),
+                },
+            ],
+            ..Default::default()
+        };
+        let s = table_ddl(
+            &SqlFlavor::ansi(),
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        );
+        assert!(!s.contains("CHECK ()") && !s.contains("CK_x"), "{s}");
+        assert!(!s.contains("DEFAULT"), "{s}");
+        assert!(s.contains("CONSTRAINT \"CK_y\" CHECK (a > 0)"), "{s}");
+    }
 
     #[test]
     fn deletes_by_key_and_never_the_whole_table() {

@@ -667,3 +667,33 @@ fn too_wide_index_is_dropped() {
         c.issues
     );
 }
+
+/// A source login without VIEW DEFINITION: the reader's warnings become
+/// issues, and a CHECK or default that came empty never reaches the target
+/// as `CHECK ()` or an empty DEFAULT.
+#[test]
+fn unreadable_definitions_are_issues_not_empty_ddl() {
+    let mut t = table("t", vec![with_default(col("a", "int"), "")], &[]);
+    t.schema = Some("dbo".into());
+    t.checks = vec![dbine_driver::CheckDef {
+        name: Some("CK_x".into()),
+        expression: String::new(),
+    }];
+    t.warnings = vec![
+        "[dbo].[t]: no se pudo leer la definición de la restricción CHECK CK_y y no se crea: x"
+            .into(),
+    ];
+    let conv = convert(&[t], "sqlserver", "sqlserver", &Options::default()).unwrap();
+    let out = &conv.tables[0];
+    assert!(out.checks.is_empty());
+    assert_eq!(column(out, "a").default_value, None);
+    let unreadable: Vec<_> = conv
+        .issues
+        .iter()
+        .filter(|i| i.code == IssueCode::DefinitionUnreadable)
+        .collect();
+    assert_eq!(unreadable.len(), 3, "{:?}", conv.issues);
+    assert!(unreadable.iter().all(|i| i.severity == Severity::Dropped));
+    assert!(unreadable.iter().any(|i| i.message.contains("CK_y")));
+    assert!(unreadable.iter().any(|i| i.message.contains("CK_x")));
+}

@@ -266,5 +266,10 @@
     "cloneWithData_other": "{{count}} tables will be cloned in {{where}} ({{engine}}) with their full structure and all their data. Continue?",
     "sync_one": "{{count}} table will be synced in {{where}} ({{engine}}): rows that differ from the source are inserted, updated and deleted. Continue?",
     "sync_other": "{{count}} tables will be synced in {{where}} ({{engine}}): rows that differ from the source are inserted, updated and deleted. Continue?"
+  },
+  "unreadable": {
+    "title": "Parts of the structure the source wouldn't let us read ({{count}}): the migration leaves them out",
+    "runTitle": "Left out because the source wouldn't let us read it ({{count}})",
+    "hint": "The source connection's user can't see these definitions (on SQL Server, it lacks the VIEW DEFINITION permission). Grant the permission and regenerate the preview, or create them by hand at the destination."
   }
 }

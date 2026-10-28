@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Migrations with a SQL Server login without VIEW DEFINITION:** when the source login could read the tables but not their definitions (common on Azure SQL), the migration script wrote `CHECK ()`, which failed with "Incorrect syntax near ')'", and dropped column defaults without saying so. Now those CHECKs, defaults and computed expressions are left out of the script, and the preview and the run report list each one at the top, with the reason and the `GRANT VIEW DEFINITION` that lets DBine read them. Generated scripts and schema sync say it too, and a sync no longer drops a CHECK on the target because the source couldn't read its own. No engine writes an empty CHECK or DEFAULT anymore.
+
 ## [1.2.0] - 2026-10-27
 
 ### New

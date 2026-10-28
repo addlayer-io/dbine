@@ -36,6 +36,85 @@ pub struct TableSchema {
     /// `table_options` fields (engine, partitioning, TTL, shards…).
     #[serde(default)]
     pub options: BTreeMap<String, String>,
+    /// What the reader couldn't read and left out (a CHECK, a default or a
+    /// computed expression the login can't see), and why (Spanish, for the
+    /// user): a migration or script built from this table shows it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+impl TableSchema {
+    /// Leaves out the CHECKs, defaults and computed expressions that came
+    /// empty (a definition the reader couldn't see), so no DDL is written as
+    /// `CHECK ()`, `DEFAULT` or `AS` with nothing after it. Returns what it
+    /// left out (Spanish, for the user); the table's own `warnings` aren't
+    /// included.
+    pub fn drop_empty_definitions(&mut self) -> Vec<String> {
+        let mut out = Vec::new();
+        let table = self.name.clone();
+        self.checks.retain(|c| {
+            let empty = check_body_is_empty(&c.expression);
+            if empty {
+                let name = c.name.clone().unwrap_or_default();
+                out.push(format!(
+                    "{table}: la restricción CHECK {name} vino sin definición (no se pudo leer) y no se crea"
+                ));
+            }
+            !empty
+        });
+        self.columns.retain_mut(|c| {
+            if c.default_value
+                .as_deref()
+                .is_some_and(check_body_is_empty)
+            {
+                c.default_value = None;
+                out.push(format!(
+                    "{table}: el valor por defecto de la columna {} vino sin definición (no se pudo leer); la columna queda sin él",
+                    c.name
+                ));
+            }
+            if computed_is_empty(&c.data_type) {
+                out.push(format!(
+                    "{table}: la columna calculada {} vino sin expresión (no se pudo leer) y no se crea",
+                    c.name
+                ));
+                return false;
+            }
+            true
+        });
+        out
+    }
+}
+
+/// Nothing but blanks and parentheses: `""`, `"()"`, `"( )"`.
+fn check_body_is_empty(expr: &str) -> bool {
+    !crate::ddl::has_body(expr)
+}
+
+/// A computed column's type with no expression: `AS`, `AS PERSISTED`,
+/// `AS ()`, `GENERATED ALWAYS AS ()`, `… AS () STORED`.
+fn computed_is_empty(data_type: &str) -> bool {
+    let u = data_type.trim().to_ascii_uppercase();
+    let words: Vec<&str> = u.split_whitespace().collect();
+    if words.first() == Some(&"AS") {
+        return words[1..]
+            .iter()
+            .all(|w| check_body_is_empty(w) || *w == "PERSISTED");
+    }
+    match u
+        .find(" AS ")
+        .or_else(|| u.ends_with(" AS").then(|| u.len() - 3))
+    {
+        Some(i) if u[..i].trim_end().ends_with("ALWAYS") => {
+            let rest = u[i + 3..].trim();
+            let body = rest
+                .trim_end_matches("STORED")
+                .trim_end_matches("VIRTUAL")
+                .trim_end_matches("PERSISTED");
+            check_body_is_empty(body)
+        }
+        _ => false,
+    }
 }
 
 fn table_kind() -> String {
@@ -228,4 +307,65 @@ pub struct Capabilities {
     /// `alter_database` ("Propiedades" on a database).
     #[serde(default)]
     pub database_properties: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn col(name: &str, data_type: &str, default: Option<&str>) -> ColumnDef {
+        ColumnDef {
+            name: name.into(),
+            data_type: data_type.into(),
+            default_value: default.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    fn check(name: &str, expression: &str) -> CheckDef {
+        CheckDef {
+            name: Some(name.into()),
+            expression: expression.into(),
+        }
+    }
+
+    #[test]
+    fn empty_definitions_are_left_out_and_said() {
+        let mut t = TableSchema {
+            name: "t".into(),
+            columns: vec![
+                col("a", "int", Some("")),
+                col("b", "AS  PERSISTED", None),
+                col("c", "int GENERATED ALWAYS AS () STORED", None),
+                col("d", "AS ([a]*(2))", Some("((0))")),
+                col("e", "bigint GENERATED ALWAYS AS IDENTITY", None),
+            ],
+            checks: vec![
+                check("CK_x", ""),
+                check("CK_y", "( )"),
+                check("CK_z", "([a]>(0))"),
+            ],
+            ..Default::default()
+        };
+        let notes = t.drop_empty_definitions();
+        assert_eq!(notes.len(), 5, "{notes:?}");
+        assert!(notes[0].contains("CK_x"));
+        assert_eq!(t.checks, vec![check("CK_z", "([a]>(0))")]);
+        let cols: Vec<&str> = t.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(cols, ["a", "d", "e"]);
+        assert_eq!(t.columns[0].default_value, None);
+        assert_eq!(t.columns[1].default_value.as_deref(), Some("((0))"));
+    }
+
+    #[test]
+    fn warnings_stay_out_of_the_json_when_empty() {
+        let t = TableSchema {
+            name: "t".into(),
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&t).unwrap();
+        assert!(v.get("warnings").is_none());
+        let back: TableSchema = serde_json::from_value(v).unwrap();
+        assert!(back.warnings.is_empty());
+    }
 }

@@ -19,6 +19,9 @@ export interface TableSchema {
   comment: string | null;
   /** Engine-specific table options, keyed like `DesignerSpec.table_options`. */
   options: Record<string, string>;
+  /** What the reader couldn't read and left out, and why (Spanish backend
+   *  messages, `tb()`). Omitted when empty. */
+  warnings?: string[];
 }
 
 export interface ColumnDef {

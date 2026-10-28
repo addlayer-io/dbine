@@ -241,6 +241,10 @@ const issues = computed(() =>
     .filter((i) => severityFilter.value === 'all' || i.severity === severityFilter.value)
     .sort((a, b) => ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity) || a.table.localeCompare(b.table)),
 );
+// Definitions the source didn't let us read (e.g. no VIEW DEFINITION):
+// shown on top, the migration leaves them out.
+const unreadable = computed(() => (plan.value?.issues ?? []).filter((i) => i.code === 'definition_unreadable').map((i) => i.message));
+const unreadableRun = computed(() => (result.value?.notes ?? []).filter((n) => n.includes(': no se pudo leer ')));
 const showColumns = ref(false);
 const columnFilter = ref('');
 const columns = computed(() => {
@@ -1018,6 +1022,11 @@ function saveScript() {
         </div>
         <div v-if="!shownRows.length" class="mg-muted mg-none">{{ $t('migration:runFilter.none') }}</div>
       </div>
+      <div v-if="unreadableRun.length" class="mg-unreadable" role="alert">
+        <strong>{{ $t('migration:unreadable.runTitle', { count: unreadableRun.length }) }}</strong>
+        <div class="mg-unreadable-hint">{{ $t('migration:unreadable.hint') }}</div>
+        <div v-for="(m, k) in unreadableRun" :key="k">· {{ tb(m) }}</div>
+      </div>
       <div v-if="result?.foreign_key_errors.length" class="mg-runerr">
         {{ $t('migration:run.fkErrors') }}
         <div v-for="e in result.foreign_key_errors" :key="e">· {{ tb(e) }}</div>
@@ -1078,6 +1087,11 @@ function saveScript() {
             :disabled="!counts[s]"
             @click="severityFilter = s"
           >{{ SEVERITY[s].label }} ({{ counts[s] }})</button>
+        </div>
+        <div v-if="unreadable.length" class="mg-unreadable" role="alert">
+          <strong>{{ $t('migration:unreadable.title', { count: unreadable.length }) }}</strong>
+          <div class="mg-unreadable-hint">{{ $t('migration:unreadable.hint') }}</div>
+          <div v-for="(m, k) in unreadable" :key="k">· {{ tb(m) }}</div>
         </div>
         <div v-if="!plan.issues.length" class="mg-ok"><el-icon><ei-circle-check-filled /></el-icon> {{ mode === 'clone' ? $t('migration:clone.clean') : $t('migration:report.clean') }}</div>
         <div v-else class="mg-issues">
@@ -1209,6 +1223,9 @@ function saveScript() {
 .mg-sev.info { color: var(--nm-text-dim); }
 .mg-where { color: var(--nm-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mg-msg { color: var(--nm-text); }
+.mg-unreadable { margin: 6px 0 8px; padding: 8px 10px; border: 1px solid var(--nm-warning); border-left-width: 3px; border-radius: 4px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+.mg-unreadable strong { color: var(--nm-warning); }
+.mg-unreadable-hint { color: var(--nm-text-dim); margin: 2px 0 4px; }
 .mg-ok { display: flex; align-items: center; gap: 6px; color: var(--nm-success); font-size: 12.5px; }
 .mg-cols-head { display: flex; width: 100%; align-items: center; gap: 5px; margin-top: 12px; font-size: 12.5px; color: var(--nm-text-strong); cursor: pointer; user-select: none; }
 .mg-caret { transition: transform 0.1s; font-size: 11px; }

@@ -258,5 +258,10 @@
     "clone_other": "{{count}} tabel akan dikloning di {{where}} ({{engine}}) beserta struktur lengkapnya. Lanjutkan?",
     "cloneWithData_other": "{{count}} tabel akan dikloning di {{where}} ({{engine}}) beserta struktur lengkap dan semua datanya. Lanjutkan?",
     "sync_other": "{{count}} tabel akan disinkronkan di {{where}} ({{engine}}): baris yang berbeda dari sumber disisipkan, diperbarui, dan dihapus. Lanjutkan?"
+  },
+  "unreadable": {
+    "title": "Bagian struktur yang tidak dapat dibaca dari sumber ({{count}}): migrasi mengabaikannya",
+    "runTitle": "Dilewati karena sumber tidak mengizinkan pembacaan ({{count}})",
+    "hint": "Pengguna koneksi sumber tidak dapat melihat definisi ini (di SQL Server, izin VIEW DEFINITION tidak dimiliki). Berikan izin lalu buat ulang pratinjau, atau buat secara manual di tujuan."
   }
 }

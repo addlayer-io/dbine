@@ -790,12 +790,25 @@ async fn plan(state: &AppState, args: &PlanArgs) -> CommandResult<MigrationPlan>
             let issues = script
                 .notes
                 .iter()
-                .map(|n| Issue {
-                    severity: Severity::Warning,
-                    code: IssueCode::OptionDropped,
-                    table: String::new(),
-                    object: None,
-                    message: n.clone(),
+                .map(|n| {
+                    // A definition the source hid (no VIEW DEFINITION):
+                    // shown apart, as what the clone leaves out.
+                    let unreadable = unreadable_note(n);
+                    Issue {
+                        severity: if unreadable {
+                            Severity::Dropped
+                        } else {
+                            Severity::Warning
+                        },
+                        code: if unreadable {
+                            IssueCode::DefinitionUnreadable
+                        } else {
+                            IssueCode::OptionDropped
+                        },
+                        table: String::new(),
+                        object: None,
+                        message: n.clone(),
+                    }
                 })
                 .collect();
             Ok(MigrationPlan {
@@ -839,6 +852,12 @@ async fn plan(state: &AppState, args: &PlanArgs) -> CommandResult<MigrationPlan>
             })
         }
     }
+}
+
+/// A clone note about a definition the source couldn't read (the drivers
+/// write them as "no se pudo leer …").
+fn unreadable_note(n: &str) -> bool {
+    n.contains(r": no se pudo leer ")
 }
 
 /// A key for a preview's own connections.
@@ -1718,6 +1737,14 @@ async fn structure(
             error: None,
         })
         .collect();
+    // What the source couldn't read (no VIEW DEFINITION…) goes to the report.
+    meta.notes.extend(
+        p.conv
+            .issues
+            .iter()
+            .filter(|i| i.code == IssueCode::DefinitionUnreadable)
+            .map(|i| i.message.clone()),
+    );
 
     let estimates = if o.data {
         source_estimates(state, &id, &args.plan, sinfo.dialect).await

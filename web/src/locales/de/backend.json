@@ -11273,5 +11273,19 @@
   "Advanced": "Advanced",
   "Element": "Element",
   "Instance": "Instance",
-  "no schema scripted": "no schema scripted"
+  "no schema scripted": "no schema scripted",
+  "-- Lo que no se pudo leer del origen y queda afuera:\n": "-- Was aus der Quelle nicht gelesen werden konnte und ausgelassen wird:\n",
+  "La restricción CHECK {0} de {1} se deja como está: del otro lado hay definiciones que no se pudieron leer.": "Die CHECK-Einschränkung {0} von {1} bleibt unverändert: Auf der anderen Seite gibt es Definitionen, die nicht gelesen werden konnten.",
+  "La restricción CHECK {0} de {1} vino sin definición (no se pudo leer) y no se agrega.": "Die CHECK-Einschränkung {0} von {1} kam ohne Definition an (nicht lesbar) und wird nicht hinzugefügt.",
+  "el servidor no devolvió la definición (falta VIEW DEFINITION sobre el objeto, o está cifrada)": "der Server hat die Definition nicht zurückgegeben (VIEW DEFINITION fehlt für das Objekt, oder sie ist verschlüsselt)",
+  "el usuario {0} no tiene el permiso VIEW DEFINITION en esta base; con GRANT VIEW DEFINITION TO {1} se puede leer": "Der Benutzer {0} hat in dieser Datenbank nicht die Berechtigung VIEW DEFINITION; mit GRANT VIEW DEFINITION TO {1} lässt sie sich lesen",
+  "la huella del certificado no es un SHA-256": "der Fingerabdruck des Zertifikats ist kein SHA-256",
+  "{0}: el valor por defecto de la columna {1} vino sin definición (no se pudo leer); la columna queda sin él": "{0}: Der Standardwert der Spalte {1} kam ohne Definition an (nicht lesbar); die Spalte bleibt ohne ihn",
+  "{0}: la columna calculada {1} vino sin expresión (no se pudo leer) y no se crea": "{0}: Die berechnete Spalte {1} kam ohne Ausdruck an (nicht lesbar) und wird nicht erstellt",
+  "{0}: la restricción CHECK {1} vino sin definición (no se pudo leer) y no se crea": "{0}: Die CHECK-Einschränkung {1} kam ohne Definition an (nicht lesbar) und wird nicht erstellt",
+  "{0}: no se pudo leer el valor por defecto de la columna {1} y queda sin él: {2}": "{0}: Der Standardwert der Spalte {1} konnte nicht gelesen werden; die Spalte bleibt ohne ihn: {2}",
+  "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: Die Definition der CHECK-Einschränkung {1} konnte nicht gelesen werden, sie wird nicht erstellt: Der Katalog hat ihren Text nicht zurückgegeben (verborgen oder keine Berechtigung)",
+  "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: Die Definition der CHECK-Einschränkung {1} konnte nicht gelesen werden, sie wird nicht erstellt: {2}",
+  "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: Der Ausdruck der berechneten Spalte {1} konnte nicht gelesen werden; sie bleibt eine normale Spalte ihres Typs: {2}",
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "Katalog der Quelle: Der Benutzer kann den gesamten Katalog nicht lesen; Klonen erfordert VIEW DEFINITION für die Quelldatenbank und SELECT auf sys.sql_expression_dependencies (wie db_owner): {0}"
 }
