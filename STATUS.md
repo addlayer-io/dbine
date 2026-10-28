@@ -11,14 +11,13 @@ _Updated 2026-10-28._
 | claude-security (source-code review) | 0 | 0 | 0 | 1 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 2 | 0 | 0 | 0 |
+| CodeQL (static analysis) | 1 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
-| CQ-369 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-370 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
+| CQ-400 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
@@ -31,10 +30,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..effea24c (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..effea24c) | 1 open | — |
-| codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 2 open | — |
-| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`effea24c4`](https://github.com/addlayer-io/dbine/commit/effea24c489a) | 5 open | — |
-| scorecard | 2026-10-28 | repository settings and workflows at [`fa099a727`](https://github.com/addlayer-io/dbine/commit/fa099a727eb3) | score 5.7/10 | — |
-| trivy | 2026-10-28 | whole repository at [`effea24c4`](https://github.com/addlayer-io/dbine/commit/effea24c489a) | 0 open | — |
+| codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 1 open | — |
+| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`b8db8ed2a`](https://github.com/addlayer-io/dbine/commit/b8db8ed2a9e9) | 5 open | — |
+| scorecard | 2026-10-28 | repository settings and workflows at [`effea24c4`](https://github.com/addlayer-io/dbine/commit/effea24c489a) | score 5.7/10 | — |
+| trivy | 2026-10-28 | whole repository at [`b8db8ed2a`](https://github.com/addlayer-io/dbine/commit/b8db8ed2a9e9) | 0 open | — |
 
 ## Not counted, and why
 

@@ -1,38 +1,6 @@
 {
   "scans": [
     {
-      "source": "osv",
-      "date": "2026-10-28",
-      "revision": "effea24c489a",
-      "kind": "full",
-      "scope": "every lockfile (Cargo, npm)",
-      "found": 5
-    },
-    {
-      "source": "trivy",
-      "date": "2026-10-28",
-      "revision": "effea24c489a",
-      "kind": "full",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "codeql",
-      "date": "2026-10-28",
-      "revision": "",
-      "kind": "full",
-      "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 2
-    },
-    {
-      "source": "scorecard",
-      "date": "2026-10-28",
-      "revision": "fa099a727eb3",
-      "kind": "full",
-      "scope": "repository settings and workflows",
-      "score": 5.7
-    },
-    {
       "source": "claude-security",
       "release": "v1.2.0",
       "scan_id": "b58aa7f2-513c-4fbb-8a1f-4f49bf5b948c",
@@ -71,6 +39,38 @@
       "kind": "changes",
       "scope": "whole repository",
       "found": 0
+    },
+    {
+      "source": "osv",
+      "date": "2026-10-28",
+      "revision": "b8db8ed2a9e9",
+      "kind": "full",
+      "scope": "every lockfile (Cargo, npm)",
+      "found": 5
+    },
+    {
+      "source": "trivy",
+      "date": "2026-10-28",
+      "revision": "b8db8ed2a9e9",
+      "kind": "full",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "codeql",
+      "date": "2026-10-28",
+      "revision": "",
+      "kind": "full",
+      "scope": "Rust, TypeScript/Vue and workflows",
+      "found": 1
+    },
+    {
+      "source": "scorecard",
+      "date": "2026-10-28",
+      "revision": "effea24c489a",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 5.7
     }
   ],
   "findings": [
@@ -3413,24 +3413,6 @@
       "by": "mpanichella"
     },
     {
-      "id": "CQ-369",
-      "source": "codeql",
-      "severity": "CRITICAL",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-370",
-      "source": "codeql",
-      "severity": "CRITICAL",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
       "id": "CQ-371",
       "source": "codeql",
       "severity": "HIGH",
@@ -3494,6 +3476,15 @@
       "dismissed": "2026-10-28",
       "reason": "won't fix — By design (owner's decision, 2026-10-28): new connections use TLS by default; credentials go over plain HTTP only when the user turns TLS off for that connection, as the engine's own tools allow.",
       "by": "mpanichella"
+    },
+    {
+      "id": "CQ-400",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/dbine-core",
+      "found": "2026-10-28",
+      "status": "open"
     },
     {
       "id": "CQ-66",
