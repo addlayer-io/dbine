@@ -886,6 +886,43 @@ the last view chosen, table or tree.
   update code applies it the same way. In document engines it goes as an
   object, also when the field is edited from the table.
 
+## Named fields in structured values
+
+A structured value (a row, struct, record, named tuple, composite or UDT)
+shows each field under its name, as JSON, recursively in nested values,
+arrays of them and maps whose values are them, directly in the grid and the
+JSON tree view, without changing the SQL. `null`, an empty string `""` and
+an empty array `[]` stay distinct, and integers beyond JavaScript's safe
+range are shown as text.
+
+| Engine | How |
+|---|---|
+| Trino, Starburst | The protocol sends a `row` as a positional array; DBine rebuilds it from the column's type (`row(customer_id bigint, "a b" varchar, …)`, quoted names included). |
+| PrestoDB | Same, from the JSON text Presto sends for each structured value. |
+| PostgreSQL and the engines on its protocol with composite types | A composite (`CREATE TYPE … AS (…)`, a table's row type) comes as positional text `(42,t,)`; DBine rebuilds it from the statement's description, where it has the field names. Needs the column types, so not on a connection set to the simple protocol, where it stays PostgreSQL's text. |
+| ClickHouse | Named tuples come as objects (DBine asks for `output_format_json_named_tuples_as_objects`), in declared order. |
+| Arrow Flight SQL | Arrow structs, lists and maps are shown as JSON (they were Arrow's display text, where `null` and `""` looked the same). |
+| BigQuery, Spanner, Databricks, DuckDB, Snowflake (`OBJECT`), Cassandra and ScyllaDB (UDT), ksqlDB, Dremio, Drill, Couchbase, DynamoDB and the document engines | Already: the engine sends the field names. |
+
+A row whose fields have no names keeps its positional array: Trino's
+`row(integer, varchar)`, PostgreSQL's anonymous `ROW(1, 'x')` (its own text,
+`(1,x)`), ClickHouse's `tuple(1, 'x')`, CQL tuples. Trino's own
+`CAST(… AS JSON)` gives every unnamed field the key `""`, which repeats; an
+unnamed field in a row that also has named ones is shown as `field<i>`
+(0-based).
+
+### Engines without it
+
+- **Athena:** the API returns a `row` as Athena's text
+  (`{customer_id=42, note=null}`) and the column type as just `row`, without
+  its fields' types, so DBine shows that text: the names are there, but a
+  `null` and the string `null` (or an empty string) can't be told apart.
+- **Oracle object types:** the thin client DBine uses doesn't decode
+  `DB_TYPE_OBJECT` values; `JSON_OBJECT(…)` in the query shows them as JSON.
+- **Engines without structured types** (MySQL and MariaDB, SQL Server,
+  SQLite and libSQL, Firebird, SAP HANA, Phoenix, Aurora DSQL, InfluxDB,
+  IoTDB, TDengine, Redis, etcd): nothing to show.
+
 ## AI assistant
 
 It works with **all engines**. The prompt tells it each engine's query

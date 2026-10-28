@@ -19,14 +19,15 @@ mod sync;
 mod tls;
 mod transfer;
 
+mod structured;
+
 use async_trait::async_trait;
-use base64::Engine as _;
 use dbine_driver::sql::{quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
-    json_bytes, json_i64, json_u64, kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig,
-    CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field,
-    Language, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, SchemaInfo,
-    Session, TableSchema, TlsLevel, TlsSupport,
+    kinds, Capabilities, ColumnDef, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
+    DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, ObjectKindInfo,
+    ObjectRef, QueryOutcome, Result, ResultColumn, RowChange, SchemaInfo, Session, TableSchema,
+    TlsLevel, TlsSupport,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::Deserialize;
@@ -684,16 +685,21 @@ impl TrinoSession {
                 }
             }
             if started {
-                let types: Vec<String> = out
+                let types: Vec<structured::Ty> = out
                     .results
                     .last()
-                    .map(|r| r.columns.iter().map(|c| c.type_name.clone()).collect())
+                    .map(|r| {
+                        r.columns
+                            .iter()
+                            .map(|c| structured::parse(&c.type_name))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 for row in page.data.unwrap_or_default() {
                     out.push_row(
                         row.into_iter()
                             .enumerate()
-                            .map(|(i, v)| cell(v, types.get(i).map_or("", String::as_str)))
+                            .map(|(i, v)| cell(v, types.get(i).unwrap_or(&structured::Ty::Other)))
                             .collect(),
                         max_rows,
                     );
@@ -874,22 +880,16 @@ fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
-/// A cell as the UI wants it, given its Trino type.
-fn cell(v: Value, ty: &str) -> Value {
+/// A cell as the UI wants it, given its Trino type: rows, arrays and maps as
+/// JSON text with each row field under its name (see `structured`).
+fn cell(v: Value, ty: &structured::Ty) -> Value {
     match v {
-        Value::Number(n) => match (n.as_i64(), n.as_u64()) {
-            (Some(i), _) => json_i64(i),
-            (None, Some(u)) => json_u64(u),
-            _ => Value::Number(n),
+        Value::Array(_) | Value::Object(_) => Value::String(structured::render(&v, ty)),
+        Value::String(s) if ty.is_structured() => match structured::structure(&s) {
+            Some(parsed) => Value::String(structured::render(&parsed, ty)),
+            None => Value::String(s),
         },
-        Value::String(s) if ty == "varbinary" => {
-            match base64::engine::general_purpose::STANDARD.decode(&s) {
-                Ok(b) => json_bytes(&b),
-                Err(_) => Value::String(s),
-            }
-        }
-        Value::Array(_) | Value::Object(_) => Value::String(v.to_string()),
-        v => v,
+        v => structured::scalar(v, ty),
     }
 }
 
@@ -1369,6 +1369,7 @@ mod tests {
 
     #[test]
     fn cells_follow_their_types() {
+        let cell = |v: Value, ty: &str| cell(v, &structured::parse(ty));
         assert_eq!(
             cell(json!(9007199254740993i64), "bigint"),
             json!("9007199254740993")

@@ -47,8 +47,13 @@ const FORMAT: &str = "JSONCompactEachRowWithNamesAndTypes";
 /// predates them (22.8 has no `http_write_exception_in_output_format`). The JSON
 /// number quoting (`output_format_json_quote_*`) is left to the server, so
 /// every user sees values the same way; `split_row` reads numbers from their
-/// text, quoted or not, without losing digits.
-const OUTPUT_SETTINGS: [(&str, &str); 1] = [("http_write_exception_in_output_format", "0")];
+/// text, quoted or not, without losing digits. Named tuples come as JSON
+/// objects with their field names (the server's default since 22.x), even if
+/// the user's profile turned that off.
+const OUTPUT_SETTINGS: [(&str, &str); 2] = [
+    ("http_write_exception_in_output_format", "0"),
+    ("output_format_json_named_tuples_as_objects", "1"),
+];
 /// `READONLY`: "Cannot modify '…' setting in readonly mode".
 const READONLY: u32 = 164;
 /// `UNKNOWN_SETTING`: "Unknown setting …" (a server older than the setting).
@@ -1089,43 +1094,44 @@ fn raw_cell(raw: &str, ty: &str) -> Value {
         return raw.into();
     }
     match serde_json::from_str::<Value>(raw) {
-        // Arrays, maps and tuples are shown as text: the server's own when
-        // a number in it would lose digits as f64.
-        Ok(Value::Array(_) | Value::Object(_)) if !numbers_exact(raw) => raw.into(),
+        // Arrays, maps and tuples are shown as the server's own text: every
+        // number keeps its digits and a named tuple's fields keep their
+        // declared order.
+        Ok(Value::Array(_) | Value::Object(_)) => minify(raw).into(),
         Ok(v) => cell(v, ty),
         Err(_) => raw.into(),
     }
 }
 
-/// Every number in `raw` (outside strings) is an integer that fits 64 bits.
-fn numbers_exact(raw: &str) -> bool {
-    let (mut in_str, mut esc, mut token) = (false, false, String::new());
-    for c in raw.chars().chain([' ']) {
+/// JSON text without the whitespace outside strings, and `\/` (ClickHouse's
+/// `output_format_json_escape_forward_slashes`) as `/`.
+fn minify(raw: &str) -> String {
+    let (mut in_str, mut esc) = (false, false);
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
         if in_str {
             match c {
-                _ if esc => esc = false,
-                '\\' => esc = true,
+                _ if esc => {
+                    esc = false;
+                    if c != '/' {
+                        out.push('\\');
+                    }
+                }
+                '\\' => {
+                    esc = true;
+                    continue;
+                }
                 '"' => in_str = false,
                 _ => {}
             }
+        } else if c.is_whitespace() {
             continue;
+        } else {
+            in_str = c == '"';
         }
-        if c.is_ascii_digit()
-            || c == '-'
-            || (!token.is_empty() && matches!(c, '+' | '.' | 'e' | 'E'))
-        {
-            token.push(c);
-            continue;
-        }
-        if !token.is_empty() {
-            if token.parse::<i64>().is_err() && token.parse::<u64>().is_err() {
-                return false;
-            }
-            token.clear();
-        }
-        in_str = c == '"';
+        out.push(c);
     }
-    true
+    out
 }
 
 /// A JSON cell as the UI wants it, given its ClickHouse type.
@@ -1702,6 +1708,15 @@ mod tests {
         ] {
             assert_eq!(split_row(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn named_tuples_keep_their_names_and_order() {
+        let ty = "Array(Tuple(zeta UInt8, alpha Nullable(String), items Array(Tuple(b String))))";
+        assert_eq!(
+            raw_cell(r#"[{"zeta":1, "alpha":null, "items":[{"b":"x y"}]}]"#, ty),
+            json!(r#"[{"zeta":1,"alpha":null,"items":[{"b":"x y"}]}]"#)
+        );
     }
 
     #[test]
