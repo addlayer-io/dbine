@@ -1,16 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.1.0",
-      "scan_id": "564af13d-bf7d-4198-9e5b-c7019b6a0198",
-      "date": "2026-10-21",
-      "revision": "9aec57c144f8",
-      "kind": "changes",
-      "scope": "954fc5e3..9aec57c1",
-      "found": 3
-    },
-    {
       "source": "osv",
       "date": "2026-10-27",
       "revision": "6c6a2d284618",
@@ -41,9 +31,39 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.4
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.2.0",
+      "scan_id": "b58aa7f2-513c-4fbb-8a1f-4f49bf5b948c",
+      "date": "2026-10-28",
+      "revision": "2e7ef2d0a5f8",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 12
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.2.0",
+      "scan_id": "a4d325cf-65e7-4549-80c4-de20ebafdafd",
+      "date": "2026-10-28",
+      "revision": "ab37520b2750",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 1
     }
   ],
   "findings": [
+    {
+      "id": "CS-3edce89e04",
+      "source": "claude-security",
+      "severity": "LOW",
+      "kind": "Operation on a Resource after Expiration or Release",
+      "cwe": "CWE-672",
+      "component": "crates/drivers/hana",
+      "found": "2026-10-28",
+      "status": "open"
+    },
     {
       "id": "CQ-100",
       "source": "codeql",
@@ -4127,8 +4147,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.1.0",
-    "scanned": "954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before)",
-    "not_covered": "the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC"
+    "release": "v1.2.0",
+    "scanned": "0faeba1c..ab37520b (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b)",
+    "not_covered": ""
   }
 }

@@ -8,7 +8,7 @@ _Updated 2026-10-27._
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
-| claude-security (source-code review) | 0 | 0 | 0 | 0 |
+| claude-security (source-code review) | 0 | 0 | 0 | 1 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 12 | 0 | 0 |
@@ -34,12 +34,13 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0385-ctutils-9761a8 | MEDIUM | osv | ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons | `mobile/src-tauri/Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b | MEDIUM | osv | crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time | `Cargo.lock` | upgrade to 0.7.6 |
+| CS-3edce89e04 | LOW | claude-security | Operation on a Resource after Expiration or Release | `crates/drivers/hana` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
+| claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..ab37520b (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b) | 1 open | — |
 | codeql | 2026-10-27 | Rust, TypeScript/Vue and workflows | 12 open | — |
 | osv | 2026-10-27 | every lockfile (Cargo, npm) at [`6c6a2d284`](https://github.com/addlayer-io/dbine/commit/6c6a2d284618) | 5 open | — |
 | scorecard | 2026-10-27 | repository settings and workflows at [`2caa93827`](https://github.com/addlayer-io/dbine/commit/2caa93827f10) | score 5.4/10 | — |
