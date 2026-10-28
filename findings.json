@@ -1,38 +1,6 @@
 {
   "scans": [
     {
-      "source": "osv",
-      "date": "2026-10-28",
-      "revision": "fa099a727eb3",
-      "kind": "full",
-      "scope": "every lockfile (Cargo, npm)",
-      "found": 5
-    },
-    {
-      "source": "trivy",
-      "date": "2026-10-28",
-      "revision": "fa099a727eb3",
-      "kind": "full",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "codeql",
-      "date": "2026-10-28",
-      "revision": "",
-      "kind": "full",
-      "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 26
-    },
-    {
-      "source": "scorecard",
-      "date": "2026-10-28",
-      "revision": "ab37520b2750",
-      "kind": "full",
-      "scope": "repository settings and workflows",
-      "score": 5.7
-    },
-    {
       "source": "claude-security",
       "release": "v1.2.0",
       "scan_id": "b58aa7f2-513c-4fbb-8a1f-4f49bf5b948c",
@@ -61,6 +29,38 @@
       "kind": "changes",
       "scope": "whole repository",
       "found": 0
+    },
+    {
+      "source": "osv",
+      "date": "2026-10-28",
+      "revision": "effea24c489a",
+      "kind": "full",
+      "scope": "every lockfile (Cargo, npm)",
+      "found": 5
+    },
+    {
+      "source": "trivy",
+      "date": "2026-10-28",
+      "revision": "effea24c489a",
+      "kind": "full",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "codeql",
+      "date": "2026-10-28",
+      "revision": "",
+      "kind": "full",
+      "scope": "Rust, TypeScript/Vue and workflows",
+      "found": 2
+    },
+    {
+      "source": "scorecard",
+      "date": "2026-10-28",
+      "revision": "fa099a727eb3",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 5.7
     }
   ],
   "findings": [
@@ -3484,222 +3484,6 @@
       "dismissed": "2026-10-28",
       "reason": "won't fix — By design (owner's decision, 2026-10-28): new connections use TLS by default; credentials go over plain HTTP only when the user turns TLS off for that connection, as the engine's own tools allow.",
       "by": "mpanichella"
-    },
-    {
-      "id": "CQ-376",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-377",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-378",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-379",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-380",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-381",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-382",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-383",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-384",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-385",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-386",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-387",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-388",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-389",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-390",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-391",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-392",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-393",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-394",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-395",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-396",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-schema",
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "CQ-397",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
-      "found": "2026-10-28",
-      "status": "open"
-    },
-    {
-      "id": "CQ-398",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-tls",
-      "found": "2026-10-28",
-      "status": "open"
-    },
-    {
-      "id": "CQ-399",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
-      "found": "2026-10-28",
-      "status": "open"
     },
     {
       "id": "CQ-66",

@@ -11,7 +11,7 @@ _Updated 2026-10-28._
 | claude-security (source-code review) | 0 | 0 | 0 | 1 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 2 | 24 | 0 | 0 |
+| CodeQL (static analysis) | 2 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
@@ -19,30 +19,6 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|---|
 | CQ-369 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
 | CQ-370 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-376 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-377 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-378 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-379 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-380 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-381 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-382 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-383 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-384 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-385 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-386 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-387 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-388 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-389 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-390 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-391 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-392 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-393 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-394 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-395 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-396 | HIGH | codeql | Static analysis finding | `crates/dbine-schema` | pending |
-| CQ-397 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
-| CQ-398 | HIGH | codeql | Static analysis finding | `crates/dbine-tls` | pending |
-| CQ-399 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
@@ -55,10 +31,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..fa099a72 (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..fa099a72) | 1 open | — |
-| codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 26 open | — |
-| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`fa099a727`](https://github.com/addlayer-io/dbine/commit/fa099a727eb3) | 5 open | — |
-| scorecard | 2026-10-28 | repository settings and workflows at [`ab37520b2`](https://github.com/addlayer-io/dbine/commit/ab37520b2750) | score 5.7/10 | — |
-| trivy | 2026-10-28 | whole repository at [`fa099a727`](https://github.com/addlayer-io/dbine/commit/fa099a727eb3) | 0 open | — |
+| codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 2 open | — |
+| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`effea24c4`](https://github.com/addlayer-io/dbine/commit/effea24c489a) | 5 open | — |
+| scorecard | 2026-10-28 | repository settings and workflows at [`fa099a727`](https://github.com/addlayer-io/dbine/commit/fa099a727eb3) | score 5.7/10 | — |
+| trivy | 2026-10-28 | whole repository at [`effea24c4`](https://github.com/addlayer-io/dbine/commit/effea24c489a) | 0 open | — |
 
 ## Not counted, and why
 
