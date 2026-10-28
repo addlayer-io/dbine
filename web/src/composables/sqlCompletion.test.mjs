@@ -57,9 +57,12 @@ test('the select list offers the columns of the tables the statement reads', () 
   const r = nameCompletion(ctxOf('SELECT n| FROM ventas_pg v JOIN clientes_mssql c ON c.id = v.cliente'), tree, quote).result;
   const l = labels(r);
   for (const c of ['id', 'cliente', 'total', 'nombre', 'v', 'c']) assert.ok(l.includes(c), c);
-  // Once each, below the tables.
-  assert.equal(l.filter((x) => x === 'id').length, 1);
-  assert.equal(r.options.find((o) => o.label === 'nombre').boost, -1);
+  // Below the tables; a name both tables have, once per table, qualified.
+  const ids = r.options.filter((o) => o.label === 'id');
+  assert.deepEqual(ids.map((o) => [o.detail, o.apply]), [['v (ventas_pg)', 'v.id'], ['c (clientes_mssql)', 'c.id']]);
+  const nombre = r.options.find((o) => o.label === 'nombre');
+  assert.equal(nombre.boost, -1);
+  assert.equal(nombre.apply, undefined);
 });
 
 test('a comma in a FROM list is a table position; one in the select list is not', () => {
@@ -203,4 +206,97 @@ test('aliases in a cross-database JOIN resolve to their own database\'s columns'
 
 test('without other databases nothing changes', () => {
   assert.deepEqual(labels(nameCompletion(ctxOf('SELECT * FROM database_b.|'), nameTree({ table_a: [] }), quote).result), []);
+});
+
+// Issue #22: columns from the statement under the cursor, ambiguous names,
+// CTEs and derived tables.
+const SHOP = nameTree({
+  customers: ['customer_id', 'customer_name', 'created_at'],
+  orders: ['order_id', 'customer_id', 'total'],
+  audit_logs: ['log_id', 'customer_ref', 'created_at'],
+});
+const cols = (r) => (r ? r.options.filter((o) => o.type === 'property').map((o) => o.label) : []);
+
+test('the select list offers only the columns of the tables in FROM, never audit_logs', () => {
+  const r = nameCompletion(ctxOf('SELECT cust| FROM customers c'), SHOP, quote).result;
+  assert.deepEqual(cols(r).sort(), ['created_at', 'customer_id', 'customer_name']);
+  assert.ok(!labels(r).includes('customer_ref'));
+  const w = nameCompletion(ctxOf('SELECT c.customer_name FROM customers c WHERE cust|'), SHOP, quote).result;
+  assert.deepEqual(cols(w).sort(), ['created_at', 'customer_id', 'customer_name']);
+});
+
+test('aliases and tables come from the statement under the cursor only', () => {
+  const doc = (at) => `SELECT * FROM audit_logs a;\nSELECT ${at} FROM customers c;\nSELECT o.total FROM orders o`;
+  const r = nameCompletion(ctxOf(doc('|')), SHOP, quote).result;
+  assert.deepEqual(cols(r).sort(), ['created_at', 'customer_id', 'customer_name']);
+  assert.ok(labels(r).includes('c'));
+  assert.ok(!labels(r).includes('a') && !labels(r).includes('o'));
+  // An alias of another statement doesn't resolve after its dot.
+  assert.equal(nameCompletion(ctxOf(doc('o.|')), SHOP, quote).result, null);
+  // A `;` inside a string or a comment doesn't end the statement.
+  const s = nameCompletion(ctxOf("SELECT ';' AS x, | -- ; no\nFROM orders o"), SHOP, quote).result;
+  assert.deepEqual(cols(s).sort(), ['customer_id', 'order_id', 'total']);
+});
+
+test('a GO line ends a batch', () => {
+  const r = nameCompletion(ctxOf('SELECT * FROM orders o\nGO\nSELECT | FROM customers c\ngo\nSELECT * FROM audit_logs'), SHOP, quote).result;
+  assert.deepEqual(cols(r).sort(), ['created_at', 'customer_id', 'customer_name']);
+});
+
+test('a column two tables have is offered once per table, qualified by its alias', () => {
+  const r = nameCompletion(ctxOf('SELECT cust| FROM customers c JOIN orders o ON o.customer_id = c.customer_id'), SHOP, quote).result;
+  const ids = r.options.filter((o) => o.label === 'customer_id');
+  assert.deepEqual(ids.map((o) => [o.detail, o.apply]), [['c (customers)', 'c.customer_id'], ['o (orders)', 'o.customer_id']]);
+  // The others are left as typed, with their table next to them.
+  const total = r.options.find((o) => o.label === 'total');
+  assert.equal(total.detail, 'o (orders)');
+  assert.equal(total.apply, undefined);
+  // Without aliases the table's name qualifies it.
+  const t = nameCompletion(ctxOf('SELECT | FROM customers JOIN audit_logs ON 1 = 1'), SHOP, quote).result;
+  assert.deepEqual(t.options.filter((o) => o.label === 'created_at').map((o) => o.apply), ['customers.created_at', 'audit_logs.created_at']);
+});
+
+test("a CTE gives its select list's columns, as a table and after its alias", () => {
+  const sql = (at) => `WITH recent AS (\n  SELECT o.order_id, o.total AS amount, c.customer_name name, count(*) AS n, upper(c.customer_name)\n  FROM orders o JOIN customers c ON c.customer_id = o.customer_id\n)\nSELECT ${at} FROM recent r`;
+  assert.deepEqual(labels(nameCompletion(ctxOf(sql('r.|')), SHOP, quote).result), ['order_id', 'amount', 'name', 'n']);
+  assert.deepEqual(cols(nameCompletion(ctxOf(sql('|')), SHOP, quote).result), ['order_id', 'amount', 'name', 'n']);
+  // Its name is a table where a table goes, and after a dot without an alias.
+  assert.ok(labels(nameCompletion(ctxOf('WITH recent AS (SELECT 1 AS x) SELECT * FROM |'), SHOP, quote).result).includes('recent'));
+  assert.deepEqual(labels(nameCompletion(ctxOf('WITH recent AS (SELECT 1 AS x) SELECT recent.| FROM recent'), SHOP, quote).result), ['x']);
+  // A column list, and `*` of a known table.
+  const ab = nameCompletion(ctxOf('WITH a(p, q) AS (SELECT 1, 2), b AS (SELECT * FROM orders) SELECT | FROM a, b'), SHOP, quote).result;
+  assert.deepEqual(cols(ab), ['p', 'q', 'order_id', 'customer_id', 'total']);
+  // A CTE reading an earlier one.
+  assert.deepEqual(labels(nameCompletion(ctxOf('WITH a AS (SELECT order_id FROM orders), b AS (SELECT x.* FROM a x) SELECT b.| FROM b'), SHOP, quote).result), ['order_id']);
+});
+
+test('inside a CTE body its own FROM is in scope, and its aliases resolve after a dot', () => {
+  const sql = (at) => `WITH x AS (\n  SELECT ${at}\n  FROM orders o\n)\nSELECT * FROM x JOIN customers c ON 1 = 1`;
+  assert.deepEqual(labels(nameCompletion(ctxOf(sql('o.|')), SHOP, quote).result), ['order_id', 'customer_id', 'total']);
+  assert.deepEqual(cols(nameCompletion(ctxOf(sql('|')), SHOP, quote).result).sort(), ['customer_id', 'order_id', 'total']);
+  // The outer query's alias isn't visible in there.
+  assert.equal(nameCompletion(ctxOf(sql('c.|')), SHOP, quote).result, null);
+  // Still typing: the body's `)` isn't there yet.
+  assert.deepEqual(labels(nameCompletion(ctxOf('WITH x AS (SELECT o.| FROM orders o'), SHOP, quote).result), ['order_id', 'customer_id', 'total']);
+});
+
+test('a derived table gives its columns, and a subquery sees the query around it', () => {
+  const sql = (at) => `SELECT ${at} FROM (SELECT customer_id, sum(total) AS spent FROM orders GROUP BY customer_id) AS t JOIN customers c ON c.customer_id = t.customer_id`;
+  assert.deepEqual(labels(nameCompletion(ctxOf(sql('t.|')), SHOP, quote).result), ['customer_id', 'spent']);
+  const r = nameCompletion(ctxOf(sql('|')), SHOP, quote).result;
+  assert.deepEqual(r.options.filter((o) => o.label === 'customer_id').map((o) => o.apply), ['c.customer_id', 't.customer_id']);
+  assert.ok(labels(r).includes('t') && labels(r).includes('spent'));
+  // Inside the derived table, only its own FROM.
+  const inner = nameCompletion(ctxOf('SELECT * FROM (SELECT | FROM orders) t JOIN customers c ON 1 = 1'), SHOP, quote).result;
+  assert.deepEqual(cols(inner).sort(), ['customer_id', 'order_id', 'total']);
+  // A correlated subquery: its own columns, and the outer alias after a dot.
+  const sub = (at) => `SELECT * FROM customers c WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = ${at})`;
+  assert.deepEqual(cols(nameCompletion(ctxOf(sub('|')), SHOP, quote).result).sort(), ['customer_id', 'order_id', 'total']);
+  assert.deepEqual(labels(nameCompletion(ctxOf(sub('c.|')), SHOP, quote).result), ['customer_id', 'customer_name', 'created_at']);
+});
+
+test('a comma in the select list is not a table with an alias', () => {
+  const r = nameCompletion(ctxOf('SELECT customer_id, orders o| FROM customers'), SHOP, quote).result;
+  assert.ok(!labels(r).includes('o'));
+  assert.ok(isTableSlot('SELECT * FROM (SELECT 1 FROM x) t, '));
 });

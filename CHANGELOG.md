@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Column completion follows the query you're writing:** the editor offers only the columns of the tables, CTEs and subqueries the statement under the cursor reads, not those of other statements in the file. A column that two of those tables share is offered once per table, labeled with its alias and inserted qualified (`c.customer_id`), and a CTE's or a derived table's columns are offered in the query and after its alias.
+
 ## [1.2.0] - 2026-10-27
 
 ### New
