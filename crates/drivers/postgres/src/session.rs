@@ -858,6 +858,7 @@ impl PgSession {
                 for (c, t) in r.columns.iter_mut().zip(stmt.columns()) {
                     c.type_name = t.type_().name().to_string();
                 }
+                crate::composite::name_fields(r, stmt.columns());
             }
         }
         res
@@ -1955,6 +1956,7 @@ async fn read_only_statement(
             for (c, t) in r.columns.iter_mut().zip(prepared.columns()) {
                 c.type_name = t.type_().name().to_string();
             }
+            crate::composite::name_fields(r, prepared.columns());
         }
     }
     res

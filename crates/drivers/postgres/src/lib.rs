@@ -21,6 +21,7 @@ mod catalog;
 mod clone;
 pub(crate) mod cloud_auth;
 mod compare;
+mod composite;
 mod create_db;
 mod delta;
 mod design;
