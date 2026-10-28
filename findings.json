@@ -1,26 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.2.0",
-      "scan_id": "b58aa7f2-513c-4fbb-8a1f-4f49bf5b948c",
-      "date": "2026-10-28",
-      "revision": "2e7ef2d0a5f8",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 12
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.2.0",
-      "scan_id": "a4d325cf-65e7-4549-80c4-de20ebafdafd",
-      "date": "2026-10-28",
-      "revision": "ab37520b2750",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 1
-    },
-    {
       "source": "osv",
       "date": "2026-10-28",
       "revision": "fa099a727eb3",
@@ -51,6 +31,36 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.2.0",
+      "scan_id": "b58aa7f2-513c-4fbb-8a1f-4f49bf5b948c",
+      "date": "2026-10-28",
+      "revision": "2e7ef2d0a5f8",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 12
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.2.0",
+      "scan_id": "a4d325cf-65e7-4549-80c4-de20ebafdafd",
+      "date": "2026-10-28",
+      "revision": "ab37520b2750",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 1
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.2.0",
+      "scan_id": "3ffabd78-1a4a-463e-a8f3-32d35eb0c803",
+      "date": "2026-10-28",
+      "revision": "fa099a727eb3",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 0
     }
   ],
   "findings": [
@@ -4317,7 +4327,7 @@
   ],
   "claude_coverage": {
     "release": "v1.2.0",
-    "scanned": "0faeba1c..ab37520b (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b)",
+    "scanned": "0faeba1c..fa099a72 (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..fa099a72)",
     "not_covered": ""
   }
 }
