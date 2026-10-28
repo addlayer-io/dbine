@@ -441,9 +441,16 @@ pub fn delete_raw(name: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A fresh random key: tests never carry a fixed cryptographic key.
+    fn random_key() -> [u8; 32] {
+        let mut k = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut k);
+        k
+    }
+
     #[test]
     fn seal_and_open_round_trip() {
-        let key = [7u8; 32];
+        let key = random_key();
         let mut values = BTreeMap::new();
         values.insert("c1".to_string(), r#"{"password":"s3cr3t"}"#.to_string());
         values.insert("sync-passphrase".to_string(), "frase larga".to_string());
@@ -455,13 +462,14 @@ mod tests {
     #[test]
     fn wrong_key_or_tampered_file_fails() {
         let values = BTreeMap::from([("c1".to_string(), "x".to_string())]);
-        let bytes = seal(&[1u8; 32], &values).unwrap();
-        assert!(open(&[2u8; 32], &bytes).is_err());
+        let (key, other) = (random_key(), random_key());
+        let bytes = seal(&key, &values).unwrap();
+        assert!(open(&other, &bytes).is_err());
         let mut env: Envelope = serde_json::from_slice(&bytes).unwrap();
         let mut data = B64.decode(&env.data).unwrap();
         data[0] ^= 1;
         env.data = B64.encode(data);
-        assert!(open(&[1u8; 32], &serde_json::to_vec(&env).unwrap()).is_err());
+        assert!(open(&key, &serde_json::to_vec(&env).unwrap()).is_err());
     }
 
     /// Against the real keychain, under a service of its own:
@@ -685,7 +693,7 @@ mod tests {
     fn the_old_vault_still_opens_for_an_older_version() {
         // 0.1.11's vault and key; the new app opens a copy of the file with
         // the key copied to its own service and adds its names.
-        let key = [9u8; 32];
+        let key = random_key();
         let old_values = BTreeMap::from([
             ("c1".to_string(), r#"{"password":"p"}"#.to_string()),
             (
@@ -732,7 +740,7 @@ mod tests {
 
     #[test]
     fn open_rejects_unknown_envelopes() {
-        let key = [3u8; 32];
+        let key = random_key();
         let good: Envelope =
             serde_json::from_slice(&seal(&key, &BTreeMap::new()).unwrap()).unwrap();
         let reseal = |v: u32, nonce: &str, data: &str| {
@@ -812,7 +820,7 @@ mod tests {
     fn vault_set_get_delete_round_trip_on_disk() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("secrets.vault");
-        let key = [5u8; 32];
+        let key = random_key();
         let mut v = checked_vault(path.clone(), key, &["c1", "c2", "gone"]);
 
         assert_eq!(v.get("c1").unwrap(), None);
@@ -846,9 +854,7 @@ mod tests {
     #[test]
     fn each_write_uses_a_new_nonce() {
         let values = BTreeMap::from([("c1".to_string(), "x".to_string())]);
-        assert_ne!(
-            seal(&[1u8; 32], &values).unwrap(),
-            seal(&[1u8; 32], &values).unwrap()
-        );
+        let key = random_key();
+        assert_ne!(seal(&key, &values).unwrap(), seal(&key, &values).unwrap());
     }
 }
