@@ -2852,7 +2852,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-clickhouse"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "async-trait",
  "dbine-driver",
@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-flightsql"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "arrow-array 58.4.0",
  "arrow-cast 58.4.0",
@@ -3234,7 +3234,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-postgres"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "dbine-driver",
  "dbine-tls",
@@ -3349,7 +3349,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-trino"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Field names in rows and structs:** Trino and Presto `ROW` values, PostgreSQL composite types and Arrow Flight SQL structs show each field under its name, as JSON, also in nested rows, arrays of rows and maps whose values are rows (`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]` instead of `[[42,[["demo-product",2]],null]]`). `null`, an empty string and an empty array stay distinct. ClickHouse named tuples keep their declared field order.
+
 ## [1.2.0] - 2026-10-27
 
 ### New
