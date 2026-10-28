@@ -41,6 +41,7 @@ use hdbconnect_async::{
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
+use tempfile::TempDir;
 
 const DEFAULT_PORT: u16 = 30015;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -230,7 +231,9 @@ fn connect_err(e: HdbError) -> Error {
 
 // ------------------------------------------------------------ connecting
 
-fn params(cfg: &ConnectionConfig) -> Result<ConnectParams> {
+/// The client's parameters, and the trustStore folder they name (it has to
+/// outlive every connection made with them: it goes when it's dropped).
+fn params(cfg: &ConnectionConfig) -> Result<(ConnectParams, Option<TempDir>)> {
     let host = cfg.host.trim();
     if host.is_empty() {
         return Err(Error::Connect("Falta el servidor.".into()));
@@ -240,6 +243,7 @@ fn params(cfg: &ConnectionConfig) -> Result<ConnectParams> {
         return Err(Error::AuthFailed("Falta el usuario.".into()));
     }
     let mut b = ConnectParamsBuilder::new();
+    let mut trust_store = None;
     b.hostname(host)
         .port(cfg.port_or(DEFAULT_PORT))
         .dbuser(user)
@@ -256,19 +260,26 @@ fn params(cfg: &ConnectionConfig) -> Result<ConnectParams> {
         {
             b.tls_without_server_verification();
         } else if let Some(path) = cfg.tls_value(&store).map(str::trim) {
-            b.tls_with(ServerCerts::Directory(trust_store_dir(path)?));
+            let dir = trust_store_dir(path)?;
+            b.tls_with(ServerCerts::Directory(
+                dir.path().to_string_lossy().into_owned(),
+            ));
+            trust_store = Some(dir);
         } else {
             b.tls_with(ServerCerts::RootCertificates);
         }
     }
-    b.build().map_err(|e| Error::Connect(message(&e)))
+    let params = b.build().map_err(|e| Error::Connect(message(&e)))?;
+    Ok((params, trust_store))
 }
 
 /// The certificates of a `trustStore` file (PEM, or one DER certificate) as
 /// a folder of DER `.crt` files: hdbconnect reads each file of a folder as
-/// one DER certificate (its `Direct` takes DER too), not PEM. The folder is
-/// in the temp dir, named by the content, so reconnecting reuses it.
-fn trust_store_dir(path: &str) -> Result<String> {
+/// one DER certificate (its `Direct` takes DER too), not PEM, and trusts
+/// every file in it. So the folder is a fresh one with an unpredictable name,
+/// only this user's (0700 on Unix), never a shared path another user could
+/// create first; it's removed when the session that uses it ends.
+fn trust_store_dir(path: &str) -> Result<TempDir> {
     let bytes = std::fs::read(path).map_err(|e| {
         Error::Connect(format!(
             "no se pudo leer el archivo de trustStore {path}: {e}"
@@ -283,18 +294,18 @@ fn trust_store_dir(path: &str) -> Result<String> {
             "trustStore ({path}) no tiene certificados"
         )));
     }
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    certs.hash(&mut h);
-    let dir = std::env::temp_dir().join(format!("dbine-hana-truststore-{:016x}", h.finish()));
-    std::fs::create_dir_all(&dir)?;
-    for (i, der) in certs.iter().enumerate() {
-        let file = dir.join(format!("ca{i}.crt"));
-        if std::fs::read(&file).ok().as_deref() != Some(der.as_slice()) {
-            std::fs::write(&file, der)?;
-        }
+    let mut b = tempfile::Builder::new();
+    b.prefix("dbine-hana-truststore-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        b.permissions(std::fs::Permissions::from_mode(0o700));
     }
-    Ok(dir.to_string_lossy().into_owned())
+    let dir = b.tempdir()?;
+    for (i, der) in certs.iter().enumerate() {
+        std::fs::write(dir.path().join(format!("ca{i}.crt")), der)?;
+    }
+    Ok(dir)
 }
 
 /// The DER bytes of each `CERTIFICATE` block of a PEM text.
@@ -556,7 +567,7 @@ impl Driver for HanaDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let params = params(cfg)?;
+        let (params, trust_store) = params(cfg)?;
         let conn = tokio::time::timeout(CONNECT_TIMEOUT, Connection::new(params.clone()))
             .await
             .map_err(|_| {
@@ -580,6 +591,7 @@ impl Driver for HanaDriver {
             id: conn.id().await,
             conn,
             params,
+            _trust_store: trust_store,
             schema,
             profiler: None,
             dirty: false,
@@ -603,6 +615,8 @@ struct HanaSession {
     conn: Connection,
     /// For the interrupter's side connection.
     params: ConnectParams,
+    /// The trustStore folder `params` names, kept while the session lives.
+    _trust_store: Option<TempDir>,
     /// Server connection id, to cancel from another session.
     id: u32,
     schema: String,
@@ -1473,7 +1487,7 @@ mod tests {
             password: Some("x".into()),
             ..Default::default()
         };
-        let p = params(&cfg).unwrap();
+        let (p, _) = params(&cfg).unwrap();
         assert_eq!(p.addr(), "hana.local:39041");
         cfg.username = None;
         assert!(matches!(params(&cfg), Err(Error::AuthFailed(_))));
@@ -1495,7 +1509,7 @@ mod tests {
 
     /// (TLS, certificates checked against): what the client is set to.
     fn tls_of(cfg: &ConnectionConfig) -> (bool, Option<Vec<ServerCerts>>) {
-        let p = params(cfg).unwrap();
+        let (p, _) = params(cfg).unwrap();
         (p.is_tls(), p.server_certs().cloned())
     }
 
@@ -1544,15 +1558,28 @@ mod tests {
         // trustStore: its certificates (as DER files), instead of the public roots.
         let pem = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../tests/tls/ca.pem");
         let c = tls_cfg(false, false, &[(ENCRYPT, "true"), ("trustStore", pem)]);
-        let (on, certs) = tls_of(&c);
-        let Some([ServerCerts::Directory(dir)]) = certs.as_deref() else {
+        let (p, guard) = params(&c).unwrap();
+        let Some([ServerCerts::Directory(dir)]) = p.server_certs().map(Vec::as_slice) else {
             panic!("trustStore didn't become a single certificate folder")
         };
-        assert!(on);
-        let der = std::fs::read(std::path::Path::new(dir).join("ca0.crt")).unwrap();
+        assert!(p.is_tls());
+        let dir = std::path::PathBuf::from(dir);
+        assert_eq!(guard.as_ref().map(|g| g.path()), Some(dir.as_path()));
+        let der = std::fs::read(dir.join("ca0.crt")).unwrap();
         // A DER certificate: a SEQUENCE.
         assert_eq!(der[0], 0x30);
-        assert!(!std::path::Path::new(dir).join("ca1.crt").exists());
+        assert!(!dir.join("ca1.crt").exists());
+        // A fresh, private folder each time, gone with the session.
+        let (_, again) = params(&c).unwrap();
+        assert_ne!(again.as_ref().map(|g| g.path()), Some(dir.as_path()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
+        drop(guard);
+        assert!(!dir.exists());
         let c = tls_cfg(
             false,
             false,
@@ -1577,7 +1604,8 @@ mod tests {
         )
         .unwrap();
         let e = trust_store_dir(&empty.to_string_lossy())
-            .unwrap_err()
+            .err()
+            .unwrap()
             .to_string();
         assert!(e.contains("no tiene certificados"), "{e}");
         let _ = std::fs::remove_file(empty);

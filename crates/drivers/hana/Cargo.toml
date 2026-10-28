@@ -11,6 +11,8 @@ tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 hdbconnect_async = "0.32"
+# The trustStore folder: fresh, private, removed with the session.
+tempfile = "3.27.0"
 
 [dev-dependencies]
 tokio.workspace = true

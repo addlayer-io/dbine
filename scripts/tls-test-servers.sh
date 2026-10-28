@@ -21,6 +21,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TLS="$ROOT/tests/tls"
 PW='Dbine-Tls-2026'
+# Published ports listen on loopback only: the password above is public and
+# some servers run without auth. (Docker Desktop still reaches them through
+# host.docker.internal for `verify`; on Linux set BIND=<docker bridge IP>.)
+BIND="${BIND:-127.0.0.1}"
 ALL="postgres mysql mariadb sqlserver mongodb redis cassandra neo4j memgraph clickhouse elasticsearch couchdb etcd trino influxdb solr flightsql"
 
 CERT="${CERT:-ca}"
@@ -51,7 +55,7 @@ run() {
 }
 
 up_postgres() {
-  run "$(name postgres)" -p "$(port 26010):5432" -e POSTGRES_PASSWORD="$PW" \
+  run "$(name postgres)" -p "$BIND:$(port 26010):5432" -e POSTGRES_PASSWORD="$PW" \
     --entrypoint bash postgres:16 -c "
       install -o postgres -m 600 /tls/$KEY /etc/srv.key
       install -o postgres -m 644 /tls/$CRT /etc/srv.crt
@@ -59,12 +63,12 @@ up_postgres() {
 }
 
 up_mysql() {
-  run "$(name mysql)" -p "$(port 26011):3306" -e MYSQL_ROOT_PASSWORD="$PW" \
+  run "$(name mysql)" -p "$BIND:$(port 26011):3306" -e MYSQL_ROOT_PASSWORD="$PW" \
     mysql:8 --ssl-ca=/tls/$CA --ssl-cert=/tls/$CRT --ssl-key=/tls/$KEY
 }
 
 up_mariadb() {
-  run "$(name mariadb)" -p "$(port 26012):3306" -e MARIADB_ROOT_PASSWORD="$PW" \
+  run "$(name mariadb)" -p "$BIND:$(port 26012):3306" -e MARIADB_ROOT_PASSWORD="$PW" \
     mariadb:11 --ssl-ca=/tls/$CA --ssl-cert=/tls/$CRT --ssl-key=/tls/$KEY
 }
 
@@ -76,7 +80,7 @@ tlscert = /tls/$CRT
 tlskey = /tls/$KEY
 tlsprotocols = 1.2
 forceencryption = 0"
-  run "$(name sqlserver)" -p "$(port 26013):1433" -m 2g --platform linux/amd64 --hostname localhost \
+  run "$(name sqlserver)" -p "$BIND:$(port 26013):1433" -m 2g --platform linux/amd64 --hostname localhost \
     -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$PW" -e MSSQL_CONF="$conf" \
     --entrypoint /bin/bash mcr.microsoft.com/mssql/server:2022-latest -c '
       printf "%s\n" "$MSSQL_CONF" > /var/opt/mssql/mssql.conf
@@ -85,7 +89,7 @@ forceencryption = 0"
 
 up_mongodb() {
   # preferTLS: TLS and plain on the same port.
-  run "$(name mongodb)" -p "$(port 26020):27017" \
+  run "$(name mongodb)" -p "$BIND:$(port 26020):27017" \
     -e MONGO_INITDB_ROOT_USERNAME=root -e MONGO_INITDB_ROOT_PASSWORD="$PW" \
     --entrypoint bash mongo:7 -c "
       cat /tls/$CRT /tls/$KEY > /etc/mongo-tls.pem; chmod 644 /etc/mongo-tls.pem
@@ -95,7 +99,7 @@ up_mongodb() {
 }
 
 up_redis() {
-  run "$(name redis)" -p "$(port 26030):6380" -p "$(port 26031):6379" redis:7 \
+  run "$(name redis)" -p "$BIND:$(port 26030):6380" -p "$BIND:$(port 26031):6379" redis:7 \
     redis-server --requirepass "$PW" --port 6379 --tls-port 6380 \
       --tls-cert-file /tls/$CRT --tls-key-file /tls/$KEY --tls-ca-cert-file /tls/$CA \
       --tls-auth-clients no
@@ -103,7 +107,7 @@ up_redis() {
 
 up_cassandra() {
   # optional: true -> TLS and plain on the same native port.
-  run "$(name cassandra)" -p "$(port 26040):9042" -m 1600m \
+  run "$(name cassandra)" -p "$BIND:$(port 26040):9042" -m 1600m \
     -e MAX_HEAP_SIZE=512M -e HEAP_NEWSIZE=128M -e CASSANDRA_PEM="/tls/$CRT /tls/$KEY" \
     --entrypoint bash cassandra:5 -c '
       Y=/etc/cassandra/cassandra.yaml
@@ -125,7 +129,7 @@ EOF
 
 up_neo4j() {
   # Bolt: tls_level OPTIONAL (bolt and bolt+s on one port). HTTPS and HTTP both on.
-  run "$(name neo4j)" -p "$(port 26050):7687" -p "$(port 26051):7473" -p "$(port 26052):7474" -m 1200m \
+  run "$(name neo4j)" -p "$BIND:$(port 26050):7687" -p "$BIND:$(port 26051):7473" -p "$BIND:$(port 26052):7474" -m 1200m \
     -e NEO4J_AUTH="neo4j/$PW" \
     -e NEO4J_server_memory_heap_max__size=512m -e NEO4J_server_memory_pagecache_size=128m \
     -e NEO4J_dbms_ssl_policy_bolt_enabled=true -e NEO4J_dbms_ssl_policy_bolt_base__directory=/ssl \
@@ -141,7 +145,7 @@ up_neo4j() {
 
 up_memgraph() {
   # Memgraph (neo4j driver crate) serves Bolt TLS only once a cert is set.
-  run "$(name memgraph)" -p "$(port 26055):7687" memgraph/memgraph \
+  run "$(name memgraph)" -p "$BIND:$(port 26055):7687" memgraph/memgraph \
     --bolt-cert-file=/tls/$CRT --bolt-key-file=/tls/$KEY --also-log-to-stderr=false
 }
 
@@ -159,8 +163,8 @@ up_clickhouse() {
     <preferServerCiphers>true</preferServerCiphers>
   </server></openSSL>
 </clickhouse>"
-  run "$(name clickhouse)" -p "$(port 26060):8443" -p "$(port 26061):9440" \
-    -p "$(port 26062):8123" -p "$(port 26063):9000" --ulimit nofile=262144:262144 \
+  run "$(name clickhouse)" -p "$BIND:$(port 26060):8443" -p "$BIND:$(port 26061):9440" \
+    -p "$BIND:$(port 26062):8123" -p "$BIND:$(port 26063):9000" --ulimit nofile=262144:262144 \
     -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD="$PW" -e TLS_XML="$xml" \
     --entrypoint bash clickhouse/clickhouse-server:latest -c '
       printf "%s\n" "$TLS_XML" > /etc/clickhouse-server/config.d/dbine-tls.xml
@@ -171,7 +175,7 @@ up_elasticsearch() {
   local c=/usr/share/elasticsearch/config/certs
   rm_ours "$(name elasticsearch)"
   docker run -d --name "$(name elasticsearch)" --label dbine.tls-test=1 \
-    -p "$(port 26070):9200" -m 1200m -v "$TLS:$c:ro" \
+    -p "$BIND:$(port 26070):9200" -m 1200m -v "$TLS:$c:ro" \
     -e discovery.type=single-node -e ES_JAVA_OPTS="-Xms512m -Xmx512m" \
     -e ELASTIC_PASSWORD="$PW" -e xpack.security.enabled=true \
     -e xpack.security.http.ssl.enabled=true \
@@ -188,7 +192,7 @@ enable = true
 cert_file = /tls/$CRT
 key_file = /tls/$KEY
 cacert_file = /tls/$CA"
-  run "$(name couchdb)" -p "$(port 26080):6984" -p "$(port 26081):5984" \
+  run "$(name couchdb)" -p "$BIND:$(port 26080):6984" -p "$BIND:$(port 26081):5984" \
     -e COUCHDB_USER=admin -e COUCHDB_PASSWORD="$PW" -e TLS_INI="$ini" \
     --entrypoint bash couchdb:3 -c '
       printf "%s\n" "$TLS_INI" > /opt/couchdb/etc/local.d/zz-dbine-tls.ini
@@ -196,7 +200,7 @@ cacert_file = /tls/$CA"
 }
 
 up_etcd() {
-  run "$(name etcd)" -p "$(port 26090):2379" -p "$(port 26091):2382" quay.io/coreos/etcd:v3.5.17 \
+  run "$(name etcd)" -p "$BIND:$(port 26090):2379" -p "$BIND:$(port 26091):2382" quay.io/coreos/etcd:v3.5.17 \
     etcd --name tls --data-dir /tmp/etcd \
       --listen-client-urls https://0.0.0.0:2379,http://0.0.0.0:2382 \
       --advertise-client-urls https://localhost:2379 \
@@ -207,7 +211,7 @@ up_trino() {
   local props="http-server.https.enabled=true
 http-server.https.port=8443
 http-server.https.keystore.path=/tmp/etc/https.pem"
-  run "$(name trino)" -p "$(port 26100):8443" -p "$(port 26101):8080" -m 1600m \
+  run "$(name trino)" -p "$BIND:$(port 26100):8443" -p "$BIND:$(port 26101):8080" -m 1600m \
     -e TLS_PROPS="$props" -e PEM="/tls/$CRT /tls/$KEY" \
     --entrypoint bash trinodb/trino:latest -c '
       cp -r /etc/trino /tmp/etc
@@ -218,7 +222,7 @@ http-server.https.keystore.path=/tmp/etc/https.pem"
 }
 
 up_influxdb() {
-  run "$(name influxdb)" -p "$(port 26110):8086" \
+  run "$(name influxdb)" -p "$BIND:$(port 26110):8086" \
     -e DOCKER_INFLUXDB_INIT_MODE=setup -e DOCKER_INFLUXDB_INIT_USERNAME=admin \
     -e DOCKER_INFLUXDB_INIT_PASSWORD="$PW" -e DOCKER_INFLUXDB_INIT_ORG=dbine \
     -e DOCKER_INFLUXDB_INIT_BUCKET=dbine -e DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=dbine-tls-token \
@@ -226,7 +230,7 @@ up_influxdb() {
 }
 
 up_solr() {
-  run "$(name solr)" -p "$(port 26120):8983" -m 900m -e SOLR_HEAP=512m \
+  run "$(name solr)" -p "$BIND:$(port 26120):8983" -m 900m -e SOLR_HEAP=512m \
     -e SOLR_SSL_ENABLED=true -e SOLR_SSL_KEY_STORE=/tls/$P12 -e SOLR_SSL_KEY_STORE_TYPE=PKCS12 \
     -e SOLR_SSL_KEY_STORE_PASSWORD=dbine-test -e SOLR_SSL_TRUST_STORE=/tls/$P12 \
     -e SOLR_SSL_TRUST_STORE_TYPE=PKCS12 -e SOLR_SSL_TRUST_STORE_PASSWORD=dbine-test \
@@ -236,7 +240,7 @@ up_solr() {
 
 up_flightsql() {
   # GizmoSQL: --tls <cert> <key> (gRPC over TLS only on this port).
-  run "$(name flightsql)" -p "$(port 26130):31337" -e TLS_ENABLED=0 \
+  run "$(name flightsql)" -p "$BIND:$(port 26130):31337" -e TLS_ENABLED=0 \
     -e GIZMOSQL_USERNAME=gizmosql_username -e GIZMOSQL_PASSWORD="$PW" -e PRINT_QUERIES=0 \
     --entrypoint gizmosql_server gizmodata/gizmosql:latest \
     --database-filename /tmp/dbine.duckdb --tls /tls/$CRT /tls/$KEY
@@ -303,7 +307,7 @@ v_redis() {
   local n; n=$(name redis); local p; p=$(port 26030)
   sclient 'redis (rediss)' "$p"
   printf '  redis-cli --tls --cacert: '; xc "$n" redis-cli -h host.docker.internal -p "$p" --tls --cacert /tls/$CA -a "$PW" --no-auth-warning ping
-  printf '  redis-cli plain :%s: ' "$(port 26031)"; xc "$n" redis-cli -h host.docker.internal -p "$(port 26031)" -a "$PW" --no-auth-warning ping
+  printf '  redis-cli plain :%s: ' "$(port 26031)"; xc "$n" redis-cli -h host.docker.internal -p "$BIND:$(port 26031)" -a "$PW" --no-auth-warning ping
 }
 v_cassandra() {
   local n; n=$(name cassandra); local p; p=$(port 26040)
