@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-10-27._
+_Updated 2026-10-28._
 
 ## Open findings
 
@@ -11,12 +11,14 @@ _Updated 2026-10-27._
 | claude-security (source-code review) | 0 | 0 | 0 | 1 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 0 | 12 | 0 | 0 |
+| CodeQL (static analysis) | 2 | 38 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
+| CQ-369 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
+| CQ-370 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
 | CQ-357 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
 | CQ-358 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
 | CQ-359 | HIGH | codeql | Static analysis finding | `crates/drivers/clickhouse` | pending |
@@ -29,6 +31,32 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | CQ-366 | HIGH | codeql | Static analysis finding | `crates/drivers/orientdb` | pending |
 | CQ-367 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
 | CQ-368 | HIGH | codeql | Static analysis finding | `crates/drivers/hana` | pending |
+| CQ-371 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
+| CQ-372 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
+| CQ-373 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
+| CQ-374 | HIGH | codeql | Static analysis finding | `crates/drivers/influxdb` | pending |
+| CQ-375 | HIGH | codeql | Static analysis finding | `crates/drivers/iotdb` | pending |
+| CQ-376 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-377 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-378 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-379 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-380 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-381 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-382 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-383 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-384 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-385 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-386 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-387 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-388 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-389 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-390 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-391 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-392 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-393 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-394 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-395 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-396 | HIGH | codeql | Static analysis finding | `crates/dbine-schema` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
@@ -41,10 +69,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..ab37520b (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b) | 1 open | — |
-| codeql | 2026-10-27 | Rust, TypeScript/Vue and workflows | 12 open | — |
-| osv | 2026-10-27 | every lockfile (Cargo, npm) at [`6c6a2d284`](https://github.com/addlayer-io/dbine/commit/6c6a2d284618) | 5 open | — |
-| scorecard | 2026-10-27 | repository settings and workflows at [`2caa93827`](https://github.com/addlayer-io/dbine/commit/2caa93827f10) | score 5.4/10 | — |
-| trivy | 2026-10-27 | whole repository at [`6c6a2d284`](https://github.com/addlayer-io/dbine/commit/6c6a2d284618) | 0 open | — |
+| codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 40 open | — |
+| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`ab37520b2`](https://github.com/addlayer-io/dbine/commit/ab37520b2750) | 5 open | — |
+| scorecard | 2026-10-27 | repository settings and workflows at [`6c6a2d284`](https://github.com/addlayer-io/dbine/commit/6c6a2d284618) | score 5.4/10 | — |
+| trivy | 2026-10-28 | whole repository at [`ab37520b2`](https://github.com/addlayer-io/dbine/commit/ab37520b2750) | 0 open | — |
 
 ## Not counted, and why
 
