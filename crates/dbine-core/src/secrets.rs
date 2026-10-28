@@ -443,9 +443,7 @@ mod tests {
 
     /// A fresh random key: tests never carry a fixed cryptographic key.
     fn random_key() -> [u8; 32] {
-        let mut k = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut k);
-        k
+        rand::random()
     }
 
     #[test]
