@@ -30,9 +30,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..b8db8ed2 (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..b8db8ed2) | 1 open | — |
 | codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`36321b3f9`](https://github.com/addlayer-io/dbine/commit/36321b3f9832) | 5 open | — |
-| scorecard | 2026-10-28 | repository settings and workflows at [`36321b3f9`](https://github.com/addlayer-io/dbine/commit/36321b3f9832) | score 5.7/10 | — |
-| trivy | 2026-10-28 | whole repository at [`36321b3f9`](https://github.com/addlayer-io/dbine/commit/36321b3f9832) | 0 open | — |
+| osv | 2026-10-28 | every lockfile (Cargo, npm) at [`5f114c791`](https://github.com/addlayer-io/dbine/commit/5f114c7917c0) | 5 open | — |
+| scorecard | 2026-10-28 | repository settings and workflows at [`5f114c791`](https://github.com/addlayer-io/dbine/commit/5f114c7917c0) | score 5.7/10 | — |
+| trivy | 2026-10-28 | whole repository at [`5f114c791`](https://github.com/addlayer-io/dbine/commit/5f114c7917c0) | 0 open | — |
 
 ## Not counted, and why
 

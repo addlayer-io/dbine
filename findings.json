@@ -53,7 +53,7 @@
     {
       "source": "osv",
       "date": "2026-10-28",
-      "revision": "36321b3f9832",
+      "revision": "5f114c7917c0",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 5
@@ -61,7 +61,7 @@
     {
       "source": "trivy",
       "date": "2026-10-28",
-      "revision": "36321b3f9832",
+      "revision": "5f114c7917c0",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -77,7 +77,7 @@
     {
       "source": "scorecard",
       "date": "2026-10-28",
-      "revision": "36321b3f9832",
+      "revision": "5f114c7917c0",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
