@@ -1396,13 +1396,32 @@ impl Session for SqlServerSession {
                 text(&r, 2),
             );
         }
+        // Definitions the catalog returns as NULL (no VIEW DEFINITION): said
+        // as the tables' warnings, never written empty.
+        let mut hidden = Vec::new();
         for r in self.rows(schema::COLUMNS_SQL, &[]).await? {
             let (s, t) = (
                 text(&r, 0).unwrap_or_default(),
                 text(&r, 1).unwrap_or_default(),
             );
             let ty = text(&r, 3).unwrap_or_default();
-            let data_type = match text(&r, 10) {
+            let name = text(&r, 2).unwrap_or_default();
+            let computed = text(&r, 10).filter(|d| dbine_driver::ddl::has_body(d));
+            let default_value = text(&r, 9).filter(|d| dbine_driver::ddl::has_body(d));
+            let flag = |i| r.get::<bool, _>(i).unwrap_or(false);
+            if computed.is_none() && flag(13) {
+                hidden.push((
+                    (s.clone(), t.clone()),
+                    structure::Hidden::Computed(name.clone()),
+                ));
+            }
+            if default_value.is_none() && flag(14) {
+                hidden.push((
+                    (s.clone(), t.clone()),
+                    structure::Hidden::Default(name.clone()),
+                ));
+            }
+            let data_type = match computed {
                 Some(expr) if r.get::<bool, _>(11).unwrap_or(false) => {
                     format!("AS {expr} PERSISTED")
                 }
@@ -1418,11 +1437,11 @@ impl Session for SqlServerSession {
                 &s,
                 &t,
                 ColumnDef {
-                    name: text(&r, 2).unwrap_or_default(),
+                    name,
                     data_type,
                     nullable: r.get(7).unwrap_or(true),
                     auto_increment: r.get(8).unwrap_or(false),
-                    default_value: text(&r, 9),
+                    default_value,
                     comment: text(&r, 12),
                     ..Default::default()
                 },
@@ -1467,7 +1486,7 @@ impl Session for SqlServerSession {
             );
         }
         let mut tables = b.finish();
-        structure::complete(self, &mut tables).await;
+        structure::complete(self, &mut tables, hidden).await;
         Ok(tables)
     }
 

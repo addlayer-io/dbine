@@ -274,5 +274,10 @@
     "sync_one": "{{count}} table va être synchronisée dans {{where}} ({{engine}}) : les lignes qui diffèrent de la source sont insérées, mises à jour et supprimées. Continuer ?",
     "sync_many": "{{count}} tables vont être synchronisées dans {{where}} ({{engine}}) : les lignes qui diffèrent de la source sont insérées, mises à jour et supprimées. Continuer ?",
     "sync_other": "{{count}} tables vont être synchronisées dans {{where}} ({{engine}}) : les lignes qui diffèrent de la source sont insérées, mises à jour et supprimées. Continuer ?"
+  },
+  "unreadable": {
+    "title": "Parties de la structure que la source n'a pas permis de lire ({{count}}) : la migration les laisse de côté",
+    "runTitle": "Laissé de côté car la source n'a pas permis de le lire ({{count}})",
+    "hint": "L'utilisateur de la connexion source ne voit pas ces définitions (sur SQL Server, il lui manque l'autorisation VIEW DEFINITION). Accordez l'autorisation et régénérez l'aperçu, ou créez-les à la main sur la destination."
   }
 }

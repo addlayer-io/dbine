@@ -11273,5 +11273,19 @@
   "Advanced": "Advanced",
   "Element": "Element",
   "Instance": "Instance",
-  "no schema scripted": "no schema scripted"
+  "no schema scripted": "no schema scripted",
+  "-- Lo que no se pudo leer del origen y queda afuera:\n": "-- Yang tidak dapat dibaca dari sumber dan dilewati:\n",
+  "La restricción CHECK {0} de {1} se deja como está: del otro lado hay definiciones que no se pudieron leer.": "Batasan CHECK {0} pada {1} dibiarkan apa adanya: di sisi lain ada definisi yang tidak dapat dibaca.",
+  "La restricción CHECK {0} de {1} vino sin definición (no se pudo leer) y no se agrega.": "Batasan CHECK {0} pada {1} datang tanpa definisi (tidak dapat dibaca) dan tidak ditambahkan.",
+  "el servidor no devolvió la definición (falta VIEW DEFINITION sobre el objeto, o está cifrada)": "server tidak mengembalikan definisi (VIEW DEFINITION tidak ada pada objek, atau definisinya terenkripsi)",
+  "el usuario {0} no tiene el permiso VIEW DEFINITION en esta base; con GRANT VIEW DEFINITION TO {1} se puede leer": "pengguna {0} tidak memiliki izin VIEW DEFINITION pada basis data ini; dengan GRANT VIEW DEFINITION TO {1} definisi dapat dibaca",
+  "la huella del certificado no es un SHA-256": "sidik jari sertifikat bukan SHA-256",
+  "{0}: el valor por defecto de la columna {1} vino sin definición (no se pudo leer); la columna queda sin él": "{0}: nilai default kolom {1} datang tanpa definisi (tidak dapat dibaca); kolom dibiarkan tanpa nilai tersebut",
+  "{0}: la columna calculada {1} vino sin expresión (no se pudo leer) y no se crea": "{0}: kolom terhitung {1} datang tanpa ekspresi (tidak dapat dibaca) dan tidak dibuat",
+  "{0}: la restricción CHECK {1} vino sin definición (no se pudo leer) y no se crea": "{0}: batasan CHECK {1} datang tanpa definisi (tidak dapat dibaca) dan tidak dibuat",
+  "{0}: no se pudo leer el valor por defecto de la columna {1} y queda sin él: {2}": "{0}: nilai default kolom {1} tidak dapat dibaca dan kolom dibiarkan tanpa nilai tersebut: {2}",
+  "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: definisi batasan CHECK {1} tidak dapat dibaca dan tidak dibuat: katalog tidak mengembalikan teksnya (tersembunyi atau tanpa izin)",
+  "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: definisi batasan CHECK {1} tidak dapat dibaca dan tidak dibuat: {2}",
+  "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: ekspresi kolom terhitung {1} tidak dapat dibaca; tetap menjadi kolom biasa bertipe sama: {2}",
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "katalog sumber: pengguna tidak dapat membaca seluruh katalog; kloning memerlukan VIEW DEFINITION pada basis data sumber dan SELECT pada sys.sql_expression_dependencies (seperti db_owner): {0}"
 }

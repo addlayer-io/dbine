@@ -258,5 +258,10 @@
     "clone_other": "将把 {{count}} 张表连同完整结构克隆到 {{where}}（{{engine}}）。是否继续？",
     "cloneWithData_other": "将把 {{count}} 张表连同完整结构和全部数据克隆到 {{where}}（{{engine}}）。是否继续？",
     "sync_other": "将在 {{where}}（{{engine}}）中同步 {{count}} 张表：与源不同的行会被插入、更新和删除。是否继续？"
+  },
+  "unreadable": {
+    "title": "源端不允许读取的结构部分（{{count}}）：迁移会将其排除",
+    "runTitle": "已排除源端不允许读取的内容（{{count}}）",
+    "hint": "源连接的用户看不到这些定义（在 SQL Server 中，缺少 VIEW DEFINITION 权限）。请授予该权限后重新生成预览，或在目标端手动创建。"
   }
 }

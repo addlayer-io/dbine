@@ -48,6 +48,10 @@ pub enum IssueCode {
     CommentDropped,
     OptionDropped,
     OptionAdded,
+    /// The source returned a CHECK, default or computed expression without
+    /// its definition (the login can't see it, e.g. no VIEW DEFINITION):
+    /// left out instead of written empty.
+    DefinitionUnreadable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

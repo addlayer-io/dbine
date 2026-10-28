@@ -385,7 +385,9 @@ fn alter(flavor: Flavor, old: &TableSchema, new: &TableSchema, p: &mut Plan) {
     }
     for (i, c) in new.checks.iter().enumerate() {
         let (n, e) = &new_ck[i];
-        if !old_ck.iter().any(|(m, f)| eq(m, n) && f == e) {
+        if !old_ck.iter().any(|(m, f)| eq(m, n) && f == e)
+            && dbine_driver::ddl::has_body(&c.expression)
+        {
             p.post.push(format!(
                 "{head} ADD CONSTRAINT {} CHECK {};",
                 q(n),

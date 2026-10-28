@@ -384,6 +384,9 @@
  "-- Las tablas más viejas primero; puede tardar en tablas grandes.\n{0}": [
   "crates/drivers/postgres/src/health.rs"
  ],
+ "-- Lo que no se pudo leer del origen y queda afuera:\n": [
+  "src-tauri/src/commands/scripts.rs"
+ ],
  "-- Los permisos son de los roles: «{0}» tiene que ser un rol.\n{1}": [
   "crates/drivers/orientdb/src/security.rs"
  ],
@@ -11926,6 +11929,12 @@
   "crates/drivers/postgres/src/compare.rs"
  ],
  "La restricción CHECK nueva de {0} falla si hay filas que no la cumplen.": [
+  "crates/dbine-driver/src/alter.rs"
+ ],
+ "La restricción CHECK {0} de {1} se deja como está: del otro lado hay definiciones que no se pudieron leer.": [
+  "crates/dbine-driver/src/alter.rs"
+ ],
+ "La restricción CHECK {0} de {1} vino sin definición (no se pudo leer) y no se agrega.": [
   "crates/dbine-driver/src/alter.rs"
  ],
  "La restricción de tipo {0} no dice el tipo ({1}).": [
@@ -24291,6 +24300,9 @@
  "catálogo de drivers ilegible: {0}": [
   "crates/dbine-drivers/src/lib.rs"
  ],
+ "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": [
+  "crates/drivers/sqlserver/src/clone.rs"
+ ],
  "catálogo del origen: {0}": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -26283,6 +26295,9 @@
  "el servidor no deja consultar el estado de la consulta {0} (HTTP {1})": [
   "crates/drivers/trino/src/transfer.rs"
  ],
+ "el servidor no devolvió la definición (falta VIEW DEFINITION sobre el objeto, o está cifrada)": [
+  "crates/drivers/sqlserver/src/structure.rs"
+ ],
  "el servidor no devolvió la definición (¿sin permisos?)": [
   "src-tauri/src/commands/explorer.rs"
  ],
@@ -26475,6 +26490,9 @@
  ],
  "el usuario que lo creó": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "el usuario {0} no tiene el permiso VIEW DEFINITION en esta base; con GRANT VIEW DEFINITION TO {1} se puede leer": [
+  "crates/drivers/sqlserver/src/structure.rs"
  ],
  "el usuario «{0}» de EXECUTE AS no existe en el destino, que distingue mayúsculas y minúsculas (ahí está «{1}»); corregí el nombre en el módulo del origen o creá ese usuario, y volvé a clonar": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -29580,6 +29598,9 @@
  ],
  "la hora {0}:{1}:{2} no existe": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "la huella del certificado no es un SHA-256": [
+  "src-tauri/src/commands/connections.rs"
  ],
  "la identidad administrada no dio un token: {0}": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -35989,6 +36010,9 @@
  "{0}: el valor no puede quedar vacío": [
   "crates/drivers/clickhouse/src/properties.rs"
  ],
+ "{0}: el valor por defecto de la columna {1} vino sin definición (no se pudo leer); la columna queda sin él": [
+  "crates/dbine-driver/src/schema.rs"
+ ],
  "{0}: el índice queda completo (filtro: {1}).": [
   "crates/dbine-schema/src/convert.rs"
  ],
@@ -36031,6 +36055,9 @@
  "{0}: la columna calculada [{1}] usa {2}, que necesita la propia tabla para crearse; no se puede crear la tabla igual que en el origen": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "{0}: la columna calculada {1} vino sin expresión (no se pudo leer) y no se crea": [
+  "crates/dbine-driver/src/schema.rs"
+ ],
  "{0}: la columna date no guarda la hora, que se perdería": [
   "crates/drivers/cassandra/src/transfer.rs"
  ],
@@ -36048,6 +36075,9 @@
  ],
  "{0}: la restricción CHECK {1} solo se verifica en las filas que se inserten desde ahora.": [
   "crates/drivers/clickhouse/src/sync.rs"
+ ],
+ "{0}: la restricción CHECK {1} vino sin definición (no se pudo leer) y no se crea": [
+  "crates/dbine-driver/src/schema.rs"
  ],
  "{0}: la secuencia sigue desde su valor actual como en el origen, pero su START WITH pasa a ser {1} (en el origen {2}): solo cambia a qué valor vuelve un RESTART sin valor": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -36095,8 +36125,20 @@
  "{0}: no se pudo descargar el backup (HTTP {1}): {2}": [
   "crates/dbine-sync/src/provider.rs"
  ],
+ "{0}: no se pudo leer el valor por defecto de la columna {1} y queda sin él: {2}": [
+  "crates/drivers/sqlserver/src/structure.rs"
+ ],
  "{0}: no se pudo leer la cuenta (HTTP {1}): {2}": [
   "crates/dbine-sync/src/provider.rs"
+ ],
+ "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": [
+  "crates/drivers/odbc/src/structure.rs"
+ ],
+ "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": [
+  "crates/drivers/sqlserver/src/structure.rs"
+ ],
+ "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": [
+  "crates/drivers/sqlserver/src/structure.rs"
  ],
  "{0}: no se pudo leer la identidad del origen": [
   "src-tauri/src/commands/migration.rs"

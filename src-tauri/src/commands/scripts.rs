@@ -389,7 +389,15 @@ pub(crate) async fn generate(
     let mut renames: HashMap<Key, HashMap<String, String>> = HashMap::new();
     let mut notes: Vec<String> = Vec::new();
     let schemas: HashMap<Key, TableSchema> = match other_engine {
-        None => schemas,
+        None => {
+            // Definitions the source couldn't read (no VIEW DEFINITION…).
+            for o in args.objects.iter().filter(|o| is_table(&o.kind)) {
+                if let Some(t) = schemas.get(&(o.schema.clone(), o.name.clone())) {
+                    notes.extend(t.warnings.iter().cloned());
+                }
+            }
+            schemas
+        }
         Some(t) => {
             let sel: Vec<TableSchema> = args
                 .objects
@@ -522,6 +530,13 @@ pub(crate) async fn generate(
             },
             chrono::Local::now().format("%Y-%m-%d %H:%M")
         ))?;
+        if other_engine.is_none() && !notes.is_empty() {
+            let mut head = "-- Lo que no se pudo leer del origen y queda afuera:\n".to_string();
+            for n in &notes {
+                head.push_str(&format!("--   - {}\n", comment_text(n)));
+            }
+            write(&format!("{head}\n"))?;
+        }
     }
 
     if let Some(t) = other_engine {

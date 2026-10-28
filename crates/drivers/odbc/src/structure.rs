@@ -204,7 +204,7 @@ pub fn attach_checks(tables: &mut [TableSchema], rows: &Rows, has_schemas: bool)
     }
     for ((schema, table, name), txt) in pieces {
         let cond = check_condition(&txt);
-        if cond.is_empty() || is_not_null_check(&cond) {
+        if is_not_null_check(&cond) {
             continue;
         }
         let found = tables.iter_mut().find(|t| {
@@ -215,12 +215,24 @@ pub fn attach_checks(tables: &mut [TableSchema], rows: &Rows, has_schemas: bool)
                         .unwrap_or("")
                         .eq_ignore_ascii_case(&schema))
         });
-        if let Some(t) = found {
-            t.checks.push(CheckDef {
-                name: (!name.is_empty()).then_some(name),
-                expression: cond,
-            });
+        let Some(t) = found else {
+            continue;
+        };
+        // Text the catalog hides (ASE's sp_hidetext, no permission): said,
+        // never an empty CHECK.
+        if !dbine_driver::ddl::has_body(&cond) {
+            if !name.is_empty() {
+                t.warnings.push(format!(
+                    "{}: no se pudo leer la definición de la restricción CHECK {name} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)",
+                    t.name
+                ));
+            }
+            continue;
         }
+        t.checks.push(CheckDef {
+            name: (!name.is_empty()).then_some(name),
+            expression: cond,
+        });
     }
 }
 
@@ -812,10 +824,14 @@ mod tests {
                 &["APP", "DOCS", "CK_A", "0)"],
                 &["APP", "DOCS", "CK_B", "check(b < 5)"],
                 &["APP", "DOCS", "", "CHECK (c IN (1, 2))"],
+                &["APP", "DOCS", "CK_H", ""],
                 &["APP", "OTRA", "CK_X", "(x > 0)"],
             ]),
             true,
         );
+        // Hidden text: a warning, no empty CHECK.
+        assert_eq!(t[0].warnings.len(), 1);
+        assert!(t[0].warnings[0].contains("CK_H"));
         let c = &t[0].checks;
         assert_eq!(c.len(), 3);
         assert_eq!(

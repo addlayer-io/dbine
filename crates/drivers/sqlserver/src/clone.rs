@@ -33,6 +33,7 @@
 //! the faithful one.
 
 use crate::delta::UNTRUSTED_MARK;
+use crate::structure::Hidden;
 use crate::variant::Variant;
 use crate::{connect_once, SqlServerSession};
 use dbine_driver::transfer::{CloneScript, CloneTable};
@@ -80,6 +81,10 @@ pub(crate) async fn clone_script(
     }
     let mut target = read_target(dst).await?;
     let mut source = read_source(src).await?;
+    // Definitions the catalog hid (no VIEW DEFINITION): why, for the notes.
+    if source.tables.iter().any(|t| !t.hidden.is_empty()) {
+        source.hidden_cause = crate::structure::hidden_cause(src).await;
+    }
     // Which users the source's modules run as (WITH EXECUTE AS 'user') the
     // target has: a module can only be created bound to one that exists.
     // The name asked is the one its text declares (the CREATE runs that
@@ -416,6 +421,9 @@ pub(crate) struct Table {
     pub graph: Option<String>,
     /// sys.tables.ledger_type (0: not a ledger table).
     pub ledger: i32,
+    /// Definitions the catalog returned as NULL (no VIEW DEFINITION): left
+    /// out of the clone and said in its notes.
+    pub hidden: Vec<crate::structure::Hidden>,
 }
 
 impl Table {
@@ -543,6 +551,8 @@ pub(crate) struct Source {
     pub principals: i32,
     /// CLR objects (schema.name) and user assemblies.
     pub clr_objects: Vec<String>,
+    /// Why the tables' `hidden` definitions couldn't be read.
+    pub hidden_cause: String,
 }
 
 /// A function a column uses: in its computed expression or its default.
@@ -605,6 +615,13 @@ async fn exec(c: &mut Conn, sql: &str) -> tiberius::Result<()> {
 
 fn catalog_err(e: tiberius::error::Error) -> Error {
     match &e {
+        // 229: permission denied (sys.sql_expression_dependencies needs
+        // VIEW DEFINITION and SELECT on it, which only db_owner has by
+        // default).
+        tiberius::error::Error::Server(t) if t.code() == 229 => Error::Query(format!(
+            "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {}",
+            t.message()
+        )),
         tiberius::error::Error::Server(t) => {
             Error::Query(format!("catálogo del origen: {}", t.message()))
         }
@@ -853,7 +870,8 @@ fn source_queries(c: &Caps) -> Vec<String> {
                     CAST(ISNULL(idc.is_not_for_replication, 0) AS bit), CAST(idc.last_value AS nvarchar(40)),
                     cc.definition, CAST(ISNULL(cc.is_persisted, 0) AS bit),
                     dc.name, dc.definition, c.collation_name, c.is_sparse, c.is_rowguidcol, c.is_column_set,
-                    c.is_filestream, CAST(c.xml_collection_id AS int), c.is_xml_document, {hidden}, {masked}
+                    c.is_filestream, CAST(c.xml_collection_id AS int), c.is_xml_document, {hidden}, {masked},
+                    CAST(c.is_computed AS bit)
                FROM sys.columns c
                JOIN ({OBJECTS}) o ON o.object_id = c.object_id
                JOIN sys.types ty ON ty.user_type_id = c.user_type_id
@@ -1102,8 +1120,13 @@ fn column_of(r: &Row, xml: &HashMap<i32, (String, String)>) -> Column {
         scale: n(r, 9),
         nullable: b(r, 10),
         identity: identity_of(r),
-        computed: s(r, 16).map(|d| (d, b(r, 17))),
-        default: match (s(r, 18), s(r, 19)) {
+        computed: s(r, 16)
+            .filter(|d| dbine_driver::ddl::has_body(d))
+            .map(|d| (d, b(r, 17))),
+        default: match (
+            s(r, 18),
+            s(r, 19).filter(|d| dbine_driver::ddl::has_body(d)),
+        ) {
             (Some(name), Some(def)) => Some((name, def)),
             _ => None,
         },
@@ -1239,6 +1262,13 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
         if let Some(t) = tables.get_mut(&id) {
             if col.identity.is_some() {
                 t.identity_last = s(&r, 15);
+            }
+            // NULL definitions (no VIEW DEFINITION): a plain column, no default.
+            if col.computed.is_none() && b(&r, 29) {
+                t.hidden.push(Hidden::Computed(col.name.clone()));
+            }
+            if col.default.is_none() && s(&r, 18).is_some() {
+                t.hidden.push(Hidden::Default(col.name.clone()));
             }
             t.columns.push(col);
         } else if let Some(tt) = table_types.get_mut(&id) {
@@ -1416,10 +1446,17 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
             not_trusted: b(&r, 4),
             not_for_replication: b(&r, 5),
         };
+        let readable = dbine_driver::ddl::has_body(&ck.definition);
         if let Some(t) = tables.get_mut(&id) {
-            t.checks.push(ck);
+            if readable {
+                t.checks.push(ck);
+            } else {
+                t.hidden.push(Hidden::Check(ck.name));
+            }
         } else if let Some(tt) = table_types.get_mut(&id) {
-            tt.checks.push(ck.definition);
+            if readable {
+                tt.checks.push(ck.definition);
+            }
         }
     }
 
@@ -1637,6 +1674,15 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                 ))
             })?;
         picked.push(src.tables.swap_remove(pos));
+    }
+    for t in &picked {
+        for h in &t.hidden {
+            notes.push(crate::structure::hidden_note(
+                &t.qname(),
+                h,
+                &src.hidden_cause,
+            ));
+        }
     }
     // Graph and ledger tables: the engine writes their internal columns
     // ($node_id / $from_id / $to_id; the ledger's transaction and sequence
@@ -5231,6 +5277,32 @@ mod tests {
             schema: Some(schema.into()),
             name: name.into(),
         }
+    }
+
+    /// Definitions the catalog hid (no VIEW DEFINITION): in the notes, with
+    /// why, and never an empty CHECK.
+    #[test]
+    fn hidden_definitions_are_notes() {
+        let mut t = table("dbo", "Item");
+        t.hidden = vec![
+            Hidden::Check("CK_item".into()),
+            Hidden::Default("V".into()),
+            Hidden::Computed("D".into()),
+        ];
+        let src = Source {
+            tables: vec![t],
+            hidden_cause: "sin permiso".into(),
+            ..Default::default()
+        };
+        let script = build(src, &full_target(), &[tref("dbo", "Item")]).unwrap();
+        let hidden: Vec<&String> = script
+            .notes
+            .iter()
+            .filter(|n| n.contains(": no se pudo leer ") && n.ends_with(": sin permiso"))
+            .collect();
+        assert_eq!(hidden.len(), 3, "{:?}", script.notes);
+        assert!(hidden[0].contains("CHECK CK_item"));
+        assert!(script.after.iter().all(|s| !s.contains("CK_item")));
     }
 
     fn full_target() -> Target {

@@ -564,7 +564,8 @@ pub const COLUMNS_SQL: &str = "
 SELECT s.name, t.name, c.name, TYPE_NAME(c.user_type_id), CAST(c.max_length AS int),
        CAST(c.precision AS int), CAST(c.scale AS int), c.is_nullable, c.is_identity,
        OBJECT_DEFINITION(c.default_object_id), cc.definition, CAST(cc.is_persisted AS bit),
-       CAST(ep.value AS nvarchar(max))
+       CAST(ep.value AS nvarchar(max)), CAST(c.is_computed AS bit),
+       CAST(CASE WHEN c.default_object_id <> 0 THEN 1 ELSE 0 END AS bit)
   FROM sys.columns c
   JOIN sys.tables t ON t.object_id = c.object_id
   JOIN sys.schemas s ON s.schema_id = t.schema_id

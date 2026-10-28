@@ -30,6 +30,16 @@ Three features depend only on the app, not on each engine, so they work in all o
   - the identity keeps working after the load (`IDENTITY_INSERT`).
 - **PostgreSQL 16:** copy with data and a view; sequences end up after the loaded values and the structure is identical.
 
+### Definitions the source login can't read
+
+When the catalog returns a CHECK, a column default or a computed column's expression without its text, the structure reader leaves it out and says so in the table's warnings. Migrations, the script generator and schema sync show those warnings and never write `CHECK ()` or an empty `DEFAULT`; a sync doesn't drop a target CHECK when the other side has unreadable definitions. Every DDL renderer also skips a CHECK or default that comes empty.
+
+| Engine | When it happens | What DBine does |
+|---|---|---|
+| SQL Server, Azure SQL, Fabric, Babelfish | The login has SELECT but not `VIEW DEFINITION`: `sys.check_constraints.definition`, `sys.computed_columns.definition` and the default's text come back NULL. | Warning per object with the reason and the `GRANT VIEW DEFINITION TO [user]` that fixes it; a computed column stays as a plain column of its type. Cloning a database needs the full catalog (VIEW DEFINITION and SELECT on `sys.sql_expression_dependencies`) and says so when it's missing. Tested against SQL Server 2022 with a limited login. |
+| Sybase ASE, other ODBC engines that read CHECK text from `syscomments` | Text hidden with `sp_hidetext` or not visible. | Warning per CHECK; nothing empty is written. |
+| PostgreSQL family, MySQL family, Oracle, Db2, Firebird, SQLite, HANA, DuckDB and the others | The catalog shows a table's constraints and defaults with their text to anyone who can see the table (or hides the whole row), so a definition never comes back empty. | Nothing to warn about; the renderers' empty-definition guard still applies. |
+
 ### By engine
 
 | Engine | Designer creates | Structure (foreign keys and indexes) | Create/drop database | Notes |

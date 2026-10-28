@@ -1033,6 +1033,7 @@ pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Documen
         comment: None,
         options,
         name,
+        warnings: Vec::new(),
     }
 }
 
