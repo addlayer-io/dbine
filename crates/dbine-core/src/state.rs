@@ -799,6 +799,20 @@ impl StateStore {
     /// first connection, `dbine_driver::TLS_PIN`). `Ok(false)`: no such
     /// connection, or nothing changed.
     pub fn set_connection_option(&self, id: &str, key: &str, value: Option<&str>) -> Result<bool> {
+        self.set_connection_option_if(id, key, value, |_| true)
+    }
+
+    /// [`Self::set_connection_option`], only when `check` passes on the
+    /// stored config, read and written under one lock (compare-and-set: a
+    /// pin learned on a first connection is saved only while the stored
+    /// connection still has none and points at the same server).
+    pub fn set_connection_option_if(
+        &self,
+        id: &str,
+        key: &str,
+        value: Option<&str>,
+        check: impl FnOnce(&ConnectionConfig) -> bool,
+    ) -> Result<bool> {
         let changed = {
             let c = self.lock()?;
             let json: Option<String> = c
@@ -813,6 +827,9 @@ impl StateStore {
                 return Ok(false);
             };
             let mut config: ConnectionConfig = serde_json::from_str(&json)?;
+            if !check(&config) {
+                return Ok(false);
+            }
             let before = config.options.get(key).cloned();
             match value {
                 Some(v) => {
@@ -2288,6 +2305,23 @@ mod tests {
         assert!(!s
             .set_connection_option("missing", "tls_pin", Some(&pin))
             .unwrap());
+    }
+
+    #[test]
+    fn an_option_is_set_only_when_the_check_passes() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("a")).unwrap();
+        let (first, second) = ("ab".repeat(32), "cd".repeat(32));
+        let unpinned = |c: &ConnectionConfig| !c.options.contains_key("tls_pin");
+        assert!(s
+            .set_connection_option_if("a", "tls_pin", Some(&first), unpinned)
+            .unwrap());
+        // Another first session that learned something else doesn't win.
+        assert!(!s
+            .set_connection_option_if("a", "tls_pin", Some(&second), unpinned)
+            .unwrap());
+        let got = s.get_connection("a").unwrap().unwrap();
+        assert_eq!(got.config.options.get("tls_pin"), Some(&first));
     }
 
     #[test]

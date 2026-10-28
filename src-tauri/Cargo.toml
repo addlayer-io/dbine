@@ -37,6 +37,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
 dbine-driver = { path = "../crates/dbine-driver" }
 dbine-core = { path = "../crates/dbine-core" }
+# normalize_pin, for "trust the new certificate".
+dbine-tls = { path = "../crates/dbine-tls" }
 # Which drivers are compiled in is this crate's features' choice (below):
 # every one by default, only the built-in ones with `plugins`.
 dbine-drivers = { path = "../crates/dbine-drivers", default-features = false }

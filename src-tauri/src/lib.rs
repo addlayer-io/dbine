@@ -330,7 +330,7 @@ pub fn run() {
             commands::connections::save_connection,
             commands::connections::delete_connection,
             commands::connections::trust_ssh_host,
-            commands::connections::forget_tls_pin,
+            commands::connections::trust_tls_pin,
             secret_sources::test_secret_source,
             secret_sources::approve_secret_source,
             secret_sources::unlock_secret_source,

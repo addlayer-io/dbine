@@ -181,6 +181,11 @@ pub struct ConnectFailure {
     /// does, in 40615).
     #[serde(default)]
     pub client_ip: Option<String>,
+    /// `TlsPinChanged`: the fingerprint (SHA-256 hex) of the certificate
+    /// the server presented, so trusting it pins exactly that one. Left out
+    /// when there's none; an older peer ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presented_pin: Option<String>,
     pub message: String,
 }
 
@@ -190,6 +195,7 @@ impl ConnectFailure {
             kind,
             code: None,
             client_ip: None,
+            presented_pin: None,
             message: message.into(),
         }
     }

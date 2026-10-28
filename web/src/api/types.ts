@@ -639,6 +639,9 @@ export interface ConnectDetail {
   code: string | null;
   /** This client's IP as the server saw it (Azure SQL's 40615 says it). */
   client_ip: string | null;
+  /** `tls_pin_changed`: the certificate the server presented (SHA-256 hex),
+   *  which "Confiar en el certificado nuevo" pins. */
+  presented_pin?: string | null;
 }
 
 export interface TestResult {

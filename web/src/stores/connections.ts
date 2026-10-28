@@ -181,9 +181,10 @@ export const useConnectionsStore = defineStore('connections', {
       this.loaded = true;
     },
 
-    /** `duplicateOf`: the connection the form was copied from. */
-    async save(conn: SavedConnection, duplicateOf: string | null = null) {
-      const saved = await api.saveConnection(conn, duplicateOf);
+    /** `duplicateOf`: the connection the form was copied from;
+     *  `forgetTlsPin`: the user forgot its pinned certificate. */
+    async save(conn: SavedConnection, duplicateOf: string | null = null, forgetTlsPin = false) {
+      const saved = await api.saveConnection(conn, duplicateOf, forgetTlsPin);
       const i = this.list.findIndex((c) => c.id === saved.id);
       // Same place; new, or in another folder, last (as the backend orders it).
       if (i >= 0 && (this.list[i].folder_id ?? null) === (saved.folder_id ?? null)) this.list[i] = saved;

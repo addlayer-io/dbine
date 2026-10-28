@@ -1571,6 +1571,13 @@ mod tests {
         };
         assert_eq!(*got, f);
         assert_eq!(got.kind, ConnectFailureKind::Firewall);
+        // A changed certificate carries the one presented, as data.
+        let mut pin = ConnectFailure::new(ConnectFailureKind::TlsPinChanged, "cambió");
+        pin.presented_pin = Some("cd".repeat(32));
+        let pin_body =
+            rmp_serde::to_vec_named(&WireError::from(&Error::connect_failed(pin.clone()))).unwrap();
+        let back = Error::from(rmp_serde::from_slice::<WireError>(&pin_body).unwrap());
+        assert_eq!(back.connect_failure().as_ref(), Some(&pin));
         // An app built before the classification reads a plain connect error.
         #[derive(Deserialize)]
         struct OldWire {

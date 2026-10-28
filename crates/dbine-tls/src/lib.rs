@@ -8,9 +8,10 @@
 //! - [`PinVerifier`] (`TlsLevel::Unverified`: `sslmode=require`, `insecure`,
 //!   `TrustServerCertificate`…): no chain, but the server's certificate must
 //!   be the one pinned on the first connection (trust on first use). With no
-//!   pin yet it's accepted and its fingerprint kept in a [`PinWatch`] for the
-//!   app to save (`Session::tls_pin_seen`); another certificate fails with
-//!   `ConnectFailureKind::TlsPinChanged`.
+//!   pin yet the first one is accepted and its fingerprint kept in a
+//!   [`PinWatch`] for the app to save (`Session::tls_pin_seen`); from then
+//!   on it's the pin for every handshake on that watch. Another certificate
+//!   fails with `ConnectFailureKind::TlsPinChanged`.
 //!
 //! Both verify the handshake's signatures with the server's key, so the
 //! server has to hold the certificate's private key. The crypto is rustls'
@@ -80,14 +81,19 @@ pub fn pin_of(cfg: &ConnectionConfig) -> Option<String> {
 }
 
 /// The error of a server whose certificate isn't the pinned one.
+/// The presented fingerprint also goes as data (`presented_pin`): trusting
+/// the new certificate pins that one, not whatever a later handshake shows.
 pub fn pin_changed(expected: &str, got: &str) -> Error {
+    let presented = normalize_pin(got);
     let (expected, got) = (display_fingerprint(expected), display_fingerprint(got));
-    Error::connect_failed(ConnectFailure::new(
+    let mut f = ConnectFailure::new(
         ConnectFailureKind::TlsPinChanged,
         format!(
             "El certificado del servidor cambió desde la conexión en la que se lo aceptó: se esperaba la huella SHA-256 {expected} y el servidor presentó {got}. Si el servidor renovó su certificado, confiá en el certificado nuevo; si no, alguien podría estar interceptando la conexión."
         ),
-    ))
+    );
+    f.presented_pin = presented;
+    Error::connect_failed(f)
 }
 
 /// What a [`PinVerifier`] saw, shared with the session that owns the
@@ -164,18 +170,24 @@ impl ServerCertVerifier for PinVerifier {
         let Ok(mut seen) = self.watch.0.lock() else {
             return Err(rustls::Error::General("tls pin state poisoned".into()));
         };
-        match &self.pin {
-            None => {
+        // With no pin, the first certificate accepted becomes the pin for
+        // every later handshake that reports to the same watch (the
+        // session's reconnects, extra connections, other nodes).
+        let pin = match (&self.pin, &seen.first) {
+            (Some(pin), _) => pin.clone(),
+            (None, Some(first)) => first.clone(),
+            (None, None) => {
                 seen.first = Some(got);
-                Ok(ServerCertVerified::assertion())
+                return Ok(ServerCertVerified::assertion());
             }
-            Some(pin) if *pin == got => Ok(ServerCertVerified::assertion()),
-            Some(pin) => {
-                seen.changed = Some((pin.clone(), got));
-                Err(rustls::Error::InvalidCertificate(
-                    CertificateError::ApplicationVerificationFailure,
-                ))
-            }
+        };
+        if pin == got {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            seen.changed = Some((pin, got));
+            Err(rustls::Error::InvalidCertificate(
+                CertificateError::ApplicationVerificationFailure,
+            ))
         }
     }
 
@@ -419,6 +431,32 @@ mod tests {
         assert!(f.kind.is_tls());
         assert!(f.message.contains(&display_fingerprint(&server)));
         assert!(f.message.contains(&display_fingerprint(&other)));
+        assert_eq!(f.presented_pin.as_deref(), Some(other.as_str()));
+    }
+
+    #[test]
+    fn first_use_locks_onto_the_first_certificate() {
+        let server = fingerprint(&pem("server.pem")[0]);
+        let other = fingerprint(&pem("selfsigned.pem")[0]);
+        let (v, watch) = PinVerifier::new(None);
+        assert!(check(v.as_ref(), "server.pem", "localhost").is_ok());
+        // The same verifier (a reconnect of the session) takes only that one.
+        assert!(check(v.as_ref(), "server.pem", "localhost").is_ok());
+        assert!(check(v.as_ref(), "selfsigned.pem", "localhost").is_err());
+        assert_eq!(watch.seen().as_deref(), Some(server.as_str()));
+        assert_eq!(watch.changed(), Some((server.clone(), other.clone())));
+        // So does another verifier on the same watch (a new config per
+        // reconnect, another node of the cluster).
+        let again = PinVerifier::watched(None, watch.clone());
+        assert!(check(again.as_ref(), "selfsigned.pem", "localhost").is_err());
+        assert!(check(again.as_ref(), "server.pem", "localhost").is_ok());
+        assert_eq!(watch.seen().as_deref(), Some(server.as_str()));
+        let e = watch.explain(Error::Connect("invalid peer certificate".into()));
+        let Error::ConnectFailed(f) = &e else {
+            panic!("{e}");
+        };
+        assert_eq!(f.kind, ConnectFailureKind::TlsPinChanged);
+        assert_eq!(f.presented_pin.as_deref(), Some(other.as_str()));
     }
 
     #[test]

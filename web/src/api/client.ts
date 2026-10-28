@@ -34,7 +34,7 @@ export function errorKind(e: unknown): string | null {
 /** A connect failure's classification (firewall, timeout…), when there is one. */
 export function errorDetail(e: unknown): ConnectDetail | null {
   const d = e && typeof e === 'object' && 'detail' in e ? (e as CommandErrorShape).detail : undefined;
-  return d && typeof d === 'object' && typeof d.kind === 'string' ? { kind: d.kind, code: d.code ?? null, client_ip: d.client_ip ?? null } : null;
+  return d && typeof d === 'object' && typeof d.kind === 'string' ? { kind: d.kind, code: d.code ?? null, client_ip: d.client_ip ?? null, presented_pin: d.presented_pin ?? null } : null;
 }
 
 /** A project file run from a tab: its runs go to the file's timeline. */
@@ -50,16 +50,19 @@ export const api = {
    *  the stored value. */
   /** `duplicateOf`: the connection a new form was copied from ("Duplicar
    *  conexión"): its unconfirmed secret sources aren't confirmed by the copy. */
-  saveConnection: (connection: SavedConnection, duplicateOf: string | null = null) =>
-    invoke<SavedConnection>('save_connection', { args: { connection, duplicate_of: duplicateOf } }),
+  /** `forgetTlsPin`: the user forgot the pinned certificate in the form;
+   *  otherwise a config without `tls_pin` keeps the stored one. */
+  saveConnection: (connection: SavedConnection, duplicateOf: string | null = null, forgetTlsPin = false) =>
+    invoke<SavedConnection>('save_connection', { args: { connection, duplicate_of: duplicateOf, forget_tls_pin: forgetTlsPin } }),
   deleteConnection: (id: string) => invoke<void>('delete_connection', { args: { id } }),
   /** Trust an SSH tunnel server's key for a saved connection (docs/ssh-tunnels.md). */
   trustSshHost: (connectionId: string, fingerprint: string) =>
     invoke<void>('trust_ssh_host', { args: { connection_id: connectionId, fingerprint } }),
-  /** Forget the server certificate a connection pinned (`tls_pin`) and close
-   *  its sessions: the next connect pins the server's current certificate. */
-  forgetTlsPin: (connectionId: string) =>
-    invoke<void>('forget_tls_pin', { args: { connection_id: connectionId } }),
+  /** Pin the certificate the server presented (`presented_pin` of a
+   *  tls_pin_changed failure) as the connection's `tls_pin` and close its
+   *  sessions: only that certificate is trusted from then on. */
+  trustTlsPin: (connectionId: string, fingerprint: string) =>
+    invoke<void>('trust_tls_pin', { args: { connection_id: connectionId, fingerprint } }),
   /** Resolve one field's source as the form has it; says only how long the value is. */
   testSecretSource: (connectionId: string | null, driver: string, field: string, source: SecretSource, tokens: Record<string, string>, duplicateOf: string | null = null) =>
     invoke<SecretSourceTest>('test_secret_source', { args: { connection_id: connectionId, duplicate_of: duplicateOf, driver, field, source, tokens } }),

@@ -133,6 +133,11 @@ pub struct ConnectDetail<'a> {
     pub kind: dbine_driver::ConnectFailureKind,
     pub code: Option<&'a str>,
     pub client_ip: Option<&'a str>,
+    /// `tls_pin_changed`: the certificate the server presented, which
+    /// "Confiar en el certificado nuevo" pins (`trust_tls_pin`). Left out
+    /// when there's none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presented_pin: Option<&'a str>,
 }
 
 impl CommandError {
@@ -142,11 +147,13 @@ impl CommandError {
                 kind: f.kind,
                 code: f.code.as_deref(),
                 client_ip: f.client_ip.as_deref(),
+                presented_pin: f.presented_pin.as_deref(),
             }),
             Self::AuthFailed(_) => Some(ConnectDetail {
                 kind: dbine_driver::ConnectFailureKind::Auth,
                 code: None,
                 client_ip: None,
+                presented_pin: None,
             }),
             _ => None,
         }

@@ -383,10 +383,12 @@ impl AppState {
         database: &str,
     ) -> CommandResult<Arc<SessionEntry>> {
         let mut cfg = self.connect_config(connection_id).await?;
+        // The server a pin learned here belongs to (a tunnel reroutes cfg).
+        let server = pin_server(&cfg);
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
         let session = dbine_drivers::open_session(&cfg, db).await?;
-        self.keep_tls_pin(connection_id, &cfg, session.as_ref());
+        self.keep_tls_pin(connection_id, &cfg, &server, session.as_ref());
         let entry = Arc::new(SessionEntry {
             connection_id: connection_id.to_string(),
             database: database.to_string(),
@@ -478,10 +480,12 @@ impl AppState {
     ) -> CommandResult<Arc<SessionEntry>> {
         let mut cfg = self.connect_config(connection_id).await?;
         cfg.read_only |= read_only;
+        // The server a pin learned here belongs to (a tunnel reroutes cfg).
+        let server = pin_server(&cfg);
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
         let session = dbine_drivers::open_session(&cfg, db).await?;
-        self.keep_tls_pin(connection_id, &cfg, session.as_ref());
+        self.keep_tls_pin(connection_id, &cfg, &server, session.as_ref());
         let entry = Arc::new(SessionEntry {
             connection_id: connection_id.to_string(),
             database: database.to_string(),
@@ -500,17 +504,31 @@ impl AppState {
     /// none pinned: the one this first session accepted is saved
     /// (`dbine_driver::TLS_PIN`), so the next connections accept only it.
     /// The fingerprint is public (not a secret); it's logged as such.
-    fn keep_tls_pin(&self, connection_id: &str, cfg: &ConnectionConfig, session: &dyn Session) {
+    fn keep_tls_pin(
+        &self,
+        connection_id: &str,
+        cfg: &ConnectionConfig,
+        server: &PinServer,
+        session: &dyn Session,
+    ) {
         if cfg.option(dbine_driver::TLS_PIN).is_some() {
             return;
         }
         let Some(pin) = session.tls_pin_seen() else {
             return;
         };
-        match self
-            .store
-            .set_connection_option(connection_id, dbine_driver::TLS_PIN, Some(&pin))
-        {
+        // Compare-and-set: only while the stored connection still has no
+        // pin (another first session, or the user, may have set one) and
+        // points at the server this session connected to.
+        let same_server = |c: &ConnectionConfig| {
+            c.option(dbine_driver::TLS_PIN).is_none() && pin_server(c) == *server
+        };
+        match self.store.set_connection_option_if(
+            connection_id,
+            dbine_driver::TLS_PIN,
+            Some(&pin),
+            same_server,
+        ) {
             Ok(true) => tracing::info!(connection_id, pin, "pinned the server's TLS certificate"),
             Ok(false) => {}
             Err(e) => tracing::warn!(connection_id, %e, "couldn't save the TLS certificate pin"),
@@ -583,6 +601,14 @@ pub fn field_applies(fields: &[dbine_driver::Field], cfg: &ConnectionConfig, key
         key = when.key;
     }
     true
+}
+
+/// The server a certificate pin belongs to: driver, host and port as the
+/// connection is saved (before any SSH tunnel reroutes them).
+type PinServer = (String, String, u16);
+
+fn pin_server(c: &ConnectionConfig) -> PinServer {
+    (c.driver.clone(), c.host.trim().to_string(), c.port)
 }
 
 #[cfg(test)]

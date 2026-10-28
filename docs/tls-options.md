@@ -49,15 +49,21 @@ certificate check they no longer accept any certificate:
 
 - **Unverified (and PostgreSQL's `prefer`/`allow`) pin the certificate on
   first use.** The first connection accepts the server's certificate and
-  reports the SHA-256 of its DER (`Session::tls_pin_seen`); the app saves it
-  in the connection's options as `tls_pin` (`dbine_driver::TLS_PIN`, hex,
-  not a secret). Later connections accept only that certificate. Another one
-  fails with `ConnectFailureKind::TlsPinChanged`, whose message names both
-  fingerprints; the problem dialog offers "Confiar en el certificado nuevo"
-  (`forget_tls_pin`: the pin is cleared, the sessions close and the next
-  connect pins the new one). The connection form shows the pinned
-  fingerprint in the SSL/TLS tab, with "Olvidar". A connection pointed at
-  another host, port or engine drops its pin. Connections saved before this
+  reports the SHA-256 of its DER (`Session::tls_pin_seen`); from then on
+  that certificate is the pin for every later handshake of the same session
+  (reconnects, extra connections, other cluster nodes). The app saves it in
+  the connection's options as `tls_pin` (`dbine_driver::TLS_PIN`, hex, not a
+  secret), only while the stored connection still has no pin and points at
+  the same server (compare-and-set). Later connections accept only that
+  certificate. Another one fails with `ConnectFailureKind::TlsPinChanged`,
+  whose message names both fingerprints and whose `presented_pin` carries
+  the new one as data; the problem dialog offers "Confiar en el certificado
+  nuevo" (`trust_tls_pin`: that exact fingerprint becomes the pin and the
+  sessions close, so a server that presents yet another certificate fails
+  again). The connection form shows the pinned fingerprint in the SSL/TLS
+  tab, with "Olvidar"; saving a form without the pin keeps the stored one
+  unless "Olvidar" was clicked. A connection pointed at another host, port
+  or engine drops its pin. Connections saved before this
   have no pin and pin on their next connect. The handshake signatures are
   still verified, so the server must hold the certificate's key.
 - **VerifyCa checks the whole chain against the configured roots** (the CA

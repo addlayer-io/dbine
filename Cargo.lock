@@ -2677,6 +2677,7 @@ dependencies = [
  "dbine-link",
  "dbine-schema",
  "dbine-sync",
+ "dbine-tls",
  "dbine-transfer",
  "dbine-tunnel",
  "derive_more-impl",
@@ -3067,6 +3068,7 @@ dependencies = [
  "hdbconnect_async",
  "rustls",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]

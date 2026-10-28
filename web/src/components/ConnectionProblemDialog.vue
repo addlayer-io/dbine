@@ -44,14 +44,18 @@ watch(() => live.value?.status, (s) => { if (s === 'connected') emit('close'); }
 // -- a pinned certificate that changed ---------------------------------------------------
 const trusting = ref(false);
 const trustError = ref<string | null>(null);
-/** Forget the pinned certificate and reconnect: the server's current one
- *  gets pinned. Only on the user's click, after the message that names both
- *  fingerprints. */
+/** The certificate the server presented, as the failure carried it. */
+const presentedPin = computed(() => detail.value?.presented_pin ?? null);
+/** Pin the certificate the message named and reconnect: only that one is
+ *  trusted, so a server that presents another fails again. Only on the
+ *  user's click, after the message that names both fingerprints. */
 async function trustNewCertificate() {
+  const pin = presentedPin.value;
+  if (!pin) return;
   trusting.value = true;
   trustError.value = null;
   try {
-    await api.forgetTlsPin(props.connectionId);
+    await api.trustTlsPin(props.connectionId, pin);
     emit('retry');
   } catch (e) {
     trustError.value = errorMessage(e);
@@ -198,10 +202,10 @@ function editConnection() {
       </template>
       <p v-else-if="kind === 'dns'">{{ $t('connection:problem.kind.dns.body', { host: bareHost }) }}</p>
       <p v-else-if="kind === 'tls' || kind === 'tls_not_offered' || kind === 'tls_untrusted'">{{ $t(`connection:problem.kind.${kind}.body`) }}</p>
-      <!-- The pinned certificate changed: trust the new one (the next connect pins it). -->
+      <!-- The pinned certificate changed: trust the one presented (pinned as it is). -->
       <template v-else-if="kind === 'tls_pin_changed'">
         <p>{{ $t('connection:problem.kind.tls_pin_changed.body') }}</p>
-        <div class="cp-azure">
+        <div v-if="presentedPin" class="cp-azure">
           <el-button type="warning" plain :loading="trusting" @click="trustNewCertificate">{{ $t('connection:problem.kind.tls_pin_changed.trust') }}</el-button>
           <div v-if="trustError" class="cp-error">{{ trustError }}</div>
         </div>

@@ -73,6 +73,13 @@ const tlsOriginal = ref<TlsOriginal | null>(null);
  *  hex): saved by the app on the first connection; "Olvidar" clears it and
  *  the next connection pins the server's certificate again. */
 const tlsPin = ref('');
+/** "Olvidar" was clicked: the save drops the stored pin (otherwise a form
+ *  without one keeps the pin the app saved after it was opened). */
+const tlsPinForgotten = ref(false);
+function forgetTlsPin() {
+  tlsPin.value = '';
+  tlsPinForgotten.value = true;
+}
 /** `AB:CD:…`, as people compare fingerprints. */
 const tlsPinShown = computed(() => (/^[0-9a-f]{64}$/i.test(tlsPin.value) ? tlsPin.value.toUpperCase().match(/../g)!.join(':') : tlsPin.value));
 /** Bumped on every pick: a level change that comes from loading another
@@ -201,6 +208,7 @@ function pick(d: DriverInfo, existing: SavedConnection | null = null) {
   tlsOriginal.value = null;
   const o = existing?.config.options ?? {};
   tlsPin.value = o.tls_pin ?? '';
+  tlsPinForgotten.value = false;
   const sources = readSources(o);
   for (const k of Object.keys(drafts)) delete drafts[k];
   for (const f of d.fields.filter((f) => f.secret)) drafts[f.key] = draftFrom(sources[f.key], f.key === 'password' && !!existing && !existing.save_password);
@@ -414,7 +422,7 @@ async function save() {
       tags: tags.value.map((t) => t.trim()).filter(Boolean),
       mcp_level: mcpLevel.value || null,
       updated_at: '',
-    }, duplicateOf.value);
+    }, duplicateOf.value, tlsPinForgotten.value && !tlsPin.value.trim());
     close();
     conns.connect(saved.id);
   } catch (e) {
@@ -682,7 +690,7 @@ function selectOptions(f: Field): [string, string][] {
             <el-form-item v-if="section === 'ssl' && (tlsPin || tlsChip === 'unverified')" class="cd-wide" :label="$t('connection:tls.pin.label')">
               <div v-if="tlsPin" class="cd-pin">
                 <code class="cd-pin-value nm-selectable">{{ tlsPinShown }}</code>
-                <el-button size="small" @click="tlsPin = ''">{{ $t('connection:tls.pin.forget') }}</el-button>
+                <el-button size="small" @click="forgetTlsPin">{{ $t('connection:tls.pin.forget') }}</el-button>
               </div>
               <div class="cd-help">{{ tlsPin ? $t('connection:tls.pin.help') : $t('connection:tls.pin.none') }}</div>
             </el-form-item>

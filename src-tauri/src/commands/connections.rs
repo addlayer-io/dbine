@@ -125,6 +125,11 @@ pub struct SaveConnectionArgs {
     /// confirmed by saving it either.
     #[serde(default)]
     pub duplicate_of: Option<String>,
+    /// The user forgot the pinned certificate in the form ("Olvidar"). Without
+    /// it, a config with no `tls_pin` keeps the stored one: a form opened
+    /// before the first connect never saw the pin saved meanwhile.
+    #[serde(default)]
+    pub forget_tls_pin: bool,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -215,6 +220,9 @@ pub async fn save_connection(
     if let Some(old) = state.store.get_connection(&conn.id)? {
         keep_sessions = state.store.is_temporary_connection(&conn.id)?
             && serde_json::to_value(&old.config).ok() == serde_json::to_value(&conn.config).ok();
+        if !args.forget_tls_pin {
+            keep_stored_pin(&old.config, &mut conn.config);
+        }
         forget_pin_of_another_server(&old.config, &mut conn.config);
         let (a, b) = (&old.config, &conn.config);
         if a.driver != b.driver
@@ -234,6 +242,18 @@ pub async fn save_connection(
     state.typed_secrets.remove(&conn.id);
     state.keychain_cache.remove(&conn.id);
     Ok(state.store.save_connection(&conn)?)
+}
+
+/// A config saved without a pin keeps the stored one (the app saved it
+/// after the form was opened); [`forget_pin_of_another_server`] then drops
+/// it if the form points at another server.
+fn keep_stored_pin(old: &ConnectionConfig, new: &mut ConnectionConfig) {
+    if new.option(dbine_driver::TLS_PIN).is_none() {
+        if let Some(pin) = old.option(dbine_driver::TLS_PIN) {
+            new.options
+                .insert(dbine_driver::TLS_PIN.to_string(), pin.to_string());
+        }
+    }
 }
 
 /// The certificate pinned for one server (`dbine_driver::TLS_PIN`) isn't
@@ -299,30 +319,41 @@ pub async fn trust_ssh_host(
 }
 
 #[derive(Deserialize)]
-pub struct ForgetTlsPinArgs {
+pub struct TrustTlsPinArgs {
     pub connection_id: String,
+    /// The certificate the server presented (`presented_pin` of the
+    /// TlsPinChanged failure the user saw), SHA-256 in any spelling.
+    pub fingerprint: String,
 }
 
-/// "Confiar en el certificado nuevo": the connection forgets the server
-/// certificate it pinned (`dbine_driver::TLS_PIN`) and its sessions close;
-/// the next connect pins the certificate the server presents then. Only
-/// from the user's click on the TlsPinChanged explanation, which names both
-/// fingerprints.
+/// "Confiar en el certificado nuevo": the connection pins the certificate
+/// whose fingerprint the TlsPinChanged explanation named
+/// (`dbine_driver::TLS_PIN`) and its sessions close. Only that certificate
+/// is trusted: a server that presents another one next fails again. Only
+/// from the user's click on that explanation.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn forget_tls_pin(
-    state: State<'_, AppState>,
-    args: ForgetTlsPinArgs,
+pub async fn trust_tls_pin(state: State<'_, AppState>, args: TrustTlsPinArgs) -> CommandResult<()> {
+    store_trusted_pin(&state.store, &args.connection_id, &args.fingerprint)?;
+    state.close_connection_sessions(&args.connection_id);
+    Ok(())
+}
+
+fn store_trusted_pin(
+    store: &dbine_core::StateStore,
+    connection_id: &str,
+    fingerprint: &str,
 ) -> CommandResult<()> {
-    if state.store.get_connection(&args.connection_id)?.is_none() {
+    let Some(pin) = dbine_tls::normalize_pin(fingerprint) else {
+        return Err(CommandError::BadRequest(
+            "la huella del certificado no es un SHA-256".into(),
+        ));
+    };
+    if store.get_connection(connection_id)?.is_none() {
         return Err(CommandError::NotFound(format!(
-            "no existe la conexión '{}'",
-            args.connection_id
+            "no existe la conexión '{connection_id}'"
         )));
     }
-    state
-        .store
-        .set_connection_option(&args.connection_id, dbine_driver::TLS_PIN, None)?;
-    state.close_connection_sessions(&args.connection_id);
+    store.set_connection_option(connection_id, dbine_driver::TLS_PIN, Some(&pin))?;
     Ok(())
 }
 
@@ -603,6 +634,64 @@ mod tests {
             forget_pin_of_another_server(&old, &mut moved);
             assert_eq!(moved.option(dbine_driver::TLS_PIN), None);
         }
+    }
+
+    #[test]
+    fn a_form_without_the_pin_keeps_it_unless_forgotten_or_moved() {
+        let pin = "ab".repeat(32);
+        let mut old = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "db1".into(),
+            port: 5432,
+            ..Default::default()
+        };
+        let stale = old.clone();
+        old.options
+            .insert(dbine_driver::TLS_PIN.to_string(), pin.clone());
+        // A form opened before the first connect: the pin stays.
+        let mut new = stale.clone();
+        keep_stored_pin(&old, &mut new);
+        forget_pin_of_another_server(&old, &mut new);
+        assert_eq!(new.option(dbine_driver::TLS_PIN), Some(pin.as_str()));
+        // The same stale form pointed at another host: it goes.
+        let mut moved = stale.clone();
+        moved.host = "db2".into();
+        keep_stored_pin(&old, &mut moved);
+        forget_pin_of_another_server(&old, &mut moved);
+        assert_eq!(moved.option(dbine_driver::TLS_PIN), None);
+    }
+
+    #[test]
+    fn trusting_a_new_certificate_stores_that_fingerprint() {
+        let store = dbine_core::StateStore::open_in_memory().unwrap();
+        let mut c = saved_with("a", "{}");
+        c.config
+            .options
+            .insert(dbine_driver::TLS_PIN.to_string(), "ab".repeat(32));
+        store.save_connection(&c).unwrap();
+        let presented = "cd".repeat(32);
+        let spelled = presented
+            .to_uppercase()
+            .as_bytes()
+            .chunks(2)
+            .map(|b| std::str::from_utf8(b).unwrap())
+            .collect::<Vec<_>>()
+            .join(":");
+        store_trusted_pin(&store, "a", &spelled).unwrap();
+        let got = store.get_connection("a").unwrap().unwrap();
+        assert_eq!(
+            got.config.option(dbine_driver::TLS_PIN),
+            Some(presented.as_str())
+        );
+        // Not a fingerprint, or no such connection: refused, nothing changes.
+        assert!(store_trusted_pin(&store, "a", "").is_err());
+        assert!(store_trusted_pin(&store, "a", "not-a-hash").is_err());
+        assert!(store_trusted_pin(&store, "missing", &presented).is_err());
+        let got = store.get_connection("a").unwrap().unwrap();
+        assert_eq!(
+            got.config.option(dbine_driver::TLS_PIN),
+            Some(presented.as_str())
+        );
     }
 
     fn cmd(c: &str) -> SecretSource {
