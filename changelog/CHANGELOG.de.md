@@ -1,5 +1,12 @@
 # Änderungen
 
+## [1.2.1] - 2026-10-28
+
+### Korrekturen
+- **Die Spaltenvervollständigung folgt der Abfrage, die Sie schreiben:** Der Editor bietet nur die Spalten der Tabellen, CTEs und Unterabfragen an, die die Anweisung unter dem Cursor liest, nicht die anderer Anweisungen der Datei. Eine Spalte, die zwei dieser Tabellen gemeinsam haben, wird einmal pro Tabelle angeboten, mit ihrem Alias beschriftet und qualifiziert eingefügt (`c.customer_id`); die Spalten einer CTE oder abgeleiteten Tabelle werden innerhalb der Abfrage und nach ihrem Alias angeboten.
+- **Feldnamen in Zeilen und Structs:** `ROW`-Werte von Trino und Presto, zusammengesetzte Typen von PostgreSQL und Structs von Arrow Flight SQL zeigen jedes Feld unter seinem Namen als JSON, auch in verschachtelten Zeilen, Arrays von Zeilen und Maps, deren Werte Zeilen sind (`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]` statt `[[42,[["demo-product",2]],null]]`). `null`, eine leere Zeichenfolge und ein leeres Array bleiben unterscheidbar. Benannte Tupel in ClickHouse behalten die deklarierte Feldreihenfolge.
+- **Migrationen mit einem SQL-Server-Login ohne VIEW DEFINITION:** Konnte das Quell-Login die Tabellen, aber nicht deren Definitionen lesen (häufig bei Azure SQL), schrieb das Migrationsskript `CHECK ()`, was mit "Incorrect syntax near ')'" fehlschlug, und verwarf Spaltenstandardwerte ohne Hinweis. Jetzt werden diese CHECKs, Standardwerte und berechneten Ausdrücke aus dem Skript ausgelassen, und die Vorschau sowie der Ausführungsbericht listen jeden davon oben auf, mit dem Grund und dem `GRANT VIEW DEFINITION`, mit dem DBine sie lesen kann. Auch erzeugte Skripte und der Schemaabgleich weisen darauf hin, und ein Abgleich entfernt keinen CHECK mehr im Ziel, nur weil die Quelle ihren eigenen nicht lesen konnte. Keine Engine schreibt mehr ein leeres CHECK oder DEFAULT.
+
 ## [1.2.0] - 2026-10-27
 
 ### Neu

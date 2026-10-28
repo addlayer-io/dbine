@@ -1,5 +1,12 @@
 # Cambios
 
+## [1.2.1] - 2026-10-28
+
+### Correcciones
+- **El autocompletado de columnas sigue la consulta que estás escribiendo:** el editor ofrece solo las columnas de las tablas, CTE y subconsultas que lee la sentencia bajo el cursor, no las de otras sentencias del archivo. Una columna que comparten dos de esas tablas se ofrece una vez por tabla, rotulada con su alias e insertada calificada (`c.customer_id`), y las columnas de una CTE o de una tabla derivada se ofrecen dentro de la consulta y después de su alias.
+- **Nombres de campo en filas y structs:** los valores `ROW` de Trino y Presto, los tipos compuestos de PostgreSQL y los structs de Arrow Flight SQL muestran cada campo con su nombre, como JSON, también en filas anidadas, arrays de filas y mapas cuyos valores son filas (`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]` en lugar de `[[42,[["demo-product",2]],null]]`). `null`, una cadena vacía y un array vacío siguen siendo distintos. Las tuplas con nombre de ClickHouse conservan el orden de campos declarado.
+- **Migraciones con un login de SQL Server sin VIEW DEFINITION:** cuando el login de origen podía leer las tablas pero no sus definiciones (habitual en Azure SQL), el script de migración escribía `CHECK ()`, que fallaba con "Incorrect syntax near ')'", y descartaba los valores por defecto de las columnas sin avisar. Ahora esos CHECK, valores por defecto y expresiones calculadas se dejan fuera del script, y la vista previa y el informe de la ejecución listan cada uno al principio, con el motivo y el `GRANT VIEW DEFINITION` que permite a DBine leerlos. Los scripts generados y la sincronización de esquemas también lo informan, y una sincronización ya no elimina un CHECK del destino porque el origen no pudo leer el suyo. Ningún motor escribe ya un CHECK o DEFAULT vacío.
+
 ## [1.2.0] - 2026-10-27
 
 ### Nuevo

@@ -1,6 +1,13 @@
 # Perubahan
 
 
+## [1.2.1] - 2026-10-28
+
+### Perbaikan
+- **Pelengkapan kolom mengikuti kueri yang sedang ditulis:** editor hanya menawarkan kolom dari tabel, CTE, dan subkueri yang dibaca oleh pernyataan di bawah kursor, bukan kolom dari pernyataan lain dalam berkas. Kolom yang dimiliki bersama oleh dua tabel tersebut ditawarkan satu kali per tabel, berlabel aliasnya dan disisipkan dengan kualifikasi (`c.customer_id`), dan kolom CTE atau tabel turunan ditawarkan di dalam kueri dan setelah aliasnya.
+- **Nama bidang pada baris dan struct:** nilai `ROW` Trino dan Presto, tipe komposit PostgreSQL, dan struct Arrow Flight SQL menampilkan setiap bidang dengan namanya, sebagai JSON, termasuk pada baris bersarang, array baris, dan map yang nilainya berupa baris (`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]` alih-alih `[[42,[["demo-product",2]],null]]`). `null`, string kosong, dan array kosong tetap dibedakan. Tuple bernama ClickHouse mempertahankan urutan bidang yang dideklarasikan.
+- **Migrasi dengan login SQL Server tanpa VIEW DEFINITION:** saat login sumber dapat membaca tabel tetapi tidak definisinya (umum di Azure SQL), skrip migrasi menulis `CHECK ()` yang gagal dengan "Incorrect syntax near ')'", dan membuang nilai default kolom tanpa pemberitahuan. Kini CHECK, nilai default, dan ekspresi terhitung tersebut dikeluarkan dari skrip, dan pratinjau serta laporan eksekusi mencantumkan masing-masing di bagian atas, beserta alasan dan `GRANT VIEW DEFINITION` yang memungkinkan DBine membacanya. Skrip yang dihasilkan dan sinkronisasi skema juga menyampaikannya, dan sinkronisasi tidak lagi menghapus CHECK di target hanya karena sumber tidak dapat membaca CHECK miliknya. Tidak ada mesin yang lagi menulis CHECK atau DEFAULT kosong.
+
 ## [1.2.0] - 2026-10-27
 
 ### Baru

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-28
+
 ### Fixes
 - **Column completion follows the query you're writing:** the editor offers only the columns of the tables, CTEs and subqueries the statement under the cursor reads, not those of other statements in the file. A column that two of those tables share is offered once per table, labeled with its alias and inserted qualified (`c.customer_id`), and a CTE's or a derived table's columns are offered in the query and after its alias.
 - **Field names in rows and structs:** Trino and Presto `ROW` values, PostgreSQL composite types and Arrow Flight SQL structs show each field under its name, as JSON, also in nested rows, arrays of rows and maps whose values are rows (`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]` instead of `[[42,[["demo-product",2]],null]]`). `null`, an empty string and an empty array stay distinct. ClickHouse named tuples keep their declared field order.

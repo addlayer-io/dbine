@@ -1,5 +1,12 @@
 # 更新日志
 
+## [1.2.1] - 2026-10-28
+
+### 修复
+- **列补全跟随你正在编写的查询:** 编辑器只提供光标所在语句读取的表、CTE 和子查询的列，而不是文件中其他语句的列。两张表共有的列会按表各提供一次，以别名作为标签，并以限定形式插入（`c.customer_id`）；CTE 或派生表的列会在查询内部以及其别名之后提供。
+- **行和 struct 中的字段名:** Trino 和 Presto 的 `ROW` 值、PostgreSQL 的复合类型以及 Arrow Flight SQL 的 struct 以 JSON 形式按名称显示每个字段，嵌套行、行数组以及值为行的映射中也是如此（`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]`，而不是 `[[42,[["demo-product",2]],null]]`）。`null`、空字符串和空数组仍可区分。ClickHouse 的命名元组保持声明的字段顺序。
+- **使用没有 VIEW DEFINITION 权限的 SQL Server 登录进行迁移:** 当源登录可以读取表但无法读取其定义时（在 Azure SQL 上很常见），迁移脚本会写出 `CHECK ()`，导致 "Incorrect syntax near ')'" 错误，并且会在不提示的情况下丢弃列默认值。现在这些 CHECK、默认值和计算表达式会从脚本中省略，预览和运行报告会在顶部逐一列出，并给出原因以及让 DBine 读取它们的 `GRANT VIEW DEFINITION`。生成的脚本和架构同步也会给出提示，同步不再因为源无法读取自身的 CHECK 而删除目标上的 CHECK。所有引擎都不再写出空的 CHECK 或 DEFAULT。
+
 ## [1.2.0] - 2026-10-27
 
 ### 新增

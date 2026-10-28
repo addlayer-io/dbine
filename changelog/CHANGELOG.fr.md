@@ -1,5 +1,12 @@
 # Modifications
 
+## [1.2.1] - 2026-10-28
+
+### Corrections
+- **L'autocomplétion des colonnes suit la requête que vous écrivez:** l'éditeur ne propose que les colonnes des tables, CTE et sous-requêtes lues par l'instruction sous le curseur, pas celles des autres instructions du fichier. Une colonne que deux de ces tables partagent est proposée une fois par table, libellée avec son alias et insérée qualifiée (`c.customer_id`), et les colonnes d'une CTE ou d'une table dérivée sont proposées dans la requête et après son alias.
+- **Noms de champs dans les lignes et les structs:** les valeurs `ROW` de Trino et Presto, les types composites de PostgreSQL et les structs d'Arrow Flight SQL affichent chaque champ sous son nom, en JSON, y compris dans les lignes imbriquées, les tableaux de lignes et les maps dont les valeurs sont des lignes (`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]` au lieu de `[[42,[["demo-product",2]],null]]`). `null`, une chaîne vide et un tableau vide restent distincts. Les tuples nommés de ClickHouse conservent l'ordre de champs déclaré.
+- **Migrations avec un login SQL Server sans VIEW DEFINITION:** lorsque le login source pouvait lire les tables mais pas leurs définitions (courant sur Azure SQL), le script de migration écrivait `CHECK ()`, ce qui échouait avec "Incorrect syntax near ')'", et supprimait les valeurs par défaut des colonnes sans le signaler. Désormais, ces CHECK, valeurs par défaut et expressions calculées sont exclus du script, et l'aperçu et le rapport d'exécution les listent chacun en tête, avec la raison et le `GRANT VIEW DEFINITION` qui permet à DBine de les lire. Les scripts générés et la synchronisation de schémas l'indiquent aussi, et une synchronisation ne supprime plus un CHECK de la cible parce que la source n'a pas pu lire le sien. Aucun moteur n'écrit plus de CHECK ou DEFAULT vide.
+
 ## [1.2.0] - 2026-10-27
 
 ### Nouveautés

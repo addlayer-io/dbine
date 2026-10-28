@@ -1,6 +1,13 @@
 # Zmiany
 
 
+## [1.2.1] - 2026-10-28
+
+### Poprawki
+- **Uzupełnianie kolumn podąża za zapytaniem, które piszesz:** edytor podpowiada tylko kolumny tabel, CTE i podzapytań, które czyta instrukcja pod kursorem, a nie kolumny innych instrukcji w pliku. Kolumna wspólna dla dwóch takich tabel jest podpowiadana raz dla każdej tabeli, opisana aliasem i wstawiana z kwalifikatorem (`c.customer_id`); kolumny CTE i tabeli pochodnej są podpowiadane w zapytaniu oraz po jego aliasie.
+- **Nazwy pól w wierszach i strukturach:** wartości `ROW` w Trino i Presto, typy złożone PostgreSQL oraz struktury Arrow Flight SQL pokazują każde pole pod jego nazwą, jako JSON, także w zagnieżdżonych wierszach, tablicach wierszy i mapach, których wartościami są wiersze (`[{"customer_id":42,"items":[{"product_name":"demo-product","quantity":2}],"note":null}]` zamiast `[[42,[["demo-product",2]],null]]`). `null`, pusty ciąg i pusta tablica nadal się różnią. Nazwane krotki ClickHouse zachowują zadeklarowaną kolejność pól.
+- **Migracje z loginem SQL Server bez VIEW DEFINITION:** gdy login źródłowy mógł czytać tabele, ale nie ich definicje (częste w Azure SQL), skrypt migracji zapisywał `CHECK ()`, co kończyło się błędem "Incorrect syntax near ')'", i po cichu pomijał wartości domyślne kolumn. Teraz takie CHECK, wartości domyślne i wyrażenia obliczane są pomijane w skrypcie, a podgląd i raport z uruchomienia wymieniają każde z nich na początku, wraz z powodem i `GRANT VIEW DEFINITION`, który pozwala DBine je odczytać. Wygenerowane skrypty i synchronizacja schematów również o tym informują, a synchronizacja nie usuwa już CHECK w celu tylko dlatego, że źródło nie mogło odczytać własnego. Żaden silnik nie zapisuje już pustego CHECK ani DEFAULT.
+
 ## [1.2.0] - 2026-10-27
 
 ### Nowości
