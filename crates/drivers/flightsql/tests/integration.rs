@@ -105,7 +105,7 @@ async fn flightsql() {
     assert_eq!(rows[0][2], json!("10.50"));
     assert_eq!(rows[0][3], json!("2024-01-31 13:45:00.123"));
     assert_eq!(rows[0][4], json!("0xCAFE"));
-    assert_eq!(rows[0][5], json!("[1, 2]"));
+    assert_eq!(rows[0][5], json!("[1,2]"));
     let mut out = QueryOutcome::default();
     s.execute("SELECT id FROM dbine_it.t WHERE id > 2", 10, &mut out)
         .await

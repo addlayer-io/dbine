@@ -14,8 +14,9 @@ fn display(a: &dyn Array, row: usize) -> Value {
 }
 
 /// One cell: integers checked for JS precision, binaries as `0x…`, dates
-/// and timestamps as ISO text (`2024-01-31 13:45:00`), decimals and nested
-/// values as their Arrow text.
+/// and timestamps as ISO text (`2024-01-31 13:45:00`), decimals as their
+/// Arrow text, and structs, lists and maps as JSON text with each struct
+/// field under its name (see `nested`).
 pub fn cell(a: &dyn Array, row: usize) -> Value {
     if a.is_null(row) {
         return Value::Null;
@@ -46,7 +47,50 @@ pub fn cell(a: &dyn Array, row: usize) -> Value {
             Value::String(s) => Value::String(s.replacen('T', " ", 1)),
             v => v,
         },
+        DataType::Struct(_)
+        | DataType::List(_)
+        | DataType::LargeList(_)
+        | DataType::FixedSizeList(..)
+        | DataType::Map(..) => Value::String(nested(a, row).to_string()),
         _ => display(a, row),
+    }
+}
+
+/// A value as JSON, nested ones included: a struct as an object with its
+/// field names, a list as an array, a map as an object keyed by the keys'
+/// text; the scalars inside as `cell` shows them.
+fn nested(a: &dyn Array, row: usize) -> Value {
+    if a.is_null(row) {
+        return Value::Null;
+    }
+    let items = |v: &dyn Array| Value::Array((0..v.len()).map(|i| nested(v, i)).collect());
+    match a.data_type() {
+        DataType::Struct(fields) => Value::Object(
+            fields
+                .iter()
+                .zip(a.as_struct().columns())
+                .map(|(f, c)| (f.name().clone(), nested(c.as_ref(), row)))
+                .collect(),
+        ),
+        DataType::List(_) => items(a.as_list::<i32>().value(row).as_ref()),
+        DataType::LargeList(_) => items(a.as_list::<i64>().value(row).as_ref()),
+        DataType::FixedSizeList(..) => items(a.as_fixed_size_list().value(row).as_ref()),
+        DataType::Map(..) => {
+            let e = a.as_map().value(row);
+            let (k, v) = (e.column(0), e.column(1));
+            Value::Object(
+                (0..e.len())
+                    .map(|i| {
+                        let key = match nested(k.as_ref(), i) {
+                            Value::String(s) => s,
+                            other => other.to_string(),
+                        };
+                        (key, nested(v.as_ref(), i))
+                    })
+                    .collect(),
+            )
+        }
+        _ => cell(a, row),
     }
 }
 
@@ -108,5 +152,49 @@ mod tests {
         assert_eq!(cell(b.as_ref(), 0), json!("0xCAFE"));
         let t: ArrayRef = Arc::new(TimestampMillisecondArray::from(vec![1706708700123]));
         assert_eq!(cell(t.as_ref(), 0), json!("2024-01-31 13:45:00.123"));
+    }
+
+    #[test]
+    fn structs_show_their_field_names() {
+        use arrow_array::builder::{Int32Builder, ListBuilder, StringBuilder, StructBuilder};
+        use arrow_array::{ListArray, StructArray};
+        use arrow_schema::{Field, Fields};
+
+        // ARRAY(STRUCT(product_name VARCHAR, quantity INTEGER))
+        let item_fields = Fields::from(vec![
+            Field::new("product_name", DataType::Utf8, true),
+            Field::new("quantity", DataType::Int32, true),
+        ]);
+        let mut items = ListBuilder::new(StructBuilder::from_fields(item_fields.clone(), 1));
+        let sb = items.values();
+        sb.field_builder::<StringBuilder>(0)
+            .unwrap()
+            .append_value("demo-product");
+        sb.field_builder::<Int32Builder>(1).unwrap().append_value(2);
+        sb.append(true);
+        items.append(true);
+        items.append(true); // empty list
+        let items: ListArray = items.finish();
+        let big: ArrayRef = Arc::new(Int64Array::from(vec![9007199254740993, 1]));
+        let note: ArrayRef = Arc::new(StringArray::from(vec![None, Some("")]));
+        let row = StructArray::from(vec![
+            (
+                Arc::new(Field::new("customer_id", DataType::Int64, true)),
+                big,
+            ),
+            (
+                Arc::new(Field::new("items", items.data_type().clone(), true)),
+                Arc::new(items) as ArrayRef,
+            ),
+            (Arc::new(Field::new("note", DataType::Utf8, true)), note),
+        ]);
+        let v: Value = serde_json::from_str(cell(&row, 0).as_str().unwrap()).unwrap();
+        assert_eq!(
+            v,
+            json!({"customer_id": "9007199254740993",
+                   "items": [{"product_name": "demo-product", "quantity": 2}], "note": null})
+        );
+        let v: Value = serde_json::from_str(cell(&row, 1).as_str().unwrap()).unwrap();
+        assert_eq!(v, json!({"customer_id": 1, "items": [], "note": ""}));
     }
 }
