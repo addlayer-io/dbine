@@ -1,6 +1,38 @@
 {
   "scans": [
     {
+      "source": "osv",
+      "date": "2026-10-28",
+      "revision": "b8db8ed2a9e9",
+      "kind": "full",
+      "scope": "every lockfile (Cargo, npm)",
+      "found": 5
+    },
+    {
+      "source": "trivy",
+      "date": "2026-10-28",
+      "revision": "b8db8ed2a9e9",
+      "kind": "full",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "codeql",
+      "date": "2026-10-28",
+      "revision": "",
+      "kind": "full",
+      "scope": "Rust, TypeScript/Vue and workflows",
+      "found": 1
+    },
+    {
+      "source": "scorecard",
+      "date": "2026-10-28",
+      "revision": "effea24c489a",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 5.7
+    },
+    {
       "source": "claude-security",
       "release": "v1.2.0",
       "scan_id": "b58aa7f2-513c-4fbb-8a1f-4f49bf5b948c",
@@ -41,36 +73,14 @@
       "found": 0
     },
     {
-      "source": "osv",
+      "source": "claude-security",
+      "release": "v1.2.0",
+      "scan_id": "6370c684-4ce9-4080-a118-e3ed880cfb3c",
       "date": "2026-10-28",
       "revision": "b8db8ed2a9e9",
-      "kind": "full",
-      "scope": "every lockfile (Cargo, npm)",
-      "found": 5
-    },
-    {
-      "source": "trivy",
-      "date": "2026-10-28",
-      "revision": "b8db8ed2a9e9",
-      "kind": "full",
+      "kind": "changes",
       "scope": "whole repository",
       "found": 0
-    },
-    {
-      "source": "codeql",
-      "date": "2026-10-28",
-      "revision": "",
-      "kind": "full",
-      "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 1
-    },
-    {
-      "source": "scorecard",
-      "date": "2026-10-28",
-      "revision": "effea24c489a",
-      "kind": "full",
-      "scope": "repository settings and workflows",
-      "score": 5.7
     }
   ],
   "findings": [
@@ -4112,7 +4122,7 @@
   ],
   "claude_coverage": {
     "release": "v1.2.0",
-    "scanned": "0faeba1c..effea24c (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..effea24c)",
+    "scanned": "0faeba1c..b8db8ed2 (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..b8db8ed2)",
     "not_covered": ""
   }
 }

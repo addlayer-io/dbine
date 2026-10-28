@@ -29,7 +29,7 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..effea24c (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..effea24c) | 1 open | — |
+| claude-security, release v1.2.0 | 2026-10-28 | 0faeba1c..b8db8ed2 (release 0faeba1c..2e7ef2d0 + fixes 2e7ef2d0..ab37520b + tests ab37520b..b8db8ed2) | 1 open | — |
 | codeql | 2026-10-28 | Rust, TypeScript/Vue and workflows | 1 open | — |
 | osv | 2026-10-28 | every lockfile (Cargo, npm) at [`b8db8ed2a`](https://github.com/addlayer-io/dbine/commit/b8db8ed2a9e9) | 5 open | — |
 | scorecard | 2026-10-28 | repository settings and workflows at [`effea24c4`](https://github.com/addlayer-io/dbine/commit/effea24c489a) | score 5.7/10 | — |
