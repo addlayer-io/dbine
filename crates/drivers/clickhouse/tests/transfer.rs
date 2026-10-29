@@ -222,7 +222,6 @@ async fn transfer_all_types_round_trip() {
         .await
         .expect("bulk_load");
     assert_eq!(loaded, 2);
-    drop(progress);
     assert_eq!(commits, vec![1, 2], "one commit per window");
     let all = "SELECT * EXCEPT j, toString(j) FROM {} ORDER BY id";
     assert_eq!(
