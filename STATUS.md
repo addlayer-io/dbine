@@ -9,7 +9,7 @@ _Updated 2026-10-29._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 2 |
-| OSV-Scanner (dependency advisories) | 1 | 0 | 5 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
@@ -17,7 +17,6 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
-| OSV-GHSA-m665-v7pm-7grj-zip-13ee4b | CRITICAL | osv | zip 8.6.0: zip: Critical Parser Differential & Security Control Bypass via Dual-Header Inconsistencies (Zip Cloaking) Leading to Arbitrary File Overwrite & RCE | `Cargo.lock` | upgrade to 9.0.5 |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
 | OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
@@ -32,9 +31,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.1 | 2026-10-28 | b8db8ed2..5f114c79 (v1.2.0..release 1.2.1) | 2 open | — |
 | codeql | 2026-10-29 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-29 | every lockfile (Cargo, npm) at [`1925d72d9`](https://github.com/addlayer-io/dbine/commit/1925d72d9e21) | 6 open | — |
-| scorecard | 2026-10-28 | repository settings and workflows at [`5f114c791`](https://github.com/addlayer-io/dbine/commit/5f114c7917c0) | score 5.7/10 | — |
-| trivy | 2026-10-29 | whole repository at [`1925d72d9`](https://github.com/addlayer-io/dbine/commit/1925d72d9e21) | 0 open | — |
+| osv | 2026-10-29 | every lockfile (Cargo, npm) at [`3a91fa252`](https://github.com/addlayer-io/dbine/commit/3a91fa252f29) | 5 open | — |
+| scorecard | 2026-10-29 | repository settings and workflows at [`1925d72d9`](https://github.com/addlayer-io/dbine/commit/1925d72d9e21) | score 5.6/10 | — |
+| trivy | 2026-10-29 | whole repository at [`3a91fa252`](https://github.com/addlayer-io/dbine/commit/3a91fa252f29) | 0 open | — |
 
 ## Not counted, and why
 
@@ -342,7 +341,6 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | Trivy secret rule exception `tls-test-material` | `tests/tls/.*.(key\|p12)` | Throwaway test CA and server keys for the dbine-test-tls-* containers (tests/tls/README.md); they only sign certificates for localhost and host.docker.internal in tests and protect nothing. | trivy-secret.yaml |
 | Advisory GHSA-wrw7-89jp-8q8g | `dependencies` | Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side. | osv-scanner.toml |
 | Advisory GHSA-cq8v-f236-94qc | `dependencies` | Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only). | osv-scanner.toml |
-| Advisory RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369 | `dependencies` | Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. | osv-scanner.toml |
 | Advisory RUSTSEC-2024-0436 | `dependencies` | Notice, not a vulnerability: paste is no longer maintained (no known flaw; a build-time macro used by dependencies). | osv-scanner.toml |
 | Advisory RUSTSEC-2024-0370 | `dependencies` | Notice, not a vulnerability: proc-macro-error is unmaintained (no known flaw; a build-time macro used by dependencies). | osv-scanner.toml |
 | Advisory RUSTSEC-2025-0075, RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100 | `dependencies` | Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency). | osv-scanner.toml |
@@ -357,7 +355,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.7/10** (2026-10-28). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.6/10** (2026-10-29). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -366,7 +364,7 @@ OpenSSF Scorecard: **5.7/10** (2026-10-28). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 1/10 — 9 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| Vulnerabilities: 0/10 — 10 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
