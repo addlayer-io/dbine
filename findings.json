@@ -1,16 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.2.1",
-      "scan_id": "53a651af-f280-4a28-864d-4bea6015a987",
-      "date": "2026-10-28",
-      "revision": "5f114c7917c0",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 1
-    },
-    {
       "source": "osv",
       "date": "2026-10-29",
       "revision": "3a91fa252f29",
@@ -41,9 +31,29 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.6
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.2.2",
+      "scan_id": "6ed76070-69cb-450c-82df-b02b516be1f7",
+      "date": "2026-10-29",
+      "revision": "3a91fa252f29",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 2
     }
   ],
   "findings": [
+    {
+      "id": "CS-051e1c07d1",
+      "source": "claude-security",
+      "severity": "LOW",
+      "kind": "Uncontrolled Recursion",
+      "cwe": "CWE-674",
+      "component": "crates/drivers/trino",
+      "found": "2026-10-29",
+      "status": "open"
+    },
     {
       "id": "CS-3edce89e04",
       "source": "claude-security",
@@ -62,6 +72,16 @@
       "cwe": "CWE-674",
       "component": "crates/drivers/trino",
       "found": "2026-10-28",
+      "status": "open"
+    },
+    {
+      "id": "CS-9f8067f090",
+      "source": "claude-security",
+      "severity": "LOW",
+      "kind": "Incorrect Calculation",
+      "cwe": "CWE-135",
+      "component": "crates/dbine-core",
+      "found": "2026-10-29",
       "status": "open"
     },
     {
@@ -4082,8 +4102,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.2.1",
-    "scanned": "b8db8ed2..5f114c79 (v1.2.0..release 1.2.1)",
+    "release": "v1.2.2",
+    "scanned": "5f114c79..3a91fa25 (v1.2.1..release 1.2.2)",
     "not_covered": ""
   }
 }

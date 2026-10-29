@@ -2,13 +2,13 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-10-29._
+_Updated 2026-10-28._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
-| claude-security (source-code review) | 0 | 0 | 0 | 2 |
+| claude-security (source-code review) | 0 | 0 | 0 | 4 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
@@ -22,14 +22,16 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0385-ctutils-9761a8 | MEDIUM | osv | ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons | `mobile/src-tauri/Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b | MEDIUM | osv | crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time | `Cargo.lock` | upgrade to 0.7.6 |
+| CS-051e1c07d1 | LOW | claude-security | Uncontrolled Recursion | `crates/drivers/trino` | pending |
 | CS-3edce89e04 | LOW | claude-security | Operation on a Resource after Expiration or Release | `crates/drivers/hana` | pending |
 | CS-9b9f60a30a | LOW | claude-security | Uncontrolled Recursion | `crates/drivers/trino` | pending |
+| CS-9f8067f090 | LOW | claude-security | Incorrect Calculation | `crates/dbine-core` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.2.1 | 2026-10-28 | b8db8ed2..5f114c79 (v1.2.0..release 1.2.1) | 2 open | — |
+| claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 4 open | — |
 | codeql | 2026-10-29 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-10-29 | every lockfile (Cargo, npm) at [`3a91fa252`](https://github.com/addlayer-io/dbine/commit/3a91fa252f29) | 5 open | — |
 | scorecard | 2026-10-29 | repository settings and workflows at [`1925d72d9`](https://github.com/addlayer-io/dbine/commit/1925d72d9e21) | score 5.6/10 | — |
