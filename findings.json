@@ -1,24 +1,34 @@
 {
   "scans": [
     {
-      "source": "osv",
+      "source": "claude-security",
+      "release": "v1.2.1",
+      "scan_id": "53a651af-f280-4a28-864d-4bea6015a987",
       "date": "2026-10-28",
       "revision": "5f114c7917c0",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 1
+    },
+    {
+      "source": "osv",
+      "date": "2026-10-29",
+      "revision": "1925d72d9e21",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 5
+      "found": 6
     },
     {
       "source": "trivy",
-      "date": "2026-10-28",
-      "revision": "5f114c7917c0",
+      "date": "2026-10-29",
+      "revision": "1925d72d9e21",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-10-28",
+      "date": "2026-10-29",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -31,16 +41,6 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.2.1",
-      "scan_id": "53a651af-f280-4a28-864d-4bea6015a987",
-      "date": "2026-10-28",
-      "revision": "5f114c7917c0",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 1
     }
   ],
   "findings": [
@@ -3898,6 +3898,18 @@
       "dismissed": "2026-10-21",
       "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/lib.rs:1357 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai",
       "by": "mpanichella"
+    },
+    {
+      "id": "OSV-GHSA-m665-v7pm-7grj-zip-13ee4b",
+      "source": "osv",
+      "severity": "CRITICAL",
+      "kind": "Vulnerable dependency",
+      "title": "zip 8.6.0: zip: Critical Parser Differential & Security Control Bypass via Dual-Header Inconsistencies (Zip Cloaking) Leading to Arbitrary File Overwrite & RCE",
+      "component": "Cargo.lock",
+      "advisory": "GHSA-m665-v7pm-7grj",
+      "fixed_version": "9.0.5",
+      "found": "2026-10-29",
+      "status": "open"
     },
     {
       "id": "OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b",
