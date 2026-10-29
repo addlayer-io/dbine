@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-10-29",
-      "revision": "e9489c9ef0e3",
+      "revision": "74cafb6b1669",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-10-29",
-      "revision": "e9489c9ef0e3",
+      "revision": "74cafb6b1669",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -37,10 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-10-29",
-      "revision": "3a91fa252f29",
+      "revision": "74cafb6b1669",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.7
+      "score": 5.8
     }
   ],
   "findings": [
@@ -3994,7 +3994,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 1/10 — 9 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 3/10 — 7 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
