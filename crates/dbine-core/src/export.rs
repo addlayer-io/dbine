@@ -307,7 +307,7 @@ impl Exporter {
             Format::Xlsx => {
                 let mut wb = rust_xlsxwriter::Workbook::new();
                 let bold = rust_xlsxwriter::Format::new().set_bold();
-                let ws = wb.add_worksheet_with_constant_memory();
+                let ws = wb.add_worksheet_with_constant_memory().map_err(xlsx_err)?;
                 let sheet: String = o
                     .sheet
                     .chars()
