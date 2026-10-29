@@ -660,9 +660,12 @@ async fn notebook_step_saves_exports_and_mails_the_report() {
     );
 }
 
-/// A task whose first step takes a while (a slow SQLite count), then runs
-/// the notebook at `path`. While the first step runs, `path` becomes a
-/// notebook that deletes every sale; returns the run and the sales left.
+/// A task with two slow steps (SQLite counts), then the notebook at `path`.
+/// Once the first slow step has finished (the run's saved state says so,
+/// so the approval check is long done) and while the second one runs,
+/// `path` becomes a notebook that deletes every sale: a signal, not a
+/// timer, so a slow start (the keychain read before the check) can't make
+/// the swap land before the check. Returns the run and the sales left.
 async fn swap_while_running(
     w: &World,
     path: &Path,
@@ -672,6 +675,12 @@ async fn swap_while_running(
     let mut t = task(vec![
         Step {
             id: "lento".into(),
+            kind: kinds::RUN_SCRIPT.into(),
+            config: json!({"connection_id": "sq", "database": "", "sql": slow}),
+            ..Default::default()
+        },
+        Step {
+            id: "lento2".into(),
             kind: kinds::RUN_SCRIPT.into(),
             config: json!({"connection_id": "sq", "database": "", "sql": slow}),
             ..Default::default()
@@ -688,8 +697,22 @@ async fn swap_while_running(
     }
     let swap = {
         let path = path.to_path_buf();
+        let state = w.state.clone();
+        let task_id = t.id.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            // Wait (up to a minute) for the first slow step to be recorded.
+            for _ in 0..6000 {
+                let first_done = state
+                    .store
+                    .list_task_runs(Some(&task_id), 1)
+                    .ok()
+                    .and_then(|r| r.into_iter().next())
+                    .is_some_and(|r| !r.steps.is_empty());
+                if first_done {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
             write_nb(
                 &path,
                 vec![cell("c9", "borrar", on("Ventas"), "DELETE FROM ventas")],
@@ -726,8 +749,8 @@ async fn notebook_step_runs_the_notebook_its_approval_was_checked_on() {
     );
     let (tr, left) = swap_while_running(&w, &path, false).await;
     assert_eq!(left, 3, "{tr:#?}");
-    assert_eq!(tr.steps.len(), 2, "{tr:#?}");
-    assert_eq!(tr.steps[1].status, RunStatus::Ok, "{tr:#?}");
+    assert_eq!(tr.steps.len(), 3, "{tr:#?}");
+    assert_eq!(tr.steps[2].status, RunStatus::Ok, "{tr:#?}");
 
     // An approved delete of one row, swapped for one that deletes them all.
     let w = world("swap2", vec![]);
@@ -743,7 +766,7 @@ async fn notebook_step_runs_the_notebook_its_approval_was_checked_on() {
     );
     let (tr, left) = swap_while_running(&w, &path, true).await;
     assert_eq!(left, 2, "{tr:#?}");
-    assert_eq!(tr.steps[1].status, RunStatus::Ok, "{tr:#?}");
+    assert_eq!(tr.steps[2].status, RunStatus::Ok, "{tr:#?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -755,8 +778,8 @@ async fn notebook_step_unreadable_at_the_check_runs_nothing() {
     std::fs::write(&path, "{ not json").unwrap();
     let (tr, left) = swap_while_running(&w, &path, false).await;
     assert_eq!(left, 3, "{tr:#?}");
-    assert_eq!(tr.steps.len(), 2, "{tr:#?}");
-    assert_eq!(tr.steps[1].status, RunStatus::Failed, "{tr:#?}");
+    assert_eq!(tr.steps.len(), 3, "{tr:#?}");
+    assert_eq!(tr.steps[2].status, RunStatus::Failed, "{tr:#?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

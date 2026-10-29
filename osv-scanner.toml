@@ -61,3 +61,8 @@ reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names 
 [[IgnoredVulns]]
 id = "RUSTSEC-2023-0071"
 reason = "Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations."
+
+# block-buffer 0.10.4, through digest 0.10 (sha2, hmac, pbkdf2, sha1, blake2).
+[[IgnoredVulns]]
+id = "GHSA-qwgh-2vcv-g2f7"
+reason = "Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to."

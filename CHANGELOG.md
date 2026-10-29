@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixes
+- **SAP HANA on Linux, security:** cancelling a query no longer reads the folder of trusted certificates after the session has removed it, a moment another user of the same computer could have used to plant their own certificate authority.
+- **Security, dependencies:** `ctutils` and `crypto-bigint` are updated past their constant-time fixes.
 - **Excel export of very long text:** a cell longer than Excel's limit is cut to fit again when it holds characters such as emoji, instead of stopping the export.
 - **Trino and Presto, security:** copying or exporting data from a table whose column type is nested deeper than any real schema can no longer crash DBine; the depth limit added in 1.2.2 now covers that path too.
 

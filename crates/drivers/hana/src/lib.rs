@@ -591,7 +591,7 @@ impl Driver for HanaDriver {
             id: conn.id().await,
             conn,
             params,
-            _trust_store: trust_store,
+            trust_store: trust_store.map(Arc::new),
             schema,
             profiler: None,
             dirty: false,
@@ -616,7 +616,9 @@ struct HanaSession {
     /// For the interrupter's side connection.
     params: ConnectParams,
     /// The trustStore folder `params` names, kept while the session lives.
-    _trust_store: Option<TempDir>,
+    /// Shared with the interrupter: its side connection reads the folder
+    /// after the session may be gone, so the folder lives while either does.
+    trust_store: Option<Arc<TempDir>>,
     /// Server connection id, to cancel from another session.
     id: u32,
     schema: String,
@@ -1086,11 +1088,15 @@ impl Session for HanaSession {
         // user's session; one's own may need it too, depending on version).
         let handle = tokio::runtime::Handle::try_current().ok()?;
         let params = self.params.clone();
+        let trust_store = self.trust_store.clone();
         let sql = format!("ALTER SYSTEM CANCEL SESSION '{}'", self.id);
         Some(Arc::new(move || {
             let params = params.clone();
             let sql = sql.clone();
+            // Held until the cancel connection is done with the folder.
+            let trust_store = trust_store.clone();
             handle.spawn(async move {
+                let _trust_store = trust_store;
                 let r = async { Connection::new(params).await?.exec(sql).await }.await;
                 if let Err(e) = r {
                     tracing::warn!("hana: no se pudo cancelar la sentencia: {}", message(&e));
