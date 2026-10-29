@@ -1,6 +1,12 @@
 # Zmiany
 
 
+## [1.2.2] - 2026-10-28
+
+### Poprawki
+- **Bezpieczeństwo: naprawiono krytyczną lukę w obsłudze ZIP.** 28 października opublikowano krytyczną lukę w `zip`, bibliotece, której DBine używa do odczytu i zapisu plików opartych na ZIP: importu i eksportu Excela oraz pobierania wbudowanego modelu asystenta AI ([GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj)). Specjalnie spreparowane archiwum mogło pokazywać różną zawartość w zależności od sposobu odczytu. Ta wersja przenosi wszystkie części DBine na naprawioną bibliotekę; ukazuje się kilka godzin po 1.2.1 wyłącznie z tego powodu, dlatego zalecamy aktualizację.
+- **Trino i Presto, bezpieczeństwo:** typ kolumny zagnieżdżony głębiej niż w jakimkolwiek prawdziwym schemacie (jak mógłby wysłać złośliwy serwer) jest wyświetlany w takiej postaci, w jakiej dotarł, zamiast być analizowany poziom po poziomie, więc nie może już zawiesić DBine.
+
 ## [1.2.1] - 2026-10-28
 
 ### Poprawki

@@ -1,6 +1,12 @@
 # Perubahan
 
 
+## [1.2.2] - 2026-10-28
+
+### Perbaikan
+- **Keamanan: kerentanan kritis pada penanganan ZIP telah diperbaiki.** Pada 28 Oktober, kerentanan kritis dipublikasikan pada `zip`, pustaka yang digunakan DBine untuk membaca dan menulis file berbasis ZIP: impor dan ekspor Excel, serta pengunduhan model bawaan asisten AI ([GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj)). Arsip yang dirancang khusus dapat menampilkan isi yang berbeda tergantung cara pembacaannya. Versi ini memindahkan seluruh bagian DBine ke pustaka yang sudah diperbaiki; versi ini dirilis beberapa jam setelah 1.2.1 hanya karena alasan itu, sehingga pembaruan sangat disarankan.
+- **Trino dan Presto, keamanan:** tipe kolom yang bersarang lebih dalam daripada skema nyata mana pun (seperti yang bisa dikirim server berbahaya) ditampilkan apa adanya, tidak lagi diurai tingkat demi tingkat, sehingga tidak dapat lagi membuat DBine crash.
+
 ## [1.2.1] - 2026-10-28
 
 ### Perbaikan

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-28
+
 ### Fixes
 - **Security: critical vulnerability in ZIP handling fixed.** On October 28 a critical vulnerability was published in `zip`, the library DBine uses to read and write ZIP-based files: Excel imports and exports, and the download of the AI assistant's built-in model ([GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj)). A specially crafted archive could show different contents depending on how it was read. This version moves every part of DBine to the fixed library; it ships a few hours after 1.2.1 for that reason alone, so updating is recommended.
 - **Trino and Presto, security:** a column type nested deeper than any real schema (as a malicious server could send) is shown as it came instead of being parsed level by level, so it can no longer crash DBine.

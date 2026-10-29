@@ -1,5 +1,11 @@
 # Änderungen
 
+## [1.2.2] - 2026-10-28
+
+### Korrekturen
+- **Sicherheit: kritische Schwachstelle bei der ZIP-Verarbeitung behoben.** Am 28. Oktober wurde eine kritische Schwachstelle in `zip` veröffentlicht, der Bibliothek, die DBine zum Lesen und Schreiben ZIP-basierter Dateien nutzt: Excel-Importe und -Exporte sowie der Download des integrierten Modells des KI-Assistenten ([GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj)). Ein gezielt manipuliertes Archiv konnte je nach Art des Lesens unterschiedliche Inhalte anzeigen. Diese Version stellt alle Teile von DBine auf die korrigierte Bibliothek um; sie erscheint nur aus diesem Grund wenige Stunden nach 1.2.1, daher empfehlen wir die Aktualisierung.
+- **Trino und Presto, Sicherheit:** Ein Spaltentyp, der tiefer verschachtelt ist als jedes reale Schema (wie ihn ein bösartiger Server senden könnte), wird so angezeigt, wie er eingetroffen ist, statt Ebene für Ebene analysiert zu werden, und kann DBine daher nicht mehr zum Absturz bringen.
+
 ## [1.2.1] - 2026-10-28
 
 ### Korrekturen

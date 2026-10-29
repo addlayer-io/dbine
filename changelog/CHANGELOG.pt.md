@@ -1,5 +1,11 @@
 # Alterações
 
+## [1.2.2] - 2026-10-28
+
+### Correções
+- **Segurança: vulnerabilidade crítica no tratamento de ZIP corrigida.** Em 28 de outubro foi publicada uma vulnerabilidade crítica no `zip`, a biblioteca que o DBine usa para ler e gravar arquivos baseados em ZIP: importações e exportações do Excel e o download do modelo integrado do assistente de IA ([GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj)). Um arquivo especialmente manipulado podia exibir conteúdos diferentes dependendo de como era lido. Esta versão move todas as partes do DBine para a biblioteca corrigida; ela sai algumas horas depois da 1.2.1 só por esse motivo, por isso recomendamos atualizar.
+- **Trino e Presto, segurança:** um tipo de coluna aninhado em uma profundidade maior que a de qualquer esquema real (como um servidor malicioso poderia enviar) é exibido como chegou, em vez de ser analisado nível por nível, e assim não pode mais derrubar o DBine.
+
 ## [1.2.1] - 2026-10-28
 
 ### Correções

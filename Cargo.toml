@@ -3,7 +3,7 @@ members = ["crates/dbine-driver", "crates/dbine-tls", "crates/dbine-core", "crat
 resolver = "2"
 
 [workspace.package]
-version = "1.2.1"
+version = "1.2.2"
 edition = "2021"
 license = "Apache-2.0"
 
