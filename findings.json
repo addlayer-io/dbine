@@ -1,17 +1,27 @@
 {
   "scans": [
     {
-      "source": "osv",
+      "source": "claude-security",
+      "release": "v1.2.2",
+      "scan_id": "6ed76070-69cb-450c-82df-b02b516be1f7",
       "date": "2026-10-29",
       "revision": "3a91fa252f29",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 2
+    },
+    {
+      "source": "osv",
+      "date": "2026-10-29",
+      "revision": "e9489c9ef0e3",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 5
+      "found": 0
     },
     {
       "source": "trivy",
       "date": "2026-10-29",
-      "revision": "3a91fa252f29",
+      "revision": "e9489c9ef0e3",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -27,20 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-10-29",
-      "revision": "1925d72d9e21",
+      "revision": "3a91fa252f29",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.6
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.2.2",
-      "scan_id": "6ed76070-69cb-450c-82df-b02b516be1f7",
-      "date": "2026-10-29",
-      "revision": "3a91fa252f29",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 2
+      "score": 5.7
     }
   ],
   "findings": [
@@ -3880,66 +3880,6 @@
       "by": "mpanichella"
     },
     {
-      "id": "OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position",
-      "component": "Cargo.lock",
-      "advisory": "GHSA-qwgh-2vcv-g2f7",
-      "fixed_version": null,
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position",
-      "component": "mobile/src-tauri/Cargo.lock",
-      "advisory": "GHSA-qwgh-2vcv-g2f7",
-      "fixed_version": null,
-      "found": "2026-10-27",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0385-ctutils-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0385",
-      "fixed_version": "0.4.4",
-      "found": "2026-10-26",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0385-ctutils-9761a8",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons",
-      "component": "mobile/src-tauri/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0385",
-      "fixed_version": "0.4.4",
-      "found": "2026-10-26",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0387",
-      "fixed_version": "0.7.6",
-      "found": "2026-10-26",
-      "status": "open"
-    },
-    {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4054,7 +3994,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 0/10 — 10 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 1/10 — 9 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",

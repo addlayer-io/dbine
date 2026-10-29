@@ -9,19 +9,13 @@ _Updated 2026-10-29._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-13ee4b | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `Cargo.lock` | pending |
-| OSV-GHSA-qwgh-2vcv-g2f7-block-buffer-9761a8 | MEDIUM | osv | block-buffer 0.10.4: block_buffer: panic corrupts inline buffer position | `mobile/src-tauri/Cargo.lock` | pending |
-| OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
-| OSV-RUSTSEC-2026-0385-ctutils-9761a8 | MEDIUM | osv | ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons | `mobile/src-tauri/Cargo.lock` | upgrade to 0.4.4 |
-| OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b | MEDIUM | osv | crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time | `Cargo.lock` | upgrade to 0.7.6 |
+_None._
 
 ## What the last scans covered
 
@@ -29,9 +23,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-10-29 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-29 | every lockfile (Cargo, npm) at [`3a91fa252`](https://github.com/addlayer-io/dbine/commit/3a91fa252f29) | 5 open | — |
-| scorecard | 2026-10-29 | repository settings and workflows at [`1925d72d9`](https://github.com/addlayer-io/dbine/commit/1925d72d9e21) | score 5.6/10 | — |
-| trivy | 2026-10-29 | whole repository at [`3a91fa252`](https://github.com/addlayer-io/dbine/commit/3a91fa252f29) | 0 open | — |
+| osv | 2026-10-29 | every lockfile (Cargo, npm) at [`e9489c9ef`](https://github.com/addlayer-io/dbine/commit/e9489c9ef0e3) | 0 open | — |
+| scorecard | 2026-10-29 | repository settings and workflows at [`3a91fa252`](https://github.com/addlayer-io/dbine/commit/3a91fa252f29) | score 5.7/10 | — |
+| trivy | 2026-10-29 | whole repository at [`e9489c9ef`](https://github.com/addlayer-io/dbine/commit/e9489c9ef0e3) | 0 open | — |
 
 ## Not counted, and why
 
@@ -354,7 +348,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.6/10** (2026-10-29). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.7/10** (2026-10-29). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -363,7 +357,7 @@ OpenSSF Scorecard: **5.6/10** (2026-10-29). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 0/10 — 10 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| Vulnerabilities: 1/10 — 9 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
