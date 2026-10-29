@@ -2,13 +2,13 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-10-28._
+_Updated 2026-10-29._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
-| claude-security (source-code review) | 0 | 0 | 0 | 4 |
+| claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 5 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
@@ -22,16 +22,12 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | OSV-RUSTSEC-2026-0385-ctutils-13ee4b | MEDIUM | osv | ctutils 0.4.2: Non-constant-time mask generation and `u128` comparisons | `Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0385-ctutils-9761a8 | MEDIUM | osv | ctutils 0.4.3: Non-constant-time mask generation and `u128` comparisons | `mobile/src-tauri/Cargo.lock` | upgrade to 0.4.4 |
 | OSV-RUSTSEC-2026-0387-crypto-bigint-13ee4b | MEDIUM | osv | crypto-bigint 0.7.5: Multiple timing variability issues in operations intended to be constant-time | `Cargo.lock` | upgrade to 0.7.6 |
-| CS-051e1c07d1 | LOW | claude-security | Uncontrolled Recursion | `crates/drivers/trino` | pending |
-| CS-3edce89e04 | LOW | claude-security | Operation on a Resource after Expiration or Release | `crates/drivers/hana` | pending |
-| CS-9b9f60a30a | LOW | claude-security | Uncontrolled Recursion | `crates/drivers/trino` | pending |
-| CS-9f8067f090 | LOW | claude-security | Incorrect Calculation | `crates/dbine-core` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 4 open | — |
+| claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-10-29 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-10-29 | every lockfile (Cargo, npm) at [`3a91fa252`](https://github.com/addlayer-io/dbine/commit/3a91fa252f29) | 5 open | — |
 | scorecard | 2026-10-29 | repository settings and workflows at [`1925d72d9`](https://github.com/addlayer-io/dbine/commit/1925d72d9e21) | score 5.6/10 | — |
@@ -348,6 +344,7 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | Advisory RUSTSEC-2025-0075, RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100 | `dependencies` | Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency). | osv-scanner.toml |
 | Advisory RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372 | `dependencies` | Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack). | osv-scanner.toml |
 | Advisory RUSTSEC-2023-0071 | `dependencies` | Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations. | osv-scanner.toml |
+| Advisory GHSA-qwgh-2vcv-g2f7 | `dependencies` | Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to. | osv-scanner.toml |
 
 ## Maintenance notices
 

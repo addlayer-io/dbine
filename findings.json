@@ -45,46 +45,6 @@
   ],
   "findings": [
     {
-      "id": "CS-051e1c07d1",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Uncontrolled Recursion",
-      "cwe": "CWE-674",
-      "component": "crates/drivers/trino",
-      "found": "2026-10-29",
-      "status": "open"
-    },
-    {
-      "id": "CS-3edce89e04",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Operation on a Resource after Expiration or Release",
-      "cwe": "CWE-672",
-      "component": "crates/drivers/hana",
-      "found": "2026-10-28",
-      "status": "open"
-    },
-    {
-      "id": "CS-9b9f60a30a",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Uncontrolled Recursion",
-      "cwe": "CWE-674",
-      "component": "crates/drivers/trino",
-      "found": "2026-10-28",
-      "status": "open"
-    },
-    {
-      "id": "CS-9f8067f090",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Incorrect Calculation",
-      "cwe": "CWE-135",
-      "component": "crates/dbine-core",
-      "found": "2026-10-29",
-      "status": "open"
-    },
-    {
       "id": "CQ-100",
       "source": "codeql",
       "severity": "HIGH",
