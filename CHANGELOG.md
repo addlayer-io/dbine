@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+- **Excel export of very long text:** a cell longer than Excel's limit is cut to fit again when it holds characters such as emoji, instead of stopping the export.
+- **Trino and Presto, security:** copying or exporting data from a table whose column type is nested deeper than any real schema can no longer crash DBine; the depth limit added in 1.2.2 now covers that path too.
+
 ## [1.2.2] - 2026-10-28
 
 ### Fixes

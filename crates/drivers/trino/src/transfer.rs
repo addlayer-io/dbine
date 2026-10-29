@@ -173,27 +173,52 @@ fn split_top(s: &str) -> Vec<&str> {
 
 /// A type as `information_schema` / `typeof` spell it: `array(T)`,
 /// `map(K, V)`, `row("a" T, b U)` / `row(T, U)`, or a leaf.
+/// The type comes from the server: past these limits (beyond any real
+/// schema) it is a leaf, not parsed level by level (as in `structured`).
+const MAX_DEPTH: usize = 32;
+const MAX_TYPE_LEN: usize = 64 * 1024;
+
 pub(crate) fn parse_ty(ty: &str) -> Ty {
+    if ty.len() > MAX_TYPE_LEN {
+        return Ty::Leaf(String::new());
+    }
+    parse_ty_at(ty, 0)
+}
+
+fn parse_ty_at(ty: &str, depth: usize) -> Ty {
     let t = ty.trim();
-    let lower = t.to_ascii_lowercase();
-    let inner =
-        |p: &str| (lower.starts_with(p) && t.ends_with(')')).then(|| &t[p.len()..t.len() - 1]);
+    if depth > MAX_DEPTH {
+        return Ty::Leaf(t.to_string());
+    }
+    // Only the prefix is compared, without copying the rest at each level.
+    let inner = |p: &str| {
+        (t.len() > p.len() && t[..p.len()].eq_ignore_ascii_case(p) && t.ends_with(')'))
+            .then(|| &t[p.len()..t.len() - 1])
+    };
     if let Some(e) = inner("array(") {
-        return Ty::Array(Box::new(parse_ty(e)));
+        return Ty::Array(Box::new(parse_ty_at(e, depth + 1)));
     }
     if let Some(kv) = inner("map(") {
         if let [k, v] = split_top(kv)[..] {
-            return Ty::Map(Box::new(parse_ty(k)), Box::new(parse_ty(v)));
+            return Ty::Map(
+                Box::new(parse_ty_at(k, depth + 1)),
+                Box::new(parse_ty_at(v, depth + 1)),
+            );
         }
     }
     if let Some(fs) = inner("row(") {
-        return Ty::Row(split_top(fs).into_iter().map(row_field).collect());
+        return Ty::Row(
+            split_top(fs)
+                .into_iter()
+                .map(|f| row_field(f, depth + 1))
+                .collect(),
+        );
     }
     Ty::Leaf(t.to_string())
 }
 
 /// `"name" type`, `name type` or just `type`.
-fn row_field(f: &str) -> (Option<String>, Ty) {
+fn row_field(f: &str, depth: usize) -> (Option<String>, Ty) {
     if let Some(rest) = f.strip_prefix('"') {
         let (mut name, mut chars) = (String::new(), rest.char_indices().peekable());
         while let Some((i, ch)) = chars.next() {
@@ -203,7 +228,7 @@ fn row_field(f: &str) -> (Option<String>, Ty) {
                     name.push('"');
                     continue;
                 }
-                return (Some(name), parse_ty(&rest[i + 1..]));
+                return (Some(name), parse_ty_at(&rest[i + 1..], depth));
             }
             name.push(ch);
         }
@@ -212,9 +237,9 @@ fn row_field(f: &str) -> (Option<String>, Ty) {
     // (`timestamp(3) with time zone`, `array(integer)`, `ipaddress`).
     match f.split_once(char::is_whitespace) {
         Some((name, ty)) if kind(f) == Kind::Other && !name.contains('(') => {
-            (Some(name.to_string()), parse_ty(ty))
+            (Some(name.to_string()), parse_ty_at(ty, depth))
         }
-        _ => (None, parse_ty(f)),
+        _ => (None, parse_ty_at(f, depth)),
     }
 }
 
@@ -1670,6 +1695,20 @@ fn joined(j: Option<std::result::Result<Result<u64>, tokio::task::JoinError>>) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_server_types_are_bounded() {
+        let deep = format!("{}integer{}", "array(".repeat(20_000), ")".repeat(20_000));
+        // Returns (no stack overflow) and stops nesting at the cap.
+        let mut ty = parse_ty(&deep);
+        let mut levels = 0;
+        while let Ty::Array(inner) = ty {
+            ty = *inner;
+            levels += 1;
+        }
+        assert!(levels <= MAX_DEPTH + 1, "{levels}");
+        assert!(matches!(parse_ty("ARRAY(integer)"), Ty::Array(_)));
+    }
     use serde_json::json;
 
     fn lit_ok(c: &Cell, ty: &str) -> String {

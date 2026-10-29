@@ -466,12 +466,8 @@ impl Exporter {
                                     }
                                     _ => {
                                         let t = text(other).unwrap_or_default();
-                                        ws.write_string(
-                                            row,
-                                            col,
-                                            t.chars().take(32_767).collect::<String>(),
-                                        )
-                                        .map_err(xlsx_err)?;
+                                        ws.write_string(row, col, xlsx_cell_text(&t))
+                                            .map_err(xlsx_err)?;
                                     }
                                 }
                             }
@@ -896,9 +892,29 @@ pub fn export_rows(
     e.finish()
 }
 
+/// Excel's cell limit is 32,767 UTF-16 units (rust_xlsxwriter checks it
+/// that way): longer text is cut there, never failing the export.
+fn xlsx_cell_text(t: &str) -> String {
+    let mut units = 0;
+    t.chars()
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= 32_767
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xlsx_cells_are_cut_in_utf16_units() {
+        let emoji = "😀".repeat(20_000);
+        let cut = xlsx_cell_text(&emoji);
+        assert!(cut.encode_utf16().count() <= 32_767);
+        assert_eq!(xlsx_cell_text("abc"), "abc");
+    }
     use serde_json::json;
 
     fn cols() -> Vec<ResultColumn> {
