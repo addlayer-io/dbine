@@ -1,6 +1,23 @@
 # Zmiany
 
 
+## [1.3.0] - 2026-10-30
+
+### Nowości
+- **Profile tunelu SSH:** zapisz tunel SSH (serwer, bastiony, użytkownika i uwierzytelnianie) raz jako profil w Ustawieniach i wybieraj go w dowolnym połączeniu; każde połączenie zachowuje własny serwer bazy danych. Zmiany w profilu obejmują wszystkie korzystające z niego połączenia przy następnym połączeniu, bieżący tunel połączenia można zapisać jako profil, a sekrety profilu pozostają w systemowym łańcuchu kluczy.
+- **Kolumny tabeli po najechaniu kursorem:** po zatrzymaniu wskaźnika na nazwie tabeli w edytorze SQL wyświetlane są jej kolumny z typem, informacją o dopuszczaniu wartości null, kluczem głównym i komentarzem każdej kolumny, dla wszystkich silników.
+
+### Ulepszenia
+- **Asystent AI z Claude Code i Codex:** gdy pytasz o inną bazę danych tego samego połączenia, asystent odczytuje jej tabele i kolumny bez przełączania bazy danych karty. Te modele nadal nigdy nie otrzymują wierszy tabel.
+
+### Poprawki
+- **SAP HANA w systemie Linux, bezpieczeństwo:** anulowanie zapytania nie odczytuje już folderu zaufanych certyfikatów po tym, jak sesja go usunęła; w tej chwili inny użytkownik tego samego komputera mógł podłożyć własny urząd certyfikacji.
+- **Bezpieczeństwo, zależności:** `ctutils` i `crypto-bigint` zostały zaktualizowane do wersji wykraczających poza ich poprawki dotyczące stałego czasu działania.
+- **Eksport bardzo długiego tekstu do Excela:** komórka dłuższa niż limit Excela jest ponownie przycinana, aby się zmieściła, gdy zawiera znaki takie jak emoji, zamiast przerywać eksport.
+- **Trino i Presto, bezpieczeństwo:** kopiowanie lub eksport danych z tabeli, której typ kolumny jest zagnieżdżony głębiej niż w jakimkolwiek rzeczywistym schemacie, nie może już zawiesić DBine; limit głębokości dodany w 1.2.2 obejmuje teraz także tę ścieżkę.
+
+Podziękowania dla [@dylanwu](https://github.com/dylanwu), którego szczegółowe zgłoszenia doprowadziły do powstania trzech nowych funkcji w tej wersji.
+
 ## [1.2.2] - 2026-10-28
 
 ### Poprawki

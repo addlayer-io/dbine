@@ -1,5 +1,22 @@
 # Cambios
 
+## [1.3.0] - 2026-10-30
+
+### Nuevo
+- **Perfiles de túnel SSH:** guardá un túnel SSH (servidor, bastiones, usuario y autenticación) una sola vez como perfil en Ajustes y elegilo en cualquier conexión; cada conexión mantiene su propio servidor de base de datos. Editar el perfil se aplica a todas las conexiones que lo usan en su próxima conexión, el túnel actual de una conexión se puede guardar como perfil y los secretos del perfil quedan en el llavero del sistema.
+- **Columnas de la tabla al pasar el cursor:** al dejar el puntero sobre el nombre de una tabla en el editor SQL se muestran sus columnas con el tipo, si admiten nulos, la clave primaria y el comentario de cada columna, en todos los motores.
+
+### Mejoras
+- **Asistente de IA con Claude Code y Codex:** cuando preguntás por otra base de datos de la misma conexión, el asistente lee sus tablas y columnas sin cambiar la base de datos de la pestaña. Estos modelos siguen sin recibir nunca filas de las tablas.
+
+### Correcciones
+- **SAP HANA en Linux, seguridad:** cancelar una consulta ya no lee la carpeta de certificados de confianza después de que la sesión la eliminó, un momento que otro usuario del mismo equipo podría haber aprovechado para colocar su propia autoridad certificadora.
+- **Seguridad, dependencias:** `ctutils` y `crypto-bigint` se actualizaron más allá de sus correcciones de tiempo constante.
+- **Exportación a Excel de textos muy largos:** una celda más larga que el límite de Excel vuelve a recortarse para que entre cuando contiene caracteres como emojis, en lugar de detener la exportación.
+- **Trino y Presto, seguridad:** copiar o exportar datos de una tabla cuyo tipo de columna está anidado más profundo de lo que llega cualquier esquema real ya no puede hacer caer DBine; el límite de profundidad agregado en 1.2.2 ahora cubre también ese camino.
+
+Gracias a [@dylanwu](https://github.com/dylanwu), cuyos informes detallados dieron origen a las tres funciones nuevas de esta versión.
+
 ## [1.2.2] - 2026-10-28
 
 ### Correcciones

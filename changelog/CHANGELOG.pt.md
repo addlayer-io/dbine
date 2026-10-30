@@ -1,5 +1,22 @@
 # Alterações
 
+## [1.3.0] - 2026-10-30
+
+### Novidades
+- **Perfis de túnel SSH:** salve um túnel SSH (servidor, bastiões, usuário e autenticação) uma única vez como perfil em Configurações e escolha-o em qualquer conexão; cada conexão mantém seu próprio servidor de banco de dados. Editar o perfil vale para todas as conexões que o usam na próxima vez que se conectarem, o túnel atual de uma conexão pode ser salvo como perfil e os segredos do perfil ficam no chaveiro do sistema.
+- **Colunas da tabela ao passar o cursor:** ao deixar o ponteiro sobre o nome de uma tabela no editor SQL, são exibidas suas colunas com o tipo, se aceitam nulos, a chave primária e o comentário de cada coluna, em todos os mecanismos.
+
+### Melhorias
+- **Assistente de IA com Claude Code e Codex:** quando você pergunta sobre outro banco de dados da mesma conexão, o assistente lê suas tabelas e colunas sem trocar o banco de dados da aba. Esses modelos continuam sem receber linhas das tabelas.
+
+### Correções
+- **SAP HANA no Linux, segurança:** cancelar uma consulta não lê mais a pasta de certificados confiáveis depois que a sessão a removeu, um momento que outro usuário do mesmo computador poderia ter aproveitado para plantar sua própria autoridade certificadora.
+- **Segurança, dependências:** `ctutils` e `crypto-bigint` foram atualizados além de suas correções de tempo constante.
+- **Exportação para Excel de textos muito longos:** uma célula maior que o limite do Excel volta a ser cortada para caber quando contém caracteres como emojis, em vez de interromper a exportação.
+- **Trino e Presto, segurança:** copiar ou exportar dados de uma tabela cujo tipo de coluna está aninhado mais fundo do que qualquer esquema real não pode mais derrubar o DBine; o limite de profundidade adicionado na 1.2.2 agora cobre também esse caminho.
+
+Agradecimentos a [@dylanwu](https://github.com/dylanwu), cujos relatórios detalhados deram origem aos três novos recursos desta versão.
+
 ## [1.2.2] - 2026-10-28
 
 ### Correções

@@ -1,5 +1,22 @@
 # Modifications
 
+## [1.3.0] - 2026-10-30
+
+### Nouveautés
+- **Profils de tunnel SSH :** enregistrez une fois un tunnel SSH (serveur, bastions, utilisateur et authentification) comme profil dans les Paramètres et choisissez-le dans n'importe quelle connexion ; chaque connexion garde son propre serveur de base de données. Modifier le profil s'applique à toutes les connexions qui l'utilisent à leur prochaine connexion, le tunnel actuel d'une connexion peut être enregistré comme profil et les secrets du profil restent dans le trousseau du système.
+- **Colonnes de la table au survol :** laisser le pointeur sur le nom d'une table dans l'éditeur SQL affiche ses colonnes avec leur type, leur nullabilité, la clé primaire et le commentaire de chaque colonne, pour tous les moteurs.
+
+### Améliorations
+- **Assistant IA avec Claude Code et Codex :** lorsque vous posez une question sur une autre base de données de la même connexion, l'assistant lit ses tables et ses colonnes sans changer la base de données de l'onglet. Ces modèles ne reçoivent toujours jamais de lignes de tables.
+
+### Corrections
+- **SAP HANA sous Linux, sécurité :** annuler une requête ne lit plus le dossier des certificats de confiance après que la session l'a supprimé, un moment qu'un autre utilisateur du même ordinateur aurait pu exploiter pour y placer sa propre autorité de certification.
+- **Sécurité, dépendances :** `ctutils` et `crypto-bigint` sont mis à jour au-delà de leurs correctifs de temps constant.
+- **Export Excel de textes très longs :** une cellule plus longue que la limite d'Excel est de nouveau tronquée pour tenir lorsqu'elle contient des caractères tels que des emojis, au lieu d'interrompre l'export.
+- **Trino et Presto, sécurité :** copier ou exporter des données d'une table dont le type de colonne est imbriqué plus profondément que n'importe quel schéma réel ne peut plus faire planter DBine ; la limite de profondeur ajoutée dans la 1.2.2 couvre désormais aussi ce chemin.
+
+Merci à [@dylanwu](https://github.com/dylanwu), dont les rapports détaillés ont donné lieu aux trois nouvelles fonctionnalités de cette version.
+
 ## [1.2.2] - 2026-10-28
 
 ### Corrections

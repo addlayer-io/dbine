@@ -1,6 +1,23 @@
 # Perubahan
 
 
+## [1.3.0] - 2026-10-30
+
+### Baru
+- **Profil terowongan SSH:** simpan terowongan SSH (server, bastion, pengguna, dan autentikasi) sekali saja sebagai profil di Pengaturan, lalu pilih di koneksi mana pun; setiap koneksi tetap memakai server basis datanya sendiri. Perubahan pada profil berlaku untuk semua koneksi yang memakainya saat koneksi berikutnya, terowongan koneksi saat ini dapat disimpan sebagai profil, dan rahasia profil tetap disimpan di keychain sistem.
+- **Kolom tabel saat kursor diarahkan:** menahan penunjuk di atas nama tabel pada editor SQL menampilkan kolomnya beserta tipe, apakah boleh null, kunci primer, dan komentar tiap kolom, untuk semua mesin.
+
+### Peningkatan
+- **Asisten AI dengan Claude Code dan Codex:** saat Anda bertanya tentang basis data lain pada koneksi yang sama, asisten membaca tabel dan kolomnya tanpa mengganti basis data tab. Model-model ini tetap tidak pernah menerima baris tabel.
+
+### Perbaikan
+- **SAP HANA di Linux, keamanan:** membatalkan kueri tidak lagi membaca folder sertifikat tepercaya setelah sesi menghapusnya, saat yang dapat dimanfaatkan pengguna lain di komputer yang sama untuk menanam otoritas sertifikat miliknya sendiri.
+- **Keamanan, dependensi:** `ctutils` dan `crypto-bigint` diperbarui melampaui perbaikan waktu konstan mereka.
+- **Ekspor Excel untuk teks yang sangat panjang:** sel yang lebih panjang dari batas Excel kembali dipotong agar muat saat berisi karakter seperti emoji, alih-alih menghentikan ekspor.
+- **Trino dan Presto, keamanan:** menyalin atau mengekspor data dari tabel dengan tipe kolom yang bersarang lebih dalam daripada skema nyata mana pun tidak lagi dapat membuat DBine mogok; batas kedalaman yang ditambahkan di 1.2.2 kini mencakup jalur ini juga.
+
+Terima kasih kepada [@dylanwu](https://github.com/dylanwu), yang laporan rincinya melahirkan tiga fitur baru dalam versi ini.
+
 ## [1.2.2] - 2026-10-28
 
 ### Perbaikan

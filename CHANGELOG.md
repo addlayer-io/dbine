@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-30
+
 ### New
 - **SSH tunnel profiles:** save an SSH tunnel (server, bastions, user and authentication) once as a profile in Settings and pick it in any connection; each connection keeps its own database server. Editing the profile applies to every connection that uses it on its next connect, a connection's current tunnel can be saved as a profile, and the profile's secrets stay in the system keychain.
 - **Table columns on hover:** resting the pointer on a table's name in the SQL editor shows its columns with their type, whether they allow nulls, the primary key and each column's comment, for every engine.
@@ -14,6 +16,8 @@
 - **Security, dependencies:** `ctutils` and `crypto-bigint` are updated past their constant-time fixes.
 - **Excel export of very long text:** a cell longer than Excel's limit is cut to fit again when it holds characters such as emoji, instead of stopping the export.
 - **Trino and Presto, security:** copying or exporting data from a table whose column type is nested deeper than any real schema can no longer crash DBine; the depth limit added in 1.2.2 now covers that path too.
+
+Thanks to [@dylanwu](https://github.com/dylanwu), whose detailed reports led to the three new features in this release.
 
 ## [1.2.2] - 2026-10-28
 

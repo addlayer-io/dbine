@@ -1,5 +1,22 @@
 # Änderungen
 
+## [1.3.0] - 2026-10-30
+
+### Neu
+- **SSH-Tunnel-Profile:** Speichern Sie einen SSH-Tunnel (Server, Jump-Hosts, Benutzer und Authentifizierung) einmal als Profil in den Einstellungen und wählen Sie ihn in jeder Verbindung aus; jede Verbindung behält ihren eigenen Datenbankserver. Änderungen am Profil gelten für alle Verbindungen, die es verwenden, beim nächsten Verbindungsaufbau; der aktuelle Tunnel einer Verbindung lässt sich als Profil speichern, und die Geheimnisse des Profils bleiben im Schlüsselbund des Systems.
+- **Tabellenspalten beim Darüberfahren:** Hält man den Mauszeiger im SQL-Editor auf einen Tabellennamen, werden die Spalten mit Typ, Null-Zulässigkeit, Primärschlüssel und dem Kommentar jeder Spalte angezeigt, für alle Engines.
+
+### Verbesserungen
+- **KI-Assistent mit Claude Code und Codex:** Wenn Sie nach einer anderen Datenbank derselben Verbindung fragen, liest der Assistent deren Tabellen und Spalten, ohne die Datenbank des Tabs zu wechseln. Diese Modelle erhalten weiterhin nie Tabellenzeilen.
+
+### Korrekturen
+- **SAP HANA unter Linux, Sicherheit:** Das Abbrechen einer Abfrage liest den Ordner mit den vertrauenswürdigen Zertifikaten nicht mehr, nachdem ihn die Sitzung entfernt hat – ein Moment, den ein anderer Benutzer desselben Computers hätte nutzen können, um seine eigene Zertifizierungsstelle einzuschleusen.
+- **Sicherheit, Abhängigkeiten:** `ctutils` und `crypto-bigint` wurden über ihre Korrekturen für konstante Laufzeit hinaus aktualisiert.
+- **Excel-Export sehr langer Texte:** Eine Zelle, die länger als das Excel-Limit ist, wird wieder passend gekürzt, wenn sie Zeichen wie Emojis enthält, statt den Export abzubrechen.
+- **Trino und Presto, Sicherheit:** Das Kopieren oder Exportieren von Daten aus einer Tabelle, deren Spaltentyp tiefer verschachtelt ist, als es ein echtes Schema je ist, kann DBine nicht mehr zum Absturz bringen; die in 1.2.2 hinzugefügte Tiefenbegrenzung deckt nun auch diesen Pfad ab.
+
+Danke an [@dylanwu](https://github.com/dylanwu), dessen ausführliche Berichte zu den drei neuen Funktionen dieser Version geführt haben.
+
 ## [1.2.2] - 2026-10-28
 
 ### Korrekturen

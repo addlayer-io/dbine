@@ -1,5 +1,22 @@
 # Modifiche
 
+## [1.3.0] - 2026-10-30
+
+### Novità
+- **Profili di tunnel SSH:** salva una sola volta un tunnel SSH (server, bastion, utente e autenticazione) come profilo nelle Impostazioni e sceglilo in qualsiasi connessione; ogni connessione mantiene il proprio server di database. Modificare il profilo si applica a tutte le connessioni che lo usano alla loro prossima connessione, il tunnel attuale di una connessione può essere salvato come profilo e i segreti del profilo restano nel portachiavi di sistema.
+- **Colonne della tabella al passaggio del puntatore:** lasciando il puntatore sul nome di una tabella nell'editor SQL vengono mostrate le sue colonne con il tipo, se ammettono valori nulli, la chiave primaria e il commento di ogni colonna, per tutti i motori.
+
+### Miglioramenti
+- **Assistente IA con Claude Code e Codex:** quando chiedi di un altro database della stessa connessione, l'assistente legge le sue tabelle e colonne senza cambiare il database della scheda. Questi modelli continuano a non ricevere mai righe delle tabelle.
+
+### Correzioni
+- **SAP HANA su Linux, sicurezza:** annullare una query non legge più la cartella dei certificati attendibili dopo che la sessione l'ha rimossa, un momento che un altro utente dello stesso computer avrebbe potuto sfruttare per inserire la propria autorità di certificazione.
+- **Sicurezza, dipendenze:** `ctutils` e `crypto-bigint` sono aggiornati oltre le loro correzioni a tempo costante.
+- **Esportazione in Excel di testi molto lunghi:** una cella più lunga del limite di Excel torna a essere troncata per rientrarvi quando contiene caratteri come le emoji, invece di interrompere l'esportazione.
+- **Trino e Presto, sicurezza:** copiare o esportare dati da una tabella il cui tipo di colonna è annidato più in profondità di qualsiasi schema reale non può più far andare in crash DBine; il limite di profondità aggiunto nella 1.2.2 ora copre anche questo percorso.
+
+Grazie a [@dylanwu](https://github.com/dylanwu), le cui segnalazioni dettagliate hanno portato alle tre nuove funzioni di questa versione.
+
 ## [1.2.2] - 2026-10-28
 
 ### Correzioni
