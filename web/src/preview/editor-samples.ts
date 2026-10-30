@@ -26,6 +26,15 @@ const COLUMNS: Record<string, string[]> = {
   clientes: ['id', 'nombre', 'email', 'alta'],
   pedidos: ['id', 'cliente_id', 'fecha', 'total'],
 };
+/** Types and comments for hovering a table's name (the popup with its columns). */
+const TYPES: Record<string, string> = {
+  id: 'bigint', cliente_id: 'bigint', nombre: 'character varying(120)', email: 'text', alta: 'timestamp with time zone',
+  fecha: 'date', total: 'numeric(12,2)',
+};
+const COMMENTS: Record<string, string> = { email: 'Dirección de contacto; única por cliente', total: 'Con impuestos incluidos' };
+const columnInfo = (name: string) => ({
+  name, data_type: TYPES[name] ?? 'text', nullable: !['id', 'nombre', 'fecha'].includes(name), primary_key: name === 'id', auto_increment: false, default_value: null,
+});
 
 export function installEditorSample() {
   const conns = useConnectionsStore();
@@ -51,7 +60,7 @@ export function installEditorSample() {
   for (const [table, cols] of Object.entries(COLUMNS)) {
     conns.columns[objKey('c1', db, 'public', table)] = {
       status: 'ready', error: null,
-      items: cols.map((name) => ({ name, data_type: 'text', nullable: true, primary_key: name === 'id', auto_increment: false, default_value: null })),
+      items: cols.map(columnInfo),
     };
   }
   // The query tab lives in the store, as in the app (its per-tab options are kept there).
@@ -69,7 +78,14 @@ installEditorSample.invoke = (cmd: string, args?: Record<string, unknown>): unkn
   if (cmd === 'list_database_objects') return { objects: OBJECTS, schemas: [{ name: 'public', system: false }] };
   if (cmd === 'get_columns') {
     const name = (args?.object as { name: string }).name;
-    return (COLUMNS[name] ?? []).map((n) => ({ name: n, data_type: 'text', nullable: true, primary_key: n === 'id', auto_increment: false, default_value: null }));
+    return (COLUMNS[name] ?? []).map(columnInfo);
+  }
+  if (cmd === 'database_schema') {
+    return Object.entries(COLUMNS).map(([name, cols]) => ({
+      kind: 'table', schema: 'public', name, primary_key: null, foreign_keys: [], indexes: [], checks: [], options: {},
+      comment: name === 'clientes' ? 'Clientes activos e históricos' : null,
+      columns: cols.map((c) => ({ ...columnInfo(c), comment: COMMENTS[c] ?? null, options: {} })),
+    }));
   }
   if (cmd === 'execute_query') {
     w.__lastSql = args?.sql;

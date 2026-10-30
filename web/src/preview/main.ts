@@ -3,7 +3,7 @@
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies|fonts
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
-// |query[&sample=editor] (⌘-click, unknown names, parameters, snippets: preview/editor-samples.ts)
+// |query[&sample=editor] (⌘-click, unknown names, parameters, snippets, a table's columns on hover: preview/editor-samples.ts)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)

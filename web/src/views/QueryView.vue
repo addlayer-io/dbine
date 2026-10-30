@@ -29,6 +29,7 @@ import { confirmMultiDb, multiDbOutcome, rememberSelection, runSummary, startMul
 import { useTasksStore } from '../stores/tasks';
 import { lintSourceFor, type LintProblem } from '../composables/lint';
 import { nameAt, unknownNames, type NameIndex } from '../composables/nameRefs';
+import { useTableHover } from '../composables/tableHoverData';
 import {
   fillParams, findParams, guessType, hasNull, paramItems, paramMarkers, type ParamItem, type ParamTarget, type ParamValue,
 } from '../composables/queryParams';
@@ -346,6 +347,9 @@ function openNameAt(doc: string, pos: number, reveal: boolean) {
   if (reveal) ui.revealInExplorer({ connectionId, database, object: ref });
   else tabs.openObject(connectionId, database, ref, hit.view, false);
 }
+
+// -- hovering a table's name: its columns (composables/tableHover.ts) ------------------------
+const { tableHover } = useTableHover(() => props.tab, () => driver.value, () => !unbound.value);
 
 // -- snippets (Configuración › Snippets adds the user's) -----------------------------------
 const snippets = computed(() => snippetsFor(driver.value, settings.get<UserSnippet[]>(SNIPPETS_SETTING, [])));
@@ -1085,6 +1089,7 @@ function runOverflow(i: number) {
           :menu-items="editorMenu"
           :snippets="snippets"
           :link-at="linkAt"
+          :table-hover="tableHover"
           @navigate="(d: string, pos: number) => openNameAt(d, pos, false)"
         />
       </div>

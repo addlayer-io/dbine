@@ -36,11 +36,12 @@ export interface GridLinks {
 const TTL_MS = 5 * 60_000;
 const schemas = new Map<string, { at: number; tables: Promise<TableSchema[]> }>();
 
-/** The database's tables with their keys (cached a few minutes per database). */
-export function relationsSchema(connectionId: string, database: string): Promise<TableSchema[]> {
+/** The database's tables with their keys (cached a few minutes per
+ *  database; `force`: read again, after the explorer refreshed it). */
+export function relationsSchema(connectionId: string, database: string, force = false): Promise<TableSchema[]> {
   const key = dbKey(connectionId, database);
   const hit = schemas.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.tables;
+  if (!force && hit &&Date.now() - hit.at < TTL_MS) return hit.tables;
   const tables = invoke<TableSchema[]>('database_schema', { args: { connection_id: connectionId, database } });
   schemas.set(key, { at: Date.now(), tables });
   tables.catch(() => { if (schemas.get(key)?.tables === tables) schemas.delete(key); });

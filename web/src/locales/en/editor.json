@@ -26,6 +26,12 @@
     "notFound": "There is no table, view or routine with that name in the tab's database.",
     "notLoaded": "The database objects haven't loaded yet: connect to go to the definition."
   },
+  "tableHover": {
+    "loading": "Loading columns…",
+    "empty": "No metadata available for this table.",
+    "error": "Couldn't read the columns: {{error}}",
+    "primaryKey": "Primary key"
+  },
   "insertColumn": "Column {{n}} of {{total}}: {{name}}",
   "insertExtra": "Value {{n}}: the list has {{total}} columns",
   "pickFile": "Choose file…",

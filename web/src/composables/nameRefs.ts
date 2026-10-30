@@ -71,7 +71,7 @@ export function viewFor(idx: NameIndex, o: DbObject): ObjectView {
 
 /** alias (lower case) → the name it stands for, per statement of `masked`;
  *  an alias used for two different tables in the same text is left out. */
-function aliasesIn(masked: string): Map<string, string[]> {
+export function aliasesIn(masked: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
   const twice = new Set<string>();
   const re = new RegExp(String.raw`(?:\b(?:from|join|update|into|using)|,)\s*(${ID}(?:\s*\.\s*${ID})*)\s+(?:as\s+)?(${ID})`, 'giu');
@@ -91,8 +91,8 @@ function aliasesIn(masked: string): Map<string, string[]> {
   return out;
 }
 
-function splitChain(chain: string, base = 0): { text: string; from: number; to: number }[] {
-  return [...chain.matchAll(PART)].map((m) => ({ text: unquote(m[0]), from: base + m.index!, to: base + m.index! + m[0].length }));
+function splitChain(chain: string, base = 0): ChainPart[] {
+  return [...chain.matchAll(PART)].map((m) => ({ text: unquote(m[0]), from: base + m.index!, to: base + m.index! + m[0].length, quoted: /^[["`]/.test(m[0]) }));
 }
 
 /** The name at `pos` and the object it stands for, or null. */
@@ -103,17 +103,11 @@ export function nameAt(idx: NameIndex, doc: string, pos: number): NameHit | null
   if (sqlLike) {
     const kind = regionAt(lexRegions(doc, syn), pos);
     if (kind === 'string' || kind === 'comment') return null;
-    const line = lineAround(doc, pos);
-    for (const m of line.text.matchAll(CHAIN)) {
-      const from = line.from + m.index!;
-      if (pos < from || pos > from + m[0].length) continue;
-      const parts = splitChain(m[0], from);
-      const k = parts.findIndex((p) => pos >= p.from && pos <= p.to);
-      if (k < 0) return null;
-      const hit = resolveParts(idx, doc, syn, parts.map((p) => p.text), k);
-      return hit ? { from: parts[k].from, to: parts[k].to, object: hit, view: viewFor(idx, hit) } : null;
-    }
-    return null;
+    const chain = chainAt(doc, pos);
+    if (!chain) return null;
+    const { parts, k } = chain;
+    const hit = resolveParts(idx, doc, syn, parts.map((p) => p.text), k);
+    return hit ? { from: parts[k].from, to: parts[k].to, object: hit, view: viewFor(idx, hit) } : null;
   }
   // mongosh (`db.pedidos.find`), HTTP consoles (`GET /pedidos/_search`),
   // Cypher labels (`:Persona`), Redis keys: a word, or the whole token.
@@ -130,6 +124,24 @@ export function nameAt(idx: NameIndex, doc: string, pos: number): NameHit | null
     if (!w.text) continue;
     const found = idx.objects.find((o) => o.name === w.text) ?? idx.objects.find((o) => eq(o.name, w.text));
     if (found) return { from: w.from, to: w.to, object: found, view: viewFor(idx, found) };
+  }
+  return null;
+}
+
+/** One part of a dotted name: unquoted, where it is, and whether it was quoted. */
+export interface ChainPart { text: string; from: number; to: number; quoted: boolean }
+
+/** The dotted name (`db.schema.table`, `[x].y`, `o.total`) around `pos` and
+ *  the index of the part under it; null off any name. The caller checks
+ *  strings and comments (the lexer). */
+export function chainAt(doc: string, pos: number): { parts: ChainPart[]; k: number } | null {
+  const line = lineAround(doc, pos);
+  for (const m of line.text.matchAll(CHAIN)) {
+    const from = line.from + m.index!;
+    if (pos < from || pos > from + m[0].length) continue;
+    const parts = splitChain(m[0], from);
+    const k = parts.findIndex((p) => pos >= p.from && pos <= p.to);
+    return k < 0 ? null : { parts, k };
   }
   return null;
 }
@@ -157,7 +169,7 @@ function resolveParts(idx: NameIndex, doc: string, syn: ReturnType<typeof lexSyn
 // -- unknown names ---------------------------------------------------------------------------
 
 /** Words that never are a table's alias, nor a table after FROM. */
-const KEYWORDS = new Set((
+export const KEYWORDS = new Set((
   'select from where join inner left right full cross outer natural on using group order by having union all except intersect minus ' +
   'limit offset fetch set values as with into update delete insert merge when then else end case and or not in exists is null like ' +
   'between window qualify pivot unpivot lateral only for returning top distinct apply option tablesample partition sample final prewhere format settings'

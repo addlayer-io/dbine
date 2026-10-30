@@ -13,7 +13,10 @@ let lastClaim: (() => void) | null = null;
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { EditorState, Compartment, StateEffect, StateField, type Extension } from '@codemirror/state';
-import { Decoration, EditorView, keymap, placeholder as cmPlaceholder, showTooltip, tooltips, type DecorationSet, type Tooltip } from '@codemirror/view';
+import {
+  Decoration, EditorView, hoverTooltip, keymap, placeholder as cmPlaceholder, repositionTooltips, showTooltip, tooltips,
+  type DecorationSet, type Tooltip, type TooltipView,
+} from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import {
   CompletionContext, closeCompletion, snippet, snippetCompletion, startCompletion, type Completion, type CompletionResult,
@@ -41,6 +44,7 @@ import {
 } from '../composables/sqlCompletion';
 import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand, runCommand } from '../composables/commands';
 import { useSettingsStore } from '../stores/settings';
+import type { TableHoverState, TableHoverTarget } from '../composables/tableHover';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion.
@@ -90,9 +94,12 @@ const props = withDefaults(defineProps<{
   /** A notebook's parameters: completion offers them as `{{name}}`
    *  (after `{{`, or with ⌃Space outside strings and comments). */
   params?: { name: string; detail?: string }[];
+  /** The table named at a position, whose columns a popup shows when the
+   *  pointer rests on it (composables/tableHover.ts), or null. */
+  tableHover?: ((doc: string, pos: number) => TableHoverTarget | null) | null;
 }>(), {
   language: 'sql', dialect: '', readOnly: false, schema: () => ({}), databases: undefined, placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
-  fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [],
+  fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [], tableHover: null,
 });
 
 const emit = defineEmits<{
@@ -451,6 +458,103 @@ const links = [
   }),
 ];
 
+// -- a table's columns on hover -------------------------------------------------------------
+/** The popup's body for a state: loading, the columns, nothing known, or the error. */
+function fillTableHover(body: HTMLElement, s: TableHoverState) {
+  body.replaceChildren();
+  const note = (text: string, cls = '') => {
+    const p = document.createElement('div');
+    p.className = `cm-table-hover-note ${cls}`;
+    p.textContent = text;
+    body.append(p);
+  };
+  if (s.status === 'loading') return note(t('editor:tableHover.loading'));
+  if (s.status === 'empty') return note(t('editor:tableHover.empty'));
+  if (s.status === 'error') return note(t('editor:tableHover.error', { error: s.message, interpolation: { escapeValue: false } }), 'is-error');
+  if (s.comment) note(s.comment, 'is-comment');
+  const table = document.createElement('table');
+  for (const c of s.columns) {
+    const tr = table.insertRow();
+    const name = tr.insertCell();
+    name.className = 'cm-table-hover-name';
+    name.textContent = c.name;
+    if (c.primary_key) {
+      const pk = document.createElement('span');
+      pk.className = 'cm-table-hover-pk';
+      pk.textContent = 'PK';
+      pk.title = t('editor:tableHover.primaryKey');
+      name.append(' ', pk);
+    }
+    const type = tr.insertCell();
+    type.className = 'cm-table-hover-type';
+    type.textContent = c.data_type;
+    const nul = tr.insertCell();
+    nul.className = 'cm-table-hover-null';
+    // SQL's own words: not translated.
+    nul.textContent = c.nullable === null ? '' : c.nullable ? 'NULL' : 'NOT NULL';
+    const comment = tr.insertCell();
+    comment.className = 'cm-table-hover-comment';
+    comment.textContent = c.comment ?? '';
+  }
+  body.append(table);
+}
+
+function tableHoverView(v: EditorView, target: TableHoverTarget): TooltipView {
+  const dom = document.createElement('div');
+  dom.className = 'cm-table-hover';
+  const title = document.createElement('div');
+  title.className = 'cm-table-hover-title';
+  title.textContent = target.title;
+  const body = document.createElement('div');
+  body.className = 'cm-table-hover-body';
+  dom.append(title, body);
+  let mounted = false;
+  const stop = target.watch((s) => {
+    fillTableHover(body, s);
+    // A new size: placed again (not from inside the editor's own update).
+    if (mounted) requestAnimationFrame(() => repositionTooltips(v));
+  });
+  mounted = true;
+  return { dom, destroy: stop };
+}
+
+/** After the pointer rests ~400 ms on a table's name; it stays open while
+ *  the pointer is over it and closes when it leaves or the text changes. */
+const tableHoverExt = [
+  hoverTooltip((v, pos, side) => {
+    const source = props.tableHover;
+    if (!source) return null;
+    const target = source(v.state.doc.toString(), pos);
+    if (!target) return null;
+    // At a word's edge, only when the pointer is on the word's side.
+    if ((pos === target.from && side < 0) || (pos === target.to && side > 0)) return null;
+    return { pos: target.from, end: target.to, above: false, create: (view) => tableHoverView(view, target) };
+  }, { hoverTime: 400, hideOnChange: true }),
+  EditorView.baseTheme({
+    '.cm-tooltip.cm-tooltip-hover:has(.cm-table-hover)': { padding: 0 },
+    '.cm-table-hover': {
+      maxWidth: 'min(640px, 90vw)', maxHeight: '320px', overflow: 'auto', fontSize: '12px', color: 'var(--nm-text)', backgroundColor: 'inherit',
+    },
+    '.cm-table-hover-title': {
+      position: 'sticky', top: 0, left: 0, padding: '4px 8px', fontFamily: 'var(--nm-mono)', fontWeight: '600',
+      color: 'var(--nm-text-strong)', borderBottom: '1px solid var(--nm-border)', backgroundColor: 'inherit',
+    },
+    '.cm-table-hover-body': { padding: '4px 0' },
+    '.cm-table-hover-note': { padding: '2px 8px', color: 'var(--nm-text-dim)', whiteSpace: 'normal', maxWidth: '460px' },
+    '.cm-table-hover-note.is-error': { color: 'var(--nm-error-fg)' },
+    '.cm-table-hover-note.is-comment': { fontStyle: 'italic', paddingBottom: '4px' },
+    '.cm-table-hover table': { borderCollapse: 'collapse' },
+    '.cm-table-hover td': { padding: '1px 8px', verticalAlign: 'top', whiteSpace: 'nowrap' },
+    '.cm-table-hover-name': { fontFamily: 'var(--nm-mono)', color: 'var(--nm-text-strong)' },
+    '.cm-table-hover-type': { fontFamily: 'var(--nm-mono)', color: 'var(--nm-syn-type)' },
+    '.cm-table-hover-null': { fontFamily: 'var(--nm-mono)', fontSize: '11px', color: 'var(--nm-text-muted)' },
+    '.cm-table-hover td.cm-table-hover-comment': { color: 'var(--nm-text-dim)', whiteSpace: 'normal', minWidth: '120px', maxWidth: '280px' },
+    '.cm-table-hover-pk': {
+      fontSize: '10px', padding: '0 3px', borderRadius: '3px', color: 'var(--nm-warn-fg)', border: '1px solid currentColor',
+    },
+  }),
+];
+
 /** The selection, or the whole text when nothing is selected. */
 function runnableText(v: EditorView): string {
   return runnable(v).text;
@@ -492,6 +596,7 @@ onMounted(() => {
         links,
         insertHints,
         insertTheme,
+        tableHoverExt,
       ],
     }),
   });
