@@ -2,30 +2,32 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-10-29._
+_Updated 2026-10-30._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 1 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| OSV-RUSTSEC-2026-0418-libz-sys-13ee4b | MEDIUM | osv | libz-sys 1.1.29: libz-sys build script leaks environment variables in the build directory | `Cargo.lock` | upgrade to 1.1.31 |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
-| codeql | 2026-10-29 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-29 | every lockfile (Cargo, npm) at [`74cafb6b1`](https://github.com/addlayer-io/dbine/commit/74cafb6b1669) | 0 open | — |
+| codeql | 2026-10-30 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-10-30 | every lockfile (Cargo, npm) at [`6c72c937e`](https://github.com/addlayer-io/dbine/commit/6c72c937ed02) | 1 open | — |
 | scorecard | 2026-10-29 | repository settings and workflows at [`74cafb6b1`](https://github.com/addlayer-io/dbine/commit/74cafb6b1669) | score 5.8/10 | — |
-| trivy | 2026-10-29 | whole repository at [`74cafb6b1`](https://github.com/addlayer-io/dbine/commit/74cafb6b1669) | 0 open | — |
+| trivy | 2026-10-30 | whole repository at [`6c72c937e`](https://github.com/addlayer-io/dbine/commit/6c72c937ed02) | 0 open | — |
 
 ## Not counted, and why
 

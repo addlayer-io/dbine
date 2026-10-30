@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-10-29",
-      "revision": "74cafb6b1669",
+      "date": "2026-10-30",
+      "revision": "6c72c937ed02",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 0
+      "found": 1
     },
     {
       "source": "trivy",
-      "date": "2026-10-29",
-      "revision": "74cafb6b1669",
+      "date": "2026-10-30",
+      "revision": "6c72c937ed02",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-10-29",
+      "date": "2026-10-30",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -3878,6 +3878,18 @@
       "dismissed": "2026-10-21",
       "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/lib.rs:1357 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai",
       "by": "mpanichella"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0418-libz-sys-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "libz-sys 1.1.29: libz-sys build script leaks environment variables in the build directory",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0418",
+      "fixed_version": "1.1.31",
+      "found": "2026-10-30",
+      "status": "open"
     },
     {
       "id": "SC-Binary-Artifacts",
