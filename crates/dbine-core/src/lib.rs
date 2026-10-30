@@ -9,11 +9,13 @@ pub mod import;
 pub mod secret_accounts;
 pub mod secret_sources;
 pub mod secrets;
+pub mod ssh_profiles;
 pub mod state;
 pub mod tasks;
 
 pub use cache::ExplorerCache;
 pub use dbine_driver::{Error, Result};
+pub use ssh_profiles::SshProfile;
 pub use state::{
     BackupCopy, ConnectionFolder, ExplorerItem, HistoryEntry, LibraryScript, Project,
     ProjectBinding, ProjectTarget, QueryVersion, SavedConnection, SavedMigration, SavedQuery,

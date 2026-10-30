@@ -17,6 +17,8 @@ import { draftFrom, isExternal, missingInputs, readSources, sourceFrom, tokenKey
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import { addTrusted, askTrustSshHost } from '../composables/sshTrust';
+import { loadSshProfiles, profileById } from '../composables/sshProfiles';
+import { sshProfilesApi } from '../api/sshProfiles';
 import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
 import { mcpApi, type McpLevel } from '../api/mcp';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
@@ -89,7 +91,7 @@ const picks = ref(0);
  *  field key; the SSH tunnel's as `ssh.password` / `ssh.passphrase`. */
 const drafts = reactive<Record<string, SourceDraft>>({});
 /** The SSH tunnel (`ssh.*` options; docs/ssh-tunnels.md). */
-const SSH_EMPTY: SshValues = { enabled: false, host: '', port: '', user: '', auth: 'password', password: '', key_path: '', passphrase: '', jump: '', trusted: '' };
+const SSH_EMPTY: SshValues = { enabled: false, profile: '', host: '', port: '', user: '', auth: 'password', password: '', key_path: '', passphrase: '', jump: '', trusted: '' };
 const ssh = ref<SshValues>({ ...SSH_EMPTY });
 /** Engines reached over the network (a server host, not a file): they can use a tunnel. */
 const networked = computed(() => driver.value?.fields.some((f) => f.key === 'host' && f.kind.type !== 'file') ?? false);
@@ -215,7 +217,7 @@ function pick(d: DriverInfo, existing: SavedConnection | null = null) {
   for (const k of ['ssh.password', 'ssh.passphrase']) drafts[k] = draftFrom(sources[k]);
   ssh.value = {
     ...SSH_EMPTY,
-    enabled: o['ssh.enabled'] === 'true', host: o['ssh.host'] ?? '', port: o['ssh.port'] ?? '', user: o['ssh.user'] ?? '',
+    enabled: o['ssh.enabled'] === 'true', profile: o['ssh.profile'] ?? '', host: o['ssh.host'] ?? '', port: o['ssh.port'] ?? '', user: o['ssh.user'] ?? '',
     auth: (o['ssh.auth'] as SshValues['auth']) || 'password', key_path: o['ssh.key_path'] ?? '', jump: o['ssh.jump'] ?? '', trusted: o['ssh.trusted'] ?? '',
   };
   if (existing) {
@@ -292,14 +294,18 @@ function buildConfig(): ConnectionConfig {
   // kept. Otherwise written, with the closest encrypt / trust pair.
   writeTls(d.fields.filter((f) => visible(f)), values, tlsOriginal.value, cfg);
   const s = ssh.value;
-  if (networked.value && s.enabled) {
+  if (networked.value && s.enabled && s.profile) {
+    // Through an SSH profile: the profile has the SSH side (and the keys it trusts).
+    cfg.options['ssh.enabled'] = 'true';
+    cfg.options['ssh.profile'] = s.profile;
+  } else if (networked.value && s.enabled) {
     const set = (k: string, v: string) => { if (v.trim()) cfg.options[`ssh.${k}`] = v.trim(); };
     cfg.options['ssh.enabled'] = 'true';
     set('host', s.host); set('port', s.port); set('user', s.user); set('auth', s.auth); set('jump', s.jump);
     if (s.auth === 'key') { set('key_path', s.key_path); if (!sourced('ssh.passphrase') && s.passphrase) cfg.options['ssh.passphrase'] = s.passphrase; }
     if (s.auth === 'password' && !sourced('ssh.password') && s.password) cfg.options['ssh.password'] = s.password;
   }
-  if (s.trusted.trim()) cfg.options['ssh.trusted'] = s.trusted.trim();
+  if (s.trusted.trim() && !(s.enabled && s.profile)) cfg.options['ssh.trusted'] = s.trusted.trim();
   if (tlsPin.value.trim()) cfg.options.tls_pin = tlsPin.value.trim();
   writeSources(cfg.options, sources);
   return cfg;
@@ -346,7 +352,8 @@ const missing = computed(() => {
   };
   for (const f of shownFields.value.filter((f) => f.secret)) inputs(f.key, tb(f.label), sectionOf(f));
   const s = ssh.value;
-  if (networked.value && s.enabled) {
+  if (networked.value && s.enabled && s.profile && !profileById(s.profile)) out.push({ label: t('tunnel:profiles.use'), section: 'ssh' });
+  if (networked.value && s.enabled && !s.profile) {
     if (!s.host.trim()) out.push({ label: t('tunnel:host'), section: 'ssh' });
     if (!s.user.trim()) out.push({ label: t('tunnel:user'), section: 'ssh' });
     if (s.auth === 'key' && !s.key_path.trim()) out.push({ label: t('tunnel:keyPath'), section: 'ssh' });
@@ -389,6 +396,18 @@ async function test() {
     }
     // The tunnel's SSH server isn't known yet: trust it and test again.
     const entry = await askTrustSshHost(e);
+    // Through an SSH profile: the key is the profile's (its servers').
+    if (entry && ssh.value.enabled && ssh.value.profile) {
+      try {
+        await sshProfilesApi.trustHost(ssh.value.profile, entry);
+        await loadSshProfiles();
+        testing.value = false;
+        return test();
+      } catch (err) {
+        testResult.value = { ok: false, message: errorMessage(err) };
+        return;
+      }
+    }
     // Null if the server has another key accepted (it's forgotten first, in
     // the SSH section): then the error stands.
     const trusted = entry ? addTrusted(ssh.value.trusted, entry) : null;

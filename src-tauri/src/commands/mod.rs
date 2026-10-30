@@ -47,6 +47,7 @@ pub mod scripts;
 pub mod search;
 pub mod security;
 pub mod settings;
+pub mod ssh_profiles;
 pub mod subset;
 pub mod sync;
 pub mod telemetry;

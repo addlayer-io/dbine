@@ -126,7 +126,7 @@ async function resolved(password: string | null = null): Promise<ConnStringBuilt
     if (unlock) {
       const typed = await askMasterPassword(unlock);
       if (typed === null) return null;
-      await api.unlockSecretSource(id.value!, unlock.field, typed);
+      await api.unlockSecretSource(unlock.connection_id ?? id.value!, unlock.field, typed);
       return resolved(password);
     }
     if (errorKind(e) === 'password_required' || (password !== null && errorKind(e) === 'auth_failed')) {

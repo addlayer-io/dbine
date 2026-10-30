@@ -88,9 +88,12 @@ fn load(state: &AppState, id: &str, database: &str) -> CommandResult<Loaded> {
     let conn = Conn::new(&saved.name, &saved.config, info, database);
     let mut notes = Vec::new();
     if crate::tunnels::enabled(&saved.config) {
+        // The SSH server may be its tunnel's profile's.
+        let mut tunnel = saved.config.clone();
+        let _ = state.store.resolve_ssh_profile(&mut tunnel);
         notes.push(note(
             "tunnel",
-            &[("ssh", saved.config.option("ssh.host").unwrap_or(""))],
+            &[("ssh", tunnel.option("ssh.host").unwrap_or(""))],
         ));
     }
     let vault_db = sources

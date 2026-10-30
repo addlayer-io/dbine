@@ -244,10 +244,13 @@ pub struct StateSnapshot {
     /// Saved migrations (their configuration; the runs they link stay on the machine that ran them).
     #[serde(default)]
     pub migrations: Vec<SavedMigration>,
+    /// SSH tunnel profiles (their secrets, like connections', stay in the keychain).
+    #[serde(default)]
+    pub ssh_profiles: Vec<crate::ssh_profiles::SshProfile>,
 }
 
 /// What a successful write changed, for whoever listens (the app relays it
-/// to every window). `kind` is one of `connection`, `folder`, `explorer`
+/// to every window). `kind` is one of `connection`, `ssh_profile`, `folder`, `explorer`
 /// (an order or folder move), `query`, `migration`, `setting`, `library`,
 /// `history`, `backup`, `project` (a linked git folder; local only) or
 /// `restore` (the whole state replaced).
@@ -287,11 +290,11 @@ pub struct StateStore {
 /// own bookkeeping): they don't count as changes and never leave it.
 pub const LOCAL_PREFIX: &str = "local.";
 
-fn now() -> String {
+pub(crate) fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-fn db_err(e: rusqlite::Error) -> Error {
+pub(crate) fn db_err(e: rusqlite::Error) -> Error {
     Error::State(e.to_string())
 }
 
@@ -304,7 +307,7 @@ impl StateStore {
         Self::init(Connection::open_in_memory().map_err(db_err)?)
     }
 
-    fn init(conn: Connection) -> Result<Self> {
+    pub(crate) fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;
@@ -542,6 +545,10 @@ impl StateStore {
              DELETE FROM query_versions WHERE query_id NOT IN (SELECT id FROM queries);",
         )
         .map_err(db_err)?;
+        // SSH tunnel profiles (crate::ssh_profiles): added with them, so
+        // older state files gain the table here.
+        conn.execute_batch(crate::ssh_profiles::TABLE)
+            .map_err(db_err)?;
         let store = Self {
             conn: Mutex::new(conn),
             hook: RwLock::new(None),
@@ -634,7 +641,7 @@ impl StateStore {
         }
     }
 
-    fn notify(&self, change: StateChange) {
+    pub(crate) fn notify(&self, change: StateChange) {
         let hook = self.hook.read().ok().and_then(|h| h.clone());
         if let Some(hook) = hook {
             hook(change);
@@ -1829,7 +1836,7 @@ impl StateStore {
     // -- settings & snapshot ----------------------------------------------
 
     /// Count a change to what a backup carries.
-    fn touch(&self) -> Result<()> {
+    pub(crate) fn touch(&self) -> Result<()> {
         let c = self.lock()?;
         bump(&c)
     }
@@ -1912,6 +1919,7 @@ impl StateStore {
             settings: self.list_settings()?,
             library: self.list_library()?,
             migrations: self.all_migrations()?,
+            ssh_profiles: self.list_ssh_profiles()?,
         })
     }
 
@@ -1923,9 +1931,13 @@ impl StateStore {
         let tx = c.transaction().map_err(db_err)?;
         tx.execute_batch(
             "DELETE FROM queries; DELETE FROM migrations; DELETE FROM connections; DELETE FROM folders;
-             DELETE FROM settings WHERE key NOT LIKE 'local.%'; DELETE FROM library;",
+             DELETE FROM settings WHERE key NOT LIKE 'local.%'; DELETE FROM library;
+             DELETE FROM ssh_profiles;",
         )
         .map_err(db_err)?;
+        for p in &snap.ssh_profiles {
+            crate::ssh_profiles::insert(&tx, p)?;
+        }
         for (i, conn) in snap.connections.iter().enumerate() {
             let mut config = conn.config.clone();
             config.password = None;
@@ -2041,7 +2053,7 @@ impl StateStore {
     }
 }
 
-fn bump(c: &Connection) -> Result<()> {
+pub(crate) fn bump(c: &Connection) -> Result<()> {
     c.execute(
         "UPDATE settings SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'local.revision'",
         [],

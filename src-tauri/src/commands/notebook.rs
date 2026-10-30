@@ -196,9 +196,16 @@ fn python_connections(
         };
         let info = dbine_drivers::find(&saved.config.driver).map(|d| d.info());
         let key = format!("{}\u{0}{}", saved.id, t.database);
+        // A tunnel through an SSH profile: the export names the profile's
+        // server and user (it has to work where the profile doesn't exist);
+        // never its secrets.
+        let mut cfg = saved.config.clone();
+        if store.resolve_ssh_profile(&mut cfg).is_err() {
+            cfg = saved.config.clone();
+        }
         out.insert(
             cell.clone(),
-            python::PyConn::new(&key, &saved.name, &saved.config, info, &t.database),
+            python::PyConn::new(&key, &saved.name, &cfg, info, &t.database),
         );
     }
     Ok(out)

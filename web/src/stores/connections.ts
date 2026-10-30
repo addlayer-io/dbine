@@ -320,7 +320,8 @@ export const useConnectionsStore = defineStore('connections', {
         if (unlock) {
           const typed = await askMasterPassword(unlock);
           if (typed !== null) {
-            await api.unlockSecretSource(id, unlock.field, typed);
+            // The tunnel's SSH profile's source is the profile's (its id).
+            await api.unlockSecretSource(unlock.connection_id ?? id, unlock.field, typed);
             return this.openConnection(id, password);
           }
         }

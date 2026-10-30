@@ -104,6 +104,16 @@ struct StoredConfig {
     sources: SecretSources,
     /// Vault tokens kept for the fields (`source_token:<field>`).
     tokens: Secrets,
+    /// The SSH profile its tunnel uses: its sources are resolved as the
+    /// profile's (its confirmations, its tokens).
+    profile: Option<ProfileSources>,
+}
+
+struct ProfileSources {
+    id: String,
+    name: String,
+    sources: SecretSources,
+    tokens: Secrets,
 }
 
 /// The driver has secret fields besides the password in use here, without
@@ -219,7 +229,77 @@ impl AppState {
         };
         crate::secret_sources::fill(&self.store, &mut s.config, &s.sources, &s.tokens, origin)
             .await?;
+        if let Some(p) = &s.profile {
+            let origin = crate::secret_sources::Origin::Saved {
+                id: &p.id,
+                name: &p.name,
+            };
+            crate::secret_sources::fill(&self.store, &mut s.config, &p.sources, &p.tokens, origin)
+                .await?;
+        }
         Ok(s.config)
+    }
+
+    /// The secrets of an SSH profile (dbine_core::ssh_profiles): from the
+    /// keychain (cached for the run, like a connection's), plus what was
+    /// typed this run for its sources (a master password).
+    pub fn profile_secrets(&self, profile_id: &str) -> CommandResult<Secrets> {
+        let mut s = match self.keychain_cache.get(profile_id) {
+            Some(s) => s.clone(),
+            None => {
+                let s = secrets::get(profile_id)?;
+                self.keychain_cache
+                    .insert(profile_id.to_string(), s.clone());
+                s
+            }
+        };
+        if let Some(t) = self.typed_secrets.get(profile_id) {
+            s.extend(t.clone());
+        }
+        s.retain(|k, _| dbine_core::ssh_profiles::is_tunnel_secret(k));
+        Ok(s)
+    }
+
+    /// Put the SSH profile a config's tunnel uses in it, with its stored
+    /// secrets (a secret the config already has, typed in a form, wins).
+    /// Returns the profile's sources to resolve, as the profile's.
+    fn with_profile(&self, cfg: &mut ConnectionConfig) -> CommandResult<Option<ProfileSources>> {
+        let Some(p) = self.store.resolve_ssh_profile(cfg)? else {
+            return Ok(None);
+        };
+        let sources = dbine_core::ssh_profiles::tunnel_sources(&p.options)
+            .map_err(|e| CommandError::BadRequest(e.to_string()))?;
+        let mut stored = self.profile_secrets(&p.id)?;
+        let tokens = crate::secret_sources::tokens_of(&stored);
+        stored.retain(|k, _| {
+            !k.starts_with(dbine_core::secret_sources::TOKEN_PREFIX) && !sources.contains_key(k)
+        });
+        apply_secrets(cfg, &stored);
+        Ok(Some(ProfileSources {
+            id: p.id,
+            name: p.name,
+            sources,
+            tokens,
+        }))
+    }
+
+    /// A form's config (test_connection) with its SSH profile in it, like
+    /// [`Self::connect_config`] does for a saved connection; the profile's
+    /// sources are resolved here, as the profile's.
+    pub async fn form_with_profile(&self, cfg: &mut ConnectionConfig) -> CommandResult<()> {
+        // Typed in the form for the tunnel: the profile's, not these.
+        if dbine_core::ssh_profiles::profile_of(cfg).is_some() {
+            cfg.options
+                .retain(|k, _| !dbine_core::ssh_profiles::is_tunnel_secret(k));
+        }
+        if let Some(p) = self.with_profile(cfg)? {
+            let origin = crate::secret_sources::Origin::Saved {
+                id: &p.id,
+                name: &p.name,
+            };
+            crate::secret_sources::fill(&self.store, cfg, &p.sources, &p.tokens, origin).await?;
+        }
+        Ok(())
     }
 
     fn stored_config(&self, connection_id: &str) -> CommandResult<StoredConfig> {
@@ -227,6 +307,9 @@ impl AppState {
             CommandError::NotFound(format!("no existe la conexión '{connection_id}'"))
         })?;
         let mut cfg = saved.config;
+        // Its tunnel's SSH profile, as it is now (an edit applies on the
+        // next connect), in place of the connection's own settings.
+        let profile = self.with_profile(&mut cfg)?;
         // The definitions never reach the driver.
         let sources = dbine_core::secret_sources::take(&mut cfg)
             .map_err(|e| CommandError::BadRequest(e.to_string()))?;
@@ -256,6 +339,10 @@ impl AppState {
         if !saved.save_password {
             stored.remove("password");
         }
+        if profile.is_some() {
+            // The tunnel's are the profile's (already in `cfg`).
+            stored.retain(|k, _| !dbine_core::ssh_profiles::is_tunnel_secret(k));
+        }
         let mut tokens = crate::secret_sources::tokens_of(&stored);
         stored.retain(|k, _| {
             !k.starts_with(dbine_core::secret_sources::TOKEN_PREFIX) && !sources.contains_key(k)
@@ -276,6 +363,7 @@ impl AppState {
             config: cfg,
             sources,
             tokens,
+            profile,
         })
     }
 

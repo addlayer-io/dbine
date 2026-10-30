@@ -2,6 +2,7 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::{apply_secrets, driver_info, extract_secrets, meta_key, AppState};
 use dbine_core::secret_sources as source_defs;
 use dbine_core::secrets;
+use dbine_core::ssh_profiles;
 use dbine_core::SavedConnection;
 use dbine_driver::{ConnectionConfig, DriverInfo};
 use serde::{Deserialize, Serialize};
@@ -148,6 +149,23 @@ pub async fn save_connection(
     }
     crate::mcp::check_override(conn.mcp_level.as_deref())?;
     let info = driver_info(&conn.config.driver)?;
+    // A tunnel through an SSH profile: the profile has the SSH settings and
+    // secrets, the connection only names it (and keeps its own server).
+    let uses_profile = match ssh_profiles::profile_of(&conn.config) {
+        Some(pid) => {
+            if state.store.get_ssh_profile(pid)?.is_none() {
+                return Err(CommandError::BadRequest(
+                    "el perfil SSH elegido ya no existe".into(),
+                ));
+            }
+            ssh_profiles::detach(&mut conn.config);
+            true
+        }
+        None => {
+            conn.config.options.remove(ssh_profiles::PROFILE);
+            false
+        }
+    };
     // Where secret fields come from (docs/secret-sources.md): only fields
     // that are secret here, each definition complete.
     let mut sources =
@@ -179,7 +197,7 @@ pub async fn save_connection(
                 .get(field)
                 .is_some_and(|s| s.token_slots().contains(&slot));
         }
-        crate::tunnels::SECRETS.contains(&k)
+        (crate::tunnels::SECRETS.contains(&k) && !uses_profile)
             || info
                 .fields
                 .iter()
@@ -313,6 +331,14 @@ pub async fn trust_ssh_host(
         .ok_or_else(|| {
             CommandError::NotFound(format!("no existe la conexión '{}'", args.connection_id))
         })?;
+    // The keys are the SSH servers': with a profile, they're the profile's.
+    if let Some(pid) = ssh_profiles::profile_of(&conn.config) {
+        return crate::commands::ssh_profiles::trust_in_profile(
+            &state.store,
+            pid,
+            &args.fingerprint,
+        );
+    }
     crate::tunnels::trust(&mut conn.config, &args.fingerprint)?;
     state.store.save_connection(&conn)?;
     Ok(())
@@ -414,6 +440,21 @@ async fn test_connection_with(
     args: TestConnectionArgs,
 ) -> CommandResult<TestResult> {
     let mut cfg = args.config;
+    // Its tunnel's SSH profile, with its secrets and sources (resolved as
+    // the profile's).
+    let uses_profile = ssh_profiles::profile_of(&cfg).is_some();
+    match state.form_with_profile(&mut cfg).await {
+        Ok(()) => {}
+        Err(e @ (CommandError::SecretSourceApproval(_) | CommandError::SecretSourceUnlock(_))) => {
+            return Err(e)
+        }
+        Err(e) => {
+            return Ok(TestResult {
+                ok: false,
+                message: e.to_string(),
+            })
+        }
+    }
     // The form's sources (resolved below) and Vault tokens it typed.
     let sources = match source_defs::take(&mut cfg) {
         Ok(s) => s,
@@ -435,8 +476,12 @@ async fn test_connection_with(
         for (k, v) in crate::secret_sources::tokens_of(&known) {
             tokens.entry(k).or_insert(v);
         }
-        // Only fill what the form left empty, and nothing a source gives.
+        // Only fill what the form left empty, and nothing a source gives
+        // (nor the tunnel's, when a profile gives them).
         known.retain(|k, _| !k.starts_with(source_defs::TOKEN_PREFIX) && !sources.contains_key(k));
+        if uses_profile {
+            known.retain(|k, _| !ssh_profiles::is_tunnel_secret(k));
+        }
         known.retain(|k, _| {
             if k == "password" {
                 cfg.password.as_deref().unwrap_or("").is_empty()

@@ -25973,6 +25973,7 @@
   ],
   "el origen de «{0}» no es válido: {1}": [
     "src-tauri/src/commands/connections.rs",
+    "src-tauri/src/commands/ssh_profiles.rs",
     "src-tauri/src/secret_sources/mod.rs"
   ],
   "el origen es una vista": [
@@ -26039,6 +26040,18 @@
   "el paso no tiene notebook": [
     "src-tauri/src/notebook/headless.rs",
     "src-tauri/src/tasks/steps.rs"
+  ],
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": [
+    "crates/dbine-core/src/ssh_profiles.rs"
+  ],
+  "el perfil SSH elegido ya no existe": [
+    "src-tauri/src/commands/connections.rs"
+  ],
+  "el perfil SSH necesita un nombre": [
+    "crates/dbine-core/src/ssh_profiles.rs"
+  ],
+  "el perfil SSH no se puede guardar: {0}": [
+    "src-tauri/src/commands/ssh_profiles.rs"
   ],
   "el perfil de AWS no es válido": [
     "crates/dbine-core/src/secret_accounts.rs",
@@ -27917,7 +27930,8 @@
     "crates/dbine-ai/src/embedded.rs"
   ],
   "falta el nombre": [
-    "crates/drivers/firebird/src/security.rs"
+    "crates/drivers/firebird/src/security.rs",
+    "src-tauri/src/commands/ssh_profiles.rs"
   ],
   "falta el nombre de la base": [
     "crates/drivers/duckdb/src/lib.rs",
@@ -27970,6 +27984,7 @@
   ],
   "falta el servidor SSH": [
     "crates/dbine-tunnel/src/lib.rs",
+    "src-tauri/src/commands/ssh_profiles.rs",
     "src-tauri/src/tunnels.rs"
   ],
   "falta el servidor de correo": [
@@ -28001,6 +28016,7 @@
     "crates/drivers/sqlserver/src/variant.rs"
   ],
   "falta el usuario SSH": [
+    "src-tauri/src/commands/ssh_profiles.rs",
     "src-tauri/src/tunnels.rs"
   ],
   "falta el usuario de Delinea (o el ID del cliente en Delinea Platform)": [
@@ -30831,6 +30847,10 @@
   "no existe el objeto «{0}» en «{1}» (list_objects muestra los que hay)": [
     "src-tauri/src/mcp/tools.rs"
   ],
+  "no existe el perfil SSH '{0}'": [
+    "crates/dbine-core/src/ssh_profiles.rs",
+    "src-tauri/src/commands/ssh_profiles.rs"
+  ],
   "no existe el perfil de AWS «{0}» en ~/.aws/config ni en ~/.aws/credentials": [
     "crates/drivers/postgres/src/cloud_auth.rs"
   ],
@@ -30882,6 +30902,7 @@
     "src-tauri/src/commands/connections.rs",
     "src-tauri/src/commands/connstring.rs",
     "src-tauri/src/commands/multi_db.rs",
+    "src-tauri/src/commands/ssh_profiles.rs",
     "src-tauri/src/state.rs"
   ],
   "no existe la cuenta «{0}»": [
@@ -31230,6 +31251,9 @@
   ],
   "no se pudieron leer los comentarios de los índices y las restricciones del original: el clon no los tiene": [
     "crates/dbine-transfer/src/clone_table.rs"
+  ],
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": [
+    "crates/dbine-sync/src/engine.rs"
   ],
   "no se pudieron leer sus columnas en el destino: {0}": [
     "src-tauri/src/commands/subset/mod.rs"

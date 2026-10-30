@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import type { StateChange } from '../api/types';
 import { dbKey, useConnectionsStore } from '../stores/connections';
+import { loadSshProfiles } from './sshProfiles';
 import { useLibraryStore } from '../stores/library';
 import { useProjectsStore } from '../stores/projects';
 import { fileDocs } from './tabDocument';
@@ -115,6 +116,7 @@ const projects: Handler = async () => {
 /** Kind → the group handled together (one reload per burst). */
 const GROUPS: Partial<Record<Change['kind'], [string, Handler]>> = {
   connection: ['connections', connections],
+  ssh_profile: ['sshProfiles', async () => { await loadSshProfiles(); }],
   folder: ['connections', connections],
   explorer: ['connections', connections],
   query: ['queries', queries],

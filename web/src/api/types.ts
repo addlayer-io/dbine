@@ -350,6 +350,23 @@ export interface SavedConnection {
   temporary?: boolean;
 }
 
+/** A reusable SSH tunnel profile (`dbine_core::ssh_profiles::SshProfile`;
+ *  docs/ssh-tunnels.md, "Profiles"): the SSH servers, user, authentication
+ *  and accepted keys. Its secrets stay in the keychain, never here. */
+export interface SshProfile {
+  id: string;
+  name: string;
+  /** `ssh.host`, `ssh.port`, `ssh.user`, `ssh.auth`, `ssh.key_path`,
+   *  `ssh.jump`, `ssh.trusted` and `secret_sources` (the tunnel's fields only). */
+  options: Record<string, string>;
+  updated_at: string;
+}
+
+/** A profile as Settings lists it (`list_ssh_profiles`): with the connections that use it. */
+export interface ListedSshProfile extends SshProfile {
+  used_by: { id: string; name: string }[];
+}
+
 export interface ConnectionFolder {
   id: string;
   name: string;
@@ -972,7 +989,7 @@ export interface RunningTask {
 }
 
 export type StateChangeKind =
-  | 'connection' | 'folder' | 'explorer' | 'query' | 'migration'
+  | 'connection' | 'ssh_profile' | 'folder' | 'explorer' | 'query' | 'migration'
   | 'setting' | 'library' | 'history' | 'backup' | 'restore' | 'project';
 
 /** What a write to the local state changed (`dbine_core::StateChange`),

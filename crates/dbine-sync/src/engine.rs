@@ -38,7 +38,8 @@ pub trait SecretsIo: Send + Sync {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Backup {
     pub state: StateSnapshot,
-    /// Secrets of the connections that keep them, by connection id.
+    /// Secrets of the connections that keep them, by connection id, and of
+    /// the SSH profiles those connections use, by profile id.
     #[serde(default)]
     pub secrets: BTreeMap<String, Secrets>,
 }
@@ -220,6 +221,27 @@ impl SyncEngine {
                 secrets.insert(c.id.clone(), s);
             }
         }
+        // A profile's secrets travel like the tunnel secrets of the
+        // connections that use it did before it: only when one of them
+        // keeps its secrets.
+        for p in &state.ssh_profiles {
+            let kept = state.connections.iter().any(|c| {
+                c.save_password
+                    && c.config.option(dbine_core::ssh_profiles::PROFILE) == Some(p.id.as_str())
+            });
+            if !kept {
+                continue;
+            }
+            let s = self.secrets.read(&p.id).map_err(|e| {
+                SyncError::Local(format!(
+                    "no se pudieron leer los secretos del perfil SSH «{}» del llavero: {e}",
+                    p.name
+                ))
+            })?;
+            if !s.is_empty() {
+                secrets.insert(p.id.clone(), s);
+            }
+        }
         Ok(Backup { state, secrets })
     }
 
@@ -335,8 +357,15 @@ impl SyncEngine {
             .list_connections()?
             .into_iter()
             .map(|c| c.id)
+            .chain(self.store.list_ssh_profiles()?.into_iter().map(|p| p.id))
             .collect();
         self.store.replace_all(&backup.state)?;
+        for p in &backup.state.ssh_profiles {
+            match backup.secrets.get(&p.id) {
+                Some(s) => self.secrets.write(&p.id, s)?,
+                None => self.secrets.remove(&p.id)?,
+            }
+        }
         for c in &backup.state.connections {
             match backup.secrets.get(&c.id) {
                 Some(s) if c.save_password => self.secrets.write(&c.id, s)?,
@@ -348,6 +377,7 @@ impl SyncEngine {
             .connections
             .iter()
             .map(|c| c.id.as_str())
+            .chain(backup.state.ssh_profiles.iter().map(|p| p.id.as_str()))
             .collect();
         for id in old.iter().filter(|id| !kept.contains(id.as_str())) {
             self.secrets.remove(id)?;
@@ -679,6 +709,54 @@ mod tests {
         b.engine.pull(&cloud, "p").await.unwrap();
         assert!(b.secrets.read("old").unwrap().is_empty());
         assert!(b.engine.store.get_connection("old").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn ssh_profiles_travel_with_their_secrets_when_a_user_keeps_them() {
+        use dbine_core::ssh_profiles::{self, SecretStore, SshProfile};
+        /// The engine's secrets as the profiles' store.
+        struct Io<'a>(&'a MemSecrets);
+        impl SecretStore for Io<'_> {
+            fn get(&self, id: &str) -> dbine_core::Result<Secrets> {
+                self.0.read(id)
+            }
+            fn set(&self, id: &str, s: &Secrets) -> dbine_core::Result<()> {
+                self.0.write(id, s)
+            }
+        }
+        let cloud_dir = tempfile::tempdir().unwrap();
+        let cloud = FolderStore::new(cloud_dir.path());
+        let a = machine("a");
+        let form = |name: &str| SshProfile {
+            id: String::new(),
+            name: name.into(),
+            options: [
+                ("ssh.host".to_string(), "bastion".to_string()),
+                ("ssh.password".to_string(), format!("pw-{name}")),
+            ]
+            .into(),
+            updated_at: String::new(),
+        };
+        let used =
+            ssh_profiles::save(&a.engine.store, &Io(&a.secrets), form("used"), None).unwrap();
+        let unused =
+            ssh_profiles::save(&a.engine.store, &Io(&a.secrets), form("unused"), None).unwrap();
+        let mut c = conn("c1");
+        c.config.options.insert("ssh.enabled".into(), "true".into());
+        c.config
+            .options
+            .insert("ssh.profile".into(), used.id.clone());
+        a.engine.store.save_connection(&c).unwrap();
+        a.engine.push(&cloud, "p", false).await.unwrap();
+        let raw = std::fs::read_to_string(cloud_dir.path().join(BACKUP_FILE)).unwrap();
+        assert!(!raw.contains("pw-used") && !raw.contains("bastion"));
+
+        let b = machine("b");
+        b.engine.pull(&cloud, "p").await.unwrap();
+        assert_eq!(b.engine.store.list_ssh_profiles().unwrap().len(), 2);
+        assert_eq!(b.secrets.read(&used.id).unwrap()["ssh.password"], "pw-used");
+        // No connection keeps its secrets with it: not in the backup.
+        assert!(b.secrets.read(&unused.id).unwrap().is_empty());
     }
 
     #[tokio::test]

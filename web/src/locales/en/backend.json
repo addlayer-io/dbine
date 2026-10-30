@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: couldn't read the definition of CHECK constraint {1} and it is not created: the catalog didn't return its text (hidden or no permission)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: couldn't read the definition of CHECK constraint {1} and it is not created: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: couldn't read the expression of computed column {1}; it stays as a regular column of its type: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "source catalog: the user can't read the whole catalog; cloning needs VIEW DEFINITION on the source database and SELECT on sys.sql_expression_dependencies (as db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "source catalog: the user can't read the whole catalog; cloning needs VIEW DEFINITION on the source database and SELECT on sys.sql_expression_dependencies (as db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "the connection's SSH profile no longer exists: pick another one in its SSH tunnel",
+  "el perfil SSH elegido ya no existe": "the chosen SSH profile no longer exists",
+  "el perfil SSH necesita un nombre": "the SSH profile needs a name",
+  "el perfil SSH no se puede guardar: {0}": "the SSH profile can't be saved: {0}",
+  "no existe el perfil SSH '{0}'": "the SSH profile '{0}' doesn't exist",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "couldn't read the secrets of the SSH profile “{0}” from the keychain: {1}"
 }

@@ -1,17 +1,26 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { open as openFile } from '@tauri-apps/plugin-dialog';
 import { forgetTrusted, parseTrusted } from '../composables/sshTrust';
 import type { SourceDraft } from '../composables/secretSources';
+import { loadSshProfiles, profileById, profileSummary, sshProfiles } from '../composables/sshProfiles';
+import type { SshProfile } from '../api/types';
 import SecretSourcePicker from './SecretSourcePicker.vue';
+import SshProfileDialog from './SshProfileDialog.vue';
 
 // The SSH tunnel of a connection (docs/ssh-tunnels.md): its settings go to
 // the connection's options as `ssh.*`; the password and the key's passphrase
 // are secrets (keychain), never read back, or come from a source (a command,
 // a secret manager: `drafts`, docs/secret-sources.md).
+// Or the tunnel uses a saved SSH profile (`profile`, `ssh.profile`): the
+// profile has the SSH side, shown read-only here and edited in its dialog;
+// the server the tunnel goes to stays the connection's. `bare`: just the
+// fields, for the profile's own dialog.
 
 export interface SshValues {
   enabled: boolean;
+  /** The SSH profile's id; empty: the connection's own settings. */
+  profile: string;
   host: string;
   port: string;
   user: string;
@@ -26,8 +35,10 @@ export interface SshValues {
 }
 
 const model = defineModel<SshValues>({ required: true });
-defineProps<{
+const props = defineProps<{
   editing: boolean;
+  /** Only the SSH fields (the profile dialog): no switch, no profile picker. */
+  bare?: boolean;
   /** The form's sources, by field (`ssh.password`, `ssh.passphrase`). */
   drafts: Record<string, SourceDraft>;
   connectionId: string | null;
@@ -56,18 +67,52 @@ const trusted = computed(() =>
 function forget(i: number) {
   model.value.trusted = forgetTrusted(model.value.trusted, i);
 }
+
+onMounted(() => { if (!props.bare) void loadSshProfiles(); });
+const chosen = computed(() => (model.value.profile ? profileById(model.value.profile) ?? null : null));
+/** The profile dialog: editing the chosen one, or saving the own settings as a new one. */
+const dialog = ref<null | 'edit' | 'saveAs'>(null);
+function onSaved(p: SshProfile) {
+  dialog.value = null;
+  model.value.profile = p.id;
+}
 </script>
 
 <template>
-  <section class="st" :class="{ on: model.enabled }">
-    <header class="st-head">
+  <section class="st" :class="{ on: model.enabled, bare }">
+    <header v-if="!bare" class="st-head">
       <el-switch v-model="model.enabled" size="small" />
       <div>
         <strong>{{ $t('tunnel:title') }}</strong>
         <span>{{ $t('tunnel:subtitle') }}</span>
       </div>
     </header>
-    <div v-if="model.enabled" class="st-body">
+    <div v-if="model.enabled || bare" class="st-body">
+      <template v-if="!bare">
+        <el-form-item :label="$t('tunnel:profiles.use')">
+          <div class="st-row st-pick">
+            <el-select v-model="model.profile" class="st-grow" data-ssh-profile>
+              <el-option value="" :label="$t('tunnel:profiles.own')" />
+              <el-option v-for="p in sshProfiles" :key="p.id" :value="p.id" :label="p.name" />
+            </el-select>
+            <el-button v-if="chosen" @click="dialog = 'edit'">{{ $t('tunnel:profiles.edit') }}</el-button>
+            <el-button v-else @click="dialog = 'saveAs'">{{ $t('tunnel:profiles.saveAs') }}</el-button>
+          </div>
+          <div class="st-help">{{ chosen ? $t('tunnel:profiles.usingHelp') : $t('tunnel:profiles.ownHelp') }}</div>
+        </el-form-item>
+        <div v-if="model.profile && !chosen" class="st-help st-missing">{{ $t('tunnel:profiles.missing') }}</div>
+        <dl v-if="chosen" class="st-profile">
+          <dt>{{ $t('tunnel:host') }}</dt><dd>{{ profileSummary(chosen.options) }}</dd>
+          <dt>{{ $t('tunnel:auth') }}</dt>
+          <dd>{{ $t(chosen.options['ssh.auth'] === 'key' ? 'tunnel:authKey' : chosen.options['ssh.auth'] === 'agent' ? 'tunnel:authAgent' : 'tunnel:authPassword') }}<template v-if="chosen.options['ssh.auth'] === 'key'"> · {{ chosen.options['ssh.key_path'] }}</template></dd>
+          <template v-if="chosen.options['ssh.trusted']">
+            <dt>{{ $t('tunnel:profiles.verified') }}</dt>
+            <dd>{{ $t('tunnel:trusted', { count: chosen.options['ssh.trusted'].split(',').filter((e) => e.trim()).length }) }}</dd>
+          </template>
+          <dt>{{ $t('tunnel:profiles.usedBy') }}</dt><dd>{{ chosen.used_by.length }}</dd>
+        </dl>
+      </template>
+      <template v-if="bare || !model.profile">
       <div class="st-row">
         <el-form-item :label="$t('tunnel:host')" required class="st-grow">
           <el-input v-model="model.host" :placeholder="$t('tunnel:hostPlaceholder')" />
@@ -133,8 +178,17 @@ function forget(i: number) {
         </div>
         <div class="st-help">{{ $t('tunnel:trustedHelp') }}</div>
       </div>
-      <div class="st-help">{{ $t('tunnel:tlsNote') }}</div>
+      </template>
+      <div v-if="!bare" class="st-help">{{ $t('tunnel:tlsNote') }}</div>
     </div>
+    <SshProfileDialog
+      v-if="dialog"
+      :profile="dialog === 'edit' ? chosen : null"
+      :initial="dialog === 'saveAs' ? { values: model, drafts } : null"
+      :from-connection="dialog === 'saveAs' ? connectionId ?? duplicateOf ?? null : null"
+      :driver="driver"
+      @saved="onSaved" @close="dialog = null"
+    />
   </section>
 </template>
 
@@ -157,4 +211,11 @@ function forget(i: number) {
 .st-legacy { color: var(--nm-text-dim); flex: 1; }
 .st-trusted-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-text-dim); font-size: 11px; }
 .st-trusted .st-help { padding-left: 20px; margin-bottom: 0; }
+.st.bare { border: none; background: transparent; }
+.st.bare .st-body { padding: 0; border-top: none; }
+.st-pick { align-items: center; }
+.st-missing { color: var(--nm-danger, #f14c4c); }
+.st-profile { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 10px; font-size: 12px; }
+.st-profile dt { color: var(--nm-text-dim); }
+.st-profile dd { margin: 0; color: var(--nm-text-strong); min-width: 0; overflow-wrap: anywhere; }
 </style>

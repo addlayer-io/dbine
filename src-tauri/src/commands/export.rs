@@ -241,7 +241,10 @@ pub async fn export_query_to_file(
             driver_of(&state, &args.connection_id),
         ) {
             (Ok(Some(saved)), Ok(driver)) => {
-                estimate_allowed(&saved.config, driver.as_ref(), &args.sql)
+                // Its tunnel's auth may be its SSH profile's.
+                let mut cfg = saved.config;
+                state.store.resolve_ssh_profile(&mut cfg).is_ok()
+                    && estimate_allowed(&cfg, driver.as_ref(), &args.sql)
             }
             _ => false,
         };

@@ -69,6 +69,38 @@ servers, each with its fingerprint and a "Forget" action.
 - When importing connections from other tools, the SSH tunnel comes with
   them, with its password or passphrase if the tool stored it.
 
+## Profiles
+
+The SSH side of a tunnel (servers and jump hosts, user, authentication and
+verified server keys) can be saved once as a profile and used by many
+connections: **Settings › SSH profiles** creates, edits and deletes them, and
+the **SSH tunnel** tab of a connection picks one ("SSH settings") or keeps
+its own.
+
+- A connection using a profile stores only `ssh.enabled` and `ssh.profile`
+  (the profile's id). Its database server (host and port) stays its own:
+  that's where the tunnel goes.
+- The profile is read when the connection connects, so editing it applies to
+  every connection that uses it on its next connect.
+- The profile's settings and its secrets' source definitions are in the
+  state (`ssh_profiles` table); the password, passphrase and source tokens
+  are in the keychain under the profile's id, never read back by the UI.
+  Secret sources work as for a connection, confirmed per profile.
+- Server keys accepted while connecting through a profile are saved in the
+  profile: they belong to its SSH servers.
+- **Save as profile…** turns a connection's own tunnel into a profile; the
+  secrets it already had are copied to the profile's keychain entry on the
+  backend.
+- Deleting a profile in use first names the connections that use it; on
+  confirmation each one gets a copy of the profile (settings, source
+  definitions and secrets) as its own settings, so none is left without its
+  tunnel.
+- A duplicated connection keeps the reference. The cloud backup carries the
+  profiles, and their secrets when a connection that uses them keeps its
+  secrets. A notebook's Python export writes the profile's server and user
+  (never its secrets), so it works where the profile doesn't exist. The phone
+  app never receives profiles.
+
 ## How it works
 
 - DBine opens a local port (on `127.0.0.1`, chosen by the system) and forwards

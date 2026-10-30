@@ -526,6 +526,78 @@ mod tests {
         assert!(trusted(&c).contains(&dbine_tunnel::trusted_entry("bastion", 22, &fp('c'))));
     }
 
+    /// A connection through an SSH profile: the profile's servers, user and
+    /// auth, the connection's own database server as the target.
+    #[test]
+    fn a_profiles_tunnel_goes_to_the_connections_server() {
+        use dbine_core::ssh_profiles::{self, SecretStore, SshProfile};
+        struct NoKeychain;
+        impl SecretStore for NoKeychain {
+            fn get(&self, _: &str) -> dbine_core::Result<dbine_core::secrets::Secrets> {
+                Ok(Default::default())
+            }
+            fn set(&self, _: &str, _: &dbine_core::secrets::Secrets) -> dbine_core::Result<()> {
+                Ok(())
+            }
+        }
+        let store = dbine_core::StateStore::open_in_memory().unwrap();
+        let p = ssh_profiles::save(
+            &store,
+            &NoKeychain,
+            SshProfile {
+                id: String::new(),
+                name: "prod".into(),
+                options: [
+                    ("ssh.host", "bastion"),
+                    ("ssh.user", "ops"),
+                    ("ssh.port", "2222"),
+                    ("ssh.auth", "agent"),
+                    ("ssh.jump", "edge:22"),
+                ]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+                updated_at: String::new(),
+            },
+            None,
+        )
+        .unwrap();
+        let spec_of = |host: &str| {
+            let mut c = cfg(host, 6543);
+            c.options.insert("ssh.enabled".into(), "true".into());
+            c.options.insert("ssh.profile".into(), p.id.clone());
+            // The connection's own leftovers never win over the profile.
+            c.options.insert("ssh.host".into(), "stale".into());
+            store.resolve_ssh_profile(&mut c).unwrap();
+            spec(&c).unwrap().0
+        };
+        let a = spec_of("db-a.internal");
+        let b = spec_of("db-b.internal");
+        let hops = vec![
+            Hop {
+                host: "edge".into(),
+                port: 22,
+                user: "ops".into(),
+            },
+            Hop {
+                host: "bastion".into(),
+                port: 2222,
+                user: "ops".into(),
+            },
+        ];
+        assert_eq!(a.hops, hops);
+        assert_eq!(b.hops, hops);
+        assert!(matches!(a.auth, Auth::Agent));
+        assert_eq!(
+            (a.target_host.as_str(), a.target_port),
+            ("db-a.internal", 6543)
+        );
+        assert_eq!(
+            (b.target_host.as_str(), b.target_port),
+            ("db-b.internal", 6543)
+        );
+    }
+
     #[test]
     fn reads_bastions() {
         assert_eq!(
