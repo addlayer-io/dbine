@@ -284,15 +284,18 @@ pub async fn ai_chat(
         let emit = |d: Delta| {
             let _ = app.emit("ai-delta", DeltaEvent { chat_id: &id, delta: d });
         };
-        // A local model may read the tab's whole connection through DBine's
-        // read-only tools (the MCP server's code): it asks with a
-        // <tool> line, DBine answers, and it goes on. Remote models
-        // (Claude Code, Codex) don't get them.
+        // The model may read the tab's whole connection through DBine's
+        // read-only tools (the MCP server's code): it asks with a <tool>
+        // line, DBine answers, and it goes on. Each call to Claude Code or
+        // Codex is a new process: the exchange so far goes along in
+        // `req.messages`. Remote models only read the catalog
+        // (REMOTE_TOOLS): rows never leave the computer for them.
         let conn = args.context.connection_id.as_deref().and_then(|c| state.store.get_connection(c).ok().flatten());
-        let tools_on = args.provider.local() && conn.is_some();
+        let tools_on = conn.is_some();
+        let tab_db = args.context.database.clone().unwrap_or_default();
         if tools_on {
             let name = conn.as_ref().map(|c| c.name.as_str()).unwrap_or("");
-            req.system.push_str(&tools_prompt(p, name, args.context.database.as_deref().unwrap_or("")));
+            req.system.push_str(&tools_prompt(p, name, &tab_db, args.provider.local()));
         }
         let mut steps = 0;
         let mut approve_all = args.context.approve_reads;
@@ -337,10 +340,23 @@ pub async fn ai_chat(
                 break out;
             };
             steps += 1;
-            if targs.get("database").and_then(|v| v.as_str()).is_none() {
-                targs["database"] = serde_json::Value::String(args.context.database.clone().unwrap_or_default());
-            }
             let conn = conn.as_ref().expect("tools_on");
+            // A data tool from a remote model, or a database the connection
+            // doesn't have: the model gets why, nothing runs.
+            let mut blocked = prepare_call(args.provider, &name, &mut targs, &tab_db).err();
+            if blocked.is_none() {
+                blocked = check_database(&state, conn, &name, &mut targs, &tab_db).await.err();
+            }
+            if let Some(why) = blocked {
+                let label = format!("{} (no se leyó)", tool_label(&name, &targs));
+                let _ = app.emit("ai-tool", ToolEvent { chat_id: &id, label: &label, ok: false });
+                req.messages.push(ChatMessage { role: "assistant".into(), content: format!("{TOOL_OPEN}{}{TOOL_CLOSE}", serde_json::json!({ "name": name, "arguments": targs })) });
+                req.messages.push(ChatMessage { role: "user".into(), content: format!("<error>\n{why}\n</error>") });
+                if steps == MAX_TOOL_STEPS {
+                    req.system.push_str(&format!("\n{}\n", p.text("assistant.max_steps")));
+                }
+                continue;
+            }
             if !asked.insert(format!("{name}{targs}")) {
                 req.messages.push(ChatMessage { role: "assistant".into(), content: format!("{TOOL_OPEN}{}{TOOL_CLOSE}", serde_json::json!({ "name": name, "arguments": targs })) });
                 req.messages.push(ChatMessage { role: "user".into(), content: format!("<error>\n{}\n</error>", p.text("assistant.repeated")) });
@@ -395,10 +411,20 @@ pub async fn ai_chat(
                 }
                 // Stop ends the turn mid-read too (a whole database's index
                 // overview can take a couple of minutes).
-                None => tokio::select! {
-                    r = crate::mcp::tools::assistant_call(&mcp.inner, conn, &name, &targs, true) => r,
-                    _ = cancel.cancelled() => return Err(AiError::Cancelled.into()),
-                },
+                None => {
+                    // Rows only for a local model (prepare_call already
+                    // refused them to a remote one).
+                    let (text, failed) = tokio::select! {
+                        r = crate::mcp::tools::assistant_call(&mcp.inner, conn, &name, &targs, args.provider.local()) => r,
+                        _ = cancel.cancelled() => return Err(AiError::Cancelled.into()),
+                    };
+                    let db = targs["database"].as_str().unwrap_or("");
+                    if failed && name != "list_databases" && !db.is_empty() && db != tab_db {
+                        (other_database_failed(db, &text), true)
+                    } else {
+                        (text, failed)
+                    }
+                }
             };
             let _ = app.emit("ai-tool", ToolEvent { chat_id: &id, label: &label, ok: !failed });
             req.messages.push(ChatMessage { role: "assistant".into(), content: format!("{TOOL_OPEN}{}{TOOL_CLOSE}", serde_json::json!({ "name": name, "arguments": targs })) });
@@ -631,7 +657,9 @@ async fn build_system(
                 )),
             }
         } else {
-            // Claude Code and Codex have no tools: the structure goes as context.
+            // Claude Code and Codex get the tab's database structure as
+            // context; other databases only through the catalog tools,
+            // when the model asks for them.
             let _ = app.emit(
                 "ai-status",
                 StatusEvent {
@@ -781,17 +809,144 @@ const READS_ROWS: &[&str] = &["sample_rows", "run_query", "explain"];
 /// A tool's answer, cut for a small model's context.
 const TOOL_RESULT_MAX: usize = 12_000;
 
-/// How a local model reads the connection: one tool per answer, in a line
+/// What a remote model (Claude Code, Codex) may read: the catalog only
+/// (databases, objects, structure, index statistics), of any database of
+/// the tab's connection. sample_rows and run_query return rows, and
+/// explain runs the query on some engines: those stay with local models,
+/// so no table data reaches a remote provider.
+const REMOTE_TOOLS: &[&str] = &[
+    "list_databases",
+    "list_objects",
+    "describe_object",
+    "index_usage",
+];
+
+/// How the model reads the connection: one tool per answer, in a line
 /// DBine recognizes (models' own tool formats vary and small ones misuse
-/// them; this works the same on the built-in model, Ollama and LM Studio).
-fn tools_prompt(p: &Prompts, connection: &str, database: &str) -> String {
+/// them; this works the same on every provider). A remote model's list has
+/// only REMOTE_TOOLS: the lines of the data tools, and the one after them
+/// about approving their queries, are left out (every language has the same
+/// lines, a test checks it).
+fn tools_prompt(p: &Prompts, connection: &str, database: &str, local: bool) -> String {
+    let text = p.fill(
+        "assistant.tools",
+        &[("connection", connection), ("database", database)],
+    );
+    if local {
+        return format!("\n{text}\n");
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let data = |l: &str| READS_ROWS.iter().any(|t| l.starts_with(&format!("- {t} ")));
+    let after_data = lines.iter().rposition(|l| data(l)).map(|i| i + 1);
+    let kept: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, l)| !data(l) && Some(*i) != after_data)
+        .map(|(_, l)| *l)
+        .collect();
+    format!("\n{}\n", kept.join("\n"))
+}
+
+/// Whether the model may call `name`, and with which database: one without
+/// a database reads the tab's; one naming another database of the
+/// connection reads that one (only when the model asks: nothing is read
+/// ahead). A data tool from a remote model is refused with why.
+fn prepare_call(
+    provider: ProviderKind,
+    name: &str,
+    args: &mut serde_json::Value,
+    tab_db: &str,
+) -> Result<(), String> {
+    if !provider.local() && !REMOTE_TOOLS.contains(&name) {
+        return Err(format!(
+            "{name} reads table data, and with this model DBine only reads metadata: {}. \
+             Continue without the rows: answer with what you have, or write the query for the user to run.",
+            REMOTE_TOOLS.join(", ")
+        ));
+    }
+    if args.get("database").and_then(|v| v.as_str()).is_none() {
+        args["database"] = serde_json::Value::String(tab_db.to_string());
+    }
+    Ok(())
+}
+
+/// A database the model named that the connection doesn't list: whether
+/// it's there (`Ok(None)`), there with other casing (`Ok(Some(name))`), or
+/// not there or not visible to the connection's user (`Err`). An empty list
+/// (engines without databases) can't tell, so it passes.
+fn find_database(listed: &[String], wanted: &str) -> Result<Option<String>, ()> {
+    if listed.is_empty() || listed.iter().any(|d| d == wanted) {
+        return Ok(None);
+    }
+    let same: Vec<&String> = listed
+        .iter()
+        .filter(|d| d.eq_ignore_ascii_case(wanted))
+        .collect();
+    match same.as_slice() {
+        [one] => Ok(Some((*one).clone())),
+        _ => Err(()),
+    }
+}
+
+/// What the model gets for a database the connection doesn't have.
+fn missing_database(wanted: &str, connection: &str, listed: &[String]) -> String {
+    const SHOWN: usize = 50;
+    let mut names = listed
+        .iter()
+        .take(SHOWN)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    if listed.len() > SHOWN {
+        names.push_str(&format!(" … ({} more)", listed.len() - SHOWN));
+    }
     format!(
-        "\n{}\n",
-        p.fill(
-            "assistant.tools",
-            &[("connection", connection), ("database", database)]
-        )
+        "The database “{wanted}” doesn't exist on the connection “{connection}”, or the connection's user can't access it. \
+         Its databases: {names}. Tell the user; don't guess what that database has."
     )
+}
+
+/// A read of another database than the tab's that failed: said plainly
+/// (it may not exist, or the user may lack permission on it).
+fn other_database_failed(database: &str, error: &str) -> String {
+    format!(
+        "Could not read the database “{database}”: {error}\n\
+         It may not exist, or the connection's user may not have permission on it. Tell the user; don't guess what it has."
+    )
+}
+
+/// A tool naming another database than the tab's: checked against the
+/// connection's list first (the explorer's cached one), so a database that
+/// isn't there comes back as a clear error, not an empty list.
+async fn check_database(
+    state: &AppState,
+    conn: &dbine_core::SavedConnection,
+    name: &str,
+    args: &mut serde_json::Value,
+    tab_db: &str,
+) -> Result<(), String> {
+    let wanted = args["database"].as_str().unwrap_or("").to_string();
+    if name == "list_databases" || wanted.is_empty() || wanted == tab_db {
+        return Ok(());
+    }
+    // A list that can't be read doesn't stop the call: the tool's own
+    // error says more.
+    let Ok(listed) = state
+        .meta_read(&conn.id, "", Duration::from_secs(60), |s| {
+            Box::pin(s.list_databases())
+        })
+        .await
+    else {
+        return Ok(());
+    };
+    match find_database(&listed, &wanted) {
+        Ok(None) => Ok(()),
+        Ok(Some(fixed)) => {
+            args["database"] = serde_json::Value::String(fixed);
+            Ok(())
+        }
+        Err(()) => Err(missing_database(&wanted, &conn.name, &listed)),
+    }
 }
 
 /// The tool a model's answer asks for, wherever it wrote it: our
@@ -1119,6 +1274,127 @@ mod tests {
         );
     }
 
+    /// Claude Code and Codex get the same protocol with the catalog tools
+    /// only, in every language; local models keep the whole list.
+    #[test]
+    fn remote_models_get_only_the_metadata_tools() {
+        for l in prompts::LANGS {
+            let p = prompts::get(l);
+            let local = tools_prompt(p, "c1", "ventas", true);
+            let remote = tools_prompt(p, "c1", "ventas", false);
+            for t in READS_ROWS {
+                assert!(local.contains(&format!("- {t} ")), "{l}: {t}");
+                assert!(!remote.contains(t), "{l}: {t} in\n{remote}");
+            }
+            for t in REMOTE_TOOLS {
+                assert!(remote.contains(&format!("- {t} ")), "{l}: {t}");
+            }
+            // Only the data tools' lines and the one about approving them go.
+            assert_eq!(
+                remote.lines().count() + READS_ROWS.len() + 1,
+                local.lines().count(),
+                "{l}"
+            );
+            assert!(remote.contains(TOOL_OPEN) && remote.contains("c1"), "{l}");
+            let example = remote
+                .lines()
+                .filter(|x| x.starts_with(TOOL_OPEN))
+                .filter_map(|x| tool_call(x).map(|c| c.0))
+                .collect::<Vec<_>>();
+            assert!(
+                !example.is_empty() && example.iter().all(|n| REMOTE_TOOLS.contains(&n.as_str())),
+                "{l}: {example:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn remote_models_cant_read_rows() {
+        for provider in [ProviderKind::ClaudeCode, ProviderKind::Codex] {
+            for t in ["sample_rows", "run_query", "explain"] {
+                let mut a =
+                    serde_json::json!({"database": "ventas", "query": "select 1", "object": "t"});
+                let why = prepare_call(provider, t, &mut a, "ventas").unwrap_err();
+                assert!(why.contains(t) && why.contains("describe_object"), "{why}");
+            }
+            for t in REMOTE_TOOLS {
+                assert!(prepare_call(provider, t, &mut serde_json::json!({}), "ventas").is_ok());
+            }
+        }
+        // Local models keep every tool (rows still wait for the approval).
+        for provider in [
+            ProviderKind::Embedded,
+            ProviderKind::Ollama,
+            ProviderKind::LmStudio,
+        ] {
+            for t in crate::mcp::tools::ASSISTANT_TOOLS {
+                assert!(prepare_call(provider, t, &mut serde_json::json!({}), "ventas").is_ok());
+            }
+        }
+        // The answer the remote model gets is an <error> it can read, and
+        // the call is parsed (so it's refused, not ignored).
+        assert_eq!(
+            tool_call(
+                "<tool>{\"name\": \"sample_rows\", \"arguments\": {\"object\": \"t\"}}</tool>"
+            )
+            .unwrap()
+            .0,
+            "sample_rows"
+        );
+    }
+
+    /// "the columns of inventario.productos" while the tab is on ventas: the
+    /// call goes to inventario; one without a database reads the tab's.
+    #[test]
+    fn a_tool_reads_the_database_the_model_names() {
+        for provider in [
+            ProviderKind::ClaudeCode,
+            ProviderKind::Codex,
+            ProviderKind::Ollama,
+        ] {
+            let mut a = serde_json::json!({"database": "inventario", "object": "productos"});
+            prepare_call(provider, "describe_object", &mut a, "ventas").unwrap();
+            assert_eq!(a["database"], "inventario");
+            let mut a = serde_json::json!({"object": "clientes"});
+            prepare_call(provider, "describe_object", &mut a, "ventas").unwrap();
+            assert_eq!(a["database"], "ventas");
+            let mut a = serde_json::json!({"database": "inventario"});
+            prepare_call(provider, "list_objects", &mut a, "ventas").unwrap();
+            assert_eq!(a["database"], "inventario");
+        }
+    }
+
+    #[test]
+    fn missing_databases_are_reported() {
+        let listed = vec!["ventas".to_string(), "Inventario".to_string()];
+        assert_eq!(find_database(&listed, "ventas"), Ok(None));
+        assert_eq!(
+            find_database(&listed, "inventario"),
+            Ok(Some("Inventario".into())),
+            "other casing"
+        );
+        assert_eq!(find_database(&listed, "compras"), Err(()));
+        assert_eq!(
+            find_database(&[], "compras"),
+            Ok(None),
+            "no list: can't tell"
+        );
+        let two = vec!["A".to_string(), "a".to_string()];
+        assert_eq!(find_database(&two, "a"), Ok(None));
+        assert_eq!(find_database(&two, "b"), Err(()));
+        let msg = missing_database("compras", "prod", &listed);
+        assert!(
+            msg.contains("“compras”")
+                && msg.contains("“prod”")
+                && msg.contains("ventas, Inventario"),
+            "{msg}"
+        );
+        let many: Vec<String> = (0..60).map(|i| format!("b{i}")).collect();
+        assert!(missing_database("x", "c", &many).contains("(10 more)"));
+        let failed = other_database_failed("compras", "permission denied for database compras");
+        assert!(failed.contains("“compras”") && failed.contains("permission denied"));
+    }
+
     #[test]
     fn refusals() {
         assert!(refused("Lo siento, no puedo ayudarte con eso."));
@@ -1164,7 +1440,7 @@ mod tests {
     fn instructions_follow_the_ui_language() {
         for l in prompts::LANGS {
             let p = prompts::get(l);
-            let tools = tools_prompt(p, "c1", "b1");
+            let tools = tools_prompt(p, "c1", "b1", true);
             assert!(
                 tools.contains(TOOL_OPEN) && tools.contains(TOOL_CLOSE),
                 "{l}"

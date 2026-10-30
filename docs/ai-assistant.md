@@ -15,7 +15,8 @@ structure it writes as code, and running it is left in the user's hands.
 - There is no technical path for it to write. With a local model it can
   **read** the tab's connection (see "Query the whole connection"), and only
   through the read tools of the MCP server, which open read-only sessions and
-  reject any write. Claude Code and Codex run without tools.
+  reject any write. Claude Code and Codex get only the catalog tools
+  (metadata, never rows).
 - If the user asks it "drop table X", the assistant writes the `DROP TABLE`
   and nothing else.
 - Each code block has three actions:
@@ -87,9 +88,20 @@ front (it would not fit in the context): it asks for it as it needs it.
   object after text, which is what small models sometimes write; that text is
   not shown in the chat. `index_usage` without `object` summarizes the whole
   database (up to 400 tables or 2 minutes).
-- **Claude Code and Codex:** they do not have these tools: the structure of
-  the other databases would leave the machine. If they are enabled later, it
-  will be with metadata only, and with data only if the user approves.
+- **Claude Code and Codex:** they get the same `<tool>` protocol with the
+  catalog tools only (`list_databases`, `list_objects`, `describe_object`,
+  `index_usage`), on any database of the tab's connection, and only when the
+  model asks: nothing of the other databases is sent ahead. `sample_rows`,
+  `run_query` and `explain` are not in their list and, if asked anyway, come
+  back as an `<error>` without running: no row leaves the machine. Each call
+  is a new process (`--no-session-persistence`), so the follow-up carries the
+  conversation so far, with each tool call and its result.
+- **Another database:** a tool that names a database other than the tab's is
+  checked against the connection's list first (the explorer's cached one).
+  One that isn't there, or isn't visible to the connection's user, comes back
+  as an `<error>` naming it and the databases there are; a read of another
+  database that fails (no permission) says so too. Nothing switches the tab's
+  database.
 
 ## Providers
 
@@ -100,7 +112,7 @@ order:
 |---|---|---|
 | **Built into DBine** | llama.cpp inside the app (Metal on Mac) with Qwen2.5-Coder 3B, 7B or 32B, downloaded once | Local: nothing leaves the machine |
 | **Ollama** | local server (`localhost:11434` or `OLLAMA_HOST`) | Local |
-| **Claude Code** | the `claude` CLI with the user's account | The question, the structure and the editor go to Anthropic |
+| **Claude Code** | the `claude` CLI with the user's account | The question, the structure, the editor and the metadata the model asks for go to Anthropic |
 | **Codex** | the `codex` CLI with the user's account | Same, to OpenAI |
 | **LM Studio** | local OpenAI-compatible server (`localhost:1234`) | Local |
 
@@ -127,12 +139,13 @@ the catalog. In the same test, 24 legitimate requests that sound sensitive
 (passwords, permissions, personal data, deletions) had no refusals with any
 model.
 
-### Claude Code and Codex, without tools
+### Claude Code and Codex, without their own tools
 
 Each answer is a new process that runs in an empty temporary folder.
 
 - **Claude Code:** `claude -p --output-format stream-json --include-partial-messages --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence --system-prompt-file …`.
-  It has no tools or MCP servers, and it does not load the user's
+  It has no tools or MCP servers of its own (DBine's catalog tools go
+  through the `<tool>` text protocol), and it does not load the user's
   configuration, so its hooks do not run.
 - **Codex:** `codex exec --json --skip-git-repo-check --sandbox read-only -C <empty folder> -`.
 
@@ -195,7 +208,8 @@ It is built in `src-tauri/src/commands/ai.rs`:
   without approval. There is no checkbox to turn it off: it is lightweight,
   it comes from the cache and llama.cpp reuses what it already processed of
   the same text.
-- **With Claude Code or Codex** (without tools), the compact structure:
+- **With Claude Code or Codex**, the compact structure of the tab's database
+  (other databases through the catalog tools, when asked):
   - It comes from `database_schema`, so it works with all the drivers that
     implement it. It is cached for 10 minutes.
   - Compact format: `schema.table(col type PK, col type NOT NULL, …)` and

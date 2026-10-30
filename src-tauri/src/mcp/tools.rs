@@ -52,9 +52,10 @@ const NAMES: &[&str] = &[
     super::write::TOOL,
 ];
 
-/// What DBine's own assistant may call (a local model, on the tab's
-/// connection): no list_connections (it stays on its connection) and no
-/// execute (it never writes).
+/// What DBine's own assistant may call (on the tab's connection; a remote
+/// model only the catalog ones, commands/ai.rs REMOTE_TOOLS): no
+/// list_connections (it stays on its connection) and no execute (it never
+/// writes).
 pub const ASSISTANT_TOOLS: &[&str] = &[
     "list_databases",
     "list_objects",
@@ -170,7 +171,7 @@ pub async fn call(inner: &Inner, client: &McpClient, tool: &str, args: &Value) -
     )
 }
 
-/// DBine's own assistant with a local model: the same tools, on the tab's
+/// DBine's own assistant: the same tools, on the tab's
 /// connection only, at the level the user gave it in the chat (structure, or
 /// also data with "datos"), whatever MCP's settings say. Never writes.
 pub async fn assistant_call(

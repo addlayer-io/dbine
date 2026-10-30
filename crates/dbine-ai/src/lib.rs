@@ -193,6 +193,30 @@ mod tests {
         );
     }
 
+    /// Claude Code and Codex start a new process per call: a follow-up
+    /// after a tool carries the question, the tool call and its result.
+    #[test]
+    fn transcript_carries_tool_steps() {
+        let m = |r: &str, c: &str| ChatMessage {
+            role: r.into(),
+            content: c.into(),
+        };
+        let call = "<tool>{\"name\": \"list_objects\", \"arguments\": {\"database\": \"inventario\"}}</tool>";
+        let t = transcript(
+            &[
+                m("user", "tablas de inventario"),
+                m("assistant", call),
+                m("user", "<result>\ntable productos\n</result>"),
+            ],
+            "en",
+        );
+        let q = t.find("tablas de inventario").unwrap();
+        let c = t.find(call).unwrap();
+        let r = t.find("<result>\ntable productos\n</result>").unwrap();
+        assert!(q < c && c < r, "{t}");
+        assert!(t.ends_with("</result>"), "the result is the last turn: {t}");
+    }
+
     #[tokio::test]
     async fn cancel_before_waiting_still_cancels() {
         let c = Cancel::new();
