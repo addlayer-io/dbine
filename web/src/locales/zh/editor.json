@@ -29,5 +29,11 @@
   "insertColumn": "第 {{n}} 列，共 {{total}} 列：{{name}}",
   "insertExtra": "第 {{n}} 个值：列表有 {{total}} 列",
   "pickFile": "选择文件…",
-  "dataFiles": "数据文件（CSV、Parquet、JSON、Excel）"
+  "dataFiles": "数据文件（CSV、Parquet、JSON、Excel）",
+  "tableHover": {
+    "loading": "正在加载列…",
+    "empty": "此表没有可用的元数据。",
+    "error": "无法读取列：{{error}}",
+    "primaryKey": "主键"
+  }
 }

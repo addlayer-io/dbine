@@ -29,5 +29,11 @@
   "insertColumn": "Столбец {{n}} из {{total}}: {{name}}",
   "insertExtra": "Значение {{n}}: в списке столбцов: {{total}}",
   "pickFile": "Выбрать файл…",
-  "dataFiles": "Файлы данных (CSV, Parquet, JSON, Excel)"
+  "dataFiles": "Файлы данных (CSV, Parquet, JSON, Excel)",
+  "tableHover": {
+    "loading": "Загрузка столбцов…",
+    "empty": "Для этой таблицы нет метаданных.",
+    "error": "Не удалось прочитать столбцы: {{error}}",
+    "primaryKey": "Первичный ключ"
+  }
 }

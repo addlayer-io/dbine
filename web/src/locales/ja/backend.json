@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: CHECK 制約 {1} の定義を読み取れなかったため、作成しません。カタログがテキストを返しませんでした（非表示または権限なし）",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: CHECK 制約 {1} の定義を読み取れなかったため、作成しません: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: 計算列 {1} の式を読み取れなかったため、その型の通常の列として残ります: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "ソースのカタログ: ユーザーがカタログ全体を読み取れません。クローンにはソースデータベースの VIEW DEFINITION と、sys.sql_expression_dependencies への SELECT（db_owner と同等）が必要です: {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "ソースのカタログ: ユーザーがカタログ全体を読み取れません。クローンにはソースデータベースの VIEW DEFINITION と、sys.sql_expression_dependencies への SELECT（db_owner と同等）が必要です: {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "接続の SSH プロファイルが存在しません。SSH トンネルで別のプロファイルを選んでください",
+  "el perfil SSH elegido ya no existe": "選択した SSH プロファイルは存在しません",
+  "el perfil SSH necesita un nombre": "SSH プロファイルには名前が必要です",
+  "el perfil SSH no se puede guardar: {0}": "SSH プロファイルを保存できません: {0}",
+  "no existe el perfil SSH '{0}'": "SSH プロファイル「{0}」は存在しません",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "SSH プロファイル「{0}」のシークレットをキーチェーンから読み取れませんでした: {1}"
 }

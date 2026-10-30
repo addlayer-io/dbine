@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}：无法读取 CHECK 约束 {1} 的定义，不会创建：目录未返回其文本（已隐藏或无权限）",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}：无法读取 CHECK 约束 {1} 的定义，不会创建：{2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}：无法读取计算列 {1} 的表达式；它保留为其类型的普通列：{2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "源端目录：该用户无法读取完整目录；克隆需要源数据库的 VIEW DEFINITION 权限，以及对 sys.sql_expression_dependencies 的 SELECT 权限（如 db_owner）：{0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "源端目录：该用户无法读取完整目录；克隆需要源数据库的 VIEW DEFINITION 权限，以及对 sys.sql_expression_dependencies 的 SELECT 权限（如 db_owner）：{0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "该连接的 SSH 配置文件已不存在：请在其 SSH 隧道中选择其他配置文件",
+  "el perfil SSH elegido ya no existe": "所选的 SSH 配置文件已不存在",
+  "el perfil SSH necesita un nombre": "SSH 配置文件需要名称",
+  "el perfil SSH no se puede guardar: {0}": "无法保存 SSH 配置文件：{0}",
+  "no existe el perfil SSH '{0}'": "SSH 配置文件“{0}”不存在",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "无法从钥匙串读取 SSH 配置文件“{0}”的密钥：{1}"
 }

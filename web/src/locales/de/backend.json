@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: Die Definition der CHECK-Einschränkung {1} konnte nicht gelesen werden, sie wird nicht erstellt: Der Katalog hat ihren Text nicht zurückgegeben (verborgen oder keine Berechtigung)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: Die Definition der CHECK-Einschränkung {1} konnte nicht gelesen werden, sie wird nicht erstellt: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: Der Ausdruck der berechneten Spalte {1} konnte nicht gelesen werden; sie bleibt eine normale Spalte ihres Typs: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "Katalog der Quelle: Der Benutzer kann den gesamten Katalog nicht lesen; Klonen erfordert VIEW DEFINITION für die Quelldatenbank und SELECT auf sys.sql_expression_dependencies (wie db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "Katalog der Quelle: Der Benutzer kann den gesamten Katalog nicht lesen; Klonen erfordert VIEW DEFINITION für die Quelldatenbank und SELECT auf sys.sql_expression_dependencies (wie db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "das SSH-Profil der Verbindung existiert nicht mehr: Wählen Sie im SSH-Tunnel ein anderes",
+  "el perfil SSH elegido ya no existe": "das gewählte SSH-Profil existiert nicht mehr",
+  "el perfil SSH necesita un nombre": "das SSH-Profil braucht einen Namen",
+  "el perfil SSH no se puede guardar: {0}": "das SSH-Profil kann nicht gespeichert werden: {0}",
+  "no existe el perfil SSH '{0}'": "das SSH-Profil '{0}' existiert nicht",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "die Geheimnisse des SSH-Profils „{0}“ konnten nicht aus dem Schlüsselbund gelesen werden: {1}"
 }

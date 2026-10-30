@@ -29,5 +29,11 @@
   "insertColumn": "Colonne {{n}} sur {{total}} : {{name}}",
   "insertExtra": "Valeur {{n}} : la liste a {{total}} colonnes",
   "pickFile": "Choisir un fichier…",
-  "dataFiles": "Fichiers de données (CSV, Parquet, JSON, Excel)"
+  "dataFiles": "Fichiers de données (CSV, Parquet, JSON, Excel)",
+  "tableHover": {
+    "loading": "Chargement des colonnes…",
+    "empty": "Aucune métadonnée disponible pour cette table.",
+    "error": "Impossible de lire les colonnes : {{error}}",
+    "primaryKey": "Clé primaire"
+  }
 }

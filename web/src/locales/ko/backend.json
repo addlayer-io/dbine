@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: CHECK 제약 조건 {1}의 정의를 읽을 수 없어 생성하지 않습니다. 카탈로그가 해당 텍스트를 반환하지 않았습니다(숨겨져 있거나 권한 없음)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: CHECK 제약 조건 {1}의 정의를 읽을 수 없어 생성하지 않습니다: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: 계산 열 {1}의 식을 읽을 수 없어 해당 형식의 일반 열로 유지됩니다: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "원본 카탈로그: 사용자가 전체 카탈로그를 읽을 수 없습니다. 복제하려면 원본 데이터베이스의 VIEW DEFINITION 권한과 sys.sql_expression_dependencies에 대한 SELECT 권한(db_owner와 동일)이 필요합니다: {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "원본 카탈로그: 사용자가 전체 카탈로그를 읽을 수 없습니다. 복제하려면 원본 데이터베이스의 VIEW DEFINITION 권한과 sys.sql_expression_dependencies에 대한 SELECT 권한(db_owner와 동일)이 필요합니다: {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "연결의 SSH 프로필이 더 이상 없습니다. SSH 터널에서 다른 프로필을 선택하세요",
+  "el perfil SSH elegido ya no existe": "선택한 SSH 프로필이 더 이상 없습니다",
+  "el perfil SSH necesita un nombre": "SSH 프로필에는 이름이 필요합니다",
+  "el perfil SSH no se puede guardar: {0}": "SSH 프로필을 저장할 수 없습니다: {0}",
+  "no existe el perfil SSH '{0}'": "SSH 프로필 '{0}'이(가) 없습니다",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "키체인에서 SSH 프로필 “{0}”의 시크릿을 읽을 수 없습니다: {1}"
 }

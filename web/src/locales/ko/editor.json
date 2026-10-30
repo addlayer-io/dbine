@@ -29,5 +29,11 @@
   "insertColumn": "열 {{n}}/{{total}}: {{name}}",
   "insertExtra": "값 {{n}}: 목록에 열이 {{total}}개 있습니다",
   "pickFile": "파일 선택…",
-  "dataFiles": "데이터 파일(CSV, Parquet, JSON, Excel)"
+  "dataFiles": "데이터 파일(CSV, Parquet, JSON, Excel)",
+  "tableHover": {
+    "loading": "열을 불러오는 중…",
+    "empty": "이 테이블에 사용할 수 있는 메타데이터가 없습니다.",
+    "error": "열을 읽을 수 없습니다: {{error}}",
+    "primaryKey": "기본 키"
+  }
 }

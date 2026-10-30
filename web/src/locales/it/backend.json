@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: impossibile leggere la definizione del vincolo CHECK {1}, che non viene creato: il catalogo non ha restituito il testo (nascosto o senza permesso)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: impossibile leggere la definizione del vincolo CHECK {1}, che non viene creato: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: impossibile leggere l'espressione della colonna calcolata {1}; resta come colonna normale del suo tipo: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "catalogo dell'origine: l'utente non può leggere il catalogo completo; clonare richiede VIEW DEFINITION sul database di origine e SELECT su sys.sql_expression_dependencies (come db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "catalogo dell'origine: l'utente non può leggere il catalogo completo; clonare richiede VIEW DEFINITION sul database di origine e SELECT su sys.sql_expression_dependencies (come db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "il profilo SSH della connessione non esiste più: sceglierne un altro nel suo tunnel SSH",
+  "el perfil SSH elegido ya no existe": "il profilo SSH scelto non esiste più",
+  "el perfil SSH necesita un nombre": "il profilo SSH ha bisogno di un nome",
+  "el perfil SSH no se puede guardar: {0}": "impossibile salvare il profilo SSH: {0}",
+  "no existe el perfil SSH '{0}'": "il profilo SSH '{0}' non esiste",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "impossibile leggere dal portachiavi i segreti del profilo SSH “{0}”: {1}"
 }

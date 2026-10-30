@@ -29,5 +29,11 @@
   "insertColumn": "Spalte {{n}} von {{total}}: {{name}}",
   "insertExtra": "Wert {{n}}: Die Liste hat {{total}} Spalten",
   "pickFile": "Datei auswählen…",
-  "dataFiles": "Datendateien (CSV, Parquet, JSON, Excel)"
+  "dataFiles": "Datendateien (CSV, Parquet, JSON, Excel)",
+  "tableHover": {
+    "loading": "Spalten werden geladen …",
+    "empty": "Für diese Tabelle sind keine Metadaten verfügbar.",
+    "error": "Die Spalten konnten nicht gelesen werden: {{error}}",
+    "primaryKey": "Primärschlüssel"
+  }
 }

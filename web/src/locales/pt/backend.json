@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: não foi possível ler a definição da restrição CHECK {1} e ela não será criada: o catálogo não retornou seu texto (oculto ou sem permissão)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: não foi possível ler a definição da restrição CHECK {1} e ela não será criada: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: não foi possível ler a expressão da coluna calculada {1}; ela fica como coluna comum do seu tipo: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "catálogo da origem: o usuário não consegue ler o catálogo completo; clonar exige VIEW DEFINITION no banco de origem e SELECT em sys.sql_expression_dependencies (como db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "catálogo da origem: o usuário não consegue ler o catálogo completo; clonar exige VIEW DEFINITION no banco de origem e SELECT em sys.sql_expression_dependencies (como db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "o perfil SSH da conexão não existe mais: escolha outro no túnel SSH dela",
+  "el perfil SSH elegido ya no existe": "o perfil SSH escolhido não existe mais",
+  "el perfil SSH necesita un nombre": "o perfil SSH precisa de um nome",
+  "el perfil SSH no se puede guardar: {0}": "não foi possível salvar o perfil SSH: {0}",
+  "no existe el perfil SSH '{0}'": "o perfil SSH '{0}' não existe",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "não foi possível ler do chaveiro os segredos do perfil SSH “{0}”: {1}"
 }

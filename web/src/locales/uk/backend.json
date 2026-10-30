@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: не вдалося прочитати визначення обмеження CHECK {1}, воно не створюється: каталог не повернув його текст (прихований або немає дозволу)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: не вдалося прочитати визначення обмеження CHECK {1}, воно не створюється: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: не вдалося прочитати вираз обчислюваного стовпця {1}; він залишається звичайним стовпцем свого типу: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "каталог джерела: користувач не може прочитати каталог повністю; для клонування потрібні VIEW DEFINITION у вихідній базі та SELECT на sys.sql_expression_dependencies (як у db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "каталог джерела: користувач не може прочитати каталог повністю; для клонування потрібні VIEW DEFINITION у вихідній базі та SELECT на sys.sql_expression_dependencies (як у db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "профіль SSH підключення більше не існує: виберіть інший у його SSH-тунелі",
+  "el perfil SSH elegido ya no existe": "вибраного профілю SSH більше не існує",
+  "el perfil SSH necesita un nombre": "профілю SSH потрібна назва",
+  "el perfil SSH no se puede guardar: {0}": "не вдалося зберегти профіль SSH: {0}",
+  "no existe el perfil SSH '{0}'": "профілю SSH '{0}' не існує",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "не вдалося прочитати з в'язки ключів секрети профілю SSH «{0}»: {1}"
 }

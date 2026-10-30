@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: definisi batasan CHECK {1} tidak dapat dibaca dan tidak dibuat: katalog tidak mengembalikan teksnya (tersembunyi atau tanpa izin)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: definisi batasan CHECK {1} tidak dapat dibaca dan tidak dibuat: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: ekspresi kolom terhitung {1} tidak dapat dibaca; tetap menjadi kolom biasa bertipe sama: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "katalog sumber: pengguna tidak dapat membaca seluruh katalog; kloning memerlukan VIEW DEFINITION pada basis data sumber dan SELECT pada sys.sql_expression_dependencies (seperti db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "katalog sumber: pengguna tidak dapat membaca seluruh katalog; kloning memerlukan VIEW DEFINITION pada basis data sumber dan SELECT pada sys.sql_expression_dependencies (seperti db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "profil SSH koneksi sudah tidak ada: pilih profil lain di terowongan SSH-nya",
+  "el perfil SSH elegido ya no existe": "profil SSH yang dipilih sudah tidak ada",
+  "el perfil SSH necesita un nombre": "profil SSH memerlukan nama",
+  "el perfil SSH no se puede guardar: {0}": "profil SSH tidak dapat disimpan: {0}",
+  "no existe el perfil SSH '{0}'": "profil SSH '{0}' tidak ada",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "tidak dapat membaca rahasia profil SSH “{0}” dari keychain: {1}"
 }

@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: nie udało się odczytać definicji ograniczenia CHECK {1}, nie zostanie utworzone: katalog nie zwrócił jej tekstu (ukryta lub brak uprawnień)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: nie udało się odczytać definicji ograniczenia CHECK {1}, nie zostanie utworzone: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: nie udało się odczytać wyrażenia kolumny obliczanej {1}; zostaje zwykłą kolumną swojego typu: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "katalog źródła: użytkownik nie może odczytać całego katalogu; klonowanie wymaga VIEW DEFINITION w bazie źródłowej oraz SELECT na sys.sql_expression_dependencies (jak db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "katalog źródła: użytkownik nie może odczytać całego katalogu; klonowanie wymaga VIEW DEFINITION w bazie źródłowej oraz SELECT na sys.sql_expression_dependencies (jak db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "profil SSH połączenia już nie istnieje: wybierz inny w jego tunelu SSH",
+  "el perfil SSH elegido ya no existe": "wybrany profil SSH już nie istnieje",
+  "el perfil SSH necesita un nombre": "profil SSH wymaga nazwy",
+  "el perfil SSH no se puede guardar: {0}": "nie można zapisać profilu SSH: {0}",
+  "no existe el perfil SSH '{0}'": "profil SSH '{0}' nie istnieje",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "nie udało się odczytać z pęku kluczy sekretów profilu SSH „{0}”: {1}"
 }

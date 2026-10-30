@@ -29,5 +29,11 @@
   "insertColumn": "Kolumna {{n}} z {{total}}: {{name}}",
   "insertExtra": "Wartość {{n}}: lista ma kolumn: {{total}}",
   "pickFile": "Wybierz plik…",
-  "dataFiles": "Pliki danych (CSV, Parquet, JSON, Excel)"
+  "dataFiles": "Pliki danych (CSV, Parquet, JSON, Excel)",
+  "tableHover": {
+    "loading": "Wczytywanie kolumn…",
+    "empty": "Brak metadanych dla tej tabeli.",
+    "error": "Nie można odczytać kolumn: {{error}}",
+    "primaryKey": "Klucz podstawowy"
+  }
 }

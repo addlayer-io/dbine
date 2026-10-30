@@ -29,5 +29,11 @@
   "insertColumn": "Kolom {{n}} dari {{total}}: {{name}}",
   "insertExtra": "Nilai {{n}}: daftar memiliki {{total}} kolom",
   "pickFile": "Pilih berkas…",
-  "dataFiles": "Berkas data (CSV, Parquet, JSON, Excel)"
+  "dataFiles": "Berkas data (CSV, Parquet, JSON, Excel)",
+  "tableHover": {
+    "loading": "Memuat kolom…",
+    "empty": "Tidak ada metadata untuk tabel ini.",
+    "error": "Tidak dapat membaca kolom: {{error}}",
+    "primaryKey": "Kunci primer"
+  }
 }

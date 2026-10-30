@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0}: не удалось прочитать определение ограничения CHECK {1}, оно не создаётся: каталог не вернул его текст (скрыт или нет разрешения)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0}: не удалось прочитать определение ограничения CHECK {1}, оно не создаётся: {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0}: не удалось прочитать выражение вычисляемого столбца {1}; он остаётся обычным столбцом своего типа: {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "каталог источника: пользователь не может прочитать каталог целиком; для клонирования нужны VIEW DEFINITION в исходной базе и SELECT на sys.sql_expression_dependencies (как у db_owner): {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "каталог источника: пользователь не может прочитать каталог целиком; для клонирования нужны VIEW DEFINITION в исходной базе и SELECT на sys.sql_expression_dependencies (как у db_owner): {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "профиль SSH подключения больше не существует: выберите другой в его SSH-туннеле",
+  "el perfil SSH elegido ya no existe": "выбранного профиля SSH больше не существует",
+  "el perfil SSH necesita un nombre": "профилю SSH нужно имя",
+  "el perfil SSH no se puede guardar: {0}": "не удалось сохранить профиль SSH: {0}",
+  "no existe el perfil SSH '{0}'": "профиля SSH '{0}' не существует",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "не удалось прочитать из связки ключей секреты профиля SSH «{0}»: {1}"
 }

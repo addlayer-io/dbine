@@ -11287,5 +11287,11 @@
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: el catálogo no devolvió su texto (oculto o sin permiso)": "{0} : impossible de lire la définition de la contrainte CHECK {1}, qui n'est pas créée : le catalogue n'a pas renvoyé son texte (masqué ou sans autorisation)",
   "{0}: no se pudo leer la definición de la restricción CHECK {1} y no se crea: {2}": "{0} : impossible de lire la définition de la contrainte CHECK {1}, qui n'est pas créée : {2}",
   "{0}: no se pudo leer la expresión de la columna calculada {1}; queda como columna común de su tipo: {2}": "{0} : impossible de lire l'expression de la colonne calculée {1} ; elle reste une colonne ordinaire de son type : {2}",
-  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "catalogue de la source : l'utilisateur ne peut pas lire le catalogue complet ; le clonage nécessite VIEW DEFINITION sur la base source et SELECT sur sys.sql_expression_dependencies (comme db_owner) : {0}"
+  "catálogo del origen: el usuario no puede leer el catálogo completo; clonar necesita VIEW DEFINITION en la base de origen y SELECT sobre sys.sql_expression_dependencies (como db_owner): {0}": "catalogue de la source : l'utilisateur ne peut pas lire le catalogue complet ; le clonage nécessite VIEW DEFINITION sur la base source et SELECT sur sys.sql_expression_dependencies (comme db_owner) : {0}",
+  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": "le profil SSH de la connexion n’existe plus : choisissez-en un autre dans son tunnel SSH",
+  "el perfil SSH elegido ya no existe": "le profil SSH choisi n’existe plus",
+  "el perfil SSH necesita un nombre": "le profil SSH doit avoir un nom",
+  "el perfil SSH no se puede guardar: {0}": "impossible d’enregistrer le profil SSH : {0}",
+  "no existe el perfil SSH '{0}'": "le profil SSH '{0}' n’existe pas",
+  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": "impossible de lire dans le trousseau les secrets du profil SSH « {0} » : {1}"
 }

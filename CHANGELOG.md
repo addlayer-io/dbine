@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### New
+- **SSH tunnel profiles:** save an SSH tunnel (server, bastions, user and authentication) once as a profile in Settings and pick it in any connection; each connection keeps its own database server. Editing the profile applies to every connection that uses it on its next connect, a connection's current tunnel can be saved as a profile, and the profile's secrets stay in the system keychain.
+- **Table columns on hover:** resting the pointer on a table's name in the SQL editor shows its columns with their type, whether they allow nulls, the primary key and each column's comment, for every engine.
+
+### Improvements
+- **AI assistant with Claude Code and Codex:** when you ask about another database on the same connection, the assistant reads its tables and columns without switching the tab's database. These models still never receive table rows.
+
 ### Fixes
 - **SAP HANA on Linux, security:** cancelling a query no longer reads the folder of trusted certificates after the session has removed it, a moment another user of the same computer could have used to plant their own certificate authority.
 - **Security, dependencies:** `ctutils` and `crypto-bigint` are updated past their constant-time fixes.

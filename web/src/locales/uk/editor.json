@@ -29,5 +29,11 @@
   "insertColumn": "Стовпець {{n}} із {{total}}: {{name}}",
   "insertExtra": "Значення {{n}}: у списку стовпців {{total}}",
   "pickFile": "Вибрати файл…",
-  "dataFiles": "Файли даних (CSV, Parquet, JSON, Excel)"
+  "dataFiles": "Файли даних (CSV, Parquet, JSON, Excel)",
+  "tableHover": {
+    "loading": "Завантаження стовпців…",
+    "empty": "Для цієї таблиці немає метаданих.",
+    "error": "Не вдалося прочитати стовпці: {{error}}",
+    "primaryKey": "Первинний ключ"
+  }
 }
