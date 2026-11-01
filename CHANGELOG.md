@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **Clearer message when updates can't be checked offline:** without an internet connection, checking for or downloading an update now says the update server can't be reached, instead of showing the network library's error.
+
 ## [1.3.0] - 2026-10-30
 
 ### New

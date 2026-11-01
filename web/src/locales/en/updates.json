@@ -31,5 +31,6 @@
   "upToDate": "You're on the latest version ({{version}}).",
   "managedByFlatpak": "You have version {{version}}. This install comes from Flathub: Flatpak updates it (from your software center or with “flatpak update”).",
   "busyInWindow": "The update is in progress in window {{n}}.",
-  "failed": "Could not check for updates: {{error}}"
+  "failed": "Could not check for updates: {{error}}",
+  "offline": "Could not reach the update server. Check your internet connection and try again."
 }

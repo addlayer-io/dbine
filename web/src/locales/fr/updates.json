@@ -31,5 +31,6 @@
   "upToDate": "Vous êtes sur la dernière version ({{version}}).",
   "managedByFlatpak": "Vous avez la version {{version}}. Cette installation vient de Flathub : Flatpak la met à jour (depuis votre logithèque ou avec « flatpak update »).",
   "busyInWindow": "La mise à jour est en cours dans la fenêtre {{n}}.",
-  "failed": "Impossible de rechercher des mises à jour : {{error}}"
+  "failed": "Impossible de rechercher des mises à jour : {{error}}",
+  "offline": "Impossible de joindre le serveur de mises à jour. Vérifiez votre connexion internet et réessayez."
 }

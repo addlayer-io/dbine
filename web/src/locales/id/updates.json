@@ -31,5 +31,6 @@
   "upToDate": "Anda menggunakan versi terbaru ({{version}}).",
   "managedByFlatpak": "Anda menggunakan versi {{version}}. Pemasangan ini dari Flathub: Flatpak yang memperbaruinya (dari pusat perangkat lunak Anda atau dengan «flatpak update»).",
   "busyInWindow": "Pembaruan sedang berjalan di jendela {{n}}.",
-  "failed": "Tidak dapat memeriksa pembaruan: {{error}}"
+  "failed": "Tidak dapat memeriksa pembaruan: {{error}}",
+  "offline": "Tidak dapat terhubung ke server pembaruan. Periksa koneksi internet Anda dan coba lagi."
 }

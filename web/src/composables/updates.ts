@@ -66,6 +66,12 @@ function windowNumber(label: string): string {
   return m ? m[1] : '1';
 }
 
+/** A failed check or download: no connection reads as such, not as the
+ *  network library's error chain. */
+function updateErrorText(e: unknown): string {
+  return errorKind(e) === 'connect' ? t('updates:offline') : errorMessage(e);
+}
+
 /** The manual check: the dialog, "you're up to date" or the error. */
 export async function checkForUpdateNow() {
   if (checkingForUpdate.value) return;
@@ -83,7 +89,7 @@ export async function checkForUpdateNow() {
       show(info);
     }
   } catch (e) {
-    ElMessage.error(t('updates:failed', { error: errorMessage(e) }));
+    ElMessage.error(errorKind(e) === 'connect' ? t('updates:offline') : t('updates:failed', { error: errorMessage(e) }));
   } finally {
     checkingForUpdate.value = false;
   }
@@ -102,7 +108,7 @@ export async function startUpdateDownload() {
     if (errorKind(e) === 'cancelled') {
       updateStage.value = 'offer';
     } else {
-      updateError.value = errorMessage(e);
+      updateError.value = updateErrorText(e);
       updateStage.value = 'error';
     }
   }
@@ -119,7 +125,7 @@ export async function restartToUpdate() {
   try {
     await requestUpdateRestart();
   } catch (e) {
-    updateError.value = errorMessage(e);
+    updateError.value = updateErrorText(e);
     updateStage.value = 'error';
   }
 }
@@ -164,7 +170,7 @@ export function useUpdateEvents() {
     } else if (payload.cancelled) {
       updateStage.value = 'offer';
     } else {
-      updateError.value = errorMessage(payload.error);
+      updateError.value = updateErrorText(payload.error);
       updateStage.value = 'error';
     }
   }).then(keep).catch(() => {});

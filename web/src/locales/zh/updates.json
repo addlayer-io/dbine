@@ -31,5 +31,6 @@
   "upToDate": "你使用的已是最新版本（{{version}}）。",
   "managedByFlatpak": "你使用的是版本 {{version}}。此安装来自 Flathub：由 Flatpak 更新（通过你的软件中心或“flatpak update”）。",
   "busyInWindow": "更新正在窗口 {{n}} 中进行。",
-  "failed": "无法检查更新：{{error}}"
+  "failed": "无法检查更新：{{error}}",
+  "offline": "无法连接到更新服务器。请检查网络连接后重试。"
 }

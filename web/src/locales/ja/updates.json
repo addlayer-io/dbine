@@ -31,5 +31,6 @@
   "upToDate": "最新バージョン({{version}})です。",
   "managedByFlatpak": "バージョン {{version}} です。このインストールは Flathub 版のため、Flatpak が更新します(ソフトウェアセンターまたは「flatpak update」で)。",
   "busyInWindow": "更新はウィンドウ {{n}} で進行中です。",
-  "failed": "更新を確認できませんでした: {{error}}"
+  "failed": "更新を確認できませんでした: {{error}}",
+  "offline": "更新サーバーに接続できませんでした。インターネット接続を確認して、もう一度お試しください。"
 }
