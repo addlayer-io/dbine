@@ -1,6 +1,12 @@
 # Perubahan
 
 
+## [1.3.1] - 2026-11-02
+
+### Peningkatan
+- **Memulihkan koneksi setelah jaringan terputus:** koneksi yang gagal atau macet saat menyambung kini dapat diputuskan dari menunya, sehingga sesi dan terowongan SSH-nya ditutup; menyambung kembali dimulai dari awal. Kueri yang gagal karena koneksi terputus kini membuang sesinya dan, saat terowongan SSH tidak lagi menjangkau server, terowongannya juga, sehingga kueri berikutnya tersambung ulang sendiri. Saat memutuskan koneksi, DBine bertanya terlebih dahulu jika tab memiliki transaksi yang terbuka atau pernyataan yang masih berjalan, dan koneksi serta proses masuk terowongan SSH tidak lagi menunggu selamanya.
+- **Pesan yang lebih jelas saat pembaruan tidak dapat diperiksa secara offline:** tanpa koneksi internet, memeriksa atau mengunduh pembaruan kini menyatakan bahwa server pembaruan tidak dapat dijangkau, bukan menampilkan galat pustaka jaringan.
+
 ## [1.3.0] - 2026-10-30
 
 ### Baru

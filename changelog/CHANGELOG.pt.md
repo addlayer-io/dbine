@@ -1,5 +1,11 @@
 # Alterações
 
+## [1.3.1] - 2026-11-02
+
+### Melhorias
+- **Recuperar uma conexão após uma queda de rede:** uma conexão que falhou ou ficou travada conectando agora pode ser desconectada pelo seu menu, o que fecha suas sessões e seu túnel SSH; conectar de novo começa do zero. Uma consulta que falha porque a conexão caiu agora descarta sua sessão e, quando o túnel SSH não alcança mais o servidor, também o túnel, de modo que a próxima consulta se reconecta sozinha. Ao desconectar, o DBine pergunta antes se uma aba tem uma transação aberta ou uma instrução ainda em execução, e a conexão e a autenticação de um túnel SSH não podem mais ficar esperando para sempre.
+- **Mensagem mais clara quando não é possível verificar atualizações offline:** sem conexão com a internet, verificar ou baixar uma atualização agora informa que não é possível alcançar o servidor de atualizações, em vez de mostrar o erro da biblioteca de rede.
+
 ## [1.3.0] - 2026-10-30
 
 ### Novidades
