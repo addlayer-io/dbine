@@ -66,3 +66,12 @@ reason = "Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's p
 [[IgnoredVulns]]
 id = "GHSA-qwgh-2vcv-g2f7"
 reason = "Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to."
+
+# glob 13 and minimatch 9/10 (npm, web/ and mobile/): js-beautify's
+# command-line part and the dev tools (eslint, typescript-eslint, vue-tsc).
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+reason = "Doesn't affect DBine. glob comes only with js-beautify, which uses it in its command-line tool (js/src/cli.js); DBine imports js-beautify's formatter (web/src/composables/formatCode.ts), which doesn't load glob, and the built app has no glob code (checked in web/dist). The fix is in glob 14, a major version js-beautify doesn't accept."
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+reason = "Doesn't affect DBine. minimatch comes with js-beautify's command-line tool (through glob and editorconfig, js/src/cli.js) and with dev tools only (eslint, typescript-eslint, vue-tsc), never with the app: DBine imports js-beautify's formatter, which loads neither, and the built app has no minimatch code (checked in web/dist). The fix is in minimatch 11, a major version those packages don't accept."
