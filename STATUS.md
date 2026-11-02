@@ -2,14 +2,14 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-10-30._
+_Updated 2026-11-02._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 1 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 1 | 6 | 2 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
@@ -17,17 +17,25 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
+| OSV-GHSA-vp5q-ff62-jwqv-russh-13ee4b | HIGH | osv | russh 0.64.1: russh: Agent server never calls `Agent::confirm`, so keys added with the confirm constraint (`ssh-add -c`) sign without confirmation | `Cargo.lock` | upgrade to 0.65 |
+| OSV-GHSA-3g3m-2fjr-6pw4-glob-3ebf69 | MEDIUM | osv | glob 13.0.6: Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal | `web/package-lock.json` | upgrade to 14.0.2 |
+| OSV-GHSA-4p9f-7p9m-5vfg-russh-13ee4b | MEDIUM | osv | russh 0.64.1: russh's SSH client is susceptible to unbounded allocations via EXT_INFO packets | `Cargo.lock` | upgrade to 0.65 |
+| OSV-GHSA-fw5c-8223-6h42-russh-13ee4b | MEDIUM | osv | russh 0.64.1: russh: peer-declared zero maximum packet size permanently stalls channel writes (silent AsyncWrite hang) | `Cargo.lock` | upgrade to 0.65 |
+| OSV-GHSA-g3hv-75wg-m249-minimatch-3ebf69 | MEDIUM | osv | minimatch 10.2.6: minimatch has potential denial of service via globparts amplification | `web/package-lock.json` | upgrade to 11.0.1 |
+| OSV-GHSA-g3hv-75wg-m249-minimatch-d5fe01 | MEDIUM | osv | minimatch 9.0.9: minimatch has potential denial of service via globparts amplification | `mobile/package-lock.json` | upgrade to 11.0.1 |
 | OSV-RUSTSEC-2026-0418-libz-sys-13ee4b | MEDIUM | osv | libz-sys 1.1.29: libz-sys build script leaks environment variables in the build directory | `Cargo.lock` | upgrade to 1.1.31 |
+| OSV-GHSA-662x-8wvj-2276-pageant-13ee4b | LOW | osv | pageant 0.2.3: pageant: unbounded frame buffering on peer-controlled 4-byte length prefix (memory-exhaustion DoS) | `Cargo.lock` | upgrade to 0.2.5 |
+| OSV-GHSA-9wfm-jcj8-jfv9-russh-13ee4b | LOW | osv | russh 0.64.1: russh's SSH agent server is susceptible to unbound allocations via repeated SSH_AGENT_CONSTRAIN_CONFIRM messages | `Cargo.lock` | upgrade to 0.65.0 |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
-| codeql | 2026-10-30 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-30 | every lockfile (Cargo, npm) at [`2bfed6e01`](https://github.com/addlayer-io/dbine/commit/2bfed6e01b40) | 1 open | — |
-| scorecard | 2026-10-30 | repository settings and workflows at [`6c72c937e`](https://github.com/addlayer-io/dbine/commit/6c72c937ed02) | score 5.7/10 | — |
-| trivy | 2026-10-30 | whole repository at [`2bfed6e01`](https://github.com/addlayer-io/dbine/commit/2bfed6e01b40) | 0 open | — |
+| codeql | 2026-11-02 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-02 | every lockfile (Cargo, npm) at [`90b955727`](https://github.com/addlayer-io/dbine/commit/90b95572737f) | 9 open | — |
+| scorecard | 2026-10-30 | repository settings and workflows at [`2bfed6e01`](https://github.com/addlayer-io/dbine/commit/2bfed6e01b40) | score 5.8/10 | — |
+| trivy | 2026-11-02 | whole repository at [`90b955727`](https://github.com/addlayer-io/dbine/commit/90b95572737f) | 0 open | — |
 
 ## Not counted, and why
 
@@ -381,7 +389,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.7/10** (2026-10-30). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.8/10** (2026-10-30). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -390,7 +398,7 @@ OpenSSF Scorecard: **5.7/10** (2026-10-30). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 2/10 — 8 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| Vulnerabilities: 3/10 — 7 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |

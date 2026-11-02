@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-10-30",
-      "revision": "2bfed6e01b40",
+      "date": "2026-11-02",
+      "revision": "90b95572737f",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 1
+      "found": 9
     },
     {
       "source": "trivy",
-      "date": "2026-10-30",
-      "revision": "2bfed6e01b40",
+      "date": "2026-11-02",
+      "revision": "90b95572737f",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-10-30",
+      "date": "2026-11-02",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -37,10 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-10-30",
-      "revision": "6c72c937ed02",
+      "revision": "2bfed6e01b40",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.7
+      "score": 5.8
     }
   ],
   "findings": [
@@ -4283,6 +4283,102 @@
       "by": "mpanichella"
     },
     {
+      "id": "OSV-GHSA-3g3m-2fjr-6pw4-glob-3ebf69",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "glob 13.0.6: Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal",
+      "component": "web/package-lock.json",
+      "advisory": "GHSA-3g3m-2fjr-6pw4",
+      "fixed_version": "14.0.2",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-4p9f-7p9m-5vfg-russh-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "russh 0.64.1: russh's SSH client is susceptible to unbounded allocations via EXT_INFO packets",
+      "component": "Cargo.lock",
+      "advisory": "GHSA-4p9f-7p9m-5vfg",
+      "fixed_version": "0.65",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-662x-8wvj-2276-pageant-13ee4b",
+      "source": "osv",
+      "severity": "LOW",
+      "kind": "Vulnerable dependency",
+      "title": "pageant 0.2.3: pageant: unbounded frame buffering on peer-controlled 4-byte length prefix (memory-exhaustion DoS)",
+      "component": "Cargo.lock",
+      "advisory": "GHSA-662x-8wvj-2276",
+      "fixed_version": "0.2.5",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-9wfm-jcj8-jfv9-russh-13ee4b",
+      "source": "osv",
+      "severity": "LOW",
+      "kind": "Vulnerable dependency",
+      "title": "russh 0.64.1: russh's SSH agent server is susceptible to unbound allocations via repeated SSH_AGENT_CONSTRAIN_CONFIRM messages",
+      "component": "Cargo.lock",
+      "advisory": "GHSA-9wfm-jcj8-jfv9",
+      "fixed_version": "0.65.0",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-fw5c-8223-6h42-russh-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "russh 0.64.1: russh: peer-declared zero maximum packet size permanently stalls channel writes (silent AsyncWrite hang)",
+      "component": "Cargo.lock",
+      "advisory": "GHSA-fw5c-8223-6h42",
+      "fixed_version": "0.65",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-g3hv-75wg-m249-minimatch-3ebf69",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "minimatch 10.2.6: minimatch has potential denial of service via globparts amplification",
+      "component": "web/package-lock.json",
+      "advisory": "GHSA-g3hv-75wg-m249",
+      "fixed_version": "11.0.1",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-g3hv-75wg-m249-minimatch-d5fe01",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "minimatch 9.0.9: minimatch has potential denial of service via globparts amplification",
+      "component": "mobile/package-lock.json",
+      "advisory": "GHSA-g3hv-75wg-m249",
+      "fixed_version": "11.0.1",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-vp5q-ff62-jwqv-russh-13ee4b",
+      "source": "osv",
+      "severity": "HIGH",
+      "kind": "Vulnerable dependency",
+      "title": "russh 0.64.1: russh: Agent server never calls `Agent::confirm`, so keys added with the confirm constraint (`ssh-add -c`) sign without confirmation",
+      "component": "Cargo.lock",
+      "advisory": "GHSA-vp5q-ff62-jwqv",
+      "fixed_version": "0.65",
+      "found": "2026-11-02",
+      "status": "open"
+    },
+    {
       "id": "OSV-RUSTSEC-2026-0418-libz-sys-13ee4b",
       "source": "osv",
       "severity": "MEDIUM",
@@ -4409,7 +4505,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 2/10 — 8 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 3/10 — 7 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
