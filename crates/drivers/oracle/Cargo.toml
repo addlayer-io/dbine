@@ -12,7 +12,7 @@ serde_json.workspace = true
 tracing.workspace = true
 # Oracle's own pure-Rust thin driver: speaks TNS/TTC directly, so it needs
 # no Instant Client / OCI library at build time or at run time.
-oracledb = "=26.0.0-beta.4"
+oracledb = "=26.0.0-beta.5"
 
 [dev-dependencies]
 tokio.workspace = true
