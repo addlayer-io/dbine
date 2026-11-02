@@ -37,10 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-02",
-      "revision": "c84daea1bde3",
+      "revision": "0b39b174a120",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.7
+      "score": 5.8
     }
   ],
   "findings": [
@@ -4397,7 +4397,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 0/10 — 14 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 2/10 — 8 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
