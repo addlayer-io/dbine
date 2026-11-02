@@ -24,6 +24,11 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # beta.5 drops the zone offset of TIMESTAMP WITH TIME ZONE values (they
+      # come normalized to UTC), which the Oracle driver shows: moving to it
+      # is a planned change of the driver, not a bump.
+      - dependency-name: oracledb
+        versions: ["26.0.0-beta.5"]
     groups:
       cargo-minor:
         update-types: [minor, patch]
