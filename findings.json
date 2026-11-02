@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-11-02",
-      "revision": "0b39b174a120",
+      "revision": "abc72fa9b52d",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-11-02",
-      "revision": "0b39b174a120",
+      "revision": "abc72fa9b52d",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
