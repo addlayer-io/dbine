@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Improvements
+- **Recovering a connection after a network cut:** a connection that failed or is stuck connecting can now be disconnected from its menu, which closes its sessions and its SSH tunnel; connecting again starts from scratch. A query that fails because the connection broke now drops its session and, when the SSH tunnel no longer reaches the server, the tunnel too, so the next query reconnects on its own. Disconnecting asks first when a tab has an open transaction or a statement still running, and an SSH tunnel's connection and sign-in can no longer wait forever.
 - **Clearer message when updates can't be checked offline:** without an internet connection, checking for or downloading an update now says the update server can't be reached, instead of showing the network library's error.
 
 ## [1.3.0] - 2026-10-30

@@ -5599,6 +5599,8 @@
   "no quedan columnas para cargar en «{0}»: las de identidad las genera Firebird al no conservar sus valores": "没有可加载到“{0}”的列：不保留标识列的值时，它们由 Firebird 生成",
   "no registra consultas": "不记录查询",
   "no respondió en 20 s": "在 20 秒内没有响应",
+  "desde {0}: no respondió en 20 s": "来自 {0}：在 20 秒内没有响应",
+  "no terminó de autenticar en {0} s": "在 {0} 秒内未完成身份验证",
   "no se borran documentos en una vista de CouchDB": "不能在 CouchDB 视图中删除文档",
   "no se editan documentos en una vista de CouchDB": "不能在 CouchDB 视图中编辑文档",
   "no se encontraron conexiones de {0} en esta máquina: elegí la carpeta o el archivo": "在这台电脑上没有找到 {0} 连接：请选择文件夹或文件",

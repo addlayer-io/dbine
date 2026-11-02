@@ -5599,6 +5599,8 @@
   "no quedan columnas para cargar en «{0}»: las de identidad las genera Firebird al no conservar sus valores": "tidak ada kolom tersisa untuk dimuat di «{0}»: kolom identity dibuat oleh Firebird karena nilainya tidak dipertahankan",
   "no registra consultas": "tidak mencatat kueri",
   "no respondió en 20 s": "tidak merespons dalam 20 dtk",
+  "desde {0}: no respondió en 20 s": "dari {0}: tidak merespons dalam 20 dtk",
+  "no terminó de autenticar en {0} s": "tidak menyelesaikan autentikasi dalam {0} dtk",
   "no se borran documentos en una vista de CouchDB": "dokumen tidak dihapus pada view CouchDB",
   "no se editan documentos en una vista de CouchDB": "dokumen tidak diedit pada view CouchDB",
   "no se encontraron conexiones de {0} en esta máquina: elegí la carpeta o el archivo": "tidak ada koneksi {0} yang ditemukan di mesin ini: pilih folder atau berkas",

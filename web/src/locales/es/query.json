@@ -40,7 +40,8 @@
       "close": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de cerrarla?",
       "database": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de cambiar de base de datos?",
       "mode": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de pasar a transacciones automáticas?",
-      "connection": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de cambiar de conexión?"
+      "connection": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de cambiar de conexión?",
+      "disconnect": "Esta pestaña tiene una transacción abierta. ¿Confirmar o deshacer los cambios antes de desconectar?"
     },
     "commitTip": "Confirmar la transacción abierta (COMMIT)",
     "rollbackTip": "Deshacer la transacción abierta (ROLLBACK)"

@@ -9216,6 +9216,8 @@
   "no respondió": "не відповів",
   "no respondió a tiempo": "не відповів вчасно",
   "no respondió en 20 s": "не відповів за 20 с",
+  "desde {0}: no respondió en 20 s": "від {0}: не відповів за 20 с",
+  "no terminó de autenticar en {0} s": "не завершив автентифікацію за {0} с",
   "no respondió en {0} s": "не відповів за {0} с",
   "no se borran documentos en una vista de CouchDB": "документи в представленні CouchDB не видаляються",
   "no se copian los comentarios de las restricciones NOT VALID ({0}): CockroachDB los guarda mal y dejan de poder leerse los comentarios de toda la base": "коментарі обмежень NOT VALID не копіюються ({0}): CockroachDB зберігає їх неправильно, і коментарі всієї бази даних перестають читатися",

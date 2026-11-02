@@ -193,5 +193,6 @@
       "done": "索引已启用",
       "task": "启用 {{table}} 的索引 {{name}}"
     }
-  }
+  },
+  "disconnectRunning_other": "此连接上有 {{count}} 条语句正在运行。断开连接将停止这些语句。"
 }

@@ -5599,6 +5599,8 @@
   "no quedan columnas para cargar en «{0}»: las de identidad las genera Firebird al no conservar sus valores": "не осталось столбцов для загрузки в «{0}»: столбцы identity генерирует Firebird, если их значения не сохраняются",
   "no registra consultas": "не журналирует запросы",
   "no respondió en 20 s": "не ответил за 20 с",
+  "desde {0}: no respondió en 20 s": "от {0}: не ответил за 20 с",
+  "no terminó de autenticar en {0} s": "не завершил аутентификацию за {0} с",
   "no se borran documentos en una vista de CouchDB": "документы в представлении CouchDB не удаляются",
   "no se editan documentos en una vista de CouchDB": "документы в представлении CouchDB не редактируются",
   "no se encontraron conexiones de {0} en esta máquina: elegí la carpeta o el archivo": "на этом компьютере не найдено подключений {0}: выберите папку или файл",

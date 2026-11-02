@@ -195,5 +195,8 @@
       "done": "Índice habilitado",
       "task": "Habilitar o índice {{name}} de {{table}}"
     }
-  }
+  },
+  "disconnectRunning_one": "Há uma instrução em execução nesta conexão. Desconectar a interrompe.",
+  "disconnectRunning_other": "Há {{count}} instruções em execução nesta conexão. Desconectar as interrompe.",
+  "disconnectRunning_many": "Há {{count}} instruções em execução nesta conexão. Desconectar as interrompe."
 }

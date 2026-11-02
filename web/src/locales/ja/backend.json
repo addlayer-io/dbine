@@ -5599,6 +5599,8 @@
   "no quedan columnas para cargar en «{0}»: las de identidad las genera Firebird al no conservar sus valores": "「{0}」に読み込む列が残りません。ID 列は値を保持しない場合 Firebird が生成します",
   "no registra consultas": "クエリを記録しません",
   "no respondió en 20 s": "20 秒以内に応答しませんでした",
+  "desde {0}: no respondió en 20 s": "{0} から：20 秒以内に応答しませんでした",
+  "no terminó de autenticar en {0} s": "{0} 秒以内に認証が完了しませんでした",
   "no se borran documentos en una vista de CouchDB": "CouchDB のビューではドキュメントを削除しません",
   "no se editan documentos en una vista de CouchDB": "CouchDB のビューではドキュメントを編集しません",
   "no se encontraron conexiones de {0} en esta máquina: elegí la carpeta o el archivo": "このマシンに {0} の接続が見つかりませんでした。フォルダーまたはファイルを選択してください",

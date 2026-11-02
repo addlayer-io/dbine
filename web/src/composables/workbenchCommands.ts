@@ -7,7 +7,7 @@ import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useProjectsStore } from '../stores/projects';
-import { useTabsStore } from '../stores/tabs';
+import { confirmDisconnect, useTabsStore } from '../stores/tabs';
 import { useUiStore, type SidebarView } from '../stores/ui';
 import { createDatabase, newFromTemplate } from './actions';
 import { defineCommand, registerCommand, type CommandGroup } from './commands';
@@ -198,8 +198,11 @@ function actions(layout: WorkbenchLayout): Action[] {
     onDatabase('database.linkProject', (cid, db) => { projects.dialog = { kind: 'link', mode: 'link', binding: null, target: { connection_id: cid, database: db } }; }),
 
     // -- Conexión (the explorer's connection menu)
-    onConnection('connection.connect', (cid) => { void conns.connect(cid); }, (_d, c) => !connected(c)),
-    onConnection('connection.disconnect', (cid) => { void conns.disconnect(cid); }, (_d, c) => connected(c)),
+    onConnection('connection.connect', (cid) => { void conns.reconnect(cid); }, (_d, c) => !connected(c)),
+    // Also when it failed or is still connecting: it lets go of what it holds.
+    onConnection('connection.disconnect', (cid) => {
+      void confirmDisconnect(cid).then((ok) => { if (ok) return conns.disconnect(cid); });
+    }, (_d, c) => !!conns.live[c.id]),
     onConnection('connection.monitor', (cid) => tabs.openMonitor(cid), (d) => !!d.capabilities.monitor),
     onConnection('connection.serverBackups', (cid) => tabs.openBackups(cid, ''), (d, c) => connected(c) && !!d.backup?.server_wide && hasDatabases(d)),
     onConnection('connection.newDatabase', (cid) => { if (!deniedHere(cid, '', 'create_database')) createDatabase(cid); },

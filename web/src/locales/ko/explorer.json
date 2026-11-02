@@ -193,5 +193,6 @@
       "done": "인덱스를 활성화했습니다",
       "task": "{{table}}의 인덱스 {{name}} 활성화"
     }
-  }
+  },
+  "disconnectRunning_other": "이 연결에서 {{count}}개의 문이 실행 중입니다. 연결을 끊으면 중지됩니다."
 }

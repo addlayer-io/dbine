@@ -76,6 +76,9 @@ const KEY_SEARCH_MS = 4000;
 const keySeq: Record<string, number> = {};
 /** The connect in flight per connection: every caller shares it. */
 const connecting = new Map<string, Promise<boolean>>();
+/** Bumped by each disconnect: a connect that ends after one (a server or
+ *  tunnel that didn't answer) leaves the connection as it is. */
+const generation = new Map<string, number>();
 /** A load that failed with a connection error checks the connection again
  *  (a connect), at most once per this long per connection. */
 const RECHECK_MS = 10_000;
@@ -288,6 +291,7 @@ export const useConnectionsStore = defineStore('connections', {
       if (!conn) return false;
       // Nothing of the tree shows until the server answers: what's shown
       // afterwards is a confirmed connection's (cache included).
+      const gen = generation.get(id) ?? 0;
       const prev = this.live[id];
       this.live[id] = {
         status: 'connecting', serverVersion: '', databases: [], defaultDatabase: prev?.defaultDatabase ?? '', error: null,
@@ -298,6 +302,7 @@ export const useConnectionsStore = defineStore('connections', {
         const r = await api.connect(id, password).finally(() => {
           for (const [k, d] of Object.entries(this.downloads)) if (d.drivers.includes(conn.config.driver)) delete this.downloads[k];
         });
+        if ((generation.get(id) ?? 0) !== gen) return false;
         this.live[id] = {
           status: 'connected', serverVersion: r.server_version, databases: r.databases,
           defaultDatabase: r.default_database, error: null,
@@ -309,6 +314,7 @@ export const useConnectionsStore = defineStore('connections', {
         trackConnectionOpened(conn.config.driver);
         return true;
       } catch (e) {
+        if ((generation.get(id) ?? 0) !== gen) return false;
         const kind = errorKind(e);
         // A secret field's source came from outside this computer (an
         // import, a restored backup): the user sees exactly what would run
@@ -376,9 +382,20 @@ export const useConnectionsStore = defineStore('connections', {
       return p;
     },
 
+    /** Close the connection's sessions and tunnel, whatever its state: a
+     *  connect still in flight gives up and changes nothing when it ends. */
     async disconnect(id: string) {
+      generation.set(id, (generation.get(id) ?? 0) + 1);
+      connecting.delete(id);
       await api.disconnect(id).catch(() => {});
       this.forget(id);
+    },
+
+    /** "Conectar" on a connection that failed: from scratch, with new
+     *  sessions and a new tunnel rather than the ones that broke. */
+    async reconnect(id: string): Promise<boolean> {
+      if (this.live[id]?.status === 'error') await this.disconnect(id);
+      return this.connect(id);
     },
 
     async refreshDatabases(id: string) {

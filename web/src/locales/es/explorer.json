@@ -195,5 +195,7 @@
       "done": "Índice habilitado",
       "task": "Habilitar el índice {{name}} de {{table}}"
     }
-  }
+  },
+  "disconnectRunning_one": "Hay una sentencia ejecutándose en esta conexión. Desconectar la detiene.",
+  "disconnectRunning_other": "Hay {{count}} sentencias ejecutándose en esta conexión. Desconectar las detiene."
 }

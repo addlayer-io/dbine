@@ -40,7 +40,8 @@
       "close": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di chiuderla?",
       "database": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di cambiare database?",
       "mode": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di passare alle transazioni automatiche?",
-      "connection": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di cambiare connessione?"
+      "connection": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di cambiare connessione?",
+      "disconnect": "Questa scheda ha una transazione aperta. Confermare o annullare le modifiche prima di disconnettersi?"
     },
     "commitTip": "Conferma la transazione aperta (COMMIT)",
     "rollbackTip": "Annulla la transazione aperta (ROLLBACK)"

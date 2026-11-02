@@ -40,7 +40,8 @@
       "close": "Dieser Tab hat eine offene Transaktion. Änderungen vor dem Schließen committen oder zurückrollen?",
       "database": "Dieser Tab hat eine offene Transaktion. Änderungen vor dem Wechsel der Datenbank committen oder zurückrollen?",
       "mode": "Dieser Tab hat eine offene Transaktion. Änderungen vor dem Wechsel zu automatischen Transaktionen committen oder zurückrollen?",
-      "connection": "Dieser Tab hat eine offene Transaktion. Änderungen vor dem Wechsel der Verbindung committen oder zurückrollen?"
+      "connection": "Dieser Tab hat eine offene Transaktion. Änderungen vor dem Wechsel der Verbindung committen oder zurückrollen?",
+      "disconnect": "Dieser Tab hat eine offene Transaktion. Änderungen vor dem Trennen committen oder zurückrollen?"
     },
     "commitTip": "Die offene Transaktion committen (COMMIT)",
     "rollbackTip": "Die offene Transaktion zurückrollen (ROLLBACK)"

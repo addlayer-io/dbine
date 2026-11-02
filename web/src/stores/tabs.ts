@@ -1,7 +1,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api/client';
 import type { ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
 import { emptySpec, type QuerySpec } from '../api/queryBuilder';
@@ -244,6 +244,34 @@ export type Tab = QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | D
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
 export const busyTabs = new Set<string>();
+
+/** Query tabs running a statement right now. QueryView keeps it up to date. */
+export const runningTabs = new Set<string>();
+
+/** Tabs with an open transaction, that ask before their connection is
+ *  closed under them: resolves true to go on. QueryView registers them. */
+export const disconnectGuards = new Map<string, () => Promise<boolean>>();
+
+/** Before disconnecting a connection: each of its tabs with an open
+ *  transaction asks to confirm or undo it, then one question if statements
+ *  are still running on it. False if the user said no to any. */
+export async function confirmDisconnect(connectionId: string): Promise<boolean> {
+  const ids = useTabsStore().tabs.filter((x) => x.connectionId === connectionId).map((x) => x.id);
+  for (const id of ids) {
+    const guard = disconnectGuards.get(id);
+    if (guard && !(await guard())) return false;
+  }
+  const running = ids.filter((id) => runningTabs.has(id)).length;
+  if (!running) return true;
+  try {
+    await ElMessageBox.confirm(tr('explorer:disconnectRunning', { count: running }), tr('common:disconnect'), {
+      type: 'warning', confirmButtonText: tr('common:disconnect'), cancelButtonText: tr('common:cancel'),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** The file's name, without its folder. */
 export const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);

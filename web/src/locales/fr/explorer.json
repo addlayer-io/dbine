@@ -195,5 +195,8 @@
       "done": "Index activé",
       "task": "Activer l'index {{name}} de {{table}}"
     }
-  }
+  },
+  "disconnectRunning_one": "Une instruction est en cours d'exécution sur cette connexion. La déconnexion l'arrête.",
+  "disconnectRunning_other": "{{count}} instructions sont en cours d'exécution sur cette connexion. La déconnexion les arrête.",
+  "disconnectRunning_many": "{{count}} instructions sont en cours d'exécution sur cette connexion. La déconnexion les arrête."
 }

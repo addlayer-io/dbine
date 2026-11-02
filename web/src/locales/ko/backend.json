@@ -5599,6 +5599,8 @@
   "no quedan columnas para cargar en «{0}»: las de identidad las genera Firebird al no conservar sus valores": "「{0}」에 로드할 열이 남지 않았습니다. ID 열은 값을 유지하지 않으면 Firebird가 생성합니다",
   "no registra consultas": "쿼리를 기록하지 않습니다",
   "no respondió en 20 s": "20초 안에 응답하지 않았습니다",
+  "desde {0}: no respondió en 20 s": "{0}에서: 20초 안에 응답하지 않았습니다",
+  "no terminó de autenticar en {0} s": "{0}초 안에 인증을 완료하지 못했습니다",
   "no se borran documentos en una vista de CouchDB": "CouchDB 뷰에서는 문서를 삭제하지 않습니다",
   "no se editan documentos en una vista de CouchDB": "CouchDB 뷰에서는 문서를 편집하지 않습니다",
   "no se encontraron conexiones de {0} en esta máquina: elegí la carpeta o el archivo": "이 컴퓨터에서 {0} 연결을 찾지 못했습니다. 폴더나 파일을 선택하세요",

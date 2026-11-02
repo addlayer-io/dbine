@@ -458,6 +458,20 @@ pub async fn execute_query(
         }
     }
     let mut session_closed = false;
+    // The connection broke (a network cut, the server went away): the next
+    // run opens a new session instead of failing on this one, and a tunnel
+    // that no longer reaches the server is opened again too.
+    if matches!(
+        &finished,
+        Run::Finished(Err(Error::Connect(_)
+            | Error::ConnectFailed(_)
+            | Error::Io(_)))
+    ) {
+        forget_session(&state, &args.session_id, &entry);
+        session_closed = true;
+        out.transaction = None;
+        state.recheck_tunnel(&args.connection_id);
+    }
     match finished {
         Run::Finished(Ok(())) => {}
         // The statement loop already recorded its errors.

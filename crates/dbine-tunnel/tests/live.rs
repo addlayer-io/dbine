@@ -172,3 +172,42 @@ async fn tunnels_through_ssh_to_postgres() {
     let e = open(&bad).await.err().unwrap();
     assert!(matches!(e, Error::Forward { .. }), "{e}");
 }
+
+/// A network cut (the SSH server paused: nothing answers, nothing closes)
+/// leaves the session looking alive until the keepalives give up, but
+/// `reaches` says at once that it no longer gets to the server, and again
+/// that it does once the network is back.
+#[tokio::test]
+#[ignore]
+async fn reaches_tells_a_cut_tunnel_at_once() {
+    let fp = fingerprint(hop("127.0.0.1", 25022)).await;
+    let server = trusted_entry("127.0.0.1", 25022, &fp);
+    let t = open(&spec(
+        vec![hop("127.0.0.1", 25022)],
+        Auth::Password("pw".into()),
+        vec![server],
+    ))
+    .await
+    .unwrap();
+    let limit = std::time::Duration::from_secs(3);
+    assert!(t.reaches(limit).await);
+
+    let docker = |what: &str| {
+        let ok = std::process::Command::new("docker")
+            .args([what, "dbine-test-ssh"])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "docker {what}");
+    };
+    docker("pause");
+    let cut = t.reaches(limit).await;
+    let alive = t.is_alive();
+    docker("unpause");
+    assert!(!cut, "a paused server was reached");
+    assert!(
+        alive,
+        "the session should still look alive right after the cut"
+    );
+    assert!(t.reaches(std::time::Duration::from_secs(10)).await);
+}

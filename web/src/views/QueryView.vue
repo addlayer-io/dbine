@@ -14,7 +14,7 @@ import { useConnectionGate } from '../composables/connectionGate';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useSettingsStore } from '../stores/settings';
-import { baseName, busyTabs, closeGuards, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
+import { baseName, busyTabs, closeGuards, disconnectGuards, runningTabs, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
 import { useProjectsStore } from '../stores/projects';
 import {
   extFitsDriver, extOf, isScriptFile, languageForExt, useFileDocument, useQueryDocument, type TabDocument,
@@ -434,7 +434,7 @@ async function endTransaction(commit: boolean): Promise<boolean> {
 
 // The dialog when an open transaction would be lost (closing the tab,
 // another database, back to automatic): Confirmar / Deshacer / Cancelar.
-type TxReason = 'close' | 'database' | 'connection' | 'mode';
+type TxReason = 'close' | 'database' | 'connection' | 'mode' | 'disconnect';
 const txAsk = ref<{ reason: TxReason; resolve: (ok: boolean) => void } | null>(null);
 const txError = ref<string | null>(null);
 /** Resolves true when there's no open transaction left (or there was none). */
@@ -442,7 +442,7 @@ async function settleTransaction(reason: TxReason): Promise<boolean> {
   if (!txOpen.value && !manualTx.value) return true;
   try { txState.value = await api.tabTransactionState(props.tab.id); } catch { /* keep the last known state */ }
   if (!txOpen.value) return true;
-  if (reason === 'close') tabs.activate(props.tab.id);
+  if (reason === 'close' || reason === 'disconnect') tabs.activate(props.tab.id);
   txError.value = null;
   return new Promise<boolean>((resolve) => { txAsk.value = { reason, resolve }; });
 }
@@ -473,11 +473,24 @@ watch(needsGuard, (on) => {
   if (on) closeGuards.set(props.tab.id, guardClose);
   else closeGuards.delete(props.tab.id);
 }, { immediate: true });
+// Disconnecting its connection asks too while a transaction is open.
+const guardDisconnect = () => settleTransaction('disconnect');
+watch(txOpen, (on) => {
+  if (on) disconnectGuards.set(props.tab.id, guardDisconnect);
+  else disconnectGuards.delete(props.tab.id);
+}, { immediate: true });
+watch(running, (on) => {
+  if (on) runningTabs.add(props.tab.id); else runningTabs.delete(props.tab.id);
+}, { immediate: true });
 // A project's file tabs follow its active base, except while busy here.
 watch(() => running.value || txOpen.value, (busy) => {
   if (busy) busyTabs.add(props.tab.id); else busyTabs.delete(props.tab.id);
 }, { immediate: true });
-onBeforeUnmount(() => busyTabs.delete(props.tab.id));
+onBeforeUnmount(() => {
+  busyTabs.delete(props.tab.id);
+  runningTabs.delete(props.tab.id);
+  disconnectGuards.delete(props.tab.id);
+});
 
 /** An environment marked `confirm_run` in .dbine.json asks before each run. */
 async function confirmEnvironment(): Promise<boolean> {

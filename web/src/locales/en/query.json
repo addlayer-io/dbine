@@ -40,7 +40,8 @@
       "close": "This tab has an open transaction. Commit or roll back the changes before closing it?",
       "database": "This tab has an open transaction. Commit or roll back the changes before switching databases?",
       "mode": "This tab has an open transaction. Commit or roll back the changes before switching to automatic transactions?",
-      "connection": "This tab has an open transaction. Commit or roll back the changes before switching connections?"
+      "connection": "This tab has an open transaction. Commit or roll back the changes before switching connections?",
+      "disconnect": "This tab has an open transaction. Commit or roll back the changes before disconnecting?"
     },
     "commitTip": "Commit the open transaction (COMMIT)",
     "rollbackTip": "Roll back the open transaction (ROLLBACK)"

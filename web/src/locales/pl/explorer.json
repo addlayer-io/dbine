@@ -196,5 +196,9 @@
       "done": "Indeks włączony",
       "task": "Włącz indeks {{name}} w {{table}}"
     }
-  }
+  },
+  "disconnectRunning_one": "W tym połączeniu jest wykonywana {{count}} instrukcja. Rozłączenie ją zatrzyma.",
+  "disconnectRunning_few": "W tym połączeniu są wykonywane {{count}} instrukcje. Rozłączenie je zatrzyma.",
+  "disconnectRunning_many": "W tym połączeniu jest wykonywanych {{count}} instrukcji. Rozłączenie je zatrzyma.",
+  "disconnectRunning_other": "W tym połączeniu jest wykonywanej {{count}} instrukcji. Rozłączenie je zatrzyma."
 }

@@ -77,6 +77,30 @@ impl Tunnels {
     pub fn close(&self, connection_id: &str) {
         self.open.remove(connection_id);
     }
+
+    /// A session through the connection's tunnel broke: if the tunnel no
+    /// longer reaches the server (a network cut it looks alive after), close
+    /// it, so the next session opens a new one instead of failing on it
+    /// until the SSH keepalives give up.
+    pub async fn recheck(&self, connection_id: &str) {
+        let Some(tunnel) = self.open.get(connection_id).map(|e| e.1.clone()) else {
+            return;
+        };
+        if tunnel.reaches(std::time::Duration::from_secs(5)).await {
+            return;
+        }
+        // Only that tunnel: a new one opened meanwhile stays.
+        if self
+            .open
+            .remove_if(connection_id, |_, e| Arc::ptr_eq(&e.1, &tunnel))
+            .is_some()
+        {
+            tracing::info!(
+                connection = connection_id,
+                "SSH tunnel lost its way to the server: closed"
+            );
+        }
+    }
 }
 
 /// Takes out the tunnel's settings, and any `tunnel.*` option a saved

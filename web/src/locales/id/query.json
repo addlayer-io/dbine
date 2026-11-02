@@ -40,7 +40,8 @@
       "close": "Tab ini memiliki transaksi terbuka. Komit atau batalkan perubahan sebelum menutupnya?",
       "database": "Tab ini memiliki transaksi terbuka. Komit atau batalkan perubahan sebelum berpindah basis data?",
       "mode": "Tab ini memiliki transaksi terbuka. Komit atau batalkan perubahan sebelum beralih ke transaksi otomatis?",
-      "connection": "Tab ini memiliki transaksi terbuka. Komit atau batalkan perubahan sebelum berpindah koneksi?"
+      "connection": "Tab ini memiliki transaksi terbuka. Komit atau batalkan perubahan sebelum berpindah koneksi?",
+      "disconnect": "Tab ini memiliki transaksi terbuka. Komit atau batalkan perubahan sebelum memutuskan koneksi?"
     },
     "commitTip": "Komit transaksi yang terbuka (COMMIT)",
     "rollbackTip": "Batalkan transaksi yang terbuka (ROLLBACK)"

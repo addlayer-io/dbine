@@ -40,7 +40,8 @@
       "close": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de le fermer ?",
       "database": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de changer de base de données ?",
       "mode": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de passer aux transactions automatiques ?",
-      "connection": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de changer de connexion ?"
+      "connection": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de changer de connexion ?",
+      "disconnect": "Cet onglet a une transaction ouverte. Valider ou annuler les modifications avant de se déconnecter ?"
     },
     "commitTip": "Valider la transaction ouverte (COMMIT)",
     "rollbackTip": "Annuler la transaction ouverte (ROLLBACK)"

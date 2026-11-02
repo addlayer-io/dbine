@@ -40,7 +40,8 @@
       "close": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de fechá-la?",
       "database": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de trocar de banco de dados?",
       "mode": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de passar para transações automáticas?",
-      "connection": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de trocar de conexão?"
+      "connection": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de trocar de conexão?",
+      "disconnect": "Esta aba tem uma transação aberta. Confirmar ou desfazer as alterações antes de desconectar?"
     },
     "commitTip": "Confirmar a transação aberta (COMMIT)",
     "rollbackTip": "Desfazer a transação aberta (ROLLBACK)"

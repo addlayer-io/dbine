@@ -40,7 +40,8 @@
       "close": "Ta karta ma otwartą transakcję. Zatwierdzić czy wycofać zmiany przed jej zamknięciem?",
       "database": "Ta karta ma otwartą transakcję. Zatwierdzić czy wycofać zmiany przed zmianą bazy danych?",
       "mode": "Ta karta ma otwartą transakcję. Zatwierdzić czy wycofać zmiany przed przejściem na transakcje automatyczne?",
-      "connection": "Ta karta ma otwartą transakcję. Zatwierdzić czy wycofać zmiany przed zmianą połączenia?"
+      "connection": "Ta karta ma otwartą transakcję. Zatwierdzić czy wycofać zmiany przed zmianą połączenia?",
+      "disconnect": "Ta karta ma otwartą transakcję. Zatwierdzić czy wycofać zmiany przed rozłączeniem?"
     },
     "commitTip": "Zatwierdź otwartą transakcję (COMMIT)",
     "rollbackTip": "Wycofaj otwartą transakcję (ROLLBACK)"

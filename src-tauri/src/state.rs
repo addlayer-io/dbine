@@ -56,6 +56,10 @@ pub struct AppState {
     /// while it opens wait for that attempt and share its outcome instead
     /// of each starting a connect of their own (see `session`).
     opening: Arc<DashMap<String, Arc<OpenGate>>>,
+    /// Per connection, woken by a disconnect: a session still opening (a
+    /// server or tunnel that doesn't answer) gives up at once instead of
+    /// finishing after the user let go of the connection.
+    disconnects: Arc<DashMap<String, Arc<Notify>>>,
 }
 
 /// One key's opening: held while a session is opened; remembers the last
@@ -179,6 +183,7 @@ impl AppState {
             tunnels: Arc::default(),
             cache: Arc::new(std::sync::OnceLock::new()),
             opening: Arc::default(),
+            disconnects: Arc::default(),
         }
     }
 
@@ -470,6 +475,26 @@ impl AppState {
         connection_id: &str,
         database: &str,
     ) -> CommandResult<Arc<SessionEntry>> {
+        let stop = self
+            .disconnects
+            .entry(connection_id.to_string())
+            .or_default()
+            .clone();
+        let stopped = stop.notified();
+        tokio::pin!(stopped);
+        stopped.as_mut().enable();
+        tokio::select! {
+            r = self.open_session_now(key, connection_id, database) => r,
+            () = &mut stopped => Err(CommandError::Cancelled),
+        }
+    }
+
+    async fn open_session_now(
+        &self,
+        key: &str,
+        connection_id: &str,
+        database: &str,
+    ) -> CommandResult<Arc<SessionEntry>> {
         let mut cfg = self.connect_config(connection_id).await?;
         // The server a pin learned here belongs to (a tunnel reroutes cfg).
         let server = pin_server(&cfg);
@@ -538,6 +563,7 @@ impl AppState {
                 drop(s);
                 self.sessions
                     .remove_if(&key, |_, held| Arc::ptr_eq(held, &entry));
+                self.recheck_tunnel(connection_id);
                 Err(e.into())
             }
             Ok(r) => Ok(r?),
@@ -623,6 +649,15 @@ impl AppState {
         }
     }
 
+    /// A session of the connection broke: its tunnel, if it has one and it
+    /// no longer reaches the server, is closed in the background (see
+    /// `Tunnels::recheck`).
+    pub fn recheck_tunnel(&self, connection_id: &str) {
+        let tunnels = self.tunnels.clone();
+        let id = connection_id.to_string();
+        tokio::spawn(async move { tunnels.recheck(&id).await });
+    }
+
     /// Drop every session of a connection (disconnect, edit, delete). Every
     /// window hears it (`state-changed`, kind `sessions-closed`): a tab of
     /// another window on that connection is now disconnected too.
@@ -639,6 +674,10 @@ impl AppState {
             keep
         });
         self.tunnels.close(connection_id);
+        // A session still opening gives up (see `open_session`).
+        if let Some(stop) = self.disconnects.get(connection_id) {
+            stop.notify_waiters();
+        }
         if let Some(app) = APP.get() {
             use tauri::Emitter;
             let _ = app.emit(

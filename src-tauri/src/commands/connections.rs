@@ -611,6 +611,7 @@ pub async fn connect(
                     state
                         .sessions
                         .remove_if(&key, |_, held| std::sync::Arc::ptr_eq(held, &entry));
+                    state.recheck_tunnel(&args.connection_id);
                 }
                 return Err(e.into());
             }

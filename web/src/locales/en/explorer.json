@@ -195,5 +195,7 @@
       "done": "Index enabled",
       "task": "Enable index {{name}} of {{table}}"
     }
-  }
+  },
+  "disconnectRunning_one": "A statement is running on this connection. Disconnecting stops it.",
+  "disconnectRunning_other": "{{count}} statements are running on this connection. Disconnecting stops them."
 }

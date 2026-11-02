@@ -194,5 +194,7 @@
       "done": "Index aktiviert",
       "task": "Index {{name}} von {{table}} aktivieren"
     }
-  }
+  },
+  "disconnectRunning_one": "Auf dieser Verbindung läuft eine Anweisung. Das Trennen bricht sie ab.",
+  "disconnectRunning_other": "Auf dieser Verbindung laufen {{count}} Anweisungen. Das Trennen bricht sie ab."
 }

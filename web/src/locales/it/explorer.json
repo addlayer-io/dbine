@@ -195,5 +195,8 @@
       "done": "Indice abilitato",
       "task": "Abilita l'indice {{name}} di {{table}}"
     }
-  }
+  },
+  "disconnectRunning_one": "Un'istruzione è in esecuzione su questa connessione. Disconnettersi la interrompe.",
+  "disconnectRunning_other": "{{count}} istruzioni sono in esecuzione su questa connessione. Disconnettersi le interrompe.",
+  "disconnectRunning_many": "{{count}} istruzioni sono in esecuzione su questa connessione. Disconnettersi le interrompe."
 }

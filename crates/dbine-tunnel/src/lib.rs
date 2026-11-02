@@ -153,6 +153,7 @@ pub enum Error {
 /// through it and the SSH sessions.
 pub struct Tunnel {
     local_port: u16,
+    target: (String, u16),
     last: Arc<Handle<Checker>>,
     _hops: Vec<Arc<Handle<Checker>>>,
     accept: JoinHandle<()>,
@@ -168,6 +169,30 @@ impl Tunnel {
     /// open a new tunnel then.
     pub fn is_alive(&self) -> bool {
         !self.last.is_closed()
+    }
+
+    /// Whether the tunnel still reaches the database server now: a channel
+    /// opened to it within `limit`. Right after a network cut the SSH
+    /// session looks alive until its keepalives give up (about 90 s); this
+    /// asks instead of waiting for that.
+    pub async fn reaches(&self, limit: Duration) -> bool {
+        if !self.is_alive() {
+            return false;
+        }
+        let (host, port) = self.target.clone();
+        match tokio::time::timeout(
+            limit,
+            self.last
+                .channel_open_direct_tcpip(host, port.into(), "127.0.0.1", 0),
+        )
+        .await
+        {
+            Ok(Ok(channel)) => {
+                channel.close().await.ok();
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -296,6 +321,13 @@ fn config(known: &[keys::Algorithm]) -> Arc<client::Config> {
     })
 }
 
+/// How long a hop's connection (or a channel to the next hop or to the
+/// database server) gets to answer.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a hop's authentication gets: longer, an SSH agent may wait for
+/// the user to approve the key.
+const AUTH_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Open the tunnel: connect and authenticate every hop, then listen on a
 /// local port.
 pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
@@ -320,23 +352,35 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
         let connecting = match hops.last() {
             None => {
                 tokio::time::timeout(
-                    Duration::from_secs(20),
+                    CONNECT_TIMEOUT,
                     client::connect(config, (first.host.as_str(), first.port), checker),
                 )
                 .await
             }
             Some(prev) => {
                 // The next hop, reached from inside the previous one.
-                let channel = prev
-                    .channel_open_direct_tcpip(hop.host.clone(), hop.port.into(), "127.0.0.1", 0)
-                    .await
-                    .map_err(|e| Error::Connect {
-                        host: hop.host.clone(),
-                        port: hop.port,
-                        message: format!("desde {}: {e}", spec.hops[i - 1].host),
-                    })?;
+                let channel = tokio::time::timeout(
+                    CONNECT_TIMEOUT,
+                    prev.channel_open_direct_tcpip(
+                        hop.host.clone(),
+                        hop.port.into(),
+                        "127.0.0.1",
+                        0,
+                    ),
+                )
+                .await
+                .map_err(|_| Error::Connect {
+                    host: hop.host.clone(),
+                    port: hop.port,
+                    message: format!("desde {}: no respondió en 20 s", spec.hops[i - 1].host),
+                })?
+                .map_err(|e| Error::Connect {
+                    host: hop.host.clone(),
+                    port: hop.port,
+                    message: format!("desde {}: {e}", spec.hops[i - 1].host),
+                })?;
                 tokio::time::timeout(
-                    Duration::from_secs(20),
+                    CONNECT_TIMEOUT,
                     client::connect_stream(config, channel.into_stream(), checker),
                 )
                 .await
@@ -379,7 +423,14 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
             }
             Ok(Ok(h)) => h,
         };
-        authenticate(&mut handle, hop, &spec.auth).await?;
+        // An agent may ask the user first (Touch ID, a confirm dialog).
+        tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut handle, hop, &spec.auth))
+            .await
+            .map_err(|_| Error::Connect {
+                host: hop.host.clone(),
+                port: hop.port,
+                message: format!("no terminó de autenticar en {} s", AUTH_TIMEOUT.as_secs()),
+            })??;
         hops.push(Arc::new(handle));
     }
     let last = hops.last().cloned().expect("at least one hop");
@@ -391,16 +442,24 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
     let local_port = local.port();
     let (target_host, target_port) = (spec.target_host.clone(), spec.target_port);
     // The database has to be reachable before the driver is told to use it.
-    last.channel_open_direct_tcpip(target_host.clone(), target_port.into(), "127.0.0.1", 0)
-        .await
-        .map_err(|e| Error::Forward {
-            host: target_host.clone(),
-            port: target_port,
-            message: e.to_string(),
-        })?
-        .close()
-        .await
-        .ok();
+    tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        last.channel_open_direct_tcpip(target_host.clone(), target_port.into(), "127.0.0.1", 0),
+    )
+    .await
+    .map_err(|_| Error::Forward {
+        host: target_host.clone(),
+        port: target_port,
+        message: "no respondió en 20 s".into(),
+    })?
+    .map_err(|e| Error::Forward {
+        host: target_host.clone(),
+        port: target_port,
+        message: e.to_string(),
+    })?
+    .close()
+    .await
+    .ok();
 
     let session = last.clone();
     let accept = tokio::spawn(async move {
@@ -441,6 +500,7 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
     });
     Ok(Tunnel {
         local_port,
+        target: (spec.target_host.clone(), spec.target_port),
         last,
         _hops: hops,
         accept,

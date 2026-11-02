@@ -5599,6 +5599,8 @@
   "no quedan columnas para cargar en «{0}»: las de identidad las genera Firebird al no conservar sus valores": "il ne reste aucune colonne à charger dans « {0} » : celles d'identité sont générées par Firebird lorsque leurs valeurs ne sont pas conservées",
   "no registra consultas": "n'enregistre pas les requêtes",
   "no respondió en 20 s": "n'a pas répondu en 20 s",
+  "desde {0}: no respondió en 20 s": "depuis {0} : n'a pas répondu en 20 s",
+  "no terminó de autenticar en {0} s": "n'a pas terminé l'authentification en {0} s",
   "no se borran documentos en una vista de CouchDB": "on ne supprime pas de documents dans une vue CouchDB",
   "no se editan documentos en una vista de CouchDB": "on ne modifie pas de documents dans une vue CouchDB",
   "no se encontraron conexiones de {0} en esta máquina: elegí la carpeta o el archivo": "aucune connexion {0} trouvée sur cette machine : choisissez le dossier ou le fichier",

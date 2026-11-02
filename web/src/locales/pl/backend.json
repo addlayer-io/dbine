@@ -9216,6 +9216,8 @@
   "no respondió": "nie odpowiedział",
   "no respondió a tiempo": "nie odpowiedział na czas",
   "no respondió en 20 s": "nie odpowiedział w ciągu 20 s",
+  "desde {0}: no respondió en 20 s": "z {0}: nie odpowiedział w ciągu 20 s",
+  "no terminó de autenticar en {0} s": "nie zakończył uwierzytelniania w ciągu {0} s",
   "no respondió en {0} s": "nie odpowiedział w ciągu {0} s",
   "no se borran documentos en una vista de CouchDB": "w widoku CouchDB nie usuwa się dokumentów",
   "no se copian los comentarios de las restricciones NOT VALID ({0}): CockroachDB los guarda mal y dejan de poder leerse los comentarios de toda la base": "komentarze ograniczeń NOT VALID ({0}) nie są kopiowane: CockroachDB zapisuje je źle i komentarze całej bazy przestają się dać odczytać",

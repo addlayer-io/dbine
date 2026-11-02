@@ -14,7 +14,7 @@ import { tb } from '../i18n/backend';
 import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, ProjectInfo, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { useProjectsStore } from '../stores/projects';
 import { dbKey, objKey, useConnectionsStore, type KeyBrowse } from '../stores/connections';
-import { useTabsStore } from '../stores/tabs';
+import { confirmDisconnect, useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
 import { useSettingsStore } from '../stores/settings';
 import { readJson, writeJson } from '../stores/storage';
@@ -479,7 +479,13 @@ function bannerText(error: string | null, kind?: string): string {
 /** "Reintentar", Connect and Refresh: connect now, and reload what's
  *  expanded below it. */
 async function retryConnect(connectionId: string) {
-  if (await conns.connect(connectionId)) reloadExpanded(connectionId);
+  if (await conns.reconnect(connectionId)) reloadExpanded(connectionId);
+}
+
+/** "Desconectar": asks first while a tab of it has an open transaction or
+ *  a statement running. */
+async function disconnect(connectionId: string) {
+  if (await confirmDisconnect(connectionId)) await conns.disconnect(connectionId);
 }
 
 /** "Ver qué pasa…": the connection whose failure ConnectionProblemDialog explains. */
@@ -712,14 +718,14 @@ async function removeFolder(f: ConnectionFolder) {
   if (ok) await conns.deleteFolder(f.id);
 }
 
-function disconnectAll(folderId: string) {
+async function disconnectAll(folderId: string) {
   const inside = (fid: string | null): boolean => {
     for (let f = conns.folders.find((x) => x.id === fid), g = 0; f && g < 50; f = conns.folders.find((x) => x.id === f!.parent_id), g++) {
       if (f.id === folderId) return true;
     }
     return false;
   };
-  for (const c of conns.list) if (inside(c.folder_id) && conns.live[c.id]) conns.disconnect(c.id);
+  for (const c of conns.list) if (inside(c.folder_id) && conns.live[c.id]) await disconnect(c.id);
 }
 
 /** How long a right click waits for the permission check before showing
@@ -774,9 +780,11 @@ async function onContext(e: MouseEvent, n: TNode) {
       if (connected) {
         if (d && !d.databases_label) items.push({ label: t('explorer:menu.newQuery'), action: () => newQuery(cid!, conns.live[cid!]?.databases[0] ?? '') });
         items.push({ label: t('common:refresh'), action: () => retryConnect(cid!) });
-        items.push({ label: t('common:disconnect'), action: () => conns.disconnect(cid!) });
+        items.push({ label: t('common:disconnect'), action: () => disconnect(cid!) });
       } else {
         items.push({ label: t('common:connect'), action: () => retryConnect(cid!) });
+        // Failed or still connecting: let go of whatever it holds.
+        if (conns.live[cid!]) items.push({ label: t('common:disconnect'), action: () => disconnect(cid!) });
       }
       if (d?.capabilities.monitor) items.push({ label: t('explorer:menu.monitor'), action: () => tabs.openMonitor(cid!) });
       // Backups of the whole server (Redis, a snapshot of every index…).

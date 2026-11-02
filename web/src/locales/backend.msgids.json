@@ -24897,6 +24897,9 @@
   "desde caché": [
     "crates/drivers/bigquery/src/profiler.rs"
   ],
+  "desde {0}: no respondió en 20 s": [
+    "crates/dbine-tunnel/src/lib.rs"
+  ],
   "deshabilitada (los permisos no se aplican hasta auth enable)": [
     "crates/drivers/etcd/src/security.rs"
   ],
@@ -32293,6 +32296,9 @@
   ],
   "no such function": [
     "crates/drivers/libsql/src/transfer.rs"
+  ],
+  "no terminó de autenticar en {0} s": [
+    "crates/dbine-tunnel/src/lib.rs"
   ],
   "no tiene certificados PEM": [
     "crates/drivers/postgres/src/lib.rs"
