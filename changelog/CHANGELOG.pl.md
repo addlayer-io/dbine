@@ -7,6 +7,9 @@
 - **Odzyskiwanie połączenia po przerwie w sieci:** połączenie, które zakończyło się błędem lub zawisło podczas łączenia, można teraz rozłączyć z jego menu, co zamyka jego sesje i tunel SSH; ponowne połączenie zaczyna się od zera. Zapytanie, które kończy się błędem, bo połączenie zostało zerwane, odrzuca teraz swoją sesję, a gdy tunel SSH nie dociera już do serwera, także tunel, dzięki czemu następne zapytanie łączy się ponownie samo. Przed rozłączeniem program pyta, gdy karta ma otwartą transakcję lub wciąż wykonywaną instrukcję, a nawiązywanie połączenia i logowanie tunelu SSH nie mogą już czekać w nieskończoność.
 - **Jaśniejszy komunikat, gdy nie można sprawdzić aktualizacji offline:** bez połączenia z internetem sprawdzanie lub pobieranie aktualizacji informuje teraz, że serwer aktualizacji jest nieosiągalny, zamiast pokazywać błąd biblioteki sieciowej.
 
+### Poprawki
+- **Tunele SSH, bezpieczeństwo:** biblioteka SSH została zaktualizowana do wersji usuwającej kilka luk opisanych w zaleceniach bezpieczeństwa; najpoważniejsza pozwalała kluczowi przechowywanemu w agencie SSH podpisywać bez prośby agenta o potwierdzenie. Serwer nie może już zawiesić tunelu ani sprawić, by DBine zużywał nieograniczoną ilość pamięci przy użyciu spreparowanych pakietów.
+
 ## [1.3.0] - 2026-10-30
 
 ### Nowości

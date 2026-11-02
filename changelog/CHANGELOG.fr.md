@@ -6,6 +6,9 @@
 - **Récupérer une connexion après une coupure réseau :** une connexion qui a échoué ou qui reste bloquée en cours de connexion peut maintenant être déconnectée depuis son menu, ce qui ferme ses sessions et son tunnel SSH ; se reconnecter repart de zéro. Une requête qui échoue parce que la connexion a été interrompue abandonne désormais sa session et, lorsque le tunnel SSH n'atteint plus le serveur, le tunnel aussi, de sorte que la requête suivante se reconnecte d'elle-même. La déconnexion demande d'abord confirmation lorsqu'un onglet a une transaction ouverte ou une instruction encore en cours, et la connexion et l'authentification d'un tunnel SSH ne peuvent plus attendre indéfiniment.
 - **Message plus clair lorsque les mises à jour ne peuvent pas être vérifiées hors ligne :** sans connexion internet, la recherche ou le téléchargement d'une mise à jour indique désormais que le serveur de mises à jour est injoignable, au lieu d'afficher l'erreur de la bibliothèque réseau.
 
+### Corrections
+- **Tunnels SSH, sécurité :** la bibliothèque SSH est mise à jour au-delà de plusieurs avis de sécurité, le plus grave permettant à une clé détenue par l'agent SSH de signer sans que l'agent demande confirmation ; un serveur ne peut plus bloquer un tunnel ni faire utiliser à DBine une mémoire illimitée avec des paquets forgés.
+
 ## [1.3.0] - 2026-10-30
 
 ### Nouveautés

@@ -6,6 +6,9 @@
 - **Verbindung nach einem Netzausfall wiederherstellen:** Eine Verbindung, die fehlgeschlagen ist oder beim Verbinden hängt, lässt sich jetzt über ihr Menü trennen; dabei werden ihre Sitzungen und ihr SSH-Tunnel geschlossen, und ein erneutes Verbinden beginnt von vorn. Eine Abfrage, die fehlschlägt, weil die Verbindung abgebrochen ist, verwirft jetzt ihre Sitzung und, wenn der SSH-Tunnel den Server nicht mehr erreicht, auch den Tunnel, sodass die nächste Abfrage sich selbst neu verbindet. Beim Trennen wird zuvor nachgefragt, wenn ein Tab eine offene Transaktion oder eine noch laufende Anweisung hat, und Verbindungsaufbau und Anmeldung eines SSH-Tunnels können nicht mehr unbegrenzt warten.
 - **Klarere Meldung, wenn offline nicht nach Updates gesucht werden kann:** Ohne Internetverbindung meldet die Suche nach oder der Download eines Updates jetzt, dass der Update-Server nicht erreichbar ist, statt den Fehler der Netzwerkbibliothek anzuzeigen.
 
+### Korrekturen
+- **SSH-Tunnel, Sicherheit:** Die SSH-Bibliothek wurde auf eine Version aktualisiert, die mehrere Sicherheitshinweise behebt; der schwerwiegendste erlaubte es, dass ein im SSH-Agenten gehaltener Schlüssel ohne Bestätigungsabfrage des Agenten signierte. Ein Server kann einen Tunnel nicht mehr blockieren oder DBine mit manipulierten Paketen unbegrenzt Speicher verbrauchen lassen.
+
 ## [1.3.0] - 2026-10-30
 
 ### Neu

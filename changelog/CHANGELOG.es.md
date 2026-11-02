@@ -6,6 +6,9 @@
 - **Recuperar una conexión tras un corte de red:** una conexión que falló o quedó trabada conectando ahora se puede desconectar desde su menú, lo que cierra sus sesiones y su túnel SSH; volver a conectar empieza de cero. Una consulta que falla porque la conexión se cayó ahora descarta su sesión y, cuando el túnel SSH ya no llega al servidor, también el túnel, así la próxima consulta se reconecta sola. Al desconectar se pregunta antes si una pestaña tiene una transacción abierta o una sentencia todavía en ejecución, y la conexión y el inicio de sesión de un túnel SSH ya no pueden quedar esperando para siempre.
 - **Mensaje más claro cuando no se pueden buscar actualizaciones sin conexión:** sin conexión a internet, buscar o descargar una actualización ahora indica que no se puede llegar al servidor de actualizaciones, en lugar de mostrar el error de la biblioteca de red.
 
+### Correcciones
+- **Túneles SSH, seguridad:** la biblioteca SSH se actualiza más allá de varios avisos de seguridad, el más grave de los cuales permitía que una clave guardada en el agente SSH firmara sin que el agente pidiera confirmación; un servidor ya no puede trabar un túnel ni hacer que DBine use memoria sin límite con paquetes manipulados.
+
 ## [1.3.0] - 2026-10-30
 
 ### Nuevo

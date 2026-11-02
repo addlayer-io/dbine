@@ -6,6 +6,9 @@
 - **Recuperare una connessione dopo un'interruzione di rete:** una connessione fallita o bloccata in fase di connessione ora può essere disconnessa dal suo menu, il che chiude le sue sessioni e il suo tunnel SSH; riconnettersi riparte da zero. Una query che fallisce perché la connessione è caduta ora scarta la sua sessione e, quando il tunnel SSH non raggiunge più il server, anche il tunnel, così la query successiva si riconnette da sola. La disconnessione chiede prima conferma quando una scheda ha una transazione aperta o un'istruzione ancora in esecuzione, e la connessione e l'accesso di un tunnel SSH non possono più restare in attesa all'infinito.
 - **Messaggio più chiaro quando non si possono cercare aggiornamenti offline:** senza connessione a internet, cercare o scaricare un aggiornamento ora indica che il server degli aggiornamenti non è raggiungibile, invece di mostrare l'errore della libreria di rete.
 
+### Correzioni
+- **Tunnel SSH, sicurezza:** la libreria SSH è aggiornata oltre diversi avvisi di sicurezza, il più grave dei quali permetteva a una chiave custodita nell'agente SSH di firmare senza che l'agente chiedesse conferma; un server non può più bloccare un tunnel né far usare a DBine memoria illimitata con pacchetti manipolati.
+
 ## [1.3.0] - 2026-10-30
 
 ### Novità

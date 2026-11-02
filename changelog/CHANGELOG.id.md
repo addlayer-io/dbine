@@ -7,6 +7,9 @@
 - **Memulihkan koneksi setelah jaringan terputus:** koneksi yang gagal atau macet saat menyambung kini dapat diputuskan dari menunya, sehingga sesi dan terowongan SSH-nya ditutup; menyambung kembali dimulai dari awal. Kueri yang gagal karena koneksi terputus kini membuang sesinya dan, saat terowongan SSH tidak lagi menjangkau server, terowongannya juga, sehingga kueri berikutnya tersambung ulang sendiri. Saat memutuskan koneksi, DBine bertanya terlebih dahulu jika tab memiliki transaksi yang terbuka atau pernyataan yang masih berjalan, dan koneksi serta proses masuk terowongan SSH tidak lagi menunggu selamanya.
 - **Pesan yang lebih jelas saat pembaruan tidak dapat diperiksa secara offline:** tanpa koneksi internet, memeriksa atau mengunduh pembaruan kini menyatakan bahwa server pembaruan tidak dapat dijangkau, bukan menampilkan galat pustaka jaringan.
 
+### Perbaikan
+- **Terowongan SSH, keamanan:** pustaka SSH diperbarui melewati beberapa saran keamanan, yang paling serius memungkinkan kunci yang disimpan di agen SSH menandatangani tanpa agen meminta konfirmasi; server tidak lagi dapat membuat terowongan macet atau membuat DBine memakai memori tanpa batas dengan paket yang dimanipulasi.
+
 ## [1.3.0] - 2026-10-30
 
 ### Baru
