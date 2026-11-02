@@ -9,23 +9,13 @@ _Updated 2026-11-02._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 1 | 6 | 2 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| OSV-GHSA-vp5q-ff62-jwqv-russh-13ee4b | HIGH | osv | russh 0.64.1: russh: Agent server never calls `Agent::confirm`, so keys added with the confirm constraint (`ssh-add -c`) sign without confirmation | `Cargo.lock` | upgrade to 0.65 |
-| OSV-GHSA-3g3m-2fjr-6pw4-glob-3ebf69 | MEDIUM | osv | glob 13.0.6: Glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal | `web/package-lock.json` | upgrade to 14.0.2 |
-| OSV-GHSA-4p9f-7p9m-5vfg-russh-13ee4b | MEDIUM | osv | russh 0.64.1: russh's SSH client is susceptible to unbounded allocations via EXT_INFO packets | `Cargo.lock` | upgrade to 0.65 |
-| OSV-GHSA-fw5c-8223-6h42-russh-13ee4b | MEDIUM | osv | russh 0.64.1: russh: peer-declared zero maximum packet size permanently stalls channel writes (silent AsyncWrite hang) | `Cargo.lock` | upgrade to 0.65 |
-| OSV-GHSA-g3hv-75wg-m249-minimatch-3ebf69 | MEDIUM | osv | minimatch 10.2.6: minimatch has potential denial of service via globparts amplification | `web/package-lock.json` | upgrade to 11.0.1 |
-| OSV-GHSA-g3hv-75wg-m249-minimatch-d5fe01 | MEDIUM | osv | minimatch 9.0.9: minimatch has potential denial of service via globparts amplification | `mobile/package-lock.json` | upgrade to 11.0.1 |
-| OSV-RUSTSEC-2026-0418-libz-sys-13ee4b | MEDIUM | osv | libz-sys 1.1.29: libz-sys build script leaks environment variables in the build directory | `Cargo.lock` | upgrade to 1.1.31 |
-| OSV-GHSA-662x-8wvj-2276-pageant-13ee4b | LOW | osv | pageant 0.2.3: pageant: unbounded frame buffering on peer-controlled 4-byte length prefix (memory-exhaustion DoS) | `Cargo.lock` | upgrade to 0.2.5 |
-| OSV-GHSA-9wfm-jcj8-jfv9-russh-13ee4b | LOW | osv | russh 0.64.1: russh's SSH agent server is susceptible to unbound allocations via repeated SSH_AGENT_CONSTRAIN_CONFIRM messages | `Cargo.lock` | upgrade to 0.65.0 |
+_None._
 
 ## What the last scans covered
 
@@ -33,9 +23,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-02 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-02 | every lockfile (Cargo, npm) at [`c84daea1b`](https://github.com/addlayer-io/dbine/commit/c84daea1bde3) | 9 open | — |
+| osv | 2026-11-02 | every lockfile (Cargo, npm) at [`0b39b174a`](https://github.com/addlayer-io/dbine/commit/0b39b174a120) | 0 open | — |
 | scorecard | 2026-11-02 | repository settings and workflows at [`c84daea1b`](https://github.com/addlayer-io/dbine/commit/c84daea1bde3) | score 5.7/10 | — |
-| trivy | 2026-11-02 | whole repository at [`c84daea1b`](https://github.com/addlayer-io/dbine/commit/c84daea1bde3) | 0 open | — |
+| trivy | 2026-11-02 | whole repository at [`0b39b174a`](https://github.com/addlayer-io/dbine/commit/0b39b174a120) | 0 open | — |
 
 ## Not counted, and why
 
@@ -380,6 +370,8 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | Advisory RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372 | `dependencies` | Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack). | osv-scanner.toml |
 | Advisory RUSTSEC-2023-0071 | `dependencies` | Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations. | osv-scanner.toml |
 | Advisory GHSA-qwgh-2vcv-g2f7 | `dependencies` | Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to. | osv-scanner.toml |
+| Advisory GHSA-3g3m-2fjr-6pw4 | `dependencies` | Doesn't affect DBine. glob comes only with js-beautify, which uses it in its command-line tool (js/src/cli.js); DBine imports js-beautify's formatter (web/src/composables/formatCode.ts), which doesn't load glob, and the built app has no glob code (checked in web/dist). The fix is in glob 14, a major version js-beautify doesn't accept. | osv-scanner.toml |
+| Advisory GHSA-g3hv-75wg-m249 | `dependencies` | Doesn't affect DBine. minimatch comes with js-beautify's command-line tool (through glob and editorconfig, js/src/cli.js) and with dev tools only (eslint, typescript-eslint, vue-tsc), never with the app: DBine imports js-beautify's formatter, which loads neither, and the built app has no minimatch code (checked in web/dist). The fix is in minimatch 11, a major version those packages don't accept. | osv-scanner.toml |
 
 ## Maintenance notices
 
