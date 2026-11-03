@@ -337,6 +337,10 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
 /// The most cells a sheet's used area (from its first used row and column
 /// to its last) may span when the sheet doesn't really fill it.
 const MAX_SHEET_CELLS: u64 = 50_000_000;
+/// The most rows and columns a sheet's used area may span: the largest
+/// grid Excel and LibreOffice write.
+const MAX_SHEET_ROWS: u64 = 1_048_576;
+const MAX_SHEET_COLS: u64 = 16_384;
 
 /// The rows of a sheet's used area, like calamine's `worksheet_range` (from
 /// the first non-empty row and column to the last, empty cells as `null`),
@@ -422,7 +426,13 @@ impl SheetRows {
         }
         let height = (u64::from(rows.1) + 1).saturating_sub(u64::from(rows.0));
         let width = u64::from(cols.1 - cols.0) + 1;
-        if too_sparse(height * width, cells.len() as u64) {
+        // Past the spreadsheet formats' own limits (Excel and LibreOffice:
+        // 1,048,576 rows × 16,384 columns) a position is the file's lie, not
+        // data: positions near u32::MAX would also wrap `height * width`.
+        if height > MAX_SHEET_ROWS
+            || width > MAX_SHEET_COLS
+            || too_sparse(height.saturating_mul(width), cells.len() as u64)
+        {
             return Err(bad(format!(
                 "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas",
                 cells.len(),
@@ -977,5 +987,17 @@ mod tests {
             .collect();
         assert_eq!(rows, vec![vec![json!("z")]]);
         assert_eq!(SheetRows::new(Vec::new()).unwrap().count(), 0);
+        // Positions past the formats' grid are refused, including the
+        // ones whose area would wrap a u64 (2^32 × 2^32).
+        let far = (u32::MAX, u32::MAX);
+        assert!(SheetRows::new(vec![
+            ((0, 0), json!(1)),
+            (far, json!(2)),
+            ((0, u32::MAX), json!(3))
+        ])
+        .is_err());
+        assert!(SheetRows::new(vec![((0, 0), json!(1)), ((0, 16_384), json!(2))]).is_err());
+        assert!(SheetRows::new(vec![((0, 0), json!(1)), ((0, 16_383), json!(2))]).is_ok());
+        assert!(SheetRows::new(vec![((0, 0), json!(1)), ((1_048_576, 0), json!(2))]).is_err());
     }
 }
