@@ -587,8 +587,13 @@ and `SSL_CA_CERT_FILE`.
 - **Read-only connections and server-enforced reads (MCP, AI assistant):**
   each statement runs inside `reval` (kdb+ 3.6+), which refuses writes on
   the server, after a client-side check that refuses anything not plainly a
-  read. On a server without `reval` only the client-side check applies, and
-  MCP and the assistant ask before each read.
+  read. On a server without `reval` (before kdb+ 3.6) nothing on the server
+  can stop a q statement from writing, so a read-only connection runs only
+  the queries DBine writes to open a table, view or variable and the system
+  commands that show something; other statements need a writable
+  connection or kdb+ 3.6+. The same limit applies to MCP and the
+  assistant's reads there, approved or not (they run on the read-only
+  session).
 - **Monitor:** memory (`.Q.w[]`), open connections (`.z.W`), version, host,
   threads and port; a connection can be closed (`hclose`).
 - **Cancel:** it closes the connection and the next query opens a new one.

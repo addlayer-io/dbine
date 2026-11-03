@@ -721,6 +721,7 @@ pub fn build_all(c: &Conn, fill: &Fill) -> Vec<Built> {
         "hana" => hana(&mut b),
         "firebird" => firebird(&mut b),
         "tdengine" => tdengine(&mut b),
+        "kdb" => kdb(&mut b),
         "influxdb" | "influxdb1" | "influxdb3" => influx(&mut b),
         "oracle" | "oracle_adb" => oracle(&mut b),
         "elasticsearch" | "opensearch" | "opendistro" | "solr" | "couchdb" | "ksqldb"
@@ -3388,6 +3389,69 @@ fn tdengine(b: &mut B) {
         format!("{creds}http({})/{}", c.hp(), c.database),
         vec![],
     );
+}
+
+/// KDB+: the handle q opens (`hopen`), and PyKX's connection.
+fn kdb(b: &mut B) {
+    let c = b.c;
+    let host = c.host_or_localhost();
+    let notes = if c.encrypt && c.trust {
+        vec![note("tls_unverified", &[])]
+    } else {
+        vec![]
+    };
+    // `:host:port[:user[:password]]`, `:tcps://…` with TLS.
+    let pw = b.pw();
+    let mut handle = format!(
+        ":{}{host}:{}",
+        if c.encrypt { "tcps://" } else { "" },
+        c.port
+    );
+    if !c.user.is_empty() {
+        handle.push(':');
+        handle.push_str(&c.user);
+    }
+    let raw = |s: &str| s.to_string();
+    if let Some(p) = &pw {
+        handle.push(':');
+        handle.push_str(&p.esc(raw));
+    }
+    // A symbol literal holds only a file handle's characters; anything
+    // else goes as a string cast to one.
+    let plain = handle
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || "._:/".contains(ch));
+    let text = if plain {
+        format!("`{handle}")
+    } else {
+        format!("`$\"{}\"", q_str(&handle))
+    };
+    b.push("hopen", "q (hopen)", text, notes.clone());
+
+    let pw = b.pw();
+    // The inside of a Python string in single quotes.
+    let py = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'");
+    let mut args = vec![format!("host='{}'", py(host)), format!("port={}", c.port)];
+    if !c.user.is_empty() {
+        args.push(format!("username='{}'", py(&c.user)));
+    }
+    if let Some(p) = pw {
+        args.push(format!("password='{}'", p.esc(py)));
+    }
+    if c.encrypt {
+        args.push("tls=True".into());
+    }
+    b.push(
+        "pykx",
+        "Python (PyKX)",
+        format!("kx.SyncQConnection({})", args.join(", ")),
+        notes,
+    );
+}
+
+/// The inside of a q string: `"` and `\` escaped.
+fn q_str(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(test)]
