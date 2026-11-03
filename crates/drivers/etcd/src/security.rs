@@ -10,8 +10,8 @@
 use crate::command::{prefix_end, quote_arg, Command};
 use crate::{b64, cols, unb64, EtcdSession};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SecurityAction,
-    SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, QueryOutcome, Result,
+    SecurityAction, SecuritySpec,
 };
 use serde_json::{json, Value};
 
@@ -25,6 +25,16 @@ pub fn spec() -> SecuritySpec {
         membership: true,
         per_database: false,
     }
+}
+
+/// What a role can be granted, on every key or one key / prefix: etcd has
+/// no catalog of them, its RBAC guide lists the three permission types
+/// (https://etcd.io/docs/v3.5/op-guide/authentication/rbac/).
+pub fn privileges() -> Vec<Privilege> {
+    ["READ", "WRITE", "READWRITE"]
+        .into_iter()
+        .map(|p| Privilege::new(p, &["", "key"]))
+        .collect()
 }
 
 /// Console commands this module runs.
@@ -657,5 +667,29 @@ mod tests {
             (Some("a → c".into()), Some("range".into()))
         );
         assert!(handles("role grant-permission") && !handles("user list"));
+    }
+
+    #[test]
+    fn privileges_are_grantable() {
+        let kinds = spec().object_kinds;
+        let list = privileges();
+        assert_eq!(list.len(), spec().privileges.len());
+        for p in &list {
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{p:?}");
+                let object = (!k.is_empty()).then(|| ObjectRef {
+                    kind: k.clone(),
+                    schema: None,
+                    name: "/app/".into(),
+                });
+                script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "lect".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{p:?} on {k:?}: {e}"));
+            }
+        }
     }
 }
