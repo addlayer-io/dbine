@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "pesan kdb+ dengan objek bersarang lebih dari {0} tingkat",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "login di browser hanya berfungsi dengan alamat workspace Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us atau *.cloud.databricks.mil); untuk host lain gunakan token",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "respons login berasal dari server lain ({0}), bukan dari workspace Databricks koneksi ini: login dibatalkan",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Respons tidak berasal dari workspace Databricks koneksi ini. Anda dapat menutup jendela ini."
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Respons tidak berasal dari workspace Databricks koneksi ini. Anda dapat menutup jendela ini.",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "lembar terlalu besar atau rusak: {0} sel berisi datanya mencakup {1} baris × {2} kolom"
 }

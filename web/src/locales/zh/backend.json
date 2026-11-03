@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ 消息中的对象嵌套超过 {0} 层",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "浏览器登录仅适用于 Databricks 工作区地址（*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us 或 *.cloud.databricks.mil）；其他主机请使用令牌",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "登录响应来自另一台服务器（{0}），而不是此连接的 Databricks 工作区：已取消登录",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "此响应并非来自此连接的 Databricks 工作区。您可以关闭此窗口。"
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "此响应并非来自此连接的 Databricks 工作区。您可以关闭此窗口。",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "工作表过大或格式不正确：其 {0} 个有数据的单元格跨越 {1} 行 × {2} 列"
 }

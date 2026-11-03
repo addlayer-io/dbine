@@ -29766,6 +29766,9 @@
   "la generación": [
     "crates/drivers/hana/src/transfer.rs"
   ],
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": [
+    "crates/dbine-core/src/import.rs"
+  ],
   "la hora no es HH:MM[:SS]": [
     "crates/drivers/hana/src/transfer.rs"
   ],

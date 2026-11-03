@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "wiadomość kdb+ z obiektami zagnieżdżonymi na więcej niż {0} poziomów",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "logowanie w przeglądarce działa tylko z adresem workspace Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us lub *.cloud.databricks.mil); dla innych hostów użyj tokenu",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "odpowiedź logowania przyszła z innego serwera ({0}), a nie z workspace Databricks tego połączenia: logowanie anulowano",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Odpowiedź nie przyszła z workspace Databricks tego połączenia. Możesz zamknąć to okno."
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Odpowiedź nie przyszła z workspace Databricks tego połączenia. Możesz zamknąć to okno.",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "arkusz jest za duży lub uszkodzony: jego komórki z danymi ({0}) zajmują {1} wierszy × {2} kolumn"
 }

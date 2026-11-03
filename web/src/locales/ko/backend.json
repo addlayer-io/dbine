@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ 메시지의 객체가 {0}단계를 넘게 중첩되어 있습니다",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "브라우저 로그인은 Databricks 워크스페이스 주소(*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us 또는 *.cloud.databricks.mil)에서만 작동합니다. 다른 호스트에는 토큰을 사용하세요",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "로그인 응답이 연결의 Databricks 워크스페이스가 아닌 다른 서버({0})에서 왔습니다. 로그인을 취소했습니다",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "이 응답은 연결의 Databricks 워크스페이스에서 온 것이 아닙니다. 이 창을 닫아도 됩니다."
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "이 응답은 연결의 Databricks 워크스페이스에서 온 것이 아닙니다. 이 창을 닫아도 됩니다.",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "시트가 너무 크거나 형식이 잘못되었습니다. 데이터가 있는 셀 {0}개가 {1}행 × {2}열에 걸쳐 있습니다"
 }

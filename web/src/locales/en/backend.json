@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ message with objects nested more than {0} levels deep",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "browser sign-in only works with a Databricks workspace address (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us or *.cloud.databricks.mil); for other hosts use a token",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "the sign-in response came from another server ({0}) and not from the connection's Databricks workspace: the sign-in was canceled",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "The response did not come from the connection's Databricks workspace. You can close this window."
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "The response did not come from the connection's Databricks workspace. You can close this window.",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "the sheet is too large or malformed: its {0} cells with data span {1} rows × {2} columns"
 }

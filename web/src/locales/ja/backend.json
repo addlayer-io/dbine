@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ のメッセージでオブジェクトが {0} 階層を超えて入れ子になっています",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "ブラウザーでのサインインは Databricks ワークスペースのアドレス (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us または *.cloud.databricks.mil) でのみ使用できます。ほかのホストではトークンを使用してください",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "サインインの応答が接続先の Databricks ワークスペースではなく別のサーバー ({0}) から届きました。サインインを取り消しました",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "この応答は接続先の Databricks ワークスペースから届いたものではありません。このウィンドウは閉じてかまいません。"
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "この応答は接続先の Databricks ワークスペースから届いたものではありません。このウィンドウは閉じてかまいません。",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "シートが大きすぎるか、形式が正しくありません。データのある {0} 個のセルが {1} 行 × {2} 列にわたっています"
 }

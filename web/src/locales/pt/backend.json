@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "mensagem do kdb+ com objetos aninhados em mais de {0} níveis",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "o login no navegador só funciona com o endereço de um workspace do Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us ou *.cloud.databricks.mil); para outros hosts use um token",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "a resposta do login veio de outro servidor ({0}) e não do workspace do Databricks da conexão: o login foi cancelado",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "A resposta não veio do workspace do Databricks da conexão. Você pode fechar esta janela."
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "A resposta não veio do workspace do Databricks da conexão. Você pode fechar esta janela.",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "a planilha é grande demais ou está malformada: suas {0} células com dados ocupam {1} linhas × {2} colunas"
 }

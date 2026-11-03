@@ -11368,5 +11368,6 @@
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": "повідомлення kdb+ з об’єктами, вкладеними глибше ніж на {0} рівнів",
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "вхід у браузері працює лише з адресою workspace Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us або *.cloud.databricks.mil); для інших хостів використовуйте токен",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "відповідь на вхід надійшла з іншого сервера ({0}), а не з workspace Databricks цього з'єднання: вхід скасовано",
-  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Відповідь надійшла не з workspace Databricks цього з'єднання. Можна закрити це вікно."
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Відповідь надійшла не з workspace Databricks цього з'єднання. Можна закрити це вікно.",
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "аркуш завеликий або пошкоджений: його клітинки з даними ({0}) займають {1} рядків × {2} стовпців"
 }
