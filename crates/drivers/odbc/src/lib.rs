@@ -1767,6 +1767,17 @@ impl Session for OdbcSession {
         }
     }
 
+    /// From each engine's docs (see `security::grantable`): none of these
+    /// catalogs can be checked against a server here.
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        match security::dialect(self.preset) {
+            Some(d) => Ok(security::grantable(d)),
+            None => Err(Error::Unsupported(
+                security::unsupported(self.preset).into(),
+            )),
+        }
+    }
+
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         backup::history(self, self.preset, database).await
     }

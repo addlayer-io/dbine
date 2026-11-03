@@ -31,6 +31,7 @@ use dbine_driver::{
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod grantable;
 mod groups;
 mod ibm;
 mod informix;
@@ -250,6 +251,8 @@ pub fn spec(d: Dialect) -> SecuritySpec {
         | Dialect::Ocient => misc::spec(d),
     }
 }
+
+pub use grantable::grantable;
 
 // -- names ---------------------------------------------------------------------
 
