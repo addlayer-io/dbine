@@ -1,17 +1,25 @@
 //! Updates. The check reads the updater manifest (`latest.json`, published
 //! with each release, signed artifacts per platform) through
-//! `tauri-plugin-updater`. When this install can update itself, the UI
-//! offers "Actualizar ahora": `update_download` fetches and verifies the
-//! package (minisign, against the public key in `tauri.conf.json`) and
-//! `update_install_and_restart` installs it and relaunches, after the UI's
-//! quit guard. Otherwise (no manifest yet, a deb/rpm install, the app run
-//! from the DMG, a build without the real key) it falls back to GitHub's
-//! latest release and the UI offers the release page, which
-//! `open_release_page` opens in the system browser. docs/updates.md.
+//! `tauri-plugin-updater`. When this install can update itself it works
+//! like VS Code: the UI checks at launch and every few hours, downloads and
+//! verifies the package in the background (`update_download`: minisign,
+//! against the public key in `tauri.conf.json`), shows "Reiniciar para
+//! actualizar" in the status bar (`update_install_and_restart`, after the
+//! UI's quit guard), and a normal quit installs it without relaunching
+//! (`install_on_quit`, from `quit_app` and `RunEvent::Exit`). With
+//! `DBINE_AUTO_UPDATE=0` (managed machines) nothing is downloaded on its own
+//! and the UI shows the notice instead. Otherwise (no manifest yet, a deb/rpm
+//! install, the app run from the DMG, a build without the real key) it falls
+//! back to GitHub's latest release and the UI offers the release page, which
+//! `open_release_page` opens in the system browser. After an update,
+//! `whats_new` gives the changelog sections since the previous version.
+//! docs/updates.md.
 //!
 //! Only one window drives an update: the one whose check found it (the
 //! owner). Progress events go to it alone; another window that checks while
-//! a download runs is told which window has it.
+//! a download runs is told which window has it. `update-state-changed` goes
+//! to every window when a downloaded update becomes ready or goes away (the
+//! status bar asks `update_state`).
 
 use crate::error::{CommandError, CommandResult};
 use serde::{Deserialize, Serialize};
@@ -47,6 +55,13 @@ const NOTES_MAX: usize = 8000;
 const PUBKEY_PLACEHOLDER: &str = "DBINE_UPDATER_PUBKEY_PLACEHOLDER";
 /// How often the download's progress reaches the UI, at most.
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
+/// Periodic checks closer than this to the last background check (from any
+/// window) answer from memory: every window runs the timer (UI: every 6
+/// hours), and only one of them reaches the network per period.
+const PERIODIC_MIN_GAP: Duration = Duration::from_secs(5 * 60 * 60 + 50 * 60);
+/// The environment variable that turns the automatic download and the
+/// install on quit off (managed machines): `0`, `false`, `off` or `no`.
+const AUTO_UPDATE_ENV: &str = "DBINE_AUTO_UPDATE";
 
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +69,10 @@ pub struct CheckForUpdateArgs {
     /// Asked by the user (Ayuda › Buscar actualizaciones…), not the startup check.
     #[serde(default)]
     pub manual: bool,
+    /// The UI's periodic check (not the launch one): throttled across
+    /// windows, see `PERIODIC_MIN_GAP`.
+    #[serde(default)]
+    pub periodic: bool,
     /// The UI language (`es`, `en`…): outside English, the notes come from
     /// that language's changelog when it can be read.
     #[serde(default)]
@@ -76,6 +95,10 @@ pub struct UpdateInfo {
     pub published_at: Option<String>,
     /// This install can download and install `latest` by itself.
     pub installable: bool,
+    /// `installable` and automatic updates are on (`DBINE_AUTO_UPDATE` isn't
+    /// set to turn them off): the UI downloads in the background and a quit
+    /// installs, instead of showing the notice.
+    pub auto: bool,
     /// Why it can't (`installable` false): `unsigned` (a build without the
     /// updater key), `location` (macOS: not run from an installed .app),
     /// `package` (a deb/rpm or MSI install), `no_manifest` (the release has
@@ -146,13 +169,19 @@ fn live_owner(app: &AppHandle, p: &Pending) -> Option<String> {
         .filter(|l| app.get_webview_window(l).is_some())
 }
 
+/// When the last background check (launch or periodic, any window) went out.
+static LAST_BACKGROUND: Mutex<Option<Instant>> = Mutex::new(None);
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn check_for_update(
     window: WebviewWindow,
     args: CheckForUpdateArgs,
 ) -> CommandResult<UpdateInfo> {
-    let mut info = check(window, args.manual).await?;
-    if info.available {
+    let mut info = check(window, args.manual, args.periodic).await?;
+    // The notes are read only where they're shown: not for an update that
+    // downloads silently in the background.
+    let shown = args.manual || !info.auto;
+    if info.available && shown {
         if let Some(lang) = translated_lang(args.lang.as_deref()) {
             if let Some(notes) =
                 translated_notes(lang, &info.latest, &info.current, &info.notes).await
@@ -164,7 +193,71 @@ pub async fn check_for_update(
     Ok(info)
 }
 
-async fn check(window: WebviewWindow, manual: bool) -> CommandResult<UpdateInfo> {
+/// A periodic check this close to the last background one is answered from
+/// memory. Records `now` when it isn't.
+fn throttled(last: &mut Option<Instant>, now: Instant, periodic: bool) -> bool {
+    if periodic && last.is_some_and(|t| now.saturating_duration_since(t) < PERIODIC_MIN_GAP) {
+        return true;
+    }
+    *last = Some(now);
+    false
+}
+
+/// What a check does with the update it found, given the one already
+/// pending (its version and phase).
+#[derive(Debug, PartialEq, Eq)]
+enum OnFound {
+    /// Take the found one: nothing pending, the pending one only offered,
+    /// or a newer version than the one downloaded (it's replaced).
+    Adopt,
+    /// Keep the pending one: it's downloading, or it's the same version.
+    Keep,
+}
+
+fn on_found(pending: Option<(&str, Phase)>, found: &str) -> OnFound {
+    match pending {
+        None | Some((_, Phase::Idle)) => OnFound::Adopt,
+        Some((_, Phase::Downloading)) => OnFound::Keep,
+        Some((v, Phase::Ready)) => {
+            if compare_versions(found, v) == Some(Ordering::Greater) {
+                OnFound::Adopt
+            } else {
+                OnFound::Keep
+            }
+        }
+    }
+}
+
+fn up_to_date(current: String) -> UpdateInfo {
+    UpdateInfo {
+        latest: current.clone(),
+        current,
+        available: false,
+        url: format!("{RELEASES_PREFIX}latest"),
+        notes: String::new(),
+        published_at: None,
+        installable: false,
+        auto: false,
+        reason: None,
+        phase: Phase::Idle.as_str().into(),
+        owner: None,
+    }
+}
+
+/// The downloaded update, if there is one, else `fallback`.
+fn ready_or(
+    app: &AppHandle,
+    current: &str,
+    fallback: impl FnOnce() -> CommandResult<UpdateInfo>,
+) -> CommandResult<UpdateInfo> {
+    let p = pending();
+    match (p.phase, p.update.clone()) {
+        (Phase::Ready, Some(u)) => Ok(offer_info(current, &u, p.phase, live_owner(app, &p))),
+        _ => fallback(),
+    }
+}
+
+async fn check(window: WebviewWindow, manual: bool, periodic: bool) -> CommandResult<UpdateInfo> {
     let app = window.app_handle().clone();
     let me = window.label().to_string();
     let current = app.package_info().version.to_string();
@@ -173,12 +266,12 @@ async fn check(window: WebviewWindow, manual: bool) -> CommandResult<UpdateInfo>
     if cfg!(feature = "flatpak") {
         return Ok(managed_info(current));
     }
-    tracing::info!(manual, window = %me, "checking for updates");
 
-    // A download running or done: answer with it instead of checking again.
     {
         let mut p = pending();
-        if p.phase != Phase::Idle {
+        // A download running, or one done and the user asking: answer with
+        // it instead of checking again.
+        if p.phase == Phase::Downloading || (manual && p.phase == Phase::Ready) {
             if let Some(u) = p.update.clone() {
                 let owner = live_owner(&app, &p);
                 // Downloaded: any window can restart (the bytes are here).
@@ -192,6 +285,17 @@ async fn check(window: WebviewWindow, manual: bool) -> CommandResult<UpdateInfo>
             }
         }
     }
+    if !manual {
+        let skip = throttled(
+            &mut LAST_BACKGROUND.lock().unwrap_or_else(|e| e.into_inner()),
+            Instant::now(),
+            periodic,
+        );
+        if skip {
+            return ready_or(&app, &current, || Ok(up_to_date(current.clone())));
+        }
+    }
+    tracing::info!(manual, periodic, window = %me, "checking for updates");
 
     if let Some(reason) = self_update_block(&app) {
         return github_check(&current, reason).await;
@@ -203,47 +307,58 @@ async fn check(window: WebviewWindow, manual: bool) -> CommandResult<UpdateInfo>
             return github_check(&current, "no_manifest").await;
         }
     };
-    match updater.check().await {
+    let checked = updater.check().await;
+    match checked {
         Ok(Some(u)) => {
             let mut p = pending();
-            // A check from another window may have started a download meanwhile.
-            if p.phase != Phase::Idle {
-                if let Some(running) = p.update.clone() {
-                    return Ok(offer_info(
-                        &current,
-                        &running,
-                        p.phase,
-                        live_owner(&app, &p),
-                    ));
+            let held = p.update.as_ref().map(|h| (h.version.clone(), p.phase));
+            match (
+                on_found(held.as_ref().map(|(v, ph)| (v.as_str(), *ph)), &u.version),
+                p.update.clone(),
+            ) {
+                // A check from another window may have started a download
+                // meanwhile, or this version is already downloaded.
+                (OnFound::Keep, Some(running)) => Ok(offer_info(
+                    &current,
+                    &running,
+                    p.phase,
+                    live_owner(&app, &p),
+                )),
+                _ => {
+                    let replaced = p.phase == Phase::Ready;
+                    if let (true, Some((old, _))) = (replaced, held.as_ref()) {
+                        tracing::info!(%old, new = %u.version, "a newer version replaces the downloaded update");
+                    }
+                    p.update = Some(u.clone());
+                    p.bytes = None;
+                    p.phase = Phase::Idle;
+                    set_owner(&app, &mut p, &me);
+                    drop(p);
+                    if replaced {
+                        let _ = app.emit("update-state-changed", ());
+                    }
+                    Ok(offer_info(&current, &u, Phase::Idle, Some(me)))
                 }
             }
-            p.update = Some(u.clone());
-            p.bytes = None;
-            set_owner(&app, &mut p, &me);
-            Ok(offer_info(&current, &u, Phase::Idle, Some(me)))
         }
-        Ok(None) => Ok(UpdateInfo {
-            current: current.clone(),
-            latest: current,
-            available: false,
-            url: format!("{RELEASES_PREFIX}latest"),
-            notes: String::new(),
-            published_at: None,
-            installable: false,
-            reason: None,
-            phase: Phase::Idle.as_str().into(),
-            owner: None,
-        }),
+        // Nothing newer than this version; a downloaded update stays.
+        Ok(None) => ready_or(&app, &current, || Ok(up_to_date(current.clone()))),
         // No manifest (releases up to 0.1.3, or the moment between creating
         // a release and uploading it), this platform missing from it, the
-        // network, a bad JSON: the release page still works.
-        Err(tauri_plugin_updater::Error::ReleaseNotFound) => {
-            // The plugin's own log is filtered out (lib.rs): it calls this an error.
-            tracing::info!("no latest.json in the latest release (or HTTP error), asking GitHub");
-            github_check(&current, "no_manifest").await
-        }
+        // network, a bad JSON: the release page still works. A downloaded
+        // update (verified earlier) is still the answer.
         Err(e) => {
-            tracing::warn!("updater manifest unavailable, asking GitHub: {e}");
+            if matches!(e, tauri_plugin_updater::Error::ReleaseNotFound) {
+                // The plugin's own log is filtered out (lib.rs): it calls this an error.
+                tracing::info!(
+                    "no latest.json in the latest release (or HTTP error), asking GitHub"
+                );
+            } else {
+                tracing::warn!("updater manifest unavailable, asking GitHub: {e}");
+            }
+            if let Ok(ready) = ready_or(&app, &current, || Err(CommandError::Cancelled)) {
+                return Ok(ready);
+            }
             github_check(&current, "no_manifest").await
         }
     }
@@ -260,6 +375,7 @@ fn managed_info(current: String) -> UpdateInfo {
         notes: String::new(),
         published_at: None,
         installable: false,
+        auto: false,
         reason: Some("flatpak".into()),
         phase: Phase::Idle.as_str().into(),
         owner: None,
@@ -291,6 +407,7 @@ fn offer_info(current: &str, u: &Update, phase: Phase, owner: Option<String>) ->
             .and_then(|d| d.as_str())
             .map(str::to_string),
         installable: true,
+        auto: auto_update_enabled(),
         reason: None,
         phase: phase.as_str().into(),
         owner,
@@ -498,6 +615,11 @@ pub async fn update_download(window: WebviewWindow, args: UpdateDownloadArgs) ->
     if let Some(owner) = live_owner(&app, &p) {
         let _ = app.emit_to(owner.as_str(), "update-finished", Finished::of(&outcome));
     }
+    drop(p);
+    // Every window's status bar: "Reiniciar para actualizar".
+    if outcome.is_ok() {
+        let _ = app.emit("update-state-changed", ());
+    }
     outcome
 }
 
@@ -606,6 +728,207 @@ pub async fn update_install_and_restart(app: AppHandle) -> CommandResult<()> {
     )))
 }
 
+/// Automatic updates (background download, install on quit) are on unless
+/// `DBINE_AUTO_UPDATE` turns them off: `0`, `false`, `off` or `no`, in any
+/// case. Anything else, or the variable missing, leaves them on.
+fn auto_update_from(value: Option<&str>) -> bool {
+    !value.is_some_and(|v| {
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no"
+        )
+    })
+}
+
+fn auto_update_enabled() -> bool {
+    auto_update_from(std::env::var(AUTO_UPDATE_ENV).ok().as_deref())
+}
+
+/// Whether a quit installs the pending update: automatic updates on, not the
+/// Flathub build, and a verified package in memory (`Ready` with its bytes;
+/// `update_install_and_restart` takes them, so a restart doesn't install twice).
+fn installs_on_quit(auto: bool, flatpak: bool, phase: Phase, has_bytes: bool) -> bool {
+    auto && !flatpak && phase == Phase::Ready && has_bytes
+}
+
+/// macOS: the update can replace the .app without an administrator's
+/// password. The plugin swaps the bundle with a rename in its folder, so the
+/// folder must be writable, and the bundle must be this user's. Otherwise
+/// the plugin would ask for a password, and a quit must not wait on a
+/// prompt: the update stays for "Reiniciar para actualizar" or the next run.
+#[cfg(target_os = "macos")]
+fn mac_installs_without_prompt() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    // …/DBine.app/Contents/MacOS/dbine
+    let Some(bundle) = exe.ancestors().nth(3) else {
+        return false;
+    };
+    let Some(folder) = bundle.parent() else {
+        return false;
+    };
+    let probe = folder.join(format!(".dbine-update-probe-{}", std::process::id()));
+    let writable = std::fs::create_dir(&probe).is_ok();
+    if writable {
+        let _ = std::fs::remove_dir(&probe);
+    }
+    let own = match (std::fs::metadata(bundle), std::env::home_dir()) {
+        (Ok(b), Some(home)) => std::fs::metadata(home).is_ok_and(|h| h.uid() == b.uid()),
+        _ => false,
+    };
+    writable && own
+}
+
+/// Installs the downloaded update as part of quitting, without relaunching:
+/// the next launch is the new version. Called after the UI's quit guard
+/// (`quit_app`) and on `RunEvent::Exit` (an OS quit that didn't need the
+/// UI); the first call takes the package, so later ones do nothing. A
+/// failure is logged and the quit goes on: the next run checks and
+/// downloads again.
+///
+/// - Windows: the plugin runs `on_before_exit` (the exit cleanup), starts
+///   the NSIS installer in passive mode without `/R` and ends the process;
+///   the installer closes what's left of DBine itself.
+/// - macOS: the plugin swaps the .app in place (a single rename on APFS).
+///   Skipped when that would need an administrator's password.
+/// - Linux (AppImage): the plugin rewrites the AppImage file.
+pub(crate) fn install_on_quit(app: &AppHandle) {
+    let (update, bytes) = {
+        let mut p = pending();
+        if !installs_on_quit(
+            auto_update_enabled(),
+            cfg!(feature = "flatpak"),
+            p.phase,
+            p.bytes.is_some(),
+        ) {
+            return;
+        }
+        let (Some(update), Some(bytes)) = (p.update.clone(), p.bytes.take()) else {
+            return;
+        };
+        p.phase = Phase::Idle;
+        (update, bytes)
+    };
+    #[cfg(target_os = "macos")]
+    if !mac_installs_without_prompt() {
+        tracing::info!(version = %update.version, "the update needs an administrator to install: left for the next run");
+        return;
+    }
+    // Nothing on screen looks frozen while it installs.
+    for w in app.webview_windows().values() {
+        let _ = w.hide();
+    }
+    tracing::info!(version = %update.version, "installing the update on quit");
+    let started = Instant::now();
+    // Windows: no relaunch after the installer (the user quit).
+    let update = update.restart_after_install(false);
+    match update.install(&bytes) {
+        Ok(()) => tracing::info!(
+            version = %update.version,
+            ms = started.elapsed().as_millis() as u64,
+            "update installed on quit"
+        ),
+        Err(e) => tracing::warn!(
+            "installing the update on quit failed, quitting anyway: {}",
+            chain(&e)
+        ),
+    }
+}
+
+/// The downloaded update waiting for a restart, if there is one (the status
+/// bar's "Reiniciar para actualizar").
+#[tauri::command(rename_all = "camelCase")]
+pub fn update_state(app: AppHandle) -> Option<UpdateInfo> {
+    let current = app.package_info().version.to_string();
+    let p = pending();
+    match (p.phase, p.update.as_ref()) {
+        (Phase::Ready, Some(u)) if p.bytes.is_some() => {
+            Some(offer_info(&current, u, p.phase, live_owner(&app, &p)))
+        }
+        _ => None,
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhatsNewArgs {
+    /// The version that ran before this one.
+    pub since: String,
+    /// The UI language, as for `check_for_update`.
+    #[serde(default)]
+    pub lang: Option<String>,
+}
+
+/// What a first launch after an update shows.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct WhatsNew {
+    pub previous: String,
+    pub current: String,
+    /// The changelog sections after `previous` up to this version, newest
+    /// first, under `## Version x.y.z` (at most `RECENT_MAX`).
+    pub notes: String,
+}
+
+/// The changelog sections between the version that ran before (`since`) and
+/// this one, from the changelog at this version's tag: the translation when
+/// the UI language has one (the versions it lacks in English), else English.
+/// `None` when this version isn't newer than `since` or the changelog has no
+/// section for it (a dev build). An error when the English changelog can't
+/// be read (offline): the UI asks again on the next launch.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn whats_new(app: AppHandle, args: WhatsNewArgs) -> CommandResult<Option<WhatsNew>> {
+    let current = app.package_info().version.to_string();
+    if compare_versions(&current, &args.since) != Some(Ordering::Greater) {
+        return Ok(None);
+    }
+    let english = fetch_changelog(&current, "CHANGELOG.md").await?;
+    let Some(english) = localized_notes(&english, &current, &args.since, "") else {
+        return Ok(None);
+    };
+    let mut notes = english.clone();
+    if let Some(lang) = translated_lang(args.lang.as_deref()) {
+        if let Some(tr) = translated_notes(lang, &current, &args.since, &english).await {
+            notes = tr;
+        }
+    }
+    Ok(Some(WhatsNew {
+        previous: args.since,
+        current,
+        notes: truncate(&notes, NOTES_MAX),
+    }))
+}
+
+/// `path` in the repository at `v<version>` (raw.githubusercontent).
+async fn fetch_changelog(version: &str, path: &str) -> CommandResult<String> {
+    if parse_version(version).is_none()
+        || !version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+    {
+        return Err(CommandError::BadRequest(format!(
+            "versión inválida: {version}"
+        )));
+    }
+    let url = format!("{TRANSLATION_PREFIX}v{version}/{path}");
+    let fetched = async {
+        let resp = client()
+            .get(&url)
+            .timeout(TRANSLATION_TIMEOUT)
+            .send()
+            .await?
+            .error_for_status()?;
+        resp.text().await
+    };
+    fetched.await.map_err(|e| {
+        CommandError::Connect(format!(
+            "no se pudo leer el registro de cambios: {}",
+            chain(&e)
+        ))
+    })
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenReleasePageArgs {
@@ -685,6 +1008,7 @@ fn evaluate(current: &str, release: Release) -> CommandResult<UpdateInfo> {
         ),
         published_at: release.published_at,
         installable: false,
+        auto: false,
         reason: None,
         phase: Phase::Idle.as_str().into(),
         owner: None,
@@ -945,6 +1269,71 @@ mod tests {
     }
 
     #[test]
+    fn a_newer_version_replaces_the_downloaded_one() {
+        use Phase::*;
+        assert_eq!(on_found(None, "1.4.0"), OnFound::Adopt);
+        // Only offered (not downloaded): the latest found wins.
+        assert_eq!(on_found(Some(("1.3.0", Idle)), "1.4.0"), OnFound::Adopt);
+        // A download running isn't interrupted.
+        assert_eq!(
+            on_found(Some(("1.3.0", Downloading)), "1.4.0"),
+            OnFound::Keep
+        );
+        // Downloaded: replaced only by a newer version.
+        assert_eq!(on_found(Some(("1.3.0", Ready)), "1.4.0"), OnFound::Adopt);
+        assert_eq!(on_found(Some(("1.3.0", Ready)), "1.3.10"), OnFound::Adopt);
+        assert_eq!(on_found(Some(("1.3.0", Ready)), "1.3.0"), OnFound::Keep);
+        assert_eq!(on_found(Some(("1.4.0", Ready)), "1.3.9"), OnFound::Keep);
+        assert_eq!(on_found(Some(("1.4.0", Ready)), "garbage"), OnFound::Keep);
+    }
+
+    #[test]
+    fn installs_on_quit_only_a_verified_package_with_auto_updates_on() {
+        use Phase::*;
+        assert!(installs_on_quit(true, false, Ready, true));
+        // DBINE_AUTO_UPDATE=0, the Flathub build.
+        assert!(!installs_on_quit(false, false, Ready, true));
+        assert!(!installs_on_quit(true, true, Ready, true));
+        // Not downloaded, still downloading, or taken by a restart.
+        assert!(!installs_on_quit(true, false, Idle, false));
+        assert!(!installs_on_quit(true, false, Downloading, false));
+        assert!(!installs_on_quit(true, false, Ready, false));
+    }
+
+    #[test]
+    fn the_env_var_turns_auto_updates_off() {
+        assert!(auto_update_from(None));
+        assert!(auto_update_from(Some("1")));
+        assert!(auto_update_from(Some("true")));
+        assert!(auto_update_from(Some("")));
+        for off in ["0", "false", "FALSE", "off", "Off", "no", " 0 "] {
+            assert!(!auto_update_from(Some(off)), "{off:?}");
+        }
+    }
+
+    #[test]
+    fn periodic_checks_are_throttled_across_windows() {
+        let t0 = Instant::now();
+        let mut last = None;
+        // The launch check always goes out, and starts the period.
+        assert!(!throttled(&mut last, t0, false));
+        assert!(throttled(&mut last, t0 + Duration::from_secs(60), true));
+        assert!(throttled(
+            &mut last,
+            t0 + PERIODIC_MIN_GAP - Duration::from_secs(1),
+            true
+        ));
+        let t1 = t0 + PERIODIC_MIN_GAP;
+        assert!(!throttled(&mut last, t1, true));
+        assert_eq!(last, Some(t1));
+        // A second window's timer right after: answered from memory.
+        assert!(throttled(&mut last, t1 + Duration::from_secs(5), true));
+        // The first periodic check of a run, with no launch check before.
+        let mut fresh = None;
+        assert!(!throttled(&mut fresh, t0, true));
+    }
+
+    #[test]
     fn compares_versions_numerically() {
         use Ordering::*;
         assert_eq!(compare_versions("0.1.10", "0.1.9"), Some(Greater));
@@ -997,6 +1386,7 @@ mod tests {
                 notes: "## Novedades\n\n- Ejecución de scripts".into(),
                 published_at: Some("2026-09-30T12:00:00Z".into()),
                 installable: false,
+                auto: false,
                 reason: None,
                 phase: "idle".into(),
                 owner: None,

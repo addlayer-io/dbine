@@ -15,6 +15,8 @@ systems it runs on.
 - To turn it off on a whole machine (managed installations), the environment
   variable `DO_NOT_TRACK=1` or `DBINE_TELEMETRY=0` is enough. With either one
   no event goes out, whatever the settings say.
+  (Automatic updates have their own switch for managed machines,
+  `DBINE_AUTO_UPDATE=0`: [`updates.md`](updates.md).)
 - Whoever had declined it in an earlier version (when the app asked) still has
   it off.
 

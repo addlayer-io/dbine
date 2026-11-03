@@ -4,18 +4,22 @@ import { ElMessage } from 'element-plus';
 import { api, errorMessage } from '../api/client';
 import { TELEMETRY_CONSENT, TELEMETRY_NOTICE } from '../composables/telemetry';
 import {
-  UPDATES_SKIPPED, cancelUpdateDownload, checkForUpdateInBackground, formatBytes, restartToUpdate,
-  startUpdateDownload, updateError, updateOffer, updateProgress, updateStage, useUpdateEvents,
+  UPDATES_SKIPPED, cancelUpdateDownload, formatBytes, restartToUpdate, startUpdateChecks,
+  startUpdateDownload, updateError, updateOffer, updateProgress, updateStage, useUpdateEvents, whatsNew,
 } from '../composables/updates';
 import { noteBlocks } from '../composables/releaseNotes';
 import { useSettingsStore } from '../stores/settings';
 
-// "Hay una nueva versión de DBine": the background check a few seconds after
-// start, and the dialog for both it and the manual checks
-// (composables/updates.ts). Stages: the offer, the download with its
-// progress, the verification, "ready" (restart to finish) and an error with
-// the release page as the way out. Without self-update (a deb/rpm install,
-// no manifest…) the offer's "Descargar" opens the release page.
+// The update checks (composables/updates.ts: a few seconds after start, then
+// every 6 hours) and two dialogs:
+// - "Hay una nueva versión de DBine", for the manual check, and for the
+//   background one only where DBine can't update itself (a deb/rpm install,
+//   no manifest…: "Descargar" opens the release page) or automatic updates
+//   are off. Stages: the offer, the download with its progress, the
+//   verification, "ready" (restart to finish) and an error with the release
+//   page as the way out. With automatic updates the background download
+//   shows no dialog: the status bar offers the restart (StatusBar.vue).
+// - What's new, on the first launch after an update.
 
 /** From launch to the background check. */
 const DELAY_MS = 5000;
@@ -30,6 +34,11 @@ const telemetryNoticePending = computed(() =>
 const open = computed(() => updateOffer.value !== null && !telemetryNoticePending.value);
 /** The notes' Markdown as plain-text blocks (composables/releaseNotes.ts). */
 const notes = computed(() => noteBlocks(updateOffer.value?.notes ?? ''));
+/** After the update dialog, if both are due. */
+const newsOpen = computed(() => whatsNew.value !== null && !open.value && !telemetryNoticePending.value);
+const newsNotes = computed(() => noteBlocks(whatsNew.value?.notes ?? ''));
+/** "Omitir esta versión" only where the update isn't automatic. */
+const canSkip = computed(() => !(updateOffer.value?.installable && updateOffer.value.auto));
 const busy = computed(() => updateStage.value === 'downloading' || updateStage.value === 'verifying');
 
 const percent = computed(() => {
@@ -56,9 +65,13 @@ const reasonKey = computed(() => {
 let timer: ReturnType<typeof setTimeout> | undefined;
 watch(() => settings.loaded, (l) => {
   if (!l || timer !== undefined || !('__TAURI_INTERNALS__' in window)) return;
-  timer = setTimeout(checkForUpdateInBackground, Math.max(0, DELAY_MS - performance.now()));
+  timer = setTimeout(() => { void startUpdateChecks(); }, Math.max(0, DELAY_MS - performance.now()));
 }, { immediate: true });
 onBeforeUnmount(() => clearTimeout(timer));
+
+function closeNews() {
+  whatsNew.value = null;
+}
 
 function close() {
   if (busy.value) return;
@@ -119,7 +132,7 @@ function openPage() {
     <template #footer>
       <div class="un-foot">
         <template v-if="updateStage === 'offer'">
-          <el-button text @click="skip">{{ $t('updates:dialog.skip') }}</el-button>
+          <el-button v-if="canSkip" text @click="skip">{{ $t('updates:dialog.skip') }}</el-button>
           <div class="nm-spacer" />
           <el-button @click="close">{{ $t('updates:dialog.later') }}</el-button>
           <el-button v-if="updateOffer?.installable" type="primary" @click="startUpdateDownload">{{ $t('updates:dialog.updateNow') }}</el-button>
@@ -139,6 +152,26 @@ function openPage() {
           <el-button @click="close">{{ $t('updates:dialog.close') }}</el-button>
           <el-button type="primary" @click="openPage">{{ $t('updates:dialog.openPage') }}</el-button>
         </template>
+      </div>
+    </template>
+  </el-dialog>
+  <el-dialog :model-value="newsOpen" width="520px" append-to-body :show-close="false" @close="closeNews">
+    <div v-if="whatsNew" class="un-body">
+      <h3>{{ $t('updates:whatsNew.title', { version: whatsNew.current }) }}</h3>
+      <p>{{ $t('updates:whatsNew.text', { previous: whatsNew.previous, current: whatsNew.current }) }}</p>
+      <!-- Text only, never v-html: the notes come from the network. -->
+      <div class="un-notes">
+        <template v-for="(b, i) in newsNotes" :key="i">
+          <h4 v-if="b.kind === 'heading'">{{ b.text }}</h4>
+          <div v-else-if="b.kind === 'item'" class="un-item" :class="{ nested: b.nested }">{{ b.text }}</div>
+          <p v-else>{{ b.text }}</p>
+        </template>
+      </div>
+    </div>
+    <template #footer>
+      <div class="un-foot">
+        <div class="nm-spacer" />
+        <el-button type="primary" @click="closeNews">{{ $t('updates:dialog.close') }}</el-button>
       </div>
     </template>
   </el-dialog>

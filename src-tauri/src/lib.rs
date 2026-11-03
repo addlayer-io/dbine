@@ -35,10 +35,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 static QUIT_CONFIRMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Quits the app after the UI's quit guard: saves the state of every window
-/// (still alive here, so maximized/fullscreen are kept too) and exits.
+/// (still alive here, so maximized/fullscreen are kept too), installs a
+/// downloaded update (commands/updates.rs) and exits.
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     prepare_exit(&app);
+    commands::updates::install_on_quit(&app);
     app.exit(0);
 }
 
@@ -571,6 +573,8 @@ pub fn run() {
             commands::updates::update_download,
             commands::updates::update_cancel,
             commands::updates::update_install_and_restart,
+            commands::updates::update_state,
+            commands::updates::whats_new,
             commands::drivers::drivers_packages,
             commands::drivers::drivers_install,
             commands::drivers::drivers_remove,
@@ -664,6 +668,11 @@ pub fn run() {
                 );
             }
             if let tauri::RunEvent::Exit = event {
+                // An OS quit that didn't need the UI (no tasks running):
+                // the downloaded update installs too. After `quit_app` it
+                // was already taken. Windows ends the process in there,
+                // after running `exit_cleanup` (`on_before_exit`).
+                commands::updates::install_on_quit(app);
                 exit_cleanup(app);
             }
         });

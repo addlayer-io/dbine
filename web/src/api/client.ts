@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { tb } from '../i18n/backend';
 import type {
   AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, FilteredBrowse, RunMode, RunParams, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WindowRole,
+  ExecuteResponse, FilteredBrowse, RunMode, RunParams, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { MultiDbResponse } from './types';
@@ -202,8 +202,15 @@ export const api = {
   profilerStop: (profilerId: string) => invoke<void>('profiler_stop', { args: { profiler_id: profilerId } }),
   /** Look for a newer release (the updater manifest, else GitHub's latest
    *  release). The calling window becomes the update's owner. `lang` is the
-   *  UI language: outside English the notes come translated when they can. */
-  checkForUpdate: (manual = false, lang?: string) => invoke<UpdateInfo>('check_for_update', { args: { manual, lang } }),
+   *  UI language: outside English the notes come translated when they can.
+   *  `periodic`: the timer's check, throttled across windows by the backend. */
+  checkForUpdate: (manual = false, lang?: string, periodic = false) =>
+    invoke<UpdateInfo>('check_for_update', { args: { manual, lang, periodic } }),
+  /** The downloaded update waiting for a restart, if any (the status bar). */
+  updateState: () => invoke<UpdateInfo | null>('update_state'),
+  /** The changelog sections since `since` (the version that ran before), or
+   *  null when there's nothing to show. */
+  whatsNew: (since: string, lang?: string) => invoke<WhatsNew | null>('whats_new', { args: { since, lang } }),
   /** Download and verify the update found; progress comes as `update-progress`. */
   updateDownload: () => invoke<void>('update_download', { args: {} }),
   /** Stop a running download (the download answers `cancelled`). */

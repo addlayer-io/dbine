@@ -25,8 +25,16 @@
   },
   "settings": {
     "installed": "インストール済みのバージョン: {{version}}",
-    "help": "DBine は起動時に新しいバージョンを自動で確認し、そこから更新します。",
+    "help": "DBine は起動時と 6 時間ごとに新しいバージョンを確認し、自動でダウンロードして、再起動または終了するときにインストールします。",
     "check": "更新を確認"
+  },
+  "status": {
+    "restart": "再起動して更新",
+    "restartTitle": "DBine {{version}} をダウンロードして検証しました。再起動するとインストールされます（終了時にも自動でインストールされます）。"
+  },
+  "whatsNew": {
+    "title": "DBine {{version}} の新機能",
+    "text": "DBine がバージョン {{previous}} から {{current}} に更新されました。"
   },
   "upToDate": "最新バージョン({{version}})です。",
   "managedByFlatpak": "バージョン {{version}} です。このインストールは Flathub 版のため、Flatpak が更新します(ソフトウェアセンターまたは「flatpak update」で)。",

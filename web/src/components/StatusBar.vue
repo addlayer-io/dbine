@@ -14,6 +14,7 @@ import TasksPanel from './TasksPanel.vue';
 import QuickPick from './QuickPick.vue';
 import QueryStatusItems from './QueryStatusItems.vue';
 import { queryControls } from '../composables/queryControls';
+import { restartToUpdate, updateReady } from '../composables/updates';
 
 // Status bar (VS Code's blue strip): live connections and problems on the
 // left; the active tab's connection, database and server on the right. On
@@ -126,6 +127,14 @@ onMounted(async () => {
         <span v-if="conn.config.read_only" class="sb-item sb-ro">{{ $t('workbench:status.readOnly') }}</span>
         <span v-if="server" class="sb-item sb-server" :title="server">{{ server }}</span>
       </template>
+      <!-- A downloaded, verified update (composables/updates.ts): restarting
+           installs it through the quit guard. -->
+      <button
+        v-if="updateReady" class="sb-item sb-btn sb-update"
+        :title="$t('updates:status.restartTitle', { version: updateReady.latest })" @click="restartToUpdate"
+      >
+        <el-icon><ei-refresh-right /></el-icon>{{ $t('updates:status.restart') }}
+      </button>
       <span class="sb-item sb-version" :title="`DBine${version ? ` ${version}` : ''}`">DBine{{ version ? ` ${version}` : '' }}</span>
     </div>
     <TasksPanel />
@@ -154,6 +163,7 @@ onMounted(async () => {
 .sb-task-time { flex: none; white-space: nowrap; }
 .sb-btn { font: inherit; color: inherit; background: transparent; border: none; cursor: pointer; }
 .sb-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.sb-update { font-weight: 600; }
 .sb-sync-error { background: rgba(255, 90, 90, 0.35); }
 .sb-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); }
 .sb-dot-ok { background: #4ade80; }
