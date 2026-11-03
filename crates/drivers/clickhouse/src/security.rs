@@ -6,14 +6,18 @@
 //! read-only from SQL: they're marked as system. ClickHouse has no account
 //! lock; disabling a user means `HOST NONE` (it can't sign in from
 //! anywhere), and enabling it `HOST ANY`.
+//!
+//! What can be granted comes from `system.privileges`, so it follows the
+//! server's version.
 
 use crate::schema::{q, string_literal as lit};
 use crate::{text, ClickHouseSession, Flavor};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::Value;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(crate) fn spec(flavor: Flavor) -> SecuritySpec {
     let mut object_kinds = vec![
@@ -188,6 +192,269 @@ pub(crate) async fn grants(s: &mut ClickHouseSession, principal: &str) -> Result
     Ok(out)
 }
 
+// -- what can be granted -----------------------------------------------------
+
+/// Every privilege the server knows: its level and the group it belongs to
+/// (`ALTER UPDATE` ⊂ `ALTER TABLE` ⊂ `ALTER` ⊂ `ALL`).
+const PRIVILEGES: &str = "SELECT privilege, level, parent_group FROM system.privileges";
+
+/// Where `system.privileges` can't be read: the hierarchy of
+/// https://clickhouse.com/docs/sql-reference/statements/grant#privileges
+/// that every server from 22.8 on accepts, as (privilege, level, group);
+/// a group without a level of its own has "".
+const DOCUMENTED: [(&str, &str, &str); 144] = [
+    ("SHOW DATABASES", "DATABASE", "SHOW"),
+    ("SHOW TABLES", "TABLE", "SHOW"),
+    ("SHOW COLUMNS", "COLUMN", "SHOW"),
+    ("SHOW DICTIONARIES", "DICTIONARY", "SHOW"),
+    ("SHOW", "", "ALL"),
+    ("SELECT", "COLUMN", "ALL"),
+    ("INSERT", "COLUMN", "ALL"),
+    ("ALTER UPDATE", "COLUMN", "ALTER TABLE"),
+    ("ALTER DELETE", "COLUMN", "ALTER TABLE"),
+    ("ALTER ADD COLUMN", "COLUMN", "ALTER COLUMN"),
+    ("ALTER MODIFY COLUMN", "COLUMN", "ALTER COLUMN"),
+    ("ALTER DROP COLUMN", "COLUMN", "ALTER COLUMN"),
+    ("ALTER COMMENT COLUMN", "COLUMN", "ALTER COLUMN"),
+    ("ALTER CLEAR COLUMN", "COLUMN", "ALTER COLUMN"),
+    ("ALTER RENAME COLUMN", "COLUMN", "ALTER COLUMN"),
+    ("ALTER MATERIALIZE COLUMN", "COLUMN", "ALTER COLUMN"),
+    ("ALTER COLUMN", "", "ALTER TABLE"),
+    ("ALTER MODIFY COMMENT", "TABLE", "ALTER TABLE"),
+    ("ALTER ORDER BY", "TABLE", "ALTER INDEX"),
+    ("ALTER SAMPLE BY", "TABLE", "ALTER INDEX"),
+    ("ALTER ADD INDEX", "TABLE", "ALTER INDEX"),
+    ("ALTER DROP INDEX", "TABLE", "ALTER INDEX"),
+    ("ALTER MATERIALIZE INDEX", "TABLE", "ALTER INDEX"),
+    ("ALTER CLEAR INDEX", "TABLE", "ALTER INDEX"),
+    ("ALTER INDEX", "", "ALTER TABLE"),
+    ("ALTER ADD PROJECTION", "TABLE", "ALTER PROJECTION"),
+    ("ALTER DROP PROJECTION", "TABLE", "ALTER PROJECTION"),
+    ("ALTER MATERIALIZE PROJECTION", "TABLE", "ALTER PROJECTION"),
+    ("ALTER CLEAR PROJECTION", "TABLE", "ALTER PROJECTION"),
+    ("ALTER PROJECTION", "", "ALTER TABLE"),
+    ("ALTER ADD CONSTRAINT", "TABLE", "ALTER CONSTRAINT"),
+    ("ALTER DROP CONSTRAINT", "TABLE", "ALTER CONSTRAINT"),
+    ("ALTER CONSTRAINT", "", "ALTER TABLE"),
+    ("ALTER TTL", "TABLE", "ALTER TABLE"),
+    ("ALTER MATERIALIZE TTL", "TABLE", "ALTER TABLE"),
+    ("ALTER SETTINGS", "TABLE", "ALTER TABLE"),
+    ("ALTER MOVE PARTITION", "TABLE", "ALTER TABLE"),
+    ("ALTER FETCH PARTITION", "TABLE", "ALTER TABLE"),
+    ("ALTER FREEZE PARTITION", "TABLE", "ALTER TABLE"),
+    ("ALTER DATABASE SETTINGS", "DATABASE", "ALTER DATABASE"),
+    ("ALTER TABLE", "", "ALTER"),
+    ("ALTER DATABASE", "", "ALTER"),
+    ("ALTER VIEW MODIFY QUERY", "VIEW", "ALTER VIEW"),
+    ("ALTER VIEW", "", "ALTER"),
+    ("ALTER", "", "ALL"),
+    ("CREATE DATABASE", "DATABASE", "CREATE"),
+    ("CREATE TABLE", "TABLE", "CREATE"),
+    ("CREATE VIEW", "VIEW", "CREATE"),
+    ("CREATE DICTIONARY", "DICTIONARY", "CREATE"),
+    ("CREATE TEMPORARY TABLE", "GLOBAL", "CREATE"),
+    ("CREATE FUNCTION", "GLOBAL", "CREATE"),
+    ("CREATE", "", "ALL"),
+    ("DROP DATABASE", "DATABASE", "DROP"),
+    ("DROP TABLE", "TABLE", "DROP"),
+    ("DROP VIEW", "VIEW", "DROP"),
+    ("DROP DICTIONARY", "DICTIONARY", "DROP"),
+    ("DROP FUNCTION", "GLOBAL", "DROP"),
+    ("DROP", "", "ALL"),
+    ("TRUNCATE", "TABLE", "ALL"),
+    ("OPTIMIZE", "TABLE", "ALL"),
+    ("BACKUP", "TABLE", "ALL"),
+    ("KILL QUERY", "GLOBAL", "ALL"),
+    ("KILL TRANSACTION", "GLOBAL", "ALL"),
+    ("MOVE PARTITION BETWEEN SHARDS", "GLOBAL", "ALL"),
+    ("CREATE USER", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("ALTER USER", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("DROP USER", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("CREATE ROLE", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("ALTER ROLE", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("DROP ROLE", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("ROLE ADMIN", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("CREATE ROW POLICY", "TABLE", "ACCESS MANAGEMENT"),
+    ("ALTER ROW POLICY", "TABLE", "ACCESS MANAGEMENT"),
+    ("DROP ROW POLICY", "TABLE", "ACCESS MANAGEMENT"),
+    ("CREATE QUOTA", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("ALTER QUOTA", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("DROP QUOTA", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("CREATE SETTINGS PROFILE", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("ALTER SETTINGS PROFILE", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("DROP SETTINGS PROFILE", "GLOBAL", "ACCESS MANAGEMENT"),
+    ("SHOW USERS", "GLOBAL", "SHOW ACCESS"),
+    ("SHOW ROLES", "GLOBAL", "SHOW ACCESS"),
+    ("SHOW ROW POLICIES", "TABLE", "SHOW ACCESS"),
+    ("SHOW QUOTAS", "GLOBAL", "SHOW ACCESS"),
+    ("SHOW SETTINGS PROFILES", "GLOBAL", "SHOW ACCESS"),
+    ("SHOW ACCESS", "", "ACCESS MANAGEMENT"),
+    ("ACCESS MANAGEMENT", "", "ALL"),
+    ("SYSTEM SHUTDOWN", "GLOBAL", "SYSTEM"),
+    ("SYSTEM DROP DNS CACHE", "GLOBAL", "SYSTEM DROP CACHE"),
+    ("SYSTEM DROP MARK CACHE", "GLOBAL", "SYSTEM DROP CACHE"),
+    (
+        "SYSTEM DROP UNCOMPRESSED CACHE",
+        "GLOBAL",
+        "SYSTEM DROP CACHE",
+    ),
+    ("SYSTEM DROP MMAP CACHE", "GLOBAL", "SYSTEM DROP CACHE"),
+    (
+        "SYSTEM DROP COMPILED EXPRESSION CACHE",
+        "GLOBAL",
+        "SYSTEM DROP CACHE",
+    ),
+    (
+        "SYSTEM DROP FILESYSTEM CACHE",
+        "GLOBAL",
+        "SYSTEM DROP CACHE",
+    ),
+    ("SYSTEM DROP SCHEMA CACHE", "GLOBAL", "SYSTEM DROP CACHE"),
+    ("SYSTEM DROP CACHE", "", "SYSTEM"),
+    ("SYSTEM RELOAD CONFIG", "GLOBAL", "SYSTEM RELOAD"),
+    ("SYSTEM RELOAD DICTIONARY", "GLOBAL", "SYSTEM RELOAD"),
+    ("SYSTEM RELOAD MODEL", "GLOBAL", "SYSTEM RELOAD"),
+    ("SYSTEM RELOAD FUNCTION", "GLOBAL", "SYSTEM RELOAD"),
+    (
+        "SYSTEM RELOAD EMBEDDED DICTIONARIES",
+        "GLOBAL",
+        "SYSTEM RELOAD",
+    ),
+    ("SYSTEM RELOAD", "", "SYSTEM"),
+    ("SYSTEM RESTART DISK", "GLOBAL", "SYSTEM"),
+    ("SYSTEM MERGES", "TABLE", "SYSTEM"),
+    ("SYSTEM TTL MERGES", "TABLE", "SYSTEM"),
+    ("SYSTEM FETCHES", "TABLE", "SYSTEM"),
+    ("SYSTEM MOVES", "TABLE", "SYSTEM"),
+    ("SYSTEM DISTRIBUTED SENDS", "TABLE", "SYSTEM SENDS"),
+    ("SYSTEM REPLICATED SENDS", "TABLE", "SYSTEM SENDS"),
+    ("SYSTEM SENDS", "", "SYSTEM"),
+    ("SYSTEM REPLICATION QUEUES", "TABLE", "SYSTEM"),
+    ("SYSTEM DROP REPLICA", "TABLE", "SYSTEM"),
+    ("SYSTEM SYNC REPLICA", "TABLE", "SYSTEM"),
+    ("SYSTEM RESTART REPLICA", "TABLE", "SYSTEM"),
+    ("SYSTEM RESTORE REPLICA", "TABLE", "SYSTEM"),
+    ("SYSTEM SYNC DATABASE REPLICA", "DATABASE", "SYSTEM"),
+    ("SYSTEM SYNC TRANSACTION LOG", "GLOBAL", "SYSTEM"),
+    ("SYSTEM FLUSH DISTRIBUTED", "TABLE", "SYSTEM FLUSH"),
+    ("SYSTEM FLUSH LOGS", "GLOBAL", "SYSTEM FLUSH"),
+    ("SYSTEM FLUSH", "", "SYSTEM"),
+    ("SYSTEM THREAD FUZZER", "GLOBAL", "SYSTEM"),
+    ("SYSTEM UNFREEZE", "GLOBAL", "SYSTEM"),
+    ("SYSTEM", "", "ALL"),
+    ("dictGet", "DICTIONARY", "ALL"),
+    ("addressToLine", "GLOBAL", "INTROSPECTION"),
+    ("addressToLineWithInlines", "GLOBAL", "INTROSPECTION"),
+    ("addressToSymbol", "GLOBAL", "INTROSPECTION"),
+    ("demangle", "GLOBAL", "INTROSPECTION"),
+    ("INTROSPECTION", "", "ALL"),
+    ("CLUSTER", "GLOBAL", "ALL"),
+    ("FILE", "GLOBAL", "ALL"),
+    ("URL", "GLOBAL", "ALL"),
+    ("REMOTE", "GLOBAL", "ALL"),
+    ("MONGO", "GLOBAL", "ALL"),
+    ("MYSQL", "GLOBAL", "ALL"),
+    ("POSTGRES", "GLOBAL", "ALL"),
+    ("SQLITE", "GLOBAL", "ALL"),
+    ("ODBC", "GLOBAL", "ALL"),
+    ("JDBC", "GLOBAL", "ALL"),
+    ("HDFS", "GLOBAL", "ALL"),
+    ("S3", "GLOBAL", "ALL"),
+    ("HIVE", "GLOBAL", "ALL"),
+    ("SOURCES", "GLOBAL", "ALL"),
+    ("ALL", "", ""),
+];
+
+/// What a privilege of this level can be granted on: its own kind and the
+/// wider ones (`*.*`, `db.*`). A grant doesn't tell a table from a view, so
+/// table and column privileges go on every table-like kind. The levels
+/// DBine has no kind for (named collections, users, table engines,
+/// sources, definers) are granted `ON *.*`: on every one of them.
+fn level_kinds(level: &str, flavor: Flavor) -> &'static [&'static str] {
+    match (level, flavor) {
+        ("DATABASE", _) => &["", "schema"],
+        ("TABLE" | "COLUMN", Flavor::Timeplus) => {
+            &["", "schema", "stream", "table", "view", "materialized_view"]
+        }
+        ("TABLE" | "COLUMN", _) => &["", "schema", "table", "view", "materialized_view"],
+        ("VIEW", _) => &["", "schema", "view", "materialized_view"],
+        ("DICTIONARY", _) => &["", "schema", "dictionary"],
+        _ => &[""],
+    }
+}
+
+/// The privileges in the rows' order, from (privilege, level, group): a
+/// group goes wherever one of its members does (`GRANT SYSTEM ON db.t`
+/// grants the table-level SYSTEM ones), anything at least on `*.*` (a
+/// group without members, like 22.8's SHOW CACHES), and NONE (`USAGE`)
+/// grants nothing. Only names the GRANT script takes are kept.
+fn from_rows(rows: &[(String, String, String)], flavor: Flavor) -> Vec<Privilege> {
+    let group: HashMap<&str, &str> = rows
+        .iter()
+        .map(|(n, _, g)| (n.as_str(), g.as_str()))
+        .collect();
+    let mut on: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for (name, level, _) in rows.iter().filter(|(_, l, _)| !l.is_empty()) {
+        let kinds = level_kinds(level, flavor);
+        let mut n = name.as_str();
+        // The privilege and its groups up to ALL (bounded, should the
+        // catalog ever loop).
+        for _ in 0..rows.len() {
+            on.entry(n).or_default().extend(kinds);
+            match group.get(n) {
+                Some(g) if !g.is_empty() => n = g,
+                _ => break,
+            }
+        }
+    }
+    let order = spec(flavor).object_kinds;
+    rows.iter()
+        .filter(|(n, ..)| n != "NONE" && privileges(std::slice::from_ref(n)).is_ok())
+        .map(|(n, ..)| {
+            let kinds = on.get(n.as_str());
+            Privilege {
+                name: n.clone(),
+                on: order
+                    .iter()
+                    .filter(|k| k.is_empty() || kinds.is_some_and(|s| s.contains(*k)))
+                    .map(|k| k.to_string())
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+fn documented(flavor: Flavor) -> Vec<Privilege> {
+    let rows: Vec<(String, String, String)> = DOCUMENTED
+        .iter()
+        .map(|(n, l, g)| (n.to_string(), l.to_string(), g.to_string()))
+        .collect();
+    from_rows(&rows, flavor)
+}
+
+/// What the server can grant, from its catalog; the documented hierarchy
+/// where the catalog can't be read (an older server, a login without
+/// access to `system`).
+pub(crate) async fn privileges_of(s: &mut ClickHouseSession) -> Vec<Privilege> {
+    let rows: Vec<(String, String, String)> = s
+        .rows(PRIVILEGES, &[])
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|r| {
+            Some((
+                cell(r, 0)?,
+                cell(r, 1).unwrap_or_default(),
+                cell(r, 2).unwrap_or_default(),
+            ))
+        })
+        .collect();
+    match from_rows(&rows, s.flavor) {
+        p if p.is_empty() => documented(s.flavor),
+        p => p,
+    }
+}
+
 // -- scripts -----------------------------------------------------------------
 
 /// What a privilege applies to: everything, a database or a table.
@@ -202,8 +469,8 @@ fn on(object: &Option<ObjectRef>) -> String {
     }
 }
 
-/// Privilege names: letters, spaces and underscores, optionally with a
-/// column list (`SELECT (a, b)`).
+/// Privilege names: a letter, then letters, digits (`S3`), spaces and
+/// underscores, optionally with a column list (`SELECT (a, b)`).
 fn privileges(p: &[String]) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
@@ -218,10 +485,10 @@ fn privileges(p: &[String]) -> Result<String> {
             ),
             None => (x.trim(), None),
         };
-        if name.is_empty()
+        if !name.starts_with(|c: char| c.is_ascii_alphabetic())
             || !name
                 .chars()
-                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+                .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_')
         {
             return Err(bad(x));
         }
@@ -399,5 +666,107 @@ mod tests {
             grantable: false
         })
         .is_err());
+    }
+
+    fn rows(r: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
+        r.iter()
+            .map(|(n, l, g)| (n.to_string(), l.to_string(), g.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn maps_the_catalog() {
+        let catalog = rows(&[
+            ("SHOW DATABASES", "DATABASE", "SHOW"),
+            ("SHOW TABLES", "TABLE", "SHOW"),
+            ("SHOW", "", "ALL"),
+            ("SELECT", "COLUMN", "ALL"),
+            ("ALTER VIEW MODIFY QUERY", "VIEW", "ALTER VIEW"),
+            ("ALTER VIEW", "", "ALL"),
+            ("dictGet", "DICTIONARY", "ALL"),
+            ("KILL QUERY", "GLOBAL", "ALL"),
+            ("NAMED COLLECTION", "NAMED_COLLECTION", "ALL"),
+            ("S3", "GLOBAL", "SOURCES"),
+            ("SOURCES", "", "ALL"),
+            ("SHOW CACHES", "", "ALL"),
+            ("ALL", "", ""),
+            ("NONE", "", ""),
+            ("BAD-NAME", "GLOBAL", "ALL"),
+        ]);
+        let p = from_rows(&catalog, Flavor::ClickHouse);
+        let on = |n: &str| p.iter().find(|x| x.name == n).map(|x| x.on.join(","));
+        assert_eq!(on("SHOW DATABASES").as_deref(), Some(",schema"));
+        assert_eq!(
+            on("SELECT").as_deref(),
+            Some(",schema,table,view,materialized_view")
+        );
+        assert_eq!(
+            on("ALTER VIEW MODIFY QUERY").as_deref(),
+            Some(",schema,view,materialized_view")
+        );
+        assert_eq!(on("dictGet").as_deref(), Some(",schema,dictionary"));
+        assert_eq!(on("KILL QUERY").as_deref(), Some(""));
+        assert_eq!(on("NAMED COLLECTION").as_deref(), Some(""));
+        // A group: wherever its members go.
+        assert_eq!(
+            on("SHOW").as_deref(),
+            Some(",schema,table,view,materialized_view")
+        );
+        assert_eq!(on("SOURCES").as_deref(), Some(""));
+        assert_eq!(
+            on("ALL").as_deref(),
+            Some(",schema,table,view,materialized_view,dictionary")
+        );
+        assert_eq!(on("S3").as_deref(), Some(""));
+        assert_eq!(on("SHOW CACHES").as_deref(), Some(""));
+        assert_eq!(on("NONE"), None);
+        assert_eq!(on("BAD-NAME"), None);
+        assert_eq!(p[0].name, "SHOW DATABASES");
+        let timeplus = from_rows(&catalog, Flavor::Timeplus);
+        let select = timeplus.iter().find(|x| x.name == "SELECT").unwrap();
+        assert_eq!(
+            select.on,
+            ["", "schema", "stream", "table", "view", "materialized_view"]
+        );
+    }
+
+    #[test]
+    fn every_documented_privilege_has_a_script() {
+        for flavor in [Flavor::ClickHouse, Flavor::Timeplus] {
+            let kinds = spec(flavor).object_kinds;
+            let all = documented(flavor);
+            assert_eq!(all.len(), DOCUMENTED.len());
+            for p in all {
+                assert!(!p.on.is_empty(), "{}", p.name);
+                for k in &p.on {
+                    assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                    let object = match k.as_str() {
+                        "" => None,
+                        "schema" => Some(ObjectRef {
+                            kind: k.clone(),
+                            schema: None,
+                            name: "d".into(),
+                        }),
+                        _ => Some(ObjectRef {
+                            kind: k.clone(),
+                            schema: Some("d".into()),
+                            name: "t".into(),
+                        }),
+                    };
+                    let sql = script(&SecurityAction::Grant {
+                        privileges: vec![p.name.clone()],
+                        object,
+                        to: "r".into(),
+                        grantable: false,
+                    })
+                    .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                    assert!(sql.starts_with(&format!("GRANT {} ON ", p.name)), "{sql}");
+                }
+            }
+        }
+        assert!(privileges(&["S3".into(), "SYSTEM DROP S3 CLIENT CACHE".into()]).is_ok());
+        for bad in ["3D", "S3; DROP USER x", "S-3", ""] {
+            assert!(privileges(&[bad.into()]).is_err(), "{bad}");
+        }
     }
 }
