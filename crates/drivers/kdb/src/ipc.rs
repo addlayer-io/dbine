@@ -486,11 +486,13 @@ fn table(keys: K, values: K) -> R<K> {
 /// < > $ , # _ ~ ! ? @ .`; a unary one shows as its q keyword (`(-:)` is
 /// `neg`, `(#:)` is `count`), as the q console does.
 fn primitive(t: i8, p: u8) -> String {
-    const BINARY: [&str; 20] = [
+    // The codes as kdb+ sends them (`-8!` of each primitive).
+    const BINARY: [&str; 35] = [
         ":", "+", "-", "*", "%", "&", "|", "^", "=", "<", ">", "$", ",", "#", "_", "~", "!", "?",
-        "@", ".",
+        "@", ".", "0:", "1:", "2:", "in", "within", "like", "bin", "ss", "insert", "wsum", "wavg",
+        "div", "xexp", "setenv", "binr",
     ];
-    const UNARY: [&str; 20] = [
+    const UNARY: [&str; 42] = [
         "::",
         "flip",
         "neg",
@@ -500,8 +502,8 @@ fn primitive(t: i8, p: u8) -> String {
         "reverse",
         "null",
         "group",
-        "iasc",
-        "idesc",
+        "hopen",
+        "hclose",
         "string",
         "enlist",
         "count",
@@ -511,6 +513,28 @@ fn primitive(t: i8, p: u8) -> String {
         "distinct",
         "type",
         "value",
+        "read0",
+        "read1",
+        "2::",
+        "avg",
+        "last",
+        "sum",
+        "prd",
+        "min",
+        "max",
+        "exit",
+        "getenv",
+        "abs",
+        "sqrt",
+        "log",
+        "exp",
+        "sin",
+        "asin",
+        "cos",
+        "acos",
+        "tan",
+        "atan",
+        "enlist",
     ];
     const ITERATORS: [&str; 6] = ["'", "/", "\\", "':", "/:", "\\:"];
     let p = p as usize;

@@ -12,6 +12,16 @@
 //!   cargo test -p dbine-driver-kdb --test live -- --ignored
 //! docker rm -f dbine-test-kdb
 //! ```
+//!
+//! The `tls` test needs a second one, TLS only, with a certificate for
+//! `127.0.0.1` signed by a test CA:
+//!
+//! ```sh
+//! docker run -d --name dbine-test-kdb-tls -p 15001:5000 -e KX_LICENSE_B64 \
+//!   -e SSL_CERT_FILE=/tls/server.pem -e SSL_KEY_FILE=/tls/server.key -v "$PWD/tls:/tls:ro" \
+//!   dbine-test-kdb-img bash -c '... exec /root/.kx/bin/q -p 5000 -E 2 -u /users.txt'
+//! DBINE_TEST_KDB_TLS_URL=127.0.0.1:15001 DBINE_TEST_KDB_CA="$PWD/tls/ca.pem" ...
+//! ```
 
 use dbine_driver::{kinds, ConnectionConfig, ObjectRef, QueryOutcome};
 
@@ -228,4 +238,159 @@ async fn hdb_namespaces_and_big_results() {
     assert_eq!(out.results.len(), 3, "{:?}", out.results);
     assert_eq!(out.results[1].rows[0][0], serde_json::json!(8));
     assert!(!s.monitor().await.unwrap().metrics.is_empty());
+}
+
+#[tokio::test]
+#[ignore]
+async fn wrong_password_types_and_server_requests() {
+    let d = dbine_driver_kdb::drivers().remove(0);
+    let bad = ConnectionConfig {
+        password: Some("nope".into()),
+        ..cfg(false)
+    };
+    assert!(d.connect(&bad, None).await.is_err());
+
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    // Every q type comes back without breaking the decoder.
+    let out = run(
+        &mut s,
+        "(0b;0x2a;1h;2i;3j;4.5e;6.7;\"c\";`s;2026.11.03D10:20:30.123456789;2026.11m;2026.11.03;\
+         2026.11.03T10:20:30.123;0D01:02:03.000000004;10:20u;10:20:30v;10:20:30.123t;\
+         first 1?0Ng;0N;0n;0w;-0w;0Nd;`a`b!1 2;([k:1 2] v:`x`y);{x+y};+[;1];sum;+;\
+         `sym$`a;1 2 3h;\"str\";(1;`a;\"b\"))",
+    )
+    .await;
+    assert_eq!(out.results.len(), 1, "{:?}", out.results);
+    // Primitives by the names kdb+ gives them.
+    let rows = &out.results[0].rows;
+    assert_eq!(rows[27][0], serde_json::json!("sum"));
+    assert_eq!(rows[28][0], serde_json::json!("+"));
+    // The server asking us something mid-query gets an error, and the
+    // query still answers.
+    let out = run(&mut s, "@[.z.w;\"1+1\";{`refused}]").await;
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!("refused"));
+    // Big answers come compressed over a network (not from localhost).
+    let out = run(&mut s, ".z.a").await;
+    assert_ne!(
+        out.results[0].rows[0][0],
+        serde_json::json!(2130706433),
+        "connected from localhost: kdb+ wouldn't compress"
+    );
+    let mut all = QueryOutcome::default();
+    s.execute("([] a:til 3000000; b:3000000#`x`y`z)", usize::MAX, &mut all)
+        .await
+        .unwrap();
+    assert_eq!(all.results[0].rows.len(), 3_000_000);
+    assert_eq!(
+        all.results[0].rows[2_999_999][0],
+        serde_json::json!(2_999_999)
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn cancel_and_dropped_connections() {
+    let d = dbine_driver_kdb::drivers().remove(0);
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    // Cancel: the query stops for us at once, the next one reconnects
+    // (once the server finishes the old one).
+    let stop = s.interrupter().unwrap();
+    let t0 = std::time::Instant::now();
+    let handle = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        stop();
+    });
+    let mut out = QueryOutcome::default();
+    let r = s
+        .execute("{t:.z.p+0D00:00:03; while[.z.p<t]; 1}[]", 100, &mut out)
+        .await;
+    handle.await.unwrap();
+    assert!(r.is_err(), "{out:?}");
+    assert!(
+        t0.elapsed() < std::time::Duration::from_secs(2),
+        "{:?}",
+        t0.elapsed()
+    );
+    let out = run(&mut s, "1+1").await;
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(2));
+
+    // A connection closed by the server (here, from another session) is
+    // reopened by the next query.
+    let h = run(&mut s, ".z.w").await.results[0].rows[0][0].clone();
+    let mut other = d.connect(&cfg(false), None).await.unwrap();
+    other.kill_session(&h.to_string()).await.unwrap();
+    let out = run(&mut s, "2+2").await;
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(4));
+}
+
+/// `DBINE_TEST_KDB_TLS_URL` (a kdb+ started with `-E 2`) and
+/// `DBINE_TEST_KDB_CA` (the CA that signed its certificate).
+fn tls_cfg(opts: &[(&str, &str)]) -> ConnectionConfig {
+    let url = std::env::var("DBINE_TEST_KDB_TLS_URL").expect("DBINE_TEST_KDB_TLS_URL");
+    let mut c = cfg(false);
+    let mut parts = url.splitn(2, ':');
+    c.host = parts.next().unwrap().to_string();
+    c.port = parts.next().unwrap().parse().unwrap();
+    c.options = opts
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    c
+}
+
+#[tokio::test]
+#[ignore]
+async fn tls() {
+    let d = dbine_driver_kdb::drivers().remove(0);
+    let ca = std::env::var("DBINE_TEST_KDB_CA").expect("DBINE_TEST_KDB_CA");
+    // Verified by the CA that signed it.
+    let mut s = d
+        .connect(
+            &tls_cfg(&[("tcps", "true"), ("SSL_CA_CERT_FILE", &ca)]),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        run(&mut s, "1+1").await.results[0].rows[0][0],
+        serde_json::json!(2)
+    );
+    // Not trusted by the system: refused.
+    assert!(d
+        .connect(&tls_cfg(&[("tcps", "true")]), None)
+        .await
+        .is_err());
+    // Without verification, pinned to the first certificate seen; a pin
+    // that doesn't match is refused.
+    let mut s = d
+        .connect(
+            &tls_cfg(&[("tcps", "true"), ("SSL_VERIFY_SERVER", "false")]),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        run(&mut s, "2+2").await.results[0].rows[0][0],
+        serde_json::json!(4)
+    );
+    let wrong = "00".repeat(32);
+    assert!(d
+        .connect(
+            &tls_cfg(&[
+                ("tcps", "true"),
+                ("SSL_VERIFY_SERVER", "false"),
+                ("tls_pin", &wrong),
+            ]),
+            None,
+        )
+        .await
+        .is_err());
+    // Plain TCP to a TLS-only server fails instead of hanging.
+    let plain = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        d.connect(&tls_cfg(&[("tcps", "false")]), None),
+    )
+    .await
+    .expect("plain connect to a TLS-only server hung");
+    assert!(plain.is_err());
 }
