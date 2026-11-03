@@ -815,6 +815,9 @@ export interface UpdateInfo {
   published_at: string | null;
   /** This install can download and install `latest` by itself. */
   installable: boolean;
+  /** `installable` and automatic updates on (`DBINE_AUTO_UPDATE` not turning
+   *  them off): download in the background, no notice. */
+  auto: boolean;
   /** Why it can't: a build without the updater key, macOS not run from an
    *  installed app, a deb/rpm/MSI install, no updater manifest, or the
    *  Flathub build (Flatpak updates it: nothing was checked). */
@@ -823,6 +826,14 @@ export interface UpdateInfo {
   phase: 'idle' | 'downloading' | 'ready';
   /** The window driving the update (its label). */
   owner: string | null;
+}
+
+/** What the first launch after an update shows (`whats_new`). */
+export interface WhatsNew {
+  previous: string;
+  current: string;
+  /** The changelog sections after `previous`, newest first (Markdown). */
+  notes: string;
 }
 
 /** `update-progress` (to the update's window only). */

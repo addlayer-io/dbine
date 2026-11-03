@@ -25,8 +25,16 @@
   },
   "settings": {
     "installed": "설치된 버전: {{version}}",
-    "help": "DBine은 열릴 때 새 버전이 있는지 확인하고 거기서 업데이트합니다.",
+    "help": "DBine은 실행할 때와 6시간마다 새 버전을 확인하고, 자동으로 다운로드하여 다시 시작하거나 종료할 때 설치합니다.",
     "check": "업데이트 확인"
+  },
+  "status": {
+    "restart": "다시 시작하여 업데이트",
+    "restartTitle": "DBine {{version}}을(를) 다운로드하고 검증했습니다. 다시 시작하면 설치됩니다(종료할 때도 자동으로 설치됩니다)."
+  },
+  "whatsNew": {
+    "title": "DBine {{version}} 새로운 기능",
+    "text": "DBine이 버전 {{previous}}에서 {{current}}(으)로 업데이트되었습니다."
   },
   "upToDate": "최신 버전({{version}})을 사용 중입니다.",
   "managedByFlatpak": "버전 {{version}}을(를) 사용 중입니다. 이 설치는 Flathub 버전이며 Flatpak이 업데이트합니다(소프트웨어 센터 또는 「flatpak update」).",

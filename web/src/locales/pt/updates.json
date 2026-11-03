@@ -25,8 +25,16 @@
   },
   "settings": {
     "installed": "Versão instalada: {{version}}",
-    "help": "O DBine verifica sozinho ao abrir se há uma versão nova e se atualiza a partir daí.",
+    "help": "O DBine procura novas versões ao abrir e a cada 6 horas, baixa-as sozinho e as instala quando você o reinicia ou o fecha.",
     "check": "Verificar atualizações"
+  },
+  "status": {
+    "restart": "Reiniciar para atualizar",
+    "restartTitle": "O DBine {{version}} foi baixado e verificado. Reinicie para instalá-lo (ou ele se instala sozinho ao sair)."
+  },
+  "whatsNew": {
+    "title": "Novidades do DBine {{version}}",
+    "text": "O DBine foi atualizado da versão {{previous}} para a {{current}}."
   },
   "upToDate": "Você está na versão mais recente ({{version}}).",
   "managedByFlatpak": "Você tem a versão {{version}}. Esta instalação vem do Flathub: o Flatpak a atualiza (pela sua central de software ou com “flatpak update”).",

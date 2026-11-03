@@ -1,45 +1,78 @@
 # Updates
 
 DBine checks by itself whether there is a new version and, where it can,
-updates itself: it downloads the new version, verifies its signature and
-restarts to finish. Where it cannot, it offers the release page.
+updates itself the way VS Code does: it downloads the new version in the
+background, verifies its signature, and installs it when DBine restarts or
+quits. Where it cannot, it shows a notice with the release page.
 
 ## What the user sees
 
-- **When opening DBine**, a few seconds after startup, a single window (the
-  first one that starts) asks whether there is a new version. If it fails, for
-  example with no network, it shows nothing. A version marked with "Skip this
-  version" is not offered again on its own.
+- **Checks:** a few seconds after DBine opens (only the first window that
+  starts) and then every 6 hours while it runs. Every window runs the 6-hour
+  timer, and the backend lets only one check per period reach the network.
+  A check that fails (no network, rate-limited) shows nothing.
+- **Where DBine updates itself** (`installable`, see below): a new version
+  downloads and verifies in the background, with no dialog. If an even newer
+  version comes out while one is downloaded and waiting, the newer one
+  replaces it. There is no "Skip this version" here.
+- **Ready:** once the package is downloaded and its signature verified, the
+  status bar of every window shows **Restart to update**, with the version in
+  its tooltip. Clicking it goes through the same control as Quit: if there
+  are background runs in any window, it asks first and cancels them ("Cancel
+  and restart"), and unsaved project files are offered for saving. Then it
+  installs and opens the new version. There is no modal.
+- **Quitting** normally with an update ready installs it as part of the quit,
+  after the quit control, without opening DBine again: the next launch is the
+  new version. If the install fails it is logged (`app.log`), DBine quits
+  anyway, and the next run checks and downloads again.
+- **After an update**, the first launch of the new version shows what's new:
+  the changelog sections between the version that ran before and the new one
+  (at most five), in the interface language when the translation has them
+  and in English otherwise. If they can't be read (offline), the next launch
+  tries again. A first install shows nothing.
 - **By hand**, from **Help › Check for updates…** or **Settings › General ›
   Check for updates**: it always answers. If there is nothing new, it says
-  "You're on the latest version".
-- **The notice** shows the new version, the installed one and the version
-  notes, with three buttons: "Skip this version", "Later" and "Update now".
-- **Update now** downloads the package with a progress bar (the MB downloaded
-  and the total), verifies the signature and ends in "DBine X is ready". The
-  download can be cancelled.
-- **Restart to finish** goes through the same control as Quit: if there are
-  background runs in any window, it asks first and cancels them ("Cancel and
-  restart"). Then it installs and opens the new version. With "Later", the
-  downloaded update stays ready until DBine is closed: the next "Check for
-  updates" offers to restart without downloading again.
-- **If something fails** (the download, the signature or the installation),
-  the notice says what happened and offers "Open the download page".
-- **Several windows:** only one shows the update, the one that found it. If
-  you search from another window while it downloads, it says which window it
-  is in. If that window is closed, the download continues and another window
-  can finish it.
+  "You're on the latest version". If an update is already downloaded, the
+  dialog says it is ready and offers **Restart to finish**. If one is found,
+  the dialog shows its download with a progress bar (cancellable) and ends in
+  "DBine X is ready". Only the manual check says it couldn't reach the update
+  server.
+- **Where DBine doesn't update itself** (a `.deb`/`.rpm` or `.msi` install,
+  macOS outside Applications, a build without the updater key, a version
+  without a manifest), the checks are the same, and a new version shows the
+  notice: the new version, the installed one, the version notes, the reason,
+  and "Skip this version", "Later" and "Download" (the release page). It is
+  shown once per version per run; a skipped version is not offered again on
+  its own.
+- **If something fails** in a download the user is watching, or in the
+  install from "Restart to update", the dialog says what happened and offers
+  "Open the download page".
+- **Several windows:** only one drives the download, the one whose check
+  found it. If you search from another window while it downloads, it says
+  which window it is in. If that window is closed, the download continues and
+  another window can finish it. The status bar button shows in every window.
+
+## Managed machines: `DBINE_AUTO_UPDATE`
+
+For installations managed by IT, the environment variable
+`DBINE_AUTO_UPDATE=0` (or `false`, `off`, `no`, in any case) turns off the
+background download and the install on quit. DBine still checks at launch
+and every 6 hours, and a new version shows the notice instead ("Skip this
+version", "Later", "Update now"): nothing is downloaded unless the user
+chooses to. Any other value, or the variable missing, leaves automatic
+updates on. There is no switch in the interface.
 
 ## What happens on each system
 
 | System | Update package | How it is installed |
 |---|---|---|
-| macOS (Apple Silicon and Intel) | `DBine_X_aarch64.app.tar.gz`, `DBine_X_x64.app.tar.gz` | replaces `DBine.app` in place. If the folder cannot be written, macOS asks for an administrator's password. |
-| Windows | `DBine_X_x64-setup.exe` (NSIS) | DBine closes, the installer runs in passive mode (only a progress bar, no questions) and opens the new version. |
-| Linux (AppImage) | `DBine_X_amd64.AppImage` | rewrites the AppImage file in place and restarts. |
+| macOS (Apple Silicon and Intel) | `DBine_X_aarch64.app.tar.gz`, `DBine_X_x64.app.tar.gz` | replaces `DBine.app` in place (one atomic swap on APFS, so the app is never missing). **Restart to update:** if the folder cannot be written, macOS asks for an administrator's password, then the new version opens. **On quit:** the windows hide, the bundle is swapped and DBine exits. When the swap would need an administrator's password (the folder isn't writable, or the bundle belongs to another user) the quit doesn't wait on a prompt: it skips the install, and the restart button or the next run updates. |
+| Windows | `DBine_X_x64-setup.exe` (NSIS) | DBine runs its exit cleanup, starts the installer in passive mode (only a progress bar, no questions) and ends; the installer closes what is left of DBine. **Restart to update:** the installer opens the new version (`/R`). **On quit:** it doesn't (no `/R`). |
+| Linux (AppImage) | `DBine_X_amd64.AppImage` | rewrites the AppImage file in place. **Restart to update:** then restarts. **On quit:** just exits. |
 
 The Flathub build (feature `flatpak`, [`flathub.md`](flathub.md)) doesn't
-check at all: Flatpak updates it. A manual check answers `reason: "flatpak"`
+check at all, neither at launch nor every 6 hours, and never downloads or
+installs on quit: Flatpak updates it. A manual check answers `reason: "flatpak"`
 without touching the network and the UI says where updates come from.
 
 Cases where it does not update itself and offers the release page:
@@ -110,8 +143,16 @@ nothing. The update itself is not affected:
   `requireSignedVersion`, each signature carries the version it was signed for
   (`version:X` in the trusted comment): a tampered manifest cannot offer an old
   package as if it were new.
-- The downloaded package stays in memory until the restart (between 20 and 90
-  MB depending on the system).
+- The downloaded package stays in memory until the restart or the quit
+  (between 20 and 90 MB depending on the system). It is only offered or
+  installed after the plugin verified its signature: a package that fails
+  verification is dropped and the next check downloads again.
+- The install on quit (`install_on_quit`) runs from `quit_app`, which the UI
+  calls only after the quit control, and from `RunEvent::Exit` (an OS quit,
+  such as a logout, that needed no prompt). The first call takes the
+  package, so it installs once. The installable builds read only
+  `latest.json`: the GitHub API is asked only by the builds that can't update
+  themselves, at most once per period.
 - No telemetry is added: each version's adoption is already visible in
   `app_started`, which carries the version ([`telemetry.md`](telemetry.md)).
 
@@ -119,7 +160,9 @@ nothing. The update itself is not affected:
 
 | Command | Args | Response |
 |---|---|---|
-| `check_for_update` | `{ manual }` | `UpdateInfo`: `current`, `latest`, `available`, `url` (the release page), `notes`, `published_at`, `installable`, `reason` (`unsigned`, `location`, `package`, `no_manifest`), `phase` (`idle`, `downloading`, `ready`) and `owner` (the window that carries the update) |
+| `check_for_update` | `{ manual, lang, periodic }` | `UpdateInfo`: `current`, `latest`, `available`, `url` (the release page), `notes`, `published_at`, `installable`, `auto` (installable and `DBINE_AUTO_UPDATE` not off), `reason` (`unsigned`, `location`, `package`, `no_manifest`, `flatpak`), `phase` (`idle`, `downloading`, `ready`) and `owner` (the window that carries the update). `periodic`: answered from memory when another background check went out less than 5 h 50 min ago |
+| `update_state` | — | the downloaded update waiting for the restart (`UpdateInfo`), or `null` |
+| `whats_new` | `{ since, lang }` | `{ previous, current, notes }`: the changelog sections after `since` up to the running version, read at its tag (`CHANGELOG.md`, and `changelog/CHANGELOG.<lang>.md` with English for the versions it lacks); `null` when there's nothing to show |
 | `update_download` | `{}` | downloads and verifies; progress reaches the owner window as the `update-progress` event (`phase`, `downloaded`, `total`). Cancelled: error `cancelled` |
 | `update_cancel` | — | cuts the download |
 | `update_install_and_restart` | — | installs and restarts; the UI calls it only from the quit control (`requestUpdateRestart` in `quitGuard.ts`) |
@@ -129,7 +172,9 @@ If another window becomes the owner, the previous one receives
 `update-owner-changed` and closes its notice. When the download finishes, the
 owner receives `update-finished` (`ok`, `cancelled`, `error`): this also ends
 the notice of a window that took over a download started by another, already
-closed.
+closed. Every window receives `update-state-changed` when a downloaded
+update becomes ready or is replaced by a newer one; the status bar then asks
+`update_state`.
 
 ## The signing key
 

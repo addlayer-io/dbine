@@ -25,8 +25,16 @@
   },
   "settings": {
     "installed": "已安装版本：{{version}}",
-    "help": "DBine 会在打开时检查新版本，并从那里自行更新。",
+    "help": "DBine 会在启动时以及每 6 小时检查一次新版本，自动下载，并在你重启或关闭它时完成安装。",
     "check": "检查更新"
+  },
+  "status": {
+    "restart": "重启以更新",
+    "restartTitle": "DBine {{version}} 已下载并通过验证。重启即可安装（退出时也会自动安装）。"
+  },
+  "whatsNew": {
+    "title": "DBine {{version}} 新功能",
+    "text": "DBine 已从版本 {{previous}} 更新到 {{current}}。"
   },
   "upToDate": "你使用的已是最新版本（{{version}}）。",
   "managedByFlatpak": "你使用的是版本 {{version}}。此安装来自 Flathub：由 Flatpak 更新（通过你的软件中心或“flatpak update”）。",

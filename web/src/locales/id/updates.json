@@ -25,8 +25,16 @@
   },
   "settings": {
     "installed": "Versi terpasang: {{version}}",
-    "help": "DBine memeriksa sendiri saat dibuka apakah ada versi baru, dan memperbarui dari sana.",
+    "help": "DBine memeriksa versi baru saat dibuka dan setiap 6 jam, mengunduhnya sendiri, lalu memasangnya saat DBine dimulai ulang atau ditutup.",
     "check": "Periksa pembaruan"
+  },
+  "status": {
+    "restart": "Mulai ulang untuk memperbarui",
+    "restartTitle": "DBine {{version}} sudah diunduh dan diverifikasi. Mulai ulang untuk memasangnya (atau terpasang sendiri saat keluar)."
+  },
+  "whatsNew": {
+    "title": "Yang baru di DBine {{version}}",
+    "text": "DBine diperbarui dari versi {{previous}} ke {{current}}."
   },
   "upToDate": "Anda menggunakan versi terbaru ({{version}}).",
   "managedByFlatpak": "Anda menggunakan versi {{version}}. Pemasangan ini dari Flathub: Flatpak yang memperbaruinya (dari pusat perangkat lunak Anda atau dengan «flatpak update»).",
