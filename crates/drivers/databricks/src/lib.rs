@@ -639,7 +639,12 @@ impl Driver for DatabricksDriver {
                     ))
                 }
             },
-            u2m::MODE => Auth::U2m,
+            // Refused before the browser opens when the host isn't a
+            // Databricks workspace.
+            u2m::MODE => {
+                u2m::workspace_host(&base_url(&cfg.host))?;
+                Auth::U2m
+            }
             _ => Auth::Pat(
                 cfg.option("token")
                     .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
@@ -1684,6 +1689,31 @@ mod tests {
             .err()
             .unwrap();
         assert!(matches!(e, Error::AuthFailed(m) if m.contains("tenant")));
+    }
+
+    #[tokio::test]
+    async fn browser_sign_in_is_refused_for_other_hosts_before_connecting() {
+        for (driver, host) in [
+            ("databricks", "adb-1.azuredatabricks.net.example.com"),
+            ("databricks", "http://dbc-1.cloud.databricks.com"),
+            ("azure_databricks", "10.0.0.5"),
+            ("azure_databricks", "adb-1.2.azuredatabricks.net:8443"),
+        ] {
+            let mut cfg = ConnectionConfig {
+                driver: driver.into(),
+                host: host.into(),
+                ..Default::default()
+            };
+            cfg.options.insert("warehouse".into(), "abc".into());
+            cfg.options.insert("auth_mode".into(), u2m::MODE.into());
+            for d in drivers() {
+                let e = d.connect(&cfg, None).await.err().unwrap();
+                assert!(
+                    matches!(&e, Error::AuthFailed(m) if m.contains("usá un token")),
+                    "{host}: {e}"
+                );
+            }
+        }
     }
 
     #[test]

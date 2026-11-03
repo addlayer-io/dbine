@@ -11978,6 +11978,9 @@
   "La respuesta no trajo la sección debug": [
     "crates/drivers/solr/src/plan.rs"
   ],
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": [
+    "crates/drivers/databricks/src/u2m.rs"
+  ],
   "La restricción CHECK nueva de {0} ": [
     "crates/drivers/postgres/src/compare.rs"
   ],
@@ -25881,6 +25884,9 @@
   "el inicio de sesión con la nube manda un token que no puede ir a un servidor sin verificar: elegí {0} e indicá la CA si hace falta": [
     "crates/drivers/postgres/src/cloud_auth.rs"
   ],
+  "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": [
+    "crates/drivers/databricks/src/u2m.rs"
+  ],
   "el inquilino (tenant ID) no es válido": [
     "crates/drivers/sqlserver/src/variant.rs"
   ],
@@ -29760,6 +29766,9 @@
   "la generación": [
     "crates/drivers/hana/src/transfer.rs"
   ],
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": [
+    "crates/dbine-core/src/import.rs"
+  ],
   "la hora no es HH:MM[:SS]": [
     "crates/drivers/hana/src/transfer.rs"
   ],
@@ -29975,6 +29984,9 @@
   ],
   "la respuesta de Google no trae access_token": [
     "crates/drivers/bigquery/src/gcp.rs"
+  ],
+  "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": [
+    "crates/drivers/databricks/src/u2m.rs"
   ],
   "la respuesta del listado es demasiado grande": [
     "src-tauri/src/notebook/remote.rs"

@@ -246,7 +246,6 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                 Some(s) => s.to_string(),
                 None => sheets.first().cloned().unwrap_or_default(),
             };
-            let range = wb.worksheet_range(&name).map_err(bad)?;
             let cell = |d: &Data| -> Value {
                 match d {
                     Data::Empty => Value::Null,
@@ -268,11 +267,8 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                     Data::Error(e) => Value::String(format!("#{e:?}")),
                 }
             };
-            let mut all = range.rows();
-            let first: Vec<Value> = all
-                .next()
-                .map(|r| r.iter().map(cell).collect())
-                .unwrap_or_default();
+            let mut all = sheet_rows(&mut wb, &name, cell)?;
+            let first: Vec<Value> = all.next().unwrap_or_default();
             let (columns, pending) = if opts.header {
                 (
                     first
@@ -296,15 +292,11 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                     Some(first),
                 )
             };
-            let rows: Vec<Vec<Value>> = pending
-                .into_iter()
-                .chain(all.map(|r| r.iter().map(cell).collect()))
-                .collect();
             Ok(Reader {
                 columns,
                 sheets,
                 format,
-                rows: Box::new(rows.into_iter().map(Ok)),
+                rows: Box::new(pending.into_iter().chain(all).map(Ok)),
             })
         }
         ImportFormat::Xml => {
@@ -339,6 +331,135 @@ pub fn open(path: &Path, format: ImportFormat, opts: &ImportOptions) -> io::Resu
                 rows: Box::new(rows.into_iter().map(Ok)),
             })
         }
+    }
+}
+
+/// The most cells a sheet's used area (from its first used row and column
+/// to its last) may span when the sheet doesn't really fill it.
+const MAX_SHEET_CELLS: u64 = 50_000_000;
+
+/// The rows of a sheet's used area, like calamine's `worksheet_range` (from
+/// the first non-empty row and column to the last, empty cells as `null`),
+/// but built from the cells the file has: nothing is allocated for the
+/// empty part, and the rows are produced as they're read. A sheet whose
+/// area spans more than [`MAX_SHEET_CELLS`] while filling less than a
+/// quarter of it (two cells at A1 and XFD1048576: 1.7e10) is refused:
+/// it's malformed or made to exhaust memory, and reading it would produce
+/// billions of empty values.
+fn sheet_rows<RS: std::io::Read + std::io::Seek>(
+    wb: &mut calamine::Sheets<RS>,
+    name: &str,
+    cell: impl Fn(&calamine::Data) -> Value,
+) -> io::Result<SheetRows> {
+    use calamine::{Data, DataRef, Reader as _, Sheets};
+    let mut cells: Vec<((u32, u32), Value)> = Vec::new();
+    let mut keep = |pos: (u32, u32), d: DataRef<'_>| {
+        if !matches!(d, DataRef::Empty) {
+            cells.push((pos, cell(&Data::from(d))));
+        }
+    };
+    match wb {
+        // The cells as the file lists them, never a dense range.
+        Sheets::Xlsx(x) => match x.worksheet_cells_reader(name) {
+            Ok(mut r) => {
+                while let Some(c) = r.next_cell().map_err(bad)? {
+                    keep(c.get_position(), c.get_value().clone());
+                }
+            }
+            // A chart sheet: no cells, as calamine reads it.
+            Err(calamine::XlsxError::NotAWorksheet(_)) => {}
+            Err(e) => return Err(bad(e)),
+        },
+        Sheets::Xlsb(x) => {
+            let mut r = x.worksheet_cells_reader(name).map_err(bad)?;
+            while let Some(c) = r.next_cell().map_err(bad)? {
+                keep(c.get_position(), c.get_value().clone());
+            }
+        }
+        // calamine reads .xls and .ods whole when it opens them (.ods with
+        // its own 100-million-cell limit); their cells come from that.
+        wb => {
+            let range = wb.worksheet_range(name).map_err(bad)?;
+            let (r0, c0) = range.start().unwrap_or_default();
+            for (r, c, d) in range.used_cells() {
+                if !matches!(d, Data::Empty) {
+                    cells.push(((r0 + r as u32, c0 + c as u32), cell(d)));
+                }
+            }
+        }
+    }
+    SheetRows::new(cells)
+}
+
+/// A used area of `area` cells holding only `used` of them, past the limit
+/// (see [`sheet_rows`]).
+fn too_sparse(area: u64, used: u64) -> bool {
+    area > MAX_SHEET_CELLS && area / 4 > used
+}
+
+/// The rows of a sheet's used area, from its cells (see [`sheet_rows`]).
+struct SheetRows {
+    /// Sorted by position; a repeated position keeps the last one, as
+    /// calamine does.
+    cells: std::vec::IntoIter<((u32, u32), Value)>,
+    next: Option<((u32, u32), Value)>,
+    row: u64,
+    last_row: u64,
+    first_col: u32,
+    width: usize,
+}
+
+impl SheetRows {
+    fn new(mut cells: Vec<((u32, u32), Value)>) -> io::Result<SheetRows> {
+        let (mut rows, mut cols) = ((u32::MAX, 0), (u32::MAX, 0));
+        for ((r, c), _) in &cells {
+            rows = (rows.0.min(*r), rows.1.max(*r));
+            cols = (cols.0.min(*c), cols.1.max(*c));
+        }
+        if cells.is_empty() {
+            rows = (1, 0);
+            cols = (0, 0);
+        }
+        let height = (u64::from(rows.1) + 1).saturating_sub(u64::from(rows.0));
+        let width = u64::from(cols.1 - cols.0) + 1;
+        if too_sparse(height * width, cells.len() as u64) {
+            return Err(bad(format!(
+                "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas",
+                cells.len(),
+                height,
+                width
+            )));
+        }
+        cells.sort_by_key(|(pos, _)| *pos);
+        let mut cells = cells.into_iter();
+        Ok(SheetRows {
+            next: cells.next(),
+            cells,
+            row: u64::from(rows.0),
+            last_row: u64::from(rows.1),
+            first_col: cols.0,
+            width: width as usize,
+        })
+    }
+}
+
+impl Iterator for SheetRows {
+    type Item = Vec<Value>;
+    fn next(&mut self) -> Option<Vec<Value>> {
+        if self.row > self.last_row {
+            return None;
+        }
+        let mut out = vec![Value::Null; self.width];
+        while let Some(((r, c), v)) = self.next.take() {
+            if u64::from(r) != self.row {
+                self.next = Some(((r, c), v));
+                break;
+            }
+            out[(c - self.first_col) as usize] = v;
+            self.next = self.cells.next();
+        }
+        self.row += 1;
+        Some(out)
     }
 }
 
@@ -755,5 +876,106 @@ mod tests {
             3
         )
         .is_err());
+    }
+
+    /// An .xlsx written in memory with `cells` (row, column, text).
+    fn xlsx_with(cells: &[(u32, u16, &str)]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let mut wb = rust_xlsxwriter::Workbook::new();
+        let ws = wb.add_worksheet();
+        for (r, c, v) in cells {
+            ws.write_string(*r, *c, *v).unwrap();
+        }
+        file("a.xlsx", &wb.save_to_buffer().unwrap())
+    }
+
+    #[test]
+    fn a_sheet_with_cells_at_both_corners_is_refused_without_allocating() {
+        // Two cells, at A1 and XFD1048576: a dense range would be 1.7e10
+        // cells. The file is a few KB.
+        let (_d, p) = xlsx_with(&[(0, 0, "a"), (1_048_575, 16_383, "z")]);
+        assert!(std::fs::metadata(&p).unwrap().len() < 20_000);
+        let t = std::time::Instant::now();
+        let e = open(&p, ImportFormat::Auto, &ImportOptions::default())
+            .err()
+            .unwrap();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+        assert!(e.to_string().contains("demasiado grande"), "{e}");
+        assert!(
+            e.to_string().contains("1048576 filas × 16384 columnas"),
+            "{e}"
+        );
+        let e = preview(&p, ImportFormat::Auto, &ImportOptions::default(), 50)
+            .err()
+            .unwrap();
+        assert!(e.to_string().contains("demasiado grande"), "{e}");
+        assert!(t.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn sheet_rows_match_calamine_ranges_and_stream() {
+        use calamine::Reader as _;
+        // Starts at B2, with gaps (an empty row and empty cells), and a
+        // wide row far down: every row comes back, empty cells as null.
+        let (_d, p) = xlsx_with(&[
+            (1, 1, "id"),
+            (1, 3, "x"),
+            (2, 1, "1"),
+            (4, 2, "b"),
+            (3_000, 40, "far"),
+        ]);
+        let opts = ImportOptions {
+            header: false,
+            ..Default::default()
+        };
+        let rows: Vec<Vec<Value>> = open(&p, ImportFormat::Auto, &opts)
+            .unwrap()
+            .collect::<io::Result<_>>()
+            .unwrap();
+        let mut wb = calamine::open_workbook_auto(&p).unwrap();
+        let range = wb.worksheet_range("Sheet1").unwrap();
+        let dense: Vec<Vec<Value>> = range
+            .rows()
+            .map(|r| {
+                r.iter()
+                    .map(|d| match d {
+                        calamine::Data::Empty => Value::Null,
+                        d => typed(&d.to_string()),
+                    })
+                    .collect()
+            })
+            .collect();
+        assert_eq!(rows, dense);
+        assert_eq!(rows.len(), 3_000);
+        assert_eq!(rows[0].len(), 40);
+        assert_eq!(rows[0][0], json!("id"));
+        assert_eq!(rows[1][0], json!(1));
+        assert_eq!(rows[2], vec![Value::Null; 40]);
+        assert_eq!(rows[3][1], json!("b"));
+        assert_eq!(rows[2_999][39], json!("far"));
+        // With a header, the first row names the columns.
+        let r = open(&p, ImportFormat::Auto, &ImportOptions::default()).unwrap();
+        assert_eq!(&r.columns[..3], ["id", "columna2", "x"]);
+        assert_eq!(r.count(), 2_999);
+    }
+
+    #[test]
+    fn only_a_mostly_empty_huge_area_is_refused() {
+        // A full sheet (1,048,576 rows × 60 columns, all used) is read
+        // whole; the same area with a few cells, or Excel's whole grid
+        // with two, is refused.
+        assert!(!too_sparse(1_048_576 * 60, 1_048_576 * 60));
+        assert!(!too_sparse(1_048_576 * 60, 1_048_576 * 15));
+        assert!(too_sparse(1_048_576 * 60, 1_000));
+        assert!(too_sparse(1_048_576 * 16_384, 2));
+        // Up to the limit, any density.
+        assert!(!too_sparse(MAX_SHEET_CELLS, 1));
+        assert!(SheetRows::new(vec![((0, 0), json!(1)), ((9_999, 4_999), json!(2))]).is_ok());
+        assert!(SheetRows::new(vec![((0, 0), json!(1)), ((u32::MAX, 0), json!(2))]).is_err());
+        // One cell at the last row of the format's range still reads.
+        let rows: Vec<_> = SheetRows::new(vec![((u32::MAX, 3), json!("z"))])
+            .unwrap()
+            .collect();
+        assert_eq!(rows, vec![vec![json!("z")]]);
+        assert_eq!(SheetRows::new(Vec::new()).unwrap().count(), 0);
     }
 }
