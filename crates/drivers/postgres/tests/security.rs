@@ -13,6 +13,7 @@
 //! DBINE_TEST_MATERIALIZE_URL=postgres://materialize@localhost:25024/materialize \
 //! DBINE_TEST_H2_URL=postgres://sa:sa@localhost:25025/test \
 //! DBINE_TEST_RISINGWAVE_URL=postgres://root@localhost:4566/dev \
+//! DBINE_TEST_CRATEDB_URL=postgres://crate@localhost:25021/doc \
 //!   cargo test -p dbine-driver-postgres --test security -- --ignored
 //! ```
 
@@ -1095,4 +1096,441 @@ async fn risingwave() {
     run(&mut s, "DROP VIEW dbine_sec_v").await;
     run(&mut s, "DROP MATERIALIZED VIEW dbine_sec_mv").await;
     run(&mut s, "DROP TABLE dbine_sec_facturas").await;
+}
+
+// -- what can be granted ------------------------------------------------------
+
+fn obj(kind: &str, schema: Option<&str>, name: &str) -> (String, Option<ObjectRef>) {
+    (
+        kind.to_string(),
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        }),
+    )
+}
+
+/// The current database ("" in the tab).
+fn here() -> (String, Option<ObjectRef>) {
+    (String::new(), None)
+}
+
+/// `Session::privileges` on a real server: a list within the spec's kinds
+/// that has the `expected` (privilege, kind) pairs; then the server takes
+/// each listed privilege on each of its kinds that `targets` has an object
+/// of (granted to a scratch principal made by `grantee`, revoked at once).
+/// `setup` runs after `cleanup`, which runs again at the end.
+async fn grantable(
+    id: &str,
+    env: &str,
+    grantee: SecurityAction,
+    cleanup_sql: &[&str],
+    setup: &[&str],
+    targets: &[(String, Option<ObjectRef>)],
+    expected: &[(&str, &str)],
+) -> Vec<dbine_driver::Privilege> {
+    let Some(cfg) = cfg(id, env) else {
+        eprintln!("{env} not set; skipping");
+        return Vec::new();
+    };
+    let d: Arc<dyn Driver> = dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap();
+    let spec = d.security().unwrap();
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    eprintln!("{id}: {} privileges: {list:?}", list.len());
+    assert!(!list.is_empty(), "{id}");
+    for p in &list {
+        assert!(!p.on.is_empty(), "{id}: {} on nothing", p.name);
+        for k in &p.on {
+            assert!(
+                spec.object_kinds.contains(&k.as_str()),
+                "{id}: {} on {k:?}",
+                p.name
+            );
+        }
+    }
+    for (name, kind) in expected {
+        assert!(
+            list.iter()
+                .any(|p| p.name == *name && p.on.iter().any(|k| k == kind)),
+            "{id}: {name} on {kind:?} missing from {list:?}"
+        );
+    }
+
+    let to = match &grantee {
+        SecurityAction::CreateUser { name, .. } | SecurityAction::CreateRole { name } => {
+            name.clone()
+        }
+        _ => unreachable!(),
+    };
+    let kind = match grantee {
+        SecurityAction::CreateRole { .. } => PrincipalKind::Role,
+        _ => PrincipalKind::User,
+    };
+    cleanup(&mut s, cleanup_sql).await;
+    for stmt in setup {
+        run(&mut s, stmt).await;
+    }
+    run(&mut s, &d.security_script(&grantee).unwrap()).await;
+    let mut tried: Vec<&str> = Vec::new();
+    for p in &list {
+        for k in &p.on {
+            let Some((_, object)) = targets.iter().find(|(t, _)| t == k) else {
+                continue;
+            };
+            let grant = SecurityAction::Grant {
+                privileges: vec![p.name.clone()],
+                object: object.clone(),
+                to: to.clone(),
+                grantable: false,
+            };
+            run(&mut s, &d.security_script(&grant).unwrap()).await;
+            let revoke = SecurityAction::Revoke {
+                privileges: vec![p.name.clone()],
+                object: object.clone(),
+                from: to.clone(),
+            };
+            run(&mut s, &d.security_script(&revoke).unwrap()).await;
+            tried.push(k);
+        }
+    }
+    for (k, _) in targets {
+        assert!(
+            tried.contains(&k.as_str()),
+            "{id}: nothing granted on {k:?}"
+        );
+    }
+    run(
+        &mut s,
+        &d.security_script(&SecurityAction::Drop { name: to, kind })
+            .unwrap(),
+    )
+    .await;
+    cleanup(&mut s, cleanup_sql).await;
+    list
+}
+
+const PG_CLEANUP: &[&str] = &[
+    "DROP SCHEMA IF EXISTS dbine_priv CASCADE",
+    "DROP ROLE IF EXISTS dbine_priv_r",
+];
+
+/// Every object kind PostgreSQL's spec offers, in schema `dbine_priv`.
+fn pg_targets() -> Vec<(String, Option<ObjectRef>)> {
+    vec![
+        here(),
+        obj("schema", None, "dbine_priv"),
+        obj("table", Some("dbine_priv"), "t"),
+        obj("view", Some("dbine_priv"), "v"),
+        obj("materialized_view", Some("dbine_priv"), "mv"),
+        obj("function", Some("dbine_priv"), "f()"),
+        obj("procedure", Some("dbine_priv"), "p()"),
+    ]
+}
+
+const PG_SETUP: &[&str] = &[
+    "CREATE SCHEMA dbine_priv",
+    "CREATE TABLE dbine_priv.t (id int)",
+    "CREATE VIEW dbine_priv.v AS SELECT id FROM dbine_priv.t",
+    "CREATE MATERIALIZED VIEW dbine_priv.mv AS SELECT id FROM dbine_priv.t",
+    "CREATE FUNCTION dbine_priv.f() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+    "CREATE PROCEDURE dbine_priv.p() LANGUAGE sql AS 'SELECT 1'",
+];
+
+/// PostgreSQL and its distributions: `acldefault`'s list.
+async fn pg_grantable(id: &str, env: &str, setup: &[&str], expected: &[(&str, &str)]) {
+    let list = grantable(
+        id,
+        env,
+        SecurityAction::CreateRole {
+            name: "dbine_priv_r".into(),
+        },
+        PG_CLEANUP,
+        setup,
+        &pg_targets(),
+        expected,
+    )
+    .await;
+    if list.is_empty() {
+        return;
+    }
+    // MAINTAIN only where the server has it (PostgreSQL 17 on).
+    let cfg = cfg(id, env).unwrap();
+    let d = dbine_driver_postgres::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap();
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    let mut out = QueryOutcome::default();
+    s.execute(
+        "SELECT current_setting('server_version_num')::int >= 170000 AS m",
+        1,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    let has = out.results[0].rows[0][0].as_bool() == Some(true)
+        || out.results[0].rows[0][0].as_str() == Some("t");
+    assert_eq!(
+        list.iter().any(|p| p.name == "MAINTAIN"),
+        has,
+        "{id}: {list:?}"
+    );
+}
+
+const PG_EXPECTED: &[(&str, &str)] = &[
+    ("CONNECT", ""),
+    ("TEMPORARY", ""),
+    ("USAGE", "schema"),
+    ("SELECT", "view"),
+    ("TRUNCATE", "materialized_view"),
+    ("TRIGGER", "table"),
+    ("EXECUTE", "procedure"),
+    ("ALL PRIVILEGES", "function"),
+];
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn postgres_privileges() {
+    pg_grantable("postgres", "DBINE_TEST_POSTGRES_URL", PG_SETUP, PG_EXPECTED).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn timescaledb_privileges() {
+    pg_grantable(
+        "timescaledb",
+        "DBINE_TEST_TIMESCALEDB_URL",
+        PG_SETUP,
+        PG_EXPECTED,
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn yugabytedb_privileges() {
+    pg_grantable(
+        "yugabytedb",
+        "DBINE_TEST_YUGABYTEDB_URL",
+        PG_SETUP,
+        PG_EXPECTED,
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn greenplum_family_privileges() {
+    pg_grantable(
+        "cloudberry",
+        "DBINE_TEST_CLOUDBERRY_URL",
+        PG_SETUP,
+        PG_EXPECTED,
+    )
+    .await;
+    pg_grantable(
+        "greengage",
+        "DBINE_TEST_GREENGAGE_URL",
+        PG_SETUP,
+        PG_EXPECTED,
+    )
+    .await;
+}
+
+/// openGauss: its DDL privileges (ALTER, DROP, COMMENT, INDEX, VACUUM) on
+/// top of `acldefault`'s.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn opengauss_privileges() {
+    let mut setup = PG_SETUP[..5].to_vec();
+    setup.push("CREATE PROCEDURE dbine_priv.p() AS BEGIN NULL; END");
+    let mut expected = PG_EXPECTED.to_vec();
+    expected.extend([
+        ("VACUUM", "table"),
+        ("INDEX", "materialized_view"),
+        ("COMMENT", ""),
+        ("ALTER", "schema"),
+        ("DROP", "procedure"),
+    ]);
+    pg_grantable("opengauss", "DBINE_TEST_OPENGAUSS_URL", &setup, &expected).await;
+}
+
+/// CockroachDB: `acldefault`'s plus its own; no database-wide grants.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cockroachdb_privileges() {
+    let mut targets = pg_targets();
+    targets.remove(0);
+    let list = grantable(
+        "cockroachdb",
+        "DBINE_TEST_COCKROACH_URL",
+        SecurityAction::CreateRole {
+            name: "dbine_priv_r".into(),
+        },
+        PG_CLEANUP,
+        PG_SETUP,
+        &targets,
+        &[
+            ("SELECT", "materialized_view"),
+            ("CREATE", "table"),
+            ("USAGE", "schema"),
+            ("EXECUTE", "function"),
+            ("BACKUP", "table"),
+            ("CHANGEFEED", "view"),
+            ("DROP", "table"),
+            ("ZONECONFIG", "table"),
+            ("ALL", "procedure"),
+        ],
+    )
+    .await;
+    assert!(list.iter().all(|p| p.name != "CONNECT"), "{list:?}");
+}
+
+/// Materialize: the documented list; "" is SYSTEM.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn materialize_privileges() {
+    grantable(
+        "materialize",
+        "DBINE_TEST_MATERIALIZE_URL",
+        SecurityAction::CreateRole {
+            name: "dbine_priv_r".into(),
+        },
+        PG_CLEANUP,
+        &PG_SETUP[..4],
+        &pg_targets()[..5],
+        &[
+            ("CREATECLUSTER", ""),
+            ("CREATENETWORKPOLICY", ""),
+            ("CREATE", "schema"),
+            ("INSERT", "table"),
+            ("SELECT", "source"),
+            ("ALL PRIVILEGES", ""),
+        ],
+    )
+    .await;
+}
+
+/// RisingWave: the documented list; databases by name.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn risingwave_privileges() {
+    let db = cfg("risingwave", "DBINE_TEST_RISINGWAVE_URL").map(|c| c.database);
+    let Some(db) = db else {
+        return;
+    };
+    grantable(
+        "risingwave",
+        "DBINE_TEST_RISINGWAVE_URL",
+        SecurityAction::CreateUser {
+            name: "dbine_priv_r".into(),
+            password: None,
+        },
+        &[
+            "DROP SCHEMA IF EXISTS dbine_priv CASCADE",
+            "DROP USER IF EXISTS dbine_priv_r",
+        ],
+        &[
+            "CREATE SCHEMA dbine_priv",
+            "CREATE TABLE dbine_priv.t (id int)",
+            "CREATE VIEW dbine_priv.v AS SELECT id FROM dbine_priv.t",
+            "CREATE MATERIALIZED VIEW dbine_priv.mv AS SELECT id FROM dbine_priv.t",
+            "CREATE SOURCE dbine_priv.src (id int) WITH (connector = 'datagen', datagen.rows.per.second = '1') FORMAT PLAIN ENCODE JSON",
+            "CREATE SINK dbine_priv.k FROM dbine_priv.t WITH (connector = 'blackhole')",
+        ],
+        &[
+            obj("database", None, &db),
+            obj("schema", None, "dbine_priv"),
+            obj("table", Some("dbine_priv"), "t"),
+            obj("view", Some("dbine_priv"), "v"),
+            obj("materialized_view", Some("dbine_priv"), "mv"),
+            obj("source", Some("dbine_priv"), "src"),
+            obj("sink", Some("dbine_priv"), "k"),
+        ],
+        &[
+            ("CONNECT", "database"),
+            ("USAGE", "schema"),
+            ("DELETE", "view"),
+            ("SELECT", "sink"),
+            ("ALL PRIVILEGES", "source"),
+        ],
+    )
+    .await;
+}
+
+/// CrateDB (`DBINE_TEST_CRATEDB_URL=postgres://crate@localhost:25021/doc`):
+/// "" is the cluster, where AL goes.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cratedb_privileges() {
+    grantable(
+        "cratedb",
+        "DBINE_TEST_CRATEDB_URL",
+        SecurityAction::CreateRole {
+            name: "dbine_priv_r".into(),
+        },
+        &[
+            "DROP VIEW IF EXISTS dbine_priv.v",
+            "DROP TABLE IF EXISTS dbine_priv.t",
+            "DROP ROLE IF EXISTS dbine_priv_r",
+        ],
+        &[
+            "CREATE TABLE dbine_priv.t (id int)",
+            "CREATE VIEW dbine_priv.v AS SELECT id FROM dbine_priv.t",
+        ],
+        &[
+            here(),
+            obj("schema", None, "dbine_priv"),
+            obj("table", Some("dbine_priv"), "t"),
+            obj("view", Some("dbine_priv"), "v"),
+        ],
+        &[
+            ("AL", ""),
+            ("DQL", "view"),
+            ("DDL", "schema"),
+            ("ALL PRIVILEGES", "table"),
+        ],
+    )
+    .await;
+}
+
+/// H2: the documented rights; ADMIN and ALTER ANY SCHEMA on the database.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn h2_privileges() {
+    grantable(
+        "h2",
+        "DBINE_TEST_H2_URL",
+        SecurityAction::CreateUser {
+            name: "dbine_priv_r".into(),
+            password: Some("Pw_12345".into()),
+        },
+        &[
+            "DROP SCHEMA IF EXISTS dbine_priv CASCADE",
+            "DROP USER IF EXISTS dbine_priv_r",
+        ],
+        &[
+            "CREATE SCHEMA dbine_priv",
+            "CREATE TABLE dbine_priv.t (id int)",
+            "CREATE VIEW dbine_priv.v AS SELECT id FROM dbine_priv.t",
+        ],
+        &[
+            here(),
+            obj("schema", None, "dbine_priv"),
+            obj("table", Some("dbine_priv"), "t"),
+            obj("view", Some("dbine_priv"), "v"),
+        ],
+        &[
+            ("ADMIN", ""),
+            ("ALTER ANY SCHEMA", ""),
+            ("SELECT", "view"),
+            ("ALL PRIVILEGES", "schema"),
+        ],
+    )
+    .await;
 }

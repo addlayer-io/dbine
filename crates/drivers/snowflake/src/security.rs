@@ -15,7 +15,7 @@
 use crate::SnowflakeSession;
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, QueryOutcome, Result, SchemaSpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, QueryOutcome, Result, SchemaSpec,
     SecurityAction, SecuritySpec,
 };
 use serde_json::Value as Json;
@@ -64,6 +64,249 @@ pub fn spec() -> SecuritySpec {
         membership: true,
         per_database: false,
     }
+}
+
+// -- what GRANT takes ----------------------------------------------------------
+
+/// The privileges GRANT takes on each kind of the spec, as "Access control
+/// privileges" lists them
+/// (https://docs.snowflake.com/en/user-guide/security-access-control-privileges):
+/// Snowflake has no catalog of them. Left out: OWNERSHIP (it's handed over
+/// with `GRANT OWNERSHIP … COPY | REVOKE CURRENT GRANTS`, alone, and never
+/// revoked), the deprecated ones, REFERENCE_USAGE (only to a share) and
+/// `USE AI FUNCTION <name>` (a name goes in it).
+const ON_ACCOUNT: &[&str] = &[
+    "APPLY AGGREGATION POLICY",
+    "APPLY AUTHENTICATION POLICY",
+    "APPLY BACKUP RETENTION LOCK",
+    "APPLY CONTACT",
+    "APPLY DATA MOVEMENT POLICY",
+    "APPLY FEATURE POLICY",
+    "APPLY JOIN POLICY",
+    "APPLY MAINTENANCE POLICY",
+    "APPLY MASKING POLICY",
+    "APPLY ROW ACCESS POLICY",
+    "APPLY PACKAGES POLICY",
+    "APPLY PASSWORD POLICY",
+    "APPLY PRIVACY POLICY",
+    "APPLY PROJECTION POLICY",
+    "APPLY SESSION POLICY",
+    "APPLY STORAGE LIFECYCLE POLICY",
+    "APPLY TAG",
+    "ATTACH POLICY",
+    "AUDIT",
+    "BIND SERVICE ENDPOINT",
+    "CANCEL QUERY",
+    "CREATE AGENT",
+    "CREATE ACCOUNT",
+    "CREATE APPLICATION",
+    "CREATE APPLICATION PACKAGE",
+    "CREATE PREVIEW APPLICATION",
+    "CREATE COMPUTE POOL",
+    "CREATE DATABASE",
+    "CREATE DATA CONNECTIVITY PROXY",
+    "CREATE EXTERNAL VOLUME",
+    "CREATE EXTERNAL ACCESS INTEGRATION",
+    "CREATE FEATURE POLICY",
+    "CREATE FAILOVER GROUP",
+    "CREATE GATEWAY",
+    "CREATE REPLICATION GROUP",
+    "CREATE ROLE",
+    "CREATE USER",
+    "CREATE LISTING",
+    "CREATE INTEGRATION",
+    "CREATE NOTIFICATION INTEGRATION",
+    "CREATE STORAGE INTEGRATION",
+    "CREATE NETWORK POLICY",
+    "CREATE ORGANIZATION LISTING",
+    "CREATE ORGANIZATION PROFILE",
+    "CREATE ORGANIZATION USER",
+    "CREATE ORGANIZATION USER GROUP",
+    "CREATE SECURITY INTEGRATION",
+    "CREATE SHARE",
+    "CREATE WAREHOUSE",
+    "EXECUTE ALERT",
+    "EXECUTE AUTO CLASSIFICATION",
+    "EXECUTE DATA METRIC FUNCTION",
+    "EXECUTE MANAGED ALERT",
+    "EXECUTE MANAGED TASK",
+    "EXECUTE TASK",
+    "IMPORT SHARE",
+    "IMPORT ORGANIZATION LISTING",
+    "IMPORT ORGANIZATION USER GROUPS",
+    "MANAGE ACCOUNTS",
+    "MANAGE ACCOUNT SUPPORT CASES",
+    "MANAGE APPLICATION SPECIFICATIONS",
+    "MANAGE CALLER GRANTS",
+    "MANAGE CORTEX EXTENSION SECURITY SCAN",
+    "MANAGE GRANTS",
+    "MANAGE LISTING AUTO FULFILLMENT",
+    "MANAGE METADATA CONNECTORS",
+    "MANAGE ORGANIZATION ACCESS",
+    "MANAGE ORGANIZATION CONTACTS",
+    "MANAGE ORGANIZATION SUPPORT CASES",
+    "MANAGE ORGANIZATION TERMS",
+    "MANAGE ORGANIZATION USERS",
+    "MANAGE ORGANIZATION USER GROUPS",
+    "MANAGE SERVICE CALLER ACCESS",
+    "MANAGE SHARE TARGET",
+    "MANAGE USER SUPPORT CASES",
+    "MANAGE WAREHOUSES",
+    "MODIFY EVENT TABLE",
+    "MODIFY LOG EVENT LEVEL",
+    "MODIFY LOG LEVEL",
+    "MODIFY METRIC LEVEL",
+    "MODIFY SESSION LOG EVENT LEVEL",
+    "MODIFY SESSION LOG LEVEL",
+    "MODIFY SESSION METRIC LEVEL",
+    "MODIFY TRACE LEVEL",
+    "MODIFY SESSION TRACE LEVEL",
+    "MONITOR CORTEX EXTENSIONS",
+    "MONITOR EXECUTION",
+    "MONITOR",
+    "MONITOR ROLE",
+    "MONITOR SECURITY",
+    "MONITOR USAGE",
+    "MONITOR USER",
+    "OVERRIDE SHARE RESTRICTIONS",
+    "PURCHASE DATA EXCHANGE LISTING",
+    "READ SESSION",
+    "READ UNREDACTED AI OBSERVABILITY EVENTS TABLE",
+    "READ UNREDACTED ERROR TABLE",
+    "REPLICATE",
+    "RESOLVE ALL",
+    "USE AI FUNCTIONS",
+    "VIEW LINEAGE",
+    "ALL PRIVILEGES",
+];
+
+const ON_DATABASE: &[&str] = &[
+    "APPLYBUDGET",
+    "MANAGE GRANTS",
+    "MODIFY",
+    "MONITOR",
+    "USAGE",
+    "CREATE DATABASE ROLE",
+    "CREATE SCHEMA",
+    "EXECUTE AUTO CLASSIFICATION",
+    "IMPORTED PRIVILEGES",
+    "ALL PRIVILEGES",
+];
+
+const ON_SCHEMA: &[&str] = &[
+    "APPLYBUDGET",
+    "MANAGE GRANTS",
+    "MODIFY",
+    "MONITOR",
+    "USAGE",
+    "CREATE AGENT",
+    "CREATE APPLICATION SERVICE",
+    "CREATE ARTIFACT REPOSITORY",
+    "CREATE AUTHENTICATION POLICY",
+    "CREATE BACKUP POLICY",
+    "CREATE BACKUP SET",
+    "CREATE CONTACT",
+    "CREATE DATASET",
+    "CREATE DATA METRIC FUNCTION",
+    "CREATE DATA MOVEMENT POLICY",
+    "CREATE DATA MOVEMENT RULE",
+    "CREATE DBT PROJECT",
+    "CREATE DCM PROJECT",
+    "CREATE EXPERIMENT",
+    "CREATE TABLE",
+    "CREATE DYNAMIC TABLE",
+    "CREATE EVENT TABLE",
+    "CREATE EXTERNAL TABLE",
+    "CREATE GIT REPOSITORY",
+    "CREATE HYBRID TABLE",
+    "CREATE ICEBERG TABLE",
+    "CREATE INTERACTIVE TABLE",
+    "CREATE VIEW",
+    "CREATE MAINTENANCE POLICY",
+    "CREATE MASKING POLICY",
+    "CREATE MATERIALIZED VIEW",
+    "CREATE MCP SERVER",
+    "CREATE METADATA CONNECTOR",
+    "CREATE NETWORK RULE",
+    "CREATE NOTEBOOK",
+    "CREATE ONLINE FEATURE TABLE",
+    "CREATE RESTRICTED SESSION SCOPE",
+    "CREATE ROW ACCESS POLICY",
+    "CREATE SECRET",
+    "CREATE SEMANTIC VIEW",
+    "CREATE SESSION POLICY",
+    "CREATE STAGE",
+    "CREATE STORAGE LIFECYCLE POLICY",
+    "CREATE STREAMLIT",
+    "CREATE FILE FORMAT",
+    "CREATE TYPE",
+    "CREATE SEQUENCE",
+    "CREATE FUNCTION",
+    "CREATE PACKAGES POLICY",
+    "CREATE PASSWORD POLICY",
+    "CREATE PIPE",
+    "CREATE VARIABLE",
+    "CREATE STREAM",
+    "CREATE TAG",
+    "CREATE TASK",
+    "CREATE PROCEDURE",
+    "CREATE ALERT",
+    "CREATE CORTEX SEARCH SERVICE",
+    "CREATE SNOWFLAKE.CORE.BUDGET",
+    "CREATE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE",
+    "CREATE SNOWFLAKE.DATA_PRIVACY.CUSTOM_CLASSIFIER",
+    "CREATE SNOWFLAKE.ML.ANOMALY_DETECTION",
+    "CREATE SNOWFLAKE.ML.CLASSIFICATION",
+    "CREATE SNOWFLAKE.ML.FORECAST",
+    "CREATE SNOWFLAKE.ML.TOP_INSIGHTS",
+    "CREATE MODEL",
+    "CREATE MODEL MONITOR",
+    "CREATE IMAGE REPOSITORY",
+    "CREATE SERVICE",
+    "CREATE SNAPSHOT",
+    "CREATE WORKSPACE",
+    "EXECUTE AUTO CLASSIFICATION",
+    "ADD SEARCH OPTIMIZATION",
+    "ALL PRIVILEGES",
+];
+
+const ON_TABLE: &[&str] = &[
+    "SELECT",
+    "SELECT ERROR TABLE",
+    "INSERT",
+    "UPDATE",
+    "TRUNCATE",
+    "DELETE",
+    "EVOLVE SCHEMA",
+    "REFERENCES",
+    "APPLYBUDGET",
+    "ALL PRIVILEGES",
+];
+
+const ON_VIEW: &[&str] = &["SELECT", "REFERENCES", "ALL PRIVILEGES"];
+
+const ON_MATERIALIZED_VIEW: &[&str] = &["SELECT", "REFERENCES", "APPLYBUDGET", "ALL PRIVILEGES"];
+
+/// `Session::privileges`: the tables above, each privilege once with every
+/// kind it goes on.
+pub fn privileges() -> Vec<Privilege> {
+    let mut out: Vec<Privilege> = Vec::new();
+    for (kind, names) in [
+        ("", ON_ACCOUNT),
+        ("database", ON_DATABASE),
+        ("schema", ON_SCHEMA),
+        ("table", ON_TABLE),
+        ("view", ON_VIEW),
+        ("materialized_view", ON_MATERIALIZED_VIEW),
+    ] {
+        for name in names {
+            match out.iter_mut().find(|p| p.name == *name) {
+                Some(p) => p.on.push(kind.to_string()),
+                None => out.push(Privilege::new(*name, &[kind])),
+            }
+        }
+    }
+    out
 }
 
 /// Roles every account has.
@@ -441,8 +684,9 @@ fn on(object: &Option<ObjectRef>) -> Result<String> {
     })
 }
 
-/// Privilege names: letters, spaces and underscores.
-fn privileges(p: &[String]) -> Result<String> {
+/// Privilege names: letters, spaces, underscores and the dots of a class's
+/// name (`CREATE SNOWFLAKE.ML.FORECAST`).
+fn privilege_list(p: &[String]) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
     }
@@ -452,7 +696,7 @@ fn privileges(p: &[String]) -> Result<String> {
         if name.is_empty()
             || !name
                 .chars()
-                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_' || c == '.')
         {
             return Err(Error::Query(format!("«{x}» no es un permiso de Snowflake")));
         }
@@ -547,7 +791,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             grantable,
         } => format!(
             "{TO_ROLES}\nGRANT {} ON {} TO ROLE {}{};",
-            privileges(p)?,
+            privilege_list(p)?,
             on(object)?,
             q(to),
             if *grantable { " WITH GRANT OPTION" } else { "" }
@@ -559,7 +803,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
         } => {
             format!(
                 "REVOKE {} ON {} FROM ROLE {};",
-                privileges(p)?,
+                privilege_list(p)?,
                 on(object)?,
                 q(from)
             )
@@ -885,6 +1129,65 @@ mod tests {
             ("assigned_to_users", "0"),
             ("granted_to_roles", "0")
         ])));
+    }
+
+    #[test]
+    fn lists_what_grant_takes() {
+        let all = privileges();
+        let kinds = spec().object_kinds;
+        let mut names = HashSet::new();
+        for p in &all {
+            assert!(names.insert(p.name.as_str()), "{} twice", p.name);
+            assert!(!p.on.is_empty(), "{}", p.name);
+            // Each one, on each of its kinds, makes a valid GRANT.
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = match k.as_str() {
+                    "" => None,
+                    "database" | "schema" => obj(k, None, "X"),
+                    _ => obj(k, Some("S"), "X"),
+                };
+                let g = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "R".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(g.contains(&format!("GRANT {} ON ", p.name)), "{g}");
+            }
+        }
+        let on = |n: &str| {
+            all.iter()
+                .find(|p| p.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .on
+                .clone()
+        };
+        assert_eq!(on("CREATE DATABASE"), [""]);
+        assert_eq!(on("USAGE"), ["database", "schema"]);
+        assert_eq!(on("SELECT"), ["table", "view", "materialized_view"]);
+        assert_eq!(on("MANAGE GRANTS"), ["", "database", "schema"]);
+        assert_eq!(
+            on("ALL PRIVILEGES"),
+            [
+                "",
+                "database",
+                "schema",
+                "table",
+                "view",
+                "materialized_view"
+            ]
+        );
+        assert_eq!(on("CREATE SNOWFLAKE.ML.FORECAST"), ["schema"]);
+        assert!(!all.iter().any(|p| p.name == "OWNERSHIP"));
+        // The spec's fixed list is in there but OPERATE (warehouses, tasks,
+        // dynamic tables…: none of the spec's kinds); IMPORTED PRIVILEGES
+        // goes on a (shared) database.
+        for p in spec().privileges {
+            assert!(p == "OPERATE" || all.iter().any(|x| x.name == p), "{p}");
+        }
+        assert_eq!(on("IMPORTED PRIVILEGES"), ["database"]);
     }
 
     #[test]

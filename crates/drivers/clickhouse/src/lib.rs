@@ -1467,6 +1467,10 @@ impl Session for ClickHouseSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges_of(self).await)
+    }
+
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         self.backup_history(database).await
     }

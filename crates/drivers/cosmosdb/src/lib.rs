@@ -1573,6 +1573,10 @@ impl Session for CosmosSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges())
+    }
+
     /// Cosmos DB is a stateless HTTP API: no sessions or running requests.
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
         Err(Error::Unsupported("Azure Cosmos DB es un servicio HTTP sin estado: no expone sesiones ni consultas en curso que listar o cancelar".into()))

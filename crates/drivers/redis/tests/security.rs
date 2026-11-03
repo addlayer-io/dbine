@@ -209,3 +209,85 @@ async fn dragonfly_acl() {
         acl("dragonfly", &url).await;
     }
 }
+
+/// What the server can grant (`ACL CAT`, `COMMAND LIST`), and the server
+/// takes every category rule and a few commands as listed.
+async fn listed(driver: &str, url: &str) {
+    let d = dbine_driver_redis::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap();
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d
+        .connect(&cfg(driver, url, None, None), None)
+        .await
+        .unwrap();
+    let list = s.privileges().await.unwrap();
+    eprintln!("{driver}: {} privileges", list.len());
+    for p in &list {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+    }
+    let has = |n: &str| list.iter().any(|p| p.name == n);
+    for n in [
+        "+@all",
+        "+@read",
+        "-@dangerous",
+        "~",
+        "%R~",
+        "&",
+        "+get",
+        "-flushall",
+    ] {
+        assert!(has(n), "{driver}: {n} in {list:?}");
+    }
+    assert!(list
+        .iter()
+        .any(|p| p.name == "~" && p.on.iter().any(|k| k == "key")));
+
+    let _ = s
+        .execute("ACL DELUSER dbine_priv", 10, &mut QueryOutcome::default())
+        .await;
+    let rules: Vec<String> = list
+        .iter()
+        .filter(|p| p.name.starts_with("+@") || p.name.starts_with("-@"))
+        .map(|p| p.name.clone())
+        .chain(["+get".into(), "-flushall".into(), "allkeys".into()])
+        .collect();
+    let script = d
+        .security_script(&SecurityAction::Grant {
+            privileges: rules,
+            object: None,
+            to: "dbine_priv".into(),
+            grantable: false,
+        })
+        .unwrap();
+    run(&mut s, &script).await;
+    run(&mut s, "ACL DELUSER dbine_priv").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn redis_privileges() {
+    if let Ok(url) = std::env::var("DBINE_TEST_REDIS_URL") {
+        listed("redis", &url).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn valkey_privileges() {
+    if let Ok(url) = std::env::var("DBINE_TEST_VALKEY_URL") {
+        listed("valkey", &url).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn dragonfly_privileges() {
+    if let Ok(url) = std::env::var("DBINE_TEST_DRAGONFLY_URL") {
+        listed("dragonfly", &url).await;
+    }
+}

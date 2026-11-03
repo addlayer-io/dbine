@@ -10,7 +10,8 @@
 use crate::monitor::txt;
 use crate::{cell, err, quote as q, schema_name};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use oracledb::{Connection, ToDbValue};
 use serde_json::Value;
@@ -320,6 +321,449 @@ pub fn grants(c: &Connection, principal: &str) -> Result<Vec<Grant>> {
     Ok(out)
 }
 
+// -- what can be granted ---------------------------------------------------
+
+const SYSTEM_PRIVILEGE_MAP: &str = "SELECT name FROM system_privilege_map ORDER BY name";
+const TABLE_PRIVILEGE_MAP: &str = "SELECT name FROM table_privilege_map";
+
+const TABLES: &[&str] = &["table", "view", "materialized_view"];
+
+/// The object privileges of TABLE_PRIVILEGE_MAP and the spec's kinds GRANT
+/// takes them on (the map doesn't say), in the order the tab offers them:
+/// "Object Privileges" in
+/// https://docs.oracle.com/en/database/oracle/oracle-database/23/sqlrf/GRANT.html,
+/// checked one by one on 23ai. Granting on a materialized view grants on
+/// its table. INDEX, REFERENCES, ASSERTION REFERENCES and NOTIFICATION
+/// DIRECTIVE go to users only, not to roles.
+const OBJECT_PRIVILEGES: &[(&str, &[&str])] = &[
+    (
+        "SELECT",
+        &["table", "view", "materialized_view", "sequence"],
+    ),
+    ("INSERT", TABLES),
+    ("UPDATE", TABLES),
+    ("DELETE", TABLES),
+    ("READ", TABLES),
+    ("EXECUTE", &["procedure", "function", "package"]),
+    ("REFERENCES", TABLES),
+    ("ALTER", &["table", "materialized_view", "sequence"]),
+    ("INDEX", &["table", "materialized_view"]),
+    (
+        "DEBUG",
+        &[
+            "table",
+            "view",
+            "materialized_view",
+            "procedure",
+            "function",
+            "package",
+        ],
+    ),
+    ("FLASHBACK", TABLES),
+    ("ON COMMIT REFRESH", TABLES),
+    ("QUERY REWRITE", TABLES),
+    ("MERGE VIEW", &["view"]),
+    // Object views (and types).
+    ("UNDER", &["view"]),
+    ("KEEP SEQUENCE", &["sequence"]),
+    // Blockchain and immutable tables.
+    ("SIGN", &["table"]),
+    ("ASSERTION REFERENCES", &["table", "materialized_view"]),
+    ("NOTIFICATION DIRECTIVE", TABLES),
+    ("VALIDATION DIRECTIVE", TABLES),
+    // On kinds the tab doesn't offer: directories (WRITE), editions and SQL
+    // translation profiles (USE), flashback archives. 23ai takes COLLECT
+    // DEBUG INFO on none of the spec's kinds.
+    ("WRITE", &[]),
+    ("USE", &[]),
+    ("FLASHBACK ARCHIVE", &[]),
+    ("COLLECT DEBUG INFO", &[]),
+    // Not with GRANT (ORA-00990): queues go through DBMS_AQADM; the rest are
+    // the map's old entries.
+    ("ENQUEUE", &[]),
+    ("DEQUEUE", &[]),
+    ("AUDIT", &[]),
+    ("COMMENT", &[]),
+    ("GRANT", &[]),
+    ("LOCK", &[]),
+    ("RENAME", &[]),
+    ("CREATE", &[]),
+];
+
+/// SYSRAC is in the map, but GRANT refuses it (ORA-28190: it's for the
+/// clusterware agent).
+const NOT_GRANTABLE: &[&str] = &["SYSRAC"];
+
+/// System and administrative privileges, granted without an object, for when
+/// SYSTEM_PRIVILEGE_MAP can't be read: Oracle 23ai's (the "System
+/// Privileges" and "Administrative Privileges" tables of GRANT, linked
+/// above).
+const SYSTEM_PRIVILEGES: &str = "\
+ADMINISTER ANY DATA GRANT
+ADMINISTER ANY SQL TUNING SET
+ADMINISTER DATABASE TRIGGER
+ADMINISTER FINE GRAINED AUDIT POLICY
+ADMINISTER KEY MANAGEMENT
+ADMINISTER REDACTION POLICY
+ADMINISTER RESOURCE MANAGER
+ADMINISTER ROW LEVEL SECURITY POLICY
+ADMINISTER SQL FIREWALL
+ADMINISTER SQL MANAGEMENT OBJECT
+ADMINISTER SQL TUNING SET
+ADVISOR
+ALTER ANY ANALYTIC VIEW
+ALTER ANY ASSEMBLY
+ALTER ANY ASSERTION
+ALTER ANY ATTRIBUTE DIMENSION
+ALTER ANY CLUSTER
+ALTER ANY CUBE
+ALTER ANY CUBE BUILD PROCESS
+ALTER ANY CUBE DIMENSION
+ALTER ANY DIMENSION
+ALTER ANY DOMAIN
+ALTER ANY EDITION
+ALTER ANY EVALUATION CONTEXT
+ALTER ANY HIERARCHY
+ALTER ANY INDEX
+ALTER ANY INDEXTYPE
+ALTER ANY LIBRARY
+ALTER ANY MATERIALIZED VIEW
+ALTER ANY MEASURE FOLDER
+ALTER ANY MINING MODEL
+ALTER ANY MLE
+ALTER ANY NOTIFICATION DIRECTIVE
+ALTER ANY OPERATOR
+ALTER ANY OUTLINE
+ALTER ANY PROCEDURE
+ALTER ANY PROPERTY GRAPH
+ALTER ANY ROLE
+ALTER ANY RULE
+ALTER ANY RULE SET
+ALTER ANY SEQUENCE
+ALTER ANY SQL PROFILE
+ALTER ANY SQL TRANSLATION PROFILE
+ALTER ANY TABLE
+ALTER ANY TRIGGER
+ALTER ANY TYPE
+ALTER ANY VALIDATION DIRECTIVE
+ALTER DATABASE
+ALTER DATABASE LINK
+ALTER END USER
+ALTER LOCKDOWN PROFILE
+ALTER PROFILE
+ALTER PUBLIC DATABASE LINK
+ALTER RESOURCE COST
+ALTER ROLLBACK SEGMENT
+ALTER SESSION
+ALTER SYSTEM
+ALTER TABLESPACE
+ALTER USER
+ANALYZE ANY
+ANALYZE ANY DICTIONARY
+AUDIT ANY
+AUDIT SYSTEM
+BACKUP ANY TABLE
+BECOME USER
+CHANGE NOTIFICATION
+CLEAR ALL LOCAL CONTEXTS
+COMMENT ANY MINING MODEL
+COMMENT ANY PROPERTY GRAPH
+COMMENT ANY TABLE
+CREATE ANALYTIC VIEW
+CREATE ANY ANALYTIC VIEW
+CREATE ANY ASSEMBLY
+CREATE ANY ASSERTION
+CREATE ANY ATTRIBUTE DIMENSION
+CREATE ANY CLUSTER
+CREATE ANY CONTEXT
+CREATE ANY CREDENTIAL
+CREATE ANY CUBE
+CREATE ANY CUBE BUILD PROCESS
+CREATE ANY CUBE DIMENSION
+CREATE ANY DATA GRANT
+CREATE ANY DATA PRIVILEGE
+CREATE ANY DIMENSION
+CREATE ANY DIRECTORY
+CREATE ANY DOMAIN
+CREATE ANY EDITION
+CREATE ANY END USER CONTEXT
+CREATE ANY EVALUATION CONTEXT
+CREATE ANY HIERARCHY
+CREATE ANY INDEX
+CREATE ANY INDEXTYPE
+CREATE ANY JOB
+CREATE ANY LIBRARY
+CREATE ANY MATERIALIZED VIEW
+CREATE ANY MEASURE FOLDER
+CREATE ANY MINING MODEL
+CREATE ANY MLE
+CREATE ANY NOTIFICATION DIRECTIVE
+CREATE ANY OPERATOR
+CREATE ANY OUTLINE
+CREATE ANY PROCEDURE
+CREATE ANY PROPERTY GRAPH
+CREATE ANY RULE
+CREATE ANY RULE SET
+CREATE ANY SEQUENCE
+CREATE ANY SQL PROFILE
+CREATE ANY SQL TRANSLATION PROFILE
+CREATE ANY SYNONYM
+CREATE ANY TABLE
+CREATE ANY TRIGGER
+CREATE ANY TYPE
+CREATE ANY VALIDATION DIRECTIVE
+CREATE ANY VIEW
+CREATE APPLICATION IDENTITY
+CREATE ASSEMBLY
+CREATE ASSERTION
+CREATE ATTRIBUTE DIMENSION
+CREATE CLUSTER
+CREATE CREDENTIAL
+CREATE CUBE
+CREATE CUBE BUILD PROCESS
+CREATE CUBE DIMENSION
+CREATE DATA GRANT
+CREATE DATA PRIVILEGE
+CREATE DATA ROLE
+CREATE DATABASE LINK
+CREATE DIMENSION
+CREATE DOMAIN
+CREATE END USER
+CREATE END USER CONTEXT
+CREATE END USER SECURITY CONTEXT
+CREATE EVALUATION CONTEXT
+CREATE EXTERNAL JOB
+CREATE HIERARCHY
+CREATE INDEXTYPE
+CREATE JOB
+CREATE LIBRARY
+CREATE LOCKDOWN PROFILE
+CREATE LOGICAL PARTITION TRACKING
+CREATE MATERIALIZED VIEW
+CREATE MEASURE FOLDER
+CREATE MINING MODEL
+CREATE MLE
+CREATE NOTIFICATION DIRECTIVE
+CREATE OPERATOR
+CREATE PLUGGABLE DATABASE
+CREATE PROCEDURE
+CREATE PROFILE
+CREATE PROPERTY GRAPH
+CREATE PUBLIC DATABASE LINK
+CREATE PUBLIC SYNONYM
+CREATE ROLE
+CREATE ROLLBACK SEGMENT
+CREATE RULE
+CREATE RULE SET
+CREATE SEQUENCE
+CREATE SESSION
+CREATE SQL TRANSLATION PROFILE
+CREATE SYNONYM
+CREATE TABLE
+CREATE TABLESPACE
+CREATE TRIGGER
+CREATE TRUE CACHE
+CREATE TYPE
+CREATE USER
+CREATE VIEW
+DEBUG ANY PROCEDURE
+DEBUG CONNECT ANY
+DEBUG CONNECT SESSION
+DELETE ANY CUBE DIMENSION
+DELETE ANY MEASURE FOLDER
+DELETE ANY TABLE
+DEQUEUE ANY QUEUE
+DROP ANY ANALYTIC VIEW
+DROP ANY ASSEMBLY
+DROP ANY ASSERTION
+DROP ANY ATTRIBUTE DIMENSION
+DROP ANY CLUSTER
+DROP ANY CONTEXT
+DROP ANY CUBE
+DROP ANY CUBE BUILD PROCESS
+DROP ANY CUBE DIMENSION
+DROP ANY DATA GRANT
+DROP ANY DATA PRIVILEGE
+DROP ANY DIMENSION
+DROP ANY DIRECTORY
+DROP ANY DOMAIN
+DROP ANY EDITION
+DROP ANY END USER CONTEXT
+DROP ANY EVALUATION CONTEXT
+DROP ANY HIERARCHY
+DROP ANY INDEX
+DROP ANY INDEXTYPE
+DROP ANY LIBRARY
+DROP ANY MATERIALIZED VIEW
+DROP ANY MEASURE FOLDER
+DROP ANY MINING MODEL
+DROP ANY MLE
+DROP ANY NOTIFICATION DIRECTIVE
+DROP ANY OPERATOR
+DROP ANY OUTLINE
+DROP ANY PROCEDURE
+DROP ANY PROPERTY GRAPH
+DROP ANY ROLE
+DROP ANY RULE
+DROP ANY RULE SET
+DROP ANY SEQUENCE
+DROP ANY SQL PROFILE
+DROP ANY SQL TRANSLATION PROFILE
+DROP ANY SYNONYM
+DROP ANY TABLE
+DROP ANY TRIGGER
+DROP ANY TYPE
+DROP ANY VALIDATION DIRECTIVE
+DROP ANY VIEW
+DROP APPLICATION IDENTITY
+DROP DATA ROLE
+DROP END USER
+DROP LOCKDOWN PROFILE
+DROP LOGICAL PARTITION TRACKING
+DROP PROFILE
+DROP PUBLIC DATABASE LINK
+DROP PUBLIC SYNONYM
+DROP ROLLBACK SEGMENT
+DROP TABLESPACE
+DROP USER
+ENABLE DIAGNOSTICS
+ENQUEUE ANY QUEUE
+EXECUTE ANY ASSEMBLY
+EXECUTE ANY CLASS
+EXECUTE ANY DOMAIN
+EXECUTE ANY EVALUATION CONTEXT
+EXECUTE ANY INDEXTYPE
+EXECUTE ANY LIBRARY
+EXECUTE ANY OPERATOR
+EXECUTE ANY PROCEDURE
+EXECUTE ANY PROGRAM
+EXECUTE ANY RULE
+EXECUTE ANY RULE SET
+EXECUTE ANY TYPE
+EXECUTE ASSEMBLY
+EXECUTE DYNAMIC MLE
+EXEMPT ACCESS POLICY
+EXEMPT IDENTITY POLICY
+EXEMPT REDACTION POLICY
+EXPORT FULL DATABASE
+FLASHBACK ANY TABLE
+FLASHBACK ARCHIVE ADMINISTER
+FORCE ANY TRANSACTION
+FORCE TRANSACTION
+GLOBAL QUERY REWRITE
+GRANT ANY DATA ROLE
+GRANT ANY OBJECT PRIVILEGE
+GRANT ANY PRIVILEGE
+GRANT ANY ROLE
+GRANT ANY SCHEMA PRIVILEGE
+IMPORT FULL DATABASE
+INHERIT ANY PRIVILEGES
+INHERIT ANY REMOTE PRIVILEGES
+INSERT ANY CUBE DIMENSION
+INSERT ANY MEASURE FOLDER
+INSERT ANY TABLE
+KEEP DATE TIME
+KEEP SYSGUID
+LOCK ANY TABLE
+LOGMINING
+MANAGE ANY QUEUE
+MANAGE SCHEDULER
+MANAGE TABLESPACE
+MERGE ANY VIEW
+ON COMMIT REFRESH
+PURGE DBA_RECYCLEBIN
+QUERY REWRITE
+READ ANY ANALYTIC VIEW CACHE
+READ ANY PROPERTY GRAPH
+READ ANY TABLE
+REDEFINE ANY TABLE
+RESTRICTED SESSION
+RESUMABLE
+SELECT ANY CUBE
+SELECT ANY CUBE BUILD PROCESS
+SELECT ANY CUBE DIMENSION
+SELECT ANY DICTIONARY
+SELECT ANY END USER CONTEXT
+SELECT ANY MEASURE FOLDER
+SELECT ANY MINING MODEL
+SELECT ANY SEQUENCE
+SELECT ANY TABLE
+SELECT ANY TRANSACTION
+SET CONTAINER
+SET USE DATA GRANTS ONLY
+SYSBACKUP
+SYSDBA
+SYSDG
+SYSKM
+SYSOPER
+TABLE RETENTION
+TEXT DATASTORE ACCESS
+TRANSLATE ANY SQL
+UNDER ANY TABLE
+UNDER ANY TYPE
+UNDER ANY VIEW
+UNLIMITED TABLESPACE
+UPDATE ANY CUBE
+UPDATE ANY CUBE BUILD PROCESS
+UPDATE ANY CUBE DIMENSION
+UPDATE ANY END USER CONTEXT
+UPDATE ANY TABLE
+USE ANY JOB RESOURCE
+USE ANY SQL TRANSLATION PROFILE
+WRITE ANY ANALYTIC VIEW CACHE";
+
+/// The privileges this server can grant: its SYSTEM_PRIVILEGE_MAP and
+/// TABLE_PRIVILEGE_MAP (granted to PUBLIC), so they follow its version; the
+/// 23ai ones if those can't be read.
+pub fn available(c: &Connection) -> Result<Vec<Privilege>> {
+    let names = |sql| -> Option<Vec<String>> {
+        let rows = rows(c, sql, &[]).ok()?;
+        let names: Vec<String> = rows.iter().filter_map(|r| at(r, 0)).collect();
+        (!names.is_empty()).then_some(names)
+    };
+    Ok(
+        match (names(TABLE_PRIVILEGE_MAP), names(SYSTEM_PRIVILEGE_MAP)) {
+            (Some(object), Some(system)) => listed(&object, &system),
+            _ => static_privileges(),
+        },
+    )
+}
+
+/// The catalog's names as privileges: object privileges on their kinds (one
+/// this crate doesn't know on every object kind), system ones on "".
+fn listed(object: &[String], system: &[String]) -> Vec<Privilege> {
+    let mut out: Vec<Privilege> = OBJECT_PRIVILEGES
+        .iter()
+        .filter(|(name, on)| !on.is_empty() && object.iter().any(|o| o == name))
+        .map(|(name, on)| Privilege::new(*name, on))
+        .collect();
+    let kinds: Vec<&str> = spec()
+        .object_kinds
+        .into_iter()
+        .filter(|k| !k.is_empty())
+        .collect();
+    for name in object {
+        if !OBJECT_PRIVILEGES.iter().any(|(n, _)| n == name) && valid(name) {
+            out.push(Privilege::new(name.clone(), &kinds));
+        }
+    }
+    for name in system {
+        if !NOT_GRANTABLE.contains(&name.as_str()) && valid(name) {
+            out.push(Privilege::new(name.clone(), &[""]));
+        }
+    }
+    out
+}
+
+fn static_privileges() -> Vec<Privilege> {
+    OBJECT_PRIVILEGES
+        .iter()
+        .filter(|(_, on)| !on.is_empty())
+        .map(|(name, on)| Privilege::new(*name, on))
+        .chain(SYSTEM_PRIVILEGES.lines().map(|n| Privilege::new(n, &[""])))
+        .collect()
+}
+
 // -- scripts -----------------------------------------------------------------
 
 /// A password as Oracle takes it: a quoted identifier, so it can't have `"`.
@@ -342,9 +786,17 @@ fn on(o: &ObjectRef) -> String {
     }
 }
 
-/// Privilege names: letters, spaces and underscores, optionally with a
-/// column list (`UPDATE (a, b)`). `columns: false` drops the list (Oracle
-/// revokes a column privilege on every column).
+/// A privilege's name: letters, spaces and underscores.
+fn valid(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
+}
+
+/// Privilege names (see [`valid`]), optionally with a column list
+/// (`UPDATE (a, b)`). `columns: false` drops the list (Oracle revokes a
+/// column privilege on every column).
 fn privileges(p: &[String], columns: bool) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
@@ -359,11 +811,7 @@ fn privileges(p: &[String], columns: bool) -> Result<String> {
             ),
             None => (x.trim(), None),
         };
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
-        {
+        if !valid(name) {
             return Err(bad(x));
         }
         let name = name.to_uppercase();
@@ -530,5 +978,93 @@ mod tests {
             grantable: false
         })
         .is_err());
+    }
+
+    /// Every privilege, on each of its kinds, makes a GRANT script.
+    fn grantable(list: &[Privilege]) {
+        let kinds = spec().object_kinds;
+        for p in list {
+            assert!(!p.on.is_empty(), "{}", p.name);
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = (!k.is_empty()).then(|| ObjectRef {
+                    kind: k.clone(),
+                    schema: Some("VENTAS".into()),
+                    name: "OBJ".into(),
+                });
+                let s = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ANA".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(s.starts_with(&format!("GRANT {} ", p.name)), "{s}");
+            }
+        }
+    }
+
+    #[test]
+    fn static_privileges_make_scripts() {
+        let list = static_privileges();
+        assert!(list.len() > 300);
+        grantable(&list);
+        let on = |n: &str| list.iter().find(|p| p.name == n).map(|p| p.on.clone());
+        assert_eq!(on("CREATE SESSION"), Some(vec![String::new()]));
+        assert_eq!(
+            on("EXECUTE"),
+            Some(vec![
+                "procedure".into(),
+                "function".into(),
+                "package".into()
+            ])
+        );
+        assert_eq!(on("SYSRAC"), None);
+        assert_eq!(on("ENQUEUE"), None);
+    }
+
+    #[test]
+    fn maps_the_catalog() {
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let list = listed(
+            &names(&[
+                "UPDATE",
+                "SELECT",
+                "WRITE",
+                "AUDIT",
+                "NEW THING",
+                "BAD;NAME",
+            ]),
+            &names(&["CREATE SESSION", "SYSRAC", "SELECT ANY TABLE"]),
+        );
+        grantable(&list);
+        let got: Vec<(&str, Vec<&str>)> = list
+            .iter()
+            .map(|p| (p.name.as_str(), p.on.iter().map(String::as_str).collect()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    "SELECT",
+                    vec!["table", "view", "materialized_view", "sequence"]
+                ),
+                ("UPDATE", vec!["table", "view", "materialized_view"]),
+                (
+                    "NEW THING",
+                    vec![
+                        "table",
+                        "view",
+                        "materialized_view",
+                        "procedure",
+                        "function",
+                        "package",
+                        "sequence"
+                    ]
+                ),
+                ("CREATE SESSION", vec![""]),
+                ("SELECT ANY TABLE", vec![""]),
+            ]
+        );
     }
 }

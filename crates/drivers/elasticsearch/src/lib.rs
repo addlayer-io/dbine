@@ -1239,6 +1239,10 @@ impl Session for EsSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        security::privileges(self).await
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let mut s = MonitorSnapshot::default();
         s.info.push(("Versión".into(), self.version.clone()));

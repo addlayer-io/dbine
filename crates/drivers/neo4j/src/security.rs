@@ -13,7 +13,8 @@
 
 use crate::{as_text, cypher, strs, Flavor, GraphSession};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::{Map, Value};
 
@@ -514,6 +515,284 @@ async fn memgraph_grants(s: &mut GraphSession, principal: &str) -> Result<Vec<Gr
         .collect())
 }
 
+// -- what can be granted -----------------------------------------------------
+
+/// A row of Neo4j's `SHOW SUPPORTED PRIVILEGES` (5.9+): the action, what it
+/// is narrowed by (`property`, `label`, `procedure`, `username`…), its
+/// target (`graph`, `database`, `dbms`, `all data`…) and, for graph ones,
+/// the elements it can be narrowed to (`nodes`, `relationships`…).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Supported {
+    pub action: String,
+    pub qualifier: Option<String>,
+    pub target: String,
+    pub scope: Vec<String>,
+}
+
+/// Neo4j 5's privileges for a server without `SHOW SUPPORTED PRIVILEGES`
+/// (before 5.9): the reference of
+/// https://neo4j.com/docs/operations-manual/current/authentication-authorization/
+/// (graph read / write, database and DBMS privileges, `LOAD`), as
+/// `(action, qualifier, target, elements)`.
+const NEO4J_DOCUMENTED: &[(&str, &str, &str, &[&str])] = &[
+    ("traverse", "", "graph", &["nodes", "relationships"]),
+    ("read", "property", "graph", &["nodes", "relationships"]),
+    ("match", "property", "graph", &["nodes", "relationships"]),
+    ("write", "", "graph", &[]),
+    ("create", "", "graph", &["nodes", "relationships"]),
+    ("delete", "", "graph", &["nodes", "relationships"]),
+    (
+        "set property",
+        "property",
+        "graph",
+        &["nodes", "relationships"],
+    ),
+    ("merge", "property", "graph", &["nodes", "relationships"]),
+    ("set label", "label", "graph", &[]),
+    ("remove label", "label", "graph", &[]),
+    ("all graph privileges", "", "graph", &[]),
+    ("access", "", "database", &[]),
+    ("start", "", "database", &[]),
+    ("stop", "", "database", &[]),
+    ("index management", "", "database", &[]),
+    ("create indexes", "", "database", &[]),
+    ("drop indexes", "", "database", &[]),
+    ("show indexes", "", "database", &[]),
+    ("constraint management", "", "database", &[]),
+    ("create constraints", "", "database", &[]),
+    ("drop constraints", "", "database", &[]),
+    ("show constraints", "", "database", &[]),
+    ("name management", "", "database", &[]),
+    ("create new node labels", "", "database", &[]),
+    ("create new relationship types", "", "database", &[]),
+    ("create new property names", "", "database", &[]),
+    ("transaction management", "username", "database", &[]),
+    ("show transactions", "username", "database", &[]),
+    ("terminate transactions", "username", "database", &[]),
+    ("all database privileges", "", "database", &[]),
+    ("user management", "", "dbms", &[]),
+    ("create user", "", "dbms", &[]),
+    ("rename user", "", "dbms", &[]),
+    ("alter user", "", "dbms", &[]),
+    ("set password", "", "dbms", &[]),
+    ("set auth", "", "dbms", &[]),
+    ("set user status", "", "dbms", &[]),
+    ("set user home database", "", "dbms", &[]),
+    ("drop user", "", "dbms", &[]),
+    ("show user", "", "dbms", &[]),
+    ("role management", "", "dbms", &[]),
+    ("create role", "", "dbms", &[]),
+    ("rename role", "", "dbms", &[]),
+    ("drop role", "", "dbms", &[]),
+    ("assign role", "", "dbms", &[]),
+    ("remove role", "", "dbms", &[]),
+    ("show role", "", "dbms", &[]),
+    ("privilege management", "", "dbms", &[]),
+    ("assign privilege", "", "dbms", &[]),
+    ("remove privilege", "", "dbms", &[]),
+    ("show privilege", "", "dbms", &[]),
+    ("database management", "", "dbms", &[]),
+    ("create database", "", "dbms", &[]),
+    ("alter database", "", "dbms", &[]),
+    ("set database access", "", "dbms", &[]),
+    ("drop database", "", "dbms", &[]),
+    ("composite database management", "", "dbms", &[]),
+    ("create composite database", "", "dbms", &[]),
+    ("drop composite database", "", "dbms", &[]),
+    ("alias management", "", "dbms", &[]),
+    ("create alias", "", "dbms", &[]),
+    ("alter alias", "", "dbms", &[]),
+    ("drop alias", "", "dbms", &[]),
+    ("show alias", "", "dbms", &[]),
+    ("server management", "", "dbms", &[]),
+    ("show servers", "", "dbms", &[]),
+    ("show settings", "setting", "dbms", &[]),
+    ("execute procedure", "procedure", "dbms", &[]),
+    ("execute boosted procedure", "procedure", "dbms", &[]),
+    ("execute admin procedures", "", "dbms", &[]),
+    ("execute function", "function", "dbms", &[]),
+    ("execute boosted function", "function", "dbms", &[]),
+    ("impersonate", "username", "dbms", &[]),
+    ("all dbms privileges", "", "dbms", &[]),
+    ("load", "", "all data", &[]),
+];
+
+pub fn neo4j_documented() -> Vec<Supported> {
+    NEO4J_DOCUMENTED
+        .iter()
+        .map(|(a, q, t, e)| Supported {
+            action: a.to_string(),
+            qualifier: (!q.is_empty()).then(|| q.to_string()),
+            target: t.to_string(),
+            scope: e.iter().map(|x| x.to_string()).collect(),
+        })
+        .collect()
+}
+
+/// A probe object of a kind, to ask [`neo4j_on`] whether a privilege goes
+/// on it.
+fn kind_probe(kind: &str) -> Option<ObjectRef> {
+    (!kind.is_empty()).then(|| ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: "X".into(),
+    })
+}
+
+/// The privileges as `GRANT` takes them: the action upper-cased, with every
+/// property / label / procedure / setting (`READ {*}`, `SET LABEL *`,
+/// `EXECUTE PROCEDURE *`, `SHOW SETTINGS *`; a user qualifier left out is
+/// every user). On the whole server or graph, and on a label or a
+/// relationship type where the action can be narrowed to nodes or
+/// relationships. Graph, database, DBMS, then `LOAD`; the fixed list's
+/// order first within each.
+pub fn neo4j_from(rows: &[Supported]) -> Vec<Privilege> {
+    let fixed = spec(Flavor::Neo4j)
+        .map(|s| s.privileges)
+        .unwrap_or_default();
+    let mut out: Vec<(usize, usize, Privilege)> = Vec::new();
+    for r in rows {
+        let mut name = r.action.trim().to_ascii_uppercase();
+        match r.qualifier.as_deref() {
+            Some("property") => name.push_str(" {*}"),
+            Some("label" | "procedure" | "function" | "setting") => name.push_str(" *"),
+            _ => {}
+        }
+        let Ok(name) = neo4j_privilege(&name) else {
+            continue;
+        };
+        let mut kinds = vec![""];
+        if r.target == "graph" {
+            if r.scope.iter().any(|e| e == "nodes") {
+                kinds.push(crate::LABEL);
+            }
+            if r.scope.iter().any(|e| e == "relationships") {
+                kinds.push(crate::RELATIONSHIP);
+            }
+        }
+        kinds.retain(|k| neo4j_on(&name, &kind_probe(k)).is_ok());
+        if kinds.is_empty() || out.iter().any(|(_, _, p)| p.name == name) {
+            continue;
+        }
+        let rank = match r.target.as_str() {
+            "graph" => 0,
+            "database" => 1,
+            "dbms" => 2,
+            _ => 3,
+        };
+        let at = fixed.iter().position(|f| *f == name).unwrap_or(fixed.len());
+        out.push((rank, at, Privilege::new(name, &kinds)));
+    }
+    out.sort_by_key(|(rank, at, _)| (*rank, *at));
+    out.into_iter().map(|(_, _, p)| p).collect()
+}
+
+/// A Memgraph privilege, where it goes, and the version that brought it.
+const MEMGRAPH_DOCUMENTED: &[(&str, &[&str], (u32, u32))] = &[
+    ("MATCH", &[""], (0, 0)),
+    ("CREATE", &["", crate::LABEL, crate::RELATIONSHIP], (0, 0)),
+    ("MERGE", &[""], (0, 0)),
+    ("SET", &[""], (0, 0)),
+    ("DELETE", &["", crate::LABEL, crate::RELATIONSHIP], (0, 0)),
+    ("REMOVE", &[""], (0, 0)),
+    ("INDEX", &[""], (0, 0)),
+    ("CONSTRAINT", &[""], (0, 0)),
+    ("STATS", &[""], (0, 0)),
+    ("AUTH", &[""], (0, 0)),
+    ("DUMP", &[""], (0, 0)),
+    ("TRIGGER", &[""], (0, 0)),
+    ("STREAM", &[""], (0, 0)),
+    ("CONFIG", &[""], (0, 0)),
+    ("DURABILITY", &[""], (0, 0)),
+    ("REPLICATION", &[""], (0, 0)),
+    ("READ_FILE", &[""], (0, 0)),
+    ("FREE_MEMORY", &[""], (0, 0)),
+    ("MODULE_READ", &[""], (0, 0)),
+    ("MODULE_WRITE", &[""], (0, 0)),
+    ("WEBSOCKET", &[""], (0, 0)),
+    ("TRANSACTION_MANAGEMENT", &[""], (0, 0)),
+    ("STORAGE_MODE", &[""], (0, 0)),
+    ("MULTI_DATABASE_EDIT", &[""], (0, 0)),
+    ("MULTI_DATABASE_USE", &[""], (0, 0)),
+    ("IMPERSONATE_USER", &[""], (3, 1)),
+    ("PROFILE_RESTRICTION", &[""], (3, 5)),
+    ("PARALLEL_EXECUTION", &[""], (3, 8)),
+    ("SERVER_SIDE_PARAMETERS", &[""], (3, 9)),
+    // Descriptions came in 3.10, their privilege later: 3.13 refuses it.
+    ("SERVER_SIDE_DESCRIPTIONS", &[""], (3, 14)),
+    ("RELOAD_TLS", &[""], (3, 11)),
+    ("ALL PRIVILEGES", &[""], (0, 0)),
+    ("READ", &[crate::LABEL, crate::RELATIONSHIP], (0, 0)),
+    ("UPDATE", &[crate::LABEL, crate::RELATIONSHIP], (0, 0)),
+    (
+        "SET PROPERTY",
+        &[crate::LABEL, crate::RELATIONSHIP],
+        (3, 10),
+    ),
+    ("SET LABEL", &[crate::LABEL], (3, 10)),
+    ("REMOVE LABEL", &[crate::LABEL], (3, 10)),
+    ("CREATE EDGE", &[crate::LABEL], (3, 10)),
+    ("DELETE EDGE", &[crate::LABEL], (3, 10)),
+];
+
+/// Memgraph has no catalog of its privileges: the ones of
+/// https://memgraph.com/docs/database-management/authentication-and-authorization/role-based-access-control
+/// (global ones, and per label / edge type in the 3.7+ syntax the scripts
+/// write) that `version` (`SHOW VERSION`; all of them when unknown) has,
+/// as the release notes date them.
+pub fn memgraph_documented(version: Option<(u32, u32)>) -> Vec<Privilege> {
+    MEMGRAPH_DOCUMENTED
+        .iter()
+        .filter(|(_, _, since)| version.is_none_or(|v| v >= *since))
+        .map(|(n, on, _)| Privilege::new(*n, on))
+        .collect()
+}
+
+/// `3.13.1` → (3, 13).
+fn major_minor(v: &str) -> Option<(u32, u32)> {
+    let mut it = v.trim().trim_start_matches(['v', 'V']).split('.');
+    Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+}
+
+/// What this server can grant: Neo4j's `SHOW SUPPORTED PRIVILEGES` (5.9+,
+/// else the documented ones; none on Community, which has no privileges),
+/// Memgraph's documented ones for its version.
+pub async fn privileges(s: &mut GraphSession) -> Result<Vec<Privilege>> {
+    match s.flavor {
+        Flavor::Neo4j => {
+            if neo4j_community(s).await.unwrap_or(false) {
+                return Ok(Vec::new());
+            }
+            let q = "SHOW SUPPORTED PRIVILEGES YIELD action, qualifier, target, scope \
+                     RETURN action, qualifier, target, scope";
+            let rows: Vec<Supported> = records(s, q, Some("system"))
+                .await
+                .map(|rows| {
+                    rows.iter()
+                        .map(|r| Supported {
+                            action: text(r, "action").unwrap_or_default(),
+                            qualifier: text(r, "qualifier"),
+                            target: text(r, "target").unwrap_or_default(),
+                            scope: strs(r.get("scope")),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let list = neo4j_from(&rows);
+            Ok(if list.is_empty() {
+                neo4j_from(&neo4j_documented())
+            } else {
+                list
+            })
+        }
+        Flavor::Memgraph => {
+            let v = s.strings("SHOW VERSION").await.ok().unwrap_or_default();
+            Ok(memgraph_documented(v.first().and_then(|v| major_minor(v))))
+        }
+        Flavor::Neptune => Err(Error::Unsupported(NEPTUNE.into())),
+    }
+}
+
 // -- scripts -----------------------------------------------------------------
 
 pub fn script(f: Flavor, a: &SecurityAction) -> Result<String> {
@@ -612,7 +891,13 @@ fn scope(privilege: &str) -> Scope {
         }
         _ if has("SET LABEL") || has("REMOVE LABEL") => Scope::Graph { element: false },
         _ if has("LOAD") => Scope::Load,
-        _ if DBMS_PREFIXES.iter().any(|p| has(p)) => Scope::Dbms,
+        // `SHOW SERVER[S]`, `SHOW SETTING[S]`, `SHOW USER[S]`…
+        _ if DBMS_PREFIXES
+            .iter()
+            .any(|p| has(p) || has(&format!("{p}S"))) =>
+        {
+            Scope::Dbms
+        }
         _ => Scope::Database,
     }
 }
@@ -857,8 +1142,19 @@ fn neo4j_script(a: &SecurityAction) -> Result<String> {
     })
 }
 
-/// Memgraph's fine-grained levels (on labels and edge types).
-const MEMGRAPH_FINE: &[&str] = &["READ", "UPDATE", "CREATE", "DELETE"];
+/// Memgraph's fine-grained permissions (on labels and edge types; the
+/// discrete ones since 3.10).
+const MEMGRAPH_FINE: &[&str] = &[
+    "READ",
+    "UPDATE",
+    "CREATE",
+    "DELETE",
+    "SET LABEL",
+    "REMOVE LABEL",
+    "SET PROPERTY",
+    "CREATE EDGE",
+    "DELETE EDGE",
+];
 
 fn memgraph_privileges(p: &[String], fine: bool) -> Result<String> {
     if p.is_empty() {
@@ -1253,5 +1549,120 @@ mod tests {
             Err(Error::Unsupported(_))
         ));
         assert!(spec(Flavor::Neptune).is_none());
+    }
+
+    /// Each privilege, granted on each kind it lists, is a script; and the
+    /// fixed list older apps offer is all in it.
+    fn all_grantable(f: Flavor, list: &[Privilege]) {
+        let spec = spec(f).unwrap();
+        for p in list {
+            assert!(!p.on.is_empty(), "{p:?}");
+            for k in &p.on {
+                assert!(spec.object_kinds.contains(&k.as_str()), "{p:?}");
+                script(f, &grant(&[&p.name], kind_probe(k), "r"))
+                    .unwrap_or_else(|e| panic!("{p:?} on {k:?}: {e}"));
+            }
+        }
+        for fixed in spec.privileges {
+            assert!(list.iter().any(|p| p.name == fixed), "{fixed}");
+        }
+    }
+
+    #[test]
+    fn neo4j_supported_privileges() {
+        let row = |a: &str, q: Option<&str>, t: &str, e: &[&str]| Supported {
+            action: a.into(),
+            qualifier: q.map(Into::into),
+            target: t.into(),
+            scope: e.iter().map(|x| x.to_string()).collect(),
+        };
+        // As Neo4j 5.26 answers (alphabetical, lower case).
+        let rows = vec![
+            row("access", None, "database", &[]),
+            row("all dbms privileges", None, "dbms", &[]),
+            row("execute procedure", Some("procedure"), "dbms", &[]),
+            row("impersonate", Some("username"), "dbms", &[]),
+            row("load", None, "all data", &[]),
+            row("load", None, "cidr", &[]),
+            row(
+                "read",
+                Some("property"),
+                "graph",
+                &["elements", "nodes", "pattern", "relationships"],
+            ),
+            row("set label", Some("label"), "graph", &[]),
+            row("show servers", None, "dbms", &[]),
+            row("show settings", Some("setting"), "dbms", &[]),
+            row("terminate transactions", Some("username"), "database", &[]),
+            row(
+                "traverse",
+                None,
+                "graph",
+                &["elements", "nodes", "pattern", "relationships"],
+            ),
+            row("write", None, "graph", &[]),
+            row("bad;action", None, "dbms", &[]),
+        ];
+        let list = neo4j_from(&rows);
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "TRAVERSE",
+                "READ {*}",
+                "WRITE",
+                "SET LABEL *",
+                "ACCESS",
+                "TERMINATE TRANSACTIONS",
+                "ALL DBMS PRIVILEGES",
+                "EXECUTE PROCEDURE *",
+                "IMPERSONATE",
+                "SHOW SERVERS",
+                "SHOW SETTINGS *",
+                "LOAD",
+            ]
+        );
+        let on = |n: &str| list.iter().find(|p| p.name == n).unwrap().on.clone();
+        assert_eq!(on("READ {*}"), ["", crate::LABEL, crate::RELATIONSHIP]);
+        assert_eq!(on("SET LABEL *"), [""]);
+        assert_eq!(on("SHOW SERVERS"), [""]);
+        // Plural DBMS privileges go on the DBMS, not on a database.
+        let t = script(Flavor::Neo4j, &grant(&["SHOW SERVERS"], None, "r")).unwrap();
+        assert!(t.contains("GRANT SHOW SERVERS ON DBMS TO r;"), "{t}");
+        let t = script(Flavor::Neo4j, &grant(&["SHOW SETTINGS *"], None, "r")).unwrap();
+        assert!(t.contains("GRANT SHOW SETTINGS * ON DBMS TO r;"), "{t}");
+        let t = script(Flavor::Neo4j, &grant(&["SHOW INDEXES"], None, "r")).unwrap();
+        assert!(t.contains("ON DATABASE *"), "{t}");
+    }
+
+    #[test]
+    fn neo4j_documented_privileges_are_grantable() {
+        let list = neo4j_from(&neo4j_documented());
+        assert_eq!(list.len(), NEO4J_DOCUMENTED.len());
+        all_grantable(Flavor::Neo4j, &list);
+    }
+
+    #[test]
+    fn memgraph_privileges_follow_the_version() {
+        all_grantable(Flavor::Memgraph, &memgraph_documented(None));
+        let has = |v, n: &str| memgraph_documented(v).iter().any(|p| p.name == n);
+        assert!(has(Some((3, 13)), "SET LABEL") && has(Some((3, 13)), "RELOAD_TLS"));
+        assert!(!has(Some((3, 13)), "SERVER_SIDE_DESCRIPTIONS"));
+        assert!(has(Some((3, 9)), "SERVER_SIDE_PARAMETERS"));
+        assert!(!has(Some((3, 9)), "SET PROPERTY") && !has(Some((3, 9)), "RELOAD_TLS"));
+        assert!(has(Some((2, 19)), "MATCH") && !has(Some((2, 19)), "IMPERSONATE_USER"));
+        assert_eq!(major_minor("3.13.1"), Some((3, 13)));
+        assert_eq!(major_minor("v2.19"), Some((2, 19)));
+        assert_eq!(major_minor("x"), None);
+        let on = |n: &str| {
+            memgraph_documented(None)
+                .into_iter()
+                .find(|p| p.name == n)
+                .unwrap()
+                .on
+        };
+        assert_eq!(on("CREATE EDGE"), [crate::LABEL]);
+        assert_eq!(on("READ"), [crate::LABEL, crate::RELATIONSHIP]);
+        assert_eq!(on("ALL PRIVILEGES"), [""]);
     }
 }

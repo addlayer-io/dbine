@@ -15,7 +15,8 @@
 use crate::json::J;
 use crate::{es_error_message, http, EsSession};
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::json;
 
@@ -147,6 +148,104 @@ pub async fn grants(s: &EsSession, principal: &str) -> Result<Vec<Grant>> {
             let roles = s.security_get(api, &format!("{p}/roles")).await?;
             let mapping = s.security_get(api, &format!("{p}/rolesmapping")).await?;
             Ok(os_grants(&users, &roles, &mapping, principal))
+        }
+    }
+}
+
+// -- what can be granted -------------------------------------------------------
+
+/// The security plugin's default action groups, for a server whose
+/// `actiongroups` can't be read (security off, no REST API access):
+/// https://docs.opensearch.org/latest/security/access-control/default-action-groups/
+/// (the same names in Open Distro 1.x). `unlimited` goes on both.
+const CLUSTER_GROUPS: &[&str] = &[
+    "cluster_all",
+    "cluster_monitor",
+    "cluster_composite_ops_ro",
+    "cluster_composite_ops",
+    "manage_snapshots",
+    "cluster_manage_pipelines",
+    "cluster_manage_index_templates",
+];
+const INDEX_GROUPS: &[&str] = &[
+    "indices_all",
+    "get",
+    "read",
+    "write",
+    "delete",
+    "crud",
+    "search",
+    "suggest",
+    "create_index",
+    "indices_monitor",
+    "index",
+    "data_access",
+    "manage_aliases",
+    "manage",
+];
+/// Index action groups OpenSearch 2.x adds (its `static_action_groups.yml`).
+const OPENSEARCH_INDEX_GROUPS: &[&str] = &["manage_data_streams", "manage_point_in_time"];
+
+fn static_privileges(api: Api) -> Vec<Privilege> {
+    let both = ["", kinds::INDEX];
+    let mut out = vec![Privilege::new("unlimited", &both)];
+    out.extend(CLUSTER_GROUPS.iter().map(|g| Privilege::new(*g, &[""])));
+    out.extend(
+        INDEX_GROUPS
+            .iter()
+            .map(|g| Privilege::new(*g, &[kinds::INDEX])),
+    );
+    if api == OPENSEARCH {
+        out.extend(
+            OPENSEARCH_INDEX_GROUPS
+                .iter()
+                .map(|g| Privilege::new(*g, &[kinds::INDEX])),
+        );
+    }
+    out
+}
+
+/// The action groups `GET …/actiongroups` lists, by their `type`: cluster
+/// ones on the whole server, index ones on an index, `all` on both. `kibana`
+/// ones are tenant permissions, which the tab doesn't grant; a custom group
+/// without a type may hold either, so it goes on both. A name the script
+/// would refuse isn't offered.
+fn action_groups(j: &J) -> Vec<Privilege> {
+    let mut out: Vec<Privilege> = entries(j)
+        .iter()
+        .filter(|(name, _)| granted(std::slice::from_ref(name)).is_ok())
+        .filter_map(|(name, g)| {
+            let on: &[&str] = match g.get("type").and_then(J::as_str) {
+                Some("cluster") => &[""],
+                Some("index") => &[kinds::INDEX],
+                Some("kibana") => return None,
+                _ => &["", kinds::INDEX],
+            };
+            Some(Privilege::new(name.as_str(), on))
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// What the tab can grant. Elasticsearch: nothing (a role's permissions
+/// are replaced whole, from the console, so its spec has no kinds).
+/// OpenSearch / Open Distro: the server's action groups, else the default
+/// ones. Single actions (`indices:data/read/*`…) are open-ended: typed.
+pub async fn privileges(s: &EsSession) -> Result<Vec<Privilege>> {
+    match s.security_api() {
+        Api::Elastic => Ok(Vec::new()),
+        api @ Api::Plugin(p) => {
+            let listed = s
+                .security_get(api, &format!("{p}/actiongroups"))
+                .await
+                .map(|j| action_groups(&j))
+                .unwrap_or_default();
+            Ok(if listed.is_empty() {
+                static_privileges(api)
+            } else {
+                listed
+            })
         }
     }
 }
@@ -463,18 +562,17 @@ fn password(p: Option<&str>) -> Result<&str> {
 }
 
 /// OpenSearch permissions and action groups: `read`, `indices:data/read/*`…
-fn privileges(p: &[String]) -> Result<Vec<String>> {
+/// A custom action group can be named freely; the name only goes in the
+/// JSON body, escaped, but quotes, backslashes and control characters are
+/// still refused.
+fn granted(p: &[String]) -> Result<Vec<String>> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
     }
     p.iter()
         .map(|x| {
             let x = x.trim();
-            if x.is_empty()
-                || !x
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "_:/*.-".contains(c))
-            {
+            if x.is_empty() || x.chars().any(|c| c.is_control() || c == '"' || c == '\\') {
                 return Err(Error::Query(format!(
                     "«{x}» no es un permiso de OpenSearch"
                 )));
@@ -549,7 +647,7 @@ fn os_script(prefix: &str, a: &SecurityAction) -> Result<String> {
             ))
         }
         SecurityAction::Grant { privileges: p, object, to, .. } => {
-            let p = privileges(p)?;
+            let p = granted(p)?;
             let ops = match object {
                 None => p.iter().map(|x| json!({ "op": "add", "path": "/cluster_permissions/-", "value": x })).collect::<Vec<_>>(),
                 Some(ObjectRef { name, .. }) if !name.is_empty() => vec![json!({
@@ -825,5 +923,74 @@ mod tests {
         assert!(g.iter().any(|g| g.privilege == "search"
             && g.via.as_deref() == Some("lectores")
             && g.object.as_deref() == Some("f*")));
+    }
+
+    #[test]
+    fn reads_the_action_groups_by_type() {
+        let j = J::parse(
+            r#"{"read":{"type":"index","allowed_actions":["indices:data/read*"]},
+            "cluster_monitor":{"type":"cluster","allowed_actions":["cluster:monitor/*"]},
+            "unlimited":{"type":"all","allowed_actions":["*"]},
+            "kibana_all_read":{"type":"kibana","allowed_actions":["kibana:saved_objects/*/read"]},
+            "mis permisos":{"allowed_actions":["indices:data/write/bulk"]},
+            "raro\\\"x":{"type":"index"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            action_groups(&j),
+            vec![
+                Privilege::new("cluster_monitor", &[""]),
+                Privilege::new("mis permisos", &["", kinds::INDEX]),
+                Privilege::new("read", &[kinds::INDEX]),
+                Privilege::new("unlimited", &["", kinds::INDEX]),
+            ]
+        );
+        assert!(action_groups(&J::parse("{}").unwrap()).is_empty());
+    }
+
+    /// Every default action group, granted on each of its kinds, makes a
+    /// script; and so does a listed custom group with a free-form name.
+    #[test]
+    fn every_listed_privilege_can_be_granted() {
+        for api in [OPENSEARCH, OPENDISTRO] {
+            let Api::Plugin(prefix) = api else {
+                unreachable!()
+            };
+            let kinds = spec(api).object_kinds;
+            let list = static_privileges(api);
+            assert!(list.iter().any(|p| p.name == "read"));
+            assert_eq!(
+                list.iter().any(|p| p.name == "manage_data_streams"),
+                api == OPENSEARCH
+            );
+            for p in list
+                .into_iter()
+                .chain([Privilege::new("mis permisos", &[""])])
+            {
+                assert!(!p.on.is_empty(), "{}", p.name);
+                for k in &p.on {
+                    assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                    let object = (!k.is_empty()).then(|| ObjectRef {
+                        kind: k.clone(),
+                        schema: None,
+                        name: "facturas-*".into(),
+                    });
+                    let s = os_script(
+                        prefix,
+                        &SecurityAction::Grant {
+                            privileges: vec![p.name.clone()],
+                            object,
+                            to: "r".into(),
+                            grantable: false,
+                        },
+                    )
+                    .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                    let (_, _, b) = one(&s);
+                    assert!(b.unwrap().to_string().contains(&p.name), "{s}");
+                }
+            }
+        }
+        // Elasticsearch roles are rewritten whole: nothing to list.
+        assert!(spec(Api::Elastic).object_kinds.is_empty());
     }
 }

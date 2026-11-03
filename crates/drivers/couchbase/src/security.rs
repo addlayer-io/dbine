@@ -15,7 +15,8 @@
 use crate::ddl::{q, scope_ref};
 use crate::{text, CbSession};
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::Value;
 
@@ -147,6 +148,138 @@ pub async fn principals(c: &CbSession) -> Result<Vec<Principal>> {
     let mut out: Vec<Principal> = users(c).await?.iter().map(user_principal).collect();
     out.extend(groups(c).await.iter().map(group_principal));
     Ok(out)
+}
+
+// -- what can be granted ---------------------------------------------------------
+
+/// Roles by what they take, from
+/// https://docs.couchbase.com/server/current/learn/security/roles.html
+/// (Couchbase Server 8.0, Enterprise Edition), for a cluster whose
+/// `/settings/rbac/roles` this login can't read. No parameter: the cluster.
+const CLUSTER_ROLES: &[&str] = &[
+    "admin",
+    "ro_admin",
+    "security_admin",
+    "ro_security_admin",
+    "user_admin_local",
+    "user_admin_external",
+    "cluster_admin",
+    "eventing_admin",
+    "backup_admin",
+    "external_stats_reader",
+    "application_telemetry_writer",
+    "replication_admin",
+    "query_external_access",
+    "query_system_catalog",
+    "query_manage_system_catalog",
+    "query_manage_global_functions",
+    "query_execute_global_functions",
+    "query_manage_global_external_functions",
+    "query_execute_global_external_functions",
+    "analytics_admin",
+    "analytics_reader",
+    "sync_gateway_dev_ops",
+];
+/// A bucket, or a bucket's scope (on a bucket: all its scopes; a scope
+/// isn't a kind the tab offers).
+const BUCKET_ROLES: &[&str] = &[
+    "bucket_admin",
+    "scope_admin",
+    "bucket_full_access",
+    "views_admin",
+    "views_reader",
+    "data_backup",
+    "fts_admin",
+    "replication_target",
+    "analytics_manager",
+    "mobile_sync_gateway",
+    "query_manage_functions",
+    "query_execute_functions",
+    "query_manage_external_functions",
+    "query_execute_external_functions",
+    "query_manage_sequences",
+    "query_use_sequences",
+    "eventing_manage_functions",
+];
+/// A bucket, a scope or a collection.
+const COLLECTION_ROLES: &[&str] = &[
+    "data_reader",
+    "data_writer",
+    "data_dcp_reader",
+    "data_monitoring",
+    "fts_searcher",
+    "query_select",
+    "query_update",
+    "query_insert",
+    "query_delete",
+    "query_manage_index",
+    "query_list_index",
+    "query_use_sequential_scans",
+    "analytics_select",
+    "sync_gateway_configurator",
+    "sync_gateway_app",
+    "sync_gateway_app_ro",
+    "sync_gateway_replicator",
+];
+/// Community Edition has only these (and no groups).
+const COMMUNITY_ROLES: &[&str] = &["admin", "ro_admin", "bucket_full_access"];
+
+const ON_CLUSTER: &[&str] = &[""];
+const ON_BUCKET: &[&str] = &["database"];
+const ON_COLLECTION: &[&str] = &["database", kinds::COLLECTION];
+
+fn documented_roles(community: bool) -> Vec<Privilege> {
+    [
+        (CLUSTER_ROLES, ON_CLUSTER),
+        (BUCKET_ROLES, ON_BUCKET),
+        (COLLECTION_ROLES, ON_COLLECTION),
+    ]
+    .into_iter()
+    .flat_map(|(roles, on)| roles.iter().map(move |r| Privilege::new(*r, on)))
+    .filter(|p| !community || COMMUNITY_ROLES.contains(&p.name.as_str()))
+    .collect()
+}
+
+/// The roles the cluster lists (`GET /settings/rbac/roles`), each with the
+/// parameters it takes as `bucket_name` / `scope_name` / `collection_name`
+/// (`"*"`): none, the cluster; a bucket or a scope, a bucket; a collection,
+/// a bucket or a collection. A bucket role given on a collection is widened
+/// to the bucket, so it isn't offered there.
+fn listed_roles(v: &Value) -> Vec<Privilege> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            let name = r.get("role").and_then(Value::as_str)?;
+            let on = if r.get("collection_name").is_some() {
+                ON_COLLECTION
+            } else if r.get("bucket_name").is_some() {
+                ON_BUCKET
+            } else {
+                ON_CLUSTER
+            };
+            Some(Privilege::new(name, on))
+        })
+        .collect()
+}
+
+/// What can be granted: the cluster's own list (it needs
+/// `cluster.admin.users!read`), else the documented roles of its edition.
+pub async fn privileges(c: &CbSession) -> Result<Vec<Privilege>> {
+    if let Ok(v) = c.conn.mgmt_get("/settings/rbac/roles").await {
+        let listed = listed_roles(&v);
+        if !listed.is_empty() {
+            return Ok(listed);
+        }
+    }
+    let community = c
+        .conn
+        .mgmt_get("/pools")
+        .await
+        .ok()
+        .and_then(|v| v.get("isEnterprise").and_then(Value::as_bool))
+        == Some(false);
+    Ok(documented_roles(community))
 }
 
 /// What a role applies to: the cluster, a bucket (`*`: every bucket) or a
@@ -516,6 +649,68 @@ mod tests {
         assert_eq!(
             (gg.len(), gg[0].object.clone(), gg[0].via.clone()),
             (1, None, None)
+        );
+    }
+
+    #[test]
+    fn reads_the_listed_roles() {
+        let v = json!([
+            {"role": "admin", "name": "Full Admin", "ce": true},
+            {"role": "bucket_full_access", "bucket_name": "*", "ce": true},
+            {"role": "query_manage_functions", "bucket_name": "*", "scope_name": "*"},
+            {"role": "data_reader", "bucket_name": "*", "scope_name": "*", "collection_name": "*"},
+            {"name": "sin id"}
+        ]);
+        assert_eq!(
+            listed_roles(&v),
+            vec![
+                Privilege::new("admin", &[""]),
+                Privilege::new("bucket_full_access", &["database"]),
+                Privilege::new("query_manage_functions", &["database"]),
+                Privilege::new("data_reader", &["database", "collection"]),
+            ]
+        );
+        assert!(listed_roles(&json!({})).is_empty());
+    }
+
+    /// Every documented role, granted on each of its kinds, makes a script.
+    #[test]
+    fn every_documented_role_can_be_granted() {
+        let kinds = spec().object_kinds;
+        let all = documented_roles(false);
+        assert_eq!(
+            all.len(),
+            CLUSTER_ROLES.len() + BUCKET_ROLES.len() + COLLECTION_ROLES.len()
+        );
+        let mut names: Vec<&str> = all.iter().map(|p| p.name.as_str()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), all.len(), "a role listed twice");
+        for p in &all {
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = match k.as_str() {
+                    "" => None,
+                    "database" => obj("database", None, "ventas"),
+                    _ => obj(k, Some("ventas.inv"), "items"),
+                };
+                let s = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ana".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(s.starts_with(&format!("GRANT {} ", p.name)), "{s}");
+            }
+        }
+        assert_eq!(
+            documented_roles(true),
+            vec![
+                Privilege::new("admin", &[""]),
+                Privilege::new("ro_admin", &[""]),
+                Privilege::new("bucket_full_access", &["database"]),
+            ]
         );
     }
 }

@@ -1560,6 +1560,10 @@ impl Session for PgSession {
         crate::security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        crate::security::grantable(self).await
+    }
+
     async fn profiler_start(
         &mut self,
         opts: &dbine_driver::ProfilerOptions,

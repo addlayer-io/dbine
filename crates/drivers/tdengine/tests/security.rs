@@ -214,3 +214,25 @@ async fn users_and_privileges() {
         .all(|p| p.name != "dbine_ana"));
     run(&mut s, "DROP DATABASE dbine_sec").await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn lists_the_privileges() {
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_tdengine::drivers().remove(0);
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&c, None).await.unwrap();
+    let p = s.privileges().await.unwrap();
+    let on = |n: &str| {
+        p.iter()
+            .find(|x| x.name == n)
+            .map(|x| x.on.join(","))
+            .unwrap_or_else(|| panic!("{n} in {p:?}"))
+    };
+    assert_eq!(on("READ"), ",database,supertable,table");
+    assert_eq!(on("ALL"), ",database,supertable,table");
+    assert_eq!(on("SUBSCRIBE"), kinds::TOPIC);
+    for x in &p {
+        assert!(x.on.iter().all(|k| kinds.contains(&k.as_str())), "{x:?}");
+    }
+}

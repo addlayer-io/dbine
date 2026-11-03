@@ -8,7 +8,9 @@
 
 use crate::http::escape;
 use crate::v1::{ident, InfluxQlSession};
-use dbine_driver::{Error, Grant, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, Principal, PrincipalKind, Privilege, Result, SecurityAction, SecuritySpec,
+};
 use serde_json::Value as J;
 
 /// Why InfluxDB 2 / 3 don't offer users and permissions.
@@ -25,6 +27,19 @@ pub fn spec() -> SecuritySpec {
         membership: false,
         per_database: false,
     }
+}
+
+/// What InfluxQL grants, and on what. InfluxDB 1.x has no catalog of
+/// privileges: these are the ones of its docs
+/// (<https://docs.influxdata.com/influxdb/v1/administration/authentication_and_authorization/#user-management-commands>),
+/// READ, WRITE or ALL on a database, and ALL [PRIVILEGES] on the whole
+/// server, which makes the user an admin.
+pub fn privileges() -> Vec<Privilege> {
+    vec![
+        Privilege::new("READ", &["database"]),
+        Privilege::new("WRITE", &["database"]),
+        Privilege::new("ALL", &["", "database"]),
+    ]
 }
 
 fn rows(results: &[J]) -> Vec<Vec<J>> {
@@ -247,6 +262,28 @@ mod tests {
             schema: None,
             name: n.into(),
         })
+    }
+
+    #[test]
+    fn every_privilege_is_grantable_on_its_kinds() {
+        let kinds = spec().object_kinds;
+        for p in privileges() {
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = (!k.is_empty()).then(|| ObjectRef {
+                    kind: k.clone(),
+                    schema: None,
+                    name: "t".into(),
+                });
+                let a = SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ana".into(),
+                    grantable: false,
+                };
+                assert!(script(&a).is_ok(), "{} on {k}", p.name);
+            }
+        }
     }
 
     #[test]

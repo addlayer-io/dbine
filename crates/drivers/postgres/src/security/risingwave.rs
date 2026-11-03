@@ -40,6 +40,34 @@ pub(super) fn spec(object_kinds: Vec<&'static str>) -> SecuritySpec {
     }
 }
 
+/// What GRANT takes on each kind (RisingWave keeps no list of them):
+/// https://docs.risingwave.com/sql/commands/sql-grant. Only SELECT on
+/// materialized views, sources and sinks.
+pub(super) const PRIVILEGES: super::Documented = &[
+    (
+        "SELECT",
+        &["table", "view", "materialized_view", "source", "sink"],
+    ),
+    ("INSERT", &["table", "view"]),
+    ("UPDATE", &["table", "view"]),
+    ("DELETE", &["table", "view"]),
+    ("USAGE", &["schema"]),
+    ("CREATE", &["database", "schema"]),
+    ("CONNECT", &["database"]),
+    (
+        "ALL PRIVILEGES",
+        &[
+            "database",
+            "schema",
+            "table",
+            "view",
+            "materialized_view",
+            "source",
+            "sink",
+        ],
+    ),
+];
+
 pub(super) async fn principals(s: &PgSession) -> Result<Vec<Principal>> {
     // `SELECT *`: `is_admin` came in later versions.
     let rows = s

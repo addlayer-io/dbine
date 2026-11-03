@@ -1532,6 +1532,10 @@ impl Session for OrientSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges_list())
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         monitor::snapshot(self).await
     }

@@ -1592,6 +1592,11 @@ impl Session for SpannerSession {
         security::grants(self, principal).await
     }
 
+    /// No catalog of them in Spanner: the documented ones.
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges())
+    }
+
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         backup::history(self, database).await
     }

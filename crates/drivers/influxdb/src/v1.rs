@@ -950,6 +950,10 @@ impl Session for InfluxQlSession {
         crate::security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(crate::security::privileges())
+    }
+
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
         let r = tokio::time::timeout(processes::QUERY_LIMIT, self.query("SHOW QUERIES"))
             .await

@@ -1326,6 +1326,11 @@ impl Session for BigQuerySession {
         security::grants(self, principal).await
     }
 
+    /// No catalog of them in BigQuery: the documented IAM roles.
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges())
+    }
+
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         backup::history(self, database).await
     }

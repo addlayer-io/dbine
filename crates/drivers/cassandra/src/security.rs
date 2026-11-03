@@ -7,7 +7,8 @@
 
 use crate::{boolean, cql, text, texts, CassandraSession, Flavor};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 
 pub const KEYSPACES: &str = "Amazon Keyspaces controla el acceso con IAM de AWS: los usuarios y permisos se administran en IAM, no en la base";
@@ -223,6 +224,81 @@ fn resource(r: &str) -> (Option<String>, Option<String>) {
     (Some(inner.to_string()), Some("resource".into()))
 }
 
+// -- what can be granted -----------------------------------------------------
+
+const BOTH: &[&str] = &["", "table"];
+
+/// Cassandra's permissions on the resources the tab offers (all keyspaces,
+/// a table), with the version that brought them, from the table of
+/// https://cassandra.apache.org/doc/latest/cassandra/developing/cql/security.html#cql-permissions:
+/// CREATE isn't granted on a table; DESCRIBE and EXECUTE go only on roles,
+/// functions and MBeans, which the tab doesn't offer.
+const CASSANDRA_PERMISSIONS: &[(&str, &[&str], (u32, u32))] = &[
+    ("SELECT", BOTH, (0, 0)),
+    ("MODIFY", BOTH, (0, 0)),
+    ("CREATE", &[""], (0, 0)),
+    ("ALTER", BOTH, (0, 0)),
+    ("DROP", BOTH, (0, 0)),
+    ("AUTHORIZE", BOTH, (0, 0)),
+    ("UNMASK", BOTH, (5, 0)),
+    ("SELECT_MASKED", BOTH, (5, 0)),
+    ("ALL PERMISSIONS", BOTH, (0, 0)),
+];
+
+/// ScyllaDB's, from
+/// https://docs.scylladb.com/manual/stable/operating-scylla/security/authorization.html
+/// (the indexing ones since 2025.4 and 2026.3, as its versioned docs list
+/// them; DESCRIBE goes only on roles).
+const SCYLLA_PERMISSIONS: &[(&str, &[&str], (u32, u32))] = &[
+    ("SELECT", BOTH, (0, 0)),
+    ("MODIFY", BOTH, (0, 0)),
+    ("CREATE", &[""], (0, 0)),
+    ("ALTER", BOTH, (0, 0)),
+    ("DROP", BOTH, (0, 0)),
+    ("AUTHORIZE", BOTH, (0, 0)),
+    ("VECTOR_SEARCH_INDEXING", &[""], (2025, 4)),
+    ("TEXT_SEARCH_INDEXING", &[""], (2026, 3)),
+    ("ALL PERMISSIONS", BOTH, (0, 0)),
+];
+
+/// The documented permissions of a flavor that `version` has (all of them
+/// when it's unknown). Neither engine has a catalog of them.
+pub fn documented(f: Flavor, version: Option<(u32, u32)>) -> Vec<Privilege> {
+    let table = match f {
+        Flavor::Cassandra => CASSANDRA_PERMISSIONS,
+        Flavor::Scylla => SCYLLA_PERMISSIONS,
+        Flavor::Keyspaces => &[],
+    };
+    table
+        .iter()
+        .filter(|(_, _, since)| version.is_none_or(|v| v >= *since))
+        .map(|(n, on, _)| Privilege::new(*n, on))
+        .collect()
+}
+
+/// `5.0.4` / `2026.3.1-0.20260904…` → (5, 0) / (2026, 3).
+fn major_minor(v: &str) -> Option<(u32, u32)> {
+    let mut it = v.trim().split(['.', '-']);
+    Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+}
+
+/// What this server can grant: the documented permissions of its version
+/// (Cassandra's `release_version`; ScyllaDB's own, in `system.versions`).
+pub async fn privileges(s: &CassandraSession) -> Result<Vec<Privilege>> {
+    let q = match s.flavor {
+        Flavor::Keyspaces => return Err(Error::Unsupported(KEYSPACES.into())),
+        Flavor::Cassandra => "SELECT release_version FROM system.local",
+        Flavor::Scylla => "SELECT version FROM system.versions",
+    };
+    let version = s
+        .rows(q, ())
+        .await
+        .ok()
+        .and_then(|r| r.first().map(|r| text(r, 0)))
+        .and_then(|v| major_minor(&v));
+    Ok(documented(s.flavor, version))
+}
+
 // -- scripts -----------------------------------------------------------------
 
 fn name(n: &str) -> Result<String> {
@@ -389,6 +465,63 @@ mod tests {
             schema: schema.map(Into::into),
             name: name.into(),
         })
+    }
+
+    #[test]
+    fn documented_permissions_are_grantable() {
+        for f in [Flavor::Cassandra, Flavor::Scylla] {
+            let kinds = spec(f).unwrap().object_kinds;
+            let list = documented(f, None);
+            for p in &list {
+                for k in &p.on {
+                    assert!(kinds.contains(&k.as_str()), "{p:?}");
+                    let object = if k.is_empty() {
+                        None
+                    } else {
+                        obj(k, Some("ks"), "t")
+                    };
+                    script(
+                        f,
+                        &SecurityAction::Grant {
+                            privileges: vec![p.name.clone()],
+                            object,
+                            to: "r".into(),
+                            grantable: false,
+                        },
+                    )
+                    .unwrap_or_else(|e| panic!("{p:?} on {k:?}: {e}"));
+                }
+            }
+            let on = |n: &str| list.iter().find(|p| p.name == n).unwrap().on.clone();
+            assert_eq!(on("CREATE"), [""]);
+            assert_eq!(on("SELECT"), ["", "table"]);
+            assert!(!list
+                .iter()
+                .any(|p| p.name == "DESCRIBE" || p.name == "EXECUTE"));
+        }
+        let has = |f, v, n: &str| documented(f, v).iter().any(|p| p.name == n);
+        assert!(has(Flavor::Cassandra, Some((5, 0)), "UNMASK"));
+        assert!(!has(Flavor::Cassandra, Some((4, 1)), "SELECT_MASKED"));
+        assert!(!has(Flavor::Scylla, None, "UNMASK"));
+        assert!(has(Flavor::Scylla, Some((2026, 3)), "TEXT_SEARCH_INDEXING"));
+        assert!(!has(
+            Flavor::Scylla,
+            Some((2026, 1)),
+            "TEXT_SEARCH_INDEXING"
+        ));
+        assert!(has(
+            Flavor::Scylla,
+            Some((2026, 1)),
+            "VECTOR_SEARCH_INDEXING"
+        ));
+        assert!(!has(Flavor::Scylla, Some((6, 2)), "VECTOR_SEARCH_INDEXING"));
+        assert!(documented(Flavor::Keyspaces, None).is_empty());
+        assert_eq!(major_minor("5.0.4"), Some((5, 0)));
+        assert_eq!(
+            major_minor("2026.3.1-0.20260904.97cbf7898aae"),
+            Some((2026, 3))
+        );
+        assert_eq!(major_minor("x"), None);
     }
 
     #[test]

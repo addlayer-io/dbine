@@ -13,7 +13,8 @@
 
 use crate::{enc, CosmosSession};
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::Value;
 
@@ -27,6 +28,17 @@ pub fn spec() -> SecuritySpec {
         membership: false,
         per_database: true,
     }
+}
+
+/// What can be granted: a permission's mode, `All` or `Read`
+/// (https://learn.microsoft.com/en-us/rest/api/cosmos-db/permissions), on a
+/// container. A permission can also name a document or a script under it,
+/// which the tab doesn't offer; the data plane has no catalog of modes.
+pub fn privileges() -> Vec<Privilege> {
+    ["ALL", "READ"]
+        .into_iter()
+        .map(|p| Privilege::new(p, &[kinds::COLLECTION]))
+        .collect()
 }
 
 fn s(v: &Value, k: &str) -> String {
@@ -313,5 +325,29 @@ mod tests {
             (g.object.as_deref(), g.object_kind.as_deref()),
             (Some("items/docs/d1"), Some("resource"))
         );
+    }
+
+    /// Each mode, granted on a container, makes a script.
+    #[test]
+    fn every_mode_can_be_granted() {
+        let spec = spec();
+        for p in privileges() {
+            assert!(spec.privileges.contains(&p.name.as_str()));
+            for k in &p.on {
+                assert!(spec.object_kinds.contains(&k.as_str()));
+                let g = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: Some(ObjectRef {
+                        kind: k.clone(),
+                        schema: None,
+                        name: "items".into(),
+                    }),
+                    to: "ana".into(),
+                    grantable: false,
+                })
+                .unwrap();
+                assert_eq!(g, format!(r#"GRANT {} ON "items" TO "ana";"#, p.name));
+            }
+        }
     }
 }

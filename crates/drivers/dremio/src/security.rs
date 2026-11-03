@@ -14,8 +14,8 @@
 use crate::ddl::{lit, q};
 use crate::{text, DremioSession};
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
-    SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SchemaSpec,
+    SecurityAction, SecuritySpec,
 };
 use serde_json::{Map, Value};
 use std::collections::{HashSet, VecDeque};
@@ -291,9 +291,116 @@ pub async fn grants(s: &DremioSession, principal: &str) -> Result<Vec<Grant>> {
     Ok(out)
 }
 
+// -- what GRANT takes ----------------------------------------------------------
+
+/// The privileges GRANT takes on SYSTEM (""), a folder (`schema`), a table
+/// and a view, from "Privileges"
+/// (https://docs.dremio.com/current/security/rbac/privileges/, and the 25.x
+/// page for older servers) checked against the parser of 26.0.5, the last
+/// open one (`sabot/grammar/…/grant.ftl`): Dremio has no catalog of them.
+/// The docs' UPLOAD FILE is `UPLOAD` there. OWNERSHIP goes on objects, not on
+/// SYSTEM.
+const ON_SYSTEM: &[&str] = &[
+    "ALTER",
+    "ALTER REFLECTION",
+    "CONFIGURE SECURITY",
+    "CREATE ROLE",
+    "CREATE SOURCE",
+    "CREATE TABLE",
+    "CREATE USER",
+    "DELETE",
+    "DROP",
+    "EXECUTE",
+    "EXPORT DIAGNOSTICS",
+    "EXTERNAL QUERY",
+    "INSERT",
+    "MANAGE GRANTS",
+    "MODIFY",
+    "SELECT",
+    "TRUNCATE",
+    "UPDATE",
+    "UPLOAD",
+    "VIEW JOB HISTORY",
+    "VIEW REFLECTION",
+    "ALL",
+];
+
+/// On SYSTEM in the 26.x docs but not in 26.0's parser: from 26.1.
+const ON_SYSTEM_SINCE_26_1: &[&str] = &["CALL MODEL", "CREATE MODEL PROVIDER", "CREATE SPACE"];
+
+/// On SYSTEM in the 25.x docs, gone from 26.x's.
+const ON_SYSTEM_BEFORE_26: &[&str] = &["READ METADATA"];
+
+const ON_FOLDER: &[&str] = &[
+    "ALTER",
+    "ALTER REFLECTION",
+    "CREATE TABLE",
+    "DELETE",
+    "DROP",
+    "MANAGE GRANTS",
+    "OWNERSHIP",
+    "READ METADATA",
+    "SELECT",
+    "TRUNCATE",
+    "UPDATE",
+    "VIEW REFLECTION",
+    "ALL",
+];
+
+/// A table's and a view's (the writes, on Iceberg ones).
+const ON_DATASET: &[&str] = &[
+    "ALTER",
+    "DELETE",
+    "INSERT",
+    "MANAGE GRANTS",
+    "OWNERSHIP",
+    "READ METADATA",
+    "SELECT",
+    "TRUNCATE",
+    "UPDATE",
+    "ALL",
+];
+
+/// `Session::privileges` for a server of `release` (major, minor); unknown,
+/// only what every documented release takes.
+pub fn privileges(release: Option<(u32, u32)>) -> Vec<Privilege> {
+    let mut system = ON_SYSTEM.to_vec();
+    if release.is_some_and(|r| r >= (26, 1)) {
+        system.extend(ON_SYSTEM_SINCE_26_1);
+    }
+    if release.is_some_and(|r| r < (26, 0)) {
+        system.extend(ON_SYSTEM_BEFORE_26);
+    }
+    let mut out: Vec<Privilege> = Vec::new();
+    for (kind, names) in [
+        ("", system.as_slice()),
+        ("schema", ON_FOLDER),
+        (kinds::TABLE, ON_DATASET),
+        (kinds::VIEW, ON_DATASET),
+    ] {
+        for name in names {
+            match out.iter_mut().find(|p| p.name == *name) {
+                Some(p) => p.on.push(kind.to_string()),
+                None => out.push(Privilege::new(*name, &[kind])),
+            }
+        }
+    }
+    out
+}
+
+/// (major, minor) of a server version (`Dremio 26.0.5`).
+pub fn release(version: &str) -> Option<(u32, u32)> {
+    let v = version.split_whitespace().last()?;
+    let mut parts = v.split('.').map(|p| p.parse::<u32>().ok());
+    Some((parts.next()??, parts.next().flatten().unwrap_or(0)))
+}
+
 // -- scripts -------------------------------------------------------------------
 
-fn privileges(p: &[String]) -> Result<String> {
+/// Privilege names: letters and spaces (`_` read as a space, as
+/// `sys.privileges` writes them). UPLOAD FILE, as the docs and
+/// `sys.privileges` name it, is written as the parser takes it: `UPLOAD`.
+fn privilege_list(p: &[String]) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
     }
@@ -303,7 +410,12 @@ fn privileges(p: &[String]) -> Result<String> {
         if up.is_empty() || !up.chars().all(|c| c.is_ascii_alphabetic() || c == ' ') {
             return Err(Error::Query(format!("«{x}» no es un permiso de Dremio")));
         }
-        out.push(up);
+        let up = up.split_whitespace().collect::<Vec<_>>().join(" ");
+        out.push(if up == "UPLOAD FILE" {
+            "UPLOAD".to_string()
+        } else {
+            up
+        });
     }
     Ok(out.join(", "))
 }
@@ -432,7 +544,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             return Err(Error::Unsupported("Dremio no deshabilita usuarios por SQL: hacelo desde la administración de usuarios de Dremio".into()))
         }
         SecurityAction::Grant { privileges: p, object, to, grantable } => {
-            let privs = privileges(p)?;
+            let privs = privilege_list(p)?;
             let on = on(object)?;
             let is_folder = object.as_ref().is_some_and(|o| matches!(o.kind.as_str(), "schema" | "folder"));
             if *grantable && !is_folder {
@@ -446,7 +558,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             }
             s
         }
-        SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {} ON {} FROM {};", privileges(p)?, on(object)?, to_whom(from)),
+        SecurityAction::Revoke { privileges: p, object, from } => format!("REVOKE {} ON {} FROM {};", privilege_list(p)?, on(object)?, to_whom(from)),
         SecurityAction::AddMember { role, member } => format!("GRANT ROLE {} TO {};", q(grantee(role).1), to_whom(member)),
         SecurityAction::RemoveMember { role, member } => format!("REVOKE ROLE {} FROM {};", q(grantee(role).1), to_whom(member)),
     })
@@ -688,6 +800,74 @@ mod tests {
             .iter()
             .map(|r| r.as_object().unwrap().clone())
             .collect()
+    }
+
+    #[test]
+    fn lists_what_grant_takes() {
+        let kinds = spec().object_kinds;
+        let names = |r| {
+            privileges(r)
+                .into_iter()
+                .map(|p| p.name)
+                .collect::<Vec<_>>()
+        };
+        for r in [None, Some((25, 3)), Some((26, 0)), Some((26, 1))] {
+            let all = privileges(r);
+            let mut seen = HashSet::new();
+            for p in &all {
+                assert!(seen.insert(p.name.as_str()), "{} twice", p.name);
+                assert!(!p.on.is_empty(), "{}", p.name);
+                // Each one, on each of its kinds, makes a valid GRANT.
+                for k in &p.on {
+                    assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                    let object = match k.as_str() {
+                        "" => None,
+                        "schema" => obj(k, None, "nessie.f"),
+                        _ => obj(k, Some("nessie.f"), "t"),
+                    };
+                    let g = script(&SecurityAction::Grant {
+                        privileges: vec![p.name.clone()],
+                        object,
+                        to: "ana".into(),
+                        grantable: false,
+                    })
+                    .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                    assert!(g.starts_with(&format!("GRANT {} ON ", p.name)), "{g}");
+                }
+            }
+        }
+        let all = privileges(Some((26, 0)));
+        let on = |n: &str| all.iter().find(|p| p.name == n).map(|p| p.on.clone());
+        assert_eq!(on("SELECT").unwrap(), ["", "schema", "table", "view"]);
+        assert_eq!(on("OWNERSHIP").unwrap(), ["schema", "table", "view"]);
+        assert_eq!(on("CREATE USER").unwrap(), [""]);
+        assert_eq!(on("READ METADATA").unwrap(), ["schema", "table", "view"]);
+        assert_eq!(on("VIEW REFLECTION").unwrap(), ["", "schema"]);
+        // What came in 26.1, what 26 dropped from SYSTEM.
+        assert!(!names(Some((26, 0))).contains(&"CALL MODEL".to_string()));
+        assert!(names(Some((26, 1))).contains(&"CREATE SPACE".to_string()));
+        assert_eq!(
+            privileges(Some((25, 3)))
+                .into_iter()
+                .find(|p| p.name == "READ METADATA")
+                .unwrap()
+                .on,
+            ["", "schema", "table", "view"]
+        );
+        assert!(!names(None).contains(&"CALL MODEL".to_string()));
+        assert_eq!(release("Dremio 26.0.5"), Some((26, 0)));
+        assert_eq!(release("Dremio 25"), Some((25, 0)));
+        assert_eq!(release("Dremio x"), None);
+        // UPLOAD FILE (the docs', sys.privileges') is written UPLOAD.
+        assert_eq!(
+            script(&SecurityAction::Revoke {
+                privileges: vec!["upload_file".into(), "UPLOAD  FILE".into(), "SELECT".into()],
+                object: None,
+                from: "ana".into(),
+            })
+            .unwrap(),
+            "REVOKE UPLOAD, UPLOAD, SELECT ON SYSTEM FROM USER \"ana\";"
+        );
     }
 
     #[test]

@@ -13,8 +13,8 @@
 use crate::DatabricksSession;
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
-    SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SchemaSpec,
+    SecurityAction, SecuritySpec,
 };
 use serde_json::json;
 
@@ -53,6 +53,145 @@ pub fn spec() -> SecuritySpec {
         membership: false,
         per_database: false,
     }
+}
+
+// -- what GRANT takes ----------------------------------------------------------
+
+/// The privileges GRANT takes on each kind of the spec, from "Unity Catalog
+/// privileges reference", What privileges apply to each securable object
+/// (https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/privileges):
+/// Unity Catalog has no catalog of them. A catalog and a schema also take
+/// the privileges of the objects in them (inherited by those objects).
+/// Left out: what applies only to registered models (APPLY TAG and CREATE
+/// MODEL VERSION on a function) and the securables the spec doesn't offer
+/// (volumes, external locations, credentials, connections, shares…).
+const ON_METASTORE: &[&str] = &[
+    "CREATE CATALOG",
+    "CREATE CLEAN ROOM",
+    "CREATE CONNECTION",
+    "CREATE EXTERNAL LOCATION",
+    "CREATE EXTERNAL METADATA",
+    "CREATE PROVIDER",
+    "CREATE RECIPIENT",
+    "CREATE SHARE",
+    "CREATE SERVICE CREDENTIAL",
+    "CREATE STORAGE CREDENTIAL",
+    "MANAGE ALLOWLIST",
+    "READ METADATA",
+    "SET SHARE PERMISSION",
+    "USE MARKETPLACE ASSETS",
+    "USE PROVIDER",
+    "USE RECIPIENT",
+    "USE SHARE",
+];
+
+const ON_CATALOG: &[&str] = &[
+    "ALL PRIVILEGES",
+    "APPLY TAG",
+    "BROWSE",
+    "CREATE SCHEMA",
+    "USE CATALOG",
+    // Inherited by its schemas and their objects.
+    "CREATE FEATURE",
+    "CREATE FUNCTION",
+    "CREATE SECRET",
+    "CREATE TABLE",
+    "CREATE MATERIALIZED VIEW",
+    "CREATE MODEL",
+    "CREATE SERVICE",
+    "CREATE VOLUME",
+    "DELETE",
+    "EXTERNAL USE SCHEMA",
+    "INSERT",
+    "READ FEATURE",
+    "READ METADATA",
+    "READ SECRET",
+    "READ VOLUME",
+    "REFERENCE SECRET",
+    "REFRESH",
+    "UPDATE",
+    "WRITE SECRET",
+    "WRITE VOLUME",
+    "EXECUTE",
+    "MANAGE",
+    "MODIFY",
+    "SELECT",
+    "USE SCHEMA",
+];
+
+const ON_SCHEMA: &[&str] = &[
+    "ALL PRIVILEGES",
+    "APPLY TAG",
+    "CREATE FEATURE",
+    "CREATE FUNCTION",
+    "CREATE SECRET",
+    "CREATE TABLE",
+    "CREATE MODEL",
+    "CREATE SERVICE",
+    "CREATE VOLUME",
+    "CREATE MATERIALIZED VIEW",
+    "MANAGE",
+    "READ METADATA",
+    "EXTERNAL USE SCHEMA",
+    "USE SCHEMA",
+    // Inherited by its objects.
+    "DELETE",
+    "EXECUTE",
+    "INSERT",
+    "MODIFY",
+    "READ FEATURE",
+    "READ SECRET",
+    "READ VOLUME",
+    "REFERENCE SECRET",
+    "REFRESH",
+    "SELECT",
+    "UPDATE",
+    "WRITE SECRET",
+    "WRITE VOLUME",
+];
+
+const ON_TABLE: &[&str] = &[
+    "ALL PRIVILEGES",
+    "APPLY TAG",
+    "DELETE",
+    "INSERT",
+    "MANAGE",
+    "MODIFY",
+    "READ METADATA",
+    "SELECT",
+    "UPDATE",
+];
+
+const ON_VIEW: &[&str] = &[
+    "ALL PRIVILEGES",
+    "APPLY TAG",
+    "MANAGE",
+    "READ METADATA",
+    "SELECT",
+];
+
+const ON_FUNCTION: &[&str] = &["ALL PRIVILEGES", "EXECUTE", "MANAGE", "READ METADATA"];
+
+/// `Session::privileges`: the tables above, each privilege once with every
+/// kind it goes on ("" = the metastore, "database" = a catalog).
+pub fn privileges() -> Vec<Privilege> {
+    let mut out: Vec<Privilege> = Vec::new();
+    for (kind, names) in [
+        ("", ON_METASTORE),
+        ("database", ON_CATALOG),
+        ("schema", ON_SCHEMA),
+        ("table", ON_TABLE),
+        ("view", ON_VIEW),
+        ("function", ON_FUNCTION),
+    ] {
+        for name in names {
+            match out.iter_mut().find(|p| p.name == *name) {
+                Some(p) => p.on.push(kind.to_string()),
+                None => out.push(Privilege::new(*name, &[kind])),
+            }
+        }
+    }
+    out
 }
 
 /// Groups every workspace has.
@@ -323,7 +462,7 @@ fn on(object: &Option<ObjectRef>) -> Result<String> {
 }
 
 /// Privilege names: letters, spaces and underscores.
-fn privileges(p: &[String]) -> Result<String> {
+fn privilege_list(p: &[String]) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
     }
@@ -359,7 +498,12 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             to,
             grantable,
         } => {
-            let grant = format!("GRANT {} ON {} TO {};", privileges(p)?, on(object)?, q(to));
+            let grant = format!(
+                "GRANT {} ON {} TO {};",
+                privilege_list(p)?,
+                on(object)?,
+                q(to)
+            );
             if *grantable {
                 format!("-- Unity Catalog no tiene WITH GRANT OPTION: para que pueda otorgar permisos sobre el objeto, otorgale MANAGE.\n{grant}")
             } else {
@@ -372,7 +516,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             from,
         } => format!(
             "REVOKE {} ON {} FROM {};",
-            privileges(p)?,
+            privilege_list(p)?,
             on(object)?,
             q(from)
         ),
@@ -642,6 +786,54 @@ mod tests {
         assert_eq!((g.object, g.object_kind), (None, None));
         assert!(grants_query(2, true).contains("grantee IN (:p0, :p1) AND (inherited_from IS NULL"));
         assert!(!grants_query(1, false).contains("inherited_from"));
+    }
+
+    #[test]
+    fn lists_what_grant_takes() {
+        let all = privileges();
+        let kinds = spec().object_kinds;
+        let mut names = std::collections::HashSet::new();
+        for p in &all {
+            assert!(names.insert(p.name.as_str()), "{} twice", p.name);
+            assert!(!p.on.is_empty(), "{}", p.name);
+            // Each one, on each of its kinds, makes a valid GRANT.
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = match k.as_str() {
+                    "" => None,
+                    "database" | "schema" => obj(k, None, "x"),
+                    _ => obj(k, Some("s"), "x"),
+                };
+                let g = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ana".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(g.starts_with(&format!("GRANT {} ON ", p.name)), "{g}");
+            }
+        }
+        let on = |n: &str| {
+            all.iter()
+                .find(|p| p.name == n)
+                .unwrap_or_else(|| panic!("{n}"))
+                .on
+                .clone()
+        };
+        assert_eq!(on("CREATE CATALOG"), [""]);
+        assert_eq!(on("USE CATALOG"), ["database"]);
+        assert_eq!(on("USE SCHEMA"), ["database", "schema"]);
+        assert_eq!(on("SELECT"), ["database", "schema", "table", "view"]);
+        assert_eq!(on("EXECUTE"), ["database", "schema", "function"]);
+        assert_eq!(
+            on("READ METADATA"),
+            ["", "database", "schema", "table", "view", "function"]
+        );
+        // The spec's fixed list is all in there.
+        for p in spec().privileges {
+            assert!(all.iter().any(|x| x.name == p), "{p}");
+        }
     }
 
     #[test]

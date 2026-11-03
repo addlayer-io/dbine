@@ -315,3 +315,103 @@ async fn presto_schemas() {
     };
     run(d.drop_schema_script(None, "dbine_ps", false).unwrap()).await;
 }
+
+/// The privileges GRANT takes (no catalog of them: the documented ones),
+/// from a live session, and the server parses the GRANT of each one on
+/// each of its kinds: the memory catalog refuses it for having no grants
+/// (`refusal`), never for its syntax or an unknown privilege. Presto with
+/// `DBINE_TEST_PRESTO_URL` (`prestodb/presto`).
+async fn grants_what_it_lists(var: &str, flavor: usize, refusal: &str, has: &[&str]) {
+    let Ok(url) = std::env::var(var) else { return };
+    let url = reqwest::Url::parse(&url).expect("URL");
+    let d = dbine_driver_trino::drivers().remove(flavor);
+    let c = ConnectionConfig {
+        driver: d.info().id.to_string(),
+        host: url.host_str().unwrap().into(),
+        port: url.port().unwrap_or(0),
+        username: Some("dbine".into()),
+        database: "memory".into(),
+        ..Default::default()
+    };
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&c, None).await.unwrap();
+    let all = s.privileges().await.unwrap();
+    for name in has {
+        assert!(all.iter().any(|p| p.name == *name), "{name}: {all:?}");
+    }
+    let run = async |s: &mut Box<dyn dbine_driver::Session>, sql: &str| -> Option<String> {
+        let mut out = QueryOutcome::default();
+        match s.execute(sql, 10, &mut out).await {
+            Err(e) => Some(e.to_string()),
+            Ok(()) => out.error.clone(),
+        }
+    };
+    let _ = run(&mut s, "DROP VIEW IF EXISTS dbine_priv.v").await;
+    let _ = run(&mut s, "DROP TABLE IF EXISTS dbine_priv.t").await;
+    let _ = run(&mut s, "DROP SCHEMA IF EXISTS dbine_priv").await;
+    for sql in [
+        "CREATE SCHEMA dbine_priv",
+        "CREATE TABLE dbine_priv.t (a int)",
+        "CREATE VIEW dbine_priv.v AS SELECT a FROM dbine_priv.t",
+    ] {
+        assert_eq!(run(&mut s, sql).await, None, "{sql}");
+    }
+    for p in &all {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+        for k in &p.on {
+            let object = Some(match k.as_str() {
+                "schema" => ObjectRef {
+                    kind: k.clone(),
+                    schema: None,
+                    name: "dbine_priv".into(),
+                },
+                _ => ObjectRef {
+                    kind: k.clone(),
+                    schema: Some("dbine_priv".into()),
+                    name: if k == "view" { "v" } else { "t" }.into(),
+                },
+            });
+            let sql = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ana".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            let err = run(&mut s, &sql).await.unwrap_or_default();
+            assert!(err.contains(refusal), "{sql}: {err}");
+        }
+    }
+    let _ = run(&mut s, "DROP VIEW dbine_priv.v").await;
+    let _ = run(&mut s, "DROP TABLE dbine_priv.t").await;
+    let _ = run(&mut s, "DROP SCHEMA dbine_priv").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn trino_lists_the_privileges_it_can_grant() {
+    // The stock image is recent: CREATE BRANCH (477+) is there.
+    grants_what_it_lists(
+        "DBINE_TEST_TRINO_URL",
+        0,
+        "permission management",
+        &["SELECT", "CREATE", "CREATE BRANCH", "ALL PRIVILEGES"],
+    )
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn presto_lists_the_privileges_it_can_grant() {
+    grants_what_it_lists(
+        "DBINE_TEST_PRESTO_URL",
+        1,
+        "does not support grants",
+        &["SELECT", "INSERT", "DELETE", "ALL PRIVILEGES"],
+    )
+    .await;
+}

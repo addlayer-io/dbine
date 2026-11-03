@@ -12,7 +12,8 @@
 
 use crate::{database_path, node, split_path, IotDbSession};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::Value as J;
 
@@ -189,6 +190,101 @@ pub async fn grants(s: &IotDbSession, principal: &str) -> Result<Vec<Grant>> {
         });
     }
     Ok(g)
+}
+
+// -- what can be granted ---------------------------------------------------------
+
+/// The privileges on data and schema, granted on every path or on a
+/// database's subtree; the rest (and ALL) only on `root.**`.
+const PATH_PRIVILEGES: &[&str] = &["READ_DATA", "WRITE_DATA", "READ_SCHEMA", "WRITE_SCHEMA"];
+
+/// What IoTDB 1.3+ and 2.x grant on the tree model, from their docs
+/// (<https://iotdb.apache.org/UserGuide/V1.3.x/User-Manual/Authority-Management.html>,
+/// <https://iotdb.apache.org/UserGuide/latest/User-Manual/Authority-Management.html>):
+/// for a server whose list can't be read.
+const DOCUMENTED: &[&str] = &[
+    "READ_DATA",
+    "WRITE_DATA",
+    "READ_SCHEMA",
+    "WRITE_SCHEMA",
+    "MANAGE_DATABASE",
+    "MANAGE_USER",
+    "MANAGE_ROLE",
+    "USE_TRIGGER",
+    "USE_UDF",
+    "USE_CQ",
+    "USE_PIPE",
+    "USE_MODEL",
+    "EXTEND_TEMPLATE",
+    "MAINTAIN",
+];
+
+fn privilege(name: &str, path: bool) -> Privilege {
+    if path {
+        Privilege::new(name, &["", "database"])
+    } else {
+        Privilege::new(name, &[""])
+    }
+}
+
+/// ALL goes only on `root.**`: IoTDB refuses it on another path.
+fn with_all(mut out: Vec<Privilege>) -> Vec<Privilege> {
+    out.push(privilege("ALL", false));
+    out
+}
+
+fn documented() -> Vec<Privilege> {
+    with_all(
+        DOCUMENTED
+            .iter()
+            .map(|p| privilege(p, PATH_PRIVILEGES.contains(p)))
+            .collect(),
+    )
+}
+
+/// `root` holds every privilege of the server's version, so its
+/// `LIST PRIVILEGES OF USER root` rows (role, path, privilege, grant
+/// option) are the server's list. 2.x gives the global ones an empty
+/// scope; 1.3 lists them all on `root.**`, and there the path ones are
+/// told by name.
+fn from_root(rows: &[Vec<J>]) -> Vec<Privilege> {
+    let scoped = rows
+        .iter()
+        .any(|r| r.get(1).map(text).is_some_and(|p| p.trim().is_empty()));
+    let mut out: Vec<Privilege> = Vec::new();
+    for r in rows {
+        let Some(name) = r.get(2).map(text).map(|p| p.trim().to_uppercase()) else {
+            continue;
+        };
+        if name.is_empty() || out.iter().any(|p| p.name == name) {
+            continue;
+        }
+        let path = if scoped {
+            r.get(1).map(text).is_some_and(|p| !p.trim().is_empty())
+        } else {
+            PATH_PRIVILEGES.contains(&name.as_str())
+        };
+        out.push(privilege(&name, path));
+    }
+    if out.is_empty() {
+        return Vec::new();
+    }
+    with_all(out)
+}
+
+/// The server's list (root's privileges, which need MANAGE_USER to read
+/// unless connected as root), else the documented one.
+pub async fn grantable(s: &IotDbSession) -> Result<Vec<Privilege>> {
+    let listed = s
+        .query("LIST PRIVILEGES OF USER root", 100_000)
+        .await
+        .map(|t| from_root(&t.rows))
+        .unwrap_or_default();
+    Ok(if listed.is_empty() {
+        documented()
+    } else {
+        listed
+    })
 }
 
 // -- scripts -------------------------------------------------------------------
@@ -458,6 +554,59 @@ mod tests {
             grantable: false
         })
         .is_err());
+    }
+
+    #[test]
+    fn every_privilege_is_grantable_on_its_kinds() {
+        let kinds = spec().object_kinds;
+        for p in documented() {
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let a = SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: if k.is_empty() { None } else { db("root.sg") },
+                    to: "ana".into(),
+                    grantable: false,
+                };
+                assert!(script(&a).is_ok(), "{} on {k}", p.name);
+            }
+        }
+    }
+
+    #[test]
+    fn lists_what_root_holds() {
+        let row = |path: &str, p: &str| vec![json!(""), json!(path), json!(p), json!(true)];
+        let on = |list: &[Privilege], n: &str| {
+            list.iter()
+                .find(|p| p.name == n)
+                .map(|p| p.on.join(","))
+                .unwrap_or_else(|| panic!("{n}"))
+        };
+        // 1.3: every row on root.**.
+        let v1 = from_root(&[
+            row("root.**", "MANAGE_USER"),
+            row("root.**", "READ_DATA"),
+            row("root.**", "USE_MODEL"),
+        ]);
+        assert_eq!(on(&v1, "MANAGE_USER"), "");
+        assert_eq!(on(&v1, "READ_DATA"), ",database");
+        assert_eq!(on(&v1, "ALL"), "");
+        assert_eq!(v1.len(), 4);
+        // 2.x: the global ones without a scope, whatever their name.
+        let v2 = from_root(&[
+            row("", "MANAGE_USER"),
+            row("", "SOMETHING_NEW"),
+            row("root.**", "WRITE_SCHEMA"),
+            row("root.**", "WRITE_SCHEMA"),
+        ]);
+        assert_eq!(on(&v2, "SOMETHING_NEW"), "");
+        assert_eq!(on(&v2, "WRITE_SCHEMA"), ",database");
+        assert_eq!(v2.len(), 4);
+        assert!(from_root(&[]).is_empty());
+        let all = documented();
+        assert_eq!(all.len(), DOCUMENTED.len() + 1);
+        assert_eq!(on(&all, "MAINTAIN"), "");
+        assert_eq!(on(&all, "READ_SCHEMA"), ",database");
     }
 
     #[test]

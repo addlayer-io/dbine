@@ -8,7 +8,8 @@
 use crate::ddl::{lit, q};
 use crate::{text, TdSession, SUBTABLE, SUPERTABLE};
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::{Map, Value};
 
@@ -30,6 +31,23 @@ pub fn spec() -> SecuritySpec {
         membership: false,
         per_database: false,
     }
+}
+
+/// What TDengine grants, and on what. It has no catalog of privileges:
+/// these are the ones of its docs for 3.x
+/// (<https://docs.tdengine.com/tdengine-reference/sql-manual/manage-permissions/>):
+/// READ, WRITE or ALL on every database (`*.*`), a database, a supertable
+/// or a basic table (not a subtable: those go through their supertable
+/// with a tag condition), and SUBSCRIBE on a topic. ALTER is left out: it
+/// applies only to views, which DBine doesn't offer here.
+pub fn grantable() -> Vec<Privilege> {
+    let data = ["", "database", SUPERTABLE, kinds::TABLE];
+    vec![
+        Privilege::new("READ", &data),
+        Privilege::new("WRITE", &data),
+        Privilege::new("ALL", &data),
+        Privilege::new("SUBSCRIBE", &[kinds::TOPIC]),
+    ]
 }
 
 // -- reading -------------------------------------------------------------------
@@ -261,6 +279,27 @@ mod tests {
             schema: schema.map(Into::into),
             name: name.into(),
         })
+    }
+
+    #[test]
+    fn every_privilege_is_grantable_on_its_kinds() {
+        let kinds = spec().object_kinds;
+        for p in grantable() {
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let a = SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: if k.is_empty() {
+                        None
+                    } else {
+                        obj(k, Some("sdb"), "t")
+                    },
+                    to: "ana".into(),
+                    grantable: false,
+                };
+                assert!(script(&a).is_ok(), "{} on {k}", p.name);
+            }
+        }
     }
 
     #[test]

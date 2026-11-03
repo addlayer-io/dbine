@@ -30,6 +30,14 @@ pub fn spec() -> SecuritySpec {
     }
 }
 
+/// What the tab can grant: nothing. Rule-based authorization keeps, in
+/// each permission (`security-edit`, `read`, `all`…), the whole list of the
+/// roles that hold it, so granting is left to the console and the spec has
+/// no kinds to grant on.
+pub fn privileges() -> Vec<dbine_driver::Privilege> {
+    Vec::new()
+}
+
 const AUTHENTICATION: &str = "/solr/admin/authentication";
 const AUTHORIZATION: &str = "/solr/admin/authorization";
 
@@ -403,6 +411,8 @@ mod tests {
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
+        // Nothing to grant from the tab, on no kind.
+        assert!(privileges().is_empty() && spec().object_kinds.is_empty());
     }
 
     #[test]

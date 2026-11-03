@@ -11,7 +11,9 @@
 //! done from the console, reading the document first.
 
 use crate::{seg, CouchSession};
-use dbine_driver::{Error, Grant, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec};
+use dbine_driver::{
+    Error, Grant, Principal, PrincipalKind, Privilege, Result, SecurityAction, SecuritySpec,
+};
 use reqwest::Method;
 use serde_json::{json, Value};
 
@@ -25,6 +27,18 @@ pub fn spec() -> SecuritySpec {
         membership: false,
         per_database: false,
     }
+}
+
+/// What can be granted: a database's `_security` lists its `admins` and
+/// its `members` (https://docs.couchdb.org/en/stable/api/database/security.html).
+/// CouchDB has no catalog of them, nor anything else to grant: server
+/// admins are set in the configuration. The script still sends the change
+/// to the console, since `_security` is replaced whole.
+pub fn privileges() -> Vec<Privilege> {
+    ["admins", "members"]
+        .into_iter()
+        .map(|p| Privilege::new(p, &["database"]))
+        .collect()
 }
 
 const USER_PREFIX: &str = "org.couchdb.user:";
@@ -378,5 +392,34 @@ mod tests {
         assert!(a
             .iter()
             .any(|g| g.privilege == "members" && g.via.as_deref() == Some("_admin")));
+    }
+
+    /// The listed privileges are the spec's, on a database; granting them
+    /// is left to the console, not refused as a bad name.
+    #[test]
+    fn lists_admins_and_members_of_a_database() {
+        let spec = spec();
+        let list = privileges();
+        assert_eq!(
+            list.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+            spec.privileges
+        );
+        for p in list {
+            assert_eq!(p.on, vec!["database"]);
+            assert!(p.on.iter().all(|k| spec.object_kinds.contains(&k.as_str())));
+            let grant = SecurityAction::Grant {
+                privileges: vec![p.name.clone()],
+                object: Some(dbine_driver::ObjectRef {
+                    kind: "database".into(),
+                    schema: None,
+                    name: "ventas".into(),
+                }),
+                to: "ana".into(),
+                grantable: false,
+            };
+            assert!(
+                matches!(script(&grant), Err(Error::Unsupported(m)) if m.contains("_security"))
+            );
+        }
     }
 }

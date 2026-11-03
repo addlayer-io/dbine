@@ -8,8 +8,8 @@
 
 use crate::SpannerSession;
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
-    SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SchemaSpec,
+    SecurityAction, SecuritySpec,
 };
 use serde_json::Value as Json;
 use std::collections::HashMap;
@@ -24,6 +24,22 @@ pub fn spec() -> SecuritySpec {
         membership: true,
         per_database: true,
     }
+}
+
+/// `Session::privileges`: what GRANT takes on a table and a view, from
+/// "Fine-grained access control privileges"
+/// (https://cloud.google.com/spanner/docs/fgac-privileges); Spanner has no
+/// catalog of them. Left out, being on kinds the spec doesn't offer: SELECT
+/// on change streams and sequences, UPDATE on sequences, EXECUTE on change
+/// stream read functions and models, USAGE on schemas ("Nuevo esquema…"
+/// grants it).
+pub fn privileges() -> Vec<Privilege> {
+    vec![
+        Privilege::new("SELECT", &[kinds::TABLE, kinds::VIEW]),
+        Privilege::new("INSERT", &[kinds::TABLE]),
+        Privilege::new("UPDATE", &[kinds::TABLE]),
+        Privilege::new("DELETE", &[kinds::TABLE]),
+    ]
 }
 
 /// Roles every database has.
@@ -320,7 +336,7 @@ fn bq(name: &str) -> String {
 
 /// `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `EXECUTE`, optionally with
 /// columns (`SELECT (a, b)`).
-fn privileges(p: &[String]) -> Result<String> {
+fn privilege_list(p: &[String]) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
     }
@@ -397,10 +413,10 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             return Err(Error::Query("Spanner no permite que un rol otorgue a otros sus permisos (no hay WITH GRANT OPTION)".into()))
         }
         SecurityAction::Grant { privileges: p, object, to, .. } => {
-            format!("GRANT {} ON {} TO ROLE {};", privileges(p)?, target(object)?, bq(to))
+            format!("GRANT {} ON {} TO ROLE {};", privilege_list(p)?, target(object)?, bq(to))
         }
         SecurityAction::Revoke { privileges: p, object, from } => {
-            format!("REVOKE {} ON {} FROM ROLE {};", privileges(p)?, target(object)?, bq(from))
+            format!("REVOKE {} ON {} FROM ROLE {};", privilege_list(p)?, target(object)?, bq(from))
         }
         SecurityAction::AddMember { role, member } => format!("GRANT ROLE {} TO ROLE {};", bq(role), bq(member)),
         SecurityAction::RemoveMember { role, member } => format!("REVOKE ROLE {} FROM ROLE {};", bq(role), bq(member)),
@@ -560,6 +576,32 @@ mod tests {
             grantable: false
         })
         .is_err());
+    }
+
+    #[test]
+    fn lists_what_grant_takes() {
+        let all = privileges();
+        let kinds = spec().object_kinds;
+        for p in &all {
+            assert!(!p.on.is_empty(), "{}", p.name);
+            // Each one, on each of its kinds, makes a valid GRANT.
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let g = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: obj(k, "t"),
+                    to: "r".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(g.starts_with(&format!("GRANT {} ON ", p.name)), "{g}");
+            }
+        }
+        assert_eq!(all[0], Privilege::new("SELECT", &["table", "view"]));
+        assert!(all[1..].iter().all(|p| p.on == ["table"]));
+        // The spec's fixed list, nothing more.
+        let names: Vec<&str> = all.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, spec().privileges);
     }
 
     #[test]

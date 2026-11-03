@@ -1202,6 +1202,21 @@ impl Session for TrinoSession {
         security::grants(self, principal).await
     }
 
+    /// No catalog of them: the documented ones, for the server's release
+    /// (when `/v1/info` can't be read, without what came lately).
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        let presto = self.flavor == Flavor::Presto;
+        let release = match presto {
+            true => None,
+            false => self
+                .server_version()
+                .await
+                .ok()
+                .and_then(|v| security::release(&v)),
+        };
+        Ok(security::privileges(presto, release))
+    }
+
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
         stats::row_estimates(self).await
     }

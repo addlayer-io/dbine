@@ -245,3 +245,74 @@ async fn users_roles_and_rules() {
     drop(s);
     root.drop_database("dbine_sec").await.unwrap();
 }
+
+/// Every listed privilege, granted on each of its kinds, is taken by the
+/// server (on its own database, `dbine_priv`).
+#[tokio::test]
+#[ignore]
+async fn privileges() {
+    let Ok(url) = std::env::var("DBINE_TEST_ORIENTDB_URL") else {
+        return;
+    };
+    let d = dbine_driver_orientdb::drivers().pop().unwrap();
+    let on = |db: &str| ConnectionConfig {
+        database: db.into(),
+        ..cfg(&url, None)
+    };
+    let mut root = d.connect(&on(""), None).await.unwrap();
+    let _ = root.drop_database("dbine_priv").await;
+    root.create_database("dbine_priv").await.unwrap();
+    let mut s = d.connect(&on("dbine_priv"), None).await.unwrap();
+    run(
+        &mut s,
+        "CREATE CLASS Cliente EXTENDS V; CREATE CLASS Vende EXTENDS E; CREATE CLASS Nota",
+    )
+    .await;
+    let kinds = d.security().unwrap().object_kinds;
+    let list = s.privileges().await.unwrap();
+    for n in [
+        "READ", "CREATE", "UPDATE", "DELETE", "EXECUTE", "ALL", "NONE",
+    ] {
+        assert!(list.iter().any(|p| p.name == n), "{n}");
+    }
+    run(
+        &mut s,
+        &d.security_script(&SecurityAction::CreateRole {
+            name: "dbine_priv".into(),
+        })
+        .unwrap(),
+    )
+    .await;
+    for p in &list {
+        for k in &p.on {
+            assert!(kinds.contains(&k.as_str()), "{p:?}");
+            let name = match k.as_str() {
+                "vertex" => "Cliente",
+                "edge" => "Vende",
+                "function" => "calc",
+                _ => "Nota",
+            };
+            let object = (!k.is_empty()).then(|| ObjectRef {
+                kind: k.clone(),
+                schema: None,
+                name: name.into(),
+            });
+            let text = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "dbine_priv".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            let mut out = QueryOutcome::default();
+            s.execute(&text, 10, &mut out)
+                .await
+                .unwrap_or_else(|e| panic!("{text}: {e}"));
+            assert!(out.error.is_none(), "{text}: {:?}", out.error);
+        }
+    }
+    assert!(!s.grants("dbine_priv").await.unwrap().is_empty());
+    drop(s);
+    root.drop_database("dbine_priv").await.unwrap();
+}

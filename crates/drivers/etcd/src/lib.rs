@@ -998,6 +998,10 @@ impl Session for EtcdSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges())
+    }
+
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         let cancel = self.cancel.clone();
         Some(Arc::new(move || {

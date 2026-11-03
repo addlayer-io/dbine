@@ -23,6 +23,9 @@ mod doris;
 mod singlestore;
 mod starrocks;
 
+/// What each engine can grant (`Session::privileges`).
+pub mod privileges;
+
 /// The variants with users, roles and `GRANT` (VeloDB goes as Doris).
 pub fn supported(v: Variant) -> bool {
     matches!(

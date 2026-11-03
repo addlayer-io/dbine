@@ -1485,6 +1485,10 @@ impl Session for MongoSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges(self).await)
+    }
+
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         let handle = tokio::runtime::Handle::try_current().ok()?;
         let client = self.client.clone();

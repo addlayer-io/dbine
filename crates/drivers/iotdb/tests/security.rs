@@ -227,3 +227,47 @@ async fn users_roles_and_privileges() {
     );
     run(&mut s, "DELETE DATABASE root.dbine_sec").await;
 }
+
+/// The privileges the server can grant, on IoTDB 1 and 2 (each when its
+/// variable is set): root's list, and the documented one for a user who
+/// can't read it.
+#[tokio::test]
+#[ignore]
+async fn lists_the_privileges() {
+    let d = dbine_driver_iotdb::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "iotdb")
+        .unwrap();
+    let kinds = d.security().unwrap().object_kinds;
+    for var in ["DBINE_TEST_IOTDB_URL", "DBINE_TEST_IOTDB2_URL"] {
+        let Ok(url) = std::env::var(var) else {
+            continue;
+        };
+        let mut s = d.connect(&cfg(&url, "root", "root"), None).await.unwrap();
+        try_run(&mut s, "DROP USER dbine_priv").await;
+        run(&mut s, "CREATE USER dbine_priv 'Pw_12345x'").await;
+        let mut plain = d
+            .connect(&cfg(&url, "dbine_priv", "Pw_12345x"), None)
+            .await
+            .unwrap();
+        for mut s in [s, plain] {
+            let p = s.privileges().await.unwrap();
+            let on = |n: &str| {
+                p.iter()
+                    .find(|x| x.name == n)
+                    .map(|x| x.on.join(","))
+                    .unwrap_or_else(|| panic!("{var}: {n} in {p:?}"))
+            };
+            assert_eq!(on("READ_DATA"), ",database", "{var}");
+            assert_eq!(on("WRITE_SCHEMA"), ",database", "{var}");
+            assert_eq!(on("MANAGE_USER"), "", "{var}");
+            assert_eq!(on("USE_PIPE"), "", "{var}");
+            assert_eq!(on("ALL"), "", "{var}");
+            for x in &p {
+                assert!(x.on.iter().all(|k| kinds.contains(&k.as_str())), "{x:?}");
+            }
+        }
+        plain = d.connect(&cfg(&url, "root", "root"), None).await.unwrap();
+        run(&mut plain, "DROP USER dbine_priv").await;
+    }
+}

@@ -139,3 +139,23 @@ async fn users_and_permissions() {
     assert!(s.principals().await.unwrap().is_empty());
     admin.drop_database("dbine_sec").await.unwrap();
 }
+
+/// What the "Usuarios y permisos" tab offers to grant: ALL or READ on a
+/// container.
+#[tokio::test]
+#[ignore]
+async fn privileges() {
+    let Some(c) = cfg("") else { return };
+    let d = dbine_driver_cosmosdb::drivers().remove(0);
+    let spec = d.security().unwrap();
+    let mut s = d.connect(&c, None).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    assert_eq!(
+        list.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        ["ALL", "READ"]
+    );
+    for p in &list {
+        assert_eq!(p.on, vec![kinds::COLLECTION]);
+        assert!(p.on.iter().all(|k| spec.object_kinds.contains(&k.as_str())));
+    }
+}

@@ -584,3 +584,23 @@ async fn delete_script_runs() {
     assert!(!rows.contains("Brien") && !rows.contains("\"b\""), "{rows}");
     run(&mut s, "DELETE /dbine_del", 10).await.ok();
 }
+
+/// What the "Usuarios y permisos" tab offers to grant: a database's
+/// `admins` and `members`.
+#[tokio::test]
+#[ignore]
+async fn privileges() {
+    let Some(c) = cfg(false) else { return };
+    let d = &dbine_driver_couchdb::drivers()[0];
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&c, None).await.expect("connect");
+    let list = s.privileges().await.unwrap();
+    assert_eq!(
+        list.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        ["admins", "members"]
+    );
+    for p in &list {
+        assert_eq!(p.on, vec!["database"]);
+        assert!(p.on.iter().all(|k| kinds.contains(&k.as_str())));
+    }
+}

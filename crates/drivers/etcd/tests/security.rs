@@ -6,6 +6,9 @@
 //!   etcd --advertise-client-urls http://0.0.0.0:2379 --listen-client-urls http://0.0.0.0:2379
 //! DBINE_TEST_ETCD_AUTH_URL=http://localhost:27113 cargo test -p dbine-driver-etcd --test security -- --ignored
 //! ```
+//!
+//! `privileges` only needs a role, auth off: `DBINE_TEST_ETCD_URL` (see
+//! tests/integration.rs).
 
 use dbine_driver::{
     ConnectionConfig, ObjectRef, PrincipalKind, QueryOutcome, SecurityAction, Session,
@@ -253,4 +256,65 @@ async fn users_roles_and_permissions() {
         .unwrap()
         .iter()
         .any(|p| p.name.starts_with("dbine_")));
+}
+
+/// The permission types etcd grants, each taken by a role on every key and
+/// on a prefix.
+#[tokio::test]
+#[ignore]
+async fn privileges() {
+    let Ok(url) = std::env::var("DBINE_TEST_ETCD_URL") else {
+        return;
+    };
+    let url = reqwest::Url::parse(&url).expect("URL");
+    let c = ConnectionConfig {
+        driver: "etcd".into(),
+        host: url.host_str().unwrap().into(),
+        port: url.port().unwrap_or(0),
+        ..Default::default()
+    };
+    let d = dbine_driver_etcd::drivers().remove(0);
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&c, None).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["READ", "WRITE", "READWRITE"]);
+    assert!(list
+        .iter()
+        .all(|p| p.on.iter().all(|k| kinds.contains(&k.as_str()))));
+
+    let _ = s
+        .execute("role delete dbine_priv", 10, &mut QueryOutcome::default())
+        .await;
+    let script = |a: SecurityAction| d.security_script(&a).unwrap();
+    run(
+        &mut s,
+        &script(SecurityAction::CreateRole {
+            name: "dbine_priv".into(),
+        }),
+    )
+    .await;
+    for p in &list {
+        for k in &p.on {
+            let object = (!k.is_empty()).then(|| ObjectRef {
+                kind: k.clone(),
+                schema: None,
+                name: "/dbine_priv/".into(),
+            });
+            let out = run(
+                &mut s,
+                &script(SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "dbine_priv".into(),
+                    grantable: false,
+                }),
+            )
+            .await;
+            assert!(out.error.is_none(), "{p:?} on {k:?}: {:?}", out.error);
+        }
+    }
+    let g = s.grants("dbine_priv").await.unwrap();
+    assert!(g.iter().any(|x| x.privilege == "READWRITE"), "{g:?}");
+    run(&mut s, "role delete dbine_priv").await;
 }

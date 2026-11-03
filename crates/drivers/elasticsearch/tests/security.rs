@@ -8,13 +8,17 @@
 //! docker run -d --name dbine-test-opensearch-auth -p 27141:9200 -e discovery.type=single-node \
 //!   -e 'OPENSEARCH_INITIAL_ADMIN_PASSWORD=Dbine_Pw_2024!x' -e "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" \
 //!   opensearchproject/opensearch:2.17.1
+//! docker run -d --name dbine-test-opendistro-auth -p 27142:9200 -e discovery.type=single-node \
+//!   -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" amazon/opendistro-for-elasticsearch:1.13.3
 //! DBINE_TEST_ELASTICSEARCH_AUTH_URL=http://elastic:Dbine_pw1@localhost:27140 \
 //! DBINE_TEST_OPENSEARCH_AUTH_URL='https://admin:Dbine_Pw_2024!x@localhost:27141' \
+//! DBINE_TEST_OPENDISTRO_AUTH_URL=https://admin:admin@localhost:27142 \
 //!   cargo test -p dbine-driver-elasticsearch --test security -- --ignored
 //! ```
 //!
-//! `DBINE_TEST_ELASTICSEARCH_URL` / `DBINE_TEST_OPENSEARCH_URL` (servers with
-//! security off, see tests/integration.rs) check the error when there's none.
+//! `DBINE_TEST_ELASTICSEARCH_URL` / `DBINE_TEST_OPENSEARCH_URL` /
+//! `DBINE_TEST_OPENDISTRO_URL` (servers with security off, see
+//! tests/integration.rs) check the error when there's none.
 
 use dbine_driver::{
     ConnectionConfig, Driver, Error, ObjectRef, PrincipalKind, QueryOutcome, SecurityAction,
@@ -407,6 +411,77 @@ async fn without_security_says_so() {
         match s.principals().await {
             Err(Error::Unsupported(m)) => assert!(m.contains("deshabilitad"), "{m}"),
             other => panic!("{id}: {other:?}"),
+        }
+    }
+}
+
+/// What the tab offers to grant: OpenSearch and Open Distro list the
+/// server's action groups (a new one shows up), or the default ones when
+/// security is off; Elasticsearch nothing, its roles are rewritten whole.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn privileges_follow_the_server() {
+    for (id, var, prefix) in [
+        (
+            "opensearch",
+            "DBINE_TEST_OPENSEARCH_AUTH_URL",
+            Some("/_plugins/_security/api"),
+        ),
+        (
+            "opendistro",
+            "DBINE_TEST_OPENDISTRO_AUTH_URL",
+            Some("/_opendistro/_security/api"),
+        ),
+        ("opensearch", "DBINE_TEST_OPENSEARCH_URL", None),
+        ("opendistro", "DBINE_TEST_OPENDISTRO_URL", None),
+        ("elasticsearch", "DBINE_TEST_ELASTICSEARCH_AUTH_URL", None),
+        ("elasticsearch", "DBINE_TEST_ELASTICSEARCH_URL", None),
+    ] {
+        let Some(cfg) = cfg(id, var) else { continue };
+        let d = driver(id);
+        let kinds = d.security().unwrap().object_kinds;
+        let mut s = d.connect(&cfg, None).await.unwrap();
+        if id == "elasticsearch" {
+            assert!(s.privileges().await.unwrap().is_empty(), "{var}");
+            continue;
+        }
+        if let Some(api) = prefix {
+            run(
+                &mut s,
+                &format!("PUT {api}/actiongroups/dbine_grupo\n{{\"allowed_actions\": [\"indices:data/read/search*\"], \"type\": \"index\"}}"),
+            )
+            .await;
+        }
+        let list = s.privileges().await.unwrap();
+        if let Some(api) = prefix {
+            run(&mut s, &format!("DELETE {api}/actiongroups/dbine_grupo")).await;
+        }
+        let on = |name: &str| {
+            list.iter()
+                .find(|p| p.name == name)
+                .unwrap_or_else(|| panic!("{var}: {name} in {list:?}"))
+                .on
+                .clone()
+        };
+        assert_eq!(on("cluster_monitor"), vec![""], "{var}");
+        assert_eq!(on("read"), vec!["index"], "{var}");
+        assert_eq!(on("unlimited"), vec!["", "index"], "{var}");
+        assert_eq!(
+            list.iter().any(|p| p.name == "dbine_grupo"),
+            prefix.is_some(),
+            "{var}"
+        );
+        if prefix.is_some() {
+            assert_eq!(on("dbine_grupo"), vec!["index"]);
+        }
+        // Tenant permissions aren't offered.
+        assert!(!list.iter().any(|p| p.name.starts_with("kibana_")), "{var}");
+        for p in &list {
+            assert!(!p.on.is_empty(), "{var}: {p:?}");
+            assert!(
+                p.on.iter().all(|k| kinds.contains(&k.as_str())),
+                "{var}: {p:?}"
+            );
         }
     }
 }

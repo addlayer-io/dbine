@@ -24,7 +24,8 @@ use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use std::collections::HashMap;
 
@@ -194,6 +195,314 @@ pub fn spec(v: Variant) -> Option<SecuritySpec> {
             "sink",
         ])),
     })
+}
+
+// -- what can be granted -----------------------------------------------------
+
+/// A documented table: each privilege and the kinds GRANT takes it on (""
+/// the current database / the system, "database" a named one).
+type Documented = &'static [(&'static str, &'static [&'static str])];
+
+const RELATIONS: &[&str] = &["table", "view", "materialized_view"];
+const ROUTINES: &[&str] = &["function", "procedure"];
+const RELATIONS_AND_SEQUENCES: &[&str] = &["table", "view", "materialized_view", "sequence"];
+/// The database, schemas, relations and routines.
+const ALL_KINDS: &[&str] = &[
+    "",
+    "schema",
+    "table",
+    "view",
+    "materialized_view",
+    "function",
+    "procedure",
+];
+
+/// `acldefault`'s object types (database, schema, relation, sequence,
+/// routine) and the kinds each one covers.
+const ACL_TYPES: &[(&str, &[&str])] = &[
+    ("d", &[""]),
+    ("n", &["schema"]),
+    ("r", RELATIONS),
+    ("s", &["sequence"]),
+    ("f", ROUTINES),
+];
+
+/// PostgreSQL's privileges by object, for a server without `acldefault`
+/// (before 9.2, or a fork that dropped it):
+/// https://www.postgresql.org/docs/current/ddl-priv.html (table 5.2).
+const POSTGRES: Documented = &[
+    ("SELECT", RELATIONS_AND_SEQUENCES),
+    ("INSERT", RELATIONS),
+    ("UPDATE", RELATIONS_AND_SEQUENCES),
+    ("DELETE", RELATIONS),
+    ("TRUNCATE", RELATIONS),
+    ("REFERENCES", RELATIONS),
+    ("TRIGGER", RELATIONS),
+    ("USAGE", &["schema", "sequence"]),
+    ("EXECUTE", ROUTINES),
+    ("CREATE", &["", "schema"]),
+    ("CONNECT", &[""]),
+    ("TEMPORARY", &[""]),
+];
+
+/// openGauss's DDL privileges, which its `acldefault` leaves out (GRANT in
+/// the openGauss SQL reference; checked against 7.0).
+const OPENGAUSS: Documented = &[
+    ("ALTER", ALL_KINDS),
+    ("DROP", ALL_KINDS),
+    ("COMMENT", ALL_KINDS),
+    ("INDEX", RELATIONS),
+    ("VACUUM", RELATIONS),
+];
+
+/// CockroachDB's own privileges, which `acldefault` (PostgreSQL's letters)
+/// leaves out; views and materialized views take a table's:
+/// https://www.cockroachlabs.com/docs/stable/security-reference/authorization#supported-privileges
+const COCKROACH: Documented = &[
+    ("BACKUP", RELATIONS),
+    ("CHANGEFEED", RELATIONS),
+    ("DROP", RELATIONS),
+    ("ZONECONFIG", RELATIONS),
+];
+
+/// Logical data replication's, on tables from CockroachDB 25.2.
+const COCKROACH_REPLICATION: Documented = &[
+    ("REPLICATIONSOURCE", RELATIONS),
+    ("REPLICATIONDEST", RELATIONS),
+];
+
+/// CockroachDB's PostgreSQL-named privileges, for a version without
+/// `acldefault` (same page).
+const COCKROACH_PG: Documented = &[
+    ("SELECT", RELATIONS),
+    ("INSERT", RELATIONS),
+    ("UPDATE", RELATIONS),
+    ("DELETE", RELATIONS),
+    ("USAGE", &["schema"]),
+    ("EXECUTE", ROUTINES),
+    ("CREATE", &["schema", "table", "view", "materialized_view"]),
+];
+
+/// https://docs.aws.amazon.com/redshift/latest/dg/r_GRANT.html (database
+/// and routine grants aren't offered, see `spec`).
+const REDSHIFT: Documented = &[
+    ("SELECT", &["table", "view"]),
+    ("INSERT", &["table", "view"]),
+    ("UPDATE", &["table", "view"]),
+    ("DELETE", &["table", "view"]),
+    ("TRUNCATE", &["table", "view"]),
+    ("REFERENCES", &["table", "view"]),
+    ("USAGE", &["schema"]),
+    ("CREATE", &["schema"]),
+    ("ALTER", &["schema", "table", "view"]),
+    ("DROP", &["schema", "table", "view"]),
+    ("ALL", &["schema", "table", "view"]),
+];
+
+/// https://materialize.com/docs/security/appendix/appendix-privileges/
+/// ("" is SYSTEM).
+const MATERIALIZE: Documented = &[
+    ("SELECT", &["table", "view", "materialized_view", "source"]),
+    ("INSERT", &["table"]),
+    ("UPDATE", &["table"]),
+    ("DELETE", &["table"]),
+    ("USAGE", &["schema"]),
+    ("CREATE", &["schema"]),
+    ("CREATEROLE", &[""]),
+    ("CREATEDB", &[""]),
+    ("CREATECLUSTER", &[""]),
+    ("CREATENETWORKPOLICY", &[""]),
+    (
+        "ALL PRIVILEGES",
+        &["", "schema", "table", "view", "materialized_view", "source"],
+    ),
+];
+
+/// https://cratedb.com/docs/crate/reference/en/latest/admin/privileges.html
+/// ("" is the cluster): AL only works cluster-wide.
+const CRATE: Documented = &[
+    ("DQL", &["", "schema", "table", "view"]),
+    ("DML", &["", "schema", "table", "view"]),
+    ("DDL", &["", "schema", "table", "view"]),
+    ("AL", &[""]),
+    ("ALL PRIVILEGES", &["", "schema", "table", "view"]),
+];
+
+/// The order the tab lists them in; the others go after, as found, and
+/// ALL last.
+const ORDER: &[&str] = &[
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+    "MAINTAIN",
+    "USAGE",
+    "EXECUTE",
+    "CREATE",
+    "CONNECT",
+    "TEMPORARY",
+];
+
+/// Every privilege of each object type as the server's version has them
+/// (MAINTAIN from PostgreSQL 17): an owner's default ACL holds them all.
+/// 10 is any owner (the bootstrap superuser).
+fn acl_default_sql() -> String {
+    ACL_TYPES
+        .iter()
+        .map(|(t, _)| {
+            format!("SELECT '{t}' AS t, privilege_type AS p FROM aclexplode(acldefault('{t}', 10))")
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ")
+}
+
+/// (object type, privilege) rows; `None` where the engine lacks the
+/// functions or refuses them.
+async fn acl_defaults(s: &PgSession) -> Option<Vec<(String, String)>> {
+    match s.text(&acl_default_sql()).await {
+        Ok(rows) => Some(
+            rows.iter()
+                .filter_map(|r| Some((cell(r, "t")?, cell(r, "p")?)))
+                .collect::<Vec<_>>(),
+        )
+        .filter(|r| !r.is_empty()),
+        Err(e) => {
+            tracing::debug!(
+                "{:?}: acldefault unavailable ({e}); documented privileges",
+                s.variant
+            );
+            None
+        }
+    }
+}
+
+/// `v26.3.2` in CockroachDB's `version()`: (26, 3).
+fn cockroach_release(version: &str) -> Option<(u32, u32)> {
+    version.split_whitespace().find_map(|w| {
+        let mut n = w.strip_prefix('v')?.split('.');
+        Some((n.next()?.parse().ok()?, n.next()?.parse().ok()?))
+    })
+}
+
+/// `Session::privileges`: from the server's `acldefault` where the engine
+/// has it (PostgreSQL and its forks, CockroachDB), else the engine's docs.
+pub async fn grantable(s: &PgSession) -> Result<Vec<Privilege>> {
+    let d = dialect(s.variant).ok_or_else(unsupported)?;
+    let catalog = match d {
+        Dialect::Pg | Dialect::Cockroach => acl_defaults(s).await,
+        _ => None,
+    };
+    let release = match d {
+        Dialect::Cockroach => match s.text("SELECT version() AS v").await {
+            Ok(rows) => rows
+                .first()
+                .and_then(|r| cell(r, "v"))
+                .and_then(|v| cockroach_release(&v)),
+            Err(_) => None,
+        },
+        _ => None,
+    };
+    Ok(assemble(s.variant, s.version, catalog, release))
+}
+
+/// The privileges of `v`: `catalog` holds `acldefault`'s rows when the
+/// server gave them; `version` is `server_version_num`, `release`
+/// CockroachDB's.
+fn assemble(
+    v: Variant,
+    version: i32,
+    catalog: Option<Vec<(String, String)>>,
+    release: Option<(u32, u32)>,
+) -> Vec<Privilege> {
+    let (Some(d), Some(spec)) = (dialect(v), spec(v)) else {
+        return Vec::new();
+    };
+    let documented = |t: Documented| -> Vec<(String, &'static str)> {
+        t.iter()
+            .flat_map(|(p, on)| on.iter().map(move |k| (p.to_string(), *k)))
+            .collect()
+    };
+    let from_catalog = |rows: Vec<(String, String)>| -> Vec<(String, &'static str)> {
+        rows.into_iter()
+            .filter_map(|(t, p)| Some((ACL_TYPES.iter().find(|(c, _)| *c == t)?.1, p)))
+            .flat_map(|(on, p)| on.iter().map(move |k| (p.clone(), *k)))
+            .collect()
+    };
+    let every = |all: &str| -> Vec<(String, &'static str)> {
+        spec.object_kinds
+            .iter()
+            .map(|k| (all.to_string(), *k))
+            .collect()
+    };
+    let found = match d {
+        Dialect::Pg => {
+            let mut found = match catalog {
+                Some(rows) => from_catalog(rows),
+                None => {
+                    let mut f = documented(POSTGRES);
+                    if version >= 170000 {
+                        f.extend(RELATIONS.iter().map(|k| ("MAINTAIN".to_string(), *k)));
+                    }
+                    f
+                }
+            };
+            if v == Variant::OpenGauss {
+                found.extend(documented(OPENGAUSS));
+            }
+            found.extend(every("ALL PRIVILEGES"));
+            found
+        }
+        Dialect::Cockroach => {
+            let mut found = match catalog {
+                Some(rows) => from_catalog(rows),
+                None => documented(COCKROACH_PG),
+            };
+            found.extend(documented(COCKROACH));
+            if release.is_some_and(|r| r >= (25, 2)) {
+                found.extend(documented(COCKROACH_REPLICATION));
+            }
+            found.extend(every("ALL"));
+            found
+        }
+        Dialect::Redshift => documented(REDSHIFT),
+        Dialect::Materialize => documented(MATERIALIZE),
+        Dialect::Crate => documented(CRATE),
+        Dialect::H2 => documented(h2::PRIVILEGES),
+        Dialect::RisingWave => documented(risingwave::PRIVILEGES),
+    };
+    collect(found, &spec.object_kinds)
+}
+
+/// (privilege, kind) pairs as one entry per privilege, on the `kinds` the
+/// variant offers (in their order), the ones on none left out.
+fn collect(found: Vec<(String, &'static str)>, kinds: &[&str]) -> Vec<Privilege> {
+    let mut out: Vec<Privilege> = Vec::new();
+    for (name, kind) in found {
+        if !kinds.contains(&kind) {
+            continue;
+        }
+        match out.iter_mut().find(|p| p.name == name) {
+            Some(p) => p.on.push(kind.to_string()),
+            None => out.push(Privilege::new(name, &[kind])),
+        }
+    }
+    for p in out.iter_mut() {
+        p.on = kinds
+            .iter()
+            .filter(|k| p.on.iter().any(|o| o == *k))
+            .map(|k| k.to_string())
+            .collect();
+    }
+    let rank = |name: &str| match ORDER.iter().position(|o| *o == name) {
+        Some(i) => i,
+        None if name == "ALL" || name == "ALL PRIVILEGES" => ORDER.len() + 1,
+        None => ORDER.len(),
+    };
+    out.sort_by_key(|p| rank(&p.name));
+    out
 }
 
 // -- reading ---------------------------------------------------------------
@@ -1429,5 +1738,148 @@ mod tests {
                 m("otros", "otros")
             ]
         );
+    }
+
+    /// An object of `kind` as the tab sends it.
+    fn object_of(kind: &str) -> Option<ObjectRef> {
+        let (schema, name) = match kind {
+            "" => return None,
+            "schema" | "database" => (None, "s"),
+            "function" | "procedure" => (Some("s".to_string()), "f(integer)"),
+            _ => (Some("s".to_string()), "o"),
+        };
+        Some(ObjectRef {
+            kind: kind.into(),
+            schema,
+            name: name.into(),
+        })
+    }
+
+    fn on(list: &[Privilege], name: &str) -> Vec<String> {
+        list.iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("{name} missing"))
+            .on
+            .clone()
+    }
+
+    #[test]
+    fn acldefault_rows_map_to_the_offered_kinds() {
+        let catalog: Option<Vec<(String, String)>> = Some(
+            [
+                ("d", "TEMPORARY"),
+                ("d", "CONNECT"),
+                ("d", "CREATE"),
+                ("n", "USAGE"),
+                ("n", "CREATE"),
+                ("r", "INSERT"),
+                ("r", "SELECT"),
+                ("r", "MAINTAIN"),
+                ("r", "SELECT"),
+                ("s", "USAGE"),
+                ("f", "EXECUTE"),
+                ("T", "USAGE"),
+            ]
+            .iter()
+            .map(|(t, p)| (t.to_string(), p.to_string()))
+            .collect(),
+        );
+        let pg = assemble(Variant::Postgres, 170000, catalog.clone(), None);
+        let names: Vec<&str> = pg.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "SELECT",
+                "INSERT",
+                "MAINTAIN",
+                "USAGE",
+                "EXECUTE",
+                "CREATE",
+                "CONNECT",
+                "TEMPORARY",
+                "ALL PRIVILEGES"
+            ]
+        );
+        assert_eq!(on(&pg, "SELECT"), ["table", "view", "materialized_view"]);
+        // Sequences and types aren't offered.
+        assert_eq!(on(&pg, "USAGE"), ["schema"]);
+        assert_eq!(on(&pg, "CREATE"), ["", "schema"]);
+        assert_eq!(on(&pg, "EXECUTE"), ["procedure", "function"]);
+        assert_eq!(
+            on(&pg, "ALL PRIVILEGES"),
+            spec(Variant::Postgres).unwrap().object_kinds
+        );
+        // Yellowbrick's explorer has no materialized views or procedures.
+        let yb = assemble(Variant::Yellowbrick, 90500, catalog.clone(), None);
+        assert_eq!(on(&yb, "SELECT"), ["table", "view"]);
+        assert_eq!(on(&yb, "EXECUTE"), ["function"]);
+        // openGauss adds its DDL privileges.
+        let og = assemble(Variant::OpenGauss, 90204, catalog.clone(), None);
+        assert_eq!(on(&og, "VACUUM"), ["table", "view", "materialized_view"]);
+        assert_eq!(on(&og, "ALTER")[0], "");
+        // CockroachDB: no database-wide grants; its own privileges, and
+        // logical replication's from 25.2.
+        let crdb = assemble(Variant::Cockroach, 130000, catalog.clone(), Some((25, 1)));
+        assert!(crdb.iter().all(|p| !p.on.contains(&String::new())));
+        assert!(crdb.iter().all(|p| p.name != "CONNECT"));
+        assert_eq!(
+            on(&crdb, "ZONECONFIG"),
+            ["table", "view", "materialized_view"]
+        );
+        assert!(crdb.iter().all(|p| p.name != "REPLICATIONSOURCE"));
+        assert_eq!(crdb.last().unwrap().name, "ALL");
+        let crdb = assemble(Variant::Cockroach, 130000, catalog, Some((26, 3)));
+        assert_eq!(
+            on(&crdb, "REPLICATIONDEST"),
+            ["table", "view", "materialized_view"]
+        );
+        assert!(assemble(Variant::Denodo, 0, None, None).is_empty());
+    }
+
+    #[test]
+    fn documented_tables_follow_the_version() {
+        assert!(assemble(Variant::Postgres, 160000, None, None)
+            .iter()
+            .all(|p| p.name != "MAINTAIN"));
+        assert_eq!(
+            on(&assemble(Variant::Postgres, 170000, None, None), "MAINTAIN"),
+            ["table", "view", "materialized_view"]
+        );
+        assert_eq!(
+            cockroach_release("CockroachDB CCL v26.3.2 (aarch64-unknown-linux-gnu, built 2026/09/16 12:26:13, go1.26.6)"),
+            Some((26, 3))
+        );
+        assert_eq!(cockroach_release("PostgreSQL 16.1 on x86_64"), None);
+    }
+
+    #[test]
+    fn documented_privileges_make_valid_grants_on_their_kinds() {
+        for v in Variant::ALL {
+            let Some(spec) = spec(v) else {
+                continue;
+            };
+            // Without a catalog: the documented tables.
+            let list = assemble(v, 170000, None, Some((26, 3)));
+            assert!(!list.is_empty(), "{v:?}");
+            for p in &list {
+                assert!(!p.on.is_empty(), "{v:?} {}", p.name);
+                for kind in &p.on {
+                    assert!(
+                        spec.object_kinds.contains(&kind.as_str()),
+                        "{v:?} {} on {kind}",
+                        p.name
+                    );
+                    let grant = SecurityAction::Grant {
+                        privileges: vec![p.name.clone()],
+                        object: object_of(kind),
+                        to: "ana".into(),
+                        grantable: false,
+                    };
+                    let sql = script(v, &grant)
+                        .unwrap_or_else(|e| panic!("{v:?} {} on {kind:?}: {e}", p.name));
+                    assert!(sql.contains(&p.name), "{sql}");
+                }
+            }
+        }
     }
 }

@@ -2086,6 +2086,15 @@ impl Session for MySqlSession {
         crate::security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        if !crate::security::supported(self.variant) {
+            return Err(Error::Unsupported(
+                "este motor no administra usuarios desde DBine".into(),
+            ));
+        }
+        Ok(crate::security::privileges::privileges(self).await)
+    }
+
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         if !crate::processes::can_kill(self.variant) {
             return Err(Error::Unsupported(

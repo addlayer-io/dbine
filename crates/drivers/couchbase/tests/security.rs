@@ -186,3 +186,49 @@ async fn users_and_roles() {
         .all(|p| p.name != "dbine_ana"));
     admin.drop_database("dbine_sec").await.unwrap();
 }
+
+/// What can be granted: the cluster's role list for an admin; for a login
+/// that can't read it (`ro_admin`), the documented roles of its edition.
+/// Community Edition has the same three either way.
+#[tokio::test]
+#[ignore]
+async fn privileges_follow_the_cluster() {
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_couchbase::drivers().remove(0);
+    let kinds = d.security().unwrap().object_kinds;
+    let mut admin = d.connect(&c, None).await.unwrap();
+    let listed = admin.privileges().await.unwrap();
+    let on = |name: &str| {
+        listed
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("{name} in {listed:?}"))
+            .on
+            .clone()
+    };
+    assert_eq!(on("admin"), vec![""]);
+    assert_eq!(on("ro_admin"), vec![""]);
+    assert_eq!(on("bucket_full_access"), vec!["database"]);
+    for p in &listed {
+        assert!(p.on.iter().all(|k| kinds.contains(&k.as_str())), "{p:?}");
+    }
+
+    try_run(&mut admin, "DROP USER dbine_lector").await;
+    run(&mut admin, "CREATE USER dbine_lector PASSWORD 'Pw_12345x'").await;
+    run(&mut admin, "GRANT ro_admin TO dbine_lector").await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut as_reader = c.clone();
+    as_reader.username = Some("dbine_lector".into());
+    as_reader.password = Some("Pw_12345x".into());
+    let documented = d
+        .connect(&as_reader, None)
+        .await
+        .unwrap()
+        .privileges()
+        .await;
+    run(&mut admin, "DROP USER dbine_lector").await;
+    let documented = documented.unwrap();
+    let mut names: Vec<&str> = documented.iter().map(|p| p.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["admin", "bucket_full_access", "ro_admin"]);
+}

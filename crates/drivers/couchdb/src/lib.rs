@@ -994,6 +994,10 @@ impl Session for CouchSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges())
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         self.snapshot().await
     }
