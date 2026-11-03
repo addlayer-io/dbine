@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "読み取り専用の接続: 他のクライアントの接続は閉じません。",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "読み取り専用の接続: システムコマンド \\{0} をブロックしました。表示するだけのコマンドのみ許可されます(\\v、\\f、\\a、\\b、\\w など)。",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "読み取り専用の接続: {0} をブロックしました。読み取りのみ許可されます。",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine はまだ kdb+ のテーブルの構造変更を生成しません。ディスク上のデータベースでは各列が書き直す必要のあるファイルです",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "オフ (SSL_VERIFY_SERVER=NO) では証明書を検証しません。DBine は最初に見た証明書を受け入れ、以降はそれだけを受け入れます。",
   "Esta sesión": "このセッション",
   "Handle": "ハンドル",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "ブラウザーでのサインインは Databricks ワークスペースのアドレス (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us または *.cloud.databricks.mil) でのみ使用できます。ほかのホストではトークンを使用してください",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "サインインの応答が接続先の Databricks ワークスペースではなく別のサーバー ({0}) から届きました。サインインを取り消しました",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "この応答は接続先の Databricks ワークスペースから届いたものではありません。このウィンドウは閉じてかまいません。",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "シートが大きすぎるか、形式が正しくありません。データのある {0} 個のセルが {1} 行 × {2} 列にわたっています"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "シートが大きすぎるか、形式が正しくありません。データのある {0} 個のセルが {1} 行 × {2} 列にわたっています",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "q の timespan はナノ秒単位の期間です。月や年を含む間隔は収まりません。",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "列挙型は symbol。q は値を制限しません。値: {0}。",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "q のキー付きテーブルにはキー以外の列が少なくとも 1 つ必要です。テーブルはキーなしのままです（{0}）。",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}» はディスク上のテーブル（パーティション化または splayed）です。各列がファイルなので、DBine はその構造を変更しません。サーバーで q を使って変更してください（たとえば dbmaint や .Q.dpft）。",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}» はすでに存在します。置き換えません。",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+ はプロセスのメモリ上でテーブルを変更します。再起動後も残すには保存が必要です（save、set）。",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» は q で使える列名ではありません。",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» は q の型ではありません（列 {1}.{2}）。",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "列 {0}.{1} は {2} から {3} に変わります。変換できない値は null になります。",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "列 {0}.{1} は {2} から {3} に変換されません。q にはこれらの型の間の直接のキャストがありません。手動で変更してください。"
 }

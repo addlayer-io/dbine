@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "Koneksi hanya-baca: koneksi milik klien lain tidak ditutup.",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "Koneksi hanya-baca: perintah sistem \\{0} diblokir. Hanya perintah yang menampilkan sesuatu yang diizinkan (\\v, \\f, \\a, \\b, \\w…).",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "Koneksi hanya-baca: {0} diblokir. Hanya pembacaan yang diizinkan.",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine belum membuat perubahan struktur tabel kdb+: di basis data pada disk setiap kolom adalah file yang harus ditulis ulang",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "Jika tidak dicentang (SSL_VERIFY_SERVER=NO), sertifikat tidak diverifikasi: DBine menerima sertifikat pertama yang dilihat dan setelah itu hanya yang itu.",
   "Esta sesión": "Sesi ini",
   "Handle": "Handle",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "login di browser hanya berfungsi dengan alamat workspace Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us atau *.cloud.databricks.mil); untuk host lain gunakan token",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "respons login berasal dari server lain ({0}), bukan dari workspace Databricks koneksi ini: login dibatalkan",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Respons tidak berasal dari workspace Databricks koneksi ini. Anda dapat menutup jendela ini.",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "lembar terlalu besar atau rusak: {0} sel berisi datanya mencakup {1} baris × {2} kolom"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "lembar terlalu besar atau rusak: {0} sel berisi datanya mencakup {1} baris × {2} kolom",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "Timespan q adalah durasi dalam nanodetik: interval dengan bulan atau tahun tidak muat.",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "Enum sebagai symbol: q tidak membatasi nilainya. Nilai: {0}.",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "Tabel berkunci q memerlukan setidaknya satu kolom di luar kunci: tabel tetap tanpa kunci ({0}).",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}» adalah tabel di disk (terpartisi atau splayed): DBine tidak mengubah strukturnya, karena setiap kolom adalah file. Ubah dengan q di server (misalnya dengan dbmaint atau .Q.dpft).",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}» sudah ada: tidak diganti.",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+ mengubah tabel di memori proses: agar tetap ada setelah dimulai ulang, tabel harus disimpan (save, set).",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» bukan nama kolom yang bisa dipakai q.",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» bukan tipe q (kolom {1}.{2}).",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Kolom {0}.{1} berubah dari {2} menjadi {3}: nilai yang tidak bisa dikonversi menjadi null.",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Kolom {0}.{1} tidak dikonversi dari {2} menjadi {3}: q tidak punya cast langsung antara tipe tersebut; ubah secara manual."
 }

@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "Połączenie tylko do odczytu: połączenia innych nie są zamykane.",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "Połączenie tylko do odczytu: zablokowano polecenie systemowe \\{0}. Dozwolone są tylko polecenia, które coś pokazują (\\v, \\f, \\a, \\b, \\w…).",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "Połączenie tylko do odczytu: zablokowano {0}. Dozwolone są tylko odczyty.",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine nie generuje jeszcze zmian struktury tabeli kdb+: w bazie na dysku każda kolumna to plik, który trzeba przepisać",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "Po odznaczeniu (SSL_VERIFY_SERVER=NO) certyfikat nie jest weryfikowany: DBine akceptuje pierwszy, który zobaczy, a potem tylko ten.",
   "Esta sesión": "Ta sesja",
   "Handle": "Uchwyt",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "logowanie w przeglądarce działa tylko z adresem workspace Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us lub *.cloud.databricks.mil); dla innych hostów użyj tokenu",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "odpowiedź logowania przyszła z innego serwera ({0}), a nie z workspace Databricks tego połączenia: logowanie anulowano",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Odpowiedź nie przyszła z workspace Databricks tego połączenia. Możesz zamknąć to okno.",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "arkusz jest za duży lub uszkodzony: jego komórki z danymi ({0}) zajmują {1} wierszy × {2} kolumn"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "arkusz jest za duży lub uszkodzony: jego komórki z danymi ({0}) zajmują {1} wierszy × {2} kolumn",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "timespan w q to czas trwania w nanosekundach: interwał z miesiącami lub latami się w nim nie mieści.",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "Typ wyliczeniowy jako symbol: q nie ogranicza wartości. Wartości: {0}.",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "Tabela z kluczem w q potrzebuje co najmniej jednej kolumny poza kluczem: tabela zostaje bez klucza ({0}).",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}» to tabela na dysku (partycjonowana lub splayed): DBine nie zmienia jej struktury, bo każda kolumna to plik. Zmień ją za pomocą q na serwerze (na przykład dbmaint lub .Q.dpft).",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}» już istnieje: nie zostanie zastąpione.",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+ zmienia tabele w pamięci procesu: aby zachować je po ponownym uruchomieniu, trzeba je zapisać (save, set).",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» nie jest nazwą kolumny, której może użyć q.",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» nie jest typem q (kolumna {1}.{2}).",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Kolumna {0}.{1} zmienia typ z {2} na {3}: wartości, których nie da się przekonwertować, stają się null.",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Kolumna {0}.{1} nie jest konwertowana z {2} na {3}: q nie ma bezpośredniego rzutowania między tymi typami; zmień ją ręcznie."
 }

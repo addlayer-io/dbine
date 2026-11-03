@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "Подключение только для чтения: чужие подключения не закрываются.",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "Подключение только для чтения: системная команда \\{0} заблокирована. Разрешены только команды, которые что-то показывают (\\v, \\f, \\a, \\b, \\w…).",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "Подключение только для чтения: {0} заблокировано. Разрешено только чтение.",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine пока не создаёт изменения структуры таблицы kdb+: в базе на диске каждый столбец — это файл, который нужно переписать",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "Если снять флажок (SSL_VERIFY_SERVER=NO), сертификат не проверяется: DBine принимает первый увиденный и дальше только его.",
   "Esta sesión": "Этот сеанс",
   "Handle": "Дескриптор",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "вход в браузере работает только с адресом рабочей области Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us или *.cloud.databricks.mil); для других хостов используйте токен",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "ответ на вход пришёл с другого сервера ({0}), а не из рабочей области Databricks этого подключения: вход отменён",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "Ответ пришёл не из рабочей области Databricks этого подключения. Можно закрыть это окно.",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "лист слишком большой или повреждён: его ячейки с данными ({0}) занимают {1} строк × {2} столбцов"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "лист слишком большой или повреждён: его ячейки с данными ({0}) занимают {1} строк × {2} столбцов",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "timespan в q — это длительность в наносекундах: интервал с месяцами или годами в него не помещается.",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "Перечисление как symbol: q не ограничивает значения. Значения: {0}.",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "Таблице с ключом в q нужен хотя бы один столбец вне ключа: таблица остаётся без ключа ({0}).",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}» — таблица на диске (секционированная или splayed): DBine не меняет её структуру, потому что каждый столбец — это файл. Измените её с помощью q на сервере (например, dbmaint или .Q.dpft).",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}» уже существует: замены не будет.",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+ меняет таблицы в памяти процесса: чтобы они сохранились после перезапуска, их нужно сохранить (save, set).",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» — не то имя столбца, которое может использовать q.",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» — не тип q (столбец {1}.{2}).",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Столбец {0}.{1} меняет тип с {2} на {3}: значения, которые нельзя преобразовать, становятся пустыми (null).",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Столбец {0}.{1} не преобразуется из {2} в {3}: в q нет прямого приведения между этими типами; измените его вручную."
 }

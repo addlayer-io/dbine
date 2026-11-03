@@ -1825,7 +1825,8 @@
     "crates/dbine-schema/src/dialect/solr.rs"
   ],
   "Año como short.": [
-    "crates/dbine-schema/src/dialect/elasticsearch.rs"
+    "crates/dbine-schema/src/dialect/elasticsearch.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs"
   ],
   "Año como smallint.": [
     "crates/dbine-schema/src/dialect/cassandra.rs",
@@ -4776,7 +4777,8 @@
   ],
   "Conjunto como lista de texto. Valores: {0}.": [
     "crates/dbine-schema/src/dialect/dremio.rs",
-    "crates/dbine-schema/src/dialect/duckdb.rs"
+    "crates/dbine-schema/src/dialect/duckdb.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs"
   ],
   "Conjunto como set<text>. Valores: {0}.": [
     "crates/dbine-schema/src/dialect/cassandra.rs"
@@ -5647,9 +5649,6 @@
   "DBine solo permite lecturas por MCP: la consulta tiene una sentencia {0}": [
     "src-tauri/src/mcp/tools.rs"
   ],
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": [
-    "crates/drivers/kdb/src/lib.rs"
-  ],
   "DBine: carga masiva en curso": [
     "crates/drivers/snowflake/src/transfer.rs"
   ],
@@ -5892,6 +5891,7 @@
     "crates/dbine-schema/src/dialect/graph.rs",
     "crates/dbine-schema/src/dialect/greptimedb.rs",
     "crates/dbine-schema/src/dialect/iotdb.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/ksqldb.rs",
     "crates/dbine-schema/src/dialect/manticore.rs",
     "crates/dbine-schema/src/dialect/phoenix.rs",
@@ -6419,6 +6419,7 @@
     "crates/dbine-schema/src/dialect/hana.rs",
     "crates/dbine-schema/src/dialect/informix.rs",
     "crates/dbine-schema/src/dialect/iotdb.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/ksqldb.rs",
     "crates/dbine-schema/src/dialect/manticore.rs",
     "crates/dbine-schema/src/dialect/mssql.rs",
@@ -6449,6 +6450,7 @@
     "crates/dbine-schema/src/dialect/hana.rs",
     "crates/dbine-schema/src/dialect/informix.rs",
     "crates/dbine-schema/src/dialect/iotdb.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/ksqldb.rs",
     "crates/dbine-schema/src/dialect/manticore.rs",
     "crates/dbine-schema/src/dialect/mssql.rs",
@@ -8396,7 +8398,8 @@
     "crates/dbine-schema/src/dialect/mysql.rs"
   ],
   "Entero de 16 bytes como double: pierde precisión pasados los 15 dígitos.": [
-    "crates/dbine-schema/src/dialect/elasticsearch.rs"
+    "crates/dbine-schema/src/dialect/elasticsearch.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs"
   ],
   "Entero de 16 bytes como numeric(38, 0): no entran los valores de 39 dígitos.": [
     "crates/dbine-schema/src/dialect/sybase.rs"
@@ -8444,7 +8447,8 @@
     "crates/dbine-schema/src/dialect/clickhouse.rs"
   ],
   "Entero sin signo grande como double: pierde precisión pasados los 15 dígitos.": [
-    "crates/dbine-schema/src/dialect/elasticsearch.rs"
+    "crates/dbine-schema/src/dialect/elasticsearch.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs"
   ],
   "Entidad de servicio: el ID de la aplicación registrada. Identidad administrada (también en la predeterminada): el client ID de una identidad asignada por el usuario; vacío, la del sistema. En los demás casos, opcional.": [
     "crates/drivers/sqlserver/src/variant.rs"
@@ -11340,6 +11344,7 @@
   "JSON como texto.": [
     "crates/dbine-schema/src/dialect/dremio.rs",
     "crates/dbine-schema/src/dialect/iotdb.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/ksqldb.rs",
     "crates/dbine-schema/src/dialect/odbc_engines.rs",
     "crates/dbine-schema/src/dialect/phoenix.rs",
@@ -13133,7 +13138,8 @@
     "crates/dbine-schema/src/dialect/postgres.rs"
   ],
   "Mapa como texto JSON.": [
-    "crates/dbine-schema/src/dialect/dremio.rs"
+    "crates/dbine-schema/src/dialect/dremio.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs"
   ],
   "Marca alta de memoria (memoryHighWatermark, %)": [
     "crates/drivers/couchbase/src/properties.rs"
@@ -13897,6 +13903,7 @@
     "crates/dbine-schema/src/dialect/elasticsearch.rs"
   ],
   "Moneda como {0}.": [
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/odbc_engines.rs"
   ],
   "MonetDB no expone CPU, memoria del proceso ni bloqueos por SQL (usa control de concurrencia optimista).": [
@@ -14617,7 +14624,8 @@
     "crates/drivers/oracle/src/transfer.rs"
   ],
   "No hay decimales exactos: FLOAT pierde precisión pasados los 15 dígitos.": [
-    "crates/dbine-schema/src/dialect/graph.rs"
+    "crates/dbine-schema/src/dialect/graph.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs"
   ],
   "No hay decimales exactos: FLOAT, exacto hasta 15 dígitos.": [
     "crates/dbine-schema/src/dialect/graph.rs"
@@ -19207,6 +19215,7 @@
     "crates/drivers/clickhouse/src/sync.rs",
     "crates/drivers/dremio/src/sync.rs",
     "crates/drivers/duckdb/src/schema.rs",
+    "crates/drivers/kdb/src/sync.rs",
     "crates/drivers/odbc/src/sync.rs",
     "crates/drivers/trino/src/sync.rs"
   ],
@@ -19224,6 +19233,7 @@
     "crates/drivers/athena/src/sync.rs",
     "crates/drivers/cassandra/src/sync.rs",
     "crates/drivers/dremio/src/sync.rs",
+    "crates/drivers/kdb/src/sync.rs",
     "crates/drivers/odbc/src/sync.rs",
     "crates/drivers/trino/src/sync.rs"
   ],
@@ -23833,6 +23843,7 @@
     "crates/dbine-schema/src/dialect/elasticsearch.rs",
     "crates/dbine-schema/src/dialect/greptimedb.rs",
     "crates/dbine-schema/src/dialect/iotdb.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/ksqldb.rs",
     "crates/dbine-schema/src/dialect/manticore.rs",
     "crates/dbine-schema/src/dialect/mongodb.rs",
@@ -27717,6 +27728,7 @@
   ],
   "este motor no renombra objetos": [
     "crates/dbine-driver/src/lib.rs",
+    "crates/drivers/kdb/src/sync.rs",
     "crates/drivers/mysql/src/rename.rs"
   ],
   "este motor no renombra vistas: creá la vista con el nombre nuevo y borrá la anterior": [
@@ -35383,9 +35395,11 @@
     "crates/drivers/odbc/src/create_db.rs"
   ],
   "{0} no guarda la zona horaria de una hora.": [
-    "crates/dbine-schema/src/dialect/dremio.rs"
+    "crates/dbine-schema/src/dialect/dremio.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs"
   ],
   "{0} no guarda la zona horaria: conviene guardar en UTC.": [
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/odbc_engines.rs"
   ],
   "{0} no guarda la zona horaria: los valores quedan en UTC.": [
@@ -35597,6 +35611,7 @@
     "crates/dbine-schema/src/dialect/dremio.rs"
   ],
   "{0} no tiene enteros sin signo: se usa un tipo más grande con signo.": [
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/odbc_engines.rs",
     "crates/dbine-schema/src/dialect/spark.rs",
     "crates/dbine-schema/src/dialect/starrocks.rs"
@@ -35639,6 +35654,7 @@
   ],
   "{0} no tiene versión de fila automática: no se actualiza sola.": [
     "crates/dbine-schema/src/dialect/dremio.rs",
+    "crates/dbine-schema/src/dialect/kdb.rs",
     "crates/dbine-schema/src/dialect/odbc_engines.rs",
     "crates/dbine-schema/src/dialect/starrocks.rs"
   ],
@@ -37901,5 +37917,36 @@
   ],
   "mensaje de kdb+ con objetos anidados a más de {0} niveles": [
     "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": [
+    "crates/dbine-schema/src/dialect/kdb.rs"
+  ],
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": [
+    "crates/dbine-schema/src/dialect/kdb.rs"
+  ],
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": [
+    "crates/dbine-schema/src/dialect/kdb.rs",
+    "crates/drivers/kdb/src/sync.rs"
+  ],
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": [
+    "crates/drivers/kdb/src/sync.rs"
+  ],
+  "Ya existe «{0}»: no se reemplaza.": [
+    "crates/drivers/kdb/src/sync.rs"
+  ],
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": [
+    "crates/drivers/kdb/src/sync.rs"
+  ],
+  "«{0}» no es un nombre de columna que q pueda usar.": [
+    "crates/drivers/kdb/src/sync.rs"
+  ],
+  "«{0}» no es un tipo de q (columna {1}.{2}).": [
+    "crates/drivers/kdb/src/sync.rs"
+  ],
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": [
+    "crates/drivers/kdb/src/sync.rs"
+  ],
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": [
+    "crates/drivers/kdb/src/sync.rs"
   ]
 }

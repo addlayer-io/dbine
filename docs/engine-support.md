@@ -600,6 +600,24 @@ and `SSL_CA_CERT_FILE`.
   kdb+ has no request to stop a query from a client: the server finishes it
   on its own.
 - **Table designer and definition:** `t:([k:`long$()] c:`symbol$())`.
+- **Compare schemas, sync and Modify…:** tables in memory change with q,
+  one statement per change, each rebuilding the table and assigning it
+  back: a new column with its type's null (`t:update c:first `long$() from
+  t`, `count[i]#enlist ""` for strings), a dropped one with `delete`, a new
+  type with a cast (`` `float$c ``, `string c`, `"J"$c`, `` `$c ``; where q
+  has no cast, such as `guid` to `long` or a general list, the script says
+  so and leaves the column alone), the key with `0!` before and `xkey`
+  after. New tables are the designer's DDL, dropped ones
+  `![`.;();0b;enlist `t]`. Every script checks on the server first that
+  the table isn't on disk (`.Q.qp`) and that a table it creates doesn't
+  exist yet (a q assignment would replace it), and warns that the changes
+  live in the process's memory until saved.
+- **Rename:** tables in memory (copied to the new name, then the old one
+  deleted) and their columns (`xcol`), checking on the server that the new
+  name is free. q code that names them is listed, not rewritten.
+- **Schema conversion:** to and from the other engines (`dbine-schema`'s q
+  dialect): the key is the primary key, q types map to the neutral ones
+  and back ([`schema-conversion.md`](schema-conversion.md)).
 
 **Not available, and why:**
 
@@ -610,8 +628,9 @@ and `SSL_CA_CERT_FILE`.
 | Cancel another client's query, Locks | kdb+ runs one request at a time and has no request to stop another one's. |
 | Create or drop databases, Backups | A kdb+ process is one namespace tree; an on-disk database is files the server reads, saved with q (`.Q.dpft`, `set`), not through a backup command. |
 | Users and permissions | kdb+'s users are a file given at start-up (`-u`, `-U`) or the process's own `.z.pw`: there's nothing to list or grant over IPC. |
-| Schema compare and sync | pending: changing columns in place takes code per change and, on an on-disk database, rewriting each column's file. |
-| Schema conversion (to and from other engines) | pending: `dbine-schema` has no q dialect yet (kdb+ types, keyed tables). |
+| Sync, Modify… and Rename of partitioned and splayed tables | Refused, with the reason: each column is a file on disk, and changing it means rewriting the database with q on the server (dbmaint, `.Q.dpft`), which DBine doesn't do. Compare doesn't load them yet (`database_schema` lists tables in memory). |
+| Sync of views and functions | Compared, but not dropped (no statement to do it from DBine) and created from their bare definition (the lambda or the view's expression, without `name:` / `name::`): pending. |
+| Attributes (`s#`, `u#`, `p#`, `g#`), enumerations, general lists in conversion | Attributes aren't read; enumerated columns read as `symbol`; a general list has no neutral type and is reported for review. |
 | Foreign keys (ER diagram, jump by key) | pending: linked columns (`meta`'s `f`) aren't read yet. |
 | Bulk load | pending: data loads with `insert` scripts of 500 rows. |
 | Chart aggregation on the server | pending: charts aggregate the loaded result. |
@@ -625,7 +644,15 @@ login, the explorer, scripts and errors, read-only, cancel and reconnect).
 container built from `tests/docker/Dockerfile` with a KX license: tables,
 types and edits, partitioned and splayed tables, namespaces, big results,
 read-only through `reval`, cancel and dropped connections, server requests,
-every q type and TLS (`tcps`, verified and pinned).
+every q type and TLS (`tcps`, verified and pinned). The sync, rename and
+conversion scripts have unit tests (`src/sync.rs`, `dbine-schema`'s
+`dialect/kdb.rs` and `tests/kdb.rs`); `dbine-schema`'s `tests/kdb.rs` also
+runs them against the same kdb+: a PostgreSQL table converted and created
+with the sync's create (checked with `meta` and a row), a kdb+ keyed table
+read and converted to PostgreSQL and through SQLite back to q, a sync that
+drops, adds and casts columns and changes the key (checked with `meta` and
+the values), column and table renames, a drop, and a splayed table refused
+both by DBine and by the server-side check.
 
 ## Per-column filters on table data
 
@@ -1546,6 +1573,7 @@ What was tested against a real server:
 | Elasticsearch, OpenSearch | new fields, replicas, aliases | Field type, dropped fields and shards: reindexing is needed. | yes |
 | Neo4j, Memgraph | indexes and constraints | properties are not declared | yes |
 | IoTDB | new and dropped series | type, encoding, compression | yes |
+| KDB+ | tables in memory: create, drop, add and drop columns, casts, key (`xkey`) | partitioned and splayed tables (refused); no cast between some types (`guid`, general lists: left as a warning); views and functions | yes |
 
 No sync (the comparison works all the same):
 
@@ -3855,6 +3883,7 @@ not offer **Rename…** in that engine.
 | Amazon DynamoDB | no | — | — | — | the service does not rename tables |
 | InfluxDB (v1, v2, v3) | no | — | — | — | InfluxQL does not rename databases, retention policies or measurements; in v2 the API renames a bucket, but the session script is Flux and cannot express it; InfluxDB 3 Core does not rename databases or tables |
 | Apache IoTDB, TimechoDB | no | — | — | — | the tree model does not rename series, devices or databases (`ALTER TIMESERIES … RENAME` only changes tag keys); 2.x's table model rejects renaming tables and columns |
+| KDB+ | yes | tables in memory (copied to the new name, then the old one deleted: `![`.;();0b;enlist `t]`) and their columns (`xcol`), after checking on the server that the new name is free | — | they are listed, not rewritten (q functions and views) | partitioned and splayed tables; views, functions and variables; not atomic |
 | TDengine | yes | ordinary table columns (`ALTER TABLE … RENAME COLUMN a b`, the timestamp one included) and supertable tags (`ALTER STABLE … RENAME TAG a b`) | the tag's index | streams that use the name are dropped before and created again after, rewritten, over the same output table (a tag used by a stream goes the same way) | it does not rename tables, supertables, supertable columns, subtables, views, streams, topics or databases; the server rejects a column or tag used by a topic; what arrives while the stream is dropped is not processed |
 | OrientDB | yes | vertex, edge and document classes (`ALTER CLASS … NAME`, `UNSAFE` on edges) and properties (`ALTER PROPERTY … NAME` + `UPDATE … SET new = old REMOVE old`) | — | they are listed, not rewritten (functions) | their indexes are dropped and recreated (they keep the name), read from the class structure; on edges the vertices' `out_`/`in_` fields are moved; it is not atomic; it does not rename indexes, functions or sequences, nor V/E, `out`/`in`, or `@` attributes |
 | Neo4j, Memgraph, Amazon Neptune | not offered | — | — | — | A label or relationship type is not renamed: changing it is `SET n:New REMOVE n:Old` on every node (or recreating each relationship), which rewrites the data, can take hours on a large graph, is not atomic outside a transaction the size of the graph and forces recreating the label's indexes and constraints. Queries saved outside the database are not seen either. |

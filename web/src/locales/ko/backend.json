@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "읽기 전용 연결: 다른 클라이언트의 연결은 닫지 않습니다.",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "읽기 전용 연결: 시스템 명령 \\{0}을(를) 차단했습니다. 무언가를 보여 주기만 하는 명령만 허용됩니다(\\v, \\f, \\a, \\b, \\w…).",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "읽기 전용 연결: {0}을(를) 차단했습니다. 읽기만 허용됩니다.",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine은 아직 kdb+ 테이블의 구조 변경을 생성하지 않습니다. 디스크의 데이터베이스에서는 각 열이 다시 써야 하는 파일입니다",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "선택 해제하면(SSL_VERIFY_SERVER=NO) 인증서를 검증하지 않습니다. DBine은 처음 본 인증서를 받아들이고 이후에는 그것만 허용합니다.",
   "Esta sesión": "이 세션",
   "Handle": "핸들",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "브라우저 로그인은 Databricks 워크스페이스 주소(*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us 또는 *.cloud.databricks.mil)에서만 작동합니다. 다른 호스트에는 토큰을 사용하세요",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "로그인 응답이 연결의 Databricks 워크스페이스가 아닌 다른 서버({0})에서 왔습니다. 로그인을 취소했습니다",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "이 응답은 연결의 Databricks 워크스페이스에서 온 것이 아닙니다. 이 창을 닫아도 됩니다.",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "시트가 너무 크거나 형식이 잘못되었습니다. 데이터가 있는 셀 {0}개가 {1}행 × {2}열에 걸쳐 있습니다"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "시트가 너무 크거나 형식이 잘못되었습니다. 데이터가 있는 셀 {0}개가 {1}행 × {2}열에 걸쳐 있습니다",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "q의 timespan은 나노초 단위의 기간이므로 월이나 연이 있는 간격은 담을 수 없습니다.",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "열거형은 symbol입니다. q는 값을 제한하지 않습니다. 값: {0}.",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "q의 키 테이블에는 키 밖의 열이 하나 이상 있어야 하므로 테이블은 키 없이 남습니다({0}).",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}»은(는) 디스크의 테이블(파티션 또는 splayed)입니다. 각 열이 파일이므로 DBine은 구조를 바꾸지 않습니다. 서버에서 q로 바꾸세요(예: dbmaint 또는 .Q.dpft).",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}»이(가) 이미 있으므로 바꾸지 않습니다.",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+는 프로세스 메모리에서 테이블을 바꿉니다. 재시작 후에도 유지하려면 저장해야 합니다(save, set).",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}»은(는) q가 쓸 수 있는 열 이름이 아닙니다.",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}»은(는) q의 타입이 아닙니다(열 {1}.{2}).",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "열 {0}.{1}이(가) {2}에서 {3}(으)로 바뀝니다. 변환할 수 없는 값은 null이 됩니다.",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "열 {0}.{1}은(는) {2}에서 {3}(으)로 변환되지 않습니다. q에는 두 타입 사이의 직접 캐스트가 없으니 직접 바꾸세요."
 }

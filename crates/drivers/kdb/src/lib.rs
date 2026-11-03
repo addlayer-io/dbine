@@ -32,6 +32,7 @@ pub mod ipc;
 mod monitor;
 pub mod script;
 mod steps;
+pub mod sync;
 
 use ipc::K;
 
@@ -198,16 +199,25 @@ impl Driver for KdbDriver {
         edit::table_ddl(table, parts)
     }
 
-    /// Changing a table's columns in place takes code per change (`update
-    /// newcol:… from `t`, `delete col from `t`), and on a database on disk
-    /// a rewrite of its splayed files: not offered yet.
+    /// Tables in memory change with q per column (`update`, `delete`,
+    /// casts, `xkey`); tables on disk are refused ([`sync`]).
+    fn supports_schema_sync(&self) -> bool {
+        true
+    }
+
     fn sync_script(
         &self,
-        _changes: &[dbine_driver::TableChange],
+        changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        Err(Error::Unsupported(
-            "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir".into(),
-        ))
+        sync::script(changes)
+    }
+
+    fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
+        Some(sync::rename_spec())
+    }
+
+    fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
+        sync::rename(req)
     }
 
     fn insert_script(
