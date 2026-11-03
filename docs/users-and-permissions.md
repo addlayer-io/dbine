@@ -32,8 +32,14 @@ Nothing runs without clicking **Run**.
 - The **password** is hidden in the preview and when copying, and these
   scripts are **not saved in the history**.
 - **Read-only** connections show users and permissions, but offer no changes.
-- The permissions available to grant are the engine's. You can also type
-  another.
+- The permissions available to grant are the ones **this server** offers,
+  read from its own catalog where the engine has one (SQL Server's
+  `sys.fn_builtin_permissions`, MySQL's `SHOW PRIVILEGES`, ClickHouse's
+  `system.privileges`…), so they follow its version: SQL Server 2022 offers
+  `VIEW DATABASE PERFORMANCE STATE`, an older one doesn't. Engines without
+  such a catalog offer the ones their documentation lists. The list shows
+  only what applies to the target you pick (the whole database, a schema, a
+  table, a procedure…), and you can also type another.
 
 ## Map a login
 
@@ -93,6 +99,13 @@ After it runs, the list is refreshed and the new user is selected.
   permissions, object types, whether it creates users and roles, whether it
   handles passwords and memberships, and whether it is per database.
 - `Session::principals()` and `Session::grants(name)` read.
+- `Session::privileges()` lists what the server can grant, each `Privilege`
+  with the `object_kinds` it applies to ("" = the whole database or
+  server): from the server's catalog where it has one, else the engine's
+  documented list by kind. It never fails just because the catalog can't be
+  read (it falls back to the documented list). Where it answers
+  `Unsupported` (the default, or a driver host built before it), the tab
+  offers `SecuritySpec::privileges` on every kind.
 - **Map login…** is offered where `Driver::supports_map_login()` is true;
   `Driver::map_login_script(login, user, default_schema)` writes the
   statement, and `Session::unmapped_logins()` lists the server's logins with
