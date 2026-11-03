@@ -1012,6 +1012,10 @@ impl Session for RedisSession {
         security::grants(self, principal).await.map_err(no_acl)
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges(self).await)
+    }
+
     async fn profiler_start(
         &mut self,
         opts: &dbine_driver::ProfilerOptions,

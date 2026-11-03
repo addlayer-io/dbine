@@ -12,7 +12,8 @@ use crate::shape::text_of;
 use crate::RedisSession;
 use dbine_driver::keys::glob_escape;
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use redis::Value;
 
@@ -308,6 +309,110 @@ pub async fn grants(s: &mut RedisSession, principal: &str) -> Result<Vec<Grant>>
         );
     }
     Ok(out)
+}
+
+// -- what can be granted -----------------------------------------------------
+
+/// The command categories of Redis 7's ACL docs, for a server whose
+/// `ACL CAT` can't be read:
+/// https://redis.io/docs/latest/operate/oss_and_stack/management/security/acl/#command-categories
+const CATEGORIES: &[&str] = &[
+    "keyspace",
+    "read",
+    "write",
+    "set",
+    "sortedset",
+    "list",
+    "hash",
+    "string",
+    "bitmap",
+    "hyperloglog",
+    "geo",
+    "stream",
+    "pubsub",
+    "admin",
+    "fast",
+    "slow",
+    "blocking",
+    "dangerous",
+    "connection",
+    "transaction",
+    "scripting",
+];
+
+/// Key access: the pattern is the chosen key, or every key.
+const KEY_RULES: &[&str] = &["~", "%R~", "%W~", "%RW~"];
+
+/// Rules for the whole user that don't name a command.
+const USER_RULES: &[&str] = &[
+    "&",
+    "allkeys",
+    "allchannels",
+    "allcommands",
+    "nocommands",
+    "resetkeys",
+    "resetchannels",
+];
+
+/// What `ACL SETUSER` takes, from the server's categories and commands
+/// (`ACL CAT`, `COMMAND LIST`): each category and command allowed and
+/// denied, then the key and channel rules. Only names [`rule`] accepts.
+pub fn privileges_from(categories: &[String], commands: &[String]) -> Vec<Privilege> {
+    let mut cats: Vec<String> = vec!["all".into()];
+    for c in categories {
+        let c = c.trim().to_ascii_lowercase();
+        if !cats.contains(&c) {
+            cats.push(c);
+        }
+    }
+    let mut cmds: Vec<String> = commands
+        .iter()
+        .map(|c| c.trim().to_ascii_lowercase())
+        .collect();
+    cmds.sort();
+    cmds.dedup();
+    let user = |n: String| Privilege::new(n, &[""]);
+    cats.iter()
+        .map(|c| user(format!("+@{c}")))
+        .chain(cats.iter().map(|c| user(format!("-@{c}"))))
+        .chain(KEY_RULES.iter().map(|r| Privilege::new(*r, &["", "key"])))
+        .chain(USER_RULES.iter().map(|r| user(r.to_string())))
+        .chain(
+            cmds.iter()
+                .flat_map(|c| [user(format!("+{c}")), user(format!("-{c}"))]),
+        )
+        .filter(|p| rule(&p.name, None).is_ok())
+        .collect()
+}
+
+/// What this server can grant: its categories (`ACL CAT`) and commands
+/// (`COMMAND LIST`, or `COMMAND` where that's missing: Redis 6,
+/// Dragonfly). A reply that can't be read leaves the documented
+/// categories and no single commands.
+pub async fn privileges(s: &mut RedisSession) -> Vec<Privilege> {
+    let categories = match s.run(&[b"ACL", b"CAT"]).await {
+        Ok(v) => items(&v),
+        Err(_) => Vec::new(),
+    };
+    let categories = if categories.is_empty() {
+        CATEGORIES.iter().map(|c| c.to_string()).collect()
+    } else {
+        categories
+    };
+    let commands = match s.run(&[b"COMMAND", b"LIST"]).await {
+        Ok(v) => items(&v),
+        Err(_) => match s.run(&[b"COMMAND"]).await {
+            Ok(Value::Array(all)) => all
+                .iter()
+                .filter_map(|c| match c {
+                    Value::Array(info) => info.first().map(text_of),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        },
+    };
+    privileges_from(&categories, &commands)
 }
 
 // -- scripts -----------------------------------------------------------------
@@ -742,5 +847,90 @@ mod tests {
         };
         assert!(negate("~", Some(&pattern)).is_err());
         assert_eq!(negate("-@dangerous", None).unwrap(), "+@dangerous");
+    }
+
+    /// Each privilege, granted on each kind it lists, is a rule the
+    /// script writes.
+    fn all_grantable(list: &[Privilege]) {
+        let kinds = spec().object_kinds;
+        for p in list {
+            assert!(!p.on.is_empty(), "{p:?}");
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{p:?}");
+                let object = (!k.is_empty()).then(|| ObjectRef {
+                    kind: k.clone(),
+                    schema: None,
+                    name: "app:1".into(),
+                });
+                script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ana".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{p:?} on {k:?}: {e}"));
+            }
+        }
+    }
+
+    #[test]
+    fn privileges_from_the_server() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        // Dragonfly answers ACL CAT in capitals; Redis 7 lists subcommands.
+        let list = privileges_from(
+            &v(&["keyspace", "READ", "read", "FT_SEARCH", "bad cat"]),
+            &v(&["GET", "config|get", "FT.SEARCH", "get", "bad cmd", ""]),
+        );
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "+@all",
+                "+@keyspace",
+                "+@read",
+                "+@ft_search",
+                "-@all",
+                "-@keyspace",
+                "-@read",
+                "-@ft_search",
+                "~",
+                "%R~",
+                "%W~",
+                "%RW~",
+                "&",
+                "allkeys",
+                "allchannels",
+                "allcommands",
+                "nocommands",
+                "resetkeys",
+                "resetchannels",
+                "+config|get",
+                "-config|get",
+                "+ft.search",
+                "-ft.search",
+                "+get",
+                "-get",
+            ]
+        );
+        let on = |n: &str| list.iter().find(|p| p.name == n).unwrap().on.clone();
+        assert_eq!(on("%R~"), ["", "key"]);
+        assert_eq!(on("+@read"), [""]);
+        assert_eq!(on("&"), [""]);
+        all_grantable(&list);
+    }
+
+    #[test]
+    fn documented_privileges_are_grantable() {
+        let cats: Vec<String> = CATEGORIES.iter().map(|c| c.to_string()).collect();
+        let list = privileges_from(&cats, &[]);
+        assert_eq!(
+            list.len(),
+            2 * (CATEGORIES.len() + 1) + KEY_RULES.len() + USER_RULES.len()
+        );
+        // The fixed list older apps offer is all in it.
+        for p in spec().privileges {
+            assert!(list.iter().any(|x| x.name == p), "{p}");
+        }
+        all_grantable(&list);
     }
 }
