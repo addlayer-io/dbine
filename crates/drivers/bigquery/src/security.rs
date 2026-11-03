@@ -15,7 +15,8 @@
 use crate::ddl::{ident, lit};
 use crate::BigQuerySession;
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::{json, Value as Json};
 
@@ -38,6 +39,51 @@ pub fn spec() -> SecuritySpec {
         membership: false,
         per_database: true,
     }
+}
+
+/// The IAM roles GRANT takes on a dataset (`schema`), a table and a view:
+/// the predefined BigQuery roles whose "Lowest-level resources where you can
+/// grant this role" include it, in "BigQuery IAM roles and permissions"
+/// (https://cloud.google.com/bigquery/docs/access-control). BigQuery has no
+/// catalog of them. Left out: `roles/bigquery.filteredDataViewer` (system
+/// managed: row access policies grant it, not IAM), the roles granted only
+/// on projects, connections or Studio assets, and project or organization
+/// custom roles (typed by hand: `projects/p/roles/r`).
+const ROLES: &[(&str, &[&str])] = &[
+    (
+        "roles/bigquery.dataViewer",
+        &["schema", kinds::TABLE, kinds::VIEW],
+    ),
+    (
+        "roles/bigquery.dataEditor",
+        &["schema", kinds::TABLE, kinds::VIEW],
+    ),
+    (
+        "roles/bigquery.dataOwner",
+        &["schema", kinds::TABLE, kinds::VIEW],
+    ),
+    (
+        "roles/bigquery.metadataViewer",
+        &["schema", kinds::TABLE, kinds::VIEW],
+    ),
+    // On a dataset and its routines.
+    ("roles/bigquery.user", &["schema"]),
+    (
+        "roles/bigquery.studioAdmin",
+        &["schema", kinds::TABLE, kinds::VIEW],
+    ),
+    (
+        "roles/bigquery.admin",
+        &["schema", kinds::TABLE, kinds::VIEW],
+    ),
+];
+
+/// `Session::privileges`: [`ROLES`].
+pub fn privileges() -> Vec<Privilege> {
+    ROLES
+        .iter()
+        .map(|(name, on)| Privilege::new(*name, on))
+        .collect()
 }
 
 /// Tables whose IAM policy is read at most (one request each).
@@ -421,5 +467,37 @@ mod tests {
             ),
             ("roles/bigquery.dataViewer", Some("ventas.f"), Some("table"))
         );
+    }
+
+    #[test]
+    fn lists_what_grant_takes() {
+        let all = privileges();
+        let kinds = spec().object_kinds;
+        for p in &all {
+            assert!(!p.on.is_empty(), "{}", p.name);
+            // Each one, on each of its kinds, makes a valid GRANT.
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = match k.as_str() {
+                    "schema" => obj(k, None, "ventas"),
+                    _ => obj(k, Some("ventas"), "f"),
+                };
+                let g = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "user:ana@x.com".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(g.starts_with(&format!("GRANT `{}` ON ", p.name)), "{g}");
+            }
+        }
+        let on = |n: &str| all.iter().find(|p| p.name == n).map(|p| p.on.clone());
+        assert_eq!(
+            on("roles/bigquery.dataViewer").unwrap(),
+            ["schema", "table", "view"]
+        );
+        assert_eq!(on("roles/bigquery.user").unwrap(), ["schema"]);
+        assert_eq!(on("roles/bigquery.filteredDataViewer"), None);
     }
 }

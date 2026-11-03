@@ -65,3 +65,38 @@ async fn dcl_and_access_lists() {
             .unwrap_or_else(|e| panic!("{sql}: {e}"));
     }
 }
+
+/// The roles GRANT takes, per kind (BigQuery has no catalog of them, so
+/// the documented ones), from a live session.
+#[tokio::test]
+#[ignore]
+async fn lists_the_roles_it_can_grant() {
+    let Ok(url) = std::env::var("DBINE_TEST_BIGQUERY_URL") else {
+        return;
+    };
+    let mut c = ConnectionConfig {
+        driver: "bigquery".into(),
+        ..Default::default()
+    };
+    c.options.insert("project_id".into(), "test".into());
+    c.options.insert("endpoint_url".into(), url);
+    let d = dbine_driver_bigquery::drivers().pop().unwrap();
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&c, Some("ds1")).await.unwrap();
+    let all = s.privileges().await.unwrap();
+    assert!(!all.is_empty());
+    for p in &all {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+    }
+    for role in [
+        "roles/bigquery.dataViewer",
+        "roles/bigquery.dataEditor",
+        "roles/bigquery.dataOwner",
+    ] {
+        let p = all.iter().find(|p| p.name == role).expect(role);
+        assert_eq!(p.on, ["schema", "table", "view"]);
+    }
+}
