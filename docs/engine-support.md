@@ -65,7 +65,7 @@ When the catalog returns a CHECK, a column default or a computed column's expres
 | Athena | table (Iceberg or external) | no foreign keys or indexes | yes | Unit tests only. |
 | BigQuery | table | yes (NOT ENFORCED keys) | yes (datasets) | No indexes or autoincrement. |
 | Snowflake | table | yes | yes | Transient tables and clustering key. |
-| Databricks | table (Delta) | yes | yes (catalogs) | No indexes; liquid clustering is not read back. |
+| Databricks | table (Delta) | yes | yes (catalogs) | No indexes; liquid clustering is not read back. Sign-in with a personal access token, an OAuth service principal (M2M) or the user's browser sign-in (OAuth U2M: the workspace's `/oidc/v1/authorize` with PKCE, client `databricks-cli`, redirect `http://localhost:8020`, so the organization's SSO and MFA apply). |
 | Phoenix | table | no foreign keys | no | Salting, column families, and local and global indexes. |
 | ksqlDB | stream / table | — | no | Windows of windowed tables are not read back. |
 | IoTDB | device | — | yes | Encoding and compression per measurement. |
@@ -93,7 +93,7 @@ When the catalog returns a CHECK, a column default or a computed column's expres
 | Oracle Autonomous | table | yes | as Oracle | Wallet with `ewallet.pem` or TLS string; `cwallet.sso` and `.p12` not supported. |
 | Archivos CSV / Parquet / JSON | — (each file is a view) | — | no | Through DuckDB; not Excel (it needs an extension that is not bundled). |
 | libSQL / Turso | table | yes | no (platform API) | No cancellation: Hrana HTTP has no cancel request. |
-| Azure Databricks | table (Delta) | yes | yes (catalogs) | Same as Databricks, with token or Entra ID service principal. |
+| Azure Databricks | table (Delta) | yes | yes (catalogs) | Same as Databricks, including the browser sign-in (the workspace hands it to Microsoft Entra ID, with SSO and MFA), plus a pasted Entra ID token or an Entra ID service principal. |
 | Apache Calcite Avatica | — | — | no | No designer, DDL, definitions or monitor: they depend on the database behind the server. |
 | FerretDB | collection | indexes | yes | No cancellation (`killOp` does not exist in FerretDB 2). |
 | Amazon DocumentDB | collection | indexes | yes | TLS with the AWS bundle; `retryWrites` disabled. |

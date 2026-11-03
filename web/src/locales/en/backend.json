@@ -11351,5 +11351,17 @@
   "Tablas splayed": "Splayed tables",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "rows of a partitioned or splayed table can't be edited in kdb+: each column is a file on disk, changed by rewriting it with q",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ announced a message of {0} bytes, more than its protocol allows",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ did not respond when reconnecting: the server is still busy with the cancelled query (kdb+ finishes it anyway) and serves one request at a time"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ did not respond when reconnecting: the server is still busy with the cancelled query (kdb+ finishes it anyway) and serves one request at a time",
+  "Databricks no entregó el token de acceso: {0}": "Databricks did not return the access token: {0}",
+  "Databricks rechazó el inicio de sesión: {0}": "Databricks rejected the sign-in: {0}",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": "Browser sign-in opens the workspace sign-in page (on Azure Databricks, Microsoft Entra ID), with SSO and MFA; it needs port 8020 on this computer to be free.",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": "Browser sign-in opens the workspace sign-in page, with your organization's SSO and MFA; it needs port 8020 on this computer to be free.",
+  "Inicio de sesión en el navegador (SSO)": "Browser sign-in (SSO)",
+  "dirección del workspace no válida: {0}": "invalid workspace address: {0}",
+  "el host no tiene el inicio de sesión OAuth de Databricks (/oidc/v1/token): revisá que sea la dirección del workspace": "the host does not have Databricks OAuth sign-in (/oidc/v1/token): check that it is the workspace address",
+  "el puerto {0} de este equipo está ocupado y el inicio de sesión de Databricks necesita ese puerto (¿hay otro inicio de sesión abierto, como databricks auth login?): cerralo y volvé a conectar": "port {0} on this computer is in use and Databricks sign-in needs that port (is another sign-in open, such as databricks auth login?): close it and connect again",
+  "este motor no lista sus permisos": "this engine does not list its permissions",
+  "no se pudo pedir el token al workspace de Databricks: {0}": "could not request the token from the Databricks workspace: {0}",
+  "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "5 minutes passed without completing the browser sign-in (was the window closed?); connect again",
+  "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "the sign-in was cancelled or access was denied in the browser: {0}"
 }

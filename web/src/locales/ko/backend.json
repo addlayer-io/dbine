@@ -11351,5 +11351,17 @@
   "Tablas splayed": "Splayed 테이블",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+에서는 파티션 테이블이나 splayed 테이블의 행을 편집할 수 없습니다. 각 열은 디스크의 파일이며, q로 다시 써서 변경합니다",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+가 {0}바이트 크기의 메시지를 알렸으며, 이는 프로토콜이 허용하는 크기를 초과합니다",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "다시 연결할 때 kdb+가 응답하지 않았습니다. 서버가 취소된 쿼리를 아직 처리 중이며(kdb+는 해당 쿼리를 끝까지 실행합니다) 한 번에 하나의 요청만 처리합니다"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "다시 연결할 때 kdb+가 응답하지 않았습니다. 서버가 취소된 쿼리를 아직 처리 중이며(kdb+는 해당 쿼리를 끝까지 실행합니다) 한 번에 하나의 요청만 처리합니다",
+  "Databricks no entregó el token de acceso: {0}": "Databricks에서 액세스 토큰을 전달하지 않았습니다: {0}",
+  "Databricks rechazó el inicio de sesión: {0}": "Databricks에서 로그인을 거부했습니다: {0}",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": "브라우저 로그인은 워크스페이스의 로그인 페이지(Azure Databricks에서는 Microsoft Entra ID)를 열고 SSO와 MFA를 사용합니다. 이 컴퓨터의 8020 포트가 비어 있어야 합니다.",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": "브라우저 로그인은 워크스페이스의 로그인 페이지를 열고 조직의 SSO와 MFA를 사용합니다. 이 컴퓨터의 8020 포트가 비어 있어야 합니다.",
+  "Inicio de sesión en el navegador (SSO)": "브라우저 로그인(SSO)",
+  "dirección del workspace no válida: {0}": "워크스페이스 주소가 올바르지 않습니다: {0}",
+  "el host no tiene el inicio de sesión OAuth de Databricks (/oidc/v1/token): revisá que sea la dirección del workspace": "호스트에 Databricks OAuth 로그인(/oidc/v1/token)이 없습니다. 워크스페이스 주소가 맞는지 확인하세요",
+  "el puerto {0} de este equipo está ocupado y el inicio de sesión de Databricks necesita ese puerto (¿hay otro inicio de sesión abierto, como databricks auth login?): cerralo y volvé a conectar": "이 컴퓨터의 {0} 포트가 사용 중이며 Databricks 로그인에 해당 포트가 필요합니다(databricks auth login 같은 다른 로그인이 열려 있지 않은지 확인하세요). 닫고 다시 연결하세요",
+  "este motor no lista sus permisos": "이 엔진은 권한을 나열하지 않습니다",
+  "no se pudo pedir el token al workspace de Databricks: {0}": "Databricks 워크스페이스에 토큰을 요청하지 못했습니다: {0}",
+  "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "브라우저에서 로그인을 완료하지 않은 채 5분이 지났습니다(창을 닫았나요?). 다시 연결하세요",
+  "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "브라우저에서 로그인이 취소되었거나 액세스가 거부되었습니다: {0}"
 }

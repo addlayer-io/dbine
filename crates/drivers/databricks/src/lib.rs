@@ -1,13 +1,15 @@
 //! Databricks SQL over the Statement Execution API 2.0
 //! (`/api/2.0/sql/statements`) on a SQL warehouse, with a personal access
-//! token or OAuth machine-to-machine (service principal). One statement per
+//! token, OAuth machine-to-machine (service principal) or the user's own
+//! browser sign-in (OAuth user-to-machine, [`u2m`]). One statement per
 //! request, results inline as JSON arrays, following chunks up to
 //! `max_rows`. Unity Catalog catalogs are the databases.
 //!
 //! "Azure Databricks" is the same API on an `*.azuredatabricks.net`
 //! workspace; its form also offers Microsoft Entra ID: a token obtained
 //! elsewhere (sent like a PAT) or an Entra ID service principal (client
-//! credentials against `login.microsoftonline.com`).
+//! credentials against `login.microsoftonline.com`). The browser sign-in
+//! goes through the workspace, which sends the user to Entra ID (SSO, MFA).
 
 mod backup;
 mod blocks;
@@ -28,6 +30,7 @@ mod security;
 mod stats;
 mod sync;
 mod transfer;
+mod u2m;
 
 use base64::Engine;
 use dbine_driver::sql::{quote_ident, select_top, split_statements, Limit, Quote};
@@ -74,12 +77,14 @@ fn info(azure: bool) -> DriverInfo {
                 "Autenticación",
                 FieldKind::Select(vec![
                     ("pat", "Token de acceso personal"),
+                    (u2m::MODE, "Inicio de sesión en el navegador (SSO)"),
                     ("entra_token", "Token de Microsoft Entra ID"),
                     ("entra_sp", "Service principal de Microsoft Entra ID"),
                     ("oauth_m2m", "OAuth de service principal de Databricks"),
                 ]),
             )
-            .default_value("pat"),
+            .default_value("pat")
+            .help("El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo."),
             Field::new("token", "Token", FieldKind::Password)
                 .secret()
                 .help("El token de acceso personal, o un token de Entra ID (p. ej. az account get-access-token --resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d).")
@@ -99,10 +104,12 @@ fn info(azure: bool) -> DriverInfo {
                 "Autenticación",
                 FieldKind::Select(vec![
                     ("pat", "Token de acceso personal"),
+                    (u2m::MODE, "Inicio de sesión en el navegador (SSO)"),
                     ("oauth_m2m", "OAuth de service principal"),
                 ]),
             )
-            .default_value("pat"),
+            .default_value("pat")
+            .help("El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo."),
             Field::new("token", "Token de acceso personal", FieldKind::Password)
                 .secret()
                 .when("auth_mode", &["pat"]),
@@ -177,6 +184,10 @@ enum Auth {
         client_secret: String,
         cache: TokenCache,
     },
+    /// The user's browser sign-in (OAuth U2M); its tokens live in
+    /// [`u2m`]'s process-wide cache, shared by every session to the
+    /// workspace.
+    U2m,
 }
 
 /// The Entra ID token request for a service principal: URL and form.
@@ -250,6 +261,12 @@ impl Api {
     async fn bearer(&self) -> Result<String> {
         let (req, cache) = match &self.auth {
             Auth::Pat(t) => return Ok(format!("Bearer {t}")),
+            Auth::U2m => {
+                return Ok(format!(
+                    "Bearer {}",
+                    u2m::access_token(&self.http, &self.base).await?
+                ))
+            }
             Auth::M2m {
                 client_id,
                 client_secret,
@@ -292,8 +309,29 @@ impl Api {
     }
 
     async fn send(&self, req: reqwest::RequestBuilder) -> Result<Json> {
+        // A browser sign-in token the workspace refuses (revoked, or the
+        // clock was off) is renewed and the request sent once more.
+        let retry = match self.auth {
+            Auth::U2m => req.try_clone(),
+            _ => None,
+        };
+        let (bearer, mut status, mut body) = self.send_once(req).await?;
+        if let (401, Some(req)) = (status, retry) {
+            u2m::expire(&self.base, bearer.trim_start_matches("Bearer "));
+            (_, status, body) = self.send_once(req).await?;
+        }
+        match status {
+            200..=299 => Ok(body),
+            401 | 403 => Err(Error::AuthFailed(api_message(&body, status))),
+            _ => Err(Error::Query(api_message(&body, status))),
+        }
+    }
+
+    /// Sends `req` with the bearer token: the token, the status and the body.
+    async fn send_once(&self, req: reqwest::RequestBuilder) -> Result<(String, u16, Json)> {
+        let bearer = self.bearer().await?;
         let resp = req
-            .header("Authorization", self.bearer().await?)
+            .header("Authorization", &bearer)
             .send()
             .await
             .map_err(|e| Error::Connect(e.to_string()))?;
@@ -303,11 +341,7 @@ impl Api {
             .await
             .map_err(|e| Error::Connect(e.to_string()))?;
         let body: Json = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "message": text }));
-        match status {
-            200..=299 => Ok(body),
-            401 | 403 => Err(Error::AuthFailed(api_message(&body, status))),
-            _ => Err(Error::Query(api_message(&body, status))),
-        }
+        Ok((bearer, status, body))
     }
 
     async fn post(&self, path: &str, body: &Json) -> Result<Json> {
@@ -605,6 +639,7 @@ impl Driver for DatabricksDriver {
                     ))
                 }
             },
+            u2m::MODE => Auth::U2m,
             _ => Auth::Pat(
                 cfg.option("token")
                     .or(cfg.password.as_deref().filter(|p| !p.is_empty()))
@@ -635,6 +670,11 @@ impl Driver for DatabricksDriver {
             running: Arc::new(Mutex::new(None)),
             profiler: None,
         };
+        // The browser sign-in first: it may take minutes, which don't
+        // count against the warehouse's wake-up time below.
+        if matches!(s.api.auth, Auth::U2m) {
+            s.api.bearer().await?;
+        }
         // Also wakes a stopped warehouse up.
         tokio::time::timeout(Duration::from_secs(300), s.run("SELECT 1", 1, None))
             .await
@@ -1569,6 +1609,29 @@ mod tests {
         );
         assert_eq!(warehouse_id("/sql/1.0/warehouses/abc123"), "abc123");
         assert_eq!(warehouse_id("abc123"), "abc123");
+    }
+
+    #[test]
+    fn both_variants_offer_the_browser_sign_in_without_secrets() {
+        for azure in [false, true] {
+            let i = info(azure);
+            let mode = i.fields.iter().find(|f| f.key == "auth_mode").unwrap();
+            let FieldKind::Select(opts) = &mode.kind else {
+                panic!("auth_mode is a select")
+            };
+            assert!(opts.iter().any(|(v, _)| *v == u2m::MODE), "{}", i.id);
+            // Host and warehouse only: no token, client or secret field.
+            for f in &i.fields {
+                if let Some(w) = &f.when {
+                    assert!(
+                        !(w.key == "auth_mode" && w.values.contains(&u2m::MODE)),
+                        "{} shows {} for the browser sign-in",
+                        i.id,
+                        f.key
+                    );
+                }
+            }
+        }
     }
 
     #[test]

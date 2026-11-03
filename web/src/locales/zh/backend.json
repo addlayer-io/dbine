@@ -11351,5 +11351,17 @@
   "Tablas splayed": "Splayed 表",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+ 中不能编辑分区表或 splayed 表的行：每一列都是磁盘上的一个文件，需要用 q 重写文件来修改",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ 声明了 {0} 字节的消息，超出其协议允许的大小",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "重新连接时 kdb+ 没有响应：服务器仍在处理已取消的查询（kdb+ 仍会将其执行完毕），且一次只处理一个请求"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "重新连接时 kdb+ 没有响应：服务器仍在处理已取消的查询（kdb+ 仍会将其执行完毕），且一次只处理一个请求",
+  "Databricks no entregó el token de acceso: {0}": "Databricks 未返回访问令牌：{0}",
+  "Databricks rechazó el inicio de sesión: {0}": "Databricks 拒绝了登录：{0}",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": "浏览器登录会打开工作区的登录页面（在 Azure Databricks 上为 Microsoft Entra ID），并使用 SSO 和 MFA；需要本机的 8020 端口空闲。",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": "浏览器登录会打开工作区的登录页面，并使用您所在组织的 SSO 和 MFA；需要本机的 8020 端口空闲。",
+  "Inicio de sesión en el navegador (SSO)": "浏览器登录（SSO）",
+  "dirección del workspace no válida: {0}": "工作区地址无效：{0}",
+  "el host no tiene el inicio de sesión OAuth de Databricks (/oidc/v1/token): revisá que sea la dirección del workspace": "该主机没有 Databricks 的 OAuth 登录（/oidc/v1/token）：请确认这是工作区地址",
+  "el puerto {0} de este equipo está ocupado y el inicio de sesión de Databricks necesita ese puerto (¿hay otro inicio de sesión abierto, como databricks auth login?): cerralo y volvé a conectar": "本机的 {0} 端口已被占用，而 Databricks 登录需要使用该端口（是否已打开其他登录，例如 databricks auth login？）：请将其关闭后重新连接",
+  "este motor no lista sus permisos": "此引擎不列出其权限",
+  "no se pudo pedir el token al workspace de Databricks: {0}": "无法向 Databricks 工作区请求令牌：{0}",
+  "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "5 分钟过去了，浏览器登录仍未完成（窗口是否已关闭？）；请重新连接",
+  "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "已在浏览器中取消登录或拒绝访问：{0}"
 }
