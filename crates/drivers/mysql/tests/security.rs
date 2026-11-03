@@ -652,3 +652,225 @@ async fn velodb_users_roles_and_grants() {
     })
     .await;
 }
+
+/// What a server can grant (`Session::privileges`): the list isn't empty,
+/// has `expect` in it (names only the server's catalog has show it came
+/// from there), each privilege is on kinds the tab offers, and each one,
+/// granted on every kind it's listed for, runs: on real objects
+/// (`objects` creates them in dbine_privs, renamed per engine) to a
+/// scratch role.
+struct Listed {
+    id: &'static str,
+    env: &'static str,
+    /// The scratch role as DBine names it.
+    role: &'static str,
+    /// Creates `dbine_privs` and what's in it, one statement each.
+    objects: &'static [&'static str],
+    expect: &'static [&'static str],
+}
+
+async fn grants_what_it_lists(e: Listed) {
+    let Some(cfg) = cfg(e.id, e.env) else {
+        eprintln!("{} not set; skipping", e.env);
+        return;
+    };
+    let d = dbine_driver_mysql::drivers()
+        .into_iter()
+        .find(|d| d.info().id == e.id)
+        .unwrap();
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    let listed = s.privileges().await.unwrap();
+    assert!(listed.len() > 5, "{listed:?}");
+    for name in e.expect {
+        assert!(listed.iter().any(|p| p.name == *name), "{name}: {listed:?}");
+    }
+    for p in &listed {
+        assert!(!p.on.is_empty(), "{}", p.name);
+        for k in &p.on {
+            assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+        }
+    }
+
+    // Named per engine: VeloDB's test runs against the Doris server too.
+    let db = format!("dbine_privs_{}", e.id);
+    let role = e.role.replace("dbine_privs", &db);
+    let bare = role.trim_start_matches("role:");
+    run(&mut s, &format!("DROP DATABASE IF EXISTS {db}")).await;
+    run(&mut s, &format!("DROP ROLE IF EXISTS {bare}")).await;
+    run(&mut s, &format!("CREATE ROLE {bare}")).await;
+    for sql in e.objects {
+        run(&mut s, &sql.replace("dbine_privs", &db)).await;
+    }
+    let mut failed = Vec::new();
+    let mut granted = 0;
+    for p in &listed {
+        for k in &p.on {
+            let named = |name: &str| ObjectRef {
+                kind: k.clone(),
+                schema: Some(db.clone()),
+                name: name.into(),
+            };
+            let object = match k.as_str() {
+                "" => None,
+                "schema" => Some(ObjectRef {
+                    kind: k.clone(),
+                    schema: None,
+                    name: db.clone(),
+                }),
+                "procedure" => Some(named("p")),
+                "function" => Some(named("f")),
+                "view" => Some(named("v")),
+                "materialized_view" => Some(named("mv")),
+                _ => Some(named("t")),
+            };
+            let sql = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: role.clone(),
+                    grantable: false,
+                })
+                .unwrap();
+            let mut out = QueryOutcome::default();
+            match s.execute(&sql, 100, &mut out).await {
+                Ok(()) if out.error.is_none() => granted += 1,
+                Ok(()) => failed.push(format!("{sql} {:?}", out.error)),
+                Err(err) => failed.push(format!("{sql} {err}")),
+            }
+        }
+    }
+    run(&mut s, &format!("DROP ROLE {bare}")).await;
+    run(&mut s, &format!("DROP DATABASE {db}")).await;
+    eprintln!("{}: {} privileges, {granted} grants", e.id, listed.len());
+    assert!(
+        failed.is_empty(),
+        "{granted} granted; refused:\n{}",
+        failed.join("\n")
+    );
+}
+
+const SQL_OBJECTS: &[&str] = &[
+    "CREATE DATABASE dbine_privs",
+    "CREATE TABLE dbine_privs.t (id int PRIMARY KEY)",
+    "CREATE VIEW dbine_privs.v AS SELECT id FROM dbine_privs.t",
+    "CREATE PROCEDURE dbine_privs.p() SELECT 1",
+    "CREATE FUNCTION dbine_privs.f() RETURNS int DETERMINISTIC RETURN 1",
+];
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn mysql_lists_what_it_can_grant() {
+    grants_what_it_lists(Listed {
+        id: "mysql",
+        env: "DBINE_TEST_MYSQL_URL",
+        role: "dbine_privs",
+        objects: SQL_OBJECTS,
+        expect: &[
+            "SELECT",
+            "EVENT",
+            "BACKUP_ADMIN",
+            "CREATE ROLE",
+            "ALL PRIVILEGES",
+        ],
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn mariadb_lists_what_it_can_grant() {
+    grants_what_it_lists(Listed {
+        id: "mariadb",
+        env: "DBINE_TEST_MARIADB_URL",
+        role: "dbine_privs",
+        objects: SQL_OBJECTS,
+        expect: &[
+            "SELECT",
+            "DELETE HISTORY",
+            "READ_ONLY ADMIN",
+            "BINLOG MONITOR",
+        ],
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn tidb_lists_what_it_can_grant() {
+    grants_what_it_lists(Listed {
+        id: "tidb",
+        env: "DBINE_TEST_TIDB_URL",
+        role: "dbine_privs",
+        objects: &[
+            "CREATE DATABASE dbine_privs",
+            "CREATE TABLE dbine_privs.t (id int PRIMARY KEY)",
+            "CREATE VIEW dbine_privs.v AS SELECT id FROM dbine_privs.t",
+        ],
+        expect: &[
+            "SELECT",
+            "CONFIG",
+            "PLACEMENT_ADMIN",
+            "RESTRICTED_TABLES_ADMIN",
+        ],
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn oceanbase_lists_what_it_can_grant() {
+    grants_what_it_lists(Listed {
+        id: "oceanbase",
+        env: "DBINE_TEST_OCEANBASE_URL",
+        role: "dbine_privs",
+        objects: SQL_OBJECTS,
+        expect: &["SELECT", "ALL PRIVILEGES"],
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn doris_lists_what_it_can_grant() {
+    grants_what_it_lists(Listed {
+        id: "doris",
+        env: "DBINE_TEST_DORIS_URL",
+        role: "role:dbine_privs",
+        objects: &["CREATE DATABASE dbine_privs"],
+        expect: &["SELECT_PRIV", "LOAD_PRIV", "NODE_PRIV", "SHOW_VIEW_PRIV"],
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn starrocks_lists_what_it_can_grant() {
+    grants_what_it_lists(Listed {
+        id: "starrocks",
+        env: "DBINE_TEST_STARROCKS_URL",
+        role: "role:dbine_privs",
+        objects: &[
+            "CREATE DATABASE dbine_privs",
+            "CREATE TABLE dbine_privs.t (id int) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')",
+            "CREATE VIEW dbine_privs.v AS SELECT id FROM dbine_privs.t",
+            "CREATE MATERIALIZED VIEW dbine_privs.mv DISTRIBUTED BY HASH(id) BUCKETS 1 REFRESH MANUAL PROPERTIES ('replication_num' = '1') AS SELECT id FROM dbine_privs.t",
+        ],
+        expect: &["SELECT", "REFRESH", "CREATE MATERIALIZED VIEW", "OPERATE"],
+    })
+    .await;
+}
+
+/// VeloDB is managed Doris: the same list, against a Doris server.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn velodb_lists_what_it_can_grant() {
+    grants_what_it_lists(Listed {
+        id: "velodb",
+        env: "DBINE_TEST_DORIS_URL",
+        role: "role:dbine_privs",
+        objects: &["CREATE DATABASE dbine_privs"],
+        expect: &["SELECT_PRIV", "LOAD_PRIV", "NODE_PRIV", "SHOW_VIEW_PRIV"],
+    })
+    .await;
+}
