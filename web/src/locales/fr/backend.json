@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "Connexion en lecture seule : les connexions des autres ne sont pas fermées.",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "Connexion en lecture seule : la commande système \\{0} a été bloquée. Seules celles qui affichent quelque chose sont permises (\\v, \\f, \\a, \\b, \\w…).",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "Connexion en lecture seule : {0} a été bloqué. Seules les lectures sont permises.",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine ne génère pas encore les changements de structure d'une table kdb+ : dans une base sur disque, chaque colonne est un fichier à réécrire",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "Décoché (SSL_VERIFY_SERVER=NO), le certificat n'est pas vérifié : DBine accepte le premier qu'il voit, puis seulement celui-là.",
   "Esta sesión": "Cette session",
   "Handle": "Handle",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "la connexion dans le navigateur ne fonctionne qu'avec l'adresse d'un workspace Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us ou *.cloud.databricks.mil) ; pour les autres hôtes, utilisez un jeton",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "la réponse de la connexion provient d'un autre serveur ({0}) et non du workspace Databricks de la connexion : la connexion a été annulée",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "La réponse ne provient pas du workspace Databricks de la connexion. Vous pouvez fermer cette fenêtre.",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "la feuille est trop grande ou mal formée : ses {0} cellules avec des données s'étendent sur {1} lignes × {2} colonnes"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "la feuille est trop grande ou mal formée : ses {0} cellules avec des données s'étendent sur {1} lignes × {2} colonnes",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "Un timespan de q est une durée en nanosecondes : un intervalle avec des mois ou des années n'y tient pas.",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "Énumération en symbol : q ne limite pas les valeurs. Valeurs : {0}.",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "Une table à clé de q a besoin d'au moins une colonne hors de la clé : la table reste sans clé ({0}).",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}» est une table sur disque (partitionnée ou splayed) : DBine ne modifie pas sa structure, car chaque colonne est un fichier. Modifiez-la avec q sur le serveur (par exemple avec dbmaint ou .Q.dpft).",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}» existe déjà : il n'est pas remplacé.",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+ modifie les tables dans la mémoire du processus : pour les conserver après un redémarrage, il faut les enregistrer (save, set).",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» n'est pas un nom de colonne que q peut utiliser.",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» n'est pas un type q (colonne {1}.{2}).",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "La colonne {0}.{1} passe de {2} à {3} : les valeurs qui ne peuvent pas être converties deviennent nulles.",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "La colonne {0}.{1} n'est pas convertie de {2} en {3} : q n'a pas de cast direct entre ces types ; modifiez-la à la main."
 }

@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "Read-only connection: other clients' connections aren't closed.",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "Read-only connection: the system command \\{0} was blocked. Only those that show something are allowed (\\v, \\f, \\a, \\b, \\w…).",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "Read-only connection: {0} was blocked. Only reads are allowed.",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine doesn't generate structure changes for a kdb+ table yet: in a database on disk each column is a file that has to be rewritten",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "Unchecked (SSL_VERIFY_SERVER=NO), the certificate isn't verified: DBine accepts the first one it sees and only that one afterwards.",
   "Esta sesión": "This session",
   "Handle": "Handle",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "browser sign-in only works with a Databricks workspace address (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us or *.cloud.databricks.mil); for other hosts use a token",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "the sign-in response came from another server ({0}) and not from the connection's Databricks workspace: the sign-in was canceled",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "The response did not come from the connection's Databricks workspace. You can close this window.",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "the sheet is too large or malformed: its {0} cells with data span {1} rows × {2} columns"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "the sheet is too large or malformed: its {0} cells with data span {1} rows × {2} columns",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "A q timespan is a duration in nanoseconds: an interval with months or years doesn't fit.",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "Enum as symbol: q doesn't restrict the values. Values: {0}.",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "A q keyed table needs at least one column outside the key: the table stays without a key ({0}).",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}» is a table on disk (partitioned or splayed): DBine doesn't change its structure, because each column is a file. Change it with q on the server (for example with dbmaint or .Q.dpft).",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}» already exists: it isn't replaced.",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+ changes the tables in the process's memory: to keep them after a restart they have to be saved (save, set).",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» isn't a column name q can use.",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» isn't a q type (column {1}.{2}).",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Column {0}.{1} changes from {2} to {3}: values that can't be converted become null.",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Column {0}.{1} isn't converted from {2} to {3}: q has no direct cast between those types; change it by hand."
 }

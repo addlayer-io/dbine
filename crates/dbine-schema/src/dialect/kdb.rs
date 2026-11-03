@@ -1,0 +1,632 @@
+//! kdb+ (q). A table is a set of typed columns, keyed or not; a keyed
+//! table's key columns are its primary key (`([id:`long$()] px:`float$())`).
+//! There are no NOT NULL (every type has its null), defaults,
+//! auto-increment, foreign keys in the DDL, indexes or comments.
+//!
+//! Types are `meta`'s, by name as the driver reports them: `boolean`,
+//! `guid`, `byte`, `short`, `int`, `long`, `real`, `float`, `char`,
+//! `symbol`, `timestamp`, `month`, `date`, `datetime`, `timespan`,
+//! `minute`, `second`, `time`; `string` for a list of chars (`C`), `long
+//! list` for a column whose cells are lists of longs (`J`), and `list` for a
+//! general list (`meta`'s blank), whose cells may hold anything.
+//!
+//! What doesn't carry over: attributes (`s#`, `u#`, `p#`, `g#`: neither
+//! read nor written), enumerations (a database's `sym` columns read as
+//! symbols) and general lists (no neutral type: reported as unknown).
+//! A symbol reads as text of any length and other engines' text comes in
+//! as `string`: q can't tell a category from free text.
+
+use super::{Caps, Dialect, IdentCase, Rendered};
+use crate::default::DefaultValue;
+use crate::issue::{IssueCode, Report, Severity};
+use crate::logical::LogicalType as L;
+use crate::parse::TypeSpec;
+use dbine_driver::TableSchema;
+use std::collections::HashSet;
+
+pub struct Kdb;
+
+pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
+    static D: Kdb = Kdb;
+    (driver_id == "kdb").then_some(&D as &dyn Dialect)
+}
+
+/// The engine as the generic messages name it.
+const Q: &str = "q";
+
+/// `.Q.res`: names q reserves, which can't name a table or a column.
+const RESERVED: &[&str] = &[
+    "abs", "acos", "asin", "atan", "avg", "bin", "binr", "by", "cor", "cos", "cov", "dev",
+    "delete", "div", "do", "enlist", "exec", "exit", "exp", "from", "getenv", "hopen", "if", "in",
+    "insert", "last", "like", "log", "max", "min", "prd", "select", "setenv", "sin", "sqrt", "ss",
+    "sum", "tan", "update", "var", "wavg", "while", "within", "wsum", "xexp",
+];
+
+/// The scalar q types, by name.
+const SCALARS: &[&str] = &[
+    "boolean",
+    "guid",
+    "byte",
+    "short",
+    "int",
+    "long",
+    "real",
+    "float",
+    "char",
+    "symbol",
+    "timestamp",
+    "month",
+    "date",
+    "datetime",
+    "timespan",
+    "minute",
+    "second",
+    "time",
+];
+
+/// A scalar type's logical form.
+fn scalar(name: &str) -> Option<L> {
+    Some(match name {
+        "boolean" => L::Bool,
+        "guid" => L::Uuid,
+        // 0x00 to 0xff.
+        "byte" => L::Int {
+            bytes: 1,
+            unsigned: true,
+        },
+        "short" => L::int(2),
+        "int" => L::int(4),
+        "long" => L::int(8),
+        "real" => L::Float { bytes: 4 },
+        "float" => L::Float { bytes: 8 },
+        "char" => L::Char {
+            len: Some(1),
+            unicode: false,
+        },
+        // Interned strings, of any length.
+        "symbol" => L::Varchar {
+            len: None,
+            unicode: true,
+        },
+        // Nanoseconds since 2000.01.01.
+        "timestamp" => L::Timestamp {
+            precision: Some(9),
+            tz: false,
+        },
+        // A month is its first day.
+        "month" | "date" => L::Date,
+        // Days since 2000.01.01 as a float: milliseconds (deprecated in q).
+        "datetime" => L::Timestamp {
+            precision: Some(3),
+            tz: false,
+        },
+        // A duration in nanoseconds.
+        "timespan" => L::Interval,
+        "minute" | "second" => L::Time {
+            precision: Some(0),
+            tz: false,
+        },
+        "time" => L::Time {
+            precision: Some(3),
+            tz: false,
+        },
+        _ => return None,
+    })
+}
+
+impl Dialect for Kdb {
+    fn id(&self) -> &'static str {
+        "kdb"
+    }
+
+    fn parse_type(&self, t: &TypeSpec) -> L {
+        let name = t.name.as_str();
+        if name == "string" {
+            return L::Text { unicode: true };
+        }
+        if let Some(t) = scalar(name) {
+            return t;
+        }
+        match name.strip_suffix(" list") {
+            // A column of byte lists: each cell is a binary value.
+            Some("byte") => L::Blob,
+            Some(base) => match scalar(base) {
+                Some(of) => L::Array { of: Box::new(of) },
+                None => L::Other {
+                    native: t.raw.clone(),
+                },
+            },
+            // `list` (a general list) and anything else.
+            None => L::Other {
+                native: t.raw.clone(),
+            },
+        }
+    }
+
+    fn render_type(&self, t: &L) -> Rendered {
+        use IssueCode::*;
+        use Severity::*;
+        match t {
+            L::Bool => Rendered::exact("boolean"),
+            L::Int {
+                bytes: 1,
+                unsigned: true,
+            } => Rendered::exact("byte"),
+            L::Int { bytes, unsigned } => {
+                let native = match L::signed_bytes_for(*bytes, *unsigned) {
+                    1 | 2 => "short",
+                    3 | 4 => "int",
+                    8 => "long",
+                    _ if *unsigned && *bytes == 8 => {
+                        return Rendered::exact("float").with(
+                            Loss,
+                            PrecisionLoss,
+                            "Entero sin signo grande como double: pierde precisión pasados los 15 dígitos.",
+                        )
+                    }
+                    _ => {
+                        return Rendered::exact("float").with(
+                            Loss,
+                            PrecisionLoss,
+                            "Entero de 16 bytes como double: pierde precisión pasados los 15 dígitos.",
+                        )
+                    }
+                };
+                if *unsigned {
+                    Rendered::exact(native).with(
+                        Info,
+                        TypeChanged,
+                        format!(
+                            "{Q} no tiene enteros sin signo: se usa un tipo más grande con signo."
+                        ),
+                    )
+                } else {
+                    Rendered::exact(native)
+                }
+            }
+            // Whole numbers that fit a long stay exact.
+            L::Decimal {
+                precision: Some(p),
+                scale,
+            } if *p <= 18 && scale.unwrap_or(0) == 0 => Rendered::exact("long"),
+            L::Decimal { .. } => Rendered::exact("float").with(
+                Loss,
+                PrecisionLoss,
+                "No hay decimales exactos: FLOAT pierde precisión pasados los 15 dígitos.",
+            ),
+            L::Money => Rendered::exact("float").with(Loss, PrecisionLoss, format!("Moneda como {}.", "float")),
+            L::Float { bytes: 4 } => Rendered::exact("real"),
+            L::Float { .. } => Rendered::exact("float"),
+            L::Char {
+                len: Some(1) | None,
+                ..
+            } => Rendered::exact("char"),
+            L::Char { .. } | L::Varchar { .. } | L::Text { .. } => Rendered::exact("string"),
+            L::Binary { .. } | L::Varbinary { .. } | L::Blob => Rendered::exact("byte list"),
+            L::Bit { len: Some(1) | None } => Rendered::exact("boolean"),
+            L::Bit { .. } => Rendered::exact("boolean list"),
+            L::Date => Rendered::exact("date"),
+            L::Time { precision, tz } => {
+                let r = Rendered::exact(match precision {
+                    Some(0) => "second",
+                    Some(1..=3) | None => "time",
+                    // Nanoseconds: a timespan.
+                    _ => "timespan",
+                });
+                if *tz {
+                    r.with(
+                        Warning,
+                        TimeZoneLoss,
+                        format!("{Q} no guarda la zona horaria de una hora."),
+                    )
+                } else {
+                    r
+                }
+            }
+            L::Timestamp { tz, .. } => {
+                let r = Rendered::exact("timestamp");
+                if *tz {
+                    r.with(
+                        Warning,
+                        TimeZoneLoss,
+                        format!("{Q} no guarda la zona horaria: conviene guardar en UTC."),
+                    )
+                } else {
+                    r
+                }
+            }
+            L::Interval => Rendered::exact("timespan").with(
+                Loss,
+                RangeLoss,
+                "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.",
+            ),
+            L::Year => Rendered::exact("short").with(Info, TypeChanged, "Año como short."),
+            L::Uuid => Rendered::exact("guid"),
+            L::Json { .. } => Rendered::exact("string").with(Info, TypeChanged, "JSON como texto."),
+            L::Xml => Rendered::exact("string").with(Info, TypeChanged, "XML como texto."),
+            L::Enum { values } => Rendered::exact("symbol").with(
+                Warning,
+                TypeApproximated,
+                format!(
+                    "Enumerado como symbol: q no limita los valores. Valores: {}.",
+                    values.join(", ")
+                ),
+            ),
+            L::Set { values } => Rendered::exact("symbol list").with(
+                Warning,
+                TypeApproximated,
+                format!("Conjunto como lista de texto. Valores: {}.", values.join(", ")),
+            ),
+            L::Array { of } => {
+                let inner = self.render_type(of);
+                let typed = SCALARS.contains(&inner.native.as_str());
+                Rendered {
+                    // Lists of strings or of lists: a general list.
+                    native: if typed {
+                        format!("{} list", inner.native)
+                    } else {
+                        "list".into()
+                    },
+                    notes: inner.notes,
+                }
+            }
+            L::Map { .. } => {
+                Rendered::exact("string").with(Warning, TypeApproximated, "Mapa como texto JSON.")
+            }
+            L::Geometry { .. } => Rendered::exact("string").with(
+                Warning,
+                TypeApproximated,
+                "Dato espacial como texto (WKT).",
+            ),
+            L::Inet => {
+                Rendered::exact("string").with(Info, TypeChanged, "Dirección IP como texto.")
+            }
+            L::MacAddr => {
+                Rendered::exact("string").with(Info, TypeChanged, "Dirección MAC como texto.")
+            }
+            L::RowVersion => Rendered::exact("long").with(
+                Warning,
+                TypeApproximated,
+                format!("{Q} no tiene versión de fila automática: no se actualiza sola."),
+            ),
+            L::Other { native } => Rendered::exact(native.clone()),
+        }
+    }
+
+    fn render_default(&self, _d: &DefaultValue, _ty: &L) -> Option<String> {
+        None
+    }
+
+    fn caps(&self) -> Caps {
+        Caps {
+            foreign_keys: false,
+            on_delete: &[],
+            on_update: &[],
+            indexes: false,
+            partial_indexes: false,
+            supports_include: false,
+            auto_increment: false,
+            defaults: false,
+            nullability: false,
+            comments: false,
+            max_identifier: 255,
+            case: IdentCase::Preserve,
+        }
+    }
+
+    /// Names q can't take become valid ones (as `.Q.id` does: other
+    /// characters out, a letter first, a `1` after a reserved word), and a
+    /// key that holds every column is left out: a keyed table needs a
+    /// column outside its key.
+    fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
+        use IssueCode::*;
+        use Severity::*;
+        let source = t.name.clone();
+        let fixed = q_name(&t.name);
+        if fixed != t.name {
+            report.push(
+                Info,
+                IdentifierRenamed,
+                &source,
+                None,
+                format!("«{}» pasa a llamarse «{}».", t.name, fixed),
+            );
+            t.name = fixed;
+        }
+        let mut taken: HashSet<String> = HashSet::new();
+        for c in &mut t.columns {
+            let mut name = q_name(&c.name);
+            let base = name.clone();
+            let mut n = 1;
+            while taken.contains(&name) {
+                n += 1;
+                name = format!("{base}{n}");
+            }
+            taken.insert(name.clone());
+            if name != c.name {
+                report.push(
+                    Info,
+                    IdentifierRenamed,
+                    &source,
+                    Some(&c.name),
+                    format!("«{}» pasa a llamarse «{}».", c.name, name),
+                );
+                if let Some(k) = t.primary_key.as_mut() {
+                    for kc in k.columns.iter_mut().filter(|kc| **kc == c.name) {
+                        *kc = name.clone();
+                    }
+                }
+                c.name = name;
+            }
+        }
+        let all_keys = t.primary_key.as_ref().is_some_and(|k| {
+            !k.columns.is_empty() && t.columns.iter().all(|c| k.columns.contains(&c.name))
+        });
+        if all_keys {
+            let cols = t
+                .primary_key
+                .take()
+                .map(|k| k.columns.join(", "))
+                .unwrap_or_default();
+            report.push(
+                Warning,
+                PrimaryKeyDropped,
+                &source,
+                None,
+                key_without_values(&cols),
+            );
+        }
+    }
+}
+
+/// Why a keyed table whose key holds every column stays unkeyed (the
+/// driver's sync says the same).
+fn key_without_values(cols: &str) -> String {
+    format!("Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({cols}).")
+}
+
+/// `name` as q takes it: letters, digits and `_`, starting with a letter,
+/// not a reserved word.
+fn q_name(name: &str) -> String {
+    let mut out: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if !out.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        out.insert(0, 'a');
+    }
+    if RESERVED.contains(&out.as_str()) {
+        out.push('1');
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse::parse;
+    use dbine_driver::{ColumnDef, KeyDef};
+
+    fn p(s: &str) -> L {
+        crate::convert::logical_of(&Kdb, &parse(s))
+    }
+
+    fn r(t: L) -> String {
+        Kdb.render_type(&t).native
+    }
+
+    #[test]
+    fn every_q_type_parses() {
+        assert_eq!(p("boolean"), L::Bool);
+        assert_eq!(p("guid"), L::Uuid);
+        assert_eq!(
+            p("byte"),
+            L::Int {
+                bytes: 1,
+                unsigned: true
+            }
+        );
+        assert_eq!(p("short"), L::int(2));
+        assert_eq!(p("int"), L::int(4));
+        assert_eq!(p("long"), L::int(8));
+        assert_eq!(p("real"), L::Float { bytes: 4 });
+        assert_eq!(p("float"), L::Float { bytes: 8 });
+        assert_eq!(
+            p("char"),
+            L::Char {
+                len: Some(1),
+                unicode: false
+            }
+        );
+        assert_eq!(
+            p("symbol"),
+            L::Varchar {
+                len: None,
+                unicode: true
+            }
+        );
+        assert_eq!(p("string"), L::Text { unicode: true });
+        assert_eq!(
+            p("timestamp"),
+            L::Timestamp {
+                precision: Some(9),
+                tz: false
+            }
+        );
+        assert_eq!(p("month"), L::Date);
+        assert_eq!(p("date"), L::Date);
+        assert_eq!(
+            p("datetime"),
+            L::Timestamp {
+                precision: Some(3),
+                tz: false
+            }
+        );
+        assert_eq!(p("timespan"), L::Interval);
+        for t in ["minute", "second"] {
+            assert_eq!(
+                p(t),
+                L::Time {
+                    precision: Some(0),
+                    tz: false
+                }
+            );
+        }
+        assert_eq!(
+            p("time"),
+            L::Time {
+                precision: Some(3),
+                tz: false
+            }
+        );
+        assert_eq!(
+            p("long list"),
+            L::Array {
+                of: Box::new(L::int(8))
+            }
+        );
+        assert_eq!(p("byte list"), L::Blob);
+        // A general list has no neutral type: the conversion reports it.
+        assert!(matches!(p("list"), L::Other { .. }));
+        assert!(matches!(p("table"), L::Other { .. }));
+    }
+
+    #[test]
+    fn neutral_types_render_as_q() {
+        assert_eq!(r(L::int(1)), "short");
+        assert_eq!(r(L::int(4)), "int");
+        assert_eq!(
+            r(L::Int {
+                bytes: 4,
+                unsigned: true
+            }),
+            "long"
+        );
+        assert_eq!(r(L::int(16)), "float");
+        assert_eq!(
+            r(L::Decimal {
+                precision: Some(10),
+                scale: Some(0)
+            }),
+            "long"
+        );
+        let d = Kdb.render_type(&L::Decimal {
+            precision: Some(10),
+            scale: Some(2),
+        });
+        assert_eq!(d.native, "float");
+        assert_eq!(d.notes[0].code, IssueCode::PrecisionLoss);
+        assert_eq!(
+            r(L::Varchar {
+                len: Some(40),
+                unicode: true
+            }),
+            "string"
+        );
+        assert_eq!(
+            r(L::Char {
+                len: Some(1),
+                unicode: false
+            }),
+            "char"
+        );
+        assert_eq!(r(L::Blob), "byte list");
+        assert_eq!(r(L::Uuid), "guid");
+        assert_eq!(
+            r(L::Time {
+                precision: Some(6),
+                tz: false
+            }),
+            "timespan"
+        );
+        let ts = Kdb.render_type(&L::Timestamp {
+            precision: Some(6),
+            tz: true,
+        });
+        assert_eq!(ts.native, "timestamp");
+        assert_eq!(ts.notes[0].code, IssueCode::TimeZoneLoss);
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Float { bytes: 8 })
+            }),
+            "float list"
+        );
+        assert_eq!(
+            r(L::Array {
+                of: Box::new(L::Text { unicode: true })
+            }),
+            "list"
+        );
+        assert_eq!(r(L::Enum { values: vec![] }), "symbol");
+        assert_eq!(r(L::Json { binary: true }), "string");
+        assert_eq!(
+            r(L::Other {
+                native: "hstore".into()
+            }),
+            "hstore"
+        );
+    }
+
+    #[test]
+    fn q_types_survive_a_round_trip() {
+        for t in SCALARS.iter().copied().chain(["string", "long list"]) {
+            let back = r(p(t));
+            let expect = match t {
+                // A month is a date, minutes are seconds and a datetime a
+                // timestamp outside q; a symbol is text of any length.
+                "month" => "date",
+                "symbol" => "string",
+                "minute" => "second",
+                "datetime" => "timestamp",
+                _ => t,
+            };
+            assert_eq!(back, expect, "{t}");
+        }
+    }
+
+    #[test]
+    fn finalize_fixes_names_and_a_key_of_every_column() {
+        let col = |n: &str| ColumnDef {
+            name: n.into(),
+            data_type: "long".into(),
+            ..Default::default()
+        };
+        let mut t = TableSchema {
+            name: "order items".into(),
+            columns: vec![col("select"), col("2nd"), col("a b"), col("a_b")],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["select".into()],
+            }),
+            ..Default::default()
+        };
+        let mut rep = Report::default();
+        Kdb.finalize(&mut t, &mut rep);
+        assert_eq!(t.name, "order_items");
+        let names: Vec<&str> = t.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["select1", "a2nd", "a_b", "a_b2"]);
+        assert_eq!(t.primary_key.as_ref().unwrap().columns, ["select1"]);
+        // The table, `select`, `2nd`, `a b` and the second `a_b`.
+        assert_eq!(rep.issues.len(), 5);
+
+        let mut link = TableSchema {
+            name: "link".into(),
+            columns: vec![col("a"), col("b")],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["a".into(), "b".into()],
+            }),
+            ..Default::default()
+        };
+        let mut rep = Report::default();
+        Kdb.finalize(&mut link, &mut rep);
+        assert!(link.primary_key.is_none());
+        assert_eq!(rep.issues[0].code, IssueCode::PrimaryKeyDropped);
+    }
+}

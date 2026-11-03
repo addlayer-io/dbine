@@ -133,6 +133,21 @@ why:
   - Decimals of up to 18 digits become `scaled_float`.
 - **Graphs:** each table is a label and each column a property. The key and
   unique indexes become `UNIQUE` constraints.
+- **KDB+ (q):**
+  - A keyed table's key is the primary key, both ways. A key that holds
+    every column can't be one in q (a keyed table needs a value column): the
+    table stays unkeyed, with a warning.
+  - Text from other engines becomes `string`; a `symbol` reads as text of
+    any length. Enums become `symbol` (q doesn't restrict the values), sets
+    `symbol list`, arrays typed lists (`long list`), binaries `byte list`.
+  - `month` reads as a date, `minute` and `second` as times, `timespan` as
+    an interval, `datetime` as a millisecond timestamp. Decimals with
+    decimals and money become `float`, with a loss.
+  - Not carried over: attributes (`s#`, `u#`, `p#`, `g#`: neither read nor
+    written), enumerations (a database's `sym` columns read as `symbol`),
+    general lists (`list`, reported as an unknown type). Names q can't take
+    are renamed as `.Q.id` does (`select` → `select1`, `order id` →
+    `order_id`). There are no NOT NULL, defaults or indexes.
 
 ## What the converter checks
 
@@ -154,7 +169,7 @@ cargo test -p dbine-schema          # unit and end-to-end, no servers
 Tests against real servers are marked `#[ignore]`. They read the same
 `DBINE_TEST_<ENGINE>_URL` variables as the drivers' tests. How to run them is
 in the header of each file: `live_core.rs`, `analytics.rs`, `enterprise.rs`,
-`niche.rs`, `nosql.rs` and `odbc_engines.rs`.
+`niche.rs`, `nosql.rs`, `odbc_engines.rs` and `kdb.rs`.
 
 Each live test does the same:
 

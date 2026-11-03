@@ -29,6 +29,7 @@ mod hana;
 mod influxdb;
 mod informix;
 mod iotdb;
+mod kdb;
 mod ksqldb;
 mod manticore;
 mod mongodb;
@@ -244,6 +245,7 @@ const LOOKUPS: &[Lookup] = &[
     influxdb::lookup,
     informix::lookup,
     iotdb::lookup,
+    kdb::lookup,
     ksqldb::lookup,
     manticore::lookup,
     mongodb::lookup,

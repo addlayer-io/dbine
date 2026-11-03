@@ -8,8 +8,6 @@ const NOT_APPLICABLE: &[(&str, &str)] = &[
     ("dragonfly", "clave-valor: no hay tablas ni columnas"),
     ("etcd", "árbol de claves sin esquema"),
     ("flightsql", "protocolo genérico: el motor de atrás (DuckDB, Dremio, InfluxDB 3, Doris) no se conoce, y cada uno tiene su propia conexión"),
-    // Not "without tables": pending (docs/engine-support.md, KDB+).
-    ("kdb", "pendiente: el dialecto de q (tipos de kdb+, tablas con clave) todavía no está"),
 ];
 
 #[test]

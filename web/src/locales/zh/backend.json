@@ -11302,7 +11302,6 @@
   "Conexión de solo lectura: no se cierran conexiones de otros.": "只读连接：不会关闭其他客户端的连接。",
   "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": "只读连接：已阻止系统命令 \\{0}。只允许用于显示信息的命令（\\v、\\f、\\a、\\b、\\w…）。",
   "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": "只读连接：已阻止 {0}。只允许读取。",
-  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": "DBine 暂不生成 kdb+ 表的结构变更：在磁盘上的数据库中，每一列都是一个需要重写的文件",
   "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": "取消勾选（SSL_VERIFY_SERVER=NO）时不验证证书：DBine 接受首次看到的证书，之后只接受该证书。",
   "Esta sesión": "本会话",
   "Handle": "句柄",
@@ -11369,5 +11368,15 @@
   "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "浏览器登录仅适用于 Databricks 工作区地址（*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us 或 *.cloud.databricks.mil）；其他主机请使用令牌",
   "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "登录响应来自另一台服务器（{0}），而不是此连接的 Databricks 工作区：已取消登录",
   "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "此响应并非来自此连接的 Databricks 工作区。您可以关闭此窗口。",
-  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "工作表过大或格式不正确：其 {0} 个有数据的单元格跨越 {1} 行 × {2} 列"
+  "la hoja es demasiado grande o está mal formada: sus {0} celdas con datos ocupan {1} filas × {2} columnas": "工作表过大或格式不正确：其 {0} 个有数据的单元格跨越 {1} 行 × {2} 列",
+  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": "q 的 timespan 是以纳秒计的时长：包含月或年的间隔无法放入。",
+  "Enumerado como symbol: q no limita los valores. Valores: {0}.": "枚举使用 symbol：q 不限制取值。值：{0}。",
+  "Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({0}).": "q 的带键表至少需要一列不在键中：该表保持无键（{0}）。",
+  "«{0}» es una tabla en disco (particionada o splayed): DBine no cambia su estructura, porque cada columna es un archivo. Cambiala con q en el servidor (por ejemplo con dbmaint o .Q.dpft).": "«{0}» 是磁盘上的表（分区或 splayed）：DBine 不修改其结构，因为每一列都是一个文件。请在服务器上用 q 修改（例如使用 dbmaint 或 .Q.dpft）。",
+  "Ya existe «{0}»: no se reemplaza.": "«{0}» 已存在：不会被替换。",
+  "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).": "kdb+ 在进程内存中修改表：要在重启后保留，需要保存它们（save、set）。",
+  "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» 不是 q 可以使用的列名。",
+  "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» 不是 q 的类型（列 {1}.{2}）。",
+  "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "列 {0}.{1} 从 {2} 改为 {3}：无法转换的值变为空值。",
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "列 {0}.{1} 不会从 {2} 转换为 {3}：q 在这两种类型之间没有直接转换；请手动修改。"
 }
