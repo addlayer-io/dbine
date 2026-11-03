@@ -6,8 +6,9 @@
 //! `openssl passwd -6 -salt dbinetestsalt cassandra`, and the image's entrypoint runs
 //! its arguments through a shell, so each `$` needs the `\` inside the quotes.)
 //! then `DBINE_TEST_CASSANDRA_AUTH_URL=cassandra:cassandra@localhost:27121 DBINE_TEST_SCYLLADB_AUTH_URL=cassandra:cassandra@localhost:27125 cargo test -p dbine-driver-cassandra --test security -- --ignored`.
-//! `DBINE_TEST_CASSANDRA_URL` (tests/integration.rs, authentication off)
-//! checks the explanation `principals()` gives.
+//! `DBINE_TEST_CASSANDRA_URL` / `DBINE_TEST_SCYLLADB_URL` (tests/integration.rs,
+//! authentication off) check the explanation `principals()` gives and the
+//! privileges: the server parses each grant before refusing an anonymous one.
 
 use dbine_driver::{
     ConnectionConfig, Error, ObjectRef, PrincipalKind, QueryOutcome, SecurityAction, Session,
@@ -258,4 +259,72 @@ async fn without_authentication() {
         Err(Error::Unsupported(m)) => assert!(m.contains("PasswordAuthenticator"), "{m}"),
         other => panic!("{other:?}"),
     }
+}
+
+/// The documented permissions of the server's version: the server parses
+/// each one on each kind listed (a permission that doesn't apply to the
+/// resource is a syntax error), then refuses it for being anonymous.
+async fn privileges_parse(id: &str, var: &str, expect: &[&str]) {
+    let Ok(url) = std::env::var(var) else {
+        return;
+    };
+    let d = driver(id);
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&cfg(id, &url), None).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    for n in expect {
+        assert!(list.iter().any(|p| p.name == *n), "{n} in {list:?}");
+    }
+    for p in &list {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+        for k in &p.on {
+            let object = (!k.is_empty()).then(|| ObjectRef {
+                kind: k.clone(),
+                schema: Some("system".into()),
+                name: "local".into(),
+            });
+            let text = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "dbine_priv".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            let mut out = QueryOutcome::default();
+            let e = s
+                .execute(&text, 10, &mut out)
+                .await
+                .err()
+                .map(|e| e.to_string())
+                .or(out.error)
+                .unwrap_or_default();
+            assert!(e.contains("anonymous"), "{text}: {e}");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cassandra_privileges() {
+    privileges_parse(
+        "cassandra",
+        "DBINE_TEST_CASSANDRA_URL",
+        &["SELECT", "MODIFY", "UNMASK", "ALL PERMISSIONS"],
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn scylladb_privileges() {
+    privileges_parse(
+        "scylladb",
+        "DBINE_TEST_SCYLLADB_URL",
+        &["SELECT", "AUTHORIZE", "VECTOR_SEARCH_INDEXING"],
+    )
+    .await;
 }

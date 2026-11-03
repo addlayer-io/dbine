@@ -1772,6 +1772,10 @@ impl DbSession for CassandraSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        security::privileges(self).await
+    }
+
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         backup::history(self, database).await
     }
