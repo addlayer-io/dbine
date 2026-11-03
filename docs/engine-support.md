@@ -183,6 +183,7 @@ the generated statement (SQL and CQL), or in the driver's read-only mode
 | OrientDB, TDengine | in DBine | their SQL subqueries and grouping differ from standard SQL; not verified against a server |
 | Cosmos DB, Couchbase (N1QL), DynamoDB (PartiQL), ksqlDB, InfluxDB 1 (InfluxQL), IoTDB | in DBine | their queries aren't plain SQL over rows (`c`, `d.*`, push queries, series paths) |
 | Cassandra, ScyllaDB, Keyspaces | in DBine | CQL has no subqueries |
+| KDB+ | server, its own: `n sublist keys xasc 0!select … by … from 0!(query)`; `count` of a column counts non-null cells, sum / avg / min / max skip nulls | tested live (`tests/live.rs`), through `reval`. Several statements, system commands and columns q-sql can't name are aggregated in DBine |
 | MongoDB and variants, Elasticsearch, OpenSearch, Solr, CouchDB, Neo4j, Memgraph, Neptune, InfluxDB 2 (Flux), Redis and variants, etcd | in DBine | not SQL; tested live on MongoDB and Redis |
 
 Live tests: `src-tauri/src/commands/chart_live_tests.rs` (SQLite always; the
@@ -617,6 +618,31 @@ and `SSL_CA_CERT_FILE`.
   kdb+ has no request to stop a query from a client: the server finishes it
   on its own.
 - **Table designer and definition:** `t:([k:`long$()] c:`symbol$())`.
+- **Foreign keys (ER diagram, jump by key, dependencies):** a linked
+  column (an enumeration over a keyed table, `` `t2$ ``, `meta`'s `f`) is a
+  foreign key to that table's key. The whole catalog (columns, keys and
+  links of every table) comes in one protected round trip. A link to a
+  table keyed by several columns is left out: its cells are the row's
+  index, nothing the other table's columns pair with.
+- **Bulk load (migrations, imports, notebook writes):** rows go to kdb+ as
+  IPC messages of one typed columnar table each (up to 50,000 rows), the
+  function and its arguments as q objects, never as q text built from the
+  values. Each column is built as a vector of the target column's type
+  from `meta` (nulls as q's typed nulls); a column whose values don't
+  convert (`0W`, a timespan in q's form…) goes as strings, cast on the
+  server as the insert scripts do. A keyed table takes the rows by
+  `upsert` (a key already there is updated), any other by `insert`; a
+  load may give only some columns (the rest get nulls). Partitioned and
+  splayed tables are refused, as in the grid. kdb+ has no transactions:
+  each message's rows are in the table once it's answered.
+- **Chart aggregation on the server:** the chart's query (one q statement
+  that gives a table, keyed or not) goes inside
+  `select … by … from 0!(query)`, sorted by the groups (`xasc`) and cut
+  past the chart's group limit, so the whole result is aggregated on the
+  server. The measures follow SQL's: `count` of a column counts its
+  non-null cells, and sum, average, minimum and maximum skip nulls and give
+  none over a group without numbers. Columns q-sql can't name, several
+  statements and system commands aggregate in DBine instead.
 
 **Not available, and why:**
 
@@ -628,9 +654,6 @@ and `SSL_CA_CERT_FILE`.
 | Users and permissions | kdb+'s users are a file given at start-up (`-u`, `-U`) or the process's own `.z.pw`: there's nothing to list or grant over IPC. |
 | Schema compare and sync | pending: changing columns in place takes code per change and, on an on-disk database, rewriting each column's file. |
 | Schema conversion (to and from other engines) | pending: `dbine-schema` has no q dialect yet (kdb+ types, keyed tables). |
-| Foreign keys (ER diagram, jump by key) | pending: linked columns (`meta`'s `f`) aren't read yet. |
-| Bulk load | pending: data loads with `insert` scripts of 500 rows. |
-| Chart aggregation on the server | pending: charts aggregate the loaded result. |
 | Index usage | kdb+ has attributes (`s`, `u`, `p`, `g`), not indexes. |
 
 **Tests:** the IPC codec, the script splitter, the read-only check and the
@@ -641,7 +664,11 @@ login, the explorer, scripts and errors, read-only, cancel and reconnect).
 container built from `tests/docker/Dockerfile` with a KX license: tables,
 types and edits, partitioned and splayed tables, namespaces, big results,
 read-only through `reval`, cancel and dropped connections, server requests,
-every q type and TLS (`tcps`, verified and pinned).
+every q type, TLS (`tcps`, verified and pinned), foreign keys (a linked
+column, and one over a compound key left out), a bulk load of 100,000 rows
+of ten types (count, types kept, values, a keyed table by `upsert`) and
+charts aggregated on the server (groups, a split, the group limit, a total
+over a keyed result) through `reval`.
 
 ## Per-column filters on table data
 
@@ -709,7 +736,8 @@ whose driver reports foreign keys (`Capabilities::foreign_keys`):
 PostgreSQL and its variants with foreign keys, MySQL, MariaDB and their
 variants with foreign keys, SQL Server, Azure SQL Database, Babelfish,
 Fabric Data Warehouse, Oracle, SQLite, libSQL, DuckDB, Firebird, SAP HANA,
-Spanner, OrientDB (its links), the ODBC presets that report them, and
+Spanner, OrientDB (its links), KDB+ (its linked columns, `` `t2$ ``), the
+ODBC presets that report them, and
 BigQuery, Snowflake and Databricks, whose foreign keys are informational
 (declared, not enforced: the jump finds what the data has).
 
@@ -742,9 +770,6 @@ It does not appear where the driver reports no foreign keys:
   edges between nodes, not key values in a node's properties, and the grid
   shows a whole node in one column, so there is no cell whose value leads
   to other rows; following relationships is a Cypher / Gremlin query.
-- **KDB+**: pending. kdb+ has linked columns (a column enumerated over a
-  keyed table, `meta`'s `f`), which the driver doesn't read as foreign keys
-  yet.
 
 ### Tested against real servers
 
@@ -1784,6 +1809,7 @@ follows the vendor's documentation; it is below, in the limitations.
 | TDengine | multi-row `INSERT` | no | no | no |
 | IoTDB, TimechoDB | `insertTablet` in columns | no | no | no |
 | ksqlDB | `/inserts-stream` row by row | no | no | no |
+| KDB+ | one typed columnar table per IPC message (up to 50,000 rows), appended by `insert` (`upsert` on a keyed table) | no | no | no |
 
 ### Speed
 
