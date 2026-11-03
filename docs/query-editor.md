@@ -91,7 +91,8 @@ Each engine has its built-in set in its syntax:
 | `tran`, `try`, `proc`, `func`, `ups`, `blk` | Depending on the engine: transaction, `TRY/CATCH`, procedure, plpgsql function, upsert, PL/SQL block |
 
 MongoDB (`find`, `agg`, `ins`, `upd`, `del`, `idx`…), Redis, etcd, Cypher,
-Flux, Elasticsearch/OpenSearch/Solr, CouchDB and Cassandra have their own.
+Flux, Elasticsearch/OpenSearch/Solr, CouchDB, Cassandra and KDB+'s q
+(`sel`, `agg`, `aj`, `upd`, `ins`, `ups`, `del`…) have their own.
 
 In **Settings › Snippets** you add your own: abbreviation, engines (one, all
 SQL or all) and the text, with fields `${1:text}` (the number sets the order,

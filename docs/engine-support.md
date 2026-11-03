@@ -572,6 +572,23 @@ and `SSL_CA_CERT_FILE`.
 - **Query editor:** q, one statement per line as kdb+ loads a script (a
   line that starts with a blank continues the one above; `/` comments and
   blocks; `\` system commands). Each statement is its own result.
+- **q in the editor:** the editor knows q by the driver's dialect (`q`)
+  and so does a `.q` file before it has a connection. Highlighting covers
+  comments (`/` at the start of a line or after a blank, `/` … `\`
+  blocks, a lone `\` that ends the script), strings with escapes, symbols
+  (`` `sym ``, `` `a`b ``) and file handles (`` `:path ``), numbers with
+  their type suffixes, temporal literals, nulls and infinities (`1j`,
+  `2.5e`, `0x2a`, `2026.11.03`, `12:00:00.000`, `0N`, `0w`, `0Nd`), q-sql's
+  keywords, the built-ins and the `.Q`, `.z`, `.h` and `.j` namespaces,
+  adverbs and iterators, operators, and system commands (`\l`, `\t`,
+  `\d`) at a line's start. Completion offers q's keywords and built-ins,
+  the connection's tables, views, functions and variables (namespaced ones
+  like `.u.upd` included) and the columns of the tables the statement at
+  the cursor names, loaded when first needed; after a backtick it offers
+  only names, as symbols. ⌘/ comments lines with `/`; the built-in
+  snippets are q (`sel`, `selw`, `agg`, `meta`, `cnt`, `aj`, `upd`, `ins`,
+  `ups`, `del`). The `:name` query parameters are off in q (`:x` returns
+  and `x:y` assigns), and there is no formatter for q.
 - **Data:** a table opens with `select[N] from t`, a partitioned one by
   index (`.Q.ind`), which reads only the partitions those rows are in; the
   grid's filters and sort are q (each value cast to the column's type on
@@ -605,7 +622,6 @@ and `SSL_CA_CERT_FILE`.
 
 | Feature | Reason |
 |---|---|
-| Syntax highlighting and completion for q | pending: the editor has no q language yet; q opens as plain text. |
 | Execution plans, Profiler | kdb+ has neither. |
 | Cancel another client's query, Locks | kdb+ runs one request at a time and has no request to stop another one's. |
 | Create or drop databases, Backups | A kdb+ process is one namespace tree; an on-disk database is files the server reads, saved with q (`.Q.dpft`, `set`), not through a backup command. |

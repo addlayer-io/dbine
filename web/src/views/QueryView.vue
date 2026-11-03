@@ -112,6 +112,8 @@ const ext = computed(() => (fileTab ? extOf(fileTab.path) : ''));
 const runnable = computed(() => !fileTab || isScriptFile(fileTab.path));
 const extMismatch = computed(() => !!fileTab && runnable.value && !!driver.value && !extFitsDriver(ext.value, driver.value));
 const editorLanguage = computed(() => driver.value?.language ?? (fileTab ? languageForExt(ext.value) : undefined));
+/** A `.q` file with no engine yet is still q (KDB+'s dialect). */
+const editorDialect = computed(() => driver.value?.dialect ?? (fileTab && ext.value === 'q' ? 'q' : ''));
 /** The tab picked its own database: back to the project's active base. */
 function followProject() {
   if (!fileTab) return;
@@ -197,6 +199,15 @@ function namesIn(database: string, objs: DbObject[]): Record<string, string[]> {
   return out;
 }
 const schema = computed(() => namesIn(props.tab.database, conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? []));
+/** q completes the connection's functions and variables too (they have no
+ *  columns, so they aren't in `schema`). */
+const otherNames = computed(() => {
+  if (driver.value?.dialect !== 'q') return [];
+  const objs = conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? [];
+  return objs
+    .filter((o) => !driver.value?.object_kinds.find((k) => k.id === o.kind)?.has_columns)
+    .map((o) => ({ label: o.name, kind: o.kind }));
+});
 
 /** On engines whose queries read the connection's other databases
  *  (`db.table`), those databases for completion: each one's names once
@@ -1085,8 +1096,9 @@ function runOverflow(i: number) {
           ref="editor"
           v-model="text"
           :language="editorLanguage"
-          :dialect="driver?.dialect"
+          :dialect="editorDialect"
           :schema="schema"
+          :other-names="otherNames"
           :databases="otherDatabases"
           :placeholder="$t('query:editorPlaceholder')"
           :lint="lintSource"

@@ -9,7 +9,7 @@ import { rt } from './i18nLabels';
 // - Redis, Flux, Cypher: no formatter (the button says why).
 
 /** Why a language can't be formatted, or null when it can. KDB+'s q
- *  (dialect `q`) runs in the plain-text editor Redis uses. */
+ *  (dialect `q`, labelled with Redis's language) has no formatter either. */
 export function formatUnavailable(language: Language | undefined, dialect = ''): string | null {
   if (dialect === 'q') return rt('core:format.unavailable');
   switch (language ?? 'sql') {

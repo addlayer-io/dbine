@@ -190,6 +190,8 @@ function builtIn(family: SnippetFamily, dialect: string): Snippet[] {
       s('aj', 'aj[`${1:sym}`${2:time};${3:trade};${4:quote}]', 'aj[`sym`time;t;q]'),
       s('upd', 'update ${2:col}:${3:value} from `${1:table} where ${4:cond}', 'update … from `table'),
       s('ins', '`${1:table} insert (${2:values})', '`table insert (…)'),
+      s('ups', '`${1:table} upsert (${2:values})', '`table upsert (…)'),
+      s('del', 'delete from `${1:table} where ${2:cond}', 'delete from `table where …'),
     ];
     case 'cypher': return [
       s('sel', 'MATCH (${1:n}:${2:Label})\nRETURN ${1:n}\nLIMIT ${3:25}', 'MATCH (n:Label) RETURN n'),
