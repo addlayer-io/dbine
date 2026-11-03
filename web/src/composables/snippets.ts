@@ -27,7 +27,7 @@ export interface Snippet {
 
 /** The families with their own built-in set. */
 export const SNIPPET_FAMILIES = [
-  'tsql', 'postgres', 'mysql', 'oracle', 'sqlite', 'db2', 'sql', 'cql', 'mongodb', 'redis', 'cypher', 'flux', 'search', 'couchdb', 'etcd',
+  'tsql', 'postgres', 'mysql', 'oracle', 'sqlite', 'db2', 'sql', 'cql', 'mongodb', 'redis', 'cypher', 'flux', 'search', 'couchdb', 'etcd', 'q',
 ] as const;
 export type SnippetFamily = (typeof SNIPPET_FAMILIES)[number];
 
@@ -38,7 +38,7 @@ export function snippetFamily(d: DriverInfo | undefined | null): SnippetFamily |
     case 'cql': return 'cql';
     case 'cypher': return 'cypher';
     case 'flux': return 'flux';
-    case 'redis': return d.dialect === 'etcd' ? 'etcd' : 'redis';
+    case 'redis': return d.dialect === 'etcd' ? 'etcd' : d.dialect === 'q' ? 'q' : 'redis';
     case 'json':
       if (['mongodb', 'ferretdb', 'documentdb'].includes(d.id)) return 'mongodb';
       if (d.id === 'couchdb') return 'couchdb';
@@ -180,6 +180,16 @@ function builtIn(family: SnippetFamily, dialect: string): Snippet[] {
       s('getp', 'get ${1:prefix} --prefix', 'get prefix --prefix'),
       s('put', 'put ${1:key} ${2:value}', 'put key value'),
       s('del', 'del ${1:key}', 'del key'),
+    ];
+    case 'q': return [
+      s('sel', 'select[${2:100}] from ${1:table}', 'select[n] from table'),
+      s('selw', 'select from ${1:table} where ${2:date}=${3:last date}, ${4:sym}=`${5:AAPL}', 'select … where'),
+      s('agg', 'select ${3:avg} ${2:price} by ${4:sym} from ${1:table}', 'select … by …'),
+      s('meta', 'meta ${1:table}', 'meta table'),
+      s('cnt', 'count ${1:table}', 'count table'),
+      s('aj', 'aj[`${1:sym}`${2:time};${3:trade};${4:quote}]', 'aj[`sym`time;t;q]'),
+      s('upd', 'update ${2:col}:${3:value} from `${1:table} where ${4:cond}', 'update … from `table'),
+      s('ins', '`${1:table} insert (${2:values})', '`table insert (…)'),
     ];
     case 'cypher': return [
       s('sel', 'MATCH (${1:n}:${2:Label})\nRETURN ${1:n}\nLIMIT ${3:25}', 'MATCH (n:Label) RETURN n'),

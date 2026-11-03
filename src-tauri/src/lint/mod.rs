@@ -189,6 +189,9 @@ impl Profile {
                 _ => Profile::Search,
             },
             Language::Redis if info.dialect == "etcd" => Profile::Etcd,
+            // KDB+'s q: no rules written for it yet (Redis's would read
+            // `keys`, a q function, as the KEYS command).
+            Language::Redis if info.dialect == "q" => Profile::None,
             Language::Redis => Profile::Redis,
             Language::Cypher => Profile::Cypher,
             Language::Flux => Profile::None,

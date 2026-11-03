@@ -62,6 +62,7 @@ snippets.json:families.oracle
 snippets.json:families.db2
 snippets.json:families.flux
 snippets.json:families.etcd
+snippets.json:families.q
 tunnel.json:jumpPlaceholder
 backend:Advanced
 backend:Element

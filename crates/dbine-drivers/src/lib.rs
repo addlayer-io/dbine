@@ -106,6 +106,7 @@ packages! {
     "etcd" => dbine_driver_etcd,
     "flightsql" => dbine_driver_flightsql,
     "tdengine" => dbine_driver_tdengine,
+    "kdb" => dbine_driver_kdb,
 }
 
 pub fn all() -> &'static [Arc<dyn Driver>] {

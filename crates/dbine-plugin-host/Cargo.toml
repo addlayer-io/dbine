@@ -75,6 +75,7 @@ default = [
     "etcd",
     "flightsql",
     "tdengine",
+    "kdb",
 ]
 athena = ["dbine-drivers/athena"]
 bigquery = ["dbine-drivers/bigquery"]
@@ -114,3 +115,4 @@ drill = ["dbine-drivers/drill"]
 etcd = ["dbine-drivers/etcd"]
 flightsql = ["dbine-drivers/flightsql"]
 tdengine = ["dbine-drivers/tdengine"]
+kdb = ["dbine-drivers/kdb"]

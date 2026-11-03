@@ -8,8 +8,10 @@ import { rt } from './i18nLabels';
 // - JSON / MongoDB shell: JSON when it parses, else js-beautify.
 // - Redis, Flux, Cypher: no formatter (the button says why).
 
-/** Why a language can't be formatted, or null when it can. */
-export function formatUnavailable(language: Language | undefined): string | null {
+/** Why a language can't be formatted, or null when it can. KDB+'s q
+ *  (dialect `q`) runs in the plain-text editor Redis uses. */
+export function formatUnavailable(language: Language | undefined, dialect = ''): string | null {
+  if (dialect === 'q') return rt('core:format.unavailable');
   switch (language ?? 'sql') {
     case 'sql':
     case 'cql':
@@ -86,7 +88,7 @@ async function formatJs(text: string): Promise<string> {
 /** The text formatted for its language; throws with the reason when it can't. */
 export async function formatCode(text: string, language: Language | undefined, dialect: string): Promise<string> {
   const lang = language ?? 'sql';
-  const why = formatUnavailable(lang);
+  const why = formatUnavailable(lang, dialect);
   if (why) throw new Error(why);
   if (!text.trim()) return text;
   return lang === 'json' ? formatJs(text) : formatSql(text, lang === 'cql' ? '' : dialect);

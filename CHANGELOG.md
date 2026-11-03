@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### New
+- **KDB+ support:** connect to kdb+ processes (plain or over TLS) and work in q: browse the tables, views, functions and variables of every namespace, run q scripts statement by statement, filter, sort and edit table rows from the grid, and watch memory and open connections in the Monitor. On kdb+ 3.6 and later, read-only connections are also enforced by the server (`reval`).
+
 ## [1.3.1] - 2026-11-02
 
 ### Improvements

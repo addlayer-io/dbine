@@ -368,7 +368,7 @@ const worstProblem = computed(() => (['error', 'warning', 'info'] as const).find
 
 // -- Formatear (⇧⌥F): the selection, or everything --------------------------------------
 const formatting = ref(false);
-const formatOff = computed(() => formatUnavailable(driver.value?.language));
+const formatOff = computed(() => formatUnavailable(driver.value?.language, driver.value?.dialect));
 async function formatQuery() {
   if (formatOff.value) {
     ElMessage.info({ message: formatOff.value, duration: 3000 });

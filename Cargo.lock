@@ -3114,6 +3114,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbine-driver-kdb"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dbine-driver",
+ "dbine-tls",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+]
+
+[[package]]
 name = "dbine-driver-ksqldb"
 version = "0.1.10"
 dependencies = [
@@ -3400,6 +3413,7 @@ dependencies = [
  "dbine-driver-hana",
  "dbine-driver-influxdb",
  "dbine-driver-iotdb",
+ "dbine-driver-kdb",
  "dbine-driver-ksqldb",
  "dbine-driver-libsql",
  "dbine-driver-mongodb",

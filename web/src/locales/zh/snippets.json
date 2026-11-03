@@ -30,6 +30,7 @@
     "flux": "InfluxDB (Flux)",
     "search": "Elasticsearch、OpenSearch 和 Solr",
     "couchdb": "CouchDB",
-    "etcd": "etcd"
+    "etcd": "etcd",
+    "q": "KDB+ (q)"
   }
 }
