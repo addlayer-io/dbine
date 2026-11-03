@@ -1600,6 +1600,11 @@ impl Session for SnowflakeSession {
         security::grants(self, principal).await
     }
 
+    /// No catalog of them in Snowflake: the documented ones.
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        Ok(security::privileges())
+    }
+
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         self.backup_history(database).await
     }
