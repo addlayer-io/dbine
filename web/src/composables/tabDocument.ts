@@ -318,7 +318,8 @@ export function languageForExt(ext: string): Language | undefined {
     case 'sql': case 'psql': case 'ksql': case 'n1ql': return 'sql';
     case 'cql': return 'cql';
     case 'js': case 'json': return 'json';
-    // KDB+'s q is plain text in the editor, as Redis commands.
+    // KDB+'s q goes by Redis's language; the editor tells it by its
+    // dialect (QueryView gives a `.q` file dialect `q`).
     case 'redis': case 'q': return 'redis';
     case 'cypher': return 'cypher';
     case 'flux': return 'flux';

@@ -30,6 +30,7 @@ import {
   keywordCompletionSource,
 } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
+import { qCompletion, qLanguage } from '../composables/qLanguage';
 import { editorTheme } from '../composables/editorTheme';
 import { editorFontSize, resolvedTheme } from '../composables/appearance';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
@@ -97,9 +98,12 @@ const props = withDefaults(defineProps<{
   /** The table named at a position, whose columns a popup shows when the
    *  pointer rests on it (composables/tableHover.ts), or null. */
   tableHover?: ((doc: string, pos: number) => TableHoverTarget | null) | null;
+  /** Names completion offers besides the tables in `schema` (KDB+'s
+   *  functions and variables), each with its object kind. */
+  otherNames?: { label: string; kind: string }[];
 }>(), {
   language: 'sql', dialect: '', readOnly: false, schema: () => ({}), databases: undefined, placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
-  fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [], tableHover: null,
+  fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [], tableHover: null, otherNames: () => [],
 });
 
 const emit = defineEmits<{
@@ -280,7 +284,32 @@ function sqlLanguage(dialect: SQLDialect): Extension {
   ];
 }
 
+/** KDB+'s q (dialect `q`, whatever the language says): its tokenizer, and
+ *  completion of q's words, the connection's names and the columns of the
+ *  tables the statement names (composables/qLanguage.ts). */
+function qExtension(): Extension {
+  const source = (ctx: CompletionContext): CompletionResult | null => {
+    if (inStringOrComment(ctx.state, ctx.pos)) return null;
+    const n = names();
+    const { result, needColumns } = qCompletion(ctx, { tables: props.schema, others: props.otherNames });
+    if (!Object.keys(props.schema).length && !props.otherNames.length && !n.namesAsked) {
+      n.namesAsked = true;
+      reopenAt = ctx.pos;
+      emit('needNames');
+    }
+    for (const t of needColumns) {
+      if (n.asked.has(t)) continue;
+      n.asked.add(t);
+      reopenAt = ctx.pos;
+      emit('needColumns', [t]);
+    }
+    return result;
+  };
+  return [qLanguage, qLanguage.data.of({ autocomplete: source })];
+}
+
 function languageExt(): Extension {
+  if (props.dialect === 'q') return qExtension();
   switch (props.language) {
     case 'json': return json();
     case 'cql': return sqlLanguage(Cassandra);
@@ -314,7 +343,9 @@ function abbreviationBefore(state: EditorState, pos: number): { from: number; te
 }
 
 function inStringOrComment(state: EditorState, pos: number): boolean {
-  return /String|Comment/.test(syntaxTree(state).resolveInner(pos, -1).name);
+  // Lezer grammars name them `String`, `LineComment`; stream languages
+  // (q) by their highlighting tag, `string`, `comment`.
+  return /string|comment/i.test(syntaxTree(state).resolveInner(pos, -1).name);
 }
 
 /** Tab after an abbreviation: the snippet replaces it, with its tab stops. */

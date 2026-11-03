@@ -124,8 +124,8 @@ fn info() -> DriverInfo {
         id: "kdb",
         name: "KDB+",
         family: Family::TimeSeries,
-        // q has no editor language of its own yet: plain text, one
-        // statement per line (`dialect` tells the app it's q).
+        // q has no `Language` of its own: the editor tells it by its
+        // dialect (highlighting and completion of q, web/src/composables/qLanguage.ts).
         language: Language::Redis,
         dialect: "q",
         default_port: 5000,

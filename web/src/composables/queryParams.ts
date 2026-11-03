@@ -48,9 +48,11 @@ const QUESTION_DIALECTS = new Set([
 const AT_DIALECTS = new Set(['bigquery', 'spanner', 'cosmos']);
 
 /** Which markers a target has; null when the editor doesn't look for any
- *  (Cypher has its own `$name` with `:param`, and `:Label` is syntax). */
+ *  (Cypher has its own `$name` with `:param`, and `:Label` is syntax; in q
+ *  `:` is syntax too). */
 export function paramMarkers(t: ParamTarget): { colon: boolean; question: boolean; at: boolean } | null {
-  if (t.language === 'cypher') return null;
+  // KDB+'s q: `:x` returns from a function and `x:y` assigns.
+  if (t.language === 'cypher' || t.dialect === 'q') return null;
   if (t.language === 'sql') return { colon: true, question: QUESTION_DIALECTS.has(t.dialect), at: AT_DIALECTS.has(t.dialect) };
   if (t.language === 'cql') return { colon: true, question: true, at: false };
   return { colon: true, question: false, at: false };

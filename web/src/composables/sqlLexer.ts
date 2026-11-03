@@ -22,6 +22,9 @@ export interface LexSyntax {
   dollarQuotes: boolean;
   /** Oracle's `q'[…]'`. */
   oracleQ: boolean;
+  /** KDB+'s q: `/` comments (after a blank, and `/` … `\` blocks), `"…"`
+   *  strings; `'` is an adverb and `` ` `` starts a symbol, neither a quote. */
+  q?: boolean;
 }
 
 export type RegionKind = 'code' | 'string' | 'comment' | 'ident';
@@ -37,6 +40,9 @@ const DOUBLE_QUOTE_STRING = new Set(['mysql', 'mariadb', 'bigquery', 'spanner', 
 
 /** How `language` + `dialect` writes literals and comments. */
 export function lexSyntax(language: Language | undefined, dialect: string): LexSyntax {
+  if (dialect === 'q') {
+    return { dashComment: false, slashComment: false, hashComment: false, backslash: true, doubleQuoteString: true, brackets: false, dollarQuotes: false, oracleQ: false, q: true };
+  }
   if (language === 'sql' || language === undefined) {
     return {
       dashComment: true,
@@ -65,6 +71,7 @@ const Q_CLOSE: Record<string, string> = { '[': ']', '(': ')', '{': '}', '<': '>'
 
 /** The text cut into code, strings, comments and quoted names, in order. */
 export function lexRegions(doc: string, syn: LexSyntax): Region[] {
+  if (syn.q) return lexQ(doc);
   const out: Region[] = [];
   const n = doc.length;
   let codeFrom = 0;
@@ -146,6 +153,54 @@ export function lexRegions(doc: string, syn: LexSyntax): Region[] {
       i++;
     }
   }
+  if (codeFrom < n) out.push({ kind: 'code', start: codeFrom, end: n });
+  return out;
+}
+
+/** q's regions, as kdb+ reads a script (crates/drivers/kdb/src/script.rs). */
+function lexQ(doc: string): Region[] {
+  const out: Region[] = [];
+  const n = doc.length;
+  let codeFrom = 0;
+  const push = (kind: RegionKind, start: number, end: number) => {
+    if (start > codeFrom) out.push({ kind: 'code', start: codeFrom, end: start });
+    out.push({ kind, start, end });
+    codeFrom = end;
+  };
+  let block = -1;
+  let lineStart = 0;
+  while (lineStart <= n) {
+    const nl = doc.indexOf('\n', lineStart);
+    const lineEnd = nl < 0 ? n : nl;
+    const bare = doc.slice(lineStart, lineEnd).trimEnd();
+    if (block >= 0) {
+      if (bare === '\\') { push('comment', block, lineEnd); block = -1; }
+    } else if (bare === '/') {
+      block = lineStart;
+    } else if (bare === '\\') {
+      // The script ends here: the rest is never read.
+      push('comment', lineStart, n);
+      return out;
+    } else {
+      for (let i = lineStart; i < lineEnd; i++) {
+        const c = doc[i];
+        if (c === '/' && (i === lineStart || /\s/.test(doc[i - 1]))) {
+          push('comment', i, lineEnd);
+          break;
+        }
+        if (c === '"') {
+          let j = i + 1;
+          while (j < lineEnd && doc[j] !== '"') j += doc[j] === '\\' ? 2 : 1;
+          const end = Math.min(j + 1, lineEnd);
+          push('string', i, end);
+          i = end - 1;
+        }
+      }
+    }
+    if (nl < 0) break;
+    lineStart = nl + 1;
+  }
+  if (block >= 0) push('comment', block, n);
   if (codeFrom < n) out.push({ kind: 'code', start: codeFrom, end: n });
   return out;
 }

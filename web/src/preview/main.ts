@@ -3,7 +3,7 @@
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies|fonts
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
-// |query[&sample=editor] (⌘-click, unknown names, parameters, snippets, a table's columns on hover: preview/editor-samples.ts)
+// |query[&sample=editor|q] (⌘-click, unknown names, parameters, snippets, a table's columns on hover: preview/editor-samples.ts)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
@@ -82,6 +82,7 @@ import { installTimelinePreview, TimelinePreview } from './timeline-samples';
 import { multiDbOutcome, runSummary } from '../composables/multiDb';
 import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './multidb-samples';
 import { EDITOR_SAMPLE_SQL, installEditorSample } from './editor-samples';
+import { Q_SAMPLE, installQSample } from './q-samples';
 import RenameDialog from '../components/RenameDialog.vue';
 import { installRenamePreview } from './rename-samples';
 import { applyThemeClass } from '../composables/appearance';
@@ -418,8 +419,9 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
         if (cmd === 'lint_script') return [];
         // …&tx=open: Manual leaves a transaction open.
         if (cmd === 'set_tab_autocommit' || cmd === 'tab_transaction_state') return params.get('tx') === 'open' && !(a?.args as { autocommit?: boolean }).autocommit ? 'open' : null;
-        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: params.get('sample') === 'editor' ? EDITOR_SAMPLE_SQL : 'select top 10 * from ventas.clientes', connection_id: 'c1', database: null, folder: null, updated_at: '' };
+        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: params.get('sample') === 'editor' ? EDITOR_SAMPLE_SQL : params.get('sample') === 'q' ? Q_SAMPLE : 'select top 10 * from ventas.clientes', connection_id: 'c1', database: null, folder: null, updated_at: '' };
         if (params.get('sample') === 'editor') return installEditorSample.invoke(cmd, a?.args);
+        if (params.get('sample') === 'q') return installQSample.invoke(cmd, a?.args);
         return null;
       }
       const cmp = compareMock(cmd, a);
@@ -430,6 +432,8 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
   if (view === 'profiler') profilerAutostart.add('p');
   // view=query&sample=editor: objects and columns for ⌘-click, unknown names, parameters and snippets.
   if (view === 'query' && params.get('sample') === 'editor') installEditorSample();
+  // view=query&sample=q: a KDB+-like connection, for q's highlighting and completion.
+  if (view === 'query' && params.get('sample') === 'q') installQSample();
   if (view === 'connection') {
     const ui = useUiStore();
     const engine = params.get('engine');
