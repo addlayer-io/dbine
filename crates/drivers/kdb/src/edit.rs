@@ -178,8 +178,8 @@ struct Browse {
     sort: Vec<(String, bool)>,
     /// What follows `from`, its where clause included.
     source: String,
-    /// A partitioned table's browse (`.Q.ind`), as long as it has no
-    /// filter or sort.
+    /// A partitioned table's browse: `.Q.ind` with no filter,
+    /// `N sublist select …` with one.
     partitioned: bool,
 }
 
@@ -230,18 +230,25 @@ impl Browse {
             rest = r;
         }
         let source = rest.trim().strip_prefix("select from ")?.trim().to_string();
+        // Unsorted, this form is only a filtered partitioned table's.
+        let partitioned = sort.is_empty();
         Some(Self {
             limit,
             sort,
             source,
-            partitioned: false,
+            partitioned,
         })
     }
 
     fn render(&self) -> String {
         if self.sort.is_empty() {
-            if self.partitioned && !self.source.contains(" where ") {
-                return by_index(&self.source, self.limit);
+            if self.partitioned {
+                // `select[N]` with a `where` is a `'nyi` on a partitioned
+                // table.
+                if !self.source.contains(" where ") {
+                    return by_index(&self.source, self.limit);
+                }
+                return format!("{} sublist select from {}", self.limit, self.source);
             }
             return format!("select[{}] from {}", self.limit, self.source);
         }
@@ -667,14 +674,16 @@ mod tests {
         let q =
             filtered_browse(&b, &[f("sym", json!("A")), f("date", json!("2024-01-31"))]).unwrap();
         assert!(
-            q.starts_with("select[100] from quotes where (date=\"D\"$\"2024.01.31\"), ("),
+            q.starts_with("100 sublist select from quotes where (date=\"D\"$\"2024.01.31\"), ("),
             "{q}"
         );
         assert!(q.contains("[sym;\"A\"]"), "{q}");
         // Added to a where that's already there, still first.
         let again = filtered_browse(&q, &[f("month", json!("2024-01"))]).unwrap();
         assert!(
-            again.starts_with("select[100] from quotes where (month=\"M\"$\"2024.01\"), (date="),
+            again.starts_with(
+                "100 sublist select from quotes where (month=\"M\"$\"2024.01\"), (date="
+            ),
             "{again}"
         );
         let within = ColumnFilter {

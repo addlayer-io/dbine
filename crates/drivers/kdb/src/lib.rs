@@ -67,6 +67,11 @@ const SHOWN_BYTES: u64 = 4 << 20;
 /// The marker of a result cut on the server: `(marker; count; first rows)`.
 const PARTIAL: &str = "dbine.partial";
 
+/// The body of a lambda that evaluates its string inside `reval`. `reval`
+/// takes a parse tree: a statement that parses to a constant (`1`,
+/// `1 2 3`, `"abc"`) is a `'type` there, and is already its own value.
+const REVAL: &str = "p:parse x;$[(type p)in 0 -11h;reval p;p]";
+
 /// `expr` (a statement's evaluation) as sent for the grid: when its result
 /// is a list, table or dictionary of more than `rows` items and more than
 /// [`SHOWN_BYTES`] serialized, the server answers its first `rows` items
@@ -287,7 +292,7 @@ impl Driver for KdbDriver {
         // `reval` (kdb+ 3.6+) evaluates without writes: what read-only
         // connections and MCP reads run inside.
         s.reval = matches!(
-            s.q("@[{reval parse x;1b};\"1\";0b]").await,
+            s.q(&format!("@[{{{REVAL};1b}};\"1+1\";0b]")).await,
             Ok(K::Bool(true))
         );
         Ok(Box::new(s))
@@ -424,7 +429,7 @@ impl KdbSession {
     /// show).
     fn eval(&self, stmt: &str) -> String {
         if self.read_only && self.reval && !stmt.trim_start().starts_with('\\') {
-            format!("reval parse {}", edit::qstr(stmt))
+            format!("{{{REVAL}}} {}", edit::qstr(stmt))
         } else {
             format!("value {}", edit::qstr(stmt))
         }
@@ -697,7 +702,7 @@ impl Session for KdbSession {
             ));
         }
         self.cancel.flag.store(false, Ordering::SeqCst);
-        let expr = format!("reval parse {}", edit::qstr(&one.text));
+        let expr = format!("{{{REVAL}}} {}", edit::qstr(&one.text));
         self.emit(&expr, max_rows, out).await
     }
 

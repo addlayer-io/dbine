@@ -57,7 +57,7 @@ fn explorer() -> K {
 /// What the fake kdb+ answers to `q`.
 fn answer(q: &str) -> K {
     match q {
-        "@[{reval parse x;1b};\"1\";0b]" => K::Bool(true),
+        "@[{p:parse x;$[(type p)in 0 -11h;reval p;p];1b};\"1+1\";0b]" => K::Bool(true),
         "(.z.K;.z.k)" => K::List(vec![K::Float(4.1), K::Date(9000)]),
         q if q == dbine_driver_kdb::EXPLORER => explorer(),
         "select from .Q.ind[quotes; `long$til 100&count quotes]" => trade(),
@@ -73,7 +73,8 @@ fn answer(q: &str) -> K {
         ),
         "@[keys;trade;`$()]" => syms(&["sym"]),
         "get `f1" => K::Lambda(String::new(), "{[x] x+1}".into()),
-        "select[100] from trade" | "reval parse \"select from trade\"" => trade(),
+        "select[100] from trade"
+        | "{p:parse x;$[(type p)in 0 -11h;reval p;p]} \"select from trade\"" => trade(),
         "1+`a" => K::Error("type".into()),
         "a:1" => K::Nil,
         "til 3" => K::Vector(0, Vector::Long(vec![0, 1, 2])),
