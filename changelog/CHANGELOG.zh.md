@@ -1,5 +1,16 @@
 # 更新日志
 
+## [1.4.0] - 2026-11-03
+
+### 新增
+- **支持 KDB+：** 可连接 kdb+ 进程（明文或通过 TLS），并在 q 中工作：浏览每个命名空间的表、视图、函数和变量，逐条语句运行 q 脚本，在网格中筛选、排序和编辑表行，并在监视器中查看内存和已打开的连接。在 kdb+ 3.6 及更高版本上，只读连接还会由服务器强制执行（`reval`）。
+
+### 改进
+- **可授予的权限来自服务器：** 在**用户和权限…**中，权限列表就是该服务器可以授予的权限：有自带目录的引擎直接从目录读取（SQL Server 的 `sys.fn_builtin_permissions`、PostgreSQL 的 ACL、MySQL 的 `SHOW PRIVILEGES`、ClickHouse、Oracle、SAP HANA、Redis、MongoDB、Neo4j、Couchbase、OpenSearch…），其他引擎则依据官方文档，因此会随服务器版本变化：SQL Server 现在提供 `VIEW DATABASE STATE`、`VIEW DATABASE PERFORMANCE STATE`、`SHOWPLAN` 等权限。列表只显示适用于所选对象（整个数据库、架构、表、存储过程…）的权限，同一份列表也用于**新建架构…**。仍然可以手动输入权限。
+
+### 修复
+- **文本框完全保留您输入的内容：** 用户名、密码、主机名、连接 URL、搜索、筛选以及其他所有文本框，不再被操作系统自动首字母大写、自动更正或拼写检查，因此 `demo_user` 仍是 `demo_user`。Shift 和 Caps Lock 照常工作。手机应用中的连接筛选框也是如此。
+
 ## [1.3.1] - 2026-11-02
 
 ### 改进

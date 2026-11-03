@@ -1,5 +1,16 @@
 # Alterações
 
+## [1.4.0] - 2026-11-03
+
+### Novidades
+- **Suporte ao KDB+:** conecte-se a processos kdb+ (sem criptografia ou via TLS) e trabalhe em q: explore as tabelas, views, funções e variáveis de cada namespace, execute scripts q instrução por instrução, filtre, ordene e edite linhas de tabelas pela grade, e acompanhe a memória e as conexões abertas no Monitor. No kdb+ 3.6 e posteriores, as conexões somente leitura também são impostas pelo servidor (`reval`).
+
+### Melhorias
+- **As permissões a conceder vêm do servidor:** em **Usuários e permissões…**, a lista de permissões é a que aquele servidor pode conceder, lida do próprio catálogo quando ele tem um (`sys.fn_builtin_permissions` do SQL Server, as ACLs do PostgreSQL, `SHOW PRIVILEGES` do MySQL, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) e da documentação do mecanismo nos demais, acompanhando assim a versão do servidor: o SQL Server agora oferece `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` e o resto. Mostra apenas o que se aplica ao destino escolhido (o banco de dados inteiro, um esquema, uma tabela, um procedimento…), e a mesma lista alimenta **Novo esquema…**. Uma permissão ainda pode ser digitada.
+
+### Correções
+- **Os campos de texto mantêm exatamente o que você digita:** nomes de usuário, senhas, nomes de host, URLs de conexão, buscas, filtros e qualquer outro campo de texto não recebem mais inicial maiúscula, correção automática nem verificação ortográfica do sistema operacional, então `demo_user` continua sendo `demo_user`. Shift e Caps Lock funcionam como sempre. O mesmo vale para o filtro de conexões do app do celular.
+
 ## [1.3.1] - 2026-11-02
 
 ### Melhorias

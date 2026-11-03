@@ -1,5 +1,16 @@
 # Modifications
 
+## [1.4.0] - 2026-11-03
+
+### Nouveautés
+- **Prise en charge de KDB+ :** connectez-vous à des processus kdb+ (en clair ou via TLS) et travaillez en q : parcourez les tables, vues, fonctions et variables de chaque espace de noms, exécutez des scripts q instruction par instruction, filtrez, triez et modifiez des lignes de tables depuis la grille, et suivez la mémoire et les connexions ouvertes dans le Monitor. Sur kdb+ 3.6 et versions ultérieures, les connexions en lecture seule sont aussi imposées par le serveur (`reval`).
+
+### Améliorations
+- **Les droits à accorder viennent du serveur :** dans **Utilisateurs et droits…**, la liste des droits est celle que ce serveur peut accorder, lue dans son propre catalogue quand il en a un (`sys.fn_builtin_permissions` de SQL Server, les ACL de PostgreSQL, `SHOW PRIVILEGES` de MySQL, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) et dans la documentation du moteur pour les autres, ce qui suit la version du serveur : SQL Server propose désormais `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` et le reste. Seul ce qui s'applique à la cible choisie est affiché (toute la base de données, un schéma, une table, une procédure…), et la même liste alimente **Nouveau schéma…**. Un droit peut toujours être saisi à la main.
+
+### Corrections
+- **Les champs de texte conservent exactement ce que vous saisissez :** noms d'utilisateur, mots de passe, noms d'hôte, URL de connexion, recherches, filtres et tout autre champ de texte ne reçoivent plus de majuscule initiale, de correction automatique ni de vérification orthographique du système d'exploitation, de sorte que `demo_user` reste `demo_user`. Maj et Verr. maj fonctionnent comme d'habitude. Il en va de même pour le filtre de connexions de l'application mobile.
+
 ## [1.3.1] - 2026-11-02
 
 ### Améliorations

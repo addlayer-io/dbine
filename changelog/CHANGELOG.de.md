@@ -1,5 +1,16 @@
 # Änderungen
 
+## [1.4.0] - 2026-11-03
+
+### Neu
+- **KDB+-Unterstützung:** Verbinden Sie sich mit kdb+-Prozessen (unverschlüsselt oder über TLS) und arbeiten Sie in q: Durchsuchen Sie die Tabellen, Views, Funktionen und Variablen jedes Namespace, führen Sie q-Skripte Anweisung für Anweisung aus, filtern, sortieren und bearbeiten Sie Tabellenzeilen im Raster und beobachten Sie Arbeitsspeicher und offene Verbindungen im Monitor. Ab kdb+ 3.6 werden schreibgeschützte Verbindungen zusätzlich vom Server durchgesetzt (`reval`).
+
+### Verbesserungen
+- **Die vergebbaren Berechtigungen stammen vom Server:** In **Benutzer und Berechtigungen…** ist die Berechtigungsliste das, was dieser Server vergeben kann. Sie wird, wo vorhanden, aus seinem eigenen Katalog gelesen (`sys.fn_builtin_permissions` von SQL Server, die ACLs von PostgreSQL, `SHOW PRIVILEGES` von MySQL, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…), sonst aus der Dokumentation der Engine, und folgt so der Version des Servers: SQL Server bietet jetzt `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` und weitere an. Angezeigt wird nur, was für das gewählte Ziel gilt (die ganze Datenbank, ein Schema, eine Tabelle, eine Prozedur…), und dieselbe Liste speist **Neues Schema…**. Eine Berechtigung lässt sich weiterhin von Hand eingeben.
+
+### Korrekturen
+- **Textfelder behalten genau das, was Sie eingeben:** Benutzernamen, Passwörter, Hostnamen, Verbindungs-URLs, Suchen, Filter und alle anderen Textfelder werden vom Betriebssystem nicht mehr großgeschrieben, automatisch korrigiert oder auf Rechtschreibung geprüft, sodass `demo_user` `demo_user` bleibt. Umschalt- und Feststelltaste funktionieren wie gewohnt. Dasselbe gilt für den Verbindungsfilter in der Smartphone-App.
+
 ## [1.3.1] - 2026-11-02
 
 ### Verbesserungen
