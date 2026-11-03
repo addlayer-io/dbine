@@ -671,6 +671,7 @@ and `SSL_CA_CERT_FILE`.
 | Create or drop databases, Backups | A kdb+ process is one namespace tree; an on-disk database is files the server reads, saved with q (`.Q.dpft`, `set`), not through a backup command. |
 | Users and permissions | kdb+'s users are a file given at start-up (`-u`, `-U`) or the process's own `.z.pw`: there's nothing to list or grant over IPC. |
 | Sync, Modify… and Rename of partitioned and splayed tables | Refused, with the reason: each column is a file on disk, and changing it means rewriting the database with q on the server (dbmaint, `.Q.dpft`), which DBine doesn't do. Compare doesn't load them yet (`database_schema` lists tables in memory). |
+| Sync of views and functions | Compared, but not dropped (no statement to do it from DBine) and created from their bare definition (the lambda or the view's expression, without `name:` / `name::`): pending. |
 | Attributes (`s#`, `u#`, `p#`, `g#`), enumerations, general lists in conversion | Attributes aren't read; enumerated columns read as `symbol`; a general list has no neutral type and is reported for review. |
 | Index usage | kdb+ has attributes (`s`, `u`, `p`, `g`), not indexes. |
 
