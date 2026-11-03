@@ -10,8 +10,8 @@
 use crate::{err, DATABASE, SYSTEM_SCHEMAS};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
-    SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SchemaSpec,
+    SecurityAction, SecuritySpec,
 };
 use std::collections::HashMap;
 use tokio_postgres::{Client, SimpleQueryMessage, SimpleQueryRow};
@@ -37,6 +37,124 @@ pub fn spec() -> SecuritySpec {
         membership: true,
         per_database: false,
     }
+}
+
+// -- what can be granted -----------------------------------------------------
+
+const RELATIONS: &[&str] = &["table", "view"];
+
+/// `acldefault`'s object types (database, schema, relation, sequence,
+/// function) and the kinds each one covers.
+const ACL_TYPES: &[(&str, &[&str])] = &[
+    ("d", &[""]),
+    ("n", &["schema"]),
+    ("r", RELATIONS),
+    ("s", &["sequence"]),
+    ("f", &["function"]),
+];
+
+/// For a cluster that refuses `acldefault`: DSQL takes PostgreSQL 16's
+/// GRANT (https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with-postgresql-compatibility-supported-sql-features.html),
+/// whose privileges by object are in
+/// https://www.postgresql.org/docs/16/ddl-priv.html (table 5.2).
+const DOCUMENTED: &[(&str, &[&str])] = &[
+    ("SELECT", &["table", "view", "sequence"]),
+    ("INSERT", RELATIONS),
+    ("UPDATE", &["table", "view", "sequence"]),
+    ("DELETE", RELATIONS),
+    ("TRUNCATE", RELATIONS),
+    ("REFERENCES", RELATIONS),
+    ("TRIGGER", RELATIONS),
+    ("USAGE", &["schema", "sequence"]),
+    ("EXECUTE", &["function"]),
+    ("CREATE", &["", "schema"]),
+    ("CONNECT", &[""]),
+    ("TEMPORARY", &[""]),
+];
+
+/// The order the tab lists them in; the others go after, as found, and
+/// ALL PRIVILEGES last.
+const ORDER: &[&str] = &[
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+    "MAINTAIN",
+    "USAGE",
+    "EXECUTE",
+    "CREATE",
+    "CONNECT",
+    "TEMPORARY",
+];
+
+/// `Session::privileges`: every privilege of each object type as the
+/// cluster has them (an owner's default ACL holds them all; 10 is any
+/// owner), or the documented ones if it refuses `acldefault`.
+pub async fn grantable(c: &Client) -> Result<Vec<Privilege>> {
+    let sql = ACL_TYPES
+        .iter()
+        .map(|(t, _)| {
+            format!("SELECT '{t}' AS t, privilege_type AS p FROM aclexplode(acldefault('{t}', 10))")
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ");
+    let catalog = match rows(c, &sql).await {
+        Ok(r) => r
+            .iter()
+            .filter_map(|r| Some((cell(r, "t")?, cell(r, "p")?)))
+            .collect(),
+        Err(e) => {
+            tracing::debug!("dsql: acldefault unavailable ({e}); documented privileges");
+            Vec::new()
+        }
+    };
+    Ok(assemble(catalog))
+}
+
+/// The privileges from `acldefault`'s (object type, privilege) rows, or
+/// the documented ones without any.
+fn assemble(catalog: Vec<(String, String)>) -> Vec<Privilege> {
+    let kinds = spec().object_kinds;
+    let mut found: Vec<(String, &'static str)> = if catalog.is_empty() {
+        DOCUMENTED
+            .iter()
+            .flat_map(|(p, on)| on.iter().map(move |k| (p.to_string(), *k)))
+            .collect()
+    } else {
+        catalog
+            .into_iter()
+            .filter_map(|(t, p)| Some((ACL_TYPES.iter().find(|(c, _)| *c == t)?.1, p)))
+            .flat_map(|(on, p)| on.iter().map(move |k| (p.clone(), *k)))
+            .collect()
+    };
+    found.extend(kinds.iter().map(|k| ("ALL PRIVILEGES".to_string(), *k)));
+    let mut out: Vec<Privilege> = Vec::new();
+    for (name, kind) in found {
+        if !kinds.contains(&kind) {
+            continue;
+        }
+        match out.iter_mut().find(|p| p.name == name) {
+            Some(p) => p.on.push(kind.to_string()),
+            None => out.push(Privilege::new(name, &[kind])),
+        }
+    }
+    for p in out.iter_mut() {
+        p.on = kinds
+            .iter()
+            .filter(|k| p.on.iter().any(|o| o == *k))
+            .map(|k| k.to_string())
+            .collect();
+    }
+    let rank = |name: &str| match ORDER.iter().position(|o| *o == name) {
+        Some(i) => i,
+        None if name == "ALL PRIVILEGES" => ORDER.len() + 1,
+        None => ORDER.len(),
+    };
+    out.sort_by_key(|p| rank(&p.name));
+    out
 }
 
 // -- reading ---------------------------------------------------------------
@@ -603,6 +721,71 @@ mod tests {
             }),
             "REVOKE \"lectores\" FROM \"ana\";"
         );
+    }
+
+    #[test]
+    fn acldefault_rows_map_to_the_offered_kinds() {
+        let list = assemble(
+            [
+                ("d", "TEMPORARY"),
+                ("d", "CONNECT"),
+                ("n", "USAGE"),
+                ("r", "INSERT"),
+                ("r", "SELECT"),
+                ("s", "SELECT"),
+                ("s", "USAGE"),
+                ("f", "EXECUTE"),
+                ("T", "USAGE"),
+            ]
+            .iter()
+            .map(|(t, p)| (t.to_string(), p.to_string()))
+            .collect(),
+        );
+        let on = |n: &str| list.iter().find(|p| p.name == n).unwrap().on.clone();
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "SELECT",
+                "INSERT",
+                "USAGE",
+                "EXECUTE",
+                "CONNECT",
+                "TEMPORARY",
+                "ALL PRIVILEGES"
+            ]
+        );
+        assert_eq!(on("SELECT"), ["table", "view", "sequence"]);
+        // Types aren't offered.
+        assert_eq!(on("USAGE"), ["schema", "sequence"]);
+        assert_eq!(on("CONNECT"), [""]);
+        assert_eq!(on("ALL PRIVILEGES"), spec().object_kinds);
+    }
+
+    #[test]
+    fn documented_privileges_make_valid_grants_on_their_kinds() {
+        let list = assemble(Vec::new());
+        assert!(list.iter().any(|p| p.name == "TRUNCATE"));
+        for p in &list {
+            assert!(!p.on.is_empty(), "{}", p.name);
+            for kind in &p.on {
+                assert!(spec().object_kinds.contains(&kind.as_str()));
+                let object = match kind.as_str() {
+                    "" => None,
+                    "schema" => obj("schema", None, "s"),
+                    "function" => obj("function", Some("s"), "f(integer)"),
+                    k => obj(k, Some("s"), "o"),
+                };
+                let sql = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ana".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {kind:?}: {e}", p.name));
+                assert!(sql.contains(&p.name), "{sql}");
+            }
+        }
     }
 
     #[test]

@@ -325,3 +325,101 @@ async fn schema_with_owner_and_grants() {
     );
     run(&mut s, "REVOKE CREATE ON DATABASE postgres FROM dsch_creator; DROP ROLE dsch_creator; DROP ROLE dsch_own; DROP ROLE dsch_lect2").await;
 }
+
+/// `Session::privileges` (PostgreSQL's `acldefault` here): a list within
+/// the spec's kinds whose every privilege the server takes on each of its
+/// kinds, granted to a scratch role and revoked at once.
+#[tokio::test]
+#[ignore]
+async fn privileges_from_the_catalog() {
+    let Ok(url) = std::env::var("DBINE_TEST_DSQL_URL") else {
+        return;
+    };
+    let (host, port) = url.split_once(':').unwrap();
+    let cfg = ConnectionConfig {
+        driver: "dsql".into(),
+        host: host.into(),
+        port: port.parse().unwrap(),
+        username: Some("postgres".into()),
+        ..Default::default()
+    };
+    let d = dbine_driver_dsql::drivers().pop().unwrap();
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = dbine_driver_dsql::connect_with_password(&cfg, "dbine")
+        .await
+        .unwrap();
+    let list = s.privileges().await.unwrap();
+    eprintln!("dsql: {} privileges: {list:?}", list.len());
+    for (name, kind) in [
+        ("CONNECT", ""),
+        ("CREATE", "schema"),
+        ("TRUNCATE", "view"),
+        ("USAGE", "sequence"),
+        ("EXECUTE", "function"),
+        ("ALL PRIVILEGES", "table"),
+    ] {
+        assert!(
+            list.iter()
+                .any(|p| p.name == name && p.on.iter().any(|k| k == kind)),
+            "{name} on {kind:?} missing from {list:?}"
+        );
+    }
+    run(
+        &mut s,
+        "DROP SCHEMA IF EXISTS dq_priv CASCADE; DROP ROLE IF EXISTS dq_priv_r;
+         CREATE SCHEMA dq_priv; CREATE TABLE dq_priv.t (id int PRIMARY KEY);
+         CREATE VIEW dq_priv.v AS SELECT id FROM dq_priv.t; CREATE SEQUENCE dq_priv.sq;
+         CREATE FUNCTION dq_priv.f() RETURNS int LANGUAGE sql AS 'SELECT 1';
+         CREATE ROLE dq_priv_r",
+    )
+    .await;
+    let target = |kind: &str| match kind {
+        "" => None,
+        "schema" => Some(ObjectRef {
+            kind: "schema".into(),
+            schema: None,
+            name: "dq_priv".into(),
+        }),
+        k => Some(ObjectRef {
+            kind: k.into(),
+            schema: Some("dq_priv".into()),
+            name: match k {
+                "view" => "v",
+                "sequence" => "sq",
+                "function" => "f()",
+                _ => "t",
+            }
+            .into(),
+        }),
+    };
+    let mut granted = 0;
+    for p in &list {
+        assert!(!p.on.is_empty(), "{}", p.name);
+        for k in &p.on {
+            assert!(kinds.contains(&k.as_str()), "{} on {k:?}", p.name);
+            for a in [
+                SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: target(k),
+                    to: "dq_priv_r".into(),
+                    grantable: false,
+                },
+                SecurityAction::Revoke {
+                    privileges: vec![p.name.clone()],
+                    object: target(k),
+                    from: "dq_priv_r".into(),
+                },
+            ] {
+                let sql = d.security_script(&a).unwrap();
+                let mut out = QueryOutcome::default();
+                s.execute(&sql, 10, &mut out)
+                    .await
+                    .unwrap_or_else(|e| panic!("{sql}: {e}"));
+                assert!(out.error.is_none(), "{sql}: {:?}", out.error);
+            }
+            granted += 1;
+        }
+    }
+    assert!(granted >= list.len());
+    run(&mut s, "DROP SCHEMA dq_priv CASCADE; DROP ROLE dq_priv_r").await;
+}

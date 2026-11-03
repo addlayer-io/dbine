@@ -1199,6 +1199,10 @@ impl Session for DsqlSession {
         security::grants(&self.client, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        security::grantable(&self.client).await
+    }
+
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
         let token = self.client.cancel_token();
         let tls = self.tls.clone();
