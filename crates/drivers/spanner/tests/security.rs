@@ -249,3 +249,90 @@ async fn named_schemas() {
         "0"
     );
 }
+
+/// The privileges GRANT takes (Spanner has no catalog of them, so the
+/// documented ones), from a live session; the emulator runs the GRANT of
+/// each one on each of its kinds.
+#[tokio::test]
+#[ignore]
+async fn lists_the_privileges_it_can_grant() {
+    let Ok(url) = std::env::var("DBINE_TEST_SPANNER_URL") else {
+        return;
+    };
+    let http = reqwest::Client::new();
+    let _ = http
+        .post(format!("{url}/v1/projects/test/instances"))
+        .json(&json!({ "instanceId": "i1", "instance": { "config": "projects/test/instanceConfigs/emulator-config", "displayName": "i1", "nodeCount": 1 } }))
+        .send()
+        .await;
+    let _ = http
+        .post(format!("{url}/v1/projects/test/instances/i1/databases"))
+        .json(&json!({ "createStatement": "CREATE DATABASE `dbpriv`" }))
+        .send()
+        .await;
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: "dbpriv".into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url.as_str()),
+    ] {
+        cfg.options.insert(k.into(), v.into());
+    }
+    let d = dbine_driver_spanner::drivers().pop().unwrap();
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    let all = s.privileges().await.unwrap();
+    assert!(!all.is_empty());
+    for name in ["SELECT", "INSERT", "UPDATE", "DELETE"] {
+        assert!(all.iter().any(|p| p.name == name), "{name}: {all:?}");
+    }
+    // Left behind by a run that failed halfway.
+    let _ = s
+        .execute("DROP ROLE priv_r", 10, &mut QueryOutcome::default())
+        .await;
+    let mut run = async |sql: String| {
+        let mut out = QueryOutcome::default();
+        s.execute(&sql, 10, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e}"));
+    };
+    run("CREATE TABLE IF NOT EXISTS Priv (id INT64) PRIMARY KEY (id)".into()).await;
+    run("CREATE OR REPLACE VIEW VPriv SQL SECURITY INVOKER AS SELECT p.id FROM Priv p".into())
+        .await;
+    run("CREATE ROLE priv_r".into()).await;
+    for p in &all {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+        for k in &p.on {
+            let object = Some(ObjectRef {
+                kind: k.clone(),
+                schema: None,
+                name: if k == "view" { "VPriv" } else { "Priv" }.into(),
+            });
+            let grant = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: object.clone(),
+                    to: "priv_r".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            run(grant).await;
+            let revoke = d
+                .security_script(&SecurityAction::Revoke {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    from: "priv_r".into(),
+                })
+                .unwrap();
+            run(revoke).await;
+        }
+    }
+    run("DROP ROLE priv_r".into()).await;
+}
