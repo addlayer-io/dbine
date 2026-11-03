@@ -29,7 +29,7 @@ const ICON_OF: Record<string, string> = {
   trino: 'trino', starburst: 'trino', presto: 'presto', bigquery: 'googlebigquery', spanner: 'googlecloudspanner',
   snowflake: 'snowflake', databricks: 'databricks', hive: 'apachehive', spark: 'apachespark', spark_thrift: 'apachespark',
   kyuubi: 'apachespark', cloudera: 'cloudera', impala: 'cloudera', phoenix: 'apachehbase', ksqldb: 'apachekafka',
-  kylin: 'apachekylin', flightsql: 'apachearrow', gizmosql: 'apachearrow',
+  kylin: 'apachekylin', flightsql: 'apachearrow', gizmosql: 'apachearrow', kdb: 'kx',
   hana: 'sap', sybase: 'sap', sqlanywhere: 'sap', maxdb: 'sap', teradata: 'teradata', cratedb: 'cratedb',
   neo4j: 'neo4j', openedge: 'progress',
   // ids as the drivers declare them

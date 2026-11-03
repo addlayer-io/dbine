@@ -621,8 +621,11 @@ and `SSL_CA_CERT_FILE`.
 q the grid writes have unit tests; `tests/fake_server.rs` runs the driver
 against an in-process server that speaks the protocol (connect, a refused
 login, the explorer, scripts and errors, read-only, cancel and reconnect).
-Live tests against a real kdb+ (`tests/live.rs`, `dbine-test-kdb`) are
-pending: kdb+ needs a license from KX, so there's no container yet.
+`tests/live.rs` runs against a real kdb+ (KDB-X) in a `dbine-test-kdb`
+container built from `tests/docker/Dockerfile` with a KX license: tables,
+types and edits, partitioned and splayed tables, namespaces, big results,
+read-only through `reval`, cancel and dropped connections, server requests,
+every q type and TLS (`tcps`, verified and pinned).
 
 ## Per-column filters on table data
 
