@@ -24,7 +24,8 @@
 
 use crate::{err, Flavor, MongoSession};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Database;
@@ -389,6 +390,136 @@ pub async fn missing_principal(db: &Database, cmd: &Document) -> Result<Option<S
         "No hay un {what} «{who}» en «{}»: se salteó `{name}`.",
         db.name()
     )))
+}
+
+// -- what can be granted ------------------------------------------------------
+
+/// MongoDB's built-in roles, for a server whose `rolesInfo` can't be read:
+/// the self-managed ones of
+/// https://www.mongodb.com/docs/manual/reference/built-in-roles/ but the
+/// internal (`__system`) and the newest (`directShardOperations`,
+/// `searchCoordinator`: 8.0+), which `rolesInfo` brings where they exist.
+const DOC_ROLES: &[&str] = &[
+    "read",
+    "readWrite",
+    "dbAdmin",
+    "userAdmin",
+    "dbOwner",
+    "readAnyDatabase",
+    "readWriteAnyDatabase",
+    "userAdminAnyDatabase",
+    "dbAdminAnyDatabase",
+    "clusterMonitor",
+    "clusterManager",
+    "clusterAdmin",
+    "hostManager",
+    "enableSharding",
+    "backup",
+    "restore",
+    "root",
+];
+
+/// Amazon DocumentDB's built-in roles (no `userAdmin` per database):
+/// https://docs.aws.amazon.com/documentdb/latest/developerguide/role_based_access_control.html
+const DOCDB_ROLES: &[&str] = &[
+    "read",
+    "readWrite",
+    "dbAdmin",
+    "dbOwner",
+    "readAnyDatabase",
+    "readWriteAnyDatabase",
+    "userAdminAnyDatabase",
+    "dbAdminAnyDatabase",
+    "clusterMonitor",
+    "clusterManager",
+    "clusterAdmin",
+    "hostManager",
+    "backup",
+    "restore",
+    "root",
+];
+
+/// The documented roles of a flavor, granted on the whole database.
+pub fn documented(flavor: Flavor) -> Vec<Privilege> {
+    let roles = match flavor {
+        Flavor::Ferret => &[][..],
+        Flavor::Mongo => DOC_ROLES,
+        Flavor::DocumentDb => DOCDB_ROLES,
+    };
+    roles.iter().map(|r| Privilege::new(*r, &[""])).collect()
+}
+
+/// `(role, db, built in)` of a `rolesInfo` reply.
+fn role_rows(r: &Document) -> Vec<(String, String, bool)> {
+    docs(r, "roles")
+        .filter_map(|d| {
+            let (role, db) = role_ref(d)?;
+            Some((role, db, d.get_bool("isBuiltin").unwrap_or(false)))
+        })
+        .collect()
+}
+
+/// The roles of `rolesInfo` replies (the home database's and `admin`'s) as
+/// a grant names them ([`role_label`]): built-in ones first, in the docs'
+/// order, then custom ones. `admin`'s copies of the per-database roles
+/// (`read@admin`…) and internal roles (`__system`) are left out, and so is
+/// any name [`role_value`] would refuse.
+pub fn roles_from(rows: &[(String, String, bool)], home: &str) -> Vec<Privilege> {
+    let per_db: Vec<&str> = rows
+        .iter()
+        .filter(|(_, db, builtin)| *builtin && db == home)
+        .map(|(r, _, _)| r.as_str())
+        .collect();
+    let mut labels: Vec<(bool, usize, String)> = Vec::new();
+    for (role, db, builtin) in rows {
+        if role.starts_with("__")
+            || (db != home && *builtin && per_db.contains(&role.as_str()))
+            || (db != home && db != "admin")
+        {
+            continue;
+        }
+        let label = role_label(role, db, home);
+        if role_value(&label).is_err() || labels.iter().any(|(_, _, l)| *l == label) {
+            continue;
+        }
+        let at = DOC_ROLES
+            .iter()
+            .position(|r| r == role)
+            .unwrap_or(DOC_ROLES.len());
+        labels.push((!builtin, at, label));
+    }
+    labels.sort();
+    labels
+        .into_iter()
+        .map(|(_, _, l)| Privilege::new(l, &[""]))
+        .collect()
+}
+
+/// The roles this server can grant from the session's database: its own
+/// (built-in and custom) and `admin`'s (`rolesInfo` with
+/// `showBuiltinRoles`), else the documented ones. FerretDB has no roles.
+pub async fn privileges(s: &MongoSession) -> Vec<Privilege> {
+    if s.flavor == Flavor::Ferret {
+        return Vec::new();
+    }
+    let cmd = doc! { "rolesInfo": 1, "showBuiltinRoles": true };
+    let db = home(s);
+    let home_name = db.name().to_string();
+    let Ok(here) = db.run_command(cmd.clone()).await else {
+        return documented(s.flavor);
+    };
+    let mut rows = role_rows(&here);
+    if home_name != "admin" {
+        if let Ok(admin) = s.client.database("admin").run_command(cmd).await {
+            rows.extend(role_rows(&admin));
+        }
+    }
+    let list = roles_from(&rows, &home_name);
+    if list.is_empty() {
+        documented(s.flavor)
+    } else {
+        list
+    }
 }
 
 // -- scripts ------------------------------------------------------------------
@@ -807,6 +938,99 @@ mod tests {
             script(Flavor::Mongo, &a),
             Err(Error::Unsupported(_))
         ));
+    }
+
+    /// Each listed role, granted on the whole database, is a script.
+    fn all_grantable(flavor: Flavor, list: &[Privilege]) {
+        let kinds = spec(flavor).object_kinds;
+        for p in list {
+            assert!(
+                !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+                "{p:?}"
+            );
+            script(
+                flavor,
+                &SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: None,
+                    to: "ana".into(),
+                    grantable: false,
+                },
+            )
+            .unwrap_or_else(|e| panic!("{p:?}: {e}"));
+        }
+    }
+
+    #[test]
+    fn documented_roles_are_grantable() {
+        for f in [Flavor::Mongo, Flavor::DocumentDb] {
+            let list = documented(f);
+            assert!(list.iter().any(|p| p.name == "readWrite"));
+            all_grantable(f, &list);
+        }
+        assert!(documented(Flavor::Ferret).is_empty());
+        // The fixed list older apps offer is in MongoDB's.
+        let names: Vec<String> = documented(Flavor::Mongo)
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        for r in BUILTIN_ROLES {
+            assert!(names.iter().any(|n| n == r), "{r}");
+        }
+    }
+
+    #[test]
+    fn roles_from_rolesinfo() {
+        let row = |r: &str, db: &str, b: bool| (r.to_string(), db.to_string(), b);
+        // MongoDB 7: the session's database, then admin's.
+        let rows = vec![
+            row("read", "ventas", true),
+            row("readWrite", "ventas", true),
+            row("enableSharding", "ventas", true),
+            row("vendedores", "ventas", false),
+            row("con espacio", "ventas", false),
+            row("read", "admin", true),
+            row("root", "admin", true),
+            row("clusterMonitor", "admin", true),
+            row("__system", "admin", true),
+            row("directShardOperations", "admin", true),
+            row("auditores", "admin", false),
+            row("enableSharding", "admin", true),
+        ];
+        let names: Vec<String> = roles_from(&rows, "ventas")
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "read",
+                "readWrite",
+                "clusterMonitor",
+                "enableSharding",
+                "root",
+                "directShardOperations",
+                "auditores@admin",
+                "vendedores",
+            ]
+        );
+        // In admin every role is bare.
+        let names: Vec<String> = roles_from(&rows[5..], "admin")
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "read",
+                "clusterMonitor",
+                "enableSharding",
+                "root",
+                "directShardOperations",
+                "auditores"
+            ]
+        );
+        all_grantable(Flavor::Mongo, &roles_from(&rows, "ventas"));
     }
 
     #[test]

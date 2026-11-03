@@ -351,3 +351,69 @@ async fn ferretdb_users_only() {
         .iter()
         .all(|p| p.name != "ana"));
 }
+
+/// The roles the server has (`rolesInfo`), each one taken by a user (a
+/// role outside `admin` only takes its own database's roles).
+#[tokio::test]
+#[ignore]
+async fn mongodb_privileges() {
+    let Some((d, c)) = setup("DBINE_TEST_MONGODB_URL", "mongodb") else {
+        return;
+    };
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&c, None).await.expect("connect");
+    let _ = s
+        .execute(
+            "db.runCommand({ dropUser: 'dbine_priv' })",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
+    let list = s.privileges().await.unwrap();
+    for p in &list {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+    }
+    for r in ["read", "readWrite", "dbOwner", "clusterMonitor", "root"] {
+        assert!(list.iter().any(|p| p.name == r), "{r} in {list:?}");
+    }
+    assert!(!list.iter().any(|p| p.name.starts_with("__")), "{list:?}");
+
+    let script = |a: SecurityAction| d.security_script(&a).unwrap();
+    run(
+        &mut s,
+        &script(SecurityAction::CreateUser {
+            name: "dbine_priv".into(),
+            password: Some("pw1".into()),
+        }),
+    )
+    .await;
+    run(
+        &mut s,
+        &script(SecurityAction::Grant {
+            privileges: list.iter().map(|p| p.name.clone()).collect(),
+            object: None,
+            to: "dbine_priv".into(),
+            grantable: false,
+        }),
+    )
+    .await;
+    let g = s.grants("dbine_priv").await.unwrap();
+    for r in ["readWrite", "root"] {
+        assert!(g.iter().any(|x| x.privilege == r), "{r} in {g:?}");
+    }
+    run(&mut s, "db.runCommand({ dropUser: 'dbine_priv' })").await;
+}
+
+/// FerretDB has no roles: nothing to grant.
+#[tokio::test]
+#[ignore]
+async fn ferretdb_privileges() {
+    let Some((d, c)) = setup("DBINE_TEST_FERRETDB_URL", "ferretdb") else {
+        return;
+    };
+    let mut s = d.connect(&c, None).await.expect("connect");
+    assert!(s.privileges().await.unwrap().is_empty());
+}
