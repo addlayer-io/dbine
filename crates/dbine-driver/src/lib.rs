@@ -81,7 +81,8 @@ pub use schema::{
     IndexDef, KeyDef, TableSchema,
 };
 pub use security::{
-    Grant, Principal, PrincipalKind, SchemaOwnerKinds, SchemaSpec, SecurityAction, SecuritySpec,
+    Grant, Principal, PrincipalKind, Privilege, SchemaOwnerKinds, SchemaSpec, SecurityAction,
+    SecuritySpec,
 };
 
 pub use sql::{ScriptDefaults, ScriptDialect, ScriptMode, ScriptStatement, StatementKind};
@@ -1113,6 +1114,16 @@ pub trait Session: Send {
         let _ = principal;
         Err(Error::Unsupported(
             "este motor no administra usuarios desde DBine".into(),
+        ))
+    }
+
+    /// The privileges this server can grant, and on what: read from the
+    /// server's catalog where it has one (so they follow its version), else
+    /// the engine's documented ones per kind. `Unsupported`: the tab offers
+    /// [`security::SecuritySpec::privileges`] on every kind.
+    async fn privileges(&mut self) -> Result<Vec<security::Privilege>> {
+        Err(Error::Unsupported(
+            "este motor no lista sus permisos".into(),
         ))
     }
 

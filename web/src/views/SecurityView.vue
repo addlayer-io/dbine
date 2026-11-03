@@ -5,7 +5,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import { securityApi, type Grant, type Principal, type SecurityAction } from '../api/security';
+import { securityApi, type Grant, type Principal, type Privilege, type SecurityAction } from '../api/security';
 import type { ObjectRef } from '../api/types';
 import { tb } from '../i18n/backend';
 import { dbKey, useConnectionsStore } from '../stores/connections';
@@ -42,6 +42,8 @@ const search = ref('');
 const selected = ref<string | null>(null);
 const grants = ref<Grant[]>([]);
 const grantsError = ref<string | null>(null);
+/** What this server can grant, per kind; null: the driver's fixed list. */
+const serverPrivileges = ref<Privilege[] | null>(null);
 
 async function load() {
   loading.value = true;
@@ -49,6 +51,10 @@ async function load() {
   try {
     if (!(await ensureConnection())) return;
     conns.loadPermissions(props.tab.connectionId, props.tab.database);
+    // A catalog the login can't read only costs the server's list.
+    securityApi.privileges(props.tab.connectionId, props.tab.database)
+      .then((v) => { serverPrivileges.value = v; })
+      .catch(() => { serverPrivileges.value = null; });
     principals.value = await securityApi.principals(props.tab.connectionId, props.tab.database);
     if (selected.value && !principals.value.some((p) => p.name === selected.value)) selected.value = null;
     if (selected.value) await loadGrants();
@@ -383,6 +389,18 @@ function submitPassword() {
   propose({ action: 'set_password', name: current.value.name, password: password.value });
 }
 const grant = reactive({ privileges: [] as string[], scope: '' as string, object: '' as string, grantable: false });
+/** The server's privileges, else the driver's fixed list on every kind. */
+const privilegeList = computed<Privilege[]>(() => serverPrivileges.value
+  ?? (spec.value?.privileges ?? []).map((name) => ({ name, on: spec.value?.object_kinds ?? [''] })));
+/** What can be granted on the chosen kind of target. */
+const privilegeOptions = computed(() => [...new Set(privilegeList.value.filter((p) => p.on.includes(grant.scope)).map((p) => p.name))]);
+// A listed privilege that doesn't apply to the new kind leaves the
+// selection; one the user typed stays.
+watch(() => grant.scope, () => {
+  const known = new Set(privilegeList.value.map((p) => p.name));
+  const fits = new Set(privilegeOptions.value);
+  grant.privileges = grant.privileges.filter((p) => !known.has(p) || fits.has(p));
+});
 const grantObject = computed<ObjectRef | null>(() => {
   if (!grant.scope) return null;
   if (grant.scope === 'schema' || grant.scope === 'database') return grant.object ? { kind: grant.scope, schema: null, name: grant.object } : null;
@@ -531,7 +549,7 @@ function submitAddRole() {
 
         <div v-if="spec && canEdit" class="sv-grant">
           <el-select v-model="grant.privileges" multiple filterable allow-create size="small" :placeholder="$t('security:privileges')" style="width: 280px">
-            <el-option v-for="p in spec.privileges" :key="p" :label="p" :value="p" />
+            <el-option v-for="p in privilegeOptions" :key="p" :label="p" :value="p" />
           </el-select>
           <el-select v-model="grant.scope" size="small" style="width: 150px" @change="grant.object = ''">
             <el-option v-for="k in spec.object_kinds" :key="k" :label="k ? $t(`security:kind.${k}`, { defaultValue: k }) : $t('security:everything')" :value="k" />

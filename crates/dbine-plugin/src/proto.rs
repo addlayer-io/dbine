@@ -221,6 +221,11 @@ pub enum Call {
         session: u64,
         principal: String,
     },
+    /// What the server can grant. A host built before it answers
+    /// `Unsupported`, as for any call it doesn't know.
+    Privileges {
+        session: u64,
+    },
     Backups {
         session: u64,
         database: Option<String>,
@@ -602,6 +607,7 @@ pub enum Reply {
     Blocking(Vec<BlockedSession>),
     Principals(Vec<dbine_driver::Principal>),
     Grants(Vec<dbine_driver::Grant>),
+    Privileges(Vec<dbine_driver::Privilege>),
     Backups(Vec<dbine_driver::BackupEntry>),
     ProfilerStarted(ProfilerStarted),
     Profiled(Vec<ProfiledStatement>),

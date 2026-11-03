@@ -1694,6 +1694,18 @@ impl Session for RemoteSession {
             _ => Err(unexpected()),
         }
     }
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        // A host built before the call answers `Unsupported`: the tab then
+        // offers the manifest's fixed list.
+        match self
+            .host
+            .call(Call::Privileges { session: self.id })
+            .await?
+        {
+            Reply::Privileges(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
         match self
             .host

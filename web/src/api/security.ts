@@ -23,6 +23,13 @@ export interface Grant {
   via: string | null;
 }
 
+/** A privilege the server can grant, and the `SecuritySpec.object_kinds` it
+ *  applies to ("" = the whole database/server). */
+export interface Privilege {
+  name: string;
+  on: string[];
+}
+
 export type SecurityAction =
   | { action: 'create_user'; name: string; password: string | null }
   | { action: 'create_role'; name: string }
@@ -43,6 +50,10 @@ export const securityApi = {
     invoke<string[]>('security_unmapped_logins', { args: { connection_id: connectionId, database } }),
   grants: (connectionId: string, database: string, principal: string) =>
     invoke<Grant[]>('security_grants', { args: { connection_id: connectionId, database, principal } }),
+  /** What the server can grant, per kind; null where the driver doesn't
+   *  list them (the tab offers `SecuritySpec.privileges` on every kind). */
+  privileges: (connectionId: string, database: string) =>
+    invoke<Privilege[] | null>('security_privileges', { args: { connection_id: connectionId, database } }),
   /** `shown` hides the password (for the preview). */
   script: (connectionId: string, action: SecurityAction) =>
     invoke<{ script: string; shown: string }>('security_script', { args: { connection_id: connectionId, action } }),

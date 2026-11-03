@@ -386,6 +386,7 @@ impl Call {
             | Blocking { session }
             | Principals { session }
             | Grants { session, .. }
+            | Privileges { session }
             | Backups { session, .. }
             | KillSession { session, .. }
             | ProfilerStart { session, .. }
@@ -912,6 +913,14 @@ impl State {
                     .lock()
                     .await
                     .grants(&principal)
+                    .await?,
+            ),
+            Call::Privileges { session } => Reply::Privileges(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .privileges()
                     .await?,
             ),
             Call::Backups { session, database } => Reply::Backups(
@@ -1886,6 +1895,7 @@ mod tests {
             json!({"Blocking": {"session": s}}),
             json!({"Principals": {"session": s}}),
             json!({"Grants": {"session": s, "principal": "ana"}}),
+            json!({"Privileges": {"session": s}}),
             json!({"Backups": {"session": s, "database": null}}),
             json!({"ProfilerStart": {"session": s, "opts": {"database": "x", "change_server": false}}}),
             json!({"ProfilerPoll": {"session": s}}),

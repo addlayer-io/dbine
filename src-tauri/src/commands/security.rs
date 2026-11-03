@@ -4,7 +4,7 @@
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
-use dbine_driver::{Grant, Principal, SecurityAction};
+use dbine_driver::{Grant, Principal, Privilege, SecurityAction};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -77,6 +77,28 @@ pub async fn security_grants(
         .await?;
     let r = entry.session.lock().await.grants(&args.principal).await;
     Ok(r?)
+}
+
+/// What the server can grant, per kind. `None` where the driver doesn't
+/// list them (an older host too): the tab offers the manifest's fixed list.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn security_privileges(
+    state: State<'_, AppState>,
+    args: PrincipalsArgs,
+) -> CommandResult<Option<Vec<Privilege>>> {
+    let entry = state
+        .session(
+            &key(&args.connection_id, &args.database),
+            &args.connection_id,
+            &args.database,
+        )
+        .await?;
+    let r = entry.session.lock().await.privileges().await;
+    match r {
+        Ok(v) => Ok(Some(v)),
+        Err(dbine_driver::Error::Unsupported(_)) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[derive(Deserialize)]

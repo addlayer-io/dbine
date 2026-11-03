@@ -710,6 +710,9 @@ impl Session for ReadOnlySession {
     async fn grants(&mut self, principal: &str) -> Result<Vec<crate::Grant>> {
         self.inner.grants(principal).await
     }
+    async fn privileges(&mut self) -> Result<Vec<crate::Privilege>> {
+        self.inner.privileges().await
+    }
     async fn backups(&mut self, database: Option<&str>) -> Result<Vec<crate::BackupEntry>> {
         self.inner.backups(database).await
     }

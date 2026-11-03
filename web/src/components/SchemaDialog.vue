@@ -51,12 +51,18 @@ const incomplete = computed(() => grants.some((g) => !complete(g)));
 async function loadPrincipals() {
   // Engines whose users live in each database (SQL Server) list that one's.
   const perDb = driver.value?.security?.per_database ?? false;
+  securityApi.privileges(props.connectionId, perDb ? props.database : '')
+    .then((v) => { serverSchemaPrivileges.value = [...new Set((v ?? []).filter((p) => p.on.includes('schema')).map((p) => p.name))]; })
+    .catch(() => { serverSchemaPrivileges.value = []; });
   try {
     principals.value = await securityApi.principals(props.connectionId, perDb ? props.database : '');
   } catch {
     principals.value = []; // the selects still take a typed name
   }
 }
+/** What the server can grant on a schema, when its driver lists it. */
+const serverSchemaPrivileges = ref<string[]>([]);
+const schemaPrivileges = computed(() => serverSchemaPrivileges.value.length ? serverSchemaPrivileges.value : spec.value?.privileges ?? []);
 
 // -- drop -----------------------------------------------------------------------
 const cascade = ref(false);
@@ -232,7 +238,7 @@ async function run() {
                 </td>
                 <td>
                   <el-select v-model="g.privileges" size="small" multiple :disabled="running" style="width: 100%">
-                    <el-option v-for="p in spec.privileges" :key="p" :label="p" :value="p" />
+                    <el-option v-for="p in schemaPrivileges" :key="p" :label="p" :value="p" />
                   </el-select>
                 </td>
                 <td v-if="grantOption" class="sd-center"><el-switch v-model="g.grantable" size="small" :disabled="running" /></td>

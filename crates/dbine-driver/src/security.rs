@@ -54,6 +54,26 @@ pub struct Grant {
     pub via: Option<String>,
 }
 
+/// A privilege the server can grant (`Session::privileges`), as the engine
+/// names it, and what it can be granted on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Privilege {
+    /// VIEW DATABASE STATE, SELECT, BACKUP_ADMIN, +@read…
+    pub name: String,
+    /// The [`SecuritySpec::object_kinds`] it applies to ("" = the whole
+    /// database/server).
+    pub on: Vec<String>,
+}
+
+impl Privilege {
+    pub fn new(name: impl Into<String>, on: &[&str]) -> Self {
+        Privilege {
+            name: name.into(),
+            on: on.iter().map(|k| k.to_string()).collect(),
+        }
+    }
+}
+
 /// What the tab offers for an engine (`Driver::security`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SecuritySpec {
