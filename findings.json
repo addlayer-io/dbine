@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-02",
-      "revision": "1ce5f7e21940",
+      "date": "2026-11-03",
+      "revision": "42d551fb38f1",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 0
+      "found": 1
     },
     {
       "source": "trivy",
-      "date": "2026-11-02",
-      "revision": "1ce5f7e21940",
+      "date": "2026-11-03",
+      "revision": "42d551fb38f1",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-11-02",
+      "date": "2026-11-03",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -37,7 +37,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-02",
-      "revision": "abc72fa9b52d",
+      "revision": "1ce5f7e21940",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.8
@@ -4283,6 +4283,18 @@
       "by": "mpanichella"
     },
     {
+      "id": "OSV-RUSTSEC-2026-0436-calamine-13ee4b",
+      "source": "osv",
+      "severity": "HIGH",
+      "kind": "Vulnerable dependency",
+      "title": "calamine 0.37.0: Panic and unbounded allocation (OOM) in the CFB/OLE2 parser on malformed input",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0436",
+      "fixed_version": "0.38.0",
+      "found": "2026-11-03",
+      "status": "open"
+    },
+    {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4320,7 +4332,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/24 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/22 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",

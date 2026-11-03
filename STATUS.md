@@ -2,30 +2,32 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-02._
+_Updated 2026-11-03._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 1 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| OSV-RUSTSEC-2026-0436-calamine-13ee4b | HIGH | osv | calamine 0.37.0: Panic and unbounded allocation (OOM) in the CFB/OLE2 parser on malformed input | `Cargo.lock` | upgrade to 0.38.0 |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
-| codeql | 2026-11-02 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-02 | every lockfile (Cargo, npm) at [`1ce5f7e21`](https://github.com/addlayer-io/dbine/commit/1ce5f7e21940) | 0 open | — |
-| scorecard | 2026-11-02 | repository settings and workflows at [`abc72fa9b`](https://github.com/addlayer-io/dbine/commit/abc72fa9b52d) | score 5.8/10 | — |
-| trivy | 2026-11-02 | whole repository at [`1ce5f7e21`](https://github.com/addlayer-io/dbine/commit/1ce5f7e21940) | 0 open | — |
+| codeql | 2026-11-03 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-03 | every lockfile (Cargo, npm) at [`42d551fb3`](https://github.com/addlayer-io/dbine/commit/42d551fb38f1) | 1 open | — |
+| scorecard | 2026-11-02 | repository settings and workflows at [`1ce5f7e21`](https://github.com/addlayer-io/dbine/commit/1ce5f7e21940) | score 5.8/10 | — |
+| trivy | 2026-11-03 | whole repository at [`42d551fb3`](https://github.com/addlayer-io/dbine/commit/42d551fb38f1) | 0 open | — |
 
 ## Not counted, and why
 
@@ -387,7 +389,7 @@ OpenSSF Scorecard: **5.8/10** (2026-11-02). The checks below 10, with Scorecard'
 |---|---|---|
 | Binary-Artifacts: 8/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 3/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/24 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/22 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
 | Vulnerabilities: 2/10 — 8 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
