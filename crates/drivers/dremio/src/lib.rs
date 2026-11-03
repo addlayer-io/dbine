@@ -1101,6 +1101,17 @@ impl Session for DremioSession {
         security::grants(self, principal).await
     }
 
+    /// No catalog of them in Dremio: the documented ones, for the server's
+    /// release (`sys.version`).
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        let release = self
+            .server_version()
+            .await
+            .ok()
+            .and_then(|v| security::release(&v));
+        Ok(security::privileges(release))
+    }
+
     async fn profiler_start(
         &mut self,
         opts: &dbine_driver::ProfilerOptions,

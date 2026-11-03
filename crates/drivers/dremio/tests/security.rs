@@ -5,7 +5,9 @@
 //! OSS has no roles or privileges: its users are listed as administrators,
 //! grants answer "unsupported" and the server refuses the scripts.
 
-use dbine_driver::{ConnectionConfig, Error, PrincipalKind, QueryOutcome, SecurityAction};
+use dbine_driver::{
+    ConnectionConfig, Error, ObjectRef, PrincipalKind, QueryOutcome, SecurityAction,
+};
 
 fn cfg() -> Option<ConnectionConfig> {
     let url = reqwest::Url::parse(&std::env::var("DBINE_TEST_DREMIO_URL").ok()?).expect("URL");
@@ -162,4 +164,64 @@ async fn space_folders_listed_and_dropped() {
         Ok(()) => out.error.clone().unwrap_or_default(),
     };
     assert!(e.contains("Create folder is not supported"), "{e}");
+}
+
+/// The privileges GRANT takes (no catalog of them: the documented ones for
+/// the server's release), from a live session, and the server's parser
+/// takes every one on each of its kinds: OSS then refuses it for the
+/// edition, never with a syntax error ("Encountered …").
+#[tokio::test]
+#[ignore]
+async fn lists_the_privileges_it_can_grant() {
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_dremio::drivers().remove(0);
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&c, None).await.unwrap();
+    let version = s.server_version().await.unwrap();
+    let all = s.privileges().await.unwrap();
+    for name in ["SELECT", "ALTER", "MANAGE GRANTS", "OWNERSHIP", "ALL"] {
+        assert!(all.iter().any(|p| p.name == name), "{name}: {all:?}");
+    }
+    if version.starts_with("Dremio 26.0") {
+        // 26.0's parser has no CALL MODEL (the docs' 26.x has).
+        assert!(!all.iter().any(|p| p.name == "CALL MODEL"), "{all:?}");
+    }
+    for p in &all {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+        for k in &p.on {
+            let object = match k.as_str() {
+                "" => None,
+                "schema" => Some(ObjectRef {
+                    kind: k.clone(),
+                    schema: None,
+                    name: "dbine_src.carpeta".into(),
+                }),
+                _ => Some(ObjectRef {
+                    kind: k.clone(),
+                    schema: Some("dbine_src".into()),
+                    name: "t".into(),
+                }),
+            };
+            let sql = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "dbine".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            let mut out = QueryOutcome::default();
+            let err = match s.execute(&sql, 10, &mut out).await {
+                Err(e) => e.to_string(),
+                Ok(()) => out.error.clone().unwrap_or_default(),
+            };
+            assert!(
+                !err.is_empty() && !err.contains("Encountered"),
+                "{version}: {sql}: {err}"
+            );
+        }
+    }
 }
