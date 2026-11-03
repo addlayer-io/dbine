@@ -11365,5 +11365,8 @@
   "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "ブラウザーでのサインインが 5 分間完了しませんでした (ウィンドウを閉じましたか?)。もう一度接続してください",
   "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "ブラウザーでサインインがキャンセルされたか、アクセスが拒否されました: {0}",
   "Conexión de solo lectura: este servidor kdb+ no tiene reval (kdb+ 3.6 o posterior), así que no puede asegurar que una consulta solo lea. Acá solo se abren tablas y variables y se ejecutan los comandos de sistema que muestran algo; para otras consultas usá una conexión que pueda escribir o kdb+ 3.6 o posterior.": "読み取り専用の接続: この kdb+ サーバーには reval（kdb+ 3.6 以降）がないため、クエリが読み取りだけであることを保証できません。ここではテーブルと変数を開くことと、何かを表示するシステムコマンドの実行だけができます。ほかのクエリには書き込みできる接続か、kdb+ 3.6 以降を使ってください。",
-  "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ のメッセージでオブジェクトが {0} 階層を超えて入れ子になっています"
+  "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ のメッセージでオブジェクトが {0} 階層を超えて入れ子になっています",
+  "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": "ブラウザーでのサインインは Databricks ワークスペースのアドレス (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us または *.cloud.databricks.mil) でのみ使用できます。ほかのホストではトークンを使用してください",
+  "la respuesta del inicio de sesión vino de otro servidor ({0}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión": "サインインの応答が接続先の Databricks ワークスペースではなく別のサーバー ({0}) から届きました。サインインを取り消しました",
+  "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.": "この応答は接続先の Databricks ワークスペースから届いたものではありません。このウィンドウは閉じてかまいません。"
 }

@@ -116,19 +116,96 @@ fn cache() -> std::sync::MutexGuard<'static, HashMap<String, Token>> {
     CACHE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The workspace's OAuth endpoints.
+/// The DNS zones of Databricks workspaces: the production environments the
+/// Databricks SDKs list (`databricks-sdk-go`,
+/// `common/environment/environments.go`) and the GovCloud DoD zone of the
+/// GovCloud docs. AWS, AWS GovCloud, AWS GovCloud DoD, Azure (public,
+/// Government, China) and Google Cloud.
+const WORKSPACE_ZONES: &[&str] = &[
+    "cloud.databricks.com",
+    "cloud.databricks.us",
+    "cloud.databricks.mil",
+    "azuredatabricks.net",
+    "databricks.azure.us",
+    "databricks.azure.cn",
+    "gcp.databricks.com",
+];
+
+/// Whether `host` (lowercase, no trailing dot) is a name under one of
+/// [`WORKSPACE_ZONES`], with a label boundary: `x.azuredatabricks.net`, not
+/// `xazuredatabricks.net` nor `x.azuredatabricks.net.example.com`.
+fn in_workspace_zone(host: &str) -> bool {
+    WORKSPACE_ZONES.iter().any(|zone| {
+        host.strip_suffix(zone)
+            .and_then(|rest| rest.strip_suffix('.'))
+            .is_some_and(|labels| {
+                labels.split('.').all(|l| {
+                    !l.is_empty()
+                        && !l.starts_with('-')
+                        && !l.ends_with('-')
+                        && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                })
+            })
+    })
+}
+
+/// The workspace host of `base` (`https://host`), lowercase, when it's a
+/// Databricks workspace address: https on the default port, a name under
+/// [`WORKSPACE_ZONES`], no user, path, query or IP address. The browser
+/// sign-in goes only there: the `databricks-cli` client and its loopback
+/// redirect are the same for every workspace, so a sign-in started against
+/// any other host could send the user to a real workspace and take the
+/// code it hands back (an OAuth mix-up).
+pub fn workspace_host(base: &str) -> Result<String> {
+    let refuse = || {
+        Error::AuthFailed(
+            "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token".into(),
+        )
+    };
+    let url = reqwest::Url::parse(base.trim()).map_err(|_| refuse())?;
+    // `domain()` is `None` for IP addresses.
+    let Some(host) = url.domain() else {
+        return Err(refuse());
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let plain = url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if plain && in_workspace_zone(&host) {
+        Ok(host)
+    } else {
+        Err(refuse())
+    }
+}
+
+/// The workspace's OAuth endpoints and issuer.
 struct Endpoints {
     authorize: String,
     token: String,
+    /// The `iss` of the workspace's authorization server (`https://host/oidc`,
+    /// as its `/oidc/.well-known/oauth-authorization-server` says).
+    issuer: String,
 }
 
 impl Endpoints {
+    /// The endpoints under `base`, as given (the tests' fake workspaces).
     fn of(base: &str) -> Endpoints {
         let base = base.trim().trim_end_matches('/');
         Endpoints {
             authorize: format!("{base}/oidc/v1/authorize"),
             token: format!("{base}/oidc/v1/token"),
+            issuer: format!("{base}/oidc"),
         }
+    }
+
+    /// The endpoints of the Databricks workspace at `base`, or the error
+    /// when it isn't one (see [`workspace_host`]).
+    fn workspace(base: &str) -> Result<Endpoints> {
+        Ok(Endpoints::of(&format!("https://{}", workspace_host(base)?)))
     }
 }
 
@@ -142,7 +219,7 @@ pub async fn access_token(http: &reqwest::Client, base: &str) -> Result<String> 
         Cached::Refresh(r) => Some(r),
         Cached::Miss => None,
     };
-    let ep = Endpoints::of(base);
+    let ep = Endpoints::workspace(base)?;
     let token = match refreshed(http, &ep, refresh).await {
         Some(t) => t,
         None => browser_sign_in(http, &ep).await?,
@@ -282,7 +359,8 @@ async fn sign_in(
     let state = random_b64(16)?;
     let url = authorize_url(&ep.authorize, redirect, &state, &pkce_challenge(&verifier))?;
     open(&url)?;
-    let code = match tokio::time::timeout(BROWSER_WAIT, wait_for_code(listener, &state)).await {
+    let waiting = wait_for_code(listener, &state, &ep.issuer);
+    let code = match tokio::time::timeout(BROWSER_WAIT, waiting).await {
         Ok(code) => code?,
         Err(_) => return Err(auth(
             "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar",
@@ -345,14 +423,14 @@ fn browser_argv(url: &str) -> (PathBuf, Vec<String>) {
     }
 }
 
-/// Only an https workspace's own sign-in page, never something else a form
-/// could slip in.
+/// Only a Databricks workspace's own sign-in page, never something else a
+/// form could slip in.
 fn is_sign_in_page(url: &str) -> bool {
-    reqwest::Url::parse(url).is_ok_and(|u| {
-        u.scheme() == "https"
-            && u.host_str().is_some()
-            && u.path() == "/oidc/v1/authorize"
-            && u.username().is_empty()
+    reqwest::Url::parse(url).is_ok_and(|mut u| {
+        let path_ok = u.path() == "/oidc/v1/authorize" && u.fragment().is_none();
+        u.set_path("/");
+        u.set_query(None);
+        path_ok && workspace_host(u.as_str()).is_ok()
     })
 }
 
@@ -386,13 +464,16 @@ enum Callback {
     Failed(String, String),
     /// A redirect with someone else's `state`: answered and ignored.
     BadState,
+    /// This sign-in's redirect, but from another authorization server (its
+    /// `iss`, RFC 9207, isn't the workspace's): the sign-in stops.
+    BadIssuer(String),
     /// Anything else (`/favicon.ico`…).
     Ignore,
 }
 
 /// Reads the request line of the browser's redirect (`GET /?code=…&state=…
-/// HTTP/1.1`).
-fn parse_callback(head: &str, state: &str) -> Callback {
+/// HTTP/1.1`). An `iss` in it (RFC 9207) has to be `issuer`, exactly.
+fn parse_callback(head: &str, state: &str, issuer: &str) -> Callback {
     let mut parts = head.lines().next().unwrap_or("").split(' ');
     let (Some("GET"), Some(target)) = (parts.next(), parts.next()) else {
         return Callback::Ignore;
@@ -409,6 +490,9 @@ fn parse_callback(head: &str, state: &str) -> Callback {
     }
     if q.get("state").map(String::as_str) != Some(state) {
         return Callback::BadState;
+    }
+    if let Some(iss) = q.get("iss").filter(|i| *i != issuer) {
+        return Callback::BadIssuer(short(iss, 200));
     }
     if let Some(error) = q.get("error") {
         let desc = q.get("error_description").unwrap_or(error);
@@ -452,7 +536,11 @@ fn page(status: &str, title: &str, text: &str) -> String {
 
 /// Answers the browser's requests until the redirect with this sign-in's
 /// `state` arrives.
-async fn wait_for_code(listener: &tokio::net::TcpListener, state: &str) -> Result<String> {
+async fn wait_for_code(
+    listener: &tokio::net::TcpListener,
+    state: &str,
+    issuer: &str,
+) -> Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     loop {
         let (mut stream, _) = listener.accept().await?;
@@ -472,7 +560,7 @@ async fn wait_for_code(listener: &tokio::net::TcpListener, state: &str) -> Resul
         if !matches!(read, Ok(Ok(()))) {
             continue;
         }
-        let callback = parse_callback(&String::from_utf8_lossy(&buf), state);
+        let callback = parse_callback(&String::from_utf8_lossy(&buf), state, issuer);
         let answer = match &callback {
             Callback::Code(_) => page(
                 "200 OK",
@@ -489,6 +577,11 @@ async fn wait_for_code(listener: &tokio::net::TcpListener, state: &str) -> Resul
                 "Respuesta inesperada",
                 "Esta respuesta no corresponde al inicio de sesión de DBine.",
             ),
+            Callback::BadIssuer(_) => page(
+                "400 Bad Request",
+                "No se pudo iniciar sesión",
+                "La respuesta no vino del workspace de Databricks de la conexión. Podés cerrar esta ventana.",
+            ),
             Callback::Ignore => page("404 Not Found", "DBine", ""),
         };
         let _ = stream.write_all(answer.as_bytes()).await;
@@ -496,6 +589,11 @@ async fn wait_for_code(listener: &tokio::net::TcpListener, state: &str) -> Resul
         match callback {
             Callback::Code(code) => return Ok(code),
             Callback::Failed(error, desc) => return Err(denied(&error, &desc)),
+            Callback::BadIssuer(iss) => {
+                return Err(auth(format!(
+                    "la respuesta del inicio de sesión vino de otro servidor ({iss}) y no del workspace de Databricks de la conexión: se canceló el inicio de sesión"
+                )))
+            }
             Callback::BadState | Callback::Ignore => {}
         }
     }
@@ -565,38 +663,156 @@ mod tests {
             "http://dbc-1.cloud.databricks.com/oidc/v1/authorize",
             "file:///oidc/v1/authorize",
             "https://a@dbc-1.cloud.databricks.com/oidc/v1/authorize",
+            "https://adb-1.azuredatabricks.net.example.com/oidc/v1/authorize",
+            "https://dbc-1.cloud.databricks.com:8443/oidc/v1/authorize",
+            "https://127.0.0.1/oidc/v1/authorize",
+            "https://dbc-1.cloud.databricks.com/other",
         ] {
             assert!(!is_sign_in_page(bad), "{bad}");
             assert!(open_browser(bad).is_err(), "{bad}");
         }
     }
 
+    const ISS: &str = "https://w.cloud.databricks.com/oidc";
+
+    #[test]
+    fn only_databricks_workspaces_get_the_browser_sign_in() {
+        for good in [
+            "https://dbc-1a2b3c4d-5e6f.cloud.databricks.com",
+            "https://abcsales.cloud.databricks.com/",
+            "https://ABCSales.Cloud.Databricks.com",
+            "https://dbc-1.cloud.databricks.com:443",
+            "https://adb-1234567890123456.7.azuredatabricks.net",
+            "https://adb-1.2.databricks.azure.us",
+            "https://adb-1.2.databricks.azure.cn",
+            "https://1234567890123456.7.gcp.databricks.com",
+            "https://abcsales.cloud.databricks.us",
+            "https://abcsales.cloud.databricks.mil",
+            "https://adb-1.2.azuredatabricks.net.",
+        ] {
+            assert!(workspace_host(good).is_ok(), "{good}");
+        }
+        assert_eq!(
+            workspace_host("https://ABC.Cloud.Databricks.com:443/").unwrap(),
+            "abc.cloud.databricks.com"
+        );
+        for bad in [
+            // Lookalikes: no label boundary, or the zone isn't the end.
+            "https://adb-1.azuredatabricks.net.example.com",
+            "https://evilazuredatabricks.net",
+            "https://azuredatabricks.net",
+            "https://.azuredatabricks.net",
+            "https://x..cloud.databricks.com",
+            "https://-x.cloud.databricks.com",
+            "https://cloud.databricks.com.evil.example",
+            "https://x.databricks.com",
+            "https://x.dev.databricks.com",
+            "https://evil.example",
+            // Not plain https on the default port.
+            "http://dbc-1.cloud.databricks.com",
+            "https://dbc-1.cloud.databricks.com:8443",
+            "https://user@dbc-1.cloud.databricks.com",
+            "https://user:pw@dbc-1.cloud.databricks.com",
+            "https://evil.example@dbc-1.cloud.databricks.com",
+            "https://dbc-1.cloud.databricks.com/path",
+            "https://dbc-1.cloud.databricks.com/?x=1",
+            "https://dbc-1.cloud.databricks.com/#x",
+            // IP addresses and junk.
+            "https://127.0.0.1",
+            "https://[::1]",
+            "https://10.0.0.1",
+            "dbc-1.cloud.databricks.com",
+            "",
+        ] {
+            let e = workspace_host(bad).unwrap_err();
+            assert!(matches!(e, Error::AuthFailed(_)), "{bad}");
+            assert!(e.to_string().contains("usá un token"), "{bad}");
+            assert!(Endpoints::workspace(bad).is_err(), "{bad}");
+        }
+        let ep = Endpoints::workspace("https://ADB-1.2.azuredatabricks.net/").unwrap();
+        assert_eq!(
+            ep.authorize,
+            "https://adb-1.2.azuredatabricks.net/oidc/v1/authorize"
+        );
+        assert_eq!(
+            ep.token,
+            "https://adb-1.2.azuredatabricks.net/oidc/v1/token"
+        );
+        assert_eq!(ep.issuer, "https://adb-1.2.azuredatabricks.net/oidc");
+    }
+
+    #[tokio::test]
+    async fn a_lookalike_host_never_reaches_the_browser_or_the_network() {
+        // `access_token` refuses before binding the port or opening
+        // anything, and so does a cached refresh token for that host.
+        let http = reqwest::Client::new();
+        for bad in [
+            "https://adb-1.azuredatabricks.net.example.com",
+            "https://127.0.0.1:9",
+        ] {
+            cache().insert(key(bad), tok(0, Some("rt")));
+            let e = access_token(&http, bad).await.unwrap_err();
+            assert!(e.to_string().contains("usá un token"), "{bad}: {e}");
+            cache().remove(&key(bad));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_redirect_from_another_issuer_stops_the_sign_in() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let browser = tokio::spawn(async move {
+            let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .unwrap();
+            s.write_all(
+                b"GET /?code=stolen&state=s1&iss=https%3A%2F%2Fevil.example%2Foidc HTTP/1.1\r\n\r\n",
+            )
+            .await
+            .unwrap();
+            let mut out = String::new();
+            let _ = s.read_to_string(&mut out).await;
+            out
+        });
+        let e = wait_for_code(&listener, "s1", ISS).await.unwrap_err();
+        assert!(matches!(e, Error::AuthFailed(_)));
+        assert!(e.to_string().contains("evil.example"), "{e}");
+        assert!(browser.await.unwrap().starts_with("HTTP/1.1 400"));
+    }
+
     #[test]
     fn redirects_are_checked() {
         let ok = "GET /?code=dc.AbC%2Bz&state=abc HTTP/1.1\r\nHost: localhost:8020\r\n\r\n";
-        assert_eq!(parse_callback(ok, "abc"), Callback::Code("dc.AbC+z".into()));
-        // Someone else's state, a missing one, also on an error.
-        assert_eq!(parse_callback(ok, "abd"), Callback::BadState);
         assert_eq!(
-            parse_callback("GET /?code=x HTTP/1.1\r\n\r\n", "abc"),
+            parse_callback(ok, "abc", ISS),
+            Callback::Code("dc.AbC+z".into())
+        );
+        // Someone else's state, a missing one, also on an error.
+        assert_eq!(parse_callback(ok, "abd", ISS), Callback::BadState);
+        assert_eq!(
+            parse_callback("GET /?code=x HTTP/1.1\r\n\r\n", "abc", ISS),
             Callback::BadState
         );
         assert_eq!(
             parse_callback(
                 "GET /?error=access_denied&state=zzz HTTP/1.1\r\n\r\n",
-                "abc"
+                "abc",
+                ISS
             ),
             Callback::BadState
         );
         let denied_req = "GET /?error=access_denied&error_description=User+denied+access.%0D%0Amore&state=abc HTTP/1.1\r\n\r\n";
         assert_eq!(
-            parse_callback(denied_req, "abc"),
+            parse_callback(denied_req, "abc", ISS),
             Callback::Failed("access_denied".into(), "User denied access.".into())
         );
         assert_eq!(
             parse_callback(
                 "GET /?error=invalid_scope&state=abc HTTP/1.1\r\n\r\n",
-                "abc"
+                "abc",
+                ISS
             ),
             Callback::Failed("invalid_scope".into(), "invalid_scope".into())
         );
@@ -607,8 +823,42 @@ mod tests {
             "POST /?code=x&state=abc HTTP/1.1\r\n\r\n",
             "",
         ] {
-            assert_eq!(parse_callback(other, "abc"), Callback::Ignore, "{other}");
+            assert_eq!(
+                parse_callback(other, "abc", ISS),
+                Callback::Ignore,
+                "{other}"
+            );
         }
+        // RFC 9207: an `iss` has to be the workspace's, exactly; none is
+        // fine (Databricks doesn't send it today).
+        let with_iss = |iss: &str| format!("GET /?code=c&state=abc&iss={iss} HTTP/1.1\r\n\r\n");
+        assert_eq!(
+            parse_callback(
+                &with_iss("https%3A%2F%2Fw.cloud.databricks.com%2Foidc"),
+                "abc",
+                ISS
+            ),
+            Callback::Code("c".into())
+        );
+        for other in [
+            "https%3A%2F%2Fevil.example%2Foidc",
+            "https%3A%2F%2Fother.cloud.databricks.com%2Foidc",
+            "https%3A%2F%2Fw.cloud.databricks.com%2Foidc%2F",
+            "",
+        ] {
+            assert!(
+                matches!(
+                    parse_callback(&with_iss(other), "abc", ISS),
+                    Callback::BadIssuer(_)
+                ),
+                "{other}"
+            );
+        }
+        // Someone else's redirect is still just ignored.
+        assert_eq!(
+            parse_callback(&with_iss("https%3A%2F%2Fevil.example"), "zzz", ISS),
+            Callback::BadState
+        );
         assert!(denied("access_denied", "x")
             .to_string()
             .contains("se negó el acceso"));
@@ -752,7 +1002,7 @@ mod tests {
             }
             answers
         });
-        assert_eq!(wait_for_code(&listener, "s1").await.unwrap(), "good");
+        assert_eq!(wait_for_code(&listener, "s1", ISS).await.unwrap(), "good");
         let answers = browser.await.unwrap();
         assert!(answers[0].starts_with("HTTP/1.1 404"));
         assert!(answers[1].starts_with("HTTP/1.1 400"));
@@ -780,7 +1030,7 @@ mod tests {
             let mut out = String::new();
             let _ = s.read_to_string(&mut out).await;
         });
-        let e = wait_for_code(&listener, "s1").await.unwrap_err();
+        let e = wait_for_code(&listener, "s1", ISS).await.unwrap_err();
         assert!(matches!(e, Error::AuthFailed(_)));
         assert!(e.to_string().contains("Denied"), "{e}");
     }
