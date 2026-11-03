@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "未知的 kdb+ 列表类型（{0}）",
   "una asignación a {0}": "对 {0} 的赋值",
   "una asignación global (::)": "全局赋值（::）",
-  "una lectura de solo lectura es una sola sentencia de q": "只读读取只能是一条 q 语句"
+  "una lectura de solo lectura es una sola sentencia de q": "只读读取只能是一条 q 语句",
+  "Tablas particionadas": "分区表",
+  "Tablas splayed": "Splayed 表",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+ 中不能编辑分区表或 splayed 表的行：每一列都是磁盘上的一个文件，需要用 q 重写文件来修改",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ 声明了 {0} 字节的消息，超出其协议允许的大小",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "重新连接时 kdb+ 没有响应：服务器仍在处理已取消的查询（kdb+ 仍会将其执行完毕），且一次只处理一个请求"
 }

@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "unbekannter kdb+-Listentyp ({0})",
   "una asignación a {0}": "eine Zuweisung an {0}",
   "una asignación global (::)": "eine globale Zuweisung (::)",
-  "una lectura de solo lectura es una sola sentencia de q": "ein schreibgeschützter Lesezugriff ist eine einzige q-Anweisung"
+  "una lectura de solo lectura es una sola sentencia de q": "ein schreibgeschützter Lesezugriff ist eine einzige q-Anweisung",
+  "Tablas particionadas": "Partitionierte Tabellen",
+  "Tablas splayed": "Splayed-Tabellen",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "in kdb+ werden Zeilen einer partitionierten oder splayed Tabelle nicht bearbeitet: Jede Spalte ist eine Datei auf der Festplatte, die durch Neuschreiben mit q geändert wird",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ hat eine Nachricht von {0} Bytes angekündigt, mehr als sein Protokoll zulässt",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ hat beim erneuten Verbinden nicht geantwortet: Der Server ist noch mit der abgebrochenen Abfrage beschäftigt (kdb+ beendet sie trotzdem) und bearbeitet jeweils nur eine Anfrage"
 }

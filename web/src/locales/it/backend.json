@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "tipo di lista kdb+ sconosciuto ({0})",
   "una asignación a {0}": "un'assegnazione a {0}",
   "una asignación global (::)": "un'assegnazione globale (::)",
-  "una lectura de solo lectura es una sola sentencia de q": "una lettura di sola lettura è una sola istruzione q"
+  "una lectura de solo lectura es una sola sentencia de q": "una lettura di sola lettura è una sola istruzione q",
+  "Tablas particionadas": "Tabelle partizionate",
+  "Tablas splayed": "Tabelle splayed",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "in kdb+ non si modificano le righe di una tabella partizionata o splayed: ogni colonna è un file su disco, che si cambia riscrivendolo con q",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ ha annunciato un messaggio di {0} byte, più di quanto consenta il suo protocollo",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ non ha risposto alla riconnessione: il server è ancora occupato con la query annullata (kdb+ la termina comunque) e gestisce una richiesta alla volta"
 }

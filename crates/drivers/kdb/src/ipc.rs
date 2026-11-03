@@ -199,7 +199,10 @@ pub fn uncompress(msg: &[u8], little: bool) -> R<Vec<u8>> {
     } else {
         u32::from_be_bytes(raw)
     } as usize;
-    if n < 8 {
+    // Each token of kdb+'s compression copies at most 257 bytes from 2 of
+    // input: a length far past that is a bad header, refused before it's
+    // allocated.
+    if n < 8 || n > i32::MAX as usize || n / 256 > msg.len() {
         return Err(bad("mensaje comprimido de kdb+ con largo inválido"));
     }
     let mut dst = vec![0u8; n];
@@ -396,7 +399,8 @@ impl Reader<'_> {
                 }
             }
             101 => match self.u8()? {
-                0 => K::Nil,
+                // `::`, and the elided argument of a projection (`f[;1]`).
+                0 | 0xff => K::Nil,
                 p => K::Function(primitive(101, p)),
             },
             102 | 103 => {
@@ -477,22 +481,47 @@ fn table(keys: K, values: K) -> R<K> {
     Ok(K::Table(names, cols))
 }
 
-/// q's primitives by their code in a 101..103 object.
+/// q's primitives by their code in a 101..103 object. Unary (101) and
+/// binary (102) primitives share the codes of the verbs `: + - * % & | ^ =
+/// < > $ , # _ ~ ! ? @ .`; a unary one shows as its q keyword (`(-:)` is
+/// `neg`, `(#:)` is `count`), as the q console does.
 fn primitive(t: i8, p: u8) -> String {
-    const VERBS: [&str; 20] = [
+    const BINARY: [&str; 20] = [
         ":", "+", "-", "*", "%", "&", "|", "^", "=", "<", ">", "$", ",", "#", "_", "~", "!", "?",
         "@", ".",
     ];
+    const UNARY: [&str; 20] = [
+        "::",
+        "flip",
+        "neg",
+        "first",
+        "reciprocal",
+        "where",
+        "reverse",
+        "null",
+        "group",
+        "iasc",
+        "idesc",
+        "string",
+        "enlist",
+        "count",
+        "floor",
+        "not",
+        "key",
+        "distinct",
+        "type",
+        "value",
+    ];
     const ITERATORS: [&str; 6] = ["'", "/", "\\", "':", "/:", "\\:"];
     let p = p as usize;
-    match t {
-        101 | 102 => VERBS
-            .get(p)
-            .map_or_else(|| format!("prim{p}"), |s| s.to_string()),
-        _ => ITERATORS
-            .get(p)
-            .map_or_else(|| format!("iter{p}"), |s| s.to_string()),
-    }
+    let (table, unknown): (&[&str], &str) = match t {
+        101 => (&UNARY, "prim"),
+        102 => (&BINARY, "prim"),
+        _ => (&ITERATORS, "iter"),
+    };
+    table
+        .get(p)
+        .map_or_else(|| format!("{unknown}{p}"), |s| s.to_string())
 }
 
 /// How a function part shows (for projections and compositions).
@@ -877,6 +906,42 @@ mod tests {
             Box::new(t("k", vec![1])),
             Box::new(t("v", vec![2])),
         ));
+    }
+
+    #[test]
+    fn primitives_projections_and_elided_arguments() {
+        let msg = |body: &[u8]| {
+            let mut m = vec![1, RESPONSE, 0, 0];
+            m.extend_from_slice(&((body.len() + 8) as u32).to_le_bytes());
+            m.extend_from_slice(body);
+            m
+        };
+        // `neg` is unary 2, `-` binary 2; `count` unary 13, `#` binary 13.
+        assert_eq!(decode(&msg(&[101, 2])).unwrap(), K::Function("neg".into()));
+        assert_eq!(decode(&msg(&[102, 2])).unwrap(), K::Function("-".into()));
+        assert_eq!(
+            decode(&msg(&[101, 13])).unwrap(),
+            K::Function("count".into())
+        );
+        assert_eq!(decode(&msg(&[102, 13])).unwrap(), K::Function("#".into()));
+        assert_eq!(decode(&msg(&[101, 0])).unwrap(), K::Nil);
+        assert_eq!(
+            decode(&msg(&[101, 99])).unwrap(),
+            K::Function("prim99".into())
+        );
+        // `+[;1]`: a projection of `+` whose first argument is elided.
+        let mut p = vec![104, 3, 0, 0, 0, 102, 1, 101, 0xff];
+        p.extend_from_slice(&[0xf9]);
+        p.extend_from_slice(&1i64.to_le_bytes());
+        assert_eq!(decode(&msg(&p)).unwrap(), K::Function("+[;1]".into()));
+    }
+
+    #[test]
+    fn a_compressed_length_far_past_the_message_is_refused() {
+        // 12 bytes claiming to uncompress to 1 GB.
+        let mut m = vec![1, RESPONSE, 1, 0, 12, 0, 0, 0];
+        m.extend_from_slice(&(1u32 << 30).to_le_bytes());
+        assert!(decode(&m).is_err());
     }
 
     #[test]

@@ -3,8 +3,11 @@
 //! to the server as a string it evaluates (`value`, through `.z.pg`).
 //!
 //! The explorer lists the root namespace's tables, views, functions and
-//! variables, and those of the user's namespaces (`.ns.t`); single-letter
-//! namespaces (`.q`, `.Q`, `.h`, `.z`…) belong to kdb+ and are left out.
+//! variables, and those of the user's namespaces (`.ns.t`, `.u` of
+//! kdb+tick); kdb+'s own (`.q`, `.Q`, `.h`, `.j`, `.o`, `.z`) are left out.
+//! Tables of a database on disk show apart: partitioned (an HDB's, read a
+//! partition at a time) and splayed (a file per column). Both are read
+//! only in the grid: their rows change by rewriting their files with q.
 //!
 //! Live tests need a licensed kdb+ (see `tests/live.rs`).
 
@@ -35,6 +38,44 @@ use ipc::K;
 /// Variables that aren't tables, views or functions (lists, dictionaries,
 /// atoms).
 pub const VARIABLE: &str = "variable";
+/// A partitioned table (`.Q.qp` is `1b`): an HDB's, one directory per
+/// date (month, year or int) with a file per column.
+pub const PARTITIONED: &str = "partitioned_table";
+/// A splayed table (`.Q.qp` is `0b`): on disk, a file per column.
+pub const SPLAYED: &str = "splayed_table";
+
+/// The explorer in one round trip: a table of `ns` (`.` for the root),
+/// `k` (the kind) and `n` (the name) for the root and every namespace but
+/// kdb+'s own. Each namespace is read under protection (one that fails
+/// leaves only itself out), views with `\b` before anything else (reading
+/// a view's value would compute it), each other object by its value:
+/// functions by type, tables by `.Q.qt`, and `.Q.qp` tells partitioned
+/// (`1b`) and splayed (`0b`) tables from those in memory (`0`).
+pub const EXPLORER: &str = concat!(
+    // kdb+'s own namespaces (and the empty name) are left out.
+    "{nsl:(enlist enlist \".\"),\".\",/:string (key `) except `q`Q`h`j`o`z,`$\"\";",
+    "f:{[ns] s:`$ns; b:@[system;\"b \",ns;`$()]; n:(key s) except b,`$\"\";",
+    "k:{$[100h<=type x;`function;@[.Q.qt;x;0b];$[1b~p:@[.Q.qp;x;0];`partitioned;0b~p;`splayed;`table];`variable]} each s@n;",
+    "([] ns:(count[n]+count b)#`$ns; k:(`$()),k,count[b]#`view; n:(`$()),n,b)};",
+    "raze {[f;ns] @[f;ns;{([] ns:`$(); k:`$(); n:`$())}]}[f] each nsl}[]"
+);
+
+/// Results bigger than this (as `-22!` measures them on the server) come
+/// back to the grid as their first rows and their count, instead of whole.
+const SHOWN_BYTES: u64 = 4 << 20;
+
+/// The marker of a result cut on the server: `(marker; count; first rows)`.
+const PARTIAL: &str = "dbine.partial";
+
+/// `expr` (a statement's evaluation) as sent for the grid: when its result
+/// is a list, table or dictionary of more than `rows` items and more than
+/// [`SHOWN_BYTES`] serialized, the server answers its first `rows` items
+/// and its count instead (strings, atoms and functions as they are).
+pub fn guarded(expr: &str, rows: usize) -> String {
+    format!(
+        "{{[n;b;r] t:type r; $[(t<0)|(t>99)|t=10h; r; (n<c:count r)&b< -22!r; (`{PARTIAL};c;n sublist r); r]}}[{rows};{SHOWN_BYTES}] {expr}"
+    )
+}
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(KdbDriver { info: info() })]
@@ -97,6 +138,8 @@ fn info() -> DriverInfo {
         has_schemas: false,
         object_kinds: vec![
             ObjectKindInfo::tables(),
+            ObjectKindInfo::new(PARTITIONED, "Tablas particionadas", true, true, true),
+            ObjectKindInfo::new(SPLAYED, "Tablas splayed", true, true, true),
             ObjectKindInfo::new(kinds::VIEW, "Vistas", true, true, true),
             ObjectKindInfo::new(kinds::FUNCTION, "Funciones", false, false, true),
             ObjectKindInfo::new(VARIABLE, "Variables", false, true, false),
@@ -222,13 +265,16 @@ impl Driver for KdbDriver {
             tls,
             timeout: Duration::from_secs(20),
         };
-        let c = conn::Conn::open(&target).await.map_err(|e| match &watch {
-            Some(w) => w.explain(e),
-            None => e,
-        })?;
+        let c = conn::Conn::open(&target, false)
+            .await
+            .map_err(|e| match &watch {
+                Some(w) => w.explain(e),
+                None => e,
+            })?;
         let mut s = KdbSession {
             target,
             conn: Some(c),
+            after_cancel: false,
             read_only: cfg.read_only,
             reval: false,
             cancel: Arc::new(Cancel::default()),
@@ -248,10 +294,14 @@ impl Driver for KdbDriver {
     }
 }
 
-/// Only tables take edited rows.
+/// Only tables in memory take edited rows.
 fn writable(target: &ObjectRef) -> Result<()> {
     if target.kind == kinds::TABLE || target.kind.is_empty() {
         Ok(())
+    } else if target.kind == PARTITIONED || target.kind == SPLAYED {
+        Err(Error::Unsupported(
+            "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q".into(),
+        ))
     } else {
         Err(Error::Unsupported(
             "en kdb+ solo se editan filas de tablas: una vista se calcula y una variable se cambia con q".into(),
@@ -304,6 +354,9 @@ pub struct KdbSession {
     /// `None` after a cancel or a lost connection: the next request
     /// connects again.
     conn: Option<conn::Conn>,
+    /// The last connection was dropped by a cancel while kdb+ ran a query:
+    /// until a new one opens, a timeout means it's still running it.
+    after_cancel: bool,
     read_only: bool,
     /// The server has `reval`.
     reval: bool,
@@ -319,78 +372,160 @@ fn q_error(e: &str) -> Error {
 }
 
 impl KdbSession {
-    /// Run `text` and return what it gave; a q error is an `Err`.
+    /// Run `text` and return what it gave; a q error is an `Err`. A
+    /// connection found dropped (the request couldn't be written, or it
+    /// closed before a byte of the answer) is opened again and the request
+    /// sent once more: kdb+ can't have run it.
     async fn q(&mut self, text: &str) -> Result<K> {
-        if self.conn.is_none() {
-            self.conn = Some(conn::Conn::open(&self.target).await?);
-        }
-        let cancel = self.cancel.clone();
-        let notified = cancel.notify.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
-        if cancel.flag.load(Ordering::SeqCst) {
-            self.conn = None;
-            return Err(Error::Cancelled);
-        }
-        let r = {
-            let c = self.conn.as_mut().expect("connected above");
-            tokio::select! {
-                r = c.call(text) => Some(r),
-                _ = &mut notified => None,
+        let mut retried = false;
+        loop {
+            let fresh = self.conn.is_none();
+            if fresh {
+                self.conn = Some(conn::Conn::open(&self.target, self.after_cancel).await?);
+                self.after_cancel = false;
             }
-        };
-        match r {
-            None => {
+            let cancel = self.cancel.clone();
+            let notified = cancel.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if cancel.flag.load(Ordering::SeqCst) {
                 self.conn = None;
-                Err(Error::Cancelled)
+                return Err(Error::Cancelled);
             }
-            Some(Ok(K::Error(e))) => Err(q_error(&e)),
-            Some(Ok(k)) => Ok(k),
-            Some(Err(e)) => {
-                self.conn = None;
-                Err(e)
-            }
+            let r = {
+                let c = self.conn.as_mut().expect("connected above");
+                tokio::select! {
+                    r = c.call(text) => Some(r),
+                    _ = &mut notified => None,
+                }
+            };
+            return match r {
+                None => {
+                    self.conn = None;
+                    self.after_cancel = true;
+                    Err(Error::Cancelled)
+                }
+                Some(Ok(K::Error(e))) => Err(q_error(&e)),
+                Some(Ok(k)) => Ok(k),
+                Some(Err(f)) => {
+                    self.conn = None;
+                    if f.unsent && !fresh && !retried {
+                        retried = true;
+                        continue;
+                    }
+                    Err(f.error)
+                }
+            };
         }
     }
 
-    /// A list of names the server answered.
-    async fn names(&mut self, text: &str) -> Result<Vec<String>> {
-        Ok(self.q(text).await?.symbols().unwrap_or_default())
-    }
-
-    /// One statement as sent: inside `reval` on a read-only connection
-    /// (system commands are already limited to those that show).
-    fn wire(&self, stmt: &str) -> String {
+    /// One statement's evaluation: inside `reval` on a read-only
+    /// connection (system commands are already limited to those that
+    /// show).
+    fn eval(&self, stmt: &str) -> String {
         if self.read_only && self.reval && !stmt.trim_start().starts_with('\\') {
             format!("reval parse {}", edit::qstr(stmt))
         } else {
-            stmt.to_string()
+            format!("value {}", edit::qstr(stmt))
         }
     }
 
-    async fn run(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let k = self.q(&self.wire(stmt)).await?;
-        cells::emit(k, max_rows, out);
+    /// Run `expr` and put its result in `out`. For the grid (a row limit
+    /// and no row sink: export, charts and tasks have one, or no limit) a
+    /// big result is cut on the server ([`guarded`]); its count still
+    /// shows, as a partial result.
+    async fn emit(&mut self, expr: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        if max_rows == usize::MAX || out.sink.is_some() {
+            let k = self.q(expr).await?;
+            cells::emit(k, max_rows, out);
+            return Ok(());
+        }
+        match self.q(&guarded(expr, max_rows)).await? {
+            K::List(mut l) if l.len() == 3 && l[0] == K::Symbol(PARTIAL.into()) => {
+                let rows = l.pop().expect("3 items");
+                let total = match l[1] {
+                    K::Long(n) => n.max(0) as u64,
+                    _ => 0,
+                };
+                cells::emit(rows, max_rows, out);
+                if let Some(r) = out.results.last_mut() {
+                    if total > r.total_rows {
+                        r.total_rows = total;
+                        r.truncated = true;
+                    }
+                }
+            }
+            k => cells::emit(k, max_rows, out),
+        }
         Ok(())
     }
 
-    /// The user's namespaces: `.ns` for each `ns` of more than one letter.
-    async fn namespaces(&mut self) -> Result<Vec<String>> {
-        Ok(self
-            .names("{x where 1<count each string x} key `")
-            .await?
-            .into_iter()
-            .map(|n| format!(".{n}"))
-            .collect())
+    async fn run(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let expr = self.eval(stmt);
+        self.emit(&expr, max_rows, out).await
     }
 }
 
-/// `name` in namespace `ns` (the root's: as is).
-fn qualified(ns: Option<&str>, name: &str) -> String {
-    match ns {
-        None => name.to_string(),
-        Some(ns) => format!("{ns}.{name}"),
+/// `name` in namespace `ns` (the root's, `.`: as is).
+fn qualified(ns: &str, name: &str) -> String {
+    if ns == "." || ns.is_empty() {
+        name.to_string()
+    } else {
+        format!("{ns}.{name}")
     }
+}
+
+/// A table of any kind: in memory, partitioned or splayed.
+fn is_table(kind: &str) -> bool {
+    kind == kinds::TABLE || kind == PARTITIONED || kind == SPLAYED
+}
+
+/// The objects of [`EXPLORER`]'s table, namespace by namespace (the root
+/// first): tables, views, functions, then the other variables.
+fn explorer_objects(k: K) -> Vec<DbObject> {
+    let K::Table(names, cols) = k else {
+        return Vec::new();
+    };
+    let col = |n: &str| {
+        names
+            .iter()
+            .position(|c| c == n)
+            .and_then(|i| cols[i].symbols())
+            .unwrap_or_default()
+    };
+    let (ns, kind, name) = (col("ns"), col("k"), col("n"));
+    let mut spaces: Vec<&str> = Vec::new();
+    let mut rows: Vec<(usize, usize, DbObject)> = Vec::new();
+    for ((ns, kind), name) in ns.iter().zip(&kind).zip(&name) {
+        let (rank, kind) = match kind.as_str() {
+            "table" => (0, kinds::TABLE),
+            "partitioned" => (1, PARTITIONED),
+            "splayed" => (2, SPLAYED),
+            "view" => (3, kinds::VIEW),
+            "function" => (4, kinds::FUNCTION),
+            _ => (5, VARIABLE),
+        };
+        let space = match spaces.iter().position(|s| s == ns) {
+            Some(i) => i,
+            None => {
+                spaces.push(ns);
+                spaces.len() - 1
+            }
+        };
+        rows.push((
+            space,
+            rank,
+            DbObject {
+                kind: kind.into(),
+                schema: None,
+                name: qualified(ns, name),
+                parent: None,
+            },
+        ));
+    }
+    // The root first, then the namespaces as listed.
+    rows.sort_by_key(|(space, rank, _)| (usize::from(spaces[*space] != "."), *space, *rank));
+    rows.into_iter().map(|(_, _, o)| o).collect()
 }
 
 #[async_trait]
@@ -422,48 +557,11 @@ impl Session for KdbSession {
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         self.cancel.flag.store(false, Ordering::SeqCst);
-        let mut out = Vec::new();
-        let mut spaces: Vec<Option<String>> = vec![None];
-        spaces.extend(self.namespaces().await?.into_iter().map(Some));
-        let views = self.names("system \"b\"").await.unwrap_or_default();
-        for ns in spaces {
-            let arg = ns.as_deref().map_or(String::new(), |n| format!(" {n}"));
-            let sym = ns.as_deref().map_or("`.".to_string(), |n| format!("`{n}"));
-            let tables = self.names(&format!("tables {sym}")).await?;
-            let functions = self.names(&format!("system \"f{arg}\"")).await?;
-            let variables = self.names(&format!("system \"v{arg}\"")).await?;
-            let mut push = |kind: &str, name: &str| {
-                out.push(DbObject {
-                    kind: kind.into(),
-                    schema: None,
-                    name: qualified(ns.as_deref(), name),
-                    parent: None,
-                })
-            };
-            for t in &tables {
-                push(kinds::TABLE, t);
-            }
-            if ns.is_none() {
-                for v in &views {
-                    push(kinds::VIEW, v);
-                }
-            }
-            for f in &functions {
-                push(kinds::FUNCTION, f);
-            }
-            for v in variables.iter().filter(|v| {
-                !tables.contains(v)
-                    && !functions.contains(v)
-                    && (ns.is_some() || !views.contains(v))
-            }) {
-                push(VARIABLE, v);
-            }
-        }
-        Ok(out)
+        Ok(explorer_objects(self.q(EXPLORER).await?))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
-        if obj.kind != kinds::TABLE && obj.kind != kinds::VIEW {
+        if !is_table(&obj.kind) && obj.kind != kinds::VIEW {
             return Ok(Vec::new());
         }
         self.cancel.flag.store(false, Ordering::SeqCst);
@@ -510,7 +608,7 @@ impl Session for KdbSession {
                 other => other.text(),
             }),
             kinds::VIEW => Ok(self.q(&format!("view {sym}")).await?.text()),
-            kinds::TABLE => {
+            k if is_table(k) => {
                 let cols = self.columns(obj).await?;
                 let keys: Vec<String> = cols
                     .iter()
@@ -599,11 +697,8 @@ impl Session for KdbSession {
             ));
         }
         self.cancel.flag.store(false, Ordering::SeqCst);
-        let k = self
-            .q(&format!("reval parse {}", edit::qstr(&one.text)))
-            .await?;
-        cells::emit(k, max_rows, out);
-        Ok(())
+        let expr = format!("reval parse {}", edit::qstr(&one.text));
+        self.emit(&expr, max_rows, out).await
     }
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
@@ -707,6 +802,49 @@ mod tests {
     }
 
     #[test]
+    fn explorer_rows_become_objects() {
+        let syms = |v: &[&str]| {
+            K::Vector(
+                0,
+                ipc::Vector::Symbol(v.iter().map(|s| s.to_string()).collect()),
+            )
+        };
+        let t = K::Table(
+            vec!["ns".into(), "k".into(), "n".into()],
+            vec![
+                syms(&[".u", ".", ".", ".", "."]),
+                syms(&["function", "variable", "partitioned", "table", "view"]),
+                syms(&["upd", "x", "quotes", "trade", "v"]),
+            ],
+        );
+        let got: Vec<(String, String)> = explorer_objects(t)
+            .into_iter()
+            .map(|o| (o.kind, o.name))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("table".to_string(), "trade".to_string()),
+                (PARTITIONED.into(), "quotes".into()),
+                ("view".into(), "v".into()),
+                (VARIABLE.into(), "x".into()),
+                ("function".into(), ".u.upd".into()),
+            ]
+        );
+        assert!(explorer_objects(K::Nil).is_empty());
+        // kdb+'s own namespaces are the ones left out, and only those.
+        assert!(EXPLORER.contains("(key `) except `q`Q`h`j`o`z,`$\"\";"));
+    }
+
+    #[test]
+    fn the_grid_guard_wraps_the_statement() {
+        let g = guarded("value \"til 3\"", 5000);
+        assert!(g.starts_with("{[n;b;r] "), "{g}");
+        assert!(g.ends_with("}[5000;4194304] value \"til 3\""), "{g}");
+        assert!(g.contains("-22!r") && g.contains("`dbine.partial"), "{g}");
+    }
+
+    #[test]
     fn only_tables_take_edits() {
         let r = |kind: &str| ObjectRef {
             kind: kind.into(),
@@ -716,7 +854,16 @@ mod tests {
         assert!(writable(&r(kinds::TABLE)).is_ok());
         assert!(writable(&r(kinds::VIEW)).is_err());
         assert!(writable(&r(VARIABLE)).is_err());
+        for k in [PARTITIONED, SPLAYED] {
+            let e = writable(&r(k)).unwrap_err().to_string();
+            assert!(e.contains("particionada o splayed"), "{e}");
+            let d = KdbDriver { info: info() };
+            assert!(d
+                .insert_script(&r(k), &["a".into()], &[vec![Value::from(1)]])
+                .is_err());
+        }
         let d = KdbDriver { info: info() };
         assert!(d.update_script(&r(kinds::VIEW), &[]).is_err());
+        assert!(d.delete_script(&r(PARTITIONED), &[]).is_err());
     }
 }

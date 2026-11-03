@@ -7053,6 +7053,9 @@
   "E/S saliente": [
     "crates/drivers/couchdb/src/monitor.rs"
   ],
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
   "EXPORT DATABASE escribe en una carpeta de esta computadora el esquema, un script de carga y un archivo por tabla. IMPORT DATABASE la carga en la base elegida, que tiene que estar vacía (o al menos sin esas tablas). Para restaurar, indicá la carpeta del backup.": [
     "crates/drivers/duckdb/src/backup.rs"
   ],
@@ -11443,6 +11446,12 @@
   ],
   "June": [
     "src-tauri/src/tasks/os.rs"
+  ],
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": [
+    "crates/drivers/kdb/src/conn.rs"
+  ],
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": [
+    "crates/drivers/kdb/src/conn.rs"
   ],
   "Kerberos": [
     "crates/drivers/odbc/src/security.rs"
@@ -21007,6 +21016,12 @@
   ],
   "Sólo este archivo": [
     "crates/drivers/duckdb/src/files.rs"
+  ],
+  "Tablas particionadas": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
+  "Tablas splayed": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "TABLE ACCESS FULL de tabla grande (~{0} filas)": [
     "crates/drivers/oracle/src/plan.rs"

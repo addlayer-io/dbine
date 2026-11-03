@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "unknown kdb+ list type ({0})",
   "una asignación a {0}": "an assignment to {0}",
   "una asignación global (::)": "a global assignment (::)",
-  "una lectura de solo lectura es una sola sentencia de q": "a read-only read is a single q statement"
+  "una lectura de solo lectura es una sola sentencia de q": "a read-only read is a single q statement",
+  "Tablas particionadas": "Partitioned tables",
+  "Tablas splayed": "Splayed tables",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "rows of a partitioned or splayed table can't be edited in kdb+: each column is a file on disk, changed by rewriting it with q",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ announced a message of {0} bytes, more than its protocol allows",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ did not respond when reconnecting: the server is still busy with the cancelled query (kdb+ finishes it anyway) and serves one request at a time"
 }

@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "不明な kdb+ リスト型 ({0})",
   "una asignación a {0}": "{0} への代入",
   "una asignación global (::)": "グローバル代入 (::)",
-  "una lectura de solo lectura es una sola sentencia de q": "読み取り専用の読み取りは q の 1 文だけです"
+  "una lectura de solo lectura es una sola sentencia de q": "読み取り専用の読み取りは q の 1 文だけです",
+  "Tablas particionadas": "パーティションテーブル",
+  "Tablas splayed": "Splayed テーブル",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+ ではパーティションテーブルや splayed テーブルの行は編集できません。各列はディスク上のファイルであり、q で書き直すことで変更します",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ が {0} バイトのメッセージを通知しましたが、プロトコルで許容されるサイズを超えています",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "再接続時に kdb+ が応答しませんでした。サーバーはキャンセルされたクエリの処理中で（kdb+ はそのクエリを最後まで実行します）、一度に1つのリクエストしか処理しません"
 }

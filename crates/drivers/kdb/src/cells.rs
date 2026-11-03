@@ -6,7 +6,7 @@
 //! it (`0D12:00:00.000000000`).
 
 use crate::ipc::{Vector, K};
-use chrono::{Duration, NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
 use dbine_driver::{json_bytes, json_f64, json_i64, QueryOutcome, ResultColumn};
 use serde_json::Value;
 
@@ -124,15 +124,22 @@ fn temporal64(v: i64, f: impl Fn(i64) -> String) -> Value {
     }
 }
 
+/// A date, or the day count as is when it falls outside the dates chrono
+/// writes (about ±262,000 years).
 pub fn date(days: i32) -> String {
-    (epoch() + Duration::days(days as i64))
-        .date()
-        .format("%Y-%m-%d")
-        .to_string()
+    TimeDelta::try_days(days as i64)
+        .and_then(|d| epoch().checked_add_signed(d))
+        .map_or_else(
+            || days.to_string(),
+            |t| t.date().format("%Y-%m-%d").to_string(),
+        )
 }
 
+/// Every i64 of nanoseconds fits (±292 years from 2000).
 pub fn timestamp(ns: i64) -> String {
-    let t = epoch() + Duration::nanoseconds(ns);
+    let Some(t) = epoch().checked_add_signed(TimeDelta::nanoseconds(ns)) else {
+        return ns.to_string();
+    };
     if ns.rem_euclid(1_000_000_000) == 0 {
         t.format("%Y-%m-%d %H:%M:%S").to_string()
     } else {
@@ -145,10 +152,19 @@ fn month(m: i32) -> String {
     format!("{y:04}-{:02}", m.rem_euclid(12) + 1)
 }
 
+/// A datetime, or the day count as is when it falls outside the dates
+/// chrono writes.
 fn datetime(days: f64) -> String {
-    let ms = (days * 86_400_000.0).round() as i64;
-    let t = epoch() + Duration::milliseconds(ms);
-    t.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+    let ms = days * 86_400_000.0;
+    // `as` saturates; anything near i64's range is far past chrono's dates.
+    let t = (ms.abs() < 9.0e18)
+        .then(|| TimeDelta::try_milliseconds(ms.round() as i64))
+        .flatten()
+        .and_then(|d| epoch().checked_add_signed(d));
+    match t {
+        Some(t) => t.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+        None => days.to_string(),
+    }
 }
 
 /// q's form: `[-]{d}D{hh}:{mm}:{ss}.{nnnnnnnnn}`.
@@ -471,6 +487,25 @@ mod tests {
             json!("11111111-1111-1111-1111-111111111111")
         );
         assert_eq!(cell(&K::Bool(true)), json!(true));
+    }
+
+    #[test]
+    fn temporals_past_chrono_s_range_do_not_panic() {
+        // Past ±262,000 years: the raw count, not a panic.
+        assert_eq!(cell(&K::Date(2_147_483_646)), json!("2147483646"));
+        assert_eq!(cell(&K::Date(-2_147_483_646)), json!("-2147483646"));
+        assert_eq!(cell(&K::Datetime(1.0e300)), json!(1.0e300.to_string()));
+        assert_eq!(cell(&K::Datetime(-2.0e12)), json!((-2.0e12).to_string()));
+        assert_eq!(cell(&K::Datetime(2_147_483_646.0)), json!("2147483646"));
+        // Every timestamp fits, the extremes included.
+        assert!(
+            matches!(cell(&K::Timestamp(i64::MAX - 1)), Value::String(s) if s.starts_with("2292-"))
+        );
+        assert!(
+            matches!(cell(&K::Timestamp(-i64::MAX + 1)), Value::String(s) if s.starts_with("1707-"))
+        );
+        // Dates near the edge of what chrono writes still show as dates.
+        assert_eq!(cell(&K::Date(2_932_896)), json!("+10029-12-30"));
     }
 
     #[test]

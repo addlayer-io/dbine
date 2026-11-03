@@ -136,28 +136,70 @@ fn eq(col: &str, text: &str) -> String {
 }
 
 /// The browse query: the first rows of a table or a view, or the start of
-/// a variable's value.
+/// a variable's value. A partitioned table (an HDB's) takes its first rows
+/// by index (`.Q.ind`), which reads only the partitions they're in:
+/// `select[N]` would go through every partition.
 pub fn browse(kind: &str, name: &str, limit: u32) -> String {
     let limit = limit.max(1);
+    let r = qref(name);
     match kind {
-        kinds::TABLE | kinds::VIEW => format!("select[{limit}] from {}", qref(name)),
-        _ => format!("{limit} sublist {}", qref(name)),
+        crate::PARTITIONED => by_index(&r, limit),
+        kinds::TABLE | kinds::VIEW | crate::SPLAYED => format!("select[{limit}] from {r}"),
+        _ => format!("{limit} sublist {r}"),
+    }
+}
+
+/// The first `limit` rows of the partitioned table `r` (an expression).
+fn by_index(r: &str, limit: u32) -> String {
+    format!("select from .Q.ind[{r}; `long$til {limit}&count {r}]")
+}
+
+/// The partition column of a partitioned table is named after the
+/// partition's type: a filter on it goes first in the `where`, so kdb+
+/// reads only the partitions it picks.
+const PARTITION_COLUMNS: [&str; 4] = ["date", "month", "year", "int"];
+
+/// The cast letter of a partition column (`year` and `int` are ints).
+fn partition_type(c: &str) -> Option<char> {
+    match c {
+        "date" => Some('D'),
+        "month" => Some('M'),
+        "year" | "int" => Some('I'),
+        _ => None,
     }
 }
 
 /// A browse query taken apart: `select[N] from SRC [where …]`, maybe
-/// sorted (`N sublist `a xasc select from SRC …`).
+/// sorted (`N sublist `a xasc select from SRC …`), or a partitioned
+/// table's (`select from .Q.ind[SRC; `long$til N&count SRC]`).
 #[derive(Debug, PartialEq)]
 struct Browse {
     limit: u32,
     sort: Vec<(String, bool)>,
     /// What follows `from`, its where clause included.
     source: String,
+    /// A partitioned table's browse (`.Q.ind`), as long as it has no
+    /// filter or sort.
+    partitioned: bool,
 }
 
 impl Browse {
     fn parse(q: &str) -> Option<Self> {
         let q = q.trim();
+        if let Some(rest) = q.strip_prefix("select from .Q.ind[") {
+            let (src, tail) = rest.rsplit_once("; `long$til ")?;
+            let (n, tail) = tail.split_once('&')?;
+            let counted = tail.strip_prefix("count ")?.strip_suffix(']')?;
+            if counted.trim() != src.trim() {
+                return None;
+            }
+            return Some(Self {
+                limit: n.trim().parse().ok()?,
+                sort: Vec::new(),
+                source: src.trim().to_string(),
+                partitioned: true,
+            });
+        }
         if let Some(rest) = q.strip_prefix("select[") {
             let (n, rest) = rest.split_once(']')?;
             let limit = n.trim().parse().ok()?;
@@ -166,6 +208,7 @@ impl Browse {
                 limit,
                 sort: Vec::new(),
                 source,
+                partitioned: false,
             });
         }
         let (n, mut rest) = q.split_once(" sublist ")?;
@@ -191,11 +234,15 @@ impl Browse {
             limit,
             sort,
             source,
+            partitioned: false,
         })
     }
 
     fn render(&self) -> String {
         if self.sort.is_empty() {
+            if self.partitioned && !self.source.contains(" where ") {
+                return by_index(&self.source, self.limit);
+            }
             return format!("select[{}] from {}", self.limit, self.source);
         }
         let chain: String = self
@@ -258,8 +305,26 @@ fn condition(f: &ColumnFilter) -> Result<String> {
     let strings = format!("{{$[0h=type x;x;string x]}}[{c}]");
     let pattern = |p: String| format!("(lower {strings}) like lower {}", qstr(&p));
     let empty = format!("{{$[0h=type x;0=count each x;null x]}}[{c}]");
-    let cmp = |op: &str| format!("{c}{op}{}", cast(c, &first));
+    // A partition column's type is known by its name: a plain comparison
+    // (`date=2024.01.31`, `date in …`) is what kdb+ narrows the partitions
+    // it reads with.
+    let part = partition_type(c);
+    let cmp = |op: &str| match part {
+        Some(t) => format!("{c}{op}\"{t}\"${}", qstr(&first)),
+        None => format!("{c}{op}{}", cast(c, &first)),
+    };
     Ok(match f.op {
+        FilterOp::Eq if part.is_some() => cmp("="),
+        FilterOp::Ne if part.is_some() => cmp("<>"),
+        FilterOp::In | FilterOp::NotIn if part.is_some() => {
+            let items: Vec<String> = f.values.iter().map(|v| qstr(&value_text(v))).collect();
+            let test = format!("{c} in \"{}\"${}", part.unwrap_or('D'), qlist(&items));
+            if f.op == FilterOp::In {
+                test
+            } else {
+                format!("not {test}")
+            }
+        }
         FilterOp::Eq => eq(c, &first),
         FilterOp::Ne => format!("not {}", eq(c, &first)),
         FilterOp::Gt => cmp(">"),
@@ -303,16 +368,22 @@ pub fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<String>
         return Ok(browse.to_string());
     }
     let mut b = Browse::parse(browse).ok_or_else(not_a_browse)?;
-    let conds = filters
-        .iter()
-        .map(|f| condition(f).map(|c| format!("({c})")))
-        .collect::<Result<Vec<_>>>()?
-        .join(", ");
-    b.source = if b.source.contains(" where ") {
-        format!("{}, {conds}", b.source)
-    } else {
-        format!("{} where {conds}", b.source)
+    let mut first = Vec::new();
+    let mut rest = Vec::new();
+    for f in filters {
+        let c = format!("({})", condition(f)?);
+        if f.op != FilterOp::Sql && PARTITION_COLUMNS.contains(&f.column.as_str()) {
+            first.push(c);
+        } else {
+            rest.push(c);
+        }
+    }
+    let (table, before) = match b.source.split_once(" where ") {
+        Some((t, w)) => (t.to_string(), Some(w.to_string())),
+        None => (b.source.clone(), None),
     };
+    let conds: Vec<String> = first.into_iter().chain(before).chain(rest).collect();
+    b.source = format!("{table} where {}", conds.join(", "));
     Ok(b.render())
 }
 
@@ -564,6 +635,69 @@ mod tests {
         assert_eq!(qref("my t"), "(get `$ \"my t\")");
         assert_eq!(browse(kinds::TABLE, "trade", 100), "select[100] from trade");
         assert_eq!(browse("variable", ".ns.x", 10), "10 sublist .ns.x");
+    }
+
+    #[test]
+    fn partitioned_tables_browse_by_index_and_filter_on_the_partition_first() {
+        let b = browse(crate::PARTITIONED, "quotes", 100);
+        assert_eq!(b, "select from .Q.ind[quotes; `long$til 100&count quotes]");
+        assert_eq!(browse(crate::SPLAYED, "daily", 5), "select[5] from daily");
+        assert_eq!(
+            Browse::parse(&b),
+            Some(Browse {
+                limit: 100,
+                sort: vec![],
+                source: "quotes".into(),
+                partitioned: true,
+            })
+        );
+        // Unchanged without filters or sort.
+        assert_eq!(filtered_browse(&b, &[]).unwrap(), b);
+        assert_eq!(Browse::parse(&b).unwrap().render(), b);
+        // A name that isn't plain.
+        let odd = browse(crate::PARTITIONED, "my q", 3);
+        assert_eq!(Browse::parse(&odd).unwrap().render(), odd);
+        let f = |c: &str, v: Value| ColumnFilter {
+            column: c.into(),
+            op: FilterOp::Eq,
+            values: vec![v],
+            sql: None,
+        };
+        // A filter reads only what it picks, the partition column first.
+        let q =
+            filtered_browse(&b, &[f("sym", json!("A")), f("date", json!("2024-01-31"))]).unwrap();
+        assert!(
+            q.starts_with("select[100] from quotes where (date=\"D\"$\"2024.01.31\"), ("),
+            "{q}"
+        );
+        assert!(q.contains("[sym;\"A\"]"), "{q}");
+        // Added to a where that's already there, still first.
+        let again = filtered_browse(&q, &[f("month", json!("2024-01"))]).unwrap();
+        assert!(
+            again.starts_with("select[100] from quotes where (month=\"M\"$\"2024.01\"), (date="),
+            "{again}"
+        );
+        let within = ColumnFilter {
+            column: "date".into(),
+            op: FilterOp::In,
+            values: vec![json!("2024-01-30"), json!("2024-01-31")],
+            sql: None,
+        };
+        assert!(filtered_browse(&b, &[within])
+            .unwrap()
+            .ends_with("where (date in \"D\"$(\"2024.01.30\";\"2024.01.31\"))"));
+        assert_eq!(again.matches(" where ").count(), 1);
+        // Sorted, it's a q-sql query over the whole table.
+        let s = sorted_browse(
+            &b,
+            &[SortKey {
+                column: "px".into(),
+                descending: false,
+            }],
+        )
+        .unwrap();
+        assert_eq!(s, "100 sublist `px xasc select from quotes");
+        assert!(Browse::parse("select from .Q.ind[a; `long$til 5&count b]").is_none());
     }
 
     #[test]

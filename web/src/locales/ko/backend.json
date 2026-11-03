@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "알 수 없는 kdb+ 목록 형식({0})",
   "una asignación a {0}": "{0}에 대한 할당",
   "una asignación global (::)": "전역 할당(::)",
-  "una lectura de solo lectura es una sola sentencia de q": "읽기 전용 읽기는 q 문 하나여야 합니다"
+  "una lectura de solo lectura es una sola sentencia de q": "읽기 전용 읽기는 q 문 하나여야 합니다",
+  "Tablas particionadas": "파티션 테이블",
+  "Tablas splayed": "Splayed 테이블",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+에서는 파티션 테이블이나 splayed 테이블의 행을 편집할 수 없습니다. 각 열은 디스크의 파일이며, q로 다시 써서 변경합니다",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+가 {0}바이트 크기의 메시지를 알렸으며, 이는 프로토콜이 허용하는 크기를 초과합니다",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "다시 연결할 때 kdb+가 응답하지 않았습니다. 서버가 취소된 쿼리를 아직 처리 중이며(kdb+는 해당 쿼리를 끝까지 실행합니다) 한 번에 하나의 요청만 처리합니다"
 }

@@ -563,16 +563,27 @@ and `SSL_CA_CERT_FILE`.
 **What it does:**
 
 - **Explorer:** tables, views, functions and other variables of the root
-  namespace and of the user's namespaces (`.ns.t`); single-letter
-  namespaces (`.q`, `.Q`, `.z`…) belong to kdb+ and are left out. Columns
-  and types come from `meta`, the key from `keys`.
+  namespace and of the user's namespaces (`.ns.t`, one-letter ones like
+  kdb+tick's `.u` included); kdb+'s own namespaces (`.q`, `.Q`, `.h`, `.j`,
+  `.o`, `.z`) are left out. One protected round trip lists them all: a
+  namespace that can't be read leaves out only itself. Partitioned tables
+  (an HDB's, `.Q.qp`) and splayed tables show in folders of their own.
+  Columns and types come from `meta`, the key from `keys`.
 - **Query editor:** q, one statement per line as kdb+ loads a script (a
   line that starts with a blank continues the one above; `/` comments and
   blocks; `\` system commands). Each statement is its own result.
-- **Data:** a table opens with `select[N] from t`; the grid's filters and
-  sort are q (each value cast to the column's type on the server); edited,
-  added and deleted rows become `update`, `insert` and `delete` on the
-  table by name. Views and variables are read only.
+- **Data:** a table opens with `select[N] from t`, a partitioned one by
+  index (`.Q.ind`), which reads only the partitions those rows are in; the
+  grid's filters and sort are q (each value cast to the column's type on
+  the server), with a filter on the partition column (`date`, `month`,
+  `year`, `int`) first in the `where`. Edited, added and deleted rows
+  become `update`, `insert` and `delete` on the table by name. Views,
+  variables, and partitioned and splayed tables (whose columns are files on
+  disk) are read only in the grid.
+- **Big results:** for the grid, the server measures a result (`-22!`)
+  before sending it: one over 4 MB with more rows than the grid shows comes
+  back as its first rows and its count, marked partial. Export, charts and
+  tasks get the whole result.
 - **Read-only connections and server-enforced reads (MCP, AI assistant):**
   each statement runs inside `reval` (kdb+ 3.6+), which refuses writes on
   the server, after a client-side check that refuses anything not plainly a

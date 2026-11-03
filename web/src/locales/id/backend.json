@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "tipe list kdb+ tidak dikenal ({0})",
   "una asignación a {0}": "penetapan ke {0}",
   "una asignación global (::)": "penetapan global (::)",
-  "una lectura de solo lectura es una sola sentencia de q": "pembacaan hanya-baca adalah satu pernyataan q"
+  "una lectura de solo lectura es una sola sentencia de q": "pembacaan hanya-baca adalah satu pernyataan q",
+  "Tablas particionadas": "Tabel berpartisi",
+  "Tablas splayed": "Tabel splayed",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "di kdb+ baris tabel berpartisi atau splayed tidak dapat diedit: setiap kolom adalah sebuah berkas di disk, yang diubah dengan menulis ulang menggunakan q",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ mengumumkan pesan sebesar {0} byte, lebih besar dari yang diizinkan protokolnya",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ tidak merespons saat menyambung kembali: server masih sibuk dengan kueri yang dibatalkan (kdb+ tetap menyelesaikannya) dan melayani satu permintaan pada satu waktu"
 }

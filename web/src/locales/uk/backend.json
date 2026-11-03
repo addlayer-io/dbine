@@ -11346,5 +11346,10 @@
   "tipo de lista de kdb+ desconocido ({0})": "невідомий тип списку kdb+ ({0})",
   "una asignación a {0}": "присвоєння {0}",
   "una asignación global (::)": "глобальне присвоєння (::)",
-  "una lectura de solo lectura es una sola sentencia de q": "читання лише для читання — це одна інструкція q"
+  "una lectura de solo lectura es una sola sentencia de q": "читання лише для читання — це одна інструкція q",
+  "Tablas particionadas": "Партиціоновані таблиці",
+  "Tablas splayed": "Таблиці splayed",
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "у kdb+ рядки партиціонованої або splayed таблиці не редагуються: кожен стовпець — це файл на диску, який змінюється його перезаписом за допомогою q",
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ оголосив повідомлення розміром {0} байт, більше, ніж дозволяє його протокол",
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ не відповів під час повторного підключення: сервер досі зайнятий скасованим запитом (kdb+ все одно доводить його до кінця) і обробляє один запит за раз"
 }
