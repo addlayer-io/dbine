@@ -132,6 +132,8 @@ fn reply(q: &str) -> K {
 
 /// What the client answered to the server's sync requests.
 type Replies = Arc<std::sync::Mutex<Vec<K>>>;
+/// Every query the server got.
+type Sent = Arc<std::sync::Mutex<Vec<String>>>;
 
 async fn read_message(s: &mut TcpStream) -> Option<Vec<u8>> {
     let mut head = [0u8; 8];
@@ -143,7 +145,7 @@ async fn read_message(s: &mut TcpStream) -> Option<Vec<u8>> {
     Some(msg)
 }
 
-async fn session(mut s: TcpStream, slow: Arc<AtomicUsize>, replies: Replies) {
+async fn session(mut s: TcpStream, slow: Arc<AtomicUsize>, replies: Replies, sent: Sent) {
     // The handshake: credentials up to a 0 byte.
     let mut hello = Vec::new();
     loop {
@@ -157,7 +159,9 @@ async fn session(mut s: TcpStream, slow: Arc<AtomicUsize>, replies: Replies) {
         hello.push(b[0]);
     }
     let creds = String::from_utf8_lossy(&hello[..hello.len().saturating_sub(1)]).into_owned();
-    if creds != "u:p" {
+    // `old` plays a kdb+ before 3.6: no `reval`.
+    let old = creds == "old:p";
+    if creds != "u:p" && !old {
         return; // kdb+ closes the connection on a bad login
     }
     s.write_all(&[ipc::CAPABILITY]).await.unwrap();
@@ -166,6 +170,22 @@ async fn session(mut s: TcpStream, slow: Arc<AtomicUsize>, replies: Replies) {
             return;
         };
         let q = ipc::decode(&msg).unwrap().text().unwrap();
+        sent.lock().unwrap().push(q.clone());
+        if q.ends_with("value \"deep[]\"") {
+            // A crafted answer: 100k dictionaries, each one's keys the
+            // next.
+            let mut m = vec![1, ipc::RESPONSE, 0, 0];
+            m.extend_from_slice(&(100_008u32).to_le_bytes());
+            m.extend_from_slice(&[0x63; 100_000]);
+            s.write_all(&m).await.unwrap();
+            continue;
+        }
+        if old && q.contains("reval") {
+            s.write_all(&ipc::message(ipc::RESPONSE, &K::Error("reval".into())))
+                .await
+                .unwrap();
+            continue;
+        }
         if q.ends_with("value \"slow[]\"") {
             slow.fetch_add(1, Ordering::SeqCst);
             tokio::time::sleep(Duration::from_secs(30)).await;
@@ -198,25 +218,36 @@ async fn session(mut s: TcpStream, slow: Arc<AtomicUsize>, replies: Replies) {
 }
 
 async fn server() -> (u16, Arc<AtomicUsize>, Arc<AtomicUsize>) {
-    let (port, accepted, slow, _) = server_with_replies().await;
+    let (port, accepted, slow, _, _) = server_full().await;
     (port, accepted, slow)
 }
 
 async fn server_with_replies() -> (u16, Arc<AtomicUsize>, Arc<AtomicUsize>, Replies) {
+    let (port, accepted, slow, replies, _) = server_full().await;
+    (port, accepted, slow, replies)
+}
+
+async fn server_full() -> (u16, Arc<AtomicUsize>, Arc<AtomicUsize>, Replies, Sent) {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
     let accepted = Arc::new(AtomicUsize::new(0));
     let slow = Arc::new(AtomicUsize::new(0));
     let replies: Replies = Arc::default();
-    let (a, sl, r) = (accepted.clone(), slow.clone(), replies.clone());
+    let sent: Sent = Arc::default();
+    let (a, sl, r, se) = (
+        accepted.clone(),
+        slow.clone(),
+        replies.clone(),
+        sent.clone(),
+    );
     tokio::spawn(async move {
         loop {
             let (s, _) = l.accept().await.unwrap();
             a.fetch_add(1, Ordering::SeqCst);
-            tokio::spawn(session(s, sl.clone(), r.clone()));
+            tokio::spawn(session(s, sl.clone(), r.clone(), se.clone()));
         }
     });
-    (port, accepted, slow, replies)
+    (port, accepted, slow, replies, sent)
 }
 
 fn cfg(port: u16, user: &str, read_only: bool) -> ConnectionConfig {
@@ -463,6 +494,93 @@ async fn a_connection_dropped_while_idle_is_opened_again_and_the_query_sent_once
         .await
         .unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
+    let before = accepted.load(Ordering::SeqCst);
+    let mut out = QueryOutcome::default();
+    s.execute("til 3", 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows.len(), 3);
+    assert_eq!(accepted.load(Ordering::SeqCst), before + 1);
+}
+
+#[tokio::test]
+async fn read_only_without_reval_runs_only_browses_and_show_commands() {
+    let (port, _, _, _, sent) = server_full().await;
+    let mut s = driver()
+        .connect(&cfg(port, "old", true), None)
+        .await
+        .unwrap();
+    // The browse DBine writes for a table runs, as a plain `value`.
+    let trade = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: "trade".into(),
+    };
+    let browse = s.browse_query(&trade, 100);
+    let mut out = QueryOutcome::default();
+    s.execute(&browse, 1000, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows.len(), 2);
+    // Anything else is refused before it's sent, the reads that slip past
+    // a word list included.
+    let before = sent.lock().unwrap().len();
+    for q in [
+        "til 3",
+        "select from trade",
+        "0 \"a:1\"",
+        ".q[`set][`a;1]",
+        "get \"a:1\"",
+        "@[(`.);`a;:;1]",
+        "{x y}[0;\"a::1\"]",
+    ] {
+        let mut out = QueryOutcome::default();
+        let e = s.execute(q, 100, &mut out).await.unwrap_err();
+        assert!(e.to_string().contains("solo lectura"), "{q}: {e}");
+        assert!(out.results.is_empty(), "{q}");
+    }
+    let e = s
+        .execute("{x y}[0;\"a::1\"]", 100, &mut QueryOutcome::default())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("reval"), "{e}");
+    // A script with a browse and something else runs nothing.
+    let e = s
+        .execute(
+            &format!("{browse}\ntil 3"),
+            100,
+            &mut QueryOutcome::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.to_script_error().line, Some(2));
+    assert_eq!(sent.lock().unwrap().len(), before);
+    // A server-enforced read isn't offered either.
+    let e = s
+        .run_read_only("select from trade", 100, &mut QueryOutcome::default())
+        .await
+        .unwrap_err();
+    assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
+    // A writable connection to the same server runs any statement.
+    let mut w = driver()
+        .connect(&cfg(port, "old", false), None)
+        .await
+        .unwrap();
+    let mut out = QueryOutcome::default();
+    w.execute("til 3", 100, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows.len(), 3);
+}
+
+#[tokio::test]
+async fn a_deeply_nested_answer_is_an_error_not_a_crash() {
+    let (port, accepted, _) = server().await;
+    let mut s = driver()
+        .connect(&cfg(port, "u", false), None)
+        .await
+        .unwrap();
+    let e = s
+        .execute("deep[]", 100, &mut QueryOutcome::default())
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("anidados"), "{e}");
+    // The connection is dropped and the next query opens another.
     let before = accepted.load(Ordering::SeqCst);
     let mut out = QueryOutcome::default();
     s.execute("til 3", 10, &mut out).await.unwrap();

@@ -75,6 +75,10 @@ Each value is escaped for its format:
   password as connection properties, they go on separate `user=` and
   `password=` lines (Java properties escaping) under the URL.
 - Node.js configuration objects: JSON.
+- q handles (KDB+): a symbol (`` `:host:port:user:password ``) when every
+  character fits in one, otherwise a string cast to a symbol
+  (`` `$":host:port:user:password" ``, `"` and `\` escaped). PyKX: Python
+  strings in single quotes (`'` and `\` escaped).
 
 TLS follows the connection. When the engine has its own TLS options in the
 form (`sslmode`, `ssl-mode`, `Encrypt`, `TrustServerCertificate`,
@@ -91,7 +95,9 @@ server certificate** settings, map to: `sslmode=verify-full` or `require`
 `SslMode` (MySQL family), `tls=true` or `skip-verify` (Go), `Encrypt` and
 `TrustServerCertificate` (SQL Server; Azure SQL and Fabric always encrypt),
 `rediss://`, `tls=true` (MongoDB), `https` (HTTP engines), `neo4j+s` / `+ssc`
-(Bolt). SQL Server's sign-in methods map to each format's
+(Bolt), `` `:tcps:// `` and PyKX's `tls=True` (KDB+; q and PyKX check the
+certificate as `SSL_VERIFY_SERVER` and `SSL_CA_CERT_FILE` say in their
+environment). SQL Server's sign-in methods map to each format's
 own keyword (`Authentication=Active Directory …`,
 `authentication=ActiveDirectory…`, `Integrated Security`,
 `Trusted_Connection`, `fedauth`, tedious' `authentication.type`).
@@ -183,6 +189,7 @@ node-odbc…). Where a format doesn't apply to an engine, the reason is in
 | InfluxDB 3 (SQL) | URL; Node.js (@influxdata/influxdb3-client) · JSON |
 | InterSystems Caché | ODBC; JDBC; ADO.NET (InterSystems); Python (SQLAlchemy) |
 | InterSystems IRIS | ODBC; JDBC; ADO.NET (InterSystems); Python (SQLAlchemy) |
+| KDB+ | q (hopen); Python (PyKX) |
 | KingbaseES | URI (postgresql://); libpq (psql, psycopg); ADO.NET (Npgsql); JDBC; Python (SQLAlchemy); ODBC; Node.js (pg); Go (pgx) |
 | ksqlDB | URL |
 | libSQL / Turso | URI (libsql://); Python (SQLAlchemy); Node.js (@libsql/client) · JSON |

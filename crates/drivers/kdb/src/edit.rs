@@ -149,6 +149,23 @@ pub fn browse(kind: &str, name: &str, limit: u32) -> String {
     }
 }
 
+/// `q` is a browse exactly as [`browse`] and [`sorted_browse`] write them
+/// for an object with a plain name, unfiltered: `select[N] from t`,
+/// `N sublist x`, a partitioned table's `.Q.ind`, or a sort of those
+/// (`N sublist `c xasc select from t`). It only reads the object: what a
+/// read-only connection runs where the server can't enforce reads.
+pub fn plain_browse(q: &str) -> bool {
+    let q = q.trim();
+    if let Some((n, name)) = q.split_once(" sublist ") {
+        if n.parse::<u32>().is_ok() && plain(name) {
+            return true;
+        }
+    }
+    Browse::parse(q).is_some_and(|b| {
+        plain(&b.source) && b.sort.iter().all(|(c, _)| column(c).is_ok()) && b.render() == q
+    })
+}
+
 /// The first `limit` rows of the partitioned table `r` (an expression).
 fn by_index(r: &str, limit: u32) -> String {
     format!("select from .Q.ind[{r}; `long$til {limit}&count {r}]")

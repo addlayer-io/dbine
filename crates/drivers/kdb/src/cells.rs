@@ -260,6 +260,16 @@ pub fn cell(k: &K) -> Value {
 
 /// A nested value (a list in a cell, a dictionary…) as JSON.
 fn nested_json(k: &K) -> Value {
+    nested_at(k, 0)
+}
+
+/// [`nested_json`] `depth` levels down: past [`crate::ipc::MAX_DEPTH`] (more
+/// than a decoded message can hold) the rest shows as `…`.
+fn nested_at(k: &K, depth: usize) -> Value {
+    if depth >= crate::ipc::MAX_DEPTH {
+        return Value::String("…".into());
+    }
+    let nested_json = |x: &K| nested_at(x, depth + 1);
     match k {
         K::Vector(_, Vector::Char(_)) => cell(k),
         K::Vector(_, v) => Value::Array(
@@ -611,5 +621,18 @@ mod tests {
         let mut out = QueryOutcome::default();
         emit(K::Nil, 100, &mut out);
         assert!(out.results[0].columns.is_empty());
+    }
+
+    #[test]
+    fn a_nesting_past_the_decode_limit_shows_cut() {
+        // Built here (a decoded message can't be this deep): the cell shows
+        // `…` where the limit is, instead of recursing on.
+        let mut k = K::Long(1);
+        for _ in 0..crate::ipc::MAX_DEPTH + 10 {
+            k = K::List(vec![k]);
+        }
+        let v = nested_json(&k).to_string();
+        assert!(v.contains("[\"…\"]"), "{v}");
+        assert_eq!(v.matches('[').count(), crate::ipc::MAX_DEPTH);
     }
 }

@@ -504,6 +504,59 @@ fn every_engine_has_a_format_and_is_documented() {
     );
 }
 
+#[test]
+fn kdb_handle_and_pykx() {
+    let mut x = cfg("kdb", "db.example.com", 0, "", "u");
+    x.options.insert("tcps".into(), "false".into());
+    let c = conn_of(&x);
+    // The default port; the password where secrets go.
+    assert_eq!(
+        text(&c, "hopen", &Fill::Values(&values(&[("password", "pw")]))),
+        "`:db.example.com:5000:u:pw"
+    );
+    assert_eq!(
+        text(&c, "hopen", &Fill::Placeholder),
+        "`$\":db.example.com:5000:u:${DB_PASSWORD}\""
+    );
+    assert!(!text(&c, "hopen", &Fill::Masked).contains("pw"));
+    assert_eq!(
+        text(&c, "pykx", &Fill::Placeholder),
+        "kx.SyncQConnection(host='db.example.com', port=5000, username='u', password='${DB_PASSWORD}')"
+    );
+    // Without a password the handle stays a symbol; a nasty one is a
+    // string, escaped for q and for Python.
+    let none = BTreeMap::new();
+    assert_eq!(
+        text(&c, "hopen", &Fill::Values(&none)),
+        "`:db.example.com:5000:u"
+    );
+    let nasty = values(&[("password", NASTY)]);
+    let b = build(&c, "hopen", &Fill::Values(&nasty)).unwrap();
+    assert!(b.secret);
+    assert_eq!(b.text, "`$\":db.example.com:5000:u:p;w={x}@:/% '\\\"q\"");
+    let p = text(&c, "pykx", &Fill::Values(&nasty));
+    assert!(p.ends_with("password='p;w={x}@:/% \\'\"q')"), "{p}");
+    // No user: neither user nor password.
+    let anon = conn_of(&cfg("kdb", "h", 6000, "", ""));
+    assert_eq!(text(&anon, "hopen", &Fill::Placeholder), "`:h:6000");
+    assert_eq!(
+        text(&anon, "pykx", &Fill::Placeholder),
+        "kx.SyncQConnection(host='h', port=6000)"
+    );
+    // TLS: `tcps://` and `tls=True`; unverified says so.
+    let mut t = cfg("kdb", "h", 5001, "", "u");
+    t.options.insert("tcps".into(), "true".into());
+    t.options.insert("SSL_VERIFY_SERVER".into(), "true".into());
+    let c = conn_of(&t);
+    let b = build(&c, "hopen", &Fill::Values(&none)).unwrap();
+    assert_eq!(b.text, "`:tcps://h:5001:u");
+    assert!(b.notes.is_empty());
+    assert!(text(&c, "pykx", &Fill::Values(&none)).ends_with(", tls=True)"));
+    t.options.insert("SSL_VERIFY_SERVER".into(), "false".into());
+    let b = build(&conn_of(&t), "pykx", &Fill::Values(&none)).unwrap();
+    assert_eq!(b.notes, vec![note("tls_unverified", &[])]);
+}
+
 // ---------------------------------------------------------------------------
 // TLS: the saved bools (legacy) and the engine's own options.
 
