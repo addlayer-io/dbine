@@ -5,8 +5,8 @@
 use crate::variant::Variant;
 use crate::SqlServerSession;
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
-    SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SchemaSpec,
+    SecurityAction, SecuritySpec,
 };
 use tiberius::Row;
 
@@ -560,6 +560,109 @@ fn on(object: &Option<ObjectRef>) -> String {
     }
 }
 
+/// Every permission the server knows for the classes the tab grants on
+/// (docs: "sys.fn_builtin_permissions"): it follows the server's version and
+/// edition (VIEW DATABASE PERFORMANCE STATE from SQL Server 2022, Azure SQL's
+/// own ones).
+const BUILTIN_PERMISSIONS: &str = "
+SELECT class_desc, permission_name
+FROM sys.fn_builtin_permissions(DEFAULT)
+WHERE class_desc IN (N'DATABASE', N'SCHEMA', N'OBJECT')
+ORDER BY class_desc, permission_name";
+
+/// What the server can grant: SQL Server and Azure SQL from
+/// `sys.fn_builtin_permissions`; Fabric and Babelfish, which don't document
+/// it, their fixed lists by kind. A server that won't answer gets the fixed
+/// list too.
+pub async fn list_privileges(s: &mut SqlServerSession) -> Result<Vec<Privilege>> {
+    let kinds = spec(s.variant).object_kinds;
+    if matches!(s.variant, Variant::SqlServer | Variant::AzureSql) {
+        if let Ok(rows) = s.rows(BUILTIN_PERMISSIONS, &[]).await {
+            let listed = builtin_privileges(
+                rows.iter().filter_map(|r| Some((text(r, 0)?, text(r, 1)?))),
+                &kinds,
+            );
+            if !listed.is_empty() {
+                return Ok(listed);
+            }
+        }
+    }
+    Ok(fixed_privileges(s.variant))
+}
+
+/// The tab's kinds an OBJECT-class permission applies to.
+fn object_kinds_of(permission: &str) -> &'static [&'static str] {
+    match permission {
+        "EXECUTE" => &["procedure", "function"],
+        // SELECT and REFERENCES also reach table-valued functions.
+        "SELECT" | "REFERENCES" => &["table", "view", "function"],
+        "INSERT" | "UPDATE" | "DELETE" => &["table", "view"],
+        "VIEW CHANGE TRACKING" | "UNMASK" => &["table"],
+        // Service Broker queues: not a kind the tab offers.
+        "RECEIVE" => &[],
+        _ => &["table", "view", "procedure", "function"],
+    }
+}
+
+/// `(class_desc, permission_name)` rows as privileges, by kind: DATABASE on
+/// the whole database, SCHEMA on a schema, OBJECT on the objects it applies
+/// to. Names the GRANT script would refuse are left out.
+fn builtin_privileges(
+    rows: impl IntoIterator<Item = (String, String)>,
+    kinds: &[&str],
+) -> Vec<Privilege> {
+    let mut out: Vec<Privilege> = Vec::new();
+    for (class, name) in rows {
+        let name = name.trim().to_uppercase();
+        if privileges(std::slice::from_ref(&name)).is_err() {
+            continue;
+        }
+        let on: &[&str] = match class.trim() {
+            "DATABASE" => &[""],
+            "SCHEMA" => &["schema"],
+            "OBJECT" => object_kinds_of(&name),
+            _ => &[],
+        };
+        let on: Vec<&str> = on.iter().copied().filter(|k| kinds.contains(k)).collect();
+        if on.is_empty() {
+            continue;
+        }
+        match out.iter_mut().find(|p| p.name == name) {
+            Some(p) => {
+                for k in on {
+                    if !p.on.iter().any(|x| x == k) {
+                        p.on.push(k.to_string());
+                    }
+                }
+            }
+            None => out.push(Privilege::new(name, &on)),
+        }
+    }
+    out
+}
+
+/// The variant's fixed list, by kind: everything on the whole database,
+/// the schema class's own on a schema, and the object ones on objects.
+fn fixed_privileges(v: Variant) -> Vec<Privilege> {
+    let spec = spec(v);
+    let on_schema = schema_spec(v).privileges;
+    spec.privileges
+        .iter()
+        .map(|p| {
+            let mut on = vec![""];
+            if on_schema.contains(p) {
+                on.push("schema");
+            }
+            if *p != "CONNECT" && !p.starts_with("CREATE ") {
+                on.extend(object_kinds_of(p));
+            }
+            on.retain(|k| spec.object_kinds.contains(k));
+            Privilege::new(*p, &on)
+        })
+        .filter(|p| !p.on.is_empty())
+        .collect()
+}
+
 /// Words that end a permission list. T-SQL needs no `;` between
 /// statements, so "SELECT TO x GRANT CONTROL" would close the GRANT and
 /// start another one: no permission name has them.
@@ -876,6 +979,101 @@ pub async fn unmapped_logins(s: &mut SqlServerSession) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn row(class: &str, name: &str) -> (String, String) {
+        (class.to_string(), name.to_string())
+    }
+
+    #[test]
+    fn builtin_permissions_go_on_their_kinds() {
+        let kinds = spec(Variant::SqlServer).object_kinds;
+        let got = builtin_privileges(
+            [
+                row("DATABASE", "VIEW DATABASE STATE"),
+                row("DATABASE", "VIEW DATABASE PERFORMANCE STATE"),
+                row("DATABASE", "EXECUTE"),
+                row("SCHEMA", "EXECUTE"),
+                row("OBJECT", "EXECUTE"),
+                row("OBJECT", "INSERT"),
+                row("OBJECT", "VIEW CHANGE TRACKING"),
+                row("OBJECT", "RECEIVE"),
+                row("SERVER", "VIEW SERVER STATE"),
+                // Never in a GRANT: refused by the script's validator.
+                row("DATABASE", "SELECT TO x GRANT CONTROL"),
+            ],
+            &kinds,
+        );
+        let on = |n: &str| got.iter().find(|p| p.name == n).map(|p| p.on.clone());
+        assert_eq!(on("VIEW DATABASE STATE"), Some(vec!["".into()]));
+        assert_eq!(on("VIEW DATABASE PERFORMANCE STATE"), Some(vec!["".into()]));
+        assert_eq!(
+            on("EXECUTE"),
+            Some(vec![
+                "".into(),
+                "schema".into(),
+                "procedure".into(),
+                "function".into()
+            ])
+        );
+        assert_eq!(on("INSERT"), Some(vec!["table".into(), "view".into()]));
+        assert_eq!(on("VIEW CHANGE TRACKING"), Some(vec!["table".into()]));
+        assert_eq!(on("RECEIVE"), None);
+        assert_eq!(on("VIEW SERVER STATE"), None);
+        assert_eq!(got.len(), 5);
+    }
+
+    #[test]
+    fn fixed_lists_go_on_their_kinds() {
+        for v in [
+            Variant::SqlServer,
+            Variant::AzureSql,
+            Variant::Fabric,
+            Variant::Babelfish,
+        ] {
+            let kinds = spec(v).object_kinds;
+            let fixed = fixed_privileges(v);
+            assert_eq!(fixed.len(), spec(v).privileges.len(), "{v:?}");
+            for p in &fixed {
+                assert!(!p.on.is_empty(), "{v:?} {p:?}");
+                assert!(
+                    p.on.iter().all(|k| kinds.contains(&k.as_str())),
+                    "{v:?} {p:?}"
+                );
+                // Granted on each of its kinds, the script is written.
+                for k in &p.on {
+                    let object = (!k.is_empty()).then(|| ObjectRef {
+                        kind: k.clone(),
+                        schema: (k != "schema").then(|| "dbo".to_string()),
+                        name: "x".into(),
+                    });
+                    let a = SecurityAction::Grant {
+                        privileges: vec![p.name.clone()],
+                        object,
+                        to: "ana".into(),
+                        grantable: false,
+                    };
+                    assert!(script(v, &a).is_ok(), "{v:?} {} on {k}", p.name);
+                }
+            }
+        }
+        let on = |n: &str| {
+            fixed_privileges(Variant::SqlServer)
+                .into_iter()
+                .find(|p| p.name == n)
+                .map(|p| p.on)
+        };
+        assert_eq!(on("CONNECT"), Some(vec!["".into()]));
+        assert_eq!(on("CREATE TABLE"), Some(vec!["".into()]));
+        assert_eq!(
+            on("EXECUTE"),
+            Some(vec![
+                "".into(),
+                "schema".into(),
+                "procedure".into(),
+                "function".into()
+            ])
+        );
+    }
 
     #[test]
     fn writes_the_scripts() {

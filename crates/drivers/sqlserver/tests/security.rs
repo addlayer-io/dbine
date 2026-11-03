@@ -954,3 +954,63 @@ async fn map_login_babelfish() {
         .unwrap();
     maps_a_login(d.as_ref(), &cfg, "dbine_m'ap", "usr m'x").await;
 }
+
+/// What the server can grant comes from `sys.fn_builtin_permissions`: the
+/// database-wide ones the fixed list never had (VIEW DATABASE STATE…), each
+/// on the kinds it applies to, and every one grantable.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn privileges_come_from_the_server() {
+    let Some(cfg) = cfg() else { return };
+    let d = dbine_driver_sqlserver::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "sqlserver")
+        .unwrap();
+    let spec = d.security().unwrap();
+    let mut admin = d.connect(&cfg, Some("master")).await.unwrap();
+    run(&mut admin, "IF DB_ID('dbine_priv') IS NOT NULL BEGIN ALTER DATABASE dbine_priv SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE dbine_priv; END; CREATE DATABASE dbine_priv;").await;
+    let mut s = d.connect(&cfg, Some("dbine_priv")).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    let on = |name: &str| -> Vec<String> {
+        let mut on = list
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("{name} not listed"))
+            .on
+            .clone();
+        on.sort();
+        on
+    };
+    assert_eq!(on("VIEW DATABASE STATE"), vec![""]);
+    assert_eq!(on("SHOWPLAN"), vec![""]);
+    assert_eq!(on("CONNECT"), vec![""]);
+    assert_eq!(on("EXECUTE"), vec!["", "function", "procedure", "schema"]);
+    assert!(on("SELECT").contains(&"table".to_string()));
+    assert!(list.len() > spec.privileges.len());
+    for p in &list {
+        assert!(
+            p.on.iter().all(|k| spec.object_kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+    }
+
+    // One of them, granted and read back.
+    run(&mut s, "CREATE USER dbine_mon WITHOUT LOGIN;").await;
+    let grant = d
+        .security_script(&SecurityAction::Grant {
+            privileges: vec!["VIEW DATABASE STATE".into()],
+            object: None,
+            to: "dbine_mon".into(),
+            grantable: false,
+        })
+        .unwrap();
+    run(&mut s, &grant).await;
+    let got = s.grants("dbine_mon").await.unwrap();
+    assert!(
+        got.iter().any(|g| g.privilege == "VIEW DATABASE STATE"),
+        "{got:?}"
+    );
+
+    drop(s);
+    run(&mut admin, "ALTER DATABASE dbine_priv SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE dbine_priv;").await;
+}

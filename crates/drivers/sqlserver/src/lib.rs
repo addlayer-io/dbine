@@ -1624,6 +1624,10 @@ impl Session for SqlServerSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        security::list_privileges(self).await
+    }
+
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         monitor::kill(self, id).await
     }
