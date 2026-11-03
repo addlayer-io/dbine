@@ -13,18 +13,18 @@
     {
       "source": "osv",
       "date": "2026-11-03",
-      "revision": "42d551fb38f1",
+      "revision": "f26f46475099",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 1
+      "found": 0
     },
     {
       "source": "trivy",
       "date": "2026-11-03",
-      "revision": "42d551fb38f1",
+      "revision": "f26f46475099",
       "kind": "full",
       "scope": "whole repository",
-      "found": 0
+      "found": 2
     },
     {
       "source": "codeql",
@@ -36,8 +36,8 @@
     },
     {
       "source": "scorecard",
-      "date": "2026-11-02",
-      "revision": "1ce5f7e21940",
+      "date": "2026-11-03",
+      "revision": "f26f46475099",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.8
@@ -3841,6 +3841,123 @@
       "by": "mpanichella"
     },
     {
+      "id": "CQ-440",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/dsql/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-441",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/hana/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-442",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/neo4j/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-443",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/neo4j/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-444",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/neo4j/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-445",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/odbc/src/security/grantable.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-446",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/oracle/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-447",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/postgres/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-448",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake/src/security.rs",
+      "found": "2026-11-03",
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-11-03",
+      "reason": "used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped.",
+      "by": "mpanichella"
+    },
+    {
       "id": "CQ-66",
       "source": "codeql",
       "severity": "HIGH",
@@ -4283,18 +4400,6 @@
       "by": "mpanichella"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0436-calamine-13ee4b",
-      "source": "osv",
-      "severity": "HIGH",
-      "kind": "Vulnerable dependency",
-      "title": "calamine 0.37.0: Panic and unbounded allocation (OOM) in the CFB/OLE2 parser on malformed input",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0436",
-      "fixed_version": "0.38.0",
-      "found": "2026-11-03",
-      "status": "open"
-    },
-    {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4332,7 +4437,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/22 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4343,7 +4448,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "Contributors: 0/10 — project has 0 contributing companies or organizations -- score normalized to 0",
+      "title": "Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors",
       "found": "2026-10-21",
@@ -4413,6 +4518,26 @@
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "TM-DS-0002-df5a2851",
+      "source": "trivy",
+      "severity": "HIGH",
+      "kind": "Insecure configuration",
+      "title": "DS-0002: Image user should not be 'root'",
+      "component": "crates/drivers/kdb/tests/docker/Dockerfile",
+      "found": "2026-11-03",
+      "status": "open"
+    },
+    {
+      "id": "TM-DS-0026-df5a2851",
+      "source": "trivy",
+      "severity": "LOW",
+      "kind": "Insecure configuration",
+      "title": "DS-0026: No HEALTHCHECK defined",
+      "component": "crates/drivers/kdb/tests/docker/Dockerfile",
+      "found": "2026-11-03",
       "status": "open"
     }
   ],

@@ -9,15 +9,16 @@ _Updated 2026-11-03._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 1 | 0 | 0 |
-| Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| Trivy (secrets, configuration) | 0 | 1 | 0 | 1 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
-| OSV-RUSTSEC-2026-0436-calamine-13ee4b | HIGH | osv | calamine 0.37.0: Panic and unbounded allocation (OOM) in the CFB/OLE2 parser on malformed input | `Cargo.lock` | upgrade to 0.38.0 |
+| TM-DS-0002-df5a2851 | HIGH | trivy | DS-0002: Image user should not be 'root' | `crates/drivers/kdb/tests/docker/Dockerfile` | pending |
+| TM-DS-0026-df5a2851 | LOW | trivy | DS-0026: No HEALTHCHECK defined | `crates/drivers/kdb/tests/docker/Dockerfile` | pending |
 
 ## What the last scans covered
 
@@ -25,9 +26,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-03 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-03 | every lockfile (Cargo, npm) at [`42d551fb3`](https://github.com/addlayer-io/dbine/commit/42d551fb38f1) | 1 open | — |
-| scorecard | 2026-11-02 | repository settings and workflows at [`1ce5f7e21`](https://github.com/addlayer-io/dbine/commit/1ce5f7e21940) | score 5.8/10 | — |
-| trivy | 2026-11-03 | whole repository at [`42d551fb3`](https://github.com/addlayer-io/dbine/commit/42d551fb38f1) | 0 open | — |
+| osv | 2026-11-03 | every lockfile (Cargo, npm) at [`f26f46475`](https://github.com/addlayer-io/dbine/commit/f26f46475099) | 0 open | — |
+| scorecard | 2026-11-03 | repository settings and workflows at [`f26f46475`](https://github.com/addlayer-io/dbine/commit/f26f46475099) | score 5.8/10 | — |
+| trivy | 2026-11-03 | whole repository at [`f26f46475`](https://github.com/addlayer-io/dbine/commit/f26f46475099) | 2 open | — |
 
 ## Not counted, and why
 
@@ -327,6 +328,15 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/commands/dbdocs.rs` | used in tests — assert! message at src-tauri/src/commands/dbdocs.rs:329, inside a #[cfg(test)] module never built into DBine. CodeQL traces SSH profile secrets (profile_secrets) via the test AppState; the message prints generated docs/script/rows, never a secret. | mpanichella |
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/commands/subset/tests.rs` | used in tests — assert! message at src-tauri/src/commands/subset/tests.rs:362, inside a #[cfg(test)] module never built into DBine. CodeQL traces SSH profile secrets (profile_secrets) via the test AppState; the message prints generated docs/script/rows, never a secret. | mpanichella |
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/notebook/local_tests.rs` | used in tests — assert! message at src-tauri/src/notebook/local_tests.rs:1302, inside a #[cfg(test)] module never built into DBine. CodeQL traces SSH profile secrets (profile_secrets) via the test AppState; the message prints generated docs/script/rows, never a secret. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/dsql/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/hana/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/neo4j/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/neo4j/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/neo4j/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/odbc/src/security/grantable.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/oracle/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/postgres/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
 | CodeQL js/insufficient-key-size: Use of a weak cryptographic key | `src-tauri/src/secret_sources/testdata/zoho-vectors.mjs` | used in tests — src-tauri/src/secret_sources/testdata/zoho-vectors.mjs is a test-vector generator that reproduces Zoho Vault's RSA_1024 organization-key format with a throwaway key; it is not shipped. | mpanichella |
 | CodeQL js/incomplete-multi-character-sanitization: Incomplete multi-character sanitization | `web/src/composables/releaseNotes.ts` | false positive — noteBlocks returns plain text that UpdateNotice.vue renders only with text interpolation ({{ b.text }}, never v-html), so any leftover '<script' is shown as literal text and cannot create an element. | mpanichella |
 | CodeQL js/insecure-randomness: Insecure randomness | `web/src/components/GenerateDataDialog.vue` | false positive — Math.random here makes the data generator's run id (for progress events and cancel) and its reproducible fake-data seed; neither is a secret, token or key. | mpanichella |
@@ -383,13 +393,13 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.8/10** (2026-11-02). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.8/10** (2026-11-03). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 8/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 3/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/22 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
 | Vulnerabilities: 2/10 — 8 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
@@ -397,4 +407,4 @@ OpenSSF Scorecard: **5.8/10** (2026-11-02). The checks below 10, with Scorecard'
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
-| Contributors: 0/10 — project has 0 contributing companies or organizations -- score normalized to 0 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
+| Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
