@@ -1079,6 +1079,10 @@ impl Session for FirebirdSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        security::available(self).await
+    }
+
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.run(monitor::snapshot).await
     }

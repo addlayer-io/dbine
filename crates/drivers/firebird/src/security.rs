@@ -6,7 +6,8 @@
 
 use crate::{int, q, text, FirebirdSession};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use rsfbclient_core::Column;
 use std::collections::{HashSet, VecDeque};
@@ -245,6 +246,72 @@ pub async fn grants(s: &FirebirdSession, principal: &str) -> Result<Vec<Grant>> 
     Ok(out)
 }
 
+// -- what can be granted ---------------------------------------------------
+
+const ENGINE_VERSION: &str = "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE";
+
+/// The objects the DDL privileges (CREATE, ALTER ANY, DROP ANY) name.
+/// GENERATOR is SEQUENCE.
+const DDL_OBJECTS: &[&str] = &[
+    "TABLE",
+    "VIEW",
+    "PROCEDURE",
+    "FUNCTION",
+    "PACKAGE",
+    "SEQUENCE",
+    "EXCEPTION",
+    "DOMAIN",
+    "ROLE",
+    "COLLATION",
+    "CHARACTER SET",
+    "FILTER",
+];
+
+/// What the server can grant. Firebird has no catalog of privilege names:
+/// they're GRANT's, per kind, from the Language Reference (the same in 3.0,
+/// 4.0 and 5.0):
+/// https://firebirdsql.org/file/documentation/html/en/refdocs/fblangref50/firebird-50-language-reference.html#fblangref50-security-grant
+pub async fn available(s: &FirebirdSession) -> Result<Vec<Privilege>> {
+    let major = s
+        .rows(ENGINE_VERSION, vec![])
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.first()).and_then(text))
+        .and_then(|v| v.split('.').next()?.trim().parse::<u32>().ok());
+    Ok(listed_for(major.unwrap_or(u32::MAX)))
+}
+
+/// The privileges of a server version: before 3.0 there were no packages,
+/// PSQL functions, USAGE or DDL privileges.
+fn listed_for(major: u32) -> Vec<Privilege> {
+    // ALL is SELECT, INSERT, UPDATE, DELETE and REFERENCES.
+    let mut out: Vec<Privilege> = ["SELECT", "INSERT", "UPDATE", "DELETE", "REFERENCES", "ALL"]
+        .into_iter()
+        .map(|p| Privilege::new(p, &["table", "view"]))
+        .collect();
+    if major < 3 {
+        out.push(Privilege::new("EXECUTE", &["procedure"]));
+        return out;
+    }
+    out.push(Privilege::new(
+        "EXECUTE",
+        &["procedure", "function", "package"],
+    ));
+    // Exceptions too, which the tab doesn't offer.
+    out.push(Privilege::new("USAGE", &["sequence"]));
+    for o in DDL_OBJECTS {
+        for verb in ["CREATE", "ALTER ANY", "DROP ANY"] {
+            out.push(Privilege::new(format!("{verb} {o}"), &[""]));
+        }
+    }
+    // ALTER and DROP the current database; CREATE is kept in the security
+    // database and goes to its users.
+    for verb in ["CREATE", "ALTER", "DROP"] {
+        out.push(Privilege::new(format!("{verb} DATABASE"), &[""]));
+    }
+    out
+}
+
 // -- scripts -----------------------------------------------------------------
 
 /// A new user's or role's name: simple identifiers in upper case (as
@@ -474,6 +541,55 @@ mod tests {
             grantable: false
         })
         .is_err());
+    }
+
+    /// Every privilege, on each of its kinds, makes a GRANT script.
+    fn grantable(list: &[Privilege]) {
+        let kinds = spec().object_kinds;
+        for p in list {
+            assert!(!p.on.is_empty(), "{}", p.name);
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = (!k.is_empty()).then(|| ObjectRef {
+                    kind: k.clone(),
+                    schema: None,
+                    name: "OBJ".into(),
+                });
+                let s = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ANA".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(s.starts_with(&format!("GRANT {} ", p.name)), "{s}");
+            }
+        }
+    }
+
+    #[test]
+    fn lists_privileges_per_version() {
+        let five = listed_for(5);
+        grantable(&five);
+        grantable(&listed_for(2));
+        fn on<'a>(list: &'a [Privilege], n: &str) -> Option<Vec<&'a str>> {
+            list.iter()
+                .find(|p| p.name == n)
+                .map(|p| p.on.iter().map(String::as_str).collect())
+        }
+        assert_eq!(on(&five, "SELECT"), Some(vec!["table", "view"]));
+        assert_eq!(on(&five, "USAGE"), Some(vec!["sequence"]));
+        assert_eq!(
+            on(&five, "EXECUTE"),
+            Some(vec!["procedure", "function", "package"])
+        );
+        assert_eq!(on(&five, "ALTER ANY CHARACTER SET"), Some(vec![""]));
+        assert_eq!(on(&five, "DROP DATABASE"), Some(vec![""]));
+        assert_eq!(five.len(), 6 + 2 + 12 * 3 + 3);
+        let old = listed_for(2);
+        assert_eq!(on(&old, "EXECUTE"), Some(vec!["procedure"]));
+        assert_eq!(on(&old, "CREATE TABLE"), None);
+        assert_eq!(listed_for(u32::MAX), five);
     }
 
     #[test]
