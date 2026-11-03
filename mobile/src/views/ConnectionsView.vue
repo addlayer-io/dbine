@@ -46,7 +46,7 @@ onMounted(load);
     </div>
     <div class="page">
       <p v-if="error" class="error">{{ error }}</p>
-      <input v-if="list && list.length > 6" v-model="filter" :placeholder="$t('connections.filter')" />
+      <input v-if="list && list.length > 6" v-model="filter" :placeholder="$t('connections.filter')" autocapitalize="off" autocorrect="off" spellcheck="false" />
       <p v-if="list && !list.length" class="muted">{{ $t('connections.none') }}</p>
       <button
         v-for="c in (list ?? []).filter((x) => !filter || x.name.toLowerCase().includes(filter.toLowerCase()))"

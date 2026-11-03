@@ -52,6 +52,26 @@ function boundToCommand(e: KeyboardEvent): boolean {
   return !!k && COMMANDS.some((c) => bindingOf(c.id) === k);
 }
 
+/** Text fields keep what's typed: the OS's auto-capitalize, autocorrect and
+ *  spelling would turn `demo_user` into `Demo_user`, unseen in a password.
+ *  Set as each field enters the page, before it can get the focus, so every
+ *  field has it, including ones a screen adds later. */
+function keepTypedText() {
+  const plain = (el: Element) => {
+    el.setAttribute('autocapitalize', 'off');
+    el.setAttribute('autocorrect', 'off');
+    el.setAttribute('spellcheck', 'false');
+  };
+  const scan = (root: Element) => {
+    if (root.matches('input, textarea')) plain(root);
+    root.querySelectorAll('input, textarea').forEach(plain);
+  };
+  scan(document.documentElement);
+  new MutationObserver((records) => {
+    for (const r of records) r.addedNodes.forEach((n) => { if (n instanceof Element) scan(n); });
+  }).observe(document.documentElement, { childList: true, subtree: true });
+}
+
 /** Turn off what only makes sense in a browser. */
 export function installNativeBehavior() {
   reportErrors();
@@ -84,6 +104,8 @@ export function installNativeBehavior() {
   window.addEventListener('mouseup', (e) => {
     if (e.button === 3 || e.button === 4) e.preventDefault();
   });
+
+  keepTypedText();
 
   // Dragging a link or image out of the window. The app's own drag and
   // drop (explorer folders) marks its draggables with data-dnd.

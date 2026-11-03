@@ -5,6 +5,9 @@
 ### Improvements
 - **Permissions to grant come from the server:** in **Users and permissions**, the list of permissions is what that server can grant, read from its own catalog where it has one (SQL Server's `sys.fn_builtin_permissions`, PostgreSQL's ACLs, MySQL's `SHOW PRIVILEGES`, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) and from the engine's documentation elsewhere, so it follows the server's version: SQL Server now offers `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` and the rest. It shows only what applies to the target you pick (the whole database, a schema, a table, a procedure…), and the same list feeds **New schema…**. A permission can still be typed.
 
+### Fixes
+- **Text fields keep exactly what you type:** user names, passwords, host names, connection URLs, searches, filters and every other text field no longer get their first letter capitalized, autocorrected or spell-checked by the operating system, so `demo_user` stays `demo_user`. Shift and Caps Lock work as always. The same applies to the connection filter in the phone app.
+
 ## [1.3.1] - 2026-11-02
 
 ### Improvements
