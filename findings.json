@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-11-03",
-      "revision": "f26f46475099",
+      "revision": "6cc92911fefb",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,10 +21,10 @@
     {
       "source": "trivy",
       "date": "2026-11-03",
-      "revision": "f26f46475099",
+      "revision": "6cc92911fefb",
       "kind": "full",
       "scope": "whole repository",
-      "found": 2
+      "found": 0
     },
     {
       "source": "codeql",
@@ -32,12 +32,12 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
+      "found": 2
     },
     {
       "source": "scorecard",
       "date": "2026-11-03",
-      "revision": "f26f46475099",
+      "revision": "6cc92911fefb",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.8
@@ -3958,6 +3958,24 @@
       "by": "mpanichella"
     },
     {
+      "id": "CQ-452",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/kdb",
+      "found": "2026-11-03",
+      "status": "open"
+    },
+    {
+      "id": "CQ-453",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/kdb",
+      "found": "2026-11-03",
+      "status": "open"
+    },
+    {
       "id": "CQ-66",
       "source": "codeql",
       "severity": "HIGH",
@@ -4518,26 +4536,6 @@
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "TM-DS-0002-df5a2851",
-      "source": "trivy",
-      "severity": "HIGH",
-      "kind": "Insecure configuration",
-      "title": "DS-0002: Image user should not be 'root'",
-      "component": "crates/drivers/kdb/tests/docker/Dockerfile",
-      "found": "2026-11-03",
-      "status": "open"
-    },
-    {
-      "id": "TM-DS-0026-df5a2851",
-      "source": "trivy",
-      "severity": "LOW",
-      "kind": "Insecure configuration",
-      "title": "DS-0026: No HEALTHCHECK defined",
-      "component": "crates/drivers/kdb/tests/docker/Dockerfile",
-      "found": "2026-11-03",
       "status": "open"
     }
   ],

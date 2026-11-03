@@ -10,25 +10,25 @@ _Updated 2026-11-03._
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
-| Trivy (secrets, configuration) | 0 | 1 | 0 | 1 |
-| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
+| Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
+| CodeQL (static analysis) | 2 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
-| TM-DS-0002-df5a2851 | HIGH | trivy | DS-0002: Image user should not be 'root' | `crates/drivers/kdb/tests/docker/Dockerfile` | pending |
-| TM-DS-0026-df5a2851 | LOW | trivy | DS-0026: No HEALTHCHECK defined | `crates/drivers/kdb/tests/docker/Dockerfile` | pending |
+| CQ-452 | CRITICAL | codeql | Static analysis finding | `crates/drivers/kdb` | pending |
+| CQ-453 | CRITICAL | codeql | Static analysis finding | `crates/drivers/kdb` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
-| codeql | 2026-11-03 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-03 | every lockfile (Cargo, npm) at [`f26f46475`](https://github.com/addlayer-io/dbine/commit/f26f46475099) | 0 open | — |
-| scorecard | 2026-11-03 | repository settings and workflows at [`f26f46475`](https://github.com/addlayer-io/dbine/commit/f26f46475099) | score 5.8/10 | — |
-| trivy | 2026-11-03 | whole repository at [`f26f46475`](https://github.com/addlayer-io/dbine/commit/f26f46475099) | 2 open | — |
+| codeql | 2026-11-03 | Rust, TypeScript/Vue and workflows | 2 open | — |
+| osv | 2026-11-03 | every lockfile (Cargo, npm) at [`6cc92911f`](https://github.com/addlayer-io/dbine/commit/6cc92911fefb) | 0 open | — |
+| scorecard | 2026-11-03 | repository settings and workflows at [`6cc92911f`](https://github.com/addlayer-io/dbine/commit/6cc92911fefb) | score 5.8/10 | — |
+| trivy | 2026-11-03 | whole repository at [`6cc92911f`](https://github.com/addlayer-io/dbine/commit/6cc92911fefb) | 0 open | — |
 
 ## Not counted, and why
 
