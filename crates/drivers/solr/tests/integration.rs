@@ -739,3 +739,16 @@ async fn delete_script_runs() {
     .await
     .unwrap();
 }
+
+/// The "Usuarios y permisos" tab grants nothing on Solr (each permission's
+/// role list is rewritten from the console): the list is empty, not an
+/// error.
+#[tokio::test]
+#[ignore]
+async fn privileges_are_empty() {
+    let Ok(url) = std::env::var("DBINE_TEST_SOLR_URL") else {
+        return;
+    };
+    let mut s = session(&url, false).await;
+    assert!(s.privileges().await.unwrap().is_empty());
+}
