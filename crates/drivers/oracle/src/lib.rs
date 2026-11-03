@@ -1548,6 +1548,10 @@ impl Session for OracleSession {
         self.run(move |c| security::grants(c, &principal)).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        self.run(security::available).await
+    }
+
     async fn blocking(&mut self) -> Result<Vec<dbine_driver::BlockedSession>> {
         self.run(blocking::blocking).await
     }

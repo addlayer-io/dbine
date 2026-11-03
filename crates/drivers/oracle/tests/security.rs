@@ -288,3 +288,115 @@ async fn users_roles_and_grants() {
         .all(|p| p.name != "DBINE_ANA" && p.name != "DBINE_LECT"));
     run(&mut s, "DROP USER DBINE_SEC CASCADE").await;
 }
+
+/// What the server can grant, read as a plain user (the maps are PUBLIC's)
+/// and as a DBA; as the DBA, each object privilege is granted on an object
+/// of each of its kinds.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn lists_what_it_can_grant() {
+    let d = dbine_driver_oracle::drivers().remove(0);
+    let kinds = d.security().unwrap().object_kinds;
+    for env in ["DBINE_TEST_ORACLE_URL", "DBINE_TEST_ORACLE_ADMIN_URL"] {
+        let Some(cfg) = config(env) else {
+            continue;
+        };
+        let mut s = d.connect(&cfg, None).await.unwrap();
+        let list = s.privileges().await.unwrap();
+        assert!(list.len() > 100, "{env}: {}", list.len());
+        let on = |n: &str| list.iter().find(|p| p.name == n).map(|p| p.on.clone());
+        assert_eq!(on("CREATE SESSION"), Some(vec![String::new()]));
+        assert_eq!(on("SELECT ANY TABLE"), Some(vec![String::new()]));
+        assert!(on("SELECT").unwrap().contains(&"sequence".to_string()));
+        assert_eq!(
+            on("EXECUTE"),
+            Some(vec![
+                "procedure".into(),
+                "function".into(),
+                "package".into()
+            ])
+        );
+        assert_eq!(on("SYSRAC"), None);
+        for p in &list {
+            assert!(!p.on.is_empty(), "{}", p.name);
+            assert!(
+                p.on.iter().all(|k| kinds.contains(&k.as_str())),
+                "{}: {:?}",
+                p.name,
+                p.on
+            );
+        }
+    }
+
+    let Some(cfg) = config("DBINE_TEST_ORACLE_ADMIN_URL") else {
+        return;
+    };
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    try_run(&mut s, "DROP USER DBINE_PRIVT CASCADE").await;
+    try_run(&mut s, "DROP USER DBINE_PRIVU CASCADE").await;
+    run(
+        &mut s,
+        "CREATE USER DBINE_PRIVT NO AUTHENTICATION QUOTA UNLIMITED ON USERS",
+    )
+    .await;
+    run(
+        &mut s,
+        "GRANT CREATE TABLE, CREATE MATERIALIZED VIEW TO DBINE_PRIVT",
+    )
+    .await;
+    run(&mut s, "CREATE USER DBINE_PRIVU NO AUTHENTICATION").await;
+    for sql in [
+        "CREATE TABLE DBINE_PRIVT.T (ID NUMBER PRIMARY KEY)",
+        "CREATE VIEW DBINE_PRIVT.V AS SELECT ID FROM DBINE_PRIVT.T",
+        "CREATE MATERIALIZED VIEW DBINE_PRIVT.MV AS SELECT ID FROM DBINE_PRIVT.T",
+        "CREATE PROCEDURE DBINE_PRIVT.P AS BEGIN NULL; END;",
+        "CREATE FUNCTION DBINE_PRIVT.F RETURN NUMBER AS BEGIN RETURN 1; END;",
+        "CREATE PACKAGE DBINE_PRIVT.PK AS X NUMBER; END;",
+        "CREATE SEQUENCE DBINE_PRIVT.S",
+    ] {
+        run(&mut s, sql).await;
+    }
+    let object = |kind: &str| {
+        let name = match kind {
+            "table" => "T",
+            "view" => "V",
+            "materialized_view" => "MV",
+            "procedure" => "P",
+            "function" => "F",
+            "package" => "PK",
+            _ => "S",
+        };
+        ObjectRef {
+            kind: kind.into(),
+            schema: Some("DBINE_PRIVT".into()),
+            name: name.into(),
+        }
+    };
+    let mut failed = Vec::new();
+    for p in &list {
+        // SIGN takes blockchain and immutable tables only; UNDER, object
+        // views.
+        if p.name == "SIGN" || p.name == "UNDER" {
+            continue;
+        }
+        for k in p.on.iter().filter(|k| !k.is_empty()) {
+            let sql = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: Some(object(k)),
+                    to: "DBINE_PRIVU".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            let mut out = QueryOutcome::default();
+            let r = s.execute(&sql, 100, &mut out).await;
+            if r.is_err() || out.error.is_some() {
+                failed.push(format!("{sql}: {:?} {:?}", r.err(), out.error));
+            }
+        }
+    }
+    run(&mut s, "DROP USER DBINE_PRIVU CASCADE").await;
+    run(&mut s, "DROP USER DBINE_PRIVT CASCADE").await;
+    assert!(failed.is_empty(), "{failed:#?}");
+}
