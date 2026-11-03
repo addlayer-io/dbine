@@ -377,3 +377,115 @@ async fn memgraph_community() {
         .iter()
         .all(|p| p.name != "dbine_ana"));
 }
+
+/// The object a privilege is granted on in the tests below.
+fn on_kind(kind: &str) -> Option<ObjectRef> {
+    (!kind.is_empty()).then(|| ObjectRef {
+        kind: kind.into(),
+        schema: None,
+        name: "DbinePriv".into(),
+    })
+}
+
+/// Each listed privilege's kinds are the spec's.
+fn kinds_ok(d: &std::sync::Arc<dyn dbine_driver::Driver>, list: &[dbine_driver::Privilege]) {
+    let kinds = d.security().unwrap().object_kinds;
+    for p in list {
+        assert!(
+            !p.on.is_empty() && p.on.iter().all(|k| kinds.contains(&k.as_str())),
+            "{p:?}"
+        );
+    }
+}
+
+/// `SHOW SUPPORTED PRIVILEGES`, and the server takes every one of them on
+/// every kind listed.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn neo4j_enterprise_privileges() {
+    let Ok(url) = std::env::var("DBINE_TEST_NEO4J_EE_URL") else {
+        return;
+    };
+    let d = driver("neo4j");
+    let mut s = d.connect(&cfg("neo4j", &url), Some("neo4j")).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    kinds_ok(&d, &list);
+    let has = |n: &str| list.iter().find(|p| p.name == n);
+    for n in [
+        "ACCESS",
+        "TRAVERSE",
+        "READ {*}",
+        "SHOW SERVERS",
+        "ALL DBMS PRIVILEGES",
+        "LOAD",
+    ] {
+        assert!(has(n).is_some(), "{n} in {list:?}");
+    }
+    assert!(has("READ {*}").unwrap().on.iter().any(|k| k == "label"));
+
+    run(&mut s, "DROP ROLE dbine_priv IF EXISTS").await;
+    run(&mut s, "CREATE ROLE dbine_priv").await;
+    for p in &list {
+        for k in &p.on {
+            let text = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: on_kind(k),
+                    to: "dbine_priv".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            run(&mut s, &text).await;
+        }
+    }
+    assert!(!s.grants("dbine_priv").await.unwrap().is_empty());
+    run(&mut s, "DROP ROLE dbine_priv").await;
+}
+
+/// Community has no privileges: nothing to grant, and the session goes on.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn neo4j_community_privileges() {
+    let Ok(url) = std::env::var("DBINE_TEST_NEO4J_CE_URL") else {
+        return;
+    };
+    let d = driver("neo4j");
+    let mut s = d.connect(&cfg("neo4j", &url), Some("neo4j")).await.unwrap();
+    assert!(s.privileges().await.unwrap().is_empty());
+    assert!(!s.principals().await.unwrap().is_empty());
+}
+
+/// Memgraph's documented privileges for its version: the server parses
+/// every one on every kind listed (without a license it then refuses
+/// them for that).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn memgraph_privileges() {
+    let Ok(url) = std::env::var("DBINE_TEST_MEMGRAPH_URL") else {
+        return;
+    };
+    let d = driver("memgraph");
+    let mut s = d.connect(&cfg("memgraph", &url), None).await.unwrap();
+    let list = s.privileges().await.unwrap();
+    kinds_ok(&d, &list);
+    for n in ["MATCH", "AUTH", "ALL PRIVILEGES", "READ", "UPDATE"] {
+        assert!(list.iter().any(|p| p.name == n), "{n} in {list:?}");
+    }
+    let _ = try_run(&mut s, "CREATE ROLE dbine_priv").await;
+    for p in &list {
+        for k in &p.on {
+            let text = d
+                .security_script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object: on_kind(k),
+                    to: "dbine_priv".into(),
+                    grantable: false,
+                })
+                .unwrap();
+            if let Err(e) = try_run(&mut s, &text).await {
+                assert!(e.to_string().contains("license"), "{text}: {e}");
+            }
+        }
+    }
+    let _ = try_run(&mut s, "DROP ROLE dbine_priv").await;
+}

@@ -2216,6 +2216,10 @@ impl Session for GraphSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        security::privileges(self).await
+    }
+
     /// The user's own privileges, per flavor (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
