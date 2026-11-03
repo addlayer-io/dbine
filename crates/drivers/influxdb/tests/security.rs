@@ -213,6 +213,32 @@ async fn users_and_privileges() {
     run(&mut s, "DROP DATABASE dbine_sec; DROP DATABASE dbine_sec2").await;
 }
 
+/// The privileges InfluxQL can grant: any 1.x server, auth on or off
+/// (`DBINE_TEST_INFLUXDB1_AUTH_URL`, else `DBINE_TEST_INFLUXDB1_URL`).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn lists_the_privileges() {
+    let cfg = cfg().or_else(|| {
+        Some(ConnectionConfig {
+            driver: "influxdb1".into(),
+            host: std::env::var("DBINE_TEST_INFLUXDB1_URL").ok()?,
+            ..Default::default()
+        })
+    });
+    let Some(cfg) = cfg else { return };
+    let d = driver("influxdb1");
+    let kinds = d.security().unwrap().object_kinds;
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    let p = s.privileges().await.unwrap();
+    let on = |n: &str| p.iter().find(|x| x.name == n).map(|x| x.on.clone());
+    assert_eq!(on("READ"), Some(vec!["database".to_string()]));
+    assert_eq!(on("WRITE"), Some(vec!["database".to_string()]));
+    assert_eq!(on("ALL"), Some(vec![String::new(), "database".to_string()]));
+    for x in &p {
+        assert!(x.on.iter().all(|k| kinds.contains(&k.as_str())), "{x:?}");
+    }
+}
+
 #[test]
 fn v2_and_v3_use_tokens() {
     for id in ["influxdb", "influxdb3"] {
