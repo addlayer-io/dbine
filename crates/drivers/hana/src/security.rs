@@ -10,7 +10,8 @@
 
 use crate::{quote as q, text, HanaSession};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use hdbconnect_async::HdbValue;
 use std::collections::{HashSet, VecDeque};
@@ -254,6 +255,289 @@ pub async fn grants(s: &HanaSession, principal: &str) -> Result<Vec<Grant>> {
     Ok(out)
 }
 
+// -- what can be granted ---------------------------------------------------
+
+/// The privileges the server knows and their type: SYSTEMPRIVILEGE,
+/// OBJECTPRIVILEGE, PACKAGEPRIVILEGE (repository packages) or
+/// APPLICATIONPRIVILEGE (XS applications).
+const PRIVILEGES: &str = "SELECT NAME, TYPE FROM SYS.PRIVILEGES";
+/// What each object privilege can be granted on.
+const OBJECT_PRIVILEGES: &str = "SELECT OBJECT_TYPE, PRIVILEGE FROM SYS.OBJECT_PRIVILEGES";
+
+const SCHEMA_TABLE_VIEW: &[&str] = &["schema", "table", "view"];
+const SCHEMA_ROUTINES: &[&str] = &["schema", "procedure", "function"];
+
+/// Object (and schema) privileges per kind, in the order the tab offers
+/// them: "Object Privileges" and `<schema_privilege>` of GRANT in the SAP
+/// HANA 2.0 SPS08 SQL Reference
+/// (https://help.sap.com/docs/SAP_HANA_PLATFORM/4fe29514fd584807ac9f2a04f6754767/20f674e1751910148a8b990d33efbdc5.html).
+const OBJECT: &[(&str, &[&str])] = &[
+    ("SELECT", &["schema", "table", "view", "sequence"]),
+    ("INSERT", SCHEMA_TABLE_VIEW),
+    ("UPDATE", SCHEMA_TABLE_VIEW),
+    (
+        "DELETE",
+        &["schema", "table", "view", "procedure", "function"],
+    ),
+    ("EXECUTE", SCHEMA_ROUTINES),
+    (
+        "ALTER",
+        &["schema", "table", "view", "procedure", "function"],
+    ),
+    (
+        "DROP",
+        &[
+            "schema",
+            "table",
+            "view",
+            "sequence",
+            "procedure",
+            "function",
+        ],
+    ),
+    ("INDEX", &["schema", "table"]),
+    ("TRIGGER", &["schema", "table"]),
+    ("REFERENCES", &["schema", "table"]),
+    (
+        "CREATE ANY",
+        &[
+            "schema",
+            "table",
+            "view",
+            "sequence",
+            "procedure",
+            "function",
+        ],
+    ),
+    // DEBUG on views: calculation views.
+    ("DEBUG", &["schema", "view", "procedure", "function"]),
+    ("DEBUG MODIFY", SCHEMA_ROUTINES),
+    ("ALL PRIVILEGES", SCHEMA_TABLE_VIEW),
+    ("UNMASKED", SCHEMA_TABLE_VIEW),
+    ("SELECT METADATA", &["schema", "table"]),
+    ("SELECT CDS METADATA", &["schema", "table"]),
+    ("CREATE TEMPORARY TABLE", &["schema"]),
+    ("CREATE VIRTUAL PACKAGE", &["schema"]),
+    ("CREATE OBJECT STRUCTURED PRIVILEGE", &["schema", "view"]),
+    ("CLIENTSIDE ENCRYPTION COLUMN KEY ADMIN", &["schema"]),
+    ("SQLSCRIPT LOGGING", SCHEMA_ROUTINES),
+    // On remote sources, users, user groups, agents and column keys, which
+    // the tab doesn't offer.
+    ("CREATE VIRTUAL TABLE", &[]),
+    ("CREATE VIRTUAL FUNCTION", &[]),
+    ("CREATE VIRTUAL PROCEDURE", &[]),
+    ("CREATE REMOTE SUBSCRIPTION", &[]),
+    ("PROCESS REMOTE SUBSCRIPTION EXCEPTION", &[]),
+    ("LINKED DATABASE", &[]),
+    ("REMOTE EXECUTE", &[]),
+    ("REMOTE TABLE ADMIN", &[]),
+    ("ATTACH DEBUGGER", &[]),
+    ("AGENT MESSAGING", &[]),
+    ("USERGROUP OPERATOR", &[]),
+    ("USAGE", &[]),
+];
+
+/// System privileges (granted without an object), for when SYS.PRIVILEGES
+/// can't be read: `<system_privilege>` of the same GRANT page, and the
+/// repository's (XS classic) from the Security Guide. Some can only be
+/// granted in the system database.
+const SYSTEM: &[&str] = &[
+    "ADAPTER ADMIN",
+    "AGENT ADMIN",
+    "ALTER CLIENTSIDE ENCRYPTION KEYPAIR",
+    "AUDIT ADMIN",
+    "AUDIT OPERATOR",
+    "AUDIT READ",
+    "BACKUP ADMIN",
+    "BACKUP OPERATOR",
+    "CATALOG READ",
+    "CERTIFICATE ADMIN",
+    "CLIENT PARAMETER ADMIN",
+    "CREATE CLIENTSIDE ENCRYPTION KEYPAIR",
+    "CREATE REMOTE SOURCE",
+    "CREATE SCENARIO",
+    "CREATE SCHEMA",
+    "CREATE STRUCTURED PRIVILEGE",
+    "CREDENTIAL ADMIN",
+    "DATA ADMIN",
+    "DATABASE ADMIN",
+    "DATABASE AUDIT ADMIN",
+    "DATABASE BACKUP ADMIN",
+    "DATABASE BACKUP OPERATOR",
+    "DATABASE RECOVERY OPERATOR",
+    "DATABASE START",
+    "DATABASE STOP",
+    "DROP CLIENTSIDE ENCRYPTION KEYPAIR",
+    "ENCRYPTION ROOT KEY ADMIN",
+    "EXPORT",
+    "EXTENDED STORAGE ADMIN",
+    "IMPORT",
+    "INIFILE ADMIN",
+    "LDAP ADMIN",
+    "LICENSE ADMIN",
+    "LOG ADMIN",
+    "MONITOR ADMIN",
+    "OPTIMIZER ADMIN",
+    "PARTITION ADMIN",
+    "RESOURCE ADMIN",
+    "ROLE ADMIN",
+    "SAVEPOINT ADMIN",
+    "SCENARIO ADMIN",
+    "SERVICE ADMIN",
+    "SESSION ADMIN",
+    "SSL ADMIN",
+    "STRUCTUREDPRIVILEGE ADMIN",
+    "SYSTEM REPLICATION ADMIN",
+    "TABLE ADMIN",
+    "TRACE ADMIN",
+    "TRUST ADMIN",
+    "USER ADMIN",
+    "VERSION ADMIN",
+    "WORKLOAD ADMIN",
+    "WORKLOAD ANALYZE ADMIN",
+    "WORKLOAD CAPTURE ADMIN",
+    "WORKLOAD REPLAY ADMIN",
+    "REPO.EXPORT",
+    "REPO.IMPORT",
+    "REPO.MAINTAIN_DELIVERY_UNITS",
+    "REPO.WORK_IN_FOREIGN_WORKSPACE",
+    "REPO.CONFIGURE",
+    "REPO.MODIFY_CHANGE",
+    "REPO.MODIFY_OWN_CONTRIBUTION",
+    "REPO.MODIFY_FOREIGN_CONTRIBUTION",
+];
+
+/// The privileges this server can grant: SYS.PRIVILEGES, with
+/// SYS.OBJECT_PRIVILEGES for what each object privilege applies to, so they
+/// follow its version (HANA Cloud has its own); the documented ones if
+/// SYS.PRIVILEGES can't be read.
+pub async fn available(s: &HanaSession) -> Result<Vec<Privilege>> {
+    let pairs = |rows: Vec<Vec<HdbValue<'static>>>| -> Vec<(String, String)> {
+        rows.iter()
+            .filter_map(|r| Some((at(r, 0)?, at(r, 1)?)))
+            .collect()
+    };
+    let privileges = s.rows(PRIVILEGES, &[]).await.map(pairs).unwrap_or_default();
+    if privileges.is_empty() {
+        return Ok(static_privileges());
+    }
+    let object = s
+        .rows(OBJECT_PRIVILEGES, &[])
+        .await
+        .map(pairs)
+        .unwrap_or_default();
+    Ok(listed(&privileges, &object))
+}
+
+/// The spec's kinds an OBJECT_TYPE of SYS.OBJECT_PRIVILEGES stands for:
+/// none for remote sources, synonyms, graph workspaces, users…
+fn kinds_of(object_type: &str) -> Vec<&'static str> {
+    let t = object_type.trim().to_ascii_uppercase();
+    let mut out = Vec::new();
+    if t.contains("SCHEMA") {
+        out.push("schema");
+    }
+    // TABLE, ROW TABLE, COLUMN TABLE, VIRTUAL TABLE…
+    if t.ends_with("TABLE") {
+        out.push("table");
+    }
+    // VIEW, CALCULATION VIEW…
+    if t.ends_with("VIEW") {
+        out.push("view");
+    }
+    if t.contains("SEQUENCE") {
+        out.push("sequence");
+    }
+    if t.contains("PROCEDURE") {
+        out.push("procedure");
+    }
+    if t.contains("FUNCTION") {
+        out.push("function");
+    }
+    out
+}
+
+/// `privileges` (name, type) and `object` (object type, privilege) as
+/// privileges: system ones on "", object ones on the kinds `object` names
+/// (the documented kinds for one it doesn't describe, or for a kind it
+/// never mentions; every object kind for one this crate doesn't know).
+/// Package and application privileges are left out.
+fn listed(privileges: &[(String, String)], object: &[(String, String)]) -> Vec<Privilege> {
+    let all: Vec<&str> = spec()
+        .object_kinds
+        .into_iter()
+        .filter(|k| !k.is_empty())
+        .collect();
+    let covered: HashSet<&str> = object.iter().flat_map(|(t, _)| kinds_of(t)).collect();
+    let mut out: Vec<Privilege> = Vec::new();
+    for (name, ty) in privileges {
+        if !valid(name) {
+            continue;
+        }
+        let on: Vec<&str> = match ty.as_str() {
+            "SYSTEMPRIVILEGE" => vec![""],
+            "OBJECTPRIVILEGE" => {
+                let documented = OBJECT.iter().find(|(n, _)| n == name).map(|(_, on)| *on);
+                let types: Vec<&str> = object
+                    .iter()
+                    .filter(|(_, p)| p == name)
+                    .map(|(t, _)| t.as_str())
+                    .collect();
+                if types.is_empty() {
+                    documented.map_or(all.clone(), <[&str]>::to_vec)
+                } else {
+                    let uncovered = documented
+                        .unwrap_or_default()
+                        .iter()
+                        .copied()
+                        .filter(|k| !covered.contains(k));
+                    types
+                        .into_iter()
+                        .flat_map(kinds_of)
+                        .chain(uncovered)
+                        .collect()
+                }
+            }
+            _ => continue,
+        };
+        // A name of two types (system and object) is one privilege.
+        let p = match out.iter_mut().find(|p| &p.name == name) {
+            Some(p) => p,
+            None => {
+                out.push(Privilege::new(name.clone(), &[]));
+                out.last_mut().unwrap()
+            }
+        };
+        for k in on {
+            if !p.on.iter().any(|o| o == k) {
+                p.on.push(k.to_string());
+            }
+        }
+    }
+    out.retain(|p| !p.on.is_empty());
+    let kinds = spec().object_kinds;
+    for p in &mut out {
+        p.on.sort_by_key(|k| kinds.iter().position(|x| x == k));
+    }
+    let rank = |n: &str| {
+        OBJECT
+            .iter()
+            .position(|(o, _)| *o == n)
+            .unwrap_or(OBJECT.len())
+    };
+    out.sort_by(|a, b| (rank(&a.name), &a.name).cmp(&(rank(&b.name), &b.name)));
+    out
+}
+
+fn static_privileges() -> Vec<Privilege> {
+    OBJECT
+        .iter()
+        .filter(|(_, on)| !on.is_empty())
+        .map(|(name, on)| Privilege::new(*name, on))
+        .chain(SYSTEM.iter().map(|n| Privilege::new(*n, &[""])))
+        .collect()
+}
+
 // -- scripts -----------------------------------------------------------------
 
 /// A new user's or role's name: a plain identifier is uppercased, as HANA
@@ -307,7 +591,19 @@ fn on(o: &ObjectRef) -> String {
     }
 }
 
-/// Privilege names: letters, spaces and underscores.
+/// A privilege's name: words of letters, digits and underscores (not
+/// starting with a digit), joined by spaces or, in a component's privilege,
+/// by dots (`REPO.EXPORT`, `CREATE X509 PROVIDER`).
+fn valid(name: &str) -> bool {
+    let word = |w: &str| {
+        w.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    name.split_whitespace().next().is_some()
+        && name.split_whitespace().all(|w| w.split('.').all(word))
+}
+
+/// Privilege names (see [`valid`]).
 fn privileges(p: &[String]) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
@@ -315,11 +611,7 @@ fn privileges(p: &[String]) -> Result<String> {
     let mut out: Vec<String> = Vec::new();
     for x in p {
         let name = x.trim();
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '_')
-        {
+        if !valid(name) {
             return Err(Error::Query(format!("«{x}» no es un permiso de SAP HANA")));
         }
         let name = name
@@ -549,6 +841,154 @@ mod tests {
             grantable: false
         })
         .is_err());
+    }
+
+    /// Every privilege, on each of its kinds, makes a GRANT script.
+    fn grantable(list: &[Privilege]) {
+        let kinds = spec().object_kinds;
+        for p in list {
+            assert!(!p.on.is_empty(), "{}", p.name);
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                let object = (!k.is_empty()).then(|| ObjectRef {
+                    kind: k.clone(),
+                    schema: (k != "schema").then(|| "VENTAS".into()),
+                    name: "OBJ".into(),
+                });
+                let s = script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "ANA".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                assert!(s.starts_with(&format!("GRANT {} ", p.name)), "{s}");
+            }
+        }
+    }
+
+    fn on<'a>(list: &'a [Privilege], n: &str) -> Option<Vec<&'a str>> {
+        list.iter()
+            .find(|p| p.name == n)
+            .map(|p| p.on.iter().map(String::as_str).collect())
+    }
+
+    fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
+        v.iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn static_privileges_make_scripts() {
+        let list = static_privileges();
+        grantable(&list);
+        assert_eq!(on(&list, "REPO.EXPORT"), Some(vec![""]));
+        assert_eq!(
+            on(&list, "EXECUTE"),
+            Some(vec!["schema", "procedure", "function"])
+        );
+        assert_eq!(on(&list, "CREATE VIRTUAL TABLE"), None);
+    }
+
+    #[test]
+    fn maps_the_catalog() {
+        let privileges = pairs(&[
+            ("CATALOG READ", "SYSTEMPRIVILEGE"),
+            ("REPO.EXPORT", "SYSTEMPRIVILEGE"),
+            ("CREATE X509 PROVIDER", "SYSTEMPRIVILEGE"),
+            ("SELECT", "OBJECTPRIVILEGE"),
+            ("DEBUG", "OBJECTPRIVILEGE"),
+            ("CREATE VIRTUAL TABLE", "OBJECTPRIVILEGE"),
+            ("REMOTE THING", "OBJECTPRIVILEGE"),
+            ("NEW THING", "OBJECTPRIVILEGE"),
+            ("AGENT MESSAGING", "SYSTEMPRIVILEGE"),
+            ("AGENT MESSAGING", "OBJECTPRIVILEGE"),
+            ("REPO.READ", "PACKAGEPRIVILEGE"),
+            ("BAD;NAME", "SYSTEMPRIVILEGE"),
+        ]);
+        let object = pairs(&[
+            ("TABLE", "SELECT"),
+            ("VIEW", "SELECT"),
+            ("SEQUENCE", "SELECT"),
+            ("SCHEMA", "SELECT"),
+            ("CALCULATION VIEW", "DEBUG"),
+            ("PROCEDURE", "DEBUG"),
+            ("FUNCTION", "DEBUG"),
+            ("REMOTE SOURCE", "CREATE VIRTUAL TABLE"),
+            ("REMOTE SOURCE", "REMOTE THING"),
+        ]);
+        let list = listed(&privileges, &object);
+        grantable(&list);
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "SELECT",
+                "DEBUG",
+                "AGENT MESSAGING",
+                "CATALOG READ",
+                "CREATE X509 PROVIDER",
+                "NEW THING",
+                "REPO.EXPORT"
+            ]
+        );
+        assert_eq!(
+            on(&list, "SELECT"),
+            Some(vec!["schema", "table", "view", "sequence"])
+        );
+        // The view says which kinds; schemas, which it covers, aren't added.
+        assert_eq!(
+            on(&list, "DEBUG"),
+            Some(vec!["view", "procedure", "function"])
+        );
+        assert_eq!(on(&list, "AGENT MESSAGING"), Some(vec![""]));
+        assert_eq!(
+            on(&list, "NEW THING"),
+            Some(vec![
+                "schema",
+                "table",
+                "view",
+                "procedure",
+                "function",
+                "sequence"
+            ])
+        );
+
+        // Without SYS.OBJECT_PRIVILEGES (or with no rows for a kind), the
+        // documented kinds.
+        let list = listed(&privileges, &pairs(&[("TABLE", "SELECT")]));
+        assert_eq!(
+            on(&list, "SELECT"),
+            Some(vec!["schema", "table", "view", "sequence"])
+        );
+        assert_eq!(
+            on(&list, "DEBUG"),
+            Some(vec!["schema", "view", "procedure", "function"])
+        );
+        assert_eq!(on(&list, "CREATE VIRTUAL TABLE"), None);
+    }
+
+    #[test]
+    fn checks_privilege_names() {
+        for ok in ["REPO.EXPORT", "create x509 provider", "SELECT", "_X.Y_1"] {
+            assert!(valid(ok), "{ok}");
+        }
+        for bad in [
+            "", " ", "REPO..X", ".X", "X.", "1A", "A-B", "A;B", "A'B", "A\"B", "A(B)", "A--B",
+        ] {
+            assert!(!valid(bad), "{bad}");
+        }
+        assert_eq!(
+            script(&SecurityAction::Grant {
+                privileges: vec!["repo.export".into()],
+                object: None,
+                to: "ANA".into(),
+                grantable: false
+            })
+            .unwrap(),
+            "GRANT REPO.EXPORT TO \"ANA\";"
+        );
     }
 
     #[test]

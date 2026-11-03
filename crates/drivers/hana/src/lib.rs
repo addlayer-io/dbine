@@ -1216,6 +1216,10 @@ impl Session for HanaSession {
         security::grants(self, principal).await
     }
 
+    async fn privileges(&mut self) -> Result<Vec<dbine_driver::Privilege>> {
+        security::available(self).await
+    }
+
     /// Of the whole database (the tab opens from the connection): the
     /// schema DBine calls a database doesn't narrow it.
     async fn backups(&mut self, _database: Option<&str>) -> Result<Vec<dbine_driver::BackupEntry>> {
