@@ -21,8 +21,8 @@
 use crate::{lit, TrinoSession};
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{
-    Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SchemaSpec, SecurityAction,
-    SecuritySpec,
+    Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SchemaSpec,
+    SecurityAction, SecuritySpec,
 };
 use std::collections::{HashSet, VecDeque};
 
@@ -43,6 +43,49 @@ pub fn spec() -> SecuritySpec {
         membership: true,
         per_database: true,
     }
+}
+
+/// The first Trino release whose GRANT takes CREATE BRANCH.
+const CREATE_BRANCH_SINCE: u32 = 477;
+
+/// `Session::privileges`: what GRANT takes on each kind; none of the three
+/// has a catalog of them. Trino and Starburst, from GRANT privilege
+/// (https://trino.io/docs/current/sql/grant.html) and the names its parser
+/// takes (`io.trino.spi.security.Privilege`): SELECT, INSERT, UPDATE,
+/// DELETE and ALL PRIVILEGES on a schema (its tables, current and future)
+/// and a table, CREATE on a schema (tables in it), CREATE BRANCH on a table
+/// since 477 (`release`: the server's; unknown, left out). A view only takes
+/// SELECT and ALL PRIVILEGES. Presto, from GRANT
+/// (https://prestodb.io/docs/current/sql/grant.html) and its parser: only
+/// on a table (`ON [TABLE] name`: no schemas, and a view "does not exist"
+/// for it), no CREATE. Whether a catalog applies them depends on its
+/// connector and access control.
+pub fn privileges(presto: bool, release: Option<u32>) -> Vec<Privilege> {
+    let (on, and_views): (&[&str], &[&str]) = if presto {
+        (&["table"], &["table"])
+    } else {
+        (&["schema", "table"], &["schema", "table", "view"])
+    };
+    let mut out = vec![Privilege::new("SELECT", and_views)];
+    for p in ["INSERT", "UPDATE", "DELETE"] {
+        out.push(Privilege::new(p, on));
+    }
+    if !presto {
+        out.push(Privilege::new("CREATE", &["schema"]));
+        if release.is_some_and(|r| r >= CREATE_BRANCH_SINCE) {
+            out.push(Privilege::new("CREATE BRANCH", &["table"]));
+        }
+    }
+    out.push(Privilege::new("ALL PRIVILEGES", and_views));
+    out
+}
+
+/// The release number in a server version (`Trino 477`, `Starburst
+/// 477-e.2`).
+pub fn release(version: &str) -> Option<u32> {
+    let v = version.split_whitespace().last()?;
+    let digits: String = v.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 fn q(name: &str) -> String {
@@ -283,7 +326,7 @@ fn on(object: &Option<ObjectRef>) -> Result<String> {
 }
 
 /// Privilege names: letters, spaces and underscores.
-fn privileges(p: &[String]) -> Result<String> {
+fn privilege_list(p: &[String]) -> Result<String> {
     if p.is_empty() {
         return Err(Error::Query("elegí al menos un permiso".into()));
     }
@@ -339,7 +382,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             grantable,
         } => format!(
             "GRANT {} ON {} TO {}{};",
-            privileges(p)?,
+            privilege_list(p)?,
             on(object)?,
             grantee(to),
             if *grantable { " WITH GRANT OPTION" } else { "" }
@@ -350,7 +393,7 @@ pub fn script(a: &SecurityAction) -> Result<String> {
             from,
         } => format!(
             "REVOKE {} ON {} FROM {};",
-            privileges(p)?,
+            privilege_list(p)?,
             on(object)?,
             grantee(from)
         ),
@@ -538,6 +581,72 @@ mod tests {
         ] {
             assert!(matches!(script(&a), Err(Error::Unsupported(_))));
         }
+    }
+
+    #[test]
+    fn lists_what_grant_takes() {
+        let kinds = spec().object_kinds;
+        let names = |v: &[Privilege]| v.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+        for (presto, release) in [
+            (false, None),
+            (false, Some(476)),
+            (false, Some(477)),
+            (true, None),
+        ] {
+            let all = privileges(presto, release);
+            for p in &all {
+                assert!(!p.on.is_empty(), "{}", p.name);
+                // Each one, on each of its kinds, makes a valid GRANT.
+                for k in &p.on {
+                    assert!(kinds.contains(&k.as_str()), "{} on {k}", p.name);
+                    if presto {
+                        assert_eq!(k, "table", "Presto grants only on tables");
+                    }
+                    let object = match k.as_str() {
+                        "schema" => obj(k, None, "s"),
+                        _ => obj(k, Some("s"), "t"),
+                    };
+                    let g = script(&SecurityAction::Grant {
+                        privileges: vec![p.name.clone()],
+                        object,
+                        to: "ana".into(),
+                        grantable: false,
+                    })
+                    .unwrap_or_else(|e| panic!("{} on {k}: {e}", p.name));
+                    assert!(g.starts_with(&format!("GRANT {} ON ", p.name)), "{g}");
+                }
+            }
+        }
+        assert_eq!(
+            privileges(false, Some(477)),
+            [
+                Privilege::new("SELECT", &["schema", "table", "view"]),
+                Privilege::new("INSERT", &["schema", "table"]),
+                Privilege::new("UPDATE", &["schema", "table"]),
+                Privilege::new("DELETE", &["schema", "table"]),
+                Privilege::new("CREATE", &["schema"]),
+                Privilege::new("CREATE BRANCH", &["table"]),
+                Privilege::new("ALL PRIVILEGES", &["schema", "table", "view"]),
+            ]
+        );
+        assert!(!names(&privileges(false, Some(476))).contains(&"CREATE BRANCH".to_string()));
+        assert!(!names(&privileges(false, None)).contains(&"CREATE BRANCH".to_string()));
+        assert_eq!(
+            privileges(true, Some(500)),
+            ["SELECT", "INSERT", "UPDATE", "DELETE", "ALL PRIVILEGES"]
+                .map(|p| Privilege::new(p, &["table"]))
+        );
+        // The spec's fixed list is all in there (Trino's).
+        for p in spec().privileges {
+            assert!(
+                names(&privileges(false, None)).contains(&p.to_string()),
+                "{p}"
+            );
+        }
+        assert_eq!(release("Trino 477"), Some(477));
+        assert_eq!(release("Starburst 477-e.2"), Some(477));
+        assert_eq!(release("Presto 0.293"), Some(0));
+        assert_eq!(release("Trino "), None);
     }
 
     #[test]
