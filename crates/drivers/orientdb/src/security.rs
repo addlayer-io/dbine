@@ -14,7 +14,8 @@
 use crate::ddl::string;
 use crate::{as_text, classify, OrientSession};
 use dbine_driver::{
-    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Result, SecurityAction, SecuritySpec,
+    kinds, Error, Grant, ObjectRef, Principal, PrincipalKind, Privilege, Result, SecurityAction,
+    SecuritySpec,
 };
 use serde_json::Value;
 
@@ -275,6 +276,22 @@ pub async fn grants(s: &OrientSession, principal: &str) -> Result<Vec<Grant>> {
     });
     out.dedup();
     Ok(out)
+}
+
+// -- what can be granted ---------------------------------------------------
+
+/// What `GRANT` takes, per kind: OrientDB has no catalog of permissions.
+/// NONE, CREATE, READ, UPDATE, DELETE and ALL on any resource
+/// (https://orientdb.dev/docs/3.2.x/sql/SQL-Grant.html), so on every class
+/// and on a function; EXECUTE (the rule's bit 16) only means something on
+/// a function (https://orientdb.dev/docs/3.2.x/security/Database-Security.html).
+pub fn privileges_list() -> Vec<Privilege> {
+    let all = spec().object_kinds;
+    ["READ", "CREATE", "UPDATE", "DELETE", "ALL", "NONE"]
+        .into_iter()
+        .map(|p| Privilege::new(p, &all))
+        .chain([Privilege::new("EXECUTE", &[kinds::FUNCTION])])
+        .collect()
 }
 
 // -- scripts ---------------------------------------------------------------
@@ -546,6 +563,35 @@ mod tests {
         assert!(g("READ", obj("table", None, "a b"), "r").is_err());
         assert!(g("READ", obj("table", None, "a;DELETE"), "r").is_err());
         assert!(g("READ", None, "r`x").is_err());
+    }
+
+    #[test]
+    fn listed_privileges_are_grantable() {
+        let kinds = spec().object_kinds;
+        let list = privileges_list();
+        for p in &list {
+            for k in &p.on {
+                assert!(kinds.contains(&k.as_str()), "{p:?}");
+                let object = if k.is_empty() {
+                    None
+                } else {
+                    obj(k, None, "Cliente")
+                };
+                script(&SecurityAction::Grant {
+                    privileges: vec![p.name.clone()],
+                    object,
+                    to: "r".into(),
+                    grantable: false,
+                })
+                .unwrap_or_else(|e| panic!("{p:?} on {k:?}: {e}"));
+            }
+        }
+        for fixed in spec().privileges {
+            assert!(list.iter().any(|p| p.name == fixed), "{fixed}");
+        }
+        let on = |n: &str| list.iter().find(|p| p.name == n).unwrap().on.clone();
+        assert_eq!(on("EXECUTE"), [kinds::FUNCTION]);
+        assert_eq!(on("READ").len(), kinds.len());
     }
 
     #[test]
