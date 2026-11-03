@@ -3,12 +3,14 @@
 ## [1.4.0] - 2026-11-03
 
 ### Nouveautés
-- **Prise en charge de KDB+ :** connectez-vous à des processus kdb+ (en clair ou via TLS) et travaillez en q : parcourez les tables, vues, fonctions et variables de chaque espace de noms, exécutez des scripts q instruction par instruction, filtrez, triez et modifiez des lignes de tables depuis la grille, et suivez la mémoire et les connexions ouvertes dans le Monitor. Sur kdb+ 3.6 et versions ultérieures, les connexions en lecture seule sont aussi imposées par le serveur (`reval`).
+- **Prise en charge de KDB+ :** connectez-vous à des processus kdb+ (en clair ou via TLS) et travaillez en q : parcourez les tables, vues, fonctions et variables de chaque espace de noms, exécutez des scripts q instruction par instruction, filtrez, triez et modifiez des lignes de tables depuis la grille, et suivez la mémoire et les connexions ouvertes dans le Monitor. Sur kdb+ 3.6 et versions ultérieures, les connexions en lecture seule sont aussi imposées par le serveur (`reval`) ; sur les serveurs plus anciens, une connexion en lecture seule n'ouvre que les tables et les variables. **Copier la chaîne de connexion** fournit le handle `hopen` de q et PyKX.
+- **Connexion à Databricks via le navigateur :** les connexions Databricks et Azure Databricks peuvent se connecter avec **Connexion dans le navigateur (SSO)** : DBine ouvre la page de connexion du workspace (Microsoft Entra ID sur Azure), de sorte que le SSO et le MFA de votre organisation fonctionnent sans jeton d'accès personnel ni service principal. La session se renouvelle toute seule tant que DBine est ouvert.
 
 ### Améliorations
 - **Les droits à accorder viennent du serveur :** dans **Utilisateurs et droits…**, la liste des droits est celle que ce serveur peut accorder, lue dans son propre catalogue quand il en a un (`sys.fn_builtin_permissions` de SQL Server, les ACL de PostgreSQL, `SHOW PRIVILEGES` de MySQL, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) et dans la documentation du moteur pour les autres, ce qui suit la version du serveur : SQL Server propose désormais `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` et le reste. Seul ce qui s'applique à la cible choisie est affiché (toute la base de données, un schéma, une table, une procédure…), et la même liste alimente **Nouveau schéma…**. Un droit peut toujours être saisi à la main.
 
 ### Corrections
+- **Import de feuilles de calcul plus sûr :** la lecture des fichiers `.xls` et `.xlsb` utilise calamine 0.38, de sorte qu'un fichier piégé ne peut plus faire planter DBine ni épuiser sa mémoire (RUSTSEC-2026-0436).
 - **Les champs de texte conservent exactement ce que vous saisissez :** noms d'utilisateur, mots de passe, noms d'hôte, URL de connexion, recherches, filtres et tout autre champ de texte ne reçoivent plus de majuscule initiale, de correction automatique ni de vérification orthographique du système d'exploitation, de sorte que `demo_user` reste `demo_user`. Maj et Verr. maj fonctionnent comme d'habitude. Il en va de même pour le filtre de connexions de l'application mobile.
 
 ## [1.3.1] - 2026-11-02

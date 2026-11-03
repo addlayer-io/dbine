@@ -4,12 +4,14 @@
 ## [1.4.0] - 2026-11-03
 
 ### Nowości
-- **Obsługa KDB+:** połącz się z procesami kdb+ (bez szyfrowania lub przez TLS) i pracuj w q: przeglądaj tabele, widoki, funkcje i zmienne każdej przestrzeni nazw, uruchamiaj skrypty q instrukcja po instrukcji, filtruj, sortuj i edytuj wiersze tabel w siatce oraz śledź pamięć i otwarte połączenia w Monitorze. W kdb+ 3.6 i nowszych połączenia tylko do odczytu są dodatkowo wymuszane przez serwer (`reval`).
+- **Obsługa KDB+:** połącz się z procesami kdb+ (bez szyfrowania lub przez TLS) i pracuj w q: przeglądaj tabele, widoki, funkcje i zmienne każdej przestrzeni nazw, uruchamiaj skrypty q instrukcja po instrukcji, filtruj, sortuj i edytuj wiersze tabel w siatce oraz śledź pamięć i otwarte połączenia w Monitorze. W kdb+ 3.6 i nowszych połączenia tylko do odczytu są dodatkowo wymuszane przez serwer (`reval`); na starszych serwerach połączenie tylko do odczytu otwiera wyłącznie tabele i zmienne. **Kopiuj parametry połączenia** podaje uchwyt q `hopen` i PyKX.
+- **Logowanie do Databricks przez przeglądarkę:** połączenia Databricks i Azure Databricks mogą logować się przez **Logowanie w przeglądarce (SSO)**: DBine otwiera stronę logowania workspace'u (Microsoft Entra ID na Azure), więc SSO i MFA Twojej organizacji działają bez osobistego tokenu dostępu i bez service principal. Sesja odnawia się sama, dopóki DBine jest otwarty.
 
 ### Ulepszenia
 - **Uprawnienia do nadania pochodzą z serwera:** w **Użytkownicy i uprawnienia…** lista uprawnień to te, które dany serwer może nadać; jest odczytywana z jego własnego katalogu, jeśli go ma (`sys.fn_builtin_permissions` w SQL Server, ACL w PostgreSQL, `SHOW PRIVILEGES` w MySQL, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…), a w pozostałych przypadkach z dokumentacji silnika, więc podąża za wersją serwera: SQL Server oferuje teraz `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` i inne. Pokazuje tylko to, co dotyczy wybranego celu (cała baza danych, schemat, tabela, procedura…), a ta sama lista zasila **Nowy schemat…**. Uprawnienie nadal można wpisać ręcznie.
 
 ### Poprawki
+- **Bezpieczniejszy import arkuszy kalkulacyjnych:** odczyt plików `.xls` i `.xlsb` korzysta z calamine 0.38, więc spreparowany plik nie może już zawiesić DBine ani wyczerpać jego pamięci (RUSTSEC-2026-0436).
 - **Pola tekstowe zachowują dokładnie to, co wpisujesz:** nazwy użytkowników, hasła, nazwy hostów, adresy URL połączeń, wyszukiwania, filtry i wszystkie inne pola tekstowe nie dostają już od systemu operacyjnego wielkiej pierwszej litery, autokorekty ani sprawdzania pisowni, więc `demo_user` pozostaje `demo_user`. Shift i Caps Lock działają jak zawsze. To samo dotyczy filtra połączeń w aplikacji na telefon.
 
 ## [1.3.1] - 2026-11-02

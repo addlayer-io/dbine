@@ -4,12 +4,14 @@
 ## [1.4.0] - 2026-11-03
 
 ### Baru
-- **Dukungan KDB+:** hubungkan ke proses kdb+ (tanpa enkripsi atau melalui TLS) dan bekerja di q: jelajahi tabel, view, fungsi, dan variabel di setiap namespace, jalankan skrip q pernyataan demi pernyataan, saring, urutkan, dan edit baris tabel dari grid, serta pantau memori dan koneksi yang terbuka di Monitor. Pada kdb+ 3.6 dan yang lebih baru, koneksi hanya-baca juga diberlakukan oleh server (`reval`).
+- **Dukungan KDB+:** hubungkan ke proses kdb+ (tanpa enkripsi atau melalui TLS) dan bekerja di q: jelajahi tabel, view, fungsi, dan variabel di setiap namespace, jalankan skrip q pernyataan demi pernyataan, saring, urutkan, dan edit baris tabel dari grid, serta pantau memori dan koneksi yang terbuka di Monitor. Pada kdb+ 3.6 dan yang lebih baru, koneksi hanya-baca juga diberlakukan oleh server (`reval`); pada server yang lebih lama, koneksi hanya-baca hanya membuka tabel dan variabel. **Salin string koneksi** memberikan handle `hopen` q dan PyKX.
+- **Login Databricks melalui browser:** koneksi Databricks dan Azure Databricks dapat masuk dengan **Login di browser (SSO)**: DBine membuka halaman login workspace (Microsoft Entra ID di Azure), sehingga SSO dan MFA organisasi Anda berfungsi tanpa token akses pribadi maupun service principal. Sesi diperbarui sendiri selama DBine terbuka.
 
 ### Peningkatan
 - **Izin yang dapat diberikan berasal dari server:** di **Pengguna dan izin…**, daftar izin adalah yang dapat diberikan oleh server tersebut, dibaca dari katalognya sendiri jika ada (`sys.fn_builtin_permissions` pada SQL Server, ACL PostgreSQL, `SHOW PRIVILEGES` pada MySQL, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) dan dari dokumentasi mesin untuk yang lain, sehingga mengikuti versi server: SQL Server kini menawarkan `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN`, dan lainnya. Hanya izin yang berlaku untuk target yang dipilih (seluruh basis data, skema, tabel, prosedur…) yang ditampilkan, dan daftar yang sama dipakai oleh **Skema baru…**. Izin tetap dapat diketik manual.
 
 ### Perbaikan
+- **Impor spreadsheet yang lebih aman:** pembacaan berkas `.xls` dan `.xlsb` memakai calamine 0.38, sehingga berkas yang sengaja dirancang tidak lagi dapat membuat DBine mogok atau menghabiskan memorinya (RUSTSEC-2026-0436).
 - **Kolom teks menyimpan persis apa yang Anda ketik:** nama pengguna, kata sandi, nama host, URL koneksi, pencarian, filter, dan semua kolom teks lainnya tidak lagi diberi huruf kapital di awal, dikoreksi otomatis, atau diperiksa ejaannya oleh sistem operasi, sehingga `demo_user` tetap `demo_user`. Shift dan Caps Lock berfungsi seperti biasa. Hal yang sama berlaku untuk filter koneksi di aplikasi ponsel.
 
 ## [1.3.1] - 2026-11-02

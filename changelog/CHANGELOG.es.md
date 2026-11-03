@@ -3,12 +3,14 @@
 ## [1.4.0] - 2026-11-03
 
 ### Nuevo
-- **Compatibilidad con KDB+:** conectate a procesos kdb+ (en claro o por TLS) y trabajá en q: explorá las tablas, vistas, funciones y variables de cada espacio de nombres, ejecutá scripts q instrucción por instrucción, filtrá, ordená y editá filas de tablas desde la grilla, y mirá la memoria y las conexiones abiertas en el Monitor. En kdb+ 3.6 y posteriores, las conexiones de solo lectura también las hace cumplir el servidor (`reval`).
+- **Compatibilidad con KDB+:** conectate a procesos kdb+ (en claro o por TLS) y trabajá en q: explorá las tablas, vistas, funciones y variables de cada espacio de nombres, ejecutá scripts q instrucción por instrucción, filtrá, ordená y editá filas de tablas desde la grilla, y mirá la memoria y las conexiones abiertas en el Monitor. En kdb+ 3.6 y posteriores, las conexiones de solo lectura también las hace cumplir el servidor (`reval`); en servidores más antiguos, una conexión de solo lectura solo abre tablas y variables. **Copiar cadena de conexión** da el handle `hopen` de q y PyKX.
+- **Inicio de sesión de Databricks en el navegador:** las conexiones de Databricks y Azure Databricks pueden iniciar sesión con **Inicio de sesión en el navegador (SSO)**: DBine abre la página de inicio de sesión del workspace (Microsoft Entra ID en Azure), así que funcionan el SSO y el MFA de tu organización sin token de acceso personal ni service principal. La sesión se renueva sola mientras DBine está abierto.
 
 ### Mejoras
 - **Los permisos para otorgar vienen del servidor:** en **Usuarios y permisos…**, la lista de permisos es la que ese servidor puede otorgar, leída de su propio catálogo cuando lo tiene (`sys.fn_builtin_permissions` de SQL Server, las ACL de PostgreSQL, `SHOW PRIVILEGES` de MySQL, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) y de la documentación del motor en los demás, así que sigue la versión del servidor: SQL Server ahora ofrece `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` y el resto. Muestra solo lo que corresponde al destino que elijas (toda la base de datos, un esquema, una tabla, un procedimiento…), y la misma lista alimenta **Nuevo esquema…**. Un permiso se puede seguir escribiendo a mano.
 
 ### Correcciones
+- **Importación de planillas más segura:** la lectura de archivos `.xls` y `.xlsb` usa calamine 0.38, así que un archivo manipulado ya no puede hacer caer DBine ni agotar su memoria (RUSTSEC-2026-0436).
 - **Los campos de texto conservan exactamente lo que escribís:** nombres de usuario, contraseñas, nombres de host, URL de conexión, búsquedas, filtros y cualquier otro campo de texto ya no reciben mayúscula inicial, autocorrección ni corrector ortográfico del sistema operativo, así que `demo_user` sigue siendo `demo_user`. Mayús y Bloq Mayús funcionan como siempre. Lo mismo vale para el filtro de conexiones de la app del teléfono.
 
 ## [1.3.1] - 2026-11-02
