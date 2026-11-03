@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **Permissions to grant come from the server:** in **Users and permissions**, the list of permissions is what that server can grant, read from its own catalog where it has one (SQL Server's `sys.fn_builtin_permissions`, PostgreSQL's ACLs, MySQL's `SHOW PRIVILEGES`, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) and from the engine's documentation elsewhere, so it follows the server's version: SQL Server now offers `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` and the rest. It shows only what applies to the target you pick (the whole database, a schema, a table, a procedure…), and the same list feeds **New schema…**. A permission can still be typed.
+
 ## [1.3.1] - 2026-11-02
 
 ### Improvements

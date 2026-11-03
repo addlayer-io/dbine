@@ -2122,6 +2122,40 @@ The rest was implemented following the vendor's documentation, with unit tests: 
 | ODBC: Informix, GBase 8s, Db2 (LUW, i, z/OS), Hive, Impala | Creating users and passwords | Users belong to the operating system, LDAP, Kerberos or RACF. |
 | ODBC: Spark, Kyuubi, Access, dBase, Ignite 3, NetSuite, generic ODBC | Everything | Spark and Kyuubi authorize from the catalog or Ranger; Access and dBase have no users; Ignite 3 is configured in the cluster; NetSuite is read-only; with generic ODBC it is not known which engine is behind. |
 
+### What can be granted
+
+The permissions offered to grant come from `Session::privileges()`, each on
+the kinds of target it applies to. Where the server has a catalog of them,
+the list is read from it (it follows the server's version); if the catalog
+can't be read (permissions, an older version), the engine's documented list
+is used instead. Every engine still accepts a typed permission.
+
+| Engine | Source |
+|---|---|
+| SQL Server, Azure SQL | `sys.fn_builtin_permissions` (DATABASE, SCHEMA and OBJECT classes; OBJECT permissions by object type). Tested on `dbine-test-sqlserver` (2022: 131 permissions, `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`…). |
+| Microsoft Fabric, Babelfish | Their documented list, by kind. |
+| PostgreSQL, TimescaleDB, YugabyteDB, openGauss, Cloudberry, Greengage, Greenplum, AlloyDB, Cloud SQL, Aurora PostgreSQL, EDB, Fujitsu, KingbaseES, Yellowbrick, Aurora DSQL | `aclexplode(acldefault(…))` per object type (`MAINTAIN` from PostgreSQL 17). openGauss adds its DDL privileges, which its `acldefault` leaves out. |
+| CockroachDB | `acldefault` plus its own documented privileges (`REPLICATIONSOURCE`/`REPLICATIONDEST` from 25.2). |
+| Redshift, Materialize, CrateDB, H2, RisingWave | Documented list: they have no catalog. |
+| MySQL, Aurora MySQL, Cloud SQL for MySQL, MariaDB, TiDB, OceanBase, Doris, VeloDB | `SHOW PRIVILEGES` (with `ALL PRIVILEGES`; not `GRANT OPTION`, `USAGE` nor `PROXY`). OceanBase isn't tested yet (its container needs more memory than was free). |
+| StarRocks, SingleStore, Databend | Documented list (StarRocks' `SHOW PRIVILEGES` comes back empty). SingleStore and Databend are untested: no container. |
+| ClickHouse, Timeplus Proton | `system.privileges`, by level. |
+| Oracle, Oracle Autonomous Database | `SYSTEM_PRIVILEGE_MAP` and `TABLE_PRIVILEGE_MAP`; object privileges by object type as Oracle's GRANT documents them. 23ai's `GRANT … ON SCHEMA` isn't offered (the tab has no schema kind for Oracle). |
+| SAP HANA | `SYS.PRIVILEGES` and `SYS.OBJECT_PRIVILEGES`. Not tested on a server: there is no HANA container. |
+| Firebird | Documented list, by server version. |
+| Snowflake, Databricks, BigQuery, Cloud Spanner, Trino, Starburst, Presto, Dremio | Documented list (none has a catalog). Trino and Dremio filter it by release; BigQuery offers the predefined IAM roles (custom roles are typed). Snowflake and Databricks are untested: no container. |
+| OpenSearch, Open Distro | Their action groups (`_plugins/_security/api/actiongroups`); single actions are typed. |
+| Couchbase | `/settings/rbac/roles`. |
+| CouchDB, Azure Cosmos DB | Documented list. |
+| Elasticsearch, Solr | Nothing: the tab doesn't grant on them (role definitions are replaced whole, from the console). |
+| Redis, Valkey, Dragonfly | `ACL CAT` and `COMMAND LIST` (`COMMAND` on Dragonfly): `+@category`, `-@category`, `+command`… and the key rules. |
+| MongoDB, Amazon DocumentDB | `rolesInfo` with the built-in roles. FerretDB has no roles: nothing. |
+| Neo4j | `SHOW SUPPORTED PRIVILEGES` (5.9+), else the documented list. Neo4j Community has no privileges: nothing. |
+| Memgraph, Cassandra, ScyllaDB, etcd, OrientDB | Documented list (by server version for Memgraph, Cassandra and ScyllaDB). |
+| InfluxDB 1.x, TDengine | Documented list. |
+| IoTDB, TimechoDB | `LIST PRIVILEGES OF USER root` when the login can read it, else the documented list. |
+| ODBC presets | Each engine's documented list. |
+
 ### Map login
 
 **Map login…** creates a database user for a server login that already
