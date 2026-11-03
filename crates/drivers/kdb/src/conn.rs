@@ -131,11 +131,17 @@ impl Conn {
     /// from the server (`.z.w`) gets an error back, since DBine serves
     /// none, and the answer is read after it.
     pub async fn call(&mut self, text: &str) -> std::result::Result<K, Failed> {
+        self.request(&ipc::query(text)).await
+    }
+
+    /// Send `msg` (a whole sync message, see [`ipc::message`]) and read
+    /// the answer, as [`Conn::call`] does.
+    pub async fn request(&mut self, msg: &[u8]) -> std::result::Result<K, Failed> {
         let unsent = |e: std::io::Error| Failed {
             error: lost(e),
             unsent: true,
         };
-        self.io.write_all(&ipc::query(text)).await.map_err(unsent)?;
+        self.io.write_all(msg).await.map_err(unsent)?;
         self.io.flush().await.map_err(unsent)?;
         let mut first = true;
         loop {

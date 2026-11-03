@@ -157,6 +157,16 @@ pub fn query(text: &str) -> Vec<u8> {
     message(SYNC, &K::Vector(0, Vector::Char(text.as_bytes().to_vec())))
 }
 
+/// A sync request of a function and its arguments, `(f; a1; a2…)`: kdb+
+/// applies `f` (a lambda's source as a string) to them, so the arguments
+/// travel as typed q objects, never as text the server parses.
+pub fn apply(function: &str, args: Vec<K>) -> Vec<u8> {
+    let mut items = Vec::with_capacity(args.len() + 1);
+    items.push(K::Vector(0, Vector::Char(function.as_bytes().to_vec())));
+    items.extend(args);
+    message(SYNC, &K::List(items))
+}
+
 /// The handshake: `user:password`, the capability and a 0 byte. An empty
 /// user sends only the capability.
 pub fn handshake(user: &str, password: &str) -> Vec<u8> {
@@ -673,22 +683,21 @@ fn write(out: &mut Vec<u8>, k: &K) {
             sym(out, ctx);
             write(out, &K::Vector(0, Vector::Char(src.as_bytes().to_vec())));
         }
-        K::List(items) => {
-            out.extend_from_slice(&[0, 0]);
-            out.extend_from_slice(&(items.len() as i32).to_le_bytes());
-            for i in items {
-                write(out, i);
-            }
-        }
+        K::List(items) => list(out, items),
         K::Dict(keys, values) => {
             out.push(99);
             write(out, keys);
             write(out, values);
         }
+        // `flip names!cols`: a dictionary of a symbol list and a general
+        // list of the columns (written in place: a bulk load's batch isn't
+        // copied to be sent).
         K::Table(names, cols) => {
             out.extend_from_slice(&[98, 0, 99]);
-            write(out, &K::Vector(0, Vector::Symbol(names.clone())));
-            write(out, &K::List(cols.clone()));
+            out.extend_from_slice(&[11, 0]);
+            out.extend_from_slice(&(names.len() as i32).to_le_bytes());
+            names.iter().for_each(|n| sym(out, n));
+            list(out, cols);
         }
         K::Vector(attr, v) => {
             out.push(v.type_code() as u8);
@@ -696,6 +705,15 @@ fn write(out: &mut Vec<u8>, k: &K) {
             out.extend_from_slice(&(v.len() as i32).to_le_bytes());
             v.write(out);
         }
+    }
+}
+
+/// A general list (type 0, no attribute).
+fn list(out: &mut Vec<u8>, items: &[K]) {
+    out.extend_from_slice(&[0, 0]);
+    out.extend_from_slice(&(items.len() as i32).to_le_bytes());
+    for i in items {
+        write(out, i);
     }
 }
 
@@ -861,6 +879,75 @@ mod tests {
     fn roundtrip(k: K) {
         let m = message(RESPONSE, &k);
         assert_eq!(decode(&m).unwrap(), k);
+    }
+
+    #[test]
+    fn a_table_is_written_as_kdb_writes_it() {
+        // -8!([] a:1 2)
+        let t = K::Table(
+            vec!["a".into()],
+            vec![K::Vector(0, Vector::Long(vec![1, 2]))],
+        );
+        let m = message(SYNC, &t);
+        let mut want = vec![0x01, 0x01, 0x00, 0x00, 0x2f, 0x00, 0x00, 0x00];
+        want.extend_from_slice(&[0x62, 0x00, 0x63]);
+        want.extend_from_slice(&[0x0b, 0x00, 0x01, 0x00, 0x00, 0x00, b'a', 0x00]);
+        want.extend_from_slice(&[0x00, 0x00, 0x01, 0x00, 0x00, 0x00]);
+        want.extend_from_slice(&[0x07, 0x00, 0x02, 0x00, 0x00, 0x00]);
+        want.extend_from_slice(&1i64.to_le_bytes());
+        want.extend_from_slice(&2i64.to_le_bytes());
+        assert_eq!(m, want);
+    }
+
+    #[test]
+    fn typed_vectors_and_tables_of_every_type_roundtrip() {
+        let cols = vec![
+            K::Vector(0, Vector::Bool(vec![true, false])),
+            K::Vector(0, Vector::Guid(vec![[7; 16], [0; 16]])),
+            K::Vector(0, Vector::Byte(vec![1, 255])),
+            K::Vector(0, Vector::Short(vec![i16::MIN, 3])),
+            K::Vector(0, Vector::Int(vec![i32::MIN, 4])),
+            K::Vector(0, Vector::Long(vec![i64::MIN, 5])),
+            K::Vector(0, Vector::Real(vec![1.5, -2.0])),
+            K::Vector(0, Vector::Float(vec![2.5, 0.0])),
+            K::Vector(0, Vector::Char(b"ab".to_vec())),
+            K::Vector(0, Vector::Symbol(vec!["x".into(), String::new()])),
+            K::Vector(0, Vector::Timestamp(vec![1, i64::MIN])),
+            K::Vector(0, Vector::Month(vec![12, i32::MIN])),
+            K::Vector(0, Vector::Date(vec![1, i32::MIN])),
+            K::Vector(0, Vector::Datetime(vec![1.25, 0.5])),
+            K::Vector(0, Vector::Timespan(vec![1, 2])),
+            K::Vector(0, Vector::Minute(vec![1, 2])),
+            K::Vector(0, Vector::Second(vec![1, 2])),
+            K::Vector(0, Vector::Time(vec![1, 2])),
+            // A string column: a general list of strings.
+            K::List(vec![
+                K::Vector(0, Vector::Char(b"one".to_vec())),
+                K::Vector(0, Vector::Char(Vec::new())),
+            ]),
+        ];
+        for c in &cols {
+            roundtrip(c.clone());
+        }
+        let names = (0..cols.len()).map(|i| format!("c{i}")).collect();
+        roundtrip(K::Table(names, cols));
+    }
+
+    #[test]
+    fn a_function_applied_to_typed_arguments() {
+        let m = apply(
+            "{x+y}",
+            vec![K::Long(1), K::Vector(0, Vector::Long(vec![2]))],
+        );
+        assert_eq!(header(m[..8].try_into().unwrap()).unwrap().kind, SYNC);
+        assert_eq!(
+            decode(&m).unwrap(),
+            K::List(vec![
+                K::Vector(0, Vector::Char(b"{x+y}".to_vec())),
+                K::Long(1),
+                K::Vector(0, Vector::Long(vec![2])),
+            ])
+        );
     }
 
     #[test]

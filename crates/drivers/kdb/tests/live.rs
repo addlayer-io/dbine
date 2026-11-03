@@ -425,3 +425,335 @@ async fn tls() {
     .expect("plain connect to a TLS-only server hung");
     assert!(plain.is_err());
 }
+
+#[tokio::test]
+#[ignore]
+async fn foreign_keys_are_linked_columns() {
+    let d = dbine_driver_kdb::drivers().remove(0);
+    assert!(d.capabilities().foreign_keys);
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    // A keyed parent, a child linked to it (`dbine_fk_p$`), and a link
+    // over a two-column key (left out: nothing pairs with its index).
+    run(
+        &mut s,
+        "dbine_fk_p:([id:`a`b`c] name:(\"x\";\"y\";\"z\")); dbine_fk_c:([] p:`dbine_fk_p$`a`b`a; v:1 2 3); dbine_fk_k:([a:1 2; b:`x`y] w:3 4); dbine_fk_m:([] r:`dbine_fk_k$((1;`x);(2;`y)))",
+    )
+    .await;
+    let schema = s.database_schema().await.unwrap();
+    let t = |n: &str| {
+        schema
+            .iter()
+            .find(|t| t.name == n)
+            .unwrap_or_else(|| panic!("{n} not in the schema"))
+    };
+    let child = t("dbine_fk_c");
+    assert_eq!(child.foreign_keys.len(), 1, "{child:?}");
+    let fk = &child.foreign_keys[0];
+    assert_eq!(
+        (
+            fk.columns.clone(),
+            fk.ref_table.as_str(),
+            fk.ref_columns.clone()
+        ),
+        (vec!["p".to_string()], "dbine_fk_p", vec!["id".to_string()])
+    );
+    assert_eq!(
+        child
+            .columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>(),
+        ["p", "v"]
+    );
+    let parent = t("dbine_fk_p");
+    assert_eq!(parent.primary_key.as_ref().unwrap().columns, ["id"]);
+    assert!(parent.foreign_keys.is_empty());
+    assert!(t("dbine_fk_m").foreign_keys.is_empty());
+    run(
+        &mut s,
+        "delete dbine_fk_m, dbine_fk_k, dbine_fk_c, dbine_fk_p from `.",
+    )
+    .await;
+}
+
+/// Batches handed to a bulk load.
+struct Batches(Vec<dbine_driver::transfer::RowBatch>);
+
+#[dbine_driver::async_trait]
+impl dbine_driver::transfer::BatchSource for Batches {
+    async fn next(&mut self) -> Option<dbine_driver::transfer::RowBatch> {
+        (!self.0.is_empty()).then(|| self.0.remove(0))
+    }
+}
+
+fn load_spec(kind: &str, name: &str, columns: &[&str]) -> dbine_driver::transfer::LoadSpec {
+    dbine_driver::transfer::LoadSpec {
+        table: ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name: name.into(),
+        },
+        columns: columns.iter().map(|c| c.to_string()).collect(),
+        table_lock: false,
+        keep_identity: false,
+        commit_rows: dbine_driver::transfer::LoadSpec::DEFAULT_COMMIT_ROWS,
+        commit_bytes: dbine_driver::transfer::LoadSpec::DEFAULT_COMMIT_BYTES,
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn bulk_load_sends_typed_batches() {
+    use dbine_driver::transfer::{Cell, RowBatch};
+    let d = dbine_driver_kdb::drivers().remove(0);
+    assert!(d.supports_bulk_load());
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    run(
+        &mut s,
+        "dbine_bl:([] id:`long$(); sym:`symbol$(); px:`float$(); qty:`int$(); d:`date$(); ts:`timestamp$(); note:(); ok:`boolean$(); g:`guid$(); t:`time$())",
+    )
+    .await;
+    let cols = ["id", "sym", "px", "qty", "d", "ts", "note", "ok", "g", "t"];
+    const ROWS: i64 = 100_000;
+    let row = |i: i64| -> Vec<Cell> {
+        vec![
+            Cell::Int(i),
+            Cell::Text(["AAPL", "MSFT", "IBM"][i as usize % 3].into()),
+            if i % 10 == 0 {
+                Cell::Null
+            } else {
+                Cell::Float(i as f64 / 4.0)
+            },
+            // q's infinity as text: that batch's column goes as strings,
+            // cast on the server.
+            if i == 7 {
+                Cell::Text("0W".into())
+            } else {
+                Cell::Int(i % 1000)
+            },
+            Cell::Date(format!("2024-01-{:02}", i % 28 + 1)),
+            Cell::DateTime(format!("2024-02-03 04:05:{:02}.123456789", i % 60)),
+            Cell::Text(format!("note {i}")),
+            Cell::Bool(i % 2 == 0),
+            Cell::Uuid(format!("00000000-0000-0000-0000-{i:012x}")),
+            Cell::Time("13:45:01.250".into()),
+        ]
+    };
+    let batches = (0..ROWS)
+        .collect::<Vec<_>>()
+        .chunks(1000)
+        .map(|c| RowBatch {
+            rows: c.iter().map(|&i| row(i)).collect(),
+            bytes: 0,
+        })
+        .collect();
+    let seen = std::sync::atomic::AtomicU64::new(0);
+    let progress = |n: u64| seen.store(n, std::sync::atomic::Ordering::SeqCst);
+    let n = s
+        .bulk_load(
+            &load_spec(kinds::TABLE, "dbine_bl", &cols),
+            &[],
+            &mut Batches(batches),
+            &progress,
+        )
+        .await
+        .unwrap();
+    assert_eq!(n, ROWS as u64);
+    assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), ROWS as u64);
+    let out = run(&mut s, "count dbine_bl").await;
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(ROWS));
+    // The table's types are what they were.
+    let out = run(&mut s, "exec t from meta dbine_bl").await;
+    let types: String = out.results[0]
+        .rows
+        .iter()
+        .map(|r| r[0].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(types, "jsfidpCbgt");
+    let out = run(&mut s, "select from dbine_bl where id in 0 7 12345").await;
+    let r = &out.results[0].rows;
+    assert_eq!(r.len(), 3);
+    let at = |row: usize, col: &str| r[row][cols.iter().position(|c| *c == col).unwrap()].clone();
+    assert_eq!(at(0, "px"), serde_json::Value::Null);
+    assert_eq!(at(1, "qty"), serde_json::json!("0W"));
+    assert_eq!(at(1, "px"), serde_json::json!(1.75));
+    assert_eq!(at(2, "sym"), serde_json::json!("AAPL"));
+    assert_eq!(at(2, "px"), serde_json::json!(12345.0 / 4.0));
+    assert_eq!(at(2, "qty"), serde_json::json!(345));
+    assert_eq!(at(2, "d"), serde_json::json!("2024-01-26"));
+    assert_eq!(
+        at(2, "ts"),
+        serde_json::json!("2024-02-03 04:05:45.123456789")
+    );
+    assert_eq!(at(2, "note"), serde_json::json!("note 12345"));
+    assert_eq!(at(2, "ok"), serde_json::json!(false));
+    assert_eq!(
+        at(2, "g"),
+        serde_json::json!("00000000-0000-0000-0000-000000003039")
+    );
+    assert_eq!(at(2, "t"), serde_json::json!("13:45:01.250"));
+
+    // A keyed table takes the rows by upsert: a key already there is
+    // updated. Only some columns: the others get nulls.
+    run(&mut s, "dbine_bk:([id:`long$()] v:`float$(); w:`symbol$())").await;
+    for v in [1.0, 2.0] {
+        let rows = (0..10)
+            .map(|i| vec![Cell::Int(i), Cell::Float(v)])
+            .collect();
+        s.bulk_load(
+            &load_spec(kinds::TABLE, "dbine_bk", &["id", "v"]),
+            &[],
+            &mut Batches(vec![RowBatch { rows, bytes: 0 }]),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    }
+    let out = run(&mut s, "(count dbine_bk; exec sum v from dbine_bk)").await;
+    assert_eq!(
+        out.results[0].rows,
+        [vec![serde_json::json!(10)], vec![serde_json::json!(20.0)]]
+    );
+
+    // Partitioned and splayed tables are refused before anything is sent.
+    for kind in [dbine_driver_kdb::PARTITIONED, dbine_driver_kdb::SPLAYED] {
+        let e = s
+            .bulk_load(
+                &load_spec(kind, "dbine_bl", &["id"]),
+                &[],
+                &mut Batches(vec![]),
+                &|_| {},
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("particionada o splayed"), "{e}");
+    }
+    // A read-only connection doesn't load.
+    let mut ro = d.connect(&cfg(true), None).await.unwrap();
+    assert!(ro
+        .bulk_load(
+            &load_spec(kinds::TABLE, "dbine_bk", &["id"]),
+            &[],
+            &mut Batches(vec![]),
+            &|_| {},
+        )
+        .await
+        .is_err());
+    run(&mut s, "delete dbine_bl, dbine_bk from `.").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn charts_aggregate_on_the_server() {
+    use dbine_driver::aggregate::{from_grouped, AggFn, AggregateSpec, ChartAggregate, Measure};
+    let d = dbine_driver_kdb::drivers().remove(0);
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    run(
+        &mut s,
+        "dbine_ag:([] sym:`b`a`b``a`c; side:`buy`sell`sell`buy`buy`sell; px:1 0N 3 4 5 0N; note:(\"y\";\"x\";\"y\";\"z\";\"x\";\"x\"))",
+    )
+    .await;
+    // The read-only session runs it, as charts do (inside reval).
+    let mut ro = d.connect(&cfg(true), None).await.unwrap();
+    let measure = |c: Option<&str>, func| Measure {
+        column: c.map(str::to_string),
+        func,
+    };
+    async fn agg(
+        d: &dyn dbine_driver::Driver,
+        ro: &mut Box<dyn dbine_driver::Session>,
+        spec: AggregateSpec,
+        query: &str,
+    ) -> ChartAggregate {
+        let statement = d.aggregate_query(query, &spec).unwrap();
+        let mut out = QueryOutcome::default();
+        ro.run_read_only(&statement, spec.max_groups as usize + 1, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("{statement}: {e}"));
+        from_grouped(&spec, &out.results[0].rows).unwrap()
+    }
+    let by_sym = AggregateSpec {
+        x: Some("sym".into()),
+        split: None,
+        measures: vec![
+            measure(None, AggFn::Count),
+            measure(Some("px"), AggFn::Sum),
+            measure(Some("px"), AggFn::Count),
+            measure(Some("px"), AggFn::Avg),
+            measure(Some("px"), AggFn::Max),
+        ],
+        max_groups: 100,
+    };
+    let a = agg(
+        d.as_ref(),
+        &mut ro,
+        by_sym.clone(),
+        "select from dbine_ag / every row",
+    )
+    .await;
+    assert_eq!(
+        a.categories,
+        [None, Some("a".into()), Some("b".into()), Some("c".into())]
+    );
+    let values: Vec<Vec<Option<f64>>> = a.series.iter().map(|s| s.values.clone()).collect();
+    assert_eq!(values[0], [Some(1.0), Some(2.0), Some(2.0), Some(1.0)]);
+    // SUM / AVG / MAX over no numbers (group `c`) have no value.
+    assert_eq!(values[1], [Some(4.0), Some(5.0), Some(4.0), None]);
+    assert_eq!(values[2], [Some(1.0), Some(1.0), Some(2.0), Some(0.0)]);
+    assert_eq!(values[3], [Some(4.0), Some(5.0), Some(2.0), None]);
+    assert_eq!(values[4], [Some(4.0), Some(5.0), Some(3.0), None]);
+    assert_eq!(a.rows_scanned, Some(6));
+
+    // Groups of strings come sorted, a split makes series, and a cut past
+    // max_groups says so.
+    let a = agg(
+        d.as_ref(),
+        &mut ro,
+        AggregateSpec {
+            x: Some("note".into()),
+            split: Some("side".into()),
+            measures: vec![measure(None, AggFn::Count)],
+            max_groups: 100,
+        },
+        "select from dbine_ag",
+    )
+    .await;
+    assert_eq!(
+        a.categories,
+        [Some("x".into()), Some("y".into()), Some("z".into())]
+    );
+    assert_eq!(a.series.len(), 2);
+    assert_eq!(a.series[0].split.as_deref(), Some("buy"));
+    assert_eq!(a.series[0].values, [Some(1.0), Some(1.0), Some(1.0)]);
+    assert_eq!(a.series[1].values, [Some(2.0), Some(1.0), None]);
+    let a = agg(
+        d.as_ref(),
+        &mut ro,
+        AggregateSpec {
+            max_groups: 2,
+            ..by_sym.clone()
+        },
+        "select from dbine_ag",
+    )
+    .await;
+    assert!(a.groups_truncated);
+    assert_eq!(a.categories.len(), 2);
+
+    // A total (no X) over a keyed result.
+    let a = agg(
+        d.as_ref(),
+        &mut ro,
+        AggregateSpec {
+            x: None,
+            split: None,
+            measures: vec![measure(Some("px"), AggFn::Min)],
+            max_groups: 1,
+        },
+        "select sum px by sym from dbine_ag",
+    )
+    .await;
+    assert_eq!(a.series[0].values, [Some(0.0)]);
+    assert_eq!(a.rows_scanned, Some(4));
+    run(&mut s, "delete dbine_ag from `.").await;
+}

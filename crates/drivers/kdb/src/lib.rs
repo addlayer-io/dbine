@@ -25,10 +25,12 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 pub mod cells;
+mod chart;
 pub mod conn;
 pub mod edit;
 pub mod guard;
 pub mod ipc;
+pub mod load;
 mod monitor;
 pub mod script;
 mod steps;
@@ -176,9 +178,11 @@ impl Driver for KdbDriver {
 
     /// A kdb+ process is one namespace tree (nothing to create or drop):
     /// its memory and connections show in the Monitor, and a connection
-    /// can be closed.
+    /// can be closed. Linked columns (enumerations over a keyed table,
+    /// `meta`'s `f`) are its foreign keys.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
+            foreign_keys: true,
             monitor: true,
             processes: true,
             kill_session: true,
@@ -248,6 +252,21 @@ impl Driver for KdbDriver {
 
     fn param_literal(&self, value: &ParamValue) -> Result<String> {
         Ok(edit::param_literal(value))
+    }
+
+    /// A q-sql `select … by` around the query (see [`chart`]).
+    fn aggregate_query(
+        &self,
+        query: &str,
+        spec: &dbine_driver::aggregate::AggregateSpec,
+    ) -> Result<String> {
+        chart::grouped(query, spec)
+    }
+
+    /// Each batch as one typed table, appended by `insert` / `upsert`
+    /// (see [`load`]).
+    fn supports_bulk_load(&self) -> bool {
+        true
     }
 
     async fn connect(
@@ -397,6 +416,12 @@ impl KdbSession {
     /// closed before a byte of the answer) is opened again and the request
     /// sent once more: kdb+ can't have run it.
     async fn q(&mut self, text: &str) -> Result<K> {
+        self.request(&ipc::query(text)).await
+    }
+
+    /// [`KdbSession::q`] for a whole sync message (a function applied to
+    /// typed arguments, [`ipc::apply`]).
+    async fn request(&mut self, msg: &[u8]) -> Result<K> {
         let mut retried = false;
         loop {
             let fresh = self.conn.is_none();
@@ -415,7 +440,7 @@ impl KdbSession {
             let r = {
                 let c = self.conn.as_mut().expect("connected above");
                 tokio::select! {
-                    r = c.call(text) => Some(r),
+                    r = c.request(msg) => Some(r),
                     _ = &mut notified => None,
                 }
             };
@@ -485,6 +510,92 @@ impl KdbSession {
         let expr = self.eval(stmt);
         self.emit(&expr, max_rows, out).await
     }
+}
+
+/// The catalog of [`Session::database_schema`], applied to the tables'
+/// names: per table `(columns; meta letters; linked tables; key; each
+/// linked table's key)`, or an empty symbol list for one that can't be
+/// read (it leaves out only itself).
+pub const SCHEMA: &str = "{[ns] {@[{m:0!meta x; (m`c; m`t; m`f; @[keys;x;`$()]; {@[keys;x;`$()]} each m`f)};x;{0#`}]} each ns}";
+
+/// A table's entry of [`SCHEMA`]'s answer.
+fn table_schema(o: DbObject, k: K) -> Option<TableSchema> {
+    let K::List(parts) = k else {
+        return None;
+    };
+    let [c, t, f, key, linked] = parts.as_slice() else {
+        return None;
+    };
+    let names = c.symbols()?;
+    let links = f.symbols().unwrap_or_default();
+    let keys = key.symbols().unwrap_or_default();
+    let letter = |i: usize| match t.item(i) {
+        Some(K::Char(ch)) => ch as char,
+        _ => ' ',
+    };
+    let columns = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| dbine_driver::ColumnDef {
+            name: n.clone(),
+            data_type: cells::meta_type(letter(i)),
+            ..Default::default()
+        })
+        .collect();
+    let foreign_keys = names
+        .iter()
+        .enumerate()
+        .filter_map(|(i, n)| {
+            let target = links.get(i).filter(|s| !s.is_empty())?;
+            let target_keys = linked.item(i)?.symbols()?;
+            let [ref_column] = target_keys.as_slice() else {
+                return None;
+            };
+            Some(dbine_driver::ForeignKeyDef {
+                name: None,
+                columns: vec![n.clone()],
+                ref_schema: None,
+                ref_table: target.clone(),
+                ref_columns: vec![ref_column.clone()],
+                on_delete: None,
+                on_update: None,
+            })
+        })
+        .collect();
+    Some(TableSchema {
+        kind: o.kind,
+        schema: None,
+        name: o.name,
+        columns,
+        primary_key: (!keys.is_empty()).then_some(dbine_driver::KeyDef {
+            name: None,
+            columns: keys,
+        }),
+        foreign_keys,
+        ..Default::default()
+    })
+}
+
+/// The `meta` letter of each of `columns` from `exec c!t from meta t` (a
+/// blank for one the table doesn't have).
+fn column_types(meta: &K, columns: &[String]) -> Vec<char> {
+    let (names, letters) = match meta {
+        K::Dict(k, v) => (k.symbols().unwrap_or_default(), v.as_ref()),
+        _ => (Vec::new(), &K::Nil),
+    };
+    columns
+        .iter()
+        .map(|c| {
+            names
+                .iter()
+                .position(|n| n == c)
+                .and_then(|i| letters.item(i))
+                .map_or(' ', |l| match l {
+                    K::Char(ch) => ch as char,
+                    _ => ' ',
+                })
+        })
+        .collect()
 }
 
 /// `name` in namespace `ns` (the root's, `.`: as is).
@@ -617,6 +728,107 @@ impl Session for KdbSession {
                 })
             })
             .collect())
+    }
+
+    /// Every table with its columns, key and foreign keys, in one round
+    /// trip ([`SCHEMA`]). A linked column (`meta`'s `f`, an enumeration
+    /// over a keyed table: `` `t2$ ``) is a foreign key to that table's key;
+    /// one over a key of several columns is left out (its cells are a
+    /// row's index, nothing the other table's columns pair with).
+    async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+        let tables: Vec<DbObject> = self
+            .list_objects()
+            .await?
+            .into_iter()
+            .filter(|o| is_table(&o.kind))
+            .collect();
+        if tables.is_empty() {
+            return Ok(Vec::new());
+        }
+        let names = tables.iter().map(|o| o.name.clone()).collect();
+        let k = self
+            .request(&ipc::apply(
+                SCHEMA,
+                vec![K::Vector(0, ipc::Vector::Symbol(names))],
+            ))
+            .await?;
+        Ok(tables
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, o)| table_schema(o, k.item(i)?))
+            .collect())
+    }
+
+    /// Rows go in IPC messages of one table each, typed by the target's
+    /// `meta` ([`load`]) and appended in one `insert` (`upsert` on a keyed
+    /// table). kdb+ has no transactions: a message's rows are in the table
+    /// once it's answered, and that's what `progress` reports.
+    async fn bulk_load(
+        &mut self,
+        spec: &dbine_driver::transfer::LoadSpec,
+        _columns: &[dbine_driver::transfer::TransferColumn],
+        source: &mut dyn dbine_driver::transfer::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<u64> {
+        writable(&spec.table)?;
+        if self.read_only {
+            return Err(Error::Query(format!(
+                "Conexión de solo lectura: se bloqueó {}. Solo se permiten lecturas.",
+                "insert"
+            )));
+        }
+        if spec.columns.is_empty() {
+            return Err(Error::Unsupported("no hay columnas que insertar".into()));
+        }
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        let meta = self
+            .q(&format!(
+                "exec c!t from 0!meta {}",
+                edit::qref(&spec.table.name)
+            ))
+            .await?;
+        let types = column_types(&meta, &spec.columns);
+        // The source's batches are gathered up to the commit window (and
+        // at most `load::MESSAGE_ROWS` rows, `load::MESSAGE_BYTES` bytes):
+        // each round trip costs a network latency, the insert itself
+        // almost nothing.
+        let max_rows = spec.commit_rows.clamp(1, load::MESSAGE_ROWS) as usize;
+        let max_bytes = spec.commit_bytes.clamp(1, load::MESSAGE_BYTES) as usize;
+        let mut total = 0u64;
+        let mut rows: Vec<Vec<dbine_driver::transfer::Cell>> = Vec::new();
+        let mut bytes = 0usize;
+        let mut done = false;
+        while !done {
+            match source.next().await {
+                Some(batch) => {
+                    bytes += batch
+                        .rows
+                        .iter()
+                        .flatten()
+                        .map(dbine_driver::transfer::Cell::size)
+                        .sum::<usize>();
+                    rows.extend(batch.rows);
+                    if rows.len() < max_rows && bytes < max_bytes {
+                        continue;
+                    }
+                }
+                None => done = true,
+            }
+            if rows.is_empty() {
+                continue;
+            }
+            let sent = rows.len() as u64;
+            let table = load::table(&spec.columns, &types, &rows);
+            rows.clear();
+            bytes = 0;
+            let msg = ipc::apply(load::LOAD, vec![K::Symbol(spec.table.name.clone()), table]);
+            total += match self.request(&msg).await? {
+                K::Long(n) if n >= 0 => n as u64,
+                _ => sent,
+            };
+            progress(total);
+        }
+        Ok(total)
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
