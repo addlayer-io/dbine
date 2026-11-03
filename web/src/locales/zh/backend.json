@@ -11351,5 +11351,7 @@
   "Tablas splayed": "Splayed 表",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+ 中不能编辑分区表或 splayed 表的行：每一列都是磁盘上的一个文件，需要用 q 重写文件来修改",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ 声明了 {0} 字节的消息，超出其协议允许的大小",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "重新连接时 kdb+ 没有响应：服务器仍在处理已取消的查询（kdb+ 仍会将其执行完毕），且一次只处理一个请求"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "重新连接时 kdb+ 没有响应：服务器仍在处理已取消的查询（kdb+ 仍会将其执行完毕），且一次只处理一个请求",
+  "Conexión de solo lectura: este servidor kdb+ no tiene reval (kdb+ 3.6 o posterior), así que no puede asegurar que una consulta solo lea. Acá solo se abren tablas y variables y se ejecutan los comandos de sistema que muestran algo; para otras consultas usá una conexión que pueda escribir o kdb+ 3.6 o posterior.": "只读连接：此 kdb+ 服务器没有 reval（kdb+ 3.6 或更高版本），因此无法确保查询只读取。这里只能打开表和变量，并执行只显示信息的系统命令；其他查询请使用可写入的连接，或使用 kdb+ 3.6 或更高版本。",
+  "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ 消息中的对象嵌套超过 {0} 层"
 }

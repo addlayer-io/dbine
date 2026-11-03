@@ -369,6 +369,21 @@ pub struct KdbSession {
     tls_pin: Option<String>,
 }
 
+/// What a read-only connection runs on a server without `reval`, where
+/// nothing on the server keeps a statement from writing: the browses DBine
+/// writes for an object (they read it, and nothing else) and the system
+/// commands that only show something (the guard has already checked those).
+/// q is a whole language: any other statement could write through a path
+/// no word list sees (a handle, `.q` lookups, a string evaluated).
+fn unenforced_read(stmt: &str) -> bool {
+    let s = stmt.trim();
+    s.starts_with('\\') || edit::plain_browse(s)
+}
+
+fn no_reval() -> String {
+    "Conexión de solo lectura: este servidor kdb+ no tiene reval (kdb+ 3.6 o posterior), así que no puede asegurar que una consulta solo lea. Acá solo se abren tablas y variables y se ejecutan los comandos de sistema que muestran algo; para otras consultas usá una conexión que pueda escribir o kdb+ 3.6 o posterior.".into()
+}
+
 /// A q error as the console shows it (`'type`, `'length`).
 fn q_error(e: &str) -> Error {
     Error::Statement(Box::new(
@@ -426,7 +441,8 @@ impl KdbSession {
 
     /// One statement's evaluation: inside `reval` on a read-only
     /// connection (system commands are already limited to those that
-    /// show).
+    /// show; without `reval`, [`Session::execute`] lets through only what
+    /// [`unenforced_read`] accepts).
     fn eval(&self, stmt: &str) -> String {
         if self.read_only && self.reval && !stmt.trim_start().starts_with('\\') {
             format!("{{{REVAL}}} {}", edit::qstr(stmt))
@@ -658,7 +674,9 @@ impl Session for KdbSession {
         let stmts = script::split(text);
         if self.read_only {
             for st in &stmts {
-                if let Some(why) = guard::refusal(&st.text) {
+                let why = guard::refusal(&st.text)
+                    .or_else(|| (!self.reval && !unenforced_read(&st.text)).then(no_reval));
+                if let Some(why) = why {
                     return Err(ScriptError::new(why)
                         .at_offset(st.start)
                         .at_line(st.line)
@@ -847,6 +865,52 @@ mod tests {
         assert!(g.starts_with("{[n;b;r] "), "{g}");
         assert!(g.ends_with("}[5000;4194304] value \"til 3\""), "{g}");
         assert!(g.contains("-22!r") && g.contains("`dbine.partial"), "{g}");
+    }
+
+    #[test]
+    fn without_reval_only_browses_and_show_commands_pass() {
+        let d = KdbDriver { info: info() };
+        // What DBine writes to open an object, sorted or not.
+        for (kind, name) in [
+            (kinds::TABLE, "trade"),
+            (kinds::VIEW, "v1"),
+            (SPLAYED, "daily"),
+            (PARTITIONED, "quotes"),
+            (VARIABLE, ".u.w"),
+            (kinds::TABLE, ".myns.t2"),
+        ] {
+            let b = edit::browse(kind, name, 100);
+            assert!(unenforced_read(&b), "{b}");
+            let key = dbine_driver::SortKey {
+                column: "px".into(),
+                descending: true,
+            };
+            if kind != VARIABLE {
+                let sorted = d.sorted_browse(&b, &[key]).unwrap();
+                assert!(unenforced_read(&sorted), "{sorted}");
+            }
+        }
+        for s in ["\\v", "\\f .myns", "\\w"] {
+            assert!(unenforced_read(s), "{s}");
+        }
+        // Anything else, even what reads like a read: nothing on the
+        // server would stop it from writing.
+        for s in [
+            "select from trade",
+            "select[100] from trade where px>1",
+            "select[100] from (get `$ \"a b\")",
+            "100 sublist f[]",
+            "select from .Q.ind[quotes; `long$til 100&count quotes]; 0 \"a:1\"",
+            "select[100] from trade;0 \"a:1\"",
+            "count trade",
+            "0 \"a:1\"",
+            ".q[`set][`a;1]",
+            "get \"a:1\"",
+            "1+1",
+        ] {
+            assert!(!unenforced_read(s), "{s}");
+        }
+        assert!(no_reval().contains("reval"));
     }
 
     #[test]

@@ -6,13 +6,17 @@
 //! - **On the server**, each statement runs inside `reval`, which evaluates
 //!   it as if the server had been started with `-b` (no writes to global
 //!   variables, no file or system changes). Servers before kdb+ 3.6 don't
-//!   have `reval`: there, only the check below applies.
+//!   have `reval`: there a read-only connection runs only the browses
+//!   DBine writes and the system commands below, since no word list is a
+//!   boundary in q.
 //! - **Here**, before anything is sent, a statement is refused unless it is
 //!   plainly a read: no assignment outside a function body or a q-sql
 //!   column list, no word that writes or runs other code (`set`, `upsert`,
-//!   `insert`, `system`, `value`, `hopen`…), no update or delete of a table
+//!   `insert`, `system`, `value`, `hopen`…, also as `.q.set` or looked up
+//!   in `.q` / `.Q`), no `get` of a string, no update or delete of a table
 //!   by name, no file verbs (`0:` `1:` `2:`), no internal functions
-//!   (`-N!`), and only the system commands that show something.
+//!   (`-N!`), no handle applied to code (`0 "…"`, `(neg h) "…"`, `.z.w`),
+//!   and only the system commands that show something.
 //!
 //! What it can't prove read-only, it refuses.
 
@@ -21,7 +25,7 @@ const WRITE_WORDS: &[&str] = &[
     "set", "upsert", "insert", "system", "value", "eval", "reval", "hopen", "hclose", "hdel",
     "exit", "save", "rsave", "dsave", "load", "rload", "setenv", ".Q.dpft", ".Q.dpfts", ".Q.dpt",
     ".Q.dpfs", ".Q.hdpf", ".Q.en", ".Q.ens", ".Q.gc", ".Q.chk", ".Q.l", ".Q.lo", ".Q.ld", ".Q.trp",
-    ".Q.trap", ".z.exit",
+    ".Q.trap", ".z.exit", ".z.w", ".z.W", ".z.H",
 ];
 
 /// System commands that only show something; arguments are allowed only
@@ -131,13 +135,121 @@ fn idents(code: &str) -> Vec<(usize, &str)> {
     out
 }
 
+/// `w` without the `.q.` that names a q keyword in its namespace
+/// (`.q.set` is `set`).
+fn bare(w: &str) -> &str {
+    w.strip_prefix(".q.").unwrap_or(w)
+}
+
+/// A word that writes, opens a connection or evaluates code.
+fn writes(w: &str) -> bool {
+    WRITE_WORDS.contains(&w) || WRITE_WORDS.contains(&bare(w))
+}
+
+/// The symbols of `code` (`` `a`b `` gives `a` and `b`).
+fn symbols(code: &str) -> Vec<&str> {
+    let b = code.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'`' {
+            let start = i + 1;
+            let mut j = start;
+            while j < b.len() && ident_char(b[j] as char) {
+                j += 1;
+            }
+            out.push(&code[start..j]);
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// A whole integer literal: digits with an optional `h`/`i`/`j`.
+fn integer(t: &str) -> bool {
+    let t = t.strip_prefix('-').unwrap_or(t);
+    let digits = t.strip_suffix(['h', 'i', 'j']).unwrap_or(t);
+    !digits.is_empty() && digits.bytes().all(|c| c.is_ascii_digit())
+}
+
+/// `code` past `at`, without leading blanks.
+fn after(code: &str, at: usize) -> &str {
+    code[at..].trim_start()
+}
+
+/// A handle applied to code: a standalone integer (`0 "…"`, `-1 "…"`,
+/// `0 (`set;`a;1)`, `0@"…"`) or what parentheses or brackets give
+/// (`(neg h) "…"`, `(h)(…)`, `neg[h] "…"`) followed by a string or a
+/// parse tree. Handle 0 evaluates in the server itself.
+fn handle_application(code: &str) -> Option<String> {
+    let b = code.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b')' || c == b']' {
+            let rest = after(code, i + 1);
+            if rest.starts_with('"') || (c == b')' && rest.starts_with('(')) {
+                return Some(format!("«{} …»", c as char));
+            }
+            i += 1;
+            continue;
+        }
+        let standalone = i == 0 || !(ident_char(b[i - 1] as char) || b[i - 1] == b'`');
+        if c.is_ascii_digit() && standalone {
+            let start = i;
+            while i < b.len() && ident_char(b[i] as char) {
+                i += 1;
+            }
+            // A vector literal (`1 2 3`) isn't a handle.
+            let prev = code[..start].trim_end();
+            let in_vector = prev.len() < start && prev.ends_with(|c: char| c.is_ascii_digit());
+            if integer(&code[start..i]) && !in_vector {
+                let mut rest = after(code, i);
+                if let Some(r) = rest.strip_prefix('@') {
+                    rest = r.trim_start();
+                }
+                if rest.starts_with(['"', '(', '[']) {
+                    return Some(format!("«{} …»", &code[start..i]));
+                }
+            }
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
 fn write_word(code: &str) -> Option<String> {
     let words = idents(code);
-    for (_, w) in &words {
-        let w = w.trim_end_matches('.');
-        if WRITE_WORDS.contains(&w) {
+    for (at, word) in &words {
+        let w = word.trim_end_matches('.');
+        if writes(w) {
             return Some(format!("«{w}»"));
         }
+        // `.q[`set]`, `.Q`dpft`: a keyword looked up by name.
+        if matches!(w, ".q" | ".Q") {
+            return Some(format!("«{w}[…]»"));
+        }
+        // `get` of a string evaluates it (`get` is `value`); of a symbol
+        // it reads a variable.
+        if bare(w) == "get" && !after(code, at + word.len()).starts_with('`') {
+            return Some("«get»".into());
+        }
+    }
+    // `` `.q.set ``, `` `.q ``: what `get`, `.` or `@` would turn into a
+    // call.
+    for sym in symbols(code) {
+        let s = sym.trim_end_matches('.');
+        let keyword =
+            (s.starts_with(".q.") || s.starts_with(".Q.") || s.starts_with(".z.")) && writes(s);
+        if keyword || matches!(s, ".q" | ".Q") {
+            return Some(format!("«`{s}»"));
+        }
+    }
+    if let Some(h) = handle_application(code) {
+        return Some(h);
     }
     // update/delete of a table by name: `update … from `t`.
     let lower = code.to_ascii_lowercase();
@@ -154,10 +266,12 @@ fn write_word(code: &str) -> Option<String> {
     let b = code.as_bytes();
     for i in 0..b.len() {
         // Functional amend / update / delete of a name: `@[`t;…]`,
-        // `.[`t;…]`, `![`t;…]`.
+        // `.[`t;…]`, `![`t;…]`, also parenthesized (`@[(`.);…]`); and
+        // apply on a handle (`@[0;"…"]`, `.[0;enlist "…"]`).
         if matches!(b[i], b'@' | b'.' | b'!') && b.get(i + 1) == Some(&b'[') {
-            let rest = code[i + 2..].trim_start();
-            if rest.starts_with('`') {
+            let rest = code[i + 2..].trim_start_matches(|c: char| c == '(' || c.is_whitespace());
+            let first = code[i + 2..].split([';', ']']).next().unwrap_or("");
+            if rest.starts_with('`') || integer(first.trim_matches(['(', ')', ' '])) {
                 return Some(format!("«{}[`…]»", b[i] as char));
             }
         }
@@ -315,6 +429,22 @@ mod tests {
             "select from t where time>12:30",
             "select from t where ts within 2024.01.31D12:30:00 2024.02.01D00:00:00",
             "{[t] t:t+1; t}[1]",
+            // Not handles: vectors, times, indexing, casts.
+            "1 2 3",
+            "x in 1 2 3",
+            "1 2 3@0",
+            "x[0]",
+            "@[til 3;1]",
+            "@[.Q.qp;trade;0]",
+            "0!meta trade",
+            "select from trade where size>100, price<10.5",
+            "(get `$ \"my table\")",
+            "select[5] from (get `$ \"my table\")",
+            "neg 5",
+            "(neg 5) sublist trade",
+            "get `:db/sym",
+            "lower \"ABC\"",
+            "`.Q.s1",
         ] {
             assert_eq!(refusal(s), None, "{s}");
         }
@@ -352,6 +482,38 @@ mod tests {
             "\\\\",
             "\\t select from t",
             "{x} {.z.pg:{}}",
+            // Handle application: handle 0 evaluates in the server itself.
+            "0 \"a:1\"",
+            "0\"a:1\"",
+            "-1 \"x\"",
+            "0i \"a:1\"",
+            "0 (`set;`a;1)",
+            "0@\"a:1\"",
+            "@[0;\"a:1\"]",
+            ".[0;enlist \"a:1\"]",
+            "(neg 0) \"a:1\"",
+            "(0)(`set;`a;1)",
+            "neg[h] \"a:1\"",
+            ".z.w \"a:1\"",
+            "neg[.z.w] \"x\"",
+            "key .z.W",
+            // Keywords looked up in .q / .Q, or named in their namespace.
+            ".q[`set][`a;1]",
+            ".q `set",
+            ".Q[`dpft]",
+            ".q.set[`a;1]",
+            ".q.value \"a:1\"",
+            "(get `.q.set)[`a;1]",
+            "get[`.q]`system",
+            "(`.Q.dpft)",
+            // `get` of a string is `value`.
+            "get \"a:1\"",
+            "get(\"a:1\")",
+            "{get x} \"a:1\"",
+            // Functional amend on a parenthesized symbol.
+            "@[(`.);`a;:;1]",
+            "@[( `.);`a;:;1]",
+            ".[(`t);(0;`a);:;1]",
         ] {
             assert!(refusal(s).is_some(), "{s}");
         }

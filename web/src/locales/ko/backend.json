@@ -11351,5 +11351,7 @@
   "Tablas splayed": "Splayed 테이블",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+에서는 파티션 테이블이나 splayed 테이블의 행을 편집할 수 없습니다. 각 열은 디스크의 파일이며, q로 다시 써서 변경합니다",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+가 {0}바이트 크기의 메시지를 알렸으며, 이는 프로토콜이 허용하는 크기를 초과합니다",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "다시 연결할 때 kdb+가 응답하지 않았습니다. 서버가 취소된 쿼리를 아직 처리 중이며(kdb+는 해당 쿼리를 끝까지 실행합니다) 한 번에 하나의 요청만 처리합니다"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "다시 연결할 때 kdb+가 응답하지 않았습니다. 서버가 취소된 쿼리를 아직 처리 중이며(kdb+는 해당 쿼리를 끝까지 실행합니다) 한 번에 하나의 요청만 처리합니다",
+  "Conexión de solo lectura: este servidor kdb+ no tiene reval (kdb+ 3.6 o posterior), así que no puede asegurar que una consulta solo lea. Acá solo se abren tablas y variables y se ejecutan los comandos de sistema que muestran algo; para otras consultas usá una conexión que pueda escribir o kdb+ 3.6 o posterior.": "읽기 전용 연결: 이 kdb+ 서버에는 reval(kdb+ 3.6 이상)이 없어 쿼리가 읽기만 하는지 보장할 수 없습니다. 여기서는 테이블과 변수를 열고 무언가를 표시하는 시스템 명령만 실행할 수 있습니다. 다른 쿼리에는 쓰기 가능한 연결이나 kdb+ 3.6 이상을 사용하세요.",
+  "mensaje de kdb+ con objetos anidados a más de {0} niveles": "kdb+ 메시지의 객체가 {0}단계를 넘게 중첩되어 있습니다"
 }

@@ -151,6 +151,37 @@ async fn read_only_is_enforced_by_the_server() {
     assert!(r.is_err());
     // And a plain read still runs.
     run(&mut s, "count til 10").await;
+    // What slips past a plain word list is refused before it's sent.
+    for q in [
+        "0 \"dbine_ro:1\"",
+        "(neg .z.w) \"dbine_ro:1\"",
+        ".q[`set][`dbine_ro;1]",
+        "get \"dbine_ro:1\"",
+        "@[(`.);`dbine_ro;:;1]",
+    ] {
+        let e = s
+            .execute(q, 10, &mut QueryOutcome::default())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("solo lectura"), "{q}: {e}");
+    }
+    let mut w = d.connect(&cfg(false), None).await.unwrap();
+    run(&mut w, "@[`.;`dbine_ro;:;0]").await;
+    let mut out = QueryOutcome::default();
+    w.execute("dbine_ro", 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(0));
+    // A browse runs on a read-only connection.
+    let v = ObjectRef {
+        kind: "variable".into(),
+        schema: None,
+        name: "dbine_ro".into(),
+    };
+    let mut out = QueryOutcome::default();
+    s.execute(&s.browse_query(&v, 10), 10, &mut out)
+        .await
+        .unwrap();
+    assert_eq!(out.results[0].rows.len(), 1);
 }
 
 #[tokio::test]

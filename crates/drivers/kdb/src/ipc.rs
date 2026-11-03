@@ -21,6 +21,12 @@ pub const RESPONSE: u8 = 2;
 /// timestamp, timespan and guid types (kdb+ 3.0+), messages up to 2 GB.
 pub const CAPABILITY: u8 = 3;
 
+/// How deep a message's objects may nest (lists in lists, dictionaries…).
+/// q's own results rarely pass a handful; a deeper message is refused as
+/// corrupt, before the recursion that reads it (and the one that drops it)
+/// can exhaust the stack.
+pub const MAX_DEPTH: usize = 256;
+
 /// A typed vector's elements.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Vector {
@@ -183,6 +189,7 @@ pub fn decode(msg: &[u8]) -> R<K> {
         b: msg,
         at: 8,
         little: h.little,
+        depth: 0,
     };
     r.k()
 }
@@ -269,6 +276,8 @@ struct Reader<'a> {
     b: &'a [u8],
     at: usize,
     little: bool,
+    /// How many objects [`Reader::k`] is inside of.
+    depth: usize,
 }
 
 macro_rules! num {
@@ -345,8 +354,40 @@ impl Reader<'_> {
         Ok(v)
     }
 
+    /// One object, nested at most [`MAX_DEPTH`] deep.
     fn k(&mut self) -> R<K> {
+        if self.depth >= MAX_DEPTH {
+            return Err(too_deep());
+        }
+        self.depth += 1;
+        let k = self.object();
+        self.depth -= 1;
+        k
+    }
+
+    /// The object of type `t`. Kept to a dispatch: the arms that build
+    /// something are functions of their own, so each level of a nested
+    /// message costs little stack.
+    fn object(&mut self) -> R<K> {
         let t = self.u8()? as i8;
+        match t {
+            -128..=-1 => self.atom(t),
+            0 => self.list(),
+            1..=19 => {
+                let attr = self.u8()?;
+                let n = self.count()?;
+                Ok(K::Vector(attr, self.vector(t, n)?))
+            }
+            98 => self.table_object(),
+            99 | 127 => self.dict(),
+            100 => self.lambda(),
+            101..=112 => self.function(t),
+            _ => Err(unknown(t)),
+        }
+    }
+
+    #[inline(never)]
+    fn atom(&mut self, t: i8) -> R<K> {
         Ok(match t {
             -1 => K::Bool(self.u8()? != 0),
             -2 => K::Guid(self.guid()?),
@@ -367,37 +408,48 @@ impl Reader<'_> {
             -18 => K::Second(self.i32()?),
             -19 => K::Time(self.i32()?),
             -128 => K::Error(self.sym()?),
-            0 => {
-                let _attr = self.u8()?;
-                let n = self.count()?;
-                K::List(self.many(n, |r| r.k())?)
+            _ => return Err(unknown(t)),
+        })
+    }
+
+    #[inline(never)]
+    fn list(&mut self) -> R<K> {
+        let _attr = self.u8()?;
+        let n = self.count()?;
+        Ok(K::List(self.many(n, |r| r.k())?))
+    }
+
+    #[inline(never)]
+    fn table_object(&mut self) -> R<K> {
+        let _attr = self.u8()?;
+        match self.k()? {
+            K::Dict(keys, values) => table(*keys, *values),
+            _ => Err(bad("tabla de kdb+ sin diccionario")),
+        }
+    }
+
+    #[inline(never)]
+    fn dict(&mut self) -> R<K> {
+        let keys = self.k()?;
+        let values = self.k()?;
+        Ok(K::Dict(Box::new(keys), Box::new(values)))
+    }
+
+    #[inline(never)]
+    fn lambda(&mut self) -> R<K> {
+        let ctx = self.sym()?;
+        match self.k()? {
+            K::Vector(_, Vector::Char(c)) => {
+                Ok(K::Lambda(ctx, String::from_utf8_lossy(&c).into_owned()))
             }
-            1..=19 => {
-                let attr = self.u8()?;
-                let n = self.count()?;
-                K::Vector(attr, self.vector(t, n)?)
-            }
-            98 => {
-                let _attr = self.u8()?;
-                match self.k()? {
-                    K::Dict(keys, values) => table(*keys, *values)?,
-                    _ => return Err(bad("tabla de kdb+ sin diccionario")),
-                }
-            }
-            99 | 127 => {
-                let keys = self.k()?;
-                let values = self.k()?;
-                K::Dict(Box::new(keys), Box::new(values))
-            }
-            100 => {
-                let ctx = self.sym()?;
-                match self.k()? {
-                    K::Vector(_, Vector::Char(c)) => {
-                        K::Lambda(ctx, String::from_utf8_lossy(&c).into_owned())
-                    }
-                    _ => return Err(bad("función de kdb+ sin texto")),
-                }
-            }
+            _ => Err(bad("función de kdb+ sin texto")),
+        }
+    }
+
+    /// Primitives, projections, compositions, iterators (types 101 to 112).
+    #[inline(never)]
+    fn function(&mut self, t: i8) -> R<K> {
+        Ok(match t {
             101 => match self.u8()? {
                 // `::`, and the elided argument of a projection (`f[;1]`).
                 0 | 0xff => K::Nil,
@@ -428,13 +480,7 @@ impl Reader<'_> {
                 let it = ["'", "/", "\\", "':", "/:", "\\:"][(t - 106) as usize];
                 K::Function(format!("{}{it}", show(&f)))
             }
-            112 => K::Function("foreign".into()),
-            20..=76 => {
-                return Err(bad(format!(
-                "kdb+ envió una enumeración (tipo {t}): consultala con value o con `$ para leerla"
-            )))
-            }
-            _ => return Err(bad(format!("tipo de kdb+ desconocido ({t})"))),
+            _ => K::Function("foreign".into()),
         })
     }
 
@@ -460,6 +506,25 @@ impl Reader<'_> {
             19 => Vector::Time(self.many(n, |r| r.i32())?),
             _ => return Err(bad(format!("tipo de lista de kdb+ desconocido ({t})"))),
         })
+    }
+}
+
+#[inline(never)]
+fn too_deep() -> DecodeError {
+    bad(format!(
+        "mensaje de kdb+ con objetos anidados a más de {MAX_DEPTH} niveles"
+    ))
+}
+
+/// A type DBine doesn't read.
+#[inline(never)]
+fn unknown(t: i8) -> DecodeError {
+    if (20..=76).contains(&t) {
+        bad(format!(
+            "kdb+ envió una enumeración (tipo {t}): consultala con value o con `$ para leerla"
+        ))
+    } else {
+        bad(format!("tipo de kdb+ desconocido ({t})"))
     }
 }
 
@@ -958,6 +1023,60 @@ mod tests {
         p.extend_from_slice(&[0xf9]);
         p.extend_from_slice(&1i64.to_le_bytes());
         assert_eq!(decode(&msg(&p)).unwrap(), K::Function("+[;1]".into()));
+    }
+
+    /// A header and `body` as one little-endian response.
+    fn raw(body: &[u8]) -> Vec<u8> {
+        let mut m = vec![1, RESPONSE, 0, 0];
+        m.extend_from_slice(&((body.len() + 8) as u32).to_le_bytes());
+        m.extend_from_slice(body);
+        m
+    }
+
+    #[test]
+    fn deeply_nested_messages_are_refused_without_exhausting_the_stack() {
+        // 100k dictionary headers (0x63), each one's keys the next: a
+        // crafted answer that would recurse 100k deep.
+        let e = decode(&raw(&[0x63; 100_000])).unwrap_err();
+        assert!(e.0.contains("anidados"), "{e}");
+        // The same with general lists (type 0, attribute, count 1), and
+        // with iterators (each `'` wraps the next).
+        let list: Vec<u8> = [0u8, 0, 1, 0, 0, 0].repeat(20_000);
+        assert!(decode(&raw(&list)).unwrap_err().0.contains("anidados"));
+        assert!(decode(&raw(&[106; 100_000]))
+            .unwrap_err()
+            .0
+            .contains("anidados"));
+        // Just under the limit still reads: lists in lists, ending in a long.
+        let mut ok = [0u8, 0, 1, 0, 0, 0].repeat(MAX_DEPTH - 1);
+        ok.push(0xf9);
+        ok.extend_from_slice(&7i64.to_le_bytes());
+        let mut k = decode(&raw(&ok)).unwrap();
+        let mut depth = 1;
+        while let K::List(mut l) = k {
+            k = l.pop().unwrap();
+            depth += 1;
+        }
+        assert_eq!((depth, k), (MAX_DEPTH, K::Long(7)));
+        // One more level is refused.
+        let mut over = [0u8, 0, 1, 0, 0, 0].repeat(MAX_DEPTH);
+        over.push(0xf9);
+        over.extend_from_slice(&7i64.to_le_bytes());
+        assert!(decode(&raw(&over)).is_err());
+        // The deepest message read, shown and dropped fits in half the
+        // stack of a default thread (2 MiB), unoptimized.
+        let deepest = raw(&ok);
+        std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(move || {
+                let k = decode(&deepest).unwrap();
+                let mut out = dbine_driver::QueryOutcome::default();
+                crate::cells::emit(k, 10, &mut out);
+                assert_eq!(out.results.len(), 1);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]
