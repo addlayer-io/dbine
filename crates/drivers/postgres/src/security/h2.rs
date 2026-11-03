@@ -43,6 +43,22 @@ pub(super) fn spec() -> SecuritySpec {
     }
 }
 
+const OBJECTS: &[&str] = &["schema", "table", "view"];
+
+/// What GRANT takes on each kind (H2 keeps no list of them): rights on a
+/// schema, table or view (https://h2database.com/html/commands.html#grant_right),
+/// ALTER ANY SCHEMA (#grant_alter_any_schema) and ADMIN (#alter_user_admin)
+/// on the database.
+pub(super) const PRIVILEGES: super::Documented = &[
+    ("SELECT", OBJECTS),
+    ("INSERT", OBJECTS),
+    ("UPDATE", OBJECTS),
+    ("DELETE", OBJECTS),
+    ("ALL PRIVILEGES", OBJECTS),
+    (ALTER_ANY_SCHEMA, &[""]),
+    (ADMIN, &[""]),
+];
+
 /// (member, role) pairs.
 pub(super) const MEMBERSHIPS: &str = "SELECT grantee AS member, grantedrole AS role
        FROM INFORMATION_SCHEMA.RIGHTS WHERE grantedrole IS NOT NULL AND grantedrole <> ''";
