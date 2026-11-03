@@ -11351,5 +11351,17 @@
   "Tablas splayed": "Tabelas splayed",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "em kdb+ não é possível editar linhas de uma tabela particionada ou splayed: cada coluna é um arquivo em disco, que se altera reescrevendo-o com q",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ anunciou uma mensagem de {0} bytes, mais do que o seu protocolo permite",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ não respondeu ao reconectar: o servidor continua ocupado com a consulta cancelada (kdb+ a termina de qualquer forma) e atende uma requisição por vez"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ não respondeu ao reconectar: o servidor continua ocupado com a consulta cancelada (kdb+ a termina de qualquer forma) e atende uma requisição por vez",
+  "Databricks no entregó el token de acceso: {0}": "O Databricks não entregou o token de acesso: {0}",
+  "Databricks rechazó el inicio de sesión: {0}": "O Databricks recusou o login: {0}",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": "O login no navegador abre a página de login do workspace (no Azure Databricks, Microsoft Entra ID), com SSO e MFA; precisa que a porta 8020 deste computador esteja livre.",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": "O login no navegador abre a página de login do workspace, com o SSO da sua organização e MFA; precisa que a porta 8020 deste computador esteja livre.",
+  "Inicio de sesión en el navegador (SSO)": "Login no navegador (SSO)",
+  "dirección del workspace no válida: {0}": "endereço do workspace inválido: {0}",
+  "el host no tiene el inicio de sesión OAuth de Databricks (/oidc/v1/token): revisá que sea la dirección del workspace": "o host não tem o login OAuth do Databricks (/oidc/v1/token): verifique se é o endereço do workspace",
+  "el puerto {0} de este equipo está ocupado y el inicio de sesión de Databricks necesita ese puerto (¿hay otro inicio de sesión abierto, como databricks auth login?): cerralo y volvé a conectar": "a porta {0} deste computador está ocupada e o login do Databricks precisa dessa porta (há outro login aberto, como databricks auth login?): feche-o e conecte novamente",
+  "este motor no lista sus permisos": "este mecanismo não lista suas permissões",
+  "no se pudo pedir el token al workspace de Databricks: {0}": "não foi possível solicitar o token ao workspace do Databricks: {0}",
+  "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "passaram 5 minutos sem concluir o login no navegador (a janela foi fechada?); conecte novamente",
+  "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "o login foi cancelado ou o acesso foi negado no navegador: {0}"
 }

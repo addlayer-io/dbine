@@ -11351,5 +11351,17 @@
   "Tablas splayed": "Таблицы splayed",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "в kdb+ строки партиционированной или splayed таблицы не редактируются: каждый столбец — это файл на диске, который изменяется его перезаписью с помощью q",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ объявил сообщение размером {0} байт, больше, чем допускает его протокол",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ не ответил при повторном подключении: сервер всё ещё занят отменённым запросом (kdb+ всё равно доводит его до конца) и обрабатывает один запрос за раз"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ не ответил при повторном подключении: сервер всё ещё занят отменённым запросом (kdb+ всё равно доводит его до конца) и обрабатывает один запрос за раз",
+  "Databricks no entregó el token de acceso: {0}": "Databricks не выдал токен доступа: {0}",
+  "Databricks rechazó el inicio de sesión: {0}": "Databricks отклонил вход: {0}",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": "Вход в браузере открывает страницу входа в рабочую область (в Azure Databricks это Microsoft Entra ID) с SSO и MFA; для него должен быть свободен порт 8020 на этом компьютере.",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": "Вход в браузере открывает страницу входа в рабочую область с SSO вашей организации и MFA; для него должен быть свободен порт 8020 на этом компьютере.",
+  "Inicio de sesión en el navegador (SSO)": "Вход в браузере (SSO)",
+  "dirección del workspace no válida: {0}": "недопустимый адрес рабочей области: {0}",
+  "el host no tiene el inicio de sesión OAuth de Databricks (/oidc/v1/token): revisá que sea la dirección del workspace": "на хосте нет входа OAuth Databricks (/oidc/v1/token): проверьте, что это адрес рабочей области",
+  "el puerto {0} de este equipo está ocupado y el inicio de sesión de Databricks necesita ese puerto (¿hay otro inicio de sesión abierto, como databricks auth login?): cerralo y volvé a conectar": "порт {0} на этом компьютере занят, а вход в Databricks требует этот порт (не открыт ли другой вход, например databricks auth login?): закройте его и подключитесь снова",
+  "este motor no lista sus permisos": "этот движок не показывает свои разрешения",
+  "no se pudo pedir el token al workspace de Databricks: {0}": "не удалось запросить токен у рабочей области Databricks: {0}",
+  "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "прошло 5 минут, а вход в браузере не завершён (окно закрыто?); подключитесь снова",
+  "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "вход отменён или в доступе отказано в браузере: {0}"
 }

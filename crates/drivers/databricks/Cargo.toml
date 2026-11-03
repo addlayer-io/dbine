@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-databricks"
-version = "0.1.13"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.14"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
@@ -11,3 +11,6 @@ serde_json.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
 base64.workspace = true
+# OAuth U2M browser sign-in (PKCE): random values and SHA-256.
+sha2 = "0.10"
+getrandom = "0.2"

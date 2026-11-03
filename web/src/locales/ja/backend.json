@@ -11351,5 +11351,17 @@
   "Tablas splayed": "Splayed テーブル",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "kdb+ ではパーティションテーブルや splayed テーブルの行は編集できません。各列はディスク上のファイルであり、q で書き直すことで変更します",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ が {0} バイトのメッセージを通知しましたが、プロトコルで許容されるサイズを超えています",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "再接続時に kdb+ が応答しませんでした。サーバーはキャンセルされたクエリの処理中で（kdb+ はそのクエリを最後まで実行します）、一度に1つのリクエストしか処理しません"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "再接続時に kdb+ が応答しませんでした。サーバーはキャンセルされたクエリの処理中で（kdb+ はそのクエリを最後まで実行します）、一度に1つのリクエストしか処理しません",
+  "Databricks no entregó el token de acceso: {0}": "Databricks がアクセストークンを返しませんでした: {0}",
+  "Databricks rechazó el inicio de sesión: {0}": "Databricks がサインインを拒否しました: {0}",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": "ブラウザーでのサインインでは、ワークスペースのサインインページ(Azure Databricks では Microsoft Entra ID)が開き、SSO と MFA を使用します。このコンピューターのポート 8020 が空いている必要があります。",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": "ブラウザーでのサインインでは、ワークスペースのサインインページが開き、組織の SSO と MFA を使用します。このコンピューターのポート 8020 が空いている必要があります。",
+  "Inicio de sesión en el navegador (SSO)": "ブラウザーでサインイン (SSO)",
+  "dirección del workspace no válida: {0}": "ワークスペースのアドレスが正しくありません: {0}",
+  "el host no tiene el inicio de sesión OAuth de Databricks (/oidc/v1/token): revisá que sea la dirección del workspace": "このホストには Databricks の OAuth サインイン (/oidc/v1/token) がありません。ワークスペースのアドレスか確認してください",
+  "el puerto {0} de este equipo está ocupado y el inicio de sesión de Databricks necesita ese puerto (¿hay otro inicio de sesión abierto, como databricks auth login?): cerralo y volvé a conectar": "このコンピューターのポート {0} が使用中ですが、Databricks のサインインにはこのポートが必要です (databricks auth login など、別のサインインが開いていませんか?)。閉じてからもう一度接続してください",
+  "este motor no lista sus permisos": "このエンジンは権限を一覧表示しません",
+  "no se pudo pedir el token al workspace de Databricks: {0}": "Databricks ワークスペースにトークンを要求できませんでした: {0}",
+  "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "ブラウザーでのサインインが 5 分間完了しませんでした (ウィンドウを閉じましたか?)。もう一度接続してください",
+  "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "ブラウザーでサインインがキャンセルされたか、アクセスが拒否されました: {0}"
 }

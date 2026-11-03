@@ -11351,5 +11351,17 @@
   "Tablas splayed": "Tabele splayed",
   "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": "w kdb+ nie edytuje się wierszy tabeli partycjonowanej ani splayed: każda kolumna to plik na dysku, który zmienia się, nadpisując go za pomocą q",
   "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": "kdb+ zapowiedział komunikat o rozmiarze {0} bajtów, większy, niż dopuszcza jego protokół",
-  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ nie odpowiedział przy ponownym łączeniu: serwer nadal jest zajęty anulowanym zapytaniem (kdb+ i tak je kończy) i obsługuje jedno żądanie naraz"
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": "kdb+ nie odpowiedział przy ponownym łączeniu: serwer nadal jest zajęty anulowanym zapytaniem (kdb+ i tak je kończy) i obsługuje jedno żądanie naraz",
+  "Databricks no entregó el token de acceso: {0}": "Databricks nie zwrócił tokenu dostępu: {0}",
+  "Databricks rechazó el inicio de sesión: {0}": "Databricks odrzucił logowanie: {0}",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": "Logowanie w przeglądarce otwiera stronę logowania workspace (w Azure Databricks to Microsoft Entra ID) z SSO i MFA; wymaga wolnego portu 8020 na tym komputerze.",
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": "Logowanie w przeglądarce otwiera stronę logowania workspace z SSO Twojej organizacji i MFA; wymaga wolnego portu 8020 na tym komputerze.",
+  "Inicio de sesión en el navegador (SSO)": "Logowanie w przeglądarce (SSO)",
+  "dirección del workspace no válida: {0}": "nieprawidłowy adres workspace: {0}",
+  "el host no tiene el inicio de sesión OAuth de Databricks (/oidc/v1/token): revisá que sea la dirección del workspace": "host nie ma logowania OAuth Databricks (/oidc/v1/token): sprawdź, czy to adres workspace",
+  "el puerto {0} de este equipo está ocupado y el inicio de sesión de Databricks necesita ese puerto (¿hay otro inicio de sesión abierto, como databricks auth login?): cerralo y volvé a conectar": "port {0} na tym komputerze jest zajęty, a logowanie do Databricks wymaga tego portu (czy jest otwarte inne logowanie, np. databricks auth login?): zamknij je i połącz się ponownie",
+  "este motor no lista sus permisos": "ten silnik nie wyświetla swoich uprawnień",
+  "no se pudo pedir el token al workspace de Databricks: {0}": "nie udało się zażądać tokenu od workspace Databricks: {0}",
+  "pasaron 5 minutos sin completar el inicio de sesión en el navegador (¿se cerró la ventana?); volvé a conectar": "minęło 5 minut bez ukończenia logowania w przeglądarce (czy okno zostało zamknięte?); połącz się ponownie",
+  "se canceló el inicio de sesión o se negó el acceso en el navegador: {0}": "logowanie zostało anulowane lub odmówiono dostępu w przeglądarce: {0}"
 }
