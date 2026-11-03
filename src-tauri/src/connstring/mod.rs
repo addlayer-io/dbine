@@ -3429,14 +3429,16 @@ fn kdb(b: &mut B) {
     b.push("hopen", "q (hopen)", text, notes.clone());
 
     let pw = b.pw();
-    // The inside of a Python string in single quotes.
-    let py = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'");
-    let mut args = vec![format!("host='{}'", py(host)), format!("port={}", c.port)];
+    // Python literals on one line: control characters are escaped too, so a
+    // CR or LF can't end the line in a REPL. A placeholder or the mask goes
+    // in quotes like a value.
+    let py = python::py_lit;
+    let mut args = vec![format!("host={}", py(host)), format!("port={}", c.port)];
     if !c.user.is_empty() {
-        args.push(format!("username='{}'", py(&c.user)));
+        args.push(format!("username={}", py(&c.user)));
     }
-    if let Some(p) = pw {
-        args.push(format!("password='{}'", p.esc(py)));
+    if let Some(V::T(p) | V::R(p)) = pw {
+        args.push(format!("password={}", py(&p)));
     }
     if c.encrypt {
         args.push("tls=True".into());
@@ -3449,9 +3451,25 @@ fn kdb(b: &mut B) {
     );
 }
 
-/// The inside of a q string: `"` and `\` escaped.
+/// The inside of a q string, on one line: `"` and `\` escaped, `\n`, `\r`
+/// and `\t`, and any other control byte as `\ddd` (octal), as q reads them.
 fn q_str(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                let _ = write!(out, "\\{:03o}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

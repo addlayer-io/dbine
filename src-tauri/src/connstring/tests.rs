@@ -521,7 +521,7 @@ fn kdb_handle_and_pykx() {
     assert!(!text(&c, "hopen", &Fill::Masked).contains("pw"));
     assert_eq!(
         text(&c, "pykx", &Fill::Placeholder),
-        "kx.SyncQConnection(host='db.example.com', port=5000, username='u', password='${DB_PASSWORD}')"
+        "kx.SyncQConnection(host=\"db.example.com\", port=5000, username=\"u\", password=\"${DB_PASSWORD}\")"
     );
     // Without a password the handle stays a symbol; a nasty one is a
     // string, escaped for q and for Python.
@@ -535,13 +535,13 @@ fn kdb_handle_and_pykx() {
     assert!(b.secret);
     assert_eq!(b.text, "`$\":db.example.com:5000:u:p;w={x}@:/% '\\\"q\"");
     let p = text(&c, "pykx", &Fill::Values(&nasty));
-    assert!(p.ends_with("password='p;w={x}@:/% \\'\"q')"), "{p}");
+    assert!(p.ends_with("password=\"p;w={x}@:/% '\\\"q\")"), "{p}");
     // No user: neither user nor password.
     let anon = conn_of(&cfg("kdb", "h", 6000, "", ""));
     assert_eq!(text(&anon, "hopen", &Fill::Placeholder), "`:h:6000");
     assert_eq!(
         text(&anon, "pykx", &Fill::Placeholder),
-        "kx.SyncQConnection(host='h', port=6000)"
+        "kx.SyncQConnection(host=\"h\", port=6000)"
     );
     // TLS: `tcps://` and `tls=True`; unverified says so.
     let mut t = cfg("kdb", "h", 5001, "", "u");
@@ -555,6 +555,30 @@ fn kdb_handle_and_pykx() {
     t.options.insert("SSL_VERIFY_SERVER".into(), "false".into());
     let b = build(&conn_of(&t), "pykx", &Fill::Values(&none)).unwrap();
     assert_eq!(b.notes, vec![note("tls_unverified", &[])]);
+}
+
+#[test]
+fn kdb_snippets_keep_control_characters_inside_the_literals() {
+    // A CR or LF in a password or host would end the line in a REPL that
+    // reads one line at a time; every control byte stays escaped.
+    let mut x = cfg("kdb", "h\nx", 5000, "", "u\u{1}v");
+    x.options.insert("tcps".into(), "false".into());
+    let c = conn_of(&x);
+    let pw = values(&[("password", "a\nb\rc\td\u{1}e\u{7f}f\\g\"h'i")]);
+    for id in ["hopen", "pykx"] {
+        let t = text(&c, id, &Fill::Values(&pw));
+        assert!(!t.chars().any(char::is_control), "{id}: {t:?}");
+    }
+    assert_eq!(
+        text(&c, "hopen", &Fill::Values(&pw)),
+        "`$\":h\\nx:5000:u\\001v:a\\nb\\rc\\td\\001e\\177f\\\\g\\\"h'i\""
+    );
+    assert_eq!(
+        text(&c, "pykx", &Fill::Values(&pw)),
+        "kx.SyncQConnection(host=\"h\\nx\", port=5000, username=\"u\\x01v\", password=\"a\\nb\\rc\\td\\x01e\\x7ff\\\\g\\\"h'i\")"
+    );
+    // Other control bytes are three octal digits, as q reads `\ddd`.
+    assert_eq!(super::q_str("\u{0}\u{1b}\u{1f} é"), "\\000\\033\\037 é");
 }
 
 // ---------------------------------------------------------------------------
