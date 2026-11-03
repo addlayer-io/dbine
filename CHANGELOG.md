@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### New
+- **KDB+ support:** connect to kdb+ processes (plain or over TLS) and work in q: browse the tables, views, functions and variables of every namespace, run q scripts statement by statement, filter, sort and edit table rows from the grid, and watch memory and open connections in the Monitor. On kdb+ 3.6 and later, read-only connections are also enforced by the server (`reval`).
+
 ### Improvements
 - **Permissions to grant come from the server:** in **Users and permissions**, the list of permissions is what that server can grant, read from its own catalog where it has one (SQL Server's `sys.fn_builtin_permissions`, PostgreSQL's ACLs, MySQL's `SHOW PRIVILEGES`, ClickHouse, Oracle, SAP HANA, Redis, MongoDB, Neo4j, Couchbase, OpenSearch…) and from the engine's documentation elsewhere, so it follows the server's version: SQL Server now offers `VIEW DATABASE STATE`, `VIEW DATABASE PERFORMANCE STATE`, `SHOWPLAN` and the rest. It shows only what applies to the target you pick (the whole database, a schema, a table, a procedure…), and the same list feeds **New schema…**. A permission can still be typed.
 

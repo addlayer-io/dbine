@@ -1182,6 +1182,7 @@ fn setup_inner(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
         "ksqldb" => return Setup::none("ksqlDB has no maintained Python client: post the statement to its REST API (`/query-stream`) with requests"),
         "orientdb" => return Setup::none("OrientDB has no maintained Python client for its current versions: run the query through its REST API with requests"),
         "etcd" => return Setup::none("DBine's etcd commands have no direct Python equivalent: use the etcd3 package's get/get_prefix"),
+        "kdb" => return Setup::none("KDB+ in Python is KX's pykx: open `pykx.SyncQConnection(host, port, username=…, password=…)` and run the q text with it (`.pd()` gives a DataFrame)"),
         "cloudera" => return Setup::none("Cloudera Data Warehouse connects over HTTP with an HTTP path: set up impyla's or pyhive's HTTP transport for it"),
         _ => {}
     }

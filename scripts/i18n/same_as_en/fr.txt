@@ -228,6 +228,7 @@ snippets.json:families.oracle
 snippets.json:families.db2
 snippets.json:families.flux
 snippets.json:families.etcd
+snippets.json:families.q
 subset.json:filterExpression
 subset.json:type
 subset.json:table

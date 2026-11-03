@@ -552,6 +552,73 @@ Known engines that DBine does not support, and why.
 | Windows Management Instrumentation | no | It only exists on Windows and is not a database. |
 | Jennifer, SnappyData, GemFire XD | no | Jennifer is an APM; SnappyData and GemFire XD are discontinued and only have JDBC. |
 
+## KDB+ (kdb+ and q)
+
+The `kdb` driver (`crates/drivers/kdb`) speaks kdb+'s IPC protocol itself:
+the handshake, sync queries, every q type (temporal ones from 2000-01-01,
+nulls and infinities), tables and keyed tables, dictionaries, lambdas,
+errors and compressed messages. TLS is q's `tcps`, with `SSL_VERIFY_SERVER`
+and `SSL_CA_CERT_FILE`.
+
+**What it does:**
+
+- **Explorer:** tables, views, functions and other variables of the root
+  namespace and of the user's namespaces (`.ns.t`, one-letter ones like
+  kdb+tick's `.u` included); kdb+'s own namespaces (`.q`, `.Q`, `.h`, `.j`,
+  `.o`, `.z`) are left out. One protected round trip lists them all: a
+  namespace that can't be read leaves out only itself. Partitioned tables
+  (an HDB's, `.Q.qp`) and splayed tables show in folders of their own.
+  Columns and types come from `meta`, the key from `keys`.
+- **Query editor:** q, one statement per line as kdb+ loads a script (a
+  line that starts with a blank continues the one above; `/` comments and
+  blocks; `\` system commands). Each statement is its own result.
+- **Data:** a table opens with `select[N] from t`, a partitioned one by
+  index (`.Q.ind`), which reads only the partitions those rows are in; the
+  grid's filters and sort are q (each value cast to the column's type on
+  the server), with a filter on the partition column (`date`, `month`,
+  `year`, `int`) first in the `where`. Edited, added and deleted rows
+  become `update`, `insert` and `delete` on the table by name. Views,
+  variables, and partitioned and splayed tables (whose columns are files on
+  disk) are read only in the grid.
+- **Big results:** for the grid, the server measures a result (`-22!`)
+  before sending it: one over 4 MB with more rows than the grid shows comes
+  back as its first rows and its count, marked partial. Export, charts and
+  tasks get the whole result.
+- **Read-only connections and server-enforced reads (MCP, AI assistant):**
+  each statement runs inside `reval` (kdb+ 3.6+), which refuses writes on
+  the server, after a client-side check that refuses anything not plainly a
+  read. On a server without `reval` only the client-side check applies, and
+  MCP and the assistant ask before each read.
+- **Monitor:** memory (`.Q.w[]`), open connections (`.z.W`), version, host,
+  threads and port; a connection can be closed (`hclose`).
+- **Cancel:** it closes the connection and the next query opens a new one.
+  kdb+ has no request to stop a query from a client: the server finishes it
+  on its own.
+- **Table designer and definition:** `t:([k:`long$()] c:`symbol$())`.
+
+**Not available, and why:**
+
+| Feature | Reason |
+|---|---|
+| Syntax highlighting and completion for q | pending: the editor has no q language yet; q opens as plain text. |
+| Execution plans, Profiler | kdb+ has neither. |
+| Cancel another client's query, Locks | kdb+ runs one request at a time and has no request to stop another one's. |
+| Create or drop databases, Backups | A kdb+ process is one namespace tree; an on-disk database is files the server reads, saved with q (`.Q.dpft`, `set`), not through a backup command. |
+| Users and permissions | kdb+'s users are a file given at start-up (`-u`, `-U`) or the process's own `.z.pw`: there's nothing to list or grant over IPC. |
+| Schema compare and sync | pending: changing columns in place takes code per change and, on an on-disk database, rewriting each column's file. |
+| Schema conversion (to and from other engines) | pending: `dbine-schema` has no q dialect yet (kdb+ types, keyed tables). |
+| Foreign keys (ER diagram, jump by key) | pending: linked columns (`meta`'s `f`) aren't read yet. |
+| Bulk load | pending: data loads with `insert` scripts of 500 rows. |
+| Chart aggregation on the server | pending: charts aggregate the loaded result. |
+| Index usage | kdb+ has attributes (`s`, `u`, `p`, `g`), not indexes. |
+
+**Tests:** the IPC codec, the script splitter, the read-only check and the
+q the grid writes have unit tests; `tests/fake_server.rs` runs the driver
+against an in-process server that speaks the protocol (connect, a refused
+login, the explorer, scripts and errors, read-only, cancel and reconnect).
+Live tests against a real kdb+ (`tests/live.rs`, `dbine-test-kdb`) are
+pending: kdb+ needs a license from KX, so there's no container yet.
+
 ## Per-column filters on table data
 
 The filter row under the headers (`Driver::filtered_browse`) is applied on
@@ -651,6 +718,9 @@ It does not appear where the driver reports no foreign keys:
   edges between nodes, not key values in a node's properties, and the grid
   shows a whole node in one column, so there is no cell whose value leads
   to other rows; following relationships is a Cypher / Gremlin query.
+- **KDB+**: pending. kdb+ has linked columns (a column enumerated over a
+  keyed table, `meta`'s `f`), which the driver doesn't read as foreign keys
+  yet.
 
 ### Tested against real servers
 
@@ -3256,6 +3326,7 @@ directly under the connection). Reason in all of them: a single database.
   (SuiteAnalytics Connect).
 - **NoSQL and search**: Amazon DynamoDB, Amazon Neptune, Elasticsearch,
   OpenSearch, Open Distro for Elasticsearch, Apache Solr, etcd, ksqlDB.
+- **Time series**: KDB+ (a kdb+ process is one tree of namespaces).
 
 ### Tested against real servers
 

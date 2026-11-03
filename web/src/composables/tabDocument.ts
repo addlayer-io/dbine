@@ -302,7 +302,7 @@ export function useFileDocument(tab: FileTab): TabDocument {
 // -- languages and file extensions ----------------------------------------------------
 
 /** Extensions opened as scripts (mirrors the backend's SCRIPT_EXTS). */
-export const SCRIPT_EXTS = ['sql', 'cql', 'js', 'json', 'txt', 'redis', 'cypher', 'flux', 'ksql', 'n1ql', 'psql'];
+export const SCRIPT_EXTS = ['sql', 'cql', 'js', 'json', 'txt', 'redis', 'cypher', 'flux', 'ksql', 'n1ql', 'psql', 'q'];
 
 export const extOf = (path: string) => {
   const name = baseName(path);
@@ -318,7 +318,8 @@ export function languageForExt(ext: string): Language | undefined {
     case 'sql': case 'psql': case 'ksql': case 'n1ql': return 'sql';
     case 'cql': return 'cql';
     case 'js': case 'json': return 'json';
-    case 'redis': return 'redis';
+    // KDB+'s q is plain text in the editor, as Redis commands.
+    case 'redis': case 'q': return 'redis';
     case 'cypher': return 'cypher';
     case 'flux': return 'flux';
     default: return undefined;
@@ -332,7 +333,8 @@ export function extFitsDriver(ext: string, d: DriverInfo | undefined): boolean {
   switch (ext) {
     case 'js': case 'json': return d.language === 'json';
     case 'cql': return d.language === 'cql';
-    case 'redis': return d.language === 'redis';
+    case 'redis': return d.language === 'redis' && d.dialect !== 'q';
+    case 'q': return d.dialect === 'q';
     case 'cypher': return d.language === 'cypher';
     case 'flux': return d.language === 'flux';
     default: return d.language === 'sql';

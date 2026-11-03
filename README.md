@@ -420,7 +420,7 @@ all of them. The exceptions, with their reason, are in
 | Key-value | Redis · Valkey · Dragonfly · DynamoDB · etcd |
 | Graph | Neo4j · Memgraph · Amazon Neptune · OrientDB |
 | Wide-column | Cassandra · ScyllaDB · Amazon Keyspaces · Phoenix |
-| Time series | InfluxDB 1/2/3 · IoTDB · GreptimeDB · TDengine |
+| Time series | InfluxDB 1/2/3 · IoTDB · GreptimeDB · TDengine · KDB+ |
 | Search | Elasticsearch · OpenSearch · Solr · Manticore |
 | Streaming | ksqlDB · Timeplus |
 

@@ -287,6 +287,7 @@ The **Mode** column is the native key of the mode field. "—" means none
 | `iotdb`, `timechodb` | iotdb | Configurable | `use_ssl` | `true` | — | 5 | medium |
 | `ksqldb` | ksqldb | Configurable | `useTls` | `true` | — | 5 | medium |
 | `tdengine` | tdengine | Configurable | `useSSL` | `true` | — | 5 | medium |
+| `kdb` | kdb | Configurable | `tcps` | `true` | — | 5 | low |
 | `phoenix`, `avatica` | phoenix | Configurable | `scheme` | `https` | — | 5 | medium |
 | `flightsql` | flightsql | Configurable | `useEncryption` | `true` | — | 5 | low |
 | `libsql` | libsql | InUrl | — | — | — | 5 | low |
@@ -1245,6 +1246,18 @@ Neither engine has client-side names of its own (their docs use curl).
 
 `tls_port`: CouchDB `Some(6984)`. OrientDB `None` (its HTTPS listener is set in
 `orientdb-server-config.xml`). **Risk: low.**
+
+### KDB+: `kdb`
+
+New driver (no saved connections before TLS existed): the legacy table only
+maps `encrypt` to `tcps`. q names: a `:tcps://host:port` handle and the
+`SSL_VERIFY_SERVER` / `SSL_CA_CERT_FILE` environment variables.
+
+| Option (native key) | Kind | Values → TlsLevel | New default | Legacy [ff, ft, tf, tt] |
+|---|---|---|---|---|
+| `tcps` | `tls_switch` | true → VerifyFull, false → Off | `true` | `false, false, true, true` |
+| `SSL_VERIFY_SERVER` | `tls_skip_verify`, inverted: unchecked (`NO`) pins the first certificate seen | | `true` | `true, true, true, false` |
+| `SSL_CA_CERT_FILE` | `tls_ca_file` | path | — | — |
 
 ### etcd: `etcd`
 

@@ -141,6 +141,7 @@ snippets.json:families.oracle
 snippets.json:families.db2
 snippets.json:families.flux
 snippets.json:families.etcd
+snippets.json:families.q
 subset.json:rules.hash
 subset.json:status
 tasks.json:unit.bytes

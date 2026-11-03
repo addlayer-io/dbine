@@ -228,6 +228,7 @@ snippets.json:families.db2
 snippets.json:families.flux
 snippets.json:families.couchdb
 snippets.json:families.etcd
+snippets.json:families.q
 subset.json:tab
 subset.json:filter
 subset.json:rules.null

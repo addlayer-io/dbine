@@ -1372,6 +1372,9 @@
   "Archivo (.accdb / .mdb)": [
     "crates/drivers/odbc/src/presets.rs"
   ],
+  "Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades del sistema.": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
   "Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades públicas habituales.": [
     "crates/drivers/hana/src/lib.rs",
     "crates/drivers/mongodb/src/lib.rs",
@@ -2613,6 +2616,9 @@
     "crates/drivers/athena/src/plan.rs",
     "crates/drivers/spanner/src/plan.rs"
   ],
+  "Bytes en cola": [
+    "crates/drivers/kdb/src/monitor.rs"
+  ],
   "Bytes escaneados": [
     "crates/drivers/mysql/src/monitor.rs",
     "crates/drivers/snowflake/src/monitor.rs"
@@ -3516,6 +3522,9 @@
   ],
   "Cifra la conexión (rediss://) y verifica el certificado del servidor.": [
     "crates/drivers/redis/src/lib.rs"
+  ],
+  "Cifra la conexión con TLS (:tcps://) y verifica el certificado del servidor.": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "Cifra la conexión con TLS y verifica el certificado del servidor.": [
     "crates/drivers/flightsql/src/lib.rs",
@@ -4421,6 +4430,7 @@
     "crates/drivers/hana/src/monitor.rs",
     "crates/drivers/influxdb/src/monitor.rs",
     "crates/drivers/iotdb/src/monitor.rs",
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/mongodb/src/monitor.rs",
     "crates/drivers/mysql/src/monitor.rs",
     "crates/drivers/neo4j/src/monitor.rs",
@@ -4451,6 +4461,7 @@
     "crates/drivers/influxdb/src/monitor.rs"
   ],
   "Conexiones abiertas": [
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/mongodb/src/monitor.rs",
     "crates/drivers/postgres/src/properties.rs"
   ],
@@ -4513,6 +4524,9 @@
   "Conexión de solo lectura: no se cargan datos.": [
     "crates/drivers/couchbase/src/transfer.rs",
     "crates/drivers/dynamodb/src/transfer.rs"
+  ],
+  "Conexión de solo lectura: no se cierran conexiones de otros.": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "Conexión de solo lectura: no se puede borrar una base.": [
     "crates/drivers/couchdb/src/lib.rs",
@@ -4640,6 +4654,9 @@
   "Conexión de solo lectura: se bloqueó `{0}`. Solo se permiten lecturas (find, aggregate, count, distinct, list…).": [
     "crates/drivers/mongodb/src/lib.rs"
   ],
+  "Conexión de solo lectura: se bloqueó el comando de sistema \\{0}. Solo se permiten los que muestran algo (\\v, \\f, \\a, \\b, \\w…).": [
+    "crates/drivers/kdb/src/guard.rs"
+  ],
   "Conexión de solo lectura: se bloqueó el comando {0}. Solo se permiten lecturas (GET, HGETALL, SCAN, INFO…).": [
     "crates/drivers/redis/src/lib.rs"
   ],
@@ -4669,6 +4686,9 @@
   ],
   "Conexión de solo lectura: se bloqueó {0} {1}. Solo se permiten búsquedas (select, query, get, sql…) y consultas de administración.": [
     "crates/drivers/solr/src/lib.rs"
+  ],
+  "Conexión de solo lectura: se bloqueó {0}. Solo se permiten lecturas.": [
+    "crates/drivers/kdb/src/guard.rs"
   ],
   "Conexión de solo lectura: sin crear una sesión de Extended Events solo se muestrean las consultas en curso y la última de cada sesión; las muy rápidas pueden no verse.": [
     "crates/drivers/sqlserver/src/profiler.rs"
@@ -5626,6 +5646,9 @@
   "DBine solo permite lecturas por MCP: la consulta tiene una sentencia {0}": [
     "src-tauri/src/mcp/tools.rs"
   ],
+  "DBine todavía no genera los cambios de estructura de una tabla de kdb+: en una base en disco cada columna es un archivo que hay que reescribir": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
   "DBine: carga masiva en curso": [
     "crates/drivers/snowflake/src/transfer.rs"
   ],
@@ -6263,6 +6286,9 @@
   ],
   "Deshabilitada": [
     "crates/drivers/sqlserver/src/properties.rs"
+  ],
+  "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "Después de ciertos ALTER TABLE la tabla queda en espera de REORG: se puede leer, pero no cambiar. Una tabla no disponible (por ejemplo, tras una carga NOT RECOVERABLE restaurada) hay que recargarla o volver a crearla.": [
     "crates/drivers/odbc/src/health.rs"
@@ -7026,6 +7052,9 @@
   ],
   "E/S saliente": [
     "crates/drivers/couchdb/src/monitor.rs"
+  ],
+  "en kdb+ no se editan filas de una tabla particionada o splayed: cada columna es un archivo en disco, que se cambia reescribiéndolo con q": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "EXPORT DATABASE escribe en una carpeta de esta computadora el esquema, un script de carga y un archivo por tabla. IMPORT DATABASE la carga en la base elegida, que tiene que estar vacía (o al menos sin esas tablas). Para restaurar, indicá la carpeta del backup.": [
     "crates/drivers/duckdb/src/backup.rs"
@@ -8904,6 +8933,9 @@
   "Esta respuesta no corresponde al inicio de sesión de DBine.": [
     "crates/drivers/sqlserver/src/entra.rs"
   ],
+  "Esta sesión": [
+    "crates/drivers/kdb/src/monitor.rs"
+  ],
   "Esta versión de Neo4j no cuenta el uso de los índices (readCount llega en Neo4j 5): se listan sin contadores.": [
     "crates/drivers/neo4j/src/index_usage.rs"
   ],
@@ -9959,7 +9991,8 @@
     "crates/drivers/cassandra/src/properties.rs",
     "crates/drivers/couchbase/src/lib.rs",
     "crates/drivers/couchdb/src/monitor.rs",
-    "crates/drivers/hana/src/properties.rs"
+    "crates/drivers/hana/src/properties.rs",
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "Función de la edición con licencia. Cambia el grupo de la base sin mover los trabajos que ya corren (DEFERRED). Vacío: el grupo por defecto.": [
     "crates/drivers/postgres/src/properties.rs"
@@ -10318,6 +10351,9 @@
   "Haiku: el más rápido": [
     "crates/dbine-ai/src/detect.rs"
   ],
+  "Handle": [
+    "crates/drivers/kdb/src/monitor.rs"
+  ],
   "Hash": [
     "crates/drivers/cosmosdb/src/ddl.rs",
     "crates/drivers/redis/src/ddl.rs"
@@ -10448,6 +10484,9 @@
   ],
   "Hilos del JVM": [
     "crates/drivers/solr/src/monitor.rs"
+  ],
+  "Hilos secundarios": [
+    "crates/drivers/kdb/src/monitor.rs"
   ],
   "Historial": [
     "crates/drivers/couchbase/src/properties.rs",
@@ -11407,6 +11446,12 @@
   ],
   "June": [
     "src-tauri/src/tasks/os.rs"
+  ],
+  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": [
+    "crates/drivers/kdb/src/conn.rs"
+  ],
+  "kdb+ no respondió al volver a conectar: el servidor sigue ocupado con la consulta cancelada (kdb+ la termina igual) y atiende un pedido por vez": [
+    "crates/drivers/kdb/src/conn.rs"
   ],
   "Kerberos": [
     "crates/drivers/odbc/src/security.rs"
@@ -13239,6 +13284,7 @@
     "crates/drivers/hana/src/monitor.rs",
     "crates/drivers/influxdb/src/monitor.rs",
     "crates/drivers/iotdb/src/monitor.rs",
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/mongodb/src/monitor.rs",
     "crates/drivers/mysql/src/monitor.rs",
     "crates/drivers/neo4j/src/monitor.rs",
@@ -13407,6 +13453,9 @@
   "Memoria directa usada (cluster)": [
     "crates/drivers/drill/src/lib.rs"
   ],
+  "Memoria en uso": [
+    "crates/drivers/kdb/src/monitor.rs"
+  ],
   "Memoria en uso (heap)": [
     "crates/drivers/influxdb/src/monitor.rs"
   ],
@@ -13422,6 +13471,9 @@
   ],
   "Memoria libre": [
     "crates/drivers/postgres/src/monitor.rs"
+  ],
+  "Memoria mapeada": [
+    "crates/drivers/kdb/src/monitor.rs"
   ],
   "Memoria máx. de transacciones": [
     "crates/drivers/neo4j/src/monitor.rs"
@@ -13450,6 +13502,9 @@
   ],
   "Memoria que usa": [
     "crates/drivers/duckdb/src/properties.rs"
+  ],
+  "Memoria reservada": [
+    "crates/drivers/kdb/src/monitor.rs"
   ],
   "Memoria reservada al SO": [
     "crates/drivers/influxdb/src/monitor.rs"
@@ -15756,6 +15811,7 @@
     "crates/drivers/dsql/src/lib.rs",
     "crates/drivers/firebird/src/schema.rs",
     "crates/drivers/hana/src/schema.rs",
+    "crates/drivers/kdb/src/edit.rs",
     "crates/drivers/mysql/src/design.rs",
     "crates/drivers/odbc/src/design.rs",
     "crates/drivers/oracle/src/ddl.rs",
@@ -15874,6 +15930,7 @@
     "crates/drivers/duckdb/src/schema.rs",
     "crates/drivers/firebird/src/schema.rs",
     "crates/drivers/hana/src/schema.rs",
+    "crates/drivers/kdb/src/edit.rs",
     "crates/drivers/mongodb/src/ddl.rs",
     "crates/drivers/mysql/src/design.rs",
     "crates/drivers/odbc/src/design.rs",
@@ -16083,6 +16140,7 @@
   ],
   "Núcleos": [
     "crates/drivers/influxdb/src/monitor.rs",
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/mongodb/src/monitor.rs",
     "crates/drivers/sqlserver/src/monitor.rs",
     "crates/drivers/tdengine/src/lib.rs"
@@ -17111,6 +17169,7 @@
     "crates/drivers/odbc/src/monitor.rs"
   ],
   "Pico de memoria": [
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/neo4j/src/monitor.rs",
     "crates/drivers/odbc/src/monitor.rs",
     "crates/drivers/redis/src/monitor.rs"
@@ -17381,6 +17440,7 @@
     "crates/drivers/trino/src/monitor.rs"
   ],
   "Proceso": [
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/mongodb/src/monitor.rs",
     "crates/drivers/odbc/src/monitor.rs"
   ],
@@ -17562,6 +17622,7 @@
     "crates/dbine-driver/src/info.rs",
     "crates/drivers/couchdb/src/monitor.rs",
     "crates/drivers/hana/src/monitor.rs",
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/odbc/src/monitor.rs",
     "crates/drivers/postgres/src/monitor.rs",
     "crates/drivers/redis/src/monitor.rs"
@@ -19564,6 +19625,7 @@
     "crates/drivers/hana/src/monitor.rs",
     "crates/drivers/influxdb/src/monitor.rs",
     "crates/drivers/iotdb/src/monitor.rs",
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/ksqldb/src/monitor.rs",
     "crates/drivers/libsql/src/lib.rs",
     "crates/drivers/mongodb/src/lib.rs",
@@ -20211,7 +20273,8 @@
   ],
   "Sistema": [
     "crates/drivers/hana/src/monitor.rs",
-    "crates/drivers/influxdb/src/monitor.rs"
+    "crates/drivers/influxdb/src/monitor.rs",
+    "crates/drivers/kdb/src/monitor.rs"
   ],
   "Sistema operativo": [
     "crates/drivers/cassandra/src/monitor.rs",
@@ -20948,8 +21011,17 @@
   "Sí: sus tablas están en otro servidor o catálogo": [
     "crates/drivers/clickhouse/src/properties.rs"
   ],
+  "Símbolos internados": [
+    "crates/drivers/kdb/src/monitor.rs"
+  ],
   "Sólo este archivo": [
     "crates/drivers/duckdb/src/files.rs"
+  ],
+  "Tablas particionadas": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
+  "Tablas splayed": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "TABLE ACCESS FULL de tabla grande (~{0} filas)": [
     "crates/drivers/oracle/src/plan.rs"
@@ -23010,6 +23082,9 @@
   "Vacío o :memory: abre una base en memoria.": [
     "crates/drivers/duckdb/src/lib.rs"
   ],
+  "Vacío si el proceso no pide usuario (sin -u ni -U).": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
   "Vacío si el servidor corre sin autenticación.": [
     "crates/drivers/influxdb/src/v3.rs"
   ],
@@ -23251,6 +23326,9 @@
   "Vandelay": [
     "src-tauri/src/commands/datagen.rs"
   ],
+  "Variables": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
   "Variables globales": [
     "crates/drivers/odbc/src/monitor.rs"
   ],
@@ -23411,6 +23489,7 @@
     "crates/drivers/hana/src/monitor.rs",
     "crates/drivers/influxdb/src/monitor.rs",
     "crates/drivers/iotdb/src/monitor.rs",
+    "crates/drivers/kdb/src/monitor.rs",
     "crates/drivers/ksqldb/src/monitor.rs",
     "crates/drivers/mongodb/src/monitor.rs",
     "crates/drivers/mysql/src/monitor.rs",
@@ -23591,6 +23670,7 @@
     "crates/drivers/duckdb/src/properties.rs",
     "crates/drivers/firebird/src/properties.rs",
     "crates/drivers/hana/src/properties.rs",
+    "crates/drivers/kdb/src/lib.rs",
     "crates/drivers/mongodb/src/properties.rs",
     "crates/drivers/mysql/src/properties.rs",
     "crates/drivers/sqlite/src/properties.rs"
@@ -26933,6 +27013,12 @@
   "en este motor los esquemas no tienen dueño": [
     "src-tauri/src/commands/schemas.rs"
   ],
+  "en kdb+ los filtros y el orden de la grilla se aplican a la consulta con la que se abrió una tabla o una vista": [
+    "crates/drivers/kdb/src/edit.rs"
+  ],
+  "en kdb+ solo se editan filas de tablas: una vista se calcula y una variable se cambia con q": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
   "en modo WAL el tamaño de página no cambia: hay que pasar antes el diario a DELETE": [
     "crates/drivers/sqlite/src/properties.rs"
   ],
@@ -27659,6 +27745,9 @@
   "este servidor Flight SQL no admite transacciones: {0}": [
     "crates/drivers/flightsql/src/lib.rs"
   ],
+  "este servidor kdb+ no tiene reval (kdb+ 3.6 o posterior): DBine no puede asegurar en el servidor que una consulta solo lea": [
+    "crates/drivers/kdb/src/lib.rs"
+  ],
   "este servidor libSQL no informa transacciones (necesita Hrana 3)": [
     "crates/drivers/libsql/src/hrana.rs"
   ],
@@ -28334,6 +28423,9 @@
   "función": [
     "crates/drivers/sqlserver/src/clone.rs"
   ],
+  "función de kdb+ sin texto": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
   "gcloud no tiene una sesión válida con esa cuenta: iniciá sesión con «gcloud auth login {0}» y probá de nuevo": [
     "src-tauri/src/secret_sources/gcp.rs"
   ],
@@ -28410,6 +28502,9 @@
   ],
   "hana: no se pudo cancelar la sentencia: {0}": [
     "crates/drivers/hana/src/lib.rs"
+  ],
+  "handle de kdb+ inválido: {0}": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "handshake inválido": [
     "crates/dbine-link/src/lib.rs"
@@ -28687,6 +28782,18 @@
   "juego de caracteres: «{0}» no es un valor válido": [
     "crates/drivers/firebird/src/create_db.rs",
     "crates/drivers/firebird/src/properties.rs"
+  ],
+  "kdb+ atiende un pedido por vez: no hay consultas en curso que listar ni detener desde un cliente.": [
+    "crates/drivers/kdb/src/monitor.rs"
+  ],
+  "kdb+ cerró la conexión al iniciar sesión: el usuario o la contraseña no son válidos, o el servidor no acepta este cliente": [
+    "crates/drivers/kdb/src/conn.rs"
+  ],
+  "kdb+ envió una enumeración (tipo {0}): consultala con value o con `$ para leerla": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "kdb+ no permite detener desde un cliente la consulta de otro: se puede cerrar su conexión": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "keyspace": [
     "crates/drivers/cassandra/src/monitor.rs"
@@ -29196,6 +29303,9 @@
   "la columna tiene el elemento completo: se ordena por sus propiedades": [
     "crates/drivers/neo4j/src/ddl.rs"
   ],
+  "la columna {0} no tiene un nombre que q-sql pueda usar en un filtro": [
+    "crates/drivers/kdb/src/edit.rs"
+  ],
   "la columna {0} tiene un valor en una fila sin clave de clustering; solo las columnas estáticas pueden tenerlo": [
     "crates/drivers/cassandra/src/transfer.rs"
   ],
@@ -29549,6 +29659,9 @@
   ],
   "la fecha «{0}» no se puede guardar como fecha de MongoDB": [
     "crates/drivers/mongodb/src/transfer.rs"
+  ],
+  "la fila no tiene valores con los que encontrarla": [
+    "crates/drivers/kdb/src/edit.rs"
   ],
   "la fila tiene {0} valores y la carga {1} columnas": [
     "crates/drivers/cassandra/src/transfer.rs",
@@ -30315,6 +30428,12 @@
   "libSQL tiene una sola base («main»), no «{0}»": [
     "crates/drivers/sqlite/src/properties.rs"
   ],
+  "lista de kdb+ con largo negativo": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "lista de kdb+ más larga que el mensaje": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
   "listar «{0}» tardó demasiado": [
     "src-tauri/src/notebook/remote.rs"
   ],
@@ -30387,6 +30506,9 @@
   ],
   "los campos de una vista salen de su pipeline: para renombrar uno hay que editar la vista": [
     "crates/drivers/mongodb/src/rename.rs"
+  ],
+  "los comandos de sistema no se ejecutan como lecturas de solo lectura": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "los contadores cubren al menos {0} días, desde el arranque del servidor": [
     "crates/drivers/postgres/src/health.rs"
@@ -30584,6 +30706,27 @@
   ],
   "memoria usada": [
     "crates/drivers/mysql/src/monitor.rs"
+  ],
+  "mensaje comprimido de kdb+ con largo inválido": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "mensaje comprimido de kdb+ incompleto": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "mensaje comprimido de kdb+ inválido": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "mensaje comprimido de kdb+ truncado": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "mensaje de kdb+ con largo inválido ({0})": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "mensaje de kdb+ incompleto": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "mensaje de kdb+ truncado": [
+    "crates/drivers/kdb/src/ipc.rs"
   ],
   "mensaje de la app ilegible: {0}": [
     "crates/dbine-plugin/src/host.rs"
@@ -30965,6 +31108,9 @@
   ],
   "no hay columnas para importar: revisá la correspondencia": [
     "src-tauri/src/commands/imports.rs"
+  ],
+  "no hay columnas que insertar": [
+    "crates/drivers/kdb/src/edit.rs"
   ],
   "no hay commits para enviar: confirmá primero": [
     "src-tauri/src/commands/git_cli.rs"
@@ -32353,6 +32499,7 @@
     "src-tauri/src/commands/notebook.rs"
   ],
   "nombre de servidor inválido: {0}": [
+    "crates/drivers/kdb/src/lib.rs",
     "crates/drivers/neo4j/src/bolt.rs",
     "crates/drivers/redis/src/pinned.rs"
   ],
@@ -33352,6 +33499,9 @@
   "se perdió la conexión con el servidor: {0}": [
     "crates/drivers/sqlserver/src/lib.rs"
   ],
+  "se perdió la conexión con kdb+: {0}": [
+    "crates/drivers/kdb/src/conn.rs"
+  ],
   "se pidió agrupar por hash": [
     "crates/drivers/sqlserver/src/delta.rs"
   ],
@@ -33734,10 +33884,25 @@
   "sí, por {0}": [
     "crates/drivers/postgres/src/security.rs"
   ],
+  "símbolo de kdb+ sin terminar": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
   "tabla": [
     "crates/drivers/cassandra/src/monitor.rs",
     "crates/drivers/dynamodb/src/monitor.rs",
     "crates/drivers/mysql/src/monitor.rs"
+  ],
+  "tabla de kdb+ con columnas de más o de menos": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "tabla de kdb+ con columnas inválidas": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "tabla de kdb+ con nombres de columna inválidos": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "tabla de kdb+ sin diccionario": [
+    "crates/drivers/kdb/src/ipc.rs"
   ],
   "tabla temporal (SYSTEM_VERSIONING): el clon también lo es, con su propia tabla de historial «{0}.{1}»{2}": [
     "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -33889,6 +34054,9 @@
   "tiempo de espera agotado al cargar la configuración de AWS": [
     "crates/drivers/dynamodb/src/aws.rs"
   ],
+  "tiempo de espera agotado al conectar con kdb+": [
+    "crates/drivers/kdb/src/conn.rs"
+  ],
   "tiempo de espera agotado al conectar con {0}:{1}": [
     "crates/drivers/neo4j/src/bolt.rs"
   ],
@@ -33984,6 +34152,12 @@
   ],
   "tipo de geometría WKB desconocido ({0})": [
     "crates/drivers/hana/src/transfer.rs"
+  ],
+  "tipo de kdb+ desconocido ({0})": [
+    "crates/drivers/kdb/src/ipc.rs"
+  ],
+  "tipo de lista de kdb+ desconocido ({0})": [
+    "crates/drivers/kdb/src/ipc.rs"
   ],
   "tipo no soportado en la lectura: {0}": [
     "crates/drivers/clickhouse/src/transfer.rs"
@@ -34248,6 +34422,12 @@
   "una URL https:// no se lista": [
     "src-tauri/src/notebook/remote.rs"
   ],
+  "una asignación a {0}": [
+    "crates/drivers/kdb/src/guard.rs"
+  ],
+  "una asignación global (::)": [
+    "crates/drivers/kdb/src/guard.rs"
+  ],
   "una carga anterior de DBine en «{0}» (trabajo {1}) siguió corriendo y terminó ahora: sus filas ya están en la tabla, así que hay que vaciarla y copiarla de nuevo": [
     "crates/drivers/bigquery/src/transfer.rs"
   ],
@@ -34291,6 +34471,9 @@
   ],
   "una inserción terminó con un error inesperado: {0}": [
     "crates/drivers/trino/src/transfer.rs"
+  ],
+  "una lectura de solo lectura es una sola sentencia de q": [
+    "crates/drivers/kdb/src/lib.rs"
   ],
   "una lista de filas": [
     "crates/drivers/neo4j/src/neptune.rs"

@@ -316,6 +316,7 @@ snippets.json:body
 snippets.json:bodyPlaceholder
 snippets.json:families.db2
 snippets.json:families.etcd
+snippets.json:families.q
 snippets.json:families.flux
 snippets.json:families.oracle
 snippets.json:family

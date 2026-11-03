@@ -76,7 +76,7 @@ pub struct ImportOut {
 
 /// Extensions read as scripts (import, and the git copy).
 pub(crate) const SCRIPT_EXTS: &[&str] = &[
-    "sql", "cql", "js", "json", "txt", "redis", "cypher", "flux", "ksql", "n1ql", "psql",
+    "sql", "cql", "js", "json", "txt", "redis", "cypher", "flux", "ksql", "n1ql", "psql", "q",
 ];
 
 /// A script's file extension, from the query language of the engines it's
@@ -92,6 +92,8 @@ pub(crate) fn script_ext(engines: &[String]) -> &'static str {
     match info.language {
         Language::Sql => "sql",
         Language::Cql => "cql",
+        // KDB+'s q (`.q`, as kdb+ loads scripts).
+        Language::Redis if info.dialect == "q" => "q",
         Language::Redis => "redis",
         Language::Flux => "flux",
         Language::Cypher => "cypher",
@@ -114,6 +116,7 @@ pub(crate) fn engines_for_ext(ext: &str) -> Vec<String> {
         "js" => one("mongodb"),
         "cql" => one("cassandra"),
         "redis" => one("redis"),
+        "q" => one("kdb"),
         "cypher" => one("neo4j"),
         "flux" => one("influxdb"),
         "json" => Vec::new(),
@@ -130,6 +133,7 @@ pub(crate) fn line_comment(ext: &str) -> Option<&'static str> {
     match ext {
         "sql" | "cql" | "psql" | "ksql" | "n1ql" => Some("--"),
         "js" | "cypher" | "flux" => Some("//"),
+        "q" => Some("/"),
         _ => None,
     }
 }
@@ -327,6 +331,9 @@ mod ext_tests {
         assert_eq!(e(&["redis"]), "redis");
         assert_eq!(e(&["neo4j"]), "cypher");
         assert_eq!(e(&["influxdb"]), "flux");
+        assert_eq!(e(&["kdb"]), "q");
+        assert_eq!(engines_for_ext("q"), vec!["kdb".to_string()]);
+        assert_eq!(line_comment("q"), Some("/"));
         assert_eq!(line_comment("json"), None);
         assert_eq!(line_comment("js"), Some("//"));
         assert_eq!(engines_for_ext("JS"), vec!["mongodb".to_string()]);
