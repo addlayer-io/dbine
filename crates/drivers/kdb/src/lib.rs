@@ -33,6 +33,7 @@ pub mod ipc;
 pub mod load;
 mod monitor;
 pub mod script;
+mod stats;
 mod steps;
 pub mod sync;
 
@@ -520,6 +521,19 @@ impl KdbSession {
         let expr = self.eval(stmt);
         self.emit(&expr, max_rows, out).await
     }
+
+    /// One of DBine's own reads (row counts, the process's facts): inside
+    /// `reval` on a read-only connection whose server has it, so the server
+    /// enforces that it only reads; as it is otherwise, like the explorer's
+    /// and the Monitor's (fixed text, no names or values in it).
+    async fn read(&mut self, text: &str) -> Result<K> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        if self.read_only && self.reval {
+            self.q(&format!("{{{REVAL}}} {}", edit::qstr(text))).await
+        } else {
+            self.q(text).await
+        }
+    }
 }
 
 /// The catalog of [`Session::database_schema`], applied to the tables'
@@ -965,6 +979,12 @@ impl Session for KdbSession {
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         Ok(monitor::processes(self.q(monitor::CONNECTIONS).await?))
+    }
+
+    /// Tables in memory and splayed by `count`, partitioned ones only when
+    /// kdb+ already counted them ([`stats`]).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        Ok(stats::estimates(self.read(&stats::query()).await?))
     }
 
     /// Close a connection (`hclose`): its handle, as listed.
