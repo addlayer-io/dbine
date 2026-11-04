@@ -86,7 +86,7 @@ jobs:
       # stay the same as the root file.
       - name: OSV-Scanner exceptions in step
         run: |
-          for f in web/osv-scanner.toml mobile/osv-scanner.toml mobile/src-tauri/osv-scanner.toml; do
+          for f in web/osv-scanner.toml mobile/osv-scanner.toml mobile/src-tauri/osv-scanner.toml fuzz/osv-scanner.toml; do
             cmp osv-scanner.toml "$f"
           done
 
