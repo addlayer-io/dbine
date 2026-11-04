@@ -29,6 +29,21 @@ runs:
           librsvg2-dev patchelf libssl-dev libxdo-dev \
           libkrb5-dev  # Kerberos (GSSAPI) for Windows authentication: SQL Server, MongoDB
 
+    # openssl-src (the sqlserver_legacy host's vendored OpenSSL) runs
+    # `perl ./Configure`; on Windows the `perl` on PATH can be Git for
+    # Windows' MSYS one, which lacks the modules OpenSSL needs. Use
+    # Strawberry Perl, which the GitHub Windows images have.
+    - name: Perl for OpenSSL (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $perl = 'C:\Strawberry\perl\bin\perl.exe'
+        if (-not (Test-Path $perl)) {
+          Write-Output "::error::Strawberry Perl not found at ${perl}: openssl-src (sqlserver_legacy's vendored OpenSSL) needs it to build on Windows."
+          exit 1
+        }
+        "OPENSSL_SRC_PERL=$perl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
     - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       with:
         toolchain: stable
