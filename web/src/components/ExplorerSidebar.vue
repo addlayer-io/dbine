@@ -790,7 +790,17 @@ async function onContext(e: MouseEvent, n: TNode) {
       // Backups of the whole server (Redis, a snapshot of every index…).
       if (connected && d?.backup?.server_wide && d.databases_label) items.push({ label: t('backups:menu'), action: () => tabs.openBackups(cid!, '') });
       if (connected && d?.capabilities.create_database && !c.config.read_only) items.push(guarded(cid!, '', 'create_database', { label: t('explorer:menu.newDatabase'), action: () => createDatabase(cid!) }));
-      if (d && !d.databases_label && connected) dbItems(cid!, conns.live[cid!]?.databases[0] ?? '', items);
+      // Engines without databases (SQLite, KDB+…): the connection is the
+      // database, so its actions are here, as on a database node.
+      if (d && !d.databases_label && connected) {
+        const only = conns.live[cid!]?.databases[0] ?? '';
+        items.push({ label: t('search:menu'), action: () => tabs.openSearch(cid!, only) });
+        items.push({ label: t('health:menu'), action: () => tabs.openHealth(cid!, only) });
+        dbItems(cid!, only, items);
+        if (d.capabilities.database_properties) {
+          items.push({ label: t('dbProperties:menu'), action: () => { dbProperties.value = { connectionId: cid!, database: only }; } });
+        }
+      }
       items.push({ label: t('explorer:menu.copyServer'), divided: true, action: () => copy(serverText(c)) });
       items.push({ label: t('explorer:menu.copyConnectionName'), action: () => copy(c.name) });
       if (!c.temporary) items.push({ label: t('connString:menu'), action: () => openConnString(cid!) });

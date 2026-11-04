@@ -5,6 +5,9 @@
 ### Improvements
 - **Engine logos:** 51 more connection types show their product's logo instead of initials, among them IBM Db2, Informix and Netezza, Vertica, Exasol, InterSystems IRIS, Microsoft Access, Greenplum, StarRocks, OceanBase, TDengine, Materialize, Memgraph, RisingWave and Dremio.
 
+### Fixes
+- **Engines without databases (SQLite, libSQL, DuckDB files, KDB+…):** their connection's menu now has **Search the database**, **Health check** and, where the engine has them, **Properties**, which were offered only on database nodes; the command palette offers search and the health check for them too.
+
 ## [1.4.1] - 2026-11-03
 
 ### New
