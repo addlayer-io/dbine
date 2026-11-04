@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Improvements
+- **Engine logos:** 51 more connection types show their product's logo instead of initials, among them IBM Db2, Informix and Netezza, Vertica, Exasol, InterSystems IRIS, Microsoft Access, Greenplum, StarRocks, OceanBase, TDengine, Materialize, Memgraph, RisingWave and Dremio.
+
 ## [1.4.1] - 2026-11-03
 
 ### New
