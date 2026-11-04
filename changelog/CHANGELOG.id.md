@@ -1,6 +1,14 @@
 # Perubahan
 
 
+## [1.4.2] - 2026-11-04
+
+### Baru
+- **SQL Server lama lewat TLS 1.0/1.1:** DBine terhubung ke SQL Server 2012 dan yang lebih lama saat server hanya mendukung TLS 1.0 atau 1.1. DBine selalu mencoba TLS 1.2 atau yang lebih baru terlebih dahulu. Jika server hanya menerima protokol lama, DBine memberi tahu (dengan menyebutkan versi server) dan menanyakan sekali apakah tetap ingin terhubung; jika disetujui, DBine mengunduh komponen **SQL Server (TLS 1.0/1.1)** dan mengingat pilihan itu untuk koneksi tersebut. Indikator **TLS lama** ditampilkan selama komponen ini dipakai, sertifikat tetap diverifikasi (atau disematkan dengan **Percayai sertifikat server**), dan opsinya dapat dimatikan di tab **SSL/TLS** pada koneksi. Memperbarui server ke TLS 1.2 (SQL Server 2012 SP4) tetap menjadi solusi yang lebih aman.
+
+### Peningkatan
+- **Logo mesin:** 51 jenis koneksi lagi menampilkan logo produknya, bukan inisial, di antaranya IBM Db2, Informix dan Netezza, Vertica, Exasol, InterSystems IRIS, Microsoft Access, Greenplum, StarRocks, OceanBase, TDengine, Materialize, Memgraph, RisingWave, dan Dremio.
+
 ## [1.4.1] - 2026-11-03
 
 ### Baru
