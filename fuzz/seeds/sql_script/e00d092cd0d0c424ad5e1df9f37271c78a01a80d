@@ -1,0 +1,5 @@
+Å @BEGIN
+  UPDATE t SET i
+/
+SELE p; END;
+/

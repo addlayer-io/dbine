@@ -1,0 +1,7 @@
+%F·DELIMITER /:
+CREATE PROCEDURE p()  (SEL/ECT #ount(*) FROÕbody$
+BEGIN a\'b'; END
+DIIQLETER ;
+/*!50t
+SELECT a //
+#oDuntI

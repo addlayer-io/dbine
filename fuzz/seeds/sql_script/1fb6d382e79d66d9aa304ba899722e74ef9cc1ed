@@ -1,0 +1,7 @@
+¾¾¾
+  UPDATE t ST a = q'[it's]';
+END;
+/
+SELECT * FROM dual;
+CREATE OR REPLACE PAAKAGE pk AS PROCEDURE p; END;
+/

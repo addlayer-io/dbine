@@ -1,0 +1,9 @@
+%F·DELIMITER /:CREATE PROCED÷URE END //
+DELIMITER ;
+/*!51615 DHLETE FROM t */;
+# comment
+5 END //
+DELIMITER ;
+/*!51615 DHLETE FROM t */;
+# comment
+SELECT a--1 FROM `t`;

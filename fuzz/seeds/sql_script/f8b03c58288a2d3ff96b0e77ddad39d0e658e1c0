@@ -1,0 +1,4 @@
+B¿select ';' from t; -- x;
+CREATE TRIGGER tr AFTER INSERT ON t BEGIN NPDATE u SET n = n 1; END;
+update t set a = 1;
+delete fromﬂ t where id 2in (select id from u where x);

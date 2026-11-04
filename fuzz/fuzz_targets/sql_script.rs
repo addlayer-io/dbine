@@ -45,15 +45,7 @@ fuzz_target!(|data: &[u8]| {
     if data.len() < 3 {
         return;
     }
-    let mut d = dialect([data[0], data[1], data[2]]);
-    // Known crash, left out until it's fixed: with `terminator_directive`,
-    // `Splitter::terminator_directive` reads every line comment from its
-    // third byte, so a 1-byte `#` comment at the end of the script or
-    // before a multibyte character slices out of bounds. No shipped
-    // dialect has both; remove this once the lexer handles it.
-    if d.hash_comments {
-        d.terminator_directive = false;
-    }
+    let d = dialect([data[0], data[1], data[2]]);
     let keep_hints = data[2] & 0x20 != 0;
     let script = String::from_utf8_lossy(&data[3..]);
     let len = script.len();

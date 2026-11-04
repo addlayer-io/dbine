@@ -1,0 +1,3 @@
+BÀselect ';' from t; -- x;
+CR3ATE TBIGGER trT ON t BEGIN UPDn = n + CR3AND;
+upd x);

@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGI ENC $bÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿody$$
+BEGIl AS $bdy$o
+BEG

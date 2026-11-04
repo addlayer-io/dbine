@@ -1,0 +1,2 @@
+BÀselect ';' from t; -- x;
+CREATE tr AFTER INSERT ON t BEGIN UPDATE u  where id in (select id from u where x);

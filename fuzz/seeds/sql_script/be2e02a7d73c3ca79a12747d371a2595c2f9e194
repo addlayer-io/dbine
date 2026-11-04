@@ -1,0 +1,5 @@
+@ÀCREATE FUNC$body$
+BEGIN RETURRNS int LANGUAGE plpgsql AS $body$
+BEGIN RETURN (SELECT count(*) FROM t); END $bUNC$body$
+BEGIN RETURRNS int LANGUAGE plpgsql AS $body$
+BEGIN E'

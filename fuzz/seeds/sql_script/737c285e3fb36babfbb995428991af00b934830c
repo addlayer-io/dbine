@@ -1,0 +1,3 @@
+BÀselect ';' from t; -- x;
+CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATEselect id from ure x)3
+x)3

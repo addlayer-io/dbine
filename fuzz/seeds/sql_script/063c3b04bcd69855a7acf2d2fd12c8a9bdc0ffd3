@@ -1,0 +1,5 @@
+@ÀCREATE FUNC$body$
+BEGIN RETURRNS int LANGUAGE plÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿpgCsql AS $body$
+BEGINN (SELECT count(*) FROM t); END $bUNC$body$õ
+BEGIN GUAGE plpgsql AS $body$
+BEGIN E'

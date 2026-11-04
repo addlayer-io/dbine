@@ -1,0 +1,3 @@
+AÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $o$ybd
+BEGI[N RETUount(*) FROM t); END $bldy$;
+SELECT E'it\'s', /* a /* nested */ com ¥ AS (DELETE FROM t ___RETURNING *) SELECT * FROM d;

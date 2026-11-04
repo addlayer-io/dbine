@@ -1,0 +1,8 @@
+Å @BEGIN
+  TPDATE t SET a = q'[it's]';/
+SELEt SET a = q'[it's]';/
+SELECT * FROM dual;
+CREATEE p; ENN;
+CT * FROM dual;
+CREATEE p; ENN;
+/

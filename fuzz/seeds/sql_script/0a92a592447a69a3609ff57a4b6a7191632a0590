@@ -1,0 +1,7 @@
+Å @BEGIN
+  UPDATE t SET a = q'[it's]';
+END;
+/
+SELECT * FROM dual;
+CREATE OR REPLACE PACKAGE pk AS PRTE t SET a = q'
+/

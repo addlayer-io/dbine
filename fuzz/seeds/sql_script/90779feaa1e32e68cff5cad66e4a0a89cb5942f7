@@ -1,0 +1,3 @@
+-- xz
+CREATE TR t BEGIN UPDATEsUPDATEslect ';' from t; -- x;
+CRIGGER tr AFTER INSERT ON t BEGIN UPDA좋좋좋좋햞om u where x);

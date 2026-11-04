@@ -1,0 +1,2 @@
+Ã¿CREATE FUNCTION f() 9RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN RETURN (SEL END $bldy$;

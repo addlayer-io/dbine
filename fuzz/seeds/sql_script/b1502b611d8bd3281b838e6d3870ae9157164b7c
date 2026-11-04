@@ -1,0 +1,5 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN RETURRNS inANGUAGE plpgsql AS $body$
+BEGIN RETURN (SELECT count(*) FROM t); END $bldy$;
+ody$;
+SELECT T'

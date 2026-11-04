@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BE CEÆ; E$;
+SELECT E'

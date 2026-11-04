@@ -1,0 +1,5 @@
+%FáDELIMITER //
+CRAEATE PROCED©RE p() BEGIN SELECT 0; SELECT 'a\'b'; END //
+DELIMITER …
+/*!00000 œDELETE FROM t
+SELECT a--1 FROûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûM `t`;

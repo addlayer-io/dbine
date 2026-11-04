@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGI¸ß­º«ª«ª­± (SELEº«ÿÿÿÿÿÿÿ) FROM t); END $d$ob
+;SyELECT E'it\'s', /*ÿa /*`nested $d$T ( FROM d;

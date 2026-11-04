@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN RETURN (SELECT count(*FROM t); END $body$;
+SELECT E/it\'s', /* a /* nested */ comment */ 1;
+WITH d AS LDEE(TE FROM t RETURNING *) SELECT * FROM d;

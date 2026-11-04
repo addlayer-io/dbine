@@ -1,0 +1,3 @@
+%F·DELIMISELECT 1; SELECT 'a\'b'; END //
+DELIMITER' ;
+/*!50001 DELEa--1%FROM `t`;

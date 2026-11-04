@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEG /*`neste…*/ comment */ 2;
+WITHà›ß¾S (DELETE FROM t RETURNING *) SELECT * FROM d;

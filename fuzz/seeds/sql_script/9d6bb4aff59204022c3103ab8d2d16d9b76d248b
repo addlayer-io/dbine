@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION f() RETURNS int LANAdy$
+BEGIN 
+/*!pgsql AS $odby$
+BEG

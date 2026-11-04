@@ -1,0 +1,2 @@
+BÀselect ';' from t; -- x;
+CREATE TIRGGER tr AFTER INSERT ON t BEGIN UPDATE  x);

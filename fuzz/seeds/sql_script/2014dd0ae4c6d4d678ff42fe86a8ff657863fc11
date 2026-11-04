@@ -1,0 +1,2 @@
+BÀselect ';' from t; -- x;
+CREATE TRIGGER tr AFÎER INSERT ON t BEGIN UPDAER

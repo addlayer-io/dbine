@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN RETURN (SELEº«ßœount(*) FROM t); END $ÿROM dual;
+CR /* a /*`neste…*/ comment */ 0;
+WITí¿?¼­º¾¨E HFUN

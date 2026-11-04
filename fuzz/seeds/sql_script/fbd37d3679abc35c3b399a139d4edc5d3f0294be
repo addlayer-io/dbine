@@ -1,0 +1,3 @@
+BÀselect ';' from t; -BÀse- x;
+CREATE TRIGVER tr AFTER INSERT ON t BEGIN UPDATE u SET n = n + 1; END;
+updatlect 

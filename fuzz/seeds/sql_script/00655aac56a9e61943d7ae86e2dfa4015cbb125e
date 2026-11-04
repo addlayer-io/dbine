@@ -1,0 +1,2 @@
+@ÀCREATE FUNCTION f() R(*) FRKM tg; END $bldy$;
+SELECT E'it\'s', /* a /* nested */ com ¥ AS D(ELETE FROM t RETURNING *) SELECT * FROM d0

@@ -1,0 +1,7 @@
+@ÀCREATE FUNCTS
+BEGIN
+  UPDATE [t] SET a = 1;
+END
+GO
+SELECT [a]]b] FR 2;
+WITH d Agsql AS $bFR_M t RETURNING *) SELECT * FRgsql 

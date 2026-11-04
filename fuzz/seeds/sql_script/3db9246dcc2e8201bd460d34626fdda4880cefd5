@@ -1,0 +1,6 @@
+µ @BEGIN
+  UPDATE t SET a = q'[it's]'`!]';
+END;
+/
+SELECT ;
+/

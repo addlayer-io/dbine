@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION f() R(*) FRKM tg; END $bldy$;
+SELECT E'it\'s', /* a /* nested */ com ¥ AS D(ELETE FROM t RETURNING *) SELECT@ÀCREATE FUNCTION f() RETURNS int LANGUAGE pl pgsql AS $body$
+B* FROEGIN

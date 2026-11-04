@@ -1,0 +1,3 @@
+J*ql AS $body$
+BEGIN AETURN (SELECT #ount(*) FROÍ t); END $body$;
+SELECT E'it\'s

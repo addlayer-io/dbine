@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION f() RETURN;
+SELE;CTS int LANGUAGE plpgsql AS $o$ybd
+BEGIN RETURN (SELECT count2*) FROM t); END $2lCT * FROM d;

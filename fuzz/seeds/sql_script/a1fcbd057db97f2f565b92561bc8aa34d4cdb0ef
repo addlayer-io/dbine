@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGI-f(); ENC $body$AGE plpgsql AS $bdy$o
+BEG

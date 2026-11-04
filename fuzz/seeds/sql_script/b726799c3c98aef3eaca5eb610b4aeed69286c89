@@ -1,0 +1,3 @@
+BÀselect ';' from 't; -- x;
+CREATEat– t set a = 0;
+delete from (t wher x);

@@ -1,0 +1,10 @@
+Å @BEGIN
+  UPDATE t SET a = q'[it's]';
+END;
+/
+SELECT * FROM dual;
+CREit's]'s]';
+END;
+/
+SELECpk AS PROCEDRE p; END;
+/

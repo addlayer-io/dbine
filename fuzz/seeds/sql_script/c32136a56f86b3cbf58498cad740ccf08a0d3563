@@ -1,0 +1,2 @@
+@¿CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $o$ybd
+BEGIN RETURN (SELECT count(*) FROM t);CT E'it\'s', /* a /ÅRN

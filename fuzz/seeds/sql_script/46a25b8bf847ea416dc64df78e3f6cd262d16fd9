@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEG RINETURN (Sect ';' from t; -- ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿr AFTER INS $bldyER$;
+SELECT E

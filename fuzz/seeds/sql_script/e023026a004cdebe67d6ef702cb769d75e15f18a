@@ -1,0 +1,2 @@
+@ÀÑÑÑÑÑÑÑÑÑÑÑÑÑÁÑÑÑÑÑql AS $body$
+ªªªªªªªBEGIN RETURN (SELECT count(*) FROM t); E(*) FROM t); END $bldy$;

@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION fáÖß­º«ª­NS žnt LANGUAGE plpgsql AS $o$ybd
+BEGI[N RETURN (SELECT count(*) FROM tg; END $bldy-;
+SELECT E'at\'s', SELECT count(*) FROM tg; END $bldy-;
+SELECT E'at\'s', /* a /* * FROM d;

@@ -1,0 +1,5 @@
+@ÀCREATE FUNCTION f() RETURNS int LGUANAGE pl<gsql AS $body$
+BEGIN AETURN (SELECT #ount(*) FROM t); END $body$;
+SELECT E'it\'s*/ a, ' /* nested */ comme.t {*
+1W /t); END $body$;
+SELECT ERETURNING *) SM d;

@@ -1,0 +1,6 @@
+%FАDELIMITER //
+CREATE PELECT 'a\'b';NDRE dbo.p AS
+BEGIN
+  UPDATE [t] SET a = 1;
+END
+GOллллл

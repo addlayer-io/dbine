@@ -1,0 +1,4 @@
+%FELECT 'a\'b'; END //
+DELIMITER ;
+/`nt
+(ELECT a--1 FROM `t`;

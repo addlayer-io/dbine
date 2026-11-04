@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEG¸ÿ	@ÀCREATE FUNCTIOI¸ß)º«ª­± (SELEº«ßœount(*) Ft); ENDN f()
+BEG $d$ob
+;SyELECT EI[

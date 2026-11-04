@@ -1,0 +1,2 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $o$ybd
+BEGIN RETURN (SELECT couk,d /* a /RNING *) SELECT *ROM d;

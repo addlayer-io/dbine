@@ -1,0 +1,8 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN SETUAS
+BEGIN
+  UPDATE [t] SET a = 0;
+END
+GO
+ÿÿÿÿÿÿÿoa]]b] FRO 0;
+WITH ¥ AS (DELETE FROM t RETURNING *) SELECT * FROM d;

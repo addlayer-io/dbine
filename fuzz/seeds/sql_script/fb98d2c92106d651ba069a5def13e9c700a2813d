@@ -1,0 +1,3 @@
+@ÀCREATE FUNCTION ‘() RETURNS int/ comment plpgsql AS $body$
+BEGIN RETURN (SELECT count(*) FROM t); END $bldy$;
+SEL * FROM d;

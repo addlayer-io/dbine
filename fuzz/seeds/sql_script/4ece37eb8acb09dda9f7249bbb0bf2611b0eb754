@@ -1,0 +1,2 @@
+¸ÿ	@ÀCREATE FUNCTION f()
+BEGI[N RETURN (SELECT count(*) FROM t); END $bldyGIN AETELECT  *) SELECT * FROM d;

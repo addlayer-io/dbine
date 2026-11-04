@@ -1,0 +1,5 @@
+%FáDELIMITER //
+CRAEARE pLECT 'a\'b'(; END //
+DELIMITER …
+/*!00000 œDELETE FROM t
+SELECT a--1 EFROûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûûû

@@ -1,0 +1,7 @@
+Å @BEGIN
+  UPDATE t SET a = q'[it's]';
+END;
+/
+SELECTUPDATEl AS $body$
+BEGIT #ount(*):FROM Ek AS PROCEDURE p; END;
+/

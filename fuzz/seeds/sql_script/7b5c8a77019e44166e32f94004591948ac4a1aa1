@@ -1,0 +1,5 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsqb l$o ASdy$
+BEGIN RETURRNS inplpgsql AS $body$
+BEG	N RETURRNS inldy$;
+SNLECT E'it\'s', /* / comND $body$;
+SELECT E'

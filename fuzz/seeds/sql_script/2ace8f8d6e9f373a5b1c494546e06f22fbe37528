@@ -1,0 +1,2 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGINt ';' from $b tl;dy 

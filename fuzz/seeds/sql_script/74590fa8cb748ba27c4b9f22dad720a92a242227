@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN RETURNECT E'it\'s', /* a /* nested */ comND $body$;
+SELECT E'it\'s', /* a /*`nested */ comment */ 1;
+WM d;

@@ -1,0 +1,3 @@
+@ÀCRTUEATE FUNCTION f() RETUBNS int LANGUAGE plpgsql AS $body$
+BEGIN RETURN (SELECT couD $bldy$;
+SELECT E'it\'s', /* a /* nested */ com ¥ AS (DEVETE FROM t RETURNING *) SELECT * FROM d;

@@ -1,0 +1,7 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN RETUAS
+BEGIN
+  UPDATE [t] SET a = 2;E
+EN
+GO 9999*/ comment */ 0;
+WITH ¥ AS  t RETURNING *)CTL S

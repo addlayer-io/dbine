@@ -1,0 +1,2 @@
+BÀselect ';' from t; -- x;
+CREATE TRIGGER tÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿr AFTER INSERT ON t BEGIN DPUATE …u SET n = n + 1; END

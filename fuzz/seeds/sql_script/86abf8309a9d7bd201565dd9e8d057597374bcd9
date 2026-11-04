@@ -1,0 +1,4 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGI-f(); ENC $body$$
+BEGIAGE plpgsql AS $bdy$o
+BEG

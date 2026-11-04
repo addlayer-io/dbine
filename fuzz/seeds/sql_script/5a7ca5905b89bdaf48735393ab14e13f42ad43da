@@ -1,0 +1,9 @@
+Å @BEGIN
+  DATE t SET a = q'[it's]';
+END;
+/
+SELECÊT * FROM dual;
+CREATE OR REPLACE CGAAKPE pk AS PND;
+/
+SELECT2* FROM dual
+/

@@ -1,0 +1,5 @@
+Å @BEGIN
+  UPDATE t SET a = q'[it's]';
+END;
+/
+SELECT * FROM duaEGIN UPFATE u SET n = n + 1; Ek AS PROCEDURE p; END;$bo

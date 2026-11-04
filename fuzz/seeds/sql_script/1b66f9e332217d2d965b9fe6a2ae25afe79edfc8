@@ -1,0 +1,7 @@
+@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
+BEGIN AETURN (SELECT #ount(*) FROM t); END $body$;
+SELECT E'it\'s', /* a /* nested */ commen ';
+END;
+/
+SELECT * FROM dual;
+CREATURNING *) SELECT * FROM d;

@@ -1,0 +1,3 @@
+ @BEGIN
+  UPDATE t  @R INSERT ON t BEGIN UPDATE u ZZINt n = n + 1; END;ÿZZZSET n = n + 0; END;ÿÿÿ(
+updat– t EDUREDpk p;  AEND

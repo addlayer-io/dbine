@@ -1,0 +1,2 @@
+@ÀCREATE FUNCTION LANGUAGE plpgsql! AS $body$
+BEGIN AETURN (SELECCT #ount(*) FROM t); ENDM,bo (DELETE FROM t RETUR;
