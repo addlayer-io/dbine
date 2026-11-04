@@ -1,8 +1,8 @@
-//! Schema changes as q, for "Comparar esquemas", "Modificar tabla…" and
-//! "Renombrar…": a table in memory is a value, so each change rebuilds it
-//! and assigns it back (`t:update c:first `long$() from t`,
-//! `t:delete c from t`, `t:update c:`float$c from t`, a rename with
-//! `xcol`, a key with `xkey`).
+//! Schema changes as q, for "Comparar esquemas" and "Modificar tabla…"
+//! ("Renombrar…" is [`crate::rename`]): a table in memory is a value, so
+//! each change rebuilds it and assigns it back
+//! (`t:update c:first `long$() from t`, `t:delete c from t`,
+//! `t:update c:`float$c from t`, a key with `xkey`).
 //!
 //! Tables of a database on disk (partitioned or splayed) are refused: each
 //! column is a file, and changing one means rewriting it on the server
@@ -14,10 +14,7 @@
 use crate::cells::{meta_letter, type_name};
 use crate::edit::{plain, qref, qstr, qsym, table_ddl};
 use crate::{PARTITIONED, SPLAYED};
-use dbine_driver::{
-    kinds, ColumnDef, DdlParts, Error, RenameRequest, RenameSpec, RenameTarget, Result, SyncScript,
-    TableChange, TableSchema,
-};
+use dbine_driver::{ColumnDef, DdlParts, Error, Result, SyncScript, TableChange, TableSchema};
 
 const DROP: DdlParts = DdlParts {
     drop: true,
@@ -42,25 +39,14 @@ fn on_disk_message(name: &str) -> String {
     )
 }
 
-fn exists_message(name: &str) -> String {
+pub(crate) fn exists_message(name: &str) -> String {
     format!("Ya existe «{}»: no se reemplaza.", name)
 }
 
 /// Said with every script that changes something.
 pub(crate) const IN_MEMORY: &str = "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).";
 
-/// What [`crate::KdbDriver::rename_spec`] answers: tables in memory and
-/// their columns; q code that names them is listed, never rewritten.
-pub fn rename_spec() -> RenameSpec {
-    RenameSpec {
-        kinds: vec![kinds::TABLE.into()],
-        columns: true,
-        references: dbine_driver::rename::ReferenceStyle::None,
-        ..RenameSpec::default()
-    }
-}
-
-fn refuse_on_disk(kind: &str, name: &str) -> Result<()> {
+pub(crate) fn refuse_on_disk(kind: &str, name: &str) -> Result<()> {
     if kind == PARTITIONED || kind == SPLAYED {
         Err(Error::Unsupported(on_disk_message(name)))
     } else {
@@ -69,7 +55,7 @@ fn refuse_on_disk(kind: &str, name: &str) -> Result<()> {
 }
 
 /// The server-side check that `name` isn't a table on disk.
-fn on_disk_guard(name: &str) -> String {
+pub(crate) fn on_disk_guard(name: &str) -> String {
     format!(
         "if[not 0~@[{{.Q.qp get x}};{};0];'{}]",
         qsym(name),
@@ -87,7 +73,7 @@ pub(crate) fn absent_guard(name: &str) -> String {
 }
 
 /// `name:expr`, or `` (`$"…") set expr `` for a name that isn't plain.
-fn assign(name: &str, expr: &str) -> String {
+pub(crate) fn assign(name: &str, expr: &str) -> String {
     if plain(name) {
         format!("{name}:{expr}")
     } else {
@@ -368,52 +354,10 @@ pub fn drop_namespace(name: &str, cascade: bool) -> Result<String> {
     Ok(out.join("\n"))
 }
 
-/// "Renombrar…": a table in memory (copied to the new name, then the old
-/// one deleted) or one of its columns (`xcol`).
-pub fn rename(req: &RenameRequest) -> Result<SyncScript> {
-    let new = req.new_name.as_str();
-    let statements = match &req.target {
-        RenameTarget::Column { table, column } => {
-            refuse_on_disk(&table.kind, &table.name)?;
-            let (old, new) = (column_name(column)?, column_name(new)?);
-            let (name, r) = (table.name.as_str(), qref(&table.name));
-            vec![
-                on_disk_guard(name),
-                format!("if[`{new} in cols {r};'{}]", qstr(&exists_message(new))),
-                assign(
-                    name,
-                    &format!("@[cols {r};where cols[{r}]=`{old};:;`{new}] xcol {r}"),
-                ),
-            ]
-        }
-        RenameTarget::Object { object, .. } if object.kind == kinds::TABLE => {
-            let old = TableSchema {
-                name: object.name.clone(),
-                ..Default::default()
-            };
-            vec![
-                on_disk_guard(&object.name),
-                absent_guard(new),
-                assign(new, &qref(&object.name)),
-                table_ddl(&old, DROP)?,
-            ]
-        }
-        RenameTarget::Object { object, .. } => {
-            refuse_on_disk(&object.kind, &object.name)?;
-            return Err(Error::Unsupported("este motor no renombra objetos".into()));
-        }
-        _ => return Err(Error::Unsupported("este motor no renombra objetos".into())),
-    };
-    Ok(SyncScript {
-        statements,
-        warnings: vec![IN_MEMORY.into()],
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dbine_driver::{KeyDef, ObjectRef};
+    use dbine_driver::{kinds, KeyDef};
 
     fn col(n: &str, ty: &str) -> ColumnDef {
         ColumnDef {
@@ -619,63 +563,6 @@ mod tests {
         .unwrap();
         assert!(s.statements.is_empty());
         assert!(s.warnings[0].contains("cambiala a mano"));
-    }
-
-    #[test]
-    fn renames() {
-        let tref = |kind: &str, name: &str| ObjectRef {
-            kind: kind.into(),
-            schema: None,
-            name: name.into(),
-        };
-        let req = |target, new: &str| RenameRequest {
-            target,
-            new_name: new.into(),
-            table: None,
-            definition: None,
-        };
-        let s = rename(&req(
-            RenameTarget::Column {
-                table: tref(kinds::TABLE, "t"),
-                column: "px".into(),
-            },
-            "price",
-        ))
-        .unwrap();
-        assert_eq!(
-            s.statements[2],
-            "t:@[cols t;where cols[t]=`px;:;`price] xcol t"
-        );
-        assert!(s.statements[1].starts_with("if[`price in cols t;'\"Ya existe"));
-        let s = rename(&req(
-            RenameTarget::Object {
-                object: tref(kinds::TABLE, ".ns.t"),
-                parent: None,
-            },
-            ".ns.u",
-        ))
-        .unwrap();
-        assert_eq!(
-            s.statements[2..],
-            [".ns.u:.ns.t", "![`.ns;();0b;enlist `t]"]
-        );
-        assert!(rename(&req(
-            RenameTarget::Column {
-                table: tref(SPLAYED, "s"),
-                column: "a".into(),
-            },
-            "b",
-        ))
-        .is_err());
-        assert!(rename(&req(
-            RenameTarget::Object {
-                object: tref(kinds::VIEW, "v"),
-                parent: None,
-            },
-            "w",
-        ))
-        .is_err());
-        assert!(rename_spec().columns);
     }
 
     #[test]

@@ -42,6 +42,7 @@ pub mod names;
 mod process;
 mod props;
 mod read;
+mod rename;
 pub mod script;
 mod stage;
 mod stats;
@@ -315,18 +316,20 @@ impl Driver for KdbDriver {
     }
 
     fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
-        Some(sync::rename_spec())
+        Some(rename::spec())
     }
 
-    /// A namespaced table's new name is in its namespace (`u` of `.ns`
-    /// is `.ns.u`; [`names::resolved_rename`]).
+    /// A namespaced object's new name is in its namespace (`u` of `.ns`
+    /// is `.ns.u`; [`names::resolved_rename`]); each rename is one
+    /// statement that checks on the server before it changes anything
+    /// ([`rename`]).
     fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
         let req = names::resolved_rename(req)?;
         if let dbine_driver::RenameTarget::Object { object, .. } = &req.target {
             names::writable(&object.name)?;
             names::writable(&req.new_name)?;
         }
-        sync::rename(&req)
+        rename::script(&req)
     }
 
     fn insert_script(
