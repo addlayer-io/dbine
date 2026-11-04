@@ -65,8 +65,9 @@ pub const SPLAYED: &str = "splayed_table";
 /// functions by type, tables by `.Q.qt`, and `.Q.qp` tells partitioned
 /// (`1b`) and splayed (`0b`) tables from those in memory (`0`).
 pub const EXPLORER: &str = concat!(
-    // kdb+'s own namespaces (and the empty name) are left out.
-    "{nsl:(enlist enlist \".\"),\".\",/:string (key `) except `q`Q`h`j`o`z,`$\"\";",
+    // kdb+'s own namespaces, DBine's staging one (a write in flight) and
+    // the empty name are left out.
+    "{nsl:(enlist enlist \".\"),\".\",/:string (key `) except `q`Q`h`j`o`z`dbine_stage,`$\"\";",
     "f:{[ns] s:`$ns; b:@[system;\"b \",ns;`$()]; n:(key s) except b,`$\"\";",
     "k:{$[100h<=type x;`function;@[.Q.qt;x;0b];$[1b~p:@[.Q.qp;x;0];`partitioned;0b~p;`splayed;`table];`variable]} each s@n;",
     "([] ns:(count[n]+count b)#`$ns; k:(`$()),k,count[b]#`view; n:(`$()),n,b)};",
@@ -345,6 +346,11 @@ impl Driver for KdbDriver {
     /// Every mode, staged and applied in one step (see [`write`]).
     fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
         write::modes()
+    }
+
+    /// No transactions, but every write is staged and applied in one step.
+    fn atomic_writes(&self) -> bool {
+        true
     }
 
     async fn connect(
@@ -1243,7 +1249,7 @@ mod tests {
         );
         assert!(explorer_objects(K::Nil).is_empty());
         // kdb+'s own namespaces are the ones left out, and only those.
-        assert!(EXPLORER.contains("(key `) except `q`Q`h`j`o`z,`$\"\";"));
+        assert!(EXPLORER.contains("(key `) except `q`Q`h`j`o`z`dbine_stage,`$\"\";"));
     }
 
     #[test]

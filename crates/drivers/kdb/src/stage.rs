@@ -22,8 +22,10 @@ const ON_DISK: &str = "{@[.Q.qp;get x;0]}";
 /// `s`: an empty table with the columns `c` of table `n`, of their types.
 const CREATE: &str = "{[n;s;c] s set 0#?[0!get n;();0b;c!c]; count c}";
 
-/// Removes staging table `x` of [`NAMESPACE`].
-const DROP: &str = "{![`.dbine_stage;();0b;enlist x]}";
+/// Removes staging table `x` of [`NAMESPACE`], and the namespace itself once
+/// it holds no other (another write's, in flight): nothing of DBine's is
+/// left in the process.
+const DROP: &str = "{![`.dbine_stage;();0b;enlist x]; if[0=count (key `.dbine_stage) except `; ![`.;();0b;enlist `dbine_stage]]}";
 
 /// A staging table on the server.
 pub(crate) struct Stage {
@@ -164,6 +166,7 @@ mod tests {
         // Created empty from the target's columns, typed as they are.
         assert!(CREATE.contains("s set 0#?[0!get n;();0b;c!c]"));
         assert!(DROP.contains("![`.dbine_stage;();0b;enlist x]"));
+        assert!(DROP.contains("![`.;();0b;enlist `dbine_stage]"));
         assert_eq!(NAMESPACE, ".dbine_stage");
     }
 }
