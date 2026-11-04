@@ -71,6 +71,16 @@ Platform signatures come on top of that: the macOS app is signed with an
 Apple Developer ID and notarized by Apple, and the Windows installer and app
 are Authenticode-signed with a timestamp.
 
+Each release from 1.4.2 on also carries
+[SLSA build provenance](https://slsa.dev/provenance/): a statement, signed
+through Sigstore, of which workflow run and commit produced each file. It's
+on the release as `dbine-vX.Y.Z.intoto.jsonl` and in GitHub's attestation
+store. With the [GitHub CLI](https://cli.github.com):
+
+```
+gh attestation verify DBine_1.4.2_amd64.deb -R addlayer-io/dbine
+```
+
 ## Supported versions
 
 Fixes go into the latest release; DBine updates itself, so that's the
