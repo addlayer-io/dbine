@@ -82,6 +82,13 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The release builds the app without the downloadable drivers' crates
+      # (`--no-default-features --features plugins`): code only that
+      # configuration compiles (the drivers' plugin registry) is checked
+      # here too, so a break shows on the pull request, not first on a tag.
+      - name: Clippy, as the release builds the app
+        run: cargo clippy -p dbine --no-default-features --features plugins -- -D warnings
+
   # Fixes only a real server can show: a ClickHouse without the output
   # settings DBine asks for (22.8, issue #19), and queries reading another
   # database by its name in front, which completion offers (issue #20).
