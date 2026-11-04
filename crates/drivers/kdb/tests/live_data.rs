@@ -628,7 +628,8 @@ async fn writes_in_every_mode() {
 }
 
 /// The clone test's objects, removed before and after it.
-const CLONE_CLEANUP: &str = "delete dbine_kdbdata_ct, dbine_kdbdata_ck, dbine_kdbdata_f, dbine_kdbdata_v from `.; delete t2, g from `.dbine_kdbdata";
+// The namespace may not exist yet (a fresh process): its delete is protected.
+const CLONE_CLEANUP: &str = "delete dbine_kdbdata_ct, dbine_kdbdata_ck, dbine_kdbdata_f, dbine_kdbdata_v from `.; @[{delete t2, g from `.dbine_kdbdata};::;::]";
 
 /// Run the clone `script` on `tgt` as the app does, copying the data from
 /// `src`; only the statements about this test's objects (the source

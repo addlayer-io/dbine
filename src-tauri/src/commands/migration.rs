@@ -1454,6 +1454,15 @@ fn truncate_sql(target: &dyn Driver, t: &TableSchema) -> Option<String> {
     if info.id == "ksqldb" {
         return None;
     }
+    // kdb+: emptied in place, keeping its columns, types and key (dropping
+    // and recreating it from a schema without columns would lose them).
+    if info.dialect == "q" {
+        let name = match t.schema.as_deref().filter(|s| !s.is_empty()) {
+            Some(s) => format!("{s}.{}", t.name),
+            None => t.name.clone(),
+        };
+        return q_table_name(&name).then(|| format!("delete from `{name}"));
+    }
     match info.language {
         Language::Sql | Language::Cql => {
             let name = qualified_name(quote_of(info.dialect), t.schema.as_deref(), &t.name);
@@ -1479,6 +1488,17 @@ fn truncate_sql(target: &dyn Driver, t: &TableSchema) -> Option<String> {
             .ok()
             .filter(|s| !s.trim().is_empty()),
     }
+}
+
+/// A q table name that can go after a backtick as is: `t`, `.ns.t`.
+fn q_table_name(name: &str) -> bool {
+    let body = name.strip_prefix('.').unwrap_or(name);
+    !body.is_empty()
+        && body.split('.').all(|part| {
+            let mut c = part.chars();
+            c.next().is_some_and(|f| f.is_ascii_alphabetic())
+                && c.all(|x| x.is_ascii_alphanumeric() || x == '_')
+        })
 }
 
 /// A target column the engine fills itself (computed, row version): never loaded.
@@ -2819,6 +2839,33 @@ mod tests {
     use super::*;
     use dbine_core::{SavedConnection, StateStore};
     use dbine_driver::ConnectionConfig;
+
+    /// kdb+ empties a table in place: dropping and recreating it from the
+    /// clone's column-less schema used to leave it without columns.
+    #[test]
+    fn kdb_tables_are_emptied_in_place() {
+        assert!(q_table_name("trades") && q_table_name(".ns.t") && q_table_name("t_2"));
+        for bad in ["", ".", "1t", "t;exit 0", "t`x", ".ns..t", "a b"] {
+            assert!(!q_table_name(bad), "{bad}");
+        }
+        let Some(kdb) = dbine_drivers::find("kdb") else {
+            return;
+        };
+        let t = |schema: Option<&str>, name: &str| TableSchema {
+            schema: schema.map(str::to_string),
+            name: name.into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            truncate_sql(kdb.as_ref(), &t(None, "trades")).as_deref(),
+            Some("delete from `trades")
+        );
+        assert_eq!(
+            truncate_sql(kdb.as_ref(), &t(Some(".ns"), "t")).as_deref(),
+            Some("delete from `.ns.t")
+        );
+        assert_eq!(truncate_sql(kdb.as_ref(), &t(None, "t;exit 0")), None);
+    }
 
     fn dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!(
