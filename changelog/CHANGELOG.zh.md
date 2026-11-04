@@ -1,5 +1,13 @@
 # 更新日志
 
+## [1.4.2] - 2026-11-04
+
+### 新增
+- **通过 TLS 1.0/1.1 连接旧版 SQL Server：** 当服务器只支持 TLS 1.0 或 1.1 时，DBine 可以连接 SQL Server 2012 及更早版本。DBine 始终先尝试 TLS 1.2 或更高版本。如果服务器只接受旧协议，DBine 会提示（并说明服务器版本），只询问一次是否仍要连接；选择“是”后，会下载 **SQL Server (TLS 1.0/1.1)** 组件，并记住该连接的选择。使用期间会显示 **旧版 TLS** 指示，证书仍会校验（或通过 **信任服务器证书** 固定），也可以在连接的 **SSL/TLS** 选项卡中关闭该选项。将服务器升级到 TLS 1.2（SQL Server 2012 SP4）仍然是更安全的做法。
+
+### 改进
+- **引擎徽标：** 另有 51 种连接类型显示所属产品的徽标，而不是首字母，其中包括 IBM Db2、Informix 和 Netezza、Vertica、Exasol、InterSystems IRIS、Microsoft Access、Greenplum、StarRocks、OceanBase、TDengine、Materialize、Memgraph、RisingWave 和 Dremio。
+
 ## [1.4.1] - 2026-11-03
 
 ### 新增
