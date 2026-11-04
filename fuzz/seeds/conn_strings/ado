@@ -1,0 +1,3 @@
+Server=tcp:mssql.example.com,1433;Database=sales;User Id=sa;Password=x;Encrypt=True
+Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=app;Integrated Security=true
+/Users/me/data/local.duckdb

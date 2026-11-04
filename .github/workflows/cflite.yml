@@ -1,0 +1,78 @@
+# Continuous fuzzing with ClusterFuzzLite: the targets in fuzz/ (built by
+# .clusterfuzzlite/build.sh) feed random input to the code that reads
+# bytes DBine doesn't control: the driver plugin protocol, the signed
+# driver index, pasted connection strings, the SQL script lexer and the
+# phone link's handshake. A pull request that touches those crates is
+# fuzzed for a few minutes; every week the whole set runs for an hour and
+# keeps its corpus (as workflow artifacts) for the next run. A crash fails
+# the job, and the input that caused it is attached to the run.
+name: ClusterFuzzLite
+
+on:
+  pull_request:
+    paths:
+      - 'crates/dbine-core/**'
+      - 'crates/dbine-driver/**'
+      - 'crates/dbine-link/**'
+      - 'crates/dbine-plugin/**'
+      - 'fuzz/**'
+      - '.clusterfuzzlite/**'
+      - '.github/workflows/cflite.yml'
+  schedule:
+    - cron: '17 5 * * 3'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # The corpus of earlier runs, kept as workflow artifacts.
+      actions: read
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Build the fuzz targets
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: address
+
+      - name: Fuzz the change
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 300
+          mode: code-change
+          sanitizer: address
+
+  batch:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Build the fuzz targets
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          sanitizer: address
+
+      - name: Fuzz
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 3600
+          mode: batch
+          sanitizer: address

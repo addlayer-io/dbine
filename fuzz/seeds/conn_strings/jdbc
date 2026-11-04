@@ -1,0 +1,3 @@
+jdbc:postgresql://pg.local:5432/db?user=a&password=b
+jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=ora)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCL)))
+jdbc:sqlserver://mssql:1433;databaseName=sales;encrypt=true;trustServerCertificate=false

@@ -1,0 +1,69 @@
+# Fuzz targets for the code that reads bytes DBine doesn't control: the
+# driver plugin protocol, the signed driver index, pasted connection
+# strings, SQL scripts and the phone link's handshake. cargo-fuzz layout;
+# ClusterFuzzLite builds and runs them (.clusterfuzzlite/,
+# .github/workflows/cflite.yml).
+#
+# Not a member of the root workspace: it builds only with nightly
+# (`cargo +nightly fuzz build`) and has its own Cargo.lock.
+
+[package]
+name = "dbine-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+dbine-core = { path = "../crates/dbine-core" }
+dbine-driver = { path = "../crates/dbine-driver" }
+dbine-link = { path = "../crates/dbine-link" }
+dbine-plugin = { path = "../crates/dbine-plugin" }
+rmp-serde = "1"
+semver = "1"
+serde_json = "1"
+tokio = { version = "1.40", features = ["rt", "time", "io-util"] }
+
+[[bin]]
+name = "plugin_frames"
+path = "fuzz_targets/plugin_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "driver_index"
+path = "fuzz_targets/driver_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "conn_strings"
+path = "fuzz_targets/conn_strings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sql_script"
+path = "fuzz_targets/sql_script.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_handshake"
+path = "fuzz_targets/link_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
