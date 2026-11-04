@@ -665,3 +665,40 @@ jobs:
           EOF
           } > notes.md
           gh release edit "$GITHUB_REF_NAME" --notes-file notes.md --draft=false --latest
+
+  # SLSA build provenance for every file on the release, signed through
+  # Sigstore by GitHub's attestation action: which workflow, commit and run
+  # produced each file's SHA-256. It goes to GitHub's attestation store
+  # (`gh attestation verify`) and onto the release as an .intoto.jsonl (the
+  # DSSE envelope), the form OpenSSF Scorecard looks for.
+  provenance:
+    permissions:
+      contents: write # upload the provenance to the release
+      id-token: write # Sigstore signing
+      attestations: write
+    needs: [route, release-page]
+    if: needs.route.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: The release's files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # A rerun finds the provenance already there: it isn't one of the files.
+        run: |
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -D assets
+          rm -f assets/*.intoto.jsonl
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: attest
+        with:
+          subject-path: assets/*
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          out="dbine-${GITHUB_REF_NAME}.intoto.jsonl"
+          jq -c '.dsseEnvelope' "$BUNDLE" > "$out"
+          test -s "$out"
+          gh release upload "$GITHUB_REF_NAME" "$out" -R "$GITHUB_REPOSITORY" --clobber
