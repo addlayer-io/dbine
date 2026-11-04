@@ -14,7 +14,7 @@
 
 use dbine_driver::transfer::{
     changed_buckets, BatchSink, BatchSource, BucketSum, Buckets, Cell, DeltaDepth, DeltaResult,
-    DeltaSpec, ReadSpec, RowBatch, TransferColumn,
+    DeltaSpec, LoadSpec, ReadSpec, RowBatch, TransferColumn,
 };
 use dbine_driver::{kinds, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
 use serde_json::{json, Value};
@@ -71,6 +71,16 @@ async fn run(s: &mut Box<dyn Session>, q: &str) -> QueryOutcome {
         panic!("{q}: {e}");
     }
     out
+}
+
+/// The rows of `q`'s results.
+async fn rows_of(s: &mut Box<dyn Session>, q: &str) -> Vec<Vec<Vec<Value>>> {
+    run(s, q)
+        .await
+        .results
+        .into_iter()
+        .map(|r| r.rows)
+        .collect()
 }
 
 /// The first cell of `q`'s result.
@@ -385,4 +395,178 @@ async fn sync_by_rows_finds_and_fixes_differences() {
     .await;
     // The staging tables are gone.
     assert_eq!(value(&mut s, "count key `.dbine_stage").await, json!(1));
+}
+
+/// The clone test's objects, removed before and after it.
+const CLONE_CLEANUP: &str = "delete dbine_kdbdata_ct, dbine_kdbdata_ck, dbine_kdbdata_f, dbine_kdbdata_v from `.; delete t2, g from `.dbine_kdbdata";
+
+/// Run the clone `script` on `tgt` as the app does, copying the data from
+/// `src`; only the statements about this test's objects (the source
+/// process has other sessions' functions and views too).
+async fn run_clone(
+    src: &mut Box<dyn Session>,
+    tgt: &mut Box<dyn Session>,
+    script: &dbine_driver::transfer::CloneScript,
+) {
+    let ours = |q: &&String| q.contains("dbine_kdbdata");
+    for q in script.before.iter().filter(ours) {
+        run(tgt, q).await;
+    }
+    for t in &script.tables {
+        run(tgt, &t.create).await;
+        for q in &t.before_data {
+            run(tgt, q).await;
+        }
+        let (cols, mut rows) = read_all(
+            src,
+            &ReadSpec {
+                table: t.table.clone(),
+                columns: None,
+                filter: None,
+            },
+        )
+        .await;
+        // Only into an empty table (a run again finds the rows there).
+        let empty = value(tgt, &format!("0=count {}", t.table.name)).await == json!(true);
+        if empty {
+            let load = LoadSpec {
+                table: t.table.clone(),
+                columns: cols.iter().map(|c| c.name.clone()).collect(),
+                table_lock: true,
+                keep_identity: true,
+                commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+                commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+            };
+            tgt.bulk_load(&load, &cols, &mut rows, &|_| {})
+                .await
+                .unwrap();
+        }
+        for q in &t.after_data {
+            run(tgt, q).await;
+        }
+    }
+    for q in script.after.iter().filter(ours) {
+        run(tgt, q).await;
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn clone_between_two_processes() {
+    let Some(other) = second() else {
+        eprintln!("sin DBINE_TEST_KDB_TLS_URL: el clon necesita un segundo kdb+");
+        return;
+    };
+    let d = kdb();
+    assert!(d.supports_clone());
+    let mut w = d.connect(&cfg(false), None).await.unwrap();
+    run(&mut w, CLONE_CLEANUP).await;
+    // A keyed table, a table linked to it with attributes and every common
+    // type, a namespaced table and function (its globals resolve there),
+    // a root function and a view.
+    run(
+        &mut w,
+        "dbine_kdbdata_ck:([k:1 2 3] name:`a`b`c); dbine_kdbdata_ct:([] id:`s#1 2 3; r:`dbine_kdbdata_ck$1 3 1; sym:`g#`x`y`x; note:(enlist \"a\";\"bb\";\"\"); ts:3#2024.01.01D10:00:00.123456789; f:1.5 0n 3; d:2024.01.31 0N 2024.02.01; g:3?0Ng; b:(0x0102;`byte$();enlist 0xff); n:(1 2;`long$();enlist 3); z:3#2024.01.01T10:00:00.123; sp:0D01:02:03.000000004 -0D00:00:01 2D00:00:00; i:1 0N 0Wi); .dbine_kdbdata.t2:([] a:1 2); dbine_kdbdata_f:{x+count dbine_kdbdata_ct}",
+    )
+    .await;
+    // A function of the namespace's own (parsed there) and a view.
+    run(
+        &mut w,
+        "{system \"d .dbine_kdbdata\"; .dbine_kdbdata.g:parse \"{count t2}\"; system \"d .\"}[]",
+    )
+    .await;
+    run(
+        &mut w,
+        "dbine_kdbdata_v::select from dbine_kdbdata_ct where f>1",
+    )
+    .await;
+    assert_eq!(value(&mut w, ".dbine_kdbdata.g[]").await, json!(2));
+    // The source is read on a read-only connection, as the app does.
+    let mut src = d.connect(&cfg(true), None).await.unwrap();
+    let mut tgt = d.connect(&other, None).await.unwrap();
+    run(&mut tgt, CLONE_CLEANUP).await;
+    let chosen = [
+        table("dbine_kdbdata_ck"),
+        table("dbine_kdbdata_ct"),
+        table(".dbine_kdbdata.t2"),
+        table("dbine_q"),
+    ];
+    let script = d.clone_script(&mut *src, &mut *tgt, &chosen).await.unwrap();
+    let names: Vec<&str> = script
+        .tables
+        .iter()
+        .map(|t| t.table.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["dbine_kdbdata_ck", "dbine_kdbdata_ct", ".dbine_kdbdata.t2"]
+    );
+    let notes = script.notes.join("\n");
+    assert!(notes.contains("«dbine_q» es una tabla en disco"), "{notes}");
+    assert!(notes.contains("memoria del proceso"), "{notes}");
+    assert!(script
+        .after
+        .iter()
+        .any(|a| a.contains("[`dbine_kdbdata_ct;`r;`dbine_kdbdata_ck]")));
+    assert!(script
+        .after
+        .iter()
+        .any(|a| a.contains("[`dbine_kdbdata_v;")));
+    run_clone(&mut src, &mut tgt, &script).await;
+
+    // The same tables: types, links and attributes, key, and values (their
+    // row summaries match).
+    for t in ["dbine_kdbdata_ck", "dbine_kdbdata_ct", ".dbine_kdbdata.t2"] {
+        for q in [format!("keys {t}"), format!("0!meta {t}")] {
+            assert_eq!(
+                rows_of(&mut w, &q).await,
+                rows_of(&mut tgt, &q).await,
+                "{q}"
+            );
+        }
+    }
+    let cols = [
+        "id", "r", "sym", "note", "ts", "f", "d", "g", "b", "n", "z", "sp", "i",
+    ];
+    let spec = delta("dbine_kdbdata_ct", &["id"], &cols, Buckets::Hash { n: 17 });
+    let (a, b) = same(&mut src, &mut tgt, &spec, &spec).await;
+    assert_eq!(a, b);
+    let q = "select from dbine_kdbdata_ct";
+    assert_eq!(rows_of(&mut w, q).await, rows_of(&mut tgt, q).await);
+    // The code works there as here.
+    assert_eq!(value(&mut tgt, "dbine_kdbdata_f 1").await, json!(4));
+    assert_eq!(value(&mut tgt, ".dbine_kdbdata.g[]").await, json!(2));
+    assert_eq!(value(&mut tgt, "count dbine_kdbdata_v").await, json!(2));
+    assert_eq!(
+        value(&mut tgt, "`dbine_kdbdata_v in system \"b\"").await,
+        json!(true)
+    );
+    // Run again (a resume): nothing fails, nothing doubles.
+    run_clone(&mut src, &mut tgt, &script).await;
+    assert_eq!(value(&mut tgt, "count dbine_kdbdata_ct").await, json!(3));
+
+    // A function's text that isn't one lambda never runs on the target.
+    let f = script
+        .after
+        .iter()
+        .find(|a| a.contains("[`dbine_kdbdata_f;"))
+        .unwrap();
+    let define = &f[..f.rfind("}[").unwrap() + 1];
+    let mut out = QueryOutcome::default();
+    let r = tgt
+        .execute(
+            &format!("{define}[`dbine_kdbdata_bad;\".\";\"{{x}} dbine_kdbdata_pwned:1; {{y}}\"]"),
+            10,
+            &mut out,
+        )
+        .await;
+    assert!(r.is_err() || out.error.is_some());
+    assert_eq!(
+        value(&mut tgt, "`dbine_kdbdata_pwned`dbine_kdbdata_bad in key `.").await,
+        json!(false)
+    );
+
+    for s in [&mut w, &mut tgt] {
+        run(s, CLONE_CLEANUP).await;
+    }
 }

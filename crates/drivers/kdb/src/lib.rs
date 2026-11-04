@@ -26,6 +26,7 @@ use tokio::sync::Notify;
 
 pub mod cells;
 mod chart;
+mod clone;
 pub mod conn;
 mod delta;
 pub mod edit;
@@ -294,6 +295,21 @@ impl Driver for KdbDriver {
         buckets: &[i64],
     ) -> Result<String> {
         delta::filter(spec, buckets)
+    }
+
+    /// Tables with their key, types, attributes and links, functions and
+    /// views (see [`clone`]).
+    fn supports_clone(&self) -> bool {
+        true
+    }
+
+    async fn clone_script(
+        &self,
+        source: &mut dyn Session,
+        _target: &mut dyn Session,
+        tables: &[ObjectRef],
+    ) -> Result<dbine_driver::transfer::CloneScript> {
+        clone::script(source, tables).await
     }
 
     async fn connect(
@@ -891,6 +907,11 @@ impl Session for KdbSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::transfer::DeltaResult> {
         delta::apply(self, spec, buckets, columns, source, progress).await
+    }
+
+    /// For [`clone`]'s catalog read.
+    fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
+        Some(self)
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {

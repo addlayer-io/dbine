@@ -569,11 +569,12 @@ async fn read_only_without_reval_runs_only_browses_and_show_commands() {
 }
 
 #[tokio::test]
-async fn reads_of_a_sync_need_reval_on_a_read_only_connection() {
+async fn reads_of_a_sync_or_a_clone_need_reval_on_a_read_only_connection() {
     use dbine_driver::transfer::{Buckets, DeltaDepth, DeltaSpec, ReadSpec};
     let (port, _, _, _, sent) = server_full().await;
     let d = driver();
     let mut s = d.connect(&cfg(port, "old", true), None).await.unwrap();
+    let mut t = d.connect(&cfg(port, "old", false), None).await.unwrap();
     let trade = ObjectRef {
         kind: kinds::TABLE.into(),
         schema: None,
@@ -600,6 +601,9 @@ async fn reads_of_a_sync_need_reval_on_a_read_only_connection() {
         s.delta_summary(&spec).await.unwrap_err(),
         s.key_range(&trade, "px").await.unwrap_err(),
         s.read_batches(&filtered, sink).await.unwrap_err(),
+        d.clone_script(&mut *s, &mut *t, std::slice::from_ref(&trade))
+            .await
+            .unwrap_err(),
     ];
     for e in errors {
         assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
