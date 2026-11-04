@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» isn't a column name q can use.",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» isn't a q type (column {1}.{2}).",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Column {0}.{1} changes from {2} to {3}: values that can't be converted become null.",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Column {0}.{1} isn't converted from {2} to {3}: q has no direct cast between those types; change it by hand."
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Column {0}.{1} isn't converted from {2} to {3}: q has no direct cast between those types; change it by hand.",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "the key of {0} names the column «{1}», which the table doesn't have."
 }

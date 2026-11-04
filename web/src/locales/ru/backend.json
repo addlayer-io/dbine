@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» — не то имя столбца, которое может использовать q.",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» — не тип q (столбец {1}.{2}).",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Столбец {0}.{1} меняет тип с {2} на {3}: значения, которые нельзя преобразовать, становятся пустыми (null).",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Столбец {0}.{1} не преобразуется из {2} в {3}: в q нет прямого приведения между этими типами; измените его вручную."
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Столбец {0}.{1} не преобразуется из {2} в {3}: в q нет прямого приведения между этими типами; измените его вручную.",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "ключ {0} называет столбец «{1}», которого в таблице нет."
 }

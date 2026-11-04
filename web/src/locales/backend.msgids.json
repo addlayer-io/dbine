@@ -37948,5 +37948,8 @@
   ],
   "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": [
     "crates/drivers/kdb/src/sync.rs"
+  ],
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": [
+    "crates/drivers/kdb/src/sync.rs"
   ]
 }

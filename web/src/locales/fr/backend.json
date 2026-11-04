@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» n'est pas un nom de colonne que q peut utiliser.",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» n'est pas un type q (colonne {1}.{2}).",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "La colonne {0}.{1} passe de {2} à {3} : les valeurs qui ne peuvent pas être converties deviennent nulles.",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "La colonne {0}.{1} n'est pas convertie de {2} en {3} : q n'a pas de cast direct entre ces types ; modifiez-la à la main."
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "La colonne {0}.{1} n'est pas convertie de {2} en {3} : q n'a pas de cast direct entre ces types ; modifiez-la à la main.",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "la clé de {0} nomme la colonne «{1}», que la table n'a pas."
 }

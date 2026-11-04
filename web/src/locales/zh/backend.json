@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» 不是 q 可以使用的列名。",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» 不是 q 的类型（列 {1}.{2}）。",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "列 {0}.{1} 从 {2} 改为 {3}：无法转换的值变为空值。",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "列 {0}.{1} 不会从 {2} 转换为 {3}：q 在这两种类型之间没有直接转换；请手动修改。"
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "列 {0}.{1} 不会从 {2} 转换为 {3}：q 在这两种类型之间没有直接转换；请手动修改。",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "{0} 的键指向列「{1}」，但该表没有这一列。"
 }

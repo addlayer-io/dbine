@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}»은(는) q가 쓸 수 있는 열 이름이 아닙니다.",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}»은(는) q의 타입이 아닙니다(열 {1}.{2}).",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "열 {0}.{1}이(가) {2}에서 {3}(으)로 바뀝니다. 변환할 수 없는 값은 null이 됩니다.",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "열 {0}.{1}은(는) {2}에서 {3}(으)로 변환되지 않습니다. q에는 두 타입 사이의 직접 캐스트가 없으니 직접 바꾸세요."
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "열 {0}.{1}은(는) {2}에서 {3}(으)로 변환되지 않습니다. q에는 두 타입 사이의 직접 캐스트가 없으니 직접 바꾸세요.",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "{0}의 키가 열 「{1}」을(를) 가리키지만 테이블에 그 열이 없습니다."
 }

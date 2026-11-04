@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» — не те ім'я стовпця, яке може використовувати q.",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» — не тип q (стовпець {1}.{2}).",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Стовпець {0}.{1} змінює тип з {2} на {3}: значення, які не вдається перетворити, стають порожніми (null).",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Стовпець {0}.{1} не перетворюється з {2} на {3}: у q немає прямого приведення між цими типами; змініть його вручну."
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Стовпець {0}.{1} не перетворюється з {2} на {3}: у q немає прямого приведення між цими типами; змініть його вручну.",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "ключ {0} називає стовпець «{1}», якого в таблиці немає."
 }

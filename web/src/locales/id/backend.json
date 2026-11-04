@@ -11378,5 +11378,6 @@
   "«{0}» no es un nombre de columna que q pueda usar.": "«{0}» bukan nama kolom yang bisa dipakai q.",
   "«{0}» no es un tipo de q (columna {1}.{2}).": "«{0}» bukan tipe q (kolom {1}.{2}).",
   "La columna {0}.{1} pasa de {2} a {3}: los valores que no se puedan convertir quedan nulos.": "Kolom {0}.{1} berubah dari {2} menjadi {3}: nilai yang tidak bisa dikonversi menjadi null.",
-  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Kolom {0}.{1} tidak dikonversi dari {2} menjadi {3}: q tidak punya cast langsung antara tipe tersebut; ubah secara manual."
+  "La columna {0}.{1} no se convierte de {2} a {3}: q no tiene un cast directo entre esos tipos; cambiala a mano.": "Kolom {0}.{1} tidak dikonversi dari {2} menjadi {3}: q tidak punya cast langsung antara tipe tersebut; ubah secara manual.",
+  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": "kunci {0} menyebut kolom «{1}», yang tidak ada di tabel."
 }
