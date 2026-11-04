@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usesLegacyTls } from '../composables/tlsFields';
 import { computed, onMounted, ref, watchEffect } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
@@ -65,6 +66,8 @@ const liveCount = computed(() => Object.values(conns.live).filter((l) => l.statu
 const active = computed(() => tabs.active);
 const conn = computed(() => (active.value ? conns.byId(active.value.connectionId) : null));
 const server = computed(() => (active.value ? conns.live[active.value.connectionId]?.serverVersion ?? '' : ''));
+/** The connection negotiates TLS 1.0/1.1 (the user allowed it): always in sight. */
+const legacyTls = computed(() => usesLegacyTls(conn.value?.config.options));
 const driver = computed(() => (active.value ? conns.driverOf(active.value.connectionId) : null));
 /** The active tab is a query (or project file) tab: its controls. */
 const query = computed(() => {
@@ -119,12 +122,14 @@ onMounted(async () => {
       <template v-if="query">
         <QueryStatusItems :tab="query.tab" :controls="query.controls" />
         <span v-if="conn?.config.read_only" class="sb-item sb-ro">{{ $t('workbench:status.readOnly') }}</span>
+        <span v-if="legacyTls" class="sb-item sb-ro" :title="$t('workbench:status.legacyTlsHint')">{{ $t('workbench:status.legacyTls') }}</span>
         <span v-if="server" class="sb-item sb-server" :title="server">{{ server }}</span>
       </template>
       <template v-else-if="conn">
         <span class="sb-item">{{ driver?.name }}</span>
         <span class="sb-item">{{ conn.name }}{{ active?.database ? ` · ${active.database}` : '' }}</span>
         <span v-if="conn.config.read_only" class="sb-item sb-ro">{{ $t('workbench:status.readOnly') }}</span>
+        <span v-if="legacyTls" class="sb-item sb-ro" :title="$t('workbench:status.legacyTlsHint')">{{ $t('workbench:status.legacyTls') }}</span>
         <span v-if="server" class="sb-item sb-server" :title="server">{{ server }}</span>
       </template>
       <!-- A downloaded, verified update (composables/updates.ts): restarting

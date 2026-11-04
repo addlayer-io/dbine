@@ -58,6 +58,7 @@
     "pat": "Le mot de passe est le jeton d'accès programmatique (PAT) de la connexion.",
     "databricks_pat": "La connexion s'authentifie avec OAuth ou un principal de service : la chaîne utilise à la place un jeton d'accès personnel.",
     "other_port": "Ce format utilise le port {{port}} du serveur, pas celui qu'utilise DBine : changez-le si le vôtre est différent.",
-    "files_folder": "C'est un dossier de fichiers : ouvrez-les depuis l'application avec DuckDB (read_csv, read_parquet…)."
+    "files_folder": "C'est un dossier de fichiers : ouvrez-les depuis l'application avec DuckDB (read_csv, read_parquet…).",
+    "legacy_tls": "La connexion utilise un TLS ancien (1.0/1.1) : aucun client SQL Server n'a d'option pour cela dans la chaîne de connexion ; c'est la configuration TLS du système où elle est utilisée qui en décide."
   }
 }

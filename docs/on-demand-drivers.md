@@ -379,6 +379,15 @@ For a driver to ship in the installer, add it to `BUILT_IN` in
 in `crates/dbine-drivers/Cargo.toml` (a compile-time check in `lib.rs` fails
 otherwise).
 
+A **variant host** serves another crate's engines with something extra, for
+the connections that turn an option on, so that only those users download
+it: `sqlserver_legacy` is SQL Server with OpenSSL for servers that only
+speak TLS 1.0/1.1 (`LegacyTls`, [tls-options.md](tls-options.md#legacy-tls-10-and-11-for-old-servers)).
+It's a crate like any other (its own version, tag and index entry), listed
+in `VARIANTS` in `crates/dbine-drivers/src/lib.rs`: the app doesn't list its
+drivers (they're the base crate's), sends only connections with the option
+to it, and Settings › Drivers shows it with a suffix.
+
 If a driver turns on a feature of a library the app also uses,
 `scripts/check-app-features.py` fails the release until that feature is
 added to the pins in `src-tauri/Cargo.toml`.

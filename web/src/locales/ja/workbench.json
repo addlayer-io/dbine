@@ -61,7 +61,9 @@
     "showOutput": "出力を表示(⌘J)",
     "readOnly": "読み取り専用",
     "syncedShort": "同期済み",
-    "syncPending": "アップロード待ち"
+    "syncPending": "アップロード待ち",
+    "legacyTls": "レガシー TLS",
+    "legacyTlsHint": "この接続は安全でない TLS 1.0/1.1 を使用しています。この古いサーバーに対して許可されています。"
   },
   "tabs": {
     "designer": "デザイン",

@@ -3,7 +3,7 @@
 // strips the TypeScript types itself). Not part of the app's build.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { asText, fieldRequired, formValue, legacyIndex, legacyTlsValues, legacyValue, newConnectionPort, portForLevel, tlsLevel, tlsWarning, writeTls } from './tlsFields.ts';
+import { asText, fieldRequired, formValue, legacyIndex, legacyTlsValues, legacyValue, newConnectionPort, portForLevel, tlsLevel, tlsWarning, usesLegacyTls, writeTls } from './tlsFields.ts';
 
 const field = (key, kind, extra = {}) => ({ key, label: key, kind: { type: kind }, required: false, secret: false, placeholder: '', default: '', help: '', ...extra });
 
@@ -207,6 +207,20 @@ test('the chip warns about plaintext and unverified certificates', () => {
   assert.equal(tlsWarning(legacyDriver, get({ encrypt: true, trust_server_certificate: true })), 'unverified');
   assert.equal(tlsWarning(legacyDriver, get({ encrypt: true, trust_server_certificate: false })), null);
   assert.equal(tlsWarning({ ...pg, fields: [field('host', 'text')] }, get({})), null);
+});
+
+test('the chip warns about legacy TLS, after plaintext and unverified', () => {
+  const get = (v) => (k) => v[k];
+  const legacy = { ...field('LegacyTls', 'bool'), default: 'false', section: 'ssl' };
+  const ms = { ...pg, fields: [...pg.fields, legacy] };
+  assert.equal(tlsWarning(ms, get({ sslmode: 'verify-full', LegacyTls: false })), null);
+  assert.equal(tlsWarning(ms, get({ sslmode: 'verify-full', LegacyTls: true })), 'legacy');
+  assert.equal(tlsWarning(ms, get({ sslmode: 'require', LegacyTls: true })), 'unverified');
+  // Only an engine that has the option.
+  assert.equal(tlsWarning(pg, get({ sslmode: 'verify-full', LegacyTls: true })), null);
+  assert.equal(usesLegacyTls({ LegacyTls: 'true' }), true);
+  assert.equal(usesLegacyTls({ LegacyTls: 'false' }), false);
+  assert.equal(usesLegacyTls(undefined), false);
 });
 
 test('the port follows the mode between the plaintext and the TLS defaults', () => {

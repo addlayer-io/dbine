@@ -1221,6 +1221,11 @@ fn mssql(b: &mut B) {
     if encrypt && tsc {
         notes.push(note("tls_unverified", &[]));
     }
+    // DBine's own option: no SQL Server client has a keyword for TLS 1.0/1.1
+    // (the OS's TLS settings decide), so the string can't carry it.
+    if c.opt("LegacyTls") == Some("true") {
+        notes.push(note("legacy_tls", &[]));
+    }
     let ado_auth = match auth.as_str() {
         "entra_password" => Some("Active Directory Password"),
         "entra_mfa" => Some("Active Directory Interactive"),

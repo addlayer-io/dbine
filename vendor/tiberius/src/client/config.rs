@@ -69,6 +69,8 @@ pub struct Config {
         feature = "vendored-openssl"
     ))]
     pub(crate) client_cert: Option<ClientCertificate>,
+    // PATCH(dbine): legacy TLS (1.0/1.1) through OpenSSL, per connection.
+    pub(crate) legacy_tls: bool,
 }
 
 /// How the server certificate is trusted.
@@ -262,6 +264,7 @@ impl Default for Config {
                 feature = "vendored-openssl"
             ))]
             client_cert: None,
+            legacy_tls: false,
         }
     }
 }
@@ -270,6 +273,30 @@ impl Config {
     /// Create a new `Config` with the default settings.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    // PATCH(dbine): legacy TLS, per connection.
+    /// Negotiate the TLS handshake with OpenSSL instead of rustls, allowing
+    /// TLS 1.0 and 1.1 and the old cipher suites (security level 0), for
+    /// servers that speak nothing newer (SQL Server 2008 R2 / 2012 without
+    /// the TLS 1.2 update). Certificate trust is configured as for rustls.
+    ///
+    /// # Security
+    ///
+    /// TLS 1.0/1.1 are deprecated (RFC 8996). Only turn this on for a server
+    /// the user explicitly accepted it for: it is never a fallback.
+    ///
+    /// Needs the `legacy-tls` feature; without it the handshake fails with
+    /// [`Error::Tls`](crate::error::Error::Tls).
+    ///
+    /// - Defaults to `false` (rustls, TLS 1.2+).
+    pub fn legacy_tls(&mut self, on: bool) {
+        self.legacy_tls = on;
+    }
+
+    /// Whether [`legacy_tls`](Self::legacy_tls) is on.
+    pub fn get_legacy_tls(&self) -> bool {
+        self.legacy_tls
     }
 
     /// Create a new [`ConfigBuilder`] initialized with the default settings.

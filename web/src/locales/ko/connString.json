@@ -58,6 +58,7 @@
     "pat": "비밀번호는 이 연결의 프로그래밍 방식 액세스 토큰(PAT)입니다.",
     "databricks_pat": "이 연결은 OAuth 또는 서비스 주체로 로그인합니다. 문자열에는 대신 개인용 액세스 토큰을 사용합니다.",
     "other_port": "이 형식은 DBine이 사용하는 포트가 아니라 서버의 {{port}} 포트를 사용합니다. 다르면 변경하세요.",
-    "files_folder": "파일이 들어 있는 폴더입니다. 애플리케이션에서 DuckDB(read_csv, read_parquet…)로 여세요."
+    "files_folder": "파일이 들어 있는 폴더입니다. 애플리케이션에서 DuckDB(read_csv, read_parquet…)로 여세요.",
+    "legacy_tls": "이 연결은 레거시 TLS(1.0/1.1)를 사용합니다. 어떤 SQL Server 클라이언트도 연결 문자열에 이를 위한 옵션이 없으며, 사용하는 시스템의 TLS 설정에 따라 결정됩니다."
   }
 }

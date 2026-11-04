@@ -254,7 +254,19 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
             encryption
         );
 
-        let connection = connection.tls_handshake(&config, encryption).await?;
+        // PATCH(dbine): a server that only speaks TLS 1.0/1.1 says which
+        // version it is, from its PRELOGIN answer.
+        let server_version = prelogin.version;
+        let connection = connection
+            .tls_handshake(&config, encryption)
+            .await
+            .map_err(|e| match e {
+                crate::Error::TlsVersion { message, .. } => crate::Error::TlsVersion {
+                    server_version: Some(server_version),
+                    message,
+                },
+                e => e,
+            })?;
 
         event!(Level::DEBUG, "Handshake stage: sending login");
         let mut connection = connection

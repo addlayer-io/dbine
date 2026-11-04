@@ -3,6 +3,7 @@ import { ElMessageBox } from 'element-plus';
 import { listen } from '@tauri-apps/api/event';
 import { api, errorDetail, errorKind, errorMessage } from '../api/client';
 import { askTrustSshHost } from '../composables/sshTrust';
+import { askAllowLegacyTls } from '../composables/legacyTls';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import type { ColumnInfo, ConnectDetail, ConnectionFolder, DbObject, DriverInfo, KeyEntry, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
@@ -337,6 +338,15 @@ export const useConnectionsStore = defineStore('connections', {
         if (entry) {
           // The command's `fingerprint` takes the entry bound to its server.
           await api.trustSshHost(id, entry);
+          await this.load();
+          return this.openConnection(id, password);
+        }
+        // The server only speaks TLS 1.0/1.1: asked once; on yes the
+        // connection keeps it and connects again through the legacy-TLS
+        // driver (downloaded then, with the usual progress). Never without
+        // that yes: a failed TLS 1.2 handshake doesn't fall back by itself.
+        if (await askAllowLegacyTls(e)) {
+          await api.allowLegacyTls(id);
           await this.load();
           return this.openConnection(id, password);
         }

@@ -1,0 +1,15 @@
+[package]
+name = "dbine-driver-sqlserver_legacy"
+# The same as dbine-driver-sqlserver's (a test checks it): this host is that
+# driver with one more TLS backend, so it changes whenever that one does.
+version = "0.1.19"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+edition.workspace = true
+license.workspace = true
+description = "SQL Server for servers that only speak TLS 1.0/1.1: the sqlserver driver with a vendored OpenSSL, downloaded only for connections that turn on LegacyTls"
+
+[dependencies]
+dbine-driver = { path = "../../dbine-driver" }
+# OpenSSL is built from source (openssl-src, Apache-2.0) and linked
+# statically, so every platform gets the same TLS 1.0/1.1 support whatever
+# its own TLS stack allows.
+dbine-driver-sqlserver = { path = "../sqlserver", features = ["legacy-tls"] }

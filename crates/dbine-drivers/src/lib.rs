@@ -96,6 +96,7 @@ packages! {
     "spanner" => dbine_driver_spanner,
     "sqlite" => dbine_driver_sqlite,
     "sqlserver" => dbine_driver_sqlserver,
+    "sqlserver_legacy" => dbine_driver_sqlserver_legacy,
     "trino" => dbine_driver_trino,
     "libsql" => dbine_driver_libsql,
     "neo4j" => dbine_driver_neo4j,
@@ -109,10 +110,46 @@ packages! {
     "kdb" => dbine_driver_kdb,
 }
 
+/// A driver crate that serves engines of another one with something more,
+/// for the connections that turn an option on. It's a host of its own so
+/// that what it adds isn't downloaded by everyone; the app never lists its
+/// drivers (they're the other crate's) and starts it only for those
+/// connections.
+pub struct VariantHost {
+    /// Its package (the crate's feature name).
+    pub package: &'static str,
+    /// The package whose engines it serves.
+    pub of: &'static str,
+    /// The connection option that sends a connection to it when "true".
+    pub option: &'static str,
+    /// What the settings page adds to the engine's name.
+    pub suffix: &'static str,
+}
+
+/// `sqlserver_legacy`: SQL Server through a vendored OpenSSL, for servers
+/// that only speak TLS 1.0/1.1 (docs/tls-options.md). A connection goes
+/// there only once the user allowed it (`LegacyTls`), never as a fallback.
+pub const VARIANTS: &[VariantHost] = &[VariantHost {
+    package: "sqlserver_legacy",
+    of: "sqlserver",
+    option: "LegacyTls",
+    suffix: " (TLS 1.0/1.1)",
+}];
+
+/// A [`VariantHost`]'s package.
+pub fn is_variant(package: &str) -> bool {
+    VARIANTS.iter().any(|v| v.package == package)
+}
+
 pub fn all() -> &'static [Arc<dyn Driver>] {
     static ALL: OnceLock<Vec<Arc<dyn Driver>>> = OnceLock::new();
     ALL.get_or_init(|| {
-        let built_in = packages();
+        // A variant's drivers are its base's (built in, the base handles
+        // the option itself: the feature reaches the shared crate).
+        let built_in: Vec<_> = packages()
+            .into_iter()
+            .filter(|(p, _)| !is_variant(p))
+            .collect();
         #[cfg(feature = "plugins")]
         let downloadable = plugins::drivers(&built_in.iter().map(|(p, _)| *p).collect::<Vec<_>>());
         #[allow(unused_mut)]
@@ -211,8 +248,12 @@ pub mod plugins {
             .into_iter()
             .map(|p| {
                 let info = up.info(&p);
+                let suffix = super::VARIANTS
+                    .iter()
+                    .find(|v| v.package == p)
+                    .map_or("", |v| v.suffix);
                 Package {
-                    label: up.label(&p),
+                    label: format!("{}{suffix}", up.label(&p)),
                     drivers: file()
                         .drivers
                         .iter()
@@ -281,12 +322,22 @@ pub mod plugins {
         }
         let up = updater();
         up.gc();
+        let hosts = &file().catalog.hosts;
         up.startup_metas()
             .into_iter()
-            .filter(|m| !built_in.contains(&m.package.as_str()))
+            .filter(|m| !built_in.contains(&m.package.as_str()) && !super::is_variant(&m.package))
             .map(|m| {
                 let launcher = up.launcher(&m.package);
-                Arc::new(RemoteDriver::new(m, launcher)) as Arc<dyn Driver>
+                let mut d = RemoteDriver::new(m, launcher);
+                // Connections with the variant's option go to its host
+                // (only when this build publishes it).
+                for v in super::VARIANTS
+                    .iter()
+                    .filter(|v| v.of == d.package() && hosts.contains_key(v.package))
+                {
+                    d = d.with_variant(v.option, up.launcher(v.package));
+                }
+                Arc::new(d) as Arc<dyn Driver>
             })
             .collect()
     }

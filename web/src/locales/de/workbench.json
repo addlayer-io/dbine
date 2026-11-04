@@ -63,7 +63,9 @@
     "showOutput": "Ausgabe anzeigen (⌘J)",
     "readOnly": "schreibgeschützt",
     "syncedShort": "Synchronisiert",
-    "syncPending": "Ausstehend"
+    "syncPending": "Ausstehend",
+    "legacyTls": "Veraltetes TLS",
+    "legacyTlsHint": "Diese Verbindung verwendet TLS 1.0/1.1, was unsicher ist: Sie haben es für diesen alten Server erlaubt."
   },
   "tabs": {
     "designer": "Entwerfen",

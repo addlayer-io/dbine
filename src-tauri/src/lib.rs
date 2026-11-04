@@ -333,6 +333,7 @@ pub fn run() {
             commands::connections::delete_connection,
             commands::connections::trust_ssh_host,
             commands::connections::trust_tls_pin,
+            commands::connections::allow_legacy_tls,
             commands::ssh_profiles::list_ssh_profiles,
             commands::ssh_profiles::save_ssh_profile,
             commands::ssh_profiles::delete_ssh_profile,

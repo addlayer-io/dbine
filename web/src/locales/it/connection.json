@@ -357,6 +357,15 @@
       "forget": "Dimentica",
       "help": "Questa modalità non verifica la catena del certificato: accetta solo il certificato presentato dal server alla prima connessione. \"Dimentica\" fa sì che la connessione successiva fissi il certificato che il server presenterà in quel momento.",
       "none": "Questa modalità non verifica la catena del certificato: la prima connessione fissa il certificato del server e le successive accettano solo quello."
-    }
+    },
+    "legacy": "TLS legacy"
+  },
+  "legacyTls": {
+    "askTitle": "Server con TLS legacy",
+    "ask": "Questo server ({{server}}) accetta solo TLS 1.0 o 1.1, protocolli non sicuri. Connettersi comunque usando TLS legacy?",
+    "askDetail": "DBine lo ricorda per questa connessione e, la prima volta, scarica il componente che lo consente. Puoi disattivarlo nella scheda SSL della connessione. La soluzione più sicura è aggiornare il server a TLS 1.2 (SQL Server 2012 SP4 o KB3135244).",
+    "askConfirm": "Connetti con TLS legacy",
+    "formTitle": "TLS legacy (1.0/1.1) consentito",
+    "formBody": "Questa connessione accetta TLS 1.0 e 1.1, protocolli obsoleti e non sicuri. Usalo solo con server che non possono essere aggiornati a TLS 1.2."
   }
 }

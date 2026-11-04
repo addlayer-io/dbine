@@ -2157,6 +2157,28 @@ Engines without TLS:
 | NuoDB (`nuodb`) | Its ODBC driver has no TLS keywords (TLS is only in its JDBC driver). |
 | CUBRID | Its ODBC driver has no TLS option. |
 
+### Legacy TLS (1.0/1.1)
+
+SQL Server (`sqlserver`) connects to servers that only speak TLS 1.0/1.1
+(SQL Server 2008, 2008 R2 and 2012 without the TLS 1.2 update), only after
+the user says yes for that connection, through a separate driver host with
+OpenSSL that is downloaded on first use
+([`tls-options.md`](tls-options.md#legacy-tls-10-and-11-for-old-servers)). Azure
+SQL, Fabric and Babelfish always speak TLS 1.2+.
+
+Not offered on the other engines. These may also have old servers without
+TLS 1.2; none of them gets the option until someone needs it, and each
+would follow the SQL Server design (consent per connection, a host of its
+own):
+
+| Engine | Old servers without TLS 1.2 |
+|---|---|
+| MySQL (`mysql` and its family) | MySQL 5.5, 5.6 and 5.7 before 5.7.28 built with yaSSL (Community builds) top out at TLS 1.1. |
+| MariaDB (`mariadb`) | MariaDB 5.5 to 10.1 built with yaSSL. |
+| Oracle Database (`oracle`) | Oracle 11g R2 without the 2016 TLS 1.2 patches. |
+| PostgreSQL family | Servers built against OpenSSL 0.9.8 (PostgreSQL 8.x, early 9.x). |
+| Sybase ASE, Informix, Db2 and the other ODBC engines | Old server releases; there the ODBC driver's own TLS decides, not DBine. |
+
 ## Locks
 
 The Monitor's locks panel ([`locks.md`](locks.md)). These have locks and

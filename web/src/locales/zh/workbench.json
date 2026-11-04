@@ -61,7 +61,9 @@
     "showOutput": "显示输出（⌘J）",
     "readOnly": "只读",
     "syncedShort": "已同步",
-    "syncPending": "待上传"
+    "syncPending": "待上传",
+    "legacyTls": "旧版 TLS",
+    "legacyTlsHint": "此连接使用不安全的 TLS 1.0/1.1：您已为这台旧服务器允许了它。"
   },
   "tabs": {
     "designer": "设计",

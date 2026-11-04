@@ -65,6 +65,7 @@ default = [
     "spanner",
     "sqlite",
     "sqlserver",
+    "sqlserver_legacy",
     "trino",
     "libsql",
     "neo4j",
@@ -105,6 +106,7 @@ solr = ["dbine-drivers/solr"]
 spanner = ["dbine-drivers/spanner"]
 sqlite = ["dbine-drivers/sqlite"]
 sqlserver = ["dbine-drivers/sqlserver"]
+sqlserver_legacy = ["dbine-drivers/sqlserver_legacy"]
 trino = ["dbine-drivers/trino"]
 libsql = ["dbine-drivers/libsql"]
 neo4j = ["dbine-drivers/neo4j"]

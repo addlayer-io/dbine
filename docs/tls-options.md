@@ -352,6 +352,7 @@ Azure SQL and Fabric force it, and so does an Entra token login.
 | `TrustServerCertificate` | `tls_skip_verify` | `true` skips | `false` | `false, true, false, true` |
 | `ServerCertificate` | `tls_ca_file` | path (`trust_cert_ca`) | — | — |
 | `HostNameInCertificate` | `tls_server_name` | text | — | — |
+| `LegacyTls` (sqlserver only, DBine's own key) | plain `Bool`, no TLS role | `true` negotiates TLS 1.0/1.1 through OpenSSL | `false` | — |
 
 ```rust
 Field::tls_mode("Encrypt", "Encrypt", &[
@@ -419,6 +420,133 @@ is absent, see the open decisions.
 - **babelfish: medium.** `Mandatory` fails on servers without SSL, and
   `Optional` must keep mapping to `NotSupported`.
 - **azuresql, fabric: low.**
+
+### Legacy TLS 1.0 and 1.1 for old servers
+
+SQL Server 2008, 2008 R2 and 2012 without the TLS 1.2 update (2012 SP4,
+KB3135244) speak only TLS 1.0/1.1. rustls has neither, by design, so these
+servers can't be reached on the normal path. DBine reaches them, on
+`sqlserver` connections only, without weakening anyone else's.
+
+**What the user sees.**
+
+1. The connection always tries the normal path first: rustls, TLS 1.2+,
+   unchanged.
+2. When the handshake fails because the server only offers TLS 1.0/1.1, the
+   connect fails with `ConnectFailure { kind: Tls, code: "TLS_LEGACY_ONLY" }`
+   and a message that names the server from its PRELOGIN answer ("SQL Server
+   2012, 11.0.2100"). The app turns that into one question: "This server
+   only accepts TLS 1.0 or 1.1, insecure protocols. Connect anyway with
+   legacy TLS?"
+3. On yes, `allow_legacy_tls` stores `LegacyTls=true` on that connection,
+   closes its sessions and connects again. The first time, the
+   `sqlserver_legacy` driver host is downloaded with the usual "Downloading
+   the SQL Server driver…" progress.
+4. While it's on, the status bar shows "Legacy TLS" and the connection
+   form's SSL tab shows a red chip and a warning. Unticking "Permitir TLS
+   antiguo (1.0/1.1) para servidores viejos" there turns it off. "Copy
+   connection string" adds a note: no SQL Server client has a keyword for
+   it.
+
+**Never a silent downgrade.** A man in the middle can make a TLS 1.2
+handshake fail on purpose. Without the stored per-connection yes, a failed
+TLS 1.2 handshake never leads to a TLS 1.0 attempt: the driver only reports
+it. Turning the option off goes back to rustls.
+
+**How the failure is recognized.** rustls offers TLS 1.2+ with AEAD suites
+only, so an old server has no suite to pick. It answers with a TLS 1.0
+ServerHello (`PeerIncompatible::ServerDoesNotSupportTls12Or13`), a
+`protocol_version` alert, a `handshake_failure` alert, or just closes the
+connection, depending on its TLS stack (SQL Server 2017 on Linux limited to
+TLS 1.0 closes it). The first two are explicit and become
+`tiberius::Error::TlsVersion` (vendored tiberius, patch 11). For the
+ambiguous ones (`handshake_failure`, EOF, reset), the driver probes once
+(`crates/drivers/sqlserver/src/legacy_probe.rs`): a new TCP connection
+sends PRELOGIN and then a TLS 1.1 ClientHello with the old suites inside a
+PRELOGIN packet, and reads whether the server answers with a TLS 1.0/1.1
+ServerHello. The probe is plaintext only (no key exchange, no login, no
+credentials) and is dropped right after. A server with no TLS at all
+(`ENCRYPT_NOT_SUP`) is not reported as legacy.
+
+**The legacy path.** Vendored tiberius gets a `legacy-tls` feature and
+`Config::legacy_tls(bool)`. With the feature, the TLS stream is an enum of
+the unchanged rustls stream and an OpenSSL one (`tokio-openssl`), chosen per
+connection; without it, the code is upstream's rustls path, and a
+connection asking for legacy TLS fails with a clear error. On the OpenSSL
+path only:
+
+- `set_min_proto_version(TLS1)` (OpenSSL still negotiates the highest
+  version both sides speak);
+- cipher list `ALL:!aNULL:!eNULL:@SECLEVEL=0` (OpenSSL 3 refuses TLS 1.0/1.1
+  and SHA-1 signatures at its default security level);
+- certificate checks as on the rustls path: the OS trust store
+  (`rustls-native-certs`) plus `ServerCertificate`, host name verified
+  (`HostNameInCertificate` honoured), failing closed with no usable roots.
+  `TrustServerCertificate` stays the only explicit opt-out, and its default
+  doesn't change. Old servers often have a self-signed certificate: then
+  `ServerCertificate` (verified) or `TrustServerCertificate` (not) is needed,
+  as on the normal path;
+- `Strict` (TDS 8.0) and client certificates are refused: neither exists on
+  these servers.
+
+**Where OpenSSL lives.** Not in the app and not in the regular `sqlserver`
+host:
+
+- `crates/drivers/sqlserver` has a `legacy-tls` feature, off.
+- `crates/drivers/sqlserver_legacy` (package `sqlserver_legacy`) is that
+  driver with the feature on, serving only the `sqlserver` engine id. Its
+  version tracks `sqlserver`'s (a test fails otherwise), and the release
+  check makes it bump whenever `sqlserver`'s code changes, since it links it.
+- `dbine_drivers::VARIANTS` declares it a variant of `sqlserver` for the
+  option `LegacyTls`: the registry never lists its drivers, and
+  `RemoteDriver::with_variant` sends connections with `LegacyTls=true` to
+  its launcher. Everything else (and every other call) stays on the
+  `sqlserver` host. Settings › Drivers lists it as "SQL Server (TLS
+  1.0/1.1)".
+- In builds with every driver in one process (`cargo tauri dev`, tests,
+  Flathub), cargo unifies the feature: the built-in `sqlserver` driver has
+  both backends and still uses rustls unless the connection says otherwise.
+  On Linux those builds then link the vendored OpenSSL for every crate that
+  uses `openssl-sys` (MySQL's `native-tls`).
+
+**Why this design.**
+
+- *tiberius' `native-tls` / `vendored-openssl` features:* compile-time
+  exclusive with `rustls` (duplicate `TlsStream`), so selecting one would
+  move every SQL Server connection off rustls. `native-tls` would also use
+  the OS stack, which disables TLS 1.0 on current Windows (SChannel) and,
+  through OpenSSL 3's security level, on current Linux; macOS's Secure
+  Transport is deprecated. Not consistent across platforms.
+- *An adapter around the TCP stream:* TDS wraps the TLS handshake in
+  PRELOGIN packets and, with `Optional`, drops TLS after the login, so the
+  TLS layer has to live inside tiberius' `TlsPreloginWrapper`. A small patch
+  to the vendored copy (precedent: its other patches) was the smallest
+  change.
+- *OpenSSL in the regular host:* every SQL Server user would download and
+  run it. A separate host keeps the default path byte-for-byte rustls and
+  makes the legacy path opt-in down to the binary.
+
+**Cost.** OpenSSL 3 (`openssl-src`, Apache-2.0, compatible with DBine's
+license) is compiled from source in the `sqlserver_legacy` host build: about
+a minute more per target, and Perl plus the MSVC tools on the Windows runner
+(present on GitHub's images). The host is the `sqlserver` one plus OpenSSL's
+libssl/libcrypto, statically linked: on aarch64-apple-darwin 14.5 MB (6.96 MB gzipped, the download) against 10.4 MB (4.81 MB) for `sqlserver`. No change to the app
+binary or to the `sqlserver` host.
+
+**Tests.** Unit: the option mapping (`legacy_tls_is_opt_in_per_connection`,
+`legacy_tls_field_is_sql_server_only`), the failure code
+(`old_tls_servers_are_recognised`), the probe's encoding, rustls' version
+errors (tiberius), the OpenSSL settings (`legacy_tls_stream` tests), the
+routing (`crates/dbine-plugin-host/tests/variant.rs`), the command
+(`legacy_tls_is_stored_only_where_the_engine_offers_it`) and the connection
+string note. Live, against SQL Server 2017 on Linux with
+`network.tlsprotocols = 1.0` and `tests/tls/selfsigned.pem`
+(`dbine-test-mssql-tls10`; how to start it is in
+`crates/drivers/sqlserver/src/legacy_tls_live.rs`): refused with the code in
+every mode without the option; with it, connects trusted, verified against
+the certificate given as `ServerCertificate`, refused when the certificate
+can't be verified, and works with `Optional`; and the same through the hosts
+(`a_tls10_server_through_the_hosts`).
 
 ### PostgreSQL family: 21 ids
 

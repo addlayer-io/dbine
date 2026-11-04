@@ -357,6 +357,15 @@
       "forget": "Lupakan",
       "help": "Mode ini tidak memverifikasi rantai sertifikat: hanya menerima sertifikat yang ditunjukkan server pada koneksi pertama. \"Lupakan\" membuat koneksi berikutnya menyematkan sertifikat yang ditunjukkan server saat itu.",
       "none": "Mode ini tidak memverifikasi rantai sertifikat: koneksi pertama menyematkan sertifikat server dan koneksi berikutnya hanya menerima sertifikat itu."
-    }
+    },
+    "legacy": "TLS lama"
+  },
+  "legacyTls": {
+    "askTitle": "Server dengan TLS lama",
+    "ask": "Server ini ({{server}}) hanya menerima TLS 1.0 atau 1.1, protokol yang tidak aman. Tetap hubungkan menggunakan TLS lama?",
+    "askDetail": "DBine mengingatnya untuk koneksi ini dan, pada kali pertama, mengunduh komponen yang memungkinkannya. Opsi ini dapat dinonaktifkan di tab SSL pada koneksi. Cara paling aman adalah memperbarui server ke TLS 1.2 (SQL Server 2012 SP4 atau KB3135244).",
+    "askConfirm": "Hubungkan dengan TLS lama",
+    "formTitle": "TLS lama (1.0/1.1) diizinkan",
+    "formBody": "Koneksi ini menerima TLS 1.0 dan 1.1, protokol yang usang dan tidak aman. Gunakan hanya dengan server yang tidak dapat diperbarui ke TLS 1.2."
   }
 }

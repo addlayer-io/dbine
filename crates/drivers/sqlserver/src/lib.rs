@@ -9,6 +9,7 @@ mod dependencies;
 mod entra;
 mod health;
 mod index_usage;
+mod legacy_probe;
 mod monitor;
 mod permissions;
 mod plan;
@@ -43,6 +44,18 @@ use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 use variant::{Login, Variant, DEFAULT_PORT};
+
+/// This driver's version (the `sqlserver_legacy` host tracks it).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// What the `sqlserver_legacy` host serves: SQL Server alone (the only
+/// variant with `LegacyTls`).
+pub fn legacy_tls_drivers() -> Vec<Arc<dyn Driver>> {
+    vec![Arc::new(SqlServerDriver {
+        info: variant::info(Variant::SqlServer),
+        variant: Variant::SqlServer,
+    })]
+}
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     Variant::ALL
@@ -515,7 +528,12 @@ impl SqlServerDriver {
         let login = variant::login(cfg, self.variant).await?;
         let config = build_config(cfg, database, self.variant, login)?;
         let named = cfg.option(variant::HOST_NAME_IN_CERTIFICATE).is_some();
-        let (client, config) = connect_routed(config, named).await.map_err(connect_error)?;
+        let probe = (self.variant == Variant::SqlServer && !legacy_tls_on(cfg, self.variant))
+            .then(|| config.clone());
+        let (client, config) = match connect_routed(config, named).await {
+            Ok(c) => c,
+            Err(e) => return Err(explain_connect_error(e, probe.as_ref()).await),
+        };
         let cancel = Arc::new(std::sync::Mutex::new(CancelTarget {
             attention: client.cancel_handle(),
             backend: None,
@@ -646,6 +664,13 @@ fn connect_error(e: tiberius::error::Error) -> Error {
             };
             Error::connect_failed(ConnectFailure::new(kind, message.clone()))
         }
+        // The server answered with TLS 1.0/1.1: never retried on its own
+        // (a man in the middle could make TLS 1.2 fail on purpose); the app
+        // asks and stores the user's yes on the connection.
+        tiberius::error::Error::TlsVersion {
+            server_version,
+            message,
+        } => legacy_only(*server_version, message),
         tiberius::error::Error::Tls(m) => {
             let kind = match dbine_driver::error::classify_message(m) {
                 ConnectFailureKind::TlsUntrusted => ConnectFailureKind::TlsUntrusted,
@@ -663,6 +688,52 @@ fn connect_error(e: tiberius::error::Error) -> Error {
         }
         _ => Error::connect_failed(ConnectFailure::from_message(e.to_string())),
     }
+}
+
+/// A server that only speaks TLS 1.0/1.1, with the code the app asks on.
+fn legacy_only(server_version: Option<u32>, detail: &str) -> Error {
+    Error::connect_failed(
+        ConnectFailure::new(
+            ConnectFailureKind::Tls,
+            format!(
+                "Este servidor ({}) solo acepta TLS 1.0 o 1.1, versiones inseguras que DBine no usa sin tu permiso. \
+                 Para conectar igual, activá «Permitir TLS antiguo (1.0/1.1) para servidores viejos» en la conexión; \
+                 mejor aún, actualizá el servidor a TLS 1.2 (SQL Server 2012 SP4 o KB3135244). Detalle: {detail}",
+                server_label(server_version)
+            ),
+        )
+        .with_code(LEGACY_TLS_ONLY),
+    )
+}
+
+/// A TLS handshake that failed without saying why: a dropped connection,
+/// a `handshake_failure` alert. An old server's usual answer to rustls'
+/// TLS 1.2-only suites, and also many other things.
+fn unexplained_tls_failure(e: &tiberius::error::Error) -> bool {
+    use std::io::ErrorKind as K;
+    match e {
+        tiberius::error::Error::Tls(m) => {
+            dbine_driver::error::classify_message(m) != ConnectFailureKind::TlsUntrusted
+        }
+        tiberius::error::Error::Io { kind, .. } => matches!(
+            kind,
+            K::UnexpectedEof | K::ConnectionReset | K::ConnectionAborted | K::BrokenPipe
+        ),
+        _ => false,
+    }
+}
+
+/// [`connect_error`], and for a SQL Server connection without legacy TLS
+/// whose handshake failed unexplained (`probe`: its config), whether the
+/// server only speaks TLS 1.0/1.1 (`legacy_probe`): then the failure says
+/// so, for the app to ask. It never connects with TLS 1.0 by itself.
+async fn explain_connect_error(e: tiberius::error::Error, probe: Option<&Config>) -> Error {
+    if let Some(config) = probe.filter(|_| unexplained_tls_failure(&e)) {
+        if let Some(version) = legacy_probe::old_tls_only(config).await {
+            return legacy_only(Some(version), &e.to_string());
+        }
+    }
+    connect_error(e)
 }
 
 /// A server's refusal to log in, classified by its error number.
@@ -771,11 +842,60 @@ fn build_config(
     if let Some(name) = &tls.server_name {
         c.hostname_in_certificate(name);
     }
+    if legacy_tls_on(cfg, variant) {
+        if !LEGACY_TLS_BUILT_IN {
+            return Err(Error::Connect(
+                "Esta conexión usa TLS antiguo (1.0/1.1) y este componente de SQL Server no lo incluye: \
+                 actualizá DBine para que descargue el que lo permite, o desactivá la opción."
+                    .into(),
+            ));
+        }
+        c.legacy_tls(true);
+    }
     if cfg.read_only {
         c.readonly(true);
     }
     c.authentication(auth_method(login)?);
     Ok(c)
+}
+
+/// Whether this build negotiates TLS 1.0/1.1 (the `sqlserver_legacy` host,
+/// and builds with every driver in one process).
+pub const LEGACY_TLS_BUILT_IN: bool = cfg!(feature = "legacy-tls");
+
+/// The [`ConnectFailure::code`] of a server that only speaks TLS 1.0/1.1:
+/// the app asks the user once and, on yes, turns on `LegacyTls` for that
+/// connection and connects again. Without that stored consent a failed
+/// TLS 1.2 handshake never leads to a TLS 1.0 attempt.
+pub const LEGACY_TLS_ONLY: &str = "TLS_LEGACY_ONLY";
+
+/// The connection turned on legacy TLS (SQL Server only).
+fn legacy_tls_on(cfg: &ConnectionConfig, v: Variant) -> bool {
+    v == Variant::SqlServer && cfg.option(variant::LEGACY_TLS) == Some("true")
+}
+
+/// "SQL Server 2012, 11.0.2100" from a PRELOGIN version (major, minor and
+/// build, high byte first).
+fn server_label(version: Option<u32>) -> String {
+    let Some(v) = version else {
+        return "SQL Server".into();
+    };
+    let (major, minor, build) = (v >> 24, (v >> 16) & 0xff, v & 0xffff);
+    let name = match (major, minor) {
+        (8, _) => "2000",
+        (9, _) => "2005",
+        (10, 50) => "2008 R2",
+        (10, _) => "2008",
+        (11, _) => "2012",
+        (12, _) => "2014",
+        (13, _) => "2016",
+        (14, _) => "2017",
+        (15, _) => "2019",
+        (16, _) => "2022",
+        (17, _) => "2025",
+        _ => return format!("SQL Server {major}.{minor}.{build}"),
+    };
+    format!("SQL Server {name}, {major}.{minor}.{build}")
 }
 
 /// What the connection's TLS options ask of tiberius.
@@ -1858,6 +1978,9 @@ mod cancel_live;
 mod script_live;
 
 #[cfg(test)]
+mod legacy_tls_live;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -2227,6 +2350,103 @@ mod tests {
             .unwrap(),
             tls(EncryptionLevel::Required, false)
         );
+    }
+
+    /// `LegacyTls` reaches tiberius only on SQL Server and only when it's
+    /// "true"; it's off by default and changes nothing else.
+    #[test]
+    fn legacy_tls_is_opt_in_per_connection() {
+        let login = || Login::Sql {
+            user: "sa".into(),
+            password: "x".into(),
+        };
+        let with = |o: &[(&str, &str)], v: Variant| {
+            let cfg = tls_cfg(false, false, o);
+            build_config(&cfg, None, v, login())
+        };
+        let mandatory = [("Encrypt", "Mandatory")];
+        assert!(!with(&mandatory, Variant::SqlServer)
+            .unwrap()
+            .get_legacy_tls());
+        for off in ["false", "", "TRUE ", "1"] {
+            let o = [("Encrypt", "Mandatory"), ("LegacyTls", off)];
+            assert!(
+                !with(&o, Variant::SqlServer).unwrap().get_legacy_tls(),
+                "{off:?}"
+            );
+        }
+        let on = [("Encrypt", "Mandatory"), ("LegacyTls", "true")];
+        // Azure SQL and Babelfish never take it, whatever the option says.
+        for v in [Variant::AzureSql, Variant::Babelfish] {
+            assert!(!with(&on, v).unwrap().get_legacy_tls());
+        }
+        // On only where the backend is built in (the `sqlserver_legacy`
+        // host); elsewhere the connect says so instead of using rustls.
+        let got = with(&on, Variant::SqlServer);
+        if LEGACY_TLS_BUILT_IN {
+            assert!(got.unwrap().get_legacy_tls());
+        } else {
+            let e = got.unwrap_err();
+            assert!(e.to_string().contains("TLS antiguo"), "{e}");
+        }
+        // Certificate checks stay what the connection says: verified by
+        // default, skipped only with TrustServerCertificate.
+        let cfg = tls_cfg(false, false, &on);
+        assert_eq!(
+            tls_settings(&cfg, Variant::SqlServer, false).unwrap(),
+            tls(EncryptionLevel::Required, false)
+        );
+    }
+
+    /// Only SQL Server shows the checkbox, off, in the SSL tab.
+    #[test]
+    fn legacy_tls_field_is_sql_server_only() {
+        let field = |v: Variant| {
+            variant::info(v)
+                .fields
+                .into_iter()
+                .find(|f| f.key == variant::LEGACY_TLS)
+        };
+        let f = field(Variant::SqlServer).expect("SQL Server has LegacyTls");
+        assert_eq!(f.default, "false");
+        assert_eq!(f.section, dbine_driver::FieldSection::Ssl);
+        assert!(f.tls.is_none());
+        for v in [Variant::AzureSql, Variant::Fabric, Variant::Babelfish] {
+            assert!(field(v).is_none());
+        }
+    }
+
+    /// A server that answers with TLS 1.0/1.1 gets its own failure, which
+    /// names the server and carries the code the app asks the user on.
+    #[test]
+    fn old_tls_servers_are_recognised() {
+        let e = connect_error(tiberius::error::Error::TlsVersion {
+            server_version: Some((11 << 24) | 2100),
+            message: "peer is incompatible".into(),
+        });
+        let Error::ConnectFailed(f) = e else {
+            panic!("{e:?}")
+        };
+        assert_eq!(f.kind, ConnectFailureKind::Tls);
+        assert_eq!(f.code.as_deref(), Some(LEGACY_TLS_ONLY));
+        assert!(
+            f.message.contains("SQL Server 2012, 11.0.2100"),
+            "{}",
+            f.message
+        );
+        assert!(f.message.contains("KB3135244"));
+        // Other TLS failures don't carry it.
+        let Error::ConnectFailed(f) = connect_error(tiberius::error::Error::Tls("eof".into()))
+        else {
+            panic!()
+        };
+        assert_eq!(f.code, None);
+        assert_eq!(server_label(None), "SQL Server");
+        assert_eq!(
+            server_label(Some((10 << 24) | (50 << 16) | 1600)),
+            "SQL Server 2008 R2, 10.50.1600"
+        );
+        assert_eq!(server_label(Some(99 << 24)), "SQL Server 99.0.0");
     }
 
     #[test]

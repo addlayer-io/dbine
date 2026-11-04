@@ -58,6 +58,7 @@
     "pat": "密码是该连接的编程访问令牌（PAT）。",
     "databricks_pat": "该连接使用 OAuth 或服务主体登录：字符串改用个人访问令牌。",
     "other_port": "此格式使用服务器的 {{port}} 端口，而不是 DBine 使用的端口：如果您的端口不同，请修改。",
-    "files_folder": "这是一个文件文件夹：请在应用程序中用 DuckDB 打开其中的文件（read_csv、read_parquet…）。"
+    "files_folder": "这是一个文件文件夹：请在应用程序中用 DuckDB 打开其中的文件（read_csv、read_parquet…）。",
+    "legacy_tls": "该连接使用旧版 TLS（1.0/1.1）：任何 SQL Server 客户端的连接字符串都没有对应选项；由使用它的系统的 TLS 配置决定。"
   }
 }

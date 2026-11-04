@@ -357,6 +357,15 @@
       "forget": "Zapomnij",
       "help": "Ten tryb nie weryfikuje łańcucha certyfikatu: akceptuje tylko certyfikat, który serwer przedstawił przy pierwszym połączeniu. „Zapomnij” sprawia, że następne połączenie przypnie certyfikat, który serwer wtedy przedstawi.",
       "none": "Ten tryb nie weryfikuje łańcucha certyfikatu: pierwsze połączenie przypina certyfikat serwera, a kolejne akceptują tylko ten."
-    }
+    },
+    "legacy": "Starszy TLS"
+  },
+  "legacyTls": {
+    "askTitle": "Serwer ze starszym TLS",
+    "ask": "Ten serwer ({{server}}) akceptuje tylko TLS 1.0 lub 1.1, czyli niezabezpieczone protokoły. Połączyć mimo to, używając starszego TLS?",
+    "askDetail": "DBine zapamiętuje to dla tego połączenia i przy pierwszym użyciu pobiera komponent, który to umożliwia. Można to wyłączyć na karcie SSL połączenia. Najbezpieczniej zaktualizować serwer do TLS 1.2 (SQL Server 2012 SP4 lub KB3135244).",
+    "askConfirm": "Połącz ze starszym TLS",
+    "formTitle": "Starszy TLS (1.0/1.1) dozwolony",
+    "formBody": "To połączenie akceptuje TLS 1.0 i 1.1, czyli przestarzałe i niezabezpieczone protokoły. Używaj go tylko z serwerami, których nie można zaktualizować do TLS 1.2."
   }
 }

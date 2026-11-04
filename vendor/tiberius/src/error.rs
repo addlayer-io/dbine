@@ -46,6 +46,19 @@ pub enum Error {
     #[error("Error forming TLS connection: {}", _0)]
     /// An error in the TLS handshake.
     Tls(String),
+    // PATCH(dbine): legacy TLS, per connection.
+    #[error("Error forming TLS connection: {}", message)]
+    /// The server only negotiates a TLS version older than 1.2 (it answered
+    /// with TLS 1.0/1.1, or with a `protocol_version` alert). `server_version`
+    /// is the version the server announced in its PRELOGIN answer (major in
+    /// the top byte, minor in the next, build in the low 16 bits), when it
+    /// came before the handshake.
+    TlsVersion {
+        /// The server's PRELOGIN version, when known.
+        server_version: Option<u32>,
+        /// The TLS library's own message.
+        message: String,
+    },
     #[cfg(any(all(unix, feature = "integrated-auth-gssapi"), doc))]
     #[cfg_attr(docsrs, doc(cfg(all(unix, feature = "integrated-auth-gssapi"))))]
     /// An error from the GSSAPI library.
