@@ -149,3 +149,55 @@ async fn connects_with_consent() {
         .unwrap();
     assert!(row.contains("FALSE"), "{row}");
 }
+
+/// Trusted without validation, the legacy path pins the certificate on
+/// first use (`tls_pin_seen`, which the app saves as `tls_pin`) and later
+/// connections accept only that one.
+#[tokio::test]
+#[ignore]
+async fn pins_a_trusted_certificate() {
+    if !LEGACY_TLS_BUILT_IN || config(&[]).is_none() {
+        return;
+    }
+    let trusted = [
+        ("Encrypt", "Mandatory"),
+        ("TrustServerCertificate", "true"),
+        ("LegacyTls", "true"),
+    ];
+    let s = driver()
+        .open(&config(&trusted).unwrap(), None)
+        .await
+        .unwrap();
+    let pin = s.tls_pin_seen().expect("pinned on first use");
+    let pem = std::fs::read(SELF_SIGNED).unwrap();
+    let der = dbine_tls::pem_certs(&pem, "test").unwrap();
+    assert_eq!(pin, dbine_tls::fingerprint(der[0].as_ref()));
+    // With the pin stored: connects, nothing new to save.
+    let mut with_pin = trusted.to_vec();
+    with_pin.push(("tls_pin", &pin));
+    let s = driver()
+        .open(&config(&with_pin).unwrap(), None)
+        .await
+        .unwrap();
+    assert_eq!(s.tls_pin_seen(), None);
+    // Another pin: refused as TlsPinChanged, carrying the presented one.
+    let other = "ab".repeat(32);
+    let mut wrong = trusted.to_vec();
+    wrong.push(("tls_pin", &other));
+    let Err(Error::ConnectFailed(f)) = driver().open(&config(&wrong).unwrap(), None).await else {
+        panic!("a pin mismatch must fail as ConnectFailed");
+    };
+    assert_eq!(f.kind, ConnectFailureKind::TlsPinChanged);
+    assert_eq!(f.presented_pin.as_deref(), Some(pin.as_str()));
+    // Verified connections don't pin.
+    let verified = [
+        ("Encrypt", "Mandatory"),
+        ("LegacyTls", "true"),
+        ("ServerCertificate", SELF_SIGNED),
+    ];
+    let s = driver()
+        .open(&config(&verified).unwrap(), None)
+        .await
+        .unwrap();
+    assert_eq!(s.tls_pin_seen(), None);
+}

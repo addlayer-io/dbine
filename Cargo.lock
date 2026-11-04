@@ -3349,6 +3349,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "futures",
  "getrandom 0.2.17",
  "libgssapi 0.11.0",

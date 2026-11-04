@@ -76,6 +76,10 @@
         "title": "Falló la conexión segura (TLS)",
         "body": "El certificado del servidor no es de confianza o no coincide con el nombre del host. Revisá las opciones de cifrado de la conexión: usar el nombre que figura en el certificado, o confiar en el certificado del servidor solo si sabés que es el correcto."
       },
+      "tls_legacy_only": {
+        "title": "El servidor solo acepta TLS antiguo (1.0/1.1)",
+        "body": "Este servidor no acepta TLS 1.2 ni posterior, solo TLS 1.0 o 1.1, que son inseguros, y DBine no los usa sin tu permiso. Para conectar igual, permití el TLS antiguo en esta conexión: con el botón de abajo o en la pestaña SSL de la conexión («Permitir TLS antiguo (1.0/1.1) para servidores viejos»). Lo más seguro es actualizar el servidor a TLS 1.2 (SQL Server 2012 SP4 o KB3135244)."
+      },
       "tls_not_offered": {
         "title": "El servidor no ofrece TLS",
         "body": "La conexión pide cifrado y el servidor no lo tiene activado (es habitual en servidores de desarrollo). Activá TLS en el servidor o, si aceptás que los datos y la contraseña viajen sin cifrar, elegí en la pestaña SSL/TLS un modo sin cifrado."

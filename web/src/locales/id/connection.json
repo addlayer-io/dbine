@@ -76,6 +76,10 @@
         "title": "Koneksi aman (TLS) gagal",
         "body": "Sertifikat server tidak tepercaya atau tidak cocok dengan nama host. Periksa opsi enkripsi koneksi: gunakan nama yang tercantum di sertifikat, atau percayai sertifikat server hanya jika Anda yakin itu benar."
       },
+      "tls_legacy_only": {
+        "title": "Server hanya menerima TLS lama (1.0/1.1)",
+        "body": "Server ini tidak menerima TLS 1.2 atau yang lebih baru, hanya TLS 1.0 atau 1.1 yang tidak aman, dan DBine tidak menggunakannya tanpa izin Anda. Untuk tetap terhubung, izinkan TLS lama pada koneksi ini: lewat tombol di bawah atau di tab SSL pada koneksi (“Izinkan TLS lama (1.0/1.1) untuk server lama”). Cara paling aman adalah memperbarui server ke TLS 1.2 (SQL Server 2012 SP4 atau KB3135244)."
+      },
       "tls_not_offered": {
         "title": "Server tidak menyediakan TLS",
         "body": "Koneksi meminta enkripsi dan server tidak mengaktifkannya (hal umum pada server pengembangan). Aktifkan TLS di server atau, jika Anda menerima data dan kata sandi dikirim tanpa enkripsi, pilih mode tanpa enkripsi di tab SSL/TLS."

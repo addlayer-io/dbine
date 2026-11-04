@@ -6,6 +6,9 @@ license.workspace = true
 
 [dependencies]
 dbine-driver = { path = "../../dbine-driver" }
+# The pin of a trusted certificate on the legacy TLS path (its format, and
+# the TlsPinChanged error the app explains).
+dbine-tls = { path = "../../dbine-tls" }
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

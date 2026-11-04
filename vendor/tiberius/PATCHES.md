@@ -191,6 +191,10 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
     chosen per connection (`legacy_tls`), with a TLS 1.0 floor and
     `ALL:!aNULL:!eNULL:@SECLEVEL=0`, and the same trust as rustls (OS store
     plus extra CAs, host name checked, `trust_cert` the only opt-out).
+    With `trust_cert`, `Config::legacy_tls_pin(CertPin)` still checks the
+    server certificate's SHA-256 against a pin (or pins the first one seen,
+    shared by the config's clones), through OpenSSL's verify callback;
+    `CertPin` is exported from the crate root.
     Without the feature only rustls is compiled, as upstream, and a
     connection asking for legacy TLS fails. On the rustls path, a server that
     answers with TLS 1.0/1.1 or a `protocol_version` alert fails with the new

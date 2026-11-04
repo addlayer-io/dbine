@@ -76,6 +76,10 @@
         "title": "Połączenie bezpieczne (TLS) nie powiodło się",
         "body": "Certyfikat serwera nie jest zaufany lub nie zgadza się z nazwą hosta. Sprawdź opcje szyfrowania połączenia: użyj nazwy z certyfikatu albo ufaj certyfikatowi serwera tylko wtedy, gdy wiesz, że jest właściwy."
       },
+      "tls_legacy_only": {
+        "title": "Serwer akceptuje tylko starszy TLS (1.0/1.1)",
+        "body": "Ten serwer nie akceptuje TLS 1.2 ani nowszych, tylko TLS 1.0 lub 1.1, które są niezabezpieczone, a DBine nie używa ich bez zgody. Aby mimo to połączyć, zezwól na starszy TLS w tym połączeniu: przyciskiem poniżej lub na karcie SSL połączenia („Zezwalaj na starszy TLS (1.0/1.1) dla starych serwerów”). Najbezpieczniej zaktualizować serwer do TLS 1.2 (SQL Server 2012 SP4 lub KB3135244)."
+      },
       "tls_not_offered": {
         "title": "Serwer nie oferuje TLS",
         "body": "Połączenie wymaga szyfrowania, a serwer go nie ma włączonego (to częste na serwerach deweloperskich). Włącz TLS na serwerze lub, jeśli akceptujesz przesyłanie danych i hasła bez szyfrowania, wybierz na karcie SSL/TLS tryb bez szyfrowania."

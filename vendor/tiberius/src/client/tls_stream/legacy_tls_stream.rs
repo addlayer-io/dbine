@@ -93,13 +93,33 @@ fn legacy_ssl(config: &Config) -> crate::Result<Ssl> {
         ));
     }
     let bypass = config.trust.bypass;
-    let builder = legacy_builder(&config.trust)?;
+    let mut builder = legacy_builder(&config.trust)?;
+    // Trusted without validation: still only the pinned certificate.
+    if let (true, Some(pin)) = (bypass, config.get_legacy_tls_pin().cloned()) {
+        builder.set_verify_callback(SslVerifyMode::PEER, move |_, ctx| {
+            if ctx.error_depth() != 0 {
+                return true;
+            }
+            match ctx.current_cert().and_then(|c| c.to_der().ok()) {
+                Some(der) => pin.accept(fingerprint(&der)),
+                None => false,
+            }
+        });
+    }
     let mut ssl = builder.build().configure().map_err(tls_error)?;
     if bypass {
         ssl.set_verify_hostname(false);
     }
     ssl.into_ssl(&config.get_hostname_in_certificate())
         .map_err(tls_error)
+}
+
+/// A certificate's SHA-256 (DER), in lowercase hex.
+fn fingerprint(der: &[u8]) -> String {
+    openssl::sha::sha256(der)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// The OpenSSL context of a legacy connection: TLS 1.0 floor, the old
@@ -245,6 +265,31 @@ mod tests {
         c.trust_cert();
         let ssl = legacy_ssl(&c).unwrap();
         assert_eq!(ssl.ssl_context().verify_mode(), SslVerifyMode::NONE);
+    }
+
+    #[test]
+    fn a_pin_accepts_its_certificate_only() {
+        let first = crate::CertPin::new(None);
+        assert!(first.accept("aa".into()));
+        assert_eq!(first.first_seen().as_deref(), Some("aa"));
+        // Later handshakes of the same config: only that one.
+        assert!(first.accept("aa".into()));
+        assert!(!first.accept("bb".into()));
+        assert_eq!(first.mismatch(), Some(("aa".into(), "bb".into())));
+        let stored = crate::CertPin::new(Some("cc".into()));
+        assert!(!stored.accept("aa".into()));
+        assert!(stored.accept("cc".into()));
+        assert_eq!(stored.first_seen(), None);
+        assert_eq!(fingerprint(b"").len(), 64);
+    }
+
+    #[test]
+    fn a_pin_turns_verification_into_a_check() {
+        let mut c = config();
+        c.trust_cert();
+        c.legacy_tls_pin(crate::CertPin::new(None));
+        let ssl = legacy_ssl(&c).unwrap();
+        assert_eq!(ssl.ssl_context().verify_mode(), SslVerifyMode::PEER);
     }
 
     #[test]

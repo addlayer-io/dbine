@@ -530,9 +530,15 @@ impl SqlServerDriver {
         let named = cfg.option(variant::HOST_NAME_IN_CERTIFICATE).is_some();
         let probe = (self.variant == Variant::SqlServer && !legacy_tls_on(cfg, self.variant))
             .then(|| config.clone());
+        let pin = config.get_legacy_tls_pin().cloned();
         let (client, config) = match connect_routed(config, named).await {
             Ok(c) => c,
-            Err(e) => return Err(explain_connect_error(e, probe.as_ref()).await),
+            Err(e) => {
+                return Err(pin_error(
+                    pin.as_ref(),
+                    explain_connect_error(e, probe.as_ref()).await,
+                ))
+            }
         };
         let cancel = Arc::new(std::sync::Mutex::new(CancelTarget {
             attention: client.cancel_handle(),
@@ -687,6 +693,15 @@ fn connect_error(e: tiberius::error::Error) -> Error {
             Error::connect_failed(ConnectFailure::new(kind, message))
         }
         _ => Error::connect_failed(ConnectFailure::from_message(e.to_string())),
+    }
+}
+
+/// A connect that failed on the legacy TLS path's certificate pin: the
+/// TlsPinChanged failure (both fingerprints, the presented one as data).
+fn pin_error(pin: Option<&tiberius::CertPin>, e: Error) -> Error {
+    match pin.and_then(tiberius::CertPin::mismatch) {
+        Some((pinned, presented)) => dbine_tls::pin_changed(&pinned, &presented),
+        None => e,
     }
 }
 
@@ -851,6 +866,11 @@ fn build_config(
             ));
         }
         c.legacy_tls(true);
+        // Trusted without validation (Mandatory + TrustServerCertificate):
+        // pinned on first use, as the rustls-based drivers do.
+        if tls.trust && tls.level == EncryptionLevel::Required {
+            c.legacy_tls_pin(tiberius::CertPin::new(dbine_tls::pin_of(cfg)));
+        }
     }
     if cfg.read_only {
         c.readonly(true);
@@ -1095,9 +1115,10 @@ impl SqlServerSession {
 
     /// A new connection with the config the session logged in with.
     async fn reconnect(&mut self) -> Result<()> {
+        let pin = self.config.get_legacy_tls_pin().cloned();
         self.client = connect_once(self.config.clone())
             .await
-            .map_err(connect_error)?;
+            .map_err(|e| pin_error(pin.as_ref(), connect_error(e)))?;
         let rows = self
             .try_rows("SELECT CAST(@@SPID AS int)", &[])
             .await
@@ -1243,6 +1264,12 @@ fn text(r: &Row, i: usize) -> Option<String> {
 
 #[async_trait]
 impl Session for SqlServerSession {
+    /// The certificate pinned on first use on the legacy TLS path (the
+    /// rustls path doesn't pin: tiberius' own verifier accepts any
+    /// certificate with TrustServerCertificate).
+    fn tls_pin_seen(&self) -> Option<String> {
+        self.config.get_legacy_tls_pin()?.first_seen()
+    }
     async fn server_version(&mut self) -> Result<String> {
         let rows = self
             .rows("SELECT CAST(@@VERSION AS nvarchar(4000))", &[])

@@ -71,6 +71,63 @@ pub struct Config {
     pub(crate) client_cert: Option<ClientCertificate>,
     // PATCH(dbine): legacy TLS (1.0/1.1) through OpenSSL, per connection.
     pub(crate) legacy_tls: bool,
+    pub(crate) legacy_tls_pin: Option<CertPin>,
+}
+
+// PATCH(dbine): legacy TLS, per connection.
+/// Certificate pinning on the legacy TLS path, for a connection that trusts
+/// the server certificate (`trust_cert`): the handshake accepts only the
+/// certificate whose SHA-256 (DER, lowercase hex) is `expected`; without
+/// one, the first certificate seen, which then becomes the pin for every
+/// later handshake with this config (reconnects, cancel connections).
+/// Clones share what was seen.
+#[derive(Clone, Debug, Default)]
+pub struct CertPin(std::sync::Arc<std::sync::Mutex<CertPinState>>);
+
+#[derive(Debug, Default)]
+struct CertPinState {
+    expected: Option<String>,
+    first: Option<String>,
+    mismatch: Option<(String, String)>,
+}
+
+impl CertPin {
+    /// A pin for `expected` (None: pin on first use).
+    pub fn new(expected: Option<String>) -> Self {
+        CertPin(std::sync::Arc::new(std::sync::Mutex::new(CertPinState {
+            expected,
+            ..Default::default()
+        })))
+    }
+
+    /// The certificate accepted on first use (no `expected` pin).
+    pub fn first_seen(&self) -> Option<String> {
+        self.0.lock().ok()?.first.clone()
+    }
+
+    /// `(pinned, presented)` when a handshake failed on the pin.
+    pub fn mismatch(&self) -> Option<(String, String)> {
+        self.0.lock().ok()?.mismatch.clone()
+    }
+
+    /// Whether the server certificate with this fingerprint is accepted.
+    #[allow(dead_code)] // only the legacy-tls backend checks it
+    pub(crate) fn accept(&self, fingerprint: String) -> bool {
+        let Ok(mut s) = self.0.lock() else {
+            return false;
+        };
+        match s.expected.clone().or_else(|| s.first.clone()) {
+            Some(pin) if pin == fingerprint => true,
+            Some(pin) => {
+                s.mismatch = Some((pin, fingerprint));
+                false
+            }
+            None => {
+                s.first = Some(fingerprint);
+                true
+            }
+        }
+    }
 }
 
 /// How the server certificate is trusted.
@@ -265,6 +322,7 @@ impl Default for Config {
             ))]
             client_cert: None,
             legacy_tls: false,
+            legacy_tls_pin: None,
         }
     }
 }
@@ -297,6 +355,18 @@ impl Config {
     /// Whether [`legacy_tls`](Self::legacy_tls) is on.
     pub fn get_legacy_tls(&self) -> bool {
         self.legacy_tls
+    }
+
+    /// Pin the server certificate on the legacy TLS path when it is trusted
+    /// without validation (`trust_cert`): see [`CertPin`]. Ignored when the
+    /// certificate is validated, and on the rustls path.
+    pub fn legacy_tls_pin(&mut self, pin: CertPin) {
+        self.legacy_tls_pin = Some(pin);
+    }
+
+    /// The [`CertPin`] given to [`legacy_tls_pin`](Self::legacy_tls_pin).
+    pub fn get_legacy_tls_pin(&self) -> Option<&CertPin> {
+        self.legacy_tls_pin.as_ref()
     }
 
     /// Create a new [`ConfigBuilder`] initialized with the default settings.

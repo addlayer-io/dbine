@@ -107,6 +107,9 @@ async fn a_tls10_server_through_the_hosts() {
     cfg.options.insert("LegacyTls".into(), "true".into());
     let mut s = d.connect(&cfg, None).await.unwrap();
     assert!(legacy.pid().is_some());
+    // Trusted without validation: the certificate pinned on first use
+    // crosses the pipe for the app to save.
+    assert_eq!(s.tls_pin_seen().map(|p| p.len()), Some(64));
     let mut out = dbine_driver::QueryOutcome::default();
     s.execute("SELECT @@VERSION", 1, &mut out).await.unwrap();
     assert!(format!("{:?}", out.results[0].rows).contains("2017"));

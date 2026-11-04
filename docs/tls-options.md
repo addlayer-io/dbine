@@ -486,6 +486,17 @@ path only:
   doesn't change. Old servers often have a self-signed certificate: then
   `ServerCertificate` (verified) or `TrustServerCertificate` (not) is needed,
   as on the normal path;
+- `Mandatory` with `TrustServerCertificate` pins the certificate on first
+  use, like the rustls-based drivers ([Certificate pinning](#certificate-pinning-and-verify-ca-cratesdbine-tls)):
+  OpenSSL's verify callback takes the SHA-256 of the server certificate's
+  DER (`tiberius::CertPin`), the session reports it (`tls_pin_seen`) and
+  the app saves it as `tls_pin`. Later connections, and reconnects of the
+  same session, accept only that certificate; another one fails as
+  `TlsPinChanged` with the presented fingerprint. `Optional` (TLS only
+  around the login) doesn't pin, as on the other engines' plaintext-capable
+  modes. **The rustls path doesn't pin yet:** tiberius' own verifier
+  accepts any certificate with `TrustServerCertificate`, so on a regular
+  SQL Server connection the form's pin section stays empty (a pending item);
 - `Strict` (TDS 8.0) and client certificates are refused: neither exists on
   these servers.
 
@@ -529,7 +540,11 @@ host:
 **Cost.** OpenSSL 3 (`openssl-src`, Apache-2.0, compatible with DBine's
 license) is compiled from source in the `sqlserver_legacy` host build: about
 a minute more per target, and Perl plus the MSVC tools on the Windows runner
-(present on GitHub's images). The host is the `sqlserver` one plus OpenSSL's
+(present on GitHub's images; `.github/actions/driver-hosts` points
+`OPENSSL_SRC_PERL` at Strawberry Perl, since Git for Windows' MSYS perl lacks
+modules OpenSSL's `Configure` needs). It can't be cross-built from macOS with
+cargo-xwin (OpenSSL's `VC-WIN64A` configure needs a Windows perl and
+nmake). The host is the `sqlserver` one plus OpenSSL's
 libssl/libcrypto, statically linked: on aarch64-apple-darwin 14.5 MB (6.96 MB gzipped, the download) against 10.4 MB (4.81 MB) for `sqlserver`. No change to the app
 binary or to the `sqlserver` host.
 
