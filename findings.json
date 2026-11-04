@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-11-04",
-      "revision": "5526a17113a6",
+      "revision": "7d2c9a1114a0",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-11-04",
-      "revision": "5526a17113a6",
+      "revision": "7d2c9a1114a0",
       "kind": "full",
       "scope": "whole repository",
       "found": 2
@@ -37,10 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-04",
-      "revision": "79f74e890a94",
+      "revision": "1038e892bf1e",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.4
+      "score": 7.5
     }
   ],
   "findings": [
@@ -4448,17 +4448,6 @@
       "status": "open"
     },
     {
-      "id": "SC-CI-Tests",
-      "source": "scorecard",
-      "severity": "LOW",
-      "kind": "Repository practice",
-      "title": "CI-Tests: 5/10 — 4 out of 7 merged PRs checked by a CI test -- score normalized to 5",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
-      "found": "2026-11-04",
-      "status": "open"
-    },
-    {
       "id": "SC-CII-Best-Practices",
       "source": "scorecard",
       "severity": "LOW",
@@ -4474,7 +4463,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/20 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/18 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
