@@ -328,12 +328,13 @@ pub mod plugins {
             .filter(|m| !built_in.contains(&m.package.as_str()) && !super::is_variant(&m.package))
             .map(|m| {
                 let launcher = up.launcher(&m.package);
+                let package = m.package.clone();
                 let mut d = RemoteDriver::new(m, launcher);
                 // Connections with the variant's option go to its host
                 // (only when this build publishes it).
                 for v in super::VARIANTS
                     .iter()
-                    .filter(|v| v.of == d.package() && hosts.contains_key(v.package))
+                    .filter(|v| v.of == package && hosts.contains_key(v.package))
                 {
                     d = d.with_variant(v.option, up.launcher(v.package));
                 }
