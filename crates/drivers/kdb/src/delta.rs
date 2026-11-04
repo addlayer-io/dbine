@@ -91,6 +91,7 @@ macro_rules! dup_key {
         "'\"la tabla tiene clave y las filas repiten un valor de esa clave\""
     };
 }
+pub(crate) use dup_key;
 
 /// `[n;s;k;c;b;B]`: table `n` made equal, in buckets `B` (empty: all), to
 /// the staged rows of `s` (columns `c`, key `k`); answers the rows

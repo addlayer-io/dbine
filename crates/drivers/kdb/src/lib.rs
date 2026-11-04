@@ -39,6 +39,7 @@ pub mod script;
 mod stage;
 mod steps;
 pub mod sync;
+mod write;
 
 use ipc::K;
 
@@ -310,6 +311,11 @@ impl Driver for KdbDriver {
         tables: &[ObjectRef],
     ) -> Result<dbine_driver::transfer::CloneScript> {
         clone::script(source, tables).await
+    }
+
+    /// Every mode, staged and applied in one step (see [`write`]).
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        write::modes()
     }
 
     async fn connect(
@@ -907,6 +913,16 @@ impl Session for KdbSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::transfer::DeltaResult> {
         delta::apply(self, spec, buckets, columns, source, progress).await
+    }
+
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::transfer::TransferColumn],
+        source: &mut dyn dbine_driver::transfer::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        write::write_rows(self, spec, columns, source, progress).await
     }
 
     /// For [`clone`]'s catalog read.

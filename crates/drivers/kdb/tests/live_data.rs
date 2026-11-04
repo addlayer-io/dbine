@@ -16,7 +16,9 @@ use dbine_driver::transfer::{
     changed_buckets, BatchSink, BatchSource, BucketSum, Buckets, Cell, DeltaDepth, DeltaResult,
     DeltaSpec, LoadSpec, ReadSpec, RowBatch, TransferColumn,
 };
-use dbine_driver::{kinds, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
+use dbine_driver::{
+    kinds, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session, WriteMode, WriteSpec,
+};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 
@@ -394,6 +396,234 @@ async fn sync_by_rows_finds_and_fixes_differences() {
     )
     .await;
     // The staging tables are gone.
+    assert_eq!(value(&mut s, "count key `.dbine_stage").await, json!(1));
+}
+
+fn write_spec(name: &str, columns: &[&str], key: &[&str], mode: WriteMode) -> WriteSpec {
+    WriteSpec {
+        table: table(name),
+        columns: columns.iter().map(|c| c.to_string()).collect(),
+        key: key.iter().map(|k| k.to_string()).collect(),
+        mode,
+    }
+}
+
+fn rows(r: Vec<Vec<Cell>>) -> Batches {
+    Batches(vec![RowBatch { rows: r, bytes: 0 }])
+}
+
+async fn write(
+    s: &mut Box<dyn Session>,
+    spec: &WriteSpec,
+    r: Vec<Vec<Cell>>,
+) -> dbine_driver::Result<dbine_driver::WriteResult> {
+    s.write_rows(spec, &[], &mut rows(r), &|_| {}).await
+}
+
+#[tokio::test]
+#[ignore]
+async fn writes_in_every_mode() {
+    let _one = STAGING.lock().await;
+    let d = kdb();
+    assert_eq!(d.write_modes(), WriteMode::ALL.to_vec());
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    run(&mut s, "delete dbine_kdbdata_w, dbine_kdbdata_wu from `.").await;
+    let kt = "dbine_kdbdata_w";
+    run(
+        &mut s,
+        "dbine_kdbdata_w:([id:1 2 3] v:1 2 3f; s:`a`b`c; note:(enlist \"x\";enlist \"y\";enlist \"z\"))",
+    )
+    .await;
+    let r2_4 = || {
+        vec![
+            vec![Cell::Int(2), Cell::Float(20.0)],
+            vec![Cell::Int(4), Cell::Float(40.0)],
+        ]
+    };
+    let cols = ["id", "v"];
+    // Update by key: only the key that's there.
+    let r = write(
+        &mut s,
+        &write_spec(kt, &cols, &["id"], WriteMode::Update),
+        r2_4(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (r.inserted, r.updated, r.deleted, r.atomic),
+        (0, 1, 0, true)
+    );
+    assert!(r.notes[0].contains("no tiene transacciones"), "{r:?}");
+    assert_eq!(value(&mut s, "dbine_kdbdata_w[2]`v").await, json!(20.0));
+    assert_eq!(value(&mut s, "dbine_kdbdata_w[2]`s").await, json!("b"));
+    // Upsert: that update and the new key.
+    let r = write(
+        &mut s,
+        &write_spec(kt, &cols, &["id"], WriteMode::Upsert),
+        r2_4(),
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (1, 1, 0));
+    assert_eq!(value(&mut s, "count dbine_kdbdata_w").await, json!(4));
+    // Insert: new keys go in; a key already there, or one repeated, is
+    // refused and the table stays as it was.
+    let r = write(
+        &mut s,
+        &write_spec(kt, &cols, &[], WriteMode::Insert),
+        vec![
+            vec![Cell::Int(5), Cell::Float(5.0)],
+            vec![Cell::Int(6), Cell::Null],
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (2, 0, 0));
+    for (bad, why) in [
+        (
+            vec![vec![Cell::Int(1), Cell::Float(9.0)]],
+            "ya tiene una fila",
+        ),
+        (
+            vec![
+                vec![Cell::Int(8), Cell::Float(9.0)],
+                vec![Cell::Int(8), Cell::Float(9.0)],
+            ],
+            "repiten",
+        ),
+    ] {
+        let e = write(&mut s, &write_spec(kt, &cols, &[], WriteMode::Insert), bad)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains(why), "{e}");
+        assert_eq!(value(&mut s, "count dbine_kdbdata_w").await, json!(6));
+    }
+    // Values travel as q objects: a string with q code in it is a string.
+    let evil = "x\";system \"echo pwned\";\"";
+    let r = write(
+        &mut s,
+        &write_spec(kt, &["id", "note"], &["id"], WriteMode::Update),
+        vec![vec![Cell::Int(3), Cell::Text(evil.into())]],
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.updated, 1);
+    assert_eq!(value(&mut s, "dbine_kdbdata_w[3]`note").await, json!(evil));
+    // Replace: the rows become the table, its key and types kept.
+    let r = write(
+        &mut s,
+        &write_spec(kt, &cols, &[], WriteMode::Replace),
+        vec![vec![Cell::Int(9), Cell::Float(0.5)]],
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (1, 0, 6));
+    // The columns not written get q's null of their type (a general list,
+    // an empty one), as an insert of some columns does.
+    assert_eq!(
+        run(&mut s, "select id, v, s from dbine_kdbdata_w")
+            .await
+            .results[0]
+            .rows,
+        [vec![json!(9), json!(0.5), Value::Null]]
+    );
+    assert_eq!(value(&mut s, "keys dbine_kdbdata_w").await, json!("id"));
+    assert_eq!(
+        value(&mut s, "raze exec t from meta dbine_kdbdata_w").await,
+        json!("jfs ")
+    );
+
+    // An unkeyed table, by a key the cell picks: every row with it.
+    let ut = "dbine_kdbdata_wu";
+    run(
+        &mut s,
+        "dbine_kdbdata_wu:([] id:1 2 3 2; v:1 2 3 4f; s:`a`b`c`d)",
+    )
+    .await;
+    let r = write(
+        &mut s,
+        &write_spec(ut, &cols, &["id"], WriteMode::Update),
+        r2_4(),
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (0, 2, 0));
+    assert_eq!(
+        value(&mut s, "exec sum v from dbine_kdbdata_wu where id=2").await,
+        json!(40.0)
+    );
+    let r = write(
+        &mut s,
+        &write_spec(ut, &cols, &["id"], WriteMode::Upsert),
+        r2_4(),
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (1, 2, 0));
+    let r = write(
+        &mut s,
+        &write_spec(ut, &cols, &[], WriteMode::Insert),
+        r2_4(),
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (2, 0, 0));
+    assert_eq!(value(&mut s, "count dbine_kdbdata_wu").await, json!(7));
+    let r = write(
+        &mut s,
+        &write_spec(ut, &cols, &[], WriteMode::Replace),
+        r2_4(),
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (2, 0, 7));
+    assert_eq!(
+        value(&mut s, "raze exec t from meta dbine_kdbdata_wu").await,
+        json!("jfs")
+    );
+
+    // Refused: read-only, on disk, a mode without its key, a bad name.
+    let mut ro = d.connect(&cfg(true), None).await.unwrap();
+    let e = write(
+        &mut ro,
+        &write_spec(ut, &cols, &[], WriteMode::Insert),
+        r2_4(),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("solo lectura"), "{e}");
+    for kind in [dbine_driver_kdb::PARTITIONED, dbine_driver_kdb::SPLAYED] {
+        let mut spec = write_spec("dbine_q", &["px"], &[], WriteMode::Insert);
+        spec.table.kind = kind.into();
+        let e = write(&mut s, &spec, vec![]).await.unwrap_err().to_string();
+        assert!(e.contains("particionada o splayed"), "{e}");
+    }
+    let e = write(
+        &mut s,
+        &write_spec("dbine_q", &["px"], &[], WriteMode::Insert),
+        vec![],
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("particionada o splayed"), "{e}");
+    assert!(write(
+        &mut s,
+        &write_spec(ut, &cols, &[], WriteMode::Update),
+        r2_4()
+    )
+    .await
+    .is_err());
+    assert!(write(
+        &mut s,
+        &write_spec(ut, &["id", "v;x"], &[], WriteMode::Insert),
+        r2_4()
+    )
+    .await
+    .is_err());
+    run(&mut s, "delete dbine_kdbdata_w, dbine_kdbdata_wu from `.").await;
     assert_eq!(value(&mut s, "count key `.dbine_stage").await, json!(1));
 }
 
