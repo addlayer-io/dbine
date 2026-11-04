@@ -1,4 +1,5 @@
-//! Row counts against a real kdb+ (`dbine-test-kdb`, see `live.rs`):
+//! Row counts and the health check against a real kdb+
+//! (`dbine-test-kdb`, see `live.rs`):
 //!
 //! ```sh
 //! DBINE_TEST_KDB_URL=127.0.0.1:15000:dbine:dbinepass \
@@ -9,6 +10,7 @@
 //! namespace) and delete them at the end. A setting they change goes back
 //! to its value.
 
+use dbine_driver::health::Severity;
 use dbine_driver::{kinds, ConnectionConfig, QueryOutcome, Session};
 
 /// `host:port[:user:password]` from `DBINE_TEST_KDB_URL`.
@@ -87,4 +89,31 @@ async fn row_counts_without_scanning() {
         "delete dbine_meta_t from `.; ![`;();0b;enlist `dbine_meta]",
     )
     .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn the_health_check_reads_the_process() {
+    let (mut w, mut ro) = sessions().await;
+    for s in [&mut w, &mut ro] {
+        let c = s.health_checks("default").await.unwrap();
+        let ids: Vec<&str> = c.iter().map(|x| x.id.as_str()).collect();
+        for id in [
+            "workspace_limit",
+            "idle_heap",
+            "symbols",
+            "slow_handles",
+            "query_timeout",
+            "authentication",
+        ] {
+            assert!(ids.contains(&id), "{id} not in {ids:?}");
+        }
+        // The test server takes users from a file (-u) and has reval.
+        let auth = c.iter().find(|x| x.id == "authentication").unwrap();
+        assert_eq!(auth.severity, Severity::Ok, "{auth:?}");
+        assert!(auth.title.contains("-u"), "{auth:?}");
+        assert!(!ids.contains(&"reval"));
+        let handles = c.iter().find(|x| x.id == "slow_handles").unwrap();
+        assert!(handles.title.contains("conexiones abiertas"), "{handles:?}");
+    }
 }

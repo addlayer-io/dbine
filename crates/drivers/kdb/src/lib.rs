@@ -29,9 +29,11 @@ mod chart;
 pub mod conn;
 pub mod edit;
 pub mod guard;
+mod health;
 pub mod ipc;
 pub mod load;
 mod monitor;
+mod process;
 pub mod script;
 mod stats;
 mod steps;
@@ -985,6 +987,16 @@ impl Session for KdbSession {
     /// kdb+ already counted them ([`stats`]).
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
         Ok(stats::estimates(self.read(&stats::query()).await?))
+    }
+
+    /// The process's memory, symbols, handles, timeout, password and TLS
+    /// ([`health`]).
+    async fn health_checks(
+        &mut self,
+        _database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        let facts = process::parse(self.read(process::FACTS).await?);
+        Ok(health::checks(&facts, self.reval))
     }
 
     /// Close a connection (`hclose`): its handle, as listed.
