@@ -710,6 +710,22 @@ and `SSL_CA_CERT_FILE`.
   version, port, threads, command line and memory as facts. Changes last
   until the process restarts. `\p` (it would close DBine's own port) and
   `\s` (command line only) aren't offered.
+- **Namespaces as schemas:** each namespace (`.ns`, kdb+tick's `.u`) is a
+  schema: the explorer groups its tables, views, functions and variables
+  under it once there are two (`.ns.t` is `t` of `.ns`), and the root's
+  objects stay at the connection. **New schema…** creates an empty
+  namespace (`` `.ns set (enlist`)!enlist(::) ``, refused on the server if
+  the name is taken) and **Drop schema…** removes it
+  (`` ![`;();0b;enlist `ns] ``), with its objects or, without them, only when
+  the server finds it empty; empty namespaces are listed. kdb+'s own
+  (`.q`, `.Q`, `.h`, `.j`, `.o`, `.z`) and DBine's `.dbine_stage` are never
+  created, dropped or written. Every action on a namespace's object uses its
+  q name, and saved references that name it whole (`.ns.t`) keep working.
+  Migrations into kdb+ keep each source schema as a namespace (`sales` →
+  `.sales`, the default schema to the root) with no `CREATE SCHEMA`: a
+  namespace comes with its first table. A new function from a namespace
+  goes into it; a new view goes to the root, the only namespace where
+  kdb+ defines views over IPC.
 
 **Not available, and why:**
 
@@ -2424,7 +2440,7 @@ These have it:
 - **SQL Server family:** SQL Server, Azure SQL, Microsoft Fabric Data Warehouse and Babelfish.
 - **PostgreSQL family:** PostgreSQL, TimescaleDB, YugabyteDB, openGauss, Cloudberry, Greengage, Greenplum, KingbaseES, EDB, Fujitsu, Yellowbrick, AlloyDB, Cloud SQL, Aurora PostgreSQL, Aurora DSQL, CockroachDB, Materialize, Redshift, RisingWave and H2.
 - **Analytical and cloud:** Snowflake, Databricks, Trino, Presto, Starburst, Dremio (folders) and Cloud Spanner.
-- **Others:** DuckDB, Arrow Flight SQL, Couchbase (scopes) and Apache Phoenix.
+- **Others:** DuckDB, Arrow Flight SQL, Couchbase (scopes), Apache Phoenix and KDB+ (namespaces).
 - **Through ODBC:** Db2 LUW, Db2 for i, Hive/Cloudera, Impala, Spark, Kyuubi, Vertica, Exasol, Netezza, Dameng, MonetDB, Mimer, MaxDB, NuoDB, Ignite 3, SQream and Ocient.
 
 **Empty schemas in the explorer.** A newly created schema, with no objects,
@@ -2442,7 +2458,8 @@ their schemas:
   Dremio (folders), Cloud Spanner and Aurora DSQL.
 - **Others:** DuckDB (without the `system` catalog), Flight SQL
   (`GetDbSchemas`; if the server does not answer it, schemas come from the
-  tables again), Couchbase (scopes) and Phoenix.
+  tables again), Couchbase (scopes), Phoenix and KDB+ (the root's namespaces
+  that are dictionaries).
 - **Through ODBC:** Db2 LUW and Db2 for i, Vertica, Exasol, Dameng, MonetDB,
   Mimer, MaxDB, NuoDB, SQream and Hive/Cloudera/Impala/Spark/Kyuubi, with
   each one's catalog query; Netezza, Ocient and Ignite 3, with the ODBC
@@ -2505,6 +2522,7 @@ Dremio.
 |---|---|---|
 | SQL Server, Azure SQL, Microsoft Fabric, Babelfish | Dropping with its contents | T-SQL's `DROP SCHEMA` has no `CASCADE` and refuses while the schema has objects: they have to be dropped or moved first. |
 | SQL Server, Azure SQL | The `UNMASK` permission on a schema | Only SQL Server 2022 and later accept it; it is not offered. |
+| KDB+ | Owner and permissions | kdb+ namespaces have neither. |
 | SQL Server, Azure SQL | Changing the owner after granting | The owner goes in `CREATE SCHEMA … AUTHORIZATION`: `ALTER AUTHORIZATION ON SCHEMA` deletes all the permissions already granted on the schema (verified live). Whoever creates without being `db_owner` needs `CREATE SCHEMA`, `IMPERSONATE` on the owner user (or `ALTER` on the owner role) and to be a member of `db_securityadmin` to grant on the schema being handed over. |
 | Microsoft Fabric | Choosing the owner | `AUTHORIZATION` could not be verified without a warehouse; the schema stays in the creator's name. |
 | Babelfish | "With grant option", names with `]` and permissions other than SELECT, INSERT, UPDATE, DELETE, REFERENCES and EXECUTE | Babelfish rejects `GRANT … ON SCHEMA … WITH GRANT OPTION` and does not read `]]` inside brackets. It also has no `ALTER AUTHORIZATION` on schemas and rejects `GRANT CREATE SCHEMA`: whoever creates needs `db_ddladmin` and `db_securityadmin`. |
