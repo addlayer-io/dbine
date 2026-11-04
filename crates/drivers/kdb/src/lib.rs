@@ -34,6 +34,7 @@ pub mod ipc;
 pub mod load;
 mod monitor;
 mod process;
+mod props;
 pub mod script;
 mod stats;
 mod steps;
@@ -182,14 +183,16 @@ impl Driver for KdbDriver {
 
     /// A kdb+ process is one namespace tree (nothing to create or drop):
     /// its memory and connections show in the Monitor, and a connection
-    /// can be closed. Linked columns (enumerations over a keyed table,
-    /// `meta`'s `f`) are its foreign keys.
+    /// can be closed; its runtime settings are its properties ([`props`]).
+    /// Linked columns (enumerations over a keyed table, `meta`'s `f`) are
+    /// its foreign keys.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             foreign_keys: true,
             monitor: true,
             processes: true,
             kill_session: true,
+            database_properties: true,
             ..Capabilities::default()
         }
     }
@@ -204,6 +207,15 @@ impl Driver for KdbDriver {
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
         edit::table_ddl(table, parts)
+    }
+
+    /// The runtime settings as system commands (`\g 1`, `\T 60`…).
+    fn alter_database_script(
+        &self,
+        _database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
+        props::script(changes)
     }
 
     /// Tables in memory change with q per column (`update`, `delete`,
@@ -997,6 +1009,23 @@ impl Session for KdbSession {
     ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
         let facts = process::parse(self.read(process::FACTS).await?);
         Ok(health::checks(&facts, self.reval))
+    }
+
+    async fn database_properties(
+        &mut self,
+        _database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
+        Ok(props::properties(&process::parse(
+            self.read(process::FACTS).await?,
+        )))
+    }
+
+    async fn alter_database(
+        &mut self,
+        _database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.alter_settings(changes).await
     }
 
     /// Close a connection (`hclose`): its handle, as listed.

@@ -1,5 +1,5 @@
-//! Row counts and the health check against a real kdb+
-//! (`dbine-test-kdb`, see `live.rs`):
+//! Row counts, the health check and the process's properties against a
+//! real kdb+ (`dbine-test-kdb`, see `live.rs`):
 //!
 //! ```sh
 //! DBINE_TEST_KDB_URL=127.0.0.1:15000:dbine:dbinepass \
@@ -12,6 +12,7 @@
 
 use dbine_driver::health::Severity;
 use dbine_driver::{kinds, ConnectionConfig, QueryOutcome, Session};
+use std::collections::BTreeMap;
 
 /// `host:port[:user:password]` from `DBINE_TEST_KDB_URL`.
 fn cfg(read_only: bool) -> ConnectionConfig {
@@ -116,4 +117,75 @@ async fn the_health_check_reads_the_process() {
         let handles = c.iter().find(|x| x.id == "slow_handles").unwrap();
         assert!(handles.title.contains("conexiones abiertas"), "{handles:?}");
     }
+}
+
+#[tokio::test]
+#[ignore]
+async fn properties_change_and_read_back() {
+    let d = dbine_driver_kdb::drivers().remove(0);
+    assert!(d.capabilities().database_properties);
+    let (mut w, mut ro) = sessions().await;
+    let p = w.database_properties("default").await.unwrap();
+    let keys: Vec<&str> = p.fields.iter().map(|f| f.key).collect();
+    // Started without -w: its limit isn't offered.
+    assert_eq!(keys, ["g", "T", "P", "o", "z"], "{keys:?}");
+    assert!(p
+        .info
+        .iter()
+        .any(|i| i.label == "Versión" && i.value.starts_with("kdb+ ")));
+    assert!(p
+        .info
+        .iter()
+        .any(|i| i.label == "Puerto" && !i.value.is_empty()));
+    assert_eq!(
+        p.values["g"],
+        value(&mut w, "\\g").await.to_string(),
+        "{:?}",
+        p.values
+    );
+    // The same on a read-only connection, which can't change them.
+    let pro = ro.database_properties("default").await.unwrap();
+    assert_eq!(pro.values, p.values);
+    let change =
+        |k: &str, v: &str| -> BTreeMap<String, String> { [(k.to_string(), v.to_string())].into() };
+    let e = ro
+        .alter_database("default", &change("g", "1"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("solo lectura"), "{e}");
+
+    // Each change and back, read again from the server.
+    let (g, t) = (p.values["g"].clone(), p.values["T"].clone());
+    let other_g = if g == "0" { "1" } else { "0" };
+    let both: BTreeMap<String, String> = [
+        ("g".to_string(), other_g.to_string()),
+        ("T".to_string(), "3600".to_string()),
+    ]
+    .into();
+    assert_eq!(
+        d.alter_database_script("default", &both).unwrap(),
+        format!("\\T 3600\n\\g {other_g}")
+    );
+    w.alter_database("default", &both).await.unwrap();
+    let now = w.database_properties("default").await.unwrap().values;
+    let back: BTreeMap<String, String> =
+        [("g".to_string(), g.clone()), ("T".to_string(), t.clone())].into();
+    w.alter_database("default", &back).await.unwrap();
+    assert_eq!((now["g"].as_str(), now["T"].as_str()), (other_g, "3600"));
+    let again = w.database_properties("default").await.unwrap().values;
+    assert_eq!((again["g"].clone(), again["T"].clone()), (g, t));
+
+    // A value out of range never reaches the server; `\w` without -w is
+    // the server's refusal.
+    assert!(w
+        .alter_database("default", &change("P", "99"))
+        .await
+        .is_err());
+    let e = w
+        .alter_database("default", &change("w", "100000"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("-w"), "{e}");
 }
