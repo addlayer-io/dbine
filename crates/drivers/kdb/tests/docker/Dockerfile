@@ -4,7 +4,7 @@
 # build secrets. The license is checked by the installer and removed: the
 # container gets it again when it starts. q runs as an unprivileged user.
 # Steps: tests/live.rs.
-FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=secret,id=kxtoken --mount=type=secret,id=kxlic \
