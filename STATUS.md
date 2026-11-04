@@ -26,9 +26,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`e37735cd8`](https://github.com/addlayer-io/dbine/commit/e37735cd8d18) | 0 open | — |
+| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`18268959c`](https://github.com/addlayer-io/dbine/commit/18268959cfc8) | 0 open | — |
 | scorecard | 2026-11-04 | repository settings and workflows at [`e37735cd8`](https://github.com/addlayer-io/dbine/commit/e37735cd8d18) | score 7.4/10 | — |
-| trivy | 2026-11-04 | whole repository at [`e37735cd8`](https://github.com/addlayer-io/dbine/commit/e37735cd8d18) | 2 open | — |
+| trivy | 2026-11-04 | whole repository at [`18268959c`](https://github.com/addlayer-io/dbine/commit/18268959cfc8) | 2 open | — |
 
 ## Not counted, and why
 
