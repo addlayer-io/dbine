@@ -582,3 +582,77 @@ async fn live_tables_on_disk_are_not_changed() {
         .unwrap();
     cleanup(&mut s).await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn live_indexes_become_attributes() {
+    let Some(cfg) = kdb_cfg() else { return };
+    let d = driver("kdb");
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    // A PostgreSQL table with a unique index, another index and one of two
+    // columns: u#, g# and nothing (said) in kdb+.
+    let mut pg = table(
+        "dbine_meta_sc_ix",
+        vec![
+            col("id", "bigint"),
+            col("code", "text"),
+            col("qty", "integer"),
+        ],
+        &[],
+    );
+    let index = |name: &str, cols: &[&str], unique: bool| dbine_driver::IndexDef {
+        name: name.into(),
+        columns: cols.iter().map(|c| c.to_string()).collect(),
+        unique,
+        kind: Some("btree".into()),
+        ..Default::default()
+    };
+    pg.indexes = vec![
+        index("ix_code", &["code"], true),
+        index("ix_qty", &["qty"], false),
+        index("ix_both", &["code", "qty"], false),
+    ];
+    let r = convert(
+        std::slice::from_ref(&pg),
+        "postgres",
+        "kdb",
+        &Options::default(),
+    )
+    .unwrap();
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("ix_both")));
+    let ddl = d
+        .sync_script(&[TableChange::Create {
+            table: r.tables[0].clone(),
+        }])
+        .unwrap();
+    run_all(&mut s, &ddl.statements).await;
+    let back = read_table(&mut s, "dbine_meta_sc_ix").await;
+    let mut got: Vec<(String, bool, String)> = back
+        .indexes
+        .iter()
+        .map(|i| {
+            (
+                i.columns[0].clone(),
+                i.unique,
+                i.kind.clone().unwrap_or_default(),
+            )
+        })
+        .collect();
+    got.sort();
+    assert_eq!(
+        got,
+        [
+            ("code".to_string(), true, "u#".to_string()),
+            ("qty".into(), false, "g#".into())
+        ]
+    );
+    // And back to PostgreSQL: a unique index and another.
+    let again = convert(&[back], "kdb", "postgres", &Options::default()).unwrap();
+    let uniques: Vec<bool> = again.tables[0].indexes.iter().map(|i| i.unique).collect();
+    assert_eq!(uniques.iter().filter(|u| **u).count(), 1, "{uniques:?}");
+    assert_eq!(uniques.len(), 2);
+    q(&mut s, "delete dbine_meta_sc_ix from `.").await.unwrap();
+}

@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
+pub mod attrs;
 pub mod cells;
 mod chart;
 mod clone;
@@ -31,12 +32,16 @@ pub mod conn;
 mod delta;
 pub mod edit;
 pub mod guard;
+mod health;
 pub mod ipc;
 pub mod load;
 mod monitor;
+mod process;
+mod props;
 mod read;
 pub mod script;
 mod stage;
+mod stats;
 mod steps;
 pub mod sync;
 mod write;
@@ -184,20 +189,26 @@ impl Driver for KdbDriver {
 
     /// A kdb+ process is one namespace tree (nothing to create or drop):
     /// its memory and connections show in the Monitor, and a connection
-    /// can be closed. Linked columns (enumerations over a keyed table,
-    /// `meta`'s `f`) are its foreign keys.
+    /// can be closed; its runtime settings are its properties ([`props`]).
+    /// Linked columns (enumerations over a keyed table, `meta`'s `f`) are
+    /// its foreign keys.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             foreign_keys: true,
             monitor: true,
             processes: true,
             kill_session: true,
+            database_properties: true,
             ..Capabilities::default()
         }
     }
 
+    /// Attributes are a table's indexes ([`attrs`]).
     fn designer(&self) -> Option<DesignerSpec> {
-        Some(edit::designer())
+        Some(DesignerSpec {
+            indexes: true,
+            ..edit::designer()
+        })
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -205,7 +216,25 @@ impl Driver for KdbDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        edit::table_ddl(table, parts)
+        let ddl = edit::table_ddl(table, parts)?;
+        if !parts.indexes || table.indexes.is_empty() {
+            return Ok(ddl);
+        }
+        let attrs = attrs::ddl(table)?;
+        Ok(if ddl.is_empty() {
+            attrs
+        } else {
+            format!("{ddl}\n{attrs}")
+        })
+    }
+
+    /// The runtime settings as system commands (`\g 1`, `\T 60`…).
+    fn alter_database_script(
+        &self,
+        _database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<String> {
+        props::script(changes)
     }
 
     /// Tables in memory change with q per column (`update`, `delete`,
@@ -559,20 +588,33 @@ impl KdbSession {
         let expr = self.eval(stmt);
         self.emit(&expr, max_rows, out).await
     }
+
+    /// One of DBine's own reads (row counts, the process's facts): inside
+    /// `reval` on a read-only connection whose server has it, so the server
+    /// enforces that it only reads; as it is otherwise, like the explorer's
+    /// and the Monitor's (fixed text, no names or values in it).
+    async fn read(&mut self, text: &str) -> Result<K> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        if self.read_only && self.reval {
+            self.q(&format!("{{{REVAL}}} {}", edit::qstr(text))).await
+        } else {
+            self.q(text).await
+        }
+    }
 }
 
 /// The catalog of [`Session::database_schema`], applied to the tables'
 /// names: per table `(columns; meta letters; linked tables; key; each
-/// linked table's key)`, or an empty symbol list for one that can't be
-/// read (it leaves out only itself).
-pub const SCHEMA: &str = "{[ns] {@[{m:0!meta x; (m`c; m`t; m`f; @[keys;x;`$()]; {@[keys;x;`$()]} each m`f)};x;{0#`}]} each ns}";
+/// linked table's key; attributes)`, or an empty symbol list for one that
+/// can't be read (it leaves out only itself).
+pub const SCHEMA: &str = "{[ns] {@[{m:0!meta x; (m`c; m`t; m`f; @[keys;x;`$()]; {@[keys;x;`$()]} each m`f; m`a)};x;{0#`}]} each ns}";
 
 /// A table's entry of [`SCHEMA`]'s answer.
 fn table_schema(o: DbObject, k: K) -> Option<TableSchema> {
     let K::List(parts) = k else {
         return None;
     };
-    let [c, t, f, key, linked] = parts.as_slice() else {
+    let [c, t, f, key, linked, rest @ ..] = parts.as_slice() else {
         return None;
     };
     let names = c.symbols()?;
@@ -621,6 +663,7 @@ fn table_schema(o: DbObject, k: K) -> Option<TableSchema> {
             columns: keys,
         }),
         foreign_keys,
+        indexes: attrs::indexes(&names, rest.first()),
         ..Default::default()
     })
 }
@@ -1054,6 +1097,39 @@ impl Session for KdbSession {
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         Ok(monitor::processes(self.q(monitor::CONNECTIONS).await?))
+    }
+
+    /// Tables in memory and splayed by `count`, partitioned ones only when
+    /// kdb+ already counted them ([`stats`]).
+    async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
+        Ok(stats::estimates(self.read(&stats::query()).await?))
+    }
+
+    /// The process's memory, symbols, handles, timeout, password and TLS
+    /// ([`health`]).
+    async fn health_checks(
+        &mut self,
+        _database: &str,
+    ) -> Result<Vec<dbine_driver::health::HealthCheck>> {
+        let facts = process::parse(self.read(process::FACTS).await?);
+        Ok(health::checks(&facts, self.reval))
+    }
+
+    async fn database_properties(
+        &mut self,
+        _database: &str,
+    ) -> Result<dbine_driver::DatabaseProperties> {
+        Ok(props::properties(&process::parse(
+            self.read(process::FACTS).await?,
+        )))
+    }
+
+    async fn alter_database(
+        &mut self,
+        _database: &str,
+        changes: &std::collections::BTreeMap<String, String>,
+    ) -> Result<()> {
+        self.alter_settings(changes).await
     }
 
     /// Close a connection (`hclose`): its handle, as listed.

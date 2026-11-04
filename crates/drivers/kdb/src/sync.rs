@@ -233,6 +233,7 @@ pub fn script(changes: &[TableChange]) -> Result<SyncScript> {
                 }
                 creates.push(absent_guard(&t.name));
                 creates.push(table_ddl(&t, CREATE)?);
+                creates.extend(crate::attrs::create(&t)?);
             }
             TableChange::Alter { old, new } => {
                 refuse_on_disk(&old.kind, &old.name)?;
@@ -266,6 +267,7 @@ fn alter(
         .collect();
     let mut added = Vec::new();
     let mut casts = Vec::new();
+    let mut recast = Vec::new();
     for n in &new.columns {
         column_name(&n.name)?;
         let to = letter(name, n)?;
@@ -286,6 +288,7 @@ fn alter(
                             name, n.name, o.data_type, n.data_type
                         ));
                         casts.push(assign(name, &format!("update {}:{e} from {r}", n.name)));
+                        recast.push(n.name.as_str());
                     }
                     None => warnings.push(format!(
                         "La columna {}.{} no se convierte de {} a {}: q no tiene un cast directo entre esos tipos; cambiala a mano.",
@@ -298,8 +301,11 @@ fn alter(
     let old_key = key_of(old);
     let new_key = usable_key(new, warnings)?;
     let key_changed = old_key != new_key;
+    // Attributes go on after the casts (a cast takes them off).
+    let gone: Vec<&str> = dropped.iter().map(|c| c.name.as_str()).collect();
+    let attrs = crate::attrs::alter(old, new, &gone, &recast, warnings)?;
     let changes = !dropped.is_empty() || !added.is_empty() || !casts.is_empty();
-    if !changes && !key_changed {
+    if !changes && !key_changed && attrs.is_empty() {
         return Ok(());
     }
     out.push(on_disk_guard(name));
@@ -325,6 +331,7 @@ fn alter(
     }
     out.extend(added);
     out.extend(casts);
+    out.extend(attrs);
     if !new_key.is_empty() && (unkeyed || key_changed) {
         out.push(assign(name, &format!("{} xkey {r}", symbols(&new_key))));
     }
