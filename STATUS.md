@@ -26,9 +26,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`dff575651`](https://github.com/addlayer-io/dbine/commit/dff575651e26) | 0 open | — |
-| scorecard | 2026-11-04 | repository settings and workflows at [`6a888e8d1`](https://github.com/addlayer-io/dbine/commit/6a888e8d17ce) | score 7/10 | — |
-| trivy | 2026-11-04 | whole repository at [`dff575651`](https://github.com/addlayer-io/dbine/commit/dff575651e26) | 2 open | — |
+| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`91f4544ff`](https://github.com/addlayer-io/dbine/commit/91f4544ffed2) | 0 open | — |
+| scorecard | 2026-11-04 | repository settings and workflows at [`dff575651`](https://github.com/addlayer-io/dbine/commit/dff575651e26) | score 7.5/10 | — |
+| trivy | 2026-11-04 | whole repository at [`91f4544ff`](https://github.com/addlayer-io/dbine/commit/91f4544ffed2) | 2 open | — |
 
 ## Not counted, and why
 
@@ -395,7 +395,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **7/10** (2026-11-04). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.5/10** (2026-11-04). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -404,6 +404,5 @@ OpenSSF Scorecard: **7/10** (2026-11-04). The checks below 10, with Scorecard's 
 | Code-Review: 0/10 — Found 0/28 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-11-04",
-      "revision": "dff575651e26",
+      "revision": "91f4544ffed2",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-11-04",
-      "revision": "dff575651e26",
+      "revision": "91f4544ffed2",
       "kind": "full",
       "scope": "whole repository",
       "found": 2
@@ -37,10 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-04",
-      "revision": "6a888e8d17ce",
+      "revision": "dff575651e26",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7
+      "score": 7.5
     }
   ],
   "findings": [
@@ -4477,17 +4477,6 @@
       "title": "Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors",
-      "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "SC-Fuzzing",
-      "source": "scorecard",
-      "severity": "MEDIUM",
-      "kind": "Repository practice",
-      "title": "Fuzzing: 0/10 — project is not fuzzed",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing",
       "found": "2026-10-21",
       "status": "open"
     },
