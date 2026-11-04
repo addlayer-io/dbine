@@ -1,4 +1,4 @@
 # The winget workflow's manifest validation. Regenerate with Python 3.12:
 #   pip-compile --generate-hashes --allow-unsafe --strip-extras --no-emit-index-url -o winget.txt winget.in
 pyyaml==6.0.3
-check-jsonschema==0.38.2
+check-jsonschema==0.39.0
