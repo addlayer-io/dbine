@@ -499,7 +499,10 @@ async fn live_sync_and_rename() {
             definition: None,
         })
         .unwrap();
-    let e = q(&mut s, &clash.statements[1]).await.unwrap_err();
+    // One statement: the check that the name is free runs with the change.
+    let e = q(&mut s, clash.statements.last().unwrap())
+        .await
+        .unwrap_err();
     assert!(e.contains("Ya existe"), "{e}");
     let ren = d
         .rename_script(&RenameRequest {
