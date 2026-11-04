@@ -77,8 +77,29 @@ fn infer(cells: &[&Cell]) -> char {
         Some(Cell::DateTime(_) | Cell::DateTimeTz(_)) => 'p',
         Some(Cell::Uuid(_)) => 'g',
         Some(Cell::Bytes(_)) => 'X',
+        Some(Cell::Json(_)) => numbers(cells).unwrap_or('C'),
         _ => 'C',
     }
+}
+
+/// The list letter of JSON arrays of numbers or booleans (`J`, `F`, `B`),
+/// from the first one with a value: what a column of q lists read from
+/// kdb+ (`1 2`, `1.5 2.5`) comes as.
+fn numbers(cells: &[&Cell]) -> Option<char> {
+    cells.iter().find_map(|c| {
+        let Cell::Json(s) = c else { return None };
+        let Value::Array(a) = serde_json::from_str::<Value>(s).ok()? else {
+            return None;
+        };
+        let values: Vec<&Value> = a.iter().filter(|v| !v.is_null()).collect();
+        let first = values.first()?;
+        Some(match first {
+            Value::Bool(_) if values.iter().all(|v| v.is_boolean()) => 'B',
+            Value::Number(_) if values.iter().all(|v| v.is_i64()) => 'J',
+            Value::Number(_) if values.iter().all(|v| v.is_number()) => 'F',
+            _ => 'C',
+        })
+    })
 }
 
 /// Every cell converted by `f`, nulls as `null`; `None` if one doesn't.
@@ -118,7 +139,13 @@ fn typed(letter: char, cells: &[&Cell]) -> Option<K> {
             i32::try_from(timestamp_of(c)?.div_euclid(NANOS_PER_DAY)).ok()
         })?),
         'z' => Vector::Datetime(each(cells, f64::NAN, |c| {
-            Some(timestamp_of(c)? as f64 / NANOS_PER_DAY as f64)
+            // Whole days and the day's fraction apart: one rounding, so a
+            // datetime read from kdb+ comes back to the same float.
+            let ns = timestamp_of(c)?;
+            Some(
+                ns.div_euclid(NANOS_PER_DAY) as f64
+                    + ns.rem_euclid(NANOS_PER_DAY) as f64 / NANOS_PER_DAY as f64,
+            )
         })?),
         'n' => Vector::Timespan(each(cells, i64::MIN, time_of)?),
         'u' => Vector::Minute(each(cells, i32::MIN, |c| {
@@ -473,6 +500,35 @@ mod tests {
         };
         assert_eq!(f, vec![1.0, 2.5]);
         assert!(matches!(col(' ', &[Cell::Text("a".into())]), K::List(_)));
+        // JSON arrays of numbers are q lists of numbers, not their text.
+        assert_eq!(
+            col(
+                ' ',
+                &[
+                    Cell::Null,
+                    Cell::Json("[]".into()),
+                    Cell::Json("[1,null,3]".into())
+                ]
+            ),
+            K::List(vec![
+                K::Vector(0, Vector::Long(Vec::new())),
+                K::Vector(0, Vector::Long(Vec::new())),
+                K::Vector(0, Vector::Long(vec![1, i64::MIN, 3])),
+            ])
+        );
+        assert!(matches!(
+            col(' ', &[Cell::Json("[1,2.5]".into())]),
+            K::List(l) if l[0] == K::Vector(0, Vector::Float(vec![1.0, 2.5]))
+        ));
+        assert_eq!(
+            col(' ', &[Cell::Json("[true,false]".into())]),
+            K::List(vec![K::Vector(0, Vector::Bool(vec![true, false]))])
+        );
+        // Anything else stays text.
+        assert!(matches!(
+            col(' ', &[Cell::Json("[\"a\"]".into())]),
+            K::List(l) if l[0] == K::Vector(0, Vector::Char(b"[\"a\"]".to_vec()))
+        ));
     }
 
     #[test]

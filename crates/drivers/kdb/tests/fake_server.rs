@@ -569,6 +569,58 @@ async fn read_only_without_reval_runs_only_browses_and_show_commands() {
 }
 
 #[tokio::test]
+async fn reads_of_a_sync_need_reval_on_a_read_only_connection() {
+    use dbine_driver::transfer::{Buckets, DeltaDepth, DeltaSpec, ReadSpec};
+    let (port, _, _, _, sent) = server_full().await;
+    let d = driver();
+    let mut s = d.connect(&cfg(port, "old", true), None).await.unwrap();
+    let trade = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: "trade".into(),
+    };
+    let spec = DeltaSpec {
+        table: trade.clone(),
+        key: vec!["sym".into()],
+        columns: vec!["sym".into(), "px".into()],
+        buckets: Buckets::Hash { n: 17 },
+        depth: DeltaDepth::Full,
+        max_cores: 0,
+    };
+    let filtered = ReadSpec {
+        table: trade.clone(),
+        columns: None,
+        filter: Some(d.delta_filter(&spec, &[1, 2]).unwrap()),
+    };
+    // Nothing on the server could keep these from writing: refused, with
+    // the reason, before anything is sent.
+    let before = sent.lock().unwrap().len();
+    let sink: dbine_driver::transfer::BatchSinkRef = Arc::new(std::sync::Mutex::new(Null));
+    let errors = [
+        s.delta_summary(&spec).await.unwrap_err(),
+        s.key_range(&trade, "px").await.unwrap_err(),
+        s.read_batches(&filtered, sink).await.unwrap_err(),
+    ];
+    for e in errors {
+        assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
+        assert!(e.to_string().contains("reval"), "{e}");
+    }
+    assert_eq!(sent.lock().unwrap().len(), before);
+}
+
+/// A sink that drops what it gets.
+struct Null;
+
+impl dbine_driver::transfer::BatchSink for Null {
+    fn begin(&mut self, _: &[dbine_driver::transfer::TransferColumn]) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn batch(&mut self, _: dbine_driver::transfer::RowBatch) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
 async fn a_deeply_nested_answer_is_an_error_not_a_crash() {
     let (port, accepted, _) = server().await;
     let mut s = driver()
