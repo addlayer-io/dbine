@@ -655,9 +655,14 @@ and `SSL_CA_CERT_FILE`.
   the table isn't on disk (`.Q.qp`) and that a table it creates doesn't
   exist yet (a q assignment would replace it), and warns that the changes
   live in the process's memory until saved.
-- **Rename:** tables in memory (copied to the new name, then the old one
-  deleted) and their columns (`xcol`), checking on the server that the new
-  name is free. q code that names them is listed, not rewritten.
+- **Rename:** tables in memory and their columns (`xcol`), root views
+  (defined again from their definition on the server), functions and
+  variables within their namespace (a function resolves its globals in the
+  namespace it was defined in), and top-level namespaces (the dictionary
+  copied, then the old one deleted). Each rename is one statement that
+  checks on the server first that the old object is still there, that the
+  new name is free and that nothing is on disk. q code that names the
+  renamed object is listed, not rewritten.
 - **Schema conversion:** to and from the other engines (`dbine-schema`'s q
   dialect): the key is the primary key, q types map to the neutral ones
   and back ([`schema-conversion.md`](schema-conversion.md)).
@@ -743,6 +748,9 @@ and `SSL_CA_CERT_FILE`.
 | Enumerations, general lists, indexes of several columns in conversion | Enumerated columns read as `symbol`; a general list has no neutral type and is reported for review; an attribute is one column's, so a multi-column index is left out and reported. |
 | Index usage | kdb+ keeps no statistics of how often an attribute is used. |
 | Sync by rows and write cells on partitioned and splayed tables | Refused, as in the grid: their columns are files on disk. |
+| Renaming a view outside the root namespace | Over IPC kdb+ defines a view only in the root. |
+| Moving a function or variable to another namespace by renaming it | A function stays bound to the namespace it was defined in. |
+| Renaming a namespace that holds functions, views, tables on disk or tables other columns link to | kdb+ binds functions and links to a namespace by name, so they would stop working once it's gone. |
 | Clone of tables on disk, views outside the root namespace, projections and compositions, other variables | DBine doesn't write a database's files; over IPC kdb+ defines a view only in the root namespace; a projection has no source text of its own; variables aren't tables, views or functions. Each one left out is named in the clone's notes. |
 
 **Tests:** the IPC codec, the script splitter, the read-only check and the
