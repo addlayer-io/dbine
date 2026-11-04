@@ -26,9 +26,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`7d2c9a111`](https://github.com/addlayer-io/dbine/commit/7d2c9a1114a0) | 0 open | — |
-| scorecard | 2026-11-04 | repository settings and workflows at [`1038e892b`](https://github.com/addlayer-io/dbine/commit/1038e892bf1e) | score 7.5/10 | — |
-| trivy | 2026-11-04 | whole repository at [`7d2c9a111`](https://github.com/addlayer-io/dbine/commit/7d2c9a1114a0) | 2 open | — |
+| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`e37735cd8`](https://github.com/addlayer-io/dbine/commit/e37735cd8d18) | 0 open | — |
+| scorecard | 2026-11-04 | repository settings and workflows at [`e37735cd8`](https://github.com/addlayer-io/dbine/commit/e37735cd8d18) | score 7.4/10 | — |
+| trivy | 2026-11-04 | whole repository at [`e37735cd8`](https://github.com/addlayer-io/dbine/commit/e37735cd8d18) | 2 open | — |
 
 ## Not counted, and why
 
@@ -384,8 +384,6 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | Advisory RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372 | `dependencies` | Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack). | osv-scanner.toml |
 | Advisory RUSTSEC-2023-0071 | `dependencies` | Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations. | osv-scanner.toml |
 | Advisory GHSA-qwgh-2vcv-g2f7 | `dependencies` | Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to. | osv-scanner.toml |
-| Advisory GHSA-3g3m-2fjr-6pw4 | `dependencies` | Doesn't affect DBine. glob comes only with js-beautify, which uses it in its command-line tool (js/src/cli.js); DBine imports js-beautify's formatter (web/src/composables/formatCode.ts), which doesn't load glob, and the built app has no glob code (checked in web/dist). The fix is in glob 14, a major version js-beautify doesn't accept. | osv-scanner.toml |
-| Advisory GHSA-g3hv-75wg-m249 | `dependencies` | Doesn't affect DBine. minimatch comes with js-beautify's command-line tool (through glob and editorconfig, js/src/cli.js) and with dev tools only (eslint, typescript-eslint, vue-tsc), never with the app: DBine imports js-beautify's formatter, which loads neither, and the built app has no minimatch code (checked in web/dist). The fix is in minimatch 11, a major version those packages don't accept. | osv-scanner.toml |
 
 ## Maintenance notices
 
@@ -395,14 +393,15 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.5/10** (2026-11-04). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.4/10** (2026-11-04). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/18 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/16 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
+| CI-Tests: 6/10 — 7 out of 11 merged PRs checked by a CI test -- score normalized to 6 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
