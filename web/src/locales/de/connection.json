@@ -76,6 +76,10 @@
         "title": "Die sichere Verbindung (TLS) ist fehlgeschlagen",
         "body": "Dem Zertifikat des Servers wird nicht vertraut, oder es passt nicht zum Hostnamen. Prüfen Sie die Verschlüsselungsoptionen der Verbindung: Verwenden Sie den Namen auf dem Zertifikat, und vertrauen Sie dem Zertifikat des Servers nur, wenn Sie wissen, dass es das richtige ist."
       },
+      "tls_legacy_only": {
+        "title": "Der Server akzeptiert nur veraltetes TLS (1.0/1.1)",
+        "body": "Dieser Server akzeptiert weder TLS 1.2 noch neuere Versionen, nur TLS 1.0 oder 1.1, die unsicher sind und die DBine nicht ohne Ihre Erlaubnis verwendet. Um dennoch zu verbinden, erlauben Sie veraltetes TLS für diese Verbindung: mit der Schaltfläche unten oder im Tab SSL der Verbindung („Veraltetes TLS (1.0/1.1) für alte Server erlauben“). Am sichersten ist es, den Server auf TLS 1.2 zu aktualisieren (SQL Server 2012 SP4 oder KB3135244)."
+      },
       "tls_not_offered": {
         "title": "Der Server bietet kein TLS an",
         "body": "Die Verbindung verlangt Verschlüsselung, aber der Server hat sie nicht aktiviert (häufig bei Entwicklungsservern). Aktivieren Sie TLS auf dem Server oder wählen Sie, wenn Sie akzeptieren, dass Daten und Passwort unverschlüsselt übertragen werden, im Tab SSL/TLS einen Modus ohne Verschlüsselung."
@@ -357,6 +361,15 @@
       "forget": "Vergessen",
       "help": "Dieser Modus prüft die Zertifikatskette nicht: Er akzeptiert nur das Zertifikat, das der Server bei der ersten Verbindung vorgelegt hat. „Vergessen“ sorgt dafür, dass die nächste Verbindung das Zertifikat anheftet, das der Server dann vorlegt.",
       "none": "Dieser Modus prüft die Zertifikatskette nicht: Die erste Verbindung heftet das Zertifikat des Servers an, und spätere akzeptieren nur dieses."
-    }
+    },
+    "legacy": "Veraltetes TLS"
+  },
+  "legacyTls": {
+    "askTitle": "Server mit veraltetem TLS",
+    "ask": "Dieser Server ({{server}}) akzeptiert nur TLS 1.0 oder 1.1, unsichere Protokolle. Trotzdem mit veraltetem TLS verbinden?",
+    "askDetail": "DBine merkt sich das für diese Verbindung und lädt beim ersten Mal die Komponente herunter, die es ermöglicht. Sie können es im Tab SSL der Verbindung deaktivieren. Am sichersten ist es, den Server auf TLS 1.2 zu aktualisieren (SQL Server 2012 SP4 oder KB3135244).",
+    "askConfirm": "Mit veraltetem TLS verbinden",
+    "formTitle": "Veraltetes TLS (1.0/1.1) erlaubt",
+    "formBody": "Diese Verbindung akzeptiert TLS 1.0 und 1.1, veraltete und unsichere Protokolle. Verwenden Sie dies nur bei Servern, die nicht auf TLS 1.2 aktualisiert werden können."
   }
 }

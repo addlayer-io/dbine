@@ -7,6 +7,7 @@ import type { AzureFirewallPlan, ConnectFailureKind } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { useUiStore } from '../stores/ui';
 import { isProdConnection } from '../composables/tags';
+import { LEGACY_TLS_ONLY } from '../composables/legacyTls';
 
 // "Ver qué pasa…": why a connection couldn't connect, in plain words, and
 // what to do about it — by the kind of failure the backend classified
@@ -26,6 +27,11 @@ const conn = computed(() => conns.byId(props.connectionId));
 const live = computed(() => conns.live[props.connectionId]);
 const detail = computed(() => live.value?.detail ?? null);
 const kind = computed<ConnectFailureKind>(() => detail.value?.kind ?? 'unknown');
+/** A server that only speaks TLS 1.0/1.1 (`TLS_LEGACY_ONLY`): its own text,
+ *  not the generic TLS one about certificates. */
+const legacyOnly = computed(() => detail.value?.code === LEGACY_TLS_ONLY);
+/** The headline's key: the kind's, or the legacy-TLS one. */
+const headKind = computed(() => (legacyOnly.value ? 'tls_legacy_only' : kind.value));
 const message = computed(() => live.value?.error ?? '');
 const host = computed(() => conn.value?.config.host ?? '');
 const port = computed(() => conn.value?.config.port || conns.driverOf(props.connectionId)?.default_port || 0);
@@ -61,6 +67,24 @@ async function trustNewCertificate() {
     trustError.value = errorMessage(e);
   } finally {
     trusting.value = false;
+  }
+}
+
+// -- a server that only speaks TLS 1.0/1.1 --------------------------------------------
+const allowing = ref(false);
+const allowError = ref<string | null>(null);
+/** The same yes as the question asked on connect: only on this click. */
+async function allowLegacyTls() {
+  allowing.value = true;
+  allowError.value = null;
+  try {
+    await api.allowLegacyTls(props.connectionId);
+    await conns.load();
+    emit('retry');
+  } catch (e) {
+    allowError.value = errorMessage(e);
+  } finally {
+    allowing.value = false;
   }
 }
 
@@ -182,7 +206,7 @@ function editConnection() {
     :close-on-click-modal="false" @close="emit('close')"
   >
     <div class="cp">
-      <h4 class="cp-head">{{ $t(`connection:problem.kind.${kind}.title`) }}</h4>
+      <h4 class="cp-head">{{ $t(`connection:problem.kind.${headKind}.title`) }}</h4>
       <p class="cp-server">{{ $t('connection:problem.server') }}: <code class="nm-selectable">{{ server }}</code></p>
 
       <!-- firewall -->
@@ -201,6 +225,14 @@ function editConnection() {
         <p v-else-if="azureSql" class="cp-note">{{ $t('connection:problem.network.azureSql') }}</p>
       </template>
       <p v-else-if="kind === 'dns'">{{ $t('connection:problem.kind.dns.body', { host: bareHost }) }}</p>
+      <!-- Only TLS 1.0/1.1: allow legacy TLS for this connection, or update the server. -->
+      <template v-else-if="legacyOnly">
+        <p>{{ $t('connection:problem.kind.tls_legacy_only.body') }}</p>
+        <div class="cp-azure">
+          <el-button type="warning" plain :loading="allowing" @click="allowLegacyTls">{{ $t('connection:legacyTls.askConfirm') }}</el-button>
+          <div v-if="allowError" class="cp-error">{{ allowError }}</div>
+        </div>
+      </template>
       <p v-else-if="kind === 'tls' || kind === 'tls_not_offered' || kind === 'tls_untrusted'">{{ $t(`connection:problem.kind.${kind}.body`) }}</p>
       <!-- The pinned certificate changed: trust the one presented (pinned as it is). -->
       <template v-else-if="kind === 'tls_pin_changed'">

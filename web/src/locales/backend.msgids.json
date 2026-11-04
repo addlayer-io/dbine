@@ -37951,5 +37951,20 @@
   ],
   "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": [
     "crates/drivers/kdb/src/sync.rs"
+  ],
+  "Permitir TLS antiguo (1.0/1.1) para servidores viejos": [
+    "crates/drivers/sqlserver/src/variant.rs"
+  ],
+  "Inseguro: TLS 1.0 y 1.1 están obsoletos. Solo para servidores que no aceptan TLS 1.2 (SQL Server 2008 R2 o 2012 sin actualizar); la primera vez DBine descarga el componente que lo permite. Mejor actualizá el servidor a TLS 1.2 (SQL Server 2012 SP4 o KB3135244).": [
+    "crates/drivers/sqlserver/src/variant.rs"
+  ],
+  "Este servidor ({0}) solo acepta TLS 1.0 o 1.1, versiones inseguras que DBine no usa sin tu permiso. Para conectar igual, activá «Permitir TLS antiguo (1.0/1.1) para servidores viejos» en la conexión; mejor aún, actualizá el servidor a TLS 1.2 (SQL Server 2012 SP4 o KB3135244). Detalle: {1}": [
+    "crates/drivers/sqlserver/src/lib.rs"
+  ],
+  "Esta conexión usa TLS antiguo (1.0/1.1) y este componente de SQL Server no lo incluye: actualizá DBine para que descargue el que lo permite, o desactivá la opción.": [
+    "crates/drivers/sqlserver/src/lib.rs"
+  ],
+  "este motor no tiene la opción de TLS antiguo": [
+    "src-tauri/src/commands/connections.rs"
   ]
 }

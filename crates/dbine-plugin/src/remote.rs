@@ -783,6 +783,9 @@ pub struct RemoteDriver {
     query_help: &'static str,
     script_separator: &'static str,
     launcher: Arc<Launcher>,
+    /// Another crate's host for connections whose option (the key) is
+    /// "true" (`dbine_drivers::VARIANTS`: SQL Server's legacy TLS).
+    variants: Vec<(&'static str, Arc<Launcher>)>,
 }
 
 impl RemoteDriver {
@@ -792,7 +795,23 @@ impl RemoteDriver {
             script_separator: intern(&meta.script_separator),
             meta,
             launcher,
+            variants: Vec::new(),
         }
+    }
+
+    /// Connections with `option` = "true" open on `launcher`'s host (which
+    /// serves this driver's id); every other call stays on this one's.
+    pub fn with_variant(mut self, option: &'static str, launcher: Arc<Launcher>) -> Self {
+        self.variants.push((option, launcher));
+        self
+    }
+
+    /// The host a connection opens on.
+    fn launcher_for(&self, cfg: &ConnectionConfig) -> &Arc<Launcher> {
+        self.variants
+            .iter()
+            .find(|(option, _)| cfg.option(option) == Some("true"))
+            .map_or(&self.launcher, |(_, l)| l)
     }
 
     pub fn package(&self) -> &str {
@@ -1273,7 +1292,7 @@ impl Driver for RemoteDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        let host = self.launcher.get().await?;
+        let host = self.launcher_for(cfg).get().await?;
         match host
             .call(Call::Connect {
                 driver: self.id(),

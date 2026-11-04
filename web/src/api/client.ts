@@ -63,6 +63,11 @@ export const api = {
    *  sessions: only that certificate is trusted from then on. */
   trustTlsPin: (connectionId: string, fingerprint: string) =>
     invoke<void>('trust_tls_pin', { args: { connection_id: connectionId, fingerprint } }),
+  /** The user's yes to connecting with legacy TLS (1.0/1.1) after a
+   *  `TLS_LEGACY_ONLY` failure: the connection keeps it (its LegacyTls
+   *  option) and its sessions close. Only from that confirmation. */
+  allowLegacyTls: (connectionId: string) =>
+    invoke<void>('allow_legacy_tls', { args: { connection_id: connectionId } }),
   /** Resolve one field's source as the form has it; says only how long the value is. */
   testSecretSource: (connectionId: string | null, driver: string, field: string, source: SecretSource, tokens: Record<string, string>, duplicateOf: string | null = null) =>
     invoke<SecretSourceTest>('test_secret_source', { args: { connection_id: connectionId, duplicate_of: duplicateOf, driver, field, source, tokens } }),

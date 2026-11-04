@@ -32,8 +32,17 @@ mod opentls_tls_stream;
 #[cfg(feature = "native-tls")]
 pub(crate) use native_tls_stream::TlsStream;
 
-#[cfg(feature = "rustls")]
+#[cfg(all(feature = "rustls", not(feature = "legacy-tls")))]
 pub(crate) use rustls_tls_stream::TlsStream;
+
+// PATCH(dbine): legacy TLS (1.0/1.1) through OpenSSL, per connection. With
+// the feature the stream is rustls or OpenSSL; without it, rustls alone, as
+// upstream.
+#[cfg(all(feature = "rustls", feature = "legacy-tls"))]
+mod legacy_tls_stream;
+
+#[cfg(all(feature = "rustls", feature = "legacy-tls"))]
+pub(crate) use legacy_tls_stream::TlsStream;
 
 #[cfg(feature = "vendored-openssl")]
 pub(crate) use opentls_tls_stream::TlsStream;
@@ -43,7 +52,24 @@ pub(crate) async fn create_tls_stream<S: AsyncRead + AsyncWrite + Unpin + Send>(
     config: &Config,
     stream: S,
 ) -> crate::Result<TlsStream<S>> {
-    TlsStream::new(config, stream).await
+    // PATCH(dbine): legacy TLS only when the connection asked for it.
+    #[cfg(feature = "legacy-tls")]
+    {
+        if config.legacy_tls {
+            TlsStream::legacy(config, stream).await
+        } else {
+            TlsStream::modern(config, stream).await
+        }
+    }
+    #[cfg(not(feature = "legacy-tls"))]
+    {
+        if config.legacy_tls {
+            return Err(crate::Error::Tls(
+                "legacy TLS (1.0/1.1) isn't built into this client".into(),
+            ));
+        }
+        TlsStream::new(config, stream).await
+    }
 }
 
 #[cfg(feature = "native-tls")]

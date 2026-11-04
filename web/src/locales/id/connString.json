@@ -58,6 +58,7 @@
     "pat": "Kata sandi adalah token akses terprogram (PAT) dari koneksi.",
     "databricks_pat": "Koneksi masuk dengan OAuth atau principal layanan: string menggunakan token akses pribadi sebagai gantinya.",
     "other_port": "Format ini menggunakan port {{port}} milik server, bukan yang dipakai DBine: ubah jika milik Anda berbeda.",
-    "files_folder": "Ini adalah folder berkas: buka dari aplikasi dengan DuckDB (read_csv, read_parquet…)."
+    "files_folder": "Ini adalah folder berkas: buka dari aplikasi dengan DuckDB (read_csv, read_parquet…).",
+    "legacy_tls": "Koneksi menggunakan TLS lama (1.0/1.1): tidak ada klien SQL Server yang memiliki opsi untuk itu di string koneksi; hal ini ditentukan oleh konfigurasi TLS pada sistem tempat koneksi digunakan."
   }
 }

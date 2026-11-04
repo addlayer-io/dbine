@@ -76,6 +76,10 @@
         "title": "A conexão segura (TLS) falhou",
         "body": "O certificado do servidor não é confiável ou não corresponde ao nome do host. Revise as opções de criptografia da conexão: use o nome que consta no certificado, ou confie no certificado do servidor só se souber que é o correto."
       },
+      "tls_legacy_only": {
+        "title": "O servidor só aceita TLS legado (1.0/1.1)",
+        "body": "Este servidor não aceita TLS 1.2 nem posterior, apenas TLS 1.0 ou 1.1, que são inseguros, e o DBine não os usa sem a sua permissão. Para conectar mesmo assim, permita o TLS legado nesta conexão: com o botão abaixo ou na aba SSL da conexão («Permitir TLS legado (1.0/1.1) para servidores antigos»). O mais seguro é atualizar o servidor para TLS 1.2 (SQL Server 2012 SP4 ou KB3135244)."
+      },
       "tls_not_offered": {
         "title": "O servidor não oferece TLS",
         "body": "A conexão pede criptografia e o servidor não a tem ativada (comum em servidores de desenvolvimento). Ative o TLS no servidor ou, se você aceita que os dados e a senha trafeguem sem criptografia, escolha um modo sem criptografia na aba SSL/TLS."
@@ -357,6 +361,15 @@
       "forget": "Esquecer",
       "help": "Este modo não verifica a cadeia do certificado: só aceita o certificado que o servidor apresentou na primeira conexão. \"Esquecer\" faz a próxima conexão fixar o certificado que o servidor apresentar nesse momento.",
       "none": "Este modo não verifica a cadeia do certificado: a primeira conexão fixa o certificado do servidor e as seguintes só aceitam esse."
-    }
+    },
+    "legacy": "TLS legado"
+  },
+  "legacyTls": {
+    "askTitle": "Servidor com TLS legado",
+    "ask": "Este servidor ({{server}}) só aceita TLS 1.0 ou 1.1, protocolos inseguros. Conectar mesmo assim usando TLS legado?",
+    "askDetail": "O DBine lembra disso para esta conexão e, na primeira vez, baixa o componente que o permite. Você pode desativar na aba SSL da conexão. O mais seguro é atualizar o servidor para TLS 1.2 (SQL Server 2012 SP4 ou KB3135244).",
+    "askConfirm": "Conectar com TLS legado",
+    "formTitle": "TLS legado (1.0/1.1) permitido",
+    "formBody": "Esta conexão aceita TLS 1.0 e 1.1, protocolos obsoletos e inseguros. Use apenas com servidores que não podem ser atualizados para TLS 1.2."
   }
 }

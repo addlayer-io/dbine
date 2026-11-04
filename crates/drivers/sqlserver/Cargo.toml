@@ -1,11 +1,14 @@
 [package]
 name = "dbine-driver-sqlserver"
-version = "0.1.18"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.19"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 dbine-driver = { path = "../../dbine-driver" }
+# The pin of a trusted certificate on the legacy TLS path (its format, and
+# the TlsPinChanged error the app explains).
+dbine-tls = { path = "../../dbine-tls" }
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
@@ -38,3 +41,10 @@ libgssapi = { version = "0.11", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 winauth = "0.0.5"
+
+[features]
+# Legacy TLS (1.0/1.1) through a vendored OpenSSL, for connections that turn
+# on `LegacyTls` (servers without TLS 1.2: SQL Server 2008 R2 / 2012 before
+# the update). Off here: only the `sqlserver_legacy` crate turns it on, so
+# the regular host stays rustls-only (docs/tls-options.md).
+legacy-tls = ["tiberius/legacy-tls"]

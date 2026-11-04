@@ -39,6 +39,10 @@ dbine-driver-solr = { path = "../drivers/solr", optional = true }
 dbine-driver-spanner = { path = "../drivers/spanner", optional = true }
 dbine-driver-sqlite = { path = "../drivers/sqlite", optional = true }
 dbine-driver-sqlserver = { path = "../drivers/sqlserver", optional = true }
+# SQL Server with legacy TLS (1.0/1.1, vendored OpenSSL): a variant of
+# `sqlserver`, downloaded only for connections that turn on LegacyTls
+# (VARIANTS in src/lib.rs).
+dbine-driver-sqlserver_legacy = { path = "../drivers/sqlserver_legacy", optional = true }
 dbine-driver-trino = { path = "../drivers/trino", optional = true }
 dbine-driver-libsql = { path = "../drivers/libsql", optional = true }
 dbine-driver-neo4j = { path = "../drivers/neo4j", optional = true }
@@ -89,6 +93,7 @@ default = [
     "spanner",
     "sqlite",
     "sqlserver",
+    "sqlserver_legacy",
     "trino",
     "libsql",
     "neo4j",
@@ -129,6 +134,7 @@ solr = ["dep:dbine-driver-solr"]
 spanner = ["dep:dbine-driver-spanner"]
 sqlite = ["dep:dbine-driver-sqlite"]
 sqlserver = ["dep:dbine-driver-sqlserver"]
+sqlserver_legacy = ["dep:dbine-driver-sqlserver_legacy"]
 trino = ["dep:dbine-driver-trino"]
 libsql = ["dep:dbine-driver-libsql"]
 neo4j = ["dep:dbine-driver-neo4j"]

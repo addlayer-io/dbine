@@ -124,6 +124,17 @@ fn get_server_name(config: &Config) -> crate::Result<ServerName<'static>> {
 /// short-circuits certificate checks in [`NoCertVerifier`], so a cert error
 /// cannot originate there.
 fn map_handshake_error(err: io::Error, trust: &TrustConfig) -> crate::Error {
+    // PATCH(dbine): a server that only negotiates TLS 1.0/1.1 gets an error
+    // of its own, so the caller can tell it apart (and ask the user; never a
+    // fallback by itself).
+    if let Some(e) = err.get_ref().and_then(|e| e.downcast_ref::<RustlsError>()) {
+        if is_old_tls_version(e) {
+            return Error::TlsVersion {
+                server_version: None,
+                message: e.to_string(),
+            };
+        }
+    }
     // Only certificate-*validation* failures get the extra guidance. Under the
     // trust bypass the verifier never rejects a cert, so any error there is
     // genuinely transport-level and should pass through unchanged.
@@ -162,6 +173,18 @@ fn map_handshake_error(err: io::Error, trust: &TrustConfig) -> crate::Error {
     }
 
     Error::from(err)
+}
+
+// PATCH(dbine): legacy TLS, per connection.
+/// The server answered with TLS 1.0/1.1 (`ServerDoesNotSupportTls12Or13`) or
+/// refused this client's versions (a `protocol_version` alert).
+fn is_old_tls_version(e: &RustlsError) -> bool {
+    use tokio_rustls::rustls::{AlertDescription, PeerIncompatible};
+    matches!(
+        e,
+        RustlsError::PeerIncompatible(PeerIncompatible::ServerDoesNotSupportTls12Or13)
+            | RustlsError::AlertReceived(AlertDescription::ProtocolVersion)
+    )
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> TlsStream<S> {
@@ -371,7 +394,7 @@ fn build_trust_store(trust: &TrustConfig) -> crate::Result<RootCertStore> {
 /// present they provide trust on their own, so a best-effort/empty base is
 /// tolerated. Factored out so the invariant is unit-testable without needing to
 /// simulate an empty OS trust store.
-fn ensure_base_or_extra(
+pub(super) fn ensure_base_or_extra(
     base_added: usize,
     base_had_errors: bool,
     has_extras: bool,
@@ -870,6 +893,31 @@ mod tests {
             !msg.contains("outdated X.509 version"),
             "no version hint here: {msg}"
         );
+    }
+
+    // PATCH(dbine): legacy TLS, per connection.
+    #[test]
+    fn map_handshake_error_tells_old_tls_versions_apart() {
+        use tokio_rustls::rustls::{AlertDescription, PeerIncompatible};
+        for e in [
+            RustlsError::PeerIncompatible(PeerIncompatible::ServerDoesNotSupportTls12Or13),
+            RustlsError::AlertReceived(AlertDescription::ProtocolVersion),
+        ] {
+            let io = io::Error::new(io::ErrorKind::InvalidData, e);
+            assert!(matches!(
+                map_handshake_error(io, &default_trust()),
+                Error::TlsVersion { server_version: None, .. }
+            ));
+        }
+        // Other handshake failures stay what they were.
+        let io = io::Error::new(
+            io::ErrorKind::InvalidData,
+            RustlsError::AlertReceived(AlertDescription::HandshakeFailure),
+        );
+        assert!(!matches!(
+            map_handshake_error(io, &default_trust()),
+            Error::TlsVersion { .. }
+        ));
     }
 
     #[test]

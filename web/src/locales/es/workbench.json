@@ -65,7 +65,9 @@
     "readOnly": "solo lectura",
     "openConnections_many": "{{count}} conexiones abiertas",
     "syncedShort": "Sincronizado",
-    "syncPending": "Por subir"
+    "syncPending": "Por subir",
+    "legacyTls": "TLS antiguo",
+    "legacyTlsHint": "Esta conexión usa TLS 1.0/1.1, que es inseguro: lo permitiste para este servidor viejo."
   },
   "tabs": {
     "designer": "Diseño",

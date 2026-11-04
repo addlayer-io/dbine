@@ -67,7 +67,9 @@
     "showOutput": "Pokaż dane wyjściowe (⌘J)",
     "readOnly": "tylko do odczytu",
     "syncedShort": "Zsynchronizowano",
-    "syncPending": "Do wysłania"
+    "syncPending": "Do wysłania",
+    "legacyTls": "Starszy TLS",
+    "legacyTlsHint": "To połączenie używa TLS 1.0/1.1, który jest niezabezpieczony: zezwolono na to dla tego starego serwera."
   },
   "tabs": {
     "designer": "Projekt",

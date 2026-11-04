@@ -58,6 +58,7 @@
     "pat": "Das Passwort ist das programmatische Zugriffstoken (PAT) der Verbindung.",
     "databricks_pat": "Die Verbindung meldet sich mit OAuth oder einem Dienstprinzipal an: Die Zeichenfolge verwendet stattdessen ein persönliches Zugriffstoken.",
     "other_port": "Dieses Format verwendet den Port {{port}} des Servers, nicht den von DBine genutzten: Ändern Sie ihn, falls Ihrer abweicht.",
-    "files_folder": "Es ist ein Ordner mit Dateien: Öffnen Sie sie in der Anwendung mit DuckDB (read_csv, read_parquet…)."
+    "files_folder": "Es ist ein Ordner mit Dateien: Öffnen Sie sie in der Anwendung mit DuckDB (read_csv, read_parquet…).",
+    "legacy_tls": "Die Verbindung verwendet veraltetes TLS (1.0/1.1): Kein SQL-Server-Client bietet dafür eine Option in der Verbindungszeichenfolge; es wird von der TLS-Konfiguration des Systems bestimmt, auf dem sie verwendet wird."
   }
 }

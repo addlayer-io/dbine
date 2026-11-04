@@ -58,6 +58,7 @@
     "pat": "Hasłem jest programowy token dostępu (PAT) połączenia.",
     "databricks_pat": "Połączenie loguje się przez OAuth lub podmiot usługi: ciąg używa zamiast tego osobistego tokenu dostępu.",
     "other_port": "Ten format używa portu {{port}} serwera, a nie portu używanego przez DBine: zmień go, jeśli Twój jest inny.",
-    "files_folder": "To folder z plikami: otwórz je z aplikacji za pomocą DuckDB (read_csv, read_parquet…)."
+    "files_folder": "To folder z plikami: otwórz je z aplikacji za pomocą DuckDB (read_csv, read_parquet…).",
+    "legacy_tls": "Połączenie używa starszego TLS (1.0/1.1): żaden klient SQL Server nie ma na to opcji w parametrach połączenia; decyduje o tym konfiguracja TLS systemu, w którym jest używane."
   }
 }

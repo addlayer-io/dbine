@@ -24,7 +24,7 @@ import { mcpApi, type McpLevel } from '../api/mcp';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 import { inFocusedEditor } from '../stores/editorGroups';
 import { openConnString } from '../composables/connString';
-import { fieldRequired, formValue, legacyTlsValues, newConnectionPort, portForLevel, tlsLevel, tlsOn, tlsWarning, writeTls, type TlsOriginal } from '../composables/tlsFields';
+import { fieldRequired, formValue, LEGACY_TLS_OPTIONS, legacyTlsValues, newConnectionPort, portForLevel, tlsLevel, tlsOn, tlsWarning, writeTls, type TlsOriginal } from '../composables/tlsFields';
 
 // New / edit connection, as an editor tab. Step 1 picks the engine; step 2 is
 // the form the driver declares (its `fields`). Secret fields are never read
@@ -315,6 +315,8 @@ function buildConfig(): ConnectionConfig {
 const formTlsLevel = computed(() => (driver.value ? tlsLevel(driver.value.fields, (k) => values[k]) : null));
 /** The SSL tab's chip: "Sin cifrar" / "Sin verificar". */
 const tlsChip = computed(() => (driver.value ? tlsWarning(driver.value, (k) => values[k]) : null));
+/** Legacy TLS (1.0/1.1) is on: the SSL tab says so, whatever else it warns about. */
+const legacyTlsOn = computed(() => !!driver.value && LEGACY_TLS_OPTIONS.some((k) => driver.value!.fields.some((f) => f.key === k) && values[k] === true));
 // The mode went between plaintext and TLS: the port follows when it's still
 // the other one's default (ClickHouse 8123 ↔ 8443, Oracle 1521 ↔ 2484…).
 watch([picks, formTlsLevel], ([p, now], [pBefore, before]) => {
@@ -705,6 +707,7 @@ function selectOptions(f: Field): [string, string][] {
                 <div v-if="f.help" class="cd-help">{{ tb(f.help) }}</div>
               </el-form-item>
             </template>
+            <el-alert v-if="section === 'ssl' && legacyTlsOn" class="cd-wide" type="error" :closable="false" show-icon :title="$t('connection:legacyTls.formTitle')" :description="$t('connection:legacyTls.formBody')" />
             <!-- A mode that doesn't verify the chain: the certificate pinned on the first connection. -->
             <el-form-item v-if="section === 'ssl' && (tlsPin || tlsChip === 'unverified')" class="cd-wide" :label="$t('connection:tls.pin.label')">
               <div v-if="tlsPin" class="cd-pin">
@@ -808,6 +811,7 @@ function selectOptions(f: Field): [string, string][] {
   color: var(--nm-warn-fg); border: 1px solid var(--nm-warn-fg);
 }
 .cd-tab-chip-off { color: var(--nm-error-fg); border-color: var(--nm-error-fg); }
+.cd-tab-chip-legacy { color: var(--nm-error-fg); border-color: var(--nm-error-fg); }
 .cd-panel { max-width: 1100px; }
 .cd-empty { color: var(--nm-text-dim); font-size: 12.5px; padding: 12px 0; }
 .cd-fields { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }

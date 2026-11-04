@@ -652,7 +652,8 @@ export interface AzureFirewallRuleAdded {
  *  `detail`, src-tauri/src/error.rs ConnectDetail). */
 export interface ConnectDetail {
   kind: ConnectFailureKind;
-  /** The server's error number or SQLSTATE ("40615"). */
+  /** The server's error number or SQLSTATE ("40615"), or DBine's own
+   *  `TLS_LEGACY_ONLY` (a server that only speaks TLS 1.0/1.1). */
   code: string | null;
   /** This client's IP as the server saw it (Azure SQL's 40615 says it). */
   client_ip: string | null;

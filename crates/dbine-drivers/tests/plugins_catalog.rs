@@ -25,7 +25,13 @@ fn lists_the_built_in_drivers_and_the_catalog() {
     if option_env!("DBINE_PLUGIN_CATALOG").is_some() {
         assert!(!downloadable.is_empty(), "the catalog has no drivers");
     }
-    expected.extend(downloadable.into_iter().flat_map(|p| p.drivers));
+    // A variant host's drivers are its base's, listed once.
+    expected.extend(
+        downloadable
+            .into_iter()
+            .filter(|p| !dbine_drivers::is_variant(&p.package))
+            .flat_map(|p| p.drivers),
+    );
     expected.sort();
     let mut listed: Vec<String> = dbine_drivers::infos()
         .into_iter()

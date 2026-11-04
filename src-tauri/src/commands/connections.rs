@@ -384,6 +384,56 @@ fn store_trusted_pin(
 }
 
 #[derive(Deserialize)]
+pub struct AllowLegacyTlsArgs {
+    pub connection_id: String,
+}
+
+/// "Conectar con TLS antiguo": the user's yes to the question the app asks
+/// when a server only answers with TLS 1.0/1.1 (a connect failure with
+/// code `TLS_LEGACY_ONLY`). The connection keeps that yes (its legacy TLS
+/// option, e.g. SQL Server's `LegacyTls`) and its sessions close; the next
+/// connect goes to the host that negotiates it (`dbine_drivers::VARIANTS`).
+/// Only from that click: a failed TLS 1.2 handshake never turns it on by
+/// itself, and the connection form turns it off again.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn allow_legacy_tls(
+    state: State<'_, AppState>,
+    args: AllowLegacyTlsArgs,
+) -> CommandResult<()> {
+    store_legacy_tls(&state.store, &args.connection_id, |driver| {
+        let fields = dbine_drivers::find(driver).map(|d| d.info().fields.clone());
+        dbine_drivers::VARIANTS
+            .iter()
+            .find(|v| {
+                fields
+                    .as_ref()
+                    .is_some_and(|f| f.iter().any(|f| f.key == v.option))
+            })
+            .map(|v| v.option)
+    })?;
+    state.close_connection_sessions(&args.connection_id);
+    Ok(())
+}
+
+/// Turns on the option `option_of` gives for the connection's driver.
+fn store_legacy_tls(
+    store: &dbine_core::StateStore,
+    connection_id: &str,
+    option_of: impl Fn(&str) -> Option<&'static str>,
+) -> CommandResult<()> {
+    let conn = store.get_connection(connection_id)?.ok_or_else(|| {
+        CommandError::NotFound(format!("no existe la conexión '{connection_id}'"))
+    })?;
+    let Some(option) = option_of(&conn.config.driver) else {
+        return Err(CommandError::BadRequest(
+            "este motor no tiene la opción de TLS antiguo".into(),
+        ));
+    };
+    store.set_connection_option(connection_id, option, Some("true"))?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
 pub struct IdArgs {
     pub id: String,
 }
@@ -738,6 +788,46 @@ mod tests {
             got.config.option(dbine_driver::TLS_PIN),
             Some(presented.as_str())
         );
+    }
+
+    #[test]
+    fn legacy_tls_is_stored_only_where_the_engine_offers_it() {
+        let store = dbine_core::StateStore::open_in_memory().unwrap();
+        let mut c = saved_with("a", "{}");
+        c.config.driver = "sqlserver".into();
+        store.save_connection(&c).unwrap();
+        let offers = |d: &str| (d == "sqlserver").then_some("LegacyTls");
+        store_legacy_tls(&store, "a", offers).unwrap();
+        let got = store.get_connection("a").unwrap().unwrap();
+        assert_eq!(got.config.option("LegacyTls"), Some("true"));
+        // Another engine, or no such connection: refused.
+        let mut pg = saved_with("b", "{}");
+        pg.config.driver = "postgres".into();
+        store.save_connection(&pg).unwrap();
+        assert!(store_legacy_tls(&store, "b", offers).is_err());
+        assert_eq!(
+            store
+                .get_connection("b")
+                .unwrap()
+                .unwrap()
+                .config
+                .option("LegacyTls"),
+            None
+        );
+        assert!(store_legacy_tls(&store, "missing", offers).is_err());
+    }
+
+    /// The real registry: SQL Server offers it, other engines don't.
+    #[test]
+    fn sql_server_offers_legacy_tls() {
+        let offers = |id: &str| {
+            dbine_drivers::find(id)
+                .is_some_and(|d| d.info().fields.iter().any(|f| f.key == "LegacyTls"))
+        };
+        assert!(offers("sqlserver"));
+        for id in ["azuresql", "fabric", "babelfish", "postgres", "mysql"] {
+            assert!(!offers(id), "{id}");
+        }
     }
 
     fn cmd(c: &str) -> SecretSource {

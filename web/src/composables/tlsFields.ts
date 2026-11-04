@@ -123,10 +123,26 @@ export function portForLevel(d: DriverInfo, port: string, level: TlsLevel | null
   return port.trim() === String(from) ? String(to) : port;
 }
 
+/** The connection options that keep the user's yes to legacy TLS
+ *  (1.0/1.1, docs/tls-options.md), per engine. */
+export const LEGACY_TLS_OPTIONS = ['LegacyTls'];
+
+/** The connection uses legacy TLS (the status bar and the form say so). */
+export function usesLegacyTls(options: Record<string, string> | undefined): boolean {
+  return !!options && LEGACY_TLS_OPTIONS.some((k) => options[k] === 'true');
+}
+
 /** What the SSL tab's chip says: 'off' (not encrypted), 'unverified' (the
- *  certificate isn't checked) or null (nothing to warn about). The legacy
- *  `encrypt` / `trust_server_certificate` checkboxes count too. */
-export function tlsWarning(d: DriverInfo, get: (key: string) => FormValue | undefined): 'off' | 'unverified' | null {
+ *  certificate isn't checked), 'legacy' (TLS 1.0/1.1 allowed) or null
+ *  (nothing to warn about). The legacy `encrypt` /
+ *  `trust_server_certificate` checkboxes count too. */
+export function tlsWarning(d: DriverInfo, get: (key: string) => FormValue | undefined): 'off' | 'unverified' | 'legacy' | null {
+  const level = levelWarning(d, get);
+  if (level) return level;
+  return LEGACY_TLS_OPTIONS.some((k) => d.fields.some((f) => f.key === k) && (get(k) === true || get(k) === 'true')) ? 'legacy' : null;
+}
+
+function levelWarning(d: DriverInfo, get: (key: string) => FormValue | undefined): 'off' | 'unverified' | null {
   if (hasTlsFields(d)) {
     const level = tlsLevel(d.fields, get);
     if (level === null) return null;

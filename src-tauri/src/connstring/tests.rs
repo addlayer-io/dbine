@@ -782,6 +782,24 @@ fn sql_server_exports_encrypt_trust_and_host_name() {
         .ends_with("Encrypt=True;TrustServerCertificate=True;"));
     assert!(b.notes.iter().any(|n| n.code == "tls_unverified"));
 
+    // Legacy TLS has no keyword: the string is the same, with a note.
+    let c = native(
+        &x,
+        fields(),
+        &[("Encrypt", "Mandatory"), ("LegacyTls", "true")],
+    );
+    for kind in ["adonet", "jdbc", "odbc"] {
+        let b = build(&c, kind, ph).unwrap();
+        assert!(!b.text.contains("LegacyTls"), "{kind}: {}", b.text);
+        assert!(b.notes.iter().any(|n| n.code == "legacy_tls"), "{kind}");
+    }
+    let c = native(&x, fields(), &[("Encrypt", "Mandatory")]);
+    assert!(!build(&c, "adonet", ph)
+        .unwrap()
+        .notes
+        .iter()
+        .any(|n| n.code == "legacy_tls"));
+
     let c = native(&x, fields(), &[("Encrypt", "Optional")]);
     assert!(text(&c, "adonet", ph).ends_with("Encrypt=Optional;TrustServerCertificate=True;"));
     assert!(text(&c, "odbc", ph).contains("Encrypt=optional;"));

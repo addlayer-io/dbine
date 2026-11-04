@@ -58,6 +58,7 @@
     "pat": "La password è il token di accesso programmatico (PAT) della connessione.",
     "databricks_pat": "La connessione accede con OAuth o con un'entità di servizio: la stringa usa invece un token di accesso personale.",
     "other_port": "Questo formato usa la porta {{port}} del server, non quella usata da DBine: modificala se la tua è diversa.",
-    "files_folder": "È una cartella di file: aprili dall'applicazione con DuckDB (read_csv, read_parquet…)."
+    "files_folder": "È una cartella di file: aprili dall'applicazione con DuckDB (read_csv, read_parquet…).",
+    "legacy_tls": "La connessione usa TLS legacy (1.0/1.1): nessun client SQL Server ha un'opzione per questo nella stringa di connessione; lo decide la configurazione TLS del sistema in cui viene usata."
   }
 }

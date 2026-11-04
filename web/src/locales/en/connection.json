@@ -76,6 +76,10 @@
         "title": "The secure connection (TLS) failed",
         "body": "The server's certificate isn't trusted or doesn't match the host name. Check the connection's encryption options: use the name on the certificate, or trust the server's certificate only if you know it's the right one."
       },
+      "tls_legacy_only": {
+        "title": "The server only accepts legacy TLS (1.0/1.1)",
+        "body": "This server doesn't accept TLS 1.2 or later, only TLS 1.0 or 1.1, which are insecure, and DBine doesn't use them without your permission. To connect anyway, allow legacy TLS on this connection: with the button below or in the connection's SSL tab («Allow legacy TLS (1.0/1.1) for old servers»). The safest option is to update the server to TLS 1.2 (SQL Server 2012 SP4 or KB3135244)."
+      },
       "tls_not_offered": {
         "title": "The server doesn't offer TLS",
         "body": "The connection asks for encryption and the server doesn't have it turned on (common on development servers). Turn TLS on in the server or, if you accept that the data and the password travel unencrypted, choose a mode without encryption in the SSL/TLS tab."
@@ -357,6 +361,15 @@
       "forget": "Forget",
       "help": "This mode doesn't verify the certificate chain: it only accepts the certificate the server presented on the first connection. \"Forget\" makes the next connection pin whatever certificate the server presents then.",
       "none": "This mode doesn't verify the certificate chain: the first connection pins the server's certificate and later ones accept only that one."
-    }
+    },
+    "legacy": "Legacy TLS"
+  },
+  "legacyTls": {
+    "askTitle": "Server with legacy TLS",
+    "ask": "This server ({{server}}) only accepts TLS 1.0 or 1.1, which are insecure protocols. Connect anyway using legacy TLS?",
+    "askDetail": "DBine remembers this for the connection and, the first time, downloads the component that allows it. You can turn it off in the connection's SSL tab. The safest option is to update the server to TLS 1.2 (SQL Server 2012 SP4 or KB3135244).",
+    "askConfirm": "Connect with legacy TLS",
+    "formTitle": "Legacy TLS (1.0/1.1) allowed",
+    "formBody": "This connection accepts TLS 1.0 and 1.1, which are obsolete and insecure protocols. Use it only with servers that can't be updated to TLS 1.2."
   }
 }

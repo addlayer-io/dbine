@@ -233,7 +233,8 @@ mod sql_browser;
 mod bulk_options;
 
 pub use bulk_options::{ColumnOrderHint, SortOrder, SqlBulkCopyOption, SqlBulkCopyOptions};
-pub use client::{AuthMethod, CancelHandle, Client, Config, ConfigBuilder};
+// PATCH(dbine): CertPin (legacy TLS, per connection).
+pub use client::{AuthMethod, CancelHandle, CertPin, Client, Config, ConfigBuilder};
 pub use command::{Command, SqlTableData, SqlTableDataRow, TableValue, TableValueRow};
 pub(crate) use error::Error;
 pub use from_sql::{FromSql, FromSqlOwned};

@@ -3344,11 +3344,12 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "dbine-driver",
+ "dbine-tls",
  "futures",
  "getrandom 0.2.17",
  "libgssapi 0.11.0",
@@ -3361,6 +3362,14 @@ dependencies = [
  "tokio-util",
  "tracing",
  "winauth",
+]
+
+[[package]]
+name = "dbine-driver-sqlserver_legacy"
+version = "0.1.19"
+dependencies = [
+ "dbine-driver",
+ "dbine-driver-sqlserver",
 ]
 
 [[package]]
@@ -3433,6 +3442,7 @@ dependencies = [
  "dbine-driver-spanner",
  "dbine-driver-sqlite",
  "dbine-driver-sqlserver",
+ "dbine-driver-sqlserver_legacy",
  "dbine-driver-tdengine",
  "dbine-driver-trino",
  "dbine-plugin",
@@ -7695,6 +7705,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
+name = "openssl-src"
+version = "300.6.1+3.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46eb8fb9fb3b61ce1c0f8a026c4c1a0714d3a9e138e7fbde78753ce2babc3846"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "openssl-sys"
 version = "0.9.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7702,6 +7721,7 @@ checksum = "b47e7e6bb2c38cd930d25a23b40fa52e068c10e85f3e03a7f5ba5aaca5713695"
 dependencies = [
  "cc",
  "libc",
+ "openssl-src",
  "pkg-config",
  "vcpkg",
 ]
@@ -11077,6 +11097,7 @@ dependencies = [
  "libgssapi 0.11.0",
  "num-traits",
  "once_cell",
+ "openssl",
  "pin-project-lite",
  "pretty-hex",
  "rust_decimal",
@@ -11087,6 +11108,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tiberius-macros",
  "tokio",
+ "tokio-openssl",
  "tokio-rustls",
  "tokio-util",
  "tracing",
@@ -11197,6 +11219,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
 dependencies = [
  "native-tls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-openssl"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59df6849caa43bb7567f9a36f863c447d95a11d5903c9cc334ba32576a27eadd"
+dependencies = [
+ "openssl",
+ "openssl-sys",
  "tokio",
 ]
 

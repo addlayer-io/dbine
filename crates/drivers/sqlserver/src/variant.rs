@@ -274,6 +274,29 @@ pub(crate) const ENCRYPT: &str = "Encrypt";
 pub(crate) const TRUST_SERVER_CERTIFICATE: &str = "TrustServerCertificate";
 pub(crate) const SERVER_CERTIFICATE: &str = "ServerCertificate";
 pub(crate) const HOST_NAME_IN_CERTIFICATE: &str = "HostNameInCertificate";
+/// DBine's own option (no ODBC / ADO.NET keyword exists): negotiate TLS
+/// 1.0/1.1 with OpenSSL, for servers without TLS 1.2. Off by default; the
+/// app offers it when a server answers with an old TLS version, and routes
+/// these connections to the `sqlserver_legacy` host (docs/tls-options.md).
+pub const LEGACY_TLS: &str = "LegacyTls";
+
+/// The `LegacyTls` checkbox (SQL Server only: Azure SQL, Fabric and
+/// Babelfish always speak TLS 1.2+).
+fn legacy_tls_field() -> Field {
+    Field::new(
+        LEGACY_TLS,
+        "Permitir TLS antiguo (1.0/1.1) para servidores viejos",
+        FieldKind::Bool,
+    )
+    .default_value("false")
+    .help(
+        "Inseguro: TLS 1.0 y 1.1 están obsoletos. Solo para servidores que no aceptan TLS 1.2 \
+         (SQL Server 2008 R2 o 2012 sin actualizar); la primera vez DBine descarga el componente que lo \
+         permite. Mejor actualizá el servidor a TLS 1.2 (SQL Server 2012 SP4 o KB3135244).",
+    )
+    .ssl()
+    .when(ENCRYPT, &["Optional", "Mandatory"])
+}
 
 /// `Encrypt`: `Optional` (SQL Server: TLS only around the login, the
 /// certificate not checked, as ODBC's `Encrypt=no`; Babelfish: plain TDS),
@@ -345,6 +368,9 @@ fn tls_fields(v: Variant) -> Vec<Field> {
             .help("Opcional: el nombre que tiene que figurar en el certificado, si no es el del servidor.")
             .when(ENCRYPT, verified),
     );
+    if v == Variant::SqlServer {
+        f.push(legacy_tls_field());
+    }
     f
 }
 

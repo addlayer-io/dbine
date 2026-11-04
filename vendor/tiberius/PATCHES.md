@@ -180,6 +180,31 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
     for notebook parameters (`Session::execute_bound`). Live tests in
     `crates/drivers/sqlserver/src/script_live.rs`.
 
+11. **Legacy TLS (1.0/1.1) per connection** — `Cargo.toml` (feature
+    `legacy-tls`: `rustls` plus `openssl` with `vendored` and
+    `tokio-openssl`), `src/client/config.rs` (`Config::legacy_tls`,
+    `get_legacy_tls`), `src/client/tls_stream.rs`,
+    `src/client/tls_stream/legacy_tls_stream.rs` (new),
+    `src/client/tls_stream/rustls_tls_stream.rs`, `src/client/connection.rs`,
+    `src/error.rs`. Upstream's TLS backends are compile-time exclusive; with
+    `legacy-tls` the stream is the unchanged rustls one or an OpenSSL one,
+    chosen per connection (`legacy_tls`), with a TLS 1.0 floor and
+    `ALL:!aNULL:!eNULL:@SECLEVEL=0`, and the same trust as rustls (OS store
+    plus extra CAs, host name checked, `trust_cert` the only opt-out).
+    With `trust_cert`, `Config::legacy_tls_pin(CertPin)` still checks the
+    server certificate's SHA-256 against a pin (or pins the first one seen,
+    shared by the config's clones), through OpenSSL's verify callback;
+    `CertPin` is exported from the crate root.
+    Without the feature only rustls is compiled, as upstream, and a
+    connection asking for legacy TLS fails. On the rustls path, a server that
+    answers with TLS 1.0/1.1 or a `protocol_version` alert fails with the new
+    `Error::TlsVersion { server_version, message }` (its PRELOGIN version),
+    so DBine can ask the user instead of reporting a generic TLS error; it is
+    never retried by itself. DBine builds this feature only into its
+    `sqlserver_legacy` driver host (docs/tls-options.md, "Legacy TLS 1.0 and
+    1.1 for old servers"). Tests: `legacy_tls_stream::tests`,
+    `map_handshake_error_tells_old_tls_versions_apart`.
+
 ## Not vendored: TLS test fixtures
 
 `docker/` (the upstream Dockerfiles and the self-signed test CA, server
