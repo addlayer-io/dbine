@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-03
+
+### New
+- **Automatic updates:** DBine checks for a new version when it starts and every 6 hours, downloads and verifies it in the background, and shows **Restart to update** in the status bar when it's ready. If you just quit, the update installs then, and the next start is the new version, with a summary of what's new. Installs that can't update themselves (deb, rpm, MSI, Flatpak) keep the notice with the download link. `DBINE_AUTO_UPDATE=0` turns automatic updates off on managed machines.
+- **q in the editor:** KDB+ queries get q syntax highlighting and completion of keywords, built-in functions, tables, columns, functions and namespaced names such as `.u.upd`. ⌘/ comments lines with `/`, and there are more q snippets.
+- **KDB+ schema compare, sync and conversion:** compare and sync tables in memory (add, drop, retype and rename columns, change the key), rename tables, and convert schemas between kdb+ and the other engines, with q types and keyed tables mapped to primary keys. Partitioned and splayed tables are refused, with the reason.
+
+### Improvements
+- **KDB+ foreign keys, bulk load and charts:** linked columns show as foreign keys in the ER diagram and in jump by key, imports and migrations load rows as typed tables over IPC (100,000 rows in about a second), and charts are aggregated on the server over the whole result.
+- **KX logo:** KDB+ connections show KX's logo.
+
 ## [1.4.0] - 2026-11-03
 
 ### New

@@ -1,5 +1,16 @@
 # Alterações
 
+## [1.4.1] - 2026-11-03
+
+### Novidades
+- **Atualizações automáticas:** o DBine procura uma nova versão ao iniciar e a cada 6 horas, baixa e verifica em segundo plano e mostra **Reiniciar para atualizar** na barra de status quando está pronta. Se você apenas sair, a atualização é instalada nesse momento, e a próxima inicialização já é a nova versão, com um resumo das novidades. As instalações que não conseguem se atualizar sozinhas (deb, rpm, MSI, Flatpak) mantêm o aviso com o link de download. `DBINE_AUTO_UPDATE=0` desativa as atualizações automáticas em máquinas gerenciadas.
+- **q no editor:** as consultas KDB+ ganham destaque de sintaxe q e autocompletar de palavras-chave, funções nativas, tabelas, colunas, funções e nomes com namespace, como `.u.upd`. ⌘/ comenta linhas com `/`, e há mais snippets de q.
+- **Comparação, sincronização e conversão de esquemas KDB+:** compare e sincronize tabelas em memória (adicionar, remover, alterar o tipo e renomear colunas, mudar a chave), renomeie tabelas e converta esquemas entre kdb+ e os outros mecanismos, com os tipos q e as keyed tables mapeados para chaves primárias. Tabelas particionadas e splayed são recusadas, com o motivo.
+
+### Melhorias
+- **Chaves estrangeiras, carga em massa e gráficos do KDB+:** as colunas vinculadas aparecem como chaves estrangeiras no diagrama ER e no salto por chave (**Ir para a linha referenciada**), as importações e migrações carregam as linhas como tabelas tipadas via IPC (100.000 linhas em cerca de um segundo) e os gráficos são agregados no servidor sobre todo o resultado.
+- **Logo da KX:** as conexões KDB+ mostram o logo da KX.
+
 ## [1.4.0] - 2026-11-03
 
 ### Novidades

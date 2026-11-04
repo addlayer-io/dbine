@@ -1,6 +1,17 @@
 # Perubahan
 
 
+## [1.4.1] - 2026-11-03
+
+### Baru
+- **Pembaruan otomatis:** DBine memeriksa versi baru saat dimulai dan setiap 6 jam, mengunduh serta memverifikasinya di latar belakang, lalu menampilkan **Mulai ulang untuk memperbarui** di bilah status saat sudah siap. Jika Anda cukup keluar, pembaruan dipasang saat itu, dan pembukaan berikutnya sudah versi baru, disertai ringkasan hal-hal baru. Instalasi yang tidak dapat memperbarui sendiri (deb, rpm, MSI, Flatpak) tetap menampilkan pemberitahuan dengan tautan unduhan. `DBINE_AUTO_UPDATE=0` mematikan pembaruan otomatis pada mesin yang dikelola.
+- **q di editor:** kueri KDB+ mendapat penyorotan sintaks q dan pelengkapan otomatis kata kunci, fungsi bawaan, tabel, kolom, fungsi, dan nama ber-namespace seperti `.u.upd`. ⌘/ mengomentari baris dengan `/`, dan ada lebih banyak snippet q.
+- **Perbandingan, sinkronisasi, dan konversi skema KDB+:** bandingkan dan sinkronkan tabel di memori (tambah, hapus, ubah tipe, dan ganti nama kolom, ubah kunci), ganti nama tabel, dan konversi skema antara kdb+ dan mesin lain, dengan tipe q dan tabel berkunci dipetakan ke kunci primer. Tabel yang dipartisi dan tabel splayed ditolak, disertai alasannya.
+
+### Peningkatan
+- **Kunci asing, pemuatan massal, dan bagan KDB+:** kolom yang terhubung tampil sebagai kunci asing di diagram ER dan pada lompat berdasarkan kunci (**Ke baris yang dirujuk**), impor dan migrasi memuat baris sebagai tabel bertipe melalui IPC (100.000 baris dalam sekitar satu detik), dan bagan diagregasi di server atas seluruh hasil.
+- **Logo KX:** koneksi KDB+ menampilkan logo KX.
+
 ## [1.4.0] - 2026-11-03
 
 ### Baru
