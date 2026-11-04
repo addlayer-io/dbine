@@ -26,9 +26,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`fd5628d9e`](https://github.com/addlayer-io/dbine/commit/fd5628d9e02a) | 0 open | — |
-| scorecard | 2026-11-04 | repository settings and workflows at [`8b4a1fe6e`](https://github.com/addlayer-io/dbine/commit/8b4a1fe6e0d5) | score 7.5/10 | — |
-| trivy | 2026-11-04 | whole repository at [`fd5628d9e`](https://github.com/addlayer-io/dbine/commit/fd5628d9e02a) | 2 open | — |
+| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`855e5b492`](https://github.com/addlayer-io/dbine/commit/855e5b492690) | 0 open | — |
+| scorecard | 2026-11-04 | repository settings and workflows at [`fd5628d9e`](https://github.com/addlayer-io/dbine/commit/fd5628d9e02a) | score 7.5/10 | — |
+| trivy | 2026-11-04 | whole repository at [`855e5b492`](https://github.com/addlayer-io/dbine/commit/855e5b492690) | 2 open | — |
 
 ## Not counted, and why
 
@@ -402,6 +402,6 @@ OpenSSF Scorecard: **7.5/10** (2026-11-04). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/11 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| CI-Tests: 7/10 — 12 out of 16 merged PRs checked by a CI test -- score normalized to 7 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| CI-Tests: 8/10 — 13 out of 16 merged PRs checked by a CI test -- score normalized to 8 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
