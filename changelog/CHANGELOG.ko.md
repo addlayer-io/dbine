@@ -1,5 +1,13 @@
 # 변경 사항
 
+## [1.4.2] - 2026-11-04
+
+### 새로운 기능
+- **TLS 1.0/1.1로 구버전 SQL Server 연결:** 서버가 TLS 1.0 또는 1.1만 지원하는 경우에도 DBine이 SQL Server 2012 이하에 연결할 수 있습니다. 항상 TLS 1.2 이상을 먼저 시도합니다. 서버가 오래된 프로토콜만 허용하면 DBine이 서버 버전과 함께 이를 알리고, 그래도 연결할지 한 번만 묻습니다. 예를 선택하면 **SQL Server (TLS 1.0/1.1)** 구성 요소를 다운로드하고 해당 연결에 대한 선택을 기억합니다. 사용 중에는 **레거시 TLS** 표시가 나타나며, 인증서는 계속 검증됩니다(또는 **서버 인증서 신뢰**로 고정할 수 있습니다). 이 옵션은 연결의 **SSL/TLS** 탭에서 끌 수 있습니다. 서버를 TLS 1.2(SQL Server 2012 SP4)로 업데이트하는 것이 여전히 더 안전한 해결책입니다.
+
+### 개선
+- **엔진 로고:** 51개 연결 유형이 추가로 이니셜 대신 제품 로고를 표시합니다. IBM Db2, Informix 및 Netezza, Vertica, Exasol, InterSystems IRIS, Microsoft Access, Greenplum, StarRocks, OceanBase, TDengine, Materialize, Memgraph, RisingWave, Dremio 등이 포함됩니다.
+
 ## [1.4.1] - 2026-11-03
 
 ### 새로운 기능

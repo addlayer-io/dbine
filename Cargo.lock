@@ -2670,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "dbine"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "aes 0.8.4",
  "ahash",
@@ -2766,7 +2766,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-ai"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "flate2",
  "futures",
@@ -2784,7 +2784,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-core"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "aes 0.9.3",
  "base64 0.22.1",
@@ -2809,7 +2809,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "async-trait",
  "serde",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dsql"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -3002,7 +3002,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dynamodb"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -3058,7 +3058,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-flightsql"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "arrow-array 58.4.1",
  "arrow-cast 58.4.1",
@@ -3402,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-drivers"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "dbine-driver",
  "dbine-driver-athena",
@@ -3453,7 +3453,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-link"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
@@ -3466,7 +3466,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-plugin"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3489,7 +3489,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-plugin-host"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "dbine-driver",
  "dbine-drivers",
@@ -3505,7 +3505,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-schema"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "dbine-driver",
  "dbine-drivers",
@@ -3516,7 +3516,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-sync"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "argon2 0.5.3",
  "async-trait",
@@ -3538,7 +3538,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-tls"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "dbine-driver",
  "rustls",
@@ -3549,7 +3549,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-transfer"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -3565,7 +3565,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-tunnel"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "aws-lc-rs",
  "libc",

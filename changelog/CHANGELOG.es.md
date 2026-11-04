@@ -1,5 +1,13 @@
 # Cambios
 
+## [1.4.2] - 2026-11-04
+
+### Nuevo
+- **SQL Server antiguo por TLS 1.0/1.1:** DBine se conecta a SQL Server 2012 y anteriores cuando el servidor solo habla TLS 1.0 o 1.1. Siempre prueba primero TLS 1.2 o posterior. Si el servidor solo acepta un protocolo antiguo, DBine lo avisa (con la versión del servidor) y pregunta una sola vez si conectar igual; si decís que sí, descarga el componente **SQL Server (TLS 1.0/1.1)** y recuerda la elección para esa conexión. Mientras se usa se muestra un indicador **TLS antiguo**, el certificado se sigue verificando (o se fija con **Confiar en el certificado del servidor**), y la opción se puede desactivar en la pestaña **SSL/TLS** de la conexión. Actualizar el servidor a TLS 1.2 (SQL Server 2012 SP4) sigue siendo la solución más segura.
+
+### Mejoras
+- **Logos de motores:** 51 tipos de conexión más muestran el logo de su producto en lugar de las iniciales, entre ellos IBM Db2, Informix y Netezza, Vertica, Exasol, InterSystems IRIS, Microsoft Access, Greenplum, StarRocks, OceanBase, TDengine, Materialize, Memgraph, RisingWave y Dremio.
+
 ## [1.4.1] - 2026-11-03
 
 ### Nuevo

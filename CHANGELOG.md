@@ -7,13 +7,24 @@
 - **KDB+ namespaces as schemas:** the explorer groups each namespace's tables, views and functions under it, **New schema…** and **Drop schema…** create and drop namespaces, and migrations into kdb+ keep each source schema as a namespace.
 - **KDB+ health check and properties:** the health check reads the process itself (memory against the `-w` limit, garbage collection, interned symbols, slow subscribers, no query timeout, a port without a password, TLS), and **Properties** shows and changes the settings kdb+ lets you change while it runs (`\g`, `\T`, `\P`, `\o`, `\z`, `\w`).
 - **KDB+ attributes as indexes:** `s#`, `u#`, `p#` and `g#` show in a table's structure and can be set and removed from the table designer, compare and sync; schema conversion turns them into indexes and back.
+- **KDB+ renames:** **Rename…** works on views, functions, variables and namespaces too, besides tables and columns.
 
 ### Improvements
 - **KDB+ notebook writes and row counts:** a notebook's write cell writes into kdb+ tables in every mode (insert, update by key, insert or update, replace), applied in one step so a failure leaves the table as it was, and the explorer's documentation and migrations get each table's row count without scanning.
-- **Engine logos:** 51 more connection types show their product's logo instead of initials, among them IBM Db2, Informix and Netezza, Vertica, Exasol, InterSystems IRIS, Microsoft Access, Greenplum, StarRocks, OceanBase, TDengine, Materialize, Memgraph, RisingWave and Dremio.
 
 ### Fixes
 - **Migrations into KDB+:** emptying a kdb+ table to copy it again (or to resume a cut copy) keeps its columns, types and key, instead of leaving it without columns.
+
+## [1.4.2] - 2026-11-04
+
+### New
+- **Old SQL Server versions over TLS 1.0/1.1:** DBine connects to SQL Server 2012 and earlier when the server only speaks TLS 1.0 or 1.1. It always tries TLS 1.2 or later first. If the server only accepts an old protocol, DBine says so (naming the server's version) and asks once whether to connect anyway; on yes, it downloads the **SQL Server (TLS 1.0/1.1)** component and remembers the choice for that connection. A **Legacy TLS** indicator shows while it's in use, the certificate is still verified (or pinned with **Trust server certificate**), and the option can be turned off in the connection's SSL tab. Updating the server to TLS 1.2 (SQL Server 2012 SP4) remains the safer fix.
+
+### Improvements
+- **Engine logos:** 51 more connection types show their product's logo instead of initials, among them IBM Db2, Informix and Netezza, Vertica, Exasol, InterSystems IRIS, Microsoft Access, Greenplum, StarRocks, OceanBase, TDengine, Materialize, Memgraph, RisingWave and Dremio.
+
+### Fixes
+- **Engines without databases (SQLite, libSQL, DuckDB files, KDB+…):** their connection's menu now has **Search the database**, **Health check** and, where the engine has them, **Properties**, which were offered only on database nodes; the command palette offers search and the health check for them too.
 
 ## [1.4.1] - 2026-11-03
 
