@@ -452,14 +452,17 @@ mod tests {
     /// Runs `script` (a shell script body) as a fake CLI.
     #[cfg(unix)]
     async fn fake_cli(body: &str, parse: fn(&str) -> Event) -> (Result<String>, Vec<Delta>) {
-        use std::os::unix::fs::PermissionsExt;
         let d = tempfile::tempdir().unwrap();
         let script = d.path().join("fake");
-        std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(&script, format!("{body}\n")).unwrap();
         let got = std::sync::Mutex::new(Vec::new());
         let cb = |dl: Delta| got.lock().unwrap().push(dl);
-        let r = run(&script, &[], d.path(), "", parse, &cb, "fake").await;
+        // The script runs through /bin/sh rather than being executed itself:
+        // exec'ing a file just written can fail with ETXTBSY while a test
+        // forked meanwhile still holds the write descriptor.
+        let sh = std::path::Path::new("/bin/sh");
+        let args = [script.to_string_lossy().into_owned()];
+        let r = run(sh, &args, d.path(), "", parse, &cb, "fake").await;
         let deltas = got.into_inner().unwrap();
         (r, deltas)
     }
