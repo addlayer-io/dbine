@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### New
+- **Old SQL Server versions over TLS 1.0/1.1:** DBine connects to SQL Server 2012 and earlier when the server only speaks TLS 1.0 or 1.1. It always tries TLS 1.2 or later first. If the server only accepts an old protocol, DBine says so (naming the server's version) and asks once whether to connect anyway; on yes, it downloads the **SQL Server (TLS 1.0/1.1)** component and remembers the choice for that connection. A **Legacy TLS** indicator shows while it's in use, the certificate is still verified (or pinned with **Trust server certificate**), and the option can be turned off in the connection's SSL tab. Updating the server to TLS 1.2 (SQL Server 2012 SP4) remains the safer fix.
+
 ## [1.4.1] - 2026-11-03
 
 ### New
