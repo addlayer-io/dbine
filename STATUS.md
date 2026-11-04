@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`675c1de38`](https://github.com/addlayer-io/dbine/commit/675c1de38b2b) | 0 open | — |
-| scorecard | 2026-11-03 | repository settings and workflows at [`c240ef8e9`](https://github.com/addlayer-io/dbine/commit/c240ef8e9bd1) | score 5.8/10 | — |
-| trivy | 2026-11-04 | whole repository at [`675c1de38`](https://github.com/addlayer-io/dbine/commit/675c1de38b2b) | 0 open | — |
+| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`ff795914f`](https://github.com/addlayer-io/dbine/commit/ff795914f0c6) | 0 open | — |
+| scorecard | 2026-11-04 | repository settings and workflows at [`675c1de38`](https://github.com/addlayer-io/dbine/commit/675c1de38b2b) | score 5.8/10 | — |
+| trivy | 2026-11-04 | whole repository at [`ff795914f`](https://github.com/addlayer-io/dbine/commit/ff795914f0c6) | 0 open | — |
 
 ## Not counted, and why
 
@@ -392,7 +392,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.8/10** (2026-11-03). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.8/10** (2026-11-04). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
