@@ -1,0 +1,81 @@
+# Dependency advisories reviewed and found not to affect DBine. OSV-Scanner
+# (and OpenSSF Scorecard, which uses it) leaves them out; the security status
+# page lists each one with its reason (SECURITY.md). Add an entry only after
+# checking that DBine can't reach the flaw, and say how it was checked.
+#
+# This same file sits next to each lockfile (web/, mobile/ and
+# mobile/src-tauri/): Scorecard reads only the one beside the lockfile it
+# scans. Change all four together; the Security workflow fails if they differ.
+
+# glib 0.18 (Linux, with Tauri's GTK 3 stack; can't be upgraded on DBine's side).
+[[IgnoredVulns]]
+id = "GHSA-wrw7-89jp-8q8g"
+reason = "Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side."
+
+# rand 0.7.3 (from winauth, Windows sign-in for SQL Server).
+[[IgnoredVulns]]
+id = "GHSA-cq8v-f236-94qc"
+reason = "Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only)."
+
+# Unmaintained notices: no known vulnerability, the author stopped
+# maintaining the crate. They come through other crates (Tauri's Linux
+# stack, macros at build time); replace them when those move.
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+reason = "Notice, not a vulnerability: paste is no longer maintained (no known flaw; a build-time macro used by dependencies)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+reason = "Notice, not a vulnerability: proc-macro-error is unmaintained (no known flaw; a build-time macro used by dependencies)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0075"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0080"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0081"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0098"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0100"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0370"
+reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0371"
+reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0372"
+reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack)."
+
+# rsa 0.10.0-rc (no fixed version exists): DBine runs no private-key
+# operation with it.
+[[IgnoredVulns]]
+id = "RUSTSEC-2023-0071"
+reason = "Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations."
+
+# block-buffer 0.10.4, through digest 0.10 (sha2, hmac, pbkdf2, sha1, blake2).
+[[IgnoredVulns]]
+id = "GHSA-qwgh-2vcv-g2f7"
+reason = "Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to."
+
+# glob 13 and minimatch 9/10 (npm, web/ and mobile/): js-beautify's
+# command-line part and the dev tools (eslint, typescript-eslint, vue-tsc).
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+reason = "Doesn't affect DBine. glob comes only with js-beautify, which uses it in its command-line tool (js/src/cli.js); DBine imports js-beautify's formatter (web/src/composables/formatCode.ts), which doesn't load glob, and the built app has no glob code (checked in web/dist). The fix is in glob 14, a major version js-beautify doesn't accept."
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+reason = "Doesn't affect DBine. minimatch comes with js-beautify's command-line tool (through glob and editorconfig, js/src/cli.js) and with dev tools only (eslint, typescript-eslint, vue-tsc), never with the app: DBine imports js-beautify's formatter, which loads neither, and the built app has no minimatch code (checked in web/dist). The fix is in minimatch 11, a major version those packages don't accept."

@@ -104,7 +104,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/komac.tar.gz" -C "$RUNNER_TEMP/bin" komac
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          python -m pip install --quiet pyyaml==6.0.3 check-jsonschema==0.38.2
+          python -m pip install --quiet --require-hashes -r .github/requirements/winget.txt
           mkdir -p "$RUNNER_TEMP/schemas"
           for t in version installer defaultLocale locale; do
             curl -fsSL -o "$RUNNER_TEMP/schemas/$t.json" "$SCHEMA_BASE/manifest.$t.1.12.0.json"

@@ -82,6 +82,14 @@ jobs:
           ref: security-status
           path: _status
 
+      # Scorecard reads the exceptions next to each lockfile: the copies must
+      # stay the same as the root file.
+      - name: OSV-Scanner exceptions in step
+        run: |
+          for f in web/osv-scanner.toml mobile/osv-scanner.toml mobile/src-tauri/osv-scanner.toml; do
+            cmp osv-scanner.toml "$f"
+          done
+
       # Dependencies come from OSV-Scanner (the database Scorecard uses, with
       # RustSec); Trivy covers secrets and configuration here.
       - name: OSV-Scanner
