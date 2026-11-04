@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-03._
+_Updated 2026-11-04._
 
 ## Open findings
 
@@ -11,24 +11,21 @@ _Updated 2026-11-03._
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 2 | 0 | 0 | 0 |
+| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| CQ-452 | CRITICAL | codeql | Static analysis finding | `crates/drivers/kdb` | pending |
-| CQ-453 | CRITICAL | codeql | Static analysis finding | `crates/drivers/kdb` | pending |
+_None._
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
-| codeql | 2026-11-03 | Rust, TypeScript/Vue and workflows | 2 open | — |
-| osv | 2026-11-03 | every lockfile (Cargo, npm) at [`c240ef8e9`](https://github.com/addlayer-io/dbine/commit/c240ef8e9bd1) | 0 open | — |
-| scorecard | 2026-11-03 | repository settings and workflows at [`6cc92911f`](https://github.com/addlayer-io/dbine/commit/6cc92911fefb) | score 5.8/10 | — |
-| trivy | 2026-11-03 | whole repository at [`c240ef8e9`](https://github.com/addlayer-io/dbine/commit/c240ef8e9bd1) | 0 open | — |
+| codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`675c1de38`](https://github.com/addlayer-io/dbine/commit/675c1de38b2b) | 0 open | — |
+| scorecard | 2026-11-03 | repository settings and workflows at [`c240ef8e9`](https://github.com/addlayer-io/dbine/commit/c240ef8e9bd1) | score 5.8/10 | — |
+| trivy | 2026-11-04 | whole repository at [`675c1de38`](https://github.com/addlayer-io/dbine/commit/675c1de38b2b) | 0 open | — |
 
 ## Not counted, and why
 
@@ -337,6 +334,8 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/oracle/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/postgres/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/kdb/src/ipc.rs` | used in tests — Unit test of the kdb+ IPC handshake bytes in #[cfg(test)]; "u"/"p" are one-letter sample values, not credentials; not shipped. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/kdb/src/ipc.rs` | used in tests — Unit test of the kdb+ IPC handshake bytes in #[cfg(test)]; "u"/"p" are one-letter sample values, not credentials; not shipped. | mpanichella |
 | CodeQL js/insufficient-key-size: Use of a weak cryptographic key | `src-tauri/src/secret_sources/testdata/zoho-vectors.mjs` | used in tests — src-tauri/src/secret_sources/testdata/zoho-vectors.mjs is a test-vector generator that reproduces Zoho Vault's RSA_1024 organization-key format with a throwaway key; it is not shipped. | mpanichella |
 | CodeQL js/incomplete-multi-character-sanitization: Incomplete multi-character sanitization | `web/src/composables/releaseNotes.ts` | false positive — noteBlocks returns plain text that UpdateNotice.vue renders only with text interpolation ({{ b.text }}, never v-html), so any leftover '<script' is shown as literal text and cannot create an element. | mpanichella |
 | CodeQL js/insecure-randomness: Insecure randomness | `web/src/components/GenerateDataDialog.vue` | false positive — Math.random here makes the data generator's run id (for progress events and cancel) and its reproducible fake-data seed; neither is a secret, token or key. | mpanichella |

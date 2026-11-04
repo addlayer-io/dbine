@@ -12,32 +12,32 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-03",
-      "revision": "c240ef8e9bd1",
+      "date": "2026-11-04",
+      "revision": "675c1de38b2b",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
     },
     {
       "source": "trivy",
-      "date": "2026-11-03",
-      "revision": "c240ef8e9bd1",
+      "date": "2026-11-04",
+      "revision": "675c1de38b2b",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-11-03",
+      "date": "2026-11-04",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 2
+      "found": 0
     },
     {
       "source": "scorecard",
       "date": "2026-11-03",
-      "revision": "6cc92911fefb",
+      "revision": "c240ef8e9bd1",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.8
@@ -3962,18 +3962,26 @@
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/kdb",
+      "component": "crates/drivers/kdb/src/ipc.rs",
       "found": "2026-11-03",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-11-04",
+      "reason": "used in tests — Unit test of the kdb+ IPC handshake bytes in #[cfg(test)]; \"u\"/\"p\" are one-letter sample values, not credentials; not shipped.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-453",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/kdb",
+      "component": "crates/drivers/kdb/src/ipc.rs",
       "found": "2026-11-03",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-11-04",
+      "reason": "used in tests — Unit test of the kdb+ IPC handshake bytes in #[cfg(test)]; \"u\"/\"p\" are one-letter sample values, not credentials; not shipped.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-66",
