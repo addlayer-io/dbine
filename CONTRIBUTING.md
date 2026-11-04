@@ -68,4 +68,4 @@ DBine is licensed under the [Apache License 2.0](LICENSE). By contributing,
 you agree that your contributions are licensed under the same terms
 (section 5 of the license). The [NOTICE](NOTICE) file has to travel with any
 redistribution, and the names "DBine" and "AddLayer" and their logos are not
-licensed (section 6).
+licensed (section 6); [TRADEMARKS.md](TRADEMARKS.md) says how they can be used.

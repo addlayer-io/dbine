@@ -630,5 +630,6 @@ DBine is built and maintained by **Marcos Panichella** at
 DBine is licensed under the [Apache License 2.0](LICENSE). Anyone who
 redistributes it, modified or not, must keep the [NOTICE](NOTICE) file. The
 license doesn't grant rights to the names "DBine" and "AddLayer" or their
-logos, so a fork has to use its own name. Versions up to and including 1.0.0
+logos, so a fork has to use its own name; using them to refer to DBine is
+welcome, as [TRADEMARKS.md](TRADEMARKS.md) explains. Versions up to and including 1.0.0
 were released under the MIT license.
