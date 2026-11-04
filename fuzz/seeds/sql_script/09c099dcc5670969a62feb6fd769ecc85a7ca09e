@@ -1,6 +1,0 @@
-Å @BEGIN
-  UPDATE t SET a = q'[it's]';
-END;
-/
-SELECTUPDATE u SET n = n + 1; Ek AS PROCEDURE p; END;
-/

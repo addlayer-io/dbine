@@ -1,6 +1,0 @@
-%F·DELIMITER //
-CREATE PRND //
-DELIMITER ?
-/*!25000 DELETE FROM t */;
-# comment
-SELECT a--1 FROM `t`;

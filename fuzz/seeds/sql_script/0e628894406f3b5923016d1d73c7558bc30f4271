@@ -1,4 +1,0 @@
-BÀselect ';' from t; -- x;
-CREATE TRIGGER tÿÿÿÿÿÿÿÿÿŒš“šœ‹äid “’ u where BÀselect ';' from t; -- x;
-CREATE TRIGGER tx);
-ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿr AFTER INSERT ON t BEGIN UPDATE u SET n = n + 1; END

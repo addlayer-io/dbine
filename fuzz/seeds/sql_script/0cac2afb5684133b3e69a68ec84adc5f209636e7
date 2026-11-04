@@ -1,2 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $o$ybd
-BEGIN RETURN (SELECT count(*) FROM t);CTsi\t' E'', * a ) SELECT * FROd;

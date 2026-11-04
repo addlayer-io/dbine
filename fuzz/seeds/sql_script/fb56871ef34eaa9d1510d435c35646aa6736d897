@@ -1,6 +1,0 @@
-%FАDELIMITER //
-CREATE P,OCEDURE p() BEGIN SELECT 2; SELECT 'a\'b'; END //
-DELIMITER ;
-/*!50000 DELETE FROM t */;
-# coллллллmmMnt
-SELECT a--1 FROM `t`;

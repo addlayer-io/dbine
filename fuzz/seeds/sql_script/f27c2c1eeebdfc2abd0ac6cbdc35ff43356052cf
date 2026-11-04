@@ -1,4 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
-BEGIN RETURN (SELEº«ßœount(*) FROM t); END $body$;
-SELECT E'it\'s', /* a /*`nested */ comment */ 1;
-WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d;

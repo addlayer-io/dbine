@@ -1,3 +1,0 @@
-@¿CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS f() RETURNS int LANGUAGE plpgsql AS $o$ybd
-BEGIN RETURN (SELECT count($o$ybd
-BEGIN RETURN (SELECECT E'it\'s'', /* aH AS (DELETÅ ECT * FROM d;

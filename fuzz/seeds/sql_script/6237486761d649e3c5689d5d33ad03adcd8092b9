@@ -1,5 +1,0 @@
-@ÀCREATE FMNCTION f() RETURNS int LANzGUAGE *plpgsql AS $body$
-BEGIN00T DEplpg00 a =! 2;
-ROM t@ÀCREATE FUNCTION f(); END $body$) RETo.p AN
- l AS $odby$
-BEG

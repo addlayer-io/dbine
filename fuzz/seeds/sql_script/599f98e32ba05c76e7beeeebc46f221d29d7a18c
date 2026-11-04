@@ -1,5 +1,0 @@
-ÿÀCREATE FUNTCION f() RETURNõ int LANGUAGE plpgsql AS $body$
-BE UPDATE [t] SET a = 1;
-END
-GO
-SELEûûûûûûûûûû

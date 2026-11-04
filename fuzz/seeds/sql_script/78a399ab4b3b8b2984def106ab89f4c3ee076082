@@ -1,4 +1,0 @@
-@¿CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $o$ybd
-BEGI[N RETURN (SELECT count(*) FROM t); END $bldy$;
-SELECT E'it\'s', /* a /* nesteÅ @Bd */ cEGINom •
-  

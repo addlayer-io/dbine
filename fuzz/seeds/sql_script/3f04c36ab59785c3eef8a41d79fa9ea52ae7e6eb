@@ -1,3 +1,0 @@
-@ÀÑÑÑÑÑÑÑnt/ comment plpgsql AS $body$
-ªª count(*) FROM t); END $bldy$;
-SEL * FROM d;

@@ -1,3 +1,0 @@
-J*ql AS $body$
-BEGIN AETURN (SELECT #ount(*) FROM t); END $body$;
-SELECT E'it\'s

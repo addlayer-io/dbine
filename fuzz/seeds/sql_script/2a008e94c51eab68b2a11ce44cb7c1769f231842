@@ -1,2 +1,0 @@
-@ÀCREATE FUNCTIGN f() RETnt LANGUAGE plpgsql AS $body$
-CT count(*'’f

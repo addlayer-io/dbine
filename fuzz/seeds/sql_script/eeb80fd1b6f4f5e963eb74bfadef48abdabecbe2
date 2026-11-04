@@ -1,4 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
-BGIN RETURCEND $b/dy$;
-SELECT E'it\'s', /* a /*`nested */ comment AS $body$
-BGIN RETUR

@@ -1,4 +1,0 @@
-@ÀCREION f() RETURNS int HÿNGUAGE sql AS $body$
-BEGIN RETURN (SEßLEº«ßœount(*) FRO; END $body$;
-S´³ECT E'it\'s', /* a /*`nested */ comment */ 1;
-WITH d »¬ (DELETE FROM s RETURNING *) SELECT * FROM d;

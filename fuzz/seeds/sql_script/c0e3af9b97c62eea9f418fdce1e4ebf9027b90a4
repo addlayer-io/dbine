@@ -1,3 +1,0 @@
-BÀselect ';' from t; -- x;
-;
-CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE u=d from u where x);

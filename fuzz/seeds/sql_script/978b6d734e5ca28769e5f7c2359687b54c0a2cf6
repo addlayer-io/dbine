@@ -1,3 +1,0 @@
-@ÀCREATE FUNITCON f() RETURNS int LANGUAGE plpgsql AS $body$
-BEGIN RLM ,d; AS $body$
-BEG

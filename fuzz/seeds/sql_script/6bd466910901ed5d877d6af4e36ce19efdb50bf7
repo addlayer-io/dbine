@@ -1,2 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE pl<gsql AS $body$
-BEGIN AETURN (SELECT #ouNt(*) FROM t); END '

@@ -1,9 +1,0 @@
-Å @BEGIN
- DU APTE t SET a = q'[it's]';
-END;
-/
-SELECT * FROM dual;
-CREATE OR REPLACE o.p AS
-BEGIN
-  UPDATE ET a = q'
-/

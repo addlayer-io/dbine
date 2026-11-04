@@ -1,3 +1,0 @@
-@ÐCREATE FUNCTîON f() S —‘ plpgsql !AS $body$
-BEGIN RETURN (
-Md;

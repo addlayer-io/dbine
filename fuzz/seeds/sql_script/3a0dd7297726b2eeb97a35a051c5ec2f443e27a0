@@ -1,7 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
-BBEGIN SATE t SET a = q'[it's]';
-END;ELECT 1; SELECT 'a\'b'; END //
-DELIMITER ;
-/*!50000 DELETE FROM t */;
-# comment
-SEROM t RETURNING *) SELECT * FROM d;

@@ -1,2 +1,0 @@
-@ÀCREATE FUNCTIGN f() RETURNS int LANGUAGE plpgsql AS $body$M t@ÀCREATE FUNCTION f(); END $body$AG AS $body$žžžUžžžžž $body$M t@ÀCREATE FUNCTIONJ*//
-DELIMITER   ql AS $body$

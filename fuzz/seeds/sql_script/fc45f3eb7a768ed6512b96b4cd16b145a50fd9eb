@@ -1,4 +1,0 @@
-J*ql AS $body$
-$body$;
-SELECT E'it\,END $body$;
-SELECT E'it\,s

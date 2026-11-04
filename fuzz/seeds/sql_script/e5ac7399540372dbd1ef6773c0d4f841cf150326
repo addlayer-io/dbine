@@ -1,7 +1,0 @@
-%F T
-/*!49999 DELE
-DELIMITR ;
-/*!49999 DELmoment
-SELECT a--1  SELTEC 'a\'b'; END //
-DELIMITER ;
-/*!5FROM `t`;

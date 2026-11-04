@@ -1,7 +1,0 @@
-Å @BEGIN
-& UPDATE t SET a = q'[it's]';
-END;
-/
-SELECT * FROM dual;
-CRATE u SETed */  PACKAGE pk AS PROCEDURE p; END;
-/

@@ -1,3 +1,0 @@
-@ÀCREATE FURN (SELECT count(*) FROM t); END $bUNC$body$
-BEGIN RETURRNS int LANGUAGE plpgsql AS $body$
-BEGIN E'

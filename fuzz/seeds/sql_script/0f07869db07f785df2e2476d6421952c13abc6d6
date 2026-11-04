@@ -1,5 +1,0 @@
- @R INSERT ON t BEGIN UPDATE u ZZZZZZ[SET n = n + 2; END;ÿZZZSET n = n + 0; END;ÿÿÿ(
-updat– t EDURE p; END;
-/
-n = n + 0; END;ÿÿÿ(0
-– t EDURE p; END

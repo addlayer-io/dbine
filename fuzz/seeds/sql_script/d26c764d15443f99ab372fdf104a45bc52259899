@@ -1,3 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsqlq AS $body$
-BEGIN RETURN (SELECT count(*) FROE t); END $body$;
-SELECT E't;

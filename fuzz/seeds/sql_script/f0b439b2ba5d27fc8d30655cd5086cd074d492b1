@@ -1,4 +1,0 @@
-@ÀCREATE FUNCTUAGE plpg$gsql AS body$
-BEGIND $gsql AS $body$t); END $gsql AS body$
-BEGIND $gsql AS $body$
-BEGIN RETC\

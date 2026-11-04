@@ -1,6 +1,0 @@
-B¿select ';' from t; -- x;
-CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDATE u SET n = n + 1; END;
-update t set a = 1;
-delete from t where id in Å @BEGIN
-  UPDATE t (select =d from u wherSET a = q'e[it' xs]';
-EN)

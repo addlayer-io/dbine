@@ -1,3 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
-BEGIN REmTURN (SELECT count(*) FR¬ELECT E't\'s', /* a /* n comment */ 0;
-WITH d AS *(DELETE¬ELE ING *) SELECT * FROM d;

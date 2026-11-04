@@ -1,3 +1,0 @@
-í¿?¼­º¾¨E FUNCTIOS $body$
-BEGIN RETURN (SELECT co¬nt(*) FROM t); END $bldy$;
-SEL * FROM d;

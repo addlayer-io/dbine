@@ -1,3 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AS $body$
-BEG RINÿÿÿN (SELECT count(*)A-- x;
-CREATE TRIGGER  AFTER ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿSELECT E

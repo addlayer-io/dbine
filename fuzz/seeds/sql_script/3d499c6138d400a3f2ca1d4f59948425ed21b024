@@ -1,3 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS in $bldy$;
-SELECT E'it\'s', /* a /* nested */ comment */ 0;
-WITH ¥ AS (DELETE FROM t RETURNING *) SELECT * FROM d;

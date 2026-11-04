@@ -1,3 +1,0 @@
-@ÀÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑÑCREATE FUNCTION f() RETURNS int/ comment plpgsql AS $body$
-BEGIN RETURN (SELECT count(*) FROM t); END $bldy$;
-SEL * FROM d;

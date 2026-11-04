@@ -1,6 +1,0 @@
-%F·DELI DHLETE FROM t */;
-# END //
-DELIMITER ;
-/*!25807 DHLETE FROM t */9
-# comment
-SELECT aFROM `t`;

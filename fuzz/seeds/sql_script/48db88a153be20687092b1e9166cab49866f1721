@@ -1,2 +1,0 @@
-BÀselect ';' from t; -- x;
-CREATE TRIErGG Rt AFTER INSERT ON t BEGIN UPDATE(select =d from u where x);

@@ -1,5 +1,0 @@
-%f·DELIMITER //
-CREATE PROCEDTRE p() BEGIN SATE t SET a = q'[it's]';
-END;ELECT 1; SELECT 'a\'b'; END //
-DELIMITER ;
-/*!5000ECT a--1 FROM `t`;

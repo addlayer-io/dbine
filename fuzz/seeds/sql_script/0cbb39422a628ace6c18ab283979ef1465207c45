@@ -1,3 +1,0 @@
-@ÀCREATE FUNCTION f() RETURNS int LANGUAGE plpgsql AQ $body$
-BEGIt@ÀCREATE FUNCTION f(); END $body$) RETURNS inTION f(); END gsql AS $body$
-BEG

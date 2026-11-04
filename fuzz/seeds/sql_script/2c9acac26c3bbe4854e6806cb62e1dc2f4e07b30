@@ -1,5 +1,0 @@
-@¿CREATE FUNCTION f() RETURNS int LANGUAGE êúpgsql ASL$body$
-BEGIN RETURN (SELECT count(*) FROM1;
-WITH d AS *(DELELECT E't\'s', /* a /* nested */ comment */ 1;
-WITH d E êúpgsql AS $body$
-BEGININu *) SELECT * FROM d;

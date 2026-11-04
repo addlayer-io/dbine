@@ -1,9 +1,0 @@
-Å @BEGIN
-  UPDATE t SET a = q'[it's]';
-EAS PROCET * FROM dual;
-CREATE OR RE a = q'[it's]';
-END;
-/
-SELECT * FROM dual;
-CREATE OR REPLACE PD;
-/

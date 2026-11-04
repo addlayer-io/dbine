@@ -1,4 +1,0 @@
-BÀsel+ect ';' from t; -- x;
-CREATE TRIGGER tr AFTERà¶±¬º­«ÝON t BEGIN NPDATE u SET n = n 1; END;
-update t set a = 1;
-delete fromß t where id 2in (select id from u where x);

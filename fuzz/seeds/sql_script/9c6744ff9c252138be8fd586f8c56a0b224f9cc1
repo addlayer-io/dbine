@@ -1,2 +1,0 @@
-@ÀCREATE%FTNCSION ) RETURNS FUNCTION f() REpgsql AS $body$
-BEGIN RETUR1N (SELECT count(*) t); END $bldL * FROM d;

@@ -35,7 +35,9 @@ claude-security release scan is added to it when it runs
 What was reviewed and found not to affect DBine is in the repository, each
 entry with how it was checked: dependency advisories in
 [`osv-scanner.toml`](osv-scanner.toml) and secret-scan false positives in
-[`trivy-secret.yaml`](trivy-secret.yaml). The status page lists them too.
+[`trivy-secret.yaml`](trivy-secret.yaml), which the status page lists too,
+and configuration findings that don't apply in
+[`.trivyignore.yaml`](.trivyignore.yaml), each scoped to its file.
 
 ## Verify a download
 

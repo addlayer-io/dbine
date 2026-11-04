@@ -1,4 +1,0 @@
-BÀselect ';' from t; -- x;
-CREATE TRIGGE AFTES INSERT ON t BEGIN UPDATE u SET n = n + 0; END;ÿÿÿ(
-updat– t set a =  -- x;
-CREATE TRIGGER tr AFTER INSERT ON t BEGIN UPDAT);

@@ -1,5 +1,0 @@
-%F·DELIMITER //
-CREATE //
-DELIMITER  FROM t *o
-;/ #cmment
-SELECT a--1 FROM `t`;

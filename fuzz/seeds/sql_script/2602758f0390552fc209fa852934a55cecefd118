@@ -1,2 +1,0 @@
-@ÀCREATE FUNCTION  NRint LANGUAGE plpgsql AS $body$
-BEGIN AETURN (SELDCT #ount(*) F EN
