@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
+pub mod attrs;
 pub mod cells;
 mod chart;
 pub mod conn;
@@ -197,8 +198,12 @@ impl Driver for KdbDriver {
         }
     }
 
+    /// Attributes are a table's indexes ([`attrs`]).
     fn designer(&self) -> Option<DesignerSpec> {
-        Some(edit::designer())
+        Some(DesignerSpec {
+            indexes: true,
+            ..edit::designer()
+        })
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -206,7 +211,16 @@ impl Driver for KdbDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        edit::table_ddl(table, parts)
+        let ddl = edit::table_ddl(table, parts)?;
+        if !parts.indexes || table.indexes.is_empty() {
+            return Ok(ddl);
+        }
+        let attrs = attrs::ddl(table)?;
+        Ok(if ddl.is_empty() {
+            attrs
+        } else {
+            format!("{ddl}\n{attrs}")
+        })
     }
 
     /// The runtime settings as system commands (`\g 1`, `\T 60`…).
@@ -552,16 +566,16 @@ impl KdbSession {
 
 /// The catalog of [`Session::database_schema`], applied to the tables'
 /// names: per table `(columns; meta letters; linked tables; key; each
-/// linked table's key)`, or an empty symbol list for one that can't be
-/// read (it leaves out only itself).
-pub const SCHEMA: &str = "{[ns] {@[{m:0!meta x; (m`c; m`t; m`f; @[keys;x;`$()]; {@[keys;x;`$()]} each m`f)};x;{0#`}]} each ns}";
+/// linked table's key; attributes)`, or an empty symbol list for one that
+/// can't be read (it leaves out only itself).
+pub const SCHEMA: &str = "{[ns] {@[{m:0!meta x; (m`c; m`t; m`f; @[keys;x;`$()]; {@[keys;x;`$()]} each m`f; m`a)};x;{0#`}]} each ns}";
 
 /// A table's entry of [`SCHEMA`]'s answer.
 fn table_schema(o: DbObject, k: K) -> Option<TableSchema> {
     let K::List(parts) = k else {
         return None;
     };
-    let [c, t, f, key, linked] = parts.as_slice() else {
+    let [c, t, f, key, linked, rest @ ..] = parts.as_slice() else {
         return None;
     };
     let names = c.symbols()?;
@@ -610,6 +624,7 @@ fn table_schema(o: DbObject, k: K) -> Option<TableSchema> {
             columns: keys,
         }),
         foreign_keys,
+        indexes: attrs::indexes(&names, rest.first()),
         ..Default::default()
     })
 }

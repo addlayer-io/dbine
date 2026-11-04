@@ -1,5 +1,5 @@
-//! Row counts, the health check and the process's properties against a
-//! real kdb+ (`dbine-test-kdb`, see `live.rs`):
+//! Row counts, the health check, the process's properties and attributes
+//! against a real kdb+ (`dbine-test-kdb`, see `live.rs`):
 //!
 //! ```sh
 //! DBINE_TEST_KDB_URL=127.0.0.1:15000:dbine:dbinepass \
@@ -11,7 +11,10 @@
 //! to its value.
 
 use dbine_driver::health::Severity;
-use dbine_driver::{kinds, ConnectionConfig, QueryOutcome, Session};
+use dbine_driver::{
+    kinds, ColumnDef, ConnectionConfig, DdlParts, IndexDef, KeyDef, QueryOutcome, Session,
+    TableChange, TableSchema,
+};
 use std::collections::BTreeMap;
 
 /// `host:port[:user:password]` from `DBINE_TEST_KDB_URL`.
@@ -188,4 +191,178 @@ async fn properties_change_and_read_back() {
         .unwrap_err()
         .to_string();
     assert!(e.contains("-w"), "{e}");
+}
+
+fn col(n: &str, ty: &str) -> ColumnDef {
+    ColumnDef {
+        name: n.into(),
+        data_type: ty.into(),
+        ..Default::default()
+    }
+}
+
+fn attr(c: &str, unique: bool, kind: Option<&str>) -> IndexDef {
+    IndexDef {
+        name: format!("ix_{c}"),
+        columns: vec![c.into()],
+        unique,
+        kind: kind.map(str::to_string),
+        ..Default::default()
+    }
+}
+
+/// `(column, attribute)` of `name`'s indexes as read.
+async fn attrs_of(s: &mut Box<dyn Session>, name: &str) -> Vec<(String, String)> {
+    let schema = s.database_schema().await.unwrap();
+    let t = schema
+        .iter()
+        .find(|t| t.name == name)
+        .unwrap_or_else(|| panic!("{name} not in the schema"));
+    let mut v: Vec<(String, String)> = t
+        .indexes
+        .iter()
+        .map(|i| (i.columns[0].clone(), i.kind.clone().unwrap_or_default()))
+        .collect();
+    v.sort();
+    v
+}
+
+#[tokio::test]
+#[ignore]
+async fn attributes_are_indexes() {
+    let d = dbine_driver_kdb::drivers().remove(0);
+    assert!(d.designer().unwrap().indexes);
+    let (mut w, mut ro) = sessions().await;
+    run(
+        &mut w,
+        "dbine_meta_a:([] id:1 2 3; sym:`a`b`a; px:1 2 3f; n:3 1 2)",
+    )
+    .await;
+    run(&mut w, "update sym:`g#sym from `dbine_meta_a").await;
+    let read = attrs_of(&mut ro, "dbine_meta_a").await;
+    assert_eq!(read, [("sym".to_string(), "g#".to_string())]);
+    let schema = w.database_schema().await.unwrap();
+    let old = schema
+        .iter()
+        .find(|t| t.name == "dbine_meta_a")
+        .unwrap()
+        .clone();
+    let ix = &old.indexes[0];
+    assert_eq!((ix.name.as_str(), ix.unique), ("g#sym", false));
+
+    // Modify…: u# on id, s# on px (sorted already), sym's g# off, and n
+    // cast to float (its values stay) with a g#.
+    let mut new = old.clone();
+    new.indexes = vec![
+        attr("id", true, None),
+        attr("px", false, Some("s#")),
+        attr("n", false, None),
+    ];
+    new.columns[3].data_type = "float".into();
+    let s = d
+        .sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new,
+        }])
+        .unwrap();
+    assert!(
+        s.statements
+            .iter()
+            .any(|x| x == "update sym:`#sym from `dbine_meta_a"),
+        "{s:?}"
+    );
+    for st in &s.statements {
+        run(&mut w, st).await;
+    }
+    assert_eq!(
+        attrs_of(&mut w, "dbine_meta_a").await,
+        [
+            ("id".to_string(), "u#".to_string()),
+            ("n".to_string(), "g#".to_string()),
+            ("px".to_string(), "s#".to_string()),
+        ]
+    );
+    assert_eq!(value(&mut w, "meta[dbine_meta_a][`n;`t]").await, "f");
+
+    // u# on a column with repeated values: the server refuses it.
+    let mut dup = old.clone();
+    dup.indexes = vec![attr("sym", true, None)];
+    let s = d
+        .sync_script(&[TableChange::Alter {
+            old: TableSchema {
+                indexes: Vec::new(),
+                ..old.clone()
+            },
+            new: dup,
+        }])
+        .unwrap();
+    assert!(s.warnings.iter().any(|x| x.contains("valores repetidos")));
+    let fail = s.statements.iter().find(|x| x.contains("`u#sym")).unwrap();
+    let mut out = QueryOutcome::default();
+    let e = w.execute(fail, 10, &mut out).await.unwrap_err().to_string();
+    assert!(e.contains("u-fail"), "{e}");
+
+    // A new keyed table with attributes, from the designer's DDL and from
+    // a sync.
+    let t = TableSchema {
+        kind: kinds::TABLE.into(),
+        name: "dbine_meta_n".into(),
+        columns: vec![
+            col("id", "long"),
+            col("sym", "symbol"),
+            col("t", "timestamp"),
+        ],
+        primary_key: Some(KeyDef {
+            name: None,
+            columns: vec!["id".into()],
+        }),
+        indexes: vec![attr("id", true, None), attr("sym", false, Some("p#"))],
+        ..Default::default()
+    };
+    let ddl = d
+        .table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        ddl,
+        "dbine_meta_n:([id:`long$()] sym:`symbol$(); t:`timestamp$())\nupdate id:`u#id from `dbine_meta_n\nupdate sym:`p#sym from `dbine_meta_n"
+    );
+    run(&mut w, &ddl).await;
+    assert_eq!(
+        attrs_of(&mut w, "dbine_meta_n").await,
+        [
+            ("id".to_string(), "u#".to_string()),
+            ("sym".to_string(), "p#".to_string())
+        ]
+    );
+    let s = d
+        .sync_script(&[TableChange::Create {
+            table: TableSchema {
+                name: "dbine_meta_m".into(),
+                ..t
+            },
+        }])
+        .unwrap();
+    for st in &s.statements {
+        run(&mut w, st).await;
+    }
+    assert_eq!(attrs_of(&mut ro, "dbine_meta_m").await.len(), 2);
+
+    // A read-only connection reads them and can't set one.
+    let mut out = QueryOutcome::default();
+    assert!(ro
+        .execute("update id:`#id from `dbine_meta_a", 10, &mut out)
+        .await
+        .is_err());
+    run(
+        &mut w,
+        "delete dbine_meta_a, dbine_meta_n, dbine_meta_m from `.",
+    )
+    .await;
 }
