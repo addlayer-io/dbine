@@ -169,8 +169,8 @@ function actions(layout: WorkbenchLayout): Action[] {
 
     // -- Base de datos (the explorer's database menu)
     onDatabase('database.reveal', (cid, db) => ui.revealInExplorer({ connectionId: cid, database: db })),
-    onDatabase('database.search', (cid, db) => tabs.openSearch(cid, db), hasDatabases),
-    onDatabase('database.healthCheck', (cid, db) => tabs.openHealth(cid, db), hasDatabases),
+    onDatabase('database.search', (cid, db) => tabs.openSearch(cid, db)),
+    onDatabase('database.healthCheck', (cid, db) => tabs.openHealth(cid, db)),
     onDatabase('database.designer', (cid, db) => tabs.openDesigner(cid, db, null), (d) => !!d.designer),
     onDatabase('database.newFromTemplate', (cid, db) => {
       const d = conns.driverOf(cid);
