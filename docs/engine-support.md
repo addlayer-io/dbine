@@ -655,25 +655,103 @@ and `SSL_CA_CERT_FILE`.
   the table isn't on disk (`.Q.qp`) and that a table it creates doesn't
   exist yet (a q assignment would replace it), and warns that the changes
   live in the process's memory until saved.
-- **Rename:** tables in memory (copied to the new name, then the old one
-  deleted) and their columns (`xcol`), checking on the server that the new
-  name is free. q code that names them is listed, not rewritten.
+- **Rename:** tables in memory and their columns (`xcol`), root views
+  (defined again from their definition on the server), functions and
+  variables within their namespace (a function resolves its globals in the
+  namespace it was defined in), and top-level namespaces (the dictionary
+  copied, then the old one deleted). Each rename is one statement that
+  checks on the server first that the old object is still there, that the
+  new name is free and that nothing is on disk. q code that names the
+  renamed object is listed, not rewritten.
 - **Schema conversion:** to and from the other engines (`dbine-schema`'s q
   dialect): the key is the primary key, q types map to the neutral ones
   and back ([`schema-conversion.md`](schema-conversion.md)).
+- **Attributes as indexes:** `s#`, `u#`, `p#`, `g#` are read from `meta` as
+  one-column indexes (`u#` unique), so they show in the structure, the
+  designer, compare, sync, the ER diagram and the script generator. The
+  designer and sync set them with `` update c:`g#c from `t `` and take them
+  off with `` `# `` (on-disk tables refused), after column casts (a cast
+  drops the attribute), with a warning when `u#`, `s#` or `p#` would fail on
+  the data. Conversion maps a unique one-column index to `u#` and any other
+  to `g#`; attributes become indexes in other engines.
+- **Sync by rows (Compare data):** between kdb+ processes. Each side counts
+  and hashes its buckets on the server: the `md5` of each row's
+  serialization (`-8!`) over canonical values (integers as longs, symbols
+  and enumerations as strings), so `int` and `long`, symbol and string
+  compare equal. The buckets are ranges of an integer key, or a hash of the
+  key otherwise, and the 64-bit hash sums are exact. Only the changed
+  buckets' rows are read (typed, in pages of 50,000 rows by index, filtered
+  on the server). The target stages them in `.dbine_stage` and one request
+  deletes, updates and inserts, building the new table and assigning it in
+  one step: kdb+ has no transactions, but a failed sync leaves the table as
+  it was. On a read-only connection the summaries and reads run inside
+  `reval`.
+- **Clone:** kdb+ to kdb+: tables in memory with their key and types
+  (created only when the name is free, so a resumed clone runs again),
+  their data, attributes and linked columns, every function (defined from
+  its source in its own namespace) and the root's views. The target checks
+  that each text is one lambda or one view before defining it.
+- **Notebook write cells:** every mode. Insert is one `insert` (on a keyed
+  table a key already there or repeated is refused); update and
+  insert-or-update work by the chosen key on any table in memory; replace
+  keeps the table's columns, types and key. The rows are staged as typed
+  IPC tables and applied in one step, so a failure leaves the table as it
+  was. A migration that empties a kdb+ table (copy again, resume) does it
+  in place with `` delete from `t ``.
+- **Row counts (documentation, migrations):** tables in memory and splayed
+  ones by `count`, which reads nothing; partitioned ones only from what
+  kdb+ already counted (`.Q.pn`), otherwise left out. One protected round
+  trip, inside `reval` on read-only connections.
+- **Health check:** from the process itself: memory against the `-w` limit
+  (or the machine's without one), memory kept but unused under `\g 0` (fix:
+  `.Q.gc[]`), interned symbols (never freed), handles with more than 64 MB
+  queued (slow subscribers), no query timeout (`\T 0`, fix: `\T 60`), a port
+  with no `-u`/`-U`/`.z.pw`, the TLS mode (`-E`) and servers without `reval`.
+  Offered on the connection, which is kdb+'s database.
+- **Properties:** garbage collection (`\g`), query timeout (`\T`), display
+  precision (`\P`), UTC offset (`\o`), date format (`\z`) and, when started
+  with `-w`, the memory limit (`\w`, which kdb+ only raises), applied as
+  system commands on the user's click and refused on read-only connections;
+  version, port, threads, command line and memory as facts. Changes last
+  until the process restarts. `\p` (it would close DBine's own port) and
+  `\s` (command line only) aren't offered.
+- **Namespaces as schemas:** each namespace (`.ns`, kdb+tick's `.u`) is a
+  schema: the explorer groups its tables, views, functions and variables
+  under it once there are two (`.ns.t` is `t` of `.ns`), and the root's
+  objects stay at the connection. **New schema…** creates an empty
+  namespace (`` `.ns set (enlist`)!enlist(::) ``, refused on the server if
+  the name is taken) and **Drop schema…** removes it
+  (`` ![`;();0b;enlist `ns] ``), with its objects or, without them, only when
+  the server finds it empty; empty namespaces are listed. kdb+'s own
+  (`.q`, `.Q`, `.h`, `.j`, `.o`, `.z`) and DBine's `.dbine_stage` are never
+  created, dropped or written. Every action on a namespace's object uses its
+  q name, and saved references that name it whole (`.ns.t`) keep working.
+  Migrations into kdb+ keep each source schema as a namespace (`sales` →
+  `.sales`, the default schema to the root) with no `CREATE SCHEMA`: a
+  namespace comes with its first table. A new function from a namespace
+  goes into it; a new view goes to the root, the only namespace where
+  kdb+ defines views over IPC.
 
 **Not available, and why:**
 
 | Feature | Reason |
 |---|---|
-| Execution plans, Profiler | kdb+ has neither. |
+| Execution plans | kdb+ has none. |
+| Profiler | kdb+ keeps no record of the queries it receives, which is what DBine's Profiler shows; capturing them would mean replacing the running process's message handlers (`.z.pg`, `.z.ps`). kdb+ 4.0's `.Q.prf0` samples another process's call stack, a different tool. |
+| Manual transactions (Commit / Rollback) | kdb+ has no transactions; DBine's own multi-row changes (sync, write cells) are applied in one step instead. |
+| Comments on objects | q objects have no comments. |
 | Cancel another client's query, Locks | kdb+ runs one request at a time and has no request to stop another one's. |
 | Create or drop databases, Backups | A kdb+ process is one namespace tree; an on-disk database is files the server reads, saved with q (`.Q.dpft`, `set`), not through a backup command. |
 | Users and permissions | kdb+'s users are a file given at start-up (`-u`, `-U`) or the process's own `.z.pw`: there's nothing to list or grant over IPC. |
 | Sync, Modify… and Rename of partitioned and splayed tables | Refused, with the reason: each column is a file on disk, and changing it means rewriting the database with q on the server (dbmaint, `.Q.dpft`), which DBine doesn't do. Compare doesn't load them yet (`database_schema` lists tables in memory). |
 | Sync of views and functions | Compared, but not dropped (no statement to do it from DBine) and created from their bare definition (the lambda or the view's expression, without `name:` / `name::`): pending. |
-| Attributes (`s#`, `u#`, `p#`, `g#`), enumerations, general lists in conversion | Attributes aren't read; enumerated columns read as `symbol`; a general list has no neutral type and is reported for review. |
-| Index usage | kdb+ has attributes (`s`, `u`, `p`, `g`), not indexes. |
+| Enumerations, general lists, indexes of several columns in conversion | Enumerated columns read as `symbol`; a general list has no neutral type and is reported for review; an attribute is one column's, so a multi-column index is left out and reported. |
+| Index usage | kdb+ keeps no statistics of how often an attribute is used. |
+| Sync by rows and write cells on partitioned and splayed tables | Refused, as in the grid: their columns are files on disk. |
+| Renaming a view outside the root namespace | Over IPC kdb+ defines a view only in the root. |
+| Moving a function or variable to another namespace by renaming it | A function stays bound to the namespace it was defined in. |
+| Renaming a namespace that holds functions, views, tables on disk or tables other columns link to | kdb+ binds functions and links to a namespace by name, so they would stop working once it's gone. |
+| Clone of tables on disk, views outside the root namespace, projections and compositions, other variables | DBine doesn't write a database's files; over IPC kdb+ defines a view only in the root namespace; a projection has no source text of its own; variables aren't tables, views or functions. Each one left out is named in the clone's notes. |
 
 **Tests:** the IPC codec, the script splitter, the read-only check and the
 q the grid writes have unit tests; `tests/fake_server.rs` runs the driver
@@ -696,7 +774,13 @@ with the sync's create (checked with `meta` and a row), a kdb+ keyed table
 read and converted to PostgreSQL and through SQLite back to q, a sync that
 drops, adds and casts columns and changes the key (checked with `meta` and
 the values), column and table renames, a drop, and a splayed table refused
-both by DBine and by the server-side check.
+both by DBine and by the server-side check. `tests/live_data.rs` runs a sync
+that finds and fixes differences (keyed and unkeyed tables, range and hash
+buckets, every depth, a read-only source, the same hashes on two kdb+
+processes), every write mode and a clone between two kdb+ processes (the
+`dbine-test-kdb-tls` container is the second); `tests/live_meta.rs` the row
+counts, the health checks and every property, on read-write and read-only
+sessions, and attributes set, removed and kept through a sync.
 
 ## Per-column filters on table data
 
@@ -2364,7 +2448,7 @@ These have it:
 - **SQL Server family:** SQL Server, Azure SQL, Microsoft Fabric Data Warehouse and Babelfish.
 - **PostgreSQL family:** PostgreSQL, TimescaleDB, YugabyteDB, openGauss, Cloudberry, Greengage, Greenplum, KingbaseES, EDB, Fujitsu, Yellowbrick, AlloyDB, Cloud SQL, Aurora PostgreSQL, Aurora DSQL, CockroachDB, Materialize, Redshift, RisingWave and H2.
 - **Analytical and cloud:** Snowflake, Databricks, Trino, Presto, Starburst, Dremio (folders) and Cloud Spanner.
-- **Others:** DuckDB, Arrow Flight SQL, Couchbase (scopes) and Apache Phoenix.
+- **Others:** DuckDB, Arrow Flight SQL, Couchbase (scopes), Apache Phoenix and KDB+ (namespaces).
 - **Through ODBC:** Db2 LUW, Db2 for i, Hive/Cloudera, Impala, Spark, Kyuubi, Vertica, Exasol, Netezza, Dameng, MonetDB, Mimer, MaxDB, NuoDB, Ignite 3, SQream and Ocient.
 
 **Empty schemas in the explorer.** A newly created schema, with no objects,
@@ -2382,7 +2466,8 @@ their schemas:
   Dremio (folders), Cloud Spanner and Aurora DSQL.
 - **Others:** DuckDB (without the `system` catalog), Flight SQL
   (`GetDbSchemas`; if the server does not answer it, schemas come from the
-  tables again), Couchbase (scopes) and Phoenix.
+  tables again), Couchbase (scopes), Phoenix and KDB+ (the root's namespaces
+  that are dictionaries).
 - **Through ODBC:** Db2 LUW and Db2 for i, Vertica, Exasol, Dameng, MonetDB,
   Mimer, MaxDB, NuoDB, SQream and Hive/Cloudera/Impala/Spark/Kyuubi, with
   each one's catalog query; Netezza, Ocient and Ignite 3, with the ODBC
@@ -2445,6 +2530,7 @@ Dremio.
 |---|---|---|
 | SQL Server, Azure SQL, Microsoft Fabric, Babelfish | Dropping with its contents | T-SQL's `DROP SCHEMA` has no `CASCADE` and refuses while the schema has objects: they have to be dropped or moved first. |
 | SQL Server, Azure SQL | The `UNMASK` permission on a schema | Only SQL Server 2022 and later accept it; it is not offered. |
+| KDB+ | Owner and permissions | kdb+ namespaces have neither. |
 | SQL Server, Azure SQL | Changing the owner after granting | The owner goes in `CREATE SCHEMA … AUTHORIZATION`: `ALTER AUTHORIZATION ON SCHEMA` deletes all the permissions already granted on the schema (verified live). Whoever creates without being `db_owner` needs `CREATE SCHEMA`, `IMPERSONATE` on the owner user (or `ALTER` on the owner role) and to be a member of `db_securityadmin` to grant on the schema being handed over. |
 | Microsoft Fabric | Choosing the owner | `AUTHORIZATION` could not be verified without a warehouse; the schema stays in the creator's name. |
 | Babelfish | "With grant option", names with `]` and permissions other than SELECT, INSERT, UPDATE, DELETE, REFERENCES and EXECUTE | Babelfish rejects `GRANT … ON SCHEMA … WITH GRANT OPTION` and does not read `]]` inside brackets. It also has no `ALTER AUTHORIZATION` on schemas and rejects `GRANT CREATE SCHEMA`: whoever creates needs `db_ddladmin` and `db_securityadmin`. |

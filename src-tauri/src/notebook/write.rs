@@ -630,6 +630,14 @@ fn writable(
     Ok(c)
 }
 
+/// A target whose rows have no fixed columns (documents, keys): any field
+/// name goes, and a collection that doesn't exist is created by the first
+/// write. kdb+ isn't SQL, but its tables have fixed, typed columns.
+fn schemaless(driver: &dyn dbine_driver::Driver) -> bool {
+    let info = driver.info();
+    info.language != dbine_driver::Language::Sql && info.dialect != "q"
+}
+
 /// What the write cell's form needs of a target: its modes and, for an
 /// existing table, its columns.
 #[derive(Debug, Clone, Serialize)]
@@ -650,8 +658,8 @@ pub async fn target_info(
     writable(state, &target.connection_id)?;
     let driver = crate::commands::schema::driver_of(state, &target.connection_id)?;
     let modes = modes_of(driver.as_ref());
-    let schemaless = driver.info().language != dbine_driver::Language::Sql;
-    let atomic = !driver.write_modes().is_empty() && driver.supports_manual_transactions();
+    let schemaless = schemaless(driver.as_ref());
+    let atomic = !driver.write_modes().is_empty() && driver.atomic_writes();
     let mut columns = None;
     if !target.table.trim().is_empty() {
         let key = format!("nbw-info:{tab}");
@@ -850,7 +858,7 @@ pub async fn prepare(
             return Err(e);
         }
     };
-    let atomic = !driver.write_modes().is_empty() && driver.supports_manual_transactions();
+    let atomic = !driver.write_modes().is_empty() && driver.atomic_writes();
     let p = plan_pending;
     let plan = WritePlan {
         token: String::new(),
@@ -904,7 +912,7 @@ async fn snapshot_and_check(
     let rows = count(s, &format!("SELECT count(*) FROM main.{}", q(snapshot))).await?;
     let src_cols = describe(s, snapshot).await?;
     let src_names: Vec<String> = src_cols.iter().map(|(n, _)| n.clone()).collect();
-    let schemaless = driver.info().language != dbine_driver::Language::Sql;
+    let schemaless = schemaless(driver.as_ref());
 
     // The target's columns (or the table "crear tabla nueva" makes).
     let key = format!("nbw-plan:{}", a.tab_id);
@@ -1363,6 +1371,8 @@ async fn write(
         let lost = |what: String| {
             if staged && driver.supports_manual_transactions() {
                 format!("No se escribió nada (la transacción se deshizo). {what}")
+            } else if staged && driver.atomic_writes() {
+                format!("No se escribió nada: la tabla quedó como estaba. {what}")
             } else if so_far > 0 {
                 format!("Ya se habían escrito {so_far} filas, que quedan en la tabla. {what}")
             } else {

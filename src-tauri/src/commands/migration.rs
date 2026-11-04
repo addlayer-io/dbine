@@ -533,10 +533,13 @@ pub(crate) fn default_schema(dialect: &str) -> Option<&'static str> {
     }
 }
 
-/// The source's default schema goes to the target's (`dbo` → `public`).
+/// The source's default schema goes to the target's (`dbo` → `public`);
+/// to kdb+'s root namespace, which has no name (`""`), on kdb+, whose
+/// schemas are its namespaces.
 pub(crate) fn default_schema_rename(from: &str, to: &str) -> Vec<(String, String)> {
     match (default_schema(from), default_schema(to)) {
         (Some(a), Some(b)) if a != b => vec![(a.to_string(), b.to_string())],
+        (Some(a), None) if to == "q" => vec![(a.to_string(), String::new())],
         _ => Vec::new(),
     }
 }
@@ -545,6 +548,8 @@ pub(crate) fn create_schema(dialect: &str, name: &str) -> Option<String> {
     let dq = format!("\"{}\"", name.replace('"', "\"\""));
     match dialect {
         "oracle" | "mysql" | "hive" | "sparksql" | "databricks" | "bigquery" | "clickhouse" => None,
+        // kdb+: a namespace is made by its first object (`.ns.t:…`).
+        "q" => None,
         // The engine's own default schema always exists.
         _ if default_schema(dialect) == Some(name) => None,
         "mssql" | "sybase" => Some(format!(
@@ -1454,6 +1459,15 @@ fn truncate_sql(target: &dyn Driver, t: &TableSchema) -> Option<String> {
     if info.id == "ksqldb" {
         return None;
     }
+    // kdb+: emptied in place, keeping its columns, types and key (dropping
+    // and recreating it from a schema without columns would lose them).
+    if info.dialect == "q" {
+        let name = match t.schema.as_deref().filter(|s| !s.is_empty()) {
+            Some(s) => format!("{s}.{}", t.name),
+            None => t.name.clone(),
+        };
+        return q_table_name(&name).then(|| format!("delete from `{name}"));
+    }
     match info.language {
         Language::Sql | Language::Cql => {
             let name = qualified_name(quote_of(info.dialect), t.schema.as_deref(), &t.name);
@@ -1479,6 +1493,17 @@ fn truncate_sql(target: &dyn Driver, t: &TableSchema) -> Option<String> {
             .ok()
             .filter(|s| !s.trim().is_empty()),
     }
+}
+
+/// A q table name that can go after a backtick as is: `t`, `.ns.t`.
+fn q_table_name(name: &str) -> bool {
+    let body = name.strip_prefix('.').unwrap_or(name);
+    !body.is_empty()
+        && body.split('.').all(|part| {
+            let mut c = part.chars();
+            c.next().is_some_and(|f| f.is_ascii_alphabetic())
+                && c.all(|x| x.is_ascii_alphanumeric() || x == '_')
+        })
 }
 
 /// A target column the engine fills itself (computed, row version): never loaded.
@@ -2819,6 +2844,104 @@ mod tests {
     use super::*;
     use dbine_core::{SavedConnection, StateStore};
     use dbine_driver::ConnectionConfig;
+
+    /// kdb+ empties a table in place: dropping and recreating it from the
+    /// clone's column-less schema used to leave it without columns.
+    #[test]
+    fn kdb_tables_are_emptied_in_place() {
+        assert!(q_table_name("trades") && q_table_name(".ns.t") && q_table_name("t_2"));
+        for bad in ["", ".", "1t", "t;exit 0", "t`x", ".ns..t", "a b"] {
+            assert!(!q_table_name(bad), "{bad}");
+        }
+        let Some(kdb) = dbine_drivers::find("kdb") else {
+            return;
+        };
+        let t = |schema: Option<&str>, name: &str| TableSchema {
+            schema: schema.map(str::to_string),
+            name: name.into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            truncate_sql(kdb.as_ref(), &t(None, "trades")).as_deref(),
+            Some("delete from `trades")
+        );
+        assert_eq!(
+            truncate_sql(kdb.as_ref(), &t(Some(".ns"), "t")).as_deref(),
+            Some("delete from `.ns.t")
+        );
+        assert_eq!(truncate_sql(kdb.as_ref(), &t(None, "t;exit 0")), None);
+    }
+
+    /// kdb+'s schemas are its namespaces: no `CREATE SCHEMA` (a namespace
+    /// comes with its first table) and the source's default schema goes to
+    /// the root; the other engines keep theirs.
+    #[test]
+    fn kdb_schemas_are_namespaces() {
+        assert_eq!(create_schema("q", "sales"), None);
+        assert_eq!(create_schema("q", ".sales"), None);
+        assert_eq!(default_schema("q"), None);
+        assert_eq!(
+            default_schema_rename("postgres", "q"),
+            [("public".to_string(), String::new())]
+        );
+        assert_eq!(
+            default_schema_rename("mssql", "q"),
+            [("dbo".to_string(), String::new())]
+        );
+        assert!(default_schema_rename("q", "postgres").is_empty());
+        assert!(default_schema_rename("mysql", "q").is_empty());
+        // Unchanged elsewhere.
+        assert_eq!(
+            default_schema_rename("mssql", "postgres"),
+            [("dbo".to_string(), "public".to_string())]
+        );
+        assert!(default_schema_rename("postgres", "duckdb").is_empty());
+        assert_eq!(
+            create_schema("postgres", "sales").as_deref(),
+            Some("CREATE SCHEMA IF NOT EXISTS \"sales\"")
+        );
+        // A migration's plan into kdb+: the tables of `sales` go to `.sales`,
+        // those of `public` to the root, without CREATE SCHEMA.
+        let Some(kdb) = dbine_drivers::find("kdb") else {
+            return;
+        };
+        assert!(kdb.info().has_schemas);
+        let src = |schema: &str| TableSchema {
+            kind: "table".into(),
+            schema: Some(schema.into()),
+            name: "orders".into(),
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                data_type: "bigint".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = dbine_schema::Options {
+            keep_schemas: true,
+            rename_schemas: default_schema_rename("postgres", "q"),
+            ..Default::default()
+        };
+        let conv = dbine_schema::convert(&[src("public"), src("sales")], "postgres", "kdb", &opts)
+            .unwrap();
+        let create = DdlParts {
+            create: true,
+            ..Default::default()
+        };
+        let ddl: Vec<String> = conv
+            .tables
+            .iter()
+            .map(|t| kdb.table_ddl(t, create).unwrap())
+            .collect();
+        assert_eq!(
+            ddl,
+            ["orders:([] id:`long$())", ".sales.orders:([] id:`long$())"]
+        );
+        assert_eq!(
+            truncate_sql(kdb.as_ref(), &conv.tables[1]).as_deref(),
+            Some("delete from `.sales.orders")
+        );
+    }
 
     fn dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!(

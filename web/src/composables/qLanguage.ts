@@ -199,6 +199,13 @@ export function statementAround(doc: string, pos: number): string {
   return lines.slice(a, b).join('\n');
 }
 
+/** A q name as the explorer's path to it: a namespace's object is
+ *  `[namespace, name]` (`.ns.t` → `['.ns', 't']`), a root one `[name]`. */
+export function qPath(name: string): string[] {
+  const m = /^(\.[^.]+)\.(.+)$/.exec(name);
+  return m ? [m[1], m[2]] : [name];
+}
+
 /** The tables `text` names (whole names: `.u.trade` isn't `trade`). */
 export function tablesNamed(text: string, tables: string[]): string[] {
   const words = new Set(text.match(/\.?[A-Za-z][\w]*(?:\.[A-Za-z_][\w]*)*/g) ?? []);

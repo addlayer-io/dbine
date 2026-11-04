@@ -784,6 +784,14 @@ pub trait Driver: Send + Sync {
         Vec::new()
     }
 
+    /// Its [`Session::write_rows`] leaves the table as it was when it fails
+    /// (what the write cell's plan tells before writing): in one
+    /// transaction where the engine has them, or applied in one step where
+    /// it hasn't (kdb+).
+    fn atomic_writes(&self) -> bool {
+        self.supports_manual_transactions()
+    }
+
     /// The condition (for [`transfer::ReadSpec::filter`]) that selects the
     /// rows of these buckets.
     fn delta_filter(&self, spec: &transfer::DeltaSpec, buckets: &[i64]) -> Result<String> {

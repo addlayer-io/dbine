@@ -71,9 +71,10 @@ export async function deleteQuery(q: SavedQuery) {
 /** A driver's create template as a new query ({schema} / {name} filled in). */
 export async function newFromTemplate(connectionId: string, database: string, tpl: { kind: string; label: string; template: string }, schema: string | null) {
   const name = `${t('core:actions.newObjectPrefix')}${tpl.kind.replace(/[^a-z_]/gi, '_')}`;
-  const sql = tpl.template.split('{schema}').join(schema ?? '').split('{name}').join(name)
-    // "{schema}." with no schema leaves a stray dot.
-    .replace(/(^|[\s(])\.(?=[\w"`[])/g, '$1');
+  const filled = tpl.template.split('{schema}').join(schema ?? '').split('{name}').join(name);
+  // "{schema}." with no schema leaves a stray dot. A kdb+ namespace
+  // (`.ns`) starts with one of its own.
+  const sql = schema?.startsWith('.') ? filled : filled.replace(/(^|[\s(])\.(?=[\w"`[])/g, '$1');
   await newQuery(connectionId, database, sql, tpl.label);
 }
 

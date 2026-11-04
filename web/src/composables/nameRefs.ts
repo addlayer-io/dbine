@@ -120,9 +120,16 @@ export function nameAt(idx: NameIndex, doc: string, pos: number): NameHit | null
     while (e < line.text.length && re.test(line.text[e])) e++;
     return { from: line.from + s, to: line.from + e, text: line.text.slice(s, e) };
   };
-  for (const w of [around(/[\p{L}\p{N}_\-$]/u), around(/[^\s"'(){}[\],;]/u)]) {
+  // q names a namespace's object whole (`.ns.t`, the token first), never by
+  // its bare name: a word after a dot is part of one.
+  const q = idx.dialect === 'q';
+  const named = (o: DbObject) => (q && o.schema ? `${o.schema}.${o.name}` : o.name);
+  const word = around(/[\p{L}\p{N}_\-$]/u);
+  const token = around(/[^\s"'(){}[\],;]/u);
+  const dotted = doc[word.from - 1] === '.';
+  for (const w of q ? [token, ...(dotted ? [] : [word])] : [word, token]) {
     if (!w.text) continue;
-    const found = idx.objects.find((o) => o.name === w.text) ?? idx.objects.find((o) => eq(o.name, w.text));
+    const found = idx.objects.find((o) => named(o) === w.text) ?? idx.objects.find((o) => eq(named(o), w.text));
     if (found) return { from: w.from, to: w.to, object: found, view: viewFor(idx, found) };
   }
   return null;

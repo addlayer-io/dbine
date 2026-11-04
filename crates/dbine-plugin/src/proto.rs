@@ -679,6 +679,10 @@ pub struct DriverMeta {
     /// manifests: none).
     #[serde(default)]
     pub write_modes: Vec<dbine_driver::WriteMode>,
+    /// `Driver::atomic_writes` (absent in older manifests: false, read
+    /// with `supports_manual_transactions` as before).
+    #[serde(default)]
+    pub atomic_writes: bool,
     /// Creating and dropping schemas (absent in older manifests: `None`,
     /// the explorer doesn't offer them).
     #[serde(default, deserialize_with = "owned")]
@@ -765,6 +769,7 @@ impl DriverMeta {
             supports_clone: d.supports_clone(),
             supports_delta: d.supports_delta(),
             write_modes: d.write_modes(),
+            atomic_writes: d.atomic_writes(),
             schema_spec: d.schema_spec(),
             script_dialect: Some(d.script_dialect()),
             script_mode: Some(d.script_mode()),

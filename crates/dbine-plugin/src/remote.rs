@@ -1280,6 +1280,10 @@ impl Driver for RemoteDriver {
     fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
         self.meta.write_modes.clone()
     }
+    fn atomic_writes(&self) -> bool {
+        // A host built before the field: what the app assumed then.
+        self.meta.atomic_writes || self.meta.supports_manual_transactions
+    }
     fn delta_filter(&self, spec: &DeltaSpec, buckets: &[i64]) -> Result<String> {
         text(self.blocking(Call::DeltaFilter {
             driver: self.id(),

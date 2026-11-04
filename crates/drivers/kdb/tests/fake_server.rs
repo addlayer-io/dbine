@@ -277,19 +277,28 @@ async fn connect_explore_and_query() {
     assert_eq!(s.list_databases().await.unwrap(), ["default"]);
 
     let objs = s.list_objects().await.unwrap();
-    let names: Vec<(String, String)> = objs.into_iter().map(|o| (o.kind, o.name)).collect();
+    let names: Vec<(String, String)> = objs
+        .into_iter()
+        .map(|o| {
+            (
+                o.kind,
+                format!("{}|{}", o.schema.unwrap_or_default(), o.name),
+            )
+        })
+        .collect();
+    // A namespace is its objects' schema; the root's have none.
     assert_eq!(
         names,
         [
-            ("table".to_string(), "trade".to_string()),
-            ("partitioned_table".into(), "quotes".into()),
-            ("splayed_table".into(), "daily".into()),
-            ("view".into(), "v1".into()),
-            ("function".into(), "f1".into()),
-            ("variable".into(), "x".into()),
-            ("function".into(), ".u.upd".into()),
-            ("variable".into(), ".u.w".into()),
-            ("table".into(), ".myns.t2".into()),
+            ("table".to_string(), "|trade".to_string()),
+            ("partitioned_table".into(), "|quotes".into()),
+            ("splayed_table".into(), "|daily".into()),
+            ("view".into(), "|v1".into()),
+            ("function".into(), "|f1".into()),
+            ("variable".into(), "|x".into()),
+            ("function".into(), ".u|upd".into()),
+            ("variable".into(), ".u|w".into()),
+            ("table".into(), ".myns|t2".into()),
         ]
     );
 
@@ -566,6 +575,62 @@ async fn read_only_without_reval_runs_only_browses_and_show_commands() {
     let mut out = QueryOutcome::default();
     w.execute("til 3", 100, &mut out).await.unwrap();
     assert_eq!(out.results[0].rows.len(), 3);
+}
+
+#[tokio::test]
+async fn reads_of_a_sync_or_a_clone_need_reval_on_a_read_only_connection() {
+    use dbine_driver::transfer::{Buckets, DeltaDepth, DeltaSpec, ReadSpec};
+    let (port, _, _, _, sent) = server_full().await;
+    let d = driver();
+    let mut s = d.connect(&cfg(port, "old", true), None).await.unwrap();
+    let mut t = d.connect(&cfg(port, "old", false), None).await.unwrap();
+    let trade = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: None,
+        name: "trade".into(),
+    };
+    let spec = DeltaSpec {
+        table: trade.clone(),
+        key: vec!["sym".into()],
+        columns: vec!["sym".into(), "px".into()],
+        buckets: Buckets::Hash { n: 17 },
+        depth: DeltaDepth::Full,
+        max_cores: 0,
+    };
+    let filtered = ReadSpec {
+        table: trade.clone(),
+        columns: None,
+        filter: Some(d.delta_filter(&spec, &[1, 2]).unwrap()),
+    };
+    // Nothing on the server could keep these from writing: refused, with
+    // the reason, before anything is sent.
+    let before = sent.lock().unwrap().len();
+    let sink: dbine_driver::transfer::BatchSinkRef = Arc::new(std::sync::Mutex::new(Null));
+    let errors = [
+        s.delta_summary(&spec).await.unwrap_err(),
+        s.key_range(&trade, "px").await.unwrap_err(),
+        s.read_batches(&filtered, sink).await.unwrap_err(),
+        d.clone_script(&mut *s, &mut *t, std::slice::from_ref(&trade))
+            .await
+            .unwrap_err(),
+    ];
+    for e in errors {
+        assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
+        assert!(e.to_string().contains("reval"), "{e}");
+    }
+    assert_eq!(sent.lock().unwrap().len(), before);
+}
+
+/// A sink that drops what it gets.
+struct Null;
+
+impl dbine_driver::transfer::BatchSink for Null {
+    fn begin(&mut self, _: &[dbine_driver::transfer::TransferColumn]) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn batch(&mut self, _: dbine_driver::transfer::RowBatch) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 #[tokio::test]

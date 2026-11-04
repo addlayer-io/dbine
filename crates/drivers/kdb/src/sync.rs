@@ -1,8 +1,8 @@
-//! Schema changes as q, for "Comparar esquemas", "Modificar tabla…" and
-//! "Renombrar…": a table in memory is a value, so each change rebuilds it
-//! and assigns it back (`t:update c:first `long$() from t`,
-//! `t:delete c from t`, `t:update c:`float$c from t`, a rename with
-//! `xcol`, a key with `xkey`).
+//! Schema changes as q, for "Comparar esquemas" and "Modificar tabla…"
+//! ("Renombrar…" is [`crate::rename`]): a table in memory is a value, so
+//! each change rebuilds it and assigns it back
+//! (`t:update c:first `long$() from t`, `t:delete c from t`,
+//! `t:update c:`float$c from t`, a key with `xkey`).
 //!
 //! Tables of a database on disk (partitioned or splayed) are refused: each
 //! column is a file, and changing one means rewriting it on the server
@@ -14,10 +14,7 @@
 use crate::cells::{meta_letter, type_name};
 use crate::edit::{plain, qref, qstr, qsym, table_ddl};
 use crate::{PARTITIONED, SPLAYED};
-use dbine_driver::{
-    kinds, ColumnDef, DdlParts, Error, RenameRequest, RenameSpec, RenameTarget, Result, SyncScript,
-    TableChange, TableSchema,
-};
+use dbine_driver::{ColumnDef, DdlParts, Error, Result, SyncScript, TableChange, TableSchema};
 
 const DROP: DdlParts = DdlParts {
     drop: true,
@@ -42,25 +39,14 @@ fn on_disk_message(name: &str) -> String {
     )
 }
 
-fn exists_message(name: &str) -> String {
+pub(crate) fn exists_message(name: &str) -> String {
     format!("Ya existe «{}»: no se reemplaza.", name)
 }
 
 /// Said with every script that changes something.
-const IN_MEMORY: &str = "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).";
+pub(crate) const IN_MEMORY: &str = "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).";
 
-/// What [`crate::KdbDriver::rename_spec`] answers: tables in memory and
-/// their columns; q code that names them is listed, never rewritten.
-pub fn rename_spec() -> RenameSpec {
-    RenameSpec {
-        kinds: vec![kinds::TABLE.into()],
-        columns: true,
-        references: dbine_driver::rename::ReferenceStyle::None,
-        ..RenameSpec::default()
-    }
-}
-
-fn refuse_on_disk(kind: &str, name: &str) -> Result<()> {
+pub(crate) fn refuse_on_disk(kind: &str, name: &str) -> Result<()> {
     if kind == PARTITIONED || kind == SPLAYED {
         Err(Error::Unsupported(on_disk_message(name)))
     } else {
@@ -69,7 +55,7 @@ fn refuse_on_disk(kind: &str, name: &str) -> Result<()> {
 }
 
 /// The server-side check that `name` isn't a table on disk.
-fn on_disk_guard(name: &str) -> String {
+pub(crate) fn on_disk_guard(name: &str) -> String {
     format!(
         "if[not 0~@[{{.Q.qp get x}};{};0];'{}]",
         qsym(name),
@@ -78,7 +64,7 @@ fn on_disk_guard(name: &str) -> String {
 }
 
 /// The server-side check that nothing is named `name` yet.
-fn absent_guard(name: &str) -> String {
+pub(crate) fn absent_guard(name: &str) -> String {
     format!(
         "if[@[{{get x;1b}};{};0b];'{}]",
         qsym(name),
@@ -87,7 +73,7 @@ fn absent_guard(name: &str) -> String {
 }
 
 /// `name:expr`, or `` (`$"…") set expr `` for a name that isn't plain.
-fn assign(name: &str, expr: &str) -> String {
+pub(crate) fn assign(name: &str, expr: &str) -> String {
     if plain(name) {
         format!("{name}:{expr}")
     } else {
@@ -95,7 +81,7 @@ fn assign(name: &str, expr: &str) -> String {
     }
 }
 
-fn column_name(c: &str) -> Result<&str> {
+pub(crate) fn column_name(c: &str) -> Result<&str> {
     if plain(c) && !c.contains('.') {
         Ok(c)
     } else {
@@ -233,6 +219,7 @@ pub fn script(changes: &[TableChange]) -> Result<SyncScript> {
                 }
                 creates.push(absent_guard(&t.name));
                 creates.push(table_ddl(&t, CREATE)?);
+                creates.extend(crate::attrs::create(&t)?);
             }
             TableChange::Alter { old, new } => {
                 refuse_on_disk(&old.kind, &old.name)?;
@@ -266,6 +253,7 @@ fn alter(
         .collect();
     let mut added = Vec::new();
     let mut casts = Vec::new();
+    let mut recast = Vec::new();
     for n in &new.columns {
         column_name(&n.name)?;
         let to = letter(name, n)?;
@@ -286,6 +274,7 @@ fn alter(
                             name, n.name, o.data_type, n.data_type
                         ));
                         casts.push(assign(name, &format!("update {}:{e} from {r}", n.name)));
+                        recast.push(n.name.as_str());
                     }
                     None => warnings.push(format!(
                         "La columna {}.{} no se convierte de {} a {}: q no tiene un cast directo entre esos tipos; cambiala a mano.",
@@ -298,8 +287,11 @@ fn alter(
     let old_key = key_of(old);
     let new_key = usable_key(new, warnings)?;
     let key_changed = old_key != new_key;
+    // Attributes go on after the casts (a cast takes them off).
+    let gone: Vec<&str> = dropped.iter().map(|c| c.name.as_str()).collect();
+    let attrs = crate::attrs::alter(old, new, &gone, &recast, warnings)?;
     let changes = !dropped.is_empty() || !added.is_empty() || !casts.is_empty();
-    if !changes && !key_changed {
+    if !changes && !key_changed && attrs.is_empty() {
         return Ok(());
     }
     out.push(on_disk_guard(name));
@@ -325,58 +317,47 @@ fn alter(
     }
     out.extend(added);
     out.extend(casts);
+    out.extend(attrs);
     if !new_key.is_empty() && (unkeyed || key_changed) {
         out.push(assign(name, &format!("{} xkey {r}", symbols(&new_key))));
     }
     Ok(())
 }
 
-/// "Renombrar…": a table in memory (copied to the new name, then the old
-/// one deleted) or one of its columns (`xcol`).
-pub fn rename(req: &RenameRequest) -> Result<SyncScript> {
-    let new = req.new_name.as_str();
-    let statements = match &req.target {
-        RenameTarget::Column { table, column } => {
-            refuse_on_disk(&table.kind, &table.name)?;
-            let (old, new) = (column_name(column)?, column_name(new)?);
-            let (name, r) = (table.name.as_str(), qref(&table.name));
-            vec![
-                on_disk_guard(name),
-                format!("if[`{new} in cols {r};'{}]", qstr(&exists_message(new))),
-                assign(
-                    name,
-                    &format!("@[cols {r};where cols[{r}]=`{old};:;`{new}] xcol {r}"),
-                ),
-            ]
-        }
-        RenameTarget::Object { object, .. } if object.kind == kinds::TABLE => {
-            let old = TableSchema {
-                name: object.name.clone(),
-                ..Default::default()
-            };
-            vec![
-                on_disk_guard(&object.name),
-                absent_guard(new),
-                assign(new, &qref(&object.name)),
-                table_ddl(&old, DROP)?,
-            ]
-        }
-        RenameTarget::Object { object, .. } => {
-            refuse_on_disk(&object.kind, &object.name)?;
-            return Err(Error::Unsupported("este motor no renombra objetos".into()));
-        }
-        _ => return Err(Error::Unsupported("este motor no renombra objetos".into())),
-    };
-    Ok(SyncScript {
-        statements,
-        warnings: vec![IN_MEMORY.into()],
-    })
+/// "Nuevo esquema…": an empty namespace, a dictionary with only the empty
+/// name (as kdb+ starts one), if nothing has the name yet. A namespace is
+/// also made by its first object (`.ns.t:…`).
+pub fn create_namespace(name: &str) -> Result<String> {
+    let ns = crate::names::top_namespace(name)?;
+    Ok(format!(
+        "{}\n`{ns} set (enlist`)!enlist(::)",
+        absent_guard(&ns)
+    ))
+}
+
+/// "Borrar esquema…": the namespace taken out of the root's (`` ![`;…] ``)
+/// with its objects, or, without `cascade`, only when it holds none; the
+/// server checks first that it is one.
+pub fn drop_namespace(name: &str, cascade: bool) -> Result<String> {
+    let ns = crate::names::top_namespace(name)?;
+    let mut out = vec![format!(
+        "if[not @[{{99h=type get x}};`{ns};0b];'{}]",
+        qstr(&format!("No existe el espacio de nombres {ns}."))
+    )];
+    if !cascade {
+        out.push(format!(
+            "if[count (key `{ns}) except `;'{}]",
+            qstr(&format!("El espacio de nombres {ns} tiene objetos: borralos antes, o borralo con su contenido."))
+        ));
+    }
+    out.push(format!("![`;();0b;enlist `{}]", &ns[1..]));
+    Ok(out.join("\n"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dbine_driver::{KeyDef, ObjectRef};
+    use dbine_driver::{kinds, KeyDef};
 
     fn col(n: &str, ty: &str) -> ColumnDef {
         ColumnDef {
@@ -585,60 +566,39 @@ mod tests {
     }
 
     #[test]
-    fn renames() {
-        let tref = |kind: &str, name: &str| ObjectRef {
-            kind: kind.into(),
-            schema: None,
-            name: name.into(),
-        };
-        let req = |target, new: &str| RenameRequest {
-            target,
-            new_name: new.into(),
-            table: None,
-            definition: None,
-        };
-        let s = rename(&req(
-            RenameTarget::Column {
-                table: tref(kinds::TABLE, "t"),
-                column: "px".into(),
-            },
-            "price",
-        ))
-        .unwrap();
+    fn namespaces_are_created_and_dropped() {
+        let c = create_namespace("ns").unwrap();
         assert_eq!(
-            s.statements[2],
-            "t:@[cols t;where cols[t]=`px;:;`price] xcol t"
+            c,
+            "if[@[{get x;1b};`.ns;0b];'\"Ya existe «.ns»: no se reemplaza.\"]\n`.ns set (enlist`)!enlist(::)"
         );
-        assert!(s.statements[1].starts_with("if[`price in cols t;'\"Ya existe"));
-        let s = rename(&req(
-            RenameTarget::Object {
-                object: tref(kinds::TABLE, ".ns.t"),
-                parent: None,
-            },
-            ".ns.u",
-        ))
-        .unwrap();
+        assert_eq!(create_namespace(".ns").unwrap(), c);
+        let d = drop_namespace(".ns", false).unwrap();
         assert_eq!(
-            s.statements[2..],
-            [".ns.u:.ns.t", "![`.ns;();0b;enlist `t]"]
+            d.lines().collect::<Vec<_>>(),
+            [
+                "if[not @[{99h=type get x};`.ns;0b];'\"No existe el espacio de nombres .ns.\"]",
+                "if[count (key `.ns) except `;'\"El espacio de nombres .ns tiene objetos: borralos antes, o borralo con su contenido.\"]",
+                "![`;();0b;enlist `ns]",
+            ]
         );
-        assert!(rename(&req(
-            RenameTarget::Column {
-                table: tref(SPLAYED, "s"),
-                column: "a".into(),
-            },
-            "b",
-        ))
-        .is_err());
-        assert!(rename(&req(
-            RenameTarget::Object {
-                object: tref(kinds::VIEW, "v"),
-                parent: None,
-            },
-            "w",
-        ))
-        .is_err());
-        assert!(rename_spec().columns);
+        let all = drop_namespace(".ns", true).unwrap();
+        assert_eq!(all.lines().count(), 2);
+        assert!(!all.contains("tiene objetos"));
+        // Never kdb+'s own, DBine's staging one, a nested one or a name
+        // that isn't q's.
+        for bad in [
+            ".z",
+            "Q",
+            ".dbine_stage",
+            ".a.b",
+            ".ns;system\"x\"",
+            "n s",
+            "",
+        ] {
+            assert!(create_namespace(bad).is_err(), "{bad}");
+            assert!(drop_namespace(bad, true).is_err(), "{bad}");
+        }
     }
 
     #[test]

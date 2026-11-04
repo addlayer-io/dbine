@@ -30,7 +30,7 @@ import {
   keywordCompletionSource,
 } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
-import { qCompletion, qLanguage } from '../composables/qLanguage';
+import { qCompletion, qLanguage, qPath } from '../composables/qLanguage';
 import { editorTheme } from '../composables/editorTheme';
 import { editorFontSize, resolvedTheme } from '../composables/appearance';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
@@ -301,7 +301,8 @@ function qExtension(): Extension {
       if (n.asked.has(t)) continue;
       n.asked.add(t);
       reopenAt = ctx.pos;
-      emit('needColumns', [t]);
+      // `.ns.t` is `t` of the namespace (schema) `.ns`.
+      emit('needColumns', qPath(t));
     }
     return result;
   };

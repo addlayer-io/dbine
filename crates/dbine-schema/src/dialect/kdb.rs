@@ -1,7 +1,14 @@
 //! kdb+ (q). A table is a set of typed columns, keyed or not; a keyed
 //! table's key columns are its primary key (`([id:`long$()] px:`float$())`).
 //! There are no NOT NULL (every type has its null), defaults,
-//! auto-increment, foreign keys in the DDL, indexes or comments.
+//! auto-increment, foreign keys in the DDL or comments. Its indexes are
+//! attributes, one per column at most (`s#` sorted, `u#` unique, `p#`
+//! parted, `g#` grouped): a unique index of one column becomes `u#` and
+//! any other of one column `g#` (a hash index, the closest to a secondary
+//! index); one of several columns has no attribute to be. From kdb+, each
+//! attribute is an index of its column, unique for `u#`. A schema is a
+//! namespace (`sales` → `.sales`; none, or the source's default mapped to
+//! `""`, is the root).
 //!
 //! Types are `meta`'s, by name as the driver reports them: `boolean`,
 //! `guid`, `byte`, `short`, `int`, `long`, `real`, `float`, `char`,
@@ -10,9 +17,10 @@
 //! list` for a column whose cells are lists of longs (`J`), and `list` for a
 //! general list (`meta`'s blank), whose cells may hold anything.
 //!
-//! What doesn't carry over: attributes (`s#`, `u#`, `p#`, `g#`: neither
-//! read nor written), enumerations (a database's `sym` columns read as
-//! symbols) and general lists (no neutral type: reported as unknown).
+//! What doesn't carry over: an attribute's kind to another engine (its
+//! index stays, of the default kind), enumerations (a database's `sym`
+//! columns read as symbols) and general lists (no neutral type: reported
+//! as unknown).
 //! A symbol reads as text of any length and other engines' text comes in
 //! as `string`: q can't tell a category from free text.
 
@@ -21,7 +29,7 @@ use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Report, Severity};
 use crate::logical::LogicalType as L;
 use crate::parse::TypeSpec;
-use dbine_driver::TableSchema;
+use dbine_driver::{IndexDef, TableSchema};
 use std::collections::HashSet;
 
 pub struct Kdb;
@@ -302,7 +310,7 @@ impl Dialect for Kdb {
             foreign_keys: false,
             on_delete: &[],
             on_update: &[],
-            indexes: false,
+            indexes: true,
             partial_indexes: false,
             supports_include: false,
             auto_increment: false,
@@ -315,13 +323,29 @@ impl Dialect for Kdb {
     }
 
     /// Names q can't take become valid ones (as `.Q.id` does: other
-    /// characters out, a letter first, a `1` after a reserved word), and a
-    /// key that holds every column is left out: a keyed table needs a
-    /// column outside its key.
+    /// characters out, a letter first, a `1` after a reserved word), a key
+    /// that holds every column is left out (a keyed table needs a column
+    /// outside its key), and indexes become attributes ([`attributes`]).
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
         use Severity::*;
         let source = t.name.clone();
+        if let Some(s) = t.schema.take() {
+            t.schema = namespace(&s);
+            if let Some(ns) = t
+                .schema
+                .as_deref()
+                .filter(|ns| ns[1..] != *s.trim_start_matches('.'))
+            {
+                report.push(
+                    Info,
+                    IdentifierRenamed,
+                    &source,
+                    None,
+                    format!("«{s}» pasa a llamarse «{ns}»."),
+                );
+            }
+        }
         let fixed = q_name(&t.name);
         if fixed != t.name {
             report.push(
@@ -356,6 +380,14 @@ impl Dialect for Kdb {
                         *kc = name.clone();
                     }
                 }
+                for ic in t
+                    .indexes
+                    .iter_mut()
+                    .flat_map(|i| i.columns.iter_mut())
+                    .filter(|ic| **ic == c.name)
+                {
+                    *ic = name.clone();
+                }
                 c.name = name;
             }
         }
@@ -376,13 +408,111 @@ impl Dialect for Kdb {
                 key_without_values(&cols),
             );
         }
+        attributes(t, &source, report);
     }
+}
+
+/// The attribute (`s`, `u`, `p`, `g`) an index of one column is: the one
+/// its kind names (a kdb+ index), else `u` for a unique one and `g` for
+/// any other.
+fn attribute(ix: &IndexDef) -> char {
+    let kind = ix.kind.as_deref().unwrap_or("").trim();
+    match kind.strip_suffix('#').unwrap_or(kind) {
+        _ if ix.unique => 'u',
+        "s" => 's',
+        "p" => 'p',
+        _ => 'g',
+    }
+}
+
+/// `t`'s indexes as attributes, one per column, each an index named
+/// after it (`g#sym`). An index of several columns, or a second one on a
+/// column, is left out and said; of two on a column a unique one stays.
+fn attributes(t: &mut TableSchema, source: &str, report: &mut Report) {
+    use IssueCode::*;
+    use Severity::*;
+    let mut out: Vec<IndexDef> = Vec::new();
+    for ix in std::mem::take(&mut t.indexes) {
+        let [c] = ix.columns.as_slice() else {
+            report.push(
+                Dropped,
+                IndexDropped,
+                source,
+                Some(&ix.name),
+                format!(
+                    "{}: q no tiene índices de varias columnas; un atributo (s#, u#, p#, g#) es de una sola.",
+                    ix.name
+                ),
+            );
+            continue;
+        };
+        let c = c.clone();
+        let a = attribute(&ix);
+        let attr = IndexDef {
+            name: format!("{a}#{c}"),
+            columns: vec![c.clone()],
+            unique: a == 'u',
+            kind: Some(format!("{a}#")),
+            ..Default::default()
+        };
+        if let Some(i) = out.iter().position(|o| o.columns[0] == *c) {
+            let (gone, kept) = if a == 'u' && !out[i].unique {
+                (std::mem::replace(&mut out[i], attr), &out[i])
+            } else {
+                (ix, &out[i])
+            };
+            report.push(
+                Warning,
+                IndexDropped,
+                source,
+                Some(&gone.name),
+                format!(
+                    "{c}: q admite un atributo por columna; queda {}.",
+                    kept.name
+                ),
+            );
+            continue;
+        }
+        if ix.kind.as_deref() != attr.kind.as_deref() {
+            report.push(
+                Info,
+                IndexChanged,
+                source,
+                Some(&ix.name),
+                format!(
+                    "«{}» pasa a ser el atributo {a}# de la columna {c}.",
+                    ix.name
+                ),
+            );
+        }
+        out.push(attr);
+    }
+    t.indexes = out;
 }
 
 /// Why a keyed table whose key holds every column stays unkeyed (the
 /// driver's sync says the same).
 fn key_without_values(cols: &str) -> String {
     format!("Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({cols}).")
+}
+
+/// kdb+'s own namespaces and DBine's staging one: a schema never becomes
+/// one of them.
+const OWN_NAMESPACES: &[&str] = &["q", "Q", "h", "j", "o", "z", "dbine_stage"];
+
+/// A schema as the namespace it is in q: `sales` → `.sales` (a name q
+/// takes, never one of kdb+'s own); `None` for an empty one (the source's
+/// default schema, which the app maps to `""`) or `.`: the root.
+fn namespace(schema: &str) -> Option<String> {
+    let s = schema.trim().trim_start_matches('.');
+    if s.is_empty() {
+        return None;
+    }
+    let mut n = q_name(s);
+    if OWN_NAMESPACES.contains(&n.as_str()) {
+        n.push('1');
+    }
+    Some(format!(".{n}"))
 }
 
 /// `name` as q takes it: letters, digits and `_`, starting with a letter,
@@ -411,6 +541,7 @@ fn q_name(name: &str) -> String {
 mod tests {
     use super::*;
     use crate::parse::parse;
+    use crate::Options;
     use dbine_driver::{ColumnDef, KeyDef};
 
     fn p(s: &str) -> L {
@@ -591,6 +722,63 @@ mod tests {
     }
 
     #[test]
+    fn schemas_become_namespaces() {
+        let ns = |s: Option<&str>| {
+            let mut t = TableSchema {
+                schema: s.map(String::from),
+                name: "t".into(),
+                ..Default::default()
+            };
+            let mut rep = Report::default();
+            Kdb.finalize(&mut t, &mut rep);
+            (t.schema, rep.issues.len())
+        };
+        assert_eq!(ns(Some("sales")), (Some(".sales".into()), 0));
+        // Already q's, the root, and none.
+        assert_eq!(ns(Some(".sales")), (Some(".sales".into()), 0));
+        assert_eq!(ns(Some("")), (None, 0));
+        assert_eq!(ns(Some(".")), (None, 0));
+        assert_eq!(ns(None), (None, 0));
+        // Fixed as a name is, and said; never kdb+'s own.
+        assert_eq!(ns(Some("my schema")), (Some(".my_schema".into()), 1));
+        assert_eq!(ns(Some("dfs.tmp")), (Some(".dfs_tmp".into()), 1));
+        assert_eq!(ns(Some("z")), (Some(".z1".into()), 1));
+        assert_eq!(ns(Some("Q")), (Some(".Q1".into()), 1));
+        assert_eq!(ns(Some("dbine_stage")), (Some(".dbine_stage1".into()), 1));
+        // A default schema the app maps to the root, end to end.
+        let src = |schema: &str| TableSchema {
+            kind: "table".into(),
+            schema: Some(schema.into()),
+            name: "orders".into(),
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                data_type: "bigint".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = Options {
+            keep_schemas: true,
+            rename_schemas: vec![("public".into(), String::new())],
+            ..Options::default()
+        };
+        let r = crate::convert(&[src("public"), src("sales")], "postgres", "kdb", &opts).unwrap();
+        let got: Vec<(Option<&str>, &str)> = r
+            .tables
+            .iter()
+            .map(|t| (t.schema.as_deref(), t.name.as_str()))
+            .collect();
+        assert_eq!(got, [(None, "orders"), (Some(".sales"), "orders")]);
+        // Into one schema the user names, with or without its dot.
+        let one = Options {
+            target_schema: Some("ns".into()),
+            ..Options::default()
+        };
+        let r = crate::convert(&[src("public")], "postgres", "kdb", &one).unwrap();
+        assert_eq!(r.tables[0].schema.as_deref(), Some(".ns"));
+    }
+
+    #[test]
     fn finalize_fixes_names_and_a_key_of_every_column() {
         let col = |n: &str| ColumnDef {
             name: n.into(),
@@ -628,5 +816,153 @@ mod tests {
         Kdb.finalize(&mut link, &mut rep);
         assert!(link.primary_key.is_none());
         assert_eq!(rep.issues[0].code, IssueCode::PrimaryKeyDropped);
+    }
+
+    fn index(name: &str, cols: &[&str], unique: bool, kind: Option<&str>) -> IndexDef {
+        IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            unique,
+            kind: kind.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    fn with_indexes(cols: &[(&str, &str)], indexes: Vec<IndexDef>) -> TableSchema {
+        TableSchema {
+            name: "orders".into(),
+            columns: cols
+                .iter()
+                .map(|(n, t)| ColumnDef {
+                    name: n.to_string(),
+                    data_type: t.to_string(),
+                    ..Default::default()
+                })
+                .collect(),
+            indexes,
+            ..Default::default()
+        }
+    }
+
+    /// `(name, column, unique, kind)` of each index.
+    fn shape(t: &TableSchema) -> Vec<(String, String, bool, String)> {
+        t.indexes
+            .iter()
+            .map(|i| {
+                (
+                    i.name.clone(),
+                    i.columns.join(","),
+                    i.unique,
+                    i.kind.clone().unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn indexes_become_attributes_and_back() {
+        let pg = with_indexes(
+            &[
+                ("id", "bigint"),
+                ("code", "text"),
+                ("customer", "integer"),
+                ("day", "date"),
+                ("select", "text"),
+            ],
+            vec![
+                index("ix_code", &["code"], true, Some("btree")),
+                index("ix_customer", &["customer"], false, None),
+                index("ix_day_customer", &["day", "customer"], false, None),
+                index("ix_code2", &["code"], false, Some("hash")),
+                index("ix_select", &["select"], false, None),
+            ],
+        );
+        let r = crate::convert(
+            std::slice::from_ref(&pg),
+            "postgres",
+            "kdb",
+            &Options::default(),
+        )
+        .unwrap();
+        // One attribute per column: u# for a unique index, g# for another;
+        // `select`, renamed by q's rules, keeps its index.
+        assert_eq!(
+            shape(&r.tables[0]),
+            [
+                (
+                    "u#code".to_string(),
+                    "code".to_string(),
+                    true,
+                    "u#".to_string()
+                ),
+                ("g#customer".into(), "customer".into(), false, "g#".into()),
+                ("g#select1".into(), "select1".into(), false, "g#".into()),
+            ]
+        );
+        let dropped: Vec<&str> = r
+            .issues
+            .iter()
+            .filter(|i| i.code == IssueCode::IndexDropped)
+            .filter_map(|i| i.object.as_deref())
+            .collect();
+        assert_eq!(dropped, ["ix_day_customer", "ix_code2"], "{:?}", r.issues);
+
+        // From kdb+: each attribute is an index of its column; u# unique.
+        let q = with_indexes(
+            &[("sym", "symbol"), ("id", "long"), ("time", "timestamp")],
+            vec![
+                index("g#sym", &["sym"], false, Some("g#")),
+                index("u#id", &["id"], true, Some("u#")),
+                index("s#time", &["time"], false, Some("s#")),
+            ],
+        );
+        let to_pg = crate::convert(
+            std::slice::from_ref(&q),
+            "kdb",
+            "postgres",
+            &Options::default(),
+        )
+        .unwrap();
+        let got: Vec<(String, bool, Option<String>)> = to_pg.tables[0]
+            .indexes
+            .iter()
+            .map(|i| (i.columns.join(","), i.unique, i.kind.clone()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("sym".to_string(), false, None),
+                ("id".into(), true, None),
+                ("time".into(), false, None),
+            ]
+        );
+        // q to q keeps each attribute.
+        let same =
+            crate::convert(std::slice::from_ref(&q), "kdb", "kdb", &Options::default()).unwrap();
+        assert_eq!(shape(&same.tables[0]), shape(&q));
+    }
+
+    #[test]
+    fn a_unique_index_wins_its_column() {
+        let mut t = with_indexes(
+            &[("a", "long")],
+            vec![
+                index("x", &["a"], false, None),
+                index("y", &["a"], true, None),
+            ],
+        );
+        let mut rep = Report::default();
+        Kdb.finalize(&mut t, &mut rep);
+        assert_eq!(
+            shape(&t),
+            [("u#a".to_string(), "a".to_string(), true, "u#".to_string())]
+        );
+        let gone: Vec<&str> = rep
+            .issues
+            .iter()
+            .filter(|i| i.code == IssueCode::IndexDropped)
+            .filter_map(|i| i.object.as_deref())
+            .collect();
+        assert_eq!(gone, ["g#a"]);
     }
 }
