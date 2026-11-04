@@ -26,15 +26,20 @@ use tokio::sync::Notify;
 
 pub mod cells;
 mod chart;
+mod clone;
 pub mod conn;
+mod delta;
 pub mod edit;
 pub mod guard;
 pub mod ipc;
 pub mod load;
 mod monitor;
+mod read;
 pub mod script;
+mod stage;
 mod steps;
 pub mod sync;
+mod write;
 
 use ipc::K;
 
@@ -277,6 +282,40 @@ impl Driver for KdbDriver {
     /// (see [`load`]).
     fn supports_bulk_load(&self) -> bool {
         true
+    }
+
+    /// Between kdb+ processes: md5 bucket sums on the server, applied in
+    /// one step (see [`delta`]).
+    fn supports_delta(&self) -> bool {
+        true
+    }
+
+    fn delta_filter(
+        &self,
+        spec: &dbine_driver::transfer::DeltaSpec,
+        buckets: &[i64],
+    ) -> Result<String> {
+        delta::filter(spec, buckets)
+    }
+
+    /// Tables with their key, types, attributes and links, functions and
+    /// views (see [`clone`]).
+    fn supports_clone(&self) -> bool {
+        true
+    }
+
+    async fn clone_script(
+        &self,
+        source: &mut dyn Session,
+        _target: &mut dyn Session,
+        tables: &[ObjectRef],
+    ) -> Result<dbine_driver::transfer::CloneScript> {
+        clone::script(source, tables).await
+    }
+
+    /// Every mode, staged and applied in one step (see [`write`]).
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        write::modes()
     }
 
     async fn connect(
@@ -839,6 +878,56 @@ impl Session for KdbSession {
             progress(total);
         }
         Ok(total)
+    }
+
+    /// Typed pages of the table, filtered on the server (see [`read`]).
+    async fn read_batches(
+        &mut self,
+        spec: &dbine_driver::transfer::ReadSpec,
+        sink: dbine_driver::transfer::BatchSinkRef,
+    ) -> Result<u64> {
+        read::read_batches(self, spec, sink).await
+    }
+
+    async fn key_range(
+        &mut self,
+        table: &ObjectRef,
+        column: &str,
+    ) -> Result<Option<(i64, i64, u64)>> {
+        delta::key_range(self, table, column).await
+    }
+
+    async fn delta_summary(
+        &mut self,
+        spec: &dbine_driver::transfer::DeltaSpec,
+    ) -> Result<Vec<dbine_driver::transfer::BucketSum>> {
+        delta::summary(self, spec).await
+    }
+
+    async fn delta_apply(
+        &mut self,
+        spec: &dbine_driver::transfer::DeltaSpec,
+        buckets: &[i64],
+        columns: &[dbine_driver::transfer::TransferColumn],
+        source: &mut dyn dbine_driver::transfer::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::transfer::DeltaResult> {
+        delta::apply(self, spec, buckets, columns, source, progress).await
+    }
+
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::transfer::TransferColumn],
+        source: &mut dyn dbine_driver::transfer::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        write::write_rows(self, spec, columns, source, progress).await
+    }
+
+    /// For [`clone`]'s catalog read.
+    fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
+        Some(self)
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {

@@ -47,7 +47,7 @@ fn exists_message(name: &str) -> String {
 }
 
 /// Said with every script that changes something.
-const IN_MEMORY: &str = "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).";
+pub(crate) const IN_MEMORY: &str = "kdb+ cambia las tablas en la memoria del proceso: para conservarlas después de reiniciarlo hay que guardarlas (save, set).";
 
 /// What [`crate::KdbDriver::rename_spec`] answers: tables in memory and
 /// their columns; q code that names them is listed, never rewritten.
@@ -95,7 +95,7 @@ fn assign(name: &str, expr: &str) -> String {
     }
 }
 
-fn column_name(c: &str) -> Result<&str> {
+pub(crate) fn column_name(c: &str) -> Result<&str> {
     if plain(c) && !c.contains('.') {
         Ok(c)
     } else {
