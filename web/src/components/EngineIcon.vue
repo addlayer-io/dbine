@@ -35,6 +35,10 @@ const ICON_OF: Record<string, string> = {
   // ids as the drivers declare them
   'aurora-mysql': 'amazonwebservices', 'cloudsql-mysql': 'googlecloud', oracle_adb: 'oracle',
   sparksql: 'apachespark',
+  access: 'microsoftaccess', db2: 'ibmdb2', db2i: 'ibmdb2', db2zos: 'ibmdb2', informix: 'ibm',
+  cache: 'intersystems', iris: 'intersystems', ingres: 'actian', zen: 'actian', netsuite: 'oracle',
+  avatica: 'apachecalcite', cloudberry: 'apachecloudberry', drill: 'apachedrill', iotdb: 'apacheiotdb',
+  timechodb: 'apacheiotdb', ignite: 'apacheignite', ignite3: 'apacheignite', gbase8s: 'gbase', heavydb: 'heavyai',
 };
 
 const src = computed(() => {
