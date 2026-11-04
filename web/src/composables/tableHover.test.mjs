@@ -110,3 +110,10 @@ test('other languages: the word the explorer knows', () => {
   const mongo = { ...IDX, language: 'json', dialect: '', objects: [obj('pedidos', null, 'table')] };
   assert.equal(at('db.pedi|dos.find({})', mongo).name, 'pedidos');
 });
+
+test("q: a namespace's table by its whole name, a root one by its own", () => {
+  const q = { ...IDX, language: 'redis', dialect: 'q', objects: [obj('t'), obj('t', '.ns'), obj('trade')] };
+  assert.deepEqual([at('select from .ns.|t', q).schema, at('select from .ns.|t', q).word], ['.ns', '.ns.t']);
+  assert.deepEqual([at('select from |t where a>1', q).schema, at('select from |t where a>1', q).word], [null, 't']);
+  assert.equal(at('select from .u.tr|ade', q), null);
+});

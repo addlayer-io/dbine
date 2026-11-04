@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { CompletionContext } from '@codemirror/autocomplete';
 import { StringStream } from '@codemirror/language';
-import { qCompletion, qLanguage, qParser, statementAround, tablesNamed } from './qLanguage.ts';
+import { qCompletion, qLanguage, qParser, qPath, statementAround, tablesNamed } from './qLanguage.ts';
 import { lexRegions, lexSyntax, maskCode } from './sqlLexer.ts';
 
 /** Each line's tokens as [text, style], blanks left out. */
@@ -118,6 +118,13 @@ test('a statement continues on lines that start with a blank', () => {
   const doc = 'a:1\nselect from trade\n  where sym=`A\nb:2';
   assert.equal(statementAround(doc, doc.indexOf('where')), 'select from trade\n  where sym=`A');
   assert.deepEqual(tablesNamed('select from .u.t', ['t', '.u.t']), ['.u.t']);
+});
+
+test("a namespace's name is the explorer's path to it: [namespace, name]", () => {
+  assert.deepEqual(qPath('.u.t'), ['.u', 't']);
+  assert.deepEqual(qPath('.ns.a.b'), ['.ns', 'a.b']);
+  assert.deepEqual(qPath('trade'), ['trade']);
+  assert.deepEqual(qPath('.foo'), ['.foo']);
 });
 
 // -- the shared lexer ----------------------------------------------------------------------------

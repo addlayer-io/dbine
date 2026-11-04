@@ -656,3 +656,88 @@ async fn live_indexes_become_attributes() {
     assert_eq!(uniques.len(), 2);
     q(&mut s, "delete dbine_meta_sc_ix from `.").await.unwrap();
 }
+
+/// A migration's tables from PostgreSQL's schemas into kdb+, as the app
+/// plans it (schemas kept, the default one to the root): `sales` lands in
+/// the namespace `.dbine_sc_sales`, `public` in the root, and the rows go
+/// to each by the converted table's (schema, name).
+#[tokio::test]
+#[ignore]
+async fn live_schemas_land_in_namespaces() {
+    use dbine_driver::transfer::{BatchSource, Cell, LoadSpec, RowBatch};
+    struct One(Option<RowBatch>);
+    #[dbine_driver::async_trait]
+    impl BatchSource for One {
+        async fn next(&mut self) -> Option<RowBatch> {
+            self.0.take()
+        }
+    }
+    let Some(cfg) = kdb_cfg() else { return };
+    let d = driver("kdb");
+    let mut s = d.connect(&cfg, None).await.unwrap();
+    cleanup(&mut s).await;
+    let drop_ns = d.drop_schema_script(None, ".dbine_sc_sales", true).unwrap();
+    let _ = q(&mut s, &drop_ns).await;
+    let mut public = pg_source("dbine_sc_orders");
+    public.schema = Some("public".into());
+    let mut sales = public.clone();
+    sales.schema = Some("dbine_sc_sales".into());
+    let opts = Options {
+        keep_schemas: true,
+        rename_schemas: vec![("public".into(), String::new())],
+        ..Options::default()
+    };
+    let conv = convert(&[public, sales], "postgres", "kdb", &opts).unwrap();
+    let placed: Vec<(Option<&str>, &str)> = conv
+        .tables
+        .iter()
+        .map(|t| (t.schema.as_deref(), t.name.as_str()))
+        .collect();
+    assert_eq!(
+        placed,
+        [
+            (None, "dbine_sc_orders"),
+            (Some(".dbine_sc_sales"), "dbine_sc_orders")
+        ]
+    );
+    for (i, t) in conv.tables.iter().enumerate() {
+        let script = d
+            .sync_script(&[TableChange::Create { table: t.clone() }])
+            .unwrap();
+        run_all(&mut s, &script.statements).await;
+        let load = LoadSpec {
+            table: ObjectRef {
+                kind: "table".into(),
+                schema: t.schema.clone(),
+                name: t.name.clone(),
+            },
+            columns: vec!["id".into(), "qty".into()],
+            table_lock: false,
+            keep_identity: false,
+            commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+            commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+        };
+        let rows = (0..=i as i64)
+            .map(|n| vec![Cell::Int(n + 1), Cell::Int(10 * (n + 1))])
+            .collect();
+        let mut src = One(Some(RowBatch { rows, bytes: 0 }));
+        let n = s.bulk_load(&load, &[], &mut src, &|_| {}).await.unwrap();
+        assert_eq!(n, i as u64 + 1);
+    }
+    // Each in its place: the root's has one row, the namespace's two.
+    let count = |o: &QueryOutcome| o.results[0].rows[0][0].clone();
+    let root = q(&mut s, "count dbine_sc_orders").await.unwrap();
+    assert_eq!(count(&root), serde_json::json!(1));
+    let ns = q(&mut s, "count .dbine_sc_sales.dbine_sc_orders")
+        .await
+        .unwrap();
+    assert_eq!(count(&ns), serde_json::json!(2));
+    let objs = s.list_objects().await.unwrap();
+    assert!(objs
+        .iter()
+        .any(|o| o.schema.as_deref() == Some(".dbine_sc_sales") && o.name == "dbine_sc_orders"));
+    let schemas = s.list_schemas().await.unwrap().unwrap();
+    assert!(schemas.iter().any(|x| x.name == ".dbine_sc_sales"));
+    run_all(&mut s, &[drop_ns]).await;
+    cleanup(&mut s).await;
+}

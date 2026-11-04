@@ -5,6 +5,8 @@
 //! The explorer lists the root namespace's tables, views, functions and
 //! variables, and those of the user's namespaces (`.ns.t`, `.u` of
 //! kdb+tick); kdb+'s own (`.q`, `.Q`, `.h`, `.j`, `.o`, `.z`) are left out.
+//! A namespace is a schema: `.ns.t` is `t` of schema `.ns`, a root object
+//! has none ([`names`], which also takes references written whole).
 //! Tables of a database on disk show apart: partitioned (an HDB's, read a
 //! partition at a time) and splayed (a file per column). Both are read
 //! only in the grid: their rows change by rewriting their files with q.
@@ -36,6 +38,7 @@ mod health;
 pub mod ipc;
 pub mod load;
 mod monitor;
+pub mod names;
 mod process;
 mod props;
 mod read;
@@ -73,6 +76,10 @@ pub const EXPLORER: &str = concat!(
     "([] ns:(count[n]+count b)#`$ns; k:(`$()),k,count[b]#`view; n:(`$()),n,b)};",
     "raze {[f;ns] @[f;ns;{([] ns:`$(); k:`$(); n:`$())}]}[f] each nsl}[]"
 );
+
+/// The root's namespaces (those that are dictionaries) as `` `.ns ``
+/// symbols, empty ones included, but the ones [`EXPLORER`] leaves out.
+pub const NAMESPACES: &str = "{n:(key `) except `q`Q`h`j`o`z`dbine_stage,`$\"\"; `$\".\",/:string n where {@[{99h=type get x};x;0b]} each `$\".\",/:string n}[]";
 
 /// Results bigger than this (as `-22!` measures them on the server) come
 /// back to the grid as their first rows and their count, instead of whole.
@@ -154,7 +161,8 @@ fn info() -> DriverInfo {
             Field::read_only(),
         ],
         databases_label: "",
-        has_schemas: false,
+        // The namespaces (`.ns`); the root's objects have no schema.
+        has_schemas: true,
         object_kinds: vec![
             ObjectKindInfo::tables(),
             ObjectKindInfo::new(PARTITIONED, "Tablas particionadas", true, true, true),
@@ -188,8 +196,9 @@ impl Driver for KdbDriver {
         HELP
     }
 
-    /// A kdb+ process is one namespace tree (nothing to create or drop):
-    /// its memory and connections show in the Monitor, and a connection
+    /// A kdb+ process is one namespace tree (no database to create or
+    /// drop; its namespaces are schemas): its memory and connections show
+    /// in the Monitor, and a connection
     /// can be closed; its runtime settings are its properties ([`props`]).
     /// Linked columns (enumerations over a keyed table, `meta`'s `f`) are
     /// its foreign keys.
@@ -216,7 +225,42 @@ impl Driver for KdbDriver {
         edit::templates()
     }
 
+    /// A namespace is a schema, without owner or grants: created empty or
+    /// by its first object, dropped with its objects or only when empty
+    /// ([`sync::create_namespace`], [`sync::drop_namespace`]).
+    fn schema_spec(&self) -> Option<dbine_driver::SchemaSpec> {
+        Some(dbine_driver::SchemaSpec {
+            owner: false,
+            cascade: true,
+            privileges: Vec::new(),
+            grant_option: false,
+            ..Default::default()
+        })
+    }
+
+    fn create_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        _owner: Option<&str>,
+    ) -> Result<String> {
+        sync::create_namespace(name)
+    }
+
+    fn drop_schema_script(
+        &self,
+        _database: Option<&str>,
+        name: &str,
+        cascade: bool,
+    ) -> Result<String> {
+        sync::drop_namespace(name, cascade)
+    }
+
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        let table = &names::resolved_table(table)?;
+        if parts.create || parts.drop {
+            names::writable(&table.name)?;
+        }
         let ddl = edit::table_ddl(table, parts)?;
         if !parts.indexes || table.indexes.is_empty() {
             return Ok(ddl);
@@ -248,15 +292,41 @@ impl Driver for KdbDriver {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        sync::script(changes)
+        use dbine_driver::TableChange as C;
+        let table = |t: &TableSchema| {
+            let t = names::resolved_table(t)?;
+            names::writable(&t.name)?;
+            Ok::<_, Error>(t)
+        };
+        let changes = changes
+            .iter()
+            .map(|ch| {
+                Ok(match ch {
+                    C::Drop { table: t } => C::Drop { table: table(t)? },
+                    C::Create { table: t } => C::Create { table: table(t)? },
+                    C::Alter { old, new } => C::Alter {
+                        old: table(old)?,
+                        new: table(new)?,
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        sync::script(&changes)
     }
 
     fn rename_spec(&self) -> Option<dbine_driver::RenameSpec> {
         Some(sync::rename_spec())
     }
 
+    /// A namespaced table's new name is in its namespace (`u` of `.ns`
+    /// is `.ns.u`; [`names::resolved_rename`]).
     fn rename_script(&self, req: &dbine_driver::RenameRequest) -> Result<dbine_driver::SyncScript> {
-        sync::rename(req)
+        let req = names::resolved_rename(req)?;
+        if let dbine_driver::RenameTarget::Object { object, .. } = &req.target {
+            names::writable(&object.name)?;
+            names::writable(&req.new_name)?;
+        }
+        sync::rename(&req)
     }
 
     fn insert_script(
@@ -266,17 +336,17 @@ impl Driver for KdbDriver {
         rows: &[Vec<Value>],
     ) -> Result<String> {
         writable(target)?;
-        edit::insert_script(&target.name, columns, rows)
+        edit::insert_script(&names::resolved(target)?.name, columns, rows)
     }
 
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         writable(target)?;
-        edit::update_script(&target.name, changes)
+        edit::update_script(&names::resolved(target)?.name, changes)
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
         writable(target)?;
-        edit::delete_script(&target.name, keys)
+        edit::delete_script(&names::resolved(target)?.name, keys)
     }
 
     fn filtered_browse(
@@ -325,7 +395,7 @@ impl Driver for KdbDriver {
         spec: &dbine_driver::transfer::DeltaSpec,
         buckets: &[i64],
     ) -> Result<String> {
-        delta::filter(spec, buckets)
+        delta::filter(&delta_spec(spec)?, buckets)
     }
 
     /// Tables with their key, types, attributes and links, functions and
@@ -334,13 +404,23 @@ impl Driver for KdbDriver {
         true
     }
 
+    /// Each table of the script is named as `tables` name it (either
+    /// shape), so the app pairs it with its source table.
     async fn clone_script(
         &self,
         source: &mut dyn Session,
         _target: &mut dyn Session,
         tables: &[ObjectRef],
     ) -> Result<dbine_driver::transfer::CloneScript> {
-        clone::script(source, tables).await
+        let q: Vec<ObjectRef> = tables.iter().map(names::resolved).collect::<Result<_>>()?;
+        let mut script = clone::script(source, &q).await?;
+        for t in &mut script.tables {
+            if let Some(i) = q.iter().position(|r| r.name == t.table.name) {
+                t.table.schema = tables[i].schema.clone();
+                t.table.name = tables[i].name.clone();
+            }
+        }
+        Ok(script)
     }
 
     /// Every mode, staged and applied in one step (see [`write`]).
@@ -415,6 +495,21 @@ fn writable(target: &ObjectRef) -> Result<()> {
             "en kdb+ solo se editan filas de tablas: una vista se calcula y una variable se cambia con q".into(),
         ))
     }
+}
+
+/// `spec` with its table (`table` of it) by its q name
+/// ([`names::resolved`]).
+fn by_q_name<S: Clone>(spec: &S, table: fn(&mut S) -> &mut ObjectRef) -> Result<S> {
+    let mut s = spec.clone();
+    let t = table(&mut s);
+    *t = names::resolved(t)?;
+    Ok(s)
+}
+
+fn delta_spec(
+    spec: &dbine_driver::transfer::DeltaSpec,
+) -> Result<dbine_driver::transfer::DeltaSpec> {
+    by_q_name(spec, |s| &mut s.table)
 }
 
 /// The TLS settings: none, verified (by the system's or the given CA),
@@ -648,11 +743,13 @@ fn table_schema(o: DbObject, k: K) -> Option<TableSchema> {
             let [ref_column] = target_keys.as_slice() else {
                 return None;
             };
+            // The linked table's q name, as the explorer names it.
+            let (ref_schema, ref_table) = names::split(target);
             Some(dbine_driver::ForeignKeyDef {
                 name: None,
                 columns: vec![n.clone()],
-                ref_schema: None,
-                ref_table: target.clone(),
+                ref_schema,
+                ref_table,
                 ref_columns: vec![ref_column.clone()],
                 on_delete: None,
                 on_update: None,
@@ -661,7 +758,7 @@ fn table_schema(o: DbObject, k: K) -> Option<TableSchema> {
         .collect();
     Some(TableSchema {
         kind: o.kind,
-        schema: None,
+        schema: o.schema,
         name: o.name,
         columns,
         primary_key: (!keys.is_empty()).then_some(dbine_driver::KeyDef {
@@ -696,22 +793,14 @@ fn column_types(meta: &K, columns: &[String]) -> Vec<char> {
         .collect()
 }
 
-/// `name` in namespace `ns` (the root's, `.`: as is).
-fn qualified(ns: &str, name: &str) -> String {
-    if ns == "." || ns.is_empty() {
-        name.to_string()
-    } else {
-        format!("{ns}.{name}")
-    }
-}
-
 /// A table of any kind: in memory, partitioned or splayed.
 fn is_table(kind: &str) -> bool {
     kind == kinds::TABLE || kind == PARTITIONED || kind == SPLAYED
 }
 
 /// The objects of [`EXPLORER`]'s table, namespace by namespace (the root
-/// first): tables, views, functions, then the other variables.
+/// first): tables, views, functions, then the other variables. A
+/// namespace's are of that schema (`.ns`), the root's of none.
 fn explorer_objects(k: K) -> Vec<DbObject> {
     let K::Table(names, cols) = k else {
         return Vec::new();
@@ -747,8 +836,8 @@ fn explorer_objects(k: K) -> Vec<DbObject> {
             rank,
             DbObject {
                 kind: kind.into(),
-                schema: None,
-                name: qualified(ns, name),
+                schema: (ns != "." && !ns.is_empty()).then(|| ns.clone()),
+                name: name.clone(),
                 parent: None,
             },
         ));
@@ -790,12 +879,27 @@ impl Session for KdbSession {
         Ok(explorer_objects(self.q(EXPLORER).await?))
     }
 
+    /// Every namespace, so one just made (empty) shows.
+    async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
+        let k = self.read(NAMESPACES).await?;
+        Ok(Some(
+            k.symbols()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|name| dbine_driver::SchemaInfo {
+                    name,
+                    system: false,
+                })
+                .collect(),
+        ))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         if !is_table(&obj.kind) && obj.kind != kinds::VIEW {
             return Ok(Vec::new());
         }
         self.cancel.flag.store(false, Ordering::SeqCst);
-        let r = edit::qref(&obj.name);
+        let r = edit::qref(&names::resolved(obj)?.name);
         let meta = self.q(&format!("0!meta {r}")).await?;
         let keys = self
             .q(&format!("@[keys;{r};`$()]"))
@@ -843,11 +947,14 @@ impl Session for KdbSession {
         if tables.is_empty() {
             return Ok(Vec::new());
         }
-        let names = tables.iter().map(|o| o.name.clone()).collect();
+        let q = tables
+            .iter()
+            .map(|o| names::joined(o.schema.as_deref(), &o.name))
+            .collect();
         let k = self
             .request(&ipc::apply(
                 SCHEMA,
-                vec![K::Vector(0, ipc::Vector::Symbol(names))],
+                vec![K::Vector(0, ipc::Vector::Symbol(q))],
             ))
             .await?;
         Ok(tables
@@ -878,12 +985,11 @@ impl Session for KdbSession {
         if spec.columns.is_empty() {
             return Err(Error::Unsupported("no hay columnas que insertar".into()));
         }
+        let table = names::resolved(&spec.table)?.name;
+        names::writable(&table)?;
         self.cancel.flag.store(false, Ordering::SeqCst);
         let meta = self
-            .q(&format!(
-                "exec c!t from 0!meta {}",
-                edit::qref(&spec.table.name)
-            ))
+            .q(&format!("exec c!t from 0!meta {}", edit::qref(&table)))
             .await?;
         let types = column_types(&meta, &spec.columns);
         // The source's batches are gathered up to the commit window (and
@@ -916,10 +1022,10 @@ impl Session for KdbSession {
                 continue;
             }
             let sent = rows.len() as u64;
-            let table = load::table(&spec.columns, &types, &rows);
+            let rows_table = load::table(&spec.columns, &types, &rows);
             rows.clear();
             bytes = 0;
-            let msg = ipc::apply(load::LOAD, vec![K::Symbol(spec.table.name.clone()), table]);
+            let msg = ipc::apply(load::LOAD, vec![K::Symbol(table.clone()), rows_table]);
             total += match self.request(&msg).await? {
                 K::Long(n) if n >= 0 => n as u64,
                 _ => sent,
@@ -935,7 +1041,8 @@ impl Session for KdbSession {
         spec: &dbine_driver::transfer::ReadSpec,
         sink: dbine_driver::transfer::BatchSinkRef,
     ) -> Result<u64> {
-        read::read_batches(self, spec, sink).await
+        let spec = by_q_name(spec, |s| &mut s.table)?;
+        read::read_batches(self, &spec, sink).await
     }
 
     async fn key_range(
@@ -943,14 +1050,14 @@ impl Session for KdbSession {
         table: &ObjectRef,
         column: &str,
     ) -> Result<Option<(i64, i64, u64)>> {
-        delta::key_range(self, table, column).await
+        delta::key_range(self, &names::resolved(table)?, column).await
     }
 
     async fn delta_summary(
         &mut self,
         spec: &dbine_driver::transfer::DeltaSpec,
     ) -> Result<Vec<dbine_driver::transfer::BucketSum>> {
-        delta::summary(self, spec).await
+        delta::summary(self, &delta_spec(spec)?).await
     }
 
     async fn delta_apply(
@@ -961,7 +1068,9 @@ impl Session for KdbSession {
         source: &mut dyn dbine_driver::transfer::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::transfer::DeltaResult> {
-        delta::apply(self, spec, buckets, columns, source, progress).await
+        let spec = delta_spec(spec)?;
+        names::writable(&spec.table.name)?;
+        delta::apply(self, &spec, buckets, columns, source, progress).await
     }
 
     async fn write_rows(
@@ -971,7 +1080,9 @@ impl Session for KdbSession {
         source: &mut dyn dbine_driver::transfer::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<dbine_driver::WriteResult> {
-        write::write_rows(self, spec, columns, source, progress).await
+        let spec = by_q_name(spec, |s| &mut s.table)?;
+        names::writable(&spec.table.name)?;
+        write::write_rows(self, &spec, columns, source, progress).await
     }
 
     /// For [`clone`]'s catalog read.
@@ -981,6 +1092,7 @@ impl Session for KdbSession {
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         self.cancel.flag.store(false, Ordering::SeqCst);
+        let obj = &names::resolved(obj)?;
         let sym = edit::qsym(&obj.name);
         match obj.kind.as_str() {
             kinds::FUNCTION => Ok(match self.q(&format!("get {sym}")).await? {
@@ -1025,8 +1137,13 @@ impl Session for KdbSession {
         }
     }
 
+    /// A reference whose namespace isn't a q name opens as that error (a
+    /// browse can't fail here), never as q made of it.
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
-        edit::browse(&obj.kind, &obj.name, limit)
+        match names::resolved(obj) {
+            Ok(r) => edit::browse(&r.kind, &r.name, limit),
+            Err(e) => format!("'{}", edit::qstr(&e.to_string())),
+        }
     }
 
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
@@ -1107,6 +1224,7 @@ impl Session for KdbSession {
 
     /// Tables in memory and splayed by `count`, partitioned ones only when
     /// kdb+ already counted them ([`stats`]).
+    /// Named as the explorer names the tables (their namespace a schema).
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
         Ok(stats::estimates(self.read(&stats::query()).await?))
     }
@@ -1233,18 +1351,19 @@ mod tests {
                 syms(&["upd", "x", "quotes", "trade", "v"]),
             ],
         );
-        let got: Vec<(String, String)> = explorer_objects(t)
+        let got: Vec<(String, Option<String>, String)> = explorer_objects(t)
             .into_iter()
-            .map(|o| (o.kind, o.name))
+            .map(|o| (o.kind, o.schema, o.name))
             .collect();
+        // A namespace is the schema of its objects; the root's have none.
         assert_eq!(
             got,
             [
-                ("table".to_string(), "trade".to_string()),
-                (PARTITIONED.into(), "quotes".into()),
-                ("view".into(), "v".into()),
-                (VARIABLE.into(), "x".into()),
-                ("function".into(), ".u.upd".into()),
+                ("table".to_string(), None, "trade".to_string()),
+                (PARTITIONED.into(), None, "quotes".into()),
+                ("view".into(), None, "v".into()),
+                (VARIABLE.into(), None, "x".into()),
+                ("function".into(), Some(".u".into()), "upd".into()),
             ]
         );
         assert!(explorer_objects(K::Nil).is_empty());

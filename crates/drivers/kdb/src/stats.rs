@@ -57,10 +57,12 @@ pub fn estimates(k: K) -> Vec<RowEstimate> {
                 "splayed" => SPLAYED,
                 _ => kinds::TABLE,
             };
+            // As the explorer names it: a namespace is its schema.
+            let (schema, name) = crate::names::split(&name);
             Some(RowEstimate {
                 object: ObjectRef {
                     kind: kind.into(),
-                    schema: None,
+                    schema,
                     name,
                 },
                 rows,
@@ -103,17 +105,17 @@ mod tests {
                 K::Vector(0, Vector::Long(vec![5, 600, 3, 0, i64::MIN])),
             ],
         );
-        let got: Vec<(String, String, u64)> = estimates(t)
+        let got: Vec<(String, Option<String>, String, u64)> = estimates(t)
             .into_iter()
-            .map(|e| (e.object.kind, e.object.name, e.rows))
+            .map(|e| (e.object.kind, e.object.schema, e.object.name, e.rows))
             .collect();
         assert_eq!(
             got,
             [
-                ("table".to_string(), "trade".to_string(), 5),
-                (PARTITIONED.into(), "quotes".into(), 600),
-                (SPLAYED.into(), "daily".into(), 3),
-                ("table".into(), ".ns.t".into(), 0),
+                ("table".to_string(), None, "trade".to_string(), 5),
+                (PARTITIONED.into(), None, "quotes".into(), 600),
+                (SPLAYED.into(), None, "daily".into(), 3),
+                ("table".into(), Some(".ns".into()), "t".into(), 0),
             ]
         );
         assert!(estimates(K::Nil).is_empty());

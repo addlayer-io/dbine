@@ -6,7 +6,9 @@
 //! parted, `g#` grouped): a unique index of one column becomes `u#` and
 //! any other of one column `g#` (a hash index, the closest to a secondary
 //! index); one of several columns has no attribute to be. From kdb+, each
-//! attribute is an index of its column, unique for `u#`.
+//! attribute is an index of its column, unique for `u#`. A schema is a
+//! namespace (`sales` → `.sales`; none, or the source's default mapped to
+//! `""`, is the root).
 //!
 //! Types are `meta`'s, by name as the driver reports them: `boolean`,
 //! `guid`, `byte`, `short`, `int`, `long`, `real`, `float`, `char`,
@@ -328,6 +330,22 @@ impl Dialect for Kdb {
         use IssueCode::*;
         use Severity::*;
         let source = t.name.clone();
+        if let Some(s) = t.schema.take() {
+            t.schema = namespace(&s);
+            if let Some(ns) = t
+                .schema
+                .as_deref()
+                .filter(|ns| ns[1..] != *s.trim_start_matches('.'))
+            {
+                report.push(
+                    Info,
+                    IdentifierRenamed,
+                    &source,
+                    None,
+                    format!("«{s}» pasa a llamarse «{ns}»."),
+                );
+            }
+        }
         let fixed = q_name(&t.name);
         if fixed != t.name {
             report.push(
@@ -476,6 +494,25 @@ fn attributes(t: &mut TableSchema, source: &str, report: &mut Report) {
 /// driver's sync says the same).
 fn key_without_values(cols: &str) -> String {
     format!("Una tabla con clave de q necesita al menos una columna fuera de la clave: la tabla queda sin clave ({cols}).")
+}
+
+/// kdb+'s own namespaces and DBine's staging one: a schema never becomes
+/// one of them.
+const OWN_NAMESPACES: &[&str] = &["q", "Q", "h", "j", "o", "z", "dbine_stage"];
+
+/// A schema as the namespace it is in q: `sales` → `.sales` (a name q
+/// takes, never one of kdb+'s own); `None` for an empty one (the source's
+/// default schema, which the app maps to `""`) or `.`: the root.
+fn namespace(schema: &str) -> Option<String> {
+    let s = schema.trim().trim_start_matches('.');
+    if s.is_empty() {
+        return None;
+    }
+    let mut n = q_name(s);
+    if OWN_NAMESPACES.contains(&n.as_str()) {
+        n.push('1');
+    }
+    Some(format!(".{n}"))
 }
 
 /// `name` as q takes it: letters, digits and `_`, starting with a letter,
@@ -682,6 +719,63 @@ mod tests {
             };
             assert_eq!(back, expect, "{t}");
         }
+    }
+
+    #[test]
+    fn schemas_become_namespaces() {
+        let ns = |s: Option<&str>| {
+            let mut t = TableSchema {
+                schema: s.map(String::from),
+                name: "t".into(),
+                ..Default::default()
+            };
+            let mut rep = Report::default();
+            Kdb.finalize(&mut t, &mut rep);
+            (t.schema, rep.issues.len())
+        };
+        assert_eq!(ns(Some("sales")), (Some(".sales".into()), 0));
+        // Already q's, the root, and none.
+        assert_eq!(ns(Some(".sales")), (Some(".sales".into()), 0));
+        assert_eq!(ns(Some("")), (None, 0));
+        assert_eq!(ns(Some(".")), (None, 0));
+        assert_eq!(ns(None), (None, 0));
+        // Fixed as a name is, and said; never kdb+'s own.
+        assert_eq!(ns(Some("my schema")), (Some(".my_schema".into()), 1));
+        assert_eq!(ns(Some("dfs.tmp")), (Some(".dfs_tmp".into()), 1));
+        assert_eq!(ns(Some("z")), (Some(".z1".into()), 1));
+        assert_eq!(ns(Some("Q")), (Some(".Q1".into()), 1));
+        assert_eq!(ns(Some("dbine_stage")), (Some(".dbine_stage1".into()), 1));
+        // A default schema the app maps to the root, end to end.
+        let src = |schema: &str| TableSchema {
+            kind: "table".into(),
+            schema: Some(schema.into()),
+            name: "orders".into(),
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                data_type: "bigint".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = Options {
+            keep_schemas: true,
+            rename_schemas: vec![("public".into(), String::new())],
+            ..Options::default()
+        };
+        let r = crate::convert(&[src("public"), src("sales")], "postgres", "kdb", &opts).unwrap();
+        let got: Vec<(Option<&str>, &str)> = r
+            .tables
+            .iter()
+            .map(|t| (t.schema.as_deref(), t.name.as_str()))
+            .collect();
+        assert_eq!(got, [(None, "orders"), (Some(".sales"), "orders")]);
+        // Into one schema the user names, with or without its dot.
+        let one = Options {
+            target_schema: Some("ns".into()),
+            ..Options::default()
+        };
+        let r = crate::convert(&[src("public")], "postgres", "kdb", &one).unwrap();
+        assert_eq!(r.tables[0].schema.as_deref(), Some(".ns"));
     }
 
     #[test]

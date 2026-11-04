@@ -608,6 +608,9 @@ pub fn designer() -> DesignerSpec {
     }
 }
 
+/// A new function in a namespace's node goes to it (`.ns.f`; in the root,
+/// `{schema}.` is left out). A view is the root's: over IPC kdb+ defines
+/// one only there (`.ns.v::…` assigns its value).
 pub fn templates() -> Vec<CreateTemplate> {
     vec![
         CreateTemplate {
@@ -618,7 +621,7 @@ pub fn templates() -> Vec<CreateTemplate> {
         CreateTemplate {
             kind: kinds::FUNCTION,
             label: "Nueva función",
-            template: "{name}:{[x;y]\n  x+y\n  }".into(),
+            template: "{schema}.{name}:{[x;y]\n  x+y\n  }".into(),
         },
     ]
 }

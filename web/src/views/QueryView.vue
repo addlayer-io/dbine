@@ -193,7 +193,8 @@ function namesIn(database: string, objs: DbObject[]): Record<string, string[]> {
     const kind = driver.value?.object_kinds.find((k) => k.id === o.kind);
     if (!kind?.has_columns) continue;
     const cols = conns.columns[objKey(props.tab.connectionId, database, o.schema, o.name)]?.items.map((c) => c.name) ?? [];
-    out[o.name] = cols;
+    // q names a namespace's table whole (`.ns.t`), never by its bare name.
+    if (!o.schema || driver.value?.dialect !== 'q') out[o.name] = cols;
     if (o.schema) out[`${o.schema}.${o.name}`] = cols;
   }
   return out;
@@ -206,7 +207,7 @@ const otherNames = computed(() => {
   const objs = conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? [];
   return objs
     .filter((o) => !driver.value?.object_kinds.find((k) => k.id === o.kind)?.has_columns)
-    .map((o) => ({ label: o.name, kind: o.kind }));
+    .map((o) => ({ label: o.schema ? `${o.schema}.${o.name}` : o.name, kind: o.kind }));
 });
 
 /** On engines whose queries read the connection's other databases

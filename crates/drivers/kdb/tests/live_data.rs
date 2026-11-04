@@ -1,5 +1,6 @@
 //! Moving data against a real kdb+ (`dbine-test-kdb`, see `tests/live.rs`):
-//! sync by rows, the notebook's write modes and a clone.
+//! sync by rows, the notebook's write modes, a clone, and namespaces as
+//! schemas (every hook on a namespace's table, in both reference shapes).
 //!
 //! The clone, and the check that two kdb+ processes hash a table alike,
 //! need a second one: the TLS server of `tests/live.rs`
@@ -800,4 +801,407 @@ async fn clone_between_two_processes() {
     for s in [&mut w, &mut tgt] {
         run(s, CLONE_CLEANUP).await;
     }
+}
+
+/// The namespaces test's own: `.dbine_kdbns` (its tables) and
+/// `.dbine_kdbns_e` (made empty), removed before and after it.
+const NS_CLEANUP: &str = "{@[{![`;();0b;enlist x]};x;::]} each `dbine_kdbns`dbine_kdbns_e";
+
+/// `name` of namespace `.dbine_kdbns`, as the explorer names it, and as a
+/// reference saved before namespaces were schemas names it.
+fn in_ns(name: &str) -> [ObjectRef; 2] {
+    [
+        ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some(".dbine_kdbns".into()),
+            name: name.into(),
+        },
+        table(&format!(".dbine_kdbns.{name}")),
+    ]
+}
+
+async fn schemas(s: &mut Box<dyn Session>) -> Vec<String> {
+    s.list_schemas()
+        .await
+        .unwrap()
+        .expect("kdb+ lists its namespaces")
+        .into_iter()
+        .map(|x| x.name)
+        .collect()
+}
+
+#[tokio::test]
+#[ignore]
+async fn namespaces_are_schemas() {
+    use dbine_driver::{RenameRequest, RenameTarget, TableChange};
+    let _one = STAGING.lock().await;
+    let d = kdb();
+    assert!(d.info().has_schemas);
+    let spec = d.schema_spec().unwrap();
+    assert!(spec.cascade && !spec.owner && spec.privileges.is_empty());
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    let mut ro = d.connect(&cfg(true), None).await.unwrap();
+    run(&mut s, NS_CLEANUP).await;
+
+    // "Nuevo esquema…": an empty namespace, listed (read-only too) though
+    // it holds nothing; made again, the server refuses it.
+    let create = d.create_schema_script(None, "dbine_kdbns_e", None).unwrap();
+    let mut out = QueryOutcome::default();
+    assert!(ro.execute(&create, 10, &mut out).await.is_err() || out.error.is_some());
+    run(&mut s, &create).await;
+    for x in [&mut s, &mut ro] {
+        assert!(schemas(x).await.contains(&".dbine_kdbns_e".to_string()));
+        assert!(!schemas(x)
+            .await
+            .iter()
+            .any(|n| n == ".q" || n == ".z" || n == ".dbine_stage"));
+    }
+    let mut out = QueryOutcome::default();
+    let again = s
+        .execute(&create, 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(again.contains("Ya existe"), "{again}");
+    assert!(d.create_schema_script(None, ".z", None).is_err());
+
+    // A namespace's tables are of that schema in the explorer.
+    run(
+        &mut s,
+        ".dbine_kdbns.r:([k:`a`b`c] n:1 2 3); .dbine_kdbns.t:([id:1 2 3] v:10 20 30f; r:`.dbine_kdbns.r$`a`b`c)",
+    )
+    .await;
+    let objs = s.list_objects().await.unwrap();
+    let t = objs
+        .iter()
+        .find(|o| o.name == "t" && o.schema.as_deref() == Some(".dbine_kdbns"))
+        .unwrap_or_else(|| panic!("{objs:?}"));
+    assert_eq!(t.kind, kinds::TABLE);
+    assert!(!objs.iter().any(|o| o.name.starts_with(".dbine_kdbns")));
+    assert!(schemas(&mut s).await.contains(&".dbine_kdbns".to_string()));
+    // Its catalog: the schema, and the link to a table of the same one.
+    let cat = s.database_schema().await.unwrap();
+    let ct = cat
+        .iter()
+        .find(|x| x.name == "t" && x.schema.as_deref() == Some(".dbine_kdbns"))
+        .unwrap()
+        .clone();
+    assert_eq!(ct.primary_key.as_ref().unwrap().columns, ["id"]);
+    let fk = &ct.foreign_keys[0];
+    assert_eq!(
+        (fk.ref_schema.as_deref(), fk.ref_table.as_str()),
+        (Some(".dbine_kdbns"), "r")
+    );
+    let counted = s.row_estimates().await.unwrap();
+    assert!(counted
+        .iter()
+        .any(|e| e.object.schema.as_deref() == Some(".dbine_kdbns")
+            && e.object.name == "t"
+            && e.rows == 3));
+
+    // Browse, columns and definition, in both shapes and read-only.
+    for r in in_ns("t") {
+        let b = s.browse_query(&r, 10);
+        assert_eq!(b, "select[10] from .dbine_kdbns.t");
+        assert_eq!(rows_of(&mut s, &b).await[0].len(), 3);
+        assert_eq!(rows_of(&mut ro, &b).await[0].len(), 3);
+        let cols = ro.columns(&r).await.unwrap();
+        assert_eq!(
+            cols.iter()
+                .map(|c| (c.name.as_str(), c.primary_key))
+                .collect::<Vec<_>>(),
+            [("id", true), ("v", false), ("r", false)]
+        );
+        assert_eq!(
+            s.definition(&r).await.unwrap().as_deref(),
+            Some(".dbine_kdbns.t:([id:`long$()] v:`float$(); r:`symbol$())")
+        );
+    }
+    // A namespace that isn't a q name opens as its error.
+    let bad = ObjectRef {
+        kind: kinds::TABLE.into(),
+        schema: Some(".x;exit 0".into()),
+        name: "t".into(),
+    };
+    let b = s.browse_query(&bad, 5);
+    let mut out = QueryOutcome::default();
+    let e = s.execute(&b, 5, &mut out).await;
+    assert!(
+        format!("{e:?}{:?}", out.error).contains("espacio de nombres"),
+        "{b}"
+    );
+    assert!(s.columns(&bad).await.is_err());
+
+    // Edited rows, in both shapes.
+    let [new, old] = in_ns("t");
+    let change = |id: i64, v: f64| dbine_driver::RowChange {
+        key: vec![("id".into(), json!(id))],
+        set: vec![("v".into(), json!(v))],
+        row: vec![],
+    };
+    run(&mut s, &d.update_script(&new, &[change(1, 11.0)]).unwrap()).await;
+    run(&mut s, &d.update_script(&old, &[change(2, 22.0)]).unwrap()).await;
+    assert_eq!(
+        value(&mut s, "exec v from .dbine_kdbns.t").await,
+        json!(11.0)
+    );
+    assert_eq!(value(&mut s, ".dbine_kdbns.t[2]`v").await, json!(22.0));
+    let cols = ["id".to_string(), "v".to_string()];
+    run(
+        &mut s,
+        &d.insert_script(&new, &cols, &[vec![json!(4), json!(40)]])
+            .unwrap(),
+    )
+    .await;
+    run(
+        &mut s,
+        &d.insert_script(&old, &cols, &[vec![json!(5), json!(50)]])
+            .unwrap(),
+    )
+    .await;
+    run(
+        &mut s,
+        &d.delete_script(&new, &[vec![("id".into(), json!(5))]])
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(value(&mut s, "count .dbine_kdbns.t").await, json!(4));
+
+    // Modify… (a column added from the catalog's table, dropped from an
+    // old-shape one), a column renamed and the table renamed in its
+    // namespace and back.
+    let mut wider = ct.clone();
+    wider.columns.push(dbine_driver::ColumnDef {
+        name: "w".into(),
+        data_type: "long".into(),
+        ..Default::default()
+    });
+    let add = d
+        .sync_script(&[TableChange::Alter {
+            old: ct.clone(),
+            new: wider.clone(),
+        }])
+        .unwrap();
+    for st in &add.statements {
+        run(&mut s, st).await;
+    }
+    assert_eq!(
+        value(&mut s, "meta[.dbine_kdbns.t][`w;`t]").await,
+        json!("j")
+    );
+    let as_old = |t: &dbine_driver::TableSchema| dbine_driver::TableSchema {
+        schema: None,
+        name: format!(".dbine_kdbns.{}", t.name),
+        ..t.clone()
+    };
+    let drop = d
+        .sync_script(&[TableChange::Alter {
+            old: as_old(&wider),
+            new: as_old(&ct),
+        }])
+        .unwrap();
+    for st in &drop.statements {
+        run(&mut s, st).await;
+    }
+    assert_eq!(
+        value(&mut s, "`w in cols .dbine_kdbns.t").await,
+        json!(false)
+    );
+    let rename = |target, new: &str| RenameRequest {
+        target,
+        new_name: new.into(),
+        table: None,
+        definition: None,
+    };
+    let col = d
+        .rename_script(&rename(
+            RenameTarget::Column {
+                table: new.clone(),
+                column: "v".into(),
+            },
+            "px",
+        ))
+        .unwrap();
+    for st in &col.statements {
+        run(&mut s, st).await;
+    }
+    assert_eq!(
+        value(&mut s, "`px in cols .dbine_kdbns.t").await,
+        json!(true)
+    );
+    let moved = d
+        .rename_script(&rename(
+            RenameTarget::Object {
+                object: new.clone(),
+                parent: None,
+            },
+            "u",
+        ))
+        .unwrap();
+    for st in &moved.statements {
+        run(&mut s, st).await;
+    }
+    assert_eq!(
+        value(&mut s, "{(`u in x) and not `t in x} key `.dbine_kdbns").await,
+        json!(true)
+    );
+    let back = d
+        .rename_script(&rename(
+            RenameTarget::Object {
+                object: in_ns("u")[1].clone(),
+                parent: None,
+            },
+            ".dbine_kdbns.t",
+        ))
+        .unwrap();
+    for st in &back.statements {
+        run(&mut s, st).await;
+    }
+    assert_eq!(value(&mut s, "count .dbine_kdbns.t").await, json!(4));
+
+    // A write cell and a bulk load into a namespace's table, both shapes.
+    let mut spec = write_spec("x", &["id", "px"], &["id"], WriteMode::Upsert);
+    spec.table = new.clone();
+    let r = write(
+        &mut s,
+        &spec,
+        vec![
+            vec![Cell::Int(1), Cell::Float(1.5)],
+            vec![Cell::Int(9), Cell::Float(9.5)],
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!((r.inserted, r.updated), (1, 1));
+    spec.table = old.clone();
+    spec.mode = WriteMode::Update;
+    let r = write(&mut s, &spec, vec![vec![Cell::Int(9), Cell::Float(9.0)]])
+        .await
+        .unwrap();
+    assert_eq!(r.updated, 1);
+    assert_eq!(value(&mut s, ".dbine_kdbns.t[9]`px").await, json!(9.0));
+    run(
+        &mut s,
+        ".dbine_kdbns.c:([id:`long$()] px:`float$(); r:`symbol$())",
+    )
+    .await;
+    let [cn, co] = in_ns("c");
+    let (cols, mut rows) = read_all(
+        &mut s,
+        &ReadSpec {
+            table: new.clone(),
+            columns: Some(vec!["id".into(), "px".into()]),
+            filter: None,
+        },
+    )
+    .await;
+    let load = |t: &ObjectRef| LoadSpec {
+        table: t.clone(),
+        columns: vec!["id".into(), "px".into()],
+        table_lock: false,
+        keep_identity: false,
+        commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+        commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+    };
+    s.bulk_load(&load(&cn), &cols, &mut rows, &|_| {})
+        .await
+        .unwrap();
+    assert_eq!(value(&mut s, "count .dbine_kdbns.c").await, json!(5));
+    // Sync by rows from `.dbine_kdbns.t` to `.dbine_kdbns.c` after a
+    // change, the target as an old reference names it.
+    run(&mut s, "update px:100f from `.dbine_kdbns.t where id=4").await;
+    let src = DeltaSpec {
+        table: new.clone(),
+        ..delta("x", &["id"], &["id", "px"], Buckets::Hash { n: 7 })
+    };
+    let tgt = DeltaSpec {
+        table: co.clone(),
+        ..src.clone()
+    };
+    let mut other = d.connect(&cfg(false), None).await.unwrap();
+    let (changed, r) = sync(d.as_ref(), &mut s, &mut other, &src, &tgt, false).await;
+    assert_eq!(changed.len(), 1, "{r:?}");
+    assert_eq!(value(&mut s, ".dbine_kdbns.c[4]`px").await, json!(100.0));
+    let (a, b) = same(&mut s, &mut ro, &src, &tgt).await;
+    assert_eq!(a, b);
+
+    // A clone names its tables as they were asked for.
+    let script = d
+        .clone_script(s.as_mut(), other.as_mut(), &[new.clone(), co.clone()])
+        .await
+        .unwrap();
+    let named: Vec<(Option<&str>, &str)> = script
+        .tables
+        .iter()
+        .map(|t| (t.table.schema.as_deref(), t.table.name.as_str()))
+        .collect();
+    assert_eq!(
+        named,
+        [(Some(".dbine_kdbns"), "t"), (None, ".dbine_kdbns.c")]
+    );
+    assert!(
+        script.tables[0].create.contains(".dbine_kdbns.t:([id:"),
+        "{script:?}"
+    );
+
+    // "Borrar esquema…": refused while it holds objects, then with them;
+    // the empty one without.
+    let mut out = QueryOutcome::default();
+    let e = s
+        .execute(
+            &d.drop_schema_script(None, ".dbine_kdbns", false).unwrap(),
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("tiene objetos"), "{e}");
+    assert_eq!(value(&mut s, "count .dbine_kdbns.t").await, json!(5));
+    let mut out = QueryOutcome::default();
+    assert!(
+        ro.execute(
+            &d.drop_schema_script(None, ".dbine_kdbns", true).unwrap(),
+            10,
+            &mut out
+        )
+        .await
+        .is_err()
+            || out.error.is_some()
+    );
+    run(
+        &mut s,
+        &d.drop_schema_script(None, ".dbine_kdbns", true).unwrap(),
+    )
+    .await;
+    run(
+        &mut s,
+        &d.drop_schema_script(None, "dbine_kdbns_e", false).unwrap(),
+    )
+    .await;
+    let left = schemas(&mut s).await;
+    assert!(
+        !left.iter().any(|n| n.starts_with(".dbine_kdbns")),
+        "{left:?}"
+    );
+    assert!(!s
+        .list_objects()
+        .await
+        .unwrap()
+        .iter()
+        .any(|o| o.schema.as_deref() == Some(".dbine_kdbns")));
+    let mut out = QueryOutcome::default();
+    let gone = s
+        .execute(
+            &d.drop_schema_script(None, ".dbine_kdbns", true).unwrap(),
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(gone.contains("No existe"), "{gone}");
+    // No staging table left behind.
+    assert_eq!(value(&mut s, "count key `.dbine_stage").await, json!(1));
+    run(&mut s, NS_CLEANUP).await;
 }

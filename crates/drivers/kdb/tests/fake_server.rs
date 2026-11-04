@@ -277,19 +277,28 @@ async fn connect_explore_and_query() {
     assert_eq!(s.list_databases().await.unwrap(), ["default"]);
 
     let objs = s.list_objects().await.unwrap();
-    let names: Vec<(String, String)> = objs.into_iter().map(|o| (o.kind, o.name)).collect();
+    let names: Vec<(String, String)> = objs
+        .into_iter()
+        .map(|o| {
+            (
+                o.kind,
+                format!("{}|{}", o.schema.unwrap_or_default(), o.name),
+            )
+        })
+        .collect();
+    // A namespace is its objects' schema; the root's have none.
     assert_eq!(
         names,
         [
-            ("table".to_string(), "trade".to_string()),
-            ("partitioned_table".into(), "quotes".into()),
-            ("splayed_table".into(), "daily".into()),
-            ("view".into(), "v1".into()),
-            ("function".into(), "f1".into()),
-            ("variable".into(), "x".into()),
-            ("function".into(), ".u.upd".into()),
-            ("variable".into(), ".u.w".into()),
-            ("table".into(), ".myns.t2".into()),
+            ("table".to_string(), "|trade".to_string()),
+            ("partitioned_table".into(), "|quotes".into()),
+            ("splayed_table".into(), "|daily".into()),
+            ("view".into(), "|v1".into()),
+            ("function".into(), "|f1".into()),
+            ("variable".into(), "|x".into()),
+            ("function".into(), ".u|upd".into()),
+            ("variable".into(), ".u|w".into()),
+            ("table".into(), ".myns|t2".into()),
         ]
     );
 

@@ -719,7 +719,8 @@ function schemaFor(connectionId: string, database: string): Record<string, strin
   for (const o of conns.objects[dbKey(connectionId, database)]?.items ?? []) {
     if (!d?.object_kinds.find((k) => k.id === o.kind)?.has_columns) continue;
     const cols = conns.columns[objKey(connectionId, database, o.schema, o.name)]?.items.map((c) => c.name) ?? [];
-    out[o.name] = cols;
+    // q names a namespace's table whole (`.ns.t`), never by its bare name.
+    if (!o.schema || d?.dialect !== 'q') out[o.name] = cols;
     if (o.schema) out[`${o.schema}.${o.name}`] = cols;
   }
   return out;

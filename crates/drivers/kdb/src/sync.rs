@@ -78,7 +78,7 @@ fn on_disk_guard(name: &str) -> String {
 }
 
 /// The server-side check that nothing is named `name` yet.
-fn absent_guard(name: &str) -> String {
+pub(crate) fn absent_guard(name: &str) -> String {
     format!(
         "if[@[{{get x;1b}};{};0b];'{}]",
         qsym(name),
@@ -336,6 +336,36 @@ fn alter(
         out.push(assign(name, &format!("{} xkey {r}", symbols(&new_key))));
     }
     Ok(())
+}
+
+/// "Nuevo esquema…": an empty namespace, a dictionary with only the empty
+/// name (as kdb+ starts one), if nothing has the name yet. A namespace is
+/// also made by its first object (`.ns.t:…`).
+pub fn create_namespace(name: &str) -> Result<String> {
+    let ns = crate::names::top_namespace(name)?;
+    Ok(format!(
+        "{}\n`{ns} set (enlist`)!enlist(::)",
+        absent_guard(&ns)
+    ))
+}
+
+/// "Borrar esquema…": the namespace taken out of the root's (`` ![`;…] ``)
+/// with its objects, or, without `cascade`, only when it holds none; the
+/// server checks first that it is one.
+pub fn drop_namespace(name: &str, cascade: bool) -> Result<String> {
+    let ns = crate::names::top_namespace(name)?;
+    let mut out = vec![format!(
+        "if[not @[{{99h=type get x}};`{ns};0b];'{}]",
+        qstr(&format!("No existe el espacio de nombres {ns}."))
+    )];
+    if !cascade {
+        out.push(format!(
+            "if[count (key `{ns}) except `;'{}]",
+            qstr(&format!("El espacio de nombres {ns} tiene objetos: borralos antes, o borralo con su contenido."))
+        ));
+    }
+    out.push(format!("![`;();0b;enlist `{}]", &ns[1..]));
+    Ok(out.join("\n"))
 }
 
 /// "Renombrar…": a table in memory (copied to the new name, then the old
@@ -646,6 +676,42 @@ mod tests {
         ))
         .is_err());
         assert!(rename_spec().columns);
+    }
+
+    #[test]
+    fn namespaces_are_created_and_dropped() {
+        let c = create_namespace("ns").unwrap();
+        assert_eq!(
+            c,
+            "if[@[{get x;1b};`.ns;0b];'\"Ya existe «.ns»: no se reemplaza.\"]\n`.ns set (enlist`)!enlist(::)"
+        );
+        assert_eq!(create_namespace(".ns").unwrap(), c);
+        let d = drop_namespace(".ns", false).unwrap();
+        assert_eq!(
+            d.lines().collect::<Vec<_>>(),
+            [
+                "if[not @[{99h=type get x};`.ns;0b];'\"No existe el espacio de nombres .ns.\"]",
+                "if[count (key `.ns) except `;'\"El espacio de nombres .ns tiene objetos: borralos antes, o borralo con su contenido.\"]",
+                "![`;();0b;enlist `ns]",
+            ]
+        );
+        let all = drop_namespace(".ns", true).unwrap();
+        assert_eq!(all.lines().count(), 2);
+        assert!(!all.contains("tiene objetos"));
+        // Never kdb+'s own, DBine's staging one, a nested one or a name
+        // that isn't q's.
+        for bad in [
+            ".z",
+            "Q",
+            ".dbine_stage",
+            ".a.b",
+            ".ns;system\"x\"",
+            "n s",
+            "",
+        ] {
+            assert!(create_namespace(bad).is_err(), "{bad}");
+            assert!(drop_namespace(bad, true).is_err(), "{bad}");
+        }
     }
 
     #[test]

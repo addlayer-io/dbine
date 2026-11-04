@@ -87,11 +87,12 @@ pub(crate) async fn script(source: &mut dyn Session, tables: &[ObjectRef]) -> Re
     };
     fresh(src);
     let objects = explorer_objects(read(src, EXPLORER).await?);
+    // By q name: a namespace's objects whole (`.ns.f`).
     let of = |kind: &str| -> Vec<String> {
         objects
             .iter()
             .filter(|o| o.kind == kind)
-            .map(|o| o.name.clone())
+            .map(|o| crate::names::joined(o.schema.as_deref(), &o.name))
             .collect()
     };
     let functions = of(kinds::FUNCTION);

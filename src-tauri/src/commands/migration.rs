@@ -533,10 +533,13 @@ pub(crate) fn default_schema(dialect: &str) -> Option<&'static str> {
     }
 }
 
-/// The source's default schema goes to the target's (`dbo` → `public`).
+/// The source's default schema goes to the target's (`dbo` → `public`);
+/// to kdb+'s root namespace, which has no name (`""`), on kdb+, whose
+/// schemas are its namespaces.
 pub(crate) fn default_schema_rename(from: &str, to: &str) -> Vec<(String, String)> {
     match (default_schema(from), default_schema(to)) {
         (Some(a), Some(b)) if a != b => vec![(a.to_string(), b.to_string())],
+        (Some(a), None) if to == "q" => vec![(a.to_string(), String::new())],
         _ => Vec::new(),
     }
 }
@@ -545,6 +548,8 @@ pub(crate) fn create_schema(dialect: &str, name: &str) -> Option<String> {
     let dq = format!("\"{}\"", name.replace('"', "\"\""));
     match dialect {
         "oracle" | "mysql" | "hive" | "sparksql" | "databricks" | "bigquery" | "clickhouse" => None,
+        // kdb+: a namespace is made by its first object (`.ns.t:…`).
+        "q" => None,
         // The engine's own default schema always exists.
         _ if default_schema(dialect) == Some(name) => None,
         "mssql" | "sybase" => Some(format!(
@@ -2865,6 +2870,77 @@ mod tests {
             Some("delete from `.ns.t")
         );
         assert_eq!(truncate_sql(kdb.as_ref(), &t(None, "t;exit 0")), None);
+    }
+
+    /// kdb+'s schemas are its namespaces: no `CREATE SCHEMA` (a namespace
+    /// comes with its first table) and the source's default schema goes to
+    /// the root; the other engines keep theirs.
+    #[test]
+    fn kdb_schemas_are_namespaces() {
+        assert_eq!(create_schema("q", "sales"), None);
+        assert_eq!(create_schema("q", ".sales"), None);
+        assert_eq!(default_schema("q"), None);
+        assert_eq!(
+            default_schema_rename("postgres", "q"),
+            [("public".to_string(), String::new())]
+        );
+        assert_eq!(
+            default_schema_rename("mssql", "q"),
+            [("dbo".to_string(), String::new())]
+        );
+        assert!(default_schema_rename("q", "postgres").is_empty());
+        assert!(default_schema_rename("mysql", "q").is_empty());
+        // Unchanged elsewhere.
+        assert_eq!(
+            default_schema_rename("mssql", "postgres"),
+            [("dbo".to_string(), "public".to_string())]
+        );
+        assert!(default_schema_rename("postgres", "duckdb").is_empty());
+        assert_eq!(
+            create_schema("postgres", "sales").as_deref(),
+            Some("CREATE SCHEMA IF NOT EXISTS \"sales\"")
+        );
+        // A migration's plan into kdb+: the tables of `sales` go to `.sales`,
+        // those of `public` to the root, without CREATE SCHEMA.
+        let Some(kdb) = dbine_drivers::find("kdb") else {
+            return;
+        };
+        assert!(kdb.info().has_schemas);
+        let src = |schema: &str| TableSchema {
+            kind: "table".into(),
+            schema: Some(schema.into()),
+            name: "orders".into(),
+            columns: vec![ColumnDef {
+                name: "id".into(),
+                data_type: "bigint".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = dbine_schema::Options {
+            keep_schemas: true,
+            rename_schemas: default_schema_rename("postgres", "q"),
+            ..Default::default()
+        };
+        let conv = dbine_schema::convert(&[src("public"), src("sales")], "postgres", "kdb", &opts)
+            .unwrap();
+        let create = DdlParts {
+            create: true,
+            ..Default::default()
+        };
+        let ddl: Vec<String> = conv
+            .tables
+            .iter()
+            .map(|t| kdb.table_ddl(t, create).unwrap())
+            .collect();
+        assert_eq!(
+            ddl,
+            ["orders:([] id:`long$())", ".sales.orders:([] id:`long$())"]
+        );
+        assert_eq!(
+            truncate_sql(kdb.as_ref(), &conv.tables[1]).as_deref(),
+            Some("delete from `.sales.orders")
+        );
     }
 
     fn dir(tag: &str) -> PathBuf {

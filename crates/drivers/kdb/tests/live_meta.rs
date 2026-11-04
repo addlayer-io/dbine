@@ -77,11 +77,18 @@ async fn row_counts_without_scanning() {
     };
     for s in [&mut w, &mut ro] {
         let e = s.row_estimates().await.unwrap();
-        let rows = |n: &str| e.iter().find(|x| x.object.name == n).map(|x| x.rows);
+        let rows = |n: &str| {
+            e.iter()
+                .find(|x| x.object.name == n && x.object.schema.is_none())
+                .map(|x| x.rows)
+        };
         assert_eq!(rows("dbine_meta_t"), Some(7), "{e:?}");
-        assert_eq!(rows(".dbine_meta.k"), Some(3), "{e:?}");
-        let k = e.iter().find(|x| x.object.name == ".dbine_meta.k").unwrap();
-        assert_eq!(k.object.kind, kinds::TABLE);
+        // A namespace's table, named as the explorer names it.
+        let k = e
+            .iter()
+            .find(|x| x.object.schema.as_deref() == Some(".dbine_meta") && x.object.name == "k")
+            .unwrap();
+        assert_eq!((k.object.kind.as_str(), k.rows), (kinds::TABLE, 3));
         if let (Some(t), Some(n)) = (&hdb, counted) {
             assert_eq!(rows(t), Some(n), "{e:?}");
         }
