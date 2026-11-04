@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-11-04",
-      "revision": "6a888e8d17ce",
+      "revision": "dff575651e26",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,10 +21,10 @@
     {
       "source": "trivy",
       "date": "2026-11-04",
-      "revision": "6a888e8d17ce",
+      "revision": "dff575651e26",
       "kind": "full",
       "scope": "whole repository",
-      "found": 0
+      "found": 2
     },
     {
       "source": "codeql",
@@ -4511,6 +4511,26 @@
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases",
       "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "TM-DS-0002-b007415f",
+      "source": "trivy",
+      "severity": "HIGH",
+      "kind": "Insecure configuration",
+      "title": "DS-0002: Image user should not be 'root'",
+      "component": ".clusterfuzzlite/Dockerfile",
+      "found": "2026-11-04",
+      "status": "open"
+    },
+    {
+      "id": "TM-DS-0026-b007415f",
+      "source": "trivy",
+      "severity": "LOW",
+      "kind": "Insecure configuration",
+      "title": "DS-0026: No HEALTHCHECK defined",
+      "component": ".clusterfuzzlite/Dockerfile",
+      "found": "2026-11-04",
       "status": "open"
     }
   ],

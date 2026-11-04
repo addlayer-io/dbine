@@ -10,12 +10,15 @@ _Updated 2026-11-04._
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
-| Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
+| Trivy (secrets, configuration) | 0 | 1 | 0 | 1 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| TM-DS-0002-b007415f | HIGH | trivy | DS-0002: Image user should not be 'root' | `.clusterfuzzlite/Dockerfile` | pending |
+| TM-DS-0026-b007415f | LOW | trivy | DS-0026: No HEALTHCHECK defined | `.clusterfuzzlite/Dockerfile` | pending |
 
 ## What the last scans covered
 
@@ -23,9 +26,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`6a888e8d1`](https://github.com/addlayer-io/dbine/commit/6a888e8d17ce) | 0 open | — |
+| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`dff575651`](https://github.com/addlayer-io/dbine/commit/dff575651e26) | 0 open | — |
 | scorecard | 2026-11-04 | repository settings and workflows at [`6a888e8d1`](https://github.com/addlayer-io/dbine/commit/6a888e8d17ce) | score 7/10 | — |
-| trivy | 2026-11-04 | whole repository at [`6a888e8d1`](https://github.com/addlayer-io/dbine/commit/6a888e8d17ce) | 0 open | — |
+| trivy | 2026-11-04 | whole repository at [`dff575651`](https://github.com/addlayer-io/dbine/commit/dff575651e26) | 2 open | — |
 
 ## Not counted, and why
 
