@@ -33,6 +33,7 @@ jobs:
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret,misconfig
+          trivyignores: .trivyignore.yaml
           format: sarif
           output: trivy.sarif
 
@@ -49,6 +50,7 @@ jobs:
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret,misconfig
+          trivyignores: .trivyignore.yaml
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
@@ -86,7 +88,7 @@ jobs:
       # stay the same as the root file.
       - name: OSV-Scanner exceptions in step
         run: |
-          for f in web/osv-scanner.toml mobile/osv-scanner.toml mobile/src-tauri/osv-scanner.toml; do
+          for f in web/osv-scanner.toml mobile/osv-scanner.toml mobile/src-tauri/osv-scanner.toml fuzz/osv-scanner.toml; do
             cmp osv-scanner.toml "$f"
           done
 

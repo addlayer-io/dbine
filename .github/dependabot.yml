@@ -18,7 +18,7 @@ updates:
       actions: { patterns: ["*"] }
 
   - package-ecosystem: cargo
-    directories: ["/", "/mobile/src-tauri"]
+    directories: ["/", "/mobile/src-tauri", "/fuzz"]
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 3
     ignore:
@@ -53,5 +53,5 @@ updates:
       pip: { patterns: ["*"] }
 
   - package-ecosystem: docker
-    directory: "/crates/drivers/kdb/tests/docker"
+    directories: ["/crates/drivers/kdb/tests/docker", "/.clusterfuzzlite"]
     schedule: { interval: weekly, day: monday }

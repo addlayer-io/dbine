@@ -1,0 +1,5 @@
+postgres://app:pw@db.example.com:5432/sales?sslmode=require
+mysql://root@127.0.0.1:3306/shop
+mongodb+srv://user:pw@cluster0.example.net/admin?retryWrites=true
+redis://:pw@localhost:6379/2
+sqlite:///var/data/app.db

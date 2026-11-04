@@ -3,9 +3,10 @@
 # page lists each one with its reason (SECURITY.md). Add an entry only after
 # checking that DBine can't reach the flaw, and say how it was checked.
 #
-# This same file sits next to each lockfile (web/, mobile/ and
-# mobile/src-tauri/): Scorecard reads only the one beside the lockfile it
-# scans. Change all four together; the Security workflow fails if they differ.
+# This same file sits next to each lockfile (web/, mobile/,
+# mobile/src-tauri/ and fuzz/): Scorecard reads only the one beside the
+# lockfile it scans. Change all five together; the Security workflow fails
+# if they differ.
 
 # glib 0.18 (Linux, with Tauri's GTK 3 stack; can't be upgraded on DBine's side).
 [[IgnoredVulns]]

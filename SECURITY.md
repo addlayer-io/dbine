@@ -24,6 +24,7 @@ fixed would put users at risk.
 | claude-security | A source-code security review: credentials, SQL that reaches a server, the driver protocol, files on disk, networking and the update path. Every finding is checked by an independent panel before it's reported | Before every release, on what the release adds since the previous one | A CRITICAL or HIGH finding blocks the release until it's fixed and scanned again |
 | [OSV-Scanner](https://google.github.io/osv-scanner/) | Advisories for every dependency in every lockfile, from the OSV database (RustSec, GitHub advisories); the same data Scorecard uses | Every push to `main` and weekly | Its open findings count on the status page |
 | [CodeQL](https://codeql.github.com) | Static analysis of the Rust, TypeScript/Vue and workflow code | Every push to `main`, every pull request and weekly | Informational; its open alerts count on the status page |
+| [ClusterFuzzLite](https://google.github.io/clusterfuzzlite/) | Fuzzing of the code that reads input DBine doesn't control: the driver plugin protocol, the signed driver index, pasted connection strings, the SQL script lexer and the phone link's handshake ([`fuzz/`](fuzz/)) | Every pull request that changes that code (5 minutes) and weekly (1 hour) | A crash fails the check |
 | [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/addlayer-io/dbine) | The repository's security practices | Every push to `main` and weekly | Informational |
 
 Dependabot proposes dependency updates every week. OSV-Scanner, Trivy,
@@ -34,7 +35,9 @@ claude-security release scan is added to it when it runs
 What was reviewed and found not to affect DBine is in the repository, each
 entry with how it was checked: dependency advisories in
 [`osv-scanner.toml`](osv-scanner.toml) and secret-scan false positives in
-[`trivy-secret.yaml`](trivy-secret.yaml). The status page lists them too.
+[`trivy-secret.yaml`](trivy-secret.yaml), which the status page lists too,
+and configuration findings that don't apply in
+[`.trivyignore.yaml`](.trivyignore.yaml), each scoped to its file.
 
 ## Verify a download
 

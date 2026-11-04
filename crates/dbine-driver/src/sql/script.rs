@@ -1359,9 +1359,13 @@ impl<'a> Splitter<'a> {
         None
     }
 
-    /// `--#SET TERMINATOR x` in the comment at `i..end`.
+    /// `--#SET TERMINATOR x` in the comment at `i..end`. Only a `--`
+    /// comment carries it: a `#` one (dialects with both) is one byte long.
     fn terminator_directive(&mut self, i: usize, end: usize) {
-        let body = self.sc.s[i + 2..end].trim_start();
+        let Some(body) = self.sc.s[i..end].strip_prefix("--") else {
+            return;
+        };
+        let body = body.trim_start();
         let Some(rest) = body.strip_prefix('#') else {
             return;
         };
@@ -1739,6 +1743,24 @@ mod tests {
                 ("SET TERM ;", StatementKind::ClientCommand),
                 ("select 1 from rdb$database", StatementKind::Sql),
             ]
+        );
+    }
+
+    /// Found by the fuzzer: with `#` comments too, a one-byte `#` comment
+    /// (at the end, or before a multibyte character) used to slice out of
+    /// bounds looking for the directive.
+    #[test]
+    fn terminator_directive_with_hash_comments() {
+        let d = ScriptDialect {
+            hash_comments: true,
+            ..ScriptDialect::db2()
+        };
+        for s in ["#", "#é\nselect 1;", "# x\n--#SET TERMINATOR @\nselect 1@"] {
+            split_script(s, &d);
+        }
+        assert_eq!(
+            texts("# x\n--#SET TERMINATOR @\nselect 1@", d),
+            vec!["select 1"]
         );
     }
 

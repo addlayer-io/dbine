@@ -1,0 +1,11 @@
+# Trivy findings reviewed and found not to apply, each scoped to its file and
+# with the reason (secret-scan false positives are in trivy-secret.yaml).
+misconfigurations:
+  - id: DS-0002
+    paths:
+      - ".clusterfuzzlite/Dockerfile"
+    statement: >-
+      ClusterFuzzLite's build image (OSS-Fuzz's base-builder-rust) runs its
+      `compile` step as root and writes the fuzz targets to /out; OSS-Fuzz
+      build images don't set a USER. It only builds the fuzz targets in CI;
+      nothing from it ships.

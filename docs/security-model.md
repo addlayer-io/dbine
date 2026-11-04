@@ -111,3 +111,15 @@ The checks in [SECURITY.md](../SECURITY.md#how-dbine-is-checked) (OSV-Scanner,
 Trivy, CodeQL, OpenSSF Scorecard and a claude-security review before each
 release) look for regressions against this model. Anything found goes on the
 status page until it's fixed.
+
+ClusterFuzzLite fuzzes the parsers on the trust boundaries above, with the
+targets in [`fuzz/`](../fuzz/): the frames a driver host sends, the driver
+index and its signature, pasted connection strings, SQL scripts (the lexer
+behind the read-only guard and the `UPDATE`/`DELETE` check) and the phone
+link's handshake. It runs on pull requests that change them and weekly
+(`.github/workflows/cflite.yml`); a crash fails the check. To run a target
+locally, with nightly Rust and `cargo install cargo-fuzz`:
+
+```sh
+cargo +nightly fuzz run sql_script fuzz/corpus/sql_script fuzz/seeds/sql_script -- -max_total_time=60
+```
