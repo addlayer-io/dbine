@@ -1,0 +1,6 @@
+# The Flathub workflow's Python tools (flatpak-builder-tools' cargo and node
+# generators). Regenerate with Python 3.12 (the workflow's):
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras --no-emit-index-url -o flathub.txt flathub.in
+aiohttp>=3.9,<4
+pyyaml>=6.0,<7
+tomlkit

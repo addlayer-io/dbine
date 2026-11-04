@@ -43,3 +43,15 @@ updates:
     groups:
       npm-minor:
         update-types: [minor, patch]
+
+  # The workflows' Python tools (pinned by hash in .github/requirements) and
+  # the kdb+ test image (pinned by digest).
+  - package-ecosystem: pip
+    directory: "/.github/requirements"
+    schedule: { interval: weekly, day: monday }
+    groups:
+      pip: { patterns: ["*"] }
+
+  - package-ecosystem: docker
+    directory: "/crates/drivers/kdb/tests/docker"
+    schedule: { interval: weekly, day: monday }

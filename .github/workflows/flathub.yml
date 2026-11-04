@@ -103,7 +103,9 @@ jobs:
         run: |
           git clone --quiet https://github.com/flatpak/flatpak-builder-tools "$RUNNER_TEMP/fbt"
           git -C "$RUNNER_TEMP/fbt" checkout --quiet "$BUILDER_TOOLS_COMMIT"
-          python -m pip install --quiet aiohttp tomlkit "$RUNNER_TEMP/fbt/node"
+          # Their Python dependencies, pinned by hash; the node generator runs
+          # from the checkout (python -m) instead of being installed.
+          python -m pip install --quiet --require-hashes -r .github/requirements/flathub.txt
 
       - name: Render the manifest, the metainfo and the offline sources
         env:
@@ -119,7 +121,7 @@ jobs:
             --env "DBINE_GOOGLE_CLIENT_SECRET=$DBINE_GOOGLE_CLIENT_SECRET" \
             --env "DBINE_MICROSOFT_CLIENT_ID=$DBINE_MICROSOFT_CLIENT_ID"
           python3 "$RUNNER_TEMP/fbt/cargo/flatpak-cargo-generator.py" src/Cargo.lock -o "$out/cargo-sources.json"
-          flatpak-node-generator npm src/web/package-lock.json -o "$out/node-sources.json"
+          PYTHONPATH="$RUNNER_TEMP/fbt/node" python3 -m flatpak_node_generator npm src/web/package-lock.json -o "$out/node-sources.json"
           # Flathub's repository README and build settings ride along.
           cp flatpak/flathub.json "$out/"
           ls -la "$out"

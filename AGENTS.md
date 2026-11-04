@@ -110,7 +110,7 @@ A release goes out only when **both** pass, on the release commit:
    --noEmit` and `npx vite build`, and `python3 scripts/i18n/check.py` and
    `python3 scripts/changelog.py check` (no problems and no untranslated
    values), on a clean worktree of that commit.
-2. **Security:** the `security` agent (`.claude/agents/security.md`) runs the
+2. **Security:** the `security` agent (`.claude/agents/security-gate.md`) runs the
    `claude-security` scan on what the release adds (since the last release
    users have) and returns PASS: a verified report with **no CRITICAL or
    HIGH findings**. MEDIUM and LOW findings are reported but don't block the
