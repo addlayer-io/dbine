@@ -167,7 +167,9 @@ async fn read_only_is_enforced_by_the_server() {
         assert!(e.contains("solo lectura"), "{q}: {e}");
     }
     let mut w = d.connect(&cfg(false), None).await.unwrap();
-    run(&mut w, "@[`.;`dbine_ro;:;0]").await;
+    // A plain assignment: an amend on the root namespace (`@[`.;…]`) is a
+    // 'par once an HDB is loaded there (an earlier test loads one).
+    run(&mut w, "dbine_ro:0").await;
     let mut out = QueryOutcome::default();
     w.execute("dbine_ro", 10, &mut out).await.unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!(0));
