@@ -1,0 +1,26 @@
+[package]
+name = "winauth"
+description = "Windows Authentication in Rust (NTLMv2)"
+repository = "https://github.com/steffengy/winauth-rs"
+documentation = "https://docs.rs/winauth/"
+version = "0.0.5"
+authors = ["Steffen Butzer <steffen.butzer@outlook.com>"]
+license = "MIT/Apache-2.0"
+keywords = ["ntlm", "sspi", "winauth"]
+edition = "2018"
+
+[dependencies]
+bitflags = "1.1"
+byteorder = "1.2.0"
+rand = "0.8.6" # PATCH(dbine): see PATCHES.md
+md5 = "0.6.1"
+base64 = { version = "0.10" }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winerror", "sspi"] }
+
+[dev-dependencies]
+hyper = "0.12"
+hyper-tls = "0.3"
+reqwest= "0.9"
+cfg-if = "0.1"
