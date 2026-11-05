@@ -50,7 +50,9 @@
     "noProjects": "프로젝트 없음: 마우스 오른쪽 버튼 › 프로젝트 연결…",
     "projectChanges_other": "커밋되지 않은 변경 {{count}}개",
     "file": "파일",
-    "fileTitle": "{{path}}에서 열었습니다. DBine을 닫으면 저장되지 않습니다. 유지하려면 마우스 오른쪽 버튼 › 연결 저장을 선택하세요."
+    "fileTitle": "{{path}}에서 열었습니다. DBine을 닫으면 저장되지 않습니다. 유지하려면 마우스 오른쪽 버튼 › 연결 저장을 선택하세요.",
+    "contexts": "컨텍스트",
+    "noContexts": "컨텍스트 없음: 마우스 오른쪽 버튼 › 새 컨텍스트"
   },
   "confirm": {
     "deleteConnection": "연결 \"{{name}}\"을(를) 삭제할까요?\n\n저장된 쿼리와 키체인의 비밀번호도 함께 삭제됩니다.",

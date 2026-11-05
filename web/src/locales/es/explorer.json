@@ -52,7 +52,9 @@
     "projectChanges_other": "{{count}} cambios sin confirmar",
     "projectChanges_many": "{{count}} cambios sin confirmar",
     "file": "Archivo",
-    "fileTitle": "Abierto desde {{path}}. No queda guardado al cerrar DBine: clic derecho › Guardar conexión para conservarlo."
+    "fileTitle": "Abierto desde {{path}}. No queda guardado al cerrar DBine: clic derecho › Guardar conexión para conservarlo.",
+    "contexts": "Contextos",
+    "noContexts": "Sin contextos: clic derecho › Nuevo contexto"
   },
   "confirm": {
     "deleteConnection": "¿Eliminar la conexión \"{{name}}\"?\n\nTambién se eliminan sus queries guardadas y su contraseña del llavero.",

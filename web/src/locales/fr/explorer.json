@@ -52,7 +52,9 @@
     "projectChanges_other": "{{count}} modifications non validées",
     "projectChanges_many": "{{count}} modifications non validées",
     "file": "Fichier",
-    "fileTitle": "Ouvert depuis {{path}}. Il n’est pas conservé à la fermeture de DBine : clic droit › Enregistrer la connexion pour le garder."
+    "fileTitle": "Ouvert depuis {{path}}. Il n’est pas conservé à la fermeture de DBine : clic droit › Enregistrer la connexion pour le garder.",
+    "contexts": "Contextes",
+    "noContexts": "Aucun contexte : clic droit › Nouveau contexte"
   },
   "confirm": {
     "deleteConnection": "Supprimer la connexion \"{{name}}\" ?\n\nSes requêtes enregistrées et son mot de passe dans le trousseau sont aussi supprimés.",

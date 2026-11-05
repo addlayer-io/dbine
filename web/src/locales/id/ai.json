@@ -17,7 +17,8 @@
     "tablesOf_other": "{{shown}} dari {{count}} tabel",
     "editor": "editor",
     "selection": "pilihan",
-    "lastError": "kesalahan terakhir"
+    "lastError": "kesalahan terakhir",
+    "contexts_other": "{{count}} konteks"
   },
   "suggest": {
     "whyFails": "Mengapa eksekusi terakhir gagal? Perbaiki.",
@@ -107,5 +108,30 @@
     "title": "Buka tautan",
     "body": "Jawaban asisten mengarah ke alamat ini. Buka hanya jika Anda memercayainya: sebuah tautan dapat mengirim data percakapan ke situs lain.",
     "open": "Buka di peramban"
+  },
+  "contexts": {
+    "tab": "Konteks",
+    "new": "Konteks baru",
+    "namePrompt": "Nama konteks",
+    "renameTitle": "Ganti nama konteks",
+    "deleteTitle": "Hapus konteks",
+    "deleteConfirm": "Konteks \"{{name}}\" akan dihapus. Lanjutkan?",
+    "active": "Aktif",
+    "off": "nonaktif",
+    "activate": "Aktifkan",
+    "deactivate": "Nonaktifkan",
+    "wholeConnection": "seluruh koneksi",
+    "placeholder": "Aturan dan pengetahuan yang harus diperhatikan asisten. Contoh: \"status = 3 berarti dibatalkan\" atau \"penjualan diukur tanpa retur\".",
+    "guidance": "Ini panduan untuk model, bukan batas keamanan: tidak melewati persetujuan pembacaan dan tidak mengaktifkan penulisan.",
+    "sharing": "Dengan Claude Code atau Codex, konteks dikirim ke Anthropic atau OpenAI bersama sisa pesan, dan ikut dalam backup serta sinkronisasi. Jangan masukkan kata sandi atau rahasia lainnya.",
+    "size_other": "{{shown}} karakter. Di setiap obrolan, semua konteks digabung dapat mencapai 6.000 karakter dengan model lokal dan 40.000 dengan Claude Code atau Codex.",
+    "inUse": "Konteks:",
+    "chipHint": "{{scope}}. Klik untuk mengaktifkan atau menonaktifkannya di percakapan ini.",
+    "leftOut": "Tidak muat dalam pesan dan model tidak menerimanya: {{names}}",
+    "global": "Instruksi umum",
+    "globalScope": "semua percakapan",
+    "settingsNav": "Asisten AI",
+    "globalHelp": "Instruksi ini berlaku di semua percakapan asisten, pada koneksi mana pun. Untuk yang hanya berlaku pada satu koneksi atau basis data, gunakan node Konteks di penjelajah.",
+    "globalPlaceholder": "Contoh: jawab dalam markdown dan sebutkan rentang tanggal setiap analisis."
   }
 }

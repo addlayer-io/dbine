@@ -23,7 +23,10 @@
     "tablesOf_other": "{{shown}} sur {{count}} tables",
     "editor": "éditeur",
     "selection": "sélection",
-    "lastError": "dernière erreur"
+    "lastError": "dernière erreur",
+    "contexts_one": "{{count}} contexte",
+    "contexts_many": "{{count}} contextes",
+    "contexts_other": "{{count}} contextes"
   },
   "suggest": {
     "whyFails": "Pourquoi la dernière exécution échoue-t-elle ? Corrige-la.",
@@ -117,5 +120,32 @@
     "title": "Ouvrir le lien",
     "body": "La réponse de l'assistant mène à cette adresse. Ouvrez-la seulement si vous lui faites confiance : un lien peut envoyer des données de la conversation à un autre site.",
     "open": "Ouvrir dans le navigateur"
+  },
+  "contexts": {
+    "tab": "Contexte",
+    "new": "Nouveau contexte",
+    "namePrompt": "Nom du contexte",
+    "renameTitle": "Renommer le contexte",
+    "deleteTitle": "Supprimer le contexte",
+    "deleteConfirm": "Le contexte « {{name}} » sera supprimé. Continuer ?",
+    "active": "Actif",
+    "off": "désactivé",
+    "activate": "Activer",
+    "deactivate": "Désactiver",
+    "wholeConnection": "toute la connexion",
+    "placeholder": "Règles et connaissances que l'assistant doit prendre en compte. Par exemple : « statut = 3 signifie annulé » ou « les ventes sont mesurées hors retours ».",
+    "guidance": "C'est une indication pour le modèle, pas une limite de sécurité : elle ne contourne pas l'approbation des lectures et n'autorise pas les écritures.",
+    "sharing": "Avec Claude Code ou Codex, il est envoyé à Anthropic ou à OpenAI avec le reste du message, et il circule dans les sauvegardes et la synchronisation. N'y mettez pas de mots de passe ni d'autres secrets.",
+    "size_one": "{{shown}} caractère. Dans chaque conversation, tous les contextes réunis peuvent totaliser jusqu'à 6 000 caractères avec un modèle local et 40 000 avec Claude Code ou Codex.",
+    "size_many": "{{shown}} caractères. Dans chaque conversation, tous les contextes réunis peuvent totaliser jusqu'à 6 000 caractères avec un modèle local et 40 000 avec Claude Code ou Codex.",
+    "size_other": "{{shown}} caractères. Dans chaque conversation, tous les contextes réunis peuvent totaliser jusqu'à 6 000 caractères avec un modèle local et 40 000 avec Claude Code ou Codex.",
+    "inUse": "Contextes :",
+    "chipHint": "{{scope}}. Cliquez pour l'activer ou le désactiver dans cette conversation.",
+    "leftOut": "Ils n'ont pas tenu dans le message et le modèle ne les a pas reçus : {{names}}",
+    "global": "Instructions générales",
+    "globalScope": "toutes les conversations",
+    "settingsNav": "Assistant IA",
+    "globalHelp": "Ces instructions s'appliquent à toutes les conversations de l'assistant, sur n'importe quelle connexion. Pour ce qui vaut sur une connexion ou une base, utilisez le nœud Contextes dans l'explorateur.",
+    "globalPlaceholder": "Par exemple : réponds en markdown et précise la plage de dates de chaque analyse."
   }
 }

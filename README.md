@@ -365,6 +365,9 @@ editor's one and answers about the database's structure.
   - Claude Code or Codex with the user's account, without tools.
 - **It never sends data rows.** As context it receives the engine, the
   structure and the editor.
+- **Contexts:** notes per connection or database, and instructions for every
+  conversation, that it gets in each new message. They guide it; they never
+  change what it's allowed to do.
 
 Details: [`docs/ai-assistant.md`](docs/ai-assistant.md).
 

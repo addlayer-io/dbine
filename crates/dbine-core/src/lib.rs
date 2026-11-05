@@ -18,6 +18,6 @@ pub use dbine_driver::{Error, Result};
 pub use ssh_profiles::SshProfile;
 pub use state::{
     BackupCopy, ConnectionFolder, ExplorerItem, HistoryEntry, LibraryScript, Project,
-    ProjectBinding, ProjectTarget, QueryVersion, SavedConnection, SavedMigration, SavedQuery,
-    StateChange, StateSnapshot, StateStore,
+    ProjectBinding, ProjectTarget, QueryVersion, SavedConnection, SavedContext, SavedMigration,
+    SavedQuery, StateChange, StateSnapshot, StateStore,
 };

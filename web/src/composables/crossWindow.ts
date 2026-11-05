@@ -92,6 +92,15 @@ const migrations: Handler = async (changes) => {
   if (loaded && gone.length) tabs.closeWhere((t) => t.kind === 'migration' && !!t.migrationId && gone.includes(t.migrationId));
 };
 
+/** Contexts: the lists this window loaded; a deleted one's tab goes. */
+const contexts: Handler = async (changes) => {
+  const conns = useConnectionsStore();
+  const tabs = useTabsStore();
+  await Promise.all(Object.keys(conns.contexts).map((id) => conns.loadContexts(id, true)));
+  const gone = [...deletedIds(changes)];
+  if (gone.length) tabs.closeWhere((t) => t.kind === 'context' && gone.includes(t.contextId) && !conns.contextById(t.contextId));
+};
+
 /** The language follows through App.vue's watch on the setting. */
 const settings: Handler = () => useSettingsStore().load();
 
@@ -121,6 +130,7 @@ const GROUPS: Partial<Record<Change['kind'], [string, Handler]>> = {
   explorer: ['connections', connections],
   query: ['queries', queries],
   migration: ['migrations', migrations],
+  context: ['contexts', contexts],
   setting: ['settings', settings],
   library: ['library', library],
   history: ['history', history],

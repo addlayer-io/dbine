@@ -51,7 +51,9 @@
     "projectChanges_one": "{{count}} nicht committete Änderung",
     "projectChanges_other": "{{count}} nicht committete Änderungen",
     "file": "Datei",
-    "fileTitle": "Geöffnet von {{path}}. Sie wird beim Schließen von DBine nicht behalten: Rechtsklick › Verbindung speichern, um sie zu behalten."
+    "fileTitle": "Geöffnet von {{path}}. Sie wird beim Schließen von DBine nicht behalten: Rechtsklick › Verbindung speichern, um sie zu behalten.",
+    "contexts": "Kontexte",
+    "noContexts": "Keine Kontexte: Rechtsklick › Neuer Kontext"
   },
   "confirm": {
     "deleteConnection": "Verbindung „{{name}}“ löschen?\n\nIhre gespeicherten Abfragen und ihr Passwort im Schlüsselbund werden ebenfalls gelöscht.",

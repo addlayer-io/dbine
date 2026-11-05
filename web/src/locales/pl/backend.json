@@ -11480,5 +11480,6 @@
   "«{0}» pasa a ser el atributo {1}# de la columna {2}.": "„{0}” staje się atrybutem {1}# kolumny {2}.",
   "«{0}»: desde DBine se crea o se borra un espacio de nombres de primer nivel, como .ns.": "„{0}”: z poziomu DBine tworzy się lub usuwa przestrzeń nazw najwyższego poziomu, taką jak .ns.",
   "«{0}»: kdb+ define una vista solo en el espacio de nombres raíz (fuera de él, solo desde un script con \\d), así que DBine renombra una vista del raíz a otro nombre del raíz.": "„{0}”: kdb+ definiuje widok tylko w głównej przestrzeni nazw (poza nią tylko ze skryptu z \\d), więc DBine zmienia nazwę widoku z głównej przestrzeni na inną nazwę w głównej przestrzeni.",
-  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "„{0}”: przestrzeń nazw zmienia nazwę na inną najwyższego poziomu, taką jak .ns2."
+  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "„{0}”: przestrzeń nazw zmienia nazwę na inną najwyższego poziomu, taką jak .ns2.",
+  "el contexto necesita un nombre": "kontekst wymaga nazwy"
 }

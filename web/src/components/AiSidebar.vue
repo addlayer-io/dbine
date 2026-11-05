@@ -9,6 +9,8 @@ import { newQuery } from '../composables/actions';
 import SparklesIcon from './SparklesIcon.vue';
 import { useAiStore, type UiMessage } from '../stores/ai';
 import { useConnectionsStore } from '../stores/connections';
+import { useSettingsStore } from '../stores/settings';
+import { GLOBAL_INSTRUCTIONS } from '../composables/contexts';
 import { useTabsStore } from '../stores/tabs';
 import { locale } from '../i18n';
 import { markdownParts, withDestinations } from '../composables/markdown';
@@ -62,6 +64,23 @@ const contextLine = computed(() => {
   const d = c ? conns.driverOf(cur.connectionId) : null;
   return [d?.name, c?.name, cur.database || null, bridge.value ? t('ai:context.openQuery') : null].filter(Boolean).join(' · ');
 });
+
+// The contexts this chat gets: the Settings text, then the connection's and
+// the database's (the same order as commands/ai.rs).
+const settings = useSettingsStore();
+watch(() => ai.target?.connectionId, (id) => { if (id) conns.loadContexts(id); }, { immediate: true });
+const chatContexts = computed(() => {
+  const out: { id: string; name: string; scope: string }[] = [];
+  if (settings.get<string>(GLOBAL_INSTRUCTIONS, '').trim()) out.push({ id: 'global', name: t('ai:contexts.global'), scope: t('ai:contexts.globalScope') });
+  const where = ai.target;
+  const saved = where ? conns.contexts[where.connectionId]?.items ?? [] : [];
+  const usable = saved.filter((x) => x.active && x.body.trim() && (!x.database || x.database === where?.database));
+  for (const x of [...usable.filter((c) => !c.database), ...usable.filter((c) => c.database)]) {
+    out.push({ id: x.id, name: x.name, scope: x.database || t('ai:contexts.wholeConnection') });
+  }
+  return out;
+});
+const leftOutName = (name: string) => (name === 'global' ? t('ai:contexts.global') : name);
 
 /** What the model selector shows: the model's own name (the built-in
  *  catalog's label, "Qwen2.5-Coder 32B"), or the provider's when it has no
@@ -299,6 +318,17 @@ const phaseText = computed(() => ({
         <span v-if="provider.local">{{ $t('ai:privacy.local') }}</span>
         <span v-else>{{ $t('ai:privacy.remote', { vendor: provider.kind === 'claude_code' ? 'Anthropic' : 'OpenAI' }) }}</span>
       </div>
+      <div v-if="chatContexts.length" class="ai-contexts">
+        <span class="ai-contexts-label">{{ $t('ai:contexts.inUse') }}</span>
+        <button
+          v-for="x in chatContexts"
+          :key="x.id"
+          class="ai-chip"
+          :class="{ off: ai.disabledContexts.includes(x.id) }"
+          :title="$t('ai:contexts.chipHint', { scope: x.scope })"
+          @click="ai.toggleContextForChat(x.id)"
+        >{{ x.name }}</button>
+      </div>
       <div v-if="betterModel" class="ai-better">
         <span>{{ $t('ai:better.text', { model: tb(betterModel.label) }) }}</span>
         <el-progress v-if="ai.downloads[betterModel.id]" :percentage="pct(betterModel.id)" :stroke-width="4" />
@@ -318,6 +348,7 @@ const phaseText = computed(() => ({
           <template v-if="m.role === 'user'">
             <div class="ai-bubble nm-selectable">{{ m.content }}</div>
             <div v-if="m.context" class="ai-sent">{{ $t('ai:context.sent', { context: tb(m.context) }) }}</div>
+            <div v-if="m.contextsLeftOut?.length" class="ai-sent warn">{{ $t('ai:contexts.leftOut', { names: m.contextsLeftOut.map(leftOutName).join(', ') }) }}</div>
           </template>
           <template v-else>
             <details v-if="m.tools?.length" class="ai-tools" :open="m.pending">
@@ -448,6 +479,11 @@ const phaseText = computed(() => ({
 .ai-msg.user { align-self: flex-end; max-width: 90%; display: flex; flex-direction: column; align-items: flex-end; }
 .ai-bubble { padding: 7px 10px; border-radius: 10px 10px 2px 10px; background: var(--ide-selection); color: var(--nm-text-strong); white-space: pre-wrap; word-break: break-word; }
 .ai-sent { font-size: 10.5px; color: var(--nm-text-dim); margin-top: 3px; }
+.ai-sent.warn { color: var(--nm-warning); }
+.ai-contexts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 10px; font-size: 11px; color: var(--nm-text-dim); }
+.ai-contexts-label { margin-right: 2px; }
+.ai-chip { padding: 1px 7px; border: 1px solid var(--nm-border); border-radius: 10px; background: transparent; color: var(--nm-text); font: inherit; cursor: pointer; }
+.ai-chip.off { color: var(--nm-text-dim); text-decoration: line-through; }
 .ai-msg.assistant { min-width: 0; }
 .ai-md :deep(p) { margin: 0 0 6px; line-height: 1.55; }
 .ai-md :deep(.md-h) { margin: 0 0 6px; font-weight: 600; color: var(--nm-text-strong); }

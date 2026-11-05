@@ -17,7 +17,8 @@
     "tablesOf_other": "테이블 {{count}}개 중 {{shown}}개",
     "editor": "편집기",
     "selection": "선택 영역",
-    "lastError": "마지막 오류"
+    "lastError": "마지막 오류",
+    "contexts_other": "컨텍스트 {{count}}개"
   },
   "suggest": {
     "whyFails": "마지막 실행은 왜 실패하나요? 수정해 주세요.",
@@ -107,5 +108,30 @@
     "title": "링크 열기",
     "body": "어시스턴트의 응답이 이 주소로 연결됩니다. 신뢰할 수 있는 경우에만 여세요. 링크를 통해 대화의 데이터가 다른 사이트로 전송될 수 있습니다.",
     "open": "브라우저에서 열기"
+  },
+  "contexts": {
+    "tab": "컨텍스트",
+    "new": "새 컨텍스트",
+    "namePrompt": "컨텍스트 이름",
+    "renameTitle": "컨텍스트 이름 바꾸기",
+    "deleteTitle": "컨텍스트 삭제",
+    "deleteConfirm": "컨텍스트 \"{{name}}\"을(를) 삭제합니다. 계속하시겠습니까?",
+    "active": "활성",
+    "off": "꺼짐",
+    "activate": "활성화",
+    "deactivate": "비활성화",
+    "wholeConnection": "전체 연결",
+    "placeholder": "어시스턴트가 고려해야 할 규칙과 지식을 입력하세요. 예: \"status = 3은 취소를 의미함\" 또는 \"매출은 반품을 제외하고 집계함\".",
+    "guidance": "모델을 위한 안내일 뿐 보안 한계가 아닙니다. 읽기 승인을 건너뛰거나 쓰기를 허용하지 않습니다.",
+    "sharing": "Claude Code나 Codex를 사용하면 메시지의 나머지 부분과 함께 Anthropic 또는 OpenAI로 전송되며, 백업과 동기화에도 포함됩니다. 비밀번호나 다른 비밀 정보는 입력하지 마세요.",
+    "size_other": "{{shown}}자. 각 채팅에서 모든 컨텍스트를 합쳐 로컬 모델은 최대 6,000자, Claude Code나 Codex는 최대 40,000자까지 사용할 수 있습니다.",
+    "inUse": "컨텍스트:",
+    "chipHint": "{{scope}}. 클릭하면 이 대화에서 켜거나 끌 수 있습니다.",
+    "leftOut": "메시지에 들어가지 못해 모델이 받지 못했습니다: {{names}}",
+    "global": "일반 지침",
+    "globalScope": "모든 대화",
+    "settingsNav": "AI 어시스턴트",
+    "globalHelp": "이 지침은 어떤 연결이든 어시스턴트의 모든 대화에 적용됩니다. 특정 연결이나 데이터베이스에만 해당하는 내용은 탐색기의 컨텍스트 노드를 사용하세요.",
+    "globalPlaceholder": "예: markdown으로 답하고 각 분석의 날짜 범위를 밝혀 주세요."
   }
 }

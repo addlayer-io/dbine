@@ -11480,5 +11480,6 @@
   "«{0}» pasa a ser el atributo {1}# de la columna {2}.": "«{0}» стає атрибутом {1}# стовпця {2}.",
   "«{0}»: desde DBine se crea o se borra un espacio de nombres de primer nivel, como .ns.": "«{0}»: з DBine створюється або видаляється простір імен верхнього рівня, наприклад .ns.",
   "«{0}»: kdb+ define una vista solo en el espacio de nombres raíz (fuera de él, solo desde un script con \\d), así que DBine renombra una vista del raíz a otro nombre del raíz.": "«{0}»: kdb+ визначає подання лише в кореневому просторі імен (поза ним — тільки зі скрипту з \\d), тому DBine перейменовує подання кореня на інше ім'я в корені.",
-  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "«{0}»: простір імен перейменовується на інший простір верхнього рівня, наприклад .ns2."
+  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "«{0}»: простір імен перейменовується на інший простір верхнього рівня, наприклад .ns2.",
+  "el contexto necesita un nombre": "контексту потрібна назва"
 }

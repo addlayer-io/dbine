@@ -23,7 +23,10 @@
     "tablesOf_other": "{{shown}} di {{count}} tabelle",
     "editor": "editor",
     "selection": "selezione",
-    "lastError": "ultimo errore"
+    "lastError": "ultimo errore",
+    "contexts_one": "{{count}} contesto",
+    "contexts_many": "{{count}} contesti",
+    "contexts_other": "{{count}} contesti"
   },
   "suggest": {
     "whyFails": "Perché l'ultima esecuzione fallisce? Correggila.",
@@ -117,5 +120,32 @@
     "title": "Apri link",
     "body": "La risposta dell'assistente porta a questo indirizzo. Aprilo solo se ti fidi: un link può inviare dati della conversazione a un altro sito.",
     "open": "Apri nel browser"
+  },
+  "contexts": {
+    "tab": "Contesto",
+    "new": "Nuovo contesto",
+    "namePrompt": "Nome del contesto",
+    "renameTitle": "Rinomina contesto",
+    "deleteTitle": "Elimina contesto",
+    "deleteConfirm": "Il contesto «{{name}}» verrà eliminato. Continuare?",
+    "active": "Attivo",
+    "off": "disattivato",
+    "activate": "Attiva",
+    "deactivate": "Disattiva",
+    "wholeConnection": "intera connessione",
+    "placeholder": "Regole e conoscenze che l'assistente deve tenere presenti. Ad esempio: «stato = 3 significa annullato» oppure «le vendite si misurano al netto dei resi».",
+    "guidance": "È una guida per il modello, non un limite di sicurezza: non salta l'approvazione delle letture né abilita le scritture.",
+    "sharing": "Con Claude Code o Codex viene inviato ad Anthropic o a OpenAI insieme al resto del messaggio e viaggia nei backup e nella sincronizzazione. Non inserire password né altri segreti.",
+    "size_one": "{{shown}} carattere. In ogni chat, tutti i contesti insieme possono arrivare a 6.000 caratteri con un modello locale e a 40.000 con Claude Code o Codex.",
+    "size_many": "{{shown}} caratteri. In ogni chat, tutti i contesti insieme possono arrivare a 6.000 caratteri con un modello locale e a 40.000 con Claude Code o Codex.",
+    "size_other": "{{shown}} caratteri. In ogni chat, tutti i contesti insieme possono arrivare a 6.000 caratteri con un modello locale e a 40.000 con Claude Code o Codex.",
+    "inUse": "Contesti:",
+    "chipHint": "{{scope}}. Clic per attivarlo o disattivarlo in questa conversazione.",
+    "leftOut": "Non sono entrati nel messaggio e il modello non li ha ricevuti: {{names}}",
+    "global": "Istruzioni generali",
+    "globalScope": "tutte le conversazioni",
+    "settingsNav": "Assistente IA",
+    "globalHelp": "Queste istruzioni valgono in tutte le conversazioni dell'assistente, su qualsiasi connessione. Per ciò che vale su una connessione o un database, usa il nodo Contesti nell'esplora risorse.",
+    "globalPlaceholder": "Ad esempio: rispondi in markdown e indica l'intervallo di date di ogni analisi."
   }
 }

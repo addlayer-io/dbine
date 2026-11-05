@@ -223,6 +223,41 @@ It is built in `src-tauri/src/commands/ai.rs`:
   are quoted, how a table from another database is named and how rows are
   limited, which is where small models get it wrong the most.
 - **Data rows are never sent.**
+- **Contexts:** the user's notes, see the next section.
+
+## Contexts
+
+Notes the assistant gets in every new message, so nobody repeats them: how to
+answer, and what the schema doesn't say ("`estado = 3` means cancelled"). They
+apply on every engine and with every model.
+
+- **Where they live:**
+  - **Settings › AI assistant:** one text for every conversation
+    (`ai.instructions`, it travels with sync).
+  - **Contexts node of a connection:** for all its databases. Engines without
+    databases have only the node below.
+  - **Contexts node of a database:** only for that database. It follows a
+    rename of the database.
+- **Each context** has a name, a text and an on/off switch, and opens in a tab.
+  It is saved as it is written, in the state database (`contexts` table).
+  Contexts travel in backups and sync, like saved queries.
+- **In the chat:** the panel lists the ones in use. A click turns one off for
+  that conversation only.
+- **Order:** the Settings text, the connection's, the database's. They go
+  before DBine's reminder and tools, so DBine's rules come last.
+- **Guidance, not permission:** the model is told so, and nothing depends on
+  it. Reads still need the approval described above, writes stay forbidden and
+  the catalog limits of remote models don't change, because all of that is
+  enforced in code. Contexts don't reach the optimizer, whose answers DBine
+  parses by their tags.
+- **Size:** up to 6,000 characters in total with a local model and 40,000 with
+  Claude Code or Codex. A context that doesn't fit stays out whole, the widest
+  first, and the chat names it under the question. None is cut.
+- **Privacy:** with Claude Code or Codex they go to Anthropic or OpenAI with the
+  rest of the prompt. The tab and Settings warn against writing secrets in them;
+  DBine doesn't inspect the text.
+- **Files:** there is no `AGENTS.md`-style file: nothing in a folder can add
+  instructions to the assistant.
 
 ## If the model refuses
 

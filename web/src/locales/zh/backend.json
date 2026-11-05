@@ -11480,5 +11480,6 @@
   "«{0}» pasa a ser el atributo {1}# de la columna {2}.": "“{0}”将成为列 {2} 的属性 {1}#。",
   "«{0}»: desde DBine se crea o se borra un espacio de nombres de primer nivel, como .ns.": "“{0}”：在 DBine 中可以创建或删除顶级命名空间，例如 .ns。",
   "«{0}»: kdb+ define una vista solo en el espacio de nombres raíz (fuera de él, solo desde un script con \\d), así que DBine renombra una vista del raíz a otro nombre del raíz.": "“{0}”：kdb+ 只在根命名空间中定义视图（在其之外只能通过使用 \\d 的脚本定义），因此 DBine 只会把根命名空间中的视图重命名为根命名空间中的另一个名称。",
-  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "“{0}”：命名空间只能重命名为另一个顶级命名空间，例如 .ns2。"
+  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "“{0}”：命名空间只能重命名为另一个顶级命名空间，例如 .ns2。",
+  "el contexto necesita un nombre": "上下文需要名称"
 }

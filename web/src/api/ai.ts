@@ -42,6 +42,8 @@ export interface ChatContext {
   last_error: string | null;
   /** "Aprobar lecturas en esta conversación": a local model's reads of rows run without asking. */
   approve_reads?: boolean;
+  /** Contexts turned off for this conversation (`global`: the Settings text). */
+  disabled_contexts?: string[];
 }
 
 /** One part of what went as context with a question (the UI words it). */
@@ -49,7 +51,9 @@ export type ChatContextItem =
   | { kind: 'engine' | 'database'; name: string }
   | { kind: 'objects'; count: number }
   | { kind: 'tables'; shown: number; total: number }
-  | { kind: 'editor' | 'selection' | 'last_error' };
+  | { kind: 'editor' | 'selection' | 'last_error' }
+  | { kind: 'contexts'; count: number }
+  | { kind: 'contexts_left_out'; names: string[] };
 
 export const aiApi = {
   detect: () => invoke<AiDetect>('ai_detect'),

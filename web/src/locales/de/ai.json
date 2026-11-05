@@ -20,7 +20,9 @@
     "tablesOf_other": "{{shown}} von {{count}} Tabellen",
     "editor": "Editor",
     "selection": "Auswahl",
-    "lastError": "letzter Fehler"
+    "lastError": "letzter Fehler",
+    "contexts_one": "{{count}} Kontext",
+    "contexts_other": "{{count}} Kontexte"
   },
   "suggest": {
     "whyFails": "Warum schlägt die letzte Ausführung fehl? Beheben Sie es.",
@@ -112,5 +114,31 @@
     "title": "Link öffnen",
     "body": "Die Antwort des Assistenten führt zu dieser Adresse. Öffnen Sie sie nur, wenn Sie ihr vertrauen: Ein Link kann Daten aus der Unterhaltung an eine andere Website senden.",
     "open": "Im Browser öffnen"
+  },
+  "contexts": {
+    "tab": "Kontext",
+    "new": "Neuer Kontext",
+    "namePrompt": "Name des Kontexts",
+    "renameTitle": "Kontext umbenennen",
+    "deleteTitle": "Kontext löschen",
+    "deleteConfirm": "Der Kontext „{{name}}“ wird gelöscht. Fortfahren?",
+    "active": "Aktiv",
+    "off": "deaktiviert",
+    "activate": "Aktivieren",
+    "deactivate": "Deaktivieren",
+    "wholeConnection": "gesamte Verbindung",
+    "placeholder": "Regeln und Wissen, die der Assistent berücksichtigen soll. Zum Beispiel: „Status = 3 bedeutet storniert“ oder „Umsätze werden ohne Retouren gemessen“.",
+    "guidance": "Das ist ein Hinweis für das Modell, keine Sicherheitsgrenze: Er umgeht weder die Freigabe von Lesezugriffen noch erlaubt er Schreibzugriffe.",
+    "sharing": "Mit Claude Code oder Codex wird er zusammen mit dem Rest der Nachricht an Anthropic bzw. OpenAI gesendet und ist in Backups und der Synchronisierung enthalten. Geben Sie keine Passwörter oder andere Geheimnisse ein.",
+    "size_one": "{{shown}} Zeichen. In jedem Chat dürfen alle Kontexte zusammen bis zu 6.000 Zeichen mit einem lokalen Modell und 40.000 mit Claude Code oder Codex umfassen.",
+    "size_other": "{{shown}} Zeichen. In jedem Chat dürfen alle Kontexte zusammen bis zu 6.000 Zeichen mit einem lokalen Modell und 40.000 mit Claude Code oder Codex umfassen.",
+    "inUse": "Kontexte:",
+    "chipHint": "{{scope}}. Klicken, um ihn in dieser Unterhaltung ein- oder auszuschalten.",
+    "leftOut": "Sie passten nicht in die Nachricht und das Modell hat sie nicht erhalten: {{names}}",
+    "global": "Allgemeine Anweisungen",
+    "globalScope": "alle Unterhaltungen",
+    "settingsNav": "KI-Assistent",
+    "globalHelp": "Diese Anweisungen gelten in allen Unterhaltungen des Assistenten, bei jeder Verbindung. Für das, was nur für eine Verbindung oder Datenbank gilt, verwenden Sie den Knoten Kontexte im Explorer.",
+    "globalPlaceholder": "Zum Beispiel: Antworte in Markdown und nenne den Datumsbereich jeder Analyse."
   }
 }

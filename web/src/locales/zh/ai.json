@@ -17,7 +17,8 @@
     "tablesOf_other": "{{count}} 张表中的 {{shown}} 张",
     "editor": "编辑器",
     "selection": "选中内容",
-    "lastError": "最近的错误"
+    "lastError": "最近的错误",
+    "contexts_other": "{{count}} 个上下文"
   },
   "suggest": {
     "whyFails": "上次运行为什么失败？请修复。",
@@ -107,5 +108,30 @@
     "title": "打开链接",
     "body": "助手的回答指向此地址。仅在信任它时才打开：链接可能把对话中的数据发送到其他网站。",
     "open": "在浏览器中打开"
+  },
+  "contexts": {
+    "tab": "上下文",
+    "new": "新建上下文",
+    "namePrompt": "上下文名称",
+    "renameTitle": "重命名上下文",
+    "deleteTitle": "删除上下文",
+    "deleteConfirm": "将删除上下文“{{name}}”。是否继续？",
+    "active": "已启用",
+    "off": "已停用",
+    "activate": "启用",
+    "deactivate": "停用",
+    "wholeConnection": "整个连接",
+    "placeholder": "助手需要考虑的规则和知识。例如：“status = 3 表示已取消”或“销售额不含退货”。",
+    "guidance": "这只是给模型的指引，不是安全边界：它不会绕过读取审批，也不会开启写入。",
+    "sharing": "使用 Claude Code 或 Codex 时，它会与消息的其余部分一起发送给 Anthropic 或 OpenAI，并包含在备份和同步中。请不要填写密码或其他机密信息。",
+    "size_other": "{{shown}} 个字符。在每个聊天中，所有上下文合计最多可达 6,000 个字符（本地模型）或 40,000 个字符（Claude Code 或 Codex）。",
+    "inUse": "上下文：",
+    "chipHint": "{{scope}}。点击可在此对话中启用或停用。",
+    "leftOut": "这些内容未能放入消息，模型没有收到：{{names}}",
+    "global": "通用指令",
+    "globalScope": "所有对话",
+    "settingsNav": "AI 助手",
+    "globalHelp": "这些指令适用于助手的所有对话，不限连接。仅适用于某个连接或数据库的内容，请使用资源管理器中的“上下文”节点。",
+    "globalPlaceholder": "例如：用 markdown 回答，并说明每次分析的日期范围。"
   }
 }

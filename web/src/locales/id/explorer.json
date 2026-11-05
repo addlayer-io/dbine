@@ -50,7 +50,9 @@
     "noProjects": "Tanpa proyek: klik kanan › Tautkan proyek…",
     "projectChanges_other": "{{count}} perubahan belum di-commit",
     "file": "Berkas",
-    "fileTitle": "Dibuka dari {{path}}. Tidak tersimpan saat DBine ditutup: klik kanan › Simpan koneksi untuk mempertahankannya."
+    "fileTitle": "Dibuka dari {{path}}. Tidak tersimpan saat DBine ditutup: klik kanan › Simpan koneksi untuk mempertahankannya.",
+    "contexts": "Konteks",
+    "noContexts": "Tanpa konteks: klik kanan › Konteks baru"
   },
   "confirm": {
     "deleteConnection": "Hapus koneksi \"{{name}}\"?\n\nKueri tersimpan dan kata sandinya di keychain juga dihapus.",
