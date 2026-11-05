@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-04",
-      "revision": "0f83d8680c3f",
+      "date": "2026-11-05",
+      "revision": "6ffea22210e2",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
     },
     {
       "source": "trivy",
-      "date": "2026-11-04",
-      "revision": "0f83d8680c3f",
+      "date": "2026-11-05",
+      "revision": "6ffea22210e2",
       "kind": "full",
       "scope": "whole repository",
       "found": 2
     },
     {
       "source": "codeql",
-      "date": "2026-11-04",
+      "date": "2026-11-05",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -4424,6 +4424,18 @@
       "dismissed": "2026-10-21",
       "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/lib.rs:1357 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai",
       "by": "mpanichella"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0442-arrow-data-13ee4b",
+      "source": "osv",
+      "severity": "NOTICE",
+      "kind": "Unmaintained dependency",
+      "title": "arrow-data 60.0.0: Apache Arrow Rust: Improper validation of RunEndEncoded arrays allows out of bounds reads",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0442",
+      "fixed_version": "57.3.2, 58.4.1, 59.3.2, 60.1.0",
+      "found": "2026-11-05",
+      "status": "notice"
     },
     {
       "id": "SC-Binary-Artifacts",

@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-04._
+_Updated 2026-11-05._
 
 ## Open findings
 
@@ -25,10 +25,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
-| codeql | 2026-11-04 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-04 | every lockfile (Cargo, npm) at [`0f83d8680`](https://github.com/addlayer-io/dbine/commit/0f83d8680c3f) | 0 open | — |
+| codeql | 2026-11-05 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-05 | every lockfile (Cargo, npm) at [`6ffea2221`](https://github.com/addlayer-io/dbine/commit/6ffea22210e2) | 0 open | — |
 | scorecard | 2026-11-04 | repository settings and workflows at [`0f83d8680`](https://github.com/addlayer-io/dbine/commit/0f83d8680c3f) | score 7.5/10 | — |
-| trivy | 2026-11-04 | whole repository at [`0f83d8680`](https://github.com/addlayer-io/dbine/commit/0f83d8680c3f) | 2 open | — |
+| trivy | 2026-11-05 | whole repository at [`6ffea2221`](https://github.com/addlayer-io/dbine/commit/6ffea22210e2) | 2 open | — |
 
 ## Not counted, and why
 
@@ -389,7 +389,9 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 
 Dependencies their authors no longer maintain. Not a vulnerability, so not counted in the badge; worth replacing over time.
 
-_None._
+| Dependency | Where | Advisory |
+|---|---|---|
+| arrow-data 60.0.0: Apache Arrow Rust: Improper validation of RunEndEncoded arrays allows out of bounds reads | `Cargo.lock` | RUSTSEC-2026-0442 |
 
 ## Repository practices
 
