@@ -13,6 +13,8 @@ in the explorer: **Compare schemas…**.
    - If both sides choose a schema, those two schemas are compared with each
      other (for example `sales` against `sales_qa` in the same database).
      Tables are matched by name.
+   - What belongs to the whole database and not to a schema (SQL Server's
+     full-text catalogs and stoplists) is compared whichever schema you choose.
 2. **Compare.** While comparing, the **Stop** button is shown, which cancels
    the comparison. On the left appear the tables, views, procedures,
    functions and triggers with their status:

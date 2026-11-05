@@ -219,7 +219,9 @@ function filtered(s: SideId): DbModel | null {
   return {
     driver: side.work.driver,
     tables: side.work.tables.filter((t) => t.schema === side.schema),
-    objects: side.work.objects.filter((o) => o.schema === side.schema),
+    // What has no schema belongs to the whole database (full-text catalogs
+    // and stoplists, which the tables' indexes use): it stays.
+    objects: side.work.objects.filter((o) => !o.schema || o.schema === side.schema),
   };
 }
 /** Comparing one schema against another: pair by name only. */
@@ -617,7 +619,7 @@ function findTable(m: DbModel | null | undefined, s: SideId, ck: string): TableS
   return m?.tables.find((x) => (!sides[s].schema || x.schema === sides[s].schema) && pairKey(x, ignoreSchema.value) === ck) ?? null;
 }
 function findObject(m: DbModel | null | undefined, s: SideId, kind: string, ck: string): CodeObject | null {
-  return m?.objects.find((x) => x.kind === kind && (!sides[s].schema || x.schema === sides[s].schema) && pairKey(x, ignoreSchema.value) === ck) ?? null;
+  return m?.objects.find((x) => x.kind === kind && (!sides[s].schema || !x.schema || x.schema === sides[s].schema) && pairKey(x, ignoreSchema.value) === ck) ?? null;
 }
 const tableCk = (t: TableDiff) => {
   const x = views.left?.tables[t.left ?? -1] ?? views.right?.tables[t.right ?? -1];
@@ -743,7 +745,7 @@ function pushObject(m: Mark) {
   let copy: CodeObject | null = null;
   if (src) {
     copy = clone(src);
-    if (ignoreSchema.value) copy.schema = sides[to].schema;
+    if (ignoreSchema.value && copy.schema) copy.schema = sides[to].schema;
   }
   replaceIn(sides[to].work!.objects, dst, copy);
 }
