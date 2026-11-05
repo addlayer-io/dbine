@@ -122,6 +122,8 @@
   "ignoreComments": "Kommentare ignorieren",
   "noDifferences": "Keine Unterschiede.",
   "noObjects": "Keine Objekte.",
+  "noneShown": "Mit diesen Filtern gibt es nichts anzuzeigen.",
+  "badgeHint": "{{label}}: Klicken zum Ein- oder Ausblenden",
   "pendingChanges": "Hat nicht angewendete Änderungen",
   "pickItem": "Wählen Sie eine Tabelle oder ein Objekt aus der Liste.",
   "tableProps": "Tabelleneigenschaften",

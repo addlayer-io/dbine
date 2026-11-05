@@ -115,7 +115,10 @@ const schemasOf = (s: SideId) => {
 
 // -- compare ---------------------------------------------------------------------------------
 const opts = reactive({ ignore_case: true, ignore_comments: false });
-const onlyDiff = ref(true);
+// What the list shows, by status: the badges turn each one on and off.
+const visible = reactive<Record<Status, boolean>>({ changed: true, only_left: true, only_right: true, equal: false });
+// "Solo diferencias" is the `=` badge, off.
+const onlyDiff = computed({ get: () => !visible.equal, set: (v: boolean) => { visible.equal = !v; } });
 const filter = ref('');
 /**
  * What was carried with an arrow in this comparison: list ids (`t:…`, `o:…`)
@@ -185,8 +188,8 @@ async function compareBoth() {
   try {
     await Promise.all([load('left', gen), load('right', gen)]);
     if (gen === generation) await recompare();
-    // A fresh comparison doesn't pin an equal selection (only arrows do).
-    if (onlyDiff.value && selected.value?.status === 'equal') selectedId.value = null;
+    // A fresh comparison doesn't pin a selection that's filtered out (only arrows do).
+    if (selected.value && !visible[selected.value.status]) selectedId.value = null;
   } catch {
     /* shown next to each side (or stopped) */
   } finally {
@@ -273,7 +276,19 @@ const counts = computed(() => {
   return c;
 });
 // Touched rows and the selected one stay listed even when equal.
-const shows = (status: Status, key: string, id: string) => (!onlyDiff.value || status !== 'equal' || touched.has(id) || id === selectedId.value) && (!filter.value || key.toLowerCase().includes(filter.value.trim().toLowerCase()));
+const matches = (key: string) => !filter.value || key.toLowerCase().includes(filter.value.trim().toLowerCase());
+const shows = (status: Status, key: string, id: string) => (visible[status] || touched.has(id) || id === selectedId.value) && matches(key);
+const BADGES: Status[] = ['changed', 'only_left', 'only_right', 'equal'];
+/** A badge off: the selected row goes too, unless an arrow touched it. */
+function toggleBadge(status: Status) {
+  visible[status] = !visible[status];
+  const sel = selected.value;
+  if (sel && !visible[sel.status] && !touched.has(sel.id)) selectedId.value = null;
+}
+const noneMessage = computed(() => {
+  if (BADGES.every((s) => visible[s])) return t('compare:noObjects');
+  return onlyDiff.value && visible.changed && visible.only_left && visible.only_right ? t('compare:noDifferences') : t('compare:noneShown');
+});
 const groups = computed(() => {
   const r = result.value;
   if (!r) return [];
@@ -282,7 +297,7 @@ const groups = computed(() => {
   // Marked elements an arrow removed from both sides stay listed, to undo it.
   const here = new Set([...r.tables.map((x) => `t:${tableCk(x)}`), ...r.objects.map((o) => `o:${o.kind}:${objectCk(o)}`)]);
   const ghosts: Row[] = [...applied]
-    .filter(([k, m]) => m.type !== 'item' && !here.has(k) && shows('changed', m.label, ''))
+    .filter(([k, m]) => m.type !== 'item' && !here.has(k) && matches(m.label))
     .map(([k, m]) => ({ id: `g:${k}`, key: m.label, status: 'equal', mark: m, ghost: k }));
   const tables: Row[] = r.tables.filter((t) => shows(t.status, t.key, tid(t))).map((t) => ({ id: tid(t), key: t.key, status: t.status, table: t, mark: tableMark(t) }));
   tables.push(...ghosts.filter((g) => g.mark!.type === 'table'));
@@ -1718,8 +1733,8 @@ async function runSync() {
       prune();
     }
     await recompare();
-    // What the sync made equal leaves "Solo diferencias", the selected row too.
-    if (finished && onlyDiff.value && selected.value?.status === 'equal') selectedId.value = null;
+    // What the sync made equal leaves the list if `=` is off, the selected row too.
+    if (finished && selected.value && !visible[selected.value.status]) selectedId.value = null;
   } catch (e) {
     // Something after the run (reloading, recomparing) failed: the task may already have ended.
     if (tasks.byId(task.id)?.state === 'running') task.fail(e);
@@ -1796,10 +1811,16 @@ async function runSync() {
       <div class="cv-list" :style="{ width: listWidth + 'px' }">
         <div class="cv-sash" @pointerdown.prevent="dragList" />
         <div class="cv-summary">
-          <span class="cv-chip changed">≠ {{ counts.changed }}</span>
-          <span class="cv-chip only_left">◧ {{ counts.only_left }}</span>
-          <span class="cv-chip only_right">◨ {{ counts.only_right }}</span>
-          <span class="cv-chip equal">= {{ counts.equal }}</span>
+          <button
+            v-for="s in BADGES"
+            :key="s"
+            type="button"
+            class="cv-chip"
+            :class="[s, { off: !visible[s] }]"
+            :aria-pressed="visible[s]"
+            :title="$t('compare:badgeHint', { label: STATUS[s].label })"
+            @click="toggleBadge(s)"
+          >{{ STATUS[s].icon }} {{ counts[s] }}</button>
         </div>
         <div class="cv-filters">
           <el-input v-model="filter" size="small" clearable :placeholder="$t('common:filter')"><template #prefix><el-icon><ei-search /></el-icon></template></el-input>
@@ -1810,7 +1831,7 @@ async function runSync() {
           <el-checkbox v-model="opts.ignore_comments" size="small">{{ $t('compare:ignoreComments') }}</el-checkbox>
         </div>
         <div class="cv-items">
-          <div v-if="!groups.length" class="cv-none-msg">{{ onlyDiff ? $t('compare:noDifferences') : $t('compare:noObjects') }}</div>
+          <div v-if="!groups.length" class="cv-none-msg">{{ noneMessage }}</div>
           <template v-for="g in groups" :key="g.label">
             <div class="cv-group">{{ g.label }} <span>{{ g.items.length }}</span></div>
             <div
@@ -2111,7 +2132,8 @@ async function runSync() {
 .cv-sash { position: absolute; top: 0; right: -2px; width: 4px; height: 100%; cursor: col-resize; z-index: 10; }
 .cv-sash:hover { background: var(--ide-focus); }
 .cv-summary { display: flex; gap: 6px; padding: 8px 10px 4px; }
-.cv-chip { font-size: 11.5px; padding: 1px 7px; border-radius: 10px; background: var(--ide-hover); }
+.cv-chip { font: inherit; font-size: 11.5px; padding: 1px 7px; border: 1px solid transparent; border-radius: 10px; background: var(--ide-hover); cursor: pointer; }
+.cv-chip.off { background: transparent; border-color: var(--nm-border); opacity: 0.55; }
 .cv-filters { padding: 4px 10px; }
 .cv-checks { display: flex; flex-wrap: wrap; gap: 0 10px; padding: 0 10px 6px; }
 .cv-checks :deep(.el-checkbox) { margin-right: 0; height: 22px; }

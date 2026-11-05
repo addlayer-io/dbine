@@ -114,6 +114,8 @@
   "ignoreComments": "주석 무시",
   "noDifferences": "차이가 없습니다.",
   "noObjects": "개체가 없습니다.",
+  "noneShown": "이 필터로 표시할 항목이 없습니다.",
+  "badgeHint": "{{label}}: 클릭하여 표시하거나 숨김",
   "pendingChanges": "적용되지 않은 변경 사항 있음",
   "pickItem": "목록에서 테이블 또는 개체를 선택하세요.",
   "tableProps": "테이블 속성",

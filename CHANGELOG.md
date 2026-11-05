@@ -11,6 +11,7 @@
 - **KDB+ renames:** **Rename…** works on views, functions, variables and namespaces too, besides tables and columns.
 
 ### Improvements
+- **Schema compare filters by status:** each badge above the list (different, only left, only right, equal) now turns its rows on and off, so you can see only what's equal, or only what's on one side.
 - **KDB+ notebook writes and row counts:** a notebook's write cell writes into kdb+ tables in every mode (insert, update by key, insert or update, replace), applied in one step so a failure leaves the table as it was, and the explorer's documentation and migrations get each table's row count without scanning.
 
 ### Fixes
