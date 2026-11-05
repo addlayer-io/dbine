@@ -14,6 +14,7 @@
 - **KDB+ notebook writes and row counts:** a notebook's write cell writes into kdb+ tables in every mode (insert, update by key, insert or update, replace), applied in one step so a failure leaves the table as it was, and the explorer's documentation and migrations get each table's row count without scanning.
 
 ### Fixes
+- **Schema compare with a schema selected:** full-text catalogs and stoplists no longer disappear from the comparison, so their differences show and the script can create the catalog an index needs.
 - **Migrations into KDB+:** emptying a kdb+ table to copy it again (or to resume a cut copy) keeps its columns, types and key, instead of leaving it without columns.
 
 ## [1.4.2] - 2026-11-04

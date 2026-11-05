@@ -216,7 +216,9 @@ function filtered(s: SideId): DbModel | null {
   return {
     driver: side.work.driver,
     tables: side.work.tables.filter((t) => t.schema === side.schema),
-    objects: side.work.objects.filter((o) => o.schema === side.schema),
+    // What has no schema belongs to the whole database (full-text catalogs
+    // and stoplists, which the tables' indexes use): it stays.
+    objects: side.work.objects.filter((o) => !o.schema || o.schema === side.schema),
   };
 }
 /** Comparing one schema against another: pair by name only. */
