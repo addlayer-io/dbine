@@ -5,3 +5,5 @@ FROM gcr.io/oss-fuzz-base/base-builder-rust@sha256:3428d0a90b1e7efbe2ba947bd1d0c
 COPY . $SRC/dbine
 WORKDIR $SRC/dbine
 COPY .clusterfuzzlite/build.sh $SRC/
+# Only builds the fuzz targets in CI: no service here to check.
+HEALTHCHECK NONE
