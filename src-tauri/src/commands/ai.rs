@@ -12,6 +12,7 @@ use dbine_ai::prompts::{self, Prompts};
 use dbine_ai::{
     AiError, Cancel, ChatMessage, ChatRequest, Delta, Endpoints, ProviderInfo, ProviderKind,
 };
+use dbine_core::SavedContext;
 use dbine_driver::{Language, TableSchema};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -155,6 +156,10 @@ pub struct ChatContext {
     /// UI resets it on a new conversation or another connection / database.
     #[serde(default)]
     pub approve_reads: bool,
+    /// Contexts turned off for this conversation (their ids; `global` for
+    /// the Settings text).
+    #[serde(default)]
+    pub disabled_contexts: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -253,6 +258,14 @@ pub enum ContextItem {
     Editor,
     Selection,
     LastError,
+    /// The user's contexts that went along.
+    Contexts {
+        count: usize,
+    },
+    /// Active contexts left out because they didn't fit: the UI warns.
+    ContextsLeftOut {
+        names: Vec<String>,
+    },
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -558,6 +571,75 @@ fn schema_budget(kind: ProviderKind) -> usize {
     }
 }
 
+/// How much of the prompt the user's contexts may take, in characters. A
+/// local model has little room (16k tokens with the built-in engine).
+fn contexts_budget(kind: ProviderKind) -> usize {
+    if kind.local() {
+        6_000
+    } else {
+        40_000
+    }
+}
+
+/// The id of the Settings text in `disabled_contexts`, and its setting.
+const GLOBAL_CONTEXT: &str = "global";
+const GLOBAL_CONTEXT_SETTING: &str = "ai.instructions";
+
+/// The contexts for a chat, widest first: the Settings text, the connection's,
+/// then the database's, so the most specific comes last. Those that don't fit
+/// stay out whole, never cut, and are named so the UI can warn: the widest
+/// give way first. Returns the prompt's block, how many went and who stayed out.
+fn contexts_block(
+    global: &str,
+    contexts: &[SavedContext],
+    database: &str,
+    disabled: &[String],
+    budget: usize,
+    p: &Prompts,
+) -> (String, usize, Vec<String>) {
+    let mut scoped: Vec<&SavedContext> = contexts
+        .iter()
+        .filter(|x| {
+            x.active
+                && !x.body.trim().is_empty()
+                && !disabled.contains(&x.id)
+                && (x.database.is_empty() || x.database == database)
+        })
+        .collect();
+    // `sort_by_key` is stable: by name inside each level, as listed.
+    scoped.sort_by_key(|x| !x.database.is_empty());
+    let mut entries: Vec<(&str, &str)> = Vec::new();
+    if !global.trim().is_empty() && !disabled.iter().any(|d| d == GLOBAL_CONTEXT) {
+        entries.push((GLOBAL_CONTEXT, global.trim()));
+    }
+    entries.extend(scoped.iter().map(|x| (x.name.as_str(), x.body.trim())));
+
+    let mut room = budget;
+    let mut fits = vec![false; entries.len()];
+    for (i, (_, body)) in entries.iter().enumerate().rev() {
+        let len = body.chars().count();
+        if len <= room {
+            room -= len;
+            fits[i] = true;
+        }
+    }
+    let mut block = String::new();
+    let mut left_out = Vec::new();
+    for (i, (name, body)) in entries.iter().enumerate() {
+        if fits[i] {
+            let name = name.replace(['"', '<', '>', '\n'], " ");
+            block.push_str(&format!("<context name=\"{name}\">\n{body}\n</context>\n"));
+        } else {
+            left_out.push(name.to_string());
+        }
+    }
+    let count = fits.iter().filter(|f| **f).count();
+    if count > 0 {
+        block = format!("\n{}\n{block}", p.text("assistant.contexts"));
+    }
+    (block, count, left_out)
+}
+
 async fn build_system(
     app: &AppHandle,
     state: &AppState,
@@ -726,6 +808,33 @@ async fn build_system(
             truncate(err, 4_000, p)
         ));
         summary.push(ContextItem::LastError);
+    }
+    // The user's contexts, before DBine's reminder and tools: its rules come last.
+    let global = state
+        .store
+        .get_setting(GLOBAL_CONTEXT_SETTING)
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    let saved = conn
+        .as_ref()
+        .and_then(|c| state.store.list_contexts(&c.id).ok())
+        .unwrap_or_default();
+    let (block, count, left_out) = contexts_block(
+        &global,
+        &saved,
+        ctx.database.as_deref().unwrap_or(""),
+        &ctx.disabled_contexts,
+        contexts_budget(args.provider),
+        p,
+    );
+    s.push_str(&block);
+    if count > 0 {
+        summary.push(ContextItem::Contexts { count });
+    }
+    if !left_out.is_empty() {
+        summary.push(ContextItem::ContextsLeftOut { names: left_out });
     }
     // Small models follow what comes last, and an example, best.
     s.push_str(&format!("\n{}\n", p.text("assistant.reminder")));
@@ -1341,6 +1450,79 @@ mod tests {
             .0,
             "sample_rows"
         );
+    }
+
+    fn context(id: &str, database: &str, body: &str, active: bool) -> SavedContext {
+        SavedContext {
+            id: id.into(),
+            connection_id: "c1".into(),
+            database: database.into(),
+            name: id.into(),
+            body: body.into(),
+            active,
+            updated_at: String::new(),
+        }
+    }
+
+    /// Widest first, only the active ones of this database or the whole
+    /// connection; off for this chat means off.
+    #[test]
+    fn contexts_go_from_widest_to_most_specific() {
+        let p = prompts::get("en");
+        let saved = [
+            context("ventas", "ventas", "only ventas", true),
+            context("otra", "otra", "other database", true),
+            context("apagado", "", "turned off", false),
+            context("vacio", "", "  ", true),
+            context("toda", "", "whole connection", true),
+            context("hoy-no", "", "off in this chat", true),
+        ];
+        let (block, count, left_out) = contexts_block(
+            "answer in markdown",
+            &saved,
+            "ventas",
+            &["hoy-no".to_string()],
+            1_000,
+            p,
+        );
+        assert_eq!(count, 3);
+        assert!(left_out.is_empty());
+        let at = |t: &str| {
+            block
+                .find(t)
+                .unwrap_or_else(|| panic!("{t} is missing: {block}"))
+        };
+        assert!(at("answer in markdown") < at("whole connection"));
+        assert!(at("whole connection") < at("only ventas"));
+        for out in ["other database", "turned off", "off in this chat"] {
+            assert!(!block.contains(out), "{out}: {block}");
+        }
+        assert!(block.starts_with(&format!("\n{}", p.text("assistant.contexts"))));
+
+        let off = [GLOBAL_CONTEXT.to_string()];
+        let (block, count, _) = contexts_block("answer in markdown", &[], "", &off, 1_000, p);
+        assert_eq!((block.as_str(), count), ("", 0));
+    }
+
+    /// What doesn't fit stays out whole and named, the widest first; none is cut.
+    #[test]
+    fn contexts_that_do_not_fit_are_named_not_cut() {
+        let p = prompts::get("en");
+        let saved = [
+            context("toda", "", &"c".repeat(60), true),
+            context("ventas", "ventas", &"d".repeat(60), true),
+        ];
+        let (block, count, left_out) =
+            contexts_block(&"g".repeat(30), &saved, "ventas", &[], 100, p);
+        assert_eq!(count, 2);
+        assert_eq!(left_out, ["toda"]);
+        assert!(block.contains(&"g".repeat(30)));
+        assert!(block.contains(&"d".repeat(60)));
+        assert!(!block.contains("ccc"));
+        // A name can't close the tag it goes in.
+        let odd = [context("a\"><b", "", "x", true)];
+        let (block, ..) = contexts_block("", &odd, "", &[], 100, p);
+        assert!(block.contains("<context name=\"a   b\">"), "{block}");
     }
 
     /// "the columns of inventario.productos" while the tab is on ventas: the

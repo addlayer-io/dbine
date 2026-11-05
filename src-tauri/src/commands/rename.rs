@@ -950,6 +950,12 @@ pub async fn rename_database_follow(
         store.save_migration(&m)?;
         out.migrations += 1;
     }
+    for mut x in store.list_contexts(cid)? {
+        if x.database == old {
+            x.database = new.to_string();
+            store.save_context(&x)?;
+        }
+    }
     for p in store.list_projects()? {
         let mut b = p.binding.clone();
         let mut hit = false;

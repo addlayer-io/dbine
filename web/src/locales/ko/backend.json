@@ -11480,5 +11480,6 @@
   "«{0}» pasa a ser el atributo {1}# de la columna {2}.": "“{0}”은(는) {2} 열의 속성 {1}#이(가) 됩니다.",
   "«{0}»: desde DBine se crea o se borra un espacio de nombres de primer nivel, como .ns.": "“{0}”: DBine에서는 .ns와 같은 최상위 네임스페이스를 만들거나 삭제합니다.",
   "«{0}»: kdb+ define una vista solo en el espacio de nombres raíz (fuera de él, solo desde un script con \\d), así que DBine renombra una vista del raíz a otro nombre del raíz.": "“{0}”: kdb+는 뷰를 루트 네임스페이스에서만 정의합니다(그 밖에서는 \\d를 사용하는 스크립트에서만 가능). 따라서 DBine은 루트의 뷰를 루트의 다른 이름으로 바꿉니다.",
-  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "“{0}”: 네임스페이스는 .ns2와 같은 다른 최상위 네임스페이스로 이름을 바꿉니다."
+  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "“{0}”: 네임스페이스는 .ns2와 같은 다른 최상위 네임스페이스로 이름을 바꿉니다.",
+  "el contexto necesita un nombre": "컨텍스트에는 이름이 필요합니다"
 }

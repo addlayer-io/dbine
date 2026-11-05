@@ -50,7 +50,9 @@
     "noProjects": "没有项目：右键 › 关联项目…",
     "projectChanges_other": "{{count}} 个未提交的更改",
     "file": "文件",
-    "fileTitle": "从 {{path}} 打开。DBine 关闭时不会保留它：右键 › 保存连接即可保留。"
+    "fileTitle": "从 {{path}} 打开。DBine 关闭时不会保留它：右键 › 保存连接即可保留。",
+    "contexts": "上下文",
+    "noContexts": "没有上下文：右键 › 新建上下文"
   },
   "confirm": {
     "deleteConnection": "删除连接“{{name}}”？\n\n其已保存的查询和钥匙串中的密码也会一并删除。",

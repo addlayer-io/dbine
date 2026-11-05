@@ -97,6 +97,12 @@ export interface MigrationTab extends TabBase {
   migrationId?: string;
 }
 
+/** A context of the AI assistant ("Contextos" node). */
+export interface ContextTab extends TabBase {
+  kind: 'context';
+  contextId: string;
+}
+
 /** New / edit / duplicate connection form. `connectionId` is the edited
  *  connection ('' for a new one). */
 export interface ConnectionFormTab extends TabBase {
@@ -239,7 +245,7 @@ export interface QueryBuilderTab extends TabBase {
   spec: QuerySpec;
 }
 
-export type Tab = QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
+export type Tab = ContextTab | QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -748,6 +754,12 @@ export const useTabsStore = defineStore('tabs', {
       const open = migrationId && this.tabs.find((t) => t.kind === 'migration' && t.migrationId === migrationId);
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'migration', connectionId, database, preview: false, migrationId: migrationId ?? newId() });
+    },
+
+    openContext(x: { id: string; connection_id: string; database: string }) {
+      const open = this.tabs.find((t) => t.kind === 'context' && t.contextId === x.id);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'context', connectionId: x.connection_id, database: x.database, preview: false, contextId: x.id });
     },
 
     openMonitor(connectionId: string) {

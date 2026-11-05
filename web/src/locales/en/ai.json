@@ -23,7 +23,9 @@
     "tablesOf_other": "{{shown}} of {{count}} tables",
     "editor": "editor",
     "selection": "selection",
-    "lastError": "last error"
+    "lastError": "last error",
+    "contexts_one": "{{count}} context",
+    "contexts_other": "{{count}} contexts"
   },
   "suggest": {
     "whyFails": "Why does the last run fail? Fix it.",
@@ -117,5 +119,31 @@
     "title": "Open link",
     "body": "The assistant's answer leads to this address. Open it only if you trust it: a link can send data from the conversation to another site.",
     "open": "Open in browser"
+  },
+  "contexts": {
+    "tab": "Context",
+    "new": "New context",
+    "namePrompt": "Context name",
+    "renameTitle": "Rename context",
+    "deleteTitle": "Delete context",
+    "deleteConfirm": "The context \"{{name}}\" will be deleted. Continue?",
+    "active": "Active",
+    "off": "off",
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "wholeConnection": "whole connection",
+    "placeholder": "Rules and knowledge the assistant should take into account. For example: \"status = 3 means cancelled\" or \"sales are measured net of returns\".",
+    "guidance": "This is guidance for the model, not a security boundary: it doesn't bypass the approval of reads or allow writes.",
+    "sharing": "With Claude Code or Codex it is sent to Anthropic or OpenAI along with the rest of the message, and it travels in backups and sync. Don't put in passwords or other secrets.",
+    "size_one": "{{shown}} character. In each chat, all contexts together can add up to 6,000 characters with a local model and 40,000 with Claude Code or Codex.",
+    "size_other": "{{shown}} characters. In each chat, all contexts together can add up to 6,000 characters with a local model and 40,000 with Claude Code or Codex.",
+    "inUse": "Contexts:",
+    "chipHint": "{{scope}}. Click to turn it on or off in this conversation.",
+    "leftOut": "They didn't fit in the message and the model didn't receive them: {{names}}",
+    "global": "General instructions",
+    "globalScope": "all conversations",
+    "settingsNav": "AI assistant",
+    "globalHelp": "These instructions apply to all assistant conversations, on any connection. For what holds on one connection or database, use the Contexts node in the explorer.",
+    "globalPlaceholder": "For example: answer in markdown and state the date range of each analysis."
   }
 }

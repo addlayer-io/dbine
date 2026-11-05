@@ -23,7 +23,10 @@
     "tablesOf_other": "{{shown}} de {{count}} tabelas",
     "editor": "editor",
     "selection": "seleção",
-    "lastError": "último erro"
+    "lastError": "último erro",
+    "contexts_one": "{{count}} contexto",
+    "contexts_many": "{{count}} contextos",
+    "contexts_other": "{{count}} contextos"
   },
   "suggest": {
     "whyFails": "Por que a última execução falha? Corrija-a.",
@@ -117,5 +120,32 @@
     "title": "Abrir link",
     "body": "A resposta do assistente leva a este endereço. Abra-o apenas se confiar nele: um link pode enviar dados da conversa para outro site.",
     "open": "Abrir no navegador"
+  },
+  "contexts": {
+    "tab": "Contexto",
+    "new": "Novo contexto",
+    "namePrompt": "Nome do contexto",
+    "renameTitle": "Renomear contexto",
+    "deleteTitle": "Excluir contexto",
+    "deleteConfirm": "O contexto \"{{name}}\" será excluído. Continuar?",
+    "active": "Ativo",
+    "off": "desativado",
+    "activate": "Ativar",
+    "deactivate": "Desativar",
+    "wholeConnection": "toda a conexão",
+    "placeholder": "Regras e conhecimento que o assistente deve levar em conta. Por exemplo: \"status = 3 significa cancelado\" ou \"as vendas são medidas sem devoluções\".",
+    "guidance": "É uma orientação para o modelo, não um limite de segurança: não dispensa a aprovação das leituras nem permite gravações.",
+    "sharing": "Com o Claude Code ou o Codex, é enviado à Anthropic ou à OpenAI junto com o resto da mensagem, e vai nos backups e na sincronização. Não coloque senhas nem outros segredos.",
+    "size_one": "{{shown}} caractere. Em cada chat, todos os contextos juntos podem somar até 6.000 caracteres com um modelo local e 40.000 com o Claude Code ou o Codex.",
+    "size_many": "{{shown}} caracteres. Em cada chat, todos os contextos juntos podem somar até 6.000 caracteres com um modelo local e 40.000 com o Claude Code ou o Codex.",
+    "size_other": "{{shown}} caracteres. Em cada chat, todos os contextos juntos podem somar até 6.000 caracteres com um modelo local e 40.000 com o Claude Code ou o Codex.",
+    "inUse": "Contextos:",
+    "chipHint": "{{scope}}. Clique para ativá-lo ou desativá-lo nesta conversa.",
+    "leftOut": "Não couberam na mensagem e o modelo não os recebeu: {{names}}",
+    "global": "Instruções gerais",
+    "globalScope": "todas as conversas",
+    "settingsNav": "Assistente de IA",
+    "globalHelp": "Estas instruções valem em todas as conversas do assistente, em qualquer conexão. Para o que vale em uma conexão ou em um banco, use o nó Contextos no explorador.",
+    "globalPlaceholder": "Por exemplo: responda em markdown e informe o intervalo de datas de cada análise."
   }
 }

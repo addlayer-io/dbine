@@ -53,7 +53,9 @@
     "projectChanges_many": "{{count}} niezatwierdzonych zmian",
     "projectChanges_other": "{{count}} niezatwierdzonej zmiany",
     "file": "Plik",
-    "fileTitle": "Otwarto z {{path}}. Nie zostanie zapisane po zamknięciu DBine: kliknij prawym przyciskiem › Zapisz połączenie, aby je zachować."
+    "fileTitle": "Otwarto z {{path}}. Nie zostanie zapisane po zamknięciu DBine: kliknij prawym przyciskiem › Zapisz połączenie, aby je zachować.",
+    "contexts": "Konteksty",
+    "noContexts": "Brak kontekstów: kliknij prawym przyciskiem › Nowy kontekst"
   },
   "confirm": {
     "deleteConnection": "Usunąć połączenie „{{name}}”?\n\nUsunięte zostaną też jego zapisane zapytania i hasło z pęku kluczy.",

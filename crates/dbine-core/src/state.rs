@@ -146,6 +146,21 @@ pub struct SavedQuery {
     pub last_run_at: Option<String>,
 }
 
+/// A context of the AI assistant (the "Contextos" node): notes the assistant
+/// gets in new chats on that connection. `database` is empty for one that
+/// applies to the whole connection. Guidance for the model, never a permission.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SavedContext {
+    pub id: String,
+    pub connection_id: String,
+    pub database: String,
+    pub name: String,
+    pub body: String,
+    pub active: bool,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
 /// A migration kept under its source database in the explorer ("Migraciones"): the Migrate
 /// screen's configuration (drafts are auto-saved) and the runs started from it. The config is
 /// the UI's own document (opaque here); the runs live in the migration records
@@ -247,11 +262,14 @@ pub struct StateSnapshot {
     /// SSH tunnel profiles (their secrets, like connections', stay in the keychain).
     #[serde(default)]
     pub ssh_profiles: Vec<crate::ssh_profiles::SshProfile>,
+    /// The AI assistant's contexts.
+    #[serde(default)]
+    pub contexts: Vec<SavedContext>,
 }
 
 /// What a successful write changed, for whoever listens (the app relays it
 /// to every window). `kind` is one of `connection`, `ssh_profile`, `folder`, `explorer`
-/// (an order or folder move), `query`, `migration`, `setting`, `library`,
+/// (an order or folder move), `query`, `migration`, `context`, `setting`, `library`,
 /// `history`, `backup`, `project` (a linked git folder; local only) or
 /// `restore` (the whole state replaced).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -345,6 +363,17 @@ impl StateStore {
                  updated_at    TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS migrations_by_db ON migrations(connection_id, database);
+             CREATE TABLE IF NOT EXISTS contexts (
+                 id            TEXT PRIMARY KEY,
+                 connection_id TEXT NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+                 database      TEXT NOT NULL,
+                 name          TEXT NOT NULL,
+                 body          TEXT NOT NULL DEFAULT '',
+                 active        INTEGER NOT NULL DEFAULT 1,
+                 created_at    TEXT NOT NULL,
+                 updated_at    TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS contexts_by_connection ON contexts(connection_id);
              CREATE TABLE IF NOT EXISTS folders (
                  id        TEXT PRIMARY KEY,
                  name      TEXT NOT NULL,
@@ -1089,6 +1118,64 @@ impl StateStore {
         }
         self.touch()?;
         self.notify(StateChange::new("query", Some(id)));
+        Ok(())
+    }
+
+    // -- the AI assistant's contexts ----------------------------------------
+
+    /// All of a connection's contexts, by name (its databases' and its own).
+    pub fn list_contexts(&self, connection_id: &str) -> Result<Vec<SavedContext>> {
+        let c = self.lock()?;
+        let mut stmt = c
+            .prepare(
+                "SELECT id, connection_id, database, name, body, active, updated_at
+                   FROM contexts WHERE connection_id = ?1
+                  ORDER BY name COLLATE NOCASE, id",
+            )
+            .map_err(db_err)?;
+        let rows = stmt
+            .query_map([connection_id], row_to_context)
+            .map_err(db_err)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(db_err)
+    }
+
+    pub fn get_context(&self, id: &str) -> Result<Option<SavedContext>> {
+        self.lock()?
+            .query_row(
+                "SELECT id, connection_id, database, name, body, active, updated_at FROM contexts WHERE id = ?1",
+                [id],
+                row_to_context,
+            )
+            .optional()
+            .map_err(db_err)
+    }
+
+    pub fn save_context(&self, x: &SavedContext) -> Result<SavedContext> {
+        let ts = now();
+        self.lock()?
+            .execute(
+                "INSERT INTO contexts (id, connection_id, database, name, body, active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+                 ON CONFLICT(id) DO UPDATE SET connection_id = ?2, database = ?3, name = ?4, body = ?5, active = ?6, updated_at = ?7",
+                params![x.id, x.connection_id, x.database, x.name, x.body, x.active, ts],
+            )
+            .map_err(db_err)?;
+        self.touch()?;
+        self.notify(
+            StateChange::new("context", Some(&x.id)).scoped(&x.connection_id, Some(&x.database)),
+        );
+        Ok(SavedContext {
+            updated_at: ts,
+            ..x.clone()
+        })
+    }
+
+    pub fn delete_context(&self, id: &str) -> Result<()> {
+        self.lock()?
+            .execute("DELETE FROM contexts WHERE id = ?1", [id])
+            .map_err(db_err)?;
+        self.touch()?;
+        self.notify(StateChange::new("context", Some(id)));
         Ok(())
     }
 
@@ -1912,7 +1999,19 @@ impl StateStore {
             let rows = stmt.query_map([], row_to_query).map_err(db_err)?;
             rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_err)?
         };
+        let contexts = {
+            let c = self.lock()?;
+            let mut stmt = c
+                .prepare(
+                    "SELECT id, connection_id, database, name, body, active, updated_at FROM contexts
+                      WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary = 1) ORDER BY id",
+                )
+                .map_err(db_err)?;
+            let rows = stmt.query_map([], row_to_context).map_err(db_err)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_err)?
+        };
         Ok(StateSnapshot {
+            contexts,
             connections: self.list_connections()?,
             folders: self.list_folders()?,
             queries,
@@ -1930,7 +2029,7 @@ impl StateStore {
         let mut c = self.lock()?;
         let tx = c.transaction().map_err(db_err)?;
         tx.execute_batch(
-            "DELETE FROM queries; DELETE FROM migrations; DELETE FROM connections; DELETE FROM folders;
+            "DELETE FROM queries; DELETE FROM migrations; DELETE FROM contexts; DELETE FROM connections; DELETE FROM folders;
              DELETE FROM settings WHERE key NOT LIKE 'local.%'; DELETE FROM library;
              DELETE FROM ssh_profiles;",
         )
@@ -1988,6 +2087,23 @@ impl StateStore {
                 "INSERT INTO queries (id, connection_id, database, name, sql, created_at, updated_at, last_run_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)",
                 params![q.id, q.connection_id, q.database, q.name, q.sql, ts, q.last_run_at],
+            )
+            .map_err(db_err)?;
+        }
+        for x in snap
+            .contexts
+            .iter()
+            .filter(|x| known.contains(x.connection_id.as_str()))
+        {
+            let ts = if x.updated_at.is_empty() {
+                now()
+            } else {
+                x.updated_at.clone()
+            };
+            tx.execute(
+                "INSERT INTO contexts (id, connection_id, database, name, body, active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+                params![x.id, x.connection_id, x.database, x.name, x.body, x.active, ts],
             )
             .map_err(db_err)?;
         }
@@ -2210,6 +2326,18 @@ fn row_to_query(r: &rusqlite::Row<'_>) -> rusqlite::Result<SavedQuery> {
         sql: r.get(4)?,
         updated_at: r.get(5)?,
         last_run_at: r.get(6)?,
+    })
+}
+
+fn row_to_context(r: &rusqlite::Row<'_>) -> rusqlite::Result<SavedContext> {
+    Ok(SavedContext {
+        id: r.get(0)?,
+        connection_id: r.get(1)?,
+        database: r.get(2)?,
+        name: r.get(3)?,
+        body: r.get(4)?,
+        active: r.get(5)?,
+        updated_at: r.get(6)?,
     })
 }
 
@@ -2891,6 +3019,49 @@ mod tests {
         assert!(s.list_queries("c1", "other").unwrap().is_empty());
         s.delete_connection("c1").unwrap();
         assert!(s.get_query("q1").unwrap().is_none());
+    }
+
+    #[test]
+    fn contexts_travel_in_the_snapshot_and_go_with_their_connection() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("c1")).unwrap();
+        let x = |id: &str, database: &str, name: &str| SavedContext {
+            id: id.into(),
+            connection_id: "c1".into(),
+            database: database.into(),
+            name: name.into(),
+            body: "estado = 3 es cancelado".into(),
+            active: true,
+            updated_at: String::new(),
+        };
+        s.save_context(&x("x1", "", "b")).unwrap();
+        s.save_context(&SavedContext {
+            active: false,
+            ..x("x2", "app", "a")
+        })
+        .unwrap();
+        let listed = s.list_contexts("c1").unwrap();
+        assert_eq!(
+            listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["x2", "x1"]
+        );
+        assert!(!listed[0].active);
+
+        let snap = s.snapshot().unwrap();
+        assert_eq!(snap.contexts.len(), 2);
+        // A backup from before contexts restores with none.
+        let mut old = serde_json::to_value(&snap).unwrap();
+        old.as_object_mut().unwrap().remove("contexts");
+        let old: StateSnapshot = serde_json::from_value(old).unwrap();
+        assert!(old.contexts.is_empty());
+        let other = StateStore::open_in_memory().unwrap();
+        other.replace_all(&snap).unwrap();
+        assert_eq!(other.list_contexts("c1").unwrap(), listed);
+
+        s.delete_context("x1").unwrap();
+        assert!(s.get_context("x1").unwrap().is_none());
+        s.delete_connection("c1").unwrap();
+        assert!(s.get_context("x2").unwrap().is_none());
     }
 
     #[test]

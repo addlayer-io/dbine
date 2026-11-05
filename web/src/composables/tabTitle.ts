@@ -47,6 +47,7 @@ export function tabTitle(t: Tab, tr: Translate = i18nT): string {
   if (t.kind === 'backups') return `${tr('backups:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'security') return `${tr('security:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'dataCompare') return `${tr('dataCompare:tab')} · ${t.object?.name || t.database || conns.byId(t.connectionId)?.name || ''}`;
+  if (t.kind === 'context') return `${tr('ai:contexts.tab')} · ${conns.contextById(t.contextId)?.name ?? ''}`;
   if (t.kind === 'migration') {
     const saved = t.migrationId ? conns.migrationById(t.migrationId) : undefined;
     return `${tr('workbench:tabs.migrate')} · ${saved?.name || t.database || conns.byId(t.connectionId)?.name || ''}`;

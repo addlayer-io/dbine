@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### New
+- **Contexts for the AI assistant:** a new **Contexts** node on each connection and database holds notes the assistant gets in every chat there, such as what a status code means or how a metric is calculated, so you don't repeat them. **Settings › AI assistant** has a text for every conversation. The chat shows which ones are in use and can turn one off for that conversation. They guide the assistant; they don't change what it's allowed to do.
 - **KDB+ data sync and clone:** **Compare data** finds and fixes the rows that differ between two kdb+ tables, hashing them on each server so only the changed rows travel, and a migration can clone a kdb+ process into another with its tables, keys, types, attributes, linked columns, functions and views.
 - **KDB+ namespaces as schemas:** the explorer groups each namespace's tables, views and functions under it, **New schema…** and **Drop schema…** create and drop namespaces, and migrations into kdb+ keep each source schema as a namespace.
 - **KDB+ health check and properties:** the health check reads the process itself (memory against the `-w` limit, garbage collection, interned symbols, slow subscribers, no query timeout, a port without a password, TLS), and **Properties** shows and changes the settings kdb+ lets you change while it runs (`\g`, `\T`, `\P`, `\o`, `\z`, `\w`).

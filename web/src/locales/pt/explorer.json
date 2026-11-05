@@ -52,7 +52,9 @@
     "projectChanges_other": "{{count}} alterações sem commit",
     "projectChanges_many": "{{count}} alterações sem commit",
     "file": "Arquivo",
-    "fileTitle": "Aberto de {{path}}. Não fica salvo ao fechar o DBine: clique direito › Salvar conexão para mantê-lo."
+    "fileTitle": "Aberto de {{path}}. Não fica salvo ao fechar o DBine: clique direito › Salvar conexão para mantê-lo.",
+    "contexts": "Contextos",
+    "noContexts": "Sem contextos: clique direito › Novo contexto"
   },
   "confirm": {
     "deleteConnection": "Excluir a conexão \"{{name}}\"?\n\nSuas consultas salvas e sua senha no chaveiro também são excluídas.",

@@ -1001,7 +1001,7 @@ export interface RunningTask {
 }
 
 export type StateChangeKind =
-  | 'connection' | 'ssh_profile' | 'folder' | 'explorer' | 'query' | 'migration'
+  | 'connection' | 'ssh_profile' | 'folder' | 'explorer' | 'query' | 'migration' | 'context'
   | 'setting' | 'library' | 'history' | 'backup' | 'restore' | 'project';
 
 /** What a write to the local state changed (`dbine_core::StateChange`),

@@ -48,6 +48,8 @@ export interface UiMessage extends ChatMessage {
   provider?: string;
   /** What a local model read from the connection to answer. */
   tools?: { label: string; ok: boolean }[];
+  /** Active contexts that didn't fit in the prompt. */
+  contextsLeftOut?: string[];
   /** A read of rows waiting for the user's Aprobar / Rechazar. */
   approval?: { requestId: string; label: string; connection: string; database: string; sql: string };
 }
@@ -93,8 +95,10 @@ function writeArchive(list: SavedChat[]) {
 /** The "what was sent" line ("PostgreSQL · ventas · 42 tables · editor"), in the UI language. */
 function contextLine(items: ChatContextItem[]): string {
   return items
+    .filter((c) => c.kind !== 'contexts_left_out')
     .map((c) => {
       switch (c.kind) {
+        case 'contexts': return t('ai:context.contexts', { count: c.count });
         case 'engine':
         case 'database': return c.name;
         case 'objects': return t('ai:context.objects', { count: c.count });
@@ -126,6 +130,8 @@ export const useAiStore = defineStore('ai', {
      *  and database): another conversation or tab target asks again. */
     approveReads: false,
     approveScope: null as string | null,
+    /** Contexts turned off for this conversation (`global`: the Settings text). */
+    disabledContexts: [] as string[],
     running: null as string | null,
     phase: null as string | null,
     /** Detail of the phase (the engine download's percentage). */
@@ -150,6 +156,12 @@ export const useAiStore = defineStore('ai', {
     activeBridge(): EditorBridge | null {
       const id = useTabsStore().activeId;
       return id ? bridges.get(id) ?? null : null;
+    },
+    /** Where a question would go: the editor's own target (a notebook's
+     *  active cell), else the tab's. */
+    target(): { connectionId: string; database: string } | null {
+      const tab = useTabsStore().active;
+      return this.activeBridge?.target?.() ?? (tab ? { connectionId: tab.connectionId, database: tab.database } : null);
     },
   },
   actions: {
@@ -227,6 +239,7 @@ export const useAiStore = defineStore('ai', {
       this.messages = [];
       this.chatId = newId();
       this.approveReads = false;
+      this.disabledContexts = [];
       this.persist();
       this.loadHistory();
     },
@@ -244,6 +257,7 @@ export const useAiStore = defineStore('ai', {
       this.messages = chat.messages;
       this.chatId = chat.id;
       this.approveReads = false;
+      this.disabledContexts = [];
       this.persist();
       this.loadHistory();
     },
@@ -272,8 +286,7 @@ export const useAiStore = defineStore('ai', {
       this.running = answer.id;
       this.phase = 'thinking';
       const object = tab?.kind === 'object' ? [tab.object.schema, tab.object.name].filter(Boolean).join('.') : null;
-      // The editor's own target (a notebook's active cell), else the tab's.
-      const where = b?.target?.() ?? (tab ? { connectionId: tab.connectionId, database: tab.database } : null);
+      const where = this.target;
       // "Aprobar lecturas en esta conversación" holds for one connection and database.
       const scope = `${where?.connectionId ?? ''}|${where?.database ?? ''}`;
       if (this.approveScope !== scope) { this.approveReads = false; this.approveScope = scope; }
@@ -287,11 +300,15 @@ export const useAiStore = defineStore('ai', {
           selection: b?.selection() || null,
           last_error: b?.lastError() ?? null,
           approve_reads: this.approveReads,
+          disabled_contexts: this.disabledContexts,
         }, language.value);
         // Gone (a new conversation) or stopped: what comes back is dropped.
         const m = this.messages.find((x) => x.id === answer.id);
         if (m?.pending && !m.content) m.content = r.text;
-        if (m?.pending) user.context = contextLine(r.context);
+        if (m?.pending) {
+          user.context = contextLine(r.context);
+          user.contextsLeftOut = r.context.find((c) => c.kind === 'contexts_left_out')?.names;
+        }
       } catch (e) {
         const m = this.messages.find((x) => x.id === answer.id);
         if (m?.pending) m.error = errorKind(e) === 'cancelled' ? t('core:ai.stopped') : errorMessage(e);
@@ -306,6 +323,10 @@ export const useAiStore = defineStore('ai', {
         }
         this.persist();
       }
+    },
+    toggleContextForChat(id: string) {
+      const off = this.disabledContexts;
+      this.disabledContexts = off.includes(id) ? off.filter((x) => x !== id) : [...off, id];
     },
     /** Stop the running answer now: the UI doesn't wait for the backend
      *  (it stops streaming, reading or waiting for an approval on its own). */

@@ -52,7 +52,9 @@
     "projectChanges_other": "{{count}} uncommitted changes",
     "projectChanges_many": "{{count}} uncommitted changes",
     "file": "File",
-    "fileTitle": "Opened from {{path}}. It isn't kept when DBine closes: right-click › Save connection to keep it."
+    "fileTitle": "Opened from {{path}}. It isn't kept when DBine closes: right-click › Save connection to keep it.",
+    "contexts": "Contexts",
+    "noContexts": "No contexts: right-click › New context"
   },
   "confirm": {
     "deleteConnection": "Delete the connection \"{{name}}\"?\n\nIts saved queries and its password in the keychain are deleted too.",

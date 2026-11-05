@@ -7,6 +7,7 @@ pub mod compare;
 pub mod conn_import;
 pub mod connections;
 pub mod connstring;
+pub mod contexts;
 pub mod data_compare;
 pub mod datagen;
 pub mod db_health;

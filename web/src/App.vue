@@ -45,6 +45,7 @@ import DesignerTabView from './views/DesignerTabView.vue';
 import DiagramTabView from './views/DiagramTabView.vue';
 import QueryBuilderView from './views/QueryBuilderView.vue';
 import MigrationView from './views/MigrationView.vue';
+import ContextView from './views/ContextView.vue';
 import CompareView from './views/CompareView.vue';
 import DataCompareView from './views/DataCompareView.vue';
 import SecurityView from './views/SecurityView.vue';
@@ -270,6 +271,7 @@ watch(
               <MonitorView v-else-if="t.kind === 'monitor'" :tab="t" :active="shown" />
               <ProfilerView v-else-if="t.kind === 'profiler'" :tab="t" />
               <MigrationView v-else-if="t.kind === 'migration'" :tab="t" />
+              <ContextView v-else-if="t.kind === 'context'" :tab="t" />
               <CompareView v-else-if="t.kind === 'compare'" :tab="t" />
               <DataCompareView v-else-if="t.kind === 'dataCompare'" :tab="t" />
               <SecurityView v-else-if="t.kind === 'security'" :tab="t" />

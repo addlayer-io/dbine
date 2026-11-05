@@ -26,7 +26,11 @@
     "tablesOf_other": "{{shown}} z {{count}} tabeli",
     "editor": "edytor",
     "selection": "zaznaczenie",
-    "lastError": "ostatni błąd"
+    "lastError": "ostatni błąd",
+    "contexts_one": "{{count}} kontekst",
+    "contexts_few": "{{count}} konteksty",
+    "contexts_many": "{{count}} kontekstów",
+    "contexts_other": "{{count}} kontekstu"
   },
   "suggest": {
     "whyFails": "Dlaczego ostatnie uruchomienie kończy się błędem? Popraw je.",
@@ -122,5 +126,33 @@
     "title": "Otwórz łącze",
     "body": "Odpowiedź asystenta prowadzi pod ten adres. Otwórz go tylko, jeśli mu ufasz: łącze może przekazać dane z rozmowy na inną stronę.",
     "open": "Otwórz w przeglądarce"
+  },
+  "contexts": {
+    "tab": "Kontekst",
+    "new": "Nowy kontekst",
+    "namePrompt": "Nazwa kontekstu",
+    "renameTitle": "Zmień nazwę kontekstu",
+    "deleteTitle": "Usuń kontekst",
+    "deleteConfirm": "Kontekst „{{name}}” zostanie usunięty. Kontynuować?",
+    "active": "Aktywny",
+    "off": "wyłączony",
+    "activate": "Włącz",
+    "deactivate": "Wyłącz",
+    "wholeConnection": "całe połączenie",
+    "placeholder": "Reguły i wiedza, które asystent ma uwzględniać. Na przykład: „status = 3 oznacza anulowane” lub „sprzedaż liczy się bez zwrotów”.",
+    "guidance": "To wskazówka dla modelu, a nie granica bezpieczeństwa: nie omija zatwierdzania odczytów i nie włącza zapisu.",
+    "sharing": "W Claude Code lub Codex jest wysyłany do Anthropic lub OpenAI wraz z resztą wiadomości i trafia do kopii zapasowych i synchronizacji. Nie wpisuj haseł ani innych sekretów.",
+    "size_one": "{{shown}} znak. W każdym czacie wszystkie konteksty razem mogą mieć do 6 000 znaków przy modelu lokalnym i do 40 000 przy Claude Code lub Codex.",
+    "size_few": "{{shown}} znaki. W każdym czacie wszystkie konteksty razem mogą mieć do 6 000 znaków przy modelu lokalnym i do 40 000 przy Claude Code lub Codex.",
+    "size_many": "{{shown}} znaków. W każdym czacie wszystkie konteksty razem mogą mieć do 6 000 znaków przy modelu lokalnym i do 40 000 przy Claude Code lub Codex.",
+    "size_other": "{{shown}} znaku. W każdym czacie wszystkie konteksty razem mogą mieć do 6 000 znaków przy modelu lokalnym i do 40 000 przy Claude Code lub Codex.",
+    "inUse": "Konteksty:",
+    "chipHint": "{{scope}}. Kliknij, aby włączyć lub wyłączyć go w tej rozmowie.",
+    "leftOut": "Nie zmieściły się w wiadomości i model ich nie otrzymał: {{names}}",
+    "global": "Instrukcje ogólne",
+    "globalScope": "wszystkie rozmowy",
+    "settingsNav": "Asystent AI",
+    "globalHelp": "Te instrukcje obowiązują we wszystkich rozmowach asystenta, w każdym połączeniu. Dla tego, co dotyczy jednego połączenia lub bazy, użyj węzła Konteksty w eksploratorze.",
+    "globalPlaceholder": "Na przykład: odpowiadaj w markdown i podawaj zakres dat każdej analizy."
   }
 }

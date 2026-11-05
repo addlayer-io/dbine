@@ -25863,6 +25863,9 @@
  "el contenido de sus columnas grandes (TEXTIMAGE_ON)": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "el contexto necesita un nombre": [
+  "src-tauri/src/commands/contexts.rs"
+ ],
  "el cuerpo HTML {0} no es un archivo": [
   "src-tauri/src/tasks/mail.rs"
  ],

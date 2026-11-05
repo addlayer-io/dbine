@@ -13,6 +13,7 @@ import { rt } from '../composables/i18nLabels';
 import { useOutputStore } from './output';
 import { trackConnectionOpened } from '../composables/telemetry';
 import { savedMigrationsApi, type SavedMigration } from '../api/savedMigrations';
+import { contextsApi, type SavedContext } from '../api/contexts';
 import { migrationApi, type MigrationEvent, type RunInfo } from '../api/migration';
 
 // Drivers, folders, saved connections, what's live on each, and the
@@ -123,6 +124,8 @@ export const useConnectionsStore = defineStore('connections', {
     queries: {} as Record<string, Loadable<SavedQuery[]>>,
     /** Saved migrations per database (the "Migraciones" node). */
     migrations: {} as Record<string, Loadable<SavedMigration[]>>,
+    /** The AI assistant's contexts, by connection (its own and its databases'). */
+    contexts: {} as Record<string, Loadable<SavedContext[]>>,
     /** Their current runs on this machine, by run id (the node's status icons). */
     migrationRuns: {} as Record<string, RunInfo>,
     listeningMigrations: false,
@@ -656,6 +659,31 @@ export const useConnectionsStore = defineStore('connections', {
       return saved;
     },
 
+    async loadContexts(connectionId: string, force = false) {
+      if (!force && this.contexts[connectionId]?.status === 'ready') return;
+      try {
+        const items = await contextsApi.list(connectionId);
+        this.contexts[connectionId] = { status: 'ready', items, error: null };
+      } catch (e) {
+        this.contexts[connectionId] = { status: 'error', items: [], error: errorMessage(e) };
+      }
+    },
+    async saveContext(x: SavedContext) {
+      const saved = await contextsApi.save(x);
+      await this.loadContexts(saved.connection_id, true);
+      return saved;
+    },
+    async deleteContext(x: SavedContext) {
+      await contextsApi.delete(x.id);
+      await this.loadContexts(x.connection_id, true);
+    },
+    contextById(id: string): SavedContext | undefined {
+      for (const l of Object.values(this.contexts)) {
+        const x = l.items.find((c) => c.id === id);
+        if (x) return x;
+      }
+      return undefined;
+    },
     migrationById(id: string): SavedMigration | undefined {
       for (const l of Object.values(this.migrations)) {
         const m = l.items.find((x) => x.id === id);

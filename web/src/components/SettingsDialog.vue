@@ -32,6 +32,7 @@ import ShortcutSettings from './ShortcutSettings.vue';
 import { VIM_SETTING } from '../composables/commands';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
+import { GLOBAL_INSTRUCTIONS } from '../composables/contexts';
 import MapSettings from './MapSettings.vue';
 import NotebookSettings from './notebook/NotebookSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
@@ -65,6 +66,23 @@ const visible = computed({
   get: () => ui.settingsSection !== null,
   set: (v) => { if (!v) ui.closeSettings(); },
 });
+// The text for every chat (Settings › AI assistant), saved as it's written.
+const globalInstructions = ref(settings.get<string>(GLOBAL_INSTRUCTIONS, ''));
+watch(() => settings.get<string>(GLOBAL_INSTRUCTIONS, ''), (v) => { if (!instructionsTimer) globalInstructions.value = v; });
+let instructionsTimer: ReturnType<typeof setTimeout> | undefined;
+function saveGlobalInstructions() {
+  if (!instructionsTimer) return;
+  clearTimeout(instructionsTimer);
+  instructionsTimer = undefined;
+  settings.set(GLOBAL_INSTRUCTIONS, globalInstructions.value);
+}
+function onGlobalInstructions(v: string) {
+  globalInstructions.value = v;
+  clearTimeout(instructionsTimer);
+  instructionsTimer = setTimeout(saveGlobalInstructions, 500);
+}
+onBeforeUnmount(saveGlobalInstructions);
+
 const section = computed({
   get: () => ui.settingsSection ?? 'general',
   set: (v) => ui.openSettings(v),
@@ -381,6 +399,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <nav class="st-nav">
         <button :class="{ on: section === 'general' }" @click="section = 'general'"><el-icon><ei-setting /></el-icon>{{ $t('settings:nav.general') }}</button>
         <button :class="{ on: section === 'sync' }" @click="section = 'sync'"><el-icon><ei-upload-filled /></el-icon>{{ $t('settings:nav.sync') }}</button>
+        <button :class="{ on: section === 'ai' }" @click="section = 'ai'"><el-icon><ei-memo /></el-icon>{{ $t('ai:contexts.settingsNav') }}</button>
         <button :class="{ on: section === 'mcp' }" @click="section = 'mcp'"><el-icon><ei-cpu /></el-icon>{{ $t('mcp:nav') }}</button>
         <button :class="{ on: section === 'devices' }" @click="section = 'devices'"><el-icon><ei-iphone /></el-icon>{{ $t('devices:nav') }}</button>
         <button :class="{ on: section === 'secrets' }" @click="section = 'secrets'"><el-icon><ei-key /></el-icon>{{ $t('secretAccounts:nav') }}</button>
@@ -468,6 +487,21 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       </section>
 
       <!-- The local MCP server (docs/mcp.md) -->
+      <section v-else-if="section === 'ai'" class="st-body">
+        <h3>{{ $t('ai:contexts.settingsNav') }}</h3>
+        <p class="st-ai-note">{{ $t('ai:contexts.globalHelp') }}</p>
+        <el-input
+          :model-value="globalInstructions"
+          type="textarea"
+          :rows="12"
+          :placeholder="$t('ai:contexts.globalPlaceholder')"
+          @update:model-value="onGlobalInstructions"
+          @blur="saveGlobalInstructions"
+        />
+        <p class="st-ai-note">{{ $t('ai:contexts.guidance') }}</p>
+        <p class="st-ai-note">{{ $t('ai:contexts.sharing') }}</p>
+      </section>
+
       <section v-else-if="section === 'mcp'" class="st-body">
         <McpSettings />
       </section>
@@ -711,6 +745,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
 .st-body h4 { margin: 20px 0 8px; font-size: 13px; color: var(--nm-text-strong); }
 .st-muted { color: var(--nm-text-dim); font-size: 12.5px; line-height: 1.5; margin: 0 0 10px; }
 .st-small { font-size: 12px; }
+.st-ai-note { margin: 8px 0; font-size: 12px; color: var(--nm-text-dim); }
 .st-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 0; border-bottom: 1px solid var(--nm-border); }
 .st-row > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .st-row strong { font-size: 13px; color: var(--nm-text-strong); font-weight: 500; }

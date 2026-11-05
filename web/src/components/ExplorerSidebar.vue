@@ -24,6 +24,8 @@ import {
   deleteSavedMigration, duplicateSavedMigration, newMigration, openSavedMigration, renameSavedMigration, savedMigrationState, type SavedMigrationState,
 } from '../composables/savedMigrations';
 import type { SavedMigration } from '../api/savedMigrations';
+import type { SavedContext } from '../api/contexts';
+import { deleteContext, newContext, renameContext, toggleContext } from '../composables/contexts';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
 import KeySearchRow from './KeySearchRow.vue';
@@ -57,6 +59,8 @@ import { closeOpenedFile, pickAndOpen, saveOpenedFile } from '../composables/ope
 type NodeType = 'group' | 'connection' | 'database' | 'schema' | 'folder' | 'queries' | 'object' | 'column' | 'query' | 'status'
   // "Migraciones" and its saved migrations.
   | 'migrations' | 'migration'
+  // "Contextos": what the AI assistant gets in new chats.
+  | 'contexts' | 'context'
   // A key database's search row, namespace folders and "Cargar más".
   | 'keysearch' | 'keyns' | 'keymore'
   // A table's "Índices" folder and its indexes.
@@ -77,6 +81,7 @@ interface TNode {
   object?: DbObject;
   query?: SavedQuery;
   migration?: SavedMigration;
+  context?: SavedContext;
   project?: ProjectInfo;
   /** A project's pending changes. */
   changes?: number;
@@ -114,6 +119,21 @@ const DEFAULT_SCHEMAS = new Set(['dbo', 'public', 'main']);
 
 function status(parent: string, s: 'loading' | 'error' | 'empty', label: string): TNode {
   return { id: `x:${parent}`, label, type: 'status', status: s };
+}
+
+/** The "Contextos" node of a database, or of the whole connection (`db` ''). */
+function contextsNode(c: SavedConnection, db: string): TNode {
+  const items = (conns.contexts[c.id]?.items ?? []).filter((x) => x.database === db);
+  const id = `xs:${c.id}:${db}`;
+  return {
+    id, label: t('explorer:tree.contexts'), type: 'contexts', connectionId: c.id, database: db, count: items.length,
+    children: items.length
+      ? items.map((x) => ({
+        id: `xc:${x.id}`, label: x.name, type: 'context' as const, connectionId: c.id, database: db, context: x,
+        hint: x.active ? undefined : t('ai:contexts.off'),
+      }))
+      : [status(id, 'empty', t('explorer:tree.noContexts'))],
+  };
 }
 
 function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentId: string): TNode[] {
@@ -155,6 +175,7 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
       }))
       : [status(mid, 'empty', t('explorer:tree.noMigrations'))],
   });
+  out.push(contextsNode(c, db));
   if (!objs || objs.status === 'loading') return [...out, status(parentId, 'loading', t('common:loading'))];
   if (objs.status === 'error') return [...out, status(parentId, 'error', objs.error ?? t('common:error'))];
   if (d.key_search) {
@@ -460,6 +481,8 @@ function connectionNode(c: SavedConnection): TNode {
         };
       });
       if (!node.children.length) node.children = [status(id, 'empty', t('explorer:tree.noDatabases'))];
+      // What applies to every database of the connection.
+      node.children.unshift(contextsNode(c, ''));
     }
     return node;
 }
@@ -548,6 +571,7 @@ async function onExpand(n: TNode) {
     // Connect (or validate) first; a connection that failed isn't retried
     // here: its banner shows, and "Reintentar" tries again.
     if (!(await conns.ensureConnected(id, { auto: true }))) return;
+    conns.loadContexts(id);
     // Engines with a single namespace: its objects (the cache's at once,
     // then the server's).
     if (d && !d.databases_label) loadDatabase(id, conns.live[id]?.databases[0] ?? '');
@@ -569,6 +593,7 @@ function reloadExpanded(connectionId: string) {
     const db = n.database ?? '';
     const failed = (l?: { status: string }) => !l || l.status === 'error';
     if (n.type === 'connection') {
+      conns.loadContexts(connectionId);
       const d = conns.driverOf(connectionId);
       const only = conns.live[connectionId]?.databases[0] ?? '';
       if (d && !d.databases_label && failed(conns.objects[dbKey(connectionId, only)])) loadDatabase(connectionId, only);
@@ -610,6 +635,7 @@ function guarded(cid: string, db: string, action: keyof Permissions, item: MenuI
 function open(n: TNode, preview: boolean) {
   if (n.type === 'query' && n.query) tabs.openQuery(n.query, preview);
   if (n.type === 'migration' && n.migration) openSavedMigration(n.migration);
+  if (n.type === 'context' && n.context) tabs.openContext(n.context);
   if (n.type === 'object' && n.object && n.connectionId) {
     const kind = conns.driverOf(n.connectionId)?.object_kinds.find((k) => k.id === n.object!.kind);
     const view = kind && !kind.browsable ? (kind.has_definition ? 'definition' : 'structure') : 'data';
@@ -863,6 +889,16 @@ async function onContext(e: MouseEvent, n: TNode) {
     case 'project':
       items.push({ label: t('explorer:menu.openInProjects'), action: () => projects.focusProject(n.project!.id) });
       items.push({ label: t('explorer:menu.useThisDatabase'), action: () => projects.useDatabase(n.project!.id, cid!, db) });
+      break;
+    case 'contexts':
+      items.push({ label: t('ai:contexts.new'), action: () => newContext(cid!, db) });
+      items.push({ label: t('common:refresh'), action: () => conns.loadContexts(cid!, true) });
+      break;
+    case 'context':
+      items.push({ label: t('common:open'), action: () => open(n, false) });
+      items.push({ label: t('explorer:menu.renameEllipsis'), action: () => renameContext(n.context!) });
+      items.push({ label: t(n.context!.active ? 'ai:contexts.deactivate' : 'ai:contexts.activate'), action: () => toggleContext(n.context!) });
+      items.push({ label: t('common:delete'), danger: true, divided: true, action: () => deleteContext(n.context!) });
       break;
     case 'migrations':
       items.push({ label: t('explorer:menu.newMigration'), action: () => newMigration(cid!, db) });
@@ -1290,7 +1326,7 @@ function onClick(n: TNode, node: { expanded: boolean; isLeaf?: boolean }, e?: Mo
   anchor = n;
   // Objects and queries open on click (expanding them needs the arrow);
   // everything else toggles.
-  if (n.type !== 'object' && n.type !== 'query' && n.type !== 'migration') {
+  if (n.type !== 'object' && n.type !== 'query' && n.type !== 'migration' && n.type !== 'context') {
     if (!node.isLeaf) tree.value?.[node.expanded ? 'collapseNode' : 'expandNode'](node);
     return;
   }
@@ -1412,6 +1448,8 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             <el-icon v-else-if="n.type === 'folder'" class="ex-ic f"><ei-folder /></el-icon>
             <el-icon v-else-if="n.type === 'query'" class="ex-ic q"><ei-document /></el-icon>
             <el-icon v-else-if="n.type === 'migrations'" class="ex-ic q"><ei-switch /></el-icon>
+            <el-icon v-else-if="n.type === 'contexts'" class="ex-ic q"><ei-memo /></el-icon>
+            <el-icon v-else-if="n.type === 'context'" class="ex-ic q"><ei-document /></el-icon>
             <el-icon v-else-if="n.type === 'projects'" class="ex-ic g"><ei-folder-opened /></el-icon>
             <el-icon v-else-if="n.type === 'project'" class="ex-ic g"><ei-folder /></el-icon>
             <el-icon
