@@ -1069,6 +1069,30 @@ fn same_index(a: &IndexDef, b: &IndexDef) -> bool {
         && a.options == b.options
 }
 
+/// A full-text index carried from another database names that database's key
+/// index. When this table has none by that name, its single-column primary
+/// key is the key: the server refuses a name the table doesn't have.
+fn fit_key_index(t: &mut TableSchema) {
+    let Some(pk) = t
+        .primary_key
+        .as_ref()
+        .filter(|k| k.columns.len() == 1)
+        .and_then(|k| k.name.clone())
+    else {
+        return;
+    };
+    let names: Vec<String> = t.indexes.iter().map(|i| i.name.to_lowercase()).collect();
+    for ix in t.indexes.iter_mut().filter(|i| is_fulltext(i)) {
+        let known = ix
+            .options
+            .get("KEY INDEX")
+            .is_none_or(|k| k.eq_ignore_ascii_case(&pk) || names.contains(&k.to_lowercase()));
+        if !known {
+            ix.options.insert("KEY INDEX".into(), pk.clone());
+        }
+    }
+}
+
 fn is_clustered(ix: &IndexDef) -> bool {
     matches!(kind_of(ix).as_str(), "CLUSTERED" | "CLUSTERED COLUMNSTORE")
 }
@@ -1265,6 +1289,7 @@ pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<
                     .unwrap_or_default();
                 let (mut old, mut new) = (old.clone(), new.clone());
                 without_dropped_columns(&old, &mut new);
+                fit_key_index(&mut new);
                 if rich(variant) {
                     if let Some(rebuilt) = key_as_index(&mut old, &mut new) {
                         pk_changed = rebuilt;
@@ -2254,6 +2279,47 @@ mod tests {
                 ("cuerpo".into(), 3082, Some("ext".into()), false),
             ],
         }
+    }
+
+    /// Another database's key index name doesn't reach the script; a name
+    /// this table has does.
+    #[test]
+    fn a_carried_fulltext_index_uses_this_tables_key() {
+        let mut ix = fulltext().to_index(1033);
+        ix.options.insert("KEY INDEX".into(), "pk_docs".into());
+        let mut t = TableSchema {
+            name: "docs".into(),
+            primary_key: Some(KeyDef {
+                name: Some("pk_docs2".into()),
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![ix],
+            ..Default::default()
+        };
+        fit_key_index(&mut t);
+        assert_eq!(t.indexes[0].options["KEY INDEX"], "pk_docs2");
+
+        let mut other = IndexDef {
+            name: "uq_codigo".into(),
+            unique: true,
+            ..Default::default()
+        };
+        other.columns = vec!["codigo".into()];
+        t.indexes.push(other);
+        t.indexes[0]
+            .options
+            .insert("KEY INDEX".into(), "UQ_CODIGO".into());
+        fit_key_index(&mut t);
+        assert_eq!(t.indexes[0].options["KEY INDEX"], "UQ_CODIGO");
+
+        // A composite primary key can't be a full-text key: the name stays,
+        // and the server says why.
+        t.indexes[0]
+            .options
+            .insert("KEY INDEX".into(), "pk_docs".into());
+        t.primary_key.as_mut().unwrap().columns.push("b".into());
+        fit_key_index(&mut t);
+        assert_eq!(t.indexes[0].options["KEY INDEX"], "pk_docs");
     }
 
     #[test]

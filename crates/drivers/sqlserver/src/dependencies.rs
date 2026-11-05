@@ -22,7 +22,7 @@ use dbine_driver::dependencies::{
     DependencyTarget, Dependent, Relation,
 };
 use dbine_driver::sql::{qualified_name, Quote};
-use dbine_driver::{kinds, Result, Session};
+use dbine_driver::{kinds, Result, Session, TableSchema};
 use tiberius::Row;
 
 /// `@P1` the target (`[schema].[name]`), `@P2` its column or '', `@P3` the
@@ -50,9 +50,9 @@ pub(crate) async fn dependents(
     scan: &DependencyScan,
 ) -> Result<DependencyReport> {
     let mut report = DependencyReport::default();
-    report
-        .items
-        .extend(schema_dependents(&s.database_schema().await?, target));
+    let tables = s.database_schema().await?;
+    report.items.extend(fulltext_index_users(&tables, target));
+    report.items.extend(schema_dependents(&tables, target));
     let object = qualified_name(Quote::Bracket, target.object.schema(), &target.object.name);
     let column = target.column.clone().unwrap_or_default();
     let pattern = format!(
@@ -73,6 +73,36 @@ pub(crate) async fn dependents(
         )
     });
     Ok(report)
+}
+
+/// The tables whose full-text index uses this catalog or stoplist (the
+/// server won't drop one while an index uses it).
+fn fulltext_index_users(tables: &[TableSchema], target: &DependencyTarget) -> Vec<Dependent> {
+    let option = match target.object.kind.as_str() {
+        crate::structure::FULLTEXT_CATALOG => "CATALOG",
+        crate::structure::FULLTEXT_STOPLIST => "STOPLIST",
+        _ => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for t in tables {
+        for ix in t.indexes.iter().filter(|ix| {
+            ix.options
+                .get(option)
+                .is_some_and(|v| v.eq_ignore_ascii_case(&target.object.name))
+        }) {
+            out.push(Dependent {
+                kind: t.kind.clone(),
+                schema: t.schema.clone(),
+                name: t.name.clone(),
+                parent: None,
+                relation: Relation::Index,
+                confidence: Confidence::Confirmed,
+                detail: Some(format!("{} ({})", ix.name, ix.columns.join(", "))),
+                mentions: Vec::new(),
+            });
+        }
+    }
+    out
 }
 
 fn module(
@@ -134,4 +164,49 @@ fn like_escape(s: &str) -> String {
         out.push(c);
     }
     out
+}
+
+#[cfg(test)]
+mod fulltext_tests {
+    use super::*;
+    use dbine_driver::{IndexDef, ObjectRef};
+
+    fn target(kind: &str, name: &str) -> DependencyTarget {
+        DependencyTarget {
+            object: ObjectRef {
+                kind: kind.into(),
+                schema: None,
+                name: name.into(),
+            },
+            column: None,
+        }
+    }
+
+    #[test]
+    fn a_catalog_and_a_stoplist_list_the_indexes_that_use_them() {
+        let mut ix = IndexDef {
+            name: "fulltext".into(),
+            columns: vec!["body".into()],
+            kind: Some("FULLTEXT".into()),
+            ..Default::default()
+        };
+        ix.options.insert("CATALOG".into(), "cat_a".into());
+        ix.options.insert("STOPLIST".into(), "sl_a".into());
+        let tables = [TableSchema {
+            schema: Some("dbo".into()),
+            name: "docs".into(),
+            kind: "table".into(),
+            indexes: vec![ix],
+            ..Default::default()
+        }];
+        let users = |kind, name| fulltext_index_users(&tables, &target(kind, name));
+        let found = users(crate::structure::FULLTEXT_CATALOG, "CAT_A");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "docs");
+        assert_eq!(found[0].detail.as_deref(), Some("fulltext (body)"));
+        assert_eq!(users(crate::structure::FULLTEXT_STOPLIST, "sl_a").len(), 1);
+        assert!(users(crate::structure::FULLTEXT_CATALOG, "otro").is_empty());
+        // The option's value isn't looked at for other kinds.
+        assert!(users("table", "cat_a").is_empty());
+    }
 }
