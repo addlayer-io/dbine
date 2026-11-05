@@ -34,6 +34,7 @@ minisign-verify = "0.2.5"
 # vendor/tiberius/PATCHES.md.
 [patch.crates-io]
 tiberius = { path = "vendor/tiberius" }
+winauth = { path = "vendor/winauth" }
 
 [profile.release]
 codegen-units = 1
