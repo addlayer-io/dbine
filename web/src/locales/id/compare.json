@@ -114,6 +114,8 @@
   "ignoreComments": "Abaikan komentar",
   "noDifferences": "Tidak ada perbedaan.",
   "noObjects": "Tidak ada objek.",
+  "noneShown": "Tidak ada yang ditampilkan dengan filter ini.",
+  "badgeHint": "{{label}}: klik untuk menampilkan atau menyembunyikan",
   "pendingChanges": "Dengan perubahan belum diterapkan",
   "pickItem": "Pilih tabel atau objek dari daftar.",
   "tableProps": "Properti tabel",

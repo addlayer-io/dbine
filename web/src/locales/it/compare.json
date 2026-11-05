@@ -130,6 +130,8 @@
   "ignoreComments": "Ignora commenti",
   "noDifferences": "Nessuna differenza.",
   "noObjects": "Nessun oggetto.",
+  "noneShown": "Niente da mostrare con questi filtri.",
+  "badgeHint": "{{label}}: clic per mostrare o nascondere",
   "pendingChanges": "Con modifiche non applicate",
   "pickItem": "Scegli una tabella o un oggetto dall'elenco.",
   "tableProps": "Proprietà della tabella",

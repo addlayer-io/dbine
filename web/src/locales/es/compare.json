@@ -130,6 +130,8 @@
   "ignoreComments": "Ignorar comentarios",
   "noDifferences": "No hay diferencias.",
   "noObjects": "No hay objetos.",
+  "noneShown": "Nada para mostrar con estos filtros.",
+  "badgeHint": "{{label}}: clic para mostrar u ocultar",
   "pendingChanges": "Con cambios sin aplicar",
   "pickItem": "Elegí una tabla u objeto de la lista.",
   "tableProps": "Propiedades de la tabla",

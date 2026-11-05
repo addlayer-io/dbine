@@ -114,6 +114,8 @@
   "ignoreComments": "忽略注释",
   "noDifferences": "没有差异。",
   "noObjects": "没有对象。",
+  "noneShown": "当前筛选条件下没有可显示的内容。",
+  "badgeHint": "{{label}}：点击显示或隐藏",
   "pendingChanges": "有未应用的更改",
   "pickItem": "请从列表中选择一张表或一个对象。",
   "tableProps": "表属性",

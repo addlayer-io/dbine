@@ -114,6 +114,8 @@
   "ignoreComments": "コメントを無視",
   "noDifferences": "差分はありません。",
   "noObjects": "オブジェクトがありません。",
+  "noneShown": "このフィルターで表示できる項目はありません。",
+  "badgeHint": "{{label}}:クリックで表示/非表示を切り替えます",
   "pendingChanges": "未適用の変更あり",
   "pickItem": "一覧からテーブルまたはオブジェクトを選択してください。",
   "tableProps": "テーブルのプロパティ",

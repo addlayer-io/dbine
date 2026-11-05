@@ -22,7 +22,12 @@ in the explorer: **Compare schemas…**.
    | `≠` | different |
    | `◧` | left only |
    | `◨` | right only |
-   | `=` | equal (shown by unchecking "Differences only") |
+   | `=` | equal (hidden until you turn on its badge or uncheck "Differences only") |
+
+   The badges above the list show how many there are of each. A click turns
+   a status on or off, and the list shows the ones that are on; "Differences
+   only" is the same as the `=` badge off. Rows you already acted on with an
+   arrow stay listed.
 
 3. **Review a table.** When you pick it, it's shown side by side: columns,
    indexes, foreign keys and primary key. What differs in each column (type,
