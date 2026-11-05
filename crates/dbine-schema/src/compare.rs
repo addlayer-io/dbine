@@ -268,6 +268,36 @@ fn index_fields(l: &IndexDef, r: &IndexDef, o: &CompareOptions) -> Vec<&'static 
     f
 }
 
+/// SQL Server's full-text indexes name their key index. Each table's primary
+/// key on the same columns is the same key, whatever each is called.
+fn same_key_by_another_name(
+    lt: &TableSchema,
+    l: &IndexDef,
+    rt: &TableSchema,
+    r: &IndexDef,
+    o: &CompareOptions,
+) -> bool {
+    const KEY_INDEX: &str = "KEY INDEX";
+    let (Some(lk), Some(rk)) = (l.options.get(KEY_INDEX), r.options.get(KEY_INDEX)) else {
+        return false;
+    };
+    let (Some(lp), Some(rp)) = (&lt.primary_key, &rt.primary_key) else {
+        return false;
+    };
+    let names = |k: &str, p: &dbine_driver::KeyDef| {
+        p.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(k))
+    };
+    let others = |x: &IndexDef| {
+        let mut opts = x.options.clone();
+        opts.remove(KEY_INDEX);
+        opts
+    };
+    names(lk, lp)
+        && names(rk, rp)
+        && cols_key(&lp.columns, o) == cols_key(&rp.columns, o)
+        && others(l) == others(r)
+}
+
 use dbine_driver::alter::check_expr;
 
 /// CHECKs pair by name; the unnamed ones (or with generated names on one
@@ -387,7 +417,13 @@ fn compare_table(
         .into_iter()
         .map(|(a, b)| {
             let fields = match (a, b) {
-                (Some(i), Some(j)) => index_fields(&l.indexes[i], &r.indexes[j], o),
+                (Some(i), Some(j)) => {
+                    let mut f = index_fields(&l.indexes[i], &r.indexes[j], o);
+                    if same_key_by_another_name(l, &l.indexes[i], r, &r.indexes[j], o) {
+                        f.retain(|x| *x != "options");
+                    }
+                    f
+                }
                 _ => Vec::new(),
             };
             let name = a
@@ -601,6 +637,54 @@ mod tests {
             nullable,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_fulltext_key_by_another_name_is_the_same_key() {
+        let build = |pk: &str, key: &str, catalog: &str| {
+            let mut t = table("docs", vec![col("id", "int", false)]);
+            t.primary_key = Some(KeyDef {
+                name: Some(pk.into()),
+                columns: vec!["id".into()],
+            });
+            let mut ix = IndexDef {
+                name: "fulltext".into(),
+                columns: vec!["id".into()],
+                kind: Some("FULLTEXT".into()),
+                ..Default::default()
+            };
+            ix.options.insert("KEY INDEX".into(), key.into());
+            ix.options.insert("CATALOG".into(), catalog.into());
+            t.indexes.push(ix);
+            t
+        };
+        let o = CompareOptions::default();
+        let (l, r) = (build("pk_a", "pk_a", "cat"), build("pk_b", "pk_b", "cat"));
+        assert!(same_key_by_another_name(
+            &l,
+            &l.indexes[0],
+            &r,
+            &r.indexes[0],
+            &o
+        ));
+        // Another catalog is a real difference.
+        let other = build("pk_b", "pk_b", "otro");
+        assert!(!same_key_by_another_name(
+            &l,
+            &l.indexes[0],
+            &other,
+            &other.indexes[0],
+            &o
+        ));
+        // A key that isn't the primary key on one side too.
+        let unique = build("pk_b", "uq_b", "cat");
+        assert!(!same_key_by_another_name(
+            &l,
+            &l.indexes[0],
+            &unique,
+            &unique.indexes[0],
+            &o
+        ));
     }
 
     fn table(name: &str, cols: Vec<ColumnDef>) -> TableSchema {

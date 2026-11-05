@@ -1492,7 +1492,9 @@ function classify(s: SideId, target: DependencyTarget, report: DependencyReport)
   const review: Dependent[] = [];
   for (const d of report.items) {
     // A whole table: other tables' foreign keys and the code that uses it; its own indexes and checks go with it.
-    if (!target.column && (d.relation === 'index' || d.relation === 'check')) continue;
+    // A full-text catalog or stoplist has none of its own: the indexes listed are other tables', and they use it.
+    const usedByIndexes = target.object.kind === 'fulltext_catalog' || target.object.kind === 'fulltext_stoplist';
+    if (!target.column && !usedByIndexes && (d.relation === 'index' || d.relation === 'check')) continue;
     if (!target.column && d.relation === 'foreign_key' && qual(d) === self) continue;
     if (handled(d)) continue;
     (d.confidence === 'review' ? review : breaks).push(d);
