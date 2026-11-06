@@ -880,6 +880,38 @@ mod tests {
         assert!(closed.is_ok(), "the process outlived its guard");
     }
 
+    /// Run by hand, it waits out the whole connect timeout:
+    /// `cargo test -p dbine --lib never_answers -- --ignored`.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "waits the 20 s of the connect timeout"]
+    async fn a_command_that_never_answers_gives_up_on_time() {
+        let (process, stream) = ProxyProcess::spawn("sleep 300").unwrap();
+        let spec = dbine_tunnel::Spec {
+            hops: vec![dbine_tunnel::Hop {
+                host: "h.test".into(),
+                port: 22,
+                user: "u".into(),
+                auth: None,
+            }],
+            auth: dbine_tunnel::Auth::Agent,
+            target_host: "db.test".into(),
+            target_port: 5432,
+            trusted: vec![],
+        };
+        let started = std::time::Instant::now();
+        let opened = dbine_tunnel::open_over(&spec, stream, Box::new(process)).await;
+        let took = started.elapsed();
+        let Err(e) = opened else {
+            panic!("a silent command can't open a tunnel");
+        };
+        assert!(e.to_string().contains("20 s"), "{e}");
+        assert!(
+            took >= Duration::from_secs(19) && took < Duration::from_secs(22),
+            "{took:?}"
+        );
+    }
+
     #[test]
     fn paths_get_their_tokens_and_each_hop_its_keys() {
         let r = Resolved {
