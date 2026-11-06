@@ -92,6 +92,9 @@ pub struct ListedConnection {
     /// A file opened from the OS, not saved (src/open_files.rs).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub temporary: bool,
+    /// One of the company's, from DBine Enterprise (src/enterprise).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub managed: bool,
 }
 
 /// The saved connections, after the files opened in this run (temporary).
@@ -104,6 +107,7 @@ pub async fn list_connections(state: State<'_, AppState>) -> CommandResult<Vec<L
         .map(|connection| ListedConnection {
             connection,
             temporary: true,
+            managed: false,
         });
     let saved = state
         .store
@@ -112,8 +116,18 @@ pub async fn list_connections(state: State<'_, AppState>) -> CommandResult<Vec<L
         .map(|connection| ListedConnection {
             connection,
             temporary: false,
+            managed: false,
         });
-    Ok(temporary.chain(saved).collect())
+    let managed = state
+        .store
+        .list_managed_connections()?
+        .into_iter()
+        .map(|connection| ListedConnection {
+            connection,
+            temporary: false,
+            managed: true,
+        });
+    Ok(temporary.chain(saved).chain(managed).collect())
 }
 
 #[derive(Deserialize)]
@@ -141,6 +155,14 @@ pub async fn save_connection(
     let mut conn = args.connection;
     if conn.id.is_empty() {
         conn.id = uuid::Uuid::new_v4().to_string();
+    }
+    crate::enterprise::refuse_if_managed(&state.store, &conn.id)?;
+    // Only DBine Enterprise makes connections that go through its gateway.
+    if crate::enterprise::is_managed(&conn.config) {
+        return Err(CommandError::BadRequest(
+            "las conexiones de DBine Enterprise las administra la empresa: no se cambian desde acá"
+                .into(),
+        ));
     }
     if conn.name.trim().is_empty() {
         return Err(CommandError::BadRequest(
@@ -360,6 +382,7 @@ pub struct TrustTlsPinArgs {
 /// from the user's click on that explanation.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn trust_tls_pin(state: State<'_, AppState>, args: TrustTlsPinArgs) -> CommandResult<()> {
+    crate::enterprise::refuse_if_managed(&state.store, &args.connection_id)?;
     store_trusted_pin(&state.store, &args.connection_id, &args.fingerprint)?;
     state.close_connection_sessions(&args.connection_id);
     Ok(())
@@ -401,6 +424,7 @@ pub async fn allow_legacy_tls(
     state: State<'_, AppState>,
     args: AllowLegacyTlsArgs,
 ) -> CommandResult<()> {
+    crate::enterprise::refuse_if_managed(&state.store, &args.connection_id)?;
     store_legacy_tls(&state.store, &args.connection_id, |driver| {
         let fields = dbine_drivers::find(driver).map(|d| d.info().fields.clone());
         dbine_drivers::VARIANTS
@@ -441,6 +465,7 @@ pub struct IdArgs {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn delete_connection(state: State<'_, AppState>, args: IdArgs) -> CommandResult<()> {
+    crate::enterprise::refuse_if_managed(&state.store, &args.id)?;
     // Its confirmations go too.
     if let Some(old) = state.store.get_connection(&args.id)? {
         let digests: Vec<String> = source_defs::read(&old.config)

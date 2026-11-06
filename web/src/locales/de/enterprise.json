@@ -1,0 +1,93 @@
+{
+  "header": "DBine Enterprise",
+  "headerSignedIn": "DBine Enterprise: {{organization}}",
+  "offline": "DBine Enterprise antwortet nicht: Die Verbindungen des Unternehmens können derzeit nicht geöffnet werden.",
+  "sync": "Synchronisieren",
+  "signOut": "Abmelden",
+  "noExpiry": "ohne Ablauf",
+  "tabs": {
+    "local": "Lokal"
+  },
+  "signIn": {
+    "title": "DBine Enterprise",
+    "intro": "Melden Sie sich mit dem Konto Ihres Unternehmens an, und die Verbindungen, auf die Sie Zugriff haben, stehen bereit, ohne Server oder Passwörter einzugeben.",
+    "server": "DBine-Enterprise-Server",
+    "serverPlaceholder": "dbine.firma.de",
+    "button": "Anmelden",
+    "waiting": "Schließen Sie die Anmeldung im Browser ab…",
+    "donePage": "Fertig: Sie sind angemeldet. Sie können zu DBine zurückkehren.",
+    "done": "Angemeldet bei {{organization}}",
+    "as": "{{name}} ({{email}})"
+  },
+  "tree": {
+    "pending": "Anfrage ausstehend",
+    "requestAccess": "Zugriff anfragen…",
+    "empty": "Sie haben noch keine Unternehmensverbindungen.",
+    "until": "bis {{when}}",
+    "extensionPending": "Verlängerung angefragt"
+  },
+  "menu": {
+    "request": "Zugriff anfragen…",
+    "withdraw": "Anfrage zurückziehen",
+    "extend": "Verlängerung anfragen…",
+    "requestOutsideHours": "Zugriff außerhalb der Zeiten anfordern…"
+  },
+  "access": {
+    "requestTitle": "Zugriff anfragen",
+    "extendTitle": "Verlängerung anfragen",
+    "endsAt": "Ihr Zugriff läuft {{when}} ab",
+    "databases": "Datenbanken (optional)",
+    "databasesPlaceholder": "Alle, oder durch Komma getrennt",
+    "howLong": "Für wie lange",
+    "howMuchMore": "Wie viel länger",
+    "forHours": "Für einige Stunden",
+    "untilDate": "Bis zu einem Datum",
+    "hoursUnit": "Stunden",
+    "reason": "Grund",
+    "reasonPlaceholder": "Wofür Sie ihn brauchen: ein Ticket, ein Vorfall, eine Aufgabe…",
+    "justification": "Begründung",
+    "justificationPlaceholder": "Warum Sie mehr Zeit brauchen",
+    "runningSent": "Mit der Anfrage wird gesendet, was gerade läuft:",
+    "runningFor_one": "seit {{count}} Minute:",
+    "runningFor_other": "seit {{count}} Minuten:",
+    "sendRequest": "Anfrage senden",
+    "sendExtension": "Verlängerung anfragen",
+    "requestSent": "Anfrage gesendet: Wir benachrichtigen Sie, sobald entschieden ist.",
+    "extensionSent": "Verlängerung angefragt: Wir benachrichtigen Sie, sobald entschieden ist.",
+    "outsideHours": "Ich benötige Zugriff außerhalb der erlaubten Zeiten",
+    "outsideHoursHint": "Die genehmigende Person sieht dies hervorgehoben, und jeder Zugriff außerhalb der Zeiten wird protokolliert.",
+    "outsideHoursNeedsDuration": "Ein Zugriff außerhalb der Zeiten benötigt eine Dauer: Wählen Sie Stunden oder ein Datum."
+  },
+  "notice": {
+    "approved": "Sie haben Zugriff auf {{connection}} als {{profile}} erhalten, bis {{until}}.",
+    "approvedForever": "Sie haben Zugriff auf {{connection}} als {{profile}} erhalten, ohne Ablauf.",
+    "extended": "Ihr Zugriff auf {{connection}} als {{profile}} wurde verlängert: Er läuft jetzt {{until}} ab.",
+    "rejected": "{{who}} hat Ihre Zugriffsanfrage für {{connection}} als {{profile}} abgelehnt.",
+    "extensionRejected": "{{who}} hat die Verlängerung Ihres Zugriffs auf {{connection}} als {{profile}} abgelehnt.",
+    "requestExpired": "Ihre Zugriffsanfrage für {{connection}} als {{profile}} ist abgelaufen, ohne dass jemand entschieden hat.",
+    "granted": "Sie haben jetzt Zugriff auf {{connection}} als {{profile}}, bis {{until}}.",
+    "grantedForever": "Sie haben jetzt Zugriff auf {{connection}} als {{profile}}.",
+    "revoked": "Ihr Zugriff auf {{connection}} als {{profile}} wurde entzogen.",
+    "ending_one": "Ihr Zugriff auf {{connection}} als {{profile}} läuft in {{count}} Minute ab.",
+    "ending_other": "Ihr Zugriff auf {{connection}} als {{profile}} läuft in {{count}} Minuten ab.",
+    "endingRunning_one": "Ihr Zugriff auf {{connection}} als {{profile}} läuft in {{count}} Minute ab, und eine Abfrage läuft seit {{running}}.",
+    "endingRunning_other": "Ihr Zugriff auf {{connection}} als {{profile}} läuft in {{count}} Minuten ab, und eine Abfrage läuft seit {{running}}.",
+    "clickToExtend": "Klicken Sie, um eine Verlängerung anzufragen.",
+    "draining_one": "Ihr Zugriff auf {{connection}} als {{profile}} ist beendet. Was gerade lief, darf noch abschließen (bis zu {{count}} Minute), neue Abfragen werden aber nicht angenommen.",
+    "draining_other": "Ihr Zugriff auf {{connection}} als {{profile}} ist beendet. Was gerade lief, darf noch abschließen (bis zu {{count}} Minuten), neue Abfragen werden aber nicht angenommen.",
+    "ended": "Ihre Sitzung auf {{connection}} als {{profile}} wurde beendet, weil der Zugriff abgelaufen ist.",
+    "endedRevoked": "Ihre Sitzung auf {{connection}} als {{profile}} wurde beendet, weil Ihnen der Zugriff entzogen wurde.",
+    "endedOutsideHours": "Ihre Sitzung auf {{connection}} als {{profile}} wurde beendet: Sie liegt außerhalb der für diese Verbindung erlaubten Zeiten.",
+    "sessionLost": "Die DBine-Enterprise-Sitzung wurde beendet. Klicken Sie, um sich erneut anzumelden.",
+    "scheduleEnding_one": "Die erlaubten Zeiten für {{connection}} enden in {{count}} Minute, und Ihre Sitzung als {{profile}} wird beendet.",
+    "scheduleEnding_other": "Die erlaubten Zeiten für {{connection}} enden in {{count}} Minuten, und Ihre Sitzung als {{profile}} wird beendet.",
+    "clickToRequestHours": "Klicken Sie, um Zugriff außerhalb der Zeiten anzufordern."
+  },
+  "elapsed": {
+    "seconds_one": "{{count}} Sekunde",
+    "seconds_other": "{{count}} Sekunden",
+    "minutes_one": "{{count}} Minute",
+    "minutes_other": "{{count}} Minuten",
+    "hours": "{{h}} Std. {{m}} Min."
+  }
+}

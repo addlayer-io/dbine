@@ -1,0 +1,86 @@
+{
+  "header": "DBine Enterprise",
+  "headerSignedIn": "DBine Enterprise: {{organization}}",
+  "offline": "DBine Enterprise tidak merespons: koneksi perusahaan belum dapat dibuka untuk saat ini.",
+  "sync": "Sinkronkan",
+  "signOut": "Keluar",
+  "noExpiry": "tanpa kedaluwarsa",
+  "tabs": {
+    "local": "Lokal"
+  },
+  "signIn": {
+    "title": "DBine Enterprise",
+    "intro": "Masuk dengan akun perusahaan Anda, dan koneksi yang dapat Anda akses akan siap, tanpa perlu mengisi server atau kata sandi.",
+    "server": "Server DBine Enterprise",
+    "serverPlaceholder": "dbine.perusahaan.co.id",
+    "button": "Masuk",
+    "waiting": "Selesaikan proses masuk di browser…",
+    "donePage": "Selesai: Anda sudah masuk. Anda dapat kembali ke DBine.",
+    "done": "Berhasil masuk ke {{organization}}",
+    "as": "{{name}} ({{email}})"
+  },
+  "tree": {
+    "pending": "permintaan tertunda",
+    "requestAccess": "minta akses…",
+    "empty": "Anda belum memiliki koneksi perusahaan.",
+    "until": "hingga {{when}}",
+    "extensionPending": "perpanjangan diminta"
+  },
+  "menu": {
+    "request": "Minta akses…",
+    "withdraw": "Tarik permintaan",
+    "extend": "Minta perpanjangan…",
+    "requestOutsideHours": "Minta akses di luar jam…"
+  },
+  "access": {
+    "requestTitle": "Minta akses",
+    "extendTitle": "Minta perpanjangan",
+    "endsAt": "Akses Anda berakhir {{when}}",
+    "databases": "Basis data (opsional)",
+    "databasesPlaceholder": "Semua, atau dipisahkan koma",
+    "howLong": "Untuk berapa lama",
+    "howMuchMore": "Berapa lama lagi",
+    "forHours": "Selama beberapa jam",
+    "untilDate": "Hingga tanggal tertentu",
+    "hoursUnit": "jam",
+    "reason": "Alasan",
+    "reasonPlaceholder": "Untuk apa Anda membutuhkannya: tiket, insiden, tugas…",
+    "justification": "Justifikasi",
+    "justificationPlaceholder": "Mengapa Anda membutuhkan waktu lebih lama",
+    "runningSent": "Yang sedang berjalan ikut dikirim bersama permintaan:",
+    "runningFor_other": "sejak {{count}} menit lalu:",
+    "sendRequest": "Kirim permintaan",
+    "sendExtension": "Minta perpanjangan",
+    "requestSent": "Permintaan terkirim: kami akan memberi tahu Anda setelah diputuskan.",
+    "extensionSent": "Perpanjangan diminta: kami akan memberi tahu Anda setelah diputuskan.",
+    "outsideHours": "Saya perlu akses di luar jam yang diizinkan",
+    "outsideHoursHint": "Penyetuju melihatnya disorot, dan setiap akses di luar jam yang diizinkan akan dicatat.",
+    "outsideHoursNeedsDuration": "Akses di luar jam yang diizinkan memerlukan durasi: pilih jam atau tanggal."
+  },
+  "notice": {
+    "approved": "Anda diberi akses ke {{connection}} sebagai {{profile}}, hingga {{until}}.",
+    "approvedForever": "Anda diberi akses ke {{connection}} sebagai {{profile}}, tanpa kedaluwarsa.",
+    "extended": "Akses Anda ke {{connection}} sebagai {{profile}} diperpanjang: kini berakhir {{until}}.",
+    "rejected": "{{who}} menolak permintaan akses Anda ke {{connection}} sebagai {{profile}}.",
+    "extensionRejected": "{{who}} menolak perpanjangan akses Anda ke {{connection}} sebagai {{profile}}.",
+    "requestExpired": "Permintaan akses Anda ke {{connection}} sebagai {{profile}} kedaluwarsa tanpa diputuskan siapa pun.",
+    "granted": "Anda kini memiliki akses ke {{connection}} sebagai {{profile}}, hingga {{until}}.",
+    "grantedForever": "Anda kini memiliki akses ke {{connection}} sebagai {{profile}}.",
+    "revoked": "Akses Anda ke {{connection}} sebagai {{profile}} dicabut.",
+    "ending_other": "Akses Anda ke {{connection}} sebagai {{profile}} berakhir dalam {{count}} menit.",
+    "endingRunning_other": "Akses Anda ke {{connection}} sebagai {{profile}} berakhir dalam {{count}} menit, dan ada kueri yang berjalan sejak {{running}} lalu.",
+    "clickToExtend": "Klik untuk meminta perpanjangan.",
+    "draining_other": "Akses Anda ke {{connection}} sebagai {{profile}} telah berakhir. Yang sedang berjalan boleh selesai (hingga {{count}} menit), tetapi kueri baru tidak diterima.",
+    "ended": "Sesi Anda di {{connection}} sebagai {{profile}} berakhir karena akses kedaluwarsa.",
+    "endedRevoked": "Sesi Anda di {{connection}} sebagai {{profile}} berakhir karena akses Anda dicabut.",
+    "endedOutsideHours": "Sesi Anda di {{connection}} sebagai {{profile}} berakhir: berada di luar jam yang diizinkan untuk koneksi ini.",
+    "sessionLost": "Sesi DBine Enterprise berakhir. Klik untuk masuk lagi.",
+    "scheduleEnding_other": "Jam akses yang diizinkan untuk {{connection}} berakhir dalam {{count}} menit dan sesi Anda sebagai {{profile}} akan diputus.",
+    "clickToRequestHours": "Klik untuk meminta akses di luar jam."
+  },
+  "elapsed": {
+    "seconds_other": "{{count}} detik",
+    "minutes_other": "{{count}} menit",
+    "hours": "{{h}} j {{m}} mnt"
+  }
+}

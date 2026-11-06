@@ -254,6 +254,10 @@ export const busyTabs = new Set<string>();
 /** Query tabs running a statement right now. QueryView keeps it up to date. */
 export const runningTabs = new Set<string>();
 
+/** What each running query tab runs and since when, by tab: DBine
+ *  Enterprise's warnings before access ends name it. QueryView keeps it. */
+export const runningStatements = new Map<string, { connectionId: string; sql: string; since: number }>();
+
 /** Tabs with an open transaction, that ask before their connection is
  *  closed under them: resolves true to go on. QueryView registers them. */
 export const disconnectGuards = new Map<string, () => Promise<boolean>>();

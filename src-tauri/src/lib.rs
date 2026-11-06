@@ -6,6 +6,7 @@ mod dbdocs;
 mod devtools;
 #[cfg(target_os = "macos")]
 mod dock_macos;
+mod enterprise;
 mod error;
 mod identifier;
 #[cfg(windows)]
@@ -145,6 +146,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         // In-app updates; only Rust calls it (commands/updates.rs), the
         // webview has no updater permission.
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -269,8 +271,11 @@ pub fn run() {
                 let state = state.clone();
                 std::thread::spawn(move || commands::scheduled::resync_all(&state));
             }
+            let store = state.store.clone();
             app.manage(state);
             state::set_app_handle(app.handle().clone());
+            // Signed in to DBine Enterprise from a previous run: resume.
+            enterprise::init(app.handle().clone(), store);
             app.manage(windows::TaskRegistry::default());
             app.manage(commands::projects::UnsavedRegistry::default());
             sync::start(app.handle().clone());
@@ -379,6 +384,16 @@ pub fn run() {
             commands::azure_firewall::azure_sql_add_firewall_rule,
             commands::azure_firewall::public_ip,
             commands::azure_firewall::open_azure_portal,
+            enterprise::enterprise_status,
+            enterprise::enterprise_sign_in,
+            enterprise::enterprise_cancel_sign_in,
+            enterprise::enterprise_sign_out,
+            enterprise::enterprise_sync,
+            enterprise::enterprise_request,
+            enterprise::enterprise_extend,
+            enterprise::enterprise_cancel_request,
+            enterprise::enterprise_requests,
+            enterprise::enterprise_notify,
             commands::folders::list_folders,
             commands::folders::save_folder,
             commands::folders::delete_folder,

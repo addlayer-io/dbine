@@ -1,0 +1,86 @@
+{
+  "header": "DBine Enterprise",
+  "headerSignedIn": "DBine Enterprise: {{organization}}",
+  "offline": "DBine Enterprise가 응답하지 않습니다. 지금은 회사 연결을 열 수 없습니다.",
+  "sync": "동기화",
+  "signOut": "로그아웃",
+  "noExpiry": "만료 없음",
+  "tabs": {
+    "local": "로컬"
+  },
+  "signIn": {
+    "title": "DBine Enterprise",
+    "intro": "회사 계정으로 로그인하면 액세스 권한이 있는 연결이 바로 준비됩니다. 서버나 비밀번호를 입력할 필요가 없습니다.",
+    "server": "DBine Enterprise 서버",
+    "serverPlaceholder": "dbine.example.co.kr",
+    "button": "로그인",
+    "waiting": "브라우저에서 로그인을 완료하세요…",
+    "donePage": "완료: 로그인되었습니다. DBine으로 돌아가셔도 됩니다.",
+    "done": "{{organization}}에 로그인했습니다",
+    "as": "{{name}} ({{email}})"
+  },
+  "tree": {
+    "pending": "요청 대기 중",
+    "requestAccess": "액세스 요청…",
+    "empty": "아직 회사 연결이 없습니다.",
+    "until": "{{when}}까지",
+    "extensionPending": "연장 요청됨"
+  },
+  "menu": {
+    "request": "액세스 요청…",
+    "withdraw": "요청 철회",
+    "extend": "연장 요청…",
+    "requestOutsideHours": "시간 외 접근 요청…"
+  },
+  "access": {
+    "requestTitle": "액세스 요청",
+    "extendTitle": "연장 요청",
+    "endsAt": "액세스가 {{when}}에 만료됩니다",
+    "databases": "데이터베이스(선택 사항)",
+    "databasesPlaceholder": "전체 또는 쉼표로 구분",
+    "howLong": "기간",
+    "howMuchMore": "추가 기간",
+    "forHours": "몇 시간 동안",
+    "untilDate": "특정 날짜까지",
+    "hoursUnit": "시간",
+    "reason": "사유",
+    "reasonPlaceholder": "필요한 이유: 티켓, 인시던트, 작업…",
+    "justification": "근거",
+    "justificationPlaceholder": "더 많은 시간이 필요한 이유",
+    "runningSent": "실행 중인 내용이 요청과 함께 전송됩니다:",
+    "runningFor_other": "{{count}}분 전부터:",
+    "sendRequest": "요청 보내기",
+    "sendExtension": "연장 요청",
+    "requestSent": "요청을 보냈습니다. 결정되면 알려 드리겠습니다.",
+    "extensionSent": "연장을 요청했습니다. 결정되면 알려 드리겠습니다.",
+    "outsideHours": "허용된 시간 외에 접근해야 합니다",
+    "outsideHoursHint": "승인자에게 강조되어 표시되며, 시간 외에 접근할 때마다 기록됩니다.",
+    "outsideHoursNeedsDuration": "시간 외 접근에는 기간이 필요합니다. 시간 수 또는 날짜를 선택하세요."
+  },
+  "notice": {
+    "approved": "{{connection}}에 {{profile}}(으)로 액세스할 수 있게 되었습니다. {{until}}까지입니다.",
+    "approvedForever": "{{connection}}에 {{profile}}(으)로 액세스할 수 있게 되었습니다. 만료 없음입니다.",
+    "extended": "{{connection}}에 대한 {{profile}} 액세스가 연장되었습니다. 이제 {{until}}에 만료됩니다.",
+    "rejected": "{{who}}님이 {{connection}}에 대한 {{profile}} 액세스 요청을 거부했습니다.",
+    "extensionRejected": "{{who}}님이 {{connection}}에 대한 {{profile}} 액세스 연장을 거부했습니다.",
+    "requestExpired": "{{connection}}에 대한 {{profile}} 액세스 요청이 아무도 결정하지 않은 채 만료되었습니다.",
+    "granted": "이제 {{connection}}에 {{profile}}(으)로 액세스할 수 있습니다. {{until}}까지입니다.",
+    "grantedForever": "이제 {{connection}}에 {{profile}}(으)로 액세스할 수 있습니다.",
+    "revoked": "{{connection}}에 대한 {{profile}} 액세스 권한이 회수되었습니다.",
+    "ending_other": "{{connection}}에 대한 {{profile}} 액세스가 {{count}}분 후에 만료됩니다.",
+    "endingRunning_other": "{{connection}}에 대한 {{profile}} 액세스가 {{count}}분 후에 만료되며, 쿼리가 {{running}} 전부터 실행 중입니다.",
+    "clickToExtend": "클릭하여 연장을 요청하세요.",
+    "draining_other": "{{connection}}에 대한 {{profile}} 액세스가 종료되었습니다. 실행 중이던 작업은 끝날 수 있지만(최대 {{count}}분) 새 쿼리는 받지 않습니다.",
+    "ended": "{{connection}}에서의 {{profile}} 세션이 액세스 만료로 종료되었습니다.",
+    "endedRevoked": "{{connection}}에서의 {{profile}} 세션이 액세스 권한 회수로 종료되었습니다.",
+    "endedOutsideHours": "{{connection}}에서 {{profile}} 프로필로 진행한 세션이 종료되었습니다. 이 연결에 허용된 시간대가 아닙니다.",
+    "sessionLost": "DBine Enterprise 세션이 종료되었습니다. 클릭하여 다시 로그인하세요.",
+    "scheduleEnding_other": "{{connection}}의 허용 시간대가 {{count}}분 후에 끝나며 {{profile}}(으)로의 세션이 끊어집니다.",
+    "clickToRequestHours": "클릭하여 시간 외 접근을 요청합니다."
+  },
+  "elapsed": {
+    "seconds_other": "{{count}}초",
+    "minutes_other": "{{count}}분",
+    "hours": "{{h}}시간 {{m}}분"
+  }
+}

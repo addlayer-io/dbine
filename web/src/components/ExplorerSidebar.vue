@@ -11,6 +11,7 @@ import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
+import { errorMessage } from '../api/client';
 import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, ProjectInfo, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { useProjectsStore } from '../stores/projects';
 import { dbKey, objKey, useConnectionsStore, type KeyBrowse } from '../stores/connections';
@@ -47,6 +48,10 @@ import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composa
 import { databaseRenameItem, renameItem, type RenameDialogTarget } from '../composables/rename';
 import RenameDialog from './RenameDialog.vue';
 import ConnectionProblemDialog from './ConnectionProblemDialog.vue';
+import EnterpriseSignInDialog from './EnterpriseSignInDialog.vue';
+import EnterpriseAccessDialog from './EnterpriseAccessDialog.vue';
+import { ENTERPRISE_ENABLED, useEnterpriseStore } from '../stores/enterprise';
+import { CONNECTION_OPTION, PROFILE_OPTION, type EnterpriseConnection, type EnterpriseProfile } from '../api/enterprise';
 import { closeOpenedFile, pickAndOpen, saveOpenedFile } from '../composables/openFiles';
 
 // The explorer: user folders (clients, environments… nested at will) →
@@ -68,7 +73,9 @@ type NodeType = 'group' | 'connection' | 'database' | 'schema' | 'folder' | 'que
   // "Proyectos": the linked projects whose base is this database.
   | 'projects' | 'project'
   // The banner of a connection that couldn't connect ("Reintentar", "Ver qué pasa…").
-  | 'connerr';
+  | 'connerr'
+  // DBine Enterprise: a company connection, and a profile without access ("Solicitar acceso…").
+  | 'entgroup' | 'entprofile';
 
 interface TNode {
   id: string;
@@ -106,9 +113,20 @@ interface TNode {
   schema?: string;
   /** Flat mode: an object's non-default schema, shown dim before its name. */
   qualifier?: string;
+  /** DBine Enterprise: the company connection and profile behind the node. */
+  ent?: { connection: EnterpriseConnection; profile?: EnterpriseProfile };
 }
 
 const conns = useConnectionsStore();
+const ent = useEnterpriseStore();
+if (ENTERPRISE_ENABLED) void ent.init();
+/** Which connections the explorer shows: the user's own, or the company's
+ *  (DBine Enterprise, once signed in). */
+const scope = ref<'local' | 'enterprise'>(readJson<'local' | 'enterprise'>('dbine.explorerScope', 'local'));
+watch(scope, (v) => writeJson('dbine.explorerScope', v));
+const showEnterprise = computed(() => ent.signedIn && scope.value === 'enterprise');
+/** The user's own connections: the company's live in the Enterprise tab. */
+const localList = computed(() => conns.list.filter((c) => !c.managed));
 const tabs = useTabsStore();
 const ui = useUiStore();
 const projects = useProjectsStore();
@@ -523,7 +541,7 @@ function folderLevel(parent: string | null): TNode[] {
     .filter((f) => (f.parent_id ?? null) === parent)
     .map((f) => {
       const id = `g:${f.id}`;
-      const children = [...folderLevel(f.id), ...conns.list.filter((c) => c.folder_id === f.id).map(connectionNode)];
+      const children = [...folderLevel(f.id), ...localList.value.filter((c) => c.folder_id === f.id).map(connectionNode)];
       return {
         id, label: f.name, type: 'group' as const, folder: f, color: f.color,
         count: countConnections(f.id),
@@ -532,18 +550,52 @@ function folderLevel(parent: string | null): TNode[] {
     });
 }
 function countConnections(folderId: string): number {
-  return conns.list.filter((c) => c.folder_id === folderId).length +
+  return localList.value.filter((c) => c.folder_id === folderId).length +
     conns.folders.filter((f) => f.parent_id === folderId).reduce((n, f) => n + countConnections(f.id), 0);
 }
 
 const data = computed<TNode[]>(() => {
+  if (showEnterprise.value) return enterpriseTree();
   const known = new Set(conns.folders.map((f) => f.id));
   return [
     ...folderLevel(null),
     // Top level, plus any whose folder no longer exists.
-    ...conns.list.filter((c) => !c.folder_id || !known.has(c.folder_id)).map(connectionNode),
+    ...localList.value.filter((c) => !c.folder_id || !known.has(c.folder_id)).map(connectionNode),
   ];
 });
+
+/** The company's connections: each with its profiles, the ones with access
+ *  as connections to open, the rest to request. Nothing here moves or
+ *  changes: the company decides it. */
+function enterpriseTree(): TNode[] {
+  const managed = conns.list.filter((c) => c.managed);
+  return ent.connections.map((ec) => {
+    const gid = `eg:${ec.id}`;
+    const children: TNode[] = ec.profiles.map((p) => {
+      const row = managed.find((c) => c.config.options?.[PROFILE_OPTION] === p.id && c.config.options?.[CONNECTION_OPTION] === ec.id);
+      if (p.access && row) {
+        const node = connectionNode(row);
+        node.label = p.name;
+        node.ent = { connection: ec, profile: p };
+        return node;
+      }
+      return {
+        id: `ep:${p.id}`, label: p.name, type: 'entprofile' as const, ent: { connection: ec, profile: p },
+        hint: p.pending_request ? t('enterprise:tree.pending') : t('enterprise:tree.requestAccess'),
+      };
+    });
+    return { id: gid, label: ec.name, type: 'entgroup' as const, ent: { connection: ec }, children };
+  });
+}
+
+/** "hasta 18:30", "sin vencimiento": how long a company profile's access lasts. */
+function accessUntil(p?: EnterpriseProfile): string | null {
+  if (!p?.access) return null;
+  if (!p.access.until) return t('enterprise:noExpiry');
+  const d = new Date(p.access.until);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return t('enterprise:tree.until', { when: d.toLocaleString(locale(), sameDay ? { timeStyle: 'short' } : { dateStyle: 'short', timeStyle: 'short' }) });
+}
 
 // -- expansion ---------------------------------------------------------------------------
 // el-tree-v2 falls back to `default-expanded-keys` whenever `data` changes
@@ -551,6 +603,13 @@ const data = computed<TNode[]>(() => {
 // Open folders are remembered across launches (connections aren't: opening
 // one connects).
 const expanded = ref<string[]>(readJson<string[]>('dbine.openFolders', []));
+// The company's connections open with their profiles in sight.
+watch(() => [showEnterprise.value, ent.connections.length] as const, ([on]) => {
+  if (!on) return;
+  const ids = ent.connections.map((c) => `eg:${c.id}`).filter((id) => !expanded.value.includes(id));
+  if (ids.length) expanded.value = [...expanded.value, ...ids];
+}, { immediate: true });
+
 watch(expanded, (keys) => writeJson('dbine.openFolders', keys.filter((k) => k.startsWith('g:'))));
 
 function onCollapse(n: TNode) {
@@ -799,6 +858,16 @@ async function onContext(e: MouseEvent, n: TNode) {
   const cid = n.connectionId;
   const db = n.database ?? '';
   switch (n.type) {
+    case 'entprofile': {
+      const e = n.ent!;
+      const pending = e.profile!.pending_request;
+      if (pending) items.push({ label: t('enterprise:menu.withdraw'), action: () => withdrawRequest(pending.id) });
+      else items.push({ label: t('enterprise:menu.request'), action: () => ent.openRequest(e.connection, e.profile!) });
+      break;
+    }
+    case 'entgroup':
+      items.push({ label: t('enterprise:sync'), action: () => void ent.sync().catch((err) => ElMessage.error(String(err?.message ?? err))) });
+      break;
     case 'connection': {
       const c = conns.byId(cid!)!;
       const connected = conns.isConnected(cid!);
@@ -826,6 +895,18 @@ async function onContext(e: MouseEvent, n: TNode) {
         if (d.capabilities.database_properties) {
           items.push({ label: t('dbProperties:menu'), action: () => { dbProperties.value = { connectionId: cid!, database: only }; } });
         }
+      }
+      // The company's: no server to copy, nothing to edit or move.
+      if (c.managed) {
+        const e = ent.of(c);
+        if (e?.profile.access?.until && !e.profile.pending_request) {
+          items.push({ label: t('enterprise:menu.extend'), divided: true, action: () => ent.openExtension(e.profile.id) });
+        }
+        if (e?.connection.schedule && !e.profile.pending_request) {
+          items.push({ label: t('enterprise:menu.requestOutsideHours'), divided: !e.profile.access?.until, action: () => ent.openRequest(e.connection, e.profile, true) });
+        }
+        items.push({ label: t('explorer:menu.copyConnectionName'), divided: !e?.profile.access?.until, action: () => copy(c.name) });
+        break;
       }
       items.push({ label: t('explorer:menu.copyServer'), divided: true, action: () => copy(serverText(c)) });
       items.push({ label: t('explorer:menu.copyConnectionName'), action: () => copy(c.name) });
@@ -1284,7 +1365,19 @@ function pickedNodes(n: TNode): TNode[] {
 }
 
 let lastClick = { id: '', at: 0 };
+async function withdrawRequest(requestId: string) {
+  try {
+    await ent.cancelRequest(requestId);
+  } catch (err) {
+    ElMessage.error(errorMessage(err));
+  }
+}
+
 function onClick(n: TNode, node: { expanded: boolean; isLeaf?: boolean }, e?: MouseEvent) {
+  if (n.type === 'entprofile') {
+    if (!n.ent?.profile?.pending_request) ent.openRequest(n.ent!.connection, n.ent!.profile!);
+    return;
+  }
   if (pickable(n) && e && (e.metaKey || e.ctrlKey)) {
     // A selection holds one type: picking another type starts over.
     const s = anchor && anchor.type !== n.type ? new Set<string>() : new Set(picked.value);
@@ -1348,20 +1441,37 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <div class="ex-header">
       <span class="nm-section-title" style="margin: 0">{{ $t('explorer:title') }}</span>
       <div class="nm-spacer" />
-      <button :aria-label="$t('explorer:header.newConnection')" class="ide-icon-btn" :title="$t('explorer:header.newConnection')" @click="ui.newConnection()">
-        <el-icon><ei-plus /></el-icon>
+      <template v-if="!showEnterprise">
+        <button :aria-label="$t('explorer:header.newConnection')" class="ide-icon-btn" :title="$t('explorer:header.newConnection')" @click="ui.newConnection()">
+          <el-icon><ei-plus /></el-icon>
+        </button>
+        <button :aria-label="$t('explorer:header.openFile')" class="ide-icon-btn" :title="$t('explorer:header.openFile')" @click="pickAndOpen()">
+          <el-icon><ei-folder-opened /></el-icon>
+        </button>
+        <button :aria-label="$t('explorer:header.newFolder')" class="ide-icon-btn" :title="$t('explorer:header.newFolder')" @click="ui.newFolder(null)">
+          <el-icon><ei-folder-add /></el-icon>
+        </button>
+        <button :aria-label="$t('explorer:header.importConnections')" class="ide-icon-btn" :title="$t('explorer:header.importConnections')" @click="importing = true">
+          <el-icon><ei-download /></el-icon>
+        </button>
+      </template>
+      <button
+        v-if="ENTERPRISE_ENABLED"
+        :aria-label="$t('enterprise:header')" class="ide-icon-btn" :class="{ 'ex-ent-on': ent.signedIn }"
+        :title="ent.signedIn ? $t('enterprise:headerSignedIn', { organization: ent.organization }) : $t('enterprise:header')"
+        @click="ent.signInOpen = true"
+      >
+        <el-icon><ei-office-building /></el-icon>
       </button>
-      <button :aria-label="$t('explorer:header.openFile')" class="ide-icon-btn" :title="$t('explorer:header.openFile')" @click="pickAndOpen()">
-        <el-icon><ei-folder-opened /></el-icon>
-      </button>
-      <button :aria-label="$t('explorer:header.newFolder')" class="ide-icon-btn" :title="$t('explorer:header.newFolder')" @click="ui.newFolder(null)">
-        <el-icon><ei-folder-add /></el-icon>
-      </button>
-      <button :aria-label="$t('explorer:header.importConnections')" class="ide-icon-btn" :title="$t('explorer:header.importConnections')" @click="importing = true">
-        <el-icon><ei-download /></el-icon>
-      </button>
-      <button :aria-label="$t('explorer:header.reload')" class="ide-icon-btn" :title="$t('explorer:header.reload')" @click="conns.load()">
+      <button :aria-label="$t('explorer:header.reload')" class="ide-icon-btn" :title="$t('explorer:header.reload')" @click="showEnterprise ? ent.sync().catch(() => {}) : conns.load()">
         <el-icon><ei-refresh /></el-icon>
+      </button>
+    </div>
+    <div v-if="ent.signedIn" class="ex-scope" role="tablist">
+      <button role="tab" :aria-selected="scope === 'local'" :class="{ on: scope === 'local' }" @click="scope = 'local'">{{ $t('enterprise:tabs.local') }}</button>
+      <button role="tab" :aria-selected="scope === 'enterprise'" :class="{ on: scope === 'enterprise' }" @click="scope = 'enterprise'">
+        {{ ent.organization }}
+        <span v-if="ent.status && !ent.status.online" class="ex-scope-off" :title="$t('enterprise:offline')">●</span>
       </button>
     </div>
     <div class="ex-filter">
@@ -1394,7 +1504,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
       @dragover="onRootDragOver"
       @drop="onRootDrop"
     >
-      <div v-if="conns.loaded && !conns.list.length && !conns.folders.length" class="ex-empty">
+      <div v-if="showEnterprise && !ent.connections.length" class="ex-empty">
+        <p class="nm-muted">{{ ent.status?.online === false ? $t('enterprise:offline') : $t('enterprise:tree.empty') }}</p>
+      </div>
+      <div v-else-if="!showEnterprise && conns.loaded && !localList.length && !conns.folders.length" class="ex-empty">
         <p class="nm-muted">{{ $t('explorer:empty.noConnections') }}</p>
         <el-button type="primary" @click="ui.newConnection()">{{ $t('explorer:header.newConnection') }}</el-button>
         <el-button text @click="pickAndOpen()">{{ $t('explorer:empty.openFile') }}</el-button>
@@ -1424,8 +1537,8 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               tinted: n.type === 'connection' && !!conns.colorOf(n.connectionId),
             }]"
             :style="n.type === 'connection' && conns.colorOf(n.connectionId) ? { '--c': conns.colorOf(n.connectionId)! } : undefined"
-            :draggable="n.type === 'group' || n.type === 'connection'"
-            :data-dnd="n.type === 'group' || n.type === 'connection' ? '' : undefined"
+            :draggable="n.type === 'group' || (n.type === 'connection' && !n.ent)"
+            :data-dnd="n.type === 'group' || (n.type === 'connection' && !n.ent) ? '' : undefined"
             @dragstart.stop="onDragStart($event, n)"
             @dragend="onDragEnd"
             @dragover="onRowDragOver($event, n)"
@@ -1437,6 +1550,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
                 <span class="ex-conn-dot" :class="conns.live[n.connectionId]?.status ?? 'disconnected'" />
               </span>
             </template>
+            <span v-else-if="n.type === 'entgroup'" class="ex-conn-ic">
+              <EngineIcon :id="n.ent!.connection.driver" :name="n.label" :size="15" />
+            </span>
+            <el-icon v-else-if="n.type === 'entprofile'" class="ex-ic ent-locked"><ei-lock /></el-icon>
             <el-icon v-else-if="n.type === 'group'" class="ex-ic g" :style="n.color ? { color: n.color } : undefined">
               <ei-folder-opened v-if="expanded.includes(n.id)" /><ei-folder v-else />
             </el-icon>
@@ -1494,6 +1611,11 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
                 +{{ tagsOf(n.connectionId).length - 2 }}
               </span>
             </span>
+            <span
+              v-if="n.type === 'connection' && n.ent && accessUntil(n.ent.profile)" class="ex-tag ex-until"
+              :title="n.ent.profile?.description || undefined"
+            >{{ accessUntil(n.ent.profile) }}</span>
+            <span v-if="n.type === 'connection' && n.ent?.profile?.pending_request" class="ex-tag ex-until">{{ $t('enterprise:tree.extensionPending') }}</span>
             <span v-if="n.count !== undefined" class="ex-count">{{ n.count }}</span>
             <span
               v-if="n.badge" class="ex-ixbadge" :class="badgeClass(n.badge)"
@@ -1513,6 +1635,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <DropIndexDialog v-if="droppingIndex" :target="droppingIndex" @close="droppingIndex = null" />
     <RenameDialog v-if="renaming" :target="renaming" @close="renaming = null" />
     <ConnectionProblemDialog v-if="problemFor" :connection-id="problemFor" @close="problemFor = null" @retry="retryConnect(problemFor!)" />
+    <template v-if="ENTERPRISE_ENABLED">
+      <EnterpriseSignInDialog />
+      <EnterpriseAccessDialog />
+    </template>
     <CloneTableDialog v-if="cloning" :connection-id="cloning.connectionId" :database="cloning.database" :object="cloning.object" @close="cloning = null" />
     <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
     <GenerateDataDialog v-if="generatingData" :connection-id="generatingData.connectionId" :database="generatingData.database" :table="generatingData.table" @close="generatingData = null" />
@@ -1666,4 +1792,18 @@ html.light .ex-ic.s { color: #4a6b9a; }
 html.light .ex-ic.fk { color: #2f6fd6; }
 /* tag chips: their colour, darkened to read on the light sidebar */
 html.light .ex-tag { color: color-mix(in srgb, var(--t) 62%, #000); }
+.ex-scope {
+  display: flex; gap: 2px; padding: 0 8px 6px;
+}
+.ex-scope button {
+  flex: 1; min-width: 0; padding: 3px 6px; border: 1px solid var(--nm-border); border-radius: 4px;
+  background: transparent; color: var(--nm-muted); font-size: 11px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ex-scope button.on { color: var(--nm-text-strong, inherit); background: var(--nm-hover, rgba(127, 127, 127, 0.15)); }
+.ex-scope-off { color: var(--el-color-warning); margin-left: 4px; font-size: 9px; }
+.ex-ent-on { color: var(--el-color-primary); }
+.ex-node.entprofile .ex-label, .ex-node.entprofile .ex-hint { opacity: 0.6; }
+.ex-ic.ent-locked { opacity: 0.6; }
+.ex-until { --t: #6b7280; }
 </style>

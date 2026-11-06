@@ -1,0 +1,86 @@
+{
+  "header": "DBine Enterprise",
+  "headerSignedIn": "DBine Enterprise：{{organization}}",
+  "offline": "DBine Enterprise が応答しません。現在、会社の接続を開けません。",
+  "sync": "同期",
+  "signOut": "サインアウト",
+  "noExpiry": "期限なし",
+  "tabs": {
+    "local": "ローカル"
+  },
+  "signIn": {
+    "title": "DBine Enterprise",
+    "intro": "会社のアカウントでサインインすると、アクセス権のある接続がすぐに使えるようになります。サーバーやパスワードの入力は不要です。",
+    "server": "DBine Enterprise サーバー",
+    "serverPlaceholder": "dbine.example.co.jp",
+    "button": "サインイン",
+    "waiting": "ブラウザーでサインインを完了してください…",
+    "donePage": "完了しました。サインインできました。DBine に戻れます。",
+    "done": "{{organization}} にサインインしました",
+    "as": "{{name}} ({{email}})"
+  },
+  "tree": {
+    "pending": "申請中",
+    "requestAccess": "アクセスを申請…",
+    "empty": "会社の接続はまだありません。",
+    "until": "{{when}} まで",
+    "extensionPending": "延長を申請済み"
+  },
+  "menu": {
+    "request": "アクセスを申請…",
+    "withdraw": "申請を取り下げる",
+    "extend": "延長を申請…",
+    "requestOutsideHours": "時間外アクセスを申請…"
+  },
+  "access": {
+    "requestTitle": "アクセスを申請",
+    "extendTitle": "延長を申請",
+    "endsAt": "アクセスは {{when}} に期限切れになります",
+    "databases": "データベース（任意）",
+    "databasesPlaceholder": "すべて、またはカンマ区切り",
+    "howLong": "期間",
+    "howMuchMore": "追加の期間",
+    "forHours": "数時間",
+    "untilDate": "日付まで",
+    "hoursUnit": "時間",
+    "reason": "理由",
+    "reasonPlaceholder": "用途：チケット、インシデント、タスクなど…",
+    "justification": "理由の説明",
+    "justificationPlaceholder": "さらに時間が必要な理由",
+    "runningSent": "実行中の内容が申請とともに送信されます：",
+    "runningFor_other": "{{count}} 分前から：",
+    "sendRequest": "申請を送信",
+    "sendExtension": "延長を申請",
+    "requestSent": "申請を送信しました。決定され次第お知らせします。",
+    "extensionSent": "延長を申請しました。決定され次第お知らせします。",
+    "outsideHours": "許可された時間外にアクセスする必要があります",
+    "outsideHoursHint": "承認者には強調表示され、時間外にアクセスするたびに記録されます。",
+    "outsideHoursNeedsDuration": "時間外アクセスには期間が必要です。時間数または日付を選んでください。"
+  },
+  "notice": {
+    "approved": "{{connection}} へのアクセスが {{profile}} として許可されました（{{until}} まで）。",
+    "approvedForever": "{{connection}} へのアクセスが {{profile}} として許可されました（期限なし）。",
+    "extended": "{{connection}} への {{profile}} としてのアクセスが延長されました。期限は {{until}} になりました。",
+    "rejected": "{{who}} が {{connection}} への {{profile}} としてのアクセス申請を却下しました。",
+    "extensionRejected": "{{who}} が {{connection}} への {{profile}} としてのアクセスの延長を却下しました。",
+    "requestExpired": "{{connection}} への {{profile}} としてのアクセス申請は、誰にも決定されないまま期限切れになりました。",
+    "granted": "{{connection}} に {{profile}} としてアクセスできるようになりました（{{until}} まで）。",
+    "grantedForever": "{{connection}} に {{profile}} としてアクセスできるようになりました。",
+    "revoked": "{{connection}} への {{profile}} としてのアクセスが取り消されました。",
+    "ending_other": "{{connection}} への {{profile}} としてのアクセスは {{count}} 分後に期限切れになります。",
+    "endingRunning_other": "{{connection}} への {{profile}} としてのアクセスは {{count}} 分後に期限切れになります。また、クエリが {{running}} 前から実行中です。",
+    "clickToExtend": "クリックして延長を申請してください。",
+    "draining_other": "{{connection}} への {{profile}} としてのアクセスは終了しました。実行中の処理は完了できます（最大 {{count}} 分）が、新しいクエリは受け付けられません。",
+    "ended": "{{connection}} での {{profile}} としてのセッションは、アクセスの期限が切れたため終了しました。",
+    "endedRevoked": "{{connection}} での {{profile}} としてのセッションは、アクセスが取り消されたため終了しました。",
+    "endedOutsideHours": "{{connection}} での {{profile}} としてのセッションは終了しました。この接続で許可されている時間外です。",
+    "sessionLost": "DBine Enterprise のセッションが終了しました。クリックして再度サインインしてください。",
+    "scheduleEnding_other": "{{connection}} の許可時間帯は{{count}}分後に終了し、{{profile}} としてのセッションは切断されます。",
+    "clickToRequestHours": "クリックして時間外アクセスを申請します。"
+  },
+  "elapsed": {
+    "seconds_other": "{{count}} 秒",
+    "minutes_other": "{{count}} 分",
+    "hours": "{{h}} 時間 {{m}} 分"
+  }
+}

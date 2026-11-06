@@ -348,6 +348,9 @@ export interface SavedConnection {
   /** A file opened from the OS and not saved yet (src-tauri/src/open_files.rs):
    *  gone at the next start unless "Guardar conexión". */
   temporary?: boolean;
+  /** One of the company's, from DBine Enterprise (src-tauri/src/enterprise):
+   *  only the company changes it. */
+  managed?: boolean;
 }
 
 /** A reusable SSH tunnel profile (`dbine_core::ssh_profiles::SshProfile`;

@@ -14,7 +14,7 @@ import { useConnectionGate } from '../composables/connectionGate';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useSettingsStore } from '../stores/settings';
-import { baseName, busyTabs, closeGuards, disconnectGuards, runningTabs, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
+import { baseName, busyTabs, closeGuards, disconnectGuards, runningStatements, runningTabs, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
 import { useProjectsStore } from '../stores/projects';
 import {
   extFitsDriver, extOf, isScriptFile, languageForExt, useFileDocument, useQueryDocument, type TabDocument,
@@ -493,6 +493,8 @@ watch(txOpen, (on) => {
 }, { immediate: true });
 watch(running, (on) => {
   if (on) runningTabs.add(props.tab.id); else runningTabs.delete(props.tab.id);
+  if (on) runningStatements.set(props.tab.id, { connectionId: props.tab.connectionId, sql: lastScript.value, since: Date.now() });
+  else runningStatements.delete(props.tab.id);
 }, { immediate: true });
 // A project's file tabs follow its active base, except while busy here.
 watch(() => running.value || txOpen.value, (busy) => {
@@ -501,6 +503,7 @@ watch(() => running.value || txOpen.value, (busy) => {
 onBeforeUnmount(() => {
   busyTabs.delete(props.tab.id);
   runningTabs.delete(props.tab.id);
+  runningStatements.delete(props.tab.id);
   disconnectGuards.delete(props.tab.id);
 });
 

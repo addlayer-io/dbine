@@ -1,0 +1,93 @@
+{
+  "header": "DBine Enterprise",
+  "headerSignedIn": "DBine Enterprise: {{organization}}",
+  "offline": "DBine Enterprise isn't responding: your company's connections can't be opened for now.",
+  "sync": "Sync",
+  "signOut": "Sign out",
+  "noExpiry": "no expiry",
+  "tabs": {
+    "local": "Local"
+  },
+  "signIn": {
+    "title": "DBine Enterprise",
+    "intro": "Sign in with your company account and the connections you have access to will be ready, with no servers or passwords to enter.",
+    "server": "DBine Enterprise server",
+    "serverPlaceholder": "dbine.company.com",
+    "button": "Sign in",
+    "waiting": "Finish signing in in the browser…",
+    "donePage": "Done: you're signed in. You can go back to DBine.",
+    "done": "Signed in to {{organization}}",
+    "as": "{{name}} ({{email}})"
+  },
+  "tree": {
+    "pending": "request pending",
+    "requestAccess": "request access…",
+    "empty": "You don't have any company connections yet.",
+    "until": "until {{when}}",
+    "extensionPending": "extension requested"
+  },
+  "menu": {
+    "request": "Request access…",
+    "withdraw": "Withdraw request",
+    "extend": "Request extension…",
+    "requestOutsideHours": "Request out-of-hours access…"
+  },
+  "access": {
+    "requestTitle": "Request access",
+    "extendTitle": "Request extension",
+    "endsAt": "Your access ends {{when}}",
+    "databases": "Databases (optional)",
+    "databasesPlaceholder": "All, or comma-separated",
+    "howLong": "For how long",
+    "howMuchMore": "How much longer",
+    "forHours": "For a few hours",
+    "untilDate": "Until a date",
+    "hoursUnit": "hours",
+    "reason": "Reason",
+    "reasonPlaceholder": "What you need it for: a ticket, an incident, a task…",
+    "justification": "Justification",
+    "justificationPlaceholder": "Why you need more time",
+    "runningSent": "What's running is sent along with the request:",
+    "runningFor_one": "for {{count}} minute:",
+    "runningFor_other": "for {{count}} minutes:",
+    "sendRequest": "Send request",
+    "sendExtension": "Request extension",
+    "requestSent": "Request sent: we'll let you know when it's decided.",
+    "extensionSent": "Extension requested: we'll let you know when it's decided.",
+    "outsideHours": "I need access outside the allowed hours",
+    "outsideHoursHint": "Whoever approves sees it highlighted, and it is logged every time you sign in outside the allowed hours.",
+    "outsideHoursNeedsDuration": "An out-of-hours access needs a duration: choose hours or a date."
+  },
+  "notice": {
+    "approved": "You were given access to {{connection}} as {{profile}}, until {{until}}.",
+    "approvedForever": "You were given access to {{connection}} as {{profile}}, with no expiry.",
+    "extended": "Your access to {{connection}} as {{profile}} was extended: it now ends {{until}}.",
+    "rejected": "{{who}} rejected your request for access to {{connection}} as {{profile}}.",
+    "extensionRejected": "{{who}} rejected the extension of your access to {{connection}} as {{profile}}.",
+    "requestExpired": "Your request for access to {{connection}} as {{profile}} expired before anyone decided on it.",
+    "granted": "You now have access to {{connection}} as {{profile}}, until {{until}}.",
+    "grantedForever": "You now have access to {{connection}} as {{profile}}.",
+    "revoked": "Your access to {{connection}} as {{profile}} was removed.",
+    "ending_one": "Your access to {{connection}} as {{profile}} ends in {{count}} minute.",
+    "ending_other": "Your access to {{connection}} as {{profile}} ends in {{count}} minutes.",
+    "endingRunning_one": "Your access to {{connection}} as {{profile}} ends in {{count}} minute and a query has been running for {{running}}.",
+    "endingRunning_other": "Your access to {{connection}} as {{profile}} ends in {{count}} minutes and a query has been running for {{running}}.",
+    "clickToExtend": "Click to request an extension.",
+    "draining_one": "Your access to {{connection}} as {{profile}} has ended. What was running can finish (up to {{count}} minute), but new queries aren't accepted.",
+    "draining_other": "Your access to {{connection}} as {{profile}} has ended. What was running can finish (up to {{count}} minutes), but new queries aren't accepted.",
+    "ended": "Your session on {{connection}} as {{profile}} ended because the access expired.",
+    "endedRevoked": "Your session on {{connection}} as {{profile}} ended because your access was removed.",
+    "endedOutsideHours": "Your session on {{connection}} as {{profile}} ended: it is outside the hours allowed for that connection.",
+    "sessionLost": "The DBine Enterprise session ended. Click to sign in again.",
+    "scheduleEnding_one": "The allowed hours for {{connection}} end in {{count}} minute and your session as {{profile}} will be cut off.",
+    "scheduleEnding_other": "The allowed hours for {{connection}} end in {{count}} minutes and your session as {{profile}} will be cut off.",
+    "clickToRequestHours": "Click to request out-of-hours access."
+  },
+  "elapsed": {
+    "seconds_one": "{{count}} second",
+    "seconds_other": "{{count}} seconds",
+    "minutes_one": "{{count}} minute",
+    "minutes_other": "{{count}} minutes",
+    "hours": "{{h}} h {{m}} min"
+  }
+}

@@ -276,6 +276,16 @@ pub async fn ai_chat(
     mcp: State<'_, crate::mcp::McpRuntime>,
     args: ChatArgs,
 ) -> CommandResult<ChatOut> {
+    // The company decides whether the assistant may use its connections.
+    if let Some(c) = args.context.connection_id.as_deref() {
+        if state.store.is_managed_connection(c)?
+            && !crate::enterprise::get().is_ok_and(|e| e.allows("allow_ai"))
+        {
+            return Err(CommandError::BadRequest(
+                "la empresa no permite usar el asistente de IA con sus conexiones".into(),
+            ));
+        }
+    }
     let cancel = Cancel::new();
     ai.chats.insert(args.chat_id.clone(), cancel.clone());
     let id = args.chat_id.clone();
