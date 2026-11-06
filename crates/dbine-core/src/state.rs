@@ -802,6 +802,81 @@ impl StateStore {
         Ok(n)
     }
 
+    // -- connections managed by DBine Enterprise ----------------------------
+    // Signed in to DBine Enterprise, the company's connections are rows too
+    // (marked `temporary = 2`), so everything that works by connection id
+    // works on them. Like temporary ones they are left out of
+    // `list_connections`, so backups, sync, MCP and the phone never see
+    // them; DBine Enterprise replaces them on every sync and signing out
+    // drops them. They hold no server and no secret: only which profile the
+    // gateway opens.
+
+    pub fn list_managed_connections(&self) -> Result<Vec<SavedConnection>> {
+        self.query_connections("WHERE temporary = 2", [])
+    }
+
+    pub fn is_managed_connection(&self, id: &str) -> Result<bool> {
+        let n: i64 = self
+            .lock()?
+            .query_row(
+                "SELECT COUNT(*) FROM connections WHERE id = ?1 AND temporary = 2",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(db_err)?;
+        Ok(n > 0)
+    }
+
+    /// Makes the managed connections exactly `conns`, in that order: new
+    /// ones are added, the rest updated, and those no longer there dropped
+    /// (with their saved queries). A saved connection with one of their ids
+    /// is left alone.
+    pub fn set_managed_connections(&self, conns: &[SavedConnection]) -> Result<()> {
+        {
+            let mut c = self.lock()?;
+            let tx = c.transaction().map_err(db_err)?;
+            let ts = now();
+            for (i, conn) in conns.iter().enumerate() {
+                let mut config = conn.config.clone();
+                config.password = None;
+                tx.execute(
+                    "INSERT INTO connections (id, name, color, config_json, save_password, created_at, updated_at, folder_id, tags_json, mcp_level, sort_order, temporary)
+                     VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5, NULL, NULL, NULL, ?6, 2)
+                     ON CONFLICT(id) DO UPDATE SET name = ?2, color = ?3, config_json = ?4, updated_at = ?5, sort_order = ?6
+                     WHERE temporary = 2",
+                    params![conn.id, conn.name, conn.color, serde_json::to_string(&config)?, ts, i as i64],
+                )
+                .map_err(db_err)?;
+            }
+            let keep: Vec<&str> = conns.iter().map(|c| c.id.as_str()).collect();
+            let stale: Vec<String> = {
+                let mut st = tx
+                    .prepare("SELECT id FROM connections WHERE temporary = 2")
+                    .map_err(db_err)?;
+                let rows = st
+                    .query_map([], |r| r.get::<_, String>(0))
+                    .map_err(db_err)?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(db_err)?
+                    .into_iter()
+                    .filter(|id| !keep.contains(&id.as_str()))
+                    .collect()
+            };
+            for id in &stale {
+                tx.execute("DELETE FROM queries WHERE connection_id = ?1", [id])
+                    .map_err(db_err)?;
+                tx.execute(
+                    "DELETE FROM connections WHERE id = ?1 AND temporary = 2",
+                    [id],
+                )
+                .map_err(db_err)?;
+            }
+            tx.commit().map_err(db_err)?;
+        }
+        self.notify(StateChange::new("connection", None));
+        Ok(())
+    }
+
     /// Insert or update; the password in `config` is dropped (store it with
     /// [`crate::secrets`]). A new connection, or one that changes folder,
     /// goes last in its level.
@@ -1303,7 +1378,7 @@ impl StateStore {
         let mut stmt = c
             .prepare(
                 "SELECT id, connection_id, database, name, config_json, run_ids_json, created_at, updated_at FROM migrations
-                  WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary = 1) ORDER BY id",
+                  WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary <> 0) ORDER BY id",
             )
             .map_err(db_err)?;
         let rows = stmt.query_map([], row_to_migration).map_err(db_err)?;
@@ -1993,7 +2068,7 @@ impl StateStore {
             let mut stmt = c
                 .prepare(
                     "SELECT id, connection_id, database, name, sql, updated_at, last_run_at FROM queries
-                      WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary = 1) ORDER BY id",
+                      WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary <> 0) ORDER BY id",
                 )
                 .map_err(db_err)?;
             let rows = stmt.query_map([], row_to_query).map_err(db_err)?;
@@ -2462,6 +2537,62 @@ mod tests {
             .unwrap());
         let got = s.get_connection("a").unwrap().unwrap();
         assert_eq!(got.config.options.get("tls_pin"), Some(&first));
+    }
+
+    #[test]
+    fn managed_connections_stay_out_of_the_saved_state_and_follow_each_sync() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("saved")).unwrap();
+        let rev = s.revision().unwrap();
+        s.set_managed_connections(&[conn("ent-a"), conn("ent-b")])
+            .unwrap();
+        // Not a change to sync.
+        assert_eq!(s.revision().unwrap(), rev);
+        let ids = |v: Vec<SavedConnection>| v.into_iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
+        assert_eq!(
+            ids(s.list_managed_connections().unwrap()),
+            ["ent-a", "ent-b"]
+        );
+        assert!(
+            s.is_managed_connection("ent-a").unwrap() && !s.is_managed_connection("saved").unwrap()
+        );
+        assert!(s.get_connection("ent-b").unwrap().is_some());
+        s.save_query(&SavedQuery {
+            id: "q-ent".into(),
+            connection_id: "ent-b".into(),
+            database: String::new(),
+            name: "q".into(),
+            sql: "SELECT 1".into(),
+            updated_at: String::new(),
+            last_run_at: None,
+        })
+        .unwrap();
+        // Backups never carry them nor their queries.
+        let snap = s.snapshot().unwrap();
+        assert_eq!(ids(snap.connections), ["saved"]);
+        assert!(snap.queries.iter().all(|q| q.id != "q-ent"));
+        // Starting again doesn't drop them (they aren't temporary).
+        assert_eq!(s.purge_temporary_connections().unwrap(), 0);
+        // The next sync: one renamed, one gone (its queries with it), one new.
+        let mut renamed = conn("ent-a");
+        renamed.name = "Ventas".into();
+        s.set_managed_connections(&[conn("ent-c"), renamed])
+            .unwrap();
+        assert_eq!(
+            ids(s.list_managed_connections().unwrap()),
+            ["ent-c", "ent-a"]
+        );
+        assert_eq!(s.get_connection("ent-a").unwrap().unwrap().name, "Ventas");
+        assert!(s.get_connection("ent-b").unwrap().is_none());
+        assert!(s.list_queries("ent-b", "").unwrap().is_empty());
+        // A saved connection is never taken over by a managed one.
+        s.set_managed_connections(&[conn("saved")]).unwrap();
+        assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
+        // Signing out: none left.
+        s.set_managed_connections(&[]).unwrap();
+        assert!(s.list_managed_connections().unwrap().is_empty());
+        assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
     }
 
     #[test]

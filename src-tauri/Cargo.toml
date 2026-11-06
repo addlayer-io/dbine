@@ -47,6 +47,22 @@ dbine-sync = { path = "../crates/dbine-sync" }
 dbine-schema = { path = "../crates/dbine-schema" }
 dbine-transfer = { path = "../crates/dbine-transfer" }
 dbine-ai = { path = "../crates/dbine-ai" }
+# Signed in to DBine Enterprise (src/enterprise): the company's connections
+# open through its gateway, a WebSocket carrying the driver-host protocol.
+dbine-plugin = { path = "../crates/dbine-plugin" }
+async-trait.workspace = true
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
+rustls-platform-verifier = "0.7"
+url = "2"
+# The end-to-end channel to DBine Bastion (Noise IK, as dbine-link) and its
+# compression of big frames.
+snow = { version = "0.9", default-features = false, features = ["default-resolver"] }
+zstd = "0.13"
+hostname = "0.4"
+# DBine Enterprise's notices (access approved, about to end…) as system
+# notifications, shown from Rust: no JavaScript permission needed.
+tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 # In-app updates (commands/updates.rs, docs/updates.md). Pinned to
 # 2.14 (2.13+ needs tauri 2.12). Without `zip`: the updater bundles are the
@@ -65,7 +81,7 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 dashmap.workspace = true
 base64.workspace = true
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 tracing-appender = "0.2"
 mimalloc = { version = "0.1", default-features = false }
 # The local MCP server (src/mcp): HTTP on 127.0.0.1, token hashes, its activity log.
@@ -234,6 +250,8 @@ plugins = [
 flatpak = ["all-drivers"]
 
 [dev-dependencies]
+# Frames of the driver-host protocol in the gateway bridge's test.
+rmp-serde = "1"
 # Writes the KeePass databases the tests read.
 keepass = { version = "0.15.2", features = ["save_kdbx4"] }
 # A mock of Zoho Vault's API (secret_sources/zoho.rs).

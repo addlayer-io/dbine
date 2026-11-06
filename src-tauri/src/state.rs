@@ -76,6 +76,13 @@ pub fn set_app_handle(app: tauri::AppHandle) {
     let _ = APP.set(app);
 }
 
+/// The app's state, from code that runs outside a command (DBine
+/// Enterprise's sync closing the sessions of access that ended).
+pub fn app_state() -> Option<AppState> {
+    use tauri::Manager;
+    Some(APP.get()?.try_state::<AppState>()?.inner().clone())
+}
+
 /// Whether a connection has an open session; `None` before the app is set
 /// up (tests). Vault's database leases aren't renewed for a connection that
 /// has none (secret_sources/vault_db.rs).
@@ -88,6 +95,19 @@ pub fn connection_in_use(connection_id: &str) -> Option<bool> {
         .iter()
         .any(|e| e.connection_id == connection_id);
     Some(open)
+}
+
+/// A session on the connection's driver: here, or for the company's
+/// connections, through DBine Enterprise's gateway.
+async fn open_driver_session(
+    cfg: &ConnectionConfig,
+    database: Option<&str>,
+    dedicated: bool,
+) -> CommandResult<Box<dyn Session>> {
+    if crate::enterprise::is_managed(cfg) {
+        return crate::enterprise::open_session(cfg, database, dedicated).await;
+    }
+    Ok(dbine_drivers::open_session(cfg, database).await?)
 }
 
 pub fn meta_key(connection_id: &str, database: &str) -> String {
@@ -200,6 +220,12 @@ impl AppState {
         let Some(cache) = self.cache.get() else {
             return;
         };
+        // The company's connections stay off the disk unless it allows it.
+        if connection_id.starts_with("ent-")
+            && !crate::enterprise::get().is_ok_and(|e| e.allows("explorer_cache"))
+        {
+            return;
+        }
         match serde_json::to_string(value) {
             Ok(json) => {
                 if let Err(e) = cache.put(connection_id, database, kind, item, &json) {
@@ -500,7 +526,7 @@ impl AppState {
         let server = pin_server(&cfg);
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
-        let session = dbine_drivers::open_session(&cfg, db).await?;
+        let session = open_driver_session(&cfg, db, false).await?;
         self.keep_tls_pin(connection_id, &cfg, &server, session.as_ref());
         let entry = Arc::new(SessionEntry {
             connection_id: connection_id.to_string(),
@@ -598,7 +624,7 @@ impl AppState {
         let server = pin_server(&cfg);
         self.tunnels.route(Some(connection_id), &mut cfg).await?;
         let db = (!database.is_empty()).then_some(database);
-        let session = dbine_drivers::open_session(&cfg, db).await?;
+        let session = open_driver_session(&cfg, db, true).await?;
         self.keep_tls_pin(connection_id, &cfg, &server, session.as_ref());
         let entry = Arc::new(SessionEntry {
             connection_id: connection_id.to_string(),

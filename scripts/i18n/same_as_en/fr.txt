@@ -399,3 +399,9 @@ backend:no schema scripted
 backend:no legacy backend
 tunnel.json:alias
 tunnel.json:sourceAlias
+enterprise.json:header
+enterprise.json:signIn.title
+enterprise.json:access.justification
+enterprise.json:elapsed.minutes_one
+enterprise.json:elapsed.minutes_other
+enterprise.json:elapsed.hours

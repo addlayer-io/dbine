@@ -55,6 +55,7 @@ pub async fn move_connection(
     state: State<'_, AppState>,
     args: MoveConnectionArgs,
 ) -> CommandResult<()> {
+    crate::enterprise::refuse_if_managed(&state.store, &args.connection_id)?;
     Ok(state
         .store
         .move_connection(&args.connection_id, args.folder_id.as_deref())?)
@@ -75,6 +76,9 @@ pub async fn reorder_explorer(
     state: State<'_, AppState>,
     args: ReorderExplorerArgs,
 ) -> CommandResult<()> {
+    for id in &args.ids {
+        crate::enterprise::refuse_if_managed(&state.store, id)?;
+    }
     Ok(state
         .store
         .reorder_explorer(args.kind, args.parent_id.as_deref(), &args.ids)?)
