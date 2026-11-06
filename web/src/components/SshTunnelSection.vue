@@ -125,7 +125,7 @@ function onSaved(p: SshProfile) {
       <template v-if="!bare">
         <el-form-item :label="$t('tunnel:profiles.use')">
           <div class="st-row st-pick">
-            <el-select v-model="model.profile" class="st-grow" data-ssh-profile>
+            <el-select v-model="model.profile" class="st-grow" :empty-values="[null, undefined]" data-ssh-profile>
               <el-option value="" :label="$t('tunnel:profiles.own')" />
               <el-option v-for="p in sshProfiles" :key="p.id" :value="p.id" :label="p.name" />
             </el-select>
@@ -297,7 +297,7 @@ function onSaved(p: SshProfile) {
 .st-trusted .st-help { padding-left: 20px; margin-bottom: 0; }
 .st.bare { border: none; background: transparent; }
 .st.bare .st-body { padding: 0; border-top: none; }
-.st-pick { align-items: center; }
+.st-pick { align-items: center; width: 100%; }
 .st-missing { color: var(--nm-danger, #f14c4c); }
 .st-profile { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 10px; font-size: 12px; }
 .st-profile dt { color: var(--nm-text-dim); }
