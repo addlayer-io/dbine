@@ -67,6 +67,11 @@ It is written by the target's driver, in its language (`insert_script`,
 update and insert.
 
 - Updates change only the differing columns.
+- Each value is written the way the target column takes it, by its type: a
+  number that came as text (PostgreSQL answers them so) goes as a number, as
+  long as that keeps it exact; past 15 significant digits it stays as text. A
+  boolean goes as a boolean. Where the target doesn't say (an empty collection),
+  the source's type decides. A text column keeps its text, even `"007"`.
 - A delete always carries the key: a `DELETE` without `WHERE` is never
   generated.
 - Rows inserted with the value of an identity or auto-increment column carry
