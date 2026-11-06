@@ -2190,6 +2190,8 @@
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/dremio/src/lib.rs",
   "crates/drivers/snowflake/src/lib.rs",
+  "src-tauri/src/enterprise/events.rs",
+  "src-tauri/src/enterprise/gateway.rs",
   "src-tauri/src/notebook/remote.rs"
  ],
  "Belgrano": [
@@ -5639,6 +5641,41 @@
  ],
  "DATETIME guarda milisegundos: se pierden {0} decimales de segundo.": [
   "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "DBine Bastion no aceptó este equipo o no es el Bastion de la empresa: volvé a iniciar sesión": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
+ "DBine Bastion no permite «{0}»": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "DBine Bastion no tiene el driver «{0}»": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
+ "DBine Bastion se presentó con otra clave: si la empresa la cambió, volvé a iniciar sesión": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "DBine Enterprise no aceptó el inicio de sesión": [
+  "src-tauri/src/enterprise/signin.rs"
+ ],
+ "DBine Enterprise no devolvió un token": [
+  "src-tauri/src/enterprise/signin.rs"
+ ],
+ "DBine Enterprise no está listo": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "DBine Enterprise no responde ({0})": [
+  "src-tauri/src/enterprise/events.rs",
+  "src-tauri/src/enterprise/mod.rs",
+  "src-tauri/src/enterprise/signin.rs"
+ ],
+ "DBine Enterprise respondió {0}": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "DBine Enterprise se usa por https": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "DBine Enterprise todavía no dijo dónde está DBine Bastion": [
+  "src-tauri/src/enterprise/gateway.rs"
  ],
  "DBine no abre este tipo de archivo: «{0}»": [
   "src-tauri/src/open_files.rs"
@@ -24695,6 +24732,9 @@
  "clasificación de caracteres": [
   "crates/drivers/postgres/src/create_db.rs"
  ],
+ "clave de DBine Bastion inválida": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "clave de configuración inválida": [
   "src-tauri/src/commands/settings.rs"
  ],
@@ -25600,6 +25640,9 @@
  "el WKB tiene un SRID dentro de una colección": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "el acceso se pide por 1 a {0} horas": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "el adjunto {0} no es un archivo": [
   "src-tauri/src/tasks/mail.rs"
  ],
@@ -26002,8 +26045,14 @@
  "el driver «{0}» no arrancó bien ({1}); el detalle está en el log de DBine": [
   "crates/dbine-plugin/src/remote.rs"
  ],
+ "el driver «{0}» no está disponible del otro lado": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
  "el driver «{0}» no está en esta versión de DBine": [
   "src-tauri/src/commands/conn_import.rs"
+ ],
+ "el driver «{0}» no respondió en {1} s": [
+  "crates/dbine-plugin/src/remote.rs"
  ],
  "el driver «{0}» no tiene manifiesto": [
   "crates/dbine-plugin-host/src/main.rs"
@@ -26143,6 +26192,9 @@
  ],
  "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": [
   "crates/drivers/databricks/src/u2m.rs"
+ ],
+ "el inicio de sesión no terminó a tiempo": [
+  "src-tauri/src/enterprise/signin.rs"
  ],
  "el inquilino (tenant ID) no es válido": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -26408,6 +26460,12 @@
   "src-tauri/src/notebook/headless.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
+ "el pedido no existe": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "el pedido ya fue decidido": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "el perfil SSH de la conexión ya no existe: elegí otro en su túnel SSH": [
   "crates/dbine-core/src/ssh_profiles.rs"
  ],
@@ -26423,6 +26481,9 @@
  "el perfil de AWS no es válido": [
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el perfil no existe": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "el permiso para «{0}» no tiene privilegios": [
   "src-tauri/src/commands/schemas.rs"
@@ -27591,6 +27652,9 @@
  "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo": [
   "src-tauri/src/commands/ssh_profiles.rs"
  ],
+ "ese acceso no vence": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "ese archivo no lo generó DBine": [
   "src-tauri/src/commands/dbdocs.rs"
  ],
@@ -27630,6 +27694,9 @@
  ],
  "esta computadora no está conectada a una red": [
   "src-tauri/src/link.rs"
+ ],
+ "esta conexión no pasa por DBine Bastion": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "esta conexión usa credenciales temporales de HashiCorp Vault: no se copian en la cadena": [
   "src-tauri/src/commands/connstring.rs"
@@ -29041,6 +29108,9 @@
  "iniciá sesión con «gcloud auth application-default login»": [
   "src-tauri/src/notebook/remote.rs"
  ],
+ "iniciá sesión en DBine Enterprise": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "inprog (o enableProfiler sobre todas las bases: el profiling de «{0}» está apagado y su sampleRate está en {1})": [
   "crates/drivers/mongodb/src/permissions.rs"
  ],
@@ -29766,6 +29836,9 @@
  "la conexión no es a un servidor de Azure SQL (*.database.windows.net)": [
   "src-tauri/src/commands/azure_firewall.rs"
  ],
+ "la conexión no está disponible en DBine Bastion": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "la conexión no existe": [
   "src-tauri/src/commands/notebook.rs"
  ],
@@ -29988,8 +30061,15 @@
  "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "la dirección del servidor no es válida": [
+  "src-tauri/src/enterprise/mod.rs",
+  "src-tauri/src/enterprise/signin.rs"
+ ],
  "la ejecución terminó sin respuesta": [
   "src-tauri/src/commands/multi_db.rs"
+ ],
+ "la empresa no permite usar el asistente de IA con sus conexiones": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "la entrada «{0}» de KeePass no tiene el campo «{1}» (tiene: {2})": [
   "src-tauri/src/secret_sources/keepass.rs"
@@ -30005,6 +30085,9 @@
  ],
  "la especificación y el cuerpo": [
   "crates/drivers/oracle/src/rename.rs"
+ ],
+ "la fecha hasta la que se pide el acceso ya pasó": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "la fecha no es AAAA-MM-DD": [
   "crates/drivers/hana/src/transfer.rs"
@@ -30398,11 +30481,18 @@
  "la sesión con {0} venció o fue revocada: volvé a conectar la cuenta": [
   "crates/dbine-sync/src/lib.rs"
  ],
+ "la sesión de DBine Enterprise terminó: volvé a iniciarla": [
+  "src-tauri/src/enterprise/gateway.rs",
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "la sesión en el servidor venció en medio de la carga y se perdió la transacción abierta": [
   "crates/drivers/libsql/src/transfer.rs"
  ],
  "la sesión en el servidor venció en medio de la lectura": [
   "crates/drivers/libsql/src/transfer.rs"
+ ],
+ "la sesión no existe": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "la sesión ya se cerró": [
   "crates/dbine-plugin/src/host.rs"
@@ -30651,6 +30741,10 @@
  ],
  "las conexiones (MON$ATTACHMENTS)": [
   "crates/drivers/firebird/src/monitor.rs"
+ ],
+ "las conexiones de DBine Enterprise las administra la empresa: no se cambian desde acá": [
+  "src-tauri/src/commands/connections.rs",
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "las consultas en curso": [
   "crates/drivers/oracle/src/monitor.rs",
@@ -31319,6 +31413,9 @@
  "no es una conexión Bolt": [
   "crates/drivers/neo4j/src/transfer.rs"
  ],
+ "no es una conexión de DBine Enterprise": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "no es una lectura de SQLite": [
   "src-tauri/src/notebook/files.rs"
  ],
@@ -31546,6 +31643,9 @@
  ],
  "no hay ruta hasta el servidor {0}: revisá la red o la VPN": [
   "crates/drivers/sqlserver/src/lib.rs"
+ ],
+ "no hay un acceso a ese perfil para extender": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "no hay un catálogo seleccionado": [
   "crates/drivers/databricks/src/lib.rs"
@@ -31809,6 +31909,9 @@
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
+ "no se pudo abrir el driver «{0}»: {1}": [
+  "crates/dbine-plugin/src/remote.rs"
+ ],
  "no se pudo abrir el enlace: {0}": [
   "src-tauri/src/commands/notebook.rs"
  ],
@@ -31821,6 +31924,7 @@
   "src-tauri/src/commands/feedback.rs",
   "src-tauri/src/commands/settings.rs",
   "src-tauri/src/commands/updates.rs",
+  "src-tauri/src/enterprise/signin.rs",
   "src-tauri/src/secret_sources/accounts.rs",
   "src-tauri/src/sync.rs"
  ],
@@ -32238,6 +32342,9 @@
   "src-tauri/src/commands/health.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
+ "no se pudo esperar al navegador: {0}": [
+  "src-tauri/src/enterprise/signin.rs"
+ ],
  "no se pudo esperar la respuesta del navegador: {0}": [
   "crates/drivers/databricks/src/u2m.rs",
   "crates/drivers/sqlserver/src/entra.rs"
@@ -32525,6 +32632,9 @@
  ],
  "no se pudo llegar a DBine ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.": [
   "mobile/src-tauri/src/lib.rs"
+ ],
+ "no se pudo llegar a DBine Bastion: {0}": [
+  "src-tauri/src/enterprise/gateway.rs"
  ],
  "no se pudo llegar a DBine ni en la red local ni por internet ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo.": [
   "mobile/src-tauri/src/lib.rs"
@@ -32849,6 +32959,12 @@
  ],
  "no such function": [
   "crates/drivers/libsql/src/transfer.rs"
+ ],
+ "no tenés acceso a esta conexión: pedilo desde DBine Enterprise": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "no tenés acceso a la base de datos «{0}»": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "no terminó de autenticar en {0} s": [
   "crates/dbine-tunnel/src/lib.rs"
@@ -33523,6 +33639,12 @@
  "respuesta inesperada de /_all_dbs: {0}": [
   "crates/drivers/couchdb/src/lib.rs"
  ],
+ "respuesta inesperada de DBine Bastion": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
+ "respuesta inesperada de DBine Enterprise: {0}": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "respuesta inesperada de Drill: {0}": [
   "crates/drivers/drill/src/transfer.rs"
  ],
@@ -34097,6 +34219,9 @@
  "sin respuesta en {0} s: rechazado, no se ejecutó nada": [
   "src-tauri/src/mcp/write.rs"
  ],
+ "sin servidor": [
+  "src-tauri/src/enterprise/events.rs"
+ ],
  "sin sesión": [
   "src-tauri/src/notebook/remote.rs"
  ],
@@ -34614,6 +34739,10 @@
  "todos sus campos son nulos, y un punto sin campos no se guarda": [
   "crates/drivers/influxdb/src/transfer.rs"
  ],
+ "token inválido": [
+  "src-tauri/src/enterprise/events.rs",
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "tokens": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
@@ -34643,8 +34772,20 @@
  "trustedCertificates ({0}) no tiene certificados PEM": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
+ "tu acceso a esta conexión terminó o fue revocado": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "tu acceso a esta conexión terminó: lo que estaba corriendo puede terminar, pero no se aceptan sentencias nuevas": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "tu cuenta de Zoho está en un centro de datos ({0}) donde DBine no conoce la dirección de Zoho Vault": [
   "src-tauri/src/secret_sources/accounts.rs"
+ ],
+ "tu perfil de acceso a esta conexión es de solo lectura": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
+ "tu perfil permite sacar hasta {0} filas por consulta: la exportación se detuvo": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "tu usuario no tiene el privilegio ALTER SYSTEM para cancelar la consulta: {0}": [
   "crates/drivers/oracle/src/processes.rs"
@@ -34761,6 +34902,9 @@
  "un objeto con results": [
   "crates/drivers/neo4j/src/neptune.rs"
  ],
+ "un pedido necesita un motivo": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "un registro": [
   "crates/drivers/orientdb/src/lib.rs"
  ],
@@ -34865,6 +35009,9 @@
  ],
  "una exportación Markdown con gráficos necesita la ruta del archivo": [
   "src-tauri/src/commands/notebook.rs"
+ ],
+ "una extensión necesita una justificación": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "una fila": [
   "crates/drivers/neo4j/src/neptune.rs"
@@ -35209,14 +35356,23 @@
  "ya hay un cliente llamado «{0}»": [
   "src-tauri/src/mcp/mod.rs"
  ],
+ "ya hay un pedido tuyo de ese perfil esperando una decisión": [
+  "src-tauri/src/enterprise/mod.rs"
+ ],
  "ya hay un profiler capturando en esta conexión{0}: detenelo antes de iniciar otro": [
   "src-tauri/src/commands/profiler.rs"
  ],
  "ya hay una operación de git en curso en este proyecto ({0})": [
   "src-tauri/src/commands/projects_git.rs"
  ],
+ "ya no tenés acceso a esta conexión de DBine Enterprise": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "ya se está descargando": [
   "src-tauri/src/commands/ai.rs"
+ ],
+ "ya tenés {0} sesiones abiertas con este perfil: cerrá alguna para abrir otra": [
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "{0}\nEl ProxyCommand dijo: {1}": [
   "src-tauri/src/tunnels.rs"

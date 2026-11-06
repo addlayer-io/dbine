@@ -818,3 +818,6 @@ backend:Instance
 backend:no schema scripted
 backend:no legacy backend
 tunnel.json:sourceAlias
+enterprise.json:header
+enterprise.json:headerSignedIn
+enterprise.json:signIn.title

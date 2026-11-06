@@ -1,0 +1,86 @@
+{
+  "header": "DBine Enterprise",
+  "headerSignedIn": "DBine Enterprise：{{organization}}",
+  "offline": "DBine Enterprise 无响应：暂时无法打开公司的连接。",
+  "sync": "同步",
+  "signOut": "退出登录",
+  "noExpiry": "无到期时间",
+  "tabs": {
+    "local": "本地"
+  },
+  "signIn": {
+    "title": "DBine Enterprise",
+    "intro": "使用公司账号登录后，您有权访问的连接会直接就绪，无需填写服务器或密码。",
+    "server": "DBine Enterprise 服务器",
+    "serverPlaceholder": "dbine.company.cn",
+    "button": "登录",
+    "waiting": "请在浏览器中完成登录…",
+    "donePage": "完成：您已登录，可以返回 DBine。",
+    "done": "已登录 {{organization}}",
+    "as": "{{name}} ({{email}})"
+  },
+  "tree": {
+    "pending": "申请待处理",
+    "requestAccess": "申请访问…",
+    "empty": "您还没有公司连接。",
+    "until": "截至 {{when}}",
+    "extensionPending": "已申请延期"
+  },
+  "menu": {
+    "request": "申请访问…",
+    "withdraw": "撤回申请",
+    "extend": "申请延期…",
+    "requestOutsideHours": "申请非允许时段访问…"
+  },
+  "access": {
+    "requestTitle": "申请访问",
+    "extendTitle": "申请延期",
+    "endsAt": "您的访问将于 {{when}} 到期",
+    "databases": "数据库（可选）",
+    "databasesPlaceholder": "全部，或用逗号分隔",
+    "howLong": "时长",
+    "howMuchMore": "再延长多久",
+    "forHours": "数小时",
+    "untilDate": "截至某个日期",
+    "hoursUnit": "小时",
+    "reason": "原因",
+    "reasonPlaceholder": "用途：工单、事件、任务…",
+    "justification": "理由",
+    "justificationPlaceholder": "为什么需要更多时间",
+    "runningSent": "正在运行的内容会随申请一并发送：",
+    "runningFor_other": "已运行 {{count}} 分钟：",
+    "sendRequest": "发送申请",
+    "sendExtension": "申请延期",
+    "requestSent": "申请已发送：有结果后会通知您。",
+    "extensionSent": "延期申请已发送：有结果后会通知您。",
+    "outsideHours": "我需要在允许时段之外访问",
+    "outsideHoursHint": "审批人会看到醒目标记，每次在允许时段之外进入都会被记录。",
+    "outsideHoursNeedsDuration": "非允许时段的访问需要设定时长：请选择小时数或日期。"
+  },
+  "notice": {
+    "approved": "您已获得以 {{profile}} 身份访问 {{connection}} 的权限，截至 {{until}}。",
+    "approvedForever": "您已获得以 {{profile}} 身份访问 {{connection}} 的权限，无到期时间。",
+    "extended": "您以 {{profile}} 身份访问 {{connection}} 的权限已延期：现在于 {{until}} 到期。",
+    "rejected": "{{who}} 拒绝了您以 {{profile}} 身份访问 {{connection}} 的申请。",
+    "extensionRejected": "{{who}} 拒绝了您以 {{profile}} 身份访问 {{connection}} 的延期申请。",
+    "requestExpired": "您以 {{profile}} 身份访问 {{connection}} 的申请已过期，无人处理。",
+    "granted": "您现在可以以 {{profile}} 身份访问 {{connection}}，截至 {{until}}。",
+    "grantedForever": "您现在可以以 {{profile}} 身份访问 {{connection}}。",
+    "revoked": "您以 {{profile}} 身份访问 {{connection}} 的权限已被收回。",
+    "ending_other": "您以 {{profile}} 身份访问 {{connection}} 的权限将在 {{count}} 分钟后到期。",
+    "endingRunning_other": "您以 {{profile}} 身份访问 {{connection}} 的权限将在 {{count}} 分钟后到期，并且有一个查询已运行 {{running}}。",
+    "clickToExtend": "点击以申请延期。",
+    "draining_other": "您以 {{profile}} 身份访问 {{connection}} 的权限已结束。正在运行的内容可以完成（最多 {{count}} 分钟），但不再接受新的查询。",
+    "ended": "您以 {{profile}} 身份在 {{connection}} 上的会话已结束，因为访问已到期。",
+    "endedRevoked": "您以 {{profile}} 身份在 {{connection}} 上的会话已结束，因为您的访问权限已被收回。",
+    "endedOutsideHours": "您在 {{connection}} 上以 {{profile}} 身份的会话已结束：当前不在该连接允许的时间范围内。",
+    "sessionLost": "DBine Enterprise 会话已结束。点击以重新登录。",
+    "scheduleEnding_other": "{{connection}} 的允许访问时段将在 {{count}} 分钟后结束，您以 {{profile}} 身份的会话将被中断。",
+    "clickToRequestHours": "点击申请非允许时段访问。"
+  },
+  "elapsed": {
+    "seconds_other": "{{count}} 秒",
+    "minutes_other": "{{count}} 分钟",
+    "hours": "{{h}} 小时 {{m}} 分钟"
+  }
+}

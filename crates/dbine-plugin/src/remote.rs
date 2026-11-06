@@ -1,4 +1,5 @@
-//! The app side: a driver host as a child process, and `RemoteDriver` /
+//! The app side: a driver host as a child process (or, through a [`Dialer`],
+//! a host somewhere else: DBine Enterprise's gateway), and `RemoteDriver` /
 //! `RemoteSession`, which implement the driver contract by forwarding each
 //! call to it. The rest of the app can't tell them from a built-in driver.
 
@@ -21,7 +22,7 @@ use dbine_driver::{
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -80,20 +81,38 @@ pub struct Host {
     package: String,
     /// What the host said it is (`Ready.version`: its driver id).
     version: String,
-    stdin: Mutex<BufWriter<ChildStdin>>,
+    stdin: Mutex<Box<dyn std::io::Write + Send>>,
     pending: Mutex<HashMap<u64, Pending>>,
     next: AtomicU64,
     alive: AtomicBool,
-    child: Mutex<Child>,
+    /// The host's process; None for a dialed host (its stream ends with it).
+    child: Mutex<Option<Child>>,
 }
 
 impl Drop for Host {
     fn drop(&mut self) {
         if let Ok(mut c) = self.child.lock() {
-            let _ = c.kill();
-            let _ = c.wait();
+            if let Some(c) = c.as_mut() {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
         }
     }
+}
+
+/// Opens the frame stream to a host that runs somewhere else (DBine
+/// Enterprise's gateway): what the host writes comes out of the reader, what
+/// is written goes to it, in the same length-prefixed frames as a child's
+/// stdin and stdout.
+#[async_trait]
+pub trait Dialer: Send + Sync {
+    async fn dial(
+        &self,
+        package: &str,
+    ) -> Result<(
+        Box<dyn std::io::Write + Send>,
+        Box<dyn std::io::Read + Send>,
+    )>;
 }
 
 fn dead(package: &str) -> Error {
@@ -249,21 +268,71 @@ impl Host {
             ));
         }
         tracing::info!(target: "dbine_plugin", "driver «{package}» {} listo", ready.version);
-        Ok(Host::attach(package, &ready.version, writer, reader, child))
+        Ok(Host::attach(
+            package,
+            &ready.version,
+            writer,
+            reader,
+            Some(child),
+        ))
+    }
+
+    /// Greets a dialed host over its stream. Blocking: call it off the async
+    /// runtime.
+    fn greet(
+        package: &str,
+        mut writer: Box<dyn std::io::Write + Send>,
+        reader: Box<dyn std::io::Read + Send>,
+    ) -> Result<Arc<Host>> {
+        let hello = Hello {
+            protocol: PROTOCOL,
+            version: env!("CARGO_PKG_VERSION").into(),
+            components_dir: None,
+        };
+        write_frame(&mut writer, &hello)
+            .map_err(|e| Error::Connect(format!("no se pudo abrir el driver «{package}»: {e}")))?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = reader;
+            let ready: Option<Ready> = read_frame(&mut reader).ok().flatten();
+            let _ = tx.send((reader, ready));
+        });
+        let (reader, ready) = match rx.recv_timeout(HANDSHAKE * 3) {
+            Ok((reader, Some(ready))) => (reader, ready),
+            Ok((_, None)) => {
+                return Err(Error::Connect(format!(
+                    "el driver «{package}» no está disponible del otro lado"
+                )))
+            }
+            Err(_) => {
+                return Err(Error::Connect(format!(
+                    "el driver «{package}» no respondió en {} s",
+                    (HANDSHAKE * 3).as_secs()
+                )))
+            }
+        };
+        if ready.protocol != PROTOCOL {
+            return Err(Error::Connect(format!(
+                "el driver «{package}» ({}) habla el protocolo {} y esta versión de DBine el {PROTOCOL}",
+                ready.version, ready.protocol
+            )));
+        }
+        tracing::info!(target: "dbine_plugin", "driver «{package}» {} listo (remoto)", ready.version);
+        Ok(Host::attach(package, &ready.version, writer, reader, None))
     }
 
     /// A greeted host: `stdin` takes the calls, `reader` gives its frames.
     fn attach(
         package: &str,
         version: &str,
-        stdin: BufWriter<ChildStdin>,
+        stdin: impl std::io::Write + Send + 'static,
         mut reader: impl std::io::Read + Send + 'static,
-        child: Child,
+        child: Option<Child>,
     ) -> Arc<Host> {
         let host = Arc::new(Host {
             package: package.to_string(),
             version: version.to_string(),
-            stdin: Mutex::new(stdin),
+            stdin: Mutex::new(Box::new(stdin)),
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
             alive: AtomicBool::new(true),
@@ -295,7 +364,11 @@ impl Host {
 
     /// The host's process id.
     pub fn pid(&self) -> u32 {
-        self.child.lock().map(|c| c.id()).unwrap_or(0)
+        self.child
+            .lock()
+            .ok()
+            .and_then(|c| c.as_ref().map(|c| c.id()))
+            .unwrap_or(0)
     }
 
     fn fail_all(&self) {
@@ -638,6 +711,8 @@ pub struct Launcher {
     source: Arc<dyn HostSource>,
     args: Vec<String>,
     components_dir: Option<PathBuf>,
+    /// Hosts reached over a stream instead of started here.
+    dialer: Option<Arc<dyn Dialer>>,
     host: tokio::sync::Mutex<Option<Arc<Host>>>,
     current: Mutex<Option<Arc<Host>>>,
 }
@@ -672,9 +747,39 @@ impl Launcher {
             source,
             args,
             components_dir,
+            dialer: None,
             host: tokio::sync::Mutex::new(None),
             current: Mutex::new(None),
         })
+    }
+
+    /// Hosts of `package` reached through `dialer`, dialed again when the
+    /// stream ends.
+    pub fn dialed(package: &str, dialer: Arc<dyn Dialer>) -> Arc<Self> {
+        Arc::new(Launcher {
+            package: package.to_string(),
+            source: Arc::new(Fixed(PathBuf::new())),
+            args: Vec::new(),
+            components_dir: None,
+            dialer: Some(dialer),
+            host: tokio::sync::Mutex::new(None),
+            current: Mutex::new(None),
+        })
+    }
+
+    async fn dial(&self, dialer: &Arc<dyn Dialer>) -> Result<Arc<Host>> {
+        let mut slot = self.host.lock().await;
+        if let Some(h) = slot.as_ref().filter(|h| h.is_alive()) {
+            return Ok(h.clone());
+        }
+        let (w, r) = dialer.dial(&self.package).await?;
+        let pkg = self.package.clone();
+        let host = tokio::task::spawn_blocking(move || Host::greet(&pkg, w, r))
+            .await
+            .map_err(|e| Error::State(e.to_string()))??;
+        *slot = Some(host.clone());
+        *self.current.lock().unwrap() = Some(host.clone());
+        Ok(host)
     }
 
     async fn start(&self, t: &Target) -> std::result::Result<Arc<Host>, SpawnError> {
@@ -691,6 +796,9 @@ impl Launcher {
     }
 
     pub async fn get(&self) -> Result<Arc<Host>> {
+        if let Some(d) = &self.dialer {
+            return self.dial(d).await;
+        }
         let mut slot = self.host.lock().await;
         let target = self.source.resolve().await?;
         if let Some(h) = slot
@@ -2248,7 +2356,7 @@ mod tests {
                 }
             }
         });
-        Host::attach("viejo", "", stdin, BufReader::new(theirs), child)
+        Host::attach("viejo", "", stdin, BufReader::new(theirs), Some(child))
     }
 
     /// A host published before `RunReadOnly`: its `Call` doesn't have it, so
@@ -2294,7 +2402,7 @@ mod tests {
                 }
             }
         });
-        let host = Host::attach("viejo", "", stdin, BufReader::new(theirs), child);
+        let host = Host::attach("viejo", "", stdin, BufReader::new(theirs), Some(child));
         let mut s = RemoteSession {
             host,
             id: 1,
@@ -2578,6 +2686,64 @@ mod tests {
         assert_eq!(text(new.call(Call::Manifest).await), "session 1");
         assert_eq!(text(new.call(Call::Manifest).await), "B");
         assert!(source.bad.lock().unwrap().is_empty());
+    }
+
+    /// A dialer to the fake host: its stdin and stdout as the stream, as a
+    /// gateway's WebSocket would carry them.
+    struct ToFake(PathBuf, Mutex<u32>);
+
+    #[async_trait]
+    impl Dialer for ToFake {
+        async fn dial(
+            &self,
+            _package: &str,
+        ) -> Result<(
+            Box<dyn std::io::Write + Send>,
+            Box<dyn std::io::Read + Send>,
+        )> {
+            *self.1.lock().unwrap() += 1;
+            let mut child = Command::new(&self.0)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let w = child.stdin.take().unwrap();
+            let r = child.stdout.take().unwrap();
+            // The process lives as long as its stream.
+            std::mem::forget(child);
+            Ok((Box::new(BufWriter::new(w)), Box::new(BufReader::new(r))))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dialed_host_answers_and_is_dialed_again_when_its_stream_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let replies = [
+            Reply::Session {
+                id: 7,
+                interruptible: false,
+                tls_pin_seen: None,
+            },
+            Reply::Text("over the gateway".into()),
+        ];
+        let exe = fake_host(dir.path(), "gw", "1.4.2", &replies);
+        let dialer = Arc::new(ToFake(exe, Mutex::new(0)));
+        let launcher = Launcher::dialed("fake", dialer.clone());
+        let h = launcher.get().await.unwrap();
+        assert_eq!(h.version(), "1.4.2");
+        assert_eq!(h.pid(), 0, "dialed: pid 0");
+        assert_eq!(text(h.call(Call::Manifest).await), "session 7");
+        assert_eq!(text(h.call(Call::Manifest).await), "over the gateway");
+        assert!(Arc::ptr_eq(&h, &launcher.get().await.unwrap()));
+        assert_eq!(*dialer.1.lock().unwrap(), 1);
+
+        // The stream ends (the fake host has no more replies and the third
+        // call goes unanswered; drop it as a closed socket would): a new
+        // dial on the next get.
+        h.fail_all();
+        let again = launcher.get().await.unwrap();
+        assert!(!Arc::ptr_eq(&h, &again));
+        assert_eq!(*dialer.1.lock().unwrap(), 2);
     }
 
     #[tokio::test]
