@@ -65,7 +65,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 /// Result chunks downloaded at once (external links).
-const IN_FLIGHT: usize = 4;
+pub(crate) const IN_FLIGHT: usize = 4;
 /// Bytes of whole rows (raw JSON) a download hands over at once.
 const BLOCK_BYTES: usize = 1024 * 1024;
 /// Blocks a download may have waiting for the reader: with [`IN_FLIGHT`]
@@ -532,6 +532,35 @@ pub(crate) enum Block {
     Rows(Rows),
 }
 
+impl Block {
+    /// Its rows in order, as text (`None`: NULL), parsed one at a time;
+    /// `each` says whether to go on, and so does the answer.
+    pub(crate) fn each_row(
+        self,
+        mut each: impl FnMut(Vec<Option<String>>) -> Result<bool>,
+    ) -> Result<bool> {
+        match self {
+            Block::Rows(rows) => {
+                for r in rows {
+                    if !each(r)? {
+                        return Ok(false);
+                    }
+                }
+            }
+            Block::Raw(data, ranges) => {
+                for (a, b) in ranges {
+                    let values: Vec<Json> = serde_json::from_slice(&data[a..b])
+                        .map_err(|e| Error::Query(format!("bloque del resultado ilegible: {e}")))?;
+                    if !each(values.into_iter().map(json_text).collect())? {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+        Ok(true)
+    }
+}
+
 /// Splits a streamed JSON array of row arrays (`[[…],[…]]`) into blocks of
 /// whole rows, without parsing the values: only strings and brackets are
 /// followed.
@@ -635,6 +664,12 @@ fn download_error(e: impl std::fmt::Display) -> Error {
     Error::Connect(format!("no se pudo descargar un bloque del resultado: {e}"))
 }
 
+/// A failed download, without its URL: a link carries a temporary credential
+/// and this text reaches the screen and the logs.
+fn link_error(e: reqwest::Error) -> Error {
+    download_error(e.without_url())
+}
+
 /// Hand a chunk's rows over to `tx`: inline (`data_array`) or streamed from
 /// its external links (fetched without the workspace token), in blocks.
 /// Stops quietly if the reader is gone.
@@ -679,7 +714,7 @@ async fn send_chunk(
         let mut resp = tokio::time::timeout(READ_WAIT, req.send())
             .await
             .map_err(download_error)?
-            .map_err(download_error)?;
+            .map_err(link_error)?;
         let status = resp.status();
         if !status.is_success() {
             return Err(Error::Query(format!(
@@ -691,7 +726,7 @@ async fn send_chunk(
         while let Some(piece) = tokio::time::timeout(READ_WAIT, resp.chunk())
             .await
             .map_err(download_error)?
-            .map_err(download_error)?
+            .map_err(link_error)?
         {
             // In parts, so a block ends near BLOCK_BYTES whatever the size
             // of the network's pieces.
@@ -760,14 +795,30 @@ pub(crate) fn chunk_plan(resp: &Json) -> Result<(u64, Option<u64>)> {
             "Databricks truncó el resultado de la lectura (el límite de las respuestas en línea es de unos 25 MiB); no se copia una tabla incompleta.".into(),
         ));
     }
+    chunk_count(resp).ok_or_else(|| Error::Query("La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se copia una tabla que podría quedar incompleta.".into()))
+}
+
+/// The chunks of a finished statement and the rows its manifest promises.
+pub(crate) fn chunk_count(resp: &Json) -> Option<(u64, Option<u64>)> {
     let rows = resp
         .pointer("/manifest/total_row_count")
         .and_then(Json::as_u64);
-    match (resp.pointer("/manifest/total_chunk_count").and_then(Json::as_u64), rows) {
-        (Some(c), _) => Ok((c, rows)),
-        (None, Some(0)) => Ok((0, rows)),
-        _ => Err(Error::Query("La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se copia una tabla que podría quedar incompleta.".into())),
+    match (
+        resp.pointer("/manifest/total_chunk_count")
+            .and_then(Json::as_u64),
+        rows,
+    ) {
+        (Some(c), _) => Some((c, rows)),
+        (None, Some(0)) => Some((0, rows)),
+        _ => None,
     }
+}
+
+/// Chunk 0 of a finished statement, when its final status brought it.
+pub(crate) fn first_chunk(resp: &mut Json) -> Option<Json> {
+    resp.get_mut("result")
+        .map(Json::take)
+        .filter(|r| r.get("chunk_index").and_then(Json::as_u64).unwrap_or(0) == 0)
 }
 
 /// The version of the latest Delta commit, from `DESCRIBE HISTORY`'s rows.
@@ -832,7 +883,7 @@ impl DatabricksSession {
     async fn submit_read(&self, sql: &str) -> Result<(String, Json, bool)> {
         let mut body = self.request(sql, None);
         body["disposition"] = json!("EXTERNAL_LINKS");
-        let (mut resp, external) = match self.api.post("/api/2.0/sql/statements", &body).await {
+        let (resp, external) = match self.api.post("/api/2.0/sql/statements", &body).await {
             Ok(r) => (r, true),
             Err(Error::Query(m)) => {
                 tracing::debug!("databricks external links refused, reading inline: {m}");
@@ -845,6 +896,13 @@ impl DatabricksSession {
             }
             Err(e) => return Err(e),
         };
+        let (id, resp) = self.follow(resp).await?;
+        Ok((id, resp, external))
+    }
+
+    /// A submitted statement, followed to its end: its id (now the running
+    /// one) and its final status.
+    pub(crate) async fn follow(&self, mut resp: Json) -> Result<(String, Json)> {
         let id = resp
             .get("statement_id")
             .and_then(Json::as_str)
@@ -854,7 +912,7 @@ impl DatabricksSession {
         let mut delay = Duration::from_millis(250);
         loop {
             match resp.pointer("/status/state").and_then(Json::as_str) {
-                Some("SUCCEEDED") => return Ok((id, resp, external)),
+                Some("SUCCEEDED") => return Ok((id, resp)),
                 Some("FAILED") => {
                     let msg = resp
                         .pointer("/status/error/message")
@@ -929,10 +987,7 @@ impl DatabricksSession {
     ) -> Result<u64> {
         let (id, mut resp, external) = self.submit_read(sql).await?;
         let (chunks, expected) = chunk_plan(&resp)?;
-        let mut first = resp
-            .get_mut("result")
-            .map(Json::take)
-            .filter(|r| r.get("chunk_index").and_then(Json::as_u64).unwrap_or(0) == 0);
+        let first = first_chunk(&mut resp);
 
         sink.lock()
             .map_err(|_| Error::State("destino de lotes".into()))?
@@ -940,8 +995,6 @@ impl DatabricksSession {
         let mut builder = BatchBuilder::new();
         // An inline chunk comes parsed whole: one at a time.
         let in_flight = if external { IN_FLIGHT } else { 1 };
-        let mut pending: VecDeque<Download> = VecDeque::new();
-        let mut next = 0u64;
         let cells = |values: Vec<Option<String>>| {
             let mut values = values.into_iter();
             kinds
@@ -949,52 +1002,16 @@ impl DatabricksSession {
                 .map(|k| to_cell(values.next().flatten(), *k))
                 .collect::<Result<Vec<Cell>>>()
         };
-        loop {
-            while pending.len() < in_flight && next < chunks {
-                pending.push_back(fetch(
-                    &self.api,
-                    &id,
-                    next,
-                    if next == 0 { first.take() } else { None },
-                ));
-                next += 1;
-            }
-            let Some(mut d) = pending.pop_front() else {
-                break;
-            };
-            while let Some(block) = d.rx.recv().await {
-                let block = match block {
-                    Ok(b) => b,
-                    Err(e) => return Err(self.cancelled_or(&id, e).await),
-                };
-                let mut s = sink
-                    .lock()
-                    .map_err(|_| Error::State("destino de lotes".into()))?;
-                match block {
-                    Block::Rows(rows) => {
-                        for r in rows {
-                            builder.push(cells(r)?, &mut *s)?;
-                        }
-                    }
-                    Block::Raw(data, ranges) => {
-                        for (a, b) in ranges {
-                            let values: Vec<Json> =
-                                serde_json::from_slice(&data[a..b]).map_err(|e| {
-                                    Error::Query(format!("bloque del resultado ilegible: {e}"))
-                                })?;
-                            builder.push(
-                                cells(values.into_iter().map(json_text).collect())?,
-                                &mut *s,
-                            )?;
-                        }
-                    }
-                }
-            }
-            // The channel closed: the download ended, or its task died.
-            if let Err(e) = (&mut d.task).await {
-                return Err(Error::State(format!("lectura interrumpida: {e}")));
-            }
-        }
+        self.each_block(&id, first, chunks, in_flight, &mut |block| {
+            let mut s = sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?;
+            block.each_row(|r| {
+                builder.push(cells(r)?, &mut *s)?;
+                Ok(true)
+            })
+        })
+        .await?;
         builder.flush(
             &mut *sink
                 .lock()
@@ -1007,6 +1024,48 @@ impl DatabricksSession {
             )));
         }
         Ok(builder.rows)
+    }
+
+    /// A finished statement's chunks in order, up to `in_flight` of them
+    /// downloading at once. `each` takes every block and says whether to go
+    /// on; stopping drops the downloads under way.
+    pub(crate) async fn each_block(
+        &self,
+        id: &str,
+        mut first: Option<Json>,
+        chunks: u64,
+        in_flight: usize,
+        each: &mut (dyn FnMut(Block) -> Result<bool> + Send),
+    ) -> Result<()> {
+        let mut pending: VecDeque<Download> = VecDeque::new();
+        let mut next = 0u64;
+        loop {
+            while pending.len() < in_flight && next < chunks {
+                pending.push_back(fetch(
+                    &self.api,
+                    id,
+                    next,
+                    if next == 0 { first.take() } else { None },
+                ));
+                next += 1;
+            }
+            let Some(mut d) = pending.pop_front() else {
+                return Ok(());
+            };
+            while let Some(block) = d.rx.recv().await {
+                let block = match block {
+                    Ok(b) => b,
+                    Err(e) => return Err(self.cancelled_or(id, e).await),
+                };
+                if !each(block)? {
+                    return Ok(());
+                }
+            }
+            // The channel closed: the download ended, or its task died.
+            if let Err(e) = (&mut d.task).await {
+                return Err(Error::State(format!("lectura interrumpida: {e}")));
+            }
+        }
     }
 
     /// A chunk that failed after the statement was cancelled is the cancel,
@@ -1512,7 +1571,7 @@ impl Statements {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -2135,10 +2194,10 @@ mod tests {
 
     /// A tiny HTTP server: one request per connection, answered by `h`
     /// (method, path, body) → (status, body).
-    type Handler = Arc<dyn Fn(&str, &str, &str) -> (u16, String) + Send + Sync>;
+    pub(crate) type Handler = Arc<dyn Fn(&str, &str, &str) -> (u16, String) + Send + Sync>;
     use std::sync::Arc;
 
-    async fn serve(h: Handler) -> String {
+    pub(crate) async fn serve(h: Handler) -> String {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
@@ -2300,7 +2359,7 @@ mod tests {
 
     // --- A load statement is followed to its end.
 
-    fn session(base: String) -> DatabricksSession {
+    pub(crate) fn session(base: String) -> DatabricksSession {
         DatabricksSession {
             api: Api {
                 http: reqwest::Client::new(),

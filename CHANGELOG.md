@@ -16,6 +16,8 @@
 - **KDB+ notebook writes and row counts:** a notebook's write cell writes into kdb+ tables in every mode (insert, update by key, insert or update, replace), applied in one step so a failure leaves the table as it was, and the explorer's documentation and migrations get each table's row count without scanning.
 
 ### Fixes
+- **Large results in Databricks:** a query whose result passed 25 MiB failed with "Inline byte limit exceeded", even when only its first rows were shown. It now brings the rows you asked for and marks them as partial, and exports and charts read the whole result.
+- **Databricks result downloads:** when a part of a result couldn't be downloaded, the error showed its link, which carries a temporary credential. It no longer does.
 - **SSH profile picker:** in a connection's SSH tunnel tab, the profile list had shrunk to an empty box. It now takes the row's width and says when the connection uses its own settings.
 - **Schema compare with a schema selected:** full-text catalogs and stoplists no longer disappear from the comparison, so their differences show and the script can create the catalog an index needs.
 - **Syncing SQL Server full-text indexes:** an index carried to a table whose primary key has another name now uses that table's key, and a difference in that name alone no longer shows as a change. Dropping a full-text catalog or stoplist in schema compare now lists the indexes that use it.

@@ -3,7 +3,8 @@
 //! token, OAuth machine-to-machine (service principal) or the user's own
 //! browser sign-in (OAuth user-to-machine, [`u2m`]). One statement per
 //! request, results inline as JSON arrays, following chunks up to
-//! `max_rows`. Unity Catalog catalogs are the databases.
+//! `max_rows`; a result over the inline 25 MiB comes by external links
+//! ([`results`]). Unity Catalog catalogs are the databases.
 //!
 //! "Azure Databricks" is the same API on an `*.azuredatabricks.net`
 //! workspace; its form also offers Microsoft Entra ID: a token obtained
@@ -24,6 +25,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod results;
 mod script;
 mod search;
 mod security;
@@ -370,6 +372,21 @@ pub struct DatabricksSession {
     running: Arc<Mutex<Option<String>>>,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+}
+
+/// A finished statement's columns: name and type.
+fn result_columns(resp: &Json) -> Vec<(String, String)> {
+    resp.pointer("/manifest/schema/columns")
+        .and_then(Json::as_array)
+        .map(|cols| {
+            cols.iter()
+                .map(|c| {
+                    let text = |k: &str| c.get(k).and_then(Json::as_str).unwrap_or("").to_string();
+                    (text("name"), text("type_name"))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Default, Debug)]
@@ -733,10 +750,11 @@ impl DatabricksSession {
         max_rows: usize,
         params: Option<Json>,
     ) -> Result<(String, Statement)> {
-        let mut resp = self
-            .api
-            .post("/api/2.0/sql/statements", &self.request(sql, params))
-            .await?;
+        let mut body = self.request(sql, params);
+        if let Some(n) = results::row_limit(sql, max_rows) {
+            body["row_limit"] = json!(n);
+        }
+        let mut resp = self.api.post("/api/2.0/sql/statements", &body).await?;
         let id = resp
             .get("statement_id")
             .and_then(Json::as_str)
@@ -841,27 +859,7 @@ impl DatabricksSession {
             }
         }
         let mut st = Statement {
-            columns: resp
-                .pointer("/manifest/schema/columns")
-                .and_then(Json::as_array)
-                .map(|cols| {
-                    cols.iter()
-                        .map(|c| {
-                            let name = c
-                                .get("name")
-                                .and_then(Json::as_str)
-                                .unwrap_or("")
-                                .to_string();
-                            let ty = c
-                                .get("type_name")
-                                .and_then(Json::as_str)
-                                .unwrap_or("")
-                                .to_string();
-                            (name, ty)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            columns: result_columns(resp),
             total: resp
                 .pointer("/manifest/total_row_count")
                 .and_then(Json::as_u64)
@@ -1359,27 +1357,12 @@ impl Session for DatabricksSession {
     /// with the next ones.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         for unit in script::units(text) {
-            let st = match self.run(&unit.text, max_rows, None).await {
-                Ok(st) => st,
+            match self.run_into(&unit.text, max_rows, out).await {
+                Ok(_) => {}
                 Err(Error::Query(m)) => {
                     return Err(script::shift(script::error(&m, &unit.text).into(), &unit))
                 }
                 Err(e) => return Err(e),
-            };
-            Self::push_statement(&st, max_rows, out);
-            if let Some(n) = st
-                .columns
-                .iter()
-                .position(|(c, _)| c == "num_affected_rows")
-            {
-                let n = st
-                    .rows
-                    .first()
-                    .and_then(|r| r.get(n))
-                    .and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()));
-                if let Some(last) = out.results.last_mut() {
-                    last.rows_affected = n;
-                }
             }
             if let Some(u) = script::use_target(&unit.text) {
                 let before = self.catalog.clone();
@@ -1439,8 +1422,7 @@ impl Session for DatabricksSession {
             } else {
                 None
             };
-            let (id, st) = self.run_id(&stmt, max_rows, None).await?;
-            Self::push_statement(&st, max_rows, out);
+            let id = self.run_into(&stmt, max_rows, out).await?;
             let Some(mut p) = estimated else { continue };
             match self.history(&id).await {
                 Ok(Some(q)) => plan::add_history(&mut p, &q),

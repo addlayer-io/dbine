@@ -798,10 +798,21 @@ interface Entry {
 
 /** "120 filas" or "5.000 filas (se muestran 1.000)": one message each, not glued pieces. */
 function rowsText(r: StatementResult) {
-  const rows = r.total_rows.toLocaleString(locale());
-  return r.truncated
+  const rows = totalText(r);
+  return r.truncated && !totalUnknown(r)
     ? t('results:messages.rowsShown', { count: r.total_rows, rows, shown: r.rows.length.toLocaleString(locale()) })
     : t('results:messages.rows', { count: r.total_rows, rows });
+}
+
+/** The server stopped at the rows asked for: there are more, it doesn't say how many. */
+function totalUnknown(r: StatementResult) {
+  return r.truncated && r.total_rows <= r.rows.length;
+}
+
+/** "5.000", or "5.000+" when that's only as far as it counted. */
+function totalText(r: StatementResult) {
+  const n = r.total_rows.toLocaleString(locale());
+  return totalUnknown(r) ? `${n}+` : n;
 }
 
 /** "INSERT 0 3 · 3 filas afectadas · 12 ms": a statement of a run statement by statement. */
@@ -969,7 +980,7 @@ const liveText = computed(() => {
     <PlanView v-else-if="active === 'plan' && outcome?.plans.length" :plans="outcome.plans" />
     <template v-else-if="current">
       <div v-if="current.truncated" class="rp-trunc">
-        {{ $t(sortedLoaded ? 'results:truncatedSorted' : 'results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: current.total_rows.toLocaleString(locale()) }) }}
+        {{ $t(sortedLoaded ? 'results:truncatedSorted' : 'results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: totalText(current) }) }}
       </div>
       <ChartView
         v-if="view === 'chart'"

@@ -2924,7 +2924,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-databricks"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
