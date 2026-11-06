@@ -5355,6 +5355,7 @@
   "la columna «{0}» está repetida en la carga": "column «{0}» is repeated in the load",
   "la columna «{0}» no es entera ({1})": "column «{0}» is not an integer ({1})",
   "la columna «{0}» {1}": "column «{0}» {1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "the comparison is partial: a row on only one side may exist on the other past what was read, so it is not inserted or deleted",
   "la comparación ya no está: volvé a comparar": "the comparison is gone: compare again",
   "la compresión": "the compression",
   "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": "the files connection shows each file as a read-only view: tables are created in a DuckDB database.",

@@ -29733,6 +29733,9 @@
  "la columna «{0}» {1}": [
   "crates/drivers/snowflake/src/transfer.rs"
  ],
+ "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": [
+  "src-tauri/src/commands/data_compare.rs"
+ ],
  "la comparación ya no está: volvé a comparar": [
   "src-tauri/src/commands/data_compare.rs"
  ],

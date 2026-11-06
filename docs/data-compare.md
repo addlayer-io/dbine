@@ -42,8 +42,17 @@ connections or on different engines. It complements
 - Values are compared by what they are worth, not by how each engine returns
   them: `1`, `1.0` and `"1.00"` are equal; a date with `T` or with a space,
   too. A text with leading zeros (`"007"`) is compared as text.
-- Up to 200,000 rows per side are read. If a table has more, the result says
-  so: the comparison is partial.
+- Up to 200,000 rows per side are read, sorted by the key. If a table has
+  more, the comparison is partial and the result says so:
+  - Rows found on both sides are confirmed: their differences can be synced.
+  - A row seen on one side may exist on the other past what was read, because
+    each engine orders text keys by its own collation. It's shown as "only
+    left" or "only right", but it can't be inserted or deleted:
+    `data_compare_script` refuses it, whatever the UI sends.
+  - An engine that can't sort on the server (see `sorted_browse` in
+    [engine support](engine-support.md)), or can't by that column, reads the
+    rows as they come. The result has `ordered: false` and says that each side
+    may have read different rows.
 - Up to 2,000 rows of each type are shown; the totals and the script include
   all of them.
 - If a key repeats on one side, the row is compared only once and the result
@@ -69,7 +78,7 @@ update and insert.
 ## Commands
 
 - `data_compare { left, right, key, columns, limit }` → the totals, the
-  sample rows and an `id`.
+  sample rows, `truncated_left`, `truncated_right`, `ordered` and an `id`.
 - `data_compare_script { id, choices }` → one script for each side that
   changes: `{ connection_id, database, side: "left" | "right", script,
   inserts, updates, deletes }`. `choices` has `changed`, `only_left` and

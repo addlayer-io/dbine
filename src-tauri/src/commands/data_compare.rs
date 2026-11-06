@@ -7,15 +7,15 @@
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
-use dbine_driver::{ObjectRef, QueryOutcome, RowChange};
+use dbine_driver::{ColumnInfo, Error, ObjectRef, QueryOutcome, RowChange, Session, SortKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use tauri::State;
 
-/// Rows read from each side at most (a bigger table is compared in part,
-/// and the result says so).
+/// Rows read from each side at most. A bigger table is compared in part: the
+/// result says so, and only rows found on both sides can be synced.
 const DEFAULT_LIMIT: u64 = 200_000;
 /// Rows of each kind sent to the UI (the counts and the script use them all).
 const SHOWN: usize = 2_000;
@@ -75,6 +75,9 @@ pub struct DataCompareResult {
     /// A side had more rows than the limit: the comparison is partial.
     pub truncated_left: bool,
     pub truncated_right: bool,
+    /// Both sides came sorted by the key. Without it, a partial comparison
+    /// may have read different rows on each side.
+    pub ordered: bool,
     /// Rows whose key was repeated on a side (compared once).
     pub duplicate_keys: u64,
 }
@@ -93,6 +96,9 @@ struct Diff {
     only_left: Vec<Vec<Value>>,
     only_right: Vec<Vec<Value>>,
     changed: Vec<ChangedRow>,
+    /// A side had more rows than were read: a row seen on one side may exist
+    /// on the other past what was read, so it's never inserted or deleted.
+    partial: bool,
 }
 
 fn diffs() -> &'static Mutex<HashMap<String, Diff>> {
@@ -100,31 +106,83 @@ fn diffs() -> &'static Mutex<HashMap<String, Diff>> {
     D.get_or_init(Default::default)
 }
 
+/// What was read of a side.
+struct SideRead {
+    cols: Vec<ColumnInfo>,
+    names: Vec<String>,
+    rows: Vec<Vec<Value>>,
+    /// It had more rows than the limit.
+    truncated: bool,
+    /// Its rows came sorted by the key.
+    ordered: bool,
+}
+
+/// The sort by the key, in this side's spelling of its columns.
+fn sort_keys(cols: &[ColumnInfo], key: &[String]) -> Vec<SortKey> {
+    key.iter()
+        .map(|k| SortKey {
+            column: cols
+                .iter()
+                .find(|c| c.name.eq_ignore_ascii_case(k))
+                .map_or_else(|| k.clone(), |c| c.name.clone()),
+            descending: false,
+        })
+        .collect()
+}
+
+/// Run a browse query, its failure as an error whichever way it comes.
+async fn browse(
+    s: &mut dyn Session,
+    sql: &str,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> dbine_driver::Result<()> {
+    s.execute(sql, max_rows, out).await?;
+    match out.error.take() {
+        Some(e) => Err(Error::Query(e)),
+        None => Ok(()),
+    }
+}
+
 /// Read a side: its columns and its rows (up to `limit`, on its own
-/// read-only session).
+/// read-only session), sorted by the key so that two partial reads cover the
+/// same rows, as far as both engines order them alike. An engine that can't
+/// sort, or can't by that column (T-SQL's `text`, a key CQL doesn't cluster
+/// on), reads them as they come and the result says so.
 async fn read(
     state: &AppState,
     side: &Side,
     limit: u64,
-) -> CommandResult<(
-    Vec<dbine_driver::ColumnInfo>,
-    Vec<String>,
-    Vec<Vec<Value>>,
-    bool,
-)> {
-    let key = format!("dcmp:{}", uuid::Uuid::new_v4());
+    key: &[String],
+) -> CommandResult<SideRead> {
+    let driver = crate::commands::schema::driver_of(state, &side.connection_id)?;
+    let session = format!("dcmp:{}", uuid::Uuid::new_v4());
     let entry = state
-        .dedicated_session(&key, &side.connection_id, &side.database, true)
+        .dedicated_session(&session, &side.connection_id, &side.database, true)
         .await?;
     let result = async {
         let mut s = entry.session.lock().await;
         let cols = s.columns(&side.object).await?;
-        let sql = s.browse_query(&side.object, u32::try_from(limit + 1).unwrap_or(u32::MAX));
-        let mut out = QueryOutcome::default();
-        s.execute(&sql, (limit + 1) as usize, &mut out).await?;
-        if let Some(e) = out.error {
-            return Err(dbine_driver::Error::Query(e));
+        let plain = s.browse_query(&side.object, u32::try_from(limit + 1).unwrap_or(u32::MAX));
+        let max_rows = (limit + 1) as usize;
+        let mut sorted = None;
+        if let Ok(sql) = driver.sorted_browse(&plain, &sort_keys(&cols, key)) {
+            let mut out = QueryOutcome::default();
+            match browse(&mut **s, &sql, max_rows, &mut out).await {
+                Ok(()) => sorted = Some(out),
+                Err(Error::Cancelled) => return Err(Error::Cancelled),
+                Err(e) => tracing::debug!("data compare: can't sort by the key: {e}"),
+            }
         }
+        let ordered = sorted.is_some();
+        let out = match sorted {
+            Some(out) => out,
+            None => {
+                let mut out = QueryOutcome::default();
+                browse(&mut **s, &plain, max_rows, &mut out).await?;
+                out
+            }
+        };
         let r = out
             .results
             .into_iter()
@@ -134,11 +192,32 @@ async fn read(
         let truncated = r.rows.len() as u64 > limit || r.truncated;
         let mut rows = r.rows;
         rows.truncate(limit as usize);
-        Ok((cols, names, rows, truncated))
+        Ok(SideRead {
+            cols,
+            names,
+            rows,
+            truncated,
+            ordered,
+        })
     }
     .await;
-    state.sessions.remove(&key);
+    state.sessions.remove(&session);
     Ok(result?)
+}
+
+/// The left table's primary key, for a comparison that names no key.
+async fn primary_key(state: &AppState, side: &Side) -> CommandResult<Vec<String>> {
+    let session = format!("dcmp:{}", uuid::Uuid::new_v4());
+    let entry = state
+        .dedicated_session(&session, &side.connection_id, &side.database, true)
+        .await?;
+    let cols = entry.session.lock().await.columns(&side.object).await;
+    state.sessions.remove(&session);
+    Ok(cols?
+        .into_iter()
+        .filter(|c| c.primary_key)
+        .map(|c| c.name)
+        .collect())
 }
 
 /// A value as compared: numbers by value (`1` = `1.0` = `"1.00"`), dates
@@ -201,13 +280,25 @@ pub async fn data_compare(
     args: DataCompareArgs,
 ) -> CommandResult<DataCompareResult> {
     let limit = args.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 5_000_000);
+    // The key first: both sides are read sorted by it.
+    let key: Vec<String> = if args.key.is_empty() {
+        primary_key(&state, &args.left).await?
+    } else {
+        args.key.clone()
+    };
+    if key.is_empty() {
+        return Err(CommandError::BadRequest(
+            "la tabla no tiene clave primaria: elegí las columnas que identifican cada fila".into(),
+        ));
+    }
     let (l, r) = tokio::try_join!(
-        read(&state, &args.left, limit),
-        read(&state, &args.right, limit)
+        read(&state, &args.left, limit, &key),
+        read(&state, &args.right, limit, &key)
     )?;
-    let (lcols, lnames, lrows, ltrunc) = l;
-    let (rcols, rnames, rrows, rtrunc) = r;
-    let identity = |cols: &[dbine_driver::ColumnInfo]| -> Vec<String> {
+    let ordered = l.ordered && r.ordered;
+    let (lcols, lnames, lrows, ltrunc) = (l.cols, l.names, l.rows, l.truncated);
+    let (rcols, rnames, rrows, rtrunc) = (r.cols, r.names, r.rows, r.truncated);
+    let identity = |cols: &[ColumnInfo]| -> Vec<String> {
         cols.iter()
             .filter(|c| c.auto_increment)
             .map(|c| c.name.clone())
@@ -217,20 +308,6 @@ pub async fn data_compare(
 
     // Columns both have (by name, ignoring case), in the left's order.
     let find = |names: &[String], n: &str| names.iter().position(|x| x.eq_ignore_ascii_case(n));
-    let key: Vec<String> = if args.key.is_empty() {
-        lcols
-            .iter()
-            .filter(|c| c.primary_key)
-            .map(|c| c.name.clone())
-            .collect()
-    } else {
-        args.key.clone()
-    };
-    if key.is_empty() {
-        return Err(CommandError::BadRequest(
-            "la tabla no tiene clave primaria: elegí las columnas que identifican cada fila".into(),
-        ));
-    }
     let wanted: Vec<&String> = if args.columns.is_empty() {
         lnames.iter().collect()
     } else {
@@ -336,6 +413,7 @@ pub async fn data_compare(
         changed: changed.iter().take(SHOWN).cloned().collect(),
         truncated_left: ltrunc,
         truncated_right: rtrunc,
+        ordered,
         duplicate_keys,
     };
     let mut all = diffs().lock().unwrap();
@@ -355,6 +433,7 @@ pub async fn data_compare(
             only_left,
             only_right,
             changed,
+            partial: ltrunc || rtrunc,
         },
     );
     Ok(result)
@@ -446,18 +525,18 @@ struct Plan<'a> {
     insert: Vec<Vec<Value>>,
 }
 
-/// The scripts that apply the chosen rows, one per side that changes, each
-/// in that side's language. Nothing runs here.
-#[tauri::command(rename_all = "camelCase")]
-pub async fn data_compare_script(
-    state: State<'_, AppState>,
-    args: DataScriptArgs,
-) -> CommandResult<Vec<DataScript>> {
-    let all = diffs().lock().unwrap();
-    let d = all.get(&args.id).ok_or_else(|| {
-        CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
-    })?;
-    let c = &args.choices;
+/// What the choices do to each side: `(right, left)`. A partial comparison
+/// only updates: a row seen on one side may exist on the other past what was
+/// read, so inserting it could collide and deleting it would lose it.
+fn plans<'a>(d: &'a Diff, c: &Choices) -> CommandResult<(Plan<'a>, Plan<'a>)> {
+    let chosen = |p: &Pick, n: usize| p.resolve(n).iter().any(|d| *d != Dir::None);
+    if d.partial
+        && (chosen(&c.only_left, d.only_left.len()) || chosen(&c.only_right, d.only_right.len()))
+    {
+        return Err(CommandError::BadRequest(
+            "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra".into(),
+        ));
+    }
     let (mut right, mut left) = (Plan::default(), Plan::default());
     for (row, dir) in d.changed.iter().zip(c.changed.resolve(d.changed.len())) {
         match dir {
@@ -488,6 +567,21 @@ pub async fn data_compare_script(
             Dir::None => {}
         }
     }
+    Ok((right, left))
+}
+
+/// The scripts that apply the chosen rows, one per side that changes, each
+/// in that side's language. Nothing runs here.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn data_compare_script(
+    state: State<'_, AppState>,
+    args: DataScriptArgs,
+) -> CommandResult<Vec<DataScript>> {
+    let all = diffs().lock().unwrap();
+    let d = all.get(&args.id).ok_or_else(|| {
+        CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
+    })?;
+    let (right, left) = plans(d, &args.choices)?;
     let mut out = Vec::new();
     for (to_right, plan) in [(false, left), (true, right)] {
         if plan.delete.is_empty() && plan.update.is_empty() && plan.insert.is_empty() {
@@ -672,7 +766,10 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 
 #[cfg(test)]
 mod tests {
-    use super::{assemble, canon, insert_parts, new_rows_parts, Dir, Pick};
+    use super::{
+        assemble, canon, insert_parts, new_rows_parts, plans, sort_keys, ChangedRow, Choices, Diff,
+        Dir, Pick, Side,
+    };
     use dbine_driver::{ObjectRef, RowChange};
 
     /// The statement count a sync run reports against: joining the parts
@@ -892,6 +989,125 @@ mod tests {
             checked += 1;
         }
         assert!(checked > 5, "only {checked} drivers write scripts");
+    }
+
+    fn diff(partial: bool) -> Diff {
+        let side = || Side {
+            connection_id: "c".into(),
+            database: "d".into(),
+            object: ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "t".into(),
+            },
+        };
+        Diff {
+            left: side(),
+            right: side(),
+            key: vec!["id".into()],
+            columns: vec![("id".into(), "id".into()), ("a".into(), "a".into())],
+            left_identity: vec![],
+            right_identity: vec![],
+            only_left: vec![vec![json!(1), json!("x")]],
+            only_right: vec![vec![json!(2), json!("y")]],
+            changed: vec![ChangedRow {
+                left: vec![json!(3), json!("l")],
+                right: vec![json!(3), json!("r")],
+                diff: vec![1],
+            }],
+            partial,
+        }
+    }
+
+    fn pick(dir: Dir) -> Pick {
+        Pick {
+            all: dir,
+            rows: vec![],
+        }
+    }
+
+    #[test]
+    fn a_partial_comparison_only_updates() {
+        let d = diff(true);
+        // Rows on both sides are confirmed: they can go either way.
+        let c = Choices {
+            changed: pick(Dir::Right),
+            ..Default::default()
+        };
+        let (right, left) = plans(&d, &c).unwrap();
+        assert_eq!(right.update.len(), 1);
+        assert!(left.update.is_empty());
+        // A row of one side, by "all" or one by one, in either direction.
+        for c in [
+            Choices {
+                only_left: pick(Dir::Right),
+                ..Default::default()
+            },
+            Choices {
+                only_left: pick(Dir::Left),
+                ..Default::default()
+            },
+            Choices {
+                only_right: pick(Dir::Right),
+                ..Default::default()
+            },
+            Choices {
+                only_right: Pick {
+                    all: Dir::None,
+                    rows: vec![(0, Dir::Left)],
+                },
+                ..Default::default()
+            },
+        ] {
+            let e = plans(&d, &c).err().expect("refused").to_string();
+            assert!(e.contains("parcial"), "{e}");
+        }
+        // Past the end of the list nothing is chosen.
+        let c = Choices {
+            only_left: Pick {
+                all: Dir::None,
+                rows: vec![(5, Dir::Right)],
+            },
+            ..Default::default()
+        };
+        assert!(plans(&d, &c).is_ok());
+    }
+
+    #[test]
+    fn a_full_comparison_still_inserts_and_deletes() {
+        let d = diff(false);
+        let c = Choices {
+            changed: pick(Dir::Right),
+            only_left: pick(Dir::Right),
+            only_right: pick(Dir::Right),
+        };
+        let (right, left) = plans(&d, &c).unwrap();
+        assert_eq!(right.insert.len(), 1);
+        assert_eq!(right.delete.len(), 1);
+        assert_eq!(right.update.len(), 1);
+        assert!(left.insert.is_empty() && left.delete.is_empty() && left.update.is_empty());
+    }
+
+    #[test]
+    fn the_sort_uses_each_sides_spelling_of_the_key() {
+        let col = |name: &str| dbine_driver::ColumnInfo {
+            name: name.into(),
+            data_type: "text".into(),
+            nullable: false,
+            primary_key: false,
+            auto_increment: false,
+            default_value: None,
+        };
+        let keys = sort_keys(
+            &[col("ID"), col("Num_Sec")],
+            &["id".into(), "num_sec".into()],
+        );
+        let names: Vec<&str> = keys.iter().map(|k| k.column.as_str()).collect();
+        assert_eq!(names, ["ID", "Num_Sec"]);
+        assert!(keys.iter().all(|k| !k.descending));
+        // Not among the columns (schemaless): as given; its absence is
+        // reported once the rows are in.
+        assert_eq!(sort_keys(&[], &["k".into()])[0].column, "k");
     }
 
     #[test]

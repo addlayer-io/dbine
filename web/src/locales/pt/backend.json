@@ -5355,6 +5355,7 @@
   "la columna «{0}» está repetida en la carga": "a coluna «{0}» está repetida na carga",
   "la columna «{0}» no es entera ({1})": "a coluna «{0}» não é inteira ({1})",
   "la columna «{0}» {1}": "a coluna «{0}» {1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "a comparação é parcial: uma linha de um só lado pode existir do outro além do que foi lido, então não é inserida nem excluída",
   "la comparación ya no está: volvé a comparar": "a comparação não existe mais: compare de novo",
   "la compresión": "a compressão",
   "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": "a conexão de arquivos mostra cada arquivo como uma view somente leitura: as tabelas são criadas em um banco DuckDB.",

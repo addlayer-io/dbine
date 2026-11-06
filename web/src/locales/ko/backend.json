@@ -5355,6 +5355,7 @@
   "la columna «{0}» está repetida en la carga": "열 「{0}」이(가) 로드에 중복되었습니다",
   "la columna «{0}» no es entera ({1})": "열 「{0}」은(는) 정수가 아닙니다({1})",
   "la columna «{0}» {1}": "열 「{0}」 {1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "부분 비교입니다. 한쪽에만 있는 행은 읽은 범위 밖의 반대쪽에 존재할 수 있으므로 삽입하거나 삭제하지 않습니다",
   "la comparación ya no está: volvé a comparar": "비교가 더 이상 없습니다. 다시 비교하세요",
   "la compresión": "압축",
   "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": "파일 연결은 각 파일을 읽기 전용 뷰로 표시합니다. 테이블은 DuckDB 데이터베이스에 만듭니다.",

@@ -5355,6 +5355,7 @@
   "la columna «{0}» está repetida en la carga": "Die Spalte «{0}» ist im Ladevorgang doppelt",
   "la columna «{0}» no es entera ({1})": "Die Spalte «{0}» ist nicht ganzzahlig ({1})",
   "la columna «{0}» {1}": "Die Spalte «{0}» {1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "es handelt sich um einen Teilvergleich: Eine Zeile, die nur auf einer Seite vorkommt, kann auf der anderen über das Gelesene hinaus existieren; sie wird daher weder eingefügt noch gelöscht",
   "la comparación ya no está: volvé a comparar": "Der Vergleich existiert nicht mehr: Vergleichen Sie erneut",
   "la compresión": "die Komprimierung",
   "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": "Die Dateiverbindung zeigt jede Datei als schreibgeschützte Sicht: Tabellen werden in einer DuckDB-Datenbank erstellt.",
