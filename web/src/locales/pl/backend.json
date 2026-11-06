@@ -11481,5 +11481,20 @@
   "«{0}»: desde DBine se crea o se borra un espacio de nombres de primer nivel, como .ns.": "„{0}”: z poziomu DBine tworzy się lub usuwa przestrzeń nazw najwyższego poziomu, taką jak .ns.",
   "«{0}»: kdb+ define una vista solo en el espacio de nombres raíz (fuera de él, solo desde un script con \\d), así que DBine renombra una vista del raíz a otro nombre del raíz.": "„{0}”: kdb+ definiuje widok tylko w głównej przestrzeni nazw (poza nią tylko ze skryptu z \\d), więc DBine zmienia nazwę widoku z głównej przestrzeni na inną nazwę w głównej przestrzeni.",
   "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "„{0}”: przestrzeń nazw zmienia nazwę na inną najwyższego poziomu, taką jak .ns2.",
-  "el contexto necesita un nombre": "kontekst wymaga nazwy"
+  "el contexto necesita un nombre": "kontekst wymaga nazwy",
+  "el alias de ~/.ssh/config no es válido": "alias z ~/.ssh/config jest nieprawidłowy",
+  "está protegida con una frase: cargala en el agente (ssh-add) o escribila en la frase del túnel": "jest chroniony frazą hasłową: załaduj go do agenta (ssh-add) lub wpisz frazę hasłową tunelu",
+  "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)": "fraza hasłowa tunelu nie pasuje do tego klucza: załaduj klucz do agenta (ssh-add)",
+  "los saltos de «{0}» forman un bucle: {1} → {2}": "skoki „{0}” tworzą pętlę: {1} → {2}",
+  "no acepta ninguna clave del agente ni de la configuración": "nie akceptuje żadnego klucza z agenta ani z konfiguracji",
+  "no se encontró el programa ssh, que hace falta para leer ~/.ssh/config: instalá OpenSSH o cargá el servidor a mano": "nie znaleziono programu ssh, potrzebnego do odczytu ~/.ssh/config: zainstaluj OpenSSH lub wpisz serwer ręcznie",
+  "no se entiende el ProxyJump «{0}»": "nie można zrozumieć ProxyJump „{0}”",
+  "no se pudo ejecutar ssh: {0}": "nie można uruchomić ssh: {0}",
+  "ssh no pudo leer la configuración de «{0}»: {1}": "ssh nie mógł odczytać konfiguracji „{0}”: {1}",
+  "ssh no terminó de leer la configuración de «{0}» en {1} s": "ssh nie zdążył odczytać konfiguracji „{0}” w {1} s",
+  "{0}: no la acepta": "{0}: nie akceptuje",
+  "«{0}» no es un alias válido de ~/.ssh/config": "„{0}” nie jest prawidłowym aliasem z ~/.ssh/config",
+  "«{0}» no está en ~/.ssh/config de esta computadora": "„{0}” nie ma w ~/.ssh/config na tym komputerze",
+  "«{0}» pasa por más de {1} servidores": "„{0}” przechodzi przez więcej niż {1} serwerów",
+  "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": "„{0}” używa ProxyCommand, którego ta wersja DBine jeszcze nie wykonuje"
 }

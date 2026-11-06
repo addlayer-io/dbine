@@ -47,6 +47,11 @@ const missing = computed(() => {
   const out: string[] = [];
   if (!name.value.trim()) out.push(t('tunnel:profiles.name'));
   const s = values.value;
+  if (s.byAlias) {
+    if (!s.alias.trim()) out.push(t('tunnel:alias'));
+    for (const k of missingInputs(drafts['ssh.passphrase'])) out.push(`${t('tunnel:passphrase')} · ${t(`connection:source.input.${k}`)}`);
+    return out;
+  }
   if (!s.host.trim()) out.push(t('tunnel:host'));
   if (!s.user.trim()) out.push(t('tunnel:user'));
   if (s.auth === 'key' && !s.key_path.trim()) out.push(t('tunnel:keyPath'));

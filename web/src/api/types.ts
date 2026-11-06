@@ -356,8 +356,8 @@ export interface SavedConnection {
 export interface SshProfile {
   id: string;
   name: string;
-  /** `ssh.host`, `ssh.port`, `ssh.user`, `ssh.auth`, `ssh.key_path`,
-   *  `ssh.jump`, `ssh.trusted` and `secret_sources` (the tunnel's fields only). */
+  /** `ssh.alias`, or `ssh.host`, `ssh.port`, `ssh.user`, `ssh.auth`, `ssh.key_path`,
+   *  `ssh.jump`; `ssh.trusted` and `secret_sources` (the tunnel's fields only). */
   options: Record<string, string>;
   updated_at: string;
 }

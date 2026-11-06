@@ -177,8 +177,15 @@ pub fn field_label(info: Option<&DriverInfo>, field: &str) -> String {
 pub fn applies(info: Option<&DriverInfo>, cfg: &ConnectionConfig, field: &str) -> bool {
     let ssh_auth = || cfg.option("ssh.auth").unwrap_or("password");
     match field {
-        "ssh.password" => crate::tunnels::enabled(cfg) && ssh_auth() == "password",
-        "ssh.passphrase" => crate::tunnels::enabled(cfg) && ssh_auth() == "key",
+        "ssh.password" => {
+            crate::tunnels::enabled(cfg)
+                && crate::ssh_config::alias(cfg).is_none()
+                && ssh_auth() == "password"
+        }
+        "ssh.passphrase" => {
+            crate::tunnels::enabled(cfg)
+                && (crate::ssh_config::alias(cfg).is_some() || ssh_auth() == "key")
+        }
         _ => info.is_some_and(|i| {
             i.fields.iter().any(|f| f.key == field && f.secret)
                 && field_applies(&i.fields, cfg, field)
