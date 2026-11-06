@@ -5355,6 +5355,7 @@
   "la columna «{0}» está repetida en la carga": "列「{0}」が読み込みで重複しています",
   "la columna «{0}» no es entera ({1})": "列「{0}」は整数ではありません({1})",
   "la columna «{0}» {1}": "列「{0}」{1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "部分比較です。片側にしかない行は、読み取った範囲より先の反対側に存在する可能性があるため、挿入も削除もされません",
   "la comparación ya no está: volvé a comparar": "比較は既にありません。もう一度比較してください",
   "la compresión": "圧縮",
   "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": "ファイルの接続は、各ファイルを読み取り専用のビューとして表示します。テーブルは DuckDB のデータベースに作成します。",

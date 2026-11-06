@@ -5355,6 +5355,7 @@
   "la columna «{0}» está repetida en la carga": "列“{0}”在加载中重复",
   "la columna «{0}» no es entera ({1})": "列“{0}”不是整数（{1}）",
   "la columna «{0}» {1}": "列“{0}”{1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "此为部分比较：仅在一侧出现的行可能在另一侧已读取范围之外存在，因此不会插入或删除",
   "la comparación ya no está: volvé a comparar": "比较结果已不存在：请重新比较",
   "la compresión": "压缩",
   "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": "文件连接将每个文件显示为只读视图：表在 DuckDB 数据库中创建。",

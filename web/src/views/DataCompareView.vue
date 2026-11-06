@@ -172,6 +172,11 @@ const shownOf = (n: number, list: unknown[]) => (n > list.length ? t('dataCompar
 // -- what goes where: arrows per row, as in the schema compare ------------------
 
 type Kind = 'changed' | 'only_left' | 'only_right';
+/** A side had more rows than were read: a row seen on one side may exist on
+ *  the other, so it's shown but can't be inserted or deleted (the backend
+ *  refuses it too). */
+const partial = computed(() => !!result.value && (result.value.truncated_left || result.value.truncated_right));
+const blocked = (kind: Kind) => partial.value && kind !== 'changed';
 /** Per kind: the direction of every row, and the rows set apart from it
  *  (by index, including rows past the ones shown). */
 const choices = reactive<Record<Kind, { all: Dir; rows: Map<number, Dir> }>>({
@@ -225,7 +230,7 @@ function arrowTip(kind: Kind, d: 'left' | 'right') {
  *  with "all" in their own view. */
 function matchSide(d: 'left' | 'right') {
   setAll('changed', d);
-  setAll(d === 'right' ? 'only_left' : 'only_right', d);
+  if (!partial.value) setAll(d === 'right' ? 'only_left' : 'only_right', d);
 }
 
 // -- the scripts -----------------------------------------------------------------
@@ -610,17 +615,17 @@ watch(() => result.value?.id, () => {
         <button :class="{ on: view === 'only_left' }" @click="view = 'only_left'"><b>{{ fmtN(result.counts.only_left) }}</b> {{ $t('dataCompare:onlyLeft') }}</button>
         <button :class="{ on: view === 'only_right' }" @click="view = 'only_right'"><b>{{ fmtN(result.counts.only_right) }}</b> {{ $t('dataCompare:onlyRight') }}</button>
         <span style="flex: 1" />
-        <el-button size="small" :disabled="!result.counts.changed && !result.counts.only_left" :title="$t('dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
-        <el-button size="small" :disabled="!result.counts.changed && !result.counts.only_right" :title="$t('dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
+        <el-button size="small" :disabled="!result.counts.changed && (partial || !result.counts.only_left)" :title="$t('dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
+        <el-button size="small" :disabled="!result.counts.changed && (partial || !result.counts.only_right)" :title="$t('dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
       </div>
-      <div v-if="view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right" class="dc-bulk">
+      <div v-if="!blocked(view) && (view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right)" class="dc-bulk">
         <span>{{ $t('dataCompare:bulk', { count: chosen(view), n: fmtN(chosen(view)) }) }}</span>
         <button :class="{ on: choices[view].all === 'left' && !choices[view].rows.size }" :title="arrowTip(view, 'left')" @click="setAll(view, 'left')">{{ $t('dataCompare:allLeft') }}</button>
         <button :class="{ on: choices[view].all === 'right' && !choices[view].rows.size }" :title="arrowTip(view, 'right')" @click="setAll(view, 'right')">{{ $t('dataCompare:allRight') }}</button>
         <button :class="{ on: choices[view].all === 'none' && !choices[view].rows.size }" @click="setAll(view, 'none')">{{ $t('dataCompare:allNone') }}</button>
       </div>
-      <div v-if="result.truncated_left || result.truncated_right || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
-        <div v-if="result.truncated_left || result.truncated_right">{{ $t('dataCompare:truncated', { limit: fmtN(limit) }) }}</div>
+      <div v-if="partial || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
+        <div v-if="partial">{{ $t(result.ordered ? 'dataCompare:partial' : 'dataCompare:partialUnordered', { limit: fmtN(limit) }) }}</div>
         <div v-if="result.duplicate_keys">{{ $t('dataCompare:duplicates', { count: result.duplicate_keys }) }}</div>
         <div v-if="result.only_left_columns.length">{{ $t('dataCompare:onlyLeftColumns', { list: result.only_left_columns.join(', ') }) }}</div>
         <div v-if="result.only_right_columns.length">{{ $t('dataCompare:onlyRightColumns', { list: result.only_right_columns.join(', ') }) }}</div>
@@ -646,8 +651,8 @@ watch(() => result.value?.id, () => {
           <tbody v-else>
             <tr v-for="(r, i) in rows" :key="i" :class="`go-${dirOf(view, i)}`">
               <td class="dc-arrows">
-                <button :class="{ on: dirOf(view, i) === 'left' }" :title="arrowTip(view, 'left')" @click="toggle(view, i, 'left')">←</button>
-                <button :class="{ on: dirOf(view, i) === 'right' }" :title="arrowTip(view, 'right')" @click="toggle(view, i, 'right')">→</button>
+                <button :class="{ on: dirOf(view, i) === 'left' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'left')" @click="toggle(view, i, 'left')">←</button>
+                <button :class="{ on: dirOf(view, i) === 'right' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'right')" @click="toggle(view, i, 'right')">→</button>
               </td>
               <td v-for="(c, j) in result.columns" :key="c" :class="{ key: j < result.key.length }">{{ show(r[j]) }}</td>
             </tr>
@@ -716,6 +721,7 @@ watch(() => result.value?.id, () => {
 .dc-arrows { white-space: nowrap; padding: 0 4px !important; }
 .dc-arrows button { width: 20px; height: 18px; padding: 0; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--nm-text-dim); font: inherit; cursor: pointer; }
 .dc-arrows button:hover { border-color: var(--nm-border); color: var(--nm-text-strong); }
+.dc-arrows button:disabled { opacity: 0.35; cursor: not-allowed; border-color: transparent; }
 .dc-arrows button.on { background: var(--el-color-primary); color: #fff; }
 .dc-grid tr.go-left td:not(.dc-arrows), .dc-grid tr.go-right td:not(.dc-arrows) { background: color-mix(in srgb, var(--el-color-primary) 8%, transparent); }
 .dc-building { height: 80px; }

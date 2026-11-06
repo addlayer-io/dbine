@@ -8647,6 +8647,7 @@
   "la columna «{0}» tiene un almacenamiento desconocido ({1})": "стовпець «{0}» має невідоме сховище ({1})",
   "la columna «{0}» tiene una compresión desconocida ({1})": "стовпець «{0}» має невідоме стиснення ({1})",
   "la columna «{0}» {1}": "стовпець «{0}» {1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "порівняння часткове: рядок, який є лише з одного боку, може існувати з іншого за межами прочитаного, тому його не вставляють і не видаляють",
   "la comparación ya no está: volvé a comparar": "порівняння більше немає: порівняйте знову",
   "la compresión": "стиснення",
   "la computadora no respondió a tiempo": "комп'ютер не відповів вчасно",

@@ -5355,6 +5355,7 @@
   "la columna «{0}» está repetida en la carga": "столбец «{0}» повторяется в загрузке",
   "la columna «{0}» no es entera ({1})": "столбец «{0}» не является целым ({1})",
   "la columna «{0}» {1}": "столбец «{0}» {1}",
+  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": "сравнение частичное: строка, которая есть только с одной стороны, может существовать с другой за пределами прочитанного, поэтому она не вставляется и не удаляется",
   "la comparación ya no está: volvé a comparar": "сравнения больше нет: сравните снова",
   "la compresión": "сжатие",
   "la conexión de archivos muestra cada archivo como una vista de solo lectura: las tablas se crean en una base DuckDB.": "подключение к файлам показывает каждый файл как представление только для чтения: таблицы создаются в базе данных DuckDB.",

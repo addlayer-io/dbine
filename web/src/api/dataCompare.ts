@@ -19,6 +19,8 @@ export interface DataCompareResult {
   changed: ChangedRow[];
   truncated_left: boolean;
   truncated_right: boolean;
+  /** Both sides came sorted by the key. */
+  ordered: boolean;
   duplicate_keys: number;
 }
 
