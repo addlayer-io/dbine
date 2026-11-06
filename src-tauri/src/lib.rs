@@ -18,6 +18,7 @@ mod notebook;
 mod open_files;
 mod optimizer;
 mod secret_sources;
+mod ssh_config;
 mod state;
 mod sync;
 mod tasks;
@@ -338,6 +339,9 @@ pub fn run() {
             commands::ssh_profiles::save_ssh_profile,
             commands::ssh_profiles::delete_ssh_profile,
             commands::ssh_profiles::trust_ssh_profile_host,
+            commands::ssh_profiles::ssh_config_hosts,
+            commands::ssh_profiles::ssh_config_resolve,
+            commands::ssh_profiles::approve_ssh_proxy_command,
             secret_sources::test_secret_source,
             secret_sources::approve_secret_source,
             secret_sources::unlock_secret_source,

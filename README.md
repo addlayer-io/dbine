@@ -54,7 +54,8 @@ and queries are organized inside each database.
   From DBeaver and DbGate the SSH tunnel comes along.
 - **SSH tunnels:** any connection to a network engine can go through an SSH
   server, even through a chain of bastions, with a password, a private key or
-  the SSH agent. Each server's fingerprint is verified against `known_hosts`
+  the SSH agent, or from a `Host` of `~/.ssh/config`, with `ProxyJump` and `ProxyCommand`.
+  Each server's fingerprint is verified against `known_hosts`
   or confirmed the first time. The password and the key passphrase never go
   into the state file or the logs. Everything opened on a connection shares a
   single tunnel, which reopens by itself if it drops. Details:

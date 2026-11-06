@@ -34,9 +34,10 @@ pub const PROFILE: &str = "ssh.profile";
 /// The option that turns a connection's tunnel on.
 pub const ENABLED: &str = "ssh.enabled";
 /// What a profile holds besides its secrets: the SSH servers (the jump
-/// hosts and the one that reaches the database), the user, the
-/// authentication and the accepted server keys.
-pub const SETTINGS: [&str; 7] = [
+/// hosts and the one that reaches the database, or the `~/.ssh/config` alias
+/// that says them), the user, the authentication and the accepted server keys.
+pub const SETTINGS: [&str; 8] = [
+    "ssh.alias",
     "ssh.host",
     "ssh.port",
     "ssh.user",

@@ -1,5 +1,6 @@
-import { ElMessageBox } from 'element-plus';
-import { errorKind } from '../api/client';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { errorKind, errorMessage } from '../api/client';
+import { sshProfilesApi } from '../api/sshProfiles';
 import { t } from '../i18n';
 
 // An SSH tunnel reached a server it doesn't know (`ssh_unknown_host`): show
@@ -78,6 +79,42 @@ export async function askTrustSshHost(e: unknown): Promise<string | null> {
     return trustedEntry(u.host, u.port, u.fingerprint);
   } catch {
     return null;
+  }
+}
+
+/** The alias and command of an `ssh_proxy_command` error, else null. */
+export function unconfirmedProxyCommand(e: unknown): { alias: string; command: string } | null {
+  if (errorKind(e) !== 'ssh_proxy_command') return null;
+  // The raw (Spanish) message from the backend; never the translated one.
+  const raw = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : '';
+  const m = /«(.+?)» .*?ProxyCommand: ([\s\S]+)$/.exec(raw);
+  return m ? { alias: m[1], command: m[2] } : null;
+}
+
+/**
+ * A tunnel's `~/.ssh/config` entry runs a command: show exactly that and, on a
+ * yes, confirm it. Resolves to whether to connect again.
+ */
+export async function askRunProxyCommand(e: unknown): Promise<boolean> {
+  const p = unconfirmedProxyCommand(e);
+  if (!p) return false;
+  try {
+    await ElMessageBox.confirm(
+      `<p>${escape(t('tunnel:proxyBody', { alias: p.alias }))}</p><p><code style="user-select:all;word-break:break-all">${escape(p.command)}</code></p><p>${escape(t('tunnel:proxyNote'))}</p>`,
+      t('tunnel:proxyTitle'),
+      { confirmButtonText: t('tunnel:proxyRun'), cancelButtonText: t('common:cancel'), dangerouslyUseHTMLString: true, type: 'warning' },
+    );
+  } catch {
+    return false;
+  }
+  try {
+    await sshProfilesApi.approveProxyCommand(p.alias, p.command);
+    return true;
+  } catch (refused) {
+    // Not a cancel: the entry changed under the dialog. Said, so it doesn't
+    // look like the "yes" did nothing.
+    ElMessage.error(errorMessage(refused));
+    return false;
   }
 }
 

@@ -24,6 +24,68 @@ In the connection form, the **SSH tunnel** panel:
 The database server and its port are written as usual, as the last SSH server
 sees them (for example, `db.internal:5432`).
 
+### From `~/.ssh/config`
+
+Instead of loading the SSH side by hand, **SSH server from** can point to a
+`Host` of `~/.ssh/config`: pick it from the list or type it. The panel shows
+the way it resolves to, with each server and user.
+
+```sshconfig
+Host demo-bastion
+    HostName bastion.example.test
+    User jump_user
+    IdentityFile ~/.ssh/demo_key
+
+Host demo-internal
+    HostName 10.10.0.20
+    User tunnel_user
+    IdentityFile ~/.ssh/demo_key
+    ProxyJump demo-bastion
+```
+
+Choosing `demo-internal` is enough: DBine goes through `demo-bastion` first.
+
+- **OpenSSH resolves it**, with `ssh -G`, which connects to nothing. So
+  `Include`, `Match`, `Host` patterns and the precedence between them work as
+  in a terminal, and DBine needs the `ssh` program to be installed. The Flathub
+  build may not have it: there, load the server by hand. Its sandbox doesn't
+  reach the system's programs either, so a `ProxyCommand` may not run there.
+- **Used from the answer:** `HostName`, `User`, `Port`, `IdentityFile`,
+  `IdentitiesOnly`, `IdentityAgent`, `ProxyCommand` and `ProxyJump`, with references to other
+  aliases and chains of up to 8 servers. In `ssh -J a,b`'s order: `b` is reached
+  through `a` whatever its own `ProxyJump` says, and `a` follows its own.
+- **Each server signs in with its own user and keys.** As OpenSSH does: first
+  the agent's keys, those of `IdentityFile` first, and with `IdentitiesOnly`
+  only those; then the key files. A file that doesn't exist is skipped.
+- **Passphrases:** a key with a passphrase that isn't in the agent uses the
+  panel's passphrase, which is tried on every key of the way. Keys with
+  different passphrases have to be in the agent (`ssh-add`). There's no password
+  sign-in with an alias.
+- **`ProxyCommand`:** the first server is reached through the program it names
+  (`ssh -W %h:%p demo-bastion`, `aws ssm start-session …`, `cloudflared …`), with
+  `%h`, `%p`, `%r`, `%n`, `%d`, `%u` and `%%`. It runs through the login shell, so
+  `PATH` is the terminal's.
+  - It runs only after a yes: DBine shows the exact command, and asks again
+    if it changes. The confirmation stays on this machine; another machine
+    asks for itself.
+  - It lives as long as the tunnel, and goes with it.
+  - It has no terminal: one that asks for a password or a code stops at 20
+    seconds, and the error shows what it said on its standard error.
+  - On a server in the middle of a `ProxyJump` chain it doesn't run: that
+    server is reached through the one before, as with `ssh -J`.
+- **Read on each connect:** when a tunnel opens. A tunnel already open stays as
+  it is until the connection reconnects.
+- **Server keys stay DBine's:** each server is verified as described below, by
+  the server the alias resolves to. `StrictHostKeyChecking`,
+  `UserKnownHostsFile` and `HostKeyAlias` aren't used: a server that's only in
+  another `known_hosts` file asks for its key to be accepted.
+- **Not used:** certificates (`CertificateFile`) and every other setting of the
+  file.
+- **A connection that comes from another machine** (sync, a backup) keeps the
+  alias: if this machine's files don't mention it, the connection says so.
+- The alias is checked before it reaches `ssh`: it can't start with `-` or hold
+  anything but letters, digits and `.` `_` `-` `:` `+`.
+
 The panel appears on engines that connect over the network. It doesn't appear
 on those that use a local file (SQLite, DuckDB, etc.).
 
@@ -61,7 +123,8 @@ servers, each with its fingerprint and a "Forget" action.
 
 - The configuration goes in the connection options (`ssh.enabled`,
   `ssh.host`, `ssh.port`, `ssh.user`, `ssh.auth`, `ssh.key_path`, `ssh.jump`,
-  `ssh.trusted`).
+  `ssh.trusted`). With an alias, `ssh.alias` takes the place of the servers,
+  the user and the authentication: `~/.ssh/config` isn't copied anywhere.
 - The SSH password and the key passphrase go to the system keychain, never to
   the state file or the logs. They are saved even if the connection doesn't
   save the database password: the "Save password" option refers to the

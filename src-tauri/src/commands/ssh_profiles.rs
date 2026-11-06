@@ -73,18 +73,25 @@ pub async fn save_ssh_profile(
         return Err(bad("falta el nombre"));
     }
     let has = |k: &str| p.options.get(k).is_some_and(|v| !v.trim().is_empty());
-    if !has("ssh.host") {
-        return Err(bad("falta el servidor SSH"));
-    }
-    if !has("ssh.user") {
-        return Err(bad("falta el usuario SSH"));
-    }
-    // The servers have to read as the tunnel reads them.
     let probe = ConnectionConfig {
         options: p.options.clone(),
         ..Default::default()
     };
-    crate::tunnels::hops(&probe)?;
+    // An alias is resolved on each machine, when the tunnel opens.
+    if let Some(alias) = crate::ssh_config::alias(&probe) {
+        if !crate::ssh_config::valid_host(alias) {
+            return Err(bad("el alias de ~/.ssh/config no es válido"));
+        }
+    } else {
+        if !has("ssh.host") {
+            return Err(bad("falta el servidor SSH"));
+        }
+        if !has("ssh.user") {
+            return Err(bad("falta el usuario SSH"));
+        }
+        // The servers have to read as the tunnel reads them.
+        crate::tunnels::hops(&probe)?;
+    }
     let sources = ssh_profiles::tunnel_sources(&p.options)
         .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     for (field, src) in &sources {
@@ -141,6 +148,68 @@ pub struct TrustSshProfileHostArgs {
     pub fingerprint: String,
 }
 
+/// The aliases of `~/.ssh/config`, for the tunnel form's list.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ssh_config_hosts() -> CommandResult<Vec<String>> {
+    let listed = tokio::task::spawn_blocking(crate::ssh_config::listed)
+        .await
+        .unwrap_or_default();
+    Ok(listed.hosts.into_iter().collect())
+}
+
+#[derive(Deserialize)]
+pub struct SshConfigResolveArgs {
+    pub alias: String,
+}
+
+/// One server of an alias's way, as the tunnel form shows it.
+#[derive(Serialize)]
+pub struct SshConfigHop {
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    /// What the first server is reached through, as it would run.
+    pub proxy_command: Option<String>,
+}
+
+/// The servers an alias goes through, in order, as `ssh` resolves them here.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ssh_config_resolve(args: SshConfigResolveArgs) -> CommandResult<Vec<SshConfigHop>> {
+    let chain = crate::ssh_config::resolve(args.alias.trim()).await?;
+    let mut command = crate::ssh_config::proxy_command(&chain);
+    Ok(chain
+        .into_iter()
+        .map(|r| SshConfigHop {
+            name: r.name,
+            host: r.hostname,
+            port: r.port,
+            user: r.user,
+            proxy_command: command.take(),
+        })
+        .collect())
+}
+
+#[derive(Deserialize)]
+pub struct ApproveSshProxyCommandArgs {
+    pub alias: String,
+    /// The command the dialog showed: the confirmation is bound to it.
+    pub command: String,
+}
+
+/// The user confirmed a tunnel's `ProxyCommand` in the dialog that showed it.
+/// It has to be the one the alias resolves to now on this machine.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn approve_ssh_proxy_command(args: ApproveSshProxyCommandArgs) -> CommandResult<()> {
+    let chain = crate::ssh_config::resolve(args.alias.trim()).await?;
+    if crate::ssh_config::proxy_command(&chain).as_deref() != Some(args.command.as_str()) {
+        return Err(CommandError::BadRequest(
+            "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo".into(),
+        ));
+    }
+    crate::ssh_config::confirm(&args.command)
+}
+
 /// Trust an SSH server's key in a profile (a connection form testing with
 /// it): the server has to be one of the profile's and have no other key
 /// accepted.
@@ -149,12 +218,12 @@ pub async fn trust_ssh_profile_host(
     state: State<'_, AppState>,
     args: TrustSshProfileHostArgs,
 ) -> CommandResult<()> {
-    trust_in_profile(&state.store, &args.profile_id, &args.fingerprint)
+    trust_in_profile(&state.store, &args.profile_id, &args.fingerprint).await
 }
 
 /// [`trust_ssh_profile_host`]; also what `trust_ssh_host` does for a
 /// connection whose tunnel uses a profile.
-pub fn trust_in_profile(
+pub async fn trust_in_profile(
     store: &dbine_core::StateStore,
     profile_id: &str,
     fingerprint: &str,
@@ -166,7 +235,7 @@ pub fn trust_in_profile(
         options: p.options,
         ..Default::default()
     };
-    crate::tunnels::trust(&mut cfg, fingerprint)?;
+    crate::tunnels::trust(&mut cfg, fingerprint).await?;
     ssh_profiles::set_trusted(store, profile_id, cfg.option("ssh.trusted").unwrap_or(""))?;
     Ok(())
 }
@@ -186,8 +255,8 @@ mod tests {
         format!("SHA256:{}", c.to_string().repeat(43))
     }
 
-    #[test]
-    fn a_profiles_server_key_is_trusted_in_the_profile() {
+    #[tokio::test]
+    async fn a_profiles_server_key_is_trusted_in_the_profile() {
         let store = dbine_core::StateStore::open_in_memory().unwrap();
         struct NoKeychain;
         impl ssh_profiles::SecretStore for NoKeychain {
@@ -215,7 +284,7 @@ mod tests {
         )
         .unwrap();
         let entry = dbine_tunnel::trusted_entry("bastion", 22, &fp('a'));
-        trust_in_profile(&store, &p.id, &entry).unwrap();
+        trust_in_profile(&store, &p.id, &entry).await.unwrap();
         let got = store.get_ssh_profile(&p.id).unwrap().unwrap();
         assert_eq!(got.options["ssh.trusted"], entry);
         // Another key for the same server, or a server that isn't the
@@ -225,12 +294,14 @@ mod tests {
             &p.id,
             &dbine_tunnel::trusted_entry("bastion", 22, &fp('b'))
         )
+        .await
         .is_err());
         assert!(trust_in_profile(
             &store,
             &p.id,
             &dbine_tunnel::trusted_entry("elsewhere", 22, &fp('b'))
         )
+        .await
         .is_err());
         // A connection using it is listed with it.
         let mut c = dbine_core::SavedConnection {

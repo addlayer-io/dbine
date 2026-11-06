@@ -93,7 +93,12 @@ fn load(state: &AppState, id: &str, database: &str) -> CommandResult<Loaded> {
         let _ = state.store.resolve_ssh_profile(&mut tunnel);
         notes.push(note(
             "tunnel",
-            &[("ssh", tunnel.option("ssh.host").unwrap_or(""))],
+            &[(
+                "ssh",
+                crate::ssh_config::alias(&tunnel)
+                    .or(tunnel.option("ssh.host"))
+                    .unwrap_or(""),
+            )],
         ));
     }
     let vault_db = sources

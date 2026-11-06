@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### New
+- **SSH tunnels from `~/.ssh/config`:** a tunnel can use a `Host` of your SSH config instead of loading the server by hand. DBine uses what OpenSSH resolves for it (server, user, keys, agent), including `ProxyJump` chains where each server signs in with its own user and keys, and `ProxyCommand`, which runs only after you confirm the exact command. It shows the way before you connect.
 - **Contexts for the AI assistant:** a new **Contexts** node on each connection and database holds notes the assistant gets in every chat there, such as what a status code means or how a metric is calculated, so you don't repeat them. **Settings › AI assistant** has a text for every conversation. The chat shows which ones are in use and can turn one off for that conversation. They guide the assistant; they don't change what it's allowed to do.
 - **KDB+ data sync and clone:** **Compare data** finds and fixes the rows that differ between two kdb+ tables, hashing them on each server so only the changed rows travel, and a migration can clone a kdb+ process into another with its tables, keys, types, attributes, linked columns, functions and views.
 - **KDB+ namespaces as schemas:** the explorer groups each namespace's tables, views and functions under it, **New schema…** and **Drop schema…** create and drop namespaces, and migrations into kdb+ keep each source schema as a namespace.
@@ -17,6 +18,7 @@
 ### Fixes
 - **Large results in Databricks:** a query whose result passed 25 MiB failed with "Inline byte limit exceeded", even when only its first rows were shown. It now brings the rows you asked for and marks them as partial, and exports and charts read the whole result.
 - **Databricks result downloads:** when a part of a result couldn't be downloaded, the error showed its link, which carries a temporary credential. It no longer does.
+- **SSH profile picker:** in a connection's SSH tunnel tab, the profile list had shrunk to an empty box. It now takes the row's width and says when the connection uses its own settings.
 - **Schema compare with a schema selected:** full-text catalogs and stoplists no longer disappear from the comparison, so their differences show and the script can create the catalog an index needs.
 - **Syncing SQL Server full-text indexes:** an index carried to a table whose primary key has another name now uses that table's key, and a difference in that name alone no longer shows as a change. Dropping a full-text catalog or stoplist in schema compare now lists the indexes that use it.
 - **Migrations into KDB+:** emptying a kdb+ table to copy it again (or to resume a cut copy) keeps its columns, types and key, instead of leaving it without columns.
