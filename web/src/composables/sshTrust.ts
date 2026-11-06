@@ -1,5 +1,5 @@
-import { ElMessageBox } from 'element-plus';
-import { errorKind } from '../api/client';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { errorKind, errorMessage } from '../api/client';
 import { sshProfilesApi } from '../api/sshProfiles';
 import { t } from '../i18n';
 
@@ -104,9 +104,16 @@ export async function askRunProxyCommand(e: unknown): Promise<boolean> {
       t('tunnel:proxyTitle'),
       { confirmButtonText: t('tunnel:proxyRun'), cancelButtonText: t('common:cancel'), dangerouslyUseHTMLString: true, type: 'warning' },
     );
+  } catch {
+    return false;
+  }
+  try {
     await sshProfilesApi.approveProxyCommand(p.alias, p.command);
     return true;
-  } catch {
+  } catch (refused) {
+    // Not a cancel: the entry changed under the dialog. Said, so it doesn't
+    // look like the "yes" did nothing.
+    ElMessage.error(errorMessage(refused));
     return false;
   }
 }
