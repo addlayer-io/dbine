@@ -65,7 +65,7 @@ When the catalog returns a CHECK, a column default or a computed column's expres
 | Athena | table (Iceberg or external) | no foreign keys or indexes | yes | Unit tests only. |
 | BigQuery | table | yes (NOT ENFORCED keys) | yes (datasets) | No indexes or autoincrement. |
 | Snowflake | table | yes | yes | Transient tables and clustering key. |
-| Databricks | table (Delta) | yes | yes (catalogs) | No indexes; liquid clustering is not read back. Sign-in with a personal access token, an OAuth service principal (M2M) or the user's browser sign-in (OAuth U2M: the workspace's `/oidc/v1/authorize` with PKCE, client `databricks-cli`, redirect `http://localhost:8020`, so the organization's SSO and MFA apply). |
+| Databricks | table (Delta) | yes | yes (catalogs) | No indexes; liquid clustering is not read back. Sign-in with a personal access token, an OAuth service principal (M2M) or the user's browser sign-in (OAuth U2M: the workspace's `/oidc/v1/authorize` with PKCE, client `databricks-cli`, redirect `http://localhost:8020`, so the organization's SSO and MFA apply). A query asks the server for the rows it shows (`row_limit`), so past that limit the total isn't known. A result still over the API's inline 25 MiB, or one that goes to an export or a chart, comes by `EXTERNAL_LINKS` from the workspace's cloud storage; where that's disabled or unreachable, results up to 25 MiB still work and larger ones say so. |
 | Phoenix | table | no foreign keys | no | Salting, column families, and local and global indexes. |
 | ksqlDB | stream / table | — | no | Windows of windowed tables are not read back. |
 | IoTDB | device | — | yes | Encoding and compression per measurement. |

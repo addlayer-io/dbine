@@ -5829,8 +5829,14 @@
   "crates/dbine-core/src/conn_import/mod.rs",
   "crates/dbine-schema/src/dialect/spark.rs"
  ],
+ "Databricks anunció {0} filas del resultado y llegaron {1}: no se entrega incompleto.": [
+  "crates/drivers/databricks/src/results.rs"
+ ],
  "Databricks anunció {0} filas y se leyeron {1}; no se copia una tabla incompleta.": [
   "crates/drivers/databricks/src/transfer.rs"
+ ],
+ "Databricks cortó el resultado por su tamaño (el límite es de 100 GiB): no se entrega incompleto. Probá con un filtro o con menos columnas.": [
+  "crates/drivers/databricks/src/results.rs"
  ],
  "Databricks devolvió «{0}» en una columna {1} y no se pudo leer; no se copia un valor alterado.": [
   "crates/drivers/databricks/src/transfer.rs"
@@ -7809,6 +7815,9 @@
  ],
  "El repositorio donde se guarda el snapshot (sys.repositories).": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "El resultado pasa los 25 MiB que Databricks entrega en la respuesta, y no se pudo leer de su almacenamiento en la nube: {0}. Probá con un LIMIT o con menos columnas.": [
+  "crates/drivers/databricks/src/results.rs"
  ],
  "El rol actual no puede listar usuarios (SHOW USERS): se ve solo el propio": [
   "crates/drivers/snowflake/src/security.rs"
@@ -30284,6 +30293,9 @@
  ],
  "la respuesta del listado es demasiado grande": [
   "src-tauri/src/notebook/remote.rs"
+ ],
+ "la respuesta no dice cuántos bloques tiene el resultado": [
+  "crates/drivers/databricks/src/results.rs"
  ],
  "la respuesta no trae encabezado": [
   "crates/drivers/clickhouse/src/transfer.rs"
