@@ -96,6 +96,10 @@ struct Diff {
     only_left: Vec<Vec<Value>>,
     only_right: Vec<Vec<Value>>,
     changed: Vec<ChangedRow>,
+    /// Each side's type of each compared column ("": not known), so a script
+    /// writes a value the way its target column takes it.
+    left_types: Vec<String>,
+    right_types: Vec<String>,
     /// A side had more rows than were read: a row seen on one side may exist
     /// on the other past what was read, so it's never inserted or deleted.
     partial: bool,
@@ -234,13 +238,123 @@ fn is_bool_type(data_type: &str) -> bool {
 fn as_bool(v: Value) -> Value {
     let parsed = match &v {
         Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
-            "t" | "true" => Some(true),
-            "f" | "false" => Some(false),
+            "t" | "true" | "1" => Some(true),
+            "f" | "false" | "0" => Some(false),
+            _ => None,
+        },
+        Value::Number(n) => match n.as_i64() {
+            Some(1) => Some(true),
+            Some(0) => Some(false),
             _ => None,
         },
         _ => None,
     };
     parsed.map_or(v, Value::Bool)
+}
+
+/// Whether a column holds numbers, by the names engines give them: `int`,
+/// `numeric(12,2)`, ClickHouse's `Nullable(Int32)`, BigQuery's `INT64`, or a
+/// sampled document field's most common type (`int|string`).
+fn is_number_type(data_type: &str) -> bool {
+    let t = data_type.trim().to_ascii_lowercase();
+    let t = t.split('|').next().unwrap_or_default();
+    let t = t.strip_prefix("nullable(").unwrap_or(t);
+    let head: String = t
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    if matches!(
+        head.as_str(),
+        "int"
+            | "integer"
+            | "bigint"
+            | "smallint"
+            | "tinyint"
+            | "mediumint"
+            | "hugeint"
+            | "long"
+            | "short"
+            | "byte"
+            | "serial"
+            | "bigserial"
+            | "smallserial"
+            | "varint"
+            | "counter"
+            | "number"
+            | "numeric"
+            | "decimal"
+            | "dec"
+            | "bignumeric"
+            | "bigdecimal"
+            | "real"
+            | "float"
+            | "double"
+            | "half_float"
+            | "scaled_float"
+    ) {
+        return true;
+    }
+    // Sized names: int32, uint64, float64, decimal128.
+    ["int", "uint", "float", "decimal", "numeric"]
+        .iter()
+        .any(|p| {
+            head.strip_prefix(p)
+                .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+        })
+}
+
+/// A number that came as text, as a number: only when that keeps it exact.
+/// Past 2^53 or 15 significant digits it stays as text, which SQL engines
+/// convert without losing anything.
+fn as_number(v: Value) -> Value {
+    let parsed = match &v {
+        Value::String(s) => {
+            let t = s.trim();
+            let digits = t.trim_start_matches(['-', '+']);
+            let plain = !digits.is_empty()
+                && digits.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+                && digits.bytes().filter(|b| *b == b'.').count() <= 1
+                && digits.bytes().any(|b| b.is_ascii_digit());
+            let significant = digits
+                .trim_start_matches(['0', '.'])
+                .trim_end_matches(|c| c == '0' && digits.contains('.'))
+                .bytes()
+                .filter(u8::is_ascii_digit)
+                .count();
+            match t.parse::<f64>() {
+                Ok(f) if plain && significant <= 15 => {
+                    if f.fract() == 0.0 {
+                        Some(Value::from(f as i64))
+                    } else {
+                        Some(Value::from(f))
+                    }
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    parsed.unwrap_or(v)
+}
+
+/// How a script writes one compared column's values: by the target column's
+/// type, or the source's where the target doesn't say (an empty collection).
+/// PostgreSQL answers numbers as text, and engines that keep types would
+/// store them so: MongoDB's `"9"` isn't `9`, and CQL refuses it.
+fn write_as(target_type: &str, source_type: &str, v: Value) -> Value {
+    let known = |t: &str| !matches!(t.trim(), "" | "null");
+    let t = if known(target_type) {
+        target_type
+    } else {
+        source_type
+    };
+    if is_bool_type(t) {
+        as_bool(v)
+    } else if is_number_type(t) {
+        as_number(v)
+    } else {
+        v
+    }
 }
 
 /// A value as compared: numbers by value (`1` = `1.0` = `"1.00"`), dates
@@ -373,6 +487,13 @@ pub async fn data_compare(
         .iter()
         .map(|c| (booleans(&lcols, &c.0), booleans(&rcols, &c.2)))
         .unzip();
+    let type_of = |cols: &[ColumnInfo], name: &str| {
+        cols.iter()
+            .find(|c| c.name.eq_ignore_ascii_case(name))
+            .map_or_else(String::new, |c| c.data_type.clone())
+    };
+    let left_types: Vec<String> = columns.iter().map(|c| type_of(&lcols, &c.0)).collect();
+    let right_types: Vec<String> = columns.iter().map(|c| type_of(&rcols, &c.2)).collect();
     let project = |row: &[Value], left: bool| -> Vec<Value> {
         columns
             .iter()
@@ -471,6 +592,8 @@ pub async fn data_compare(
             only_left,
             only_right,
             changed,
+            left_types,
+            right_types,
             partial: ltrunc || rtrunc,
         },
     );
@@ -652,11 +775,20 @@ fn side_script(
         .map(|(l, r)| if to_right { r.clone() } else { l.clone() })
         .collect();
     let nk = d.key.len();
+    let (target_types, source_types) = if to_right {
+        (&d.right_types, &d.left_types)
+    } else {
+        (&d.left_types, &d.right_types)
+    };
+    // Every value as the target column takes it.
+    let typed = |i: usize, v: &Value| write_as(&target_types[i], &source_types[i], v.clone());
+    let typed_row =
+        |r: &[Value]| -> Vec<Value> { r.iter().enumerate().map(|(i, v)| typed(i, v)).collect() };
     let key_of = |r: &Vec<Value>| -> Vec<(String, Value)> {
         names[..nk]
             .iter()
             .cloned()
-            .zip(r[..nk].iter().cloned())
+            .zip(typed_row(&r[..nk]))
             .collect()
     };
     let mut parts = Vec::new();
@@ -672,9 +804,9 @@ fn side_script(
                 key: key_of(dst),
                 set: diff
                     .iter()
-                    .map(|&i| (names[i].clone(), src[i].clone()))
+                    .map(|&i| (names[i].clone(), typed(i, &src[i])))
                     .collect(),
-                row: names.iter().cloned().zip(dst.iter().cloned()).collect(),
+                row: names.iter().cloned().zip(typed_row(dst)).collect(),
             })
             .collect();
         parts.push(driver.update_script(&target.object, &changes)?);
@@ -690,7 +822,7 @@ fn side_script(
             &target.object,
             &names,
             identity,
-            &plan.insert,
+            &plan.insert.iter().map(|r| typed_row(r)).collect::<Vec<_>>(),
         )?);
     }
     let (script, statements) = assemble(driver.as_ref(), parts);
@@ -805,8 +937,8 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 #[cfg(test)]
 mod tests {
     use super::{
-        as_bool, assemble, canon, insert_parts, is_bool_type, new_rows_parts, plans, sort_keys,
-        ChangedRow, Choices, Diff, Dir, Pick, Side,
+        as_bool, as_number, assemble, canon, insert_parts, is_bool_type, is_number_type,
+        new_rows_parts, plans, sort_keys, write_as, ChangedRow, Choices, Diff, Dir, Pick, Side,
     };
     use dbine_driver::{ObjectRef, RowChange};
 
@@ -1053,6 +1185,8 @@ mod tests {
                 right: vec![json!(3), json!("r")],
                 diff: vec![1],
             }],
+            left_types: vec!["int".into(), "text".into()],
+            right_types: vec!["int".into(), "text".into()],
             partial,
         }
     }
@@ -1083,6 +1217,94 @@ mod tests {
         // Only boolean columns: a text column can hold a `t` that means `t`.
         assert!(is_bool_type("boolean") && is_bool_type("BOOL"));
         assert!(!is_bool_type("character varying(10)") && !is_bool_type("bit"));
+    }
+
+    #[test]
+    fn a_number_as_text_becomes_a_number_only_when_exact() {
+        for (text, number) in [
+            ("9", json!(9)),
+            ("-12", json!(-12)),
+            ("007", json!(7)),
+            ("45000.00", json!(45000)),
+            ("220000.50", json!(220000.5)),
+            ("0.25", json!(0.25)),
+        ] {
+            assert_eq!(as_number(json!(text)), number, "{text}");
+        }
+        // More than a double keeps: stays as text.
+        for kept in [
+            "9007199254740991",
+            "12345678901234567890",
+            "1234567890.123456789",
+            "$1,000.00",
+            "1e5",
+            "",
+            ".",
+        ] {
+            assert_eq!(as_number(json!(kept)), json!(kept), "{kept}");
+        }
+        // Not text: as it came.
+        assert_eq!(as_number(json!(5)), json!(5));
+        assert_eq!(as_number(json!(null)), json!(null));
+    }
+
+    #[test]
+    fn number_types_by_the_names_engines_give_them() {
+        for t in [
+            "int",
+            "integer",
+            "bigint",
+            "INT64",
+            "UInt64",
+            "Float64",
+            "numeric(12,2)",
+            "decimal(12,2)",
+            "NUMBER(10,2)",
+            "Nullable(Int32)",
+            "double precision",
+            "tinyint(1)",
+            "int|double",
+            "double",
+            "scaled_float",
+        ] {
+            assert!(is_number_type(t), "{t}");
+        }
+        for t in [
+            "text",
+            "character varying(80)",
+            "interval",
+            "string|int",
+            "date",
+            "uuid",
+            "",
+            "null",
+            "bit",
+        ] {
+            assert!(!is_number_type(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn a_script_writes_a_value_the_way_its_target_takes_it() {
+        // PostgreSQL's text into MongoDB's numbers, and into CQL's.
+        assert_eq!(write_as("int", "integer", json!("9")), json!(9));
+        assert_eq!(
+            write_as("double", "numeric(12,2)", json!("45000.00")),
+            json!(45000)
+        );
+        // A text column keeps its text, even if it looks like a number.
+        assert_eq!(
+            write_as("varchar(10)", "integer", json!("007")),
+            json!("007")
+        );
+        // A target that doesn't say (an empty collection): by the source.
+        assert_eq!(write_as("null", "integer", json!("9")), json!(9));
+        assert_eq!(write_as("", "integer", json!("9")), json!(9));
+        assert_eq!(write_as("", "text", json!("9")), json!("9"));
+        // MySQL's tinyint into PostgreSQL's boolean.
+        assert_eq!(write_as("boolean", "tinyint(1)", json!(1)), json!(true));
+        assert_eq!(write_as("bool", "int", json!("0")), json!(false));
+        assert_eq!(write_as("int", "text", json!(null)), json!(null));
     }
 
     #[test]
