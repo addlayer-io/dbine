@@ -2,7 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia';
 import { ElMessageBox } from 'element-plus';
 import { listen } from '@tauri-apps/api/event';
 import { api, errorDetail, errorKind, errorMessage } from '../api/client';
-import { askTrustSshHost } from '../composables/sshTrust';
+import { askRunProxyCommand, askTrustSshHost } from '../composables/sshTrust';
 import { askAllowLegacyTls } from '../composables/legacyTls';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
@@ -335,6 +335,8 @@ export const useConnectionsStore = defineStore('connections', {
             return this.openConnection(id, password);
           }
         }
+        // The tunnel's `~/.ssh/config` entry runs a command: only after a yes.
+        if (await askRunProxyCommand(e)) return this.openConnection(id, password);
         // The tunnel's SSH server isn't known yet: trust it (the user checks
         // the fingerprint) and connect again.
         const entry = await askTrustSshHost(e);

@@ -43,12 +43,39 @@ impl Plan {
         }
     }
 
-    async fn spec(&self) -> CommandResult<Spec> {
+    /// Open it, resolving the alias first; a `ProxyCommand` not confirmed yet
+    /// goes back to the UI, unrun.
+    async fn open(&self) -> CommandResult<Tunnel> {
+        let Some(alias) = &self.alias else {
+            return dbine_tunnel::open(&self.spec).await.map_err(error);
+        };
+        let route = crate::ssh_config::route(alias, self.passphrase.as_deref()).await?;
         let mut spec = self.spec.clone();
-        if let Some(alias) = &self.alias {
-            spec.hops = crate::ssh_config::hops(alias, self.passphrase.as_deref()).await?;
+        spec.hops = route.hops;
+        let Some(command) = route.proxy_command else {
+            return dbine_tunnel::open(&spec).await.map_err(error);
+        };
+        if !crate::ssh_config::confirmed(&command) {
+            return Err(CommandError::SshProxyCommand {
+                alias: alias.clone(),
+                command,
+            });
         }
-        Ok(spec)
+        let (process, stream) = crate::ssh_config::ProxyProcess::spawn(&command)?;
+        let said = process.stderr_handle();
+        dbine_tunnel::open_over(&spec, stream, Box::new(process))
+            .await
+            .map_err(|e| match e {
+                e @ dbine_tunnel::Error::UnknownHost { .. } => error(e),
+                e => {
+                    let said = said.lock().unwrap().trim().to_string();
+                    if said.is_empty() {
+                        error(e)
+                    } else {
+                        CommandError::Connect(format!("{e}\nEl ProxyCommand dijo: {said}"))
+                    }
+                }
+            })
     }
 }
 
@@ -79,11 +106,7 @@ impl Tunnels {
         strip(cfg);
         mark_origin(cfg, &plan.spec.target_host, plan.spec.target_port);
         let tunnel = match connection_id {
-            None => Arc::new(
-                dbine_tunnel::open(&plan.spec().await?)
-                    .await
-                    .map_err(error)?,
-            ),
+            None => Arc::new(plan.open().await?),
             Some(id) => {
                 let lock = self.opening.entry(id.to_string()).or_default().clone();
                 let _guard = lock.lock().await;
@@ -95,8 +118,7 @@ impl Tunnels {
                 {
                     Some(t) => t,
                     None => {
-                        let spec = plan.spec().await?;
-                        let t = Arc::new(dbine_tunnel::open(&spec).await.map_err(error)?);
+                        let t = Arc::new(plan.open().await?);
                         tracing::info!(connection = id, port = t.local_port(), "SSH tunnel open");
                         self.open.insert(id.to_string(), (plan, t.clone()));
                         t
@@ -305,7 +327,7 @@ pub fn add_trusted(mut trusted: Vec<String>, entry: &str) -> Option<Vec<String>>
 /// and have no other key accepted (see [`add_trusted`]).
 pub async fn trust(cfg: &mut ConnectionConfig, entry: &str) -> CommandResult<()> {
     let servers = match crate::ssh_config::alias(cfg) {
-        Some(alias) => crate::ssh_config::hops(alias, None).await?,
+        Some(alias) => crate::ssh_config::route(alias, None).await?.hops,
         None => hops(cfg)?,
     };
     trust_among(cfg, entry, &servers)

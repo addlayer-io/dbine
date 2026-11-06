@@ -48,9 +48,10 @@ Choosing `demo-internal` is enough: DBine goes through `demo-bastion` first.
 - **OpenSSH resolves it**, with `ssh -G`, which connects to nothing. So
   `Include`, `Match`, `Host` patterns and the precedence between them work as
   in a terminal, and DBine needs the `ssh` program to be installed. The Flathub
-  build may not have it: there, load the server by hand.
+  build may not have it: there, load the server by hand. Its sandbox doesn't
+  reach the system's programs either, so a `ProxyCommand` may not run there.
 - **Used from the answer:** `HostName`, `User`, `Port`, `IdentityFile`,
-  `IdentitiesOnly`, `IdentityAgent` and `ProxyJump`, with references to other
+  `IdentitiesOnly`, `IdentityAgent`, `ProxyCommand` and `ProxyJump`, with references to other
   aliases and chains of up to 8 servers. In `ssh -J a,b`'s order: `b` is reached
   through `a` whatever its own `ProxyJump` says, and `a` follows its own.
 - **Each server signs in with its own user and keys.** As OpenSSH does: first
@@ -60,14 +61,26 @@ Choosing `demo-internal` is enough: DBine goes through `demo-bastion` first.
   panel's passphrase, which is tried on every key of the way. Keys with
   different passphrases have to be in the agent (`ssh-add`). There's no password
   sign-in with an alias.
+- **`ProxyCommand`:** the first server is reached through the program it names
+  (`ssh -W %h:%p demo-bastion`, `aws ssm start-session …`, `cloudflared …`), with
+  `%h`, `%p`, `%r`, `%n`, `%d`, `%u` and `%%`. It runs through the login shell, so
+  `PATH` is the terminal's.
+  - It runs only after a yes: DBine shows the exact command, and asks again
+    if it changes. The confirmation stays on this machine; another machine
+    asks for itself.
+  - It lives as long as the tunnel, and goes with it.
+  - It has no terminal: one that asks for a password or a code stops at 20
+    seconds, and the error shows what it said on its standard error.
+  - On a server in the middle of a `ProxyJump` chain it doesn't run: that
+    server is reached through the one before, as with `ssh -J`.
 - **Read on each connect:** when a tunnel opens. A tunnel already open stays as
   it is until the connection reconnects.
 - **Server keys stay DBine's:** each server is verified as described below, by
   the server the alias resolves to. `StrictHostKeyChecking`,
   `UserKnownHostsFile` and `HostKeyAlias` aren't used: a server that's only in
   another `known_hosts` file asks for its key to be accepted.
-- **Not used:** certificates (`CertificateFile`), `ProxyCommand` and every other
-  setting of the file.
+- **Not used:** certificates (`CertificateFile`) and every other setting of the
+  file.
 - **A connection that comes from another machine** (sync, a backup) keeps the
   alias: if this machine's files don't mention it, the connection says so.
 - The alias is checked before it reaches `ssh`: it can't start with `-` or hold

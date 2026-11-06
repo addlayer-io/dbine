@@ -16,7 +16,7 @@ import SecretSourcePicker from '../components/SecretSourcePicker.vue';
 import { draftFrom, isExternal, missingInputs, readSources, sourceFrom, tokenKey, typedTokens, userFromSource, writeSources, type SourceDraft } from '../composables/secretSources';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
-import { addTrusted, askTrustSshHost } from '../composables/sshTrust';
+import { addTrusted, askRunProxyCommand, askTrustSshHost } from '../composables/sshTrust';
 import { loadSshProfiles, profileById } from '../composables/sshProfiles';
 import { sshProfilesApi } from '../api/sshProfiles';
 import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
@@ -404,6 +404,11 @@ async function test() {
         testing.value = false;
         return test();
       }
+    }
+    // The tunnel's `~/.ssh/config` entry runs a command: only after a yes.
+    if (await askRunProxyCommand(e)) {
+      testing.value = false;
+      return test();
     }
     // The tunnel's SSH server isn't known yet: trust it and test again.
     const entry = await askTrustSshHost(e);

@@ -2,8 +2,12 @@
 //! itself resolves the alias (`ssh -G`, which connects to nothing), so
 //! `Include`, `Match` and its precedence rules are its own and not a copy of
 //! them here. What's used from its answer: the server, the user, the keys and
-//! the agent, and how to reach the server (`ProxyJump`). Host keys stay
-//! DBine's: a `StrictHostKeyChecking no` doesn't turn the verification off.
+//! the agent, and how to reach the server (`ProxyJump`, `ProxyCommand`). Host
+//! keys stay DBine's: a `StrictHostKeyChecking no` doesn't turn the
+//! verification off.
+//!
+//! A `ProxyCommand` runs a program a file names, so it runs only after the user
+//! confirmed its exact text on this machine, and it lasts as long as the tunnel.
 //!
 //! The alias is resolved when a tunnel opens, so a changed file applies on the
 //! next connect, and it's text a connection may bring from another machine
@@ -246,15 +250,7 @@ async fn chain(alias: &str, mut ask: impl FnMut(Target) -> Asked) -> CommandResu
         let resolved = ask(next.clone()).await?;
         let jumps = match forced.take() {
             Some(jumps) => jumps,
-            None => {
-                if resolved.proxy_jump.is_none() && resolved.proxy_command.is_some() {
-                    return Err(bad(format!(
-                        "«{}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta",
-                        resolved.name
-                    )));
-                }
-                parse_jumps(resolved.proxy_jump.as_deref().unwrap_or("")).map_err(bad)?
-            }
+            None => parse_jumps(resolved.proxy_jump.as_deref().unwrap_or("")).map_err(bad)?,
         };
         backwards.push(resolved);
         let Some((last, rest)) = jumps.split_last() else {
@@ -356,12 +352,150 @@ pub async fn resolve(alias: &str) -> CommandResult<Vec<Resolved>> {
     Ok(chain)
 }
 
-pub async fn hops(alias: &str, passphrase: Option<&str>) -> CommandResult<Vec<Hop>> {
-    Ok(resolve(alias)
-        .await?
-        .iter()
-        .map(|r| hop_of(r, passphrase))
-        .collect())
+/// A way the file gives: the servers, and the command the first one is reached
+/// through. Only the first: the others are reached through the server before.
+pub struct Route {
+    pub hops: Vec<Hop>,
+    pub proxy_command: Option<String>,
+}
+
+/// The `ProxyCommand` of a chain, as it would run.
+pub fn proxy_command(chain: &[Resolved]) -> Option<String> {
+    let first = chain.first()?;
+    if first.proxy_jump.is_some() {
+        return None;
+    }
+    first
+        .proxy_command
+        .as_deref()
+        .map(|c| expand_tokens(c, first))
+}
+
+pub async fn route(alias: &str, passphrase: Option<&str>) -> CommandResult<Route> {
+    let chain = resolve(alias).await?;
+    Ok(Route {
+        hops: chain.iter().map(|r| hop_of(r, passphrase)).collect(),
+        proxy_command: proxy_command(&chain),
+    })
+}
+
+const COMMAND_KIND: &str = "ssh-proxy-command";
+
+/// Whether the user confirmed this exact command on this machine.
+pub fn confirmed(command: &str) -> bool {
+    dbine_core::secret_sources::is_approved(&dbine_core::secret_sources::command_digest(
+        COMMAND_KIND,
+        command,
+    ))
+}
+
+pub fn confirm(command: &str) -> CommandResult<()> {
+    dbine_core::secret_sources::approve(&dbine_core::secret_sources::command_digest(
+        COMMAND_KIND,
+        command,
+    ))?;
+    Ok(())
+}
+
+/// What's shown of a `ProxyCommand` that said something on its way out.
+const STDERR_KEPT: usize = 2_000;
+
+/// A running `ProxyCommand`: the first hop's stream is its standard input and
+/// output. It's killed when the tunnel goes, with what it started.
+pub struct ProxyProcess {
+    child: tokio::process::Child,
+    stderr: std::sync::Arc<std::sync::Mutex<String>>,
+}
+
+impl ProxyProcess {
+    pub fn spawn(
+        command: &str,
+    ) -> CommandResult<(
+        Self,
+        tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>,
+    )> {
+        // `exec`: it replaces the shell, as OpenSSH runs it.
+        #[cfg(unix)]
+        let mut c = crate::secret_sources::exec::shell_command(&format!("exec {command}"));
+        #[cfg(windows)]
+        let mut c = crate::secret_sources::exec::shell_command(command);
+        c.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        c.process_group(0);
+        #[cfg(windows)]
+        {
+            // CREATE_NO_WINDOW: no console window next to the app.
+            c.creation_flags(0x0800_0000);
+        }
+        let mut child = c
+            .spawn()
+            .map_err(|e| bad(format!("no se pudo ejecutar el ProxyCommand: {e}")))?;
+        let (Some(stdin), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
+            return Err(bad("no se pudo ejecutar el ProxyCommand".into()));
+        };
+        let said = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let kept = said.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let mut kept = kept.lock().unwrap();
+                kept.push_str(&line);
+                kept.push('\n');
+                if kept.len() > STDERR_KEPT {
+                    let cut = kept.len() - STDERR_KEPT;
+                    let cut = (cut..kept.len())
+                        .find(|i| kept.is_char_boundary(*i))
+                        .unwrap_or(0);
+                    kept.drain(..cut);
+                }
+            }
+        });
+        Ok((
+            ProxyProcess {
+                child,
+                stderr: said,
+            },
+            tokio::io::join(stdout, stdin),
+        ))
+    }
+
+    /// What it said on its standard error so far.
+    #[cfg(test)]
+    fn said(&self) -> String {
+        self.stderr.lock().unwrap().trim().to_string()
+    }
+
+    /// What it says on its standard error, to read after the tunnel took it.
+    pub fn stderr_handle(&self) -> std::sync::Arc<std::sync::Mutex<String>> {
+        self.stderr.clone()
+    }
+}
+
+impl Drop for ProxyProcess {
+    fn drop(&mut self) {
+        let Some(pid) = self.child.id() else {
+            return;
+        };
+        #[cfg(unix)]
+        crate::secret_sources::exec::kill_group(pid);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // `kill_on_drop` only reaches cmd.exe, not what it started.
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(0x0800_0000)
+                .spawn();
+        }
+    }
 }
 
 /// What the config files name: for the form's list and to tell a name they
@@ -668,21 +802,82 @@ mod tests {
         assert!(e.contains("más de"), "{e}");
     }
 
+    fn with_command(name: &str, jump: Option<&str>, command: &str) -> Resolved {
+        Resolved {
+            name: name.into(),
+            hostname: "p.host".into(),
+            port: 2222,
+            user: "ops".into(),
+            proxy_jump: jump.map(String::from),
+            proxy_command: Some(command.into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_first_server_goes_through_its_command_with_its_tokens() {
+        let first = with_command("p", None, "ssh -W %h:%p -l %r %n 100%%");
+        let next = Resolved {
+            hostname: "next".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            proxy_command(&[first, next]).as_deref(),
+            Some("ssh -W p.host:2222 -l ops p 100%")
+        );
+        assert_eq!(proxy_command(&[]), None);
+        // A `ProxyJump` wins: OpenSSH's file can't have both in effect.
+        assert_eq!(proxy_command(&[with_command("p", Some("a"), "x")]), None);
+    }
+
+    /// A server in the middle is reached from the one before, so its command
+    /// doesn't run.
     #[tokio::test]
-    async fn proxy_command_is_said_not_ignored() {
-        let found = chain("p", |t: Target| -> Asked {
-            Box::pin(async move {
-                Ok(Resolved {
-                    name: t.host,
-                    hostname: "p.host".into(),
-                    proxy_command: Some("ssh -W %h:%p x".into()),
+    async fn only_the_first_servers_command_counts() {
+        let found = chain("t", |t: Target| -> Asked {
+            let r = match t.host.as_str() {
+                "t" => Resolved {
+                    name: "t".into(),
+                    hostname: "t.host".into(),
+                    proxy_jump: Some("first,middle".into()),
                     ..Default::default()
-                })
-            })
+                },
+                "middle" => with_command("middle", None, "never"),
+                _ => with_command("first", None, "only this"),
+            };
+            Box::pin(async move { Ok(r) })
+        })
+        .await
+        .unwrap();
+        let names: Vec<&str> = found.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["first", "middle", "t"]);
+        assert_eq!(proxy_command(&found).as_deref(), Some("only this"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_command_is_the_stream_and_goes_with_its_guard() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (process, mut stream) = ProxyProcess::spawn("sh -c 'echo said >&2; cat'").unwrap();
+        stream.write_all(b"ping").await.unwrap();
+        let mut got = [0u8; 4];
+        stream.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"ping");
+        for _ in 0..50 {
+            if !process.said().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(process.said(), "said");
+        drop(process);
+        // Its output closes when it's killed.
+        let closed = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut rest = Vec::new();
+            stream.read_to_end(&mut rest).await
         })
         .await;
-        let e = found.unwrap_err().to_string();
-        assert!(e.contains("ProxyCommand"), "{e}");
+        assert!(closed.is_ok(), "the process outlived its guard");
     }
 
     #[test]

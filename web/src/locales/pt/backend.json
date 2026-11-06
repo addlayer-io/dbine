@@ -11496,5 +11496,9 @@
   "«{0}» no es un alias válido de ~/.ssh/config": "«{0}» não é um alias válido do ~/.ssh/config",
   "«{0}» no está en ~/.ssh/config de esta computadora": "«{0}» não está no ~/.ssh/config deste computador",
   "«{0}» pasa por más de {1} servidores": "«{0}» passa por mais de {1} servidores",
-  "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": "«{0}» usa ProxyCommand, que esta versão do DBine ainda não executa"
+  "el túnel SSH «{0}» necesita tu confirmación para ejecutar este ProxyCommand: {1}": "o túnel SSH “{0}” precisa da sua confirmação para executar este ProxyCommand: {1}",
+  "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo": "esse ProxyCommand não é mais o do ~/.ssh/config: conecte-se novamente para vê-lo",
+  "no se pudo ejecutar el ProxyCommand": "não foi possível executar o ProxyCommand",
+  "no se pudo ejecutar el ProxyCommand: {0}": "não foi possível executar o ProxyCommand: {0}",
+  "{0}\nEl ProxyCommand dijo: {1}": "{0}\nO ProxyCommand disse: {1}"
 }

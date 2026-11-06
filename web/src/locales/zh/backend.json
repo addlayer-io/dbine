@@ -11496,5 +11496,9 @@
   "«{0}» no es un alias válido de ~/.ssh/config": "“{0}”不是有效的 ~/.ssh/config 别名",
   "«{0}» no está en ~/.ssh/config de esta computadora": "“{0}”不在此计算机的 ~/.ssh/config 中",
   "«{0}» pasa por más de {1} servidores": "“{0}”经过的服务器超过 {1} 台",
-  "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": "“{0}”使用了 ProxyCommand，当前版本的 DBine 尚不支持执行"
+  "el túnel SSH «{0}» necesita tu confirmación para ejecutar este ProxyCommand: {1}": "SSH 隧道“{0}”需要你确认才能执行此 ProxyCommand：{1}",
+  "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo": "该 ProxyCommand 已不是 ~/.ssh/config 中的那个：请重新连接以查看",
+  "no se pudo ejecutar el ProxyCommand": "无法执行 ProxyCommand",
+  "no se pudo ejecutar el ProxyCommand: {0}": "无法执行 ProxyCommand：{0}",
+  "{0}\nEl ProxyCommand dijo: {1}": "{0}\nProxyCommand 返回：{1}"
 }

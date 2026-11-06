@@ -26850,6 +26850,9 @@
  "el túnel SSH no pudo llegar a {0}:{1}: {2}": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
+ "el túnel SSH «{0}» necesita tu confirmación para ejecutar este ProxyCommand: {1}": [
+  "src-tauri/src/error.rs"
+ ],
  "el uso de CPU": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -27575,6 +27578,9 @@
  ],
  "escrituras": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo": [
+  "src-tauri/src/commands/ssh_profiles.rs"
  ],
  "ese archivo no lo generó DBine": [
   "src-tauri/src/commands/dbdocs.rs"
@@ -32172,6 +32178,12 @@
  "no se pudo describir {0}": [
   "crates/drivers/ksqldb/src/lib.rs"
  ],
+ "no se pudo ejecutar el ProxyCommand": [
+  "src-tauri/src/ssh_config.rs"
+ ],
+ "no se pudo ejecutar el ProxyCommand: {0}": [
+  "src-tauri/src/ssh_config.rs"
+ ],
  "no se pudo ejecutar el comando: {0}": [
   "src-tauri/src/secret_sources/mod.rs"
  ],
@@ -35194,6 +35206,9 @@
  "ya se está descargando": [
   "src-tauri/src/commands/ai.rs"
  ],
+ "{0}\nEl ProxyCommand dijo: {1}": [
+  "src-tauri/src/tunnels.rs"
+ ],
  "{0}\nEl driver ODBC indicado no está instalado o no está registrado en odbcinst.ini. Drivers instalados: {1}.": [
   "crates/drivers/odbc/src/odbc.rs"
  ],
@@ -37977,9 +37992,6 @@
   "crates/drivers/dsql/src/rename.rs",
   "crates/drivers/postgres/src/rename.rs",
   "crates/drivers/snowflake/src/rename.rs"
- ],
- "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": [
-  "src-tauri/src/ssh_config.rs"
  ],
  "«{0}» usa http://, que viaja sin cifrar: estas celdas leen de la web solo https://": [
   "src-tauri/src/notebook/remote.rs"

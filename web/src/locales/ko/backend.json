@@ -11496,5 +11496,9 @@
   "«{0}» no es un alias válido de ~/.ssh/config": "'{0}'은(는) 올바른 ~/.ssh/config 별칭이 아닙니다",
   "«{0}» no está en ~/.ssh/config de esta computadora": "'{0}'은(는) 이 컴퓨터의 ~/.ssh/config에 없습니다",
   "«{0}» pasa por más de {1} servidores": "'{0}'은(는) {1}개를 초과하는 서버를 거칩니다",
-  "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": "'{0}'은(는) ProxyCommand를 사용하며, 이 버전의 DBine은 아직 실행하지 않습니다"
+  "el túnel SSH «{0}» necesita tu confirmación para ejecutar este ProxyCommand: {1}": "SSH 터널 「{0}」에서 이 ProxyCommand를 실행하려면 확인이 필요합니다: {1}",
+  "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo": "이 ProxyCommand는 더 이상 ~/.ssh/config의 것이 아닙니다. 다시 연결하여 확인하십시오",
+  "no se pudo ejecutar el ProxyCommand": "ProxyCommand를 실행할 수 없습니다",
+  "no se pudo ejecutar el ProxyCommand: {0}": "ProxyCommand를 실행할 수 없습니다: {0}",
+  "{0}\nEl ProxyCommand dijo: {1}": "{0}\nProxyCommand 응답: {1}"
 }
