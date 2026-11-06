@@ -59,6 +59,28 @@ connections or on different engines. It complements
 - If a key repeats on one side, the row is compared only once and the result
   says so.
 
+## Sorting and filtering the differences
+
+Every column of the differences can be sorted and filtered, over **all** the
+rows of that kind, not only the 2,000 on screen.
+
+- **Sort:** a click on a column's name goes ascending, descending, none.
+  Shift+click adds another key. Numbers sort by value even when they come as
+  text, and NULL goes last.
+- **Filter:** the three dots on a column offer its order and a condition by its
+  type: equal, different, greater, less, contains, starts with, NULL… Several
+  columns add up. Values are compared by what they are worth, and a date against
+  a whole day takes all its hours.
+- **Changed rows:** a filter passes if either side does, and sorting goes by the
+  left side and then the right. "Only rows where this column changed" keeps the
+  rows that differ in that column.
+- **With a filter on:** the "All" buttons mark only the rows that pass, and
+  "Make the right match" is off: it would also take the rows filtered out.
+
+`data_compare_rows { id, kind, sort, filters, changed_in }` answers the first
+2,000 rows that pass, how many pass, and, with a filter, every row's place in
+its kind's list, which is what the script's choices count by.
+
 ## The script
 
 It is written by the target's driver, in its language (`insert_script`,

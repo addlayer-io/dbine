@@ -7,6 +7,7 @@
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
+use dbine_driver::filter::{ColumnFilter, FilterOp};
 use dbine_driver::{ColumnInfo, Error, ObjectRef, QueryOutcome, RowChange, Session, SortKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -65,6 +66,8 @@ pub struct DataCompareResult {
     pub key: Vec<String>,
     /// Compared columns (the key first), in the left table's names.
     pub columns: Vec<String>,
+    /// Their types, on the left table (what a filter offers for each).
+    pub types: Vec<String>,
     /// Columns only one side has (not compared).
     pub only_left_columns: Vec<String>,
     pub only_right_columns: Vec<String>,
@@ -554,7 +557,16 @@ pub async fn data_compare(
             }
         }
     }
-    let only_right: Vec<Vec<Value>> = right.into_values().collect();
+    let mut only_right: Vec<Vec<Value>> = right.into_values().collect();
+    // In key order, as the other lists come: the map has none of its own.
+    only_right.sort_by(|a, b| {
+        a[..nk]
+            .iter()
+            .zip(&b[..nk])
+            .map(|(x, y)| sort_value(x).cmp_with(&sort_value(y), false))
+            .find(|o| o.is_ne())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     counts.only_left = only_left.len() as u64;
     counts.only_right = only_right.len() as u64;
     counts.changed = changed.len() as u64;
@@ -564,6 +576,7 @@ pub async fn data_compare(
         id: id.clone(),
         key: columns[..nk].iter().map(|c| c.0.clone()).collect(),
         columns: columns.iter().map(|c| c.0.clone()).collect(),
+        types: left_types.clone(),
         only_left_columns,
         only_right_columns,
         counts,
@@ -598,6 +611,292 @@ pub async fn data_compare(
         },
     );
     Ok(result)
+}
+
+/// One kind of difference.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum RowKind {
+    Changed,
+    OnlyLeft,
+    OnlyRight,
+}
+
+#[derive(Deserialize)]
+pub struct DataRowsArgs {
+    pub id: String,
+    pub kind: RowKind,
+    #[serde(default)]
+    pub sort: Vec<SortKey>,
+    #[serde(default)]
+    pub filters: Vec<ColumnFilter>,
+    /// Changed rows only: columns that have to differ in the row.
+    #[serde(default)]
+    pub changed_in: Vec<String>,
+}
+
+/// A row of a kind, with its place in that kind's whole list: what `Pick`
+/// counts by.
+#[derive(Serialize, Debug)]
+pub struct DataRow {
+    pub index: usize,
+    /// The row's values; on a changed row, the left side's.
+    pub left: Vec<Value>,
+    /// A changed row's right side.
+    pub right: Option<Vec<Value>>,
+    /// A changed row's differing columns.
+    pub diff: Vec<usize>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DataRows {
+    /// The first rows that pass, in the order asked for.
+    pub rows: Vec<DataRow>,
+    /// How many pass, among all the kind's rows (not only those shown).
+    pub total: usize,
+    /// With a filter, every row that passes: "all" marks those.
+    pub indices: Vec<usize>,
+}
+
+/// A value to sort by: numbers by value, the rest as text without case, and
+/// NULL last whichever way it goes.
+#[derive(Debug, Clone, PartialEq)]
+enum SortValue {
+    Number(f64),
+    Text(String),
+    Null,
+}
+
+impl SortValue {
+    fn cmp_with(&self, other: &Self, descending: bool) -> std::cmp::Ordering {
+        use std::cmp::Ordering::{Greater, Less};
+        let order = match (self, other) {
+            (SortValue::Null, SortValue::Null) => std::cmp::Ordering::Equal,
+            (SortValue::Null, _) => return Greater,
+            (_, SortValue::Null) => return Less,
+            (SortValue::Number(a), SortValue::Number(b)) => a.total_cmp(b),
+            (SortValue::Number(_), SortValue::Text(_)) => Less,
+            (SortValue::Text(_), SortValue::Number(_)) => Greater,
+            (SortValue::Text(a), SortValue::Text(b)) => a.cmp(b),
+        };
+        if descending {
+            order.reverse()
+        } else {
+            order
+        }
+    }
+}
+
+/// A value as a number, if it reads as one (PostgreSQL's come as text).
+fn number_of(v: &Value) -> Option<f64> {
+    match v {
+        Value::Number(n) => n.as_f64(),
+        Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        Value::String(s) => {
+            let t = s.trim();
+            let plain = !t.is_empty()
+                && t.bytes()
+                    .all(|c| c.is_ascii_digit() || matches!(c, b'.' | b'-' | b'+' | b'e' | b'E'));
+            if plain {
+                t.parse::<f64>().ok().filter(|f| f.is_finite())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// A value as text, without case (dates with `T` or a space alike).
+fn text_of(v: &Value) -> String {
+    canon(v).to_lowercase()
+}
+
+fn sort_value(v: &Value) -> SortValue {
+    match v {
+        Value::Null => SortValue::Null,
+        _ => number_of(v).map_or_else(|| SortValue::Text(text_of(v)), SortValue::Number),
+    }
+}
+
+/// `v` against what a filter compares with: by number if both are, else as
+/// text without case.
+fn compare(v: &Value, w: &Value) -> std::cmp::Ordering {
+    match (number_of(v), number_of(w)) {
+        (Some(a), Some(b)) => a.total_cmp(&b),
+        _ => text_of(v).cmp(&text_of(w)),
+    }
+}
+
+fn same_value(v: &Value, w: &Value) -> bool {
+    if compare(v, w).is_eq() {
+        return true;
+    }
+    // A date against a whole day: `2024-03-11` takes all of its hours.
+    let day = text_of(w);
+    let is_day = day.len() == 10
+        && day.as_bytes()[4] == b'-'
+        && day.as_bytes()[7] == b'-'
+        && day.bytes().filter(u8::is_ascii_digit).count() == 8;
+    is_day && text_of(v).starts_with(&format!("{day} "))
+}
+
+/// A value against a filter (its SQL kinds aren't offered here: they pass).
+fn passes(v: &Value, f: &ColumnFilter) -> bool {
+    use std::cmp::Ordering::{Greater, Less};
+    let null = v.is_null();
+    let text = text_of(v);
+    let empty = Value::Null;
+    let w = f.values.first().unwrap_or(&empty);
+    let word = text_of(w);
+    let truthy = matches!(as_bool(v.clone()), Value::Bool(true));
+    let falsy = matches!(as_bool(v.clone()), Value::Bool(false));
+    match f.op {
+        FilterOp::Eq => !null && same_value(v, w),
+        FilterOp::Ne => !null && !same_value(v, w),
+        FilterOp::Gt => !null && compare(v, w) == Greater,
+        FilterOp::Ge => !null && compare(v, w) != Less,
+        FilterOp::Lt => !null && compare(v, w) == Less,
+        FilterOp::Le => !null && compare(v, w) != Greater,
+        FilterOp::Contains => !null && text.contains(&word),
+        FilterOp::NotContains => !null && !text.contains(&word),
+        FilterOp::StartsWith => !null && text.starts_with(&word),
+        FilterOp::EndsWith => !null && text.ends_with(&word),
+        FilterOp::IsNull => null,
+        FilterOp::NotNull => !null,
+        FilterOp::IsEmpty => v.as_str().is_some_and(str::is_empty),
+        FilterOp::NotEmpty => !null && !v.as_str().is_some_and(str::is_empty),
+        FilterOp::In => !null && f.values.iter().any(|x| same_value(v, x)),
+        FilterOp::NotIn => !null && !f.values.iter().any(|x| same_value(v, x)),
+        FilterOp::IsTrue => truthy,
+        FilterOp::IsFalse => falsy,
+        FilterOp::TrueOrNull => null || truthy,
+        FilterOp::FalseOrNull => null || falsy,
+        _ => true,
+    }
+}
+
+/// One kind of difference, filtered and sorted: over all its rows, not only
+/// those the first answer brought. On a changed row a filter passes if either
+/// side does, and it sorts by the left side, then the right.
+fn rows_of(d: &Diff, args: &DataRowsArgs) -> DataRows {
+    let index_of = |name: &str| {
+        d.columns
+            .iter()
+            .position(|(l, _)| l.eq_ignore_ascii_case(name))
+    };
+    let filters: Vec<(usize, &ColumnFilter)> = args
+        .filters
+        .iter()
+        .filter_map(|f| index_of(&f.column).map(|i| (i, f)))
+        .collect();
+    let changed_in: Vec<usize> = args.changed_in.iter().filter_map(|c| index_of(c)).collect();
+    let sort: Vec<(usize, bool)> = args
+        .sort
+        .iter()
+        .filter_map(|k| index_of(&k.column).map(|i| (i, k.descending)))
+        .collect();
+    let empty = Value::Null;
+    let cell = |r: &[Value], i: usize| r.get(i).cloned().unwrap_or_else(|| empty.clone());
+    // (index, left, right, differing columns) of each row of the kind.
+    let all: Vec<(usize, &[Value], Option<&[Value]>, &[usize])> = match args.kind {
+        RowKind::Changed => d
+            .changed
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i, &r.left[..], Some(&r.right[..]), &r.diff[..]))
+            .collect(),
+        RowKind::OnlyLeft => d
+            .only_left
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i, &r[..], None, &[][..]))
+            .collect(),
+        RowKind::OnlyRight => d
+            .only_right
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i, &r[..], None, &[][..]))
+            .collect(),
+    };
+    let mut passing: Vec<_> = all
+        .into_iter()
+        .filter(|(_, left, right, diff)| {
+            changed_in.iter().all(|c| diff.contains(c))
+                && filters.iter().all(|(i, f)| {
+                    passes(&cell(left, *i), f) || right.is_some_and(|r| passes(&cell(r, *i), f))
+                })
+        })
+        .collect();
+    if !sort.is_empty() {
+        // The keys once per row: reading a value as a number isn't free.
+        let mut keyed: Vec<_> = passing
+            .drain(..)
+            .map(|row| {
+                let keys: Vec<(SortValue, Option<SortValue>)> = sort
+                    .iter()
+                    .map(|(i, _)| {
+                        (
+                            sort_value(&cell(row.1, *i)),
+                            row.2.map(|r| sort_value(&cell(r, *i))),
+                        )
+                    })
+                    .collect();
+                (keys, row)
+            })
+            .collect();
+        keyed.sort_by(|(a, _), (b, _)| {
+            for (n, (_, descending)) in sort.iter().enumerate() {
+                let by_left = a[n].0.cmp_with(&b[n].0, *descending);
+                if by_left.is_ne() {
+                    return by_left;
+                }
+                if let (Some(x), Some(y)) = (&a[n].1, &b[n].1) {
+                    let by_right = x.cmp_with(y, *descending);
+                    if by_right.is_ne() {
+                        return by_right;
+                    }
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+        passing = keyed.into_iter().map(|(_, row)| row).collect();
+    }
+    let total = passing.len();
+    let indices = if filters.is_empty() && changed_in.is_empty() {
+        Vec::new()
+    } else {
+        passing.iter().map(|r| r.0).collect()
+    };
+    let rows = passing
+        .into_iter()
+        .take(SHOWN)
+        .map(|(index, left, right, diff)| DataRow {
+            index,
+            left: left.to_vec(),
+            right: right.map(<[Value]>::to_vec),
+            diff: diff.to_vec(),
+        })
+        .collect();
+    DataRows {
+        rows,
+        total,
+        indices,
+    }
+}
+
+/// The rows of a comparison kept in memory, filtered and sorted.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn data_compare_rows(args: DataRowsArgs) -> CommandResult<DataRows> {
+    tokio::task::spawn_blocking(move || {
+        let all = diffs().lock().unwrap();
+        let d = all.get(&args.id).ok_or_else(|| {
+            CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
+        })?;
+        Ok(rows_of(d, &args))
+    })
+    .await
+    .map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
 #[derive(Deserialize)]
@@ -938,8 +1237,11 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 mod tests {
     use super::{
         as_bool, as_number, assemble, canon, insert_parts, is_bool_type, is_number_type,
-        new_rows_parts, plans, sort_keys, write_as, ChangedRow, Choices, Diff, Dir, Pick, Side,
+        new_rows_parts, plans, rows_of, sort_keys, write_as, ChangedRow, Choices, DataRowsArgs,
+        Diff, Dir, Pick, RowKind, Side, SHOWN,
     };
+    use dbine_driver::filter::{ColumnFilter, FilterOp};
+    use dbine_driver::SortKey;
     use dbine_driver::{ObjectRef, RowChange};
 
     /// The statement count a sync run reports against: joining the parts
@@ -1305,6 +1607,182 @@ mod tests {
         assert_eq!(write_as("boolean", "tinyint(1)", json!(1)), json!(true));
         assert_eq!(write_as("bool", "int", json!("0")), json!(false));
         assert_eq!(write_as("int", "text", json!(null)), json!(null));
+    }
+
+    fn people(n: usize) -> Diff {
+        let mut d = diff(false);
+        d.columns = vec![
+            ("id".into(), "id".into()),
+            ("nombre".into(), "nombre".into()),
+            ("saldo".into(), "saldo".into()),
+            ("alta".into(), "alta".into()),
+        ];
+        d.only_left = (0..n)
+            .map(|i| {
+                vec![
+                    json!(i.to_string()),
+                    if i == 7 {
+                        json!(null)
+                    } else {
+                        json!(format!("Nombre {i}"))
+                    },
+                    json!(format!("{}.50", i % 10)),
+                    json!(format!("2024-03-{:02} 10:00:00", i % 28 + 1)),
+                ]
+            })
+            .collect();
+        d.only_right = vec![];
+        d.changed = vec![
+            ChangedRow {
+                left: vec![json!(1), json!("Ana"), json!(100), json!("a")],
+                right: vec![json!(1), json!("Ana"), json!(250), json!("a")],
+                diff: vec![2],
+            },
+            ChangedRow {
+                left: vec![json!(2), json!("Beto"), json!(300), json!("a")],
+                right: vec![json!(2), json!("Roberto"), json!(300), json!("a")],
+                diff: vec![1],
+            },
+        ];
+        d
+    }
+
+    fn ask(kind: RowKind) -> DataRowsArgs {
+        DataRowsArgs {
+            id: String::new(),
+            kind,
+            sort: vec![],
+            filters: vec![],
+            changed_in: vec![],
+        }
+    }
+
+    fn where_(column: &str, op: FilterOp, value: serde_json::Value) -> ColumnFilter {
+        ColumnFilter {
+            column: column.into(),
+            op,
+            values: vec![value],
+            sql: None,
+        }
+    }
+
+    #[test]
+    fn a_filter_covers_all_the_rows_not_only_those_shown() {
+        let d = people(5000);
+        // Past the 2,000 the first answer brought.
+        let mut a = ask(RowKind::OnlyLeft);
+        a.filters = vec![where_("id", FilterOp::Eq, json!(4321))];
+        let r = rows_of(&d, &a);
+        assert_eq!(r.total, 1);
+        assert_eq!(r.indices, vec![4321]);
+        assert_eq!(
+            r.rows[0].index, 4321,
+            "the place in the whole list, for Pick"
+        );
+        assert_eq!(r.rows[0].left[0], json!("4321"));
+        // More pass than are shown: all counted, and all there for "all".
+        let mut a = ask(RowKind::OnlyLeft);
+        a.filters = vec![where_("saldo", FilterOp::Ge, json!(5))];
+        let r = rows_of(&d, &a);
+        assert_eq!(r.total, 2500);
+        assert_eq!(r.indices.len(), 2500);
+        assert_eq!(r.rows.len(), SHOWN.min(2500));
+        // No filter: nothing to mark apart.
+        assert!(rows_of(&d, &ask(RowKind::OnlyLeft)).indices.is_empty());
+    }
+
+    #[test]
+    fn filters_compare_by_value() {
+        let d = people(100);
+        let count = |f: ColumnFilter| {
+            let mut a = ask(RowKind::OnlyLeft);
+            a.filters = vec![f];
+            rows_of(&d, &a).total
+        };
+        // Numbers that came as text, by value and not as text: "9.50" < "10".
+        assert_eq!(count(where_("saldo", FilterOp::Lt, json!(10))), 100);
+        assert_eq!(count(where_("saldo", FilterOp::Eq, json!("3.5"))), 10);
+        assert_eq!(count(where_("saldo", FilterOp::Ne, json!(3.5))), 90);
+        // Text, without case; NULL matches neither way.
+        assert_eq!(
+            count(where_("nombre", FilterOp::Contains, json!("NOMBRE 9"))),
+            11
+        );
+        assert_eq!(
+            count(where_("nombre", FilterOp::NotContains, json!("nombre"))),
+            0
+        );
+        assert_eq!(count(where_("nombre", FilterOp::IsNull, json!(null))), 1);
+        assert_eq!(
+            count(where_("nombre", FilterOp::StartsWith, json!("nombre 1"))),
+            11
+        );
+        // A date against a whole day, and against a range.
+        assert_eq!(count(where_("alta", FilterOp::Eq, json!("2024-03-05"))), 4);
+        assert_eq!(count(where_("alta", FilterOp::Ge, json!("2024-03-27"))), 6);
+        // A column that isn't compared filters nothing.
+        assert_eq!(count(where_("otra", FilterOp::Eq, json!(1))), 100);
+    }
+
+    #[test]
+    fn a_changed_row_passes_by_either_side_and_by_what_changed() {
+        let d = people(0);
+        let mut a = ask(RowKind::Changed);
+        a.filters = vec![where_("saldo", FilterOp::Eq, json!(250))];
+        assert_eq!(rows_of(&d, &a).rows[0].index, 0, "the right side's value");
+        a.filters = vec![where_("nombre", FilterOp::Eq, json!("Roberto"))];
+        assert_eq!(rows_of(&d, &a).rows[0].index, 1);
+        // Only rows where this column differs.
+        let mut a = ask(RowKind::Changed);
+        a.changed_in = vec!["nombre".into()];
+        let r = rows_of(&d, &a);
+        assert_eq!((r.total, r.rows[0].index), (1, 1));
+        assert_eq!(r.rows[0].right.as_ref().unwrap()[1], json!("Roberto"));
+        assert_eq!(r.rows[0].diff, vec![1]);
+        assert_eq!(r.indices, vec![1]);
+    }
+
+    #[test]
+    fn sorting_covers_all_the_rows_by_value_with_null_last() {
+        let d = people(5000);
+        let by = |column: &str, descending: bool| {
+            let mut a = ask(RowKind::OnlyLeft);
+            a.sort = vec![SortKey {
+                column: column.into(),
+                descending,
+            }];
+            rows_of(&d, &a)
+        };
+        // By number, not as text ("4999" is past "999"), from all 5,000.
+        assert_eq!(by("id", true).rows[0].left[0], json!("4999"));
+        let up = by("id", false);
+        assert_eq!(up.rows[10].left[0], json!("10"));
+        assert_eq!(up.rows[10].index, 10);
+        assert_eq!(up.total, 5000);
+        assert_eq!(up.rows.len(), SHOWN);
+        // NULL goes last whichever way.
+        let d2 = people(10);
+        let mut a = ask(RowKind::OnlyLeft);
+        a.sort = vec![SortKey {
+            column: "nombre".into(),
+            descending: true,
+        }];
+        let r = rows_of(&d2, &a);
+        assert_eq!(r.rows.last().unwrap().left[1], json!(null));
+        assert_eq!(r.rows[0].left[1], json!("Nombre 9"));
+        // A second key breaks the ties of the first, stable otherwise.
+        let mut a = ask(RowKind::OnlyLeft);
+        a.sort = vec![
+            SortKey {
+                column: "saldo".into(),
+                descending: true,
+            },
+            SortKey {
+                column: "id".into(),
+                descending: true,
+            },
+        ];
+        assert_eq!(rows_of(&d, &a).rows[0].left[0], json!("4999"));
     }
 
     #[test]
