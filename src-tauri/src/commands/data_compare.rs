@@ -776,6 +776,9 @@ fn passes(v: &Value, f: &ColumnFilter) -> bool {
     }
 }
 
+/// A row of a kind: its place in the list, left, right, differing columns.
+type RowRef<'a> = (usize, &'a [Value], Option<&'a [Value]>, &'a [usize]);
+
 /// One kind of difference, filtered and sorted: over all its rows, not only
 /// those the first answer brought. On a changed row a filter passes if either
 /// side does, and it sorts by the left side, then the right.
@@ -798,8 +801,7 @@ fn rows_of(d: &Diff, args: &DataRowsArgs) -> DataRows {
         .collect();
     let empty = Value::Null;
     let cell = |r: &[Value], i: usize| r.get(i).cloned().unwrap_or_else(|| empty.clone());
-    // (index, left, right, differing columns) of each row of the kind.
-    let all: Vec<(usize, &[Value], Option<&[Value]>, &[usize])> = match args.kind {
+    let all: Vec<RowRef> = match args.kind {
         RowKind::Changed => d
             .changed
             .iter()
