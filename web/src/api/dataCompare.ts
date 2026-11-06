@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Cell, ObjectRef } from './types';
+import type { ColumnFilter } from '../composables/gridFilter';
+import type { Cell, ObjectRef, SortKey } from './types';
 
 // Data compare (docs/data-compare.md).
 
@@ -11,6 +12,8 @@ export interface DataCompareResult {
   id: string;
   key: string[];
   columns: string[];
+  /** Their types, on the left table (what a filter offers for each). */
+  types: string[];
   only_left_columns: string[];
   only_right_columns: string[];
   counts: { left: number; right: number; same: number; only_left: number; only_right: number; changed: number };
@@ -33,6 +36,17 @@ export type Dir = 'none' | 'right' | 'left';
 export interface Pick { all: Dir; rows: [number, Dir][] }
 export interface Choices { changed: Pick; only_left: Pick; only_right: Pick }
 
+/** A row of one kind, with its place in that kind's whole list (what `Pick` counts by). */
+export interface DataRow { index: number; left: Cell[]; right: Cell[] | null; diff: number[] }
+export interface DataRows {
+  /** The first rows that pass, in the order asked for. */
+  rows: DataRow[];
+  /** How many pass, among all the kind's rows. */
+  total: number;
+  /** With a filter, every row that passes. */
+  indices: number[];
+}
+
 export interface DataScript {
   connection_id: string;
   database: string;
@@ -51,6 +65,9 @@ export interface DataScript {
 export const dataCompareApi = {
   compare: (left: DataSide, right: DataSide, key: string[], limit: number) =>
     invoke<DataCompareResult>('data_compare', { args: { left, right, key, columns: [], limit } }),
+  /** One kind of difference, filtered and sorted over all its rows. */
+  rows: (id: string, kind: 'changed' | 'only_left' | 'only_right', sort: SortKey[], filters: ColumnFilter[], changedIn: string[]) =>
+    invoke<DataRows>('data_compare_rows', { args: { id, kind, sort, filters, changed_in: changedIn } }),
   /** One script per side that changes. */
   scripts: (id: string, choices: Choices) => invoke<DataScript[]>('data_compare_script', { args: { id, choices } }),
 };
