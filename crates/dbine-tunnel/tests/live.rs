@@ -7,7 +7,7 @@
 //!
 //! The key's passphrase is `frase123`.
 
-use dbine_tunnel::{open, trusted_entry, Auth, Error, Hop, Spec};
+use dbine_tunnel::{open, trusted_entry, AgentSocket, Auth, Error, Hop, Identities, Spec};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn hop(host: &str, port: u16) -> Hop {
@@ -15,6 +15,7 @@ fn hop(host: &str, port: u16) -> Hop {
         host: host.into(),
         port,
         user: "dbine".into(),
+        auth: None,
     }
 }
 
@@ -210,4 +211,77 @@ async fn reaches_tells_a_cut_tunnel_at_once() {
         "the session should still look alive right after the cut"
     );
     assert!(t.reaches(std::time::Duration::from_secs(10)).await);
+}
+
+/// What an alias of `~/.ssh/config` resolves to: each hop with its own keys,
+/// a file that isn't there skipped, and a key it can't open said by name.
+#[tokio::test]
+#[ignore]
+async fn each_hop_signs_in_with_its_own_identities() {
+    let key =
+        std::path::PathBuf::from(std::env::var("DBINE_TEST_SSH_KEY").expect("DBINE_TEST_SSH_KEY"));
+    let identities = |passphrase: Option<&str>| {
+        Auth::Identities(Identities {
+            agent: AgentSocket::Off,
+            files: vec!["/no/such/key".into(), key.clone()],
+            only: true,
+            passphrase: passphrase.map(String::from),
+        })
+    };
+    let with = |port: u16, auth: Auth| Hop {
+        auth: Some(auth),
+        ..hop("127.0.0.1", port)
+    };
+    let fp_bastion = fingerprint(hop("127.0.0.1", 25023)).await;
+    let trusted = vec![trusted_entry("127.0.0.1", 25023, &fp_bastion)];
+    let inner = |auth: Auth| Hop {
+        auth: Some(auth),
+        ..hop("dbine-test-ssh", 22)
+    };
+    // The tunnel's own authentication would fail: only the hops' count.
+    let wrong = Auth::Password("not the password".into());
+    let reach = |hops: Vec<Hop>, trusted: Vec<String>| spec(hops, wrong.clone(), trusted);
+
+    let unknown = reach(
+        vec![
+            with(25023, identities(Some("frase123"))),
+            inner(identities(Some("frase123"))),
+        ],
+        trusted.clone(),
+    );
+    let fp_inner = match open(&unknown).await {
+        Err(Error::UnknownHost { fingerprint, .. }) => fingerprint,
+        Err(e) => panic!("expected the next hop to be unknown, got {e}"),
+        Ok(_) => panic!("an unknown host was accepted"),
+    };
+    let mut both = trusted.clone();
+    both.push(trusted_entry("dbine-test-ssh", 22, &fp_inner));
+    let tunnel = open(&reach(
+        vec![
+            with(25023, identities(Some("frase123"))),
+            inner(identities(Some("frase123"))),
+        ],
+        both,
+    ))
+    .await
+    .unwrap();
+    reaches_postgres(tunnel.local_port()).await;
+
+    let told = |e: Error| e.to_string();
+    let e = open(&reach(vec![with(25023, identities(None))], trusted.clone()))
+        .await
+        .err()
+        .map(told)
+        .expect("an encrypted key without its passphrase");
+    assert!(e.contains("ssh-add"), "{e}");
+    assert!(e.contains(&key.display().to_string()), "{e}");
+    let e = open(&reach(
+        vec![with(25023, identities(Some("not it")))],
+        trusted.clone(),
+    ))
+    .await
+    .err()
+    .map(told)
+    .expect("a wrong passphrase");
+    assert!(e.contains("ssh-add"), "{e}");
 }

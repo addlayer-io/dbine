@@ -26,7 +26,7 @@ export function profileById(id: string): ListedSshProfile | undefined {
 /** The tunnel form's values for a profile's options (secrets never come back). */
 export function valuesFromOptions(o: Record<string, string>): SshValues {
   return {
-    enabled: true, profile: '', host: o['ssh.host'] ?? '', port: o['ssh.port'] ?? '', user: o['ssh.user'] ?? '',
+    enabled: true, profile: '', byAlias: !!o['ssh.alias'], alias: o['ssh.alias'] ?? '', host: o['ssh.host'] ?? '', port: o['ssh.port'] ?? '', user: o['ssh.user'] ?? '',
     auth: (o['ssh.auth'] as SshValues['auth']) || 'password', password: '', key_path: o['ssh.key_path'] ?? '', passphrase: '',
     jump: o['ssh.jump'] ?? '', trusted: o['ssh.trusted'] ?? '',
   };
@@ -44,7 +44,7 @@ export function tunnelSources(o: Record<string, string>) {
 export function optionsFromValues(s: SshValues, drafts: Record<string, SourceDraft>): Record<string, string> {
   const o: Record<string, string> = {};
   const set = (k: string, v: string) => { if (v.trim()) o[`ssh.${k}`] = v.trim(); };
-  set('host', s.host); set('port', s.port); set('user', s.user); set('auth', s.auth); set('jump', s.jump); set('trusted', s.trusted);
+  set('trusted', s.trusted);
   const sources: Record<string, NonNullable<ReturnType<typeof sourceFrom>>> = {};
   const sourced = (key: string): boolean => {
     const d = drafts[key];
@@ -54,17 +54,25 @@ export function optionsFromValues(s: SshValues, drafts: Record<string, SourceDra
     for (const [slot, v] of Object.entries(typedTokens(d))) o[tokenKey(key, slot)] = v;
     return true;
   };
-  if (s.auth === 'key') {
-    set('key_path', s.key_path);
+  if (s.byAlias) {
+    set('alias', s.alias);
     if (!sourced('ssh.passphrase') && s.passphrase) o['ssh.passphrase'] = s.passphrase;
+  } else {
+    set('host', s.host); set('port', s.port); set('user', s.user); set('auth', s.auth); set('jump', s.jump);
+    if (s.auth === 'key') {
+      set('key_path', s.key_path);
+      if (!sourced('ssh.passphrase') && s.passphrase) o['ssh.passphrase'] = s.passphrase;
+    }
+    if (s.auth === 'password' && !sourced('ssh.password') && s.password) o['ssh.password'] = s.password;
   }
-  if (s.auth === 'password' && !sourced('ssh.password') && s.password) o['ssh.password'] = s.password;
   writeSources(o, sources);
   return o;
 }
 
-/** A short line describing a profile: `user@host:port` and its jump hosts. */
+/** A short line describing a profile: its `~/.ssh/config` alias, or
+ *  `user@host:port` and its jump hosts. */
 export function profileSummary(o: Record<string, string>): string {
+  if (o['ssh.alias']) return o['ssh.alias'];
   const port = o['ssh.port'] && o['ssh.port'] !== '22' ? `:${o['ssh.port']}` : '';
   const at = `${o['ssh.user'] ?? ''}@${o['ssh.host'] ?? ''}${port}`;
   return o['ssh.jump'] ? `${o['ssh.jump']} → ${at}` : at;

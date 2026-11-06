@@ -25597,6 +25597,9 @@
  "el adjunto «{0}» llega sin su contenido (solo la referencia al original); no se puede copiar": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
+ "el alias de ~/.ssh/config no es válido": [
+  "src-tauri/src/commands/ssh_profiles.rs"
+ ],
  "el archivo PKCS#12 no tiene el certificado de la clave": [
   "src-tauri/src/secret_sources/https.rs"
  ],
@@ -28065,6 +28068,9 @@
  "está fuera de rango": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "está protegida con una frase: cargala en el agente (ssh-add) o escribila en la frase del túnel": [
+  "crates/dbine-tunnel/src/lib.rs"
+ ],
  "está protegida con una frase; escribila en el campo de la frase": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
@@ -30046,6 +30052,9 @@
  "la frase de contraseña maestra no abre la clave privada de la organización de Zoho Vault": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
+ "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)": [
+  "crates/dbine-tunnel/src/lib.rs"
+ ],
  "la frase no coincide con la frase de contraseña maestra de esta cuenta de Zoho Vault": [
   "src-tauri/src/secret_sources/accounts.rs"
  ],
@@ -30910,6 +30919,9 @@
  "los roles de Ocient son predefinidos: no se borran": [
   "crates/drivers/odbc/src/security/misc.rs"
  ],
+ "los saltos de «{0}» forman un bucle: {1} → {2}": [
+  "src-tauri/src/ssh_config.rs"
+ ],
  "los segmentos (DBA_SEGMENTS)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
@@ -31203,6 +31215,9 @@
   "crates/dbine-tunnel/src/lib.rs"
  ],
  "no acepta ninguna clave del agente": [
+  "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "no acepta ninguna clave del agente ni de la configuración": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
  "no admite NaN ni infinitos": [
@@ -31638,6 +31653,9 @@
  "no se encontró el nombre en la definición de la vista «{0}»": [
   "crates/drivers/spanner/src/rename.rs"
  ],
+ "no se encontró el programa ssh, que hace falta para leer ~/.ssh/config: instalá OpenSSH o cargá el servidor a mano": [
+  "src-tauri/src/ssh_config.rs"
+ ],
  "no se encontró el servidor {0} en las suscripciones de tu cuenta de Azure (la sesión de az puede ser de otra cuenta o de otro tenant)": [
   "src-tauri/src/commands/azure_firewall.rs"
  ],
@@ -31684,6 +31702,9 @@
  ],
  "no se encuentra la carpeta del proyecto": [
   "src-tauri/src/commands/project_paths.rs"
+ ],
+ "no se entiende el ProxyJump «{0}»": [
+  "src-tauri/src/ssh_config.rs"
  ],
  "no se entiende el bastión «{0}» (usuario@servidor:puerto)": [
   "src-tauri/src/tunnels.rs"
@@ -32159,6 +32180,9 @@
  ],
  "no se pudo ejecutar la CLI de Azure (az): {0}": [
   "src-tauri/src/commands/azure_firewall.rs"
+ ],
+ "no se pudo ejecutar ssh: {0}": [
+  "src-tauri/src/ssh_config.rs"
  ],
  "no se pudo ejecutar {0}: {1}": [
   "crates/dbine-ai/src/cli.rs"
@@ -34201,6 +34225,12 @@
  "sql_id {0}, media de {1} ejecuciones": [
   "crates/drivers/oracle/src/profiler.rs"
  ],
+ "ssh no pudo leer la configuración de «{0}»: {1}": [
+  "src-tauri/src/ssh_config.rs"
+ ],
+ "ssh no terminó de leer la configuración de «{0}» en {1} s": [
+  "src-tauri/src/ssh_config.rs"
+ ],
  "ssl-mode: «{0}» no es un valor de MySQL (DISABLED, PREFERRED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY)": [
   "crates/drivers/mysql/src/lib.rs"
  ],
@@ -34596,6 +34626,7 @@
   "crates/drivers/oracle/src/processes.rs"
  ],
  "túnel SSH: {0}": [
+  "src-tauri/src/ssh_config.rs",
   "src-tauri/src/tunnels.rs"
  ],
  "ubicación": [
@@ -36732,6 +36763,9 @@
   "crates/drivers/hana/src/monitor.rs",
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "{0}: no la acepta": [
+  "crates/dbine-tunnel/src/lib.rs"
+ ],
  "{0}: no se copian las columnas {1}": [
   "src-tauri/src/commands/migration.rs"
  ],
@@ -37252,6 +37286,9 @@
  "«{0}» no es un WKT válido": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "«{0}» no es un alias válido de ~/.ssh/config": [
+  "src-tauri/src/ssh_config.rs"
+ ],
  "«{0}» no es un archivo": [
   "src-tauri/src/commands/projects.rs"
  ],
@@ -37740,6 +37777,9 @@
  "«{0}» no está en el espacio de nombres {1}.": [
   "crates/drivers/kdb/src/names.rs"
  ],
+ "«{0}» no está en ~/.ssh/config de esta computadora": [
+  "src-tauri/src/ssh_config.rs"
+ ],
  "«{0}» no está instalada": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
@@ -37818,6 +37858,9 @@
  ],
  "«{0}» pasa a ser la primera columna: en TDengine la marca de tiempo es la clave (una fila por instante; repetir uno sobrescribe la fila).": [
   "crates/dbine-schema/src/dialect/tdengine.rs"
+ ],
+ "«{0}» pasa por más de {1} servidores": [
+  "src-tauri/src/ssh_config.rs"
  ],
  "«{0}» pesa más de {1} GB, el máximo por archivo": [
   "src-tauri/src/notebook/remote.rs"
@@ -37934,6 +37977,9 @@
   "crates/drivers/dsql/src/rename.rs",
   "crates/drivers/postgres/src/rename.rs",
   "crates/drivers/snowflake/src/rename.rs"
+ ],
+ "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": [
+  "src-tauri/src/ssh_config.rs"
  ],
  "«{0}» usa http://, que viaja sin cifrar: estas celdas leen de la web solo https://": [
   "src-tauri/src/notebook/remote.rs"

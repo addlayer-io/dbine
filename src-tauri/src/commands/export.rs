@@ -134,7 +134,9 @@ fn estimate_allowed(cfg: &ConnectionConfig, driver: &dyn Driver, sql: &str) -> b
         let v = v.to_ascii_lowercase();
         INTERACTIVE.iter().any(|w| v.contains(w))
     });
-    let agent_tunnel = crate::tunnels::enabled(cfg) && cfg.option("ssh.auth") == Some("agent");
+    // An alias of `~/.ssh/config` may sign in through the agent too.
+    let agent_tunnel = crate::tunnels::enabled(cfg)
+        && (cfg.option("ssh.auth") == Some("agent") || crate::ssh_config::alias(cfg).is_some());
     if interactive || agent_tunnel || !driver.supports_explain() {
         return false;
     }

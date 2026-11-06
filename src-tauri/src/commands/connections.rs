@@ -337,9 +337,10 @@ pub async fn trust_ssh_host(
             &state.store,
             pid,
             &args.fingerprint,
-        );
+        )
+        .await;
     }
-    crate::tunnels::trust(&mut conn.config, &args.fingerprint)?;
+    crate::tunnels::trust(&mut conn.config, &args.fingerprint).await?;
     state.store.save_connection(&conn)?;
     Ok(())
 }

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { open as openFile } from '@tauri-apps/plugin-dialog';
 import { forgetTrusted, parseTrusted } from '../composables/sshTrust';
 import type { SourceDraft } from '../composables/secretSources';
+import { errorMessage } from '../api/client';
+import { sshProfilesApi, type SshConfigHop } from '../api/sshProfiles';
 import { loadSshProfiles, profileById, profileSummary, sshProfiles } from '../composables/sshProfiles';
 import type { SshProfile } from '../api/types';
 import SecretSourcePicker from './SecretSourcePicker.vue';
@@ -15,12 +17,17 @@ import SshProfileDialog from './SshProfileDialog.vue';
 // Or the tunnel uses a saved SSH profile (`profile`, `ssh.profile`): the
 // profile has the SSH side, shown read-only here and edited in its dialog;
 // the server the tunnel goes to stays the connection's. `bare`: just the
-// fields, for the profile's own dialog.
+// fields, for the profile's own dialog. Or the SSH side comes from a `Host`
+// of `~/.ssh/config` (`alias`, `ssh.alias`): OpenSSH resolves it when the
+// tunnel opens, and here only its way is shown.
 
 export interface SshValues {
   enabled: boolean;
   /** The SSH profile's id; empty: the connection's own settings. */
   profile: string;
+  /** The SSH side comes from `alias`, a `Host` of `~/.ssh/config`. */
+  byAlias: boolean;
+  alias: string;
   host: string;
   port: string;
   user: string;
@@ -69,6 +76,33 @@ function forget(i: number) {
 }
 
 onMounted(() => { if (!props.bare) void loadSshProfiles(); });
+
+// The form's list of aliases, and the way the chosen one goes.
+const aliases = ref<string[]>([]);
+const way = ref<SshConfigHop[]>([]);
+const wayError = ref('');
+let asked = 0;
+let timer: ReturnType<typeof setTimeout> | undefined;
+watch(() => model.value.byAlias, async (on) => {
+  if (!on) return;
+  try { aliases.value = await sshProfilesApi.configHosts(); } catch { aliases.value = []; }
+}, { immediate: true });
+watch(() => (model.value.byAlias ? model.value.alias.trim() : ''), (alias) => {
+  clearTimeout(timer);
+  const mine = ++asked;
+  way.value = [];
+  wayError.value = '';
+  if (!alias) return;
+  timer = setTimeout(async () => {
+    try {
+      const hops = await sshProfilesApi.configResolve(alias);
+      if (mine === asked) way.value = hops;
+    } catch (e) {
+      if (mine === asked) wayError.value = errorMessage(e);
+    }
+  }, 300);
+}, { immediate: true });
+const hopLabel = (h: SshConfigHop) => `${h.user}@${h.host}${h.port === 22 ? '' : `:${h.port}`}`;
 const chosen = computed(() => (model.value.profile ? profileById(model.value.profile) ?? null : null));
 /** The profile dialog: editing the chosen one, or saving the own settings as a new one. */
 const dialog = ref<null | 'edit' | 'saveAs'>(null);
@@ -104,7 +138,8 @@ function onSaved(p: SshProfile) {
         <dl v-if="chosen" class="st-profile">
           <dt>{{ $t('tunnel:host') }}</dt><dd>{{ profileSummary(chosen.options) }}</dd>
           <dt>{{ $t('tunnel:auth') }}</dt>
-          <dd>{{ $t(chosen.options['ssh.auth'] === 'key' ? 'tunnel:authKey' : chosen.options['ssh.auth'] === 'agent' ? 'tunnel:authAgent' : 'tunnel:authPassword') }}<template v-if="chosen.options['ssh.auth'] === 'key'"> · {{ chosen.options['ssh.key_path'] }}</template></dd>
+          <dd v-if="chosen.options['ssh.alias']">{{ $t('tunnel:sourceAlias') }}</dd>
+          <dd v-else>{{ $t(chosen.options['ssh.auth'] === 'key' ? 'tunnel:authKey' : chosen.options['ssh.auth'] === 'agent' ? 'tunnel:authAgent' : 'tunnel:authPassword') }}<template v-if="chosen.options['ssh.auth'] === 'key'"> · {{ chosen.options['ssh.key_path'] }}</template></dd>
           <template v-if="chosen.options['ssh.trusted']">
             <dt>{{ $t('tunnel:profiles.verified') }}</dt>
             <dd>{{ $t('tunnel:trusted', { count: chosen.options['ssh.trusted'].split(',').filter((e) => e.trim()).length }) }}</dd>
@@ -113,6 +148,48 @@ function onSaved(p: SshProfile) {
         </dl>
       </template>
       <template v-if="bare || !model.profile">
+      <el-form-item :label="$t('tunnel:source')">
+        <el-radio-group v-model="model.byAlias" size="small">
+          <el-radio-button :value="false">{{ $t('tunnel:sourceManual') }}</el-radio-button>
+          <el-radio-button :value="true">{{ $t('tunnel:sourceAlias') }}</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
+      <template v-if="model.byAlias">
+        <el-form-item :label="$t('tunnel:alias')" required>
+          <el-select
+            v-model="model.alias"
+            class="st-grow"
+            filterable
+            allow-create
+            default-first-option
+            data-ssh-alias
+            :placeholder="$t('tunnel:aliasPlaceholder')"
+            :no-data-text="$t('tunnel:aliasNone')"
+          >
+            <el-option v-for="a in aliases" :key="a" :value="a" :label="a" />
+          </el-select>
+          <div class="st-help">{{ $t('tunnel:aliasHelp') }}</div>
+        </el-form-item>
+        <div v-if="way.length" class="st-way" data-ssh-way>
+          <span class="st-way-label">{{ $t('tunnel:aliasWay') }}</span>
+          <template v-for="(h, i) in way" :key="i">
+            <span v-if="i" class="st-way-arrow">→</span>
+            <span class="st-server" :title="h.name">{{ hopLabel(h) }}</span>
+          </template>
+        </div>
+        <div v-if="wayError" class="st-help st-missing" data-ssh-way-error>{{ wayError }}</div>
+        <SecretSourcePicker
+          v-if="drafts['ssh.passphrase']"
+          v-model="drafts['ssh.passphrase']" mode="field" :label="$t('tunnel:passphrase')" field="ssh.passphrase" :allow-ask="false"
+          :connection-id="connectionId" :duplicate-of="duplicateOf ?? null" :driver="driver" :editing="editing"
+        >
+          <template #local>
+            <el-input v-model="model.passphrase" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('tunnel:secretKept') : $t('tunnel:passphrasePlaceholder')" />
+          </template>
+        </SecretSourcePicker>
+        <div class="st-help">{{ $t('tunnel:aliasPassphraseHelp') }}</div>
+      </template>
+      <template v-else>
       <div class="st-row">
         <el-form-item :label="$t('tunnel:host')" required class="st-grow">
           <el-input v-model="model.host" :placeholder="$t('tunnel:hostPlaceholder')" />
@@ -163,6 +240,7 @@ function onSaved(p: SshProfile) {
         <el-input v-model="model.jump" :placeholder="$t('tunnel:jumpPlaceholder')" />
         <div class="st-help">{{ $t('tunnel:jumpHelp') }}</div>
       </el-form-item>
+      </template>
       <div v-if="trusted.length" class="st-trusted">
         <div class="st-trusted-head">
           <el-icon><ei-lock /></el-icon>
@@ -203,6 +281,9 @@ function onSaved(p: SshProfile) {
 .st-grow { flex: 1; min-width: 0; }
 .st-port { width: 84px; flex: none; }
 .st-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.4; margin: 2px 0 10px; }
+.st-way { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; margin: -4px 0 10px; }
+.st-way-label { color: var(--nm-text-dim); }
+.st-way-arrow { color: var(--nm-text-dim); }
 .st-trusted { font-size: 12px; color: var(--nm-text); margin-bottom: 8px; }
 .st-trusted-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
 .st-trusted-head .el-icon { color: var(--nm-success); }

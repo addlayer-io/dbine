@@ -91,7 +91,7 @@ const picks = ref(0);
  *  field key; the SSH tunnel's as `ssh.password` / `ssh.passphrase`. */
 const drafts = reactive<Record<string, SourceDraft>>({});
 /** The SSH tunnel (`ssh.*` options; docs/ssh-tunnels.md). */
-const SSH_EMPTY: SshValues = { enabled: false, profile: '', host: '', port: '', user: '', auth: 'password', password: '', key_path: '', passphrase: '', jump: '', trusted: '' };
+const SSH_EMPTY: SshValues = { enabled: false, profile: '', byAlias: false, alias: '', host: '', port: '', user: '', auth: 'password', password: '', key_path: '', passphrase: '', jump: '', trusted: '' };
 const ssh = ref<SshValues>({ ...SSH_EMPTY });
 /** Engines reached over the network (a server host, not a file): they can use a tunnel. */
 const networked = computed(() => driver.value?.fields.some((f) => f.key === 'host' && f.kind.type !== 'file') ?? false);
@@ -217,7 +217,7 @@ function pick(d: DriverInfo, existing: SavedConnection | null = null) {
   for (const k of ['ssh.password', 'ssh.passphrase']) drafts[k] = draftFrom(sources[k]);
   ssh.value = {
     ...SSH_EMPTY,
-    enabled: o['ssh.enabled'] === 'true', profile: o['ssh.profile'] ?? '', host: o['ssh.host'] ?? '', port: o['ssh.port'] ?? '', user: o['ssh.user'] ?? '',
+    enabled: o['ssh.enabled'] === 'true', profile: o['ssh.profile'] ?? '', byAlias: !!o['ssh.alias'], alias: o['ssh.alias'] ?? '', host: o['ssh.host'] ?? '', port: o['ssh.port'] ?? '', user: o['ssh.user'] ?? '',
     auth: (o['ssh.auth'] as SshValues['auth']) || 'password', key_path: o['ssh.key_path'] ?? '', jump: o['ssh.jump'] ?? '', trusted: o['ssh.trusted'] ?? '',
   };
   if (existing) {
@@ -301,9 +301,14 @@ function buildConfig(): ConnectionConfig {
   } else if (networked.value && s.enabled) {
     const set = (k: string, v: string) => { if (v.trim()) cfg.options[`ssh.${k}`] = v.trim(); };
     cfg.options['ssh.enabled'] = 'true';
-    set('host', s.host); set('port', s.port); set('user', s.user); set('auth', s.auth); set('jump', s.jump);
-    if (s.auth === 'key') { set('key_path', s.key_path); if (!sourced('ssh.passphrase') && s.passphrase) cfg.options['ssh.passphrase'] = s.passphrase; }
-    if (s.auth === 'password' && !sourced('ssh.password') && s.password) cfg.options['ssh.password'] = s.password;
+    if (s.byAlias) {
+      set('alias', s.alias);
+      if (!sourced('ssh.passphrase') && s.passphrase) cfg.options['ssh.passphrase'] = s.passphrase;
+    } else {
+      set('host', s.host); set('port', s.port); set('user', s.user); set('auth', s.auth); set('jump', s.jump);
+      if (s.auth === 'key') { set('key_path', s.key_path); if (!sourced('ssh.passphrase') && s.passphrase) cfg.options['ssh.passphrase'] = s.passphrase; }
+      if (s.auth === 'password' && !sourced('ssh.password') && s.password) cfg.options['ssh.password'] = s.password;
+    }
   }
   if (s.trusted.trim() && !(s.enabled && s.profile)) cfg.options['ssh.trusted'] = s.trusted.trim();
   if (tlsPin.value.trim()) cfg.options.tls_pin = tlsPin.value.trim();
@@ -355,7 +360,11 @@ const missing = computed(() => {
   for (const f of shownFields.value.filter((f) => f.secret)) inputs(f.key, tb(f.label), sectionOf(f));
   const s = ssh.value;
   if (networked.value && s.enabled && s.profile && !profileById(s.profile)) out.push({ label: t('tunnel:profiles.use'), section: 'ssh' });
-  if (networked.value && s.enabled && !s.profile) {
+  if (networked.value && s.enabled && !s.profile && s.byAlias) {
+    if (!s.alias.trim()) out.push({ label: t('tunnel:alias'), section: 'ssh' });
+    inputs('ssh.passphrase', t('tunnel:passphrase'), 'ssh');
+  }
+  if (networked.value && s.enabled && !s.profile && !s.byAlias) {
     if (!s.host.trim()) out.push({ label: t('tunnel:host'), section: 'ssh' });
     if (!s.user.trim()) out.push({ label: t('tunnel:user'), section: 'ssh' });
     if (s.auth === 'key' && !s.key_path.trim()) out.push({ label: t('tunnel:keyPath'), section: 'ssh' });

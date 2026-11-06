@@ -23,9 +23,38 @@ pub fn enabled(cfg: &ConnectionConfig) -> bool {
     cfg.option("ssh.enabled") == Some("true")
 }
 
+/// A tunnel as a connection asks for it. With an alias of `~/.ssh/config` the
+/// servers are resolved when it opens: a tunnel in use stays until the next
+/// connect, and every session doesn't run `ssh`.
+#[derive(Clone, PartialEq)]
+struct Plan {
+    /// Without `hops` when there's an `alias`.
+    spec: Spec,
+    alias: Option<String>,
+    passphrase: Option<String>,
+}
+
+impl Plan {
+    fn of(cfg: &ConnectionConfig, spec: Spec) -> Self {
+        Plan {
+            spec,
+            alias: crate::ssh_config::alias(cfg).map(String::from),
+            passphrase: cfg.option("ssh.passphrase").map(String::from),
+        }
+    }
+
+    async fn spec(&self) -> CommandResult<Spec> {
+        let mut spec = self.spec.clone();
+        if let Some(alias) = &self.alias {
+            spec.hops = crate::ssh_config::hops(alias, self.passphrase.as_deref()).await?;
+        }
+        Ok(spec)
+    }
+}
+
 #[derive(Default)]
 pub struct Tunnels {
-    open: DashMap<String, (Spec, Arc<Tunnel>)>,
+    open: DashMap<String, (Plan, Arc<Tunnel>)>,
     /// One opening at a time per connection: sessions opened together share it.
     opening: DashMap<String, Arc<tokio::sync::Mutex<()>>>,
 }
@@ -46,24 +75,30 @@ impl Tunnels {
             return Ok(None);
         }
         let (spec, target) = spec(cfg)?;
+        let plan = Plan::of(cfg, spec);
         strip(cfg);
-        mark_origin(cfg, &spec.target_host, spec.target_port);
+        mark_origin(cfg, &plan.spec.target_host, plan.spec.target_port);
         let tunnel = match connection_id {
-            None => Arc::new(dbine_tunnel::open(&spec).await.map_err(error)?),
+            None => Arc::new(
+                dbine_tunnel::open(&plan.spec().await?)
+                    .await
+                    .map_err(error)?,
+            ),
             Some(id) => {
                 let lock = self.opening.entry(id.to_string()).or_default().clone();
                 let _guard = lock.lock().await;
                 match self
                     .open
                     .get(id)
-                    .filter(|e| e.0 == spec && e.1.is_alive())
+                    .filter(|e| e.0 == plan && e.1.is_alive())
                     .map(|e| e.1.clone())
                 {
                     Some(t) => t,
                     None => {
+                        let spec = plan.spec().await?;
                         let t = Arc::new(dbine_tunnel::open(&spec).await.map_err(error)?);
                         tracing::info!(connection = id, port = t.local_port(), "SSH tunnel open");
-                        self.open.insert(id.to_string(), (spec, t.clone()));
+                        self.open.insert(id.to_string(), (plan, t.clone()));
                         t
                     }
                 }
@@ -165,8 +200,11 @@ fn spec(cfg: &ConnectionConfig) -> CommandResult<(Spec, Target)> {
     let bad = |m: &str| CommandError::BadRequest(format!("túnel SSH: {m}"));
     let (target_host, target_port, target) = server(cfg, info.default_port).map_err(|m| bad(&m))?;
 
-    let hops = hops(cfg)?;
+    // With an alias, the servers and keys come from `~/.ssh/config` (Plan).
+    let by_alias = crate::ssh_config::alias(cfg).is_some();
+    let hops = if by_alias { Vec::new() } else { hops(cfg)? };
     let auth = match cfg.option("ssh.auth").unwrap_or("password") {
+        _ if by_alias => Auth::Agent,
         "agent" => Auth::Agent,
         "key" => {
             let path = cfg
@@ -223,7 +261,12 @@ pub fn hops(cfg: &ConnectionConfig) -> CommandResult<Vec<Hop>> {
             })
         })
         .collect::<CommandResult<_>>()?;
-    hops.push(Hop { host, port, user });
+    hops.push(Hop {
+        host,
+        port,
+        user,
+        auth: None,
+    });
     Ok(hops)
 }
 
@@ -260,10 +303,18 @@ pub fn add_trusted(mut trusted: Vec<String>, entry: &str) -> Option<Vec<String>>
 /// Trust `entry` (`[host]:port SHA256:…`, from an `ssh_unknown_host` error)
 /// in a connection's `ssh.trusted`: the server has to be one of its tunnel's
 /// and have no other key accepted (see [`add_trusted`]).
-pub fn trust(cfg: &mut ConnectionConfig, entry: &str) -> CommandResult<()> {
+pub async fn trust(cfg: &mut ConnectionConfig, entry: &str) -> CommandResult<()> {
+    let servers = match crate::ssh_config::alias(cfg) {
+        Some(alias) => crate::ssh_config::hops(alias, None).await?,
+        None => hops(cfg)?,
+    };
+    trust_among(cfg, entry, &servers)
+}
+
+fn trust_among(cfg: &mut ConnectionConfig, entry: &str, servers: &[Hop]) -> CommandResult<()> {
     let invalid = || CommandError::BadRequest("huella SSH inválida".into());
     let (host, port, _) = dbine_tunnel::parse_trusted(entry).ok_or_else(invalid)?;
-    if !hops(cfg)?
+    if !servers
         .iter()
         .any(|h| h.port == port && h.host.eq_ignore_ascii_case(host))
     {
@@ -288,7 +339,12 @@ fn parse_hop(s: &str, default_user: &str) -> Option<Hop> {
         Some((h, p)) => (h.to_string(), p.parse().ok()?),
         None => (rest.to_string(), 22),
     };
-    (!host.is_empty() && !user.is_empty()).then_some(Hop { host, port, user })
+    (!host.is_empty() && !user.is_empty()).then_some(Hop {
+        host,
+        port,
+        user,
+        auth: None,
+    })
 }
 
 fn server(cfg: &ConnectionConfig, default_port: u16) -> Result<(String, u16, Target), String> {
@@ -366,7 +422,7 @@ fn server(cfg: &ConnectionConfig, default_port: u16) -> Result<(String, u16, Tar
     ))
 }
 
-fn expand_home(path: &str) -> std::path::PathBuf {
+pub(crate) fn expand_home(path: &str) -> std::path::PathBuf {
     match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
         Some(rest) => std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
@@ -380,6 +436,12 @@ fn expand_home(path: &str) -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A manual tunnel's servers need no `ssh`.
+    fn trust(c: &mut ConnectionConfig, entry: &str) -> CommandResult<()> {
+        let servers = hops(c)?;
+        trust_among(c, entry, &servers)
+    }
 
     fn cfg(host: &str, port: u16) -> ConnectionConfig {
         ConnectionConfig {
@@ -602,11 +664,13 @@ mod tests {
                 host: "edge".into(),
                 port: 22,
                 user: "ops".into(),
+                auth: None,
             },
             Hop {
                 host: "bastion".into(),
                 port: 2222,
                 user: "ops".into(),
+                auth: None,
             },
         ];
         assert_eq!(a.hops, hops);
@@ -622,6 +686,34 @@ mod tests {
         );
     }
 
+    /// With an alias the manual settings aren't asked for, and a tunnel in
+    /// use isn't resolved again while nothing of the connection changed.
+    #[test]
+    fn an_alias_needs_no_manual_settings() {
+        let mut c = cfg("db.internal", 5432);
+        c.options.insert("ssh.enabled".into(), "true".into());
+        assert!(spec(&c).is_err(), "no server, no alias");
+        c.options
+            .insert(crate::ssh_config::ALIAS.into(), "demo".into());
+        c.options.insert("ssh.passphrase".into(), "frase".into());
+        let (s, _) = spec(&c).unwrap();
+        assert!(s.hops.is_empty());
+        assert_eq!(s.target_host, "db.internal");
+        let plan = Plan::of(&c, s);
+        assert_eq!(plan.alias.as_deref(), Some("demo"));
+        assert_eq!(plan.passphrase.as_deref(), Some("frase"));
+
+        let mut other = c.clone();
+        other
+            .options
+            .insert(crate::ssh_config::ALIAS.into(), "otro".into());
+        let (s, _) = spec(&other).unwrap();
+        assert!(
+            plan != Plan::of(&other, s),
+            "another alias opens another tunnel"
+        );
+    }
+
     #[test]
     fn reads_bastions() {
         assert_eq!(
@@ -629,7 +721,8 @@ mod tests {
             Some(Hop {
                 host: "bastion.corp".into(),
                 port: 2200,
-                user: "ops".into()
+                user: "ops".into(),
+                auth: None,
             })
         );
         assert_eq!(
@@ -637,7 +730,8 @@ mod tests {
             Some(Hop {
                 host: "bastion".into(),
                 port: 22,
-                user: "yo".into()
+                user: "yo".into(),
+                auth: None,
             })
         );
         assert_eq!(parse_hop("x:puerto", "yo"), None);
