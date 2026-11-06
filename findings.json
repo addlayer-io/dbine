@@ -11,9 +11,17 @@
       "found": 2
     },
     {
+      "source": "scorecard",
+      "date": "2026-11-06",
+      "revision": "addf25550f8b",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 7.3
+    },
+    {
       "source": "osv",
       "date": "2026-11-06",
-      "revision": "0ae7b249a2ec",
+      "revision": "440d7ac31bf9",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,7 +29,7 @@
     {
       "source": "trivy",
       "date": "2026-11-06",
-      "revision": "0ae7b249a2ec",
+      "revision": "440d7ac31bf9",
       "kind": "full",
       "scope": "whole repository",
       "found": 1
@@ -33,14 +41,6 @@
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
       "found": 0
-    },
-    {
-      "source": "scorecard",
-      "date": "2026-11-06",
-      "revision": "addf25550f8b",
-      "kind": "full",
-      "scope": "repository settings and workflows",
-      "score": 7.3
     }
   ],
   "findings": [
