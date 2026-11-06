@@ -846,22 +846,32 @@ const RSA_SHA1_ONLY: &str = "el servidor solo acepta claves RSA firmadas con SHA
 /// With an `~/.ssh/config` entry there's one passphrase and maybe several keys.
 fn identity_key_error(e: &keys::Error, had_passphrase: bool) -> String {
     match e {
+        e if wrong_passphrase(e, had_passphrase) => {
+            "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)".into()
+        }
         keys::Error::KeyIsEncrypted if !had_passphrase => {
             "está protegida con una frase: cargala en el agente (ssh-add) o escribila en la frase del túnel".into()
-        }
-        keys::Error::KeyIsEncrypted => {
-            "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)".into()
         }
         e => e.to_string(),
     }
 }
 
+/// A key that couldn't be opened with the passphrase it was given. An OpenSSH
+/// key with a wrong one fails as a decryption error, not as "it's encrypted".
+fn wrong_passphrase(e: &keys::Error, had_passphrase: bool) -> bool {
+    had_passphrase
+        && matches!(
+            e,
+            keys::Error::KeyIsEncrypted | keys::Error::SshKey(keys::ssh_key::Error::Crypto)
+        )
+}
+
 fn key_error(e: &keys::Error, had_passphrase: bool) -> String {
     match e {
-        keys::Error::KeyIsEncrypted if !had_passphrase => {
+        e if wrong_passphrase(e, had_passphrase) => "la frase no es correcta".into(),
+        keys::Error::KeyIsEncrypted => {
             "está protegida con una frase; escribila en el campo de la frase".into()
         }
-        keys::Error::KeyIsEncrypted => "la frase no es correcta".into(),
         e => e.to_string(),
     }
 }
@@ -1070,6 +1080,17 @@ mod tests {
             vec![b.clone()]
         );
         assert!(agent_keys_to_try(vec![a], &[], true).is_empty());
+    }
+
+    #[test]
+    fn a_wrong_passphrase_is_said_as_that() {
+        let crypto = || keys::Error::SshKey(keys::ssh_key::Error::Crypto);
+        assert!(wrong_passphrase(&crypto(), true));
+        assert!(wrong_passphrase(&keys::Error::KeyIsEncrypted, true));
+        assert!(!wrong_passphrase(&keys::Error::KeyIsEncrypted, false));
+        assert!(key_error(&crypto(), true).contains("frase"));
+        assert!(identity_key_error(&crypto(), true).contains("ssh-add"));
+        assert!(identity_key_error(&keys::Error::KeyIsEncrypted, false).contains("ssh-add"));
     }
 
     #[test]

@@ -201,7 +201,7 @@ async fn ask_ssh(target: Target) -> CommandResult<Resolved> {
             _ => bad(format!("no se pudo ejecutar ssh: {e}")),
         })?;
     if !out.status.success() {
-        let said = String::from_utf8_lossy(&out.stderr);
+        let said = String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n");
         let said: String = said.trim().chars().take(500).collect();
         return Err(bad(format!(
             "ssh no pudo leer la configuración de «{}»: {said}",
