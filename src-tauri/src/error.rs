@@ -65,6 +65,12 @@ pub enum CommandError {
         fingerprint: String,
     },
 
+    /// A tunnel's `~/.ssh/config` entry runs a `ProxyCommand` the user hasn't
+    /// confirmed: the UI shows it and, on a yes, confirms it
+    /// (`approve_ssh_proxy_command`) and retries.
+    #[error("el túnel SSH «{alias}» necesita tu confirmación para ejecutar este ProxyCommand: {command}")]
+    SshProxyCommand { alias: String, command: String },
+
     /// A secret field's command or secret manager failed (not found, not
     /// signed in, permission denied, timeout…): the message says which and why.
     #[error("{0}")]
@@ -101,6 +107,7 @@ impl CommandError {
             Self::Sync(_) => "sync",
             Self::Internal(_) => "internal",
             Self::SshUnknownHost { .. } => "ssh_unknown_host",
+            Self::SshProxyCommand { .. } => "ssh_proxy_command",
             Self::SecretSource(_) => "secret_source",
             Self::SecretSourceApproval(_) => "secret_source_approval",
             Self::SecretSourceUnlock(_) => "secret_source_unlock",

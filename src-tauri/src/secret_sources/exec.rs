@@ -67,7 +67,7 @@ pub fn shell_command(command: &str) -> tokio::process::Command {
 }
 
 #[cfg(unix)]
-fn kill_group(pid: u32) {
+pub(crate) fn kill_group(pid: u32) {
     extern "C" {
         fn kill(pid: i32, sig: i32) -> i32;
     }

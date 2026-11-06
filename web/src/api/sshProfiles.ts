@@ -10,6 +10,8 @@ export interface SshConfigHop {
   host: string;
   port: number;
   user: string;
+  /** What the first server is reached through, as it would run. */
+  proxy_command: string | null;
 }
 
 export const sshProfilesApi = {
@@ -17,6 +19,9 @@ export const sshProfilesApi = {
   configHosts: () => invoke<string[]>('ssh_config_hosts'),
   /** The servers an alias goes through, in order, as `ssh` resolves them here. */
   configResolve: (alias: string) => invoke<SshConfigHop[]>('ssh_config_resolve', { args: { alias } }),
+  /** The user confirmed the `ProxyCommand` an alias runs (`ssh_proxy_command`). */
+  approveProxyCommand: (alias: string, command: string) =>
+    invoke<void>('approve_ssh_proxy_command', { args: { alias, command } }),
   list: () => invoke<ListedSshProfile[]>('list_ssh_profiles'),
   /** `profile.id` empty: a new one. Secrets typed in `options` go to the
    *  keychain; empty ones keep the stored value or, with `fromConnection`

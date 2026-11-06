@@ -1736,6 +1736,17 @@ pub fn digest(connection_id: &str, field: &str, source: &SecretSource) -> String
     hex::encode(h.finalize())
 }
 
+/// The digest a confirmation of another kind of command is bound to (an SSH
+/// tunnel's `ProxyCommand`): its exact text, as it runs.
+pub fn command_digest(kind: &str, command: &str) -> String {
+    let mut h = Sha256::new();
+    for part in ["dbine-confirmed-command-v1", kind, command] {
+        h.update((part.len() as u64).to_le_bytes());
+        h.update(part.as_bytes());
+    }
+    hex::encode(h.finalize())
+}
+
 // ---- confirmations ---------------------------------------------------------
 
 const APPROVALS_FILE: &str = "secret-source-approvals.json";

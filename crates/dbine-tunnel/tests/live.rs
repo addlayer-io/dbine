@@ -7,7 +7,9 @@
 //!
 //! The key's passphrase is `frase123`.
 
-use dbine_tunnel::{open, trusted_entry, AgentSocket, Auth, Error, Hop, Identities, Spec};
+use dbine_tunnel::{
+    open, open_over, trusted_entry, AgentSocket, Auth, Error, Hop, Identities, Spec,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn hop(host: &str, port: u16) -> Hop {
@@ -284,4 +286,50 @@ async fn each_hop_signs_in_with_its_own_identities() {
     .map(told)
     .expect("a wrong passphrase");
     assert!(e.contains("ssh-add"), "{e}");
+}
+
+/// The first hop over a stream (what a `ProxyCommand` gives), not by its name:
+/// `first.invalid` is only what its key is checked against.
+#[tokio::test]
+#[ignore]
+async fn the_first_hop_goes_over_the_stream_it_is_given() {
+    let over = || async {
+        tokio::net::TcpStream::connect(("127.0.0.1", 25022))
+            .await
+            .unwrap()
+    };
+    let named = |trusted: Vec<String>| {
+        spec(
+            vec![hop("first.invalid", 22)],
+            Auth::Password("pw".into()),
+            trusted,
+        )
+    };
+    let fp = match open_over(&named(vec![]), over().await, Box::new(())).await {
+        Err(Error::UnknownHost {
+            host, fingerprint, ..
+        }) => {
+            assert_eq!(host, "first.invalid");
+            fingerprint
+        }
+        Err(e) => panic!("expected an unknown host, got {e}"),
+        Ok(_) => panic!("an unknown host was accepted"),
+    };
+    let trusted = vec![trusted_entry("first.invalid", 22, &fp)];
+    let dropped = std::sync::Arc::new(());
+    let tunnel = open_over(&named(trusted), over().await, Box::new(dropped.clone()))
+        .await
+        .unwrap();
+    reaches_postgres(tunnel.local_port()).await;
+    assert_eq!(
+        std::sync::Arc::strong_count(&dropped),
+        2,
+        "kept with the tunnel"
+    );
+    drop(tunnel);
+    assert_eq!(
+        std::sync::Arc::strong_count(&dropped),
+        1,
+        "and gone with it"
+    );
 }

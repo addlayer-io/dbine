@@ -11496,5 +11496,9 @@
   "«{0}» no es un alias válido de ~/.ssh/config": "“{0}” bukan alias ~/.ssh/config yang valid",
   "«{0}» no está en ~/.ssh/config de esta computadora": "“{0}” tidak ada di ~/.ssh/config komputer ini",
   "«{0}» pasa por más de {1} servidores": "“{0}” melewati lebih dari {1} server",
-  "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": "“{0}” memakai ProxyCommand, yang belum dijalankan oleh versi DBine ini"
+  "el túnel SSH «{0}» necesita tu confirmación para ejecutar este ProxyCommand: {1}": "tunnel SSH «{0}» memerlukan konfirmasi Anda untuk menjalankan ProxyCommand ini: {1}",
+  "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo": "ProxyCommand itu bukan lagi yang ada di ~/.ssh/config: hubungkan kembali untuk melihatnya",
+  "no se pudo ejecutar el ProxyCommand": "tidak dapat menjalankan ProxyCommand",
+  "no se pudo ejecutar el ProxyCommand: {0}": "tidak dapat menjalankan ProxyCommand: {0}",
+  "{0}\nEl ProxyCommand dijo: {1}": "{0}\nProxyCommand menyatakan: {1}"
 }

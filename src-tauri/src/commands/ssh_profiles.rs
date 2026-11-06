@@ -169,12 +169,15 @@ pub struct SshConfigHop {
     pub host: String,
     pub port: u16,
     pub user: String,
+    /// What the first server is reached through, as it would run.
+    pub proxy_command: Option<String>,
 }
 
 /// The servers an alias goes through, in order, as `ssh` resolves them here.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn ssh_config_resolve(args: SshConfigResolveArgs) -> CommandResult<Vec<SshConfigHop>> {
     let chain = crate::ssh_config::resolve(args.alias.trim()).await?;
+    let mut command = crate::ssh_config::proxy_command(&chain);
     Ok(chain
         .into_iter()
         .map(|r| SshConfigHop {
@@ -182,8 +185,29 @@ pub async fn ssh_config_resolve(args: SshConfigResolveArgs) -> CommandResult<Vec
             host: r.hostname,
             port: r.port,
             user: r.user,
+            proxy_command: command.take(),
         })
         .collect())
+}
+
+#[derive(Deserialize)]
+pub struct ApproveSshProxyCommandArgs {
+    pub alias: String,
+    /// The command the dialog showed: the confirmation is bound to it.
+    pub command: String,
+}
+
+/// The user confirmed a tunnel's `ProxyCommand` in the dialog that showed it.
+/// It has to be the one the alias resolves to now on this machine.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn approve_ssh_proxy_command(args: ApproveSshProxyCommandArgs) -> CommandResult<()> {
+    let chain = crate::ssh_config::resolve(args.alias.trim()).await?;
+    if crate::ssh_config::proxy_command(&chain).as_deref() != Some(args.command.as_str()) {
+        return Err(CommandError::BadRequest(
+            "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo".into(),
+        ));
+    }
+    crate::ssh_config::confirm(&args.command)
 }
 
 /// Trust an SSH server's key in a profile (a connection form testing with

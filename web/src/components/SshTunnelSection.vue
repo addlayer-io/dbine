@@ -177,6 +177,9 @@ function onSaved(p: SshProfile) {
             <span class="st-server" :title="h.name">{{ hopLabel(h) }}</span>
           </template>
         </div>
+        <div v-if="way[0]?.proxy_command" class="st-help" data-ssh-way-command>
+          {{ $t('tunnel:aliasProxy') }} <code>{{ way[0].proxy_command }}</code>
+        </div>
         <div v-if="wayError" class="st-help st-missing" data-ssh-way-error>{{ wayError }}</div>
         <SecretSourcePicker
           v-if="drafts['ssh.passphrase']"

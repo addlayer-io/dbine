@@ -186,6 +186,8 @@ pub struct Tunnel {
     last: Arc<Handle<Checker>>,
     _hops: Vec<Arc<Handle<Checker>>>,
     accept: JoinHandle<()>,
+    /// What the first hop's stream depends on ([`open_over`]).
+    _keep: Option<Box<dyn std::any::Any + Send + Sync>>,
 }
 
 impl Tunnel {
@@ -360,6 +362,31 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(60);
 /// Open the tunnel: connect and authenticate every hop, then listen on a
 /// local port.
 pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
+    open_inner(spec, None::<tokio::net::TcpStream>, None).await
+}
+
+/// [`open`], reaching the first hop over `first` and not over the network (a
+/// `ProxyCommand`'s standard input and output). `keep` lives as long as the
+/// tunnel: what gives that stream (the process, which goes with it).
+pub async fn open_over<S>(
+    spec: &Spec,
+    first: S,
+    keep: Box<dyn std::any::Any + Send + Sync>,
+) -> Result<Tunnel, Error>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    open_inner(spec, Some(first), Some(keep)).await
+}
+
+async fn open_inner<S>(
+    spec: &Spec,
+    mut stream: Option<S>,
+    keep: Option<Box<dyn std::any::Any + Send + Sync>>,
+) -> Result<Tunnel, Error>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     let Some(first) = spec.hops.first() else {
         return Err(Error::Connect {
             host: String::new(),
@@ -379,13 +406,22 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
         };
         let config = config(&known_types(&hop.host, hop.port));
         let connecting = match hops.last() {
-            None => {
-                tokio::time::timeout(
-                    CONNECT_TIMEOUT,
-                    client::connect(config, (first.host.as_str(), first.port), checker),
-                )
-                .await
-            }
+            None => match stream.take() {
+                Some(stream) => {
+                    tokio::time::timeout(
+                        CONNECT_TIMEOUT,
+                        client::connect_stream(config, stream, checker),
+                    )
+                    .await
+                }
+                None => {
+                    tokio::time::timeout(
+                        CONNECT_TIMEOUT,
+                        client::connect(config, (first.host.as_str(), first.port), checker),
+                    )
+                    .await
+                }
+            },
             Some(prev) => {
                 // The next hop, reached from inside the previous one.
                 let channel = tokio::time::timeout(
@@ -534,6 +570,7 @@ pub async fn open(spec: &Spec) -> Result<Tunnel, Error> {
         last,
         _hops: hops,
         accept,
+        _keep: keep,
     })
 }
 

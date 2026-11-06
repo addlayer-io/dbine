@@ -11496,5 +11496,9 @@
   "«{0}» no es un alias válido de ~/.ssh/config": "「{0}」は ~/.ssh/config の有効なエイリアスではありません",
   "«{0}» no está en ~/.ssh/config de esta computadora": "「{0}」はこのコンピューターの ~/.ssh/config にありません",
   "«{0}» pasa por más de {1} servidores": "「{0}」は {1} 台を超えるサーバーを経由します",
-  "«{0}» usa ProxyCommand, que esta versión de DBine todavía no ejecuta": "「{0}」は ProxyCommand を使用していますが、このバージョンの DBine はまだ実行に対応していません"
+  "el túnel SSH «{0}» necesita tu confirmación para ejecutar este ProxyCommand: {1}": "SSH トンネル「{0}」でこの ProxyCommand を実行するには、確認が必要です: {1}",
+  "ese ProxyCommand ya no es el de ~/.ssh/config: volvé a conectarte para verlo": "この ProxyCommand は ~/.ssh/config のものではなくなりました。再接続して確認してください",
+  "no se pudo ejecutar el ProxyCommand": "ProxyCommand を実行できませんでした",
+  "no se pudo ejecutar el ProxyCommand: {0}": "ProxyCommand を実行できませんでした: {0}",
+  "{0}\nEl ProxyCommand dijo: {1}": "{0}\nProxyCommand の出力: {1}"
 }
