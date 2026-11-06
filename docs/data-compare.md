@@ -41,7 +41,8 @@ connections or on different engines. It complements
   that only one has are listed and not compared.
 - Values are compared by what they are worth, not by how each engine returns
   them: `1`, `1.0` and `"1.00"` are equal; a date with `T` or with a space,
-  too. A text with leading zeros (`"007"`) is compared as text.
+  too. In a boolean column, PostgreSQL's `t` equals another engine's `true` or
+  `1`. A text with leading zeros (`"007"`) is compared as text.
 - Up to 200,000 rows per side are read, sorted by the key. If a table has
   more, the comparison is partial and the result says so:
   - Rows found on both sides are confirmed: their differences can be synced.

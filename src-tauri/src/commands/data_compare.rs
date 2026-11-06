@@ -220,6 +220,29 @@ async fn primary_key(state: &AppState, side: &Side) -> CommandResult<Vec<String>
         .collect())
 }
 
+/// Whether a column holds booleans. PostgreSQL and its family answer them as
+/// `t` and `f` in text, which no other engine's value equals, and which isn't
+/// a value another engine's boolean column takes in a sync script.
+fn is_bool_type(data_type: &str) -> bool {
+    matches!(
+        data_type.trim().to_ascii_lowercase().as_str(),
+        "bool" | "boolean"
+    )
+}
+
+/// A boolean column's value as a boolean; anything else stays as it came.
+fn as_bool(v: Value) -> Value {
+    let parsed = match &v {
+        Value::String(s) => match s.trim().to_ascii_lowercase().as_str() {
+            "t" | "true" => Some(true),
+            "f" | "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    };
+    parsed.map_or(v, Value::Bool)
+}
+
 /// A value as compared: numbers by value (`1` = `1.0` = `"1.00"`), dates
 /// with `T` or a space alike, the rest as text.
 fn canon(v: &Value) -> String {
@@ -342,13 +365,28 @@ pub async fn data_compare(
         .collect();
     let nk = key.len();
 
+    let booleans = |cols: &[ColumnInfo], name: &str| {
+        cols.iter()
+            .any(|c| c.name.eq_ignore_ascii_case(name) && is_bool_type(&c.data_type))
+    };
+    let (lbool, rbool): (Vec<bool>, Vec<bool>) = columns
+        .iter()
+        .map(|c| (booleans(&lcols, &c.0), booleans(&rcols, &c.2)))
+        .unzip();
     let project = |row: &[Value], left: bool| -> Vec<Value> {
         columns
             .iter()
-            .map(|c| {
-                row.get(if left { c.1 } else { c.3 })
+            .enumerate()
+            .map(|(i, c)| {
+                let v = row
+                    .get(if left { c.1 } else { c.3 })
                     .cloned()
-                    .unwrap_or(Value::Null)
+                    .unwrap_or(Value::Null);
+                if if left { lbool[i] } else { rbool[i] } {
+                    as_bool(v)
+                } else {
+                    v
+                }
             })
             .collect()
     };
@@ -767,8 +805,8 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 #[cfg(test)]
 mod tests {
     use super::{
-        assemble, canon, insert_parts, new_rows_parts, plans, sort_keys, ChangedRow, Choices, Diff,
-        Dir, Pick, Side,
+        as_bool, assemble, canon, insert_parts, is_bool_type, new_rows_parts, plans, sort_keys,
+        ChangedRow, Choices, Diff, Dir, Pick, Side,
     };
     use dbine_driver::{ObjectRef, RowChange};
 
@@ -1024,6 +1062,27 @@ mod tests {
             all: dir,
             rows: vec![],
         }
+    }
+
+    #[test]
+    fn a_boolean_is_worth_the_same_on_every_engine() {
+        // PostgreSQL's text, SQL Server's boolean, MySQL's tinyint.
+        for (pg, other) in [
+            (json!("t"), json!(true)),
+            (json!("f"), json!(false)),
+            (json!("t"), json!(1)),
+            (json!("f"), json!(0)),
+            (json!("true"), json!(true)),
+        ] {
+            assert_eq!(canon(&as_bool(pg.clone())), canon(&other), "{pg} {other}");
+        }
+        assert_ne!(canon(&as_bool(json!("t"))), canon(&json!(false)));
+        // Text that isn't a boolean, and NULL, stay as they came.
+        assert_eq!(as_bool(json!("tal vez")), json!("tal vez"));
+        assert_eq!(as_bool(json!(null)), json!(null));
+        // Only boolean columns: a text column can hold a `t` that means `t`.
+        assert!(is_bool_type("boolean") && is_bool_type("BOOL"));
+        assert!(!is_bool_type("character varying(10)") && !is_bool_type("bit"));
     }
 
     #[test]

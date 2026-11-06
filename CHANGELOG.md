@@ -16,6 +16,7 @@
 - **KDB+ notebook writes and row counts:** a notebook's write cell writes into kdb+ tables in every mode (insert, update by key, insert or update, replace), applied in one step so a failure leaves the table as it was, and the explorer's documentation and migrations get each table's row count without scanning.
 
 ### Fixes
+- **Compare data with booleans across engines:** PostgreSQL's `true` and `false` didn't match another engine's, so every row of a table with a boolean column showed as different, and the sync script could carry a value the target's column doesn't take. They now compare as what they are.
 - **Compare data on large tables:** when a table has more rows than a comparison reads (200,000 per side), each side could read different rows, so a row could show as missing from the other side when it wasn't, and the sync script could delete or insert it. Both sides are now read in key order, and a partial comparison only updates rows found on both sides.
 - **Large results in Databricks:** a query whose result passed 25 MiB failed with "Inline byte limit exceeded", even when only its first rows were shown. It now brings the rows you asked for and marks them as partial, and exports and charts read the whole result.
 - **Databricks result downloads:** when a part of a result couldn't be downloaded, the error showed its link, which carries a temporary credential. It no longer does.
