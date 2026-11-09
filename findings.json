@@ -37,7 +37,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-09",
-      "revision": "e54a6ff19968",
+      "revision": "d13861d2f764",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.2
@@ -4488,7 +4488,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 3/10 — 3 out of 10 merged PRs checked by a CI test -- score normalized to 3",
+      "title": "CI-Tests: 4/10 — 4 out of 10 merged PRs checked by a CI test -- score normalized to 4",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-05",
