@@ -131,11 +131,14 @@ watch(
 
 /** The left table's columns, to choose the key before comparing (a table
  *  without a primary key needs one). */
-const leftColumns = computed(() => {
+const leftColumnInfo = computed(() => {
   const o = tablesOf(left).find((x) => tableId(x) === left.table);
-  if (!o) return [] as string[];
-  return (conns.columns[objKey(left.connectionId, left.database, o.schema, o.name)]?.items ?? []).map((c) => c.name);
+  if (!o) return [];
+  return conns.columns[objKey(left.connectionId, left.database, o.schema, o.name)]?.items ?? [];
 });
+const leftColumns = computed(() => leftColumnInfo.value.map((c) => c.name));
+/** The left table's columns are known and none is a primary key: a key has to be chosen. */
+const needsKey = computed(() => leftColumnInfo.value.length > 0 && !leftColumnInfo.value.some((c) => c.primary_key));
 watch(() => [left.connectionId, left.database, left.table], () => { key.value = []; });
 // Load its columns once the table (and the database's object list) is there.
 watch(() => [left.connectionId, left.database, left.table, tablesOf(left).length], () => {
@@ -826,7 +829,7 @@ async function suggestKey() {
         <el-select v-model="key" multiple filterable collapse-tags size="small" class="dc-key" :placeholder="$t('dataCompare:key')">
           <el-option v-for="c in (result?.columns.length ? result.columns : leftColumns)" :key="c" :label="c" :value="c" />
         </el-select>
-        <el-button v-if="!key.length && left.table" size="small" text :loading="aiBusy === 'key'" :title="$t('dataCompare:ai.keyHint')" @click="suggestKey"><el-icon><ei-magic-stick /></el-icon>&nbsp;{{ $t('dataCompare:ai.key') }}</el-button>
+        <el-button v-if="!key.length && needsKey" size="small" text :loading="aiBusy === 'key'" :title="$t('dataCompare:ai.keyHint')" @click="suggestKey"><el-icon><ei-magic-stick /></el-icon>&nbsp;{{ $t('dataCompare:ai.key') }}</el-button>
         <el-button :type="result ? 'default' : 'primary'" size="small" :loading="running" @click="compare">{{ $t('dataCompare:compare') }}</el-button>
         <!-- Same as the schema compare: choose with the arrows, then sync. -->
         <el-button v-if="result" size="small" :type="totalChosen ? 'primary' : 'default'" :disabled="!totalChosen" @click="openSync">

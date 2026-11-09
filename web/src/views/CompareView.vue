@@ -1863,9 +1863,12 @@ function renameOn(h: RenameHint, s: SideId) {
   if (renameBlocked(h, s)) return;
   renaming.value = renameTarget(h, s);
 }
-function renamed() {
-  // The server changed: compare again from it.
-  void compareBoth();
+async function renamed() {
+  // The server changed: compare again from it. The AI's other pairs stay
+  // while they're still open (`stillOpen`), so they aren't asked for again.
+  const kept = aiHints.value;
+  await compareBoth();
+  aiHints.value = kept;
 }
 
 /** The assistant works on the side whose script is open: it reads there with
