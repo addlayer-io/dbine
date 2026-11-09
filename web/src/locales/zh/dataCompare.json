@@ -76,5 +76,20 @@
     "insert_other": "{{n}} 次插入",
     "update_other": "{{n}} 次更新",
     "delete_other": "{{n}} 次删除"
+  },
+  "ai": {
+    "key": "建议键",
+    "keyHint": "建议能标识每一行的列：由不接受 NULL 的列组成的唯一索引；如果没有，则采用 AI 根据列名和类型给出的结果。",
+    "keyUnique": "由唯一索引建议的键：{{list}}。",
+    "keyAi": "由 AI 建议的键：{{list}}。请检查它是否会重复。",
+    "keyNone": "没有可建议的键：请选择能标识每一行的列。",
+    "keyNoneNoAi": "该表没有可用作键的唯一索引。配置了 AI 提供商后，也可以请 AI 给出建议。",
+    "askPlaceholder": "用 AI 筛选：例如只有价格不同的行，价格高的在前",
+    "askHint": "AI 会把请求转换为网格的筛选条件和排序。发送给 {{provider}} 的只有列名、列类型和请求，绝不包含行数据。",
+    "filter": "筛选",
+    "filterNothing": "AI 找不到用比较中的列来筛选的方法。",
+    "explain": "解释差异",
+    "explainHint": "AI 会说明这些差异的共同点和可能的原因。发送给 {{provider}} 的只有各列的数量和典型差异，绝不包含行的值。",
+    "explained": "{{provider}} 的解释，基于数量和典型差异"
   }
 }

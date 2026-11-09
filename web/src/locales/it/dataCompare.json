@@ -86,5 +86,20 @@
     "delete_one": "{{n}} eliminazione",
     "delete_many": "{{n}} eliminazioni",
     "delete_other": "{{n}} eliminazioni"
+  },
+  "ai": {
+    "key": "Suggerisci chiave",
+    "keyHint": "Propone le colonne che identificano ogni riga: un indice univoco di colonne che non accettano NULL o, se non c'è, quanto indicato dall'IA a partire dai nomi e dai tipi delle colonne.",
+    "keyUnique": "Chiave suggerita da un indice univoco: {{list}}.",
+    "keyAi": "Chiave suggerita dall'IA: {{list}}. Controlla che non si ripeta.",
+    "keyNone": "Non c'è una chiave da suggerire: scegli le colonne che identificano ogni riga.",
+    "keyNoneNoAi": "La tabella non ha un indice univoco da usare come chiave. Con un provider di IA configurato, si può chiederla anche all'IA.",
+    "askPlaceholder": "Filtra con l'IA: per esempio, quelle che differiscono solo nel prezzo, le più care per prime",
+    "askHint": "L'IA trasforma la richiesta nei filtri e nell'ordinamento della griglia. A {{provider}} vengono inviati i nomi e i tipi delle colonne e la richiesta, mai righe.",
+    "filter": "Filtra",
+    "filterNothing": "L'IA non ha trovato come filtrarlo con le colonne del confronto.",
+    "explain": "Spiega le differenze",
+    "explainHint": "L'IA spiega cosa hanno in comune le differenze e la loro causa probabile. A {{provider}} vengono inviati conteggi e scarti tipici per colonna, mai i valori delle righe.",
+    "explained": "Spiegazione di {{provider}}, a partire da conteggi e scarti tipici"
   }
 }

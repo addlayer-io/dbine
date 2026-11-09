@@ -91,5 +91,20 @@
     "delete_few": "{{n}} usunięcia",
     "delete_many": "{{n}} usunięć",
     "delete_other": "{{n}} usunięcia"
+  },
+  "ai": {
+    "key": "Zaproponuj klucz",
+    "keyHint": "Proponuje kolumny identyfikujące każdy wiersz: unikalny indeks z kolumn niedopuszczających NULL albo, jeśli go nie ma, to, co wskaże AI na podstawie nazw i typów kolumn.",
+    "keyUnique": "Klucz zaproponowany przez unikalny indeks: {{list}}.",
+    "keyAi": "Klucz zaproponowany przez AI: {{list}}. Sprawdź, czy się nie powtarza.",
+    "keyNone": "Brak klucza do zaproponowania: wybierz kolumny identyfikujące każdy wiersz.",
+    "keyNoneNoAi": "Tabela nie ma unikalnego indeksu, którego można użyć jako klucza. Po skonfigurowaniu dostawcy AI można o to poprosić także AI.",
+    "askPlaceholder": "Filtruj z AI: na przykład te, które różnią się tylko ceną, najdroższe najpierw",
+    "askHint": "AI zamienia prośbę na filtry i sortowanie siatki. Do {{provider}} wysyłane są nazwy i typy kolumn oraz prośba, nigdy wiersze.",
+    "filter": "Filtruj",
+    "filterNothing": "AI nie znalazło sposobu, aby to przefiltrować za pomocą kolumn porównania.",
+    "explain": "Wyjaśnij różnice",
+    "explainHint": "AI wyjaśnia, co łączy różnice i jaka jest ich prawdopodobna przyczyna. Do {{provider}} wysyłane są liczby i typowe rozbieżności dla każdej kolumny, nigdy wartości z wierszy.",
+    "explained": "Wyjaśnienie od {{provider}} na podstawie liczb i typowych rozbieżności"
   }
 }

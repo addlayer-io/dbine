@@ -86,5 +86,20 @@
     "delete_one": "{{n}} suppression",
     "delete_many": "{{n}} suppressions",
     "delete_other": "{{n}} suppressions"
+  },
+  "ai": {
+    "key": "Suggérer une clé",
+    "keyHint": "Propose les colonnes qui identifient chaque ligne : un index unique de colonnes qui n'acceptent pas NULL ou, à défaut, ce que l'IA indique à partir des noms et des types des colonnes.",
+    "keyUnique": "Clé suggérée par un index unique : {{list}}.",
+    "keyAi": "Clé suggérée par l'IA : {{list}}. Vérifiez qu'elle ne se répète pas.",
+    "keyNone": "Aucune clé à suggérer : choisissez les colonnes qui identifient chaque ligne.",
+    "keyNoneNoAi": "La table n'a pas d'index unique à utiliser comme clé. Avec un fournisseur d'IA configuré, on peut aussi la demander à l'IA.",
+    "askPlaceholder": "Filtrer avec l'IA : par exemple, celles qui ne diffèrent que par le prix, les plus chères d'abord",
+    "askHint": "L'IA transforme la demande en filtres et en tri de la grille. {{provider}} reçoit les noms et les types des colonnes et la demande, jamais de lignes.",
+    "filter": "Filtrer",
+    "filterNothing": "L'IA n'a pas trouvé comment filtrer cela avec les colonnes de la comparaison.",
+    "explain": "Expliquer les différences",
+    "explainHint": "L'IA explique ce que les différences ont en commun et leur cause probable. {{provider}} reçoit des quantités et des écarts typiques par colonne, jamais les valeurs des lignes.",
+    "explained": "Explication de {{provider}}, à partir de quantités et d'écarts typiques"
   }
 }

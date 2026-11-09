@@ -86,5 +86,20 @@
     "delete_one": "{{n}} borrado",
     "delete_many": "{{n}} borrados",
     "delete_other": "{{n}} borrados"
+  },
+  "ai": {
+    "key": "Sugerir clave",
+    "keyHint": "Propone las columnas que identifican cada fila: un índice único de columnas que no aceptan NULL o, si no hay, lo que diga la IA a partir de los nombres y tipos de las columnas.",
+    "keyUnique": "Clave sugerida por un índice único: {{list}}.",
+    "keyAi": "Clave sugerida por la IA: {{list}}. Revisá que no se repita.",
+    "keyNone": "No hay una clave para sugerir: elegí las columnas que identifican cada fila.",
+    "keyNoneNoAi": "La tabla no tiene un índice único para usar como clave. Con un proveedor de IA configurado, también se la puede pedir a la IA.",
+    "askPlaceholder": "Filtrar con IA: por ejemplo, las que difieren solo en el precio, las más caras primero",
+    "askHint": "La IA convierte el pedido en los filtros y el orden de la grilla. A {{provider}} se le envían los nombres y tipos de las columnas y el pedido, nunca filas.",
+    "filter": "Filtrar",
+    "filterNothing": "La IA no encontró cómo filtrar eso con las columnas de la comparación.",
+    "explain": "Explicar diferencias",
+    "explainHint": "La IA explica qué tienen en común las diferencias y su causa probable. A {{provider}} se le envían cantidades y diferencias típicas por columna, nunca valores de las filas.",
+    "explained": "Explicación de {{provider}}, a partir de cantidades y diferencias típicas"
   }
 }

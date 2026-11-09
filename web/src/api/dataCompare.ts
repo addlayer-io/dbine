@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { Asker } from './aiTask';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { Cell, ObjectRef, SortKey } from './types';
 
@@ -62,12 +63,25 @@ export interface DataScript {
   atomic?: boolean;
 }
 
+/** A request in words, as the grid's filters (src-tauri/src/commands/data_compare_ai.rs). */
+export interface AiFilter { filters: ColumnFilter[]; changed_in: string[]; sort: SortKey[]; note: string | null }
+/** Key columns for a table without a primary key: `unique` (a unique index of
+ *  NOT NULL columns), `ai`, or "" when there's none to suggest. */
+export interface KeyHint { key: string[]; by: '' | 'unique' | 'ai' }
+
 export const dataCompareApi = {
   compare: (left: DataSide, right: DataSide, key: string[], limit: number) =>
     invoke<DataCompareResult>('data_compare', { args: { left, right, key, columns: [], limit } }),
   /** One kind of difference, filtered and sorted over all its rows. */
   rows: (id: string, kind: 'changed' | 'only_left' | 'only_right', sort: SortKey[], filters: ColumnFilter[], changedIn: string[]) =>
     invoke<DataRows>('data_compare_rows', { args: { id, kind, sort, filters, changed_in: changedIn } }),
+  /** The differences in words, from counts and typical gaps: no row's values go to the AI. */
+  explain: (id: string, asker: Asker) => invoke<{ text: string }>('data_compare_explain', { args: { id, asker } }),
+  /** A request in words as filters; the AI gets the columns and the words. */
+  aiFilter: (id: string, kind: 'changed' | 'only_left' | 'only_right', request: string, asker: Asker) =>
+    invoke<AiFilter>('data_compare_ai_filter', { args: { id, kind, request, asker } }),
+  /** Without an AI set up (`asker` null) only a unique index is suggested. */
+  keyHint: (left: DataSide, asker: Asker | null) => invoke<KeyHint>('data_compare_key_hint', { args: { left, asker } }),
   /** One script per side that changes. */
   scripts: (id: string, choices: Choices) => invoke<DataScript[]>('data_compare_script', { args: { id, choices } }),
 };

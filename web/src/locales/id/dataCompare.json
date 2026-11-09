@@ -76,5 +76,20 @@
     "insert_other": "{{n}} penyisipan",
     "update_other": "{{n}} pembaruan",
     "delete_other": "{{n}} penghapusan"
+  },
+  "ai": {
+    "key": "Sarankan kunci",
+    "keyHint": "Mengusulkan kolom yang mengidentifikasi setiap baris: indeks unik dari kolom yang tidak menerima NULL atau, jika tidak ada, apa yang disarankan AI berdasarkan nama dan tipe kolom.",
+    "keyUnique": "Kunci yang disarankan oleh indeks unik: {{list}}.",
+    "keyAi": "Kunci yang disarankan oleh AI: {{list}}. Periksa bahwa kunci tidak berulang.",
+    "keyNone": "Tidak ada kunci untuk disarankan: pilih kolom yang mengidentifikasi setiap baris.",
+    "keyNoneNoAi": "Tabel tidak memiliki indeks unik untuk dipakai sebagai kunci. Dengan penyedia AI yang sudah dikonfigurasi, kunci juga bisa diminta dari AI.",
+    "askPlaceholder": "Filter dengan AI: misalnya yang hanya berbeda harganya, yang termahal lebih dulu",
+    "askHint": "AI mengubah permintaan menjadi filter dan urutan grid. {{provider}} menerima nama dan tipe kolom serta permintaan, tidak pernah baris.",
+    "filter": "Filter",
+    "filterNothing": "AI tidak menemukan cara untuk memfilter hal itu dengan kolom perbandingan.",
+    "explain": "Jelaskan perbedaan",
+    "explainHint": "AI menjelaskan kesamaan perbedaan tersebut dan kemungkinan penyebabnya. {{provider}} menerima jumlah dan selisih umum per kolom, tidak pernah nilai baris.",
+    "explained": "Penjelasan dari {{provider}}, berdasarkan jumlah dan selisih umum"
   }
 }

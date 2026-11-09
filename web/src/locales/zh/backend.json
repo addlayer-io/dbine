@@ -11555,5 +11555,7 @@
   "DBine Bastion no permite «{0}»": "DBine Bastion 不允许“{0}”",
   "esta conexión no pasa por DBine Bastion": "此连接不经过 DBine Bastion",
   "la conexión no está disponible en DBine Bastion": "该连接在 DBine Bastion 上不可用",
-  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "此连接在当前时间段不允许访问：请在 DBine Enterprise 中申请非允许时段的访问"
+  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "此连接在当前时间段不允许访问：请在 DBine Enterprise 中申请非允许时段的访问",
+  "La IA respondió algo que DBine no pudo leer. Probá de nuevo o con otro modelo.": "AI 返回了 DBine 无法解析的内容。请重试或更换模型。",
+  "la comparación ya no está: compará de nuevo": "该比较已不存在：请重新比较"
 }

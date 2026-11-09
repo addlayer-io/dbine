@@ -180,6 +180,42 @@ object's type is the designer's and the connection isn't read-only. The
 engines that don't have it, with the reason, are in `docs/engine-support.md`
 ("Modify tables").
 
+## With AI
+
+The AI only suggests. It never runs anything and never sees data. See the
+[assistant](ai-assistant.md) for the providers.
+
+- **Probable renames.** A column or table on one side only, with its twin on
+  the other side only, is probably the same thing renamed. Carried as drop and
+  add, it loses the data; renamed, it keeps it. The comparison points these out
+  by itself (`crates/dbine-schema/src/renames.rs`):
+  - a column whose name looks like the other's (`cliente_id` and `client_id`)
+    and has the same type;
+  - the only unpaired column of its type on each side (`tel` and `phone`);
+  - tables with nearly the same columns.
+
+  **Find renames with AI** asks about the rest (`nombre` and `first_name`),
+  sending only the names and types of what's unpaired. What comes back is
+  checked against what was asked.
+
+  Each pair shows in the table's detail, and the list marks it with `⇄`.
+  **Rename on the left** and **Rename on the right** open **Rename…** on that
+  side, with its impact and its script (see [rename.md](rename.md)). After the
+  rename, both sides are compared again. The buttons are off on a read-only
+  connection, on an engine that can't rename it, and while there are pending
+  changes (comparing again would lose them).
+- **Review with AI** and **Summarize with AI**, in the sync dialog, send the
+  script to the assistant panel:
+  - The review says what can fail or lose data. To measure it (NULLs before a
+    `NOT NULL`, the longest value before narrowing a column, row counts), it
+    asks for reads on that side, which you approve as with any assistant read.
+  - The summary describes the changes for an approval request or a ticket.
+
+  The assistant reads and proposes on the side whose script is open. Its code
+  opens in a query on that side.
+
 ## Commands
 
-They're in `docs/api-commands.md`, in the "Compare schemas" section.
+They're in `docs/api-commands.md`, in the "Compare schemas" section. The AI's
+is `schema_compare_ai_renames { left, right, options, asker }` → the AI's
+`RenameHint`s; the comparison's own come in `schema_compare`'s `renames`.

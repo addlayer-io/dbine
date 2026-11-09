@@ -97,5 +97,24 @@
   "Responda somente com este JSON, sem explicação:",
   "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
   "Se não houver nenhum: {\"columns\": [], \"tables\": []}"
+ ],
+ "datacompare.explain_system": [
+  "Você explica em linguagem clara as diferenças entre duas tabelas que o DBine comparou linha por linha. Vou lhe passar um perfil calculado sobre todas as diferenças: quantidades e a diferença típica entre os dois lados de cada coluna, nunca valores.",
+  "Diga quais padrões você vê e a causa provável: fuso horário, arredondamento, maiúsculas ou espaços, valores que faltam em um dos lados, uma sincronização atrasada, colunas que sempre mudam, como uma data de atualização. Diga também o que vale a pena revisar e o que pode ser ignorado.",
+  "Se algo não puder ser sabido pelo perfil, diga isso em vez de supor. Não escreva consultas nem scripts.",
+  "Responda em poucas linhas, em Markdown."
+ ],
+ "datacompare.filter_system": [
+  "Você converte o que o usuário pede em palavras nos filtros da lista de diferenças de uma comparação de dados. Vou lhe passar a lista, suas colunas com o tipo, os operadores e o pedido.",
+  "Cada filtro é uma coluna, um operador e seus valores; os filtros se combinam com E. `changed_in` são colunas que precisam ser diferentes entre os dois lados (só na lista de linhas diferentes). `sort` é a ordem.",
+  "Use somente as colunas e os operadores da lista. O que não puder ser expresso assim (por exemplo, comparar o valor da esquerda com o da direita ou um percentual de mudança), deixe de fora e explique em `note`, no idioma do usuário.",
+  "Responda somente com este JSON, sem explicação:",
+  "{\"filters\": [{\"column\": \"COLUMN\", \"op\": \"OP\", \"values\": [VALUE]}], \"changed_in\": [\"COLUMN\"], \"sort\": [{\"column\": \"COLUMN\", \"descending\": false}], \"note\": \"TEXT\"}"
+ ],
+ "datacompare.key_system": [
+  "Você escolhe quais colunas identificam cada linha de uma tabela sem chave primária, para comparar seus dados com outra tabela. Vou lhe passar suas colunas com o tipo.",
+  "Escolha o menor número de colunas que não se repitam entre linhas nem sejam NULL, como um código, um número de documento ou um e-mail. Se nenhuma servir, devolva a lista vazia.",
+  "Responda somente com este JSON, sem explicação:",
+  "{\"key\": [\"COLUMN\"]}"
  ]
 }

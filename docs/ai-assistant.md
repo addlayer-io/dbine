@@ -259,6 +259,30 @@ apply on every engine and with every model.
 - **Files:** there is no `AGENTS.md`-style file: nothing in a folder can add
   instructions to the assistant.
 
+## Tasks outside the chat
+
+Some screens ask the AI one thing and use the answer: the optimizer's
+alternatives, renames in schema compare, and the explanation, filters and key
+of data compare. They go through `src-tauri/src/commands/ai_task.rs`:
+
+- They use the provider and model chosen in the panel.
+- The instructions come from `crates/dbine-ai/prompts/<lang>.json`, in the UI
+  language.
+- The answer is in a format DBine reads (JSON or tags). An answer it can't
+  read goes back to the model once, with what was wrong.
+- `ai_task_cancel { run_id }` stops one.
+- They send only what DBine already computed: names, types, counts, the
+  script. Never a row's values.
+- They don't use the chat's tools, so they read nothing from the database.
+  Contexts don't go with them either, as with the optimizer.
+
+Screens that need reads or a conversation use the chat instead. Schema
+compare's script review and the notebooks' **Explain** send a prepared
+question to the panel. Its reads then ask for approval as usual.
+
+`DBINE_AI_LIVE_MODEL=<an Ollama model> cargo test -p dbine ai_task_live --
+--ignored --nocapture` tries the prompts against a real local model.
+
 ## If the model refuses
 
 A small model sometimes answers "Sorry, I can't help you with that" to a
@@ -296,6 +320,7 @@ storage; if it fills up, the oldest are discarded first.
 | `ai_delete_model` | `{ id }` | Deletes a built-in model |
 | `ai_start_ollama` | — | Opens Ollama and waits for it to respond |
 | `ai_pull_ollama` | `{ id }` | `ollama pull` with progress |
+| `ai_task_cancel` | `{ run_id }` | Stops a one-shot task (renames, explanation, filters, key) |
 
 To try a provider from the terminal:
 

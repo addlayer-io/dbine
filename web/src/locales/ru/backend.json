@@ -11555,5 +11555,7 @@
   "DBine Bastion no permite «{0}»": "DBine Bastion не разрешает «{0}»",
   "esta conexión no pasa por DBine Bastion": "это подключение не проходит через DBine Bastion",
   "la conexión no está disponible en DBine Bastion": "подключение недоступно в DBine Bastion",
-  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "это подключение не допускает доступ в это время: запросите доступ вне разрешённого времени в DBine Enterprise"
+  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "это подключение не допускает доступ в это время: запросите доступ вне разрешённого времени в DBine Enterprise",
+  "La IA respondió algo que DBine no pudo leer. Probá de nuevo o con otro modelo.": "ИИ ответил так, что DBine не смог это прочитать. Повторите попытку или выберите другую модель.",
+  "la comparación ya no está: compará de nuevo": "сравнение больше недоступно: выполните сравнение заново"
 }

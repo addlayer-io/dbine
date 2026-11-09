@@ -86,5 +86,20 @@
     "delete_one": "{{n}} exclusão",
     "delete_many": "{{n}} exclusões",
     "delete_other": "{{n}} exclusões"
+  },
+  "ai": {
+    "key": "Sugerir chave",
+    "keyHint": "Propõe as colunas que identificam cada linha: um índice único de colunas que não aceitam NULL ou, se não houver, o que a IA indicar a partir dos nomes e tipos das colunas.",
+    "keyUnique": "Chave sugerida por um índice único: {{list}}.",
+    "keyAi": "Chave sugerida pela IA: {{list}}. Verifique se ela não se repete.",
+    "keyNone": "Não há chave para sugerir: escolha as colunas que identificam cada linha.",
+    "keyNoneNoAi": "A tabela não tem um índice único para usar como chave. Com um provedor de IA configurado, também é possível pedir à IA.",
+    "askPlaceholder": "Filtrar com IA: por exemplo, as que diferem só no preço, as mais caras primeiro",
+    "askHint": "A IA transforma o pedido nos filtros e na ordem da grade. Para {{provider}} são enviados os nomes e tipos das colunas e o pedido, nunca linhas.",
+    "filter": "Filtrar",
+    "filterNothing": "A IA não encontrou como filtrar isso com as colunas da comparação.",
+    "explain": "Explicar diferenças",
+    "explainHint": "A IA explica o que as diferenças têm em comum e a causa provável. Para {{provider}} são enviadas quantidades e diferenças típicas por coluna, nunca valores das linhas.",
+    "explained": "Explicação de {{provider}}, a partir de quantidades e diferenças típicas"
   }
 }

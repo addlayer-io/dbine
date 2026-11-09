@@ -97,5 +97,24 @@
   "Jawab hanya dengan JSON ini, tanpa penjelasan:",
   "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
   "Jika tidak ada: {\"columns\": [], \"tables\": []}"
+ ],
+ "datacompare.explain_system": [
+  "Anda menjelaskan dengan bahasa yang jelas perbedaan antara dua tabel yang dibandingkan DBine baris demi baris. Saya berikan profil yang dihitung dari semua perbedaan: jumlah dan selisih umum antara kedua sisi setiap kolom, tidak pernah nilai.",
+  "Sebutkan pola yang Anda lihat dan kemungkinan penyebabnya: zona waktu, pembulatan, huruf besar-kecil atau spasi, nilai yang tidak ada di salah satu sisi, sinkronisasi yang tertinggal, kolom yang selalu berubah seperti tanggal pembaruan. Sebutkan juga apa yang sebaiknya diperiksa dan apa yang bisa diabaikan.",
+  "Jika sesuatu tidak bisa diketahui dari profil, katakan saja, jangan menebak. Jangan menulis kueri atau skrip.",
+  "Jawab dalam beberapa baris, dalam Markdown."
+ ],
+ "datacompare.filter_system": [
+  "Anda mengubah permintaan pengguna yang berupa kata-kata menjadi filter untuk daftar perbedaan pada perbandingan data. Saya berikan daftar, kolomnya beserta tipe, operator, dan permintaannya.",
+  "Setiap filter terdiri dari kolom, operator, dan nilainya; filter digabungkan dengan AND. `changed_in` adalah kolom yang harus berbeda antara kedua sisi (hanya pada daftar baris yang berbeda). `sort` adalah urutan.",
+  "Gunakan hanya kolom dan operator dari daftar. Hal yang tidak bisa diungkapkan seperti itu (misalnya membandingkan nilai kiri dengan nilai kanan atau persentase perubahan), abaikan dan jelaskan di `note`, dalam bahasa pengguna.",
+  "Jawab hanya dengan JSON ini, tanpa penjelasan:",
+  "{\"filters\": [{\"column\": \"COLUMN\", \"op\": \"OP\", \"values\": [VALUE]}], \"changed_in\": [\"COLUMN\"], \"sort\": [{\"column\": \"COLUMN\", \"descending\": false}], \"note\": \"TEXT\"}"
+ ],
+ "datacompare.key_system": [
+  "Anda memilih kolom mana yang mengidentifikasi setiap baris pada tabel tanpa primary key, untuk membandingkan datanya dengan tabel lain. Saya berikan kolomnya beserta tipe.",
+  "Pilih kolom paling sedikit yang tidak berulang antarbaris dan bukan NULL, seperti kode, nomor dokumen, atau e-mail. Jika tidak ada yang cocok, kembalikan daftar kosong.",
+  "Jawab hanya dengan JSON ini, tanpa penjelasan:",
+  "{\"key\": [\"COLUMN\"]}"
  ]
 }

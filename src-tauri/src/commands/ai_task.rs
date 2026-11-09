@@ -125,9 +125,10 @@ pub(crate) async fn ask<T>(
     });
     let text = dbine_ai::chat(&req, &ai.endpoints, &|_| {}, cancel).await?;
     read(&text).map_err(|why| {
-        CommandError::Internal(format!(
-            "La IA respondió algo que DBine no pudo leer: {why}"
-        ))
+        tracing::debug!("AI task: unreadable answer again ({why})");
+        CommandError::Internal(
+            "La IA respondió algo que DBine no pudo leer. Probá de nuevo o con otro modelo.".into(),
+        )
     })
 }
 
@@ -143,10 +144,10 @@ pub(crate) fn json_in(text: &str) -> Result<serde_json::Value, String> {
         }
     }
     let (Some(start), Some(end)) = (text.find('{'), text.rfind('}')) else {
-        return Err("no JSON object in the answer".into());
+        return Err("JSON object missing from the answer".into());
     };
     if end < start {
-        return Err("no JSON object in the answer".into());
+        return Err("JSON object missing from the answer".into());
     }
     match serde_json::from_str::<serde_json::Value>(&text[start..=end]) {
         Ok(v) if v.is_object() => Ok(v),
@@ -214,5 +215,130 @@ mod tests {
         assert!(short.chars().count() < text.chars().count());
         assert!(!short.contains("line 99"));
         assert_eq!(fit("short", 40, p, "task.more_lines"), "short");
+    }
+}
+
+/// The tasks' prompts against a real model, which only a person can judge:
+/// `DBINE_AI_LIVE_MODEL=<an Ollama model> cargo test -p dbine ai_task_live -- --ignored --nocapture`.
+/// Ollama runs on this machine: nothing leaves it.
+#[cfg(test)]
+mod live {
+    use super::*;
+    use crate::commands::data_compare_ai::{read_filter, AiFilter};
+    use dbine_driver::{ColumnDef, TableSchema};
+    use dbine_schema::compare::{compare, CompareOptions, DbModel};
+    use dbine_schema::renames;
+
+    fn asker() -> Option<Asker> {
+        let model = std::env::var("DBINE_AI_LIVE_MODEL").ok()?;
+        Some(Asker {
+            provider: ProviderKind::Ollama,
+            model: Some(model),
+            ui_language: Some("es".into()),
+            run_id: "live".into(),
+        })
+    }
+
+    fn table(name: &str, cols: &[(&str, &str)]) -> TableSchema {
+        TableSchema {
+            kind: "table".into(),
+            schema: Some("dbo".into()),
+            name: name.into(),
+            columns: cols
+                .iter()
+                .map(|(n, t)| ColumnDef {
+                    name: n.to_string(),
+                    data_type: t.to_string(),
+                    nullable: true,
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn ai_task_live_renames_and_filters() {
+        let Some(a) = asker() else {
+            eprintln!("skipped: set DBINE_AI_LIVE_MODEL");
+            return;
+        };
+        let ai = AiRuntime::new(std::env::temp_dir().join("dbine-ai-live"));
+        let cancel = Cancel::new();
+        let p = a.prompts();
+
+        let left = DbModel {
+            driver: "sqlserver".into(),
+            tables: vec![table(
+                "clientes",
+                &[
+                    ("id", "int"),
+                    ("nombre", "nvarchar(80)"),
+                    ("apellido", "nvarchar(80)"),
+                    ("fecha_alta", "date"),
+                ],
+            )],
+            objects: Vec::new(),
+        };
+        let right = DbModel {
+            driver: "sqlserver".into(),
+            tables: vec![table(
+                "clientes",
+                &[
+                    ("id", "int"),
+                    ("first_name", "nvarchar(80)"),
+                    ("last_name", "nvarchar(80)"),
+                    ("created_on", "date"),
+                ],
+            )],
+            objects: Vec::new(),
+        };
+        let result = compare(&left, &right, &CompareOptions::default());
+        let q =
+            renames::question(&left, &right, &result, &result.renames).expect("something to ask");
+        eprintln!("asked:\n{}", q.text);
+        let pairs = ask(
+            &ai,
+            &a,
+            &cancel,
+            p.text("compare.renames_system").into(),
+            q.text.clone(),
+            |t| renames::read(json_in(t)?, &q),
+        )
+        .await
+        .unwrap();
+        eprintln!("renames: {pairs:?}");
+        assert!(
+            pairs
+                .iter()
+                .any(|h| h.left == "nombre" && h.right == "first_name"),
+            "{pairs:?}"
+        );
+
+        let columns: Vec<String> = ["id", "precio", "nombre", "actualizado"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let text = "list: rows whose values differ (a filter passes if the left or the right value passes)\ncolumns:\n  id int\n  precio numeric(10,2)\n  nombre text\n  actualizado timestamp\noperators: eq, ne, gt, ge, lt, le, contains, not_contains, starts_with, ends_with, is_null, not_null, is_empty, not_empty, in, not_in, is_true, is_false\nrequest: las que difieren solo en el precio, con precio mayor a 100, las más caras primero\n";
+        let f: AiFilter = ask(
+            &ai,
+            &a,
+            &cancel,
+            p.text("datacompare.filter_system").into(),
+            text.into(),
+            |t| read_filter(json_in(t)?, &columns, true),
+        )
+        .await
+        .unwrap();
+        eprintln!("filter: {f:?}");
+        assert!(f.changed_in.contains(&"precio".to_string()), "{f:?}");
+        assert!(f.filters.iter().any(|x| x.column == "precio"), "{f:?}");
+        assert!(
+            f.sort
+                .first()
+                .is_some_and(|s| s.column == "precio" && s.descending),
+            "{f:?}"
+        );
     }
 }

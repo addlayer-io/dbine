@@ -151,6 +151,7 @@ How it works from the UI: `docs/schema-compare.md`.
 |---|---|---|
 | `schema_compare_load` | `{ connection_id, database, schemas? }` | `{ driver, tables: TableSchema[], objects: CodeObject[], warnings }` |
 | `schema_compare` | `{ left: DbModel, right: DbModel, options: { ignore_case, ignore_schema, ignore_comments } }` | `{ tables: TableDiff[], objects: ObjectDiff[] }` |
+| `schema_compare_ai_renames` | `{ left: DbModel, right: DbModel, options, asker: { provider, model, ui_language, run_id } }` | `RenameHint[]` from the AI (names and types only) |
 | `schema_compare_convert` | `{ from_driver, to_driver, tables, target_schema }` | `{ tables, warnings }` |
 | `schema_sync_script` | `{ connection_id, tables: TableChange[], objects: ObjectChange[], views: CodeObject[] }` | `{ statements, warnings }` |
 | `schema_sync_run` | `{ connection_id, database, statements, run_id, atomic? }` | `{ done, failed: [index, error] \| null, rolled_back }` |
@@ -168,6 +169,10 @@ The types:
   - `columns`, `indexes` and `foreign_keys`, as `ItemDiff[]`;
   - `primary_key`, a status;
   - `fields`: the table properties that differ.
+- `schema_compare` also returns `renames`: `RenameHint[]`, each `{ kind:
+  "column" | "table", table, left, right, by }`. `by` is `shape`, `name`,
+  `columns` or `ai`. These are pairs on one side only that are probably the
+  same thing renamed.
 - `ItemDiff` has `name`, `left`, `right`, `status` and `fields`. `fields` lists
   what differs: `type`, `nullable`, `default`, `auto_increment`, `comment`,
   `columns`, `unique`, `kind`, `filter`, `on_delete`, `on_update`.

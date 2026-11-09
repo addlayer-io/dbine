@@ -11555,5 +11555,7 @@
   "DBine Bastion no permite «{0}»": "DBine Bastion tidak mengizinkan «{0}»",
   "esta conexión no pasa por DBine Bastion": "koneksi ini tidak melewati DBine Bastion",
   "la conexión no está disponible en DBine Bastion": "koneksi tidak tersedia di DBine Bastion",
-  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "koneksi ini tidak mengizinkan akses pada jam ini: minta akses di luar jam yang diizinkan dari DBine Enterprise"
+  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "koneksi ini tidak mengizinkan akses pada jam ini: minta akses di luar jam yang diizinkan dari DBine Enterprise",
+  "La IA respondió algo que DBine no pudo leer. Probá de nuevo o con otro modelo.": "AI memberikan jawaban yang tidak dapat dibaca DBine. Coba lagi atau gunakan model lain.",
+  "la comparación ya no está: compará de nuevo": "perbandingan sudah tidak ada: bandingkan lagi"
 }
