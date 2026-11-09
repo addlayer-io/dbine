@@ -87,5 +87,15 @@
  "optimizer.index": "인덱스",
  "cli.codex_rule": "명령을 실행하거나 파일을 읽지 마세요. 텍스트로만 답하세요.",
  "transcript.user": "사용자",
- "transcript.assistant": "어시스턴트"
+ "transcript.assistant": "어시스턴트",
+ "task.repair": "답변을 읽을 수 없습니다: {error}. 요청한 형식으로 다시 답하고 다른 내용은 쓰지 마세요.",
+ "task.more_lines": "… (이후 {count}줄은 포함되지 않음)",
+ "compare.renames_system": [
+  "당신은 두 데이터베이스의 구조를 비교합니다. 한쪽에만 있는 열과 테이블을 전달합니다. `<`는 왼쪽에만, `>`는 오른쪽에만 있다는 뜻입니다.",
+  "이름만 다른 같은 데이터가 무엇인지 알려 주세요. 번역되거나 줄이거나 고친 이름이고 타입이 같거나 비슷한 경우입니다. 확신이 없으면 제외하세요. 잘못된 쌍은 엉뚱한 것의 이름을 바꿉니다.",
+  "열은 같은 테이블의 다른 열과만 짝지을 수 있고, 각 이름은 한 번만 사용합니다. 테이블과 열 이름은 받은 그대로 정확히 쓰세요.",
+  "설명 없이 다음 JSON으로만 답하세요:",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "하나도 없으면: {\"columns\": [], \"tables\": []}"
+ ]
 }

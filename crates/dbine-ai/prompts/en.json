@@ -87,5 +87,15 @@
  "optimizer.index": "index",
  "cli.codex_rule": "Do not run commands or read files: answer with text only.",
  "transcript.user": "User",
- "transcript.assistant": "Assistant"
+ "transcript.assistant": "Assistant",
+ "task.repair": "Your answer couldn't be read: {error}. Answer again in the requested format and nothing else.",
+ "task.more_lines": "… ({count} more lines not included)",
+ "compare.renames_system": [
+  "You compare the structure of two databases. You get the columns and tables found on one side only: `<` is on the left only and `>` on the right only.",
+  "Say which ones are the same data under another name: a translated, abbreviated or corrected name, with the same or a similar type. If in doubt, leave it out: a wrong pair renames the wrong thing.",
+  "A column only pairs with another of the same table, and each name is used once. Write table and column names exactly as you get them.",
+  "Answer only with this JSON, no explanation:",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "If there are none: {\"columns\": [], \"tables\": []}"
+ ]
 }

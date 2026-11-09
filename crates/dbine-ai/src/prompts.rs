@@ -234,6 +234,20 @@ mod tests {
                     && p.text("optimizer.repair").contains("NONE"),
                 "{l}"
             );
+            // The answers DBine reads keep their field names.
+            let renames = p.text("compare.renames_system");
+            for field in [
+                "\"columns\"",
+                "\"tables\"",
+                "\"table\"",
+                "\"left\"",
+                "\"right\"",
+            ] {
+                assert!(
+                    renames.contains(field),
+                    "{l}: compare.renames_system {field}"
+                );
+            }
             for t in [
                 "list_databases",
                 "list_objects",

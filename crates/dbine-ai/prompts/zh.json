@@ -87,5 +87,15 @@
  "optimizer.index": "索引",
  "cli.codex_rule": "不要运行命令或读取文件：只用文本回答。",
  "transcript.user": "用户",
- "transcript.assistant": "助手"
+ "transcript.assistant": "助手",
+ "task.repair": "无法读取你的回答：{error}。请按要求的格式重新回答，不要添加其他内容。",
+ "task.more_lines": "…（另有 {count} 行未包含）",
+ "compare.renames_system": [
+  "你要比较两个数据库的结构。我会给你只存在于一侧的列和表：`<` 表示仅在左侧，`>` 表示仅在右侧。",
+  "指出哪些是同一数据但名称不同：翻译、缩写或修正过的名称，类型相同或相近。如有疑问就不要列入：错误的配对会重命名不该改的对象。",
+  "列只能与同一张表中的另一列配对，每个名称只使用一次。表名和列名必须与收到的完全一致。",
+  "只用下面的 JSON 回答，不要解释：",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "如果没有：{\"columns\": [], \"tables\": []}"
+ ]
 }

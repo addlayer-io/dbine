@@ -26,6 +26,7 @@ pub mod ident;
 pub mod issue;
 pub mod logical;
 pub mod parse;
+pub mod renames;
 
 pub use convert::{convert, ColumnMapping, Conversion, Error, Options};
 pub use issue::{Issue, IssueCode, Severity};

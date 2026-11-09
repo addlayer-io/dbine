@@ -4,11 +4,14 @@
 //! Comparing and planning are pure (the UI keeps both schemas and edits its
 //! copies); only loading and running touch the servers.
 
+use crate::commands::ai::AiRuntime;
+use crate::commands::ai_task::{self, Asker};
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::{kinds, Driver, ObjectRef, QueryOutcome, SyncScript, TableChange, TableSchema};
 use dbine_schema::compare::{CodeObject, CompareOptions, CompareResult, DbModel};
+use dbine_schema::renames::{self, RenameHint};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
@@ -144,6 +147,43 @@ pub async fn schema_compare(args: CompareArgs) -> CommandResult<CompareResult> {
         &args.right,
         &args.options,
     ))
+}
+
+#[derive(Deserialize)]
+pub struct AiRenamesArgs {
+    pub left: DbModel,
+    pub right: DbModel,
+    #[serde(default)]
+    pub options: CompareOptions,
+    pub asker: Asker,
+}
+
+/// Probable renames the structure can't tell (`nombre` and `name`), asked of
+/// the AI. Only names and types go: never data. What comes back is checked
+/// against what was asked, and the UI offers each pair as a rename the user
+/// reviews and runs.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn schema_compare_ai_renames(
+    ai: State<'_, AiRuntime>,
+    args: AiRenamesArgs,
+) -> CommandResult<Vec<RenameHint>> {
+    let result = dbine_schema::compare::compare(&args.left, &args.right, &args.options);
+    let Some(question) = renames::question(&args.left, &args.right, &result, &result.renames)
+    else {
+        return Ok(Vec::new());
+    };
+    let run = ai_task::Run::start(&args.asker.run_id);
+    let p = args.asker.prompts();
+    let user = ai_task::fit(&question.text, args.asker.budget(), p, "task.more_lines");
+    ai_task::ask(
+        &ai,
+        &args.asker,
+        &run.cancel,
+        p.text("compare.renames_system").to_string(),
+        user,
+        |text| renames::read(ai_task::json_in(text)?, &question),
+    )
+    .await
 }
 
 #[derive(Deserialize)]

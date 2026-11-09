@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { Asker } from './aiTask';
 import type { TableSchema } from './schema-types';
 
 // "Comparar esquemas" (src-tauri/src/commands/compare.rs,
@@ -32,7 +33,11 @@ export interface TableDiff {
   fields: string[];
 }
 export interface ObjectDiff { kind: string; key: string; left: number | null; right: number | null; status: Status }
-export interface CompareResult { tables: TableDiff[]; objects: ObjectDiff[] }
+/** A column or table on one side only that's probably the other side's under
+ *  another name (crates/dbine-schema/src/renames.rs). `table` is the table's
+ *  key; for a table, the left one's. `by`: shape, name, columns or ai. */
+export interface RenameHint { kind: 'column' | 'table'; table: string; left: string; right: string; by: 'shape' | 'name' | 'columns' | 'ai' }
+export interface CompareResult { tables: TableDiff[]; objects: ObjectDiff[]; renames: RenameHint[] }
 
 export type TableChange =
   | { op: 'create'; table: TableSchema }
@@ -46,6 +51,9 @@ export const compareApi = {
     invoke<Loaded>('schema_compare_load', { args: { connection_id: connectionId, database, schemas: [] } }),
   compare: (left: DbModel, right: DbModel, options: CompareOptions) =>
     invoke<CompareResult>('schema_compare', { args: { left, right, options } }),
+  /** Renames the structure can't tell, asked of the AI: names and types only. */
+  aiRenames: (left: DbModel, right: DbModel, options: CompareOptions, asker: Asker) =>
+    invoke<RenameHint[]>('schema_compare_ai_renames', { args: { left, right, options, asker } }),
   convert: (fromDriver: string, toDriver: string, tables: TableSchema[], targetSchema: string | null) =>
     invoke<{ tables: TableSchema[]; warnings: string[] }>('schema_compare_convert', {
       args: { from_driver: fromDriver, to_driver: toDriver, tables, target_schema: targetSchema },

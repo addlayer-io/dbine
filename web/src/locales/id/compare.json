@@ -170,5 +170,31 @@
     "incomplete_other": "daftar tidak lengkap: {{count}} objek tidak dapat dibaca",
     "none": "Tidak ada yang bergantung pada ini",
     "noneFound": "Tidak ditemukan apa pun pada bagian yang dapat dibaca"
+  },
+  "ai": {
+    "noProvider": "Atur penyedia AI di panel asisten.",
+    "busy": "Asisten sedang menjawab pertanyaan lain.",
+    "theAi": "AI",
+    "renames": "Cari perubahan nama dengan AI",
+    "renamesHint": "Mencari kolom dan tabel yang hanya ada di satu sisi dan sebenarnya sama dengan nama berbeda. Yang dikirim ke {{provider}} hanya nama dan tipenya, tidak pernah data.",
+    "renamesFound_other": "AI menyarankan {{count}} perubahan nama.",
+    "renamesNone": "AI tidak menemukan perubahan nama.",
+    "review": "Tinjau dengan AI",
+    "reviewHint": "Asisten meninjau skrip dan mengukur risikonya dengan pembacaan yang Anda setujui. Tidak mengubah apa pun.",
+    "summary": "Ringkas dengan AI",
+    "summaryHint": "Asisten meringkas perubahan dalam bahasa yang jelas, untuk permintaan persetujuan atau tiket.",
+    "noWarnings": "tidak ada",
+    "reviewPrompt": "Tinjau skrip sinkronisasi yang dibuat DBine untuk {{where}} ({{engine}}, {{statements}} pernyataan): itu adalah teks di editor. Peringatan DBine: {{warnings}}. Beri tahu saya apa yang bisa gagal atau menghilangkan data sebelum dijalankan. Bila perlu, ukur dengan kueri hanya-baca pada basis data itu: baris dengan NULL di kolom yang berubah menjadi NOT NULL, nilai terpanjang sebelum kolom diperkecil, nilai yang tidak muat di tipe baru, jumlah baris pada tabel yang dibangun ulang atau dihapus. Akhiri dengan risiko tiap perubahan serta urutan atau tindakan pencegahan yang Anda sarankan. Jangan ubah apa pun di basis data.",
+    "summaryPrompt": "Ringkas dalam bahasa yang jelas perubahan skrip sinkronisasi untuk {{where}} ({{engine}}, {{statements}} pernyataan), yaitu teks di editor, untuk permintaan persetujuan atau tiket: apa yang dibuat, diubah, dan dihapus, serta risiko masing-masing. Tanpa kueri: hanya ringkasannya."
+  },
+  "rename": {
+    "column": "\"{{left}}\" (kiri) dan \"{{right}}\" (kanan) tampaknya kolom yang sama dengan nama berbeda.",
+    "table": "\"{{left}}\" (kiri) dan \"{{right}}\" (kanan) tampaknya tabel yang sama dengan nama berbeda.",
+    "keeps": "Mengganti nama mempertahankan data; menghapus lalu menambah akan menghilangkannya.",
+    "byAi": "(disarankan AI)",
+    "onLeft": "Ganti nama di kiri",
+    "onRight": "Ganti nama di kanan",
+    "unsupported": "Mesin ini tidak mendukung penggantian nama.",
+    "pending": "Terapkan atau buang dulu perubahan yang tertunda: mengganti nama membaca ulang basis data."
   }
 }

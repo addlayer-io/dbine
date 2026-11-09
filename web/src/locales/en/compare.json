@@ -198,5 +198,32 @@
     "incomplete_other": "incomplete list: {{count}} objects couldn't be read",
     "none": "Nothing depends on this",
     "noneFound": "Nothing found in what could be read"
+  },
+  "ai": {
+    "noProvider": "Set up an AI provider in the assistant panel.",
+    "busy": "The assistant is answering another question.",
+    "theAi": "the AI",
+    "renames": "Find renames with AI",
+    "renamesHint": "Looks for columns and tables found on one side only that are the same under another name. Only their names and types are sent to {{provider}}, never data.",
+    "renamesFound_one": "The AI suggests {{count}} rename.",
+    "renamesFound_other": "The AI suggests {{count}} renames.",
+    "renamesNone": "The AI found no renames.",
+    "review": "Review with AI",
+    "reviewHint": "The assistant reviews the script and measures the risks with reads you approve. It changes nothing.",
+    "summary": "Summarize with AI",
+    "summaryHint": "The assistant summarizes the changes in plain language, for an approval request or a ticket.",
+    "noWarnings": "none",
+    "reviewPrompt": "Review the sync script DBine generated for {{where}} ({{engine}}, {{statements}} statements): it is the editor's text. DBine's warnings: {{warnings}}. Tell me what can fail or lose data before it runs. Where needed, measure it with read-only queries on that database: rows with NULL in a column that becomes NOT NULL, the longest value before a column is narrowed, values that don't fit the new type, how many rows a table that is rebuilt or dropped has. End with each change's risk and the order or precautions you recommend. Don't change anything in the database.",
+    "summaryPrompt": "Summarize in plain language the changes of the sync script for {{where}} ({{engine}}, {{statements}} statements), which is the editor's text, for an approval request or a ticket: what is created, changed and dropped, and the risk of each. No queries: only the summary."
+  },
+  "rename": {
+    "column": "\"{{left}}\" (left) and \"{{right}}\" (right) look like the same column under another name.",
+    "table": "\"{{left}}\" (left) and \"{{right}}\" (right) look like the same table under another name.",
+    "keeps": "Renaming keeps the data; dropping and adding loses it.",
+    "byAi": "(suggested by AI)",
+    "onLeft": "Rename on the left",
+    "onRight": "Rename on the right",
+    "unsupported": "This engine can't rename it.",
+    "pending": "Apply or discard the pending changes first: renaming reads the databases again."
   }
 }

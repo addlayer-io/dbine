@@ -198,5 +198,33 @@
     "incomplete_other": "lista incompleta: no se pudieron leer {{count}} objetos",
     "none": "Nada depende de esto",
     "noneFound": "No se encontró nada en lo que se pudo leer"
+  },
+  "ai": {
+    "noProvider": "Configurá un proveedor de IA en el panel del asistente.",
+    "busy": "El asistente está respondiendo otra pregunta.",
+    "theAi": "la IA",
+    "renames": "Buscar renombres con IA",
+    "renamesHint": "Busca columnas y tablas que están de un solo lado y son la misma con otro nombre. A {{provider}} se le envían solo sus nombres y tipos, nunca datos.",
+    "renamesFound_one": "La IA sugiere {{count}} renombre.",
+    "renamesFound_many": "La IA sugiere {{count}} renombres.",
+    "renamesFound_other": "La IA sugiere {{count}} renombres.",
+    "renamesNone": "La IA no encontró renombres.",
+    "review": "Revisar con IA",
+    "reviewHint": "El asistente revisa el script y mide los riesgos con lecturas que vos aprobás. No cambia nada.",
+    "summary": "Resumir con IA",
+    "summaryHint": "El asistente resume los cambios en lenguaje claro, para un pedido de aprobación o un ticket.",
+    "noWarnings": "ninguno",
+    "reviewPrompt": "Revisá el script de sincronización que DBine generó para {{where}} ({{engine}}, {{statements}} sentencias): es el texto del editor. Avisos de DBine: {{warnings}}. Decime qué puede fallar o perder datos antes de correrlo. Donde haga falta, medilo con consultas de solo lectura en esa base: filas con NULL en una columna que pasa a NOT NULL, el valor más largo antes de achicar una columna, valores que no entran en el tipo nuevo, cuántas filas tiene una tabla que se reconstruye o se borra. Terminá con el riesgo de cada cambio y el orden o las precauciones que recomendás. No cambies nada en la base.",
+    "summaryPrompt": "Resumí en lenguaje claro los cambios del script de sincronización para {{where}} ({{engine}}, {{statements}} sentencias), que es el texto del editor, para un pedido de aprobación o un ticket: qué se crea, qué se modifica, qué se borra y qué riesgo tiene cada cosa. Sin consultas: solo el resumen."
+  },
+  "rename": {
+    "column": "«{{left}}» (izquierda) y «{{right}}» (derecha) parecen la misma columna con otro nombre.",
+    "table": "«{{left}}» (izquierda) y «{{right}}» (derecha) parecen la misma tabla con otro nombre.",
+    "keeps": "Renombrar conserva los datos; borrar y agregar los pierde.",
+    "byAi": "(sugerido por IA)",
+    "onLeft": "Renombrar en la izquierda",
+    "onRight": "Renombrar en la derecha",
+    "unsupported": "Este motor no permite renombrarlo.",
+    "pending": "Aplicá o descartá primero los cambios pendientes: renombrar vuelve a leer las bases."
   }
 }

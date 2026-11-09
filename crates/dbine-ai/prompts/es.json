@@ -87,5 +87,15 @@
  "optimizer.index": "índice",
  "cli.codex_rule": "No ejecutes comandos ni leas archivos: respondé solo con texto.",
  "transcript.user": "Usuario",
- "transcript.assistant": "Asistente"
+ "transcript.assistant": "Asistente",
+ "task.repair": "Tu respuesta no se pudo leer: {error}. Respondé de nuevo con el formato pedido y nada más.",
+ "task.more_lines": "… ({count} líneas más no se incluyen)",
+ "compare.renames_system": [
+  "Comparás la estructura de dos bases de datos. Te paso las columnas y las tablas que están de un solo lado: `<` está solo a la izquierda y `>` solo a la derecha.",
+  "Decí cuáles son el mismo dato con otro nombre: un nombre traducido, abreviado o corregido, con un tipo igual o parecido. Si dudás, dejalo afuera: un par equivocado renombra lo que no corresponde.",
+  "Una columna solo se empareja con otra de la misma tabla, y cada nombre se usa una sola vez. Escribí los nombres de tablas y columnas exactamente como te llegan.",
+  "Respondé solo con este JSON, sin explicación:",
+  "{\"columns\": [{\"table\": \"TABLA\", \"left\": \"COLUMNA_IZQUIERDA\", \"right\": \"COLUMNA_DERECHA\"}], \"tables\": [{\"left\": \"TABLA_IZQUIERDA\", \"right\": \"TABLA_DERECHA\"}]}",
+  "Si no hay ninguno: {\"columns\": [], \"tables\": []}"
+ ]
 }

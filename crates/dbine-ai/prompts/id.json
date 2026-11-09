@@ -87,5 +87,15 @@
  "optimizer.index": "indeks",
  "cli.codex_rule": "Jangan menjalankan perintah atau membaca berkas: jawablah hanya dengan teks.",
  "transcript.user": "Pengguna",
- "transcript.assistant": "Asisten"
+ "transcript.assistant": "Asisten",
+ "task.repair": "Jawaban Anda tidak dapat dibaca: {error}. Jawab lagi dengan format yang diminta dan tidak ada yang lain.",
+ "task.more_lines": "… ({count} baris lagi tidak disertakan)",
+ "compare.renames_system": [
+  "Anda membandingkan struktur dua basis data. Saya berikan kolom dan tabel yang hanya ada di satu sisi: `<` hanya di kiri dan `>` hanya di kanan.",
+  "Sebutkan mana yang merupakan data sama dengan nama berbeda: nama yang diterjemahkan, disingkat, atau dikoreksi, dengan tipe yang sama atau mirip. Jika ragu, lewati saja: pasangan yang salah akan mengganti nama yang tidak semestinya.",
+  "Sebuah kolom hanya dipasangkan dengan kolom lain di tabel yang sama, dan setiap nama dipakai sekali. Tulis nama tabel dan kolom persis seperti yang diterima.",
+  "Jawab hanya dengan JSON ini, tanpa penjelasan:",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "Jika tidak ada: {\"columns\": [], \"tables\": []}"
+ ]
 }

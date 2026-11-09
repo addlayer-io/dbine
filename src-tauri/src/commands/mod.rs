@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_task;
 pub mod azure_firewall;
 pub mod backup;
 pub mod chart;
