@@ -365,6 +365,7 @@ pub fn run() {
             commands::history::history_of,
             commands::history::history_delete,
             commands::data_compare::data_compare,
+            commands::data_compare::data_compare_rows,
             commands::data_compare::data_compare_script,
             commands::security::security_principals,
             commands::security::security_unmapped_logins,

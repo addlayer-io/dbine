@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### New
+- **Sort and filter in Compare data:** with thousands of differences, sort by any column and filter each one from its three dots (equal, different, greater, contains…), or keep only the rows where a column changed. It works on all the rows, not only those on screen, and "All" then marks only the rows that pass.
 - **SSH tunnels from `~/.ssh/config`:** a tunnel can use a `Host` of your SSH config instead of loading the server by hand. DBine uses what OpenSSH resolves for it (server, user, keys, agent), including `ProxyJump` chains where each server signs in with its own user and keys, and `ProxyCommand`, which runs only after you confirm the exact command. It shows the way before you connect.
 - **Contexts for the AI assistant:** a new **Contexts** node on each connection and database holds notes the assistant gets in every chat there, such as what a status code means or how a metric is calculated, so you don't repeat them. **Settings › AI assistant** has a text for every conversation. The chat shows which ones are in use and can turn one off for that conversation. They guide the assistant; they don't change what it's allowed to do.
 - **KDB+ data sync and clone:** **Compare data** finds and fixes the rows that differ between two kdb+ tables, hashing them on each server so only the changed rows travel, and a migration can clone a kdb+ process into another with its tables, keys, types, attributes, linked columns, functions and views.
