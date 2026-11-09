@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ensureConnectedOrTell } from '../composables/connectionGate';
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import { dataCompareApi, type DataCompareResult, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
-import type { Cell, ObjectRef, QueryProgress } from '../api/types';
+import { dataCompareApi, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
+import type { Cell, ObjectRef, QueryProgress, SortKey } from '../api/types';
+import { columnKind, menuFor, type ColumnFilter, type FilterOp } from '../composables/gridFilter';
+import { nextSort } from '../composables/gridSort';
 import { newQuery } from '../composables/actions';
 import { listOf, locale } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -160,14 +162,140 @@ function show(v: Cell): string {
   if (v === null) return 'NULL';
   return typeof v === 'string' ? v : String(v);
 }
-const rows = computed(() => {
+// -- order and filters: over all the rows of a kind, not only those shown -------
+const sort = ref<SortKey[]>([]);
+const filters = ref<Record<string, ColumnFilter>>({});
+/** Changed rows only: columns that have to differ in the row. */
+const changedIn = ref<string[]>([]);
+const queried = ref<DataRows | null>(null);
+const filtering = computed(() => Object.keys(filters.value).length > 0 || (view.value === 'changed' && changedIn.value.length > 0));
+let lastAsk = 0;
+async function reload() {
+  const r = result.value;
+  const mine = ++lastAsk;
+  if (!r || (!sort.value.length && !filtering.value)) { queried.value = null; return; }
+  try {
+    const got = await dataCompareApi.rows(r.id, view.value, sort.value, Object.values(filters.value), view.value === 'changed' ? changedIn.value : []);
+    if (mine === lastAsk) queried.value = got;
+  } catch (e) {
+    if (mine === lastAsk) ElMessage.error(errorMessage(e));
+  }
+}
+// Another kind's rows aren't these: not even for the moment the answer takes.
+watch(view, () => { queried.value = null; });
+watch(() => result.value?.id, () => {
+  const has = (c: string) => !!result.value?.columns.includes(c);
+  sort.value = sort.value.filter((k) => has(k.column));
+  filters.value = Object.fromEntries(Object.entries(filters.value).filter(([c]) => has(c)));
+  changedIn.value = changedIn.value.filter(has);
+  queried.value = null;
+});
+watch([() => result.value?.id, view, sort, filters, changedIn], reload);
+/** The rows on screen: the first ones the comparison brought, or those asked for. */
+const shown = computed<DataRow[]>(() => {
   const r = result.value;
   if (!r) return [];
-  if (view.value === 'only_left') return r.only_left;
-  if (view.value === 'only_right') return r.only_right;
-  return [];
+  if (queried.value) return queried.value.rows;
+  if (view.value === 'changed') return r.changed.map((c, index) => ({ index, left: c.left, right: c.right, diff: c.diff }));
+  return (view.value === 'only_left' ? r.only_left : r.only_right).map((left, index) => ({ index, left, right: null, diff: [] }));
 });
-const shownOf = (n: number, list: unknown[]) => (n > list.length ? t('dataCompare:showingFirst', { shown: fmtN(list.length), total: fmtN(n) }) : '');
+const shownNote = computed(() => {
+  const r = result.value;
+  if (!r) return '';
+  const total = queried.value ? queried.value.total : r.counts[view.value];
+  if (filtering.value) return shown.value.length ? t('dataCompare:filteredCount', { shown: fmtN(shown.value.length), total: fmtN(total) }) : '';
+  return total > shown.value.length ? t('dataCompare:showingFirst', { shown: fmtN(shown.value.length), total: fmtN(total) }) : '';
+});
+const sortOf = (c: string) => sort.value.find((k) => k.column === c) ?? null;
+const sortPlace = (c: string) => sort.value.findIndex((k) => k.column === c) + 1;
+function sortClick(e: MouseEvent, c: string) {
+  sort.value = nextSort(sort.value, c, e.shiftKey);
+}
+/** The filter panel of a column (the three dots on its header). */
+const menu = ref<{ column: string; index: number; x: number; y: number; op: FilterOp; value: string; changed: boolean } | null>(null);
+const kindOf = (j: number) => columnKind(result.value?.types?.[j] ?? '', shown.value[0]?.left[j] ?? null);
+/** What a filter offers for a column: the data grid's, except what only a query can do. */
+const opsOf = (j: number) => menuFor(kindOf(j))
+  .filter((e) => e.op && !['in', 'not_in', 'sql', 'sql_right'].includes(e.op))
+  .map((e) => ({ op: e.op as FilterOp, label: e.label.replace(/…$/, ''), value: e.ask === 'value' }));
+const menuOps = computed(() => (menu.value ? opsOf(menu.value.index) : []));
+const menuNeedsValue = computed(() => !!menuOps.value.find((o) => o.op === menu.value?.op)?.value);
+function closeMenu() { menu.value = null; }
+function openMenu(e: MouseEvent, j: number) {
+  const r = result.value;
+  if (!r) return;
+  const column = r.columns[j];
+  const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const current = filters.value[column];
+  const kind = kindOf(j);
+  menu.value = {
+    column,
+    index: j,
+    x: Math.max(8, Math.min(box.left, window.innerWidth - 300)),
+    y: box.bottom + 4,
+    op: current?.op ?? (kind === 'text' ? 'contains' : kind === 'bool' ? 'is_true' : 'eq'),
+    value: current?.values[0] == null ? '' : String(current.values[0]),
+    changed: changedIn.value.includes(column),
+  };
+}
+window.addEventListener('mousedown', closeMenu);
+onBeforeUnmount(() => window.removeEventListener('mousedown', closeMenu));
+function applyMenu() {
+  const m = menu.value;
+  if (!m) return;
+  const next = { ...filters.value };
+  const typed = m.value.trim();
+  if (menuNeedsValue.value && !typed) {
+    delete next[m.column];
+  } else {
+    const number = kindOf(m.index) === 'number' && typed !== '' && !Number.isNaN(Number(typed));
+    next[m.column] = { column: m.column, op: m.op, values: menuNeedsValue.value ? [number ? Number(typed) : typed] : [] };
+  }
+  filters.value = next;
+  changedIn.value = m.changed ? [...new Set([...changedIn.value, m.column])] : changedIn.value.filter((c) => c !== m.column);
+  closeMenu();
+}
+function clearMenu() {
+  const m = menu.value;
+  if (!m) return;
+  removeFilter(m.column);
+  changedIn.value = changedIn.value.filter((c) => c !== m.column);
+  closeMenu();
+}
+function menuSort(descending: boolean) {
+  const m = menu.value;
+  if (!m) return;
+  const cur = sortOf(m.column);
+  sort.value = cur && cur.descending === descending ? [] : [{ column: m.column, descending }];
+  closeMenu();
+}
+function removeFilter(c: string) {
+  const next = { ...filters.value };
+  delete next[c];
+  filters.value = next;
+}
+function clearFilters() {
+  filters.value = {};
+  changedIn.value = [];
+}
+/** The filters in force, each with how to take it off. */
+const chips = computed(() => {
+  const r = result.value;
+  if (!r) return [];
+  const labelOf = (f: ColumnFilter) => {
+    const j = r.columns.indexOf(f.column);
+    const op = opsOf(j).find((o) => o.op === f.op)?.label ?? f.op;
+    return `${f.column}: ${op}${f.values.length ? ` ${f.values[0]}` : ''}`;
+  };
+  return [
+    ...Object.values(filters.value).map((f) => ({ key: `f:${f.column}`, label: labelOf(f), remove: () => removeFilter(f.column) })),
+    ...(view.value === 'changed' ? changedIn.value : []).map((c) => ({
+      key: `c:${c}`,
+      label: t('dataCompare:changedChip', { column: c }),
+      remove: () => { changedIn.value = changedIn.value.filter((x) => x !== c); },
+    })),
+  ];
+});
 
 // -- what goes where: arrows per row, as in the schema compare ------------------
 
@@ -178,20 +306,24 @@ type Kind = 'changed' | 'only_left' | 'only_right';
 const partial = computed(() => !!result.value && (result.value.truncated_left || result.value.truncated_right));
 const blocked = (kind: Kind) => partial.value && kind !== 'changed';
 /** Per kind: the direction of every row, and the rows set apart from it
- *  (by index, including rows past the ones shown). */
+ *  (by index, including rows past the ones shown). The maps are plain, read
+ *  through `marks`: "all" with a filter can set hundreds of thousands. */
 const choices = reactive<Record<Kind, { all: Dir; rows: Map<number, Dir> }>>({
-  changed: { all: 'none', rows: new Map() },
-  only_left: { all: 'none', rows: new Map() },
-  only_right: { all: 'none', rows: new Map() },
+  changed: { all: 'none', rows: markRaw(new Map()) },
+  only_left: { all: 'none', rows: markRaw(new Map()) },
+  only_right: { all: 'none', rows: markRaw(new Map()) },
 });
+const marks = ref(0);
 function resetChoices() {
   for (const k of ['changed', 'only_left', 'only_right'] as Kind[]) {
     choices[k].all = 'none';
-    choices[k].rows = new Map();
+    choices[k].rows = markRaw(new Map());
   }
+  marks.value++;
 }
 watch(() => result.value?.id, resetChoices);
 function dirOf(kind: Kind, i: number): Dir {
+  void marks.value;
   return choices[kind].rows.get(i) ?? choices[kind].all;
 }
 /** A click on an arrow sends the row that way; a second click leaves it alone. */
@@ -200,16 +332,29 @@ function toggle(kind: Kind, i: number, d: Dir) {
   const next = dirOf(kind, i) === d ? 'none' : d;
   if (next === c.all) c.rows.delete(i);
   else c.rows.set(i, next);
+  marks.value++;
 }
-/** Every row of a kind (also those not shown) one way. */
+/** Every row of a kind (also those not shown) one way; with a filter, only
+ *  the rows that pass it. */
 function setAll(kind: Kind, d: Dir) {
-  choices[kind].all = d;
-  choices[kind].rows = new Map();
+  const c = choices[kind];
+  if (filtering.value && queried.value && kind === view.value) {
+    for (const i of queried.value.indices) {
+      if (d === c.all) c.rows.delete(i);
+      else c.rows.set(i, d);
+    }
+  } else {
+    c.all = d;
+    c.rows = markRaw(new Map());
+  }
+  marks.value++;
 }
+const allIs = (kind: Kind, d: Dir) => { void marks.value; return !filtering.value && choices[kind].all === d && !choices[kind].rows.size; };
 /** How many rows of a kind will change. */
 function chosen(kind: Kind): number {
   const r = result.value;
   if (!r) return 0;
+  void marks.value;
   const c = choices[kind];
   let n = c.all !== 'none' ? r.counts[kind] : 0;
   for (const d of c.rows.values()) {
@@ -615,14 +760,14 @@ watch(() => result.value?.id, () => {
         <button :class="{ on: view === 'only_left' }" @click="view = 'only_left'"><b>{{ fmtN(result.counts.only_left) }}</b> {{ $t('dataCompare:onlyLeft') }}</button>
         <button :class="{ on: view === 'only_right' }" @click="view = 'only_right'"><b>{{ fmtN(result.counts.only_right) }}</b> {{ $t('dataCompare:onlyRight') }}</button>
         <span style="flex: 1" />
-        <el-button size="small" :disabled="!result.counts.changed && (partial || !result.counts.only_left)" :title="$t('dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
-        <el-button size="small" :disabled="!result.counts.changed && (partial || !result.counts.only_right)" :title="$t('dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
+        <el-button size="small" :disabled="filtering || (!result.counts.changed && (partial || !result.counts.only_left))" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
+        <el-button size="small" :disabled="filtering || (!result.counts.changed && (partial || !result.counts.only_right))" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
       </div>
       <div v-if="!blocked(view) && (view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right)" class="dc-bulk">
         <span>{{ $t('dataCompare:bulk', { count: chosen(view), n: fmtN(chosen(view)) }) }}</span>
-        <button :class="{ on: choices[view].all === 'left' && !choices[view].rows.size }" :title="arrowTip(view, 'left')" @click="setAll(view, 'left')">{{ $t('dataCompare:allLeft') }}</button>
-        <button :class="{ on: choices[view].all === 'right' && !choices[view].rows.size }" :title="arrowTip(view, 'right')" @click="setAll(view, 'right')">{{ $t('dataCompare:allRight') }}</button>
-        <button :class="{ on: choices[view].all === 'none' && !choices[view].rows.size }" @click="setAll(view, 'none')">{{ $t('dataCompare:allNone') }}</button>
+        <button :class="{ on: allIs(view, 'left') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'left')" @click="setAll(view, 'left')">{{ $t('dataCompare:allLeft') }}</button>
+        <button :class="{ on: allIs(view, 'right') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'right')" @click="setAll(view, 'right')">{{ $t('dataCompare:allRight') }}</button>
+        <button :class="{ on: allIs(view, 'none') }" :title="filtering ? $t('dataCompare:allFiltered') : undefined" @click="setAll(view, 'none')">{{ $t('dataCompare:allNone') }}</button>
       </div>
       <div v-if="partial || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
         <div v-if="partial">{{ $t(result.ordered ? 'dataCompare:partial' : 'dataCompare:partialUnordered', { limit: fmtN(limit) }) }}</div>
@@ -630,17 +775,38 @@ watch(() => result.value?.id, () => {
         <div v-if="result.only_left_columns.length">{{ $t('dataCompare:onlyLeftColumns', { list: result.only_left_columns.join(', ') }) }}</div>
         <div v-if="result.only_right_columns.length">{{ $t('dataCompare:onlyRightColumns', { list: result.only_right_columns.join(', ') }) }}</div>
       </div>
+      <div v-if="chips.length" class="dc-chips">
+        <span class="dc-chips-label">{{ $t('dataCompare:filtersLabel') }}</span>
+        <span v-for="c in chips" :key="c.key" class="dc-chip">{{ c.label }}<button :aria-label="$t('dataCompare:removeFilter')" :title="$t('dataCompare:removeFilter')" @click="c.remove()">×</button></span>
+        <button class="dc-chips-clear" @click="clearFilters">{{ $t('dataCompare:clearFilters') }}</button>
+      </div>
       <div class="dc-grid-wrap">
         <table class="dc-grid">
-          <thead><tr><th class="dc-arrows-h" /><th v-for="(c, i) in result.columns" :key="c" :class="{ key: i < result.key.length }">{{ c }}</th></tr></thead>
-          <tbody v-if="view === 'changed'">
-            <tr v-for="(r, i) in result.changed" :key="i" :class="`go-${dirOf('changed', i)}`">
+          <thead>
+            <tr>
+              <th class="dc-arrows-h" />
+              <th v-for="(c, j) in result.columns" :key="c" :class="{ key: j < result.key.length }">
+                <span class="dc-th">
+                  <button class="dc-th-name" :title="$t('dataCompare:sortHint')" @click="sortClick($event, c)">
+                    {{ c }}<span v-if="sortOf(c)" class="dc-th-sort">{{ sortOf(c)!.descending ? '▼' : '▲' }}<sup v-if="sort.length > 1">{{ sortPlace(c) }}</sup></span>
+                  </button>
+                  <button
+                    class="dc-th-more" :class="{ on: filters[c] || (view === 'changed' && changedIn.includes(c)) }"
+                    :aria-label="$t('dataCompare:columnMenu', { column: c })" :title="$t('dataCompare:columnMenu', { column: c })"
+                    @mousedown.stop @click="openMenu($event, j)"
+                  ><el-icon><ei-more-filled /></el-icon></button>
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in shown" :key="r.index" :class="`go-${dirOf(view, r.index)}`">
               <td class="dc-arrows">
-                <button :class="{ on: dirOf('changed', i) === 'left' }" :title="arrowTip('changed', 'left')" @click="toggle('changed', i, 'left')">←</button>
-                <button :class="{ on: dirOf('changed', i) === 'right' }" :title="arrowTip('changed', 'right')" @click="toggle('changed', i, 'right')">→</button>
+                <button :class="{ on: dirOf(view, r.index) === 'left' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'left')" @click="toggle(view, r.index, 'left')">←</button>
+                <button :class="{ on: dirOf(view, r.index) === 'right' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'right')" @click="toggle(view, r.index, 'right')">→</button>
               </td>
               <td v-for="(c, j) in result.columns" :key="c" :class="{ diff: r.diff.includes(j), key: j < result.key.length }">
-                <template v-if="r.diff.includes(j)">
+                <template v-if="r.right && r.diff.includes(j)">
                   <div class="dc-l" :title="$t('dataCompare:left')">{{ show(r.left[j]) }}</div>
                   <div class="dc-r" :title="$t('dataCompare:right')">{{ show(r.right[j]) }}</div>
                 </template>
@@ -648,19 +814,24 @@ watch(() => result.value?.id, () => {
               </td>
             </tr>
           </tbody>
-          <tbody v-else>
-            <tr v-for="(r, i) in rows" :key="i" :class="`go-${dirOf(view, i)}`">
-              <td class="dc-arrows">
-                <button :class="{ on: dirOf(view, i) === 'left' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'left')" @click="toggle(view, i, 'left')">←</button>
-                <button :class="{ on: dirOf(view, i) === 'right' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'right')" @click="toggle(view, i, 'right')">→</button>
-              </td>
-              <td v-for="(c, j) in result.columns" :key="c" :class="{ key: j < result.key.length }">{{ show(r[j]) }}</td>
-            </tr>
-          </tbody>
         </table>
-        <div v-if="view === 'changed' ? !result.changed.length : !rows.length" class="dc-empty">{{ $t('dataCompare:nothing') }}</div>
-        <div class="dc-more">
-          {{ view === 'changed' ? shownOf(result.counts.changed, result.changed) : view === 'only_left' ? shownOf(result.counts.only_left, result.only_left) : shownOf(result.counts.only_right, result.only_right) }}
+        <div v-if="!shown.length" class="dc-empty">{{ $t(filtering ? 'dataCompare:noneMatch' : 'dataCompare:nothing') }}</div>
+        <div class="dc-more">{{ shownNote }}</div>
+      </div>
+      <div v-if="menu" class="dc-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" @mousedown.stop @keydown.esc="closeMenu">
+        <div class="dc-menu-title">{{ menu.column }}</div>
+        <div class="dc-menu-sort">
+          <button :class="{ on: sortOf(menu.column)?.descending === false }" @click="menuSort(false)">▲ {{ $t('dataCompare:sortAsc') }}</button>
+          <button :class="{ on: sortOf(menu.column)?.descending === true }" @click="menuSort(true)">▼ {{ $t('dataCompare:sortDesc') }}</button>
+        </div>
+        <el-select v-model="menu.op" size="small" :teleported="false" class="dc-menu-op">
+          <el-option v-for="o in menuOps" :key="o.op" :label="o.label" :value="o.op" />
+        </el-select>
+        <el-input v-if="menuNeedsValue" v-model="menu.value" size="small" autofocus :placeholder="$t('dataCompare:filterValue')" @keyup.enter="applyMenu" />
+        <el-checkbox v-if="view === 'changed'" v-model="menu.changed" size="small">{{ $t('dataCompare:changedHere') }}</el-checkbox>
+        <div class="dc-menu-actions">
+          <el-button size="small" @click="clearMenu">{{ $t('common:clear') }}</el-button>
+          <el-button size="small" type="primary" @click="applyMenu">{{ $t('common:filter') }}</el-button>
         </div>
       </div>
     </template>
@@ -738,6 +909,27 @@ watch(() => result.value?.id, () => {
 .dc-grid { border-collapse: collapse; font-size: 12px; font-family: var(--nm-mono); }
 .dc-grid th { position: sticky; top: 0; background: var(--nm-bg-elev); color: var(--nm-text-dim); font-weight: 500; text-align: left; padding: 4px 10px; white-space: nowrap; border-bottom: 1px solid var(--nm-border); }
 .dc-grid th.key { color: var(--nm-text-strong); }
+.dc-th { display: inline-flex; align-items: center; gap: 4px; }
+.dc-th-name { border: none; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.dc-th-name:hover { color: var(--nm-text-strong); }
+.dc-th-sort { margin-left: 4px; color: var(--el-color-primary); font-size: 10px; }
+.dc-th-sort sup { font-size: 8px; }
+.dc-th-more { display: inline-flex; border: none; border-radius: 3px; background: none; padding: 1px 2px; color: var(--nm-text-muted); cursor: pointer; }
+.dc-th-more:hover { background: var(--ide-selection); color: var(--nm-text-strong); }
+.dc-th-more.on { background: var(--el-color-primary); color: #fff; }
+.dc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--nm-border); font-size: 12px; }
+.dc-chips-label { color: var(--nm-text-dim); }
+.dc-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 8px; border: 1px solid var(--nm-border); border-radius: 10px; color: var(--nm-text); }
+.dc-chip button { border: none; background: none; padding: 0 3px; color: var(--nm-text-dim); cursor: pointer; font-size: 13px; line-height: 1; }
+.dc-chip button:hover { color: var(--nm-text-strong); }
+.dc-chips-clear { border: none; background: none; padding: 0 4px; color: var(--el-color-primary); cursor: pointer; font-size: 12px; }
+.dc-menu { position: fixed; z-index: 2000; width: 280px; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--nm-border); border-radius: 6px; background: var(--nm-bg-elev); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); font-size: 12px; }
+.dc-menu-title { font-weight: 600; color: var(--nm-text-strong); font-family: var(--nm-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-menu-sort { display: flex; gap: 6px; }
+.dc-menu-sort button { flex: 1; border: 1px solid var(--nm-border); border-radius: 3px; background: none; padding: 3px 6px; color: var(--nm-text); cursor: pointer; font-size: 11.5px; }
+.dc-menu-sort button:hover { border-color: var(--nm-text-dim); }
+.dc-menu-sort button.on { background: var(--ide-selection); border-color: var(--ide-focus, var(--el-color-primary)); }
+.dc-menu-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .dc-grid td { padding: 3px 10px; border-bottom: 1px solid var(--nm-border-soft); white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; color: var(--nm-text); }
 .dc-grid td.key { color: var(--nm-text-strong); }
 .dc-grid td.diff { background: color-mix(in srgb, var(--nm-warning) 10%, transparent); }
