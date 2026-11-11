@@ -283,6 +283,12 @@ fn plan(src: &Source) -> CloneScript {
                 .push(format!("«{name}» no se clona: no es un nombre de q"));
             continue;
         }
+        // Nor one in kdb+'s namespaces or DBine's: the create would replace
+        // `.z.pg` or `.Q` on the target before the rows are refused.
+        if let Err(e) = crate::names::writable(name) {
+            out.notes.push(format!("«{name}» no se clona: {e}"));
+            continue;
+        }
         let Some(info) = info.as_ref().filter(|i| i.kind != "missing") else {
             out.notes.push(format!(
                 "«{name}» no se clona: no se pudo leer en el origen"
@@ -482,6 +488,21 @@ mod tests {
             ["![`trade;();0b;`id`sym!((#;enlist `u;`id);(#;enlist `g;`sym))]"]
         );
         assert!(s.tables[1].after_data.is_empty());
+    }
+
+    #[test]
+    fn a_table_in_kdbs_namespaces_is_never_created() {
+        let mut src = source();
+        // The source says its tables are .z.pg and DBine's staging.
+        src.tables[0] = ".z.pg".into();
+        src.tables[1] = ".dbine_stage.t".into();
+        let s = plan(&src);
+        assert!(s.tables.is_empty(), "{:?}", s.tables);
+        assert!(s.notes.iter().any(|n| n.starts_with("«.z.pg» no se clona")));
+        assert!(s
+            .notes
+            .iter()
+            .any(|n| n.starts_with("«.dbine_stage.t» no se clona")));
     }
 
     #[test]
