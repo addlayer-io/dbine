@@ -10,9 +10,10 @@
 //!
 //! 1. per table: `create`, the designer's `t:([k:`long$()] c:`symbol$())`
 //!    only when nothing has that name yet (so it's safe to run again on a
-//!    resume); its data (the migration's typed read and bulk load); then
-//!    `after_data`: its attributes (`` `s# `` `` `u# `` `` `p# `` `` `g# ``),
-//!    once the rows are in their order.
+//!    resume) and never with a name DBine doesn't write; its data (the
+//!    migration's typed read and bulk load); then `after_data`: its
+//!    attributes (`` `s# `` `` `u# `` `` `p# `` `` `g# ``), once the rows
+//!    are in their order.
 //! 2. `after`: linked columns linked again (`` `t2$c `` over a key of one
 //!    column, `` `t2!c `` over a compound one, whose cells come as row
 //!    indices), each function defined from its source in its own namespace
@@ -57,17 +58,50 @@ macro_rules! reserved_name {
     };
 }
 
+/// What a table's create signals for the same names (it never creates it).
+macro_rules! reserved_table {
+    () => {
+        "'\"DBine no crea tablas con ese nombre: solo nombres de q, fuera de los espacios de nombres de kdb+ y del suyo (.q, .Q, .h, .j, .o, .z, .dbine_stage)\""
+    };
+}
+
+/// q that's true for a symbol DBine never writes on the target, as
+/// [`crate::names::writable`] says on the client: the root (`` ` ``, `.`),
+/// a file handle (`:/path`, which `set` writes as a file) or a name in
+/// kdb+'s namespaces or DBine's (`.z.pg`, and `.z` or `.z.` themselves).
+/// It looks at the symbol itself, so a source that lies about its names
+/// can't get past it with blanks or a NUL.
+macro_rules! never_written {
+    () => {
+        "{v:` vs x; (x in ``.)|(\":\"=first string x)|(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage}"
+    };
+}
+
+/// [`never_written!`], for the tests.
+#[cfg(test)]
+const NEVER_WRITTEN: &str = never_written!();
+
 /// `[n;c;s]`: function `n` defined from its source `s`, parsed in its
 /// namespace `c` (`.`: the root) so its globals resolve as on the source.
-/// The target refuses a file handle (`:/path`, which `set` would write as a
-/// file) and a name in kdb+'s namespaces or DBine's, so a source that lies
-/// about its names can't write files or replace `.z.pg` or `.Q` there.
+/// The target refuses a name DBine never writes ([`never_written!`]).
 pub const FUNCTION: &str = concat!(
-    "{[n;c;s] v:` vs n; if[(\":\"=first string n)|(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; ",
+    "{[n;c;s] if[",
+    never_written!(),
+    " n; ",
     reserved_name!(),
     "]; system \"d \",c; p:@[parse;s;{x}]; system \"d .\"; if[not 100h=type p; ",
     not_code!(),
     "]; n set p}"
+);
+
+/// `[n]`: before table `n`'s create, the target refuses a name DBine never
+/// writes ([`never_written!`]).
+const TABLE_NAME: &str = concat!(
+    "{[n] if[",
+    never_written!(),
+    " n; ",
+    reserved_table!(),
+    "]}"
 );
 
 /// `[n;d]`: root view `n` defined as `d`.
@@ -216,9 +250,9 @@ fn table(name: &str, info: &Info) -> Result<CloneTable> {
         }),
         ..Default::default()
     };
+    let sym = qsym(name);
     let create = format!(
-        "if[not @[{{get x;1b}};{};0b];{}]",
-        qsym(name),
+        "{TABLE_NAME}[{sym}]; if[not @[{{get x;1b}};{sym};0b];{}]",
         table_ddl(&schema, CREATE)?
     );
     let attrs: Vec<(&str, &str)> = info
@@ -481,7 +515,7 @@ mod tests {
         assert_eq!(names, ["trade", "ref"]);
         assert_eq!(
             s.tables[0].create,
-            "if[not @[{get x;1b};`trade;0b];trade:([id:`long$()] sym:`symbol$(); r:`long$(); x:`float$(); note:())]"
+            format!("{TABLE_NAME}[`trade]; if[not @[{{get x;1b}};`trade;0b];trade:([id:`long$()] sym:`symbol$(); r:`long$(); x:`float$(); note:())]")
         );
         assert_eq!(
             s.tables[0].after_data,
@@ -493,16 +527,33 @@ mod tests {
     #[test]
     fn a_table_in_kdbs_namespaces_is_never_created() {
         let mut src = source();
-        // The source says its tables are .z.pg and DBine's staging.
-        src.tables[0] = ".z.pg".into();
-        src.tables[1] = ".dbine_stage.t".into();
+        // The source says its tables are in .z and DBine's staging, or are
+        // those namespaces themselves (`.z set t` replaces all of `.z`).
+        let names = [".z.pg", ".dbine_stage.t", ".z", ".dbine_stage", ".Q"];
+        src.tables = names.iter().map(|n| n.to_string()).collect();
         let s = plan(&src);
         assert!(s.tables.is_empty(), "{:?}", s.tables);
-        assert!(s.notes.iter().any(|n| n.starts_with("«.z.pg» no se clona")));
-        assert!(s
-            .notes
-            .iter()
-            .any(|n| n.starts_with("«.dbine_stage.t» no se clona")));
+        for n in names {
+            assert!(
+                s.notes
+                    .iter()
+                    .any(|x| x.starts_with(&format!("«{n}» no se clona"))
+                        && x.contains("espacio de nombres propio de kdb+")),
+                "{n}: {:?}",
+                s.notes
+            );
+        }
+        // And the target refuses one too, before its create.
+        let t = table(
+            ".z",
+            &info(src.catalog.item(0).and_then(|t| t.item(0))).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            t.create.starts_with(&format!("{TABLE_NAME}[`.z]; ")),
+            "{}",
+            t.create
+        );
     }
 
     #[test]
@@ -535,18 +586,28 @@ mod tests {
         assert!(s.notes.iter().any(|n| n.starts_with("«.z.pg» no se clona")));
         assert!(s.notes.iter().any(|n| n.starts_with("«.Q.qp» no se clona")));
         // And the target refuses one too, before parsing anything.
-        assert!(FUNCTION.starts_with(
-            "{[n;c;s] v:` vs n; if[(\":\"=first string n)|(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; '"
-        ));
+        assert!(FUNCTION.starts_with(&format!("{{[n;c;s] if[{NEVER_WRITTEN} n; '")));
     }
 
-    /// The target's check, on a real kdb+: `DBINE_TEST_KDB_URL=host:port[:user:password]`
-    /// (see tests/live_data.rs). Skipped without one.
-    #[tokio::test]
-    async fn the_target_refuses_a_function_in_kdbs_namespaces() {
+    /// The target's list is the client's ([`crate::names::RESERVED`]).
+    #[test]
+    fn the_target_refuses_the_namespaces_the_client_does() {
+        let list: String = crate::names::RESERVED
+            .iter()
+            .map(|n| format!("`{n}"))
+            .collect();
+        assert!(
+            NEVER_WRITTEN.ends_with(&format!(" in {list}}}")),
+            "{NEVER_WRITTEN}"
+        );
+    }
+
+    /// A session on a real kdb+: `DBINE_TEST_KDB_URL=host:port[:user:password]`
+    /// (see tests/live_data.rs). `None` (the test is skipped) without one.
+    async fn live() -> Option<Box<dyn Session>> {
         let Ok(url) = std::env::var("DBINE_TEST_KDB_URL") else {
             eprintln!("skipped: set DBINE_TEST_KDB_URL");
-            return;
+            return None;
         };
         let mut parts = url.splitn(4, ':');
         let cfg = dbine_driver::ConnectionConfig {
@@ -558,7 +619,97 @@ mod tests {
             ..Default::default()
         };
         let d = crate::drivers().remove(0);
-        let mut s = d.connect(&cfg, None).await.unwrap();
+        Some(d.connect(&cfg, None).await.unwrap())
+    }
+
+    /// `q`'s answer as text (its error's, when it fails).
+    async fn answer(s: &mut Box<dyn Session>, q: &str) -> String {
+        let mut out = dbine_driver::QueryOutcome::default();
+        match s.execute(q, 10, &mut out).await {
+            Err(e) => e.to_string(),
+            Ok(_) => out
+                .error
+                .clone()
+                .unwrap_or_else(|| format!("{:?}", out.results)),
+        }
+    }
+
+    /// The table create's check on a real kdb+: it refuses the names the
+    /// client does, and nothing is created or written.
+    #[tokio::test]
+    async fn the_target_refuses_the_table_names_the_client_does() {
+        let Some(mut s) = live().await else { return };
+        let names = [
+            ".z",
+            ".Q",
+            ".q",
+            ".h",
+            ".dbine_stage",
+            ".z.",
+            ".z.pg",
+            ".Q.x",
+            ":/tmp/x",
+            ".",
+            "",
+            " .z",
+            ".z\0x",
+            "\t:/tmp/x",
+            "t",
+            ".ns.t",
+            ".zz",
+            ".foo",
+            "..z",
+            "my t",
+        ];
+        let syms: Vec<String> = names.iter().map(|n| format!("(`$ {})", qstr(n))).collect();
+        let want: String = names
+            .iter()
+            .map(|n| match crate::names::writable(n) {
+                Err(_) => '1',
+                Ok(_) => '0',
+            })
+            .collect();
+        assert!(
+            want.starts_with("11111111111111") && want.ends_with("000000"),
+            "{want}"
+        );
+        let got = answer(
+            &mut s,
+            &format!("raze string {NEVER_WRITTEN} each ({})", syms.join("; ")),
+        )
+        .await;
+
+        let info = Info {
+            kind: "table".into(),
+            columns: vec![("a".into(), 'j', String::new(), String::new())],
+            key: Vec::new(),
+        };
+        let create = |name: &str| table(name, &info).unwrap().create;
+        let in_z = answer(&mut s, &create(".z.dbine_probe_t")).await;
+        let z_left = answer(&mut s, "@[get;`.z.dbine_probe_t;{`missing}]").await;
+        let file = answer(&mut s, &create(":/tmp/dbine_probe_t")).await;
+        let file_left = answer(&mut s, "@[hcount;`:/tmp/dbine_probe_t;{-1}]").await;
+        // A root name still works.
+        let root = answer(&mut s, &create("dbine_probe_t")).await;
+        let root_type = answer(&mut s, "type dbine_probe_t").await;
+        // Whatever happened, nothing stays.
+        answer(&mut s, "@[{![`.z;();0b;enlist `dbine_probe_t]};::;::]").await;
+        answer(&mut s, "@[hdel;`:/tmp/dbine_probe_t;::]").await;
+        answer(&mut s, "delete dbine_probe_t from `.").await;
+
+        assert!(got.contains(&want), "q {got}, client {want}");
+        assert!(in_z.contains("no crea tablas"), "{in_z}");
+        assert!(z_left.contains("missing"), "{z_left}");
+        assert!(file.contains("no crea tablas"), "{file}");
+        assert!(file_left.contains("-1"), "a file was written: {file_left}");
+        assert!(!root.contains("no crea tablas"), "{root}");
+        assert!(root_type.contains("98"), "{root_type}");
+    }
+
+    /// The function statement's check, on a real kdb+.
+    #[tokio::test]
+    async fn the_target_refuses_a_function_in_kdbs_namespaces() {
+        let Some(mut s) = live().await else { return };
         let refused = format!("{FUNCTION}[`.z.dbine_probe;\".\";\"{{x}}\"]");
         let mut out = dbine_driver::QueryOutcome::default();
         let r = s.execute(&refused, 10, &mut out).await;

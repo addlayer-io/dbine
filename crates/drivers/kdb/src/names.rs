@@ -110,11 +110,36 @@ pub fn resolved_table(t: &TableSchema) -> Result<TableSchema> {
     Ok(out)
 }
 
-/// The namespace of q name `q` is one of [`RESERVED`]: refused for
-/// anything that writes.
+/// `q` as the symbol the server makes of it: up to its first NUL (where a
+/// symbol ends, over IPC and in `` `$"…" ``), without the blanks `` `$ ``
+/// trims at either end. ` .z` and `.z<NUL>x` are q's `.z`.
+fn as_symbol(q: &str) -> &str {
+    q.split('\0')
+        .next()
+        .unwrap_or("")
+        .trim_matches(|c: char| c.is_ascii_whitespace() || c.is_ascii_control())
+}
+
+/// Refused for anything that writes: a q name in one of the [`RESERVED`]
+/// namespaces (`.z.pg`, and `.z` or `.z.` themselves), a file handle
+/// (`:/path`, which `set` and `insert` write as a file) and the root (`.`).
+/// It checks the symbol the server gets ([`as_symbol`]), not the text.
 pub fn writable(q: &str) -> Result<()> {
-    match split(q).0 {
-        Some(ns) if RESERVED.contains(&&ns[1..]) => Err(Error::Unsupported(reserved_message(&ns))),
+    let s = as_symbol(q);
+    if s.starts_with(':') {
+        return Err(Error::Unsupported(format!(
+            "«{s}» no es un nombre de objeto: en q, un nombre que empieza con : es un archivo."
+        )));
+    }
+    if s.is_empty() || s == "." {
+        return Err(Error::Unsupported(format!(
+            "«{s}» no es un nombre de objeto: en q es el espacio de nombres raíz."
+        )));
+    }
+    match s.strip_prefix('.').and_then(|rest| rest.split('.').next()) {
+        Some(ns) if RESERVED.contains(&ns) => {
+            Err(Error::Unsupported(reserved_message(&format!(".{ns}"))))
+        }
         _ => Ok(()),
     }
 }
@@ -278,7 +303,28 @@ mod tests {
         for q in [".z.pg", ".q.x", ".Q.t", ".dbine_stage.w"] {
             assert!(writable(q).is_err(), "{q}");
         }
-        for q in ["t", ".ns.t", ".zz.t", ".u.t"] {
+        // The namespaces themselves: `.z set t` replaces all of `.z`, and
+        // `.z.` writes its null key.
+        for q in [".z", ".Q", ".q", ".dbine_stage", ".z.", ".Q.", ".z..pg"] {
+            let e = writable(q).unwrap_err().to_string();
+            assert!(e.contains("espacio de nombres propio de kdb+"), "{q}: {e}");
+        }
+        // As the server gets them: q's `$` trims blanks, a symbol ends at
+        // its first NUL.
+        for q in [" .z", "\t.Q.x", ".z\r", ".z\0pg", ".dbine_stage\0"] {
+            assert!(writable(q).is_err(), "{q:?}");
+        }
+        // A file handle, which `set` and `insert` write as a file.
+        for q in [":/tmp/x", ":x", " :/tmp/x", "\t:/tmp/x"] {
+            let e = writable(q).unwrap_err().to_string();
+            assert!(e.contains("es un archivo"), "{q:?}: {e}");
+        }
+        // The root (`` `. set t `` replaces every global).
+        for q in [".", " . ", "\0.z", " "] {
+            let e = writable(q).unwrap_err().to_string();
+            assert!(e.contains("espacio de nombres raíz"), "{q:?}: {e}");
+        }
+        for q in ["t", ".ns.t", ".zz.t", ".u.t", ".foo", ".zz", "my t", "..z"] {
             assert!(writable(q).is_ok(), "{q}");
         }
         assert_eq!(top_namespace("ns").unwrap(), ".ns");
