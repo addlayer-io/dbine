@@ -9,17 +9,13 @@ _Updated 2026-11-11._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 2 | 0 |
-| Trivy (secrets, configuration) | 0 | 1 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| TM-DS-0002-b007415f | HIGH | trivy | DS-0002: Image user should not be 'root' | `.clusterfuzzlite/Dockerfile` | pending |
-| OSV-RUSTSEC-2026-0459-libsqlite3-sys-13ee4b | MEDIUM | osv | libsqlite3-sys 0.28.0: `libsqlite3-sys` via C SQLite CVE-2026-119375 | `Cargo.lock` | upgrade to 0.39.0 |
-| OSV-RUSTSEC-2026-0459-libsqlite3-sys-c4afe4 | MEDIUM | osv | libsqlite3-sys 0.28.0: `libsqlite3-sys` via C SQLite CVE-2026-119375 | `fuzz/Cargo.lock` | upgrade to 0.39.0 |
+_None._
 
 ## What the last scans covered
 
@@ -27,9 +23,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
 | codeql | 2026-11-11 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-11 | every lockfile (Cargo, npm) at [`8d3ddbb68`](https://github.com/addlayer-io/dbine/commit/8d3ddbb6829b) | 2 open | — |
-| scorecard | 2026-11-09 | repository settings and workflows at [`d13861d2f`](https://github.com/addlayer-io/dbine/commit/d13861d2f764) | score 7.2/10 | — |
-| trivy | 2026-11-11 | whole repository at [`8d3ddbb68`](https://github.com/addlayer-io/dbine/commit/8d3ddbb6829b) | 1 open | — |
+| osv | 2026-11-11 | every lockfile (Cargo, npm) at [`926bcf4e7`](https://github.com/addlayer-io/dbine/commit/926bcf4e7ba5) | 0 open | — |
+| scorecard | 2026-11-11 | repository settings and workflows at [`8d3ddbb68`](https://github.com/addlayer-io/dbine/commit/8d3ddbb6829b) | score 7.2/10 | — |
+| trivy | 2026-11-11 | whole repository at [`926bcf4e7`](https://github.com/addlayer-io/dbine/commit/926bcf4e7ba5) | 0 open | — |
 
 ## Not counted, and why
 
@@ -399,16 +395,16 @@ Dependencies their authors no longer maintain. Not a vulnerability, so not count
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.2/10** (2026-11-09). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.2/10** (2026-11-11). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/10 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/8 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 6 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 8/10 — 2 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
-| CI-Tests: 4/10 — 4 out of 10 merged PRs checked by a CI test -- score normalized to 4 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| Vulnerabilities: 7/10 — 3 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| CI-Tests: 5/10 — 4 out of 8 merged PRs checked by a CI test -- score normalized to 5 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

@@ -13,18 +13,18 @@
     {
       "source": "osv",
       "date": "2026-11-11",
-      "revision": "8d3ddbb6829b",
+      "revision": "926bcf4e7ba5",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 2
+      "found": 0
     },
     {
       "source": "trivy",
       "date": "2026-11-11",
-      "revision": "8d3ddbb6829b",
+      "revision": "926bcf4e7ba5",
       "kind": "full",
       "scope": "whole repository",
-      "found": 1
+      "found": 0
     },
     {
       "source": "codeql",
@@ -36,8 +36,8 @@
     },
     {
       "source": "scorecard",
-      "date": "2026-11-09",
-      "revision": "d13861d2f764",
+      "date": "2026-11-11",
+      "revision": "8d3ddbb6829b",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.2
@@ -4438,30 +4438,6 @@
       "status": "notice"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0459-libsqlite3-sys-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "libsqlite3-sys 0.28.0: `libsqlite3-sys` via C SQLite CVE-2026-119375",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0459",
-      "fixed_version": "0.39.0",
-      "found": "2026-11-09",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0459-libsqlite3-sys-c4afe4",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "libsqlite3-sys 0.28.0: `libsqlite3-sys` via C SQLite CVE-2026-119375",
-      "component": "fuzz/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0459",
-      "fixed_version": "0.39.0",
-      "found": "2026-11-09",
-      "status": "open"
-    },
-    {
       "id": "OSV-RUSTSEC-2026-0486-rustix-13ee4b",
       "source": "osv",
       "severity": "NOTICE",
@@ -4524,7 +4500,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 4/10 — 4 out of 10 merged PRs checked by a CI test -- score normalized to 4",
+      "title": "CI-Tests: 5/10 — 4 out of 8 merged PRs checked by a CI test -- score normalized to 5",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-05",
@@ -4546,7 +4522,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/10 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/8 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4590,20 +4566,10 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 8/10 — 2 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 7/10 — 3 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-11-05",
-      "status": "open"
-    },
-    {
-      "id": "TM-DS-0002-b007415f",
-      "source": "trivy",
-      "severity": "HIGH",
-      "kind": "Insecure configuration",
-      "title": "DS-0002: Image user should not be 'root'",
-      "component": ".clusterfuzzlite/Dockerfile",
-      "found": "2026-11-04",
       "status": "open"
     }
   ],
