@@ -1,6 +1,36 @@
 # Zmiany
 
 
+## [1.5.0] - 2026-11-11
+
+### Nowości
+- **AI w Porównaj schematy:** kolumny i tabele, które wyglądają na przemianowane, są wskazywane, aby można je było przemianować i zachować ich dane zamiast usuwać i dodawać, a **Znajdź zmiany nazw za pomocą AI** znajduje te, których nazwy nie są do siebie podobne. W oknie synchronizacji **Sprawdź za pomocą AI** zleca asystentowi sprawdzenie skryptu pod kątem tego, co może się nie udać lub spowodować utratę danych, mierząc to odczytami, które zatwierdzasz, a **Podsumuj za pomocą AI** opisuje zmiany na potrzeby prośby o zatwierdzenie lub zgłoszenia.
+- **AI w Porównaj dane:** **Wyjaśnij różnice** podaje, co różnice mają wspólnego i jaka jest ich prawdopodobna przyczyna, na przykład strefa czasowa, zaokrąglenie lub opóźniona synchronizacja, na podstawie liczb i typowych odchyleń z wszystkich różnic. **Filtruj z AI** zamienia prośbę wyrażoną słowami na filtry kolumn i kolejność, a **Zaproponuj klucz** znajduje klucz tabeli bez klucza głównego. AI nigdy nie otrzymuje wartości wierszy.
+- **Sortowanie i filtrowanie w Porównaj dane:** przy tysiącach różnic sortuj według dowolnej kolumny i filtruj każdą z jej menu z trzema kropkami (równe, różne, większe, zawiera…) albo zostaw tylko wiersze, w których kolumna się zmieniła. Działa na wszystkich wierszach, nie tylko na tych widocznych na ekranie, a „Wszystkie” zaznacza wtedy tylko wiersze spełniające filtr.
+- **Tunele SSH z `~/.ssh/config`:** tunel może używać `Host` z Twojej konfiguracji SSH zamiast ręcznego wpisywania serwera. DBine korzysta z tego, co OpenSSH ustala dla tego hosta (serwer, użytkownik, klucze, agent), w tym z łańcuchów `ProxyJump`, w których każdy serwer loguje się własnym użytkownikiem i kluczami, oraz z `ProxyCommand`, który uruchamia się dopiero po potwierdzeniu dokładnego polecenia. Trasa jest pokazywana przed połączeniem.
+- **Konteksty dla asystenta AI:** nowy węzeł **Konteksty** przy każdym połączeniu i bazie danych przechowuje notatki, które asystent otrzymuje w każdym czacie w tym miejscu, na przykład co oznacza kod statusu lub jak liczona jest metryka, żeby nie trzeba było ich powtarzać. W **Ustawienia › Asystent AI** jest tekst dla wszystkich rozmów. Czat pokazuje, które są używane, i pozwala wyłączyć jeden dla danej rozmowy. Kierują asystentem; nie zmieniają tego, co może robić.
+- **Synchronizacja i klonowanie danych KDB+:** **Porównaj dane** znajduje i naprawia wiersze różniące się między dwiema tabelami kdb+, obliczając ich skróty na każdym serwerze, dzięki czemu przesyłane są tylko zmienione wiersze, a migracja może sklonować proces kdb+ do innego razem z tabelami, kluczami, typami, atrybutami, powiązanymi kolumnami, funkcjami i widokami.
+- **Przestrzenie nazw KDB+ jako schematy:** eksplorator grupuje tabele, widoki i funkcje pod ich przestrzenią nazw, **Nowy schemat…** i **Usuń schemat…** tworzą i usuwają przestrzenie nazw, a migracje do kdb+ zachowują każdy schemat źródłowy jako przestrzeń nazw.
+- **Kontrola kondycji i właściwości KDB+:** kontrola kondycji odczytuje sam proces (pamięć względem limitu `-w`, odśmiecanie pamięci, internowane symbole, wolni subskrybenci, brak limitu czasu zapytań, port bez hasła, TLS), a **Właściwości** pokazuje i zmienia ustawienia, które kdb+ pozwala zmieniać w trakcie działania (`\g`, `\T`, `\P`, `\o`, `\z`, `\w`).
+- **Atrybuty KDB+ jako indeksy:** `s#`, `u#`, `p#` i `g#` są widoczne w strukturze tabeli i można je ustawiać oraz usuwać w projektancie tabel, porównaniu i synchronizacji; konwersja schematów zamienia je na indeksy i z powrotem.
+- **Zmiany nazw w KDB+:** **Zmień nazwę…** działa także dla widoków, funkcji, zmiennych i przestrzeni nazw, oprócz tabel i kolumn.
+
+### Ulepszenia
+- **Porównaj schematy filtruje według stanu:** każda plakietka nad listą (różne, tylko po lewej, tylko po prawej, równe) włącza teraz i wyłącza swoje wiersze, dzięki czemu można zobaczyć tylko to, co jest równe, lub tylko to, co jest po jednej stronie.
+- **Zapisy z notatników i liczba wierszy w KDB+:** komórka zapisu notatnika zapisuje do tabel kdb+ we wszystkich trybach (wstawianie, aktualizacja według klucza, wstawianie lub aktualizacja, zastąpienie), stosowana w jednym kroku, więc w razie błędu tabela zostaje taka, jaka była, a dokumentacja i migracje eksploratora pobierają liczbę wierszy każdej tabeli bez jej skanowania.
+
+### Poprawki
+- **Poprawka bezpieczeństwa we wbudowanym SQLite:** własny SQLite DBine, używany do ustawień oraz do plików SQLite i libSQL, został zaktualizowany do wersji, która naprawia CVE-2026-119375.
+- **Skrypty synchronizacji między silnikami:** liczby odczytane z PostgreSQL trafiały do skryptu jako tekst, więc MongoDB i inne silniki zachowujące typy mogły zapisać `"9"` zamiast `9` lub odrzucić skrypt. Każda wartość jest teraz zapisywana tak, jak przyjmuje ją kolumna docelowa.
+- **Porównaj dane z wartościami logicznymi między silnikami:** `true` i `false` z PostgreSQL nie pasowały do tych z innego silnika, więc każdy wiersz tabeli z kolumną logiczną wyświetlał się jako różny, a skrypt synchronizacji mógł zawierać wartość, której kolumna docelowa nie przyjmuje. Teraz są porównywane jako to, czym są.
+- **Porównaj dane na dużych tabelach:** gdy tabela ma więcej wierszy, niż odczytuje porównanie (200 000 z każdej strony), każda strona mogła odczytać inne wiersze, więc wiersz mógł wyglądać na brakujący po drugiej stronie, chociaż tam był, a skrypt synchronizacji mógł go usunąć lub wstawić. Obie strony są teraz odczytywane w kolejności klucza, a porównanie częściowe aktualizuje tylko wiersze znalezione po obu stronach.
+- **Duże wyniki w Databricks:** zapytanie, którego wynik przekraczał 25 MiB, kończyło się błędem „Inline byte limit exceeded”, nawet gdy pokazywano tylko pierwsze wiersze. Teraz pobiera żądane wiersze i oznacza je jako częściowe, a eksporty i wykresy odczytują cały wynik.
+- **Pobieranie wyników z Databricks:** gdy nie dało się pobrać części wyniku, błąd pokazywał jej łącze, które zawiera tymczasowe poświadczenie. Już tego nie robi.
+- **Wybór profilu SSH:** na karcie tunelu SSH połączenia lista profili zmniejszyła się do pustego pola. Teraz zajmuje szerokość wiersza i informuje, gdy połączenie używa własnych ustawień.
+- **Porównaj schematy z wybranym schematem:** katalogi pełnotekstowe i listy wyrazów ignorowanych nie znikają już z porównania, więc ich różnice są widoczne, a skrypt może utworzyć katalog potrzebny indeksowi.
+- **Synchronizacja indeksów pełnotekstowych SQL Server:** indeks przeniesiony do tabeli, której klucz główny ma inną nazwę, używa teraz klucza tej tabeli, a różnica wyłącznie w tej nazwie nie jest już pokazywana jako zmiana. Usunięcie katalogu pełnotekstowego lub listy wyrazów ignorowanych w Porównaj schematy wyświetla teraz indeksy, które z niego korzystają.
+- **Migracje do KDB+:** opróżnienie tabeli kdb+ w celu ponownego skopiowania (lub wznowienia przerwanej kopii) zachowuje jej kolumny, typy i klucz zamiast zostawiać ją bez kolumn.
+
 ## [1.4.2] - 2026-11-04
 
 ### Nowości

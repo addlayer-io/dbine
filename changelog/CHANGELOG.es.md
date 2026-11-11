@@ -1,5 +1,35 @@
 # Cambios
 
+## [1.5.0] - 2026-11-11
+
+### Nuevo
+- **IA en Comparar esquemas:** se señalan las columnas y tablas que parecen renombradas, para renombrarlas y conservar sus datos en lugar de borrarlas y agregarlas, y **Buscar renombres con IA** encuentra las que tienen nombres poco parecidos. En el diálogo de sincronización, **Revisar con IA** hace que el asistente revise el script en busca de lo que puede fallar o perder datos, midiéndolo con lecturas que aprobás, y **Resumir con IA** describe los cambios para un pedido de aprobación o un ticket.
+- **IA en Comparar datos:** **Explicar diferencias** cuenta qué tienen en común las diferencias y su causa probable, como una zona horaria, un redondeo o una sincronización atrasada, a partir de cantidades y diferencias típicas sobre todas ellas. **Filtrar con IA** convierte un pedido en palabras en los filtros por columna y el orden, y **Sugerir clave** encuentra la clave de una tabla sin clave primaria. La IA nunca recibe los valores de las filas.
+- **Ordenar y filtrar en Comparar datos:** con miles de diferencias, ordená por cualquier columna y filtrá cada una desde sus tres puntos (igual, distinto, mayor, contiene…), o dejá solo las filas donde una columna cambió. Funciona sobre todas las filas, no solo las que están en pantalla, y «Todos» marca entonces solo las filas que pasan el filtro.
+- **Túneles SSH desde `~/.ssh/config`:** un túnel puede usar un `Host` de tu configuración SSH en lugar de cargar el servidor a mano. DBine usa lo que OpenSSH resuelve para él (servidor, usuario, claves, agente), incluidas las cadenas `ProxyJump` donde cada servidor inicia sesión con su propio usuario y claves, y `ProxyCommand`, que se ejecuta recién después de que confirmás el comando exacto. Muestra el camino antes de conectar.
+- **Contextos para el asistente de IA:** un nodo nuevo **Contextos** en cada conexión y base de datos guarda notas que el asistente recibe en cada chat de ahí, como qué significa un código de estado o cómo se calcula una métrica, para que no las repitas. **Ajustes › Asistente de IA** tiene un texto para todas las conversaciones. El chat muestra cuáles están en uso y puede desactivar una para esa conversación. Orientan al asistente; no cambian lo que tiene permitido hacer.
+- **Sincronización y clonado de datos en KDB+:** **Comparar datos** encuentra y corrige las filas que difieren entre dos tablas de kdb+, calculando sus hashes en cada servidor para que viajen solo las filas que cambiaron, y una migración puede clonar un proceso de kdb+ en otro con sus tablas, claves, tipos, atributos, columnas enlazadas, funciones y vistas.
+- **Espacios de nombres de KDB+ como esquemas:** el explorador agrupa bajo cada espacio de nombres sus tablas, vistas y funciones, **Nuevo esquema…** y **Borrar esquema…** crean y borran espacios de nombres, y las migraciones hacia kdb+ conservan cada esquema de origen como un espacio de nombres.
+- **Chequeo de salud y propiedades de KDB+:** el chequeo de salud lee el proceso mismo (memoria contra el límite `-w`, recolección de basura, símbolos internados, suscriptores lentos, falta de tiempo límite para consultas, un puerto sin contraseña, TLS), y **Propiedades** muestra y cambia los ajustes que kdb+ deja cambiar mientras corre (`\g`, `\T`, `\P`, `\o`, `\z`, `\w`).
+- **Atributos de KDB+ como índices:** `s#`, `u#`, `p#` y `g#` se muestran en la estructura de una tabla y se pueden poner y quitar desde el diseñador de tablas, la comparación y la sincronización; la conversión de esquemas los convierte en índices y de vuelta.
+- **Renombres en KDB+:** **Renombrar…** también funciona sobre vistas, funciones, variables y espacios de nombres, además de tablas y columnas.
+
+### Mejoras
+- **Comparar esquemas filtra por estado:** cada insignia sobre la lista (distinto, solo a la izquierda, solo a la derecha, igual) ahora activa y desactiva sus filas, para ver solo lo que es igual, o solo lo que está de un lado.
+- **Escrituras de notebook y conteo de filas en KDB+:** la celda de escritura de un notebook escribe en tablas de kdb+ en todos los modos (insertar, actualizar por clave, insertar o actualizar, reemplazar), aplicado en un solo paso para que un fallo deje la tabla como estaba, y la documentación y las migraciones del explorador obtienen la cantidad de filas de cada tabla sin recorrerla.
+
+### Correcciones
+- **Corrección de seguridad en el SQLite incorporado:** el SQLite propio de DBine, que usa para sus ajustes y para los archivos SQLite y libSQL, se actualizó a una versión que corrige CVE-2026-119375.
+- **Scripts de sincronización entre motores:** los números leídos de PostgreSQL entraban al script como texto, así que MongoDB y otros motores que conservan tipos podían guardar `"9"` en lugar de `9`, o rechazar el script. Ahora cada valor se escribe como lo toma su columna de destino.
+- **Comparar datos con booleanos entre motores:** los `true` y `false` de PostgreSQL no coincidían con los de otro motor, así que todas las filas de una tabla con una columna booleana aparecían como distintas, y el script de sincronización podía llevar un valor que la columna de destino no acepta. Ahora se comparan como lo que son.
+- **Comparar datos en tablas grandes:** cuando una tabla tiene más filas de las que lee una comparación (200.000 por lado), cada lado podía leer filas distintas, así que una fila podía figurar como faltante del otro lado sin serlo, y el script de sincronización podía borrarla o insertarla. Ahora ambos lados se leen en orden de clave, y una comparación parcial solo actualiza las filas que están en los dos lados.
+- **Resultados grandes en Databricks:** una consulta cuyo resultado pasaba los 25 MiB fallaba con «Inline byte limit exceeded», incluso cuando solo se mostraban sus primeras filas. Ahora trae las filas que pediste y las marca como parciales, y las exportaciones y los gráficos leen el resultado completo.
+- **Descargas de resultados de Databricks:** cuando no se podía descargar una parte de un resultado, el error mostraba su enlace, que lleva una credencial temporal. Ya no lo hace.
+- **Selector de perfil SSH:** en la pestaña del túnel SSH de una conexión, la lista de perfiles se había reducido a una caja vacía. Ahora ocupa el ancho de la fila e indica cuándo la conexión usa su propia configuración.
+- **Comparar esquemas con un esquema seleccionado:** los catálogos de texto completo y las listas de palabras vacías ya no desaparecen de la comparación, así que se ven sus diferencias y el script puede crear el catálogo que necesita un índice.
+- **Sincronización de índices de texto completo de SQL Server:** un índice llevado a una tabla cuya clave primaria tiene otro nombre ahora usa la clave de esa tabla, y una diferencia solo en ese nombre ya no aparece como un cambio. Borrar un catálogo o una lista de palabras vacías de texto completo en Comparar esquemas ahora lista los índices que lo usan.
+- **Migraciones hacia KDB+:** vaciar una tabla de kdb+ para copiarla de nuevo (o para retomar una copia cortada) conserva sus columnas, tipos y clave, en lugar de dejarla sin columnas.
+
 ## [1.4.2] - 2026-11-04
 
 ### Nuevo
