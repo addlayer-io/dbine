@@ -1683,7 +1683,6 @@ pub fn read_sqlite(
     let mut stmt = conn.prepare(&sql).map_err(fail)?;
     let columns: Vec<dbine_driver::ResultColumn> = stmt
         .columns()
-        .iter()
         .map(|c| dbine_driver::ResultColumn {
             name: c.name().to_string(),
             type_name: c.decl_type().unwrap_or("").to_string(),

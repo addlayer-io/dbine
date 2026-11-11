@@ -216,7 +216,6 @@ pub(crate) fn read(c: &Connection, spec: &ReadSpec, sink: &BatchSinkRef) -> Resu
     let not_null = not_null(c, &spec.table);
     let cols: Vec<TransferColumn> = stmt
         .columns()
-        .iter()
         .map(|col| TransferColumn {
             name: col.name().to_string(),
             type_name: col.decl_type().unwrap_or("").to_string(),
