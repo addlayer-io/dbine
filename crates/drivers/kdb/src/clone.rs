@@ -49,10 +49,22 @@ macro_rules! not_code {
     };
 }
 
+/// What the function statement signals for a name in kdb+'s namespaces or
+/// DBine's (it never defines it).
+macro_rules! reserved_name {
+    () => {
+        "'\"DBine no define funciones en los espacios de nombres de kdb+ ni en el suyo (.q, .Q, .h, .j, .o, .z, .dbine_stage)\""
+    };
+}
+
 /// `[n;c;s]`: function `n` defined from its source `s`, parsed in its
 /// namespace `c` (`.`: the root) so its globals resolve as on the source.
+/// A name in kdb+'s namespaces or DBine's is refused here too, so a source
+/// that lies about its names can't replace `.z.pg` or `.Q` on the target.
 pub const FUNCTION: &str = concat!(
-    "{[n;c;s] system \"d \",c; p:@[parse;s;{x}]; system \"d .\"; if[not 100h=type p; ",
+    "{[n;c;s] v:` vs n; if[(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; ",
+    reserved_name!(),
+    "]; system \"d \",c; p:@[parse;s;{x}]; system \"d .\"; if[not 100h=type p; ",
     not_code!(),
     "]; n set p}"
 );
@@ -309,9 +321,15 @@ fn plan(src: &Source) -> CloneScript {
         }
     }
 
-    // Functions, from their own source and in their own namespace.
+    // Functions, from their own source and in their own namespace. The
+    // names come from the source: kdb+'s namespaces and DBine's never get
+    // one, whatever the source says (the target refuses them too).
     let values = src.catalog.item(1);
     for (i, f) in src.functions.iter().enumerate() {
+        if let Err(e) = crate::names::writable(f) {
+            out.notes.push(format!("«{f}» no se clona: {e}"));
+            continue;
+        }
         match values.as_ref().and_then(|v| v.item(i)) {
             Some(K::Lambda(ctx, text)) => {
                 let space = if ctx.is_empty() {
@@ -452,6 +470,83 @@ mod tests {
             ["![`trade;();0b;`id`sym!((#;enlist `u;`id);(#;enlist `g;`sym))]"]
         );
         assert!(s.tables[1].after_data.is_empty());
+    }
+
+    #[test]
+    fn a_function_in_kdbs_namespaces_is_never_defined() {
+        let mut src = source();
+        // The source says its first function is .z.pg.
+        src.functions[0] = ".z.pg".into();
+        src.functions[1] = ".Q.qp".into();
+        let s = plan(&src);
+        assert!(
+            !s.after
+                .iter()
+                .any(|a| a.contains("`.z.pg") || a.contains("`.Q.qp")),
+            "{:?}",
+            s.after
+        );
+        assert!(s.notes.iter().any(|n| n.starts_with("«.z.pg» no se clona")));
+        assert!(s.notes.iter().any(|n| n.starts_with("«.Q.qp» no se clona")));
+        // And the target refuses one too, before parsing anything.
+        assert!(FUNCTION.starts_with(
+            "{[n;c;s] v:` vs n; if[(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; '"
+        ));
+    }
+
+    /// The target's check, on a real kdb+: `DBINE_TEST_KDB_URL=host:port[:user:password]`
+    /// (see tests/live_data.rs). Skipped without one.
+    #[tokio::test]
+    async fn the_target_refuses_a_function_in_kdbs_namespaces() {
+        let Ok(url) = std::env::var("DBINE_TEST_KDB_URL") else {
+            eprintln!("skipped: set DBINE_TEST_KDB_URL");
+            return;
+        };
+        let mut parts = url.splitn(4, ':');
+        let cfg = dbine_driver::ConnectionConfig {
+            host: parts.next().unwrap_or("127.0.0.1").to_string(),
+            port: parts.next().and_then(|p| p.parse().ok()).unwrap_or(5000),
+            username: parts.next().map(str::to_string),
+            password: parts.next().map(str::to_string),
+            options: [("tcps".to_string(), "false".to_string())].into(),
+            ..Default::default()
+        };
+        let d = crate::drivers().remove(0);
+        let mut s = d.connect(&cfg, None).await.unwrap();
+        let refused = format!("{FUNCTION}[`.z.dbine_probe;\".\";\"{{x}}\"]");
+        let mut out = dbine_driver::QueryOutcome::default();
+        let r = s.execute(&refused, 10, &mut out).await;
+        let err = r
+            .err()
+            .map(|e| e.to_string())
+            .or(out.error.clone())
+            .unwrap_or_default();
+        assert!(err.contains("espacios de nombres"), "{err}");
+        let mut out = dbine_driver::QueryOutcome::default();
+        s.execute("@[get;`.z.dbine_probe;{`missing}]", 10, &mut out)
+            .await
+            .unwrap();
+        assert!(
+            format!("{:?}", out.results).contains("missing"),
+            "{:?}",
+            out.results
+        );
+        // A root name still works, and goes away again.
+        let mut out = dbine_driver::QueryOutcome::default();
+        let ok = format!("{FUNCTION}[`dbine_probe_fn;\".\";\"{{x+1}}\"]");
+        s.execute(&ok, 10, &mut out).await.unwrap();
+        assert!(out.error.is_none(), "{:?}", out.error);
+        let mut out = dbine_driver::QueryOutcome::default();
+        s.execute("dbine_probe_fn 41", 10, &mut out).await.unwrap();
+        assert!(
+            format!("{:?}", out.results).contains("42"),
+            "{:?}",
+            out.results
+        );
+        let mut out = dbine_driver::QueryOutcome::default();
+        s.execute("delete dbine_probe_fn from `.", 10, &mut out)
+            .await
+            .unwrap();
     }
 
     #[test]
