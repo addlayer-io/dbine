@@ -94,7 +94,9 @@ async fn rename(
     Ok(())
 }
 
-const CLEANUP: &str = "{![`.;();0b;] (key `.) where (key `.) like \"dbine_rn_*\"; n:(key `) where (key `) like \"dbine_rn_*\"; if[count n; ![`;();0b;n]]; f:`$\":dbine_rn_s/\",/:string key `:dbine_rn_s; if[count f; hdel each f; hdel `:dbine_rn_s]}[]";
+// `![`.;();0b;x]` with an empty `x` empties the whole root namespace: each
+// delete runs only when something matched.
+const CLEANUP: &str = "{r:(key `.) where (key `.) like \"dbine_rn_*\"; if[count r; ![`.;();0b;r]]; n:(key `) where (key `) like \"dbine_rn_*\"; if[count n; ![`;();0b;n]]; f:`$\":dbine_rn_s/\",/:string key `:dbine_rn_s; if[count f; hdel each f; hdel `:dbine_rn_s]}[]";
 
 #[tokio::test]
 #[ignore]
