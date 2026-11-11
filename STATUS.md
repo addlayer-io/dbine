@@ -8,20 +8,29 @@ _Updated 2026-11-11._
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
-| claude-security (source-code review) | 0 | 0 | 0 | 0 |
+| claude-security (source-code review) | 0 | 0 | 2 | 6 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| CS-0414f74462 | MEDIUM | claude-security | Improper Handling of Exceptional Conditions | `crates/dbine-core` | pending |
+| CS-9f525ec1d9 | MEDIUM | claude-security | Command Injection | `src-tauri` | pending |
+| CS-00d6167f10 | LOW | claude-security | Incorrect Authorization | `crates/drivers/kdb` | pending |
+| CS-5ba9878cb4 | LOW | claude-security | Externally Controlled Reference to a Resource in Another Sphere | `crates/drivers/kdb` | pending |
+| CS-67f53e2e7a | LOW | claude-security | Incorrect Authorization | `src-tauri` | pending |
+| CS-ba01026647 | LOW | claude-security | Generation of Error Message Containing Sensitive Information | `src-tauri` | pending |
+| CS-bf59604fa8 | LOW | claude-security | Incorrect Authorization | `crates/drivers/kdb` | pending |
+| CS-eeef4c97b4 | LOW | claude-security | Incorrect Comparison | `crates/drivers/kdb` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.2.2 | 2026-10-29 | 5f114c79..3a91fa25 (v1.2.1..release 1.2.2) | 0 open | — |
+| claude-security, release v1.5.0 | 2026-11-11 | 6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e, up to the release commit, in vendor/winauth and crates/drivers/kdb, the only code that range changes | 8 open | the release-notes text added in 2e24a42e (CHANGELOG.md, changelog/*) |
 | codeql | 2026-11-11 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-11-11 | every lockfile (Cargo, npm) at [`926bcf4e7`](https://github.com/addlayer-io/dbine/commit/926bcf4e7ba5) | 0 open | — |
 | scorecard | 2026-11-11 | repository settings and workflows at [`8d3ddbb68`](https://github.com/addlayer-io/dbine/commit/8d3ddbb6829b) | score 7.2/10 | — |
