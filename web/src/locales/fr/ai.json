@@ -114,7 +114,9 @@
     "approve": "Approuver",
     "reject": "Refuser",
     "approveAll": "Approuver les lectures dans cette conversation",
-    "note": "Lecture seule : DBine l'exécute dans une session qui refuse toute modification. Si vous la refusez, le modèle continue sans ces données."
+    "note": "Lecture seule : DBine l'exécute dans une session qui refuse toute modification. Si vous la refusez, le modèle continue sans ces données.",
+    "titleStructure": "Le modèle ({{model}}) veut lire la structure de {{connection}} › {{database}} :",
+    "noteStructure": "Uniquement la structure, jamais de lignes. Avec un modèle externe, DBine demande avant chaque lecture choisie par le modèle : un serveur ne peut ainsi pas utiliser ces lectures pour sortir des données de la conversation ou de votre ordinateur. Si vous la refusez, le modèle continue sans cette structure."
   },
   "link": {
     "title": "Ouvrir le lien",

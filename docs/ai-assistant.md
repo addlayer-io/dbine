@@ -49,10 +49,11 @@ front (it would not fit in the context): it asks for it as it needs it.
   the model goes on. This format is used instead of each model's native tools
   because in the test Qwen2.5-Coder with llama.cpp did not generate native
   calls; the own format works the same with the three local providers.
-- **What it can read without asking:** the connection's databases, a
-  database's objects, a table's structure (`describe_object`) and the usage of
-  its indexes (`index_usage`). These are catalog reads that DBine does, not
-  SQL from the model.
+- **What it can read without asking:** with a local model, the connection's
+  databases, a database's objects, a table's structure (`describe_object`) and
+  the usage of its indexes (`index_usage`). These are catalog reads that DBine
+  does, not SQL from the model. With Claude Code or Codex, only the list of
+  databases: their other catalog reads ask first (below).
 - **What it reads only with your approval:** sample rows and **read-only**
   queries (`sample_rows`, `run_query`, `explain`). Before running each one,
   the chat shows a card with the model (for example "Qwen2.5-Coder 32B,
@@ -93,15 +94,26 @@ front (it would not fit in the context): it asks for it as it needs it.
   `index_usage`), on any database of the tab's connection, and only when the
   model asks: nothing of the other databases is sent ahead. `sample_rows`,
   `run_query` and `explain` are not in their list and, if asked anyway, come
-  back as an `<error>` without running: no row leaves the machine. Each call
-  is a new process (`--no-session-persistence`), so the follow-up carries the
-  conversation so far, with each tool call and its result.
+  back as an `<error>` without running: no row leaves the machine. Each
+  catalog read they ask for (all but `list_databases`) shows the approval
+  card first, with the tool and its arguments: which database and object the
+  model names reaches the server, and the model may be following text that
+  server wrote (a comment, an object's name), with Codex after reading files
+  on this computer. "Approve reads in this conversation" covers these too.
+  Each call is a new process (`--no-session-persistence`), so the follow-up
+  carries the conversation so far, with each tool call and its result.
 - **Another database:** a tool that names a database other than the tab's is
   checked against the connection's list first (the explorer's cached one).
   One that isn't there, or isn't visible to the connection's user, comes back
   as an `<error>` naming it and the databases there are; a read of another
-  database that fails (no permission) says so too. Nothing switches the tab's
-  database.
+  database that fails (no permission) says so too. When the list can't be
+  read, the tool is refused and only the tab's database can be read; an
+  engine without databases (an empty list) reads the tab's. Nothing switches
+  the tab's database.
+- **Text from the server:** names, comments, definitions and errors the
+  server wrote reach the model with DBine's own tags (`<result>`, `<tool>`,
+  `<structure>`…) and conversation turns (`[User]`) defused, so they can't
+  end a result, ask for a tool or speak as the user.
 
 ## Providers
 

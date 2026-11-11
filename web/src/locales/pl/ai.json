@@ -120,7 +120,9 @@
     "approve": "Zatwierdź",
     "reject": "Odrzuć",
     "approveAll": "Zatwierdzaj odczyty w tej rozmowie",
-    "note": "Tylko do odczytu: DBine uruchamia je w sesji, która odrzuca każdą zmianę. Jeśli je odrzucisz, model nadal nie będzie mieć tych danych."
+    "note": "Tylko do odczytu: DBine uruchamia je w sesji, która odrzuca każdą zmianę. Jeśli je odrzucisz, model nadal nie będzie mieć tych danych.",
+    "titleStructure": "Model ({{model}}) chce odczytać strukturę {{connection}} › {{database}}:",
+    "noteStructure": "Tylko struktura, nigdy wiersze. Przy modelu zewnętrznym DBine pyta przed każdym odczytem wybranym przez model, dzięki czemu serwer nie może użyć tych odczytów do wyniesienia danych z rozmowy ani z Twojego komputera. Jeśli go odrzucisz, model nadal nie będzie mieć tej struktury."
   },
   "link": {
     "title": "Otwórz łącze",

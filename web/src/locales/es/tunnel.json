@@ -29,6 +29,7 @@
   "proxyBody": "El Host «{{alias}}» de tu ~/.ssh/config conecta ejecutando este comando en tu computadora:",
   "proxyNote": "DBine lo ejecuta solo si lo confirmás, y vuelve a preguntar si el comando cambia. Tiene que funcionar sin pedir nada: si pide una contraseña o un código, se corta por tiempo.",
   "proxyRun": "Ejecutar y conectar",
+  "proxySaid": "El ProxyCommand dijo: {{said}}",
   "jump": "Bastiones intermedios",
   "jumpPlaceholder": "usuario@bastion1:22, bastion2",
   "jumpHelp": "Opcional. Servidores SSH por los que hay que pasar antes, en orden y separados por comas. Usan la misma autenticación.",

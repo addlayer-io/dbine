@@ -688,12 +688,13 @@ fn trusted(store: &StateStore, origin: Origin<'_>, field: &str, src: &SecretSour
     }
     match origin {
         Origin::Saved { .. } => false,
-        // The edited connection's own unconfirmed definition, or one that
-        // came from outside. Saved connections that can't be listed: nothing
-        // can be told, so it asks.
+        // The edited connection's or SSH profile's own unconfirmed
+        // definition, or one that came from outside (a connection or a
+        // profile has it unconfirmed). What can't be listed: nothing can be
+        // told, so it asks.
         Origin::Form {
             id, duplicate_of, ..
-        } => match store.list_connections() {
+        } => match store.secret_source_holders() {
             Ok(saved) => !defs::needs_confirmation(&saved, id, duplicate_of, field, src),
             Err(_) => false,
         },
@@ -1336,6 +1337,62 @@ pub(crate) mod tests {
         assert!(!snap.contains("\"pw\"") && !snap.contains("typed\""));
         defs::forget(&[defs::digest(&id, "password", &src)]).unwrap();
         forget_cached(&id);
+    }
+
+    /// An SSH profile restored from a backup with a command source: its
+    /// form's "Probar" and "Examinar", and a new form with the same
+    /// definition, ask before it runs, as a restored connection's do.
+    #[test]
+    fn a_restored_ssh_profiles_command_asks_from_its_form() {
+        let dir = temp_dir("restored-profile");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        let src = cmd(&format!("touch '{}'", dir.join("ran").display()));
+        let id = format!("sshp-{}", uuid::Uuid::new_v4().simple());
+        let mut snap = store.snapshot().unwrap();
+        snap.ssh_profiles = vec![dbine_core::SshProfile {
+            id: id.clone(),
+            name: "Restaurado".into(),
+            options: [
+                ("ssh.host".to_string(), "bastion".to_string()),
+                (
+                    defs::OPTION.to_string(),
+                    serde_json::json!({ "ssh.password": src }).to_string(),
+                ),
+            ]
+            .into(),
+            updated_at: String::new(),
+        }];
+        store.replace_all(&snap).unwrap();
+        for origin in [
+            Origin::Form {
+                id: Some(&id),
+                duplicate_of: None,
+                name: "Restaurado",
+            },
+            Origin::Form {
+                id: None,
+                duplicate_of: None,
+                name: "",
+            },
+        ] {
+            // Never printed: the error carries the definition.
+            let e = check_trust(&store, origin, None, "ssh.password", &src).unwrap_err();
+            assert!(matches!(e, CommandError::SecretSourceApproval(_)));
+        }
+        // "Examinar" from its form finds the profile as browse_secret_source
+        // does.
+        let profile = store
+            .secret_source_holders()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.id == id)
+            .unwrap();
+        let e = browse::may_browse(&store, Some(&profile), None, None, "ssh.password", &src)
+            .unwrap_err();
+        assert!(matches!(e, CommandError::SecretSourceApproval(_)));
+        assert!(!dir.join("ran").exists());
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An imported command padded with a BOM (which the form's JavaScript

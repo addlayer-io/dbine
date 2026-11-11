@@ -390,6 +390,15 @@ fn engine_name(state: &AppState, side: &Side) -> String {
         .unwrap_or_default()
 }
 
+/// The company's AI policy on the compare's connections, before anything of
+/// theirs goes to a model.
+fn ai_allowed(state: &AppState, sides: &[&Side]) -> CommandResult<()> {
+    for s in sides {
+        crate::enterprise::refuse_ai_if_not_allowed(&state.store, &s.connection_id)?;
+    }
+    Ok(())
+}
+
 // -- explain -----------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -415,6 +424,7 @@ pub async fn data_compare_explain(
     let (p, sides) = with_diff(&args.id, |d| {
         (profile(d), (d.left.clone(), d.right.clone()))
     })?;
+    ai_allowed(&state, &[&sides.0, &sides.1])?;
     let engines = (engine_name(&state, &sides.0), engine_name(&state, &sides.1));
     let prompts = args.asker.prompts();
     let text = ai_task::fit(
@@ -576,6 +586,7 @@ pub(crate) fn read_filter(
 /// The AI gets the columns' names and types and the words, never a row.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn data_compare_ai_filter(
+    state: State<'_, AppState>,
     ai: State<'_, AiRuntime>,
     args: AiFilterArgs,
 ) -> CommandResult<AiFilter> {
@@ -583,12 +594,14 @@ pub async fn data_compare_ai_filter(
     if request.is_empty() {
         return Ok(AiFilter::default());
     }
-    let (columns, types) = with_diff(&args.id, |d| {
+    let (columns, types, sides) = with_diff(&args.id, |d| {
         (
             d.columns.iter().map(|c| c.0.clone()).collect::<Vec<_>>(),
             d.left_types.clone(),
+            (d.left.clone(), d.right.clone()),
         )
     })?;
+    ai_allowed(&state, &[&sides.0, &sides.1])?;
     let changed = args.kind == RowKind::Changed;
     let mut text = String::new();
     let kind = match args.kind {
@@ -687,6 +700,7 @@ pub async fn data_compare_key_hint(
     let Some(asker) = args.asker else {
         return Ok(KeyHint::default());
     };
+    ai_allowed(&state, &[side])?;
     let mut text = String::new();
     let _ = writeln!(text, "table {}", t.name);
     for c in &t.columns {

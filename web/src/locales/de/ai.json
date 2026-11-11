@@ -108,7 +108,9 @@
     "approve": "Genehmigen",
     "reject": "Ablehnen",
     "approveAll": "Lesezugriffe in dieser Unterhaltung genehmigen",
-    "note": "Schreibgeschützt: DBine führt sie in einer Sitzung aus, die jede Änderung ablehnt. Wenn Sie ablehnen, macht das Modell ohne diese Daten weiter."
+    "note": "Schreibgeschützt: DBine führt sie in einer Sitzung aus, die jede Änderung ablehnt. Wenn Sie ablehnen, macht das Modell ohne diese Daten weiter.",
+    "titleStructure": "Das Modell ({{model}}) möchte die Struktur von {{connection}} › {{database}} lesen:",
+    "noteStructure": "Nur die Struktur, nie Zeilen. Bei einem externen Modell fragt DBine vor jedem Lesezugriff nach, den das Modell wählt: So kann ein Server diese Zugriffe nicht nutzen, um Daten aus der Unterhaltung oder von Ihrem Computer abzuziehen. Wenn Sie ablehnen, macht das Modell ohne diese Struktur weiter."
   },
   "link": {
     "title": "Link öffnen",

@@ -106,5 +106,18 @@
     "autoIncrement": "Autoinkr.",
     "default": "Domyślna"
   },
-  "moreActions": "Więcej akcji"
+  "moreActions": "Więcej akcji",
+  "runs": {
+    "label": "Wyniki uruchomień",
+    "pin": "Przypnij",
+    "unpin": "Odepnij",
+    "pinTip": "Przypnij ten wynik: kolejne uruchomienia go nie zastąpią",
+    "rerun": "Uruchom ponownie",
+    "rerunMulti": "Zapytanie uruchomiono w wielu bazach: uruchom je ponownie przez „Uruchom w wielu bazach…”",
+    "rerunMoved": "Edytor nie jest już w bazie, w której uruchomiono zapytanie ({{database}})",
+    "copySql": "Kopiuj zapytanie",
+    "closeOthers": "Zamknij pozostałe nieprzypięte",
+    "closeUnpinned": "Zamknij nieprzypięte",
+    "ranAt": "Uruchomiono: {{time}}"
+  }
 }

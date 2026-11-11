@@ -358,7 +358,7 @@ const phaseText = computed(() => ({
             <div v-if="m.approval" class="ai-approve">
               <div class="ai-approve-head">
                 <el-icon><ei-warning-filled /></el-icon>
-                <span>{{ $t('ai:approval.title', { model: provider ? modelLabel : '', connection: m.approval.connection, database: m.approval.database || '—' }) }}</span>
+                <span>{{ $t(m.approval.kind === 'structure' ? 'ai:approval.titleStructure' : 'ai:approval.title', { model: provider ? modelLabel : '', connection: m.approval.connection, database: m.approval.database || '—' }) }}</span>
               </div>
               <pre class="nm-selectable">{{ m.approval.sql }}</pre>
               <div class="ai-approve-acts">
@@ -366,7 +366,7 @@ const phaseText = computed(() => ({
                 <el-button size="small" @click="ai.decide(m, 'reject')">{{ $t('ai:approval.reject') }}</el-button>
                 <el-button size="small" text @click="ai.decide(m, 'approve_all')">{{ $t('ai:approval.approveAll') }}</el-button>
               </div>
-              <div class="ai-muted ai-small">{{ $t('ai:approval.note') }}</div>
+              <div class="ai-muted ai-small">{{ $t(m.approval.kind === 'structure' ? 'ai:approval.noteStructure' : 'ai:approval.note') }}</div>
             </div>
             <details v-if="thinkingOf(m)" class="ai-think">
               <summary>{{ $t('ai:reasoning') }}</summary>

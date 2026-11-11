@@ -72,7 +72,10 @@ impl Plan {
                     if said.is_empty() {
                         error(e)
                     } else {
-                        CommandError::Connect(format!("{e}\nEl ProxyCommand dijo: {said}"))
+                        CommandError::ProxyCommandFailed {
+                            message: e.to_string(),
+                            said,
+                        }
                     }
                 }
             })

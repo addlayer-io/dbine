@@ -102,5 +102,18 @@
     "autoIncrement": "Auto-Inkr.",
     "default": "Standard"
   },
-  "moreActions": "Weitere Aktionen"
+  "moreActions": "Weitere Aktionen",
+  "runs": {
+    "label": "Ergebnisse der Ausführungen",
+    "pin": "Anheften",
+    "unpin": "Lösen",
+    "pinTip": "Dieses Ergebnis anheften: Spätere Ausführungen ersetzen es nicht",
+    "rerun": "Erneut ausführen",
+    "rerunMulti": "Sie wurde auf mehreren Datenbanken ausgeführt: Führen Sie sie erneut über „Auf mehreren Datenbanken ausführen…“ aus",
+    "rerunMoved": "Der Editor befindet sich nicht mehr auf der Datenbank, auf der sie ausgeführt wurde ({{database}})",
+    "copySql": "Abfrage kopieren",
+    "closeOthers": "Andere nicht angeheftete schließen",
+    "closeUnpinned": "Nicht angeheftete schließen",
+    "ranAt": "Ausgeführt: {{time}}"
+  }
 }

@@ -259,7 +259,8 @@ impl Driver for KdbDriver {
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
         let table = &names::resolved_table(table)?;
-        if parts.create || parts.drop {
+        // Indexes too: an attribute is an `update` of the table.
+        if parts.create || parts.drop || parts.indexes {
             names::writable(&table.name)?;
         }
         let ddl = edit::table_ddl(table, parts)?;
@@ -338,18 +339,15 @@ impl Driver for KdbDriver {
         columns: &[String],
         rows: &[Vec<Value>],
     ) -> Result<String> {
-        writable(target)?;
-        edit::insert_script(&names::resolved(target)?.name, columns, rows)
+        edit::insert_script(&edited(target)?, columns, rows)
     }
 
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
-        writable(target)?;
-        edit::update_script(&names::resolved(target)?.name, changes)
+        edit::update_script(&edited(target)?, changes)
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        writable(target)?;
-        edit::delete_script(&names::resolved(target)?.name, keys)
+        edit::delete_script(&edited(target)?, keys)
     }
 
     fn filtered_browse(
@@ -483,6 +481,16 @@ impl Driver for KdbDriver {
         );
         Ok(Box::new(s))
     }
+}
+
+/// The q name of the table whose rows are edited: a table in memory
+/// ([`writable`]) outside kdb+'s namespaces and DBine's, and neither a file
+/// handle nor the root ([`names::writable`]).
+fn edited(target: &ObjectRef) -> Result<String> {
+    writable(target)?;
+    let name = names::resolved(target)?.name;
+    names::writable(&name)?;
+    Ok(name)
 }
 
 /// Only tables in memory take edited rows.

@@ -51,9 +51,10 @@ export const compareApi = {
     invoke<Loaded>('schema_compare_load', { args: { connection_id: connectionId, database, schemas: [] } }),
   compare: (left: DbModel, right: DbModel, options: CompareOptions) =>
     invoke<CompareResult>('schema_compare', { args: { left, right, options } }),
-  /** Renames the structure can't tell, asked of the AI: names and types only. */
-  aiRenames: (left: DbModel, right: DbModel, options: CompareOptions, asker: Asker) =>
-    invoke<RenameHint[]>('schema_compare_ai_renames', { args: { left, right, options, asker } }),
+  /** Renames the structure can't tell, asked of the AI: names and types only.
+   *  `connections`: the two sides' connections (the company's AI policy is checked on them). */
+  aiRenames: (left: DbModel, right: DbModel, options: CompareOptions, asker: Asker, connections: string[]) =>
+    invoke<RenameHint[]>('schema_compare_ai_renames', { args: { left, right, options, asker, connections } }),
   convert: (fromDriver: string, toDriver: string, tables: TableSchema[], targetSchema: string | null) =>
     invoke<{ tables: TableSchema[]; warnings: string[] }>('schema_compare_convert', {
       args: { from_driver: fromDriver, to_driver: toDriver, tables, target_schema: targetSchema },

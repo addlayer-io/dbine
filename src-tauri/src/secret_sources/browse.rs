@@ -433,7 +433,16 @@ pub async fn browse_secret_source(
     let src = definition(args.source).map_err(CommandError::BadRequest)?;
     let id = args.connection_id.as_deref().filter(|i| !i.is_empty());
     let saved = match id {
-        Some(i) => state.store.get_connection(i)?,
+        Some(i) => match state.store.get_connection(i)? {
+            Some(c) => Some(c),
+            // An SSH profile's form: its stored definitions are checked as a
+            // connection's are.
+            None => state
+                .store
+                .secret_source_holders()?
+                .into_iter()
+                .find(|c| c.id == i),
+        },
         None => None,
     };
     let name = saved.as_ref().map(|c| c.name.clone()).unwrap_or_default();

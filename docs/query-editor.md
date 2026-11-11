@@ -1,4 +1,4 @@
-# Query editor: navigation, parameters and snippets
+# Query editor: navigation, parameters, snippets and result tabs
 
 ## Go to definition from code
 
@@ -99,3 +99,34 @@ SQL or all) and the text, with fields `${1:text}` (the number sets the order,
 the text is the initial value) and `${}` where the cursor ends. A custom one
 with the same abbreviation replaces the built-in one. They are stored in the
 settings (`editor.snippets`), which travel with sync.
+
+## Result tabs
+
+Each run's results stay in the editor until a later run replaces them or you
+close them, so you can go back to an earlier result without running it again.
+
+- **How many are kept.** By default each editor keeps one unpinned result: a
+  new run replaces it. **Settings › General › Results each editor keeps**
+  raises that, up to 20. Past it, the unpinned result that ran longest ago
+  closes when a run ends.
+- **Pin.** The pin on the results bar, or on a result's tab, keeps that
+  result: later runs open a tab next to it instead of replacing it. A pinned
+  result doesn't count toward the limit and only closes when you close it.
+- **The tabs.** With more than one result, or a pinned one, the tabs show
+  above the results, each with the first line of its query and the time it
+  ran. Hovering one shows its query, the connection and database it ran on,
+  and the date. A spinner marks the run in progress and a red mark one that
+  ended with an error.
+- **A tab's menu** (right-click, or Shift+F10): **Pin** or **Unpin**, **Run
+  again**, **Copy query**, **Close**, **Close other unpinned** and **Close
+  unpinned**. A middle click closes a tab; the one running can't be closed.
+- **Run again** runs the same text, with the parameter values it had, and
+  its results replace that tab's. It's offered while the editor is on the
+  connection and database where the result ran. A result of **Run on several
+  databases** runs again from that dialog.
+
+Each tab keeps its own sub-tab, sort, view (table, JSON, chart, map) and
+pending edits. An export or a whole-result chart of a tab runs that tab's
+query again, on the connection and database where it ran, not the editor's
+current text. Results live in memory while the editor tab is open; closing
+it, or the app, discards them.

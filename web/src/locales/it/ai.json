@@ -114,7 +114,9 @@
     "approve": "Approva",
     "reject": "Rifiuta",
     "approveAll": "Approva le letture in questa conversazione",
-    "note": "Sola lettura: DBine la esegue in una sessione che rifiuta qualsiasi modifica. Se la rifiuti, il modello prosegue senza quei dati."
+    "note": "Sola lettura: DBine la esegue in una sessione che rifiuta qualsiasi modifica. Se la rifiuti, il modello prosegue senza quei dati.",
+    "titleStructure": "Il modello ({{model}}) vuole leggere la struttura di {{connection}} › {{database}}:",
+    "noteStructure": "Solo la struttura, mai righe. Con un modello esterno, DBine chiede prima di ogni lettura scelta dal modello: così un server non può usare quelle letture per portare fuori dati dalla conversazione o dal tuo computer. Se la rifiuti, il modello prosegue senza quella struttura."
   },
   "link": {
     "title": "Apri link",

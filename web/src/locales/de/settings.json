@@ -13,6 +13,8 @@
     "copyFormatHelp": "Was ⌘C im Ergebnisraster kopiert.",
     "maxRows": "Max. Zeilen pro Abfrage",
     "maxRowsHelp": "Zeilenlimit, das jede Ausführung im Editor abruft.",
+    "keptResults": "Ergebnisse pro Editor",
+    "keptResultsHelp": "Wie viele frühere, nicht angeheftete Ausführungen als Tabs unter dem Editor bleiben. Angeheftete zählen nicht und werden nur von Hand geschlossen.",
     "vim": "Vim-Modus im Editor",
     "vimHelp": "Vim-Tasten (NORMAL, INSERT, VISUAL) in den Editoren für Abfragen, Dateien und Routinen. Die Statuszeile des Editors zeigt den Modus, und :w speichert.",
     "groupBySchema": "Nach Schema gruppieren",

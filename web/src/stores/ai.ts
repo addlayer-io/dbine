@@ -51,7 +51,8 @@ export interface UiMessage extends ChatMessage {
   /** Active contexts that didn't fit in the prompt. */
   contextsLeftOut?: string[];
   /** A read of rows waiting for the user's Aprobar / Rechazar. */
-  approval?: { requestId: string; label: string; connection: string; database: string; sql: string };
+  /** A read waiting for the user: `data` (rows, `sql` is its query) or `structure` (a remote model's catalog read, `sql` is the tool and its arguments). */
+  approval?: { requestId: string; label: string; connection: string; database: string; sql: string; kind: 'data' | 'structure' };
 }
 
 const HISTORY_KEY = 'dbine.ai.conversation';
@@ -176,9 +177,9 @@ export const useAiStore = defineStore('ai', {
             else m.content += e.payload.delta.text;
             this.phase = 'writing';
           });
-          await listen<{ chat_id: string; request_id: string; label: string; connection: string; database: string; sql: string }>('ai-approval', (e) => {
+          await listen<{ chat_id: string; request_id: string; label: string; connection: string; database: string; sql: string; kind?: string }>('ai-approval', (e) => {
             const m = this.messages.find((x) => x.id === e.payload.chat_id);
-            if (m?.pending) m.approval = { requestId: e.payload.request_id, label: e.payload.label, connection: e.payload.connection, database: e.payload.database, sql: e.payload.sql };
+            if (m?.pending) m.approval = { requestId: e.payload.request_id, label: e.payload.label, connection: e.payload.connection, database: e.payload.database, sql: e.payload.sql, kind: e.payload.kind === 'structure' ? 'structure' : 'data' };
           });
           await listen<{ chat_id: string; label: string; ok: boolean }>('ai-tool', (e) => {
             const m = this.messages.find((x) => x.id === e.payload.chat_id);

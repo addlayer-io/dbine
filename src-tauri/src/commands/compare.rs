@@ -156,6 +156,9 @@ pub struct AiRenamesArgs {
     #[serde(default)]
     pub options: CompareOptions,
     pub asker: Asker,
+    /// The connections the two sides were read from: the company's AI
+    /// policy is checked on them.
+    pub connections: Vec<String>,
 }
 
 /// Probable renames the structure can't tell (`nombre` and `name`), asked of
@@ -164,9 +167,13 @@ pub struct AiRenamesArgs {
 /// reviews and runs.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn schema_compare_ai_renames(
+    state: State<'_, AppState>,
     ai: State<'_, AiRuntime>,
     args: AiRenamesArgs,
 ) -> CommandResult<Vec<RenameHint>> {
+    for c in &args.connections {
+        crate::enterprise::refuse_ai_if_not_allowed(&state.store, c)?;
+    }
     let result = dbine_schema::compare::compare(&args.left, &args.right, &args.options);
     let Some(question) = renames::question(&args.left, &args.right, &result, &result.renames)
     else {

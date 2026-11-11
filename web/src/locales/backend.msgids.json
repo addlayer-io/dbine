@@ -185,6 +185,12 @@
  "% del máximo": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
+ "'\"DBine no crea tablas con ese nombre: solo nombres de q, fuera de los espacios de nombres de kdb+ y del suyo (.q, .Q, .h, .j, .o, .z, .dbine_stage)\"": [
+  "crates/drivers/kdb/src/clone.rs"
+ ],
+ "'\"DBine no define funciones con ese nombre: solo nombres de q, fuera de los espacios de nombres de kdb+ y del suyo (.q, .Q, .h, .j, .o, .z, .dbine_stage)\"": [
+  "crates/drivers/kdb/src/clone.rs"
+ ],
  "'\"el texto del origen no es una función ni una vista de q\"": [
   "crates/drivers/kdb/src/clone.rs"
  ],
@@ -26917,14 +26923,17 @@
   "crates/drivers/mysql/src/rename_db.rs",
   "src-tauri/src/commands/compare.rs"
  ],
+ "el túnel SSH de esta conexión ejecuta un ProxyCommand que todavía no se confirmó en esta computadora: conectala en DBine para revisarlo": [
+  "src-tauri/src/error.rs"
+ ],
+ "el túnel SSH de «{0}» ejecuta un ProxyCommand sin confirmar: el usuario tiene que conectarse una vez desde DBine": [
+  "src-tauri/src/mcp/tools.rs"
+ ],
  "el túnel SSH no pudo abrir un puerto local: {0}": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
  "el túnel SSH no pudo llegar a {0}:{1}: {2}": [
   "crates/dbine-tunnel/src/lib.rs"
- ],
- "el túnel SSH «{0}» necesita tu confirmación para ejecutar este ProxyCommand: {1}": [
-  "src-tauri/src/error.rs"
  ],
  "el uso de CPU": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -29985,6 +29994,9 @@
  "la copia no informó la tabla": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "la copia trae un perfil SSH con un identificador que no es de perfil («{0}»): no se restauró nada": [
+  "crates/dbine-core/src/ssh_profiles.rs"
+ ],
  "la cuenta de 1Password no es válida": [
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
@@ -30078,7 +30090,7 @@
   "src-tauri/src/commands/multi_db.rs"
  ],
  "la empresa no permite usar el asistente de IA con sus conexiones": [
-  "src-tauri/src/commands/ai.rs"
+  "src-tauri/src/enterprise/mod.rs"
  ],
  "la entrada «{0}» de KeePass no tiene el campo «{1}» (tiene: {2})": [
   "src-tauri/src/secret_sources/keepass.rs"
@@ -35383,9 +35395,6 @@
  "ya tenés {0} sesiones abiertas con este perfil: cerrá alguna para abrir otra": [
   "src-tauri/src/enterprise/mod.rs"
  ],
- "{0}\nEl ProxyCommand dijo: {1}": [
-  "src-tauri/src/tunnels.rs"
- ],
  "{0}\nEl driver ODBC indicado no está instalado o no está registrado en odbcinst.ini. Drivers instalados: {1}.": [
   "crates/drivers/odbc/src/odbc.rs"
  ],
@@ -37713,6 +37722,12 @@
  "«{0}» no es un nombre de función válido": [
   "crates/drivers/dsql/src/security.rs"
  ],
+ "«{0}» no es un nombre de objeto: en q es el espacio de nombres raíz.": [
+  "crates/drivers/kdb/src/names.rs"
+ ],
+ "«{0}» no es un nombre de objeto: en q, un nombre que empieza con : es un archivo.": [
+  "crates/drivers/kdb/src/names.rs"
+ ],
  "«{0}» no es un nombre de permiso válido": [
   "crates/drivers/dsql/src/security.rs",
   "crates/drivers/postgres/src/security.rs"
@@ -37994,6 +38009,9 @@
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
  "«{0}» no se clona: es una proyección o una composición, sin texto de función propio.": [
+  "crates/drivers/kdb/src/clone.rs"
+ ],
+ "«{0}» no se clona: no es un nombre de q": [
   "crates/drivers/kdb/src/clone.rs"
  ],
  "«{0}» no se clona: no se pudo leer en el origen": [

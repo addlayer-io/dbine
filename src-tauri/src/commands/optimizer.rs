@@ -278,6 +278,7 @@ pub async fn optimizer_ai(
     ai: State<'_, AiRuntime>,
     args: AiArgs,
 ) -> CommandResult<AiOut> {
+    crate::enterprise::refuse_ai_if_not_allowed(&state.store, &args.connection_id)?;
     let driver = driver_of(&state, &args.connection_id)?;
     let info = driver.info();
     let run = ai_task::Run::start(&args.run_id);

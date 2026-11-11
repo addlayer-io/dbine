@@ -40,7 +40,7 @@ import SecretAccountsSettings from './SecretAccountsSettings.vue';
 import SshProfilesSettings from './SshProfilesSettings.vue';
 import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
-import { isMac } from '../composables/shortcuts';
+import { KEPT_RESULTS_DEFAULT, KEPT_RESULTS_OPTIONS, KEPT_RESULTS_SETTING, keptLimit } from '../composables/resultRuns';import { isMac } from '../composables/shortcuts';
 import {
   FONT_SIZES, ZOOM_LEVELS, editorFontSize, gridFontSize, setEditorFontSize, setGridFontSize, setThemePref, themePref, zoom, zoomStep,
   type ThemePref,
@@ -96,6 +96,15 @@ const copyFormat = computed({
 const maxRows = computed({
   get: () => settings.get<number>('query.maxRows', 5000),
   set: (v) => settings.set('query.maxRows', v),
+});
+/** Unpinned results a query editor keeps (composables/resultRuns.ts). */
+const keptResults = computed({
+  get: () => keptLimit(settings.get<unknown>(KEPT_RESULTS_SETTING, KEPT_RESULTS_DEFAULT)),
+  set: (v) => settings.set(KEPT_RESULTS_SETTING, v),
+});
+const keptOptions = computed(() => {
+  const v = keptResults.value;
+  return KEPT_RESULTS_OPTIONS.includes(v) ? KEPT_RESULTS_OPTIONS : [...KEPT_RESULTS_OPTIONS, v].sort((a, b) => a - b);
 });
 /** Anonymous usage data: on by default (TelemetryConsent tells once). */
 const telemetry = computed({
@@ -466,6 +475,12 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
           <el-select v-model="maxRows" style="width: 240px">
             <el-option v-for="n in maxRowsOptions" :key="n" :label="n.toLocaleString(locale())" :value="n" />
             <el-option :label="$t('query:status.rowsAllOption')" :value="ALL_ROWS" />
+          </el-select>
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.keptResults') }}</strong><span>{{ $t('settings:general.keptResultsHelp') }}</span></div>
+          <el-select v-model="keptResults" style="width: 240px">
+            <el-option v-for="n in keptOptions" :key="n" :label="n.toLocaleString(locale())" :value="n" />
           </el-select>
         </div>
         <div class="st-row">

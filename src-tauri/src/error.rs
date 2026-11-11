@@ -66,10 +66,18 @@ pub enum CommandError {
     },
 
     /// A tunnel's `~/.ssh/config` entry runs a `ProxyCommand` the user hasn't
-    /// confirmed: the UI shows it and, on a yes, confirms it
-    /// (`approve_ssh_proxy_command`) and retries.
-    #[error("el túnel SSH «{alias}» necesita tu confirmación para ejecutar este ProxyCommand: {command}")]
+    /// confirmed: the UI shows `proxy` (the alias and the exact command) and,
+    /// on a yes, confirms it (`approve_ssh_proxy_command`) and retries. The
+    /// message (all MCP, the phone and the logs get) never has the command,
+    /// which may carry a password or a token, nor the alias.
+    #[error("el túnel SSH de esta conexión ejecuta un ProxyCommand que todavía no se confirmó en esta computadora: conectala en DBine para revisarlo")]
     SshProxyCommand { alias: String, command: String },
+
+    /// A tunnel through a confirmed `ProxyCommand` failed: the message is the
+    /// tunnel's error, and what the command wrote to stderr (`said`, which
+    /// may echo its arguments) goes only to the UI, never in the message.
+    #[error("{message}")]
+    ProxyCommandFailed { message: String, said: String },
 
     /// A secret field's command or secret manager failed (not found, not
     /// signed in, permission denied, timeout…): the message says which and why.
@@ -95,7 +103,9 @@ impl CommandError {
         match self {
             Self::NotFound(_) => "not_found",
             Self::BadRequest(_) => "bad_request",
-            Self::Connect(_) | Self::ConnectFailed(_) => "connect",
+            Self::Connect(_) | Self::ConnectFailed(_) | Self::ProxyCommandFailed { .. } => {
+                "connect"
+            }
             Self::AuthFailed(_) => "auth_failed",
             Self::Busy(_) => "busy",
             Self::PasswordRequired(_) => "password_required",
@@ -127,6 +137,11 @@ impl Serialize for CommandError {
         match self {
             Self::SecretSourceApproval(a) => s.serialize_field("approval", a)?,
             Self::SecretSourceUnlock(u) => s.serialize_field("unlock", u)?,
+            Self::SshProxyCommand { alias, command } => s.serialize_field(
+                "proxy",
+                &serde_json::json!({ "alias": alias, "command": command }),
+            )?,
+            Self::ProxyCommandFailed { said, .. } => s.serialize_field("said", said)?,
             _ => s.skip_field("approval")?,
         }
         s.end()
@@ -209,6 +224,33 @@ pub type CommandResult<T> = Result<T, CommandError>;
 mod tests {
     use super::*;
     use dbine_driver::{ConnectFailure, ConnectFailureKind};
+
+    #[test]
+    fn a_proxy_command_reaches_the_ui_only() {
+        let command = "ncat --proxy proxy.corp:3128 --proxy-auth alice:S3cret db.internal 22";
+        let e = CommandError::SshProxyCommand {
+            alias: "prod-db".into(),
+            command: command.into(),
+        };
+        // The message is what MCP, the phone and the logs get.
+        let msg = e.to_string();
+        assert!(!msg.contains("S3cret") && !msg.contains("prod-db"), "{msg}");
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "ssh_proxy_command");
+        assert_eq!(v["proxy"]["alias"], "prod-db");
+        assert_eq!(v["proxy"]["command"], command);
+        assert!(!v["message"].as_str().unwrap().contains("S3cret"));
+
+        let e = CommandError::ProxyCommandFailed {
+            message: "no se pudo abrir el túnel SSH".into(),
+            said: "proxy auth alice:S3cret refused".into(),
+        };
+        assert_eq!(e.to_string(), "no se pudo abrir el túnel SSH");
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "connect");
+        assert_eq!(v["said"], "proxy auth alice:S3cret refused");
+        assert!(!v["message"].as_str().unwrap().contains("S3cret"));
+    }
 
     #[test]
     fn connect_failures_carry_their_detail() {

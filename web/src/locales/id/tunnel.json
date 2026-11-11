@@ -29,6 +29,7 @@
   "proxyBody": "Host «{{alias}}» di ~/.ssh/config Anda terhubung dengan menjalankan perintah ini di komputer Anda:",
   "proxyNote": "DBine hanya menjalankannya jika Anda mengonfirmasi, dan bertanya lagi jika perintah berubah. Perintah harus berjalan tanpa meminta masukan: jika meminta kata sandi atau kode, proses dihentikan karena batas waktu.",
   "proxyRun": "Jalankan dan hubungkan",
+  "proxySaid": "ProxyCommand menyatakan: {{said}}",
   "jump": "Bastion perantara",
   "jumpPlaceholder": "pengguna@bastion1:22, bastion2",
   "jumpHelp": "Opsional. Server SSH yang harus dilewati terlebih dahulu, berurutan dan dipisahkan koma. Menggunakan autentikasi yang sama.",
