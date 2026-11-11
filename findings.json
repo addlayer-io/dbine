@@ -1,36 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "2de6ed5d-1bad-4e1e-b3b0-5e6fc27f0941",
-      "date": "2026-11-11",
-      "revision": "611d1a1006cf",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 3
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "6403b1ff-13f0-4876-8536-e9d948f1321e",
-      "date": "2026-11-11",
-      "revision": "922d9ec0915f",
-      "kind": "changes",
-      "scope": "vendor/winauth, crates/drivers/kdb",
-      "found": 4
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "3a353d9c-1c87-4c45-878a-3713b0184a50",
-      "date": "2026-11-11",
-      "revision": "e8d6961ef672",
-      "kind": "changes",
-      "scope": "vendor/winauth, crates/drivers/kdb",
-      "found": 4
-    },
-    {
       "source": "osv",
       "date": "2026-11-11",
       "revision": "d419279460d4",
@@ -61,89 +31,59 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.2
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.5.0",
+      "scan_id": "2de6ed5d-1bad-4e1e-b3b0-5e6fc27f0941",
+      "date": "2026-11-11",
+      "revision": "611d1a1006cf",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 3
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.5.0",
+      "scan_id": "6403b1ff-13f0-4876-8536-e9d948f1321e",
+      "date": "2026-11-11",
+      "revision": "922d9ec0915f",
+      "kind": "changes",
+      "scope": "vendor/winauth, crates/drivers/kdb",
+      "found": 4
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.5.0",
+      "scan_id": "3a353d9c-1c87-4c45-878a-3713b0184a50",
+      "date": "2026-11-11",
+      "revision": "e8d6961ef672",
+      "kind": "changes",
+      "scope": "vendor/winauth, crates/drivers/kdb",
+      "found": 4
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.5.0",
+      "scan_id": "be2b7bb0-5994-472f-afad-56fb86968e1a",
+      "date": "2026-11-11",
+      "revision": "21d8d96f1b2d",
+      "kind": "changes",
+      "scope": "src-tauri, crates/dbine-core, crates/drivers/kdb, web/src",
+      "found": 4
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.5.0",
+      "scan_id": "9402d2dd-5766-4b1b-ada4-572f7dde4eca",
+      "date": "2026-11-11",
+      "revision": "e50a062fe839",
+      "kind": "changes",
+      "scope": "src-tauri, crates/dbine-core, web/src",
+      "found": 0
     }
   ],
   "findings": [
-    {
-      "id": "CS-00d6167f10",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Incorrect Authorization",
-      "cwe": "CWE-863",
-      "component": "crates/drivers/kdb",
-      "found": "2026-11-11",
-      "status": "open"
-    },
-    {
-      "id": "CS-0414f74462",
-      "source": "claude-security",
-      "severity": "MEDIUM",
-      "kind": "Improper Handling of Exceptional Conditions",
-      "cwe": "CWE-636",
-      "component": "crates/dbine-core",
-      "found": "2026-10-30",
-      "status": "open"
-    },
-    {
-      "id": "CS-5ba9878cb4",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Externally Controlled Reference to a Resource in Another Sphere",
-      "cwe": "CWE-73",
-      "component": "crates/drivers/kdb",
-      "found": "2026-11-11",
-      "status": "open"
-    },
-    {
-      "id": "CS-67f53e2e7a",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Incorrect Authorization",
-      "cwe": "CWE-863",
-      "component": "src-tauri",
-      "found": "2026-11-11",
-      "status": "open"
-    },
-    {
-      "id": "CS-9f525ec1d9",
-      "source": "claude-security",
-      "severity": "MEDIUM",
-      "kind": "Command Injection",
-      "cwe": "CWE-1427",
-      "component": "src-tauri",
-      "found": "2026-10-30",
-      "status": "open"
-    },
-    {
-      "id": "CS-ba01026647",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Generation of Error Message Containing Sensitive Information",
-      "cwe": "CWE-209",
-      "component": "src-tauri",
-      "found": "2026-11-11",
-      "status": "open"
-    },
-    {
-      "id": "CS-bf59604fa8",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Incorrect Authorization",
-      "cwe": "CWE-863",
-      "component": "crates/drivers/kdb",
-      "found": "2026-11-11",
-      "status": "open"
-    },
-    {
-      "id": "CS-eeef4c97b4",
-      "source": "claude-security",
-      "severity": "LOW",
-      "kind": "Incorrect Comparison",
-      "cwe": "CWE-184",
-      "component": "crates/drivers/kdb",
-      "found": "2026-11-11",
-      "status": "open"
-    },
     {
       "id": "CQ-100",
       "source": "codeql",
@@ -4627,7 +4567,7 @@
   ],
   "claude_coverage": {
     "release": "v1.5.0",
-    "scanned": "6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e, up to the release commit, in vendor/winauth and crates/drivers/kdb, the only code that range changes",
-    "not_covered": "the release-notes text added in 2e24a42e (CHANGELOG.md, changelog/*)"
+    "scanned": "6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e in vendor/winauth and crates/drivers/kdb, the only code that range changes; e8d6961e..e50a062f, the fixes for the open findings, in src-tauri, crates/dbine-core, crates/drivers/kdb and web/src",
+    "not_covered": "8d440027, the query editor's result tabs (#75, web/src only), released without a scan by the owner's decision; release-notes and translation text"
   }
 }
