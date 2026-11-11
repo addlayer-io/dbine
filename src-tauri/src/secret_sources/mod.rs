@@ -1375,8 +1375,9 @@ pub(crate) mod tests {
                 name: "",
             },
         ] {
+            // Never printed: the error carries the definition.
             let e = check_trust(&store, origin, None, "ssh.password", &src).unwrap_err();
-            assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
+            assert!(matches!(e, CommandError::SecretSourceApproval(_)));
         }
         // "Examinar" from its form finds the profile as browse_secret_source
         // does.
@@ -1388,7 +1389,7 @@ pub(crate) mod tests {
             .unwrap();
         let e = browse::may_browse(&store, Some(&profile), None, None, "ssh.password", &src)
             .unwrap_err();
-        assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
+        assert!(matches!(e, CommandError::SecretSourceApproval(_)));
         assert!(!dir.join("ran").exists());
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);
