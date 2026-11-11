@@ -2670,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "dbine"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "aes 0.8.4",
  "ahash",
@@ -2777,7 +2777,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-ai"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "flate2",
  "futures",
@@ -2795,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-core"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "aes 0.9.3",
  "base64 0.22.1",
@@ -2820,7 +2820,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-drivers"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "dbine-driver",
  "dbine-driver-athena",
@@ -3464,7 +3464,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-link"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
@@ -3477,7 +3477,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-plugin"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3500,7 +3500,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-plugin-host"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "dbine-driver",
  "dbine-drivers",
@@ -3516,7 +3516,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-schema"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "dbine-driver",
  "dbine-drivers",
@@ -3527,7 +3527,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-sync"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "argon2 0.5.3",
  "async-trait",
@@ -3549,7 +3549,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-tls"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "dbine-driver",
  "rustls",
@@ -3560,7 +3560,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-transfer"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -3576,7 +3576,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-tunnel"
-version = "1.4.2"
+version = "1.5.0"
 dependencies = [
  "aws-lc-rs",
  "libc",

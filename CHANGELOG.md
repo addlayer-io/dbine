@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-11
+
 ### New
 - **AI in Compare schemas:** columns and tables that look renamed are pointed out, so they can be renamed and keep their data instead of being dropped and added, and **Find renames with AI** finds the ones whose names don't look alike. In the sync dialog, **Review with AI** has the assistant check the script for what can fail or lose data, measuring it with reads you approve, and **Summarize with AI** describes the changes for an approval request or a ticket.
 - **AI in Compare data:** **Explain differences** tells what the differences have in common and their likely cause, such as a time zone, a rounding or a sync running late, from counts and typical gaps over all of them. **Filter with AI** turns a request in words into the column filters and the order, and **Suggest key** finds the key of a table without a primary key. The AI never gets the rows' values.
