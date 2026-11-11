@@ -234,6 +234,40 @@ mod tests {
                     && p.text("optimizer.repair").contains("NONE"),
                 "{l}"
             );
+            // The answers DBine reads keep their field names.
+            let renames = p.text("compare.renames_system");
+            for field in [
+                "\"columns\"",
+                "\"tables\"",
+                "\"table\"",
+                "\"left\"",
+                "\"right\"",
+            ] {
+                assert!(
+                    renames.contains(field),
+                    "{l}: compare.renames_system {field}"
+                );
+            }
+            let filter = p.text("datacompare.filter_system");
+            for field in [
+                "\"filters\"",
+                "\"column\"",
+                "\"op\"",
+                "\"values\"",
+                "\"changed_in\"",
+                "\"sort\"",
+                "\"descending\"",
+                "\"note\"",
+            ] {
+                assert!(
+                    filter.contains(field),
+                    "{l}: datacompare.filter_system {field}"
+                );
+            }
+            assert!(
+                p.text("datacompare.key_system").contains("{\"key\": ["),
+                "{l}: datacompare.key_system"
+            );
             for t in [
                 "list_databases",
                 "list_objects",

@@ -198,5 +198,33 @@
     "incomplete_other": "lista incompleta: não foi possível ler {{count}} objetos",
     "none": "Nada depende disto",
     "noneFound": "Nada encontrado no que foi possível ler"
+  },
+  "ai": {
+    "noProvider": "Configure um provedor de IA no painel do assistente.",
+    "busy": "O assistente está respondendo a outra pergunta.",
+    "theAi": "a IA",
+    "renames": "Buscar renomeações com IA",
+    "renamesHint": "Procura colunas e tabelas que existem só de um lado e são as mesmas com outro nome. Para {{provider}} são enviados apenas seus nomes e tipos, nunca dados.",
+    "renamesFound_one": "A IA sugere {{count}} renomeação.",
+    "renamesFound_many": "A IA sugere {{count}} renomeações.",
+    "renamesFound_other": "A IA sugere {{count}} renomeações.",
+    "renamesNone": "A IA não encontrou renomeações.",
+    "review": "Revisar com IA",
+    "reviewHint": "O assistente revisa o script e mede os riscos com leituras que você aprova. Não altera nada.",
+    "summary": "Resumir com IA",
+    "summaryHint": "O assistente resume as alterações em linguagem clara, para um pedido de aprovação ou um ticket.",
+    "noWarnings": "nenhum",
+    "reviewPrompt": "Revise o script de sincronização que o DBine gerou para {{where}} ({{engine}}, {{statements}} instruções): é o texto do editor. Avisos do DBine: {{warnings}}. Diga-me o que pode falhar ou perder dados antes de executá-lo. Quando for preciso, meça com consultas somente leitura nesse banco: linhas com NULL em uma coluna que passa a NOT NULL, o maior valor antes de reduzir uma coluna, valores que não cabem no novo tipo, quantas linhas tem uma tabela que é recriada ou excluída. Termine com o risco de cada alteração e a ordem ou as precauções que você recomenda. Não altere nada no banco.",
+    "summaryPrompt": "Resuma em linguagem clara as alterações do script de sincronização para {{where}} ({{engine}}, {{statements}} instruções), que é o texto do editor, para um pedido de aprovação ou um ticket: o que é criado, o que é modificado, o que é excluído e qual o risco de cada coisa. Sem consultas: apenas o resumo."
+  },
+  "rename": {
+    "column": "\"{{left}}\" (esquerda) e \"{{right}}\" (direita) parecem a mesma coluna com outro nome.",
+    "table": "\"{{left}}\" (esquerda) e \"{{right}}\" (direita) parecem a mesma tabela com outro nome.",
+    "keeps": "Renomear preserva os dados; excluir e adicionar os perde.",
+    "byAi": "(sugerido por IA)",
+    "onLeft": "Renomear na esquerda",
+    "onRight": "Renomear na direita",
+    "unsupported": "Este mecanismo não permite renomear.",
+    "pending": "Aplique ou descarte primeiro as alterações pendentes: renomear lê os bancos novamente."
   }
 }

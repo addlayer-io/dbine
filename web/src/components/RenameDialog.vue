@@ -30,7 +30,8 @@ const props = defineProps<{
 }>();
 /** `rewritten`: the dependents the script rewrites, as they'll be (the
  *  designer recreates views over its ALTER from these). */
-const emit = defineEmits<{ close: []; collected: [script: SyncScript, rewritten: CodeObject[]] }>();
+/** `renamed`: the rename ran (schema compare compares again). */
+const emit = defineEmits<{ close: []; collected: [script: SyncScript, rewritten: CodeObject[]]; renamed: [to: string] }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
 const tabs = useTabsStore();
@@ -226,6 +227,7 @@ async function run() {
   current.finish(undefined, done);
   if (!alive) return;
   ElMessage.success(done);
+  emit('renamed', to);
   emit('close');
 }
 

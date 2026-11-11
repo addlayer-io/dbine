@@ -3,8 +3,12 @@ import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
-import { api, errorMessage } from '../api/client';
-import { dataCompareApi, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
+import { api, errorKind, errorMessage } from '../api/client';
+import { aiTaskApi } from '../api/aiTask';
+import { asker, providerLabel } from '../composables/aiTask';
+import { markdownParts } from '../composables/markdown';
+import { useUiStore } from '../stores/ui';
+import { dataCompareApi, type AiFilter, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
 import type { Cell, ObjectRef, QueryProgress, SortKey } from '../api/types';
 import { columnKind, menuFor, type ColumnFilter, type FilterOp } from '../composables/gridFilter';
 import { nextSort } from '../composables/gridSort';
@@ -127,11 +131,14 @@ watch(
 
 /** The left table's columns, to choose the key before comparing (a table
  *  without a primary key needs one). */
-const leftColumns = computed(() => {
+const leftColumnInfo = computed(() => {
   const o = tablesOf(left).find((x) => tableId(x) === left.table);
-  if (!o) return [] as string[];
-  return (conns.columns[objKey(left.connectionId, left.database, o.schema, o.name)]?.items ?? []).map((c) => c.name);
+  if (!o) return [];
+  return conns.columns[objKey(left.connectionId, left.database, o.schema, o.name)]?.items ?? [];
 });
+const leftColumns = computed(() => leftColumnInfo.value.map((c) => c.name));
+/** The left table's columns are known and none is a primary key: a key has to be chosen. */
+const needsKey = computed(() => leftColumnInfo.value.length > 0 && !leftColumnInfo.value.some((c) => c.primary_key));
 watch(() => [left.connectionId, left.database, left.table], () => { key.value = []; });
 // Load its columns once the table (and the database's object list) is there.
 watch(() => [left.connectionId, left.database, left.table, tablesOf(left).length], () => {
@@ -145,6 +152,8 @@ async function compare() {
   if (!l || !r) { ElMessage.warning(t('dataCompare:pickBoth')); return; }
   running.value = true;
   error.value = null;
+  explanation.value = null;
+  aiNote.value = '';
   try {
     result.value = await dataCompareApi.compare(l, r, key.value, limit.value);
     key.value = result.value.key;
@@ -716,6 +725,84 @@ watch(() => result.value?.id, () => {
   builtTaskHandle = null;
   if (!applying.value && !building.value) scripts.value = [];
 });
+
+// -- AI (docs/data-compare.md, "With AI"): it only suggests. It gets counts and
+// typical gaps, the columns and the user's words: never a row's values. -------
+const ui = useUiStore();
+const aiBusy = ref<'' | 'explain' | 'filter' | 'key'>('');
+const explanation = ref<string | null>(null);
+const explainParts = computed(() => (explanation.value ? markdownParts(explanation.value) : []));
+const aiAsk = ref('');
+const aiNote = ref('');
+let aiRun: string | null = null;
+onBeforeUnmount(() => { if (aiRun) aiTaskApi.cancel(aiRun).catch(() => {}); });
+
+/** Runs one AI task; null when there's no AI set up (the panel opens to set one up). */
+async function withAi<R>(kind: 'explain' | 'filter' | 'key', run: (a: NonNullable<Awaited<ReturnType<typeof asker>>>) => Promise<R>): Promise<R | null> {
+  if (aiBusy.value) return null;
+  const a = await asker();
+  if (!a) { ElMessage.warning(t('compare:ai.noProvider')); ui.aiOpen = true; return null; }
+  aiBusy.value = kind;
+  aiRun = a.run_id;
+  try {
+    return await run(a);
+  } catch (e) {
+    if (errorKind(e) !== 'cancelled') ElMessage.error(errorMessage(e));
+    return null;
+  } finally {
+    aiBusy.value = '';
+    aiRun = null;
+  }
+}
+function stopAi() {
+  if (aiRun) aiTaskApi.cancel(aiRun).catch(() => {});
+}
+
+async function explain() {
+  const r = result.value;
+  if (!r) return;
+  const got = await withAi('explain', (a) => dataCompareApi.explain(r.id, a));
+  if (got) explanation.value = got.text;
+}
+
+function applyAiFilter(f: AiFilter) {
+  filters.value = Object.fromEntries(f.filters.map((x) => [x.column, x]));
+  changedIn.value = view.value === 'changed' ? f.changed_in : [];
+  sort.value = f.sort;
+  const nothing = !f.filters.length && !f.changed_in.length && !f.sort.length;
+  aiNote.value = f.note ?? (nothing ? t('dataCompare:ai.filterNothing') : '');
+}
+async function askFilter() {
+  const r = result.value;
+  const text = aiAsk.value.trim();
+  if (!r || !text) return;
+  const got = await withAi('filter', (a) => dataCompareApi.aiFilter(r.id, view.value, text, a));
+  if (got) applyAiFilter(got);
+}
+
+/** Key columns for a table without a primary key: a unique index of NOT NULL
+ *  columns, else the AI's guess from the columns (with an AI set up). */
+async function suggestKey() {
+  const l = side(left);
+  if (!l || aiBusy.value) return;
+  const a = await asker();
+  aiBusy.value = 'key';
+  aiRun = a?.run_id ?? null;
+  try {
+    const h = await dataCompareApi.keyHint(l, a);
+    if (!h.key.length) {
+      ElMessage.info(t(a ? 'dataCompare:ai.keyNone' : 'dataCompare:ai.keyNoneNoAi'));
+      return;
+    }
+    key.value = h.key;
+    ElMessage.success({ message: t(h.by === 'unique' ? 'dataCompare:ai.keyUnique' : 'dataCompare:ai.keyAi', { list: h.key.join(', ') }), duration: 5000 });
+  } catch (e) {
+    if (errorKind(e) !== 'cancelled') ElMessage.error(errorMessage(e));
+  } finally {
+    aiBusy.value = '';
+    aiRun = null;
+  }
+}
 </script>
 
 <template>
@@ -742,6 +829,7 @@ watch(() => result.value?.id, () => {
         <el-select v-model="key" multiple filterable collapse-tags size="small" class="dc-key" :placeholder="$t('dataCompare:key')">
           <el-option v-for="c in (result?.columns.length ? result.columns : leftColumns)" :key="c" :label="c" :value="c" />
         </el-select>
+        <el-button v-if="!key.length && needsKey" size="small" text :loading="aiBusy === 'key'" :title="$t('dataCompare:ai.keyHint')" @click="suggestKey"><el-icon><ei-magic-stick /></el-icon>&nbsp;{{ $t('dataCompare:ai.key') }}</el-button>
         <el-button :type="result ? 'default' : 'primary'" size="small" :loading="running" @click="compare">{{ $t('dataCompare:compare') }}</el-button>
         <!-- Same as the schema compare: choose with the arrows, then sync. -->
         <el-button v-if="result" size="small" :type="totalChosen ? 'primary' : 'default'" :disabled="!totalChosen" @click="openSync">
@@ -774,6 +862,30 @@ watch(() => result.value?.id, () => {
         <div v-if="result.duplicate_keys">{{ $t('dataCompare:duplicates', { count: result.duplicate_keys }) }}</div>
         <div v-if="result.only_left_columns.length">{{ $t('dataCompare:onlyLeftColumns', { list: result.only_left_columns.join(', ') }) }}</div>
         <div v-if="result.only_right_columns.length">{{ $t('dataCompare:onlyRightColumns', { list: result.only_right_columns.join(', ') }) }}</div>
+      </div>
+      <div v-if="result.counts.changed || result.counts.only_left || result.counts.only_right" class="dc-ai">
+        <el-input
+          v-model="aiAsk" size="small" clearable class="dc-ai-ask" :disabled="!!aiBusy"
+          :placeholder="$t('dataCompare:ai.askPlaceholder')" :title="$t('dataCompare:ai.askHint', { provider: providerLabel() || $t('compare:ai.theAi') })"
+          @keyup.enter="askFilter"
+        >
+          <template #prefix><el-icon><ei-magic-stick /></el-icon></template>
+        </el-input>
+        <el-button size="small" :loading="aiBusy === 'filter'" :disabled="!aiAsk.trim() || (!!aiBusy && aiBusy !== 'filter')" @click="askFilter">{{ $t('dataCompare:ai.filter') }}</el-button>
+        <el-button size="small" :loading="aiBusy === 'explain'" :disabled="!!aiBusy && aiBusy !== 'explain'" :title="$t('dataCompare:ai.explainHint', { provider: providerLabel() || $t('compare:ai.theAi') })" @click="explain">{{ $t('dataCompare:ai.explain') }}</el-button>
+        <el-button v-if="aiBusy" size="small" text @click="stopAi">{{ $t('common:stop') }}</el-button>
+        <span v-if="aiNote" class="dc-ai-note">{{ aiNote }}</span>
+      </div>
+      <div v-if="explanation" class="dc-explain">
+        <div class="dc-explain-head">
+          <span>{{ $t('dataCompare:ai.explained', { provider: providerLabel() || $t('compare:ai.theAi') }) }}</span>
+          <button :aria-label="$t('common:close')" :title="$t('common:close')" @click="explanation = null">×</button>
+        </div>
+        <template v-for="(p, i) in explainParts" :key="i">
+          <!-- eslint-disable-next-line vue/no-v-html -- escaped first by composables/markdown.ts: no raw HTML -->
+          <div v-if="p.kind === 'text'" class="dc-explain-md nm-selectable" v-html="p.html" />
+          <pre v-else class="dc-explain-code nm-selectable">{{ p.code }}</pre>
+        </template>
       </div>
       <div v-if="chips.length" class="dc-chips">
         <span class="dc-chips-label">{{ $t('dataCompare:filtersLabel') }}</span>
@@ -884,6 +996,14 @@ watch(() => result.value?.id, () => {
 .dc-table { width: 220px; }
 .dc-actions { display: flex; gap: 6px; align-items: center; flex-basis: 100%; }
 .dc-key { width: 320px; }
+.dc-ai { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--nm-border); }
+.dc-ai-ask { width: 420px; max-width: 100%; }
+.dc-ai-note { color: var(--nm-text-dim); font-size: 12px; }
+.dc-explain { margin: 8px 14px; padding: 8px 12px; border: 1px solid var(--nm-border); border-left: 3px solid var(--nm-accent); border-radius: 4px; max-height: 260px; overflow: auto; font-size: 13px; }
+.dc-explain-head { display: flex; align-items: center; justify-content: space-between; color: var(--nm-text-dim); font-size: 12px; margin-bottom: 4px; }
+.dc-explain-head button { border: none; background: none; cursor: pointer; color: var(--nm-text-dim); font-size: 16px; line-height: 1; }
+.dc-explain-md :deep(p) { margin: 4px 0; }
+.dc-explain-code { white-space: pre-wrap; font-size: 12px; }
 .dc-count { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px; background: var(--nm-overlay-count); }
 .dc-bulk { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--nm-border); font-size: 12px; color: var(--nm-text-dim); }
 .dc-bulk button { border: 1px solid var(--nm-border); border-radius: 3px; background: none; color: var(--nm-text); padding: 2px 8px; font: inherit; cursor: pointer; }

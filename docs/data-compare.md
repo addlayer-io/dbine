@@ -103,6 +103,35 @@ update and insert.
   insert doesn't collide with a copied id.
 - Read-only connections reject the script when it is run.
 
+## With AI
+
+Over the differences there's a bar to use the AI with. The AI never sees a row's
+values: it gets counts, the columns' names and types, and what you type.
+
+- **Explain differences** computes, over all the differences and not only the
+  rows shown, a profile per column:
+  - how many rows differ, and in how many it's the only difference;
+  - NULL on one side only, and text that differs only in case or spaces;
+  - for numbers and dates, the most frequent gap between the two sides and its
+    range ("+3 h in 1,180 rows");
+  - which columns differ in the same rows;
+  - with a one-column key of numbers or dates, how many of the rows a side
+    lacks come after the other side's last key (a sync running late).
+
+  The AI tells the likely cause from that (time zone, rounding, an update date)
+  and what can be ignored.
+- **Filter with AI** turns a request ("the ones that differ only in price, the
+  most expensive first") into the column filters, **Differs in** and the sort
+  described above. They show as chips and can be removed one by one. What
+  these filters can't express (comparing the left value with the right one, a
+  percentage of change) the AI says in a note under the bar.
+- **Suggest key**, next to the key, for a table without a primary key:
+  - first a unique index whose columns don't take NULL;
+  - if there's none, with an AI set up, the AI's choice from the columns'
+    names and types.
+
+  The comparison says if the key repeats.
+
 ## Commands
 
 - `data_compare { left, right, key, columns, limit }` → the totals, the
@@ -113,3 +142,9 @@ update and insert.
   `only_right`; each carries `all` (`"left"`, `"right"` or `"none"`) and
   `rows`, the exceptions `[index, direction]` over the complete list of that
   view.
+- `data_compare_explain { id, asker }` → `{ text }`, Markdown from the profile
+  (`src-tauri/src/commands/data_compare_ai.rs`).
+- `data_compare_ai_filter { id, kind, request, asker }` → `{ filters,
+  changed_in, sort, note }`, checked against the comparison's columns.
+- `data_compare_key_hint { left, asker | null }` → `{ key, by: "unique" |
+  "ai" | "" }`.

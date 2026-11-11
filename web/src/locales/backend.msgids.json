@@ -11661,6 +11661,9 @@
  "La CPU del sistema necesita el permiso MONITOR RESOURCE (MonitorPhysicalSummary).": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "La IA respondió algo que DBine no pudo leer. Probá de nuevo o con otro modelo.": [
+  "src-tauri/src/commands/ai_task.rs"
+ ],
  "La IP de la instancia, o 127.0.0.1 si usás AlloyDB Auth Proxy.": [
   "crates/drivers/postgres/src/lib.rs"
  ],
@@ -29805,6 +29808,9 @@
  ],
  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": [
   "src-tauri/src/commands/data_compare.rs"
+ ],
+ "la comparación ya no está: compará de nuevo": [
+  "src-tauri/src/commands/data_compare_ai.rs"
  ],
  "la comparación ya no está: volvé a comparar": [
   "src-tauri/src/commands/data_compare.rs"

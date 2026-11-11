@@ -87,5 +87,34 @@
  "optimizer.index": "indeks",
  "cli.codex_rule": "Nie uruchamiaj poleceń ani nie czytaj plików: odpowiadaj wyłącznie tekstem.",
  "transcript.user": "Użytkownik",
- "transcript.assistant": "Asystent"
+ "transcript.assistant": "Asystent",
+ "task.repair": "Nie udało się odczytać Twojej odpowiedzi: {error}. Odpowiedz ponownie w wymaganym formacie i niczego więcej nie dodawaj.",
+ "task.more_lines": "… (pominięto jeszcze {count} wierszy)",
+ "compare.renames_system": [
+  "Porównujesz strukturę dwóch baz danych. Przekazuję Ci kolumny i tabele, które występują tylko po jednej stronie: `<` jest tylko po lewej, a `>` tylko po prawej.",
+  "Powiedz, które z nich to te same dane pod inną nazwą: przetłumaczona, skrócona lub poprawiona nazwa, z takim samym lub podobnym typem. W razie wątpliwości pomiń: błędna para zmieni nazwę czegoś niewłaściwego.",
+  "Kolumnę można sparować tylko z inną kolumną tej samej tabeli, a każdej nazwy używa się raz. Zapisuj nazwy tabel i kolumn dokładnie tak, jak je dostajesz.",
+  "Odpowiedz wyłącznie tym JSON-em, bez wyjaśnień:",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "Jeśli nie ma żadnych: {\"columns\": [], \"tables\": []}"
+ ],
+ "datacompare.explain_system": [
+  "Wyjaśniasz prostym językiem różnice między dwiema tabelami, które DBine porównał wiersz po wierszu. Przekazuję Ci profil obliczony na podstawie wszystkich różnic: liczby i typową rozbieżność między dwiema stronami każdej kolumny, nigdy wartości.",
+  "Powiedz, jakie wzorce widzisz i jaka jest ich prawdopodobna przyczyna: strefa czasowa, zaokrąglenie, wielkość liter lub spacje, wartości brakujące po jednej stronie, opóźniona synchronizacja, kolumny, które zawsze się zmieniają, jak data aktualizacji. Powiedz też, co warto sprawdzić, a co można zignorować.",
+  "Jeśli czegoś nie da się ustalić na podstawie profilu, powiedz o tym zamiast zgadywać. Nie pisz zapytań ani skryptów.",
+  "Odpowiedz w kilku wierszach, w Markdown."
+ ],
+ "datacompare.filter_system": [
+  "Zamieniasz to, o co użytkownik prosi słowami, na filtry listy różnic porównania danych. Przekazuję Ci listę, jej kolumny z typem, operatory i prośbę.",
+  "Każdy filtr to kolumna, operator i jego wartości; filtry łączą się przez I. `changed_in` to kolumny, które muszą się różnić między dwiema stronami (tylko na liście różniących się wierszy). `sort` to kolejność.",
+  "Używaj tylko kolumn i operatorów z listy. To, czego nie da się tak wyrazić (na przykład porównanie wartości po lewej z wartością po prawej albo procentowa zmiana), pomiń i wyjaśnij w `note`, w języku użytkownika.",
+  "Odpowiedz wyłącznie tym JSON-em, bez wyjaśnień:",
+  "{\"filters\": [{\"column\": \"COLUMN\", \"op\": \"OP\", \"values\": [VALUE]}], \"changed_in\": [\"COLUMN\"], \"sort\": [{\"column\": \"COLUMN\", \"descending\": false}], \"note\": \"TEXT\"}"
+ ],
+ "datacompare.key_system": [
+  "Wybierasz, które kolumny identyfikują każdy wiersz tabeli bez klucza głównego, aby porównać jej dane z inną tabelą. Przekazuję Ci jej kolumny z typem.",
+  "Wybierz jak najmniej kolumn, które nie powtarzają się między wierszami i nie są NULL, jak kod, numer dokumentu lub e-mail. Jeśli żadna się nie nadaje, zwróć pustą listę.",
+  "Odpowiedz wyłącznie tym JSON-em, bez wyjaśnień:",
+  "{\"key\": [\"COLUMN\"]}"
+ ]
 }

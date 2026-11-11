@@ -11555,5 +11555,7 @@
   "DBine Bastion no permite «{0}»": "DBine Bastion에서 «{0}»을(를) 허용하지 않습니다",
   "esta conexión no pasa por DBine Bastion": "이 연결은 DBine Bastion을 거치지 않습니다",
   "la conexión no está disponible en DBine Bastion": "DBine Bastion에서 이 연결을 사용할 수 없습니다",
-  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "이 연결은 이 시간대의 접근을 허용하지 않습니다: DBine Enterprise에서 시간 외 접근을 요청하세요"
+  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "이 연결은 이 시간대의 접근을 허용하지 않습니다: DBine Enterprise에서 시간 외 접근을 요청하세요",
+  "La IA respondió algo que DBine no pudo leer. Probá de nuevo o con otro modelo.": "AI가 DBine에서 읽을 수 없는 응답을 보냈습니다. 다시 시도하거나 다른 모델을 사용하세요.",
+  "la comparación ya no está: compará de nuevo": "비교 결과가 더 이상 없습니다. 다시 비교하세요"
 }

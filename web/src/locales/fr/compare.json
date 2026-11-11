@@ -198,5 +198,33 @@
     "incomplete_other": "liste incomplète : impossible de lire {{count}} objets",
     "none": "Rien ne dépend de ceci",
     "noneFound": "Rien trouvé dans ce qui a pu être lu"
+  },
+  "ai": {
+    "noProvider": "Configurez un fournisseur d'IA dans le panneau de l'assistant.",
+    "busy": "L'assistant répond à une autre question.",
+    "theAi": "l'IA",
+    "renames": "Rechercher les renommages avec l'IA",
+    "renamesHint": "Cherche les colonnes et les tables présentes d'un seul côté qui sont les mêmes sous un autre nom. Seuls leurs noms et leurs types sont envoyés à {{provider}}, jamais de données.",
+    "renamesFound_one": "L'IA suggère {{count}} renommage.",
+    "renamesFound_many": "L'IA suggère {{count}} renommages.",
+    "renamesFound_other": "L'IA suggère {{count}} renommages.",
+    "renamesNone": "L'IA n'a trouvé aucun renommage.",
+    "review": "Vérifier avec l'IA",
+    "reviewHint": "L'assistant examine le script et mesure les risques avec des lectures que vous approuvez. Il ne modifie rien.",
+    "summary": "Résumer avec l'IA",
+    "summaryHint": "L'assistant résume les changements en langage clair, pour une demande d'approbation ou un ticket.",
+    "noWarnings": "aucun",
+    "reviewPrompt": "Examine le script de synchronisation que DBine a généré pour {{where}} ({{engine}}, {{statements}} instructions) : c'est le texte de l'éditeur. Avertissements de DBine : {{warnings}}. Dis-moi ce qui peut échouer ou faire perdre des données avant de l'exécuter. Si nécessaire, mesure-le avec des requêtes en lecture seule sur cette base : lignes contenant NULL dans une colonne qui devient NOT NULL, la valeur la plus longue avant de réduire une colonne, valeurs qui ne tiennent pas dans le nouveau type, nombre de lignes d'une table reconstruite ou supprimée. Termine par le risque de chaque changement et l'ordre ou les précautions que tu recommandes. Ne modifie rien dans la base.",
+    "summaryPrompt": "Résume en langage clair les changements du script de synchronisation pour {{where}} ({{engine}}, {{statements}} instructions), qui est le texte de l'éditeur, pour une demande d'approbation ou un ticket : ce qui est créé, modifié et supprimé, et le risque de chaque élément. Sans requêtes : uniquement le résumé."
+  },
+  "rename": {
+    "column": "« {{left}} » (gauche) et « {{right}} » (droite) semblent être la même colonne sous un autre nom.",
+    "table": "« {{left}} » (gauche) et « {{right}} » (droite) semblent être la même table sous un autre nom.",
+    "keeps": "Renommer conserve les données ; supprimer puis ajouter les perd.",
+    "byAi": "(suggéré par l'IA)",
+    "onLeft": "Renommer à gauche",
+    "onRight": "Renommer à droite",
+    "unsupported": "Ce moteur ne permet pas de le renommer.",
+    "pending": "Appliquez ou annulez d'abord les changements en attente : renommer relit les bases."
   }
 }

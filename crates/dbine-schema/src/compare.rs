@@ -99,6 +99,9 @@ pub struct ObjectDiff {
 pub struct CompareResult {
     pub tables: Vec<TableDiff>,
     pub objects: Vec<ObjectDiff>,
+    /// Columns and tables on one side only that are probably the same thing
+    /// renamed ([`crate::renames`]).
+    pub renames: Vec<crate::renames::RenameHint>,
 }
 
 fn norm(s: &str, o: &CompareOptions) -> String {
@@ -622,7 +625,13 @@ pub fn compare(left: &DbModel, right: &DbModel, o: &CompareOptions) -> CompareRe
             ObjectDiff { kind: c.kind.clone(), key: display(c.schema.as_deref(), &c.name), left: a, right: b, status: status_of(a, b, changed) }
         })
         .collect();
-    CompareResult { tables, objects }
+    let mut result = CompareResult {
+        tables,
+        objects,
+        renames: Vec::new(),
+    };
+    result.renames = crate::renames::probable(left, right, &result);
+    result
 }
 
 #[cfg(test)]

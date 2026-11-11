@@ -184,5 +184,32 @@
     "incomplete_other": "unvollständige Liste: {{count}} Objekte konnten nicht gelesen werden",
     "none": "Nichts hängt davon ab",
     "noneFound": "Im Lesbaren wurde nichts gefunden"
+  },
+  "ai": {
+    "noProvider": "Richten Sie im Assistentenbereich einen KI-Anbieter ein.",
+    "busy": "Der Assistent beantwortet gerade eine andere Frage.",
+    "theAi": "die KI",
+    "renames": "Umbenennungen mit KI suchen",
+    "renamesHint": "Sucht Spalten und Tabellen, die nur auf einer Seite vorkommen und unter anderem Namen dieselben sind. An {{provider}} werden nur ihre Namen und Typen gesendet, nie Daten.",
+    "renamesFound_one": "Die KI schlägt {{count}} Umbenennung vor.",
+    "renamesFound_other": "Die KI schlägt {{count}} Umbenennungen vor.",
+    "renamesNone": "Die KI hat keine Umbenennungen gefunden.",
+    "review": "Mit KI prüfen",
+    "reviewHint": "Der Assistent prüft das Skript und misst die Risiken mit Lesezugriffen, die Sie genehmigen. Er ändert nichts.",
+    "summary": "Mit KI zusammenfassen",
+    "summaryHint": "Der Assistent fasst die Änderungen in verständlicher Sprache zusammen, für eine Genehmigungsanfrage oder ein Ticket.",
+    "noWarnings": "keine",
+    "reviewPrompt": "Prüfe das Synchronisierungsskript, das DBine für {{where}} ({{engine}}, {{statements}} Anweisungen) erzeugt hat: Es ist der Text im Editor. Hinweise von DBine: {{warnings}}. Sag mir, was fehlschlagen oder Daten verlieren kann, bevor es ausgeführt wird. Miss es bei Bedarf mit schreibgeschützten Abfragen auf dieser Datenbank: Zeilen mit NULL in einer Spalte, die zu NOT NULL wird, den längsten Wert vor dem Verkleinern einer Spalte, Werte, die nicht in den neuen Typ passen, wie viele Zeilen eine Tabelle hat, die neu aufgebaut oder gelöscht wird. Schließe mit dem Risiko jeder Änderung und der Reihenfolge oder den Vorsichtsmaßnahmen ab, die du empfiehlst. Ändere nichts an der Datenbank.",
+    "summaryPrompt": "Fasse die Änderungen des Synchronisierungsskripts für {{where}} ({{engine}}, {{statements}} Anweisungen), das der Text im Editor ist, in verständlicher Sprache zusammen, für eine Genehmigungsanfrage oder ein Ticket: was erstellt, geändert und gelöscht wird und welches Risiko jeweils besteht. Ohne Abfragen: nur die Zusammenfassung."
+  },
+  "rename": {
+    "column": "„{{left}}“ (links) und „{{right}}“ (rechts) scheinen dieselbe Spalte unter anderem Namen zu sein.",
+    "table": "„{{left}}“ (links) und „{{right}}“ (rechts) scheinen dieselbe Tabelle unter anderem Namen zu sein.",
+    "keeps": "Umbenennen erhält die Daten; Löschen und Hinzufügen verliert sie.",
+    "byAi": "(von der KI vorgeschlagen)",
+    "onLeft": "Links umbenennen",
+    "onRight": "Rechts umbenennen",
+    "unsupported": "Diese Engine unterstützt das Umbenennen nicht.",
+    "pending": "Wenden Sie die ausstehenden Änderungen zuerst an oder verwerfen Sie sie: Beim Umbenennen werden die Datenbanken neu gelesen."
   }
 }

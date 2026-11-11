@@ -85,30 +85,45 @@ pub struct DataCompareResult {
     pub duplicate_keys: u64,
 }
 
-/// The whole difference, kept for the script.
-struct Diff {
-    left: Side,
-    right: Side,
-    key: Vec<String>,
+/// The whole difference, kept for the script (and for the AI's profile in
+/// `data_compare_ai`).
+pub(crate) struct Diff {
+    pub(crate) left: Side,
+    pub(crate) right: Side,
+    pub(crate) key: Vec<String>,
     /// (left name, right name) of each compared column.
-    columns: Vec<(String, String)>,
+    pub(crate) columns: Vec<(String, String)>,
     /// Each side's identity / auto-increment columns: inserting their values
     /// needs the engine's wrap (SQL Server's IDENTITY_INSERT).
-    left_identity: Vec<String>,
-    right_identity: Vec<String>,
-    only_left: Vec<Vec<Value>>,
-    only_right: Vec<Vec<Value>>,
-    changed: Vec<ChangedRow>,
+    pub(crate) left_identity: Vec<String>,
+    pub(crate) right_identity: Vec<String>,
+    pub(crate) only_left: Vec<Vec<Value>>,
+    pub(crate) only_right: Vec<Vec<Value>>,
+    pub(crate) changed: Vec<ChangedRow>,
     /// Each side's type of each compared column ("": not known), so a script
     /// writes a value the way its target column takes it.
-    left_types: Vec<String>,
-    right_types: Vec<String>,
+    pub(crate) left_types: Vec<String>,
+    pub(crate) right_types: Vec<String>,
     /// A side had more rows than were read: a row seen on one side may exist
     /// on the other past what was read, so it's never inserted or deleted.
-    partial: bool,
+    pub(crate) partial: bool,
+    /// Rows equal on both sides.
+    pub(crate) same: u64,
+    /// A one-column key's last value on each side (NULL keys aside): whether
+    /// the rows one side lacks come after the other's last.
+    pub(crate) last_keys: Option<(Option<Value>, Option<Value>)>,
 }
 
-fn diffs() -> &'static Mutex<HashMap<String, Diff>> {
+/// The greatest non-NULL value in column `i`, by the order rows are sorted in.
+fn last_of(rows: &[Vec<Value>], i: usize) -> Option<Value> {
+    rows.iter()
+        .filter_map(|r| r.get(i))
+        .filter(|v| !v.is_null())
+        .max_by(|a, b| sort_value(a).cmp_with(&sort_value(b), false))
+        .cloned()
+}
+
+pub(crate) fn diffs() -> &'static Mutex<HashMap<String, Diff>> {
     static D: OnceLock<Mutex<HashMap<String, Diff>>> = OnceLock::new();
     D.get_or_init(Default::default)
 }
@@ -230,7 +245,7 @@ async fn primary_key(state: &AppState, side: &Side) -> CommandResult<Vec<String>
 /// Whether a column holds booleans. PostgreSQL and its family answer them as
 /// `t` and `f` in text, which no other engine's value equals, and which isn't
 /// a value another engine's boolean column takes in a sync script.
-fn is_bool_type(data_type: &str) -> bool {
+pub(crate) fn is_bool_type(data_type: &str) -> bool {
     matches!(
         data_type.trim().to_ascii_lowercase().as_str(),
         "bool" | "boolean"
@@ -362,7 +377,7 @@ fn write_as(target_type: &str, source_type: &str, v: Value) -> Value {
 
 /// A value as compared: numbers by value (`1` = `1.0` = `"1.00"`), dates
 /// with `T` or a space alike, the rest as text.
-fn canon(v: &Value) -> String {
+pub(crate) fn canon(v: &Value) -> String {
     match v {
         Value::Null => "\u{0}null".into(),
         Value::Bool(b) => if *b { "1" } else { "0" }.into(),
@@ -481,6 +496,8 @@ pub async fn data_compare(
         .cloned()
         .collect();
     let nk = key.len();
+    let last_keys =
+        (nk == 1).then(|| (last_of(&lrows, columns[0].1), last_of(&rrows, columns[0].3)));
 
     let booleans = |cols: &[ColumnInfo], name: &str| {
         cols.iter()
@@ -608,6 +625,8 @@ pub async fn data_compare(
             left_types,
             right_types,
             partial: ltrunc || rtrunc,
+            same: result.counts.same,
+            last_keys,
         },
     );
     Ok(result)
@@ -661,14 +680,14 @@ pub struct DataRows {
 /// A value to sort by: numbers by value, the rest as text without case, and
 /// NULL last whichever way it goes.
 #[derive(Debug, Clone, PartialEq)]
-enum SortValue {
+pub(crate) enum SortValue {
     Number(f64),
     Text(String),
     Null,
 }
 
 impl SortValue {
-    fn cmp_with(&self, other: &Self, descending: bool) -> std::cmp::Ordering {
+    pub(crate) fn cmp_with(&self, other: &Self, descending: bool) -> std::cmp::Ordering {
         use std::cmp::Ordering::{Greater, Less};
         let order = match (self, other) {
             (SortValue::Null, SortValue::Null) => std::cmp::Ordering::Equal,
@@ -688,7 +707,7 @@ impl SortValue {
 }
 
 /// A value as a number, if it reads as one (PostgreSQL's come as text).
-fn number_of(v: &Value) -> Option<f64> {
+pub(crate) fn number_of(v: &Value) -> Option<f64> {
     match v {
         Value::Number(n) => n.as_f64(),
         Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
@@ -708,11 +727,11 @@ fn number_of(v: &Value) -> Option<f64> {
 }
 
 /// A value as text, without case (dates with `T` or a space alike).
-fn text_of(v: &Value) -> String {
+pub(crate) fn text_of(v: &Value) -> String {
     canon(v).to_lowercase()
 }
 
-fn sort_value(v: &Value) -> SortValue {
+pub(crate) fn sort_value(v: &Value) -> SortValue {
     match v {
         Value::Null => SortValue::Null,
         _ => number_of(v).map_or_else(|| SortValue::Text(text_of(v)), SortValue::Number),
@@ -1492,6 +1511,8 @@ mod tests {
             left_types: vec!["int".into(), "text".into()],
             right_types: vec!["int".into(), "text".into()],
             partial,
+            same: 0,
+            last_keys: None,
         }
     }
 

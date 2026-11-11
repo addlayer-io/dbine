@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_task;
 pub mod azure_firewall;
 pub mod backup;
 pub mod chart;
@@ -9,6 +10,7 @@ pub mod connections;
 pub mod connstring;
 pub mod contexts;
 pub mod data_compare;
+pub mod data_compare_ai;
 pub mod datagen;
 pub mod db_health;
 pub mod dbdocs;

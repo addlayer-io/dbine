@@ -87,5 +87,34 @@
  "optimizer.index": "índice",
  "cli.codex_rule": "No ejecutes comandos ni leas archivos: respondé solo con texto.",
  "transcript.user": "Usuario",
- "transcript.assistant": "Asistente"
+ "transcript.assistant": "Asistente",
+ "task.repair": "Tu respuesta no se pudo leer: {error}. Respondé de nuevo con el formato pedido y nada más.",
+ "task.more_lines": "… ({count} líneas más no se incluyen)",
+ "compare.renames_system": [
+  "Comparás la estructura de dos bases de datos. Te paso las columnas y las tablas que están de un solo lado: `<` está solo a la izquierda y `>` solo a la derecha.",
+  "Decí cuáles son el mismo dato con otro nombre: un nombre traducido, abreviado o corregido, con un tipo igual o parecido. Si dudás, dejalo afuera: un par equivocado renombra lo que no corresponde.",
+  "Una columna solo se empareja con otra de la misma tabla, y cada nombre se usa una sola vez. Escribí los nombres de tablas y columnas exactamente como te llegan.",
+  "Respondé solo con este JSON, sin explicación:",
+  "{\"columns\": [{\"table\": \"TABLA\", \"left\": \"COLUMNA_IZQUIERDA\", \"right\": \"COLUMNA_DERECHA\"}], \"tables\": [{\"left\": \"TABLA_IZQUIERDA\", \"right\": \"TABLA_DERECHA\"}]}",
+  "Si no hay ninguno: {\"columns\": [], \"tables\": []}"
+ ],
+ "datacompare.explain_system": [
+  "Explicás en lenguaje claro las diferencias entre dos tablas que DBine comparó fila por fila. Te paso un perfil calculado sobre todas las diferencias: cantidades y la diferencia típica entre los dos lados de cada columna, nunca valores.",
+  "Decí qué patrones ves y su causa probable: zona horaria, redondeo, mayúsculas o espacios, valores que faltan de un lado, una sincronización atrasada, columnas que cambian siempre como una fecha de actualización. Decí también qué conviene revisar y qué se puede ignorar.",
+  "Si algo no se puede saber con el perfil, decilo en vez de suponerlo. No escribas consultas ni scripts.",
+  "Respondé en pocas líneas, en Markdown."
+ ],
+ "datacompare.filter_system": [
+  "Convertís lo que el usuario pide en palabras en los filtros de la lista de diferencias de una comparación de datos. Te paso la lista, sus columnas con su tipo, los operadores y el pedido.",
+  "Cada filtro es una columna, un operador y sus valores; los filtros se combinan con Y. `changed_in` son columnas que tienen que ser distintas entre los dos lados (solo en la lista de filas distintas). `sort` es el orden.",
+  "Usá solo las columnas y los operadores de la lista. Lo que no se pueda expresar así (por ejemplo, comparar el valor de la izquierda con el de la derecha o un porcentaje de cambio), dejalo afuera y explicalo en `note`, en el idioma del usuario.",
+  "Respondé solo con este JSON, sin explicación:",
+  "{\"filters\": [{\"column\": \"COLUMN\", \"op\": \"OP\", \"values\": [VALUE]}], \"changed_in\": [\"COLUMN\"], \"sort\": [{\"column\": \"COLUMN\", \"descending\": false}], \"note\": \"TEXT\"}"
+ ],
+ "datacompare.key_system": [
+  "Elegís qué columnas identifican cada fila de una tabla que no tiene clave primaria, para comparar sus datos con otra tabla. Te paso sus columnas con su tipo.",
+  "Elegí la menor cantidad de columnas que no se repitan entre filas ni sean NULL, como un código, un número de documento o un e-mail. Si ninguna sirve, devolvé la lista vacía.",
+  "Respondé solo con este JSON, sin explicación:",
+  "{\"key\": [\"COLUMN\"]}"
+ ]
 }

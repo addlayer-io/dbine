@@ -1207,7 +1207,7 @@ fn truncate(s: &str, max: usize, p: &Prompts) -> String {
     format!("{}\n{}", &s[..end], p.text("truncated"))
 }
 
-async fn schema_for(
+pub(crate) async fn schema_for(
     state: &AppState,
     ai: &AiRuntime,
     connection_id: &str,

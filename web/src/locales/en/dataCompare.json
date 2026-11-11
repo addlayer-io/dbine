@@ -86,5 +86,20 @@
     "delete_one": "{{n}} delete",
     "delete_many": "{{n}} deletes",
     "delete_other": "{{n}} deletes"
+  },
+  "ai": {
+    "key": "Suggest key",
+    "keyHint": "Proposes the columns that identify each row: a unique index of columns that don't take NULL or, if there's none, what the AI says from the columns' names and types.",
+    "keyUnique": "Key suggested by a unique index: {{list}}.",
+    "keyAi": "Key suggested by the AI: {{list}}. Check that it doesn't repeat.",
+    "keyNone": "There's no key to suggest: choose the columns that identify each row.",
+    "keyNoneNoAi": "The table has no unique index to use as a key. With an AI provider set up, the AI can also be asked.",
+    "askPlaceholder": "Filter with AI: for example, the ones that differ only in price, the most expensive first",
+    "askHint": "The AI turns the request into the grid's filters and order. {{provider}} gets the columns' names and types and the request, never rows.",
+    "filter": "Filter",
+    "filterNothing": "The AI found no way to filter that with the comparison's columns.",
+    "explain": "Explain differences",
+    "explainHint": "The AI explains what the differences have in common and their likely cause. {{provider}} gets counts and typical gaps per column, never the rows' values.",
+    "explained": "Explanation by {{provider}}, from counts and typical gaps"
   }
 }

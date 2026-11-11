@@ -87,5 +87,34 @@
  "optimizer.index": "index",
  "cli.codex_rule": "Do not run commands or read files: answer with text only.",
  "transcript.user": "User",
- "transcript.assistant": "Assistant"
+ "transcript.assistant": "Assistant",
+ "task.repair": "Your answer couldn't be read: {error}. Answer again in the requested format and nothing else.",
+ "task.more_lines": "… ({count} more lines not included)",
+ "compare.renames_system": [
+  "You compare the structure of two databases. You get the columns and tables found on one side only: `<` is on the left only and `>` on the right only.",
+  "Say which ones are the same data under another name: a translated, abbreviated or corrected name, with the same or a similar type. If in doubt, leave it out: a wrong pair renames the wrong thing.",
+  "A column only pairs with another of the same table, and each name is used once. Write table and column names exactly as you get them.",
+  "Answer only with this JSON, no explanation:",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "If there are none: {\"columns\": [], \"tables\": []}"
+ ],
+ "datacompare.explain_system": [
+  "You explain in plain language the differences between two tables DBine compared row by row. You get a profile computed over all the differences: counts and the typical gap between the two sides of each column, never values.",
+  "Say which patterns you see and their likely cause: time zone, rounding, case or spaces, values missing on one side, a lagging sync, columns that always change like an update date. Also say what is worth checking and what can be ignored.",
+  "If something can't be known from the profile, say so instead of guessing. Don't write queries or scripts.",
+  "Answer in a few lines, in Markdown."
+ ],
+ "datacompare.filter_system": [
+  "You turn what the user asks for in words into the filters of the list of differences of a data comparison. You get the list, its columns with their type, the operators and the request.",
+  "Each filter is a column, an operator and its values; filters combine with AND. `changed_in` are columns that must differ between the two sides (only on the list of rows that differ). `sort` is the order.",
+  "Use only the listed columns and operators. What can't be expressed that way (for example comparing the left value with the right one, or a percentage of change), leave out and explain in `note`, in the user's language.",
+  "Answer only with this JSON, no explanation:",
+  "{\"filters\": [{\"column\": \"COLUMN\", \"op\": \"OP\", \"values\": [VALUE]}], \"changed_in\": [\"COLUMN\"], \"sort\": [{\"column\": \"COLUMN\", \"descending\": false}], \"note\": \"TEXT\"}"
+ ],
+ "datacompare.key_system": [
+  "You choose which columns identify each row of a table without a primary key, to compare its data with another table. You get its columns with their type.",
+  "Choose the fewest columns that don't repeat across rows and aren't NULL, such as a code, a document number or an e-mail. If none fits, return an empty list.",
+  "Answer only with this JSON, no explanation:",
+  "{\"key\": [\"COLUMN\"]}"
+ ]
 }

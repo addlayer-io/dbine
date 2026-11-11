@@ -87,5 +87,34 @@
  "optimizer.index": "Index",
  "cli.codex_rule": "Führe keine Befehle aus und lies keine Dateien: Antworte nur mit Text.",
  "transcript.user": "Benutzer",
- "transcript.assistant": "Assistent"
+ "transcript.assistant": "Assistent",
+ "task.repair": "Deine Antwort konnte nicht gelesen werden: {error}. Antworte erneut im verlangten Format und sonst nichts.",
+ "task.more_lines": "… {count} weitere Zeilen nicht enthalten",
+ "compare.renames_system": [
+  "Du vergleichst die Struktur zweier Datenbanken. Ich gebe dir die Spalten und Tabellen, die nur auf einer Seite vorkommen: `<` steht nur links und `>` nur rechts.",
+  "Sag, welche dieselben Daten unter anderem Namen sind: ein übersetzter, abgekürzter oder korrigierter Name, mit gleichem oder ähnlichem Typ. Im Zweifel lass es weg: Ein falsches Paar benennt Falsches um.",
+  "Eine Spalte wird nur mit einer anderen derselben Tabelle gepaart, und jeder Name wird nur einmal verwendet. Schreibe Tabellen- und Spaltennamen genau so, wie sie bei dir ankommen.",
+  "Antworte nur mit diesem JSON, ohne Erklärung:",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "Wenn es keine gibt: {\"columns\": [], \"tables\": []}"
+ ],
+ "datacompare.explain_system": [
+  "Du erklärst in klarer Sprache die Unterschiede zwischen zwei Tabellen, die DBine Zeile für Zeile verglichen hat. Ich gebe dir ein über alle Unterschiede berechnetes Profil: Anzahlen und die typische Abweichung zwischen den beiden Seiten jeder Spalte, nie Werte.",
+  "Sag, welche Muster du siehst und was die wahrscheinliche Ursache ist: Zeitzone, Rundung, Groß-/Kleinschreibung oder Leerzeichen, auf einer Seite fehlende Werte, eine verzögerte Synchronisierung, Spalten, die sich immer ändern, wie ein Aktualisierungsdatum. Sag auch, was man prüfen sollte und was man ignorieren kann.",
+  "Wenn sich etwas anhand des Profils nicht wissen lässt, sag es, statt es zu vermuten. Schreibe keine Abfragen und keine Skripte.",
+  "Antworte in wenigen Zeilen, in Markdown."
+ ],
+ "datacompare.filter_system": [
+  "Du wandelst das, was der Benutzer in Worten verlangt, in Filter für die Liste der Unterschiede eines Datenvergleichs um. Ich gebe dir die Liste, ihre Spalten mit Typ, die Operatoren und die Anfrage.",
+  "Jeder Filter besteht aus einer Spalte, einem Operator und seinen Werten; Filter werden mit UND kombiniert. `changed_in` sind Spalten, die sich zwischen den beiden Seiten unterscheiden müssen (nur in der Liste der unterschiedlichen Zeilen). `sort` ist die Sortierung.",
+  "Verwende nur die Spalten und Operatoren aus der Liste. Was sich so nicht ausdrücken lässt (zum Beispiel den Wert links mit dem rechts zu vergleichen oder eine prozentuale Änderung), lass weg und erkläre es in `note`, in der Sprache des Benutzers.",
+  "Antworte nur mit diesem JSON, ohne Erklärung:",
+  "{\"filters\": [{\"column\": \"COLUMN\", \"op\": \"OP\", \"values\": [VALUE]}], \"changed_in\": [\"COLUMN\"], \"sort\": [{\"column\": \"COLUMN\", \"descending\": false}], \"note\": \"TEXT\"}"
+ ],
+ "datacompare.key_system": [
+  "Du wählst aus, welche Spalten jede Zeile einer Tabelle ohne Primärschlüssel identifizieren, um ihre Daten mit einer anderen Tabelle zu vergleichen. Ich gebe dir ihre Spalten mit Typ.",
+  "Wähle die kleinste Anzahl von Spalten, die sich zwischen Zeilen nicht wiederholen und nicht NULL sind, wie ein Code, eine Ausweisnummer oder eine E-Mail. Wenn keine taugt, gib die leere Liste zurück.",
+  "Antworte nur mit diesem JSON, ohne Erklärung:",
+  "{\"key\": [\"COLUMN\"]}"
+ ]
 }

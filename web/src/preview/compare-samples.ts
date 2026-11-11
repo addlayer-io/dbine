@@ -137,7 +137,7 @@ function compareModels(l: DbModel, r: DbModel, noSchema: boolean): CompareResult
     objects.push({ kind: a.kind, key: shown(a), left: i, right: j, status: a.definition.trim() === r.objects[j].definition.trim() ? 'equal' : 'changed' });
   });
   r.objects.forEach((b, j) => { if (!usedO.has(j)) objects.push({ kind: b.kind, key: shown(b), left: null, right: j, status: 'only_right' }); });
-  return { tables, objects };
+  return { tables, objects, renames: [] };
 }
 
 // -- sync script -----------------------------------------------------------------------------

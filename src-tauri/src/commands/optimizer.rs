@@ -6,6 +6,7 @@
 //! travel to the UI, which opens them in a query.
 
 use crate::commands::ai::AiRuntime;
+use crate::commands::ai_task;
 use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::optimizer::compare::{self, Measure, Options, Version};
@@ -13,7 +14,7 @@ use crate::optimizer::hints::{self, IndexHint, PlanWarning};
 use crate::optimizer::{self, ai as prompts, Candidate, Note};
 use crate::state::AppState;
 use dashmap::DashMap;
-use dbine_ai::{embedded, Cancel, ChatMessage, ChatRequest, ProviderKind};
+use dbine_ai::{ChatMessage, ChatRequest, ProviderKind};
 use dbine_driver::{DdlParts, Driver, Language, Plan, QueryOutcome, TableSchema};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
@@ -31,12 +32,6 @@ type SchemaCache = DashMap<String, (Instant, Arc<Vec<TableSchema>>)>;
 fn schemas() -> &'static SchemaCache {
     static S: OnceLock<SchemaCache> = OnceLock::new();
     S.get_or_init(DashMap::new)
-}
-
-/// AI requests in flight, by the UI's id.
-fn ai_runs() -> &'static DashMap<String, Cancel> {
-    static R: OnceLock<DashMap<String, Cancel>> = OnceLock::new();
-    R.get_or_init(DashMap::new)
 }
 
 async fn structure(
@@ -285,9 +280,9 @@ pub async fn optimizer_ai(
 ) -> CommandResult<AiOut> {
     let driver = driver_of(&state, &args.connection_id)?;
     let info = driver.info();
-    let cancel = Cancel::new();
-    ai_runs().insert(args.run_id.clone(), cancel.clone());
-    let result = async {
+    let run = ai_task::Run::start(&args.run_id);
+    let cancel = run.cancel.clone();
+    async {
         let mut sent = Vec::new();
         let budget = if args.provider.local() {
             12_000
@@ -324,9 +319,7 @@ pub async fn optimizer_ai(
             Language::Flux => "Flux".into(),
             Language::Cypher => "Cypher".into(),
         };
-        if args.provider == ProviderKind::Embedded {
-            embedded::ensure_engine(&ai.endpoints.models_dir, &|_, _| {}, &cancel).await?;
-        }
+        ai_task::ready(&ai, args.provider, &cancel).await?;
         let req = ChatRequest {
             kind: args.provider,
             model: args.model.clone(),
@@ -396,9 +389,7 @@ pub async fn optimizer_ai(
             discarded,
         })
     }
-    .await;
-    ai_runs().remove(&args.run_id);
-    result
+    .await
 }
 
 #[derive(Deserialize)]
@@ -488,9 +479,7 @@ pub struct CancelArgs {
 /// Stop an analysis, an AI request or a comparison.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn optimizer_cancel(state: State<'_, AppState>, args: CancelArgs) -> CommandResult<()> {
-    if let Some((_, c)) = ai_runs().remove(&args.run_id) {
-        c.cancel();
-    }
+    ai_task::cancel(&args.run_id);
     if let Some(entry) = state
         .sessions
         .get(&format!("optimize:{}", args.run_id))

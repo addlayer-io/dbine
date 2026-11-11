@@ -198,5 +198,33 @@
     "incomplete_other": "elenco incompleto: non è stato possibile leggere {{count}} oggetti",
     "none": "Niente dipende da questo",
     "noneFound": "Non è stato trovato niente in ciò che si è potuto leggere"
+  },
+  "ai": {
+    "noProvider": "Configura un provider di IA nel pannello dell'assistente.",
+    "busy": "L'assistente sta rispondendo a un'altra domanda.",
+    "theAi": "l'IA",
+    "renames": "Cerca ridenominazioni con l'IA",
+    "renamesHint": "Cerca colonne e tabelle presenti da un solo lato che sono le stesse con un altro nome. A {{provider}} vengono inviati solo i loro nomi e tipi, mai i dati.",
+    "renamesFound_one": "L'IA suggerisce {{count}} ridenominazione.",
+    "renamesFound_many": "L'IA suggerisce {{count}} ridenominazioni.",
+    "renamesFound_other": "L'IA suggerisce {{count}} ridenominazioni.",
+    "renamesNone": "L'IA non ha trovato ridenominazioni.",
+    "review": "Rivedi con l'IA",
+    "reviewHint": "L'assistente rivede lo script e misura i rischi con letture che approvi tu. Non modifica nulla.",
+    "summary": "Riassumi con l'IA",
+    "summaryHint": "L'assistente riassume le modifiche in linguaggio chiaro, per una richiesta di approvazione o un ticket.",
+    "noWarnings": "nessuno",
+    "reviewPrompt": "Rivedi lo script di sincronizzazione che DBine ha generato per {{where}} ({{engine}}, {{statements}} istruzioni): è il testo dell'editor. Avvisi di DBine: {{warnings}}. Dimmi cosa può fallire o far perdere dati prima di eseguirlo. Dove serve, misuralo con query di sola lettura su quel database: righe con NULL in una colonna che diventa NOT NULL, il valore più lungo prima di restringere una colonna, valori che non entrano nel nuovo tipo, quante righe ha una tabella che viene ricostruita o eliminata. Concludi con il rischio di ogni modifica e l'ordine o le precauzioni che consigli. Non modificare nulla nel database.",
+    "summaryPrompt": "Riassumi in linguaggio chiaro le modifiche dello script di sincronizzazione per {{where}} ({{engine}}, {{statements}} istruzioni), che è il testo dell'editor, per una richiesta di approvazione o un ticket: cosa viene creato, modificato ed eliminato e il rischio di ciascuna cosa. Senza query: solo il riassunto."
+  },
+  "rename": {
+    "column": "«{{left}}» (sinistra) e «{{right}}» (destra) sembrano la stessa colonna con un altro nome.",
+    "table": "«{{left}}» (sinistra) e «{{right}}» (destra) sembrano la stessa tabella con un altro nome.",
+    "keeps": "Rinominare conserva i dati; eliminare e aggiungere li perde.",
+    "byAi": "(suggerito dall'IA)",
+    "onLeft": "Rinomina a sinistra",
+    "onRight": "Rinomina a destra",
+    "unsupported": "Questo motore non consente di rinominarlo.",
+    "pending": "Applica o annulla prima le modifiche in sospeso: rinominare rilegge i database."
   }
 }

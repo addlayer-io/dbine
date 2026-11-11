@@ -3,12 +3,18 @@ import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
-import { api, errorMessage } from '../api/client';
+import { api, errorKind, errorMessage } from '../api/client';
 import { tb } from '../i18n/backend';
 import {
   compareApi, type CodeObject, type CompareResult, type DbModel, type ItemDiff, type ObjectChange, type ObjectDiff,
-  type Status, type SyncScript, type TableChange, type TableDiff,
+  type RenameHint, type Status, type SyncScript, type TableChange, type TableDiff,
 } from '../api/compare';
+import { aiTaskApi } from '../api/aiTask';
+import { asker, providerLabel } from '../composables/aiTask';
+import { renameAllowed, renameSpec, type RenameDialogTarget } from '../composables/rename';
+import RenameDialog from '../components/RenameDialog.vue';
+import { registerEditor, useAiStore } from '../stores/ai';
+import { useUiStore } from '../stores/ui';
 import type { CheckDef, ColumnDef, ForeignKeyDef, IndexDef, KeyDef, TableSchema } from '../api/schema-types';
 import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
@@ -182,6 +188,8 @@ async function compareBoth() {
   }
   const gen = ++generation;
   comparing.value = true;
+  aiHints.value = [];
+  aiNote.value = '';
   history.length = 0;
   touched.clear();
   applied.clear();
@@ -1752,6 +1760,153 @@ async function runSync() {
     task.setReopen(undefined);
   }
 }
+
+// -- AI: probable renames, and the assistant on the sync script -------------------------------
+// The AI only suggests: a rename is the engine's, reviewed and run in "Renombrar"
+// (docs/rename.md), and the assistant reads with approval and never writes
+// (docs/ai-assistant.md). What it gets: names and types, the script and its
+// warnings. Never data.
+
+const ai = useAiStore();
+const ui = useUiStore();
+const aiHints = ref<RenameHint[]>([]);
+const aiRenaming = ref(false);
+const aiNote = ref('');
+let aiRunId: string | null = null;
+
+const sameHint = (a: RenameHint, b: RenameHint) => a.kind === b.kind && a.table === b.table && a.left === b.left && a.right === b.right;
+/** An AI pair still open in the current comparison (a carried change may have paired it). */
+function stillOpen(h: RenameHint): boolean {
+  const r = result.value;
+  if (!r) return false;
+  if (h.kind === 'table') {
+    return r.tables.some((x) => x.key === h.left && x.status === 'only_left') && r.tables.some((x) => x.key === h.right && x.status === 'only_right');
+  }
+  const td = r.tables.find((x) => x.key === h.table);
+  return !!td && td.columns.some((c) => c.name === h.left && c.status === 'only_left') && td.columns.some((c) => c.name === h.right && c.status === 'only_right');
+}
+const hints = computed(() => {
+  const found = result.value?.renames ?? [];
+  return [...found, ...aiHints.value.filter((h) => stillOpen(h) && !found.some((f) => sameHint(f, h)))];
+});
+function hintsFor(td: TableDiff | null | undefined): RenameHint[] {
+  if (!td) return [];
+  return hints.value.filter((h) => (h.kind === 'column' && h.table === td.key)
+    || (h.kind === 'table' && ((td.status === 'only_left' && h.left === td.key) || (td.status === 'only_right' && h.right === td.key))));
+}
+/** Something on each side that nothing paired: what the AI could look at. */
+const unpaired = computed(() => {
+  const r = result.value;
+  if (!r) return false;
+  const tables = r.tables.some((x) => x.status === 'only_left') && r.tables.some((x) => x.status === 'only_right');
+  return tables || r.tables.some((x) => x.columns.some((c) => c.status === 'only_left') && x.columns.some((c) => c.status === 'only_right'));
+});
+
+async function findRenames() {
+  if (aiRenaming.value || !views.left || !views.right) return;
+  const a = await asker();
+  if (!a) { ElMessage.warning(t('compare:ai.noProvider')); ui.aiOpen = true; return; }
+  aiRenaming.value = true;
+  aiRunId = a.run_id;
+  aiNote.value = '';
+  try {
+    const found = await compareApi.aiRenames(views.left, views.right, { ...opts, ignore_schema: ignoreSchema.value }, a);
+    aiHints.value = found;
+    aiNote.value = found.length ? t('compare:ai.renamesFound', { count: found.length }) : t('compare:ai.renamesNone');
+  } catch (e) {
+    if (errorKind(e) !== 'cancelled') ElMessage.error(errorMessage(e));
+  } finally {
+    aiRenaming.value = false;
+    aiRunId = null;
+  }
+}
+onBeforeUnmount(() => { if (aiRunId) aiTaskApi.cancel(aiRunId).catch(() => {}); });
+
+const hintText = (h: RenameHint) => t(h.kind === 'table' ? 'compare:rename.table' : 'compare:rename.column', { left: h.left, right: h.right });
+/** What renaming on side `s` would rename, and to what. */
+function renameTarget(h: RenameHint, s: SideId): { target: RenameDialogTarget; to: string } | null {
+  const r = result.value;
+  const model = views[s];
+  if (!r || !model) return null;
+  const side = sides[s];
+  if (h.kind === 'column') {
+    const td = r.tables.find((x) => x.key === h.table);
+    const t0 = td ? model.tables[td[s] ?? -1] : undefined;
+    if (!t0) return null;
+    return {
+      target: { connectionId: side.connectionId, database: side.database, target: { what: 'column', table: { kind: t0.kind || 'table', schema: t0.schema ?? null, name: t0.name }, column: s === 'left' ? h.left : h.right } },
+      to: s === 'left' ? h.right : h.left,
+    };
+  }
+  const mine = r.tables.find((x) => x.key === (s === 'left' ? h.left : h.right));
+  const theirs = r.tables.find((x) => x.key === (s === 'left' ? h.right : h.left));
+  const other: SideId = s === 'left' ? 'right' : 'left';
+  const t0 = mine ? model.tables[mine[s] ?? -1] : undefined;
+  const t1 = theirs ? views[other]?.tables[theirs[other] ?? -1] : undefined;
+  if (!t0 || !t1) return null;
+  return {
+    target: { connectionId: side.connectionId, database: side.database, target: { what: 'object', object: { kind: t0.kind || 'table', schema: t0.schema ?? null, name: t0.name } } },
+    to: t1.name,
+  };
+}
+/** Why renaming on that side isn't offered, or null. */
+function renameBlocked(h: RenameHint, s: SideId): string | null {
+  if (readOnly(s)) return t('compare:sync.readOnly');
+  const x = renameTarget(h, s);
+  if (!x || !renameAllowed(renameSpec(sides[s].connectionId), x.target.target)) return t('compare:rename.unsupported');
+  // A rename reloads the schemas: changes carried in memory would be lost.
+  if (totalPending.value) return t('compare:rename.pending');
+  return null;
+}
+const renaming = ref<{ target: RenameDialogTarget; to: string } | null>(null);
+function renameOn(h: RenameHint, s: SideId) {
+  if (renameBlocked(h, s)) return;
+  renaming.value = renameTarget(h, s);
+}
+async function renamed() {
+  // The server changed: compare again from it. The AI's other pairs stay
+  // while they're still open (`stillOpen`), so they aren't asked for again.
+  const kept = aiHints.value;
+  await compareBoth();
+  aiHints.value = kept;
+}
+
+/** The assistant works on the side whose script is open: it reads there with
+ *  approval, and its code opens in a query on that side. */
+const aiSide = ref<SideId>('right');
+const aiQuery = (code: string) => {
+  const s = sides[aiSide.value];
+  void newQuery(s.connectionId, s.database, code, t('compare:sync.queryTitle', { name: s.database || connName(s.connectionId) }));
+};
+const unregisterAi = registerEditor(props.tab.id, {
+  target: () => ({ connectionId: sides[aiSide.value].connectionId, database: sides[aiSide.value].database }),
+  text: () => scriptText(sync.tabs.find((x) => x.side === aiSide.value) ?? null),
+  selection: () => '',
+  lastError: () => sync.tabs.find((x) => x.side === aiSide.value)?.error ?? null,
+  append: aiQuery,
+  replace: aiQuery,
+});
+onBeforeUnmount(unregisterAi);
+
+async function askAssistant(kind: 'review' | 'summary', tab: SyncTab | null) {
+  if (!tab?.script) return;
+  await ai.init();
+  if (!ai.provider) { ElMessage.warning(t('compare:ai.noProvider')); ui.aiOpen = true; return; }
+  if (ai.running) { ElMessage.info({ message: t('compare:ai.busy'), duration: 2500 }); return; }
+  aiSide.value = tab.side;
+  const s = tab.side;
+  const warnings = [...tab.script.warnings.map((w) => tb(w)), ...destructiveLines(s)];
+  const prompt = t(kind === 'review' ? 'compare:ai.reviewPrompt' : 'compare:ai.summaryPrompt', {
+    where: where(s),
+    engine: driverOf(sides[s].connectionId)?.name ?? '',
+    statements: tab.script.statements.length,
+    warnings: warnings.length ? warnings.join('; ') : t('compare:ai.noWarnings'),
+  });
+  // The dialog is modal: the answer comes in the side panel.
+  closeSync();
+  ui.aiOpen = true;
+  void ai.send(prompt);
+}
 </script>
 
 <template>
@@ -1834,6 +1989,10 @@ async function runSync() {
           <el-checkbox v-model="opts.ignore_case" size="small">{{ $t('compare:ignoreCase') }}</el-checkbox>
           <el-checkbox v-model="opts.ignore_comments" size="small">{{ $t('compare:ignoreComments') }}</el-checkbox>
         </div>
+        <div v-if="unpaired || aiNote" class="cv-ai">
+          <el-button v-if="unpaired" size="small" text :loading="aiRenaming" :title="$t('compare:ai.renamesHint', { provider: providerLabel() || $t('compare:ai.theAi') })" @click="findRenames">{{ $t('compare:ai.renames') }}</el-button>
+          <span v-if="aiNote" class="cv-ai-note">{{ aiNote }}</span>
+        </div>
         <div class="cv-items">
           <div v-if="!groups.length" class="cv-none-msg">{{ noneMessage }}</div>
           <template v-for="g in groups" :key="g.label">
@@ -1848,6 +2007,7 @@ async function runSync() {
             >
               <span class="cv-st" :class="it.status" :title="STATUS[it.status].label">{{ STATUS[it.status].icon }}</span>
               <span class="cv-name" :class="{ drop: !!it.mark?.drop }" :title="it.mark?.drop ? `${it.key} · ${$t(`compare:drop.pending.${it.mark.drop}`)}` : it.key">{{ it.key }}</span>
+              <span v-if="it.table && hintsFor(it.table).length" class="cv-hint-mark" :title="hintText(hintsFor(it.table)[0])">⇄</span>
               <span v-if="isPending(it)" class="cv-dot" :title="$t('compare:pendingChanges')" />
               <span class="cv-arrows" :class="{ keep: !!it.mark }" @click.stop>
                 <template v-if="it.status !== 'equal' || it.mark">
@@ -1877,6 +2037,17 @@ async function runSync() {
                 <button :class="{ on: lit(tableMark(selTable), 'left') }" :title="tip(tableMark(selTable), selTable.status, 'left', 'table')" @click="arrowTable(selTable, 'left')">→</button>
               </template>
               <button :aria-label="$t('compare:drop.title')" class="cv-trash" :class="{ on: !!tableMark(selTable)?.drop }" :title="$t('compare:drop.title')" @click="openDrop($event, () => tableDropMenu(selTable!))"><el-icon><ei-delete /></el-icon></button>
+            </div>
+          </div>
+          <div v-for="h in hintsFor(selTable)" :key="`${h.kind}:${h.left}:${h.right}`" class="cv-hint">
+            <div class="cv-hint-text">
+              {{ hintText(h) }} {{ $t('compare:rename.keeps') }}
+              <span v-if="h.by === 'ai'" class="cv-hint-by">{{ $t('compare:rename.byAi') }}</span>
+            </div>
+            <div class="cv-hint-acts">
+              <el-button v-for="s in (['left', 'right'] as SideId[])" :key="s" size="small" :disabled="!!renameBlocked(h, s)" :title="renameBlocked(h, s) ?? `${renameTarget(h, s)?.target ? (s === 'left' ? h.left : h.right) : ''} → ${s === 'left' ? h.right : h.left}`" @click="renameOn(h, s)">
+                {{ s === 'left' ? $t('compare:rename.onLeft') : $t('compare:rename.onRight') }}
+              </el-button>
             </div>
           </div>
           <div class="cv-grid">
@@ -2074,6 +2245,8 @@ async function runSync() {
           <div v-if="activeTab.script && !emptyScript(activeTab)" class="cv-stools">
             <el-button size="small" text :disabled="!activeTab.script.statements.length" @click="syncCopy(activeTab)"><el-icon><ei-document-copy /></el-icon>&nbsp;{{ $t('common:copy') }}</el-button>
             <el-button size="small" text :disabled="!activeTab.script.statements.length" @click="syncAsQuery(activeTab)"><el-icon><ei-edit-pen /></el-icon>&nbsp;{{ $t('compare:sync.openAsQuery') }}</el-button>
+            <el-button size="small" text :disabled="!activeTab.script.statements.length || activeTab.done" :title="$t('compare:ai.reviewHint')" @click="askAssistant('review', activeTab)"><el-icon><ei-magic-stick /></el-icon>&nbsp;{{ $t('compare:ai.review') }}</el-button>
+            <el-button size="small" text :disabled="!activeTab.script.statements.length" :title="$t('compare:ai.summaryHint')" @click="askAssistant('summary', activeTab)"><el-icon><ei-tickets /></el-icon>&nbsp;{{ $t('compare:ai.summary') }}</el-button>
           </div>
           <div v-if="activeTab.script && !emptyScript(activeTab)" class="cv-script">
             <CodeEditor :key="activeTab.side" :model-value="scriptText(activeTab)" :language="driverOf(sides[activeTab.side].connectionId)?.language" :dialect="driverOf(sides[activeTab.side].connectionId)?.dialect" read-only />
@@ -2104,6 +2277,7 @@ async function runSync() {
         <div v-for="(l, i) in dropMenu.menu.info" :key="i" class="cv-menu-info" :class="{ warn: l.warn }" :title="l.tip">{{ l.text }}</div>
       </div>
     </Teleport>
+    <RenameDialog v-if="renaming" :target="renaming.target" :initial-name="renaming.to" @renamed="renamed" @close="renaming = null" />
   </div>
 </template>
 
@@ -2151,6 +2325,13 @@ async function runSync() {
 .cv-st { width: 16px; text-align: center; font-weight: 700; flex: none; }
 .cv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--nm-warning); flex: none; }
+.cv-hint-mark { flex: none; font-size: 12px; color: var(--nm-accent); }
+.cv-ai { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0 8px 6px; font-size: 12px; }
+.cv-ai-note { color: var(--nm-text-muted); }
+.cv-hint { display: flex; align-items: center; gap: 10px; margin: 6px 0; padding: 6px 10px; border: 1px solid var(--nm-border); border-left: 3px solid var(--nm-accent); border-radius: 4px; font-size: 12px; }
+.cv-hint-text { flex: 1; min-width: 0; }
+.cv-hint-by { margin-left: 4px; color: var(--nm-text-muted); }
+.cv-hint-acts { flex: none; display: flex; gap: 4px; }
 .cv-arrows { display: none; gap: 2px; }
 .cv-item:hover .cv-arrows, .cv-item.sel .cv-arrows { display: inline-flex; }
 .cv-arrows button, .cv-mid button {

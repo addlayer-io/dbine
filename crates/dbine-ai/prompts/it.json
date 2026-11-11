@@ -87,5 +87,34 @@
  "optimizer.index": "indice",
  "cli.codex_rule": "Non eseguire comandi né leggere file: rispondi solo con testo.",
  "transcript.user": "Utente",
- "transcript.assistant": "Assistente"
+ "transcript.assistant": "Assistente",
+ "task.repair": "Non è stato possibile leggere la tua risposta: {error}. Rispondi di nuovo nel formato richiesto e nient'altro.",
+ "task.more_lines": "… altre {count} righe non incluse",
+ "compare.renames_system": [
+  "Confronti la struttura di due database. Ti passo le colonne e le tabelle presenti da un solo lato: `<` è solo a sinistra e `>` solo a destra.",
+  "Indica quali sono lo stesso dato con un altro nome: un nome tradotto, abbreviato o corretto, con un tipo uguale o simile. Se hai dubbi, lascialo fuori: una coppia sbagliata rinomina ciò che non va rinominato.",
+  "Una colonna si abbina solo a un'altra della stessa tabella e ogni nome si usa una sola volta. Scrivi i nomi di tabelle e colonne esattamente come ti arrivano.",
+  "Rispondi solo con questo JSON, senza spiegazioni:",
+  "{\"columns\": [{\"table\": \"TABLE\", \"left\": \"LEFT_COLUMN\", \"right\": \"RIGHT_COLUMN\"}], \"tables\": [{\"left\": \"LEFT_TABLE\", \"right\": \"RIGHT_TABLE\"}]}",
+  "Se non ce ne sono: {\"columns\": [], \"tables\": []}"
+ ],
+ "datacompare.explain_system": [
+  "Spieghi in linguaggio semplice le differenze tra due tabelle che DBine ha confrontato riga per riga. Ti passo un profilo calcolato su tutte le differenze: conteggi e lo scarto tipico tra i due lati di ogni colonna, mai valori.",
+  "Di' quali schemi vedi e la loro causa probabile: fuso orario, arrotondamento, maiuscole o spazi, valori mancanti da un lato, una sincronizzazione in ritardo, colonne che cambiano sempre come una data di aggiornamento. Di' anche cosa conviene controllare e cosa si può ignorare.",
+  "Se qualcosa non si può sapere dal profilo, dillo invece di supporlo. Non scrivere query né script.",
+  "Rispondi in poche righe, in Markdown."
+ ],
+ "datacompare.filter_system": [
+  "Converti ciò che l'utente chiede a parole nei filtri dell'elenco delle differenze di un confronto di dati. Ti passo l'elenco, le sue colonne con il tipo, gli operatori e la richiesta.",
+  "Ogni filtro è una colonna, un operatore e i suoi valori; i filtri si combinano con E. `changed_in` sono colonne che devono essere diverse tra i due lati (solo nell'elenco delle righe diverse). `sort` è l'ordinamento.",
+  "Usa solo le colonne e gli operatori dell'elenco. Ciò che non si può esprimere così (per esempio, confrontare il valore di sinistra con quello di destra o una percentuale di variazione), lascialo fuori e spiegalo in `note`, nella lingua dell'utente.",
+  "Rispondi solo con questo JSON, senza spiegazioni:",
+  "{\"filters\": [{\"column\": \"COLUMN\", \"op\": \"OP\", \"values\": [VALUE]}], \"changed_in\": [\"COLUMN\"], \"sort\": [{\"column\": \"COLUMN\", \"descending\": false}], \"note\": \"TEXT\"}"
+ ],
+ "datacompare.key_system": [
+  "Scegli quali colonne identificano ogni riga di una tabella senza chiave primaria, per confrontarne i dati con un'altra tabella. Ti passo le sue colonne con il tipo.",
+  "Scegli il minor numero di colonne che non si ripetano tra le righe né siano NULL, come un codice, un numero di documento o un'e-mail. Se nessuna va bene, restituisci l'elenco vuoto.",
+  "Rispondi solo con questo JSON, senza spiegazioni:",
+  "{\"key\": [\"COLUMN\"]}"
+ ]
 }

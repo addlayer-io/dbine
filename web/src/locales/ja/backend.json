@@ -11555,5 +11555,7 @@
   "DBine Bastion no permite «{0}»": "DBine Bastion は「{0}」を許可していません",
   "esta conexión no pasa por DBine Bastion": "この接続は DBine Bastion を経由しません",
   "la conexión no está disponible en DBine Bastion": "この接続は DBine Bastion で利用できません",
-  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "この接続は現在の時間帯のアクセスを許可していません：DBine Enterprise から時間外アクセスを申請してください"
+  "esta conexión no permite accesos en este horario: pedí acceso fuera de horario desde DBine Enterprise": "この接続は現在の時間帯のアクセスを許可していません：DBine Enterprise から時間外アクセスを申請してください",
+  "La IA respondió algo que DBine no pudo leer. Probá de nuevo o con otro modelo.": "AIの応答をDBineが読み取れませんでした。もう一度試すか、別のモデルを使用してください。",
+  "la comparación ya no está: compará de nuevo": "比較が見つかりません。もう一度比較してください"
 }

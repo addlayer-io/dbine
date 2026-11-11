@@ -212,5 +212,34 @@
     "incomplete_other": "lista niepełna: nie udało się odczytać {{count}} obiektu",
     "none": "Nic od tego nie zależy",
     "noneFound": "Nie znaleziono niczego w tym, co udało się odczytać"
+  },
+  "ai": {
+    "noProvider": "Skonfiguruj dostawcę AI w panelu asystenta.",
+    "busy": "Asystent odpowiada na inne pytanie.",
+    "theAi": "AI",
+    "renames": "Znajdź zmiany nazw za pomocą AI",
+    "renamesHint": "Szuka kolumn i tabel, które występują tylko po jednej stronie i są tymi samymi pod inną nazwą. Do {{provider}} wysyłane są tylko ich nazwy i typy, nigdy dane.",
+    "renamesFound_one": "AI sugeruje {{count}} zmianę nazwy.",
+    "renamesFound_few": "AI sugeruje {{count}} zmiany nazw.",
+    "renamesFound_many": "AI sugeruje {{count}} zmian nazw.",
+    "renamesFound_other": "AI sugeruje {{count}} zmiany nazw.",
+    "renamesNone": "AI nie znalazło zmian nazw.",
+    "review": "Sprawdź za pomocą AI",
+    "reviewHint": "Asystent sprawdza skrypt i mierzy ryzyko odczytami, które zatwierdzasz. Niczego nie zmienia.",
+    "summary": "Podsumuj za pomocą AI",
+    "summaryHint": "Asystent podsumowuje zmiany prostym językiem, na potrzeby prośby o zatwierdzenie lub zgłoszenia.",
+    "noWarnings": "brak",
+    "reviewPrompt": "Sprawdź skrypt synchronizacji, który DBine wygenerował dla {{where}} ({{engine}}, instrukcji: {{statements}}): to tekst z edytora. Ostrzeżenia DBine: {{warnings}}. Powiedz mi, co może się nie udać lub spowodować utratę danych przed uruchomieniem. Gdy trzeba, zmierz to zapytaniami tylko do odczytu w tej bazie: wiersze z NULL w kolumnie, która staje się NOT NULL, najdłuższą wartość przed zmniejszeniem kolumny, wartości, które nie mieszczą się w nowym typie, ile wierszy ma tabela, która jest odtwarzana lub usuwana. Zakończ ryzykiem każdej zmiany oraz kolejnością lub środkami ostrożności, które zalecasz. Niczego nie zmieniaj w bazie.",
+    "summaryPrompt": "Podsumuj prostym językiem zmiany skryptu synchronizacji dla {{where}} ({{engine}}, instrukcji: {{statements}}), czyli tekstu z edytora, na potrzeby prośby o zatwierdzenie lub zgłoszenia: co zostanie utworzone, zmienione i usunięte oraz jakie jest ryzyko każdej rzeczy. Bez zapytań: tylko podsumowanie."
+  },
+  "rename": {
+    "column": "„{{left}}” (lewa strona) i „{{right}}” (prawa strona) wyglądają na tę samą kolumnę pod inną nazwą.",
+    "table": "„{{left}}” (lewa strona) i „{{right}}” (prawa strona) wyglądają na tę samą tabelę pod inną nazwą.",
+    "keeps": "Zmiana nazwy zachowuje dane; usunięcie i dodanie je traci.",
+    "byAi": "(sugestia AI)",
+    "onLeft": "Zmień nazwę po lewej",
+    "onRight": "Zmień nazwę po prawej",
+    "unsupported": "Ten silnik nie pozwala tego zmienić.",
+    "pending": "Najpierw zastosuj lub odrzuć oczekujące zmiany: zmiana nazwy ponownie odczytuje bazy."
   }
 }
