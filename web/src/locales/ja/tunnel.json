@@ -29,6 +29,7 @@
   "proxyBody": "~/.ssh/config の Host 「{{alias}}」 は、お使いのコンピューターで次のコマンドを実行して接続します:",
   "proxyNote": "DBine は確認した場合にのみ実行し、コマンドが変わると再度確認します。入力を求めずに動作する必要があります。パスワードやコードを求められると、タイムアウトで中断されます。",
   "proxyRun": "実行して接続",
+  "proxySaid": "ProxyCommand の出力：{{said}}",
   "jump": "中継の踏み台",
   "jumpPlaceholder": "user@bastion1:22, bastion2",
   "jumpHelp": "任意。先に経由する SSH サーバーを、順番にカンマ区切りで指定します。同じ認証を使用します。",

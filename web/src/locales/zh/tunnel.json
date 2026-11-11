@@ -29,6 +29,7 @@
   "proxyBody": "你的 ~/.ssh/config 中的 Host “{{alias}}” 会在你的电脑上执行以下命令来连接：",
   "proxyNote": "仅在你确认后 DBine 才会执行，命令发生变化时会再次询问。该命令必须无需任何输入即可运行：如果它要求输入密码或验证码，将因超时而中断。",
   "proxyRun": "执行并连接",
+  "proxySaid": "ProxyCommand 输出：{{said}}",
   "jump": "跳板机",
   "jumpPlaceholder": "user@bastion1:22, bastion2",
   "jumpHelp": "可选。需要先经过的 SSH 服务器，按顺序以逗号分隔。它们使用相同的身份验证。",

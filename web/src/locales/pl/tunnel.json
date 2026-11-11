@@ -29,6 +29,7 @@
   "proxyBody": "Host „{{alias}}” z Twojego ~/.ssh/config łączy się, uruchamiając to polecenie na Twoim komputerze:",
   "proxyNote": "DBine uruchamia je tylko po potwierdzeniu i pyta ponownie, jeśli polecenie się zmieni. Musi działać bez pytań: jeśli zażąda hasła lub kodu, zostanie przerwane po przekroczeniu czasu.",
   "proxyRun": "Uruchom i połącz",
+  "proxySaid": "ProxyCommand zwrócił: {{said}}",
   "jump": "Pośrednie bastiony",
   "jumpPlaceholder": "uzytkownik@bastion1:22, bastion2",
   "jumpHelp": "Opcjonalnie. Serwery SSH, przez które trzeba przejść wcześniej, po kolei i oddzielone przecinkami. Używają tego samego uwierzytelniania.",
