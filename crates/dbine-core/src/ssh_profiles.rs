@@ -206,7 +206,31 @@ fn new_id() -> String {
     format!("{ID_PREFIX}{}", hex::encode(rand::random::<[u8; 16]>()))
 }
 
+/// A profile as a saved connection for [`defs::from_outside`]: its id (its
+/// confirmations' digests) and its options (its definitions).
+fn as_saved(p: &SshProfile) -> SavedConnection {
+    SavedConnection {
+        id: p.id.clone(),
+        name: p.name.clone(),
+        color: None,
+        config: options_cfg(&p.options),
+        save_password: false,
+        folder_id: None,
+        tags: Vec::new(),
+        mcp_level: None,
+        updated_at: p.updated_at.clone(),
+    }
+}
+
+/// A profile from a backup lands only with a profile's id: one shaped like
+/// a connection's would share that connection's keychain entry.
 pub(crate) fn insert(c: &Connection, p: &SshProfile) -> Result<()> {
+    if !p.id.starts_with(ID_PREFIX) || p.id.len() <= ID_PREFIX.len() {
+        return Err(Error::State(format!(
+            "la copia trae un perfil SSH con un identificador que no es de perfil («{}»): no se restauró nada",
+            p.name
+        )));
+    }
     let ts = if p.updated_at.is_empty() {
         now()
     } else {
@@ -389,11 +413,18 @@ pub fn save(
     stored.retain(|k, _| keep_secret(&sources, k));
     io.set(&profile.id, &stored)?;
 
+    // Stored definitions that can't be read (a restored profile with an
+    // entry this version doesn't know) can't tell what the form sends from
+    // what came from outside: none of them is confirmed by this save.
     let old_sources = match &old {
-        Some(p) => tunnel_sources(&p.options).unwrap_or_default(),
-        None => SecretSources::new(),
+        Some(p) => tunnel_sources(&p.options).ok(),
+        None => Some(SecretSources::new()),
     };
-    let connections = store.list_connections()?;
+    // The profiles count as connections do: one with the same definition
+    // unconfirmed, or definitions that can't be read, says it came from
+    // outside (this one's stored definitions included).
+    let mut saved = store.list_connections()?;
+    saved.extend(store.list_ssh_profiles()?.iter().map(as_saved));
     for (field, src) in &sources {
         let digest = defs::digest(&profile.id, field, src);
         if defs::is_approved(&digest) {
@@ -402,10 +433,11 @@ pub fn save(
         let confirm = match from_connection.filter(|c| !c.is_empty()) {
             Some(cid) => defs::is_approved(&defs::digest(cid, field, src)),
             None => {
-                let pending = old_sources
-                    .get(field)
-                    .is_some_and(|s| !defs::is_approved(&defs::digest(&profile.id, field, s)));
-                !pending && !defs::from_outside(&connections, field, src)
+                let pending = old_sources.as_ref().is_none_or(|o| {
+                    o.get(field)
+                        .is_some_and(|s| !defs::is_approved(&defs::digest(&profile.id, field, s)))
+                });
+                !pending && !defs::from_outside(&saved, field, src)
             }
         };
         if confirm {
@@ -871,6 +903,81 @@ mod tests {
             Some(&typed)
         );
         let _ = defs::forget(&[defs::digest(&user, "ssh.password", &typed)]);
+    }
+
+    /// A backup's snapshot with `profiles` in place of the store's.
+    fn restore(s: &StateStore, profiles: Vec<SshProfile>) -> Result<()> {
+        let mut snap = s.snapshot().unwrap();
+        snap.ssh_profiles = profiles;
+        s.replace_all(&snap)
+    }
+
+    #[test]
+    fn a_restored_profiles_command_isnt_confirmed_by_saving_it() {
+        let s = StateStore::open_in_memory().unwrap();
+        let io = Mem::default();
+        let uid = hex::encode(rand::random::<[u8; 8]>());
+        let outside = cmd(&format!("touch /tmp/never-{uid}"));
+        let id = format!("sshp-{uid}");
+        // Its definitions carry one this version can't read.
+        let mut defs_json: serde_json::Value =
+            serde_json::from_str(&sources_json("ssh.password", &outside)).unwrap();
+        defs_json["ssh.passphrase"] = serde_json::json!({ "kind": "nope" });
+        let restored = SshProfile {
+            id: id.clone(),
+            name: "restaurado".into(),
+            options: opts(&[("ssh.host", "b"), (defs::OPTION, &defs_json.to_string())]),
+            updated_at: String::new(),
+        };
+        restore(&s, vec![restored]).unwrap();
+        // The form loads it and sends back the command alone.
+        let mut edited = form(
+            "restaurado",
+            &[
+                ("ssh.host", "b"),
+                (defs::OPTION, &sources_json("ssh.password", &outside)),
+            ],
+        );
+        edited.id = id.clone();
+        save(&s, &io, edited, None).unwrap();
+        let digest = defs::digest(&id, "ssh.password", &outside);
+        assert!(!defs::is_approved(&digest));
+        // Nor typed again in a new profile while the restored one has it
+        // unconfirmed.
+        let other = save(
+            &s,
+            &io,
+            form(
+                "otro",
+                &[
+                    ("ssh.host", "b"),
+                    (defs::OPTION, &sources_json("ssh.password", &outside)),
+                ],
+            ),
+            None,
+        )
+        .unwrap();
+        let other_digest = defs::digest(&other.id, "ssh.password", &outside);
+        assert!(!defs::is_approved(&other_digest));
+        let _ = defs::forget(&[digest, other_digest]);
+    }
+
+    #[test]
+    fn a_backup_with_a_profile_id_that_isnt_one_restores_nothing() {
+        let s = StateStore::open_in_memory().unwrap();
+        let io = Mem::default();
+        let mine = save(&s, &io, form("mío", &[("ssh.host", "b")]), None).unwrap();
+        // Shaped like a connection's id: it would share its keychain entry.
+        for id in ["c-1234", "sshp-", ""] {
+            let bad = SshProfile {
+                id: id.into(),
+                name: "ajeno".into(),
+                options: opts(&[("ssh.host", "x")]),
+                updated_at: String::new(),
+            };
+            assert!(restore(&s, vec![bad]).is_err(), "{id:?}");
+            assert_eq!(s.list_ssh_profiles().unwrap(), vec![mine.clone()]);
+        }
     }
 
     #[test]
