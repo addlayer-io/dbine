@@ -113,7 +113,9 @@
     "approve": "Approve",
     "reject": "Reject",
     "approveAll": "Approve reads in this conversation",
-    "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data."
+    "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data.",
+    "titleStructure": "The model ({{model}}) wants to read the structure of {{connection}} › {{database}}:",
+    "noteStructure": "Structure only, never rows. With an external model, DBine asks before each read the model picks, so a server can't use those reads to take data out of the conversation or your computer. If you reject it, the model carries on without that structure."
   },
   "link": {
     "title": "Open link",

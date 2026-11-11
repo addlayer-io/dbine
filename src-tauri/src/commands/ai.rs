@@ -192,6 +192,9 @@ struct ApprovalEvent<'a> {
     connection: &'a str,
     database: &'a str,
     sql: &'a str,
+    /// `data`: a read of rows (`sql` is its query); `structure`: a catalog
+    /// read a remote model asked for (`sql` is the tool and its arguments).
+    kind: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -384,14 +387,26 @@ pub async fn ai_chat(
             // A read of rows runs only after the user approves its exact
             // query in the chat (or chose "Aprobar lecturas en esta
             // conversación": `approve_reads` starts off and only that button
-            // turns it on); catalog reads (structure, index usage) don't ask.
+            // turns it on); a local model's catalog reads (structure, index usage)
+            // don't ask.
             // That approval is what lets a read run on an engine that can't
             // enforce it on the server (mcp/reads.rs); where it can, it runs
             // through `run_read_only` anyway.
-            let refused = if READS_ROWS.contains(&name.as_str()) && !approve_all {
-                let preview = tokio::select! {
-                    p = crate::mcp::tools::assistant_preview(&mcp.inner, conn, &name, &targs) => p,
-                    _ = cancel.cancelled() => return Err(AiError::Cancelled.into()),
+            // A remote model's catalog reads ask too: which database and
+            // object it names is something the server sees, and the model may
+            // be following text that server wrote (with Codex, after reading
+            // files on this computer). Only the database list, which names
+            // nothing, doesn't.
+            let asks = approval_kind(args.provider, &name);
+            let rows = asks == Some("data");
+            let refused = if asks.is_some() && !approve_all {
+                let preview = if rows {
+                    tokio::select! {
+                        p = crate::mcp::tools::assistant_preview(&mcp.inner, conn, &name, &targs) => p,
+                        _ = cancel.cancelled() => return Err(AiError::Cancelled.into()),
+                    }
+                } else {
+                    Ok(format!("{name} {targs}"))
                 };
                 match preview {
                     Err(e) => Some(e),
@@ -400,7 +415,8 @@ pub async fn ai_chat(
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         ai.approvals.insert(request_id.clone(), tx);
                         let database = targs["database"].as_str().unwrap_or("").to_string();
-                        let _ = app.emit("ai-approval", ApprovalEvent { chat_id: &id, request_id: &request_id, label: &label, connection: &conn.name, database: &database, sql: &sql });
+                        let kind = asks.unwrap_or("data");
+                        let _ = app.emit("ai-approval", ApprovalEvent { chat_id: &id, request_id: &request_id, label: &label, connection: &conn.name, database: &database, sql: &sql, kind });
                         let decision = tokio::select! {
                             d = rx => d.unwrap_or_default(),
                             _ = cancel.cancelled() => {
@@ -687,7 +703,7 @@ async fn build_system(
         if !db.is_empty() {
             s.push_str(&format!(
                 "{}\n",
-                p.fill("assistant.database", &[("database", &db)])
+                p.fill("assistant.database", &[("database", &neutral(&db))])
             ));
             summary.push(ContextItem::Database { name: db.clone() });
         }
@@ -697,7 +713,7 @@ async fn build_system(
         if let Some(o) = &ctx.object {
             s.push_str(&format!(
                 "{}\n",
-                p.fill("assistant.object", &[("object", o)])
+                p.fill("assistant.object", &[("object", &neutral(o))])
             ));
         }
         if args.provider.local() {
@@ -816,7 +832,7 @@ async fn build_system(
     if let Some(err) = ctx.last_error.as_deref().filter(|t| !t.trim().is_empty()) {
         s.push_str(&format!(
             "\n<last_error>\n{}\n</last_error>\n",
-            truncate(err, 4_000, p)
+            neutral(&truncate(err, 4_000, p))
         ));
         summary.push(ContextItem::LastError);
     }
@@ -965,6 +981,20 @@ fn tools_prompt(p: &Prompts, connection: &str, database: &str, local: bool) -> S
         .map(|(_, l)| *l)
         .collect();
     format!("\n{}\n", kept.join("\n"))
+}
+
+/// Whether a tool call waits for the user's OK, and as which read: `data`
+/// (rows, any model) or `structure` (a remote model's catalog read: the
+/// database and object it names reach the server, and the model may be
+/// following text that server wrote). The database list names nothing.
+fn approval_kind(provider: ProviderKind, name: &str) -> Option<&'static str> {
+    if READS_ROWS.contains(&name) {
+        Some("data")
+    } else if !provider.local() && name != "list_databases" {
+        Some("structure")
+    } else {
+        None
+    }
 }
 
 /// Whether the model may call `name`, and with which database: one without
@@ -1221,6 +1251,10 @@ const MARKERS: &[&str] = &[
     "objects",
     "structure",
     "instructions",
+    "context",
+    "editor",
+    "selection",
+    "last_error",
 ];
 
 /// Text the database wrote (names, comments, definitions, its errors), put
@@ -1660,6 +1694,22 @@ mod tests {
         assert!(missing_database("x", "c", &many).contains("(10 more)"));
         let failed = other_database_failed("compras", "permission denied for database compras");
         assert!(failed.contains("“compras”") && failed.contains("permission denied"));
+    }
+
+    #[test]
+    fn a_remote_models_catalog_reads_ask_first() {
+        for p in [ProviderKind::ClaudeCode, ProviderKind::Codex] {
+            for t in ["list_objects", "describe_object", "index_usage"] {
+                assert_eq!(approval_kind(p, t), Some("structure"), "{p:?} {t}");
+            }
+            assert_eq!(approval_kind(p, "list_databases"), None);
+        }
+        // A local model reads the catalog freely; rows ask for every model.
+        assert_eq!(approval_kind(ProviderKind::Ollama, "describe_object"), None);
+        for t in READS_ROWS {
+            assert_eq!(approval_kind(ProviderKind::Ollama, t), Some("data"));
+            assert_eq!(approval_kind(ProviderKind::Codex, t), Some("data"));
+        }
     }
 
     #[test]

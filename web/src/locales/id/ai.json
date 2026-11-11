@@ -102,7 +102,9 @@
     "approve": "Setujui",
     "reject": "Tolak",
     "approveAll": "Setujui pembacaan di percakapan ini",
-    "note": "Hanya baca: DBine menjalankannya dalam sesi yang menolak perubahan apa pun. Jika ditolak, model tetap tanpa data tersebut."
+    "note": "Hanya baca: DBine menjalankannya dalam sesi yang menolak perubahan apa pun. Jika ditolak, model tetap tanpa data tersebut.",
+    "titleStructure": "Model ({{model}}) ingin membaca struktur {{connection}} › {{database}}:",
+    "noteStructure": "Hanya struktur, tidak pernah baris. Dengan model eksternal, DBine bertanya sebelum setiap pembacaan yang dipilih model, sehingga server tidak dapat memakai pembacaan itu untuk mengambil data dari percakapan atau komputer Anda. Jika ditolak, model tetap tanpa struktur tersebut."
   },
   "link": {
     "title": "Buka tautan",

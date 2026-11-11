@@ -102,7 +102,7 @@ if (state === 'approval') {
       {
         id: 'a1', role: 'assistant', content: '', pending: true,
         tools: [{ label: 'bases de la conexión', ok: true }, { label: 'estructura de ventas.clientes en tenant-ventas', ok: true }],
-        approval: { requestId: 'r1', label: 'consulta en tenant-ventas', connection: 'prod-sql', database: 'tenant-ventas', sql: 'SELECT COUNT(*) AS clientes FROM ventas.clientes;' },
+        approval: { requestId: 'r1', label: 'consulta en tenant-ventas', connection: 'prod-sql', database: 'tenant-ventas', sql: 'SELECT COUNT(*) AS clientes FROM ventas.clientes;', kind: 'data' },
       },
     ];
   }, 400);

@@ -114,7 +114,9 @@
     "approve": "Aprovar",
     "reject": "Rejeitar",
     "approveAll": "Aprovar leituras nesta conversa",
-    "note": "Somente leitura: o DBine a executa em uma sessão que rejeita qualquer alteração. Se você a rejeitar, o modelo segue sem esses dados."
+    "note": "Somente leitura: o DBine a executa em uma sessão que rejeita qualquer alteração. Se você a rejeitar, o modelo segue sem esses dados.",
+    "titleStructure": "O modelo ({{model}}) quer ler a estrutura de {{connection}} › {{database}}:",
+    "noteStructure": "Somente a estrutura, nunca linhas. Com um modelo externo, o DBine pergunta antes de cada leitura que o modelo escolhe: assim um servidor não pode usar essas leituras para tirar dados da conversa ou do seu computador. Se você a rejeitar, o modelo segue sem essa estrutura."
   },
   "link": {
     "title": "Abrir link",
