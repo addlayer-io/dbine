@@ -22,6 +22,7 @@
 use crate::{err, run_stmt, stmt_err};
 use dbine_driver::{Error, QueryOutcome, Result};
 use rusqlite::config::DbConfig;
+use rusqlite::fallible_iterator::FallibleIterator as _;
 use rusqlite::{ffi, Batch, Connection, InterruptHandle, OpenFlags};
 use std::cell::Cell;
 use std::ffi::{c_char, c_int, c_void, CStr};

@@ -26,6 +26,7 @@ use dbine_driver::{
     Language, ObjectKindInfo, ObjectRef, ParamValue, QueryOutcome, Result, ResultColumn,
     ScriptError, Session, TableSchema, TxState,
 };
+use rusqlite::fallible_iterator::FallibleIterator as _;
 use rusqlite::types::ValueRef;
 use rusqlite::{Batch, Connection, ErrorCode, InterruptHandle, OpenFlags, OptionalExtension};
 use std::sync::{Arc, Mutex};
@@ -939,7 +940,6 @@ fn run_stmt(
         if n > 0 {
             let columns: Vec<ResultColumn> = stmt
                 .columns()
-                .into_iter()
                 .map(|c| ResultColumn {
                     name: c.name().to_string(),
                     type_name: c.decl_type().unwrap_or("").to_string(),
