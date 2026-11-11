@@ -305,6 +305,18 @@ impl StateStore {
         })
     }
 
+    /// Everything that holds definitions of secret sources: the saved
+    /// connections and the SSH profiles (each as a saved connection with its
+    /// id and options). What [`defs::from_outside`] and
+    /// [`defs::needs_confirmation`] look through, so a definition a restored
+    /// profile brought counts as one from outside wherever it's checked (a
+    /// profile's save, a form's "Probar" or "Examinar").
+    pub fn secret_source_holders(&self) -> Result<Vec<SavedConnection>> {
+        let mut all = self.list_connections()?;
+        all.extend(self.list_ssh_profiles()?.iter().map(as_saved));
+        Ok(all)
+    }
+
     /// The connections (saved, and files opened this run) that name the
     /// profile, by name.
     pub fn ssh_profile_users(&self, id: &str) -> Result<Vec<SavedConnection>> {
@@ -423,8 +435,7 @@ pub fn save(
     // The profiles count as connections do: one with the same definition
     // unconfirmed, or definitions that can't be read, says it came from
     // outside (this one's stored definitions included).
-    let mut saved = store.list_connections()?;
-    saved.extend(store.list_ssh_profiles()?.iter().map(as_saved));
+    let saved = store.secret_source_holders()?;
     for (field, src) in &sources {
         let digest = defs::digest(&profile.id, field, src);
         if defs::is_approved(&digest) {
