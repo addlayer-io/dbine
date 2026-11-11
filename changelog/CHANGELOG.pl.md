@@ -21,6 +21,7 @@
 
 ### Poprawki
 - **Poprawka bezpieczeństwa we wbudowanym SQLite:** własny SQLite DBine, używany do ustawień oraz do plików SQLite i libSQL, został zaktualizowany do wersji, która naprawia CVE-2026-119375.
+- **Poprawki bezpieczeństwa w dwóch bibliotekach:** biblioteka Arrow sterownika DuckDB oraz biblioteka systemowa używana przez DBine i jego sterowniki DuckDB, SAP HANA i MySQL zostały zaktualizowane do wersji, które naprawiają problemy z bezpieczeństwem pamięci (RUSTSEC-2026-0442, RUSTSEC-2026-0486).
 - **Skrypty synchronizacji między silnikami:** liczby odczytane z PostgreSQL trafiały do skryptu jako tekst, więc MongoDB i inne silniki zachowujące typy mogły zapisać `"9"` zamiast `9` lub odrzucić skrypt. Każda wartość jest teraz zapisywana tak, jak przyjmuje ją kolumna docelowa.
 - **Porównaj dane z wartościami logicznymi między silnikami:** `true` i `false` z PostgreSQL nie pasowały do tych z innego silnika, więc każdy wiersz tabeli z kolumną logiczną wyświetlał się jako różny, a skrypt synchronizacji mógł zawierać wartość, której kolumna docelowa nie przyjmuje. Teraz są porównywane jako to, czym są.
 - **Porównaj dane na dużych tabelach:** gdy tabela ma więcej wierszy, niż odczytuje porównanie (200 000 z każdej strony), każda strona mogła odczytać inne wiersze, więc wiersz mógł wyglądać na brakujący po drugiej stronie, chociaż tam był, a skrypt synchronizacji mógł go usunąć lub wstawić. Obie strony są teraz odczytywane w kolejności klucza, a porównanie częściowe aktualizuje tylko wiersze znalezione po obu stronach.
