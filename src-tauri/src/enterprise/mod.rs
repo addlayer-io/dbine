@@ -89,6 +89,18 @@ pub fn refuse_if_managed(store: &StateStore, id: &str) -> CommandResult<()> {
     Ok(())
 }
 
+/// The company decides whether the AI may read its connections
+/// (`allow_ai`): every path that sends a connection's content to a model
+/// (the assistant, the optimizer, the compares' AI) asks here first.
+pub fn refuse_ai_if_not_allowed(store: &StateStore, id: &str) -> CommandResult<()> {
+    if store.is_managed_connection(id)? && !get().is_ok_and(|e| e.allows("allow_ai")) {
+        return Err(CommandError::BadRequest(
+            "la empresa no permite usar el asistente de IA con sus conexiones".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// The managed connection's id for a profile.
 pub fn connection_id(profile_id: &str) -> String {
     format!("ent-{profile_id}")

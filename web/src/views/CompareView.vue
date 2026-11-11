@@ -1810,7 +1810,7 @@ async function findRenames() {
   aiRunId = a.run_id;
   aiNote.value = '';
   try {
-    const found = await compareApi.aiRenames(views.left, views.right, { ...opts, ignore_schema: ignoreSchema.value }, a);
+    const found = await compareApi.aiRenames(views.left, views.right, { ...opts, ignore_schema: ignoreSchema.value }, a, [sides.left.connectionId, sides.right.connectionId]);
     aiHints.value = found;
     aiNote.value = found.length ? t('compare:ai.renamesFound', { count: found.length }) : t('compare:ai.renamesNone');
   } catch (e) {
