@@ -49,20 +49,21 @@ macro_rules! not_code {
     };
 }
 
-/// What the function statement signals for a name in kdb+'s namespaces or
-/// DBine's (it never defines it).
+/// What the function statement signals for a file handle (`:/path`) or a
+/// name in kdb+'s namespaces or DBine's (it never defines it).
 macro_rules! reserved_name {
     () => {
-        "'\"DBine no define funciones en los espacios de nombres de kdb+ ni en el suyo (.q, .Q, .h, .j, .o, .z, .dbine_stage)\""
+        "'\"DBine no define funciones con ese nombre: solo nombres de q, fuera de los espacios de nombres de kdb+ y del suyo (.q, .Q, .h, .j, .o, .z, .dbine_stage)\""
     };
 }
 
 /// `[n;c;s]`: function `n` defined from its source `s`, parsed in its
 /// namespace `c` (`.`: the root) so its globals resolve as on the source.
-/// A name in kdb+'s namespaces or DBine's is refused here too, so a source
-/// that lies about its names can't replace `.z.pg` or `.Q` on the target.
+/// The target refuses a file handle (`:/path`, which `set` would write as a
+/// file) and a name in kdb+'s namespaces or DBine's, so a source that lies
+/// about its names can't write files or replace `.z.pg` or `.Q` there.
 pub const FUNCTION: &str = concat!(
-    "{[n;c;s] v:` vs n; if[(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; ",
+    "{[n;c;s] v:` vs n; if[(\":\"=first string n)|(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; ",
     reserved_name!(),
     "]; system \"d \",c; p:@[parse;s;{x}]; system \"d .\"; if[not 100h=type p; ",
     not_code!(),
@@ -276,6 +277,12 @@ fn plan(src: &Source) -> CloneScript {
     // The tables cloned, and the key each one has.
     let mut cloned: Vec<(&str, usize)> = Vec::new();
     for (name, info) in src.tables.iter().zip(&infos) {
+        // A name that isn't q's (`:/path` is a file handle) is never written.
+        if !plain(name) {
+            out.notes
+                .push(format!("«{name}» no se clona: no es un nombre de q"));
+            continue;
+        }
         let Some(info) = info.as_ref().filter(|i| i.kind != "missing") else {
             out.notes.push(format!(
                 "«{name}» no se clona: no se pudo leer en el origen"
@@ -326,6 +333,11 @@ fn plan(src: &Source) -> CloneScript {
     // one, whatever the source says (the target refuses them too).
     let values = src.catalog.item(1);
     for (i, f) in src.functions.iter().enumerate() {
+        if !plain(f) {
+            out.notes
+                .push(format!("«{f}» no se clona: no es un nombre de q"));
+            continue;
+        }
         if let Err(e) = crate::names::writable(f) {
             out.notes.push(format!("«{f}» no se clona: {e}"));
             continue;
@@ -478,7 +490,20 @@ mod tests {
         // The source says its first function is .z.pg.
         src.functions[0] = ".z.pg".into();
         src.functions[1] = ".Q.qp".into();
+        // And that a function and a table are files on the target.
+        src.functions[2] = ":/data/hdb/sym".into();
+        src.tables[1] = ":/etc/passwd".into();
         let s = plan(&src);
+        assert!(!s.after.iter().any(|a| a.contains(":/")), "{:?}", s.after);
+        assert!(!s.tables.iter().any(|t| t.table.name.contains(":/")));
+        assert!(s
+            .notes
+            .iter()
+            .any(|n| n.starts_with("«:/data/hdb/sym» no se clona")));
+        assert!(s
+            .notes
+            .iter()
+            .any(|n| n.starts_with("«:/etc/passwd» no se clona")));
         assert!(
             !s.after
                 .iter()
@@ -490,7 +515,7 @@ mod tests {
         assert!(s.notes.iter().any(|n| n.starts_with("«.Q.qp» no se clona")));
         // And the target refuses one too, before parsing anything.
         assert!(FUNCTION.starts_with(
-            "{[n;c;s] v:` vs n; if[(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; '"
+            "{[n;c;s] v:` vs n; if[(\":\"=first string n)|(null first v)&(1<count v)&(v 1) in `q`Q`h`j`o`z`dbine_stage; '"
         ));
     }
 
@@ -522,6 +547,24 @@ mod tests {
             .or(out.error.clone())
             .unwrap_or_default();
         assert!(err.contains("espacios de nombres"), "{err}");
+        let mut out = dbine_driver::QueryOutcome::default();
+        let file = format!("{FUNCTION}[(`$\":/tmp/dbine_probe\");\".\";\"{{x}}\"]");
+        let r = s.execute(&file, 10, &mut out).await;
+        let err = r
+            .err()
+            .map(|e| e.to_string())
+            .or(out.error.clone())
+            .unwrap_or_default();
+        assert!(err.contains("espacios de nombres"), "{err}");
+        let mut out = dbine_driver::QueryOutcome::default();
+        s.execute("@[hcount;`:/tmp/dbine_probe;{-1}]", 10, &mut out)
+            .await
+            .unwrap();
+        assert!(
+            format!("{:?}", out.results).contains("-1"),
+            "a file was written: {:?}",
+            out.results
+        );
         let mut out = dbine_driver::QueryOutcome::default();
         s.execute("@[get;`.z.dbine_probe;{`missing}]", 10, &mut out)
             .await

@@ -265,7 +265,7 @@ impl<W: Write> EncodeExt for W {
 
     fn encode_av_pairs(&mut self, items: &[AvItem]) -> io::Result<()> {
         for item in items {
-            let (id, len, str_) = match *item {
+            let (id, _, str_) = match *item {
                 AvItem::NbComputerName(ref name) => (AvId::MsvAvNbComputerName, name.len(), name),
                 AvItem::NbDomainName(ref name) => (AvId::MsvAvNbDomainName, name.len(), name),
                 AvItem::DnsComputerName(ref name) => (AvId::MsvAvDnsComputerName, name.len(), name),
@@ -292,7 +292,9 @@ impl<W: Write> EncodeExt for W {
                 }
             };
             self.write_u16::<LittleEndian>(id as u16)?;
-            self.write_u16::<LittleEndian>(2 * len as u16)?;
+            // The length of what's written: UTF-16, not the UTF-8 the name is
+            // kept in (a server's non-ASCII name would otherwise hide what follows).
+            self.write_u16::<LittleEndian>(utf16_len(str_)?)?;
             self.encode_unicode_string(str_)?;
         }
         self.write_u16::<LittleEndian>(AvId::MsvAvEOL as u16)?;
@@ -352,12 +354,12 @@ impl<R: Read> DecodeExt for R {
                 (AvId::MsvAvDnsTreeName, _) => {
                     AvItem::DnsTreeName(self.decode_unicode_string(len, "AV(dns_tree_name)")?)
                 }
-                (AvId::MsvAvFlags, _) => {
+                (AvId::MsvAvFlags, 4) => {
                     AvItem::Flags(AvFlags::from_bits(self.read_u32::<LittleEndian>()?).ok_or(
                         io::Error::new(io::ErrorKind::InvalidData, "invalid AV flags"),
                     )?)
                 }
-                (AvId::MsvAvTimestamp, _) => {
+                (AvId::MsvAvTimestamp, 8) => {
                     // TODO: not sure this is correct, since FILETIME consists of dwLowDateTime/dwHighDateTime
                     // maybe we need:
                     // let low = try!(self.read_u32::<LittleEndian>());
@@ -365,14 +367,26 @@ impl<R: Read> DecodeExt for R {
                     // let ts = low as u64 | (high as u64) << 32;
                     AvItem::Timestamp(self.read_u64::<LittleEndian>()?)
                 }
-                (AvId::MsvAvSingleHost, _) => unimplemented!(),
+                // Not used here: skipped by its length (it panicked before).
+                (AvId::MsvAvSingleHost, _) => {
+                    skip_to(self, len as u32)?;
+                    continue;
+                }
                 (AvId::MsvAvTargetName, _) => {
                     AvItem::AvTargetName(self.decode_unicode_string(len, "AV(target_name)")?)
                 }
-                (AvId::MsvChannelBindings, _) => {
+                (AvId::MsvChannelBindings, 16) => {
                     let mut bytes = [0u8; 16];
                     self.read_exact(&mut bytes)?;
                     AvItem::ChannelBindings(bytes)
+                }
+                // A fixed-size pair with another length would shift every
+                // field after it.
+                (AvId::MsvAvFlags, _) | (AvId::MsvAvTimestamp, _) | (AvId::MsvChannelBindings, _) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "AV pair with the wrong length",
+                    ))
                 }
             };
             pairs.push(item);
@@ -388,6 +402,26 @@ struct ChallengeMessage {
     server_challenge: [u8; 8],
     target_name: Option<String>,
     av_pairs: Vec<AvItem>,
+}
+
+/// The UTF-16 byte length of `s`, which a 16-bit length field must hold.
+fn utf16_len(s: &str) -> io::Result<u16> {
+    u16::try_from(2 * s.encode_utf16().count())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "NTLM field too long"))
+}
+
+/// Skips the `n` bytes up to the next payload field, without allocating them: an
+/// offset from the server past the message fails as short input, not by asking
+/// for gigabytes.
+fn skip_to<R: Read>(r: &mut R, n: u32) -> io::Result<()> {
+    let skipped = io::copy(&mut r.by_ref().take(u64::from(n)), &mut io::sink())?;
+    if skipped != u64::from(n) {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "NTLM payload offset past the message",
+        ));
+    }
+    Ok(())
 }
 
 impl ChallengeMessage {
@@ -473,18 +507,27 @@ impl ChallengeMessage {
             let parse_av_pairs = (target_info_offset < target_name_offset) && av_pairs.is_empty()
                 || target_name.is_some();
 
+            let bad_offset = || io::Error::new(io::ErrorKind::InvalidData, "invalid payload offset");
             if parse_target_name {
-                let skip_bytes = target_name_offset - payload_offset;
-                r.read_exact(&mut vec![0u8; skip_bytes as usize])?;
+                let skip_bytes = target_name_offset
+                    .checked_sub(payload_offset)
+                    .ok_or_else(bad_offset)?;
+                skip_to(&mut r, skip_bytes)?;
                 target_name = Some(
                     r.decode_unicode_string(target_name_len as usize, "target_name")?
                 );
-                payload_offset += target_name_len as u32 + skip_bytes as u32;
+                payload_offset = payload_offset
+                    .checked_add(target_name_len as u32 + skip_bytes)
+                    .ok_or_else(bad_offset)?;
             } else if parse_av_pairs {
-                let skip_bytes = target_info_offset - payload_offset;
-                r.read_exact(&mut vec![0u8; skip_bytes as usize])?;
+                let skip_bytes = target_info_offset
+                    .checked_sub(payload_offset)
+                    .ok_or_else(bad_offset)?;
+                skip_to(&mut r, skip_bytes)?;
                 av_pairs = r.decode_av_pairs()?;
-                payload_offset += target_info_len as u32 + skip_bytes as u32;
+                payload_offset = payload_offset
+                    .checked_add(target_info_len as u32 + skip_bytes)
+                    .ok_or_else(bad_offset)?;
             } else {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -578,7 +621,7 @@ impl<'a> AuthenticateMessage<'a> {
         let domain = self.domain.as_ref().map(|x| x.as_ref()).unwrap_or("");
 
         for str_ in &[domain, self.user.as_ref(), workstation] {
-            let field_len = 2 * str_.len();
+            let field_len = utf16_len(str_)?;
             bytes.write_u16::<LittleEndian>(field_len as u16)?;
             bytes.write_u16::<LittleEndian>(field_len as u16)?;
             bytes.write_u32::<LittleEndian>(payload_offset as u32)?;
@@ -975,6 +1018,70 @@ impl<'a> NextBytes for NtlmV2Client<'a> {
 mod tests {
     use super::ntowfv2;
     use super::NtlmV2ClientBuilder;
+    use super::{utf16_len, AvItem, ChallengeMessage, DecodeExt, EncodeExt};
+    use std::io::Cursor;
+
+    #[test]
+    fn lengths_are_utf16_bytes() {
+        assert_eq!(utf16_len("abc").unwrap(), 6);
+        assert_eq!(utf16_len("ñandú").unwrap(), 10);
+        assert_eq!(utf16_len("𝄞").unwrap(), 4);
+        assert!(utf16_len(&"x".repeat(40_000)).is_err());
+    }
+
+    #[test]
+    fn a_non_ascii_av_pair_keeps_the_pairs_after_it() {
+        let name = "ñandú-ü".to_string();
+        let mut bytes = Vec::new();
+        bytes
+            .encode_av_pairs(&[AvItem::DnsTreeName(name.clone()), AvItem::Timestamp(7)])
+            .unwrap();
+        let pairs = Cursor::new(bytes).decode_av_pairs().unwrap();
+        match pairs.as_slice() {
+            [AvItem::DnsTreeName(n), AvItem::Timestamp(7)] => assert_eq!(n, &name),
+            other => panic!("{:?}", other),
+        }
+    }
+
+    #[test]
+    fn a_single_host_pair_is_skipped_and_a_wrong_fixed_length_refused() {
+        // MsvAvSingleHost (8), 4 bytes, then the timestamp and the end.
+        let mut m = vec![8u8, 0, 4, 0, 1, 2, 3, 4, 7, 0, 8, 0];
+        m.extend_from_slice(&7u64.to_le_bytes());
+        m.extend_from_slice(&[0, 0, 0, 0]);
+        let pairs = Cursor::new(m).decode_av_pairs().unwrap();
+        assert!(matches!(pairs.as_slice(), [AvItem::Timestamp(7)]));
+        // A timestamp said to be 4 bytes long.
+        let m = vec![7u8, 0, 4, 0, 1, 2, 3, 4, 0, 0, 0, 0];
+        assert!(Cursor::new(m).decode_av_pairs().is_err());
+    }
+
+    #[test]
+    fn a_challenge_offset_past_the_message_fails_without_allocating_it() {
+        let mut m = b"NTLMSSP\0".to_vec();
+        m.extend_from_slice(&2u32.to_le_bytes());
+        // A 4-byte target name at offset 0xFFFF0000.
+        m.extend_from_slice(&4u16.to_le_bytes());
+        m.extend_from_slice(&4u16.to_le_bytes());
+        m.extend_from_slice(&0xFFFF_0000u32.to_le_bytes());
+        m.extend_from_slice(&0u32.to_le_bytes()); // flags
+        m.extend_from_slice(&[0u8; 8]); // server challenge
+        m.extend_from_slice(&[0u8; 8]); // reserved
+        // No target info.
+        m.extend_from_slice(&[0u8; 8]);
+        // Before, the offsets' difference wrapped around and sized a buffer of
+        // about 4 GiB; now it's an error, at once.
+        assert!(ChallengeMessage::decode(Cursor::new(m.clone())).is_err());
+        // A target info at the same offset, past the end of the message.
+        m[40..42].copy_from_slice(&4u16.to_le_bytes());
+        m[42..44].copy_from_slice(&4u16.to_le_bytes());
+        m[44..48].copy_from_slice(&0xFFFF_0000u32.to_le_bytes());
+        m[12..14].copy_from_slice(&0u16.to_le_bytes());
+        m[14..16].copy_from_slice(&0u16.to_le_bytes());
+        m[16..20].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        let e = ChallengeMessage::decode(Cursor::new(m)).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
 
     #[test]
     fn test_ntowfv2() {
