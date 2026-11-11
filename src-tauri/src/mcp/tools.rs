@@ -620,6 +620,11 @@ pub(super) fn failure(conn: &SavedConnection, e: CommandError) -> String {
             "el servidor SSH del túnel de «{}» no está verificado: el usuario tiene que conectarse una vez desde DBine",
             conn.name
         ),
+        // Never the command (it may carry a password) nor the alias.
+        CommandError::SshProxyCommand { .. } => format!(
+            "el túnel SSH de «{}» ejecuta un ProxyCommand sin confirmar: el usuario tiene que conectarse una vez desde DBine",
+            conn.name
+        ),
         e => e.to_string(),
     }
 }

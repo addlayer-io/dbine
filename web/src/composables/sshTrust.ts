@@ -1,5 +1,5 @@
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { errorKind, errorMessage } from '../api/client';
+import { errorKind, errorMessage, type CommandErrorShape } from '../api/client';
 import { sshProfilesApi } from '../api/sshProfiles';
 import { t } from '../i18n';
 
@@ -82,13 +82,12 @@ export async function askTrustSshHost(e: unknown): Promise<string | null> {
   }
 }
 
-/** The alias and command of an `ssh_proxy_command` error, else null. */
+/** The alias and command of an `ssh_proxy_command` error, else null. They
+ *  come apart from the message, which never has the command. */
 export function unconfirmedProxyCommand(e: unknown): { alias: string; command: string } | null {
   if (errorKind(e) !== 'ssh_proxy_command') return null;
-  // The raw (Spanish) message from the backend; never the translated one.
-  const raw = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : '';
-  const m = /«(.+?)» .*?ProxyCommand: ([\s\S]+)$/.exec(raw);
-  return m ? { alias: m[1], command: m[2] } : null;
+  const p = (e as CommandErrorShape).proxy;
+  return p && typeof p.alias === 'string' && typeof p.command === 'string' ? { alias: p.alias, command: p.command } : null;
 }
 
 /**

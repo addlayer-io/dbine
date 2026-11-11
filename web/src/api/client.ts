@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type {
   AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
@@ -19,11 +20,20 @@ export interface CommandErrorShape {
   approval?: SecretSourceApproval;
   /** `secret_source_unlock`: the master password to ask for. */
   unlock?: SecretSourceUnlock;
+  /** `ssh_proxy_command`: the alias and the exact command to confirm (never in the message). */
+  proxy?: { alias: string; command: string };
+  /** A tunnel whose ProxyCommand failed: what the command wrote to stderr
+   *  (only here, never in the message MCP and the phone get). */
+  said?: string;
 }
 
 /** An error's message in the app's language (the backend writes Spanish). */
 export function errorMessage(e: unknown): string {
-  if (e && typeof e === 'object' && 'message' in e) return tb(String((e as CommandErrorShape).message));
+  if (e && typeof e === 'object' && 'message' in e) {
+    const { message, said } = e as CommandErrorShape;
+    const text = tb(String(message));
+    return typeof said === 'string' && said ? `${text}\n${t('tunnel:proxySaid', { said })}` : text;
+  }
   return tb(String(e));
 }
 
