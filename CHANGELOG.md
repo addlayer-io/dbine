@@ -17,6 +17,7 @@
 - **KDB+ notebook writes and row counts:** a notebook's write cell writes into kdb+ tables in every mode (insert, update by key, insert or update, replace), applied in one step so a failure leaves the table as it was, and the explorer's documentation and migrations get each table's row count without scanning.
 
 ### Fixes
+- **Security fix in the built-in SQLite:** DBine's own SQLite, used for its settings and for SQLite and libSQL files, is updated to a version that fixes CVE-2026-119375.
 - **Sync scripts between engines:** numbers read from PostgreSQL went into the script as text, so MongoDB and other engines that keep types could store `"9"` instead of `9`, or refuse the script. Each value is now written the way its target column takes it.
 - **Compare data with booleans across engines:** PostgreSQL's `true` and `false` didn't match another engine's, so every row of a table with a boolean column showed as different, and the sync script could carry a value the target's column doesn't take. They now compare as what they are.
 - **Compare data on large tables:** when a table has more rows than a comparison reads (200,000 per side), each side could read different rows, so a row could show as missing from the other side when it wasn't, and the sync script could delete or insert it. Both sides are now read in key order, and a partial comparison only updates rows found on both sides.

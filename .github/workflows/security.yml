@@ -109,6 +109,9 @@ jobs:
           scan-ref: .
           scanners: secret,misconfig
           skip-dirs: _status
+          # The same reviewed exceptions as the code-scanning run above, so the
+          # page doesn't count again what was already found not to apply.
+          trivyignores: .trivyignore.yaml
           format: json
           output: trivy.json
 
