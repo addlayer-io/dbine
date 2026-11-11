@@ -900,6 +900,8 @@ const liveText = computed(() => {
   <div ref="root" class="rp">
     <div class="sr-only" aria-live="polite" aria-atomic="true">{{ liveText }}</div>
     <div class="nm-subtabs">
+      <!-- Before the sub-tabs: the query editor's "Fijar" for its only result. -->
+      <slot name="lead" />
       <button
         v-for="s in sets"
         :key="s.i"

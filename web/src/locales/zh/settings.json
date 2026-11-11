@@ -13,6 +13,8 @@
     "copyFormatHelp": "在结果网格中 ⌘C 复制的内容。",
     "maxRows": "每次查询的最大行数",
     "maxRowsHelp": "编辑器中每次运行获取的行数上限。",
+    "keptResults": "每个编辑器保留的结果数",
+    "keptResultsHelp": "每个编辑器在其下方以标签页保留多少条之前未固定的运行结果。已固定的不计入，只能手动关闭。",
     "vim": "编辑器中的 Vim 模式",
     "vimHelp": "在查询、文件和例程编辑器中使用 Vim 按键（NORMAL、INSERT、VISUAL）。编辑器状态栏显示模式，:w 保存。",
     "groupBySchema": "按架构分组",

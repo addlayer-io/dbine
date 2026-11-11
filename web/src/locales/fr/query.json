@@ -104,5 +104,18 @@
     "default": "Par défaut",
     "filteredColumns_many": "{{count}} colonnes filtrées"
   },
-  "moreActions": "Plus d'actions"
+  "moreActions": "Plus d'actions",
+  "runs": {
+    "label": "Résultats des exécutions",
+    "pin": "Épingler",
+    "unpin": "Désépingler",
+    "pinTip": "Épingler ce résultat : les exécutions suivantes ne le remplaceront pas",
+    "rerun": "Exécuter à nouveau",
+    "rerunMulti": "Elle a été exécutée sur plusieurs bases : exécutez-la à nouveau depuis « Exécuter sur plusieurs bases… »",
+    "rerunMoved": "L'éditeur n'est plus sur la base où elle a été exécutée ({{database}})",
+    "copySql": "Copier la requête",
+    "closeOthers": "Fermer les autres non épinglés",
+    "closeUnpinned": "Fermer les non épinglés",
+    "ranAt": "Exécutée : {{time}}"
+  }
 }

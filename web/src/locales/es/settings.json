@@ -13,6 +13,8 @@
     "copyFormatHelp": "Lo que copia ⌘C en la grilla de resultados.",
     "maxRows": "Filas máximas por query",
     "maxRowsHelp": "Tope de filas que trae cada ejecución en el editor.",
+    "keptResults": "Resultados que conserva cada editor",
+    "keptResultsHelp": "Cuántas ejecuciones anteriores sin fijar quedan en pestañas debajo del editor. Las fijadas no cuentan y solo se cierran a mano.",
     "vim": "Modo Vim en el editor",
     "vimHelp": "Teclas de Vim (NORMAL, INSERT, VISUAL) en los editores de consultas, archivos y rutinas. La línea de estado del editor muestra el modo y :w guarda.",
     "groupBySchema": "Agrupar por esquema",

@@ -100,5 +100,18 @@
     "autoIncrement": "自動増分",
     "default": "既定値"
   },
-  "moreActions": "その他の操作"
+  "moreActions": "その他の操作",
+  "runs": {
+    "label": "実行結果",
+    "pin": "ピン留め",
+    "unpin": "ピン留めを外す",
+    "pinTip": "この結果をピン留め：以降の実行では置き換えられません",
+    "rerun": "再実行",
+    "rerunMulti": "複数のデータベースで実行されました。「複数のデータベースで実行…」から再実行してください",
+    "rerunMoved": "エディターは、実行されたデータベース（{{database}}）にありません",
+    "copySql": "クエリをコピー",
+    "closeOthers": "ほかのピン留めなしを閉じる",
+    "closeUnpinned": "ピン留めなしを閉じる",
+    "ranAt": "実行日時：{{time}}"
+  }
 }

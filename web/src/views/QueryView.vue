@@ -7,8 +7,9 @@ import { locale, t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type { QueryMessage, QueryOutcome, QueryProgress, TxState, UnsafeDml } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
-import type { MenuItem } from '../components/ContextMenu.vue';
+import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import ResultsPane from '../components/ResultsPane.vue';
+import PinIcon from '../components/PinIcon.vue';
 import ConnectionState from '../components/ConnectionState.vue';
 import { useConnectionGate } from '../composables/connectionGate';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
@@ -39,6 +40,9 @@ import { queryControls, type QueryControls } from '../composables/queryControls'
 import { runWhenOpened } from '../composables/openFiles';
 import { useToolbarOverflow } from '../composables/toolbarOverflow';
 import { bindingLabel } from '../composables/commands';
+import {
+  KEPT_RESULTS_SETTING, keptLimit, overflow, runLabel, scriptPreview, type PlanMode, type ResultRun,
+} from '../composables/resultRuns';
 
 // A saved query, or a project's file, open in the editor. A query's text is
 // saved as you type (to the state store, under its database in the
@@ -58,9 +62,16 @@ const projects = useProjectsStore();
 const fileTab = props.tab.kind === 'file' ? props.tab : null;
 const doc: TabDocument = props.tab.kind === 'file' ? useFileDocument(props.tab) : useQueryDocument(props.tab);
 const { text, saveState, loadError } = doc;
-const outcome = ref<QueryOutcome | null>(null);
-/** The script behind `outcome` (exports run it again for every row). */
-const lastScript = ref('');
+// -- result tabs: each run keeps its results until it's closed (composables/resultRuns.ts) --
+const runs = ref<ResultRun[]>([]);
+const activeRunId = ref<number | null>(null);
+let nextRunId = 1;
+const activeRun = computed(() => runs.value.find((r) => r.id === activeRunId.value) ?? null);
+/** The results shown: the active tab's. */
+const outcome = computed(() => activeRun.value?.outcome ?? null);
+/** The run in progress, which live progress fills (`liveRunId`: its tab, for the template). */
+let liveRun: ResultRun | null = null;
+const liveRunId = ref<number | null>(null);
 const running = ref(false);
 // A run connects first: the results pane shows "Conectando…", then the run
 // ("Ejecutando…") or the connection's error with "Ver qué pasa…" and
@@ -396,8 +407,6 @@ async function formatQuery() {
   }
 }
 
-type PlanMode = 'none' | 'estimated' | 'actual';
-
 // -- run options: "Seguir si hay un error" and transactions (per tab) ----------------------
 /** The driver runs editor scripts statement by statement (or batch by batch). */
 const perStatement = computed(() => (driver.value?.script_mode ?? 'whole') !== 'whole');
@@ -493,7 +502,7 @@ watch(txOpen, (on) => {
 }, { immediate: true });
 watch(running, (on) => {
   if (on) runningTabs.add(props.tab.id); else runningTabs.delete(props.tab.id);
-  if (on) runningStatements.set(props.tab.id, { connectionId: props.tab.connectionId, sql: lastScript.value, since: Date.now() });
+  if (on) runningStatements.set(props.tab.id, { connectionId: props.tab.connectionId, sql: liveRun?.script ?? '', since: Date.now() });
   else runningStatements.delete(props.tab.id);
 }, { immediate: true });
 // A project's file tabs follow its active base, except while busy here.
@@ -529,8 +538,8 @@ onBeforeUnmount(() => {
 
 // -- UPDATE / DELETE without WHERE: "Ejecutar igual" / "Cancelar" ---------------------------
 const unsafeAsk = ref<{ items: { keyword: string; line: number; text: string }[]; resolve: (ok: boolean) => void } | null>(null);
-function confirmUnsafe(script: string, found: UnsafeDml[]): Promise<boolean> {
-  const items = found.map((u) => ({ keyword: u.keyword, line: u.line + (lineOffset.value ?? 0), text: script.slice(u.start, u.end).trim() }));
+function confirmUnsafe(script: string, found: UnsafeDml[], offset: number | null): Promise<boolean> {
+  const items = found.map((u) => ({ keyword: u.keyword, line: u.line + (offset ?? 0), text: script.slice(u.start, u.end).trim() }));
   return new Promise<boolean>((resolve) => { unsafeAsk.value = { items, resolve }; });
 }
 function answerUnsafe(ok: boolean) {
@@ -539,13 +548,14 @@ function answerUnsafe(ok: boolean) {
 }
 
 // -- live progress (query-progress / query-message of this tab's session) --------------------
-/** Where the run's sent text starts in the editor, and its first line minus one. */
-const runBase = ref(0);
-const lineOffset = ref<number | null>(null);
+/** Where the next run's sent text starts in the editor, and its first line
+ *  minus one (each result tab keeps its own). */
+let runBase = 0;
+let lineOffset: number | null = null;
 /** Messages streamed since the last statement ended (its progress event repeats them). */
 let liveFrom = 0;
 function onProgress(p: QueryProgress) {
-  const o = outcome.value;
+  const o = liveRun?.outcome;
   if (!running.value || p.session_id !== props.tab.id || !o) return;
   const log = (o.log ??= []);
   const streamed = log.splice(liveFrom);
@@ -565,7 +575,7 @@ function onProgress(p: QueryProgress) {
   if (!o.error && p.errors.length) o.error = p.errors[0].message;
 }
 function onMessage(p: QueryMessage) {
-  const o = outcome.value;
+  const o = liveRun?.outcome;
   if (!running.value || p.session_id !== props.tab.id || !o) return;
   (o.log ??= []).push(p.message);
 }
@@ -636,8 +646,8 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
       return;
     }
     if (doc.autosave && saveState.value === 'dirty') save();
-    runBase.value = base;
-    lineOffset.value = (editor.value?.lineAt(base) ?? 1) - 1;
+    runBase = base;
+    lineOffset = (editor.value?.lineAt(base) ?? 1) - 1;
     await execute(filled, plan, false);
   };
   await go();
@@ -669,17 +679,33 @@ async function withParams(script: string): Promise<string | null> {
 }
 onBeforeUnmount(() => paramAsk.value?.resolve(null));
 
-async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean) {
+/** `into`: "Volver a ejecutar" on a result tab, whose results this run
+ *  replaces; otherwise the run opens a new tab. */
+async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean, into?: ResultRun) {
   running.value = true;
-  multiShown.value = null;
   startClock();
-  const before = { outcome: outcome.value, script: lastScript.value };
   // What a cancel that closes the session would roll back: the transaction
   // open before the run.
   const txWasOpen = txOpen.value;
-  lastScript.value = script;
   // Statements fill it as they end (query-progress); the answer replaces it.
-  outcome.value = { results: [], messages: [], error: null, elapsed_ms: 0, plans: [], log: [], errors: [] };
+  const blank: QueryOutcome = { results: [], messages: [], error: null, elapsed_ms: 0, plans: [], log: [], errors: [] };
+  const shownBefore = activeRunId.value;
+  const again = into && runs.value.includes(into) ? into : null;
+  const before = again ? { outcome: again.outcome, at: again.at } : null;
+  let r: ResultRun;
+  if (again) {
+    r = again;
+    r.outcome = blank;
+    r.at = Date.now();
+  } else {
+    r = addRun({
+      outcome: blank, script, plan, connectionId: props.tab.connectionId, database: props.tab.database,
+      language: driver.value?.language ?? 'sql', multi: null, lineOffset, runBase,
+    });
+  }
+  activeRunId.value = r.id;
+  liveRun = r;
+  liveRunId.value = r.id;
   liveFrom = 0;
   const where = `${conn.value?.name ?? ''} · ${props.tab.database || t('query:defaultDatabase')}`;
   let unsafe: UnsafeDml[] | null = null;
@@ -694,11 +720,12 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean)
     }).finally(() => { ui.historySeq++; });
     if (o.needs_confirmation?.length) {
       // Nothing ran: the previous results stay while the user decides.
-      outcome.value = before.outcome;
-      lastScript.value = before.script;
+      if (before) Object.assign(r, before);
+      else dropRun(r);
+      if (runs.value.some((x) => x.id === shownBefore)) activeRunId.value = shownBefore;
       unsafe = o.needs_confirmation;
     } else {
-      outcome.value = o;
+      r.outcome = o;
       // A cancel that closed the session took the open transaction with it:
       // the one open before the run, or the work of statements that ended.
       if (o.session_closed && manualTx.value && (txWasOpen || o.results.length > 0)) {
@@ -714,16 +741,19 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean)
       else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });
     }
   } catch (e) {
-    outcome.value = { results: [], messages: [], error: errorMessage(e), elapsed_ms: Date.now() - startedAt.value, plans: [] };
+    r.outcome = { results: [], messages: [], error: errorMessage(e), elapsed_ms: Date.now() - startedAt.value, plans: [] };
     output.add('error', errorMessage(e), { where });
     // A connection error: check the connection (the explorer and this pane
     // then show its state).
     void conns.recheckAfter(props.tab.connectionId, e);
   } finally {
     running.value = false;
+    liveRun = null;
+    liveRunId.value = null;
     stopClock();
   }
-  if (unsafe && (await confirmUnsafe(script, unsafe))) await execute(script, plan, true);
+  if (!unsafe) trimRuns(r);
+  if (unsafe && (await confirmUnsafe(script, unsafe, again ? again.lineOffset : lineOffset))) await execute(script, plan, true, into);
 }
 
 /** ⌘⇧↵: the statement the cursor is in (or the last one before it). */
@@ -775,11 +805,117 @@ async function optimize() {
 
 /** A message's line was clicked: the cursor goes there in the editor. */
 function goTo(at: { offset: number | null; line: number | null }) {
+  const r = activeRun.value;
   editor.value?.goTo({
-    pos: at.offset != null ? runBase.value + at.offset : null,
-    line: at.line != null ? at.line + (lineOffset.value ?? 0) : null,
+    pos: at.offset != null ? (r?.runBase ?? 0) + at.offset : null,
+    line: at.line != null ? at.line + (r?.lineOffset ?? 0) : null,
   });
 }
+
+// -- result tabs -------------------------------------------------------------------------------
+/** Unpinned results kept (Configuración › General). */
+const keptResults = computed(() => keptLimit(settings.values[KEPT_RESULTS_SETTING]));
+
+function addRun(fields: Omit<ResultRun, 'id' | 'at' | 'pinned'>): ResultRun {
+  runs.value.push({ ...fields, id: nextRunId++, at: Date.now(), pinned: false });
+  // The reactive one, so live progress and the answer show as they arrive.
+  return runs.value[runs.value.length - 1];
+}
+
+/** Closes a result tab; the one shown moves to its neighbour. */
+function dropRun(r: ResultRun) {
+  const i = runs.value.indexOf(r);
+  if (i < 0) return;
+  runs.value.splice(i, 1);
+  if (activeRunId.value === r.id) activeRunId.value = (runs.value[i] ?? runs.value[i - 1])?.id ?? null;
+}
+
+/** After a run: the oldest unpinned results beyond the setting close. */
+function trimRuns(fresh: ResultRun) {
+  for (const r of overflow(runs.value, fresh, keptResults.value, liveRun)) dropRun(r);
+}
+
+function closeRun(r: ResultRun) {
+  if (r === liveRun) return;
+  dropRun(r);
+}
+/** "Cerrar las no fijadas" (`except`: "Cerrar las demás no fijadas"). */
+function closeUnpinned(except?: ResultRun) {
+  for (const r of runs.value.filter((x) => !x.pinned && x !== except && x !== liveRun)) dropRun(r);
+}
+function togglePin(r: ResultRun) {
+  r.pinned = !r.pinned;
+}
+
+/** Why "Volver a ejecutar" can't run a tab's script here, or null. */
+function rerunBlocked(r: ResultRun): string | null {
+  if (r.multi) return t('query:runs.rerunMulti');
+  if (r.connectionId !== props.tab.connectionId || r.database !== props.tab.database) {
+    return t('query:runs.rerunMoved', { database: r.database || t('query:defaultDatabase') });
+  }
+  return null;
+}
+/** "Volver a ejecutar": the tab's script again, its results replacing the tab's. */
+async function rerun(r: ResultRun) {
+  if (running.value || connecting.value || rerunBlocked(r)) return;
+  if (!(await confirmEnvironment())) return;
+  const go = async () => {
+    retryRun = null;
+    if (rerunBlocked(r) || !runs.value.includes(r)) return;
+    if (!(await ensureConnection())) {
+      retryRun = go;
+      return;
+    }
+    await execute(r.script, r.plan, false, r);
+  };
+  await go();
+}
+
+/** hh:mm:ss, 24-hour so the tab stays short (as the Output panel's). */
+function runTime(r: ResultRun) {
+  return new Date(r.at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+}
+function runTitle(r: ResultRun) {
+  const where = `${conns.byId(r.connectionId)?.name ?? ''} · ${r.database || t('query:defaultDatabase')}`;
+  const what = r.multi ? r.multi.summary : scriptPreview(r.script);
+  return `${what}\n\n${where}\n${t('query:runs.ranAt', { time: new Date(r.at).toLocaleString(locale()) })}`;
+}
+const runMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+function openRunMenu(e: MouseEvent | KeyboardEvent, r: ResultRun) {
+  e.preventDefault();
+  let x: number;
+  let y: number;
+  if (e instanceof MouseEvent && e.clientX) ({ clientX: x, clientY: y } = e);
+  else {
+    const b = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    x = b.left;
+    y = b.bottom;
+  }
+  const blocked = rerunBlocked(r);
+  const others = runs.value.some((x) => !x.pinned && x !== r && x !== liveRun);
+  runMenu.value = {
+    x, y,
+    items: [
+      { label: r.pinned ? t('query:runs.unpin') : t('query:runs.pin'), action: () => togglePin(r) },
+      { label: t('query:runs.rerun'), action: () => void rerun(r), disabled: !!blocked || running.value, hint: blocked ?? undefined },
+      { label: t('query:runs.copySql'), action: () => void copyRunSql(r) },
+      { label: t('common:close'), action: () => closeRun(r), disabled: r === liveRun, divided: true },
+      { label: t('query:runs.closeOthers'), action: () => closeUnpinned(r), disabled: !others },
+      { label: t('query:runs.closeUnpinned'), action: () => closeUnpinned(), disabled: !runs.value.some((x) => !x.pinned && x !== liveRun) },
+    ],
+  };
+}
+async function copyRunSql(r: ResultRun) {
+  try {
+    await navigator.clipboard.writeText(r.script);
+    ElMessage.success({ message: t('common:copied'), duration: 1500 });
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+}
+/** The strip shows with more than one result or a pinned one; a single
+ *  result offers "Fijar" in the results' own bar. */
+const showRunStrip = computed(() => runs.value.length > 1 || runs.value.some((r) => r.pinned));
 
 // -- the tab's status bar ------------------------------------------------------------------------
 const serverVersion = computed(() => conns.live[props.tab.connectionId]?.serverVersion ?? '');
@@ -818,8 +954,6 @@ const multiDbAvailable = computed(() => !!driver.value?.databases_label);
 const multiOpen = ref(false);
 const multiLoading = ref(false);
 const multiLive = ref<MultiDbLive | null>(null);
-/** The pane shows a multi-database run: its sub-tab labels and summary. */
-const multiShown = ref<{ labels: string[]; summary: string } | null>(null);
 const tasksStore = useTasksStore();
 let viewAlive = true;
 onBeforeUnmount(() => { viewAlive = false; });
@@ -861,9 +995,12 @@ async function runMultiDb(databases: string[]) {
       multiOpen.value = false;
       if (!r) { ElMessage.error(error ?? ''); return; }
       const { outcome: o, labels } = multiDbOutcome(r);
-      outcome.value = o;
-      lastScript.value = script;
-      multiShown.value = { labels, summary: runSummary(r) };
+      const kept = addRun({
+        outcome: o, script, plan: 'none', connectionId, database: '', language: driver.value?.language ?? 'sql',
+        multi: { labels, summary: runSummary(r) }, lineOffset: null, runBase: 0,
+      });
+      activeRunId.value = kept.id;
+      trimRuns(kept);
       output.add(r.databases.some((d) => d.status === 'error') ? 'error' : 'info', `${script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? ''}\n${runSummary(r)}`, {
         where: t('multiDb:task.title', { count: databases.length, connection: conn.value?.name ?? '' }), elapsedMs: r.elapsed_ms,
       });
@@ -1124,26 +1261,91 @@ function runOverflow(i: number) {
       </div>
       <div class="qv-sash" @pointerdown="drag" />
       <div class="qv-results">
-        <div v-if="multiShown" class="qv-multi" role="status">
-          <el-icon><ei-files /></el-icon>
-          <span>{{ $t('multiDb:results.bar', { summary: multiShown.summary }) }}</span>
-          <span class="nm-muted">{{ $t('multiDb:summary.messages') }}</span>
-        </div>
         <ConnectionState v-if="connBlocked" :connection-id="tab.connectionId" @retry="retryConnection" />
-        <ResultsPane
-          v-else
-          :outcome="outcome"
-          :running="running"
-          :source="lastScript && !multiShown ? { connectionId: tab.connectionId, database: tab.database, sql: lastScript } : null"
-          :title="doc.title.value"
-          :dialect="driver?.dialect ?? ''"
-          :edit-source="lastScript && !multiShown ? { connectionId: tab.connectionId, database: tab.database, language: driver?.language ?? 'sql', script: lastScript } : null"
-          :labels="multiShown?.labels ?? null"
-          :line-offset="multiShown ? null : lineOffset ?? 0"
-          hide-status
-          @script="appendScript"
-          @goto="goTo"
-        />
+        <template v-else>
+          <!-- Each run's results stay in a tab of their own until closed. -->
+          <div v-if="showRunStrip" class="qv-rts" role="tablist" :aria-label="$t('query:runs.label')">
+            <div
+              v-for="r in runs"
+              :key="r.id"
+              class="qv-rt"
+              :class="{ active: r.id === activeRunId, pinned: r.pinned }"
+            >
+              <button
+                role="tab"
+                class="qv-rt-main"
+                :aria-selected="r.id === activeRunId"
+                :title="runTitle(r)"
+                @click="activeRunId = r.id"
+                @auxclick.middle="closeRun(r)"
+                @contextmenu="openRunMenu($event, r)"
+                @keydown.shift.f10="openRunMenu($event, r)"
+                @keydown.context-menu="openRunMenu($event, r)"
+              >
+                <el-icon v-if="r.id === liveRunId" class="is-loading qv-rt-state"><ei-loading /></el-icon>
+                <el-icon v-else-if="r.outcome?.error || r.outcome?.errors?.length" class="qv-rt-state qv-rt-error"><ei-circle-close-filled /></el-icon>
+                <el-icon v-else-if="r.multi" class="qv-rt-state"><ei-files /></el-icon>
+                <span class="qv-rt-name">{{ runLabel(r.script) }}</span>
+                <span class="qv-rt-time">{{ runTime(r) }}</span>
+              </button>
+              <button
+                class="qv-rt-pin ide-icon-btn"
+                :aria-pressed="r.pinned"
+                :aria-label="r.pinned ? $t('query:runs.unpin') : $t('query:runs.pin')"
+                :title="r.pinned ? $t('query:runs.unpin') : $t('query:runs.pinTip')"
+                @click="togglePin(r)"
+              >
+                <el-icon><PinIcon /></el-icon>
+              </button>
+              <button
+                v-if="r.id !== liveRunId"
+                class="qv-rt-close ide-icon-btn"
+                :aria-label="$t('common:close')"
+                :title="$t('common:close')"
+                @click="closeRun(r)"
+              >
+                <el-icon><ei-close /></el-icon>
+              </button>
+            </div>
+          </div>
+          <div v-if="activeRun?.multi" class="qv-multi" role="status">
+            <el-icon><ei-files /></el-icon>
+            <span>{{ $t('multiDb:results.bar', { summary: activeRun.multi.summary }) }}</span>
+            <span class="nm-muted">{{ $t('multiDb:summary.messages') }}</span>
+          </div>
+          <div class="qv-panes">
+            <!-- Kept mounted (v-show): each tab keeps its sort, view, chart and pending edits. -->
+            <ResultsPane
+              v-for="r in runs"
+              v-show="r.id === activeRunId"
+              :key="r.id"
+              :outcome="r.outcome"
+              :running="r.id === liveRunId"
+              :source="r.multi ? null : { connectionId: r.connectionId, database: r.database, sql: r.script }"
+              :title="doc.title.value"
+              :dialect="driver?.dialect ?? ''"
+              :edit-source="r.multi ? null : { connectionId: r.connectionId, database: r.database, language: r.language, script: r.script }"
+              :labels="r.multi?.labels ?? null"
+              :line-offset="r.multi ? null : r.lineOffset ?? 0"
+              hide-status
+              @script="appendScript"
+              @goto="goTo"
+            >
+              <template v-if="!showRunStrip" #lead>
+                <button
+                  class="qv-pin-one ide-icon-btn"
+                  :aria-label="$t('query:runs.pin')"
+                  :title="$t('query:runs.pinTip')"
+                  @click="togglePin(r)"
+                >
+                  <el-icon><PinIcon /></el-icon>
+                </button>
+              </template>
+            </ResultsPane>
+            <ResultsPane v-if="!runs.length" :outcome="null" :running="false" hide-status />
+          </div>
+          <ContextMenu v-if="runMenu" :x="runMenu.x" :y="runMenu.y" :items="runMenu.items" @close="runMenu = null" />
+        </template>
       </div>
     </div>
     <div class="qv-status">
@@ -1232,7 +1434,37 @@ function runOverflow(i: number) {
 .qv-sash { height: 5px; flex-shrink: 0; cursor: row-resize; border-top: 1px solid var(--nm-border-soft); }
 .qv-sash:hover { background: var(--ide-focus); }
 .qv-results { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.qv-results > :last-child { flex: 1; min-height: 0; }
+.qv-results > :last-child, .qv-panes { flex: 1; min-height: 0; }
+.qv-panes { display: flex; flex-direction: column; }
+.qv-panes > * { flex: 1; min-height: 0; }
+/* The result tabs: one per run, like the editor's tabs but smaller. */
+.qv-rts {
+  display: flex; flex-shrink: 0; height: 26px; overflow-x: auto; scrollbar-width: thin;
+  border-bottom: 1px solid var(--nm-border-soft); background: var(--ide-tabs, var(--nm-bg-elev));
+}
+.qv-rt {
+  position: relative; display: flex; align-items: center; flex-shrink: 0; max-width: 300px;
+  border-right: 1px solid var(--nm-border-soft); color: var(--nm-text-dim);
+}
+.qv-rt.active { background: var(--ide-editor); color: var(--nm-text-strong); }
+.qv-rt.active::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--ide-focus); }
+.qv-rt-main {
+  display: flex; align-items: center; gap: 6px; min-width: 0; height: 100%; padding: 0 2px 0 10px;
+  border: 0; background: none; color: inherit; font: inherit; font-size: 12px; cursor: pointer;
+}
+.qv-rt-main:focus-visible { outline: 1px solid var(--ide-focus); outline-offset: -1px; }
+.qv-rt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--nm-mono); font-size: 11.5px; }
+.qv-rt-time { flex-shrink: 0; color: var(--nm-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.qv-rt-state { flex-shrink: 0; font-size: 12px; }
+.qv-rt-error { color: var(--nm-danger); }
+.qv-rt-pin, .qv-rt-close { flex-shrink: 0; width: 20px; height: 20px; font-size: 12px; color: inherit; }
+/* Unpinned: the pin shows on hover, like the editor tabs' close. */
+.qv-rt:not(.pinned) .qv-rt-pin { opacity: 0; }
+.qv-rt:hover .qv-rt-pin, .qv-rt-pin:focus-visible { opacity: 1; }
+.qv-rt.pinned .qv-rt-pin { color: var(--ide-focus); }
+.qv-rt-close { margin-right: 4px; opacity: 0; }
+.qv-rt:hover .qv-rt-close, .qv-rt.active .qv-rt-close, .qv-rt-close:focus-visible { opacity: 1; }
+.qv-pin-one { align-self: center; width: 22px; height: 22px; margin-left: 4px; font-size: 13px; color: var(--nm-text-dim); }
 .qv-multi {
   display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 3px 10px; font-size: 12px;
   border-bottom: 1px solid var(--nm-border-soft); background: color-mix(in srgb, var(--ide-focus, var(--nm-primary)) 8%, transparent);

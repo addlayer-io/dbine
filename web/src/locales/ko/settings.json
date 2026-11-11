@@ -13,6 +13,8 @@
     "copyFormatHelp": "결과 그리드에서 ⌘C로 복사하는 내용입니다.",
     "maxRows": "쿼리당 최대 행",
     "maxRowsHelp": "편집기에서 실행할 때마다 가져오는 최대 행 수입니다.",
+    "keptResults": "편집기별 보관 결과 수",
+    "keptResultsHelp": "편집기 아래 탭으로 남기는, 고정되지 않은 이전 실행의 개수입니다. 고정된 탭은 포함되지 않으며 직접 닫아야 합니다.",
     "vim": "편집기 Vim 모드",
     "vimHelp": "쿼리, 파일, 루틴 편집기에서 Vim 키(NORMAL, INSERT, VISUAL)를 사용합니다. 편집기 상태 줄에 모드가 표시되고 :w로 저장합니다.",
     "groupBySchema": "스키마별 그룹화",

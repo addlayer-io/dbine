@@ -13,6 +13,8 @@
     "copyFormatHelp": "Ce que ⌘C copie dans la grille de résultats.",
     "maxRows": "Lignes max. par requête",
     "maxRowsHelp": "Nombre maximal de lignes ramenées par chaque exécution dans l'éditeur.",
+    "keptResults": "Résultats conservés par chaque éditeur",
+    "keptResultsHelp": "Nombre d'exécutions précédentes non épinglées qui restent dans des onglets sous l'éditeur. Les épinglées ne comptent pas et ne se ferment qu'à la main.",
     "vim": "Mode Vim dans l'éditeur",
     "vimHelp": "Touches Vim (NORMAL, INSERT, VISUAL) dans les éditeurs de requêtes, de fichiers et de routines. La ligne d'état de l'éditeur affiche le mode et :w enregistre.",
     "groupBySchema": "Grouper par schéma",

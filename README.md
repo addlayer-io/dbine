@@ -150,6 +150,9 @@ and queries are organized inside each database.
   collections.
 - **Virtualized grid** with several results per run, messages and a cell
   viewer (with formatted JSON).
+- **Result tabs:** earlier runs keep their results in tabs with their query
+  and time; a pinned result isn't replaced by later runs. Details:
+  [docs/query-editor.md](docs/query-editor.md#result-tabs).
 - **Column filters** on a table's data (values, ranges, nulls, text). They are
   applied on the server, with each engine's own filter.
 - **Copy results** in 10 formats: with or without headers, CSV, JSON, JSON

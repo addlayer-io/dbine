@@ -13,6 +13,8 @@
     "copyFormatHelp": "Co kopiuje ⌘C w siatce wyników.",
     "maxRows": "Maksymalna liczba wierszy na zapytanie",
     "maxRowsHelp": "Limit wierszy pobieranych przy każdym uruchomieniu w edytorze.",
+    "keptResults": "Wyniki zachowywane przez edytor",
+    "keptResultsHelp": "Ile wcześniejszych nieprzypiętych uruchomień zostaje w kartach pod edytorem. Przypięte nie są liczone i zamyka się je tylko ręcznie.",
     "vim": "Tryb Vim w edytorze",
     "vimHelp": "Klawisze Vim (NORMAL, INSERT, VISUAL) w edytorach zapytań, plików i procedur. Wiersz stanu edytora pokazuje tryb, a :w zapisuje.",
     "groupBySchema": "Grupuj według schematu",

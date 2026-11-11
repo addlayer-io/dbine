@@ -104,5 +104,18 @@
     "default": "Predeterminado",
     "filteredColumns_many": "{{count}} columnas filtradas"
   },
-  "moreActions": "Más acciones"
+  "moreActions": "Más acciones",
+  "runs": {
+    "label": "Resultados de las ejecuciones",
+    "pin": "Fijar",
+    "unpin": "Quitar fijación",
+    "pinTip": "Fijar este resultado: las próximas ejecuciones no lo reemplazan",
+    "rerun": "Volver a ejecutar",
+    "rerunMulti": "Se ejecutó en varias bases: volvé a ejecutarla desde «Ejecutar en varias bases…»",
+    "rerunMoved": "El editor ya no está en la base donde se ejecutó ({{database}})",
+    "copySql": "Copiar la consulta",
+    "closeOthers": "Cerrar las demás no fijadas",
+    "closeUnpinned": "Cerrar las no fijadas",
+    "ranAt": "Ejecutada: {{time}}"
+  }
 }

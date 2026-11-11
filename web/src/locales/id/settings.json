@@ -13,6 +13,8 @@
     "copyFormatHelp": "Apa yang disalin ⌘C pada grid hasil.",
     "maxRows": "Baris maksimum per kueri",
     "maxRowsHelp": "Batas baris yang diambil setiap eksekusi di editor.",
+    "keptResults": "Hasil yang disimpan tiap editor",
+    "keptResultsHelp": "Jumlah eksekusi sebelumnya yang tidak disematkan dan tetap ada sebagai tab di bawah editor. Yang disematkan tidak dihitung dan hanya ditutup secara manual.",
     "vim": "Mode Vim di editor",
     "vimHelp": "Tombol Vim (NORMAL, INSERT, VISUAL) di editor kueri, berkas, dan rutin. Baris status editor menampilkan mode dan :w menyimpan.",
     "groupBySchema": "Kelompokkan menurut skema",

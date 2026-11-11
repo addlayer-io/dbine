@@ -104,5 +104,18 @@
     "default": "Default",
     "filteredColumns_many": "{{count}} filtered columns"
   },
-  "moreActions": "More actions"
+  "moreActions": "More actions",
+  "runs": {
+    "label": "Run results",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "pinTip": "Pin this result: later runs won't replace it",
+    "rerun": "Run again",
+    "rerunMulti": "It ran on several databases: run it again from “Run on several databases…”",
+    "rerunMoved": "The editor is no longer on the database where it ran ({{database}})",
+    "copySql": "Copy query",
+    "closeOthers": "Close other unpinned",
+    "closeUnpinned": "Close unpinned",
+    "ranAt": "Ran: {{time}}"
+  }
 }

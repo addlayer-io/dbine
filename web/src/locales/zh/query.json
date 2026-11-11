@@ -100,5 +100,18 @@
     "autoIncrement": "自增",
     "default": "默认值"
   },
-  "moreActions": "更多操作"
+  "moreActions": "更多操作",
+  "runs": {
+    "label": "运行结果",
+    "pin": "固定",
+    "unpin": "取消固定",
+    "pinTip": "固定此结果：之后的运行不会替换它",
+    "rerun": "重新运行",
+    "rerunMulti": "该查询在多个数据库上运行过：请通过“在多个数据库上运行…”重新运行",
+    "rerunMoved": "编辑器已不在运行该查询的数据库（{{database}}）上",
+    "copySql": "复制查询",
+    "closeOthers": "关闭其他未固定的",
+    "closeUnpinned": "关闭未固定的",
+    "ranAt": "运行时间：{{time}}"
+  }
 }

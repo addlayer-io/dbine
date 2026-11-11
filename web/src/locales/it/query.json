@@ -104,5 +104,18 @@
     "default": "Predefinito",
     "filteredColumns_many": "{{count}} colonne filtrate"
   },
-  "moreActions": "Altre azioni"
+  "moreActions": "Altre azioni",
+  "runs": {
+    "label": "Risultati delle esecuzioni",
+    "pin": "Fissa",
+    "unpin": "Rimuovi fissaggio",
+    "pinTip": "Fissa questo risultato: le prossime esecuzioni non lo sostituiranno",
+    "rerun": "Esegui di nuovo",
+    "rerunMulti": "È stata eseguita su più database: eseguila di nuovo da «Esegui su più database…»",
+    "rerunMoved": "L'editor non è più sul database in cui è stata eseguita ({{database}})",
+    "copySql": "Copia la query",
+    "closeOthers": "Chiudi le altre non fissate",
+    "closeUnpinned": "Chiudi le non fissate",
+    "ranAt": "Eseguita: {{time}}"
+  }
 }
