@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.5.0 | 2026-11-11 | 6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e in vendor/winauth and crates/drivers/kdb, the only code that range changes; e8d6961e..e50a062f, the fixes for the open findings, in src-tauri, crates/dbine-core, crates/drivers/kdb and web/src | 0 open | 8d440027, the query editor's result tabs (#75, web/src only), released without a scan by the owner's decision; release-notes and translation text |
 | codeql | 2026-11-11 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-11 | every lockfile (Cargo, npm) at [`d41927946`](https://github.com/addlayer-io/dbine/commit/d419279460d4) | 0 open | — |
-| scorecard | 2026-11-11 | repository settings and workflows at [`926bcf4e7`](https://github.com/addlayer-io/dbine/commit/926bcf4e7ba5) | score 7.2/10 | — |
-| trivy | 2026-11-11 | whole repository at [`d41927946`](https://github.com/addlayer-io/dbine/commit/d419279460d4) | 0 open | — |
+| osv | 2026-11-11 | every lockfile (Cargo, npm) at [`c44766eb7`](https://github.com/addlayer-io/dbine/commit/c44766eb72cb) | 0 open | — |
+| scorecard | 2026-11-11 | repository settings and workflows at [`d41927946`](https://github.com/addlayer-io/dbine/commit/d419279460d4) | score 7.5/10 | — |
+| trivy | 2026-11-11 | whole repository at [`c44766eb7`](https://github.com/addlayer-io/dbine/commit/c44766eb72cb) | 0 open | — |
 
 ## Not counted, and why
 
@@ -370,6 +370,17 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:581 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/lib.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/lib.rs:1357 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai | mpanichella |
+| Trivy secret rule exception `bigquery-test-service-account` | `crates/drivers/bigquery/src/gcp.rs` | The unit test in gcp_tests builds a fake service-account JSON around the throwaway key in crates/drivers/bigquery/tests/test_key.pem; it holds no real credential. | trivy-secret.yaml |
+| Trivy secret rule exception `postgres-test-entra-token` | `crates/drivers/postgres/src/cloud_auth.rs` | The unit test entra_claims_say_who_signed_in decodes a made-up, unsigned JWT ({"upn":"ana@contoso.com"}); it grants nothing. | trivy-secret.yaml |
+| Trivy secret rule exception `tls-test-material` | `tests/tls/.*.(key\|p12)` | Throwaway test CA and server keys for the dbine-test-tls-* containers (tests/tls/README.md); they only sign certificates for localhost and host.docker.internal in tests and protect nothing. | trivy-secret.yaml |
+| Advisory GHSA-wrw7-89jp-8q8g | `dependencies` | Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side. | osv-scanner.toml |
+| Advisory GHSA-cq8v-f236-94qc | `dependencies` | Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only). | osv-scanner.toml |
+| Advisory RUSTSEC-2024-0436 | `dependencies` | Notice, not a vulnerability: paste is no longer maintained (no known flaw; a build-time macro used by dependencies). | osv-scanner.toml |
+| Advisory RUSTSEC-2024-0370 | `dependencies` | Notice, not a vulnerability: proc-macro-error is unmaintained (no known flaw; a build-time macro used by dependencies). | osv-scanner.toml |
+| Advisory RUSTSEC-2025-0075, RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100 | `dependencies` | Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency). | osv-scanner.toml |
+| Advisory RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372 | `dependencies` | Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack). | osv-scanner.toml |
+| Advisory RUSTSEC-2023-0071 | `dependencies` | Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations. | osv-scanner.toml |
+| Advisory GHSA-qwgh-2vcv-g2f7 | `dependencies` | Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to. | osv-scanner.toml |
 
 ## Maintenance notices
 
@@ -379,16 +390,14 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.2/10** (2026-11-11). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.5/10** (2026-11-11). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/9 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/3 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 6 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 8/10 — 2 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
-| CI-Tests: 5/10 — 5 out of 9 merged PRs checked by a CI test -- score normalized to 5 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
