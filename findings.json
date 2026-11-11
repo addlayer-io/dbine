@@ -12,23 +12,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-09",
-      "revision": "d13861d2f764",
+      "date": "2026-11-11",
+      "revision": "8d3ddbb6829b",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 2
     },
     {
       "source": "trivy",
-      "date": "2026-11-09",
-      "revision": "d13861d2f764",
+      "date": "2026-11-11",
+      "revision": "8d3ddbb6829b",
       "kind": "full",
       "scope": "whole repository",
       "found": 1
     },
     {
       "source": "codeql",
-      "date": "2026-11-09",
+      "date": "2026-11-11",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -4460,6 +4460,42 @@
       "fixed_version": "0.39.0",
       "found": "2026-11-09",
       "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0486-rustix-13ee4b",
+      "source": "osv",
+      "severity": "NOTICE",
+      "kind": "Unmaintained dependency",
+      "title": "rustix 1.1.5: xattr functions mark unwritten bytes as initialized when given a zero-length buffer",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0486",
+      "fixed_version": "1.1.6",
+      "found": "2026-11-11",
+      "status": "notice"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0486-rustix-9761a8",
+      "source": "osv",
+      "severity": "NOTICE",
+      "kind": "Unmaintained dependency",
+      "title": "rustix 1.1.5: xattr functions mark unwritten bytes as initialized when given a zero-length buffer",
+      "component": "mobile/src-tauri/Cargo.lock",
+      "advisory": "RUSTSEC-2026-0486",
+      "fixed_version": "1.1.6",
+      "found": "2026-11-11",
+      "status": "notice"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0486-rustix-c4afe4",
+      "source": "osv",
+      "severity": "NOTICE",
+      "kind": "Unmaintained dependency",
+      "title": "rustix 1.1.5: xattr functions mark unwritten bytes as initialized when given a zero-length buffer",
+      "component": "fuzz/Cargo.lock",
+      "advisory": "RUSTSEC-2026-0486",
+      "fixed_version": "1.1.6",
+      "found": "2026-11-11",
+      "status": "notice"
     },
     {
       "id": "SC-Binary-Artifacts",
