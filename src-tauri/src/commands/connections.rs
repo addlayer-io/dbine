@@ -498,6 +498,22 @@ pub struct TestConnectionArgs {
 pub struct TestResult {
     pub ok: bool,
     pub message: String,
+    /// Why it failed, when the backend could tell (the same `detail` a
+    /// failed connect carries): the form's "Ver qué pasa…" explains it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<serde_json::Value>,
+}
+
+impl TestResult {
+    /// A failed test: the error's own words, and the classification the app
+    /// would give the same error on connect.
+    fn failed_with(message: String, e: CommandError) -> Self {
+        TestResult {
+            ok: false,
+            detail: e.detail().and_then(|d| serde_json::to_value(d).ok()),
+            message,
+        }
+    }
 }
 
 /// Never fails: the outcome is in the result, for the dialog to show.
@@ -524,22 +540,12 @@ async fn test_connection_with(
         Err(e @ (CommandError::SecretSourceApproval(_) | CommandError::SecretSourceUnlock(_))) => {
             return Err(e)
         }
-        Err(e) => {
-            return Ok(TestResult {
-                ok: false,
-                message: e.to_string(),
-            })
-        }
+        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e.into())),
     }
     // The form's sources (resolved below) and Vault tokens it typed.
     let sources = match source_defs::take(&mut cfg) {
         Ok(s) => s,
-        Err(e) => {
-            return Ok(TestResult {
-                ok: false,
-                message: e.to_string(),
-            })
-        }
+        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e.into())),
     };
     let mut tokens = crate::secret_sources::take_tokens(&mut cfg);
     let id = args.connection_id.as_deref().filter(|i| !i.is_empty());
@@ -592,24 +598,14 @@ async fn test_connection_with(
         Err(e @ (CommandError::SecretSourceApproval(_) | CommandError::SecretSourceUnlock(_))) => {
             return Err(e)
         }
-        Err(e) => {
-            return Ok(TestResult {
-                ok: false,
-                message: e.to_string(),
-            })
-        }
+        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e.into())),
     }
     // The tunnel lives until the test ends. An unknown SSH server is an
     // error (the UI asks to trust it), not a failed test.
     let tunnel = match state.tunnels.route(None, &mut cfg).await {
         Ok(t) => t,
         Err(e @ CommandError::SshUnknownHost { .. }) => return Err(e),
-        Err(e) => {
-            return Ok(TestResult {
-                ok: false,
-                message: e.to_string(),
-            })
-        }
+        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e.into())),
     };
     // A cloud sign-in (AWS IAM, Google Cloud IAM, Entra ID): the result
     // says who signed in. Only here: never in the explorer, the feedback
@@ -631,11 +627,9 @@ async fn test_connection_with(
         Ok(v) => TestResult {
             ok: true,
             message: v,
+            detail: None,
         },
-        Err(e) => TestResult {
-            ok: false,
-            message: e.to_string(),
-        },
+        Err(e) => TestResult::failed_with(e.to_string(), e.into()),
     })
 }
 

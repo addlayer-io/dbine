@@ -1,7 +1,7 @@
 // Development only (not part of the app build): renders UI pieces with
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies|fonts
-// |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
+// |connection[&engine=<driver id>][&testfail=1]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
 // |query[&sample=editor|q] (⌘-click, unknown names, parameters, snippets, a table's columns on hover: preview/editor-samples.ts)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
@@ -410,7 +410,12 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
       if (cmd === 'profiler_poll') return sampleProfilerPoll();
       if (cmd === 'profiler_stop') return null;
       if (cmd === 'get_dependents' && view !== 'compare') return sampleDependents;
-      if (cmd === 'test_connection') return { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
+      // …&testfail=1: the test times out, with its classification ("Ver qué pasa…").
+      if (cmd === 'test_connection') {
+        return params.get('testfail')
+          ? { ok: false, message: 'no se pudo conectar a db.example.com:5432: se agotó el tiempo de espera (15 s)', detail: { kind: 'timeout', code: null, client_ip: null } }
+          : { ok: true, message: 'PostgreSQL 16.4 · 38 ms' };
+      }
       if (cmd === 'browse_secret_source') return browseSample(a?.args as { source: { kind: string }; item?: string; path?: string });
       if (cmd === 'test_secret_source') return { chars: 24, username: false };
       if (cmd === 'list_secret_accounts') return SAMPLE_ACCOUNTS;
