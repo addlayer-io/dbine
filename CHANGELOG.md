@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### New
+- **Server jobs:** **Scheduled** now has two sections: **In DBine**, the tasks DBine runs, and **On the servers**, the jobs each database server runs on its own. Those include SQL Server Agent jobs, Oracle DBMS_SCHEDULER, pg_cron, pgAgent and TimescaleDB jobs, Snowflake tasks, Databricks jobs, MySQL events, BigQuery scheduled queries, Couchbase backups, CouchDB replications and more. Each job shows its schedule, steps and run history with messages, and offers **Run now**, **Stop**, **Enable** / **Disable** and **View script** where the engine allows them. Jobs that come with the engine are hidden until you show them, and read-only connections only show jobs. **Server jobs** on a connection's menu opens its group.
 - **Results kept when DBine closes:** each query editor's result tabs are saved to an encrypted file on your computer, so after closing DBine, or a crash, every editor shows them again as they were, pinned ones included, without running anything. The key never leaves your computer and user; **Settings › General** sets the space they may take, clears them, or turns it off.
 - **Monitor metrics that explain themselves:** every metric on the Monitor dashboard says what it measures, how to read it, and the view, query or API field its value comes from. **Metrics** picks which ones show, remembered per engine, and clicking a metric enlarges it to its last hour on a timeline you can zoom.
 

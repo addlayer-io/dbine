@@ -328,6 +328,11 @@ and queries are organized inside each database.
   documentation and emails that run by themselves with DBine closed, with a
   system notification, history and prior approval of anything that changes
   data. Details: [`docs/scheduled-tasks.md`](docs/scheduled-tasks.md).
+- **Server jobs:** each server's own scheduled work next to DBine's tasks —
+  SQL Server Agent, Oracle DBMS_SCHEDULER, pg_cron, pgAgent, TimescaleDB,
+  Snowflake tasks, Databricks jobs, MySQL events and more — with their steps
+  and run history, and run now, stop, enable or script them where the engine
+  allows it. Details: [`docs/server-jobs.md`](docs/server-jobs.md).
 
 - **Health check:** reviews a database and lists what deserves attention by
   severity, with each engine's own checks and fix scripts that are reviewed
