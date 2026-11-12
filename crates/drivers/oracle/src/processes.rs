@@ -79,17 +79,24 @@ fn denied(e: oracledb::Error) -> Error {
     }
 }
 
-/// Run `f` with a call timeout, putting the previous one back after.
-fn within<T>(c: &Connection, f: impl FnOnce() -> Result<T>) -> Result<T> {
+/// Run `f` with a call timeout of `limit`, putting the previous one back
+/// after.
+pub(crate) fn within<T>(
+    c: &Connection,
+    limit: Duration,
+    f: impl FnOnce() -> Result<T>,
+) -> Result<T> {
     let before = c.call_timeout().ok().flatten();
-    c.set_call_timeout(Some(QUERY_LIMIT)).map_err(err)?;
+    c.set_call_timeout(Some(limit)).map_err(err)?;
     let r = f();
     let _ = c.set_call_timeout(before);
     r
 }
 
 pub fn processes(c: &Connection) -> Result<Vec<ServerProcess>> {
-    let found = within(c, || rows_max(c, PROCESSES, MAX_ROWS).map_err(denied))?;
+    let found = within(c, QUERY_LIMIT, || {
+        rows_max(c, PROCESSES, MAX_ROWS).map_err(denied)
+    })?;
     let mut list: Vec<ServerProcess> = found
         .iter()
         .map(|r| {
@@ -128,7 +135,9 @@ pub fn processes(c: &Connection) -> Result<Vec<ServerProcess>> {
         let Ok((sid, _)) = session_id(&list[i].id) else {
             continue;
         };
-        match within(c, || rows(c, &last_statement_sql(sid)).map_err(err)) {
+        match within(c, QUERY_LIMIT, || {
+            rows(c, &last_statement_sql(sid)).map_err(err)
+        }) {
             Ok(r) => list[i].sql = r.first().and_then(|r| text(r, 0)),
             Err(e) => tracing::debug!("oracle processes: open cursors of {sid}: {e}"),
         }
