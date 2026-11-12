@@ -5588,9 +5588,6 @@
   "crates/drivers/neo4j/src/create_db.rs",
   "crates/drivers/orientdb/src/create_db.rs"
  ],
- "Conexión de solo lectura: no se puede {0}.": [
-  "crates/drivers/elasticsearch/src/jobs.rs"
- ],
  "Conexión de solo lectura: no se pueden borrar bases.": [
   "crates/dbine-driver/src/read_only.rs",
   "crates/drivers/cassandra/src/lib.rs",
@@ -5668,7 +5665,8 @@
  "Conexión de solo lectura: no se pueden ejecutar jobs del servidor.": [
   "crates/dbine-driver/src/read_only.rs",
   "crates/drivers/couchbase/src/jobs.rs",
-  "crates/drivers/couchdb/src/jobs.rs"
+  "crates/drivers/couchdb/src/jobs.rs",
+  "crates/drivers/elasticsearch/src/jobs.rs"
  ],
  "Conexión de solo lectura: no se pueden ejecutar tareas.": [
   "crates/drivers/influxdb/src/jobs.rs"
@@ -5683,7 +5681,8 @@
  ],
  "Conexión de solo lectura: no se pueden habilitar ni deshabilitar jobs del servidor.": [
   "crates/dbine-driver/src/read_only.rs",
-  "crates/drivers/couchbase/src/jobs.rs"
+  "crates/drivers/couchbase/src/jobs.rs",
+  "crates/drivers/elasticsearch/src/jobs.rs"
  ],
  "Conexión de solo lectura: no se pueden habilitar ni deshabilitar tareas.": [
   "crates/drivers/influxdb/src/jobs.rs"
@@ -25422,7 +25421,10 @@
  "StarRocks no permite deshabilitar el ingreso de un usuario: cambiale la contraseña o borralo": [
   "crates/drivers/mysql/src/security/starrocks.rs"
  ],
- "StarRocks no permite {0} una tarea desde SQL": [
+ "StarRocks no permite detener una tarea desde SQL": [
+  "crates/drivers/mysql/src/jobs/starrocks.rs"
+ ],
+ "StarRocks no permite ejecutar una tarea desde SQL": [
   "crates/drivers/mysql/src/jobs/starrocks.rs"
  ],
  "StarRocks no tiene grupos": [
@@ -30967,9 +30969,6 @@
  "ejecutando (ms)": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
- "ejecutar jobs del servidor": [
-  "crates/drivers/elasticsearch/src/jobs.rs"
- ],
  "ejecutor": [
   "crates/drivers/dremio/src/lib.rs"
  ],
@@ -34625,9 +34624,6 @@
  ],
  "guardá el notebook para recordar qué archivos puede leer": [
   "src-tauri/src/notebook/access.rs"
- ],
- "habilitar ni deshabilitar jobs del servidor": [
-  "crates/drivers/elasticsearch/src/jobs.rs"
  ],
  "habilitar y deshabilitar actúa sobre la tarea raíz: las hijas corren cuando corre la raíz, salvo las suspendidas": [
   "crates/drivers/snowflake/src/jobs.rs"

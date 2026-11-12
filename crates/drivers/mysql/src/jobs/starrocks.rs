@@ -631,20 +631,19 @@ fn job_run(r: &Run, utc: &HashMap<(Civil, String), Civil>, tz: &str) -> JobRun {
     }
 }
 
-/// The view of a refresh task, or why it can't be acted on.
-async fn view_of(s: &mut MySqlSession, id: &str, what: &str) -> Result<View> {
+/// The view of a refresh task, or why it can't be acted on (`refused`: the
+/// whole message, so the UI translates it as one).
+async fn view_of(s: &mut MySqlSession, id: &str, refused: &'static str) -> Result<View> {
     let (name, mv) = parse_id(id)?;
     if !mv {
-        return Err(Error::Unsupported(format!(
-            "StarRocks no permite {what} una tarea desde SQL"
-        )));
+        return Err(Error::Unsupported(refused.into()));
     }
     let (_, view, _) = one(s, id).await?;
     view.ok_or_else(|| not_found(&name))
 }
 
 pub(super) async fn run(s: &mut MySqlSession, id: &str) -> Result<()> {
-    let v = view_of(s, id, "ejecutar").await?;
+    let v = view_of(s, id, "StarRocks no permite ejecutar una tarea desde SQL").await?;
     s.rows(&format!(
         "REFRESH MATERIALIZED VIEW {}.{} WITH ASYNC MODE",
         quoted(&v.schema),
@@ -655,7 +654,7 @@ pub(super) async fn run(s: &mut MySqlSession, id: &str) -> Result<()> {
 }
 
 pub(super) async fn stop(s: &mut MySqlSession, id: &str) -> Result<()> {
-    let v = view_of(s, id, "detener").await?;
+    let v = view_of(s, id, "StarRocks no permite detener una tarea desde SQL").await?;
     s.rows(&format!(
         "CANCEL REFRESH MATERIALIZED VIEW {}.{}",
         quoted(&v.schema),

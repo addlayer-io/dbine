@@ -980,11 +980,11 @@ impl EsSession {
         Ok((status, J::parse(&text).unwrap_or(J::Null)))
     }
 
-    fn check_writable(&self, what: &str) -> Result<()> {
+    /// `refused`: the whole message (the contract's read-only wording), so
+    /// the UI translates it as one.
+    fn check_writable(&self, refused: &'static str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query(format!(
-                "Conexión de solo lectura: no se puede {what}."
-            )));
+            return Err(Error::Query(refused.into()));
         }
         Ok(())
     }
@@ -1469,7 +1469,7 @@ impl EsSession {
 
     pub(crate) async fn job_start(&self, id: &str) -> Result<()> {
         let (kind, id) = self.parse(id)?;
-        self.check_writable("ejecutar jobs del servidor")?;
+        self.check_writable("Conexión de solo lectura: no se pueden ejecutar jobs del servidor.")?;
         let seg = path_segment(&id);
         match (kind, self.opensearch) {
             (Kind::Transform, false) => {
@@ -1506,7 +1506,9 @@ impl EsSession {
 
     pub(crate) async fn job_enable(&self, id: &str, enabled: bool) -> Result<()> {
         let (kind, id) = self.parse(id)?;
-        self.check_writable("habilitar ni deshabilitar jobs del servidor")?;
+        self.check_writable(
+            "Conexión de solo lectura: no se pueden habilitar ni deshabilitar jobs del servidor.",
+        )?;
         let seg = path_segment(&id);
         let p = self.plugins();
         let verb = if enabled { "_start" } else { "_stop" };

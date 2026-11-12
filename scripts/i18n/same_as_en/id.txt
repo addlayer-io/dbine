@@ -374,3 +374,12 @@ enterprise.json:signIn.title
 dataCompare.json:ai.filter
 scheduled.json:server.tab
 scheduled.json:server.stepTarget
+backend:Cadena
+backend:Correo electrónico
+backend:Desfase (offset)
+backend:Intervalo
+backend:Localizador
+backend:Lote
+backend:Marca de agua
+backend:Nodo {0}
+backend:Válido

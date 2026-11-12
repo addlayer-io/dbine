@@ -324,3 +324,12 @@ enterprise.json:signIn.title
 enterprise.json:elapsed.hours
 scheduled.json:sections.dbine
 scheduled.json:server.tab
+backend:Copia de seguridad (V1.0)
+backend:Copia de seguridad (V2.0)
+backend:Lote
+backend:Marca de agua
+backend:Multiservidor
+backend:Rutina
+backend:TimescaleDB · política
+backend:TimescaleDB · retención
+backend:clúster {0}
