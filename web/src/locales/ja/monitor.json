@@ -27,5 +27,20 @@
   "noRows": "行がありません。",
   "sparkline": {
     "noData": "データなし"
+  },
+  "enlarge": "拡大：全履歴をタイムラインで表示",
+  "pick": {
+    "button": "メトリクス",
+    "title": "表示するメトリクス",
+    "showAll": "すべて表示",
+    "hidden_other": "{{count}} 件を非表示"
+  },
+  "metric": {
+    "source": "ソース",
+    "rate": "1 秒あたりで表示します。連続する 2 回の読み取りの差を、その間の時間で割った値です。"
+  },
+  "chart": {
+    "aria": "{{name}} の時系列グラフ",
+    "span": "{{from}} から {{to}} まで · {{count}} 回の読み取り"
   }
 }

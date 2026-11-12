@@ -27,5 +27,20 @@
   "noRows": "没有行。",
   "sparkline": {
     "noData": "无数据"
+  },
+  "enlarge": "放大：在时间线上查看完整历史",
+  "pick": {
+    "button": "指标",
+    "title": "要显示的指标",
+    "showAll": "全部显示",
+    "hidden_other": "{{count}} 个已隐藏"
+  },
+  "metric": {
+    "source": "来源",
+    "rate": "按每秒显示：两次连续读取之差，除以二者之间的时间。"
+  },
+  "chart": {
+    "aria": "{{name}} 随时间变化的图表",
+    "span": "从 {{from}} 到 {{to}} · {{count}} 次读取"
   }
 }

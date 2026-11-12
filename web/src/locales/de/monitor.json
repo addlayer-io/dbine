@@ -27,5 +27,21 @@
   "noRows": "Keine Zeilen.",
   "sparkline": {
     "noData": "keine Daten"
+  },
+  "enlarge": "Vergrößern: der gesamte Verlauf auf einer Zeitachse",
+  "pick": {
+    "button": "Metriken",
+    "title": "Anzuzeigende Metriken",
+    "showAll": "Alle anzeigen",
+    "hidden_one": "{{count}} ausgeblendet",
+    "hidden_other": "{{count}} ausgeblendet"
+  },
+  "metric": {
+    "source": "Quelle",
+    "rate": "Wird pro Sekunde angezeigt: die Differenz zwischen zwei aufeinanderfolgenden Messungen, geteilt durch die Zeit zwischen ihnen."
+  },
+  "chart": {
+    "aria": "Diagramm von {{name}} im Zeitverlauf",
+    "span": "Von {{from}} bis {{to}} · {{count}} Messwerte"
   }
 }

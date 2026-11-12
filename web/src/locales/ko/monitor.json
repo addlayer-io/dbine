@@ -27,5 +27,20 @@
   "noRows": "행 없음.",
   "sparkline": {
     "noData": "데이터 없음"
+  },
+  "enlarge": "확대: 전체 기록을 타임라인으로 보기",
+  "pick": {
+    "button": "메트릭",
+    "title": "표시할 메트릭",
+    "showAll": "모두 표시",
+    "hidden_other": "{{count}}개 숨김"
+  },
+  "metric": {
+    "source": "출처",
+    "rate": "초당 값으로 표시합니다. 연속된 두 번의 읽기 차이를 그 사이의 시간으로 나눈 값입니다."
+  },
+  "chart": {
+    "aria": "시간에 따른 {{name}} 차트",
+    "span": "{{from}}부터 {{to}}까지 · 읽기 {{count}}회"
   }
 }

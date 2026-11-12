@@ -27,5 +27,20 @@
   "noRows": "Tidak ada baris.",
   "sparkline": {
     "noData": "tanpa data"
+  },
+  "enlarge": "Perbesar: seluruh riwayat pada lini masa",
+  "pick": {
+    "button": "Metrik",
+    "title": "Metrik yang ditampilkan",
+    "showAll": "Tampilkan semua",
+    "hidden_other": "{{count}} disembunyikan"
+  },
+  "metric": {
+    "source": "Sumber",
+    "rate": "Ditampilkan per detik: selisih antara dua pembacaan berturut-turut, dibagi waktu di antaranya."
+  },
+  "chart": {
+    "aria": "Grafik {{name}} dari waktu ke waktu",
+    "span": "Dari {{from}} hingga {{to}} · {{count}} pembacaan"
   }
 }
