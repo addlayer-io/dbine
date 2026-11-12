@@ -4,6 +4,7 @@
 
 ### New
 - **Results kept when DBine closes:** each query editor's result tabs are saved to an encrypted file on your computer, so after closing DBine, or a crash, every editor shows them again as they were, pinned ones included, without running anything. The key never leaves your computer and user; **Settings › General** sets the space they may take, clears them, or turns it off.
+- **Monitor metrics that explain themselves:** every metric on the Monitor dashboard says what it measures, how to read it, and the view, query or API field its value comes from. **Metrics** picks which ones show, remembered per engine, and clicking a metric enlarges it to its last hour on a timeline you can zoom.
 
 ### Improvements
 - **Testing a connection:** when **Test connection** fails, the error shows next to the button, and **What's wrong…** explains it (firewall, timeout, DNS, TLS or credentials) as it does for a saved connection.
@@ -12,6 +13,8 @@
 
 ### Fixes
 - **Monitor CPU on Oracle and SQL Server:** the database's CPU is now a share of all the server's CPUs. With several busy cores it read over 100 %, such as 500 % with five.
+- **Monitor CPU over 100 % on more engines:** on MySQL, MongoDB, ClickHouse, SAP HANA, Redis, Dragonfly, Elasticsearch, OpenSearch, Solr, InfluxDB, Neo4j, Couchbase, IoTDB, etcd, CockroachDB, openGauss, Trino, Db2, SAP ASE, SQL Anywhere and Informix, the CPU was a share of one core and could read several hundred percent. It's now a share of all the CPUs the server may use.
+- **Monitor figures that were off:** TDengine and IoTDB disk and network rates were 1024 times too high or too low, and TDengine 3.3.6 left the connection limit and the databases table empty. SQL Server's storage now counts tempdb at its current size and doesn't count a session once per request. H2's cache and storage sizes are now right, and so are OrientDB's record totals and ClickHouse's cache, which no longer includes the S3 disk cache. Exasol shows the RAM in use instead of the compressed data size, Couchbase's cache ratio counts disk fetches, and counts that stopped at 200 rows now count every row.
 - **Pasting a connection string:** a SQL Server or ODBC connection string whose last value was a lone quote or brace (`Password="`) made the import fail; it's now read as that character.
 
 ## [1.5.0] - 2026-11-11
