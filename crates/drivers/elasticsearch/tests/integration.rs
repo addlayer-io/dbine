@@ -670,6 +670,20 @@ async fn check_monitor(id: &str, url: &str) {
         eprintln!("table {} rows={}", t.key, t.rows.len());
     }
     eprintln!("info {:?}\nnotes {:?}", snap.info, snap.notes);
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty()),
+            "{id}: {} has no help",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|h| !h.is_empty()),
+            "{id}: {} has no source",
+            m.key
+        );
+    }
+    let cpu = snap.metrics.iter().find(|m| m.key == "cpu_time").unwrap();
+    assert_eq!(cpu.max, Some(100.0), "{id}");
     let has = |k: &str| snap.metrics.iter().any(|m| m.key == k && m.value.is_some());
     for k in [
         "cpu",
