@@ -121,15 +121,21 @@ pub(crate) fn warehouse(w: &Json, snap: &mut MonitorSnapshot) {
             MetricUnit::Count,
             n(w, "/num_clusters").or(Some(if running { 1.0 } else { 0.0 })),
         )
-        .max(n(w, "/max_num_clusters")),
+        .max(n(w, "/max_num_clusters"))
+        .help("Clusters del SQL warehouse encendidos ahora, sobre el máximo de su autoescalado. Si está en el máximo y hay consultas en cola, el warehouse queda chico para la carga.")
+        .source("GET /api/2.0/sql/warehouses/{id}: num_clusters (if absent, 1 or 0 from state = RUNNING); max: max_num_clusters"),
     );
-    snap.metrics.push(Metric::new(
-        "connections",
-        "Sesiones abiertas",
-        "Conexiones",
-        MetricUnit::Count,
-        n(w, "/num_active_sessions"),
-    ));
+    snap.metrics.push(
+        Metric::new(
+            "connections",
+            "Sesiones abiertas",
+            "Conexiones",
+            MetricUnit::Count,
+            n(w, "/num_active_sessions"),
+        )
+        .help("Sesiones abiertas contra el warehouse: conexiones de clientes como DBine, el editor SQL o herramientas de BI, estén o no ejecutando algo.")
+        .source("GET /api/2.0/sql/warehouses/{id}: num_active_sessions"),
+    );
 }
 
 /// Running / queued queries and the recent ones, from the query history.
@@ -164,63 +170,81 @@ pub(crate) fn history(active: &[Json], recent: &[Json], now: f64, snap: &mut Mon
             "Actividad",
             MetricUnit::Count,
             Some(running as f64),
-        ),
+        )
+        .help("Consultas del warehouse que se están ejecutando ahora. Sin permiso de administrador del workspace cuenta solo las tuyas.")
+        .source("GET /api/2.0/sql/history/queries?filter_by.statuses=RUNNING&filter_by.statuses=QUEUED (max_results 100): rows with status RUNNING"),
         Metric::new(
             "queued_queries",
             "Consultas en cola",
             "Actividad",
             MetricUnit::Count,
             Some(queued as f64),
-        ),
+        )
+        .help("Consultas que esperan un cluster libre para empezar. Si no vuelve a cero, el warehouse necesita más clusters (máximo de autoescalado) o un tamaño mayor.")
+        .source("GET /api/2.0/sql/history/queries?filter_by.statuses=RUNNING&filter_by.statuses=QUEUED (max_results 100): rows with status QUEUED"),
         Metric::new(
             "recent_queries",
             "Consultas terminadas (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Count,
             Some(done.len() as f64),
-        ),
+        )
+        .help("Consultas que empezaron en los últimos 15 minutos y ya terminaron, bien, con error o canceladas. Se cuentan entre las 100 más recientes que devuelve el historial, así que con más carga el número se queda en ese tope.")
+        .source("GET /api/2.0/sql/history/queries?filter_by.query_start_time_range.start_time_ms=<now − 15 min> (max_results 100): rows with status FINISHED, FAILED or CANCELED"),
         Metric::new(
             "recent_failed",
             "Consultas fallidas (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Count,
             Some(failed as f64),
-        ),
+        )
+        .help("De las consultas terminadas en los últimos 15 minutos, las que fallaron. El error de cada una está en la tabla de consultas recientes.")
+        .source("GET /api/2.0/sql/history/queries (query_start_time_range = last 15 min, max_results 100): rows with status FAILED"),
         Metric::new(
             "avg_duration",
             "Duración media (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Millis,
             avg_ms,
-        ),
+        )
+        .help("Duración media de las consultas terminadas en los últimos 15 minutos. Si sube sin que cambien las consultas, mirá la cola y el derrame a disco.")
+        .source("GET /api/2.0/sql/history/queries (query_start_time_range = last 15 min): duration, averaged over the finished rows"),
         Metric::new(
             "bytes_read",
             "Datos leídos (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Bytes,
             Some(sum("/metrics/read_bytes")),
-        ),
+        )
+        .help("Datos que leyeron, sumados, las consultas terminadas en los últimos 15 minutos. Mucho volumen para pocas consultas suele indicar tablas recorridas enteras, sin filtrar por partición o clustering.")
+        .source("GET /api/2.0/sql/history/queries?include_metrics=true (last 15 min): metrics.read_bytes, summed over the finished rows"),
         Metric::new(
             "rows_read",
             "Filas leídas (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Count,
             Some(sum("/metrics/rows_read_count")),
-        ),
+        )
+        .help("Filas que leyeron, sumadas, las consultas terminadas en los últimos 15 minutos.")
+        .source("GET /api/2.0/sql/history/queries?include_metrics=true (last 15 min): metrics.rows_read_count, summed over the finished rows"),
         Metric::new(
             "task_time",
             "Tiempo de cómputo (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Millis,
             Some(sum("/metrics/task_total_time_ms")),
-        ),
+        )
+        .help("Tiempo de cómputo de las tareas de las consultas terminadas en los últimos 15 minutos, sumado entre todos los núcleos, así que puede superar los 15 minutos. Es lo más cercano al consumo del warehouse que da la API.")
+        .source("GET /api/2.0/sql/history/queries?include_metrics=true (last 15 min): metrics.task_total_time_ms, summed over the finished rows"),
         Metric::new(
             "spill",
             "Derrame a disco (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Bytes,
             Some(sum("/metrics/spill_to_disk_bytes")),
-        ),
+        )
+        .help("Datos que las consultas terminadas en los últimos 15 minutos tuvieron que bajar a disco porque no les alcanzó la memoria, sumados. Si aparece seguido, el warehouse es chico para esas consultas.")
+        .source("GET /api/2.0/sql/history/queries?include_metrics=true (last 15 min): metrics.spill_to_disk_bytes, summed over the finished rows"),
         Metric::new(
             "cache_hit",
             "Resultados desde caché (últimos 15 min)",
@@ -228,7 +252,9 @@ pub(crate) fn history(active: &[Json], recent: &[Json], now: f64, snap: &mut Mon
             MetricUnit::Percent,
             (!done.is_empty()).then(|| (cached as f64 * 1000.0 / done.len() as f64).round() / 10.0),
         )
-        .max(Some(100.0)),
+        .max(Some(100.0))
+        .help("Parte de las consultas terminadas en los últimos 15 minutos cuyo resultado salió de la caché de resultados, sin volver a calcularse.")
+        .source("GET /api/2.0/sql/history/queries?include_metrics=true (last 15 min): share of the finished rows with metrics.result_from_cache = true"),
     ]);
 
     let mut t = MonitorTable::new(
@@ -414,5 +440,14 @@ mod tests {
         let q = snap.tables.iter().find(|t| t.key == "queries").unwrap();
         assert_eq!(q.rows[0][4], json!(10.0));
         assert_eq!(datetime(1_700_000_000), "2023-11-14 22:13:20");
+        assert_eq!(snap.metrics.len(), 12);
+        for m in &snap.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
     }
 }

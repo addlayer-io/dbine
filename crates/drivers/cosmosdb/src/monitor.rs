@@ -109,10 +109,12 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
             total_ru += ru;
             any_ru = true;
         }
+        // -1 means "not reported": left out instead of summed.
         let docs = st
             .usage
             .as_ref()
-            .and_then(|u| u.get("documentsCount").copied());
+            .and_then(|u| u.get("documentsCount").copied())
+            .filter(|v| *v >= 0.0);
         let data = st.usage.as_ref().and_then(|u| kb(u, "documentsSize"));
         let index = st.usage.as_ref().and_then(|u| {
             Some((kb(u, "collectionSize")? - kb(u, "documentsSize").unwrap_or(0.0)).max(0.0))
@@ -188,27 +190,39 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
 
     let described = i.stats.len().min(i.containers.len());
     let m = &mut s.metrics;
-    m.push(Metric::new(
-        "storage_used",
-        "Datos",
-        "Almacenamiento",
-        MetricUnit::Bytes,
-        data_total,
-    ));
-    m.push(Metric::new(
-        "index_size",
-        "Índices",
-        "Almacenamiento",
-        MetricUnit::Bytes,
-        index_total,
-    ));
-    m.push(Metric::new(
-        "items",
-        "Documentos",
-        "Almacenamiento",
-        MetricUnit::Count,
-        docs_total,
-    ));
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Datos",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            data_total,
+        )
+        .help("Datos de los documentos de la base actual, sin los índices, sumados entre sus primeros 25 contenedores. Cosmos DB lo actualiza cada pocos minutos y el monitor lo relee cada minuto.")
+        .source("GET dbs/{db}/colls/{id} with x-ms-populatequotainfo: x-ms-resource-usage documentsSize (KB × 1024), summed over the first 25 containers"),
+    );
+    m.push(
+        Metric::new(
+            "index_size",
+            "Índices",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            index_total,
+        )
+        .help("Espacio de los índices de la base actual, sumado entre sus primeros 25 contenedores. Si se acerca al de los datos, conviene excluir de la política de indexación las rutas por las que no se filtra.")
+        .source("GET dbs/{db}/colls/{id} with x-ms-populatequotainfo: x-ms-resource-usage collectionSize − documentsSize (KB × 1024), summed over the first 25 containers"),
+    );
+    m.push(
+        Metric::new(
+            "items",
+            "Documentos",
+            "Almacenamiento",
+            MetricUnit::Count,
+            docs_total,
+        )
+        .help("Documentos de la base actual, sumados entre sus primeros 25 contenedores.")
+        .source("GET dbs/{db}/colls/{id} with x-ms-populatequotainfo: x-ms-resource-usage documentsCount, summed over the first 25 containers"),
+    );
     let quota = |k: &str| {
         i.account_quota
             .as_ref()
@@ -224,6 +238,8 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Count,
             Some(i.containers.len() as f64),
         )
+        .help("Contenedores de la base actual, sobre el máximo de contenedores de la cuenta.")
+        .source("GET dbs/{db}/colls (count); max: x-ms-resource-quota collections of GET /dbs")
         .max(quota("collections")),
     );
     m.push(
@@ -234,29 +250,43 @@ pub fn snapshot(i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Count,
             usage("databases").or(Some(i.databases as f64)),
         )
+        .help("Bases de datos de la cuenta, sobre el máximo que permite.")
+        .source("GET /dbs with x-ms-populatequotainfo: x-ms-resource-usage databases (or the count of the list); max: x-ms-resource-quota databases")
         .max(quota("databases")),
     );
-    m.push(Metric::new(
-        "partitions",
-        "Particiones físicas",
-        "Almacenamiento",
-        MetricUnit::Count,
-        parts_total,
-    ));
-    m.push(Metric::new(
-        "throughput",
-        "Rendimiento aprovisionado (RU/s)",
-        "Capacidad",
-        MetricUnit::Count,
-        any_ru.then_some(total_ru),
-    ));
-    m.push(Metric::new(
-        "monitor_charge",
-        "RU de esta lectura del monitor",
-        "Capacidad",
-        MetricUnit::Count,
-        Some(i.charge),
-    ));
+    m.push(
+        Metric::new(
+            "partitions",
+            "Particiones físicas",
+            "Almacenamiento",
+            MetricUnit::Count,
+            parts_total,
+        )
+        .help("Particiones físicas de los primeros 25 contenedores de la base, sumadas. Las RU/s se reparten por igual entre ellas, y Cosmos DB divide una al pasar de 50 GB o de 10 000 RU/s.")
+        .source("GET dbs/{db}/colls/{id}/pkranges (count), summed over the first 25 containers"),
+    );
+    m.push(
+        Metric::new(
+            "throughput",
+            "Rendimiento aprovisionado (RU/s)",
+            "Capacidad",
+            MetricUnit::Count,
+            any_ru.then_some(total_ru),
+        )
+        .help("RU/s aprovisionadas en la base actual: las de cada contenedor más las compartidas de la base. Con autoescalado se suma el máximo, no lo escalado en este momento; las RU/s consumidas están en Azure Monitor.")
+        .source("GET /offers: content.offerThroughput (or content.offerAutopilotSettings.maxThroughput) of the database's and its containers' offers, summed"),
+    );
+    m.push(
+        Metric::new(
+            "monitor_charge",
+            "RU de esta lectura del monitor",
+            "Capacidad",
+            MetricUnit::Count,
+            Some(i.charge),
+        )
+        .help("Unidades de solicitud que gastó esta lectura del monitor: cuenta, bases, contenedores, ofertas y, una vez por minuto, uso y particiones. Se descuentan del rendimiento como cualquier otra solicitud.")
+        .source("x-ms-request-charge of the monitor's requests, summed"),
+    );
 
     rows.sort_by(|a, b| b.0.total_cmp(&a.0));
     let mut t = MonitorTable::new(
@@ -427,5 +457,43 @@ mod tests {
             .info
             .iter()
             .any(|(k, v)| k == "Rendimiento compartido de la base" && v == "1000 RU/s"));
+        assert_eq!(s.metrics.len(), 8);
+        for m in &s.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
+    }
+
+    #[test]
+    fn an_unreported_document_count_is_not_summed() {
+        let containers = vec![json!({"id": "a"}), json!({"id": "b"})];
+        let stats = vec![
+            ContainerStats {
+                usage: Some(parse_usage("documentsSize=1;documentsCount=4")),
+                ranges: None,
+            },
+            ContainerStats {
+                usage: Some(parse_usage("documentsSize=1;documentsCount=-1")),
+                ranges: None,
+            },
+        ];
+        let s = snapshot(&Inputs {
+            account: None,
+            database: "db",
+            database_rid: None,
+            databases: 1,
+            containers: &containers,
+            stats: &stats,
+            offers: None,
+            account_usage: None,
+            account_quota: None,
+            charge: 1.0,
+        });
+        let items = s.metrics.iter().find(|m| m.key == "items").unwrap();
+        assert_eq!(items.value, Some(4.0));
     }
 }

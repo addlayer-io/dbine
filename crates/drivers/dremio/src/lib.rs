@@ -1249,140 +1249,56 @@ impl Session for DremioSession {
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         let mut snap = MonitorSnapshot::default();
-        let nodes = self.records("SELECT * FROM sys.nodes").await?;
+        let nodes = self
+            .records(&format!("{MONITOR_TAG} SELECT * FROM sys.nodes"))
+            .await?;
         let memory = self
-            .records("SELECT * FROM sys.memory")
+            .records(&format!("{MONITOR_TAG} SELECT * FROM sys.memory"))
             .await
             .unwrap_or_default();
         let running = self
-            .records(
-                "SELECT job_id, user_name, status, query_type, queue_name, submitted_ts, submitted_epoch_millis, rows_scanned, query
-                 FROM sys.jobs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELED', 'CANCELLED') ORDER BY submitted_ts LIMIT 200",
-            )
+            .records(&format!(
+                "{MONITOR_TAG} SELECT job_id, user_name, status, query_type, queue_name, submitted_ts, submitted_epoch_millis, rows_scanned, query
+                 FROM sys.jobs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELED', 'CANCELLED')
+                   AND query NOT LIKE '{MONITOR_TAG}%' ORDER BY submitted_ts LIMIT 200"
+            ))
             .await;
-        let recent = self
-            .records(
-                "SELECT status, count(*) AS n, sum(execution_cpu_time_millis) AS cpu_ms, sum(rows_scanned) AS rows_scanned,
+        // The last 5 minutes. Since Dremio 24, sys.jobs only lists the
+        // active jobs and the finished ones are in sys.jobs_recent; older
+        // versions keep them all in sys.jobs.
+        let recent_sql = |table: &str| {
+            format!(
+                "{MONITOR_TAG} SELECT status, count(*) AS n, sum(execution_cpu_time_millis) AS cpu_ms, sum(rows_scanned) AS rows_scanned,
                         sum(bytes_scanned) AS bytes_scanned, sum(rows_returned) AS rows_returned
-                 FROM sys.jobs WHERE submitted_ts > TIMESTAMPADD(MINUTE, -5, CURRENT_TIMESTAMP) GROUP BY status",
+                 FROM {table} WHERE submitted_ts > TIMESTAMPADD(MINUTE, -5, CURRENT_TIMESTAMP)
+                   AND query NOT LIKE '{MONITOR_TAG}%' GROUP BY status"
             )
-            .await
-            .ok();
+        };
+        let recent = match self.records(&recent_sql("sys.jobs_recent")).await {
+            Ok(r) => Some((r, "sys.jobs_recent")),
+            Err(_) => self
+                .records(&recent_sql("sys.jobs"))
+                .await
+                .ok()
+                .map(|r| (r, "sys.jobs")),
+        };
         let version = self
-            .strings("SELECT version FROM sys.version")
+            .strings(&format!("{MONITOR_TAG} SELECT version FROM sys.version"))
             .await
             .ok()
             .and_then(|r| r.into_iter().next())
             .and_then(|r| r.into_iter().next());
-        let sum = |rows: &[serde_json::Map<String, Value>], col: &str| -> Option<f64> {
-            let v: Vec<f64> = rows.iter().filter_map(|r| num(r.get(col))).collect();
-            (!v.is_empty()).then(|| v.iter().sum())
-        };
-        let avg = |col: &str| sum(&nodes, col).map(|s| s / nodes.len().max(1) as f64);
-        let recent_sum = |col: &str| recent.as_deref().and_then(|r| sum(r, col));
-        let failed = recent.as_ref().map(|r| {
-            r.iter()
-                .filter(|x| x.get("status").map(text).as_deref() == Some("FAILED"))
-                .filter_map(|x| num(x.get("n")))
-                .sum::<f64>()
-        });
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as f64)
             .unwrap_or(0.0);
-        let start = nodes.iter().filter_map(|n| n.get("start").map(text)).min();
-        use MetricUnit::*;
-        snap.metrics = vec![
-            Metric::new("cpu", "CPU de los nodos", "CPU", Percent, avg("cpu")),
-            Metric::new(
-                "load",
-                "Carga de los nodos",
-                "CPU",
-                Percent,
-                avg("load").map(|l| l * 100.0),
-            ),
-            Metric::new(
-                "mem_used",
-                "Heap usado",
-                "Memoria",
-                Bytes,
-                sum(&memory, "heap_current"),
-            )
-            .max(sum(&memory, "heap_max")),
-            Metric::new(
-                "direct_used",
-                "Memoria directa usada",
-                "Memoria",
-                Bytes,
-                sum(&memory, "direct_current"),
-            )
-            .max(sum(&memory, "direct_max")),
-            Metric::new(
-                "active_sessions",
-                "Trabajos en curso",
-                "Conexiones",
-                Count,
-                running.as_ref().ok().map(|r| r.len() as f64),
-            ),
-            Metric::new(
-                "queries",
-                "Trabajos (últimos 5 min)",
-                "Actividad",
-                Count,
-                recent_sum("n"),
-            ),
-            Metric::new(
-                "queries_failed",
-                "Trabajos fallidos (últimos 5 min)",
-                "Actividad",
-                Count,
-                failed,
-            ),
-            Metric::new(
-                "rows_read",
-                "Filas leídas (últimos 5 min)",
-                "Actividad",
-                Count,
-                recent_sum("rows_scanned"),
-            ),
-            Metric::new(
-                "bytes_scanned",
-                "Bytes leídos (últimos 5 min)",
-                "Actividad",
-                Bytes,
-                recent_sum("bytes_scanned"),
-            ),
-            Metric::new(
-                "cpu_time_jobs",
-                "CPU de los trabajos (últimos 5 min)",
-                "Actividad",
-                Millis,
-                recent_sum("cpu_ms"),
-            ),
-            Metric::new(
-                "nodes_green",
-                "Nodos sanos",
-                "Cluster",
-                Count,
-                Some(
-                    nodes
-                        .iter()
-                        .filter(|n| n.get("status").map(text).as_deref() == Some("green"))
-                        .count() as f64,
-                ),
-            )
-            .max(Some(nodes.len() as f64)),
-            Metric::new(
-                "uptime",
-                "Tiempo activo",
-                "Servidor",
-                Seconds,
-                start
-                    .as_deref()
-                    .and_then(epoch_ms)
-                    .map(|s| ((now_ms - s) / 1000.0).max(0.0)),
-            ),
-        ];
+        snap.metrics = monitor_metrics(
+            &nodes,
+            &memory,
+            running.as_ref().ok().map(Vec::len),
+            recent.as_ref().map(|(r, t)| (r.as_slice(), *t)),
+            now_ms,
+        );
         let mut t = MonitorTable::new(
             "nodes",
             "Nodos",
@@ -1463,7 +1379,7 @@ impl Session for DremioSession {
                 snap.info.push(("Paralelismo máximo por nodo".into(), w));
             }
         }
-        snap.notes.push("Dremio no expone contadores acumulados por SQL: la actividad es la suma de los trabajos de los últimos 5 minutos (sys.jobs).".into());
+        snap.notes.push("Dremio no expone contadores acumulados por SQL: la actividad es la suma de los trabajos de los últimos 5 minutos (sys.jobs_recent; sys.jobs antes de Dremio 24).".into());
         snap.notes.push("El CPU y la memoria % son los que informa cada nodo en sys.nodes; Dremio no expone el disco ni la red por SQL.".into());
         Ok(snap)
     }
@@ -1472,6 +1388,156 @@ impl Session for DremioSession {
         self.cancel.flag.store(false, Ordering::SeqCst);
         permissions::check(self, database).await
     }
+}
+
+/// Marks the monitor's own statements, left out of the jobs it reports.
+const MONITOR_TAG: &str = "/* dbine-monitor */";
+
+type Row = serde_json::Map<String, Value>;
+
+/// The monitor's headline figures: `sys.nodes` and `sys.memory` of every
+/// node, the number of active jobs, and the last 5 minutes' jobs grouped by
+/// status, with the table they came from.
+fn monitor_metrics(
+    nodes: &[Row],
+    memory: &[Row],
+    running: Option<usize>,
+    recent: Option<(&[Row], &str)>,
+    now_ms: f64,
+) -> Vec<Metric> {
+    let sum = |rows: &[Row], col: &str| -> Option<f64> {
+        let v: Vec<f64> = rows.iter().filter_map(|r| num(r.get(col))).collect();
+        (!v.is_empty()).then(|| v.iter().sum())
+    };
+    let avg = |col: &str| sum(nodes, col).map(|s| s / nodes.len().max(1) as f64);
+    let recent_sum = |col: &str| recent.and_then(|(r, _)| sum(r, col));
+    let failed = recent.map(|(r, _)| {
+        r.iter()
+            .filter(|x| x.get("status").map(text).as_deref() == Some("FAILED"))
+            .filter_map(|x| num(x.get("n")))
+            .sum::<f64>()
+    });
+    let jobs = recent.map_or("sys.jobs_recent", |(_, t)| t);
+    let src = |what: &str| {
+        format!("{jobs} (submitted_ts in the last 5 min, without the monitor's own jobs): {what}")
+    };
+    let start = nodes.iter().filter_map(|n| n.get("start").map(text)).min();
+    use MetricUnit::*;
+    vec![
+        Metric::new("cpu", "CPU de los nodos", "CPU", Percent, avg("cpu"))
+            .help("CPU que usa el proceso de Dremio en cada nodo, como parte de todos los núcleos de su máquina, promedio entre nodos: 100 % es todos ocupados. El de cada nodo está en la tabla de nodos.")
+            .source("sys.nodes: cpu, averaged over the nodes"),
+        Metric::new(
+            "load",
+            "Carga de los nodos",
+            "CPU",
+            Percent,
+            avg("load").map(|l| l * 100.0),
+        )
+        .help("Carga de ejecución que informa cada nodo: el trabajo en curso en relación con su paralelismo máximo (configured_max_width), promedio entre nodos. Si se mantiene alta, las consultas compiten por los hilos de ejecución.")
+        .source("sys.nodes: load × 100, averaged over the nodes"),
+        Metric::new(
+            "mem_used",
+            "Heap usado",
+            "Memoria",
+            Bytes,
+            sum(memory, "heap_current"),
+        )
+        .max(sum(memory, "heap_max"))
+        .help("Heap de Java en uso, sumado entre nodos, sobre la suma de sus máximos. Dremio procesa los datos de las consultas en memoria directa, así que el heap lo ocupan sobre todo la planificación y los metadatos.")
+        .source("sys.memory: heap_current (sum over nodes); max: heap_max (sum)"),
+        Metric::new(
+            "direct_used",
+            "Memoria directa usada",
+            "Memoria",
+            Bytes,
+            sum(memory, "direct_current"),
+        )
+        .max(sum(memory, "direct_max"))
+        .help("Memoria directa en uso, sumada entre nodos, sobre la suma de sus máximos: es donde Dremio procesa los datos de las consultas. Cerca del máximo, las consultas grandes fallan por falta de memoria o derraman a disco.")
+        .source("sys.memory: direct_current (sum over nodes); max: direct_max (sum)"),
+        Metric::new(
+            "active_sessions",
+            "Trabajos en curso",
+            "Conexiones",
+            Count,
+            running.map(|n| n as f64),
+        )
+        .help("Trabajos que todavía no terminaron (en cola, planificándose o ejecutándose), sin los del monitor. Sin permiso de administrador cuenta solo los tuyos.")
+        .source("sys.jobs: rows with status not COMPLETED, FAILED or CANCELED, without the monitor's own (up to 200)"),
+        Metric::new(
+            "queries",
+            "Trabajos (últimos 5 min)",
+            "Actividad",
+            Count,
+            recent_sum("n"),
+        )
+        .help("Trabajos enviados en los últimos 5 minutos, en cualquier estado, sin los del monitor.")
+        .source(&src("count(*)")),
+        Metric::new(
+            "queries_failed",
+            "Trabajos fallidos (últimos 5 min)",
+            "Actividad",
+            Count,
+            failed,
+        )
+        .help("De los trabajos enviados en los últimos 5 minutos, los que fallaron.")
+        .source(&src("count(*) where status = 'FAILED'")),
+        Metric::new(
+            "rows_read",
+            "Filas leídas (últimos 5 min)",
+            "Actividad",
+            Count,
+            recent_sum("rows_scanned"),
+        )
+        .help("Filas que leyeron de sus orígenes, sumadas, los trabajos enviados en los últimos 5 minutos. Si es mucho más que lo que devuelven, conviene filtrar por partición o crear reflexiones.")
+        .source(&src("sum(rows_scanned)")),
+        Metric::new(
+            "bytes_scanned",
+            "Bytes leídos (últimos 5 min)",
+            "Actividad",
+            Bytes,
+            recent_sum("bytes_scanned"),
+        )
+        .help("Datos que leyeron de sus orígenes, sumados, los trabajos enviados en los últimos 5 minutos.")
+        .source(&src("sum(bytes_scanned)")),
+        Metric::new(
+            "cpu_time_jobs",
+            "CPU de los trabajos (últimos 5 min)",
+            "Actividad",
+            Millis,
+            recent_sum("cpu_ms"),
+        )
+        .help("Tiempo de CPU que gastaron los trabajos enviados en los últimos 5 minutos, sumado entre todos los hilos, así que puede superar los 5 minutos.")
+        .source(&src("sum(execution_cpu_time_millis)")),
+        Metric::new(
+            "nodes_green",
+            "Nodos sanos",
+            "Cluster",
+            Count,
+            Some(
+                nodes
+                    .iter()
+                    .filter(|n| n.get("status").map(text).as_deref() == Some("green"))
+                    .count() as f64,
+            ),
+        )
+        .max(Some(nodes.len() as f64))
+        .help("Nodos en estado green, sobre todos los del cluster. Uno que no está green no responde bien al coordinador y no recibe trabajo.")
+        .source("sys.nodes: rows with status = 'green'; max: all rows"),
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            Seconds,
+            start
+                .as_deref()
+                .and_then(epoch_ms)
+                .map(|s| ((now_ms - s) / 1000.0).max(0.0)),
+        )
+        .help("Tiempo desde que arrancó el nodo más antiguo del cluster. Si vuelve a cero, se reiniciaron todos.")
+        .source("sys.nodes: now − min(start)"),
+    ]
 }
 
 /// `2024-01-31 13:45:00.123` (UTC) → epoch ms.
@@ -1515,6 +1581,46 @@ fn encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rows(v: serde_json::Value) -> Vec<Row> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r.as_object().unwrap().clone())
+            .collect()
+    }
+
+    #[test]
+    fn every_monitor_metric_says_what_it_is() {
+        let nodes = rows(serde_json::json!([
+            {"cpu": 2.0, "load": 0.25, "status": "green", "start": "2026-11-12 16:00:00.000"},
+            {"cpu": 4.0, "load": 0.75, "status": "yellow", "start": "2026-11-12 15:00:00.000"}
+        ]));
+        let memory = rows(serde_json::json!([{"heap_current": 10, "heap_max": 100}]));
+        let recent = rows(serde_json::json!([
+            {"status": "COMPLETED", "n": 3, "cpu_ms": 30, "rows_scanned": 5},
+            {"status": "FAILED", "n": 1, "cpu_ms": 1, "rows_scanned": 0}
+        ]));
+        for table in ["sys.jobs_recent", "sys.jobs"] {
+            let m = monitor_metrics(&nodes, &memory, Some(2), Some((&recent, table)), 1.8e12);
+            assert_eq!(m.len(), 12);
+            let v = |k: &str| m.iter().find(|x| x.key == k).and_then(|x| x.value);
+            assert_eq!(
+                (v("cpu"), v("load"), v("queries"), v("queries_failed")),
+                (Some(3.0), Some(50.0), Some(4.0), Some(1.0))
+            );
+            for x in &m {
+                assert!(
+                    x.help.as_deref().is_some_and(|h| !h.is_empty())
+                        && x.source.as_deref().is_some_and(|s| !s.is_empty()),
+                    "{} has no help or source",
+                    x.key
+                );
+            }
+            let q = m.iter().find(|x| x.key == "queries").unwrap();
+            assert!(q.source.as_deref().unwrap().starts_with(table));
+        }
+    }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
     /// exactly where the engine writes them (`SchemaSpec::grant_option`).

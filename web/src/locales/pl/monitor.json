@@ -27,5 +27,23 @@
   "noRows": "Brak wierszy.",
   "sparkline": {
     "noData": "brak danych"
+  },
+  "enlarge": "Powiększ: pełna historia na osi czasu",
+  "pick": {
+    "button": "Metryki",
+    "title": "Które metryki pokazać",
+    "showAll": "Pokaż wszystkie",
+    "hidden_one": "{{count}} ukryta",
+    "hidden_few": "{{count}} ukryte",
+    "hidden_many": "{{count}} ukrytych",
+    "hidden_other": "{{count}} ukrytej"
+  },
+  "metric": {
+    "source": "Źródło",
+    "rate": "Wyświetlane na sekundę: różnica między dwoma kolejnymi odczytami podzielona przez czas między nimi."
+  },
+  "chart": {
+    "aria": "Wykres {{name}} w czasie",
+    "span": "Od {{from}} do {{to}} · {{count}} odczytów"
   }
 }

@@ -730,6 +730,23 @@ fn metric(s: &dbine_driver::MonitorSnapshot, key: &str) -> Option<f64> {
         .value
 }
 
+/// Every metric a real server produced says what it measures and where
+/// its value comes from.
+fn assert_help_and_source(s: &dbine_driver::MonitorSnapshot) {
+    for m in &s.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: no help",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: no source",
+            m.key
+        );
+    }
+}
+
 fn print_snapshot(s: &dbine_driver::MonitorSnapshot) {
     for m in &s.metrics {
         println!(
@@ -763,6 +780,7 @@ async fn influxdb1_monitor() {
     assert!(r.status().is_success());
     let snap = s.monitor().await.unwrap();
     print_snapshot(&snap);
+    assert_help_and_source(&snap);
     assert!(metric(&snap, "mem_used").unwrap() > 0.0);
     assert!(metric(&snap, "queries").unwrap() > 0.0);
     assert!(metric(&snap, "uptime").unwrap() > 0.0);
@@ -810,6 +828,7 @@ async fn influxdb2_monitor() {
     .await;
     let snap = s.monitor().await.unwrap();
     print_snapshot(&snap);
+    assert_help_and_source(&snap);
     assert!(metric(&snap, "mem_used").unwrap() > 0.0);
     assert!(metric(&snap, "requests").unwrap() > 0.0);
     assert!(metric(&snap, "uptime").unwrap() > 0.0);
@@ -843,10 +862,15 @@ async fn influxdb3_monitor() {
     run(&mut s, "SELECT count(*) FROM cpu", 10).await;
     let snap = s.monitor().await.unwrap();
     print_snapshot(&snap);
+    assert_help_and_source(&snap);
     assert!(metric(&snap, "mem_used").unwrap() > 0.0);
     assert!(metric(&snap, "queries").unwrap() > 0.0);
     assert!(metric(&snap, "rows_written").unwrap() > 0.0);
     assert!(metric(&snap, "uptime").unwrap() > 0.0);
+    assert!(metric(&snap, "storage_used").unwrap().is_sign_positive());
+    assert!(metric(&snap, "databases").unwrap() >= 1.0);
+    let cpu = metric(&snap, "cpu_time").unwrap();
+    assert!((0.0..=100.0).contains(&cpu), "{cpu}");
     let recent = snap
         .tables
         .iter()
@@ -864,6 +888,7 @@ async fn influxdb3_monitor() {
         .tables
         .iter()
         .any(|t| t.key == "recent_queries"));
+    s.drop_database("dbine_mon").await.unwrap();
 }
 
 // -- profiler -----------------------------------------------------------------------------

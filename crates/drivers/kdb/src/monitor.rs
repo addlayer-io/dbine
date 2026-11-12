@@ -65,6 +65,8 @@ pub fn snapshot(k: K) -> MonitorSnapshot {
                 MetricUnit::Bytes,
                 mem(&w, "used"),
             )
+            .help("Lo que ocupan los objetos de kdb+ (tablas, listas, variables) dentro del heap. Si el proceso tiene un límite de memoria (-w), ese es el tope: al alcanzarlo, kdb+ da el error wsfull.")
+            .source(".Q.w[]: used (max: wmax, when -w or \\w sets one)")
         },
         Metric {
             max: limit,
@@ -75,6 +77,8 @@ pub fn snapshot(k: K) -> MonitorSnapshot {
                 MetricUnit::Bytes,
                 mem(&w, "heap"),
             )
+            .help("Memoria que el proceso reservó del sistema operativo para su heap. No la devuelve hasta que se ejecuta .Q.gc[], así que puede quedar muy por encima de la memoria en uso.")
+            .source(".Q.w[]: heap (max: wmax, when -w or \\w sets one)")
         },
         Metric::new(
             "peak",
@@ -82,28 +86,36 @@ pub fn snapshot(k: K) -> MonitorSnapshot {
             "Memoria",
             MetricUnit::Bytes,
             mem(&w, "peak"),
-        ),
+        )
+        .help("Lo máximo que llegó a ocupar el heap desde que arrancó el proceso.")
+        .source(".Q.w[]: peak"),
         Metric::new(
             "mmap",
             "Memoria mapeada",
             "Memoria",
             MetricUnit::Bytes,
             mem(&w, "mmap"),
-        ),
+        )
+        .help("Memoria mapeada desde archivos, como las columnas de tablas splayed o particionadas en disco. Va aparte del heap: el sistema operativo la carga y la libera según el uso.")
+        .source(".Q.w[]: mmap"),
         Metric::new(
             "syms",
             "Símbolos internados",
             "Memoria",
             MetricUnit::Count,
             mem(&w, "syms"),
-        ),
+        )
+        .help("Cantidad de símbolos internados. kdb+ nunca los libera, así que un crecimiento constante indica una fuga: símbolos creados a partir de datos únicos, como identificadores o textos libres.")
+        .source(".Q.w[]: syms"),
         Metric::new(
             "connections",
             "Conexiones abiertas",
             "Conexiones",
             MetricUnit::Count,
             number(&get(1)),
-        ),
+        )
+        .help("Conexiones IPC abiertas en el proceso, entrantes y salientes, incluida la de DBine. La tabla de conexiones muestra los bytes en cola de cada una.")
+        .source("count .z.W"),
     ];
     s.info = vec![
         (
@@ -197,6 +209,19 @@ mod tests {
         assert_eq!(s.metrics[0].max, None);
         assert_eq!(s.metrics[4].value, Some(42.0));
         assert_eq!(s.metrics[5].value, Some(3.0));
+        for m in &s.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty()),
+                "{}",
+                m.key
+            );
+            assert!(
+                m.source.as_deref().is_some_and(|h| !h.is_empty()),
+                "{}",
+                m.key
+            );
+        }
+        assert_eq!(s.metrics.len(), 6);
         assert!(s.info[0].1.starts_with("kdb+ 4.1 ("));
         assert_eq!(s.info[6].1, "5000");
 

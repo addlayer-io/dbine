@@ -1043,214 +1043,14 @@ impl Session for EtcdSession {
         let me = uint(status.pointer("/header/member_id"));
         let leader = uint(status.get("leader"));
         let quota = g("etcd_server_quota_backend_bytes");
-        let db_size =
-            g("etcd_mvcc_db_total_size_in_bytes").or(Some(int(status.get("dbSize")) as f64));
-        let in_use = g("etcd_mvcc_db_total_size_in_use_in_bytes")
-            .or(Some(int(status.get("dbSizeInUse")) as f64));
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs_f64())
             .unwrap_or(0.0);
-        let avg_ms = |base: &str| match (g(&format!("{base}_sum")), g(&format!("{base}_count"))) {
-            (Some(s), Some(c)) if c > 0.0 => Some(s / c * 1000.0),
-            _ => None,
-        };
-        let streams = m.as_ref().and_then(|m| {
-            let started = m.sum_where("grpc_server_started_total", "grpc_type=\"bidi_stream\"")?;
-            let handled = m
-                .sum_where("grpc_server_handled_total", "grpc_type=\"bidi_stream\"")
-                .unwrap_or(0.0);
-            Some((started - handled).max(0.0))
-        });
-        let writes = match (g("etcd_mvcc_put_total"), g("etcd_mvcc_delete_total")) {
-            (None, None) => None,
-            (p, d) => Some(p.unwrap_or(0.0) + d.unwrap_or(0.0)),
-        };
-        let fds = g("process_open_fds");
-        use MetricUnit::*;
-        snap.metrics = vec![
-            Metric::new(
-                "cpu_time",
-                "CPU del proceso",
-                "CPU",
-                Percent,
-                g("process_cpu_seconds_total").map(|s| s * 100.0),
-            )
-            .counter(),
-            Metric::new(
-                "mem_used",
-                "Memoria residente",
-                "Memoria",
-                Bytes,
-                g("process_resident_memory_bytes"),
-            ),
-            Metric::new(
-                "active_sessions",
-                "Streams gRPC activos",
-                "Conexiones",
-                Count,
-                streams,
-            ),
-            Metric::new(
-                "watchers",
-                "Watchers",
-                "Conexiones",
-                Count,
-                g("etcd_debugging_mvcc_watcher_total"),
-            ),
-            Metric::new(
-                "open_fds",
-                "Descriptores abiertos",
-                "Conexiones",
-                Count,
-                fds,
-            )
-            .max(g("process_max_fds")),
-            Metric::new(
-                "queries",
-                "Pedidos gRPC",
-                "Actividad",
-                Count,
-                g("grpc_server_handled_total"),
-            )
-            .counter(),
-            Metric::new(
-                "rows_read",
-                "Lecturas (range)",
-                "Actividad",
-                Count,
-                g("etcd_mvcc_range_total"),
-            )
-            .counter(),
-            Metric::new(
-                "rows_written",
-                "Escrituras (put + delete)",
-                "Actividad",
-                Count,
-                writes,
-            )
-            .counter(),
-            Metric::new(
-                "transactions",
-                "Transacciones",
-                "Actividad",
-                Count,
-                g("etcd_mvcc_txn_total"),
-            )
-            .counter(),
-            Metric::new(
-                "net_in",
-                "Red entrante (clientes)",
-                "Red",
-                Bytes,
-                g("etcd_network_client_grpc_received_bytes_total"),
-            )
-            .counter(),
-            Metric::new(
-                "net_out",
-                "Red saliente (clientes)",
-                "Red",
-                Bytes,
-                g("etcd_network_client_grpc_sent_bytes_total"),
-            )
-            .counter(),
-            Metric::new(
-                "wal_fsync",
-                "fsync del WAL (promedio)",
-                "Disco",
-                Millis,
-                avg_ms("etcd_disk_wal_fsync_duration_seconds"),
-            ),
-            Metric::new(
-                "backend_commit",
-                "Commit del backend (promedio)",
-                "Disco",
-                Millis,
-                avg_ms("etcd_disk_backend_commit_duration_seconds"),
-            ),
-            Metric::new(
-                "storage_used",
-                "Tamaño de la base",
-                "Almacenamiento",
-                Bytes,
-                db_size,
-            )
-            .max(quota),
-            Metric::new(
-                "storage_in_use",
-                "Espacio en uso (sin fragmentación)",
-                "Almacenamiento",
-                Bytes,
-                in_use,
-            )
-            .max(db_size),
-            Metric::new(
-                "keys",
-                "Claves",
-                "Datos",
-                Count,
-                g("etcd_debugging_mvcc_keys_total"),
-            ),
-            Metric::new(
-                "leases",
-                "Leases",
-                "Datos",
-                Count,
-                leases.as_ref().map(|l| {
-                    l.get("leases")
-                        .and_then(Value::as_array)
-                        .map_or(0, Vec::len) as f64
-                }),
-            ),
-            Metric::new(
-                "leader_changes",
-                "Cambios de líder",
-                "Replicación",
-                Count,
-                g("etcd_server_leader_changes_seen_total"),
-            )
-            .counter(),
-            Metric::new(
-                "proposals_pending",
-                "Propuestas pendientes",
-                "Replicación",
-                Count,
-                g("etcd_server_proposals_pending"),
-            ),
-            Metric::new(
-                "proposals_failed",
-                "Propuestas fallidas",
-                "Replicación",
-                Count,
-                g("etcd_server_proposals_failed_total"),
-            )
-            .counter(),
-            Metric::new(
-                "proposals_committed",
-                "Propuestas confirmadas",
-                "Replicación",
-                Count,
-                g("etcd_server_proposals_committed_total"),
-            )
-            .counter(),
-            Metric::new(
-                "apply_lag",
-                "Entradas sin aplicar (raft)",
-                "Replicación",
-                Count,
-                Some(
-                    (int(status.get("raftIndex")) - int(status.get("raftAppliedIndex"))).max(0)
-                        as f64,
-                ),
-            ),
-            Metric::new(
-                "uptime",
-                "Tiempo activo",
-                "Servidor",
-                Seconds,
-                g("process_start_time_seconds").map(|s| (now - s).max(0.0)),
-            ),
-        ];
+        snap.metrics = monitor_metrics(m.as_ref(), &status, leases.as_ref(), now);
+        if g("process_cpu_seconds_total").is_some() && g("go_sched_gomaxprocs_threads").is_none() {
+            snap.notes.push("etcd no informa cuántos núcleos puede usar (go_sched_gomaxprocs_threads, desde etcd 3.6): sin ese dato no se muestra la CPU del proceso.".into());
+        }
 
         let mut nodes = MonitorTable::new(
             "nodes",
@@ -1354,7 +1154,15 @@ impl Session for EtcdSession {
                     .join("; "),
             ));
         }
-        snap.notes.push("etcd no expone el uso de CPU del host ni la cantidad de conexiones de clientes: se muestran el CPU del proceso y los streams gRPC activos (watch, keep-alive).".into());
+        let cpu_shown = snap
+            .metrics
+            .iter()
+            .any(|m| m.key == "cpu_time" && m.value.is_some());
+        snap.notes.push(if cpu_shown {
+            "etcd no expone el uso de CPU del host ni la cantidad de conexiones de clientes: se muestran la CPU del proceso y los streams gRPC activos (watch, keep-alive).".into()
+        } else {
+            "etcd no expone el uso de CPU del host ni la cantidad de conexiones de clientes: se muestran los streams gRPC activos (watch, keep-alive).".into()
+        });
         snap.notes.push("Las métricas son del miembro al que se conecta DBine; para ver otro miembro, conectate a su dirección.".into());
         Ok(snap)
     }
@@ -1362,6 +1170,266 @@ impl Session for EtcdSession {
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self).await
     }
+}
+
+/// The Monitor's figures: `/metrics` (`None` when it couldn't be read),
+/// `/v3/maintenance/status`, the lease list and the time now (Unix s).
+fn monitor_metrics(
+    m: Option<&prom::Samples>,
+    status: &Value,
+    leases: Option<&Value>,
+    now: f64,
+) -> Vec<Metric> {
+    let g = |name: &str| m.and_then(|m| m.sum(name));
+    let quota = g("etcd_server_quota_backend_bytes");
+    let db_size = g("etcd_mvcc_db_total_size_in_bytes").or(Some(int(status.get("dbSize")) as f64));
+    let in_use = g("etcd_mvcc_db_total_size_in_use_in_bytes")
+        .or(Some(int(status.get("dbSizeInUse")) as f64));
+    let avg_ms = |base: &str| match (g(&format!("{base}_sum")), g(&format!("{base}_count"))) {
+        (Some(s), Some(c)) if c > 0.0 => Some(s / c * 1000.0),
+        _ => None,
+    };
+    let streams = m.and_then(|m| {
+        let started = m.sum_where("grpc_server_started_total", "grpc_type=\"bidi_stream\"")?;
+        let handled = m
+            .sum_where("grpc_server_handled_total", "grpc_type=\"bidi_stream\"")
+            .unwrap_or(0.0);
+        Some((started - handled).max(0.0))
+    });
+    let writes = match (g("etcd_mvcc_put_total"), g("etcd_mvcc_delete_total")) {
+        (None, None) => None,
+        (p, d) => Some(p.unwrap_or(0.0) + d.unwrap_or(0.0)),
+    };
+    // Seconds of CPU spread over the cores the Go runtime may use
+    // (GOMAXPROCS, which etcd reports from 3.6): the rate is the % of all
+    // of them (100 % is every one busy), never "300 %" for three busy
+    // cores. Unknown core count: not shown rather than per core.
+    let cpus = g("go_sched_gomaxprocs_threads").filter(|n| *n > 0.0);
+    let cpu = g("process_cpu_seconds_total")
+        .zip(cpus)
+        .map(|(s, n)| s * 100.0 / n);
+    use MetricUnit::*;
+    vec![
+        Metric::new("cpu_time", "CPU del proceso", "CPU", Percent, cpu)
+            .max(Some(100.0))
+            .counter()
+            .help("Tiempo de CPU (usuario + sistema) del proceso etcd, como parte de los núcleos que puede usar (GOMAXPROCS): 100 % es todos ocupados. Alto y sostenido suele venir de muchos watchers, lecturas de rangos grandes o compactaciones.")
+            .source("/metrics: process_cpu_seconds_total × 100 ÷ go_sched_gomaxprocs_threads"),
+        Metric::new(
+            "mem_used",
+            "Memoria residente",
+            "Memoria",
+            Bytes,
+            g("process_resident_memory_bytes"),
+        )
+        .help("Memoria física que ocupa el proceso etcd. Crece con las claves, el historial de revisiones sin compactar y los watchers.")
+        .source("/metrics: process_resident_memory_bytes"),
+        Metric::new(
+            "active_sessions",
+            "Streams gRPC activos",
+            "Conexiones",
+            Count,
+            streams,
+        )
+        .help("Streams gRPC bidireccionales abiertos ahora: los watches y los keep-alive de leases de los clientes. etcd no informa conexiones; cada cliente suele mantener uno o más de estos streams.")
+        .source("/metrics: grpc_server_started_total − grpc_server_handled_total, grpc_type=\"bidi_stream\""),
+        Metric::new(
+            "watchers",
+            "Watchers",
+            "Conexiones",
+            Count,
+            g("etcd_debugging_mvcc_watcher_total"),
+        )
+        .help("Watchers registrados en este miembro: cada clave o prefijo que un cliente vigila. Muchos miles suben la memoria y la CPU de cada escritura.")
+        .source("/metrics: etcd_debugging_mvcc_watcher_total"),
+        Metric::new(
+            "open_fds",
+            "Descriptores abiertos",
+            "Conexiones",
+            Count,
+            g("process_open_fds"),
+        )
+        .max(g("process_max_fds"))
+        .help("Archivos y sockets que tiene abiertos el proceso, sobre el máximo que le permite el sistema operativo. Cerca del tope, etcd deja de aceptar conexiones nuevas.")
+        .source("/metrics: process_open_fds (max: process_max_fds)"),
+        Metric::new(
+            "queries",
+            "Pedidos gRPC",
+            "Actividad",
+            Count,
+            g("grpc_server_handled_total"),
+        )
+        .counter()
+        .help("Llamadas gRPC que terminó este miembro, de cualquier tipo: lecturas, escrituras, leases, administración y streams que se cierran.")
+        .source("/metrics: grpc_server_handled_total, every method and code"),
+        Metric::new(
+            "rows_read",
+            "Lecturas (range)",
+            "Actividad",
+            Count,
+            g("etcd_mvcc_range_total"),
+        )
+        .counter()
+        .help("Lecturas (range) que resolvió el almacén de este miembro, de una clave o de un rango o prefijo.")
+        .source("/metrics: etcd_mvcc_range_total"),
+        Metric::new(
+            "rows_written",
+            "Escrituras (put + delete)",
+            "Actividad",
+            Count,
+            writes,
+        )
+        .counter()
+        .help("Claves escritas más borrados que aplicó el almacén. Cada miembro aplica todas las escrituras del cluster, así que el ritmo es el del cluster entero.")
+        .source("/metrics: etcd_mvcc_put_total + etcd_mvcc_delete_total"),
+        Metric::new(
+            "transactions",
+            "Transacciones",
+            "Actividad",
+            Count,
+            g("etcd_mvcc_txn_total"),
+        )
+        .counter()
+        .help("Transacciones (txn) que resolvió el almacén de este miembro: operaciones condicionales como las de Kubernetes o los locks y elecciones de los clientes.")
+        .source("/metrics: etcd_mvcc_txn_total"),
+        Metric::new(
+            "net_in",
+            "Red entrante (clientes)",
+            "Red",
+            Bytes,
+            g("etcd_network_client_grpc_received_bytes_total"),
+        )
+        .counter()
+        .help("Bytes que este miembro recibió de los clientes por gRPC. No incluye el tráfico entre miembros del cluster.")
+        .source("/metrics: etcd_network_client_grpc_received_bytes_total"),
+        Metric::new(
+            "net_out",
+            "Red saliente (clientes)",
+            "Red",
+            Bytes,
+            g("etcd_network_client_grpc_sent_bytes_total"),
+        )
+        .counter()
+        .help("Bytes que este miembro envió a los clientes por gRPC: respuestas y eventos de watch. No incluye el tráfico entre miembros.")
+        .source("/metrics: etcd_network_client_grpc_sent_bytes_total"),
+        Metric::new(
+            "wal_fsync",
+            "fsync del WAL (promedio)",
+            "Disco",
+            Millis,
+            avg_ms("etcd_disk_wal_fsync_duration_seconds"),
+        )
+        .help("Tiempo medio que tarda en llegar a disco cada escritura del WAL, promediado desde que arrancó el proceso, así que reacciona despacio. Debería estar muy por debajo de 10 ms; si sube, el disco es lento para etcd y aparecen elecciones de líder y pedidos lentos.")
+        .source("/metrics: etcd_disk_wal_fsync_duration_seconds_sum ÷ _count × 1000"),
+        Metric::new(
+            "backend_commit",
+            "Commit del backend (promedio)",
+            "Disco",
+            Millis,
+            avg_ms("etcd_disk_backend_commit_duration_seconds"),
+        )
+        .help("Tiempo medio de cada commit del backend (bbolt) a disco, promediado desde que arrancó el proceso. Debería estar por debajo de 25 ms; más indica un disco lento o muy cargado.")
+        .source("/metrics: etcd_disk_backend_commit_duration_seconds_sum ÷ _count × 1000"),
+        Metric::new(
+            "storage_used",
+            "Tamaño de la base",
+            "Almacenamiento",
+            Bytes,
+            db_size,
+        )
+        .max(quota)
+        .help("Tamaño del archivo de la base en disco, sobre la cuota del backend. Al llegar a la cuota, etcd dispara la alarma NOSPACE y solo acepta lecturas y borrados hasta que se compacte, se desfragmente y se desactive la alarma.")
+        .source("/metrics: etcd_mvcc_db_total_size_in_bytes, else /v3/maintenance/status dbSize (max: etcd_server_quota_backend_bytes)"),
+        Metric::new(
+            "storage_in_use",
+            "Espacio en uso (sin fragmentación)",
+            "Almacenamiento",
+            Bytes,
+            in_use,
+        )
+        .max(db_size)
+        .help("La parte del archivo de la base que ocupan datos vivos. La diferencia con el tamaño de la base es espacio libre que solo se recupera desfragmentando.")
+        .source("/metrics: etcd_mvcc_db_total_size_in_use_in_bytes, else /v3/maintenance/status dbSizeInUse"),
+        Metric::new(
+            "keys",
+            "Claves",
+            "Datos",
+            Count,
+            g("etcd_debugging_mvcc_keys_total"),
+        )
+        .help("Claves que existen ahora en el almacén, sin contar sus revisiones anteriores.")
+        .source("/metrics: etcd_debugging_mvcc_keys_total"),
+        Metric::new(
+            "leases",
+            "Leases",
+            "Datos",
+            Count,
+            leases.map(|l| {
+                l.get("leases")
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len) as f64
+            }),
+        )
+        .help("Leases vigentes. Cada uno mantiene vivas sus claves mientras el cliente lo renueva; si crecen sin parar, hay clientes que crean leases y no los revocan.")
+        .source("/v3/lease/leases: count of leases"),
+        Metric::new(
+            "leader_changes",
+            "Cambios de líder",
+            "Replicación",
+            Count,
+            g("etcd_server_leader_changes_seen_total"),
+        )
+        .counter()
+        .help("Veces que este miembro vio cambiar al líder del cluster. Deberían ser raras; seguidas indican problemas de red o un disco lento que demora los latidos.")
+        .source("/metrics: etcd_server_leader_changes_seen_total"),
+        Metric::new(
+            "proposals_pending",
+            "Propuestas pendientes",
+            "Replicación",
+            Count,
+            g("etcd_server_proposals_pending"),
+        )
+        .help("Propuestas de escritura enviadas a raft que todavía no se confirmaron. Cerca de cero es lo normal; si crece, el cluster no da abasto o perdió el quórum.")
+        .source("/metrics: etcd_server_proposals_pending"),
+        Metric::new(
+            "proposals_failed",
+            "Propuestas fallidas",
+            "Replicación",
+            Count,
+            g("etcd_server_proposals_failed_total"),
+        )
+        .counter()
+        .help("Propuestas de escritura que fallaron, casi siempre por una elección de líder o por pérdida del quórum.")
+        .source("/metrics: etcd_server_proposals_failed_total"),
+        Metric::new(
+            "proposals_committed",
+            "Propuestas confirmadas",
+            "Replicación",
+            Count,
+            g("etcd_server_proposals_committed_total"),
+        )
+        .counter()
+        .help("Propuestas que el consenso de raft confirmó: el ritmo de escrituras que acepta el cluster.")
+        .source("/metrics: etcd_server_proposals_committed_total"),
+        Metric::new(
+            "apply_lag",
+            "Entradas sin aplicar (raft)",
+            "Replicación",
+            Count,
+            Some((int(status.get("raftIndex")) - int(status.get("raftAppliedIndex"))).max(0) as f64),
+        )
+        .help("Entradas del log de raft confirmadas que este miembro todavía no aplicó a su almacén. Debería estar cerca de cero; si crece, el miembro no da abasto (disco lento o compactaciones pesadas) y sus lecturas quedan atrasadas.")
+        .source("/v3/maintenance/status: raftIndex − raftAppliedIndex"),
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            Seconds,
+            g("process_start_time_seconds").map(|s| (now - s).max(0.0)),
+        )
+        .help("Tiempo desde que arrancó el proceso etcd de este miembro. Si vuelve a cero, se reinició.")
+        .source("/metrics: now − process_start_time_seconds"),
+    ]
 }
 
 #[cfg(test)]
@@ -1383,6 +1451,49 @@ mod tests {
                 Err(Error::Unsupported(_))
             ));
         }
+    }
+
+    #[test]
+    fn monitor_metrics_have_help_and_source() {
+        let m = prom::Samples::parse(
+            "process_cpu_seconds_total 6\ngo_sched_gomaxprocs_threads 4\n\
+             process_resident_memory_bytes 5e7\nprocess_open_fds 20\nprocess_max_fds 1024\n\
+             etcd_mvcc_db_total_size_in_bytes 4096\netcd_server_quota_backend_bytes 2.147483648e+09\n\
+             process_start_time_seconds 900\n",
+        );
+        let status = json!({"dbSize": "4096", "dbSizeInUse": "2048", "raftIndex": "10", "raftAppliedIndex": "9"});
+        let leases = json!({"leases": [{"ID": "1"}]});
+        for (m, leases) in [(Some(&m), Some(&leases)), (None, None)] {
+            let ms = monitor_metrics(m, &status, leases, 1000.0);
+            assert_eq!(ms.len(), 23);
+            for x in &ms {
+                assert!(
+                    x.help.as_deref().is_some_and(|h| !h.is_empty()),
+                    "{}",
+                    x.key
+                );
+                assert!(
+                    x.source.as_deref().is_some_and(|s| !s.is_empty()),
+                    "{}",
+                    x.key
+                );
+            }
+        }
+        let ms = monitor_metrics(Some(&m), &status, Some(&leases), 1000.0);
+        let get = |k: &str| ms.iter().find(|x| x.key == k).unwrap();
+        // 6 s of CPU over the 4 cores it may use: a second of all four busy
+        // adds 100 (%), not 400.
+        assert_eq!(
+            (get("cpu_time").value, get("cpu_time").max),
+            (Some(150.0), Some(100.0))
+        );
+        assert_eq!(get("uptime").value, Some(100.0));
+        assert_eq!(get("apply_lag").value, Some(1.0));
+        assert_eq!(get("leases").value, Some(1.0));
+        // etcd 3.5 doesn't say how many cores: not shown.
+        let old = prom::Samples::parse("process_cpu_seconds_total 6\n");
+        let ms = monitor_metrics(Some(&old), &status, None, 1000.0);
+        assert_eq!(ms[0].value, None);
     }
 
     #[test]

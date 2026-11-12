@@ -106,6 +106,25 @@ impl Mon<'_> {
         self.snap.metrics.push(m);
     }
 
+    /// One figure from an aggregate (`SELECT count(*) AS n …`): the totals a
+    /// table can't give, since it keeps at most [`MAX_ROWS`] rows. `None`
+    /// when it fails (the caller falls back to what the table has).
+    async fn number(&self, sql: &str, col: &str) -> Option<f64> {
+        self.quiet(sql).await?.first().and_then(|r| f(r, col))
+    }
+
+    /// A listing's total. `listed` is what its `rows` give; when the
+    /// listing came back whole (fewer than [`MAX_ROWS`] rows, its LIMIT),
+    /// that's the answer and nothing else runs. Otherwise `count_sql`
+    /// (`SELECT count(*) AS n …`) counts past the limit, falling back to
+    /// `listed` if it fails.
+    async fn total(&self, rows: &[SimpleQueryRow], listed: f64, count_sql: &str) -> f64 {
+        if rows.len() < MAX_ROWS {
+            return listed;
+        }
+        self.number(count_sql, "n").await.unwrap_or(listed)
+    }
+
     /// A table with the first `cols.len()` cells of each row; the columns in
     /// `bytes` are byte counts shown as sizes.
     fn table(
@@ -258,12 +277,33 @@ fn add(a: Option<f64>, b: Option<f64>) -> Option<f64> {
     }
 }
 
+/// A figure's help plus, on a line of its own, what it leaves out on this
+/// variant. The UI translates each line by itself, so both stay plain
+/// messages of the catalog.
+fn with_caveat(help: &str, caveat: Option<&str>) -> String {
+    match caveat {
+        Some(c) => format!("{help}\n{c}"),
+        None => help.to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PostgreSQL and the engines that keep its statistics views.
 
 async fn postgres(m: &mut Mon<'_>) {
     let v = m.s.variant;
     let ver = m.s.version;
+    // Where a figure covers only part of the cluster, its help says so:
+    // each YugabyteDB node keeps its own statistics, and so does the
+    // coordinator of an MPP engine (its rows read and written, I/O, WAL and
+    // checkpoints aren't the segments'; its sessions and transactions are
+    // the clients').
+    let node =
+        (v == Variant::Yugabyte).then_some("Solo del nodo al que está conectada esta sesión.");
+    let coord = v
+        .mpp()
+        .then_some("Solo del coordinador: cada segmento lleva sus propias estadísticas.");
+    let local = node.or(coord);
 
     let mut in_recovery = false;
     if let Some(r) = m
@@ -299,13 +339,20 @@ async fn postgres(m: &mut Mon<'_>) {
         m.info("Servidor", cell(&r, "addr").unwrap_or_default());
         m.info("Base actual", cell(&r, "db").unwrap_or_default());
         m.info("Iniciado", cell(&r, "started").unwrap_or_default());
-        m.metric(Metric::new(
-            "uptime",
-            "Tiempo activo",
-            "Servidor",
-            U::Seconds,
-            f(&r, "uptime"),
-        ));
+        m.metric(
+            Metric::new(
+                "uptime",
+                "Tiempo activo",
+                "Servidor",
+                U::Seconds,
+                f(&r, "uptime"),
+            )
+            .help(&with_caveat(
+                "Tiempo desde que arrancó el servidor. Si vuelve a cero, se reinició.",
+                node,
+            ))
+            .source("now() - pg_postmaster_start_time()"),
+        );
     }
 
     let mut block = 8192.0;
@@ -375,11 +422,68 @@ async fn postgres(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("connections", "Conexiones", "Conexiones", U::Count, f(&r, "total")).max(max_conn));
-        m.metric(Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, f(&r, "active")));
-        m.metric(Metric::new("idle_in_transaction", "Inactivas en transacción", "Conexiones", U::Count, f(&r, "idle_tx")));
-        m.metric(Metric::new("longest_query", "Consulta más larga", "Actividad", U::Seconds, f(&r, "longest").or(Some(0.0))));
-        m.metric(Metric::new("locks_waiting", "Bloqueos en espera", "Bloqueos", U::Count, f(&r, "waiting")));
+        // Other users' sessions show up with neither backend_type, state nor
+        // client port unless the role may see them: pg_read_all_stats (10+)
+        // or superuser; before 10 (Greenplum 6 too), superuser only; on
+        // openGauss, sysadmin or monadmin. These figures are then yours only.
+        let own_only = if v == Variant::OpenGauss {
+            "Sin sysadmin ni monadmin, solo incluye tus sesiones."
+        } else if ver >= 100000 {
+            "Sin pg_read_all_stats ni superusuario, solo incluye tus sesiones."
+        } else {
+            "Sin ser superusuario, solo incluye tus sesiones."
+        };
+        let seen = |help: &str| with_caveat(&with_caveat(help, Some(own_only)), node);
+        m.metric(
+            Metric::new("connections", "Conexiones", "Conexiones", U::Count, f(&r, "total"))
+                .max(max_conn)
+                .help(&seen(
+                    "Sesiones de clientes abiertas en todas las bases, incluida la del monitor. Cerca de \
+                     max_connections, las conexiones nuevas empiezan a fallar.",
+                ))
+                .source(&format!(
+                    "pg_stat_activity: count(*) WHERE {clients} (max: pg_settings max_connections)"
+                )),
+        );
+        m.metric(
+            Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, f(&r, "active"))
+                .help(&seen(
+                    "Sesiones ejecutando una sentencia ahora, sin contar la del monitor. Si se mantiene por \
+                     encima de los núcleos del servidor, las sentencias compiten por CPU o esperan.",
+                ))
+                .source(&format!(
+                    "pg_stat_activity: count(*) WHERE {clients} AND state = 'active' AND pid <> pg_backend_pid()"
+                )),
+        );
+        m.metric(
+            Metric::new("idle_in_transaction", "Inactivas en transacción", "Conexiones", U::Count, f(&r, "idle_tx"))
+                .help(&seen(
+                    "Sesiones con una transacción abierta que no están ejecutando nada: retienen bloqueos y \
+                     frenan el VACUUM. Si crecen o duran, la aplicación no está cerrando sus transacciones.",
+                ))
+                .source(&format!(
+                    "pg_stat_activity: count(*) WHERE {clients} AND state LIKE 'idle in transaction%'"
+                )),
+        );
+        m.metric(
+            Metric::new("longest_query", "Consulta más larga", "Actividad", U::Seconds, f(&r, "longest").or(Some(0.0)))
+                .help(&seen(
+                    "Cuánto lleva corriendo la sentencia activa más antigua, en segundos (0 si no hay \
+                     ninguna). Si crece sin parar, hay una consulta trabada o esperando un bloqueo.",
+                ))
+                .source(&format!(
+                    "pg_stat_activity: max(now() - query_start) WHERE {clients} AND state = 'active' \
+                     AND pid <> pg_backend_pid()"
+                )),
+        );
+        m.metric(
+            Metric::new("locks_waiting", "Bloqueos en espera", "Bloqueos", U::Count, f(&r, "waiting"))
+                .help(&seen(
+                    "Sesiones esperando un bloqueo que tiene otra transacción. Si no bajan, la tabla de \
+                     bloqueos muestra quién las frena.",
+                ))
+                .source(&format!("pg_stat_activity: count(*) WHERE {clients} AND {waiting}")),
+        );
     }
 
     // Throughput since the statistics were reset, summed over databases.
@@ -398,7 +502,16 @@ async fn postgres(m: &mut Mon<'_>) {
     {
         blks_read = f(&r, "blks_read");
         let tx = add(f(&r, "commits"), f(&r, "rollbacks"));
-        m.metric(Metric::new("transactions", "Transacciones", "Actividad", U::Count, tx).counter());
+        m.metric(
+            Metric::new("transactions", "Transacciones", "Actividad", U::Count, tx)
+                .counter()
+                .help(&with_caveat(
+                    "Transacciones terminadas, confirmadas o revertidas, en todas las bases: la medida más \
+                     directa de la carga del servidor.",
+                    node,
+                ))
+                .source("pg_stat_database: sum(xact_commit) + sum(xact_rollback)"),
+        );
         m.metric(
             Metric::new(
                 "rollbacks",
@@ -407,7 +520,13 @@ async fn postgres(m: &mut Mon<'_>) {
                 U::Count,
                 f(&r, "rollbacks"),
             )
-            .counter(),
+            .counter()
+            .help(&with_caveat(
+                "Transacciones revertidas, por ROLLBACK o por un error, en todas las bases. Si crecen frente \
+                 a las confirmadas, suele haber errores en la aplicación o conflictos de concurrencia.",
+                node,
+            ))
+            .source("pg_stat_database: sum(xact_rollback)"),
         );
         m.metric(
             Metric::new(
@@ -417,7 +536,14 @@ async fn postgres(m: &mut Mon<'_>) {
                 U::Count,
                 f(&r, "tup_returned"),
             )
-            .counter(),
+            .counter()
+            .help(&with_caveat(
+                "Filas que leyeron los recorridos secuenciales más las entradas que devolvieron los índices, \
+                 en todas las bases (no las filas enviadas al cliente). Una tasa muy alta suele ser recorridos \
+                 completos de tablas grandes.",
+                local,
+            ))
+            .source("pg_stat_database: sum(tup_returned)"),
         );
         m.metric(
             Metric::new(
@@ -427,15 +553,35 @@ async fn postgres(m: &mut Mon<'_>) {
                 U::Count,
                 f(&r, "tup_written"),
             )
-            .counter(),
+            .counter()
+            .help(&with_caveat(
+                "Filas insertadas, actualizadas y borradas en todas las bases. Cada actualización o borrado \
+                 deja una versión muerta de la fila que después limpia el VACUUM.",
+                local,
+            ))
+            .source("pg_stat_database: sum(tup_inserted) + sum(tup_updated) + sum(tup_deleted)"),
         );
-        m.metric(Metric::new(
-            "cache_hit",
-            "Aciertos de caché",
-            "Caché",
-            U::Percent,
-            ratio(f(&r, "blks_hit"), blks_read),
-        ));
+        // YugabyteDB keeps the data in DocDB, not in shared_buffers: its
+        // blks_hit / blks_read only see temporary tables, so the ratio would
+        // say nothing about the data.
+        if v != Variant::Yugabyte {
+            m.metric(
+                Metric::new(
+                    "cache_hit",
+                    "Aciertos de caché",
+                    "Caché",
+                    U::Percent,
+                    ratio(f(&r, "blks_hit"), blks_read),
+                )
+                .help(&with_caveat(
+                    "Porcentaje de bloques leídos que ya estaban en shared_buffers, acumulado desde el último \
+                     reinicio de estadísticas, así que cambia despacio. En una carga transaccional, por debajo \
+                     de ~99 % suele faltar memoria o haber recorridos de tablas grandes.",
+                    coord,
+                ))
+                .source("pg_stat_database: sum(blks_hit) / (sum(blks_hit) + sum(blks_read))"),
+            );
+        }
         m.metric(
             Metric::new(
                 "deadlocks",
@@ -444,7 +590,14 @@ async fn postgres(m: &mut Mon<'_>) {
                 U::Count,
                 f(&r, "deadlocks"),
             )
-            .counter(),
+            .counter()
+            .help(&with_caveat(
+                "Deadlocks detectados en todas las bases: en cada uno el servidor canceló una de las \
+                 transacciones. Si se repiten, hay transacciones que toman los mismos bloqueos en distinto \
+                 orden.",
+                local,
+            ))
+            .source("pg_stat_database: sum(deadlocks)"),
         );
         m.metric(
             Metric::new(
@@ -454,7 +607,13 @@ async fn postgres(m: &mut Mon<'_>) {
                 U::Bytes,
                 f(&r, "temp_bytes"),
             )
-            .counter(),
+            .counter()
+            .help(&with_caveat(
+                "Bytes escritos en archivos temporales por ordenamientos, hashes y otras operaciones que no \
+                 entraron en work_mem. Si es alto, conviene subir work_mem o revisar esas consultas.",
+                local,
+            ))
+            .source("pg_stat_database: sum(temp_bytes)"),
         );
     }
 
@@ -463,10 +622,29 @@ async fn postgres(m: &mut Mon<'_>) {
     let no_checkpoints = v == Variant::Yugabyte || v == Variant::Aurora;
     let mut written = None;
     if ver >= 160000 && !no_checkpoints {
-        let sql = if ver >= 180000 {
-            "SELECT sum(read_bytes) AS r, sum(write_bytes) AS w FROM pg_stat_io"
+        // 18 counts the WAL in pg_stat_io too, and gives bytes directly.
+        let (sql, read_src, write_src, read_help, write_help) = if ver >= 180000 {
+            (
+                "SELECT sum(read_bytes) AS r, sum(write_bytes) AS w FROM pg_stat_io",
+                "pg_stat_io: sum(read_bytes)",
+                "pg_stat_io: sum(write_bytes)",
+                "Bytes que leyeron todos los procesos del servidor (sesiones, autovacuum, procesos de fondo), \
+                 de datos y de WAL. Son lecturas pedidas al sistema operativo: parte puede salir de su caché \
+                 sin tocar el disco.",
+                "Bytes que escribieron todos los procesos del servidor (checkpointer, bgwriter, sesiones, \
+                 autovacuum), de datos y de WAL. No incluye los archivos temporales de ordenamientos y hashes.",
+            )
         } else {
-            "SELECT sum(reads * op_bytes) AS r, sum(writes * op_bytes) AS w FROM pg_stat_io"
+            (
+                "SELECT sum(reads * op_bytes) AS r, sum(writes * op_bytes) AS w FROM pg_stat_io",
+                "pg_stat_io: sum(reads * op_bytes)",
+                "pg_stat_io: sum(writes * op_bytes)",
+                "Bytes de datos que leyeron todos los procesos del servidor (sesiones, autovacuum, procesos de \
+                 fondo). Son lecturas pedidas al sistema operativo: parte puede salir de su caché sin tocar el \
+                 disco.",
+                "Bytes de datos que escribieron todos los procesos del servidor (checkpointer, bgwriter, \
+                 sesiones, autovacuum). No incluye el WAL ni los archivos temporales de ordenamientos y hashes.",
+            )
         };
         if let Some(r) = m.row(sql, "No se pudo leer la E/S (pg_stat_io)").await {
             m.metric(
@@ -477,7 +655,9 @@ async fn postgres(m: &mut Mon<'_>) {
                     U::Bytes,
                     f(&r, "r"),
                 )
-                .counter(),
+                .counter()
+                .help(&with_caveat(read_help, coord))
+                .source(read_src),
             );
             m.metric(
                 Metric::new(
@@ -487,7 +667,9 @@ async fn postgres(m: &mut Mon<'_>) {
                     U::Bytes,
                     f(&r, "w"),
                 )
-                .counter(),
+                .counter()
+                .help(&with_caveat(write_help, coord))
+                .source(write_src),
             );
         }
     } else if !no_checkpoints {
@@ -499,16 +681,28 @@ async fn postgres(m: &mut Mon<'_>) {
                 U::Bytes,
                 blks_read.map(|b| b * block),
             )
-            .counter(),
+            .counter()
+            .help(&with_caveat(
+                "Bloques que las sesiones pidieron al sistema operativo porque no estaban en shared_buffers, \
+                 en bytes. Parte puede salir del caché del sistema operativo sin tocar el disco.",
+                coord,
+            ))
+            .source("pg_stat_database: sum(blks_read) * block_size"),
         );
     }
     if !no_checkpoints {
-        let sql = if ver >= 170000 {
-            "SELECT num_timed + num_requested AS checkpoints, buffers_written AS written FROM pg_stat_checkpointer"
+        let (sql, checkpoints_src) = if ver >= 170000 {
+            (
+                "SELECT num_timed + num_requested AS checkpoints, buffers_written AS written FROM pg_stat_checkpointer",
+                "pg_stat_checkpointer: num_timed + num_requested",
+            )
         } else {
-            "SELECT checkpoints_timed + checkpoints_req AS checkpoints,
-                    buffers_checkpoint + buffers_clean + buffers_backend AS written
-             FROM pg_stat_bgwriter"
+            (
+                "SELECT checkpoints_timed + checkpoints_req AS checkpoints,
+                        buffers_checkpoint + buffers_clean + buffers_backend AS written
+                 FROM pg_stat_bgwriter",
+                "pg_stat_bgwriter: checkpoints_timed + checkpoints_req",
+            )
         };
         if let Some(r) = m.row(sql, "No se pudieron leer los checkpoints").await {
             m.metric(
@@ -519,7 +713,14 @@ async fn postgres(m: &mut Mon<'_>) {
                     U::Count,
                     f(&r, "checkpoints"),
                 )
-                .counter(),
+                .counter()
+                .help(&with_caveat(
+                    "Checkpoints, por tiempo (checkpoint_timeout) o pedidos (por max_wal_size o un CHECKPOINT). \
+                     Si hay más de uno cada pocos minutos, max_wal_size suele quedar chico para la carga de \
+                     escritura.",
+                    coord,
+                ))
+                .source(checkpoints_src),
             );
             written = f(&r, "written").map(|b| b * block);
         }
@@ -532,19 +733,37 @@ async fn postgres(m: &mut Mon<'_>) {
                     U::Bytes,
                     written,
                 )
-                .counter(),
+                .counter()
+                .help(&with_caveat(
+                    "Bloques de datos que escribieron el checkpointer, el bgwriter y las sesiones, en bytes. No \
+                     incluye el WAL ni los archivos temporales.",
+                    coord,
+                ))
+                .source("pg_stat_bgwriter: (buffers_checkpoint + buffers_clean + buffers_backend) * block_size"),
             );
         }
         if !in_recovery {
-            let wal = if ver >= 100000 {
-                "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0') AS wal"
+            let (wal, wal_src) = if ver >= 100000 {
+                (
+                    "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0') AS wal",
+                    "pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')",
+                )
             } else {
-                "SELECT pg_xlog_location_diff(pg_current_xlog_location(), '0/0') AS wal"
+                (
+                    "SELECT pg_xlog_location_diff(pg_current_xlog_location(), '0/0') AS wal",
+                    "pg_xlog_location_diff(pg_current_xlog_location(), '0/0')",
+                )
             };
             if let Some(r) = m.row(wal, "No se pudo leer la posición del WAL").await {
                 m.metric(
                     Metric::new("wal_bytes", "WAL generado", "Disco", U::Bytes, f(&r, "wal"))
-                        .counter(),
+                        .counter()
+                        .help(&with_caveat(
+                            "Posición actual del WAL, en bytes: su avance es el volumen de cambios que genera \
+                             el servidor, lo que reciben las réplicas y lo que se archiva.",
+                            coord,
+                        ))
+                        .source(wal_src),
                 );
             }
         }
@@ -574,7 +793,13 @@ async fn postgres(m: &mut Mon<'_>) {
                     U::Count,
                     f(&r, "calls"),
                 )
-                .counter(),
+                .counter()
+                .help(&with_caveat(
+                    "Sentencias ejecutadas en todas las bases. Si pg_stat_statements descarta entradas (al \
+                     llegar a pg_stat_statements.max) o se reinicia, la suma puede bajar.",
+                    node,
+                ))
+                .source("pg_stat_statements: sum(calls)"),
             );
         }
         if let Some(rows) = m
@@ -694,7 +919,7 @@ async fn postgres(m: &mut Mon<'_>) {
         .rows(
             &format!(
                 "SELECT datname, pg_size_pretty(bytes) AS size, numbackends, xact_commit, xact_rollback, hit, deadlocks,
-                        pg_size_pretty(temp_bytes) AS temp, bytes
+                        pg_size_pretty(temp_bytes) AS temp, bytes, sum(bytes) OVER () AS total_bytes
                  FROM (SELECT d.datname, {size} AS bytes, s.numbackends, s.xact_commit, s.xact_rollback,
                               round(100.0 * s.blks_hit / nullif(s.blks_hit + s.blks_read, 0), 2) AS hit,
                               s.deadlocks, s.temp_bytes
@@ -707,7 +932,19 @@ async fn postgres(m: &mut Mon<'_>) {
         .await
     {
         if v != Variant::Yugabyte {
-            m.metric(Metric::new("storage_used", "Espacio usado (todas las bases)", "Almacenamiento", U::Bytes, sum(&rows, "bytes")));
+            // Every database, not only the ones the table keeps.
+            let total = rows.first().and_then(|r| f(r, "total_bytes")).or_else(|| sum(&rows, "bytes"));
+            m.metric(
+                Metric::new("storage_used", "Espacio usado (todas las bases)", "Almacenamiento", U::Bytes, total)
+                    .help(
+                        "Lo que ocupan en disco las bases en las que podés conectarte: tablas, índices y TOAST. No \
+                         incluye el WAL ni los archivos temporales.",
+                    )
+                    .source(
+                        "sum(pg_database_size(oid)) FROM pg_database WHERE NOT datistemplate \
+                         AND has_database_privilege(oid, 'CONNECT')",
+                    ),
+            );
         }
         m.table(
             "databases",
@@ -779,7 +1016,14 @@ async fn postgres(m: &mut Mon<'_>) {
             )
             .await
         {
-            m.metric(Metric::new("nodes", "Nodos", "Cluster", U::Count, Some(rows.len() as f64)));
+            m.metric(
+                Metric::new("nodes", "Nodos", "Cluster", U::Count, Some(rows.len() as f64))
+                    .help(
+                        "Nodos (yb-tserver) que el clúster ofrece para conexiones YSQL. Si baja, un nodo dejó \
+                         de responder.",
+                    )
+                    .source("yb_servers(): count(*)"),
+            );
             m.table("nodes", "Nodos del clúster", &["Host", "Puerto", "Conexiones", "Tipo", "Nube", "Región", "Zona", "IP pública"], &rows, &[]);
         }
         // CPU and memory of each tablet server (2.21+).
@@ -796,9 +1040,40 @@ async fn postgres(m: &mut Mon<'_>) {
             .await
         {
             let n = rows.len().max(1) as f64;
-            m.metric(Metric::new("cpu", "CPU (promedio de tservers)", "CPU", U::Percent, sum(&rows, "cpu").map(|c| c / n)));
-            m.metric(Metric::new("mem_used", "Memoria de los tservers", "Memoria", U::Bytes, sum(&rows, "ts_mem")).max(sum(&rows, "ts_limit")));
-            m.metric(Metric::new("host_mem_used", "Memoria de los hosts", "Memoria", U::Bytes, sum(&rows, "host_used")).max(sum(&rows, "host_total")));
+            m.metric(
+                Metric::new("cpu", "CPU (promedio de tservers)", "CPU", U::Percent, sum(&rows, "cpu").map(|c| c / n))
+                    .help(
+                        "CPU en uso (usuario más sistema) de cada nodo, promediado entre los yb-tserver que \
+                         responden: 100 % es todo el CPU de los nodos ocupado.",
+                    )
+                    .source(
+                        "yb_servers_metrics(): avg((cpu_usage_user + cpu_usage_system) * 100) WHERE status = 'OK'",
+                    ),
+            );
+            m.metric(
+                Metric::new("mem_used", "Memoria de los tservers", "Memoria", U::Bytes, sum(&rows, "ts_mem"))
+                    .max(sum(&rows, "ts_limit"))
+                    .help(
+                        "Memoria que usan los procesos yb-tserver, sumada entre nodos, frente a su límite. Cerca \
+                         del límite, los tservers empiezan a frenar y a rechazar escrituras.",
+                    )
+                    .source(
+                        "yb_servers_metrics(): sum(tserver_root_memory_consumption) \
+                         (max: sum(tserver_root_memory_limit)) WHERE status = 'OK'",
+                    ),
+            );
+            m.metric(
+                Metric::new("host_mem_used", "Memoria de los hosts", "Memoria", U::Bytes, sum(&rows, "host_used"))
+                    .max(sum(&rows, "host_total"))
+                    .help(
+                        "Memoria en uso de las máquinas de los nodos, de todos sus procesos (total menos \
+                         disponible), sumada entre nodos.",
+                    )
+                    .source(
+                        "yb_servers_metrics(): sum(memory_total - memory_available) (max: sum(memory_total)) \
+                         WHERE status = 'OK'",
+                    ),
+            );
         }
         m.note("YugabyteDB guarda los datos en DocDB: el tamaño de las bases, la E/S y los checkpoints se ven en la interfaz de yb-master / yb-tserver.");
     }
@@ -840,7 +1115,15 @@ async fn replication(m: &mut Mon<'_>, in_recovery: bool) {
             .await
         {
             let lag = max_of(&rows, "replica_lag_in_msec").map(|ms| ms / 1000.0);
-            m.metric(Metric::new("replication_lag", "Retraso de réplica", "Replicación", U::Seconds, lag));
+            m.metric(
+                Metric::new("replication_lag", "Retraso de réplica", "Replicación", U::Seconds, lag)
+                    .help(
+                        "Mayor retraso de las réplicas de lectura del clúster respecto del escritor, en segundos. \
+                         Como comparten el almacenamiento suele ser de milisegundos: si crece, las réplicas \
+                         devuelven datos desactualizados.",
+                    )
+                    .source("aurora_replica_status(): max(replica_lag_in_msec) / 1000"),
+            );
             m.table("replication", "Instancias del clúster", &["Instancia", "Rol", "Retraso (ms)", "Actualizado"], &rows, &[]);
         }
         return;
@@ -853,13 +1136,20 @@ async fn replication(m: &mut Mon<'_>, in_recovery: bool) {
             )
             .await
         {
-            m.metric(Metric::new(
-                "replication_lag",
-                "Retraso de réplica",
-                "Replicación",
-                U::Seconds,
-                f(&r, "lag"),
-            ));
+            m.metric(
+                Metric::new(
+                    "replication_lag",
+                    "Retraso de réplica",
+                    "Replicación",
+                    U::Seconds,
+                    f(&r, "lag"),
+                )
+                .help(
+                    "Tiempo desde la última transacción que esta réplica aplicó, en segundos. Si el primario no \
+                     escribe, crece aunque la réplica esté al día.",
+                )
+                .source("now() - pg_last_xact_replay_timestamp()"),
+            );
         }
         if ver >= 90600 {
             if let Some(rows) = m
@@ -896,13 +1186,32 @@ async fn replication(m: &mut Mon<'_>, in_recovery: bool) {
     {
         m.info("Réplicas conectadas", rows.len().to_string());
         if !rows.is_empty() {
-            m.metric(Metric::new(
-                "replication_lag",
-                "Retraso de réplica",
-                "Replicación",
-                U::Seconds,
-                max_of(&rows, "lag_s"),
-            ));
+            // replay_lag is new in PostgreSQL 10 (openGauss lacks it): before,
+            // only the lag in bytes, in the table.
+            let (help, source) = if ver >= 100000 && v != Variant::OpenGauss {
+                (
+                    "Cuánto tardó la réplica más atrasada en aplicar lo último que confirmó este servidor, en \
+                     segundos. Si el servidor deja de escribir, queda vacío al rato.",
+                    "pg_stat_replication: max(replay_lag)",
+                )
+            } else {
+                (
+                    "Retraso en segundos de la réplica más atrasada. Esta versión no lo informa: el retraso en \
+                     bytes de cada réplica está en la tabla de réplicas.",
+                    "pg_stat_replication (replay_lag needs PostgreSQL 10+)",
+                )
+            };
+            m.metric(
+                Metric::new(
+                    "replication_lag",
+                    "Retraso de réplica",
+                    "Replicación",
+                    U::Seconds,
+                    max_of(&rows, "lag_s"),
+                )
+                .help(help)
+                .source(source),
+            );
             m.table(
                 "replication",
                 "Réplicas",
@@ -948,14 +1257,33 @@ async fn timescale(m: &mut Mon<'_>) {
                     (SELECT sum(c.relpages)::bigint * current_setting('block_size')::bigint
                      FROM timescaledb_information.chunks ch
                      JOIN pg_class c ON c.oid = format('%I.%I', ch.chunk_schema, ch.chunk_name)::regclass
-                     WHERE ch.hypertable_schema = h.hypertable_schema AND ch.hypertable_name = h.hypertable_name) AS bytes
+                     WHERE ch.hypertable_schema = h.hypertable_schema AND ch.hypertable_name = h.hypertable_name) AS bytes,
+                    count(*) OVER () AS total, sum(h.num_chunks) OVER () AS total_chunks
              FROM timescaledb_information.hypertables h ORDER BY h.num_chunks DESC LIMIT 50",
             "No se pudieron leer las hypertables",
         )
         .await
     {
-        m.metric(Metric::new("hypertables", "Hypertables", "TimescaleDB", U::Count, Some(rows.len() as f64)));
-        m.metric(Metric::new("chunks", "Chunks", "TimescaleDB", U::Count, sum(&rows, "num_chunks").or(Some(0.0))));
+        // The totals cover every hypertable, not only the 50 the table keeps.
+        let first = rows.first();
+        let total = first.and_then(|r| f(r, "total")).unwrap_or(rows.len() as f64);
+        let chunks = first
+            .and_then(|r| f(r, "total_chunks"))
+            .or_else(|| sum(&rows, "num_chunks"))
+            .or(Some(0.0));
+        m.metric(
+            Metric::new("hypertables", "Hypertables", "TimescaleDB", U::Count, Some(total))
+                .help("Hypertables de TimescaleDB en esta base (la extensión se instala en cada base).")
+                .source("timescaledb_information.hypertables: count(*)"),
+        );
+        m.metric(
+            Metric::new("chunks", "Chunks", "TimescaleDB", U::Count, chunks)
+                .help(
+                    "Chunks (particiones por intervalo de tiempo) de todas las hypertables de esta base. Muchos \
+                     chunks chicos encarecen la planificación de las consultas: revisá chunk_time_interval.",
+                )
+                .source("timescaledb_information.hypertables: sum(num_chunks)"),
+        );
         m.table("hypertables", "Hypertables", &["Esquema", "Hypertable", "Chunks", "Compresión", "Tamaño (estim., sin índices)"], &rows, &[4]);
     }
     if let Some(rows) = m
@@ -990,16 +1318,36 @@ async fn segments(m: &mut Mon<'_>) {
                         CASE WHEN role = preferred_role THEN 'sí' ELSE 'no' END AS preferred,
                         CASE mode WHEN 's' THEN 'sincronizado' WHEN 'n' THEN 'sin sincronizar' ELSE mode::text END AS mode,
                         CASE status WHEN 'u' THEN 'activo' ELSE 'caído' END AS status, hostname, port,
-                        CASE WHEN status = 'u' THEN 0 ELSE 1 END AS down
+                        CASE WHEN status = 'u' THEN 0 ELSE 1 END AS down,
+                        sum(CASE WHEN content >= 0 THEN 1 ELSE 0 END) OVER () AS total_segs,
+                        sum(CASE WHEN status = 'u' THEN 0 ELSE 1 END) OVER () AS total_down
                  FROM gp_segment_configuration ORDER BY content, role DESC LIMIT {MAX_ROWS}"
             ),
             "No se pudieron leer los segmentos (gp_segment_configuration)",
         )
         .await
     {
-        let segs = rows.iter().filter(|r| f(r, "content").is_some_and(|c| c >= 0.0)).count();
-        m.metric(Metric::new("segments", "Segmentos", "Cluster", U::Count, Some(segs as f64)));
-        m.metric(Metric::new("segments_down", "Segmentos caídos", "Cluster", U::Count, sum(&rows, "down")));
+        // The totals cover the whole cluster, also past the rows the table keeps.
+        let first = rows.first();
+        let segs = first.and_then(|r| f(r, "total_segs")).unwrap_or_else(|| {
+            rows.iter()
+                .filter(|r| f(r, "content").is_some_and(|c| c >= 0.0))
+                .count() as f64
+        });
+        let down = first.and_then(|r| f(r, "total_down")).or_else(|| sum(&rows, "down"));
+        m.metric(
+            Metric::new("segments", "Segmentos", "Cluster", U::Count, Some(segs))
+                .help("Instancias de segmento del clúster, primarias y espejos, sin el coordinador.")
+                .source("gp_segment_configuration: count(*) WHERE content >= 0"),
+        );
+        m.metric(
+            Metric::new("segments_down", "Segmentos caídos", "Cluster", U::Count, down)
+                .help(
+                    "Instancias marcadas como caídas, incluido el coordinador de respaldo. Mientras haya alguna, \
+                     el clúster funciona sin redundancia para esos datos, o sin ellos si no tenían espejo.",
+                )
+                .source("gp_segment_configuration: count(*) WHERE status <> 'u'"),
+        );
         m.table(
             "nodes",
             "Coordinador y segmentos",
@@ -1019,10 +1367,29 @@ async fn opengauss(m: &mut Mon<'_>) {
         .await
     {
         let get = |n: &str| rows.iter().find(|r| cell(r, "name").as_deref() == Some(n)).and_then(|r| f(r, "value"));
-        // Hundredths of a second busy, over every CPU: the rate is the
-        // percentage of one core.
-        m.metric(Metric::new("cpu_time", "CPU del host (% de un núcleo)", "CPU", U::Percent, get("BUSY_TIME")).counter());
-        m.metric(Metric::new("load", "Carga (1 min)", "CPU", U::Count, get("LOAD")));
+        // Hundredths of a second busy, totalled over every CPU: divided by
+        // the CPUs, its rate is the share of the whole host in use (100 =
+        // every CPU busy), not "1800 %" on 18 of them.
+        let cpus = get("NUM_CPUS").filter(|n| *n > 0.0);
+        let busy = get("BUSY_TIME").zip(cpus).map(|(b, n)| b / n);
+        m.metric(
+            Metric::new("cpu_time", "CPU del host", "CPU", U::Percent, busy)
+                .max(Some(100.0))
+                .counter()
+                .help(
+                    "CPU en uso de todo el host, no solo de openGauss: el tiempo ocupado de todos los núcleos \
+                     dividido por su cantidad, así que 100 % es el host entero ocupado.",
+                )
+                .source("dbe_perf.os_runtime: BUSY_TIME / NUM_CPUS"),
+        );
+        m.metric(
+            Metric::new("load", "Carga (1 min)", "CPU", U::Count, get("LOAD"))
+                .help(
+                    "Carga del sistema operativo del host en el último minuto: procesos ejecutándose o \
+                     esperando CPU. Si supera la cantidad de CPUs, hay procesos esperando turno.",
+                )
+                .source("dbe_perf.os_runtime: LOAD"),
+        );
         if let Some(n) = get("NUM_CPUS") {
             m.info("CPUs", format!("{n}"));
         }
@@ -1041,8 +1408,26 @@ async fn opengauss(m: &mut Mon<'_>) {
         let mb = |n: &str| {
             rows.iter().find(|r| cell(r, "memorytype").as_deref() == Some(n)).and_then(|r| f(r, "memorymbytes")).map(|v| v * 1048576.0)
         };
-        m.metric(Metric::new("mem_used", "Memoria usada", "Memoria", U::Bytes, mb("process_used_memory")).max(mb("max_process_memory")));
-        m.metric(Metric::new("mem_cache", "Memoria compartida", "Memoria", U::Bytes, mb("shared_used_memory")).max(mb("max_shared_memory")));
+        m.metric(
+            Metric::new("mem_used", "Memoria usada", "Memoria", U::Bytes, mb("process_used_memory"))
+                .max(mb("max_process_memory"))
+                .help(
+                    "Memoria que usa el proceso de openGauss frente a max_process_memory. Si llega al tope, las \
+                     sentencias nuevas fallan por falta de memoria.",
+                )
+                .source(
+                    "dbe_perf.memory_node_detail: process_used_memory (max: max_process_memory), in MB",
+                ),
+        );
+        m.metric(
+            Metric::new("mem_cache", "Memoria compartida", "Memoria", U::Bytes, mb("shared_used_memory"))
+                .max(mb("max_shared_memory"))
+                .help(
+                    "Memoria compartida en uso (shared_buffers y las demás estructuras compartidas) frente a la \
+                     que el servidor puede reservar.",
+                )
+                .source("dbe_perf.memory_node_detail: shared_used_memory (max: max_shared_memory), in MB"),
+        );
     }
     if let Some(r) = m
         .row(
@@ -1051,7 +1436,15 @@ async fn opengauss(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("queries", "Consultas", "Actividad", U::Count, f(&r, "q")).counter());
+        m.metric(
+            Metric::new("queries", "Consultas", "Actividad", U::Count, f(&r, "q"))
+                .counter()
+                .help(
+                    "Sentencias SELECT, INSERT, UPDATE y DELETE ejecutadas en este nodo, de todos los usuarios \
+                     (no cuenta DDL ni otros comandos). Sin sysadmin ni monadmin, solo cuenta las tuyas.",
+                )
+                .source("gs_sql_count: sum(select_count + update_count + insert_count + delete_count)"),
+        );
     }
 }
 
@@ -1061,6 +1454,8 @@ async fn opengauss(m: &mut Mon<'_>) {
 /// `crdb_internal.node_metrics` names: of the node this session is on.
 const CRDB_METRICS: &[&str] = &[
     "sys.cpu.combined.percent-normalized",
+    "sys.cpu.user.percent",
+    "sys.cpu.sys.percent",
     "sys.cpu.user.ns",
     "sys.cpu.sys.ns",
     "sys.rss",
@@ -1108,36 +1503,189 @@ async fn cockroach(m: &mut Mon<'_>) {
         .map(|n| format!("'{n}'"))
         .collect::<Vec<_>>()
         .join(", ");
+    // Store-level metrics (capacity, ranges, block cache, wait queue) have
+    // one row per store of the node: added up, they cover the whole node.
+    // Node-level ones have a single row.
     if let Some(rows) = m
         .rows(
-            &format!("SELECT name, value FROM crdb_internal.node_metrics WHERE name IN ({list})"),
+            &format!(
+                "SELECT name, sum(value) AS value FROM crdb_internal.node_metrics WHERE name IN ({list}) GROUP BY name"
+            ),
             "Sin el privilegio VIEWCLUSTERMETADATA (o admin) no se ven las métricas del nodo (crdb_internal.node_metrics)",
         )
         .await
     {
         let g = |n: &str| rows.iter().find(|r| cell(r, "name").as_deref() == Some(n)).and_then(|r| f(r, "value"));
-        m.metric(Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, g("sys.cpu.combined.percent-normalized").map(|v| v * 100.0)));
-        // Nanoseconds of CPU → seconds × 100 (rate = % of one core).
+        m.metric(
+            Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, g("sys.cpu.combined.percent-normalized").map(|v| v * 100.0))
+                .help(
+                    "CPU que usa el proceso de CockroachDB en el nodo de esta sesión, dividido por los núcleos \
+                     que puede usar: 100 % es todo el nodo ocupado. Sostenido muy alto, las consultas se \
+                     encolan y crece la latencia.",
+                )
+                .source("crdb_internal.node_metrics: sys.cpu.combined.percent-normalized * 100"),
+        );
+        // Nanoseconds of CPU → seconds × 100, over the CPUs the process may
+        // use, so that the rate is the share of all of them (100 = every CPU
+        // busy), never "1800 %" on 18. CockroachDB normalizes
+        // percent-normalized by that same count, so the per-core figure over
+        // the normalized one gives it (rounded: both come from one sample).
+        let cpus = add(g("sys.cpu.user.percent"), g("sys.cpu.sys.percent"))
+            .zip(g("sys.cpu.combined.percent-normalized"))
+            .filter(|(_, norm)| *norm > 0.0)
+            .map(|(per_core, norm)| (per_core / norm * 100.0).round() / 100.0)
+            .filter(|n| *n > 0.0);
         let cpu_ns = add(g("sys.cpu.user.ns"), g("sys.cpu.sys.ns"));
-        m.metric(Metric::new("cpu_time", "CPU del proceso", "CPU", U::Percent, cpu_ns.map(|ns| ns / 1e7)).counter());
-        m.metric(Metric::new("mem_used", "Memoria (RSS)", "Memoria", U::Bytes, g("sys.rss")));
-        m.metric(Metric::new("connections", "Conexiones", "Conexiones", U::Count, g("sql.conns")));
-        m.metric(Metric::new("active_sessions", "Sentencias en curso", "Conexiones", U::Count, g("sql.statements.active")));
-        m.metric(Metric::new("queries", "Consultas", "Actividad", U::Count, g("sql.query.count")).counter());
+        m.metric(
+            Metric::new("cpu_time", "CPU del proceso", "CPU", U::Percent, cpu_ns.zip(cpus).map(|(ns, n)| ns / 1e7 / n))
+                .max(Some(100.0))
+                .counter()
+                .help(
+                    "Tiempo de CPU (usuario más sistema) del proceso de CockroachDB en el nodo de esta sesión, \
+                     dividido por los núcleos que puede usar: 100 % es todo el nodo ocupado.",
+                )
+                .source(
+                    "crdb_internal.node_metrics: (sys.cpu.user.ns + sys.cpu.sys.ns) / CPUs, \
+                     CPUs = (sys.cpu.user.percent + sys.cpu.sys.percent) / sys.cpu.combined.percent-normalized",
+                ),
+        );
+        m.metric(
+            Metric::new("mem_used", "Memoria (RSS)", "Memoria", U::Bytes, g("sys.rss"))
+                .help(
+                    "Memoria residente del proceso de CockroachDB en el nodo de esta sesión, incluido el caché \
+                     de bloques. Si se acerca a la RAM de la máquina, el sistema puede matar el proceso.",
+                )
+                .source("crdb_internal.node_metrics: sys.rss"),
+        );
+        m.metric(
+            Metric::new("connections", "Conexiones", "Conexiones", U::Count, g("sql.conns"))
+                .help("Conexiones SQL abiertas en el nodo de esta sesión, no en todo el clúster.")
+                .source("crdb_internal.node_metrics: sql.conns"),
+        );
+        m.metric(
+            Metric::new("active_sessions", "Sentencias en curso", "Conexiones", U::Count, g("sql.statements.active"))
+                .help("Sentencias SQL de usuarios ejecutándose ahora en el nodo de esta sesión.")
+                .source("crdb_internal.node_metrics: sql.statements.active"),
+        );
+        m.metric(
+            Metric::new("queries", "Consultas", "Actividad", U::Count, g("sql.query.count"))
+                .counter()
+                .help(
+                    "Sentencias SQL ejecutadas en el nodo de esta sesión, incluidas las de control de \
+                     transacción (BEGIN, COMMIT).",
+                )
+                .source("crdb_internal.node_metrics: sql.query.count"),
+        );
         let tx = add(g("sql.txn.commit.count"), g("sql.txn.rollback.count"));
-        m.metric(Metric::new("transactions", "Transacciones", "Actividad", U::Count, tx).counter());
-        m.metric(Metric::new("net_in", "Red entrante", "Red", U::Bytes, g("sys.host.net.recv.bytes")).counter());
-        m.metric(Metric::new("net_out", "Red saliente", "Red", U::Bytes, g("sys.host.net.send.bytes")).counter());
-        m.metric(Metric::new("disk_read", "Lectura de disco", "Disco", U::Bytes, g("sys.host.disk.read.bytes")).counter());
-        m.metric(Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, g("sys.host.disk.write.bytes")).counter());
-        m.metric(Metric::new("cache_hit", "Aciertos de caché de bloques", "Caché", U::Percent, ratio(g("rocksdb.block.cache.hits"), g("rocksdb.block.cache.misses"))));
-        m.metric(Metric::new("storage_used", "Espacio usado (este nodo)", "Almacenamiento", U::Bytes, g("capacity.used")).max(g("capacity")));
-        m.metric(Metric::new("locks_waiting", "Transacciones en espera", "Bloqueos", U::Count, g("txnwaitqueue.pusher.waiting")));
-        m.metric(Metric::new("ranges", "Rangos", "Rangos", U::Count, g("ranges")));
-        m.metric(Metric::new("ranges_unavailable", "Rangos no disponibles", "Rangos", U::Count, g("ranges.unavailable")));
-        m.metric(Metric::new("ranges_underreplicated", "Rangos sub-replicados", "Rangos", U::Count, g("ranges.underreplicated")));
-        m.metric(Metric::new("live_nodes", "Nodos vivos", "Cluster", U::Count, g("liveness.livenodes")));
-        m.metric(Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, g("sys.uptime")));
+        m.metric(
+            Metric::new("transactions", "Transacciones", "Actividad", U::Count, tx)
+                .counter()
+                .help("Transacciones confirmadas o revertidas en el nodo de esta sesión.")
+                .source("crdb_internal.node_metrics: sql.txn.commit.count + sql.txn.rollback.count"),
+        );
+        m.metric(
+            Metric::new("net_in", "Red entrante", "Red", U::Bytes, g("sys.host.net.recv.bytes"))
+                .counter()
+                .help(
+                    "Bytes que recibió por la red la máquina del nodo de esta sesión, de todos sus procesos e \
+                     interfaces.",
+                )
+                .source("crdb_internal.node_metrics: sys.host.net.recv.bytes"),
+        );
+        m.metric(
+            Metric::new("net_out", "Red saliente", "Red", U::Bytes, g("sys.host.net.send.bytes"))
+                .counter()
+                .help(
+                    "Bytes que envió por la red la máquina del nodo de esta sesión, de todos sus procesos e \
+                     interfaces.",
+                )
+                .source("crdb_internal.node_metrics: sys.host.net.send.bytes"),
+        );
+        m.metric(
+            Metric::new("disk_read", "Lectura de disco", "Disco", U::Bytes, g("sys.host.disk.read.bytes"))
+                .counter()
+                .help("Bytes leídos de los discos de la máquina del nodo de esta sesión, por cualquier proceso.")
+                .source("crdb_internal.node_metrics: sys.host.disk.read.bytes"),
+        );
+        m.metric(
+            Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, g("sys.host.disk.write.bytes"))
+                .counter()
+                .help("Bytes escritos en los discos de la máquina del nodo de esta sesión, por cualquier proceso.")
+                .source("crdb_internal.node_metrics: sys.host.disk.write.bytes"),
+        );
+        m.metric(
+            Metric::new(
+                "cache_hit",
+                "Aciertos de caché de bloques",
+                "Caché",
+                U::Percent,
+                ratio(g("rocksdb.block.cache.hits"), g("rocksdb.block.cache.misses")),
+            )
+            .help(
+                "Porcentaje de lecturas de bloques que encontraron el bloque en el caché del almacenamiento \
+                 (Pebble) del nodo de esta sesión, acumulado desde que arrancó, así que cambia despacio. Si \
+                 baja, los datos que se leen seguido no entran en el caché.",
+            )
+            .source(
+                "crdb_internal.node_metrics: rocksdb.block.cache.hits / \
+                 (rocksdb.block.cache.hits + rocksdb.block.cache.misses)",
+            ),
+        );
+        m.metric(
+            Metric::new("storage_used", "Espacio usado (este nodo)", "Almacenamiento", U::Bytes, g("capacity.used"))
+                .max(g("capacity"))
+                .help(
+                    "Espacio que ocupan los datos de CockroachDB en los stores del nodo de esta sesión, frente a \
+                     la capacidad de sus discos. Cerca del tope, el clúster deja de mover réplicas hacia ese nodo.",
+                )
+                .source("crdb_internal.node_metrics: capacity.used (max: capacity)"),
+        );
+        m.metric(
+            Metric::new("locks_waiting", "Transacciones en espera", "Bloqueos", U::Count, g("txnwaitqueue.pusher.waiting"))
+                .help(
+                    "Transacciones que esperan, en el nodo de esta sesión, a que termine otra que tocó las \
+                     mismas claves. Un valor sostenido indica contención: varias transacciones escribiendo las \
+                     mismas filas.",
+                )
+                .source("crdb_internal.node_metrics: txnwaitqueue.pusher.waiting"),
+        );
+        m.metric(
+            Metric::new("ranges", "Rangos", "Rangos", U::Count, g("ranges"))
+                .help("Rangos (fragmentos de los datos) que tienen una réplica en los stores del nodo de esta sesión.")
+                .source("crdb_internal.node_metrics: ranges"),
+        );
+        m.metric(
+            Metric::new("ranges_unavailable", "Rangos no disponibles", "Rangos", U::Count, g("ranges.unavailable"))
+                .help(
+                    "Rangos sin quórum de réplicas vivas, entre los que informa el nodo de esta sesión: no aceptan \
+                     lecturas ni escrituras. Mayor que cero es una pérdida de disponibilidad.",
+                )
+                .source("crdb_internal.node_metrics: ranges.unavailable"),
+        );
+        m.metric(
+            Metric::new("ranges_underreplicated", "Rangos sub-replicados", "Rangos", U::Count, g("ranges.underreplicated"))
+                .help(
+                    "Rangos con menos réplicas que las configuradas, entre los que informa el nodo de esta \
+                     sesión. Suele aparecer al perder un nodo y baja a medida que el clúster vuelve a replicar.",
+                )
+                .source("crdb_internal.node_metrics: ranges.underreplicated"),
+        );
+        m.metric(
+            Metric::new("live_nodes", "Nodos vivos", "Cluster", U::Count, g("liveness.livenodes"))
+                .help(
+                    "Nodos vivos según el registro de liveness, visto desde el nodo de esta sesión. Si es menor \
+                     que la cantidad de nodos, alguno está caído.",
+                )
+                .source("crdb_internal.node_metrics: liveness.livenodes"),
+        );
+        m.metric(
+            Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, g("sys.uptime"))
+                .help(
+                    "Tiempo desde que arrancó el proceso del nodo al que está conectada esta sesión. Si vuelve a \
+                     cero, el nodo se reinició.",
+                )
+                .source("crdb_internal.node_metrics: sys.uptime"),
+        );
         m.note("Las métricas de CPU, memoria, red y disco son del nodo al que está conectada esta sesión.");
     }
     // If crdb_internal is closed to this user, SHOW CLUSTER SESSIONS /
@@ -1220,7 +1768,11 @@ async fn cockroach(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("nodes", "Nodos", "Cluster", U::Count, Some(rows.len() as f64)));
+        m.metric(
+            Metric::new("nodes", "Nodos", "Cluster", U::Count, Some(rows.len() as f64))
+                .help("Nodos que el clúster conoce por gossip, vivos o no: la tabla de nodos dice cuáles están vivos.")
+                .source("crdb_internal.gossip_nodes: count(*)"),
+        );
         m.table("nodes", "Nodos del clúster", &["Nodo", "Dirección", "Localidad", "Versión", "Vivo", "Rangos", "Leases", "Iniciado"], &rows, &[]);
     }
     if let Some(rows) = m
@@ -1277,13 +1829,14 @@ async fn redshift(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "connections",
-            "Conexiones",
-            "Conexiones",
-            U::Count,
-            f(&r, "n"),
-        ));
+        m.metric(
+            Metric::new("connections", "Conexiones", "Conexiones", U::Count, f(&r, "n"))
+                .help(
+                    "Sesiones abiertas en el clúster, incluida la del monitor. Sin ser superusuario solo cuenta \
+                     las tuyas.",
+                )
+                .source("stv_sessions: count(*)"),
+        );
     }
     if let Some(r) = m
         .row(
@@ -1294,20 +1847,34 @@ async fn redshift(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "active_sessions",
-            "Consultas ejecutándose",
-            "Conexiones",
-            U::Count,
-            f(&r, "running").or(Some(0.0)),
-        ));
-        m.metric(Metric::new(
-            "wlm_queued",
-            "Consultas en cola (WLM)",
-            "Conexiones",
-            U::Count,
-            f(&r, "queued").or(Some(0.0)),
-        ));
+        m.metric(
+            Metric::new(
+                "active_sessions",
+                "Consultas ejecutándose",
+                "Conexiones",
+                U::Count,
+                f(&r, "running").or(Some(0.0)),
+            )
+            .help(
+                "Consultas que WLM está ejecutando ahora, en todas las colas. Sin ser superusuario solo cuenta \
+                 las tuyas.",
+            )
+            .source("stv_wlm_query_state: count(*) WHERE state LIKE 'Running%'"),
+        );
+        m.metric(
+            Metric::new(
+                "wlm_queued",
+                "Consultas en cola (WLM)",
+                "Conexiones",
+                U::Count,
+                f(&r, "queued").or(Some(0.0)),
+            )
+            .help(
+                "Consultas esperando lugar en una cola de WLM. Si se acumulan, las colas no tienen slots o \
+                 memoria suficientes para la carga. Sin ser superusuario solo cuenta las tuyas.",
+            )
+            .source("stv_wlm_query_state: count(*) WHERE state LIKE 'Queued%'"),
+        );
     }
     if let Some(r) = m
         .row(
@@ -1316,13 +1883,20 @@ async fn redshift(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "queries_per_min",
-            "Consultas (último minuto)",
-            "Actividad",
-            U::Count,
-            f(&r, "n"),
-        ));
+        m.metric(
+            Metric::new(
+                "queries_per_min",
+                "Consultas (último minuto)",
+                "Actividad",
+                U::Count,
+                f(&r, "n"),
+            )
+            .help(
+                "Consultas que empezaron en el último minuto, según el historial de consultas. Sin ser \
+                 superusuario solo cuenta las tuyas.",
+            )
+            .source("stl_query: count(*) WHERE starttime > dateadd(minute, -1, getdate())"),
+        );
     }
     if let Some(r) = m
         .row(
@@ -1331,13 +1905,20 @@ async fn redshift(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "locks_waiting",
-            "Bloqueos en espera",
-            "Bloqueos",
-            U::Count,
-            f(&r, "n"),
-        ));
+        m.metric(
+            Metric::new(
+                "locks_waiting",
+                "Bloqueos en espera",
+                "Bloqueos",
+                U::Count,
+                f(&r, "n"),
+            )
+            .help(
+                "Pedidos de bloqueo que esperan a que otra transacción libere la tabla (Redshift bloquea \
+                 tablas enteras). Si duran, la tabla de bloqueos muestra qué transacción los retiene.",
+            )
+            .source("svv_transactions: count(*) WHERE NOT granted"),
+        );
     }
     if let Some(rows) = m
         .rows(
@@ -1347,7 +1928,18 @@ async fn redshift(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("storage_used", "Disco usado", "Almacenamiento", U::Bytes, sum(&rows, "used")).max(sum(&rows, "capacity")));
+        m.metric(
+            Metric::new("storage_used", "Disco usado", "Almacenamiento", U::Bytes, sum(&rows, "used"))
+                .max(sum(&rows, "capacity"))
+                .help(
+                    "Disco usado en todos los nodos de cómputo, frente a su capacidad, incluido el espacio \
+                     temporal de las consultas en curso. Cerca del tope, las consultas grandes fallan por disco \
+                     lleno.",
+                )
+                .source(
+                    "stv_partitions: sum(used) * 1 MB (max: sum(capacity) * 1 MB) WHERE part_begin = 0",
+                ),
+        );
         m.table("nodes", "Nodos y disco", &["Nodo", "Usado", "Capacidad"], &rows, &[1, 2]);
     }
     if let Some(rows) = m
@@ -1431,7 +2023,15 @@ async fn redshift_serverless(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("active_sessions", "Consultas ejecutándose", "Conexiones", U::Count, Some(rows.len() as f64)));
+        // Every running query, not only the ones the table keeps.
+        let running = m
+            .total(&rows, rows.len() as f64, "SELECT count(*) AS n FROM sys_query_history WHERE status = 'running'")
+            .await;
+        m.metric(
+            Metric::new("active_sessions", "Consultas ejecutándose", "Conexiones", U::Count, Some(running))
+                .help("Consultas ejecutándose ahora en el workgroup. Sin ser superusuario solo cuenta las tuyas.")
+                .source("sys_query_history: count(*) WHERE status = 'running'"),
+        );
         m.table("queries", "Consultas en curso", &["Consulta", "Usuario", "Inicio", "Duración (s)", "Texto"], &rows, &[]);
     }
     if let Some(r) = m
@@ -1439,14 +2039,25 @@ async fn redshift_serverless(m: &mut Mon<'_>) {
         .await
         .and_then(|r| r.into_iter().next())
     {
-        m.metric(Metric::new("rpu", "Capacidad (RPU)", "CPU", U::Count, f(&r, "compute_capacity")));
+        m.metric(
+            Metric::new("rpu", "Capacidad (RPU)", "CPU", U::Count, f(&r, "compute_capacity"))
+                .help(
+                    "Unidades de cómputo (RPU) asignadas al workgroup en el último intervalo registrado. Suben \
+                     cuando Redshift Serverless escala por la carga, y el costo sube con ellas.",
+                )
+                .source("sys_serverless_usage: compute_capacity (latest start_time)"),
+        );
     }
     if let Some(r) = m
         .quiet("SELECT count(*) AS n FROM sys_query_history WHERE start_time > dateadd(minute, -1, getdate())")
         .await
         .and_then(|r| r.into_iter().next())
     {
-        m.metric(Metric::new("queries_per_min", "Consultas (último minuto)", "Actividad", U::Count, f(&r, "n")));
+        m.metric(
+            Metric::new("queries_per_min", "Consultas (último minuto)", "Actividad", U::Count, f(&r, "n"))
+                .help("Consultas que empezaron en el último minuto. Sin ser superusuario solo cuenta las tuyas.")
+                .source("sys_query_history: count(*) WHERE start_time > dateadd(minute, -1, getdate())"),
+        );
     }
     redshift_tables(m).await;
     m.note("Redshift Serverless no expone por SQL el CPU ni la memoria: la capacidad (RPU) y el consumo están en CloudWatch.");
@@ -1470,13 +2081,17 @@ async fn denodo(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "connections",
-            "Sesiones",
-            "Conexiones",
-            U::Count,
-            Some(rows.len() as f64),
-        ));
+        m.metric(
+            Metric::new(
+                "connections",
+                "Sesiones",
+                "Conexiones",
+                U::Count,
+                Some(rows.len() as f64),
+            )
+            .help("Sesiones abiertas en el servidor de Denodo, de todos los clientes, incluida la del monitor.")
+            .source("GET_SESSIONS(): count(*)"),
+        );
         m.table_as_is("sessions", "Sesiones", &rows);
     }
     m.note("Denodo no expone por VQL el CPU, la memoria ni las consultas en curso: están en Denodo Monitor y por JMX.");
@@ -1500,13 +2115,19 @@ async fn yellowbrick(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "connections",
-            "Conexiones",
-            "Conexiones",
-            U::Count,
-            Some(rows.len() as f64),
-        ));
+        // Every session, not only the ones the table keeps.
+        let n = m
+            .total(
+                &rows,
+                rows.len() as f64,
+                "SELECT count(*) AS n FROM sys.session",
+            )
+            .await;
+        m.metric(
+            Metric::new("connections", "Conexiones", "Conexiones", U::Count, Some(n))
+                .help("Sesiones abiertas en el clúster, incluida la del monitor.")
+                .source("sys.session: count(*)"),
+        );
         m.table_as_is("sessions", "Sesiones", &rows);
     }
     if let Some(rows) = m
@@ -1516,13 +2137,21 @@ async fn yellowbrick(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "active_sessions",
-            "Consultas en curso",
-            "Conexiones",
-            U::Count,
-            Some(rows.len() as f64),
-        ));
+        let n = m
+            .total(
+                &rows,
+                rows.len() as f64,
+                "SELECT count(*) AS n FROM sys.query",
+            )
+            .await;
+        m.metric(
+            Metric::new("active_sessions", "Consultas en curso", "Conexiones", U::Count, Some(n))
+                .help(
+                    "Consultas que el clúster tiene en curso. Si crecen sin bajar, hay consultas largas o \
+                     encoladas: su estado está en la tabla de consultas.",
+                )
+                .source("sys.query: count(*)"),
+        );
         m.table_as_is("queries", "Consultas en curso", &rows);
     }
     if let Some(rows) = m
@@ -1535,13 +2164,17 @@ async fn yellowbrick(m: &mut Mon<'_>) {
         .quiet(&format!("SELECT * FROM sys.worker LIMIT {MAX_ROWS}"))
         .await
     {
-        m.metric(Metric::new(
-            "nodes",
-            "Workers",
-            "Cluster",
-            U::Count,
-            Some(rows.len() as f64),
-        ));
+        m.metric(
+            Metric::new(
+                "nodes",
+                "Workers",
+                "Cluster",
+                U::Count,
+                Some(rows.len() as f64),
+            )
+            .help("Workers (nodos de cómputo) del clúster.")
+            .source("sys.worker: count(*)"),
+        );
         m.table_as_is("nodes", "Workers", &rows);
     }
     m.note("Yellowbrick no expone por SQL el CPU ni la memoria de los workers: están en Yellowbrick Manager.");
@@ -1560,7 +2193,11 @@ async fn materialize(m: &mut Mon<'_>) {
     {
         m.info("Versión", cell(&r, "version").unwrap_or_default());
         m.info("Clúster de esta sesión", cell(&r, "cluster").unwrap_or_default());
-        m.metric(Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, f(&r, "uptime")));
+        m.metric(
+            Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, f(&r, "uptime"))
+                .help("Tiempo desde que arrancó el entorno de Materialize. Si vuelve a cero, se reinició.")
+                .source("mz_uptime()"),
+        );
     }
     let max_conn = m
         .quiet("SHOW max_connections")
@@ -1578,7 +2215,19 @@ async fn materialize(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("connections", "Conexiones", "Conexiones", U::Count, Some(rows.len() as f64)).max(max_conn));
+        // Every session, not only the ones the table keeps.
+        let n = m
+            .total(&rows, rows.len() as f64, "SELECT count(*) AS n FROM mz_internal.mz_sessions")
+            .await;
+        m.metric(
+            Metric::new("connections", "Conexiones", "Conexiones", U::Count, Some(n))
+                .max(max_conn)
+                .help(
+                    "Sesiones SQL abiertas, incluida la del monitor, frente a max_connections. Cerca del tope, \
+                     las conexiones nuevas se rechazan.",
+                )
+                .source("mz_internal.mz_sessions: count(*) (max: SHOW max_connections)"),
+        );
         m.table("sessions", "Sesiones", &["Conexión", "Usuario", "Cliente", "Desde", "Conectada (s)"], &rows, &[]);
     }
     if let Some(rows) = m
@@ -1597,10 +2246,42 @@ async fn materialize(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new("cpu", "CPU (réplica más cargada)", "CPU", U::Percent, max_of(&rows, "cpu")));
-        m.metric(Metric::new("mem_used", "Memoria de las réplicas", "Memoria", U::Bytes, sum(&rows, "memory_bytes")).max(sum(&rows, "mem_limit")));
-        m.metric(Metric::new("mem_percent", "Memoria (réplica más cargada)", "Memoria", U::Percent, max_of(&rows, "mem")));
-        m.metric(Metric::new("replicas", "Réplicas de clúster", "Cluster", U::Count, Some(rows.len() as f64)));
+        m.metric(
+            Metric::new("cpu", "CPU (réplica más cargada)", "CPU", U::Percent, max_of(&rows, "cpu"))
+                .help(
+                    "CPU de la réplica de clúster más cargada, como porcentaje de lo que le asigna su tamaño. \
+                     Sostenido cerca de 100 %, la réplica se atrasa: conviene un tamaño mayor.",
+                )
+                .source("mz_internal.mz_cluster_replica_utilization: max(cpu_percent)"),
+        );
+        m.metric(
+            Metric::new("mem_used", "Memoria de las réplicas", "Memoria", U::Bytes, sum(&rows, "memory_bytes"))
+                .max(sum(&rows, "mem_limit"))
+                .help("Memoria que usan todas las réplicas de clúster, sumada, frente a la que les asignan sus tamaños.")
+                .source(
+                    "mz_internal.mz_cluster_replica_metrics: sum(memory_bytes) \
+                     (max: sum(mz_catalog.mz_cluster_replica_sizes.memory_bytes))",
+                ),
+        );
+        m.metric(
+            Metric::new("mem_percent", "Memoria (réplica más cargada)", "Memoria", U::Percent, max_of(&rows, "mem"))
+                .help(
+                    "Memoria de la réplica de clúster más cargada, como porcentaje de la que le asigna su tamaño. \
+                     Cerca de 100 %, la réplica puede reiniciarse por falta de memoria.",
+                )
+                .source("mz_internal.mz_cluster_replica_utilization: max(memory_percent)"),
+        );
+        // One row per process of each replica: count the replicas.
+        let replicas = rows
+            .iter()
+            .map(|r| (cell(r, "cluster"), cell(r, "replica")))
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        m.metric(
+            Metric::new("replicas", "Réplicas de clúster", "Cluster", U::Count, Some(replicas as f64))
+                .help("Réplicas de clúster, las que hacen el cómputo, en todos los clústeres.")
+                .source("mz_catalog.mz_cluster_replicas: count(*)"),
+        );
         m.table(
             "nodes",
             "Clústeres y réplicas",
@@ -1628,13 +2309,30 @@ async fn materialize(m: &mut Mon<'_>) {
         ))
         .await
     {
-        m.metric(Metric::new(
-            "sources_failing",
-            "Fuentes y sinks con error",
-            "Streaming",
-            U::Count,
-            Some(rows.iter().filter(|r| matches!(cell(r, "status").as_deref(), Some("stalled" | "failed"))).count() as f64),
-        ));
+        // Every failing one, also past the rows the table keeps.
+        let listed = rows
+            .iter()
+            .filter(|r| matches!(cell(r, "status").as_deref(), Some("stalled" | "failed")))
+            .count() as f64;
+        let failing = m
+            .total(
+                &rows,
+                listed,
+                "SELECT count(*) AS n FROM (SELECT status FROM mz_internal.mz_source_statuses
+                 UNION ALL SELECT status FROM mz_internal.mz_sink_statuses) s WHERE status IN ('stalled', 'failed')",
+            )
+            .await;
+        m.metric(
+            Metric::new("sources_failing", "Fuentes y sinks con error", "Streaming", U::Count, Some(failing))
+                .help(
+                    "Fuentes y sinks en estado stalled o failed: dejaron de leer o de escribir datos. El error de \
+                     cada uno está en la tabla de fuentes.",
+                )
+                .source(
+                    "mz_internal.mz_source_statuses + mz_internal.mz_sink_statuses: count(*) \
+                     WHERE status IN ('stalled', 'failed')",
+                ),
+        );
         m.table("sources", "Fuentes y sinks", &["Nombre", "Tipo", "Estado", "Error"], &rows, &[]);
     }
     if let Some(rows) = m
@@ -1666,7 +2364,11 @@ async fn risingwave(m: &mut Mon<'_>) {
         .await
     {
         m.info("Versión", cell(&r, "version").unwrap_or_default());
-        m.metric(Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, f(&r, "uptime")));
+        m.metric(
+            Metric::new("uptime", "Tiempo activo", "Servidor", U::Seconds, f(&r, "uptime"))
+                .help("Tiempo desde que arrancó el servidor. Si vuelve a cero, se reinició.")
+                .source("now() - pg_postmaster_start_time()"),
+        );
     }
     if let Some(rows) = m
         .rows(
@@ -1681,20 +2383,22 @@ async fn risingwave(m: &mut Mon<'_>) {
             .iter()
             .filter(|r| cell(r, "type").as_deref() == Some("WORKER_TYPE_COMPUTE_NODE"))
             .count();
-        m.metric(Metric::new(
-            "nodes",
-            "Nodos",
-            "Cluster",
-            U::Count,
-            Some(rows.len() as f64),
-        ));
-        m.metric(Metric::new(
-            "compute_nodes",
-            "Nodos de cómputo",
-            "Cluster",
-            U::Count,
-            Some(compute as f64),
-        ));
+        m.metric(
+            Metric::new("nodes", "Nodos", "Cluster", U::Count, Some(rows.len() as f64))
+                .help("Nodos registrados en el clúster, de todos los tipos (frontend, cómputo, compactor…).")
+                .source("rw_catalog.rw_worker_nodes: count(*)"),
+        );
+        m.metric(
+            Metric::new(
+                "compute_nodes",
+                "Nodos de cómputo",
+                "Cluster",
+                U::Count,
+                Some(compute as f64),
+            )
+            .help("Nodos de cómputo: los que ejecutan los jobs de streaming y las consultas.")
+            .source("rw_catalog.rw_worker_nodes: count(*) WHERE type = 'WORKER_TYPE_COMPUTE_NODE'"),
+        );
         m.table(
             "nodes",
             "Nodos del clúster",
@@ -1721,13 +2425,17 @@ async fn risingwave(m: &mut Mon<'_>) {
         )
         .await
     {
-        m.metric(Metric::new(
-            "connections",
-            "Conexiones",
-            "Conexiones",
-            U::Count,
-            Some(rows.len() as f64),
-        ));
+        m.metric(
+            Metric::new(
+                "connections",
+                "Conexiones",
+                "Conexiones",
+                U::Count,
+                Some(rows.len() as f64),
+            )
+            .help("Sesiones SQL abiertas, incluida la del monitor.")
+            .source("SHOW PROCESSLIST: count(*)"),
+        );
         m.table_as_is("sessions", "Sesiones", &rows);
     }
     if let Some(rows) = m
@@ -1757,19 +2465,37 @@ async fn risingwave(m: &mut Mon<'_>) {
         .await
         .and_then(|r| r.into_iter().next())
     {
-        m.metric(Metric::new(
-            "storage_used",
-            "Estado almacenado",
-            "Almacenamiento",
-            U::Bytes,
-            f(&r, "bytes").or(Some(0.0)),
-        ));
+        m.metric(
+            Metric::new(
+                "storage_used",
+                "Estado almacenado",
+                "Almacenamiento",
+                U::Bytes,
+                f(&r, "bytes").or(Some(0.0)),
+            )
+            .help(
+                "Tamaño de las claves y valores que guardan las tablas, las vistas materializadas y el estado \
+                 interno de los jobs en el almacenamiento de RisingWave.",
+            )
+            .source("rw_catalog.rw_table_stats: sum(total_key_size + total_value_size)"),
+        );
     }
     if let Some(rows) = m
         .quiet(&format!("SELECT id, name, status, parallelism FROM rw_catalog.rw_streaming_jobs ORDER BY id LIMIT {MAX_ROWS}"))
         .await
     {
-        m.metric(Metric::new("streaming_jobs", "Jobs de streaming", "Streaming", U::Count, Some(rows.len() as f64)));
+        // Every job, not only the ones the table keeps.
+        let n = m
+            .total(&rows, rows.len() as f64, "SELECT count(*) AS n FROM rw_catalog.rw_streaming_jobs")
+            .await;
+        m.metric(
+            Metric::new("streaming_jobs", "Jobs de streaming", "Streaming", U::Count, Some(n))
+                .help(
+                    "Jobs de streaming del clúster: cada tabla, vista materializada, sink o índice que RisingWave \
+                     mantiene al día.",
+                )
+                .source("rw_catalog.rw_streaming_jobs: count(*)"),
+        );
         m.table("jobs", "Jobs de streaming", &["ID", "Nombre", "Estado", "Paralelismo"], &rows, &[]);
     }
     m.note("RisingWave no expone por SQL el uso de CPU ni de memoria de los nodos, ni el throughput: están en su dashboard y en Prometheus.");
@@ -1809,20 +2535,84 @@ async fn cratedb(m: &mut Mon<'_>) {
         // The OS figure when the node reports it (-1 in containers), else
         // the CrateDB process.
         let os_cpu: Vec<f64> = rows.iter().filter_map(|r| f(r, "os_cpu")).filter(|v| *v >= 0.0).collect();
-        let cpu = if os_cpu.is_empty() {
-            sum(&rows, "cpu").map(|c| c / n)
+        let (cpu, cpu_help, cpu_src) = if os_cpu.is_empty() {
+            (
+                sum(&rows, "cpu").map(|c| c / n),
+                "CPU que usa el proceso de CrateDB, promediado entre nodos, como porcentaje de todos los núcleos \
+                 de cada máquina (el sistema operativo no informa su CPU total).",
+                "sys.nodes: avg(process['cpu']['percent'])",
+            )
         } else {
-            Some(os_cpu.iter().sum::<f64>() / os_cpu.len() as f64)
+            (
+                Some(os_cpu.iter().sum::<f64>() / os_cpu.len() as f64),
+                "CPU en uso de las máquinas de los nodos, de todo el sistema y no solo de CrateDB, promediado \
+                 entre nodos: 100 % son todos los núcleos ocupados.",
+                "sys.nodes: avg(os['cpu']['used'])",
+            )
         };
-        m.metric(Metric::new("cpu", "CPU (promedio de nodos)", "CPU", U::Percent, cpu));
-        m.metric(Metric::new("load", "Carga (1 min, promedio)", "CPU", U::Count, sum(&rows, "load1").map(|l| l / n)));
-        m.metric(Metric::new("heap_used", "Heap de la JVM", "Memoria", U::Bytes, sum(&rows, "heap_used")).max(sum(&rows, "heap_max")));
+        m.metric(
+            Metric::new("cpu", "CPU (promedio de nodos)", "CPU", U::Percent, cpu)
+                .help(cpu_help)
+                .source(cpu_src),
+        );
+        m.metric(
+            Metric::new("load", "Carga (1 min, promedio)", "CPU", U::Count, sum(&rows, "load1").map(|l| l / n))
+                .help(
+                    "Carga del sistema operativo en el último minuto, promediada entre nodos. Si supera los \
+                     núcleos de cada máquina, hay procesos esperando CPU.",
+                )
+                .source("sys.nodes: avg(load['1'])"),
+        );
+        m.metric(
+            Metric::new("heap_used", "Heap de la JVM", "Memoria", U::Bytes, sum(&rows, "heap_used"))
+                .max(sum(&rows, "heap_max"))
+                .help(
+                    "Heap de la JVM en uso, sumado entre nodos, frente al máximo. Si se mantiene cerca del tope, \
+                     la JVM pasa más tiempo liberando memoria y los circuit breakers empiezan a rechazar consultas.",
+                )
+                .source("sys.nodes: sum(heap['used']) (max: sum(heap['max']))"),
+        );
         let total = add(sum(&rows, "mem_used"), sum(&rows, "mem_free"));
-        m.metric(Metric::new("mem_used", "Memoria de los hosts", "Memoria", U::Bytes, sum(&rows, "mem_used")).max(total));
-        m.metric(Metric::new("connections", "Conexiones", "Conexiones", U::Count, sum(&rows, "conns")));
-        m.metric(Metric::new("disk_read", "Lectura de disco", "Disco", U::Bytes, sum(&rows, "disk_read")).counter());
-        m.metric(Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, sum(&rows, "disk_write")).counter());
-        m.metric(Metric::new("storage_used", "Disco usado (sistema de archivos)", "Almacenamiento", U::Bytes, sum(&rows, "fs_used")).max(sum(&rows, "fs_size")));
+        m.metric(
+            Metric::new("mem_used", "Memoria de los hosts", "Memoria", U::Bytes, sum(&rows, "mem_used"))
+                .max(total)
+                .help("Memoria en uso de las máquinas de los nodos, de todos sus procesos, sumada entre nodos.")
+                .source("sys.nodes: sum(mem['used']) (max: sum(mem['used'] + mem['free']))"),
+        );
+        m.metric(
+            Metric::new("connections", "Conexiones", "Conexiones", U::Count, sum(&rows, "conns"))
+                .help("Conexiones abiertas por el protocolo de PostgreSQL y por HTTP, sumadas entre nodos.")
+                .source("sys.nodes: sum(connections['psql']['open'] + connections['http']['open'])"),
+        );
+        // A node without per-disk statistics reports -1: left out, so it
+        // doesn't turn the sum into a constant that reads as no I/O.
+        let reported = |c: &str| {
+            rows.iter()
+                .filter_map(|r| f(r, c))
+                .filter(|v| *v >= 0.0)
+                .fold(None, |acc, v| Some(acc.unwrap_or(0.0) + v))
+        };
+        m.metric(
+            Metric::new("disk_read", "Lectura de disco", "Disco", U::Bytes, reported("disk_read"))
+                .counter()
+                .help("Bytes leídos de los discos de datos de los nodos, sumados entre nodos.")
+                .source("sys.nodes: sum(fs['total']['bytes_read']), nodes reporting -1 left out"),
+        );
+        m.metric(
+            Metric::new("disk_write", "Escritura en disco", "Disco", U::Bytes, reported("disk_write"))
+                .counter()
+                .help("Bytes escritos en los discos de datos de los nodos, sumados entre nodos.")
+                .source("sys.nodes: sum(fs['total']['bytes_written']), nodes reporting -1 left out"),
+        );
+        m.metric(
+            Metric::new("storage_used", "Disco usado (sistema de archivos)", "Almacenamiento", U::Bytes, sum(&rows, "fs_used"))
+                .max(sum(&rows, "fs_size"))
+                .help(
+                    "Espacio usado en los discos de datos de los nodos, por cualquier proceso, frente a su \
+                     tamaño. Al 95 % de un disco, CrateDB pone en solo lectura las tablas con shards en ese nodo.",
+                )
+                .source("sys.nodes: sum(fs['total']['used']) (max: sum(fs['total']['size']))"),
+        );
         m.table(
             "nodes",
             "Nodos del clúster",
@@ -1849,7 +2639,9 @@ async fn cratedb(m: &mut Mon<'_>) {
                 U::Count,
                 f(&r, "total"),
             )
-            .counter(),
+            .counter()
+            .help("Sentencias terminadas en todos los nodos, de cualquier tipo, incluidas las del monitor.")
+            .source("sys.jobs_metrics: sum(total_count)"),
         );
         m.metric(
             Metric::new(
@@ -1859,7 +2651,9 @@ async fn cratedb(m: &mut Mon<'_>) {
                 U::Count,
                 f(&r, "failed"),
             )
-            .counter(),
+            .counter()
+            .help("Sentencias que terminaron con error, en todos los nodos.")
+            .source("sys.jobs_metrics: sum(failed_count)"),
         );
     }
     if let Some(rows) = m
@@ -1869,8 +2663,16 @@ async fn cratedb(m: &mut Mon<'_>) {
         )
         .await
     {
-        // This very query is one of them.
-        m.metric(Metric::new("active_sessions", "Consultas en curso", "Conexiones", U::Count, Some(rows.len().saturating_sub(1) as f64)));
+        // Every job, not only the ones the table keeps; the count itself
+        // is one of them.
+        let n = m
+            .total(&rows, rows.len() as f64, "SELECT count(*) AS n FROM sys.jobs")
+            .await;
+        m.metric(
+            Metric::new("active_sessions", "Consultas en curso", "Conexiones", U::Count, Some((n - 1.0).max(0.0)))
+                .help("Sentencias ejecutándose ahora en el clúster, sin contar la del monitor.")
+                .source("sys.jobs: count(*) - 1"),
+        );
         m.table("queries", "Consultas en curso", &["Job", "Usuario", "Nodo", "Inicio", "Consulta"], &rows, &[]);
     }
     if let Some(rows) = m
@@ -1888,13 +2690,17 @@ async fn cratedb(m: &mut Mon<'_>) {
         .await
         .and_then(|r| r.into_iter().next())
     {
-        m.metric(Metric::new(
-            "data_size",
-            "Datos (shards primarios)",
-            "Almacenamiento",
-            U::Bytes,
-            f(&r, "bytes").or(Some(0.0)),
-        ));
+        m.metric(
+            Metric::new(
+                "data_size",
+                "Datos (shards primarios)",
+                "Almacenamiento",
+                U::Bytes,
+                f(&r, "bytes").or(Some(0.0)),
+            )
+            .help("Tamaño en disco de los shards primarios de todas las tablas, sin contar las réplicas.")
+            .source("sys.shards: sum(size) WHERE primary"),
+        );
     }
     if let Some(rows) = m
         .quiet(&format!(
@@ -1903,20 +2709,35 @@ async fn cratedb(m: &mut Mon<'_>) {
         ))
         .await
     {
-        m.metric(Metric::new(
-            "underreplicated_shards",
-            "Shards sub-replicados",
-            "Cluster",
-            U::Count,
-            sum(&rows, "underreplicated_shards").or(Some(0.0)),
-        ));
-        m.metric(Metric::new(
-            "missing_shards",
-            "Shards faltantes",
-            "Cluster",
-            U::Count,
-            sum(&rows, "missing_shards").or(Some(0.0)),
-        ));
+        // The unhealthy tables come first, so the rows kept hold them all.
+        m.metric(
+            Metric::new(
+                "underreplicated_shards",
+                "Shards sub-replicados",
+                "Cluster",
+                U::Count,
+                sum(&rows, "underreplicated_shards").or(Some(0.0)),
+            )
+            .help(
+                "Réplicas de shards que todavía no están asignadas o sincronizadas. Los datos siguen disponibles, \
+                 pero con menos copias que las configuradas.",
+            )
+            .source("sys.health: sum(underreplicated_shards)"),
+        );
+        m.metric(
+            Metric::new(
+                "missing_shards",
+                "Shards faltantes",
+                "Cluster",
+                U::Count,
+                sum(&rows, "missing_shards").or(Some(0.0)),
+            )
+            .help(
+                "Shards primarios sin asignar: sus datos no están disponibles. Mayor que cero es una pérdida de \
+                 disponibilidad.",
+            )
+            .source("sys.health: sum(missing_shards)"),
+        );
         m.table(
             "health",
             "Salud de las tablas",
@@ -1972,25 +2793,67 @@ async fn h2(m: &mut Mon<'_>) {
         let used = f(&r, "used").map(|k| k * 1024.0);
         m.metric(
             Metric::new("mem_used", "Memoria de la JVM", "Memoria", U::Bytes, used)
-                .max(add(used, f(&r, "free").map(|k| k * 1024.0))),
+                .max(add(used, f(&r, "free").map(|k| k * 1024.0)))
+                .help(
+                    "Heap de la JVM que corre H2 en uso, frente al que tiene reservado ahora (puede crecer hasta \
+                     el máximo de la JVM, -Xmx).",
+                )
+                .source("MEMORY_USED() (max: MEMORY_USED() + MEMORY_FREE()), in KB"),
         );
     }
     if let Some(rows) = m
         .rows(
             "SELECT setting_name, setting_value FROM information_schema.settings
-             WHERE setting_name IN ('info.PAGE_COUNT', 'info.PAGE_SIZE', 'info.CACHE_SIZE', 'info.CACHE_MAX_SIZE',
-                                    'info.FILE_READ', 'info.FILE_WRITE', 'MODE', 'CACHE_SIZE')",
+             WHERE setting_name IN ('info.FILE_SIZE', 'info.PAGE_COUNT', 'info.PAGE_SIZE', 'info.CACHE_SIZE',
+                                    'info.CACHE_MAX_SIZE', 'info.FILE_READ', 'info.FILE_WRITE', 'MODE', 'CACHE_SIZE')",
             "No se pudieron leer los parámetros (information_schema.settings)",
         )
         .await
     {
         let g = |n: &str| rows.iter().find(|r| cell(r, "setting_name").as_deref() == Some(n)).and_then(|r| f(r, "setting_value"));
-        let pages = g("info.PAGE_COUNT").zip(g("info.PAGE_SIZE")).map(|(c, s)| c * s);
-        m.metric(Metric::new("storage_used", "Tamaño de la base", "Almacenamiento", U::Bytes, pages));
-        // CACHE_SIZE / CACHE_MAX_SIZE are in KB.
-        m.metric(Metric::new("mem_cache", "Caché de páginas", "Memoria", U::Bytes, g("info.CACHE_SIZE").map(|k| k * 1024.0)).max(g("info.CACHE_MAX_SIZE").map(|k| k * 1024.0)));
-        m.metric(Metric::new("disk_read", "Lecturas del archivo", "Disco", U::Count, g("info.FILE_READ")).counter());
-        m.metric(Metric::new("disk_write", "Escrituras del archivo", "Disco", U::Count, g("info.FILE_WRITE")).counter());
+        // The file's size (H2 2.x). PAGE_COUNT × PAGE_SIZE is the file only
+        // on the old page store: on MVStore it counts B-tree pages times the
+        // page split size, many times the file.
+        let (size, size_src) = match g("info.FILE_SIZE") {
+            Some(b) => (Some(b), "information_schema.settings: info.FILE_SIZE"),
+            None => (
+                g("info.PAGE_COUNT").zip(g("info.PAGE_SIZE")).map(|(c, s)| c * s),
+                "information_schema.settings: info.PAGE_COUNT * info.PAGE_SIZE",
+            ),
+        };
+        m.metric(
+            Metric::new("storage_used", "Tamaño de la base", "Almacenamiento", U::Bytes, size)
+                .help("Tamaño en disco del archivo de la base.")
+                .source(size_src),
+        );
+        // The store's cache: in MB on MVStore (the one with FILE_SIZE), in KB
+        // on the old page store, like the CACHE_SIZE setting.
+        let (cache_unit, cache_src) = if g("info.FILE_SIZE").is_some() {
+            (1048576.0, "information_schema.settings: info.CACHE_SIZE (max: info.CACHE_MAX_SIZE), in MB")
+        } else {
+            (1024.0, "information_schema.settings: info.CACHE_SIZE (max: info.CACHE_MAX_SIZE), in KB")
+        };
+        m.metric(
+            Metric::new("mem_cache", "Caché de páginas", "Memoria", U::Bytes, g("info.CACHE_SIZE").map(|c| c * cache_unit))
+                .max(g("info.CACHE_MAX_SIZE").map(|c| c * cache_unit))
+                .help(
+                    "Memoria que ocupa el caché de páginas, frente a su máximo (CACHE_SIZE). Si está siempre lleno \
+                     y las lecturas del archivo crecen, el caché es chico para la base.",
+                )
+                .source(cache_src),
+        );
+        m.metric(
+            Metric::new("disk_read", "Lecturas del archivo", "Disco", U::Count, g("info.FILE_READ"))
+                .counter()
+                .help("Lecturas del archivo de la base (operaciones, no bytes), desde que se abrió.")
+                .source("information_schema.settings: info.FILE_READ"),
+        );
+        m.metric(
+            Metric::new("disk_write", "Escrituras del archivo", "Disco", U::Count, g("info.FILE_WRITE"))
+                .counter()
+                .help("Escrituras en el archivo de la base (operaciones, no bytes), desde que se abrió.")
+                .source("information_schema.settings: info.FILE_WRITE"),
+        );
         if let Some(mode) = rows.iter().find(|r| cell(r, "setting_name").as_deref() == Some("MODE")).and_then(|r| cell(r, "setting_value")) {
             m.info("Modo de compatibilidad", mode);
         }
@@ -2007,12 +2870,50 @@ async fn h2(m: &mut Mon<'_>) {
         )
         .await
     {
-        let active = rows.iter().filter(|r| cell(r, "state").as_deref() == Some("activa")).count();
-        let blocked = rows.iter().filter(|r| cell(r, "blocker_id").is_some()).count();
-        m.metric(Metric::new("connections", "Sesiones", "Conexiones", U::Count, Some(rows.len() as f64)));
-        // This very query is one of them.
-        m.metric(Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, Some(active.saturating_sub(1) as f64)));
-        m.metric(Metric::new("locks_waiting", "Sesiones bloqueadas", "Bloqueos", U::Count, Some(blocked as f64)));
+        // From the listing when it came back whole; past its limit, a query
+        // counts every session (else, the listing again). Either query is
+        // one of the active ones.
+        let totals = if rows.len() < MAX_ROWS {
+            None
+        } else {
+            m.quiet(
+                "SELECT count(*) AS n, sum(CASE WHEN executing_statement IS NULL THEN 0 ELSE 1 END) AS active,
+                        count(blocker_id) AS blocked
+                 FROM information_schema.sessions",
+            )
+            .await
+            .and_then(|r| r.into_iter().next())
+        };
+        let total = |col: &str| totals.as_ref().and_then(|r| f(r, col));
+        let sessions = total("n").unwrap_or(rows.len() as f64);
+        let active = total("active").unwrap_or_else(|| {
+            rows.iter()
+                .filter(|r| cell(r, "state").as_deref() == Some("activa"))
+                .count() as f64
+        });
+        let blocked = total("blocked").unwrap_or_else(|| {
+            rows.iter()
+                .filter(|r| cell(r, "blocker_id").is_some())
+                .count() as f64
+        });
+        m.metric(
+            Metric::new("connections", "Sesiones", "Conexiones", U::Count, Some(sessions))
+                .help("Sesiones abiertas en la base, incluida la del monitor.")
+                .source("information_schema.sessions: count(*)"),
+        );
+        m.metric(
+            Metric::new("active_sessions", "Sesiones activas", "Conexiones", U::Count, Some((active - 1.0).max(0.0)))
+                .help("Sesiones ejecutando una sentencia ahora, sin contar la del monitor.")
+                .source("information_schema.sessions: count(*) WHERE executing_statement IS NOT NULL"),
+        );
+        m.metric(
+            Metric::new("locks_waiting", "Sesiones bloqueadas", "Bloqueos", U::Count, Some(blocked))
+                .help(
+                    "Sesiones esperando un bloqueo que tiene otra. Si no bajan, la tabla de sesiones muestra quién \
+                     las bloquea.",
+                )
+                .source("information_schema.sessions: count(*) WHERE blocker_id IS NOT NULL"),
+        );
         m.table(
             "sessions",
             "Sesiones",
@@ -2087,6 +2988,45 @@ mod tests {
             "permission denied for view x"
         );
         assert_eq!(reason("se cerró la conexión"), "se cerró la conexión");
+    }
+
+    /// Every figure says what it measures and where it comes from. The
+    /// snapshots need a server, so this reads the code that builds them:
+    /// each `Metric::new(…)` statement, in every variant's branch, carries a
+    /// non-empty `.help(…)` and `.source(…)`.
+    #[test]
+    fn every_metric_has_help_and_source() {
+        let src = include_str!("monitor.rs");
+        let code = &src[..src
+            .find("\n#[cfg(test)]\nmod tests")
+            .expect("the test module")];
+        let mut keys = Vec::new();
+        for chunk in code.split("Metric::new(").skip(1) {
+            // The statement ends at the first `;` (no help or source has one).
+            let stmt = &chunk[..chunk.find(';').expect("end of the statement")];
+            let key = stmt.split('"').nth(1).expect("the metric's key");
+            for call in [".help(", ".source("] {
+                let at = stmt
+                    .find(call)
+                    .unwrap_or_else(|| panic!("{key}: no {call}…)"));
+                let arg = stmt[at + call.len()..].trim_start();
+                assert!(
+                    !arg.starts_with("\"\"") && !arg.starts_with(')'),
+                    "{key}: empty {call}…)"
+                );
+            }
+            keys.push(key);
+        }
+        assert!(keys.len() >= 100, "only {} metrics found", keys.len());
+    }
+
+    #[test]
+    fn caveats_go_on_their_own_line() {
+        assert_eq!(with_caveat("Mide x.", None), "Mide x.");
+        assert_eq!(
+            with_caveat("Mide x.", Some("Solo de este nodo.")),
+            "Mide x.\nSolo de este nodo."
+        );
     }
 
     #[test]

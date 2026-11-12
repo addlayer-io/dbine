@@ -426,6 +426,13 @@ async fn monitor(driver: &str, url: &str) {
         eprintln!("table {} rows={}", t.key, t.rows.len());
     }
     eprintln!("info {:?}\nnotes {:?}", snap.info, snap.notes);
+    for m in &snap.metrics {
+        assert!(
+            m.help.is_some() && m.source.is_some(),
+            "{driver}: {}",
+            m.key
+        );
+    }
     let has = |k: &str| snap.metrics.iter().any(|m| m.key == k && m.value.is_some());
     for k in [
         "cpu_time",

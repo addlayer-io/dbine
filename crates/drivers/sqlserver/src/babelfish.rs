@@ -5,7 +5,7 @@
 //! monitor reads that; plans come as PostgreSQL's text EXPLAIN through
 //! `SET BABELFISH_SHOWPLAN_ALL` / `BABELFISH_STATISTICS PROFILE`.
 
-use crate::monitor::{f, table, Gaps};
+use crate::monitor::{at, f, nums, row_nums, table, Gaps, Nums};
 use crate::{text, SqlServerSession};
 use dbine_driver::monitor::{Metric, MetricUnit as U, MonitorSnapshot};
 use dbine_driver::{Plan, PlanNode, Result};
@@ -171,7 +171,7 @@ fn node(line: &str) -> PlanNode {
 // ---------------------------------------------------------------- monitor
 
 const VERSION: &str = "SELECT CAST(@@VERSION AS varchar(4000)),
-       CAST(DATEDIFF(SECOND, pg_postmaster_start_time(), GETDATE()) AS float),
+       CAST(DATEDIFF(SECOND, CAST(pg_postmaster_start_time() AS datetime2), SYSDATETIME()) AS float),
        (SELECT CAST(setting AS float) FROM pg_catalog.pg_settings WHERE name = 'max_connections'),
        (SELECT CAST(setting AS float) FROM pg_catalog.pg_settings WHERE name = 'shared_buffers'),
        (SELECT CAST(setting AS varchar(100)) FROM pg_catalog.pg_settings WHERE name = 'TimeZone'),
@@ -201,7 +201,7 @@ const STORAGE: &str =
     "SELECT CAST(SUM(pg_database_size(datname)) AS float) FROM pg_catalog.pg_database";
 
 const SESSIONS: &str = "SELECT TOP (200) pid, usename, datname, CAST(client_addr AS varchar(64)), application_name, state,
-       CAST(DATEDIFF(SECOND, COALESCE(query_start, backend_start), GETDATE()) AS float),
+       CAST(DATEDIFF(SECOND, CAST(COALESCE(query_start, backend_start) AS datetime2), SYSDATETIME()) AS float),
        CAST(wait_event_type AS varchar(64)) + ': ' + CAST(wait_event AS varchar(64)),
        LEFT(query, 2000)
   FROM pg_catalog.pg_stat_activity
@@ -221,7 +221,7 @@ const SESSION_COLS: &[&str] = &[
 ];
 
 const QUERIES: &str = "SELECT TOP (200) pid, usename, datname, state,
-       CAST(DATEDIFF(SECOND, query_start, GETDATE()) AS float),
+       CAST(DATEDIFF(SECOND, CAST(query_start AS datetime2), SYSDATETIME()) AS float),
        CAST(wait_event_type AS varchar(64)) + ': ' + CAST(wait_event AS varchar(64)),
        CAST(pg_blocking_pids(pid) AS varchar(200)), LEFT(query, 2000)
   FROM pg_catalog.pg_stat_activity
@@ -241,7 +241,7 @@ const QUERY_COLS: &[&str] = &[
 
 const WAITING_LOCKS: &str =
     "SELECT TOP (200) l.pid, CAST(pg_blocking_pids(l.pid) AS varchar(200)), l.locktype, l.mode,
-       c.relname, CAST(DATEDIFF(SECOND, a.query_start, GETDATE()) AS float), LEFT(a.query, 2000)
+       c.relname, CAST(DATEDIFF(SECOND, CAST(a.query_start AS datetime2), SYSDATETIME()) AS float), LEFT(a.query, 2000)
   FROM pg_catalog.pg_locks l
   LEFT JOIN pg_catalog.pg_class c ON c.oid = l.relation
   LEFT JOIN pg_catalog.pg_stat_activity a ON a.pid = l.pid
@@ -328,154 +328,30 @@ pub async fn monitor(s: &mut SqlServerSession) -> Result<MonitorSnapshot> {
             snap.info.push(("Base actual".into(), db));
         }
     }
-    let act = first(s.probe("las sesiones", ACTIVITY, &mut gaps).await);
-    let st = first(
+    let activity = nums(s.probe("las sesiones", ACTIVITY, &mut gaps).await);
+    let stats = nums(
         s.probe("las estadísticas de las bases", DATABASE_STATS, &mut gaps)
             .await,
     );
-    let io = first(s.probe("la E/S (pg_stat_io)", IO, &mut gaps).await);
-    let locks = first(s.probe("los bloqueos", LOCKS, &mut gaps).await);
+    let io = nums(s.probe("la E/S (pg_stat_io)", IO, &mut gaps).await);
+    let locks = nums(s.probe("los bloqueos", LOCKS, &mut gaps).await);
     let storage =
         first(s.probe("el tamaño de las bases", STORAGE, &mut gaps).await).and_then(|r| f(&r, 0));
-
-    let m = &mut snap.metrics;
-    let at = |r: &Option<tiberius::Row>, i| r.as_ref().and_then(|r| f(r, i));
-    // shared_buffers is in 8 kB pages.
-    m.push(Metric::new(
-        "mem_cache",
-        "Buffers compartidos (shared_buffers)",
-        "Memoria",
-        U::Bytes,
-        at(&v, 3).map(|p| p * 8192.0),
-    ));
-    m.push(
-        Metric::new(
-            "connections",
-            "Conexiones",
-            "Conexiones",
-            U::Count,
-            at(&act, 0),
-        )
-        .max(max_conn),
-    );
-    m.push(Metric::new(
-        "active_sessions",
-        "Sesiones activas",
-        "Conexiones",
-        U::Count,
-        at(&act, 1),
-    ));
-    m.push(
-        Metric::new(
-            "transactions",
-            "Transacciones",
-            "Actividad",
-            U::Count,
-            at(&st, 0),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "rows_read",
-            "Filas leídas",
-            "Actividad",
-            U::Count,
-            at(&st, 3),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "rows_written",
-            "Filas escritas",
-            "Actividad",
-            U::Count,
-            at(&st, 4),
-        )
-        .counter(),
-    );
-    let hit = match (at(&st, 1), at(&st, 2)) {
-        (Some(h), Some(r)) if h + r > 0.0 => Some(h / (h + r) * 100.0),
-        _ => None,
-    };
-    m.push(
-        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit).max(Some(100.0)),
-    );
-    let disk_read = at(&io, 0).or(at(&st, 2).map(|b| b * 8192.0));
-    m.push(
-        Metric::new(
-            "disk_read",
-            "Lectura en disco",
-            "Disco",
-            U::Bytes,
-            disk_read,
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "disk_write",
-            "Escritura en disco",
-            "Disco",
-            U::Bytes,
-            at(&io, 1),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "temp_bytes",
-            "Archivos temporales",
-            "Disco",
-            U::Bytes,
-            at(&st, 6),
-        )
-        .counter(),
-    );
-    m.push(Metric::new(
-        "storage_used",
-        "Espacio usado",
-        "Almacenamiento",
-        U::Bytes,
-        storage,
-    ));
-    m.push(Metric::new(
-        "locks_waiting",
-        "Bloqueos en espera",
-        "Bloqueos",
-        U::Count,
-        at(&locks, 1),
-    ));
-    m.push(Metric::new(
-        "locks_held",
-        "Bloqueos retenidos",
-        "Bloqueos",
-        U::Count,
-        at(&locks, 0),
-    ));
-    m.push(Metric::new("deadlocks", "Deadlocks", "Bloqueos", U::Count, at(&st, 5)).counter());
-    m.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        U::Seconds,
-        at(&v, 1),
-    ));
-
     let repl = s.probe("la replicación", REPLICATION, &mut gaps).await;
     let lag = repl.as_ref().and_then(|rows| {
         rows.iter()
             .filter_map(|r| text(r, 4).and_then(|t| interval_secs(&t)))
             .reduce(f64::max)
     });
-    snap.metrics.push(Metric::new(
-        "replication_lag",
-        "Retraso de réplica",
-        "Replicación",
-        U::Seconds,
+    snap.metrics = metrics(&Readings {
+        version: v.as_ref().map(row_nums),
+        activity,
+        stats,
+        io,
+        locks,
+        storage,
         lag,
-    ));
+    });
 
     let tables = [
         table(
@@ -546,6 +422,181 @@ pub async fn monitor(s: &mut SqlServerSession) -> Result<MonitorSnapshot> {
     snap.notes
         .extend(gaps.into_notes("pg_read_all_stats (o pg_monitor)"));
     Ok(snap)
+}
+
+/// What [`monitor`] reads, as plain numbers.
+#[derive(Default)]
+struct Readings {
+    /// The version row: uptime (s) at 1, max_connections at 2,
+    /// shared_buffers (8 kB pages) at 3.
+    version: Nums,
+    /// Client backends, non-idle ones.
+    activity: Nums,
+    /// pg_stat_database sums: transactions, blks_hit, blks_read, rows read,
+    /// rows written, deadlocks, temp_bytes.
+    stats: Nums,
+    /// pg_stat_io: bytes read, written.
+    io: Nums,
+    /// pg_locks: all, not granted.
+    locks: Nums,
+    /// Every database, bytes.
+    storage: Option<f64>,
+    /// The largest replay_lag, seconds.
+    lag: Option<f64>,
+}
+
+/// The headline figures, in display order, each with what it measures and
+/// where it comes from.
+fn metrics(r: &Readings) -> Vec<Metric> {
+    let hit = match (at(&r.stats, 1), at(&r.stats, 2)) {
+        (Some(h), Some(read)) if h + read > 0.0 => Some(h / (h + read) * 100.0),
+        _ => None,
+    };
+    let disk_read = at(&r.io, 0).or(at(&r.stats, 2).map(|b| b * 8192.0));
+    vec![
+        // shared_buffers is in 8 kB pages.
+        Metric::new(
+            "mem_cache",
+            "Buffers compartidos (shared_buffers)",
+            "Memoria",
+            U::Bytes,
+            at(&r.version, 3).map(|p| p * 8192.0),
+        )
+        .help("Tamaño configurado de la caché de datos compartida de PostgreSQL. Es fijo hasta reiniciar: no dice cuánto está en uso.")
+        .source("pg_settings: shared_buffers × 8 kB"),
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            at(&r.activity, 0),
+        )
+        .max(at(&r.version, 2))
+        .help("Conexiones de clientes abiertas, por T-SQL o por PostgreSQL. El máximo es max_connections, del que PostgreSQL reserva algunas para superusuarios.")
+        .source("pg_stat_activity: COUNT(*) WHERE backend_type = 'client backend'"),
+        Metric::new(
+            "active_sessions",
+            "Sesiones activas",
+            "Conexiones",
+            U::Count,
+            at(&r.activity, 1),
+        )
+        .help("Conexiones que no están ociosas: ejecutando una consulta o con una transacción abierta (idle in transaction), sin contar la de DBine.")
+        .source("pg_stat_activity: COUNT WHERE state <> 'idle' (client backends, without DBine's own)"),
+        Metric::new(
+            "transactions",
+            "Transacciones",
+            "Actividad",
+            U::Count,
+            at(&r.stats, 0),
+        )
+        .counter()
+        .help("Transacciones confirmadas o revertidas en todas las bases del servidor PostgreSQL.")
+        .source("pg_stat_database: SUM(xact_commit + xact_rollback)"),
+        Metric::new(
+            "rows_read",
+            "Filas leídas",
+            "Actividad",
+            U::Count,
+            at(&r.stats, 3),
+        )
+        .counter()
+        .help("Filas que devolvieron los recorridos de tablas e índices. Un salto sin más consultas suele indicar recorridos completos de tablas grandes.")
+        .source("pg_stat_database: SUM(tup_returned + tup_fetched)"),
+        Metric::new(
+            "rows_written",
+            "Filas escritas",
+            "Actividad",
+            U::Count,
+            at(&r.stats, 4),
+        )
+        .counter()
+        .help("Filas insertadas, actualizadas o borradas en todas las bases.")
+        .source("pg_stat_database: SUM(tup_inserted + tup_updated + tup_deleted)"),
+        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit)
+            .max(Some(100.0))
+            .help("Porcentaje de bloques encontrados en shared_buffers sin pedirlos al sistema operativo, acumulado desde el último reinicio de las estadísticas, así que cambia despacio. Lo que no se encuentra puede salir igual de la caché del sistema operativo.")
+            .source("pg_stat_database: SUM(blks_hit) / SUM(blks_hit + blks_read) × 100"),
+        Metric::new(
+            "disk_read",
+            "Lectura en disco",
+            "Disco",
+            U::Bytes,
+            disk_read,
+        )
+        .counter()
+        .help("Bytes que PostgreSQL leyó fuera de shared_buffers, del disco o de la caché del sistema operativo.")
+        .source("pg_stat_io: SUM(reads × op_bytes) (PostgreSQL 16+); else pg_stat_database: SUM(blks_read) × 8 kB"),
+        Metric::new(
+            "disk_write",
+            "Escritura en disco",
+            "Disco",
+            U::Bytes,
+            at(&r.io, 1),
+        )
+        .counter()
+        .help("Bytes que PostgreSQL escribió desde sus buffers a los archivos de las tablas e índices (también las tablas temporales), sin el WAL ni los archivos temporales de ordenamientos. Necesita PostgreSQL 16 o posterior.")
+        .source("pg_stat_io: SUM(writes × op_bytes)"),
+        Metric::new(
+            "temp_bytes",
+            "Archivos temporales",
+            "Disco",
+            U::Bytes,
+            at(&r.stats, 6),
+        )
+        .counter()
+        .help("Bytes que las consultas volcaron a archivos temporales porque un ordenamiento o un hash no entró en work_mem. Si crece seguido, revisá esas consultas o subí work_mem.")
+        .source("pg_stat_database: SUM(temp_bytes)"),
+        Metric::new(
+            "storage_used",
+            "Espacio usado",
+            "Almacenamiento",
+            U::Bytes,
+            r.storage,
+        )
+        .help("Tamaño en disco de todas las bases del servidor PostgreSQL, incluida la que guarda las bases T-SQL de Babelfish.")
+        .source("SUM(pg_database_size(datname)) FROM pg_database"),
+        Metric::new(
+            "locks_waiting",
+            "Bloqueos en espera",
+            "Bloqueos",
+            U::Count,
+            at(&r.locks, 1),
+        )
+        .help("Pedidos de bloqueo que todavía no se concedieron porque otra sesión tiene el recurso. Si se mantienen, la tabla de bloqueos muestra quién los retiene.")
+        .source("pg_locks: COUNT WHERE NOT granted"),
+        Metric::new(
+            "locks_held",
+            "Bloqueos retenidos",
+            "Bloqueos",
+            U::Count,
+            at(&r.locks, 0),
+        )
+        .help("Bloqueos en pg_locks, concedidos o en espera, incluidos los de lectura (AccessShareLock) que toma cada consulta y el que cada transacción tiene sobre sí misma.")
+        .source("pg_locks: COUNT(*)"),
+        Metric::new("deadlocks", "Deadlocks", "Bloqueos", U::Count, at(&r.stats, 5))
+            .counter()
+            .help("Deadlocks que PostgreSQL detectó y resolvió cancelando una de las transacciones. Si aparecen seguido, hay transacciones que toman los mismos recursos en distinto orden.")
+            .source("pg_stat_database: SUM(deadlocks)"),
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            U::Seconds,
+            at(&r.version, 1),
+        )
+        .help("Tiempo desde que arrancó el servidor PostgreSQL de Babelfish.")
+        .source("DATEDIFF(SECOND, CAST(pg_postmaster_start_time() AS datetime2), SYSDATETIME())"),
+        Metric::new(
+            "replication_lag",
+            "Retraso de réplica",
+            "Replicación",
+            U::Seconds,
+            r.lag,
+        )
+        .help("Mayor retraso de las réplicas en streaming para aplicar lo que escribió el primario. Se ve desde el primario; vacío sin réplicas o cuando están al día y no hay escrituras.")
+        .source("pg_stat_replication: MAX(replay_lag)"),
+    ]
 }
 
 /// `00:00:01.5` or `1 day 02:00:00` (a PostgreSQL interval as text) in seconds.
@@ -642,5 +693,14 @@ Babelfish T-SQL Batch Parsing Time: 77.512 ms
         assert_eq!(interval_secs("1 day 00:01:00"), Some(86_460.0));
         assert_eq!(interval_secs("2 days"), Some(172_800.0));
         assert_eq!(interval_secs("x"), None);
+    }
+
+    /// Every figure says what it measures and where it comes from, even
+    /// when the server reported nothing (they are always there).
+    #[test]
+    fn every_metric_has_help_and_source() {
+        let m = metrics(&Readings::default());
+        assert_eq!(m.len(), 16);
+        crate::monitor::assert_described(&m);
     }
 }

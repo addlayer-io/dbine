@@ -51,31 +51,12 @@ pub(crate) async fn snapshot(client: &Client) -> MonitorSnapshot {
                 .iter()
                 .filter(|r| text(r, "state").as_deref() == Some("active"))
                 .count() as f64;
-            snap.metrics.push(Metric::new(
-                "connections",
-                "Conexiones",
-                "Conexiones",
-                U::Count,
-                Some(r.len() as f64 + 1.0),
-            ));
-            snap.metrics.push(Metric::new(
-                "active_sessions",
-                "Sesiones activas",
-                "Conexiones",
-                U::Count,
-                Some(active),
-            ));
             let longest = r
                 .iter()
                 .filter_map(|r| text(r, "running").and_then(|v| num(&v)))
                 .fold(0.0, f64::max);
-            snap.metrics.push(Metric::new(
-                "longest_query",
-                "Consulta más larga",
-                "Actividad",
-                U::Seconds,
-                Some(longest),
-            ));
+            snap.metrics
+                .extend(session_metrics(r.len() as f64 + 1.0, active, longest));
             snap.tables.push(table(
                 "sessions",
                 "Sesiones",
@@ -125,13 +106,7 @@ pub(crate) async fn snapshot(client: &Client) -> MonitorSnapshot {
                 .map(|f| f.columns().iter().map(|c| c.name().to_string()).collect())
                 .unwrap_or_default();
             let refs: Vec<&str> = cols.iter().map(String::as_str).collect();
-            snap.metrics.push(Metric::new(
-                "jobs",
-                "Jobs asíncronos",
-                "Actividad",
-                U::Count,
-                Some(r.len() as f64),
-            ));
+            snap.metrics.push(jobs_metric(r.len() as f64));
             snap.tables
                 .push(table("jobs", "Jobs asíncronos (índices)", &refs, &r));
         }
@@ -144,6 +119,47 @@ pub(crate) async fn snapshot(client: &Client) -> MonitorSnapshot {
     );
     snap.notes.push("Aurora DSQL no usa bloqueos (control de concurrencia optimista): no hay bloqueos en espera que mostrar.".into());
     snap
+}
+
+/// Connections (DBine's included), active sessions and the longest
+/// running statement, from `pg_stat_activity`.
+fn session_metrics(connections: f64, active: f64, longest: f64) -> [Metric; 3] {
+    [
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            Some(connections),
+        )
+        .help("Sesiones abiertas contra el clúster que muestra pg_stat_activity, contando la de DBine. Se listan hasta 200 además de esa.")
+        .source("pg_stat_activity (rows other than pg_backend_pid(), up to 200) + 1"),
+        Metric::new(
+            "active_sessions",
+            "Sesiones activas",
+            "Conexiones",
+            U::Count,
+            Some(active),
+        )
+        .help("Sesiones que están ejecutando una sentencia ahora, sin contar la del monitor.")
+        .source("pg_stat_activity: rows with state = 'active', other than pg_backend_pid()"),
+        Metric::new(
+            "longest_query",
+            "Consulta más larga",
+            "Actividad",
+            U::Seconds,
+            Some(longest),
+        )
+        .help("Lo que lleva ejecutándose la sentencia activa más antigua. Aurora DSQL corta las transacciones que pasan de cinco minutos.")
+        .source("pg_stat_activity: max(now() − query_start) over the rows with state = 'active'"),
+    ]
+}
+
+/// The asynchronous jobs (`CREATE INDEX ASYNC`) listed in `sys.jobs`.
+fn jobs_metric(jobs: f64) -> Metric {
+    Metric::new("jobs", "Jobs asíncronos", "Actividad", U::Count, Some(jobs))
+        .help("Jobs asíncronos que lista sys.jobs, como las construcciones de índices con CREATE INDEX ASYNC, en cualquier estado: el de cada uno está en la tabla de jobs.")
+        .source("sys.jobs (rows, up to 200)")
 }
 
 pub(crate) async fn rows(client: &Client, sql: &str) -> Result<Vec<SimpleQueryRow>, String> {
@@ -209,5 +225,20 @@ mod tests {
         assert_eq!(cell(Some("0012")), Value::String("0012".into()));
         assert_eq!(cell(Some("idle")), Value::String("idle".into()));
         assert_eq!(cell(None), Value::Null);
+    }
+
+    #[test]
+    fn every_metric_says_what_it_is() {
+        let mut all: Vec<Metric> = session_metrics(3.0, 1.0, 2.5).into();
+        all.push(jobs_metric(2.0));
+        assert_eq!(all[0].value, Some(3.0));
+        for m in &all {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
     }
 }

@@ -653,6 +653,20 @@ async fn check_monitor(driver: &str, c: &ConnectionConfig) {
     );
     assert!(v("cpu").is_some() && v("mem_used").is_some() && v("uptime").is_some());
     assert!(v("queries").unwrap_or(0.0) >= 1.0 || v("active_sessions").is_some());
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty())
+                && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+            "{} has no help or source",
+            m.key
+        );
+        eprintln!("{}: {}", m.key, m.source.as_deref().unwrap_or(""));
+    }
+    // CPU time is a share of every core, never "500 %" for five of them.
+    let cpu_time = snap.metrics.iter().find(|m| m.key == "cpu_time").unwrap();
+    if cpu_time.value.is_some() {
+        assert_eq!(cpu_time.max, Some(100.0));
+    }
     assert!(v("nodes").unwrap() >= 1.0);
     let nodes = snap.tables.iter().find(|t| t.key == "nodes").unwrap();
     assert!(!nodes.rows.is_empty());
@@ -667,6 +681,29 @@ async fn check_monitor(driver: &str, c: &ConnectionConfig) {
         .rows
         .iter()
         .all(|r| !r[7].as_str().unwrap_or("").contains("dbine-monitor")));
+
+    // The CPU counters' rate between two reads is a share of every core:
+    // between 0 and 100 %, whatever the totals so far.
+    let t0 = std::time::Instant::now();
+    s.execute("SELECT count(*) FROM tpch.tiny.orders", 10, &mut out)
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let snap2 = s.monitor().await.unwrap();
+    let dt = t0.elapsed().as_secs_f64();
+    for k in ["cpu_time", "query_cpu"] {
+        let a = snap.metrics.iter().find(|m| m.key == k).unwrap();
+        let b = snap2.metrics.iter().find(|m| m.key == k).unwrap();
+        assert!(a.counter && b.counter && a.unit == b.unit, "{k}");
+        if let (Some(x), Some(y)) = (a.value, b.value) {
+            let rate = (y - x) / dt;
+            eprintln!("{k}: {rate:.2} {:?}/s", b.unit);
+            assert!(rate >= 0.0, "{k}: {rate}");
+            if b.unit == dbine_driver::MetricUnit::Percent && k == "cpu_time" {
+                assert!(rate <= 100.0, "{k}: {rate}");
+            }
+        }
+    }
 }
 
 #[tokio::test]

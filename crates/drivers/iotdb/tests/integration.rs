@@ -347,6 +347,9 @@ async fn monitor() {
             println!("[{}] {} rows {:?}", t.key, t.rows.len(), t.rows.first());
         }
         println!("info {:?}\nnotes {:?}", snap.info, snap.notes);
+        for m in &snap.metrics {
+            assert!(m.help.is_some() && m.source.is_some(), "{}", m.key);
+        }
         let val = |k: &str| snap.metrics.iter().find(|m| m.key == k).unwrap().value;
         assert!(val("series").unwrap() >= 2.0);
         assert!(val("nodes_running").unwrap() >= 1.0);

@@ -262,8 +262,21 @@ async fn monitor() {
             .find(|m| m.key == k)
             .and_then(|m| m.value)
     };
+    // etcd 3.6+ says how many cores it may use; without that (3.5) the
+    // process CPU isn't shown, and a note says why.
+    assert!(
+        v("cpu_time").is_some()
+            || snap
+                .notes
+                .iter()
+                .any(|n| n.contains("go_sched_gomaxprocs_threads")),
+        "{:#?}",
+        snap.notes
+    );
+    for m in &snap.metrics {
+        assert!(m.help.is_some() && m.source.is_some(), "{}", m.key);
+    }
     for k in [
-        "cpu_time",
         "mem_used",
         "storage_used",
         "keys",

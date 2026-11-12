@@ -453,6 +453,13 @@ session. It shows:
   objects, replicas and nodes, depending on the engine;
 - at the bottom, what the engine cannot report and why.
 
+Each metric says what it measures and how to read it, and where its value comes
+from: the view and columns, the function, the command or the API field the
+driver reads (the ⓘ next to its name). CPU figures are a share of all the CPUs
+the server or process may use, so 100 % means every one of them busy.
+**Metrics** chooses which cards show (kept per engine), and clicking a card
+enlarges it to the last hour of readings on a timeline with zoom.
+
 All engines have it, except those in the exceptions table. A part that fails
 because of permissions is skipped with a note: the rest of the dashboard
 still appears.

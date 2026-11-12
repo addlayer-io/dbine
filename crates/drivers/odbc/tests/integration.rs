@@ -501,6 +501,14 @@ async fn monitor() {
         println!("tabla {} ({} filas): {:?}", t.key, t.rows.len(), t.columns);
     }
     println!("info: {:?}\nnotas: {:?}", snap.info, snap.notes);
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty())
+                && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+            "{} has no help or source",
+            m.key
+        );
+    }
     let value = |k: &str| {
         snap.metrics
             .iter()

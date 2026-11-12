@@ -1251,11 +1251,23 @@ impl Session for EsSession {
             Ok(h) => monitor::from_health(&mut s, &h),
             Err(e) => refused.push(format!("_cluster/health ({e})")),
         }
+        // The processors each node may use: the process CPU time is a
+        // share of all of them.
+        let os_info = match self
+            .get_json("/_nodes/os?filter_path=nodes.*.os.available_processors,nodes.*.os.allocated_processors")
+            .await
+        {
+            Ok(i) => Some(i),
+            Err(e) => {
+                refused.push(format!("_nodes/os ({e})"));
+                None
+            }
+        };
         match self
             .get_json("/_nodes/stats/os,process,jvm,indices,fs,transport,http,thread_pool")
             .await
         {
-            Ok(st) => monitor::from_node_stats(&mut s, &st),
+            Ok(st) => monitor::from_node_stats(&mut s, &st, os_info.as_ref()),
             Err(e) => refused.push(format!("_nodes/stats ({e})")),
         }
         match self.get_json("/_tasks?detailed=true").await {

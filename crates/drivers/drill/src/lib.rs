@@ -843,6 +843,163 @@ fn is_read(stmt: &str) -> bool {
     matches!(first_words(stmt, 1).as_str(), "SELECT" | "WITH" | "VALUES")
 }
 
+/// The monitor's headline figures: `/status/metrics` of the drillbit
+/// DBine talks to, `sys.memory` of every drillbit and the number of
+/// `sys.connections` rows (`None` when it couldn't be read).
+fn monitor_metrics(
+    metrics: Option<&Value>,
+    memory: &[serde_json::Map<String, Value>],
+    conns: Option<usize>,
+) -> Vec<Metric> {
+    let g = |k: &str| metrics.and_then(|m| num(m.pointer(&format!("/gauges/{k}/value"))));
+    let c = |k: &str| metrics.and_then(|m| num(m.pointer(&format!("/counters/{k}/count"))));
+    let sum = |col: &str| -> Option<f64> {
+        let v: Vec<f64> = memory.iter().filter_map(|r| num(r.get(col))).collect();
+        (!v.is_empty()).then(|| v.iter().sum())
+    };
+    let queries_done = match (
+        c("drill.queries.succeeded"),
+        c("drill.queries.failed"),
+        c("drill.queries.canceled"),
+    ) {
+        (None, None, None) => c("drill.queries.completed"),
+        (a, b, d) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0) + d.unwrap_or(0.0)),
+    };
+    let user_conns = match (
+        c("drill.connections.rpc.user.unencrypted"),
+        c("drill.connections.rpc.user.encrypted"),
+    ) {
+        (None, None) => None,
+        (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
+    };
+    use MetricUnit::*;
+    vec![
+        Metric::new(
+            "cpu",
+            "CPU del drillbit",
+            "CPU",
+            Percent,
+            g("drillbit.load.avg").map(|v| v * 100.0),
+        )
+        .help("CPU que usa el proceso del drillbit al que se conecta DBine, como parte de todos los núcleos de su máquina: 100 % es todos ocupados.")
+        .source("GET /status/metrics: gauges.drillbit.load.avg.value × 100"),
+        Metric::new(
+            "load_avg",
+            "Carga del sistema (load average)",
+            "CPU",
+            Count,
+            g("os.load.avg"),
+        )
+        .help("Load average de un minuto de la máquina del drillbit: procesos ejecutándose o esperando CPU. Comparalo con la cantidad de núcleos; si la supera, hay trabajo esperando CPU.")
+        .source("GET /status/metrics: gauges.os.load.avg.value"),
+        Metric::new(
+            "mem_used",
+            "Heap usado (cluster)",
+            "Memoria",
+            Bytes,
+            sum("heap_current"),
+        )
+        .help("Heap de Java en uso, sumado entre todos los drillbits, sobre la suma de sus máximos. Drill guarda los datos de las consultas en memoria directa, así que el heap suele quedar holgado.")
+        .source("sys.memory: heap_current (sum over drillbits); max: heap_max (sum)")
+        .max(sum("heap_max")),
+        Metric::new(
+            "direct_used",
+            "Memoria directa usada (cluster)",
+            "Memoria",
+            Bytes,
+            sum("direct_current"),
+        )
+        .help("Memoria directa en uso, sumada entre todos los drillbits, sobre la suma de sus máximos: es donde Drill procesa los datos de las consultas. Cerca del máximo, las consultas grandes fallan por falta de memoria o derraman a disco.")
+        .source("sys.memory: direct_current (sum over drillbits); max: direct_max (sum)")
+        .max(sum("direct_max")),
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            Count,
+            conns.map(|c| c as f64).or(user_conns),
+        )
+        .help(if conns.is_some() {
+            "Conexiones de clientes abiertas contra todos los drillbits del cluster."
+        } else {
+            "Conexiones de clientes abiertas contra el drillbit al que se conecta DBine: no se pudo leer sys.connections, que tiene las de todo el cluster."
+        })
+        .source(if conns.is_some() {
+            "sys.connections (rows)"
+        } else {
+            "GET /status/metrics: counters.drill.connections.rpc.user.unencrypted.count + …encrypted.count"
+        }),
+        Metric::new(
+            "active_sessions",
+            "Consultas en curso",
+            "Conexiones",
+            Count,
+            c("drill.queries.running"),
+        )
+        .help("Consultas en ejecución que coordina el drillbit al que se conecta DBine.")
+        .source("GET /status/metrics: counters.drill.queries.running.count"),
+        Metric::new(
+            "queued",
+            "Consultas en cola",
+            "Conexiones",
+            Count,
+            c("drill.queries.enqueued"),
+        )
+        .help("Consultas que esperan en la cola del drillbit al que se conecta DBine (con las colas de consultas activadas). Si no vuelve a cero, el cluster está saturado o la cola es chica.")
+        .source("GET /status/metrics: counters.drill.queries.enqueued.count"),
+        Metric::new(
+            "queries",
+            "Consultas terminadas",
+            "Actividad",
+            Count,
+            queries_done,
+        )
+        .counter()
+        .help("Consultas que terminaron, bien, con error o canceladas, de las que coordina el drillbit al que se conecta DBine. Incluye las cuatro que hace el propio monitor en cada lectura.")
+        .source("GET /status/metrics: counters drill.queries.succeeded + failed + canceled (or drill.queries.completed)"),
+        Metric::new(
+            "queries_failed",
+            "Consultas fallidas",
+            "Actividad",
+            Count,
+            c("drill.queries.failed"),
+        )
+        .help("Consultas que fallaron, de las que coordina el drillbit al que se conecta DBine.")
+        .source("GET /status/metrics: counters.drill.queries.failed.count")
+        .counter(),
+        Metric::new(
+            "fragments",
+            "Fragmentos en ejecución",
+            "Actividad",
+            Count,
+            g("drill.fragments.running"),
+        )
+        .help("Fragmentos de consultas que ejecuta ahora el drillbit al que se conecta DBine: el paralelismo en uso en ese nodo.")
+        .source("GET /status/metrics: gauges.drill.fragments.running.value"),
+        Metric::new("threads", "Hilos", "Servidor", Count, g("threads.count"))
+            .help("Hilos vivos de la JVM del drillbit. Si crecen sin parar, hay consultas o conexiones que no terminan.")
+            .source("GET /status/metrics: gauges.threads.count.value"),
+        Metric::new(
+            "fd_usage",
+            "Descriptores de archivo en uso",
+            "Servidor",
+            Percent,
+            g("fd.usage").map(|v| v * 100.0),
+        )
+        .help("Descriptores de archivo abiertos por el drillbit, como parte del límite del proceso (ulimit -n). Cerca de 100 %, empieza a fallar al abrir archivos o aceptar conexiones.")
+        .source("GET /status/metrics: gauges.fd.usage.value × 100"),
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            Seconds,
+            g("drillbit.uptime").map(|ms| ms / 1000.0),
+        )
+        .help("Tiempo desde que arrancó el drillbit al que se conecta DBine. Si vuelve a cero, se reinició.")
+        .source("GET /status/metrics: gauges.drillbit.uptime.value ÷ 1000"),
+    ]
+}
+
 fn num(v: Option<&Value>) -> Option<f64> {
     match v? {
         Value::Number(n) => n.as_f64(),
@@ -1218,16 +1375,6 @@ impl Session for DrillSession {
                 None
             }
         };
-        let g = |k: &str| {
-            metrics
-                .as_ref()
-                .and_then(|m| num(m.pointer(&format!("/gauges/{k}/value"))))
-        };
-        let c = |k: &str| {
-            metrics
-                .as_ref()
-                .and_then(|m| num(m.pointer(&format!("/counters/{k}/count"))))
-        };
         let memory = self
             .records("SELECT * FROM sys.memory")
             .await
@@ -1248,117 +1395,7 @@ impl Session for DrillSession {
             .ok()
             .and_then(|r| r.into_iter().next())
             .and_then(|r| r.into_iter().next());
-        let sum = |col: &str| -> Option<f64> {
-            let v: Vec<f64> = memory.iter().filter_map(|r| num(r.get(col))).collect();
-            (!v.is_empty()).then(|| v.iter().sum())
-        };
-        let queries_done = match (
-            c("drill.queries.succeeded"),
-            c("drill.queries.failed"),
-            c("drill.queries.canceled"),
-        ) {
-            (None, None, None) => c("drill.queries.completed"),
-            (a, b, d) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0) + d.unwrap_or(0.0)),
-        };
-        let user_conns = match (
-            c("drill.connections.rpc.user.unencrypted"),
-            c("drill.connections.rpc.user.encrypted"),
-        ) {
-            (None, None) => None,
-            (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
-        };
-        use MetricUnit::*;
-        snap.metrics = vec![
-            Metric::new(
-                "cpu",
-                "CPU del drillbit",
-                "CPU",
-                Percent,
-                g("drillbit.load.avg").map(|v| v * 100.0),
-            ),
-            Metric::new(
-                "load_avg",
-                "Carga del sistema (load average)",
-                "CPU",
-                Count,
-                g("os.load.avg"),
-            ),
-            Metric::new(
-                "mem_used",
-                "Heap usado (cluster)",
-                "Memoria",
-                Bytes,
-                sum("heap_current"),
-            )
-            .max(sum("heap_max")),
-            Metric::new(
-                "direct_used",
-                "Memoria directa usada (cluster)",
-                "Memoria",
-                Bytes,
-                sum("direct_current"),
-            )
-            .max(sum("direct_max")),
-            Metric::new(
-                "connections",
-                "Conexiones",
-                "Conexiones",
-                Count,
-                conns.as_ref().map(|c| c.len() as f64).or(user_conns),
-            ),
-            Metric::new(
-                "active_sessions",
-                "Consultas en curso",
-                "Conexiones",
-                Count,
-                c("drill.queries.running"),
-            ),
-            Metric::new(
-                "queued",
-                "Consultas en cola",
-                "Conexiones",
-                Count,
-                c("drill.queries.enqueued"),
-            ),
-            Metric::new(
-                "queries",
-                "Consultas terminadas",
-                "Actividad",
-                Count,
-                queries_done,
-            )
-            .counter(),
-            Metric::new(
-                "queries_failed",
-                "Consultas fallidas",
-                "Actividad",
-                Count,
-                c("drill.queries.failed"),
-            )
-            .counter(),
-            Metric::new(
-                "fragments",
-                "Fragmentos en ejecución",
-                "Actividad",
-                Count,
-                g("drill.fragments.running"),
-            ),
-            Metric::new("threads", "Hilos", "Servidor", Count, g("threads.count")),
-            Metric::new(
-                "fd_usage",
-                "Descriptores de archivo en uso",
-                "Servidor",
-                Percent,
-                g("fd.usage").map(|v| v * 100.0),
-            ),
-            Metric::new(
-                "uptime",
-                "Tiempo activo",
-                "Servidor",
-                Seconds,
-                g("drillbit.uptime").map(|ms| ms / 1000.0),
-            ),
-        ];
+        snap.metrics = monitor_metrics(metrics.as_ref(), &memory, conns.as_ref().map(Vec::len));
         let mut nodes = MonitorTable::new(
             "nodes",
             "Drillbits",
@@ -1497,6 +1534,38 @@ impl Session for DrillSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_monitor_metric_says_what_it_is() {
+        let metrics = serde_json::json!({
+            "gauges": {"drillbit.load.avg": {"value": 0.25}, "fd.usage": {"value": 0.5}},
+            "counters": {"drill.queries.succeeded": {"count": 3}, "drill.queries.failed": {"count": 1},
+                         "drill.connections.rpc.user.unencrypted": {"count": 2}}
+        });
+        let memory = vec![serde_json::json!({"heap_current": 1, "heap_max": 4})
+            .as_object()
+            .unwrap()
+            .clone()];
+        for conns in [Some(5), None] {
+            let list = monitor_metrics(Some(&metrics), &memory, conns);
+            assert_eq!(list.len(), 13);
+            let v = |k: &str| list.iter().find(|m| m.key == k).and_then(|m| m.value);
+            assert_eq!(v("cpu"), Some(25.0));
+            assert_eq!(v("queries"), Some(4.0));
+            assert_eq!(
+                v("connections"),
+                Some(if conns.is_some() { 5.0 } else { 2.0 })
+            );
+            for m in &list {
+                assert!(
+                    m.help.as_deref().is_some_and(|h| !h.is_empty())
+                        && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                    "{} has no help or source",
+                    m.key
+                );
+            }
+        }
+    }
 
     #[test]
     fn errors_carry_kind_and_position() {

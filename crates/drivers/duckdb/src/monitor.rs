@@ -130,43 +130,65 @@ pub fn snapshot(c: &Connection, sessions: usize) -> MonitorSnapshot {
             U::Bytes,
             mem_used,
         )
+        .help("Memoria que usa DuckDB dentro de DBine, sumada entre sus componentes (buffers de las bases, tablas en memoria, índices, operaciones en curso), sobre su límite (memory_limit). Cerca del límite, las consultas vuelcan datos a disco o fallan por falta de memoria.")
+        .source("duckdb_memory(): memory_usage_bytes (sum); max: duckdb_settings() memory_limit")
         .max(limit),
     );
-    m.push(Metric::new(
-        "mem_temp",
-        "Datos volcados a disco (temporales)",
-        "Memoria",
-        U::Bytes,
-        temp_mem,
-    ));
-    m.push(Metric::new(
-        "connections",
-        "Sesiones de DBine sobre la base",
-        "Conexiones",
-        U::Count,
-        Some(sessions as f64),
-    ));
-    m.push(Metric::new(
-        "storage_used",
-        "Espacio usado",
-        "Almacenamiento",
-        U::Bytes,
-        used,
-    ));
-    m.push(Metric::new(
-        "free_space",
-        "Bloques libres",
-        "Almacenamiento",
-        U::Bytes,
-        free,
-    ));
-    m.push(Metric::new(
-        "wal_size",
-        "Tamaño del WAL",
-        "Almacenamiento",
-        U::Bytes,
-        wal,
-    ));
+    m.push(
+        Metric::new(
+            "mem_temp",
+            "Datos volcados a disco (temporales)",
+            "Memoria",
+            U::Bytes,
+            temp_mem,
+        )
+        .help("Datos que DuckDB tiene ahora en el directorio temporal porque no le alcanzaba la memoria, sumados entre sus componentes. Si crece seguido, conviene subir memory_limit o achicar las consultas.")
+        .source("duckdb_memory(): temporary_storage_bytes (sum)"),
+    );
+    m.push(
+        Metric::new(
+            "connections",
+            "Sesiones de DBine sobre la base",
+            "Conexiones",
+            U::Count,
+            Some(sessions as f64),
+        )
+        .help("Sesiones de DBine abiertas sobre esta misma base (editores, explorador, monitor). DuckDB es embebido: no hay otros clientes que contar.")
+        .source("DBine: sessions sharing this DuckDB instance"),
+    );
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Espacio usado",
+            "Almacenamiento",
+            U::Bytes,
+            used,
+        )
+        .help("Espacio que ocupan los datos en los archivos de las bases adjuntas: bloques usados por su tamaño, sin los bloques libres ni el WAL.")
+        .source("pragma_database_size(): used_blocks × block_size (sum over attached databases)"),
+    );
+    m.push(
+        Metric::new(
+            "free_space",
+            "Bloques libres",
+            "Almacenamiento",
+            U::Bytes,
+            free,
+        )
+        .help("Bloques libres dentro de los archivos de las bases adjuntas: espacio que DuckDB reutiliza antes de agrandar el archivo. Un CHECKPOINT o una copia de la base lo devuelven al disco.")
+        .source("pragma_database_size(): free_blocks × block_size (sum over attached databases)"),
+    );
+    m.push(
+        Metric::new(
+            "wal_size",
+            "Tamaño del WAL",
+            "Almacenamiento",
+            U::Bytes,
+            wal,
+        )
+        .help("Tamaño del registro de escritura (WAL): los cambios que todavía no pasaron al archivo de la base. Se vacía en cada checkpoint.")
+        .source("pragma_database_size(): wal_size (sum over attached databases)"),
+    );
     m.push(
         Metric::new(
             "temp_files",
@@ -175,6 +197,8 @@ pub fn snapshot(c: &Connection, sessions: usize) -> MonitorSnapshot {
             U::Bytes,
             temp_files,
         )
+        .help("Tamaño de los archivos temporales que DuckDB tiene abiertos para volcar datos, sobre el máximo permitido en disco (max_temp_directory_size).")
+        .source("duckdb_temporary_files(): size (sum); max: duckdb_settings() max_temp_directory_size")
         .max(
             setting("max_temp_directory_size")
                 .as_deref()
@@ -317,5 +341,14 @@ mod tests {
             .any(|t| t.key == "top_objects" && !t.rows.is_empty()));
         assert!(s.info.iter().any(|(k, _)| k.starts_with("Hilos")));
         assert_eq!(s.notes.len(), 1, "{:?}", s.notes);
+        assert_eq!(s.metrics.len(), 7);
+        for m in &s.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
     }
 }

@@ -27,5 +27,21 @@
   "noRows": "No rows.",
   "sparkline": {
     "noData": "no data"
+  },
+  "enlarge": "Enlarge: the full history on a timeline",
+  "pick": {
+    "button": "Metrics",
+    "title": "Which metrics to show",
+    "showAll": "Show all",
+    "hidden_one": "{{count}} hidden",
+    "hidden_other": "{{count}} hidden"
+  },
+  "metric": {
+    "source": "Source",
+    "rate": "Shown per second: the difference between two consecutive readings, divided by the time between them."
+  },
+  "chart": {
+    "aria": "Chart of {{name}} over time",
+    "span": "From {{from}} to {{to}} · {{count}} readings"
   }
 }

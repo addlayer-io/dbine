@@ -769,6 +769,10 @@ export interface Metric {
   max: number | null;
   /** Running total since server start: shown as a rate per second. */
   counter: boolean;
+  /** What it measures and how to read it (Spanish from the driver: `tb`). */
+  help?: string | null;
+  /** The view or query the value comes from. */
+  source?: string | null;
 }
 
 export interface MonitorTable {

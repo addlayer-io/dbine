@@ -683,13 +683,22 @@ async fn monitor(id: &str, env: &str) {
     let snap = s.monitor().await.expect("monitor");
     for m in &snap.metrics {
         eprintln!(
-            "{id}: [{}] {} = {:?}{}{}",
+            "{id}: [{}] {} = {:?}{}{} <- {}",
             m.group,
             m.key,
             m.value,
             m.max.map(|x| format!(" / {x}")).unwrap_or_default(),
-            if m.counter { " (counter)" } else { "" }
+            if m.counter { " (counter)" } else { "" },
+            m.source.as_deref().unwrap_or("?")
         );
+        // Every figure says what it measures and where it comes from.
+        for (what, text) in [("help", &m.help), ("source", &m.source)] {
+            assert!(
+                text.as_deref().is_some_and(|t| !t.trim().is_empty()),
+                "{id}: {} without {what}",
+                m.key
+            );
+        }
     }
     for (k, v) in &snap.info {
         eprintln!("{id}: info {k}: {v}");

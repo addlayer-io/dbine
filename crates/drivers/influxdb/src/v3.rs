@@ -9,9 +9,9 @@ use crate::profiler;
 use crate::v1::cell;
 use dbine_driver::{
     async_trait, kinds, ColumnDef, ColumnInfo, ConnectionConfig, DbObject, DriverInfo, Error,
-    Family, Field, FieldKind, KeyDef, Language, Metric, MetricUnit, MonitorSnapshot, MonitorTable,
-    ObjectKindInfo, ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema,
-    TlsLevel, TlsSupport,
+    Family, Field, FieldKind, KeyDef, Language, MonitorSnapshot, MonitorTable, ObjectKindInfo,
+    ObjectRef, Plan, QueryOutcome, Result, ResultColumn, Session, TableSchema, TlsLevel,
+    TlsSupport,
 };
 use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde_json::{json, Value as J};
@@ -464,17 +464,8 @@ impl Session for SqlSession {
             .clone()
             .or_else(|| dbs.iter().find(|d| !d.starts_with('_')).cloned());
         if let Some(i) = s.metrics.iter().position(|m| m.key == "uptime") {
-            let n = dbs.iter().filter(|d| !d.starts_with('_')).count() as f64;
-            s.metrics.insert(
-                i,
-                Metric::new(
-                    "databases",
-                    "Bases de datos",
-                    "Almacenamiento",
-                    MetricUnit::Count,
-                    Some(n),
-                ),
-            );
+            let n = dbs.iter().filter(|d| !d.starts_with('_')).count();
+            s.metrics.insert(i, monitor::v3_databases_metric(n));
         }
         let Some(db) = db else {
             s.notes.push("No hay bases de datos: las consultas en curso y el tamaño de los archivos se leen de las tablas system de una base.".into());
@@ -512,8 +503,10 @@ impl Session for SqlSession {
             }
             Err(e) => s.notes.push(format!("No se pudo leer system.queries: {e}")),
         }
+        // Every table: the total counts them all, the table lists the 20
+        // largest.
         let q = "SELECT table_name, count(*) AS files, sum(row_count) AS row_count, sum(size_bytes) AS size_bytes \
-                 FROM system.parquet_files GROUP BY table_name ORDER BY size_bytes DESC LIMIT 20";
+                 FROM system.parquet_files GROUP BY table_name ORDER BY size_bytes DESC";
         match self.sql(q).await {
             Ok((cols, rows)) => {
                 let at = |r: &Vec<J>, n: &str| {
@@ -528,9 +521,12 @@ impl Session for SqlSession {
                     &format!("Tablas más grandes de «{db}» (Parquet)"),
                     &["tabla", "archivos", "filas", "tamaño (bytes)"],
                 );
-                let mut total = 0.0;
-                for r in &rows {
-                    total += at(r, "size_bytes").as_f64().unwrap_or(0.0);
+                // From 0.0: an empty `sum()` of f64 is -0.0.
+                let total = rows
+                    .iter()
+                    .filter_map(|r| at(r, "size_bytes").as_f64())
+                    .fold(0.0, |a, b| a + b);
+                for r in rows.iter().take(20) {
                     t.rows.push(vec![
                         at(r, "table_name"),
                         at(r, "files"),
@@ -538,22 +534,12 @@ impl Session for SqlSession {
                         at(r, "size_bytes"),
                     ]);
                 }
-                let label = format!("Parquet persistido de «{db}»");
                 let i = s
                     .metrics
                     .iter()
                     .position(|m| m.key == "databases")
                     .unwrap_or(s.metrics.len());
-                s.metrics.insert(
-                    i,
-                    Metric::new(
-                        "storage_used",
-                        &label,
-                        "Almacenamiento",
-                        MetricUnit::Bytes,
-                        Some(total),
-                    ),
-                );
+                s.metrics.insert(i, monitor::v3_parquet_metric(&db, total));
                 s.tables.push(t);
                 s.notes.push(format!(
                     "El espacio usado es el de los archivos Parquet ya persistidos de «{db}»; los datos que todavía están en memoria (WAL) no suman."

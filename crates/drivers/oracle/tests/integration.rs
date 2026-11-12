@@ -647,6 +647,14 @@ async fn monitor() {
         );
     }
     eprintln!("info: {:?}\nnotes: {:?}", snap2.info, snap2.notes);
+    for m in &snap2.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty())
+                && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+            "{} has no help or source",
+            m.key
+        );
+    }
     let has = |k: &str| {
         snap2
             .metrics

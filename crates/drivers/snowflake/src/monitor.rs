@@ -161,22 +161,32 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
                     U::Count,
                     Some(started),
                 )
+                .help("Warehouses que están encendidos, sobre todos los que ve tu rol. Un warehouse encendido consume créditos aunque no ejecute nada, hasta que se autosuspende.")
+                .source("SHOW WAREHOUSES: rows with state = STARTED; max: all rows")
                 .max(Some(w.rows.len() as f64)),
             );
-            s.metrics.push(Metric::new(
-                "active_sessions",
-                "Consultas en ejecución",
-                "Conexiones",
-                U::Count,
-                w.sum("running"),
-            ));
-            s.metrics.push(Metric::new(
-                "queued",
-                "Consultas en cola",
-                "Conexiones",
-                U::Count,
-                w.sum("queued"),
-            ));
+            s.metrics.push(
+                Metric::new(
+                    "active_sessions",
+                    "Consultas en ejecución",
+                    "Conexiones",
+                    U::Count,
+                    w.sum("running"),
+                )
+                .help("Consultas que se están ejecutando ahora, sumadas entre los warehouses que ve tu rol.")
+                .source("SHOW WAREHOUSES: running (sum)"),
+            );
+            s.metrics.push(
+                Metric::new(
+                    "queued",
+                    "Consultas en cola",
+                    "Conexiones",
+                    U::Count,
+                    w.sum("queued"),
+                )
+                .help("Consultas que esperan en la cola de algún warehouse, sumadas. Si no vuelve a cero, el warehouse es chico para la carga o le faltan clusters.")
+                .source("SHOW WAREHOUSES: queued (sum)"),
+            );
             let name = r.warehouse().or_else(|| {
                 (0..w.rows.len())
                     .find(|&i| w.get(i, "is_current") == Some("Y"))
@@ -211,13 +221,17 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
     }
     match r.rows("SHOW LOCKS").await {
         Ok(l) => {
-            s.metrics.push(Metric::new(
-                "locks_waiting",
-                "Bloqueos en espera",
-                "Bloqueos",
-                U::Count,
-                Some(l.count_where("status", |v| v.eq_ignore_ascii_case("WAITING"))),
-            ));
+            s.metrics.push(
+                Metric::new(
+                    "locks_waiting",
+                    "Bloqueos en espera",
+                    "Bloqueos",
+                    U::Count,
+                    Some(l.count_where("status", |v| v.eq_ignore_ascii_case("WAITING"))),
+                )
+                .help("Transacciones de tus sesiones que esperan un lock que tiene otra. Si no vuelve a cero, hay transacciones largas que escriben sobre las mismas tablas.")
+                .source("SHOW LOCKS: rows with status = WAITING"),
+            );
             s.tables.extend(table(
                 "locks",
                 "Bloqueos",
@@ -319,29 +333,41 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
                 .collect();
             let done: Vec<usize> = (0..h.rows.len()).filter(|i| !running.contains(i)).collect();
             let finished = h.select(&done);
-            s.metrics.push(Metric::new(
-                "queries_last_hour",
-                "Consultas (última hora)",
-                "Actividad",
-                U::Count,
-                Some(done.len() as f64),
-            ));
-            s.metrics.push(Metric::new(
-                "failed_last_hour",
-                "Consultas fallidas (última hora)",
-                "Actividad",
-                U::Count,
-                Some(finished.count_where("execution_status", |v| {
-                    v.to_ascii_uppercase().starts_with("FAIL")
-                })),
-            ));
-            s.metrics.push(Metric::new(
-                "bytes_scanned",
-                "Bytes escaneados (última hora)",
-                "Actividad",
-                U::Bytes,
-                finished.sum("bytes_scanned"),
-            ));
+            s.metrics.push(
+                Metric::new(
+                    "queries_last_hour",
+                    "Consultas (última hora)",
+                    "Actividad",
+                    U::Count,
+                    Some(done.len() as f64),
+                )
+                .help("Consultas que empezaron en la última hora y ya terminaron, sin las del monitor. Sin el privilegio MONITOR sobre los warehouses cuenta solo las tuyas. Se relee cada 20 s, con el warehouse encendido.")
+                .source("INFORMATION_SCHEMA.QUERY_HISTORY(RESULT_LIMIT => 10000): rows with start_time in the last hour and execution_status not RUNNING, QUEUED, BLOCKED or RESUMING_WAREHOUSE"),
+            );
+            s.metrics.push(
+                Metric::new(
+                    "failed_last_hour",
+                    "Consultas fallidas (última hora)",
+                    "Actividad",
+                    U::Count,
+                    Some(finished.count_where("execution_status", |v| {
+                        v.to_ascii_uppercase().starts_with("FAIL")
+                    })),
+                )
+                .help("De las consultas terminadas en la última hora, las que fallaron. El error se ve en el historial de Snowflake.")
+                .source("INFORMATION_SCHEMA.QUERY_HISTORY (last hour): finished rows whose execution_status starts with FAIL"),
+            );
+            s.metrics.push(
+                Metric::new(
+                    "bytes_scanned",
+                    "Bytes escaneados (última hora)",
+                    "Actividad",
+                    U::Bytes,
+                    finished.sum("bytes_scanned"),
+                )
+                .help("Datos que leyeron, sumados, las consultas terminadas en la última hora. Mucho volumen para pocas consultas suele indicar que los filtros no descartan micro-particiones.")
+                .source("INFORMATION_SCHEMA.QUERY_HISTORY (last hour): bytes_scanned, summed over the finished rows"),
+            );
             s.tables.extend(table(
                 "queries",
                 "Consultas en curso",
@@ -402,13 +428,17 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
     }
     match cache.metering.as_ref().map(|(_, r)| r) {
         Some(Ok(m)) => {
-            s.metrics.push(Metric::new(
-                "credits_24h",
-                "Créditos (últimas 24 h)",
-                "Créditos",
-                U::Count,
-                m.sum("credits"),
-            ));
+            s.metrics.push(
+                Metric::new(
+                    "credits_24h",
+                    "Créditos (últimas 24 h)",
+                    "Créditos",
+                    U::Count,
+                    m.sum("credits"),
+                )
+                .help("Créditos que consumieron todos los warehouses en las últimas 24 horas, cómputo y servicios en la nube sumados, sin el ajuste diario de servicios en la nube: puede ser algo más que lo facturado. Se relee cada 5 minutos; el reparto por warehouse está en la tabla de créditos.")
+                .source("INFORMATION_SCHEMA.WAREHOUSE_METERING_HISTORY(DATE_RANGE_START => now − 24 h): credits_used (sum)"),
+            );
             s.tables.extend(table(
                 "credits",
                 "Créditos por warehouse (últimas 24 h)",
@@ -430,7 +460,11 @@ pub async fn snapshot(r: &(dyn Runner + Sync), cache: &mut Cache) -> MonitorSnap
                 .iter()
                 .filter_map(|c| st.num(0, c))
                 .fold(None, |a: Option<f64>, v| Some(a.unwrap_or(0.0) + v));
-            s.metrics.push(Metric::new("storage_used", "Espacio usado (cuenta)", "Almacenamiento", U::Bytes, total));
+            s.metrics.push(
+                Metric::new("storage_used", "Espacio usado (cuenta)", "Almacenamiento", U::Bytes, total)
+                    .help("Espacio que ocupa la cuenta entera: tablas (con Time Travel), stages, Fail-safe y tablas híbridas, del último día que informa Snowflake. Es un valor por día y llega con hasta dos horas de demora.")
+                    .source("SNOWFLAKE.ACCOUNT_USAGE.STORAGE_USAGE (latest usage_date): storage_bytes + stage_bytes + failsafe_bytes + hybrid_table_storage_bytes"),
+            );
             if let Some(d) = st.text("usage_date") {
                 s.info.push(("Almacenamiento al".into(), d));
             }
@@ -564,6 +598,10 @@ mod tests {
             wh: Some("wh".into()),
             answers: vec![
                 ("SHOW WAREHOUSES", warehouses("STARTED")),
+                (
+                    "SHOW LOCKS",
+                    set(&["status"], &[&["HOLDING"], &["WAITING"]]),
+                ),
                 ("QUERY_HISTORY", history),
                 (
                     "WAREHOUSE_METERING_HISTORY",
@@ -594,6 +632,16 @@ mod tests {
         assert_eq!(metric(&s, "bytes_scanned"), Some(105.0));
         assert_eq!(metric(&s, "credits_24h"), Some(2.0));
         assert_eq!(metric(&s, "storage_used"), Some(111.0));
+        assert_eq!(metric(&s, "locks_waiting"), Some(1.0));
+        assert_eq!(s.metrics.len(), 9);
+        for m in &s.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
         let q = s.tables.iter().find(|t| t.key == "queries").unwrap();
         assert_eq!(q.rows.len(), 1);
         assert!(s

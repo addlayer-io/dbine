@@ -270,7 +270,12 @@ async fn hdb_namespaces_and_big_results() {
     .await;
     assert_eq!(out.results.len(), 3, "{:?}", out.results);
     assert_eq!(out.results[1].rows[0][0], serde_json::json!(8));
-    assert!(!s.monitor().await.unwrap().metrics.is_empty());
+    let snap = s.monitor().await.unwrap();
+    assert!(!snap.metrics.is_empty());
+    for m in &snap.metrics {
+        assert!(m.help.is_some() && m.source.is_some(), "{}", m.key);
+        assert!(m.value.is_some(), "{}", m.key);
+    }
 }
 
 #[tokio::test]

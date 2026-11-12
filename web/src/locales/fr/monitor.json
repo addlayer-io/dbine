@@ -27,5 +27,22 @@
   "noRows": "Aucune ligne.",
   "sparkline": {
     "noData": "aucune donnée"
+  },
+  "enlarge": "Agrandir : tout l'historique sur une frise chronologique",
+  "pick": {
+    "button": "Métriques",
+    "title": "Quelles métriques afficher",
+    "showAll": "Tout afficher",
+    "hidden_one": "{{count}} masquée",
+    "hidden_many": "{{count}} masquées",
+    "hidden_other": "{{count}} masquées"
+  },
+  "metric": {
+    "source": "Origine",
+    "rate": "Affiché par seconde : la différence entre deux relevés consécutifs, divisée par le temps qui les sépare."
+  },
+  "chart": {
+    "aria": "Graphique de {{name}} dans le temps",
+    "span": "Du {{from}} au {{to}} · {{count}} relevés"
   }
 }

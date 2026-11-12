@@ -23,6 +23,14 @@ fn truncate(s: &str) -> String {
     }
 }
 
+/// A persistent query (CREATE … AS SELECT, INSERT INTO), not a transient
+/// push query; servers that don't say the type list persistent ones only.
+pub(crate) fn is_persistent(q: &Value) -> bool {
+    q.get("queryType")
+        .and_then(Value::as_str)
+        .is_none_or(|t| t.eq_ignore_ascii_case("PERSISTENT"))
+}
+
 /// A query's consumer lag: end offset minus committed offset of each
 /// partition its tasks read (nothing committed yet = all of it).
 pub(crate) fn query_lag(q: &Value) -> f64 {
@@ -65,6 +73,133 @@ pub(crate) fn source_stats(d: &Value) -> BTreeMap<String, f64> {
         }
     }
     out
+}
+
+/// What the monitor counted, for [`metrics`].
+pub(crate) struct Figures<'a> {
+    /// Persistent queries running, and in ERROR or UNRESPONSIVE.
+    pub running: usize,
+    pub failed: usize,
+    /// Consumer lag summed over the persistent queries.
+    pub lag: f64,
+    /// Each source's statistics summed over the described ones.
+    pub totals: &'a BTreeMap<String, f64>,
+    /// Streams and tables listed (the first [`MAX_SOURCES`] are described).
+    pub sources: usize,
+    pub streams: usize,
+    pub tables: usize,
+    /// Live servers, when `/clusterStatus` answered.
+    pub alive: Option<f64>,
+}
+
+/// The headline figures.
+pub(crate) fn metrics(f: &Figures) -> Vec<Metric> {
+    let tot = |k: &str| f.totals.get(k).copied().or((f.sources > 0).then_some(0.0));
+    vec![
+        Metric::new(
+            "active_sessions",
+            "Consultas persistentes en ejecución",
+            "Actividad",
+            MetricUnit::Count,
+            Some(f.running as f64),
+        )
+        .help("Consultas persistentes (las de CREATE … AS SELECT e INSERT INTO) que están procesando mensajes.")
+        .source("SHOW QUERIES EXTENDED: queryDescriptions with queryType PERSISTENT and state = RUNNING"),
+        Metric::new(
+            "failed_queries",
+            "Consultas con error",
+            "Actividad",
+            MetricUnit::Count,
+            Some(f.failed as f64),
+        )
+        .help("Consultas persistentes en error o que no responden: dejaron de procesar mensajes. El detalle está en la tabla de consultas y en el processing log.")
+        .source("SHOW QUERIES EXTENDED: queryDescriptions with queryType PERSISTENT and state = ERROR or UNRESPONSIVE"),
+        Metric::new(
+            "consumer_lag",
+            "Retraso de consumo (mensajes)",
+            "Actividad",
+            MetricUnit::Count,
+            Some(f.lag),
+        )
+        .help("Mensajes que las consultas persistentes todavía no procesaron, sumados entre las particiones que leen. Si crece, las consultas no dan abasto con lo que llega a sus topics.")
+        .source("SHOW QUERIES EXTENDED: tasksMetadata.topicOffsets endOffset − committedOffset of the PERSISTENT queries (repartition topics left out), summed"),
+        Metric::new(
+            "messages_per_sec",
+            "Mensajes consumidos por segundo",
+            "Tráfico",
+            MetricUnit::Count,
+            tot("consumer-messages-per-sec"),
+        )
+        .help("Mensajes por segundo que consumen las consultas de los topics de los streams y tablas, sumados entre servidores, según la última medición de ksqlDB.")
+        .source("DESCRIBE <source> EXTENDED (first 30 streams and tables): clusterStatistics consumer-messages-per-sec, summed"),
+        Metric::new(
+            "messages_in",
+            "Mensajes consumidos",
+            "Tráfico",
+            MetricUnit::Count,
+            tot("consumer-total-messages"),
+        )
+        .help("Mensajes que las consultas leyeron de los topics de los streams y tablas, sumados entre servidores.")
+        .source("DESCRIBE <source> EXTENDED (first 30 streams and tables): clusterStatistics consumer-total-messages, summed")
+        .counter(),
+        Metric::new(
+            "bytes_in",
+            "Bytes consumidos",
+            "Tráfico",
+            MetricUnit::Bytes,
+            tot("consumer-total-bytes"),
+        )
+        .help("Datos que las consultas leyeron de los topics de los streams y tablas, sumados entre servidores.")
+        .source("DESCRIBE <source> EXTENDED (first 30 streams and tables): clusterStatistics consumer-total-bytes, summed")
+        .counter(),
+        Metric::new(
+            "messages_out",
+            "Mensajes producidos",
+            "Tráfico",
+            MetricUnit::Count,
+            tot("total-messages"),
+        )
+        .help("Mensajes que las consultas persistentes escribieron en los topics de los streams y tablas, sumados entre servidores.")
+        .source("DESCRIBE <source> EXTENDED (first 30 streams and tables): clusterStatistics total-messages, summed")
+        .counter(),
+        Metric::new(
+            "messages_failed",
+            "Mensajes fallidos",
+            "Tráfico",
+            MetricUnit::Count,
+            tot("consumer-failed-messages"),
+        )
+        .help("Mensajes que las consultas no pudieron procesar, por ejemplo por no poder deserializarlos. Cada uno queda en el processing log.")
+        .source("DESCRIBE <source> EXTENDED (first 30 streams and tables): clusterErrorStats consumer-failed-messages, summed")
+        .counter(),
+        Metric::new(
+            "streams",
+            "Streams",
+            "Objetos",
+            MetricUnit::Count,
+            Some(f.streams as f64),
+        )
+        .help("Streams definidos en ksqlDB, sin el processing log.")
+        .source("SHOW STREAMS (count, KSQL_PROCESSING_LOG left out)"),
+        Metric::new(
+            "tables",
+            "Tablas",
+            "Objetos",
+            MetricUnit::Count,
+            Some(f.tables as f64),
+        )
+        .help("Tablas definidas en ksqlDB.")
+        .source("SHOW TABLES (count)"),
+        Metric::new(
+            "nodes",
+            "Servidores vivos",
+            "Cluster",
+            MetricUnit::Count,
+            f.alive,
+        )
+        .help("Servidores del cluster de ksqlDB que están vivos según sus heartbeats.")
+        .source("GET /clusterStatus: clusterStatus hosts with hostAlive = true"),
+    ]
 }
 
 impl KsqlSession {
@@ -147,12 +282,18 @@ impl KsqlSession {
             .cloned()
             .collect();
         let state = |q: &Value| q.get("state").map(text).unwrap_or_default();
-        let running = queries.iter().filter(|q| state(q) == "RUNNING").count();
-        let failed = queries
+        // The figures are the persistent queries': newer servers also list
+        // the transient push queries open in a client (queryType PUSH).
+        let persistent: Vec<&Value> = queries.iter().filter(|q| is_persistent(q)).collect();
+        let running = persistent.iter().filter(|q| state(q) == "RUNNING").count();
+        let failed = persistent
             .iter()
             .filter(|q| state(q) == "ERROR" || state(q) == "UNRESPONSIVE")
             .count();
-        let total_lag = queries.iter().map(query_lag).fold(0.0, |a, b| a + b);
+        let total_lag = persistent
+            .iter()
+            .map(|q| query_lag(q))
+            .fold(0.0, |a, b| a + b);
         let mut t = MonitorTable::new(
             "queries",
             "Consultas persistentes",
@@ -269,95 +410,16 @@ impl KsqlSession {
         }
         snap.tables.push(t);
 
-        let tot = |k: &str| {
-            totals
-                .get(k)
-                .copied()
-                .or((!sources.is_empty()).then_some(0.0))
-        };
-        snap.metrics = vec![
-            Metric::new(
-                "active_sessions",
-                "Consultas persistentes en ejecución",
-                "Actividad",
-                MetricUnit::Count,
-                Some(running as f64),
-            ),
-            Metric::new(
-                "failed_queries",
-                "Consultas con error",
-                "Actividad",
-                MetricUnit::Count,
-                Some(failed as f64),
-            ),
-            Metric::new(
-                "consumer_lag",
-                "Retraso de consumo (mensajes)",
-                "Actividad",
-                MetricUnit::Count,
-                Some(total_lag),
-            ),
-            Metric::new(
-                "messages_per_sec",
-                "Mensajes consumidos por segundo",
-                "Tráfico",
-                MetricUnit::Count,
-                tot("consumer-messages-per-sec"),
-            ),
-            Metric::new(
-                "messages_in",
-                "Mensajes consumidos",
-                "Tráfico",
-                MetricUnit::Count,
-                tot("consumer-total-messages"),
-            )
-            .counter(),
-            Metric::new(
-                "bytes_in",
-                "Bytes consumidos",
-                "Tráfico",
-                MetricUnit::Bytes,
-                tot("consumer-total-bytes"),
-            )
-            .counter(),
-            Metric::new(
-                "messages_out",
-                "Mensajes producidos",
-                "Tráfico",
-                MetricUnit::Count,
-                tot("total-messages"),
-            )
-            .counter(),
-            Metric::new(
-                "messages_failed",
-                "Mensajes fallidos",
-                "Tráfico",
-                MetricUnit::Count,
-                tot("consumer-failed-messages"),
-            )
-            .counter(),
-            Metric::new(
-                "streams",
-                "Streams",
-                "Objetos",
-                MetricUnit::Count,
-                Some(streams.iter().filter(|n| *n != PROCESSING_LOG).count() as f64),
-            ),
-            Metric::new(
-                "tables",
-                "Tablas",
-                "Objetos",
-                MetricUnit::Count,
-                Some(tables.len() as f64),
-            ),
-            Metric::new(
-                "nodes",
-                "Servidores vivos",
-                "Cluster",
-                MetricUnit::Count,
-                alive,
-            ),
-        ];
+        snap.metrics = metrics(&Figures {
+            running,
+            failed,
+            lag: total_lag,
+            totals: &totals,
+            sources: sources.len(),
+            streams: streams.iter().filter(|n| *n != PROCESSING_LOG).count(),
+            tables: tables.len(),
+            alive,
+        });
         snap.notes.push(
             "ksqlDB no expone CPU ni memoria por la API REST (solo por JMX); el tráfico se mide en mensajes por stream y tabla.".into(),
         );
@@ -413,5 +475,38 @@ mod tests {
             chrono_ms(1_700_000_000_000).as_deref(),
             Some("2023-11-14 22:13:20")
         );
+    }
+
+    #[test]
+    fn push_queries_are_not_persistent() {
+        assert!(is_persistent(&json!({"queryType": "PERSISTENT"})));
+        assert!(is_persistent(&json!({"state": "RUNNING"})));
+        assert!(!is_persistent(&json!({"queryType": "PUSH"})));
+    }
+
+    #[test]
+    fn every_metric_says_what_it_is() {
+        let totals: BTreeMap<String, f64> = [("consumer-total-messages".to_string(), 5.0)].into();
+        let list = metrics(&Figures {
+            running: 2,
+            failed: 1,
+            lag: 9.0,
+            totals: &totals,
+            sources: 3,
+            streams: 2,
+            tables: 1,
+            alive: Some(1.0),
+        });
+        assert_eq!(list.len(), 11);
+        let v = |k: &str| list.iter().find(|m| m.key == k).and_then(|m| m.value);
+        assert_eq!((v("messages_in"), v("bytes_in")), (Some(5.0), Some(0.0)));
+        for m in &list {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
     }
 }

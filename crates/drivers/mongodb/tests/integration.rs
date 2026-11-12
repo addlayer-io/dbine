@@ -731,14 +731,34 @@ async fn check_monitor(driver: usize, c: ConnectionConfig) -> dbine_driver::Moni
     assert!(snap.info.iter().any(|(k, _)| k == "Versión"));
     for m in &snap.metrics {
         eprintln!(
-            "{:<22} {:?} max={:?} counter={}",
-            m.key, m.value, m.max, m.counter
+            "{:<22} {:?} max={:?} counter={} source={:?}",
+            m.key, m.value, m.max, m.counter, m.source
         );
     }
     for t in &snap.tables {
         eprintln!("table {} rows={}", t.key, t.rows.len());
     }
     eprintln!("info {:?}\nnotes {:?}", snap.info, snap.notes);
+    // Every metric says what it measures and where it comes from.
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: help",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: source",
+            m.key
+        );
+    }
+    // The process CPU is a share of every core it may use.
+    if let Some(cpu) = snap.metrics.iter().find(|m| m.key == "cpu_time") {
+        assert_eq!(cpu.max, Some(100.0));
+    }
+    s.execute("db.monitor_probe.drop()", 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
     snap
 }
 
@@ -808,6 +828,9 @@ async fn ferretdb() {
     let snap = check_monitor(1, c).await;
     assert!(snap.info.iter().any(|(k, _)| k == "Versión de FerretDB"));
     assert!(snap.notes.iter().any(|n| n.contains("top")));
+    s.execute("db.people.drop()", 10, &mut QueryOutcome::default())
+        .await
+        .unwrap();
 }
 
 /// One session profiles `dbine_it`, the other runs a slow command and a fast

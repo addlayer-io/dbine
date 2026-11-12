@@ -891,6 +891,14 @@ async fn monitor(id: &str, env: &str) {
         !first.metrics.is_empty() && snap.metrics.iter().filter(|m| m.value.is_some()).count() >= 3,
         "{snap:#?}"
     );
+    for m in first.metrics.iter().chain(&snap.metrics) {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty())
+                && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+            "{id}: {} has no help or source",
+            m.key
+        );
+    }
     assert!(snap.info.iter().any(|(k, _)| k == "Versión"));
     for t in &snap.tables {
         assert!(
@@ -921,6 +929,11 @@ async fn monitor(id: &str, env: &str) {
     }
     for h in bg {
         h.await.unwrap();
+    }
+    if innodb {
+        run(&mut s, "DROP DATABASE IF EXISTS dbine_mon")
+            .await
+            .unwrap();
     }
 }
 

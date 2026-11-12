@@ -143,6 +143,161 @@ fn now_ms() -> f64 {
         .unwrap_or(0.0)
 }
 
+/// The headline figures, from the running/pending jobs, the jobs done in
+/// the last [`RECENT`] and the storage cache.
+pub(crate) fn metrics(active: &[Job], done: &[Job], now: f64, st: &StorageCache) -> Vec<Metric> {
+    let running = active.iter().filter(|j| j.state == "RUNNING").count();
+    let pending = active.iter().filter(|j| j.state == "PENDING").count();
+    // Average slots of each running job so far: its slot-ms over its
+    // elapsed time.
+    let slots = total(
+        active
+            .iter()
+            .filter(|j| j.state == "RUNNING")
+            .filter_map(|j| Some(j.slot_ms? / (now - j.started?).max(1.0))),
+    );
+    let recent_bytes = total(done.iter().filter_map(|j| j.bytes_processed));
+    let recent_billed = total(done.iter().filter_map(|j| j.bytes_billed));
+    let recent_slot_ms = total(done.iter().filter_map(|j| j.slot_ms));
+    let failed = done.iter().filter(|j| !j.error.is_empty()).count();
+    let cached = done.iter().filter(|j| j.cache_hit).count();
+
+    let logical =
+        (!st.tables.is_empty()).then(|| total(st.tables.iter().filter_map(|t| t.logical)));
+    let physical =
+        (!st.tables.is_empty()).then(|| total(st.tables.iter().filter_map(|t| t.physical)));
+    let capacity: Option<f64> = (!st.reservations.is_empty())
+        .then(|| {
+            total(
+                st.reservations
+                    .iter()
+                    .map(|r| r.1.unwrap_or(0.0) + r.3.unwrap_or(0.0)),
+            )
+        })
+        .filter(|c: &f64| *c > 0.0);
+    // Sizes come from TABLE_STORAGE, or table by table when it can't be read.
+    let (logical_help, logical_src, physical_help, physical_src) = if st.source == "tables.get" {
+        (
+            "Tamaño sin comprimir de las tablas del dataset de la sesión (hasta 50), sumado: no se pudo leer el de todo el proyecto. Se relee cada 10 minutos.",
+            "tables.get (session dataset, up to 50 tables): numBytes (sum)",
+            "Tamaño comprimido en disco de las tablas del dataset de la sesión (hasta 50), sumado: no se pudo leer el de todo el proyecto. Se relee cada 10 minutos.",
+            "tables.get (session dataset, up to 50 tables): numTotalPhysicalBytes or numPhysicalBytes (sum)",
+        )
+    } else {
+        (
+            "Tamaño sin comprimir de las tablas del proyecto en esta ubicación, sumado: es lo que se cobra con el modelo de almacenamiento lógico. Se relee cada 10 minutos.",
+            "`region-<location>`.INFORMATION_SCHEMA.TABLE_STORAGE (deleted = FALSE): total_logical_bytes (sum)",
+            "Tamaño comprimido en disco de las tablas del proyecto en esta ubicación, con el time travel, sumado: es lo que se cobra con el modelo de almacenamiento físico. Se relee cada 10 minutos.",
+            "`region-<location>`.INFORMATION_SCHEMA.TABLE_STORAGE (deleted = FALSE): total_physical_bytes (sum)",
+        )
+    };
+
+    vec![
+        Metric::new(
+            "active_sessions",
+            "Jobs en ejecución",
+            "Actividad",
+            MetricUnit::Count,
+            Some(running as f64),
+        )
+        .help("Jobs (consultas, cargas, exportaciones, copias) que se están ejecutando ahora en el proyecto. Sin el permiso bigquery.jobs.listAll cuenta solo los tuyos.")
+        .source("jobs.list?stateFilter=running&stateFilter=pending&allUsers=true (maxResults 200): jobs with status.state = RUNNING"),
+        Metric::new(
+            "pending_jobs",
+            "Jobs pendientes",
+            "Actividad",
+            MetricUnit::Count,
+            Some(pending as f64),
+        )
+        .help("Jobs que esperan para empezar, por falta de slots o por el límite de consultas simultáneas. Si no vuelve a cero, falta capacidad.")
+        .source("jobs.list?stateFilter=running&stateFilter=pending&allUsers=true (maxResults 200): jobs with status.state = PENDING"),
+        Metric::new(
+            "slots",
+            "Slots en uso (estimado)",
+            "Capacidad",
+            MetricUnit::Count,
+            Some((slots * 10.0).round() / 10.0),
+        )
+        .help("Slots que usan ahora los jobs en ejecución, estimados: el tiempo de slot de cada job dividido por lo que lleva corriendo, sumado. El máximo es la capacidad de las reservas (base más autoescalado); con precios on-demand no hay un máximo fijo.")
+        .source("jobs.list (running): statistics.query.totalSlotMs ÷ (now − startTime), summed; max: INFORMATION_SCHEMA.RESERVATIONS slot_capacity + autoscale.max_slots (sum)")
+        .max(capacity),
+        Metric::new(
+            "recent_jobs",
+            "Jobs terminados (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Count,
+            Some(done.len() as f64),
+        )
+        .help("Jobs creados en los últimos 15 minutos que ya terminaron, bien o con error, hasta 500.")
+        .source("jobs.list?stateFilter=done&minCreationTime=<now − 15 min> (maxResults 500)"),
+        Metric::new(
+            "recent_failed",
+            "Jobs fallidos (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Count,
+            Some(failed as f64),
+        )
+        .help("De los jobs terminados en los últimos 15 minutos, los que fallaron. El mensaje de error está en la tabla de jobs recientes.")
+        .source("jobs.list (done, last 15 min): jobs with status.errorResult"),
+        Metric::new(
+            "bytes_processed",
+            "Bytes procesados (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Bytes,
+            Some(recent_bytes),
+        )
+        .help("Datos que leyeron, sumados, los jobs terminados en los últimos 15 minutos. Mucho volumen para pocas consultas suele indicar tablas recorridas enteras, sin filtrar por la columna de partición.")
+        .source("jobs.list (done, last 15 min): statistics.query.totalBytesProcessed (sum)"),
+        Metric::new(
+            "bytes_billed",
+            "Bytes facturados (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Bytes,
+            Some(recent_billed),
+        )
+        .help("Bytes que se cobran con precios on-demand por los jobs terminados en los últimos 15 minutos: se redondean hacia arriba (mínimo 10 MB por tabla) y lo que sale de la caché no se cobra. Con reservas de slots se paga la capacidad, no estos bytes.")
+        .source("jobs.list (done, last 15 min): statistics.query.totalBytesBilled (sum)"),
+        Metric::new(
+            "slot_time",
+            "Tiempo de slot (últimos 15 min)",
+            "Últimos 15 minutos",
+            MetricUnit::Millis,
+            Some(recent_slot_ms),
+        )
+        .help("Tiempo de slot que consumieron los jobs terminados en los últimos 15 minutos, sumado entre todos sus slots. Dividido por 900 000 ms da, aproximadamente, los slots promedio de la ventana (sin los jobs que siguen corriendo).")
+        .source("jobs.list (done, last 15 min): statistics.query.totalSlotMs (sum)"),
+        Metric::new(
+            "cache_hit",
+            "Consultas servidas desde caché (últimos 15 min)",
+            "Caché",
+            MetricUnit::Percent,
+            (!done.is_empty())
+                .then(|| (cached as f64 * 1000.0 / done.len() as f64).round() / 10.0),
+        )
+        .help("Parte de los jobs terminados en los últimos 15 minutos cuyo resultado salió de la caché de consultas: no leen datos ni consumen slots.")
+        .source("jobs.list (done, last 15 min): share of jobs with statistics.query.cacheHit = true")
+        .max(Some(100.0)),
+        Metric::new(
+            "storage_used",
+            "Almacenamiento lógico",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            logical,
+        )
+        .help(logical_help)
+        .source(logical_src),
+        Metric::new(
+            "storage_physical",
+            "Almacenamiento físico",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            physical,
+        )
+        .help(physical_help)
+        .source(physical_src),
+    ]
+}
+
 impl BigQuerySession {
     /// One page of `jobs.list`; `all` = every user's (needs
     /// bigquery.jobs.listAll).
@@ -296,120 +451,9 @@ impl BigQuerySession {
             .unwrap_or_default();
         done.sort_by(|a, b| b.ended.unwrap_or(0.0).total_cmp(&a.ended.unwrap_or(0.0)));
 
-        let running = active.iter().filter(|j| j.state == "RUNNING").count();
-        let pending = active.iter().filter(|j| j.state == "PENDING").count();
-        // Average slots of each running job so far: its slot-ms over its
-        // elapsed time.
-        let slots = total(
-            active
-                .iter()
-                .filter(|j| j.state == "RUNNING")
-                .filter_map(|j| Some(j.slot_ms? / (now - j.started?).max(1.0))),
-        );
-        let recent_bytes = total(done.iter().filter_map(|j| j.bytes_processed));
-        let recent_billed = total(done.iter().filter_map(|j| j.bytes_billed));
-        let recent_slot_ms = total(done.iter().filter_map(|j| j.slot_ms));
-        let failed = done.iter().filter(|j| !j.error.is_empty()).count();
-        let cached = done.iter().filter(|j| j.cache_hit).count();
-
         self.refresh_storage().await;
         let st = &self.storage;
-        let logical =
-            (!st.tables.is_empty()).then(|| total(st.tables.iter().filter_map(|t| t.logical)));
-        let physical =
-            (!st.tables.is_empty()).then(|| total(st.tables.iter().filter_map(|t| t.physical)));
-        let capacity: Option<f64> = (!st.reservations.is_empty())
-            .then(|| {
-                total(
-                    st.reservations
-                        .iter()
-                        .map(|r| r.1.unwrap_or(0.0) + r.3.unwrap_or(0.0)),
-                )
-            })
-            .filter(|c: &f64| *c > 0.0);
-
-        snap.metrics = vec![
-            Metric::new(
-                "active_sessions",
-                "Jobs en ejecución",
-                "Actividad",
-                MetricUnit::Count,
-                Some(running as f64),
-            ),
-            Metric::new(
-                "pending_jobs",
-                "Jobs pendientes",
-                "Actividad",
-                MetricUnit::Count,
-                Some(pending as f64),
-            ),
-            Metric::new(
-                "slots",
-                "Slots en uso (estimado)",
-                "Capacidad",
-                MetricUnit::Count,
-                Some((slots * 10.0).round() / 10.0),
-            )
-            .max(capacity),
-            Metric::new(
-                "recent_jobs",
-                "Jobs terminados (últimos 15 min)",
-                "Últimos 15 minutos",
-                MetricUnit::Count,
-                Some(done.len() as f64),
-            ),
-            Metric::new(
-                "recent_failed",
-                "Jobs fallidos (últimos 15 min)",
-                "Últimos 15 minutos",
-                MetricUnit::Count,
-                Some(failed as f64),
-            ),
-            Metric::new(
-                "bytes_processed",
-                "Bytes procesados (últimos 15 min)",
-                "Últimos 15 minutos",
-                MetricUnit::Bytes,
-                Some(recent_bytes),
-            ),
-            Metric::new(
-                "bytes_billed",
-                "Bytes facturados (últimos 15 min)",
-                "Últimos 15 minutos",
-                MetricUnit::Bytes,
-                Some(recent_billed),
-            ),
-            Metric::new(
-                "slot_time",
-                "Tiempo de slot (últimos 15 min)",
-                "Últimos 15 minutos",
-                MetricUnit::Millis,
-                Some(recent_slot_ms),
-            ),
-            Metric::new(
-                "cache_hit",
-                "Consultas servidas desde caché (últimos 15 min)",
-                "Caché",
-                MetricUnit::Percent,
-                (!done.is_empty())
-                    .then(|| (cached as f64 * 1000.0 / done.len() as f64).round() / 10.0),
-            )
-            .max(Some(100.0)),
-            Metric::new(
-                "storage_used",
-                "Almacenamiento lógico",
-                "Almacenamiento",
-                MetricUnit::Bytes,
-                logical,
-            ),
-            Metric::new(
-                "storage_physical",
-                "Almacenamiento físico",
-                "Almacenamiento",
-                MetricUnit::Bytes,
-                physical,
-            ),
-        ];
+        snap.metrics = metrics(&active, &done, now, st);
 
         let cols_active = [
             "Id",
@@ -622,5 +666,51 @@ mod tests {
             ("SELECT", Some(1.0), Some(1.7e12))
         );
         assert_eq!(total(std::iter::empty()).to_string(), "0");
+    }
+
+    #[test]
+    fn every_metric_says_what_it_is() {
+        let running = job(
+            &json!({"jobReference": {"jobId": "r"}, "status": {"state": "RUNNING"},
+            "statistics": {"startTime": "1700000000000", "query": {"totalSlotMs": "20000"}}}),
+        );
+        let done = job(
+            &json!({"jobReference": {"jobId": "d"}, "status": {"state": "DONE"},
+            "statistics": {"query": {"totalBytesProcessed": "10", "cacheHit": true}}}),
+        );
+        for source in ["TABLE_STORAGE", "tables.get"] {
+            let st = StorageCache {
+                tables: vec![TableSize {
+                    logical: Some(5.0),
+                    physical: Some(2.0),
+                    ..Default::default()
+                }],
+                reservations: vec![("r".into(), Some(100.0), "ENTERPRISE".into(), Some(50.0))],
+                source,
+                ..Default::default()
+            };
+            let m = metrics(
+                std::slice::from_ref(&running),
+                std::slice::from_ref(&done),
+                1_700_000_010_000.0,
+                &st,
+            );
+            assert_eq!(m.len(), 11);
+            let slots = m.iter().find(|m| m.key == "slots").unwrap();
+            assert_eq!((slots.value, slots.max), (Some(2.0), Some(150.0)));
+            for m in &m {
+                assert!(
+                    m.help.as_deref().is_some_and(|h| !h.is_empty())
+                        && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                    "{} has no help or source",
+                    m.key
+                );
+            }
+            let used = m.iter().find(|m| m.key == "storage_used").unwrap();
+            assert_eq!(
+                used.source.as_deref().unwrap().starts_with("tables.get"),
+                source == "tables.get"
+            );
+        }
     }
 }

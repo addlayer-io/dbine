@@ -243,7 +243,15 @@ async fn round_trip() {
         .unwrap_err();
     println!("read-only: {e}");
 
-    // Monitor.
+    // Monitor. A class under a system class (left out of the counts) and
+    // one under two user classes: their records count once each too.
+    run(
+        &mut s,
+        "CREATE CLASS Invoice EXTENDS ORestricted; CREATE CLASS Tagged;
+         CREATE CLASS Both EXTENDS Note, Tagged;
+         INSERT INTO Invoice SET n = 1; INSERT INTO Both SET n = 1",
+    )
+    .await;
     let snap = s.monitor().await.unwrap();
     let vals: Vec<String> = snap
         .metrics
@@ -261,6 +269,16 @@ async fn round_trip() {
         snap.notes
     );
     assert!(vals.len() >= 5);
+    for m in &snap.metrics {
+        assert!(m.help.is_some() && m.source.is_some(), "{}", m.key);
+    }
+    // Two people, two Knows, two Notes (one of each from the insert
+    // scripts), an Invoice and a Both: each record once.
+    let v = |k: &str| snap.metrics.iter().find(|m| m.key == k).unwrap().value;
+    assert_eq!(
+        (v("nodes"), v("relationships"), v("records")),
+        (Some(2.0), Some(2.0), Some(8.0))
+    );
     assert!(snap
         .tables
         .iter()

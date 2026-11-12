@@ -75,34 +75,50 @@ pub fn snapshot(
     let f = |v: i64| Some(v as f64);
 
     let m = &mut s.metrics;
-    m.push(Metric::new(
-        "storage_used",
-        "Tamaño de las tablas",
-        "Almacenamiento",
-        MetricUnit::Bytes,
-        f(size),
-    ));
-    m.push(Metric::new(
-        "items",
-        "Ítems",
-        "Almacenamiento",
-        MetricUnit::Count,
-        f(items),
-    ));
-    m.push(Metric::new(
-        "tables",
-        "Tablas",
-        "Almacenamiento",
-        MetricUnit::Count,
-        Some(total as f64),
-    ));
-    m.push(Metric::new(
-        "indexes",
-        "Índices globales (GSI)",
-        "Almacenamiento",
-        MetricUnit::Count,
-        Some(gsis as f64),
-    ));
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Tamaño de las tablas",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            f(size),
+        )
+        .help("Tamaño de las tablas de la región, sumado entre las primeras 100. DynamoDB lo actualiza cada seis horas, más o menos, así que no sigue las escrituras al momento.")
+        .source("DescribeTable: Table.TableSizeBytes, summed over the first 100 tables of ListTables"),
+    );
+    m.push(
+        Metric::new(
+            "items",
+            "Ítems",
+            "Almacenamiento",
+            MetricUnit::Count,
+            f(items),
+        )
+        .help("Ítems de las tablas de la región, sumados entre las primeras 100. Como el tamaño, DynamoDB lo actualiza cada seis horas, más o menos.")
+        .source("DescribeTable: Table.ItemCount, summed over the first 100 tables of ListTables"),
+    );
+    m.push(
+        Metric::new(
+            "tables",
+            "Tablas",
+            "Almacenamiento",
+            MetricUnit::Count,
+            Some(total as f64),
+        )
+        .help("Tablas de la cuenta en esta región.")
+        .source("ListTables (count)"),
+    );
+    m.push(
+        Metric::new(
+            "indexes",
+            "Índices globales (GSI)",
+            "Almacenamiento",
+            MetricUnit::Count,
+            Some(gsis as f64),
+        )
+        .help("Índices secundarios globales de las tablas descritas, sumados. Cada uno replica los atributos que proyecta y consume su propia capacidad de escritura.")
+        .source("DescribeTable: Table.GlobalSecondaryIndexes (count), summed over the first 100 tables"),
+    );
     m.push(
         Metric::new(
             "provisioned_read",
@@ -111,6 +127,8 @@ pub fn snapshot(
             MetricUnit::Count,
             f(rcu),
         )
+        .help("Unidades de capacidad de lectura (RCU) aprovisionadas en las tablas en modo aprovisionado y sus índices globales, sumadas, sobre el límite de la cuenta en la región. Las tablas a demanda no suman; lo consumido está en CloudWatch.")
+        .source("DescribeTable: ProvisionedThroughput.ReadCapacityUnits of each provisioned table and its GSIs (sum); max: DescribeLimits AccountMaxReadCapacityUnits")
         .max(l.account_read.map(|v| v as f64)),
     );
     m.push(
@@ -121,22 +139,32 @@ pub fn snapshot(
             MetricUnit::Count,
             f(wcu),
         )
+        .help("Unidades de capacidad de escritura (WCU) aprovisionadas en las tablas en modo aprovisionado y sus índices globales, sumadas, sobre el límite de la cuenta en la región. Las tablas a demanda no suman; lo consumido está en CloudWatch.")
+        .source("DescribeTable: ProvisionedThroughput.WriteCapacityUnits of each provisioned table and its GSIs (sum); max: DescribeLimits AccountMaxWriteCapacityUnits")
         .max(l.account_write.map(|v| v as f64)),
     );
-    m.push(Metric::new(
-        "on_demand_tables",
-        "Tablas a demanda",
-        "Capacidad",
-        MetricUnit::Count,
-        Some(demand as f64),
-    ));
-    m.push(Metric::new(
-        "tables_busy",
-        "Tablas no activas (creando, actualizando…)",
-        "Servidor",
-        MetricUnit::Count,
-        Some(busy as f64),
-    ));
+    m.push(
+        Metric::new(
+            "on_demand_tables",
+            "Tablas a demanda",
+            "Capacidad",
+            MetricUnit::Count,
+            Some(demand as f64),
+        )
+        .help("Tablas descritas en modo a demanda: pagan por solicitud y no tienen capacidad aprovisionada.")
+        .source("DescribeTable: BillingModeSummary.BillingMode = PAY_PER_REQUEST (count)"),
+    );
+    m.push(
+        Metric::new(
+            "tables_busy",
+            "Tablas no activas (creando, actualizando…)",
+            "Servidor",
+            MetricUnit::Count,
+            Some(busy as f64),
+        )
+        .help("Tablas descritas que no están activas: se están creando, actualizando, borrando o restaurando. Mientras tanto, algunas operaciones sobre ellas no se pueden hacer.")
+        .source("DescribeTable: TableStatus other than ACTIVE (count)"),
+    );
 
     let mut rows: Vec<&TableDescription> = described.iter().collect();
     rows.sort_by_key(|d| std::cmp::Reverse(d.table_size_bytes().unwrap_or(0)));
@@ -369,6 +397,15 @@ mod tests {
             .info
             .iter()
             .any(|(k, v)| k == "Límite de RCU por tabla" && v == "40000"));
+        assert_eq!(s.metrics.len(), 8);
+        for m in &s.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
     }
 
     #[test]

@@ -763,15 +763,21 @@ fn local_figures(c: &Connection, snap: &mut dbine_driver::MonitorSnapshot) {
             "Almacenamiento",
             U::Bytes,
             db,
-        ),
+        )
+        .help("Tamaño en disco del archivo de la base principal, con sus páginas libres y sin el WAL.")
+        .source("file system: size of the main database file (pragma_database_list)"),
     );
-    m.push(Metric::new(
-        "wal_size",
-        "Tamaño del WAL",
-        "Almacenamiento",
-        U::Bytes,
-        wal,
-    ));
+    m.push(
+        Metric::new(
+            "wal_size",
+            "Tamaño del WAL",
+            "Almacenamiento",
+            U::Bytes,
+            wal,
+        )
+        .help("Tamaño en disco del archivo WAL. Después de cada checkpoint SQLite lo vuelve a escribir desde el principio, pero no lo achica (salvo con journal_size_limit o wal_checkpoint(TRUNCATE)), así que muestra lo máximo que llegó a ocupar. Si solo crece, una lectura abierta impide que el checkpoint termine.")
+        .source("file system: size of <database file>-wal"),
+    );
     m.push(
         Metric::new(
             "mem_used",
@@ -780,15 +786,21 @@ fn local_figures(c: &Connection, snap: &mut dbine_driver::MonitorSnapshot) {
             U::Bytes,
             Some(heap),
         )
+        .help("Memoria que usa SQLite en el proceso, sumando todas las bases SQLite abiertas en DBine y no solo esta, sobre el pico que alcanzó.")
+        .source("sqlite3_memory_used(); max: sqlite3_memory_highwater(0)")
         .max(Some(heap_peak)),
     );
-    m.push(Metric::new(
-        "mem_cache",
-        "Caché de páginas de la conexión",
-        "Memoria",
-        U::Bytes,
-        cache,
-    ));
+    m.push(
+        Metric::new(
+            "mem_cache",
+            "Caché de páginas de la conexión",
+            "Memoria",
+            U::Bytes,
+            cache,
+        )
+        .help("Memoria que ocupa la caché de páginas de la conexión del monitor.")
+        .source("sqlite3_db_status(SQLITE_DBSTATUS_CACHE_USED)"),
+    );
     m.push(
         Metric::new(
             "cache_hit",
@@ -797,6 +809,8 @@ fn local_figures(c: &Connection, snap: &mut dbine_driver::MonitorSnapshot) {
             U::Percent,
             hit,
         )
+        .help("Parte de las lecturas de páginas de la conexión del monitor que encontraron la página en su caché, desde que se abrió la conexión.")
+        .source("sqlite3_db_status: SQLITE_DBSTATUS_CACHE_HIT ÷ (CACHE_HIT + CACHE_MISS) × 100")
         .max(Some(100.0)),
     );
     match file {
@@ -1037,6 +1051,34 @@ fn cell(v: ValueRef<'_>) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_monitor_metric_says_what_it_is() {
+        let dir = std::env::temp_dir().join(format!("dbine-sqlite-monitor-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("m.db");
+        let c = Connection::open(&path).unwrap();
+        c.execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (x); INSERT INTO t VALUES (1);")
+            .unwrap();
+        let mut snap = monitor::pragma_snapshot(&mut |sql| schema::query_rows(&c, sql));
+        local_figures(&c, &mut snap);
+        drop(c);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(snap.metrics.len(), 9);
+        assert!(
+            snap.metrics.iter().all(|m| m.value.is_some()),
+            "{:?}",
+            snap.metrics
+        );
+        for m in &snap.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
+    }
 
     #[test]
     fn bound_values_stay_data() {
