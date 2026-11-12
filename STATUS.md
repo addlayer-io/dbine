@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-11._
+_Updated 2026-11-12._
 
 ## Open findings
 
@@ -22,10 +22,10 @@ _None._
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.5.0 | 2026-11-11 | 6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e in vendor/winauth and crates/drivers/kdb, the only code that range changes; e8d6961e..e50a062f, the fixes for the open findings, in src-tauri, crates/dbine-core, crates/drivers/kdb and web/src | 0 open | 8d440027, the query editor's result tabs (#75, web/src only), released without a scan by the owner's decision; release-notes and translation text |
-| codeql | 2026-11-11 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-11 | every lockfile (Cargo, npm) at [`c44766eb7`](https://github.com/addlayer-io/dbine/commit/c44766eb72cb) | 0 open | — |
-| scorecard | 2026-11-11 | repository settings and workflows at [`d41927946`](https://github.com/addlayer-io/dbine/commit/d419279460d4) | score 7.5/10 | — |
-| trivy | 2026-11-11 | whole repository at [`c44766eb7`](https://github.com/addlayer-io/dbine/commit/c44766eb72cb) | 0 open | — |
+| codeql | 2026-11-12 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-12 | every lockfile (Cargo, npm) at [`1f1c0fe55`](https://github.com/addlayer-io/dbine/commit/1f1c0fe55803) | 0 open | — |
+| scorecard | 2026-11-11 | repository settings and workflows at [`c44766eb7`](https://github.com/addlayer-io/dbine/commit/c44766eb72cb) | score 7.5/10 | — |
+| trivy | 2026-11-12 | whole repository at [`1f1c0fe55`](https://github.com/addlayer-io/dbine/commit/1f1c0fe55803) | 0 open | — |
 
 ## Not counted, and why
 
@@ -396,7 +396,7 @@ OpenSSF Scorecard: **7.5/10** (2026-11-11). The checks below 10, with Scorecard'
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/3 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/4 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 6 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
