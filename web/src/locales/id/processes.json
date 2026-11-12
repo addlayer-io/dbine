@@ -29,6 +29,8 @@
   "waitsFor": "Menunggu",
   "waitedBy": "Ditunggu oleh:",
   "noSql": "Tidak sedang menjalankan pernyataan apa pun.",
+  "analyze": "Analisis",
+  "analyzeTip": "Buka pernyataan di Pengoptimal: rencana eksekusi, indeks, dan pengukuran",
   "openInQuery": "Buka di kueri",
   "queryName": "Sesi {{id}}",
   "copy": "Salin",

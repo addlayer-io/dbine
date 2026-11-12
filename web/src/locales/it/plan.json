@@ -4,6 +4,10 @@
   "estimatedPlan": "Piano stimato",
   "diagram": "Diagramma",
   "rawPlan": "Piano originale",
+  "fullScreen": "Schermo intero",
+  "fullScreenTip": "Mostra il piano in tutta la finestra (Esc per tornare)",
+  "exitFullScreen": "Esci",
+  "exitFullScreenTip": "Torna al pannello dei risultati (Esc)",
   "statementTitle": "Clic per vederla completa",
   "hint": "Trascina per spostarti · ⌘/pizzico + rotella per lo zoom · F adatta",
   "summary": {

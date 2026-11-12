@@ -29,6 +29,8 @@
   "waitsFor": "Attend",
   "waitedBy": "L'attendent :",
   "noSql": "Elle n'exécute aucune instruction.",
+  "analyze": "Analyser",
+  "analyzeTip": "Ouvrir l'instruction dans l'Optimiseur : plan d'exécution, index et mesures",
   "openInQuery": "Ouvrir dans une requête",
   "queryName": "Session {{id}}",
   "copy": "Copier",

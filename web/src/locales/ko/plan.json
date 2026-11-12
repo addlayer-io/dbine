@@ -4,6 +4,10 @@
   "estimatedPlan": "예상 실행 계획",
   "diagram": "다이어그램",
   "rawPlan": "원본 실행 계획",
+  "fullScreen": "전체 화면",
+  "fullScreenTip": "계획을 창 전체에 표시 (Esc로 돌아가기)",
+  "exitFullScreen": "나가기",
+  "exitFullScreenTip": "결과 패널로 돌아가기 (Esc)",
   "statementTitle": "클릭하여 전체 보기",
   "hint": "끌어서 이동 · ⌘/핀치 + 휠로 확대/축소 · F로 맞춤",
   "summary": {

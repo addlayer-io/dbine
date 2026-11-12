@@ -29,6 +29,8 @@
   "waitsFor": "待機先",
   "waitedBy": "待たれている:",
   "noSql": "文を実行していません。",
+  "analyze": "分析",
+  "analyzeTip": "オプティマイザーでステートメントを開きます:実行プラン、インデックス、計測",
   "openInQuery": "クエリで開く",
   "queryName": "セッション {{id}}",
   "copy": "コピー",

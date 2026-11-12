@@ -4,6 +4,10 @@
   "estimatedPlan": "Estimated plan",
   "diagram": "Diagram",
   "rawPlan": "Original plan",
+  "fullScreen": "Full screen",
+  "fullScreenTip": "View the plan in the whole window (Esc to go back)",
+  "exitFullScreen": "Exit",
+  "exitFullScreenTip": "Back to the results panel (Esc)",
   "statementTitle": "Click to see it all",
   "hint": "Drag to move around · ⌘/pinch + wheel to zoom · F fits",
   "summary": {

@@ -540,7 +540,7 @@ async fn test_connection_with(
         Err(e @ (CommandError::SecretSourceApproval(_) | CommandError::SecretSourceUnlock(_))) => {
             return Err(e)
         }
-        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e.into())),
+        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e)),
     }
     // The form's sources (resolved below) and Vault tokens it typed.
     let sources = match source_defs::take(&mut cfg) {
@@ -598,14 +598,14 @@ async fn test_connection_with(
         Err(e @ (CommandError::SecretSourceApproval(_) | CommandError::SecretSourceUnlock(_))) => {
             return Err(e)
         }
-        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e.into())),
+        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e)),
     }
     // The tunnel lives until the test ends. An unknown SSH server is an
     // error (the UI asks to trust it), not a failed test.
     let tunnel = match state.tunnels.route(None, &mut cfg).await {
         Ok(t) => t,
         Err(e @ CommandError::SshUnknownHost { .. }) => return Err(e),
-        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e.into())),
+        Err(e) => return Ok(TestResult::failed_with(e.to_string(), e)),
     };
     // A cloud sign-in (AWS IAM, Google Cloud IAM, Entra ID): the result
     // says who signed in. Only here: never in the explorer, the feedback

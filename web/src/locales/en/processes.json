@@ -29,6 +29,8 @@
   "waitsFor": "Waits for",
   "waitedBy": "Waited on by:",
   "noSql": "It is not running any statement.",
+  "analyze": "Analyze",
+  "analyzeTip": "Open the statement in the Optimizer: execution plan, indexes and measurements",
   "openInQuery": "Open in a query",
   "queryName": "Session {{id}}",
   "copy": "Copy",

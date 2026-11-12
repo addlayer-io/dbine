@@ -4,6 +4,10 @@
   "estimatedPlan": "预估计划",
   "diagram": "关系图",
   "rawPlan": "原始计划",
+  "fullScreen": "全屏",
+  "fullScreenTip": "在整个窗口中查看计划（按 Esc 返回）",
+  "exitFullScreen": "退出",
+  "exitFullScreenTip": "返回结果面板（Esc）",
   "statementTitle": "点击查看全部",
   "hint": "拖动以平移 · ⌘/双指缩放 + 滚轮以缩放 · F 适应视图",
   "summary": {
