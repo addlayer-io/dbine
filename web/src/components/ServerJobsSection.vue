@@ -100,7 +100,7 @@ function openMenu(ev: MouseEvent, connectionId: string, job: ServerJob) {
             <span class="sj-kind">{{ job.kind }}</span>
           </div>
           <div class="ss-meta">
-            <span class="sj-sched" :title="job.schedule ?? ''">{{ job.group ? `${job.group} · ` : '' }}{{ job.schedule ?? $t('scheduled:server.onDemand') }}</span>
+            <span class="sj-sched" :title="job.schedule ? tb(job.schedule) : ''">{{ job.group ? `${job.group} · ` : '' }}{{ job.schedule ? tb(job.schedule) : $t('scheduled:server.onDemand') }}</span>
             <span class="ss-sp" />
             <span v-if="!job.enabled">{{ $t('scheduled:server.disabled') }}</span>
             <span v-else-if="job.next_run" :title="$t('scheduled:nextRun')">→ {{ when(job.next_run) }}</span>

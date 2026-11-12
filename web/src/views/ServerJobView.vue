@@ -16,6 +16,8 @@ import { useServerJobsStore } from '../stores/serverJobs';
 import type { ServerJobTab } from '../stores/tabs';
 import { formatElapsed } from '../stores/tasks';
 
+// Texts the driver writes (schedules it describes, property values, its
+// own messages) go through `tb`; what the server wrote stays as it came.
 // A server job's tab (docs/server-jobs.md): what it is, what it runs, and
 // its runs with each step's result and message. Read again every 30 s
 // while the tab is shown, and right after an action on it.
@@ -134,8 +136,8 @@ function toggleRun(key: string) {
 
     <div v-if="detail && job" class="sjv-body">
       <section class="sjv-facts">
-        <div class="sjv-fact"><span>{{ $t('scheduled:server.schedule') }}</span><code>{{ job.schedule ?? $t('scheduled:server.onDemand') }}</code></div>
-        <div v-for="(s, i) in detail.schedules" :key="i" class="sjv-fact"><span /><code>{{ s }}</code></div>
+        <div class="sjv-fact"><span>{{ $t('scheduled:server.schedule') }}</span><code>{{ job.schedule ? tb(job.schedule) : $t('scheduled:server.onDemand') }}</code></div>
+        <div v-for="(s, i) in detail.schedules" :key="i" class="sjv-fact"><span /><code>{{ tb(s) }}</code></div>
         <div class="sjv-fact"><span>{{ $t('scheduled:nextRun') }}</span>{{ job.enabled ? when(job.next_run) : $t('scheduled:server.disabled') }}</div>
         <div class="sjv-fact">
           <span>{{ $t('scheduled:server.lastRun') }}</span>
@@ -167,7 +169,7 @@ function toggleRun(key: string) {
 
       <section v-for="[g, props2] in groups" :key="g">
         <h3 class="nm-section-title">{{ g ? tb(g) : $t('scheduled:server.properties') }}</h3>
-        <div v-for="(p, i) in props2" :key="i" class="sjv-fact"><span>{{ tb(p.label) }}</span>{{ p.value }}</div>
+        <div v-for="(p, i) in props2" :key="i" class="sjv-fact"><span>{{ tb(p.label) }}</span>{{ tb(p.value) }}</div>
       </section>
 
       <section>
@@ -186,11 +188,11 @@ function toggleRun(key: string) {
                 <td class="num">{{ took(r.duration_ms) }}</td>
                 <td><span class="sjv-out" :class="dot(r.outcome)"><i />{{ outcome(r.outcome) }}</span></td>
                 <td>{{ r.trigger ? tb(r.trigger) : '' }}</td>
-                <td class="msg" :title="r.message ?? ''">{{ r.message ?? '' }}</td>
+                <td class="msg" :title="r.message ? tb(r.message) : ''">{{ r.message ? tb(r.message) : '' }}</td>
               </tr>
               <tr v-if="open.has(r.id ?? String(i))" class="sjv-run-detail">
                 <td colspan="5">
-                  <pre v-if="r.message" class="sjv-msg">{{ r.message }}</pre>
+                  <pre v-if="r.message" class="sjv-msg">{{ tb(r.message) }}</pre>
                   <table v-if="r.steps.length" class="sjv-table">
                     <tbody>
                       <tr v-for="(s, j) in r.steps" :key="j">
@@ -198,7 +200,7 @@ function toggleRun(key: string) {
                         <td><span class="sjv-out" :class="dot(s.outcome)"><i />{{ outcome(s.outcome) }}</span></td>
                         <td>{{ when(s.started) }}</td>
                         <td class="num">{{ took(s.duration_ms) }}</td>
-                        <td class="msg wrap">{{ s.message ?? '' }}</td>
+                        <td class="msg wrap">{{ s.message ? tb(s.message) : '' }}</td>
                       </tr>
                     </tbody>
                   </table>
