@@ -7,9 +7,11 @@ notification.
 
 ## Where it is
 
-The alarm clock icon in the activity bar opens **Scheduled tasks**.
+The alarm clock icon in the activity bar opens **Scheduled**. Its **In DBine**
+section holds the tasks described here; **On the servers** holds the jobs each
+database server runs on its own ([server jobs](server-jobs.md)).
 
-- **+** creates a task and opens it in its own tab.
+- **+** on **In DBine** creates a task and opens it in its own tab.
 - Right-click on a task: **Open**, **Run now**, **Enable** / **Disable** and
   **Delete**. When you delete a task, it stops running and its history is
   erased.
