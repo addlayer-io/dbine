@@ -147,7 +147,9 @@ fn words(text: &str, rules: Rules) -> Vec<Word> {
             b'\'' | b'"' | b'`' => {
                 i += 1;
                 while i < b.len() {
-                    if b[i] == b'\\' && c != b'`' {
+                    // BigQuery's quoted identifiers take the strings'
+                    // escapes too (`a\`b`).
+                    if b[i] == b'\\' {
                         i += 2;
                         continue;
                     }

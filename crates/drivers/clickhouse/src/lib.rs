@@ -761,12 +761,13 @@ impl ClickHouseSession {
     }
 }
 
-/// clickhouse-client's lexer: backslash escapes in strings, heredocs
-/// (`$tag$ … $tag$`), `` `name` ``, nested `/* /* */ */` and `#` line
-/// comments; no procedural bodies.
+/// clickhouse-client's lexer: backslash escapes in strings and in
+/// `` `name` `` (`` `a\`b` ``), heredocs (`$tag$ … $tag$`), nested
+/// `/* /* */ */` and `#` line comments; no procedural bodies.
 fn dialect() -> ScriptDialect {
     ScriptDialect {
         backslash_escapes: true,
+        backtick_backslash: true,
         dollar_quotes: true,
         nested_comments: true,
         hash_comments: true,

@@ -6,10 +6,12 @@ use crate::blocks;
 use dbine_driver::sql::{split_script, ScriptDialect, ScriptStatement};
 use dbine_driver::ScriptError;
 
-/// The console's reading: backslash escapes, `#` comments, `` `ident` ``.
+/// The console's reading: backslash escapes (in strings and in
+/// `` `ident` ``: quoted identifiers take the same escapes), `#` comments.
 pub fn dialect() -> ScriptDialect {
     ScriptDialect {
         backslash_escapes: true,
+        backtick_backslash: true,
         hash_comments: true,
         ..ScriptDialect::generic()
     }
@@ -142,6 +144,19 @@ mod tests {
         assert!(is_script(&units(s)));
         assert!(!is_script(&units("SELECT 1;")));
         assert!(is_script(&units("BEGIN SELECT 1; SELECT 2; END")));
+    }
+
+    #[test]
+    fn a_backslash_escaped_backtick_keeps_a_name_whole() {
+        let t = |s: &str| units(s).into_iter().map(|u| u.text).collect::<Vec<_>>();
+        assert_eq!(
+            t(r"SELECT * FROM `p.d.x\`; DROP SCHEMA d; --`; SELECT 2"),
+            vec![r"SELECT * FROM `p.d.x\`; DROP SCHEMA d; --`", "SELECT 2"]
+        );
+        assert_eq!(
+            t(r"BEGIN SELECT `a\`; END; b`; END; SELECT 2"),
+            vec![r"BEGIN SELECT `a\`; END; b`; END", "SELECT 2"]
+        );
     }
 
     #[test]
