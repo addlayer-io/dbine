@@ -5571,6 +5571,9 @@
  "Conexión de solo lectura: no se cierran conexiones de otros.": [
   "crates/drivers/kdb/src/lib.rs"
  ],
+ "Conexión de solo lectura: no se puede borrar el historial de un job.": [
+  "crates/dbine-driver/src/read_only.rs"
+ ],
  "Conexión de solo lectura: no se puede borrar una base.": [
   "crates/drivers/couchdb/src/lib.rs",
   "crates/drivers/mongodb/src/lib.rs",
@@ -5599,6 +5602,9 @@
  ],
  "Conexión de solo lectura: no se pueden borrar buckets.": [
   "crates/drivers/influxdb/src/v2.rs"
+ ],
+ "Conexión de solo lectura: no se pueden borrar objetos del planificador.": [
+  "crates/dbine-driver/src/read_only.rs"
  ],
  "Conexión de solo lectura: no se pueden cancelar comandos de otros clientes.": [
   "crates/drivers/redis/src/processes.rs"
@@ -5650,6 +5656,9 @@
  ],
  "Conexión de solo lectura: no se pueden crear buckets.": [
   "crates/drivers/influxdb/src/v2.rs"
+ ],
+ "Conexión de solo lectura: no se pueden crear ni cambiar objetos del planificador.": [
+  "crates/dbine-driver/src/read_only.rs"
  ],
  "Conexión de solo lectura: no se pueden detener jobs del servidor.": [
   "crates/dbine-driver/src/read_only.rs",
@@ -5763,6 +5772,9 @@
   "crates/drivers/kdb/src/guard.rs",
   "crates/drivers/kdb/src/lib.rs",
   "crates/drivers/kdb/src/stage.rs"
+ ],
+ "Conexión de solo lectura: se puede ver y generar el script, pero no guardar.": [
+  "crates/dbine-driver/src/read_only.rs"
  ],
  "Conexión de solo lectura: sin crear una sesión de Extended Events solo se muestrean las consultas en curso y la última de cada sesión; las muy rápidas pueden no verse.": [
   "crates/drivers/sqlserver/src/profiler.rs"
@@ -33497,6 +33509,9 @@
  "este motor hace sus backups con herramientas de línea de comandos (pg_dump, pg_basebackup…), no con SQL": [
   "crates/drivers/postgres/src/backup.rs"
  ],
+ "este motor no administra su planificador desde DBine": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no administra usuarios desde DBine": [
   "crates/dbine-driver/src/lib.rs",
   "crates/drivers/mysql/src/lib.rs",
@@ -33699,6 +33714,9 @@
  "este motor no otorga permisos sobre un esquema": [
   "src-tauri/src/commands/schemas.rs"
  ],
+ "este motor no permite borrar el historial de sus jobs": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no permite cancelar consultas de otras sesiones": [
   "crates/dbine-driver/src/lib.rs"
  ],
@@ -33710,6 +33728,9 @@
  ],
  "este motor no permite eliminar este tipo de objeto desde DBine": [
   "src-tauri/src/commands/schema.rs"
+ ],
+ "este motor no permite empezar un job en un paso": [
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no permite habilitar o deshabilitar sus jobs desde DBine": [
   "crates/dbine-driver/src/lib.rs"
@@ -33791,6 +33812,9 @@
  ],
  "este motor no tiene un planificador propio: los jobs se programan afuera (Oozie, Airflow…)": [
   "crates/drivers/odbc/src/jobs.rs"
+ ],
+ "este motor no tiene un registro de su planificador": [
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no tiene {0}": [
   "src-tauri/src/commands/query_builder.rs"

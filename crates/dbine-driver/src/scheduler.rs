@@ -32,6 +32,26 @@ pub struct SchedulerKind {
     pub can_delete: bool,
 }
 
+impl SchedulerKind {
+    /// `label` and `singular` in Spanish. Write them as literals in the call:
+    /// scripts/i18n/extract_backend.py finds them by this constructor's name.
+    pub fn new(key: &str, label: &str, singular: &str) -> Self {
+        Self {
+            key: key.into(),
+            label: label.into(),
+            singular: singular.into(),
+            ..Self::default()
+        }
+    }
+    /// What the user may do with this kind's objects.
+    pub fn abilities(mut self, create: bool, edit: bool, delete: bool) -> Self {
+        self.can_create = create;
+        self.can_edit = edit;
+        self.can_delete = delete;
+        self
+    }
+}
+
 /// One object of a kind, as the tree lists it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SchedulerItem {
@@ -101,6 +121,43 @@ pub enum FormKind {
     Cron,
 }
 
+impl FormKind {
+    /// One of these `(value, Spanish label)` pairs. Write the pairs as
+    /// literals in the call (the extractor finds the labels there).
+    pub fn select(options: &[(&str, &str)]) -> Self {
+        Self::Select {
+            options: pairs(options),
+        }
+    }
+    /// Any of these `(value, Spanish label)` pairs.
+    pub fn multi(options: &[(&str, &str)]) -> Self {
+        Self::MultiSelect {
+            options: pairs(options),
+        }
+    }
+    pub fn number(min: Option<f64>, max: Option<f64>) -> Self {
+        Self::Number { min, max }
+    }
+    pub fn reference(source: &str, multiple: bool) -> Self {
+        Self::Ref {
+            source: source.into(),
+            multiple,
+        }
+    }
+    pub fn code(language: &str) -> Self {
+        Self::Code {
+            language: language.into(),
+        }
+    }
+}
+
+fn pairs(options: &[(&str, &str)]) -> Vec<(String, String)> {
+    options
+        .iter()
+        .map(|(v, l)| (v.to_string(), l.to_string()))
+        .collect()
+}
+
 /// One field of a form or of a list's rows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FormField {
@@ -127,6 +184,9 @@ pub struct FormField {
 }
 
 impl FormField {
+    /// `label` in Spanish, written as a literal in the call (the extractor
+    /// finds it by this constructor's name). `help` is a sentence; a
+    /// placeholder is an example, kept as written.
     pub fn new(key: &str, label: &str, kind: FormKind) -> Self {
         Self {
             key: key.into(),
@@ -189,6 +249,35 @@ pub struct FormList {
     pub read_only: bool,
 }
 
+impl FormList {
+    /// `label` in Spanish, written as a literal in the call.
+    pub fn new(key: &str, label: &str, title_field: &str, fields: Vec<FormField>) -> Self {
+        Self {
+            key: key.into(),
+            label: label.into(),
+            fields,
+            title_field: title_field.into(),
+            ..Self::default()
+        }
+    }
+    pub fn rows(mut self, rows: Vec<BTreeMap<String, Value>>) -> Self {
+        self.rows = rows;
+        self
+    }
+    pub fn orderable(mut self) -> Self {
+        self.orderable = true;
+        self
+    }
+    pub fn min_rows(mut self, n: u32) -> Self {
+        self.min_rows = n;
+        self
+    }
+    pub fn read_only(mut self, r: bool) -> Self {
+        self.read_only = r;
+        self
+    }
+}
+
 /// A tab of the designer.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct FormSection {
@@ -199,6 +288,29 @@ pub struct FormSection {
     pub fields: Vec<FormField>,
     #[serde(default)]
     pub lists: Vec<FormList>,
+}
+
+impl FormSection {
+    /// `label` in Spanish, written as a literal in the call.
+    pub fn new(key: &str, label: &str) -> Self {
+        Self {
+            key: key.into(),
+            label: label.into(),
+            ..Self::default()
+        }
+    }
+    pub fn field(mut self, f: FormField) -> Self {
+        self.fields.push(f);
+        self
+    }
+    pub fn fields(mut self, f: Vec<FormField>) -> Self {
+        self.fields.extend(f);
+        self
+    }
+    pub fn list(mut self, l: FormList) -> Self {
+        self.lists.push(l);
+        self
+    }
 }
 
 /// What the designer edits: the form, its current values (a new object's
