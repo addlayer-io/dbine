@@ -43,6 +43,17 @@ pub struct Metric {
     /// A running total since server start: the UI charts the rate per
     /// second between snapshots instead of the raw value.
     pub counter: bool,
+    /// What it measures and how to read it, in Spanish (the UI translates
+    /// it): what a high or a growing value means, and for a counter, what
+    /// the rate per second is a rate of. Shown next to the value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// Where the value comes from: the view, function or query the driver
+    /// reads it with (`V$SYSSTAT 'CPU used by this session'`,
+    /// `pg_stat_database.xact_commit`, `INFO memory: used_memory`…), so a
+    /// DBA can check it on the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 impl Metric {
@@ -55,7 +66,21 @@ impl Metric {
             value,
             max: None,
             counter: false,
+            help: None,
+            source: None,
         }
+    }
+
+    /// What it measures and how to read it (see [`Metric::help`]).
+    pub fn help(mut self, help: &str) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// Where the value comes from (see [`Metric::source`]).
+    pub fn source(mut self, source: &str) -> Self {
+        self.source = Some(source.into());
+        self
     }
 
     pub fn max(mut self, max: Option<f64>) -> Self {
@@ -74,8 +99,9 @@ impl Metric {
 #[serde(rename_all = "snake_case")]
 pub enum MetricUnit {
     /// 0–100. A CPU-time counter (seconds of CPU since start) goes as
-    /// `Percent` with `counter` and the value × 100: its rate is then the
-    /// percentage of one core in use.
+    /// `Percent` with `counter`, the value × 100 divided by the CPUs the
+    /// server may use, and `max` 100: its rate is then the share of all of
+    /// them in use (100 = every CPU busy), never "500 %" for five cores.
     Percent,
     Bytes,
     Count,
@@ -112,6 +138,25 @@ pub fn num(s: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn help_and_source_are_optional_both_ways() {
+        // An older host sends neither: they read as None.
+        let old = serde_json::json!({
+            "key": "cpu", "label": "CPU", "group": "CPU", "unit": "percent",
+            "value": 12.0, "max": 100.0, "counter": false
+        });
+        let m: Metric = serde_json::from_value(old).unwrap();
+        assert!(m.help.is_none() && m.source.is_none());
+        // Without them, they stay out of the JSON (an older app never sees them).
+        assert!(serde_json::to_value(&m).unwrap().get("help").is_none());
+        let m = Metric::new("cpu", "CPU", "CPU", MetricUnit::Percent, Some(1.0))
+            .help("qué mide")
+            .source("V$SYSMETRIC");
+        let v = serde_json::to_value(&m).unwrap();
+        assert_eq!(v["help"], "qué mide");
+        assert_eq!(v["source"], "V$SYSMETRIC");
+    }
+
     use super::*;
 
     #[test]
