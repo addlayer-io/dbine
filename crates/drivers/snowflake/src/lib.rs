@@ -22,6 +22,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod scheduler;
 mod script;
 mod search;
 mod security;
@@ -408,7 +409,7 @@ impl Driver for SnowflakeDriver {
             processes: true,
             cancel_query: true,
             jobs: true,
-            scheduler: false,
+            scheduler: true,
         }
     }
 
@@ -1664,6 +1665,67 @@ impl Session for SnowflakeSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         jobs::script(&*self, id).await
+    }
+
+    /// Tasks (a graph as one job), alerts and task graph objects (see
+    /// `scheduler`).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        scheduler::info(&*self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        scheduler::items(&*self, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::form(&*self, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        scheduler::script(&*self, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        scheduler::save(&*self, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        scheduler::delete_script(&*self, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        scheduler::delete(&*self, kind, id).await
+    }
+
+    /// The root runs the whole graph; another task, the retry of the last
+    /// run when it failed there (`EXECUTE TASK … RETRY LAST`).
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        scheduler::run_from(&*self, id, step).await
+    }
+
+    /// Snowflake keeps the task history itself: refused with why.
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        scheduler::clear_history(&*self, id).await
+    }
+
+    /// The alerts' runs and the tasks' failures of the last 7 days, with a
+    /// running warehouse.
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        scheduler::logs(&*self).await
     }
 
     async fn profiler_start(

@@ -23,24 +23,24 @@ use dbine_driver::{
 use serde_json::json;
 use std::collections::BTreeSet;
 
-const DTS: &str = "https://bigquerydatatransfer.googleapis.com";
+pub(crate) const DTS: &str = "https://bigquerydatatransfer.googleapis.com";
 /// The engine's word for them, shown as a tag.
 const KIND: &str = "Scheduled query";
-const SOURCE: &str = "scheduled_query";
+pub(crate) const SOURCE: &str = "scheduled_query";
 /// Items per page (the service's maximum).
 const PAGE: usize = 1000;
 /// Configs the list reads at most.
 const MAX_CONFIGS: usize = 5000;
-const EMULATOR: &str = "el emulador de BigQuery no tiene el servicio de transferencia de datos, donde viven las consultas programadas";
-const DISABLED: &str = "el proyecto no tiene habilitada la API de BigQuery Data Transfer, que guarda las consultas programadas";
+pub(crate) const EMULATOR: &str = "el emulador de BigQuery no tiene el servicio de transferencia de datos, donde viven las consultas programadas";
+pub(crate) const DISABLED: &str = "el proyecto no tiene habilitada la API de BigQuery Data Transfer, que guarda las consultas programadas";
 
 /// A failed call: its HTTP status, whether the service is off in the
 /// project, and the error.
 #[derive(Debug)]
-struct Failed {
-    status: u16,
-    disabled: bool,
-    error: Error,
+pub(crate) struct Failed {
+    pub(crate) status: u16,
+    pub(crate) disabled: bool,
+    pub(crate) error: Error,
 }
 
 impl From<Failed> for Error {
@@ -49,7 +49,7 @@ impl From<Failed> for Error {
     }
 }
 
-fn failed(error: Error) -> Failed {
+pub(crate) fn failed(error: Error) -> Failed {
     Failed {
         status: 0,
         disabled: false,
@@ -91,7 +91,7 @@ pub(crate) fn parse_name(id: &str) -> Option<[&str; 3]> {
     }
 }
 
-fn checked(id: &str) -> Result<[&str; 3]> {
+pub(crate) fn checked(id: &str) -> Result<[&str; 3]> {
     parse_name(id).ok_or_else(|| {
         Error::Query(format!(
             "«{}» no es un id de consulta programada de BigQuery",
@@ -100,7 +100,7 @@ fn checked(id: &str) -> Result<[&str; 3]> {
     })
 }
 
-fn text(v: &Json, ptr: &str) -> Option<String> {
+pub(crate) fn text(v: &Json, ptr: &str) -> Option<String> {
     match v.pointer(ptr)? {
         Json::String(s) => Some(s.trim().to_string()),
         Json::Null => None,
@@ -111,7 +111,7 @@ fn text(v: &Json, ptr: &str) -> Option<String> {
 
 /// An RFC 3339 time (any offset, any fraction) → RFC 3339 in UTC, to the
 /// second.
-fn utc(t: &str) -> Option<String> {
+pub(crate) fn utc(t: &str) -> Option<String> {
     chrono::DateTime::parse_from_rfc3339(t.trim())
         .ok()
         .map(|d| {
@@ -121,7 +121,7 @@ fn utc(t: &str) -> Option<String> {
         })
 }
 
-fn millis(t: &str) -> Option<i64> {
+pub(crate) fn millis(t: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(t.trim())
         .ok()
         .map(|d| d.timestamp_millis())
@@ -370,13 +370,13 @@ fn bq_script(c: &Json, project: &str) -> String {
 
 /// The Data Transfer Service at `base`.
 pub(crate) struct Dts<'a> {
-    api: &'a Api,
-    base: &'a str,
+    pub(crate) api: &'a Api,
+    pub(crate) base: &'a str,
 }
 
 impl Dts<'_> {
     /// `<base>/v1/<segments…>`, each segment escaped.
-    fn url(&self, segments: &[&str]) -> std::result::Result<reqwest::Url, Failed> {
+    pub(crate) fn url(&self, segments: &[&str]) -> std::result::Result<reqwest::Url, Failed> {
         let mut url = reqwest::Url::parse(self.base)
             .map_err(|e| failed(Error::Connect(format!("endpoint inválido: {e}"))))?;
         url.path_segments_mut()
@@ -387,7 +387,10 @@ impl Dts<'_> {
         Ok(url)
     }
 
-    async fn send(&self, req: reqwest::RequestBuilder) -> std::result::Result<Json, Failed> {
+    pub(crate) async fn send(
+        &self,
+        req: reqwest::RequestBuilder,
+    ) -> std::result::Result<Json, Failed> {
         let req = match self.api.tokens.bearer().await.map_err(failed)? {
             Some(b) => req.header("Authorization", b),
             None => req,
@@ -414,7 +417,7 @@ impl Dts<'_> {
         serde_json::from_str(&body).map_err(|e| failed(e.into()))
     }
 
-    fn config_segments<'b>(name: &[&'b str; 3]) -> [&'b str; 6] {
+    pub(crate) fn config_segments<'b>(name: &[&'b str; 3]) -> [&'b str; 6] {
         let [p, l, c] = *name;
         ["projects", p, "locations", l, "transferConfigs", c]
     }
@@ -461,7 +464,7 @@ impl Dts<'_> {
     /// The scheduled queries of `locations`. `datasets_read`: they include
     /// those of the project's datasets (`false`: datasets.list failed, so
     /// some may be missing).
-    async fn list(
+    pub(crate) async fn list(
         &self,
         project: &str,
         locations: &[String],
@@ -520,7 +523,7 @@ impl Dts<'_> {
         Ok(JobList { jobs, notes })
     }
 
-    async fn config(&self, name: &[&str; 3]) -> Result<Json> {
+    pub(crate) async fn config(&self, name: &[&str; 3]) -> Result<Json> {
         let url = self.url(&Self::config_segments(name))?;
         Ok(self.send(self.api.http.get(url)).await?)
     }
@@ -654,7 +657,7 @@ impl Dts<'_> {
 
 impl BigQuerySession {
     /// The service, unless this is the emulator.
-    fn dts(&self) -> Result<Dts<'_>> {
+    pub(crate) fn dts(&self) -> Result<Dts<'_>> {
         if self.api.emulator {
             return Err(Error::Unsupported(EMULATOR.into()));
         }
@@ -667,7 +670,7 @@ impl BigQuerySession {
     /// Where to look for scheduled queries: the connection's location and
     /// those of the project's datasets (US and EU when there's none); and
     /// whether the datasets were read.
-    async fn job_locations(&self) -> (Vec<String>, bool) {
+    pub(crate) async fn job_locations(&self) -> (Vec<String>, bool) {
         let mut locs = BTreeSet::new();
         if let Some(l) = self.api.location.as_deref().map(str::trim) {
             if !l.is_empty() {

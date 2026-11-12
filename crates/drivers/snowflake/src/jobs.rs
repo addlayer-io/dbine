@@ -71,6 +71,11 @@ struct Task {
     last_suspended_reason: Option<String>,
     /// The root (name) it is the finalizer of.
     finalizes: Option<String>,
+    /// The task graph object (qualified name) it is the finalizer of: its
+    /// root is the task whose `graph` it is.
+    finalizes_graph: Option<String>,
+    /// The task graph object (qualified name) a root belongs to.
+    graph: Option<String>,
 }
 
 impl Task {
@@ -86,7 +91,7 @@ impl Task {
 
     /// A standalone task or a graph's root.
     fn is_root(&self) -> bool {
-        self.predecessors.is_empty() && self.finalizes.is_none()
+        self.predecessors.is_empty() && self.finalizes.is_none() && self.finalizes_graph.is_none()
     }
 
     fn same_schema(&self, o: &Task) -> bool {
@@ -148,12 +153,12 @@ fn checked(id: &str) -> Result<(String, String, String)> {
 }
 
 /// A string literal: Snowflake reads backslash escapes in them.
-fn literal(s: &str) -> String {
+pub(crate) fn literal(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
 }
 
 /// The names of a qualified name, quoted (`"DB"."S"."T"`) or not (`DB.S.T`).
-fn name_parts(q: &str) -> Vec<String> {
+pub(crate) fn name_parts(q: &str) -> Vec<String> {
     let mut parts = vec![String::new()];
     let mut quoted = false;
     let mut chars = q.trim().chars().peekable();
@@ -177,7 +182,7 @@ fn name_parts(q: &str) -> Vec<String> {
     parts
 }
 
-fn last_name(q: &str) -> String {
+pub(crate) fn last_name(q: &str) -> String {
     name_parts(q).pop().unwrap_or_default()
 }
 
@@ -203,14 +208,37 @@ fn predecessors(v: Option<&str>) -> Vec<String> {
 
 /// The root a finalizer task finalizes (`task_relations`).
 fn finalized_root(v: Option<&str>) -> Option<String> {
-    let j: Json = serde_json::from_str(v?).ok()?;
-    j.get("FinalizedRootTask")
-        .and_then(Json::as_str)
-        .map(last_name)
-        .filter(|n| !n.is_empty())
+    relation(v, "FinalizedRootTask").map(|n| last_name(&n))
 }
 
-fn get<'a>(s: &'a Set, row: usize, name: &str) -> Option<&'a str> {
+/// A qualified name of `task_relations` (`FinalizedRootTask`,
+/// `FinalizedGraph`, `TaskGraph`, `FinalizerTask`).
+pub(crate) fn relation(v: Option<&str>, key: &str) -> Option<String> {
+    let j: Json = serde_json::from_str(v?).ok()?;
+    j.get(key)
+        .and_then(Json::as_str)
+        .map(str::to_string)
+        .filter(|n| !last_name(n).is_empty())
+}
+
+/// A finalizer of a task graph object finalizes the graph's root.
+fn link_graph_finalizers(tasks: &mut [Task]) {
+    for i in 0..tasks.len() {
+        if tasks[i].finalizes.is_some() {
+            continue;
+        }
+        let Some(g) = tasks[i].finalizes_graph.clone() else {
+            continue;
+        };
+        let root = tasks
+            .iter()
+            .find(|r| r.same_schema(&tasks[i]) && r.graph.as_deref() == Some(g.as_str()))
+            .map(|r| r.name.clone());
+        tasks[i].finalizes = root;
+    }
+}
+
+pub(crate) fn get<'a>(s: &'a Set, row: usize, name: &str) -> Option<&'a str> {
     let i = s.cols.iter().position(|c| c.eq_ignore_ascii_case(name))?;
     s.rows
         .get(row)?
@@ -220,7 +248,7 @@ fn get<'a>(s: &'a Set, row: usize, name: &str) -> Option<&'a str> {
         .filter(|v| !v.is_empty() && *v != "null")
 }
 
-fn text(s: &Set, row: usize, name: &str) -> Option<String> {
+pub(crate) fn text(s: &Set, row: usize, name: &str) -> Option<String> {
     get(s, row, name).map(str::to_string)
 }
 
@@ -237,7 +265,7 @@ fn rfc3339(ms: i64) -> Option<String> {
 
 /// A `SHOW` timestamp (epoch seconds as text, as the SQL API gives it) →
 /// RFC 3339 in UTC.
-fn shown_time(v: Option<&str>) -> Option<String> {
+pub(crate) fn shown_time(v: Option<&str>) -> Option<String> {
     let (secs, nanos) = crate::epoch(v?)?;
     chrono::DateTime::from_timestamp(secs, nanos)
         .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string())
@@ -245,7 +273,7 @@ fn shown_time(v: Option<&str>) -> Option<String> {
 
 /// The rows of `SHOW TASKS`.
 fn tasks(s: &Set) -> Vec<Task> {
-    (0..s.rows.len())
+    let mut all: Vec<Task> = (0..s.rows.len())
         .filter_map(|i| {
             Some(Task {
                 database: text(s, i, "database_name")?,
@@ -267,9 +295,13 @@ fn tasks(s: &Set) -> Vec<Task> {
                 last_suspended_on: shown_time(get(s, i, "last_suspended_on")),
                 last_suspended_reason: text(s, i, "last_suspended_reason"),
                 finalizes: finalized_root(get(s, i, "task_relations")),
+                finalizes_graph: relation(get(s, i, "task_relations"), "FinalizedGraph"),
+                graph: relation(get(s, i, "task_relations"), "TaskGraph"),
             })
         })
-        .collect()
+        .collect();
+    link_graph_finalizers(&mut all);
+    all
 }
 
 /// `(database, schema, name)` → the task's index.
@@ -350,7 +382,7 @@ fn yes_no(v: Option<String>) -> Option<String> {
 
 /// A refusal for lack of privileges (`Insufficient privileges`, SQLSTATE
 /// 42501, `does not exist or not authorized`), not any other failure.
-fn denied(e: &Error) -> bool {
+pub(crate) fn denied(e: &Error) -> bool {
     let Error::Query(m) = e else {
         return false;
     };
@@ -410,13 +442,13 @@ fn trigger(from: &str) -> String {
 
 /// The session's warehouse, and whether it runs.
 #[derive(Debug, PartialEq)]
-enum Warehouse {
+pub(crate) enum Warehouse {
     Running,
     Suspended(String),
     Missing,
 }
 
-async fn warehouse(r: &(dyn Runner + Sync)) -> Result<Warehouse> {
+pub(crate) async fn warehouse(r: &(dyn Runner + Sync)) -> Result<Warehouse> {
     let wh = match r.warehouse() {
         Some(w) => Some(w),
         None => {
@@ -674,7 +706,7 @@ fn jobs_of(tasks: &[Task]) -> (Vec<ServerJob>, Vec<Vec<Key>>, bool) {
 
 /// `SHOW TASKS` shows only the tasks the role holds some privilege on: a
 /// note, unless the role is ACCOUNTADMIN.
-async fn partial_note(r: &(dyn Runner + Sync)) -> Option<String> {
+pub(crate) async fn partial_note(r: &(dyn Runner + Sync)) -> Option<String> {
     let role = r
         .rows("SELECT CURRENT_ROLE() AS role")
         .await
@@ -689,7 +721,14 @@ async fn partial_note(r: &(dyn Runner + Sync)) -> Option<String> {
     }
 }
 
-pub(crate) async fn list(r: &(dyn Runner + Sync)) -> Result<JobList> {
+/// The jobs `list` gives, without their last and next runs (the
+/// scheduler's tree of tasks), with the notes about what the role sees and
+/// each job's tasks.
+pub(crate) async fn listed(r: &(dyn Runner + Sync)) -> Result<JobList> {
+    listed_with_members(r).await.map(|(list, _)| list)
+}
+
+async fn listed_with_members(r: &(dyn Runner + Sync)) -> Result<(JobList, Vec<Vec<Key>>)> {
     let mut notes = Vec::new();
     let shown = match r.rows("SHOW TASKS IN ACCOUNT").await {
         Ok(s) => s,
@@ -716,7 +755,7 @@ pub(crate) async fn list(r: &(dyn Runner + Sync)) -> Result<JobList> {
         ));
     }
     let all = tasks(&shown);
-    let (mut jobs, members, orphans) = jobs_of(&all);
+    let (jobs, members, orphans) = jobs_of(&all);
     if orphans {
         notes.push("algunas tareas hijas se muestran sueltas y sin acciones: el rol no ve la tarea raíz de su grafo".into());
     }
@@ -725,6 +764,17 @@ pub(crate) async fn list(r: &(dyn Runner + Sync)) -> Result<JobList> {
     } else if let Some(n) = partial_note(r).await {
         notes.push(n);
     }
+    Ok((JobList { jobs, notes }, members))
+}
+
+pub(crate) async fn list(r: &(dyn Runner + Sync)) -> Result<JobList> {
+    let (
+        JobList {
+            mut jobs,
+            mut notes,
+        },
+        members,
+    ) = listed_with_members(r).await?;
     if !fill_latest(r, &mut jobs, &members, &mut notes).await {
         for j in &mut jobs {
             j.has_history = false;
@@ -1069,13 +1119,12 @@ pub(crate) async fn runs(r: &(dyn Runner + Sync), id: &str, limit: u32) -> Resul
     Ok(group_runs(history_rows(&s), &name, &order, limit))
 }
 
-/// `EXECUTE TASK`: a run of the task (or its whole graph) now, in the
-/// background.
+/// `EXECUTE TASK` (`EXECUTE TASK GRAPH` for the root of a task graph
+/// object): a run of the task (or its whole graph) now, in the background,
+/// by the same statement as the scheduler's start at the root.
 pub(crate) async fn run(r: &(dyn Runner + Sync), id: &str) -> Result<()> {
     let (db, schema, name) = checked(id)?;
-    r.rows(&format!("EXECUTE TASK {}", job_id(&db, &schema, &name)))
-        .await
-        .map(|_| ())
+    crate::scheduler::run_now(r, &db, &schema, &name).await
 }
 
 /// Cancels the graph's (or the task's) runs in progress.
@@ -1943,6 +1992,7 @@ mod tests {
         assert_eq!(
             f.seen(),
             [
+                r#"SHOW TASKS IN SCHEMA "DB"."S""#,
                 r#"EXECUTE TASK "DB"."S"."it's ""x""""#,
                 r#"SELECT SYSTEM$USER_TASK_CANCEL_ONGOING_EXECUTIONS('"DB"."S"."it''s ""x"""')"#,
                 r#"ALTER TASK "DB"."S"."it's ""x""" SUSPEND"#,
@@ -1955,7 +2005,65 @@ mod tests {
             assert!(set_enabled(&f, bad, true).await.is_err());
             assert!(script(&f, bad).await.is_err());
         }
-        assert_eq!(f.seen().len(), 4, "nothing ran for a bad id");
+        assert_eq!(f.seen().len(), 5, "nothing ran for a bad id");
+    }
+
+    /// "Ejecutar ahora" sends what the scheduler's start at the root sends:
+    /// `EXECUTE TASK GRAPH` for the root of a task graph object,
+    /// `EXECUTE TASK` for a standalone task or a plain graph's root.
+    #[tokio::test]
+    async fn run_now_executes_a_task_graph_objects_root_as_its_graph() {
+        let row = |name: &'static str, rel: &'static str| -> Vec<&'static str> {
+            vec![
+                "1731380400.000000000",
+                name,
+                "01",
+                "DB",
+                "S",
+                "SYSADMIN",
+                "",
+                "WH",
+                "USING CRON 0 3 * * * UTC",
+                "[]",
+                "started",
+                "SELECT 1",
+                "",
+                "false",
+                rel,
+            ]
+        };
+        let rows = [
+            row("GROOT", r#"{"Predecessors":[],"TaskGraph":"DB.S.NIGHTLY"}"#),
+            row("it's \"x\"", r#"{"Predecessors":[]}"#),
+            row("PLAIN", ""),
+        ];
+        let refs: Vec<&[&str]> = rows.iter().map(Vec::as_slice).collect();
+        let f = Fake::new(vec![("SHOW TASKS IN SCHEMA", Ok(set(SHOW_COLS, &refs)))]);
+        run(&f, r#""DB"."S"."GROOT""#).await.unwrap();
+        run(&f, r#""DB"."S"."it's ""x""""#).await.unwrap();
+        run(&f, r#""DB"."S"."PLAIN""#).await.unwrap();
+        let ran: Vec<String> = f
+            .seen()
+            .into_iter()
+            .filter(|s| s.starts_with("EXECUTE"))
+            .collect();
+        assert_eq!(
+            ran,
+            [
+                r#"EXECUTE TASK GRAPH "DB"."S"."NIGHTLY""#,
+                r#"EXECUTE TASK "DB"."S"."it's ""x""""#,
+                r#"EXECUTE TASK "DB"."S"."PLAIN""#,
+            ]
+        );
+        // The start at the root sends the same statement.
+        crate::scheduler::run_from(&f, r#""DB"."S"."GROOT""#, "GROOT")
+            .await
+            .unwrap();
+        assert_eq!(f.seen().last().map(String::as_str), Some(ran[0].as_str()));
+        // A listing that fails is the run's failure: nothing is executed.
+        let down = Fake::new(vec![("SHOW TASKS IN SCHEMA", Err("HTTP 503"))]);
+        assert!(run(&down, r#""DB"."S"."GROOT""#).await.is_err());
+        assert!(!down.seen().iter().any(|s| s.starts_with("EXECUTE")));
     }
 
     #[tokio::test]

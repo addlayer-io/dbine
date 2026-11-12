@@ -27,6 +27,7 @@ mod profiler;
 mod properties;
 mod rename;
 mod results;
+mod scheduler;
 mod script;
 mod search;
 mod security;
@@ -357,6 +358,11 @@ impl Api {
             .await
     }
 
+    async fn put(&self, path: &str, body: &Json) -> Result<Json> {
+        self.send(self.http.put(format!("{}{path}", self.base)).json(body))
+            .await
+    }
+
     /// A GET with query parameters, each one escaped.
     async fn get_query(&self, path: &str, query: &[(&str, String)]) -> Result<Json> {
         self.send(self.http.get(format!("{}{path}", self.base)).query(query))
@@ -467,6 +473,7 @@ impl Driver for DatabricksDriver {
             processes: true,
             cancel_query: true,
             jobs: true,
+            scheduler: true,
             ..Default::default()
         }
     }
@@ -1278,6 +1285,57 @@ impl Session for DatabricksSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.job_settings_json(id).await
+    }
+
+    /// The workspace's jobs, designed whole (see `scheduler`).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        self.sched_info().await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        self.sched_items(kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        self.sched_form(kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        self.sched_script(kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        self.sched_save(kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        self.sched_delete_script(kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.sched_delete(kind, id).await
+    }
+
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        self.sched_run_from(id, step).await
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        self.sched_clear_history(id).await
     }
 
     async fn profiler_start(

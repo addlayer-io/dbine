@@ -31,8 +31,8 @@ const MAX_DATABASES: usize = 500;
 /// Backups read for a history, at most.
 const MAX_BACKUPS: usize = 2000;
 
-const EMULATOR: &str = "El emulador de Spanner no tiene backups ni programas de backup.";
-const DENIED: &str = "Este usuario no puede ver los programas de backup (hace falta el permiso spanner.backupSchedules.list).";
+pub(crate) const EMULATOR: &str = "El emulador de Spanner no tiene backups ni programas de backup.";
+pub(crate) const DENIED: &str = "Este usuario no puede ver los programas de backup (hace falta el permiso spanner.backupSchedules.list).";
 const NOTE: &str = "Spanner no permite hacer ahora el backup de un programa, detenerlo ni pausarlo. El historial son los backups que hizo el programa y que siguen guardados: un backup que falló no deja rastro.";
 
 /// A database or schedule id: a lowercase letter, then lowercase letters,
@@ -59,11 +59,11 @@ pub(crate) fn parse_id(id: &str) -> Result<(String, String)> {
         })
 }
 
-fn short(name: &str) -> &str {
+pub(crate) fn short(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
-fn s(v: &Json, path: &str) -> Option<String> {
+pub(crate) fn s(v: &Json, path: &str) -> Option<String> {
     v.pointer(path)
         .and_then(Json::as_str)
         .map(str::trim)
@@ -71,7 +71,7 @@ fn s(v: &Json, path: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn utc(t: Option<String>) -> Option<String> {
+pub(crate) fn utc(t: Option<String>) -> Option<String> {
     let ms = epoch_ms(t.as_deref()?)?;
     u64::try_from(ms.div_euclid(1000)).ok().map(rfc3339)
 }
@@ -350,7 +350,7 @@ pub(crate) fn enc_query(v: &str) -> String {
 
 /// The principal can't list backup schedules: the call's gRPC status, or
 /// Google's message when the status didn't come.
-fn denied(status: Option<&str>, e: &Error) -> bool {
+pub(crate) fn denied(status: Option<&str>, e: &Error) -> bool {
     status == Some("PERMISSION_DENIED")
         || matches!(e, Error::Query(m) if m.contains("PERMISSION_DENIED") || m.contains("missing IAM permission"))
 }
@@ -393,7 +393,7 @@ pub(crate) fn failed_note(dbs: &[String], first: &str) -> Option<String> {
 }
 
 /// The emulator answers `{"code": 12}` (UNIMPLEMENTED) to backup calls.
-fn unimplemented(e: &Error) -> bool {
+pub(crate) fn unimplemented(e: &Error) -> bool {
     matches!(e, Error::Query(m) | Error::Unsupported(m)
         if m.contains("\"code\":12") || m.contains("UNIMPLEMENTED"))
 }
@@ -405,7 +405,7 @@ fn not_found(id: &str) -> Error {
 }
 
 impl SpannerSession {
-    async fn pages(&self, path: &str, key: &str, max: usize) -> Result<Vec<Json>> {
+    pub(crate) async fn pages(&self, path: &str, key: &str, max: usize) -> Result<Vec<Json>> {
         let mut out = Vec::new();
         let mut token: Option<String> = None;
         loop {
@@ -428,7 +428,7 @@ impl SpannerSession {
         }
     }
 
-    async fn schedules_of(&self, db: &str) -> Result<Vec<Json>> {
+    pub(crate) async fn schedules_of(&self, db: &str) -> Result<Vec<Json>> {
         self.pages(
             &format!("{}/databases/{db}/backupSchedules", self.instance),
             "backupSchedules",
@@ -448,7 +448,7 @@ impl SpannerSession {
         .await
     }
 
-    async fn schedule(&self, db: &str, id: &str) -> Result<Json> {
+    pub(crate) async fn schedule(&self, db: &str, id: &str) -> Result<Json> {
         self.api
             .get(&format!(
                 "{}/databases/{db}/backupSchedules/{id}",
@@ -556,7 +556,7 @@ impl SpannerSession {
     }
 
     /// The instance's database ids.
-    async fn list_database_ids(&self) -> Result<Vec<String>> {
+    pub(crate) async fn list_database_ids(&self) -> Result<Vec<String>> {
         Ok(self
             .pages(&format!("{}/databases", self.instance), "databases", 10_000)
             .await?

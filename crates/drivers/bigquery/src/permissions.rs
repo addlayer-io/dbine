@@ -17,7 +17,7 @@ use serde_json::json;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-const CRM: &str = "https://cloudresourcemanager.googleapis.com/v1/projects";
+pub(crate) const CRM: &str = "https://cloudresourcemanager.googleapis.com/v1/projects";
 
 pub const JOBS_CREATE: &str = "bigquery.jobs.create";
 pub const JOBS_LIST_ALL: &str = "bigquery.jobs.listAll";

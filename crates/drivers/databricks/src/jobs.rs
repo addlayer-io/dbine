@@ -45,7 +45,7 @@ pub(crate) fn job_id(id: &str) -> Option<u64> {
     id.parse::<u64>().ok().filter(|&n| n > 0)
 }
 
-fn checked(id: &str) -> Result<u64> {
+pub(crate) fn checked(id: &str) -> Result<u64> {
     job_id(id)
         .ok_or_else(|| Error::Query(format!("«{}» no es un id de job de Databricks", id.trim())))
 }
@@ -80,7 +80,7 @@ fn strings(v: &Json, ptr: &str) -> Vec<String> {
 }
 
 /// Epoch ms (the API's times) → RFC 3339 in UTC; 0 is "not yet".
-fn rfc3339(ms: i64) -> Option<String> {
+pub(crate) fn rfc3339(ms: i64) -> Option<String> {
     (ms > 0).then(|| {
         format!(
             "{}Z",
@@ -141,7 +141,7 @@ fn schedule_of(s: &Json) -> (Option<String>, bool, bool) {
 }
 
 /// A job of `jobs/list` or `jobs/get`.
-fn server_job(j: &Json) -> Option<ServerJob> {
+pub(crate) fn server_job(j: &Json) -> Option<ServerJob> {
     let id = text(j, "/job_id")?;
     job_id(&id)?;
     let s = j.get("settings").unwrap_or(&Json::Null);
@@ -289,7 +289,7 @@ fn apply_runs(job: &mut ServerJob, runs: &[Json]) {
     }
 }
 
-fn next_token(page: &Json) -> Option<String> {
+pub(crate) fn next_token(page: &Json) -> Option<String> {
     let more = page.get("has_more").and_then(Json::as_bool).unwrap_or(true);
     page.get("next_page_token")
         .and_then(Json::as_str)
@@ -553,7 +553,7 @@ fn pause_update(id: u64, s: &Json, paused: bool) -> Option<Json> {
 impl DatabricksSession {
     /// One page of `runs/list` with `params`: its runs and the next page's
     /// token.
-    async fn runs_page(
+    pub(crate) async fn runs_page(
         &self,
         params: &[(&str, String)],
         token: Option<String>,
@@ -722,7 +722,7 @@ impl DatabricksSession {
     }
 
     /// A workspace admin can view every job: SCIM `Me` lists `admins`.
-    async fn workspace_admin(&self) -> bool {
+    pub(crate) async fn workspace_admin(&self) -> bool {
         let me = self.api.get("/api/2.0/preview/scim/v2/Me");
         match tokio::time::timeout(std::time::Duration::from_secs(20), me).await {
             Ok(Ok(me)) => crate::permissions::is_admin(&me),
@@ -734,7 +734,7 @@ impl DatabricksSession {
         }
     }
 
-    async fn job_json(&self, id: u64) -> Result<Json> {
+    pub(crate) async fn job_json(&self, id: u64) -> Result<Json> {
         self.api
             .get_query("/api/2.1/jobs/get", &[("job_id", id.to_string())])
             .await
