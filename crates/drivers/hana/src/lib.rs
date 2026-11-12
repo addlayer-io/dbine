@@ -17,6 +17,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod scheduler;
 mod schema;
 mod script;
 mod search;
@@ -466,7 +467,9 @@ impl Driver for HanaDriver {
             // Scheduler jobs (SAP HANA Cloud; an empty list with a note
             // where the server has none); see `jobs`.
             jobs: true,
-            scheduler: false,
+            // The same scheduler jobs, created, changed and dropped from the
+            // designer (see `scheduler`).
+            scheduler: true,
         }
     }
 
@@ -1240,6 +1243,49 @@ impl Session for HanaSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         jobs::create_script(&self.conn, id).await
+    }
+
+    /// The scheduler jobs through the designer (see [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        scheduler::info(&self.conn).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        scheduler::items(&self.conn, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::form(&self.conn, &self.schema, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        scheduler::script(&self.conn, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        scheduler::save(&self.conn, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        scheduler::delete_script(&self.conn, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        scheduler::delete(&self.conn, kind, id).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

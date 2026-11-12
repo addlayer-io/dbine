@@ -24,8 +24,8 @@ use serde_json::{Map, Value};
 
 const KIND: &str = "apoc.periodic";
 const LIST: &str = "CALL apoc.periodic.list() YIELD name, delay, rate, done, cancelled RETURN name, delay, rate, done, cancelled ORDER BY name";
-const IN_MEMORY: &str = "los jobs de APOC (apoc.periodic) viven en la memoria del servidor: se pierden al reiniciarlo, y APOC no guarda la consulta que ejecutan ni su historial";
-const NO_APOC: &str =
+pub(crate) const IN_MEMORY: &str = "los jobs de APOC (apoc.periodic) viven en la memoria del servidor: se pierden al reiniciarlo, y APOC no guarda la consulta que ejecutan ni su historial";
+pub(crate) const NO_APOC: &str =
     "Neo4j no programa jobs por su cuenta y este servidor no tiene APOC (apoc.periodic)";
 const NO_STOP_REPEAT: &str = "APOC no detiene una ejecución de un job que se repite: solo lo cancela para siempre (apoc.periodic.cancel)";
 const STOP_CANCELS: &str =
@@ -46,11 +46,11 @@ fn bad_id(id: &str) -> Error {
     ))
 }
 
-fn flag(r: &Map<String, Value>, k: &str) -> bool {
+pub(crate) fn flag(r: &Map<String, Value>, k: &str) -> bool {
     r.get(k).and_then(Value::as_bool).unwrap_or(false)
 }
 
-fn int(r: &Map<String, Value>, k: &str) -> i64 {
+pub(crate) fn int(r: &Map<String, Value>, k: &str) -> i64 {
     r.get(k).and_then(Value::as_i64).unwrap_or(0)
 }
 
@@ -138,13 +138,13 @@ fn cancel_note(name: &str) -> String {
 }
 
 /// The server has no APOC (or not its periodic procedures).
-fn missing_apoc(e: &Error) -> bool {
+pub(crate) fn missing_apoc(e: &Error) -> bool {
     let m = e.to_string();
     m.contains("apoc.periodic") && (m.contains("no procedure") || m.contains("not found"))
         || m.contains("ProcedureNotFound")
 }
 
-fn none(flavor: Flavor) -> Option<&'static str> {
+pub(crate) fn none(flavor: Flavor) -> Option<&'static str> {
     match flavor {
         Flavor::Neo4j => None,
         Flavor::Memgraph => Some(MEMGRAPH),
@@ -153,7 +153,7 @@ fn none(flavor: Flavor) -> Option<&'static str> {
 }
 
 impl GraphSession {
-    async fn apoc_jobs(&mut self) -> Result<Vec<Map<String, Value>>> {
+    pub(crate) async fn apoc_jobs(&mut self) -> Result<Vec<Map<String, Value>>> {
         self.records(LIST).await
     }
 

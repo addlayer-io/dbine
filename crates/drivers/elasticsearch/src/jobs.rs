@@ -7,19 +7,25 @@
 //!   (`_watcher/_query/watches`; `_execute` runs one now and records it,
 //!   `_activate` / `_deactivate`, runs from `.watcher-history-*` when the
 //!   user can read it). Watcher needs a gold, platinum, enterprise or trial
-//!   license: on basic the list says so.
+//!   license: on basic the list says so. Snapshot lifecycle policies
+//!   (`_slm/policy`: `_execute` takes the snapshot now, runs from
+//!   `.slm-history-*`; SLM is started or stopped for the whole cluster, not
+//!   per policy).
 //! - OpenSearch and Open Distro (`_plugins` / `_opendistro`): the Index
 //!   Management plugin's transforms (`_start` / `_stop`, their last run from
-//!   `_explain`) and the Alerting plugin's monitors (`_execute` runs one now;
+//!   `_explain`), the Alerting plugin's monitors (`_execute` runs one now;
 //!   enabling sends the monitor back whole with `enabled` changed, except
-//!   for monitors another plugin manages, which the REST update refuses).
-//!   Neither keeps a history of runs. ISM policies, rollups and snapshot
-//!   policies are left out: they're per-index state or managed elsewhere.
+//!   for monitors another plugin manages, which the REST update refuses)
+//!   and, from OpenSearch 2.1, snapshot management policies (`_sm`:
+//!   `_start` / `_stop`, their last snapshot from `_explain`; no API takes a
+//!   snapshot now). None keeps a history of runs. ISM policies and rollups
+//!   are left out: they're per-index state.
 //!
 //! A listing the user may not read says so in a note, instead of saying
 //! the feature isn't there.
 //!
-//! Ids are `transform:<id>`, `watch:<id>` and `monitor:<id>`. The id that
+//! Ids are `transform:<id>`, `watch:<id>`, `slm:<id>`, `monitor:<id>` and
+//! `sm:<name>`. The id that
 //! comes back has to name one object (no `*`, `,`, `_all` or dot-only
 //! names; an Elasticsearch transform id has to follow Elasticsearch's own
 //! rule), goes into the URL percent-encoded ([`path_segment`]), and what
@@ -49,6 +55,7 @@ const EXECUTE_WAIT: Duration = Duration::from_secs(3);
 const TRANSFORM: &str = "Transform";
 const WATCH: &str = "Watch";
 const MONITOR: &str = "Monitor";
+const SNAPSHOT_POLICY: &str = "Política de snapshots";
 
 const NO_WATCHER_LICENSE: &str = "Watcher no está disponible con la licencia de este clúster: hace falta una licencia gold, platinum, enterprise o de prueba";
 const NO_WATCHER: &str = "Watcher no está habilitado en este clúster";
@@ -59,7 +66,16 @@ const NO_OS_TRANSFORMS: &str =
 const NO_TRANSFORM_LIST: &str =
     "esta versión no tiene una API que liste los transforms: no se muestran";
 const NO_ALERTING: &str = "este clúster no tiene el plugin Alerting: no hay monitores";
-const OS_SCOPE: &str = "se listan los transforms y los monitores de alertas; las políticas ISM, los rollups y las políticas de snapshots no";
+const OS_SCOPE: &str = "se listan los transforms, los monitores de alertas y las políticas de snapshots; las políticas ISM y los rollups no";
+const NO_SLM: &str =
+    "este clúster no tiene la administración del ciclo de vida de los snapshots (SLM)";
+const DENIED_SLM: &str = "este usuario no puede ver las políticas de snapshots (hace falta el privilegio read_slm o manage_slm)";
+pub(crate) const SLM_STOPPED: &str = "SLM está detenido en este clúster: las políticas de snapshots no se ejecutan según su programación hasta que se inicie (POST /_slm/start)";
+const DENIED_SLM_HISTORY: &str =
+    "este usuario no puede leer el historial de SLM (.slm-history-*): las políticas de snapshots se muestran sin historial";
+const DENIED_SM: &str =
+    "este usuario no puede ver las políticas de snapshots (faltan permisos de Index Management)";
+const SM_NO_RUN: &str = "OpenSearch no tiene una API que tome ahora el snapshot de una política: se toma según su programación";
 const DENIED_TRANSFORMS: &str =
     "este usuario no puede ver los transforms (hace falta el privilegio monitor_transform)";
 const DENIED_WATCHES: &str =
@@ -76,14 +92,20 @@ pub(crate) enum Kind {
     Transform,
     Watch,
     Monitor,
+    /// An Elasticsearch snapshot lifecycle policy.
+    Slm,
+    /// An OpenSearch snapshot management policy.
+    Sm,
 }
 
 impl Kind {
-    fn prefix(self) -> &'static str {
+    pub(crate) fn prefix(self) -> &'static str {
         match self {
             Kind::Transform => "transform",
             Kind::Watch => "watch",
             Kind::Monitor => "monitor",
+            Kind::Slm => "slm",
+            Kind::Sm => "sm",
         }
     }
 }
@@ -99,6 +121,8 @@ pub(crate) fn parse_id(id: &str) -> Option<(Kind, &str)> {
         "transform" => Kind::Transform,
         "watch" => Kind::Watch,
         "monitor" => Kind::Monitor,
+        "slm" => Kind::Slm,
+        "sm" => Kind::Sm,
         _ => return None,
     };
     one_name(rest).then_some((kind, rest))
@@ -108,7 +132,7 @@ pub(crate) fn parse_id(id: &str) -> Option<(Kind, &str)> {
 /// characters or surrounding spaces, not only dots (the URL drops `.` and
 /// `..` segments) and nothing the cluster reads as several (`*`, `,`,
 /// `_all`).
-fn one_name(id: &str) -> bool {
+pub(crate) fn one_name(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 512
         && id.trim() == id
@@ -146,17 +170,17 @@ fn bad_id(id: &str) -> Error {
     ))
 }
 
-fn cut(s: &str) -> String {
+pub(crate) fn cut(s: &str) -> String {
     s.chars().take(MAX_MESSAGE).collect()
 }
 
-fn text(v: Option<&J>) -> Option<String> {
+pub(crate) fn text(v: Option<&J>) -> Option<String> {
     v.map(J::text)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
 
-fn num(v: Option<&J>) -> Option<f64> {
+pub(crate) fn num(v: Option<&J>) -> Option<f64> {
     match v? {
         J::Num(n) => n.as_f64(),
         J::Str(s) => s.trim().parse().ok(),
@@ -222,11 +246,11 @@ pub(crate) fn iso_ms(s: &str) -> Option<i64> {
     Some((days * 86_400 + h * 3600 + mi * 60 + se - offset) * 1000 + ms)
 }
 
-fn iso(v: Option<&J>) -> Option<String> {
+pub(crate) fn iso(v: Option<&J>) -> Option<String> {
     text(v).and_then(|s| iso_ms(&s)).map(rfc3339_ms)
 }
 
-fn millis(v: Option<&J>) -> Option<String> {
+pub(crate) fn millis(v: Option<&J>) -> Option<String> {
     num(v).filter(|m| *m > 0.0).map(|m| rfc3339_ms(m as i64))
 }
 
@@ -250,7 +274,7 @@ fn one_entry(v: Option<&J>) -> Option<String> {
 }
 
 /// A JSON object without the given keys.
-fn without(v: &J, drop: &[&str]) -> J {
+pub(crate) fn without(v: &J, drop: &[&str]) -> J {
     match v {
         J::Obj(o) => J::Obj(
             o.iter()
@@ -850,7 +874,9 @@ pub(crate) fn os_monitor_job(id: &str, m: &J) -> ServerJob {
         can_enable: os_monitor_owner(m).is_none(),
         has_history: false,
         has_script: true,
-        system: false,
+        // Another plugin's (a Security Analytics detector's): not the
+        // user's to change or delete.
+        system: os_monitor_owner(m).is_some(),
     }
 }
 
@@ -938,11 +964,366 @@ pub(crate) fn os_monitor_enabled(m: &J, enabled: bool) -> J {
     body
 }
 
+// ------------------------------------------- snapshot lifecycle (SLM)
+
+/// The time of a `last_success` / `last_failure` entry, ms.
+fn slm_time(e: Option<&J>) -> Option<i64> {
+    num(e?.get("time")).map(|t| t as i64)
+}
+
+/// A policy of `GET _slm/policy` (`{ version, policy, last_success, … }`)
+/// as a job. `running`: SLM runs on this cluster; `history`: the user can
+/// read `.slm-history-*`.
+pub(crate) fn slm_job(id: &str, p: &J, running: bool, history: bool) -> ServerJob {
+    let policy = p.get("policy").unwrap_or(&J::Null);
+    let ok = p.get("last_success");
+    let failed = p.get("last_failure");
+    let (last, outcome) = match (slm_time(ok), slm_time(failed)) {
+        (Some(s), Some(f)) if f > s => (failed, Some(JobOutcome::Failed)),
+        (Some(_), _) => (ok, Some(JobOutcome::Succeeded)),
+        (None, Some(_)) => (failed, Some(JobOutcome::Failed)),
+        (None, None) => (None, None),
+    };
+    let started = last.and_then(|l| num(l.get("start_time")).or_else(|| num(l.get("time"))));
+    let in_progress = p.get("in_progress").is_some();
+    ServerJob {
+        id: job_id(Kind::Slm, id),
+        name: id.to_string(),
+        kind: SNAPSHOT_POLICY.into(),
+        group: text(policy.get("repository")),
+        description: text(policy.get("name")),
+        owner: None,
+        enabled: running,
+        schedule: text(policy.get("schedule")).map(|c| format!("cron {c}")),
+        running: in_progress,
+        last_outcome: if in_progress && outcome.is_none() {
+            Some(JobOutcome::Running)
+        } else {
+            outcome
+        },
+        last_started: started.filter(|s| *s > 0.0).map(|s| rfc3339_ms(s as i64)),
+        last_duration_ms: match (
+            last.and_then(|l| num(l.get("start_time"))),
+            last.and_then(|l| num(l.get("time"))),
+        ) {
+            (Some(a), Some(b)) if b >= a => Some((b - a) as u64),
+            _ => None,
+        },
+        next_run: millis(p.get("next_execution_millis")),
+        // `_execute` takes the snapshot now, also with SLM stopped.
+        can_run: true,
+        can_stop: false,
+        // SLM is started and stopped for the whole cluster.
+        can_enable: false,
+        has_history: history,
+        has_script: true,
+        // Elastic Cloud's own snapshots.
+        system: id == "cloud-snapshot-policy",
+    }
+}
+
+pub(crate) fn slm_detail(id: &str, p: &J, running: bool, history: bool) -> JobDetail {
+    let job = slm_job(id, p, running, history);
+    let policy = p.get("policy").unwrap_or(&J::Null);
+    let mut props = Vec::new();
+    add(
+        &mut props,
+        "",
+        "Nombre de los snapshots",
+        text(policy.get("name")),
+    );
+    add(
+        &mut props,
+        "",
+        "Repositorio",
+        text(policy.get("repository")),
+    );
+    add(
+        &mut props,
+        "",
+        "Índices",
+        policy.at(&["config", "indices"]).map(|i| match i {
+            J::Arr(a) => a.iter().map(J::text).collect::<Vec<_>>().join(", "),
+            i => i.text(),
+        }),
+    );
+    add(
+        &mut props,
+        "",
+        "Retención",
+        policy.get("retention").map(J::compact),
+    );
+    add(&mut props, "", "Versión", text(p.get("version")));
+    add(
+        &mut props,
+        "",
+        "Modificada",
+        millis(p.get("modified_date_millis")),
+    );
+    const LAST: &str = "Última ejecución";
+    add(
+        &mut props,
+        LAST,
+        "Último snapshot correcto",
+        text(p.at(&["last_success", "snapshot_name"])),
+    );
+    add(
+        &mut props,
+        LAST,
+        "Último snapshot fallido",
+        text(p.at(&["last_failure", "snapshot_name"])),
+    );
+    add(
+        &mut props,
+        LAST,
+        "Detalle del fallo",
+        text(p.at(&["last_failure", "details"])).map(|d| cut(&d)),
+    );
+    const STATS: &str = "Estadísticas";
+    for (k, label) in [
+        ("snapshots_taken", "Snapshots tomados"),
+        ("snapshots_failed", "Snapshots fallidos"),
+        ("snapshots_deleted", "Snapshots borrados"),
+        ("snapshot_deletion_failures", "Borrados fallidos"),
+    ] {
+        add(&mut props, STATS, label, text(p.at(&["stats", k])));
+    }
+    JobDetail {
+        steps: vec![JobStep {
+            name: "Snapshot".into(),
+            kind: Some("snapshot".into()),
+            target: text(policy.get("repository")),
+            command: Some(policy.pretty()),
+        }],
+        job,
+        schedules: Vec::new(),
+        properties: props,
+        notes: if running {
+            Vec::new()
+        } else {
+            vec![SLM_STOPPED.to_string()]
+        },
+    }
+}
+
+/// `PUT _slm/policy/<id>` with the policy.
+pub(crate) fn slm_script(id: &str, p: &J) -> String {
+    format!(
+        "PUT /_slm/policy/{}\n{}\n",
+        path_segment(id),
+        p.get("policy").unwrap_or(&J::Null).pretty()
+    )
+}
+
+/// A `.slm-history-*` record as a run.
+pub(crate) fn slm_run(id: Option<String>, r: &J) -> JobRun {
+    let ok = r.get("success").and_then(J::as_bool);
+    let op = text(r.get("operation")).unwrap_or_default();
+    let snap = text(r.get("snapshot_name")).unwrap_or_default();
+    let what = match op.as_str() {
+        "CREATE" => format!("Snapshot {snap}"),
+        "DELETE" => format!("Borrado del snapshot {snap}"),
+        _ => format!("{op} {snap}"),
+    };
+    let error = text(r.get("error_details")).map(|e| cut(&e));
+    JobRun {
+        id,
+        started: millis(r.get("@timestamp")).or_else(|| iso(r.get("@timestamp"))),
+        duration_ms: None,
+        outcome: match ok {
+            Some(true) => JobOutcome::Succeeded,
+            Some(false) => JobOutcome::Failed,
+            None => JobOutcome::Unknown,
+        },
+        trigger: (op == "DELETE").then(|| "retención".to_string()),
+        message: Some(match error {
+            Some(e) => format!("{what}: {e}"),
+            None => what,
+        }),
+        steps: Vec::new(),
+    }
+}
+
+// ---------------------------------------- snapshot management (OpenSearch)
+
+/// A `cron` schedule (`{ cron: { expression, timezone } }`) as text.
+fn sm_cron(s: Option<&J>) -> Option<String> {
+    let c = s?.get("cron")?;
+    let expr = text(c.get("expression"))?;
+    Some(match text(c.get("timezone")) {
+        Some(tz) => format!("cron {expr} ({tz})"),
+        None => format!("cron {expr}"),
+    })
+}
+
+/// An SM execution status as an outcome.
+fn sm_outcome(status: &str) -> Option<JobOutcome> {
+    Some(match status {
+        "SUCCESS" => JobOutcome::Succeeded,
+        "FAILED" | "TIME_LIMIT_EXCEEDED" => JobOutcome::Failed,
+        "IN_PROGRESS" | "RETRYING" => JobOutcome::Running,
+        _ => return None,
+    })
+}
+
+/// An SM policy (`sm_policy` of the GET) and its `_explain` entry.
+pub(crate) fn sm_job(p: &J, explain: Option<&J>) -> ServerJob {
+    let name = text(p.get("name")).unwrap_or_default();
+    let last = explain.and_then(|e| e.at(&["creation", "latest_execution"]));
+    let status = last.and_then(|l| text(l.get("status"))).unwrap_or_default();
+    ServerJob {
+        id: job_id(Kind::Sm, &name),
+        name,
+        kind: SNAPSHOT_POLICY.into(),
+        group: text(p.at(&["snapshot_config", "repository"])),
+        description: text(p.get("description")),
+        owner: text(p.at(&["user", "name"])),
+        enabled: p.get("enabled").and_then(J::as_bool).unwrap_or(false),
+        schedule: sm_cron(p.at(&["creation", "schedule"])),
+        running: status == "IN_PROGRESS",
+        last_outcome: sm_outcome(&status),
+        last_started: last.and_then(|l| millis(l.get("start_time"))),
+        last_duration_ms: match (
+            last.and_then(|l| num(l.get("start_time"))),
+            last.and_then(|l| num(l.get("end_time"))),
+        ) {
+            (Some(a), Some(b)) if b >= a && a > 0.0 => Some((b - a) as u64),
+            _ => None,
+        },
+        next_run: explain.and_then(|e| millis(e.at(&["creation", "trigger", "time"]))),
+        can_run: false,
+        can_stop: false,
+        can_enable: true,
+        has_history: false,
+        has_script: true,
+        system: false,
+    }
+}
+
+pub(crate) fn sm_detail(p: &J, explain: Option<&J>) -> JobDetail {
+    let job = sm_job(p, explain);
+    let mut props = Vec::new();
+    add(
+        &mut props,
+        "",
+        "Repositorio",
+        text(p.at(&["snapshot_config", "repository"])),
+    );
+    add(
+        &mut props,
+        "",
+        "Índices",
+        text(p.at(&["snapshot_config", "indices"])),
+    );
+    add(
+        &mut props,
+        "",
+        "Borrado",
+        sm_cron(p.at(&["deletion", "schedule"])),
+    );
+    add(
+        &mut props,
+        "",
+        "Condiciones de borrado",
+        p.at(&["deletion", "condition"]).map(J::compact),
+    );
+    add(
+        &mut props,
+        "",
+        "Modificada",
+        millis(p.get("last_updated_time")),
+    );
+    add(
+        &mut props,
+        "",
+        "Habilitada desde",
+        millis(p.get("enabled_time")),
+    );
+    const LAST: &str = "Última ejecución";
+    let e = |path: &[&str]| explain.and_then(|x| text(x.at(path)));
+    add(
+        &mut props,
+        LAST,
+        "Estado de la creación",
+        e(&["creation", "current_state"]),
+    );
+    add(
+        &mut props,
+        LAST,
+        "Resultado",
+        e(&["creation", "latest_execution", "status"]),
+    );
+    add(
+        &mut props,
+        LAST,
+        "Mensaje",
+        e(&["creation", "latest_execution", "info", "message"]).map(|m| cut(&m)),
+    );
+    add(
+        &mut props,
+        LAST,
+        "Causa",
+        e(&["creation", "latest_execution", "info", "cause"]).map(|m| cut(&m)),
+    );
+    add(
+        &mut props,
+        LAST,
+        "Estado del borrado",
+        e(&["deletion", "current_state"]),
+    );
+    let mut steps = vec![JobStep {
+        name: "Creación".into(),
+        kind: Some("snapshot".into()),
+        target: text(p.at(&["snapshot_config", "repository"])),
+        command: p.get("creation").map(J::pretty),
+    }];
+    if let Some(d) = p.get("deletion") {
+        steps.push(JobStep {
+            name: "Borrado".into(),
+            kind: Some("delete".into()),
+            target: text(p.at(&["snapshot_config", "repository"])),
+            command: Some(d.pretty()),
+        });
+    }
+    JobDetail {
+        job,
+        steps,
+        schedules: Vec::new(),
+        properties: props,
+        notes: Vec::new(),
+    }
+}
+
+/// What a create request takes of an SM policy (without what the server
+/// sets).
+pub(crate) fn sm_body(p: &J) -> J {
+    without(
+        p,
+        &[
+            "name",
+            "schema_version",
+            "schedule",
+            "last_updated_time",
+            "enabled_time",
+            "user",
+        ],
+    )
+}
+
+pub(crate) fn sm_script(prefix: &str, p: &J) -> String {
+    let name = text(p.get("name")).unwrap_or_default();
+    format!(
+        "POST /{prefix}/_sm/policies/{}\n{}\n",
+        path_segment(&name),
+        sm_body(p).pretty()
+    )
+}
+
 // ------------------------------------------------------------- session
 
 impl EsSession {
     /// `_plugins` (OpenSearch) or `_opendistro` (Open Distro).
-    fn plugins(&self) -> &'static str {
+    pub(crate) fn plugins(&self) -> &'static str {
         if self.opendistro {
             "_opendistro"
         } else {
@@ -951,7 +1332,12 @@ impl EsSession {
     }
 
     /// Sends and answers the status with the parsed body.
-    async fn job_call(&self, method: &str, path: &str, body: Option<&J>) -> Result<(u16, J)> {
+    pub(crate) async fn job_call(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&J>,
+    ) -> Result<(u16, J)> {
         let mut rb = self.request(method, path);
         if let Some(b) = body {
             rb = rb
@@ -966,7 +1352,12 @@ impl EsSession {
     }
 
     /// Like [`Self::job_call`], but a 4xx comes back as the status and body.
-    async fn job_probe(&self, method: &str, path: &str, body: Option<&J>) -> Result<(u16, J)> {
+    pub(crate) async fn job_probe(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&J>,
+    ) -> Result<(u16, J)> {
         let mut rb = self.request(method, path);
         if let Some(b) = body {
             rb = rb
@@ -991,7 +1382,7 @@ impl EsSession {
 
     /// Sends a synchronous `_execute` on its own and returns once the
     /// server took it (an early error comes back as the error).
-    async fn execute_detached(&self, path: String, body: J) -> Result<()> {
+    pub(crate) async fn execute_detached(&self, path: String, body: J) -> Result<()> {
         let rb = self
             .request("POST", &path)
             .header("Content-Type", "application/json")
@@ -1116,9 +1507,19 @@ impl EsSession {
     /// nothing, so it's asked with `_has_privileges`; a cluster without
     /// security can read it.
     async fn watch_history_readable(&self) -> bool {
-        let body =
-            J::parse(r#"{"index": [{"names": [".watcher-history-*"], "privileges": ["read"]}]}"#)
-                .unwrap_or(J::Null);
+        self.index_privilege(".watcher-history-*", "read").await
+    }
+
+    /// Whether the user has `privilege` on the indices of `pattern` (a
+    /// cluster without security: yes).
+    pub(crate) async fn index_privilege(&self, pattern: &str, privilege: &str) -> bool {
+        let body = J::Obj(vec![(
+            "index".into(),
+            J::Arr(vec![J::Obj(vec![
+                ("names".into(), J::Arr(vec![J::Str(pattern.into())])),
+                ("privileges".into(), J::Arr(vec![J::Str(privilege.into())])),
+            ])]),
+        )]);
         match self
             .job_probe("POST", "/_security/user/_has_privileges", Some(&body))
             .await
@@ -1126,6 +1527,165 @@ impl EsSession {
             Ok((200, v)) => v.get("has_all_requested").and_then(J::as_bool) != Some(false),
             _ => true,
         }
+    }
+
+    /// Every SLM policy as (id, entry); `Err` with the note when SLM isn't
+    /// there or the user may not see it.
+    pub(crate) async fn es_slm_policies(
+        &self,
+    ) -> Result<std::result::Result<Vec<(String, J)>, &'static str>> {
+        let (status, v) = self.job_probe("GET", "/_slm/policy", None).await?;
+        if status >= 400 {
+            return Ok(Err(if denied(status, &v) {
+                DENIED_SLM
+            } else {
+                NO_SLM
+            }));
+        }
+        Ok(Ok(v
+            .as_obj()
+            .into_iter()
+            .flatten()
+            .map(|(k, p)| (k.clone(), p.clone()))
+            .collect()))
+    }
+
+    /// SLM's operation mode is RUNNING (unknown: yes).
+    pub(crate) async fn slm_running(&self) -> bool {
+        match self.job_probe("GET", "/_slm/status", None).await {
+            Ok((200, v)) => text(v.get("operation_mode")).is_none_or(|m| m == "RUNNING"),
+            _ => true,
+        }
+    }
+
+    pub(crate) async fn slm_history_readable(&self) -> bool {
+        self.index_privilege(".slm-history-*", "read").await
+    }
+
+    /// One SLM policy (`{ version, policy, … }`), the one asked for.
+    pub(crate) async fn es_slm(&self, id: &str) -> Result<J> {
+        let (status, v) = self
+            .job_probe("GET", &format!("/_slm/policy/{}", path_segment(id)), None)
+            .await?;
+        if status == 404 {
+            return Err(Error::Query(format!(
+                "no existe la política de snapshots {id}"
+            )));
+        }
+        if status >= 400 {
+            return Err(Error::Query(es_error_message(status, &v.compact())));
+        }
+        v.get(id)
+            .cloned()
+            .ok_or_else(|| Error::Query(format!("no existe la política de snapshots {id}")))
+    }
+
+    /// OpenSearch 2.1 and later have snapshot management.
+    pub(crate) fn has_sm(&self) -> bool {
+        self.opensearch && !self.opendistro && version_at_least(&self.version, 2, 1)
+    }
+
+    /// Every SM policy (`sm_policy`) with its `_explain` entry; `Err` with
+    /// the note when the user may not see them.
+    pub(crate) async fn os_sm_policies(
+        &self,
+    ) -> Result<std::result::Result<Vec<(J, Option<J>)>, &'static str>> {
+        let p = self.plugins();
+        let mut out = Vec::new();
+        let mut from = 0;
+        loop {
+            let (status, v) = self
+                .job_probe(
+                    "GET",
+                    &format!("/{p}/_sm/policies?from={from}&size={PAGE}"),
+                    None,
+                )
+                .await?;
+            if status >= 400 {
+                if v.text().contains("index_not_found") {
+                    return Ok(Ok(Vec::new()));
+                }
+                return Ok(Err(if denied(status, &v) {
+                    DENIED_SM
+                } else {
+                    NO_OS_TRANSFORMS
+                }));
+            }
+            let page = v.get("policies").and_then(J::as_arr).unwrap_or(&[]);
+            out.extend(page.iter().filter_map(|h| h.get("sm_policy").cloned()));
+            let total = num(v.get("total_policies")).unwrap_or(0.0) as usize;
+            from += PAGE;
+            if page.len() < PAGE || from >= total {
+                break;
+            }
+        }
+        let mut explain: BTreeMap<String, J> = BTreeMap::new();
+        let names: Vec<String> = out.iter().filter_map(|x| text(x.get("name"))).collect();
+        for chunk in names.chunks(50) {
+            let list = chunk
+                .iter()
+                .map(|n| path_segment(n))
+                .collect::<Vec<_>>()
+                .join(",");
+            if let Ok((_, v)) = self
+                .job_call("GET", &format!("/{p}/_sm/policies/{list}/_explain"), None)
+                .await
+            {
+                for e in v.get("policies").and_then(J::as_arr).into_iter().flatten() {
+                    if let Some(n) = text(e.get("name")) {
+                        explain.insert(n, e.clone());
+                    }
+                }
+            }
+        }
+        Ok(Ok(out
+            .into_iter()
+            .map(|x| {
+                let e = text(x.get("name")).and_then(|n| explain.remove(&n));
+                (x, e)
+            })
+            .collect()))
+    }
+
+    /// One SM policy, its `_seq_no` and `_primary_term`, and its `_explain`.
+    pub(crate) async fn os_sm(&self, name: &str) -> Result<(J, String, String, Option<J>)> {
+        let p = self.plugins();
+        let seg = path_segment(name);
+        let (status, v) = self
+            .job_probe("GET", &format!("/{p}/_sm/policies/{seg}"), None)
+            .await?;
+        if status == 404 {
+            return Err(Error::Query(format!(
+                "no existe la política de snapshots {name}"
+            )));
+        }
+        if status >= 400 {
+            return Err(Error::Query(es_error_message(status, &v.compact())));
+        }
+        let policy = v
+            .get("sm_policy")
+            .filter(|x| text(x.get("name")).as_deref() == Some(name))
+            .cloned()
+            .ok_or_else(|| Error::Query(format!("no existe la política de snapshots {name}")))?;
+        let explain = self
+            .job_call("GET", &format!("/{p}/_sm/policies/{seg}/_explain"), None)
+            .await
+            .ok()
+            .and_then(|(_, e)| {
+                e.get("policies")
+                    .and_then(J::as_arr)
+                    .and_then(|a| {
+                        a.iter()
+                            .find(|x| text(x.get("name")).as_deref() == Some(name))
+                    })
+                    .cloned()
+            });
+        Ok((
+            policy,
+            text(v.get("_seq_no")).unwrap_or_default(),
+            text(v.get("_primary_term")).unwrap_or_default(),
+            explain,
+        ))
     }
 
     async fn es_jobs(&self) -> Result<JobList> {
@@ -1148,12 +1708,26 @@ impl EsSession {
             }
             Err(note) => notes.push(note.to_string()),
         }
+        match self.es_slm_policies().await? {
+            Ok(ps) => {
+                let running = self.slm_running().await;
+                if !running {
+                    notes.push(SLM_STOPPED.to_string());
+                }
+                let history = ps.is_empty() || self.slm_history_readable().await;
+                if !history {
+                    notes.push(DENIED_SLM_HISTORY.to_string());
+                }
+                jobs.extend(ps.iter().map(|(id, p)| slm_job(id, p, running, history)));
+            }
+            Err(note) => notes.push(note.to_string()),
+        }
         Ok(JobList { jobs, notes })
     }
 
     /// A transform and its stats. The definition that comes back has to be
     /// the one asked for (a pattern would answer others).
-    async fn es_transform(&self, id: &str) -> Result<(J, Option<J>)> {
+    pub(crate) async fn es_transform(&self, id: &str) -> Result<(J, Option<J>)> {
         let seg = path_segment(id);
         let (_, v) = self
             .job_call("GET", &format!("/_transform/{seg}"), None)
@@ -1175,7 +1749,7 @@ impl EsSession {
         Ok((def, stats))
     }
 
-    async fn es_watch(&self, id: &str) -> Result<J> {
+    pub(crate) async fn es_watch(&self, id: &str) -> Result<J> {
         let (status, v) = self
             .job_probe(
                 "GET",
@@ -1336,11 +1910,17 @@ impl EsSession {
             }
             Err(note) => notes.push(note.to_string()),
         }
+        if self.has_sm() {
+            match self.os_sm_policies().await? {
+                Ok(ps) => jobs.extend(ps.iter().map(|(p, e)| sm_job(p, e.as_ref()))),
+                Err(note) => notes.push(note.to_string()),
+            }
+        }
         notes.push(OS_SCOPE.to_string());
         Ok(JobList { jobs, notes })
     }
 
-    async fn os_transform(&self, id: &str) -> Result<(J, Option<J>)> {
+    pub(crate) async fn os_transform(&self, id: &str) -> Result<(J, Option<J>)> {
         let p = self.plugins();
         let seg = path_segment(id);
         let (status, hit) = self
@@ -1364,7 +1944,7 @@ impl EsSession {
     }
 
     /// The monitor, its `_seq_no` and `_primary_term`.
-    async fn os_monitor(&self, id: &str) -> Result<(J, String, String)> {
+    pub(crate) async fn os_monitor(&self, id: &str) -> Result<(J, String, String)> {
         let p = self.plugins();
         let (status, v) = self
             .job_probe(
@@ -1393,12 +1973,13 @@ impl EsSession {
 
     // ---- the calls
 
-    fn parse(&self, id: &str) -> Result<(Kind, String)> {
+    pub(crate) fn parse(&self, id: &str) -> Result<(Kind, String)> {
         let (kind, rest) = parse_id(id).ok_or_else(|| bad_id(id))?;
         let fits = match kind {
             Kind::Transform => self.opensearch || es_transform_id(rest),
-            Kind::Watch => !self.opensearch,
+            Kind::Watch | Kind::Slm => !self.opensearch,
             Kind::Monitor => self.opensearch,
+            Kind::Sm => self.has_sm(),
         };
         if !fits {
             return Err(bad_id(id));
@@ -1422,11 +2003,62 @@ impl EsSession {
                 watch_detail(&w, self.watch_history_readable().await)
             }
             (Kind::Monitor, _) => os_monitor_detail(&id, &self.os_monitor(&id).await?.0),
+            (Kind::Slm, _) => {
+                let p = self.es_slm(&id).await?;
+                slm_detail(
+                    &id,
+                    &p,
+                    self.slm_running().await,
+                    self.slm_history_readable().await,
+                )
+            }
+            (Kind::Sm, _) => {
+                let (p, _, _, e) = self.os_sm(&id).await?;
+                sm_detail(&p, e.as_ref())
+            }
         })
+    }
+
+    /// An SLM policy's runs, from `.slm-history-*`.
+    async fn slm_history(&self, id: &str, limit: u32) -> Result<Vec<JobRun>> {
+        self.es_slm(id).await?;
+        if !self.slm_history_readable().await {
+            return Err(Error::Unsupported(DENIED_SLM_HISTORY.into()));
+        }
+        let body = J::Obj(vec![
+            ("size".into(), J::Num(limit.clamp(1, MAX_JOB_RUNS).into())),
+            (
+                "sort".into(),
+                J::parse(r#"[{"@timestamp": {"order": "desc"}}]"#).unwrap_or(J::Null),
+            ),
+            (
+                "query".into(),
+                J::Obj(vec![(
+                    "term".into(),
+                    J::Obj(vec![("policy".into(), J::Str(id.into()))]),
+                )]),
+            ),
+        ]);
+        let (_, v) = self
+            .job_call(
+                "POST",
+                "/.slm-history-*/_search?ignore_unavailable=true&allow_no_indices=true",
+                Some(&body),
+            )
+            .await?;
+        Ok(v.at(&["hits", "hits"])
+            .and_then(J::as_arr)
+            .into_iter()
+            .flatten()
+            .filter_map(|h| Some(slm_run(text(h.get("_id")), h.get("_source")?)))
+            .collect())
     }
 
     pub(crate) async fn job_history(&self, id: &str, limit: u32) -> Result<Vec<JobRun>> {
         let (kind, id) = self.parse(id)?;
+        if kind == Kind::Slm {
+            return self.slm_history(&id, limit).await;
+        }
         if kind != Kind::Watch {
             return Err(Error::Unsupported(
                 "el clúster no guarda el historial de ejecuciones de este job".into(),
@@ -1501,6 +2133,13 @@ impl EsSession {
             (Kind::Transform, true) => Err(Error::Unsupported(
                 "OpenSearch ejecuta los transforms según su intervalo: no hay forma de dispararlos a mano".into(),
             )),
+            (Kind::Slm, _) => {
+                self.es_slm(&id).await?;
+                self.job_call("POST", &format!("/_slm/policy/{seg}/_execute"), None)
+                    .await?;
+                Ok(())
+            }
+            (Kind::Sm, _) => Err(Error::Unsupported(SM_NO_RUN.into())),
         }
     }
 
@@ -1557,6 +2196,16 @@ impl EsSession {
                 )
                 .await?;
             }
+            (Kind::Slm, _) => {
+                return Err(Error::Unsupported(
+                    "SLM se inicia y se detiene para todo el clúster (POST /_slm/start, POST /_slm/stop), no por política".into(),
+                ))
+            }
+            (Kind::Sm, _) => {
+                self.os_sm(&id).await?;
+                self.job_call("POST", &format!("/{p}/_sm/policies/{seg}/{verb}"), None)
+                    .await?;
+            }
         }
         Ok(())
     }
@@ -1570,6 +2219,8 @@ impl EsSession {
             }
             (Kind::Watch, _) => watch_script(&self.es_watch(&id).await?),
             (Kind::Monitor, _) => os_monitor_script(self.plugins(), &self.os_monitor(&id).await?.0),
+            (Kind::Slm, _) => slm_script(&id, &self.es_slm(&id).await?),
+            (Kind::Sm, _) => sm_script(self.plugins(), &self.os_sm(&id).await?.0),
         })
     }
 }

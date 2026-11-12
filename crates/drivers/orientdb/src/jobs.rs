@@ -22,12 +22,13 @@ use serde_json::Value;
 
 const KIND: &str = "Scheduled event";
 /// Jobs listed at most.
-const MAX_JOBS: i64 = 5000;
+pub(crate) const MAX_JOBS: i64 = 5000;
 
 const LIST: &str = "SELECT @rid AS rid, name, rule, status, starttime.asLong() AS start_ms, nextExecId AS runs, arguments, function.name AS fn, function.language AS lang, function.code AS code, function.parameters AS params, function.idempotent AS idempotent FROM OSchedule ORDER BY name";
 
-const EVENT_NOTE: &str = "OrientDB no permite pausar un evento programado, ejecutarlo a pedido ni detener una ejecución, y no guarda un historial: para frenarlo hay que borrar su registro de OSchedule y volver a crearlo con su script.";
-const DENIED: &str = "Este usuario no puede leer los eventos programados (la clase OSchedule).";
+pub(crate) const EVENT_NOTE: &str = "OrientDB no permite pausar un evento programado, ejecutarlo a pedido ni detener una ejecución, y no guarda un historial: para frenarlo hay que borrar su registro de OSchedule y volver a crearlo con su script.";
+pub(crate) const DENIED: &str =
+    "Este usuario no puede leer los eventos programados (la clase OSchedule).";
 
 /// One `OSchedule` record.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -237,7 +238,7 @@ pub(crate) fn script_of(e: &Event) -> Result<String> {
     Ok(out)
 }
 
-fn denied(e: &Error) -> bool {
+pub(crate) fn denied(e: &Error) -> bool {
     let m = e.to_string().to_ascii_lowercase();
     m.contains("permission") || m.contains("not allowed")
 }
@@ -251,7 +252,7 @@ fn not_found(id: &str) -> Error {
 
 impl OrientSession {
     /// The events, one past [`MAX_JOBS`] when there are more.
-    async fn events(&self) -> Result<Vec<Event>> {
+    pub(crate) async fn events(&self) -> Result<Vec<Event>> {
         Ok(events(&self.command(LIST, MAX_JOBS + 1).await?.records))
     }
 

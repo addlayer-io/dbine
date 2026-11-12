@@ -22,6 +22,7 @@ pub mod plan;
 mod processes;
 mod profiler;
 mod rename;
+mod scheduler;
 mod security;
 mod stats;
 mod steps;
@@ -387,9 +388,11 @@ impl Driver for Es {
             monitor: true,
             processes: true,
             cancel_query: true,
-            // Transforms and watches, or transforms and monitors (see
-            // `jobs`).
+            // Transforms, watches and snapshot policies, or transforms,
+            // monitors and snapshot policies (see `jobs`), managed whole
+            // (see `scheduler`).
             jobs: true,
+            scheduler: true,
             ..Capabilities::default()
         }
     }
@@ -1373,6 +1376,60 @@ impl Session for EsSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.job_create_script(id).await
+    }
+
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        scheduler::info(self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        scheduler::items(self, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::form(self, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        scheduler::script(self, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        scheduler::save(self, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        scheduler::delete_script(self, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        scheduler::delete(self, kind, id).await
+    }
+
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        scheduler::run_from(self, id, step).await
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        scheduler::clear_history(self, id).await
+    }
+
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        scheduler::logs(self).await
     }
 
     async fn profiler_start(

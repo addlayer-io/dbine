@@ -37,9 +37,9 @@ use std::collections::{BTreeMap, BTreeSet};
 const KIND: &str = "Scheduler job";
 const MAX_MESSAGE: usize = 4000;
 
-const NO_SCHEDULER: &str =
+pub(crate) const NO_SCHEDULER: &str =
     "esta versión de SAP HANA no tiene scheduler jobs (CREATE SCHEDULER JOB)";
-const PARTIAL: &str = "se ven los scheduler jobs que creó este usuario o que puede modificar o borrar; para verlos todos hace falta CATALOG READ";
+pub(crate) const PARTIAL: &str = "se ven los scheduler jobs que creó este usuario o que puede modificar o borrar; para verlos todos hace falta CATALOG READ";
 const NO_RUN: &str = "SAP HANA no tiene una sentencia para ejecutar un scheduler job a mano";
 
 /// The columns each view has on this server.
@@ -70,7 +70,7 @@ pub(crate) fn columns(set: &Set) -> Columns {
     c
 }
 
-fn lit(s: &str) -> String {
+pub(crate) fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
@@ -375,7 +375,7 @@ pub(crate) fn job(set: &Set, r: usize, st: Option<&Status>, c: &Columns) -> Serv
 
 /// A schema or user of HANA's own: SYS, or a name starting with `_SYS`,
 /// which HANA reserves for the database itself.
-fn hana_own(name: &str) -> bool {
+pub(crate) fn hana_own(name: &str) -> bool {
     name == "SYS" || name.starts_with("_SYS")
 }
 
@@ -399,7 +399,7 @@ fn param_value(v: &str) -> String {
     }
 }
 
-fn param_name(n: &str) -> String {
+pub(crate) fn param_name(n: &str) -> String {
     if !n.is_empty()
         && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         && !n.starts_with(|c: char| c.is_ascii_digit())
@@ -490,7 +490,7 @@ pub(crate) fn script(set: &Set, r: usize, params: &[(String, String)]) -> String
 
 // ------------------------------------------------------------- the calls
 
-async fn columns_of(conn: &Connection) -> Result<Columns> {
+pub(crate) async fn columns_of(conn: &Connection) -> Result<Columns> {
     Ok(columns(&query(conn, COLUMNS).await?))
 }
 
@@ -507,7 +507,7 @@ async fn status_map(conn: &Connection, c: &Columns) -> BTreeMap<(String, String)
     }
 }
 
-async fn sees_all(conn: &Connection) -> bool {
+pub(crate) async fn sees_all(conn: &Connection) -> bool {
     query(
         conn,
         "SELECT COUNT(*) AS N FROM SYS.EFFECTIVE_PRIVILEGES

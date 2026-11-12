@@ -58,6 +58,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod scheduler;
 mod security;
 mod stats;
 mod steps;
@@ -313,7 +314,9 @@ impl Driver for GraphDriver {
             // APOC's background jobs; Memgraph and Neptune have no
             // scheduled jobs (see jobs.rs).
             jobs: self.flavor == Flavor::Neo4j,
-            scheduler: false,
+            // The same APOC jobs, created, changed and cancelled from the
+            // designer (see `scheduler`).
+            scheduler: scheduler::supported(self.flavor),
         }
     }
 
@@ -2203,6 +2206,49 @@ impl Session for GraphSession {
 
     async fn job_script(&mut self, _id: &str) -> Result<String> {
         Err(jobs::no_script())
+    }
+
+    /// APOC's jobs through the designer (see [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        self.sched_info().await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        self.sched_items(kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        self.sched_form(kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        self.sched_script(kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        self.sched_save(kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        self.sched_delete_script(kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.sched_delete(kind, id).await
     }
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {

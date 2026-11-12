@@ -10,6 +10,7 @@
 //! `system:active_requests`. Read-only sessions also send `readonly`, so
 //! the server refuses writes.
 
+mod backup;
 mod create_db;
 mod ddl;
 mod index_usage;
@@ -234,6 +235,7 @@ impl Driver for CouchbaseDriver {
             cancel_query: true,
             database_properties: true,
             jobs: true,
+            scheduler: true,
             ..Default::default()
         }
     }
@@ -1641,6 +1643,65 @@ impl Session for CbSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.server_job_script(id).await
+    }
+
+    /// The Backup Service's plans and repositories, managed whole (see
+    /// [`backup`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        backup::info(self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        backup::items(self, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        backup::form(self, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        backup::script(self, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        backup::save(self, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        backup::delete_script(self, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        backup::delete(self, kind, id).await
+    }
+
+    /// Runs a task of the repository's plan now: a backup, a merge or a
+    /// prune.
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        backup::run_from(self, id, step).await
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        backup::clear_history(self, id).await
+    }
+
+    /// The Backup Service's events in the cluster's event log.
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        backup::logs(self).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
