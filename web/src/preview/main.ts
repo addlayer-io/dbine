@@ -388,7 +388,9 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
   // Compare reads index usage and checks dependents before a drop (both faked in compare-samples).
   conns.drivers = view === 'compare' ? sampleDrivers.map((d) => ({ ...d, supports_index_usage: true, supports_dependencies: true }))
     : view === 'query' ? sampleDrivers.map((d) => ({ ...d, supports_manual_transactions: true }))
-      : sampleDrivers;
+      // The monitor's "Procesos" with ending and cancelling.
+      : view === 'monitor' ? sampleDrivers.map((d) => ({ ...d, capabilities: { ...d.capabilities, processes: true, kill_session: true, cancel_query: true } }))
+        : sampleDrivers;
   conns.list = [{
     id: 'c1', name: 'Producción · ventas', color: '#3794ff', folder_id: null, tags: ['prod'], save_password: true, updated_at: '',
     config: { driver: 'postgres', host: 'db-prod-01', port: 5432, database: 'ventas', username: 'app', password: null,
@@ -406,6 +408,16 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
     transformCallback: () => 0,
     invoke: async (cmd: string, a?: { args?: Record<string, unknown> }) => {
       if (cmd === 'monitor_snapshot') return sampleSnapshot();
+      // view=monitor: 30 sessions, so the list scrolls (the selected one's panel stays in view).
+      if (cmd === 'monitor_processes') {
+        return Array.from({ length: 30 }, (_, i) => ({
+          id: String(4100 + i), status: i % 3 ? 'idle' : 'active', active: i % 3 === 0, system: false, own: i === 7,
+          user: ['app', 'etl', 'reporting'][i % 3], host: `10.0.4.${20 + i}`, program: i % 2 ? 'psql' : 'ventas-api', database: 'ventas',
+          command: i % 3 ? null : 'SELECT', elapsed_ms: i % 3 ? null : 1500 * (i + 1), cpu_ms: null, reads: null, writes: null,
+          wait: i === 3 ? 'Lock: transactionid' : null, blocked_by: i === 3 ? '4100' : null,
+          sql: `SELECT c.id, c.nombre, SUM(v.total) AS total\nFROM ventas v\nJOIN clientes c ON c.id = v.cliente_id\nWHERE v.fecha >= now() - interval '${i + 1} days'\nGROUP BY c.id, c.nombre\nORDER BY total DESC\nLIMIT 50;`,
+        }));
+      }
       if (cmd === 'profiler_start') return sampleProfilerStart(params.get('mode') === 'sampled' ? 'sampled' : 'complete');
       if (cmd === 'profiler_poll') return sampleProfilerPoll();
       if (cmd === 'profiler_stop') return null;

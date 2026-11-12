@@ -29,6 +29,8 @@
   "waitsFor": "Espera a",
   "waitedBy": "La esperan:",
   "noSql": "No está ejecutando ninguna sentencia.",
+  "analyze": "Analizar",
+  "analyzeTip": "Abrir la sentencia en el Optimizador: plan de ejecución, índices y mediciones",
   "openInQuery": "Abrir en una consulta",
   "queryName": "Sesión {{id}}",
   "copy": "Copiar",

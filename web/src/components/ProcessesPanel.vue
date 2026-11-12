@@ -5,14 +5,17 @@ import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { locksApi, type ServerProcess } from '../api/locks';
 import { newQuery } from '../composables/actions';
+import { useTabsStore } from '../stores/tabs';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { vKeyActivate } from '../composables/keyActivate';
 
 // The Monitor's process list (docs/processes.md): the server's sessions and
 // running requests, polled on their own while the tab shows them. Filters,
-// sorting, blockers highlighted, and per row: the whole statement, open it
-// in a query, cancel the statement or end the session.
+// sorting, blockers highlighted. The selected session opens in a panel next
+// to the list (the list stays where it was): its whole statement, analyze it
+// in the Optimizer, open it in a query, cancel it or end the session. ↑/↓
+// move the selection, Esc closes the panel.
 
 const props = defineProps<{
   connectionId: string;
@@ -130,6 +133,8 @@ const COLUMNS: { key: Col; label: string; num?: boolean }[] = [
   { key: 'sql', label: 'processes:col.sql' },
 ];
 /** The columns some row fills: an engine that doesn't report CPU shows no CPU column. */
+/** What the side panel lists about the session, when reported. */
+const FACTS: Col[] = ['status', 'user', 'host', 'program', 'database', 'command', 'elapsed_ms', 'cpu_ms', 'reads', 'writes', 'wait'];
 const columns = computed(() => COLUMNS.filter((c) => c.key === 'id' || (list.value ?? []).some((p) => p[c.key] !== null && p[c.key] !== '')));
 
 const sortBy = ref<Col | null>(null);
@@ -196,6 +201,29 @@ function select(p: ServerProcess) {
   selectedId.value = selectedId.value === p.id ? null : p.id;
 }
 
+/** "Analizar": the statement in the Optimizer (plan, indexes, measures). */
+function analyze(p: ServerProcess) {
+  if (!p.sql) return;
+  useTabsStore().openOptimizer(props.connectionId, p.database ?? '', p.sql, null, 0, p.sql.length);
+}
+
+/** ↑/↓ on the list move the selection; Esc closes the panel. */
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape' && selectedId.value) {
+    selectedId.value = null;
+    e.preventDefault();
+    return;
+  }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const list = rows.value;
+  if (!list.length) return;
+  const i = list.findIndex((p) => p.id === selectedId.value);
+  const next = e.key === 'ArrowDown' ? Math.min(list.length - 1, i + 1) : Math.max(0, i < 0 ? 0 : i - 1);
+  selectedId.value = list[next].id;
+  e.preventDefault();
+  requestAnimationFrame(() => document.querySelector('.pp-table tr.sel')?.scrollIntoView({ block: 'nearest' }));
+}
+
 async function openInQuery(p: ServerProcess) {
   if (!p.sql) return;
   await newQuery(props.connectionId, p.database ?? '', p.sql, t('processes:queryName', { id: p.id }));
@@ -253,7 +281,8 @@ defineExpose({ refresh });
     <el-alert v-if="error" type="error" :title="error" :closable="false" show-icon class="pp-alert" />
     <div v-if="!list && !error" class="pp-empty"><el-icon class="is-loading" :size="22"><ei-loading /></el-icon></div>
 
-    <div v-if="list" class="pp-wrap">
+    <div v-if="list" class="pp-body">
+    <div class="pp-wrap" tabindex="0" @keydown="onKey">
       <table class="pp-table">
         <thead>
           <tr>
@@ -286,11 +315,15 @@ defineExpose({ refresh });
       </table>
     </div>
 
-    <div v-if="selected" class="pp-detail">
+    <aside v-if="selected" class="pp-detail" @keydown="onKey">
       <div class="pp-detail-head">
         <strong>{{ $t('processes:session', { id: selected.id }) }}</strong>
-        <span class="pp-detail-meta">{{ [selected.user, selected.host, selected.program, selected.database].filter(Boolean).join(' · ') }}</span>
+        <span v-if="selected.own" class="pp-own">{{ $t('processes:own') }}</span>
         <div class="pp-spacer" />
+        <el-button size="small" text :aria-label="$t('common:close')" :title="$t('common:close')" @click="selectedId = null"><el-icon><ei-close /></el-icon></el-button>
+      </div>
+      <div class="pp-actions">
+        <el-button size="small" type="primary" plain :disabled="!selected.sql" :title="$t('processes:analyzeTip')" @click="analyze(selected)">{{ $t('processes:analyze') }}</el-button>
         <el-button size="small" :disabled="!selected.sql" @click="openInQuery(selected)">{{ $t('processes:openInQuery') }}</el-button>
         <el-button size="small" :disabled="!selected.sql" @click="copySql(selected)">{{ $t('processes:copy') }}</el-button>
         <span v-if="canCancel" :title="selected.own ? $t('processes:ownTitle') : killDenied">
@@ -303,8 +336,12 @@ defineExpose({ refresh });
             {{ $t('processes:killAction') }}
           </el-button>
         </span>
-        <el-button size="small" text :aria-label="$t('common:close')" @click="selectedId = null"><el-icon><ei-close /></el-icon></el-button>
       </div>
+      <dl class="pp-facts">
+        <template v-for="c in FACTS" :key="c">
+          <template v-if="cell(selected, c)"><dt>{{ $t(COLUMNS.find((x) => x.key === c)!.label) }}</dt><dd>{{ cell(selected, c) }}</dd></template>
+        </template>
+      </dl>
       <div v-if="selected.blocked_by || waitingOn.length" class="pp-chain">
         <span v-if="selected.blocked_by">
           {{ $t('processes:waitsFor') }}
@@ -316,8 +353,9 @@ defineExpose({ refresh });
           <template v-for="(w, i) in waitingOn" :key="w.id"><template v-if="i">, </template><a href="#" @click.prevent="selectedId = w.id">{{ w.id }}</a></template>
         </span>
       </div>
-      <pre v-if="selected.sql" class="pp-sql">{{ selected.sql }}</pre>
+      <pre v-if="selected.sql" class="pp-sql nm-selectable">{{ selected.sql }}</pre>
       <p v-else class="nm-muted pp-nosql">{{ $t('processes:noSql') }}</p>
+    </aside>
     </div>
   </section>
 </template>
@@ -333,7 +371,8 @@ defineExpose({ refresh });
 .pp-count { font-size: 11.5px; color: var(--nm-text-dim); }
 .pp-alert { margin: 8px; width: auto; }
 .pp-empty { display: flex; justify-content: center; padding: 40px; color: var(--nm-text-dim); }
-.pp-wrap { flex: 1; min-height: 120px; max-height: 520px; overflow: auto; }
+.pp-body { display: flex; min-height: 160px; max-height: 560px; }
+.pp-wrap { flex: 1; min-width: 0; overflow: auto; outline: none; }
 .pp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .pp-table th {
   position: sticky; top: 0; z-index: 1; text-align: left; font-weight: 600; padding: 5px 10px;
@@ -361,15 +400,22 @@ defineExpose({ refresh });
 }
 .pp-own { margin-left: 6px; font-size: 10.5px; color: var(--nm-text-muted); }
 
-.pp-detail { border-top: 1px solid var(--nm-border); padding: 8px 10px 10px; background: var(--nm-bg-elev); }
-.pp-detail-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.pp-detail {
+  flex: none; width: clamp(300px, 40%, 520px); display: flex; flex-direction: column; min-height: 0; overflow: auto;
+  border-left: 1px solid var(--nm-border); padding: 8px 10px 10px; background: var(--nm-bg-elev);
+}
+.pp-detail-head { display: flex; align-items: center; gap: 6px; }
 .pp-detail-head .el-button { margin: 0; }
 .pp-detail-head strong { color: var(--nm-text-strong); }
-.pp-detail-meta { font-size: 11.5px; color: var(--nm-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pp-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pp-actions .el-button { margin: 0; }
+.pp-facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0 0; font-size: 12px; }
+.pp-facts dt { color: var(--nm-text-dim); }
+.pp-facts dd { margin: 0; color: var(--nm-text); min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .pp-chain { display: flex; gap: 16px; margin-top: 6px; font-size: 12px; color: var(--nm-text-dim); }
 .pp-chain a { color: var(--nm-accent); }
 .pp-sql {
-  margin: 8px 0 0; padding: 8px 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  flex: 1 0 auto; margin: 8px 0 0; padding: 8px 10px; min-height: 80px; overflow: auto; white-space: pre-wrap; word-break: break-word;
   font-family: var(--nm-mono); font-size: 12px; color: var(--nm-text); background: var(--nm-bg);
   border: 1px solid var(--nm-border-soft); border-radius: 3px;
 }
