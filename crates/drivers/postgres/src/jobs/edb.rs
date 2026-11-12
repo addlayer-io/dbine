@@ -502,6 +502,7 @@ fn dbms_job(r: &dyn Row, e: &Edb) -> Option<ServerJob> {
         can_enable: may,
         has_history: e.history().is_some(),
         has_script: true,
+        system: false,
     })
 }
 
@@ -545,6 +546,7 @@ pub(super) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
         }],
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 
@@ -717,6 +719,7 @@ pub(super) async fn sched_detail(s: &PgSession, id: &Named) -> Result<JobDetail>
         steps: j.steps(program.as_ref()),
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

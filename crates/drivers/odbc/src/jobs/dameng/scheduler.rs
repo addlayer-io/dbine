@@ -178,6 +178,7 @@ fn job(s: &Set, r: usize, a: &Seen) -> Option<ServerJob> {
         has_history: true,
         // The arguments' values aren't read: such a job has no script.
         has_script: int(s.get(r, "NUMBER_OF_ARGUMENTS")).unwrap_or(0) == 0,
+        system: false,
     })
 }
 
@@ -251,6 +252,7 @@ pub(super) fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

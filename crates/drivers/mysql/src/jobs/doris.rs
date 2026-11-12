@@ -452,6 +452,7 @@ impl Catalog {
             } else {
                 j.create().is_some()
             },
+            system: false,
         }
     }
 }
@@ -662,6 +663,7 @@ pub(super) async fn detail(s: &mut MySqlSession, id: &str) -> Result<JobDetail> 
         job,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

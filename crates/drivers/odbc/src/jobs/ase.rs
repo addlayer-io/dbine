@@ -137,6 +137,7 @@ fn job(s: &Set, r: usize) -> Option<ServerJob> {
         can_enable: true,
         has_history: true,
         has_script: false,
+        system: false,
     })
 }
 
@@ -292,6 +293,7 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

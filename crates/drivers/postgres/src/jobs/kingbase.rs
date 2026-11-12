@@ -374,6 +374,7 @@ impl KJob {
             can_enable: may,
             has_history: k.runs_of(&self.name).is_some(),
             has_script: self.scriptable(),
+            system: false,
         };
         if JobId::parse(&job.id).is_err() {
             job.can_run = false;
@@ -485,6 +486,7 @@ pub(super) async fn detail(s: &PgSession, id: &Named) -> Result<JobDetail> {
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

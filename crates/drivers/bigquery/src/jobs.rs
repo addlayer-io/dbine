@@ -595,6 +595,7 @@ impl Dts<'_> {
             schedules: Vec::new(),
             properties: properties(&c, name[1], name[2]),
             job,
+            notes: Vec::new(),
         })
     }
 

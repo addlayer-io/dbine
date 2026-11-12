@@ -725,6 +725,7 @@ fn job(e: &Event, ctx: &Context, t: &Times) -> ServerJob {
         can_enable: owns || ctx.sets_any_definer(),
         has_history: ctx.ob.is_some(),
         has_script: true,
+        system: false,
     }
 }
 
@@ -817,6 +818,7 @@ pub(super) async fn detail(s: &mut MySqlSession, id: &str) -> Result<JobDetail> 
         }],
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

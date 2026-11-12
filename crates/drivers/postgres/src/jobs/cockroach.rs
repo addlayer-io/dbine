@@ -258,6 +258,9 @@ fn schedule_job(r: &dyn Row, who: &Who, runs: &[JobRun]) -> Option<ServerJob> {
         can_enable: controls,
         has_history: true,
         has_script: matches!(kind, ScheduleKind::Backup | ScheduleKind::Changefeed),
+        // The cluster's own (SQL stats compaction, schema telemetry): their
+        // owner is `node`.
+        system: kind == ScheduleKind::System,
     })
 }
 
@@ -305,6 +308,7 @@ fn changefeed_job(r: &dyn Row, who: &Who) -> Option<ServerJob> {
         can_enable: controls && matches!(status.as_deref(), Some("running" | "paused")),
         has_history: false,
         has_script: true,
+        system: false,
     })
 }
 
@@ -434,6 +438,7 @@ pub(super) async fn schedule_detail(s: &PgSession, n: i64) -> Result<JobDetail> 
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 
@@ -470,6 +475,7 @@ pub(super) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
         job,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 
@@ -806,6 +812,8 @@ mod tests {
             ("command", "{}"),
         ]);
         assert_eq!(ScheduleKind::of(&compaction), ScheduleKind::System);
+        assert!(schedule_job(&compaction, &root(), &[]).unwrap().system);
+        assert!(!schedule_job(&ttl, &root(), &[]).unwrap().system);
         let cf = fixture(&[(
             "command",
             "{\"changefeed_statement\": \"CREATE CHANGEFEED FOR t INTO 'null://'\"}",

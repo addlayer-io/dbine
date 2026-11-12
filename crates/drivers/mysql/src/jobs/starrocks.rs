@@ -342,6 +342,7 @@ fn job(t: &Task, view: Option<&View>, s: Summary) -> ServerJob {
             last_started: s.last_started,
             last_duration_ms: s.last_duration_ms,
             next_run: None,
+            system: false,
         },
         None => ServerJob {
             id: task_id(&t.name, false),
@@ -362,6 +363,7 @@ fn job(t: &Task, view: Option<&View>, s: Summary) -> ServerJob {
             last_started: s.last_started,
             last_duration_ms: s.last_duration_ms,
             next_run: None,
+            system: false,
         },
     }
 }
@@ -587,6 +589,7 @@ pub(super) async fn detail(s: &mut MySqlSession, id: &str) -> Result<JobDetail> 
         }],
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

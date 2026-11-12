@@ -28,6 +28,8 @@ const IN_MEMORY: &str = "los jobs de APOC (apoc.periodic) viven en la memoria de
 const NO_APOC: &str =
     "Neo4j no programa jobs por su cuenta y este servidor no tiene APOC (apoc.periodic)";
 const NO_STOP_REPEAT: &str = "APOC no detiene una ejecución de un job que se repite: solo lo cancela para siempre (apoc.periodic.cancel)";
+const STOP_CANCELS: &str =
+    "al detenerlo, APOC lo cancela y lo quita de la lista: no se puede reanudar";
 const MEMGRAPH: &str = "Memgraph no tiene jobs programados: sus triggers se disparan con los cambios y sus procedimientos periodic corren dentro de la consulta que los llama";
 const NEPTUNE: &str = "Neptune no tiene jobs programados en la base de datos";
 
@@ -87,6 +89,7 @@ pub(crate) fn job(r: &Map<String, Value>) -> Option<ServerJob> {
         can_enable: false,
         has_history: false,
         has_script: false,
+        system: false,
     })
 }
 
@@ -110,23 +113,28 @@ fn detail(r: &Map<String, Value>) -> Option<JobDetail> {
         "Cancelado",
         if flag(r, "cancelled") { "Sí" } else { "No" }.into(),
     );
+    let mut notes = Vec::new();
     if job.can_stop {
-        add(
-            "Al detenerlo",
-            "APOC lo cancela y lo quita de la lista: no se puede reanudar".into(),
-        );
+        notes.push(STOP_CANCELS.into());
     } else if int(r, "rate") > 0 && job.enabled {
-        add(
-            "Para cancelarlo",
-            format!("CALL apoc.periodic.cancel({})", cypher::string(&job.name)),
-        );
+        notes.push(cancel_note(&job.name));
     }
     Some(JobDetail {
         job,
         steps: Vec::new(),
         schedules: Vec::new(),
         properties,
+        notes,
     })
+}
+
+/// How to cancel a repeating job, which DBine doesn't offer (see
+/// [`NO_STOP_REPEAT`]).
+fn cancel_note(name: &str) -> String {
+    format!(
+        "APOC no detiene una ejecución de un job que se repite; para cancelarlo para siempre: CALL apoc.periodic.cancel({})",
+        cypher::string(name)
+    )
 }
 
 /// The server has no APOC (or not its periodic procedures).
@@ -263,12 +271,9 @@ mod tests {
             json!({"name": "it's", "delay": 0, "rate": 60, "done": false, "cancelled": false}),
         ))
         .unwrap();
-        assert!(d
-            .properties
-            .iter()
-            .any(|p| p.label == "Para cancelarlo"
-                && p.value == "CALL apoc.periodic.cancel('it\\'s')"));
-        assert!(!d.properties.iter().any(|p| p.label == "Al detenerlo"));
+        assert_eq!(d.notes, [cancel_note("it's")]);
+        assert!(d.notes[0].ends_with("CALL apoc.periodic.cancel('it\\'s')"));
+        assert!(!d.properties.iter().any(|p| p.label == "Para cancelarlo"));
         let once = job(&row(
             json!({"name": "once", "delay": 0, "rate": 0, "done": false, "cancelled": false}),
         ))
@@ -278,7 +283,8 @@ mod tests {
             json!({"name": "once", "delay": 0, "rate": 0, "done": false, "cancelled": false}),
         ))
         .unwrap();
-        assert!(d.properties.iter().any(|p| p.label == "Al detenerlo"));
+        assert_eq!(d.notes, [STOP_CANCELS]);
+        assert!(!d.properties.iter().any(|p| p.label == "Al detenerlo"));
         let done = job(&row(
             json!({"name": "d", "delay": 1, "rate": 0, "done": true, "cancelled": false}),
         ))
@@ -289,6 +295,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(d.job.last_outcome, Some(dbine_driver::JobOutcome::Canceled));
+        assert!(d.notes.is_empty(), "nothing to stop or cancel");
         assert!(d
             .properties
             .iter()

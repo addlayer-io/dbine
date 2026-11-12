@@ -117,6 +117,7 @@ fn job(r: &dyn Row, user: &str, admin: bool) -> Option<ServerJob> {
         can_enable: mine,
         has_history: false,
         has_script: true,
+        system: false,
     })
 }
 
@@ -181,6 +182,7 @@ pub(super) async fn detail(s: &PgSession, n: i64) -> Result<JobDetail> {
         }],
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

@@ -785,10 +785,13 @@ async fn os_body(url: &str) {
     let d = s.job_detail("monitor:dbine_test_jobs_owned").await.unwrap();
     let owned = d.job.clone();
     assert!(owned.enabled && !owned.can_enable && owned.can_run);
-    assert!(d
-        .properties
-        .iter()
-        .any(|p| p.label == "Administrado por" && p.value == "security_analytics"));
+    assert!(
+        d.notes
+            .iter()
+            .any(|n| n.contains("lo administra security_analytics")),
+        "{:?}",
+        d.notes
+    );
     let e = s.set_job_enabled(&owned.id, false).await.unwrap_err();
     assert!(e.to_string().contains("security_analytics"), "{e}");
     let still = http(

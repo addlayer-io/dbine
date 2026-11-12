@@ -29,6 +29,8 @@ export interface ServerJob {
   can_enable?: boolean;
   has_history?: boolean;
   has_script?: boolean;
+  /** It comes with the database or the engine, not made by a user: hidden by default. */
+  system?: boolean;
 }
 
 export interface JobList {
@@ -50,6 +52,8 @@ export interface JobDetail {
   schedules: string[];
   /** Labels in Spanish from the driver (translate with `tb`); `group` empty: General. */
   properties: { group: string; label: string; value: string }[];
+  /** What to know about this job, in Spanish from the driver: translate with `tb`. */
+  notes?: string[];
 }
 
 export interface JobStepRun {

@@ -228,6 +228,7 @@ fn job(s: &Set, r: usize, c: &Seen) -> Option<ServerJob> {
         can_enable: c.superuser,
         has_history: false,
         has_script: sr.is_some() && safe_args(s.get(r, "procedure_args")).is_some(),
+        system: false,
     })
 }
 
@@ -386,6 +387,7 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

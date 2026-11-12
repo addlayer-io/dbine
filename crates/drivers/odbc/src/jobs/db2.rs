@@ -143,6 +143,7 @@ fn luw_job(s: &Set, r: usize, tz: &Tz, history: bool) -> Option<ServerJob> {
         can_enable: false,
         has_history: history,
         has_script: true,
+        system: false,
     })
 }
 
@@ -223,6 +224,7 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 
@@ -556,6 +558,7 @@ fn zos_job(t: &Set, r: usize, status: Option<&Set>, tz: &Tz) -> Option<ServerJob
         can_enable: false,
         has_history: status.is_some(),
         has_script: true,
+        system: false,
     })
 }
 
@@ -662,6 +665,7 @@ pub fn zos_detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

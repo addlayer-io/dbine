@@ -1527,6 +1527,7 @@ mod tests {
                 enabled: true,
                 last_outcome: Some(dbine_driver::JobOutcome::Failed),
                 can_run: true,
+                system: true,
                 ..Default::default()
             }],
             notes: vec!["se ven solo los jobs de este usuario".into()],
@@ -1550,12 +1551,60 @@ mod tests {
                 label: "Clase".into(),
                 value: "DEFAULT_JOB_CLASS".into(),
             }],
+            notes: vec!["el warehouse WH está suspendido".into()],
         };
         let body = rmp_serde::to_vec_named(&Reply::JobDetail(detail.clone())).unwrap();
         match rmp_serde::from_slice::<Reply>(&body).unwrap() {
             Reply::JobDetail(back) => assert_eq!(back, detail),
             other => panic!("{other:?}"),
         }
+        // An older host's detail, without `system` or `notes`: not a system
+        // job, no notes.
+        #[derive(serde::Serialize)]
+        struct OldJob {
+            id: String,
+            name: String,
+            kind: String,
+            group: Option<String>,
+            description: Option<String>,
+            owner: Option<String>,
+            enabled: bool,
+            schedule: Option<String>,
+            last_outcome: Option<dbine_driver::JobOutcome>,
+            last_started: Option<String>,
+            last_duration_ms: Option<u64>,
+            next_run: Option<String>,
+        }
+        #[derive(serde::Serialize)]
+        struct OldDetail {
+            job: OldJob,
+            steps: Vec<dbine_driver::JobStep>,
+            schedules: Vec<String>,
+            properties: Vec<dbine_driver::PropertyInfo>,
+        }
+        let old = OldDetail {
+            job: OldJob {
+                id: "1".into(),
+                name: "j".into(),
+                kind: "Event".into(),
+                group: None,
+                description: None,
+                owner: None,
+                enabled: true,
+                schedule: None,
+                last_outcome: None,
+                last_started: None,
+                last_duration_ms: None,
+                next_run: None,
+            },
+            steps: vec![],
+            schedules: vec![],
+            properties: vec![],
+        };
+        let body = rmp_serde::to_vec_named(&old).unwrap();
+        let back: dbine_driver::JobDetail = rmp_serde::from_slice(&body).unwrap();
+        assert!(!back.job.system);
+        assert!(back.notes.is_empty());
         let runs = vec![dbine_driver::JobRun {
             outcome: dbine_driver::JobOutcome::Running,
             steps: vec![dbine_driver::JobStepRun {

@@ -7,6 +7,7 @@ import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useServerJobsStore } from '../stores/serverJobs';
+import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore } from '../stores/tabs';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import EngineIcon from './EngineIcon.vue';
@@ -14,6 +15,8 @@ import EngineIcon from './EngineIcon.vue';
 // "Programadas › En los servidores" (docs/server-jobs.md): one group per
 // connection whose engine has jobs. A group reads its jobs when it's opened
 // and again every minute while it stays open; closed groups never connect.
+// The jobs that come with the engine (`system`) are hidden until the group's
+// toggle shows them, remembered per connection.
 
 const store = useServerJobsStore();
 const conns = useConnectionsStore();
@@ -38,8 +41,30 @@ function dot(job: ServerJob): string {
   return 'none';
 }
 
+const SHOW_SYSTEM = 'dbine.serverJobs.showSystem';
+/** The connections whose system jobs are shown. */
+const showSystem = ref<string[]>(readJson<string[]>(SHOW_SYSTEM, []));
+
+function toggleSystem(connectionId: string) {
+  showSystem.value = showSystem.value.includes(connectionId)
+    ? showSystem.value.filter((id) => id !== connectionId)
+    : [...showSystem.value, connectionId];
+  writeJson(SHOW_SYSTEM, showSystem.value);
+}
+
+/** How many of the connection's jobs are the engine's own. */
+function systemCount(connectionId: string): number {
+  return store.entries[connectionId]?.list?.jobs.filter((j) => j.system).length ?? 0;
+}
+
+/** The jobs the group shows. */
+function shown(connectionId: string): ServerJob[] {
+  const all = store.entries[connectionId]?.list?.jobs ?? [];
+  return showSystem.value.includes(connectionId) ? all : all.filter((j) => !j.system);
+}
+
 function failed(connectionId: string): number {
-  return store.entries[connectionId]?.list?.jobs.filter((j) => j.last_outcome === 'failed').length ?? 0;
+  return shown(connectionId).filter((j) => j.last_outcome === 'failed').length;
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' });
@@ -77,13 +102,21 @@ function openMenu(ev: MouseEvent, connectionId: string, job: ServerJob) {
           <span>{{ store.entries[c.id]?.error }}</span>
           <el-button size="small" link type="primary" @click="store.load(c.id)">{{ $t('common:retry') }}</el-button>
         </div>
+        <button
+          v-if="systemCount(c.id)"
+          class="sj-system"
+          :title="$t('scheduled:server.systemHint')"
+          @click="toggleSystem(c.id)"
+        >{{ showSystem.includes(c.id)
+          ? $t('scheduled:server.hideSystem', { count: systemCount(c.id) })
+          : $t('scheduled:server.showSystem', { count: systemCount(c.id) }) }}</button>
         <div v-for="(n, i) in store.entries[c.id]?.list?.notes ?? []" :key="i" class="sj-note">{{ tb(n) }}</div>
         <div
           v-if="store.entries[c.id]?.list && !store.entries[c.id]?.list?.jobs.length && !store.entries[c.id]?.list?.notes?.length"
           class="sj-note"
         >{{ $t('scheduled:server.none') }}</div>
         <div
-          v-for="job in store.entries[c.id]?.list?.jobs ?? []"
+          v-for="job in shown(c.id)"
           :key="job.id"
           v-key-activate
           class="ss-item sj-job"
@@ -127,6 +160,8 @@ function openMenu(ev: MouseEvent, connectionId: string, job: ServerJob) {
 .sj-note, .sj-error { padding: 3px 12px 5px 30px; font-size: 11.5px; color: var(--nm-text-dim); }
 .sj-error { color: var(--nm-danger); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .sj-job { padding-left: 30px; }
+.sj-system { display: block; margin: 0 0 2px 30px; padding: 1px 0; border: 0; background: none; font: inherit; font-size: 11.5px; color: var(--nm-link); cursor: pointer; }
+.sj-system:hover { text-decoration: underline; }
 .sj-kind { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; padding: 0 4px; border-radius: 3px; color: var(--nm-text-dim); background: var(--ide-hover); }
 .sj-sched { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

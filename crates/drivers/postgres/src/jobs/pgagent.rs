@@ -282,6 +282,7 @@ fn job(
         can_enable: p.write,
         has_history: p.log,
         has_script: true,
+        system: false,
     })
 }
 
@@ -428,6 +429,7 @@ pub(super) async fn detail(s: &PgSession, n: i32) -> Result<JobDetail> {
         steps: steps.iter().map(|r| step(r)).collect(),
         schedules: schedules.iter().map(|r| schedule_text(r)).collect(),
         properties,
+        notes: Vec::new(),
     })
 }
 

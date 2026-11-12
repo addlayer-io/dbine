@@ -760,6 +760,7 @@ impl DatabricksSession {
                 .unwrap_or_default(),
             schedules: Vec::new(),
             properties: properties(&j),
+            notes: Vec::new(),
         })
     }
 

@@ -218,6 +218,7 @@ pub fn v2_job(t: &J, users: &BTreeMap<String, String>, runs: &[J]) -> ServerJob 
         can_enable: true,
         has_history: true,
         has_script: true,
+        system: false,
     }
 }
 
@@ -303,6 +304,7 @@ pub fn v2_detail(t: &J, users: &BTreeMap<String, String>, runs: &[J]) -> JobDeta
         job,
         schedules: Vec::new(),
         properties: p,
+        notes: Vec::new(),
     }
 }
 
@@ -726,6 +728,7 @@ impl InfluxQlSession {
             }],
             schedules: Vec::new(),
             properties: p,
+            notes: Vec::new(),
         })
     }
 
@@ -953,6 +956,7 @@ pub fn v3_job(db: &str, cols: &[String], row: &[J], last: Option<&LogRun>) -> Se
         can_enable: true,
         has_history: true,
         has_script: true,
+        system: false,
     }
 }
 
@@ -1107,6 +1111,7 @@ impl SqlSession {
             }],
             schedules: Vec::new(),
             properties: p,
+            notes: Vec::new(),
         })
     }
 

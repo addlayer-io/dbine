@@ -126,15 +126,20 @@ async fn apoc_body(c: &ConnectionConfig) {
         .properties
         .iter()
         .any(|p| p.label == "Cada (segundos)" && p.value == "3600"));
-    assert!(det.properties.iter().any(|p| p.label == "Para cancelarlo"
-        && p.value == "CALL apoc.periodic.cancel('dbine_test_jobs_rep')"));
+    assert!(
+        det.notes
+            .iter()
+            .any(|n| n.ends_with("CALL apoc.periodic.cancel('dbine_test_jobs_rep')")),
+        "{:?}",
+        det.notes
+    );
     assert!(s
         .job_detail(&slow.id)
         .await
         .unwrap()
-        .properties
+        .notes
         .iter()
-        .any(|p| p.label == "Al detenerlo"));
+        .any(|n| n.starts_with("al detenerlo")));
 
     assert!(s.run_job(&rep.id).await.is_err());
     assert!(s.set_job_enabled(&rep.id, false).await.is_err());

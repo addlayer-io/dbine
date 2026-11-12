@@ -503,13 +503,19 @@ impl Access {
             }
             Err(e) => tracing::debug!("oracle jobs: grants: {e}"),
         }
-        if a.any_job {
-            match texts(c, MAINTAINED, &[], 10_000) {
-                Ok(rows) => a.maintained = rows.iter().filter_map(|r| col(r, 0)).collect(),
-                Err(e) => tracing::debug!("oracle jobs: Oracle's schemas: {e}"),
-            }
+        // Also without CREATE ANY JOB: it says which jobs are Oracle's own.
+        match texts(c, MAINTAINED, &[], 10_000) {
+            Ok(rows) => a.maintained = rows.iter().filter_map(|r| col(r, 0)).collect(),
+            Err(e) => tracing::debug!("oracle jobs: Oracle's schemas: {e}"),
         }
         a
+    }
+
+    /// A job in this schema is Oracle's own: SYS, or a schema Oracle
+    /// maintains (`ORACLE_MAINTAINED = 'Y'`, 12.1+), but for SYSTEM, where
+    /// DBAs make their own jobs.
+    fn oracle_schema(&self, owner: &str) -> bool {
+        owner == "SYS" || (owner != "SYSTEM" && self.maintained.contains(owner))
     }
 
     /// RUN_JOB, STOP_JOB, ENABLE and DISABLE work on it: its owner, ALTER
@@ -714,6 +720,7 @@ impl JobRow {
             can_enable: manages,
             has_history: true,
             has_script: true,
+            system: self.system() || access.oracle_schema(&self.owner),
         }
     }
 
@@ -1152,6 +1159,7 @@ pub fn detail(c: &Connection, id: &str) -> Result<JobDetail> {
                 steps,
                 schedules: Vec::new(),
                 properties,
+                notes: Vec::new(),
             })
         }),
     }
@@ -1870,6 +1878,10 @@ impl LegacyRow {
             can_enable: own,
             has_history: false,
             has_script: true,
+            system: self
+                .log_user
+                .as_deref()
+                .is_some_and(|u| access.oracle_schema(u)),
         }
     }
 
@@ -1909,6 +1921,7 @@ impl LegacyRow {
             job,
             schedules: Vec::new(),
             properties,
+            notes: Vec::new(),
         }
     }
 
@@ -2171,6 +2184,54 @@ mod tests {
         };
         assert!(row.server_job(&granted, None).can_enable);
         assert!(system.server_job(&granted, None).can_enable);
+    }
+
+    #[test]
+    fn oracles_own_jobs_are_system_ones() {
+        let row = JobRow::from_cells(&daily());
+        let maintained = Access {
+            user: "APP".into(),
+            maintained: ["SYS", "SYSTEM", "ORACLE_OCM", "C##CLOUD$SERVICE"]
+                .map(String::from)
+                .into(),
+            ..Default::default()
+        };
+        // A user's job isn't.
+        assert!(!row.server_job(&maintained, None).system);
+        // SYSTEM = 'TRUE', whoever owns it.
+        let flagged = JobRow {
+            system: Some("TRUE".into()),
+            ..row.clone()
+        };
+        assert!(flagged.server_job(&access("APP"), None).system);
+        // A schema Oracle maintains, and SYS even where that can't be read
+        // (before 12.1).
+        for owner in ["ORACLE_OCM", "C##CLOUD$SERVICE", "SYS"] {
+            let own = JobRow {
+                owner: owner.into(),
+                ..row.clone()
+            };
+            assert!(own.server_job(&maintained, None).system, "{owner}");
+        }
+        let sys = JobRow {
+            owner: "SYS".into(),
+            ..row.clone()
+        };
+        assert!(sys.server_job(&access("APP"), None).system);
+        // SYSTEM is Oracle-maintained, but DBAs make their jobs there.
+        let in_system = JobRow {
+            owner: "SYSTEM".into(),
+            ..row.clone()
+        };
+        assert!(!in_system.server_job(&maintained, None).system);
+        // A DBMS_JOB job before 19c, by its user.
+        let legacy = |user: &str| LegacyRow {
+            job: 7,
+            log_user: Some(user.into()),
+            ..Default::default()
+        };
+        assert!(legacy("ORACLE_OCM").server_job(&maintained).system);
+        assert!(!legacy("APP").server_job(&maintained).system);
     }
 
     #[test]

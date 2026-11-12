@@ -444,6 +444,7 @@ fn job(s: &Set, r: usize, a: &Around) -> Option<ServerJob> {
         can_enable: manages,
         has_history: true,
         has_script: true,
+        system: false,
     })
 }
 
@@ -559,6 +560,7 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
             Vec::new()
         },
         properties,
+        notes: Vec::new(),
     })
 }
 

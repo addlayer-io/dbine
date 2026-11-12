@@ -1259,6 +1259,9 @@ fn informix_lists_scheduler_tasks() {
     assert_eq!(s.schedule, None);
     assert!(!s.enabled);
     assert_eq!(s.last_outcome, None);
+    // mon_config is one of the Scheduler's built-in sensors; purge_logs is
+    // the user's.
+    assert!(s.system && !t.system);
 
     // From another database: no run now, and a note saying where it works.
     let mut f = ifx_fake();

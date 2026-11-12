@@ -1019,7 +1019,21 @@ fn server_job(raw: &Raw, p: &Probe, clock: &Clock) -> ServerJob {
         can_enable: manage && !p.sent_by_master(j),
         has_history: true,
         has_script: true,
+        system: built_in(j),
     }
+}
+
+/// A job SQL Server makes itself: `syspolicy_purge_history`, which setup
+/// creates for Policy-Based Management, and the jobs owned by one of its
+/// `##MS_…##` certificate logins (the SSIS catalog's "SSIS Server
+/// Maintenance Job" and "SSIS Failover Monitor Job"). Jobs a maintenance
+/// plan or a wizard creates (category "Database Maintenance", replication
+/// agents…) are the user's: they did set them up.
+fn built_in(j: &JobRow) -> bool {
+    j.name == "syspolicy_purge_history"
+        || j.owner
+            .as_deref()
+            .is_some_and(|o| o.len() > 6 && o.starts_with("##MS_") && o.ends_with("##"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1237,6 +1251,7 @@ pub(crate) async fn detail(s: &mut SqlServerSession, id: &str) -> Result<JobDeta
             .map(|s| format!("{}: {}", s.name, describe(s)))
             .collect(),
         properties: properties(&raw, &steps, &clock),
+        notes: Vec::new(),
     })
 }
 
@@ -2184,6 +2199,37 @@ mod tests {
         assert!(j.can_run && !j.can_stop && j.can_enable && j.has_history && j.has_script);
         let json = serde_json::to_value(&j).unwrap();
         assert_eq!(json["last_outcome"], "failed");
+        assert!(!j.system, "a user's job");
+    }
+
+    #[test]
+    fn the_jobs_sql_server_makes_are_system_ones() {
+        let clock = Clock::default();
+        let with = |name: &str, owner: &str, category: &str| {
+            let mut raw = fixture();
+            raw.job.name = name.into();
+            raw.job.owner = Some(owner.into());
+            raw.job.category = Some(category.into());
+            server_job(&raw, &sysadmin(), &clock).system
+        };
+        assert!(with(
+            "syspolicy_purge_history",
+            "sa",
+            "[Uncategorized (Local)]"
+        ));
+        assert!(with(
+            "SSIS Server Maintenance Job",
+            "##MS_SSISServerCleanupJobLogin##",
+            "[Uncategorized (Local)]"
+        ));
+        // A maintenance plan's job is the user's, whatever its category.
+        assert!(!with(
+            "MaintenancePlan.Subplan_1",
+            "sa",
+            "Database Maintenance"
+        ));
+        assert!(!with("dbine nightly", "sa", "[Uncategorized (Local)]"));
+        assert!(!with("x", "##MS_", "[Uncategorized (Local)]"));
     }
 
     #[test]

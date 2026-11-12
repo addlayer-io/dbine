@@ -1123,7 +1123,8 @@ async fn timescaledb() {
         assert!(list
             .jobs
             .iter()
-            .any(|p| p.kind == "TimescaleDB · sistema" && !p.has_script));
+            .any(|p| p.kind == "TimescaleDB · sistema" && !p.has_script && p.system));
+        assert!(!j.system && !policy.system, "the user's jobs and policies");
 
         // Run now returns at once; the scheduler runs it.
         let asked = Instant::now();

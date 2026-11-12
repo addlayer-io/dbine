@@ -53,6 +53,60 @@ const DAYS: [(&str, &str); 7] = [
     ("tk_sunday", "SUN"),
 ];
 
+/// The Scheduler's built-in tasks and sensors, as Informix's
+/// Administrator's Guide lists them ("Built-in tasks and sensors", 12.10 to
+/// 15.0; the last three are OpenAdmin Tool's). `ph_task` has no column that
+/// tells them from a user's (`tk_attributes` is undocumented), so the
+/// documented names are the mark.
+const BUILT_IN: &[&str] = &[
+    "add_storage",
+    "Alert Cleanup",
+    "auto_compress",
+    "auto_crsd",
+    "autoreg exe",
+    "autoreg migrate-console",
+    "autoreg vp",
+    "auto_tune_cpu_vps",
+    "Auto Update Statistics Evaluation",
+    "Auto Update Statistics Refresh",
+    "bad_index_alert",
+    "bar_act_log_rotate",
+    "bar_debug_log_rotate",
+    "check_backup",
+    "check_for_ipa",
+    "idle_user_timeout",
+    "ifx_ha_monitor_log_replay_task",
+    "mon_checkpoint",
+    "mon_chunk",
+    "mon_command_history",
+    "mon_compression_estimates",
+    "mon_config",
+    "mon_config_startup",
+    "mon_iohistory",
+    "mon_low_storage",
+    "mon_memory_system",
+    "mon_page_usage",
+    "mon_profile",
+    "mon_sysenv",
+    "mon_table_names",
+    "mon_table_profile",
+    "mon_users",
+    "mon_vps",
+    "online_log_rotate",
+    "post_alarm_message",
+    "purge_tables",
+    "sync_registry",
+    "Job Runner",
+    "Job Results Clean Up",
+    "Save SQL Trace",
+];
+
+/// One of [`BUILT_IN`] (the guide writes some in other case).
+fn built_in(name: &str) -> bool {
+    let name = name.trim();
+    BUILT_IN.iter().any(|b| b.eq_ignore_ascii_case(name))
+}
+
 fn startup(s: &Set, r: usize) -> bool {
     s.get(r, "tk_type")
         .is_some_and(|t| t.to_ascii_uppercase().starts_with("STARTUP"))
@@ -116,9 +170,10 @@ fn secs_ms(v: Option<&str>) -> Option<u64> {
 fn job(s: &Set, r: usize, tz: &Tz, can_run: bool) -> Option<ServerJob> {
     let id = int(s.get(r, "tk_id"))?;
     let ran = s.get(r, "last_run").is_some();
+    let name = s.get(r, "tk_name").unwrap_or_default();
     Some(ServerJob {
         id: id.to_string(),
-        name: s.get(r, "tk_name").unwrap_or_default().to_string(),
+        name: name.to_string(),
         kind: kind(s.get(r, "tk_type")),
         group: owned(s.get(r, "tk_group")),
         description: owned(s.get(r, "tk_description")),
@@ -135,6 +190,7 @@ fn job(s: &Set, r: usize, tz: &Tz, can_run: bool) -> Option<ServerJob> {
         can_enable: true,
         has_history: true,
         has_script: true,
+        system: built_in(name),
     })
 }
 
@@ -240,6 +296,7 @@ pub fn detail(src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<JobDetail>
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

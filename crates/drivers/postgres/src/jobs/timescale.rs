@@ -194,6 +194,7 @@ fn job(r: &dyn Row) -> Option<ServerJob> {
         can_enable: mine,
         has_history: true,
         has_script: !system && (policy.is_some() || !internal(schema.as_deref())),
+        system,
     })
 }
 
@@ -343,6 +344,7 @@ pub(super) async fn detail(s: &PgSession, n: i32) -> Result<JobDetail> {
         schedules: Vec::new(),
         properties: properties(&r),
         job,
+        notes: Vec::new(),
     })
 }
 
@@ -696,6 +698,7 @@ mod tests {
         assert_eq!(j.next_run.as_deref(), Some("2026-11-13T00:00:00Z"));
         assert!(j.enabled && j.can_run && j.can_enable && j.has_history && j.has_script);
         assert!(!j.can_stop && !j.running);
+        assert!(!j.system, "a policy is the user's");
     }
 
     #[test]
@@ -711,6 +714,7 @@ mod tests {
         let j = job(&telemetry).unwrap();
         assert!(!j.has_script && !j.can_run && !j.can_enable && j.next_run.is_none());
         assert_eq!(j.group, None);
+        assert!(j.system, "the extension's own job");
         let paused = fixture(&[
             ("id", "1005"),
             ("proc_schema", "public"),
@@ -724,6 +728,7 @@ mod tests {
         assert!(!j.enabled && !j.can_run && j.can_enable && j.next_run.is_none());
         assert!(j.running && j.last_outcome == Some(JobOutcome::Running));
         assert_eq!(j.group.as_deref(), Some("public"));
+        assert!(!j.system, "a user's action");
     }
 
     #[test]

@@ -457,6 +457,7 @@ impl Refresh {
             can_enable: true,
             has_history: history == History::Readable,
             has_script: true,
+            system: false,
         }
     }
 
@@ -530,6 +531,7 @@ impl Refresh {
             }],
             schedules: Vec::new(),
             properties: props,
+            notes: Vec::new(),
         }
     }
 }
@@ -723,6 +725,7 @@ impl Task {
             can_enable: true,
             has_history: false,
             has_script: true,
+            system: false,
         }
     }
 
@@ -773,6 +776,7 @@ impl Task {
             }],
             schedules: Vec::new(),
             properties: props,
+            notes: Vec::new(),
         }
     }
 }

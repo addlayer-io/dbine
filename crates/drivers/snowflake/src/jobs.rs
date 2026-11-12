@@ -809,12 +809,9 @@ fn detail_of(tasks: &[Task], at: usize) -> JobDetail {
     .into_iter()
     .flatten()
     .collect();
+    let mut notes = Vec::new();
     if order.len() > 1 {
-        properties.push(PropertyInfo {
-            group: GRAPH.into(),
-            label: "Habilitar y deshabilitar".into(),
-            value: "actúa sobre la tarea raíz: las hijas corren cuando corre la raíz, salvo las suspendidas".into(),
-        });
+        notes.push(GRAPH_ENABLE.into());
         for &i in &order {
             let s = &tasks[i];
             let state = s.state.clone().unwrap_or_default();
@@ -837,16 +834,20 @@ fn detail_of(tasks: &[Task], at: usize) -> JobDetail {
         steps,
         schedules: Vec::new(),
         properties,
+        notes,
     }
 }
+
+/// A graph's detail: what enabling and disabling it does.
+const GRAPH_ENABLE: &str = "habilitar y deshabilitar actúa sobre la tarea raíz: las hijas corren cuando corre la raíz, salvo las suspendidas";
 
 pub(crate) async fn detail(r: &(dyn Runner + Sync), id: &str) -> Result<JobDetail> {
     let (db, schema, name) = checked(id)?;
     let (tasks, at) = schema_tasks(r, &db, &schema, &name).await?;
     let at = at.ok_or_else(|| not_found(&db, &schema, &name))?;
     let mut d = detail_of(&tasks, at);
-    // The detail has no notes: without a running warehouse the last and
-    // next runs stay empty, and the history says why.
+    // Without a running warehouse the last and next runs stay empty: a note
+    // says why.
     match warehouse(r).await {
         Ok(Warehouse::Running) => match r.rows(&latest_sql(std::slice::from_ref(&db))).await {
             Ok(s) => {
@@ -863,8 +864,12 @@ pub(crate) async fn detail(r: &(dyn Runner + Sync), id: &str) -> Result<JobDetai
             Err(e) => tracing::debug!("snowflake: task history not read: {e}"),
         },
         // No warehouse at all: no history to offer either.
-        Ok(Warehouse::Missing) => d.job.has_history = false,
-        Ok(Warehouse::Suspended(_)) | Err(_) => {}
+        Ok(Warehouse::Missing) => {
+            d.job.has_history = false;
+            d.notes.push("la conexión no tiene warehouse: no se muestran la última ni la próxima ejecución de la tarea, ni su historial".into());
+        }
+        Ok(Warehouse::Suspended(wh)) => d.notes.push(format!("el warehouse {wh} está suspendido: no se muestran la última ni la próxima ejecución de la tarea, para no reanudarlo y consumir créditos")),
+        Err(e) => d.notes.push(format!("no se pudo leer el historial de la tarea: {e}")),
     }
     Ok(d)
 }
@@ -1686,6 +1691,10 @@ mod tests {
         assert!(!f.seen().iter().any(|s| s.contains("TASK_HISTORY")));
         let d = detail(&f, r#""DB"."ETL"."ROOT""#).await.unwrap();
         assert!(!d.job.has_history);
+        assert!(d
+            .notes
+            .iter()
+            .any(|n| n.starts_with("la conexión no tiene warehouse")));
     }
 
     #[tokio::test]
@@ -1701,6 +1710,19 @@ mod tests {
         // And the history refuses.
         let e = runs(&f, r#""DB"."ETL"."ROOT""#, 10).await.unwrap_err();
         assert!(e.to_string().contains("suspendido"), "{e}");
+        // The detail says it in a note, and doesn't resume it either.
+        let g = Fake::new(vec![
+            ("SHOW TASKS IN SCHEMA \"DB\".\"ETL\"", Ok(shown())),
+            ("SHOW WAREHOUSES", Ok(warehouses("SUSPENDED"))),
+        ]);
+        let d = detail(&g, r#""DB"."ETL"."ROOT""#).await.unwrap();
+        assert!(!g.seen().iter().any(|s| s.contains("TASK_HISTORY")));
+        assert_eq!(d.job.last_outcome, None);
+        assert!(
+            d.notes.iter().any(|n| n.contains("WH está suspendido")),
+            "{:?}",
+            d.notes
+        );
     }
 
     #[tokio::test]
@@ -1763,6 +1785,9 @@ mod tests {
         assert!(d.job.has_history);
         assert_eq!(p("CHILD"), Some("started, después de ROOT"));
         assert_eq!(p("FIN"), Some("suspended, finalizador"));
+        // What enabling a graph does is a note, not a property.
+        assert_eq!(p("Habilitar y deshabilitar"), None);
+        assert_eq!(d.notes, [GRAPH_ENABLE]);
         assert!(detail(&f, r#""DB"."ETL"."NOPE""#).await.is_err());
         assert!(detail(&f, "DB.ETL.ROOT").await.is_err());
     }

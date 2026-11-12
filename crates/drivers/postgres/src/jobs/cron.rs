@@ -306,6 +306,7 @@ fn job(
         can_enable: may_change(flavor, f, feat, user.as_deref()),
         has_history: feat.runs,
         has_script: true,
+        system: false,
     })
 }
 
@@ -402,6 +403,7 @@ pub(super) async fn detail(s: &PgSession, flavor: Flavor, n: i64) -> Result<JobD
         }],
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

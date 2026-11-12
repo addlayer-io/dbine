@@ -109,6 +109,7 @@ fn job(s: &Set, r: usize, tz: &Tz, ns: &str) -> Option<ServerJob> {
         has_history: true,
         has_script: ident(&name).is_some(),
         name,
+        system: false,
     })
 }
 
@@ -408,6 +409,7 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
         steps,
         schedules: Vec::new(),
         properties,
+        notes: Vec::new(),
     })
 }
 

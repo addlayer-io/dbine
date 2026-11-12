@@ -317,6 +317,9 @@ pub(crate) fn es_transform_job(t: &J, stats: Option<&J>, schedule_now: bool) -> 
         can_enable: true,
         has_history: false,
         has_script: true,
+        // Installed and managed by Elastic (Fleet integrations, Kibana's
+        // own), what Kibana badges as managed.
+        system: t.at(&["_meta", "managed"]).and_then(J::as_bool) == Some(true),
     }
 }
 
@@ -394,6 +397,7 @@ pub(crate) fn es_transform_detail(t: &J, stats: Option<&J>, schedule_now: bool) 
         job,
         schedules: Vec::new(),
         properties: p,
+        notes: Vec::new(),
     }
 }
 
@@ -486,6 +490,8 @@ pub(crate) fn watch_job(hit: &J, history: bool) -> ServerJob {
         can_enable: true,
         has_history: history,
         has_script: true,
+        // Monitoring's cluster alerts, which Elasticsearch creates itself.
+        system: text(w.at(&["metadata", "xpack", "type"])).as_deref() == Some("monitoring"),
     }
 }
 
@@ -564,6 +570,7 @@ pub(crate) fn watch_detail(hit: &J, history: bool) -> JobDetail {
         steps,
         schedules: Vec::new(),
         properties: p,
+        notes: Vec::new(),
     }
 }
 
@@ -698,6 +705,7 @@ pub(crate) fn os_transform_job(hit: &J, explain: Option<&J>) -> ServerJob {
         can_enable: true,
         has_history: false,
         has_script: true,
+        system: false,
     }
 }
 
@@ -761,6 +769,7 @@ pub(crate) fn os_transform_detail(hit: &J, explain: Option<&J>) -> JobDetail {
         job,
         schedules: Vec::new(),
         properties: p,
+        notes: Vec::new(),
     }
 }
 
@@ -841,6 +850,7 @@ pub(crate) fn os_monitor_job(id: &str, m: &J) -> ServerJob {
         can_enable: os_monitor_owner(m).is_none(),
         has_history: false,
         has_script: true,
+        system: false,
     }
 }
 
@@ -848,7 +858,6 @@ pub(crate) fn os_monitor_detail(id: &str, m: &J) -> JobDetail {
     let job = os_monitor_job(id, m);
     let mut p = Vec::new();
     add(&mut p, "", "Tipo", text(m.get("monitor_type")));
-    add(&mut p, "", "Administrado por", os_monitor_owner(m));
     add(
         &mut p,
         "",
@@ -881,6 +890,12 @@ pub(crate) fn os_monitor_detail(id: &str, m: &J) -> JobDetail {
         steps,
         schedules: Vec::new(),
         properties: p,
+        notes: os_monitor_owner(m)
+            .map(|owner| {
+                format!("este monitor lo administra {owner}: se habilita o deshabilita desde ese plugin")
+            })
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -1690,6 +1705,14 @@ mod tests {
             .properties
             .iter()
             .any(|p| p.label == "Origen" && p.value == "src"));
+        assert!(!job.system, "a user's transform");
+        // One a Fleet integration installed: Elastic manages it.
+        let managed = j(
+            r#"{"id":"logs-endpoint.metadata_current-default-8.15.0","dest":{"index":"x"},"pivot":{},"_meta":{"managed":true,"managed_by":"fleet","package":{"name":"endpoint"}}}"#,
+        );
+        assert!(es_transform_job(&managed, None, true).system);
+        let unmanaged = j(r#"{"id":"tf","pivot":{},"_meta":{"managed":false}}"#);
+        assert!(!es_transform_job(&unmanaged, None, true).system);
     }
 
     #[test]
@@ -1710,6 +1733,12 @@ mod tests {
             "{script}"
         );
         assert!(!watch_job(&hit, false).has_history);
+        assert!(!w.system, "a user's watch");
+        // Monitoring's cluster alerts are Elasticsearch's own.
+        let alert = j(
+            r#"{"_id":"u1_elasticsearch_cluster_status","watch":{"trigger":{"schedule":{"interval":"1m"}},"metadata":{"name":"X-Pack Monitoring: Cluster Status","xpack":{"severity":2100,"cluster_uuid":"u1","type":"monitoring"}}},"status":{"state":{"active":true}}}"#,
+        );
+        assert!(watch_job(&alert, true).system);
         let d = watch_detail(&hit, true);
         assert_eq!(d.steps[0].name, "log1");
         assert_eq!(d.steps[0].kind.as_deref(), Some("logging"));
@@ -1793,6 +1822,14 @@ mod tests {
             Some("security_analytics")
         );
         assert!(!os_monitor_job("x", &custom).can_enable);
+        // Who manages it is a note, not a property.
+        let d = os_monitor_detail("x", &custom);
+        assert_eq!(
+            d.notes,
+            ["este monitor lo administra security_analytics: se habilita o deshabilita desde ese plugin"]
+        );
+        assert!(!d.properties.iter().any(|p| p.label == "Administrado por"));
+        assert!(os_monitor_detail("TzL", &m).notes.is_empty());
         assert_eq!(os_monitor_owner(&m), None);
         let defaults = j(
             r#"{"owner":"alerting","data_sources":{"query_index":".opensearch-alerting-queries","findings_index":".opensearch-alerting-finding-history-write","alerts_index":".opendistro-alerting-alerts","alerts_history_index":".opendistro-alerting-alert-history-write","comments_index":""}}"#,

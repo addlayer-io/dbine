@@ -115,6 +115,7 @@ function toggleRun(key: string) {
         <span class="nm-muted">{{ conn?.name }}<template v-if="job?.group"> · {{ job.group }}</template></span>
       </div>
       <span v-if="job" class="sjv-kind">{{ job.kind }}</span>
+      <span v-if="job?.system" class="sjv-chip system" :title="$t('scheduled:server.systemHint')">{{ $t('scheduled:server.system') }}</span>
       <span v-if="job && !job.enabled" class="sjv-chip off">{{ $t('scheduled:server.disabled') }}</span>
       <span v-if="job?.running" class="sjv-chip running">{{ $t('scheduled:server.outcome.running') }}</span>
       <div class="sjv-spacer" />
@@ -135,6 +136,11 @@ function toggleRun(key: string) {
     <div v-if="loading && !detail && !error" class="sjv-empty"><el-icon class="is-loading" :size="22"><ei-loading /></el-icon></div>
 
     <div v-if="detail && job" class="sjv-body">
+      <div v-if="detail.notes?.length" class="sjv-notes">
+        <div v-for="(n, i) in detail.notes" :key="i" class="sjv-notice">
+          <el-icon><ei-info-filled /></el-icon><span>{{ tb(n) }}</span>
+        </div>
+      </div>
       <section class="sjv-facts">
         <div class="sjv-fact"><span>{{ $t('scheduled:server.schedule') }}</span><code>{{ job.schedule ? tb(job.schedule) : $t('scheduled:server.onDemand') }}</code></div>
         <div v-for="(s, i) in detail.schedules" :key="i" class="sjv-fact"><span /><code>{{ tb(s) }}</code></div>
@@ -228,10 +234,14 @@ function toggleRun(key: string) {
 .sjv-chip { font-size: 10.5px; padding: 1px 6px; border-radius: 8px; }
 .sjv-chip.off { color: var(--nm-text-dim); border: 1px solid var(--nm-border); }
 .sjv-chip.running { color: #fff; background: var(--nm-info); }
+.sjv-chip.system { color: var(--nm-text-dim); background: var(--ide-hover); }
 .sjv-spacer { flex: 1; }
 .sjv-alert { margin: 10px 16px 0; width: auto; }
 .sjv-empty { display: flex; justify-content: center; padding: 40px; color: var(--nm-text-dim); }
 .sjv-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.sjv-notes { display: flex; flex-direction: column; gap: 4px; }
+.sjv-notice { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--nm-text-dim); }
+.sjv-notice .el-icon { flex: none; position: relative; top: 1px; color: var(--nm-info); }
 .sjv-facts { display: flex; flex-direction: column; gap: 4px; }
 .sjv-fact { display: flex; gap: 10px; font-size: 12.5px; color: var(--nm-text); align-items: baseline; }
 .sjv-fact > span:first-child { flex: none; width: 150px; color: var(--nm-text-dim); }

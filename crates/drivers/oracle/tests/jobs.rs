@@ -240,6 +240,11 @@ async fn scenario(cfg: ConnectionConfig) {
         "SYS's jobs aren't SYSTEM's to manage"
     );
     assert!(sys.schedule.is_some(), "its named schedule: {sys:?}");
+    assert!(sys.system, "Oracle's own job: {sys:?}");
+    assert!(
+        !ok.system && !fail.system,
+        "the user's jobs aren't system ones"
+    );
     let win = find(&list.jobs, &id("DBINE_TEST_JOBS_WIN"));
     assert_eq!(
         win.schedule.as_deref(),

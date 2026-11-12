@@ -346,13 +346,15 @@ pub(crate) fn job(set: &Set, r: usize, st: Option<&Status>, c: &Columns) -> Serv
     let enabled = s(set, r, "IS_ENABLED").is_some_and(|v| v.eq_ignore_ascii_case("TRUE"));
     let running = st.and_then(|s| s.running.as_ref());
     let last = st.and_then(|s| s.last.as_ref());
+    let owner = s(set, r, "USER_NAME");
+    let system = hana_own(&schema) || owner.as_deref().is_some_and(hana_own);
     ServerJob {
         id: job_id(&schema, &name),
         name,
         kind: KIND.into(),
         group: Some(schema),
         description: s(set, r, "COMMENTS"),
-        owner: s(set, r, "USER_NAME"),
+        owner,
         enabled,
         schedule: s(set, r, "CRON"),
         running: running.is_some(),
@@ -367,7 +369,14 @@ pub(crate) fn job(set: &Set, r: usize, st: Option<&Status>, c: &Columns) -> Serv
         can_enable: true,
         has_history: !c.status.is_empty(),
         has_script: true,
+        system,
     }
+}
+
+/// A schema or user of HANA's own: SYS, or a name starting with `_SYS`,
+/// which HANA reserves for the database itself.
+fn hana_own(name: &str) -> bool {
+    name == "SYS" || name.starts_with("_SYS")
 }
 
 fn procedure(set: &Set, r: usize) -> Option<String> {
@@ -443,6 +452,7 @@ pub(crate) fn detail(
         job,
         schedules: Vec::new(),
         properties: p,
+        notes: Vec::new(),
     }
 }
 
@@ -837,6 +847,18 @@ mod tests {
         assert_eq!(j.next_run.as_deref(), Some("2026-11-13T03:00:00Z"));
         let off = job(&job_row("FALSE"), 0, st.get(&key), &c);
         assert!(!off.enabled && off.next_run.is_none());
+        assert!(!j.system, "a user's job");
+        // In HANA's own schemas (or run by its own users): a system job.
+        for (schema, user) in [
+            ("SYS", "DBADMIN"),
+            ("_SYS_STATISTICS", "DBADMIN"),
+            ("DBADMIN", "_SYS_TASK"),
+        ] {
+            let mut own = job_row("TRUE");
+            own.rows[0][0] = Some(schema.into());
+            own.rows[0][2] = Some(user.into());
+            assert!(job(&own, 0, None, &c).system, "{schema} {user}");
+        }
 
         // A RUNNING row newer than the last end: a run going on.
         let going = set(

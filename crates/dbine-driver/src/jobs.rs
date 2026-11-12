@@ -98,6 +98,14 @@ pub struct ServerJob {
     /// Its script can be generated ([`crate::Session::job_script`]).
     #[serde(default)]
     pub has_script: bool,
+    /// It comes with the database or the engine itself, not created by a
+    /// user: Oracle's own scheduler jobs (`SYSTEM = 'TRUE'` or owned by an
+    /// Oracle-maintained schema), TimescaleDB's telemetry and retention
+    /// jobs, SQL Server's `syspolicy_purge_history`, CockroachDB's SQL stats
+    /// compaction… Set only where the engine marks it; a job the engine
+    /// doesn't flag stays `false`. The list hides these by default.
+    #[serde(default)]
+    pub system: bool,
 }
 
 /// One thing a job runs: an Agent step, a Databricks task, a chain step, or
@@ -131,6 +139,12 @@ pub struct JobDetail {
     /// them.
     #[serde(default)]
     pub properties: Vec<crate::PropertyInfo>,
+    /// What the user should know about this job, in Spanish (the UI
+    /// translates it), like [`JobList::notes`]: why it shows no last or next
+    /// run, what stopping it does, who manages it. Caveats go here, not in
+    /// `properties`. Empty when there's nothing to say.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 /// How one step of a run went.
@@ -209,5 +223,42 @@ mod tests {
         let list: JobList = serde_json::from_value(serde_json::json!({"jobs": []})).unwrap();
         assert!(list.notes.is_empty());
         assert!(serde_json::to_value(&list).unwrap().get("notes").is_none());
+    }
+
+    #[test]
+    fn system_and_detail_notes_survive_json_and_default_when_missing() {
+        let detail = JobDetail {
+            job: ServerJob {
+                id: "SYS.PURGE_LOG".into(),
+                name: "PURGE_LOG".into(),
+                kind: "DBMS_SCHEDULER".into(),
+                enabled: true,
+                system: true,
+                ..Default::default()
+            },
+            notes: vec!["el warehouse está suspendido".into()],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&detail).unwrap();
+        assert_eq!(json["job"]["system"], true);
+        assert_eq!(json["notes"][0], "el warehouse está suspendido");
+        let back: JobDetail = serde_json::from_value(json).unwrap();
+        assert_eq!(back, detail);
+
+        // A reply from before these fields existed: not system, no notes.
+        let old: JobDetail = serde_json::from_value(serde_json::json!({
+            "job": {
+                "id": "1", "name": "j", "kind": "Event", "group": null,
+                "description": null, "owner": null, "enabled": true,
+                "schedule": null, "last_outcome": null, "last_started": null,
+                "last_duration_ms": null, "next_run": null
+            },
+            "steps": [], "schedules": [], "properties": []
+        }))
+        .unwrap();
+        assert!(!old.job.system);
+        assert!(old.notes.is_empty());
+        // And without notes it doesn't send the key.
+        assert!(serde_json::to_value(&old).unwrap().get("notes").is_none());
     }
 }
