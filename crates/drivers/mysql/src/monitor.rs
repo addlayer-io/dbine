@@ -31,6 +31,9 @@ use std::time::{Duration, Instant};
 const MAX_ROWS: usize = 200;
 const MAX_TEXT: usize = 2000;
 const SIZES_TTL: Duration = Duration::from_secs(60);
+const SIZES_HELP: &str = "Datos e índices de todas las tablas según information_schema, sin las bases de sistema; se actualiza cada minuto. Son las cifras que estima el motor (en InnoDB, aproximadas).";
+const SIZES_SOURCE: &str =
+    "information_schema.TABLES: SUM(DATA_LENGTH + INDEX_LENGTH), refreshed every minute";
 
 /// Database and table sizes, cached between snapshots.
 pub(crate) struct Sizes {
@@ -126,6 +129,24 @@ fn metric(key: &str, label: &str, group: &str, unit: MetricUnit, value: Option<f
     Metric::new(key, label, group, unit, value)
 }
 
+/// Performance Schema's statement CPU time (picoseconds) as a share of the
+/// CPUs InnoDB sees (`cpu_n`): its rate is then the % of all of them (100 =
+/// every CPU busy), never "500 %" for five busy cores. Unknown CPU count:
+/// no value.
+fn statement_cpu(picos: f64, cpus: Option<f64>) -> Metric {
+    metric(
+        "cpu_time",
+        "CPU de las sentencias",
+        "CPU",
+        MetricUnit::Percent,
+        cpus.map(|n| picos / 1e10 / n),
+    )
+    .max(Some(100.0))
+    .counter()
+    .help("Tiempo de CPU que usaron las sentencias, como parte de todos los núcleos del servidor: 100 % equivale a todos ocupados con sentencias. Alto y sostenido suele venir de consultas sin un índice adecuado o de ordenamientos grandes.")
+    .source("performance_schema.events_statements_summary_global_by_event_name: SUM(SUM_CPU_TIME) (picoseconds), ÷ information_schema.INNODB_METRICS cpu_n")
+}
+
 /// Adds a metric only when the server reported it.
 fn add(s: &mut MonitorSnapshot, mut m: Metric) {
     if m.value.is_some() {
@@ -145,6 +166,8 @@ fn info(s: &mut MonitorSnapshot, label: &str, value: Option<String>) {
 struct Grid {
     columns: Vec<String>,
     rows: Vec<Vec<Value>>,
+    /// Rows the server sent; `rows` keeps the first `MAX_ROWS`.
+    total: usize,
 }
 
 impl Grid {
@@ -211,12 +234,147 @@ fn why(e: &dbine_driver::Error) -> String {
     }
 }
 
+/// Manticore's figures from `SHOW STATUS`, each with what it measures and
+/// where it comes from (no value: not reported).
+fn manticore_metrics(st: &Kv) -> Vec<Metric> {
+    // "load" is "1m 5m 15m" averages of the worker pool.
+    let load = st
+        .get("load")
+        .and_then(|l| l.split_whitespace().next())
+        .and_then(num);
+    let workers = get(st, "workers_total").filter(|w| *w > 0.0);
+    vec![
+        metric("load", "Carga de los workers (1 min)", "CPU", MetricUnit::Count, load)
+            .help("Carga del pool de workers de searchd, promedio del último minuto: crece con los trabajos en curso y en cola.")
+            .source("SHOW STATUS: load (the 1-minute value)"),
+        metric(
+            "connections",
+            "Clientes conectados",
+            "Conexiones",
+            MetricUnit::Count,
+            get(st, "workers_clients"),
+        )
+        .help("Conexiones de clientes abiertas ahora, por el protocolo MySQL o HTTP, incluida la del monitor.")
+        .source("SHOW STATUS: workers_clients"),
+        metric(
+            "active_sessions",
+            "Workers activos",
+            "Conexiones",
+            MetricUnit::Count,
+            get(st, "workers_active"),
+        )
+        .max(get(st, "workers_total"))
+        .help("Workers (hilos del pool de searchd) ocupados ahora; el máximo es workers_total, por omisión uno por núcleo. Todos ocupados por mucho tiempo significa que los pedidos hacen cola.")
+        .source("SHOW STATUS: workers_active (max: workers_total)"),
+        metric(
+            "work_queue",
+            "Cola de trabajos",
+            "Conexiones",
+            MetricUnit::Count,
+            get(st, "work_queue_length"),
+        )
+        .help("Trabajos esperando un worker libre. Si no vuelve a cero, searchd no da abasto.")
+        .source("SHOW STATUS: work_queue_length"),
+        metric(
+            "maxed_out",
+            "Conexiones rechazadas",
+            "Conexiones",
+            MetricUnit::Count,
+            get(st, "maxed_out"),
+        )
+        .counter()
+        .help("Conexiones que searchd rechazó porque ya tenía abiertas las que permite max_connections.")
+        .source("SHOW STATUS: maxed_out"),
+        metric(
+            "connections_total",
+            "Conexiones aceptadas",
+            "Conexiones",
+            MetricUnit::Count,
+            get(st, "connections"),
+        )
+        .counter()
+        .help("Conexiones que aceptó searchd, por cualquier protocolo.")
+        .source("SHOW STATUS: connections"),
+        metric("queries", "Búsquedas", "Actividad", MetricUnit::Count, get(st, "queries"))
+            .counter()
+            .help("Búsquedas que atendió searchd, por cualquier protocolo.")
+            .source("SHOW STATUS: queries"),
+        metric(
+            "writes",
+            "Escrituras",
+            "Actividad",
+            MetricUnit::Count,
+            sum(
+                st,
+                &[
+                    "command_insert",
+                    "command_replace",
+                    "command_update",
+                    "command_delete",
+                ],
+            ),
+        )
+        .counter()
+        .help("Pedidos INSERT, REPLACE, UPDATE y DELETE que recibió searchd.")
+        .source("SHOW STATUS: command_insert + command_replace + command_update + command_delete"),
+        metric(
+            "avg_query_wall",
+            "Tiempo medio de búsqueda",
+            "Actividad",
+            MetricUnit::Seconds,
+            get(st, "avg_query_wall"),
+        )
+        .help("Tiempo de reloj medio por búsqueda, promedio desde el arranque, por eso cambia despacio.")
+        .source("SHOW STATUS: avg_query_wall"),
+        // Seconds of CPU over the workers (by default one per core): the
+        // rate is the share of all of them, never "500 %" for five.
+        metric(
+            "cpu_time",
+            "CPU de las búsquedas",
+            "CPU",
+            MetricUnit::Percent,
+            get(st, "query_cpu")
+                .zip(workers)
+                .map(|(c, w)| c * 100.0 / w),
+        )
+        .max(Some(100.0))
+        .counter()
+        .help("Tiempo de CPU de las búsquedas como parte de los workers de searchd (por omisión, uno por núcleo): 100 % equivale a todos ocupados con búsquedas. Solo se mide con searchd arrancado con --cpustats.")
+        .source("SHOW STATUS: query_cpu (seconds), ÷ workers_total"),
+        metric(
+            "mem_cache",
+            "Caché de consultas",
+            "Caché",
+            MetricUnit::Bytes,
+            get(st, "qcache_used_bytes"),
+        )
+        .max(get(st, "qcache_max_bytes"))
+        .help("Memoria que ocupa la caché de resultados de búsquedas; el máximo es qcache_max_bytes.")
+        .source("SHOW STATUS: qcache_used_bytes (max: qcache_max_bytes)"),
+        metric(
+            "qcache_hits",
+            "Aciertos de la caché de consultas",
+            "Caché",
+            MetricUnit::Count,
+            get(st, "qcache_hits"),
+        )
+        .counter()
+        .help("Búsquedas que se respondieron desde la caché de resultados, sin volver a ejecutarse.")
+        .source("SHOW STATUS: qcache_hits"),
+        metric("uptime", "Tiempo activo", "Servidor", MetricUnit::Seconds, get(st, "uptime"))
+            .help("Tiempo desde que arrancó searchd.")
+            .source("SHOW STATUS: uptime"),
+    ]
+}
+
 impl MySqlSession {
     async fn grid(&mut self, sql: &str) -> Result<Grid> {
         let mut res = self.conn.query_iter(sql).await.map_err(err)?;
         let cols = res.columns().map(|c| c.to_vec()).unwrap_or_default();
         let mut rows = Vec::new();
+        let mut total = 0;
         while let Some(row) = res.next().await.map_err(err)? {
+            total += 1;
             if rows.len() < MAX_ROWS {
                 rows.push(
                     row.unwrap()
@@ -231,6 +389,7 @@ impl MySqlSession {
         Ok(Grid {
             columns: cols.iter().map(|c| c.name_str().into_owned()).collect(),
             rows,
+            total,
         })
     }
 
@@ -396,7 +555,10 @@ impl MySqlSession {
         }
         add(
             s,
-            metric("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, cpu).max(Some(100.0)),
+            metric("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, cpu)
+                .max(Some(100.0))
+                .help("Uso de CPU de esta instancia de Aurora como lo informa Aurora: 100 % equivale a todos sus vCPU ocupados. Alto y sostenido suele venir de consultas costosas o de muchas conexiones a la vez.")
+                .source("information_schema.REPLICA_HOST_STATUS: CPU (the row of this instance, aurora_server_id)"),
         );
         if cpu.is_none() {
             s.notes.push(match self.product {
@@ -414,11 +576,24 @@ impl MySqlSession {
                 .await
                 .filter(|v| *v > 0.0);
             match cpu_ps {
-                // Picoseconds → seconds × 100.
-                Some(ps) => add(
-                    s,
-                    metric("cpu_time", "CPU de las sentencias", "CPU", MetricUnit::Percent, Some(ps / 1e10)).counter(),
-                ),
+                Some(ps) => {
+                    // How many CPUs InnoDB sees: its cpu_n counter, off by default.
+                    let cpus = self
+                        .scalar("SELECT `COUNT` FROM information_schema.INNODB_METRICS WHERE NAME = 'cpu_n'")
+                        .await
+                        .filter(|n| *n > 0.0);
+                    add(s, statement_cpu(ps, cpus));
+                    if cpus.is_none() {
+                        s.notes.push(match self.product {
+                            // Managed: no SET GLOBAL, the setting goes in
+                            // the parameter group or the instance's flags.
+                            Variant::AuroraMySql | Variant::CloudSqlMySql => {
+                                "El tiempo de CPU de las sentencias se muestra como parte de los núcleos del servidor, y MySQL solo informa cuántos son con el contador cpu_n de InnoDB: en Aurora o Cloud SQL, agregá cpu_n a innodb_monitor_enable en el grupo de parámetros (o en las marcas de la instancia)."
+                            }
+                            _ => "El tiempo de CPU de las sentencias se muestra como parte de los núcleos del servidor, y MySQL solo informa cuántos son con el contador cpu_n de InnoDB: activalo con SET GLOBAL innodb_monitor_enable = 'cpu_n'.",
+                        }.into());
+                    }
+                }
                 None => s.notes.push(
                     "El tiempo de CPU de las sentencias requiere activar el consumidor events_statements_cpu de Performance Schema (MySQL 8.0.28+).".into(),
                 ),
@@ -426,13 +601,21 @@ impl MySqlSession {
         }
 
         // Memory.
-        let mem = if maria {
-            get(&status, "Memory_used")
+        let (mem, mem_help, mem_src) = if maria {
+            (
+                get(&status, "Memory_used"),
+                "Memoria que MariaDB tiene reservada según su propio contador: el buffer pool de InnoDB, el key buffer, las cachés y la memoria de cada conexión. Antes de MariaDB 10.6 no incluye el buffer pool ni el key buffer.",
+                "SHOW GLOBAL STATUS: Memory_used",
+            )
         } else if ps {
-            self.scalar("SELECT SUM(CURRENT_NUMBER_OF_BYTES_USED) FROM performance_schema.memory_summary_global_by_event_name")
-                .await
+            (
+                self.scalar("SELECT SUM(CURRENT_NUMBER_OF_BYTES_USED) FROM performance_schema.memory_summary_global_by_event_name")
+                    .await,
+                "Memoria que registra Performance Schema: buffer pool, cachés y la memoria de cada conexión. No cuenta la que no tiene un instrumento activado.",
+                "performance_schema.memory_summary_global_by_event_name: SUM(CURRENT_NUMBER_OF_BYTES_USED)",
+            )
         } else {
-            None
+            (None, "", "")
         };
         add(
             s,
@@ -442,17 +625,24 @@ impl MySqlSession {
                 "Memoria",
                 MetricUnit::Bytes,
                 mem,
-            ),
+            )
+            .help(mem_help)
+            .source(mem_src),
         );
         if mem.is_none() && full {
             s.notes.push("La memoria usada solo se ve con Performance Schema activado (performance_schema = ON).".into());
         }
-        let pool = get(&status, "Innodb_buffer_pool_bytes_data").or_else(|| {
-            Some(
-                get(&status, "Innodb_buffer_pool_pages_data")?
-                    * get(&status, "Innodb_page_size").unwrap_or(16384.0),
-            )
-        });
+        let (pool, pool_src) = match get(&status, "Innodb_buffer_pool_bytes_data") {
+            Some(b) => (
+                Some(b),
+                "SHOW GLOBAL STATUS: Innodb_buffer_pool_bytes_data (max: innodb_buffer_pool_size)",
+            ),
+            None => (
+                get(&status, "Innodb_buffer_pool_pages_data")
+                    .map(|p| p * get(&status, "Innodb_page_size").unwrap_or(16384.0)),
+                "SHOW GLOBAL STATUS: Innodb_buffer_pool_pages_data × Innodb_page_size (max: innodb_buffer_pool_size)",
+            ),
+        };
         add(
             s,
             metric(
@@ -462,7 +652,9 @@ impl MySqlSession {
                 MetricUnit::Bytes,
                 pool,
             )
-            .max(get(&vars, "innodb_buffer_pool_size")),
+            .max(get(&vars, "innodb_buffer_pool_size"))
+            .help("Datos que ocupa ahora el buffer pool de InnoDB, en páginas limpias o modificadas; el máximo es innodb_buffer_pool_size. Lleno es lo normal cuando hay más datos que buffer pool.")
+            .source(pool_src),
         );
 
         // Connections and activity.
@@ -476,7 +668,9 @@ impl MySqlSession {
                 MetricUnit::Count,
                 get(&status, "Threads_connected"),
             )
-            .max(max_conn),
+            .max(max_conn)
+            .help("Conexiones de clientes abiertas ahora en este servidor, incluida la del monitor. El máximo es max_connections: al llegar, las nuevas se rechazan con «Too many connections».")
+            .source("SHOW GLOBAL STATUS: Threads_connected (max: max_connections)"),
         );
         add(
             s,
@@ -486,7 +680,9 @@ impl MySqlSession {
                 "Conexiones",
                 MetricUnit::Count,
                 get(&status, "Threads_running"),
-            ),
+            )
+            .help("Hilos ejecutando una sentencia ahora, incluido el del monitor. Si se mantiene por encima de la cantidad de núcleos, las sentencias compiten por CPU o esperan bloqueos.")
+            .source("SHOW GLOBAL STATUS: Threads_running"),
         );
         add(
             s,
@@ -497,9 +693,22 @@ impl MySqlSession {
                 MetricUnit::Count,
                 get(&status, "Aborted_connects"),
             )
-            .counter(),
+            .counter()
+            .help("Intentos de conexión que fallaron: contraseña incorrecta, sin permiso sobre la base, paquetes inválidos o tiempo agotado. Si sube de forma sostenida, puede ser un cliente mal configurado o alguien probando contraseñas.")
+            .source("SHOW GLOBAL STATUS: Aborted_connects"),
         );
-        let queries = get(&status, "Questions").or_else(|| get(&status, "Queries"));
+        let (queries, queries_help, queries_src) = match get(&status, "Questions") {
+            Some(q) => (
+                Some(q),
+                "Sentencias que enviaron los clientes, sin contar las que se ejecutan dentro de procedimientos almacenados.",
+                "SHOW GLOBAL STATUS: Questions",
+            ),
+            None => (
+                get(&status, "Queries"),
+                "Sentencias que ejecutó el servidor, incluidas las de procedimientos almacenados.",
+                "SHOW GLOBAL STATUS: Queries",
+            ),
+        };
         add(
             s,
             metric(
@@ -509,8 +718,22 @@ impl MySqlSession {
                 MetricUnit::Count,
                 queries,
             )
-            .counter(),
+            .counter()
+            .help(queries_help)
+            .source(queries_src),
         );
+        let (commits, commits_help, commits_src) = match get(&status, "Handler_commit") {
+            Some(c) => (
+                Some(c),
+                "Commits internos de los motores de almacenamiento. En autocommit, cada sentencia sobre una tabla transaccional cuenta uno, también los SELECT.",
+                "SHOW GLOBAL STATUS: Handler_commit",
+            ),
+            None => (
+                sum(&status, &["Com_commit", "Com_rollback"]),
+                "COMMIT y ROLLBACK explícitos que ejecutaron los clientes; las sentencias en autocommit no cuentan.",
+                "SHOW GLOBAL STATUS: Com_commit + Com_rollback",
+            ),
+        };
         add(
             s,
             metric(
@@ -518,37 +741,55 @@ impl MySqlSession {
                 "Transacciones (commits)",
                 "Actividad",
                 MetricUnit::Count,
-                get(&status, "Handler_commit")
-                    .or_else(|| sum(&status, &["Com_commit", "Com_rollback"])),
+                commits,
             )
-            .counter(),
+            .counter()
+            .help(commits_help)
+            .source(commits_src),
         );
-        let read = get(&status, "Innodb_rows_read").or_else(|| {
-            sum(
-                &status,
-                &[
-                    "Handler_read_first",
-                    "Handler_read_key",
-                    "Handler_read_next",
-                    "Handler_read_rnd",
-                    "Handler_read_rnd_next",
-                ],
-            )
-        });
-        let written = sum(
+        let (read, read_help, read_src) = match get(&status, "Innodb_rows_read") {
+            Some(r) => (
+                Some(r),
+                "Filas que leyó InnoDB para responder sentencias. Si crece mucho más que las consultas, hay sentencias que recorren tablas o índices enteros.",
+                "SHOW GLOBAL STATUS: Innodb_rows_read",
+            ),
+            None => (
+                sum(
+                    &status,
+                    &[
+                        "Handler_read_first",
+                        "Handler_read_key",
+                        "Handler_read_next",
+                        "Handler_read_rnd",
+                        "Handler_read_rnd_next",
+                    ],
+                ),
+                "Pedidos de lectura de filas que el servidor hizo a los motores de almacenamiento, por índice o recorriendo la tabla. Si crece mucho más que las consultas, hay sentencias que recorren tablas enteras.",
+                "SHOW GLOBAL STATUS: Handler_read_first + Handler_read_key + Handler_read_next + Handler_read_rnd + Handler_read_rnd_next",
+            ),
+        };
+        let (written, written_help, written_src) = match sum(
             &status,
             &[
                 "Innodb_rows_inserted",
                 "Innodb_rows_updated",
                 "Innodb_rows_deleted",
             ],
-        )
-        .or_else(|| {
-            sum(
-                &status,
-                &["Handler_write", "Handler_update", "Handler_delete"],
-            )
-        });
+        ) {
+            Some(w) => (
+                Some(w),
+                "Filas insertadas, actualizadas y borradas en tablas InnoDB.",
+                "SHOW GLOBAL STATUS: Innodb_rows_inserted + Innodb_rows_updated + Innodb_rows_deleted",
+            ),
+            None => (
+                sum(
+                    &status,
+                    &["Handler_write", "Handler_update", "Handler_delete"],
+                ),
+                "Filas que los motores de almacenamiento insertaron, actualizaron o borraron; incluye las escrituras en tablas temporales internas.",
+                "SHOW GLOBAL STATUS: Handler_write + Handler_update + Handler_delete",
+            ),
+        };
         add(
             s,
             metric(
@@ -558,7 +799,9 @@ impl MySqlSession {
                 MetricUnit::Count,
                 read,
             )
-            .counter(),
+            .counter()
+            .help(read_help)
+            .source(read_src),
         );
         add(
             s,
@@ -569,7 +812,9 @@ impl MySqlSession {
                 MetricUnit::Count,
                 written,
             )
-            .counter(),
+            .counter()
+            .help(written_help)
+            .source(written_src),
         );
         add(
             s,
@@ -580,7 +825,9 @@ impl MySqlSession {
                 MetricUnit::Count,
                 get(&status, "Slow_queries"),
             )
-            .counter(),
+            .counter()
+            .help("Sentencias que tardaron más que long_query_time (10 segundos por omisión). Se cuentan aunque el log de consultas lentas esté apagado.")
+            .source("SHOW GLOBAL STATUS: Slow_queries"),
         );
         add(
             s,
@@ -591,7 +838,9 @@ impl MySqlSession {
                 MetricUnit::Count,
                 get(&status, "Created_tmp_disk_tables"),
             )
-            .counter(),
+            .counter()
+            .help("Tablas temporales internas que no entraron en memoria y se crearon en disco, por GROUP BY, ORDER BY, UNION o subconsultas grandes. Si sube, revisá esas consultas o tmp_table_size.")
+            .source("SHOW GLOBAL STATUS: Created_tmp_disk_tables"),
         );
         add(
             s,
@@ -602,7 +851,9 @@ impl MySqlSession {
                 MetricUnit::Bytes,
                 get(&status, "Bytes_received"),
             )
-            .counter(),
+            .counter()
+            .help("Bytes que el servidor recibió de todos los clientes.")
+            .source("SHOW GLOBAL STATUS: Bytes_received"),
         );
         add(
             s,
@@ -613,7 +864,9 @@ impl MySqlSession {
                 MetricUnit::Bytes,
                 get(&status, "Bytes_sent"),
             )
-            .counter(),
+            .counter()
+            .help("Bytes que el servidor envió a todos los clientes. Un salto suele venir de consultas que devuelven muchas filas.")
+            .source("SHOW GLOBAL STATUS: Bytes_sent"),
         );
         add(
             s,
@@ -624,7 +877,9 @@ impl MySqlSession {
                 MetricUnit::Bytes,
                 get(&status, "Innodb_data_read"),
             )
-            .counter(),
+            .counter()
+            .help("Bytes que InnoDB leyó de sus archivos; incluye lo que resuelve la caché del sistema operativo. Si sube junto con la caída de aciertos del buffer pool, los datos no entran en memoria.")
+            .source("SHOW GLOBAL STATUS: Innodb_data_read"),
         );
         add(
             s,
@@ -635,7 +890,9 @@ impl MySqlSession {
                 MetricUnit::Bytes,
                 get(&status, "Innodb_data_written"),
             )
-            .counter(),
+            .counter()
+            .help("Bytes que InnoDB escribió en sus archivos.")
+            .source("SHOW GLOBAL STATUS: Innodb_data_written"),
         );
         let hit = match (
             get(&status, "Innodb_buffer_pool_read_requests"),
@@ -655,7 +912,9 @@ impl MySqlSession {
                 MetricUnit::Percent,
                 hit,
             )
-            .max(Some(100.0)),
+            .max(Some(100.0))
+            .help("Porcentaje de lecturas de páginas de InnoDB que se resolvieron en el buffer pool sin ir al disco, acumulado desde el arranque, por eso cambia despacio. Si baja, el buffer pool quedó chico para los datos que se consultan.")
+            .source("SHOW GLOBAL STATUS: 1 − Innodb_buffer_pool_reads / Innodb_buffer_pool_read_requests"),
         );
 
         // Locks.
@@ -667,12 +926,17 @@ impl MySqlSession {
                 "Bloqueos",
                 MetricUnit::Count,
                 get(&status, "Innodb_row_lock_current_waits"),
-            ),
+            )
+            .help("Sentencias esperando ahora un bloqueo de fila de InnoDB. Si no baja, mirá en la tabla de bloqueos qué sesión los retiene.")
+            .source("SHOW GLOBAL STATUS: Innodb_row_lock_current_waits"),
         );
-        let deadlocks = match get(&status, "Innodb_deadlocks") {
-            Some(d) => Some(d),
-            None if full => self.scalar("SELECT `COUNT` FROM information_schema.INNODB_METRICS WHERE NAME = 'lock_deadlocks'").await,
-            None => None,
+        let (deadlocks, deadlocks_src) = match get(&status, "Innodb_deadlocks") {
+            Some(d) => (Some(d), "SHOW GLOBAL STATUS: Innodb_deadlocks"),
+            None if full => (
+                self.scalar("SELECT `COUNT` FROM information_schema.INNODB_METRICS WHERE NAME = 'lock_deadlocks'").await,
+                "information_schema.INNODB_METRICS: COUNT WHERE NAME = 'lock_deadlocks'",
+            ),
+            None => (None, ""),
         };
         add(
             s,
@@ -683,7 +947,9 @@ impl MySqlSession {
                 MetricUnit::Count,
                 deadlocks,
             )
-            .counter(),
+            .counter()
+            .help("Deadlocks que InnoDB detectó y resolvió revirtiendo una de las transacciones (error 1213). Si aparecen seguido, hay transacciones que toman las mismas filas en distinto orden.")
+            .source(deadlocks_src),
         );
         add(
             s,
@@ -694,7 +960,9 @@ impl MySqlSession {
                 MetricUnit::Count,
                 get(&status, "Innodb_row_lock_waits"),
             )
-            .counter(),
+            .counter()
+            .help("Veces que una sentencia tuvo que esperar un bloqueo de fila de InnoDB.")
+            .source("SHOW GLOBAL STATUS: Innodb_row_lock_waits"),
         );
 
         // Replication.
@@ -716,7 +984,9 @@ impl MySqlSession {
                         "Replicación",
                         MetricUnit::Seconds,
                         lag.0,
-                    ),
+                    )
+                    .help("Cuánto atrasa esta réplica respecto de su origen, en el canal más atrasado. Si crece, la réplica no da abasto con los cambios del origen; no se informa con el hilo SQL detenido.")
+                    .source("SHOW REPLICA STATUS: MAX(Seconds_Behind_Source) (older servers: SHOW SLAVE STATUS, Seconds_Behind_Master)"),
                 );
                 if role.is_none() {
                     role = Some(if lag.1 {
@@ -738,7 +1008,9 @@ impl MySqlSession {
                 "Servidor",
                 MetricUnit::Seconds,
                 get(&status, "Uptime"),
-            ),
+            )
+            .help("Tiempo desde que arrancó el servidor.")
+            .source("SHOW GLOBAL STATUS: Uptime"),
         );
 
         // Engine extras.
@@ -765,7 +1037,8 @@ impl MySqlSession {
                 "Performance Schema está desactivado: no hay esperas ni estadísticas por sentencia (activalo con performance_schema = ON).".into(),
             );
         }
-        self.sizes_from_information_schema(s).await;
+        self.sizes_from_information_schema(s, None, SIZES_HELP, SIZES_SOURCE)
+            .await;
         if full && !self.has_process_privilege().await {
             s.notes
                 .push("Sin el privilegio PROCESS solo se ven tus propias sesiones.".into());
@@ -874,23 +1147,24 @@ impl MySqlSession {
     }
 
     /// `sessions` and `queries` (the non-idle ones) from a processlist view,
-    /// else (or with `None`) `SHOW FULL PROCESSLIST`.
-    async fn sessions(&mut self, s: &mut MonitorSnapshot, view: Option<&str>) {
+    /// else (or with `None`) `SHOW FULL PROCESSLIST`. True when they came
+    /// from the view.
+    async fn sessions(&mut self, s: &mut MonitorSnapshot, view: Option<&str>) -> bool {
         let me = self.conn.id();
         let sql = match view {
             Some(view) => format!("SELECT * FROM {view} WHERE ID <> {me} ORDER BY (COMMAND = 'Sleep'), TIME DESC LIMIT {MAX_ROWS}"),
             None => "SHOW FULL PROCESSLIST".into(),
         };
-        let g = match self.grid(&sql).await {
-            Ok(g) => g,
+        let (g, view) = match self.grid(&sql).await {
+            Ok(g) => (g, view),
             Err(first) => match self.grid("SHOW FULL PROCESSLIST").await {
-                Ok(g) => g,
+                Ok(g) => (g, None),
                 Err(_) => {
                     s.notes.push(format!(
                         "No se pudo leer la lista de sesiones ({}).",
                         why(&first)
                     ));
-                    return;
+                    return false;
                 }
             },
         };
@@ -939,8 +1213,33 @@ impl MySqlSession {
             })
             .cloned()
             .collect();
+        let scope = match self.variant {
+            Variant::TiDb if view.is_some() => {
+                "Sesiones abiertas en todas las instancias de TiDB del cluster, incluida la del monitor."
+            }
+            // SHOW FULL PROCESSLIST lists only this instance's.
+            Variant::TiDb => "Sesiones abiertas en la instancia de TiDB a la que está conectado DBine, incluida la del monitor.",
+            Variant::StarRocks | Variant::Doris => {
+                "Conexiones abiertas en el frontend (FE) al que está conectado DBine, incluida la del monitor."
+            }
+            _ => "Sesiones abiertas en el servidor, incluida la del monitor. Sin el privilegio PROCESS solo cuenta las tuyas.",
+        };
         if !s.metrics.iter().any(|m| m.key == "connections") {
-            // Plus this one, left out of the table.
+            // The list stops at MAX_ROWS; the count doesn't.
+            let (count, src) = match view {
+                Some(view) => match self.scalar(&format!("SELECT COUNT(*) FROM {view}")).await {
+                    Some(n) => (n, format!("{view}: COUNT(*)")),
+                    // Plus this one, left out of the table.
+                    None => (
+                        sessions.rows.len() as f64 + 1.0,
+                        format!("{view}: number of rows (up to {MAX_ROWS})"),
+                    ),
+                },
+                None => (
+                    g.total as f64,
+                    "SHOW FULL PROCESSLIST: number of rows".into(),
+                ),
+            };
             add(
                 s,
                 metric(
@@ -948,11 +1247,36 @@ impl MySqlSession {
                     "Conexiones",
                     "Conexiones",
                     MetricUnit::Count,
-                    Some(sessions.rows.len() as f64 + 1.0),
-                ),
+                    Some(count),
+                )
+                .help(scope)
+                .source(&src),
             );
         }
         if !s.metrics.iter().any(|m| m.key == "active_sessions") {
+            const IDLE: &str = "'Sleep', 'Daemon', 'Binlog Dump', 'Binlog Dump GTID'";
+            let counted = match view {
+                Some(view) => self
+                    .scalar(&format!(
+                        "SELECT COUNT(*) FROM {view} WHERE ID <> {me} AND COMMAND NOT IN ({IDLE}) AND INFO IS NOT NULL"
+                    ))
+                    .await
+                    .map(|n| (n, view)),
+                None => None,
+            };
+            let (n, src) = match counted {
+                Some((n, view)) => (
+                    n,
+                    format!("{view}: COUNT(*) WHERE INFO IS NOT NULL AND COMMAND isn't Sleep, Daemon or Binlog Dump, excluding this session"),
+                ),
+                None => (
+                    queries.rows.len() as f64,
+                    format!(
+                        "{}: rows with a statement whose COMMAND isn't Sleep, Daemon or Binlog Dump, excluding this session (up to {MAX_ROWS})",
+                        view.unwrap_or("SHOW FULL PROCESSLIST")
+                    ),
+                ),
+            };
             add(
                 s,
                 metric(
@@ -960,12 +1284,15 @@ impl MySqlSession {
                     "Sesiones activas",
                     "Conexiones",
                     MetricUnit::Count,
-                    Some(queries.rows.len() as f64),
-                ),
+                    Some(n),
+                )
+                .help("Sesiones ejecutando una sentencia ahora, sin contar la del monitor.")
+                .source(&src),
             );
         }
         s.tables.push(sessions);
         s.tables.push(queries);
+        view.is_some()
     }
 
     /// Row-lock waits: MySQL 8 `data_lock_waits`, else InnoDB's
@@ -1033,7 +1360,13 @@ impl MySqlSession {
 
     /// `databases` and `top_objects` from information_schema.TABLES, plus
     /// `storage_used`; cached for a minute.
-    async fn sizes_from_information_schema(&mut self, s: &mut MonitorSnapshot) {
+    async fn sizes_from_information_schema(
+        &mut self,
+        s: &mut MonitorSnapshot,
+        max: Option<f64>,
+        help: &str,
+        source: &str,
+    ) {
         let fresh = self
             .sizes
             .as_ref()
@@ -1078,22 +1411,27 @@ impl MySqlSession {
             }
             self.sizes = Some(z);
         }
-        self.push_sizes(s, None);
+        self.push_sizes(s, max, help, source);
     }
 
-    fn push_sizes(&self, s: &mut MonitorSnapshot, max: Option<f64>) {
+    fn push_sizes(&self, s: &mut MonitorSnapshot, max: Option<f64>, help: &str, source: &str) {
         if let Some(z) = &self.sizes {
-            add(
-                s,
-                metric(
-                    "storage_used",
-                    "Espacio usado",
-                    "Almacenamiento",
-                    MetricUnit::Bytes,
-                    z.total,
-                )
-                .max(max),
-            );
+            // A figure from the nodes (StarRocks, Doris) wins.
+            if !s.metrics.iter().any(|m| m.key == "storage_used") {
+                add(
+                    s,
+                    metric(
+                        "storage_used",
+                        "Espacio usado",
+                        "Almacenamiento",
+                        MetricUnit::Bytes,
+                        z.total,
+                    )
+                    .max(max)
+                    .help(help)
+                    .source(source),
+                );
+            }
             s.tables.extend(z.tables.iter().cloned());
             s.notes.extend(z.notes.iter().cloned());
         }
@@ -1119,7 +1457,9 @@ impl MySqlSession {
                             MetricUnit::Bytes,
                             total(&["MEMORY_USED_MB"]),
                         )
-                        .max(total(&["MAX_MEMORY_MB"])),
+                        .max(total(&["MAX_MEMORY_MB"]))
+                        .help("Memoria que usan los nodos del cluster, sumada; el máximo es la suma de sus maximum_memory. Cerca del máximo, las consultas que piden más memoria fallan.")
+                        .source("information_schema.MV_NODES: SUM(MEMORY_USED_MB) (max: SUM(MAX_MEMORY_MB))"),
                     );
                 }
                 add(
@@ -1131,7 +1471,9 @@ impl MySqlSession {
                         MetricUnit::Bytes,
                         total(&["TABLE_MEMORY_USED_MB"]),
                     )
-                    .max(total(&["MAX_TABLE_MEMORY_MB"])),
+                    .max(total(&["MAX_TABLE_MEMORY_MB"]))
+                    .help("Memoria que ocupan las tablas en memoria (rowstore) y sus índices en todos los nodos; el máximo es la suma de maximum_table_memory. Al llegar, las escrituras que necesitan más memoria fallan.")
+                    .source("information_schema.MV_NODES: SUM(TABLE_MEMORY_USED_MB) (max: SUM(MAX_TABLE_MEMORY_MB))"),
                 );
                 if let (Some(disk), Some(free)) = (
                     total(&["TOTAL_DATA_DISK_MB"]),
@@ -1146,7 +1488,9 @@ impl MySqlSession {
                             MetricUnit::Bytes,
                             Some(disk - free),
                         )
-                        .max(Some(disk)),
+                        .max(Some(disk))
+                        .help("Espacio ocupado en los discos de datos de todos los nodos (el total menos el libre, incluido lo que no es de SingleStore); el máximo es su tamaño.")
+                        .source("information_schema.MV_NODES: SUM(TOTAL_DATA_DISK_MB − AVAILABLE_DATA_DISK_MB) (max: SUM(TOTAL_DATA_DISK_MB))"),
                     );
                 }
                 info(s, "Nodos", Some(g.rows.len().to_string()));
@@ -1200,7 +1544,13 @@ impl MySqlSession {
                     s.metrics.retain(|x| x.key != m.key);
                     add(s, m);
                 };
-                replace(s, metric("active_sessions", "Sesiones activas", "Conexiones", MetricUnit::Count, get(&st, "active sessions")));
+                const SYSSTAT: &str = "oceanbase.GV$SYSSTAT: SUM(VALUE)";
+                replace(
+                    s,
+                    metric("active_sessions", "Sesiones activas", "Conexiones", MetricUnit::Count, get(&st, "active sessions"))
+                        .help("Sesiones ejecutando algo ahora, en todos los OBServer y en los tenants que ve este usuario.")
+                        .source(&format!("{SYSSTAT} WHERE NAME = 'active sessions'")),
+                );
                 replace(
                     s,
                     metric(
@@ -1210,18 +1560,51 @@ impl MySqlSession {
                         MetricUnit::Count,
                         sum(&st, &["sql select count", "sql insert count", "sql update count", "sql delete count", "sql replace count"]),
                     )
-                    .counter(),
+                    .counter()
+                    .help("Sentencias SELECT, INSERT, UPDATE, DELETE y REPLACE ejecutadas en todos los OBServer, en los tenants que ve este usuario.")
+                    .source(&format!("{SYSSTAT} of 'sql select count', 'sql insert count', 'sql update count', 'sql delete count', 'sql replace count'")),
                 );
                 replace(
                     s,
                     metric("transactions", "Transacciones", "Actividad", MetricUnit::Count, sum(&st, &["trans commit count", "trans rollback count"]))
-                        .counter(),
+                        .counter()
+                        .help("Transacciones confirmadas y revertidas en todos los OBServer, en los tenants que ve este usuario.")
+                        .source(&format!("{SYSSTAT} of 'trans commit count', 'trans rollback count'")),
                 );
-                replace(s, metric("mem_used", "Memoria usada", "Memoria", MetricUnit::Bytes, get(&st, "memory usage")));
-                replace(s, metric("disk_read", "Lectura en disco", "Disco", MetricUnit::Bytes, get(&st, "io read bytes")).counter());
-                replace(s, metric("disk_write", "Escritura en disco", "Disco", MetricUnit::Bytes, get(&st, "io write bytes")).counter());
-                replace(s, metric("net_in", "Red entrante (RPC)", "Red", MetricUnit::Bytes, get(&st, "rpc packet in bytes")).counter());
-                replace(s, metric("net_out", "Red saliente (RPC)", "Red", MetricUnit::Bytes, get(&st, "rpc packet out bytes")).counter());
+                replace(
+                    s,
+                    metric("mem_used", "Memoria usada", "Memoria", MetricUnit::Bytes, get(&st, "memory usage"))
+                        .help("Memoria en uso de los tenants que ve este usuario, sumada en todos los OBServer.")
+                        .source(&format!("{SYSSTAT} WHERE NAME = 'memory usage'")),
+                );
+                replace(
+                    s,
+                    metric("disk_read", "Lectura en disco", "Disco", MetricUnit::Bytes, get(&st, "io read bytes"))
+                        .counter()
+                        .help("Bytes que los OBServer leyeron del disco para los tenants que ve este usuario.")
+                        .source(&format!("{SYSSTAT} WHERE NAME = 'io read bytes'")),
+                );
+                replace(
+                    s,
+                    metric("disk_write", "Escritura en disco", "Disco", MetricUnit::Bytes, get(&st, "io write bytes"))
+                        .counter()
+                        .help("Bytes que los OBServer escribieron en disco para los tenants que ve este usuario.")
+                        .source(&format!("{SYSSTAT} WHERE NAME = 'io write bytes'")),
+                );
+                replace(
+                    s,
+                    metric("net_in", "Red entrante (RPC)", "Red", MetricUnit::Bytes, get(&st, "rpc packet in bytes"))
+                        .counter()
+                        .help("Bytes que los OBServer recibieron por RPC, la red interna entre los nodos del cluster; no es el tráfico de los clientes.")
+                        .source(&format!("{SYSSTAT} WHERE NAME = 'rpc packet in bytes'")),
+                );
+                replace(
+                    s,
+                    metric("net_out", "Red saliente (RPC)", "Red", MetricUnit::Bytes, get(&st, "rpc packet out bytes"))
+                        .counter()
+                        .help("Bytes que los OBServer enviaron por RPC, la red interna entre los nodos del cluster; no es el tráfico de los clientes.")
+                        .source(&format!("{SYSSTAT} WHERE NAME = 'rpc packet out bytes'")),
+                );
             }
             _ => s.notes.push("No se pudo leer oceanbase.GV$SYSSTAT: los contadores de actividad requieren OceanBase 4.x.".into()),
         }
@@ -1243,7 +1626,9 @@ impl MySqlSession {
                             MetricUnit::Bytes,
                             Some(used),
                         )
-                        .max(cap),
+                        .max(cap)
+                        .help("Espacio de datos en uso en todos los OBServer; el máximo es la capacidad de disco de datos que tienen asignada.")
+                        .source("oceanbase.GV$OB_SERVERS: SUM(DATA_DISK_IN_USE) (max: SUM(DATA_DISK_CAPACITY))"),
                     );
                 }
                 info(s, "Servidores OBServer", Some(g.rows.len().to_string()));
@@ -1349,7 +1734,9 @@ impl MySqlSession {
                 MetricUnit::Percent,
                 cpu,
             )
-            .max(Some(100.0)),
+            .max(Some(100.0))
+            .help("Uso de CPU de los hosts del cluster (TiDB, TiKV, PD…), promedio entre las instancias: 100 % equivale a todos los núcleos ocupados. Lo informa el sistema operativo de cada host, así que incluye todo lo que corre en ellos.")
+            .source("information_schema.CLUSTER_LOAD: 1 − VALUE WHERE DEVICE_TYPE = 'cpu' AND DEVICE_NAME = 'usage' AND NAME = 'idle', average of the instances"),
         );
         if !hosts.is_empty() {
             let used = hosts.values().map(|h| h.0).sum::<f64>();
@@ -1363,7 +1750,9 @@ impl MySqlSession {
                     MetricUnit::Bytes,
                     Some(used),
                 )
-                .max(Some(total)),
+                .max(Some(total))
+                .help("Memoria en uso en los hosts del cluster, de todos los procesos, contando cada host una vez; el máximo es su memoria total.")
+                .source("information_schema.CLUSTER_LOAD: memory 'virtual' used (max: total), once per host"),
             );
         }
         if let Ok(g) = self
@@ -1384,17 +1773,30 @@ impl MySqlSession {
                         MetricUnit::Bytes,
                         g.num(r, &["MEMORY_CURRENT"]),
                     )
-                    .max(limit),
+                    .max(limit)
+                    .help("Memoria que usa la instancia de TiDB a la que está conectado DBine. El máximo es tidb_server_memory_limit (o la memoria total, sin límite); cerca de él, TiDB cancela la consulta que más memoria usa.")
+                    .source("information_schema.MEMORY_USAGE: MEMORY_CURRENT (max: MEMORY_LIMIT, else MEMORY_TOTAL)"),
                 );
             }
         }
 
         // Nodes.
+        let mut tidb_nodes = None;
         match self
             .grid("SELECT * FROM information_schema.CLUSTER_INFO")
             .await
         {
             Ok(g) => {
+                tidb_nodes = Some(
+                    g.rows
+                        .iter()
+                        .filter(|r| {
+                            g.text(r, &["TYPE"])
+                                .is_some_and(|t| t.eq_ignore_ascii_case("tidb"))
+                        })
+                        .count()
+                        .max(1) as f64,
+                );
                 let mut t = MonitorTable::new(
                     "nodes",
                     "Nodos del cluster",
@@ -1432,10 +1834,27 @@ impl MySqlSession {
         }
 
         let max_conn = get(&vars, "max_connections").filter(|m| *m > 0.0);
-        self.sessions(s, Some("information_schema.CLUSTER_PROCESSLIST"))
+        let cluster = self
+            .sessions(s, Some("information_schema.CLUSTER_PROCESSLIST"))
             .await;
+        // max_connections is per TiDB instance: the cluster's count goes
+        // against all of them, SHOW FULL PROCESSLIST's against this one.
         if let Some(c) = s.metrics.iter_mut().find(|m| m.key == "connections") {
-            c.max = max_conn;
+            let (nodes, why) = if cluster {
+                (
+                    tidb_nodes.unwrap_or(1.0),
+                    " × TiDB instances in CLUSTER_INFO",
+                )
+            } else {
+                (1.0, ", this instance's")
+            };
+            c.max = max_conn.map(|m| m * nodes);
+            if c.max.is_some() {
+                c.source = c
+                    .source
+                    .take()
+                    .map(|src| format!("{src} (max: max_connections{why})"));
+            }
         }
 
         // Locks: pessimistic lock waits and the recent deadlock history.
@@ -1448,7 +1867,23 @@ impl MySqlSession {
             .await
         {
             Ok(g) => {
-                add(s, metric("locks_waiting", "Bloqueos en espera", "Bloqueos", MetricUnit::Count, Some(g.rows.len() as f64)));
+                // The list stops at 200; the count doesn't.
+                let (n, src) = match self
+                    .scalar("SELECT COUNT(*) FROM information_schema.DATA_LOCK_WAITS")
+                    .await
+                {
+                    Some(n) => (n, "information_schema.DATA_LOCK_WAITS: COUNT(*)"),
+                    None => (
+                        g.rows.len() as f64,
+                        "information_schema.DATA_LOCK_WAITS: number of rows (up to 200)",
+                    ),
+                };
+                add(
+                    s,
+                    metric("locks_waiting", "Bloqueos en espera", "Bloqueos", MetricUnit::Count, Some(n))
+                        .help("Transacciones pesimistas esperando ahora un bloqueo de fila que tiene otra transacción.")
+                        .source(src),
+                );
                 s.tables.push(g.table("locks", "Bloqueos en espera"));
             }
             Err(e) => s.notes.push(format!("No se pudieron leer las esperas de bloqueo ({}).", why(&e))),
@@ -1464,7 +1899,9 @@ impl MySqlSession {
                 "Bloqueos",
                 MetricUnit::Count,
                 deadlocks,
-            ),
+            )
+            .help("Deadlocks que guarda el historial de las instancias de TiDB (los últimos tidb_deadlock_history_capacity de cada una, 10 por omisión). No es un contador desde el arranque: muestra cuántos quedan en el historial.")
+            .source("information_schema.CLUSTER_DEADLOCKS: COUNT(DISTINCT DEADLOCK_ID)"),
         );
 
         // Statement summary of the current window.
@@ -1495,10 +1932,13 @@ impl MySqlSession {
                 .collect();
             (!v.is_empty() && v.iter().sum::<f64>() > 0.0).then(|| v.iter().sum())
         });
-        self.sizes_from_information_schema(s).await;
-        if let Some(m) = s.metrics.iter_mut().find(|m| m.key == "storage_used") {
-            m.max = capacity;
-        }
+        self.sizes_from_information_schema(
+            s,
+            capacity,
+            "Datos e índices de todas las tablas según information_schema, sin las bases de sistema; se actualiza cada minuto. TiDB los estima con las estadísticas de las tablas. El máximo es la capacidad de los nodos TiKV.",
+            "information_schema.TABLES: SUM(DATA_LENGTH + INDEX_LENGTH), refreshed every minute (max: TIKV_STORE_STATUS SUM(CAPACITY))",
+        )
+        .await;
         add(
             s,
             metric(
@@ -1507,7 +1947,9 @@ impl MySqlSession {
                 "Servidor",
                 MetricUnit::Seconds,
                 get(&status, "Uptime"),
-            ),
+            )
+            .help("Tiempo desde que arrancó la instancia de TiDB a la que está conectado DBine.")
+            .source("SHOW GLOBAL STATUS: Uptime"),
         );
         s.notes.push(
             "TiDB publica QPS, latencias y E/S en Prometheus/Grafana (puerto de estado /metrics), no por SQL; acá se ven la carga de los hosts, las sesiones y el resumen de sentencias.".into(),
@@ -1561,17 +2003,17 @@ impl MySqlSession {
             )),
         }
         let backends = match self.grid("SHOW BACKENDS").await {
-            Ok(g) => Some(g),
+            Ok(g) => Some((g, "SHOW BACKENDS")),
             // Shared-data StarRocks runs compute nodes instead of backends.
             Err(e) => match self.grid("SHOW COMPUTE NODES").await {
-                Ok(g) if !g.rows.is_empty() => Some(g),
+                Ok(g) if !g.rows.is_empty() => Some((g, "SHOW COMPUTE NODES")),
                 _ => {
                     s.notes.push(format!("SHOW BACKENDS requiere privilegios de administrador (OPERATE o NODE) ({}).", why(&e)));
                     None
                 }
             },
         };
-        if let Some(g) = backends {
+        if let Some((g, show)) = backends {
             let col_sum = |names: &[&str], f: &dyn Fn(&str) -> Option<f64>| -> Option<f64> {
                 let v: Vec<f64> = g
                     .rows
@@ -1595,7 +2037,9 @@ impl MySqlSession {
                     MetricUnit::Percent,
                     cpu,
                 )
-                .max(Some(100.0)),
+                .max(Some(100.0))
+                .help("Uso de CPU que informa cada backend (o nodo de cómputo), promedio entre ellos: 100 % equivale a todos sus núcleos ocupados. Alto y sostenido suele venir de consultas que leen muchos datos.")
+                .source(&format!("{show}: CpuUsedPct, average of the nodes")),
             );
             // Memory used = MemUsedPct × MemLimit per backend.
             let mem: Vec<(f64, f64)> = g
@@ -1617,7 +2061,9 @@ impl MySqlSession {
                         MetricUnit::Bytes,
                         Some(mem.iter().map(|m| m.0).sum()),
                     )
-                    .max(Some(mem.iter().map(|m| m.1).sum())),
+                    .max(Some(mem.iter().map(|m| m.1).sum()))
+                    .help("Memoria que usan los procesos de los backends, sumada; el máximo es la suma de sus límites de memoria (mem_limit). Cerca del límite, las consultas que piden más memoria fallan.")
+                    .source(&format!("{show}: SUM(MemUsedPct × MemLimit) (max: SUM(MemLimit))")),
                 );
             }
             let running = col_sum(&["NumRunningQueries"], &|t| num(t));
@@ -1629,10 +2075,13 @@ impl MySqlSession {
                     "Actividad",
                     MetricUnit::Count,
                     running,
-                ),
+                )
+                .help("Fragmentos de consultas ejecutándose ahora en los backends, sumados: una consulta distribuida cuenta en cada backend donde corre.")
+                .source(&format!("{show}: SUM(NumRunningQueries)")),
             );
             let used = col_sum(&["DataUsedCapacity"], &parse_size);
-            let total = col_sum(&["TotalCapacity"], &parse_size);
+            // A backend that hasn't reported its disks says 0.
+            let total = col_sum(&["TotalCapacity"], &parse_size).filter(|t| *t > 0.0);
             add(
                 s,
                 metric(
@@ -1642,7 +2091,9 @@ impl MySqlSession {
                     MetricUnit::Bytes,
                     used,
                 )
-                .max(total),
+                .max(total)
+                .help("Espacio que ocupan los datos en los discos de los backends, réplicas incluidas; el máximo es la capacidad total de esos discos.")
+                .source(&format!("{show}: SUM(DataUsedCapacity) (max: SUM(TotalCapacity))")),
             );
             add(
                 s,
@@ -1652,7 +2103,9 @@ impl MySqlSession {
                     "Almacenamiento",
                     MetricUnit::Count,
                     col_sum(&["TabletNum"], &|t| num(t)),
-                ),
+                )
+                .help("Tablets (las porciones en que se reparten los datos) que guardan los backends, réplicas incluidas. Muchos tablets chicos cargan la memoria y los metadatos de los nodos.")
+                .source(&format!("{show}: SUM(TabletNum)")),
             );
             info(s, "Backends", Some(g.rows.len().to_string()));
             if cpu.is_none() {
@@ -1716,7 +2169,10 @@ impl MySqlSession {
                     (&["LastConsistencyCheckTime"], "último control"),
                 ],
             )),
-            Err(_) => self.sizes_from_information_schema(s).await,
+            Err(_) => {
+                self.sizes_from_information_schema(s, None, SIZES_HELP, SIZES_SOURCE)
+                    .await
+            }
         }
         s.notes.push(format!(
             "{name} publica QPS, latencias y E/S solo por HTTP (/metrics en cada FE y BE), no por SQL."
@@ -1748,6 +2204,46 @@ impl MySqlSession {
                             && g.text(r, &["extra_info"]).is_some_and(|q| !q.is_empty())
                     })
                     .count();
+                // The list stops at MAX_ROWS; the server's own figures don't.
+                let counted = self
+                    .grid(
+                        "SELECT COUNT(*) AS n,
+                                SUM(CASE WHEN LOWER(command) <> 'sleep' AND COALESCE(extra_info, '') <> '' THEN 1 ELSE 0 END) AS busy,
+                                SUM(memory_usage) AS mem
+                           FROM system.processes",
+                    )
+                    .await
+                    .ok()
+                    .and_then(|a| {
+                        let r = a.rows.first()?;
+                        Some((
+                            a.num(r, &["n"])?,
+                            a.num(r, &["busy"]).unwrap_or(0.0),
+                            a.num(r, &["mem"]).unwrap_or(0.0),
+                        ))
+                    });
+                let (n, active, mem, srcs) = match counted {
+                    Some((n, busy, m)) => (
+                        n,
+                        busy,
+                        m,
+                        [
+                            "system.processes: COUNT(*)".to_string(),
+                            "system.processes: COUNT(*) WHERE command <> 'Sleep' AND extra_info <> ''".to_string(),
+                            "system.processes: SUM(memory_usage)".to_string(),
+                        ],
+                    ),
+                    None => (
+                        g.rows.len() as f64,
+                        active as f64,
+                        mem,
+                        [
+                            format!("system.processes: number of rows (up to {MAX_ROWS})"),
+                            format!("system.processes: rows with command <> 'Sleep' and extra_info (up to {MAX_ROWS})"),
+                            format!("system.processes: SUM(memory_usage) (up to {MAX_ROWS} sessions)"),
+                        ],
+                    ),
+                };
                 add(
                     s,
                     metric(
@@ -1755,8 +2251,10 @@ impl MySqlSession {
                         "Sesiones",
                         "Conexiones",
                         MetricUnit::Count,
-                        Some(g.rows.len() as f64),
-                    ),
+                        Some(n),
+                    )
+                    .help("Sesiones abiertas en el nodo de consultas al que está conectado DBine, incluida la del monitor.")
+                    .source(&srcs[0]),
                 );
                 add(
                     s,
@@ -1765,8 +2263,10 @@ impl MySqlSession {
                         "Sesiones activas",
                         "Conexiones",
                         MetricUnit::Count,
-                        Some(active as f64),
-                    ),
+                        Some(active),
+                    )
+                    .help("Sesiones del nodo de consultas al que está conectado DBine ejecutando una consulta ahora, incluida la del monitor.")
+                    .source(&srcs[1]),
                 );
                 add(
                     s,
@@ -1776,7 +2276,9 @@ impl MySqlSession {
                         "Memoria",
                         MetricUnit::Bytes,
                         Some(mem),
-                    ),
+                    )
+                    .help("Memoria que usan ahora las sesiones del nodo de consultas al que está conectado DBine, sumada; no incluye las cachés ni el resto del proceso.")
+                    .source(&srcs[2]),
                 );
                 s.tables.push(g.project(
                     "sessions",
@@ -1853,7 +2355,12 @@ impl MySqlSession {
             }
             self.sizes = Some(z);
         }
-        self.push_sizes(s, None);
+        self.push_sizes(
+            s,
+            None,
+            "Tamaño comprimido de los datos y los índices de todas las tablas, sin system ni information_schema; se actualiza cada minuto.",
+            "system.tables: SUM(data_compressed_size + index_size), refreshed every minute",
+        );
         s.notes.push("Databend no expone el uso de CPU ni los contadores de consultas por SQL; están en /metrics de cada nodo (Prometheus).".into());
     }
 
@@ -1861,164 +2368,21 @@ impl MySqlSession {
 
     async fn manticore(&mut self, s: &mut MonitorSnapshot) {
         let st = self.kv("SHOW STATUS").await.unwrap_or_default();
-        // "load" is "1m 5m 15m" averages of busy workers.
-        let load = st
-            .get("load")
-            .and_then(|l| l.split_whitespace().next())
-            .and_then(num);
-        add(
-            s,
-            metric(
-                "load",
-                "Carga de los workers (1 min)",
-                "CPU",
-                MetricUnit::Count,
-                load,
-            ),
-        );
-        add(
-            s,
-            metric(
-                "connections",
-                "Clientes conectados",
-                "Conexiones",
-                MetricUnit::Count,
-                get(&st, "workers_clients"),
-            ),
-        );
-        add(
-            s,
-            metric(
-                "active_sessions",
-                "Workers activos",
-                "Conexiones",
-                MetricUnit::Count,
-                get(&st, "workers_active"),
-            )
-            .max(get(&st, "workers_total")),
-        );
-        add(
-            s,
-            metric(
-                "work_queue",
-                "Cola de trabajos",
-                "Conexiones",
-                MetricUnit::Count,
-                get(&st, "work_queue_length"),
-            ),
-        );
-        add(
-            s,
-            metric(
-                "maxed_out",
-                "Conexiones rechazadas",
-                "Conexiones",
-                MetricUnit::Count,
-                get(&st, "maxed_out"),
-            )
-            .counter(),
-        );
-        add(
-            s,
-            metric(
-                "connections_total",
-                "Conexiones aceptadas",
-                "Conexiones",
-                MetricUnit::Count,
-                get(&st, "connections"),
-            )
-            .counter(),
-        );
-        add(
-            s,
-            metric(
-                "queries",
-                "Búsquedas",
-                "Actividad",
-                MetricUnit::Count,
-                get(&st, "queries"),
-            )
-            .counter(),
-        );
-        add(
-            s,
-            metric(
-                "writes",
-                "Escrituras",
-                "Actividad",
-                MetricUnit::Count,
-                sum(
-                    &st,
-                    &[
-                        "command_insert",
-                        "command_replace",
-                        "command_update",
-                        "command_delete",
-                    ],
-                ),
-            )
-            .counter(),
-        );
-        add(
-            s,
-            metric(
-                "avg_query_wall",
-                "Tiempo medio de búsqueda",
-                "Actividad",
-                MetricUnit::Seconds,
-                get(&st, "avg_query_wall"),
-            ),
-        );
+        for m in manticore_metrics(&st) {
+            add(s, m);
+        }
         // query_cpu is "OFF" unless searchd runs with --cpustats.
-        match get(&st, "query_cpu") {
-            Some(c) => add(
-                s,
-                metric(
-                    "cpu_time",
-                    "CPU de las búsquedas",
-                    "CPU",
-                    MetricUnit::Percent,
-                    Some(c * 100.0),
-                )
-                .counter(),
-            ),
-            None => s.notes.push(
+        if get(&st, "query_cpu").is_none() {
+            s.notes.push(
                 "El tiempo de CPU de las búsquedas requiere arrancar searchd con --cpustats."
                     .into(),
-            ),
+            );
+        } else if get(&st, "workers_total").filter(|w| *w > 0.0).is_none() {
+            s.notes.push(
+                "Manticore no informó cuántos workers tiene (workers_total): sin ese dato no se muestra la CPU de las búsquedas."
+                    .into(),
+            );
         }
-        add(
-            s,
-            metric(
-                "mem_cache",
-                "Caché de consultas",
-                "Caché",
-                MetricUnit::Bytes,
-                get(&st, "qcache_used_bytes"),
-            )
-            .max(get(&st, "qcache_max_bytes")),
-        );
-        add(
-            s,
-            metric(
-                "qcache_hits",
-                "Aciertos de la caché de consultas",
-                "Caché",
-                MetricUnit::Count,
-                get(&st, "qcache_hits"),
-            )
-            .counter(),
-        );
-        add(
-            s,
-            metric(
-                "uptime",
-                "Tiempo activo",
-                "Servidor",
-                MetricUnit::Seconds,
-                get(&st, "uptime"),
-            ),
-        );
         info(s, "Workers", st.get("workers_total").cloned());
 
         match self.grid("SHOW THREADS").await {
@@ -2093,7 +2457,12 @@ impl MySqlSession {
             z.tables.push(t);
             self.sizes = Some(z);
         }
-        self.push_sizes(s, None);
+        self.push_sizes(
+            s,
+            None,
+            "Espacio en disco de todas las tablas, actualizado cada minuto.",
+            "SHOW TABLE <table> STATUS: SUM(disk_bytes), refreshed every minute",
+        );
         s.notes
             .push("Manticore no expone el uso de CPU ni de memoria del proceso por SQL.".into());
     }
@@ -2101,6 +2470,8 @@ impl MySqlSession {
     // ----------------------------------------------------------- GreptimeDB
 
     async fn greptime(&mut self, s: &mut MonitorSnapshot) {
+        // The cores of the nodes that run the queries on the regions.
+        let mut cores = None;
         match self
             .grid("SELECT * FROM information_schema.cluster_info")
             .await
@@ -2110,6 +2481,22 @@ impl MySqlSession {
                     let v: Vec<f64> = g.rows.iter().filter_map(|r| g.num(r, names)).collect();
                     (!v.is_empty()).then(|| v.iter().sum())
                 };
+                let data_nodes: f64 = g
+                    .rows
+                    .iter()
+                    .filter(|r| {
+                        g.text(r, &["peer_type"]).is_some_and(|t| {
+                            t.eq_ignore_ascii_case("DATANODE")
+                                || t.eq_ignore_ascii_case("STANDALONE")
+                        })
+                    })
+                    .filter_map(|r| g.num(r, &["total_cpu_millicores"]))
+                    .sum();
+                cores = Some(data_nodes)
+                    .filter(|m| *m > 0.0)
+                    .or_else(|| total(&["total_cpu_millicores"]))
+                    .map(|m| m / 1000.0)
+                    .filter(|n| *n > 0.0);
                 let cpu = match (
                     total(&["cpu_usage_millicores"]),
                     total(&["total_cpu_millicores"]),
@@ -2120,7 +2507,9 @@ impl MySqlSession {
                 add(
                     s,
                     metric("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, cpu)
-                        .max(Some(100.0)),
+                        .max(Some(100.0))
+                        .help("Uso de CPU de los nodos de GreptimeDB (frontends, datanodes, metasrv), sumado: 100 % equivale a todos los núcleos que tienen ocupados.")
+                        .source("information_schema.cluster_info: SUM(cpu_usage_millicores) / SUM(total_cpu_millicores)"),
                 );
                 add(
                     s,
@@ -2131,7 +2520,9 @@ impl MySqlSession {
                         MetricUnit::Bytes,
                         total(&["memory_usage_bytes"]),
                     )
-                    .max(total(&["total_memory_bytes"])),
+                    .max(total(&["total_memory_bytes"]))
+                    .help("Memoria que usan los nodos de GreptimeDB, sumada; el máximo es la memoria total que tienen.")
+                    .source("information_schema.cluster_info: SUM(memory_usage_bytes) (max: SUM(total_memory_bytes))"),
                 );
                 if let Some(r) = g.rows.first() {
                     info(s, "Tiempo activo", g.text(r, &["uptime"]));
@@ -2189,6 +2580,25 @@ impl MySqlSession {
                             .is_some_and(|s| s.contains("information_schema.process_list"))
                     })
                 });
+                // The table stops at MAX_ROWS; the count doesn't (and leaves
+                // out the monitor's queries, this one included).
+                let (n, src) = match self
+                    .scalar(
+                        "SELECT COUNT(*) FROM information_schema.process_list
+                          WHERE query NOT LIKE '%information_schema.process_list%'",
+                    )
+                    .await
+                {
+                    Some(n) => (
+                        n,
+                        "information_schema.process_list: COUNT(*) of the queries that don't read process_list"
+                            .to_string(),
+                    ),
+                    None => (
+                        t.rows.len() as f64,
+                        format!("information_schema.process_list: number of rows, excluding this query (up to {MAX_ROWS})"),
+                    ),
+                };
                 add(
                     s,
                     metric(
@@ -2196,8 +2606,10 @@ impl MySqlSession {
                         "Consultas en curso",
                         "Conexiones",
                         MetricUnit::Count,
-                        Some(t.rows.len() as f64),
-                    ),
+                        Some(n),
+                    )
+                    .help("Consultas ejecutándose ahora en el cluster, sin contar la del monitor.")
+                    .source(&src),
                 );
                 s.tables.push(t);
             }
@@ -2213,6 +2625,7 @@ impl MySqlSession {
             Ok(rows) => {
                 let r = rows.first();
                 let n = |i: usize| r.and_then(|r| at(r, i)).and_then(|v| num(&v));
+                const REGIONS: &str = "information_schema.region_statistics";
                 add(
                     s,
                     metric(
@@ -2221,11 +2634,15 @@ impl MySqlSession {
                         "Almacenamiento",
                         MetricUnit::Bytes,
                         n(0),
-                    ),
+                    )
+                    .help("Espacio que ocupan en disco las regiones de todas las tablas.")
+                    .source(&format!("{REGIONS}: SUM(disk_size)")),
                 );
                 add(
                     s,
-                    metric("mem_cache", "Memtables", "Memoria", MetricUnit::Bytes, n(1)),
+                    metric("mem_cache", "Memtables", "Memoria", MetricUnit::Bytes, n(1))
+                        .help("Datos recientes que todavía están en memoria (memtables), antes de volcarse a archivos SST.")
+                        .source(&format!("{REGIONS}: SUM(memtable_size)")),
                 );
                 add(
                     s,
@@ -2236,9 +2653,13 @@ impl MySqlSession {
                         MetricUnit::Bytes,
                         n(2),
                     )
-                    .counter(),
+                    .counter()
+                    .help("Bytes escritos en las regiones, contados desde que se abrió cada una; una región que se vuelve a abrir empieza de cero.")
+                    .source(&format!("{REGIONS}: SUM(written_bytes_since_open)")),
                 );
-                // Milliseconds of CPU → seconds × 100.
+                // Milliseconds of CPU over the cores of the nodes that run
+                // them: the rate is the share of all of them (100 = every
+                // core busy), never "500 %" for five. Unknown cores: no value.
                 add(
                     s,
                     metric(
@@ -2246,9 +2667,12 @@ impl MySqlSession {
                         "CPU de las consultas",
                         "CPU",
                         MetricUnit::Percent,
-                        n(3).map(|ms| ms / 10.0),
+                        n(3).zip(cores).map(|(ms, c)| ms / 10.0 / c),
                     )
-                    .counter(),
+                    .max(Some(100.0))
+                    .counter()
+                    .help("Tiempo de CPU que usaron las consultas sobre las regiones, como parte de los núcleos de los nodos de datos (o del servidor standalone): 100 % equivale a todos ocupados con consultas.")
+                    .source(&format!("{REGIONS}: SUM(query_cpu_time_millis), ÷ cluster_info SUM(total_cpu_millicores) of the DATANODE or STANDALONE nodes")),
                 );
                 add(
                     s,
@@ -2259,7 +2683,9 @@ impl MySqlSession {
                         MetricUnit::Bytes,
                         n(4),
                     )
-                    .counter(),
+                    .counter()
+                    .help("Bytes que leyeron las consultas de las regiones, de memoria o de disco.")
+                    .source(&format!("{REGIONS}: SUM(query_scanned_bytes)")),
                 );
                 add(
                     s,
@@ -2269,7 +2695,9 @@ impl MySqlSession {
                         "Almacenamiento",
                         MetricUnit::Count,
                         n(5),
-                    ),
+                    )
+                    .help("Filas guardadas en todas las regiones.")
+                    .source(&format!("{REGIONS}: SUM(region_rows)")),
                 );
                 add(
                     s,
@@ -2279,8 +2707,13 @@ impl MySqlSession {
                         "Almacenamiento",
                         MetricUnit::Count,
                         n(6),
-                    ),
+                    )
+                    .help("Regiones (las particiones de las tablas) que hay en el cluster.")
+                    .source(&format!("{REGIONS}: COUNT(*)")),
                 );
+                if n(3).is_some() && cores.is_none() {
+                    s.notes.push("GreptimeDB no informó cuántos núcleos tienen sus nodos (cluster_info): sin ese dato no se muestra la CPU de las consultas.".into());
+                }
             }
             Err(e) => s
                 .notes
@@ -2369,6 +2802,7 @@ mod tests {
         let g = Grid {
             columns: vec!["Id".into(), "User".into(), "Info".into()],
             rows: vec![vec![json!(1), json!("root"), Value::Null]],
+            total: 1,
         };
         let t = g.project(
             "sessions",
@@ -2379,5 +2813,142 @@ mod tests {
         assert_eq!(t.rows, vec![vec![json!(1), Value::Null]]);
         assert_eq!(g.num(&g.rows[0], &["id"]), Some(1.0));
         assert_eq!(g.text(&g.rows[0], &["user"]).as_deref(), Some("root"));
+    }
+
+    fn documented(m: &Metric) {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.trim().is_empty()),
+            "{} has no help",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|s| !s.trim().is_empty()),
+            "{} has no source",
+            m.key
+        );
+    }
+
+    /// Every metric the monitor builds says what it measures and where it
+    /// comes from: each `metric(…)` is followed by `.help(…)` and
+    /// `.source(…)`. A snapshot needs a live server, so this reads the code.
+    #[test]
+    fn every_metric_call_has_help_and_source() {
+        let src = include_str!("monitor.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let b = code.as_bytes();
+        // The index after the parenthesis that closes the one at `open`.
+        let close = |open: usize| -> usize {
+            let (mut depth, mut i, mut quoted) = (0, open, false);
+            loop {
+                match b[i] {
+                    b'\\' if quoted => i += 1,
+                    b'"' => quoted = !quoted,
+                    b'(' if !quoted => depth += 1,
+                    b')' if !quoted => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return i + 1;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        };
+        let mut calls = 0;
+        for (at, _) in code.match_indices("metric(") {
+            let prev = b[at - 1];
+            if prev.is_ascii_alphanumeric()
+                || prev == b'_'
+                || prev == b'.'
+                || code[..at].ends_with("fn ")
+            {
+                continue;
+            }
+            calls += 1;
+            let mut end = close(at + "metric".len());
+            let mut chain = Vec::new();
+            // The next token after `end`, past whitespace and line comments.
+            let next = |mut rest: &'static str| loop {
+                rest = rest.trim_start();
+                match rest.strip_prefix("//") {
+                    Some(c) => rest = c.split_once('\n').map_or("", |(_, r)| r),
+                    None => return rest,
+                }
+            };
+            while let Some(r) = next(&code[end..]).strip_prefix('.') {
+                let name: String = r
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                let open = code.len() - r.len() + name.len();
+                if b[open] != b'(' {
+                    break;
+                }
+                chain.push(name);
+                end = close(open);
+            }
+            assert!(
+                chain.iter().any(|n| n == "help") && chain.iter().any(|n| n == "source"),
+                "line {}: metric(…) without .help(…) and .source(…)",
+                code[..at].lines().count()
+            );
+        }
+        assert!(calls > 60, "only {calls} metric(…) calls found");
+    }
+
+    #[test]
+    fn manticore_figures() {
+        let st: Kv = [
+            ("load", "0.50 0.20 0.10"),
+            ("workers_total", "8"),
+            ("workers_active", "2"),
+            ("workers_clients", "3"),
+            ("work_queue_length", "0"),
+            ("maxed_out", "0"),
+            ("connections", "40"),
+            ("queries", "100"),
+            ("command_insert", "5"),
+            ("command_delete", "1"),
+            ("avg_query_wall", "0.002"),
+            ("query_cpu", "4"),
+            ("qcache_used_bytes", "10"),
+            ("qcache_max_bytes", "100"),
+            ("qcache_hits", "7"),
+            ("uptime", "60"),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let m = manticore_metrics(&st);
+        assert_eq!(m.len(), 13);
+        for x in &m {
+            assert!(x.value.is_some(), "{}", x.key);
+            documented(x);
+        }
+        let get = |k: &str| m.iter().find(|m| m.key == k).unwrap();
+        assert_eq!(get("load").value, Some(0.5));
+        assert_eq!(get("writes").value, Some(6.0));
+        // 4 s of CPU over 8 workers: 50, so 100 is all of them busy.
+        assert_eq!(get("cpu_time").value, Some(50.0));
+        assert_eq!(get("cpu_time").max, Some(100.0));
+        // Without --cpustats there is no CPU figure.
+        let mut off = st.clone();
+        off.insert("query_cpu".into(), "OFF".into());
+        let m = manticore_metrics(&off);
+        assert_eq!(m.iter().find(|m| m.key == "cpu_time").unwrap().value, None);
+    }
+
+    /// The statements' CPU is a share of every CPU (100 = all busy), never a
+    /// per-core figure; without the CPU count there is no value.
+    #[test]
+    fn statement_cpu_is_a_share_of_every_cpu() {
+        // 8 s of CPU (in picoseconds) over 4 CPUs: 200.
+        let m = statement_cpu(8e12, Some(4.0));
+        assert_eq!(m.value, Some(200.0));
+        assert_eq!(m.max, Some(100.0));
+        assert!(m.counter);
+        documented(&m);
+        assert_eq!(statement_cpu(8e12, None).value, None);
     }
 }

@@ -40,6 +40,23 @@ impl Source for Empty {
     }
 }
 
+/// Every query answers one row whose columns are the words of the query,
+/// each with the value 1: every figure read by column name gets a value.
+struct Echo;
+
+impl Source for Echo {
+    fn query(&mut self, sql: &str) -> Result<Set> {
+        let mut cols: Vec<&str> = sql
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+            .filter(|w| !w.is_empty())
+            .collect();
+        cols.sort_unstable();
+        cols.dedup();
+        let row = vec![Some("1"); cols.len()];
+        Ok(Set::new(&cols, vec![row]))
+    }
+}
+
 /// Every query fails.
 struct Down;
 
@@ -94,6 +111,77 @@ fn every_preset_survives_a_failing_or_empty_server() {
         let mut empty = Empty;
         let _ = collect(p, &ctx("x"), &mut empty);
     }
+}
+
+/// Every figure of every preset says what it measures and where it comes
+/// from, whatever the server answered; and a key appears once.
+#[test]
+fn every_metric_has_help_and_source() {
+    // The branches that depend on the database (Ingres' imadb, HeavyDB's
+    // information_schema) or on a file (Access, dBase) too.
+    struct Gone(std::path::PathBuf);
+    impl Drop for Gone {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("dbine-monitor-help-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _gone = Gone(dir.clone());
+    let file = dir.join("T.dbf");
+    std::fs::write(&file, vec![0u8; 10]).unwrap();
+    let mut seen = 0;
+    for p in PRESETS {
+        for dbms in ["x", "Microsoft SQL Server", "Informix", "DB2/LINUXX8664"] {
+            let contexts = [
+                ctx(dbms),
+                Ctx {
+                    database: "imadb".into(),
+                    ..ctx(dbms)
+                },
+                Ctx {
+                    database: "information_schema".into(),
+                    ..ctx(dbms)
+                },
+                Ctx {
+                    file: Some(file.to_string_lossy().into_owned()),
+                    ..ctx(dbms)
+                },
+            ];
+            let snaps: Vec<MonitorSnapshot> = contexts
+                .iter()
+                .flat_map(|c| {
+                    [
+                        collect(p, c, &mut Down),
+                        collect(p, c, &mut Empty),
+                        collect(p, c, &mut Echo),
+                    ]
+                })
+                .collect();
+            for snap in &snaps {
+                let mut keys: Vec<&str> = snap.metrics.iter().map(|m| m.key.as_str()).collect();
+                keys.sort_unstable();
+                keys.dedup();
+                assert_eq!(keys.len(), snap.metrics.len(), "{}: duplicate keys", p.id);
+                for m in &snap.metrics {
+                    seen += 1;
+                    assert!(
+                        m.help.as_deref().is_some_and(|h| !h.trim().is_empty()),
+                        "{}: {} has no help",
+                        p.id,
+                        m.key
+                    );
+                    assert!(
+                        m.source.as_deref().is_some_and(|s| !s.trim().is_empty()),
+                        "{}: {} has no source",
+                        p.id,
+                        m.key
+                    );
+                }
+            }
+        }
+    }
+    assert!(seen > 500, "{seen}");
 }
 
 #[test]
@@ -227,8 +315,14 @@ fn db2_luw_sums_members_and_builds_waits() {
         (
             "ENV_GET_SYSTEM_RESOURCES",
             set(
-                &["HOST_NAME", "CPU_USAGE_TOTAL", "MEMORY_TOTAL", "OS_NAME"],
-                &[&["db2srv", "40", "8192", "Linux"]],
+                &[
+                    "HOST_NAME",
+                    "CPU_USAGE_TOTAL",
+                    "MEMORY_TOTAL",
+                    "OS_NAME",
+                    "CPU_ONLINE",
+                ],
+                &[&["db2srv", "40", "8192", "Linux", "4"]],
             ),
         ),
         (
@@ -267,7 +361,10 @@ fn db2_luw_sums_members_and_builds_waits() {
     let s = collect(preset("db2"), &ctx("DB2/LINUXX8664"), &mut f);
     assert_eq!(metric(&s, "cpu"), Some(40.0));
     assert_eq!(metric(&s, "connections"), Some(5.0));
-    assert_eq!(metric(&s, "cpu_time"), Some(300.0));
+    // 3 s of CPU over the 4 CPUs online: 75, so 100 is all of them busy.
+    assert_eq!(metric(&s, "cpu_time"), Some(75.0));
+    let cpu = s.metrics.iter().find(|m| m.key == "cpu_time").unwrap();
+    assert!(cpu.counter && cpu.max == Some(100.0));
     assert_eq!(metric(&s, "cache_hit"), Some(99.0));
     assert_eq!(metric(&s, "mem_used"), Some(2048.0 * 1024.0));
     assert_eq!(
@@ -316,6 +413,7 @@ fn sybase_without_mda_notes_it() {
             set(&["n", "act", "blk"], &[&["10", "2", "1"]]),
         ),
         ("tempdb", set(&["up"], &[&["7200"]])),
+        ("sysengines", set(&["engines"], &[&["4"]])),
         ("monState", None),
         (
             "curunreservedpgs",
@@ -326,7 +424,8 @@ fn sybase_without_mda_notes_it() {
         ),
     ]);
     let s = collect(preset("sybase"), &ctx("Adaptive Server Enterprise"), &mut f);
-    assert_eq!(metric(&s, "cpu_time"), Some(10000.0));
+    // 100 s of CPU over 4 engines: 2500, so 100 is all of them busy.
+    assert_eq!(metric(&s, "cpu_time"), Some(2500.0));
     assert_eq!(metric(&s, "mem_used"), Some(51200.0 * 2048.0));
     assert_eq!(metric(&s, "connections"), Some(10.0));
     assert_eq!(
@@ -433,6 +532,36 @@ fn exasol_without_dba_uses_own_sessions() {
     );
 }
 
+/// "Memoria usada" is the RAM in use, against the database's RAM; the
+/// compressed size of the data is a figure of its own.
+#[test]
+fn exasol_ram_in_use_is_not_the_data_size() {
+    let mut f = Fake::new(vec![
+        (
+            "EXA_MONITOR_LAST_DAY",
+            set(
+                &["MEASURE_TIME", "TEMP_DB_RAM", "PERSISTENT_DB_RAM"],
+                &[&["t", "1024", "3072"]],
+            ),
+        ),
+        (
+            "EXA_DB_SIZE_LAST_DAY",
+            set(&["STORAGE_SIZE", "MEM_OBJECT_SIZE"], &[&["2000", "1000"]]),
+        ),
+        (
+            "EXA_SYSTEM_EVENTS ORDER BY",
+            set(&["DB_RAM_SIZE", "NODES"], &[&["256", "4"]]),
+        ),
+    ]);
+    let s = collect(preset("exasol"), &ctx("EXASolution"), &mut f);
+    let mem = s.metrics.iter().find(|m| m.key == "mem_used").unwrap();
+    assert_eq!(mem.value, Some(4.0 * GB));
+    assert_eq!(mem.max, Some(256.0 * GB));
+    let data = s.metrics.iter().find(|m| m.key == "data_mem_size").unwrap();
+    assert_eq!(data.value, Some(1000.0 * GB));
+    assert_eq!(data.group, "Almacenamiento");
+}
+
 #[test]
 fn vertica_memory_from_host_resources() {
     let mut f = Fake::new(vec![(
@@ -454,6 +583,36 @@ fn vertica_memory_from_host_resources() {
     let s = collect(preset("vertica"), &ctx("Vertica Database"), &mut f);
     assert_eq!(metric(&s, "mem_used"), Some(1000.0));
     assert_eq!(metric(&s, "storage_used"), Some(2.0 * MB));
+}
+
+/// The OS's buffers and file cache aren't memory in use; the session
+/// ceiling is per node.
+#[test]
+fn vertica_leaves_the_os_cache_out_and_scales_the_session_ceiling() {
+    let mut f = Fake::new(vec![
+        (
+            "host_resources",
+            set(
+                &[
+                    "total_memory_bytes",
+                    "total_memory_free_bytes",
+                    "total_buffer_memory_bytes",
+                    "total_memory_cache_bytes",
+                ],
+                &[&["1000", "100", "50", "600"], &["1000", "100", "50", "600"]],
+            ),
+        ),
+        ("MaxClientSessions", set(&["v"], &[&["50"]])),
+        (
+            "v_monitor.sessions",
+            set(&["session_id", "state"], &[&["1", "activa"]]),
+        ),
+    ]);
+    let s = collect(preset("vertica"), &ctx("Vertica Database"), &mut f);
+    assert_eq!(metric(&s, "mem_used"), Some(500.0));
+    assert_eq!(metric(&s, "mem_cache"), Some(1300.0));
+    let conns = s.metrics.iter().find(|m| m.key == "connections").unwrap();
+    assert_eq!(conns.max, Some(100.0));
 }
 
 #[test]

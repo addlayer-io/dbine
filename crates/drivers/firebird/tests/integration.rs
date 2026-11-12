@@ -655,6 +655,14 @@ async fn monitor() {
         );
     }
     eprintln!("info: {:?}\nnotes: {:?}", snap.info, snap.notes);
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty())
+                && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+            "{} has no help or source",
+            m.key
+        );
+    }
     let has = |k: &str| snap.metrics.iter().any(|m| m.key == k && m.value.is_some());
     for k in [
         "mem_used",

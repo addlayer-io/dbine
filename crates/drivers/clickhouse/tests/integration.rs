@@ -709,6 +709,14 @@ async fn monitor(env: &str, id: &str) {
     }
     eprintln!("{id}: info {:?}", snap.info);
     eprintln!("{id}: notes {:#?}", snap.notes);
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty())
+                && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+            "{id}: {} has no help or source",
+            m.key
+        );
+    }
     for k in [
         "cpu",
         "mem_used",

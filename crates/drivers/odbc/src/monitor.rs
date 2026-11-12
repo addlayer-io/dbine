@@ -177,10 +177,12 @@ pub fn std_metric(key: &str, value: Option<f64>) -> Metric {
         _ => (key, "Otros", U::Count, false),
     };
     let m = Metric::new(key, label, group, unit, value);
-    if counter {
-        m.counter()
-    } else {
-        m
+    match key {
+        // A CPU-time counter is a share of every CPU the server may use:
+        // its rate reads 0–100 (see `MetricUnit::Percent`).
+        "cpu_time" => m.counter().max(Some(100.0)),
+        _ if counter => m.counter(),
+        _ => m,
     }
 }
 
@@ -189,6 +191,20 @@ pub fn hit_ratio(misses: Option<f64>, accesses: Option<f64>) -> Option<f64> {
     match (misses, accesses) {
         (Some(m), Some(a)) if a > 0.0 => Some(((1.0 - m / a) * 100.0).clamp(0.0, 100.0)),
         _ => None,
+    }
+}
+
+/// The server's count when it gave one, else the one from the list (which
+/// stops at `MAX_ROWS`), with the matching source.
+fn counted(
+    server: Option<f64>,
+    listed: f64,
+    server_src: &str,
+    list_src: &str,
+) -> (Option<f64>, String) {
+    match server {
+        Some(n) => (Some(n), server_src.to_string()),
+        None => (Some(listed), list_src.to_string()),
     }
 }
 
@@ -285,12 +301,38 @@ impl<'a> Mon<'a> {
         self.snap.metrics.push(m);
     }
 
-    pub fn std(&mut self, key: &str, v: Option<f64>) {
-        self.metric(std_metric(key, v));
+    /// A standard metric with what it measures (`help`) and where its
+    /// value comes from (`source`).
+    pub fn std(&mut self, key: &str, v: Option<f64>, help: &str, source: &str) {
+        self.metric(std_metric(key, v).help(help).source(source));
     }
 
-    pub fn std_max(&mut self, key: &str, v: Option<f64>, max: Option<f64>) {
-        self.metric(std_metric(key, v).max(max.filter(|m| *m > 0.0)));
+    pub fn std_max(
+        &mut self,
+        key: &str,
+        v: Option<f64>,
+        max: Option<f64>,
+        help: &str,
+        source: &str,
+    ) {
+        self.metric(
+            std_metric(key, v)
+                .max(max.filter(|m| *m > 0.0))
+                .help(help)
+                .source(source),
+        );
+    }
+
+    /// One row of figures the server counts (`COUNT(*) AS cnt`…), for the
+    /// counts a list cut at `MAX_ROWS` would fall short of. `None` when the
+    /// query fails or a column is missing.
+    pub fn counts<const N: usize>(&mut self, sql: &str, cols: [&str; N]) -> Option<[f64; N]> {
+        let s = self.q_quiet(sql)?;
+        let mut out = [0.0; N];
+        for (o, c) in out.iter_mut().zip(cols) {
+            *o = s.first(c)?;
+        }
+        Some(out)
     }
 
     pub fn info(&mut self, label: &str, v: Option<impl ToString>) {
@@ -532,8 +574,15 @@ fn sqlserver(m: &mut Mon) {
             "mem_used",
             times(s.first("committed_kb"), KB),
             times(s.first("committed_target_kb"), KB),
+            "Memoria que SQL Server tiene comprometida ahora: buffer pool, planes y conexiones. El máximo es la que se propone usar (committed target), que depende de max server memory y de la memoria libre del equipo.",
+            "sys.dm_os_sys_info: committed_kb (max: committed_target_kb)",
         );
-        m.std("uptime", s.first("uptime_s"));
+        m.std(
+            "uptime",
+            s.first("uptime_s"),
+            "Tiempo desde que arrancó el servicio de SQL Server.",
+            "sys.dm_os_sys_info: DATEDIFF(SECOND, sqlserver_start_time, SYSDATETIME())",
+        );
         m.info("CPU lógicas", s.text("cpu_count"));
         m.info(
             "Memoria física",
@@ -551,8 +600,17 @@ fn sqlserver(m: &mut Mon) {
                   WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' AND record LIKE N'%<SystemHealth>%') r
           ORDER BY ts DESC",
     ) {
-        m.std("cpu", s.first("total_cpu"));
-        m.metric(Metric::new("sql_cpu", "CPU de SQL Server", "CPU", U::Percent, s.first("sql_cpu")));
+        m.std(
+            "cpu",
+            s.first("total_cpu"),
+            "Uso de CPU del equipo en el último registro del monitor de planificadores, que SQL Server escribe una vez por minuto: 100 % equivale a todos los núcleos ocupados. Incluye todo lo que corre en el equipo.",
+            "sys.dm_os_ring_buffers RING_BUFFER_SCHEDULER_MONITOR: 100 − SystemIdle (latest record)",
+        );
+        m.metric(
+            Metric::new("sql_cpu", "CPU de SQL Server", "CPU", U::Percent, s.first("sql_cpu"))
+                .help("Parte de la CPU del equipo que usó el proceso de SQL Server, en el último registro del monitor de planificadores, que SQL Server escribe una vez por minuto: 100 % equivale a todos los núcleos ocupados por SQL Server.")
+                .source("sys.dm_os_ring_buffers RING_BUFFER_SCHEDULER_MONITOR: ProcessUtilization (latest record)"),
+        );
     }
     if let Some(s) = m.q(
         "Contadores de rendimiento",
@@ -564,14 +622,50 @@ fn sqlserver(m: &mut Mon) {
     ) {
         let kv = s.kv();
         let g = |k: &str| kv.get(k).and_then(|v| parse(v));
-        m.std("connections", g("user connections"));
-        m.std("queries", g("batch requests/sec"));
-        m.std("transactions", g("transactions/sec"));
-        m.std("deadlocks", g("number of deadlocks/sec"));
-        m.std("locks_waiting", g("processes blocked"));
-        m.std("mem_cache", times(g("database pages"), 8192.0));
+        const COUNTERS: &str = "sys.dm_os_performance_counters";
+        m.std(
+            "connections",
+            g("user connections"),
+            "Conexiones de usuarios abiertas, incluida la del monitor.",
+            &format!("{COUNTERS}: General Statistics 'User Connections'"),
+        );
+        m.std(
+            "queries",
+            g("batch requests/sec"),
+            "Lotes que recibió el servidor: cada envío de un cliente, con una o muchas sentencias.",
+            &format!("{COUNTERS}: SQL Statistics 'Batch Requests/sec' (a running total)"),
+        );
+        m.std(
+            "transactions",
+            g("transactions/sec"),
+            "Transacciones iniciadas en todas las bases, tempdb incluida.",
+            &format!("{COUNTERS}: Databases 'Transactions/sec', _Total (a running total)"),
+        );
+        m.std(
+            "deadlocks",
+            g("number of deadlocks/sec"),
+            "Deadlocks que SQL Server detectó y resolvió cancelando una de las transacciones (error 1205).",
+            &format!("{COUNTERS}: Locks 'Number of Deadlocks/sec', _Total (a running total)"),
+        );
+        m.std(
+            "locks_waiting",
+            g("processes blocked"),
+            "Procesos bloqueados ahora, esperando un recurso que tiene otra sesión, como un bloqueo.",
+            &format!("{COUNTERS}: General Statistics 'Processes blocked'"),
+        );
+        m.std(
+            "mem_cache",
+            times(g("database pages"), 8192.0),
+            "Páginas de datos que tiene ahora el buffer pool, por 8 KB.",
+            &format!("{COUNTERS}: Buffer Manager 'Database pages' × 8 KB"),
+        );
         match (g("buffer cache hit ratio"), g("buffer cache hit ratio base")) {
-            (Some(h), Some(b)) if b > 0.0 => m.std("cache_hit", Some((h / b * 100.0).min(100.0))),
+            (Some(h), Some(b)) if b > 0.0 => m.std(
+                "cache_hit",
+                Some((h / b * 100.0).min(100.0)),
+                "Porcentaje de páginas que se encontraron en el buffer pool sin leer el disco, según el contador de SQL Server. Si baja de forma sostenida, falta memoria para los datos que se consultan.",
+                &format!("{COUNTERS}: Buffer Manager 'Buffer cache hit ratio' / 'Buffer cache hit ratio base'"),
+            ),
             _ => {}
         }
     }
@@ -593,7 +687,25 @@ fn sqlserver(m: &mut Mon) {
           WHERE s.is_user_process = 1
           ORDER BY CASE WHEN r.session_id IS NULL THEN 1 ELSE 0 END, s.session_id",
     ) {
-        m.std("active_sessions", Some(s.count_where("status", |v| !v.eq_ignore_ascii_case("sleeping"))));
+        // The list stops at 200; the count doesn't.
+        let busy = m.counts(
+            "SELECT COUNT(DISTINCT s.session_id) AS cnt FROM sys.dm_exec_sessions s
+               LEFT JOIN sys.dm_exec_requests r ON r.session_id = s.session_id
+              WHERE s.is_user_process = 1 AND COALESCE(r.status, s.status) <> 'sleeping'",
+            ["cnt"],
+        );
+        let (v, src) = counted(
+            busy.map(|[n]| n),
+            s.count_where("status", |v| !v.eq_ignore_ascii_case("sleeping")),
+            "sys.dm_exec_sessions LEFT JOIN sys.dm_exec_requests: COUNT(DISTINCT session_id) of user sessions whose status isn't sleeping",
+            "sys.dm_exec_sessions LEFT JOIN sys.dm_exec_requests: user sessions whose status isn't sleeping (up to 200)",
+        );
+        m.std(
+            "active_sessions",
+            v,
+            "Sesiones de usuarios con un pedido en curso, incluida la del monitor.",
+            &src,
+        );
         m.table("sessions", "Sesiones", &["ID", "Usuario", "Base", "Cliente", "Estado", "Duración (s)", "Consulta actual"], &s);
     }
     if let Some(s) = m.q_quiet(
@@ -616,7 +728,12 @@ fn sqlserver(m: &mut Mon) {
            FROM sys.databases d JOIN sys.master_files f ON f.database_id = d.database_id
           GROUP BY d.name, d.state_desc ORDER BY d.name",
     ) {
-        m.std("storage_used", s.sum("bytes"));
+        m.std(
+            "storage_used",
+            s.sum("bytes"),
+            "Tamaño de los archivos de datos y de log de todas las bases, con el espacio libre que tengan adentro.",
+            "sys.master_files: SUM(size) × 8 KB",
+        );
         m.table(
             "databases",
             "Bases y tamaños",
@@ -634,8 +751,18 @@ fn db2(m: &mut Mon) {
         "SELECT * FROM TABLE(SYSPROC.ENV_GET_SYSTEM_RESOURCES()) AS T",
     );
     let host_mem = host.as_ref().and_then(|s| times(s.sum("MEMORY_TOTAL"), MB));
+    // The CPUs online on the members' hosts.
+    let host_cpus = host
+        .as_ref()
+        .and_then(|s| s.sum("CPU_ONLINE").or(s.sum("CPU_TOTAL")))
+        .filter(|n| *n > 0.0);
     if let Some(s) = &host {
-        m.std("cpu", s.avg("CPU_USAGE_TOTAL"));
+        m.std(
+            "cpu",
+            s.avg("CPU_USAGE_TOTAL"),
+            "Uso de CPU del host (el promedio de los hosts de los miembros) como lo informa Db2: 100 % equivale a todos los núcleos ocupados. Incluye todo lo que corre en el host.",
+            "SYSPROC.ENV_GET_SYSTEM_RESOURCES(): CPU_USAGE_TOTAL, average of the members",
+        );
         m.info("Servidor", s.text("HOST_NAME"));
         m.info(
             "Sistema operativo",
@@ -654,35 +781,98 @@ fn db2(m: &mut Mon) {
                 SUM(CASE WHEN MEMORY_POOL_TYPE = 'BP' THEN MEMORY_POOL_USED ELSE 0 END) AS BP_KB
            FROM TABLE(MON_GET_MEMORY_POOL(NULL, NULL, -2)) AS T",
     ) {
-        m.std_max("mem_used", times(s.first("USED_KB"), KB), host_mem);
-        m.std("mem_cache", times(s.first("BP_KB"), KB));
+        m.std_max(
+            "mem_used",
+            times(s.first("USED_KB"), KB),
+            host_mem,
+            "Memoria que usan los pools de memoria de Db2 (buffer pools, sort heap, caché de paquetes…) en todos los miembros; el máximo es la memoria del host.",
+            "MON_GET_MEMORY_POOL(NULL, NULL, -2): SUM(MEMORY_POOL_USED) KB (max: ENV_GET_SYSTEM_RESOURCES SUM(MEMORY_TOTAL) MB)",
+        );
+        m.std(
+            "mem_cache",
+            times(s.first("BP_KB"), KB),
+            "Memoria que usan los buffer pools.",
+            "MON_GET_MEMORY_POOL(NULL, NULL, -2): SUM(MEMORY_POOL_USED) WHERE MEMORY_POOL_TYPE = 'BP' (KB)",
+        );
     }
     if let Some(s) = m.q(
         "Métricas de la base (MON_GET_DATABASE)",
         "SELECT * FROM TABLE(MON_GET_DATABASE(-2)) AS T",
     ) {
         let g = |c: &str| s.sum(c);
-        m.std("cpu_time", times(g("TOTAL_CPU_TIME"), 100.0 / 1e6));
-        m.std("connections", g("APPLS_CUR_CONS"));
-        m.std("active_sessions", g("APPLS_IN_DB2"));
-        m.std("queries", g("ACT_COMPLETED_TOTAL"));
+        const DB: &str = "MON_GET_DATABASE(-2)";
+        // Microseconds of CPU over the CPUs online: the rate is the share of
+        // all of them (100 = every CPU busy), never "500 %" for five.
+        m.std(
+            "cpu_time",
+            g("TOTAL_CPU_TIME")
+                .zip(host_cpus)
+                .map(|(us, n)| us / 1e6 * 100.0 / n),
+            "Tiempo de CPU (usuario y sistema) que usó Db2 para esta base, como parte de los núcleos en línea del host: 100 % equivale a todos ocupados con trabajo de la base.",
+            &format!("{DB}: SUM(TOTAL_CPU_TIME) (µs), ÷ ENV_GET_SYSTEM_RESOURCES SUM(CPU_ONLINE)"),
+        );
+        if g("TOTAL_CPU_TIME").is_some() && host_cpus.is_none() {
+            m.note("Sin la cantidad de CPU del host (ENV_GET_SYSTEM_RESOURCES) no se muestra el tiempo de CPU de la base.");
+        }
+        m.std(
+            "connections",
+            g("APPLS_CUR_CONS"),
+            "Aplicaciones conectadas a la base ahora, incluida la del monitor; el máximo es max_connections de la instancia.",
+            &format!("{DB}: SUM(APPLS_CUR_CONS) (max: SYSIBMADM.DBMCFG max_connections)"),
+        );
+        m.std(
+            "active_sessions",
+            g("APPLS_IN_DB2"),
+            "Aplicaciones ejecutando algo dentro de Db2 ahora, incluida la del monitor.",
+            &format!("{DB}: SUM(APPLS_IN_DB2)"),
+        );
+        m.std(
+            "queries",
+            g("ACT_COMPLETED_TOTAL"),
+            "Actividades que terminaron bien: sentencias, llamadas a procedimientos, cargas.",
+            &format!("{DB}: SUM(ACT_COMPLETED_TOTAL)"),
+        );
         m.std(
             "transactions",
             add(g("TOTAL_APP_COMMITS"), g("TOTAL_APP_ROLLBACKS")),
+            "Commits y rollbacks que pidieron las aplicaciones.",
+            &format!("{DB}: SUM(TOTAL_APP_COMMITS + TOTAL_APP_ROLLBACKS)"),
         );
-        m.std("rows_read", g("ROWS_READ"));
+        m.std(
+            "rows_read",
+            g("ROWS_READ"),
+            "Filas que leyó Db2 de las tablas, también las que después descartó un filtro. Si crece mucho más que las filas que se devuelven, hay recorridos de tablas.",
+            &format!("{DB}: SUM(ROWS_READ)"),
+        );
         m.std(
             "rows_written",
             add(
                 add(g("ROWS_INSERTED"), g("ROWS_UPDATED")),
                 g("ROWS_DELETED"),
             ),
+            "Filas insertadas, actualizadas y borradas.",
+            &format!("{DB}: SUM(ROWS_INSERTED + ROWS_UPDATED + ROWS_DELETED)"),
         );
-        m.std("net_in", g("TCPIP_RECV_VOLUME"));
-        m.std("net_out", g("TCPIP_SEND_VOLUME"));
+        m.std(
+            "net_in",
+            g("TCPIP_RECV_VOLUME"),
+            "Bytes que la base recibió de los clientes por TCP/IP.",
+            &format!("{DB}: SUM(TCPIP_RECV_VOLUME)"),
+        );
+        m.std(
+            "net_out",
+            g("TCPIP_SEND_VOLUME"),
+            "Bytes que la base envió a los clientes por TCP/IP.",
+            &format!("{DB}: SUM(TCPIP_SEND_VOLUME)"),
+        );
         let logical = add(g("POOL_DATA_L_READS"), g("POOL_INDEX_L_READS"));
         let physical = add(g("POOL_DATA_P_READS"), g("POOL_INDEX_P_READS"));
-        m.std("cache_hit", hit_ratio(physical, logical));
+        m.std(
+            "cache_hit",
+            hit_ratio(physical, logical),
+            "Porcentaje de lecturas de páginas de datos e índices que se resolvieron en los buffer pools, acumulado desde que se activó la base. Si baja, los buffer pools quedaron chicos.",
+            &format!("{DB}: 1 − (POOL_DATA_P_READS + POOL_INDEX_P_READS) / (POOL_DATA_L_READS + POOL_INDEX_L_READS)"),
+        );
         m.metric(
             Metric::new(
                 "physical_reads",
@@ -691,10 +881,22 @@ fn db2(m: &mut Mon) {
                 U::Count,
                 physical,
             )
-            .counter(),
+            .counter()
+            .help("Páginas de datos e índices que se leyeron del disco porque no estaban en los buffer pools.")
+            .source(&format!("{DB}: SUM(POOL_DATA_P_READS + POOL_INDEX_P_READS)")),
         );
-        m.std("locks_waiting", g("NUM_LOCKS_WAITING"));
-        m.std("deadlocks", g("DEADLOCKS"));
+        m.std(
+            "locks_waiting",
+            g("NUM_LOCKS_WAITING"),
+            "Agentes esperando un bloqueo ahora.",
+            &format!("{DB}: SUM(NUM_LOCKS_WAITING)"),
+        );
+        m.std(
+            "deadlocks",
+            g("DEADLOCKS"),
+            "Deadlocks que Db2 detectó y resolvió revirtiendo una de las transacciones.",
+            &format!("{DB}: SUM(DEADLOCKS)"),
+        );
         m.metric(
             Metric::new(
                 "lock_timeouts",
@@ -703,7 +905,9 @@ fn db2(m: &mut Mon) {
                 U::Count,
                 g("LOCK_TIMEOUTS"),
             )
-            .counter(),
+            .counter()
+            .help("Pedidos de bloqueo que se cancelaron por esperar más que LOCKTIMEOUT.")
+            .source(&format!("{DB}: SUM(LOCK_TIMEOUTS)")),
         );
         let waits: Vec<Vec<Value>> = [
             ("Bloqueos", "LOCK_WAIT_TIME"),
@@ -731,7 +935,12 @@ fn db2(m: &mut Mon) {
     if let Some(s) = m.q_quiet(
         "SELECT TIMESTAMPDIFF(2, CHAR(CURRENT TIMESTAMP - MIN(DB_CONN_TIME))) AS UP FROM TABLE(MON_GET_DATABASE(-2)) AS T",
     ) {
-        m.std("uptime", s.first("UP"));
+        m.std(
+            "uptime",
+            s.first("UP"),
+            "Tiempo desde que se activó la base, con la primera conexión o con ACTIVATE DATABASE.",
+            "MON_GET_DATABASE(-2): CURRENT TIMESTAMP − MIN(DB_CONN_TIME)",
+        );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYSIBMADM.ENV_INST_INFO") {
         m.info("Instancia", s.text("INST_NAME"));
@@ -776,7 +985,13 @@ fn db2(m: &mut Mon) {
         "SELECT TBSP_NAME, TBSP_TYPE, SUM(TBSP_USED_PAGES * TBSP_PAGE_SIZE) AS USED, SUM(TBSP_TOTAL_PAGES * TBSP_PAGE_SIZE) AS TOTAL
            FROM TABLE(MON_GET_TABLESPACE(NULL, -2)) AS T GROUP BY TBSP_NAME, TBSP_TYPE ORDER BY 3 DESC",
     ) {
-        m.std_max("storage_used", s.sum("USED"), s.sum("TOTAL"));
+        m.std_max(
+            "storage_used",
+            s.sum("USED"),
+            s.sum("TOTAL"),
+            "Espacio usado por los espacios de tablas; el máximo es el que tienen asignado.",
+            "MON_GET_TABLESPACE(NULL, -2): SUM(TBSP_USED_PAGES × TBSP_PAGE_SIZE) (max: SUM(TBSP_TOTAL_PAGES × TBSP_PAGE_SIZE))",
+        );
         m.table("tablespaces", "Espacios de tablas", &["Nombre", "Tipo", "Usado (bytes)", "Total (bytes)"], &s);
     }
     if let Some(s) = m.q_quiet(
@@ -798,7 +1013,12 @@ fn db2(m: &mut Mon) {
            FROM TABLE(MON_GET_HADR(NULL)) AS T",
     ) {
         if !s.rows.is_empty() {
-            m.std("replication_lag", s.avg("LAG_S").map(|v| v.max(0.0)));
+            m.std(
+                "replication_lag",
+                s.avg("LAG_S").map(|v| v.max(0.0)),
+                "Atraso de HADR: tiempo entre el último log del primario y el último que aplicó el standby, promedio de los standby.",
+                "MON_GET_HADR(NULL): PRIMARY_LOG_TIME − STANDBY_REPLAY_LOG_TIME, average of the standbys",
+            );
             m.info("Rol HADR", s.text("HADR_ROLE"));
             m.table(
                 "replication",
@@ -835,7 +1055,12 @@ fn db2zos(m: &mut Mon) {
             ts.and_then(|s| s.first("KB")),
             ix.and_then(|s| s.first("KB")),
         );
-        m.std("storage_used", times(kb, KB));
+        m.std(
+            "storage_used",
+            times(kb, KB),
+            "Espacio asignado a los espacios de tablas y de índices, según las estadísticas en tiempo real.",
+            "SYSIBM.SYSTABLESPACESTATS + SYSIBM.SYSINDEXSPACESTATS: SUM(SPACE) (KB)",
+        );
     }
     if let Some(s) = m.q_quiet(
         "SELECT DBNAME, NAME, TOTALROWS, SPACE * 1024 AS BYTES FROM SYSIBM.SYSTABLESPACESTATS
@@ -856,13 +1081,21 @@ fn db2i(m: &mut Mon) {
         "Estado del sistema (QSYS2.SYSTEM_STATUS_INFO)",
         "SELECT * FROM QSYS2.SYSTEM_STATUS_INFO",
     ) {
-        m.std("cpu", s.first("AVERAGE_CPU_UTILIZATION"));
+        const STATUS: &str = "QSYS2.SYSTEM_STATUS_INFO";
+        m.std(
+            "cpu",
+            s.first("AVERAGE_CPU_UTILIZATION"),
+            "Uso de CPU promedio de los procesadores activos de la partición, como lo informa IBM i: 100 % equivale a toda la capacidad que tiene asignada.",
+            &format!("{STATUS}: AVERAGE_CPU_UTILIZATION"),
+        );
         m.std_max(
             "storage_used",
             times(s.first("SYSTEM_ASP_STORAGE"), MB)
                 .zip(s.first("SYSTEM_ASP_USED"))
                 .map(|(t, p)| t * p / 100.0),
             times(s.first("SYSTEM_ASP_STORAGE"), MB),
+            "Espacio usado del ASP del sistema, el almacenamiento de todo IBM i y no solo de la base; el máximo es su tamaño.",
+            &format!("{STATUS}: SYSTEM_ASP_STORAGE (MB) × SYSTEM_ASP_USED (%) (max: SYSTEM_ASP_STORAGE)"),
         );
         m.metric(
             Metric::new(
@@ -872,15 +1105,21 @@ fn db2i(m: &mut Mon) {
                 U::Count,
                 s.first("ACTIVE_JOBS_IN_SYSTEM"),
             )
-            .max(s.first("MAXIMUM_JOBS_IN_SYSTEM")),
+            .max(s.first("MAXIMUM_JOBS_IN_SYSTEM"))
+            .help("Trabajos activos en el sistema, de cualquier tipo; el máximo es el que permite el valor del sistema QMAXJOB.")
+            .source(&format!("{STATUS}: ACTIVE_JOBS_IN_SYSTEM (max: MAXIMUM_JOBS_IN_SYSTEM)")),
         );
-        m.metric(Metric::new(
-            "temp_storage",
-            "Almacenamiento temporal",
-            "Memoria",
-            U::Bytes,
-            times(s.first("CURRENT_TEMPORARY_STORAGE"), MB),
-        ));
+        m.metric(
+            Metric::new(
+                "temp_storage",
+                "Almacenamiento temporal",
+                "Memoria",
+                U::Bytes,
+                times(s.first("CURRENT_TEMPORARY_STORAGE"), MB),
+            )
+            .help("Almacenamiento temporal que usan ahora los trabajos del sistema.")
+            .source(&format!("{STATUS}: CURRENT_TEMPORARY_STORAGE (MB)")),
+        );
         m.info("Servidor", s.text("HOST_NAME"));
         m.info("Partición", s.text("PARTITION_NAME"));
         m.info("CPU configuradas", s.text("CONFIGURED_CPUS"));
@@ -897,8 +1136,31 @@ fn db2i(m: &mut Mon) {
            FROM TABLE(QSYS2.ACTIVE_JOB_INFO(JOB_NAME_FILTER => 'QZDASOINIT', DETAILED_INFO => 'ALL')) X
           WHERE JOB_STATUS <> 'PSRW' FETCH FIRST 200 ROWS ONLY",
     ) {
-        m.std("connections", Some(s.rows.len() as f64));
-        m.std("active_sessions", Some(s.count_where("SQL_STATEMENT_STATUS", |v| v.eq_ignore_ascii_case("ACTIVE"))));
+        const JOBS: &str = "QSYS2.ACTIVE_JOB_INFO(JOB_NAME_FILTER => 'QZDASOINIT')";
+        // The list stops at 200; the count doesn't (and needs no details).
+        let n = m.counts(
+            "SELECT COUNT(*) AS CNT FROM TABLE(QSYS2.ACTIVE_JOB_INFO(JOB_NAME_FILTER => 'QZDASOINIT')) X
+              WHERE JOB_STATUS <> 'PSRW'",
+            ["CNT"],
+        );
+        let (v, src) = counted(
+            n.map(|[n]| n),
+            s.rows.len() as f64,
+            &format!("{JOBS}: COUNT(*) WHERE JOB_STATUS <> 'PSRW'"),
+            &format!("{JOBS}: rows with JOB_STATUS <> 'PSRW' (up to 200)"),
+        );
+        m.std(
+            "connections",
+            v,
+            "Trabajos servidores de base de datos (QZDASOINIT) con un cliente, los que atienden ODBC y JDBC; no cuenta los que esperan una conexión.",
+            &src,
+        );
+        m.std(
+            "active_sessions",
+            Some(s.count_where("SQL_STATEMENT_STATUS", |v| v.eq_ignore_ascii_case("ACTIVE"))),
+            "Trabajos servidores de base de datos (QZDASOINIT) que ejecutan una sentencia SQL ahora, incluido el del monitor.",
+            &format!("{JOBS}: rows with SQL_STATEMENT_STATUS = 'ACTIVE' (up to 200)"),
+        );
         m.table("sessions", "Sesiones", &["Trabajo", "Usuario", "Cliente", "Estado", "Sentencia", "Consulta actual"], &s);
     }
     if let Some(s) = m.q_quiet(
@@ -918,6 +1180,13 @@ fn db2i(m: &mut Mon) {
 // ------------------------------------------------------------ Sybase ASE
 
 fn ase(m: &mut Mon) {
+    // Each engine is a thread (or process) on one CPU at a time: the CPU
+    // times below are summed over all of them.
+    let engines = m
+        .q_quiet("SELECT COUNT(*) AS engines FROM master..sysengines")
+        .and_then(|s| s.first("engines"))
+        .filter(|n| *n > 0.0);
+    const CPU_HELP: &str = "Tiempo de CPU que usaron los engines de ASE, como parte de todos ellos (cada engine usa una CPU a la vez): 100 % equivale a todos los engines ocupados.";
     if let Some(s) = m.q(
         "Variables globales",
         "SELECT @@servername AS srv, @@max_connections AS maxc, @@maxpagesize AS pg, @@cpu_busy AS busy, @@timeticks AS tt,
@@ -925,12 +1194,31 @@ fn ase(m: &mut Mon) {
     ) {
         m.info("Servidor", s.text("srv"));
         m.info("Tamaño de página", s.text("pg"));
-        // Ticks of CPU busy × µs per tick.
+        // Ticks of CPU busy × µs per tick, over the engines: the rate is
+        // the share of all of them, never "500 %" for five busy engines.
         if let (Some(b), Some(tt)) = (s.first("busy"), s.first("tt")) {
-            m.std("cpu_time", Some(b * tt / 1e6 * 100.0));
+            m.std(
+                "cpu_time",
+                engines.map(|n| b * tt / 1e6 * 100.0 / n),
+                CPU_HELP,
+                "@@cpu_busy × @@timeticks (µs), ÷ master..sysengines COUNT(*)",
+            );
+            if engines.is_none() {
+                m.note("Sin la cantidad de engines (master..sysengines) no se muestra el tiempo de CPU.");
+            }
         }
-        m.metric(Metric::new("disk_reads", "Lecturas de disco", "Disco", U::Count, s.first("rd")).counter());
-        m.metric(Metric::new("disk_writes", "Escrituras en disco", "Disco", U::Count, s.first("wr")).counter());
+        m.metric(
+            Metric::new("disk_reads", "Lecturas de disco", "Disco", U::Count, s.first("rd"))
+                .counter()
+                .help("Lecturas de disco que hizo el servidor.")
+                .source("@@total_read"),
+        );
+        m.metric(
+            Metric::new("disk_writes", "Escrituras en disco", "Disco", U::Count, s.first("wr"))
+                .counter()
+                .help("Escrituras en disco que hizo el servidor.")
+                .source("@@total_write"),
+        );
     }
     let mut maxc = None;
     if let Some(s) = m.q_quiet(
@@ -940,7 +1228,13 @@ fn ase(m: &mut Mon) {
         let kv = s.kv();
         let g = |k: &str| kv.get(k).and_then(|v| parse(v));
         // Memory settings are in 2 KB pages.
-        m.std_max("mem_used", times(g("total logical memory"), 2048.0), times(g("max memory"), 2048.0));
+        m.std_max(
+            "mem_used",
+            times(g("total logical memory"), 2048.0),
+            times(g("max memory"), 2048.0),
+            "Memoria que ocupa la configuración actual del servidor (cachés, procedimientos, conexiones); el máximo es max memory.",
+            "master..syscurconfigs: 'total logical memory' × 2 KB (max: 'max memory' × 2 KB)",
+        );
         maxc = g("number of user connections");
         m.info("number of user connections", maxc);
     }
@@ -950,18 +1244,54 @@ fn ase(m: &mut Mon) {
                 SUM(CASE WHEN blocked > 0 THEN 1 ELSE 0 END) AS blk
            FROM master..sysprocesses WHERE suid > 0",
     ) {
-        m.std_max("connections", s.first("n"), maxc);
-        m.std("active_sessions", s.first("act"));
-        m.std("locks_waiting", s.first("blk"));
+        m.std_max(
+            "connections",
+            s.first("n"),
+            maxc,
+            "Procesos de usuarios conectados, incluido el del monitor; el máximo es number of user connections.",
+            "master..sysprocesses: COUNT(*) WHERE suid > 0 (max: syscurconfigs 'number of user connections')",
+        );
+        m.std(
+            "active_sessions",
+            s.first("act"),
+            "Procesos de usuarios ejecutando un comando ahora, incluido el del monitor.",
+            "master..sysprocesses: COUNT(*) WHERE suid > 0 AND cmd <> 'AWAITING COMMAND'",
+        );
+        m.std(
+            "locks_waiting",
+            s.first("blk"),
+            "Procesos esperando un bloqueo que tiene otro proceso.",
+            "master..sysprocesses: COUNT(*) WHERE suid > 0 AND blocked > 0",
+        );
     }
     if let Some(s) = m.q_quiet("SELECT datediff(ss, crdate, getdate()) AS up FROM master..sysdatabases WHERE name = 'tempdb'") {
-        m.std("uptime", s.first("up"));
+        m.std(
+            "uptime",
+            s.first("up"),
+            "Tiempo desde que arrancó el servidor, según cuándo se volvió a crear tempdb.",
+            "master..sysdatabases: datediff(ss, crdate, getdate()) WHERE name = 'tempdb'",
+        );
     }
     match m.q_quiet("SELECT * FROM master..monState") {
         Some(s) => {
-            m.std("transactions", s.first("Transactions"));
-            m.std("deadlocks", s.first("NumDeadlocks"));
-            m.metric(Metric::new("lock_waits", "Esperas de bloqueo", "Bloqueos", U::Count, s.first("LockWaits")).counter());
+            m.std(
+                "transactions",
+                s.first("Transactions"),
+                "Transacciones confirmadas en el servidor.",
+                "master..monState: Transactions",
+            );
+            m.std(
+                "deadlocks",
+                s.first("NumDeadlocks"),
+                "Deadlocks que ASE detectó y resolvió cancelando una de las transacciones.",
+                "master..monState: NumDeadlocks",
+            );
+            m.metric(
+                Metric::new("lock_waits", "Esperas de bloqueo", "Bloqueos", U::Count, s.first("LockWaits"))
+                    .counter()
+                    .help("Veces que un proceso tuvo que esperar un bloqueo.")
+                    .source("master..monState: LockWaits"),
+            );
         }
         None => m.note(
             "Las tablas MDA (monState, monDataCache, monEngine) no están disponibles: hace falta «enable monitoring» y el rol mon_role para ver transacciones, deadlocks y aciertos de caché.",
@@ -970,14 +1300,23 @@ fn ase(m: &mut Mon) {
     if let Some(s) = m.q_quiet(
         "SELECT SUM(LogicalReads) AS lr, SUM(PhysicalReads) AS pr FROM master..monDataCache",
     ) {
-        m.std("cache_hit", hit_ratio(s.first("pr"), s.first("lr")));
+        m.std(
+            "cache_hit",
+            hit_ratio(s.first("pr"), s.first("lr")),
+            "Porcentaje de lecturas lógicas que encontraron la página en las cachés de datos, acumulado desde el arranque. Si baja, las cachés quedaron chicas.",
+            "master..monDataCache: 1 − SUM(PhysicalReads) / SUM(LogicalReads)",
+        );
     }
     if let Some(s) =
         m.q_quiet("SELECT SUM(UserCPUTime + SystemCPUTime) AS busy FROM master..monEngine")
     {
         if let Some(b) = s.first("busy") {
             if let Some(c) = m.snap.metrics.iter_mut().find(|x| x.key == "cpu_time") {
-                c.value = Some(b * 100.0);
+                c.value = engines.map(|n| b * 100.0 / n);
+                c.source = Some(
+                    "master..monEngine: SUM(UserCPUTime + SystemCPUTime) (seconds), ÷ master..sysengines COUNT(*)"
+                        .into(),
+                );
             }
         }
     }
@@ -1003,7 +1342,13 @@ fn ase(m: &mut Mon) {
             (Some(t), Some(f)) => Some(t - f),
             _ => None,
         };
-        m.std_max("storage_used", used, s.sum("total"));
+        m.std_max(
+            "storage_used",
+            used,
+            s.sum("total"),
+            "Espacio usado en todas las bases (el asignado menos el libre); el máximo es el asignado.",
+            "master..sysusages: (SUM(size) − SUM(curunreservedpgs(…))) × @@maxpagesize (max: SUM(size) × @@maxpagesize)",
+        );
         m.table("databases", "Bases y tamaños", &["Base", "Tamaño (bytes)", "Libre (bytes)"], &s);
     }
     if let Some(s) = m.q_quiet(
@@ -1033,23 +1378,88 @@ fn sqla(m: &mut Mon) {
         m.info("Servidor", s.text("srv"));
         m.info("Equipo", s.text("host"));
         m.info("CPU en uso", s.text("cpus"));
-        m.std("uptime", s.first("up"));
-        m.std("cpu_time", times(s.first("cpu"), 100.0));
-        m.std_max("mem_cache", times(s.first("cache_kb"), KB), times(s.first("max_cache_kb"), KB));
-        m.std("net_in", s.first("net_in"));
-        m.std("net_out", s.first("net_out"));
-        m.std("connections", s.first("conns"));
-        m.std("active_sessions", s.first("active"));
-        m.std("transactions", s.first("commits"));
-        m.std("cache_hit", match (s.first("cache_hits"), s.first("cache_reads")) {
-            (Some(h), Some(r)) if r > 0.0 => Some((h / r * 100.0).min(100.0)),
-            _ => None,
-        });
+        m.std(
+            "uptime",
+            s.first("up"),
+            "Tiempo desde que arrancó el servidor.",
+            "DATEDIFF(second, PROPERTY('StartTime'), NOW())",
+        );
+        // Seconds of CPU over the logical processors the server uses: the
+        // rate is the share of all of them, never "500 %" for five.
+        let cpus = s.first("cpus").filter(|n| *n > 0.0);
+        m.std(
+            "cpu_time",
+            s.first("cpu").zip(cpus).map(|(c, n)| c * 100.0 / n),
+            "Tiempo de CPU del proceso del servidor como parte de los procesadores lógicos que usa: 100 % equivale a todos ocupados.",
+            "PROPERTY('ProcessCPU') (seconds), ÷ PROPERTY('NumLogicalProcessorsUsed')",
+        );
+        m.std_max(
+            "mem_cache",
+            times(s.first("cache_kb"), KB),
+            times(s.first("max_cache_kb"), KB),
+            "Tamaño actual de la caché del servidor, que crece y se achica sola según la carga; el máximo es el que puede alcanzar.",
+            "PROPERTY('CurrentCacheSize') KB (max: PROPERTY('MaxCacheSize') KB)",
+        );
+        m.std(
+            "net_in",
+            s.first("net_in"),
+            "Bytes que el servidor recibió de los clientes.",
+            "PROPERTY('BytesReceived')",
+        );
+        m.std(
+            "net_out",
+            s.first("net_out"),
+            "Bytes que el servidor envió a los clientes.",
+            "PROPERTY('BytesSent')",
+        );
+        m.std(
+            "connections",
+            s.first("conns"),
+            "Conexiones a la base actual, incluida la del monitor.",
+            "DB_PROPERTY('ConnCount')",
+        );
+        m.std(
+            "active_sessions",
+            s.first("active"),
+            "Pedidos que el servidor está procesando ahora, incluido el del monitor.",
+            "PROPERTY('ActiveReq')",
+        );
+        m.std(
+            "transactions",
+            s.first("commits"),
+            "Commits en la base actual.",
+            "DB_PROPERTY('Commit')",
+        );
+        m.std(
+            "cache_hit",
+            match (s.first("cache_hits"), s.first("cache_reads")) {
+                (Some(h), Some(r)) if r > 0.0 => Some((h / r * 100.0).min(100.0)),
+                _ => None,
+            },
+            "Porcentaje de lecturas de la caché que encontraron la página sin ir al disco, en la base actual y acumulado desde que se abrió.",
+            "DB_PROPERTY('CacheHits') / DB_PROPERTY('CacheRead')",
+        );
         if let Some(p) = page {
-            m.std("disk_read", times(s.first("disk_read"), p));
-            m.std("disk_write", times(s.first("disk_write"), p));
+            m.std(
+                "disk_read",
+                times(s.first("disk_read"), p),
+                "Bytes que la base actual leyó del disco: páginas por el tamaño de página.",
+                "DB_PROPERTY('DiskRead') × DB_PROPERTY('PageSize')",
+            );
+            m.std(
+                "disk_write",
+                times(s.first("disk_write"), p),
+                "Bytes que la base actual escribió en disco: páginas por el tamaño de página.",
+                "DB_PROPERTY('DiskWrite') × DB_PROPERTY('PageSize')",
+            );
             if let Some(f) = s.first("file_pages") {
-                m.std_max("storage_used", Some((f - s.first("free_pages").unwrap_or(0.0)) * p), Some(f * p));
+                m.std_max(
+                    "storage_used",
+                    Some((f - s.first("free_pages").unwrap_or(0.0)) * p),
+                    Some(f * p),
+                    "Espacio usado en el archivo principal de la base actual; el máximo es el tamaño del archivo.",
+                    "(DB_PROPERTY('FileSize') − DB_PROPERTY('FreePages')) × DB_PROPERTY('PageSize') (max: FileSize × PageSize)",
+                );
             }
         }
     }
@@ -1059,7 +1469,22 @@ fn sqla(m: &mut Mon) {
                 LastReqTime, BlockedOn, CAST(LEFT(CONNECTION_PROPERTY('LastStatement', Number), 2000) AS LONG VARCHAR) AS stmt
            FROM sa_conn_info() ORDER BY Number",
     ) {
-        m.std("locks_waiting", Some(s.count_where("BlockedOn", |v| v != "0")));
+        let n = m.counts(
+            "SELECT COUNT(*) AS cnt FROM sa_conn_info() WHERE BlockedOn <> 0",
+            ["cnt"],
+        );
+        let (v, src) = counted(
+            n.map(|[n]| n),
+            s.count_where("BlockedOn", |v| v != "0"),
+            "sa_conn_info(): COUNT(*) WHERE BlockedOn <> 0",
+            "sa_conn_info(): rows with BlockedOn <> 0 (up to 200)",
+        );
+        m.std(
+            "locks_waiting",
+            v,
+            "Conexiones esperando un bloqueo que tiene otra conexión.",
+            &src,
+        );
         m.table("sessions", "Sesiones", &["ID", "Usuario", "Base", "Cliente", "Estado", "Último pedido", "Bloqueada por", "Última sentencia"], &s);
     }
     if let Some(s) = m.q_quiet(
@@ -1086,29 +1511,39 @@ fn hive(m: &mut Mon) {
         m.std(
             "locks_waiting",
             Some(s.count_where("lock_state", |v| v.eq_ignore_ascii_case("WAITING"))),
+            "Bloqueos pedidos que esperan que se libere otro, según el gestor de transacciones de Hive.",
+            "SHOW LOCKS: rows with lock_state = 'WAITING'",
         );
         m.table_raw("locks", "Bloqueos", &s);
     }
     if let Some(s) = m.q_quiet("SHOW TRANSACTIONS") {
-        m.metric(Metric::new(
-            "open_transactions",
-            "Transacciones abiertas",
-            "Actividad",
-            U::Count,
-            Some(s.count_where("state", |v| v.eq_ignore_ascii_case("OPEN"))),
-        ));
+        m.metric(
+            Metric::new(
+                "open_transactions",
+                "Transacciones abiertas",
+                "Actividad",
+                U::Count,
+                Some(s.count_where("state", |v| v.eq_ignore_ascii_case("OPEN"))),
+            )
+            .help("Transacciones ACID abiertas en el metastore. Una que queda abierta mucho tiempo frena las compactaciones.")
+            .source("SHOW TRANSACTIONS: rows with state = 'OPEN'"),
+        );
     }
     if let Some(s) = m.q_quiet("SHOW COMPACTIONS") {
-        m.metric(Metric::new(
-            "compactions",
-            "Compactaciones en curso o en cola",
-            "Almacenamiento",
-            U::Count,
-            Some(s.count_where("state", |v| {
-                let v = v.to_ascii_lowercase();
-                v.contains("initiated") || v.contains("working")
-            })),
-        ));
+        m.metric(
+            Metric::new(
+                "compactions",
+                "Compactaciones en curso o en cola",
+                "Almacenamiento",
+                U::Count,
+                Some(s.count_where("state", |v| {
+                    let v = v.to_ascii_lowercase();
+                    v.contains("initiated") || v.contains("working")
+                })),
+            )
+            .help("Compactaciones de tablas ACID en cola o en curso. Si se acumulan, las lecturas se vuelven más lentas por la cantidad de archivos delta.")
+            .source("SHOW COMPACTIONS: rows whose state is initiated or working"),
+        );
         m.table_raw("compactions", "Compactaciones", &s);
     }
     m.note("HiveServer2 no informa CPU, memoria ni sesiones por SQL: se ven en su interfaz web (puerto 10002) o por JMX.");
@@ -1123,7 +1558,27 @@ fn impala(m: &mut Mon) {
            FROM sys.impala_query_live ORDER BY total_time_ms DESC LIMIT 200",
     ) {
         Some(s) => {
-            m.std("active_sessions", Some(s.rows.len() as f64));
+            // The view also keeps recently finished queries until they go
+            // to sys.impala_query_log.
+            let n = m.counts(
+                "SELECT count(*) AS cnt FROM sys.impala_query_live
+                  WHERE upper(query_state) NOT IN ('FINISHED', 'EXCEPTION')",
+                ["cnt"],
+            );
+            let (v, src) = counted(
+                n.map(|[n]| n),
+                s.count_where("query_state", |v| {
+                    !matches!(v.to_ascii_uppercase().as_str(), "FINISHED" | "EXCEPTION")
+                }),
+                "sys.impala_query_live: count(*) WHERE query_state NOT IN ('FINISHED', 'EXCEPTION')",
+                "sys.impala_query_live: rows whose query_state isn't FINISHED or EXCEPTION (up to 200)",
+            );
+            m.std(
+                "active_sessions",
+                v,
+                "Consultas que el cluster está ejecutando ahora, según los coordinadores; no cuenta las recién terminadas que la vista todavía muestra.",
+                &src,
+            );
             m.table("queries", "Consultas en curso", &["ID", "Usuario", "Base", "Estado", "Duración (ms)", "Coordinador", "Consulta"], &s);
         }
         None => m.note(
@@ -1144,14 +1599,38 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
         "Memoria compartida (sysshmvals)",
         "SELECT sh_curtime - sh_boottime AS up FROM sysmaster:sysshmvals",
     ) {
-        m.std("uptime", s.first("up"));
+        m.std(
+            "uptime",
+            s.first("up"),
+            "Tiempo desde que arrancó la instancia.",
+            "sysmaster:sysshmvals: sh_curtime − sh_boottime",
+        );
     }
     if let Some(s) = m.q_quiet("SELECT SUM(usecs_user + usecs_sys) AS cpu FROM sysmaster:sysvplst")
     {
-        m.std("cpu_time", times(s.first("cpu"), 100.0));
+        // CPU seconds of every virtual processor over the machine's online
+        // processors: the rate is the share of all of them (100 = all busy).
+        let cpus = m
+            .q_quiet("SELECT os_num_olprocs AS n FROM sysmaster:sysmachineinfo")
+            .and_then(|c| c.first("n"))
+            .filter(|n| *n > 0.0);
+        m.std(
+            "cpu_time",
+            s.first("cpu").zip(cpus).map(|(c, n)| c * 100.0 / n),
+            "Tiempo de CPU (usuario y sistema) de los procesadores virtuales de la instancia, como parte de los procesadores en línea del equipo: 100 % equivale a todos ocupados.",
+            "sysmaster:sysvplst: SUM(usecs_user + usecs_sys) (read as seconds), ÷ sysmaster:sysmachineinfo os_num_olprocs",
+        );
+        if cpus.is_none() {
+            m.note("Sin la cantidad de procesadores del equipo (sysmaster:sysmachineinfo) no se muestra el tiempo de CPU.");
+        }
     }
     if let Some(s) = m.q_quiet("SELECT SUM(seg_size) AS sz FROM sysmaster:sysseglst") {
-        m.std("mem_used", s.first("sz"));
+        m.std(
+            "mem_used",
+            s.first("sz"),
+            "Memoria compartida que tiene asignada la instancia, en todos sus segmentos: residente, virtual y de mensajes.",
+            "sysmaster:sysseglst: SUM(seg_size)",
+        );
     }
     if let Some(s) = m.q(
         "Perfil del servidor (sysprofile)",
@@ -1159,9 +1638,25 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
     ) {
         let kv = s.kv();
         let g = |k: &str| kv.get(k).and_then(|v| parse(v));
-        m.std("transactions", add(g("commits"), g("rollbacks")));
-        m.std("deadlocks", g("deadlks"));
-        m.std("cache_hit", hit_ratio(g("dskreads"), g("bufreads")));
+        const PROFILE: &str = "sysmaster:sysprofile";
+        m.std(
+            "transactions",
+            add(g("commits"), g("rollbacks")),
+            "Commits y rollbacks de la instancia. Los contadores de sysprofile vuelven a cero con onstat -z.",
+            &format!("{PROFILE}: commits + rollbacks"),
+        );
+        m.std(
+            "deadlocks",
+            g("deadlks"),
+            "Deadlocks que detectó la instancia.",
+            &format!("{PROFILE}: deadlks"),
+        );
+        m.std(
+            "cache_hit",
+            hit_ratio(g("dskreads"), g("bufreads")),
+            "Porcentaje de lecturas de páginas que se resolvieron en los buffers sin ir al disco, acumulado desde el arranque o desde el último onstat -z. Si baja, faltan buffers.",
+            &format!("{PROFILE}: 1 − dskreads / bufreads"),
+        );
         m.metric(
             Metric::new(
                 "isam_calls",
@@ -1170,7 +1665,9 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
                 U::Count,
                 g("isamtot"),
             )
-            .counter(),
+            .counter()
+            .help("Operaciones de bajo nivel sobre las tablas (lecturas, escrituras, aperturas…): la medida de trabajo de la instancia.")
+            .source(&format!("{PROFILE}: isamtot")),
         );
         m.metric(
             Metric::new(
@@ -1180,7 +1677,9 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
                 U::Count,
                 g("dskreads"),
             )
-            .counter(),
+            .counter()
+            .help("Lecturas físicas de disco.")
+            .source(&format!("{PROFILE}: dskreads")),
         );
         m.metric(
             Metric::new(
@@ -1190,7 +1689,9 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
                 U::Count,
                 g("dskwrites"),
             )
-            .counter(),
+            .counter()
+            .help("Escrituras físicas en disco.")
+            .source(&format!("{PROFILE}: dskwrites")),
         );
         m.metric(
             Metric::new(
@@ -1200,7 +1701,9 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
                 U::Count,
                 g("lockwts"),
             )
-            .counter(),
+            .counter()
+            .help("Veces que una sesión tuvo que esperar un bloqueo.")
+            .source(&format!("{PROFILE}: lockwts")),
         );
         m.metric(
             Metric::new(
@@ -1210,14 +1713,28 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
                 U::Count,
                 g("seqscans"),
             )
-            .counter(),
+            .counter()
+            .help("Recorridos secuenciales de tablas. Muchos sobre tablas grandes suelen indicar índices que faltan.")
+            .source(&format!("{PROFILE}: seqscans")),
         );
     }
     if let Some(s) = m.q(
         "Sesiones (syssessions)",
         "SELECT FIRST 200 sid, username, hostname, DBINFO('utc_current') - connected AS secs FROM sysmaster:syssessions ORDER BY sid",
     ) {
-        m.std("connections", Some(s.rows.len() as f64));
+        let n = m.counts("SELECT COUNT(*) AS cnt FROM sysmaster:syssessions", ["cnt"]);
+        let (v, src) = counted(
+            n.map(|[n]| n),
+            s.rows.len() as f64,
+            "sysmaster:syssessions: COUNT(*)",
+            "sysmaster:syssessions: number of rows (up to 200)",
+        );
+        m.std(
+            "connections",
+            v,
+            "Sesiones abiertas en la instancia, incluida la del monitor.",
+            &src,
+        );
         m.table("sessions", "Sesiones", &["ID", "Usuario", "Cliente", "Conectada hace (s)"], &s);
     }
     if let Some(s) = m.q_quiet("SELECT FIRST 200 * FROM sysmaster:syssqlcurses") {
@@ -1234,7 +1751,22 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
     if let Some(s) = m.q_quiet(
         "SELECT FIRST 200 owner, waiter, dbsname, tabname, type FROM sysmaster:syslocks WHERE waiter IS NOT NULL",
     ) {
-        m.std("locks_waiting", Some(s.rows.len() as f64));
+        let n = m.counts(
+            "SELECT COUNT(*) AS cnt FROM sysmaster:syslocks WHERE waiter IS NOT NULL",
+            ["cnt"],
+        );
+        let (v, src) = counted(
+            n.map(|[n]| n),
+            s.rows.len() as f64,
+            "sysmaster:syslocks: COUNT(*) WHERE waiter IS NOT NULL",
+            "sysmaster:syslocks: rows WHERE waiter IS NOT NULL (up to 200)",
+        );
+        m.std(
+            "locks_waiting",
+            v,
+            "Bloqueos que tienen una sesión esperando.",
+            &src,
+        );
         m.table("locks", "Bloqueos / esperas", &["Sesión dueña", "Sesión en espera", "Base", "Tabla", "Tipo"], &s);
     }
     if let Some(s) = m.q_quiet(
@@ -1242,7 +1774,13 @@ fn informix(m: &mut Mon, _ctx: &Ctx) {
            FROM sysmaster:sysdbspaces d, sysmaster:syschunks c WHERE c.dbsnum = d.dbsnum GROUP BY d.name ORDER BY d.name",
     ) {
         let used = s.sum("total").map(|t| t - s.sum("free").unwrap_or(0.0));
-        m.std_max("storage_used", used, s.sum("total"));
+        m.std_max(
+            "storage_used",
+            used,
+            s.sum("total"),
+            "Espacio usado en los chunks de todos los dbspaces; el máximo es su tamaño.",
+            "sysmaster:syschunks: SUM((chksize − nfree) × pagesize) (max: SUM(chksize × pagesize))",
+        );
         m.table("dbspaces", "Dbspaces", &["Dbspace", "Tamaño (bytes)", "Libre (bytes)"], &s);
     }
 }
@@ -1257,14 +1795,23 @@ fn teradata(m: &mut Mon) {
     }
     match m.q_quiet("SELECT * FROM TABLE (MonitorPhysicalSummary()) AS t") {
         Some(s) => {
-            m.std("cpu", s.first("AvgCPU"));
-            m.metric(Metric::new(
-                "disk_busy",
-                "Uso de disco",
-                "Disco",
-                U::Percent,
-                s.first("AvgDisk"),
-            ));
+            m.std(
+                "cpu",
+                s.first("AvgCPU"),
+                "Uso de CPU promedio de los nodos del sistema en el último intervalo de muestreo de recursos.",
+                "MonitorPhysicalSummary(): AvgCPU",
+            );
+            m.metric(
+                Metric::new(
+                    "disk_busy",
+                    "Uso de disco",
+                    "Disco",
+                    U::Percent,
+                    s.first("AvgDisk"),
+                )
+                .help("Uso promedio de los discos del sistema en el último intervalo de muestreo de recursos.")
+                .source("MonitorPhysicalSummary(): AvgDisk"),
+            );
         }
         None => m.note(
             "La CPU del sistema necesita el permiso MONITOR RESOURCE (MonitorPhysicalSummary).",
@@ -1272,14 +1819,24 @@ fn teradata(m: &mut Mon) {
     }
     match m.q_quiet("SELECT * FROM TABLE (MonitorSession(-1, '*', 0)) AS t") {
         Some(s) => {
-            m.std("connections", Some(s.rows.len() as f64));
+            const SESSIONS: &str = "MonitorSession(-1, '*', 0)";
+            m.std(
+                "connections",
+                Some(s.rows.len() as f64),
+                "Sesiones abiertas en el sistema, incluida la del monitor.",
+                &format!("{SESSIONS}: number of rows"),
+            );
             m.std(
                 "active_sessions",
                 Some(s.count_where("PEState", |v| !v.to_ascii_uppercase().starts_with("IDLE"))),
+                "Sesiones con trabajo en curso (su estado en el PE no es IDLE), incluida la del monitor.",
+                &format!("{SESSIONS}: rows whose PEState isn't IDLE"),
             );
             m.std(
                 "locks_waiting",
                 Some(s.count_where("Blk_1_SessNo", |v| parse(v).is_some_and(|n| n > 0.0))),
+                "Sesiones bloqueadas por otra sesión.",
+                &format!("{SESSIONS}: rows with Blk_1_SessNo > 0"),
             );
             m.table_by(
                 "sessions",
@@ -1303,7 +1860,19 @@ fn teradata(m: &mut Mon) {
                 "Sesiones (DBC.SessionInfoV)",
                 "SELECT TOP 200 SessionNo, UserName, DefaultDataBase, LogonSource FROM DBC.SessionInfoV",
             ) {
-                m.std("connections", Some(s.rows.len() as f64));
+                let n = m.counts("SELECT COUNT(*) AS cnt FROM DBC.SessionInfoV", ["cnt"]);
+                let (v, src) = counted(
+                    n.map(|[n]| n),
+                    s.rows.len() as f64,
+                    "DBC.SessionInfoV: COUNT(*)",
+                    "DBC.SessionInfoV: number of rows (up to 200)",
+                );
+                m.std(
+                    "connections",
+                    v,
+                    "Sesiones abiertas en el sistema, incluida la del monitor.",
+                    &src,
+                );
                 m.table("sessions", "Sesiones", &["ID", "Usuario", "Base", "Origen"], &s);
             }
         }
@@ -1312,7 +1881,13 @@ fn teradata(m: &mut Mon) {
         "Espacio (DBC.DiskSpaceV)",
         "SELECT SUM(CurrentPerm) AS used, SUM(MaxPerm) AS mx FROM DBC.DiskSpaceV",
     ) {
-        m.std_max("storage_used", s.first("used"), s.first("mx"));
+        m.std_max(
+            "storage_used",
+            s.first("used"),
+            s.first("mx"),
+            "Espacio permanente que ocupan las bases y los usuarios; el máximo es la suma de sus cuotas (MaxPerm).",
+            "DBC.DiskSpaceV: SUM(CurrentPerm) (max: SUM(MaxPerm))",
+        );
     }
     if let Some(s) = m.q_quiet(
         "SELECT TOP 200 DatabaseName, SUM(MaxPerm) AS mx, SUM(CurrentPerm) AS cur, SUM(PeakPerm) AS peak
@@ -1336,24 +1911,42 @@ fn teradata(m: &mut Mon) {
 // ---------------------------------------------------------------- Vertica
 
 fn vertica(m: &mut Mon) {
+    const HOSTS: &str = "v_monitor.host_resources";
+    let mut hosts = None;
     if let Some(s) = m.q(
         "Recursos de los nodos (host_resources)",
         "SELECT * FROM v_monitor.host_resources",
     ) {
+        hosts = Some(s.rows.len() as f64).filter(|n| *n > 0.0);
         let total = s.sum("total_memory_bytes");
         let free = s.sum("total_memory_free_bytes");
-        m.std_max("mem_used", total.zip(free).map(|(t, f)| t - f), total);
+        // The OS's buffers and file cache aren't "used": without them the
+        // gauge would sit near 100 % on any busy Linux host.
+        let os_cache = add(
+            s.sum("total_buffer_memory_bytes"),
+            s.sum("total_memory_cache_bytes"),
+        );
+        m.std_max(
+            "mem_used",
+            total
+                .zip(free)
+                .map(|(t, f)| (t - f - os_cache.unwrap_or(0.0)).max(0.0)),
+            total,
+            "Memoria en uso en los hosts del cluster, de todos los procesos, sin los buffers ni la caché de archivos del sistema operativo; el máximo es la memoria total.",
+            &format!("{HOSTS}: SUM(total_memory_bytes − total_memory_free_bytes − total_buffer_memory_bytes − total_memory_cache_bytes) (max: SUM(total_memory_bytes))"),
+        );
         m.std(
             "mem_cache",
-            add(
-                s.sum("total_buffer_memory_bytes"),
-                s.sum("total_memory_cache_bytes"),
-            ),
+            os_cache,
+            "Memoria que el sistema operativo de los hosts usa para buffers y caché de archivos; la libera cuando un proceso la necesita.",
+            &format!("{HOSTS}: SUM(total_buffer_memory_bytes + total_memory_cache_bytes)"),
         );
         m.std_max(
             "storage_used",
             times(s.sum("disk_space_used_mb"), MB),
             times(s.sum("disk_space_total_mb"), MB),
+            "Espacio usado en los discos de los hosts, por todos los archivos y no solo por Vertica; el máximo es su tamaño.",
+            &format!("{HOSTS}: SUM(disk_space_used_mb) (max: SUM(disk_space_total_mb))"),
         );
         m.info("Nodos (hosts)", Some(s.rows.len()));
         m.info(
@@ -1365,42 +1958,38 @@ fn vertica(m: &mut Mon) {
         "SELECT * FROM v_monitor.system_resource_usage
           WHERE end_time = (SELECT MAX(end_time) FROM v_monitor.system_resource_usage)",
     ) {
-        m.std("cpu", s.avg("average_cpu_usage_percent"));
-        m.metric(Metric::new(
-            "net_rx_rate",
-            "Red entrante (por s)",
-            "Red",
-            U::Bytes,
-            times(s.sum("net_rx_kbytes_per_second"), KB),
-        ));
-        m.metric(Metric::new(
-            "net_tx_rate",
-            "Red saliente (por s)",
-            "Red",
-            U::Bytes,
-            times(s.sum("net_tx_kbytes_per_second"), KB),
-        ));
-        m.metric(Metric::new(
-            "io_read_rate",
-            "Lectura de disco (por s)",
-            "Disco",
-            U::Bytes,
-            times(s.sum("io_read_kbytes_per_second"), KB),
-        ));
-        m.metric(Metric::new(
-            "io_write_rate",
-            "Escritura en disco (por s)",
-            "Disco",
-            U::Bytes,
-            times(s.sum("io_written_kbytes_per_second"), KB),
-        ));
+        const USAGE: &str = "v_monitor.system_resource_usage";
+        m.std(
+            "cpu",
+            s.avg("average_cpu_usage_percent"),
+            "Uso de CPU promedio de los nodos en el último minuto completo: 100 % equivale a todos los núcleos ocupados.",
+            &format!("{USAGE}: AVG(average_cpu_usage_percent) at MAX(end_time)"),
+        );
+        let rates = [
+            ("net_rx_rate", "Red entrante (por s)", "Red", "net_rx_kbytes_per_second", "Bytes por segundo que recibieron los nodos por la red, promedio del último minuto completo."),
+            ("net_tx_rate", "Red saliente (por s)", "Red", "net_tx_kbytes_per_second", "Bytes por segundo que enviaron los nodos por la red, promedio del último minuto completo."),
+            ("io_read_rate", "Lectura de disco (por s)", "Disco", "io_read_kbytes_per_second", "Bytes por segundo que leyeron los nodos del disco, promedio del último minuto completo."),
+            ("io_write_rate", "Escritura en disco (por s)", "Disco", "io_written_kbytes_per_second", "Bytes por segundo que escribieron los nodos en disco, promedio del último minuto completo."),
+        ];
+        for (key, label, group, col, help) in rates {
+            m.metric(
+                Metric::new(key, label, group, U::Bytes, times(s.sum(col), KB))
+                    .help(help)
+                    .source(&format!("{USAGE}: SUM({col}) × 1024, at MAX(end_time)")),
+            );
+        }
         m.note("Vertica promedia CPU, red y disco por minuto (system_resource_usage): las cifras cambian una vez por minuto.");
     }
     let maxc = m
         .q_quiet("SELECT MAX(current_value) AS v FROM v_monitor.configuration_parameters WHERE parameter_name = 'MaxClientSessions'")
         .and_then(|s| s.first("v"));
     if let Some(s) = m.q_quiet("SELECT SUM(running_query_count) AS running, SUM(executed_query_count) AS executed FROM v_monitor.query_metrics") {
-        m.std("queries", s.first("executed"));
+        m.std(
+            "queries",
+            s.first("executed"),
+            "Consultas que ejecutaron los nodos, cada uno desde que arrancó.",
+            "v_monitor.query_metrics: SUM(executed_query_count)",
+        );
     }
     if let Some(s) = m.q(
         "Sesiones (v_monitor.sessions)",
@@ -1409,15 +1998,60 @@ fn vertica(m: &mut Mon) {
                 DATEDIFF('second', statement_start, NOW()) AS secs, LEFT(current_statement, 2000) AS stmt
            FROM v_monitor.sessions ORDER BY statement_start LIMIT 200",
     ) {
-        m.std_max("connections", Some(s.rows.len() as f64), maxc);
-        m.std("active_sessions", Some(s.count_where("state", |v| v == "activa")));
+        // The list stops at 200; the counts don't.
+        let n = m.counts(
+            "SELECT COUNT(*) AS cnt, SUM(CASE WHEN current_statement <> '' THEN 1 ELSE 0 END) AS busy
+               FROM v_monitor.sessions",
+            ["cnt", "busy"],
+        );
+        let (conns, conns_src) = counted(
+            n.map(|[n, _]| n),
+            s.rows.len() as f64,
+            "v_monitor.sessions: COUNT(*)",
+            "v_monitor.sessions: number of rows (up to 200)",
+        );
+        // MaxClientSessions is per node; the count is the cluster's.
+        m.std_max(
+            "connections",
+            conns,
+            maxc.map(|c| c * hosts.unwrap_or(1.0)),
+            "Sesiones abiertas en todos los nodos, incluida la del monitor; el máximo es MaxClientSessions por la cantidad de nodos.",
+            &format!("{conns_src} (max: configuration_parameters MaxClientSessions × host_resources hosts)"),
+        );
+        let (busy, busy_src) = counted(
+            n.map(|[_, b]| b),
+            s.count_where("state", |v| v == "activa"),
+            "v_monitor.sessions: COUNT(*) WHERE current_statement <> ''",
+            "v_monitor.sessions: rows with a current_statement (up to 200)",
+        );
+        m.std(
+            "active_sessions",
+            busy,
+            "Sesiones ejecutando una sentencia ahora, incluida la del monitor.",
+            &busy_src,
+        );
         m.table("sessions", "Sesiones", &["ID", "Usuario", "Nodo", "Cliente", "Estado", "Duración (s)", "Consulta actual"], &s);
     }
     if let Some(s) = m.q_quiet(
         "SELECT node_names, object_name, lock_mode, lock_scope, request_timestamp, grant_timestamp, transaction_description
            FROM v_monitor.locks LIMIT 200",
     ) {
-        m.std("locks_waiting", Some(s.rows.len() as f64 - s.count_where("grant_timestamp", |_| true)));
+        let n = m.counts(
+            "SELECT COUNT(*) AS cnt FROM v_monitor.locks WHERE grant_timestamp IS NULL",
+            ["cnt"],
+        );
+        let (v, src) = counted(
+            n.map(|[n]| n),
+            s.rows.len() as f64 - s.count_where("grant_timestamp", |_| true),
+            "v_monitor.locks: COUNT(*) WHERE grant_timestamp IS NULL",
+            "v_monitor.locks: rows without grant_timestamp (up to 200)",
+        );
+        m.std(
+            "locks_waiting",
+            v,
+            "Pedidos de bloqueo que todavía no se otorgaron.",
+            &src,
+        );
         m.table("locks", "Bloqueos", &["Nodos", "Objeto", "Modo", "Alcance", "Pedido", "Otorgado", "Transacción"], &s);
     }
     if let Some(s) = m.q_quiet(
@@ -1434,86 +2068,135 @@ fn vertica(m: &mut Mon) {
 // ----------------------------------------------------------------- Exasol
 
 fn exasol(m: &mut Mon) {
+    // The database's RAM in use (MiB): the persistent part (Exasol 7+)
+    // plus the temporary one; `None` while the monitor view didn't answer.
+    let mut ram: Option<Option<f64>> = None;
     if let Some(s) = m.q(
         "Monitor (EXA_MONITOR_LAST_DAY)",
         "SELECT * FROM EXA_STATISTICS.EXA_MONITOR_LAST_DAY ORDER BY MEASURE_TIME DESC LIMIT 1",
     ) {
-        m.std("cpu", s.first("CPU"));
-        m.metric(Metric::new(
-            "load",
-            "Carga",
-            "CPU",
-            U::Count,
-            s.first("LOAD"),
-        ));
-        m.metric(Metric::new(
-            "temp_db_ram",
-            "RAM temporal",
-            "Memoria",
-            U::Bytes,
-            times(s.first("TEMP_DB_RAM"), MB),
-        ));
-        m.metric(Metric::new(
-            "hdd_read_rate",
-            "Lectura de disco (por s)",
-            "Disco",
-            U::Bytes,
-            times(s.first("HDD_READ"), MB),
-        ));
-        m.metric(Metric::new(
-            "hdd_write_rate",
-            "Escritura en disco (por s)",
-            "Disco",
-            U::Bytes,
-            times(s.first("HDD_WRITE"), MB),
-        ));
-        m.metric(Metric::new(
-            "net_rate",
-            "Red (por s)",
-            "Red",
-            U::Bytes,
-            times(s.first("NET"), MB),
-        ));
+        const LAST: &str = "EXA_STATISTICS.EXA_MONITOR_LAST_DAY";
+        m.std(
+            "cpu",
+            s.first("CPU"),
+            "Uso de CPU de la base en la última medición (Exasol mide cada 30 segundos): 100 % equivale a todos los núcleos ocupados.",
+            &format!("{LAST}: CPU (latest MEASURE_TIME)"),
+        );
+        m.metric(
+            Metric::new("load", "Carga", "CPU", U::Count, s.first("LOAD"))
+                .help("Carga del sistema operativo (load average) en la última medición. Si supera la cantidad de núcleos, hay trabajo esperando CPU.")
+                .source(&format!("{LAST}: LOAD (latest MEASURE_TIME)")),
+        );
+        m.metric(
+            Metric::new(
+                "temp_db_ram",
+                "RAM temporal",
+                "Memoria",
+                U::Bytes,
+                times(s.first("TEMP_DB_RAM"), MB),
+            )
+            .help("Memoria temporal que usaban las consultas (resultados intermedios) en la última medición. Si se acerca a la RAM de la base, las consultas grandes empiezan a usar disco.")
+            .source(&format!("{LAST}: TEMP_DB_RAM (MiB, latest MEASURE_TIME)")),
+        );
+        ram = Some(
+            s.first("PERSISTENT_DB_RAM")
+                .map(|p| p + s.first("TEMP_DB_RAM").unwrap_or(0.0)),
+        );
+        let rates = [
+            ("hdd_read_rate", "Lectura de disco (por s)", "Disco", "HDD_READ", "Bytes por segundo leídos del disco, promedio por nodo en la última medición."),
+            ("hdd_write_rate", "Escritura en disco (por s)", "Disco", "HDD_WRITE", "Bytes por segundo escritos en disco, promedio por nodo en la última medición."),
+            ("net_rate", "Red (por s)", "Red", "NET", "Bytes por segundo de red, enviados más recibidos, promedio por nodo en la última medición."),
+        ];
+        for (key, label, group, col, help) in rates {
+            m.metric(
+                Metric::new(key, label, group, U::Bytes, times(s.first(col), MB))
+                    .help(help)
+                    .source(&format!("{LAST}: {col} (MiB/s, latest MEASURE_TIME)")),
+            );
+        }
         m.note("Exasol toma estas medidas cada 30 segundos (EXA_MONITOR_LAST_DAY).");
     }
     if let Some(s) = m.q_quiet(
         "SELECT * FROM EXA_STATISTICS.EXA_DB_SIZE_LAST_DAY ORDER BY MEASURE_TIME DESC LIMIT 1",
     ) {
-        m.std("storage_used", times(s.first("STORAGE_SIZE"), GB));
-        m.std("mem_used", times(s.first("MEM_OBJECT_SIZE"), GB));
+        const SIZE: &str = "EXA_STATISTICS.EXA_DB_SIZE_LAST_DAY";
+        m.std(
+            "storage_used",
+            times(s.first("STORAGE_SIZE"), GB),
+            "Tamaño del volumen de datos persistente de la base, en la última medición.",
+            &format!("{SIZE}: STORAGE_SIZE (GiB, latest MEASURE_TIME)"),
+        );
+        // Not RAM in use: what the data would take in memory.
+        m.metric(
+            Metric::new(
+                "data_mem_size",
+                "Datos (tamaño comprimido)",
+                "Almacenamiento",
+                U::Bytes,
+                times(s.first("MEM_OBJECT_SIZE"), GB),
+            )
+            .help("Tamaño comprimido de los datos, el que ocupan en memoria cuando están cargados: no es la RAM en uso ahora. Si supera mucho la RAM de la base, no todos los datos caben en memoria.")
+            .source(&format!("{SIZE}: MEM_OBJECT_SIZE (GiB, latest MEASURE_TIME)")),
+        );
         m.info(
             "RAM recomendada",
             s.first("RECOMMENDED_DB_RAM_SIZE")
                 .map(|g| format!("{g} GiB")),
         );
     }
+    let mut db_ram = None;
     if let Some(s) = m.q_quiet(
         "SELECT * FROM EXA_STATISTICS.EXA_SYSTEM_EVENTS ORDER BY MEASURE_TIME DESC LIMIT 1",
     ) {
-        m.info(
-            "RAM de la base",
-            s.first("DB_RAM_SIZE").map(|g| format!("{g} GiB")),
-        );
+        db_ram = s.first("DB_RAM_SIZE");
+        m.info("RAM de la base", db_ram.map(|g| format!("{g} GiB")));
         m.info("Nodos", s.text("NODES"));
+    }
+    if let Some(ram) = ram {
+        m.std_max(
+            "mem_used",
+            times(ram, MB),
+            times(db_ram, GB),
+            "Memoria de la base en uso en todo el cluster en la última medición: la de los datos cargados (persistente) más la temporal de las consultas. El máximo es la RAM de la base (DB_RAM_SIZE); cerca de él, los datos que no entran se leen del disco y las consultas grandes usan disco para sus resultados intermedios.",
+            "EXA_STATISTICS.EXA_MONITOR_LAST_DAY: PERSISTENT_DB_RAM + TEMP_DB_RAM (MiB, latest MEASURE_TIME) (max: EXA_STATISTICS.EXA_SYSTEM_EVENTS DB_RAM_SIZE, GiB, latest)",
+        );
     }
     if let Some(s) = m.q_quiet(
         "SELECT SECONDS_BETWEEN(SYSTIMESTAMP, MAX(MEASURE_TIME)) AS UP FROM EXA_STATISTICS.EXA_SYSTEM_EVENTS WHERE EVENT_TYPE = 'STARTUP'",
     ) {
-        m.std("uptime", s.first("UP"));
+        m.std(
+            "uptime",
+            s.first("UP"),
+            "Tiempo desde el último arranque de la base.",
+            "EXA_STATISTICS.EXA_SYSTEM_EVENTS: SECONDS_BETWEEN(SYSTIMESTAMP, MAX(MEASURE_TIME)) WHERE EVENT_TYPE = 'STARTUP'",
+        );
     }
-    let sessions = m.q_quiet("SELECT * FROM EXA_DBA_SESSIONS").or_else(|| {
-        m.note("Sin permisos de DBA se ven solo las sesiones propias (EXA_ALL_SESSIONS).");
-        m.q("Sesiones", "SELECT * FROM EXA_ALL_SESSIONS")
-    });
-    if let Some(s) = sessions {
-        m.std("connections", Some(s.rows.len() as f64));
+    let sessions = match m.q_quiet("SELECT * FROM EXA_DBA_SESSIONS") {
+        Some(s) => Some((s, "EXA_DBA_SESSIONS")),
+        None => {
+            m.note("Sin permisos de DBA se ven solo las sesiones propias (EXA_ALL_SESSIONS).");
+            m.q("Sesiones", "SELECT * FROM EXA_ALL_SESSIONS")
+                .map(|s| (s, "EXA_ALL_SESSIONS"))
+        }
+    };
+    if let Some((s, view)) = sessions {
+        m.std(
+            "connections",
+            Some(s.rows.len() as f64),
+            "Sesiones abiertas, incluida la del monitor. Sin permisos de DBA solo cuenta las tuyas.",
+            &format!("{view}: number of rows"),
+        );
         m.std(
             "active_sessions",
             Some(s.count_where("STATUS", |v| !v.eq_ignore_ascii_case("IDLE"))),
+            "Sesiones que no están inactivas (ejecutando, en cola o esperando), incluida la del monitor.",
+            &format!("{view}: rows whose STATUS isn't IDLE"),
         );
         m.std(
             "locks_waiting",
             Some(s.count_where("STATUS", |v| v.to_ascii_uppercase().contains("WAIT"))),
+            "Sesiones esperando que termine otra transacción (estado WAIT FOR COMMIT).",
+            &format!("{view}: rows whose STATUS contains WAIT"),
         );
         m.table_by(
             "sessions",
@@ -1569,35 +2252,80 @@ fn exasol(m: &mut Mon) {
 
 fn netezza(m: &mut Mon) {
     if let Some(s) = m.q_quiet("SELECT * FROM _V_SYSTEM_UTIL ORDER BY ENTRY_TIME DESC LIMIT 1") {
-        m.std("cpu", pct(s.first("HOST_CPU")));
-        m.metric(Metric::new(
-            "spu_cpu",
-            "CPU de los SPU",
-            "CPU",
-            U::Percent,
-            pct(s.first("SPU_CPU")),
-        ));
-        m.metric(Metric::new(
-            "host_memory",
-            "Memoria del host",
-            "Memoria",
-            U::Percent,
-            pct(s.first("HOST_MEMORY")),
-        ));
-        m.metric(Metric::new(
-            "spu_disk",
-            "Uso de disco de los SPU",
-            "Disco",
-            U::Percent,
-            pct(s.first("SPU_DISK")),
-        ));
+        const UTIL: &str = "_V_SYSTEM_UTIL";
+        m.std(
+            "cpu",
+            pct(s.first("HOST_CPU")),
+            "Uso de CPU del host de Netezza, el que coordina las consultas, en la última muestra.",
+            &format!("{UTIL}: HOST_CPU (latest ENTRY_TIME)"),
+        );
+        m.metric(
+            Metric::new(
+                "spu_cpu",
+                "CPU de los SPU",
+                "CPU",
+                U::Percent,
+                pct(s.first("SPU_CPU")),
+            )
+            .help("Uso de CPU de los SPU, los nodos que procesan los datos, en la última muestra.")
+            .source(&format!("{UTIL}: SPU_CPU (latest ENTRY_TIME)")),
+        );
+        m.metric(
+            Metric::new(
+                "host_memory",
+                "Memoria del host",
+                "Memoria",
+                U::Percent,
+                pct(s.first("HOST_MEMORY")),
+            )
+            .help("Uso de memoria del host, en porcentaje, en la última muestra.")
+            .source(&format!("{UTIL}: HOST_MEMORY (latest ENTRY_TIME)")),
+        );
+        m.metric(
+            Metric::new(
+                "spu_disk",
+                "Uso de disco de los SPU",
+                "Disco",
+                U::Percent,
+                pct(s.first("SPU_DISK")),
+            )
+            .help("Uso de los discos de los SPU, en porcentaje, en la última muestra.")
+            .source(&format!("{UTIL}: SPU_DISK (latest ENTRY_TIME)")),
+        );
     }
     if let Some(s) = m.q(
         "Sesiones (_V_SESSION)",
         "SELECT ID, USERNAME, DBNAME, IPADDR, STATUS, CONNTIME, SUBSTR(COMMAND, 1, 2000) AS CMD FROM _V_SESSION ORDER BY ID LIMIT 200",
     ) {
-        m.std("connections", Some(s.rows.len() as f64));
-        m.std("active_sessions", Some(s.count_where("STATUS", |v| v.eq_ignore_ascii_case("active"))));
+        // The list stops at 200; the counts don't.
+        let n = m.counts(
+            "SELECT COUNT(*) AS cnt, SUM(CASE WHEN UPPER(STATUS) = 'ACTIVE' THEN 1 ELSE 0 END) AS busy FROM _V_SESSION",
+            ["cnt", "busy"],
+        );
+        let (conns, conns_src) = counted(
+            n.map(|[n, _]| n),
+            s.rows.len() as f64,
+            "_V_SESSION: COUNT(*)",
+            "_V_SESSION: number of rows (up to 200)",
+        );
+        m.std(
+            "connections",
+            conns,
+            "Sesiones abiertas, incluida la del monitor.",
+            &conns_src,
+        );
+        let (busy, busy_src) = counted(
+            n.map(|[_, b]| b),
+            s.count_where("STATUS", |v| v.eq_ignore_ascii_case("active")),
+            "_V_SESSION: COUNT(*) WHERE STATUS = 'active'",
+            "_V_SESSION: rows with STATUS = 'active' (up to 200)",
+        );
+        m.std(
+            "active_sessions",
+            busy,
+            "Sesiones en estado active, incluida la del monitor.",
+            &busy_src,
+        );
         m.table("sessions", "Sesiones", &["ID", "Usuario", "Base", "Cliente", "Estado", "Conexión", "Consulta actual"], &s);
     }
     if let Some(s) = m.q_quiet("SELECT * FROM _V_QRYSTAT LIMIT 200") {
@@ -1642,7 +2370,12 @@ fn netezza(m: &mut Mon) {
 
 fn altibase(m: &mut Mon) {
     if let Some(s) = m.q_quiet("SELECT * FROM V$INSTANCE") {
-        m.std("uptime", s.first("WORKING_TIME_SEC"));
+        m.std(
+            "uptime",
+            s.first("WORKING_TIME_SEC"),
+            "Tiempo desde que arrancó el servidor.",
+            "V$INSTANCE: WORKING_TIME_SEC",
+        );
         m.info("Estado", s.text("STARTUP_PHASE"));
     }
     if let Some(s) = m.q_quiet("SELECT * FROM V$VERSION") {
@@ -1652,19 +2385,33 @@ fn altibase(m: &mut Mon) {
         "Memoria (V$MEMSTAT)",
         "SELECT SUM(ALLOC_SIZE) AS used, SUM(MAX_TOTAL_SIZE) AS peak FROM V$MEMSTAT",
     ) {
-        m.std("mem_used", s.first("used"));
-        m.metric(Metric::new(
-            "mem_peak",
-            "Pico de memoria",
-            "Memoria",
-            U::Bytes,
-            s.first("peak"),
-        ));
+        m.std(
+            "mem_used",
+            s.first("used"),
+            "Memoria que tienen asignada ahora los módulos del servidor.",
+            "V$MEMSTAT: SUM(ALLOC_SIZE)",
+        );
+        m.metric(
+            Metric::new(
+                "mem_peak",
+                "Pico de memoria",
+                "Memoria",
+                U::Bytes,
+                s.first("peak"),
+            )
+            .help("Suma de los máximos de memoria que alcanzó cada módulo desde el arranque.")
+            .source("V$MEMSTAT: SUM(MAX_TOTAL_SIZE)"),
+        );
     }
     if let Some(s) = m.q_quiet("SELECT NAME, VALUE FROM V$SYSSTAT") {
         let kv = s.kv();
         let g = |k: &str| kv.get(k).and_then(|v| parse(v));
-        m.std("queries", g("execute success count"));
+        m.std(
+            "queries",
+            g("execute success count"),
+            "Sentencias que se ejecutaron sin error.",
+            "V$SYSSTAT: 'execute success count'",
+        );
         m.metric(
             Metric::new(
                 "disk_reads",
@@ -1673,7 +2420,9 @@ fn altibase(m: &mut Mon) {
                 U::Count,
                 g("data page read"),
             )
-            .counter(),
+            .counter()
+            .help("Páginas de datos leídas del disco porque no estaban en el buffer.")
+            .source("V$SYSSTAT: 'data page read'"),
         );
         m.metric(
             Metric::new(
@@ -1683,15 +2432,24 @@ fn altibase(m: &mut Mon) {
                 U::Count,
                 g("data page write"),
             )
-            .counter(),
+            .counter()
+            .help("Páginas de datos escritas en disco.")
+            .source("V$SYSSTAT: 'data page write'"),
         );
         m.std(
             "cache_hit",
             hit_ratio(g("data page read"), g("data page gets")),
+            "Porcentaje de pedidos de páginas que se resolvieron en el buffer sin leer el disco, acumulado desde el arranque.",
+            "V$SYSSTAT: 1 − 'data page read' / 'data page gets'",
         );
     }
     if let Some(s) = m.q("Sesiones (V$SESSION)", "SELECT * FROM V$SESSION") {
-        m.std("connections", Some(s.rows.len() as f64));
+        m.std(
+            "connections",
+            Some(s.rows.len() as f64),
+            "Sesiones abiertas, incluida la del monitor.",
+            "V$SESSION: number of rows",
+        );
         m.table_by(
             "sessions",
             "Sesiones",
@@ -1708,7 +2466,12 @@ fn altibase(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM V$STATEMENT WHERE EXECUTE_FLAG = 1") {
-        m.std("active_sessions", Some(s.rows.len() as f64));
+        m.std(
+            "active_sessions",
+            Some(s.rows.len() as f64),
+            "Sentencias ejecutándose ahora, incluida la del monitor.",
+            "V$STATEMENT: rows WHERE EXECUTE_FLAG = 1",
+        );
         m.table_by(
             "queries",
             "Consultas en curso",
@@ -1722,13 +2485,24 @@ fn altibase(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM V$LOCK_WAIT") {
-        m.std("locks_waiting", Some(s.rows.len() as f64));
+        m.std(
+            "locks_waiting",
+            Some(s.rows.len() as f64),
+            "Transacciones esperando un bloqueo que tiene otra.",
+            "V$LOCK_WAIT: number of rows",
+        );
         m.table_raw("locks", "Bloqueos / esperas", &s);
     }
     if let Some(s) = m.q_quiet(
         "SELECT NAME, TOTAL_PAGE_COUNT * PAGE_SIZE AS total, ALLOCATED_PAGE_COUNT * PAGE_SIZE AS used FROM V$TABLESPACES ORDER BY NAME",
     ) {
-        m.std_max("storage_used", s.sum("used"), s.sum("total"));
+        m.std_max(
+            "storage_used",
+            s.sum("used"),
+            s.sum("total"),
+            "Espacio asignado en los espacios de tablas; el máximo es su tamaño total.",
+            "V$TABLESPACES: SUM(ALLOCATED_PAGE_COUNT × PAGE_SIZE) (max: SUM(TOTAL_PAGE_COUNT × PAGE_SIZE))",
+        );
         m.table("tablespaces", "Espacios de tablas", &["Nombre", "Total (bytes)", "Asignado (bytes)"], &s);
     }
 }
@@ -1741,10 +2515,17 @@ fn cubrid(m: &mut Mon) {
     }
     match m.q_quiet("SHOW TRAN TABLES") {
         Some(s) => {
-            m.std("connections", Some(s.rows.len() as f64));
+            m.std(
+                "connections",
+                Some(s.rows.len() as f64),
+                "Clientes conectados al servidor de la base, uno por transacción, incluido el monitor.",
+                "SHOW TRAN TABLES: number of rows",
+            );
             m.std(
                 "active_sessions",
                 Some(s.count_where("Tran_status", |v| v.to_ascii_uppercase().contains("ACTIVE"))),
+                "Transacciones activas ahora, incluida la del monitor.",
+                "SHOW TRAN TABLES: rows whose Tran_status contains ACTIVE",
             );
             m.table_by(
                 "sessions",
@@ -1764,6 +2545,8 @@ fn cubrid(m: &mut Mon) {
             m.std(
                 "locks_waiting",
                 Some(s.count_where("Wait_for_lock_holder", |v| v != "-1" && !v.is_empty())),
+                "Transacciones esperando un bloqueo que tiene otra.",
+                "SHOW TRAN TABLES: rows with Wait_for_lock_holder other than -1",
             );
         }
         None => m.note(
@@ -1780,7 +2563,12 @@ fn dameng(m: &mut Mon) {
         "Instancia (V$INSTANCE)",
         "SELECT I.*, DATEDIFF(SS, I.START_TIME, SYSDATE) AS UP_S FROM V$INSTANCE I",
     ) {
-        m.std("uptime", s.first("UP_S"));
+        m.std(
+            "uptime",
+            s.first("UP_S"),
+            "Tiempo desde que arrancó la instancia.",
+            "V$INSTANCE: DATEDIFF(SS, START_TIME, SYSDATE)",
+        );
         m.info("Instancia", s.text("INSTANCE_NAME"));
         m.info("Servidor", s.text("HOST_NAME"));
         m.info("Estado", s.text("STATUS$"));
@@ -1796,24 +2584,51 @@ fn dameng(m: &mut Mon) {
                 U::Bytes,
                 total.zip(s.first("FREE_PHY_SIZE")).map(|(t, f)| t - f),
             )
-            .max(total),
+            .max(total)
+            .help("Memoria física en uso en el servidor, de todos los procesos; el máximo es la memoria total.")
+            .source("V$SYSTEMINFO: TOTAL_PHY_SIZE − FREE_PHY_SIZE (max: TOTAL_PHY_SIZE)"),
         );
         m.info("CPU", s.text("N_CPU"));
     }
     if let Some(s) = m.q_quiet("SELECT SUM(TOTAL_SIZE) AS total FROM V$MEM_POOL") {
-        m.std("mem_used", s.first("total"));
+        m.std(
+            "mem_used",
+            s.first("total"),
+            "Memoria que tienen reservada los pools de memoria de la instancia.",
+            "V$MEM_POOL: SUM(TOTAL_SIZE)",
+        );
     }
     if let Some(s) =
         m.q_quiet("SELECT SUM(N_PAGES * PAGE_SIZE) AS bytes, AVG(RAT_HIT) AS hit FROM V$BUFFERPOOL")
     {
-        m.std("mem_cache", s.first("bytes"));
-        m.std("cache_hit", pct(s.first("hit")));
+        m.std(
+            "mem_cache",
+            s.first("bytes"),
+            "Tamaño de los buffer pools.",
+            "V$BUFFERPOOL: SUM(N_PAGES × PAGE_SIZE)",
+        );
+        m.std(
+            "cache_hit",
+            pct(s.first("hit")),
+            "Porcentaje de aciertos de los buffer pools, promedio entre ellos y acumulado desde el arranque.",
+            "V$BUFFERPOOL: AVG(RAT_HIT)",
+        );
     }
     if let Some(s) = m.q_quiet("SELECT NAME, STAT_VAL FROM V$SYSSTAT") {
         let kv = s.kv();
         let g = |k: &str| kv.get(k).and_then(|v| parse(v));
-        m.std("transactions", g("transaction total count"));
-        m.std("queries", g("select statements"));
+        m.std(
+            "transactions",
+            g("transaction total count"),
+            "Transacciones de la instancia.",
+            "V$SYSSTAT: 'transaction total count'",
+        );
+        m.std(
+            "queries",
+            g("select statements"),
+            "Sentencias SELECT ejecutadas.",
+            "V$SYSSTAT: 'select statements'",
+        );
         m.metric(
             Metric::new(
                 "physical_reads",
@@ -1822,7 +2637,9 @@ fn dameng(m: &mut Mon) {
                 U::Count,
                 g("physical read count"),
             )
-            .counter(),
+            .counter()
+            .help("Páginas leídas del disco.")
+            .source("V$SYSSTAT: 'physical read count'"),
         );
     }
     let maxc = m
@@ -1832,12 +2649,45 @@ fn dameng(m: &mut Mon) {
         "Sesiones (V$SESSIONS)",
         "SELECT SESS_ID, USER_NAME, CLNT_IP, APPNAME, STATE, CREATE_TIME, SUBSTR(SQL_TEXT, 1, 2000) AS SQL_TEXT FROM V$SESSIONS LIMIT 200",
     ) {
-        m.std_max("connections", Some(s.rows.len() as f64), maxc);
-        m.std("active_sessions", Some(s.count_where("STATE", |v| v.eq_ignore_ascii_case("ACTIVE"))));
+        // The list stops at 200; the counts don't.
+        let n = m.counts(
+            "SELECT COUNT(*) AS CNT, SUM(CASE WHEN UPPER(STATE) = 'ACTIVE' THEN 1 ELSE 0 END) AS BUSY FROM V$SESSIONS",
+            ["CNT", "BUSY"],
+        );
+        let (conns, conns_src) = counted(
+            n.map(|[n, _]| n),
+            s.rows.len() as f64,
+            "V$SESSIONS: COUNT(*)",
+            "V$SESSIONS: number of rows (up to 200)",
+        );
+        m.std_max(
+            "connections",
+            conns,
+            maxc,
+            "Sesiones abiertas, incluida la del monitor; el máximo es MAX_SESSIONS.",
+            &format!("{conns_src} (max: V$DM_INI MAX_SESSIONS)"),
+        );
+        let (busy, busy_src) = counted(
+            n.map(|[_, b]| b),
+            s.count_where("STATE", |v| v.eq_ignore_ascii_case("ACTIVE")),
+            "V$SESSIONS: COUNT(*) WHERE STATE = 'ACTIVE'",
+            "V$SESSIONS: rows with STATE = 'ACTIVE' (up to 200)",
+        );
+        m.std(
+            "active_sessions",
+            busy,
+            "Sesiones en estado ACTIVE, incluida la del monitor.",
+            &busy_src,
+        );
         m.table("sessions", "Sesiones", &["ID", "Usuario", "Cliente", "Aplicación", "Estado", "Inicio", "Consulta actual"], &s);
     }
     if let Some(s) = m.q_quiet("SELECT * FROM V$LOCK WHERE BLOCKED = 1") {
-        m.std("locks_waiting", Some(s.rows.len() as f64));
+        m.std(
+            "locks_waiting",
+            Some(s.rows.len() as f64),
+            "Bloqueos que esperan que se libere otro.",
+            "V$LOCK: rows WHERE BLOCKED = 1",
+        );
         m.table_by(
             "locks",
             "Bloqueos / esperas",
@@ -1862,6 +2712,8 @@ fn dameng(m: &mut Mon) {
             "storage_used",
             total.map(|t| t - free_total.unwrap_or(0.0)),
             total,
+            "Espacio usado en los archivos de datos (su tamaño menos el libre); el máximo es su tamaño.",
+            "DBA_DATA_FILES SUM(BYTES) − DBA_FREE_SPACE SUM(BYTES) (max: DBA_DATA_FILES SUM(BYTES))",
         );
         let rows = (0..s.rows.len())
             .map(|r| {
@@ -1899,7 +2751,19 @@ fn ocient(m: &mut Mon) {
         m.table_raw("nodes", "Nodos del cluster", &s);
     }
     if let Some(s) = m.q_quiet("SELECT * FROM sys.queries LIMIT 200") {
-        m.std("active_sessions", Some(s.rows.len() as f64));
+        let n = m.counts("SELECT COUNT(*) AS cnt FROM sys.queries", ["cnt"]);
+        let (v, src) = counted(
+            n.map(|[n]| n),
+            s.rows.len() as f64,
+            "sys.queries: COUNT(*)",
+            "sys.queries: number of rows (up to 200)",
+        );
+        m.std(
+            "active_sessions",
+            v,
+            "Consultas en curso en el sistema, incluida la del monitor.",
+            &src,
+        );
         m.table_raw("queries", "Consultas en curso", &s);
     }
     m.note(
@@ -1928,7 +2792,13 @@ fn monetdb(m: &mut Mon) {
         max_clients = kv.get("max_clients").and_then(|v| parse(v));
     }
     if let Some(s) = m.q("Sesiones (sys.sessions)", "SELECT * FROM sys.sessions") {
-        m.std_max("connections", Some(s.rows.len() as f64), max_clients);
+        m.std_max(
+            "connections",
+            Some(s.rows.len() as f64),
+            max_clients,
+            "Sesiones abiertas, incluida la del monitor; el máximo es max_clients.",
+            "sys.sessions: number of rows (max: sys.environment max_clients)",
+        );
         m.table_by(
             "sessions",
             "Sesiones",
@@ -1948,6 +2818,8 @@ fn monetdb(m: &mut Mon) {
         m.std(
             "active_sessions",
             Some(s.count_where("status", |v| v.eq_ignore_ascii_case("running"))),
+            "Consultas ejecutándose ahora, incluida la del monitor.",
+            "sys.queue(): rows with status = 'running'",
         );
         m.table_by(
             "queries",
@@ -1966,7 +2838,12 @@ fn monetdb(m: &mut Mon) {
     if let Some(s) = m.q_quiet(
         "SELECT SUM(columnsize + heapsize + hashsize + imprintsize + orderidxsize) AS bytes FROM sys.tablestorage",
     ) {
-        m.std("storage_used", s.first("bytes"));
+        m.std(
+            "storage_used",
+            s.first("bytes"),
+            "Espacio que ocupan las columnas de todas las tablas, también las de sistema, con sus estructuras auxiliares: heaps, hashes, imprints e índices de orden.",
+            "sys.tablestorage: SUM(columnsize + heapsize + hashsize + imprintsize + orderidxsize)",
+        );
     }
     if let Some(s) = m.q_quiet(&format!(
         "SELECT \"schema\", \"table\", MAX(rowcount) AS nrows,
@@ -2002,20 +2879,61 @@ fn virtuoso(m: &mut Mon) {
         m.info("Versión del motor", s.text("ver"));
         m.info("Compilación", s.text("build"));
         m.info("Máximo de conexiones simultáneas alcanzado", s.text("peak"));
-        m.std("connections", s.first("conns"));
-        m.std("active_sessions", s.first("running"));
-        m.metric(Metric::new("queued", "Pedidos en cola", "Conexiones", U::Count, s.first("queued")));
-        m.std_max("mem_cache", times(s.first("used_bufs"), VIRTUOSO_PAGE), times(s.first("bufs"), VIRTUOSO_PAGE));
-        m.metric(Metric::new("dirty_buffers", "Buffers modificados", "Caché", U::Bytes, times(s.first("dirty"), VIRTUOSO_PAGE)));
+        m.std(
+            "connections",
+            s.first("conns"),
+            "Conexiones de clientes abiertas ahora, incluida la del monitor.",
+            "sys_stat('st_cli_n_current_connections')",
+        );
+        m.std(
+            "active_sessions",
+            s.first("running"),
+            "Pedidos que el servidor está ejecutando ahora, incluido el del monitor.",
+            "sys_stat('st_proc_running')",
+        );
+        m.metric(
+            Metric::new("queued", "Pedidos en cola", "Conexiones", U::Count, s.first("queued"))
+                .help("Pedidos esperando un hilo libre. Si no vuelve a cero, el servidor no da abasto.")
+                .source("sys_stat('st_proc_queued_req')"),
+        );
+        m.std_max(
+            "mem_cache",
+            times(s.first("used_bufs"), VIRTUOSO_PAGE),
+            times(s.first("bufs"), VIRTUOSO_PAGE),
+            "Buffers de páginas de la base en uso; el máximo son los configurados (NumberOfBuffers).",
+            "sys_stat('st_db_used_buffers') × 8 KB (max: sys_stat('st_db_buffers') × 8 KB)",
+        );
+        m.metric(
+            Metric::new(
+                "dirty_buffers",
+                "Buffers modificados",
+                "Caché",
+                U::Bytes,
+                times(s.first("dirty"), VIRTUOSO_PAGE),
+            )
+            .help("Buffers con cambios que todavía no se escribieron en disco.")
+            .source("sys_stat('st_db_dirty_buffers') × 8 KB"),
+        );
         if let Some(p) = s.first("pages") {
             let free = s.first("free_pages").unwrap_or(0.0);
-            m.std_max("storage_used", Some((p - free) * VIRTUOSO_PAGE), Some(p * VIRTUOSO_PAGE));
+            m.std_max(
+                "storage_used",
+                Some((p - free) * VIRTUOSO_PAGE),
+                Some(p * VIRTUOSO_PAGE),
+                "Páginas en uso de la base; el máximo es el total de páginas de sus archivos.",
+                "(sys_stat('st_db_pages') − sys_stat('st_db_free_pages')) × 8 KB (max: st_db_pages × 8 KB)",
+            );
         }
     }
     if let Some(s) =
         m.q_quiet("SELECT SUM(WAITS) AS waits, SUM(DEADLOCKS) AS dl FROM DB.DBA.SYS_L_STAT")
     {
-        m.std("deadlocks", s.first("dl"));
+        m.std(
+            "deadlocks",
+            s.first("dl"),
+            "Deadlocks que resolvió el servidor, sumados por índice.",
+            "DB.DBA.SYS_L_STAT: SUM(DEADLOCKS)",
+        );
         m.metric(
             Metric::new(
                 "lock_waits",
@@ -2024,13 +2942,20 @@ fn virtuoso(m: &mut Mon) {
                 U::Count,
                 s.first("waits"),
             )
-            .counter(),
+            .counter()
+            .help("Veces que una transacción esperó un bloqueo, sumadas por índice.")
+            .source("DB.DBA.SYS_L_STAT: SUM(WAITS)"),
         );
     }
     if let Some(s) =
         m.q_quiet("SELECT SUM(TOUCHES) AS touches, SUM(READS) AS reads FROM DB.DBA.SYS_D_STAT")
     {
-        m.std("cache_hit", hit_ratio(s.first("reads"), s.first("touches")));
+        m.std(
+            "cache_hit",
+            hit_ratio(s.first("reads"), s.first("touches")),
+            "Porcentaje de accesos a páginas de índices que no tuvieron que leer el disco, acumulado desde el arranque.",
+            "DB.DBA.SYS_D_STAT: 1 − SUM(READS) / SUM(TOUCHES)",
+        );
         m.metric(
             Metric::new(
                 "disk_reads",
@@ -2039,7 +2964,9 @@ fn virtuoso(m: &mut Mon) {
                 U::Count,
                 s.first("reads"),
             )
-            .counter(),
+            .counter()
+            .help("Páginas de índices leídas del disco.")
+            .source("DB.DBA.SYS_D_STAT: SUM(READS)"),
         );
     }
     if let Some(s) = m.q_quiet("SELECT TOP 20 KEY_TABLE, INDEX_NAME, LOCKS, WAITS, DEADLOCKS FROM DB.DBA.SYS_L_STAT ORDER BY WAITS DESC") {
@@ -2060,7 +2987,12 @@ fn ingres(m: &mut Mon, ctx: &Ctx) {
     if let Some(s) = m.q_quiet(
         "SELECT SUM(number_pages * table_pagesize) AS bytes FROM iitables WHERE table_type = 'T'",
     ) {
-        m.std("storage_used", s.first("bytes"));
+        m.std(
+            "storage_used",
+            s.first("bytes"),
+            "Espacio de las tablas de la base actual, según el catálogo.",
+            "iitables: SUM(number_pages × table_pagesize) WHERE table_type = 'T'",
+        );
     }
     if let Some(s) = m.q(
         "Tablas (iitables)",
@@ -2079,7 +3011,19 @@ fn ingres(m: &mut Mon, ctx: &Ctx) {
             "Sesiones (ima_server_sessions)",
             "SELECT FIRST 200 * FROM ima_server_sessions",
         ) {
-            m.std("connections", Some(s.rows.len() as f64));
+            let n = m.counts("SELECT COUNT(*) AS cnt FROM ima_server_sessions", ["cnt"]);
+            let (v, src) = counted(
+                n.map(|[n]| n),
+                s.rows.len() as f64,
+                "ima_server_sessions: COUNT(*)",
+                "ima_server_sessions: number of rows (up to 200)",
+            );
+            m.std(
+                "connections",
+                v,
+                "Sesiones del servidor de base de datos, incluida la del monitor.",
+                &src,
+            );
             m.table_by(
                 "sessions",
                 "Sesiones",
@@ -2112,22 +3056,41 @@ fn iris(m: &mut Mon) {
         "SELECT * FROM %SYS.ProcessQuery",
     ) {
         let clients = s.count_where("ClientIPAddress", |_| true);
-        m.std("connections", Some(clients));
-        m.metric(Metric::new(
-            "processes",
-            "Procesos",
-            "Conexiones",
-            U::Count,
-            Some(s.rows.len() as f64),
-        ));
-        m.std("mem_used", times(s.sum("MemoryUsed"), KB));
-        m.metric(Metric::new(
-            "global_refs",
-            "Referencias a globales",
-            "Actividad",
-            U::Count,
-            s.sum("GlobalReferences"),
-        ));
+        const PROCESSES: &str = "%SYS.ProcessQuery";
+        m.std(
+            "connections",
+            Some(clients),
+            "Procesos con un cliente conectado por la red (ODBC, JDBC…), incluido el del monitor.",
+            &format!("{PROCESSES}: rows with ClientIPAddress"),
+        );
+        m.metric(
+            Metric::new(
+                "processes",
+                "Procesos",
+                "Conexiones",
+                U::Count,
+                Some(s.rows.len() as f64),
+            )
+            .help("Procesos de la instancia, de clientes y del sistema.")
+            .source(&format!("{PROCESSES}: number of rows")),
+        );
+        m.std(
+            "mem_used",
+            times(s.sum("MemoryUsed"), KB),
+            "Memoria que usan los procesos de la instancia, sumada; no incluye los buffers de globales compartidos.",
+            &format!("{PROCESSES}: SUM(MemoryUsed) (KB)"),
+        );
+        m.metric(
+            Metric::new(
+                "global_refs",
+                "Referencias a globales",
+                "Actividad",
+                U::Count,
+                s.sum("GlobalReferences"),
+            )
+            .help("Accesos a globales (los datos) que hicieron los procesos que existen ahora, cada uno desde que arrancó: baja cuando termina un proceso.")
+            .source(&format!("{PROCESSES}: SUM(GlobalReferences)")),
+        );
         let mut rows: Vec<usize> = (0..s.rows.len()).collect();
         // Client connections first.
         rows.sort_by_key(|&r| s.get(r, "ClientIPAddress").is_none());
@@ -2153,7 +3116,12 @@ fn iris(m: &mut Mon) {
         m.note("Para ver los procesos, el usuario necesita SELECT sobre %SYS.ProcessQuery en este namespace.");
     }
     if let Some(s) = m.q_quiet("SELECT * FROM INFORMATION_SCHEMA.CURRENT_STATEMENTS") {
-        m.std("active_sessions", Some(s.rows.len() as f64));
+        m.std(
+            "active_sessions",
+            Some(s.rows.len() as f64),
+            "Sentencias SQL ejecutándose ahora, incluida la del monitor.",
+            "INFORMATION_SCHEMA.CURRENT_STATEMENTS: number of rows",
+        );
         m.table_by(
             "queries",
             "Consultas en curso",
@@ -2180,22 +3148,39 @@ fn openedge(m: &mut Mon) {
         "SELECT * FROM PUB.\"_ActSummary\"",
     ) {
         let g = |c: &str| s.first(c);
-        m.std("uptime", g("_Summary-Uptime"));
+        const SUMMARY: &str = "PUB._ActSummary";
+        m.std(
+            "uptime",
+            g("_Summary-Uptime"),
+            "Tiempo desde que arrancó el servidor de la base.",
+            &format!("{SUMMARY}: _Summary-Uptime"),
+        );
         m.std(
             "transactions",
             add(g("_Summary-Commits"), g("_Summary-Undos")),
+            "Transacciones confirmadas y deshechas.",
+            &format!("{SUMMARY}: _Summary-Commits + _Summary-Undos"),
         );
-        m.std("rows_read", g("_Summary-RecReads"));
+        m.std(
+            "rows_read",
+            g("_Summary-RecReads"),
+            "Registros leídos.",
+            &format!("{SUMMARY}: _Summary-RecReads"),
+        );
         m.std(
             "rows_written",
             add(
                 add(g("_Summary-RecUpd"), g("_Summary-RecCreat")),
                 g("_Summary-RecDel"),
             ),
+            "Registros creados, actualizados y borrados.",
+            &format!("{SUMMARY}: _Summary-RecCreat + _Summary-RecUpd + _Summary-RecDel"),
         );
         m.std(
             "cache_hit",
             hit_ratio(g("_Summary-DbReads"), g("_Summary-DbAccesses")),
+            "Porcentaje de accesos a bloques que se resolvieron en el buffer pool sin leer el disco, acumulado desde el arranque. Si baja, conviene un buffer pool más grande (-B).",
+            &format!("{SUMMARY}: 1 − _Summary-DbReads / _Summary-DbAccesses"),
         );
         m.metric(
             Metric::new(
@@ -2205,7 +3190,9 @@ fn openedge(m: &mut Mon) {
                 U::Count,
                 g("_Summary-DbReads"),
             )
-            .counter(),
+            .counter()
+            .help("Bloques de la base leídos del disco.")
+            .source(&format!("{SUMMARY}: _Summary-DbReads")),
         );
         m.metric(
             Metric::new(
@@ -2215,7 +3202,9 @@ fn openedge(m: &mut Mon) {
                 U::Count,
                 g("_Summary-DbWrites"),
             )
-            .counter(),
+            .counter()
+            .help("Bloques de la base escritos en disco.")
+            .source(&format!("{SUMMARY}: _Summary-DbWrites")),
         );
         m.metric(
             Metric::new(
@@ -2225,7 +3214,9 @@ fn openedge(m: &mut Mon) {
                 U::Count,
                 g("_Summary-RecWait"),
             )
-            .counter(),
+            .counter()
+            .help("Veces que una sesión esperó el bloqueo de un registro.")
+            .source(&format!("{SUMMARY}: _Summary-RecWait")),
         );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM PUB.\"_DbStatus\"") {
@@ -2235,15 +3226,21 @@ fn openedge(m: &mut Mon) {
                 "storage_used",
                 times(s.first("_DbStatus-HiWater"), b),
                 times(s.first("_DbStatus-TotalBlks"), b),
+                "Bloques en uso de la base, hasta su marca de agua, por el tamaño de bloque; el máximo es el total de bloques.",
+                "PUB._DbStatus: _DbStatus-HiWater × _DbStatus-DbBlkSize (max: _DbStatus-TotalBlks × _DbStatus-DbBlkSize)",
             );
         }
-        m.metric(Metric::new(
-            "locks_held",
-            "Bloqueos retenidos",
-            "Bloqueos",
-            U::Count,
-            s.first("_DbStatus-NumLocks"),
-        ));
+        m.metric(
+            Metric::new(
+                "locks_held",
+                "Bloqueos retenidos",
+                "Bloqueos",
+                U::Count,
+                s.first("_DbStatus-NumLocks"),
+            )
+            .help("Bloqueos que hay ahora en la tabla de bloqueos.")
+            .source("PUB._DbStatus: _DbStatus-NumLocks"),
+        );
         m.info("Iniciada", s.text("_DbStatus-Starttime"));
         m.info("Versión de la base", s.text("_DbStatus-DbVers"));
         m.info("Tamaño de bloque", block);
@@ -2252,10 +3249,17 @@ fn openedge(m: &mut Mon) {
         "Conexiones (_Connect)",
         "SELECT * FROM PUB.\"_Connect\" WHERE \"_Connect-Usr\" IS NOT NULL",
     ) {
-        m.std("connections", Some(s.rows.len() as f64));
+        m.std(
+            "connections",
+            Some(s.rows.len() as f64),
+            "Conexiones registradas en la base: clientes, servidores y procesos auxiliares (APW, BIW…), incluida la del monitor.",
+            "PUB._Connect: rows WHERE _Connect-Usr IS NOT NULL",
+        );
         m.std(
             "locks_waiting",
             Some(s.count_where("_Connect-Wait", |v| !v.contains("--"))),
+            "Conexiones esperando un recurso, como un registro o un bloque.",
+            "PUB._Connect: rows whose _Connect-Wait isn't --",
         );
         m.table_by(
             "sessions",
@@ -2307,10 +3311,17 @@ fn sqream(m: &mut Mon) {
             .collect();
         ids.sort();
         ids.dedup();
-        m.std("connections", Some(ids.len() as f64));
+        m.std(
+            "connections",
+            Some(ids.len() as f64),
+            "Conexiones que aparecen en el estado del servidor, contadas una vez cada una, incluida la del monitor.",
+            "SHOW_SERVER_STATUS(): COUNT(DISTINCT connection_id)",
+        );
         m.std(
             "active_sessions",
             Some(s.count_where("statementstatus", |v| !v.eq_ignore_ascii_case("idle"))),
+            "Sentencias que no están inactivas (ejecutando o en cola), incluida la del monitor.",
+            "SHOW_SERVER_STATUS(): rows whose statementstatus isn't idle",
         );
         m.table_by(
             "queries",
@@ -2330,7 +3341,18 @@ fn sqream(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT SHOW_LOCKS()") {
-        m.std("locks_waiting", Some(s.rows.len() as f64));
+        // SHOW_LOCKS lists the locks held, not who waits for them.
+        m.metric(
+            Metric::new(
+                "locks_held",
+                "Bloqueos retenidos",
+                "Bloqueos",
+                U::Count,
+                Some(s.rows.len() as f64),
+            )
+            .help("Bloqueos que tienen ahora las sentencias sobre objetos.")
+            .source("SHOW_LOCKS(): number of rows"),
+        );
         m.table_by(
             "locks",
             "Bloqueos",
@@ -2346,7 +3368,12 @@ fn sqream(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT SUM(size) AS mb FROM sqream_catalog.extents") {
-        m.std("storage_used", times(s.first("mb"), MB));
+        m.std(
+            "storage_used",
+            times(s.first("mb"), MB),
+            "Espacio que ocupan los extents de datos de todas las tablas.",
+            "sqream_catalog.extents: SUM(size) (MB)",
+        );
     }
     if let Some(s) = m.q_quiet(
         "SELECT schema_name, table_name, row_count FROM sqream_catalog.tables ORDER BY row_count DESC LIMIT 20",
@@ -2371,7 +3398,12 @@ fn maxdb(m: &mut Mon) {
         m.info("Nodo", s.text("NODE"));
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYSINFO.MACHINEUTILIZATION") {
-        m.std("cpu", s.first("CPULOAD"));
+        m.std(
+            "cpu",
+            s.first("CPULOAD"),
+            "Uso de CPU del equipo de la base, como lo informa MaxDB.",
+            "SYSINFO.MACHINEUTILIZATION: CPULOAD",
+        );
     }
     if let Some(s) = m.q(
         "Datos (SYSINFO.DATASTATISTICS)",
@@ -2381,6 +3413,8 @@ fn maxdb(m: &mut Mon) {
             "storage_used",
             times(s.first("USEDSIZE"), KB),
             times(s.first("USABLESIZE"), KB),
+            "Espacio de datos en uso; el máximo es el utilizable de los volúmenes de datos.",
+            "SYSINFO.DATASTATISTICS: USEDSIZE (max: USABLESIZE), KB",
         );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYSINFO.CACHESTATISTICS") {
@@ -2389,7 +3423,12 @@ fn maxdb(m: &mut Mon) {
                 .is_some_and(|n| n.to_ascii_lowercase().contains("data"))
         });
         if let Some(r) = data {
-            m.std("cache_hit", s.num(r, "HITRATE"));
+            m.std(
+                "cache_hit",
+                s.num(r, "HITRATE"),
+                "Porcentaje de aciertos de la caché de datos, acumulado desde el arranque.",
+                "SYSINFO.CACHESTATISTICS: HITRATE of the data cache",
+            );
         }
         m.table_by(
             "caches",
@@ -2407,7 +3446,12 @@ fn maxdb(m: &mut Mon) {
         "Sesiones (SYSINFO.SESSIONS)",
         "SELECT * FROM SYSINFO.SESSIONS",
     ) {
-        m.std("connections", Some(s.rows.len() as f64));
+        m.std(
+            "connections",
+            Some(s.rows.len() as f64),
+            "Sesiones abiertas, incluida la del monitor.",
+            "SYSINFO.SESSIONS: number of rows",
+        );
         m.table_by(
             "sessions",
             "Sesiones",
@@ -2455,18 +3499,29 @@ fn nuodb(m: &mut Mon) {
         "Conexiones (SYSTEM.CONNECTIONS)",
         "SELECT * FROM SYSTEM.CONNECTIONS",
     ) {
-        m.std("connections", Some(s.rows.len() as f64));
+        m.std(
+            "connections",
+            Some(s.rows.len() as f64),
+            "Conexiones a la base en todos los motores de transacciones, incluida la del monitor. Sin el rol SYSTEM.DBA solo cuenta las tuyas.",
+            "SYSTEM.CONNECTIONS: number of rows",
+        );
         m.std(
             "active_sessions",
             Some(s.count_where("SQLSTRING", |_| true)),
+            "Conexiones ejecutando una sentencia ahora, incluida la del monitor.",
+            "SYSTEM.CONNECTIONS: rows with SQLSTRING",
         );
-        m.metric(Metric::new(
-            "conn_memory",
-            "Memoria de las conexiones",
-            "Memoria",
-            U::Bytes,
-            s.sum("MEMUSAGE"),
-        ));
+        m.metric(
+            Metric::new(
+                "conn_memory",
+                "Memoria de las conexiones",
+                "Memoria",
+                U::Bytes,
+                s.sum("MEMUSAGE"),
+            )
+            .help("Memoria que usan las conexiones, sumada.")
+            .source("SYSTEM.CONNECTIONS: SUM(MEMUSAGE)"),
+        );
         m.table_by(
             "sessions",
             "Sesiones",
@@ -2486,14 +3541,23 @@ fn nuodb(m: &mut Mon) {
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYSTEM.TRANSACTIONS") {
         let blocked = s.count_where("BLOCKEDBY", |v| parse(v).is_some_and(|n| n > 0.0));
-        m.std("locks_waiting", Some(blocked));
-        m.metric(Metric::new(
-            "open_transactions",
-            "Transacciones abiertas",
-            "Actividad",
-            U::Count,
-            Some(s.rows.len() as f64),
-        ));
+        m.std(
+            "locks_waiting",
+            Some(blocked),
+            "Transacciones bloqueadas esperando a otra.",
+            "SYSTEM.TRANSACTIONS: rows with BLOCKEDBY > 0",
+        );
+        m.metric(
+            Metric::new(
+                "open_transactions",
+                "Transacciones abiertas",
+                "Actividad",
+                U::Count,
+                Some(s.rows.len() as f64),
+            )
+            .help("Transacciones abiertas ahora, incluida la del monitor.")
+            .source("SYSTEM.TRANSACTIONS: number of rows"),
+        );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYSTEM.NODES") {
         m.table_by(
@@ -2520,7 +3584,12 @@ fn nuodb(m: &mut Mon) {
 fn heavydb(m: &mut Mon, ctx: &Ctx) {
     match m.q_quiet("SHOW USER SESSIONS") {
         Some(s) => {
-            m.std("connections", Some(s.rows.len() as f64));
+            m.std(
+                "connections",
+                Some(s.rows.len() as f64),
+                "Sesiones abiertas en el servidor, incluida la del monitor.",
+                "SHOW USER SESSIONS: number of rows",
+            );
             m.table_by(
                 "sessions",
                 "Sesiones",
@@ -2542,6 +3611,8 @@ fn heavydb(m: &mut Mon, ctx: &Ctx) {
                 Some(s.count_where("current_status", |v| {
                     v.to_ascii_lowercase().contains("running")
                 })),
+                "Consultas ejecutándose ahora; no cuenta las que esperan en cola.",
+                "SHOW QUERIES: rows whose current_status contains RUNNING",
             );
             m.table_by(
                 "queries",
@@ -2568,7 +3639,12 @@ fn heavydb(m: &mut Mon, ctx: &Ctx) {
             )
         };
         let total: f64 = (0..s.rows.len()).filter_map(size).sum();
-        m.std("storage_used", Some(total));
+        m.std(
+            "storage_used",
+            Some(total),
+            "Espacio en disco de las tablas de la base actual: archivos de datos y de metadatos.",
+            "SHOW TABLE DETAILS: SUM(total_data_file_size + total_metadata_file_size)",
+        );
         let mut idx: Vec<usize> = (0..s.rows.len()).collect();
         idx.sort_by(|a, b| size(*b).unwrap_or(0.0).total_cmp(&size(*a).unwrap_or(0.0)));
         let rows = idx
@@ -2605,6 +3681,8 @@ fn heavydb(m: &mut Mon, ctx: &Ctx) {
                 "mem_used",
                 bytes("CPU", "used_page_count"),
                 bytes("CPU", "max_page_count"),
+                "Memoria del equipo que usa el buffer pool del servidor; el máximo es la que puede reservar.",
+                "information_schema.memory_summary: SUM(used_page_count × page_size) WHERE device_type = 'CPU' (max: max_page_count × page_size)",
             );
             m.metric(
                 Metric::new(
@@ -2614,7 +3692,9 @@ fn heavydb(m: &mut Mon, ctx: &Ctx) {
                     U::Bytes,
                     bytes("GPU", "used_page_count"),
                 )
-                .max(bytes("GPU", "max_page_count")),
+                .max(bytes("GPU", "max_page_count"))
+                .help("Memoria de las GPU que usa el buffer pool del servidor; el máximo es la que puede reservar.")
+                .source("information_schema.memory_summary: SUM(used_page_count × page_size) WHERE device_type = 'GPU' (max: max_page_count × page_size)"),
             );
         }
     } else {
@@ -2632,7 +3712,12 @@ fn machbase(m: &mut Mon) {
         let open: Vec<usize> = (0..s.rows.len())
             .filter(|&r| s.num(r, "CLOSED") != Some(1.0))
             .collect();
-        m.std("connections", Some(open.len() as f64));
+        m.std(
+            "connections",
+            Some(open.len() as f64),
+            "Sesiones abiertas, incluida la del monitor.",
+            "V$SESSION: rows with CLOSED <> 1",
+        );
         let cols = [
             ("ID", "ID"),
             ("USER_NAME", "Usuario"),
@@ -2650,7 +3735,12 @@ fn machbase(m: &mut Mon) {
         m.table_rows("sessions", "Sesiones", &labels, rows);
     }
     if let Some(s) = m.q_quiet("SELECT * FROM V$STMT") {
-        m.std("active_sessions", Some(s.rows.len() as f64));
+        m.std(
+            "active_sessions",
+            Some(s.rows.len() as f64),
+            "Sentencias abiertas en el servidor ahora, incluida la del monitor.",
+            "V$STMT: number of rows",
+        );
         m.table_by(
             "queries",
             "Sentencias",
@@ -2664,20 +3754,31 @@ fn machbase(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM V$SYSMEM") {
-        m.std("mem_used", s.sum("USAGE"));
-        m.metric(Metric::new(
-            "mem_peak",
-            "Pico de memoria",
-            "Memoria",
-            U::Bytes,
-            s.sum("MAX_USAGE"),
-        ));
+        m.std(
+            "mem_used",
+            s.sum("USAGE"),
+            "Memoria que usan los módulos del servidor.",
+            "V$SYSMEM: SUM(USAGE)",
+        );
+        m.metric(
+            Metric::new(
+                "mem_peak",
+                "Pico de memoria",
+                "Memoria",
+                U::Bytes,
+                s.sum("MAX_USAGE"),
+            )
+            .help("Suma de los máximos de memoria que alcanzó cada módulo desde el arranque.")
+            .source("V$SYSMEM: SUM(MAX_USAGE)"),
+        );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM V$STORAGE_USAGE") {
         m.std_max(
             "storage_used",
             s.first("USED_SPACE"),
             s.first("TOTAL_SPACE"),
+            "Espacio de disco que usa la base; el máximo es el total disponible.",
+            "V$STORAGE_USAGE: USED_SPACE (max: TOTAL_SPACE)",
         );
     }
     m.note("Machbase no expone CPU ni tiempo activo por SQL.");
@@ -2690,30 +3791,51 @@ fn ignite(m: &mut Mon) {
         "Métricas de los nodos (SYS.NODE_METRICS)",
         "SELECT * FROM SYS.NODE_METRICS",
     ) {
-        m.std("cpu", pct(s.avg("CUR_CPU_LOAD")));
+        const NODES: &str = "SYS.NODE_METRICS";
+        m.std(
+            "cpu",
+            pct(s.avg("CUR_CPU_LOAD")),
+            "Uso de CPU de los procesos de los nodos (la JVM), promedio entre ellos: 100 % equivale a todos los núcleos ocupados.",
+            &format!("{NODES}: CUR_CPU_LOAD, average of the nodes"),
+        );
         m.std_max(
             "mem_used",
             s.sum("HEAP_MEMORY_USED"),
             s.sum("HEAP_MEMORY_MAX"),
+            "Heap de Java en uso en todos los nodos; el máximo es el heap máximo. Los datos de las cachés viven fuera del heap, en las regiones de datos, y no cuentan acá.",
+            &format!("{NODES}: SUM(HEAP_MEMORY_USED) (max: SUM(HEAP_MEMORY_MAX))"),
         );
-        m.metric(Metric::new(
-            "nonheap_used",
-            "Memoria fuera del heap",
-            "Memoria",
-            U::Bytes,
-            s.sum("NONHEAP_MEMORY_USED"),
-        ));
+        m.metric(
+            Metric::new(
+                "nonheap_used",
+                "Memoria fuera del heap",
+                "Memoria",
+                U::Bytes,
+                s.sum("NONHEAP_MEMORY_USED"),
+            )
+            .help("Memoria de la JVM fuera del heap (metaspace, código compilado…) en todos los nodos; no incluye las regiones de datos.")
+            .source(&format!("{NODES}: SUM(NONHEAP_MEMORY_USED)")),
+        );
         let up = (0..s.rows.len())
             .filter_map(|r| s.num(r, "UPTIME"))
             .fold(None, |a: Option<f64>, v| Some(a.map_or(v, |a| a.max(v))));
-        m.std("uptime", up.map(|ms| ms / 1000.0));
-        m.metric(Metric::new(
-            "threads",
-            "Hilos",
-            "CPU",
-            U::Count,
-            s.sum("CUR_THREAD_COUNT"),
-        ));
+        m.std(
+            "uptime",
+            up.map(|ms| ms / 1000.0),
+            "Tiempo desde que arrancó el nodo más antiguo.",
+            &format!("{NODES}: MAX(UPTIME) (ms)"),
+        );
+        m.metric(
+            Metric::new(
+                "threads",
+                "Hilos",
+                "CPU",
+                U::Count,
+                s.sum("CUR_THREAD_COUNT"),
+            )
+            .help("Hilos de Java vivos en todos los nodos.")
+            .source(&format!("{NODES}: SUM(CUR_THREAD_COUNT)")),
+        );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYS.NODES") {
         m.info("Nodos", Some(s.rows.len()));
@@ -2733,7 +3855,12 @@ fn ignite(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYS.CLIENT_CONNECTIONS") {
-        m.std("connections", Some(s.rows.len() as f64));
+        m.std(
+            "connections",
+            Some(s.rows.len() as f64),
+            "Conexiones de clientes JDBC, ODBC y thin abiertas en el nodo al que está conectado DBine, incluida la del monitor.",
+            "SYS.CLIENT_CONNECTIONS: number of rows",
+        );
         m.table_by(
             "sessions",
             "Conexiones de clientes",
@@ -2748,7 +3875,12 @@ fn ignite(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYS.SQL_QUERIES") {
-        m.std("active_sessions", Some(s.rows.len() as f64));
+        m.std(
+            "active_sessions",
+            Some(s.rows.len() as f64),
+            "Consultas SQL en curso, incluida la del monitor.",
+            "SYS.SQL_QUERIES: number of rows",
+        );
         m.table_by(
             "queries",
             "Consultas en curso",
@@ -2763,13 +3895,17 @@ fn ignite(m: &mut Mon) {
         );
     }
     if let Some(s) = m.q_quiet("SELECT COUNT(*) AS n FROM SYS.TRANSACTIONS") {
-        m.metric(Metric::new(
-            "open_transactions",
-            "Transacciones abiertas",
-            "Actividad",
-            U::Count,
-            s.first("n"),
-        ));
+        m.metric(
+            Metric::new(
+                "open_transactions",
+                "Transacciones abiertas",
+                "Actividad",
+                U::Count,
+                s.first("n"),
+            )
+            .help("Transacciones abiertas ahora.")
+            .source("SYS.TRANSACTIONS: COUNT(*)"),
+        );
     }
     m.note("Ignite no informa el tamaño de las tablas por SQL: se ve con las métricas de las regiones de datos (JMX / control.sh).");
 }
@@ -2779,27 +3915,40 @@ fn ignite3(m: &mut Mon) {
         "Consultas (SYSTEM.SQL_QUERIES)",
         "SELECT * FROM SYSTEM.SQL_QUERIES",
     ) {
-        m.std("active_sessions", Some(s.rows.len() as f64));
+        m.std(
+            "active_sessions",
+            Some(s.rows.len() as f64),
+            "Consultas SQL en curso en el cluster, incluida la del monitor.",
+            "SYSTEM.SQL_QUERIES: number of rows",
+        );
         m.table_raw("queries", "Consultas en curso", &s);
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYSTEM.LOCKS") {
-        m.metric(Metric::new(
-            "locks_held",
-            "Bloqueos",
-            "Bloqueos",
-            U::Count,
-            Some(s.rows.len() as f64),
-        ));
+        m.metric(
+            Metric::new(
+                "locks_held",
+                "Bloqueos",
+                "Bloqueos",
+                U::Count,
+                Some(s.rows.len() as f64),
+            )
+            .help("Bloqueos que tienen ahora las transacciones.")
+            .source("SYSTEM.LOCKS: number of rows"),
+        );
         m.table_raw("locks", "Bloqueos", &s);
     }
     if let Some(s) = m.q_quiet("SELECT * FROM SYSTEM.TRANSACTIONS") {
-        m.metric(Metric::new(
-            "open_transactions",
-            "Transacciones abiertas",
-            "Actividad",
-            U::Count,
-            Some(s.rows.len() as f64),
-        ));
+        m.metric(
+            Metric::new(
+                "open_transactions",
+                "Transacciones abiertas",
+                "Actividad",
+                U::Count,
+                Some(s.rows.len() as f64),
+            )
+            .help("Transacciones abiertas ahora.")
+            .source("SYSTEM.TRANSACTIONS: number of rows"),
+        );
     }
     m.note("Ignite 3 no expone CPU ni memoria por SQL: se ven con sus métricas (JMX, REST u OpenTelemetry).");
 }
@@ -2816,7 +3965,12 @@ fn files(e: Eng, m: &mut Mon, ctx: &Ctx) {
     if e == Eng::Access {
         match std::fs::metadata(p) {
             Ok(md) => {
-                m.std("storage_used", Some(md.len() as f64));
+                m.std(
+                    "storage_used",
+                    Some(md.len() as f64),
+                    "Tamaño del archivo de la base.",
+                    "the file's size on disk",
+                );
                 m.info("Archivo", Some(path));
                 if let Ok(t) = md.modified() {
                     let t: chrono_lite::Time = t.into();
@@ -2864,7 +4018,12 @@ fn files(e: Eng, m: &mut Mon, ctx: &Ctx) {
         }
     }
     tables.retain(|_, (d, _)| *d > 0.0);
-    m.std("storage_used", Some(total));
+    m.std(
+        "storage_used",
+        Some(total),
+        "Tamaño de las tablas dBase de la carpeta: archivos de datos, índices y memos.",
+        "sum of the folder's .dbf, .mdx, .ndx, .dbt, .fpt and .cdx file sizes",
+    );
     m.info("Carpeta", Some(dir.display()));
     m.info("Tablas (.dbf)", Some(tables.len()));
     let mut list: Vec<(String, (f64, f64))> = tables.into_iter().collect();
