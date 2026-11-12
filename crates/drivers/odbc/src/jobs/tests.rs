@@ -34,6 +34,12 @@ impl Fake {
         self.on(key, Reply::Fail(code, "falló"))
     }
 
+    /// [`Fake::on`] ahead of the replies already set, to change one.
+    fn before(mut self, key: &'static str, reply: Reply) -> Self {
+        self.replies.insert(0, (key, reply));
+        self
+    }
+
     fn reply(&mut self, sql: &str, params: &[&str]) -> Result<Option<&Reply>> {
         self.log.push((
             sql.to_string(),
@@ -230,6 +236,10 @@ fn every_preset_has_jobs_or_says_why() {
         "cache",
         "hive",
         "cloudera",
+        "vertica",
+        "dameng",
+        "altibase",
+        "virtuoso",
     ];
     for p in PRESETS {
         let caps = crate::design::capabilities(p);
@@ -2429,4 +2439,25 @@ fn hive_controls_runs_and_script() {
         forged(script(preset("hive"), &mut f, id).unwrap_err());
     }
     assert!(f.log.is_empty());
+}
+
+// The engines added after the first pass, one file each.
+mod altibase;
+mod dameng;
+mod vertica;
+mod virtuoso;
+
+/// A SQL text built at run time, as a [`Fake`] key.
+fn key(sql: String) -> &'static str {
+    Box::leak(sql.into_boxed_str())
+}
+
+/// `id` never reached the SQL text: it went, if at all, as a parameter.
+fn only_bound(f: &Fake, id: &str) {
+    if id.trim().is_empty() {
+        return;
+    }
+    for (sql, _) in &f.log {
+        assert!(!sql.contains(id), "{id:?} in {sql}");
+    }
 }

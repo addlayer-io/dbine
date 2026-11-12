@@ -26,6 +26,19 @@
 //!   information_schema view),
 //!   run now, enabled and stopped with `ALTER SCHEDULED QUERY` and
 //!   `KILL QUERY`. Ids are `scheduled_query_id`s.
+//! - Vertica (11.1.1 on): stored procedures run by a trigger on a schedule
+//!   (`STORED_PROC_TRIGGERS`, `USER_SCHEDULES`), run now (in the session:
+//!   the only way Vertica has) and enabled with `EXECUTE_TRIGGER` and
+//!   `ENABLE_TRIGGER`. Ids are the trigger's quoted `"schema"."trigger"`.
+//! - Dameng (DM): the job system in the `SYSJOB` schema (`SYSJOBS`, its
+//!   steps, schedules and histories; DBMS_JOB's jobs live there too), run
+//!   now, stopped and enabled with `SP_DBMS_JOB_RUN_ASYNC`,
+//!   `SP_STOP_RUNNING_JOB` and `SP_ENABLE_JOB`; and DBMS_SCHEDULER's jobs
+//!   next to them. Ids are job `ID`s (DBMS_SCHEDULER's, `"OWNER"."JOB"`).
+//! - Altibase: `CREATE JOB`'s jobs (`SYSTEM_.SYS_JOBS_`), enabled with
+//!   `ALTER JOB … SET ENABLE | DISABLE`. Ids are `JOB_ID`s.
+//! - Virtuoso: the scheduler's events (`DB.DBA.SYS_SCHEDULED_EVENT`),
+//!   enabled through `SE_DISABLED`. Ids are event names, always bound.
 //!
 //! Every id comes back from the app as untrusted text: each engine checks
 //! it has the shape it produced (digits, an IBM i name…) and binds it or
@@ -33,7 +46,9 @@
 //! in these catalogs: [`Tz`] turns them into UTC with the offset the server
 //! reports at the moment of the call.
 
+mod altibase;
 mod ase;
+mod dameng;
 mod db2;
 mod db2i;
 mod hive;
@@ -42,6 +57,8 @@ mod iris;
 mod sqla;
 #[cfg(test)]
 mod tests;
+mod vertica;
+mod virtuoso;
 
 use crate::design::{eng, Eng};
 use crate::monitor::Set;
@@ -119,7 +136,11 @@ pub fn unsupported_reason(p: &Preset) -> Option<&'static str> {
         | Eng::Ase
         | Eng::Sqla
         | Eng::Iris
-        | Eng::Hive => None,
+        | Eng::Hive
+        | Eng::Vertica
+        | Eng::Dameng
+        | Eng::Altibase
+        | Eng::Virtuoso => None,
         Eng::Generic => Some("el preset ODBC genérico no conoce el planificador del motor: usá el preset del motor"),
         Eng::Access | Eng::DBase => Some("es una base de archivos sin servidor: no tiene jobs propios"),
         Eng::NetSuite => Some("SuiteAnalytics Connect es un servicio de solo lectura de NetSuite: no expone tareas programadas"),
@@ -129,9 +150,6 @@ pub fn unsupported_reason(p: &Preset) -> Option<&'static str> {
         Eng::Impala | Eng::Spark => Some("este motor no tiene un planificador propio: los jobs se programan afuera (Oozie, Airflow…)"),
         Eng::MaxDb => Some("SAP MaxDB programa sus tareas con el DBM Server, que no se consulta por SQL"),
         Eng::Cubrid => Some("CUBRID no tiene un planificador en la base: las tareas automáticas son de CUBRID Manager"),
-        Eng::Vertica | Eng::Dameng | Eng::Altibase | Eng::Virtuoso => {
-            Some("DBine todavía no lee el planificador de este motor")
-        }
         Eng::MonetDb
         | Eng::Ingres
         | Eng::Mimer
@@ -170,6 +188,10 @@ pub fn list(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx) -> Result<JobList> {
         Eng::Sqla => sqla::list(src),
         Eng::Iris => iris::list(src),
         Eng::Hive => hive::list(src),
+        Eng::Vertica => vertica::list(src),
+        Eng::Dameng => dameng::list(src),
+        Eng::Altibase => altibase::list(src),
+        Eng::Virtuoso => virtuoso::list(src),
         _ => Err(unsupported(p)),
     }
 }
@@ -184,6 +206,10 @@ pub fn detail(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Resul
         Eng::Sqla => sqla::detail(src, id),
         Eng::Iris => iris::detail(src, id),
         Eng::Hive => hive::detail(src, id),
+        Eng::Vertica => vertica::detail(src, id),
+        Eng::Dameng => dameng::detail(src, id),
+        Eng::Altibase => altibase::detail(src, id),
+        Eng::Virtuoso => virtuoso::detail(src, id),
         _ => Err(unsupported(p)),
     }
 }
@@ -192,7 +218,9 @@ pub fn runs(p: &Preset, src: &mut dyn JobSource, id: &str, limit: u32) -> Result
     let limit = limit.min(dbine_driver::jobs::MAX_JOB_RUNS);
     let mut out = match eng(p) {
         // Engines without history say so below, whatever the limit.
-        Eng::Db2 | Eng::Db2zos | Eng::Informix | Eng::Ase | Eng::Iris | Eng::Hive if limit == 0 => {
+        Eng::Db2 | Eng::Db2zos | Eng::Informix | Eng::Ase | Eng::Iris | Eng::Hive | Eng::Dameng
+            if limit == 0 =>
+        {
             return Ok(Vec::new())
         }
         Eng::Db2 => db2::runs(src, id, limit)?,
@@ -201,8 +229,12 @@ pub fn runs(p: &Preset, src: &mut dyn JobSource, id: &str, limit: u32) -> Result
         Eng::Ase => ase::runs(src, id, limit)?,
         Eng::Iris => iris::runs(src, id, limit)?,
         Eng::Hive => hive::runs(src, id, limit)?,
+        Eng::Dameng => dameng::runs(src, id, limit)?,
         Eng::Db2i => return Err(Error::Unsupported(db2i::NO_HISTORY.into())),
         Eng::Sqla => return Err(Error::Unsupported(sqla::NO_HISTORY.into())),
+        Eng::Vertica => return Err(Error::Unsupported(vertica::NO_HISTORY.into())),
+        Eng::Altibase => return Err(Error::Unsupported(altibase::NO_HISTORY.into())),
+        Eng::Virtuoso => return Err(Error::Unsupported(virtuoso::NO_HISTORY.into())),
         _ => return Err(unsupported(p)),
     };
     out.truncate(limit as usize);
@@ -218,6 +250,10 @@ pub fn run(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<(
         Eng::Sqla => sqla::run(src, id),
         Eng::Iris => Err(Error::Unsupported(iris::NO_CONTROL.into())),
         Eng::Hive => hive::run(src, id),
+        Eng::Vertica => vertica::run(src, id),
+        Eng::Dameng => dameng::run(src, id),
+        Eng::Altibase => Err(Error::Unsupported(altibase::NO_RUN_NOW.into())),
+        Eng::Virtuoso => Err(Error::Unsupported(virtuoso::NO_RUN_NOW.into())),
         _ => Err(unsupported(p)),
     }
 }
@@ -226,8 +262,16 @@ pub fn stop(p: &Preset, src: &mut dyn JobSource, id: &str) -> Result<()> {
     match eng(p) {
         Eng::Ase => ase::control(src, id, "terminate"),
         Eng::Hive => hive::stop(src, id),
+        Eng::Dameng => dameng::stop(src, id),
         Eng::Iris => Err(Error::Unsupported(iris::NO_CONTROL.into())),
-        Eng::Db2 | Eng::Db2zos | Eng::Db2i | Eng::Informix | Eng::Sqla => Err(Error::Unsupported(
+        Eng::Db2
+        | Eng::Db2zos
+        | Eng::Db2i
+        | Eng::Informix
+        | Eng::Sqla
+        | Eng::Vertica
+        | Eng::Altibase
+        | Eng::Virtuoso => Err(Error::Unsupported(
             "el planificador de este motor no detiene una ejecución en curso".into(),
         )),
         _ => Err(unsupported(p)),
@@ -241,6 +285,10 @@ pub fn set_enabled(p: &Preset, src: &mut dyn JobSource, id: &str, enabled: bool)
         Eng::Ase => ase::control(src, id, if enabled { "enable" } else { "disable" }),
         Eng::Sqla => sqla::set_enabled(src, id, enabled),
         Eng::Hive => hive::set_enabled(src, id, enabled),
+        Eng::Vertica => vertica::set_enabled(src, id, enabled),
+        Eng::Dameng => dameng::set_enabled(src, id, enabled),
+        Eng::Altibase => altibase::set_enabled(src, id, enabled),
+        Eng::Virtuoso => virtuoso::set_enabled(src, id, enabled),
         Eng::Db2 | Eng::Db2zos => Err(Error::Unsupported(db2::NO_ENABLE.into())),
         Eng::Iris => Err(Error::Unsupported(iris::NO_CONTROL.into())),
         _ => Err(unsupported(p)),
@@ -255,6 +303,10 @@ pub fn script(p: &Preset, src: &mut dyn JobSource, id: &str) -> Result<String> {
         Eng::Informix => informix::script(src, id),
         Eng::Sqla => sqla::script(src, id),
         Eng::Hive => hive::script(src, id),
+        Eng::Vertica => vertica::script(src, id),
+        Eng::Dameng => dameng::script(src, id),
+        Eng::Altibase => altibase::script(src, id),
+        Eng::Virtuoso => virtuoso::script(src, id),
         Eng::Ase => Err(Error::Unsupported(ase::NO_SCRIPT.into())),
         Eng::Iris => Err(Error::Unsupported(iris::NO_SCRIPT.into())),
         _ => Err(unsupported(p)),
@@ -304,6 +356,78 @@ fn int_id(id: &str) -> Result<u64> {
         return Err(bad_id(id));
     }
     t.parse().map_err(|_| bad_id(id))
+}
+
+/// A name used as the id as it is (Virtuoso's event names): any text
+/// without control characters, of a sane length. It's only ever bound.
+fn name_id(id: &str) -> Result<&str> {
+    let t = id.trim();
+    if t.is_empty() || t.chars().count() > 1000 || t.chars().any(char::is_control) {
+        return Err(bad_id(id));
+    }
+    Ok(t)
+}
+
+/// `"a"."b"`: a two-part name with both parts in double quotes (inner
+/// quotes doubled), as Vertica's ids are made.
+fn quote_pair(a: &str, b: &str) -> String {
+    use dbine_driver::sql::{quote_ident, Quote};
+    format!(
+        "{}.{}",
+        quote_ident(Quote::Double, a),
+        quote_ident(Quote::Double, b)
+    )
+}
+
+/// A two-part name inside a string a function takes (`'schema.name'`):
+/// plain when both parts are plain identifiers (in capitals, where the
+/// engine folds unquoted names to them), quoted otherwise.
+fn dotted(a: &str, b: &str, folds_upper: bool) -> String {
+    let plain = |s: &str| {
+        let mut it = s.bytes();
+        it.next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+            && it.all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$')
+            && !(folds_upper && s.bytes().any(|c| c.is_ascii_lowercase()))
+    };
+    if plain(a) && plain(b) {
+        format!("{a}.{b}")
+    } else {
+        quote_pair(a, b)
+    }
+}
+
+/// The two parts of an id made by [`quote_pair`]; an error for anything
+/// else (an unquoted name, a third part, text after the last quote…).
+fn parse_pair(id: &str) -> Result<(String, String)> {
+    fn part(it: &mut std::iter::Peekable<std::str::Chars>) -> Option<String> {
+        if it.next()? != '"' {
+            return None;
+        }
+        let mut s = String::new();
+        loop {
+            match it.next()? {
+                '"' if it.peek() == Some(&'"') => {
+                    it.next();
+                    s.push('"');
+                }
+                '"' => break,
+                c if c.is_control() => return None,
+                c => s.push(c),
+            }
+        }
+        (!s.is_empty() && s.chars().count() <= 256).then_some(s)
+    }
+    let mut it = id.trim().chars().peekable();
+    let a = part(&mut it).ok_or_else(|| bad_id(id))?;
+    if it.next() != Some('.') {
+        return Err(bad_id(id));
+    }
+    let b = part(&mut it).ok_or_else(|| bad_id(id))?;
+    if it.next().is_some() {
+        return Err(bad_id(id));
+    }
+    Ok((a, b))
 }
 
 /// A whole number in a column.
@@ -457,6 +581,48 @@ fn rfc3339(ms: i64) -> String {
     )
 }
 
+/// A timestamp that may carry its offset from UTC at the end (`-00`,
+/// `+05:30`, `-0300`, `Z`), as ms since the epoch in UTC. Without one it's
+/// read as UTC.
+fn parse_ts_utc(s: &str) -> Option<i64> {
+    let local = parse_ts(s)?;
+    Some(local - ts_offset(s).unwrap_or(0))
+}
+
+/// The offset from UTC at the end of a timestamp, when it has one.
+fn ts_offset(s: &str) -> Option<i64> {
+    // The offset follows the time, past the date's ten characters.
+    let rest = s.trim().get(10..)?;
+    rest.rfind(['+', '-'])
+        .and_then(|i| offset_ms(rest[i..].trim()))
+}
+
+/// `+HH`, `-HH:MM` or `+HHMM` as ms; `None` for anything else.
+fn offset_ms(s: &str) -> Option<i64> {
+    let sign = match s.as_bytes().first()? {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let body = s[1..].replace(':', "");
+    if !(body.len() == 2 || body.len() == 4) || !body.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let h: i64 = body[..2].parse().ok()?;
+    let m: i64 = body
+        .get(2..)
+        .filter(|m| !m.is_empty())
+        .map_or(Some(0), |m| m.parse().ok())?;
+    (h <= 14 && m < 60).then_some(sign * (h * 60 + m) * 60_000)
+}
+
+/// ms since the epoch as `YYYY-MM-DD HH:MM:SS`, with no zone: how the
+/// scripts write a server's local time.
+fn plain(ms: i64) -> String {
+    let iso = rfc3339(ms);
+    format!("{} {}", &iso[..10], &iso[11..19])
+}
+
 /// ms between two local times of the same server.
 fn duration_ms(start: Option<&str>, end: Option<&str>) -> Option<u64> {
     let (a, b) = (parse_ts(start?)?, parse_ts(end?)?);
@@ -526,6 +692,16 @@ impl Tz {
     /// A local time of the server in ms, RFC 3339 in UTC.
     fn utc_ms(&self, local_ms: i64) -> String {
         rfc3339(local_ms - self.offset_ms)
+    }
+
+    /// A time that may carry its own offset (a TIMESTAMP WITH TIME ZONE
+    /// as text), or else is the server's local time, RFC 3339 in UTC.
+    fn utc_any(&self, v: Option<&str>) -> Option<String> {
+        let v = v?;
+        match ts_offset(v) {
+            Some(_) => parse_ts_utc(v).map(rfc3339),
+            None => self.utc(Some(v)),
+        }
     }
 }
 
