@@ -174,3 +174,4 @@ tunnel.json:sourceAlias
 enterprise.json:header
 enterprise.json:headerSignedIn
 enterprise.json:signIn.title
+scheduled.json:server.tab

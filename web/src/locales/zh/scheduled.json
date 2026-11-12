@@ -1,5 +1,5 @@
 {
-  "title": "计划任务",
+  "title": "已计划",
   "tab": "任务",
   "newTask": "新建任务",
   "namePlaceholder": "任务名称",
@@ -240,5 +240,65 @@
     "text": "文本",
     "textHint": "支持任务的变量。{results} 是之前每个步骤的执行情况（✓ 成功，✗ 失败，– 未执行），{alerts} 是它们的警报。超过 3,500 个字符的消息会被截断。",
     "privacy": "Webhook URL 和令牌保存在这台电脑的钥匙串中，绝不会存入任务或历史记录。消息仅通过 HTTPS 发送到所选服务。"
+  },
+  "sections": {
+    "dbine": "在 DBine 中",
+    "dbineHint": "由 DBine 在这台电脑上执行的任务",
+    "servers": "在服务器上",
+    "serversHint": "每个数据库服务器自行执行的作业"
+  },
+  "server": {
+    "tab": "作业",
+    "noConnections": "没有连接使用支持服务器作业的引擎（SQL Server Agent、DBMS_SCHEDULER、Snowflake 任务、Databricks 作业、pg_cron、MySQL 事件……）。",
+    "none": "此服务器没有作业。",
+    "onDemand": "按需",
+    "disabled": "已禁用",
+    "run": "立即运行",
+    "stop": "停止",
+    "enable": "启用",
+    "disable": "禁用",
+    "script": "查看脚本",
+    "scriptName": "{{job}} 的脚本",
+    "confirm": {
+      "run": "要在 {{connection}} 上立即运行作业“{{job}}”吗？",
+      "stop": "要停止 {{connection}} 上作业“{{job}}”的当前运行吗？",
+      "enable": "要在 {{connection}} 上启用作业“{{job}}”吗？它将重新按计划运行。",
+      "disable": "要在 {{connection}} 上禁用作业“{{job}}”吗？它将不再按计划运行。"
+    },
+    "done": {
+      "run": "服务器已开始运行“{{job}}”。",
+      "stop": "已请求停止“{{job}}”。",
+      "enable": "“{{job}}”已启用。",
+      "disable": "“{{job}}”已禁用。"
+    },
+    "outcome": {
+      "succeeded": "成功",
+      "failed": "失败",
+      "canceled": "已取消",
+      "running": "运行中",
+      "retrying": "重试中",
+      "skipped": "已跳过",
+      "unknown": "未知"
+    },
+    "schedule": "计划",
+    "lastRun": "上次运行",
+    "owner": "所有者",
+    "description": "说明",
+    "readOnly": "只读连接：可以查看作业，但不能运行、停止或启用。",
+    "steps": "步骤",
+    "stepName": "名称",
+    "stepKind": "类型",
+    "stepTarget": "目标",
+    "stepCommand": "命令",
+    "properties": "属性",
+    "history": "历史记录",
+    "noHistory": "此引擎不保存其作业的运行历史记录。",
+    "started": "开始时间",
+    "duration": "持续时间",
+    "result": "结果",
+    "trigger": "触发方式",
+    "message": "消息",
+    "moreRuns": "查看更多运行",
+    "failedCount_other": "{{count}} 个作业上次运行失败"
   }
 }

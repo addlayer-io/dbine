@@ -1,5 +1,5 @@
 {
-  "title": "スケジュールタスク",
+  "title": "スケジュール",
   "tab": "タスク",
   "newTask": "新しいタスク",
   "namePlaceholder": "タスク名",
@@ -240,5 +240,65 @@
     "text": "テキスト",
     "textHint": "タスクの変数を使えます。{results} は前の各ステップの結果（✓ 成功、✗ 失敗、– 未実行）、{alerts} はそのアラートです。3,500文字を超えるメッセージは切り詰められます。",
     "privacy": "WebhookのURLとトークンはこのコンピューターのキーチェーンに保存され、タスクや履歴には保存されません。メッセージは選択したサービスにHTTPSでのみ送信されます。"
+  },
+  "sections": {
+    "dbine": "DBine",
+    "dbineHint": "DBine がこのコンピューターで実行するタスク",
+    "servers": "サーバー",
+    "serversHint": "各データベースサーバーが自身で実行するジョブ"
+  },
+  "server": {
+    "tab": "ジョブ",
+    "noConnections": "サーバーのジョブを持つエンジンを使用している接続はありません（SQL Server Agent、DBMS_SCHEDULER、Snowflake のタスク、Databricks のジョブ、pg_cron、MySQL のイベントなど）。",
+    "none": "このサーバーにはジョブがありません。",
+    "onDemand": "オンデマンド",
+    "disabled": "無効",
+    "run": "今すぐ実行",
+    "stop": "停止",
+    "enable": "有効にする",
+    "disable": "無効にする",
+    "script": "スクリプトを表示",
+    "scriptName": "{{job}} のスクリプト",
+    "confirm": {
+      "run": "{{connection}} のジョブ「{{job}}」を今すぐ実行しますか？",
+      "stop": "{{connection}} のジョブ「{{job}}」の実行中の処理を停止しますか？",
+      "enable": "{{connection}} のジョブ「{{job}}」を有効にしますか？ スケジュールに従って再び実行されます。",
+      "disable": "{{connection}} のジョブ「{{job}}」を無効にしますか？ スケジュールに従った実行が行われなくなります。"
+    },
+    "done": {
+      "run": "サーバーが「{{job}}」の実行を開始しました。",
+      "stop": "「{{job}}」の停止を要求しました。",
+      "enable": "「{{job}}」を有効にしました。",
+      "disable": "「{{job}}」を無効にしました。"
+    },
+    "outcome": {
+      "succeeded": "成功",
+      "failed": "失敗",
+      "canceled": "キャンセル済み",
+      "running": "実行中",
+      "retrying": "再試行中",
+      "skipped": "スキップ",
+      "unknown": "不明"
+    },
+    "schedule": "スケジュール",
+    "lastRun": "前回の実行",
+    "owner": "所有者",
+    "description": "説明",
+    "readOnly": "読み取り専用の接続です。ジョブの表示はできますが、実行、停止、有効化はできません。",
+    "steps": "ステップ",
+    "stepName": "名前",
+    "stepKind": "種類",
+    "stepTarget": "ターゲット",
+    "stepCommand": "コマンド",
+    "properties": "プロパティ",
+    "history": "履歴",
+    "noHistory": "このエンジンはジョブの実行履歴を保存しません。",
+    "started": "開始",
+    "duration": "所要時間",
+    "result": "結果",
+    "trigger": "トリガー",
+    "message": "メッセージ",
+    "moreRuns": "さらに実行を表示",
+    "failedCount_other": "{{count}} 件のジョブが前回の実行で失敗しました"
   }
 }

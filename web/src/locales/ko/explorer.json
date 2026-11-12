@@ -71,6 +71,7 @@
     "clearSelection": "선택 해제",
     "newQuery": "새 쿼리",
     "monitor": "모니터",
+    "serverJobs": "서버 잡",
     "newDatabase": "새 데이터베이스…",
     "copyServer": "서버 복사",
     "copyConnectionName": "연결 이름 복사",

@@ -1,5 +1,5 @@
 {
-  "title": "Zaplanowane zadania",
+  "title": "Zaplanowane",
   "tab": "Zadanie",
   "newTask": "Nowe zadanie",
   "namePlaceholder": "Nazwa zadania",
@@ -249,5 +249,68 @@
     "text": "Treść",
     "textHint": "Akceptuje zmienne zadania. {results} to to, co zrobił każdy poprzedni krok (✓ w porządku, ✗ niepowodzenie, – nie uruchomiono), a {alerts} to jego alerty. Wiadomości dłuższe niż 3500 znaków są obcinane.",
     "privacy": "Adres URL webhooka i tokeny są zapisywane w pęku kluczy tego komputera, nigdy w zadaniu ani w historii. Wiadomość jest wysyłana wyłącznie przez HTTPS do wybranej usługi."
+  },
+  "sections": {
+    "dbine": "W DBine",
+    "dbineHint": "Zadania, które DBine wykonuje na tym komputerze",
+    "servers": "Na serwerach",
+    "serversHint": "Zadania (joby), które każdy serwer bazy danych wykonuje samodzielnie"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "Żadne połączenie nie używa silnika z jobami serwera (SQL Server Agent, DBMS_SCHEDULER, zadania Snowflake, joby Databricks, pg_cron, zdarzenia MySQL…).",
+    "none": "Ten serwer nie ma jobów.",
+    "onDemand": "Na żądanie",
+    "disabled": "Wyłączony",
+    "run": "Uruchom teraz",
+    "stop": "Zatrzymaj",
+    "enable": "Włącz",
+    "disable": "Wyłącz",
+    "script": "Pokaż skrypt",
+    "scriptName": "Skrypt {{job}}",
+    "confirm": {
+      "run": "Uruchomić teraz job „{{job}}” na {{connection}}?",
+      "stop": "Zatrzymać bieżące wykonanie joba „{{job}}” na {{connection}}?",
+      "enable": "Włączyć job „{{job}}” na {{connection}}? Znów będzie wykonywany według harmonogramu.",
+      "disable": "Wyłączyć job „{{job}}” na {{connection}}? Przestanie być wykonywany według harmonogramu."
+    },
+    "done": {
+      "run": "Serwer rozpoczął wykonywanie „{{job}}”.",
+      "stop": "Zażądano zatrzymania „{{job}}”.",
+      "enable": "Job „{{job}}” został włączony.",
+      "disable": "Job „{{job}}” został wyłączony."
+    },
+    "outcome": {
+      "succeeded": "Powodzenie",
+      "failed": "Niepowodzenie",
+      "canceled": "Anulowano",
+      "running": "W toku",
+      "retrying": "Ponawianie",
+      "skipped": "Pominięto",
+      "unknown": "Nieznany"
+    },
+    "schedule": "Harmonogram",
+    "lastRun": "Ostatnie wykonanie",
+    "owner": "Właściciel",
+    "description": "Opis",
+    "readOnly": "Połączenie tylko do odczytu: job można wyświetlić, ale nie można go uruchomić, zatrzymać ani włączyć.",
+    "steps": "Kroki",
+    "stepName": "Nazwa",
+    "stepKind": "Typ",
+    "stepTarget": "Cel",
+    "stepCommand": "Polecenie",
+    "properties": "Właściwości",
+    "history": "Historia",
+    "noHistory": "Ten silnik nie przechowuje historii wykonań swoich jobów.",
+    "started": "Początek",
+    "duration": "Czas trwania",
+    "result": "Wynik",
+    "trigger": "Wyzwalacz",
+    "message": "Komunikat",
+    "moreRuns": "Pokaż więcej wykonań",
+    "failedCount_one": "{{count}} job zakończył się błędem przy ostatnim wykonaniu",
+    "failedCount_few": "{{count}} joby zakończyły się błędem przy ostatnim wykonaniu",
+    "failedCount_many": "{{count}} jobów zakończyło się błędem przy ostatnim wykonaniu",
+    "failedCount_other": "{{count}} joba zakończyło się błędem przy ostatnim wykonaniu"
   }
 }

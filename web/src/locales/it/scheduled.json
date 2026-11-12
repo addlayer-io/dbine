@@ -1,5 +1,5 @@
 {
-  "title": "Attività pianificate",
+  "title": "Pianificate",
   "tab": "Attività",
   "newTask": "Nuova attività",
   "namePlaceholder": "Nome dell'attività",
@@ -244,5 +244,67 @@
     "text": "Testo",
     "textHint": "Accetta le variabili dell’attività. {results} è ciò che ha fatto ogni passaggio precedente (✓ riuscito, ✗ fallito, – non eseguito) e {alerts} i loro avvisi. I messaggi di oltre 3.500 caratteri vengono troncati.",
     "privacy": "L’URL del webhook e i token vengono salvati nel portachiavi di questo computer, mai nell’attività né nella cronologia. Il messaggio esce solo via HTTPS verso il servizio scelto."
+  },
+  "sections": {
+    "dbine": "In DBine",
+    "dbineHint": "Le attività che DBine esegue su questo computer",
+    "servers": "Sui server",
+    "serversHint": "I job che ogni server di database esegue per conto proprio"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "Nessuna connessione usa un motore con job del server (SQL Server Agent, DBMS_SCHEDULER, attività di Snowflake, job di Databricks, pg_cron, eventi di MySQL…).",
+    "none": "Questo server non ha job.",
+    "onDemand": "Su richiesta",
+    "disabled": "Disattivato",
+    "run": "Esegui ora",
+    "stop": "Interrompi",
+    "enable": "Attiva",
+    "disable": "Disattiva",
+    "script": "Vedi script",
+    "scriptName": "Script di {{job}}",
+    "confirm": {
+      "run": "Eseguire ora il job «{{job}}» su {{connection}}?",
+      "stop": "Interrompere l'esecuzione in corso del job «{{job}}» su {{connection}}?",
+      "enable": "Attivare il job «{{job}}» su {{connection}}? Torna a essere eseguito secondo la sua pianificazione.",
+      "disable": "Disattivare il job «{{job}}» su {{connection}}? Smette di essere eseguito secondo la sua pianificazione."
+    },
+    "done": {
+      "run": "Il server ha iniziato a eseguire «{{job}}».",
+      "stop": "È stata richiesta l'interruzione di «{{job}}».",
+      "enable": "«{{job}}» è stato attivato.",
+      "disable": "«{{job}}» è stato disattivato."
+    },
+    "outcome": {
+      "succeeded": "Riuscita",
+      "failed": "Non riuscita",
+      "canceled": "Annullata",
+      "running": "In esecuzione",
+      "retrying": "Nuovo tentativo",
+      "skipped": "Saltata",
+      "unknown": "Sconosciuto"
+    },
+    "schedule": "Pianificazione",
+    "lastRun": "Ultima esecuzione",
+    "owner": "Proprietario",
+    "description": "Descrizione",
+    "readOnly": "Connessione di sola lettura: il job si può vedere, ma non eseguire, interrompere o attivare.",
+    "steps": "Passaggi",
+    "stepName": "Nome",
+    "stepKind": "Tipo",
+    "stepTarget": "Destinazione",
+    "stepCommand": "Comando",
+    "properties": "Proprietà",
+    "history": "Cronologia",
+    "noHistory": "Questo motore non conserva la cronologia di esecuzione dei suoi job.",
+    "started": "Inizio",
+    "duration": "Durata",
+    "result": "Risultato",
+    "trigger": "Origine",
+    "message": "Messaggio",
+    "moreRuns": "Vedi altre esecuzioni",
+    "failedCount_one": "{{count}} job non è riuscito nell'ultima esecuzione",
+    "failedCount_many": "{{count}} di job non sono riusciti nell'ultima esecuzione",
+    "failedCount_other": "{{count}} job non sono riusciti nell'ultima esecuzione"
   }
 }

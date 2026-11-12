@@ -228,3 +228,4 @@ enterprise.json:header
 enterprise.json:headerSignedIn
 enterprise.json:signIn.title
 enterprise.json:elapsed.hours
+scheduled.json:server.tab

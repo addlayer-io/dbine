@@ -74,6 +74,7 @@
     "clearSelection": "Снять выделение",
     "newQuery": "Новый запрос",
     "monitor": "Монитор",
+    "serverJobs": "Задания сервера",
     "newDatabase": "Новая база данных…",
     "copyServer": "Копировать сервер",
     "copyConnectionName": "Копировать имя подключения",

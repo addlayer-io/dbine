@@ -405,3 +405,7 @@ enterprise.json:access.justification
 enterprise.json:elapsed.minutes_one
 enterprise.json:elapsed.minutes_other
 enterprise.json:elapsed.hours
+scheduled.json:server.tab
+scheduled.json:server.description
+scheduled.json:server.stepKind
+scheduled.json:server.message

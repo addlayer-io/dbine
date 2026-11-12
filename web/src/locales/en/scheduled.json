@@ -1,5 +1,5 @@
 {
-  "title": "Scheduled tasks",
+  "title": "Scheduled",
   "tab": "Task",
   "newTask": "New task",
   "namePlaceholder": "Task name",
@@ -243,5 +243,66 @@
     "text": "Text",
     "textHint": "Accepts the task variables. {results} is what each previous step did (✓ ok, ✗ failed, – didn't run) and {alerts} their alerts. Messages longer than 3,500 characters are cut.",
     "privacy": "The webhook URL and the tokens are stored in this computer's keychain, never in the task or the history. The message goes out only over HTTPS to the chosen service."
+  },
+  "sections": {
+    "dbine": "In DBine",
+    "dbineHint": "The tasks DBine runs on this computer",
+    "servers": "On the servers",
+    "serversHint": "The jobs each database server runs on its own"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "No connection uses an engine with server jobs (SQL Server Agent, DBMS_SCHEDULER, Snowflake tasks, Databricks jobs, pg_cron, MySQL events…).",
+    "none": "This server has no jobs.",
+    "onDemand": "On demand",
+    "disabled": "Disabled",
+    "run": "Run now",
+    "stop": "Stop",
+    "enable": "Enable",
+    "disable": "Disable",
+    "script": "View script",
+    "scriptName": "{{job}} script",
+    "confirm": {
+      "run": "Run the job “{{job}}” on {{connection}} now?",
+      "stop": "Stop the current run of the job “{{job}}” on {{connection}}?",
+      "enable": "Enable the job “{{job}}” on {{connection}}? It runs again on its schedule.",
+      "disable": "Disable the job “{{job}}” on {{connection}}? It stops running on its schedule."
+    },
+    "done": {
+      "run": "The server started running “{{job}}”.",
+      "stop": "Stopping “{{job}}” was requested.",
+      "enable": "“{{job}}” was enabled.",
+      "disable": "“{{job}}” was disabled."
+    },
+    "outcome": {
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "canceled": "Canceled",
+      "running": "Running",
+      "retrying": "Retrying",
+      "skipped": "Skipped",
+      "unknown": "Unknown"
+    },
+    "schedule": "Schedule",
+    "lastRun": "Last run",
+    "owner": "Owner",
+    "description": "Description",
+    "readOnly": "Read-only connection: you can view the job, but not run, stop or enable it.",
+    "steps": "Steps",
+    "stepName": "Name",
+    "stepKind": "Type",
+    "stepTarget": "Target",
+    "stepCommand": "Command",
+    "properties": "Properties",
+    "history": "History",
+    "noHistory": "This engine doesn't keep its jobs' run history.",
+    "started": "Started",
+    "duration": "Duration",
+    "result": "Result",
+    "trigger": "Trigger",
+    "message": "Message",
+    "moreRuns": "Show more runs",
+    "failedCount_one": "{{count}} job failed on its last run",
+    "failedCount_other": "{{count}} jobs failed on their last run"
   }
 }

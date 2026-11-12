@@ -1,5 +1,5 @@
 {
-  "title": "Tarefas agendadas",
+  "title": "Agendadas",
   "tab": "Tarefa",
   "newTask": "Nova tarefa",
   "namePlaceholder": "Nome da tarefa",
@@ -244,5 +244,67 @@
     "text": "Texto",
     "textHint": "Aceita as variáveis da tarefa. {results} é o que cada passo anterior fez (✓ ok, ✗ falhou, – não foi executado) e {alerts} são os alertas deles. Mensagens com mais de 3.500 caracteres são cortadas.",
     "privacy": "A URL do webhook e os tokens ficam no chaveiro deste computador, nunca na tarefa nem no histórico. A mensagem sai somente por HTTPS para o serviço escolhido."
+  },
+  "sections": {
+    "dbine": "No DBine",
+    "dbineHint": "As tarefas que o DBine executa neste computador",
+    "servers": "Nos servidores",
+    "serversHint": "Os jobs que cada servidor de banco de dados executa por conta própria"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "Nenhuma conexão usa um mecanismo com jobs do servidor (SQL Server Agent, DBMS_SCHEDULER, tarefas do Snowflake, jobs do Databricks, pg_cron, eventos do MySQL…).",
+    "none": "Este servidor não tem jobs.",
+    "onDemand": "Sob demanda",
+    "disabled": "Desativado",
+    "run": "Executar agora",
+    "stop": "Parar",
+    "enable": "Ativar",
+    "disable": "Desativar",
+    "script": "Ver script",
+    "scriptName": "Script de {{job}}",
+    "confirm": {
+      "run": "Executar agora o job “{{job}}” em {{connection}}?",
+      "stop": "Parar a execução em andamento do job “{{job}}” em {{connection}}?",
+      "enable": "Ativar o job “{{job}}” em {{connection}}? Ele volta a ser executado conforme sua programação.",
+      "disable": "Desativar o job “{{job}}” em {{connection}}? Ele deixa de ser executado conforme sua programação."
+    },
+    "done": {
+      "run": "O servidor começou a executar “{{job}}”.",
+      "stop": "Foi solicitado parar “{{job}}”.",
+      "enable": "“{{job}}” foi ativado.",
+      "disable": "“{{job}}” foi desativado."
+    },
+    "outcome": {
+      "succeeded": "Bem-sucedida",
+      "failed": "Falhou",
+      "canceled": "Cancelada",
+      "running": "Em execução",
+      "retrying": "Tentando novamente",
+      "skipped": "Ignorada",
+      "unknown": "Desconhecido"
+    },
+    "schedule": "Programação",
+    "lastRun": "Última execução",
+    "owner": "Proprietário",
+    "description": "Descrição",
+    "readOnly": "Conexão somente leitura: é possível ver o job, mas não executá-lo, pará-lo nem ativá-lo.",
+    "steps": "Etapas",
+    "stepName": "Nome",
+    "stepKind": "Tipo",
+    "stepTarget": "Destino",
+    "stepCommand": "Comando",
+    "properties": "Propriedades",
+    "history": "Histórico",
+    "noHistory": "Este mecanismo não guarda o histórico de execuções de seus jobs.",
+    "started": "Início",
+    "duration": "Duração",
+    "result": "Resultado",
+    "trigger": "Origem",
+    "message": "Mensagem",
+    "moreRuns": "Ver mais execuções",
+    "failedCount_one": "{{count}} job falhou na última execução",
+    "failedCount_many": "{{count}} de jobs falharam na última execução",
+    "failedCount_other": "{{count}} jobs falharam na última execução"
   }
 }
