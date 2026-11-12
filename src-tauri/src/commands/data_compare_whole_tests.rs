@@ -851,8 +851,10 @@ async fn the_scratch_compares_tables_far_bigger_than_its_memory() {
 fn cells_compare_as_the_grid_values_did() {
     // Each engine's batched read gives typed cells; as compared they equal
     // what the grid gave for the same data (and what another engine gives).
+    // The assertion names no value: a failure shows the two canon strings
+    // only (CodeQL reads a printed cell as possible cleartext logging).
     let same = |c: Cell, grid: Value| {
-        assert_eq!(canon(&value_of(c.clone())), canon(&grid), "{c:?} vs {grid}");
+        assert_eq!(canon(&value_of(c)), canon(&grid));
     };
     same(Cell::Int(7), json!(7));
     same(Cell::Int(7), json!("7"));
