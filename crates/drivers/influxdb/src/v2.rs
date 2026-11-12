@@ -450,6 +450,63 @@ impl Session for FluxSession {
         self.job_create_script(id).await
     }
 
+    /// Tasks managed whole (see [`crate::scheduler::task`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        Ok(crate::scheduler::task::info(self))
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::task::items(self).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::task::form(self, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::task::script(self, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::task::save(self, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::task::delete_script(self, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::task::delete(self, id).await
+    }
+
+    async fn run_job_from(&mut self, _id: &str, _step: &str) -> Result<()> {
+        Err(crate::scheduler::task::no_steps())
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        crate::scheduler::task::clear_history(self, id).await
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let resp = self
             .http

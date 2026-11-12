@@ -19,6 +19,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod scheduler;
 mod schema;
 mod search;
 mod security;
@@ -264,6 +265,8 @@ impl Driver for ClickHouseDriver {
             database_properties: self.flavor == Flavor::ClickHouse,
             // Refreshable views (ClickHouse) and tasks (Proton); see `jobs`.
             jobs: true,
+            // The same, managed whole; see `scheduler`.
+            scheduler: true,
             ..Default::default()
         }
     }
@@ -500,22 +503,26 @@ impl ClickHouseSession {
     /// (`{name:String}` placeholders), so catalog lookups never splice
     /// user text into SQL.
     async fn send(&self, sql: &str, params: &[(&str, &str)], in_session: bool) -> Result<Body> {
-        self.send_with(sql, params, in_session, &[]).await
+        self.send_with(sql, params, in_session, &[], None).await
     }
 
     /// [`Self::send`] with settings of DBine's own on the request (the
     /// server takes them with `readonly`, where a `SETTINGS` clause would
-    /// be refused).
+    /// be refused), in `database` (the session's when `None`).
     async fn send_with(
         &self,
         sql: &str,
         params: &[(&str, &str)],
         in_session: bool,
         extra: &[(&str, &str)],
+        database: Option<&str>,
     ) -> Result<Body> {
         let query_id = uuid::Uuid::new_v4().to_string();
         let mut q: Vec<(String, String)> = vec![
-            ("database".into(), self.database.clone()),
+            (
+                "database".into(),
+                database.unwrap_or(&self.database).to_string(),
+            ),
             ("query_id".into(), query_id.clone()),
             ("default_format".into(), FORMAT.into()),
         ];
@@ -621,12 +628,14 @@ impl ClickHouseSession {
     }
 
     /// The user's profile's own `readonly`, asked without any setting (0
-    /// when it can't be read, so DBine keeps sending its own).
+    /// when it can't be read, so DBine keeps sending its own). From
+    /// `system.settings`, which both flavors have (Proton has no
+    /// `getSetting`: it spells it `get_setting`).
     async fn profile_readonly(&self) -> i64 {
         let resp = match self
             .conn
             .post()
-            .body("SELECT getSetting('readonly')")
+            .body("SELECT value FROM system.settings WHERE name = 'readonly'")
             .send()
             .await
         {
@@ -725,8 +734,22 @@ impl ClickHouseSession {
         params: &[(&str, &str)],
         settings: &[(&str, &str)],
     ) -> Result<Vec<Vec<Value>>> {
+        self.rows_in(None, sql, params, settings).await
+    }
+
+    /// [`Self::rows_with`] in `database` (the session's when `None`).
+    async fn rows_in(
+        &self,
+        database: Option<&str>,
+        sql: &str,
+        params: &[(&str, &str)],
+        settings: &[(&str, &str)],
+    ) -> Result<Vec<Vec<Value>>> {
         let mut out = QueryOutcome::default();
-        if let Body::Rows(resp) = self.send_with(sql, params, false, settings).await? {
+        if let Body::Rows(resp) = self
+            .send_with(sql, params, false, settings, database)
+            .await?
+        {
             read_rows(resp, &mut out, 100_000, false).await?;
         }
         self.done();
@@ -1259,6 +1282,58 @@ impl Session for ClickHouseSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.job_create_script(id).await
+    }
+
+    /// Refreshable views, or Proton's tasks, managed whole (see
+    /// [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        self.sched_info().await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        self.sched_items(kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        self.sched_form(kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        self.sched_script(kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        self.sched_save(kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        self.sched_delete_script(kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.sched_delete(kind, id).await
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        self.sched_clear_history(id).await
+    }
+
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        self.sched_logs().await
     }
 
     async fn profiler_start(

@@ -620,6 +620,11 @@ impl DremioSession {
     pub(crate) async fn server_job_script(&mut self, id: &str) -> Result<String> {
         let uuid = parse_id(id)?;
         let r = self.reflection(&uuid).await?;
+        // Whole from the REST API (granularity, measure functions,
+        // partition transforms); from `sys.reflections` if it can't say.
+        if let Some(sql) = crate::scheduler::exact_script(self, &uuid).await {
+            return Ok(sql);
+        }
         script_of(&r).ok_or_else(|| not_found(&uuid))
     }
 }

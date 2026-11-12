@@ -208,10 +208,11 @@ pub fn create(table: &str, ix: &IndexDef) -> String {
             q(&ix.columns)
         )
     };
+    // Dremio's grammar takes them in this order.
     for (k, word) in [
+        (DISTRIBUTE_BY, "DISTRIBUTE BY"),
         (PARTITION_BY, "PARTITION BY"),
         (LOCALSORT_BY, "LOCALSORT BY"),
-        (DISTRIBUTE_BY, "DISTRIBUTE BY"),
     ] {
         if let Some(v) = opt(k) {
             sql.push_str(&format!(" {word} ({})", q(&v)));

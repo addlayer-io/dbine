@@ -36,7 +36,7 @@ const MAX_MESSAGE: usize = 4000;
 const MAX_JOBS: usize = 5000;
 
 const TERMINATE_NOTE: &str = "Detener ejecuta TERMINATE: la consulta se borra para siempre y el stream o la tabla que alimenta quedan sin quien escriba en ellos. Para frenarla un tiempo, deshabilitala (PAUSE).";
-const NO_PAUSE_NOTE: &str = "Esta versión de ksqlDB no tiene PAUSE ni RESUME (llegaron en ksqlDB 0.26, Confluent Platform 7.3): las consultas no se pueden deshabilitar.";
+pub(crate) const NO_PAUSE_NOTE: &str = "Esta versión de ksqlDB no tiene PAUSE ni RESUME (llegaron en ksqlDB 0.26, Confluent Platform 7.3): las consultas no se pueden deshabilitar.";
 
 /// The server can `PAUSE` / `RESUME` a query: ksqlDB 0.26 on, or
 /// Confluent Platform 7.3 on (its versions are 5.x and up). An unknown
@@ -219,7 +219,7 @@ pub(crate) fn detail_of(q: &Value, pause: bool) -> Option<JobDetail> {
 }
 
 /// Milliseconds since 1970 as RFC 3339 in UTC.
-fn utc_ms(ms: i64) -> String {
+pub(crate) fn utc_ms(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let z = days + 719_468;
@@ -250,7 +250,7 @@ fn not_found(id: &str) -> Error {
 }
 
 impl KsqlSession {
-    async fn version(&self) -> String {
+    pub(crate) async fn version(&self) -> String {
         match self.get_json("/info").await {
             Ok(v) => v
                 .pointer("/KsqlServerInfo/version")

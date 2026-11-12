@@ -539,3 +539,27 @@ async fn script_errors_and_transactions() {
     );
     s.execute("DROP TABLE dbine_tx", 10, &mut go).await.unwrap();
 }
+
+/// Flight SQL has no scheduler to manage: Dremio's reflections and refresh
+/// policies are the Dremio driver's (its REST API), and the app never asks
+/// this driver (no `scheduler` capability).
+#[tokio::test]
+#[ignore]
+async fn no_scheduler() {
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_flightsql::drivers().remove(0);
+    assert!(!d.capabilities().scheduler && !d.capabilities().jobs);
+    let mut s = d.connect(&c, None).await.unwrap();
+    match s.scheduler_info().await {
+        Err(Error::Unsupported(m)) => assert!(m.contains("driver de Dremio"), "{m}"),
+        r => panic!("{r:?}"),
+    }
+    assert!(matches!(
+        s.scheduler_items("job").await,
+        Err(Error::Unsupported(_))
+    ));
+    assert!(matches!(
+        s.scheduler_form("job", None).await,
+        Err(Error::Unsupported(_))
+    ));
+}

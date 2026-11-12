@@ -463,6 +463,68 @@ impl Session for SqlSession {
         self.job_create_script(id).await
     }
 
+    /// The processing engine's triggers managed whole (see
+    /// [`crate::scheduler::trigger`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        Ok(crate::scheduler::trigger::info())
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::trigger::items(self).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::trigger::form(self, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::trigger::script(self, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::trigger::save(self, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::trigger::delete_script(self, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::trigger::delete(self, id).await
+    }
+
+    async fn run_job_from(&mut self, _id: &str, _step: &str) -> Result<()> {
+        Err(crate::scheduler::trigger::no_steps())
+    }
+
+    async fn clear_job_history(&mut self, _id: &str) -> Result<()> {
+        Err(crate::scheduler::trigger::no_clear())
+    }
+
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        crate::scheduler::trigger::logs(self).await
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let resp = self
             .auth(self.http.get(format!("{}/metrics", self.base)))

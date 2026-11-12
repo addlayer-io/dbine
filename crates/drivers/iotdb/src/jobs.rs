@@ -29,7 +29,7 @@ use serde_json::Value as J;
 const KIND: &str = "Continuous query";
 const PIPE_KIND: &str = "Pipe";
 /// Jobs listed at most.
-const MAX_JOBS: usize = 5000;
+pub(crate) const MAX_JOBS: usize = 5000;
 
 const CQ_NOTE: &str = "IoTDB no permite pausar una consulta continua, ejecutarla a pedido ni detener una ejecución, y no guarda un historial de ejecuciones: para frenarla hay que borrarla (DROP CQ) y volver a crearla con su script.";
 const DENIED: &str =
@@ -39,7 +39,7 @@ const PIPES_DENIED: &str =
 const PIPE_NOTE: &str = "Un pipe sincroniza datos sin parar: no tiene «Ejecutar ahora» ni historial de ejecuciones. Deshabilitarlo lo detiene (STOP PIPE) y habilitarlo lo vuelve a arrancar (START PIPE).";
 const MASKED_NOTE: &str = "Las contraseñas y claves de los pipes se ocultan (******): el script no las trae y hay que agregarlas antes de ejecutarlo.";
 /// What IoTDB shows instead of a password.
-const MASK: &str = "******";
+pub(crate) const MASK: &str = "******";
 
 /// One continuous query.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -82,7 +82,7 @@ pub(crate) fn cqs(t: &Table) -> Vec<Cq> {
 
 /// The index of the keyword `kw` (a whole word, any case) in `sql`, outside
 /// quotes.
-fn keyword(sql: &str, kw: &str) -> Option<usize> {
+pub(crate) fn keyword(sql: &str, kw: &str) -> Option<usize> {
     let lower = sql.to_ascii_lowercase();
     let b = lower.as_bytes();
     let mut quote: Option<u8> = None;
@@ -223,7 +223,7 @@ pub(crate) fn detail_of(cq: &Cq) -> JobDetail {
     }
 }
 
-fn denied(e: &Error) -> bool {
+pub(crate) fn denied(e: &Error) -> bool {
     let m = e.to_string().to_ascii_lowercase();
     m.contains("permission") || m.contains("privilege")
 }
@@ -277,8 +277,19 @@ pub(crate) fn attributes(t: &str) -> Vec<(String, String)> {
     out
 }
 
-/// `SHOW PIPES` as pipes, by column name.
+/// `SHOW PIPES` as pipes, by column name, credentials hidden.
 pub(crate) fn pipes(t: &Table) -> Vec<Pipe> {
+    read_pipes(t, true)
+}
+
+/// `SHOW PIPES` as the server answered it: IoTDB 1.x shows the passwords
+/// (2.x hides them as `******`). Only for writing the pipe back to the same
+/// server (the scheduler's "keep the password it has"); never shown.
+pub(crate) fn raw_pipes(t: &Table) -> Vec<Pipe> {
+    read_pipes(t, false)
+}
+
+fn read_pipes(t: &Table, hide: bool) -> Vec<Pipe> {
     let col = |name: &str| {
         t.columns
             .iter()
@@ -300,13 +311,13 @@ pub(crate) fn pipes(t: &Table) -> Vec<Pipe> {
                 created: get(r, col("CreationTime")),
                 state: get(r, col("State")).unwrap_or_default(),
                 source: get(r, col("PipeSource"))
-                    .map(|v| hidden(attributes(&v)))
+                    .map(|v| shown(attributes(&v), hide))
                     .unwrap_or_default(),
                 processor: get(r, col("PipeProcessor"))
-                    .map(|v| hidden(attributes(&v)))
+                    .map(|v| shown(attributes(&v), hide))
                     .unwrap_or_default(),
                 sink: get(r, col("PipeSink"))
-                    .map(|v| hidden(attributes(&v)))
+                    .map(|v| shown(attributes(&v), hide))
                     .unwrap_or_default(),
                 error: get(r, col("ExceptionMessage")),
                 remaining: get(r, col("RemainingEventCount")),
@@ -326,8 +337,12 @@ pub(crate) fn secret_key(k: &str) -> bool {
         || k.ends_with("key")
 }
 
-/// A pipe clause's attributes, credentials hidden as IoTDB 2 does.
-fn hidden(attrs: Vec<(String, String)>) -> Vec<(String, String)> {
+/// A pipe clause's attributes, credentials hidden as IoTDB 2 does (when
+/// `hide`).
+fn shown(attrs: Vec<(String, String)>, hide: bool) -> Vec<(String, String)> {
+    if !hide {
+        return attrs;
+    }
     attrs
         .into_iter()
         .map(|(k, v)| {
@@ -346,7 +361,7 @@ pub(crate) fn pipe_name(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
 }
 
-fn system_pipe(name: &str) -> bool {
+pub(crate) fn system_pipe(name: &str) -> bool {
     name.starts_with("__")
 }
 

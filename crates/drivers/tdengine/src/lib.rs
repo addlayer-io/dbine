@@ -19,6 +19,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod scheduler;
 mod script;
 mod security;
 mod sync;
@@ -154,6 +155,7 @@ impl Driver for TdDriver {
             cancel_query: true,
             database_properties: true,
             jobs: true,
+            scheduler: true,
             ..Default::default()
         }
     }
@@ -1205,6 +1207,49 @@ impl Session for TdSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.server_job_script(id).await
+    }
+
+    /// Streams, in the designer (see [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        scheduler::info(self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        scheduler::items(self, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::form(self, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        scheduler::script(self, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        scheduler::save(self, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        scheduler::delete_script(self, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        scheduler::delete(self, kind, id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
