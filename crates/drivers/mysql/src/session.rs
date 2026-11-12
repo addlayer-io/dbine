@@ -2140,6 +2140,52 @@ impl Session for MySqlSession {
         crate::jobs::script(self, id).await
     }
 
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        crate::scheduler::info(self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        crate::scheduler::items(self, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        crate::scheduler::form(self, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        crate::scheduler::script(self, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        crate::scheduler::save(self, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        crate::scheduler::delete_script(self, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        crate::scheduler::delete(self, kind, id).await
+    }
+
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        crate::scheduler::logs(self).await
+    }
+
     async fn profiler_start(
         &mut self,
         opts: &dbine_driver::ProfilerOptions,

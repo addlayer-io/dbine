@@ -36,7 +36,7 @@ use std::collections::HashMap;
 pub(super) const KIND: &str = "Event";
 
 /// Longest schema or event name MySQL allows.
-const MAX_NAME: usize = 64;
+pub(crate) const MAX_NAME: usize = 64;
 
 /// `{tz}` and `{now}`: the zone the event's times are read in and now on
 /// its clock; `{t:COL}`: a time column on that clock (see [`events_sql`]).
@@ -66,7 +66,7 @@ const TIME_COLUMNS: [&str; 6] = [
 
 /// OceanBase's zone at `scope` (`session`, `global`): it names its `SYSTEM`
 /// zone in `@@system_time_zone`, and `CONVERT_TZ` doesn't take `SYSTEM`.
-fn ob_zone(scope: &str) -> String {
+pub(crate) fn ob_zone(scope: &str) -> String {
     format!("IF(@@{scope}.time_zone = 'SYSTEM', @@system_time_zone, @@{scope}.time_zone)")
 }
 
@@ -114,12 +114,12 @@ const RUNNING: &str = "SELECT DISTINCT e.OBJECT_SCHEMA AS ev_schema, e.OBJECT_NA
  WHERE e.OBJECT_TYPE = 'EVENT' AND t.PROCESSLIST_ID IS NOT NULL";
 
 /// An event's id: `` `schema`.`event` ``.
-pub(super) fn id(schema: &str, name: &str) -> String {
+pub(crate) fn id(schema: &str, name: &str) -> String {
     format!("{}.{}", quoted(schema), quoted(name))
 }
 
 /// The schema and name in an id, or the error for one that isn't ours.
-pub(super) fn event_id(id: &str) -> Result<(String, String)> {
+pub(crate) fn event_id(id: &str) -> Result<(String, String)> {
     let bad = || bad_id(id, "evento");
     let (schema, rest) = unquote(id).ok_or_else(bad)?;
     let rest = rest.strip_prefix('.').ok_or_else(bad)?;
@@ -130,7 +130,7 @@ pub(super) fn event_id(id: &str) -> Result<(String, String)> {
     Ok((schema, name))
 }
 
-fn not_found(schema: &str, name: &str) -> Error {
+pub(crate) fn not_found(schema: &str, name: &str) -> Error {
     Error::Query(format!(
         "no existe el evento {schema}.{name} o este usuario no lo ve"
     ))
@@ -138,31 +138,31 @@ fn not_found(schema: &str, name: &str) -> Error {
 
 /// One row of `information_schema.EVENTS`.
 #[derive(Debug, Clone, Default, PartialEq)]
-struct Event {
-    schema: String,
-    name: String,
-    definer: Option<String>,
-    tz: String,
-    body: Option<String>,
-    recurring: bool,
-    at: Option<String>,
-    every: Option<String>,
-    unit: Option<String>,
-    starts: Option<String>,
-    ends: Option<String>,
-    status: String,
-    preserve: bool,
-    created: Option<String>,
-    altered: Option<String>,
-    last: Option<String>,
-    comment: Option<String>,
-    originator: Option<String>,
-    sql_mode: Option<String>,
-    charset: Option<String>,
-    collation: Option<String>,
-    db_collation: Option<String>,
+pub(crate) struct Event {
+    pub(crate) schema: String,
+    pub(crate) name: String,
+    pub(crate) definer: Option<String>,
+    pub(crate) tz: String,
+    pub(crate) body: Option<String>,
+    pub(crate) recurring: bool,
+    pub(crate) at: Option<String>,
+    pub(crate) every: Option<String>,
+    pub(crate) unit: Option<String>,
+    pub(crate) starts: Option<String>,
+    pub(crate) ends: Option<String>,
+    pub(crate) status: String,
+    pub(crate) preserve: bool,
+    pub(crate) created: Option<String>,
+    pub(crate) altered: Option<String>,
+    pub(crate) last: Option<String>,
+    pub(crate) comment: Option<String>,
+    pub(crate) originator: Option<String>,
+    pub(crate) sql_mode: Option<String>,
+    pub(crate) charset: Option<String>,
+    pub(crate) collation: Option<String>,
+    pub(crate) db_collation: Option<String>,
     /// Now on the event zone's clock, when the server could say it.
-    now: Option<String>,
+    pub(crate) now: Option<String>,
 }
 
 fn event(r: &mysql_async::Row) -> Event {
@@ -195,13 +195,13 @@ fn event(r: &mysql_async::Row) -> Event {
 }
 
 impl Event {
-    fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         self.status.eq_ignore_ascii_case("ENABLED")
     }
 
     /// `SLAVESIDE_DISABLED` (`REPLICA_SIDE_DISABLED` in MySQL 8.4): created
     /// on the source, kept off on this replica.
-    fn replica_side(&self) -> bool {
+    pub(crate) fn replica_side(&self) -> bool {
         self.status.to_ascii_uppercase().ends_with("SIDE_DISABLED")
     }
 
@@ -269,7 +269,7 @@ impl Event {
 
 /// An event's interval, as the server steps it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Step {
+pub(crate) enum Step {
     Seconds(i64),
     Months(i64),
 }
@@ -277,7 +277,7 @@ enum Step {
 /// `INTERVAL_VALUE` and `INTERVAL_FIELD` as a step: `1` `HOUR`, `'1:30'`
 /// `HOUR_MINUTE`, `'1-6'` `YEAR_MONTH`… A composite value with fewer parts
 /// than its unit has fills from the right, as the server reads it.
-fn step(value: Option<&str>, unit: Option<&str>) -> Option<Step> {
+pub(crate) fn step(value: Option<&str>, unit: Option<&str>) -> Option<Step> {
     let parts: Vec<i64> = value?
         .split(|c: char| !c.is_ascii_digit())
         .filter(|p| !p.is_empty())
@@ -369,7 +369,7 @@ impl Context {
 
 /// The global privileges a `SHOW GRANTS` line gives (`GRANT EVENT, SUPER ON
 /// *.* TO …`, `GRANT SET_USER_ID,CONNECTION_ADMIN ON *.* TO …`), upper case.
-fn global_privileges(grant: &str) -> Vec<String> {
+pub(crate) fn global_privileges(grant: &str) -> Vec<String> {
     let g = grant.trim();
     let Some(rest) = g
         .get(..6)
@@ -609,7 +609,7 @@ async fn context(s: &mut MySqlSession) -> Result<Context> {
     })
 }
 
-async fn load(s: &mut MySqlSession, only: Option<(&str, &str)>) -> Result<Vec<Event>> {
+pub(crate) async fn load(s: &mut MySqlSession, only: Option<(&str, &str)>) -> Result<Vec<Event>> {
     let filter = match only {
         Some((schema, name)) => format!(
             "\n WHERE EVENT_SCHEMA = {} AND EVENT_NAME = {}",
@@ -729,18 +729,24 @@ fn job(e: &Event, ctx: &Context, t: &Times) -> ServerJob {
     }
 }
 
+/// Why events don't run, from `@@global.event_scheduler`: `None` when it's
+/// on.
+pub(crate) fn scheduler_note(state: &str) -> Option<&'static str> {
+    match state.trim().to_ascii_uppercase().as_str() {
+        "ON" | "1" => None,
+        "DISABLED" => Some(
+            "El programador de eventos está deshabilitado en el servidor (event_scheduler = DISABLED): los eventos no se ejecutan.",
+        ),
+        _ => Some(
+            "El programador de eventos del servidor está apagado (event_scheduler = OFF): los eventos no se ejecutan.",
+        ),
+    }
+}
+
 fn notes(ctx: &Context, t: &Times) -> Vec<String> {
     let mut notes = Vec::new();
-    match ctx.scheduler.to_ascii_uppercase().as_str() {
-        "ON" | "1" => {}
-        "DISABLED" => notes.push(
-            "El programador de eventos está deshabilitado en el servidor (event_scheduler = DISABLED): los eventos no se ejecutan."
-                .into(),
-        ),
-        _ => notes.push(
-            "El programador de eventos del servidor está apagado (event_scheduler = OFF): los eventos no se ejecutan."
-                .into(),
-        ),
+    if let Some(n) = scheduler_note(&ctx.scheduler) {
+        notes.push(n.into());
     }
     if !ctx.has(&["EVENT"]) {
         notes.push(
@@ -952,7 +958,7 @@ fn kill_targets(pids: &[u64], own: u64) -> Result<Vec<u64>> {
 }
 
 /// `DEFINER` (`user@host`) as `ALTER DEFINER =` takes it.
-fn definer_clause(definer: &str) -> String {
+pub(crate) fn definer_clause(definer: &str) -> String {
     match definer.rsplit_once('@') {
         Some((u, h)) => format!("{}@{}", quoted(u), quoted(h)),
         // A MariaDB role.

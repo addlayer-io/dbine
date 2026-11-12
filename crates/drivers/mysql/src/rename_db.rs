@@ -448,7 +448,7 @@ fn one_statement(text: &str, d: &ScriptDialect) -> bool {
 /// MariaDB `/*M! … */` keeps its contents as code, as the server runs
 /// them). An unterminated literal swallows the rest, as it does on the
 /// server (where the statement then fails).
-fn lexed(text: &str, backslash_escapes: bool, ansi_quotes: bool) -> String {
+pub(crate) fn lexed(text: &str, backslash_escapes: bool, ansi_quotes: bool) -> String {
     let b = text.as_bytes();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;

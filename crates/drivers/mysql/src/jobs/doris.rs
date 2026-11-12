@@ -26,15 +26,15 @@ use dbine_driver::sql::{name_tokens, TokenKind};
 use dbine_driver::{Error, Result};
 use std::collections::HashMap;
 
-pub(super) const JOB: &str = "Job";
-pub(super) const MV: &str = "Materialized view";
+pub(crate) const JOB: &str = "Job";
+pub(crate) const MV: &str = "Materialized view";
 
 /// Tasks per job the list reads, to find the last finished one.
 const RECENT: usize = 3;
 
 /// The two job types `jobs()` and `tasks()` take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Type {
+pub(crate) enum Type {
     Insert,
     Mv,
 }
@@ -56,11 +56,11 @@ impl Type {
 }
 
 /// A job's id: `` job:`name` `` or `` mv:`name` `` (the view's job).
-fn job_id(t: Type, name: &str) -> String {
+pub(crate) fn job_id(t: Type, name: &str) -> String {
     format!("{}{}", t.prefix(), quoted(name))
 }
 
-fn parse_id(id: &str) -> Result<(Type, String)> {
+pub(crate) fn parse_id(id: &str) -> Result<(Type, String)> {
     for t in [Type::Insert, Type::Mv] {
         if let Some(n) = one_name(id, t.prefix()) {
             return Ok((t, n));
@@ -69,13 +69,13 @@ fn parse_id(id: &str) -> Result<(Type, String)> {
     Err(bad_id(id, "job de Doris"))
 }
 
-fn not_found(name: &str) -> Error {
+pub(crate) fn not_found(name: &str) -> Error {
     Error::Query(format!("no existe el job {name} o este usuario no lo ve"))
 }
 
 /// How a job is scheduled, from `RecurringStrategy`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Strategy {
+pub(crate) enum Strategy {
     At(String),
     Every {
         n: u64,
@@ -87,7 +87,7 @@ enum Strategy {
 
 /// `AT 2027-01-01 03:00:00`, `EVERY 1 HOUR STARTS 2026-11-12 14:04:28
 /// [ENDS …]`.
-fn strategy(s: &str) -> Option<Strategy> {
+pub(crate) fn strategy(s: &str) -> Option<Strategy> {
     let toks: Vec<&str> = s.split_whitespace().collect();
     let kw = |t: &str| t.eq_ignore_ascii_case("STARTS") || t.eq_ignore_ascii_case("ENDS");
     let after = |key: &str| -> Option<String> {
@@ -113,7 +113,7 @@ fn strategy(s: &str) -> Option<Strategy> {
 
 impl Strategy {
     /// As `CREATE JOB … ON SCHEDULE` takes it.
-    fn sql(&self) -> String {
+    pub(crate) fn sql(&self) -> String {
         match self {
             Strategy::At(at) => format!("AT {}", lit(at)),
             Strategy::Every {
@@ -174,22 +174,24 @@ impl Strategy {
 
 /// One row of `jobs()`.
 #[derive(Debug, Clone, Default, PartialEq)]
-struct Job {
-    t: Option<Type>,
-    name: String,
-    definer: Option<String>,
-    execute_type: String,
-    strategy: Option<String>,
-    status: String,
-    sql: Option<String>,
-    created: Option<String>,
-    comment: Option<String>,
-    succeeded: Option<u64>,
-    failed: Option<u64>,
-    canceled: Option<u64>,
-    error: Option<String>,
-    mv_name: Option<String>,
-    mv_db: Option<String>,
+pub(crate) struct Job {
+    pub(crate) t: Option<Type>,
+    pub(crate) name: String,
+    pub(crate) definer: Option<String>,
+    pub(crate) execute_type: String,
+    pub(crate) strategy: Option<String>,
+    pub(crate) status: String,
+    pub(crate) sql: Option<String>,
+    pub(crate) created: Option<String>,
+    pub(crate) comment: Option<String>,
+    pub(crate) succeeded: Option<u64>,
+    pub(crate) failed: Option<u64>,
+    pub(crate) canceled: Option<u64>,
+    pub(crate) error: Option<String>,
+    pub(crate) mv_name: Option<String>,
+    pub(crate) mv_db: Option<String>,
+    /// The job's `PROPERTIES` (a streaming job's), as `jobs()` prints them.
+    pub(crate) properties: Option<String>,
 }
 
 fn job_row(t: Type, r: &mysql_async::Row) -> Job {
@@ -214,20 +216,21 @@ fn job_row(t: Type, r: &mysql_async::Row) -> Job {
         error: text(r, &["ErrorMsg"]),
         mv_name: text(r, &["MvName"]),
         mv_db: text(r, &["MvDatabaseName"]),
+        properties: text(r, &["Properties"]),
     }
 }
 
 impl Job {
-    fn ty(&self) -> Type {
+    pub(crate) fn ty(&self) -> Type {
         self.t.unwrap_or(Type::Insert)
     }
 
     /// Its schedule fires: Doris calls an active job RUNNING.
-    fn active(&self) -> bool {
+    pub(crate) fn active(&self) -> bool {
         self.status == "RUNNING"
     }
 
-    fn strategy(&self) -> Option<Strategy> {
+    pub(crate) fn strategy(&self) -> Option<Strategy> {
         match self.execute_type.as_str() {
             "RECURRING" | "ONE_TIME" => strategy(self.strategy.as_deref()?),
             _ => None,
@@ -259,14 +262,14 @@ impl Job {
 
 /// The first line of the script of a job whose SQL names tables without
 /// their database.
-const BARE_TABLES_COMMENT: &str =
+pub(crate) const BARE_TABLES_COMMENT: &str =
     "-- Doris no informa en qué base se creó el job y su SQL nombra tablas sin la base: ejecutar antes USE con esa base.";
 
 /// Whether an insert job's SQL names a table without its database (or in a
 /// way this can't tell): the `INSERT INTO` / `INSERT OVERWRITE TABLE`
 /// target and each table after `FROM` (a list too) or `JOIN`. Subqueries
 /// and table functions (`numbers(…)`, `s3(…)`) aren't tables.
-fn names_bare_tables(sql: &str) -> bool {
+pub(crate) fn names_bare_tables(sql: &str) -> bool {
     let d = crate::script_dialect(crate::Variant::Doris);
     let toks = name_tokens(sql, &d);
     let name = |i: usize| toks.get(i).is_some_and(|t| t.kind == TokenKind::Name);
@@ -458,7 +461,11 @@ impl Catalog {
 }
 
 /// The jobs of a type, or `None` before `jobs()` (Doris 2.1).
-async fn jobs_of(s: &mut MySqlSession, t: Type, only: Option<&str>) -> Result<Option<Vec<Job>>> {
+pub(crate) async fn jobs_of(
+    s: &mut MySqlSession,
+    t: Type,
+    only: Option<&str>,
+) -> Result<Option<Vec<Job>>> {
     let filter = only
         .map(|n| format!(" WHERE Name = {}", lit(n)))
         .unwrap_or_default();
@@ -598,7 +605,7 @@ pub(super) async fn list(s: &mut MySqlSession) -> Result<JobList> {
 
 /// Whether the user holds ADMIN: `SHOW GRANTS` lists it among the global
 /// privileges, its roles' included (`Node_priv,Admin_priv`).
-async fn is_admin(s: &mut MySqlSession) -> bool {
+pub(crate) async fn is_admin(s: &mut MySqlSession) -> bool {
     s.optional_rows("SHOW GRANTS")
         .await
         .iter()
@@ -695,7 +702,7 @@ fn job_run(t: &Task, c: &Catalog) -> JobRun {
 }
 
 /// The view of an `mv:` job, quoted for a statement.
-fn view(j: &Job) -> Result<String> {
+pub(crate) fn view(j: &Job) -> Result<String> {
     match (&j.mv_db, &j.mv_name) {
         (Some(db), Some(mv)) => Ok(format!("{}.{}", quoted(db), quoted(mv))),
         _ => Err(not_found(&j.name)),
