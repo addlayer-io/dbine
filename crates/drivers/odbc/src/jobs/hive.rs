@@ -18,17 +18,17 @@ use dbine_driver::{JobStep, ServerJob};
 
 const KIND: &str = "Scheduled query";
 
-pub(super) const NOW: &str = "SELECT current_timestamp() AS local_now, unix_timestamp() AS utc_now";
+pub(crate) const NOW: &str = "SELECT current_timestamp() AS local_now, unix_timestamp() AS utc_now";
 pub(super) const NAMESPACE: &str = "SET hive.scheduled.queries.namespace";
 
 const COLUMNS: &str = "q.scheduled_query_id AS id, q.schedule_name AS name, q.enabled AS enabled,
        q.cluster_namespace AS namespace, q.schedule AS schedule, q.`user` AS owner, q.query AS query,
        q.next_execution AS next_execution";
 
-const NO_SCHEDULES: &str = "Este servidor no tiene consultas programadas: llegaron con Hive 4.0 y se leen de la base information_schema.";
+pub(crate) const NO_SCHEDULES: &str = "Este servidor no tiene consultas programadas: llegaron con Hive 4.0 y se leen de la base information_schema.";
 
 /// A column by name, also when HiveServer2 prefixes it with its table.
-fn col<'a>(s: &'a Set, r: usize, name: &str) -> Option<&'a str> {
+pub(crate) fn col<'a>(s: &'a Set, r: usize, name: &str) -> Option<&'a str> {
     s.get(r, name).or_else(|| {
         let i = s.cols.iter().position(|c| {
             c.rsplit_once('.')
@@ -38,7 +38,7 @@ fn col<'a>(s: &'a Set, r: usize, name: &str) -> Option<&'a str> {
     })
 }
 
-fn queries_sql(id: Option<u64>) -> String {
+pub(crate) fn queries_sql(id: Option<u64>) -> String {
     let filter = id
         .map(|n| format!(" WHERE q.scheduled_query_id = {n}"))
         .unwrap_or_default();
@@ -47,7 +47,7 @@ fn queries_sql(id: Option<u64>) -> String {
 
 /// A scheduled query's name: a plain identifier, so it can go between
 /// backticks and quotes as is.
-fn ident(name: &str) -> Option<&str> {
+pub(crate) fn ident(name: &str) -> Option<&str> {
     let ok = !name.is_empty()
         && name.len() <= 128
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
@@ -55,7 +55,7 @@ fn ident(name: &str) -> Option<&str> {
 }
 
 /// The session's namespace (`hive` unless configured).
-fn namespace(src: &mut dyn JobSource) -> String {
+pub(crate) fn namespace(src: &mut dyn JobSource) -> String {
     src.query(NAMESPACE, &[])
         .ok()
         .and_then(|s| s.at(0, 0).map(str::to_string))
@@ -295,7 +295,7 @@ const OTHER_NAMESPACES: &str =
 const ODD_NAMES: &str =
     "DBine solo maneja las consultas programadas con nombres simples: las demás se ven solo para lectura.";
 
-fn not_there(e: &Error) -> bool {
+pub(crate) fn not_there(e: &Error) -> bool {
     let m = e.to_string().to_ascii_lowercase();
     matches!(code(e), Some(10001 | 10072))
         || m.contains("table not found")
@@ -465,7 +465,7 @@ pub fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
 }
 
 /// A Hive string literal (backslash escapes, as Hive reads them).
-fn hive_lit(v: &str) -> String {
+pub(crate) fn hive_lit(v: &str) -> String {
     format!("'{}'", v.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 

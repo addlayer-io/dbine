@@ -18,19 +18,20 @@ use dbine_driver::{JobStep, ServerJob};
 pub const NO_RUN_NOW: &str = "Altibase no tiene una forma de ejecutar un job fuera de su calendario: ejecutar su procedimiento a mano no cuenta como una ejecución del job";
 pub const NO_HISTORY: &str =
     "Altibase no guarda el historial de sus jobs: solo la última ejecución y su código de error";
-const ONLY_SYS: &str = "en Altibase solo el usuario SYS modifica los jobs";
-const NO_ENABLE: &str =
+pub(crate) const ONLY_SYS: &str = "en Altibase solo el usuario SYS modifica los jobs";
+pub(crate) const NO_ENABLE: &str =
     "esta versión de Altibase no habilita ni deshabilita jobs (llega con la 6.5.1)";
 
-const NOT_HERE: &str = "Este servidor no tiene jobs (CREATE JOB llega con Altibase 6.3.1).";
-const OFF: &str = "El planificador de jobs está apagado (JOB_SCHEDULER_ENABLE o JOB_THREAD_COUNT en 0): los jobs no se ejecutan.";
+pub(crate) const NOT_HERE: &str =
+    "Este servidor no tiene jobs (CREATE JOB llega con Altibase 6.3.1).";
+pub(crate) const OFF: &str = "El planificador de jobs está apagado (JOB_SCHEDULER_ENABLE o JOB_THREAD_COUNT en 0): los jobs no se ejecutan.";
 
 const KIND: &str = "Job";
 
-pub(super) const NOW: &str = "SELECT TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS') AS LOCAL_NOW, TO_CHAR(UNIX_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UTC_NOW FROM DUAL";
+pub(crate) const NOW: &str = "SELECT TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS') AS LOCAL_NOW, TO_CHAR(UNIX_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UTC_NOW FROM DUAL";
 pub(super) const USER: &str = "SELECT USER_NAME() AS U FROM DUAL";
 pub(super) const PROPS: &str = "SELECT NAME, VALUE1 FROM V$PROPERTY WHERE NAME IN ('JOB_SCHEDULER_ENABLE', 'JOB_THREAD_COUNT')";
-pub(super) const EXISTS: &str =
+pub(crate) const EXISTS: &str =
     "SELECT COUNT(*) AS N FROM SYSTEM_.SYS_TABLES_ WHERE TABLE_NAME = 'SYS_JOBS_'";
 
 /// The columns every version has.
@@ -54,7 +55,7 @@ pub(super) fn select(full: bool, one: bool) -> String {
 }
 
 /// The jobs, and whether the server has `IS_ENABLE` and `COMMENT`.
-fn read(src: &mut dyn JobSource, id: Option<&str>) -> Result<(Set, bool)> {
+pub(crate) fn read(src: &mut dyn JobSource, id: Option<&str>) -> Result<(Set, bool)> {
     let params: Vec<&str> = id.into_iter().collect();
     match src.query(&select(true, id.is_some()), &params) {
         Ok(s) => Ok((s, true)),
@@ -67,7 +68,7 @@ fn read(src: &mut dyn JobSource, id: Option<&str>) -> Result<(Set, bool)> {
     }
 }
 
-fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, bool)> {
+pub(crate) fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, bool)> {
     let n = int_id(id)?.to_string();
     let (s, full) = read(src, Some(&n))?;
     if s.rows.is_empty() {
@@ -77,7 +78,7 @@ fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, bool)> {
 }
 
 /// `INTERVAL_TYPE`'s unit as CREATE JOB writes it.
-fn unit(t: Option<&str>) -> Option<&'static str> {
+pub(crate) fn unit(t: Option<&str>) -> Option<&'static str> {
     match t.map(|t| t.trim().to_ascii_uppercase()).as_deref() {
         Some("YY") => Some("YEAR"),
         Some("MM") => Some("MONTH"),
@@ -143,7 +144,7 @@ fn job(s: &Set, r: usize, tz: &Tz, full: bool, sys: bool) -> Option<ServerJob> {
 }
 
 /// The connected user is SYS, the only one that alters jobs.
-fn is_sys(src: &mut dyn JobSource) -> bool {
+pub(crate) fn is_sys(src: &mut dyn JobSource) -> bool {
     match src.query(USER, &[]) {
         Ok(s) => s.get(0, "U").is_some_and(|u| u.eq_ignore_ascii_case("SYS")),
         Err(e) => {
@@ -154,7 +155,7 @@ fn is_sys(src: &mut dyn JobSource) -> bool {
 }
 
 /// The job scheduler is off (best effort).
-fn off(src: &mut dyn JobSource) -> bool {
+pub(crate) fn off(src: &mut dyn JobSource) -> bool {
     let s = match src.query(PROPS, &[]) {
         Ok(s) => s,
         Err(e) => {
@@ -197,7 +198,7 @@ pub fn list(src: &mut dyn JobSource) -> Result<JobList> {
 }
 
 /// `EXEC_QUERY` as the procedure call, without an `EXEC` in front.
-fn call(q: &str) -> &str {
+pub(crate) fn call(q: &str) -> &str {
     let t = q.trim();
     match t.get(..5) {
         Some(head) if head.eq_ignore_ascii_case("EXEC ") => t[5..].trim_start(),
@@ -242,7 +243,7 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
     })
 }
 
-fn q(name: &str) -> String {
+pub(crate) fn q(name: &str) -> String {
     quote_ident(Quote::Double, name)
 }
 

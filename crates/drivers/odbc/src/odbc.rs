@@ -537,6 +537,17 @@ pub struct Stmt<'a> {
     slot: &'a StmtSlot,
 }
 
+/// A parameter marker of [`Stmt::exec_call`], as text.
+#[derive(Clone, Copy)]
+pub enum CallParam<'a> {
+    /// Sent (`None`: NULL).
+    In(Option<&'a str>),
+    /// Sent, and read back after the call.
+    InOut(Option<&'a str>),
+    /// Read back after the call.
+    Out,
+}
+
 impl Drop for Stmt<'_> {
     fn drop(&mut self) {
         let mut cur = self.slot.current.lock().unwrap_or_else(|e| e.into_inner());
@@ -620,6 +631,89 @@ impl Stmt<'_> {
         let rc = self.exec(sql);
         drop(bufs);
         rc
+    }
+
+    /// Execute a CALL whose parameter markers are `params`, in order, as
+    /// text: the values of the input-output and output ones, in order (up
+    /// to 4 KiB each, `None` for NULL), read once every result set the
+    /// procedure left is passed.
+    pub fn exec_call(&self, sql: &str, params: &[CallParam]) -> Result<Vec<Option<String>>> {
+        /// Room for a value read back, in UTF-16 units with the terminator.
+        const CAP: usize = 4096;
+        // Every buffer and length is in place before the first bind: none
+        // of them moves or is resized until the values are read below.
+        let mut bufs: Vec<Vec<u16>> = Vec::with_capacity(params.len());
+        let mut lens: Vec<SqlLen> = Vec::with_capacity(params.len());
+        for p in params {
+            let (mut b, len) = match p {
+                CallParam::In(Some(v)) | CallParam::InOut(Some(v)) => {
+                    let w = wide(v);
+                    let n = (w.len() * 2) as SqlLen;
+                    (w, n)
+                }
+                CallParam::In(None) | CallParam::InOut(None) => (Vec::new(), SQL_NULL_DATA),
+                CallParam::Out => (Vec::new(), 0),
+            };
+            if !matches!(p, CallParam::In(_)) {
+                if b.len() >= CAP {
+                    return Err(Error::Query(
+                        "Un valor de entrada y salida es demasiado largo.".into(),
+                    ));
+                }
+                b.resize(CAP, 0);
+            } else if b.is_empty() {
+                b.push(0);
+            }
+            bufs.push(b);
+            lens.push(len);
+        }
+        for (i, (b, len)) in bufs.iter_mut().zip(lens.iter_mut()).enumerate() {
+            let (io, size, room) = match params[i] {
+                CallParam::In(_) => (SQL_PARAM_INPUT, (*len / 2).max(1) as SqlULen, *len),
+                CallParam::InOut(_) => (SQL_PARAM_INPUT_OUTPUT, CAP - 1, (CAP * 2) as SqlLen),
+                CallParam::Out => (SQL_PARAM_OUTPUT, CAP - 1, (CAP * 2) as SqlLen),
+            };
+            // SAFETY: `bufs` and `lens` are neither moved nor resized until
+            // the values are read below.
+            let rc = unsafe {
+                (self.api.SQLBindParameter)(
+                    self.h.0,
+                    (i + 1) as u16,
+                    io,
+                    SQL_C_WCHAR,
+                    SQL_WVARCHAR,
+                    size,
+                    0,
+                    b.as_mut_ptr() as *mut c_void,
+                    room.max(0),
+                    len,
+                )
+            };
+            if !ok(rc) {
+                return Err(self.err());
+            }
+        }
+        let rc = self.exec(sql)?;
+        // Output parameters are set once the result sets are done.
+        if rc != SQL_NO_DATA {
+            while self.more_results()? {}
+        }
+        Ok(params
+            .iter()
+            .zip(bufs.iter().zip(&lens))
+            .filter(|(p, _)| !matches!(p, CallParam::In(_)))
+            .map(|(_, (b, len))| {
+                if *len == SQL_NULL_DATA {
+                    return None;
+                }
+                let n = if *len >= 0 {
+                    (*len as usize / 2).min(CAP - 1)
+                } else {
+                    b.iter().position(|c| *c == 0).unwrap_or(CAP - 1)
+                };
+                Some(from_wide(&b[..n]))
+            })
+            .collect())
     }
 
     pub fn num_cols(&self) -> Result<u16> {

@@ -9,15 +9,16 @@
 use super::*;
 use dbine_driver::{JobStep, ServerJob};
 
-pub(super) const NOW: &str = "SELECT FIRST 1 CURRENT YEAR TO SECOND AS LOCAL_NOW, DBINFO('utc_current') AS UTC_NOW FROM systables";
+pub(crate) const NOW: &str = "SELECT FIRST 1 CURRENT YEAR TO SECOND AS LOCAL_NOW, DBINFO('utc_current') AS UTC_NOW FROM systables";
 
 pub(super) const ASYNC: &str =
     "SELECT COUNT(*) AS N FROM sysadmin:sysprocedures WHERE procname = 'exectask_async'";
 
-const NO_SYSADMIN: &str =
+pub(crate) const NO_SYSADMIN: &str =
     "Este servidor no tiene la base sysadmin, donde vive el planificador (DB Scheduler).";
-const NO_ACCESS: &str = "Este usuario no tiene acceso a la base sysadmin: el planificador lo ve el usuario informix o quien tenga permisos sobre sysadmin.";
-const NO_TABLES: &str = "La base sysadmin no tiene las tablas del planificador (ph_task).";
+pub(crate) const NO_ACCESS: &str = "Este usuario no tiene acceso a la base sysadmin: el planificador lo ve el usuario informix o quien tenga permisos sobre sysadmin.";
+pub(crate) const NO_TABLES: &str =
+    "La base sysadmin no tiene las tablas del planificador (ph_task).";
 const RUN_FROM_SYSADMIN: &str =
     "«Ejecutar ahora» funciona con la conexión abierta en la base sysadmin.";
 
@@ -102,7 +103,7 @@ const BUILT_IN: &[&str] = &[
 ];
 
 /// One of [`BUILT_IN`] (the guide writes some in other case).
-fn built_in(name: &str) -> bool {
+pub(crate) fn built_in(name: &str) -> bool {
     let name = name.trim();
     BUILT_IN.iter().any(|b| b.eq_ignore_ascii_case(name))
 }

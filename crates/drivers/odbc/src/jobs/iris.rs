@@ -15,12 +15,12 @@ pub const NO_CONTROL: &str = "IRIS ejecuta, suspende y reanuda sus tareas con mÃ
 pub const NO_SCRIPT: &str = "las tareas de IRIS se crean con ObjectScript (%SYS.Task), no con SQL";
 
 const KIND: &str = "Task Manager";
-pub(super) const NOW: &str = "SELECT CURRENT_TIMESTAMP AS LOCAL_NOW, GETUTCDATE() AS UTC_NOW";
-pub(super) const LIST: &str = "SELECT %ID AS JOB_ID, * FROM %SYS.Task";
-const ONE: &str = "SELECT %ID AS JOB_ID, * FROM %SYS.Task WHERE %ID = ?";
+pub(crate) const NOW: &str = "SELECT CURRENT_TIMESTAMP AS LOCAL_NOW, GETUTCDATE() AS UTC_NOW";
+pub(crate) const LIST: &str = "SELECT %ID AS JOB_ID, * FROM %SYS.Task";
+pub(crate) const ONE: &str = "SELECT %ID AS JOB_ID, * FROM %SYS.Task WHERE %ID = ?";
 const HAS_HISTORY: &str = "SELECT TOP 1 %ID AS RUN_ID FROM %SYS_Task.History";
 
-const NOT_VISIBLE: &str = "Las tareas del Task Manager se ven conectando al namespace %SYS con un usuario que tenga el recurso %Admin_Task.";
+pub(crate) const NOT_VISIBLE: &str = "Las tareas del Task Manager se ven conectando al namespace %SYS con un usuario que tenga el recurso %Admin_Task.";
 
 /// `$HOROLOG` (`days,seconds`; day 0 is 1840-12-31) as local ms.
 pub(super) fn horolog(v: &str) -> Option<i64> {
@@ -39,7 +39,7 @@ pub(super) fn horolog(v: &str) -> Option<i64> {
 }
 
 /// A time in either form, local ms.
-fn when(v: Option<&str>) -> Option<i64> {
+pub(crate) fn when(v: Option<&str>) -> Option<i64> {
     let v = v?.trim();
     if v.is_empty() || v == "0" {
         return None;
@@ -48,7 +48,7 @@ fn when(v: Option<&str>) -> Option<i64> {
 }
 
 /// Seconds after midnight, as a %Time text or a number.
-fn day_secs(v: Option<&str>) -> Option<i64> {
+pub(crate) fn day_secs(v: Option<&str>) -> Option<i64> {
     let v = v?.trim();
     parse_time(v)
         .map(|ms| ms / 1000)
@@ -150,7 +150,7 @@ fn job(s: &Set, r: usize, tz: &Tz, history: bool) -> Option<ServerJob> {
     })
 }
 
-fn note(e: &Error) -> Option<&'static str> {
+pub(crate) fn note(e: &Error) -> Option<&'static str> {
     matches!(code(e), Some(-30 | -99 | -112)).then_some(NOT_VISIBLE)
 }
 

@@ -16,20 +16,20 @@ pub const NO_SCRIPT: &str = "Job Scheduler no informa el calendario de un job en
 
 const KIND: &str = "Job Scheduler";
 
-pub(super) const NOW: &str = "SELECT getdate() AS LOCAL_NOW, getutcdate() AS UTC_NOW";
+pub(crate) const NOW: &str = "SELECT getdate() AS LOCAL_NOW, getutcdate() AS UTC_NOW";
 pub(super) const INSTALLED: &str = "SELECT db_id('sybmgmtdb') AS DBID";
 pub(super) const ENABLED: &str =
     "SELECT value AS VALUE FROM master..sysconfigures WHERE name = 'enable job scheduler'";
 pub(super) const ROLES: &str =
     "SELECT proc_role('js_admin_role') AS ADM, proc_role('js_user_role') AS USR";
 
-const NOT_INSTALLED: &str =
+pub(crate) const NOT_INSTALLED: &str =
     "Este servidor no tiene Job Scheduler instalado (no existe la base sybmgmtdb).";
-const OFF: &str =
+pub(crate) const OFF: &str =
     "Job Scheduler está apagado: los jobs no se ejecutan hasta activar «enable job scheduler».";
-const NO_ROLE: &str =
+pub(crate) const NO_ROLE: &str =
     "Este usuario no tiene js_user_role ni js_admin_role: no ve los jobs de Job Scheduler.";
-const OWN_ONLY: &str = "Sin js_admin_role se ven solo los jobs de este usuario.";
+pub(crate) const OWN_ONLY: &str = "Sin js_admin_role se ven solo los jobs de este usuario.";
 const UNREADABLE: &str = "sp_sjobhelp no devolvió la lista en un formato que DBine reconozca.";
 
 const ID: &[&str] = &["sjob_id", "id"];
@@ -50,12 +50,12 @@ const SCHED_DATES: &[&str] = &["sched_dates", "dates"];
 
 /// What the user can do in Job Scheduler, or the note saying why the list
 /// is empty.
-struct Access {
-    admin: bool,
-    off: bool,
+pub(crate) struct Access {
+    pub(crate) admin: bool,
+    pub(crate) off: bool,
 }
 
-fn access(src: &mut dyn JobSource) -> Result<std::result::Result<Access, &'static str>> {
+pub(crate) fn access(src: &mut dyn JobSource) -> Result<std::result::Result<Access, &'static str>> {
     let installed = src.query(INSTALLED, &[])?;
     if installed.get(0, "DBID").is_none() {
         return Ok(Err(NOT_INSTALLED));
@@ -74,7 +74,7 @@ fn access(src: &mut dyn JobSource) -> Result<std::result::Result<Access, &'stati
     Ok(Ok(Access { admin, off }))
 }
 
-fn options(base: &str, admin: bool) -> String {
+pub(crate) fn options(base: &str, admin: bool) -> String {
     if admin {
         format!("{base},all_users")
     } else {

@@ -26,14 +26,15 @@
 use super::*;
 use dbine_driver::{JobStep, JobStepRun, ServerJob};
 
-mod scheduler;
+pub(crate) mod scheduler;
 
-const NOT_INIT: &str =
+pub(crate) const NOT_INIT: &str =
     "El sistema de jobs no está creado en este servidor (se crea con SP_INIT_JOB_SYS(1)).";
-const NO_ACCESS: &str = "Este usuario no tiene permisos para ver los jobs del esquema SYSJOB.";
-const OWN_ONLY: &str =
+pub(crate) const NO_ACCESS: &str =
+    "Este usuario no tiene permisos para ver los jobs del esquema SYSJOB.";
+pub(crate) const OWN_ONLY: &str =
     "Se ven solo los jobs de este usuario: los de todos los ve quien tiene el rol SOI.";
-const NOT_MINE: &str = "solo un DBA o el dueño del job lo ejecuta, detiene o habilita";
+pub(crate) const NOT_MINE: &str = "solo un DBA o el dueño del job lo ejecuta, detiene o habilita";
 const NOT_RUNNING: &str = "el job no se está ejecutando";
 const INCOMPLETE: &str = "el job no está completo (VALID = N): hay que terminar de configurarlo";
 const NO_ASYNC: &str =
@@ -41,26 +42,26 @@ const NO_ASYNC: &str =
 const NO_STOP: &str =
     "esta versión de DM no detiene un job en ejecución (no tiene SP_STOP_RUNNING_JOB)";
 
-const KIND: &str = "Job";
-const KIND_DBMS_JOB: &str = "DBMS_JOB";
+pub(crate) const KIND: &str = "Job";
+pub(crate) const KIND_DBMS_JOB: &str = "DBMS_JOB";
 
-pub(super) const NOW: &str =
+pub(crate) const NOW: &str =
     "SELECT SYSDATE AS LOCAL_NOW, SYS_EXTRACT_UTC(SYSTIMESTAMP) AS UTC_NOW FROM DUAL";
-pub(super) const SCHEMA: &str =
+pub(crate) const SCHEMA: &str =
     "SELECT COUNT(*) AS N FROM SYSOBJECTS WHERE TYPE$ = 'SCH' AND NAME = 'SYSJOB'";
-pub(super) const RUNNING: &str = "SELECT JOBID, THIS_DATE FROM V$JOBS_RUNNING";
-pub(super) const USER: &str = "SELECT USER AS U FROM DUAL";
-pub(super) const ROLES: &str = "SELECT GRANTED_ROLE AS R FROM USER_ROLE_PRIVS";
-pub(super) const OPERATORS: &str = "SELECT ID, NAME FROM SYSJOB.SYSOPERATORS";
+pub(crate) const RUNNING: &str = "SELECT JOBID, THIS_DATE FROM V$JOBS_RUNNING";
+pub(crate) const USER: &str = "SELECT USER AS U FROM DUAL";
+pub(crate) const ROLES: &str = "SELECT GRANTED_ROLE AS R FROM USER_ROLE_PRIVS";
+pub(crate) const OPERATORS: &str = "SELECT ID, NAME FROM SYSJOB.SYSOPERATORS";
 /// The procedures run now and stop call, next to `SP_DBMS_JOB_RUN`, which
 /// every DM8 with the job system has: when the catalog doesn't list that
 /// one either, it doesn't say which the server has.
-pub(super) const PROCS: &str = "SELECT NAME FROM SYSOBJECTS WHERE TYPE$ = 'SCHOBJ' AND SUBTYPE$ = 'PROC' AND NAME IN ('SP_DBMS_JOB_RUN', 'SP_DBMS_JOB_RUN_ASYNC', 'SP_STOP_RUNNING_JOB')";
+pub(crate) const PROCS: &str = "SELECT NAME FROM SYSOBJECTS WHERE TYPE$ = 'SCHOBJ' AND SUBTYPE$ = 'PROC' AND NAME IN ('SP_DBMS_JOB_RUN', 'SP_DBMS_JOB_RUN_ASYNC', 'SP_STOP_RUNNING_JOB')";
 
 /// Where the jobs are read from: the tables (SOI role) or the views of
 /// the user's own jobs.
 #[derive(Clone, Copy)]
-pub(super) struct Tables {
+pub(crate) struct Tables {
     pub jobs: &'static str,
     pub steps: &'static str,
     pub schedules: &'static str,
@@ -70,7 +71,7 @@ pub(super) struct Tables {
     pub own: bool,
 }
 
-pub(super) const ALL: Tables = Tables {
+pub(crate) const ALL: Tables = Tables {
     jobs: "SYSJOB.SYSJOBS",
     steps: "SYSJOB.SYSJOBSTEPS",
     schedules: "SYSJOB.SYSJOBSCHEDULES",
@@ -80,7 +81,7 @@ pub(super) const ALL: Tables = Tables {
     own: false,
 };
 
-pub(super) const OWN: Tables = Tables {
+pub(crate) const OWN: Tables = Tables {
     jobs: "SYSJOB.USER_JOBS_VIEW",
     steps: "SYSJOB.USER_JOBSTEPS_VIEW",
     schedules: "SYSJOB.USER_JOBSCHEDULES_VIEW",
@@ -90,7 +91,7 @@ pub(super) const OWN: Tables = Tables {
     own: true,
 };
 
-fn best_effort(src: &mut dyn JobSource, sql: &str, params: &[&str]) -> Set {
+pub(crate) fn best_effort(src: &mut dyn JobSource, sql: &str, params: &[&str]) -> Set {
     src.query(sql, params).unwrap_or_else(|e| {
         tracing::debug!("odbc jobs: {sql} failed: {e}");
         Set::default()
@@ -99,7 +100,7 @@ fn best_effort(src: &mut dyn JobSource, sql: &str, params: &[&str]) -> Set {
 
 /// The jobs (all of them, or the one whose `ID` is the parameter) from
 /// the first source this user can read.
-fn read(src: &mut dyn JobSource, id: Option<&str>) -> Result<(Set, Tables)> {
+pub(crate) fn read(src: &mut dyn JobSource, id: Option<&str>) -> Result<(Set, Tables)> {
     let params: Vec<&str> = id.into_iter().collect();
     let sql = |t: &Tables| match id {
         Some(_) => format!("SELECT * FROM {} WHERE ID = ?", t.jobs),
@@ -117,12 +118,12 @@ fn read(src: &mut dyn JobSource, id: Option<&str>) -> Result<(Set, Tables)> {
 }
 
 /// Who's asking: the user and whether they're a DBA (best effort).
-struct Me {
-    user: Option<String>,
-    dba: bool,
+pub(crate) struct Me {
+    pub(crate) user: Option<String>,
+    pub(crate) dba: bool,
 }
 
-fn me(src: &mut dyn JobSource) -> Me {
+pub(crate) fn me(src: &mut dyn JobSource) -> Me {
     let user = best_effort(src, USER, &[]).text("U");
     let roles = best_effort(src, ROLES, &[]);
     // SYSDBA is DBA even where USER_ROLE_PRIVS can't say it.
@@ -138,7 +139,7 @@ fn me(src: &mut dyn JobSource) -> Me {
 }
 
 impl Me {
-    fn manages(&self, owner: Option<&str>) -> bool {
+    pub(crate) fn manages(&self, owner: Option<&str>) -> bool {
         self.dba || matches!((&self.user, owner), (Some(u), Some(o)) if u.eq_ignore_ascii_case(o))
     }
 }
@@ -327,7 +328,11 @@ pub(super) fn describe(s: &Set, r: usize) -> Option<String> {
 }
 
 /// The rows of `set` whose `col` is `id`.
-fn rows_of<'a>(set: &'a Set, col: &'a str, id: &'a str) -> impl Iterator<Item = usize> + 'a {
+pub(crate) fn rows_of<'a>(
+    set: &'a Set,
+    col: &'a str,
+    id: &'a str,
+) -> impl Iterator<Item = usize> + 'a {
     let n = int(Some(id));
     (0..set.rows.len()).filter(move |r| {
         set.get(*r, col)
@@ -366,7 +371,7 @@ fn outcome(code: Option<i64>) -> JobOutcome {
 
 /// The job of `SYSJOBS` row `r` may be DBMS_JOB's: `SYS_FLAG` 2, or no
 /// such column (older servers), where only `DBA_JOBS` tells.
-fn maybe_dbms_job(s: &Set, r: usize) -> bool {
+pub(crate) fn maybe_dbms_job(s: &Set, r: usize) -> bool {
     int(s.get(r, "SYS_FLAG")).is_none_or(|f| f == 2)
 }
 
@@ -474,7 +479,7 @@ pub fn list(src: &mut dyn JobSource) -> Result<JobList> {
     Ok(out)
 }
 
-fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, Tables, String)> {
+pub(crate) fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, Tables, String)> {
     let n = int_id(id)?.to_string();
     let (s, t) = read(src, Some(&n))?;
     if s.rows.is_empty() {
@@ -483,7 +488,7 @@ fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, Tables, String)> {
     Ok((s, t, n))
 }
 
-fn steps_sql(t: &Tables) -> String {
+pub(crate) fn steps_sql(t: &Tables) -> String {
     format!(
         "SELECT * FROM {} WHERE JOBID = ? ORDER BY SEQNO, ID",
         t.steps
@@ -697,7 +702,12 @@ pub fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
 }
 
 /// The `DBA_JOBS` (or `USER_JOBS`) row of job `n` when it's DBMS_JOB's.
-fn dbms_job_row(src: &mut dyn JobSource, s: &Set, t: &Tables, n: &str) -> Result<Option<Set>> {
+pub(crate) fn dbms_job_row(
+    src: &mut dyn JobSource,
+    s: &Set,
+    t: &Tables,
+    n: &str,
+) -> Result<Option<Set>> {
     if !maybe_dbms_job(s, 0) {
         return Ok(None);
     }
@@ -782,7 +792,7 @@ fn datetime(v: Option<&str>) -> String {
 }
 
 /// DBMS_JOB.ISUBMIT's interval: seconds back to a date expression.
-fn interval_expr(v: &str) -> String {
+pub(crate) fn interval_expr(v: &str) -> String {
     match v.trim().parse::<i64>() {
         Ok(secs) => format!("SYSDATE + {secs}/86400"),
         Err(_) => v.to_string(),

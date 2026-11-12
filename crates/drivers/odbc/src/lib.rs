@@ -24,6 +24,7 @@ mod presets;
 mod processes;
 mod properties;
 mod rename;
+mod scheduler;
 mod schemas;
 mod search;
 mod security;
@@ -1854,6 +1855,126 @@ impl Session for OdbcSession {
             .await
     }
 
+    /// Each engine's scheduler managed whole (see [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        let (preset, ctx) = (self.preset, self.jobs_ctx());
+        self.run(move |c, slot| scheduler::info(preset, &mut ConnSource { c, slot }, &ctx))
+            .await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        let (preset, ctx, kind) = (self.preset, self.jobs_ctx(), kind.to_string());
+        self.run(move |c, slot| scheduler::items(preset, &mut ConnSource { c, slot }, &ctx, &kind))
+            .await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        let (preset, ctx) = (self.preset, self.jobs_ctx());
+        let (kind, id) = (kind.to_string(), id.map(str::to_string));
+        self.run(move |c, slot| {
+            scheduler::form(
+                preset,
+                &mut ConnSource { c, slot },
+                &ctx,
+                &kind,
+                id.as_deref(),
+            )
+        })
+        .await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        let preset = self.preset;
+        let (kind, id, values) = (kind.to_string(), id.map(str::to_string), values.clone());
+        self.run(move |c, slot| {
+            scheduler::script(
+                preset,
+                &mut ConnSource { c, slot },
+                &kind,
+                id.as_deref(),
+                &values,
+            )
+        })
+        .await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        let manual = self.scheduler_tx()?;
+        let preset = self.preset;
+        let (kind, id, values) = (kind.to_string(), id.map(str::to_string), values.clone());
+        self.run(move |c, slot| {
+            scheduler::save(
+                preset,
+                &mut scheduler::Conn::new(ConnSource { c, slot }, manual),
+                &kind,
+                id.as_deref(),
+                &values,
+            )
+        })
+        .await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        let preset = self.preset;
+        let (kind, id) = (kind.to_string(), id.to_string());
+        self.run(move |c, slot| {
+            scheduler::delete_script(preset, &mut ConnSource { c, slot }, &kind, &id)
+        })
+        .await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        let manual = self.scheduler_tx()?;
+        let preset = self.preset;
+        let (kind, id) = (kind.to_string(), id.to_string());
+        self.run(move |c, slot| {
+            scheduler::delete(
+                preset,
+                &mut scheduler::Conn::new(ConnSource { c, slot }, manual),
+                &kind,
+                &id,
+            )
+        })
+        .await
+    }
+
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        scheduler::run_from(self.preset, id, step)
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        let manual = self.scheduler_tx()?;
+        let (preset, id) = (self.preset, id.to_string());
+        self.run(move |c, slot| {
+            scheduler::clear_history(
+                preset,
+                &mut scheduler::Conn::new(ConnSource { c, slot }, manual),
+                &id,
+            )
+        })
+        .await
+    }
+
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        let preset = self.preset;
+        self.run(move |c, slot| scheduler::logs(preset, &mut ConnSource { c, slot }))
+            .await
+    }
+
     async fn read_batches(
         &mut self,
         spec: &dbine_driver::ReadSpec,
@@ -1909,6 +2030,16 @@ impl monitor::Source for ConnSource<'_> {
 }
 
 impl OdbcSession {
+    /// Whether a scheduler change runs inside the session's own manual
+    /// transaction (then committed with it), refused while that one has
+    /// changes pending.
+    fn scheduler_tx(&self) -> Result<bool> {
+        if self.manual && self.dirty {
+            return Err(Error::State(scheduler::OPEN_TRANSACTION.into()));
+        }
+        Ok(self.manual)
+    }
+
     fn jobs_ctx(&self) -> jobs::Ctx {
         jobs::Ctx {
             database: self.database.clone(),

@@ -23,13 +23,13 @@ pub const NO_HISTORY: &str =
 const NO_ENABLE: &str =
     "esta versión de Virtuoso no permite deshabilitar un evento (no tiene la columna SE_DISABLED)";
 
-const NO_ACCESS: &str =
+pub(crate) const NO_ACCESS: &str =
     "Solo los usuarios dba ven el planificador de Virtuoso (DB.DBA.SYS_SCHEDULED_EVENT).";
-const OFF: &str = "El planificador de Virtuoso está apagado (SchedulerInterval = 0 en virtuoso.ini): los eventos no se ejecutan.";
+pub(crate) const OFF: &str = "El planificador de Virtuoso está apagado (SchedulerInterval = 0 en virtuoso.ini): los eventos no se ejecutan.";
 
 const KIND: &str = "Scheduler";
 
-pub(super) const NOW: &str = "SELECT CAST(curdatetime() AS VARCHAR) AS LOCAL_NOW, CAST(curutcdatetime() AS VARCHAR) AS UTC_NOW";
+pub(crate) const NOW: &str = "SELECT CAST(curdatetime() AS VARCHAR) AS LOCAL_NOW, CAST(curutcdatetime() AS VARCHAR) AS UTC_NOW";
 pub(super) const INTERVAL: &str =
     "SELECT cfg_item_value(virtuoso_ini_path(), 'Parameters', 'SchedulerInterval') AS SI";
 /// The flag goes as a number (a bound text makes Virtuoso warn about the
@@ -57,12 +57,12 @@ pub(super) fn select(full: bool, one: bool) -> String {
 
 /// The user isn't allowed to read the table (`SQ033: SELECT access
 /// denied…`).
-fn denied(e: &Error) -> bool {
+pub(crate) fn denied(e: &Error) -> bool {
     e.to_string().to_ascii_lowercase().contains("access denied")
 }
 
 /// The events, and whether the server has the later columns.
-fn read(src: &mut dyn JobSource, name: Option<&str>) -> Result<(Set, bool)> {
+pub(crate) fn read(src: &mut dyn JobSource, name: Option<&str>) -> Result<(Set, bool)> {
     let params: Vec<&str> = name.into_iter().collect();
     match src.query(&select(true, name.is_some()), &params) {
         Ok(s) => Ok((s, true)),
@@ -76,7 +76,7 @@ fn read(src: &mut dyn JobSource, name: Option<&str>) -> Result<(Set, bool)> {
     }
 }
 
-fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, bool)> {
+pub(crate) fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, bool)> {
     let name = name_id(id)?;
     let (s, full) = read(src, Some(name))?;
     if s.rows.is_empty() {
@@ -159,7 +159,7 @@ fn job(s: &Set, r: usize, tz: &Tz, full: bool) -> Option<ServerJob> {
 }
 
 /// SchedulerInterval is 0: nothing runs (best effort).
-fn off(src: &mut dyn JobSource) -> bool {
+pub(crate) fn off(src: &mut dyn JobSource) -> bool {
     match src.query(INTERVAL, &[]) {
         Ok(s) => int(s.get(0, "SI")) == Some(0),
         Err(e) => {
@@ -247,7 +247,7 @@ pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<(
 }
 
 /// A text literal for Virtuoso, where `\` escapes too.
-fn vlit(v: &str) -> String {
+pub(crate) fn vlit(v: &str) -> String {
     lit(&v.replace('\\', "\\\\"))
 }
 
