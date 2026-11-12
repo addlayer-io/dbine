@@ -3986,6 +3986,25 @@ Live tests (containers `dbine-test-*`):
 
 Built from the vendor's documentation, not run against a real server through DBine: Cloud Spanner (only its emulator was available: it answers `UNIMPLEMENTED`, so the empty list with a note was tested live; list, detail, history, script and the permission notes are covered by fixture tests), Snowflake, Databricks and BigQuery's Data Transfer Service (the live tests skip without credentials), Azure SQL Managed Instance and SQL Server 2008 R2 / 2012 (the same code as SQL Server 2022), Autonomous Database (the same code as Oracle), Aurora, RDS, Cloud SQL, AlloyDB, Azure, Supabase and Neon variants of pg_cron and MySQL, VeloDB, EDB Postgres Advanced Server, KingbaseES, SAP HANA, Db2 (LUW, z/OS, i), Informix and GBase 8s, SAP ASE, SAP SQL Anywhere, InterSystems IRIS and Caché, Hive 4 and Cloudera, Dameng and Altibase. Vertica 25.4 and Virtuoso 7.2.14 had their catalogs and time-zone behaviour checked with the vendor's own client (`vsql`, `isql`), not through DBine's ODBC path. The ODBC-based engines have fixture and unit tests, and live tests in `crates/drivers/odbc/tests/jobs.rs` that need their ODBC driver.
 
+### Managing the scheduler
+
+Beyond listing jobs, an engine can let DBine manage its scheduler whole: every kind of object it has, created, edited and deleted from a designer the driver describes, with the script shown before it runs. The contract is the `scheduler` capability plus the session methods `scheduler_info`, `scheduler_items`, `scheduler_form`, `scheduler_script`, `scheduler_save`, `scheduler_delete_script`, `scheduler_delete`, `run_job_from`, `clear_job_history` and `scheduler_logs`. A read-only connection shows the forms and their scripts but saves, deletes, starts and clears nothing.
+
+| Engine | Kinds | Create, edit, delete | Start at a step | Clear history | Scheduler log |
+|---|---|---|---|---|---|
+| SQL Server, SQL Server 2008 R2 / 2012 | Jobs, schedules, operators, alerts, proxies, categories | ✓ ¹ | ✓ | ✓ | ✓ ² |
+| Azure SQL Managed Instance | Jobs, schedules, operators, categories ³ | ✓ ¹ | ✓ | ✓ | ✓ ² |
+| SQL Server Express | The same, read only ⁴ | — | — | — | — |
+
+1. Each save is one T-SQL script of msdb's documented procedures in one transaction, a diff against what msdb has: a job is changed in place (its id and history stay), its steps inserted, updated, deleted and renumbered by msdb itself. `sp_delete_jobstep` turns a reference to the step after the deleted one into "quit"; the same script sets it back. Revoking a role or a Windows principal from a proxy, and granting a Windows login, run after the commit: msdb checks them by impersonating the principal inside a TRY/CATCH, which dooms an open transaction. `sp_update_proxy` cannot empty a proxy's description. A job's new schedule belongs to the job's owner, as SSMS makes it (`sp_add_jobschedule`). Removing a schedule from a job deletes it when no other job uses it and the login may delete it (sysadmin, or the schedule's owner), as SSMS does; otherwise it is only detached. A schedule of the job owned by another login opens, for a login without sysadmin, among the shared ones: it can be detached, not changed. sysadmin changes anything; members of the SQLAgent roles create jobs and schedules and change their own; operators, alerts, proxies and categories are sysadmin's; other objects open read-only with a note.
+2. The Agent's error log and its archives (`sp_readerrorlog … 2`): `securityadmin`, or `VIEW SERVER STATE` or `VIEW ANY ERROR LOG` from SQL Server 2022.
+3. Managed Instance has no alerts, proxies or idle-CPU schedules; the step types are the ones its Agent lists.
+4. Express has `msdb` but no Agent.
+
+Azure SQL Database, Synapse and SQL database in Fabric have no Agent (no kinds, with a note); the Fabric warehouse and Babelfish have no scheduler. The other engines of the [Server jobs](#server-jobs) table: explicit pending item, being added engine by engine on this branch.
+
+Live tests: SQL Server 2022 (`dbine-test-sqlserver-agent`) as `sysadmin` and as a `SQLAgentReaderRole` login. Managed Instance, Express, 2008 R2 and master/target servers: unit tests only.
+
 ## Code quality
 
 Code quality ([`code-quality.md`](code-quality.md)) flags problems in the editor of **all engines** except InfluxDB 2, which uses Flux. It is text analysis: it neither queries the server nor adds anything to the driver. Each engine receives the lexical analyzer and the rules of its family, which come from `DriverInfo` (`language`, `dialect`, `id`) in `src-tauri/src/lint/mod.rs`:

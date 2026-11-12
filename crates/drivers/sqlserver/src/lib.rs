@@ -1,5 +1,6 @@
 //! SQL Server over TDS (tiberius).
 
+mod agent;
 mod babelfish;
 mod backup;
 mod clone;
@@ -316,7 +317,10 @@ impl Driver for SqlServerDriver {
             // SQL Server Agent (and Managed Instance's); Azure SQL Database
             // answers with a note. Not Fabric nor Babelfish (see `jobs`).
             jobs: jobs::supported(self.variant),
-            scheduler: false,
+            // SQL Server Agent managed whole (see `agent`): the same
+            // servers as `jobs`; Azure SQL Database answers with no kinds
+            // and a note.
+            scheduler: jobs::supported(self.variant),
         }
     }
 
@@ -1818,6 +1822,60 @@ impl Session for SqlServerSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         jobs::script(self, id).await
+    }
+
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        agent::info(self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        agent::items(self, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        agent::form(self, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        agent::script(self, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        agent::save(self, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        agent::delete_script(self, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        agent::delete(self, kind, id).await
+    }
+
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        agent::run_from(self, id, step).await
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        agent::clear_history(self, id).await
+    }
+
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        agent::logs(self).await
     }
 
     async fn profiler_start(
