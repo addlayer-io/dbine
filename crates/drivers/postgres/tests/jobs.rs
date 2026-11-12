@@ -21,8 +21,18 @@
 //! DBINE_TEST_COCKROACH_URL=postgres://root@localhost:26014/defaultdb \
 //! DBINE_TEST_CLOUDBERRY_URL=postgres://gpadmin:pw@localhost:25017/demo \
 //! DBINE_TEST_OPENGAUSS_URL='postgres://gaussdb:Dbine@1234@localhost:25020/postgres' \
+//! DBINE_TEST_EDB_URL=postgres://enterprisedb:pw@localhost:25044/edb \
+//! DBINE_TEST_KINGBASE_URL=postgres://system:pw@localhost:25045/test \
 //!   cargo test -p dbine-driver-postgres --test jobs -- --ignored --nocapture
 //! ```
+//!
+//! EDB Postgres Advanced Server and KingbaseES have no public image (EDB's
+//! need registry credentials). The EDB test wants EPAS 16+ with
+//! `shared_preload_libraries = '$libdir/edb_job_scheduler'`, the test
+//! database in `edb_job_scheduler.database_list` and the extensions
+//! `edb_job_scheduler`, `dbms_job` and `dbms_scheduler` created; the
+//! KingbaseES one, `kdb_schedule` preloaded and created and
+//! `job_queue_processes` above 0. Both log in as a superuser.
 //!
 //! The CockroachDB test backs up into `userfile:///dbine_test_jobs_backup`
 //! (tables in `defaultdb`) and deletes those files at the end; it speeds up
@@ -1597,5 +1607,459 @@ async fn cockroachdb() {
             settings.pace_default
         ),
         "the cluster settings are as they were"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// EDB Postgres Advanced Server and KingbaseES: DBMS_JOB and DBMS_SCHEDULER
+
+/// Ids of the right shape whose name tries to break out of its literal:
+/// looked up as plain text, they find nothing and change nothing.
+async fn refuses_named(s: &mut Box<dyn Session>, real: &str, source: &str) {
+    for id in [
+        format!("{real}; DROP TABLE dbine_test_jobs_log"),
+        format!("{real}'--"),
+        format!("{source}:dbine_test_jobs"),
+        format!("{source}:\"a\".\"b\".\"c\""),
+        format!("{source}:\"a\nb\""),
+    ] {
+        let e = s.job_detail(&id).await.unwrap_err();
+        assert!(
+            matches!(&e, Error::Query(m) if m.contains("no es un id de job")),
+            "{id}: {e}"
+        );
+    }
+    let sneaky = format!("{source}:\"x'); DROP TABLE dbine_test_jobs_log; --\"");
+    for e in [
+        s.job_detail(&sneaky).await.err(),
+        s.job_runs(&sneaky, 5).await.err(),
+        s.run_job(&sneaky).await.err(),
+        s.set_job_enabled(&sneaky, false).await.err(),
+        s.job_script(&sneaky).await.err(),
+    ] {
+        let e = e.expect("an unknown job");
+        assert!(e.to_string().contains("no existe el job"), "{e}");
+    }
+    assert_eq!(
+        scalar(s, "SELECT count(*) FROM dbine_test_jobs_log WHERE false").await,
+        "0",
+        "the table is still there"
+    );
+}
+
+/// Runs each statement, saying (not failing) when one can't: what the
+/// test left may already be gone.
+async fn cleanup_all(s: &mut Box<dyn Session>, statements: &[&str]) {
+    for sql in statements {
+        if let Err(e) = run(s, sql).await {
+            eprintln!("cleanup: {e}");
+        }
+    }
+}
+
+const EDB_CLEANUP: &[&str] = &[
+    "BEGIN
+       FOR r IN (SELECT job FROM sys.all_jobs WHERE what LIKE '%dbine_test_jobs%') LOOP
+         DBMS_JOB.REMOVE(r.job);
+       END LOOP;
+     END;",
+    "BEGIN
+       FOR r IN (SELECT job_name FROM sys.all_scheduler_jobs WHERE job_name LIKE 'dbine_test_jobs%') LOOP
+         DBMS_SCHEDULER.DROP_JOB(r.job_name);
+       END LOOP;
+     END;",
+    "DROP TABLE IF EXISTS dbine_test_jobs_log",
+];
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn edb_dbms_job_and_scheduler() {
+    let Some(cfg) = cfg("edb", "DBINE_TEST_EDB_URL") else {
+        eprintln!("DBINE_TEST_EDB_URL not set; skipping");
+        return;
+    };
+    let mut s = connect("edb", &cfg).await;
+    cleanup_all(&mut s, EDB_CLEANUP).await;
+    let body = async {
+        exec(
+            &mut s,
+            "CREATE TABLE dbine_test_jobs_log (t timestamp, src text)",
+        )
+        .await;
+        exec(
+            &mut s,
+            "DECLARE
+               j INTEGER;
+             BEGIN
+               DBMS_JOB.SUBMIT(j, 'INSERT INTO dbine_test_jobs_log VALUES (now(), ''dbms_job'');', SYSDATE + 1, 'SYSDATE + 1');
+             END;",
+        )
+        .await;
+        let n = scalar(
+            &mut s,
+            "SELECT max(job) FROM sys.all_jobs WHERE what LIKE '%dbine_test_jobs_log%'",
+        )
+        .await;
+        let dj = format!("edb_job:{n}");
+        exec(
+            &mut s,
+            "BEGIN
+               DBMS_SCHEDULER.CREATE_JOB(
+                 job_name => 'dbine_test_jobs_sched',
+                 job_type => 'PLSQL_BLOCK',
+                 job_action => 'BEGIN INSERT INTO dbine_test_jobs_log VALUES (now(), ''scheduler''); END;',
+                 start_date => now() + interval '1 day',
+                 repeat_interval => 'FREQ=DAILY;',
+                 enabled => TRUE,
+                 comments => 'dbine test');
+             END;",
+        )
+        .await;
+
+        let list = s.jobs().await.unwrap();
+        eprintln!("{list:#?}");
+        let j = list
+            .jobs
+            .iter()
+            .find(|j| j.id == dj)
+            .expect("the DBMS_JOB job")
+            .clone();
+        assert_eq!(j.kind, "DBMS_JOB");
+        assert_eq!(j.schedule.as_deref(), Some("SYSDATE + 1"));
+        assert!(j.enabled && j.can_run && j.can_enable && j.has_script && j.has_history);
+        assert!(!j.can_stop && j.next_run.is_some());
+        let sj = list
+            .jobs
+            .iter()
+            .find(|j| j.kind == "DBMS_SCHEDULER" && j.name == "dbine_test_jobs_sched")
+            .expect("the DBMS_SCHEDULER job")
+            .clone();
+        // RUN_JOB would hold the session until the run ends: not offered.
+        assert!(sj.enabled && !sj.can_run && sj.can_enable && sj.has_script && !sj.can_stop);
+        assert!(list.notes.iter().any(|n| n.contains("RUN_JOB")));
+        assert_eq!(sj.description.as_deref(), Some("dbine test"));
+
+        let d = s.job_detail(&dj).await.unwrap();
+        eprintln!("{d:#?}");
+        assert!(d.steps[0]
+            .command
+            .as_deref()
+            .is_some_and(|c| c.contains("dbine_test_jobs_log")));
+        let sd = s.job_detail(&sj.id).await.unwrap();
+        eprintln!("{sd:#?}");
+        assert!(sd.steps.iter().any(|st| st
+            .command
+            .as_deref()
+            .is_some_and(|c| c.contains("scheduler"))));
+
+        // Run now: DBMS_JOB through edb_job_scheduler. DBMS_SCHEDULER's is
+        // refused (it would run in DBine's session): the test runs it.
+        s.run_job(&dj).await.unwrap();
+        wait_for!(
+            60,
+            "edb_job_scheduler to run the DBMS_JOB job",
+            scalar(
+                &mut s,
+                "SELECT count(*) FROM dbine_test_jobs_log WHERE src = 'dbms_job'"
+            )
+            .await
+                == "1"
+        );
+        assert!(matches!(
+            s.run_job(&sj.id).await,
+            Err(Error::Unsupported(m)) if m.contains("RUN_JOB")
+        ));
+        assert_eq!(
+            scalar(
+                &mut s,
+                "SELECT count(*) FROM dbine_test_jobs_log WHERE src = 'scheduler'"
+            )
+            .await,
+            "0",
+            "a refused run runs nothing"
+        );
+        exec(
+            &mut s,
+            "BEGIN DBMS_SCHEDULER.RUN_JOB('dbine_test_jobs_sched', TRUE); END;",
+        )
+        .await;
+        wait_for!(
+            30,
+            "the DBMS_SCHEDULER job to run",
+            scalar(
+                &mut s,
+                "SELECT count(*) FROM dbine_test_jobs_log WHERE src = 'scheduler'"
+            )
+            .await
+                == "1"
+        );
+        wait_for!(30, "the run in the history", {
+            let runs = s.job_runs(&dj, 5).await.unwrap();
+            runs.first()
+                .is_some_and(|r| r.outcome == JobOutcome::Succeeded)
+        });
+        let runs = s.job_runs(&dj, 5).await.unwrap();
+        assert!(runs[0].started.is_some(), "{runs:?}");
+        // Whether EDB logs a run in the calling session isn't documented:
+        // the history reads, whatever it holds.
+        eprintln!("{:#?}", s.job_runs(&sj.id, 5).await.unwrap());
+        assert!(matches!(s.stop_job(&dj).await, Err(Error::Unsupported(_))));
+        assert!(matches!(
+            s.stop_job(&sj.id).await,
+            Err(Error::Unsupported(_))
+        ));
+
+        for id in [&dj, &sj.id] {
+            s.set_job_enabled(id, false).await.unwrap();
+            let off = s.job_detail(id).await.unwrap().job;
+            assert!(!off.enabled && !off.can_run, "{off:?}");
+            assert!(s.run_job(id).await.is_err());
+            s.set_job_enabled(id, true).await.unwrap();
+            assert!(s.job_detail(id).await.unwrap().job.enabled);
+        }
+
+        // The scripts create them again.
+        let script = s.job_script(&dj).await.unwrap();
+        eprintln!("{script}");
+        exec(&mut s, &format!("BEGIN DBMS_JOB.REMOVE({n}); END;")).await;
+        exec(&mut s, &script).await;
+        let again = scalar(
+            &mut s,
+            "SELECT max(job) FROM sys.all_jobs WHERE what LIKE '%dbine_test_jobs_log%'",
+        )
+        .await;
+        assert_ne!(again, n);
+        let again = s.job_detail(&format!("edb_job:{again}")).await.unwrap().job;
+        assert_eq!(again.schedule.as_deref(), Some("SYSDATE + 1"));
+        let script = s.job_script(&sj.id).await.unwrap();
+        eprintln!("{script}");
+        exec(
+            &mut s,
+            "BEGIN DBMS_SCHEDULER.DROP_JOB('dbine_test_jobs_sched'); END;",
+        )
+        .await;
+        exec(&mut s, &script).await;
+        let back = s.job_detail(&sj.id).await.unwrap().job;
+        assert_eq!(back.schedule, sj.schedule);
+
+        refuses_bad_ids(&mut s, &dj).await;
+        refuses_named(&mut s, &sj.id, "edb_scheduler").await;
+    };
+    guarded(body, async {
+        let mut c = connect("edb", &cfg).await;
+        cleanup_all(&mut c, EDB_CLEANUP).await;
+    })
+    .await;
+    assert_eq!(
+        scalar(
+            &mut s,
+            "SELECT count(*) FROM sys.all_jobs WHERE what LIKE '%dbine_test_jobs%'"
+        )
+        .await,
+        "0"
+    );
+}
+
+/// DBMS_JOB jobs are removed by the number in their name in `kdb_job`
+/// (`internal_job<n>:…`), the only documented link to it.
+const KINGBASE_CLEANUP: &[&str] = &[
+    "DO $$ DECLARE r record; BEGIN
+       FOR r IN SELECT DISTINCT substring(k.jobname from '^internal_job([0-9]+):')::int AS n FROM kdb_job k
+                  JOIN kdb_schedule.dba_scheduler_jobs v ON v.job_name = k.jobname
+                 WHERE v.job_action LIKE '%dbine_test_jobs%' AND k.jobname ~ '^internal_job[0-9]+:' LOOP
+         CALL dbms_job.remove(r.n);
+       END LOOP;
+     END $$",
+    "DO $$ BEGIN CALL dbms_scheduler.drop_job('dbine_test_jobs_job'); EXCEPTION WHEN OTHERS THEN NULL; END $$",
+    "DO $$ BEGIN CALL dbms_scheduler.drop_schedule('dbine_test_jobs_sched'); EXCEPTION WHEN OTHERS THEN NULL; END $$",
+    "DO $$ BEGIN CALL dbms_scheduler.drop_program('dbine_test_jobs_prog'); EXCEPTION WHEN OTHERS THEN NULL; END $$",
+    "DROP TABLE IF EXISTS dbine_test_jobs_log",
+];
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn kingbase_kdb_schedule() {
+    let Some(cfg) = cfg("kingbase", "DBINE_TEST_KINGBASE_URL") else {
+        eprintln!("DBINE_TEST_KINGBASE_URL not set; skipping");
+        return;
+    };
+    // The jobs' connection string (kdb_schedule runs them through one).
+    let conn = format!(
+        "user={} dbname={} port={} password={}",
+        cfg.username.clone().unwrap_or_default(),
+        cfg.database,
+        cfg.port,
+        cfg.password.clone().unwrap_or_default()
+    )
+    .replace('\'', "''");
+    let mut s = connect("kingbase", &cfg).await;
+    cleanup_all(&mut s, KINGBASE_CLEANUP).await;
+    let body = async {
+        exec(
+            &mut s,
+            "CREATE TABLE dbine_test_jobs_log (t timestamp, src text)",
+        )
+        .await;
+        exec(
+            &mut s,
+            &format!(
+                "DECLARE
+                   j INT;
+                 BEGIN
+                   DBMS_JOB.SUBMIT(j, 'insert into dbine_test_jobs_log values (now(), ''dbms_job'')',
+                                   now() + interval '1 day', 'Freq=daily;BYHOUR=3');
+                   DBMS_JOB.INSTANCE(j, '{conn}');
+                   DBMS_JOB.BROKEN(j, FALSE, now() + interval '1 day');
+                 END;"
+            ),
+        )
+        .await;
+        exec(
+            &mut s,
+            &format!(
+                "CALL DBMS_SCHEDULER.CREATE_PROGRAM('dbine_test_jobs_prog', 'PLSQL_BLOCK',
+                    'insert into dbine_test_jobs_log values (now(), ''scheduler'')', '{conn}', '{}', 0, true, 'dbine test')",
+                cfg.database.replace('\'', "''")
+            ),
+        )
+        .await;
+        exec(
+            &mut s,
+            "CALL DBMS_SCHEDULER.CREATE_SCHEDULE('dbine_test_jobs_sched', now() + interval '1 day', 'Freq=daily;BYHOUR=3', NULL, 'dbine test')",
+        )
+        .await;
+        exec(
+            &mut s,
+            "CALL DBMS_SCHEDULER.CREATE_JOB('dbine_test_jobs_job', 'dbine_test_jobs_prog', 'dbine_test_jobs_sched', 'Routine Maintenance', true, true, 'dbine test')",
+        )
+        .await;
+
+        let list = s.jobs().await.unwrap();
+        eprintln!("{list:#?}");
+        let dj = list
+            .jobs
+            .iter()
+            .find(|j| {
+                j.kind == "DBMS_JOB"
+                    && j.description
+                        .as_deref()
+                        .is_some_and(|d| d.contains("dbine_test_jobs_log"))
+            })
+            .expect("the DBMS_JOB job")
+            .clone();
+        assert!(dj.name.starts_with("Job "));
+        // Run and enable are offered only when kdb_job.jobid is the number
+        // in the job's name: this checks they agree.
+        assert!(dj.enabled && dj.can_run && dj.can_enable && dj.has_script && !dj.can_stop);
+        let sj = list
+            .jobs
+            .iter()
+            .find(|j| j.name == "dbine_test_jobs_job")
+            .expect("the DBMS_SCHEDULER job")
+            .clone();
+        assert_eq!(sj.kind, "DBMS_SCHEDULER");
+        assert_eq!(sj.id, "kdb_schedule:\"dbine_test_jobs_job\"");
+        // RUN_JOB would hold the session until the run ends: not offered.
+        assert!(sj.enabled && !sj.can_run && sj.can_enable && sj.has_script && sj.has_history);
+        assert!(list.notes.iter().any(|n| n.contains("RUN_JOB")));
+        // A connection string never shows.
+        let detail = s.job_detail(&sj.id).await.unwrap();
+        eprintln!("{detail:#?}");
+        assert!(!format!("{detail:?}").contains("password="));
+        assert!(detail.steps.iter().any(|st| st
+            .command
+            .as_deref()
+            .is_some_and(|c| c.contains("scheduler"))));
+        assert!(!format!("{:?}", s.job_detail(&dj.id).await.unwrap()).contains("password="));
+
+        s.run_job(&dj.id).await.unwrap();
+        wait_for!(
+            90,
+            "kdb_schedule to run the DBMS_JOB job",
+            scalar(
+                &mut s,
+                "SELECT count(*) FROM dbine_test_jobs_log WHERE src = 'dbms_job'"
+            )
+            .await
+                == "1"
+        );
+        // DBMS_SCHEDULER's is refused (it would run in DBine's session):
+        // the test runs it.
+        assert!(matches!(
+            s.run_job(&sj.id).await,
+            Err(Error::Unsupported(m)) if m.contains("RUN_JOB")
+        ));
+        exec(
+            &mut s,
+            "CALL DBMS_SCHEDULER.RUN_JOB('dbine_test_jobs_job', TRUE)",
+        )
+        .await;
+        wait_for!(
+            90,
+            "the DBMS_SCHEDULER job to run",
+            scalar(
+                &mut s,
+                "SELECT count(*) FROM dbine_test_jobs_log WHERE src = 'scheduler'"
+            )
+            .await
+                == "1"
+        );
+        wait_for!(30, "the run in the history", {
+            !s.job_runs(&sj.id, 5).await.unwrap().is_empty()
+        });
+        assert!(matches!(
+            s.stop_job(&sj.id).await,
+            Err(Error::Unsupported(_))
+        ));
+
+        for id in [&dj.id, &sj.id] {
+            s.set_job_enabled(id, false).await.unwrap();
+            let off = s.job_detail(id).await.unwrap().job;
+            assert!(!off.enabled && !off.can_run, "{off:?}");
+            s.set_job_enabled(id, true).await.unwrap();
+            assert!(s.job_detail(id).await.unwrap().job.enabled);
+        }
+
+        // The scripts create them again (without the connection string).
+        let script = s.job_script(&sj.id).await.unwrap();
+        eprintln!("{script}");
+        assert!(!script.contains("password="));
+        cleanup_all(&mut s, &KINGBASE_CLEANUP[1..4]).await;
+        exec(&mut s, &script).await;
+        assert!(s.job_detail(&sj.id).await.is_ok());
+        let script = s.job_script(&dj.id).await.unwrap();
+        eprintln!("{script}");
+        assert!(!script.contains("password="));
+        exec(&mut s, &script).await;
+        let copies = s
+            .jobs()
+            .await
+            .unwrap()
+            .jobs
+            .into_iter()
+            .filter(|j| {
+                j.kind == "DBMS_JOB"
+                    && j.description
+                        .as_deref()
+                        .is_some_and(|d| d.contains("dbine_test_jobs_log"))
+            })
+            .count();
+        assert_eq!(copies, 2);
+
+        refuses_bad_ids(&mut s, &dj.id).await;
+        refuses_named(&mut s, &sj.id, "kdb_schedule").await;
+    };
+    guarded(body, async {
+        let mut c = connect("kingbase", &cfg).await;
+        cleanup_all(&mut c, KINGBASE_CLEANUP).await;
+    })
+    .await;
+    assert_eq!(
+        scalar(
+            &mut s,
+            "SELECT count(*) FROM kdb_schedule.dba_scheduler_jobs WHERE job_name LIKE 'dbine_test_jobs%'"
+        )
+        .await,
+        "0"
     );
 }

@@ -20,22 +20,32 @@
 //!   own that can be paused, resumed and cancelled. One-off jobs (a schema
 //!   change, a backup or an import run by hand) are left out: they are a
 //!   statement's work in progress, not something the server runs again.
-//! - EDB Postgres Advanced Server and KingbaseES: the same detection, and a
-//!   note that their own DBMS_JOB / DBMS_SCHEDULER jobs aren't read yet.
+//! - EDB Postgres Advanced Server: its DBMS_JOB and DBMS_SCHEDULER jobs
+//!   (run by edb_job_scheduler from EPAS 16, by pgAgent before), besides
+//!   the above ([`edb`]).
+//! - KingbaseES: the DBMS_JOB and DBMS_SCHEDULER jobs of its kdb_schedule
+//!   plugin, besides the above ([`kingbase`]).
 //! - Redshift, Materialize, RisingWave, CrateDB, Yellowbrick, Denodo and H2:
 //!   no scheduler in the database (see [`unsupported_reason`]).
 //!
 //! When a scheduler is installed but starts nothing (pg_cron not loaded,
-//! TimescaleDB without workers or restoring, openGauss's
-//! `job_queue_processes` at 0), the list says so and offers no "run now".
+//! TimescaleDB without workers or restoring, openGauss's and KingbaseES's
+//! `job_queue_processes` at 0, edb_job_scheduler not serving the
+//! database), the list says so and offers no "run now" that relies on it.
 //!
 //! Ids are `<source>:<number>` ([`JobId`]); the number is the only part
-//! that reaches a statement, and only after it parsed as one.
+//! that reaches a statement, and only after it parsed as one. EDB's and
+//! KingbaseES's DBMS_SCHEDULER jobs have names instead: `<source>:"name"`
+//! or `<source>:"owner"."name"` ([`Named`]), each part only ever written
+//! in a statement as a quoted literal.
 
 mod cockroach;
 mod cron;
 mod dbms_job;
+mod edb;
+mod kingbase;
 mod pgagent;
+mod scheduler;
 mod timescale;
 
 use crate::catalog::{cell, comment_text};
@@ -84,8 +94,8 @@ fn check_supported(v: Variant) -> Result<()> {
 }
 
 /// A job's id as the other calls take it back: the source and the
-/// engine's number for it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// engine's number for it, or its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum JobId {
     /// `cron.job.jobid`.
     Cron(i64),
@@ -101,11 +111,18 @@ pub(crate) enum JobId {
     CrdbJob(i64),
     /// openGauss's `pg_job.job_id`.
     GaussJob(i64),
+    /// An EDB Postgres Advanced Server DBMS_JOB job's number.
+    EdbJob(i64),
+    /// An EDB Postgres Advanced Server DBMS_SCHEDULER job: owner and name.
+    EdbScheduler(Named),
+    /// A KingbaseES job's name in `kdb_job` (its views have no owner).
+    Kingbase(Named),
 }
 
 impl JobId {
     /// Only the exact text [`fmt::Display`] writes: a known source, a
-    /// colon and a positive number without sign, spaces or leading zeros.
+    /// colon and a positive number without sign, spaces or leading zeros,
+    /// or a [`Named`] as it writes it.
     pub(crate) fn parse(id: &str) -> Result<JobId> {
         let bad = || {
             Error::Query(format!(
@@ -114,6 +131,16 @@ impl JobId {
             ))
         };
         let (source, num) = id.split_once(':').ok_or_else(bad)?;
+        match source {
+            "edb_scheduler" => return Named::parse(num).map(JobId::EdbScheduler).ok_or_else(bad),
+            "kdb_schedule" => {
+                return Named::parse(num)
+                    .filter(|n| n.owner.is_none())
+                    .map(JobId::Kingbase)
+                    .ok_or_else(bad)
+            }
+            _ => {}
+        }
         let n: i64 = num
             .parse()
             .ok()
@@ -128,15 +155,21 @@ impl JobId {
             "crdb_schedule" => JobId::CrdbSchedule(n),
             "crdb_job" => JobId::CrdbJob(n),
             "dbms_job" => JobId::GaussJob(n),
+            "edb_job" => JobId::EdbJob(n),
             _ => return Err(bad()),
         })
     }
 
-    /// The id, refused when it belongs to the other family of engines.
+    /// The id, refused when it belongs to another family of engines.
     fn parse_for(v: Variant, id: &str) -> Result<JobId> {
         let job = JobId::parse(id)?;
-        let crdb = matches!(job, JobId::CrdbSchedule(_) | JobId::CrdbJob(_));
-        if crdb != (v == Variant::Cockroach) {
+        let fits = match &job {
+            JobId::EdbJob(_) | JobId::EdbScheduler(_) => v == Variant::Edb,
+            JobId::Kingbase(_) => v == Variant::Kingbase,
+            JobId::CrdbSchedule(_) | JobId::CrdbJob(_) => v == Variant::Cockroach,
+            _ => v != Variant::Cockroach,
+        };
+        if !fits {
             return Err(Error::Query(format!(
                 "«{}» no es un id de job de este servidor",
                 shown(id)
@@ -156,6 +189,76 @@ impl fmt::Display for JobId {
             JobId::CrdbSchedule(n) => write!(f, "crdb_schedule:{n}"),
             JobId::CrdbJob(n) => write!(f, "crdb_job:{n}"),
             JobId::GaussJob(n) => write!(f, "dbms_job:{n}"),
+            JobId::EdbJob(n) => write!(f, "edb_job:{n}"),
+            JobId::EdbScheduler(n) => write!(f, "edb_scheduler:{n}"),
+            JobId::Kingbase(n) => write!(f, "kdb_schedule:{n}"),
+        }
+    }
+}
+
+/// A job the engine knows by name (and owner, where it has owners), as an
+/// id carries it: each part double-quoted, its quotes doubled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Named {
+    pub owner: Option<String>,
+    pub name: String,
+}
+
+/// Longest part of a [`Named`], in characters.
+const MAX_NAME: usize = 256;
+
+impl Named {
+    /// Only the exact text [`fmt::Display`] writes, with parts that aren't
+    /// empty, too long or carry control characters.
+    fn parse(s: &str) -> Option<Named> {
+        let (first, rest) = quoted(s)?;
+        let named = if rest.is_empty() {
+            Named {
+                owner: None,
+                name: first,
+            }
+        } else {
+            let (second, rest) = quoted(rest.strip_prefix('.')?)?;
+            if !rest.is_empty() {
+                return None;
+            }
+            Named {
+                owner: Some(first),
+                name: second,
+            }
+        };
+        let fine = |p: &str| {
+            !p.is_empty() && p.chars().count() <= MAX_NAME && !p.chars().any(char::is_control)
+        };
+        (fine(&named.name) && named.owner.as_deref().is_none_or(fine) && named.to_string() == s)
+            .then_some(named)
+    }
+}
+
+/// The double-quoted part `s` starts with, unquoted, and what follows it.
+fn quoted(s: &str) -> Option<(String, &str)> {
+    let body = s.strip_prefix('"')?;
+    let mut out = String::new();
+    let mut chars = body.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if c != '"' {
+            out.push(c);
+        } else if chars.peek().is_some_and(|&(_, next)| next == '"') {
+            out.push('"');
+            chars.next();
+        } else {
+            return Some((out, &body[i + 1..]));
+        }
+    }
+    None
+}
+
+impl fmt::Display for Named {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let q = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+        match &self.owner {
+            Some(owner) => write!(f, "{}.{}", q(owner), q(&self.name)),
+            None => write!(f, "{}", q(&self.name)),
         }
     }
 }
@@ -323,14 +426,6 @@ fn cron_notes(f: &Found) -> Vec<String> {
     notes
 }
 
-/// The note for the servers with a scheduler of their own that DBine
-/// doesn't read yet.
-fn unread_scheduler_note(v: Variant) -> Option<&'static str> {
-    matches!(v, Variant::Edb | Variant::Kingbase).then_some(
-        "DBine todavía no muestra los jobs de DBMS_JOB y DBMS_SCHEDULER de este servidor.",
-    )
-}
-
 /// Marks a source's jobs as not runnable now and says why.
 fn scheduler_off(part: &mut Part, why: Option<String>) {
     if let Some(why) = why {
@@ -342,9 +437,16 @@ fn scheduler_off(part: &mut Part, why: Option<String>) {
 }
 
 /// The note for a database with none of them.
-fn nothing_note(f: &Found) -> String {
+fn nothing_note(v: Variant, f: &Found) -> String {
+    let what = match v {
+        Variant::Edb => "DBMS_JOB, DBMS_SCHEDULER, pg_cron, pgAgent ni TimescaleDB",
+        Variant::Kingbase => {
+            "kdb_schedule (DBMS_JOB y DBMS_SCHEDULER), pg_cron, pgAgent ni TimescaleDB"
+        }
+        _ => "pg_cron, pgAgent ni TimescaleDB",
+    };
     format!(
-        "La base «{}» no tiene pg_cron, pgAgent ni TimescaleDB, que es donde DBine busca los jobs del servidor. \
+        "La base «{}» no tiene {what}, que es donde DBine busca los jobs del servidor. \
          pg_cron y pgAgent guardan sus jobs en una sola base (casi siempre postgres): si están instalados en otra, conectate a esa.",
         f.database
     )
@@ -363,19 +465,37 @@ pub(crate) async fn list(s: &PgSession) -> Result<JobList> {
         notes: cron_notes(&found),
         ..Default::default()
     };
-    out.notes
-        .extend(unread_scheduler_note(s.variant).map(String::from));
+    let mut failed: Vec<(&str, Error)> = Vec::new();
+    let mut sources = 0;
+    // EDB's and KingbaseES's own schedulers, where this database has them.
+    let own = match s.variant {
+        Variant::Edb => Some(("DBMS_JOB y DBMS_SCHEDULER", edb::list(s, &found).await)),
+        Variant::Kingbase => Some(("kdb_schedule", kingbase::list(s, &found).await)),
+        _ => None,
+    };
+    let mut own_here = false;
+    match own {
+        Some((_, Ok(Some(part)))) => {
+            sources += 1;
+            own_here = true;
+            part.add_to(&mut out);
+        }
+        Some((source, Err(e))) => {
+            sources += 1;
+            own_here = true;
+            failed.push((source, e));
+        }
+        Some((_, Ok(None))) | None => {}
+    }
     // openGauss's own scheduler, always there.
     let gauss = s.variant == Variant::OpenGauss;
-    if !found.any() && !gauss {
+    if !found.any() && !gauss && !own_here {
         // The pg_cron note already says where to look.
         if cron_notes(&found).is_empty() {
-            out.notes.push(nothing_note(&found));
+            out.notes.push(nothing_note(s.variant, &found));
         }
         return Ok(out);
     }
-    let mut failed: Vec<(&str, Error)> = Vec::new();
-    let mut sources = 0;
     if gauss {
         sources += 1;
         match dbms_job::list(s).await {
@@ -452,6 +572,9 @@ pub(crate) async fn detail(s: &PgSession, id: &str) -> Result<JobDetail> {
         JobId::CrdbSchedule(n) => cockroach::schedule_detail(s, n).await,
         JobId::CrdbJob(n) => cockroach::job_detail(s, n).await,
         JobId::GaussJob(n) => dbms_job::detail(s, n).await,
+        JobId::EdbJob(n) => edb::job_detail(s, n).await,
+        JobId::EdbScheduler(n) => edb::sched_detail(s, &n).await,
+        JobId::Kingbase(n) => kingbase::detail(s, &n).await,
     }
 }
 
@@ -475,6 +598,9 @@ pub(crate) async fn runs(s: &PgSession, id: &str, limit: u32) -> Result<Vec<JobR
         JobId::GaussJob(_) => Err(Error::Unsupported(
             "openGauss no guarda el historial de sus jobs: solo la última ejecución, que se ve en la lista".into(),
         )),
+        JobId::EdbJob(n) => edb::job_runs(s, n, limit).await,
+        JobId::EdbScheduler(n) => edb::sched_runs(s, &n, limit).await,
+        JobId::Kingbase(n) => kingbase::runs(s, &n, limit).await,
     }
 }
 
@@ -494,6 +620,9 @@ pub(crate) async fn run(s: &PgSession, id: &str) -> Result<()> {
             "un changefeed ya está corriendo: se reanuda con «Habilitar»".into(),
         )),
         JobId::GaussJob(n) => dbms_job::run(s, n).await,
+        JobId::EdbJob(n) => edb::job_run(s, n).await,
+        JobId::EdbScheduler(n) => edb::sched_run(s, &n).await,
+        JobId::Kingbase(n) => kingbase::run(s, &n).await,
     }
 }
 
@@ -517,6 +646,12 @@ pub(crate) async fn stop(s: &PgSession, id: &str) -> Result<()> {
         JobId::GaussJob(_) => Err(Error::Unsupported(
             "openGauss no permite detener un job en ejecución".into(),
         )),
+        JobId::EdbJob(_) | JobId::EdbScheduler(_) => Err(Error::Unsupported(
+            "EDB Postgres Advanced Server no permite detener un job en ejecución".into(),
+        )),
+        JobId::Kingbase(_) => Err(Error::Unsupported(
+            "KingbaseES no permite detener un job en ejecución".into(),
+        )),
     }
 }
 
@@ -530,6 +665,9 @@ pub(crate) async fn set_enabled(s: &PgSession, id: &str, enabled: bool) -> Resul
         JobId::CrdbSchedule(n) => cockroach::set_schedule_enabled(s, n, enabled).await,
         JobId::CrdbJob(n) => cockroach::set_job_enabled(s, n, enabled).await,
         JobId::GaussJob(n) => dbms_job::set_enabled(s, n, enabled).await,
+        JobId::EdbJob(n) => edb::job_set_enabled(s, n, enabled).await,
+        JobId::EdbScheduler(n) => edb::sched_set_enabled(s, &n, enabled).await,
+        JobId::Kingbase(n) => kingbase::set_enabled(s, &n, enabled).await,
     }
 }
 
@@ -543,6 +681,9 @@ pub(crate) async fn script(s: &PgSession, id: &str) -> Result<String> {
         JobId::CrdbSchedule(n) => cockroach::schedule_script(s, n).await,
         JobId::CrdbJob(n) => cockroach::job_script(s, n).await,
         JobId::GaussJob(n) => dbms_job::script(s, n).await,
+        JobId::EdbJob(n) => edb::job_script(s, n).await,
+        JobId::EdbScheduler(n) => edb::sched_script(s, &n).await,
+        JobId::Kingbase(n) => kingbase::script(s, &n).await,
     }
 }
 
@@ -713,9 +854,64 @@ mod tests {
             JobId::CrdbSchedule(1226891610358054913),
             JobId::CrdbJob(i64::MAX),
             JobId::GaussJob(14371),
+            JobId::EdbJob(104),
+            JobId::EdbScheduler(Named {
+                owner: Some("enterprisedb".into()),
+                name: "nightly".into(),
+            }),
+            JobId::EdbScheduler(Named {
+                owner: None,
+                name: "with \"quotes\".and dots: ñ".into(),
+            }),
+            JobId::Kingbase(Named {
+                owner: None,
+                name: "internal_job1:2021-06-22 08:11:39.797681+08".into(),
+            }),
         ] {
             assert_eq!(JobId::parse(&id.to_string()).unwrap(), id);
         }
+        assert_eq!(
+            JobId::EdbScheduler(Named {
+                owner: Some("o\"".into()),
+                name: "n".into()
+            })
+            .to_string(),
+            "edb_scheduler:\"o\"\"\".\"n\""
+        );
+    }
+
+    #[test]
+    fn named_ids_that_were_not_written_here_are_refused() {
+        let long = format!("edb_scheduler:\"{}\"", "a".repeat(MAX_NAME + 1));
+        for bad in [
+            "edb_scheduler:",
+            "edb_scheduler:nightly",
+            "edb_scheduler:\"\"",
+            "edb_scheduler:\"a\"b",
+            "edb_scheduler:\"a\" ",
+            "edb_scheduler: \"a\"",
+            "edb_scheduler:\"a\".",
+            "edb_scheduler:\"a\".\"\"",
+            "edb_scheduler:\"a\".\"b\".\"c\"",
+            "edb_scheduler:\"a\"\"",
+            "edb_scheduler:\"a\"\"b\"\"",
+            "edb_scheduler:\"a\nb\"",
+            "edb_scheduler:\"a\u{0}\"",
+            "edb_scheduler:\"a\"; DROP TABLE x",
+            "edb_scheduler:'a'",
+            long.as_str(),
+            // KingbaseES's views have no owner.
+            "kdb_schedule:\"o\".\"n\"",
+            "kdb_schedule:n",
+            "edb_job:0",
+            "edb_job:-1",
+            "edb_job:1 ",
+            "EDB_JOB:1",
+        ] {
+            assert!(JobId::parse(bad).is_err(), "{bad:?}");
+        }
+        let at_limit = format!("edb_scheduler:\"{}\"", "ñ".repeat(MAX_NAME));
+        assert!(JobId::parse(&at_limit).is_ok());
     }
 
     #[test]
@@ -751,6 +947,23 @@ mod tests {
         assert!(JobId::parse_for(Variant::Cockroach, "pg_cron:1").is_err());
         assert!(JobId::parse_for(Variant::Cockroach, "crdb_job:1").is_ok());
         assert!(JobId::parse_for(Variant::Timescale, "timescaledb:1000").is_ok());
+        // EDB's and KingbaseES's own, only on their servers; pg_cron and
+        // the rest also there.
+        assert!(JobId::parse_for(Variant::Edb, "edb_job:1").is_ok());
+        assert!(JobId::parse_for(Variant::Edb, "edb_scheduler:\"j\"").is_ok());
+        assert!(JobId::parse_for(Variant::Edb, "pg_cron:1").is_ok());
+        assert!(JobId::parse_for(Variant::Kingbase, "kdb_schedule:\"j\"").is_ok());
+        assert!(JobId::parse_for(Variant::Kingbase, "pgagent:1").is_ok());
+        for v in Variant::ALL {
+            if v != Variant::Edb {
+                assert!(JobId::parse_for(v, "edb_job:1").is_err(), "{v:?}");
+                assert!(JobId::parse_for(v, "edb_scheduler:\"j\"").is_err(), "{v:?}");
+            }
+            if v != Variant::Kingbase {
+                assert!(JobId::parse_for(v, "kdb_schedule:\"j\"").is_err(), "{v:?}");
+            }
+        }
+        assert!(JobId::parse_for(Variant::Cockroach, "edb_job:1").is_err());
     }
 
     #[test]
@@ -850,8 +1063,12 @@ mod tests {
         assert!(cron_notes(&found("app", true, Some("postgres")))[0].contains("no se ejecutan"));
         let none = found("app", false, None);
         assert!(cron_notes(&none).is_empty());
-        let n = nothing_note(&none);
+        let n = nothing_note(Variant::Postgres, &none);
         assert!(n.contains("pg_cron") && n.contains("pgAgent") && n.contains("TimescaleDB"));
+        assert!(!n.contains("DBMS_JOB"));
+        assert!(nothing_note(Variant::Edb, &none).contains("DBMS_JOB, DBMS_SCHEDULER, pg_cron"));
+        assert!(nothing_note(Variant::Kingbase, &none)
+            .contains("kdb_schedule (DBMS_JOB y DBMS_SCHEDULER)"));
         // Installed but not loaded: only who reads every setting can tell.
         let unloaded = found("postgres", true, None);
         assert!(cron_notes(&unloaded)[0].contains("shared_preload_libraries"));
@@ -896,17 +1113,6 @@ mod tests {
         assert!(part.jobs[0].can_run && part.notes.is_empty());
         scheduler_off(&mut part, none.gauss_off());
         assert!(!part.jobs[0].can_run && part.notes.len() == 1);
-    }
-
-    #[test]
-    fn edb_and_kingbase_say_what_isnt_read_yet() {
-        for v in Variant::ALL {
-            assert_eq!(
-                unread_scheduler_note(v).is_some(),
-                matches!(v, Variant::Edb | Variant::Kingbase),
-                "{v:?}"
-            );
-        }
     }
 
     #[test]
