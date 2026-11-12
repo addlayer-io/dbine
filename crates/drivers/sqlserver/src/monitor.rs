@@ -163,8 +163,10 @@ const CPU_RING: &str = "SELECT TOP (1)
          WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR' AND record LIKE N'%<SystemHealth>%') AS x
  ORDER BY [timestamp] DESC";
 
-const CPU_TIME: &str =
-    "SELECT CAST(SUM(total_cpu_usage_ms) AS float) FROM sys.dm_os_schedulers WHERE status = N'VISIBLE ONLINE'";
+/// The CPU time of the schedulers SQL Server runs queries on, and how many
+/// there are (one per CPU it may use).
+const CPU_TIME: &str = "SELECT CAST(SUM(total_cpu_usage_ms) AS float), CAST(COUNT(*) AS float)
+  FROM sys.dm_os_schedulers WHERE status = N'VISIBLE ONLINE'";
 
 const MEMORY: &str = "SELECT CAST(p.physical_memory_in_use_kb AS float) * 1024,
        CAST(m.total_physical_memory_kb AS float) * 1024, CAST(m.available_physical_memory_kb AS float) * 1024
@@ -569,16 +571,21 @@ async fn server(
     m.push(
         Metric::new("cpu_sql", "CPU de SQL Server", "CPU", U::Percent, sql_cpu).max(Some(100.0)),
     );
-    let cpu_ms = first(s.probe("el tiempo de CPU", CPU_TIME, gaps).await).and_then(|r| f(&r, 0));
-    // ms of CPU → seconds × 100: the rate is the % of one core.
+    let used = first(s.probe("el tiempo de CPU", CPU_TIME, gaps).await);
+    let cpu_ms = used.as_ref().and_then(|r| f(r, 0));
+    let schedulers = used.as_ref().and_then(|r| f(r, 1)).filter(|n| *n > 0.0);
+    // ms of CPU → seconds × 100, spread over its schedulers: the rate is the
+    // % of all the CPUs SQL Server may use (100 % is all of them busy), not
+    // of one core, which read "500 %" with five busy cores.
     m.push(
         Metric::new(
             "cpu_time",
             "CPU del proceso",
             "CPU",
             U::Percent,
-            cpu_ms.map(|ms| ms / 10.0),
+            cpu_ms.zip(schedulers).map(|(ms, n)| ms / 10.0 / n),
         )
+        .max(Some(100.0))
         .counter(),
     );
     if cpu.is_some() && !sampled {

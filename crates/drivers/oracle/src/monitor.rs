@@ -384,15 +384,24 @@ pub fn snapshot(c: &Connection, last_os: &mut Option<(f64, f64)>) -> MonitorSnap
     *last_os = os_now;
     let m = &mut snap.metrics;
     m.push(Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, host_cpu).max(Some(100.0)));
-    // Centiseconds of CPU: × 100 / 100.
+    // Centiseconds of CPU spread over the CPUs the instance may use
+    // (cpu_count, else the host's): the rate is the % of all of them, so
+    // 100 % is every CPU busy with this database, never "500 %" for five
+    // busy cores. Unknown CPU count: not shown rather than per core.
+    let cpus = get(&params, "cpu_count")
+        .or_else(|| get(&os, "NUM_CPUS"))
+        .filter(|n| *n > 0.0);
     m.push(
         Metric::new(
             "cpu_time",
             "CPU de la base",
             "CPU",
             U::Percent,
-            get(&stat, "CPU used by this session"),
+            get(&stat, "CPU used by this session")
+                .zip(cpus)
+                .map(|(cs, n)| cs / n),
         )
+        .max(Some(100.0))
         .counter(),
     );
     m.push(Metric::new(
