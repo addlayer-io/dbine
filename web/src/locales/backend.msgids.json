@@ -29821,6 +29821,9 @@
  "algunas tareas hijas se muestran sueltas y sin acciones: el rol no ve la tarea raíz de su grafo": [
   "crates/drivers/snowflake/src/jobs.rs"
  ],
+ "alias de base local inválido: {0}": [
+  "src-tauri/src/local_duckdb.rs"
+ ],
  "almacenamiento": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
@@ -31075,9 +31078,6 @@
  ],
  "el alias de ~/.ssh/config no es válido": [
   "src-tauri/src/commands/ssh_profiles.rs"
- ],
- "el almacén de resultados no quedó aislado: {0}": [
-  "src-tauri/src/results_store.rs"
  ],
  "el archivo PKCS#12 no tiene el certificado de la clave": [
   "src-tauri/src/secret_sources/https.rs"
@@ -34754,6 +34754,9 @@
   "crates/drivers/redis/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
  ],
+ "id de comparación no válido": [
+  "src-tauri/src/commands/data_compare.rs"
+ ],
  "id de ejecución no válido": [
   "src-tauri/src/results_store.rs"
  ],
@@ -35171,6 +35174,15 @@
  "la base es un archivo: se respalda copiándolo": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "la base local dejó de recibir filas": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la base local recibió {0}/{1} filas de {2}/{3} leídas": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la base local «{0}» no quedó aislada: {1}": [
+  "src-tauri/src/local_duckdb.rs"
+ ],
  "la base necesita un nombre": [
   "src-tauri/src/commands/schema.rs"
  ],
@@ -35483,7 +35495,7 @@
   "crates/dbine-transfer/src/clone_table.rs"
  ],
  "la columna clave «{0}» no está en las dos tablas": [
-  "src-tauri/src/commands/data_compare.rs"
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "la columna de clave «{0}» no está en la tabla": [
   "crates/drivers/mysql/src/design.rs"
@@ -35583,6 +35595,9 @@
  ],
  "la comparación es parcial: una fila de un solo lado puede existir del otro más allá de lo leído, así que no se inserta ni se borra": [
   "src-tauri/src/commands/data_compare.rs"
+ ],
+ "la comparación se detuvo": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "la comparación ya no está: compará de nuevo": [
   "src-tauri/src/commands/data_compare_ai.rs"
@@ -36010,6 +36025,9 @@
  "la lectura de la base de KeePass se interrumpió: {0}": [
   "src-tauri/src/secret_sources/keepass.rs"
  ],
+ "la lectura de la tabla no trae la columna «{0}»": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
  "la lectura de origen solo admite consultas que no escriben": [
   "crates/drivers/orientdb/src/transfer.rs"
  ],
@@ -36018,6 +36036,9 @@
  ],
  "la lectura devolvió otras columnas": [
   "crates/drivers/clickhouse/src/transfer.rs"
+ ],
+ "la lectura dio filas sin decir sus columnas": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "la lectura no devolvió filas": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -36353,6 +36374,9 @@
  ],
  "la tabla es UNLOGGED y no se pudo crear el clon igual": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "la tabla es temporal global ({0}): sus filas son de cada sesión, así que el clon se crea también temporal global{1}": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
@@ -37602,6 +37626,9 @@
   "crates/drivers/athena/src/lib.rs",
   "crates/drivers/athena/src/transfer.rs",
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "no hay una carpeta de datos de DBine": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "no hay una celda «{0}» arriba de esta": [
   "src-tauri/src/notebook/write.rs"
@@ -41133,6 +41160,9 @@
  "una fila": [
   "crates/drivers/neo4j/src/neptune.rs"
  ],
+ "una fila distinta no se pudo leer de la base local": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
  "una fila no cumple la restricción CHECK {0} (ORA-02290)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
@@ -41481,6 +41511,9 @@
  ],
  "ya hay un profiler capturando en esta conexión{0}: detenelo antes de iniciar otro": [
   "src-tauri/src/commands/profiler.rs"
+ ],
+ "ya hay una comparación en curso con ese id": [
+  "src-tauri/src/commands/data_compare.rs"
  ],
  "ya hay una operación de git en curso en este proyecto ({0})": [
   "src-tauri/src/commands/projects_git.rs"

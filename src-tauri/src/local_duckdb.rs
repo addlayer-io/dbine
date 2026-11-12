@@ -157,12 +157,25 @@ pub(crate) async fn configure_with(
     if exec(s, "LOAD httpfs").await.is_err() {
         exec(s, "INSTALL httpfs; LOAD httpfs")
             .await
-            .map_err(|e| SetupError::Crypto(e.to_string()))?;
+            .map_err(|e| SetupError::Crypto(redact(e, key)))?;
     }
     for sql in settings_sql_with(dir, memory_limit) {
         exec(s, &sql).await.map_err(other)?;
     }
     Ok(())
+}
+
+/// An alias goes into `ATTACH … AS` and `USE` unquoted: only lowercase
+/// letters and `_` (the callers' constants), so no caller can turn it into
+/// SQL.
+fn valid_alias(alias: &str) -> Result<(), SetupError> {
+    if !alias.is_empty() && alias.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
+        Ok(())
+    } else {
+        Err(SetupError::Other(format!(
+            "alias de base local inválido: {alias:?}"
+        )))
+    }
 }
 
 /// Step 2: attach `file` of `dir` as `alias`; a file this key can't open is
@@ -174,6 +187,7 @@ pub(crate) async fn attach(
     alias: &str,
     key: &str,
 ) -> Result<(), SetupError> {
+    valid_alias(alias)?;
     exec(s, &attach_sql(dir, file, alias, key))
         .await
         .map_err(|e| {
@@ -195,6 +209,7 @@ pub(crate) async fn attach(
 /// Step 3: `USE alias`, lock everything down, then read the settings back:
 /// any of them off and the session is refused.
 pub(crate) async fn lock(s: &mut dyn Session, alias: &str, key: &str) -> Result<(), SetupError> {
+    valid_alias(alias)?;
     let other = |e: CommandError| SetupError::Other(redact(e, key));
     exec(s, &format!("USE {alias}")).await.map_err(other)?;
     for sql in LOCK {
@@ -291,6 +306,15 @@ pub(crate) fn first_value(out: &QueryOutcome) -> Option<&Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_plain_aliases_are_accepted() {
+        assert!(super::valid_alias("store").is_ok());
+        assert!(super::valid_alias("cmp").is_ok());
+        for bad in ["", "Store", "x; DROP", "a b", "a.b", "\"a\"", "a1"] {
+            assert!(super::valid_alias(bad).is_err(), "{bad:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

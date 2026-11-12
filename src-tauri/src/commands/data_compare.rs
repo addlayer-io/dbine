@@ -398,6 +398,9 @@ impl Drop for Sessions<'_> {
     }
 }
 
+/// A run id as the UI gives it: only to key sessions and events. It may hold
+/// `../` or any other text, so it must never go into a path (the scratch
+/// folder is named after a UUID the backend makes, never after this).
 fn valid_run(s: &str) -> bool {
     !s.is_empty() && s.len() <= MAX_RUN && s.chars().all(|c| !c.is_control())
 }
