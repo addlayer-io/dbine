@@ -42,6 +42,7 @@ pub mod queries;
 pub mod query;
 pub mod query_builder;
 pub mod rename;
+pub mod results;
 pub mod saved_migrations;
 pub mod scheduled;
 pub mod schema;

@@ -151,7 +151,9 @@ and queries are organized inside each database.
 - **Virtualized grid** with several results per run, messages and a cell
   viewer (with formatted JSON).
 - **Result tabs:** earlier runs keep their results in tabs with their query
-  and time; a pinned result isn't replaced by later runs. Details:
+  and time; a pinned result isn't replaced by later runs. They're kept,
+  encrypted on your computer, when DBine closes or crashes, and each editor
+  shows them again when it opens. Details:
   [docs/query-editor.md](docs/query-editor.md#result-tabs).
 - **Column filters** on a table's data (values, ranges, nulls, text). They are
   applied on the server, with each engine's own filter.

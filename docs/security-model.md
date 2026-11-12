@@ -24,6 +24,12 @@ from every tool that looks for them, are on the
   ([mobile-security.md](mobile-security.md)).
 - **Sync and backups are encrypted before they leave.** They go only to your
   own cloud storage, encrypted on your computer.
+- **Saved query results are encrypted on disk.** With **Keep results when
+  closing DBine** on, the editor's results go to a DuckDB file encrypted
+  with AES-256-GCM, its temporary files included. The key is random, kept in
+  DBine's vault under the keychain's key, and never leaves this computer and
+  user, so a copy of the file elsewhere doesn't open
+  ([results-store.md](results-store.md)).
 
 ## What you can't expect
 

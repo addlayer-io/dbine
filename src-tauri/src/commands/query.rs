@@ -58,6 +58,10 @@ pub struct ExecuteArgs {
     /// as its literal, never pasted as text.
     #[serde(default)]
     pub params: Option<RunParams>,
+    /// An editor run whose outcome also goes to the results store
+    /// (docs/results-store.md), once it's back. `None`: memory only.
+    #[serde(default)]
+    pub store: Option<crate::commands::results::StoreArgs>,
 }
 
 /// The parameters of a notebook run: their definitions and the values given.
@@ -164,6 +168,8 @@ pub async fn execute_query(
     state: State<'_, AppState>,
     args: ExecuteArgs,
 ) -> CommandResult<ExecuteResponse> {
+    // A results-store clear while this runs: its outcome isn't stored.
+    let store_generation = crate::results_store::generation();
     let driver = state
         .store
         .get_connection(&args.connection_id)
@@ -540,6 +546,16 @@ pub async fn execute_query(
             &out,
             origin,
         );
+    }
+    if let Some(store) = &args.store {
+        let mut run = store.run.clone();
+        // The connection that ran it, whatever the UI said (a managed
+        // connection's runs are never stored).
+        run.extra.insert(
+            "connection_id".into(),
+            serde_json::Value::String(args.connection_id.clone()),
+        );
+        crate::results_store::save_later(run, out.clone(), store.max_bytes(), store_generation);
     }
     Ok(ExecuteResponse {
         outcome: out,

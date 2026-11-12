@@ -3,7 +3,7 @@ import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type {
   AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, FilteredBrowse, RunMode, RunParams, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
+  ExecuteResponse, FilteredBrowse, QueryOutcome, ResultsStatus, RunMode, StoreArgs, StoredRunMeta, RunParams, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { MultiDbResponse } from './types';
@@ -172,6 +172,8 @@ export const api = {
     /** A notebook cell: `sql` uses these parameters as `{{name}}`; the
      *  backend binds each value or writes it as the engine's literal. */
     params?: RunParams | null;
+    /** An editor run whose outcome also goes to the results store. */
+    store?: StoreArgs | null;
   }) => {
     const file = a.file ?? (a.record ? runFiles.get(a.sessionId) : undefined) ?? null;
     return invoke<ExecuteResponse>('execute_query', {
@@ -181,6 +183,7 @@ export const api = {
         record: a.record ?? false, mode: a.mode ?? 'whole', continue_on_error: a.continueOnError ?? null,
         confirmed_unsafe: a.confirmedUnsafe ?? false, autocommit: a.autocommit ?? null,
         project_id: file?.projectId ?? null, file_path: file?.path ?? null, params: a.params ?? null,
+        store: a.store ?? null,
       },
     });
   },
@@ -235,6 +238,22 @@ export const api = {
   updateInstallAndRestart: () => invoke<void>('update_install_and_restart'),
   /** Open a release page of DBine in the browser (other URLs are refused). */
   openReleasePage: (url: string) => invoke<void>('open_release_page', { args: { url } }),
+
+  // The results store (docs/results-store.md): editor results kept on disk,
+  // encrypted. Each answers as an empty store when there's none.
+  resultsStatus: () => invoke<ResultsStatus>('results_status'),
+  /** A restored editor's stored runs, oldest first (without their rows). */
+  resultsRuns: (tabId: string) => invoke<StoredRunMeta[]>('results_runs', { args: { tab_id: tabId } }),
+  resultsOutcome: (id: string) => invoke<QueryOutcome | null>('results_outcome', { args: { id } }),
+  /** An outcome the editor put together or changed (several databases, saved edits). */
+  resultsSave: (store: StoreArgs, outcome: QueryOutcome) =>
+    invoke<{ stored: boolean } | null>('results_save', { args: { ...store, outcome } }),
+  resultsPin: (id: string, pinned: boolean) => invoke<void>('results_pin', { args: { id, pinned } }),
+  resultsDelete: (ids: string[]) => invoke<void>('results_delete', { args: { ids } }),
+  resultsDeleteTab: (tabId: string) => invoke<void>('results_delete_tab', { args: { tab_id: tabId } }),
+  /** At start: the results of the tabs not restored go. */
+  resultsKeepTabs: (tabIds: string[]) => invoke<void>('results_keep_tabs', { args: { tab_ids: tabIds } }),
+  resultsClear: () => invoke<void>('results_clear'),
 };
 
 // Windows: several windows share one backend (src-tauri/src/windows.rs).
@@ -254,6 +273,7 @@ export const windowApi = {
   /** True only for the first window to ask in this run: it does the
    *  once-per-run work (update check, app-start telemetry). */
   claimStartup: () => invoke<boolean>('app_claim_startup'),
+
 };
 
 // "Ejecutar en varias bases…": the editor's script on several databases of a
