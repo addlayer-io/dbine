@@ -47,6 +47,47 @@ fn soft(e: Error, what: &str, notes: &mut Vec<String>) -> Result<()> {
     }
 }
 
+/// A `SHOW TRANSACTIONS` row of DBine's own transaction (its tx metadata).
+fn is_own(r: &Map<String, Value>, tag: &str) -> bool {
+    r.get("metaData")
+        .and_then(|m| m.get("dbine"))
+        .and_then(Value::as_str)
+        == Some(tag)
+}
+
+/// The highest transaction sequence number of the current database, from
+/// `SHOW TRANSACTIONS` rows (`neo4j-transaction-42`). The listing covers
+/// every database, and each has its own sequence: mixing them would make
+/// the counter jump up and back down (a false restart). The current
+/// database is the one of DBine's own transaction, else the session's;
+/// with neither, every row counts.
+fn tx_sequence(rows: &[Map<String, Value>], tag: &str, session_db: &str) -> Option<f64> {
+    let parts = |r: &Map<String, Value>| {
+        let id = r.get("transactionId").map(as_text).unwrap_or_default();
+        let seq = id.rsplit('-').next().and_then(|n| n.parse::<f64>().ok());
+        let db = r
+            .get("database")
+            .map(as_text)
+            .filter(|d| !d.is_empty())
+            .or_else(|| id.rsplit_once("-transaction-").map(|(d, _)| d.to_string()));
+        (db, seq)
+    };
+    let current = rows
+        .iter()
+        .find(|r| is_own(r, tag))
+        .and_then(|r| parts(r).0)
+        .or_else(|| (!session_db.is_empty()).then(|| session_db.to_string()));
+    rows.iter()
+        .map(parts)
+        .filter(|(db, _)| match (&current, db) {
+            (Some(c), Some(d)) => c.eq_ignore_ascii_case(d),
+            (Some(_), None) => false,
+            (None, _) => true,
+        })
+        .filter_map(|(_, seq)| seq)
+        .reduce(f64::max)
+}
+
 /// `PT1.5S`-style or a number of ms → milliseconds.
 pub fn duration_ms(v: &Value) -> Option<f64> {
     if let Some(n) = v.as_f64() {
@@ -139,7 +180,14 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             if let Some(a) = beans.first() {
                 let load = f(jmx_attr(a, "CpuLoad")).or_else(|| f(jmx_attr(a, "SystemCpuLoad")));
                 cpu = load.filter(|l| *l >= 0.0).map(|l| l * 100.0);
-                cpu_time = f(jmx_attr(a, "ProcessCpuTime")).map(|ns| ns / 1e7);
+                // Nanoseconds of CPU → seconds × 100, spread over the CPUs
+                // the JVM may use: the rate is the % of all of them (100 %
+                // is every one busy), never "500 %" for five busy cores.
+                // Unknown CPU count: not shown rather than per core.
+                let cpus = f(jmx_attr(a, "AvailableProcessors")).filter(|n| *n > 0.0);
+                cpu_time = f(jmx_attr(a, "ProcessCpuTime"))
+                    .zip(cpus)
+                    .map(|(ns, n)| ns / 1e7 / n);
                 os_total = f(jmx_attr(a, "TotalMemorySize"))
                     .or_else(|| f(jmx_attr(a, "TotalPhysicalMemorySize")));
                 let free = f(jmx_attr(a, "FreeMemorySize"))
@@ -198,7 +246,10 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
     }
     let m = &mut snap.metrics;
     m.push(
-        Metric::new("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, cpu).max(Some(100.0)),
+        Metric::new("cpu", "CPU del servidor", "CPU", MetricUnit::Percent, cpu)
+            .max(Some(100.0))
+            .help("Uso de CPU de toda la máquina (o del contenedor) en la que corre Neo4j, según la JVM: incluye otros procesos. 100 % es todos los núcleos ocupados.")
+            .source("dbms.queryJmx('java.lang:type=OperatingSystem'): CpuLoad (or SystemCpuLoad) × 100"),
     );
     m.push(
         Metric::new(
@@ -208,7 +259,10 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Percent,
             cpu_time,
         )
-        .counter(),
+        .max(Some(100.0))
+        .counter()
+        .help("Tiempo de CPU que consume el proceso de Neo4j, como parte de todos los núcleos que la JVM puede usar: 100 % es todos ocupados. Comparado con la CPU del servidor, muestra cuánto de esa carga es de Neo4j.")
+        .source("dbms.queryJmx('java.lang:type=OperatingSystem'): ProcessCpuTime ÷ AvailableProcessors"),
     );
     m.push(
         Metric::new(
@@ -218,7 +272,9 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Bytes,
             heap,
         )
-        .max(heap_max),
+        .max(heap_max)
+        .help("Heap de Java en uso, sobre el máximo configurado (server.memory.heap.max_size). Sube y baja con cada recolección; si queda cerca del máximo aun después de recolectar, falta heap.")
+        .source("dbms.queryJmx('java.lang:type=Memory'): HeapMemoryUsage.used; max: HeapMemoryUsage.max"),
     );
     m.push(
         Metric::new(
@@ -228,7 +284,9 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Bytes,
             os_used,
         )
-        .max(os_total),
+        .max(os_total)
+        .help("Memoria física ocupada en la máquina (total menos libre), sobre el total, según la JVM. Incluye el page cache de Neo4j, el heap, otros procesos y la caché de archivos del sistema operativo, así que suele estar cerca del total aunque no falte memoria.")
+        .source("dbms.queryJmx('java.lang:type=OperatingSystem'): TotalMemorySize − FreeMemorySize (or the *PhysicalMemorySize pair)"),
     );
     m.push(
         Metric::new(
@@ -238,7 +296,9 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Millis,
             gc_ms,
         )
-        .counter(),
+        .counter()
+        .help("Tiempo que la JVM pasó recolectando basura, sumando todos los recolectores. Si se lleva una parte grande de cada segundo, el heap queda chico o hay consultas que reservan mucha memoria.")
+        .source("dbms.queryJmx('java.lang:type=GarbageCollector,*'): CollectionTime (sum)"),
     );
     m.push(
         Metric::new(
@@ -248,15 +308,15 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Count,
             gc_count,
         )
-        .counter(),
+        .counter()
+        .help("Recolecciones de basura de la JVM, de todos los recolectores.")
+        .source("dbms.queryJmx('java.lang:type=GarbageCollector,*'): CollectionCount (sum)"),
     );
-    m.push(Metric::new(
-        "threads",
-        "Hilos",
-        "Servidor",
-        MetricUnit::Count,
-        threads,
-    ));
+    m.push(
+        Metric::new("threads", "Hilos", "Servidor", MetricUnit::Count, threads)
+            .help("Hilos vivos de la JVM. Si crecen sin parar, hay conexiones o tareas que no terminan.")
+            .source("dbms.queryJmx('java.lang:type=Threading'): ThreadCount"),
+    );
     m.push(
         Metric::new(
             "open_files",
@@ -265,15 +325,21 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Count,
             fds,
         )
-        .max(fds_max),
+        .max(fds_max)
+        .help("Descriptores de archivo abiertos por el proceso, sobre el límite del sistema. Cerca del límite, Neo4j empieza a fallar al abrir archivos o aceptar conexiones.")
+        .source("dbms.queryJmx('java.lang:type=OperatingSystem'): OpenFileDescriptorCount; max: MaxFileDescriptorCount"),
     );
-    m.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        MetricUnit::Seconds,
-        uptime,
-    ));
+    m.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            MetricUnit::Seconds,
+            uptime,
+        )
+        .help("Tiempo desde que arrancó la JVM de Neo4j. Si vuelve a cero, se reinició.")
+        .source("dbms.queryJmx('java.lang:type=Runtime'): Uptime"),
+    );
 
     // Connections.
     let mut connections = None;
@@ -323,23 +389,12 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                 ],
             );
             let (mut a, mut w, mut l) = (0.0, 0.0, 0.0);
-            let mut max_tx: Option<f64> = None;
+            let max_tx = tx_sequence(&rows, &s.tag, &s.db);
             for r in &rows {
                 let g = |k: &str| r.get(k).cloned().unwrap_or(Value::Null);
                 let status = r.get("status").map(as_text).unwrap_or_default();
                 let query = r.get("currentQuery").map(as_text).unwrap_or_default();
-                let own = r
-                    .get("metaData")
-                    .and_then(|m| m.get("dbine"))
-                    .and_then(Value::as_str)
-                    == Some(s.tag.as_str());
-                if let Some(n) = r
-                    .get("transactionId")
-                    .map(as_text)
-                    .and_then(|id| id.rsplit('-').next().and_then(|n| n.parse::<f64>().ok()))
-                {
-                    max_tx = Some(max_tx.map_or(n, |m| m.max(n)));
-                }
+                let own = is_own(r, &s.tag);
                 if status.starts_with("Blocked") {
                     w += 1.0;
                 }
@@ -390,20 +445,28 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
         )?,
     }
     let m = &mut snap.metrics;
-    m.push(Metric::new(
-        "connections",
-        "Conexiones",
-        "Conexiones",
-        MetricUnit::Count,
-        connections,
-    ));
-    m.push(Metric::new(
-        "active_sessions",
-        "Consultas en ejecución",
-        "Conexiones",
-        MetricUnit::Count,
-        active,
-    ));
+    m.push(
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            MetricUnit::Count,
+            connections,
+        )
+        .help("Conexiones abiertas al servidor, por Bolt y por HTTP.")
+        .source("CALL dbms.listConnections() (rows)"),
+    );
+    m.push(
+        Metric::new(
+            "active_sessions",
+            "Consultas en ejecución",
+            "Conexiones",
+            MetricUnit::Count,
+            active,
+        )
+        .help("Transacciones que están ejecutando una consulta ahora, sin contar la de DBine. Si se acumulan, hay consultas lentas o el servidor está saturado.")
+        .source("SHOW TRANSACTIONS: rows with a currentQuery, without DBine's own"),
+    );
     m.push(
         Metric::new(
             "transactions",
@@ -412,22 +475,32 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Count,
             tx_counter,
         )
-        .counter(),
+        .counter()
+        .help("Transacciones iniciadas en la base actual, de lectura y de escritura. Se toma del número de la transacción más reciente de esa base que muestra SHOW TRANSACTIONS, así que es aproximado.")
+        .source("SHOW TRANSACTIONS: transactionId (highest sequence number among the rows whose database is DBine's own transaction's)"),
     );
-    m.push(Metric::new(
-        "locks_waiting",
-        "Transacciones bloqueadas",
-        "Bloqueos",
-        MetricUnit::Count,
-        waiting,
-    ));
-    m.push(Metric::new(
-        "locks_held",
-        "Bloqueos tomados",
-        "Bloqueos",
-        MetricUnit::Count,
-        locks,
-    ));
+    m.push(
+        Metric::new(
+            "locks_waiting",
+            "Transacciones bloqueadas",
+            "Bloqueos",
+            MetricUnit::Count,
+            waiting,
+        )
+        .help("Transacciones que esperan un lock que tiene otra. Si no vuelve a cero, hay transacciones largas o escrituras que chocan sobre los mismos nodos.")
+        .source("SHOW TRANSACTIONS: rows whose status starts with 'Blocked'"),
+    );
+    m.push(
+        Metric::new(
+            "locks_held",
+            "Bloqueos tomados",
+            "Bloqueos",
+            MetricUnit::Count,
+            locks,
+        )
+        .help("Locks que tienen ahora las transacciones abiertas, sumados. Muchos y sostenidos indican transacciones grandes o largas.")
+        .source("SHOW TRANSACTIONS: activeLockCount (sum)"),
+    );
 
     // Graph size (count store: constant time).
     let nodes = s
@@ -440,20 +513,22 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
         .await
         .ok()
         .and_then(|v| v.first().and_then(|x| num(x)));
-    snap.metrics.push(Metric::new(
-        "nodes",
-        "Nodos",
-        "Almacenamiento",
-        MetricUnit::Count,
-        nodes,
-    ));
-    snap.metrics.push(Metric::new(
-        "relationships",
-        "Relaciones",
-        "Almacenamiento",
-        MetricUnit::Count,
-        rels,
-    ));
+    snap.metrics.push(
+        Metric::new("nodes", "Nodos", "Almacenamiento", MetricUnit::Count, nodes)
+            .help("Nodos del grafo en la base actual. Neo4j los cuenta con su almacén de conteos, sin recorrer el grafo.")
+            .source("MATCH (n) RETURN count(n)"),
+    );
+    snap.metrics.push(
+        Metric::new(
+            "relationships",
+            "Relaciones",
+            "Almacenamiento",
+            MetricUnit::Count,
+            rels,
+        )
+        .help("Relaciones del grafo en la base actual. Neo4j las cuenta con su almacén de conteos, sin recorrer el grafo.")
+        .source("MATCH ()-[r]->() RETURN count(r)"),
+    );
 
     // Databases.
     match s.query_on("SHOW DATABASES YIELD name, type, currentStatus, role, address, default, home, store, lastCommittedTxn, replicationLag", Some("system")).await {
@@ -475,7 +550,11 @@ pub async fn neo4j(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             snap.tables.push(t);
             // lastCommittedTxn / replicationLag are counts of transactions (Enterprise clusters).
             if lag.is_some_and(|l| l > 0.0) {
-                snap.metrics.push(Metric::new("replication_lag_tx", "Retraso de réplica (transacciones)", "Replicación", MetricUnit::Count, lag));
+                snap.metrics.push(
+                    Metric::new("replication_lag_tx", "Retraso de réplica (transacciones)", "Replicación", MetricUnit::Count, lag)
+                        .help("Transacciones que le faltan aplicar a la réplica más atrasada de alguna base del cluster. Si crece, esa réplica no da abasto o perdió la conexión.")
+                        .source("SHOW DATABASES: replicationLag (maximum)"),
+                );
             }
         }
         Err(e) => soft(e, "No se pudieron listar las bases", &mut notes)?,
@@ -598,7 +677,9 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Bytes,
             size("memory_res"),
         )
-        .max(limit),
+        .max(limit)
+        .help("Memoria física (RSS) que ocupa el proceso de Memgraph, sobre su límite de memoria (--memory-limit). Al llegar al límite, Memgraph rechaza lo que pide más memoria.")
+        .source("SHOW STORAGE INFO: memory_res; max: memory_limit (else ON CURRENT DATABASE: tenant_memory_limit)"),
     );
     m.push(
         Metric::new(
@@ -608,57 +689,93 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             MetricUnit::Bytes,
             size("memory_tracked").or_else(|| size("memory_usage")),
         )
-        .max(limit),
+        .max(limit)
+        .help("Memoria que Memgraph contabiliza en su asignador (grafo, índices y consultas): es la que se compara con el límite de memoria.")
+        .source("SHOW STORAGE INFO: memory_tracked (or memory_usage); max: memory_limit (else ON CURRENT DATABASE: tenant_memory_limit)"),
     );
-    m.push(Metric::new(
-        "mem_peak",
-        "Pico de memoria",
-        "Memoria",
-        MetricUnit::Bytes,
-        size("peak_memory_res"),
-    ));
-    m.push(Metric::new(
-        "graph_mem",
-        "Memoria del grafo",
-        "Memoria",
-        MetricUnit::Bytes,
-        size("graph_memory_tracked"),
-    ));
-    m.push(Metric::new(
-        "query_mem",
-        "Memoria de consultas",
-        "Memoria",
-        MetricUnit::Bytes,
-        size("query_memory_tracked"),
-    ));
-    m.push(Metric::new(
-        "storage_used",
-        "Espacio en disco",
-        "Almacenamiento",
-        MetricUnit::Bytes,
-        size("disk_usage"),
-    ));
-    m.push(Metric::new(
-        "nodes",
-        "Nodos",
-        "Almacenamiento",
-        MetricUnit::Count,
-        n("vertex_count"),
-    ));
-    m.push(Metric::new(
-        "relationships",
-        "Relaciones",
-        "Almacenamiento",
-        MetricUnit::Count,
-        n("edge_count"),
-    ));
-    m.push(Metric::new(
-        "unreleased_deltas",
-        "Deltas sin liberar",
-        "Almacenamiento",
-        MetricUnit::Count,
-        n("unreleased_delta_objects"),
-    ));
+    m.push(
+        Metric::new(
+            "mem_peak",
+            "Pico de memoria",
+            "Memoria",
+            MetricUnit::Bytes,
+            size("peak_memory_res"),
+        )
+        .help("Memoria residente más alta que tuvo Memgraph desde que arrancó.")
+        .source("SHOW STORAGE INFO: peak_memory_res"),
+    );
+    m.push(
+        Metric::new(
+            "graph_mem",
+            "Memoria del grafo",
+            "Memoria",
+            MetricUnit::Bytes,
+            size("graph_memory_tracked"),
+        )
+        .help("Memoria que ocupan los nodos, las relaciones, sus propiedades y los índices de la base actual.")
+        .source("SHOW STORAGE INFO ON CURRENT DATABASE: graph_memory_tracked (else SHOW STORAGE INFO)"),
+    );
+    m.push(
+        Metric::new(
+            "query_mem",
+            "Memoria de consultas",
+            "Memoria",
+            MetricUnit::Bytes,
+            size("query_memory_tracked"),
+        )
+        .help("Memoria que usan ahora las consultas en ejecución de la base actual.")
+        .source(
+            "SHOW STORAGE INFO ON CURRENT DATABASE: query_memory_tracked (else SHOW STORAGE INFO)",
+        ),
+    );
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Espacio en disco",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            size("disk_usage"),
+        )
+        .help("Espacio en disco del directorio de datos de la base: snapshots y registro de escrituras (WAL).")
+        .source("SHOW STORAGE INFO ON CURRENT DATABASE: disk_usage (else SHOW STORAGE INFO)"),
+    );
+    m.push(
+        Metric::new(
+            "nodes",
+            "Nodos",
+            "Almacenamiento",
+            MetricUnit::Count,
+            n("vertex_count"),
+        )
+        .help("Nodos del grafo en la base actual.")
+        .source(
+            "SHOW STORAGE INFO ON CURRENT DATABASE: vertex_count (Memgraph 2: SHOW STORAGE INFO)",
+        ),
+    );
+    m.push(
+        Metric::new(
+            "relationships",
+            "Relaciones",
+            "Almacenamiento",
+            MetricUnit::Count,
+            n("edge_count"),
+        )
+        .help("Relaciones del grafo en la base actual.")
+        .source(
+            "SHOW STORAGE INFO ON CURRENT DATABASE: edge_count (Memgraph 2: SHOW STORAGE INFO)",
+        ),
+    );
+    m.push(
+        Metric::new(
+            "unreleased_deltas",
+            "Deltas sin liberar",
+            "Almacenamiento",
+            MetricUnit::Count,
+            n("unreleased_delta_objects"),
+        )
+        .help("Versiones anteriores de objetos (deltas de MVCC) que el recolector todavía no liberó. Si crece sin parar, hay transacciones largas que impiden liberarlas.")
+        .source("SHOW STORAGE INFO ON CURRENT DATABASE: unreleased_delta_objects (Memgraph 2: SHOW STORAGE INFO)"),
+    );
     for (k, label) in [
         ("storage_mode", "Modo de almacenamiento"),
         ("global_storage_mode", "Modo de almacenamiento"),
@@ -727,24 +844,32 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
         }
         Err(e) => soft(e, "SHOW TRANSACTIONS", &mut notes)?,
     }
-    snap.metrics.push(Metric::new(
-        "active_sessions",
-        "Transacciones activas",
-        "Conexiones",
-        MetricUnit::Count,
-        active,
-    ));
+    snap.metrics.push(
+        Metric::new(
+            "active_sessions",
+            "Transacciones activas",
+            "Conexiones",
+            MetricUnit::Count,
+            active,
+        )
+        .help("Transacciones abiertas ahora, sin contar la de DBine. Si se acumulan, hay consultas lentas o transacciones que no se cierran.")
+        .source("SHOW TRANSACTIONS: rows without DBine's own"),
+    );
 
     // Logged-in sessions.
     match s.records("SHOW ACTIVE USERS INFO").await {
         Ok(rows) => {
-            snap.metrics.push(Metric::new(
-                "connections",
-                "Sesiones abiertas",
-                "Conexiones",
-                MetricUnit::Count,
-                Some(rows.len() as f64),
-            ));
+            snap.metrics.push(
+                Metric::new(
+                    "connections",
+                    "Sesiones abiertas",
+                    "Conexiones",
+                    MetricUnit::Count,
+                    Some(rows.len() as f64),
+                )
+                .help("Sesiones de usuarios abiertas en Memgraph.")
+                .source("SHOW ACTIVE USERS INFO (rows)"),
+            );
             let mut t = MonitorTable::new(
                 "connections",
                 "Sesiones abiertas",
@@ -767,11 +892,25 @@ pub async fn memgraph(s: &mut GraphSession) -> Result<MonitorSnapshot> {
             };
             let tx = get("CommitedTransactions").or_else(|| get("CommittedTransactions"));
             let rb = get("RollbackedTransactions").unwrap_or(0.0);
-            snap.metrics.push(Metric::new("transactions", "Transacciones", "Actividad", MetricUnit::Count, tx.map(|t| t + rb)).counter());
-            snap.metrics.push(Metric::new("queries", "Consultas", "Actividad", MetricUnit::Count, get("SuccessfulQuery").map(|q| q + get("FailedQuery").unwrap_or(0.0))).counter());
+            snap.metrics.push(
+                Metric::new("transactions", "Transacciones", "Actividad", MetricUnit::Count, tx.map(|t| t + rb))
+                    .counter()
+                    .help("Transacciones terminadas, confirmadas o deshechas.")
+                    .source("SHOW METRICS INFO: CommitedTransactions + RollbackedTransactions"),
+            );
+            snap.metrics.push(
+                Metric::new("queries", "Consultas", "Actividad", MetricUnit::Count, get("SuccessfulQuery").map(|q| q + get("FailedQuery").unwrap_or(0.0)))
+                    .counter()
+                    .help("Consultas ejecutadas, con éxito o con error.")
+                    .source("SHOW METRICS INFO: SuccessfulQuery + FailedQuery"),
+            );
             if let Some(c) = get("ActiveBoltSessions").or_else(|| get("ActiveSessions")) {
                 snap.metrics.retain(|m| m.key != "connections");
-                snap.metrics.push(Metric::new("connections", "Sesiones Bolt", "Conexiones", MetricUnit::Count, Some(c)));
+                snap.metrics.push(
+                    Metric::new("connections", "Sesiones Bolt", "Conexiones", MetricUnit::Count, Some(c))
+                        .help("Sesiones Bolt abiertas en Memgraph.")
+                        .source("SHOW METRICS INFO: ActiveBoltSessions (or ActiveSessions)"),
+                );
             }
             for r in rows.iter().take(MAX_ROWS) {
                 t.rows.push(r.values().map(crate::value::cell).collect());
@@ -881,18 +1020,24 @@ pub async fn neptune(s: &mut GraphSession) -> Result<MonitorSnapshot> {
         .and_then(Value::as_str)
         .and_then(neptune_start)
         .map(|t| (chrono::Utc::now() - t).num_seconds() as f64);
-    snap.metrics.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        MetricUnit::Seconds,
-        uptime,
-    ));
+    snap.metrics.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            MetricUnit::Seconds,
+            uptime,
+        )
+        .help("Tiempo desde que arrancó la instancia de Neptune a la que se conecta DBine. Si vuelve a cero, se reinició.")
+        .source("GET /status: startTime"),
+    );
 
     match c.json("/openCypher/status").await {
         Ok(q) => {
             let accepted = f(q.get("acceptedQueryCount"));
             let running = f(q.get("runningQueryCount"));
+            // acceptedQueryCount is the queries accepted and not finished
+            // yet (queued or running), not a running total: a gauge.
             snap.metrics.push(
                 Metric::new(
                     "queries",
@@ -901,15 +1046,20 @@ pub async fn neptune(s: &mut GraphSession) -> Result<MonitorSnapshot> {
                     MetricUnit::Count,
                     accepted,
                 )
-                .counter(),
+                .help("Consultas openCypher aceptadas que todavía no terminaron: las que esperan en cola más las que se ejecutan.")
+                .source("GET /openCypher/status: acceptedQueryCount"),
             );
-            snap.metrics.push(Metric::new(
-                "active_sessions",
-                "Consultas en ejecución",
-                "Conexiones",
-                MetricUnit::Count,
-                running,
-            ));
+            snap.metrics.push(
+                Metric::new(
+                    "active_sessions",
+                    "Consultas en ejecución",
+                    "Conexiones",
+                    MetricUnit::Count,
+                    running,
+                )
+                .help("Consultas openCypher ejecutándose ahora. Si hay muchas más aceptadas que en ejecución, la instancia está saturada y las demás esperan en cola.")
+                .source("GET /openCypher/status: runningQueryCount"),
+            );
             let mut t = MonitorTable::new(
                 "queries",
                 "Consultas en curso",
@@ -948,9 +1098,21 @@ pub async fn neptune(s: &mut GraphSession) -> Result<MonitorSnapshot> {
         Ok(v) => {
             let gs = v.get("payload").and_then(|p| p.get("graphSummary"));
             let n = |k: &str| f(gs.and_then(|g| g.get(k)));
-            snap.metrics.push(Metric::new("nodes", "Nodos", "Almacenamiento", MetricUnit::Count, n("numNodes")));
-            snap.metrics.push(Metric::new("relationships", "Relaciones", "Almacenamiento", MetricUnit::Count, n("numEdges")));
-            snap.metrics.push(Metric::new("node_properties", "Propiedades de nodos", "Almacenamiento", MetricUnit::Count, n("numNodeProperties")));
+            snap.metrics.push(
+                Metric::new("nodes", "Nodos", "Almacenamiento", MetricUnit::Count, n("numNodes"))
+                    .help("Nodos del grafo según el resumen de estadísticas de Neptune, que se recalcula cada tanto y no en cada escritura.")
+                    .source("GET /propertygraph/statistics/summary: payload.graphSummary.numNodes"),
+            );
+            snap.metrics.push(
+                Metric::new("relationships", "Relaciones", "Almacenamiento", MetricUnit::Count, n("numEdges"))
+                    .help("Relaciones (aristas) del grafo según el resumen de estadísticas de Neptune, que se recalcula cada tanto y no en cada escritura.")
+                    .source("GET /propertygraph/statistics/summary: payload.graphSummary.numEdges"),
+            );
+            snap.metrics.push(
+                Metric::new("node_properties", "Propiedades de nodos", "Almacenamiento", MetricUnit::Count, n("numNodeProperties"))
+                    .help("Propiedades de los nodos del grafo según el resumen de estadísticas de Neptune.")
+                    .source("GET /propertygraph/statistics/summary: payload.graphSummary.numNodeProperties"),
+            );
         }
         Err(_) => notes.push("Las cantidades de nodos y relaciones salen de las estadísticas de Neptune (DFE), que están apagadas o sin calcular en este cluster.".into()),
     }
@@ -975,5 +1137,137 @@ mod tests {
         assert_eq!(size_bytes("0B"), Some(0.0));
         assert_eq!(size_bytes("unlimited"), None);
         assert!(neptune_start("Tue Nov 12 18:42:11 UTC 2024").is_some());
+    }
+
+    /// The `(…)` that opens at `open`: the index after its `)`. Strings and
+    /// char literals don't count.
+    fn close(b: &[u8], open: usize) -> usize {
+        let (mut i, mut depth) = (open, 0);
+        while i < b.len() {
+            match b[i] {
+                b'"' => {
+                    i += 1;
+                    while b[i] != b'"' {
+                        i += if b[i] == b'\\' { 2 } else { 1 };
+                    }
+                }
+                b'\'' if b.get(i + 2) == Some(&b'\'') => i += 2,
+                b'\'' if b.get(i + 1) == Some(&b'\\') => i += 3,
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return i + 1;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        panic!("unbalanced call at {open}");
+    }
+
+    /// The `.method(arguments)` chained to each `Metric::new(…)` of `code`,
+    /// with the line it starts on.
+    fn metric_chains(code: &str) -> Vec<(usize, Vec<(String, String)>)> {
+        let b = code.as_bytes();
+        let mut out = Vec::new();
+        for (at, _) in code.match_indices("Metric::new(") {
+            let mut i = close(b, at + "Metric::new".len());
+            let mut calls = Vec::new();
+            loop {
+                while b[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                if b[i] != b'.' {
+                    break;
+                }
+                let name_end = i
+                    + 1
+                    + code[i + 1..]
+                        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                        .unwrap();
+                let end = close(b, name_end);
+                calls.push((
+                    code[i + 1..name_end].to_string(),
+                    code[name_end + 1..end - 1].trim().to_string(),
+                ));
+                i = end;
+            }
+            out.push((code[..at].lines().count(), calls));
+        }
+        out
+    }
+
+    /// The snapshots (Neo4j, Memgraph, Neptune) are built from live queries
+    /// only, so no fixture reaches their metrics: every `Metric::new` of the
+    /// module is checked to chain a non-empty `.help(…)` and `.source(…)`.
+    #[test]
+    fn every_metric_has_help_and_source() {
+        // The scanner sees through strings, char literals and nested calls.
+        let probe = metric_chains(
+            "m.push(Metric::new(\"k\", \"(p99\", f(')')).max(Some(1.0))\n.help(\"a \\\"b\\\"\"));",
+        );
+        let names: Vec<&str> = probe[0].1.iter().map(|(m, _)| m.as_str()).collect();
+        assert_eq!(names, ["max", "help"]);
+        let src = include_str!("monitor.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let chains = metric_chains(code);
+        assert!(chains.len() >= 35, "{} metrics found", chains.len());
+        for (line, calls) in chains {
+            for method in ["help", "source"] {
+                assert!(
+                    calls
+                        .iter()
+                        .any(|(m, arg)| m == method && !arg.is_empty() && arg != "\"\""),
+                    "the metric at line {line} has no {method}"
+                );
+            }
+        }
+    }
+
+    /// Neptune's accepted queries are the ones not finished yet, a gauge;
+    /// the JVM's process CPU is a share of every CPU it may use.
+    #[test]
+    fn gauges_and_cpu_shares() {
+        let src = include_str!("monitor.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let chains = metric_chains(code);
+        let calls = |source: &str| {
+            chains
+                .iter()
+                .map(|(_, c)| c)
+                .find(|c| c.iter().any(|(m, a)| m == "source" && a.contains(source)))
+                .unwrap()
+        };
+        let has = |c: &Vec<(String, String)>, m: &str| c.iter().any(|(x, _)| x == m);
+        assert!(!has(calls("acceptedQueryCount"), "counter"));
+        let cpu = calls("ProcessCpuTime");
+        assert!(has(cpu, "counter"));
+        assert!(cpu.iter().any(|(m, a)| m == "max" && a == "Some(100.0)"));
+    }
+
+    /// The transaction counter follows the current database's sequence:
+    /// another database's higher number neither lifts it nor, when that
+    /// transaction ends, drops it (a false restart).
+    #[test]
+    fn transaction_sequence_is_the_current_database() {
+        let row = |v: serde_json::Value| v.as_object().unwrap().clone();
+        let rows = vec![
+            row(
+                json!({"transactionId": "neo4j-transaction-40", "database": "neo4j",
+                "metaData": {"dbine": "me"}}),
+            ),
+            row(json!({"transactionId": "neo4j-transaction-38", "database": "neo4j"})),
+            row(json!({"transactionId": "sales-transaction-900", "database": "sales"})),
+            row(json!({"transactionId": "system-transaction-7"})),
+        ];
+        assert_eq!(tx_sequence(&rows, "me", ""), Some(40.0));
+        // Our row missing: the session's database, prefix as a fallback.
+        assert_eq!(tx_sequence(&rows[1..], "me", "SALES"), Some(900.0));
+        assert_eq!(tx_sequence(&rows[1..], "me", "system"), Some(7.0));
+        // Neither known: every row, as before.
+        assert_eq!(tx_sequence(&rows[1..], "me", ""), Some(900.0));
+        assert_eq!(tx_sequence(&[], "me", "neo4j"), None);
     }
 }

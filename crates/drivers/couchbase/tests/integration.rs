@@ -511,6 +511,21 @@ async fn monitor() {
         assert!(v(k).is_some(), "{k}: {:#?}", snap.metrics);
     }
     assert!(v("mem_used").unwrap() > 1e6 && v("queries").unwrap() >= 1.0);
+    // Every metric says what it measures and where it comes from, and the
+    // query service's CPU is a share of its cores.
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: help",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: source",
+            m.key
+        );
+    }
+    assert!(v("cpu_query").unwrap() <= 100.0);
     let nodes = snap.tables.iter().find(|t| t.key == "nodes").unwrap();
     assert_eq!(nodes.rows.len(), 1);
     assert!(snap.info.iter().any(|(k, _)| k == "Versión"));

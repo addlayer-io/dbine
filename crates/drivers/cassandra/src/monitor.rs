@@ -160,7 +160,7 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                 "Este Cassandra no tiene las tablas virtuales system_views (llegaron en la 4.0): solo se muestran los nodos."
                     .into(),
             );
-            peers_nodes(session, local, snap).await;
+            peers_nodes(session, local, snap, Flavor::Cassandra).await;
             return;
         }
     };
@@ -190,19 +190,25 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                     MetricUnit::Count,
                     Some(rows.len() as f64),
                 )
-                .max(max_conn),
+                .max(max_conn)
+                .help("Conexiones CQL de clientes abiertas en este nodo, sobre el máximo configurado cuando hay uno.")
+                .source("system_views.clients (rows); max: system_views.settings native_transport_max_concurrent_connections"),
             );
         }
         Err(e) => note_missing(snap, "system_views.clients", e),
     }
     if let Ok(q) = &running {
-        snap.metrics.push(Metric::new(
-            "active_sessions",
-            "Consultas en curso",
-            "Conexiones",
-            MetricUnit::Count,
-            Some(q.len() as f64),
-        ));
+        snap.metrics.push(
+            Metric::new(
+                "active_sessions",
+                "Consultas en curso",
+                "Conexiones",
+                MetricUnit::Count,
+                Some(q.len() as f64),
+            )
+            .help("Consultas que este nodo está ejecutando ahora. Si se acumulan, el nodo no da abasto o hay consultas que recorren muchas particiones.")
+            .source("system_views.queries (rows)"),
+        );
     }
 
     // Activity.
@@ -215,15 +221,23 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                     .collect()
             })
             .unwrap_or_default();
-    let statements = match (
+    let (statements, help, source) = match (
         cql.get("regular_statements_executed"),
         cql.get("prepared_statements_executed"),
     ) {
-        (None, None) => clients
-            .as_ref()
-            .ok()
-            .and_then(|r| total(r, "request_count")),
-        (a, b) => Some(a.unwrap_or(&0.0) + b.unwrap_or(&0.0)),
+        (None, None) => (
+            clients
+                .as_ref()
+                .ok()
+                .and_then(|r| total(r, "request_count")),
+            "Pedidos de los clientes conectados ahora a este nodo; los de las conexiones que se cerraron dejan de contar.",
+            "system_views.clients: request_count (sum)",
+        ),
+        (a, b) => (
+            Some(a.unwrap_or(&0.0) + b.unwrap_or(&0.0)),
+            "Sentencias CQL que ejecutó este nodo como coordinador, comunes y preparadas.",
+            "system_views.cql_metrics: regular_statements_executed + prepared_statements_executed",
+        ),
     };
     snap.metrics.push(
         Metric::new(
@@ -233,7 +247,9 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
             MetricUnit::Count,
             statements,
         )
-        .counter(),
+        .counter()
+        .help(help)
+        .source(source),
     );
     let lat = |t: &'static str| async move {
         query(session, &format!("SELECT * FROM system_views.{t}"))
@@ -257,7 +273,9 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
             MetricUnit::Count,
             reads,
         )
-        .counter(),
+        .counter()
+        .help("Lecturas de particiones y de rangos que este nodo resolvió con sus propios datos, como réplica, sumando todas las tablas.")
+        .source("system_views.local_read_latency.count + system_views.local_scan_latency.count (sum over tables)"),
     );
     snap.metrics.push(
         Metric::new(
@@ -267,26 +285,36 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
             MetricUnit::Count,
             total(&local_writes, "count"),
         )
-        .counter(),
+        .counter()
+        .help("Escrituras que este nodo aplicó a sus propios datos, como réplica, sumando todas las tablas.")
+        .source("system_views.local_write_latency.count (sum over tables)"),
     );
 
     // Thread pools.
     match query(session, "SELECT * FROM system_views.thread_pools").await {
         Ok(pools) => {
-            snap.metrics.push(Metric::new(
-                "pending_tasks",
-                "Tareas pendientes",
-                "Actividad",
-                MetricUnit::Count,
-                total(&pools, "pending_tasks"),
-            ));
-            snap.metrics.push(Metric::new(
-                "locks_waiting",
-                "Tareas bloqueadas",
-                "Bloqueos",
-                MetricUnit::Count,
-                total(&pools, "blocked_tasks"),
-            ));
+            snap.metrics.push(
+                Metric::new(
+                    "pending_tasks",
+                    "Tareas pendientes",
+                    "Actividad",
+                    MetricUnit::Count,
+                    total(&pools, "pending_tasks"),
+                )
+                .help("Tareas en cola en los pools de hilos del nodo, esperando un hilo libre. Si se acumulan (sobre todo en ReadStage, MutationStage o CompactionExecutor), el nodo no da abasto.")
+                .source("system_views.thread_pools.pending_tasks (sum)"),
+            );
+            snap.metrics.push(
+                Metric::new(
+                    "locks_waiting",
+                    "Tareas bloqueadas",
+                    "Bloqueos",
+                    MetricUnit::Count,
+                    total(&pools, "blocked_tasks"),
+                )
+                .help("Tareas detenidas porque la cola de su pool de hilos está llena, como «Blocked» en nodetool tpstats. Distinto de cero indica que el nodo está saturado.")
+                .source("system_views.thread_pools.blocked_tasks (sum)"),
+            );
             if let Some(c) = pools.iter().find(|p| s(p, "name") == "CompactionExecutor") {
                 snap.metrics.push(
                     Metric::new(
@@ -296,7 +324,9 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                         MetricUnit::Count,
                         f(c, "completed_tasks"),
                     )
-                    .counter(),
+                    .counter()
+                    .help("Tareas que terminó el pool de compactación del nodo: compactaciones y otras operaciones sobre SSTables.")
+                    .source("system_views.thread_pools: completed_tasks WHERE name = 'CompactionExecutor'"),
                 );
             }
             let mut t = MonitorTable::new(
@@ -338,8 +368,16 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
 
     // Caches.
     if let Ok(caches) = query(session, "SELECT * FROM system_views.caches").await {
-        let used = total(&caches, "size_bytes");
-        let cap = total(&caches, "capacity_bytes");
+        // Keys, rows and counters, as the label says: with file_cache_enabled
+        // the table also has the SSTable chunk cache ("chunks"), which isn't
+        // one of them.
+        let kept: Vec<Rec> = caches
+            .iter()
+            .filter(|r| ["keys", "rows", "counters"].contains(&s(r, "name").as_str()))
+            .cloned()
+            .collect();
+        let used = total(&kept, "size_bytes");
+        let cap = total(&kept, "capacity_bytes");
         snap.metrics.push(
             Metric::new(
                 "mem_cache",
@@ -348,7 +386,9 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                 MetricUnit::Bytes,
                 used,
             )
-            .max(cap),
+            .max(cap)
+            .help("Memoria que ocupan las cachés de claves, filas y contadores del nodo, sobre su capacidad configurada.")
+            .source("system_views.caches WHERE name IN ('keys', 'rows', 'counters'): size_bytes (sum); max: capacity_bytes (sum)"),
         );
         let keys = caches.iter().find(|r| s(r, "name") == "keys");
         let hit = keys.and_then(|k| {
@@ -363,7 +403,9 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                 MetricUnit::Percent,
                 hit,
             )
-            .max(Some(100.0)),
+            .max(Some(100.0))
+            .help("Porcentaje de las búsquedas en la caché de claves que encontraron dónde está la partición sin leer el índice del disco, acumulado desde el arranque. Bajo con muchas lecturas sugiere agrandar key_cache_size.")
+            .source("system_views.caches WHERE name = 'keys': hit_count ÷ request_count"),
         );
         if let Some(rows) = caches
             .iter()
@@ -380,7 +422,9 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                     MetricUnit::Percent,
                     h,
                 )
-                .max(Some(100.0)),
+                .max(Some(100.0))
+                .help("Porcentaje de las lecturas resueltas con la caché de filas, acumulado desde el arranque. Solo aparece si la caché de filas está activada.")
+                .source("system_views.caches WHERE name = 'rows': hit_count ÷ request_count"),
             );
         }
     }
@@ -389,13 +433,17 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
     match query(session, "SELECT * FROM system_views.disk_usage").await {
         Ok(du) => {
             let bytes = total(&du, "mebibytes").map(|m| m * MIB);
-            snap.metrics.push(Metric::new(
-                "storage_used",
-                "Espacio usado (este nodo)",
-                "Almacenamiento",
-                MetricUnit::Bytes,
-                bytes,
-            ));
+            snap.metrics.push(
+                Metric::new(
+                    "storage_used",
+                    "Espacio usado (este nodo)",
+                    "Almacenamiento",
+                    MetricUnit::Bytes,
+                    bytes,
+                )
+                .help("Espacio en disco de las SSTables vivas de este nodo, sumando todas las tablas (redondeado a MiB por tabla). Cada nodo guarda solo las réplicas que le tocan.")
+                .source("system_views.disk_usage: mebibytes (sum)"),
+            );
             sizes(
                 snap,
                 du.iter().map(|r| {
@@ -410,13 +458,17 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
         Err(e) => note_missing(snap, "system_views.disk_usage", &e),
     }
     if let Ok(h) = query(session, "SELECT * FROM system_views.pending_hints").await {
-        snap.metrics.push(Metric::new(
-            "pending_hints",
-            "Archivos de hints pendientes",
-            "Replicación",
-            MetricUnit::Count,
-            Some(total(&h, "files").unwrap_or(0.0)),
-        ));
+        snap.metrics.push(
+            Metric::new(
+                "pending_hints",
+                "Archivos de hints pendientes",
+                "Replicación",
+                MetricUnit::Count,
+                Some(total(&h, "files").unwrap_or(0.0)),
+            )
+            .help("Archivos de hints que este nodo guarda para réplicas que no respondían. Si crecen, hay nodos caídos o lentos que todavía no recibieron esas escrituras.")
+            .source("system_views.pending_hints: files (sum)"),
+        );
     }
 
     // Sessions and running queries.
@@ -519,13 +571,17 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
 
     // Compactions and other SSTable tasks.
     if let Ok(tasks) = query(session, "SELECT * FROM system_views.sstable_tasks").await {
-        snap.metrics.push(Metric::new(
-            "compactions_running",
-            "Compactaciones en curso",
-            "Actividad",
-            MetricUnit::Count,
-            Some(tasks.len() as f64),
-        ));
+        snap.metrics.push(
+            Metric::new(
+                "compactions_running",
+                "Compactaciones en curso",
+                "Actividad",
+                MetricUnit::Count,
+                Some(tasks.len() as f64),
+            )
+            .help("Compactaciones y otras tareas sobre SSTables que corren ahora en este nodo. Si siempre hay varias, la compactación no da abasto con las escrituras.")
+            .source("system_views.sstable_tasks (rows)"),
+        );
         let mut t = MonitorTable::new(
             "compactions",
             "Compactaciones en curso",
@@ -558,13 +614,17 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
-            snap.metrics.push(Metric::new(
-                "uptime",
-                "Tiempo activo",
-                "Servidor",
-                MetricUnit::Seconds,
-                started.map(|g| (now - g).max(0.0)),
-            ));
+            snap.metrics.push(
+                Metric::new(
+                    "uptime",
+                    "Tiempo activo",
+                    "Servidor",
+                    MetricUnit::Seconds,
+                    started.map(|g| (now - g).max(0.0)),
+                )
+                .help("Tiempo desde que arrancó este nodo, según su generación en gossip. Si vuelve a cero, se reinició.")
+                .source("system_views.gossip_info: now − generation (this node's host_id)"),
+            );
             let mut t = MonitorTable::new(
                 "nodes",
                 "Nodos del cluster",
@@ -597,7 +657,7 @@ async fn cassandra(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
             }
             snap.tables.push(t);
         }
-        Err(_) => peers_nodes(session, local, snap).await,
+        Err(_) => peers_nodes(session, local, snap, Flavor::Cassandra).await,
     }
 
     if let Ok(props) = query(
@@ -672,7 +732,7 @@ fn sizes(snap: &mut MonitorSnapshot, items: impl Iterator<Item = (String, String
 }
 
 /// Nodes from `system.local` + `system.peers` (every CQL server has them).
-async fn peers_nodes(session: &Session, local: &Rec, snap: &mut MonitorSnapshot) {
+async fn peers_nodes(session: &Session, local: &Rec, snap: &mut MonitorSnapshot, flavor: Flavor) {
     let mut t = MonitorTable::new(
         "nodes",
         "Nodos del cluster",
@@ -706,13 +766,21 @@ async fn peers_nodes(session: &Session, local: &Rec, snap: &mut MonitorSnapshot)
         }
         Err(e) => note_missing(snap, "system.peers", &e),
     }
-    snap.metrics.push(Metric::new(
-        "nodes",
-        "Nodos",
-        "Servidor",
-        MetricUnit::Count,
-        Some(t.rows.len() as f64),
-    ));
+    snap.metrics.push(
+        Metric::new(
+            "nodes",
+            "Nodos",
+            "Servidor",
+            MetricUnit::Count,
+            Some(t.rows.len() as f64),
+        )
+        .help(if flavor == Flavor::Keyspaces {
+            "Puntos de conexión que anuncia Amazon Keyspaces. Es un servicio administrado: no son servidores propios ni dicen nada de su capacidad."
+        } else {
+            "Nodos del cluster que conoce este nodo: él mismo y los demás que registró por gossip, estén activos o no."
+        })
+        .source("system.local + system.peers (rows)"),
+    );
     snap.tables.push(t);
 }
 
@@ -761,7 +829,9 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
             MetricUnit::Bytes,
             g("memory", "used"),
         )
-        .max(g("memory", "total")),
+        .max(g("memory", "total"))
+        .help("Memoria en uso de la que ScyllaDB reservó al arrancar (--memory, o casi toda la RAM). Es normal que esté casi llena: la caché de filas ocupa lo libre y se achica cuando hace falta.")
+        .source("system.runtime_info (memory, used); max: (memory, total)"),
     );
     snap.metrics.push(
         Metric::new(
@@ -771,7 +841,9 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
             MetricUnit::Bytes,
             g("cache", "memory_used"),
         )
-        .max(g("cache", "memory_total")),
+        .max(g("cache", "memory_total"))
+        .help("Memoria que ocupa la caché de filas, sobre la que tiene asignada ahora.")
+        .source("system.runtime_info (cache, memory_used); max: (cache, memory_total)"),
     );
     if let Some(m) = g("memtable", "memory_used") {
         snap.metrics.push(
@@ -782,7 +854,9 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
                 MetricUnit::Bytes,
                 Some(m),
             )
-            .max(g("memtable", "memory_total").filter(|t| *t > 0.0)),
+            .max(g("memtable", "memory_total").filter(|t| *t > 0.0))
+            .help("Memoria de las memtables: escrituras recibidas que todavía no se volcaron a SSTables en disco.")
+            .source("system.runtime_info (memtable, memory_used); max: (memtable, memory_total)"),
         );
     }
     let hit = match (g("cache", "hits"), g("cache", "misses")) {
@@ -797,7 +871,9 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
             MetricUnit::Percent,
             hit,
         )
-        .max(Some(100.0)),
+        .max(Some(100.0))
+        .help("Porcentaje de las lecturas resueltas con la caché de filas, acumulado desde el arranque. Bajo indica que los datos que se leen no entran en memoria y se van a buscar a las SSTables.")
+        .source("system.runtime_info (cache, hits) ÷ ((cache, hits) + (cache, misses))"),
     );
     if let Some(r) = g("cache", "requests_total") {
         snap.metrics.push(
@@ -808,29 +884,39 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
                 MetricUnit::Count,
                 Some(r),
             )
-            .counter(),
+            .counter()
+            .help("Lecturas que pasaron por la caché de filas, con acierto o sin él.")
+            .source("system.runtime_info (cache, requests_total)"),
         );
     }
     if let Some(n) = g("cache", "entries") {
-        snap.metrics.push(Metric::new(
-            "cache_entries",
-            "Entradas en caché",
-            "Caché",
-            MetricUnit::Count,
-            Some(n),
-        ));
+        snap.metrics.push(
+            Metric::new(
+                "cache_entries",
+                "Entradas en caché",
+                "Caché",
+                MetricUnit::Count,
+                Some(n),
+            )
+            .help("Particiones que la caché de filas tiene ahora.")
+            .source("system.runtime_info (cache, entries)"),
+        );
     }
 
     // Clients.
     match query(session, "SELECT * FROM system.clients").await {
         Ok(rows) => {
-            snap.metrics.push(Metric::new(
-                "connections",
-                "Conexiones",
-                "Conexiones",
-                MetricUnit::Count,
-                Some(rows.len() as f64),
-            ));
+            snap.metrics.push(
+                Metric::new(
+                    "connections",
+                    "Conexiones",
+                    "Conexiones",
+                    MetricUnit::Count,
+                    Some(rows.len() as f64),
+                )
+                .help("Conexiones CQL de clientes abiertas en este nodo. Los drivers de ScyllaDB que conocen los shards abren una por shard, así que es normal ver varias por cliente.")
+                .source("system.clients (rows)"),
+            );
             let mut t = MonitorTable::new(
                 "sessions",
                 "Sesiones",
@@ -885,7 +971,9 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
                     MetricUnit::Bytes,
                     load,
                 )
-                .max(cap),
+                .max(cap)
+                .help("Espacio en disco de los datos en todos los nodos, sobre la capacidad de sus discos.")
+                .source("system.cluster_status: load (sum); max: system.load_per_node.storage_capacity (sum)"),
             );
             let up = rows
                 .iter()
@@ -899,7 +987,9 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
                     MetricUnit::Count,
                     Some(up as f64),
                 )
-                .max(Some(rows.len() as f64)),
+                .max(Some(rows.len() as f64))
+                .help("Nodos del cluster que este nodo ve activos, sobre el total. Si son menos, hay nodos caídos o aislados.")
+                .source("system.cluster_status: up = true (rows); max: rows"),
             );
             let mut t = MonitorTable::new(
                 "nodes",
@@ -937,27 +1027,35 @@ async fn scylla(session: &Session, snap: &mut MonitorSnapshot) {
                 .ok()
                 .and_then(|v| v.into_iter().next())
                 .unwrap_or_default();
-            peers_nodes(session, &local, snap).await;
+            peers_nodes(session, &local, snap, Flavor::Scylla).await;
         }
     }
-    snap.metrics.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        MetricUnit::Seconds,
-        rt.get(&("generic".into(), "uptime".into()))
-            .and_then(|u| parse_uptime(u)),
-    ));
+    snap.metrics.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            MetricUnit::Seconds,
+            rt.get(&("generic".into(), "uptime".into()))
+                .and_then(|u| parse_uptime(u)),
+        )
+        .help("Tiempo desde que arrancó este nodo. Si vuelve a cero, se reinició.")
+        .source("system.runtime_info (generic, uptime)"),
+    );
 
     // Compactions in progress and large partitions.
     if let Ok(rows) = query(session, "SELECT * FROM system.compactions_in_progress").await {
-        snap.metrics.push(Metric::new(
-            "compactions_running",
-            "Compactaciones en curso",
-            "Actividad",
-            MetricUnit::Count,
-            Some(rows.len() as f64),
-        ));
+        snap.metrics.push(
+            Metric::new(
+                "compactions_running",
+                "Compactaciones en curso",
+                "Actividad",
+                MetricUnit::Count,
+                Some(rows.len() as f64),
+            )
+            .help("Compactaciones que corren ahora en este nodo. Si siempre hay varias, la compactación no da abasto con las escrituras.")
+            .source("system.compactions_in_progress (rows)"),
+        );
         let mut t = MonitorTable::new("compactions", "Compactaciones en curso", &["tabla", "id"]);
         for r in rows.iter().take(MAX_ROWS) {
             t.rows.push(vec![
@@ -1013,7 +1111,7 @@ async fn keyspaces(session: &Session, snap: &mut MonitorSnapshot) {
         .ok()
         .and_then(|v| v.into_iter().next())
         .unwrap_or_default();
-    peers_nodes(session, &local, snap).await;
+    peers_nodes(session, &local, snap, Flavor::Keyspaces).await;
     match query(
         session,
         "SELECT keyspace_name, table_name, status, custom_properties FROM system_schema_mcs.tables",
@@ -1031,13 +1129,17 @@ async fn keyspaces(session: &Session, snap: &mut MonitorSnapshot) {
                 .filter(|r| !crate::is_system_keyspace(&s(r, "keyspace_name")))
                 .collect();
             rows.sort_by_key(|r| (s(r, "keyspace_name"), s(r, "table_name")));
-            snap.metrics.push(Metric::new(
-                "tables",
-                "Tablas",
-                "Almacenamiento",
-                MetricUnit::Count,
-                Some(rows.len() as f64),
-            ));
+            snap.metrics.push(
+                Metric::new(
+                    "tables",
+                    "Tablas",
+                    "Almacenamiento",
+                    MetricUnit::Count,
+                    Some(rows.len() as f64),
+                )
+                .help("Tablas de los keyspaces de la cuenta en esta región, sin las de sistema.")
+                .source("system_schema_mcs.tables (rows, without system keyspaces)"),
+            );
             for r in rows.iter().take(MAX_ROWS) {
                 t.rows.push(vec![
                     J::String(format!("{}.{}", s(r, "keyspace_name"), s(r, "table_name"))),
@@ -1088,5 +1190,92 @@ mod tests {
         assert_eq!(cql_f64(&CqlValue::Double(f64::NAN)), None);
         assert_eq!(cql_f64(&CqlValue::Text("117453.0".into())), Some(117453.0));
         assert_eq!(cql_f64(&CqlValue::BigInt(5)), Some(5.0));
+    }
+
+    /// The `(…)` that opens at `open`: the index after its `)`. Strings and
+    /// char literals don't count.
+    fn close(b: &[u8], open: usize) -> usize {
+        let (mut i, mut depth) = (open, 0);
+        while i < b.len() {
+            match b[i] {
+                b'"' => {
+                    i += 1;
+                    while b[i] != b'"' {
+                        i += if b[i] == b'\\' { 2 } else { 1 };
+                    }
+                }
+                b'\'' if b.get(i + 2) == Some(&b'\'') => i += 2,
+                b'\'' if b.get(i + 1) == Some(&b'\\') => i += 3,
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return i + 1;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        panic!("unbalanced call at {open}");
+    }
+
+    /// The `.method(arguments)` chained to each `Metric::new(…)` of `code`,
+    /// with the line it starts on.
+    fn metric_chains(code: &str) -> Vec<(usize, Vec<(String, String)>)> {
+        let b = code.as_bytes();
+        let mut out = Vec::new();
+        for (at, _) in code.match_indices("Metric::new(") {
+            let mut i = close(b, at + "Metric::new".len());
+            let mut calls = Vec::new();
+            loop {
+                while b[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                if b[i] != b'.' {
+                    break;
+                }
+                let name_end = i
+                    + 1
+                    + code[i + 1..]
+                        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                        .unwrap();
+                let end = close(b, name_end);
+                calls.push((
+                    code[i + 1..name_end].to_string(),
+                    code[name_end + 1..end - 1].trim().to_string(),
+                ));
+                i = end;
+            }
+            out.push((code[..at].lines().count(), calls));
+        }
+        out
+    }
+
+    /// The snapshot is built from live queries only, so no fixture reaches
+    /// its metrics: every `Metric::new` of the module is checked to chain a
+    /// non-empty `.help(…)` and `.source(…)`.
+    #[test]
+    fn every_metric_has_help_and_source() {
+        // The scanner sees through strings, char literals and nested calls.
+        let probe = metric_chains(
+            "m.push(Metric::new(\"k\", \"(p99\", f(')')).max(Some(1.0))\n.help(\"a \\\"b\\\"\"));",
+        );
+        let names: Vec<&str> = probe[0].1.iter().map(|(m, _)| m.as_str()).collect();
+        assert_eq!(names, ["max", "help"]);
+        let src = include_str!("monitor.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let chains = metric_chains(code);
+        assert!(chains.len() >= 25, "{} metrics found", chains.len());
+        for (line, calls) in chains {
+            for method in ["help", "source"] {
+                assert!(
+                    calls
+                        .iter()
+                        .any(|(m, arg)| m == method && !arg.is_empty() && arg != "\"\""),
+                    "the metric at line {line} has no {method}"
+                );
+            }
+        }
     }
 }

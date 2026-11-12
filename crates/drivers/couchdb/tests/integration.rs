@@ -484,6 +484,19 @@ async fn monitor() {
         eprintln!("table {} rows={}", t.key, t.rows.len());
     }
     eprintln!("info {:?}\nnotes {:?}", snap.info, snap.notes);
+    // Every metric says what it measures and where it comes from.
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: help",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|h| !h.is_empty()),
+            "{}: source",
+            m.key
+        );
+    }
     let has = |k: &str| snap.metrics.iter().any(|m| m.key == k && m.value.is_some());
     for k in [
         "mem_used",

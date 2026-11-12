@@ -338,6 +338,23 @@ async fn monitor(id: &str, url: &str) {
     println!("{id} info: {:?}", snap.info);
     println!("{id} notes: {:?}", snap.notes);
     assert!(with_value.len() >= 4, "{with_value:?}");
+    // Every metric says what it measures and where it comes from.
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty()),
+            "{id}: {} help",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|h| !h.is_empty()),
+            "{id}: {} source",
+            m.key
+        );
+    }
+    // The process CPU is a share of every CPU the JVM may use.
+    if let Some(cpu) = snap.metrics.iter().find(|m| m.key == "cpu_time") {
+        assert_eq!(cpu.max, Some(100.0), "{id}");
+    }
     assert!(snap
         .tables
         .iter()

@@ -59,7 +59,9 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
             MetricUnit::Count,
             c(&["httpd", "requests"]),
         )
-        .counter(),
+        .counter()
+        .help("Pedidos HTTP que atendió este nodo, de cualquier tipo: lecturas, escrituras, vistas, _changes y administración.")
+        .source("GET /_node/_local/_stats: couchdb.httpd.requests"),
     );
     s.metrics.push(
         Metric::new(
@@ -69,7 +71,9 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
             MetricUnit::Count,
             c(&["database_reads"]),
         )
-        .counter(),
+        .counter()
+        .help("Veces que este nodo leyó un documento de una base.")
+        .source("GET /_node/_local/_stats: couchdb.database_reads"),
     );
     s.metrics.push(
         Metric::new(
@@ -79,7 +83,9 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
             MetricUnit::Count,
             c(&["database_writes"]),
         )
-        .counter(),
+        .counter()
+        .help("Cambios que este nodo escribió en las bases: cada documento creado, actualizado o borrado.")
+        .source("GET /_node/_local/_stats: couchdb.database_writes"),
     );
     if let Some(v) = c(&["document_inserts"]) {
         s.metrics.push(
@@ -90,7 +96,9 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
                 MetricUnit::Count,
                 Some(v),
             )
-            .counter(),
+            .counter()
+            .help("Documentos creados en este nodo; las actualizaciones no cuentan.")
+            .source("GET /_node/_local/_stats: couchdb.document_inserts"),
         );
     }
     if let Some(v) = c(&["httpd", "view_reads"]) {
@@ -102,7 +110,9 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
                 MetricUnit::Count,
                 Some(v),
             )
-            .counter(),
+            .counter()
+            .help("Lecturas de vistas map/reduce que atendió este nodo. Una vista desactualizada se indexa antes de responder, así que leerla después de muchas escrituras puede tardar.")
+            .source("GET /_node/_local/_stats: couchdb.httpd.view_reads"),
         );
     }
     let rt = st
@@ -110,13 +120,17 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
         .and_then(|x| x.get("request_time"))
         .and_then(|x| x.get("value"));
     if let Some(rt) = rt {
-        s.metrics.push(Metric::new(
-            "request_time",
-            "Tiempo medio por pedido",
-            "Actividad",
-            MetricUnit::Millis,
-            rt.get("arithmetic_mean").and_then(Value::as_f64),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "request_time",
+                "Tiempo medio por pedido",
+                "Actividad",
+                MetricUnit::Millis,
+                rt.get("arithmetic_mean").and_then(Value::as_f64),
+            )
+            .help("Tiempo medio que CouchDB tardó en resolver los pedidos HTTP en la última ventana de estadísticas (10 s por omisión), sin contar la red. Si sube, el nodo está cargado o hay vistas o consultas lentas.")
+            .source("GET /_node/_local/_stats: couchdb.request_time.value.arithmetic_mean"),
+        );
         let p99 = rt
             .get("percentile")
             .and_then(Value::as_array)
@@ -127,13 +141,17 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
             .and_then(|p| p.get(1))
             .and_then(Value::as_f64);
         if p99.is_some() {
-            s.metrics.push(Metric::new(
-                "request_time_p99",
-                "Tiempo por pedido (p99)",
-                "Actividad",
-                MetricUnit::Millis,
-                p99,
-            ));
+            s.metrics.push(
+                Metric::new(
+                    "request_time_p99",
+                    "Tiempo por pedido (p99)",
+                    "Actividad",
+                    MetricUnit::Millis,
+                    p99,
+                )
+                .help("Tiempo en el que terminó el 99 % de los pedidos HTTP de la última ventana de estadísticas: muestra los pedidos lentos que la media esconde.")
+                .source("GET /_node/_local/_stats: couchdb.request_time.value.percentile[99]"),
+            );
         }
     }
     let codes = st
@@ -156,7 +174,9 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
                 MetricUnit::Count,
                 Some(errors('4')),
             )
-            .counter(),
+            .counter()
+            .help("Respuestas de error del cliente (400 a 499): pedidos inválidos, sin permiso (401, 403) o de documentos que no existen (404). Un aumento repentino suele ser un cliente mal configurado.")
+            .source("GET /_node/_local/_stats: couchdb.httpd_status_codes.4xx (sum)"),
         );
         s.metrics.push(
             Metric::new(
@@ -166,39 +186,57 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
                 MetricUnit::Count,
                 Some(errors('5')),
             )
-            .counter(),
+            .counter()
+            .help("Respuestas de error del servidor (500 a 599). Deberían ser cero o casi; si aparecen, buscá la causa en el log de CouchDB.")
+            .source("GET /_node/_local/_stats: couchdb.httpd_status_codes.5xx (sum)"),
         );
     }
     if let Some(v) = c(&["open_databases"]) {
-        s.metrics.push(Metric::new(
-            "open_databases",
-            "Bases abiertas",
-            "Conexiones",
-            MetricUnit::Count,
-            Some(v),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "open_databases",
+                "Bases abiertas",
+                "Conexiones",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .help("Archivos de bases (uno por shard) que el nodo tiene abiertos ahora. Cerca del límite max_dbs_open, CouchDB cierra y reabre bases y los pedidos se vuelven más lentos.")
+            .source("GET /_node/_local/_stats: couchdb.open_databases"),
+        );
     }
     if let Some(v) = c(&["httpd", "clients_requesting_changes"]) {
-        s.metrics.push(Metric::new(
-            "changes_clients",
-            "Clientes escuchando _changes",
-            "Conexiones",
-            MetricUnit::Count,
-            Some(v),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "changes_clients",
+                "Clientes escuchando _changes",
+                "Conexiones",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .help("Clientes con un feed _changes continuo abierto en este nodo, como las apps que sincronizan o las replicaciones que leen de él.")
+            .source("GET /_node/_local/_stats: couchdb.httpd.clients_requesting_changes"),
+        );
     }
     if let Some(v) = c(&["open_os_files"]) {
-        s.metrics.push(Metric::new(
-            "open_files",
-            "Archivos abiertos",
-            "Disco",
-            MetricUnit::Count,
-            Some(v),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "open_files",
+                "Archivos abiertos",
+                "Disco",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .help("Descriptores de archivo que CouchDB tiene abiertos: archivos de bases y de índices. Cerca del límite del sistema (ulimit -n) empiezan los errores al abrir bases.")
+            .source("GET /_node/_local/_stats: couchdb.open_os_files"),
+        );
     }
     if let Some(v) = at(st, &["fsync", "count"]) {
-        s.metrics
-            .push(Metric::new("fsyncs", "fsync", "Disco", MetricUnit::Count, Some(v)).counter());
+        s.metrics.push(
+            Metric::new("fsyncs", "fsync", "Disco", MetricUnit::Count, Some(v))
+                .counter()
+                .help("Llamadas a fsync con las que CouchDB asegura en disco lo que escribe. Acompañan a las escrituras; con un disco lento, cada una demora los pedidos que escriben.")
+                .source("GET /_node/_local/_stats: fsync.count"),
+        );
     }
     let (hits, misses) = (c(&["auth_cache_hits"]), c(&["auth_cache_misses"]));
     if let (Some(h), Some(m)) = (hits, misses) {
@@ -211,7 +249,9 @@ pub(crate) fn from_stats(s: &mut MonitorSnapshot, st: &Value) {
                     MetricUnit::Percent,
                     Some(h / (h + m) * 100.0),
                 )
-                .max(Some(100.0)),
+                .max(Some(100.0))
+                .help("Porcentaje de autenticaciones resueltas con la caché de usuarios, acumulado desde el arranque. Bajo indica que muchos pedidos tienen que buscar al usuario en _users, lo que suma latencia.")
+                .source("GET /_node/_local/_stats: couchdb.auth_cache_hits ÷ (auth_cache_hits + auth_cache_misses)"),
             );
         }
     }
@@ -225,26 +265,49 @@ pub(crate) fn from_system(s: &mut MonitorSnapshot, sys: &Value) {
             .filter_map(|k| m.get(*k).and_then(Value::as_f64))
             .sum::<f64>()
     });
-    s.metrics.push(Metric::new(
-        "mem_used",
-        "Memoria de la VM Erlang",
-        "Memoria",
-        MetricUnit::Bytes,
-        total,
-    ));
-    for (k, label) in [
-        ("processes", "Memoria de procesos"),
-        ("binary", "Memoria binaria"),
-        ("ets", "Tablas ETS"),
+    s.metrics.push(
+        Metric::new(
+            "mem_used",
+            "Memoria de la VM Erlang",
+            "Memoria",
+            MetricUnit::Bytes,
+            total,
+        )
+        .help("Memoria que usa la máquina virtual Erlang en la que corre CouchDB: procesos, binarios, código, tablas ETS, átomos y el resto. Si crece sin parar, mirá cuál de esas partes crece.")
+        .source("GET /_node/_local/_system: memory.processes + binary + code + ets + atom + other"),
+    );
+    for (k, label, help, source) in [
+        (
+            "processes",
+            "Memoria de procesos",
+            "Memoria de los procesos Erlang: cada pedido, base abierta, índice o replicación es un proceso.",
+            "GET /_node/_local/_system: memory.processes",
+        ),
+        (
+            "binary",
+            "Memoria binaria",
+            "Memoria de los binarios grandes que comparten los procesos, como cuerpos de documentos y adjuntos en tránsito. Si crece y no baja, hay pedidos muy grandes o binarios retenidos.",
+            "GET /_node/_local/_system: memory.binary",
+        ),
+        (
+            "ets",
+            "Tablas ETS",
+            "Memoria de las tablas ETS, las tablas en memoria de Erlang que CouchDB usa para cachés y estado interno.",
+            "GET /_node/_local/_system: memory.ets",
+        ),
     ] {
         if let Some(v) = at(sys, &["memory", k]) {
-            s.metrics.push(Metric::new(
-                &format!("mem_{k}"),
-                label,
-                "Memoria",
-                MetricUnit::Bytes,
-                Some(v),
-            ));
+            s.metrics.push(
+                Metric::new(
+                    &format!("mem_{k}"),
+                    label,
+                    "Memoria",
+                    MetricUnit::Bytes,
+                    Some(v),
+                )
+                .help(help)
+                .source(source),
+            );
         }
     }
     if let Some(cache) = sys.get("bt_engine_cache") {
@@ -256,7 +319,9 @@ pub(crate) fn from_system(s: &mut MonitorSnapshot, sys: &Value) {
                 MetricUnit::Bytes,
                 at(cache, &["memory"]),
             )
-            .max(at(cache, &["max_memory"])),
+            .max(at(cache, &["max_memory"]))
+            .help("Memoria de la caché de nodos de B-tree de los archivos de bases, sobre su máximo.")
+            .source("GET /_node/_local/_system: bt_engine_cache.memory; max: bt_engine_cache.max_memory"),
         );
         let hit = match (at(cache, &["hits"]), at(cache, &["misses"])) {
             (Some(h), Some(m)) if h + m > 0.0 => Some(h / (h + m) * 100.0),
@@ -270,17 +335,23 @@ pub(crate) fn from_system(s: &mut MonitorSnapshot, sys: &Value) {
                 MetricUnit::Percent,
                 hit,
             )
-            .max(Some(100.0)),
+            .max(Some(100.0))
+            .help("Porcentaje de las lecturas de nodos de B-tree resueltas con la caché, acumulado desde el arranque. Bajo indica que se leen del disco más páginas de las necesarias.")
+            .source("GET /_node/_local/_system: bt_engine_cache.hits ÷ (hits + misses)"),
         );
     }
     let rq = sum(&[at(sys, &["run_queue"]), at(sys, &["run_queue_dirty_cpu"])]);
-    s.metrics.push(Metric::new(
-        "run_queue",
-        "Cola de ejecución",
-        "CPU",
-        MetricUnit::Count,
-        rq,
-    ));
+    s.metrics.push(
+        Metric::new(
+            "run_queue",
+            "Cola de ejecución",
+            "CPU",
+            MetricUnit::Count,
+            rq,
+        )
+        .help("Procesos Erlang listos para correr que esperan un planificador libre. Debería estar cerca de cero; si se mantiene alto, el nodo está limitado por CPU.")
+        .source("GET /_node/_local/_system: run_queue + run_queue_dirty_cpu"),
+    );
     if let Some(r) = at(sys, &["reductions"]) {
         s.metrics.push(
             Metric::new(
@@ -290,7 +361,9 @@ pub(crate) fn from_system(s: &mut MonitorSnapshot, sys: &Value) {
                 MetricUnit::Count,
                 Some(r),
             )
-            .counter(),
+            .counter()
+            .help("Unidades de trabajo que ejecutó la VM Erlang (una reducción es más o menos una llamada a función). Como CouchDB no informa la CPU, su ritmo es la mejor medida de cuánto trabaja el nodo.")
+            .source("GET /_node/_local/_system: reductions"),
         );
     }
     s.metrics.push(
@@ -301,25 +374,37 @@ pub(crate) fn from_system(s: &mut MonitorSnapshot, sys: &Value) {
             MetricUnit::Count,
             at(sys, &["process_count"]),
         )
-        .max(at(sys, &["process_limit"])),
+        .max(at(sys, &["process_limit"]))
+        .help("Procesos Erlang vivos, sobre el límite de la VM. Si llega al límite, CouchDB no puede atender más pedidos.")
+        .source("GET /_node/_local/_system: process_count; max: process_limit"),
     );
     if let Some(v) = at(sys, &["io_input"]) {
         s.metrics.push(
-            Metric::new("net_in", "E/S entrante", "Red", MetricUnit::Bytes, Some(v)).counter(),
+            Metric::new("net_in", "E/S entrante", "Red", MetricUnit::Bytes, Some(v))
+                .counter()
+                .help("Bytes que la VM Erlang recibió por sus puertos: sobre todo tráfico de red de los clientes y de los otros nodos del cluster.")
+                .source("GET /_node/_local/_system: io_input"),
         );
     }
     if let Some(v) = at(sys, &["io_output"]) {
         s.metrics.push(
-            Metric::new("net_out", "E/S saliente", "Red", MetricUnit::Bytes, Some(v)).counter(),
+            Metric::new("net_out", "E/S saliente", "Red", MetricUnit::Bytes, Some(v))
+                .counter()
+                .help("Bytes que la VM Erlang envió por sus puertos: sobre todo respuestas a los clientes y tráfico hacia los otros nodos del cluster.")
+                .source("GET /_node/_local/_system: io_output"),
         );
     }
-    s.metrics.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        MetricUnit::Seconds,
-        at(sys, &["uptime"]),
-    ));
+    s.metrics.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            MetricUnit::Seconds,
+            at(sys, &["uptime"]),
+        )
+        .help("Tiempo desde que arrancó este nodo de CouchDB. Si vuelve a cero, se reinició.")
+        .source("GET /_node/_local/_system: uptime"),
+    );
 }
 
 pub(crate) fn active_tasks(tasks: &Value) -> MonitorTable {
@@ -445,29 +530,17 @@ impl CouchSession {
         }
         match get("/_active_tasks").await {
             Ok(t) => {
-                let t = active_tasks(&t);
-                s.metrics.push(Metric::new(
-                    "active_sessions",
-                    "Tareas activas",
-                    "Actividad",
-                    MetricUnit::Count,
-                    Some(t.rows.len() as f64),
-                ));
-                s.tables.push(t);
+                // Every task, not just the rows the table keeps.
+                s.metrics
+                    .push(tasks_metric(t.as_array().map_or(0, Vec::len)));
+                s.tables.push(active_tasks(&t));
             }
             Err(_) => refused.push("/_active_tasks"),
         }
         match get("/_scheduler/jobs").await {
             Ok(j) => {
-                let t = replication_jobs(&j);
-                s.metrics.push(Metric::new(
-                    "replications",
-                    "Replicaciones activas",
-                    "Replicación",
-                    MetricUnit::Count,
-                    Some(t.rows.len() as f64),
-                ));
-                s.tables.push(t);
+                s.metrics.push(replications_metric(job_count(&j)));
+                s.tables.push(replication_jobs(&j));
             }
             Err(_) => refused.push("/_scheduler/jobs"),
         }
@@ -478,7 +551,7 @@ impl CouchSession {
                 let names: Vec<Value> = all.as_array().cloned().unwrap_or_default();
                 if names.len() > MAX_DBS {
                     s.notes.push(format!(
-                        "Se muestran los tamaños de las primeras {MAX_DBS} de {} bases.",
+                        "El espacio usado y los tamaños cubren solo las primeras {MAX_DBS} de {} bases, en orden alfabético.",
                         names.len()
                     ));
                 }
@@ -530,16 +603,7 @@ impl CouchSession {
                         Value::String(state.into()),
                     ]);
                 }
-                s.metrics.push(
-                    Metric::new(
-                        "nodes_up",
-                        "Nodos conectados",
-                        "Servidor",
-                        MetricUnit::Count,
-                        Some(all.len() as f64),
-                    )
-                    .max(Some(cluster.len() as f64)),
-                );
+                s.metrics.push(nodes_metric(all.len(), cluster.len()));
                 s.tables.push(t);
             }
             Err(_) => refused.push("/_membership"),
@@ -612,14 +676,71 @@ pub(crate) fn databases(s: &mut MonitorSnapshot, infos: &Value) {
     }
     rows.sort_by(|a, b| b.0.total_cmp(&a.0));
     t.rows = rows.into_iter().map(|(_, r)| r).collect();
-    s.metrics.push(Metric::new(
-        "storage_used",
-        "Espacio usado",
-        "Almacenamiento",
-        MetricUnit::Bytes,
-        Some(total),
-    ));
+    s.metrics.push(
+        Metric::new(
+            "storage_used",
+            "Espacio usado",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            Some(total),
+        )
+        .help("Espacio en disco de los archivos de las bases, sumando todos sus shards y sin los índices de vistas. Con más de 100 bases suma solo las primeras 100 en orden alfabético, y una nota lo avisa. Incluye lo que liberaría una compactación: compará con los datos activos de cada base.")
+        .source("POST /_dbs_info with the first 100 names of GET /_all_dbs: info.sizes.file (sum)"),
+    );
     s.tables.push(t);
+}
+
+/// The background tasks running in the cluster (`/_active_tasks`).
+pub(crate) fn tasks_metric(n: usize) -> Metric {
+    Metric::new(
+        "active_sessions",
+        "Tareas activas",
+        "Actividad",
+        MetricUnit::Count,
+        Some(n as f64),
+    )
+    .help("Tareas en segundo plano que corren ahora en el cluster: indexación de vistas, compactaciones y replicaciones. Muchas a la vez compiten con los pedidos por disco y CPU.")
+    .source("GET /_active_tasks (rows)")
+}
+
+/// The replication jobs the scheduler holds (`/_scheduler/jobs`).
+pub(crate) fn replications_metric(n: usize) -> Metric {
+    Metric::new(
+        "replications",
+        "Replicaciones activas",
+        "Replicación",
+        MetricUnit::Count,
+        Some(n as f64),
+    )
+    .help("Replicaciones que tiene el planificador: las que corren y las que esperan turno o reintentan después de un error. Las terminadas no cuentan.")
+    .source("GET /_scheduler/jobs: total_rows (else jobs rows)")
+}
+
+/// The replication jobs in a `/_scheduler/jobs` answer: `total_rows`, else
+/// the listed jobs.
+pub(crate) fn job_count(jobs: &Value) -> usize {
+    jobs.get("total_rows")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or_else(|| {
+            jobs.get("jobs")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        })
+}
+
+/// The nodes this node is connected to, of the cluster's (`/_membership`).
+pub(crate) fn nodes_metric(connected: usize, cluster: usize) -> Metric {
+    Metric::new(
+        "nodes_up",
+        "Nodos conectados",
+        "Servidor",
+        MetricUnit::Count,
+        Some(connected as f64),
+    )
+    .max(Some(cluster as f64))
+    .help("Nodos del cluster con los que este nodo está conectado, sobre los nodos configurados. Si son menos, hay nodos caídos o sin red.")
+    .source("GET /_membership: all_nodes; max: cluster_nodes")
 }
 
 #[cfg(test)]
@@ -653,6 +774,45 @@ mod tests {
         assert_eq!(m("processes").max, Some(1000.0));
     }
 
+    /// Every metric a snapshot can carry says what it measures and where it
+    /// comes from.
+    #[test]
+    fn every_metric_has_help_and_source() {
+        let st = json!({
+            "couchdb": {
+                "httpd": {
+                    "requests": { "value": 8 }, "view_reads": { "value": 1 },
+                    "clients_requesting_changes": { "value": 1 }
+                },
+                "database_reads": { "value": 3 }, "database_writes": { "value": 2 },
+                "document_inserts": { "value": 1 }, "open_databases": { "value": 4 },
+                "open_os_files": { "value": 9 },
+                "auth_cache_hits": { "value": 3 }, "auth_cache_misses": { "value": 1 },
+                "request_time": { "value": { "arithmetic_mean": 1.5, "percentile": [[50, 1], [99, 9.5]] } },
+                "httpd_status_codes": { "200": { "value": 5 }, "404": { "value": 2 }, "500": { "value": 0 } }
+            },
+            "fsync": { "count": { "value": 4 } }
+        });
+        let sys = json!({ "uptime": 60, "memory": { "processes": 10, "binary": 5, "code": 1, "ets": 4, "atom": 0, "other": 0 },
+                          "run_queue": 1, "run_queue_dirty_cpu": 0, "reductions": 100, "process_count": 400, "process_limit": 1000,
+                          "io_input": 10, "io_output": 20,
+                          "bt_engine_cache": { "memory": 20, "max_memory": 100, "hits": 3, "misses": 1 } });
+        let mut s = MonitorSnapshot::default();
+        from_stats(&mut s, &st);
+        from_system(&mut s, &sys);
+        databases(&mut s, &json!([]));
+        s.metrics.push(tasks_metric(1));
+        s.metrics.push(replications_metric(0));
+        s.metrics.push(nodes_metric(1, 1));
+        // The fixtures reach every metric the module can produce.
+        assert_eq!(s.metrics.len(), 30);
+        for m in &s.metrics {
+            let filled = |v: &Option<String>| v.as_deref().is_some_and(|t| !t.trim().is_empty());
+            assert!(filled(&m.help), "{}: no help", m.key);
+            assert!(filled(&m.source), "{}: no source", m.key);
+        }
+    }
+
     #[test]
     fn tables() {
         let t = active_tasks(
@@ -667,5 +827,17 @@ mod tests {
         );
         assert_eq!(s.tables[0].rows.len(), 1);
         assert_eq!(s.metrics[0].value, Some(100.0));
+        // The help and source name the cap the snapshot sends.
+        let cap = MAX_DBS.to_string();
+        assert!(s.metrics[0].help.as_deref().unwrap().contains(&cap));
+        assert!(s.metrics[0].source.as_deref().unwrap().contains(&cap));
+        // Replications: the scheduler's total, not the rows the table keeps.
+        let jobs: Vec<Value> = (0..MAX_ROWS + 5).map(|i| json!({ "id": i })).collect();
+        assert_eq!(job_count(&json!({ "jobs": jobs, "total_rows": 250 })), 250);
+        assert_eq!(job_count(&json!({ "jobs": jobs })), MAX_ROWS + 5);
+        assert_eq!(
+            replication_jobs(&json!({ "jobs": jobs })).rows.len(),
+            MAX_ROWS
+        );
     }
 }

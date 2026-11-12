@@ -1656,22 +1656,6 @@ impl Session for CbSession {
             })
             .await
             .ok();
-        let last = |i: usize| -> Option<f64> {
-            let vals = range
-                .as_ref()?
-                .get(i)?
-                .get("data")?
-                .as_array()?
-                .first()?
-                .get("values")?
-                .as_array()?
-                .last()?
-                .get(1)?
-                .as_str()?
-                .parse()
-                .ok();
-            vals
-        };
         let active = self.results("SELECT r.requestId, r.users, r.state, r.elapsedTime, r.statement, r.remoteAddr FROM system:active_requests AS r").await.ok();
         let completed = self
             .results("SELECT c.requestTime, c.elapsedTime, c.resultCount, c.state, c.users, c.statement FROM system:completed_requests AS c ORDER BY c.requestTime DESC LIMIT 20")
@@ -1684,132 +1668,12 @@ impl Session for CbSession {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let nsum = |f: &dyn Fn(&Value) -> Option<f64>| -> Option<f64> {
-            let v: Vec<f64> = nodes.iter().filter_map(f).collect();
-            (!v.is_empty()).then(|| v.iter().sum())
-        };
-        let cpu = nsum(&|n| num(n.pointer("/systemStats/cpu_utilization_rate")))
-            .map(|s| s / nodes.len().max(1) as f64);
-        let mem_total = nsum(&|n| num(n.pointer("/systemStats/mem_total")));
-        let mem_free = nsum(&|n| num(n.pointer("/systemStats/mem_free")));
-        let istat = |k: &'static str| {
-            nsum(&move |n: &Value| num(n.get("interestingStats").and_then(|s| s.get(k))))
-        };
-        let (gets, hits) = (istat("cmd_get"), istat("get_hits"));
-        let st = pool.as_ref().and_then(|p| p.get("storageTotals"));
-        let v = |k: &str| vitals.as_ref().and_then(|x| num(x.get(k)));
-        use MetricUnit::*;
-        snap.metrics = vec![
-            Metric::new("cpu", "CPU del servidor", "CPU", Percent, cpu),
-            Metric::new(
-                "cpu_query",
-                "CPU del servicio de consultas",
-                "CPU",
-                Percent,
-                v("cpu.user.percent")
-                    .zip(v("cpu.sys.percent"))
-                    .map(|(u, s)| (u + s) * 100.0),
-            ),
-            Metric::new(
-                "mem_used",
-                "Memoria usada (hosts)",
-                "Memoria",
-                Bytes,
-                mem_total.zip(mem_free).map(|(t, f)| t - f),
-            )
-            .max(mem_total),
-            Metric::new(
-                "mem_cache",
-                "RAM de datos (buckets)",
-                "Memoria",
-                Bytes,
-                istat("mem_used"),
-            )
-            .max(st.and_then(|s| num(s.pointer("/ram/quotaTotal")))),
-            Metric::new(
-                "connections",
-                "Conexiones (datos)",
-                "Conexiones",
-                Count,
-                last(0),
-            ),
-            Metric::new(
-                "active_sessions",
-                "Consultas en curso",
-                "Conexiones",
-                Count,
-                v("request.active.count")
-                    .or(active.as_ref().map(|a| a.len().saturating_sub(1) as f64)),
-            ),
-            Metric::new(
-                "queued",
-                "Consultas en cola",
-                "Conexiones",
-                Count,
-                v("request.queued.count"),
-            ),
-            Metric::new(
-                "queries",
-                "Consultas",
-                "Actividad",
-                Count,
-                last(1).or(v("request.completed.count")),
-            )
-            .counter(),
-            Metric::new(
-                "ops",
-                "Operaciones de datos por segundo",
-                "Actividad",
-                Count,
-                istat("ops"),
-            ),
-            Metric::new(
-                "query_time",
-                "Tiempo medio de consulta",
-                "Actividad",
-                Millis,
-                vitals
-                    .as_ref()
-                    .and_then(|x| x.get("request_time.mean"))
-                    .and_then(Value::as_str)
-                    .and_then(plan::duration_ms),
-            ),
-            Metric::new(
-                "cache_hit",
-                "Aciertos de caché (gets)",
-                "Caché",
-                Percent,
-                gets.zip(hits)
-                    .filter(|(g, _)| *g > 0.0)
-                    .map(|(g, h)| h / g * 100.0),
-            ),
-            Metric::new(
-                "disk_fetches",
-                "Lecturas desde disco por segundo",
-                "Disco",
-                Count,
-                istat("ep_bg_fetched"),
-            ),
-            Metric::new(
-                "storage_used",
-                "Espacio en disco de los datos",
-                "Almacenamiento",
-                Bytes,
-                istat("couch_docs_actual_disk_size"),
-            )
-            .max(st.and_then(|s| num(s.pointer("/hdd/total")))),
-            Metric::new("items", "Documentos", "Datos", Count, istat("curr_items")),
-            Metric::new(
-                "uptime",
-                "Tiempo activo",
-                "Servidor",
-                Seconds,
-                nodes
-                    .iter()
-                    .filter_map(|n| num(n.get("uptime")))
-                    .reduce(f64::min),
-            ),
-        ];
+        snap.metrics = monitor_metrics(
+            pool.as_ref(),
+            vitals.as_ref(),
+            range.as_ref(),
+            active.as_deref(),
+        );
 
         let mut t = MonitorTable::new(
             "nodes",
@@ -2004,6 +1868,209 @@ impl Session for CbSession {
     }
 }
 
+/// The monitor's figures, from the cluster manager (`/pools/default`), the
+/// query service's `/admin/vitals`, the stats range (`kv_curr_connections`,
+/// `n1ql_requests`) and `system:active_requests`.
+fn monitor_metrics(
+    pool: Option<&Value>,
+    vitals: Option<&Value>,
+    range: Option<&Value>,
+    active: Option<&[Value]>,
+) -> Vec<Metric> {
+    let last = |i: usize| -> Option<f64> {
+        range?
+            .get(i)?
+            .get("data")?
+            .as_array()?
+            .first()?
+            .get("values")?
+            .as_array()?
+            .last()?
+            .get(1)?
+            .as_str()?
+            .parse()
+            .ok()
+    };
+    let nodes: &[Value] = pool
+        .and_then(|p| p.get("nodes"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let nsum = |f: &dyn Fn(&Value) -> Option<f64>| -> Option<f64> {
+        let v: Vec<f64> = nodes.iter().filter_map(f).collect();
+        (!v.is_empty()).then(|| v.iter().sum())
+    };
+    let cpu = nsum(&|n| num(n.pointer("/systemStats/cpu_utilization_rate")))
+        .map(|s| s / nodes.len().max(1) as f64);
+    let mem_total = nsum(&|n| num(n.pointer("/systemStats/mem_total")));
+    let mem_free = nsum(&|n| num(n.pointer("/systemStats/mem_free")));
+    let istat = |k: &'static str| {
+        nsum(&move |n: &Value| num(n.get("interestingStats").and_then(|s| s.get(k))))
+    };
+    // Gets per second and, of them, the ones that had to read the disk
+    // (background fetches): Couchbase's own cache miss ratio. `get_hits`
+    // counts the gets that found the key, wherever it was: not a cache hit.
+    let (gets, fetched) = (istat("cmd_get"), istat("ep_bg_fetched"));
+    let st = pool.and_then(|p| p.get("storageTotals"));
+    let v = |k: &str| vitals.and_then(|x| num(x.get(k)));
+    // The query service's CPU comes as cores busy (3.9 with four busy):
+    // spread over the cores it may use, so 100 % is all of them.
+    let query_cpu = v("cpu.user.percent")
+        .zip(v("cpu.sys.percent"))
+        .zip(v("cores").filter(|n| *n > 0.0))
+        .map(|((u, s), n)| (u + s) / n * 100.0);
+    let (running, running_src) = match v("request.active.count") {
+        Some(n) => (Some(n), "GET /admin/vitals: request.active.count"),
+        None => (
+            active.map(|a| a.len().saturating_sub(1) as f64),
+            "system:active_requests (rows, minus DBine's own)",
+        ),
+    };
+    let (requests, requests_src) = match last(1) {
+        Some(n) => (
+            Some(n),
+            "POST /pools/default/stats/range: n1ql_requests (sum over nodes)",
+        ),
+        None => (
+            v("request.completed.count"),
+            "GET /admin/vitals: request.completed.count",
+        ),
+    };
+    use MetricUnit::*;
+    vec![
+        Metric::new("cpu", "CPU del servidor", "CPU", Percent, cpu)
+            .help("Uso de CPU de los hosts del cluster, promedio entre los nodos: 100 % es todos los núcleos ocupados. Incluye todo lo que corre en esos hosts, no solo Couchbase.")
+            .source("GET /pools/default: nodes[].systemStats.cpu_utilization_rate (average)"),
+        Metric::new(
+            "cpu_query",
+            "CPU del servicio de consultas",
+            "CPU",
+            Percent,
+            query_cpu,
+        )
+        .max(Some(100.0))
+        .help("CPU que usa el servicio de consultas (SQL++) del nodo al que se conecta DBine, como parte de los núcleos que puede usar: 100 % es todos ocupados. Alto y sostenido indica consultas costosas o sin un índice adecuado.")
+        .source("GET /admin/vitals: (cpu.user.percent + cpu.sys.percent) ÷ cores"),
+        Metric::new(
+            "mem_used",
+            "Memoria usada (hosts)",
+            "Memoria",
+            Bytes,
+            mem_total.zip(mem_free).map(|(t, f)| t - f),
+        )
+        .max(mem_total)
+        .help("Memoria ocupada en los hosts del cluster (total menos libre, sumando los nodos), sobre su memoria total. Incluye la de otros procesos de esos hosts.")
+        .source("GET /pools/default: Σ nodes[].systemStats.mem_total − Σ mem_free"),
+        Metric::new(
+            "mem_cache",
+            "RAM de datos (buckets)",
+            "Memoria",
+            Bytes,
+            istat("mem_used"),
+        )
+        .max(st.and_then(|s| num(s.pointer("/ram/quotaTotal"))))
+        .help("Memoria que el servicio de datos usa para los buckets (documentos, metadatos y estructuras internas), sobre la cuota de RAM de los buckets. Cerca de la cuota, Couchbase saca documentos de la memoria y las lecturas van al disco.")
+        .source("GET /pools/default: Σ nodes[].interestingStats.mem_used; max: storageTotals.ram.quotaTotal"),
+        Metric::new(
+            "connections",
+            "Conexiones (datos)",
+            "Conexiones",
+            Count,
+            last(0),
+        )
+        .help("Conexiones abiertas al servicio de datos (Key-Value) en todos los nodos: SDKs, otros servicios del cluster y XDCR.")
+        .source("POST /pools/default/stats/range: kv_curr_connections (sum over nodes)"),
+        Metric::new(
+            "active_sessions",
+            "Consultas en curso",
+            "Conexiones",
+            Count,
+            running,
+        )
+        .help("Consultas SQL++ que se están ejecutando ahora en el servicio de consultas.")
+        .source(running_src),
+        Metric::new(
+            "queued",
+            "Consultas en cola",
+            "Conexiones",
+            Count,
+            v("request.queued.count"),
+        )
+        .help("Consultas SQL++ que esperan un hilo libre del servicio de consultas. Si no vuelve a cero, el servicio está saturado.")
+        .source("GET /admin/vitals: request.queued.count"),
+        Metric::new("queries", "Consultas", "Actividad", Count, requests)
+            .counter()
+            .help("Consultas SQL++ que atendió el servicio de consultas.")
+            .source(requests_src),
+        Metric::new(
+            "ops",
+            "Operaciones de datos por segundo",
+            "Actividad",
+            Count,
+            istat("ops"),
+        )
+        .help("Operaciones sobre documentos (lecturas, escrituras y borrados) que atiende el servicio de datos, sumando los nodos. Couchbase ya lo da como ritmo por segundo.")
+        .source("GET /pools/default: Σ nodes[].interestingStats.ops"),
+        Metric::new(
+            "query_time",
+            "Tiempo medio de consulta",
+            "Actividad",
+            Millis,
+            vitals
+                .and_then(|x| x.get("request_time.mean"))
+                .and_then(Value::as_str)
+                .and_then(plan::duration_ms),
+        )
+        .help("Duración media de las consultas SQL++ recientes, según el servicio de consultas. Si sube, revisá las consultas en curso y sus índices.")
+        .source("GET /admin/vitals: request_time.mean"),
+        Metric::new(
+            "cache_hit",
+            "Aciertos de caché (gets)",
+            "Caché",
+            Percent,
+            gets.zip(fetched)
+                .filter(|(g, _)| *g > 0.0)
+                .map(|(g, f)| ((g - f) / g * 100.0).clamp(0.0, 100.0)),
+        )
+        .help("Porcentaje de las lecturas de documentos (gets) que se resolvieron en memoria, sin ir al disco, en la última muestra del servicio de datos. Bajo indica que los documentos que se leen no entran en la cuota de RAM de los buckets.")
+        .source("GET /pools/default: 1 − Σ interestingStats.ep_bg_fetched ÷ Σ interestingStats.cmd_get"),
+        Metric::new(
+            "disk_fetches",
+            "Lecturas desde disco por segundo",
+            "Disco",
+            Count,
+            fetched,
+        )
+        .help("Documentos por segundo que el servicio de datos tuvo que leer del disco porque no estaban en memoria, sumando los nodos. Debería ser bajo; si sube, la cuota de RAM no alcanza.")
+        .source("GET /pools/default: Σ nodes[].interestingStats.ep_bg_fetched"),
+        Metric::new(
+            "storage_used",
+            "Espacio en disco de los datos",
+            "Almacenamiento",
+            Bytes,
+            istat("couch_docs_actual_disk_size"),
+        )
+        .max(st.and_then(|s| num(s.pointer("/hdd/total"))))
+        .help("Espacio en disco de los archivos de datos de todos los buckets, sobre el disco total de los nodos. No incluye índices ni vistas.")
+        .source("GET /pools/default: Σ nodes[].interestingStats.couch_docs_actual_disk_size; max: storageTotals.hdd.total"),
+        Metric::new("items", "Documentos", "Datos", Count, istat("curr_items"))
+            .help("Documentos activos en todos los buckets, sin contar las réplicas.")
+            .source("GET /pools/default: Σ nodes[].interestingStats.curr_items"),
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            Seconds,
+            nodes
+                .iter()
+                .filter_map(|n| num(n.get("uptime")))
+                .reduce(f64::min),
+        )
+        .help("Tiempo desde que arrancó el nodo que lleva menos tiempo activo. Si vuelve a cero, se reinició un nodo.")
+        .source("GET /pools/default: nodes[].uptime (minimum)"),
+    ]
+}
+
 fn text_of(v: &Value) -> String {
     text(v)
 }
@@ -2011,6 +2078,49 @@ fn text_of(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every monitor metric says what it measures and where it comes from,
+    /// whichever source answered; the query service's CPU is a share of its
+    /// cores and the cache hits are the gets served from memory.
+    #[test]
+    fn monitor_metrics_have_help_and_source() {
+        let pool = json!({
+            "nodes": [{
+                "systemStats": { "cpu_utilization_rate": 20.0, "mem_total": 100, "mem_free": 40 },
+                "interestingStats": {
+                    "cmd_get": 10, "get_hits": 10, "ep_bg_fetched": 1, "mem_used": 5, "ops": 3,
+                    "couch_docs_actual_disk_size": 7, "curr_items": 2
+                },
+                "uptime": "71"
+            }],
+            "storageTotals": { "ram": { "quotaTotal": 50 }, "hdd": { "total": 1000 } }
+        });
+        // Four busy cores of four, as the vitals say it.
+        let vitals = json!({
+            "cores": 4, "cpu.user.percent": 3.8, "cpu.sys.percent": 0.2,
+            "request.active.count": 6, "request.queued.count": 0,
+            "request.completed.count": 9, "request_time.mean": "536.3ms"
+        });
+        let range = json!([
+            { "data": [{ "values": [[0, "3"]] }] },
+            { "data": [{ "values": [[0, "12"]] }] }
+        ]);
+        let all = monitor_metrics(Some(&pool), Some(&vitals), Some(&range), Some(&[]));
+        let fallback = monitor_metrics(None, None, None, Some(&[json!({}), json!({})]));
+        for m in all.iter().chain(&fallback) {
+            let filled = |v: &Option<String>| v.as_deref().is_some_and(|t| !t.trim().is_empty());
+            assert!(filled(&m.help), "{}: no help", m.key);
+            assert!(filled(&m.source), "{}: no source", m.key);
+        }
+        let m = |k: &str| all.iter().find(|m| m.key == k).unwrap();
+        assert_eq!(m("cpu_query").value, Some(100.0));
+        assert_eq!(m("cpu_query").max, Some(100.0));
+        assert_eq!(m("cache_hit").value, Some(90.0));
+        assert_eq!(m("queries").value, Some(12.0));
+        let f = |k: &str| fallback.iter().find(|m| m.key == k).unwrap();
+        assert_eq!(f("active_sessions").value, Some(1.0));
+        assert_ne!(m("queries").source, f("queries").source);
+    }
 
     /// "Con opción de otorgar" is offered on the new schema's grants
     /// exactly where the engine writes them (`SchemaSpec::grant_option`).
