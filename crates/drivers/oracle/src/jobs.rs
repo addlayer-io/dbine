@@ -46,18 +46,18 @@ use std::time::Duration;
 
 const KIND: &str = "DBMS_SCHEDULER";
 const LEGACY_KIND: &str = "DBMS_JOB";
-const LEGACY_ID: &str = "DBMS_JOB:";
+pub(crate) const LEGACY_ID: &str = "DBMS_JOB:";
 /// Longest a read may take.
-const QUERY_LIMIT: Duration = Duration::from_secs(20);
+pub(crate) const QUERY_LIMIT: Duration = Duration::from_secs(20);
 /// Longest a call that changes a job may take: STOP_JOB waits for the run
 /// to stop.
-const CALL_LIMIT: Duration = Duration::from_secs(60);
+pub(crate) const CALL_LIMIT: Duration = Duration::from_secs(60);
 /// Jobs listed at most.
 const MAX_JOBS: usize = 5000;
 /// Chain step runs read for one job's history at most.
 const MAX_STEP_RUNS: usize = 5000;
 /// Longest identifier, in bytes (12.2+; 30 before).
-const MAX_NAME: usize = 128;
+pub(crate) const MAX_NAME: usize = 128;
 
 /// RFC 3339 in UTC of a `TIMESTAMP WITH TIME ZONE` column.
 macro_rules! utc {
@@ -276,7 +276,7 @@ const PARTIAL: &str =
 const LEGACY_PARTIAL: &str = "De los jobs de DBMS_JOB se ven solo los de este usuario: para \
      verlos todos hace falta poder leer DBA_JOBS.";
 
-type Cells = Vec<Option<String>>;
+pub(crate) type Cells = Vec<Option<String>>;
 /// A chain rule: its name, condition and action.
 type Rule = (String, String, String);
 
@@ -286,7 +286,7 @@ type Rule = (String, String, String);
 /// doesn't turn a NUMBER into a string itself). Out of the statement cache,
 /// as the monitor's queries: a parse that failed for lack of a grant would
 /// come back as ORA-01003.
-fn texts(
+pub(crate) fn texts(
     c: &Connection,
     sql: &str,
     params: &[&dyn ToDbValue],
@@ -317,11 +317,11 @@ fn texts(
 }
 
 /// A column, `None` when null or blank.
-fn col(r: &[Option<String>], i: usize) -> Option<String> {
+pub(crate) fn col(r: &[Option<String>], i: usize) -> Option<String> {
     r.get(i).cloned().flatten().filter(|s| !s.trim().is_empty())
 }
 
-fn number(s: &Option<String>) -> Option<f64> {
+pub(crate) fn number(s: &Option<String>) -> Option<f64> {
     s.as_deref().and_then(|s| s.trim().parse::<f64>().ok())
 }
 
@@ -330,29 +330,29 @@ fn millis(s: &Option<String>) -> Option<u64> {
 }
 
 /// An integer as the dictionary has it, for a script: digits only.
-fn integer(s: &Option<String>) -> Option<i64> {
+pub(crate) fn integer(s: &Option<String>) -> Option<i64> {
     s.as_deref().and_then(|s| s.trim().parse::<i64>().ok())
 }
 
 /// Without the grants on a view (ORA-00942 / 01031 / 01039).
-fn denied(e: &oracledb::Error) -> bool {
+pub(crate) fn denied(e: &oracledb::Error) -> bool {
     matches!(db_code(e), Some(942 | 1031 | 1039))
 }
 
-fn first_line(e: &oracledb::Error) -> String {
+pub(crate) fn first_line(e: &oracledb::Error) -> String {
     e.to_string().lines().next().unwrap_or_default().to_string()
 }
 
 /// Which dictionary views the login reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Views {
+pub(crate) enum Views {
     Dba,
     All,
 }
 
 impl Views {
     /// `sql` with `{v}` replaced by the views' prefix.
-    fn sql(self, sql: &str) -> String {
+    pub(crate) fn sql(self, sql: &str) -> String {
         sql.replace(
             "{v}",
             match self {
@@ -363,7 +363,7 @@ impl Views {
     }
 }
 
-fn views(c: &Connection) -> Result<Views> {
+pub(crate) fn views(c: &Connection) -> Result<Views> {
     match texts(c, "SELECT 1 FROM dba_scheduler_jobs WHERE 1 = 0", &[], 1) {
         Ok(_) => Ok(Views::Dba),
         Err(e) if denied(&e) => Ok(Views::All),
@@ -374,13 +374,13 @@ fn views(c: &Connection) -> Result<Views> {
 // ----------------------------------------------------------------------- ids
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum JobId {
+pub(crate) enum JobId {
     Scheduler { owner: String, name: String },
     Legacy(i64),
 }
 
 /// An identifier Oracle takes unquoted, in the case it stores it.
-fn plain(s: &str) -> bool {
+pub(crate) fn plain(s: &str) -> bool {
     s.len() <= MAX_NAME
         && s.starts_with(|c: char| c.is_ascii_uppercase())
         && s.chars()
@@ -388,11 +388,11 @@ fn plain(s: &str) -> bool {
 }
 
 /// An identifier that can be written quoted.
-fn quotable(s: &str) -> bool {
+pub(crate) fn quotable(s: &str) -> bool {
     !s.is_empty() && s.len() <= MAX_NAME && !s.chars().any(|c| c == '"' || c.is_control())
 }
 
-fn job_id(owner: &str, name: &str) -> String {
+pub(crate) fn job_id(owner: &str, name: &str) -> String {
     if plain(owner) && plain(name) {
         format!("{owner}.{name}")
     } else {
@@ -400,7 +400,7 @@ fn job_id(owner: &str, name: &str) -> String {
     }
 }
 
-fn parse_id(id: &str) -> Result<JobId> {
+pub(crate) fn parse_id(id: &str) -> Result<JobId> {
     let bad = || {
         let shown: String = id.chars().take(200).collect();
         Error::Query(format!(
@@ -446,12 +446,12 @@ fn parse_id(id: &str) -> Result<JobId> {
 }
 
 /// The DBMS_SCHEDULER calls take a list of names separated by commas.
-fn callable(owner: &str, name: &str) -> bool {
+pub(crate) fn callable(owner: &str, name: &str) -> bool {
     !owner.contains(',') && !name.contains(',')
 }
 
 /// The name a `DBMS_SCHEDULER` call is given (bound, never pasted).
-fn scheduler_name(owner: &str, name: &str) -> Result<String> {
+pub(crate) fn scheduler_name(owner: &str, name: &str) -> Result<String> {
     if !callable(owner, name) {
         return Err(Error::Query(format!(
             "el nombre del job «{}» tiene una coma: DBMS_SCHEDULER no lo puede administrar por nombre",
@@ -471,19 +471,19 @@ fn not_found(shown: &str) -> Error {
 
 /// What the login may do to other users' jobs.
 #[derive(Debug, Default)]
-struct Access {
-    user: String,
+pub(crate) struct Access {
+    pub(crate) user: String,
     /// CREATE ANY JOB: other users' jobs, but not Oracle's own (see
     /// [`Access::any_job_reaches`]).
-    any_job: bool,
+    pub(crate) any_job: bool,
     /// ALTER granted on these jobs (owner, name).
-    granted: HashSet<(String, String)>,
+    pub(crate) granted: HashSet<(String, String)>,
     /// The schemas Oracle installs and maintains (12.1+).
-    maintained: HashSet<String>,
+    pub(crate) maintained: HashSet<String>,
 }
 
 impl Access {
-    fn read(c: &Connection) -> Access {
+    pub(crate) fn read(c: &Connection) -> Access {
         let mut a = Access::default();
         match texts(c, ACCESS, &[], 1) {
             Ok(rows) => {
@@ -514,13 +514,13 @@ impl Access {
     /// A job in this schema is Oracle's own: SYS, or a schema Oracle
     /// maintains (`ORACLE_MAINTAINED = 'Y'`, 12.1+), but for SYSTEM, where
     /// DBAs make their own jobs.
-    fn oracle_schema(&self, owner: &str) -> bool {
+    pub(crate) fn oracle_schema(&self, owner: &str) -> bool {
         owner == "SYS" || (owner != "SYSTEM" && self.maintained.contains(owner))
     }
 
     /// RUN_JOB, STOP_JOB, ENABLE and DISABLE work on it: its owner, ALTER
     /// on it, or CREATE ANY JOB where it reaches.
-    fn manages(&self, owner: &str, name: &str, system: bool) -> bool {
+    pub(crate) fn manages(&self, owner: &str, name: &str, system: bool) -> bool {
         owner == self.user
             || (self.any_job && self.any_job_reaches(owner, system))
             || self
@@ -532,7 +532,7 @@ impl Access {
     /// system job, or one in a schema Oracle maintains) may be locked down
     /// (Autonomous Database refuses changes to them): left out, but for
     /// SYSTEM's, where DBAs make their own jobs.
-    fn any_job_reaches(&self, owner: &str, system: bool) -> bool {
+    pub(crate) fn any_job_reaches(&self, owner: &str, system: bool) -> bool {
         !system && owner != "SYS" && (owner == "SYSTEM" || !self.maintained.contains(owner))
     }
 }
@@ -894,7 +894,7 @@ fn outcome(status: &str) -> JobOutcome {
 /// A schema object name as a job's action names a chain (`CHAIN`,
 /// `OWNER.CHAIN`, `"Owner"."Chain"`), as (owner, name): unquoted parts in
 /// upper case, as Oracle stores them.
-fn object_name(text: &str, default_owner: &str) -> Option<(String, String)> {
+pub(crate) fn object_name(text: &str, default_owner: &str) -> Option<(String, String)> {
     let mut parts = Vec::new();
     let mut rest = text.trim();
     loop {
@@ -1035,15 +1035,15 @@ fn last_outcomes(c: &Connection, v: Views) -> HashMap<(String, String), String> 
 /// What keeps jobs from running on this server. Unknown (the login can't
 /// read it) counts as running.
 #[derive(Debug, Default, Clone, Copy)]
-struct Off {
+pub(crate) struct Off {
     /// `SCHEDULER_DISABLED` is TRUE: no Scheduler job starts.
-    disabled: bool,
+    pub(crate) disabled: bool,
     /// `job_queue_processes` is 0: no job starts, `DBMS_JOB`'s either.
-    no_queue: bool,
+    pub(crate) no_queue: bool,
 }
 
 impl Off {
-    fn read(c: &Connection, v: Views) -> Off {
+    pub(crate) fn read(c: &Connection, v: Views) -> Off {
         let first = |sql: &str| {
             texts(c, sql, &[], 1)
                 .ok()
@@ -1073,7 +1073,7 @@ impl Off {
         job
     }
 
-    fn notes(self) -> Vec<String> {
+    pub(crate) fn notes(self) -> Vec<String> {
         let mut notes = Vec::new();
         if self.disabled {
             notes.push(
@@ -1094,7 +1094,7 @@ impl Off {
 }
 
 /// Before 19c, `DBMS_JOB` jobs aren't Scheduler jobs.
-fn legacy_apart(c: &Connection) -> bool {
+pub(crate) fn legacy_apart(c: &Connection) -> bool {
     c.version().map(|v| v.0 < 19).unwrap_or(false)
 }
 
@@ -1515,7 +1515,7 @@ fn run_message(
 
 // --------------------------------------------------------------- the actions
 
-fn call_err(e: oracledb::Error, shown: &str) -> Error {
+pub(crate) fn call_err(e: oracledb::Error, shown: &str) -> Error {
     match db_code(&e) {
         Some(27478) => Error::Query(format!("el job «{shown}» ya se está ejecutando")),
         Some(27492) => Error::Query(format!(
@@ -1617,7 +1617,7 @@ pub fn script(c: &Connection, id: &str) -> Result<String> {
 }
 
 /// `'text'`, doubling embedded quotes.
-fn lit(s: &str) -> String {
+pub(crate) fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
@@ -1808,20 +1808,20 @@ fn build_script(row: &JobRow, args: &[JobArg]) -> String {
 
 /// One row of [`LEGACY_JOBS`].
 #[derive(Debug, Default, Clone)]
-struct LegacyRow {
-    job: i64,
-    log_user: Option<String>,
-    schema_user: Option<String>,
-    what: Option<String>,
-    interval: Option<String>,
-    broken: bool,
-    last: Option<String>,
-    this: Option<String>,
-    next: Option<String>,
-    failures: Option<String>,
-    total_time: Option<String>,
-    instance: Option<String>,
-    next_local: Option<String>,
+pub(crate) struct LegacyRow {
+    pub(crate) job: i64,
+    pub(crate) log_user: Option<String>,
+    pub(crate) schema_user: Option<String>,
+    pub(crate) what: Option<String>,
+    pub(crate) interval: Option<String>,
+    pub(crate) broken: bool,
+    pub(crate) last: Option<String>,
+    pub(crate) this: Option<String>,
+    pub(crate) next: Option<String>,
+    pub(crate) failures: Option<String>,
+    pub(crate) total_time: Option<String>,
+    pub(crate) instance: Option<String>,
+    pub(crate) next_local: Option<String>,
 }
 
 impl LegacyRow {
@@ -1967,7 +1967,7 @@ fn legacy_rows(
     }
 }
 
-fn legacy_row(c: &Connection, v: Views, job: i64) -> Result<LegacyRow> {
+pub(crate) fn legacy_row(c: &Connection, v: Views, job: i64) -> Result<LegacyRow> {
     let (rows, _) = legacy_rows(c, v, "WHERE j.job = :1", &[&job], 1).map_err(err)?;
     rows.first()
         .map(|r| LegacyRow::from_cells(r))
