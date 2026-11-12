@@ -16,6 +16,7 @@ mod create_db;
 mod design;
 mod health;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;

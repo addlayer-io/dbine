@@ -2112,6 +2112,34 @@ impl Session for MySqlSession {
         crate::processes::cancel(self, id).await
     }
 
+    async fn jobs(&mut self) -> Result<dbine_driver::jobs::JobList> {
+        crate::jobs::list(self).await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::jobs::JobDetail> {
+        crate::jobs::detail(self, id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::jobs::JobRun>> {
+        crate::jobs::runs(self, id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        crate::jobs::run(self, id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        crate::jobs::stop(self, id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        crate::jobs::set_enabled(self, id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        crate::jobs::script(self, id).await
+    }
+
     async fn profiler_start(
         &mut self,
         opts: &dbine_driver::ProfilerOptions,
