@@ -42,6 +42,7 @@ export function tabTitle(t: Tab, tr: Translate = i18nT): string {
   if (t.kind === 'optimizer') return `${tr('optimizer:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'subset') return `${tr('subset:tab')} · ${t.object.name}`;
   if (t.kind === 'scheduledTask') return scheduledTitle(t.taskId, tr);
+  if (t.kind === 'serverJob') return `${tr('scheduled:server.tab')} · ${t.jobName || t.jobId}`;
   if (t.kind === 'search') return `${tr('search:tab')} · ${t.database}`;
   if (t.kind === 'dependencies') return `${tr('dependencies:tab')} · ${t.column ? `${t.object.name}.${t.column}` : t.object.name}`;
   if (t.kind === 'backups') return `${tr('backups:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;

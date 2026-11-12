@@ -133,4 +133,6 @@ export interface Capabilities {
   cancel_query?: boolean;
   /** "Propiedades" on its databases: view and change their settings. */
   database_properties?: boolean;
+  /** The server's jobs ("Programadas › En los servidores"). */
+  jobs?: boolean;
 }

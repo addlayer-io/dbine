@@ -7,6 +7,7 @@ import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useProjectsStore } from '../stores/projects';
+import { useServerJobsStore } from '../stores/serverJobs';
 import { confirmDisconnect, useTabsStore } from '../stores/tabs';
 import { useUiStore, type SidebarView } from '../stores/ui';
 import { createDatabase, newFromTemplate } from './actions';
@@ -204,6 +205,7 @@ function actions(layout: WorkbenchLayout): Action[] {
       void confirmDisconnect(cid).then((ok) => { if (ok) return conns.disconnect(cid); });
     }, (_d, c) => !!conns.live[c.id]),
     onConnection('connection.monitor', (cid) => tabs.openMonitor(cid), (d) => !!d.capabilities.monitor),
+    onConnection('connection.serverJobs', (cid) => useServerJobsStore().reveal(cid), (d) => !!d.capabilities.jobs),
     onConnection('connection.serverBackups', (cid) => tabs.openBackups(cid, ''), (d, c) => connected(c) && !!d.backup?.server_wide && hasDatabases(d)),
     onConnection('connection.newDatabase', (cid) => { if (!deniedHere(cid, '', 'create_database')) createDatabase(cid); },
       (d, c) => connected(c) && !!d.capabilities.create_database && !c.config.read_only),

@@ -73,6 +73,7 @@
     "clearSelection": "Quitar la selección",
     "newQuery": "Nueva query",
     "monitor": "Monitor",
+    "serverJobs": "Jobs del servidor",
     "newDatabase": "Nueva base de datos…",
     "copyServer": "Copiar servidor",
     "copyConnectionName": "Copiar nombre de la conexión",

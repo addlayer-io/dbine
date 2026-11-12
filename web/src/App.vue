@@ -31,6 +31,7 @@ import { useWorkbenchCommands } from './composables/workbenchCommands';
 import { useProjectWatch } from './composables/projectWatch';
 import { fileDocs } from './composables/tabDocument';
 import { useProjectsStore } from './stores/projects';
+import { useServerJobsStore } from './stores/serverJobs';
 import { useConnectionsStore } from './stores/connections';
 import { useSettingsStore } from './stores/settings';
 import { readJson, writeJson } from './stores/storage';
@@ -57,6 +58,7 @@ import HealthView from './views/HealthView.vue';
 import OptimizerView from './views/OptimizerView.vue';
 import SubsetView from './views/SubsetView.vue';
 import ScheduledTaskView from './views/ScheduledTaskView.vue';
+import ServerJobView from './views/ServerJobView.vue';
 import SparklesIcon from './components/SparklesIcon.vue';
 import ConnectionView from './views/ConnectionView.vue';
 import MonitorView from './views/MonitorView.vue';
@@ -75,7 +77,9 @@ const ui = useUiStore();
 watch(() => ui.reveal?.seq, () => { sidebarOpen.value = true; ui.sidebarView = 'explorer'; });
 // "Mostrar en Proyectos" (Explorer, tabs, the editor): the Proyectos sidebar.
 const projects = useProjectsStore();
+const serverJobs = useServerJobsStore();
 watch(() => projects.focus?.seq, () => { sidebarOpen.value = true; ui.sidebarView = 'projects'; });
+watch(() => serverJobs.focus?.seq, () => { sidebarOpen.value = true; ui.sidebarView = 'scheduled'; });
 
 const sync = useSyncStore();
 // Other windows' writes to the local state: reload what this one shows.
@@ -283,6 +287,7 @@ watch(
               <OptimizerView v-else-if="t.kind === 'optimizer'" :tab="t" />
               <SubsetView v-else-if="t.kind === 'subset'" :tab="t" />
               <ScheduledTaskView v-else-if="t.kind === 'scheduledTask'" :tab="t" />
+              <ServerJobView v-else-if="t.kind === 'serverJob'" :tab="t" :active="shown" />
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>
           </template>

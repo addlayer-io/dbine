@@ -11,6 +11,7 @@
 // |chart[&kind=…]|nbcell[&set=charts|map|latlon] (charts of every kind; a notebook cell's charts and map: preview/chart-samples.ts)
 // |nbxresults[&dialog=1] (cells on three engines and a "DataFrame SQL" cell joining them: preview/nbx-samples.ts)
 // |schedule[&set=report|problems] (the "Ejecutar notebook" step and the mail with its HTML body: preview/schedule-samples.ts)
+// |jobs ("Programadas" with its server jobs next to a job's tab: preview/jobs-samples.ts)
 // |nbwrite[&state=form|confirm|result|error|full][&prod=1] (a write cell, its confirmation and its result: preview/nbwrite-samples.ts)
 // |nbperm[&set=one|many|glob|unsaved|sidecars|remote|settings|notebook] (a notebook's file approval dialog and the grants lists: preview/nbperm-samples.ts)
 // |nbparams[&open=panel|dialog|edit] (a notebook's parameters: the panel, the run's dialog, a stale result: preview/nbparams-samples.ts)
@@ -92,6 +93,7 @@ import { notebookResultsPreview } from './nbx-samples';
 import { notebookWritePreview } from './nbwrite-samples';
 import { installNbPermMock, nbPermPreview } from './nbperm-samples';
 import { installScheduleMock, installScheduledTaskMock, schedulePreview, scheduledTaskPreview, setupScheduleConnections } from './schedule-samples';
+import { installJobsMock, jobsPreview, setupJobs } from './jobs-samples';
 import { notebookParamsPreview } from './nbparams-samples';
 import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
 import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
@@ -273,6 +275,7 @@ if (view === 'multidb') installTauriMock();
 if (view === 'nbperm') installNbPermMock();
 if (view === 'schedule') installScheduleMock(params);
 if (view === 'schedtask') installScheduledTaskMock();
+if (view === 'jobs') installJobsMock();
 if (view === 'nbcell' && params.get('set') === 'whole') installWholeMock(params);
 if (view === 'feedback') {
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
@@ -338,6 +341,7 @@ const app = createApp({
         : view === 'nbperm' ? nbPermPreview(params)
         : view === 'schedule' ? schedulePreview(params)
         : view === 'schedtask' ? scheduledTaskPreview()
+        : view === 'jobs' ? jobsPreview()
         : view === 'nbparams' ? notebookParamsPreview(params)
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()
@@ -506,6 +510,7 @@ if (view === 'rename') {
 if (view === 'tabs') installTabsPreview();
 if (view === 'split') { installSplitPreview(params); setupSplitConnections(); }
 if (view === 'schedule') setupScheduleConnections();
+if (view === 'jobs') setupJobs();
 if (view === 'projects') installProjectsPreview();
 if (view === 'timeline') installTimelinePreview();
 // ?vim=1: the editors in Vim mode. ?bind=view.ai=Mod-b,…: the user's own

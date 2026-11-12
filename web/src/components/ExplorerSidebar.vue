@@ -16,6 +16,7 @@ import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permi
 import { useProjectsStore } from '../stores/projects';
 import { dbKey, objKey, useConnectionsStore, type KeyBrowse } from '../stores/connections';
 import { confirmDisconnect, useTabsStore } from '../stores/tabs';
+import { useServerJobsStore } from '../stores/serverJobs';
 import { useUiStore } from '../stores/ui';
 import { useSettingsStore } from '../stores/settings';
 import { readJson, writeJson } from '../stores/storage';
@@ -882,6 +883,7 @@ async function onContext(e: MouseEvent, n: TNode) {
         if (conns.live[cid!]) items.push({ label: t('common:disconnect'), action: () => disconnect(cid!) });
       }
       if (d?.capabilities.monitor) items.push({ label: t('explorer:menu.monitor'), action: () => tabs.openMonitor(cid!) });
+      if (d?.capabilities.jobs) items.push({ label: t('explorer:menu.serverJobs'), action: () => useServerJobsStore().reveal(cid!) });
       // Backups of the whole server (Redis, a snapshot of every index…).
       if (connected && d?.backup?.server_wide && d.databases_label) items.push({ label: t('backups:menu'), action: () => tabs.openBackups(cid!, '') });
       if (connected && d?.capabilities.create_database && !c.config.read_only) items.push(guarded(cid!, '', 'create_database', { label: t('explorer:menu.newDatabase'), action: () => createDatabase(cid!) }));
