@@ -128,5 +128,14 @@ close them, so you can go back to an earlier result without running it again.
 Each tab keeps its own sub-tab, sort, view (table, JSON, chart, map) and
 pending edits. An export or a whole-result chart of a tab runs that tab's
 query again, on the connection and database where it ran, not the editor's
-current text. Results live in memory while the editor tab is open; closing
-it, or the app, discards them.
+current text.
+
+**Kept when DBine closes.** With **Settings › General › Keep results when
+closing DBine** on (the default), each editor's result tabs are also saved
+to an encrypted file on this computer. Close DBine, or it crashes, and each
+editor shows its tabs again when it opens: pinned ones, the order and the
+rows as they were, without running anything or connecting. Closing an
+editor deletes its saved results, and with none left the file goes too.
+**Space for saved results** (2 GB by default) caps them, dropping the
+oldest unpinned ones first, and **Clear now** deletes them all. Without a system keychain they stay in memory only.
+Details: [results-store.md](results-store.md).

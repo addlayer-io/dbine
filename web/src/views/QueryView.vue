@@ -43,6 +43,9 @@ import { bindingLabel } from '../composables/commands';
 import {
   KEPT_RESULTS_SETTING, keptLimit, overflow, runLabel, scriptPreview, type PlanMode, type ResultRun,
 } from '../composables/resultRuns';
+import {
+  KEEP_RESULTS_SETTING, RESULTS_SPACE_SETTING, forget, keepResults, loadRestored, restoredRun, resultsSpace, storeArgs,
+} from '../composables/resultsStore';
 
 // A saved query, or a project's file, open in the editor. A query's text is
 // saved as you type (to the state store, under its database in the
@@ -590,6 +593,7 @@ onMounted(async () => {
     if (unmounted) subs.forEach((u) => u());
     else unlisteners.push(...subs);
   } catch { /* outside Tauri */ }
+  void restoreRuns();
 });
 onBeforeUnmount(() => {
   unmounted = true;
@@ -695,6 +699,7 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
   let r: ResultRun;
   if (again) {
     r = again;
+    r.restored = false;
     r.outcome = blank;
     r.at = Date.now();
   } else {
@@ -717,6 +722,7 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
       continueOnError: perStatement.value ? continueOnError.value : null,
       confirmedUnsafe,
       autocommit: offersManualTx.value ? !manualTx.value : null,
+      store: storing.value ? storeArgs(r, props.tab.id, resultsSpace(settings.values[RESULTS_SPACE_SETTING])) : null,
     }).finally(() => { ui.historySeq++; });
     if (o.needs_confirmation?.length) {
       // Nothing ran: the previous results stay while the user decides.
@@ -742,6 +748,7 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
     }
   } catch (e) {
     r.outcome = { results: [], messages: [], error: errorMessage(e), elapsed_ms: Date.now() - startedAt.value, plans: [] };
+    persistRun(r);
     output.add('error', errorMessage(e), { where });
     // A connection error: check the connection (the explorer and this pane
     // then show its state).
@@ -816,8 +823,8 @@ function goTo(at: { offset: number | null; line: number | null }) {
 /** Unpinned results kept (Configuración › General). */
 const keptResults = computed(() => keptLimit(settings.values[KEPT_RESULTS_SETTING]));
 
-function addRun(fields: Omit<ResultRun, 'id' | 'at' | 'pinned'>): ResultRun {
-  runs.value.push({ ...fields, id: nextRunId++, at: Date.now(), pinned: false });
+function addRun(fields: Omit<ResultRun, 'id' | 'key' | 'at' | 'pinned'>): ResultRun {
+  runs.value.push({ ...fields, id: nextRunId++, key: crypto.randomUUID(), at: Date.now(), pinned: false });
   // The reactive one, so live progress and the answer show as they arrive.
   return runs.value[runs.value.length - 1];
 }
@@ -828,6 +835,7 @@ function dropRun(r: ResultRun) {
   if (i < 0) return;
   runs.value.splice(i, 1);
   if (activeRunId.value === r.id) activeRunId.value = (runs.value[i] ?? runs.value[i - 1])?.id ?? null;
+  if (storing.value) forget([r.key]);
 }
 
 /** After a run: the oldest unpinned results beyond the setting close. */
@@ -845,7 +853,36 @@ function closeUnpinned(except?: ResultRun) {
 }
 function togglePin(r: ResultRun) {
   r.pinned = !r.pinned;
+  if (storing.value) void api.resultsPin(r.key, r.pinned).catch(() => {});
 }
+
+// -- results kept on disk (composables/resultsStore.ts, docs/results-store.md) --
+/** Results go to the store too ("Conservar resultados al cerrar DBine"). */
+const storing = computed(() => keepResults(settings.values[KEEP_RESULTS_SETTING]));
+/** Keep a tab's outcome as it is now: one the editor put together (several
+ *  databases), changed (saved edits) or that failed before reaching the backend. */
+function persistRun(r: ResultRun) {
+  if (!storing.value || !r.outcome || r.restored) return;
+  void api.resultsSave(storeArgs(r, props.tab.id, resultsSpace(settings.values[RESULTS_SPACE_SETTING])), r.outcome).catch(() => {});
+}
+/** A restored editor shows its stored result tabs again, the newest one active. */
+async function restoreRuns() {
+  if (!storing.value) return;
+  let stored;
+  try {
+    stored = await api.resultsRuns(props.tab.id);
+  } catch {
+    return;
+  }
+  if (unmounted || !stored.length) return;
+  const known = new Set(runs.value.map((r) => r.key));
+  const back = stored.filter((m) => !known.has(m.id)).map((m) => restoredRun(m, nextRunId++));
+  if (!back.length) return;
+  runs.value.unshift(...back);
+  if (activeRunId.value == null) activeRunId.value = back[back.length - 1].id;
+}
+// A restored tab's rows load when it's shown.
+watch(activeRun, (r) => { if (r?.restored) void loadRestored(r); });
 
 /** Why "Volver a ejecutar" can't run a tab's script here, or null. */
 function rerunBlocked(r: ResultRun): string | null {
@@ -1000,6 +1037,7 @@ async function runMultiDb(databases: string[]) {
         multi: { labels, summary: runSummary(r) }, lineOffset: null, runBase: 0,
       });
       activeRunId.value = kept.id;
+      persistRun(kept);
       trimRuns(kept);
       output.add(r.databases.some((d) => d.status === 'error') ? 'error' : 'info', `${script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? ''}\n${runSummary(r)}`, {
         where: t('multiDb:task.title', { count: databases.length, connection: conn.value?.name ?? '' }), elapsedMs: r.elapsed_ms,
@@ -1330,6 +1368,7 @@ function runOverflow(i: number) {
               hide-status
               @script="appendScript"
               @goto="goTo"
+              @applied="persistRun(r)"
             >
               <template v-if="!showRunStrip" #lead>
                 <button

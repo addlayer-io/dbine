@@ -1,6 +1,7 @@
 <script lang="ts">
 import { ref as moduleRef, shallowRef as moduleShallowRef } from 'vue';
 import type { TaskHandle as ModuleTaskHandle } from '../stores/tasks';
+import type { ResultsStatus } from '../api/types';
 
 // The sync operation in flight and its task, outside the component: the
 // dialog is destroy-on-close and the operation (a task) outlives it.
@@ -13,7 +14,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { errorKind, errorMessage } from '../api/client';
+import { api, errorKind, errorMessage } from '../api/client';
 import { driversApi, type DriverPackage } from '../api/drivers';
 import { syncApi, type LocalBackup, type ProviderKind, type RemoteInfo, type SyncAction } from '../api/sync';
 import { COPY_FORMATS, type CopyFormat } from '../composables/copyFormats';
@@ -38,9 +39,14 @@ import NotebookSettings from './notebook/NotebookSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
 import SecretAccountsSettings from './SecretAccountsSettings.vue';
 import SshProfilesSettings from './SshProfilesSettings.vue';
-import { checkForUpdateNow, checkingForUpdate } from '../composables/updates';
+import { checkForUpdateNow, checkingForUpdate, formatBytes } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
-import { KEPT_RESULTS_DEFAULT, KEPT_RESULTS_OPTIONS, KEPT_RESULTS_SETTING, keptLimit } from '../composables/resultRuns';import { isMac } from '../composables/shortcuts';
+import { KEPT_RESULTS_DEFAULT, KEPT_RESULTS_OPTIONS, KEPT_RESULTS_SETTING, keptLimit } from '../composables/resultRuns';
+import {
+  KEEP_RESULTS_SETTING, RESULTS_SPACE_DEFAULT, RESULTS_SPACE_OPTIONS, RESULTS_SPACE_SETTING, keepResults, resultsSpace,
+} from '../composables/resultsStore';
+
+import { isMac } from '../composables/shortcuts';
 import {
   FONT_SIZES, ZOOM_LEVELS, editorFontSize, gridFontSize, setEditorFontSize, setGridFontSize, setThemePref, themePref, zoom, zoomStep,
   type ThemePref,
@@ -106,6 +112,44 @@ const keptOptions = computed(() => {
   const v = keptResults.value;
   return KEPT_RESULTS_OPTIONS.includes(v) ? KEPT_RESULTS_OPTIONS : [...KEPT_RESULTS_OPTIONS, v].sort((a, b) => a - b);
 });
+/** Results kept on disk, encrypted (docs/results-store.md): turning it off
+ *  deletes what's stored. */
+const keepOnClose = computed({
+  get: () => keepResults(settings.get<unknown>(KEEP_RESULTS_SETTING, true)),
+  set: (v: boolean) => {
+    void settings.set(KEEP_RESULTS_SETTING, v);
+    if (!v) void clearStoredResults(false);
+  },
+});
+const resultsSpaceValue = computed({
+  get: () => resultsSpace(settings.get<unknown>(RESULTS_SPACE_SETTING, RESULTS_SPACE_DEFAULT)),
+  set: (v: number) => settings.set(RESULTS_SPACE_SETTING, v),
+});
+const resultsSpaceOptions = computed(() => {
+  const v = resultsSpaceValue.value;
+  return RESULTS_SPACE_OPTIONS.includes(v) ? RESULTS_SPACE_OPTIONS : [...RESULTS_SPACE_OPTIONS, v].sort((a, b) => a - b);
+});
+const resultsStatus = ref<ResultsStatus | null>(null);
+async function loadResultsStatus() {
+  try { resultsStatus.value = await api.resultsStatus(); } catch { resultsStatus.value = null; }
+}
+watch(visible, (v) => { if (v) void loadResultsStatus(); }, { immediate: true });
+async function clearStoredResults(ask = true) {
+  if (ask) {
+    try {
+      await ElMessageBox.confirm(t('settings:general.clearResultsConfirm'), t('settings:general.clearResultsTitle'), {
+        type: 'warning', confirmButtonText: t('settings:general.clearResultsOk'), cancelButtonText: t('common:cancel'),
+      });
+    } catch { return; }
+  }
+  try {
+    await api.resultsClear();
+    if (ask) ElMessage.success(t('settings:general.clearResultsDone'));
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+  await loadResultsStatus();
+}
 /** Anonymous usage data: on by default (TelemetryConsent tells once). */
 const telemetry = computed({
   get: () => settings.get<boolean | null>(TELEMETRY_CONSENT, null) !== false,
@@ -484,6 +528,26 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
           </el-select>
         </div>
         <div class="st-row">
+          <div>
+            <strong>{{ $t('settings:general.keepResults') }}</strong>
+            <span>{{ $t('settings:general.keepResultsHelp') }}</span>
+            <span v-if="resultsStatus?.reason === 'no_vault'" class="st-warn">{{ $t('settings:general.keepResultsNoVault') }}</span>
+          </div>
+          <el-switch v-model="keepOnClose" :disabled="resultsStatus?.reason === 'no_vault'" />
+        </div>
+        <div v-if="keepOnClose" class="st-row">
+          <div>
+            <strong>{{ $t('settings:general.resultsSpace') }}</strong>
+            <span>{{ $t('settings:general.resultsSpaceHelp', { size: formatBytes(resultsStatus?.bytes ?? 0) }) }}</span>
+          </div>
+          <div class="st-inline">
+            <el-select v-model="resultsSpaceValue" style="width: 140px">
+              <el-option v-for="n in resultsSpaceOptions" :key="n" :label="formatBytes(n)" :value="n" />
+            </el-select>
+            <el-button :disabled="!resultsStatus?.bytes" @click="clearStoredResults()">{{ $t('settings:general.clearResults') }}</el-button>
+          </div>
+        </div>
+        <div class="st-row">
           <div><strong>{{ $t('settings:general.vim') }}</strong><span>{{ $t('settings:general.vimHelp') }}</span></div>
           <el-switch v-model="vimMode" />
         </div>
@@ -765,6 +829,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
 .st-row > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .st-row strong { font-size: 13px; color: var(--nm-text-strong); font-weight: 500; }
 .st-row span { font-size: 12px; color: var(--nm-text-dim); }
+.st-row span.st-warn { display: block; margin-top: 4px; color: var(--nm-warn-fg); }
 
 .st-secure {
   display: flex; gap: 12px; padding: 12px 14px; margin: 6px 0 4px; border-radius: 6px;

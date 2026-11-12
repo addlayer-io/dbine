@@ -564,6 +564,42 @@ export interface ExecuteResponse extends QueryOutcome {
   session_closed?: boolean;
 }
 
+// -- The results store (src-tauri/src/results_store.rs, docs/results-store.md) --
+
+/** A stored editor run's metadata (`RunMeta`): the store's fields, plus
+ *  what the editor kept of it (`composables/resultsStore.ts`). */
+export interface StoredRunMeta {
+  id: string;
+  tab_id: string;
+  /** When it last ran (ms). */
+  at: number;
+  pinned: boolean;
+  script?: string;
+  connection_id?: string;
+  database?: string;
+  language?: string;
+  plan?: string;
+  multi?: { labels: string[]; summary: string } | null;
+  line_offset?: number | null;
+  run_base?: number;
+}
+
+/** What an editor run asks the store to keep (`execute_query`'s `store`). */
+export interface StoreArgs {
+  run: StoredRunMeta;
+  /** The space every stored result may take. */
+  max_bytes: number;
+}
+
+/** `results_status`: whether results go to disk, and the space they take. */
+export interface ResultsStatus {
+  available: boolean;
+  /** Why not: no system keychain, DuckDB couldn't open, or the encrypted
+   *  file couldn't be set up. */
+  reason: 'no_vault' | 'duckdb' | 'setup' | null;
+  bytes: number;
+}
+
 export type StatementKind = 'sql' | 'block' | 'batch' | 'client_command';
 
 /** A unit of a script (`split_script`); offsets are JS string indices. */

@@ -429,6 +429,13 @@ pub fn get_raw(name: &str) -> Result<Option<String>> {
     with_vault(|v| v.get(name)).unwrap_or_else(|| keychain_get(name))
 }
 
+/// A secret of the app's own that has only ever lived in the vault: no
+/// lookup of an older keychain item by that name (another program of the
+/// user could have planted one for DBine to adopt). `None` without a vault.
+pub fn get_vault_only(name: &str) -> Result<Option<String>> {
+    with_vault(|v| Ok(v.values.get(name).cloned())).unwrap_or(Ok(None))
+}
+
 pub fn set_raw(name: &str, value: &str) -> Result<()> {
     with_vault(|v| v.set(name, value)).unwrap_or_else(|| keychain_set(name, value))
 }

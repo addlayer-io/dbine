@@ -18,6 +18,7 @@ mod menu;
 mod notebook;
 mod open_files;
 mod optimizer;
+mod results_store;
 mod secret_sources;
 mod ssh_config;
 mod state;
@@ -431,6 +432,15 @@ pub fn run() {
             commands::explorer::browse_query,
             commands::explorer::filtered_browse_query,
             commands::query::execute_query,
+            commands::results::results_status,
+            commands::results::results_runs,
+            commands::results::results_outcome,
+            commands::results::results_save,
+            commands::results::results_pin,
+            commands::results::results_delete,
+            commands::results::results_delete_tab,
+            commands::results::results_keep_tabs,
+            commands::results::results_clear,
             commands::export::export_rows_to_file,
             commands::export::export_query_to_file,
             commands::chart::chart_aggregate,

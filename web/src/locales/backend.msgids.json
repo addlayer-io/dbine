@@ -25661,6 +25661,9 @@
  "el alias de ~/.ssh/config no es válido": [
   "src-tauri/src/commands/ssh_profiles.rs"
  ],
+ "el almacén de resultados no quedó aislado: {0}": [
+  "src-tauri/src/results_store.rs"
+ ],
  "el archivo PKCS#12 no tiene el certificado de la clave": [
   "src-tauri/src/secret_sources/https.rs"
  ],
@@ -29012,6 +29015,9 @@
   "crates/drivers/redis/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
  ],
+ "id de ejecución no válido": [
+  "src-tauri/src/results_store.rs"
+ ],
  "id de lease inválido: {0} (va en hexadecimal, como lo muestra lease list)": [
   "crates/drivers/etcd/src/command.rs"
  ],
@@ -31881,6 +31887,9 @@
  ],
  "no se pudieron borrar en el destino:\n{0}": [
   "src-tauri/src/commands/migration.rs"
+ ],
+ "no se pudieron borrar los resultados guardados: el archivo sigue en uso, probá de nuevo en unos segundos": [
+  "src-tauri/src/results_store.rs"
  ],
  "no se pudieron buscar actualizaciones de drivers: {0}": [
   "crates/dbine-plugin/src/updater.rs"

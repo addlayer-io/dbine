@@ -328,6 +328,12 @@ function newId() {
   return crypto.randomUUID();
 }
 
+/** A query or file tab gone for good: its results kept on disk go too
+ *  (docs/results-store.md). */
+function forgetResults(t: Tab) {
+  if (t.kind === 'query' || t.kind === 'file') api.resultsDeleteTab(t.id).catch(() => {});
+}
+
 /** Tabs side by side by connection, groups in the order they first appear. */
 function grouped(tabs: Tab[]): Tab[] {
   const order: string[] = [];
@@ -346,6 +352,12 @@ export const useTabsStore = defineStore('tabs', {
     const saved = LABEL === 'main' ? readJson<eg.SavedLayout<Tab>>(KEY, {}) : {};
     // Older saves have no editor groups: their tabs make the one group.
     const layout = eg.restoreLayout({ ...saved, tabs: grouped(saved.tabs ?? []) }, newId());
+    // Results kept on disk of tabs that didn't come back (closed while DBine
+    // wasn't running, or in a window that's gone) go.
+    if (LABEL === 'main') {
+      const ids = layout.tabs.map((t) => t.id);
+      queueMicrotask(() => { api.resultsKeepTabs(ids).catch(() => {}); });
+    }
     return {
       tabs: layout.tabs,
       /** The focused editor group's active tab. */
@@ -619,11 +631,13 @@ export const useTabsStore = defineStore('tabs', {
       const previewIdx = tab.preview ? this.tabs.findIndex((t) => t.preview && eg.groupOf(this, t) === this.focused) : -1;
       if (previewIdx >= 0 && this.tabs[previewIdx].connectionId === tab.connectionId) {
         this.release(this.tabs[previewIdx]);
+        forgetResults(this.tabs[previewIdx]);
         this.tabs.splice(previewIdx, 1, tab);
       } else {
         // A preview of another connection goes; the new tab joins its own group.
         if (previewIdx >= 0) {
           this.release(this.tabs[previewIdx]);
+          forgetResults(this.tabs[previewIdx]);
           this.tabs.splice(previewIdx, 1);
         }
         this.tabs.splice(this.slotFor(tab.connectionId), 0, tab);
@@ -917,6 +931,7 @@ export const useTabsStore = defineStore('tabs', {
         }
         return;
       }
+      if (closing) forgetResults(t);
       api.closeSession(t.id).catch(() => {});
     },
   },

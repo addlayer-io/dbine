@@ -14,6 +14,10 @@ export type PlanMode = 'none' | 'estimated' | 'actual';
 
 export interface ResultRun {
   id: number;
+  /** Its id in the results store (composables/resultsStore.ts). */
+  key: string;
+  /** Read back from the store: its outcome loads when it's shown. */
+  restored?: boolean;
   outcome: QueryOutcome | null;
   /** The script that ran (parameters filled): exports and "Volver a
    *  ejecutar" run it again. */
