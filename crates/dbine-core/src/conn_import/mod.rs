@@ -749,9 +749,10 @@ fn apply_ado(c: &mut Candidate, s: &str) {
         };
         let v = v.trim();
         // `len() >= 2`: a lone `"` both starts and ends with a quote.
-        let v = if v.len() >= 2 && (v.starts_with('{') && v.ends_with('}'))
-            || (v.starts_with('"') && v.ends_with('"'))
-            || (v.starts_with('\'') && v.ends_with('\''))
+        let v = if v.len() >= 2
+            && ((v.starts_with('{') && v.ends_with('}'))
+                || (v.starts_with('"') && v.ends_with('"'))
+                || (v.starts_with('\'') && v.ends_with('\'')))
         {
             v[1..v.len() - 1].to_string()
         } else {
@@ -1025,5 +1026,23 @@ mod tests {
         );
         assert_eq!(c.config.options["auth"], "entra_password");
         assert_eq!(c.config.password.as_deref(), Some("p;x"));
+    }
+
+    /// A value that is one quote alone is kept as it is (it used to slice
+    /// past its end and panic: found by the `conn_strings` fuzz target).
+    #[test]
+    fn ado_lone_quote_values() {
+        // A quote or brace opens a value that runs to the closing one, so
+        // one alone can only be the last value.
+        for q in ["\"", "'", "{"] {
+            let mut c = cand("sqlserver");
+            apply_ado(&mut c, &format!("Server=h;Database=d;Password={q}"));
+            assert_eq!(c.config.database, "d");
+            assert_eq!(c.config.password.as_deref(), Some(q));
+        }
+        // Two quotes: an empty value, which is no password.
+        let mut c = cand("sqlserver");
+        apply_ado(&mut c, "Server=h;Password=\"\"");
+        assert_eq!(c.config.password, None);
     }
 }

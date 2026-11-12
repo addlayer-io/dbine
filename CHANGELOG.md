@@ -5,6 +5,9 @@
 ### New
 - **Results kept when DBine closes:** each query editor's result tabs are saved to an encrypted file on your computer, so after closing DBine, or a crash, every editor shows them again as they were, pinned ones included, without running anything. The key never leaves your computer and user; **Settings › General** sets the space they may take, clears them, or turns it off.
 
+### Fixes
+- **Pasting a connection string:** a SQL Server or ODBC connection string whose last value was a lone quote or brace (`Password="`) made the import fail; it's now read as that character.
+
 ## [1.5.0] - 2026-11-11
 
 ### New
