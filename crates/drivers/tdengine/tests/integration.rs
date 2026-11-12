@@ -362,6 +362,22 @@ async fn monitor() {
         assert!(v(k).is_some(), "{k}: {:#?} {:?}", snap.metrics, snap.notes);
     }
     assert!(v("mem_used").unwrap() > 1e6);
+    for m in &snap.metrics {
+        eprintln!("{:<16} {:?} max={:?}", m.key, m.value, m.max);
+        assert!(m.help.is_some() && m.source.is_some(), "{}", m.key);
+    }
+    // Shares of the machine, never above 100 %.
+    assert!(v("cpu").unwrap() <= 100.0 && v("cpu_engine").unwrap() <= 100.0);
+    // `value`, `vgroups` and `replica` are keywords in 3.3: the queries
+    // backtick them, or the limit and the databases come back empty.
+    let conns = snap
+        .metrics
+        .iter()
+        .find(|m| m.key == "connections")
+        .unwrap();
+    assert!(conns.max.is_some_and(|m| m > 0.0), "maxShellConns");
+    assert!(snap.info.iter().any(|(k, _)| k == "Núcleos"));
+    assert!(v("tables").unwrap().is_sign_positive());
     let t = |k: &str| snap.tables.iter().find(|t| t.key == k).unwrap();
     assert_eq!(t("nodes").rows.len(), 1);
     assert!(!t("sessions").rows.is_empty());

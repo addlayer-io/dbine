@@ -63,22 +63,50 @@ pub(crate) fn from_info(
         "Redis"
     };
 
-    // CPU.
-    let cpu = match (n(info, "used_cpu_sys"), n(info, "used_cpu_user")) {
-        (Some(a), Some(b)) => Some((a + b) * 100.0),
-        (a, b) => a.or(b).map(|x| x * 100.0),
+    // CPU. INFO gives seconds of CPU, never the host's usage or its cores,
+    // so the rate has to be a share of what the server can use, never
+    // "300 %" for three busy cores: Dragonfly spreads the work over
+    // `thread_count` threads (one per core by default), so its process
+    // time goes over them; Redis and Valkey run the commands on one main
+    // thread, whose own time (6.2+, only where the OS has RUSAGE_THREAD:
+    // Linux and FreeBSD, not macOS or Windows ports) is a share of that one
+    // core. Neither known: not shown.
+    let seconds = |a: &str, b: &str| match (n(info, a), n(info, b)) {
+        (Some(x), Some(y)) => Some(x + y),
+        (x, y) => x.or(y),
     };
-    s.metrics.push(
+    let cpu = if product == "Dragonfly" {
+        let threads = n(info, "thread_count").filter(|t| *t > 0.0);
+        let cpu = seconds("used_cpu_sys", "used_cpu_user")
+            .zip(threads)
+            .map(|(s, t)| s * 100.0 / t);
+        s.notes.push(if cpu.is_some() {
+            format!("{product} no informa el uso de CPU del host; se muestra el tiempo de CPU del proceso repartido entre sus hilos de trabajo.")
+        } else {
+            format!("{product} no informó cuántos hilos de trabajo usa (thread_count): sin ese dato no se muestra la CPU del proceso.")
+        });
+        Metric::new("cpu_time", "CPU del proceso", "CPU", MetricUnit::Percent, cpu)
+            .help("Tiempo de CPU (usuario + sistema) de todo el proceso, como parte de los hilos de trabajo de Dragonfly (thread_count: uno por núcleo, salvo que se fije proactor_threads): 100 % es todos ocupados. Alto y sostenido indica que faltan núcleos o que hay comandos costosos.")
+            .source("INFO: (used_cpu_sys + used_cpu_user) × 100 ÷ thread_count")
+    } else {
+        let cpu =
+            seconds("used_cpu_sys_main_thread", "used_cpu_user_main_thread").map(|s| s * 100.0);
+        s.notes.push(if cpu.is_some() {
+            format!("{product} no informa el uso de CPU del host; se muestra el del hilo principal, el que ejecuta los comandos.")
+        } else {
+            format!("{product} no informa el tiempo de CPU del hilo principal (used_cpu_sys_main_thread: Redis 6.2 o posterior, solo en Linux y FreeBSD): sin ese dato no se muestra la CPU.")
+        });
         Metric::new(
             "cpu_time",
-            "CPU del proceso",
+            "CPU del hilo principal",
             "CPU",
             MetricUnit::Percent,
             cpu,
         )
-        .counter(),
-    );
-    s.notes.push(format!("{product} no informa el uso de CPU del host; se muestra el tiempo de CPU del proceso (la tasa es el % de un núcleo)."));
+        .help("Tiempo de CPU (usuario + sistema) del hilo principal, el que ejecuta los comandos de a uno, como parte de su único núcleo: 100 % es el hilo saturado y los comandos empiezan a hacer cola. Suele subir más por comandos costosos (KEYS, colecciones grandes, scripts Lua) que por la cantidad de operaciones.")
+        .source("INFO cpu: (used_cpu_sys_main_thread + used_cpu_user_main_thread) × 100")
+    };
+    s.metrics.push(cpu.max(Some(100.0)).counter());
 
     // Memory.
     let maxmemory = n(info, "maxmemory").filter(|m| *m > 0.0);
@@ -91,7 +119,9 @@ pub(crate) fn from_info(
             MetricUnit::Bytes,
             n(info, "used_memory"),
         )
-        .max(ceiling),
+        .max(ceiling)
+        .help("Memoria que el servidor tiene asignada para los datos, sus estructuras internas y los búferes de los clientes. El tope es maxmemory o, si no está configurado, la memoria del host; al llegar a maxmemory desaloja claves o rechaza escrituras, según la política de desalojo.")
+        .source("INFO memory: used_memory (max: maxmemory, else total_system_memory)"),
     );
     if let Some(v) = n(info, "used_memory_rss") {
         s.metrics.push(
@@ -102,26 +132,36 @@ pub(crate) fn from_info(
                 MetricUnit::Bytes,
                 Some(v),
             )
-            .max(ceiling),
+            .max(ceiling)
+            .help("Memoria física que el sistema operativo le asigna al proceso. Suma la fragmentación y lo que el asignador todavía no devolvió, así que suele ser mayor que la memoria usada.")
+            .source("INFO memory: used_memory_rss"),
         );
     }
     if let Some(v) = n(info, "used_memory_peak") {
-        s.metrics.push(Metric::new(
-            "mem_peak",
-            "Pico de memoria",
-            "Memoria",
-            MetricUnit::Bytes,
-            Some(v),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "mem_peak",
+                "Pico de memoria",
+                "Memoria",
+                MetricUnit::Bytes,
+                Some(v),
+            )
+            .help("Lo máximo que llegó a ocupar la memoria usada desde que arrancó el servidor. Muy por encima de la actual indica un pico pasado de datos o de búferes de clientes.")
+            .source("INFO memory: used_memory_peak"),
+        );
     }
     if let Some(v) = n(info, "mem_fragmentation_ratio") {
-        s.metrics.push(Metric::new(
-            "mem_fragmentation",
-            "Fragmentación (×100)",
-            "Memoria",
-            MetricUnit::Percent,
-            Some(v * 100.0),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "mem_fragmentation",
+                "Fragmentación (×100)",
+                "Memoria",
+                MetricUnit::Percent,
+                Some(v * 100.0),
+            )
+            .help("La memoria residente dividida por la usada, por 100: 100 es que el proceso ocupa en RAM justo lo que guarda. Arriba de 150 hay memoria fragmentada que no se reusa; por debajo de 100, parte del proceso está en swap. Con muy pocos datos da valores altos sin importancia.")
+            .source("INFO memory: mem_fragmentation_ratio × 100"),
+        );
     }
 
     // Clients.
@@ -134,16 +174,22 @@ pub(crate) fn from_info(
             MetricUnit::Count,
             n(info, "connected_clients"),
         )
-        .max(maxclients),
+        .max(maxclients)
+        .help("Conexiones de clientes abiertas ahora, sin contar las de réplicas; incluye las de DBine. El tope es maxclients: al alcanzarlo, las conexiones nuevas se rechazan.")
+        .source("INFO clients: connected_clients (max: maxclients, or CONFIG GET maxclients)"),
     );
     if let Some(v) = n(info, "blocked_clients") {
-        s.metrics.push(Metric::new(
-            "blocked_clients",
-            "Clientes bloqueados",
-            "Conexiones",
-            MetricUnit::Count,
-            Some(v),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "blocked_clients",
+                "Clientes bloqueados",
+                "Conexiones",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .help("Clientes esperando en un comando bloqueante (BLPOP, BRPOP, XREAD BLOCK, WAIT…) a que llegue un dato o venza el plazo. Es normal en colas; si crece sin parar, nadie está alimentando a esos consumidores.")
+            .source("INFO clients: blocked_clients"),
+        );
     }
     if let Some(v) = n(info, "total_connections_received") {
         s.metrics.push(
@@ -154,10 +200,13 @@ pub(crate) fn from_info(
                 MetricUnit::Count,
                 Some(v),
             )
-            .counter(),
+            .counter()
+            .help("Conexiones nuevas que aceptó el servidor. Un ritmo alto y sostenido indica clientes que abren una conexión por operación en lugar de reusar un pool.")
+            .source("INFO stats: total_connections_received"),
         );
     }
-    if let Some(v) = n(info, "rejected_connections") {
+    // Dragonfly reports -1: it doesn't count them.
+    if let Some(v) = n(info, "rejected_connections").filter(|v| *v >= 0.0) {
         s.metrics.push(
             Metric::new(
                 "rejected_connections",
@@ -166,7 +215,9 @@ pub(crate) fn from_info(
                 MetricUnit::Count,
                 Some(v),
             )
-            .counter(),
+            .counter()
+            .help("Conexiones rechazadas por haber llegado al tope de maxclients. Si aparecen, hay que subir maxclients o buscar clientes que no cierran sus conexiones.")
+            .source("INFO stats: rejected_connections"),
         );
     }
 
@@ -179,16 +230,22 @@ pub(crate) fn from_info(
             MetricUnit::Count,
             n(info, "total_commands_processed"),
         )
-        .counter(),
+        .counter()
+        .help("Comandos que ejecutó el servidor, de cualquier tipo: lecturas, escrituras y administración, incluidos los de DBine.")
+        .source("INFO stats: total_commands_processed"),
     );
     if let Some(v) = n(info, "instantaneous_ops_per_sec") {
-        s.metrics.push(Metric::new(
-            "ops_per_sec",
-            "Operaciones por segundo",
-            "Actividad",
-            MetricUnit::Count,
-            Some(v),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "ops_per_sec",
+                "Operaciones por segundo",
+                "Actividad",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .help("Comandos por segundo según el propio servidor, promediados sobre el último segundo o dos. Reacciona antes que la tasa de Comandos, que se calcula entre dos lecturas del monitor.")
+            .source("INFO stats: instantaneous_ops_per_sec"),
+        );
     }
     if let Some(v) = n(info, "expired_keys") {
         s.metrics.push(
@@ -199,7 +256,9 @@ pub(crate) fn from_info(
                 MetricUnit::Count,
                 Some(v),
             )
-            .counter(),
+            .counter()
+            .help("Claves que el servidor borró porque venció su TTL. Es esperable si la aplicación usa vencimientos; un salto brusco suele venir de muchas claves creadas con el mismo TTL.")
+            .source("INFO stats: expired_keys"),
         );
     }
 
@@ -212,7 +271,9 @@ pub(crate) fn from_info(
             MetricUnit::Bytes,
             n(info, "total_net_input_bytes"),
         )
-        .counter(),
+        .counter()
+        .help("Bytes que el servidor leyó de la red: los comandos de los clientes con sus argumentos.")
+        .source("INFO stats: total_net_input_bytes"),
     );
     s.metrics.push(
         Metric::new(
@@ -222,7 +283,9 @@ pub(crate) fn from_info(
             MetricUnit::Bytes,
             n(info, "total_net_output_bytes"),
         )
-        .counter(),
+        .counter()
+        .help("Bytes que el servidor escribió en la red: las respuestas a los clientes. Mucho más que la red entrante suele indicar lecturas de valores o colecciones grandes.")
+        .source("INFO stats: total_net_output_bytes"),
     );
 
     // Cache.
@@ -240,7 +303,9 @@ pub(crate) fn from_info(
             MetricUnit::Percent,
             ratio,
         )
-        .max(Some(100.0)),
+        .max(Some(100.0))
+        .help("Búsquedas de claves que encontraron la clave, sobre el total de búsquedas, acumulado desde el arranque o el último CONFIG RESETSTAT, así que se mueve despacio. Bajo es normal si la aplicación consulta claves que no existen; en una caché indica que las claves vencen o se desalojan demasiado pronto.")
+        .source("INFO stats: keyspace_hits ÷ (keyspace_hits + keyspace_misses) × 100"),
     );
     if hits.is_some() {
         s.metrics.push(
@@ -251,7 +316,11 @@ pub(crate) fn from_info(
                 MetricUnit::Count,
                 hits,
             )
-            .counter(),
+            .counter()
+            .help(
+                "Búsquedas de claves (GET, HGET y demás lecturas) que encontraron la clave pedida.",
+            )
+            .source("INFO stats: keyspace_hits"),
         );
         s.metrics.push(
             Metric::new(
@@ -261,7 +330,9 @@ pub(crate) fn from_info(
                 MetricUnit::Count,
                 misses,
             )
-            .counter(),
+            .counter()
+            .help("Búsquedas de claves que no la encontraron: no existe, venció o se desalojó.")
+            .source("INFO stats: keyspace_misses"),
         );
     }
     s.metrics.push(
@@ -272,7 +343,9 @@ pub(crate) fn from_info(
             MetricUnit::Count,
             n(info, "evicted_keys"),
         )
-        .counter(),
+        .counter()
+        .help("Claves que el servidor borró para no pasar de maxmemory, según la política de desalojo. En una caché es esperable; si se usa como almacén de datos, es pérdida de datos y hace falta más memoria.")
+        .source("INFO stats: evicted_keys"),
     );
 
     // Keyspace.
@@ -284,22 +357,31 @@ pub(crate) fn from_info(
     let keys: f64 = dbs
         .iter()
         .filter_map(|(_, p)| p.get("keys").and_then(|v| num(v)))
-        .sum();
-    s.metrics.push(Metric::new(
-        "keys",
-        "Claves",
-        "Almacenamiento",
-        MetricUnit::Count,
-        Some(keys),
-    ));
-    if let Some(v) = n(info, "rdb_changes_since_last_save") {
-        s.metrics.push(Metric::new(
-            "unsaved_changes",
-            "Cambios sin persistir",
+        // Not `sum`: an empty keyspace would read -0.
+        .fold(0.0, |a, b| a + b);
+    s.metrics.push(
+        Metric::new(
+            "keys",
+            "Claves",
             "Almacenamiento",
             MetricUnit::Count,
-            Some(v),
-        ));
+            Some(keys),
+        )
+        .help("Claves guardadas en todas las bases lógicas del servidor.")
+        .source("INFO keyspace: sum of keys over db0…dbN"),
+    );
+    if let Some(v) = n(info, "rdb_changes_since_last_save") {
+        s.metrics.push(
+            Metric::new(
+                "unsaved_changes",
+                "Cambios sin persistir",
+                "Almacenamiento",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .help("Escrituras desde el último snapshot RDB: lo que se perdería si el proceso se cae ahora sin AOF activado. Crece hasta el próximo guardado (save o BGSAVE) y vuelve a cero.")
+            .source("INFO persistence: rdb_changes_since_last_save"),
+        );
     }
     let mut table = MonitorTable::new(
         "databases",
@@ -323,7 +405,8 @@ pub(crate) fn from_info(
         "Réplicas",
         &["réplica", "estado", "offset", "retraso (s)"],
     );
-    let lag = if role == "slave" || role == "replica" {
+    let replica = role == "slave" || role == "replica";
+    let lag = if replica {
         let link = info.get("master_link_status").map(String::as_str);
         repl.rows.push(vec![
             J::String(format!(
@@ -369,34 +452,49 @@ pub(crate) fn from_info(
         }
         worst
     };
-    s.metrics.push(Metric::new(
+    let lag = Metric::new(
         "replication_lag",
         "Retraso de réplica",
         "Replicación",
         MetricUnit::Seconds,
         lag,
-    ));
+    );
+    s.metrics.push(if replica {
+        lag.help("Segundos desde que esta réplica recibió algo del primario. El primario manda un ping cada 10 segundos por omisión, así que hasta ese valor es normal; más indica un enlace lento o cortado.")
+            .source("INFO replication: master_last_io_seconds_ago")
+    } else {
+        lag.help("Segundos desde la última confirmación de la réplica más atrasada. Las réplicas confirman cada segundo, así que 0 o 1 es normal; más indica una réplica lenta o con la red cortada.")
+            .source("INFO replication: highest lag of the slaveN lines")
+    });
     if let Some(v) = n(info, "connected_slaves") {
-        s.metrics.push(Metric::new(
-            "replicas",
-            "Réplicas conectadas",
-            "Replicación",
-            MetricUnit::Count,
-            Some(v),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "replicas",
+                "Réplicas conectadas",
+                "Replicación",
+                MetricUnit::Count,
+                Some(v),
+            )
+            .help("Réplicas conectadas ahora a este servidor. Si baja de lo esperado, alguna perdió el enlace.")
+            .source("INFO replication: connected_slaves"),
+        );
     }
     if !repl.rows.is_empty() {
         s.tables.push(repl);
     }
 
     // Server.
-    s.metrics.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        MetricUnit::Seconds,
-        n(info, "uptime_in_seconds"),
-    ));
+    s.metrics.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            MetricUnit::Seconds,
+            n(info, "uptime_in_seconds"),
+        )
+        .help("Tiempo desde que arrancó el proceso del servidor. Si vuelve a cero, el servidor se reinició.")
+        .source("INFO server: uptime_in_seconds"),
+    );
 
     // Command statistics, busiest first.
     let mut stats: Vec<(f64, Vec<J>)> = info
@@ -485,8 +583,9 @@ pub(crate) fn from_info(
     }
 }
 
-/// `CLIENT LIST` text → the sessions table (newest activity first).
-pub(crate) fn clients(text: &str) -> MonitorTable {
+/// `CLIENT LIST` text → the sessions table (newest activity first, the
+/// first [`MAX_ROWS`]) and how many of all of them are active.
+pub(crate) fn clients(text: &str) -> (MonitorTable, usize) {
     let mut rows: Vec<(f64, Vec<J>)> = text
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -497,7 +596,9 @@ pub(crate) fn clients(text: &str) -> MonitorTable {
                 .collect();
             let idle = p.get("idle").and_then(|v| num(v)).unwrap_or(0.0);
             let cmd = p.get("cmd").copied().filter(|c| *c != "NULL");
-            let state = if cmd.is_some() && idle == 0.0 {
+            // Dragonfly has no `cmd`: `phase=process` is a client running one.
+            let running = cmd.is_some() || p.get("phase") == Some(&"process");
+            let state = if running && idle == 0.0 {
                 "activa"
             } else {
                 "inactiva"
@@ -522,6 +623,8 @@ pub(crate) fn clients(text: &str) -> MonitorTable {
         })
         .collect();
     rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // Counted over every client, not only the rows the table keeps.
+    let active = rows.iter().filter(|r| r.1[5] == json!("activa")).count();
     let mut t = MonitorTable::new(
         "sessions",
         "Sesiones",
@@ -539,7 +642,27 @@ pub(crate) fn clients(text: &str) -> MonitorTable {
         ],
     );
     t.rows = rows.into_iter().take(MAX_ROWS).map(|(_, r)| r).collect();
-    t
+    (t, active)
+}
+
+/// The clients `CLIENT LIST` shows running a command. Redis and Valkey
+/// give each client's last command and its idle seconds; Dragonfly gives
+/// no command, only the phase it is in.
+pub(crate) fn active_sessions(active: usize, dragonfly: bool) -> Metric {
+    let m = Metric::new(
+        "active_sessions",
+        "Sesiones activas",
+        "Conexiones",
+        MetricUnit::Count,
+        Some(active as f64),
+    );
+    if dragonfly {
+        m.help("Conexiones que están ejecutando un comando al momento de la lectura, incluida la de DBine. Comparalas con Conexiones para ver cuántas están ociosas; muchas a la vez de forma sostenida indican comandos lentos o un servidor saturado.")
+            .source("CLIENT LIST: clients with idle=0 and phase=process")
+    } else {
+        m.help("Conexiones que enviaron un comando en el último segundo, incluida la de DBine. Comparalas con Conexiones para ver cuántas están ociosas; muchas a la vez de forma sostenida indican comandos lentos o un servidor saturado.")
+            .source("CLIENT LIST: clients with idle=0 and a cmd")
+    }
 }
 
 /// `SLOWLOG GET` reply → the slow-queries table.
@@ -678,11 +801,10 @@ impl RedisSession {
 
         match self.run(&[b"CLIENT", b"LIST"]).await {
             Ok(v) => {
-                let t = clients(&shape::text_of(&v));
-                let active = t.rows.iter().filter(|r| r[5] == json!("activa")).count();
+                let (t, active) = clients(&shape::text_of(&v));
                 s.metrics.insert(
                     s.metrics.iter().position(|m| m.key == "connections").map_or(0, |i| i + 1),
-                    Metric::new("active_sessions", "Sesiones activas", "Conexiones", MetricUnit::Count, Some(active as f64)),
+                    active_sessions(active, info.contains_key("dragonfly_version")),
                 );
                 s.tables.insert(0, t);
             }
@@ -713,16 +835,25 @@ mod tests {
 total_net_input_bytes:100\r\ntotal_net_output_bytes:200\r\n\
 # Replication\r\nrole:master\r\nconnected_slaves:1\r\nslave0:ip=10.0.0.2,port=6380,state=online,offset=42,lag=2\r\n\
 # CPU\r\nused_cpu_sys:1.5\r\nused_cpu_user:2.5\r\n\
+used_cpu_sys_main_thread:1.0\r\nused_cpu_user_main_thread:2.0\r\n\
 # Commandstats\r\ncmdstat_get:calls=10,usec=100,usec_per_call=10.00,rejected_calls=0,failed_calls=0\r\n\
 cmdstat_set:calls=20,usec=300,usec_per_call=15.00,rejected_calls=0,failed_calls=1\r\n\
 # Keyspace\r\ndb0:keys=5,expires=1,avg_ttl=0\r\ndb2:keys=7,expires=0,avg_ttl=0\r\n";
+
+    /// Every optional field `from_info` reads, beyond [`INFO`].
+    const MORE: &str = "used_memory_rss:2097152\r\nused_memory_peak:3145728\r\n\
+mem_fragmentation_ratio:1.5\r\ntotal_connections_received:9\r\nrejected_connections:0\r\n\
+instantaneous_ops_per_sec:4\r\nexpired_keys:1\r\nrdb_changes_since_last_save:6\r\n";
 
     #[test]
     fn info_metrics() {
         let mut s = MonitorSnapshot::default();
         from_info(&mut s, &parse_info(INFO), None);
         let m = |k: &str| s.metrics.iter().find(|m| m.key == k).unwrap();
-        assert_eq!(m("cpu_time").value, Some(400.0));
+        // The main thread's 3 s of CPU, against its one core.
+        assert_eq!(m("cpu_time").value, Some(300.0));
+        assert_eq!(m("cpu_time").max, Some(100.0));
+        assert_eq!(m("cpu_time").label, "CPU del hilo principal");
         assert!(m("cpu_time").counter);
         assert_eq!(m("mem_used").max, Some(8589934592.0));
         assert_eq!(m("connections").max, Some(10000.0));
@@ -735,16 +866,94 @@ cmdstat_set:calls=20,usec=300,usec_per_call=15.00,rejected_calls=0,failed_calls=
         assert_eq!(t("replication").rows[0][0], json!("10.0.0.2:6380"));
     }
 
+    /// Every metric, on every flavor and role, says what it measures and
+    /// where it comes from.
+    #[test]
+    fn every_metric_has_help_and_source() {
+        let dragonfly = "# Server\r\ndragonfly_version:df-v1.2.3\r\nthread_count:4\r\n";
+        let replica = "role:slave\r\nmaster_host:10.0.0.1\r\nmaster_port:6379\r\nmaster_link_status:up\r\nmaster_last_io_seconds_ago:3\r\n";
+        for extra in ["", dragonfly, replica] {
+            let mut s = MonitorSnapshot::default();
+            from_info(&mut s, &parse_info(&format!("{INFO}{MORE}{extra}")), None);
+            s.metrics
+                .push(active_sessions(1, extra.contains("dragonfly_version")));
+            // The fixtures reach every metric the module can produce.
+            assert_eq!(s.metrics.len(), 24, "{extra}");
+            for m in &s.metrics {
+                assert!(
+                    m.help.as_deref().is_some_and(|h| !h.trim().is_empty()),
+                    "{}: help",
+                    m.key
+                );
+                assert!(
+                    m.source.as_deref().is_some_and(|h| !h.trim().is_empty()),
+                    "{}: source",
+                    m.key
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn process_cpu_is_a_share_of_what_it_can_use() {
+        // Dragonfly: 4 s of process CPU over its 4 threads.
+        let info = parse_info(&format!(
+            "{INFO}dragonfly_version:df-v1.2.3\r\nthread_count:4\r\n"
+        ));
+        let mut s = MonitorSnapshot::default();
+        from_info(&mut s, &info, None);
+        let cpu = s.metrics.iter().find(|m| m.key == "cpu_time").unwrap();
+        assert_eq!((cpu.value, cpu.max), (Some(100.0), Some(100.0)));
+        assert_eq!(cpu.label, "CPU del proceso");
+        // Without its thread count, or a Redis without the main thread's
+        // time: no honest share, so not shown.
+        let info = parse_info(&format!("{INFO}dragonfly_version:df-v1.2.3\r\n"));
+        let mut s = MonitorSnapshot::default();
+        from_info(&mut s, &info, None);
+        assert_eq!(s.metrics[0].value, None);
+        let old = INFO
+            .replace("used_cpu_sys_main_thread", "x")
+            .replace("used_cpu_user_main_thread", "y");
+        let mut s = MonitorSnapshot::default();
+        from_info(&mut s, &parse_info(&old), None);
+        assert_eq!(s.metrics[0].value, None);
+        assert!(s.notes.iter().any(|n| n.contains("main_thread")));
+    }
+
+    #[test]
+    fn dragonfly_doesnt_count_rejected_connections() {
+        let mut s = MonitorSnapshot::default();
+        from_info(
+            &mut s,
+            &parse_info(&format!("{INFO}rejected_connections:-1\r\n")),
+            None,
+        );
+        assert!(!s.metrics.iter().any(|m| m.key == "rejected_connections"));
+    }
+
     #[test]
     fn client_list() {
-        let t = clients(
+        let (t, active) = clients(
             "id=3 addr=127.0.0.1:5000 name= age=10 idle=5 flags=N db=0 cmd=get user=default\n\
              id=4 addr=127.0.0.1:5001 name=app age=2 idle=0 flags=N db=1 cmd=client|list user=default\n",
         );
+        assert_eq!(active, 1);
         assert_eq!(t.rows.len(), 2);
         assert_eq!(t.rows[0][0], json!(4.0));
         assert_eq!(t.rows[0][5], json!("activa"));
         assert_eq!(t.rows[1][2], json!("db0"));
+        // The active count covers every client, not only the rows kept.
+        let many: String = (0..MAX_ROWS + 50)
+            .map(|i| format!("id={i} addr=a:{i} idle=0 db=0 cmd=get\n"))
+            .collect();
+        let (t, active) = clients(&many);
+        assert_eq!((t.rows.len(), active), (MAX_ROWS, MAX_ROWS + 50));
+        // Dragonfly: no cmd field, the running one is in phase=process.
+        let (_, active) = clients(
+            "id=32 addr=127.0.0.1:1 name=32 age=0 idle=0 tot-cmds=1 db=0 phase=process\n\
+             id=33 addr=127.0.0.1:2 name=33 age=9 idle=9 tot-cmds=1 db=0 phase=readsock\n",
+        );
+        assert_eq!(active, 1);
     }
 
     #[test]

@@ -220,11 +220,23 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
                     && x.labels.get("area").is_some_and(|a| a == "heap")
             })
             .fold(None, |a: Option<f64>, x| Some(a.unwrap_or(0.0) + x.value));
+    // disk_io_size counts KiB (sectors × sector size ÷ 1024).
+    let kib = |v: Option<f64>| v.map(|k| k * 1024.0);
     let files = |kinds: &[&str]| {
         p.sum_where("file_size", |l| {
             l.get("name").is_some_and(|n| kinds.contains(&n.as_str()))
         })
     };
+    // Nanoseconds of CPU → seconds × 100, spread over the cores the JVM
+    // may use: the rate is the % of all of them (100 % is every one busy),
+    // never "500 %" for five busy cores. Unknown core count: not shown
+    // rather than per core.
+    let cores = p.sum("sys_cpu_cores").filter(|n| *n > 0.0);
+    let cpu_ns = p.sum("process_cpu_time");
+    let cpu_time = cpu_ns.zip(cores).map(|(ns, n)| ns / 1e9 * 100.0 / n);
+    if cpu_ns.is_some() && cores.is_none() {
+        s.notes.push("El DataNode no informó cuántos núcleos puede usar (sys_cpu_cores): sin ese dato no se muestra su tiempo de CPU.".into());
+    }
     let m = &mut s.metrics;
     m.push(
         Metric::new(
@@ -234,7 +246,9 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Percent,
             p.sum("sys_cpu_load"),
         )
-        .max(Some(100.0)),
+        .max(Some(100.0))
+        .help("Uso de CPU de toda la máquina (o del contenedor) donde corre el DataNode, según la JVM: incluye otros procesos. 100 % es todos los núcleos ocupados.")
+        .source("DataNode /metrics: sys_cpu_load"),
     );
     m.push(
         Metric::new(
@@ -244,7 +258,9 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Percent,
             p.sum("process_cpu_load"),
         )
-        .max(Some(100.0)),
+        .max(Some(100.0))
+        .help("Uso de CPU reciente del proceso del DataNode según la JVM, como parte de todos los núcleos de la máquina: 100 % es todos ocupados por IoTDB. Alto y sostenido suele venir de consultas que recorren muchas series, compactaciones o escrituras masivas.")
+        .source("DataNode /metrics: process_cpu_load"),
     );
     m.push(
         Metric::new(
@@ -252,9 +268,12 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             "Tiempo de CPU del DataNode",
             "CPU",
             MetricUnit::Percent,
-            p.sum("process_cpu_time").map(|ns| ns / 1e9 * 100.0),
+            cpu_time,
         )
-        .counter(),
+        .max(Some(100.0))
+        .counter()
+        .help("Tiempo de CPU (usuario + sistema) que consumió el proceso del DataNode, como parte de los núcleos que puede usar: 100 % es todos ocupados. A diferencia de CPU del DataNode, que es la lectura reciente de la JVM, este promedia el intervalo entre dos lecturas del monitor.")
+        .source("DataNode /metrics: process_cpu_time (ns) ÷ 1e9 × 100 ÷ sys_cpu_cores"),
     );
     m.push(
         Metric::new(
@@ -264,7 +283,9 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Bytes,
             heap_used.or(p.sum("process_used_mem")),
         )
-        .max(heap_max.or(p.sum("process_max_mem"))),
+        .max(heap_max.or(p.sum("process_max_mem")))
+        .help("Heap de Java en uso por el DataNode, sobre el máximo configurado (-Xmx). Sube y baja con la recolección de basura; si se queda cerca del tope, las consultas y escrituras se frenan y puede haber errores por falta de memoria.")
+        .source("DataNode /metrics: jvm_memory_used_bytes{area=\"heap\"} (max: jvm_memory_max_bytes heap), else process_used_mem (max: process_max_mem)"),
     );
     m.push(
         Metric::new(
@@ -274,30 +295,44 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Bytes,
             host_used,
         )
-        .max(host_total),
+        .max(host_total)
+        .help("Memoria en uso de la máquina del DataNode: la total menos la libre, según la JVM. Cuenta la caché de archivos del sistema operativo como usada, así que suele verse alta aunque haya memoria disponible.")
+        .source("DataNode /metrics: sys_total_physical_memory_size − sys_free_physical_memory_size"),
     );
-    m.push(Metric::new(
-        "connections",
-        "Conexiones de clientes",
-        "Conexiones",
-        MetricUnit::Count,
-        p.with("thrift_connections", "name", "ClientRPC"),
-    ));
+    m.push(
+        Metric::new(
+            "connections",
+            "Conexiones de clientes",
+            "Conexiones",
+            MetricUnit::Count,
+            p.with("thrift_connections", "name", "ClientRPC"),
+        )
+        .help("Conexiones Thrift de clientes abiertas en el DataNode: JDBC, la CLI y las sesiones de los SDK. Las llamadas a la API REST, como las de DBine, no cuentan.")
+        .source("DataNode /metrics: thrift_connections{name=\"ClientRPC\"}"),
+    );
     let running = i.queries.as_ref().map(|q| own_filtered(q).len() as f64);
-    m.push(Metric::new(
-        "active_sessions",
-        "Consultas en curso",
-        "Conexiones",
-        MetricUnit::Count,
-        running,
-    ));
-    m.push(Metric::new(
-        "threads",
-        "Hilos del DataNode",
-        "Servidor",
-        MetricUnit::Count,
-        p.sum("process_threads_count"),
-    ));
+    m.push(
+        Metric::new(
+            "active_sessions",
+            "Consultas en curso",
+            "Conexiones",
+            MetricUnit::Count,
+            running,
+        )
+        .help("Consultas que se están ejecutando en el cluster, sin contar la que usa DBine para leer esta lista. Si se acumulan hay consultas lentas: mirá la tabla de consultas en curso.")
+        .source("SHOW QUERIES: rows, without its own"),
+    );
+    m.push(
+        Metric::new(
+            "threads",
+            "Hilos del DataNode",
+            "Servidor",
+            MetricUnit::Count,
+            p.sum("process_threads_count"),
+        )
+        .help("Hilos de la JVM del DataNode. Si crecen sin parar, suele haber conexiones o tareas que no terminan.")
+        .source("DataNode /metrics: process_threads_count"),
+    );
     m.push(
         Metric::new(
             "net_in",
@@ -306,7 +341,9 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Bytes,
             p.sum_where("received_bytes", not_lo),
         )
-        .counter(),
+        .counter()
+        .help("Bytes que recibió la máquina del DataNode por todas sus interfaces de red salvo loopback, así que incluye el tráfico de otros procesos.")
+        .source("DataNode /metrics: received_bytes, every iface_name but lo"),
     );
     m.push(
         Metric::new(
@@ -316,7 +353,9 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Bytes,
             p.sum_where("transmitted_bytes", not_lo),
         )
-        .counter(),
+        .counter()
+        .help("Bytes que envió la máquina del DataNode por todas sus interfaces de red salvo loopback, así que incluye el tráfico de otros procesos.")
+        .source("DataNode /metrics: transmitted_bytes, every iface_name but lo"),
     );
     m.push(
         Metric::new(
@@ -324,9 +363,11 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             "Lectura en disco (host)",
             "Disco",
             MetricUnit::Bytes,
-            p.with("disk_io_size", "type", "read"),
+            kib(p.with("disk_io_size", "type", "read")),
         )
-        .counter(),
+        .counter()
+        .help("Bytes que leyeron los discos de la máquina del DataNode, sumando todos los dispositivos, así que incluye la actividad de otros procesos.")
+        .source("DataNode /metrics: disk_io_size{type=\"read\"} (KiB) × 1024, every disk_id"),
     );
     m.push(
         Metric::new(
@@ -334,9 +375,11 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             "Escritura en disco (host)",
             "Disco",
             MetricUnit::Bytes,
-            p.with("disk_io_size", "type", "write"),
+            kib(p.with("disk_io_size", "type", "write")),
         )
-        .counter(),
+        .counter()
+        .help("Bytes que escribieron los discos de la máquina del DataNode, sumando todos los dispositivos, así que incluye la actividad de otros procesos.")
+        .source("DataNode /metrics: disk_io_size{type=\"write\"} (KiB) × 1024, every disk_id"),
     );
     let schema_all = p.sum_where("cache", |l| {
         l.get("name").is_some_and(|n| n == "SchemaCache")
@@ -358,7 +401,9 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Percent,
             hit,
         )
-        .max(Some(100.0)),
+        .max(Some(100.0))
+        .help("Búsquedas de series que la caché de esquema del DataNode resolvió sin ir a la región de esquema, acumulado desde que arrancó. Bajo y sostenido hace más lentas las escrituras y las consultas; puede faltar memoria para el esquema.")
+        .source("DataNode /metrics: cache{name=\"SchemaCache\",type=\"hit\"} ÷ cache{name=\"SchemaCache\",type=\"all\"} × 100"),
     );
     let disk_total = p.sum("sys_disk_total_space");
     m.push(
@@ -369,15 +414,21 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
             MetricUnit::Bytes,
             files(&["seq", "unseq", "wal", "mods"]),
         )
-        .max(disk_total),
+        .max(disk_total)
+        .help("Lo que ocupan en disco los TsFile secuenciales y no secuenciales, el WAL y los archivos de borrados (mods) de este DataNode, sobre el tamaño de sus discos de datos.")
+        .source("DataNode /metrics: file_size{name=\"seq\"|\"unseq\"|\"wal\"|\"mods\"} (max: sys_disk_total_space)"),
     );
-    m.push(Metric::new(
-        "wal_size",
-        "WAL",
-        "Almacenamiento",
-        MetricUnit::Bytes,
-        files(&["wal"]),
-    ));
+    m.push(
+        Metric::new(
+            "wal_size",
+            "WAL",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            files(&["wal"]),
+        )
+        .help("Lo que ocupa el registro de escritura anticipada (WAL). Se libera cuando los datos en memoria pasan a TsFile y las réplicas los recibieron; si crece sin parar, los vuelcos no dan abasto o una réplica está atrasada.")
+        .source("DataNode /metrics: file_size{name=\"wal\"}"),
+    );
     m.push(
         Metric::new(
             "disk_used",
@@ -388,35 +439,49 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
                 .zip(p.sum("sys_disk_available_space"))
                 .map(|(t, a)| t - a),
         )
-        .max(disk_total),
+        .max(disk_total)
+        .help("Espacio usado en los discos de datos del DataNode (total menos disponible), incluido lo que no es de IoTDB. Si lo libre baja del umbral de aviso de disco, el DataNode pasa a solo lectura.")
+        .source("DataNode /metrics: sys_disk_total_space − sys_disk_available_space"),
     );
     let series_total = i.series.as_ref().map(|a| {
         a.rows
             .iter()
             .filter_map(|r| r.get(1).and_then(number))
-            .sum::<f64>()
+            .fold(0.0, |a, b| a + b)
     });
-    m.push(Metric::new(
-        "series",
-        "Series temporales",
-        "Almacenamiento",
-        MetricUnit::Count,
-        series_total,
-    ));
-    m.push(Metric::new(
-        "devices",
-        "Dispositivos",
-        "Almacenamiento",
-        MetricUnit::Count,
-        i.devices,
-    ));
-    m.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        MetricUnit::Seconds,
-        p.sum("up_time").map(|ns| ns / 1e9),
-    ));
+    m.push(
+        Metric::new(
+            "series",
+            "Series temporales",
+            "Almacenamiento",
+            MetricUnit::Count,
+            series_total,
+        )
+        .help("Series temporales definidas en todas las bases. Cada una ocupa memoria de esquema; muchos millones piden más memoria o más DataNodes.")
+        .source("COUNT TIMESERIES root.** GROUP BY LEVEL = 1, summed"),
+    );
+    m.push(
+        Metric::new(
+            "devices",
+            "Dispositivos",
+            "Almacenamiento",
+            MetricUnit::Count,
+            i.devices,
+        )
+        .help("Dispositivos definidos en todas las bases: cada entidad (un equipo, un sensor) que agrupa series bajo una misma ruta.")
+        .source("COUNT DEVICES root.**"),
+    );
+    m.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            MetricUnit::Seconds,
+            p.sum("up_time").map(|ns| ns / 1e9),
+        )
+        .help("Tiempo desde que arrancó el DataNode cuyo endpoint de métricas se consulta. Si vuelve a cero, se reinició.")
+        .source("DataNode /metrics: up_time (ns) ÷ 1e9"),
+    );
 
     // --- cluster ---
     if let Some(c) = &i.cluster {
@@ -439,30 +504,48 @@ pub fn snapshot(product: &str, i: &Inputs) -> MonitorSnapshot {
                 MetricUnit::Count,
                 Some(up),
             )
-            .max(Some(total)),
+            .max(Some(total))
+            .help("Nodos del cluster (ConfigNodes y DataNodes) en estado Running, sobre el total. Si baja del total, hay nodos caídos o desconectados: mirá la tabla de nodos.")
+            .source("SHOW CLUSTER: rows with Status = Running"),
         );
     }
     if let Some(r) = &i.regions {
+        // SHOW REGIONS has a row per replica: each region counts once.
         let count = |ty: &str| {
-            r.rows
+            let rows = r
+                .rows
                 .iter()
-                .filter(|row| text(r.get(row, "Type")).eq_ignore_ascii_case(ty))
-                .count() as f64
+                .filter(|row| text(r.get(row, "Type")).eq_ignore_ascii_case(ty));
+            if r.col("RegionId").is_some() {
+                rows.map(|row| text(r.get(row, "RegionId")))
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len() as f64
+            } else {
+                rows.count() as f64
+            }
         };
-        s.metrics.push(Metric::new(
-            "data_regions",
-            "Regiones de datos",
-            "Cluster",
-            MetricUnit::Count,
-            Some(count("DataRegion")),
-        ));
-        s.metrics.push(Metric::new(
-            "schema_regions",
-            "Regiones de esquema",
-            "Cluster",
-            MetricUnit::Count,
-            Some(count("SchemaRegion")),
-        ));
+        s.metrics.push(
+            Metric::new(
+                "data_regions",
+                "Regiones de datos",
+                "Cluster",
+                MetricUnit::Count,
+                Some(count("DataRegion")),
+            )
+            .help("Regiones de datos del cluster, cada una contada una vez aunque tenga varias réplicas. Las bases reparten sus datos entre ellas; más regiones dan más paralelismo pero usan más memoria.")
+            .source("SHOW REGIONS: distinct RegionId with Type = DataRegion"),
+        );
+        s.metrics.push(
+            Metric::new(
+                "schema_regions",
+                "Regiones de esquema",
+                "Cluster",
+                MetricUnit::Count,
+                Some(count("SchemaRegion")),
+            )
+            .help("Regiones de esquema del cluster, cada una contada una vez aunque tenga varias réplicas: guardan la definición de las series.")
+            .source("SHOW REGIONS: distinct RegionId with Type = SchemaRegion"),
+        );
     }
 
     // --- tables ---
@@ -673,6 +756,9 @@ mod tests {
         let prom = Prom::parse(
             "sys_cpu_load{name=\"system\",} 7.5\n\
              process_cpu_time{name=\"process\",} 2E9\n\
+             sys_cpu_cores{name=\"system\",} 4\n\
+             disk_io_size{type=\"read\",disk_id=\"vda\",} 2.0\n\
+             disk_io_size{type=\"read\",disk_id=\"vdb\",} 1.0\n\
              jvm_memory_used_bytes{id=\"G1 Old Gen\",area=\"heap\",} 100.0\n\
              jvm_memory_used_bytes{id=\"Metaspace\",area=\"nonheap\",} 5.0\n\
              jvm_memory_max_bytes{id=\"G1 Old Gen\",area=\"heap\",} 1000.0\n\
@@ -710,6 +796,8 @@ mod tests {
                 &["RegionId", "Type"],
                 vec![
                     vec![json!(1), json!("DataRegion")],
+                    // A second replica of region 1.
+                    vec![json!(1), json!("DataRegion")],
                     vec![json!(2), json!("SchemaRegion")],
                 ],
             )),
@@ -745,8 +833,28 @@ mod tests {
                 .unwrap_or_else(|| panic!("{k}"))
         };
         assert_eq!(m("cpu").value, Some(7.5));
-        assert_eq!(m("cpu_time").value, Some(200.0));
+        // 2 s of CPU over the 4 cores it may use: a second of all four
+        // busy adds 100 (%), not 400.
+        assert_eq!(m("cpu_time").value, Some(50.0));
+        assert_eq!(m("cpu_time").max, Some(100.0));
         assert!(m("cpu_time").counter);
+        // disk_io_size is in KiB, summed over the disks.
+        assert_eq!(m("disk_read").value, Some(3072.0));
+        // Every metric says what it measures and where it comes from; the
+        // fixture reaches all of them.
+        assert_eq!(s.metrics.len(), 22);
+        for x in &s.metrics {
+            assert!(
+                x.help.as_deref().is_some_and(|h| !h.is_empty()),
+                "{}",
+                x.key
+            );
+            assert!(
+                x.source.as_deref().is_some_and(|h| !h.is_empty()),
+                "{}",
+                x.key
+            );
+        }
         assert_eq!(m("mem_used").value, Some(100.0));
         assert_eq!(m("mem_used").max, Some(1000.0));
         assert_eq!(m("connections").value, Some(3.0));
@@ -775,6 +883,18 @@ mod tests {
             .iter()
             .any(|(k, v)| k == "Consenso de datos" && v == "IoTConsensus"));
         assert!(s.info.iter().any(|(k, v)| k == "Versión" && v == "1.3.2"));
+    }
+
+    #[test]
+    fn cpu_time_needs_the_core_count() {
+        let inputs = Inputs {
+            prom: Some(Prom::parse("process_cpu_time{name=\"process\",} 2E9\n")),
+            ..Default::default()
+        };
+        let s = snapshot("Apache IoTDB", &inputs);
+        let cpu = s.metrics.iter().find(|m| m.key == "cpu_time").unwrap();
+        assert_eq!(cpu.value, None);
+        assert!(s.notes.iter().any(|n| n.contains("sys_cpu_cores")));
     }
 
     #[test]

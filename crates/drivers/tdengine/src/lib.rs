@@ -1201,7 +1201,7 @@ impl Session for TdSession {
         let mnodes = self.records("SHOW MNODES").await.unwrap_or_default();
         let cluster = self.records("SHOW CLUSTER").await.unwrap_or_default();
         let vars = self
-            .strings("SELECT name, value FROM information_schema.ins_dnode_variables WHERE dnode_id = 1 AND name IN ('timezone', 'numOfCores', 'totalMemoryKB', 'maxShellConns', 'supportVnodes', 'monitor', 'queryPolicy')")
+            .strings("SELECT name, `value` FROM information_schema.ins_dnode_variables WHERE dnode_id = 1 AND name IN ('timezone', 'numOfCores', 'totalMemoryKB', 'maxShellConns', 'supportVnodes', 'monitor', 'queryPolicy')")
             .await
             .unwrap_or_default();
         let var = |n: &str| {
@@ -1225,10 +1225,13 @@ impl Session for TdSession {
             .await
             .ok();
         // taosKeeper's monitor database: the newest row per dnode.
+        // taosKeeper before 3.3 writes the older `dnodes_info` instead.
+        let mut keeper_table = "taosd_dnodes_info";
         let mut keeper = self
             .records("SELECT last_row(*), dnode_id FROM log.taosd_dnodes_info GROUP BY dnode_id")
             .await;
         if keeper.is_err() {
+            keeper_table = "dnodes_info";
             keeper = self
                 .records("SELECT last_row(*), dnode_id FROM log.dnodes_info GROUP BY dnode_id")
                 .await;
@@ -1240,148 +1243,28 @@ impl Session for TdSession {
                 Vec::new()
             }
         };
-        let k = |col: &str| -> Option<f64> {
-            let vals: Vec<f64> = keeper
-                .iter()
-                .filter_map(|r| num(r.get(&format!("last_row({col})"))))
-                .collect();
-            (!vals.is_empty()).then(|| vals.iter().sum())
-        };
-        let avg = |col: &str| k(col).map(|s| s / keeper.len().max(1) as f64);
-        let kb = |v: Option<f64>| v.map(|x| x * 1024.0);
-        let mem_total = k("mem_total");
         let usage = self.records("SELECT db_name, sum(data1 + data2 + data3) AS data, sum(wal) AS wal FROM information_schema.ins_disk_usage GROUP BY db_name").await.ok();
-        let dbs = self.records("SELECT name, vgroups, ntables, replica, `precision`, status FROM information_schema.ins_databases").await.unwrap_or_default();
+        let dbs = self.records("SELECT name, `vgroups`, ntables, `replica`, `precision`, status FROM information_schema.ins_databases").await.unwrap_or_default();
         let storage: Option<f64> = usage.as_ref().map(|u| {
             u.iter()
                 .map(|r| num(r.get("data")).unwrap_or(0.0) + num(r.get("wal")).unwrap_or(0.0))
-                .sum::<f64>()
+                .fold(0.0, |a, b| a + b)
                 * 1024.0
         });
         let tables: f64 = dbs
             .iter()
             .filter(|r| !SYSTEM_DBS.contains(&r.get("name").map(text).unwrap_or_default().as_str()))
             .filter_map(|r| num(r.get("ntables")))
-            .sum();
-        use MetricUnit::*;
-        snap.metrics = vec![
-            Metric::new("cpu", "CPU del servidor", "CPU", Percent, avg("cpu_system")),
-            Metric::new(
-                "cpu_engine",
-                "CPU de taosd",
-                "CPU",
-                Percent,
-                avg("cpu_engine"),
-            ),
-            Metric::new(
-                "mem_used",
-                "Memoria usada (host)",
-                "Memoria",
-                Bytes,
-                kb(mem_total.zip(k("mem_free")).map(|(t, f)| t - f)),
-            )
-            .max(kb(mem_total)),
-            Metric::new(
-                "mem_engine",
-                "Memoria de taosd",
-                "Memoria",
-                Bytes,
-                kb(k("mem_engine")),
-            )
-            .max(kb(mem_total)),
-            Metric::new(
-                "connections",
-                "Conexiones",
-                "Conexiones",
-                Count,
-                conns.as_ref().map(|c| c.len() as f64),
-            )
-            .max(var("maxShellConns").and_then(|v| dbine_driver::monitor::num(&v))),
-            Metric::new(
-                "active_sessions",
-                "Consultas en curso",
-                "Conexiones",
-                Count,
-                queries.as_ref().map(|q| q.len() as f64),
-            ),
-            Metric::new(
-                "net_in",
-                "Red entrante (por segundo)",
-                "Red",
-                Bytes,
-                kb(k("system_net_in")),
-            ),
-            Metric::new(
-                "net_out",
-                "Red saliente (por segundo)",
-                "Red",
-                Bytes,
-                kb(k("system_net_out")),
-            ),
-            Metric::new(
-                "disk_read",
-                "Lectura de disco (por segundo)",
-                "Disco",
-                Bytes,
-                kb(k("io_read_disk")),
-            ),
-            Metric::new(
-                "disk_write",
-                "Escritura en disco (por segundo)",
-                "Disco",
-                Bytes,
-                kb(k("io_write_disk")),
-            ),
-            Metric::new(
-                "storage_used",
-                "Espacio de las bases",
-                "Almacenamiento",
-                Bytes,
-                storage,
-            ),
-            Metric::new(
-                "disk_used",
-                "Disco del servidor",
-                "Almacenamiento",
-                Bytes,
-                k("disk_used"),
-            )
-            .max(k("disk_total")),
-            Metric::new("tables", "Tablas", "Datos", Count, Some(tables)),
-            Metric::new(
-                "vnodes",
-                "Vnodes",
-                "Cluster",
-                Count,
-                Some(dnodes.iter().filter_map(|r| num(r.get("vnodes"))).sum()),
-            )
-            .max(Some(
-                dnodes
-                    .iter()
-                    .filter_map(|r| num(r.get("support_vnodes")))
-                    .sum(),
-            )),
-            Metric::new(
-                "dnodes_ready",
-                "Dnodes listos",
-                "Cluster",
-                Count,
-                Some(
-                    dnodes
-                        .iter()
-                        .filter(|r| r.get("status").map(text).as_deref() == Some("ready"))
-                        .count() as f64,
-                ),
-            )
-            .max(Some(dnodes.len() as f64)),
-            Metric::new(
-                "uptime",
-                "Tiempo activo",
-                "Servidor",
-                Seconds,
-                keeper.first().and_then(|r| num(r.get("last_row(uptime)"))),
-            ),
-        ];
+            .fold(0.0, |a, b| a + b);
+        snap.metrics = monitor_metrics(
+            (keeper_table, &keeper),
+            &dnodes,
+            conns.as_ref().map(Vec::len),
+            queries.as_ref().map(Vec::len),
+            var("maxShellConns").and_then(|v| dbine_driver::monitor::num(&v)),
+            storage,
+            tables,
+        );
 
         let mut nodes = MonitorTable::new(
             "nodes",
@@ -1606,6 +1489,195 @@ impl Session for TdSession {
     }
 }
 
+/// The Monitor's figures from what `monitor` read: the `log` table
+/// taosKeeper fills and its newest row per dnode (`keeper`, no rows
+/// without it), `SHOW DNODES`, the open connections and running queries,
+/// the connection limit, the databases' size on disk (bytes) and their
+/// tables.
+fn monitor_metrics(
+    (keeper_table, keeper): (&str, &[serde_json::Map<String, Value>]),
+    dnodes: &[serde_json::Map<String, Value>],
+    conns: Option<usize>,
+    queries: Option<usize>,
+    max_conns: Option<f64>,
+    storage: Option<f64>,
+    tables: f64,
+) -> Vec<Metric> {
+    // A column of every dnode's newest row, summed.
+    let k = |col: &str| -> Option<f64> {
+        let vals: Vec<f64> = keeper
+            .iter()
+            .filter_map(|r| num(r.get(&format!("last_row({col})"))))
+            .collect();
+        (!vals.is_empty()).then(|| vals.iter().sum())
+    };
+    let avg = |col: &str| k(col).map(|s| s / keeper.len().max(1) as f64);
+    // Memory comes in KB; disk sizes in bytes; network and disk I/O in
+    // bytes per second (taosd's delta over its report interval).
+    let kb = |v: Option<f64>| v.map(|x| x * 1024.0);
+    let mem_total = k("mem_total");
+    // Where a taosKeeper figure comes from: the table this server has.
+    let src = |what: &str| format!("log.{keeper_table}: {what}");
+    use MetricUnit::*;
+    vec![
+        Metric::new("cpu", "CPU del servidor", "CPU", Percent, avg("cpu_system"))
+            .max(Some(100.0))
+            .help("Uso de CPU de las máquinas de los dnodes, promediado entre ellas e incluidos otros procesos: 100 % es todos los núcleos ocupados. Es el valor del último reporte a taosKeeper (cada 30 s por omisión).")
+            .source(&src("last_row(cpu_system), averaged over dnodes")),
+        Metric::new(
+            "cpu_engine",
+            "CPU de taosd",
+            "CPU",
+            Percent,
+            avg("cpu_engine"),
+        )
+        .max(Some(100.0))
+        .help("CPU que usa el proceso taosd, como parte de todos los núcleos de su máquina y promediada entre los dnodes: 100 % es todos ocupados por TDengine. Es el valor del último reporte a taosKeeper.")
+        .source(&src("last_row(cpu_engine), averaged over dnodes")),
+        Metric::new(
+            "mem_used",
+            "Memoria usada (host)",
+            "Memoria",
+            Bytes,
+            kb(mem_total.zip(k("mem_free")).map(|(t, f)| t - f)),
+        )
+        .max(kb(mem_total))
+        .help("Memoria en uso de las máquinas de los dnodes (la total menos la libre), sumada entre ellas. Cuenta la caché de archivos del sistema operativo como usada, así que suele verse alta aunque haya memoria disponible.")
+        .source(&src("(last_row(mem_total) − last_row(mem_free)) KB × 1024, summed over dnodes")),
+        Metric::new(
+            "mem_engine",
+            "Memoria de taosd",
+            "Memoria",
+            Bytes,
+            kb(k("mem_engine")),
+        )
+        .max(kb(mem_total))
+        .help("Memoria residente de los procesos taosd, sumada entre los dnodes, sobre la memoria de sus máquinas. Crece con los vnodes y con los búferes de escritura y la caché de cada base.")
+        .source(&src("last_row(mem_engine) KB × 1024, summed over dnodes (max: mem_total)")),
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            Count,
+            conns.map(|c| c as f64),
+        )
+        .max(max_conns)
+        .help("Conexiones de clientes abiertas en el cluster, incluidas las de DBine, sobre el máximo que acepta el dnode 1 (maxShellConns).")
+        .source("performance_schema.perf_connections: rows (max: information_schema.ins_dnode_variables maxShellConns)"),
+        Metric::new(
+            "active_sessions",
+            "Consultas en curso",
+            "Conexiones",
+            Count,
+            queries.map(|q| q as f64),
+        )
+        .help("Consultas que se están ejecutando ahora; puede incluir la que usa DBine para leer esta lista. Si se acumulan hay consultas lentas: mirá la tabla de consultas en curso.")
+        .source("performance_schema.perf_queries: rows"),
+        Metric::new(
+            "net_in",
+            "Red entrante (por segundo)",
+            "Red",
+            Bytes,
+            k("system_net_in"),
+        )
+        .help("Bytes por segundo que recibieron por la red las máquinas de los dnodes, sumados entre ellas: el promedio del último intervalo de reporte a taosKeeper (30 s por omisión). Incluye el tráfico de otros procesos.")
+        .source(&src("last_row(system_net_in) (B/s), summed over dnodes")),
+        Metric::new(
+            "net_out",
+            "Red saliente (por segundo)",
+            "Red",
+            Bytes,
+            k("system_net_out"),
+        )
+        .help("Bytes por segundo que enviaron por la red las máquinas de los dnodes, sumados entre ellas: el promedio del último intervalo de reporte a taosKeeper. Incluye el tráfico de otros procesos.")
+        .source(&src("last_row(system_net_out) (B/s), summed over dnodes")),
+        Metric::new(
+            "disk_read",
+            "Lectura de disco (por segundo)",
+            "Disco",
+            Bytes,
+            k("io_read_disk"),
+        )
+        .help("Bytes por segundo que los procesos taosd leyeron del disco, sin contar lo que sirvió la caché del sistema operativo, sumados entre los dnodes: el promedio del último intervalo de reporte a taosKeeper.")
+        .source(&src("last_row(io_read_disk) (B/s), summed over dnodes")),
+        Metric::new(
+            "disk_write",
+            "Escritura en disco (por segundo)",
+            "Disco",
+            Bytes,
+            k("io_write_disk"),
+        )
+        .help("Bytes por segundo que los procesos taosd escribieron al disco, sumados entre los dnodes: el promedio del último intervalo de reporte a taosKeeper.")
+        .source(&src("last_row(io_write_disk) (B/s), summed over dnodes")),
+        Metric::new(
+            "storage_used",
+            "Espacio de las bases",
+            "Almacenamiento",
+            Bytes,
+            storage,
+        )
+        .help("Lo que ocupan en disco los archivos de datos y el WAL de todas las bases, incluida la base log de taosKeeper.")
+        .source("information_schema.ins_disk_usage: sum(data1 + data2 + data3 + wal) KB × 1024"),
+        Metric::new(
+            "disk_used",
+            "Disco del servidor",
+            "Almacenamiento",
+            Bytes,
+            k("disk_used"),
+        )
+        .max(k("disk_total"))
+        .help("Espacio usado en los discos donde los dnodes guardan los datos, sumado entre ellos e incluido lo que no es de TDengine, sobre su tamaño total.")
+        .source(&src("last_row(disk_used) (max: disk_total), summed over dnodes")),
+        Metric::new("tables", "Tablas", "Datos", Count, Some(tables))
+            .help("Tablas de todas las bases menos las de sistema, incluida la base log de taosKeeper: cada subtabla de una supertabla y cada tabla normal. Cada una ocupa memoria de metadatos en los vnodes.")
+            .source("information_schema.ins_databases: sum(ntables), without information_schema and performance_schema"),
+        Metric::new(
+            "vnodes",
+            "Vnodes",
+            "Cluster",
+            Count,
+            Some(
+                dnodes
+                    .iter()
+                    .filter_map(|r| num(r.get("vnodes")))
+                    .fold(0.0, |a, b| a + b),
+            ),
+        )
+        .max(Some(
+            dnodes
+                .iter()
+                .filter_map(|r| num(r.get("support_vnodes")))
+                .fold(0.0, |a, b| a + b),
+        ))
+        .help("Vnodes en uso en todos los dnodes, sobre los que pueden alojar (supportVnodes). Cerca del tope no se pueden crear bases nuevas ni más vgroups.")
+        .source("SHOW DNODES: sum(vnodes) (max: sum(support_vnodes))"),
+        Metric::new(
+            "dnodes_ready",
+            "Dnodes listos",
+            "Cluster",
+            Count,
+            Some(
+                dnodes
+                    .iter()
+                    .filter(|r| r.get("status").map(text).as_deref() == Some("ready"))
+                    .count() as f64,
+            ),
+        )
+        .max(Some(dnodes.len() as f64))
+        .help("Dnodes en estado ready, sobre el total del cluster. Si baja del total, hay dnodes caídos o desconectados: mirá la tabla de dnodes.")
+        .source("SHOW DNODES: rows with status = ready"),
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            Seconds,
+            keeper.first().and_then(|r| num(r.get("last_row(uptime)"))),
+        )
+        .help("Tiempo desde que arrancó el primer dnode que devuelve taosKeeper. Si vuelve a cero, se reinició.")
+        .source(&src("last_row(uptime) of the first dnode")),
+    ]
+}
+
 /// The browse query restricted by the grid's column filters. Identifiers
 /// go in backticks (double quotes are strings in TDengine) and literals
 /// take backslash escapes, so LIKE patterns rely on the default `\`
@@ -1649,6 +1721,76 @@ mod tests {
     #[test]
     fn tls_options() {
         tls_http::assert_legacy_and_defaults(&info().fields);
+    }
+
+    #[test]
+    fn monitor_metrics_units_help_and_source() {
+        let row = |v: Value| v.as_object().unwrap().clone();
+        // Two dnodes' newest rows, as taosKeeper 3.3 stores them.
+        let keeper = vec![
+            row(
+                json!({"last_row(cpu_system)": 10.0, "last_row(cpu_engine)": 2.0,
+                "last_row(mem_total)": 1000.0, "last_row(mem_free)": 400.0, "last_row(mem_engine)": 100.0,
+                "last_row(system_net_in)": 300.0, "last_row(system_net_out)": 30.0,
+                "last_row(io_read_disk)": 50.0, "last_row(io_write_disk)": 951.0,
+                "last_row(disk_used)": 4096.0, "last_row(disk_total)": 8192.0,
+                "last_row(uptime)": 90.0, "dnode_id": "1"}),
+            ),
+            row(
+                json!({"last_row(cpu_system)": 30.0, "last_row(cpu_engine)": 4.0,
+                "last_row(mem_total)": 1000.0, "last_row(mem_free)": 600.0,
+                "last_row(io_write_disk)": 49.0, "dnode_id": "2"}),
+            ),
+        ];
+        let dnodes = vec![row(
+            json!({"id": 1, "vnodes": 2, "support_vnodes": 8, "status": "ready"}),
+        )];
+        let ms = monitor_metrics(
+            ("taosd_dnodes_info", &keeper),
+            &dnodes,
+            Some(3),
+            Some(1),
+            Some(50.0),
+            Some(1e6),
+            7.0,
+        );
+        assert_eq!(ms.len(), 16);
+        for m in &ms {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty()),
+                "{}",
+                m.key
+            );
+            assert!(
+                m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{}",
+                m.key
+            );
+        }
+        let get = |k: &str| ms.iter().find(|m| m.key == k).unwrap();
+        // CPU: the share of each machine, averaged; never above 100.
+        assert_eq!(
+            (get("cpu").value, get("cpu").max),
+            (Some(20.0), Some(100.0))
+        );
+        assert_eq!(get("cpu_engine").value, Some(3.0));
+        // Memory comes in KB.
+        assert_eq!(get("mem_used").value, Some(1000.0 * 1024.0));
+        assert_eq!(get("mem_used").max, Some(2000.0 * 1024.0));
+        // Network and disk I/O are bytes per second already (checked
+        // against /proc/<taosd>/io on 3.3.6): no KB scaling.
+        assert_eq!(get("net_in").value, Some(300.0));
+        assert_eq!(get("disk_write").value, Some(1000.0));
+        assert_eq!(get("uptime").value, Some(90.0));
+        // Without taosKeeper's database, the figures are just missing.
+        let ms = monitor_metrics(("dnodes_info", &[]), &[], None, None, None, None, 0.0);
+        assert!(ms.iter().all(|m| m.help.is_some() && m.source.is_some()));
+        assert_eq!(ms[0].value, None);
+        // The source names the table this server's taosKeeper fills.
+        assert_eq!(
+            ms[0].source.as_deref(),
+            Some("log.dnodes_info: last_row(cpu_system), averaged over dnodes")
+        );
     }
 
     #[test]
