@@ -43,7 +43,7 @@ fn ms_text(ms: Option<f64>) -> Json {
 }
 
 /// `YYYY-MM-DD HH:MM:SS` (UTC) of a Unix time (Hinnant's civil_from_days).
-fn datetime(secs: u64) -> String {
+pub(crate) fn datetime(secs: u64) -> String {
     let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
