@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
 mod ddl;
+mod jobs;
 mod monitor;
 mod plan;
 mod processes;
@@ -148,6 +149,7 @@ impl Driver for KsqlDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            jobs: true,
             ..Capabilities::default()
         }
     }
@@ -982,6 +984,29 @@ impl Session for KsqlSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.terminate(id).await
+    }
+
+    /// Persistent queries (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.server_job_detail(id).await
+    }
+
+    /// `TERMINATE`: the query is gone for good.
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.stop_server_job(id).await
+    }
+
+    /// `RESUME` / `PAUSE`.
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.set_server_job_enabled(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.server_job_script(id).await
     }
 
     /// A pull query read to the end, typed by its column types.

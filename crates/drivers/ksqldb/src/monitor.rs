@@ -203,7 +203,7 @@ pub(crate) fn metrics(f: &Figures) -> Vec<Metric> {
 }
 
 impl KsqlSession {
-    async fn get_json(&self, path: &str) -> Result<Value> {
+    pub(crate) async fn get_json(&self, path: &str) -> Result<Value> {
         let rb = self
             .conn
             .auth(self.conn.http.get(format!("{}{path}", self.conn.base)));

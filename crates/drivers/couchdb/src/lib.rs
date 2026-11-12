@@ -47,6 +47,7 @@
 mod create_db;
 mod ddl;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -229,6 +230,7 @@ impl Driver for CouchDriver {
             processes: true,
             cancel_query: true,
             database_properties: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1010,6 +1012,33 @@ impl Session for CouchSession {
     /// Only replications started with `_replicate` can be stopped.
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_task(id).await
+    }
+
+    /// Replications, from the replication scheduler (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.server_job_detail(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.server_job_runs(id, limit).await
+    }
+
+    /// Restarts a `_replicator` replication by saving its document again.
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.run_server_job(id).await
+    }
+
+    /// Deletes the `_replicator` document, or cancels a `_replicate` one.
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.stop_server_job(id).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.server_job_script(id).await
     }
 
     async fn read_batches(

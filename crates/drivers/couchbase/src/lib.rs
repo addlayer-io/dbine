@@ -13,6 +13,7 @@
 mod create_db;
 mod ddl;
 mod index_usage;
+mod jobs;
 mod permissions;
 mod plan;
 mod processes;
@@ -232,6 +233,7 @@ impl Driver for CouchbaseDriver {
             processes: true,
             cancel_query: true,
             database_properties: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1612,6 +1614,33 @@ impl Session for CbSession {
     /// from `system:active_requests`.
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         processes::cancel(self, id).await
+    }
+
+    /// The Backup Service's repositories (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.server_job_detail(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.server_job_runs(id, limit).await
+    }
+
+    /// A one-off incremental backup.
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.run_server_job(id).await
+    }
+
+    /// `resume` / `pause` of the repository.
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.set_server_job_enabled(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.server_job_script(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

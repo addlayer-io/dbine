@@ -13,6 +13,7 @@
 
 mod ddl;
 mod index_usage;
+mod jobs;
 mod permissions;
 mod plan;
 mod processes;
@@ -178,6 +179,7 @@ impl Driver for DremioDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1240,6 +1242,38 @@ impl Session for DremioSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_running(id).await
+    }
+
+    /// Reflections and their refreshes (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.server_job_detail(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.server_job_runs(id, limit).await
+    }
+
+    /// Refreshes the reflections of the reflection's table.
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.run_server_job(id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.stop_server_job(id).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.server_job_script(id).await
     }
 
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {

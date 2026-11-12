@@ -36,7 +36,7 @@ impl State {
 
 /// An RFC 3339 timestamp in UTC (`2024-01-31T10:00:00.123456Z`, as the REST
 /// API gives them) as epoch milliseconds.
-fn epoch_ms(t: &str) -> Option<i64> {
+pub(crate) fn epoch_ms(t: &str) -> Option<i64> {
     let t = t.trim().strip_suffix('Z')?;
     let (date, time) = t.split_once(['T', ' '])?;
     let mut d = date.splitn(3, '-').map(|p| p.parse::<i64>().ok());

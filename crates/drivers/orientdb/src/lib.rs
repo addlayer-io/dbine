@@ -28,6 +28,7 @@
 mod create_db;
 mod ddl;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -219,6 +220,7 @@ impl Driver for OrientDriver {
             cancel_query: true,
             kill_session: true,
             database_properties: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1550,6 +1552,19 @@ impl Session for OrientSession {
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
         self.end_connection(id, "kill").await
+    }
+
+    /// The scheduler's events (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.server_job_detail(id).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.server_job_script(id).await
     }
 
     async fn read_batches(

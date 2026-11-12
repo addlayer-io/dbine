@@ -1041,6 +1041,8 @@ fn like_escape(s: &str) -> String {
 /// Why there's no process list (for the error and the docs).
 const UNSUPPORTED_PROCESSES: &str = "Flight SQL no define cómo listar ni cancelar las consultas de otros clientes: depende del servidor que \
      lo atiende. Para Dremio o Apache Doris, usá su driver propio, que sí las lista";
+const UNSUPPORTED_JOBS: &str = "Flight SQL no define jobs del servidor: los refrescos de reflexiones de Dremio y los jobs de Apache Doris \
+     se ven con el driver propio de cada uno";
 
 #[async_trait]
 impl Session for FlightSession {
@@ -1444,6 +1446,13 @@ impl Session for FlightSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(UNSUPPORTED_PROCESSES.into()))
+    }
+
+    /// Flight SQL has no jobs API either: the engines behind it that have
+    /// jobs (Dremio's reflection refreshes, Doris's jobs) are reached
+    /// through their own drivers.
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        Err(Error::Unsupported(UNSUPPORTED_JOBS.into()))
     }
 
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
