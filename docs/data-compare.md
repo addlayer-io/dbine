@@ -11,7 +11,11 @@ connections or on different engines. It complements
   left. It is also in the database menu.
 - Choose the right-hand table (connection, database and table). If the other
   database has a table with the same name, it is proposed automatically.
-- **Compare** shows:
+- **Compare** reads both tables whole, however big. While it runs it shows
+  the rows read on each side, the phase (reading, comparing, bringing the
+  different rows), the time elapsed and **Cancel**, which stops both reads
+  and the work on disk. Then it shows how many rows were compared on each
+  side and:
   - the **same** rows (only the count);
   - the **different** ones, with each differing value marked (the left one on
     top, the right one below);
@@ -41,23 +45,63 @@ connections or on different engines. It complements
   that only one has are listed and not compared.
 - Values are compared by what they are worth, not by how each engine returns
   them: `1`, `1.0` and `"1.00"` are equal; a date with `T` or with a space,
+  with or without trailing zeros in its fraction, with `Z` or `+00:00`,
   too. In a boolean column, PostgreSQL's `t` equals another engine's `true` or
   `1`. A text with leading zeros (`"007"`) is compared as text.
-- Up to 200,000 rows per side are read, sorted by the key. If a table has
-  more, the comparison is partial and the result says so:
-  - Rows found on both sides are confirmed: their differences can be synced.
-  - A row seen on one side may exist on the other past what was read, because
-    each engine orders text keys by its own collation. It's shown as "only
-    left" or "only right", but it can't be inserted or deleted:
-    `data_compare_script` refuses it, whatever the UI sends.
-  - An engine that can't sort on the server (see `sorted_browse` in
-    [engine support](engine-support.md)), or can't by that column, reads the
-    rows as they come. The result has `ordered: false` and says that each side
-    may have read different rows.
+- **Whole tables.** Each side is read whole with its driver's batched
+  read, the same one table copies use (`read_batches`): each engine pages
+  the way it can (a server cursor, Elasticsearch's point in time, Solr's
+  cursor, Cassandra's paging…), never one query with a huge `LIMIT`. Both
+  sides are read at once, each on its own read-only session, only the
+  compared columns. No order is needed, so it doesn't matter how each engine
+  sorts text or whether it can sort at all. The totals are exact over the
+  whole tables: `same + different + only left`, plus the left's repeated
+  keys, is the left's row count; likewise on the right. Every row of one side
+  is confirmed absent on the other, so all of them can be inserted or
+  deleted. Checked live on SQL Server, PostgreSQL, MySQL, ClickHouse,
+  Cassandra, MongoDB, Elasticsearch and Solr; the engines where the read
+  isn't batched are in [engine-support.md](engine-support.md#data-compare).
+- **The compared columns come first.** They are taken from each table's
+  catalog (from a one-row read where the catalog lists none) before
+  reading, so each side's rows are cut to them as they arrive, whatever the
+  other side is doing: a side whose first rows are slow to come (a cloud
+  warehouse running its job, a view that sorts) doesn't make the other one
+  pile up rows.
+- **Small tables in memory.** While both sides are under 250,000 rows and
+  256 MB (estimated from the values read), their rows stay in memory and are
+  compared there.
+- **Big tables in a local DuckDB.** Once a side passes 250,000 rows or
+  256 MB, the rows of both sides go to a DuckDB database on disk, made for
+  that comparison only. It starts opening when a side reaches half of
+  either, so the reads rarely wait for it; while one does, the progress says
+  "Preparando la base local…". It lives in its own folder next to the app's
+  data (`<app config>/compare/<folder>/`), encrypted with a key made for that
+  comparison and kept in memory only (never in the vault, never in a log),
+  with its WAL and spilled temp files encrypted too (checked by a test that
+  makes DuckDB spill), extensions off and its configuration locked: the same
+  setup as the [results store](results-store.md), checked the same way before
+  anything is written. DuckDB takes at most 512 MB of memory and works on
+  its temp files past it. Each row goes as its canonical key, a 128-bit hash
+  of its canonical values (equal rows have equal hashes) and the row itself;
+  the comparison is one join in DuckDB; only the rows that differ come back.
+  The reads wait while DuckDB is behind (at most 64 MB queued), and that wait
+  is on the task that reads, never on a driver host's reader thread, so
+  comparing DuckDB or file connections, whose host also runs the local
+  DuckDB, doesn't block it. The folder is deleted when the comparison ends,
+  whether it finished, failed or was cancelled, and what a crash left is
+  deleted the next time DBine starts. DuckDB is downloaded on first use; if
+  it can't be opened (offline the first time…), a comparison that needs it
+  says the table is too big to compare in memory and why DuckDB didn't open
+  (one that stays in memory doesn't need it).
+- **Up to 1,000,000 differences.** The screen and the script cover up to
+  1,000,000 differing rows in all, the first ones in key order (numbers by
+  value, text without case, NULL last). Past that the totals are still
+  exact, and the result says how many differ: after syncing, comparing again
+  brings the next ones.
 - Up to 2,000 rows of each type are shown; the totals and the script include
-  all of them.
-- If a key repeats on one side, the row is compared only once and the result
-  says so.
+  all of them (up to the 1,000,000 above).
+- If a key repeats on one side, the first row read is compared once and the
+  result says so.
 
 ## Sorting and filtering the differences
 
@@ -134,8 +178,20 @@ values: it gets counts, the columns' names and types, and what you type.
 
 ## Commands
 
-- `data_compare { left, right, key, columns, limit }` → the totals, the
-  sample rows, `truncated_left`, `truncated_right`, `ordered` and an `id`.
+- `data_compare { left, right, key, columns, run }` → the totals, the sample
+  rows, `duplicate_keys`, `diff_truncated` and `diff_limit` (more rows differ
+  than the lists hold), `listed` (rows of each kind in the lists) and an
+  `id`. `run` is the UI's id for that comparison. `limit`, which older UIs
+  send, is ignored; `truncated_left` and `truncated_right` are always false
+  and `ordered` always true.
+- `data-compare-progress` (event) `{ run, side: "left" | "right", rows,
+  phase: "reading" | "preparing" | "comparing" | "loading_differences",
+  differences }`: about four times a second per side while it changes
+  (`preparing`: a read waits while the local DuckDB opens).
+- `data_compare_cancel { run }` stops that comparison: both reads (as
+  `cancel_query` does, on its sessions `dcmp:<run>:left` and
+  `dcmp:<run>:right`) and the DuckDB work. The comparison then fails as
+  cancelled and deletes its folder.
 - `data_compare_script { id, choices }` → one script for each side that
   changes: `{ connection_id, database, side: "left" | "right", script,
   inserts, updates, deletes }`. `choices` has `changed`, `only_left` and

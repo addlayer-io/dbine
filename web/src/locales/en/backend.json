@@ -12618,7 +12618,6 @@
   "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "“{0}”: a namespace is renamed to another top-level one, like .ns2.",
   "el contexto necesita un nombre": "the context needs a name",
   "el alias de ~/.ssh/config no es válido": "the ~/.ssh/config alias is not valid",
-  "el almacén de resultados no quedó aislado: {0}": "the results store wasn't isolated: {0}",
   "está protegida con una frase: cargala en el agente (ssh-add) o escribila en la frase del túnel": "is protected by a passphrase: load it in the agent (ssh-add) or enter it in the tunnel passphrase",
   "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)": "the tunnel passphrase doesn't match this key: load it in the agent (ssh-add)",
   "los saltos de «{0}» forman un bucle: {1} → {2}": "the jumps of “{0}” form a loop: {1} → {2}",
@@ -13536,5 +13535,17 @@
   "tu usuario no puede ejecutar cron.alter_job: pg_cron solo se lo permite a su dueño, salvo que se le dé EXECUTE": "your user cannot run cron.alter_job: pg_cron only allows it for its owner, unless EXECUTE is granted",
   "{0}\n\n# Con la API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n": "{0}\n\n# With the API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n",
   "StarRocks no permite ejecutar una tarea desde SQL": "StarRocks doesn't allow running a task from SQL",
-  "StarRocks no permite detener una tarea desde SQL": "StarRocks doesn't allow stopping a task from SQL"
+  "StarRocks no permite detener una tarea desde SQL": "StarRocks doesn't allow stopping a task from SQL",
+  "id de comparación no válido": "invalid comparison id",
+  "la base local dejó de recibir filas": "the local database stopped receiving rows",
+  "la base local recibió {0}/{1} filas de {2}/{3} leídas": "the local database received {0}/{1} rows of {2}/{3} read",
+  "la base local «{0}» no quedó aislada: {1}": "the local database «{0}» was not isolated: {1}",
+  "la comparación se detuvo": "the comparison was stopped",
+  "la lectura de la tabla no trae la columna «{0}»": "the table read does not include the column «{0}»",
+  "la lectura dio filas sin decir sus columnas": "the read returned rows without naming their columns",
+  "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "the table is too large to compare in memory and DuckDB, the local database where DBine compares large tables, could not be opened: {0}",
+  "no hay una carpeta de datos de DBine": "there is no DBine data folder",
+  "una fila distinta no se pudo leer de la base local": "a differing row could not be read from the local database",
+  "ya hay una comparación en curso con ese id": "a comparison with that id is already running",
+  "alias de base local inválido: {0}": "invalid local database alias: {0}"
 }

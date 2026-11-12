@@ -12618,7 +12618,6 @@
   "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "“{0}”: um namespace é renomeado para outro de primeiro nível, como .ns2.",
   "el contexto necesita un nombre": "o contexto precisa de um nome",
   "el alias de ~/.ssh/config no es válido": "o alias do ~/.ssh/config não é válido",
-  "el almacén de resultados no quedó aislado: {0}": "o armazenamento de resultados não ficou isolado: {0}",
   "está protegida con una frase: cargala en el agente (ssh-add) o escribila en la frase del túnel": "está protegida por uma frase: carregue-a no agente (ssh-add) ou digite-a na frase do túnel",
   "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)": "a frase do túnel não é a desta chave: carregue-a no agente (ssh-add)",
   "los saltos de «{0}» forman un bucle: {1} → {2}": "os saltos de «{0}» formam um loop: {1} → {2}",
@@ -13536,5 +13535,17 @@
   "tu usuario no puede ejecutar cron.alter_job: pg_cron solo se lo permite a su dueño, salvo que se le dé EXECUTE": "seu usuário não pode executar cron.alter_job: o pg_cron só permite ao dono dele, a menos que seja concedido EXECUTE",
   "{0}\n\n# Con la API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n": "{0}\n\n# Com a API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n",
   "StarRocks no permite ejecutar una tarea desde SQL": "O StarRocks não permite executar uma tarefa pelo SQL",
-  "StarRocks no permite detener una tarea desde SQL": "O StarRocks não permite interromper uma tarefa pelo SQL"
+  "StarRocks no permite detener una tarea desde SQL": "O StarRocks não permite interromper uma tarefa pelo SQL",
+  "id de comparación no válido": "id de comparação inválido",
+  "la base local dejó de recibir filas": "o banco local deixou de receber linhas",
+  "la base local recibió {0}/{1} filas de {2}/{3} leídas": "o banco local recebeu {0}/{1} linhas de {2}/{3} lidas",
+  "la base local «{0}» no quedó aislada: {1}": "o banco local «{0}» não ficou isolado: {1}",
+  "la comparación se detuvo": "a comparação foi interrompida",
+  "la lectura de la tabla no trae la columna «{0}»": "a leitura da tabela não traz a coluna «{0}»",
+  "la lectura dio filas sin decir sus columnas": "a leitura retornou linhas sem informar suas colunas",
+  "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "a tabela é grande demais para ser comparada na memória e não foi possível abrir o DuckDB, o banco local onde o DBine compara as tabelas grandes: {0}",
+  "no hay una carpeta de datos de DBine": "não há uma pasta de dados do DBine",
+  "una fila distinta no se pudo leer de la base local": "não foi possível ler uma linha diferente do banco local",
+  "ya hay una comparación en curso con ese id": "já há uma comparação em andamento com esse id",
+  "alias de base local inválido: {0}": "alias de banco local inválido: {0}"
 }

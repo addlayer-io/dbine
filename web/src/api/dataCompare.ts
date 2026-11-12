@@ -21,11 +21,31 @@ export interface DataCompareResult {
   only_left: Cell[][];
   only_right: Cell[][];
   changed: ChangedRow[];
+  /** Always false: whole tables are compared (kept for older backends). */
   truncated_left: boolean;
   truncated_right: boolean;
-  /** Both sides came sorted by the key. */
+  /** The lists come in key order. */
   ordered: boolean;
   duplicate_keys: number;
+  /** More rows differ than `diff_limit`: the screen and the script cover the
+   *  first ones in key order (the counts are exact). */
+  diff_truncated: boolean;
+  diff_limit: number;
+  /** Rows of each kind in the lists the screen filters and the script syncs
+   *  (`counts` unless `diff_truncated`). */
+  listed: { changed: number; only_left: number; only_right: number };
+}
+
+/** `data-compare-progress`, about four times a second per side while a
+ *  compare runs. `rows`: rows read on that side; `differences`: differing
+ *  rows brought back (while loading them). `preparing`: a read waits while
+ *  the local database for big tables opens. */
+export interface DataCompareProgress {
+  run: string;
+  side: 'left' | 'right';
+  rows: number;
+  phase: 'reading' | 'preparing' | 'comparing' | 'loading_differences';
+  differences: number;
 }
 
 /** Where a row goes: right = make the right like the left for it (update,
@@ -70,8 +90,11 @@ export interface AiFilter { filters: ColumnFilter[]; changed_in: string[]; sort:
 export interface KeyHint { key: string[]; by: '' | 'unique' | 'ai' }
 
 export const dataCompareApi = {
-  compare: (left: DataSide, right: DataSide, key: string[], limit: number) =>
-    invoke<DataCompareResult>('data_compare', { args: { left, right, key, columns: [], limit } }),
+  /** Whole tables; `run` is this compare's id (its progress events carry it, `cancel` stops it). */
+  compare: (left: DataSide, right: DataSide, key: string[], run: string) =>
+    invoke<DataCompareResult>('data_compare', { args: { left, right, key, columns: [], run } }),
+  /** Stops a running compare: it then fails as cancelled. */
+  cancel: (run: string) => invoke<void>('data_compare_cancel', { args: { run } }),
   /** One kind of difference, filtered and sorted over all its rows. */
   rows: (id: string, kind: 'changed' | 'only_left' | 'only_right', sort: SortKey[], filters: ColumnFilter[], changedIn: string[]) =>
     invoke<DataRows>('data_compare_rows', { args: { id, kind, sort, filters, changed_in: changedIn } }),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorKind, errorMessage } from '../api/client';
@@ -8,7 +9,7 @@ import { aiTaskApi } from '../api/aiTask';
 import { asker, providerLabel } from '../composables/aiTask';
 import { markdownParts } from '../composables/markdown';
 import { useUiStore } from '../stores/ui';
-import { dataCompareApi, type AiFilter, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
+import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
 import type { Cell, ObjectRef, QueryProgress, SortKey } from '../api/types';
 import { columnKind, menuFor, type ColumnFilter, type FilterOp } from '../composables/gridFilter';
 import { nextSort } from '../composables/gridSort';
@@ -17,7 +18,7 @@ import { listOf, locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DataCompareTab } from '../stores/tabs';
-import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
+import { formatElapsed, startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
 
 // Data compare (docs/data-compare.md): a table's rows (left) against
@@ -38,7 +39,6 @@ const kept = (s: 'left' | 'right') => {
 };
 const left = reactive<Pick>(kept('left') ?? { connectionId: props.tab.connectionId, database: props.tab.database, table: tableId(props.tab.object) });
 const right = reactive<Pick>(kept('right') ?? { connectionId: props.tab.connectionId, database: props.tab.database, table: '' });
-const limit = ref(200000);
 
 /** The databases and tables to choose from, per side. */
 function dbsOf(p: Pick): string[] {
@@ -146,25 +146,66 @@ watch(() => [left.connectionId, left.database, left.table, tablesOf(left).length
   if (o) conns.loadColumns(left.connectionId, left.database, o);
 }, { immediate: true });
 
+/** The compare running now (whole tables, so it can take a while): its id,
+ *  the rows read on each side and the phase (`data-compare-progress`), and
+ *  when it started. */
+const live = reactive({
+  run: '',
+  left: 0,
+  right: 0,
+  phase: 'reading' as DataCompareProgress['phase'],
+  differences: 0,
+  started: 0,
+  cancelling: false,
+});
+const now = ref(Date.now());
+const cancelled = ref(false);
+const elapsed = computed(() => formatElapsed(Math.max(0, now.value - live.started)));
+const phaseText = computed(() => t(`dataCompare:progress.${live.phase === 'loading_differences' ? 'loadingDifferences' : live.phase}`));
+
 async function compare() {
   const l = side(left);
   const r = side(right);
   if (!l || !r) { ElMessage.warning(t('dataCompare:pickBoth')); return; }
+  if (running.value) return;
   running.value = true;
   error.value = null;
+  cancelled.value = false;
   explanation.value = null;
   aiNote.value = '';
+  const run = crypto.randomUUID();
+  Object.assign(live, { run, left: 0, right: 0, phase: 'reading', differences: 0, started: Date.now(), cancelling: false });
+  now.value = Date.now();
+  const clock = setInterval(() => { now.value = Date.now(); }, 1000);
+  const unlisten = await listen<DataCompareProgress>('data-compare-progress', ({ payload: p }) => {
+    if (p.run !== live.run) return;
+    live[p.side] = p.rows;
+    live.phase = p.phase;
+    live.differences = p.differences;
+  }).catch(() => null);
   try {
-    result.value = await dataCompareApi.compare(l, r, key.value, limit.value);
+    result.value = await dataCompareApi.compare(l, r, key.value, run);
     key.value = result.value.key;
     view.value = result.value.counts.changed ? 'changed' : result.value.counts.only_left ? 'only_left' : 'only_right';
   } catch (e) {
-    error.value = errorMessage(e);
+    if (errorKind(e) === 'cancelled') cancelled.value = true;
+    else error.value = errorMessage(e);
     result.value = null;
   } finally {
+    clearInterval(clock);
+    unlisten?.();
+    live.run = '';
     running.value = false;
   }
 }
+/** Cancelar while comparing: both reads and the work on disk stop. */
+function cancelCompare() {
+  if (!live.run || live.cancelling) return;
+  live.cancelling = true;
+  dataCompareApi.cancel(live.run).catch(() => {});
+}
+// Closing the tab stops a compare still running: nobody would see it.
+onBeforeUnmount(() => { if (live.run) dataCompareApi.cancel(live.run).catch(() => {}); });
 
 const fmtN = (n: number) => n.toLocaleString(locale());
 function show(v: Cell): string {
@@ -211,7 +252,7 @@ const shown = computed<DataRow[]>(() => {
 const shownNote = computed(() => {
   const r = result.value;
   if (!r) return '';
-  const total = queried.value ? queried.value.total : r.counts[view.value];
+  const total = queried.value ? queried.value.total : listedOf(view.value);
   if (filtering.value) return shown.value.length ? t('dataCompare:filteredCount', { shown: fmtN(shown.value.length), total: fmtN(total) }) : '';
   return total > shown.value.length ? t('dataCompare:showingFirst', { shown: fmtN(shown.value.length), total: fmtN(total) }) : '';
 });
@@ -309,11 +350,17 @@ const chips = computed(() => {
 // -- what goes where: arrows per row, as in the schema compare ------------------
 
 type Kind = 'changed' | 'only_left' | 'only_right';
-/** A side had more rows than were read: a row seen on one side may exist on
- *  the other, so it's shown but can't be inserted or deleted (the backend
- *  refuses it too). */
-const partial = computed(() => !!result.value && (result.value.truncated_left || result.value.truncated_right));
-const blocked = (kind: Kind) => partial.value && kind !== 'changed';
+/** Rows of a kind the screen and the script have: all of them unless more
+ *  than `diff_limit` differ. */
+function listedOf(kind: Kind): number {
+  const r = result.value;
+  return r ? (r.listed?.[kind] ?? r.counts[kind]) : 0;
+}
+/** Every differing row of the whole tables. */
+const totalDiffs = computed(() => {
+  const c = result.value?.counts;
+  return c ? c.changed + c.only_left + c.only_right : 0;
+});
 /** Per kind: the direction of every row, and the rows set apart from it
  *  (by index, including rows past the ones shown). The maps are plain, read
  *  through `marks`: "all" with a filter can set hundreds of thousands. */
@@ -365,7 +412,7 @@ function chosen(kind: Kind): number {
   if (!r) return 0;
   void marks.value;
   const c = choices[kind];
-  let n = c.all !== 'none' ? r.counts[kind] : 0;
+  let n = c.all !== 'none' ? listedOf(kind) : 0;
   for (const d of c.rows.values()) {
     if (d === c.all) continue;
     if (c.all !== 'none') n--;
@@ -384,7 +431,7 @@ function arrowTip(kind: Kind, d: 'left' | 'right') {
  *  with "all" in their own view. */
 function matchSide(d: 'left' | 'right') {
   setAll('changed', d);
-  if (!partial.value) setAll(d === 'right' ? 'only_left' : 'only_right', d);
+  setAll(d === 'right' ? 'only_left' : 'only_right', d);
 }
 
 // -- the scripts -----------------------------------------------------------------
@@ -839,26 +886,36 @@ async function suggestKey() {
     </div>
 
     <div v-if="mismatch" class="dc-mismatch" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ mismatchText }}</div>
+    <div v-if="running && live.run" class="dc-progress" role="status">
+      <span class="dc-progress-phase">{{ live.cancelling ? $t('dataCompare:progress.cancelling') : phaseText }}</span>
+      <span>{{ $t('dataCompare:progress.rows', { left: fmtN(live.left), right: fmtN(live.right) }) }}</span>
+      <span v-if="live.phase === 'loading_differences'">{{ $t('dataCompare:progress.differences', { n: fmtN(live.differences) }) }}</span>
+      <span class="dc-progress-time">{{ elapsed }}</span>
+      <span style="flex: 1" />
+      <el-button size="small" :disabled="live.cancelling" @click="cancelCompare">{{ $t('common:cancel') }}</el-button>
+    </div>
     <div v-if="error" class="dc-error" role="alert">{{ error }}</div>
+    <div v-else-if="cancelled && !running" class="dc-hint2 dc-cancelled">{{ $t('dataCompare:cancelled') }}</div>
 
     <template v-if="result">
+      <div class="dc-compared">{{ $t('dataCompare:compared', { count: result.counts.left, left: fmtN(result.counts.left), right: fmtN(result.counts.right) }) }}</div>
       <div class="dc-summary">
         <span class="dc-same"><b>{{ fmtN(result.counts.same) }}</b> {{ $t('dataCompare:same') }}</span>
         <button :class="{ on: view === 'changed' }" @click="view = 'changed'"><b>{{ fmtN(result.counts.changed) }}</b> {{ $t('dataCompare:changed') }}</button>
         <button :class="{ on: view === 'only_left' }" @click="view = 'only_left'"><b>{{ fmtN(result.counts.only_left) }}</b> {{ $t('dataCompare:onlyLeft') }}</button>
         <button :class="{ on: view === 'only_right' }" @click="view = 'only_right'"><b>{{ fmtN(result.counts.only_right) }}</b> {{ $t('dataCompare:onlyRight') }}</button>
         <span style="flex: 1" />
-        <el-button size="small" :disabled="filtering || (!result.counts.changed && (partial || !result.counts.only_left))" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
-        <el-button size="small" :disabled="filtering || (!result.counts.changed && (partial || !result.counts.only_right))" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
+        <el-button size="small" :disabled="filtering || (!result.counts.changed && !result.counts.only_left)" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
+        <el-button size="small" :disabled="filtering || (!result.counts.changed && !result.counts.only_right)" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
       </div>
-      <div v-if="!blocked(view) && (view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right)" class="dc-bulk">
+      <div v-if="(view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right)" class="dc-bulk">
         <span>{{ $t('dataCompare:bulk', { count: chosen(view), n: fmtN(chosen(view)) }) }}</span>
         <button :class="{ on: allIs(view, 'left') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'left')" @click="setAll(view, 'left')">{{ $t('dataCompare:allLeft') }}</button>
         <button :class="{ on: allIs(view, 'right') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'right')" @click="setAll(view, 'right')">{{ $t('dataCompare:allRight') }}</button>
         <button :class="{ on: allIs(view, 'none') }" :title="filtering ? $t('dataCompare:allFiltered') : undefined" @click="setAll(view, 'none')">{{ $t('dataCompare:allNone') }}</button>
       </div>
-      <div v-if="partial || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
-        <div v-if="partial">{{ $t(result.ordered ? 'dataCompare:partial' : 'dataCompare:partialUnordered', { limit: fmtN(limit) }) }}</div>
+      <div v-if="result.diff_truncated || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
+        <div v-if="result.diff_truncated">{{ $t('dataCompare:truncated', { total: fmtN(totalDiffs), limit: fmtN(result.diff_limit) }) }}</div>
         <div v-if="result.duplicate_keys">{{ $t('dataCompare:duplicates', { count: result.duplicate_keys }) }}</div>
         <div v-if="result.only_left_columns.length">{{ $t('dataCompare:onlyLeftColumns', { list: result.only_left_columns.join(', ') }) }}</div>
         <div v-if="result.only_right_columns.length">{{ $t('dataCompare:onlyRightColumns', { list: result.only_right_columns.join(', ') }) }}</div>
@@ -914,8 +971,8 @@ async function suggestKey() {
           <tbody>
             <tr v-for="r in shown" :key="r.index" :class="`go-${dirOf(view, r.index)}`">
               <td class="dc-arrows">
-                <button :class="{ on: dirOf(view, r.index) === 'left' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'left')" @click="toggle(view, r.index, 'left')">←</button>
-                <button :class="{ on: dirOf(view, r.index) === 'right' }" :disabled="blocked(view)" :title="blocked(view) ? $t('dataCompare:partialRow') : arrowTip(view, 'right')" @click="toggle(view, r.index, 'right')">→</button>
+                <button :class="{ on: dirOf(view, r.index) === 'left' }" :title="arrowTip(view, 'left')" @click="toggle(view, r.index, 'left')">←</button>
+                <button :class="{ on: dirOf(view, r.index) === 'right' }" :title="arrowTip(view, 'right')" @click="toggle(view, r.index, 'right')">→</button>
               </td>
               <td v-for="(c, j) in result.columns" :key="c" :class="{ diff: r.diff.includes(j), key: j < result.key.length }">
                 <template v-if="r.right && r.diff.includes(j)">
@@ -1025,6 +1082,11 @@ async function suggestKey() {
 .dc-summary button.on { background: var(--ide-selection); border-color: var(--ide-focus, var(--el-color-primary)); color: var(--nm-text-strong); }
 .dc-same { color: var(--nm-text-dim); margin-right: 6px; }
 .dc-notes { padding: 6px 14px; font-size: 12px; color: var(--nm-warning); border-bottom: 1px solid var(--nm-border); }
+.dc-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; padding: 8px 14px; border-bottom: 1px solid var(--nm-border); font-size: 12.5px; color: var(--nm-text); }
+.dc-progress-phase { font-weight: 600; color: var(--nm-text-strong); }
+.dc-progress-time { color: var(--nm-text-dim); font-variant-numeric: tabular-nums; }
+.dc-compared { padding: 8px 14px 0; font-size: 12.5px; color: var(--nm-text-dim); }
+.dc-cancelled { padding: 10px 14px 0; }
 .dc-grid-wrap { flex: 1; min-height: 0; overflow: auto; }
 .dc-grid { border-collapse: collapse; font-size: 12px; font-family: var(--nm-mono); }
 .dc-grid th { position: sticky; top: 0; background: var(--nm-bg-elev); color: var(--nm-text-dim); font-weight: 500; text-align: left; padding: 4px 10px; white-space: nowrap; border-bottom: 1px solid var(--nm-border); }

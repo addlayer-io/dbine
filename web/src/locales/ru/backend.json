@@ -11491,7 +11491,6 @@
   "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "«{0}»: пространство имён переименовывается в другое пространство верхнего уровня, например .ns2.",
   "el contexto necesita un nombre": "контексту нужно имя",
   "el alias de ~/.ssh/config no es válido": "псевдоним из ~/.ssh/config недопустим",
-  "el almacén de resultados no quedó aislado: {0}": "хранилище результатов не изолировано: {0}",
   "está protegida con una frase: cargala en el agente (ssh-add) o escribila en la frase del túnel": "защищён парольной фразой: загрузите его в агент (ssh-add) или введите парольную фразу туннеля",
   "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)": "парольная фраза туннеля не подходит к этому ключу: загрузите ключ в агент (ssh-add)",
   "los saltos de «{0}» forman un bucle: {1} → {2}": "переходы «{0}» образуют цикл: {1} → {2}",
@@ -13536,5 +13535,17 @@
   "tu usuario no puede ejecutar cron.alter_job: pg_cron solo se lo permite a su dueño, salvo que se le dé EXECUTE": "ваш пользователь не может выполнять cron.alter_job: pg_cron разрешает это только своему владельцу, если не выдано право EXECUTE",
   "{0}\n\n# Con la API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n": "{0}\n\n# Через API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n",
   "StarRocks no permite ejecutar una tarea desde SQL": "StarRocks не позволяет запускать задачу из SQL",
-  "StarRocks no permite detener una tarea desde SQL": "StarRocks не позволяет останавливать задачу из SQL"
+  "StarRocks no permite detener una tarea desde SQL": "StarRocks не позволяет останавливать задачу из SQL",
+  "id de comparación no válido": "недопустимый идентификатор сравнения",
+  "la base local dejó de recibir filas": "локальная база перестала получать строки",
+  "la base local recibió {0}/{1} filas de {2}/{3} leídas": "локальная база получила {0}/{1} строк из {2}/{3} прочитанных",
+  "la base local «{0}» no quedó aislada: {1}": "локальная база «{0}» не была изолирована: {1}",
+  "la comparación se detuvo": "сравнение остановлено",
+  "la lectura de la tabla no trae la columna «{0}»": "в данных чтения таблицы нет столбца «{0}»",
+  "la lectura dio filas sin decir sus columnas": "чтение вернуло строки без указания столбцов",
+  "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "таблица слишком велика для сравнения в памяти, а DuckDB — локальную базу, в которой DBine сравнивает большие таблицы, — открыть не удалось: {0}",
+  "no hay una carpeta de datos de DBine": "папка данных DBine отсутствует",
+  "una fila distinta no se pudo leer de la base local": "не удалось прочитать отличающуюся строку из локальной базы",
+  "ya hay una comparación en curso con ese id": "сравнение с этим идентификатором уже выполняется",
+  "alias de base local inválido: {0}": "недопустимый псевдоним локальной базы: {0}"
 }

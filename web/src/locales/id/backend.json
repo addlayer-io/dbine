@@ -11491,7 +11491,6 @@
   "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": "“{0}”: namespace diganti namanya menjadi namespace tingkat atas lain, seperti .ns2.",
   "el contexto necesita un nombre": "konteks memerlukan nama",
   "el alias de ~/.ssh/config no es válido": "alias ~/.ssh/config tidak valid",
-  "el almacén de resultados no quedó aislado: {0}": "penyimpanan hasil tidak terisolasi: {0}",
   "está protegida con una frase: cargala en el agente (ssh-add) o escribila en la frase del túnel": "dilindungi frasa: muat ke agen (ssh-add) atau ketik di frasa terowongan",
   "la frase del túnel no es la de esta clave: cargala en el agente (ssh-add)": "frasa terowongan bukan milik kunci ini: muat kunci ke agen (ssh-add)",
   "los saltos de «{0}» forman un bucle: {1} → {2}": "lompatan dari “{0}” membentuk perulangan: {1} → {2}",
@@ -13536,5 +13535,17 @@
   "tu usuario no puede ejecutar cron.alter_job: pg_cron solo se lo permite a su dueño, salvo que se le dé EXECUTE": "pengguna Anda tidak dapat menjalankan cron.alter_job: pg_cron hanya mengizinkannya bagi pemiliknya, kecuali diberi EXECUTE",
   "{0}\n\n# Con la API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n": "{0}\n\n# Dengan API: POST https://spanner.googleapis.com/v1/projects/{1}/instances/{2}/databases/{3}/backupSchedules?backup_schedule_id={4}\n",
   "StarRocks no permite ejecutar una tarea desde SQL": "StarRocks tidak mengizinkan menjalankan tugas dari SQL",
-  "StarRocks no permite detener una tarea desde SQL": "StarRocks tidak mengizinkan menghentikan tugas dari SQL"
+  "StarRocks no permite detener una tarea desde SQL": "StarRocks tidak mengizinkan menghentikan tugas dari SQL",
+  "id de comparación no válido": "ID perbandingan tidak valid",
+  "la base local dejó de recibir filas": "basis data lokal berhenti menerima baris",
+  "la base local recibió {0}/{1} filas de {2}/{3} leídas": "basis data lokal menerima {0}/{1} baris dari {2}/{3} yang dibaca",
+  "la base local «{0}» no quedó aislada: {1}": "basis data lokal «{0}» tidak terisolasi: {1}",
+  "la comparación se detuvo": "perbandingan dihentikan",
+  "la lectura de la tabla no trae la columna «{0}»": "hasil pembacaan tabel tidak memuat kolom «{0}»",
+  "la lectura dio filas sin decir sus columnas": "pembacaan menghasilkan baris tanpa menyebutkan kolomnya",
+  "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "tabel terlalu besar untuk dibandingkan di memori dan DuckDB, basis data lokal tempat DBine membandingkan tabel besar, tidak dapat dibuka: {0}",
+  "no hay una carpeta de datos de DBine": "tidak ada folder data DBine",
+  "una fila distinta no se pudo leer de la base local": "baris yang berbeda tidak dapat dibaca dari basis data lokal",
+  "ya hay una comparación en curso con ese id": "perbandingan dengan ID itu sedang berjalan",
+  "alias de base local inválido: {0}": "alias basis data lokal tidak valid: {0}"
 }

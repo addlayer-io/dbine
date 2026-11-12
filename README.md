@@ -253,13 +253,17 @@ and queries are organized inside each database.
   connection, on different connections or on different engines. It pairs them
   by the primary key, or by the columns you choose, and compares values by what
   they are worth and not by how each engine returns them.
+  - It compares whole tables, millions of rows included: big ones go through
+    a local DuckDB database, encrypted and deleted when the comparison ends.
+    It shows the rows read as it goes and can be cancelled.
   - It shows the rows that differ, with each value marked, and the ones that
     are on one side only. For each row you choose which way it goes: update,
     insert or delete. Deletions are never chosen automatically.
   - It generates one script per side that changes, in its engine's language,
     which can be copied, opened in a query or run. Then it compares again.
   - It warns if the two tables aren't the same, if there are duplicate keys or
-    if one exceeds 200,000 rows. Read-only connections reject the script.
+    if more than 1,000,000 rows differ (the script then covers the first
+    ones). Read-only connections reject the script.
   - It compares on every engine. Applying the changes depends on what the
     target allows writing: Drill, for example, has no INSERT, UPDATE or DELETE.
   - With the AI it explains what the differences have in common (a time zone,

@@ -13,6 +13,7 @@ mod identifier;
 mod jumplist_windows;
 mod link;
 mod lint;
+mod local_duckdb;
 mod mcp;
 mod menu;
 mod notebook;
@@ -220,6 +221,8 @@ pub fn run() {
 
             tracing::info!(?state_path, ?logs_dir, "starting dbine");
             identifier::log_report();
+            // A data compare cut short by a crash leaves its scratch DuckDB.
+            commands::data_compare::purge_scratch();
 
             // 4. State store.
             let store = StateStore::open(&state_path).expect("open state store");
@@ -366,6 +369,7 @@ pub fn run() {
             commands::history::history_of,
             commands::history::history_delete,
             commands::data_compare::data_compare,
+            commands::data_compare::data_compare_cancel,
             commands::data_compare::data_compare_rows,
             commands::data_compare_ai::data_compare_explain,
             commands::data_compare_ai::data_compare_ai_filter,
