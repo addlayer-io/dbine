@@ -309,6 +309,7 @@ impl Driver for GraphDriver {
             // Neo4j (changes on Enterprise) and Memgraph (facts); Neptune
             // keeps its settings in the cluster (see properties.rs).
             database_properties: dbs,
+            jobs: false,
         }
     }
 

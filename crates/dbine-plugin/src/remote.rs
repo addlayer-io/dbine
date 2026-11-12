@@ -1865,6 +1865,80 @@ impl Session for RemoteSession {
             _ => Err(unexpected()),
         }
     }
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        match self.host.call(Call::Jobs { session: self.id }).await? {
+            Reply::Jobs(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        match self
+            .host
+            .call(Call::JobDetail {
+                session: self.id,
+                id: id.to_string(),
+            })
+            .await?
+        {
+            Reply::JobDetail(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        match self
+            .host
+            .call(Call::JobRuns {
+                session: self.id,
+                id: id.to_string(),
+                limit,
+            })
+            .await?
+        {
+            Reply::JobRuns(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.host
+            .call(Call::RunJob {
+                session: self.id,
+                id: id.to_string(),
+            })
+            .await
+            .map(|_| ())
+    }
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.host
+            .call(Call::StopJob {
+                session: self.id,
+                id: id.to_string(),
+            })
+            .await
+            .map(|_| ())
+    }
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.host
+            .call(Call::SetJobEnabled {
+                session: self.id,
+                id: id.to_string(),
+                enabled,
+            })
+            .await
+            .map(|_| ())
+    }
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        match self
+            .host
+            .call(Call::JobScript {
+                session: self.id,
+                id: id.to_string(),
+            })
+            .await?
+        {
+            Reply::Text(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
     async fn create_database_choices(&mut self) -> Result<Vec<dbine_driver::FieldChoices>> {
         match self
             .host

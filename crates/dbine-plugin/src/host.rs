@@ -415,6 +415,13 @@ impl Call {
             | ObjectComments { session }
             | UnmappedLogins { session }
             | RunReadOnly { session, .. }
+            | Jobs { session }
+            | JobDetail { session, .. }
+            | JobRuns { session, .. }
+            | RunJob { session, .. }
+            | StopJob { session, .. }
+            | SetJobEnabled { session, .. }
+            | JobScript { session, .. }
             | ExecuteBound { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
@@ -1287,6 +1294,64 @@ impl State {
                     .await?;
                 Reply::Unit
             }
+            Call::Jobs { session } => {
+                Reply::Jobs(self.slot(session)?.session.lock().await.jobs().await?)
+            }
+            Call::JobDetail { session, id } => Reply::JobDetail(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .job_detail(&id)
+                    .await?,
+            ),
+            Call::JobRuns { session, id, limit } => Reply::JobRuns(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .job_runs(&id, limit.min(dbine_driver::jobs::MAX_JOB_RUNS))
+                    .await?,
+            ),
+            Call::RunJob { session, id } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .run_job(&id)
+                    .await?;
+                Reply::Unit
+            }
+            Call::StopJob { session, id } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .stop_job(&id)
+                    .await?;
+                Reply::Unit
+            }
+            Call::SetJobEnabled {
+                session,
+                id,
+                enabled,
+            } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .set_job_enabled(&id, enabled)
+                    .await?;
+                Reply::Unit
+            }
+            Call::JobScript { session, id } => Reply::Text(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .job_script(&id)
+                    .await?,
+            ),
         })
     }
 }

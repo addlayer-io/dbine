@@ -552,6 +552,7 @@ impl Driver for MongoDriver {
             processes: true,
             cancel_query: locks,
             database_properties: true,
+            jobs: false,
         }
     }
 

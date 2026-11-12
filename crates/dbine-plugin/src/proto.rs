@@ -525,6 +525,38 @@ pub enum Call {
         driver: String,
         value: dbine_driver::ParamValue,
     },
+    /// The server's jobs and what's done with them ("Programadas", "En los
+    /// servidores"). A host published before them answers `Unsupported`;
+    /// the app only asks drivers whose capabilities say `jobs`.
+    Jobs {
+        session: u64,
+    },
+    JobDetail {
+        session: u64,
+        id: String,
+    },
+    JobRuns {
+        session: u64,
+        id: String,
+        limit: u32,
+    },
+    RunJob {
+        session: u64,
+        id: String,
+    },
+    StopJob {
+        session: u64,
+        id: String,
+    },
+    SetJobEnabled {
+        session: u64,
+        id: String,
+        enabled: bool,
+    },
+    JobScript {
+        session: u64,
+        id: String,
+    },
 }
 
 /// Host → app.
@@ -632,6 +664,9 @@ pub enum Reply {
     HealthChecks(Vec<dbine_driver::health::HealthCheck>),
     RowEstimates(Vec<dbine_driver::stats::RowEstimate>),
     ObjectComments(Vec<dbine_driver::stats::ObjectComment>),
+    Jobs(dbine_driver::JobList),
+    JobDetail(dbine_driver::JobDetail),
+    JobRuns(Vec<dbine_driver::JobRun>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -1412,6 +1447,57 @@ mod tests {
                 },
                 "ParamLiteral",
             ),
+            (34, Call::Jobs { session: 3 }, "Jobs"),
+            (
+                35,
+                Call::JobDetail {
+                    session: 3,
+                    id: "j".into(),
+                },
+                "JobDetail",
+            ),
+            (
+                36,
+                Call::JobRuns {
+                    session: 3,
+                    id: "j".into(),
+                    limit: 20,
+                },
+                "JobRuns",
+            ),
+            (
+                37,
+                Call::RunJob {
+                    session: 3,
+                    id: "j".into(),
+                },
+                "RunJob",
+            ),
+            (
+                38,
+                Call::StopJob {
+                    session: 3,
+                    id: "j".into(),
+                },
+                "StopJob",
+            ),
+            (
+                39,
+                Call::SetJobEnabled {
+                    session: 3,
+                    id: "j".into(),
+                    enabled: false,
+                },
+                "SetJobEnabled",
+            ),
+            (
+                40,
+                Call::JobScript {
+                    session: 3,
+                    id: "j".into(),
+                },
+                "JobScript",
+            ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -1429,6 +1515,61 @@ mod tests {
         .unwrap();
         let p: dbine_driver::Permissions = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(p.create_schema, dbine_driver::Access::Unknown);
+    }
+
+    #[test]
+    fn jobs_round_trip() {
+        let list = dbine_driver::JobList {
+            jobs: vec![dbine_driver::ServerJob {
+                id: "SYS.NIGHTLY".into(),
+                name: "NIGHTLY".into(),
+                kind: "DBMS_SCHEDULER".into(),
+                enabled: true,
+                last_outcome: Some(dbine_driver::JobOutcome::Failed),
+                can_run: true,
+                ..Default::default()
+            }],
+            notes: vec!["se ven solo los jobs de este usuario".into()],
+        };
+        let body = rmp_serde::to_vec_named(&Reply::Jobs(list.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::Jobs(back) => assert_eq!(back, list),
+            other => panic!("{other:?}"),
+        }
+        let detail = dbine_driver::JobDetail {
+            job: list.jobs[0].clone(),
+            steps: vec![dbine_driver::JobStep {
+                name: "1".into(),
+                kind: Some("PL/SQL".into()),
+                target: None,
+                command: Some("BEGIN NULL; END;".into()),
+            }],
+            schedules: vec![],
+            properties: vec![dbine_driver::PropertyInfo {
+                group: String::new(),
+                label: "Clase".into(),
+                value: "DEFAULT_JOB_CLASS".into(),
+            }],
+        };
+        let body = rmp_serde::to_vec_named(&Reply::JobDetail(detail.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::JobDetail(back) => assert_eq!(back, detail),
+            other => panic!("{other:?}"),
+        }
+        let runs = vec![dbine_driver::JobRun {
+            outcome: dbine_driver::JobOutcome::Running,
+            steps: vec![dbine_driver::JobStepRun {
+                name: "1".into(),
+                outcome: dbine_driver::JobOutcome::Succeeded,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+        let body = rmp_serde::to_vec_named(&Reply::JobRuns(runs.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::JobRuns(back) => assert_eq!(back, runs),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

@@ -729,6 +729,34 @@ impl Session for ReadOnlySession {
             "Conexión de solo lectura: no se pueden cancelar consultas de otras sesiones.".into(),
         ))
     }
+    async fn jobs(&mut self) -> Result<crate::JobList> {
+        self.inner.jobs().await
+    }
+    async fn job_detail(&mut self, id: &str) -> Result<crate::JobDetail> {
+        self.inner.job_detail(id).await
+    }
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<crate::JobRun>> {
+        self.inner.job_runs(id, limit).await
+    }
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.inner.job_script(id).await
+    }
+    async fn run_job(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden ejecutar jobs del servidor.".into(),
+        ))
+    }
+    async fn stop_job(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden detener jobs del servidor.".into(),
+        ))
+    }
+    async fn set_job_enabled(&mut self, _id: &str, _enabled: bool) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden habilitar ni deshabilitar jobs del servidor."
+                .into(),
+        ))
+    }
     /// Profiles without changing server settings.
     async fn profiler_start(
         &mut self,
@@ -1143,6 +1171,47 @@ mod tests {
             self.0.lock().unwrap().push("rollback".into());
             Ok(())
         }
+        async fn jobs(&mut self) -> crate::error::Result<crate::JobList> {
+            self.0.lock().unwrap().push("jobs".into());
+            Ok(Default::default())
+        }
+        async fn job_runs(
+            &mut self,
+            id: &str,
+            limit: u32,
+        ) -> crate::error::Result<Vec<crate::JobRun>> {
+            self.0.lock().unwrap().push(format!("runs {id} {limit}"));
+            Ok(vec![])
+        }
+        async fn run_job(&mut self, id: &str) -> crate::error::Result<()> {
+            self.0.lock().unwrap().push(format!("run {id}"));
+            Ok(())
+        }
+        async fn stop_job(&mut self, id: &str) -> crate::error::Result<()> {
+            self.0.lock().unwrap().push(format!("stop {id}"));
+            Ok(())
+        }
+        async fn set_job_enabled(&mut self, id: &str, on: bool) -> crate::error::Result<()> {
+            self.0.lock().unwrap().push(format!("enable {id} {on}"));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn jobs_are_read_but_never_run_stopped_or_toggled() {
+        use crate::sql::ScriptDialect;
+        use crate::Session;
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut ro = super::ReadOnlySession::with_dialect(
+            Box::new(Recorder(log.clone())),
+            ScriptDialect::tsql(),
+        );
+        ready(ro.jobs()).unwrap();
+        ready(ro.job_runs("j1", 20)).unwrap();
+        assert!(ready(ro.run_job("j1")).is_err());
+        assert!(ready(ro.stop_job("j1")).is_err());
+        assert!(ready(ro.set_job_enabled("j1", false)).is_err());
+        assert_eq!(*log.lock().unwrap(), ["jobs", "runs j1 20"]);
     }
 
     fn ready<T>(f: impl std::future::Future<Output = T>) -> T {

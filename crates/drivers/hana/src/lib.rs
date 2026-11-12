@@ -462,6 +462,7 @@ impl Driver for HanaDriver {
             cancel_query: true,
             // Facts only: HANA has no ALTER SCHEMA (see `properties`).
             database_properties: true,
+            jobs: false,
         }
     }
 

@@ -693,6 +693,7 @@ impl Driver for OracleDriver {
             cancel_query: true,
             // DBA_USERS / DBA_TS_QUOTAS and ALTER USER (see `properties`).
             database_properties: true,
+            jobs: false,
         }
     }
 

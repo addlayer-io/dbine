@@ -312,6 +312,7 @@ impl Driver for SqlServerDriver {
             processes: true,
             cancel_query: false,
             database_properties: matches!(self.variant, Variant::SqlServer | Variant::AzureSql),
+            jobs: false,
         }
     }
 
