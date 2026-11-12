@@ -29,6 +29,8 @@
   "waitsFor": "대기 대상",
   "waitedBy": "대기하는 세션:",
   "noSql": "실행 중인 문이 없습니다.",
+  "analyze": "분석",
+  "analyzeTip": "옵티마이저에서 구문 열기: 실행 계획, 인덱스 및 측정",
   "openInQuery": "쿼리로 열기",
   "queryName": "세션 {{id}}",
   "copy": "복사",

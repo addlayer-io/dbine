@@ -29,6 +29,8 @@
   "waitsFor": "Oczekuje na",
   "waitedBy": "Oczekują na nią:",
   "noSql": "Nie wykonuje żadnej instrukcji.",
+  "analyze": "Analizuj",
+  "analyzeTip": "Otwórz instrukcję w optymalizatorze: plan wykonania, indeksy i pomiary",
   "openInQuery": "Otwórz w zapytaniu",
   "queryName": "Sesja {{id}}",
   "copy": "Kopiuj",

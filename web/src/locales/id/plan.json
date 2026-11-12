@@ -4,6 +4,10 @@
   "estimatedPlan": "Rencana perkiraan",
   "diagram": "Diagram",
   "rawPlan": "Rencana asli",
+  "fullScreen": "Layar penuh",
+  "fullScreenTip": "Lihat rencana di seluruh jendela (Esc untuk kembali)",
+  "exitFullScreen": "Keluar",
+  "exitFullScreenTip": "Kembali ke panel hasil (Esc)",
   "statementTitle": "Klik untuk melihat lengkap",
   "hint": "Seret untuk berpindah · ⌘/pinch + roda untuk zoom · F menyesuaikan",
   "summary": {

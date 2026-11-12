@@ -29,6 +29,8 @@
   "waitsFor": "Wartet auf",
   "waitedBy": "Es warten darauf:",
   "noSql": "Sie führt keine Anweisung aus.",
+  "analyze": "Analysieren",
+  "analyzeTip": "Anweisung im Optimierer öffnen: Ausführungsplan, Indizes und Messungen",
   "openInQuery": "In einer Abfrage öffnen",
   "queryName": "Sitzung {{id}}",
   "copy": "Kopieren",

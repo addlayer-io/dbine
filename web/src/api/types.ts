@@ -704,6 +704,8 @@ export interface ConnectDetail {
 export interface TestResult {
   ok: boolean;
   message: string;
+  /** Why it failed, when the backend could tell (as a failed connect's). */
+  detail?: ConnectDetail | null;
 }
 
 /** Getters: each read returns the current language (same keys, same order). */

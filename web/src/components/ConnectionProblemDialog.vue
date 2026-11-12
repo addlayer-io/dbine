@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import type { AzureFirewallPlan, ConnectFailureKind } from '../api/types';
+import type { AzureFirewallPlan, ConnectDetail, ConnectFailureKind } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { useUiStore } from '../stores/ui';
 import { isProdConnection } from '../composables/tags';
@@ -16,8 +16,23 @@ import { LEGACY_TLS_ONLY } from '../composables/legacyTls';
 // CLI login, after a confirmation that shows the server, rule and IP (and,
 // on a production connection, asks to type the server's name); without the
 // CLI it shows the command, the portal and the T-SQL to do it by hand.
+//
+// From the connection form ("Probar conexión"), `test` carries the failed
+// test instead of the connection's live state: the explanation is the same,
+// and what changes a saved connection (trust a certificate, allow legacy
+// TLS, add a firewall rule, edit it) isn't offered — the form is where the
+// user is changing it.
 
-const props = defineProps<{ connectionId: string }>();
+export interface FormTestFailure {
+  message: string;
+  detail: ConnectDetail | null;
+  host: string;
+  port: number;
+  driver: string;
+  name: string;
+}
+
+const props = defineProps<{ connectionId: string; test?: FormTestFailure | null; testing?: boolean }>();
 const emit = defineEmits<{ close: []; retry: [] }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
@@ -25,27 +40,32 @@ const ui = useUiStore();
 
 const conn = computed(() => conns.byId(props.connectionId));
 const live = computed(() => conns.live[props.connectionId]);
-const detail = computed(() => live.value?.detail ?? null);
+/** Explaining a failed test of the form, not the saved connection. */
+const form = computed(() => props.test ?? null);
+const detail = computed(() => (form.value ? form.value.detail : live.value?.detail ?? null));
 const kind = computed<ConnectFailureKind>(() => detail.value?.kind ?? 'unknown');
 /** A server that only speaks TLS 1.0/1.1 (`TLS_LEGACY_ONLY`): its own text,
  *  not the generic TLS one about certificates. */
 const legacyOnly = computed(() => detail.value?.code === LEGACY_TLS_ONLY);
 /** The headline's key: the kind's, or the legacy-TLS one. */
 const headKind = computed(() => (legacyOnly.value ? 'tls_legacy_only' : kind.value));
-const message = computed(() => live.value?.error ?? '');
-const host = computed(() => conn.value?.config.host ?? '');
-const port = computed(() => conn.value?.config.port || conns.driverOf(props.connectionId)?.default_port || 0);
+const message = computed(() => (form.value ? form.value.message : live.value?.error ?? ''));
+const host = computed(() => (form.value ? form.value.host : conn.value?.config.host ?? ''));
+const port = computed(() => (form.value
+  ? form.value.port || conns.drivers.find((d) => d.id === form.value!.driver)?.default_port || 0
+  : conn.value?.config.port || conns.driverOf(props.connectionId)?.default_port || 0));
+const title = computed(() => (form.value ? form.value.name : conn.value?.name ?? ''));
 const server = computed(() => (port.value ? `${host.value}:${port.value}` : host.value));
 /** The host without `tcp:` and `,port`, lower case. */
 const bareHost = computed(() => host.value.trim().toLowerCase().replace(/^tcp:/, '').split(/[,:\\/]/)[0].replace(/\.$/, ''));
 const azureSql = computed(() => /^[a-z0-9-]+\.database\.(windows\.net|usgovcloudapi\.net|chinacloudapi\.cn)$/.test(bareHost.value));
 /** SQL Server on an Azure VM: its NSG / WAF, not the Azure SQL firewall. */
 const azureVm = computed(() => bareHost.value.endsWith('.cloudapp.azure.com'));
-const retrying = computed(() => live.value?.status === 'connecting');
+const retrying = computed(() => (form.value ? !!props.testing : live.value?.status === 'connecting'));
 const network = computed(() => kind.value === 'timeout' || kind.value === 'refused');
 
 // Connected after a retry: nothing left to explain.
-watch(() => live.value?.status, (s) => { if (s === 'connected') emit('close'); });
+watch(() => live.value?.status, (s) => { if (s === 'connected' && !form.value) emit('close'); });
 
 // -- a pinned certificate that changed ---------------------------------------------------
 const trusting = ref(false);
@@ -185,8 +205,8 @@ async function copy(text: string) {
 function copyDetail() {
   const d = detail.value;
   const lines = [
-    `${t('connection:problem.connection')}: ${conn.value?.name ?? props.connectionId}`,
-    `${t('connection:problem.server')}: ${server.value} (${conn.value?.config.driver ?? ''})`,
+    `${t('connection:problem.connection')}: ${title.value || props.connectionId}`,
+    `${t('connection:problem.server')}: ${server.value} (${form.value?.driver ?? conn.value?.config.driver ?? ''})`,
     `${t('connection:problem.kindLabel')}: ${kind.value}${d?.code ? ` · ${t('connection:problem.code', { code: d.code })}` : ''}`,
     ...(knownIp.value ? [`${t('connection:problem.clientIp')}: ${knownIp.value}`] : []),
     `${t('connection:problem.message')}: ${message.value}`,
@@ -202,7 +222,7 @@ function editConnection() {
 
 <template>
   <el-dialog
-    :model-value="true" width="640px" append-to-body :title="$t('connection:problem.title', { name: conn?.name ?? '' })"
+    :model-value="true" width="640px" append-to-body :title="$t('connection:problem.title', { name: title })"
     :close-on-click-modal="false" @close="emit('close')"
   >
     <div class="cp">
@@ -228,7 +248,7 @@ function editConnection() {
       <!-- Only TLS 1.0/1.1: allow legacy TLS for this connection, or update the server. -->
       <template v-else-if="legacyOnly">
         <p>{{ $t('connection:problem.kind.tls_legacy_only.body') }}</p>
-        <div class="cp-azure">
+        <div v-if="!form" class="cp-azure">
           <el-button type="warning" plain :loading="allowing" @click="allowLegacyTls">{{ $t('connection:legacyTls.askConfirm') }}</el-button>
           <div v-if="allowError" class="cp-error">{{ allowError }}</div>
         </div>
@@ -237,7 +257,7 @@ function editConnection() {
       <!-- The pinned certificate changed: trust the one presented (pinned as it is). -->
       <template v-else-if="kind === 'tls_pin_changed'">
         <p>{{ $t('connection:problem.kind.tls_pin_changed.body') }}</p>
-        <div v-if="presentedPin" class="cp-azure">
+        <div v-if="presentedPin && !form" class="cp-azure">
           <el-button type="warning" plain :loading="trusting" @click="trustNewCertificate">{{ $t('connection:problem.kind.tls_pin_changed.trust') }}</el-button>
           <div v-if="trustError" class="cp-error">{{ trustError }}</div>
         </div>
@@ -259,7 +279,7 @@ function editConnection() {
       </div>
 
       <!-- Azure SQL: add this IP to the server's firewall -->
-      <div v-if="kind === 'firewall' && azureSql" class="cp-azure">
+      <div v-if="kind === 'firewall' && azureSql && !form" class="cp-azure">
         <el-button v-if="!plan && !created" type="primary" plain :loading="planning" @click="startAddRule">{{ $t('connection:problem.azure.add') }}</el-button>
         <div v-if="planError" class="cp-error">{{ planError }}</div>
         <el-alert v-if="created" type="success" :title="created" :closable="false" show-icon />
@@ -317,7 +337,7 @@ function editConnection() {
     <template #footer>
       <div class="cp-foot">
         <el-button @click="copyDetail">{{ $t('connection:problem.copyDetail') }}</el-button>
-        <el-button @click="editConnection">{{ $t('connection:problem.editConnection') }}</el-button>
+        <el-button v-if="!form" @click="editConnection">{{ $t('connection:problem.editConnection') }}</el-button>
         <span style="flex: 1" />
         <el-button @click="emit('close')">{{ $t('common:close') }}</el-button>
         <el-button type="primary" :loading="retrying" @click="emit('retry')">{{ $t('common:retry') }}</el-button>

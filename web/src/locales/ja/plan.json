@@ -4,6 +4,10 @@
   "estimatedPlan": "推定プラン",
   "diagram": "ダイアグラム",
   "rawPlan": "元のプラン",
+  "fullScreen": "全画面表示",
+  "fullScreenTip": "プランをウィンドウ全体に表示します(Escで戻る)",
+  "exitFullScreen": "終了",
+  "exitFullScreenTip": "結果パネルに戻ります(Esc)",
   "statementTitle": "クリックで全体を表示",
   "hint": "ドラッグで移動 · ⌘/ピンチ + ホイールでズーム · F でフィット",
   "summary": {

@@ -49,11 +49,17 @@ here the information appears in the list.
 
 ## Row detail
 
-Selecting a row opens its detail:
+Selecting a row opens its detail in a panel next to the list; the list stays
+where it was. The up and down arrow keys move to the previous or next session,
+and Esc closes the panel. The panel has:
 
+- What the engine reports about the session: state, user, host, program,
+  database, command, time, CPU, reads, writes and wait.
 - The **whole statement** (not truncated as in the table). If the process
   isn't running anything, it says so.
 - The **blocking chain**: whom it waits for and who waits for it.
+- **Analyze**: opens the statement in the [query optimizer](query-optimizer.md)
+  (plan, indexes and measurements).
 - **Open in a query**: puts the statement in a new query tab, without
   running it.
 - **Copy**: copies it to the clipboard.

@@ -5,8 +5,9 @@ import { open as openFile } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { tb } from '../i18n/backend';
 import { isMaskedField } from '../composables/secretFields';
-import { api, errorMessage } from '../api/client';
-import { FAMILY_LABELS, TYPED_FIELDS, type ConnectionConfig, type DriverInfo, type Family, type Field, type SavedConnection, type SecretSource } from '../api/types';
+import { api, errorDetail, errorMessage } from '../api/client';
+import ConnectionProblemDialog, { type FormTestFailure } from '../components/ConnectionProblemDialog.vue';
+import { FAMILY_LABELS, TYPED_FIELDS, type ConnectDetail, type ConnectionConfig, type DriverInfo, type Family, type Field, type SavedConnection, type SecretSource } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type ConnectionFormTab } from '../stores/tabs';
 import EngineIcon from '../components/EngineIcon.vue';
@@ -149,7 +150,22 @@ function sectionOn(s: Section): boolean {
 const duplicateOf = computed(() => (editing.value ? null : props.tab.duplicateOf || null));
 const testing = ref(false);
 const saving = ref(false);
-const testResult = ref<{ ok: boolean; message: string } | null>(null);
+const testResult = ref<{ ok: boolean; message: string; detail?: ConnectDetail | null } | null>(null);
+/** The failed test "Ver qué pasa…" explains: what was tested, as it was. */
+const testFailure = ref<FormTestFailure | null>(null);
+const explaining = ref(false);
+watch(testResult, (r) => {
+  if (r && !r.ok) {
+    const cfg = buildConfig();
+    testFailure.value = {
+      message: r.message, detail: r.detail ?? null, host: cfg.host, port: cfg.port, driver: cfg.driver,
+      name: name.value.trim() || editing.value?.name || driver.value?.name || '',
+    };
+  } else {
+    testFailure.value = null;
+    explaining.value = false;
+  }
+});
 
 watch(() => props.tab.editId, () => {
   testResult.value = null;
@@ -420,7 +436,7 @@ async function test() {
         testing.value = false;
         return test();
       } catch (err) {
-        testResult.value = { ok: false, message: errorMessage(err) };
+        testResult.value = { ok: false, message: errorMessage(err), detail: errorDetail(err) };
         return;
       }
     }
@@ -432,7 +448,7 @@ async function test() {
       testing.value = false;
       return test();
     }
-    testResult.value = { ok: false, message: errorMessage(e) };
+    testResult.value = { ok: false, message: errorMessage(e), detail: errorDetail(e) };
   } finally {
     testing.value = false;
   }
@@ -734,10 +750,6 @@ function selectOptions(f: Field): [string, string][] {
           <div v-if="section !== 'general' && !fieldsIn(section).length" class="cd-empty">{{ $t('tunnel:tabs.empty') }}</div>
         </template>
       </div>
-      <div v-if="testResult && !testResult.ok" class="cd-test-error" role="alert">
-        <el-icon><ei-circle-close-filled /></el-icon>
-        <div><strong>{{ $t('connection:form.couldNotConnect') }}</strong><p>{{ testResult.message }}</p></div>
-      </div>
     </el-form>
 
     </div>
@@ -746,6 +758,13 @@ function selectOptions(f: Field): [string, string][] {
         <el-button :loading="testing" @click="test">
           <el-icon v-if="!testing"><ei-connection /></el-icon><span>{{ $t('connection:form.testConnection') }}</span>
         </el-button>
+        <!-- Next to the button, where the eye already is: a failure in the
+             footer (the form above may be scrolled), with its explanation. -->
+        <span v-if="testResult && !testResult.ok" class="cd-test-fail" role="alert" :title="testResult.message">
+          <el-icon><ei-circle-close-filled /></el-icon>
+          <span class="cd-test-fail-text"><strong>{{ $t('connection:form.couldNotConnect') }}</strong> · {{ testResult.message }}</span>
+          <el-button size="small" link type="primary" @click="explaining = true">{{ $t('explorer:tree.whatsWrong') }}</el-button>
+        </span>
         <span v-if="testResult?.ok" class="cd-test-ok" :title="testResult.message">
           <el-icon><ei-circle-check-filled /></el-icon>{{ $t('connection:form.connectionOk') }}<span class="cd-test-msg">· {{ testResult.message }}</span>
         </span>
@@ -760,6 +779,10 @@ function selectOptions(f: Field): [string, string][] {
         <el-button @click="close">{{ $t('common:cancel') }}</el-button>
       </div>
     </footer>
+    <ConnectionProblemDialog
+      v-if="explaining && testFailure" :connection-id="editing?.id ?? ''" :test="testFailure" :testing="testing"
+      @close="explaining = false" @retry="test()"
+    />
   </div>
 </template>
 
@@ -840,17 +863,14 @@ function selectOptions(f: Field): [string, string][] {
   cursor: pointer; color: var(--nm-text-dim); font-size: 11px; padding: 0;
 }
 .cd-color.active { outline: 2px solid var(--nm-text-max); outline-offset: 1px; }
-.cd-test-error {
-  display: flex; gap: 8px; margin-top: 12px; padding: 8px 10px; border-radius: 3px;
-  border: 1px solid color-mix(in srgb, var(--nm-danger) 50%, transparent);
-  background: color-mix(in srgb, var(--nm-danger) 10%, transparent);
-}
-.cd-test-error .el-icon { color: var(--nm-danger); margin-top: 2px; flex-shrink: 0; }
-.cd-test-error strong { color: var(--nm-text-strong); font-weight: 600; }
-.cd-test-error p { margin: 2px 0 0; color: var(--nm-text); white-space: pre-wrap; word-break: break-word; user-select: text; cursor: text; }
 
 /* footer */
 .cd-footer { display: flex; align-items: center; gap: 8px; }
+.cd-test-fail { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; max-width: 52%; font-size: 12px; color: var(--nm-text); }
+.cd-test-fail > .el-icon { color: var(--nm-danger); flex: none; }
+.cd-test-fail-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-test-fail-text strong { color: var(--nm-danger); font-weight: 600; }
+.cd-test-fail .el-button { flex: none; min-width: 0; }
 .cd-footer .el-button { margin: 0; min-width: 84px; }
 .cd-footer .el-button span { margin-left: 4px; }
 .cd-footer .el-button .el-icon + span { margin-left: 5px; }

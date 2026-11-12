@@ -168,7 +168,7 @@ and queries are organized inside each database.
   on every engine: it unfolds nested fields and JSON columns, with search in
   keys and values, types per field and large arrays grouped.
 - **Graphical execution plans**, in the style of Management Studio: estimated,
-  actual or both, with zoom and panning.
+  actual or both, with zoom, panning and full screen.
 - **Search the database:** a text in object names, column names and the code
   of views, routines and triggers, with results as it progresses. Details:
   [`docs/search.md`](docs/search.md).

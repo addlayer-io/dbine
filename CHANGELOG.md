@@ -5,7 +5,13 @@
 ### New
 - **Results kept when DBine closes:** each query editor's result tabs are saved to an encrypted file on your computer, so after closing DBine, or a crash, every editor shows them again as they were, pinned ones included, without running anything. The key never leaves your computer and user; **Settings › General** sets the space they may take, clears them, or turns it off.
 
+### Improvements
+- **Testing a connection:** when **Test connection** fails, the error shows next to the button, and **What's wrong…** explains it (firewall, timeout, DNS, TLS or credentials) as it does for a saved connection.
+- **Monitor processes:** the selected session opens in a panel next to the list, which stays where it was, with its whole statement and **Analyze**, which takes it to the optimizer, besides cancelling it or ending the session. The arrow keys move between sessions.
+- **Execution plans:** **Full screen** shows the plan over the whole window, and Esc brings it back.
+
 ### Fixes
+- **Monitor CPU on Oracle and SQL Server:** the database's CPU is now a share of all the server's CPUs. With several busy cores it read over 100 %, such as 500 % with five.
 - **Pasting a connection string:** a SQL Server or ODBC connection string whose last value was a lone quote or brace (`Password="`) made the import fail; it's now read as that character.
 
 ## [1.5.0] - 2026-11-11

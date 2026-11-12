@@ -4,6 +4,10 @@
   "estimatedPlan": "Plan szacunkowy",
   "diagram": "Diagram",
   "rawPlan": "Plan oryginalny",
+  "fullScreen": "Pełny ekran",
+  "fullScreenTip": "Pokaż plan w całym oknie (Esc, aby wrócić)",
+  "exitFullScreen": "Wyjdź",
+  "exitFullScreenTip": "Wróć do panelu wyników (Esc)",
   "statementTitle": "Kliknij, aby zobaczyć w całości",
   "hint": "Przeciągnij, aby się przesuwać · ⌘/pinch + kółko, aby powiększać · F dopasowuje",
   "summary": {

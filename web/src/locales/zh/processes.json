@@ -29,6 +29,8 @@
   "waitsFor": "等待",
   "waitedBy": "被等待：",
   "noSql": "它没有在运行任何语句。",
+  "analyze": "分析",
+  "analyzeTip": "在优化器中打开该语句：执行计划、索引和测量",
   "openInQuery": "在查询中打开",
   "queryName": "会话 {{id}}",
   "copy": "复制",
