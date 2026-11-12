@@ -58,6 +58,7 @@
       "connect": "Verbinden",
       "disconnect": "Trennen",
       "monitor": "Server-Monitor",
+      "serverJobs": "Server-Jobs",
       "serverBackups": "Server-Sicherungen…",
       "newDatabase": "Neue Datenbank…",
       "edit": "Verbindung bearbeiten…",

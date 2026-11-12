@@ -13,6 +13,7 @@
 
 mod create_db;
 mod ddl;
+mod jobs;
 mod permissions;
 mod processes;
 mod profiler;
@@ -152,6 +153,7 @@ impl Driver for TdDriver {
             processes: true,
             cancel_query: true,
             database_properties: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1185,6 +1187,24 @@ impl Session for TdSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_connection_query(id).await
+    }
+
+    /// Streams (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.server_job_detail(id).await
+    }
+
+    /// `PAUSE` / `RESUME STREAM` (up to 3.3.6), `STOP` / `START STREAM` after.
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.set_server_job_enabled(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.server_job_script(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

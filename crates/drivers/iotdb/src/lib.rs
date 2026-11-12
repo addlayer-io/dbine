@@ -48,6 +48,7 @@ const COMPRESSIONS: &[&str] = &["UNCOMPRESSED", "SNAPPY", "LZ4", "GZIP", "ZSTD",
 const ROW_LIMIT_EXCEEDED: i64 = 708;
 
 mod create_db;
+mod jobs;
 mod monitor;
 mod permissions;
 mod processes;
@@ -178,6 +179,7 @@ impl Driver for IotDbDriver {
             processes: true,
             cancel_query: true,
             database_properties: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1073,6 +1075,24 @@ impl Session for IotDbSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel(id).await
+    }
+
+    /// Continuous queries and pipes (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.server_job_detail(id).await
+    }
+
+    /// `START PIPE` / `STOP PIPE` (continuous queries can't be paused).
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.set_server_job_enabled(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.server_job_script(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

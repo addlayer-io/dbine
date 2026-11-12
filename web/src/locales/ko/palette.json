@@ -58,6 +58,7 @@
       "connect": "연결",
       "disconnect": "연결 해제",
       "monitor": "서버 모니터",
+      "serverJobs": "서버 잡",
       "serverBackups": "서버 백업…",
       "newDatabase": "새 데이터베이스…",
       "edit": "연결 편집…",

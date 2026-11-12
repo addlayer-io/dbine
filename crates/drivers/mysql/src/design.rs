@@ -38,6 +38,7 @@ pub(crate) fn capabilities(v: Variant) -> Capabilities {
         processes: true,
         cancel_query: true,
         database_properties: crate::properties::supported(v),
+        jobs: crate::jobs::supported(v),
     }
 }
 

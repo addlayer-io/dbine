@@ -58,6 +58,7 @@
       "connect": "接続",
       "disconnect": "切断",
       "monitor": "サーバーモニター",
+      "serverJobs": "サーバーのジョブ",
       "serverBackups": "サーバーのバックアップ…",
       "newDatabase": "新しいデータベース…",
       "edit": "接続を編集…",

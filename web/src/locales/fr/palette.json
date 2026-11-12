@@ -58,6 +58,7 @@
       "connect": "Se connecter",
       "disconnect": "Se déconnecter",
       "monitor": "Moniteur du serveur",
+      "serverJobs": "Jobs du serveur",
       "serverBackups": "Sauvegardes du serveur…",
       "newDatabase": "Nouvelle base de données…",
       "edit": "Modifier la connexion…",

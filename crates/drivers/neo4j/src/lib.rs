@@ -49,6 +49,7 @@ mod create_db;
 mod cypher;
 mod ddl;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod neptune;
 mod packstream;
@@ -309,6 +310,9 @@ impl Driver for GraphDriver {
             // Neo4j (changes on Enterprise) and Memgraph (facts); Neptune
             // keeps its settings in the cluster (see properties.rs).
             database_properties: dbs,
+            // APOC's background jobs; Memgraph and Neptune have no
+            // scheduled jobs (see jobs.rs).
+            jobs: self.flavor == Flavor::Neo4j,
         }
     }
 
@@ -2168,6 +2172,36 @@ impl Session for GraphSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         processes::cancel(self, id).await
+    }
+
+    /// APOC's background jobs (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, _id: &str, _limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        jobs::runs()
+    }
+
+    async fn run_job(&mut self, _id: &str) -> Result<()> {
+        Err(jobs::no_run())
+    }
+
+    /// Cancels the APOC job (a repeating one for good).
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.job_cancel(id).await
+    }
+
+    async fn set_job_enabled(&mut self, _id: &str, _enabled: bool) -> Result<()> {
+        Err(jobs::no_run())
+    }
+
+    async fn job_script(&mut self, _id: &str) -> Result<String> {
+        Err(jobs::no_script())
     }
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {

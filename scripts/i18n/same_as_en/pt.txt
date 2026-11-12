@@ -228,3 +228,8 @@ enterprise.json:header
 enterprise.json:headerSignedIn
 enterprise.json:signIn.title
 enterprise.json:elapsed.hours
+scheduled.json:server.tab
+backend:Cadena
+backend:Copia de seguridad (V1.0)
+backend:Copia de seguridad (V2.0)
+backend:clúster {0}

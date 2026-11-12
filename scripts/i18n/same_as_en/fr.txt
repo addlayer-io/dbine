@@ -405,3 +405,19 @@ enterprise.json:access.justification
 enterprise.json:elapsed.minutes_one
 enterprise.json:elapsed.minutes_other
 enterprise.json:elapsed.hours
+scheduled.json:server.tab
+scheduled.json:server.description
+scheduled.json:server.stepKind
+scheduled.json:server.message
+backend:Acción
+backend:Argumento {0}
+backend:Argumentos
+backend:Estilo
+backend:Fecha
+backend:Notificaciones
+backend:Rutina
+backend:Servicios
+backend:TimescaleDB · compresión
+backend:Tipo {0}
+backend:acción {0}
+backend:clúster {0}

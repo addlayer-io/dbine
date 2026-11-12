@@ -8,6 +8,7 @@ mod create_db;
 #[path = "../../bigquery/src/gcp.rs"]
 mod gcp;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -212,6 +213,7 @@ impl Driver for SpannerDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1612,6 +1614,24 @@ impl Session for SpannerSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_running(id).await
+    }
+
+    /// The instance's backup schedules (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.server_jobs().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.server_job_detail(id).await
+    }
+
+    /// The backups the schedule made.
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.server_job_runs(id, limit).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.server_job_script(id).await
     }
 
     async fn profiler_start(

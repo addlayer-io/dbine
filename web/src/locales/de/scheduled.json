@@ -1,5 +1,5 @@
 {
-  "title": "Geplante Aufgaben",
+  "title": "Geplant",
   "tab": "Aufgabe",
   "newTask": "Neue Aufgabe",
   "namePlaceholder": "Name der Aufgabe",
@@ -243,5 +243,72 @@
     "text": "Text",
     "textHint": "Akzeptiert die Variablen der Aufgabe. {results} ist das, was jeder vorherige Schritt getan hat (✓ erfolgreich, ✗ fehlgeschlagen, – nicht ausgeführt), und {alerts} sind deren Warnungen. Nachrichten mit mehr als 3.500 Zeichen werden gekürzt.",
     "privacy": "Die Webhook-URL und die Token werden im Schlüsselbund dieses Computers gespeichert, nie in der Aufgabe oder im Verlauf. Die Nachricht wird nur per HTTPS an den gewählten Dienst gesendet."
+  },
+  "sections": {
+    "dbine": "In DBine",
+    "dbineHint": "Die Aufgaben, die DBine auf diesem Computer ausführt",
+    "servers": "Auf den Servern",
+    "serversHint": "Die Jobs, die jeder Datenbankserver selbstständig ausführt"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "Keine Verbindung nutzt eine Engine mit Server-Jobs (SQL Server Agent, DBMS_SCHEDULER, Snowflake-Tasks, Databricks-Jobs, pg_cron, MySQL-Events…).",
+    "none": "Dieser Server hat keine Jobs.",
+    "onDemand": "Bei Bedarf",
+    "showSystem_one": "Systemjob anzeigen",
+    "showSystem_other": "{{count}} Systemjobs anzeigen",
+    "hideSystem_one": "Systemjob ausblenden",
+    "hideSystem_other": "Systemjobs ausblenden",
+    "system": "Systemintern",
+    "systemHint": "Systemjobs werden mit der Datenbank oder der Engine mitgeliefert: Sie wurden nicht von einem Benutzer angelegt.",
+    "disabled": "Deaktiviert",
+    "run": "Jetzt ausführen",
+    "stop": "Beenden",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "script": "Skript anzeigen",
+    "scriptName": "Skript von {{job}}",
+    "confirm": {
+      "run": "Den Job „{{job}}“ auf {{connection}} jetzt ausführen?",
+      "stop": "Die laufende Ausführung des Jobs „{{job}}“ auf {{connection}} beenden?",
+      "enable": "Den Job „{{job}}“ auf {{connection}} aktivieren? Er wird wieder nach seinem Zeitplan ausgeführt.",
+      "disable": "Den Job „{{job}}“ auf {{connection}} deaktivieren? Er wird nicht mehr nach seinem Zeitplan ausgeführt."
+    },
+    "done": {
+      "run": "Der Server hat die Ausführung von „{{job}}“ gestartet.",
+      "stop": "Das Beenden von „{{job}}“ wurde angefordert.",
+      "enable": "„{{job}}“ wurde aktiviert.",
+      "disable": "„{{job}}“ wurde deaktiviert."
+    },
+    "outcome": {
+      "succeeded": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "canceled": "Abgebrochen",
+      "running": "Läuft",
+      "retrying": "Neuer Versuch",
+      "skipped": "Übersprungen",
+      "unknown": "Unbekannt"
+    },
+    "schedule": "Zeitplan",
+    "lastRun": "Letzte Ausführung",
+    "owner": "Besitzer",
+    "description": "Beschreibung",
+    "readOnly": "Schreibgeschützte Verbindung: Der Job kann angezeigt, aber nicht ausgeführt, beendet oder aktiviert werden.",
+    "steps": "Schritte",
+    "stepName": "Name",
+    "stepKind": "Typ",
+    "stepTarget": "Ziel",
+    "stepCommand": "Befehl",
+    "properties": "Eigenschaften",
+    "history": "Verlauf",
+    "noHistory": "Diese Engine speichert den Ausführungsverlauf ihrer Jobs nicht.",
+    "started": "Start",
+    "duration": "Dauer",
+    "result": "Ergebnis",
+    "trigger": "Auslöser",
+    "message": "Meldung",
+    "moreRuns": "Weitere Ausführungen anzeigen",
+    "failedCount_one": "{{count}} Job ist bei der letzten Ausführung fehlgeschlagen",
+    "failedCount_other": "{{count}} Jobs sind bei der letzten Ausführung fehlgeschlagen"
   }
 }

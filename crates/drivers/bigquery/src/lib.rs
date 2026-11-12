@@ -11,6 +11,7 @@ mod gcp;
 mod health;
 mod index_usage;
 mod indexes;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -283,6 +284,7 @@ impl Driver for BigQueryDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1347,6 +1349,35 @@ impl Session for BigQuerySession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_running(id).await
+    }
+
+    /// Scheduled queries (the Data Transfer Service, see `jobs`).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.job_history(id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.job_run_now(id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.job_stop(id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.job_enable(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.job_bq_script(id).await
     }
 
     async fn profiler_start(

@@ -58,6 +58,7 @@
       "connect": "连接",
       "disconnect": "断开连接",
       "monitor": "服务器监视器",
+      "serverJobs": "服务器作业",
       "serverBackups": "服务器备份…",
       "newDatabase": "新建数据库…",
       "edit": "编辑连接…",

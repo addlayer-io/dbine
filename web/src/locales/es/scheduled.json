@@ -1,5 +1,5 @@
 {
-  "title": "Tareas programadas",
+  "title": "Programadas",
   "tab": "Tarea",
   "newTask": "Nueva tarea",
   "namePlaceholder": "Nombre de la tarea",
@@ -244,5 +244,72 @@
     "text": "Texto",
     "textHint": "Acepta las variables de la tarea. {results} es lo que hizo cada paso anterior (✓ bien, ✗ falló, – no se ejecutó) y {alerts} sus alertas. Los mensajes de más de 3.500 caracteres se cortan.",
     "privacy": "La URL del webhook y los tokens se guardan en el llavero de esta computadora, nunca en la tarea ni en el historial. El mensaje sale solo por HTTPS hacia el servicio elegido."
+  },
+  "sections": {
+    "dbine": "En DBine",
+    "dbineHint": "Las tareas que ejecuta DBine en esta computadora",
+    "servers": "En los servidores",
+    "serversHint": "Los jobs que cada servidor de base de datos ejecuta por su cuenta"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "Ninguna conexión usa un motor con jobs del servidor (Agente de SQL Server, DBMS_SCHEDULER, tareas de Snowflake, jobs de Databricks, pg_cron, eventos de MySQL…).",
+    "none": "Este servidor no tiene jobs.",
+    "failedCount_one": "{{count}} job falló en su última ejecución",
+    "failedCount_other": "{{count}} jobs fallaron en su última ejecución",
+    "onDemand": "A pedido",
+    "showSystem_one": "Mostrar el del sistema",
+    "showSystem_other": "Mostrar los {{count}} del sistema",
+    "hideSystem_one": "Ocultar el del sistema",
+    "hideSystem_other": "Ocultar los del sistema",
+    "system": "Del sistema",
+    "systemHint": "Los jobs del sistema vienen con la base de datos o con el motor: no los creó un usuario.",
+    "disabled": "Desactivado",
+    "run": "Ejecutar ahora",
+    "stop": "Detener",
+    "enable": "Activar",
+    "disable": "Desactivar",
+    "script": "Ver script",
+    "scriptName": "Script de {{job}}",
+    "confirm": {
+      "run": "¿Ejecutar ahora el job «{{job}}» en {{connection}}?",
+      "stop": "¿Detener la ejecución en curso del job «{{job}}» en {{connection}}?",
+      "enable": "¿Activar el job «{{job}}» en {{connection}}? Vuelve a ejecutarse según su programación.",
+      "disable": "¿Desactivar el job «{{job}}» en {{connection}}? Deja de ejecutarse según su programación."
+    },
+    "done": {
+      "run": "El servidor empezó a ejecutar «{{job}}».",
+      "stop": "Se pidió detener «{{job}}».",
+      "enable": "«{{job}}» quedó activado.",
+      "disable": "«{{job}}» quedó desactivado."
+    },
+    "outcome": {
+      "succeeded": "Correcta",
+      "failed": "Falló",
+      "canceled": "Cancelada",
+      "running": "En ejecución",
+      "retrying": "Reintentando",
+      "skipped": "Omitida",
+      "unknown": "Desconocido"
+    },
+    "schedule": "Programación",
+    "lastRun": "Última ejecución",
+    "owner": "Propietario",
+    "description": "Descripción",
+    "readOnly": "Conexión de solo lectura: se puede ver el job, pero no ejecutarlo, detenerlo ni activarlo.",
+    "steps": "Pasos",
+    "stepName": "Nombre",
+    "stepKind": "Tipo",
+    "stepTarget": "Destino",
+    "stepCommand": "Comando",
+    "properties": "Propiedades",
+    "history": "Historial",
+    "noHistory": "Este motor no guarda el historial de ejecuciones de sus jobs.",
+    "started": "Inicio",
+    "duration": "Duración",
+    "result": "Resultado",
+    "trigger": "Origen",
+    "message": "Mensaje",
+    "moreRuns": "Ver más ejecuciones"
   }
 }

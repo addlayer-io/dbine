@@ -18,6 +18,7 @@ mod create_db;
 mod ddl;
 mod health;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -355,6 +356,12 @@ impl Api {
         self.send(self.http.get(format!("{}{path}", self.base)))
             .await
     }
+
+    /// A GET with query parameters, each one escaped.
+    async fn get_query(&self, path: &str, query: &[(&str, String)]) -> Result<Json> {
+        self.send(self.http.get(format!("{}{path}", self.base)).query(query))
+            .await
+    }
 }
 
 fn api_message(body: &Json, status: u16) -> String {
@@ -459,6 +466,7 @@ impl Driver for DatabricksDriver {
             monitor: true,
             processes: true,
             cancel_query: true,
+            jobs: true,
             ..Default::default()
         }
     }
@@ -1241,6 +1249,35 @@ impl Session for DatabricksSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_running(id).await
+    }
+
+    /// The workspace's jobs (Jobs API), whatever runs them (see `jobs`).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.job_history(id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.job_run_now(id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.job_cancel_all(id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.job_pause(id, !enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.job_settings_json(id).await
     }
 
     async fn profiler_start(

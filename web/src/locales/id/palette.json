@@ -58,6 +58,7 @@
       "connect": "Hubungkan",
       "disconnect": "Putuskan",
       "monitor": "Monitor server",
+      "serverJobs": "Job server",
       "serverBackups": "Cadangan server…",
       "newDatabase": "Basis data baru…",
       "edit": "Edit koneksi…",

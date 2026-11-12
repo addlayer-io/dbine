@@ -184,6 +184,14 @@ export interface ScheduledTaskTab extends TabBase {
   taskId: string | null;
 }
 
+/** A server job's detail and runs ("Programadas › En los servidores",
+ *  docs/server-jobs.md). `jobName` titles the tab before the job is read. */
+export interface ServerJobTab extends TabBase {
+  kind: 'serverJob';
+  jobId: string;
+  jobName: string;
+}
+
 /** "Buscar · <base>": object names and the text of views, routines, triggers… */
 export interface SearchTab extends TabBase {
   kind: 'search';
@@ -245,7 +253,7 @@ export interface QueryBuilderTab extends TabBase {
   spec: QuerySpec;
 }
 
-export type Tab = ContextTab | QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
+export type Tab = ContextTab | QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ServerJobTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -739,6 +747,13 @@ export const useTabsStore = defineStore('tabs', {
       const open = taskId && this.tabs.find((t) => t.kind === 'scheduledTask' && t.taskId === taskId);
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'scheduledTask', connectionId: '', database: '', taskId, preview: false });
+    },
+
+    /** A server job's tab, one per job. */
+    openServerJob(connectionId: string, jobId: string, jobName = '') {
+      const open = this.tabs.find((t) => t.kind === 'serverJob' && t.connectionId === connectionId && t.jobId === jobId);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'serverJob', connectionId, database: '', jobId, jobName, preview: false });
     },
 
     /** A database's "Buscar" tab, one per database. */

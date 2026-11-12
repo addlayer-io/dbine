@@ -1,5 +1,5 @@
 {
-  "title": "Tâches planifiées",
+  "title": "Planifiées",
   "tab": "Tâche",
   "newTask": "Nouvelle tâche",
   "namePlaceholder": "Nom de la tâche",
@@ -244,5 +244,73 @@
     "text": "Texte",
     "textHint": "Accepte les variables de la tâche. {results} indique ce qu’a fait chaque étape précédente (✓ réussie, ✗ échouée, – non exécutée) et {alerts} leurs alertes. Les messages de plus de 3 500 caractères sont tronqués.",
     "privacy": "L’URL du webhook et les jetons sont conservés dans le trousseau de cet ordinateur, jamais dans la tâche ni dans l’historique. Le message part uniquement en HTTPS vers le service choisi."
+  },
+  "sections": {
+    "dbine": "Dans DBine",
+    "dbineHint": "Les tâches que DBine exécute sur cet ordinateur",
+    "servers": "Sur les serveurs",
+    "serversHint": "Les jobs que chaque serveur de base de données exécute de lui-même"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "Aucune connexion n'utilise un moteur avec des jobs de serveur (SQL Server Agent, DBMS_SCHEDULER, tâches Snowflake, jobs Databricks, pg_cron, événements MySQL…).",
+    "none": "Ce serveur n'a aucun job.",
+    "onDemand": "À la demande",
+    "showSystem_one": "Afficher celui du système",
+    "showSystem_other": "Afficher les {{count}} du système",
+    "hideSystem_one": "Masquer celui du système",
+    "hideSystem_other": "Masquer ceux du système",
+    "system": "Du système",
+    "systemHint": "Les jobs système sont fournis avec la base de données ou le moteur : ils n'ont pas été créés par un utilisateur.",
+    "disabled": "Désactivé",
+    "run": "Exécuter maintenant",
+    "stop": "Arrêter",
+    "enable": "Activer",
+    "disable": "Désactiver",
+    "script": "Voir le script",
+    "scriptName": "Script de {{job}}",
+    "confirm": {
+      "run": "Exécuter maintenant le job « {{job}} » sur {{connection}} ?",
+      "stop": "Arrêter l'exécution en cours du job « {{job}} » sur {{connection}} ?",
+      "enable": "Activer le job « {{job}} » sur {{connection}} ? Il recommence à s'exécuter selon sa planification.",
+      "disable": "Désactiver le job « {{job}} » sur {{connection}} ? Il cesse de s'exécuter selon sa planification."
+    },
+    "done": {
+      "run": "Le serveur a commencé à exécuter « {{job}} ».",
+      "stop": "L'arrêt de « {{job}} » a été demandé.",
+      "enable": "« {{job}} » a été activé.",
+      "disable": "« {{job}} » a été désactivé."
+    },
+    "outcome": {
+      "succeeded": "Réussie",
+      "failed": "Échec",
+      "canceled": "Annulée",
+      "running": "En cours d'exécution",
+      "retrying": "Nouvelle tentative",
+      "skipped": "Ignorée",
+      "unknown": "Inconnu"
+    },
+    "schedule": "Planification",
+    "lastRun": "Dernière exécution",
+    "owner": "Propriétaire",
+    "description": "Description",
+    "readOnly": "Connexion en lecture seule : on peut voir le job, mais pas l'exécuter, l'arrêter ni l'activer.",
+    "steps": "Étapes",
+    "stepName": "Nom",
+    "stepKind": "Type",
+    "stepTarget": "Cible",
+    "stepCommand": "Commande",
+    "properties": "Propriétés",
+    "history": "Historique",
+    "noHistory": "Ce moteur ne conserve pas l'historique d'exécution de ses jobs.",
+    "started": "Début",
+    "duration": "Durée",
+    "result": "Résultat",
+    "trigger": "Origine",
+    "message": "Message",
+    "moreRuns": "Voir plus d'exécutions",
+    "failedCount_one": "{{count}} job a échoué lors de sa dernière exécution",
+    "failedCount_many": "{{count}} de jobs ont échoué lors de leur dernière exécution",
+    "failedCount_other": "{{count}} jobs ont échoué lors de leur dernière exécution"
   }
 }

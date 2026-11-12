@@ -307,6 +307,11 @@ pub struct Capabilities {
     /// `alter_database` ("Propiedades" on a database).
     #[serde(default)]
     pub database_properties: bool,
+    /// Its sessions implement `Session::jobs` and `Session::job_detail`
+    /// (the server's jobs in "Programadas"); what each job allows is in
+    /// the job itself.
+    #[serde(default)]
+    pub jobs: bool,
 }
 
 #[cfg(test)]

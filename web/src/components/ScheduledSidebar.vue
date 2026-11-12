@@ -7,16 +7,33 @@ import { scheduledApi, type TaskItem } from '../api/scheduled';
 import { tb } from '../i18n/backend';
 import { confirmNative } from '../native';
 import { useScheduledStore } from '../stores/scheduled';
+import { useServerJobsStore } from '../stores/serverJobs';
+import { readJson, writeJson } from '../stores/storage';
 import { useTabsStore } from '../stores/tabs';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
+import ServerJobsSection from './ServerJobsSection.vue';
 import { vKeyActivate } from '../composables/keyActivate';
 
-// "Tareas programadas" (the ⏰ in the activity bar; docs/scheduled-tasks.md):
-// each task with its schedule, its last run and the next one.
+// "Programadas" (the ⏰ in the activity bar): "En DBine", the tasks DBine
+// runs on this computer (docs/scheduled-tasks.md), each with its schedule,
+// its last run and the next one; and "En los servidores", the jobs each
+// database server runs on its own (docs/server-jobs.md).
 
 const { t } = useTranslation();
 const store = useScheduledStore();
 const tabs = useTabsStore();
+const serverJobs = useServerJobsStore();
+
+/** Closed sections, kept between sessions. */
+const closed = ref<string[]>(readJson<string[]>('dbine.scheduled.closed', []));
+function toggleSection(name: string) {
+  closed.value = closed.value.includes(name) ? closed.value.filter((n) => n !== name) : [...closed.value, name];
+  writeJson('dbine.scheduled.closed', closed.value);
+}
+function refreshAll() {
+  store.load();
+  serverJobs.refreshOpen();
+}
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
 // A run the OS started is written by another process: look again now and then.
@@ -83,10 +100,15 @@ function openMenu(ev: MouseEvent, item: TaskItem) {
     <div class="ss-header">
       <span class="ss-title">{{ $t('scheduled:title') }}</span>
       <span style="flex: 1" />
-      <button :aria-label="$t('scheduled:newTask')" class="ss-icon" :title="$t('scheduled:newTask')" @click="tabs.openScheduledTask(null)"><el-icon><ei-plus /></el-icon></button>
-      <button :aria-label="$t('common:refresh')" class="ss-icon" :title="$t('common:refresh')" @click="store.load()"><el-icon><ei-refresh /></el-icon></button>
+      <button :aria-label="$t('common:refresh')" class="ss-icon" :title="$t('common:refresh')" @click="refreshAll()"><el-icon><ei-refresh /></el-icon></button>
     </div>
     <div class="ss-list">
+      <div v-key-activate class="ss-section" @click="toggleSection('dbine')">
+        <el-icon class="ss-chev" :class="{ open: !closed.includes('dbine') }"><ei-arrow-right /></el-icon>
+        <span class="ss-section-title" :title="$t('scheduled:sections.dbineHint')">{{ $t('scheduled:sections.dbine') }}</span>
+        <button :aria-label="$t('scheduled:newTask')" class="ss-icon" :title="$t('scheduled:newTask')" @click.stop="tabs.openScheduledTask(null)"><el-icon><ei-plus /></el-icon></button>
+      </div>
+      <template v-if="!closed.includes('dbine')">
       <div v-if="store.loaded && !store.items.length" class="ss-empty">
         <el-icon :size="22"><ei-alarm-clock /></el-icon>
         <span>{{ $t('scheduled:empty') }}</span>
@@ -114,6 +136,12 @@ function openMenu(ev: MouseEvent, item: TaskItem) {
           <span v-else-if="item.next_run" :title="$t('scheduled:nextRun')">→ {{ item.next_run.slice(5) }}</span>
         </div>
       </div>
+      </template>
+      <div v-key-activate class="ss-section" @click="toggleSection('servers')">
+        <el-icon class="ss-chev" :class="{ open: !closed.includes('servers') }"><ei-arrow-right /></el-icon>
+        <span class="ss-section-title" :title="$t('scheduled:sections.serversHint')">{{ $t('scheduled:sections.servers') }}</span>
+      </div>
+      <ServerJobsSection v-if="!closed.includes('servers')" />
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
   </div>
@@ -126,6 +154,13 @@ function openMenu(ev: MouseEvent, item: TaskItem) {
 .ss-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; border-radius: 4px; background: none; color: var(--nm-text-dim); cursor: pointer; }
 .ss-icon:hover { background: var(--ide-hover); color: var(--nm-text-strong); }
 .ss-list { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
+.ss-section { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px 0 6px; cursor: pointer; border-top: 1px solid var(--nm-border-soft); }
+.ss-section:first-child { border-top: 0; }
+.ss-section-title { flex: 1; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--nm-text); }
+.ss-chev { flex: none; font-size: 12px; color: var(--nm-text-dim); transition: transform .12s; }
+.ss-chev.open { transform: rotate(90deg); }
+.ss-section .ss-icon { visibility: hidden; }
+.ss-section:hover .ss-icon { visibility: visible; }
 .ss-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 16px; color: var(--nm-text-dim); font-size: 12px; text-align: center; }
 .ss-item { padding: 6px 12px 6px 14px; cursor: pointer; }
 .ss-item:hover { background: var(--ide-hover); }

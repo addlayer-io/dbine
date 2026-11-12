@@ -23,6 +23,7 @@ pub mod filter;
 pub mod health;
 pub mod index_usage;
 pub mod info;
+pub mod jobs;
 pub mod keys;
 pub mod model;
 pub mod monitor;
@@ -60,6 +61,7 @@ pub use info::{
     kinds, DatabaseProperties, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection,
     FieldWhen, Language, Legacy, ObjectKindInfo, PropertyInfo, TlsLevel, TlsRole, TlsSupport,
 };
+pub use jobs::{JobDetail, JobList, JobOutcome, JobRun, JobStep, JobStepRun, ServerJob};
 pub use keys::{KeyEntry, KeyPage, KeyScan, KeySearch, KeySyntax};
 pub use model::{
     is_spatial_blob, is_spatial_type, json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64,
@@ -1161,6 +1163,69 @@ pub trait Session: Send {
         let _ = id;
         Err(Error::Unsupported(
             "este motor no permite cancelar consultas de otras sesiones".into(),
+        ))
+    }
+
+    /// The server's jobs (see [`jobs`]): what it runs on its own schedule.
+    /// Drivers that implement it set `Capabilities::jobs`. A server where
+    /// the engine's scheduler isn't installed or visible answers an empty
+    /// list with a note saying why, not an error.
+    async fn jobs(&mut self) -> Result<jobs::JobList> {
+        Err(Error::Unsupported(
+            "este motor no tiene jobs del servidor".into(),
+        ))
+    }
+
+    /// One job whole: its steps, schedules and the rest the engine says.
+    async fn job_detail(&mut self, id: &str) -> Result<jobs::JobDetail> {
+        let _ = id;
+        Err(Error::Unsupported(
+            "este motor no tiene jobs del servidor".into(),
+        ))
+    }
+
+    /// A job's past runs (and the current one), newest first, at most
+    /// `limit` (capped at [`jobs::MAX_JOB_RUNS`]). For jobs with
+    /// `has_history`.
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<jobs::JobRun>> {
+        let _ = (id, limit);
+        Err(Error::Unsupported(
+            "este motor no guarda el historial de sus jobs".into(),
+        ))
+    }
+
+    /// Start a run of the job now, outside its schedule. Returns once the
+    /// server took it, not when the run ends. For jobs with `can_run`.
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        let _ = id;
+        Err(Error::Unsupported(
+            "este motor no permite ejecutar sus jobs desde DBine".into(),
+        ))
+    }
+
+    /// Stop the job's current run. For jobs with `can_stop`.
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        let _ = id;
+        Err(Error::Unsupported(
+            "este motor no permite detener sus jobs desde DBine".into(),
+        ))
+    }
+
+    /// Enable or disable (resume or suspend) the job's schedule. For jobs
+    /// with `can_enable`.
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        let _ = (id, enabled);
+        Err(Error::Unsupported(
+            "este motor no permite habilitar o deshabilitar sus jobs desde DBine".into(),
+        ))
+    }
+
+    /// The script that creates the job as it is now, in the engine's
+    /// language. For jobs with `has_script`.
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        let _ = id;
+        Err(Error::Unsupported(
+            "este motor no genera el script de sus jobs".into(),
         ))
     }
 

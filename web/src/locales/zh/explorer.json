@@ -71,6 +71,7 @@
     "clearSelection": "清除选择",
     "newQuery": "新建查询",
     "monitor": "监视器",
+    "serverJobs": "服务器作业",
     "newDatabase": "新建数据库…",
     "copyServer": "复制服务器",
     "copyConnectionName": "复制连接名称",

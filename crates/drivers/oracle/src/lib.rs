@@ -12,6 +12,7 @@ mod create_db;
 mod ddl;
 mod health;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -693,6 +694,8 @@ impl Driver for OracleDriver {
             cancel_query: true,
             // DBA_USERS / DBA_TS_QUOTAS and ALTER USER (see `properties`).
             database_properties: true,
+            // DBMS_SCHEDULER (and DBMS_JOB before 19c), see `jobs`.
+            jobs: true,
         }
     }
 
@@ -1568,6 +1571,40 @@ impl Session for OracleSession {
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         let id = id.to_string();
         self.run(move |c| processes::cancel(c, &id)).await
+    }
+
+    async fn jobs(&mut self) -> Result<dbine_driver::jobs::JobList> {
+        self.run(jobs::list).await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::jobs::JobDetail> {
+        let id = id.to_string();
+        self.run(move |c| jobs::detail(c, &id)).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::jobs::JobRun>> {
+        let id = id.to_string();
+        self.run(move |c| jobs::runs(c, &id, limit)).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        let id = id.to_string();
+        self.run(move |c| jobs::run(c, &id)).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        let id = id.to_string();
+        self.run(move |c| jobs::stop(c, &id)).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        let id = id.to_string();
+        self.run(move |c| jobs::set_enabled(c, &id, enabled)).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        let id = id.to_string();
+        self.run(move |c| jobs::script(c, &id)).await
     }
 
     async fn read_batches(

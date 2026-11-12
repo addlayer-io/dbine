@@ -3764,6 +3764,200 @@ Registration in the system scheduler (LaunchAgent, Task Scheduler, systemd or cr
 | Any | **Only if…** in steps other than **Send an email** and **Send a message** | The task engine evaluates the condition in any step, but the interface only offers it in those two. Explicit pending item: offering it in the other step types. |
 | Linux without systemd | Keychain access from cron | A task registered with `crontab` may not see the user's keychain; a user systemd timer does. |
 
+## Server jobs
+
+The work a server runs on its own on a schedule, listed in **Scheduled › On the servers** ([`server-jobs.md`](server-jobs.md)). Each engine contributes what its own scheduler has: DBine lists the jobs, their steps, their runs and the script that recreates them, and runs, stops, enables or disables a job where the engine allows it. The flags are decided per job (for example, from the user's privileges), so a row can offer an action that a given job refuses.
+
+The contract is `Driver::supports_jobs` (the `jobs` capability) plus the session methods `jobs`, `job_detail`, `job_runs`, `job_script`, `run_job`, `stop_job` and `set_job_enabled`; the ones an engine lacks answer `Error::Unsupported`. A read-only connection never offers the three that change something.
+
+✓ = offered, — = the engine has no way to do it (footnotes explain the cases that need one).
+
+| Engine | What DBine lists | Run now | Stop | Enable / disable | History | Script |
+|---|---|---|---|---|---|---|
+| SQL Server, Azure SQL Managed Instance, SQL Server 2008 R2 / 2012 | SQL Server Agent jobs (through the Agent's own procedures) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| SQL Server Express | Jobs found in `msdb` | — ¹ | — ¹ | ✓ | ✓ | ✓ |
+| Oracle, Autonomous Database | `DBMS_SCHEDULER` jobs, chains and their steps (`DBMS_JOB` before 19c) | ✓ | ✓ ² | ✓ | ✓ ² | ✓ |
+| PostgreSQL and its managed variants, Greenplum, Greengage, Fujitsu Enterprise Postgres | pg_cron jobs | — ³ | — ³ | ✓ | ✓ ⁴ | ✓ |
+| PostgreSQL with pgAgent | pgAgent jobs | ✓ ⁵ | — | ✓ | ✓ | ✓ |
+| TimescaleDB | Background jobs and policies | ✓ | — | ✓ | ✓ ⁶ | ✓ |
+| YugabyteDB | pg_cron jobs | — | — | ✓ | ✓ | ✓ |
+| Apache Cloudberry | Built-in tasks (`pg_task`) | — | — | ✓ | ✓ | ✓ |
+| CockroachDB | Schedules (backup, changefeed, row-level TTL, system) and changefeed jobs | ✓ ⁷ | ✓ | ✓ | ✓ | ✓ |
+| openGauss | `DBMS_JOB` jobs | ✓ | — | ✓ | — ⁸ | ✓ |
+| EDB Postgres Advanced Server | `DBMS_JOB` | ✓ | — | ✓ | ✓ | ✓ |
+| EDB Postgres Advanced Server | `DBMS_SCHEDULER` | — ⁹ | — | ✓ | ✓ | ✓ |
+| KingbaseES | `kdb_schedule` `DBMS_JOB` | ✓ | — | ✓ | ✓ | ✓ |
+| KingbaseES | `kdb_schedule` `DBMS_SCHEDULER` | — ⁹ | — | ✓ | ✓ | ✓ |
+| MySQL, Percona, Azure Database for MySQL, Aurora MySQL, Cloud SQL for MySQL, MariaDB | Event Scheduler events | — ¹⁰ | ✓ ¹¹ | ✓ | — ¹⁰ | ✓ |
+| OceanBase (MySQL mode) | Event Scheduler events | — ¹⁰ | ✓ | ✓ | ✓ ¹² | ✓ |
+| Apache Doris, VeloDB | Insert jobs and materialized-view jobs | ✓ ¹³ | ✓ | ✓ | ✓ | ✓ |
+| StarRocks | Tasks and materialized-view refreshes | ✓ ¹⁴ | ✓ ¹⁴ | — ¹⁴ | ✓ | ✓ |
+| Snowflake | Tasks and task graphs | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Databricks, Azure Databricks | Jobs (Jobs API 2.1) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| BigQuery | Scheduled queries (Data Transfer Service) | ✓ | — ¹⁵ | ✓ | ✓ | ✓ |
+| ClickHouse (23.12+) | Refreshable materialized views | ✓ | ✓ | ✓ | ✓ ¹⁶ | ✓ |
+| Timeplus Proton (3.0+) | Tasks | ✓ | — | ✓ | — ¹⁷ | ✓ |
+| InfluxDB 2.x and Cloud | Tasks | ✓ | ✓ | ✓ | ✓ | ✓ |
+| InfluxDB 1.x | Continuous queries | — | — | — | ✓ ¹⁸ | ✓ |
+| InfluxDB 3 Core / Enterprise | Processing-engine triggers | — | — | ✓ | ✓ | ✓ |
+| Elasticsearch | Transforms and watches | ✓ | — | ✓ | ✓ ¹⁹ | ✓ |
+| OpenSearch, Open Distro | Transforms and alerting monitors | ✓ | — | ✓ | — | ✓ |
+| Neo4j | APOC background jobs | — | ✓ ²⁰ | — | — | — |
+| SAP HANA | Scheduler jobs (`SYS.SCHEDULER_JOBS`) | — | ✓ | ✓ | ✓ | ✓ |
+| Db2 LUW | Administrative Task Scheduler tasks | — | — | — | ✓ | ✓ |
+| Db2 for z/OS | Administrative scheduler tasks | — | — ²¹ | — | ✓ | ✓ |
+| Db2 for i | `QSYS2.SCHEDULED_JOB_INFO` entries | — | — | ✓ | — | ✓ |
+| Informix, GBase 8s | DB Scheduler tasks (`sysadmin`) | ✓ ²² | — | ✓ | ✓ | ✓ |
+| SAP ASE | Job Scheduler jobs (`sybmgmtdb`) | ✓ | ✓ | ✓ | ✓ | — ²¹ |
+| SAP SQL Anywhere | Events | ✓ | — | ✓ | — | ✓ |
+| InterSystems IRIS, Caché | Task Manager tasks (read only) | — | — | — | ✓ | — |
+| Hive 4, Cloudera Hive | Scheduled queries | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Vertica (11.1+) | Scheduled triggers of stored procedures | ✓ ²³ | — | ✓ | — | ✓ |
+| Dameng (DM) | `SYSJOB` jobs and `DBMS_JOB` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Altibase | Jobs (`SYSTEM_.SYS_JOBS_`) | — | — | ✓ | — | ✓ |
+| OpenLink Virtuoso | Scheduled events | — | — | ✓ | — | ✓ |
+| Couchbase Enterprise (7.0+) | Backup Service repositories (their plan's tasks) | ✓ ²⁴ | — ²⁴ | ✓ | ✓ | ✓ |
+| CouchDB (2.1+) | Replication scheduler: `_replicator` documents and `_replicate` jobs | ✓ | ✓ ²⁵ | — ²⁵ | ✓ | ✓ |
+| OrientDB | `OSchedule` events | — ²⁶ | — ²⁶ | — ²⁶ | — ²⁶ | ✓ |
+| Apache IoTDB, TimechoDB | Continuous queries and pipes | — | — | ✓ ²⁷ | — | ✓ |
+| TDengine | Streams | — ²⁸ | — ²⁸ | ✓ | — ²⁸ | ✓ |
+| ksqlDB | Persistent queries | — ²⁹ | ✓ ²⁹ | ✓ ²⁹ | — ²⁹ | ✓ |
+| Cloud Spanner | Backup schedules | — ³⁰ | — ³⁰ | — ³⁰ | ✓ ³⁰ | ✓ |
+| Dremio | Reflections and their refreshes | ✓ ³¹ | ✓ ³¹ | — ³¹ | ✓ | ✓ |
+
+1. SQL Server Express has no SQL Server Agent, so its jobs never run on a schedule and cannot be started. They are still read, and enabling or disabling still edits `msdb`; the list says so. The same applies to every edition when the Agent is stopped: Run now and Stop are not offered and the next run is left empty.
+2. A `DBMS_JOB` job (Oracle 12.1 to 18c) cannot be stopped (only ending the session that runs it does) and keeps no run history.
+3. pg_cron has neither a run-now call nor a way to cancel a run, and it does not report the next run.
+4. pg_cron keeps history only when `cron.log_run` is on; the list says when it is off.
+5. pgAgent runs a job on demand only if it is enabled and an agent that may take it is connected.
+6. TimescaleDB keeps only failures unless `timescaledb.enable_job_execution_logging` is on; the last run of `job_stats` is shown anyway.
+7. Run now moves the schedule's next run to now and the scheduler starts it on its next pass (`jobs.scheduler.pace`, one minute by default).
+8. openGauss keeps only the last run in the job's row: it is shown in the list, but there is no run list.
+9. `DBMS_SCHEDULER.RUN_JOB` runs the job only in the calling session, so DBine does not offer Run now on these jobs.
+10. MySQL-family events cannot be fired on demand, and the server keeps only `LAST_EXECUTED`, not a history.
+11. Stopping an event needs `performance_schema`; it is off by default on MariaDB. With it off, a running event cannot be detected.
+12. OceanBase's history rows have no start time or duration.
+13. Doris cannot run an insert job on demand; only materialized-view jobs have Run now. Streaming, manual and instant insert jobs have no script.
+14. StarRocks has no statement to run or cancel a plain task, and `information_schema.tasks` does not report whether a task is suspended, so plain tasks show as enabled. Refresh tasks of asynchronous materialized views can be run and stopped; enabling them is not offered because it would also take the view out of queries.
+15. The Data Transfer Service has no call to cancel a run. The run's BigQuery job can be cancelled from the process list.
+16. ClickHouse tags a refresh with its view only from 25.4. On 23.12 to 25.3 the views are listed without history and the tab says why.
+17. Proton keeps only the last execution of each task. A profile with `readonly=1` cannot read it, so the list shows paused tasks without the last run.
+18. InfluxDB 1.x has history only with `query-stats-enabled` in `[continuous_queries]`.
+19. Elasticsearch keeps history for watches; transforms keep none.
+20. Only for a one-off APOC job that is running. A repeating job can only be cancelled for good, so the tab shows the `apoc.periodic.cancel` call instead.
+21. Explicit pending item (see below).
+22. Only from a session connected to the `sysadmin` database; the list says so when it is read from another one.
+23. `EXECUTE_TRIGGER` runs the procedure in DBine's session, so Run now returns when the procedure ends, not when the server accepts it. Only a superuser may call it.
+24. The Backup Service has no call to cancel a running task, so there is no Stop. Run now takes an incremental backup of the repository; merges are not offered because they need a backup range. Community Edition has no Backup Service, so its list is empty with a note. Eventing functions are not listed (they are triggers on document changes) and archived repositories have no scheduled tasks.
+25. CouchDB has no pause, so there is no enable or disable. Stopping a `_replicator` replication deletes its document (the tab says so and the script recreates it); a transient `_replicate` job is cancelled.
+26. OrientDB can't stop or pause an event by writing its status (only deleting the record removes it), has no call to run an event on demand, and keeps no run history. The tab says so.
+27. Only for pipes (`START PIPE` / `STOP PIPE`). IoTDB 1.x and 2.x have only `CREATE`, `SHOW` and `DROP` for continuous queries, so those have no enable, run, stop or history. Credentials in pipe attributes are hidden in the detail, the step and the script.
+28. Streams process data as it arrives: there is no run now, no run to stop and no history in the engine. Enabling and disabling uses `PAUSE STREAM` / `RESUME STREAM` (up to 3.3.6) or `STOP STREAM` / `START STREAM` (3.3.7+).
+29. A persistent query always runs, so there is no Run now and no history (only the query's errors, shown in the detail). Enable and disable are `RESUME` / `PAUSE` (ksqlDB 0.26+). Stop is `TERMINATE`, which is permanent; the tab says so.
+30. The API has no run-now, stop or pause for a backup schedule. History is the backups the schedule created; a failed scheduled backup leaves none, so failures don't show.
+31. Run now is offered for physical datasets only (a view's reflection has none) and refreshes the dataset. Stop cancels the refresh in progress. Enable and disable are not offered: disabling a reflection drops its data and takes it out of queries, and the refresh policy belongs to the whole table or source.
+
+### System jobs
+
+Some jobs come with the engine rather than from the user. DBine marks them and hides them by default; a per-connection toggle in the **Scheduled** group shows them. The engines that mark them, and by what:
+
+- **Oracle:** jobs with `SYSTEM = 'TRUE'`, and jobs owned by Oracle-maintained schemas other than `SYSTEM`.
+- **SQL Server:** `syspolicy_purge_history` and the jobs named `##MS_…`.
+- **TimescaleDB:** jobs with `job_id` below 1000.
+- **CockroachDB:** schedules owned by `node`.
+- **Informix, GBase 8s:** the built-in tasks of the `sysadmin` scheduler.
+- **SAP HANA:** jobs in the `_SYS` schemas.
+- **Elasticsearch:** monitoring watches and managed transforms.
+
+A job's own caveats, where the engine has any, show as notes in its tab.
+
+### Engines with jobs only in part
+
+These are limits of the engine, not missing work:
+
+- **pg_cron (all its hosts):** one database holds the jobs (`cron.database_name`); from another database the list is empty and the note names it. Without superuser or `BYPASSRLS`, row-level security shows each user only their own jobs. `cron.alter_job` is the owner's, so enabling a plain user's job needs `EXECUTE` on it. Aurora DSQL has no extensions, so its list is always empty with a note.
+- **Snowflake:** the last and next run need a running warehouse. The list never resumes a suspended warehouse; it says so and the history is refused. Without `ACCOUNTADMIN` or account-level `MONITOR EXECUTION`, the list falls back to the session's database and says it is partial.
+- **Databricks:** the API gives no next run. The running state covers the 100 newest active runs and the last outcome the 200 newest finished ones; each cut adds a note. A user who is not a workspace admin gets a note that the list may be partial.
+- **BigQuery:** scheduled queries are searched in the connection's location and the locations of the project's datasets; the note names them. The emulator has no Data Transfer Service, so its list is empty with a note.
+- **Oracle:** without access to `DBA_SCHEDULER_JOBS` the list comes from the `ALL_` views and says it is partial. `CREATE ANY JOB` decides who may run or change jobs of other schemas; jobs owned by Oracle-maintained schemas (other than `SYSTEM`) are read only.
+- **SQL Server:** a login with only `SQLAgentUserRole` sees its own jobs; one without an Agent role gets an empty list and a note naming the roles. A job sent by a master server (MSX) can be run and stopped on its target but not enabled or disabled; a multiserver job on its master can be run and stopped only by a sysadmin.
+- **MySQL family:** with `event_scheduler` off the list still appears and the note says nothing runs. What a user can change depends on their grants (read from `SHOW GRANTS`), and the actions appear only where they are allowed.
+- **Doris and StarRocks:** a user with only some databases sees only those jobs, and the list says so.
+- **HANA, Db2 for i, Db2 LUW, SAP ASE, Informix, Virtuoso:** the list is shorter or empty, with a note, when the scheduler is not installed or the user cannot read its catalog (for example `DB2_ATS_ENABLE` off, no `*JOBCTL`, `sybmgmtdb` missing, `sysadmin` unreadable).
+- **IRIS and Caché:** read only. Running, suspending and creating a task are `%SYS.Task` methods that SQL cannot reach. The data lives in `%SYS`; from another namespace the list is empty and the note asks to connect there.
+- **Neo4j:** APOC's periodic jobs live in the server's memory, are lost on a restart and keep neither their statement nor their runs.
+- **Vertica:** when the catalog is refused to a non-superuser the list is empty and says only a superuser sees the triggers. The server keeps only counters, not runs, and only a superuser may call `EXECUTE_TRIGGER`.
+- **Dameng:** without the `SOI` role the list falls back to the user's own views, with a note.
+
+### Engines without server jobs
+
+These answer an empty list with a note (or `Unsupported`) and show no **On the servers** group.
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Azure SQL Database | Jobs | It has no SQL Server Agent. Elastic Jobs live in a separate job database and are out of scope. |
+| Azure Synapse (dedicated and serverless pools), Microsoft Fabric (warehouse, SQL database in Fabric) | Jobs | No SQL Server Agent. Scheduling is done in Fabric pipelines and notebooks or Synapse pipelines, outside TDS. |
+| Babelfish for PostgreSQL | Jobs | It has an `msdb` but no Agent. The pg_cron of the underlying PostgreSQL belongs to the PostgreSQL driver, not to the T-SQL endpoint. |
+| Amazon Redshift | Jobs | No jobs inside the database; scheduled queries live in Query Editor v2 and EventBridge. |
+| Materialize, RisingWave | Jobs | No scheduled jobs: their materialized views are kept up to date incrementally. |
+| CrateDB, Yellowbrick, H2, TiDB, Manticore, Firebird | Jobs | The engine has no job scheduler. TiDB was checked on v8.5.3: `CREATE EVENT` is a syntax error. |
+| Denodo | Jobs | Work is scheduled in Denodo Scheduler, outside the database and not reachable through VQL. |
+| SingleStore | Jobs | Pipelines are continuous loads from Kafka or S3, not scheduled jobs. Its scheduled jobs (the cloud Job Service) are managed through the portal and the Management API, not SQL. |
+| GreptimeDB | Jobs | Its flows are continuous aggregations, not scheduled or on-demand jobs. |
+| Trino, Presto, Athena, Impala, Spark Thrift Server, Kyuubi | Jobs | Query engines with no scheduler of their own; work is scheduled outside (Airflow, Oozie, EventBridge…). Hive 4 is the exception (see the table). |
+| Teradata, Exasol, Netezza, CUBRID, SAP MaxDB | Jobs | No scheduler reachable through SQL: work is scheduled outside (Viewpoint, cron, CUBRID Manager) or in the DBM Server (MaxDB). |
+| MonetDB, Ingres / Actian, Actian Zen, Mimer, OpenEdge, SQream, NuoDB, HeavyDB, Machbase, Apache Ignite, Ocient | Jobs | No job scheduler inside the database. |
+| DuckDB, SQLite, libSQL, Access, dBase and other file databases | Jobs | There is no server process to run anything on a schedule. |
+| NetSuite | Jobs | Read-only service that does not expose scheduled tasks. |
+| Generic ODBC | Jobs | DBine doesn't know which engine is behind it. Use the engine's own preset or driver. |
+| Redis, Valkey, Dragonfly | Jobs | No scheduler in the engine. |
+| MongoDB, FerretDB | Jobs | No scheduler in the engine. Atlas triggers are configured in the Atlas service, outside the driver. |
+| Cassandra, ScyllaDB | Jobs | No scheduler in the engine. |
+| kdb+ | Jobs | Only the `.z.ts` timer exists: it is the state of the process, not a job with a definition. |
+| Memgraph | Jobs | Triggers fire on data changes and periodic procedures run inside the caller's query. |
+| Amazon Neptune | Jobs | No scheduled jobs inside the database. |
+| Aurora DSQL | Jobs | No extensions, so no pg_cron. |
+| Databend | Tasks | Explicit pending item (see below). |
+| Azure Cosmos DB | Jobs | No server-side scheduler. Stored procedures, triggers and UDFs run only when called or on writes; scheduled work lives in Azure Functions (change feed), Data Factory or Logic Apps, outside the Cosmos DB API. |
+| Apache Drill | Jobs | A query engine with no scheduler: it has no events, tasks or scheduled queries, and work is scheduled outside it (cron, Airflow). |
+| Amazon DynamoDB | Jobs | No server-side scheduler. TTL deletion and point-in-time recovery are table settings, not jobs; scheduled work and backup plans live in EventBridge Scheduler, Lambda and AWS Backup, outside the DynamoDB API. |
+| etcd | Jobs | No scheduler. Leases expire keys and auto-compaction is a server flag; neither is a job with a definition reachable through the KV or maintenance API. |
+| Arrow Flight SQL (generic) | Jobs | The protocol defines no jobs API. Engines behind it have their own drivers (Dremio's reflection refreshes, Apache Doris jobs); use those. |
+| Apache Phoenix | Jobs | No scheduler. Async index builds and statistics run through external tools (IndexTool MapReduce, HBase), not a job catalog reachable through the Avatica query server. |
+| Apache Solr | Jobs | No scheduler since the DataImportHandler was removed in Solr 9. Solr 8's autoscaling scheduled triggers were removed in 9.0 and are not covered. |
+
+### Explicit pending items
+
+These are not engine limits:
+
+- **Db2 for z/OS, Stop:** `SYSPROC.ADMIN_TASK_CANCEL` returns its result in output parameters, which DBine's ODBC layer cannot bind yet.
+- **SAP ASE, Script:** the columns of `sp_sjobhelp`'s list are not documented, so the schedule cannot be rebuilt reliably. The list mapping is also unverified against a server.
+- **Databend, tasks:** `CREATE TASK … SCHEDULE` and `task_history` exist only in Databend Cloud (self-hosted servers refuse them). Pending until there is a Databend Cloud account to test against.
+- **EDB `DBMS_SCHEDULER`, Run now:** `RUN_JOB` runs in the calling session. Queuing it through a one-shot `DBMS_JOB` is the plan, but it depends on two behaviours that were not confirmed on a real server.
+- **Doris, Stop:** it works by `CANCEL TASK`, but a positive stop was not observed because the refresh ends before the stop arrives.
+- **Oracle `DBMS_JOB` (12.1 to 18c) and SQL Server master/target (MSX/TSX) setups:** implemented, covered by unit tests only.
+
+### Tested against real servers
+
+Live tests (containers `dbine-test-*`):
+
+- SQL Server 2022 with the Agent running and stopped, and with the `sysadmin` and reader roles; SQL Server answering as Babelfish (no jobs); the `babelfish` driver.
+- Oracle 26ai Free (23.26.3): `DBMS_SCHEDULER` jobs, privileges and run, with the scheduler turned off.
+- PostgreSQL 16 with pg_cron 1.6 (including a plain user and another user's job with the same name); pg_cron and pgAgent with its daemon; TimescaleDB; YugabyteDB with pg_cron; CockroachDB; Apache Cloudberry; openGauss; and PostgreSQL without any scheduler.
+- MySQL 8.4.11, MariaDB 11.8.9, OceanBase CE 4.4.2.1 (events), Apache Doris 4.1.3, StarRocks 4.1.4.
+- ClickHouse (22.8, 24.8 and 26.9), Timeplus Proton 3.0.31 (read-write and read-only), InfluxDB 1.8 (with query statistics), 2 and 3, Elasticsearch 8.15.3 (transforms, and watches with a trial license), OpenSearch 2.17.1, Open Distro 1.13.3, Neo4j 5.26 with and without APOC, Memgraph (none).
+- BigQuery emulator: only that it lists nothing and says why; there is no Data Transfer Service in it.
+- TiDB 8.5.3 was checked to confirm it has no events.
+- Couchbase Enterprise 8.0.0 (`dbine-test-couchbase-ee`): the full flow, and two limited users that get a note instead of an error; Community 8.0.2: no Backup Service, empty list with a note.
+- CouchDB 3.5.2, including a non-admin user and the document ids `.` and `..`.
+- OrientDB 3.2.
+- Apache IoTDB 1.3.2 and 2.0.5 (continuous queries and pipes).
+- TDengine 3.3.6.13 (`dbine-test-tdengine`) and 3.4.3.9 (`dbine-test-tdengine34`).
+- ksqlDB (`cp-ksqldb-server` 7.7.1).
+- Dremio 26.0.5: stopping the first full refresh of a 10M-row table, then Run now.
+
+Built from the vendor's documentation, not run against a real server through DBine: Cloud Spanner (only its emulator was available: it answers `UNIMPLEMENTED`, so the empty list with a note was tested live; list, detail, history, script and the permission notes are covered by fixture tests), Snowflake, Databricks and BigQuery's Data Transfer Service (the live tests skip without credentials), Azure SQL Managed Instance and SQL Server 2008 R2 / 2012 (the same code as SQL Server 2022), Autonomous Database (the same code as Oracle), Aurora, RDS, Cloud SQL, AlloyDB, Azure, Supabase and Neon variants of pg_cron and MySQL, VeloDB, EDB Postgres Advanced Server, KingbaseES, SAP HANA, Db2 (LUW, z/OS, i), Informix and GBase 8s, SAP ASE, SAP SQL Anywhere, InterSystems IRIS and Caché, Hive 4 and Cloudera, Dameng and Altibase. Vertica 25.4 and Virtuoso 7.2.14 had their catalogs and time-zone behaviour checked with the vendor's own client (`vsql`, `isql`), not through DBine's ODBC path. The ODBC-based engines have fixture and unit tests, and live tests in `crates/drivers/odbc/tests/jobs.rs` that need their ODBC driver.
+
 ## Code quality
 
 Code quality ([`code-quality.md`](code-quality.md)) flags problems in the editor of **all engines** except InfluxDB 2, which uses Flux. It is text analysis: it neither queries the server nor adds anything to the driver. Each engine receives the lexical analyzer and the rules of its family, which come from `DriverInfo` (`language`, `dialect`, `id`) in `src-tauri/src/lint/mod.rs`:

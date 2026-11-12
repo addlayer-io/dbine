@@ -25,6 +25,7 @@ mod grid_new_rows_live_tests;
 pub mod health;
 pub mod history;
 pub mod imports;
+pub mod jobs;
 pub mod library;
 pub mod library_git;
 pub mod lint;

@@ -11,6 +11,7 @@ mod backup;
 mod create_db;
 mod health;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -261,6 +262,8 @@ impl Driver for ClickHouseDriver {
             processes: true,
             cancel_query: true,
             database_properties: self.flavor == Flavor::ClickHouse,
+            // Refreshable views (ClickHouse) and tasks (Proton); see `jobs`.
+            jobs: true,
             ..Default::default()
         }
     }
@@ -497,6 +500,19 @@ impl ClickHouseSession {
     /// (`{name:String}` placeholders), so catalog lookups never splice
     /// user text into SQL.
     async fn send(&self, sql: &str, params: &[(&str, &str)], in_session: bool) -> Result<Body> {
+        self.send_with(sql, params, in_session, &[]).await
+    }
+
+    /// [`Self::send`] with settings of DBine's own on the request (the
+    /// server takes them with `readonly`, where a `SETTINGS` clause would
+    /// be refused).
+    async fn send_with(
+        &self,
+        sql: &str,
+        params: &[(&str, &str)],
+        in_session: bool,
+        extra: &[(&str, &str)],
+    ) -> Result<Body> {
         let query_id = uuid::Uuid::new_v4().to_string();
         let mut q: Vec<(String, String)> = vec![
             ("database".into(), self.database.clone()),
@@ -532,6 +548,7 @@ impl ClickHouseSession {
             if readonly {
                 settings.push(("readonly", "1"));
             }
+            settings.extend_from_slice(extra);
             let resp = self
                 .conn
                 .post()
@@ -697,8 +714,19 @@ impl ClickHouseSession {
 
     /// Run a catalog query and collect its rows (at most 100 000).
     async fn rows(&self, sql: &str, params: &[(&str, &str)]) -> Result<Vec<Vec<Value>>> {
+        self.rows_with(sql, params, &[]).await
+    }
+
+    /// [`Self::rows`] with settings sent on the request
+    /// ([`Self::send_with`]).
+    async fn rows_with(
+        &self,
+        sql: &str,
+        params: &[(&str, &str)],
+        settings: &[(&str, &str)],
+    ) -> Result<Vec<Vec<Value>>> {
         let mut out = QueryOutcome::default();
-        if let Body::Rows(resp) = self.send(sql, params, false).await? {
+        if let Body::Rows(resp) = self.send_with(sql, params, false, settings).await? {
             read_rows(resp, &mut out, 100_000, false).await?;
         }
         self.done();
@@ -1202,6 +1230,35 @@ impl Session for ClickHouseSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         self.cancel_running(id).await
+    }
+
+    /// Refreshable materialized views, or Proton's tasks (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.job_history(id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.job_start(id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.job_stop(id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.job_enable(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.job_create_script(id).await
     }
 
     async fn profiler_start(

@@ -15,6 +15,7 @@ mod explain;
 mod ffi;
 mod health;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod odbc;
 mod permissions;
@@ -1808,6 +1809,51 @@ impl Session for OdbcSession {
             .await
     }
 
+    /// Each engine's scheduler (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        let (preset, ctx) = (self.preset, self.jobs_ctx());
+        self.run(move |c, slot| jobs::list(preset, &mut ConnSource { c, slot }, &ctx))
+            .await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        let (preset, ctx, id) = (self.preset, self.jobs_ctx(), id.to_string());
+        self.run(move |c, slot| jobs::detail(preset, &mut ConnSource { c, slot }, &ctx, &id))
+            .await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        let (preset, id) = (self.preset, id.to_string());
+        self.run(move |c, slot| jobs::runs(preset, &mut ConnSource { c, slot }, &id, limit))
+            .await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        let (preset, ctx, id) = (self.preset, self.jobs_ctx(), id.to_string());
+        self.run(move |c, slot| jobs::run(preset, &mut ConnSource { c, slot }, &ctx, &id))
+            .await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        let (preset, id) = (self.preset, id.to_string());
+        self.run(move |c, slot| jobs::stop(preset, &mut ConnSource { c, slot }, &id))
+            .await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        let (preset, id) = (self.preset, id.to_string());
+        self.run(move |c, slot| {
+            jobs::set_enabled(preset, &mut ConnSource { c, slot }, &id, enabled)
+        })
+        .await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        let (preset, id) = (self.preset, id.to_string());
+        self.run(move |c, slot| jobs::script(preset, &mut ConnSource { c, slot }, &id))
+            .await
+    }
+
     async fn read_batches(
         &mut self,
         spec: &dbine_driver::ReadSpec,
@@ -1863,6 +1909,12 @@ impl monitor::Source for ConnSource<'_> {
 }
 
 impl OdbcSession {
+    fn jobs_ctx(&self) -> jobs::Ctx {
+        jobs::Ctx {
+            database: self.database.clone(),
+        }
+    }
+
     /// CREATE / DROP DATABASE where the preset offers it. Sybase ASE runs
     /// them from `master` and then goes back to the session's database.
     async fn database_ddl(&mut self, verb: &'static str, name: &str) -> Result<()> {

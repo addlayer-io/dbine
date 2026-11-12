@@ -1,5 +1,5 @@
 {
-  "title": "Tugas terjadwal",
+  "title": "Terjadwal",
   "tab": "Tugas",
   "newTask": "Tugas baru",
   "namePlaceholder": "Nama tugas",
@@ -240,5 +240,69 @@
     "text": "Teks",
     "textHint": "Mendukung variabel tugas. {results} adalah hasil setiap langkah sebelumnya (✓ berhasil, ✗ gagal, – tidak dijalankan) dan {alerts} peringatannya. Pesan lebih dari 3.500 karakter dipotong.",
     "privacy": "URL webhook dan token disimpan di keychain komputer ini, tidak pernah di tugas atau riwayat. Pesan hanya dikirim melalui HTTPS ke layanan yang dipilih."
+  },
+  "sections": {
+    "dbine": "Di DBine",
+    "dbineHint": "Tugas yang dijalankan DBine di komputer ini",
+    "servers": "Di server",
+    "serversHint": "Job yang dijalankan setiap server basis data secara mandiri"
+  },
+  "server": {
+    "tab": "Job",
+    "noConnections": "Tidak ada koneksi yang menggunakan mesin dengan job server (SQL Server Agent, DBMS_SCHEDULER, tugas Snowflake, job Databricks, pg_cron, event MySQL…).",
+    "none": "Server ini tidak memiliki job.",
+    "onDemand": "Sesuai permintaan",
+    "showSystem_other": "Tampilkan {{count}} job sistem",
+    "hideSystem_other": "Sembunyikan job sistem",
+    "system": "Sistem",
+    "systemHint": "Job sistem disertakan bersama basis data atau mesin: bukan dibuat oleh pengguna.",
+    "disabled": "Nonaktif",
+    "run": "Jalankan sekarang",
+    "stop": "Hentikan",
+    "enable": "Aktifkan",
+    "disable": "Nonaktifkan",
+    "script": "Lihat skrip",
+    "scriptName": "Skrip {{job}}",
+    "confirm": {
+      "run": "Jalankan job «{{job}}» di {{connection}} sekarang?",
+      "stop": "Hentikan eksekusi job «{{job}}» yang sedang berjalan di {{connection}}?",
+      "enable": "Aktifkan job «{{job}}» di {{connection}}? Job akan kembali berjalan sesuai jadwalnya.",
+      "disable": "Nonaktifkan job «{{job}}» di {{connection}}? Job tidak lagi berjalan sesuai jadwalnya."
+    },
+    "done": {
+      "run": "Server mulai menjalankan «{{job}}».",
+      "stop": "Penghentian «{{job}}» telah diminta.",
+      "enable": "«{{job}}» telah diaktifkan.",
+      "disable": "«{{job}}» telah dinonaktifkan."
+    },
+    "outcome": {
+      "succeeded": "Berhasil",
+      "failed": "Gagal",
+      "canceled": "Dibatalkan",
+      "running": "Berjalan",
+      "retrying": "Mencoba ulang",
+      "skipped": "Dilewati",
+      "unknown": "Tidak diketahui"
+    },
+    "schedule": "Jadwal",
+    "lastRun": "Eksekusi terakhir",
+    "owner": "Pemilik",
+    "description": "Deskripsi",
+    "readOnly": "Koneksi hanya-baca: job dapat dilihat, tetapi tidak dapat dijalankan, dihentikan, atau diaktifkan.",
+    "steps": "Langkah",
+    "stepName": "Nama",
+    "stepKind": "Jenis",
+    "stepTarget": "Target",
+    "stepCommand": "Perintah",
+    "properties": "Properti",
+    "history": "Riwayat",
+    "noHistory": "Mesin ini tidak menyimpan riwayat eksekusi job-nya.",
+    "started": "Mulai",
+    "duration": "Durasi",
+    "result": "Hasil",
+    "trigger": "Pemicu",
+    "message": "Pesan",
+    "moreRuns": "Lihat eksekusi lainnya",
+    "failedCount_other": "{{count}} job gagal pada eksekusi terakhir"
   }
 }

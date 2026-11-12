@@ -14,6 +14,7 @@ mod create_db;
 mod ddl;
 mod health;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -406,6 +407,7 @@ impl Driver for SnowflakeDriver {
             kill_session: true,
             processes: true,
             cancel_query: true,
+            jobs: true,
         }
     }
 
@@ -1631,6 +1633,36 @@ impl Session for SnowflakeSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         processes::cancel(&*self, id).await
+    }
+
+    /// Tasks: a graph is one job, its root, with the other tasks as steps
+    /// (see `jobs`).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        jobs::list(&*self).await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        jobs::detail(&*self, id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        jobs::runs(&*self, id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        jobs::run(&*self, id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        jobs::stop(&*self, id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        jobs::set_enabled(&*self, id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        jobs::script(&*self, id).await
     }
 
     async fn profiler_start(

@@ -28,6 +28,13 @@ mod tests {
         );
     }
 
+    /// SQL Server 2008 R2 / 2012 have the Agent: the legacy host lists its
+    /// jobs like the regular one (see the sqlserver driver's `jobs`).
+    #[test]
+    fn lists_agent_jobs() {
+        assert!(super::drivers().iter().all(|d| d.capabilities().jobs));
+    }
+
     #[test]
     fn negotiates_legacy_tls() {
         const { assert!(dbine_driver_sqlserver::LEGACY_TLS_BUILT_IN) };

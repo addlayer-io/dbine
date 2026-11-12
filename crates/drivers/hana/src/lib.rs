@@ -9,6 +9,7 @@ mod blocking;
 mod create_db;
 mod health;
 mod index_usage;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -462,6 +463,9 @@ impl Driver for HanaDriver {
             cancel_query: true,
             // Facts only: HANA has no ALTER SCHEMA (see `properties`).
             database_properties: true,
+            // Scheduler jobs (SAP HANA Cloud; an empty list with a note
+            // where the server has none); see `jobs`.
+            jobs: true,
         }
     }
 
@@ -1206,6 +1210,35 @@ impl Session for HanaSession {
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
         processes::cancel(&self.conn, id).await
+    }
+
+    /// Scheduler jobs (see [`jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        jobs::list(&self.conn).await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        jobs::info(&self.conn, id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        jobs::runs(&self.conn, id, limit).await
+    }
+
+    async fn run_job(&mut self, _id: &str) -> Result<()> {
+        Err(jobs::no_run())
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        jobs::stop(&self.conn, id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        jobs::set_enabled(&self.conn, id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        jobs::create_script(&self.conn, id).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
