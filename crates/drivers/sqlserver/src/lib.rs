@@ -9,6 +9,7 @@ mod dependencies;
 mod entra;
 mod health;
 mod index_usage;
+mod jobs;
 mod legacy_probe;
 mod monitor;
 mod permissions;
@@ -312,7 +313,9 @@ impl Driver for SqlServerDriver {
             processes: true,
             cancel_query: false,
             database_properties: matches!(self.variant, Variant::SqlServer | Variant::AzureSql),
-            jobs: false,
+            // SQL Server Agent (and Managed Instance's); Azure SQL Database
+            // answers with a note. Not Fabric nor Babelfish (see `jobs`).
+            jobs: jobs::supported(self.variant),
         }
     }
 
@@ -1786,6 +1789,34 @@ impl Session for SqlServerSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         processes::cancel(self)
+    }
+
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        jobs::list(self).await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        jobs::detail(self, id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        jobs::runs(self, id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        jobs::run(self, id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        jobs::stop(self, id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        jobs::set_enabled(self, id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        jobs::script(self, id).await
     }
 
     async fn profiler_start(
