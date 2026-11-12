@@ -59,6 +59,10 @@ driver goes through (`QueryOutcome::begin_result` / `push_row`).
   If the check fails, the store isn't used. If `httpfs` can't be fetched
   (no network the first time), the store tries again five minutes later.
 
+  This setup and its check are in `src-tauri/src/local_duckdb.rs`, shared
+  with the scratch database a [data compare](data-compare.md) of big tables
+  uses (its own folder, file, alias and key; it doesn't compact).
+
 ### Verified on DuckDB 2.0.0 (the version DBine downloads)
 
 | What | Result |

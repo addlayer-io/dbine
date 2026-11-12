@@ -8,18 +8,32 @@
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::filter::{ColumnFilter, FilterOp};
-use dbine_driver::{ColumnInfo, Error, ObjectRef, QueryOutcome, RowChange, Session, SortKey};
+use dbine_driver::{ColumnInfo, ObjectRef, RowChange, SortKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-use tauri::State;
+use std::sync::{Arc, Mutex, OnceLock};
+use tauri::{Emitter, State};
 
-/// Rows read from each side at most. A bigger table is compared in part: the
-/// result says so, and only rows found on both sides can be synced.
-const DEFAULT_LIMIT: u64 = 200_000;
+#[path = "data_compare_whole.rs"]
+pub(crate) mod whole;
+
+#[cfg(test)]
+#[path = "data_compare_live_tests.rs"]
+mod live_tests;
+
+/// Rows of a side kept in memory…
+const IN_MEMORY_ROWS: usize = 250_000;
+/// …and their estimated bytes: past either, both sides go to a scratch
+/// DuckDB on disk (`whole`), which starts opening at half of them.
+const IN_MEMORY_BYTES: usize = 256 << 20;
+/// Differing rows the screen and the script get, all kinds together (the
+/// counts are exact past it).
+const MAX_DIFF_ROWS: usize = 1_000_000;
 /// Rows of each kind sent to the UI (the counts and the script use them all).
 const SHOWN: usize = 2_000;
+/// Longest compare id the UI may give.
+const MAX_RUN: usize = 128;
 
 #[derive(Deserialize, Clone)]
 pub struct Side {
@@ -35,10 +49,14 @@ pub struct DataCompareArgs {
     /// Key columns; empty: the left table's primary key.
     #[serde(default)]
     pub key: Vec<String>,
-    /// Columns to compare; empty: every column both sides have.
+    /// Columns to compare; empty: every column both sides have. (Older UIs
+    /// also send a row `limit`: ignored, whole tables are compared.)
     #[serde(default)]
     pub columns: Vec<String>,
-    pub limit: Option<u64>,
+    /// The UI's id for this compare: its progress events carry it and
+    /// `data_compare_cancel` stops it. Empty (older UIs): one is made up.
+    #[serde(default)]
+    pub run: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -49,7 +67,7 @@ pub struct ChangedRow {
     pub diff: Vec<usize>,
 }
 
-#[derive(Serialize, Clone, Default)]
+#[derive(Serialize, Clone, Default, Debug, PartialEq, Eq)]
 pub struct Counts {
     pub left: u64,
     pub right: u64,
@@ -71,18 +89,33 @@ pub struct DataCompareResult {
     /// Columns only one side has (not compared).
     pub only_left_columns: Vec<String>,
     pub only_right_columns: Vec<String>,
+    /// Over the whole tables: `same + changed + only_left` plus the left's
+    /// repeated keys is `left`; likewise on the right.
     pub counts: Counts,
     pub only_left: Vec<Vec<Value>>,
     pub only_right: Vec<Vec<Value>>,
     pub changed: Vec<ChangedRow>,
-    /// A side had more rows than the limit: the comparison is partial.
+    /// Always false: whole tables are compared (kept for older UIs).
     pub truncated_left: bool,
     pub truncated_right: bool,
-    /// Both sides came sorted by the key. Without it, a partial comparison
-    /// may have read different rows on each side.
+    /// Always true: the lists come in key order (kept for older UIs).
     pub ordered: bool,
     /// Rows whose key was repeated on a side (compared once).
     pub duplicate_keys: u64,
+    /// More rows differ than `diff_limit`: the screen and the script cover
+    /// the first ones in key order (the counts are exact).
+    pub diff_truncated: bool,
+    pub diff_limit: u64,
+    /// Rows of each kind in the lists the screen filters and the script
+    /// syncs: `counts` unless `diff_truncated`.
+    pub listed: Listed,
+}
+
+#[derive(Serialize, Clone, Default)]
+pub struct Listed {
+    pub changed: u64,
+    pub only_left: u64,
+    pub only_right: u64,
 }
 
 /// The whole difference, kept for the script (and for the AI's profile in
@@ -106,140 +139,23 @@ pub(crate) struct Diff {
     pub(crate) right_types: Vec<String>,
     /// A side had more rows than were read: a row seen on one side may exist
     /// on the other past what was read, so it's never inserted or deleted.
+    /// Whole tables are compared now, so it's false; it stays for the
+    /// script's and the AI's checks.
     pub(crate) partial: bool,
-    /// Rows equal on both sides.
-    pub(crate) same: u64,
+    /// The lists hold the first differences only (`MAX_DIFF_ROWS`). Every
+    /// row in them is confirmed on both tables, so all can be synced.
+    pub(crate) diff_truncated: bool,
+    /// The exact counts over the whole tables (the lists may hold fewer:
+    /// `diff_truncated`).
+    pub(crate) counts: Counts,
     /// A one-column key's last value on each side (NULL keys aside): whether
     /// the rows one side lacks come after the other's last.
     pub(crate) last_keys: Option<(Option<Value>, Option<Value>)>,
 }
 
-/// The greatest non-NULL value in column `i`, by the order rows are sorted in.
-fn last_of(rows: &[Vec<Value>], i: usize) -> Option<Value> {
-    rows.iter()
-        .filter_map(|r| r.get(i))
-        .filter(|v| !v.is_null())
-        .max_by(|a, b| sort_value(a).cmp_with(&sort_value(b), false))
-        .cloned()
-}
-
 pub(crate) fn diffs() -> &'static Mutex<HashMap<String, Diff>> {
     static D: OnceLock<Mutex<HashMap<String, Diff>>> = OnceLock::new();
     D.get_or_init(Default::default)
-}
-
-/// What was read of a side.
-struct SideRead {
-    cols: Vec<ColumnInfo>,
-    names: Vec<String>,
-    rows: Vec<Vec<Value>>,
-    /// It had more rows than the limit.
-    truncated: bool,
-    /// Its rows came sorted by the key.
-    ordered: bool,
-}
-
-/// The sort by the key, in this side's spelling of its columns.
-fn sort_keys(cols: &[ColumnInfo], key: &[String]) -> Vec<SortKey> {
-    key.iter()
-        .map(|k| SortKey {
-            column: cols
-                .iter()
-                .find(|c| c.name.eq_ignore_ascii_case(k))
-                .map_or_else(|| k.clone(), |c| c.name.clone()),
-            descending: false,
-        })
-        .collect()
-}
-
-/// Run a browse query, its failure as an error whichever way it comes.
-async fn browse(
-    s: &mut dyn Session,
-    sql: &str,
-    max_rows: usize,
-    out: &mut QueryOutcome,
-) -> dbine_driver::Result<()> {
-    s.execute(sql, max_rows, out).await?;
-    match out.error.take() {
-        Some(e) => Err(Error::Query(e)),
-        None => Ok(()),
-    }
-}
-
-/// Read a side: its columns and its rows (up to `limit`, on its own
-/// read-only session), sorted by the key so that two partial reads cover the
-/// same rows, as far as both engines order them alike. An engine that can't
-/// sort, or can't by that column (T-SQL's `text`, a key CQL doesn't cluster
-/// on), reads them as they come and the result says so.
-async fn read(
-    state: &AppState,
-    side: &Side,
-    limit: u64,
-    key: &[String],
-) -> CommandResult<SideRead> {
-    let driver = crate::commands::schema::driver_of(state, &side.connection_id)?;
-    let session = format!("dcmp:{}", uuid::Uuid::new_v4());
-    let entry = state
-        .dedicated_session(&session, &side.connection_id, &side.database, true)
-        .await?;
-    let result = async {
-        let mut s = entry.session.lock().await;
-        let cols = s.columns(&side.object).await?;
-        let plain = s.browse_query(&side.object, u32::try_from(limit + 1).unwrap_or(u32::MAX));
-        let max_rows = (limit + 1) as usize;
-        let mut sorted = None;
-        if let Ok(sql) = driver.sorted_browse(&plain, &sort_keys(&cols, key)) {
-            let mut out = QueryOutcome::default();
-            match browse(&mut **s, &sql, max_rows, &mut out).await {
-                Ok(()) => sorted = Some(out),
-                Err(Error::Cancelled) => return Err(Error::Cancelled),
-                Err(e) => tracing::debug!("data compare: can't sort by the key: {e}"),
-            }
-        }
-        let ordered = sorted.is_some();
-        let out = match sorted {
-            Some(out) => out,
-            None => {
-                let mut out = QueryOutcome::default();
-                browse(&mut **s, &plain, max_rows, &mut out).await?;
-                out
-            }
-        };
-        let r = out
-            .results
-            .into_iter()
-            .find(|r| !r.columns.is_empty())
-            .unwrap_or_default();
-        let names: Vec<String> = r.columns.iter().map(|c| c.name.clone()).collect();
-        let truncated = r.rows.len() as u64 > limit || r.truncated;
-        let mut rows = r.rows;
-        rows.truncate(limit as usize);
-        Ok(SideRead {
-            cols,
-            names,
-            rows,
-            truncated,
-            ordered,
-        })
-    }
-    .await;
-    state.sessions.remove(&session);
-    Ok(result?)
-}
-
-/// The left table's primary key, for a comparison that names no key.
-async fn primary_key(state: &AppState, side: &Side) -> CommandResult<Vec<String>> {
-    let session = format!("dcmp:{}", uuid::Uuid::new_v4());
-    let entry = state
-        .dedicated_session(&session, &side.connection_id, &side.database, true)
-        .await?;
-    let cols = entry.session.lock().await.columns(&side.object).await;
-    state.sessions.remove(&session);
-    Ok(cols?
-        .into_iter()
-        .filter(|c| c.primary_key)
-        .map(|c| c.name)
-        .collect())
 }
 
 /// Whether a column holds booleans. PostgreSQL and its family answer them as
@@ -395,23 +311,29 @@ pub(crate) fn canon(v: &Value) -> String {
                     return num(f);
                 }
             }
-            // 2026-09-28T10:00:00.000Z ≈ 2026-09-28 10:00:00
+            // 2026-09-28T10:00:00.000Z ≈ 2026-09-28 10:00:00 ≈
+            // 2026-09-28 10:00:00.0000000+00:00 (UTC, as `Cell::DateTimeTz`
+            // spells it); another offset stays as written.
             if t.len() >= 19
                 && t.as_bytes()[4] == b'-'
                 && t.as_bytes()[7] == b'-'
                 && matches!(t.as_bytes()[10], b'T' | b' ')
             {
                 let mut d = t.replacen('T', " ", 1);
-                if d.ends_with('Z') {
-                    d.pop();
+                for utc in ["Z", "+00:00"] {
+                    if let Some(rest) = d.strip_suffix(utc) {
+                        d = rest.to_string();
+                        break;
+                    }
                 }
                 if let Some(dot) = d.find('.') {
-                    let frac = d[dot + 1..].trim_end_matches('0');
-                    d = if frac.is_empty() {
-                        d[..dot].to_string()
-                    } else {
-                        format!("{}.{frac}", &d[..dot])
-                    };
+                    // Only the fraction's digits: an offset may follow them.
+                    let end = d[dot + 1..]
+                        .find(|c: char| !c.is_ascii_digit())
+                        .map_or(d.len(), |i| dot + 1 + i);
+                    let frac = d[dot + 1..end].trim_end_matches('0');
+                    let sep = if frac.is_empty() { "" } else { "." };
+                    d = format!("{}{sep}{frac}{}", &d[..dot], &d[end..]);
                 }
                 return d;
             }
@@ -429,15 +351,211 @@ fn num(f: f64) -> String {
     }
 }
 
+/// The compares running now, by the UI's id: what `data_compare_cancel`
+/// stops.
+fn running() -> &'static Mutex<HashMap<String, Arc<whole::Ctl>>> {
+    static R: OnceLock<Mutex<HashMap<String, Arc<whole::Ctl>>>> = OnceLock::new();
+    R.get_or_init(Default::default)
+}
+
+/// A compare's place in [`running`], left when it ends.
+struct Running(String);
+
+impl Running {
+    fn register(run: &str, ctl: Arc<whole::Ctl>) -> CommandResult<Running> {
+        let mut all = running().lock().unwrap_or_else(|p| p.into_inner());
+        if all.contains_key(run) {
+            return Err(CommandError::BadRequest(
+                "ya hay una comparación en curso con ese id".into(),
+            ));
+        }
+        all.insert(run.to_string(), ctl);
+        Ok(Running(run.to_string()))
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        running()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.0);
+    }
+}
+
+/// The sessions a compare opened (`state.sessions`), closed when it ends
+/// however it ends.
+struct Sessions<'a> {
+    state: &'a AppState,
+    keys: [String; 2],
+}
+
+impl Drop for Sessions<'_> {
+    fn drop(&mut self) {
+        for k in &self.keys {
+            self.state.sessions.remove(k);
+        }
+    }
+}
+
+fn valid_run(s: &str) -> bool {
+    !s.is_empty() && s.len() <= MAX_RUN && s.chars().all(|c| !c.is_control())
+}
+
+/// Where the scratch DuckDBs of big compares go: a folder of their own next
+/// to the vault, never the results store's (`results_store::clear` deletes
+/// that one).
+fn scratch_root() -> Option<std::path::PathBuf> {
+    dbine_core::secrets::vault_dir().map(|d| d.join("compare"))
+}
+
+/// At startup: what a compare cut short by a crash left on disk.
+pub(crate) fn purge_scratch() {
+    if let Some(d) = scratch_root() {
+        if d.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&d) {
+                tracing::warn!(%e, "data compare: leftovers not deleted");
+            }
+        }
+    }
+}
+
+/// What the UI gets while a compare runs (`data-compare-progress`), about
+/// four times a second per side.
+#[derive(Serialize, Clone)]
+struct ProgressEvent<'a> {
+    run: &'a str,
+    side: &'static str,
+    /// Rows read on that side.
+    rows: u64,
+    /// "reading", "preparing" (a read waits for the scratch DuckDB),
+    /// "comparing" or "loading_differences".
+    phase: &'static str,
+    /// Differing rows brought back so far (while loading them).
+    differences: u64,
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn data_compare(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     args: DataCompareArgs,
 ) -> CommandResult<DataCompareResult> {
-    let limit = args.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, 5_000_000);
-    // The key first: both sides are read sorted by it.
+    let run = if args.run.is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else if valid_run(&args.run) {
+        args.run.clone()
+    } else {
+        return Err(CommandError::BadRequest(
+            "id de comparación no válido".into(),
+        ));
+    };
+    let ctl = Arc::new(whole::Ctl::default());
+    let _running = Running::register(&run, ctl.clone())?;
+    let progress = |p: &whole::Progress| {
+        for (i, side) in ["left", "right"].into_iter().enumerate() {
+            let _ = app.emit(
+                "data-compare-progress",
+                ProgressEvent {
+                    run: &run,
+                    side,
+                    rows: p.rows[i],
+                    phase: p.phase.as_str(),
+                    differences: p.differences,
+                },
+            );
+        }
+    };
+    let opts = whole::Options {
+        in_memory_rows: IN_MEMORY_ROWS,
+        in_memory_bytes: IN_MEMORY_BYTES,
+        max_diff_rows: MAX_DIFF_ROWS,
+        scratch: scratch_root(),
+        duckdb: None,
+    };
+    compare_sides(&state, args, &run, &ctl, &opts, &progress).await
+}
+
+/// Stop a running compare: both reads and the DuckDB work; the compare
+/// returns `Cancelled` and deletes what it wrote.
+#[derive(Deserialize)]
+pub struct DataCompareCancelArgs {
+    pub run: String,
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn data_compare_cancel(args: DataCompareCancelArgs) -> CommandResult<()> {
+    let ctl = running()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&args.run)
+        .cloned();
+    if let Some(ctl) = ctl {
+        ctl.cancel();
+    }
+    Ok(())
+}
+
+/// Both sides on read-only sessions of their own (`dcmp:<run>:left|right`,
+/// stopped by `cancel_session`), compared whole; the result, and the
+/// difference kept for the script.
+async fn compare_sides(
+    state: &AppState,
+    args: DataCompareArgs,
+    run: &str,
+    ctl: &Arc<whole::Ctl>,
+    opts: &whole::Options,
+    progress: &(dyn Fn(&whole::Progress) + Send + Sync),
+) -> CommandResult<DataCompareResult> {
+    let sessions = Sessions {
+        state,
+        keys: [format!("dcmp:{run}:left"), format!("dcmp:{run}:right")],
+    };
+    for k in &sessions.keys {
+        let (st, k) = (state.clone(), k.clone());
+        ctl.add_stopper(Arc::new(move || {
+            crate::commands::query::cancel_session(&st, &k)
+        }));
+    }
+    let open = async {
+        tokio::try_join!(
+            state.dedicated_session(
+                &sessions.keys[0],
+                &args.left.connection_id,
+                &args.left.database,
+                true
+            ),
+            state.dedicated_session(
+                &sessions.keys[1],
+                &args.right.connection_id,
+                &args.right.database,
+                true
+            )
+        )
+    };
+    let (le, re) = tokio::select! {
+        r = open => r?,
+        () = ctl.stopped() => return Err(ctl.error()),
+    };
+    let mut ls = le.session.lock().await;
+    let mut rs = re.session.lock().await;
+    let cols = async {
+        tokio::try_join!(
+            ls.columns(&args.left.object),
+            rs.columns(&args.right.object)
+        )
+    };
+    let (lcols, rcols) = tokio::select! {
+        r = cols => r?,
+        () = ctl.stopped() => return Err(ctl.error()),
+    };
+    // No key given: the left table's primary key.
     let key: Vec<String> = if args.key.is_empty() {
-        primary_key(&state, &args.left).await?
+        lcols
+            .iter()
+            .filter(|c| c.primary_key)
+            .map(|c| c.name.clone())
+            .collect()
     } else {
         args.key.clone()
     };
@@ -446,13 +564,6 @@ pub async fn data_compare(
             "la tabla no tiene clave primaria: elegí las columnas que identifican cada fila".into(),
         ));
     }
-    let (l, r) = tokio::try_join!(
-        read(&state, &args.left, limit, &key),
-        read(&state, &args.right, limit, &key)
-    )?;
-    let ordered = l.ordered && r.ordered;
-    let (lcols, lnames, lrows, ltrunc) = (l.cols, l.names, l.rows, l.truncated);
-    let (rcols, rnames, rrows, rtrunc) = (r.cols, r.names, r.rows, r.truncated);
     let identity = |cols: &[ColumnInfo]| -> Vec<String> {
         cols.iter()
             .filter(|c| c.auto_increment)
@@ -460,150 +571,66 @@ pub async fn data_compare(
             .collect()
     };
     let (left_identity, right_identity) = (identity(&lcols), identity(&rcols));
-
-    // Columns both have (by name, ignoring case), in the left's order.
-    let find = |names: &[String], n: &str| names.iter().position(|x| x.eq_ignore_ascii_case(n));
-    let wanted: Vec<&String> = if args.columns.is_empty() {
-        lnames.iter().collect()
-    } else {
-        args.columns.iter().collect()
-    };
-    let mut columns: Vec<(String, usize, String, usize)> = Vec::new();
-    for k in &key {
-        let (Some(li), Some(ri)) = (find(&lnames, k), find(&rnames, k)) else {
-            return Err(CommandError::BadRequest(format!(
-                "la columna clave «{k}» no está en las dos tablas"
-            )));
-        };
-        columns.push((lnames[li].clone(), li, rnames[ri].clone(), ri));
-    }
-    for n in wanted {
-        if key.iter().any(|k| k.eq_ignore_ascii_case(n)) {
-            continue;
-        }
-        if let (Some(li), Some(ri)) = (find(&lnames, n), find(&rnames, n)) {
-            columns.push((lnames[li].clone(), li, rnames[ri].clone(), ri));
-        }
-    }
-    let only_left_columns = lnames
-        .iter()
-        .filter(|n| find(&rnames, n).is_none())
-        .cloned()
-        .collect();
-    let only_right_columns = rnames
-        .iter()
-        .filter(|n| find(&lnames, n).is_none())
-        .cloned()
-        .collect();
-    let nk = key.len();
-    let last_keys =
-        (nk == 1).then(|| (last_of(&lrows, columns[0].1), last_of(&rrows, columns[0].3)));
-
-    let booleans = |cols: &[ColumnInfo], name: &str| {
-        cols.iter()
-            .any(|c| c.name.eq_ignore_ascii_case(name) && is_bool_type(&c.data_type))
-    };
-    let (lbool, rbool): (Vec<bool>, Vec<bool>) = columns
-        .iter()
-        .map(|c| (booleans(&lcols, &c.0), booleans(&rcols, &c.2)))
-        .unzip();
     let type_of = |cols: &[ColumnInfo], name: &str| {
         cols.iter()
             .find(|c| c.name.eq_ignore_ascii_case(name))
             .map_or_else(String::new, |c| c.data_type.clone())
     };
-    let left_types: Vec<String> = columns.iter().map(|c| type_of(&lcols, &c.0)).collect();
-    let right_types: Vec<String> = columns.iter().map(|c| type_of(&rcols, &c.2)).collect();
-    let project = |row: &[Value], left: bool| -> Vec<Value> {
-        columns
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let v = row
-                    .get(if left { c.1 } else { c.3 })
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                if if left { lbool[i] } else { rbool[i] } {
-                    as_bool(v)
-                } else {
-                    v
-                }
-            })
-            .collect()
+    let input = whole::Input {
+        key,
+        wanted: args.columns.clone(),
+        cols: [lcols.clone(), rcols.clone()],
     };
-    let key_of =
-        |p: &[Value]| -> String { p[..nk].iter().map(canon).collect::<Vec<_>>().join("\u{1}") };
-
-    let mut duplicate_keys = 0;
-    let mut right: HashMap<String, Vec<Value>> = HashMap::with_capacity(rrows.len());
-    for row in &rrows {
-        let p = project(row, false);
-        if right.insert(key_of(&p), p).is_some() {
-            duplicate_keys += 1;
-        }
-    }
-    let mut counts = Counts {
-        left: lrows.len() as u64,
-        right: rrows.len() as u64,
-        ..Default::default()
-    };
-    let (mut only_left, mut changed) = (Vec::new(), Vec::new());
-    let mut seen = std::collections::HashSet::new();
-    for row in &lrows {
-        let p = project(row, true);
-        let k = key_of(&p);
-        if !seen.insert(k.clone()) {
-            duplicate_keys += 1;
-            continue;
-        }
-        match right.remove(&k) {
-            None => only_left.push(p),
-            Some(rp) => {
-                let diff: Vec<usize> = (nk..p.len())
-                    .filter(|&i| canon(&p[i]) != canon(&rp[i]))
-                    .collect();
-                if diff.is_empty() {
-                    counts.same += 1;
-                } else {
-                    changed.push(ChangedRow {
-                        left: p,
-                        right: rp,
-                        diff,
-                    });
-                }
-            }
-        }
-    }
-    let mut only_right: Vec<Vec<Value>> = right.into_values().collect();
-    // In key order, as the other lists come: the map has none of its own.
-    only_right.sort_by(|a, b| {
-        a[..nk]
-            .iter()
-            .zip(&b[..nk])
-            .map(|(x, y)| sort_value(x).cmp_with(&sort_value(y), false))
-            .find(|o| o.is_ne())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    counts.only_left = only_left.len() as u64;
-    counts.only_right = only_right.len() as u64;
-    counts.changed = changed.len() as u64;
-
+    let c = whole::compare(
+        whole::Side {
+            session: &mut **ls,
+            object: &args.left.object,
+        },
+        whole::Side {
+            session: &mut **rs,
+            object: &args.right.object,
+        },
+        input,
+        opts,
+        ctl,
+        progress,
+    )
+    .await?;
+    drop((ls, rs));
+    drop(sessions);
+    tracing::info!(
+        left = c.counts.left,
+        right = c.counts.right,
+        on_disk = c.spilled,
+        truncated = c.diff_truncated,
+        "data compare: done"
+    );
+    let p = &c.projection;
+    let left_types: Vec<String> = p.columns.iter().map(|x| type_of(&lcols, &x.0)).collect();
+    let right_types: Vec<String> = p.columns.iter().map(|x| type_of(&rcols, &x.1)).collect();
     let id = uuid::Uuid::new_v4().to_string();
     let result = DataCompareResult {
         id: id.clone(),
-        key: columns[..nk].iter().map(|c| c.0.clone()).collect(),
-        columns: columns.iter().map(|c| c.0.clone()).collect(),
+        key: p.columns[..p.nk].iter().map(|x| x.0.clone()).collect(),
+        columns: p.columns.iter().map(|x| x.0.clone()).collect(),
         types: left_types.clone(),
-        only_left_columns,
-        only_right_columns,
-        counts,
-        only_left: only_left.iter().take(SHOWN).cloned().collect(),
-        only_right: only_right.iter().take(SHOWN).cloned().collect(),
-        changed: changed.iter().take(SHOWN).cloned().collect(),
-        truncated_left: ltrunc,
-        truncated_right: rtrunc,
-        ordered,
-        duplicate_keys,
+        only_left_columns: p.only_left_columns.clone(),
+        only_right_columns: p.only_right_columns.clone(),
+        counts: c.counts.clone(),
+        only_left: c.only_left.iter().take(SHOWN).cloned().collect(),
+        only_right: c.only_right.iter().take(SHOWN).cloned().collect(),
+        changed: c.changed.iter().take(SHOWN).cloned().collect(),
+        truncated_left: false,
+        truncated_right: false,
+        ordered: true,
+        duplicate_keys: c.duplicate_keys,
+        diff_truncated: c.diff_truncated,
+        diff_limit: opts.max_diff_rows as u64,
+        listed: Listed {
+            changed: c.changed.len() as u64,
+            only_left: c.only_left.len() as u64,
+            only_right: c.only_right.len() as u64,
+        },
     };
     let mut all = diffs().lock().unwrap();
     // Keep the last few comparisons only.
@@ -616,17 +643,18 @@ pub async fn data_compare(
             left: args.left,
             right: args.right,
             key: result.key.clone(),
-            columns: columns.into_iter().map(|c| (c.0, c.2)).collect(),
+            columns: p.columns.clone(),
             left_identity,
             right_identity,
-            only_left,
-            only_right,
-            changed,
+            only_left: c.only_left,
+            only_right: c.only_right,
+            changed: c.changed,
             left_types,
             right_types,
-            partial: ltrunc || rtrunc,
-            same: result.counts.same,
-            last_keys,
+            partial: false,
+            diff_truncated: c.diff_truncated,
+            counts: c.counts.clone(),
+            last_keys: c.last_keys,
         },
     );
     Ok(result)
@@ -1258,8 +1286,8 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 mod tests {
     use super::{
         as_bool, as_number, assemble, canon, insert_parts, is_bool_type, is_number_type,
-        new_rows_parts, plans, rows_of, sort_keys, write_as, ChangedRow, Choices, DataRowsArgs,
-        Diff, Dir, Pick, RowKind, Side, SHOWN,
+        new_rows_parts, plans, rows_of, write_as, ChangedRow, Choices, DataRowsArgs, Diff, Dir,
+        Pick, RowKind, Side, SHOWN,
     };
     use dbine_driver::filter::{ColumnFilter, FilterOp};
     use dbine_driver::SortKey;
@@ -1511,7 +1539,8 @@ mod tests {
             left_types: vec!["int".into(), "text".into()],
             right_types: vec!["int".into(), "text".into()],
             partial,
-            same: 0,
+            diff_truncated: false,
+            counts: super::Counts::default(),
             last_keys: None,
         }
     }
@@ -1871,28 +1900,6 @@ mod tests {
     }
 
     #[test]
-    fn the_sort_uses_each_sides_spelling_of_the_key() {
-        let col = |name: &str| dbine_driver::ColumnInfo {
-            name: name.into(),
-            data_type: "text".into(),
-            nullable: false,
-            primary_key: false,
-            auto_increment: false,
-            default_value: None,
-        };
-        let keys = sort_keys(
-            &[col("ID"), col("Num_Sec")],
-            &["id".into(), "num_sec".into()],
-        );
-        let names: Vec<&str> = keys.iter().map(|k| k.column.as_str()).collect();
-        assert_eq!(names, ["ID", "Num_Sec"]);
-        assert!(keys.iter().all(|k| !k.descending));
-        // Not among the columns (schemaless): as given; its absence is
-        // reported once the rows are in.
-        assert_eq!(sort_keys(&[], &["k".into()])[0].column, "k");
-    }
-
-    #[test]
     fn row_choices_override_the_default() {
         let p = Pick {
             all: Dir::Right,
@@ -1926,6 +1933,24 @@ mod tests {
             canon(&json!("007")),
             canon(&json!("7")),
             "a code with leading zeros is text"
+        );
+        // A fraction followed by an offset: only its digits lose their
+        // trailing zeros, and UTC is UTC however it's written.
+        assert_eq!(
+            canon(&json!("2026-09-28 10:00:00.1230000+02:00")),
+            canon(&json!("2026-09-28T10:00:00.123+02:00"))
+        );
+        assert_eq!(
+            canon(&json!("2026-09-28 10:00:00.0000000+00:00")),
+            canon(&json!("2026-09-28T10:00:00Z"))
+        );
+        assert_ne!(
+            canon(&json!("2026-09-28 10:00:00+02:00")),
+            canon(&json!("2026-09-28 10:00:00+03:00"))
+        );
+        assert_ne!(
+            canon(&json!("2026-09-28 10:00:00.5+02:00")),
+            canon(&json!("2026-09-28 10:00:00+02:00"))
         );
     }
 }

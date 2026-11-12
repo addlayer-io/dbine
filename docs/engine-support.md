@@ -2203,6 +2203,34 @@ saying so.
   MongoDB, ksqlDB, TDengine…), what was already committed stays and the error
   says so.
 
+## Data compare
+
+"Comparar datos" reads both tables whole with each engine's batched read
+(`read_batches`, the typed read of the [bulk transfer](#bulk-transfer-migrating-data)),
+paged the way each engine pages (server cursors, Elasticsearch's point in
+time, Solr's cursor, Cassandra's and MongoDB's paging…), so every engine
+compares whole tables; past 250,000 rows or 256 MB a side, through the local
+DuckDB (`docs/data-compare.md`).
+
+Tested against real servers (`dbine-test-*` containers): SQL Server and
+PostgreSQL with 1,000,000 rows a side, SQL Server against PostgreSQL with
+300,000, and MySQL, ClickHouse, Cassandra, MongoDB, Elasticsearch and Solr
+with 30,000 rows a side (more than one page or scroll of each); DuckDB in the
+unit tests and through its driver host. The other engines use the same read
+the migration uses and are not tested live for the compare.
+
+Where the read is not batched, the compare reads the grid's browse query
+with no row limit, streamed, as before (one query for the whole table):
+
+- **kdb+** on a read-only connection to a server without `reval` (the
+  compare always reads read-only): `select[4294967295] from t`, which q
+  answers in one message.
+- **CouchDB** views; **Couchbase** and **Cosmos DB** objects that aren't
+  collections; **OrientDB** objects that aren't classes; **TDengine** objects
+  that aren't tables, supertables or subtables; **Redis** time series and
+  module types. A server that caps the limit of that query answers with its
+  own error (not tested live).
+
 ## SSH tunnel
 
 All engines that connect over the network can use an SSH tunnel

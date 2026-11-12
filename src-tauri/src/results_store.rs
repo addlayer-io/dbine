@@ -22,8 +22,13 @@
 //!   removed the next time the store opens.
 
 use crate::error::{CommandError, CommandResult};
+use crate::local_duckdb::{
+    attach_sql, exec, first_row, first_value, lit, new_key, redact, remove_paths, SetupError,
+};
+#[cfg(test)]
+use crate::local_duckdb::{settings_sql, LOCK};
 use dbine_driver::transfer::{BatchSource, Cell, LoadSpec, RowBatch, TransferColumn};
-use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, Session};
+use dbine_driver::{ObjectRef, QueryOutcome, Session};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -161,130 +166,25 @@ fn valid_key(k: &str) -> bool {
     k.len() == 64 && k.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// 256 bits from the OS generator, as hex.
-fn new_key() -> Result<String, getrandom::Error> {
-    let mut b = [0u8; 32];
-    getrandom::fill(&mut b)?;
-    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
-}
+/// The alias the store's file is attached as.
+const ALIAS: &str = "store";
 
-/// `e` without the key (a DuckDB error may quote the statement).
-fn redact(e: impl ToString, key: &str) -> String {
-    e.to_string().replace(key, "…")
-}
-
-/// A SQL string literal.
-fn lit(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
-
-/// No extension loads or installs by itself (only `httpfs`, explicitly).
-const NO_EXTENSIONS: &str = "SET autoinstall_known_extensions = false; \
-SET autoload_known_extensions = false; \
-SET allow_community_extensions = false; \
-SET allow_unsigned_extensions = false";
-
-/// The settings that must hold before anything is written. `httpfs` must
-/// be loaded first: DuckDB's built-in crypto only reads encrypted files;
-/// writing them securely takes the OpenSSL one `httpfs` brings (verified:
-/// without it, `ATTACH … ENCRYPTION_KEY` is refused unless
-/// `force_mbedtls_unsafe`, which the store never sets and checks).
-fn settings_sql(dir: &Path) -> Vec<String> {
-    vec![
-        format!(
-            "SET temp_directory = {}",
-            lit(&dir.join("tmp").to_string_lossy())
-        ),
-        "SET temp_file_encryption = true".into(),
-        "SET memory_limit = '1GB'".into(),
-    ]
-}
-
-/// Attach `file` of `dir` encrypted with `key`, as `alias`.
-fn attach_sql(dir: &Path, file: &str, alias: &str, key: &str) -> String {
-    format!(
-        "ATTACH {} AS {alias} (ENCRYPTION_KEY {})",
-        lit(&dir.join(file).to_string_lossy()),
-        lit(key)
-    )
-}
-
-/// Once the file is attached (and compacted): nothing else can be attached,
-/// read or written, and no setting can change.
-const LOCK: &[&str] = &[
-    "USE store",
-    "SET enable_external_access = false",
-    "SET lock_configuration = true",
-];
-
-/// What [`setup`] checks: temp files encrypted, configuration locked, the
-/// file encrypted and in use.
-const CHECK: &str = "SELECT current_setting('temp_file_encryption')::VARCHAR, \
-current_setting('lock_configuration')::VARCHAR, \
-current_setting('enable_external_access')::VARCHAR, \
-(SELECT encrypted::VARCHAR FROM duckdb_databases() WHERE database_name = 'store'), \
-current_database(), \
-current_setting('force_mbedtls_unsafe')::VARCHAR, \
-current_setting('allow_unsigned_extensions')::VARCHAR";
-
-enum SetupError {
-    /// The file is there but this key doesn't open it (or it's damaged).
-    Unreadable,
-    /// `httpfs` couldn't be loaded (not downloaded yet and no network).
-    Crypto(String),
-    Other(String),
-}
-
+/// The shared setup (`local_duckdb`), with the store's compaction between
+/// attaching the file and locking the session down.
 async fn setup(s: &mut dyn Session, dir: &Path, key: &str) -> Result<(), SetupError> {
     let other = |e: CommandError| SetupError::Other(redact(e, key));
-    exec(s, NO_EXTENSIONS).await.map_err(other)?;
-    if exec(s, "LOAD httpfs").await.is_err() {
-        exec(s, "INSTALL httpfs; LOAD httpfs")
-            .await
-            .map_err(|e| SetupError::Crypto(e.to_string()))?;
-    }
-    for sql in settings_sql(dir) {
-        exec(s, &sql).await.map_err(other)?;
-    }
+    crate::local_duckdb::configure(s, dir, key).await?;
     attach(s, dir, key).await?;
     if needs_compaction(s).await.map_err(other)? {
         compact(s, dir, key).await?;
     }
-    for sql in LOCK {
-        exec(s, sql).await.map_err(other)?;
-    }
-    let out = exec(s, CHECK).await.map_err(other)?;
-    let row: Vec<String> = first_row(&out)
-        .iter()
-        .map(|v| v.as_str().unwrap_or_default().to_ascii_lowercase())
-        .collect();
-    if row != ["true", "true", "false", "true", "store", "false", "false"] {
-        return Err(SetupError::Other(format!(
-            "el almacén de resultados no quedó aislado: {row:?}"
-        )));
-    }
-    Ok(())
+    crate::local_duckdb::lock(s, ALIAS, key).await
 }
 
 /// Attach the store's file as `store`; a file this key can't open is
 /// [`SetupError::Unreadable`].
 async fn attach(s: &mut dyn Session, dir: &Path, key: &str) -> Result<(), SetupError> {
-    exec(s, &attach_sql(dir, FILE, "store", key))
-        .await
-        .map_err(|e| {
-            let e = redact(e, key);
-            let lower = e.to_lowercase();
-            if lower.contains("encryption key")
-                || lower.contains("encrypted database")
-                || lower.contains("not a valid duckdb database")
-                || lower.contains("corrupt")
-            {
-                SetupError::Unreadable
-            } else {
-                SetupError::Other(e)
-            }
-        })?;
-    Ok(())
+    crate::local_duckdb::attach(s, dir, FILE, ALIAS, key).await
 }
 
 /// Whether the attached file is mostly free space (results closed since it
@@ -355,32 +255,8 @@ async fn remove_files(dir: &Path) {
     }
 }
 
-/// Delete files, trying again for a moment while one is still open (on
-/// Windows a file DuckDB hasn't let go of yet can't be deleted).
-async fn remove_paths(paths: &[PathBuf]) {
-    for _ in 0..20 {
-        let left: Vec<&PathBuf> = paths
-            .iter()
-            .filter(|p| match std::fs::remove_file(p) {
-                Ok(()) => false,
-                Err(e) => e.kind() != std::io::ErrorKind::NotFound,
-            })
-            .collect();
-        if left.is_empty() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
 async fn open_session() -> Result<Box<dyn Session>, Unavailable> {
-    let mut cfg = ConnectionConfig {
-        driver: "duckdb".into(),
-        host: ":memory:".into(),
-        ..Default::default()
-    };
-    cfg.options.insert("isolated".into(), "true".into());
-    dbine_drivers::open_session(&cfg, None).await.map_err(|e| {
+    crate::local_duckdb::open_session().await.map_err(|e| {
         tracing::warn!(%e, "results store: DuckDB unavailable");
         Unavailable::Duckdb
     })
@@ -949,32 +825,6 @@ impl BatchSource for JsonRows<'_> {
         let bytes = rows.iter().flatten().map(Cell::size).sum();
         Some(RowBatch { rows, bytes })
     }
-}
-
-async fn exec(s: &mut dyn Session, sql: &str) -> CommandResult<QueryOutcome> {
-    let mut out = QueryOutcome::default();
-    s.execute(sql, 1_000, &mut out).await?;
-    match out.error.take() {
-        Some(e) => Err(CommandError::Sql(e)),
-        None => Ok(out),
-    }
-}
-
-fn first_row(out: &QueryOutcome) -> Vec<Value> {
-    out.results
-        .iter()
-        .find(|r| !r.columns.is_empty())
-        .and_then(|r| r.rows.first())
-        .cloned()
-        .unwrap_or_default()
-}
-
-fn first_value(out: &QueryOutcome) -> Option<&Value> {
-    out.results
-        .iter()
-        .find(|r| !r.columns.is_empty())
-        .and_then(|r| r.rows.first())
-        .and_then(|r| r.first())
 }
 
 // ---------------------------------------------------------------------------

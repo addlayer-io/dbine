@@ -67,11 +67,18 @@ pub struct ColumnProfile {
 /// The whole difference in numbers: no value of any row.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Profile {
+    /// Rows of each kind over the whole tables (exact, also when the lists
+    /// hold only the first differences).
     pub same: u64,
-    pub changed: usize,
-    pub only_left: usize,
-    pub only_right: usize,
+    pub changed: u64,
+    pub only_left: u64,
+    pub only_right: u64,
     pub partial: bool,
+    /// More rows differ than were kept: the column figures cover the first
+    /// `listed`, in key order.
+    pub truncated: bool,
+    /// Differing rows in the lists: what the column figures cover.
+    pub listed: usize,
     pub key: Vec<String>,
     /// Only the columns that differ somewhere, the most often first.
     pub columns: Vec<ColumnProfile>,
@@ -243,11 +250,13 @@ pub(crate) fn profile(d: &Diff) -> Profile {
     pairs.truncate(8);
     let (left_last, right_last) = d.last_keys.clone().unwrap_or((None, None));
     Profile {
-        same: d.same,
-        changed: d.changed.len(),
-        only_left: d.only_left.len(),
-        only_right: d.only_right.len(),
+        same: d.counts.same,
+        changed: d.counts.changed,
+        only_left: d.counts.only_left,
+        only_right: d.counts.only_right,
         partial: d.partial,
+        truncated: d.diff_truncated,
+        listed: d.changed.len() + d.only_left.len() + d.only_right.len(),
         key: d.key.clone(),
         columns: cols,
         together: pairs,
@@ -303,6 +312,13 @@ pub(crate) fn profile_text(p: &Profile, engines: (&str, &str)) -> String {
             ""
         }
     );
+    if p.truncated {
+        let _ = writeln!(
+            t,
+            "those totals are exact; the column figures below cover only the first {} differing rows in key order",
+            p.listed
+        );
+    }
     for c in &p.columns {
         let _ = write!(
             t,
@@ -745,6 +761,7 @@ pub async fn data_compare_key_hint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::data_compare::Counts;
     use dbine_driver::ObjectRef;
     use serde_json::json;
 
@@ -761,6 +778,12 @@ mod tests {
     }
 
     fn diff(changed: Vec<ChangedRow>) -> Diff {
+        let counts = Counts {
+            same: 100,
+            changed: changed.len() as u64,
+            only_left: 3,
+            ..Default::default()
+        };
         Diff {
             left: side(),
             right: side(),
@@ -783,7 +806,8 @@ mod tests {
                 .map(|s| s.to_string())
                 .collect(),
             partial: false,
-            same: 100,
+            diff_truncated: false,
+            counts,
             last_keys: Some((Some(json!(12)), Some(json!(10)))),
         }
     }
@@ -858,6 +882,27 @@ mod tests {
         for v in ["Ana", "Eva", "2024-01", "5.50"] {
             assert!(!text.contains(v), "{v} in {text}");
         }
+
+        // The lists hold the first differences only: the totals stay the
+        // exact ones, and the column figures say what they cover.
+        let mut d = d;
+        d.diff_truncated = true;
+        d.counts.changed = 3_000_000;
+        d.counts.only_left = 2_000_000;
+        let p = profile(&d);
+        assert_eq!(
+            (p.changed, p.only_left, p.listed),
+            (3_000_000, 2_000_000, 7)
+        );
+        let text = profile_text(&p, ("PostgreSQL", "MySQL"));
+        assert!(
+            text.contains("100 the same, 3000000 different, 2000000 only on the left"),
+            "{text}"
+        );
+        assert!(
+            text.contains("the column figures below cover only the first 7 differing rows"),
+            "{text}"
+        );
     }
 
     #[test]
