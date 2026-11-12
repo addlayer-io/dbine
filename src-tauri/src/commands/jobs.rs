@@ -109,3 +109,139 @@ pub async fn jobs_set_enabled(
 pub async fn jobs_script(state: State<'_, AppState>, args: JobArgs) -> CommandResult<String> {
     Ok(on_jobs_session!(state, &args.connection_id, |s| s.job_script(&args.id))?)
 }
+
+// -- the scheduler's objects and their designer --------------------------------------------
+
+#[derive(Deserialize)]
+pub struct KindArgs {
+    pub connection_id: String,
+    pub kind: String,
+}
+
+#[derive(Deserialize)]
+pub struct ObjectArgs {
+    pub connection_id: String,
+    pub kind: String,
+    /// `None`: a new object.
+    pub id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ObjectValuesArgs {
+    pub connection_id: String,
+    pub kind: String,
+    pub id: Option<String>,
+    pub values: dbine_driver::FormValues,
+}
+
+#[derive(Deserialize)]
+pub struct ObjectIdArgs {
+    pub connection_id: String,
+    pub kind: String,
+    pub id: String,
+}
+
+#[derive(Deserialize)]
+pub struct JobStepArgs {
+    pub connection_id: String,
+    pub id: String,
+    pub step: String,
+}
+
+/// The kinds of object the connection's scheduler has.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_kinds(
+    state: State<'_, AppState>,
+    args: JobsArgs,
+) -> CommandResult<Vec<dbine_driver::SchedulerKind>> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s.scheduler_kinds())?)
+}
+
+/// The objects of one kind.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_items(
+    state: State<'_, AppState>,
+    args: KindArgs,
+) -> CommandResult<dbine_driver::SchedulerList> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_items(&args.kind))?)
+}
+
+/// The designer's form for an object (a new one without `id`).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_form(
+    state: State<'_, AppState>,
+    args: ObjectArgs,
+) -> CommandResult<dbine_driver::ObjectForm> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_form(&args.kind, args.id.as_deref()))?)
+}
+
+/// The script the driver writes for the designer's values (nothing runs).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_script(
+    state: State<'_, AppState>,
+    args: ObjectValuesArgs,
+) -> CommandResult<String> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_script(
+            &args.kind,
+            args.id.as_deref(),
+            &args.values
+        ))?)
+}
+
+/// Creates or changes the object (the user saw the script and confirmed).
+/// Refused on read-only connections. Returns the new object's id.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_save(
+    state: State<'_, AppState>,
+    args: ObjectValuesArgs,
+) -> CommandResult<Option<String>> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_save(
+            &args.kind,
+            args.id.as_deref(),
+            &args.values
+        ))?)
+}
+
+/// The script that deletes the object (nothing runs).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_delete_script(
+    state: State<'_, AppState>,
+    args: ObjectIdArgs,
+) -> CommandResult<String> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_delete_script(&args.kind, &args.id))?)
+}
+
+/// Deletes the object (the user confirmed). Refused on read-only connections.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_delete(state: State<'_, AppState>, args: ObjectIdArgs) -> CommandResult<()> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_delete(&args.kind, &args.id))?)
+}
+
+/// Starts the job at one of its steps (the user confirmed).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn jobs_run_from(state: State<'_, AppState>, args: JobStepArgs) -> CommandResult<()> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .run_job_from(&args.id, &args.step))?)
+}
+
+/// Deletes the job's run history (the user confirmed).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn jobs_clear_history(state: State<'_, AppState>, args: JobArgs) -> CommandResult<()> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .clear_job_history(&args.id))?)
+}
+
+/// The scheduler's own logs (SQL Server Agent's error logs…).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_logs(
+    state: State<'_, AppState>,
+    args: JobsArgs,
+) -> CommandResult<Vec<dbine_driver::MonitorTable>> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s.scheduler_logs())?)
+}

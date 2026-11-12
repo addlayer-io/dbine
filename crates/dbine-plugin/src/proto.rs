@@ -557,6 +557,55 @@ pub enum Call {
         session: u64,
         id: String,
     },
+    /// The scheduler's objects and their designer ("Programadas", "En los
+    /// servidores"). A host published before them answers `Unsupported`;
+    /// the app only asks drivers whose capabilities say `scheduler`.
+    SchedulerKinds {
+        session: u64,
+    },
+    SchedulerItems {
+        session: u64,
+        kind: String,
+    },
+    SchedulerForm {
+        session: u64,
+        kind: String,
+        id: Option<String>,
+    },
+    SchedulerScript {
+        session: u64,
+        kind: String,
+        id: Option<String>,
+        values: dbine_driver::FormValues,
+    },
+    SchedulerSave {
+        session: u64,
+        kind: String,
+        id: Option<String>,
+        values: dbine_driver::FormValues,
+    },
+    SchedulerDeleteScript {
+        session: u64,
+        kind: String,
+        id: String,
+    },
+    SchedulerDelete {
+        session: u64,
+        kind: String,
+        id: String,
+    },
+    RunJobFrom {
+        session: u64,
+        id: String,
+        step: String,
+    },
+    ClearJobHistory {
+        session: u64,
+        id: String,
+    },
+    SchedulerLogs {
+        session: u64,
+    },
 }
 
 /// Host → app.
@@ -667,6 +716,10 @@ pub enum Reply {
     Jobs(dbine_driver::JobList),
     JobDetail(dbine_driver::JobDetail),
     JobRuns(Vec<dbine_driver::JobRun>),
+    SchedulerKinds(Vec<dbine_driver::SchedulerKind>),
+    SchedulerList(dbine_driver::SchedulerList),
+    ObjectForm(dbine_driver::ObjectForm),
+    SchedulerLogs(Vec<dbine_driver::MonitorTable>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -1498,6 +1551,80 @@ mod tests {
                 },
                 "JobScript",
             ),
+            (41, Call::SchedulerKinds { session: 3 }, "SchedulerKinds"),
+            (
+                42,
+                Call::SchedulerItems {
+                    session: 3,
+                    kind: "job".into(),
+                },
+                "SchedulerItems",
+            ),
+            (
+                43,
+                Call::SchedulerForm {
+                    session: 3,
+                    kind: "job".into(),
+                    id: None,
+                },
+                "SchedulerForm",
+            ),
+            (
+                44,
+                Call::SchedulerScript {
+                    session: 3,
+                    kind: "job".into(),
+                    id: Some("j".into()),
+                    values: Default::default(),
+                },
+                "SchedulerScript",
+            ),
+            (
+                45,
+                Call::SchedulerSave {
+                    session: 3,
+                    kind: "job".into(),
+                    id: None,
+                    values: Default::default(),
+                },
+                "SchedulerSave",
+            ),
+            (
+                46,
+                Call::SchedulerDeleteScript {
+                    session: 3,
+                    kind: "operator".into(),
+                    id: "o".into(),
+                },
+                "SchedulerDeleteScript",
+            ),
+            (
+                47,
+                Call::SchedulerDelete {
+                    session: 3,
+                    kind: "operator".into(),
+                    id: "o".into(),
+                },
+                "SchedulerDelete",
+            ),
+            (
+                48,
+                Call::RunJobFrom {
+                    session: 3,
+                    id: "j".into(),
+                    step: "2".into(),
+                },
+                "RunJobFrom",
+            ),
+            (
+                49,
+                Call::ClearJobHistory {
+                    session: 3,
+                    id: "j".into(),
+                },
+                "ClearJobHistory",
+            ),
+            (50, Call::SchedulerLogs { session: 3 }, "SchedulerLogs"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -1515,6 +1642,48 @@ mod tests {
         .unwrap();
         let p: dbine_driver::Permissions = rmp_serde::from_slice(&body).unwrap();
         assert_eq!(p.create_schema, dbine_driver::Access::Unknown);
+    }
+
+    #[test]
+    fn scheduler_round_trip() {
+        use dbine_driver::{FormField, FormKind, FormSection, FormValues, ObjectForm};
+        let form = ObjectForm {
+            sections: vec![FormSection {
+                key: "general".into(),
+                label: "General".into(),
+                fields: vec![FormField::new("name", "Nombre", FormKind::Text)],
+                lists: vec![],
+            }],
+            values: [("name".to_string(), serde_json::json!("j"))].into(),
+            ..Default::default()
+        };
+        let body = rmp_serde::to_vec_named(&Reply::ObjectForm(form.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::ObjectForm(back) => assert_eq!(back, form),
+            other => panic!("{other:?}"),
+        }
+        let values = FormValues {
+            values: [("enabled".to_string(), serde_json::json!(true))].into(),
+            lists: [(
+                "steps".to_string(),
+                vec![[("name".to_string(), serde_json::json!("uno"))].into()],
+            )]
+            .into(),
+        };
+        let call = Call::SchedulerSave {
+            session: 1,
+            kind: "job".into(),
+            id: None,
+            values: values.clone(),
+        };
+        let body = rmp_serde::to_vec_named(&ToHost::Call { id: 1, call }).unwrap();
+        match rmp_serde::from_slice::<ToHost>(&body).unwrap() {
+            ToHost::Call {
+                call: Call::SchedulerSave { values: back, .. },
+                ..
+            } => assert_eq!(back, values),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

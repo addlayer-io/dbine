@@ -696,6 +696,7 @@ impl Driver for OracleDriver {
             database_properties: true,
             // DBMS_SCHEDULER (and DBMS_JOB before 19c), see `jobs`.
             jobs: true,
+            scheduler: false,
         }
     }
 

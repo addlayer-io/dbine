@@ -312,6 +312,10 @@ pub struct Capabilities {
     /// the job itself.
     #[serde(default)]
     pub jobs: bool,
+    /// Its sessions implement the `scheduler_*` methods: the server's
+    /// scheduler objects are created, edited and deleted from DBine.
+    #[serde(default)]
+    pub scheduler: bool,
 }
 
 #[cfg(test)]

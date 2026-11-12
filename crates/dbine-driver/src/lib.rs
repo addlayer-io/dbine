@@ -34,6 +34,7 @@ pub mod profiler;
 pub mod read_only;
 pub mod rename;
 pub mod runtime;
+pub mod scheduler;
 pub mod schema;
 pub mod search;
 pub mod security;
@@ -70,6 +71,10 @@ pub use model::{
     ScriptError, StatementEnd, StatementResult, TxState,
 };
 pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
+pub use scheduler::{
+    FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, SchedulerItem,
+    SchedulerKind, SchedulerList,
+};
 pub use sort::SortKey;
 
 pub use monitor::{
@@ -1226,6 +1231,106 @@ pub trait Session: Send {
         let _ = id;
         Err(Error::Unsupported(
             "este motor no genera el script de sus jobs".into(),
+        ))
+    }
+
+    /// The kinds of object the server's scheduler has (see [`scheduler`]),
+    /// in the order the tree shows them. Drivers that implement it set
+    /// `Capabilities::scheduler`.
+    async fn scheduler_kinds(&mut self) -> Result<Vec<scheduler::SchedulerKind>> {
+        Err(Error::Unsupported(
+            "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// The objects of one kind.
+    async fn scheduler_items(&mut self, kind: &str) -> Result<scheduler::SchedulerList> {
+        let _ = kind;
+        Err(Error::Unsupported(
+            "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// The designer's form for an object (`None`: a new one, with its
+    /// defaults).
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<scheduler::ObjectForm> {
+        let _ = (kind, id);
+        Err(Error::Unsupported(
+            "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// The script that creates the object (`None`) or changes it in place
+    /// to `values`, in the engine's language. Nothing runs.
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &scheduler::FormValues,
+    ) -> Result<String> {
+        let _ = (kind, id, values);
+        Err(Error::Unsupported(
+            "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// Writes the script for `values` again and runs it (atomically where
+    /// the engine allows): creates the object or changes it. Returns the
+    /// new object's id.
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &scheduler::FormValues,
+    ) -> Result<Option<String>> {
+        let _ = (kind, id, values);
+        Err(Error::Unsupported(
+            "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// The script that deletes the object. Nothing runs.
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        let _ = (kind, id);
+        Err(Error::Unsupported(
+            "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// Deletes the object.
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        let _ = (kind, id);
+        Err(Error::Unsupported(
+            "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// Start a run of the job at one of its steps (`step` as the job's form
+    /// names it), where the engine allows it.
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        let _ = (id, step);
+        Err(Error::Unsupported(
+            "este motor no permite empezar un job en un paso".into(),
+        ))
+    }
+
+    /// Delete the job's run history.
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        let _ = id;
+        Err(Error::Unsupported(
+            "este motor no permite borrar el historial de sus jobs".into(),
+        ))
+    }
+
+    /// The scheduler's own logs (SQL Server Agent's error logs…), newest
+    /// first, as tables.
+    async fn scheduler_logs(&mut self) -> Result<Vec<monitor::MonitorTable>> {
+        Err(Error::Unsupported(
+            "este motor no tiene un registro de su planificador".into(),
         ))
     }
 

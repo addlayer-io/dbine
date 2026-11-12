@@ -466,6 +466,7 @@ impl Driver for HanaDriver {
             // Scheduler jobs (SAP HANA Cloud; an empty list with a note
             // where the server has none); see `jobs`.
             jobs: true,
+            scheduler: false,
         }
     }
 

@@ -313,6 +313,7 @@ impl Driver for GraphDriver {
             // APOC's background jobs; Memgraph and Neptune have no
             // scheduled jobs (see jobs.rs).
             jobs: self.flavor == Flavor::Neo4j,
+            scheduler: false,
         }
     }
 

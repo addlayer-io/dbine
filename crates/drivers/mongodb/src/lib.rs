@@ -553,6 +553,7 @@ impl Driver for MongoDriver {
             cancel_query: locks,
             database_properties: true,
             jobs: false,
+            scheduler: false,
         }
     }
 

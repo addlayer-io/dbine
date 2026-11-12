@@ -408,6 +408,7 @@ impl Driver for SnowflakeDriver {
             processes: true,
             cancel_query: true,
             jobs: true,
+            scheduler: false,
         }
     }
 

@@ -316,6 +316,7 @@ impl Driver for SqlServerDriver {
             // SQL Server Agent (and Managed Instance's); Azure SQL Database
             // answers with a note. Not Fabric nor Babelfish (see `jobs`).
             jobs: jobs::supported(self.variant),
+            scheduler: false,
         }
     }
 
