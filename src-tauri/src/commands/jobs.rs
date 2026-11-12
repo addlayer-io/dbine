@@ -148,13 +148,13 @@ pub struct JobStepArgs {
     pub step: String,
 }
 
-/// The kinds of object the connection's scheduler has.
+/// What the connection's scheduler has: its kinds of object, its log, notes.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn scheduler_kinds(
+pub async fn scheduler_info(
     state: State<'_, AppState>,
     args: JobsArgs,
-) -> CommandResult<Vec<dbine_driver::SchedulerKind>> {
-    Ok(on_jobs_session!(state, &args.connection_id, |s| s.scheduler_kinds())?)
+) -> CommandResult<dbine_driver::SchedulerInfo> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s.scheduler_info())?)
 }
 
 /// The objects of one kind.

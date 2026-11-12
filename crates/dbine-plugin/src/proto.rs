@@ -560,7 +560,7 @@ pub enum Call {
     /// The scheduler's objects and their designer ("Programadas", "En los
     /// servidores"). A host published before them answers `Unsupported`;
     /// the app only asks drivers whose capabilities say `scheduler`.
-    SchedulerKinds {
+    SchedulerInfo {
         session: u64,
     },
     SchedulerItems {
@@ -716,7 +716,7 @@ pub enum Reply {
     Jobs(dbine_driver::JobList),
     JobDetail(dbine_driver::JobDetail),
     JobRuns(Vec<dbine_driver::JobRun>),
-    SchedulerKinds(Vec<dbine_driver::SchedulerKind>),
+    SchedulerInfo(dbine_driver::SchedulerInfo),
     SchedulerList(dbine_driver::SchedulerList),
     ObjectForm(dbine_driver::ObjectForm),
     SchedulerLogs(Vec<dbine_driver::MonitorTable>),
@@ -1551,7 +1551,7 @@ mod tests {
                 },
                 "JobScript",
             ),
-            (41, Call::SchedulerKinds { session: 3 }, "SchedulerKinds"),
+            (41, Call::SchedulerInfo { session: 3 }, "SchedulerInfo"),
             (
                 42,
                 Call::SchedulerItems {

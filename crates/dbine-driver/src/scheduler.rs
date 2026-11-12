@@ -52,6 +52,21 @@ impl SchedulerKind {
     }
 }
 
+/// What the server's scheduler has.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SchedulerInfo {
+    /// Its kinds of object, in the order the tree shows them (jobs first).
+    pub kinds: Vec<SchedulerKind>,
+    /// It keeps a log of its own that [`crate::Session::scheduler_logs`]
+    /// reads (SQL Server Agent's error log).
+    #[serde(default)]
+    pub logs: bool,
+    /// In Spanish: the scheduler stopped, an edition without one, what the
+    /// login can't change…
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+}
+
 /// One object of a kind, as the tree lists it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SchedulerItem {
@@ -99,6 +114,12 @@ pub enum FormKind {
     /// One (or, with `multiple`, several) of the server's objects or names,
     /// listed in [`ObjectForm::choices`] under `source` ("operator",
     /// "proxy:TSQL", "database", "login", "category:job"…).
+    ///
+    /// A source `list:<key>` picks a row of the same form's list `<key>` as
+    /// it is being edited (a job's start step, "go to step"): the app
+    /// offers the list's rows and the value is the row's `title_field`
+    /// value (the step's name), which the driver resolves when it writes
+    /// the script. Such a source has no entry in `choices`.
     Ref {
         source: String,
         #[serde(default)]

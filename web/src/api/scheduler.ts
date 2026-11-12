@@ -16,6 +16,16 @@ export interface SchedulerKind {
   can_delete?: boolean;
 }
 
+/** What the server's scheduler has. */
+export interface SchedulerInfo {
+  /** In the order the tree shows them (jobs first). */
+  kinds: SchedulerKind[];
+  /** It keeps a log of its own (`schedulerApi.logs`): SQL Server Agent's error log. */
+  logs?: boolean;
+  /** In Spanish from the driver (the scheduler stopped, an edition without one…): translate with `tb`. */
+  notes?: string[];
+}
+
 export interface SchedulerItem {
   /** The engine's id for it, opaque: what the other calls take. */
   id: string;
@@ -40,7 +50,8 @@ export type FormKind =
   | { type: 'bool' }
   | { type: 'select'; options: [string, string][] }
   | { type: 'multi_select'; options: [string, string][] }
-  /** Picks from `ObjectForm.choices[source]`. */
+  /** Picks from `ObjectForm.choices[source]`; a source `list:<key>` picks a row of the same
+   *  form's list `<key>` as edited now, by its `title_field` value (a job's start step). */
   | { type: 'ref'; source: string; multiple?: boolean }
   | { type: 'code'; language: string }
   /** YYYY-MM-DD */
@@ -111,7 +122,7 @@ export interface FormValues {
 const a = (connectionId: string, extra: Record<string, unknown> = {}) => ({ args: { connection_id: connectionId, ...extra } });
 
 export const schedulerApi = {
-  kinds: (connectionId: string) => invoke<SchedulerKind[]>('scheduler_kinds', a(connectionId)),
+  info: (connectionId: string) => invoke<SchedulerInfo>('scheduler_info', a(connectionId)),
   items: (connectionId: string, kind: string) => invoke<SchedulerList>('scheduler_items', a(connectionId, { kind })),
   /** `id` null: the form of a new object. */
   form: (connectionId: string, kind: string, id: string | null) =>

@@ -422,7 +422,7 @@ impl Call {
             | StopJob { session, .. }
             | SetJobEnabled { session, .. }
             | JobScript { session, .. }
-            | SchedulerKinds { session }
+            | SchedulerInfo { session }
             | SchedulerItems { session, .. }
             | SchedulerForm { session, .. }
             | SchedulerScript { session, .. }
@@ -1362,12 +1362,12 @@ impl State {
                     .job_script(&id)
                     .await?,
             ),
-            Call::SchedulerKinds { session } => Reply::SchedulerKinds(
+            Call::SchedulerInfo { session } => Reply::SchedulerInfo(
                 self.slot(session)?
                     .session
                     .lock()
                     .await
-                    .scheduler_kinds()
+                    .scheduler_info()
                     .await?,
             ),
             Call::SchedulerItems { session, kind } => Reply::SchedulerList(

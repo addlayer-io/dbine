@@ -652,7 +652,7 @@ pub fn run() {
             commands::jobs::jobs_stop,
             commands::jobs::jobs_set_enabled,
             commands::jobs::jobs_script,
-            commands::jobs::scheduler_kinds,
+            commands::jobs::scheduler_info,
             commands::jobs::scheduler_items,
             commands::jobs::scheduler_form,
             commands::jobs::scheduler_script,

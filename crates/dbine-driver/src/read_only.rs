@@ -741,8 +741,8 @@ impl Session for ReadOnlySession {
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.inner.job_script(id).await
     }
-    async fn scheduler_kinds(&mut self) -> Result<Vec<crate::SchedulerKind>> {
-        self.inner.scheduler_kinds().await
+    async fn scheduler_info(&mut self) -> Result<crate::SchedulerInfo> {
+        self.inner.scheduler_info().await
     }
     async fn scheduler_items(&mut self, kind: &str) -> Result<crate::SchedulerList> {
         self.inner.scheduler_items(kind).await

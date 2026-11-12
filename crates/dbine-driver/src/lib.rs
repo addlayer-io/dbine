@@ -72,8 +72,8 @@ pub use model::{
 };
 pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
 pub use scheduler::{
-    FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, SchedulerItem,
-    SchedulerKind, SchedulerList,
+    FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, SchedulerInfo,
+    SchedulerItem, SchedulerKind, SchedulerList,
 };
 pub use sort::SortKey;
 
@@ -1234,10 +1234,10 @@ pub trait Session: Send {
         ))
     }
 
-    /// The kinds of object the server's scheduler has (see [`scheduler`]),
-    /// in the order the tree shows them. Drivers that implement it set
-    /// `Capabilities::scheduler`.
-    async fn scheduler_kinds(&mut self) -> Result<Vec<scheduler::SchedulerKind>> {
+    /// What the server's scheduler has (see [`scheduler`]): its kinds of
+    /// object in the order the tree shows them, whether it keeps a log, and
+    /// notes. Drivers that implement it set `Capabilities::scheduler`.
+    async fn scheduler_info(&mut self) -> Result<scheduler::SchedulerInfo> {
         Err(Error::Unsupported(
             "este motor no administra su planificador desde DBine".into(),
         ))

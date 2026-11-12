@@ -1926,13 +1926,13 @@ impl Session for RemoteSession {
             .await
             .map(|_| ())
     }
-    async fn scheduler_kinds(&mut self) -> Result<Vec<dbine_driver::SchedulerKind>> {
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
         match self
             .host
-            .call(Call::SchedulerKinds { session: self.id })
+            .call(Call::SchedulerInfo { session: self.id })
             .await?
         {
-            Reply::SchedulerKinds(v) => Ok(v),
+            Reply::SchedulerInfo(v) => Ok(v),
             _ => Err(unexpected()),
         }
     }
