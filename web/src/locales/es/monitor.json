@@ -27,5 +27,21 @@
   "noRows": "Sin filas.",
   "sparkline": {
     "noData": "sin dato"
+  },
+  "enlarge": "Ampliar: el historial completo en una línea de tiempo",
+  "pick": {
+    "button": "Métricas",
+    "title": "Qué métricas mostrar",
+    "showAll": "Mostrar todas",
+    "hidden_one": "{{count}} oculta",
+    "hidden_other": "{{count}} ocultas"
+  },
+  "metric": {
+    "source": "Origen",
+    "rate": "Se muestra por segundo: la diferencia entre dos lecturas seguidas, dividida por el tiempo entre ellas."
+  },
+  "chart": {
+    "aria": "Gráfico de {{name}} en el tiempo",
+    "span": "Desde {{from}} hasta {{to}} · {{count}} lecturas"
   }
 }

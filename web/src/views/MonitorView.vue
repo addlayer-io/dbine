@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ConnectionState from '../components/ConnectionState.vue';
 import { useConnectionGate } from '../composables/connectionGate';
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onUnmounted, ref, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import { locale } from '../i18n';
@@ -9,6 +9,10 @@ import { tb } from '../i18n/backend';
 import type { Metric, MonitorSnapshot, MonitorTable } from '../api/types';
 import EngineIcon from '../components/EngineIcon.vue';
 import Sparkline from '../components/Sparkline.vue';
+import { vKeyActivate } from '../composables/keyActivate';
+import { readJson, writeJson } from '../stores/storage';
+// ECharts loads only when a metric is enlarged.
+const MetricChartDialog = defineAsyncComponent(() => import('../components/MetricChartDialog.vue'));
 import BlockingPanel from '../components/BlockingPanel.vue';
 import ProcessesPanel from '../components/ProcessesPanel.vue';
 import { locksApi, type BlockedSession } from '../api/locks';
@@ -26,7 +30,10 @@ const conns = useConnectionsStore();
 const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);
 const { t } = useTranslation();
 
-const HISTORY = 120;
+/** Points kept per metric: an hour at 5 s (the enlarged chart shows them all). */
+const HISTORY = 720;
+/** Points the tile's sparkline shows. */
+const SPARK = 120;
 const INTERVALS = [2, 5, 10, 30];
 
 const conn = computed(() => conns.byId(props.tab.connectionId));
@@ -180,7 +187,8 @@ function current(m: Metric): number | null {
 }
 
 function ceiling(m: Metric): number | null {
-  if (m.counter) return null;
+  // A counter's own max is its rate's (a CPU share's 100 %).
+  if (m.counter) return m.max ?? null;
   return m.max ?? (m.unit === 'percent' ? 100 : null);
 }
 /** Share of the ceiling (0–1), or null when unbounded. */
@@ -197,9 +205,38 @@ function level(m: Metric): 'ok' | 'warn' | 'crit' {
 }
 const LEVEL_TEXT = { ok: '', warn: 'monitor:level.warn', crit: 'monitor:level.crit' };
 
-const groups = computed(() => {
+// -- which metrics show (per engine, kept between sessions) ---------------------------------
+
+const hiddenKey = computed(() => `dbine.monitor.hidden.${driver.value?.id ?? ''}`);
+const hidden = ref<string[]>([]);
+watch(hiddenKey, (k) => { hidden.value = readJson<string[]>(k, []); }, { immediate: true });
+function setShown(key: string, shown: boolean) {
+  hidden.value = shown ? hidden.value.filter((k) => k !== key) : [...new Set([...hidden.value, key])];
+  writeJson(hiddenKey.value, hidden.value);
+}
+function showAll() {
+  hidden.value = [];
+  writeJson(hiddenKey.value, []);
+}
+/** Every metric the engine reports, by group (the picker's list). */
+const allGroups = computed(() => {
   const out: { name: string; metrics: Metric[] }[] = [];
   for (const m of snap.value?.metrics ?? []) {
+    let g = out.find((x) => x.name === m.group);
+    if (!g) out.push((g = { name: m.group, metrics: [] }));
+    g.metrics.push(m);
+  }
+  return out;
+});
+
+// -- an enlarged metric ------------------------------------------------------------------
+
+const enlarged = ref<string | null>(null);
+const enlargedMetric = computed(() => snap.value?.metrics.find((m) => m.key === enlarged.value) ?? null);
+
+const groups = computed(() => {
+  const out: { name: string; metrics: Metric[] }[] = [];
+  for (const m of (snap.value?.metrics ?? []).filter((x) => !hidden.value.includes(x.key))) {
     let g = out.find((x) => x.name === m.group);
     if (!g) out.push((g = { name: m.group, metrics: [] }));
     g.metrics.push(m);
@@ -256,6 +293,27 @@ const ago = computed(() => {
         <el-icon v-if="loading || processesLoading" class="is-loading"><ei-loading /></el-icon>
         {{ paused ? $t('monitor:paused') : ago }}
       </span>
+      <el-popover v-if="!showProcesses && snap" placement="bottom-end" :width="300" trigger="click">
+        <template #reference>
+          <el-button size="small">
+            <el-icon><ei-operation /></el-icon><span>{{ $t('monitor:pick.button') }}</span>
+            <span v-if="hidden.length" class="mv-hidden">· {{ $t('monitor:pick.hidden', { count: hidden.length }) }}</span>
+          </el-button>
+        </template>
+        <div class="mv-pick">
+          <div class="mv-pick-head">
+            <strong>{{ $t('monitor:pick.title') }}</strong>
+            <el-button v-if="hidden.length" size="small" link type="primary" @click="showAll">{{ $t('monitor:pick.showAll') }}</el-button>
+          </div>
+          <div v-for="g in allGroups" :key="g.name" class="mv-pick-group">
+            <div class="mv-pick-name">{{ tb(g.name) }}</div>
+            <el-checkbox
+              v-for="m in g.metrics" :key="m.key" size="small" :model-value="!hidden.includes(m.key)"
+              @update:model-value="(v: boolean | string | number) => setShown(m.key, !!v)"
+            >{{ tb(m.label) }}</el-checkbox>
+          </div>
+        </div>
+      </el-popover>
       <el-select v-model="every" size="small" style="width: 92px" :disabled="unsupported && !showProcesses">
         <el-option v-for="s in INTERVALS" :key="s" :label="$t('monitor:every', { s })" :value="s" />
       </el-select>
@@ -303,8 +361,23 @@ const ago = computed(() => {
           <section v-for="g in groups" :key="g.name" class="mv-group">
             <h3 class="nm-section-title">{{ tb(g.name) }}</h3>
             <div class="mv-tiles">
-              <div v-for="m in g.metrics" :key="m.key" class="mv-tile" :class="level(m)">
-                <div class="mv-tile-label" :title="tb(m.label)">{{ tb(m.label) }}</div>
+              <div
+                v-for="m in g.metrics" :key="m.key" v-key-activate class="mv-tile" :class="level(m)"
+                :title="$t('monitor:enlarge')" @click="enlarged = m.key"
+              >
+                <div class="mv-tile-label">
+                  <span :title="tb(m.label)">{{ tb(m.label) }}</span>
+                  <el-tooltip v-if="m.help || m.source" placement="top" :show-after="250" :persistent="false">
+                    <template #content>
+                      <div class="mv-help">
+                        <p v-if="m.help">{{ tb(m.help) }}</p>
+                        <p v-if="m.counter">{{ $t('monitor:metric.rate') }}</p>
+                        <p v-if="m.source"><em>{{ $t('monitor:metric.source') }}:</em> <code>{{ m.source }}</code></p>
+                      </div>
+                    </template>
+                    <el-icon class="mv-info-ic" @click.stop="enlarged = m.key"><ei-info-filled /></el-icon>
+                  </el-tooltip>
+                </div>
                 <div class="mv-tile-value">
                   <template v-if="current(m) !== null">{{ fmt(m, current(m)!) }}</template>
                   <span v-else class="nm-muted">{{ m.counter && !history[m.key] ? $t('monitor:measuring') : '—' }}</span>
@@ -316,7 +389,7 @@ const ago = computed(() => {
                 </template>
                 <Sparkline
                   v-if="(history[m.key]?.length ?? 0) > 1"
-                  :points="history[m.key]"
+                  :points="history[m.key].slice(-SPARK)"
                   :max="ceiling(m)"
                   :format="(v: number) => fmt(m, v)"
                 />
@@ -371,6 +444,16 @@ const ago = computed(() => {
         </template>
       </template>
     </div>
+    <MetricChartDialog
+      v-if="enlargedMetric"
+      :title="tb(enlargedMetric.label)"
+      :points="history[enlargedMetric.key] ?? []"
+      :format="(v: number) => fmt(enlargedMetric!, v)"
+      :max="ceiling(enlargedMetric)"
+      :help="[enlargedMetric.help ? tb(enlargedMetric.help) : '', enlargedMetric.counter ? $t('monitor:metric.rate') : ''].filter(Boolean).join(' ') || null"
+      :source="enlargedMetric.source ?? null"
+      @close="enlarged = null"
+    />
   </div>
 </template>
 
@@ -422,7 +505,22 @@ const ago = computed(() => {
 }
 .mv-tile.warn { border-color: color-mix(in srgb, var(--nm-warning) 55%, transparent); }
 .mv-tile.crit { border-color: color-mix(in srgb, var(--nm-danger) 60%, transparent); }
-.mv-tile-label { font-size: 11.5px; color: var(--nm-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-tile { cursor: pointer; }
+.mv-tile:hover { border-color: var(--nm-border); }
+.mv-tile-label { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--nm-text-dim); min-width: 0; }
+.mv-tile-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-info-ic { flex: none; font-size: 12px; color: var(--nm-text-muted); }
+.mv-info-ic:hover { color: var(--nm-accent); }
+.mv-help { max-width: 340px; }
+.mv-help p { margin: 0 0 4px; }
+.mv-help p:last-child { margin-bottom: 0; }
+.mv-help code { font-family: var(--nm-mono); font-size: 11px; }
+.mv-hidden { color: var(--nm-text-dim); }
+.mv-pick { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; }
+.mv-pick-head { display: flex; align-items: center; justify-content: space-between; }
+.mv-pick-group { display: flex; flex-direction: column; }
+.mv-pick-name { font-size: 11px; font-weight: 600; color: var(--nm-text-dim); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 2px; }
+.mv-pick-group .el-checkbox { margin-right: 0; height: 24px; }
 .mv-tile-value {
   font-size: 20px; font-weight: 600; color: var(--nm-text-strong); font-variant-numeric: tabular-nums;
   display: flex; align-items: baseline; gap: 8px;
