@@ -187,8 +187,10 @@ const FILE_IO: &str = "SELECT CAST(SUM(num_of_bytes_read) AS float), CAST(SUM(nu
 
 const PACKETS: &str = "SELECT CAST(@@PACK_RECEIVED AS float), CAST(@@PACK_SENT AS float)";
 
-const SESSION_COUNTS: &str = "SELECT CAST(COUNT(*) AS float),
-       CAST(SUM(CASE WHEN r.session_id IS NOT NULL AND r.session_id <> @@SPID THEN 1 ELSE 0 END) AS float)
+/// Distinct sessions: under MARS a session has a request row per active
+/// request, and must still count once.
+const SESSION_COUNTS: &str = "SELECT CAST(COUNT(DISTINCT s.session_id) AS float),
+       CAST(COUNT(DISTINCT CASE WHEN r.session_id IS NOT NULL AND r.session_id <> @@SPID THEN s.session_id END) AS float)
   FROM sys.dm_exec_sessions s
   LEFT JOIN sys.dm_exec_requests r ON r.session_id = s.session_id
  WHERE s.is_user_process = 1";
@@ -197,8 +199,10 @@ const LOCK_COUNTS: &str = "SELECT CAST(COUNT(*) AS float),
        CAST(SUM(CASE WHEN request_status = N'WAIT' THEN 1 ELSE 0 END) AS float)
   FROM sys.dm_tran_locks";
 
-const STORAGE: &str =
-    "SELECT CAST(SUM(CAST(size AS bigint)) * 8192 AS float) FROM sys.master_files";
+/// sys.master_files keeps tempdb's startup size: its current size is in
+/// tempdb's own sys.database_files.
+const STORAGE: &str = "SELECT CAST(((SELECT SUM(CAST(size AS bigint)) FROM sys.master_files WHERE database_id <> 2)
+       + ISNULL((SELECT SUM(CAST(size AS bigint)) FROM tempdb.sys.database_files), 0)) * 8192 AS float)";
 
 const SESSIONS: &str = "SELECT TOP (200) s.session_id, s.login_name, DB_NAME(s.database_id), s.host_name, s.program_name,
        c.client_net_address, COALESCE(r.status, s.status),
@@ -515,7 +519,9 @@ pub async fn snapshot(s: &mut SqlServerSession) -> Result<MonitorSnapshot> {
             snap.info.push(("Base actual".into(), db));
         }
         hadr = f(r, 6) == Some(1.0);
-        max_connections = f(r, 7).filter(|m| *m > 0.0);
+        // In Azure SQL Database and Fabric, @@MAX_CONNECTIONS (32767) isn't
+        // the database's limit: shown only for a server.
+        max_connections = f(r, 7).filter(|m| *m > 0.0 && flavor == Flavor::Server);
         if let Some(m) = max_connections {
             snap.info
                 .push(("Conexiones máximas".into(), format!("{m}")));
@@ -531,7 +537,7 @@ pub async fn snapshot(s: &mut SqlServerSession) -> Result<MonitorSnapshot> {
     }
     match flavor {
         Flavor::Server => server(s, &mut snap, &mut gaps, max_connections, hadr).await,
-        Flavor::AzureDb => azure_db(s, &mut snap, &mut gaps, max_connections).await,
+        Flavor::AzureDb => azure_db(s, &mut snap, &mut gaps, engine_edition == 12).await,
         Flavor::Warehouse => warehouse(s, &mut snap, &mut gaps).await,
     }
     let permission = match flavor {
@@ -546,6 +552,67 @@ fn first(rows: Option<Vec<Row>>) -> Option<Row> {
     rows.and_then(|r| r.into_iter().next())
 }
 
+/// A probe's first row as plain numbers, one per column (`None` for a
+/// NULL or a text): the metrics are built from these, so they can be
+/// checked without a server.
+pub(crate) type Nums = Option<Vec<Option<f64>>>;
+
+pub(crate) fn row_nums(r: &Row) -> Vec<Option<f64>> {
+    (0..r.len()).map(|i| f(r, i)).collect()
+}
+
+pub(crate) fn nums(rows: Option<Vec<Row>>) -> Nums {
+    first(rows).map(|r| row_nums(&r))
+}
+
+/// Column `i` of [`Nums`].
+pub(crate) fn at(r: &Nums, i: usize) -> Option<f64> {
+    r.as_ref().and_then(|r| r.get(i).copied().flatten())
+}
+
+fn counters(rows: Option<Vec<Row>>) -> Counters {
+    Counters(
+        rows.unwrap_or_default()
+            .iter()
+            .filter_map(|r| Some((text(r, 0)?, text(r, 1)?, f(r, 3)?)))
+            .collect(),
+    )
+}
+
+/// What [`server`] reads.
+#[derive(Default)]
+struct ServerReadings {
+    /// sys.dm_os_sys_info: uptime (s), cpu_count, host memory (bytes).
+    sys: Nums,
+    /// Scheduler monitor ring buffer: ProcessUtilization, SystemIdle (%).
+    ring: Nums,
+    /// sys.dm_os_schedulers: CPU ms, VISIBLE ONLINE schedulers.
+    sched: Nums,
+    counters: Counters,
+    /// Process memory in use, host total, host available (bytes).
+    mem: Nums,
+    /// User sessions, ones running a request.
+    sessions: Nums,
+    /// File I/O: bytes read, bytes written, reads, writes, stall (ms).
+    io: Nums,
+    /// @@PACK_RECEIVED, @@PACK_SENT.
+    packets: Nums,
+    /// Data and log files (bytes).
+    storage: Nums,
+    /// Lock requests, waiting ones.
+    locks: Nums,
+    /// @@MAX_CONNECTIONS.
+    max_conn: Option<f64>,
+}
+
+/// Both ring buffer figures at 0: the scheduler monitor hasn't sampled yet
+/// (or can't read the host, as under emulation): unknown, not 100 %.
+fn unsampled(ring: &Nums) -> bool {
+    at(ring, 0) == Some(0.0) && at(ring, 1) == Some(0.0)
+}
+
+const OS_COUNTERS: &str = "sys.dm_os_performance_counters";
+
 async fn server(
     s: &mut SqlServerSession,
     snap: &mut MonitorSnapshot,
@@ -553,332 +620,35 @@ async fn server(
     max_conn: Option<f64>,
     hadr: bool,
 ) {
-    let m = &mut snap.metrics;
-    // CPU and uptime.
-    let sys = first(s.probe("el tiempo activo", SYS_INFO, gaps).await);
-    let cpu = first(s.probe("el uso de CPU", CPU_RING, gaps).await);
-    let (sql_cpu, idle) = (
-        cpu.as_ref().and_then(|r| f(r, 0)),
-        cpu.as_ref().and_then(|r| f(r, 1)),
-    );
-    // Both at 0 means the scheduler monitor hasn't sampled yet (or can't
-    // read the host, as under emulation): unknown, not 100 %.
-    let sampled = !(sql_cpu == Some(0.0) && idle == Some(0.0));
-    let host = idle
-        .filter(|_| sampled)
-        .map(|i| (100.0 - i).clamp(0.0, 100.0));
-    m.push(Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, host).max(Some(100.0)));
-    m.push(
-        Metric::new("cpu_sql", "CPU de SQL Server", "CPU", U::Percent, sql_cpu).max(Some(100.0)),
-    );
-    let used = first(s.probe("el tiempo de CPU", CPU_TIME, gaps).await);
-    let cpu_ms = used.as_ref().and_then(|r| f(r, 0));
-    let schedulers = used.as_ref().and_then(|r| f(r, 1)).filter(|n| *n > 0.0);
-    // ms of CPU → seconds × 100, spread over its schedulers: the rate is the
-    // % of all the CPUs SQL Server may use (100 % is all of them busy), not
-    // of one core, which read "500 %" with five busy cores.
-    m.push(
-        Metric::new(
-            "cpu_time",
-            "CPU del proceso",
-            "CPU",
-            U::Percent,
-            cpu_ms.zip(schedulers).map(|(ms, n)| ms / 10.0 / n),
-        )
-        .max(Some(100.0))
-        .counter(),
-    );
-    if cpu.is_some() && !sampled {
+    let r = ServerReadings {
+        sys: nums(s.probe("el tiempo activo", SYS_INFO, gaps).await),
+        ring: nums(s.probe("el uso de CPU", CPU_RING, gaps).await),
+        sched: nums(s.probe("el tiempo de CPU", CPU_TIME, gaps).await),
+        counters: counters(
+            s.probe("los contadores de rendimiento", COUNTERS, gaps)
+                .await,
+        ),
+        mem: nums(s.probe("la memoria", MEMORY, gaps).await),
+        sessions: nums(s.probe("las sesiones", SESSION_COUNTS, gaps).await),
+        io: nums(s.probe("la E/S de archivos", FILE_IO, gaps).await),
+        packets: nums(s.probe("los paquetes de red", PACKETS, gaps).await),
+        storage: nums(s.probe("el tamaño de los archivos", STORAGE, gaps).await),
+        locks: nums(s.probe("los bloqueos", LOCK_COUNTS, gaps).await),
+        max_conn,
+    };
+    snap.metrics.extend(server_metrics(&r));
+    if r.ring.is_some() && unsampled(&r.ring) {
         snap.notes.push("El monitor de CPU de SQL Server todavía no tiene muestras (se toman cada minuto) o no puede leer el uso del equipo.".into());
     }
-    if let Some(r) = &sys {
-        if let Some(n) = f(r, 1) {
-            snap.info.push(("Núcleos".into(), format!("{n}")));
-        }
-        if let Some(b) = f(r, 2) {
-            snap.info.push((
-                "Memoria del equipo".into(),
-                format!("{:.1} GB", b / 1_073_741_824.0),
-            ));
-        }
+    if let Some(n) = at(&r.sys, 1) {
+        snap.info.push(("Núcleos".into(), format!("{n}")));
     }
-
-    // Memory.
-    let counters = Counters(
-        s.probe("los contadores de rendimiento", COUNTERS, gaps)
-            .await
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|r| Some((text(r, 0)?, text(r, 1)?, f(r, 3)?)))
-            .collect(),
-    );
-    let mem = first(s.probe("la memoria", MEMORY, gaps).await);
-    let target = counters
-        .get("Memory Manager", "Target Server Memory (KB)")
-        .map(|k| k * 1024.0);
-    let total = mem.as_ref().and_then(|r| f(r, 1));
-    let process = mem.as_ref().and_then(|r| f(r, 0));
-    let used = counters
-        .get("Memory Manager", "Total Server Memory (KB)")
-        .map(|k| k * 1024.0)
-        .or(process);
-    let ceiling = match (target, total) {
-        (Some(t), Some(p)) => Some(t.min(p)),
-        (t, p) => t.or(p),
-    };
-    m.push(
-        Metric::new(
-            "mem_used",
-            "Memoria de SQL Server",
-            "Memoria",
-            U::Bytes,
-            used,
-        )
-        .max(ceiling),
-    );
-    m.push(
-        Metric::new(
-            "mem_process",
-            "Memoria del proceso",
-            "Memoria",
-            U::Bytes,
-            process,
-        )
-        .max(total),
-    );
-    m.push(Metric::new(
-        "mem_cache",
-        "Caché de datos (buffer pool)",
-        "Memoria",
-        U::Bytes,
-        counters
-            .get("Memory Manager", "Database Cache Memory (KB)")
-            .map(|k| k * 1024.0),
-    ));
-    let host_used = mem.as_ref().and_then(|r| Some(f(r, 1)? - f(r, 2)?));
-    m.push(
-        Metric::new(
-            "mem_host",
-            "Memoria del equipo en uso",
-            "Memoria",
-            U::Bytes,
-            host_used,
-        )
-        .max(total),
-    );
-
-    // Connections.
-    let counts = first(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
-    let conns = counters
-        .get("General Statistics", "User Connections")
-        .or(counts.as_ref().and_then(|r| f(r, 0)));
-    m.push(Metric::new("connections", "Conexiones", "Conexiones", U::Count, conns).max(max_conn));
-    m.push(Metric::new(
-        "active_sessions",
-        "Sesiones activas",
-        "Conexiones",
-        U::Count,
-        counts.as_ref().and_then(|r| f(r, 1)),
-    ));
-
-    // Activity.
-    m.push(
-        Metric::new(
-            "queries",
-            "Lotes (batch requests)",
-            "Actividad",
-            U::Count,
-            counters.get("SQL Statistics", "Batch Requests/sec"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "transactions",
-            "Transacciones",
-            "Actividad",
-            U::Count,
-            counters.get("Databases", "Transactions/sec"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "compilations",
-            "Compilaciones",
-            "Actividad",
-            U::Count,
-            counters.get("SQL Statistics", "SQL Compilations/sec"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "recompilations",
-            "Recompilaciones",
-            "Actividad",
-            U::Count,
-            counters.get("SQL Statistics", "SQL Re-Compilations/sec"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "errors",
-            "Errores",
-            "Actividad",
-            U::Count,
-            counters.get("SQL Errors", "Errors/sec"),
-        )
-        .counter(),
-    );
-
-    // Cache.
-    let hit = match (
-        counters.get("Buffer Manager", "Buffer cache hit ratio"),
-        counters.get("Buffer Manager", "Buffer cache hit ratio base"),
-    ) {
-        (Some(v), Some(b)) if b > 0.0 => Some((v / b * 100.0).min(100.0)),
-        _ => None,
-    };
-    m.push(
-        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit).max(Some(100.0)),
-    );
-    m.push(Metric::new(
-        "page_life",
-        "Esperanza de vida de página",
-        "Caché",
-        U::Seconds,
-        counters.get("Buffer Manager", "Page life expectancy"),
-    ));
-
-    // Disk and network.
-    let io = first(s.probe("la E/S de archivos", FILE_IO, gaps).await);
-    m.push(
-        Metric::new(
-            "disk_read",
-            "Lectura en disco",
-            "Disco",
-            U::Bytes,
-            io.as_ref().and_then(|r| f(r, 0)),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "disk_write",
-            "Escritura en disco",
-            "Disco",
-            U::Bytes,
-            io.as_ref().and_then(|r| f(r, 1)),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "io_stall",
-            "Espera de E/S",
-            "Disco",
-            U::Millis,
-            io.as_ref().and_then(|r| f(r, 4)),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "log_flushes",
-            "Vaciados del log",
-            "Disco",
-            U::Count,
-            counters.get("Databases", "Log Flushes/sec"),
-        )
-        .counter(),
-    );
-    let packets = first(s.probe("los paquetes de red", PACKETS, gaps).await);
-    m.push(
-        Metric::new(
-            "packets_in",
-            "Paquetes recibidos",
-            "Red",
-            U::Count,
-            packets.as_ref().and_then(|r| f(r, 0)),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "packets_out",
-            "Paquetes enviados",
-            "Red",
-            U::Count,
-            packets.as_ref().and_then(|r| f(r, 1)),
-        )
-        .counter(),
-    );
-
-    // Storage.
-    let storage =
-        first(s.probe("el tamaño de los archivos", STORAGE, gaps).await).and_then(|r| f(&r, 0));
-    m.push(Metric::new(
-        "storage_used",
-        "Espacio de datos y logs",
-        "Almacenamiento",
-        U::Bytes,
-        storage,
-    ));
-
-    // Locks.
-    let locks = first(s.probe("los bloqueos", LOCK_COUNTS, gaps).await);
-    let blocked = counters.get("General Statistics", "Processes blocked");
-    m.push(Metric::new(
-        "locks_waiting",
-        "Bloqueos en espera",
-        "Bloqueos",
-        U::Count,
-        locks.as_ref().and_then(|r| f(r, 1)).or(blocked),
-    ));
-    m.push(Metric::new(
-        "locks_held",
-        "Bloqueos retenidos",
-        "Bloqueos",
-        U::Count,
-        locks.as_ref().and_then(|r| f(r, 0)),
-    ));
-    m.push(Metric::new(
-        "blocked_sessions",
-        "Procesos bloqueados",
-        "Bloqueos",
-        U::Count,
-        blocked,
-    ));
-    m.push(
-        Metric::new(
-            "deadlocks",
-            "Deadlocks",
-            "Bloqueos",
-            U::Count,
-            counters.get("Locks", "Number of Deadlocks/sec"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "lock_waits",
-            "Esperas de bloqueo",
-            "Bloqueos",
-            U::Count,
-            counters.get("Locks", "Lock Waits/sec"),
-        )
-        .counter(),
-    );
-
-    m.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        U::Seconds,
-        sys.as_ref().and_then(|r| f(r, 0)),
-    ));
+    if let Some(b) = at(&r.sys, 2) {
+        snap.info.push((
+            "Memoria del equipo".into(),
+            format!("{:.1} GB", b / 1_073_741_824.0),
+        ));
+    }
 
     // Tables.
     let tables = [
@@ -924,15 +694,448 @@ async fn server(
     if hadr {
         replicas(s, snap, gaps).await;
     } else {
-        snap.metrics.push(Metric::new(
-            "replication_lag",
-            "Retraso de réplica",
-            "Replicación",
-            U::Seconds,
-            None,
-        ));
+        snap.metrics.push(replication_lag(None));
         snap.info.push(("Always On".into(), "No habilitado".into()));
     }
+}
+
+/// SQL Server on a machine or Managed Instance: the headline figures, in
+/// display order (the replica lag goes last, from [`replication_lag`]).
+fn server_metrics(r: &ServerReadings) -> Vec<Metric> {
+    let c = &r.counters;
+    let pc = |object: &str, counter: &str| format!("{OS_COUNTERS}: {object} '{counter}'");
+    let mut m = Vec::new();
+    // CPU.
+    let (sql_cpu, idle) = (at(&r.ring, 0), at(&r.ring, 1));
+    let host = idle
+        .filter(|_| !unsampled(&r.ring))
+        .map(|i| (100.0 - i).clamp(0.0, 100.0));
+    m.push(
+        Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, host)
+            .max(Some(100.0))
+            .help("Uso de CPU de todo el equipo, de SQL Server y de los demás procesos, en la última muestra del monitor de schedulers (toma una por minuto). Cerca de 100 % sostenido, las consultas esperan CPU.")
+            .source("sys.dm_os_ring_buffers, RING_BUFFER_SCHEDULER_MONITOR: 100 - SystemHealth/SystemIdle (newest record)"),
+    );
+    m.push(
+        Metric::new("cpu_sql", "CPU de SQL Server", "CPU", U::Percent, sql_cpu)
+            .max(Some(100.0))
+            .help("Parte de la CPU de todo el equipo que usó el proceso de SQL Server, en la última muestra del monitor de schedulers (una por minuto). Lo que falta para llegar a CPU del servidor lo usan otros procesos.")
+            .source("sys.dm_os_ring_buffers, RING_BUFFER_SCHEDULER_MONITOR: SystemHealth/ProcessUtilization (newest record)"),
+    );
+    // ms of CPU → seconds × 100, spread over its schedulers: the rate is the
+    // % of all the CPUs SQL Server may use (100 % is all of them busy), not
+    // of one core, which read "500 %" with five busy cores.
+    let cpu_ms = at(&r.sched, 0);
+    let schedulers = at(&r.sched, 1).filter(|n| *n > 0.0);
+    m.push(
+        Metric::new(
+            "cpu_time",
+            "CPU del proceso",
+            "CPU",
+            U::Percent,
+            cpu_ms.zip(schedulers).map(|(ms, n)| ms / 10.0 / n),
+        )
+        .max(Some(100.0))
+        .counter()
+        .help("Tiempo de CPU que usaron las tareas de SQL Server, repartido entre sus schedulers visibles (uno por CPU que puede usar): 100 % equivale a todas esas CPU ocupadas con SQL Server. A diferencia de CPU de SQL Server, no espera la muestra por minuto.")
+        .source("sys.dm_os_schedulers: SUM(total_cpu_usage_ms) / 10 / COUNT(*) WHERE status = 'VISIBLE ONLINE'"),
+    );
+
+    // Memory.
+    let target = c
+        .get("Memory Manager", "Target Server Memory (KB)")
+        .map(|k| k * 1024.0);
+    let process = at(&r.mem, 0);
+    let total = at(&r.mem, 1);
+    let used = c
+        .get("Memory Manager", "Total Server Memory (KB)")
+        .map(|k| k * 1024.0)
+        .or(process);
+    let ceiling = match (target, total) {
+        (Some(t), Some(p)) => Some(t.min(p)),
+        (t, p) => t.or(p),
+    };
+    m.push(
+        Metric::new(
+            "mem_used",
+            "Memoria de SQL Server",
+            "Memoria",
+            U::Bytes,
+            used,
+        )
+        .max(ceiling)
+        .help("Memoria que tiene comprometida el administrador de memoria de SQL Server. El máximo es Target Server Memory (lo que quiere usar, acotado por max server memory) o la del equipo si es menor; que llegue y se quede ahí es normal, porque SQL Server usa como caché todo lo que puede.")
+        .source(&format!(
+            "{OS_COUNTERS}: Memory Manager 'Total Server Memory (KB)' × 1024 (else sys.dm_os_process_memory.physical_memory_in_use_kb); max 'Target Server Memory (KB)'"
+        )),
+    );
+    m.push(
+        Metric::new(
+            "mem_process",
+            "Memoria del proceso",
+            "Memoria",
+            U::Bytes,
+            process,
+        )
+        .max(total)
+        .help("Memoria física que ocupa el proceso de SQL Server (working set, páginas grandes y AWE incluidas), con lo que reserva fuera del administrador de memoria. El máximo es la memoria del equipo.")
+        .source("sys.dm_os_process_memory: physical_memory_in_use_kb × 1024"),
+    );
+    m.push(
+        Metric::new(
+            "mem_cache",
+            "Caché de datos (buffer pool)",
+            "Memoria",
+            U::Bytes,
+            c.get("Memory Manager", "Database Cache Memory (KB)")
+                .map(|k| k * 1024.0),
+        )
+        .help("Memoria de SQL Server que guarda páginas de datos e índices (el buffer pool). Si se achica de golpe, hubo presión de memoria.")
+        .source(&format!(
+            "{} × 1024",
+            pc("Memory Manager", "Database Cache Memory (KB)")
+        )),
+    );
+    m.push(
+        Metric::new(
+            "mem_host",
+            "Memoria del equipo en uso",
+            "Memoria",
+            U::Bytes,
+            total.zip(at(&r.mem, 2)).map(|(t, a)| t - a),
+        )
+        .max(total)
+        .help("Memoria física del equipo en uso por todos los procesos, según el sistema operativo. Si queda poca disponible, el sistema le pide a SQL Server que libere memoria.")
+        .source("sys.dm_os_sys_memory: total_physical_memory_kb - available_physical_memory_kb"),
+    );
+
+    // Connections.
+    let conns = c
+        .get("General Statistics", "User Connections")
+        .or(at(&r.sessions, 0));
+    m.push(
+        Metric::new("connections", "Conexiones", "Conexiones", U::Count, conns)
+            .max(r.max_conn)
+            .help("Conexiones de clientes abiertas. El máximo es @@MAX_CONNECTIONS, 32767 salvo que se haya limitado; un número que crece sin parar suele ser una aplicación que no cierra sus conexiones.")
+            .source(&format!(
+                "{} (else sys.dm_exec_sessions: COUNT(DISTINCT session_id) WHERE is_user_process = 1)",
+                pc("General Statistics", "User Connections")
+            )),
+    );
+    m.push(active_sessions(&r.sessions));
+
+    // Activity.
+    m.push(batch_requests(c, "Lotes T-SQL que recibe el servidor: cada envío de un cliente, con una o varias sentencias. Es la medida habitual de carga."));
+    m.push(transactions(
+        c,
+        "Transacciones iniciadas en todas las bases, tempdb y las del sistema incluidas.",
+    ));
+    m.push(
+        Metric::new(
+            "compilations",
+            "Compilaciones",
+            "Actividad",
+            U::Count,
+            c.get("SQL Statistics", "SQL Compilations/sec"),
+        )
+        .counter()
+        .help("Planes de ejecución que SQL Server compiló. Si se acercan a los lotes por segundo, casi nada reutiliza planes: suele ser SQL con literales en vez de parámetros.")
+        .source(&total_of(pc("SQL Statistics", "SQL Compilations/sec"))),
+    );
+    m.push(
+        Metric::new(
+            "recompilations",
+            "Recompilaciones",
+            "Actividad",
+            U::Count,
+            c.get("SQL Statistics", "SQL Re-Compilations/sec"),
+        )
+        .counter()
+        .help("Planes que hubo que volver a compilar por cambios de esquema o de estadísticas, opciones SET o RECOMPILE. Deberían ser una parte chica de las compilaciones.")
+        .source(&total_of(pc("SQL Statistics", "SQL Re-Compilations/sec"))),
+    );
+    m.push(
+        Metric::new(
+            "errors",
+            "Errores",
+            "Actividad",
+            U::Count,
+            c.get("SQL Errors", "Errors/sec"),
+        )
+        .counter()
+        .help("Errores que devolvió SQL Server, de todo tipo: de usuario, conexiones cortadas y también mensajes informativos, así que una tasa baja y constante puede ser normal.")
+        .source(&total_of(format!("{}, _Total", pc("SQL Errors", "Errors/sec")))),
+    );
+
+    // Cache.
+    let hit = match (
+        c.get("Buffer Manager", "Buffer cache hit ratio"),
+        c.get("Buffer Manager", "Buffer cache hit ratio base"),
+    ) {
+        (Some(v), Some(b)) if b > 0.0 => Some((v / b * 100.0).min(100.0)),
+        _ => None,
+    };
+    m.push(
+        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit)
+            .max(Some(100.0))
+            .help("Porcentaje de páginas encontradas en el buffer pool sin leer de disco, sobre los últimos miles de accesos. Suele estar cerca de 100 %; para ver presión de memoria sirve más la esperanza de vida de página.")
+            .source(&format!(
+                "{} / 'Buffer cache hit ratio base' × 100",
+                pc("Buffer Manager", "Buffer cache hit ratio")
+            )),
+    );
+    m.push(
+        Metric::new(
+            "page_life",
+            "Esperanza de vida de página",
+            "Caché",
+            U::Seconds,
+            c.get("Buffer Manager", "Page life expectancy"),
+        )
+        .help("Segundos que una página se queda en el buffer pool sin usarse antes de que la desalojen. Si cae de golpe o se mantiene baja, falta memoria y las consultas van más al disco.")
+        .source(&pc("Buffer Manager", "Page life expectancy")),
+    );
+
+    // Disk and network.
+    m.extend(disk_io(
+        &r.io,
+        "Bytes leídos de los archivos de datos y de log de todas las bases, tempdb incluida.",
+        "Bytes escritos en los archivos de datos y de log de todas las bases, tempdb incluida.",
+    ));
+    m.push(
+        Metric::new(
+            "io_stall",
+            "Espera de E/S",
+            "Disco",
+            U::Millis,
+            at(&r.io, 4),
+        )
+        .counter()
+        .help("Tiempo que las lecturas y escrituras de archivos esperaron al disco, sumado entre todas: con varias a la vez puede pasar de 1000 ms por segundo. Si sube sin que suba la E/S, el disco responde más lento.")
+        .source("sys.dm_io_virtual_file_stats(NULL, NULL): SUM(io_stall)"),
+    );
+    m.push(
+        Metric::new(
+            "log_flushes",
+            "Vaciados del log",
+            "Disco",
+            U::Count,
+            c.get("Databases", "Log Flushes/sec"),
+        )
+        .counter()
+        .help("Escrituras del log de transacciones a disco, en todas las bases. Cada commit espera que su parte del log llegue al disco: muchas y chicas suelen ser commits fila por fila.")
+        .source(&total_of(format!("{}, _Total", pc("Databases", "Log Flushes/sec")))),
+    );
+    m.push(
+        Metric::new(
+            "packets_in",
+            "Paquetes recibidos",
+            "Red",
+            U::Count,
+            at(&r.packets, 0),
+        )
+        .counter()
+        .help("Paquetes de red (TDS) que SQL Server recibió de los clientes.")
+        .source("@@PACK_RECEIVED"),
+    );
+    m.push(
+        Metric::new(
+            "packets_out",
+            "Paquetes enviados",
+            "Red",
+            U::Count,
+            at(&r.packets, 1),
+        )
+        .counter()
+        .help("Paquetes de red (TDS) que SQL Server envió a los clientes; crece con los resultados grandes.")
+        .source("@@PACK_SENT"),
+    );
+
+    // Storage.
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Espacio de datos y logs",
+            "Almacenamiento",
+            U::Bytes,
+            at(&r.storage, 0),
+        )
+        .help(
+            "Tamaño en disco de los archivos de datos y de log de todas las bases, ocupados o no.",
+        )
+        .source("sys.master_files: SUM(size) × 8 KB, without tempdb; + tempdb.sys.database_files: SUM(size) × 8 KB (its current size)"),
+    );
+
+    // Locks.
+    let blocked = c.get("General Statistics", "Processes blocked");
+    m.push(
+        Metric::new(
+            "locks_waiting",
+            "Bloqueos en espera",
+            "Bloqueos",
+            U::Count,
+            at(&r.locks, 1).or(blocked),
+        )
+        .help(LOCKS_WAITING_HELP)
+        .source(&format!(
+            "sys.dm_tran_locks: COUNT(*) WHERE request_status = 'WAIT' (else {})",
+            pc("General Statistics", "Processes blocked")
+        )),
+    );
+    m.push(locks_held(&r.locks, "Pedidos de bloqueo vivos en todas las bases, concedidos o en espera. Miles es normal con mucha concurrencia; preocupa que crezcan sin bajar."));
+    m.push(
+        Metric::new(
+            "blocked_sessions",
+            "Procesos bloqueados",
+            "Bloqueos",
+            U::Count,
+            blocked,
+        )
+        .help("Sesiones que esperan un bloqueo que tiene otra, según el contador de SQL Server. Si el valor se mantiene, mirá la tabla de bloqueos.")
+        .source(&pc("General Statistics", "Processes blocked")),
+    );
+    m.push(deadlocks(c));
+    m.push(
+        Metric::new(
+            "lock_waits",
+            "Esperas de bloqueo",
+            "Bloqueos",
+            U::Count,
+            c.get("Locks", "Lock Waits/sec"),
+        )
+        .counter()
+        .help("Pedidos de bloqueo que tuvieron que esperar porque otra sesión tenía el recurso. Una tasa alta indica contención entre transacciones.")
+        .source(&total_of(format!("{}, _Total", pc("Locks", "Lock Waits/sec")))),
+    );
+
+    m.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            U::Seconds,
+            at(&r.sys, 0),
+        )
+        .help("Tiempo desde que arrancó el servicio de SQL Server.")
+        .source("sys.dm_os_sys_info: DATEDIFF(SECOND, sqlserver_start_time, SYSDATETIME())"),
+    );
+    m
+}
+
+/// A performance counter's source: the DMV keeps the running total.
+fn total_of(source: String) -> String {
+    format!("{source} (running total)")
+}
+
+const LOCKS_WAITING_HELP: &str = "Pedidos de bloqueo esperando que otra sesión libere el recurso. Si se mantienen, la tabla de bloqueos muestra quién encabeza la cadena.";
+
+fn active_sessions(sessions: &Nums) -> Metric {
+    Metric::new(
+        "active_sessions",
+        "Sesiones activas",
+        "Conexiones",
+        U::Count,
+        at(sessions, 1),
+    )
+    .help("Sesiones de usuario con una solicitud en curso (ejecutando, esperando o en cola), sin contar la de DBine.")
+    .source("sys.dm_exec_sessions JOIN sys.dm_exec_requests: COUNT(DISTINCT session_id) WHERE is_user_process = 1, without DBine's own")
+}
+
+fn batch_requests(c: &Counters, help: &str) -> Metric {
+    Metric::new(
+        "queries",
+        "Lotes (batch requests)",
+        "Actividad",
+        U::Count,
+        c.get("SQL Statistics", "Batch Requests/sec"),
+    )
+    .counter()
+    .help(help)
+    .source(&total_of(format!(
+        "{OS_COUNTERS}: SQL Statistics 'Batch Requests/sec'"
+    )))
+}
+
+fn transactions(c: &Counters, help: &str) -> Metric {
+    Metric::new(
+        "transactions",
+        "Transacciones",
+        "Actividad",
+        U::Count,
+        c.get("Databases", "Transactions/sec"),
+    )
+    .counter()
+    .help(help)
+    .source(&total_of(format!(
+        "{OS_COUNTERS}: Databases 'Transactions/sec', _Total"
+    )))
+}
+
+fn deadlocks(c: &Counters) -> Metric {
+    Metric::new(
+        "deadlocks",
+        "Deadlocks",
+        "Bloqueos",
+        U::Count,
+        c.get("Locks", "Number of Deadlocks/sec"),
+    )
+    .counter()
+    .help("Deadlocks que SQL Server detectó y resolvió cancelando una de las transacciones (error 1205). Si aparecen seguido, hay transacciones que toman los mismos recursos en distinto orden.")
+    .source(&total_of(format!(
+        "{OS_COUNTERS}: Locks 'Number of Deadlocks/sec', _Total"
+    )))
+}
+
+/// Bytes read and written, from the file stats. Each help is a whole
+/// sentence (the UI translates it as one message, never from fragments).
+fn disk_io(io: &Nums, read_help: &str, write_help: &str) -> [Metric; 2] {
+    [
+        Metric::new(
+            "disk_read",
+            "Lectura en disco",
+            "Disco",
+            U::Bytes,
+            at(io, 0),
+        )
+        .counter()
+        .help(read_help)
+        .source("sys.dm_io_virtual_file_stats(NULL, NULL): SUM(num_of_bytes_read)"),
+        Metric::new(
+            "disk_write",
+            "Escritura en disco",
+            "Disco",
+            U::Bytes,
+            at(io, 1),
+        )
+        .counter()
+        .help(write_help)
+        .source("sys.dm_io_virtual_file_stats(NULL, NULL): SUM(num_of_bytes_written)"),
+    ]
+}
+
+fn locks_held(locks: &Nums, help: &str) -> Metric {
+    Metric::new(
+        "locks_held",
+        "Bloqueos retenidos",
+        "Bloqueos",
+        U::Count,
+        at(locks, 0),
+    )
+    .help(help)
+    .source("sys.dm_tran_locks: COUNT(*)")
+}
+
+/// The Always On replica lag (`None` without Always On).
+fn replication_lag(lag: Option<f64>) -> Metric {
+    Metric::new(
+        "replication_lag",
+        "Retraso de réplica",
+        "Replicación",
+        U::Seconds,
+        lag,
+    )
+    .help("Mayor retraso de una réplica secundaria de Always On respecto de la primaria. Se ve desde la réplica primaria; vacío sin Always On.")
+    .source("sys.dm_hadr_database_replica_states: MAX(secondary_lag_seconds)")
 }
 
 async fn replicas(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut Gaps) {
@@ -950,13 +1153,7 @@ async fn replicas(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &m
     {
         snap.info.push(("Rol (Always On)".into(), role));
     }
-    snap.metrics.push(Metric::new(
-        "replication_lag",
-        "Retraso de réplica",
-        "Replicación",
-        U::Seconds,
-        lag,
-    ));
+    snap.metrics.push(replication_lag(lag));
     let mut t = MonitorTable::new("replication", "Réplicas (Always On)", REPLICA_COLS);
     t.rows = rows
         .into_iter()
@@ -969,13 +1166,33 @@ async fn replicas(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &m
     snap.tables.push(t);
 }
 
+/// What [`azure_db`] reads.
+#[derive(Default)]
+struct AzureReadings {
+    /// sys.dm_db_resource_stats, newest row: CPU, data I/O, log write,
+    /// memory, workers, sessions (% of the service tier's limit).
+    res: Nums,
+    counters: Counters,
+    /// User sessions, ones running a request.
+    sessions: Nums,
+    /// File I/O: bytes read, bytes written…
+    io: Nums,
+    /// sys.database_files: allocated, data used, MaxSizeInBytes (bytes).
+    storage: Nums,
+    /// Lock requests, waiting ones.
+    locks: Nums,
+    /// SQL database in Fabric (EngineEdition 12): the same views, but its
+    /// limits are the ones Fabric sets, not a service tier.
+    fabric: bool,
+}
+
 async fn azure_db(
     s: &mut SqlServerSession,
     snap: &mut MonitorSnapshot,
     gaps: &mut Gaps,
-    max_conn: Option<f64>,
+    fabric: bool,
 ) {
-    let res = first(
+    let res = nums(
         s.probe(
             "el uso de recursos (sys.dm_db_resource_stats)",
             AZ_RESOURCES,
@@ -983,190 +1200,35 @@ async fn azure_db(
         )
         .await,
     );
-    let m = &mut snap.metrics;
-    let pct = |i: usize| res.as_ref().and_then(|r| f(r, i));
-    m.push(Metric::new("cpu", "CPU de la base", "CPU", U::Percent, pct(0)).max(Some(100.0)));
-    m.push(
-        Metric::new(
-            "mem_percent",
-            "Memoria usada",
-            "Memoria",
-            U::Percent,
-            pct(3),
-        )
-        .max(Some(100.0)),
+    let counters = counters(
+        s.probe("los contadores de rendimiento", COUNTERS, gaps)
+            .await,
     );
-    m.push(
-        Metric::new(
-            "data_io",
-            "E/S de datos (del límite)",
-            "Disco",
-            U::Percent,
-            pct(1),
-        )
-        .max(Some(100.0)),
-    );
-    m.push(
-        Metric::new(
-            "log_write",
-            "Escritura del log (del límite)",
-            "Disco",
-            U::Percent,
-            pct(2),
-        )
-        .max(Some(100.0)),
-    );
-    m.push(
-        Metric::new(
-            "workers",
-            "Workers (del límite)",
-            "Conexiones",
-            U::Percent,
-            pct(4),
-        )
-        .max(Some(100.0)),
-    );
-    m.push(
-        Metric::new(
-            "sessions_pct",
-            "Sesiones (del límite)",
-            "Conexiones",
-            U::Percent,
-            pct(5),
-        )
-        .max(Some(100.0)),
-    );
-    if res.is_some() && pct(0).is_none() {
+    let sessions = nums(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
+    let io = nums(s.probe("la E/S de archivos", FILE_IO, gaps).await);
+    let st = first(s.probe("el tamaño de la base", AZ_STORAGE, gaps).await);
+    let locks = nums(s.probe("los bloqueos", LOCK_COUNTS, gaps).await);
+    let r = AzureReadings {
+        res,
+        counters,
+        sessions,
+        io,
+        storage: st.as_ref().map(row_nums),
+        locks,
+        fabric,
+    };
+    snap.metrics.extend(azure_metrics(&r));
+    if r.res.is_some() && at(&r.res, 0).is_none() {
         snap.notes.push("sys.dm_db_resource_stats está vacío en master: conectate a una base de usuario para ver CPU, memoria y E/S.".into());
     }
-
-    let counters = Counters(
-        s.probe("los contadores de rendimiento", COUNTERS, gaps)
-            .await
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|r| Some((text(r, 0)?, text(r, 1)?, f(r, 3)?)))
-            .collect(),
-    );
-    let counts = first(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
-    let m = &mut snap.metrics;
-    m.push(
-        Metric::new(
-            "connections",
-            "Conexiones",
-            "Conexiones",
-            U::Count,
-            counts.as_ref().and_then(|r| f(r, 0)),
-        )
-        .max(max_conn),
-    );
-    m.push(Metric::new(
-        "active_sessions",
-        "Sesiones activas",
-        "Conexiones",
-        U::Count,
-        counts.as_ref().and_then(|r| f(r, 1)),
-    ));
-    m.push(
-        Metric::new(
-            "queries",
-            "Lotes (batch requests)",
-            "Actividad",
-            U::Count,
-            counters.get("SQL Statistics", "Batch Requests/sec"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "transactions",
-            "Transacciones",
-            "Actividad",
-            U::Count,
-            counters.get("Databases", "Transactions/sec"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "deadlocks",
-            "Deadlocks",
-            "Bloqueos",
-            U::Count,
-            counters.get("Locks", "Number of Deadlocks/sec"),
-        )
-        .counter(),
-    );
-
-    let io = first(s.probe("la E/S de archivos", FILE_IO, gaps).await);
-    let m = &mut snap.metrics;
-    m.push(
-        Metric::new(
-            "disk_read",
-            "Lectura en disco",
-            "Disco",
-            U::Bytes,
-            io.as_ref().and_then(|r| f(r, 0)),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "disk_write",
-            "Escritura en disco",
-            "Disco",
-            U::Bytes,
-            io.as_ref().and_then(|r| f(r, 1)),
-        )
-        .counter(),
-    );
-
-    let st = first(s.probe("el tamaño de la base", AZ_STORAGE, gaps).await);
-    let used = st.as_ref().and_then(|r| f(r, 1));
-    let max = st.as_ref().and_then(|r| f(r, 2)).filter(|m| *m > 0.0);
-    snap.metrics.push(
-        Metric::new(
-            "storage_used",
-            "Espacio usado",
-            "Almacenamiento",
-            U::Bytes,
-            used,
-        )
-        .max(max),
-    );
-    snap.metrics.push(
-        Metric::new(
-            "storage_allocated",
-            "Espacio asignado",
-            "Almacenamiento",
-            U::Bytes,
-            st.as_ref().and_then(|r| f(r, 0)),
-        )
-        .max(max),
-    );
-    if let Some(r) = &st {
-        if let Some(so) = text(r, 3) {
+    if let Some(row) = &st {
+        if let Some(so) = text(row, 3) {
             snap.info.push(("Objetivo de servicio".into(), so));
         }
-        if let Some(e) = text(r, 4) {
+        if let Some(e) = text(row, 4) {
             snap.info.push(("Nivel".into(), e));
         }
     }
-    let locks = first(s.probe("los bloqueos", LOCK_COUNTS, gaps).await);
-    snap.metrics.push(Metric::new(
-        "locks_waiting",
-        "Bloqueos en espera",
-        "Bloqueos",
-        U::Count,
-        locks.as_ref().and_then(|r| f(r, 1)),
-    ));
-    snap.metrics.push(Metric::new(
-        "locks_held",
-        "Bloqueos retenidos",
-        "Bloqueos",
-        U::Count,
-        locks.as_ref().and_then(|r| f(r, 0)),
-    ));
 
     let tables = [
         table(
@@ -1214,48 +1276,166 @@ async fn azure_db(
         ),
     ];
     snap.tables.extend(tables.into_iter().flatten());
-    snap.notes.push("Azure SQL Database informa CPU, memoria y E/S como porcentaje del límite del nivel de servicio, promediado cada 15 s.".into());
-    snap.notes.push("Las réplicas de geo-replicación se ven desde la base primaria en sys.dm_geo_replication_link_status (no incluido).".into());
+    if fabric {
+        snap.notes.push("La base de datos SQL de Fabric informa CPU, memoria y E/S como porcentaje del límite que Fabric le fija, promediado cada 15 s.".into());
+    } else {
+        snap.notes.push("Azure SQL Database informa CPU, memoria y E/S como porcentaje del límite del nivel de servicio, promediado cada 15 s.".into());
+        snap.notes.push("Las réplicas de geo-replicación se ven desde la base primaria en sys.dm_geo_replication_link_status (no incluido).".into());
+    }
+}
+
+/// The figures of `sys.dm_db_resource_stats`, each a share of the
+/// database's limit: key, label, group, column index and name, and the help
+/// in Azure SQL Database (a service tier) and in Fabric (limits Fabric sets).
+const TIER: [(&str, &str, &str, usize, &str, &str, &str); 6] = [
+    (
+        "cpu",
+        "CPU de la base",
+        "CPU",
+        0,
+        "avg_cpu_percent",
+        "CPU que usó la base como porcentaje del límite de su nivel de servicio (vCores o DTU), promedio de los últimos 15 s. Cerca de 100 % sostenido, las consultas esperan CPU: optimizalas o subí de nivel.",
+        "CPU que usó la base como porcentaje del límite que Fabric le fija, promedio de los últimos 15 s. Cerca de 100 % sostenido, las consultas esperan CPU: optimizalas.",
+    ),
+    (
+        "mem_percent",
+        "Memoria usada",
+        "Memoria",
+        3,
+        "avg_memory_usage_percent",
+        "Memoria que usa la base como porcentaje del límite de su nivel de servicio, promedio de los últimos 15 s. Incluye la caché de datos, así que un valor alto es normal.",
+        "Memoria que usa la base como porcentaje del límite que Fabric le fija, promedio de los últimos 15 s. Incluye la caché de datos, así que un valor alto es normal.",
+    ),
+    (
+        "data_io",
+        "E/S de datos (del límite)",
+        "Disco",
+        1,
+        "avg_data_io_percent",
+        "Lecturas y escrituras de datos como porcentaje del límite de E/S del nivel de servicio, promedio de los últimos 15 s. En 100 %, las consultas esperan al disco.",
+        "Lecturas y escrituras de datos como porcentaje del límite de E/S que Fabric le fija a la base, promedio de los últimos 15 s. En 100 %, las consultas esperan al disco.",
+    ),
+    (
+        "log_write",
+        "Escritura del log (del límite)",
+        "Disco",
+        2,
+        "avg_log_write_percent",
+        "Escritura del log de transacciones como porcentaje del límite de velocidad de log del nivel de servicio, promedio de los últimos 15 s. En 100 %, las transacciones esperan para escribir (LOG_RATE_GOVERNOR).",
+        "Escritura del log de transacciones como porcentaje del límite de velocidad de log que Fabric le fija a la base, promedio de los últimos 15 s. En 100 %, las transacciones esperan para escribir (LOG_RATE_GOVERNOR).",
+    ),
+    (
+        "workers",
+        "Workers (del límite)",
+        "Conexiones",
+        4,
+        "max_worker_percent",
+        "Máximo de workers (solicitudes simultáneas) de los últimos 15 s, como porcentaje del límite del nivel de servicio. Al llegar a 100 %, las solicitudes nuevas fallan.",
+        "Máximo de workers (solicitudes simultáneas) de los últimos 15 s, como porcentaje del límite que Fabric le fija a la base. Al llegar a 100 %, las solicitudes nuevas fallan.",
+    ),
+    (
+        "sessions_pct",
+        "Sesiones (del límite)",
+        "Conexiones",
+        5,
+        "max_session_percent",
+        "Máximo de sesiones simultáneas de los últimos 15 s, como porcentaje del límite del nivel de servicio. Al llegar a 100 %, se rechazan las conexiones nuevas.",
+        "Máximo de sesiones simultáneas de los últimos 15 s, como porcentaje del límite que Fabric le fija a la base. Al llegar a 100 %, se rechazan las conexiones nuevas.",
+    ),
+];
+
+/// Azure SQL Database (and SQL database in Fabric): the headline figures,
+/// in display order.
+fn azure_metrics(r: &AzureReadings) -> Vec<Metric> {
+    // A share of the database's limit, from the newest 15 s row.
+    let mut m: Vec<Metric> = TIER
+        .iter()
+        .map(|&(key, label, group, i, column, azure, fabric)| {
+            Metric::new(key, label, group, U::Percent, at(&r.res, i))
+                .max(Some(100.0))
+                .help(if r.fabric { fabric } else { azure })
+                .source(&format!(
+                    "sys.dm_db_resource_stats: {column} (newest 15 s row)"
+                ))
+        })
+        .collect();
+    let c = &r.counters;
+    // No max: @@MAX_CONNECTIONS (32767) isn't the database's session limit,
+    // which Sesiones (del límite) already shows as a share.
+    m.push(
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            at(&r.sessions, 0),
+        )
+        .help("Sesiones de usuario abiertas en la base. Cuánto del límite usan se ve en Sesiones (del límite).")
+        .source("sys.dm_exec_sessions: COUNT(DISTINCT session_id) WHERE is_user_process = 1"),
+    );
+    m.push(active_sessions(&r.sessions));
+    m.push(batch_requests(c, "Lotes T-SQL que recibe la base: cada envío de un cliente, con una o varias sentencias. Es la medida habitual de carga."));
+    m.push(transactions(
+        c,
+        "Transacciones iniciadas, sumando todas las bases que informa el contador.",
+    ));
+    m.push(deadlocks(c));
+    m.extend(disk_io(
+        &r.io,
+        "Bytes leídos de los archivos de datos y de log de la base.",
+        "Bytes escritos en los archivos de datos y de log de la base.",
+    ));
+
+    let used = at(&r.storage, 1);
+    let max = at(&r.storage, 2).filter(|m| *m > 0.0);
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Espacio usado",
+            "Almacenamiento",
+            U::Bytes,
+            used,
+        )
+        .max(max)
+        .help("Espacio ocupado dentro de los archivos de datos de la base, sin el log. El máximo es el tamaño máximo de la base: al llegar, las inserciones y actualizaciones fallan.")
+        .source("sys.database_files: SUM(FILEPROPERTY(name, 'SpaceUsed')) × 8 KB of the data files; max DATABASEPROPERTYEX(DB_NAME(), 'MaxSizeInBytes')"),
+    );
+    m.push(
+        Metric::new(
+            "storage_allocated",
+            "Espacio asignado",
+            "Almacenamiento",
+            U::Bytes,
+            at(&r.storage, 0),
+        )
+        .max(max)
+        .help("Tamaño de los archivos de la base, datos y log, ocupados o no. El máximo es el de los datos (MaxSizeInBytes).")
+        .source("sys.database_files: SUM(size) × 8 KB"),
+    );
+    m.push(
+        Metric::new(
+            "locks_waiting",
+            "Bloqueos en espera",
+            "Bloqueos",
+            U::Count,
+            at(&r.locks, 1),
+        )
+        .help(LOCKS_WAITING_HELP)
+        .source("sys.dm_tran_locks: COUNT(*) WHERE request_status = 'WAIT'"),
+    );
+    m.push(locks_held(&r.locks, "Pedidos de bloqueo vivos, concedidos o en espera. Miles es normal con mucha concurrencia; preocupa que crezcan sin bajar."));
+    m
 }
 
 async fn warehouse(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &mut Gaps) {
-    let counts = first(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
-    let m = &mut snap.metrics;
-    m.push(Metric::new(
-        "connections",
-        "Conexiones",
-        "Conexiones",
-        U::Count,
-        counts.as_ref().and_then(|r| f(r, 0)),
-    ));
-    m.push(Metric::new(
-        "active_sessions",
-        "Sesiones activas",
-        "Conexiones",
-        U::Count,
-        counts.as_ref().and_then(|r| f(r, 1)),
-    ));
+    let sessions = nums(s.probe("las sesiones", SESSION_COUNTS, gaps).await);
     let history = s
         .probe("el historial de Query Insights", WH_HISTORY, gaps)
         .await;
-    if let Some(h) = &history {
-        let n = h.len() as f64;
-        let scanned: f64 = h.iter().filter_map(|r| f(r, 6)).sum();
-        snap.metrics.push(Metric::new(
-            "queries_last_hour",
-            "Consultas en la última hora (hasta 50)",
-            "Actividad",
-            U::Count,
-            Some(n),
-        ));
-        snap.metrics.push(Metric::new(
-            "scanned_last_hour",
-            "Leído de disco en esas consultas",
-            "Actividad",
-            U::Bytes,
-            Some(scanned * 1_048_576.0),
-        ));
-    }
+    let summary = history
+        .as_ref()
+        .map(|h| (h.len() as f64, h.iter().filter_map(|r| f(r, 6)).sum()));
+    snap.metrics.extend(warehouse_metrics(&sessions, summary));
     let tables = [
         table(
             "sessions",
@@ -1283,6 +1463,49 @@ async fn warehouse(s: &mut SqlServerSession, snap: &mut MonitorSnapshot, gaps: &
     );
     snap.notes
         .push("Query Insights guarda las consultas terminadas con unos minutos de demora.".into());
+}
+
+/// Fabric Data Warehouse / Synapse: sessions, and from Query Insights (when
+/// it answers) how many queries ended in the last hour and the MB they read
+/// from disk.
+fn warehouse_metrics(sessions: &Nums, history: Option<(f64, f64)>) -> Vec<Metric> {
+    let mut m = vec![
+        Metric::new(
+            "connections",
+            "Conexiones",
+            "Conexiones",
+            U::Count,
+            at(sessions, 0),
+        )
+        .help("Sesiones de usuario abiertas en el almacén.")
+        .source("sys.dm_exec_sessions: COUNT(DISTINCT session_id) WHERE is_user_process = 1"),
+        active_sessions(sessions),
+    ];
+    if let Some((n, scanned_mb)) = history {
+        m.push(
+            Metric::new(
+                "queries_last_hour",
+                "Consultas en la última hora (hasta 50)",
+                "Actividad",
+                U::Count,
+                Some(n),
+            )
+            .help("Consultas que empezaron en la última hora y ya terminaron, según Query Insights, contando hasta 50. Query Insights las registra con unos minutos de demora.")
+            .source("queryinsights.exec_requests_history: rows with start_time in the last hour (TOP 50)"),
+        );
+        m.push(
+            Metric::new(
+                "scanned_last_hour",
+                "Leído de disco en esas consultas",
+                "Actividad",
+                U::Bytes,
+                Some(scanned_mb * 1_048_576.0),
+            )
+            .help("Datos que leyeron del disco local del almacén las consultas que empezaron en la última hora y ya terminaron (hasta 50), sin contar lo que salió de memoria o del almacenamiento remoto.")
+            .source("queryinsights.exec_requests_history: SUM(data_scanned_disk_mb) × 1048576 over the same rows"),
+        );
+    }
+    m
 }
 
 /// The sessions in blocking chains: every session waiting on another
@@ -1344,6 +1567,34 @@ pub async fn kill(s: &mut SqlServerSession, id: &str) -> Result<()> {
     s.rows(&format!("KILL {id}"), &[]).await.map(|_| ())
 }
 
+/// Every metric has a non-empty help and source, and keys don't repeat.
+#[cfg(test)]
+pub(crate) fn assert_described(metrics: &[Metric]) {
+    let mut keys: Vec<&str> = metrics.iter().map(|m| m.key.as_str()).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    assert_eq!(keys.len(), metrics.len(), "duplicate keys");
+    for m in metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.trim().is_empty()),
+            "{} has no help",
+            m.key
+        );
+        // A whole sentence: the UI translates it as one message.
+        let help = m.help.as_deref().unwrap();
+        assert!(
+            help.starts_with(|c: char| c.is_uppercase()) && help.ends_with('.'),
+            "{}: help is not a whole sentence: {help}",
+            m.key
+        );
+        assert!(
+            m.source.as_deref().is_some_and(|s| !s.trim().is_empty()),
+            "{} has no source",
+            m.key
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1374,5 +1625,81 @@ mod tests {
         )]);
         assert_eq!(c.get("Buffer Manager", "Page life expectancy"), Some(300.0));
         assert_eq!(c.get("Buffer Manager", "Other"), None);
+    }
+
+    /// Every flavor's figures say what they measure and where they come
+    /// from, even when the server reported nothing (they are always there).
+    #[test]
+    fn every_metric_has_help_and_source() {
+        let mut server = server_metrics(&ServerReadings::default());
+        server.push(replication_lag(None));
+        assert_eq!(server.len(), 30);
+        assert_described(&server);
+        let azure = azure_metrics(&AzureReadings::default());
+        assert_eq!(azure.len(), 17);
+        assert_described(&azure);
+        // @@MAX_CONNECTIONS isn't an Azure database's session limit.
+        let conns = azure.iter().find(|m| m.key == "connections").unwrap();
+        assert_eq!(conns.max, None);
+        // SQL database in Fabric: same figures, but no service tier.
+        let fabric = azure_metrics(&AzureReadings {
+            fabric: true,
+            ..Default::default()
+        });
+        assert_eq!(fabric.len(), 17);
+        assert_described(&fabric);
+        for (a, f) in azure.iter().zip(&fabric) {
+            assert_eq!(a.key, f.key);
+            let help = f.help.as_deref().unwrap();
+            assert!(!help.contains("nivel de servicio"), "{}: {help}", f.key);
+        }
+        let warehouse = warehouse_metrics(&None, Some((3.0, 2.0)));
+        assert_eq!(warehouse.len(), 4);
+        assert_described(&warehouse);
+        assert_eq!(warehouse_metrics(&None, None).len(), 2);
+    }
+
+    /// A help built with format! reaches the UI as a pattern plus a
+    /// fragment translated on its own ("database-level"): never do it.
+    #[test]
+    fn help_is_never_formatted() {
+        let pattern = concat!(".help(&", "format!");
+        for src in [include_str!("monitor.rs"), include_str!("babelfish.rs")] {
+            assert!(!src.contains(pattern));
+        }
+    }
+
+    /// The process CPU is the schedulers' ms over how many there are: its
+    /// rate is the share of all the CPUs SQL Server may use (100 = all busy).
+    #[test]
+    fn process_cpu_is_a_share_of_every_scheduler() {
+        let cpu = |sched: Nums| {
+            server_metrics(&ServerReadings {
+                sched,
+                ..Default::default()
+            })
+            .into_iter()
+            .find(|m| m.key == "cpu_time")
+            .unwrap()
+        };
+        // Four schedulers busy for a second: 4000 ms → +100.
+        let a = cpu(Some(vec![Some(50_000.0), Some(4.0)]));
+        let b = cpu(Some(vec![Some(54_000.0), Some(4.0)]));
+        assert_eq!(b.value.unwrap() - a.value.unwrap(), 100.0);
+        assert!(a.counter && a.max == Some(100.0) && a.unit == U::Percent);
+        assert_eq!(cpu(Some(vec![Some(50_000.0), Some(0.0)])).value, None);
+    }
+
+    #[test]
+    fn host_cpu_is_unknown_until_the_ring_buffer_samples() {
+        let host = |ring: Nums| {
+            server_metrics(&ServerReadings {
+                ring,
+                ..Default::default()
+            })[0]
+                .value
+        };
+        assert_eq!(host(Some(vec![Some(0.0), Some(0.0)])), None);
+        assert_eq!(host(Some(vec![Some(20.0), Some(70.0)])), Some(30.0));
     }
 }

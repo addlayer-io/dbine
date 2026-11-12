@@ -354,6 +354,14 @@ fn check_snapshot(snap: &dbine_driver::MonitorSnapshot, must: &[&str]) {
         );
     }
     eprintln!("info: {:?}\nnotes: {:?}", snap.info, snap.notes);
+    for m in &snap.metrics {
+        assert!(
+            m.help.as_deref().is_some_and(|h| !h.is_empty())
+                && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+            "{} has no help or source",
+            m.key
+        );
+    }
     for k in must {
         let m = snap
             .metrics

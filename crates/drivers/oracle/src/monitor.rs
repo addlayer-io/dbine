@@ -371,8 +371,6 @@ pub fn snapshot(c: &Connection, last_os: &mut Option<(f64, f64)>) -> MonitorSnap
     let storage = g
         .probe(c, "los archivos de datos (DBA_DATA_FILES)", STORAGE)
         .and_then(|r| r.into_iter().next());
-    let at = |r: &Option<Vec<Value>>, i: usize| r.as_ref().and_then(|r| r.get(i)).and_then(num);
-
     // CPU: V$SYSMETRIC's host figure, or the V$OSSTAT difference.
     let os_now = get(&os, "BUSY_TIME").zip(get(&os, "IDLE_TIME"));
     let host_cpu = get(&metric, "Host CPU Utilization (%)").or_else(|| match (*last_os, os_now) {
@@ -382,275 +380,6 @@ pub fn snapshot(c: &Connection, last_os: &mut Option<(f64, f64)>) -> MonitorSnap
         _ => None,
     });
     *last_os = os_now;
-    let m = &mut snap.metrics;
-    m.push(Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, host_cpu).max(Some(100.0)));
-    // Centiseconds of CPU spread over the CPUs the instance may use
-    // (cpu_count, else the host's): the rate is the % of all of them, so
-    // 100 % is every CPU busy with this database, never "500 %" for five
-    // busy cores. Unknown CPU count: not shown rather than per core.
-    let cpus = get(&params, "cpu_count")
-        .or_else(|| get(&os, "NUM_CPUS"))
-        .filter(|n| *n > 0.0);
-    m.push(
-        Metric::new(
-            "cpu_time",
-            "CPU de la base",
-            "CPU",
-            U::Percent,
-            get(&stat, "CPU used by this session")
-                .zip(cpus)
-                .map(|(cs, n)| cs / n),
-        )
-        .max(Some(100.0))
-        .counter(),
-    );
-    m.push(Metric::new(
-        "load",
-        "Carga del equipo",
-        "CPU",
-        U::Count,
-        get(&os, "LOAD"),
-    ));
-    m.push(Metric::new(
-        "avg_active_sessions",
-        "Sesiones activas promedio",
-        "CPU",
-        U::Count,
-        get(&metric, "Average Active Sessions"),
-    ));
-
-    let sga_total = get(&sga, "SGA total");
-    let pga_alloc = get(&pga, "total PGA allocated");
-    let used = match (sga_total, pga_alloc) {
-        (Some(s), Some(p)) => Some(s + p),
-        (s, p) => s.or(p),
-    };
-    let target = get(&params, "memory_target")
-        .filter(|v| *v > 0.0)
-        .or_else(|| {
-            let s = get(&params, "sga_target")
-                .filter(|v| *v > 0.0)
-                .or(get(&sga, "Maximum SGA Size"))?;
-            Some(s + get(&params, "pga_aggregate_target").unwrap_or(0.0))
-        });
-    m.push(Metric::new("mem_used", "Memoria (SGA + PGA)", "Memoria", U::Bytes, used).max(target));
-    m.push(Metric::new(
-        "mem_cache",
-        "Caché de datos (buffer cache)",
-        "Memoria",
-        U::Bytes,
-        get(&sga, "Buffer Cache Size"),
-    ));
-    m.push(
-        Metric::new("pga", "PGA asignada", "Memoria", U::Bytes, pga_alloc)
-            .max(get(&params, "pga_aggregate_limit").filter(|v| *v > 0.0)),
-    );
-    let phys = get(&os, "PHYSICAL_MEMORY_BYTES");
-    m.push(
-        Metric::new(
-            "mem_host",
-            "Memoria del equipo en uso",
-            "Memoria",
-            U::Bytes,
-            phys.zip(get(&os, "FREE_MEMORY_BYTES")).map(|(t, f)| t - f),
-        )
-        .max(phys),
-    );
-
-    m.push(
-        Metric::new(
-            "connections",
-            "Sesiones",
-            "Conexiones",
-            U::Count,
-            at(&counts, 0),
-        )
-        .max(get(&params, "sessions")),
-    );
-    m.push(Metric::new(
-        "active_sessions",
-        "Sesiones activas",
-        "Conexiones",
-        U::Count,
-        at(&counts, 1),
-    ));
-    m.push(
-        Metric::new(
-            "logons",
-            "Inicios de sesión",
-            "Conexiones",
-            U::Count,
-            get(&stat, "logons cumulative"),
-        )
-        .counter(),
-    );
-
-    m.push(
-        Metric::new(
-            "queries",
-            "Ejecuciones",
-            "Actividad",
-            U::Count,
-            get(&stat, "execute count"),
-        )
-        .counter(),
-    );
-    let tx = get(&stat, "user commits").map(|c| c + get(&stat, "user rollbacks").unwrap_or(0.0));
-    m.push(Metric::new("transactions", "Transacciones", "Actividad", U::Count, tx).counter());
-    m.push(
-        Metric::new(
-            "logical_reads",
-            "Lecturas lógicas",
-            "Actividad",
-            U::Count,
-            get(&stat, "session logical reads"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "hard_parses",
-            "Análisis completos (hard parse)",
-            "Actividad",
-            U::Count,
-            get(&stat, "parse count (hard)"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "rows_read",
-            "Filas leídas por recorridos",
-            "Actividad",
-            U::Count,
-            get(&stat, "table scan rows gotten"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "redo",
-            "Redo generado",
-            "Actividad",
-            U::Bytes,
-            get(&stat, "redo size"),
-        )
-        .counter(),
-    );
-
-    m.push(
-        Metric::new(
-            "net_in",
-            "Red entrante",
-            "Red",
-            U::Bytes,
-            get(&stat, "bytes received via SQL*Net from client"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "net_out",
-            "Red saliente",
-            "Red",
-            U::Bytes,
-            get(&stat, "bytes sent via SQL*Net to client"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "disk_read",
-            "Lectura en disco",
-            "Disco",
-            U::Bytes,
-            get(&stat, "physical read total bytes"),
-        )
-        .counter(),
-    );
-    m.push(
-        Metric::new(
-            "disk_write",
-            "Escritura en disco",
-            "Disco",
-            U::Bytes,
-            get(&stat, "physical write total bytes"),
-        )
-        .counter(),
-    );
-
-    // V$SYSMETRIC is empty in a PDB: the ratio since startup instead.
-    let since_start = match (
-        get(&stat, "physical reads cache"),
-        get(&stat, "consistent gets from cache"),
-        get(&stat, "db block gets from cache"),
-    ) {
-        (Some(p), Some(c), Some(d)) if c + d > 0.0 => {
-            Some(((1.0 - p / (c + d)) * 100.0).clamp(0.0, 100.0))
-        }
-        _ => None,
-    };
-    let hit = get(&metric, "Buffer Cache Hit Ratio").or(since_start);
-    m.push(
-        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit).max(Some(100.0)),
-    );
-    m.push(
-        Metric::new(
-            "library_hit",
-            "Aciertos de library cache",
-            "Caché",
-            U::Percent,
-            get(&metric, "Library Cache Hit Ratio"),
-        )
-        .max(Some(100.0)),
-    );
-
-    let (total, free, max) = (at(&storage, 0), at(&storage, 1), at(&storage, 2));
-    m.push(
-        Metric::new(
-            "storage_used",
-            "Espacio usado",
-            "Almacenamiento",
-            U::Bytes,
-            total.map(|t| t - free.unwrap_or(0.0)),
-        )
-        .max(max),
-    );
-    m.push(
-        Metric::new(
-            "storage_allocated",
-            "Espacio asignado",
-            "Almacenamiento",
-            U::Bytes,
-            total,
-        )
-        .max(max),
-    );
-
-    m.push(Metric::new(
-        "locks_waiting",
-        "Sesiones bloqueadas",
-        "Bloqueos",
-        U::Count,
-        at(&counts, 2).or(at(&locks, 1)),
-    ));
-    m.push(Metric::new(
-        "locks_held",
-        "Bloqueos (V$LOCK)",
-        "Bloqueos",
-        U::Count,
-        at(&locks, 0),
-    ));
-    m.push(
-        Metric::new(
-            "deadlocks",
-            "Deadlocks",
-            "Bloqueos",
-            U::Count,
-            get(&stat, "enqueue deadlocks"),
-        )
-        .counter(),
-    );
 
     // Data Guard.
     let dg = g.probe(c, "Data Guard (V$DATAGUARD_STATS)", DATAGUARD);
@@ -660,20 +389,20 @@ pub fn snapshot(c: &Connection, last_os: &mut Option<(f64, f64)>) -> MonitorSnap
         .filter(|r| r.first().and_then(txt).is_some_and(|n| n.ends_with("lag")))
         .filter_map(|r| r.get(1).and_then(txt).and_then(|v| dg_lag(&v)))
         .reduce(f64::max);
-    snap.metrics.push(Metric::new(
-        "replication_lag",
-        "Retraso de réplica (Data Guard)",
-        "Replicación",
-        U::Seconds,
+    snap.metrics = metrics(&Readings {
+        params,
+        metric,
+        stat,
+        os,
+        sga,
+        pga,
+        counts,
+        locks,
+        storage,
+        inst,
+        host_cpu,
         lag,
-    ));
-    snap.metrics.push(Metric::new(
-        "uptime",
-        "Tiempo activo",
-        "Servidor",
-        U::Seconds,
-        at(&inst, 4),
-    ));
+    });
 
     let tables = [
         table(
@@ -755,6 +484,409 @@ pub fn snapshot(c: &Connection, last_os: &mut Option<(f64, f64)>) -> MonitorSnap
     snap
 }
 
+/// What the snapshot read, as plain values: [`metrics`] builds the figures
+/// from it, so they can be checked without a server.
+#[derive(Default)]
+struct Readings {
+    /// V$PARAMETER (numbers only).
+    params: Vec<(String, f64)>,
+    /// V$SYSMETRIC, the 60 s interval.
+    metric: Vec<(String, f64)>,
+    /// V$SYSSTAT running totals.
+    stat: Vec<(String, f64)>,
+    /// V$OSSTAT.
+    os: Vec<(String, f64)>,
+    /// V$SGAINFO, plus "SGA total" from V$SGASTAT.
+    sga: Vec<(String, f64)>,
+    /// V$PGASTAT.
+    pga: Vec<(String, f64)>,
+    /// V$SESSION: user sessions, active ones, blocked ones.
+    counts: Option<Vec<Value>>,
+    /// V$LOCK: locks, requests waiting.
+    locks: Option<Vec<Value>>,
+    /// Data files: allocated, free, maximum (bytes).
+    storage: Option<Vec<Value>>,
+    /// V$INSTANCE / V$DATABASE (uptime at 4).
+    inst: Option<Vec<Value>>,
+    /// Host CPU %: V$SYSMETRIC, or two V$OSSTAT readings.
+    host_cpu: Option<f64>,
+    /// Data Guard's largest lag, seconds.
+    lag: Option<f64>,
+}
+
+/// The headline figures, in display order, each with what it measures and
+/// where it comes from.
+fn metrics(r: &Readings) -> Vec<Metric> {
+    let at = |v: &Option<Vec<Value>>, i: usize| v.as_ref().and_then(|v| v.get(i)).and_then(num);
+    let mut m = Vec::new();
+    m.push(
+        Metric::new("cpu", "CPU del servidor", "CPU", U::Percent, r.host_cpu)
+            .max(Some(100.0))
+            .help("Uso de CPU de todo el equipo, de Oracle y de los demás procesos: el promedio del último minuto o, en una PDB (donde V$SYSMETRIC no lo informa), el uso entre dos lecturas de V$OSSTAT. Cerca de 100 % sostenido, los procesos hacen cola para usar CPU.")
+            .source("V$SYSMETRIC: 'Host CPU Utilization (%)' (60 s interval); else V$OSSTAT: Δ BUSY_TIME / Δ (BUSY_TIME + IDLE_TIME) between two snapshots"),
+    );
+    // Centiseconds of CPU spread over the CPUs the instance may use
+    // (cpu_count, else the host's): the rate is the % of all of them, so
+    // 100 % is every CPU busy with this database, never "500 %" for five
+    // busy cores. Unknown CPU count: not shown rather than per core.
+    let cpus = get(&r.params, "cpu_count")
+        .or_else(|| get(&r.os, "NUM_CPUS"))
+        .filter(|n| *n > 0.0);
+    m.push(
+        Metric::new(
+            "cpu_time",
+            "CPU de la base",
+            "CPU",
+            U::Percent,
+            get(&r.stat, "CPU used by this session")
+                .zip(cpus)
+                .map(|(cs, n)| cs / n),
+        )
+        .max(Some(100.0))
+        .counter()
+        .help("Tiempo de CPU que usaron las sesiones de la base, repartido entre las CPU que puede usar la instancia (cpu_count o, si no está, las del equipo). 100 % equivale a todas esas CPU ocupadas con esta base; cerca de ese valor, las consultas esperan CPU.")
+        .source("V$SYSSTAT: 'CPU used by this session' (centiseconds) / V$PARAMETER cpu_count (else V$OSSTAT NUM_CPUS)"),
+    );
+    m.push(
+        Metric::new("load", "Carga del equipo", "CPU", U::Count, get(&r.os, "LOAD"))
+            .help("Procesos del sistema operativo ejecutando o esperando CPU: la carga promedio del equipo. Si se mantiene por encima de la cantidad de CPU, el equipo está saturado.")
+            .source("V$OSSTAT: LOAD"),
+    );
+    m.push(
+        Metric::new(
+            "avg_active_sessions",
+            "Sesiones activas promedio",
+            "CPU",
+            U::Count,
+            get(&r.metric, "Average Active Sessions"),
+        )
+        .help("Cuántas sesiones estuvieron en promedio trabajando o esperando algo que no es el cliente durante el último minuto (DB time por segundo). Si supera la cantidad de CPU, hay sesiones esperando CPU, disco o bloqueos. En una PDB queda vacío: Oracle no informa V$SYSMETRIC ahí.")
+        .source("V$SYSMETRIC: 'Average Active Sessions' (60 s interval)"),
+    );
+
+    let sga_total = get(&r.sga, "SGA total");
+    let pga_alloc = get(&r.pga, "total PGA allocated");
+    let used = match (sga_total, pga_alloc) {
+        (Some(s), Some(p)) => Some(s + p),
+        (s, p) => s.or(p),
+    };
+    let target = get(&r.params, "memory_target")
+        .filter(|v| *v > 0.0)
+        .or_else(|| {
+            let s = get(&r.params, "sga_target")
+                .filter(|v| *v > 0.0)
+                .or(get(&r.sga, "Maximum SGA Size"))?;
+            Some(s + get(&r.params, "pga_aggregate_target").unwrap_or(0.0))
+        });
+    m.push(
+        Metric::new("mem_used", "Memoria (SGA + PGA)", "Memoria", U::Bytes, used)
+            .max(target)
+            .help("Memoria de la instancia: la SGA completa más la PGA asignada a los procesos. El máximo es memory_target o, si no está, sga_target (o el tamaño máximo de la SGA) más pga_aggregate_target, que la PGA puede superar.")
+            .source("SUM(V$SGASTAT.bytes) + V$PGASTAT: 'total PGA allocated'"),
+    );
+    m.push(
+        Metric::new(
+            "mem_cache",
+            "Caché de datos (buffer cache)",
+            "Memoria",
+            U::Bytes,
+            get(&r.sga, "Buffer Cache Size"),
+        )
+        .help("Tamaño de la buffer cache, la parte de la SGA que guarda bloques de datos. Con la gestión automática de memoria, Oracle la agranda o la achica según la carga.")
+        .source("V$SGAINFO: 'Buffer Cache Size'"),
+    );
+    m.push(
+        Metric::new("pga", "PGA asignada", "Memoria", U::Bytes, pga_alloc)
+            .max(get(&r.params, "pga_aggregate_limit").filter(|v| *v > 0.0))
+            .help("Memoria privada de los procesos (ordenamientos, hash joins, cursores) asignada ahora. El máximo es pga_aggregate_limit: al llegar, Oracle corta las llamadas que más memoria usan (ORA-04036).")
+            .source("V$PGASTAT: 'total PGA allocated'"),
+    );
+    let phys = get(&r.os, "PHYSICAL_MEMORY_BYTES");
+    m.push(
+        Metric::new(
+            "mem_host",
+            "Memoria del equipo en uso",
+            "Memoria",
+            U::Bytes,
+            phys.zip(get(&r.os, "FREE_MEMORY_BYTES"))
+                .map(|(t, f)| t - f),
+        )
+        .max(phys)
+        .help("Memoria física del equipo menos la libre según el sistema operativo, para todos los procesos. Puede incluir la caché de archivos del sistema, así que verla casi llena no siempre es falta de memoria.")
+        .source("V$OSSTAT: PHYSICAL_MEMORY_BYTES - FREE_MEMORY_BYTES"),
+    );
+
+    m.push(
+        Metric::new(
+            "connections",
+            "Sesiones",
+            "Conexiones",
+            U::Count,
+            at(&r.counts, 0),
+        )
+        .max(get(&r.params, "sessions"))
+        .help("Sesiones de usuario abiertas, sin los procesos de fondo. El máximo es el parámetro sessions, que también cuenta los de fondo: al llegar, las conexiones nuevas fallan con ORA-00018.")
+        .source("V$SESSION: COUNT(*) WHERE type = 'USER'"),
+    );
+    m.push(
+        Metric::new(
+            "active_sessions",
+            "Sesiones activas",
+            "Conexiones",
+            U::Count,
+            at(&r.counts, 1),
+        )
+        .help("Sesiones de usuario en medio de una llamada (estado ACTIVE), trabajando o esperando disco o bloqueos, sin contar la de DBine.")
+        .source("V$SESSION: COUNT(*) WHERE type = 'USER' AND status = 'ACTIVE', without DBine's own"),
+    );
+    m.push(
+        Metric::new(
+            "logons",
+            "Inicios de sesión",
+            "Conexiones",
+            U::Count,
+            get(&r.stat, "logons cumulative"),
+        )
+        .counter()
+        .help("Conexiones nuevas a la base. Muchas por segundo de forma sostenida suelen ser una aplicación que se conecta en cada operación en vez de usar un pool.")
+        .source("V$SYSSTAT: 'logons cumulative'"),
+    );
+
+    m.push(
+        Metric::new(
+            "queries",
+            "Ejecuciones",
+            "Actividad",
+            U::Count,
+            get(&r.stat, "execute count"),
+        )
+        .counter()
+        .help("Ejecuciones de sentencias SQL, incluidas las recursivas que Oracle lanza por su cuenta (diccionario, PL/SQL). Es la medida habitual de carga.")
+        .source("V$SYSSTAT: 'execute count'"),
+    );
+    let tx =
+        get(&r.stat, "user commits").map(|c| c + get(&r.stat, "user rollbacks").unwrap_or(0.0));
+    m.push(
+        Metric::new("transactions", "Transacciones", "Actividad", U::Count, tx)
+            .counter()
+            .help("Transacciones de los usuarios terminadas con commit o con rollback.")
+            .source("V$SYSSTAT: 'user commits' + 'user rollbacks'"),
+    );
+    m.push(
+        Metric::new(
+            "logical_reads",
+            "Lecturas lógicas",
+            "Actividad",
+            U::Count,
+            get(&r.stat, "session logical reads"),
+        )
+        .counter()
+        .help("Bloques leídos de la buffer cache (consistent gets y db block gets): el trabajo principal de las consultas. Un salto suele ser un plan que recorre mucho más de lo necesario.")
+        .source("V$SYSSTAT: 'session logical reads'"),
+    );
+    m.push(
+        Metric::new(
+            "hard_parses",
+            "Análisis completos (hard parse)",
+            "Actividad",
+            U::Count,
+            get(&r.stat, "parse count (hard)"),
+        )
+        .counter()
+        .help("Sentencias que Oracle tuvo que analizar y optimizar desde cero porque no estaban en la shared pool. Muchas por segundo suelen ser SQL con literales en vez de variables bind, y gastan CPU.")
+        .source("V$SYSSTAT: 'parse count (hard)'"),
+    );
+    m.push(
+        Metric::new(
+            "rows_read",
+            "Filas leídas por recorridos",
+            "Actividad",
+            U::Count,
+            get(&r.stat, "table scan rows gotten"),
+        )
+        .counter()
+        .help("Filas leídas recorriendo tablas completas (full table scan). Si crece, suele haber consultas sin un índice adecuado.")
+        .source("V$SYSSTAT: 'table scan rows gotten'"),
+    );
+    m.push(
+        Metric::new(
+            "redo",
+            "Redo generado",
+            "Actividad",
+            U::Bytes,
+            get(&r.stat, "redo size"),
+        )
+        .counter()
+        .help("Bytes de redo que generaron los cambios: el volumen de escritura de la base. De él dependen cuánto crecen los archive logs y cuánto envía Data Guard a la standby.")
+        .source("V$SYSSTAT: 'redo size'"),
+    );
+
+    m.push(
+        Metric::new(
+            "net_in",
+            "Red entrante",
+            "Red",
+            U::Bytes,
+            get(&r.stat, "bytes received via SQL*Net from client"),
+        )
+        .counter()
+        .help("Bytes que la base recibió de los clientes por SQL*Net: sentencias, parámetros y datos que se cargan.")
+        .source("V$SYSSTAT: 'bytes received via SQL*Net from client'"),
+    );
+    m.push(
+        Metric::new(
+            "net_out",
+            "Red saliente",
+            "Red",
+            U::Bytes,
+            get(&r.stat, "bytes sent via SQL*Net to client"),
+        )
+        .counter()
+        .help("Bytes que la base envió a los clientes por SQL*Net, sobre todo filas de resultados.")
+        .source("V$SYSSTAT: 'bytes sent via SQL*Net to client'"),
+    );
+    m.push(
+        Metric::new(
+            "disk_read",
+            "Lectura en disco",
+            "Disco",
+            U::Bytes,
+            get(&r.stat, "physical read total bytes"),
+        )
+        .counter()
+        .help("Bytes leídos de disco por toda la instancia: consultas, copias de seguridad, recuperación y demás utilidades.")
+        .source("V$SYSSTAT: 'physical read total bytes'"),
+    );
+    m.push(
+        Metric::new(
+            "disk_write",
+            "Escritura en disco",
+            "Disco",
+            U::Bytes,
+            get(&r.stat, "physical write total bytes"),
+        )
+        .counter()
+        .help("Bytes escritos a disco por toda la instancia, incluidas las copias de seguridad, la recuperación y demás utilidades.")
+        .source("V$SYSSTAT: 'physical write total bytes'"),
+    );
+
+    // V$SYSMETRIC is empty in a PDB: the ratio since startup instead.
+    let since_start = match (
+        get(&r.stat, "physical reads cache"),
+        get(&r.stat, "consistent gets from cache"),
+        get(&r.stat, "db block gets from cache"),
+    ) {
+        (Some(p), Some(c), Some(d)) if c + d > 0.0 => {
+            Some(((1.0 - p / (c + d)) * 100.0).clamp(0.0, 100.0))
+        }
+        _ => None,
+    };
+    let hit = get(&r.metric, "Buffer Cache Hit Ratio").or(since_start);
+    m.push(
+        Metric::new("cache_hit", "Aciertos de caché", "Caché", U::Percent, hit)
+            .max(Some(100.0))
+            .help("Porcentaje de lecturas de bloques resueltas en la buffer cache sin ir a disco, en el último minuto (en una PDB, desde el arranque). Un descenso sostenido indica una caché chica para la carga o consultas que recorren tablas enormes.")
+            .source("V$SYSMETRIC: 'Buffer Cache Hit Ratio' (60 s interval); else V$SYSSTAT: 1 - 'physical reads cache' / ('consistent gets from cache' + 'db block gets from cache')"),
+    );
+    m.push(
+        Metric::new(
+            "library_hit",
+            "Aciertos de library cache",
+            "Caché",
+            U::Percent,
+            get(&r.metric, "Library Cache Hit Ratio"),
+        )
+        .max(Some(100.0))
+        .help("Porcentaje de pedidos de SQL y PL/SQL que encontraron su versión ya analizada en la library cache, en el último minuto. Si baja, suele deberse a muchos hard parses o a una shared pool chica. En una PDB queda vacío: Oracle no informa V$SYSMETRIC ahí.")
+        .source("V$SYSMETRIC: 'Library Cache Hit Ratio' (60 s interval)"),
+    );
+
+    let (total, free, max) = (at(&r.storage, 0), at(&r.storage, 1), at(&r.storage, 2));
+    m.push(
+        Metric::new(
+            "storage_used",
+            "Espacio usado",
+            "Almacenamiento",
+            U::Bytes,
+            total.map(|t| t - free.unwrap_or(0.0)),
+        )
+        .max(max)
+        .help("Espacio ocupado dentro de los archivos de datos, sin los temporales. El máximo es hasta dónde pueden crecer los archivos con autoextensión: al llegar, las inserciones fallan por falta de espacio.")
+        .source("SUM(DBA_DATA_FILES.bytes) - SUM(DBA_FREE_SPACE.bytes); max SUM(maxbytes if autoextensible, else bytes)"),
+    );
+    m.push(
+        Metric::new(
+            "storage_allocated",
+            "Espacio asignado",
+            "Almacenamiento",
+            U::Bytes,
+            total,
+        )
+        .max(max)
+        .help("Tamaño actual de los archivos de datos en disco, ocupados o no, sin los temporales. Crece cuando un archivo con autoextensión se agranda.")
+        .source("SUM(DBA_DATA_FILES.bytes)"),
+    );
+
+    m.push(
+        Metric::new(
+            "locks_waiting",
+            "Sesiones bloqueadas",
+            "Bloqueos",
+            U::Count,
+            at(&r.counts, 2).or(at(&r.locks, 1)),
+        )
+        .help("Sesiones de usuario que esperan un recurso que tiene otra sesión. Si se mantienen, la tabla de bloqueos muestra quién encabeza la cadena.")
+        .source("V$SESSION: COUNT(*) WHERE type = 'USER' AND blocking_session IS NOT NULL; else V$LOCK: COUNT(*) WHERE request > 0"),
+    );
+    m.push(
+        Metric::new(
+            "locks_held",
+            "Bloqueos (V$LOCK)",
+            "Bloqueos",
+            U::Count,
+            at(&r.locks, 0),
+        )
+        .help("Bloqueos y encolamientos tenidos o pedidos en este momento, incluidos los internos de Oracle. Sirve como tendencia: las esperas reales están en Sesiones bloqueadas.")
+        .source("V$LOCK: COUNT(*)"),
+    );
+    m.push(
+        Metric::new(
+            "deadlocks",
+            "Deadlocks",
+            "Bloqueos",
+            U::Count,
+            get(&r.stat, "enqueue deadlocks"),
+        )
+        .counter()
+        .help("Deadlocks entre sesiones que Oracle detectó y resolvió devolviendo ORA-00060 a una de ellas. Si aparecen seguido, hay transacciones que toman los mismos recursos en distinto orden.")
+        .source("V$SYSSTAT: 'enqueue deadlocks'"),
+    );
+
+    m.push(
+        Metric::new(
+            "replication_lag",
+            "Retraso de réplica (Data Guard)",
+            "Replicación",
+            U::Seconds,
+            r.lag,
+        )
+        .help("En una standby de Data Guard, el mayor entre el retraso de transporte y el de aplicación: cuánto le falta para estar al día con la primaria. Vacío sin Data Guard.")
+        .source("V$DATAGUARD_STATS: largest value WHERE name LIKE '%lag' (transport lag, apply lag)"),
+    );
+    m.push(
+        Metric::new(
+            "uptime",
+            "Tiempo activo",
+            "Servidor",
+            U::Seconds,
+            at(&r.inst, 4),
+        )
+        .help("Tiempo desde que arrancó la instancia.")
+        .source("V$INSTANCE: (SYSDATE - startup_time) × 86400"),
+    );
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,6 +908,69 @@ mod tests {
         assert_eq!(
             pairs(&rows),
             vec![("a".to_string(), 1.0), ("c".to_string(), 2.5)]
+        );
+    }
+
+    /// Every figure says what it measures and where it comes from, even
+    /// when the server reported nothing (all of them are always there).
+    #[test]
+    fn every_metric_has_help_and_source() {
+        let m = metrics(&Readings::default());
+        assert_eq!(m.len(), 30);
+        let mut keys: Vec<&str> = m.iter().map(|m| m.key.as_str()).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), m.len(), "duplicate keys");
+        for x in &m {
+            assert!(
+                x.help.as_deref().is_some_and(|h| !h.trim().is_empty()),
+                "{} has no help",
+                x.key
+            );
+            assert!(
+                x.source.as_deref().is_some_and(|s| !s.trim().is_empty()),
+                "{} has no source",
+                x.key
+            );
+        }
+        // A help is one literal: the UI translates it as one message, and a
+        // format! would leave a fragment translated on its own.
+        assert!(!include_str!("monitor.rs").contains(concat!(".help(&", "format!")));
+    }
+
+    /// The database CPU is centiseconds over the CPUs the instance may use:
+    /// its rate is the share of all of them (100 = all busy).
+    #[test]
+    fn database_cpu_is_a_share_of_every_cpu() {
+        let cpu = |r: Readings| {
+            metrics(&r)
+                .into_iter()
+                .find(|m| m.key == "cpu_time")
+                .unwrap()
+        };
+        let stat = vec![("CPU used by this session".to_string(), 1000.0)];
+        let m = cpu(Readings {
+            params: vec![("cpu_count".into(), 4.0)],
+            os: vec![("NUM_CPUS".into(), 8.0)],
+            stat: stat.clone(),
+            ..Default::default()
+        });
+        assert_eq!(m.value, Some(250.0));
+        assert!(m.counter && m.max == Some(100.0) && m.unit == U::Percent);
+        // Without cpu_count, the host's CPUs; without either, nothing.
+        let m = cpu(Readings {
+            os: vec![("NUM_CPUS".into(), 8.0)],
+            stat: stat.clone(),
+            ..Default::default()
+        });
+        assert_eq!(m.value, Some(125.0));
+        assert_eq!(
+            cpu(Readings {
+                stat,
+                ..Default::default()
+            })
+            .value,
+            None
         );
     }
 }
