@@ -1475,7 +1475,6 @@ impl Session for FlightSession {
                 if ro { "sí" } else { "no" }.into(),
             ));
         }
-        use MetricUnit::*;
         match self.server.engine() {
             Engine::DuckDb => {
                 let size = self
@@ -1487,10 +1486,6 @@ impl Session for FlightSession {
                     .records("SELECT name, value FROM duckdb_settings() WHERE name IN ('threads', 'memory_limit', 'max_memory', 'temp_directory', 'access_mode', 'TimeZone')")
                     .await
                     .unwrap_or_default();
-                let sum = |rows: &[serde_json::Map<String, Value>], c: &str| -> Option<f64> {
-                    let v: Vec<f64> = rows.iter().filter_map(|r| num(r.get(c))).collect();
-                    (!v.is_empty()).then(|| v.iter().sum())
-                };
                 let mem_rows = mem.as_deref().unwrap_or(&[]);
                 let limit = settings
                     .iter()
@@ -1498,44 +1493,7 @@ impl Session for FlightSession {
                     .and_then(|r| r.get("value"))
                     .map(text)
                     .and_then(|v| parse_size(&v));
-                let blocks = |c: &str| sum(&size, c);
-                snap.metrics = vec![
-                    Metric::new(
-                        "mem_used",
-                        "Memoria de DuckDB",
-                        "Memoria",
-                        Bytes,
-                        sum(mem_rows, "memory_usage_bytes"),
-                    )
-                    .max(limit),
-                    Metric::new(
-                        "temp_used",
-                        "Almacenamiento temporal",
-                        "Memoria",
-                        Bytes,
-                        sum(mem_rows, "temporary_storage_bytes"),
-                    ),
-                    Metric::new(
-                        "storage_used",
-                        "Espacio usado",
-                        "Almacenamiento",
-                        Bytes,
-                        blocks("used_blocks")
-                            .zip(blocks("block_size"))
-                            .map(|(u, b)| u * b / size.len().max(1) as f64),
-                    ),
-                    Metric::new(
-                        "wal_size",
-                        "WAL",
-                        "Almacenamiento",
-                        Bytes,
-                        size.iter()
-                            .filter_map(|r| {
-                                r.get("wal_size").map(text).and_then(|v| parse_size(&v))
-                            })
-                            .reduce(|a, b| a + b),
-                    ),
-                ];
+                snap.metrics = duckdb_metrics(mem_rows, &size, limit);
                 let mut t = MonitorTable::new(
                     "databases",
                     "Bases y tamaños",
@@ -1596,45 +1554,10 @@ impl Session for FlightSession {
                     .await
                     .unwrap_or_default();
                 let jobs = self
-                    .records("SELECT job_id, user_name, status, submitted_ts, query FROM sys.jobs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELED') LIMIT 200")
+                    .records(&format!("{MONITOR_TAG} SELECT job_id, user_name, status, submitted_ts, query FROM sys.jobs WHERE status NOT IN ('COMPLETED', 'FAILED', 'CANCELED', 'CANCELLED') AND query NOT LIKE '{MONITOR_TAG}%' LIMIT 200"))
                     .await
                     .ok();
-                let sum = |rows: &[serde_json::Map<String, Value>], c: &str| -> Option<f64> {
-                    let v: Vec<f64> = rows.iter().filter_map(|r| num(r.get(c))).collect();
-                    (!v.is_empty()).then(|| v.iter().sum())
-                };
-                snap.metrics = vec![
-                    Metric::new(
-                        "cpu",
-                        "CPU de los nodos",
-                        "CPU",
-                        Percent,
-                        sum(&nodes, "cpu").map(|s| s / nodes.len().max(1) as f64),
-                    ),
-                    Metric::new(
-                        "mem_used",
-                        "Heap usado",
-                        "Memoria",
-                        Bytes,
-                        sum(&memory, "heap_current"),
-                    )
-                    .max(sum(&memory, "heap_max")),
-                    Metric::new(
-                        "direct_used",
-                        "Memoria directa usada",
-                        "Memoria",
-                        Bytes,
-                        sum(&memory, "direct_current"),
-                    )
-                    .max(sum(&memory, "direct_max")),
-                    Metric::new(
-                        "active_sessions",
-                        "Trabajos en curso",
-                        "Conexiones",
-                        Count,
-                        jobs.as_ref().map(|j| j.len() as f64),
-                    ),
-                ];
+                snap.metrics = dremio_metrics(&nodes, &memory, jobs.as_ref().map(Vec::len));
                 let mut t = MonitorTable::new(
                     "queries",
                     "Trabajos en curso",
@@ -1660,17 +1583,22 @@ impl Session for FlightSession {
                 snap.notes.push("Para el monitor completo de Dremio (actividad, nodos, perfiles) usá su conexión REST.".into());
             }
             Engine::DataFusion => match self
-                .records("SELECT * FROM system.queries WHERE running = true LIMIT 200")
+                .records(&format!(
+                    "{MONITOR_TAG} SELECT * FROM system.queries WHERE running = true LIMIT 200"
+                ))
                 .await
             {
                 Ok(rows) => {
-                    snap.metrics = vec![Metric::new(
-                        "active_sessions",
-                        "Consultas en curso",
-                        "Conexiones",
-                        Count,
-                        Some(rows.len() as f64),
-                    )];
+                    // This very query is running too: left out.
+                    let rows: Vec<_> = rows
+                        .into_iter()
+                        .filter(|r| {
+                            !r.get("query_text")
+                                .map(text)
+                                .is_some_and(|q| q.contains(MONITOR_TAG))
+                        })
+                        .collect();
+                    snap.metrics = vec![datafusion_running(rows.len())];
                     let mut t = MonitorTable::new(
                         "queries",
                         "Consultas en curso",
@@ -1709,6 +1637,129 @@ impl Session for FlightSession {
     }
 }
 
+/// Marks the monitor's own statements, left out of what it reports.
+const MONITOR_TAG: &str = "/* dbine-monitor */";
+
+type Row = serde_json::Map<String, Value>;
+
+fn sum_col(rows: &[Row], c: &str) -> Option<f64> {
+    let v: Vec<f64> = rows.iter().filter_map(|r| num(r.get(c))).collect();
+    (!v.is_empty()).then(|| v.iter().sum())
+}
+
+/// DuckDB behind the server (GizmoSQL): `duckdb_memory()` rows,
+/// `pragma_database_size()` rows and the `memory_limit` setting.
+fn duckdb_metrics(mem: &[Row], size: &[Row], limit: Option<f64>) -> Vec<Metric> {
+    use MetricUnit::*;
+    // Block by block: the attached databases can have different block
+    // sizes, and an in-memory one has none.
+    let storage = size
+        .iter()
+        .filter_map(|r| Some(num(r.get("used_blocks"))? * num(r.get("block_size"))?))
+        .reduce(|a, b| a + b);
+    vec![
+        Metric::new(
+            "mem_used",
+            "Memoria de DuckDB",
+            "Memoria",
+            Bytes,
+            sum_col(mem, "memory_usage_bytes"),
+        )
+        .max(limit)
+        .help("Memoria que usa DuckDB dentro del servidor, sumada entre sus componentes (buffers, tablas en memoria, índices…), sobre su límite (memory_limit). Cerca del límite, las consultas derraman a disco o fallan por falta de memoria.")
+        .source("duckdb_memory(): memory_usage_bytes (sum); max: duckdb_settings() memory_limit"),
+        Metric::new(
+            "temp_used",
+            "Almacenamiento temporal",
+            "Memoria",
+            Bytes,
+            sum_col(mem, "temporary_storage_bytes"),
+        )
+        .help("Datos que DuckDB tiene ahora en el directorio temporal porque no le alcanzaba la memoria, sumados entre sus componentes. Si crece seguido, conviene subir memory_limit o achicar las consultas.")
+        .source("duckdb_memory(): temporary_storage_bytes (sum)"),
+        Metric::new(
+            "storage_used",
+            "Espacio usado",
+            "Almacenamiento",
+            Bytes,
+            storage,
+        )
+        .help("Espacio que ocupan los datos de las bases abiertas en el servidor: bloques usados por su tamaño, sin los bloques libres ni el WAL.")
+        .source("pragma_database_size(): used_blocks × block_size (sum over attached databases)"),
+        Metric::new(
+            "wal_size",
+            "WAL",
+            "Almacenamiento",
+            Bytes,
+            size.iter()
+                .filter_map(|r| r.get("wal_size").map(text).and_then(|v| parse_size(&v)))
+                .reduce(|a, b| a + b),
+        )
+        .help("Tamaño del registro de escritura (WAL) de las bases abiertas: los cambios que todavía no pasaron al archivo de la base. Se vacía en cada checkpoint.")
+        .source("pragma_database_size(): wal_size (sum)"),
+    ]
+}
+
+/// Dremio over Flight SQL: `sys.nodes`, `sys.memory` and the number of
+/// unfinished jobs.
+fn dremio_metrics(nodes: &[Row], memory: &[Row], jobs: Option<usize>) -> Vec<Metric> {
+    use MetricUnit::*;
+    vec![
+        Metric::new(
+            "cpu",
+            "CPU de los nodos",
+            "CPU",
+            Percent,
+            sum_col(nodes, "cpu").map(|s| s / nodes.len().max(1) as f64),
+        )
+        .help("CPU que usa el proceso de Dremio en cada nodo, como parte de todos los núcleos de su máquina, promedio entre nodos: 100 % es todos ocupados.")
+        .source("sys.nodes: cpu, averaged over the nodes"),
+        Metric::new(
+            "mem_used",
+            "Heap usado",
+            "Memoria",
+            Bytes,
+            sum_col(memory, "heap_current"),
+        )
+        .max(sum_col(memory, "heap_max"))
+        .help("Heap de Java en uso, sumado entre nodos, sobre la suma de sus máximos. Dremio procesa los datos de las consultas en memoria directa, así que el heap lo ocupan sobre todo la planificación y los metadatos.")
+        .source("sys.memory: heap_current (sum over nodes); max: heap_max (sum)"),
+        Metric::new(
+            "direct_used",
+            "Memoria directa usada",
+            "Memoria",
+            Bytes,
+            sum_col(memory, "direct_current"),
+        )
+        .max(sum_col(memory, "direct_max"))
+        .help("Memoria directa en uso, sumada entre nodos, sobre la suma de sus máximos: es donde Dremio procesa los datos de las consultas. Cerca del máximo, las consultas grandes fallan por falta de memoria o derraman a disco.")
+        .source("sys.memory: direct_current (sum over nodes); max: direct_max (sum)"),
+        Metric::new(
+            "active_sessions",
+            "Trabajos en curso",
+            "Conexiones",
+            Count,
+            jobs.map(|n| n as f64),
+        )
+        .help("Trabajos que todavía no terminaron (en cola, planificándose o ejecutándose), sin los del monitor. Sin permiso de administrador cuenta solo los tuyos.")
+        .source("sys.jobs: rows with status not COMPLETED, FAILED or CANCELED, without the monitor's own (up to 200)"),
+    ]
+}
+
+/// A DataFusion server with `system.queries` (InfluxDB 3): the queries
+/// running now, the monitor's own left out.
+fn datafusion_running(n: usize) -> Metric {
+    Metric::new(
+        "active_sessions",
+        "Consultas en curso",
+        "Conexiones",
+        MetricUnit::Count,
+        Some(n as f64),
+    )
+    .help("Consultas que se están ejecutando ahora en el servidor, sin la del monitor.")
+    .source("system.queries: rows with running = true, without the monitor's own (up to 200)")
+}
+
 /// `1.5 GiB`, `512.0 MiB`, `16 KB`… in bytes.
 fn parse_size(s: &str) -> Option<f64> {
     let s = s.trim();
@@ -1735,6 +1786,46 @@ fn parse_size(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_monitor_metric_says_what_it_is() {
+        let rows = |v: serde_json::Value| -> Vec<Row> {
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r.as_object().unwrap().clone())
+                .collect()
+        };
+        let mem =
+            rows(serde_json::json!([{"memory_usage_bytes": 10, "temporary_storage_bytes": 0}]));
+        let size = rows(
+            serde_json::json!([{"used_blocks": 4, "block_size": 262144, "wal_size": "1.0 KiB"}]),
+        );
+        let nodes = rows(serde_json::json!([{"cpu": 2.0}]));
+        let mut all = duckdb_metrics(&mem, &size, Some(100.0));
+        assert_eq!(all[2].value, Some(4.0 * 262144.0));
+        // Database by database: another block size, and an in-memory one.
+        let mixed = rows(serde_json::json!([
+            {"used_blocks": 4, "block_size": 262144},
+            {"used_blocks": 10, "block_size": 16384},
+            {"used_blocks": 0, "block_size": 0}
+        ]));
+        assert_eq!(
+            duckdb_metrics(&mem, &mixed, None)[2].value,
+            Some(4.0 * 262144.0 + 10.0 * 16384.0)
+        );
+        all.extend(dremio_metrics(&nodes, &mem, Some(1)));
+        all.push(datafusion_running(0));
+        assert_eq!(all.len(), 9);
+        for m in &all {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
+    }
 
     /// Saved connections keep `encrypt` (tonic always verified, so `trust`
     /// changes nothing); a new one is TLS, verified; a CA file that can't be

@@ -349,6 +349,7 @@ impl Driver for TrinoDriver {
             in_flight: Arc::new(InFlight::default()),
             rt: tokio::runtime::Handle::current(),
             jmx: None,
+            cpu: monitor::CpuTotals::default(),
             profiler: None,
             manual: false,
             last_error: None,
@@ -417,6 +418,8 @@ pub struct TrinoSession {
     rt: tokio::runtime::Handle,
     /// The JMX tables the monitor reads, found on its first run.
     jmx: Option<monitor::JmxTables>,
+    /// The monitor's CPU counters, built up between its reads.
+    cpu: monitor::CpuTotals,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
     /// Manual mode: the next statement opens a transaction (`START

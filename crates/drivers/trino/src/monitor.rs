@@ -96,6 +96,437 @@ fn truncate(s: &str) -> String {
     }
 }
 
+/// Where the query memory figures came from.
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
+pub(crate) enum QueryMem {
+    #[default]
+    None,
+    /// JMX `ClusterMemoryManager` (Trino).
+    Cluster,
+    /// JMX `general` cluster memory pool (Presto).
+    GeneralPool,
+    /// The coordinator's own pool, from `/v1/status` (no `jmx` catalog).
+    Coordinator,
+}
+
+/// Where the cluster's core count came from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Cores {
+    /// `availableprocessors` of every node's operating system MBean.
+    Os,
+    /// The cluster memory manager's `totalavailableprocessors`.
+    ClusterMemory,
+}
+
+/// Turns the running CPU totals into counters whose rate is a share of the
+/// cluster's cores. Each read adds only the CPU spent since the previous
+/// one, over the cores of that interval, so a node that joins or leaves
+/// doesn't make the rate jump (dividing the whole total by today's cores
+/// would). A read that fails gives no value: the UI keeps the last one and
+/// the next read covers both intervals.
+#[derive(Default, Debug)]
+pub(crate) struct CpuTotals {
+    /// Each node's process CPU (ns) at the last read.
+    nodes: HashMap<String, f64>,
+    /// The engine's CPU so far, in % of the cores × seconds.
+    process: f64,
+    /// The cluster's query CPU seconds at the last read, and whether they
+    /// came from `/v1/cluster` (its total and the JMX one differ).
+    query_secs: Option<(f64, bool)>,
+    /// Query CPU so far: % of the cores × seconds once the cores are known,
+    /// CPU seconds before that.
+    query: f64,
+    /// `query` counts in % of the cores.
+    query_pct: bool,
+    /// The cluster's cores, as last read.
+    cores: Option<(f64, Cores)>,
+}
+
+impl CpuTotals {
+    /// `now`: each node's process CPU (ns) and cores, as read now; empty when
+    /// the read failed.
+    pub(crate) fn process(&mut self, now: &[(String, f64, f64)]) -> Option<f64> {
+        if now.is_empty() {
+            return None;
+        }
+        let (mut cpu, mut cores) = (0.0, 0.0);
+        for (node, ns, c) in now {
+            // Only the nodes read both times, over their own cores.
+            if let Some(prev) = self.nodes.get(node) {
+                // Lower than before: the node restarted, all of it is new.
+                cpu += if ns >= prev { ns - prev } else { *ns };
+                cores += c;
+            }
+        }
+        if cores > 0.0 {
+            self.process += cpu / 1e9 * 100.0 / cores;
+        }
+        self.nodes = now.iter().map(|(n, ns, _)| (n.clone(), *ns)).collect();
+        Some(self.process)
+    }
+
+    /// `secs`: the cluster's query CPU seconds, if read now (`from_cluster`:
+    /// out of `/v1/cluster`); `cores`: its cores, if read now. The value,
+    /// and where its cores came from (`None`: it counts CPU seconds); the
+    /// last known cores count even on a read without them.
+    pub(crate) fn query(
+        &mut self,
+        secs: Option<f64>,
+        from_cluster: bool,
+        cores: Option<(f64, Cores)>,
+    ) -> (Option<f64>, Option<Cores>) {
+        if cores.is_some() {
+            self.cores = cores;
+        }
+        let from = self.cores.map(|c| c.1);
+        let Some(secs) = secs else {
+            return (None, from);
+        };
+        // Presto's /v1/cluster adds the running queries, so it can dip as
+        // they end; a change of source starts from zero.
+        let delta = match self.query_secs {
+            Some((prev, src)) if src == from_cluster => (secs - prev).max(0.0),
+            _ => 0.0,
+        };
+        self.query_secs = Some((secs, from_cluster));
+        match self.cores {
+            Some((c, _)) => {
+                if !self.query_pct {
+                    // Seconds until now: starting again reads as a
+                    // restart in the UI, not as a jump.
+                    self.query_pct = true;
+                    self.query = 0.0;
+                }
+                self.query += delta * 100.0 / c;
+            }
+            None => self.query += delta,
+        }
+        (Some(self.query), from)
+    }
+}
+
+/// Where the figures that have more than one source came from, so each
+/// metric says what it really is.
+#[derive(Default, Debug)]
+pub(crate) struct Origin {
+    /// Keys read from Presto's `/v1/cluster`.
+    cluster: HashSet<&'static str>,
+    /// CPU and heap of the coordinator only (`/v1/status`), without JMX.
+    cpu_coordinator: bool,
+    heap_coordinator: bool,
+    query_mem: QueryMem,
+    /// Running and queued counted from `system.runtime.queries`.
+    counted: bool,
+    /// The JMX tables read, named as this product names them.
+    jmx: JmxTables,
+    /// Where the cores query CPU is a share of came from; `None`: it
+    /// counts CPU seconds.
+    query_cores: Option<Cores>,
+}
+
+/// `jmx.current."<table>"`, with a generic name when it wasn't found.
+fn jmx_table(name: &Option<String>, generic: &str) -> String {
+    format!("jmx.current.\"{}\"", name.as_deref().unwrap_or(generic))
+}
+
+/// The headline figures, from what the snapshot read (keyed as in
+/// [`TrinoSession::snapshot`]).
+pub(crate) fn metrics(m: &HashMap<&str, f64>, o: &Origin) -> Vec<Metric> {
+    let g = |k: &str| m.get(k).copied();
+    let pct = |k: &str| g(k).map(|v| (v * 10.0).round() / 10.0);
+    let from_cluster = |k: &str| o.cluster.contains(k);
+    let qm = jmx_table(
+        &o.jmx.query_manager,
+        "<product>.execution:name=querymanager",
+    );
+    let cm = jmx_table(
+        &o.jmx.cluster_memory,
+        "<product>.memory:name=clustermemorymanager",
+    );
+    let gp = jmx_table(
+        &o.jmx.general_pool,
+        "<product>.memory:name=general,type=clustermemorypool",
+    );
+    // Query CPU as a share of every node's cores when they are known;
+    // otherwise CPU seconds (whose rate is cores busy), never a share of
+    // one core. The value is already built up read by read (`CpuTotals`).
+    let query_cpu_src = if from_cluster("query_cpu") {
+        "GET /v1/cluster: totalCpuTimeSecs (finished queries plus the running ones)".to_string()
+    } else {
+        format!("{qm}: consumedcputimesecs.totalcount (each query's whole CPU seconds, added as it ends)")
+    };
+    let query_cpu = match o.query_cores {
+        Some(from) => Metric::new(
+            "query_cpu",
+            "CPU de las consultas",
+            "CPU",
+            MetricUnit::Percent,
+            g("query_cpu"),
+        )
+        .max(Some(100.0))
+        .help(if from_cluster("query_cpu") {
+            "Tiempo de CPU que gastaron las consultas, como parte de todos los núcleos del cluster: 100 % es todos ocupados. Comparado con el CPU de los procesos, muestra cuánto se va en consultas y cuánto en el resto del motor."
+        } else {
+            "Tiempo de CPU que gastaron las consultas, como parte de todos los núcleos del cluster: 100 % es todos ocupados. Cada consulta suma sus segundos enteros de CPU cuando termina: las de menos de un segundo no cuentan, y una larga aparece de golpe al final y puede pasar del 100 % por un momento."
+        })
+        .source(&format!(
+            "{query_cpu_src}: its increase since the previous read × 100 ÷ the cluster's cores ({})",
+            match from {
+                Cores::Os => "jmx.current.\"java.lang:type=operatingsystem\" availableprocessors, summed over the nodes".to_string(),
+                Cores::ClusterMemory => format!("{cm} totalavailableprocessors"),
+            }
+        )),
+        None => Metric::new(
+            "query_cpu",
+            "CPU de las consultas",
+            "CPU",
+            MetricUnit::Seconds,
+            g("query_cpu"),
+        )
+        .help(if from_cluster("query_cpu") {
+            "Tiempo de CPU que gastaron las consultas, en segundos de CPU: un segundo por segundo es un núcleo ocupado. Se muestra así porque, sin el catálogo jmx, no se sabe cuántos núcleos tiene el cluster."
+        } else {
+            "Tiempo de CPU que gastaron las consultas, en segundos de CPU: un segundo por segundo es un núcleo ocupado, porque no se pudo leer cuántos núcleos tiene el cluster. Cada consulta suma sus segundos enteros de CPU cuando termina: las de menos de un segundo no cuentan, y una larga aparece de golpe al final."
+        })
+        .source(&query_cpu_src),
+    }
+    .counter();
+    let (cpu_help, cpu_src) = if o.cpu_coordinator {
+        (
+            "Uso de CPU de la máquina del coordinador, con otros procesos incluidos: sin el catálogo jmx no se ven los workers. 100 % es todos sus núcleos ocupados.",
+            "GET /v1/status: systemCpuLoad × 100 (coordinator only)",
+        )
+    } else {
+        (
+            "Uso de CPU de las máquinas del cluster, promedio entre nodos, con otros procesos incluidos. 100 % es todos los núcleos ocupados; el de cada nodo está en la tabla de nodos.",
+            "jmx.current.\"java.lang:type=operatingsystem\": systemcpuload × 100, averaged over the nodes",
+        )
+    };
+    let (heap_help, heap_src) = if o.heap_coordinator {
+        (
+            "Heap de Java en uso en el coordinador, sobre su máximo: sin el catálogo jmx no se ven los workers. Sube y baja con cada recolección.",
+            "GET /v1/status: heapUsed; max: heapAvailable (coordinator only)",
+        )
+    } else {
+        (
+            "Heap de Java en uso en todos los nodos, sumado, sobre la suma de sus máximos (-Xmx). Sube y baja con cada recolección; si queda cerca del máximo aun después, faltan memoria o nodos.",
+            "jmx.current.\"java.lang:type=memory\": heapmemoryusage used, summed over the nodes; max: heapmemoryusage max (sum)",
+        )
+    };
+    let (mem_help, mem_src) = match (from_cluster("query_mem"), o.query_mem) {
+        (true, _) => (
+            "Memoria de usuario que tienen reservada las consultas en curso, en todo el cluster, sobre la memoria para consultas de todos los nodos. Cerca del máximo, las consultas nuevas esperan o se cancelan por falta de memoria.",
+            format!("GET /v1/cluster: reservedMemory; max: {cm} clustermemorybytes (or {gp} totaldistributedbytes)"),
+        ),
+        (false, QueryMem::Coordinator) => (
+            "Memoria reservada por las consultas en el pool del coordinador, sobre su tamaño: sin el catálogo jmx no se ven los workers.",
+            "GET /v1/status: memoryInfo pool (or pools.general) reservedBytes; max: maxBytes (coordinator only)".to_string(),
+        ),
+        (false, QueryMem::GeneralPool) => (
+            "Memoria reservada por las consultas en el pool general de todo el cluster, sobre su tamaño en todos los nodos. Cerca del máximo, las consultas nuevas esperan o se cancelan por falta de memoria.",
+            format!("{gp}: reserveddistributedbytes; max: totaldistributedbytes"),
+        ),
+        (false, _) => (
+            "Memoria que tienen reservada las consultas en todo el cluster, sobre la memoria para consultas de todos los nodos. Cerca del máximo, las consultas nuevas esperan o se cancelan por falta de memoria.",
+            format!("{cm}: clustertotalmemoryreservation; max: clustermemorybytes"),
+        ),
+    };
+    let running_src = if from_cluster("running") {
+        "GET /v1/cluster: runningQueries (fully blocked ones not included)".to_string()
+    } else if o.counted {
+        "system.runtime.queries (latest 1000, without the monitor's): state RUNNING or FINISHING"
+            .to_string()
+    } else {
+        format!("{qm}: runningqueries, minus the monitor's own query")
+    };
+    let queued_src = if from_cluster("queued") {
+        "GET /v1/cluster: queuedQueries".to_string()
+    } else if o.counted {
+        "system.runtime.queries (latest 1000): state QUEUED, WAITING_FOR_RESOURCES or DISPATCHING"
+            .to_string()
+    } else {
+        format!("{qm}: queuedqueries")
+    };
+    let pick = |k: &str, cluster: &str, jmx: &str| {
+        if from_cluster(k) {
+            format!("GET /v1/cluster: {cluster}")
+        } else {
+            format!("{qm}: {jmx}")
+        }
+    };
+    // Presto's /v1/cluster counts as queries go; the JMX totals, when each ends.
+    let (rows_help, bytes_help) = if from_cluster("rows_read") {
+        (
+            "Filas que las consultas leyeron de los conectores (Hive, Iceberg, otras bases…). Se cuentan a medida que avanzan las consultas.",
+            "Datos que las consultas leyeron de los conectores. Se cuentan a medida que avanzan las consultas.",
+        )
+    } else {
+        (
+            "Filas que las consultas leyeron de los conectores (Hive, Iceberg, otras bases…). Se cuentan cuando termina cada consulta, así que una consulta larga aparece de golpe al final.",
+            "Datos que las consultas leyeron de los conectores. Se cuentan cuando termina cada consulta, así que una consulta larga aparece de golpe al final.",
+        )
+    };
+    let (nodes_help, nodes_src) = (
+        if g("nodes").is_some() {
+            "Nodos activos del cluster, el coordinador incluido. Si baja, un worker se cayó o se está apagando; el estado de cada uno está en la tabla de nodos."
+        } else {
+            "Workers activos del cluster según el coordinador. Si baja, un worker se cayó o se está apagando."
+        },
+        if g("nodes").is_some() {
+            "system.runtime.nodes: rows with state = 'active'"
+        } else {
+            "GET /v1/cluster: activeWorkers"
+        },
+    );
+    vec![
+        Metric::new(
+            "cpu",
+            "CPU del cluster (promedio de nodos)",
+            "CPU",
+            MetricUnit::Percent,
+            pct("cpu"),
+        )
+        .max(Some(100.0))
+        .help(cpu_help)
+        .source(cpu_src),
+        Metric::new(
+            "cpu_time",
+            "CPU de los procesos",
+            "CPU",
+            MetricUnit::Percent,
+            g("cpu_time"),
+        )
+        .max(Some(100.0))
+        .counter()
+        .help("Tiempo de CPU que consumen los procesos del motor en todos los nodos, como parte de todos sus núcleos: 100 % es todos ocupados. Comparado con el CPU del cluster, muestra cuánto de esa carga es del motor.")
+        .source("jmx.current.\"java.lang:type=operatingsystem\": processcputime (ns), each node's increase since the previous read, summed ÷ 1e9 × 100 ÷ those nodes' availableprocessors (summed)"),
+        query_cpu,
+        Metric::new(
+            "mem_used",
+            "Heap usado (JVM)",
+            "Memoria",
+            MetricUnit::Bytes,
+            g("heap"),
+        )
+        .max(g("heap_max"))
+        .help(heap_help)
+        .source(heap_src),
+        Metric::new(
+            "query_memory",
+            "Memoria reservada por consultas",
+            "Memoria",
+            MetricUnit::Bytes,
+            g("query_mem"),
+        )
+        .max(g("query_mem_max"))
+        .help(mem_help)
+        .source(&mem_src),
+        Metric::new(
+            "active_sessions",
+            "Consultas en ejecución",
+            "Conexiones",
+            MetricUnit::Count,
+            g("running"),
+        )
+        .help("Consultas que se están ejecutando ahora en el cluster, sin la del monitor.")
+        .source(&running_src),
+        Metric::new(
+            "queued_queries",
+            "Consultas en cola",
+            "Conexiones",
+            MetricUnit::Count,
+            g("queued"),
+        )
+        .help("Consultas que esperan para empezar, por los límites de los grupos de recursos o por falta de memoria. Si no vuelve a cero, el cluster está saturado o un grupo de recursos queda chico.")
+        .source(&queued_src),
+        Metric::new(
+            "blocked_queries",
+            "Consultas bloqueadas",
+            "Conexiones",
+            MetricUnit::Count,
+            g("blocked"),
+        )
+        .help("Consultas en ejecución que están del todo bloqueadas, esperando datos de un conector, memoria o el resultado de otra etapa. Muchas a la vez suelen indicar una fuente lenta o falta de memoria.")
+        .source(&pick("blocked", "blockedQueries", "fullyblockedqueries")),
+        Metric::new(
+            "queries",
+            "Consultas iniciadas",
+            "Actividad",
+            MetricUnit::Count,
+            g("started"),
+        )
+        .counter()
+        .help("Consultas que empezaron en el cluster, del total que lleva el coordinador desde que arrancó. Incluye las del propio monitor, que hace varias en cada lectura.")
+        .source(&format!("{qm}: startedqueries.totalcount")),
+        Metric::new(
+            "failed_queries",
+            "Consultas fallidas",
+            "Actividad",
+            MetricUnit::Count,
+            g("failed"),
+        )
+        .counter()
+        .help("Consultas que fallaron, por un error en la consulta, en un conector o por falta de recursos. El error de cada una está en la tabla de consultas recientes.")
+        .source(&format!("{qm}: failedqueries.totalcount")),
+        Metric::new(
+            "rows_read",
+            "Filas leídas",
+            "Actividad",
+            MetricUnit::Count,
+            g("rows_read"),
+        )
+        .counter()
+        .help(rows_help)
+        .source(&pick("rows_read", "totalInputRows (finished queries plus the running ones)", "consumedinputrows.totalcount")),
+        Metric::new(
+            "bytes_read",
+            "Datos leídos",
+            "Actividad",
+            MetricUnit::Bytes,
+            g("bytes_read"),
+        )
+        .counter()
+        .help(bytes_help)
+        .source(&pick("bytes_read", "totalInputBytes (finished queries plus the running ones)", "consumedinputbytes.totalcount")),
+        Metric::new(
+            "running_drivers",
+            "Drivers en ejecución",
+            "Actividad",
+            MetricUnit::Count,
+            g("drivers"),
+        )
+        .help("Drivers (las unidades que procesan cada split de una tarea) corriendo ahora en el cluster: es el paralelismo en uso y crece con la carga.")
+        .source(&pick("drivers", "runningDrivers", "runningdrivers")),
+        Metric::new(
+            "nodes",
+            "Nodos activos",
+            "Cluster",
+            MetricUnit::Count,
+            g("nodes").or(g("workers")),
+        )
+        .help(nodes_help)
+        .source(nodes_src),
+        Metric::new(
+            "oom_kills",
+            "Consultas terminadas por falta de memoria",
+            "Memoria",
+            MetricUnit::Count,
+            g("oom_kills"),
+        )
+        .help("Consultas que el coordinador canceló para liberar memoria del cluster, en total desde que arrancó. Si sube, faltan memoria o nodos, o hay consultas que reservan demasiado.")
+        .source(&format!("{cm}: querieskilledduetooutofmemory")),
+        Metric::new(
+            "uptime",
+            "Tiempo activo del coordinador",
+            "Servidor",
+            MetricUnit::Seconds,
+            g("uptime"),
+        )
+        .help("Tiempo desde que arrancó el coordinador. Si vuelve a cero, se reinició.")
+        .source("GET /v1/info: uptime"),
+    ]
+}
+
 impl TrinoSession {
     pub(crate) async fn get_json(&self, path: &str) -> Result<Value> {
         let rb = self
@@ -177,6 +608,7 @@ impl TrinoSession {
     pub(crate) async fn snapshot(&mut self) -> Result<MonitorSnapshot> {
         let mut snap = MonitorSnapshot::default();
         let mut m: HashMap<&'static str, f64> = HashMap::new();
+        let mut origin = Origin::default();
 
         // The coordinator itself.
         let info = self.get_json("/v1/info").await?;
@@ -233,6 +665,7 @@ impl TrinoSession {
             ] {
                 if let Some(v) = f(c, p) {
                     m.insert(k, v);
+                    origin.cluster.insert(k);
                 }
             }
         }
@@ -242,23 +675,29 @@ impl TrinoSession {
         let mut node_os: HashMap<String, Triple> = HashMap::new();
         match self.jmx_tables().await {
             Ok(t) => {
+                origin.jmx = JmxTables {
+                    columns: HashMap::new(),
+                    ..t.clone()
+                };
                 let os = self
                     .strings(&format!(
-                        "{TAG} SELECT o.node, o.systemcpuload, o.processcputime, m.heapmemoryusage
+                        "{TAG} SELECT o.node, o.systemcpuload, o.processcputime, m.heapmemoryusage, o.availableprocessors
                          FROM jmx.current.\"java.lang:type=operatingsystem\" o
                          LEFT JOIN jmx.current.\"java.lang:type=memory\" m ON m.node = o.node"
                     ))
                     .await
                     .unwrap_or_default();
-                let (mut cpu_sum, mut cpu_n, mut cpu_time, mut heap, mut heap_max) = (0.0, 0, None::<f64>, None::<f64>, None::<f64>);
-                for r in os.iter().filter(|r| r.len() == 4) {
+                let (mut cpu_sum, mut cpu_n, mut heap, mut heap_max) = (0.0, 0, None::<f64>, None::<f64>);
+                // Each node's process CPU (ns) and the cores it is a share of.
+                let mut cpu_time: Vec<(String, f64, f64)> = Vec::new();
+                for r in os.iter().filter(|r| r.len() == 5) {
                     let load = num(&r[1]).filter(|l| *l >= 0.0);
                     if let Some(l) = load {
                         cpu_sum += l;
                         cpu_n += 1;
                     }
-                    if let Some(ns) = num(&r[2]) {
-                        *cpu_time.get_or_insert(0.0) += ns / 1e9 * 100.0;
+                    if let (Some(ns), Some(p)) = (num(&r[2]), num(&r[4]).filter(|p| *p > 0.0)) {
+                        cpu_time.push((r[0].clone(), ns, p));
                     }
                     let used = composite(&r[3], "used");
                     if let Some(u) = used {
@@ -272,8 +711,10 @@ impl TrinoSession {
                 if cpu_n > 0 {
                     m.insert("cpu", cpu_sum / cpu_n as f64 * 100.0);
                 }
-                if let Some(v) = cpu_time {
+                // A share of every node's cores: 100 = all of them busy.
+                if let Some(v) = self.cpu.process(&cpu_time) {
                     m.insert("cpu_time", v);
+                    m.insert("cpus", cpu_time.iter().map(|n| n.2).sum());
                 }
                 if let Some(v) = heap {
                     m.insert("heap", v);
@@ -321,6 +762,13 @@ impl TrinoSession {
                 let gp = self
                     .jmx_values(&t, t.general_pool.as_deref(), &[("max", "reserveddistributedbytes"), ("max", "totaldistributedbytes")])
                     .await;
+                if !m.contains_key("query_mem") {
+                    if cm[0].is_some() {
+                        origin.query_mem = QueryMem::Cluster;
+                    } else if gp[0].is_some() {
+                        origin.query_mem = QueryMem::GeneralPool;
+                    }
+                }
                 for (k, v) in ["query_mem", "query_mem_max", "processors", "oom_kills", "query_mem", "query_mem_max"].iter().zip(cm.into_iter().chain(gp)) {
                     if let Some(v) = v {
                         m.entry(k).or_insert(v);
@@ -338,11 +786,13 @@ impl TrinoSession {
             if !m.contains_key("cpu") {
                 if let Some(l) = f(st, "/systemCpuLoad").filter(|l| *l >= 0.0) {
                     m.insert("cpu", l * 100.0);
+                    origin.cpu_coordinator = true;
                 }
             }
             if !m.contains_key("heap") {
                 if let Some(h) = f(st, "/heapUsed") {
                     m.insert("heap", h);
+                    origin.heap_coordinator = true;
                 }
                 if let Some(h) = f(st, "/heapAvailable") {
                     m.insert("heap_max", h);
@@ -357,9 +807,26 @@ impl TrinoSession {
                 if let (Some(r), Some(x)) = (pool("reservedBytes"), pool("maxBytes")) {
                     m.insert("query_mem", r);
                     m.insert("query_mem_max", x);
+                    origin.query_mem = QueryMem::Coordinator;
                 }
             }
         }
+
+        // Query CPU over the cluster's cores, interval by interval.
+        let cores = m.get("cpus").map(|c| (*c, Cores::Os)).or_else(|| {
+            m.get("processors")
+                .filter(|c| **c > 0.0)
+                .map(|c| (*c, Cores::ClusterMemory))
+        });
+        let (query_cpu, from) = self.cpu.query(
+            m.remove("query_cpu"),
+            origin.cluster.contains("query_cpu"),
+            cores,
+        );
+        if let Some(v) = query_cpu {
+            m.insert("query_cpu", v);
+        }
+        origin.query_cores = from;
 
         // Nodes, with their running tasks.
         let nodes = self
@@ -444,6 +911,7 @@ impl TrinoSession {
                 let rows: Vec<Vec<String>> = rows.into_iter().filter(|r| r.len() == 11).collect();
                 let finished = |s: &str| matches!(s, "FINISHED" | "FAILED");
                 if !m.contains_key("running") {
+                    origin.counted = true;
                     m.insert("running", rows.iter().filter(|r| r[1] == "RUNNING" || r[1] == "FINISHING").count() as f64);
                     m.insert("queued", rows.iter().filter(|r| matches!(r[1].as_str(), "QUEUED" | "WAITING_FOR_RESOURCES" | "DISPATCHING")).count() as f64);
                 }
@@ -490,131 +958,8 @@ impl TrinoSession {
             Err(e) => snap.notes.push(format!("No se pudo leer system.runtime.queries: {e}")),
         }
 
+        snap.metrics = metrics(&m, &origin);
         let g = |k: &str| m.get(k).copied();
-        let pct = |k: &str| g(k).map(|v| (v * 10.0).round() / 10.0);
-        snap.metrics = vec![
-            Metric::new(
-                "cpu",
-                "CPU del cluster (promedio de nodos)",
-                "CPU",
-                MetricUnit::Percent,
-                pct("cpu"),
-            )
-            .max(Some(100.0)),
-            Metric::new(
-                "cpu_time",
-                "CPU de los procesos",
-                "CPU",
-                MetricUnit::Percent,
-                g("cpu_time"),
-            )
-            .counter(),
-            Metric::new(
-                "query_cpu",
-                "CPU de las consultas",
-                "CPU",
-                MetricUnit::Percent,
-                g("query_cpu").map(|s| s * 100.0),
-            )
-            .counter(),
-            Metric::new(
-                "mem_used",
-                "Heap usado (JVM)",
-                "Memoria",
-                MetricUnit::Bytes,
-                g("heap"),
-            )
-            .max(g("heap_max")),
-            Metric::new(
-                "query_memory",
-                "Memoria reservada por consultas",
-                "Memoria",
-                MetricUnit::Bytes,
-                g("query_mem"),
-            )
-            .max(g("query_mem_max")),
-            Metric::new(
-                "active_sessions",
-                "Consultas en ejecución",
-                "Conexiones",
-                MetricUnit::Count,
-                g("running"),
-            ),
-            Metric::new(
-                "queued_queries",
-                "Consultas en cola",
-                "Conexiones",
-                MetricUnit::Count,
-                g("queued"),
-            ),
-            Metric::new(
-                "blocked_queries",
-                "Consultas bloqueadas",
-                "Conexiones",
-                MetricUnit::Count,
-                g("blocked"),
-            ),
-            Metric::new(
-                "queries",
-                "Consultas iniciadas",
-                "Actividad",
-                MetricUnit::Count,
-                g("started"),
-            )
-            .counter(),
-            Metric::new(
-                "failed_queries",
-                "Consultas fallidas",
-                "Actividad",
-                MetricUnit::Count,
-                g("failed"),
-            )
-            .counter(),
-            Metric::new(
-                "rows_read",
-                "Filas leídas",
-                "Actividad",
-                MetricUnit::Count,
-                g("rows_read"),
-            )
-            .counter(),
-            Metric::new(
-                "bytes_read",
-                "Datos leídos",
-                "Actividad",
-                MetricUnit::Bytes,
-                g("bytes_read"),
-            )
-            .counter(),
-            Metric::new(
-                "running_drivers",
-                "Drivers en ejecución",
-                "Actividad",
-                MetricUnit::Count,
-                g("drivers"),
-            ),
-            Metric::new(
-                "nodes",
-                "Nodos activos",
-                "Cluster",
-                MetricUnit::Count,
-                g("nodes").or(g("workers")),
-            ),
-            Metric::new(
-                "oom_kills",
-                "Consultas terminadas por falta de memoria",
-                "Memoria",
-                MetricUnit::Count,
-                g("oom_kills"),
-            ),
-            Metric::new(
-                "uptime",
-                "Tiempo activo del coordinador",
-                "Servidor",
-                MetricUnit::Seconds,
-                g("uptime"),
-            ),
-        ];
         if let Some(p) = g("processors") {
             snap.info
                 .push(("Procesadores del cluster".into(), p.to_string()));
@@ -657,5 +1002,253 @@ mod tests {
         );
         assert!(t.cluster_memory.is_some() && t.general_pool.is_none());
         assert_eq!(q("a\"b"), "\"a\"\"b\"");
+    }
+
+    fn described(list: &[Metric]) {
+        assert_eq!(list.len(), 16);
+        for m in list {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
+    }
+
+    fn get<'a>(list: &'a [Metric], k: &str) -> &'a Metric {
+        list.iter().find(|m| m.key == k).unwrap()
+    }
+
+    fn node(n: &str, secs: f64, cores: f64) -> (String, f64, f64) {
+        (n.to_string(), secs * 1e9, cores)
+    }
+
+    #[test]
+    fn process_cpu_adds_each_interval_over_its_cores() {
+        let mut t = CpuTotals::default();
+        // 3 nodes of 8 cores; c is nearly idle.
+        let first = t.process(&[
+            node("a", 100_000.0, 8.0),
+            node("b", 100_000.0, 8.0),
+            node("c", 10.0, 8.0),
+        ]);
+        assert_eq!(first, Some(0.0));
+        // One second later, a and b used 4 cores each: 8 of 24 busy.
+        let v = t.process(&[
+            node("a", 100_004.0, 8.0),
+            node("b", 100_004.0, 8.0),
+            node("c", 10.0, 8.0),
+        ]);
+        assert!((v.unwrap() - 800.0 / 24.0).abs() < 1e-9);
+        // c leaves: the next second is 8 of the 16 cores left, not the
+        // jump the whole total over 16 cores would make.
+        let before = v.unwrap();
+        let v = t
+            .process(&[node("a", 100_008.0, 8.0), node("b", 100_008.0, 8.0)])
+            .unwrap();
+        assert!((v - before - 50.0).abs() < 1e-9);
+        // A failed read gives nothing; the next one covers both intervals.
+        assert_eq!(t.process(&[]), None);
+        let w = t
+            .process(&[node("a", 100_016.0, 8.0), node("b", 100_016.0, 8.0)])
+            .unwrap();
+        assert!((w - v - 100.0).abs() < 1e-9);
+        // A node that joins counts from its second read; one that
+        // restarted counts all of its CPU since then.
+        let x = t
+            .process(&[
+                node("a", 2.0, 8.0),
+                node("b", 100_020.0, 8.0),
+                node("d", 5_000.0, 8.0),
+            ])
+            .unwrap();
+        assert!((x - w - 600.0 / 16.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn query_cpu_adds_each_interval_over_the_last_known_cores() {
+        let mut t = CpuTotals::default();
+        let os = Some((24.0, Cores::Os));
+        assert_eq!(
+            t.query(Some(1000.0), false, os),
+            (Some(0.0), Some(Cores::Os))
+        );
+        assert_eq!(
+            t.query(Some(1012.0), false, os),
+            (Some(50.0), Some(Cores::Os))
+        );
+        // The OS read failed: same cores, same unit.
+        assert_eq!(
+            t.query(Some(1024.0), false, None),
+            (Some(100.0), Some(Cores::Os))
+        );
+        // A node left: fewer cores for the next interval, no jump.
+        let fewer = Some((16.0, Cores::Os));
+        assert_eq!(
+            t.query(Some(1032.0), false, fewer),
+            (Some(150.0), Some(Cores::Os))
+        );
+        // A dip or a change of source adds nothing.
+        assert_eq!(
+            t.query(Some(1030.0), false, fewer),
+            (Some(150.0), Some(Cores::Os))
+        );
+        assert_eq!(
+            t.query(Some(9000.0), true, fewer),
+            (Some(150.0), Some(Cores::Os))
+        );
+        assert_eq!(t.query(None, true, fewer), (None, Some(Cores::Os)));
+
+        // No cores yet: CPU seconds; once they are known, % from zero.
+        let mut t = CpuTotals::default();
+        assert_eq!(t.query(Some(500.0), true, None), (Some(0.0), None));
+        assert_eq!(t.query(Some(530.0), true, None), (Some(30.0), None));
+        assert_eq!(
+            t.query(Some(536.0), true, os),
+            (Some(25.0), Some(Cores::Os))
+        );
+    }
+
+    #[test]
+    fn query_cpu_is_a_share_of_every_core() {
+        // Trino with the jmx catalog: 3 nodes of 8 cores.
+        let m: HashMap<&str, f64> = [
+            ("cpu", 40.0),
+            ("cpu_time", 37.5),
+            ("cpus", 24.0),
+            ("query_cpu", 25.0),
+            ("running", 2.0),
+            ("nodes", 3.0),
+        ]
+        .into_iter()
+        .collect();
+        let o = Origin {
+            jmx: JmxTables::from_names(&["trino.execution:name=querymanager".into()]),
+            query_cores: Some(Cores::Os),
+            ..Default::default()
+        };
+        let list = metrics(&m, &o);
+        described(&list);
+        let q = get(&list, "query_cpu");
+        assert_eq!(
+            (q.unit, q.value, q.max, q.counter),
+            (MetricUnit::Percent, Some(25.0), Some(100.0), true)
+        );
+        // Out of JMX it only grows as each query ends: the help says so.
+        assert!(q
+            .help
+            .as_deref()
+            .unwrap()
+            .contains("segundos enteros de CPU cuando termina"));
+        assert!(q.source.as_deref().unwrap().contains("availableprocessors"));
+        let c = get(&list, "cpu_time");
+        assert_eq!(
+            (c.unit, c.max, c.counter),
+            (MetricUnit::Percent, Some(100.0), true)
+        );
+        assert!(get(&list, "active_sessions")
+            .source
+            .as_deref()
+            .unwrap()
+            .starts_with("jmx.current.\"trino.execution:name=querymanager\""));
+    }
+
+    #[test]
+    fn without_jmx_the_texts_say_coordinator_only() {
+        let m: HashMap<&str, f64> = [
+            ("cpu", 10.0),
+            ("heap", 1.0),
+            ("query_cpu", 5.0),
+            ("running", 1.0),
+        ]
+        .into_iter()
+        .collect();
+        let o = Origin {
+            cpu_coordinator: true,
+            heap_coordinator: true,
+            query_mem: QueryMem::Coordinator,
+            counted: true,
+            ..Default::default()
+        };
+        let list = metrics(&m, &o);
+        described(&list);
+        assert!(get(&list, "cpu")
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("/v1/status"));
+        assert!(get(&list, "query_memory")
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("/v1/status"));
+        assert!(get(&list, "active_sessions")
+            .source
+            .as_deref()
+            .unwrap()
+            .starts_with("system.runtime.queries"));
+        // No core count: CPU seconds, never a share of one core.
+        let q = get(&list, "query_cpu");
+        assert_eq!(
+            (q.unit, q.max, q.counter),
+            (MetricUnit::Seconds, None, true)
+        );
+    }
+
+    #[test]
+    fn presto_query_cpu_from_the_cluster_endpoint_grows_as_queries_go() {
+        let m: HashMap<&str, f64> = [("query_cpu", 12.0)].into_iter().collect();
+        let mut o = Origin {
+            cluster: ["query_cpu"].into_iter().collect(),
+            query_cores: Some(Cores::ClusterMemory),
+            ..Default::default()
+        };
+        let list = metrics(&m, &o);
+        described(&list);
+        let q = get(&list, "query_cpu");
+        assert_eq!((q.unit, q.max), (MetricUnit::Percent, Some(100.0)));
+        assert!(!q.help.as_deref().unwrap().contains("cuando termina"));
+        assert!(q
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("totalavailableprocessors"));
+        o.query_cores = None;
+        let list = metrics(&m, &o);
+        let q = get(&list, "query_cpu");
+        assert_eq!(q.unit, MetricUnit::Seconds);
+        assert!(q.help.as_deref().unwrap().contains("sin el catálogo jmx"));
+    }
+
+    #[test]
+    fn presto_cluster_figures_say_so() {
+        let m: HashMap<&str, f64> = [
+            ("running", 1.0),
+            ("query_mem", 9.0),
+            ("rows_read", 5.0),
+            ("workers", 2.0),
+        ]
+        .into_iter()
+        .collect();
+        let o = Origin {
+            cluster: ["running", "query_mem", "rows_read", "workers"]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let list = metrics(&m, &o);
+        described(&list);
+        for k in ["active_sessions", "query_memory", "rows_read", "nodes"] {
+            assert!(
+                get(&list, k)
+                    .source
+                    .as_deref()
+                    .unwrap()
+                    .starts_with("GET /v1/cluster"),
+                "{k}"
+            );
+        }
+        assert_eq!(get(&list, "nodes").value, Some(2.0));
     }
 }

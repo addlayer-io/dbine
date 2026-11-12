@@ -96,49 +96,63 @@ pub(crate) fn executions(list: &[QueryExecution], now: f64, snap: &mut MonitorSn
             "Actividad",
             MetricUnit::Count,
             Some(running as f64),
-        ),
+        )
+        .help("Consultas del workgroup que se están ejecutando ahora, entre sus últimas 50 ejecuciones.")
+        .source("ListQueryExecutions (workgroup, last 50) + BatchGetQueryExecution: Status.State = RUNNING"),
         Metric::new(
             "queued_queries",
             "Consultas en cola",
             "Actividad",
             MetricUnit::Count,
             Some(queued as f64),
-        ),
+        )
+        .help("Consultas del workgroup que esperan para ejecutarse. Si no vuelve a cero, se llegó al límite de consultas simultáneas de la cuenta o a la capacidad reservada.")
+        .source("ListQueryExecutions (workgroup, last 50) + BatchGetQueryExecution: Status.State = QUEUED"),
         Metric::new(
             "recent_queries",
             "Consultas terminadas (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Count,
             Some(n),
-        ),
+        )
+        .help("Consultas del workgroup que terminaron en los últimos 15 minutos, bien, con error o canceladas. Se cuentan entre sus últimas 50 ejecuciones, así que con más actividad el número se queda en ese tope.")
+        .source("ListQueryExecutions (workgroup, last 50) + BatchGetQueryExecution: executions not RUNNING or QUEUED with Status.CompletionDateTime (or SubmissionDateTime) in the last 15 min"),
         Metric::new(
             "recent_failed",
             "Consultas fallidas (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Count,
             Some(failed as f64),
-        ),
+        )
+        .help("De las consultas terminadas en los últimos 15 minutos, las que fallaron. El motivo está en la tabla de consultas recientes.")
+        .source("BatchGetQueryExecution (last 15 min): Status.State = FAILED"),
         Metric::new(
             "bytes_scanned",
             "Datos escaneados (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Bytes,
             Some(stat(|s| s.data_scanned_in_bytes())),
-        ),
+        )
+        .help("Datos que leyeron, sumados, las consultas terminadas en los últimos 15 minutos. Sin capacidad reservada es lo que se cobra; si es mucho, conviene particionar y usar formatos columnares como Parquet u ORC.")
+        .source("BatchGetQueryExecution (last 15 min): Statistics.DataScannedInBytes (sum)"),
         Metric::new(
             "engine_time",
             "Tiempo de motor (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Millis,
             Some(stat(|s| s.engine_execution_time_in_millis())),
-        ),
+        )
+        .help("Tiempo que el motor dedicó a ejecutar las consultas terminadas en los últimos 15 minutos, sumado, sin la espera en cola.")
+        .source("BatchGetQueryExecution (last 15 min): Statistics.EngineExecutionTimeInMillis (sum)"),
         Metric::new(
             "queue_time",
             "Espera media en cola (últimos 15 min)",
             "Últimos 15 minutos",
             MetricUnit::Millis,
             (n > 0.0).then(|| (stat(|s| s.query_queue_time_in_millis()) / n).round()),
-        ),
+        )
+        .help("Espera media en cola, antes de empezar a ejecutarse, de las consultas terminadas en los últimos 15 minutos. Si sube, el workgroup llegó al límite de consultas simultáneas o a la capacidad reservada.")
+        .source("BatchGetQueryExecution (last 15 min): Statistics.QueryQueueTimeInMillis (average)"),
         Metric::new(
             "cache_hit",
             "Resultados reutilizados (últimos 15 min)",
@@ -146,6 +160,8 @@ pub(crate) fn executions(list: &[QueryExecution], now: f64, snap: &mut MonitorSn
             MetricUnit::Percent,
             (n > 0.0).then(|| (reused as f64 * 1000.0 / n).round() / 10.0),
         )
+        .help("Parte de las consultas terminadas en los últimos 15 minutos que reutilizaron el resultado de una anterior, sin volver a escanear datos.")
+        .source("BatchGetQueryExecution (last 15 min): share with Statistics.ResultReuseInformation.ReusedPreviousResult = true")
         .max(Some(100.0)),
     ]);
 
@@ -218,6 +234,21 @@ pub(crate) fn executions(list: &[QueryExecution], now: f64, snap: &mut MonitorSn
         ]);
     }
     snap.tables.push(t);
+}
+
+/// The provisioned capacity: DPUs allocated over the target, summed over
+/// the reservations.
+pub(crate) fn dpus(alloc: f64, target: f64) -> Metric {
+    Metric::new(
+        "dpus",
+        "DPU asignadas",
+        "Capacidad",
+        MetricUnit::Count,
+        Some(alloc),
+    )
+    .help("DPU asignadas a las reservas de capacidad de la cuenta, sumadas, sobre las DPU objetivo. Con capacidad reservada se paga por DPU y hora, no por datos escaneados.")
+    .source("ListCapacityReservations: AllocatedDpus (sum); max: TargetDpus (sum)")
+    .max(Some(target))
 }
 
 impl AthenaSession {
@@ -343,16 +374,7 @@ impl AthenaSession {
                         json!(c.allocated_dpus()),
                     ]);
                 }
-                snap.metrics.push(
-                    Metric::new(
-                        "dpus",
-                        "DPU asignadas",
-                        "Capacidad",
-                        MetricUnit::Count,
-                        Some(alloc),
-                    )
-                    .max(Some(target)),
-                );
+                snap.metrics.push(dpus(alloc, target));
                 snap.tables.push(t);
             }
             Ok(_) => {}
@@ -468,5 +490,15 @@ mod tests {
         assert_eq!(recent.rows.len(), 2);
         assert_eq!(recent.rows[1][8], json!("SYNTAX_ERROR"));
         assert_eq!(recent.rows[0][3], json!("2023-11-14 22:21:40"));
+        snap.metrics.push(dpus(8.0, 24.0));
+        assert_eq!(snap.metrics.len(), 9);
+        for m in &snap.metrics {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
     }
 }

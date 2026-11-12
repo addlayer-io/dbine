@@ -231,6 +231,9 @@ async fn monitor() {
         "{:#?}",
         snap.metrics
     );
+    // Used blocks by their own block size, database by database (the test
+    // server's databases are in memory: no blocks, 0 bytes).
+    assert!(v("storage_used").is_some_and(|b| b >= 0.0));
     assert!(
         snap.info.iter().any(|(k, _)| k == "Servidor"),
         "{:?}",

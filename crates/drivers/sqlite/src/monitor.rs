@@ -88,29 +88,37 @@ pub fn pragma_snapshot<E: std::fmt::Display>(
             U::Bytes,
             used,
         )
+        .help("Espacio con datos en el archivo de la base principal (páginas usadas por su tamaño), sobre el tamaño total del archivo. La diferencia son páginas libres.")
+        .source("(PRAGMA page_count − PRAGMA freelist_count) × PRAGMA page_size; max: page_count × page_size")
         .max(pages.map(|p| p * page_size)),
     );
-    m.push(Metric::new(
-        "free_space",
-        "Páginas libres (recuperables con VACUUM)",
-        "Almacenamiento",
-        U::Bytes,
-        free.map(|f| f * page_size),
-    ));
-    m.push(Metric::new(
-        "pages",
-        "Páginas",
-        "Almacenamiento",
-        U::Count,
-        pages,
-    ));
-    m.push(Metric::new(
-        "cache_size",
-        "Tamaño máximo de la caché",
-        "Memoria",
-        U::Bytes,
-        cache_bytes,
-    ));
+    m.push(
+        Metric::new(
+            "free_space",
+            "Páginas libres (recuperables con VACUUM)",
+            "Almacenamiento",
+            U::Bytes,
+            free.map(|f| f * page_size),
+        )
+        .help("Páginas libres dentro del archivo de la base principal: SQLite las reutiliza antes de agrandarlo, y VACUUM las devuelve al disco.")
+        .source("PRAGMA freelist_count × PRAGMA page_size"),
+    );
+    m.push(
+        Metric::new("pages", "Páginas", "Almacenamiento", U::Count, pages)
+            .help("Páginas del archivo de la base principal, usadas y libres.")
+            .source("PRAGMA page_count"),
+    );
+    m.push(
+        Metric::new(
+            "cache_size",
+            "Tamaño máximo de la caché",
+            "Memoria",
+            U::Bytes,
+            cache_bytes,
+        )
+        .help("Tamaño máximo de la caché de páginas de cada conexión: es un límite, no lo que está en uso.")
+        .source("PRAGMA cache_size (negative: × 1024 bytes; positive: × page_size)"),
+    );
 
     if let Some(v) = version {
         snap.info.push(("Versión de SQLite".into(), v));

@@ -125,6 +125,226 @@ const RS_KEYS: [&str; 12] = [
     "blockedRequestCount",
 ];
 
+/// The headline figures, from what the snapshot read of the Master (keyed
+/// as in [`PhoenixSession::snapshot`]) and of the RegionServers reached.
+fn metrics(m: &HashMap<&str, f64>, reached: &[&Rs]) -> Vec<Metric> {
+    let sum = |k: &str| {
+        (!reached.is_empty()).then(|| {
+            reached
+                .iter()
+                .filter_map(|r| r.s.get(k))
+                .fold(0.0, |a, b| a + b)
+        })
+    };
+    let heap: Option<f64> = (!reached.is_empty()).then(|| {
+        reached
+            .iter()
+            .filter_map(|r| r.heap)
+            .fold(0.0, |a, b| a + b)
+    });
+    let heap_max: Option<f64> = (!reached.is_empty()).then(|| {
+        reached
+            .iter()
+            .filter_map(|r| r.heap_max)
+            .fold(0.0, |a, b| a + b)
+    });
+    let (hits, misses) = (sum("blockCacheHitCount"), sum("blockCacheMissCount"));
+    let hit_pct = match (hits, misses) {
+        (Some(h), Some(mi)) if h + mi > 0.0 => Some((h * 1000.0 / (h + mi)).round() / 10.0),
+        _ => None,
+    };
+    let g = |k: &str| m.get(k).copied();
+    let cache_size = sum("blockCacheSize");
+    let cache_max = match (cache_size, sum("blockCacheFreeSize")) {
+        (Some(a), Some(b)) => Some(a + b),
+        _ => None,
+    };
+    let (cpu_help, cpu_src) = if g("cpu_rs").is_some() {
+        (
+            "Uso de CPU de las máquinas de los RegionServers, promedio entre ellos, con otros procesos incluidos: no se pudo leer el del Master. 100 % es todos los núcleos ocupados.",
+            "JMX java.lang:type=OperatingSystem of each RegionServer: SystemCpuLoad × 100, averaged",
+        )
+    } else {
+        (
+            "Uso de CPU de la máquina del Master de HBase, con otros procesos incluidos. 100 % es todos los núcleos ocupados; el de cada RegionServer está en su tabla.",
+            "JMX java.lang:type=OperatingSystem of the Master: SystemCpuLoad × 100",
+        )
+    };
+    let rs_heap = heap.filter(|h| *h > 0.0);
+    let (heap_help, heap_src) = if rs_heap.is_some() {
+        (
+            "Heap de Java en uso en los RegionServers, sumado, sobre la suma de sus máximos. Ahí viven el block cache y el memstore; sube y baja con cada recolección.",
+            "JMX java.lang:type=Memory of each RegionServer: HeapMemoryUsage.used (sum); max: HeapMemoryUsage.max (sum)",
+        )
+    } else {
+        (
+            "Heap de Java en uso en el Master de HBase, sobre su máximo: no se pudo leer el de los RegionServers.",
+            "JMX java.lang:type=Memory of the Master: HeapMemoryUsage.used; max: HeapMemoryUsage.max",
+        )
+    };
+    let requests = sum("totalRequestCount");
+    let (req_help, req_src) = if requests.is_some() {
+        (
+            "Pedidos (lecturas, escrituras y demás operaciones) que atendieron los RegionServers.",
+            "JMX Hadoop:service=HBase,name=RegionServer,sub=Server: totalRequestCount (sum over RegionServers)",
+        )
+    } else {
+        (
+            "Pedidos (lecturas, escrituras y demás operaciones) que atendió el cluster según el Master: no se pudieron leer los RegionServers.",
+            "JMX Hadoop:service=HBase,name=Master,sub=Server: clusterRequests",
+        )
+    };
+    vec![
+        Metric::new(
+            "cpu",
+            "CPU del servidor",
+            "CPU",
+            MetricUnit::Percent,
+            g("cpu").map(|c| (c * 10.0).round() / 10.0),
+        )
+        .max(Some(100.0))
+        .help(cpu_help)
+        .source(cpu_src),
+        Metric::new(
+            "mem_used",
+            "Heap de los RegionServers",
+            "Memoria",
+            MetricUnit::Bytes,
+            rs_heap.or(g("master_heap")),
+        )
+        .max(if rs_heap.is_some() {
+            heap_max.filter(|h| *h > 0.0)
+        } else {
+            g("master_heap_max")
+        })
+        .help(heap_help)
+        .source(heap_src),
+        Metric::new(
+            "mem_cache",
+            "Block cache",
+            "Memoria",
+            MetricUnit::Bytes,
+            cache_size,
+        )
+        .help("Block cache en uso en los RegionServers, sumado, sobre su tamaño total: los bloques de HFiles que HBase guarda en memoria para servir lecturas sin ir al disco.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: blockCacheSize (sum over RegionServers); max: blockCacheSize + blockCacheFreeSize")
+        .max(cache_max),
+        Metric::new(
+            "memstore",
+            "Memstore",
+            "Memoria",
+            MetricUnit::Bytes,
+            sum("memStoreSize"),
+        )
+        .help("Escrituras que los RegionServers tienen en memoria, sumadas, antes de bajarlas a HFiles. Si llega al límite de una región, las escrituras sobre ella se bloquean hasta el flush.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: memStoreSize (sum over RegionServers)"),
+        Metric::new(
+            "queries",
+            "Pedidos",
+            "Actividad",
+            MetricUnit::Count,
+            requests.or(g("requests")),
+        )
+        .counter()
+        .help(req_help)
+        .source(req_src),
+        Metric::new(
+            "rows_read",
+            "Pedidos de lectura",
+            "Actividad",
+            MetricUnit::Count,
+            sum("readRequestCount"),
+        )
+        .help("Pedidos de lectura (filas leídas por gets y scans) que atendieron los RegionServers.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: readRequestCount (sum over RegionServers)")
+        .counter(),
+        Metric::new(
+            "rows_written",
+            "Pedidos de escritura",
+            "Actividad",
+            MetricUnit::Count,
+            sum("writeRequestCount"),
+        )
+        .help("Pedidos de escritura (filas escritas por puts, deletes e increments) que atendieron los RegionServers.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: writeRequestCount (sum over RegionServers)")
+        .counter(),
+        Metric::new(
+            "blocked_requests",
+            "Pedidos bloqueados",
+            "Bloqueos",
+            MetricUnit::Count,
+            sum("blockedRequestCount"),
+        )
+        .help("Escrituras que se bloquearon porque el memstore de su región superó el límite de bloqueo. Si aparecen, los flushes o las compactaciones no dan abasto.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: blockedRequestCount (sum over RegionServers)")
+        .counter(),
+        Metric::new(
+            "cache_hit",
+            "Aciertos del block cache",
+            "Caché",
+            MetricUnit::Percent,
+            hit_pct,
+        )
+        .help("Parte de las lecturas de bloques que encontraron el bloque en el block cache, acumulada desde que arrancaron los RegionServers: cambia despacio y no refleja solo la carga de ahora.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: blockCacheHitCount ÷ (blockCacheHitCount + blockCacheMissCount) × 100, summed over RegionServers")
+        .max(Some(100.0)),
+        Metric::new(
+            "storage_used",
+            "Archivos de datos (HFiles)",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            sum("storeFileSize"),
+        )
+        .help("Tamaño de los HFiles de las regiones abiertas en los RegionServers, sumado, sin contar la replicación de HDFS.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: storeFileSize (sum over RegionServers)"),
+        Metric::new(
+            "regions",
+            "Regiones",
+            "Cluster",
+            MetricUnit::Count,
+            sum("regionCount"),
+        )
+        .help("Regiones abiertas en los RegionServers que DBine pudo leer, sumadas.")
+        .source("JMX Hadoop:service=HBase,name=RegionServer,sub=Server: regionCount (sum over RegionServers)"),
+        Metric::new(
+            "region_servers",
+            "RegionServers vivos",
+            "Cluster",
+            MetricUnit::Count,
+            g("rs"),
+        )
+        .help("RegionServers vivos según el Master de HBase.")
+        .source("JMX Hadoop:service=HBase,name=Master,sub=Server: numRegionServers"),
+        Metric::new(
+            "dead_region_servers",
+            "RegionServers caídos",
+            "Cluster",
+            MetricUnit::Count,
+            g("rs_dead"),
+        )
+        .help("RegionServers que el Master da por caídos. Sus regiones se reasignan a los que quedan; si no vuelve a cero, falta capacidad.")
+        .source("JMX Hadoop:service=HBase,name=Master,sub=Server: numDeadRegionServers"),
+        Metric::new(
+            "tables",
+            "Tablas de Phoenix",
+            "Almacenamiento",
+            MetricUnit::Count,
+            g("tables"),
+        )
+        .help("Tablas de usuario que Phoenix tiene en su catálogo, sin vistas, índices ni tablas de sistema.")
+        .source("SYSTEM.CATALOG: COUNT(DISTINCT TABLE_NAME) where TABLE_TYPE = 'u' (no tenant)"),
+        Metric::new(
+            "uptime",
+            "Tiempo activo del Master",
+            "Servidor",
+            MetricUnit::Seconds,
+            g("uptime").map(f64::round),
+        )
+        .help("Tiempo desde que arrancó el Master activo de HBase. Si vuelve a cero, se reinició o cambió de Master.")
+        .source("JMX Hadoop:service=HBase,name=Master,sub=Server: now − masterStartTime"),
+    ]
+}
+
 impl PhoenixSession {
     async fn jmx(&self, base: &str, qry: &str) -> Option<Value> {
         let r = self
@@ -349,35 +569,12 @@ impl PhoenixSession {
                 servers.len()
             ));
         }
-        let sum = |k: &str| {
-            (!reached.is_empty()).then(|| {
-                reached
-                    .iter()
-                    .filter_map(|r| r.s.get(k))
-                    .fold(0.0, |a, b| a + b)
-            })
-        };
-        let heap: Option<f64> = (!reached.is_empty()).then(|| {
-            reached
-                .iter()
-                .filter_map(|r| r.heap)
-                .fold(0.0, |a, b| a + b)
-        });
-        let heap_max: Option<f64> = (!reached.is_empty()).then(|| {
-            reached
-                .iter()
-                .filter_map(|r| r.heap_max)
-                .fold(0.0, |a, b| a + b)
-        });
-        let (hits, misses) = (sum("blockCacheHitCount"), sum("blockCacheMissCount"));
-        let hit_pct = match (hits, misses) {
-            (Some(h), Some(mi)) if h + mi > 0.0 => Some((h * 1000.0 / (h + mi)).round() / 10.0),
-            _ => None,
-        };
         if !m.contains_key("cpu") {
             let cpus: Vec<f64> = reached.iter().filter_map(|r| r.cpu).collect();
             if !cpus.is_empty() {
                 m.insert("cpu", cpus.iter().sum::<f64>() / cpus.len() as f64);
+                // Marks that the CPU is the RegionServers' average.
+                m.insert("cpu_rs", 1.0);
             }
         }
         if !reached.is_empty() {
@@ -455,127 +652,7 @@ impl PhoenixSession {
             snap.tables.insert(0, t);
         }
 
-        let g = |k: &str| m.get(k).copied();
-        let cache_size = sum("blockCacheSize");
-        let cache_max = match (cache_size, sum("blockCacheFreeSize")) {
-            (Some(a), Some(b)) => Some(a + b),
-            _ => None,
-        };
-        snap.metrics = vec![
-            Metric::new(
-                "cpu",
-                "CPU del servidor",
-                "CPU",
-                MetricUnit::Percent,
-                g("cpu").map(|c| (c * 10.0).round() / 10.0),
-            )
-            .max(Some(100.0)),
-            Metric::new(
-                "mem_used",
-                "Heap de los RegionServers",
-                "Memoria",
-                MetricUnit::Bytes,
-                heap.filter(|h| *h > 0.0).or(g("master_heap")),
-            )
-            .max(heap_max.filter(|h| *h > 0.0).or(g("master_heap_max"))),
-            Metric::new(
-                "mem_cache",
-                "Block cache",
-                "Memoria",
-                MetricUnit::Bytes,
-                cache_size,
-            )
-            .max(cache_max),
-            Metric::new(
-                "memstore",
-                "Memstore",
-                "Memoria",
-                MetricUnit::Bytes,
-                sum("memStoreSize"),
-            ),
-            Metric::new(
-                "queries",
-                "Pedidos",
-                "Actividad",
-                MetricUnit::Count,
-                sum("totalRequestCount").or(g("requests")),
-            )
-            .counter(),
-            Metric::new(
-                "rows_read",
-                "Pedidos de lectura",
-                "Actividad",
-                MetricUnit::Count,
-                sum("readRequestCount"),
-            )
-            .counter(),
-            Metric::new(
-                "rows_written",
-                "Pedidos de escritura",
-                "Actividad",
-                MetricUnit::Count,
-                sum("writeRequestCount"),
-            )
-            .counter(),
-            Metric::new(
-                "blocked_requests",
-                "Pedidos bloqueados",
-                "Bloqueos",
-                MetricUnit::Count,
-                sum("blockedRequestCount"),
-            )
-            .counter(),
-            Metric::new(
-                "cache_hit",
-                "Aciertos del block cache",
-                "Caché",
-                MetricUnit::Percent,
-                hit_pct,
-            )
-            .max(Some(100.0)),
-            Metric::new(
-                "storage_used",
-                "Archivos de datos (HFiles)",
-                "Almacenamiento",
-                MetricUnit::Bytes,
-                sum("storeFileSize"),
-            ),
-            Metric::new(
-                "regions",
-                "Regiones",
-                "Cluster",
-                MetricUnit::Count,
-                sum("regionCount"),
-            ),
-            Metric::new(
-                "region_servers",
-                "RegionServers vivos",
-                "Cluster",
-                MetricUnit::Count,
-                g("rs"),
-            ),
-            Metric::new(
-                "dead_region_servers",
-                "RegionServers caídos",
-                "Cluster",
-                MetricUnit::Count,
-                g("rs_dead"),
-            ),
-            Metric::new(
-                "tables",
-                "Tablas de Phoenix",
-                "Almacenamiento",
-                MetricUnit::Count,
-                g("tables"),
-            ),
-            Metric::new(
-                "uptime",
-                "Tiempo activo del Master",
-                "Servidor",
-                MetricUnit::Seconds,
-                g("uptime").map(f64::round),
-            ),
-        ];
+        snap.metrics = metrics(&m, &reached);
         snap.notes.push("El Query Server de Phoenix no informa sesiones ni consultas en curso: Avatica no expone esa información.".into());
         Ok(snap)
     }
@@ -611,5 +688,81 @@ mod tests {
             Some(("SYSTEM:CATALOG".into(), "readRequestCount"))
         );
         assert_eq!(table_metric("numRegionServers"), None);
+    }
+
+    fn described(list: &[Metric]) {
+        assert_eq!(list.len(), 15);
+        for m in list {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
+    }
+
+    #[test]
+    fn every_metric_says_what_it_is() {
+        let rs = Rs {
+            heap: Some(10.0),
+            heap_max: Some(100.0),
+            s: [
+                ("totalRequestCount", 7.0),
+                ("blockCacheHitCount", 3.0),
+                ("blockCacheMissCount", 1.0),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        let m: HashMap<&str, f64> = [("cpu", 12.0), ("master_heap", 1.0), ("requests", 99.0)]
+            .into_iter()
+            .collect();
+        let list = metrics(&m, &[&rs]);
+        described(&list);
+        let get = |k: &str| list.iter().find(|x| x.key == k).unwrap();
+        assert_eq!(get("mem_used").value, Some(10.0));
+        assert_eq!(get("queries").value, Some(7.0));
+        assert_eq!(get("cache_hit").value, Some(75.0));
+        assert!(get("cpu")
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("of the Master"));
+
+        // No RegionServer reached: the Master's figures, and the texts say so.
+        let m: HashMap<&str, f64> = [
+            ("cpu", 12.0),
+            ("cpu_rs", 1.0),
+            ("master_heap", 1.0),
+            ("master_heap_max", 2.0),
+            ("requests", 99.0),
+        ]
+        .into_iter()
+        .collect();
+        let list = metrics(&m, &[]);
+        described(&list);
+        let get = |k: &str| list.iter().find(|x| x.key == k).unwrap();
+        assert_eq!(
+            (get("mem_used").value, get("mem_used").max),
+            (Some(1.0), Some(2.0))
+        );
+        assert!(get("mem_used")
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("of the Master"));
+        assert_eq!(get("queries").value, Some(99.0));
+        assert!(get("queries")
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("clusterRequests"));
+        assert!(get("cpu")
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("each RegionServer"));
     }
 }

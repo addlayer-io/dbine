@@ -291,6 +291,17 @@ async fn monitor() {
         assert!(v(k).is_some(), "{k}: {:#?}", snap.metrics);
     }
     assert!(v("mem_used").unwrap() > 1e6 && v("queries").unwrap() >= 1.0);
+    // Each read runs four queries of its own, which the counter includes
+    // (its help says so): exactly four more when nothing else runs.
+    let again = s.monitor().await.unwrap();
+    let q2 = again
+        .metrics
+        .iter()
+        .find(|m| m.key == "queries")
+        .and_then(|m| m.value)
+        .unwrap();
+    eprintln!("queries between two reads: {}", q2 - v("queries").unwrap());
+    assert!(q2 - v("queries").unwrap() >= 4.0);
     assert!(snap
         .metrics
         .iter()

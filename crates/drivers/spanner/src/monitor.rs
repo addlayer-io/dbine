@@ -61,52 +61,210 @@ pub(crate) fn rfc3339(secs: u64) -> String {
     )
 }
 
-/// The latest point of an aggregated `timeSeries.list` answer.
-pub(crate) fn latest_point(v: &Json) -> Option<f64> {
+/// The latest point of each series of an aggregated `timeSeries.list`
+/// answer; `None` when there are none.
+fn latest_points(v: &Json) -> Option<Vec<f64>> {
     let series = v.get("timeSeries")?.as_array()?;
-    let mut total = None;
+    let mut points = Vec::new();
     for s in series {
         let p = s.get("points")?.as_array()?.first()?;
-        let val = p
-            .pointer("/value/doubleValue")
-            .and_then(Json::as_f64)
-            .or_else(|| {
-                p.pointer("/value/int64Value")
-                    .and_then(|x| x.as_str().and_then(|s| s.parse().ok()).or(x.as_f64()))
-            })?;
-        *total.get_or_insert(0.0) += val;
+        points.push(
+            p.pointer("/value/doubleValue")
+                .and_then(Json::as_f64)
+                .or_else(|| {
+                    p.pointer("/value/int64Value")
+                        .and_then(|x| x.as_str().and_then(|s| s.parse().ok()).or(x.as_f64()))
+                })?,
+        );
     }
-    total
+    (!points.is_empty()).then_some(points)
+}
+
+/// The latest point of an aggregated `timeSeries.list` answer, summed
+/// over its series.
+pub(crate) fn latest_point(v: &Json) -> Option<f64> {
+    latest_points(v).map(|p| p.iter().sum())
+}
+
+/// The highest latest point among the series (one per region when
+/// grouped by location).
+pub(crate) fn latest_max(v: &Json) -> Option<f64> {
+    latest_points(v)?.into_iter().reduce(f64::max)
+}
+
+/// The headline figures, from what the snapshot read (keyed as in
+/// [`SpannerSession::snapshot`]).
+pub(crate) fn metrics(m: &HashMap<&str, f64>) -> Vec<Metric> {
+    let g = |k: &str| m.get(k).copied();
+    vec![
+        Metric::new(
+            "cpu",
+            "CPU de la instancia",
+            "CPU",
+            MetricUnit::Percent,
+            g("cpu").map(|v| (v * 10.0).round() / 10.0),
+        )
+        .help("Uso del CPU aprovisionado de la instancia (sus nodos o unidades de procesamiento), promedio del último minuto, de todas sus bases y con las tareas de sistema; en una configuración multirregión, el de la región más cargada. 100 % es toda la capacidad; si se mantiene alto, la instancia necesita más nodos o unidades de procesamiento.")
+        .source(if g("cpu_summed").is_some() {
+            "Cloud Monitoring spanner.googleapis.com/instance/cpu/utilization (ALIGN_MEAN 60 s, REDUCE_SUM over series) × 100"
+        } else {
+            "Cloud Monitoring spanner.googleapis.com/instance/cpu/utilization (ALIGN_MEAN 60 s, REDUCE_SUM by resource.label.location, the highest region) × 100"
+        })
+        .max(Some(100.0)),
+        Metric::new(
+            "query_cpu",
+            "Tiempo de CPU de consultas (último minuto)",
+            "CPU",
+            MetricUnit::Seconds,
+            g("q_cpu"),
+        )
+        .help("Segundos de CPU que gastaron las consultas de esta base en el último minuto completo: 60 s equivalen a un núcleo ocupado todo el minuto. Compará con el CPU de la instancia para ver cuánto de la carga es de estas consultas.")
+        .source("SPANNER_SYS.QUERY_STATS_TOTAL_MINUTE (latest interval): AVG_CPU_SECONDS × EXECUTION_COUNT"),
+        Metric::new(
+            "active_sessions",
+            "Consultas activas",
+            "Conexiones",
+            MetricUnit::Count,
+            g("active"),
+        )
+        .help("Consultas de esta base que se están ejecutando ahora, sin la del monitor.")
+        .source("SPANNER_SYS.ACTIVE_QUERIES_SUMMARY: ACTIVE_COUNT, minus the monitor's own query"),
+        Metric::new(
+            "slow_queries",
+            "Consultas activas hace más de 10 s",
+            "Conexiones",
+            MetricUnit::Count,
+            g("older_10s"),
+        )
+        .help("Consultas que llevan más de 10 segundos ejecutándose. Si se acumulan, mirá las más viejas en la tabla de consultas en curso.")
+        .source("SPANNER_SYS.ACTIVE_QUERIES_SUMMARY: COUNT_OLDER_THAN_10S"),
+        Metric::new(
+            "queries_minute",
+            "Consultas (último minuto)",
+            "Actividad",
+            MetricUnit::Count,
+            g("q_count"),
+        )
+        .help("Consultas que se ejecutaron en esta base en el último minuto completo.")
+        .source("SPANNER_SYS.QUERY_STATS_TOTAL_MINUTE (latest interval): EXECUTION_COUNT"),
+        Metric::new(
+            "query_latency",
+            "Latencia media de consultas",
+            "Actividad",
+            MetricUnit::Millis,
+            g("q_latency"),
+        )
+        .help("Latencia media de las consultas del último minuto completo, desde que llegan hasta que devuelven el último resultado.")
+        .source("SPANNER_SYS.QUERY_STATS_TOTAL_MINUTE (latest interval): AVG_LATENCY_SECONDS × 1000"),
+        Metric::new(
+            "rows_scanned_minute",
+            "Filas escaneadas (último minuto)",
+            "Actividad",
+            MetricUnit::Count,
+            g("q_scanned"),
+        )
+        .help("Filas que recorrieron las consultas del último minuto completo. Si es mucho más que las devueltas, faltan índices o los filtros no usan la clave primaria.")
+        .source("SPANNER_SYS.QUERY_STATS_TOTAL_MINUTE (latest interval): AVG_ROWS_SCANNED × EXECUTION_COUNT"),
+        Metric::new(
+            "rows_returned_minute",
+            "Filas devueltas (último minuto)",
+            "Actividad",
+            MetricUnit::Count,
+            g("q_rows"),
+        )
+        .help("Filas que devolvieron las consultas del último minuto completo.")
+        .source("SPANNER_SYS.QUERY_STATS_TOTAL_MINUTE (latest interval): AVG_ROWS × EXECUTION_COUNT"),
+        Metric::new(
+            "transactions_minute",
+            "Commits (último minuto)",
+            "Actividad",
+            MetricUnit::Count,
+            g("t_commits"),
+        )
+        .help("Intentos de commit de transacciones de lectura y escritura en el último minuto completo, incluidos los que se abortaron.")
+        .source("SPANNER_SYS.TXN_STATS_TOTAL_MINUTE (latest interval): COMMIT_ATTEMPT_COUNT"),
+        Metric::new(
+            "aborts_minute",
+            "Transacciones abortadas (último minuto)",
+            "Actividad",
+            MetricUnit::Count,
+            g("t_aborts"),
+        )
+        .help("Commits abortados en el último minuto completo, casi siempre por conflictos de bloqueo con otra transacción; el cliente los reintenta. Si son una parte grande de los intentos, hay transacciones que compiten por las mismas filas.")
+        .source("SPANNER_SYS.TXN_STATS_TOTAL_MINUTE (latest interval): COMMIT_ABORT_COUNT"),
+        Metric::new(
+            "commit_latency",
+            "Latencia media de commit",
+            "Actividad",
+            MetricUnit::Millis,
+            g("t_latency"),
+        )
+        .help("Latencia media de commit de las transacciones del último minuto completo. Sube con las esperas por bloqueos y, en configuraciones multirregión, con la distancia entre réplicas.")
+        .source("SPANNER_SYS.TXN_STATS_TOTAL_MINUTE (latest interval): AVG_COMMIT_LATENCY_SECONDS × 1000"),
+        Metric::new(
+            "lock_wait",
+            "Espera por bloqueos (último minuto)",
+            "Bloqueos",
+            MetricUnit::Seconds,
+            g("lock_wait"),
+        )
+        .help("Tiempo que las transacciones pasaron esperando bloqueos en el último minuto completo, sumado entre todas. Las filas más disputadas están en la tabla de esperas por bloqueos.")
+        .source("SPANNER_SYS.LOCK_STATS_TOTAL_MINUTE (latest interval): TOTAL_LOCK_WAIT_SECONDS"),
+        Metric::new(
+            "storage_used",
+            "Espacio usado por la instancia",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            g("inst_bytes"),
+        )
+        .help("Espacio que ocupan todas las bases de la instancia, sobre el límite que permite su capacidad (nodos o unidades de procesamiento).")
+        .source("Cloud Monitoring spanner.googleapis.com/instance/storage/used_bytes (REDUCE_SUM); max: instance/storage/limit_bytes")
+        .max(g("inst_limit")),
+        Metric::new(
+            "database_size",
+            "Tamaño de la base (última hora)",
+            "Almacenamiento",
+            MetricUnit::Bytes,
+            g("db_bytes"),
+        )
+        .help("Tamaño de las tablas de esta base, sumado, de la última medición horaria.")
+        .source("SPANNER_SYS.TABLE_SIZES_STATS_1HOUR (latest interval): USED_BYTES (sum)"),
+    ]
 }
 
 impl SpannerSession {
-    /// The last minute of a Cloud Monitoring metric of this instance,
-    /// summed over its series.
+    /// The last minutes of a Cloud Monitoring metric of this instance, its
+    /// series summed (within each `group_by` value, when given).
     async fn monitoring(
         &self,
         project: &str,
         instance_id: &str,
         metric: &str,
-    ) -> Result<Option<f64>> {
+        group_by: Option<&str>,
+    ) -> Result<Json> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let filter = format!("metric.type=\"spanner.googleapis.com/{metric}\" AND resource.labels.instance_id=\"{instance_id}\"");
+        let (start, end) = (rfc3339(now.saturating_sub(300)), rfc3339(now));
+        let mut params = vec![
+            ("filter", filter.as_str()),
+            ("interval.startTime", &start),
+            ("interval.endTime", &end),
+            ("aggregation.alignmentPeriod", "60s"),
+            ("aggregation.perSeriesAligner", "ALIGN_MEAN"),
+            ("aggregation.crossSeriesReducer", "REDUCE_SUM"),
+        ];
+        if let Some(g) = group_by {
+            params.push(("aggregation.groupByFields", g));
+        }
         let url = reqwest::Url::parse_with_params(
             &format!("{MONITORING}/v3/projects/{project}/timeSeries"),
-            &[
-                ("filter", filter.as_str()),
-                ("interval.startTime", &rfc3339(now.saturating_sub(300))),
-                ("interval.endTime", &rfc3339(now)),
-                ("aggregation.alignmentPeriod", "60s"),
-                ("aggregation.perSeriesAligner", "ALIGN_MEAN"),
-                ("aggregation.crossSeriesReducer", "REDUCE_SUM"),
-            ],
+            &params,
         )
         .map_err(|e| dbine_driver::Error::Query(e.to_string()))?;
-        let v = self.api.send(self.api.http.get(url)).await?;
-        Ok(latest_point(&v))
+        self.api.send(self.api.http.get(url)).await
     }
 
     /// A SPANNER_SYS query; on failure, a note and no rows.
@@ -259,8 +417,10 @@ impl SpannerSession {
                 m.insert("q_latency", l * 1000.0);
             }
             if let Some(c) = f(&r[2]) {
-                // CPU seconds in 60 s: the share of one core.
-                m.insert("q_cpu", c * n / 60.0 * 100.0);
+                // CPU seconds spent in the minute. Not a percentage: the
+                // instance's cores aren't known, so it can't be a share of
+                // them (the instance's own CPU share is `cpu`).
+                m.insert("q_cpu", c * n);
             }
             if let Some(x) = f(&r[3]) {
                 m.insert("q_scanned", x * n);
@@ -424,15 +584,32 @@ impl SpannerSession {
                 parts.nth(1).unwrap_or("").to_string(),
                 parts.nth(1).unwrap_or("").to_string(),
             );
-            match self.monitoring(&project, &instance_id, "instance/cpu/utilization").await {
+            // A multi-region instance reports each region's CPU: summing
+            // them would pass 100 %, so the busiest region counts. If the
+            // grouping is refused, the sum (the same with one region).
+            const CPU: &str = "instance/cpu/utilization";
+            let cpu = match self
+                .monitoring(&project, &instance_id, CPU, Some("resource.label.location"))
+                .await
+            {
+                Ok(v) => Ok(latest_max(&v)),
+                Err(e) => {
+                    tracing::debug!("spanner cpu by location: {e}");
+                    m.insert("cpu_summed", 1.0);
+                    self.monitoring(&project, &instance_id, CPU, None)
+                        .await
+                        .map(|v| latest_point(&v))
+                }
+            };
+            match cpu {
                 Ok(v) => {
                     if let Some(v) = v {
                         m.insert("cpu", v * 100.0);
                     }
-                    if let Ok(Some(v)) = self.monitoring(&project, &instance_id, "instance/storage/used_bytes").await {
+                    if let Ok(Some(v)) = self.monitoring(&project, &instance_id, "instance/storage/used_bytes", None).await.map(|v| latest_point(&v)) {
                         m.insert("inst_bytes", v);
                     }
-                    if let Ok(Some(v)) = self.monitoring(&project, &instance_id, "instance/storage/limit_bytes").await {
+                    if let Ok(Some(v)) = self.monitoring(&project, &instance_id, "instance/storage/limit_bytes", None).await.map(|v| latest_point(&v)) {
                         m.insert("inst_limit", v);
                     }
                 }
@@ -447,109 +624,7 @@ impl SpannerSession {
             );
         }
 
-        let g = |k: &str| m.get(k).copied();
-        snap.metrics = vec![
-            Metric::new(
-                "cpu",
-                "CPU de la instancia",
-                "CPU",
-                MetricUnit::Percent,
-                g("cpu").map(|v| (v * 10.0).round() / 10.0),
-            )
-            .max(Some(100.0)),
-            Metric::new(
-                "query_cpu",
-                "CPU de consultas (último minuto, % de un núcleo)",
-                "CPU",
-                MetricUnit::Percent,
-                g("q_cpu"),
-            ),
-            Metric::new(
-                "active_sessions",
-                "Consultas activas",
-                "Conexiones",
-                MetricUnit::Count,
-                g("active"),
-            ),
-            Metric::new(
-                "slow_queries",
-                "Consultas activas hace más de 10 s",
-                "Conexiones",
-                MetricUnit::Count,
-                g("older_10s"),
-            ),
-            Metric::new(
-                "queries_minute",
-                "Consultas (último minuto)",
-                "Actividad",
-                MetricUnit::Count,
-                g("q_count"),
-            ),
-            Metric::new(
-                "query_latency",
-                "Latencia media de consultas",
-                "Actividad",
-                MetricUnit::Millis,
-                g("q_latency"),
-            ),
-            Metric::new(
-                "rows_scanned_minute",
-                "Filas escaneadas (último minuto)",
-                "Actividad",
-                MetricUnit::Count,
-                g("q_scanned"),
-            ),
-            Metric::new(
-                "rows_returned_minute",
-                "Filas devueltas (último minuto)",
-                "Actividad",
-                MetricUnit::Count,
-                g("q_rows"),
-            ),
-            Metric::new(
-                "transactions_minute",
-                "Commits (último minuto)",
-                "Actividad",
-                MetricUnit::Count,
-                g("t_commits"),
-            ),
-            Metric::new(
-                "aborts_minute",
-                "Transacciones abortadas (último minuto)",
-                "Actividad",
-                MetricUnit::Count,
-                g("t_aborts"),
-            ),
-            Metric::new(
-                "commit_latency",
-                "Latencia media de commit",
-                "Actividad",
-                MetricUnit::Millis,
-                g("t_latency"),
-            ),
-            Metric::new(
-                "lock_wait",
-                "Espera por bloqueos (último minuto)",
-                "Bloqueos",
-                MetricUnit::Seconds,
-                g("lock_wait"),
-            ),
-            Metric::new(
-                "storage_used",
-                "Espacio usado por la instancia",
-                "Almacenamiento",
-                MetricUnit::Bytes,
-                g("inst_bytes"),
-            )
-            .max(g("inst_limit")),
-            Metric::new(
-                "database_size",
-                "Tamaño de la base (última hora)",
-                "Almacenamiento",
-                MetricUnit::Bytes,
-                g("db_bytes"),
-            ),
-        ];
+        snap.metrics = metrics(&m);
 
         if !failures.is_empty() {
             snap.notes.push(if emulated {
@@ -584,10 +659,42 @@ mod tests {
             {"points": [{"value": {"doubleValue": 0.05}}]}
         ]});
         assert!((latest_point(&v).unwrap() - 0.3).abs() < 1e-9);
+        // Grouped by region: the busiest one, not the sum.
+        assert_eq!(latest_max(&v), Some(0.25));
+        assert_eq!(latest_max(&json!({"timeSeries": []})), None);
         assert_eq!(
             latest_point(&json!({"timeSeries": [{"points": [{"value": {"int64Value": "1024"}}]}]})),
             Some(1024.0)
         );
         assert_eq!(latest_point(&json!({})), None);
+    }
+
+    #[test]
+    fn every_metric_says_what_it_is() {
+        let m: HashMap<&str, f64> = [("cpu", 42.04), ("q_cpu", 90.0)].into_iter().collect();
+        let list = metrics(&m);
+        assert_eq!(list.len(), 14);
+        let cpu = |k: &str| list.iter().find(|x| x.key == k).unwrap();
+        assert_eq!(cpu("cpu").value, Some(42.0));
+        // Query CPU is CPU seconds, not a share of an unknown core count.
+        assert_eq!(cpu("query_cpu").unit, MetricUnit::Seconds);
+        assert_eq!(cpu("query_cpu").value, Some(90.0));
+        assert!(cpu("cpu")
+            .source
+            .as_deref()
+            .unwrap()
+            .contains("by resource.label.location"));
+        let summed: HashMap<&str, f64> = [("cpu", 42.0), ("cpu_summed", 1.0)].into_iter().collect();
+        let list2 = metrics(&summed);
+        let c = list2.iter().find(|x| x.key == "cpu").unwrap();
+        assert!(c.source.as_deref().unwrap().contains("over series"));
+        for m in &list {
+            assert!(
+                m.help.as_deref().is_some_and(|h| !h.is_empty())
+                    && m.source.as_deref().is_some_and(|s| !s.is_empty()),
+                "{} has no help or source",
+                m.key
+            );
+        }
     }
 }
