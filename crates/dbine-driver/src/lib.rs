@@ -73,7 +73,7 @@ pub use model::{
 pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
 pub use scheduler::{
     FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, SchedulerInfo,
-    SchedulerItem, SchedulerKind, SchedulerList,
+    SchedulerItem, SchedulerKind, SchedulerList, SECRET_MASK,
 };
 pub use sort::SortKey;
 

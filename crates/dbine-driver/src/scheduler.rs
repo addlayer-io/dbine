@@ -140,7 +140,17 @@ pub enum FormKind {
     Duration,
     /// A cron expression, as the engine reads it.
     Cron,
+    /// A password or token. The form never carries its current value (it
+    /// comes as `null`); the app sends a value only when the user typed
+    /// one, and `null` means "keep what the server has". The script that
+    /// [`crate::Session::scheduler_script`] returns shows it masked
+    /// ([`SECRET_MASK`]); only `scheduler_save` writes the real value, and
+    /// it never reaches a log.
+    Secret,
 }
+
+/// What a script shows in place of a secret value.
+pub const SECRET_MASK: &str = "********";
 
 impl FormKind {
     /// One of these `(value, Spanish label)` pairs. Write the pairs as

@@ -62,7 +62,10 @@ export type FormKind =
   | { type: 'date_time' }
   /** Seconds. */
   | { type: 'duration' }
-  | { type: 'cron' };
+  | { type: 'cron' }
+  /** A password or token: the form never carries its value (null); send a value only when the
+   *  user typed one (null keeps the server's). Scripts show it masked. */
+  | { type: 'secret' };
 
 /** Labels, help and placeholders in Spanish from the driver: translate with `tb`. */
 export interface FormField {
