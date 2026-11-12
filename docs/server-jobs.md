@@ -15,6 +15,10 @@ servers** section has one group per connection whose engine has jobs.
   while it stays open. Opening **Scheduled** never connects to servers whose
   group is closed.
 - A red number on a group counts the jobs whose last run failed.
+- Jobs that come with the engine (Oracle's maintenance jobs, SQL Server's
+  policy purge, TimescaleDB's built-in policies…) are marked as system jobs and
+  hidden by default. A toggle on the connection's group shows them. Which jobs
+  count as system is listed in `engine-support.md`.
 - Each job shows the result of its last run, its schedule (or **On demand**)
   and its next run. Disabled jobs are dimmed.
 - When the server has no jobs, or only some are visible, the group says why:
