@@ -72,7 +72,7 @@ pub struct FluxSession {
     pub(crate) http: reqwest::Client,
     pub(crate) base: String,
     pub(crate) org: String,
-    token: String,
+    pub(crate) token: String,
     bucket: Option<String>,
     read_only: bool,
 }
@@ -419,6 +419,35 @@ impl Session for FluxSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(crate::processes::V2_UNSUPPORTED.into()))
+    }
+
+    /// Tasks (see [`crate::jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.job_history(id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.job_start(id).await
+    }
+
+    async fn stop_job(&mut self, id: &str) -> Result<()> {
+        self.job_stop(id).await
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.job_enable(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.job_create_script(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

@@ -8,6 +8,7 @@
 mod create_db;
 mod csv;
 mod http;
+mod jobs;
 mod monitor;
 mod permissions;
 mod plan;
@@ -124,7 +125,8 @@ impl Driver for InfluxDriver {
     /// Buckets / databases are created and dropped through the HTTP API
     /// (v2, v3) or InfluxQL (v1). No foreign keys in InfluxDB. Running
     /// queries are listed on v1 and v3, and only v1 can stop one (see
-    /// [`processes`]).
+    /// [`processes`]). Every version has server jobs of its own (see
+    /// [`jobs`]).
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             create_database: true,
@@ -134,6 +136,9 @@ impl Driver for InfluxDriver {
             processes: !matches!(self.api, Api::Flux),
             cancel_query: matches!(self.api, Api::InfluxQl),
             database_properties: true,
+            // Tasks (2.x), continuous queries (1.x), processing engine
+            // triggers (3.x); see `jobs`.
+            jobs: true,
             ..Default::default()
         }
     }

@@ -224,7 +224,7 @@ impl SqlSession {
         }
     }
 
-    async fn databases(&self) -> Result<Vec<String>> {
+    pub(crate) async fn databases(&self) -> Result<Vec<String>> {
         let req = self
             .http
             .get(format!("{}/api/v3/configure/database", self.base))
@@ -432,6 +432,35 @@ impl Session for SqlSession {
 
     async fn cancel_query(&mut self, _id: &str) -> Result<()> {
         Err(Error::Unsupported(processes::V3_NO_CANCEL.into()))
+    }
+
+    /// The processing engine's triggers (see [`crate::jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.job_history(id, limit).await
+    }
+
+    async fn run_job(&mut self, _id: &str) -> Result<()> {
+        Err(crate::jobs::v3_no_run())
+    }
+
+    async fn stop_job(&mut self, _id: &str) -> Result<()> {
+        Err(crate::jobs::v3_no_run())
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.job_enable(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.job_create_script(id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

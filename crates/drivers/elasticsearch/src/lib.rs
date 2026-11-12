@@ -14,6 +14,7 @@ pub mod console;
 pub mod ddl;
 pub mod flatten;
 pub mod http;
+mod jobs;
 pub mod json;
 mod monitor;
 mod permissions;
@@ -386,6 +387,9 @@ impl Driver for Es {
             monitor: true,
             processes: true,
             cancel_query: true,
+            // Transforms and watches, or transforms and monitors (see
+            // `jobs`).
+            jobs: true,
             ..Capabilities::default()
         }
     }
@@ -1337,6 +1341,38 @@ impl Session for EsSession {
             ))),
             None => Ok(()),
         }
+    }
+
+    /// Transforms and watches (Elasticsearch), transforms and alerting
+    /// monitors (OpenSearch, Open Distro); see [`jobs`].
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.job_history(id, limit).await
+    }
+
+    async fn run_job(&mut self, id: &str) -> Result<()> {
+        self.job_start(id).await
+    }
+
+    async fn stop_job(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Unsupported(
+            "el clúster no permite detener una ejecución en curso de sus jobs".into(),
+        ))
+    }
+
+    async fn set_job_enabled(&mut self, id: &str, enabled: bool) -> Result<()> {
+        self.job_enable(id, enabled).await
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.job_create_script(id).await
     }
 
     async fn profiler_start(

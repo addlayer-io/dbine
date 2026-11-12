@@ -986,6 +986,35 @@ impl Session for InfluxQlSession {
             })
     }
 
+    /// Continuous queries (see [`crate::jobs`]).
+    async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
+        self.jobs_list().await
+    }
+
+    async fn job_detail(&mut self, id: &str) -> Result<dbine_driver::JobDetail> {
+        self.job_info(id).await
+    }
+
+    async fn job_runs(&mut self, id: &str, limit: u32) -> Result<Vec<dbine_driver::JobRun>> {
+        self.job_history(id, limit).await
+    }
+
+    async fn run_job(&mut self, _id: &str) -> Result<()> {
+        Err(crate::jobs::v1_fixed())
+    }
+
+    async fn stop_job(&mut self, _id: &str) -> Result<()> {
+        Err(crate::jobs::v1_fixed())
+    }
+
+    async fn set_job_enabled(&mut self, _id: &str, _enabled: bool) -> Result<()> {
+        Err(crate::jobs::v1_fixed())
+    }
+
+    async fn job_script(&mut self, id: &str) -> Result<String> {
+        self.job_create_script(id).await
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         let mut answers = Vec::new();
         for q in ["SHOW STATS", "SHOW DIAGNOSTICS", "SHOW QUERIES"] {
