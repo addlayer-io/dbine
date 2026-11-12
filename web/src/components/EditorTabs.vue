@@ -107,7 +107,7 @@ const rows = computed<Row[]>(() => {
         : titles[i],
       tooltip: tooltip(t),
       color: inGroup ? groupColor(t.connectionId) : conns.colorOf(t.connectionId),
-      icon: { context: 'memo', query: 'document', file: 'document', notebook: 'notebook', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', scheduledTask: 'alarm-clock', serverJob: 'timer', connection: 'connection', queryBuilder: 'set-up', subset: 'scissor', optimizer: 'trend-charts' }[t.kind],
+      icon: { context: 'memo', query: 'document', file: 'document', notebook: 'notebook', fileDiff: 'files', object: 'grid', designer: 'edit-pen', diagram: 'share', monitor: 'odometer', profiler: 'view', migration: 'switch', compare: 'files', dataCompare: 'data-analysis', security: 'user', backups: 'box', indexes: 'collection', dependencies: 'link', search: 'search', health: 'first-aid-kit', scheduledTask: 'alarm-clock', serverJob: 'timer', schedulerObject: 'edit-pen', schedulerLog: 'tickets', connection: 'connection', queryBuilder: 'set-up', subset: 'scissor', optimizer: 'trend-charts' }[t.kind],
     });
   });
   return out;

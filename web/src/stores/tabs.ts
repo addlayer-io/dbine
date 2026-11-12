@@ -193,6 +193,23 @@ export interface ServerJobTab extends TabBase {
   jobName: string;
 }
 
+/** The scheduler designer ("Programadas › En los servidores"): one object
+ *  of the server's scheduler (a job, a schedule, an operator…), drawn from
+ *  the form its driver describes. `objectKind` is the scheduler's kind key;
+ *  `objectId` null: a new object, until it's saved. `title` names the tab
+ *  before the form is read (the object's name). */
+export interface SchedulerObjectTab extends TabBase {
+  kind: 'schedulerObject';
+  objectKind: string;
+  objectId: string | null;
+  title: string;
+}
+
+/** The server's scheduler log (SQL Server Agent's error logs). */
+export interface SchedulerLogTab extends TabBase {
+  kind: 'schedulerLog';
+}
+
 /** "Buscar · <base>": object names and the text of views, routines, triggers… */
 export interface SearchTab extends TabBase {
   kind: 'search';
@@ -255,7 +272,7 @@ export interface QueryBuilderTab extends TabBase {
   spec: QuerySpec;
 }
 
-export type Tab = ContextTab | QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ServerJobTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
+export type Tab = ContextTab | QueryTab | FileTab | FileDiffTab | NotebookTab | ObjectTab | DesignerTab | DiagramTab | MonitorTab | ProfilerTab | MigrationTab | CompareTab | DataCompareTab | SecurityTab | BackupsTab | IndexesTab | DependenciesTab | SearchTab | HealthTab | ScheduledTaskTab | ServerJobTab | SchedulerObjectTab | SchedulerLogTab | ConnectionFormTab | QueryBuilderTab | SubsetTab | OptimizerTab;
 
 /** Editor tabs that can't move to another database right now (running, or
  *  with an open transaction). QueryView keeps it up to date. */
@@ -761,6 +778,32 @@ export const useTabsStore = defineStore('tabs', {
       const open = this.tabs.find((t) => t.kind === 'serverJob' && t.connectionId === connectionId && t.jobId === jobId);
       if (open) return this.activate(open.id);
       this.place({ id: newId(), kind: 'serverJob', connectionId, database: '', jobId, jobName, preview: false });
+    },
+
+    /** The designer of a scheduler object: one tab per existing object
+     *  (focused when it's open), a new tab for each new one (`objectId` null). */
+    openSchedulerObject(connectionId: string, objectKind: string, objectId: string | null, title = '') {
+      const open = objectId !== null && this.tabs.find((t) => t.kind === 'schedulerObject' && t.connectionId === connectionId
+        && t.objectKind === objectKind && t.objectId === objectId);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'schedulerObject', connectionId, database: '', objectKind, objectId, title, preview: false });
+    },
+
+    /** A new object was saved, or an object renamed: the tab is that object
+     *  from now on (it keeps its place). */
+    schedulerObjectSaved(id: string, objectId: string, title: string) {
+      const t = this.tabs.find((x) => x.id === id);
+      if (t?.kind !== 'schedulerObject') return;
+      t.objectId = objectId;
+      t.title = title;
+      this.persist();
+    },
+
+    /** The server's scheduler log, one tab per connection. */
+    openSchedulerLog(connectionId: string) {
+      const open = this.tabs.find((t) => t.kind === 'schedulerLog' && t.connectionId === connectionId);
+      if (open) return this.activate(open.id);
+      this.place({ id: newId(), kind: 'schedulerLog', connectionId, database: '', preview: false });
     },
 
     /** A database's "Buscar" tab, one per database. */

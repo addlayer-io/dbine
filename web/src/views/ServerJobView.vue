@@ -5,9 +5,11 @@ import { errorMessage } from '../api/client';
 import { jobsApi, type JobDetail, type JobOutcome, type JobRun } from '../api/jobs';
 import ConnectionState from '../components/ConnectionState.vue';
 import EngineIcon from '../components/EngineIcon.vue';
+import SchedulerDialogs from '../components/SchedulerDialogs.vue';
 import { useConnectionGate } from '../composables/connectionGate';
 import {
-  openServerJobScript, runServerJob, serverJobActions, stopServerJob, toggleServerJob,
+  clearServerJobHistory, deleteServerJob, editServerJob, openServerJobScript, runServerJob, runServerJobFrom,
+  serverJobActions, stopServerJob, toggleServerJob,
 } from '../composables/serverJobActions';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -87,6 +89,13 @@ async function act(fn: typeof runServerJob) {
   if (job.value && (await fn(props.tab.connectionId, job.value))) void load();
 }
 
+/** "Más acciones" (engines whose scheduler is managed from DBine). */
+function moreAction(cmd: 'runFrom' | 'clearHistory' | 'delete') {
+  if (cmd === 'runFrom') void act(runServerJobFrom);
+  else if (cmd === 'clearHistory') void act(clearServerJobHistory);
+  else if (job.value) void deleteServerJob(props.tab.connectionId, job.value);
+}
+
 function more() {
   limit.value = Math.min(limit.value * 4, 500);
   void load();
@@ -126,6 +135,19 @@ function toggleRun(key: string) {
           {{ job.enabled ? $t('scheduled:server.disable') : $t('scheduled:server.enable') }}
         </el-button>
         <el-button v-if="can.script" size="small" @click="openServerJobScript(tab.connectionId, job)">{{ $t('scheduled:server.script') }}</el-button>
+        <el-button v-if="can.edit" size="small" @click="editServerJob(tab.connectionId, job)">{{ $t('scheduled:server.edit') }}</el-button>
+        <el-dropdown v-if="can.runFrom || can.clearHistory || can.delete" trigger="click" @command="moreAction">
+          <el-button size="small" :aria-label="$t('scheduled:server.more')" :title="$t('scheduled:server.more')">
+            <el-icon><ei-more-filled /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="can.runFrom" command="runFrom">{{ $t('scheduled:server.runFrom') }}</el-dropdown-item>
+              <el-dropdown-item v-if="can.clearHistory" command="clearHistory">{{ $t('scheduled:server.clearHistory') }}</el-dropdown-item>
+              <el-dropdown-item v-if="can.delete" command="delete" divided class="sjv-danger">{{ $t('scheduled:server.delete') }}</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </template>
       <el-button size="small" :loading="loading" :aria-label="$t('common:refresh')" :title="$t('common:refresh')" @click="load()">
         <el-icon><ei-refresh /></el-icon>
@@ -220,6 +242,7 @@ function toggleRun(key: string) {
         </el-button>
       </section>
     </div>
+    <SchedulerDialogs />
   </div>
 </template>
 
@@ -263,5 +286,6 @@ function toggleRun(key: string) {
 .sjv-table.runs tbody tr.expandable { cursor: pointer; }
 .sjv-table.runs tbody tr.expandable:hover td { background: var(--ide-hover); }
 .sjv-run-detail > td { background: var(--nm-bg-elev); white-space: normal; max-width: none; }
+.sjv-danger { color: var(--nm-danger); }
 .sjv-msg { margin: 4px 0 8px; font-family: var(--nm-mono); font-size: 11.5px; white-space: pre-wrap; color: var(--nm-text); }
 </style>

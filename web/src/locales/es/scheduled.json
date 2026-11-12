@@ -275,13 +275,16 @@
       "run": "¿Ejecutar ahora el job «{{job}}» en {{connection}}?",
       "stop": "¿Detener la ejecución en curso del job «{{job}}» en {{connection}}?",
       "enable": "¿Activar el job «{{job}}» en {{connection}}? Vuelve a ejecutarse según su programación.",
-      "disable": "¿Desactivar el job «{{job}}» en {{connection}}? Deja de ejecutarse según su programación."
+      "disable": "¿Desactivar el job «{{job}}» en {{connection}}? Deja de ejecutarse según su programación.",
+      "clearHistory": "¿Borrar el historial de ejecuciones del job «{{job}}» en {{connection}}? No se puede deshacer."
     },
     "done": {
       "run": "El servidor empezó a ejecutar «{{job}}».",
       "stop": "Se pidió detener «{{job}}».",
       "enable": "«{{job}}» quedó activado.",
-      "disable": "«{{job}}» quedó desactivado."
+      "disable": "«{{job}}» quedó desactivado.",
+      "clearHistory": "Se borró el historial de «{{job}}».",
+      "runFrom": "El servidor empezó a ejecutar «{{job}}» desde el paso «{{step}}»."
     },
     "outcome": {
       "succeeded": "Correcta",
@@ -310,6 +313,72 @@
     "result": "Resultado",
     "trigger": "Origen",
     "message": "Mensaje",
-    "moreRuns": "Ver más ejecuciones"
+    "moreRuns": "Ver más ejecuciones",
+    "newJob": "Nuevo job",
+    "edit": "Editar",
+    "runFrom": "Iniciar en el paso…",
+    "clearHistory": "Borrar historial",
+    "delete": "Borrar",
+    "more": "Más acciones",
+    "systemObjectsHint": "Los objetos del sistema vienen con el motor: no los creó un usuario.",
+    "log": "Registro del planificador",
+    "noItems": "Sin elementos.",
+    "runFromDialog": {
+      "title": "Iniciar en el paso",
+      "message": "El job «{{job}}» se ejecuta ahora en {{connection}}, a partir del paso que elijas.",
+      "start": "Iniciar",
+      "noSteps": "El job «{{job}}» no tiene pasos."
+    }
+  },
+  "designer": {
+    "newTitle": "Crear {{kind}}",
+    "readOnly": "Solo lectura",
+    "readOnlyHint": "No se puede guardar: la conexión es de solo lectura, o el servidor no deja cambiar este objeto con este usuario.",
+    "viewScript": "Ver script",
+    "openInQuery": "Abrir en una consulta",
+    "reload": "Recargar",
+    "required": "Obligatorio",
+    "invalid": "Hay campos para revisar: están marcados en rojo.",
+    "errors": {
+      "required": "Falta completar este campo.",
+      "min": "Tiene que ser {{n}} o más.",
+      "max": "Tiene que ser {{n}} o menos.",
+      "missing": "«{{value}}» no está entre las opciones: elegí otra.",
+      "minRows_one": "Necesita al menos una fila.",
+      "minRows_other": "Necesita al menos {{count}} filas.",
+      "row": "Fila {{n}} · {{field}}: {{error}}"
+    },
+    "add": "Agregar",
+    "view": "Ver",
+    "moveUp": "Subir",
+    "moveDown": "Bajar",
+    "minRowsHint_one": "No se puede quitar: la lista necesita al menos una fila.",
+    "minRowsHint_other": "No se puede quitar: la lista necesita al menos {{count}} filas.",
+    "noRows": "Sin filas.",
+    "newRow": "fila nueva",
+    "secretKeep": "Sin cambios: dejalo vacío para conservar el actual",
+    "secretMasked": "El script muestra como ******** los valores secretos que escribiste: solo Guardar escribe los reales. Si lo abrís en una consulta, reemplazalos antes de ejecutarla.",
+    "secretMaskedSave": "El script muestra como ******** los valores secretos que escribiste; al guardar se escriben los reales.",
+    "secretComment": "Los valores secretos aparecen como ********: reemplazalos por los reales antes de ejecutar este script.",
+    "seconds": "segundos",
+    "untitled": "(sin nombre)",
+    "dirtyClose": "Hay cambios sin guardar en «{{name}}». ¿Cerrar la pestaña y descartarlos?",
+    "dirtyReload": "Hay cambios sin guardar en «{{name}}». ¿Descartarlos y volver a leerlo del servidor?",
+    "discard": "Descartar",
+    "unsavedTitle": "Cambios sin guardar",
+    "scriptTitle": "Script · {{name}}",
+    "saveTitle": "Guardar en el servidor",
+    "deleteTitle": "Borrar del servidor",
+    "confirmCreate": "¿Crear «{{name}}» ({{kind}}) en {{connection}}? Se ejecuta este script:",
+    "confirmSave": "¿Guardar los cambios de «{{name}}» ({{kind}}) en {{connection}}? Se ejecuta este script:",
+    "confirmDelete": "¿Borrar «{{name}}» ({{kind}}) de {{connection}}? Se ejecuta este script y no se puede deshacer:",
+    "prodWarning": "{{connection}} es una conexión de producción.",
+    "saved": "Se guardó «{{name}}».",
+    "deleted": "Se borró «{{name}}».",
+    "noScript": "El servidor no devolvió ningún script: no hay cambios para guardar."
+  },
+  "log": {
+    "tab": "Registro del planificador",
+    "empty": "El servidor no tiene registros del planificador."
   }
 }
