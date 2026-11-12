@@ -245,7 +245,7 @@ function onKey(e: KeyboardEvent) {
   else if (k === '0') { e.preventDefault(); actualSize(); }
   else if (k === '+' || k === '=') { e.preventDefault(); zoomBy(1.2); }
   else if (k === '-') { e.preventDefault(); zoomBy(1 / 1.2); }
-  else if (k === 'escape') selected.value = null;
+  else if (k === 'escape' && selected.value) { e.preventDefault(); selected.value = null; }
 }
 
 let ro: ResizeObserver | null = null;
@@ -336,6 +336,26 @@ const stmtOpen = ref(false);
 
 // -- raw -----------------------------------------------------------------------------------------
 const mode = ref<'graph' | 'raw'>('graph');
+
+// Full screen: the plan over the whole window (moved to <body>, so no pane
+// clips it), fitted again; Esc leaves it (after closing the properties, when
+// a node is selected).
+const full = ref(false);
+function toggleFull() {
+  full.value = !full.value;
+  void nextTick(() => {
+    fit();
+    vp.value?.focus();
+  });
+}
+function onWindowKey(e: KeyboardEvent) {
+  if (!full.value || e.key !== 'Escape' || e.defaultPrevented) return;
+  if (selected.value) return;
+  e.preventDefault();
+  toggleFull();
+}
+onMounted(() => window.addEventListener('keydown', onWindowKey));
+onBeforeUnmount(() => window.removeEventListener('keydown', onWindowKey));
 const raw = computed(() => plan.value?.raw ?? '');
 const rawLang = computed(() => (plan.value?.raw_format === 'json' ? 'json' : undefined));
 async function copyRaw() {
@@ -351,7 +371,8 @@ async function saveRaw() {
 </script>
 
 <template>
-  <div class="pv">
+  <Teleport to="body" :disabled="!full">
+  <div class="pv" :class="{ full }">
     <!-- statement tabs + summary -->
     <div class="pv-top">
       <div v-if="plans.length > 1" class="pv-stmts">
@@ -381,6 +402,12 @@ async function saveRaw() {
           <button :class="{ on: mode === 'graph' }" @click="mode = 'graph'">{{ $t('plan:diagram') }}</button>
           <button :class="{ on: mode === 'raw' }" @click="mode = 'raw'">{{ $t('plan:rawPlan') }}</button>
         </div>
+        <button
+          class="pv-metric pv-fullbtn" :aria-pressed="full"
+          :title="full ? $t('plan:exitFullScreenTip') : $t('plan:fullScreenTip')" @click="toggleFull"
+        >
+          <el-icon><component :is="full ? 'ei-bottom-left' : 'ei-top-right'" /></el-icon>{{ full ? $t('plan:exitFullScreen') : $t('plan:fullScreen') }}
+        </button>
       </div>
       <div v-if="plan?.statement" v-key-activate :aria-expanded="stmtOpen" class="pv-sql nm-selectable" :class="{ open: stmtOpen }" :title="$t('plan:statementTitle')" @click="stmtOpen = !stmtOpen">
         {{ plan.statement }}
@@ -558,6 +585,7 @@ async function saveRaw() {
       <CodeEditor :model-value="raw" :language="rawLang" read-only />
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -584,6 +612,9 @@ async function saveRaw() {
   --pv-high: var(--nm-danger);
   display: flex; flex-direction: column; height: 100%; min-height: 0;
 }
+.pv.full { position: fixed; inset: 0; z-index: 2500; background: var(--nm-bg); }
+.pv-fullbtn { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; border: 1px solid var(--nm-border-soft); border-radius: 4px; background: none; cursor: pointer; color: var(--nm-text); }
+.pv-fullbtn:hover { background: var(--ide-hover); }
 
 /* header */
 .pv-top { flex-shrink: 0; border-bottom: 1px solid var(--nm-border-soft); background: var(--ide-editor); }
