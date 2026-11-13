@@ -45,7 +45,8 @@ use crate::create_db::literal;
 use crate::jobs::{self, first_with, int, text, Probe, ScriptWriter};
 use crate::{comment_text, err, is_desync, SqlServerSession};
 use dbine_driver::{
-    Error, FormValues, ObjectForm, Result, SchedulerInfo, SchedulerKind, SchedulerList,
+    Error, FormValues, ObjectForm, Result, SchedulerAction, SchedulerInfo, SchedulerKind,
+    SchedulerList,
 };
 use futures::TryStreamExt;
 use serde_json::Value;
@@ -97,6 +98,15 @@ pub(crate) fn fits(label: &str, value: &str, max: usize) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// An item's own ability ([`dbine_driver::SchedulerItem::can_edit`],
+/// `can_delete`): `Some(false)` where its kind allows the change but msdb
+/// would refuse it on this one (another owner's, a system category, a
+/// master server's job), else `None` (as its kind says), so the tree
+/// offers only what the server takes.
+pub(crate) fn unless(kind_can: bool, this_can: bool) -> Option<bool> {
+    (kind_can && !this_can).then_some(false)
 }
 
 /// Text from the app, short and on one line, for a message.
@@ -164,14 +174,17 @@ fn int_id(kind: Kind, id: &str) -> Result<i64> {
 
 /// The jobs probe and what the rest of the Agent needs: the error log's
 /// permissions (VIEW ANY ERROR LOG only asked from SQL Server 2022, the
-/// first that knows it), whether alerts are visible, the instance's name,
-/// whether this is a master server.
+/// first that knows it), whether alerts are visible, whether jobs start
+/// and their history can be purged, the instance's name, whether this is a
+/// master server.
 const EXTRA_SQL: &str = "SET NOCOUNT ON;
 SELECT CAST(COALESCE(IS_SRVROLEMEMBER('securityadmin'), 0) AS int) AS dbine_secadmin,
        CAST(COALESCE(HAS_PERMS_BY_NAME(NULL, NULL, N'VIEW SERVER STATE'), 0) AS int) AS dbine_vss,
        CAST(COALESCE(CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS int) >= 16
                           THEN HAS_PERMS_BY_NAME(NULL, NULL, N'VIEW ANY ERROR LOG') END, 0) AS int) AS dbine_errorlog,
        CAST(COALESCE(HAS_PERMS_BY_NAME(N'msdb.dbo.sp_help_alert', N'OBJECT', N'EXECUTE'), 0) AS int) AS dbine_alerts,
+       CAST(COALESCE(HAS_PERMS_BY_NAME(N'msdb.dbo.sp_start_job', N'OBJECT', N'EXECUTE'), 0) AS int) AS dbine_start,
+       CAST(COALESCE(HAS_PERMS_BY_NAME(N'msdb.dbo.sp_purge_jobhistory', N'OBJECT', N'EXECUTE'), 0) AS int) AS dbine_purge,
        CAST(SERVERPROPERTY('InstanceName') AS nvarchar(128)) AS dbine_instance;
 IF HAS_PERMS_BY_NAME(N'msdb.dbo.systargetservers', N'OBJECT', N'SELECT') = 1
     SELECT COUNT(*) AS dbine_targets FROM msdb.dbo.systargetservers;";
@@ -188,6 +201,13 @@ pub(crate) struct Ctx {
     pub(crate) error_log: bool,
     /// May run `sp_help_alert` (SQLAgentOperatorRole, sysadmin).
     pub(crate) alerts_visible: bool,
+    /// May run `sp_start_job` (every SQLAgent role, sysadmin): a job
+    /// starts at one of its steps.
+    pub(crate) start_jobs: bool,
+    /// May run `sp_purge_jobhistory`: msdb grants it to
+    /// SQLAgentOperatorRole only (and sysadmin), not even for the jobs a
+    /// SQLAgentUserRole member owns.
+    pub(crate) purge_history: bool,
     /// This is a master server (MSX) with target servers enlisted.
     pub(crate) msx: bool,
     /// A named instance's name (`SERVERPROPERTY('InstanceName')`); `None`
@@ -276,6 +296,8 @@ async fn ctx(s: &mut SqlServerSession) -> Result<Ctx> {
         c.server_state = int(r, "dbine_vss") == Some(1);
         c.error_log = int(r, "dbine_errorlog") == Some(1);
         c.alerts_visible = int(r, "dbine_alerts") == Some(1);
+        c.start_jobs = int(r, "dbine_start") == Some(1);
+        c.purge_history = int(r, "dbine_purge") == Some(1);
         c.instance = text(r, "dbine_instance");
     }
     c.msx = first_with(&sets, "dbine_targets")
@@ -320,12 +342,28 @@ fn info_of(c: &Ctx) -> SchedulerInfo {
     let w = c.writable();
     let a = c.admin();
     let mut kinds = vec![
-        SchedulerKind::new("job", "Jobs", "job").abilities(w, w, w),
+        // "Start Job at Step" needs the Agent running (`sp_start_job` is
+        // refused otherwise); the history is msdb's to purge with or without
+        // it. Express has neither. Each needs its procedure's EXECUTE.
+        SchedulerKind::new("job", "Jobs", "job")
+            .abilities(w, w, w)
+            .run_from_step(c.p.agent_runs() && c.start_jobs)
+            .clear_history(w && c.purge_history),
         SchedulerKind::new("schedule", "Programaciones", "programación").abilities(w, w, w),
         SchedulerKind::new("operator", "Operadores", "operador").abilities(a, a, a),
     ];
     if c.has(Kind::Alert) {
-        kinds.push(SchedulerKind::new("alert", "Alertas", "alerta").abilities(a, a, a));
+        let mut k = SchedulerKind::new("alert", "Alertas", "alerta").abilities(a, a, a);
+        if a {
+            k = k
+                .action(SchedulerAction::new(
+                    "reset_count",
+                    "Restablecer el recuento",
+                ))
+                .action(SchedulerAction::new("enable", "Habilitar"))
+                .action(SchedulerAction::new("disable", "Deshabilitar"));
+        }
+        kinds.push(k);
     }
     if c.has(Kind::Proxy) {
         kinds.push(SchedulerKind::new("proxy", "Proxies", "proxy").abilities(a, a, a));
@@ -515,6 +553,54 @@ pub(crate) async fn delete(s: &mut SqlServerSession, kind: &str, id: &str) -> Re
     let kind = Kind::parse(kind)?;
     let c = ready_to_change(s, kind).await?;
     let script = delete_plan(s, &c, kind, id).await?;
+    run_script(s, &script).await.map(|_| ())
+}
+
+/// An action key the kind doesn't offer (only alerts have actions here:
+/// a job's start, stop and enable are the jobs list's).
+fn no_action(action: &str) -> Error {
+    bad(format!(
+        "«{}» no es una acción del Agente SQL Server para este objeto.",
+        shown(action)
+    ))
+}
+
+pub(crate) async fn action_script(
+    s: &mut SqlServerSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    let kind = Kind::parse(kind)?;
+    let c = ready(s).await?;
+    if !c.has(kind) {
+        return Err(c.missing_kind());
+    }
+    action_plan(s, &c, kind, id, action).await
+}
+
+async fn action_plan(
+    s: &mut SqlServerSession,
+    c: &Ctx,
+    kind: Kind,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    match kind {
+        Kind::Alert => alert::action_script(s, c, id, action).await,
+        _ => Err(no_action(action)),
+    }
+}
+
+pub(crate) async fn action(
+    s: &mut SqlServerSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<()> {
+    let kind = Kind::parse(kind)?;
+    let c = ready_to_change(s, kind).await?;
+    let script = action_plan(s, &c, kind, id, action).await?;
     run_script(s, &script).await.map(|_| ())
 }
 

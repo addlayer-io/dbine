@@ -3,17 +3,20 @@
 //! list after a marker row naming it, guarded by the permission it needs
 //! (a list the login can't read comes empty instead of failing the form).
 
+use super::alert::{perf_counters, perf_instances, PERF_OBJECTS};
 use super::Ctx;
 use crate::create_db::literal;
 use crate::jobs::{self, describe, text, ResultSet, ScheduleRow};
 use crate::SqlServerSession;
 use dbine_driver::Result;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What a step runs as when it has no proxy.
 pub(crate) const SERVICE_ACCOUNT: &str = "Cuenta de servicio del Agente SQL Server";
 /// An alert's database when it watches all of them.
 pub(crate) const ALL_DATABASES: &str = "(todas las bases de datos)";
+/// A performance counter's instance when it has none.
+pub(crate) const NO_INSTANCE: &str = "(sin instancia)";
 
 /// Lists by source (`login`, `category:job`, `proxy:CmdExec`…), each of
 /// `(value, label)`.
@@ -52,7 +55,9 @@ fn source_sql(source: &str, sysadmin: bool) -> Option<String> {
         "msdb_role" => "SELECT name AS v, name AS l FROM msdb.sys.database_principals WHERE type = 'R' AND name <> N'public' ORDER BY name;",
         "server_role" => "SELECT name AS v, name AS l FROM sys.server_principals WHERE type = 'R' AND name <> N'public' ORDER BY name;",
         "target_server" => "IF HAS_PERMS_BY_NAME(N'msdb.dbo.systargetservers', N'OBJECT', N'SELECT') = 1 SELECT server_name AS v, server_name AS l FROM msdb.dbo.systargetservers ORDER BY server_name;",
-        "perf_object" => "IF HAS_PERMS_BY_NAME(NULL, NULL, N'VIEW SERVER STATE') = 1 SELECT DISTINCT RTRIM(object_name) AS v, RTRIM(object_name) AS l FROM sys.dm_os_performance_counters ORDER BY 1;",
+        // Every counter the Agent can watch, split into the objects, each
+        // object's counters and each counter's instances (see `read`).
+        "perf_object" => "IF HAS_PERMS_BY_NAME(NULL, NULL, N'VIEW SERVER STATE') = 1 SELECT DISTINCT RTRIM(object_name) AS dbine_object, RTRIM(counter_name) AS dbine_counter, RTRIM(instance_name) AS dbine_instance FROM sys.dm_os_performance_counters;",
         "subsystem" => "IF HAS_PERMS_BY_NAME(N'msdb.dbo.sp_enum_sqlagent_subsystems', N'OBJECT', N'EXECUTE') = 1 EXEC msdb.dbo.sp_enum_sqlagent_subsystems;",
         // sysadmin reads msdb's tables; the rest only see what they may
         // use (see `proxy_sql`).
@@ -94,9 +99,52 @@ fn batch(sources: &[&str], sysadmin: bool) -> String {
     sql
 }
 
+/// The performance counters' lists from `(object, counter, instance)` rows:
+/// `perf_object`, `perf_counter:<object>` and `perf_instance:<object>|<counter>`
+/// (the sources an alert's fields name with placeholders), sorted. A counter
+/// without instances (or with a row without one) offers "none": msdb takes
+/// an empty instance only where the counter has such a row.
+pub(crate) fn perf_lists(rows: Vec<(String, String, String)>, into: &mut Catalog) {
+    let mut tree: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
+    for (object, counter, instance) in rows {
+        if object.is_empty() || counter.is_empty() {
+            continue;
+        }
+        tree.entry(object)
+            .or_default()
+            .entry(counter)
+            .or_default()
+            .insert(instance);
+    }
+    let pairs = |names: Vec<String>| -> Vec<(String, String)> {
+        names.into_iter().map(|n| (n.clone(), n)).collect()
+    };
+    let objects = tree.keys().cloned().collect();
+    into.lists.insert(PERF_OBJECTS.into(), pairs(objects));
+    for (object, counters) in tree {
+        let names = counters.keys().cloned().collect();
+        into.lists.insert(perf_counters(&object), pairs(names));
+        for (counter, instances) in counters {
+            let list = instances
+                .into_iter()
+                .map(|i| {
+                    let label = if i.is_empty() {
+                        NO_INSTANCE.to_string()
+                    } else {
+                        i.clone()
+                    };
+                    (i, label)
+                })
+                .collect();
+            into.lists.insert(perf_instances(&object, &counter), list);
+        }
+    }
+}
+
 /// The lists from the batch's result sets.
 fn read(sets: &[ResultSet], into: &mut Catalog) {
     let mut current: Option<String> = None;
+    let mut perf = Vec::new();
     for set in sets {
         if set.has("dbine_source") {
             current = set.rows.first().and_then(|r| text(r, "dbine_source"));
@@ -163,6 +211,23 @@ fn read(sets: &[ResultSet], into: &mut Catalog) {
                             .push((name.clone(), name));
                     }
                 }
+                "perf_object" => {
+                    // As the server has them (right-trimmed, as msdb's
+                    // view compares them): an instance may be a database's
+                    // name with a leading space.
+                    let raw = |c: &str| {
+                        r.try_get::<&str, _>(c)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default()
+                            .to_string()
+                    };
+                    perf.push((
+                        raw("dbine_object"),
+                        raw("dbine_counter"),
+                        raw("dbine_instance"),
+                    ));
+                }
                 _ => {
                     if let Some(v) = text(r, "v") {
                         let l = text(r, "l").unwrap_or_else(|| v.clone());
@@ -171,6 +236,9 @@ fn read(sets: &[ResultSet], into: &mut Catalog) {
                 }
             }
         }
+    }
+    if !perf.is_empty() {
+        perf_lists(perf, into);
     }
 }
 

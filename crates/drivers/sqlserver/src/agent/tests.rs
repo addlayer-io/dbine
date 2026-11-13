@@ -35,6 +35,8 @@ fn sa() -> Ctx {
         server_state: true,
         error_log: false,
         alerts_visible: true,
+        start_jobs: true,
+        purge_history: true,
         msx: false,
         instance: None,
     }
@@ -51,6 +53,8 @@ fn user() -> Ctx {
         server_state: false,
         error_log: false,
         alerts_visible: false,
+        start_jobs: true,
+        purge_history: false,
         msx: false,
         instance: None,
     }
@@ -2076,7 +2080,6 @@ fn alert_of(raise: Raise) -> Alert {
         delay: 0,
         category: "[Uncategorized]".into(),
         operators: BTreeMap::new(),
-        reset_count: false,
     }
 }
 
@@ -2135,19 +2138,12 @@ fn alert_alter_scripts() {
     a.raise = Raise::Performance("o|c||<|5".into());
     a.database = String::new();
     a.job = None;
-    a.reset_count = true;
     a.operators.clear();
     let sql = alert::alter_script(&cur, &a).unwrap();
     one_batch(&sql);
-    assert!(sql.contains("msdb.dbo.sp_update_alert @name = N'disk ''full''',\n    @message_id = 0,\n    @severity = 0,\n    @performance_condition = N'o|c||<|5',\n    @database_name = N'',\n    @job_id = N'00000000-0000-0000-0000-000000000000',\n    @occurrence_count = 0,\n    @count_reset_date = @resetDate,\n    @count_reset_time = @resetTime;"), "{sql}");
-    // The count starts again now: its date and time from the server's
-    // clock, before the call.
-    assert!(
-        sql.contains("DECLARE @ReturnCode int, @resetAt datetime, @resetDate int, @resetTime int;"),
-        "{sql}"
-    );
-    let set = sql.find("SET @resetAt = GETDATE();\nSET @resetDate = CONVERT(int, CONVERT(char(8), @resetAt, 112));\nSET @resetTime = DATEPART(HOUR, @resetAt) * 10000 + DATEPART(MINUTE, @resetAt) * 100 + DATEPART(SECOND, @resetAt);").expect("the reset time");
-    assert!(set < sql.find("sp_update_alert").unwrap(), "{sql}");
+    assert!(sql.contains("msdb.dbo.sp_update_alert @name = N'disk ''full''',\n    @message_id = 0,\n    @severity = 0,\n    @performance_condition = N'o|c||<|5',\n    @database_name = N'',\n    @job_id = N'00000000-0000-0000-0000-000000000000';"), "{sql}");
+    // The count is reset by the alert's action, not by a save.
+    assert!(!sql.contains("occurrence_count"), "{sql}");
     assert!(
         sql.contains(
             "sp_delete_notification @alert_name = N'disk ''full''',\n    @operator_name = N'dba';"
@@ -2157,7 +2153,6 @@ fn alert_alter_scripts() {
     // Back to an error number.
     let b = Alert {
         raise: Raise::Error(9002),
-        reset_count: false,
         ..a.clone()
     };
     let sql = alert::alter_script(&a, &b).unwrap();
@@ -2500,6 +2495,7 @@ fn form_labels_are_written_out() {
             "FormSection::new(",
             "FormList::new(",
             "SchedulerKind::new(",
+            "SchedulerAction::new(",
         ] {
             let mut rest = src;
             while let Some(i) = rest.find(ctor) {
@@ -2516,6 +2512,519 @@ fn form_labels_are_written_out() {
                     label[1..].trim_start().starts_with('"'),
                     "{file}: {ctor}{shown}"
                 );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Second pass: the kinds' flags and actions, each item's abilities, the
+// performance counters by object, the schedule's combined conditions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_job_kind_starts_at_a_step_and_clears_history_where_the_agent_allows() {
+    let job = |c: &Ctx| {
+        let i = info_of(c);
+        let k = i.kinds.iter().find(|k| k.key == "job").unwrap().clone();
+        // No other kind has steps or a history.
+        assert!(
+            i.kinds
+                .iter()
+                .filter(|k| k.key != "job")
+                .all(|k| !k.run_from_step && !k.clear_history),
+            "{i:?}"
+        );
+        (k.run_from_step, k.clear_history)
+    };
+    assert_eq!(job(&sa()), (true, true));
+    // A SQLAgentUserRole member starts its own jobs; msdb grants the
+    // purge to SQLAgentOperatorRole only.
+    assert_eq!(job(&user()), (true, false));
+    let operator = Ctx {
+        purge_history: true,
+        ..user()
+    };
+    assert_eq!(job(&operator), (true, true));
+    // Without EXECUTE on sp_start_job, no start at a step.
+    let no_start = Ctx {
+        start_jobs: false,
+        ..sa()
+    };
+    assert_eq!(job(&no_start), (false, true));
+    // Managed Instance has the Agent.
+    let mi = Ctx {
+        p: Probe {
+            edition: 8,
+            ..probe_sa()
+        },
+        ..sa()
+    };
+    assert_eq!(job(&mi), (true, true));
+    // With the Agent stopped nothing starts; msdb's history still goes.
+    let stopped = Ctx {
+        p: Probe {
+            agent_running: false,
+            ..probe_sa()
+        },
+        ..sa()
+    };
+    assert_eq!(job(&stopped), (false, true));
+    // Express has no Agent: neither.
+    let express = Ctx {
+        p: Probe {
+            edition: 4,
+            agent_running: true,
+            ..probe_sa()
+        },
+        ..sa()
+    };
+    assert_eq!(job(&express), (false, false));
+}
+
+#[test]
+fn alerts_have_their_actions_for_sysadmin() {
+    let i = info_of(&sa());
+    let alert = i.kinds.iter().find(|k| k.key == "alert").unwrap();
+    let keys: Vec<&str> = alert.actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, alert::ACTIONS);
+    assert_eq!(alert.actions[0].label, "Restablecer el recuento");
+    // Jobs start, stop and enable in the jobs list: no actions here.
+    assert!(i
+        .kinds
+        .iter()
+        .filter(|k| k.key != "alert")
+        .all(|k| k.actions.is_empty()));
+    // Whoever can't change alerts gets none.
+    let operator = Ctx {
+        p: Probe {
+            sysadmin: false,
+            operator: true,
+            login: "ana".into(),
+            ..probe_sa()
+        },
+        alerts_visible: true,
+        ..sa()
+    };
+    let i = info_of(&operator);
+    let alert = i.kinds.iter().find(|k| k.key == "alert").unwrap();
+    assert!(alert.actions.is_empty() && !alert.can_edit, "{alert:?}");
+    // Each alert offers what applies now.
+    assert_eq!(alert::actions_now(true), ["reset_count", "disable"]);
+    assert_eq!(alert::actions_now(false), ["reset_count", "enable"]);
+}
+
+#[test]
+fn alert_action_scripts() {
+    // SSMS's "Reset Count": zero, counted from now on the server's clock
+    // (computed before the call: an argument can't be an expression).
+    let sql = alert::action_sql("disk 'full'", "reset_count").unwrap();
+    one_batch(&sql);
+    assert!(
+        sql.starts_with(
+            "-- Restablece el recuento de la alerta «disk 'full'» del Agente SQL Server\n"
+        ),
+        "{sql}"
+    );
+    assert!(
+        sql.contains("DECLARE @ReturnCode int, @resetAt datetime, @resetDate int, @resetTime int;"),
+        "{sql}"
+    );
+    let set = sql.find("SET @resetAt = GETDATE();\nSET @resetDate = CONVERT(int, CONVERT(char(8), @resetAt, 112));\nSET @resetTime = DATEPART(HOUR, @resetAt) * 10000 + DATEPART(MINUTE, @resetAt) * 100 + DATEPART(SECOND, @resetAt);").expect("the reset time");
+    assert!(set < sql.find("sp_update_alert").unwrap(), "{sql}");
+    assert!(sql.contains("msdb.dbo.sp_update_alert @name = N'disk ''full''',\n    @occurrence_count = 0,\n    @count_reset_date = @resetDate,\n    @count_reset_time = @resetTime;"), "{sql}");
+    for (action, on) in [("enable", 1), ("disable", 0)] {
+        let sql = alert::action_sql("disk 'full'", action).unwrap();
+        one_batch(&sql);
+        assert!(
+            sql.contains(&format!(
+                "msdb.dbo.sp_update_alert @name = N'disk ''full''',\n    @enabled = {on};"
+            )),
+            "{sql}"
+        );
+        assert_eq!(sql.matches("EXEC @ReturnCode").count(), 1, "{sql}");
+    }
+    // A name with a line that reads as GO stays one batch.
+    one_batch(&alert::action_sql("a\nGO\nb", "disable").unwrap());
+    for unknown in ["run", "", "reset_count; DROP TABLE t", "Enable"] {
+        assert_eq!(alert::action_sql("x", unknown), None, "{unknown}");
+        assert!(!alert::ACTIONS.contains(&unknown));
+    }
+    let Error::Query(m) = no_action("x'\nDROP") else {
+        panic!()
+    };
+    assert!(m.contains("no es una acción") && !m.contains('\n'), "{m}");
+}
+
+fn job_of(owner: &str, origin: &str) -> JobRow {
+    JobRow {
+        id: Uuid::parse_str(ID).unwrap(),
+        name: "j".into(),
+        owner: Some(owner.into()),
+        origin: Some(origin.into()),
+        ..JobRow::default()
+    }
+}
+
+#[test]
+fn each_item_says_what_this_login_may_do_with_it() {
+    let express = Ctx {
+        p: Probe {
+            edition: 4,
+            ..probe_sa()
+        },
+        ..sa()
+    };
+    // Jobs: sysadmin any local one; others their own; nobody one a master
+    // server sent (msdb refuses to change or delete it here).
+    let abilities = |c: &Ctx, j: &JobRow| {
+        let i = job::item(c, j);
+        assert_eq!(i.can_edit, i.can_delete);
+        assert_eq!(i.actions, None);
+        i.can_edit
+    };
+    assert_eq!(abilities(&sa(), &job_of("ana", "SRV")), None);
+    assert_eq!(abilities(&user(), &job_of("ANA", "srv")), None);
+    assert_eq!(abilities(&user(), &job_of("sa", "SRV")), Some(false));
+    assert_eq!(abilities(&sa(), &job_of("sa", "MSX1")), Some(false));
+    // Where the kind can't anyway, the kind says it.
+    assert_eq!(abilities(&express, &job_of("ana", "SRV")), None);
+    // Shared schedules: the owner's or sysadmin's.
+    let row = ScheduleRow {
+        name: "s".into(),
+        freq_type: 4,
+        freq_interval: 1,
+        ..ScheduleRow::default()
+    };
+    let sched = |c: &Ctx, owner: Option<&str>| {
+        let i = schedule::item(c, 7, &row, owner);
+        assert_eq!(i.can_edit, i.can_delete);
+        i.can_edit
+    };
+    assert_eq!(sched(&sa(), Some("ana")), None);
+    assert_eq!(sched(&sa(), None), None);
+    assert_eq!(sched(&user(), Some("Ana")), None);
+    assert_eq!(sched(&user(), Some("sa")), Some(false));
+    assert_eq!(sched(&user(), None), Some(false), "an owner it can't read");
+    assert_eq!(sched(&express, Some("sa")), None);
+    // Categories: msdb's own (id under 100) stay as they are.
+    let cat = |id: i64| Category {
+        id,
+        class: 1,
+        kind: 1,
+        name: "c".into(),
+    };
+    let i = category::item(&sa(), &cat(3));
+    assert!(i.system && i.can_edit == Some(false) && i.can_delete == Some(false));
+    let i = category::item(&sa(), &cat(100));
+    assert!(!i.system && i.can_edit.is_none() && i.can_delete.is_none());
+    // Not sysadmin: no category changes at all, the kind says so.
+    assert_eq!(category::item(&user(), &cat(3)).can_edit, None);
+}
+
+fn perf_catalog() -> Catalog {
+    let mut c = Catalog::default();
+    let row = |o: &str, c: &str, i: &str| (o.to_string(), c.to_string(), i.to_string());
+    choices::perf_lists(
+        vec![
+            row("SQLServer:General Statistics", "User Connections", ""),
+            row("SQLServer:General Statistics", "Logins/sec", ""),
+            row(
+                "SQLServer:Databases",
+                "Log File(s) Used Size (KB)",
+                "ventas",
+            ),
+            row(
+                "SQLServer:Databases",
+                "Log File(s) Used Size (KB)",
+                "_Total",
+            ),
+            row("SQLServer:Databases", "Log File(s) Used Size (KB)", " lead"),
+            row(
+                "SQLServer:Databases",
+                "Log File(s) Used Size (KB)",
+                "ventas",
+            ),
+            row("SQLServer:Locks", "Lock Waits/sec", "_Total"),
+            row("SQLServer:Locks", "Lock Waits/sec", ""),
+            row("", "x", ""),
+        ],
+        &mut c,
+    );
+    c
+}
+
+#[test]
+fn performance_counters_by_object_and_counter() {
+    let c = perf_catalog();
+    assert_eq!(
+        c.values("perf_object"),
+        [
+            "SQLServer:Databases",
+            "SQLServer:General Statistics",
+            "SQLServer:Locks"
+        ]
+    );
+    assert_eq!(
+        c.values("perf_counter:SQLServer:General Statistics"),
+        ["Logins/sec", "User Connections"]
+    );
+    // Instances as the server has them, once each; a counter without one
+    // offers "none".
+    assert_eq!(
+        c.values("perf_instance:SQLServer:Databases|Log File(s) Used Size (KB)"),
+        [" lead", "_Total", "ventas"]
+    );
+    assert_eq!(
+        c.get("perf_instance:SQLServer:General Statistics|User Connections"),
+        [(String::new(), choices::NO_INSTANCE.to_string())]
+    );
+    assert_eq!(
+        c.values("perf_instance:SQLServer:Locks|Lock Waits/sec"),
+        ["", "_Total"]
+    );
+    // The fields name the sources with the fields they depend on; filled
+    // from the form's values, each is among the choices.
+    let fields = alert::general_fields(true, "ns");
+    let source = |k: &str| match &fields.iter().find(|f| f.key == k).unwrap().kind {
+        FormKind::Ref { source, multiple } => {
+            assert!(!multiple);
+            source.clone()
+        }
+        other => panic!("{k}: {other:?}"),
+    };
+    assert_eq!(source("perf_object"), "perf_object");
+    assert_eq!(source("perf_counter"), "perf_counter:{perf_object}");
+    assert_eq!(
+        source("perf_instance"),
+        "perf_instance:{perf_object}|{perf_counter}"
+    );
+    let fill = |s: String, object: &str, counter: &str| {
+        s.replace("{perf_object}", object)
+            .replace("{perf_counter}", counter)
+    };
+    for object in c.values("perf_object") {
+        let counters = fill(source("perf_counter"), &object, "");
+        assert!(!c.get(&counters).is_empty(), "{counters}");
+        for counter in c.values(&counters) {
+            let instances = fill(source("perf_instance"), &object, &counter);
+            assert!(!c.get(&instances).is_empty(), "{instances}");
+        }
+    }
+    // Every placeholder names a field of the same form.
+    let keys: Vec<&str> = fields.iter().map(|f| f.key.as_str()).collect();
+    for f in &fields {
+        if let FormKind::Ref { source, .. } = &f.kind {
+            for part in source.split('{').skip(1) {
+                let name = &part[..part.find('}').unwrap()];
+                assert!(keys.contains(&name), "{}: {source}", f.key);
+            }
+        }
+    }
+    // Without VIEW SERVER STATE they are typed.
+    for f in alert::general_fields(false, "ns")
+        .iter()
+        .filter(|f| f.key.starts_with("perf_"))
+    {
+        assert!(!matches!(f.kind, FormKind::Ref { .. }), "{}", f.key);
+    }
+}
+
+#[test]
+fn a_performance_condition_is_checked_as_msdb_checks_it() {
+    let c = perf_catalog();
+    let ok = |cond: &str| alert::check_performance(cond, &c).unwrap();
+    let fail = |cond: &str, what: &str| {
+        let e = alert::check_performance(cond, &c).unwrap_err();
+        assert!(
+            matches!(&e, Error::Query(m) if m.contains(what)),
+            "{cond}: {e:?}"
+        );
+    };
+    assert_eq!(
+        ok("SQLServer:General Statistics|User Connections||>|500"),
+        "SQLServer:General Statistics|User Connections||>|500"
+    );
+    // The server's spelling.
+    assert_eq!(
+        ok("sqlserver:general statistics|user connections||<|5"),
+        "SQLServer:General Statistics|User Connections||<|5"
+    );
+    assert_eq!(
+        ok("SQLServer:Databases|Log File(s) Used Size (KB)| lead|>|1024"),
+        "SQLServer:Databases|Log File(s) Used Size (KB)| lead|>|1024"
+    );
+    assert_eq!(
+        ok("SQLServer:Locks|Lock Waits/sec||>|1"),
+        "SQLServer:Locks|Lock Waits/sec||>|1"
+    );
+    fail(
+        "SQLServer:Nope|User Connections||>|1",
+        "no existe en este servidor",
+    );
+    fail(
+        "SQLServer:General Statistics|Nope||>|1",
+        "no tiene el contador «Nope»",
+    );
+    fail(
+        "SQLServer:Databases|Log File(s) Used Size (KB)|nope|>|1",
+        "no tiene la instancia «nope»",
+    );
+    fail(
+        "SQLServer:Databases|Log File(s) Used Size (KB)||>|1",
+        "Elegí una instancia",
+    );
+    fail(
+        "SQLServer:General Statistics|User Connections|_Total|>|1",
+        "no tiene la instancia",
+    );
+    // msdb matches the object past the instance's prefix: one scripted on
+    // a named instance, or written without a prefix, names this server's
+    // object, and is written with the server's prefix.
+    assert_eq!(
+        ok("MSSQL$OTHER:General Statistics|User Connections||>|5"),
+        "SQLServer:General Statistics|User Connections||>|5"
+    );
+    assert_eq!(
+        ok("General Statistics|User Connections||>|5"),
+        "SQLServer:General Statistics|User Connections||>|5"
+    );
+    assert_eq!(
+        ok("mssql$other:databases|log file(s) used size (kb)| lead|>|1"),
+        "SQLServer:Databases|Log File(s) Used Size (KB)| lead|>|1"
+    );
+    // Only the prefix goes: the rest of the name is still checked, and so
+    // are the counter and the instance.
+    fail(
+        "MSSQL$OTHER:General|User Connections||>|1",
+        "«MSSQL$OTHER:General» no existe en este servidor",
+    );
+    fail(
+        "Statistics|User Connections||>|1",
+        "no existe en este servidor",
+    );
+    fail(
+        "MSSQL$OTHER:General Statistics|Nope||>|1",
+        "no tiene el contador «Nope»",
+    );
+    fail(
+        "General Statistics|User Connections|_Total|>|1",
+        "no tiene la instancia",
+    );
+    // On a named instance, a default instance's condition names its object.
+    let mut named = Catalog::default();
+    choices::perf_lists(
+        vec![(
+            "MSSQL$PROD:General Statistics".into(),
+            "User Connections".into(),
+            String::new(),
+        )],
+        &mut named,
+    );
+    assert_eq!(
+        alert::check_performance("SQLServer:General Statistics|User Connections||>|5", &named)
+            .unwrap(),
+        "MSSQL$PROD:General Statistics|User Connections||>|5"
+    );
+    // The form keeps an instance's leading space (a database's name) and
+    // drops the trailing ones msdb ignores.
+    let a = alert::from_values(
+        &fv(
+            json!({"name": "a", "type": "performance", "perf_object": "SQLServer:Databases",
+                   "perf_counter": "Log File(s) Used Size (KB)", "perf_instance": " lead  ",
+                   "perf_comparison": ">", "perf_value": 1}),
+            json!({}),
+        ),
+        &c,
+    )
+    .unwrap();
+    let Raise::Performance(p) = &a.raise else {
+        panic!()
+    };
+    assert_eq!(
+        ok(p),
+        "SQLServer:Databases|Log File(s) Used Size (KB)| lead|>|1"
+    );
+    // Without the counters (no VIEW SERVER STATE), msdb checks it alone.
+    assert_eq!(
+        alert::check_performance("a|b|c|>|1", &Catalog::default()).unwrap(),
+        "a|b|c|>|1"
+    );
+    // msdb takes only a value that starts with a digit.
+    let e = alert::from_values(
+        &fv(
+            json!({"name": "a", "type": "performance", "perf_object": "o", "perf_counter": "c", "perf_comparison": ">", "perf_value": -1}),
+            json!({}),
+        ),
+        &Catalog::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&e, Error::Query(m) if m.contains("negativo")),
+        "{e:?}"
+    );
+    let value = alert::general_fields(true, "ns")
+        .into_iter()
+        .find(|f| f.key == "perf_value")
+        .unwrap();
+    assert!(matches!(value.kind, FormKind::Number { min: Some(m), .. } if m == 0.0));
+}
+
+/// Whether a field shows for these values, as the designer decides it:
+/// its `when` and every `when_all` hold (a missing value is "").
+fn shows(f: &FormField, values: &[(&str, &str)]) -> bool {
+    let holds = |(on, wanted): &(String, Vec<String>)| {
+        let v = values.iter().find(|(k, _)| k == on).map_or("", |(_, v)| *v);
+        wanted.iter().any(|w| w == v)
+    };
+    f.when.as_ref().is_none_or(holds) && f.when_all.iter().all(holds)
+}
+
+#[test]
+fn the_repetition_during_the_day_shows_only_on_recurring_schedules() {
+    let fields = schedule::fields(false, 20261112);
+    let field = |k: &str| fields.iter().find(|f| f.key == k).unwrap();
+    let types = [
+        "daily",
+        "weekly",
+        "monthly",
+        "monthly_relative",
+        "once",
+        "agent_start",
+        "idle",
+    ];
+    for t in types {
+        let recurring = !matches!(t, "once" | "agent_start" | "idle");
+        for daily in ["once", "hours", "minutes", "seconds"] {
+            let values = [("type", t), ("daily_frequency", daily)];
+            let repeats = recurring && daily != "once";
+            for k in ["every", "end_time"] {
+                assert_eq!(shows(field(k), &values), repeats, "{k} on {t} / {daily}");
+            }
+            assert_eq!(shows(field("daily_frequency"), &values), recurring, "{t}");
+            assert_eq!(shows(field("end_date"), &values), recurring, "{t}");
+            assert_eq!(
+                shows(field("time"), &values),
+                !matches!(t, "agent_start" | "idle"),
+                "{t}"
+            );
+            assert_eq!(
+                shows(field("start_date"), &values),
+                !matches!(t, "agent_start" | "idle"),
+                "{t}"
+            );
+        }
+    }
+    // Every extra condition names a select of the same fields and its
+    // options.
+    for f in &fields {
+        for (on, values) in &f.when_all {
+            let control = fields.iter().find(|x| &x.key == on).unwrap();
+            let FormKind::Select { options } = &control.kind else {
+                panic!("{on}")
+            };
+            for v in values {
+                assert!(options.iter().any(|(o, _)| o == v), "{}: {v}", f.key);
             }
         }
     }

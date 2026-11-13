@@ -276,6 +276,18 @@ async fn the_agent_managed_whole() {
             ["job", "schedule", "operator", "alert", "proxy", "category"]
         );
         assert!(info.kinds.iter().all(|k| k.can_create && k.can_edit && k.can_delete));
+        // Jobs start at a step and clear their history (the Agent runs);
+        // alerts reset their count, enable and disable.
+        let kind = |k: &str| info.kinds.iter().find(|x| x.key == k).unwrap().clone();
+        assert!(kind("job").run_from_step && kind("job").clear_history);
+        assert!(!kind("alert").run_from_step && !kind("alert").clear_history);
+        let actions: Vec<String> = kind("alert").actions.iter().map(|a| a.key.clone()).collect();
+        assert_eq!(actions, ["reset_count", "enable", "disable"]);
+        assert!(kind("job").actions.is_empty());
+        // msdb's own categories can't be changed or deleted; the tree knows.
+        let cats = s.scheduler_items("category").await.expect("items");
+        let system = cats.items.iter().find(|i| i.system).expect("a system category");
+        assert_eq!((system.can_edit, system.can_delete), (Some(false), Some(false)));
         assert!(info.logs, "sa reads the Agent's log");
         let logs = s.scheduler_logs().await.expect("logs");
         assert!(!logs.is_empty() && !logs[0].rows.is_empty(), "{logs:?}");
@@ -288,6 +300,9 @@ async fn the_agent_managed_whole() {
         set(&mut v, "name", json!(CAT));
         let cat_id = save(&mut s, "category", None, &v).await;
         assert_eq!(cat_id, find_item(&mut s, "category", CAT).await);
+        let cats = s.scheduler_items("category").await.expect("items");
+        let mine = cats.items.iter().find(|i| i.id == cat_id).unwrap();
+        assert_eq!((mine.can_edit, mine.can_delete), (None, None), "as its kind says");
         let n = scalar(
             &mut s,
             &format!("SELECT COUNT(*) FROM msdb.dbo.syscategories WHERE name = N'{CAT}' AND category_class = 1 AND category_type = 1"),
@@ -511,8 +526,119 @@ async fn the_agent_managed_whole() {
         )
         .await;
         assert_eq!(r[0], [json!(21), json!(job_id), json!(90), json!(1), json!(1)]);
-        // Edit: a performance condition instead, pager too, and its count
-        // reset (counted since 2020 until now).
+        // Edit: a performance condition instead, pager too. Object,
+        // counter and instance come from the form's choices, each list
+        // under the source its field names, filled with the field before.
+        let form = s.scheduler_form("alert", Some(&alert_id)).await.expect("form");
+        let mut v = values_of(&form);
+        assert_eq!(v.values["severity"], json!("21"));
+        assert!(!v.values.contains_key("reset_count"), "the count is reset by an action");
+        let source = |k: &str| {
+            let f = form.sections.iter().flat_map(|s| s.fields.iter()).find(|f| f.key == k).unwrap();
+            match &f.kind {
+                dbine_driver::FormKind::Ref { source, .. } => source.clone(),
+                other => panic!("{k}: {other:?}"),
+            }
+        };
+        let filled = |k: &str, object: &str, counter: &str| {
+            source(k).replace("{perf_object}", object).replace("{perf_counter}", counter)
+        };
+        let values = |src: &str| -> Vec<String> {
+            form.choices
+                .get(src)
+                .unwrap_or_else(|| panic!("{src} among the choices"))
+                .iter()
+                .map(|(v, _)| v.clone())
+                .collect()
+        };
+        let object = values(&source("perf_object"))
+            .into_iter()
+            .find(|v| v.ends_with(":General Statistics"))
+            .expect("the General Statistics counters");
+        assert!(values(&filled("perf_counter", &object, "")).contains(&"User Connections".to_string()));
+        // A counter without instances offers "none" only.
+        let none = &form.choices[&filled("perf_instance", &object, "User Connections")];
+        assert_eq!(none, &[(String::new(), "(sin instancia)".to_string())]);
+        // One per database: msdb among them, and not "none".
+        let databases = values(&source("perf_object"))
+            .into_iter()
+            .find(|v| v.ends_with(":Databases"))
+            .expect("the Databases counters");
+        let used = "Log File(s) Used Size (KB)";
+        let instances = values(&filled("perf_instance", &databases, used));
+        assert!(instances.contains(&"msdb".to_string()) && !instances.contains(&String::new()), "{instances:?}");
+        set(&mut v, "type", json!("performance"));
+        set(&mut v, "perf_object", json!(databases));
+        set(&mut v, "perf_counter", json!(used));
+        set(&mut v, "perf_instance", json!(""));
+        set(&mut v, "perf_comparison", json!(">"));
+        set(&mut v, "perf_value", json!(500));
+        // That counter needs an instance; one it hasn't is refused too,
+        // both before the server.
+        let e = s.scheduler_script("alert", Some(&alert_id), &v).await.unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("Elegí una instancia")), "{e:?}");
+        set(&mut v, "perf_instance", json!("dbine_test_sched_nodb"));
+        let e = s.scheduler_script("alert", Some(&alert_id), &v).await.unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("no tiene la instancia")), "{e:?}");
+        set(&mut v, "perf_counter", json!("dbine_test_sched_nocounter"));
+        let e = s.scheduler_script("alert", Some(&alert_id), &v).await.unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("no tiene el contador")), "{e:?}");
+        set(&mut v, "perf_counter", json!(used));
+        set(&mut v, "perf_instance", json!("msdb"));
+        save(&mut s, "alert", Some(&alert_id), &v).await;
+        let cond = scalar(&mut s, &format!("SELECT performance_condition FROM msdb.dbo.sysalerts WHERE id = {alert_id}")).await;
+        assert_eq!(cond, json!(format!("{databases}|{used}|msdb|>|500")));
+        // Then the counter without instances, in another case: the
+        // server's spelling is saved.
+        set(&mut v, "perf_object", json!(object.to_uppercase()));
+        set(&mut v, "perf_counter", json!("user connections"));
+        set(&mut v, "perf_instance", json!(""));
+        v.lists.get_mut("operators").unwrap()[0].insert("pager".into(), json!(true));
+        save(&mut s, "alert", Some(&alert_id), &v).await;
+        let r = rows(
+            &mut s,
+            &format!(
+                "SELECT severity, performance_condition,
+                        (SELECT notification_method FROM msdb.dbo.sysnotifications WHERE alert_id = a.id)
+                   FROM msdb.dbo.sysalerts a WHERE id = {alert_id}"
+            ),
+        )
+        .await;
+        assert_eq!(r[0], [json!(0), json!(format!("{object}|User Connections||>|500")), json!(3)]);
+        // A condition scripted on another instance (its prefix) or without
+        // a prefix: msdb takes it as this server's object, and so does the
+        // designer when only its threshold changes, saving it with this
+        // server's prefix.
+        for stored in ["MSSQL$DBINE_OTHER:General Statistics", "General Statistics"] {
+            run(
+                &mut s,
+                &format!(
+                    "EXEC msdb.dbo.sp_update_alert @name = N'{ALERT}', @performance_condition = N'{stored}|User Connections||>|500';"
+                ),
+            )
+            .await;
+            let mut w = values_of(&s.scheduler_form("alert", Some(&alert_id)).await.expect("form"));
+            assert_eq!(w.values["perf_object"], json!(stored));
+            set(&mut w, "perf_value", json!(600));
+            save(&mut s, "alert", Some(&alert_id), &w).await;
+            let cond = scalar(&mut s, &format!("SELECT performance_condition FROM msdb.dbo.sysalerts WHERE id = {alert_id}")).await;
+            assert_eq!(cond, json!(format!("{object}|User Connections||>|600")), "{stored}");
+        }
+        run(
+            &mut s,
+            &format!(
+                "EXEC msdb.dbo.sp_update_alert @name = N'{ALERT}', @performance_condition = N'{object}|User Connections||>|500';"
+            ),
+        )
+        .await;
+
+        // Its actions: the count reset (counted since 2020 until now),
+        // disable and enable, each a script first.
+        let actions_of = |list: &dbine_driver::SchedulerList| {
+            list.items.iter().find(|i| i.id == alert_id).unwrap().actions.clone()
+        };
+        let list = s.scheduler_items("alert").await.expect("items");
+        assert_eq!(actions_of(&list), Some(vec!["reset_count".to_string(), "disable".to_string()]));
         run(
             &mut s,
             &format!(
@@ -520,45 +646,42 @@ async fn the_agent_managed_whole() {
             ),
         )
         .await;
-        let form = s.scheduler_form("alert", Some(&alert_id)).await.expect("form");
-        let mut v = values_of(&form);
-        assert_eq!(v.values["severity"], json!("21"));
-        let object = form
-            .choices
-            .get("perf_object")
-            .and_then(|l| l.iter().find(|(v, _)| v.ends_with(":General Statistics")))
-            .map(|(v, _)| v.clone())
-            .expect("the General Statistics counters");
-        set(&mut v, "type", json!("performance"));
-        set(&mut v, "perf_object", json!(object));
-        set(&mut v, "perf_counter", json!("User Connections"));
-        set(&mut v, "perf_comparison", json!(">"));
-        set(&mut v, "perf_value", json!(500));
-        v.lists.get_mut("operators").unwrap()[0].insert("pager".into(), json!(true));
-        set(&mut v, "reset_count", json!(true));
-        save(&mut s, "alert", Some(&alert_id), &v).await;
+        let script = s.scheduler_action_script("alert", &alert_id, "reset_count").await.expect("script");
+        assert!(script.contains("@occurrence_count = 0") && script.contains("@count_reset_date = @resetDate"), "{script}");
+        s.scheduler_action("alert", &alert_id, "reset_count").await.expect("reset");
         let r = rows(
             &mut s,
             &format!(
-                "SELECT severity, performance_condition,
-                        (SELECT notification_method FROM msdb.dbo.sysnotifications WHERE alert_id = a.id),
-                        occurrence_count,
+                "SELECT occurrence_count,
                         CASE WHEN count_reset_date = CONVERT(int, CONVERT(char(8), GETDATE(), 112)) THEN 1 ELSE count_reset_date END
-                   FROM msdb.dbo.sysalerts a WHERE id = {alert_id}"
+                   FROM msdb.dbo.sysalerts WHERE id = {alert_id}"
             ),
         )
         .await;
-        assert_eq!(
-            r[0],
-            [
-                json!(0),
-                json!(format!("{object}|User Connections||>|500")),
-                json!(3),
-                json!(0),
-                json!(1)
-            ],
-            "the count starts again today"
-        );
+        assert_eq!(r[0], [json!(0), json!(1)], "the count starts again today");
+        let form = s.scheduler_form("alert", Some(&alert_id)).await.expect("form");
+        assert_ne!(form.values["count_reset"], json!("2020-01-01 00:00:00"));
+        let enabled = format!("SELECT enabled FROM msdb.dbo.sysalerts WHERE id = {alert_id}");
+        s.scheduler_action("alert", &alert_id, "disable").await.expect("disable");
+        assert_eq!(scalar(&mut s, &enabled).await, json!(0));
+        let list = s.scheduler_items("alert").await.expect("items");
+        assert_eq!(actions_of(&list), Some(vec!["reset_count".to_string(), "enable".to_string()]));
+        s.scheduler_action("alert", &alert_id, "enable").await.expect("enable");
+        assert_eq!(scalar(&mut s, &enabled).await, json!(1));
+        // Keys it doesn't have, on alerts or other kinds, are refused.
+        for (kind, id, action) in [
+            ("alert", alert_id.as_str(), "run"),
+            ("alert", alert_id.as_str(), "reset_count'; DROP TABLE t; --"),
+            ("job", job_id.as_str(), "reset_count"),
+            ("operator", op_id.as_str(), "enable"),
+        ] {
+            let e = s.scheduler_action_script(kind, id, action).await.unwrap_err();
+            assert!(matches!(&e, Error::Query(m) if m.contains("no es una acción")), "{kind} {action}: {e:?}");
+            let e = s.scheduler_action(kind, id, action).await.unwrap_err();
+            assert!(matches!(&e, Error::Query(m) if m.contains("no es una acción")), "{kind} {action}: {e:?}");
+        }
+        let e = s.scheduler_action_script("alert", "1; DROP TABLE t", "enable").await.unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("no es un id")), "{e:?}");
 
         // The job's form reads it all back.
         let form = s.scheduler_form("job", Some(&job_id)).await.expect("form");
@@ -749,11 +872,13 @@ async fn the_agent_managed_whole() {
         assert!(form.read_only);
         let v = values_of(&form);
         assert!(ro.scheduler_script("job", Some(&job_id), &v).await.is_ok());
+        assert!(ro.scheduler_action_script("alert", &alert_id, "disable").await.is_ok());
         for r in [
             ro.scheduler_save("job", Some(&job_id), &v).await.map(|_| ()),
             ro.scheduler_delete("job", &job_id).await,
             ro.run_job_from(&job_id, "one").await,
             ro.clear_job_history(&job_id).await,
+            ro.scheduler_action("alert", &alert_id, "disable").await,
         ] {
             assert!(matches!(&r, Err(Error::Query(m)) if m.contains("solo lectura")), "{r:?}");
         }
@@ -889,7 +1014,8 @@ async fn a_login_without_sysadmin() {
                  EXEC msdb.sys.sp_executesql N'CREATE USER [{USER}] FOR LOGIN [{USER}]; ALTER ROLE SQLAgentReaderRole ADD MEMBER [{USER}];';
                  EXEC msdb.dbo.sp_add_operator @name = N'{OP}', @email_address = N'x@example.com';
                  EXEC msdb.dbo.sp_add_job @job_name = N'{JOB_B}';
-                 EXEC msdb.dbo.sp_add_jobstep @job_name = N'{JOB_B}', @step_name = N'sa step', @command = N'SELECT 1';"
+                 EXEC msdb.dbo.sp_add_jobstep @job_name = N'{JOB_B}', @step_name = N'sa step', @command = N'SELECT 1';
+                 EXEC msdb.dbo.sp_add_schedule @schedule_name = N'{SA_OWN}', @freq_type = 4, @freq_interval = 1;"
             ),
         )
         .await;
@@ -901,6 +1027,21 @@ async fn a_login_without_sysadmin() {
         let mut s = connect(&user_cfg).await;
         let info = s.scheduler_info().await.expect("info");
         eprintln!("{info:?}");
+        // It starts its own jobs at a step; purging history is
+        // SQLAgentOperatorRole's (msdb grants it to no other role).
+        let job_kind = info.kinds.iter().find(|k| k.key == "job").unwrap();
+        assert!(job_kind.run_from_step && !job_kind.clear_history, "{job_kind:?}");
+        // sa's job and schedule: listed, but not offered for changes.
+        let jobs = s.scheduler_items("job").await.expect("items");
+        let theirs = jobs.items.iter().find(|i| i.name == JOB_B).unwrap();
+        assert_eq!((theirs.can_edit, theirs.can_delete), (Some(false), Some(false)));
+        let e = s.scheduler_delete_script("job", &theirs.id).await.unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("propietario")), "{e:?}");
+        let schedules = s.scheduler_items("schedule").await.expect("items");
+        let theirs = schedules.items.iter().find(|i| i.name == SA_OWN).expect("sa's schedule listed");
+        assert_eq!((theirs.can_edit, theirs.can_delete), (Some(false), Some(false)));
+        let e = s.scheduler_delete_script("schedule", &theirs.id).await.unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("propietario")), "{e:?}");
         let kinds: Vec<(&str, bool)> = info
             .kinds
             .iter()
@@ -987,6 +1128,20 @@ async fn a_login_without_sysadmin() {
         )
         .await;
         assert_eq!(name, json!("mine, renamed"));
+        // Its own job and schedule: as their kinds say.
+        let jobs = s.scheduler_items("job").await.expect("items");
+        let mine = jobs.items.iter().find(|i| i.id.eq_ignore_ascii_case(&id)).unwrap();
+        assert_eq!((mine.can_edit, mine.can_delete), (None, None));
+        let schedules = s.scheduler_items("schedule").await.expect("items");
+        let own = schedules.items.iter().find(|i| i.name == OWN).expect("its schedule listed");
+        assert_eq!((own.can_edit, own.can_delete), (None, None));
+        // It starts its job at a step; clearing the history, which the
+        // job kind doesn't offer it, msdb refuses.
+        s.run_job_from(&id, "mine, renamed").await.expect("run from");
+        wait_for_runs(&mut sa, &id, 1).await;
+        let e = s.clear_job_history(&id).await.unwrap_err();
+        assert!(matches!(&e, Error::Query(m) if m.contains("sp_purge_jobhistory")), "{e:?}");
+        assert_eq!(run_count(&mut sa, &id).await, 1);
         // A form read before a change made elsewhere is refused.
         run(
             &mut sa,

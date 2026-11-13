@@ -5,8 +5,9 @@
 //!
 //! The type folds SSMS's "schedule type" and "occurs" into one select
 //! (one time, daily, weekly, monthly, monthly relative, when the Agent
-//! starts, when the CPUs become idle), so every field depends on a single
-//! other field, as the form's `when` can say.
+//! starts, when the CPUs become idle). The repetition during the day
+//! ("every" and "until") depends on the type and on the daily frequency
+//! both (`when` plus `and_when`).
 
 use super::choices::{self, Catalog};
 use super::{
@@ -206,6 +207,9 @@ fn code_of(table: &[(&'static str, i64)], key: &str) -> Option<i64> {
     table.iter().find(|(k, _)| *k == key).map(|(_, c)| *c)
 }
 
+/// The daily frequencies that repeat during the day.
+const SUBDAY: &[&str] = &["hours", "minutes", "seconds"];
+
 /// The schedule's fields (a job's schedule row, or a shared schedule's
 /// General page). `managed`: Azure SQL Managed Instance (no idle-CPU
 /// schedules).
@@ -326,12 +330,17 @@ pub(crate) fn fields(managed: bool, today: i64) -> Vec<FormField> {
                 "La hora en que se ejecuta o, si se repite durante el día, la hora en que empieza.",
             )
             .default(json!("00:00:00")),
+        // Only a recurring schedule repeats during the day: once, at the
+        // Agent's start and on idle CPUs keep no daily frequency, whatever
+        // the hidden select still says.
         FormField::new("every", "Cada", FormKind::number(Some(1.0), Some(86_399.0)))
-            .when("daily_frequency", &["hours", "minutes", "seconds"])
+            .when("type", recurring)
+            .and_when("daily_frequency", SUBDAY)
             .help("Cada cuántas horas, minutos o segundos se repite (en segundos, al menos 10).")
             .default(json!(1)),
         FormField::new("end_time", "Hasta las", FormKind::Time)
-            .when("daily_frequency", &["hours", "minutes", "seconds"])
+            .when("type", recurring)
+            .and_when("daily_frequency", SUBDAY)
             .default(json!("23:59:59")),
         FormField::new("start_date", "Fecha de inicio", FormKind::Date)
             .when(
@@ -657,28 +666,46 @@ async fn read(s: &mut SqlServerSession, id: &str) -> Result<Shared> {
     })
 }
 
-pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<SchedulerList> {
-    let sets = jobs::sets(
-        s,
-        "SET NOCOUNT ON;\nEXEC msdb.dbo.sp_help_schedule;",
-        &[],
-        None,
-    )
-    .await?;
+/// Every schedule, and (for a login that isn't sysadmin, who may change
+/// only its own) each one's owner.
+const LIST_SQL: &str = "SET NOCOUNT ON;
+EXEC msdb.dbo.sp_help_schedule;
+IF IS_SRVROLEMEMBER('sysadmin') = 0
+   AND HAS_PERMS_BY_NAME(N'msdb.dbo.sysschedules_localserver_view', N'OBJECT', N'SELECT') = 1
+    SELECT schedule_id AS dbine_schedule, SUSER_SNAME(owner_sid) AS dbine_owner
+      FROM msdb.dbo.sysschedules_localserver_view;";
+
+/// A shared schedule in the tree: only its owner or sysadmin changes or
+/// deletes it (`sp_update_schedule` / `sp_delete_schedule`, error 14394).
+pub(crate) fn item(c: &Ctx, id: i64, row: &ScheduleRow, owner: Option<&str>) -> SchedulerItem {
+    let mine = super::unless(c.writable(), c.p.sysadmin || c.is(owner));
+    SchedulerItem {
+        id: id.to_string(),
+        name: row.name.clone(),
+        description: Some(usage(row)),
+        enabled: Some(row.enabled),
+        system: false,
+        can_edit: mine,
+        can_delete: mine,
+        actions: None,
+    }
+}
+
+pub(crate) async fn items(s: &mut SqlServerSession, c: &Ctx) -> Result<SchedulerList> {
+    let sets = jobs::sets(s, LIST_SQL, &[], None).await?;
+    let owners: BTreeMap<i64, String> = first_with(&sets, "dbine_schedule")
+        .map(|set| {
+            set.rows
+                .iter()
+                .filter_map(|r| Some((int(r, "dbine_schedule")?, text(r, "dbine_owner")?)))
+                .collect()
+        })
+        .unwrap_or_default();
     let items = read_all(first_with(&sets, "schedule_uid"), |r| {
         Some((int(r, "schedule_id")?, ScheduleRow::read(r)?))
     })
     .into_iter()
-    .map(|(id, row)| SchedulerItem {
-        id: id.to_string(),
-        name: row.name.clone(),
-        description: Some(usage(&row)),
-        enabled: Some(row.enabled),
-        system: false,
-        can_edit: None,
-        can_delete: None,
-        actions: None,
-    })
+    .map(|(id, row)| item(c, id, &row, owners.get(&id).map(String::as_str)))
     .collect();
     Ok(SchedulerList {
         items,

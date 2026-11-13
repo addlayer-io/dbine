@@ -1629,12 +1629,14 @@ pub(crate) fn stale(values: &FormValues, st: &JobState) -> Result<()> {
     }
 }
 
-/// The login may change this job.
-fn may_change(c: &Ctx, st: &JobState) -> std::result::Result<(), &'static str> {
-    if c.p.sent_by_master(&st.raw.job) {
+/// The login may change or delete this job: msdb refuses a job a master
+/// server sent (14274, in `sp_update_job` and `sp_delete_job` alike) and
+/// one of another owner to whoever isn't sysadmin (14525).
+pub(crate) fn may_change(c: &Ctx, job: &JobRow) -> std::result::Result<(), &'static str> {
+    if c.p.sent_by_master(job) {
         return Err(FROM_MASTER);
     }
-    if !(c.p.sysadmin || c.is(st.raw.job.owner.as_deref())) {
+    if !(c.p.sysadmin || c.is(job.owner.as_deref())) {
         return Err(OWNER_ONLY);
     }
     Ok(())
@@ -1673,7 +1675,7 @@ pub(crate) async fn plan(
         Some(id) => {
             let id = jobs::job_id(id)?;
             let st = read_state(s, c, &id).await?;
-            if let Err(why) = may_change(c, &st) {
+            if let Err(why) = may_change(c, &st.raw.job) {
                 return Err(Error::Query(why.into()));
             }
             stale(values, &st)?;
@@ -1695,31 +1697,36 @@ pub(crate) async fn plan(
 pub(crate) async fn delete_script(s: &mut SqlServerSession, c: &Ctx, id: &str) -> Result<String> {
     let id = jobs::job_id(id)?;
     let (raw, _) = jobs::read_job_as(s, &c.p, &id).await?;
-    if c.writable() && !(c.p.sysadmin || c.is(raw.job.owner.as_deref())) {
-        return Err(Error::Query(OWNER_ONLY.into()));
+    if c.writable() {
+        if let Err(why) = may_change(c, &raw.job) {
+            return Err(Error::Query(why.into()));
+        }
     }
     Ok(drop_script(&id, &raw.job.name))
 }
 
-pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<SchedulerList> {
+/// A job in the tree, with what this login may do with it.
+pub(crate) fn item(c: &Ctx, j: &JobRow) -> SchedulerItem {
+    let mine = super::unless(c.writable(), may_change(c, j).is_ok());
+    SchedulerItem {
+        id: j.id.to_string(),
+        name: j.name.clone(),
+        description: j.description.clone(),
+        enabled: Some(j.enabled),
+        system: jobs::built_in(j),
+        can_edit: mine,
+        can_delete: mine,
+        actions: None,
+    }
+}
+
+pub(crate) async fn items(s: &mut SqlServerSession, c: &Ctx) -> Result<SchedulerList> {
     let sets = jobs::sets(s, "SET NOCOUNT ON;\nEXEC msdb.dbo.sp_help_job;", &[], None).await?;
     let mut jobs_list: Vec<JobRow> =
         jobs::read_all(first_with(&sets, "current_execution_status"), JobRow::read);
     jobs_list.sort_by_key(|j| j.name.to_lowercase());
     Ok(SchedulerList {
-        items: jobs_list
-            .iter()
-            .map(|j| SchedulerItem {
-                id: j.id.to_string(),
-                name: j.name.clone(),
-                description: j.description.clone(),
-                enabled: Some(j.enabled),
-                system: jobs::built_in(j),
-                can_edit: None,
-                can_delete: None,
-                actions: None,
-            })
-            .collect(),
+        items: jobs_list.iter().map(|j| item(c, j)).collect(),
         notes: Vec::new(),
     })
 }
@@ -2217,7 +2224,7 @@ pub(crate) async fn form(
         if st.raw.servers.is_empty() {
             f.notes.push(NO_TARGET.into());
         }
-        if let Err(why) = may_change(c, st) {
+        if let Err(why) = may_change(c, &st.raw.job) {
             f.read_only = true;
             f.notes.insert(0, why.into());
         }

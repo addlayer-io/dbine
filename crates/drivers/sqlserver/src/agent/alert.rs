@@ -1,13 +1,20 @@
 //! Alerts: SSMS's "New Alert" dialog (General: SQL Server event,
 //! performance condition or WMI event; Response: the job it runs and the
 //! operators it notifies; Options; History), `sp_add_alert` /
-//! `sp_update_alert` / `sp_delete_alert` and the notifications. sysadmin
-//! only; Azure SQL Managed Instance has no alerts.
+//! `sp_update_alert` / `sp_delete_alert` and the notifications, and the
+//! alert's actions in SSMS's menu and History page: reset the count,
+//! enable, disable. sysadmin only; Azure SQL Managed Instance has no
+//! alerts.
+//!
+//! A performance condition picks its object, then a counter of that
+//! object, then an instance of that counter, from the server's counters
+//! (`sys.dm_os_performance_counters`, what the Agent watches): each list
+//! is a choice source that names the field it depends on.
 
 use super::choices::{self, Catalog, ALL_DATABASES};
 use super::{
-    bad, fits, guid_literal, int_id, pick, rows, shown, Ctx, Kind, Plan, Script, Vals, A,
-    SYSADMIN_ONLY_FORM, SYSNAME,
+    bad, fits, guid_literal, int_id, no_action, pick, rows, shown, Ctx, Kind, Plan, Script, Vals,
+    A, SYSADMIN_ONLY_FORM, SYSNAME,
 };
 use crate::jobs::{self, agent_time_of, first_with, guid, int, text};
 use crate::SqlServerSession;
@@ -55,7 +62,6 @@ pub(crate) struct Alert {
     pub(crate) category: String,
     /// Operator → `notification_method`.
     pub(crate) operators: BTreeMap<String, i64>,
-    pub(crate) reset_count: bool,
 }
 
 impl Alert {
@@ -154,7 +160,6 @@ async fn read(s: &mut SqlServerSession, id: &str) -> Result<Read> {
         delay: int(r, "delay_between_responses").unwrap_or(0),
         category: text(r, "category_name").unwrap_or_else(|| UNCATEGORIZED.into()),
         operators,
-        reset_count: false,
     };
     let history = [
         when(r, "last_occurrence_date", "last_occurrence_time"),
@@ -179,7 +184,16 @@ fn summary(r: &Raise) -> String {
     }
 }
 
-pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<SchedulerList> {
+/// The alert's actions now: the count reset, and enable or disable,
+/// whichever it isn't (SSMS greys out the other).
+pub(crate) fn actions_now(enabled: bool) -> Vec<String> {
+    vec![
+        "reset_count".into(),
+        if enabled { "disable" } else { "enable" }.into(),
+    ]
+}
+
+pub(crate) async fn items(s: &mut SqlServerSession, c: &Ctx) -> Result<SchedulerList> {
     let sets = jobs::sets(
         s,
         "SET NOCOUNT ON;\nEXEC msdb.dbo.sp_help_alert;",
@@ -192,15 +206,16 @@ pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<Schedule
             set.rows
                 .iter()
                 .filter_map(|r| {
+                    let enabled = int(r, "enabled") == Some(1);
                     Some(SchedulerItem {
                         id: int(r, "id")?.to_string(),
                         name: text(r, "name")?,
                         description: Some(summary(&raise_of(r))),
-                        enabled: Some(int(r, "enabled") == Some(1)),
+                        enabled: Some(enabled),
                         system: false,
                         can_edit: None,
                         can_delete: None,
-                        actions: None,
+                        actions: c.admin().then(|| actions_now(enabled)),
                     })
                 })
                 .collect()
@@ -251,17 +266,39 @@ fn severities() -> FormKind {
     ])
 }
 
-/// `wmi_namespace`: the instance's own (see [`Ctx::wmi_namespace`]).
+/// Where the counters of an object are among the form's choices, and the
+/// instances of one of its counters: the same sources the fields name with
+/// their `{field}` placeholders, filled.
+pub(crate) const PERF_OBJECTS: &str = "perf_object";
+pub(crate) const PERF_COUNTERS: &str = "perf_counter:{perf_object}";
+pub(crate) const PERF_INSTANCES: &str = "perf_instance:{perf_object}|{perf_counter}";
+
+pub(crate) fn perf_counters(object: &str) -> String {
+    format!("perf_counter:{object}")
+}
+
+pub(crate) fn perf_instances(object: &str, counter: &str) -> String {
+    format!("perf_instance:{object}|{counter}")
+}
+
+/// `perf_list`: the server's counters are among the choices (VIEW SERVER
+/// STATE), so object, counter and instance are picked, each from what the
+/// one before allows; without them, they are typed. `wmi_namespace`: the
+/// instance's own (see [`Ctx::wmi_namespace`]).
 pub(crate) fn general_fields(perf_list: bool, wmi_namespace: &str) -> Vec<FormField> {
     let event = &["error", "severity"];
-    let object = if perf_list {
-        FormField::new(
-            "perf_object",
-            "Objeto",
-            FormKind::reference("perf_object", false),
-        )
-    } else {
-        FormField::new("perf_object", "Objeto", FormKind::Text)
+    let perf = |f: FormField, source: &str, example: &str| {
+        let f = if perf_list {
+            FormField {
+                kind: FormKind::reference(source, false),
+                ..f
+            }
+        } else if example.is_empty() {
+            f
+        } else {
+            f.placeholder(example)
+        };
+        f.when("type", &["performance"])
     };
     vec![
         FormField::new("name", "Nombre", FormKind::Text).required(),
@@ -303,13 +340,21 @@ pub(crate) fn general_fields(perf_list: bool, wmi_namespace: &str) -> Vec<FormFi
             FormKind::Text,
         )
         .when("type", event),
-        object
-            .when("type", &["performance"])
-            .placeholder("SQLServer:General Statistics"),
-        FormField::new("perf_counter", "Contador", FormKind::Text)
-            .when("type", &["performance"])
-            .placeholder("User Connections"),
-        FormField::new("perf_instance", "Instancia", FormKind::Text).when("type", &["performance"]),
+        perf(
+            FormField::new("perf_object", "Objeto", FormKind::Text),
+            PERF_OBJECTS,
+            "SQLServer:General Statistics",
+        ),
+        perf(
+            FormField::new("perf_counter", "Contador", FormKind::Text),
+            PERF_COUNTERS,
+            "User Connections",
+        ),
+        perf(
+            FormField::new("perf_instance", "Instancia", FormKind::Text),
+            PERF_INSTANCES,
+            "",
+        ),
         FormField::new(
             "perf_comparison",
             "Generar la alerta si el contador",
@@ -321,7 +366,8 @@ pub(crate) fn general_fields(perf_list: bool, wmi_namespace: &str) -> Vec<FormFi
         )
         .when("type", &["performance"])
         .default(json!(">")),
-        FormField::new("perf_value", "Valor", FormKind::number(None, None))
+        // msdb takes only a value that starts with a digit.
+        FormField::new("perf_value", "Valor", FormKind::number(Some(0.0), None))
             .when("type", &["performance"])
             .default(json!(0)),
         FormField::new("wmi_namespace", "Espacio de nombres", FormKind::Text)
@@ -428,7 +474,6 @@ pub(crate) async fn form(
                 delay: 0,
                 category: UNCATEGORIZED.into(),
                 operators: BTreeMap::new(),
-                reset_count: false,
             };
             f.values = values_of(&a, &namespace);
             operators = Vec::new();
@@ -458,12 +503,8 @@ pub(crate) async fn form(
                     FormKind::Text,
                 )
                 .read_only(true),
+                // Reset with the alert's "Restablecer el recuento" action.
                 FormField::new("count_reset", "Recuento desde", FormKind::Text).read_only(true),
-                FormField::new(
-                    "reset_count",
-                    "Restablecer el recuento al guardar",
-                    FormKind::Bool,
-                ),
             ]);
             for (k, v) in [
                 "last_occurrence",
@@ -584,7 +625,9 @@ pub(crate) fn from_values(values: &FormValues, catalog: &Catalog) -> Result<Aler
             let counter = v
                 .opt("perf_counter")
                 .ok_or_else(|| bad("La alerta de rendimiento necesita el contador.".into()))?;
-            let instance = v.text("perf_instance");
+            // An instance is a database's name, among others: a leading
+            // space is part of it (msdb compares right-trimmed names).
+            let instance = v.raw("perf_instance").trim_end().to_string();
             let cmp = v.text("perf_comparison");
             if !matches!(cmp.as_str(), "<" | "=" | ">") {
                 return Err(bad(format!(
@@ -595,6 +638,11 @@ pub(crate) fn from_values(values: &FormValues, catalog: &Catalog) -> Result<Aler
             let value = v.number("perf_value", "Valor")?.ok_or_else(|| {
                 bad("La alerta de rendimiento necesita el valor con el que comparar.".into())
             })?;
+            if value.starts_with('-') {
+                return Err(bad(
+                    "El valor de una alerta de rendimiento no puede ser negativo.".into(),
+                ));
+            }
             for part in [&object, &counter, &instance] {
                 if part.contains('|') {
                     return Err(bad(format!(
@@ -724,8 +772,134 @@ pub(crate) fn from_values(values: &FormValues, catalog: &Catalog) -> Result<Aler
         delay,
         category,
         operators,
-        reset_count: v.bool("reset_count"),
     })
+}
+
+/// A performance object's name past its instance's prefix ("SQLServer:" on
+/// a default instance, "MSSQL$NAME:" on a named one), as msdb compares it:
+/// what follows the first ':', or the whole name without one.
+fn unprefixed(object: &str) -> &str {
+    object.split_once(':').map_or(object, |(_, rest)| rest)
+}
+
+/// The server's object a condition names: the same name (any case) or, as
+/// `sp_verify_performance_condition` matches it, the same name past the
+/// instance's prefix (any case), so one scripted on another instance
+/// ("MSSQL$OTHER:General Statistics") or without a prefix ("General
+/// Statistics") names this server's. Returns the server's spelling.
+fn perf_object<'a>(object: &str, objects: &'a [(String, String)]) -> Result<&'a str> {
+    let bare = unprefixed(object);
+    objects
+        .iter()
+        .find(|(v, _)| v == object)
+        .or_else(|| objects.iter().find(|(v, _)| v.eq_ignore_ascii_case(object)))
+        .or_else(|| objects.iter().find(|(v, _)| unprefixed(v) == bare))
+        .or_else(|| {
+            objects
+                .iter()
+                .find(|(v, _)| unprefixed(v).eq_ignore_ascii_case(bare))
+        })
+        .map(|(v, _)| v.as_str())
+        .ok_or_else(|| {
+            bad(format!(
+                "El objeto de rendimiento «{}» no existe en este servidor.",
+                shown(object)
+            ))
+        })
+}
+
+/// A performance condition checked as `sp_verify_performance_condition`
+/// checks it (an object, a counter of it and an instance of that counter,
+/// none instead only where the counter has a row without one), against the
+/// server's counters, and written in the server's spelling (its object's
+/// prefix included). Without the counters (no VIEW SERVER STATE) msdb
+/// checks it alone.
+pub(crate) fn check_performance(condition: &str, catalog: &Catalog) -> Result<String> {
+    let objects = catalog.get(PERF_OBJECTS);
+    let parts: Vec<&str> = condition.split('|').collect();
+    let [object, counter, instance, cmp, value] = parts[..] else {
+        return Ok(condition.to_string());
+    };
+    if objects.is_empty() {
+        return Ok(condition.to_string());
+    }
+    let object = perf_object(object, objects)?;
+    let counter = pick(counter, catalog.get(&perf_counters(object)), |c| {
+        format!("El objeto «{}» no tiene el contador «{c}».", shown(object))
+    })?;
+    let instances = catalog.get(&perf_instances(object, counter));
+    let instance = pick(instance, instances, |i| {
+        if i.is_empty() {
+            format!("Elegí una instancia del contador «{}».", shown(counter))
+        } else {
+            format!(
+                "El contador «{}» no tiene la instancia «{i}».",
+                shown(counter)
+            )
+        }
+    })?;
+    Ok(format!("{object}|{counter}|{instance}|{cmp}|{value}"))
+}
+
+/// The alert kind's action keys (see [`super::info_of`]).
+pub(crate) const ACTIONS: [&str; 3] = ["reset_count", "enable", "disable"];
+
+/// The script of one of the alert's actions, or `None` for a key it
+/// doesn't have. "reset_count" is SSMS's "Reset Count": the count to zero,
+/// counted from now on the server's clock (`sp_update_alert` would keep
+/// the old reset date otherwise; a procedure's argument can't be an
+/// expression, so the date goes through variables).
+pub(crate) fn action_sql(name: &str, action: &str) -> Option<String> {
+    let args = vec![("name", A::T(name.into()))];
+    match action {
+        "reset_count" => {
+            let mut sc = Script::new(
+                &format!("Restablece el recuento de la alerta «{name}» del Agente SQL Server"),
+                &["@resetAt datetime", "@resetDate int", "@resetTime int"],
+            );
+            sc.line("SET @resetAt = GETDATE();");
+            sc.line("SET @resetDate = CONVERT(int, CONVERT(char(8), @resetAt, 112));");
+            sc.line(
+                "SET @resetTime = DATEPART(HOUR, @resetAt) * 10000 + DATEPART(MINUTE, @resetAt) * 100 + DATEPART(SECOND, @resetAt);",
+            );
+            let mut args = args;
+            args.push(("occurrence_count", A::I(0)));
+            args.push(("count_reset_date", A::R("@resetDate".into())));
+            args.push(("count_reset_time", A::R("@resetTime".into())));
+            sc.call("msdb.dbo.sp_update_alert", args);
+            Some(sc.finish(None))
+        }
+        "enable" | "disable" => {
+            let on = action == "enable";
+            let comment = if on {
+                format!("Habilita la alerta «{name}» del Agente SQL Server")
+            } else {
+                format!("Deshabilita la alerta «{name}» del Agente SQL Server")
+            };
+            let mut sc = Script::new(&comment, &[]);
+            let mut args = args;
+            args.push(("enabled", A::I(i64::from(on))));
+            sc.call("msdb.dbo.sp_update_alert", args);
+            Some(sc.finish(None))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) async fn action_script(
+    s: &mut SqlServerSession,
+    c: &Ctx,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    if !ACTIONS.contains(&action) {
+        return Err(no_action(action));
+    }
+    if !c.p.sysadmin && c.writable() {
+        return Err(Error::Query(SYSADMIN_ONLY_FORM.into()));
+    }
+    let r = read(s, id).await?;
+    action_sql(&r.alert.name, action).ok_or_else(|| no_action(action))
 }
 
 fn notifications(
@@ -795,15 +969,7 @@ pub(crate) fn create_script(a: &Alert) -> String {
 /// `sp_update_alert` with what changed (what raises it as a whole when its
 /// type changes), the notifications' diff, or `None`.
 pub(crate) fn alter_script(cur: &Alert, a: &Alert) -> Option<String> {
-    let declares: &[&str] = if a.reset_count {
-        &["@resetAt datetime", "@resetDate int", "@resetTime int"]
-    } else {
-        &[]
-    };
-    let mut sc = Script::new(
-        &format!("Alerta «{}» del Agente SQL Server", cur.name),
-        declares,
-    );
+    let mut sc = Script::new(&format!("Alerta «{}» del Agente SQL Server", cur.name), &[]);
     let mut args = vec![("name", A::T(cur.name.clone()))];
     if a.name != cur.name {
         args.push(("new_name", A::T(a.name.clone())));
@@ -852,19 +1018,6 @@ pub(crate) fn alter_script(cur: &Alert, a: &Alert) -> Option<String> {
     if !a.category.eq_ignore_ascii_case(&cur.category) {
         args.push(("category_name", A::T(a.category.clone())));
     }
-    if a.reset_count {
-        // The count starts again now (on the server's clock, as msdb keeps
-        // it): `sp_update_alert` would keep the old reset date otherwise.
-        // A procedure's argument can't be an expression.
-        sc.line("SET @resetAt = GETDATE();");
-        sc.line("SET @resetDate = CONVERT(int, CONVERT(char(8), @resetAt, 112));");
-        sc.line(
-            "SET @resetTime = DATEPART(HOUR, @resetAt) * 10000 + DATEPART(MINUTE, @resetAt) * 100 + DATEPART(SECOND, @resetAt);",
-        );
-        args.push(("occurrence_count", A::I(0)));
-        args.push(("count_reset_date", A::R("@resetDate".into())));
-        args.push(("count_reset_time", A::R("@resetTime".into())));
-    }
     if args.len() > 1 {
         sc.call("msdb.dbo.sp_update_alert", args);
     }
@@ -893,9 +1046,30 @@ pub(crate) async fn plan(
     if !c.p.sysadmin {
         return Err(Error::Query(SYSADMIN_ONLY_FORM.into()));
     }
-    let catalog = choices::load(s, c, &["database", "category", "operator", "job"]).await?;
-    let a = from_values(values, &catalog)?;
-    match id {
+    let mut sources = vec!["database", "category", "operator", "job"];
+    if Vals(&values.values).text("type") == "performance" {
+        sources.push(PERF_OBJECTS);
+    }
+    let catalog = choices::load(s, c, &sources).await?;
+    let mut a = from_values(values, &catalog)?;
+    let cur = match id {
+        Some(id) => Some(read(s, id).await?),
+        None => None,
+    };
+    // A new or changed condition is checked here first, for a clear
+    // message and the server's spelling. One left as it was isn't: msdb
+    // checks it again on every sp_update_alert anyway (the stored one when
+    // none is passed, so this kind's actions too), and writing it in the
+    // server's spelling would turn a save with no changes into a change.
+    if let Raise::Performance(p) = &a.raise {
+        let same = cur
+            .as_ref()
+            .is_some_and(|r| r.alert.raise == Raise::Performance(p.clone()));
+        if !same {
+            a.raise = Raise::Performance(check_performance(p, &catalog)?);
+        }
+    }
+    match cur {
         None => Ok(Plan {
             script: create_script(&a),
             empty: false,
@@ -906,19 +1080,16 @@ pub(crate) async fn plan(
                 a.name.clone(),
             )),
         }),
-        Some(id) => {
-            let r = read(s, id).await?;
-            Ok(match alter_script(&r.alert, &a) {
-                Some(script) => Plan {
-                    script,
-                    empty: false,
-                    id: Some(r.id.to_string()),
-                    output: None,
-                    lookup: None,
-                },
-                None => Plan::nothing(&r.alert.name, r.id.to_string()),
-            })
-        }
+        Some(r) => Ok(match alter_script(&r.alert, &a) {
+            Some(script) => Plan {
+                script,
+                empty: false,
+                id: Some(r.id.to_string()),
+                output: None,
+                lookup: None,
+            },
+            None => Plan::nothing(&r.alert.name, r.id.to_string()),
+        }),
     }
 }
 

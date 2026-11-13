@@ -1866,6 +1866,19 @@ impl Session for SqlServerSession {
         agent::delete(self, kind, id).await
     }
 
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        agent::action_script(self, kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        agent::action(self, kind, id, action).await
+    }
+
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
         agent::run_from(self, id, step).await
     }

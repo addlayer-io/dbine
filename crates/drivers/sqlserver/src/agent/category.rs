@@ -113,23 +113,29 @@ fn describe(c: &Category) -> &'static str {
     }
 }
 
-pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<SchedulerList> {
+/// A category in the tree: the system's own can't be changed or deleted.
+pub(crate) fn item(ctx: &Ctx, c: &Category) -> SchedulerItem {
+    let own = super::unless(ctx.admin(), !c.system());
+    SchedulerItem {
+        id: c.id.to_string(),
+        name: c.name.clone(),
+        description: Some(describe(c).to_string()),
+        enabled: None,
+        system: c.system(),
+        can_edit: own,
+        can_delete: own,
+        actions: None,
+    }
+}
+
+pub(crate) async fn items(s: &mut SqlServerSession, ctx: &Ctx) -> Result<SchedulerList> {
     let sets = jobs::sets(s, LIST_SQL, &[], None).await?;
     let items = first_with(&sets, "category_class")
         .map(|set| {
             set.rows
                 .iter()
                 .filter_map(row_of)
-                .map(|c| SchedulerItem {
-                    id: c.id.to_string(),
-                    name: c.name.clone(),
-                    description: Some(describe(&c).to_string()),
-                    enabled: None,
-                    system: c.system(),
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
-                })
+                .map(|c| item(ctx, &c))
                 .collect()
         })
         .unwrap_or_default();
