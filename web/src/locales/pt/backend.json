@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "alias de banco local inválido: {0}",
   "no se pudo guardar el dato cifrado: {0}": "não foi possível salvar o dado criptografado: {0}",
   "no se pudo cifrar el dato": "não foi possível criptografar o dado",
+  "dato cifrado sin pestaña o con una inválida": "dado criptografado sem aba ou com uma aba inválida",
   "el dato es demasiado grande para guardarlo": "o dado é grande demais para ser salvo"
 }

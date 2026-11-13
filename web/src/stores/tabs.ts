@@ -7,6 +7,7 @@ import type { ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
 import { emptySpec, type QuerySpec } from '../api/queryBuilder';
 import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
+import { forgetDraft, settleDrafts } from '../composables/notebookDrafts';
 import { initWindowRole, windowRole } from '../composables/windowRole';
 import type { ParamValue } from '../composables/queryParams';
 import * as eg from './editorGroups';
@@ -239,8 +240,9 @@ export interface NotebookTab extends TabBase {
  *  database its cells ran on), closed with the tab. NotebookView fills it. */
 export const notebookSessions = new Map<string, Set<string>>();
 
-/** Where an untitled notebook's draft is kept between restarts. */
-export const notebookDraftKey = (tabId: string) => `dbine.notebook.draft.${tabId}`;
+/** Where DBine 1.5 and before kept an untitled notebook's draft in the
+ *  clear (composables/notebookDrafts.ts keeps drafts encrypted now). */
+export { legacyDraftKey as notebookDraftKey } from '../composables/notebookDrafts';
 
 /** Notebook tabs closed for good: their view writes no draft and marks
  *  nothing unsaved any more (a run still in flight, the unmount). The view
@@ -364,7 +366,12 @@ export const useTabsStore = defineStore('tabs', {
     // wasn't running, or in a window that's gone) go.
     if (LABEL === 'main') {
       const ids = layout.tabs.map((t) => t.id);
-      queueMicrotask(() => { api.resultsKeepTabs(ids).catch(() => {}); });
+      queueMicrotask(() => {
+        api.resultsKeepTabs(ids).catch(() => {});
+        // Likewise untitled notebooks' drafts (and plaintext ones of older
+        // versions move into the encrypted store).
+        void settleDrafts(ids);
+      });
     }
     return {
       tabs: layout.tabs,
@@ -555,7 +562,7 @@ export const useTabsStore = defineStore('tabs', {
       if (t?.kind !== 'notebook') return;
       t.path = path;
       delete t.untitled;
-      try { localStorage.removeItem(notebookDraftKey(id)); } catch { /* storage blocked */ }
+      forgetDraft(id);
       this.persist();
     },
 
@@ -942,7 +949,7 @@ export const useTabsStore = defineStore('tabs', {
         notebookSessions.delete(t.id);
         if (closing) {
           closedNotebooks.add(t.id);
-          try { localStorage.removeItem(notebookDraftKey(t.id)); } catch { /* storage blocked */ }
+          forgetDraft(t.id);
         }
         return;
       }

@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "ローカル データベースのエイリアスが無効です: {0}",
   "no se pudo guardar el dato cifrado: {0}": "暗号化したデータを保存できませんでした: {0}",
   "no se pudo cifrar el dato": "データを暗号化できませんでした",
+  "dato cifrado sin pestaña o con una inválida": "暗号化データにタブがない、またはタブが無効です",
   "el dato es demasiado grande para guardarlo": "データが大きすぎて保存できません"
 }

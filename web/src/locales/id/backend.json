@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "alias basis data lokal tidak valid: {0}",
   "no se pudo guardar el dato cifrado: {0}": "tidak dapat menyimpan data terenkripsi: {0}",
   "no se pudo cifrar el dato": "tidak dapat mengenkripsi data",
+  "dato cifrado sin pestaña o con una inválida": "data terenkripsi tanpa tab atau dengan tab yang tidak valid",
   "el dato es demasiado grande para guardarlo": "data terlalu besar untuk disimpan"
 }

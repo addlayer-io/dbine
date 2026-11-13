@@ -30577,6 +30577,9 @@
  "datacenter:réplicas separados por comas. Un datacenter sin «:n» toma el factor de replicación.": [
   "crates/drivers/cassandra/src/create_db.rs"
  ],
+ "dato cifrado sin pestaña o con una inválida": [
+  "src-tauri/src/sealed_store.rs"
+ ],
  "datos": [
   "crates/drivers/couchbase/src/lib.rs",
   "crates/drivers/mongodb/src/monitor.rs",

@@ -45,8 +45,8 @@ import { useOutputStore } from '../stores/output';
 import { useProjectsStore } from '../stores/projects';
 import { useSettingsStore } from '../stores/settings';
 import { sameJson } from '../composables/chartSettings';
-import { readJson, writeJson } from '../stores/storage';
-import { busyTabs, closeGuards, closedNotebooks, notebookDraftKey, notebookSessions, useTabsStore, type NotebookTab } from '../stores/tabs';
+import { busyTabs, closeGuards, closedNotebooks, notebookSessions, useTabsStore, type NotebookTab } from '../stores/tabs';
+import { readDraft, saveDraft } from '../composables/notebookDrafts';
 import { useUiStore } from '../stores/ui';
 
 // A notebook (docs/notebooks.md): SQL and text cells one under another,
@@ -120,7 +120,7 @@ async function load() {
     } else if (props.tab.path) {
       nb.value = raw((await notebookApi.read(props.tab.path)).notebook);
     } else {
-      nb.value = readJson<Notebook | null>(notebookDraftKey(props.tab.id), null) ?? emptyNotebook(false);
+      nb.value = (await readDraft(props.tab.id)) ?? emptyNotebook(false);
     }
     // Files from before cell names: each SQL cell gets one (saved with the file).
     assignCellNames(nb.value.cells);
@@ -161,7 +161,7 @@ function writeDraft() {
   draftTimer = null;
   const n = nb.value;
   if (!n || !props.tab.untitled || isClosed()) return;
-  writeJson(notebookDraftKey(props.tab.id), {
+  void saveDraft(props.tab.id, {
     ...n,
     cells: n.cells.map((c) => ({ ...c, result: c.result ? { ...c.result, params: recordableValues(c.result.params), results: c.result.results.map((s) => ({ ...s, rows: [], rows_kept: 0 })) } : null })),
   });

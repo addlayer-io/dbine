@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "本地数据库别名无效：{0}",
   "no se pudo guardar el dato cifrado: {0}": "无法保存加密数据：{0}",
   "no se pudo cifrar el dato": "无法加密数据",
+  "dato cifrado sin pestaña o con una inválida": "加密数据缺少标签页或标签页无效",
   "el dato es demasiado grande para guardarlo": "数据太大，无法保存"
 }

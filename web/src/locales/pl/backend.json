@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "nieprawidłowy alias lokalnej bazy: {0}",
   "no se pudo guardar el dato cifrado: {0}": "nie udało się zapisać zaszyfrowanych danych: {0}",
   "no se pudo cifrar el dato": "nie udało się zaszyfrować danych",
+  "dato cifrado sin pestaña o con una inválida": "zaszyfrowane dane bez karty lub z nieprawidłową kartą",
   "el dato es demasiado grande para guardarlo": "dane są zbyt duże, aby je zapisać"
 }

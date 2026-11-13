@@ -1041,7 +1041,14 @@ caps them), with each client's own types.
 
 - **File › New notebook**, the command palette and the Welcome view. An
   untitled notebook keeps a draft until it's saved, so restarting DBine
-  doesn't lose it.
+  doesn't lose it. The draft has the cells and their summaries, not the
+  rows. Its chart points and cell outputs are results, so it's kept
+  encrypted, the same way as the AI assistant's conversations (see
+  [AI assistant](ai-assistant.md)), and can't be read outside DBine. It's
+  deleted when the notebook is saved or its tab is closed, and a draft
+  whose tab didn't come back after a restart is deleted at start. Without a
+  vault (no system keychain), no draft is kept. Drafts that earlier
+  versions kept in the clear are moved into the encrypted store at start.
 - **Projects**: a `.ipynb` in a project opens as a notebook, and the project
   tree's menu has **New notebook…**. It's saved with the project's conflict
   check, like any other file there.
