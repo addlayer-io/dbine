@@ -953,7 +953,7 @@ async fn cloudberry_tasks_managed_whole() {
             (it.can_edit, it.can_delete, it.actions),
             (Some(true), Some(true), offers(&[]))
         );
-        let e = s.scheduler_action_script("job", &id, "run").await.unwrap_err();
+        let e = s.scheduler_action_script("job", &id, "run", &Default::default()).await.unwrap_err();
         assert!(matches!(&e, Error::Unsupported(m) if m.contains("tarea")), "{e:?}");
         let row = |n: &str| format!("SELECT jobname, schedule, command, database, active FROM pg_catalog.pg_task WHERE jobid = {n}");
         let r = rows(&mut s, &row(number(&id))).await;
@@ -1903,7 +1903,7 @@ DROP USER IF EXISTS {CRDB_USER}"
             (Some(false), Some(false), offers(&[]))
         );
         assert!(s
-            .scheduler_action_script("job", &id, "run_now")
+            .scheduler_action_script("job", &id, "run_now", &Default::default())
             .await
             .is_err());
         let items = s.scheduler_items("job").await.unwrap().items;
@@ -1954,12 +1954,12 @@ DROP USER IF EXISTS {CRDB_USER}"
         assert_eq!(roots.actions, offers(&[]), "{roots:?}");
         assert_eq!(mine.actions, offers(&["run_now"]), "{mine:?}");
         let e = s
-            .scheduler_action_script("ttl", &roots.id, "run_now")
+            .scheduler_action_script("ttl", &roots.id, "run_now", &Default::default())
             .await
             .unwrap_err();
         assert!(e.to_string().contains("otro usuario"), "{e}");
         let script = s
-            .scheduler_action_script("ttl", &mine.id, "run_now")
+            .scheduler_action_script("ttl", &mine.id, "run_now", &Default::default())
             .await
             .unwrap();
         assert!(script.contains("\nEXECUTE SCHEDULE "), "{script}");
@@ -1977,7 +1977,7 @@ DROP USER IF EXISTS {CRDB_USER}"
             offers(&["run_now"])
         );
         assert!(s
-            .scheduler_action_script("job", &roots_sched, "run_now")
+            .scheduler_action_script("job", &roots_sched, "run_now", &Default::default())
             .await
             .is_err());
     };
@@ -2068,7 +2068,7 @@ async fn pg_cron_and_pgagent_actions() {
             (Some(true), Some(true), offers(&[]))
         );
         let e = s
-            .scheduler_action_script("job", &cron_id, "run_now")
+            .scheduler_action_script("job", &cron_id, "run_now", &Default::default())
             .await
             .unwrap_err();
         assert!(matches!(&e, Error::Unsupported(m) if m.contains("pg_cron")), "{e:?}");
@@ -2087,18 +2087,18 @@ async fn pg_cron_and_pgagent_actions() {
         let it = item(&mut s, "job", &id).await;
         assert_eq!(it.actions, offers(&["run_now"]), "{it:?}");
         assert_eq!((it.can_edit, it.can_delete), (Some(true), Some(true)));
-        let script = s.scheduler_action_script("job", &id, "run_now").await.unwrap();
+        let script = s.scheduler_action_script("job", &id, "run_now", &Default::default()).await.unwrap();
         eprintln!("{script}");
         assert!(
             script.ends_with(&format!("UPDATE pgagent.pga_job SET jobnextrun = now() WHERE jobid = {n} AND jobenabled;\n")),
             "{script}"
         );
-        assert!(s.scheduler_action_script("job", &id, "run").await.is_err());
+        assert!(s.scheduler_action_script("job", &id, "run", &Default::default()).await.is_err());
         // Read-only connections show the script, never run it.
         let mut ro = ReadOnlySession::new(connect(&cfg).await);
-        assert!(ro.scheduler_action_script("job", &id, "run_now").await.is_ok());
-        assert!(ro.scheduler_action("job", &id, "run_now").await.is_err());
-        s.scheduler_action("job", &id, "run_now").await.expect("run now");
+        assert!(ro.scheduler_action_script("job", &id, "run_now", &Default::default()).await.is_ok());
+        assert!(ro.scheduler_action("job", &id, "run_now", &Default::default()).await.is_err());
+        s.scheduler_action("job", &id, "run_now", &Default::default()).await.expect("run now");
         let next = scalar(&mut s, &format!(
             "SELECT jobnextrun <= now() + interval '1 second' OR joblastrun IS NOT NULL FROM pgagent.pga_job WHERE jobid = {n}"
         )).await;
@@ -2109,12 +2109,12 @@ async fn pg_cron_and_pgagent_actions() {
         // Disabled: nothing to run.
         run(&mut s, &format!("UPDATE pgagent.pga_job SET jobenabled = false WHERE jobid = {n}")).await;
         assert_eq!(item(&mut s, "job", &id).await.actions, offers(&[]));
-        let e = s.scheduler_action_script("job", &id, "run_now").await.unwrap_err();
+        let e = s.scheduler_action_script("job", &id, "run_now", &Default::default()).await.unwrap_err();
         assert!(e.to_string().contains("deshabilitado"), "{e}");
         // Ids and actions that weren't written here.
-        assert!(s.scheduler_action_script("job", "pgagent:0", "run_now").await.is_err());
-        assert!(s.scheduler_action_script("job", &id, "x'; DROP TABLE t").await.is_err());
-        assert!(s.scheduler_action_script("job_class", &class, "run_now").await.is_err());
+        assert!(s.scheduler_action_script("job", "pgagent:0", "run_now", &Default::default()).await.is_err());
+        assert!(s.scheduler_action_script("job", &id, "x'; DROP TABLE t", &Default::default()).await.is_err());
+        assert!(s.scheduler_action_script("job_class", &class, "run_now", &Default::default()).await.is_err());
     })
     .await;
 }
@@ -2180,17 +2180,22 @@ async fn timescaledb_actions() {
             (it.can_edit, it.can_delete, it.actions),
             (Some(true), Some(true), offers(&["run"]))
         );
-        let script = s.scheduler_action_script("job", &id, "run").await.unwrap();
+        let script = s
+            .scheduler_action_script("job", &id, "run", &Default::default())
+            .await
+            .unwrap();
         eprintln!("{script}");
         assert!(
             script.ends_with(&format!("\nCALL \"public\".run_job({n});\n")),
             "{script}"
         );
         assert!(s
-            .scheduler_action_script("job", &id, "run_now")
+            .scheduler_action_script("job", &id, "run_now", &Default::default())
             .await
             .is_err());
-        s.scheduler_action("job", &id, "run").await.expect("run");
+        s.scheduler_action("job", &id, "run", &Default::default())
+            .await
+            .expect("run");
         assert_eq!(
             scalar(
                 &mut s,
@@ -2213,24 +2218,27 @@ async fn timescaledb_actions() {
             (Some(true), Some(true), offers(&["run"]))
         );
         let script = s
-            .scheduler_action_script("retention_policy", &pid, "run")
+            .scheduler_action_script("retention_policy", &pid, "run", &Default::default())
             .await
             .unwrap();
         assert!(script.contains("política de retención"), "{script}");
-        s.scheduler_action("retention_policy", &pid, "run")
+        s.scheduler_action("retention_policy", &pid, "run", &Default::default())
             .await
             .expect("run the policy");
         // Not a compression policy; not a job of this server.
         assert!(s
-            .scheduler_action_script("compression_policy", &pid, "run")
+            .scheduler_action_script("compression_policy", &pid, "run", &Default::default())
             .await
             .is_err());
         assert!(s
-            .scheduler_action_script("job", "timescaledb:0", "run")
+            .scheduler_action_script("job", "timescaledb:0", "run", &Default::default())
             .await
             .is_err());
         let mut ro = ReadOnlySession::new(connect(&cfg).await);
-        assert!(ro.scheduler_action("job", &id, "run").await.is_err());
+        assert!(ro
+            .scheduler_action("job", &id, "run", &Default::default())
+            .await
+            .is_err());
     })
     .await;
 }
@@ -2268,9 +2276,12 @@ async fn opengauss_actions() {
             (it.can_edit, it.can_delete, it.actions),
             (Some(true), Some(true), offers(&["run_now"]))
         );
-        assert!(s.scheduler_action_script("job", &id, "run").await.is_err());
+        assert!(s
+            .scheduler_action_script("job", &id, "run", &Default::default())
+            .await
+            .is_err());
         let script = s
-            .scheduler_action_script("job", &id, "run_now")
+            .scheduler_action_script("job", &id, "run_now", &Default::default())
             .await
             .unwrap();
         eprintln!("{script}");
@@ -2281,7 +2292,7 @@ async fn opengauss_actions() {
             )),
             "{script}"
         );
-        s.scheduler_action("job", &id, "run_now")
+        s.scheduler_action("job", &id, "run_now", &Default::default())
             .await
             .expect("run now");
         // The scheduler takes it within seconds: the row it inserts.
@@ -2301,7 +2312,7 @@ async fn opengauss_actions() {
         save(&mut s, "job", Some(&id), &e).await;
         assert_eq!(item(&mut s, "job", &id).await.actions, offers(&[]));
         assert!(s
-            .scheduler_action_script("job", &id, "run_now")
+            .scheduler_action_script("job", &id, "run_now", &Default::default())
             .await
             .is_err());
         s.scheduler_delete("job", &id).await.expect("delete");
@@ -2393,7 +2404,7 @@ async fn cockroach_actions() {
             (Some(true), Some(true), offers(&["run_now"]))
         );
         let script = s
-            .scheduler_action_script("job", &id, "run_now")
+            .scheduler_action_script("job", &id, "run_now", &Default::default())
             .await
             .unwrap();
         eprintln!("{script}");
@@ -2404,8 +2415,11 @@ async fn cockroach_actions() {
             )),
             "{script}"
         );
-        assert!(s.scheduler_action_script("job", &id, "run").await.is_err());
-        s.scheduler_action("job", &id, "run_now")
+        assert!(s
+            .scheduler_action_script("job", &id, "run", &Default::default())
+            .await
+            .is_err());
+        s.scheduler_action("job", &id, "run_now", &Default::default())
             .await
             .expect("run now");
         let due = scalar(
@@ -2421,7 +2435,7 @@ async fn cockroach_actions() {
         run(&mut s, &format!("PAUSE SCHEDULE {}", number(&id))).await;
         assert_eq!(item(&mut s, "job", &id).await.actions, offers(&[]));
         let e = s
-            .scheduler_action_script("job", &id, "run_now")
+            .scheduler_action_script("job", &id, "run_now", &Default::default())
             .await
             .unwrap_err();
         assert!(e.to_string().contains("pausa"), "{e}");
@@ -2439,20 +2453,23 @@ async fn cockroach_actions() {
             .unwrap_or_else(|| panic!("{ttl:?}"));
         assert_eq!(t.actions, offers(&["run_now"]), "{t:?}");
         let script = s
-            .scheduler_action_script("ttl", &t.id, "run_now")
+            .scheduler_action_script("ttl", &t.id, "run_now", &Default::default())
             .await
             .unwrap();
         eprintln!("{script}");
         assert!(script.contains("\nEXECUTE SCHEDULE "), "{script}");
-        s.scheduler_action("ttl", &t.id, "run_now")
+        s.scheduler_action("ttl", &t.id, "run_now", &Default::default())
             .await
             .expect("run the TTL now");
         let mut ro = ReadOnlySession::new(connect(&cfg).await);
         assert!(ro
-            .scheduler_action_script("ttl", &t.id, "run_now")
+            .scheduler_action_script("ttl", &t.id, "run_now", &Default::default())
             .await
             .is_ok());
-        assert!(ro.scheduler_action("ttl", &t.id, "run_now").await.is_err());
+        assert!(ro
+            .scheduler_action("ttl", &t.id, "run_now", &Default::default())
+            .await
+            .is_err());
     };
     let result = AssertUnwindSafe(body).catch_unwind().await;
     let left = crdb_cleanup(&base).await;

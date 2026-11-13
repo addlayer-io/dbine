@@ -646,9 +646,9 @@ async fn the_agent_managed_whole() {
             ),
         )
         .await;
-        let script = s.scheduler_action_script("alert", &alert_id, "reset_count").await.expect("script");
+        let script = s.scheduler_action_script("alert", &alert_id, "reset_count", &Default::default()).await.expect("script");
         assert!(script.contains("@occurrence_count = 0") && script.contains("@count_reset_date = @resetDate"), "{script}");
-        s.scheduler_action("alert", &alert_id, "reset_count").await.expect("reset");
+        s.scheduler_action("alert", &alert_id, "reset_count", &Default::default()).await.expect("reset");
         let r = rows(
             &mut s,
             &format!(
@@ -662,11 +662,11 @@ async fn the_agent_managed_whole() {
         let form = s.scheduler_form("alert", Some(&alert_id)).await.expect("form");
         assert_ne!(form.values["count_reset"], json!("2020-01-01 00:00:00"));
         let enabled = format!("SELECT enabled FROM msdb.dbo.sysalerts WHERE id = {alert_id}");
-        s.scheduler_action("alert", &alert_id, "disable").await.expect("disable");
+        s.scheduler_action("alert", &alert_id, "disable", &Default::default()).await.expect("disable");
         assert_eq!(scalar(&mut s, &enabled).await, json!(0));
         let list = s.scheduler_items("alert").await.expect("items");
         assert_eq!(actions_of(&list), Some(vec!["reset_count".to_string(), "enable".to_string()]));
-        s.scheduler_action("alert", &alert_id, "enable").await.expect("enable");
+        s.scheduler_action("alert", &alert_id, "enable", &Default::default()).await.expect("enable");
         assert_eq!(scalar(&mut s, &enabled).await, json!(1));
         // Keys it doesn't have, on alerts or other kinds, are refused.
         for (kind, id, action) in [
@@ -675,12 +675,12 @@ async fn the_agent_managed_whole() {
             ("job", job_id.as_str(), "reset_count"),
             ("operator", op_id.as_str(), "enable"),
         ] {
-            let e = s.scheduler_action_script(kind, id, action).await.unwrap_err();
+            let e = s.scheduler_action_script(kind, id, action, &Default::default()).await.unwrap_err();
             assert!(matches!(&e, Error::Query(m) if m.contains("no es una acción")), "{kind} {action}: {e:?}");
-            let e = s.scheduler_action(kind, id, action).await.unwrap_err();
+            let e = s.scheduler_action(kind, id, action, &Default::default()).await.unwrap_err();
             assert!(matches!(&e, Error::Query(m) if m.contains("no es una acción")), "{kind} {action}: {e:?}");
         }
-        let e = s.scheduler_action_script("alert", "1; DROP TABLE t", "enable").await.unwrap_err();
+        let e = s.scheduler_action_script("alert", "1; DROP TABLE t", "enable", &Default::default()).await.unwrap_err();
         assert!(matches!(&e, Error::Query(m) if m.contains("no es un id")), "{e:?}");
 
         // The job's form reads it all back.
@@ -872,13 +872,13 @@ async fn the_agent_managed_whole() {
         assert!(form.read_only);
         let v = values_of(&form);
         assert!(ro.scheduler_script("job", Some(&job_id), &v).await.is_ok());
-        assert!(ro.scheduler_action_script("alert", &alert_id, "disable").await.is_ok());
+        assert!(ro.scheduler_action_script("alert", &alert_id, "disable", &Default::default()).await.is_ok());
         for r in [
             ro.scheduler_save("job", Some(&job_id), &v).await.map(|_| ()),
             ro.scheduler_delete("job", &job_id).await,
             ro.run_job_from(&job_id, "one").await,
             ro.clear_job_history(&job_id).await,
-            ro.scheduler_action("alert", &alert_id, "disable").await,
+            ro.scheduler_action("alert", &alert_id, "disable", &Default::default()).await,
         ] {
             assert!(matches!(&r, Err(Error::Query(m)) if m.contains("solo lectura")), "{r:?}");
         }

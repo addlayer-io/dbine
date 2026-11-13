@@ -782,15 +782,32 @@ impl Session for ReadOnlySession {
             "Conexión de solo lectura: no se pueden borrar objetos del planificador.".into(),
         ))
     }
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<crate::ObjectForm> {
+        self.inner.scheduler_action_form(kind, id, action).await
+    }
     async fn scheduler_action_script(
         &mut self,
         kind: &str,
         id: &str,
         action: &str,
+        values: &crate::FormValues,
     ) -> Result<String> {
-        self.inner.scheduler_action_script(kind, id, action).await
+        self.inner
+            .scheduler_action_script(kind, id, action, values)
+            .await
     }
-    async fn scheduler_action(&mut self, _kind: &str, _id: &str, _action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        _kind: &str,
+        _id: &str,
+        _action: &str,
+        _values: &crate::FormValues,
+    ) -> Result<()> {
         Err(Error::Query(
             "Conexión de solo lectura: no se pueden ejecutar acciones del planificador.".into(),
         ))

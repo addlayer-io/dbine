@@ -51,6 +51,12 @@ pub struct SchedulerAction {
     pub key: String,
     /// In Spanish, as the menu says it ("Ejecutar ahora").
     pub label: String,
+    /// It asks for values first (a time range, job parameters, a step):
+    /// the app reads its form with [`crate::Session::scheduler_action_form`]
+    /// for the object, shows it, and passes what the user filled in to
+    /// the action's script and run.
+    #[serde(default)]
+    pub params: bool,
 }
 
 impl SchedulerAction {
@@ -60,7 +66,13 @@ impl SchedulerAction {
         Self {
             key: key.into(),
             label: label.into(),
+            params: false,
         }
+    }
+    /// It asks for values first (see [`Self::params`]).
+    pub fn with_params(mut self) -> Self {
+        self.params = true;
+        self
     }
 }
 

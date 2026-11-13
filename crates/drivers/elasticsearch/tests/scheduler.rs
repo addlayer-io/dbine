@@ -486,7 +486,7 @@ async fn es_transforms(base: String) {
     // index it created.
     wait_actions(&mut s, &id, &["reset"]).await;
     let sc = s
-        .scheduler_action_script("job", &id, "reset")
+        .scheduler_action_script("job", &id, "reset", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -495,19 +495,30 @@ async fn es_transforms(base: String) {
     );
     let mut ro = ReadOnlySession::new(open("elasticsearch", &base).await);
     assert!(ro
-        .scheduler_action_script("job", &id, "reset")
+        .scheduler_action_script("job", &id, "reset", &Default::default())
         .await
         .is_ok());
-    assert!(ro.scheduler_action("job", &id, "reset").await.is_err());
-    assert!(s.scheduler_action_script("job", &id, "ack").await.is_err());
-    assert!(s.scheduler_action_script("job", &id, "nope").await.is_err());
+    assert!(ro
+        .scheduler_action("job", &id, "reset", &Default::default())
+        .await
+        .is_err());
     assert!(s
-        .scheduler_action_script("ilm", &id, "reset")
+        .scheduler_action_script("job", &id, "ack", &Default::default())
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_script("job", &id, "nope", &Default::default())
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_script("ilm", &id, "reset", &Default::default())
         .await
         .is_err());
     let (st, _) = http("GET", &format!("{base}/dbine_test_sched_dst"), None).await;
     assert_eq!(st, 200, "the destination index is there before the reset");
-    s.scheduler_action("job", &id, "reset").await.unwrap();
+    s.scheduler_action("job", &id, "reset", &Default::default())
+        .await
+        .unwrap();
     let (st, _) = http("GET", &format!("{base}/dbine_test_sched_dst"), None).await;
     assert_eq!(
         st, 404,
@@ -811,16 +822,21 @@ async fn es_watches(base: String) {
     // The actions that ran wait for an acknowledgement: acked, Watcher
     // throttles them, and there's nothing left to acknowledge.
     wait_actions(&mut s, &id, &["ack"]).await;
-    let sc = s.scheduler_action_script("job", &id, "ack").await.unwrap();
+    let sc = s
+        .scheduler_action_script("job", &id, "ack", &Default::default())
+        .await
+        .unwrap();
     assert!(
         sc.contains("PUT /_watcher/watch/dbine_test_sched_w/_ack"),
         "{sc}"
     );
     assert!(s
-        .scheduler_action_script("job", &id, "reset")
+        .scheduler_action_script("job", &id, "reset", &Default::default())
         .await
         .is_err());
-    s.scheduler_action("job", &id, "ack").await.unwrap();
+    s.scheduler_action("job", &id, "ack", &Default::default())
+        .await
+        .unwrap();
     let (_, w) = http(
         "GET",
         &format!("{base}/_watcher/watch/dbine_test_sched_w"),
@@ -832,7 +848,10 @@ async fn es_watches(base: String) {
         "{w}"
     );
     assert_eq!(item_actions(&mut s, &id).await, Some(vec![]));
-    assert!(s.scheduler_action("job", &id, "ack").await.is_err());
+    assert!(s
+        .scheduler_action("job", &id, "ack", &Default::default())
+        .await
+        .is_err());
 
     // Clear the history.
     s.clear_job_history(&id).await.unwrap();
@@ -951,8 +970,14 @@ async fn es_watches(base: String) {
         refusal(s.scheduler_save("job", Some(&sys), &v).await),
         refusal(s.scheduler_delete_script("job", &sys).await),
         refusal(s.scheduler_delete("job", &sys).await),
-        refusal(s.scheduler_action_script("job", &sys, "ack").await),
-        refusal(s.scheduler_action("job", &sys, "ack").await),
+        refusal(
+            s.scheduler_action_script("job", &sys, "ack", &Default::default())
+                .await,
+        ),
+        refusal(
+            s.scheduler_action("job", &sys, "ack", &Default::default())
+                .await,
+        ),
     ] {
         assert!(e.contains("Monitoring"), "{e}");
     }

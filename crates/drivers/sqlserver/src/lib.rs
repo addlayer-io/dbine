@@ -1871,11 +1871,18 @@ impl Session for SqlServerSession {
         kind: &str,
         id: &str,
         action: &str,
+        _values: &dbine_driver::FormValues,
     ) -> Result<String> {
         agent::action_script(self, kind, id, action).await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        _values: &dbine_driver::FormValues,
+    ) -> Result<()> {
         agent::action(self, kind, id, action).await
     }
 

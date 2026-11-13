@@ -1976,6 +1976,7 @@ impl Session for OdbcSession {
         kind: &str,
         id: &str,
         action: &str,
+        _values: &dbine_driver::FormValues,
     ) -> Result<String> {
         let (preset, ctx) = (self.preset, self.jobs_ctx());
         let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
@@ -1992,7 +1993,13 @@ impl Session for OdbcSession {
         .await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        _values: &dbine_driver::FormValues,
+    ) -> Result<()> {
         let manual = self.scheduler_tx()?;
         let (preset, ctx) = (self.preset, self.jobs_ctx());
         let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());

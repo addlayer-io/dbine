@@ -1667,13 +1667,20 @@ impl Session for OracleSession {
         kind: &str,
         id: &str,
         action: &str,
+        _values: &dbine_driver::FormValues,
     ) -> Result<String> {
         let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
         self.run(move |c| scheduler::action_script(c, &kind, &id, &action))
             .await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        _values: &dbine_driver::FormValues,
+    ) -> Result<()> {
         let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
         self.run(move |c| scheduler::run_action(c, &kind, &id, &action))
             .await

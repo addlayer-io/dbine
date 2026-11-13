@@ -1425,11 +1425,18 @@ impl Session for EsSession {
         kind: &str,
         id: &str,
         action: &str,
+        _values: &dbine_driver::FormValues,
     ) -> Result<String> {
         scheduler::action_script(self, kind, id, action).await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        _values: &dbine_driver::FormValues,
+    ) -> Result<()> {
         scheduler::action(self, kind, id, action).await
     }
 

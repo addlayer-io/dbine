@@ -1569,7 +1569,12 @@ async fn guards(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, job: &str) {
         (Some(false), Some(false), None)
     );
     let e = u
-        .scheduler_action_script("window", "SYS.WEEKNIGHT_WINDOW", "open_window")
+        .scheduler_action_script(
+            "window",
+            "SYS.WEEKNIGHT_WINDOW",
+            "open_window",
+            &Default::default(),
+        )
         .await
         .unwrap_err();
     assert!(e.to_string().contains("MANAGE SCHEDULER"), "{e}");
@@ -1661,12 +1666,14 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         ("window", "run"),
     ] {
         assert!(
-            s.scheduler_action_script(k, prog2, a).await.is_err(),
+            s.scheduler_action_script(k, prog2, a, &Default::default())
+                .await
+                .is_err(),
             "{k} {a}"
         );
     }
     assert!(s
-        .scheduler_action("schedule", "SYSTEM.X", "run")
+        .scheduler_action("schedule", "SYSTEM.X", "run", &Default::default())
         .await
         .is_err());
 
@@ -1684,11 +1691,11 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     // A read-only connection shows the script, doesn't run it.
     let mut ro = ReadOnlySession::new(connect(cfg).await);
     assert!(ro
-        .scheduler_action_script("window", &w1, "open_window")
+        .scheduler_action_script("window", &w1, "open_window", &Default::default())
         .await
         .is_ok());
     assert!(ro
-        .scheduler_action("window", &w1, "open_window")
+        .scheduler_action("window", &w1, "open_window", &Default::default())
         .await
         .is_err());
     assert_eq!(
@@ -1702,7 +1709,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     .await;
     if open == "0" {
         let script = s
-            .scheduler_action_script("window", &w1, "open_window")
+            .scheduler_action_script("window", &w1, "open_window", &Default::default())
             .await
             .unwrap();
         assert!(
@@ -1710,7 +1717,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
                 && script.contains("00:10:00"),
             "{script}"
         );
-        s.scheduler_action("window", &w1, "open_window")
+        s.scheduler_action("window", &w1, "open_window", &Default::default())
             .await
             .unwrap();
         assert_eq!(
@@ -1719,20 +1726,20 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         );
         assert_eq!(actions_of(&item(s, "window", &w1).await), ["close_window"]);
         let e = s
-            .scheduler_action_script("window", &w1, "open_window")
+            .scheduler_action_script("window", &w1, "open_window", &Default::default())
             .await
             .unwrap_err();
         assert!(e.to_string().contains("ya está abierta"), "{e}");
         // Only one is open at a time: opening another closes it.
         let script = s
-            .scheduler_action_script("window", &w2, "open_window")
+            .scheduler_action_script("window", &w2, "open_window", &Default::default())
             .await
             .unwrap();
         assert!(
             script.contains("force => TRUE") && script.contains("SYS.DBINE_TEST_SCHED_WACT "),
             "{script}"
         );
-        s.scheduler_action("window", &w2, "open_window")
+        s.scheduler_action("window", &w2, "open_window", &Default::default())
             .await
             .unwrap();
         assert_eq!(
@@ -1740,14 +1747,14 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
             "DBINE_TEST_SCHED_WACT=FALSE,DBINE_TEST_SCHED_WACT2=TRUE"
         );
         let script = s
-            .scheduler_action_script("window", &w2, "close_window")
+            .scheduler_action_script("window", &w2, "close_window", &Default::default())
             .await
             .unwrap();
         assert!(
             script.contains("CLOSE_WINDOW(window_name => '\"SYS\".\"DBINE_TEST_SCHED_WACT2\"');"),
             "{script}"
         );
-        s.scheduler_action("window", &w2, "close_window")
+        s.scheduler_action("window", &w2, "close_window", &Default::default())
             .await
             .unwrap();
         assert_eq!(
@@ -1755,7 +1762,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
             "DBINE_TEST_SCHED_WACT=FALSE,DBINE_TEST_SCHED_WACT2=FALSE"
         );
         let e = s
-            .scheduler_action_script("window", &w2, "close_window")
+            .scheduler_action_script("window", &w2, "close_window", &Default::default())
             .await
             .unwrap_err();
         assert!(e.to_string().contains("no está abierta"), "{e}");
@@ -1768,7 +1775,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     save(s, "window", Some(&w2), &v).await;
     assert!(actions_of(&item(s, "window", &w2).await).is_empty());
     let e = s
-        .scheduler_action_script("window", &w2, "open_window")
+        .scheduler_action_script("window", &w2, "open_window", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("deshabilitada"), "{e}");
@@ -1793,13 +1800,13 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     let aprog = save(s, "program", None, &v).await;
     assert!(actions_of(&item(s, "program", &aprog).await).is_empty());
     let e = s
-        .scheduler_action_script("program", &aprog, "run")
+        .scheduler_action_script("program", &aprog, "run", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("argumentos sin valor"), "{e}");
     delete(s, "program", &aprog, "DROP_PROGRAM").await;
     let script = s
-        .scheduler_action_script("program", prog2, "run")
+        .scheduler_action_script("program", prog2, "run", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -1828,7 +1835,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     let achain = save(s, "chain", None, &v).await;
     assert_eq!(actions_of(&item(s, "chain", &achain).await), ["run"]);
     let script = flat(
-        &s.scheduler_action_script("chain", &achain, "run")
+        &s.scheduler_action_script("chain", &achain, "run", &Default::default())
             .await
             .unwrap(),
     );
@@ -1837,14 +1844,18 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         "{script}"
     );
     if chains_run {
-        s.scheduler_action("program", prog2, "run").await.unwrap();
+        s.scheduler_action("program", prog2, "run", &Default::default())
+            .await
+            .unwrap();
         wait_for(
             s,
             "SELECT COUNT(*) FROM dba_scheduler_job_run_details WHERE owner = 'SYSTEM' AND job_name LIKE 'RUN\\_PROG$DBINE\\_TE%' ESCAPE '\\' AND status = 'SUCCEEDED'",
             "the program's run",
         )
         .await;
-        s.scheduler_action("chain", &achain, "run").await.unwrap();
+        s.scheduler_action("chain", &achain, "run", &Default::default())
+            .await
+            .unwrap();
         wait_for(
             s,
             "SELECT COUNT(*) FROM dba_scheduler_job_run_details WHERE job_name LIKE 'RUN\\_CHAIN$DBINE\\_%' ESCAPE '\\' AND job_subname = 'A1'",
@@ -1865,7 +1876,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     save(s, "chain", Some(&achain), &v).await;
     assert!(actions_of(&item(s, "chain", &achain).await).is_empty());
     let e = s
-        .scheduler_action_script("chain", &achain, "run")
+        .scheduler_action_script("chain", &achain, "run", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("deshabilitada"), "{e}");
@@ -1895,7 +1906,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     .await;
     assert_eq!(actions_of(&item(s, "job", &sjob).await), ["force_stop"]);
     let script = s
-        .scheduler_action_script("job", &sjob, "force_stop")
+        .scheduler_action_script("job", &sjob, "force_stop", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -1904,7 +1915,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         ),
         "{script}"
     );
-    s.scheduler_action("job", &sjob, "force_stop")
+    s.scheduler_action("job", &sjob, "force_stop", &Default::default())
         .await
         .unwrap();
     assert_ne!(
@@ -1912,7 +1923,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         "RUNNING"
     );
     let e = s
-        .scheduler_action_script("job", &sjob, "force_stop")
+        .scheduler_action_script("job", &sjob, "force_stop", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("no se está ejecutando"), "{e}");
@@ -1946,7 +1957,7 @@ END;",
         );
         assert_eq!(actions_of(&sys_job), ["force_stop"]);
         let script = s
-            .scheduler_action_script("job", &sys_job.id, "force_stop")
+            .scheduler_action_script("job", &sys_job.id, "force_stop", &Default::default())
             .await
             .unwrap();
         assert!(
@@ -1955,7 +1966,7 @@ END;",
             ),
             "{script}"
         );
-        s.scheduler_action("job", &sys_job.id, "force_stop")
+        s.scheduler_action("job", &sys_job.id, "force_stop", &Default::default())
             .await
             .unwrap();
         assert_ne!(
@@ -1964,7 +1975,7 @@ END;",
         );
         // Ending its run is the owner's business, as "Detener" is.
         assert!(s
-            .scheduler_action_script("job", &sys_job.id, "end_detached")
+            .scheduler_action_script("job", &sys_job.id, "end_detached", &Default::default())
             .await
             .is_err());
         exec(&mut sys, SYS_CLEANUP).await;
@@ -1994,14 +2005,14 @@ END;",
         ["force_stop", "end_detached"]
     );
     let script = s
-        .scheduler_action_script("job", &djob, "end_detached")
+        .scheduler_action_script("job", &djob, "end_detached", &Default::default())
         .await
         .unwrap();
     assert!(
         script.contains("END_DETACHED_JOB_RUN(job_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_DJOB\"', error_number => 0);"),
         "{script}"
     );
-    s.scheduler_action("job", &djob, "end_detached")
+    s.scheduler_action("job", &djob, "end_detached", &Default::default())
         .await
         .unwrap();
     wait_for(
@@ -2011,7 +2022,7 @@ END;",
     )
     .await;
     let e = s
-        .scheduler_action_script("job", &djob, "end_detached")
+        .scheduler_action_script("job", &djob, "end_detached", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("desacoplado"), "{e}");
@@ -2059,7 +2070,7 @@ async fn abilities(s: &mut Box<dyn Session>, job: &str, class: &str) {
         if kind == "program" {
             assert_eq!(sys.actions, Some(Vec::new()));
             assert!(s
-                .scheduler_action_script(kind, &sys.id, "run")
+                .scheduler_action_script(kind, &sys.id, "run", &Default::default())
                 .await
                 .is_err());
         }

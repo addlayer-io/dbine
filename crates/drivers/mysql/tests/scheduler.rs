@@ -361,17 +361,17 @@ async fn events(driver: &str, env: &str) {
                 && i.can_edit.is_none()
                 && i.can_delete.is_none()));
             // The server runs an event only on its schedule.
-            match s.scheduler_action_script("job", &id, "run").await {
+            match s.scheduler_action_script("job", &id, "run", &Default::default()).await {
                 Err(Error::Unsupported(m)) => assert!(m.contains("a pedido"), "{m}"),
                 other => panic!("an event has no run now: {other:?}"),
             }
-            match s.scheduler_action_script("job", &id, "refresh").await {
+            match s.scheduler_action_script("job", &id, "refresh", &Default::default()).await {
                 Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
                 other => panic!("an event has no refresh: {other:?}"),
             }
-            assert!(s.scheduler_action("job", &id, "run").await.is_err());
+            assert!(s.scheduler_action("job", &id, "run", &Default::default()).await.is_err());
             assert!(s
-                .scheduler_action_script("job", &format!("{id}; DROP DATABASE {DB}"), "run")
+                .scheduler_action_script("job", &format!("{id}; DROP DATABASE {DB}"), "run", &Default::default())
                 .await
                 .is_err());
             let r = one_row(&mut s, &event_row_sql(DB, EV)).await;
@@ -869,15 +869,15 @@ async fn doris_jobs_and_views() {
             let it = items.items.iter().find(|i| i.id == id).expect("listed");
             assert_eq!((it.can_edit, it.can_delete), (None, None));
             assert_eq!(it.actions, Some(Vec::new()));
-            match s.scheduler_action_script("job", &id, "run").await {
+            match s.scheduler_action_script("job", &id, "run", &Default::default()).await {
                 Err(Error::Unsupported(m)) => assert!(m.contains("a pedido"), "{m}"),
                 other => panic!("a Doris job has no run now: {other:?}"),
             }
-            match s.scheduler_action_script("job", &id, "refresh").await {
+            match s.scheduler_action_script("job", &id, "refresh", &Default::default()).await {
                 Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
                 other => panic!("a job isn't refreshed: {other:?}"),
             }
-            assert!(s.scheduler_action("job", &id, "refresh").await.is_err());
+            assert!(s.scheduler_action("job", &id, "refresh", &Default::default()).await.is_err());
 
             // Read back; unchanged, nothing to do.
             let form = s.scheduler_form("job", Some(&id)).await.expect("form");
@@ -1152,13 +1152,13 @@ async fn doris_jobs_and_views() {
             let going = format!("SELECT TaskId FROM tasks('type'='mv') WHERE JobName = '{job_name}' AND Status IN ('PENDING', 'RUNNING')");
             for (action, mode) in [("refresh", "AUTO"), ("refresh_complete", "COMPLETE")] {
                 let sc = s
-                    .scheduler_action_script("job", &mv_id, action)
+                    .scheduler_action_script("job", &mv_id, action, &Default::default())
                     .await
                     .expect("action script");
                 eprintln!("--- {action}\n{sc}");
                 assert!(sc.contains(&format!("REFRESH MATERIALIZED VIEW `{DB}`.`{MV}` {mode};")), "{sc}");
                 let before: u64 = one_row(&mut s, &count).await[0].parse().unwrap();
-                s.scheduler_action("mv_refresh", &mv_id, action).await.expect(action);
+                s.scheduler_action("mv_refresh", &mv_id, action, &Default::default()).await.expect(action);
                 let until = Instant::now() + Duration::from_secs(20);
                 while one_row(&mut s, &count).await[0].parse::<u64>().unwrap() <= before {
                     assert!(Instant::now() < until, "{action}: a task of the view's job");
@@ -1171,18 +1171,18 @@ async fn doris_jobs_and_views() {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             }
-            match s.scheduler_action_script("mv_refresh", &mv_id, "pause").await {
+            match s.scheduler_action_script("mv_refresh", &mv_id, "pause", &Default::default()).await {
                 Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
                 other => panic!("no pause on a view: {other:?}"),
             }
             assert!(s
-                .scheduler_action_script("mv_refresh", &format!("{mv_id}; DROP DATABASE {DB}"), "refresh")
+                .scheduler_action_script("mv_refresh", &format!("{mv_id}; DROP DATABASE {DB}"), "refresh", &Default::default())
                 .await
                 .is_err());
             {
                 let mut ro = ReadOnlySession::new(connect(driver, &cfg).await);
-                assert!(ro.scheduler_action_script("mv_refresh", &mv_id, "refresh").await.is_ok());
-                assert!(ro.scheduler_action("mv_refresh", &mv_id, "refresh").await.is_err());
+                assert!(ro.scheduler_action_script("mv_refresh", &mv_id, "refresh", &Default::default()).await.is_ok());
+                assert!(ro.scheduler_action("mv_refresh", &mv_id, "refresh", &Default::default()).await.is_err());
             }
 
             // Another account's job: created again, it becomes the login's
@@ -1323,23 +1323,23 @@ async fn starrocks_tasks_and_views() {
             assert_eq!(it.actions, Some(vec!["pause".to_string(), "resume".to_string()]));
             assert_eq!((it.can_edit, it.can_delete, it.system), (None, None, false));
             for (action, verb) in [("pause", "SUSPEND"), ("resume", "RESUME")] {
-                let sc = s.scheduler_action_script("job", &id, action).await.expect(action);
+                let sc = s.scheduler_action_script("job", &id, action, &Default::default()).await.expect(action);
                 eprintln!("--- {action}\n{sc}");
                 assert!(sc.contains(&format!("ALTER TASK `{TASK}` {verb};")), "{sc}");
-                s.scheduler_action("job", &id, action).await.expect(action);
+                s.scheduler_action("job", &id, action, &Default::default()).await.expect(action);
             }
-            match s.scheduler_action_script("job", &id, "run").await {
+            match s.scheduler_action_script("job", &id, "run", &Default::default()).await {
                 Err(Error::Unsupported(m)) => assert!(m.contains("a pedido"), "{m}"),
                 other => panic!("StarRocks has no run now: {other:?}"),
             }
-            match s.scheduler_action_script("job", &id, "refresh").await {
+            match s.scheduler_action_script("job", &id, "refresh", &Default::default()).await {
                 Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
                 other => panic!("a task isn't refreshed: {other:?}"),
             }
             {
                 let mut ro = ReadOnlySession::new(connect(driver, &cfg).await);
-                assert!(ro.scheduler_action_script("job", &id, "pause").await.is_ok());
-                assert!(ro.scheduler_action("job", &id, "pause").await.is_err());
+                assert!(ro.scheduler_action_script("job", &id, "pause", &Default::default()).await.is_ok());
+                assert!(ro.scheduler_action("job", &id, "pause", &Default::default()).await.is_err());
             }
             assert_eq!(sr_task(&mut s, TASK).await[0], "PERIODICAL START(2030-01-01T00:00) EVERY(1 HOURS)");
 
@@ -1413,7 +1413,7 @@ async fn starrocks_tasks_and_views() {
                 let items = s.scheduler_items("job").await.expect("items");
                 let it = items.items.iter().find(|i| i.id == once).expect("listed");
                 assert_eq!(it.actions, Some(Vec::new()));
-                let m = match s.scheduler_action_script("job", &once, "pause").await {
+                let m = match s.scheduler_action_script("job", &once, "pause", &Default::default()).await {
                     Err(Error::Query(m)) => m,
                     other => panic!("expected a refusal, got {other:?}"),
                 };
@@ -1484,7 +1484,7 @@ async fn starrocks_tasks_and_views() {
             let items = s.scheduler_items("mv_refresh").await.expect("items");
             let it = items.items.iter().find(|i| i.id == mv_id).expect("listed");
             assert_eq!(it.actions, Some(Vec::new()));
-            let m = match s.scheduler_action_script("mv_refresh", &mv_id, "refresh").await {
+            let m = match s.scheduler_action_script("mv_refresh", &mv_id, "refresh", &Default::default()).await {
                 Err(Error::Query(m)) => m,
                 other => panic!("expected a refusal, got {other:?}"),
             };
@@ -1522,13 +1522,13 @@ async fn starrocks_tasks_and_views() {
             let going = format!("SELECT QUERY_ID FROM information_schema.task_runs WHERE TASK_NAME = '{task}' AND STATE IN ('PENDING', 'RUNNING')");
             for (action, force) in [("refresh", ""), ("refresh_complete", " FORCE")] {
                 let sc = s
-                    .scheduler_action_script("job", &mv_id, action)
+                    .scheduler_action_script("job", &mv_id, action, &Default::default())
                     .await
                     .expect("action script");
                 eprintln!("--- {action}\n{sc}");
                 assert!(sc.contains(&format!("REFRESH MATERIALIZED VIEW `{DB}`.`{MV}`{force} WITH ASYNC MODE;")), "{sc}");
                 let before: u64 = one_row(&mut s, &count).await[0].parse().unwrap();
-                s.scheduler_action("mv_refresh", &mv_id, action).await.expect(action);
+                s.scheduler_action("mv_refresh", &mv_id, action, &Default::default()).await.expect(action);
                 let until = Instant::now() + Duration::from_secs(30);
                 while one_row(&mut s, &count).await[0].parse::<u64>().unwrap() <= before {
                     assert!(Instant::now() < until, "{action}: a run of the view's task");
@@ -1540,7 +1540,7 @@ async fn starrocks_tasks_and_views() {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             }
-            match s.scheduler_action_script("mv_refresh", &mv_id, "pause").await {
+            match s.scheduler_action_script("mv_refresh", &mv_id, "pause", &Default::default()).await {
                 Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
                 other => panic!("no pause on a view: {other:?}"),
             }

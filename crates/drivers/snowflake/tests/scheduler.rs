@@ -360,18 +360,18 @@ async fn alerts(s: &mut Box<dyn Session>, wh: &str) {
     let mine = items.items.iter().find(|i| i.id == id(ALERT)).unwrap();
     assert_eq!((mine.can_edit, mine.can_delete), (None, None), "{mine:?}");
     let script = s
-        .scheduler_action_script("alert", &id(ALERT), "execute")
+        .scheduler_action_script("alert", &id(ALERT), "execute", &Default::default())
         .await
         .unwrap();
     assert!(
         script.contains(&format!("EXECUTE ALERT {};", id(ALERT))),
         "{script}"
     );
-    s.scheduler_action("alert", &id(ALERT), "execute")
+    s.scheduler_action("alert", &id(ALERT), "execute", &Default::default())
         .await
         .unwrap();
     assert!(s
-        .scheduler_action("alert", &id(ALERT), "drop")
+        .scheduler_action("alert", &id(ALERT), "drop", &Default::default())
         .await
         .is_err());
 
@@ -419,7 +419,7 @@ async fn task_graphs(s: &mut Box<dyn Session>, wh: &str) {
         "{items:?}"
     );
     let script = s
-        .scheduler_action_script("task_graph", &id(GRAPH), "execute")
+        .scheduler_action_script("task_graph", &id(GRAPH), "execute", &Default::default())
         .await
         .unwrap();
     assert!(

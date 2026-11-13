@@ -482,7 +482,7 @@ async fn body(c: ConnectionConfig) {
     // Its table's reflections refreshed now: the REST request, shown, then
     // sent.
     let sc = s
-        .scheduler_action_script("table_policy", &pol_id, "refresh")
+        .scheduler_action_script("table_policy", &pol_id, "refresh", &Default::default())
         .await
         .expect("action script");
     let uuid = pol_id.trim_start_matches("table:");
@@ -492,7 +492,7 @@ async fn body(c: ConnectionConfig) {
     );
     assert!(sc.lines().all(|l| l.starts_with("-- ")), "{sc}");
     let before = refreshes(&mut s, &raw_id).await;
-    s.scheduler_action("table_policy", &pol_id, "refresh")
+    s.scheduler_action("table_policy", &pol_id, "refresh", &Default::default())
         .await
         .expect("refresh now");
     let start = std::time::Instant::now();
@@ -510,7 +510,9 @@ async fn body(c: ConnectionConfig) {
         ("source_policy", "source:x", "refresh"),
     ] {
         assert!(
-            s.scheduler_action(kind, id, action).await.is_err(),
+            s.scheduler_action(kind, id, action, &Default::default())
+                .await
+                .is_err(),
             "{kind} {id} {action}"
         );
     }
@@ -670,13 +672,13 @@ async fn body(c: ConnectionConfig) {
             .await
             .map(|_| ()),
         ro.scheduler_delete("job", &raw_id).await,
-        ro.scheduler_action("table_policy", &pol_id, "refresh")
+        ro.scheduler_action("table_policy", &pol_id, "refresh", &Default::default())
             .await,
     ] {
         assert!(r.is_err(), "{r:?}");
     }
     assert!(ro
-        .scheduler_action_script("table_policy", &pol_id, "refresh")
+        .scheduler_action_script("table_policy", &pol_id, "refresh", &Default::default())
         .await
         .is_ok());
 

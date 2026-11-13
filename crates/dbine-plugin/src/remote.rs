@@ -2031,11 +2031,32 @@ impl Session for RemoteSession {
             .await
             .map(|_| ())
     }
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        match self
+            .host
+            .call(Call::SchedulerActionForm {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.to_string(),
+                action: action.to_string(),
+            })
+            .await?
+        {
+            Reply::ObjectForm(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
     async fn scheduler_action_script(
         &mut self,
         kind: &str,
         id: &str,
         action: &str,
+        values: &dbine_driver::FormValues,
     ) -> Result<String> {
         match self
             .host
@@ -2044,6 +2065,7 @@ impl Session for RemoteSession {
                 kind: kind.to_string(),
                 id: id.to_string(),
                 action: action.to_string(),
+                values: values.clone(),
             })
             .await?
         {
@@ -2051,13 +2073,20 @@ impl Session for RemoteSession {
             _ => Err(unexpected()),
         }
     }
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<()> {
         self.host
             .call(Call::SchedulerAction {
                 session: self.id,
                 kind: kind.to_string(),
                 id: id.to_string(),
                 action: action.to_string(),
+                values: values.clone(),
             })
             .await
             .map(|_| ())

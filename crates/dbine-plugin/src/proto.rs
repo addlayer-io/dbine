@@ -603,17 +603,28 @@ pub enum Call {
         session: u64,
         id: String,
     },
+    SchedulerActionForm {
+        session: u64,
+        kind: String,
+        id: String,
+        action: String,
+    },
     SchedulerActionScript {
         session: u64,
         kind: String,
         id: String,
         action: String,
+        /// Older apps send none: an action without a form.
+        #[serde(default)]
+        values: dbine_driver::FormValues,
     },
     SchedulerAction {
         session: u64,
         kind: String,
         id: String,
         action: String,
+        #[serde(default)]
+        values: dbine_driver::FormValues,
     },
     SchedulerLogs {
         session: u64,
@@ -1644,6 +1655,7 @@ mod tests {
                     kind: "window".into(),
                     id: "w".into(),
                     action: "open_window".into(),
+                    values: Default::default(),
                 },
                 "SchedulerActionScript",
             ),
@@ -1654,8 +1666,19 @@ mod tests {
                     kind: "window".into(),
                     id: "w".into(),
                     action: "open_window".into(),
+                    values: Default::default(),
                 },
                 "SchedulerAction",
+            ),
+            (
+                53,
+                Call::SchedulerActionForm {
+                    session: 3,
+                    kind: "job".into(),
+                    id: "j".into(),
+                    action: "backfill".into(),
+                },
+                "SchedulerActionForm",
             ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();

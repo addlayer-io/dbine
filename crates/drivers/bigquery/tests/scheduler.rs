@@ -98,11 +98,12 @@ async fn emulator() {
     // No action besides the jobs list's run (a backfill needs a time range).
     for a in ["run", "backfill"] {
         assert!(matches!(
-            s.scheduler_action_script("job", id, a).await,
+            s.scheduler_action_script("job", id, a, &Default::default())
+                .await,
             Err(Error::Unsupported(_))
         ));
         assert!(matches!(
-            s.scheduler_action("job", id, a).await,
+            s.scheduler_action("job", id, a, &Default::default()).await,
             Err(Error::Unsupported(_))
         ));
     }

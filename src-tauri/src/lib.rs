@@ -659,6 +659,7 @@ pub fn run() {
             commands::jobs::scheduler_save,
             commands::jobs::scheduler_delete_script,
             commands::jobs::scheduler_delete,
+            commands::jobs::scheduler_action_form,
             commands::jobs::scheduler_action_script,
             commands::jobs::scheduler_action,
             commands::jobs::jobs_run_from,

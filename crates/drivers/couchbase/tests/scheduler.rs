@@ -514,7 +514,7 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         Some(vec!["backup_now".to_string(), "merge_now".to_string()])
     );
     let sc = s
-        .scheduler_action_script("job", &id, "backup_now")
+        .scheduler_action_script("job", &id, "backup_now", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -522,7 +522,7 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         "{sc}"
     );
     let before = task_names(&mgmt, REPO).await;
-    s.scheduler_action("job", &id, "backup_now")
+    s.scheduler_action("job", &id, "backup_now", &Default::default())
         .await
         .expect("full backup now");
     assert_eq!(task_done(&mgmt, REPO, "BACKUP", &before).await, "done");
@@ -548,7 +548,7 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         "{i}"
     );
     let sc = s
-        .scheduler_action_script("job", &id, "merge_now")
+        .scheduler_action_script("job", &id, "merge_now", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -556,7 +556,7 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         "{sc}"
     );
     let before = task_names(&mgmt, REPO).await;
-    s.scheduler_action("job", &id, "merge_now")
+    s.scheduler_action("job", &id, "merge_now", &Default::default())
         .await
         .expect("merge now");
     assert_eq!(task_done(&mgmt, REPO, "MERGE", &before).await, "done");
@@ -564,16 +564,16 @@ async fn body(c: ConnectionConfig, mgmt: String) {
     assert_eq!(i["backups"].as_array().map_or(0, Vec::len), 1, "{i}");
     // One backup left: nothing to merge. No other action, nor on a plan.
     let e = s
-        .scheduler_action_script("job", &id, "merge_now")
+        .scheduler_action_script("job", &id, "merge_now", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("un solo backup"), "{e}");
     assert!(s
-        .scheduler_action_script("job", &id, "archive")
+        .scheduler_action_script("job", &id, "archive", &Default::default())
         .await
         .is_err());
     assert!(s
-        .scheduler_action_script("plan", PLAN, "backup_now")
+        .scheduler_action_script("plan", PLAN, "backup_now", &Default::default())
         .await
         .is_err());
 
