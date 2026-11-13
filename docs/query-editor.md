@@ -13,11 +13,9 @@
   in Firebird, a MongoDB or Cypher statement ended by `;`… With the cursor
   between two statements (on a blank line, or after a `;`), the one before
   it runs. `DELIMITER` and `SET TERM` lines are the editor's, not the
-  server's: they never run on their own. Redis and etcd (a command per
-  line), MongoDB without `;` and the Elasticsearch, OpenSearch, Solr and
-  CouchDB consoles aren't cut into statements yet: there it runs the whole
-  script, and there's no lens
-  ([engine-support.md](engine-support.md#named-results)).
+  server's: they never run on their own. The engines that don't end
+  statements at `;` are cut as they execute: see
+  [Statements on other engines](#statements-on-other-engines).
 - **The run lens.** With two or more statements in the editor, a dim line
   above each one offers **▶ Run**, and **Plan** (the estimated plan) on
   engines with execution plans, followed by the statement's
@@ -29,6 +27,60 @@
   each statement** turns it off.
 - **Estimated plan** (Cmd+L or Ctrl+L) and **Run with actual plan**
   (Cmd+Shift+L or Ctrl+Shift+L) take the selection or the whole script.
+
+### Statements on other engines
+
+The editor cuts a script into the same statements the engine's own execution
+runs, so the lens, **Run the statement at the cursor** and
+[named results](#named-results) agree on each one. A comment line right above
+a statement names its result, and the lens sits on its first line of code.
+Comments and blank lines belong to no statement.
+
+- **Elasticsearch, OpenSearch, Open Distro and Solr (console).** A statement
+  is a request: its method line (`GET`, `POST`, `PUT`, `DELETE`, `HEAD`,
+  `PATCH`) and its JSON or NDJSON body, up to a blank line once the braces
+  close or the next request. A line starting with `SELECT`, `SHOW`,
+  `DESCRIBE` or `DESC` is an SQL statement up to its `;`, a blank line or the
+  next request. Lines starting with `#` or `//` are comments.
+- **CouchDB.** A statement is an HTTP line (`GET`, `POST`, `PUT`, `DELETE`,
+  `HEAD`, `COPY`) with its path (`POST` and `PUT` take the JSON after it as
+  their body) or a Mango query. Several queries in a row are one statement
+  each.
+- **MongoDB, FerretDB and Amazon DocumentDB.** A statement is one shell
+  unit: a `db.…` call chain (it goes on over lines that start with `.`, such
+  as `.sort(…)`), a `{…}` command document, or a `use` / `show` line. The
+  `;` between them is optional. Brackets, strings, regular expressions and
+  comments are counted, so a multi-line aggregation pipeline is one
+  statement.
+- **Redis, Valkey, Dragonfly and etcd.** A statement is one command line,
+  quoted as in `redis-cli` (`"…"` with backslash escapes, `'…'` verbatim) or
+  `etcdctl`. A `#` at the start of an argument outside quotes starts a
+  comment in Redis, Valkey and Dragonfly; `//` is not a comment. `MULTI`,
+  each queued command and `EXEC` are statements of their own.
+- **KDB+.** A statement is a q expression: a line that isn't indented starts
+  the next one, and an indented line or an open `{…}` continues it.
+- **Cassandra, ScyllaDB and Amazon Keyspaces.** A CQL statement ends at `;`.
+  A cqlsh command (`CONSISTENCY`, `PAGING`, `TRACING`, `SOURCE`…) takes its
+  line, with or without `;`, and `BEGIN BATCH … APPLY BATCH` is one
+  statement.
+- **Neo4j, Memgraph and Amazon Neptune.** A Cypher statement ends at `;`. A
+  `:command` line (`:use`, `:param`, `:begin`…) is a statement of its own.
+- **Azure Cosmos DB.** A statement ends at `;` outside quotes, comments and
+  JSON bodies. A `-- container: x` line is a statement of its own and ends
+  the one before it.
+- **InfluxDB 1.** A statement ends at `;`. A `USE db` line without `;` is a
+  statement of its own. InfluxDB 2 (Flux) has no statements: a Flux script
+  is one query and runs whole.
+- **DynamoDB.** A statement ends at `;` outside quotes, comments and `{…}` /
+  `[…]` bodies.
+
+A line that is a statement of its own because it sets the context (`:use`,
+`-- container:`, `USE`, a cqlsh command) can be run alone: it then uses the
+session's current container or database. A statement that doesn't parse yet
+is still one: the others keep their lens, and running it reports the error on
+its line. Running the whole script runs nothing while a statement has a
+syntax error, on the engines that check the script first (the consoles,
+CouchDB, MongoDB, Redis, Valkey, Dragonfly and etcd).
 
 In SQL, blank lines don't split statements: two statements with no
 terminator between them are one for the engine, however far apart they are. Before
