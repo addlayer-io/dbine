@@ -4,6 +4,7 @@
 // |connection[&engine=<driver id>][&testfail=1]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
 // |query[&sample=editor|q] (⌘-click, unknown names, parameters, snippets, a table's columns on hover: preview/editor-samples.ts)
+// |query&sample=named[&exec=1][&again=1][&rename=1][&show=<name>] (named results and the run lens: preview/named-samples.ts)
 // |projects[&sidebar=explorer] (the whole workbench over a fake backend: preview/projects-samples.ts)
 // |timeline[&tab=tq|tf|to] (the history sidebar's "Esta pestaña" next to a stand-in editor: preview/timeline-samples.ts)
 // |rename[&prod=0][&name=<nuevo>][&fail=1] ("Renombrar…" over a fake impact and script: preview/rename-samples.ts)
@@ -85,6 +86,7 @@ import { multiDbOutcome, runSummary } from '../composables/multiDb';
 import { sampleLive, sampleMultiDbResponse, sampleTenantDatabases } from './multidb-samples';
 import { EDITOR_SAMPLE_SQL, installEditorSample } from './editor-samples';
 import { Q_SAMPLE, installQSample } from './q-samples';
+import { NAMED_SAMPLE_SQL, installNamedSample } from './named-samples';
 import RenameDialog from '../components/RenameDialog.vue';
 import { installRenamePreview } from './rename-samples';
 import { applyThemeClass } from '../composables/appearance';
@@ -447,8 +449,13 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
         if (cmd === 'lint_script') return [];
         // …&tx=open: Manual leaves a transaction open.
         if (cmd === 'set_tab_autocommit' || cmd === 'tab_transaction_state') return params.get('tx') === 'open' && !(a?.args as { autocommit?: boolean }).autocommit ? 'open' : null;
-        if (cmd === 'get_query') return { id: 'q1', name: 'Query', sql: params.get('sample') === 'editor' ? EDITOR_SAMPLE_SQL : params.get('sample') === 'q' ? Q_SAMPLE : 'select top 10 * from ventas.clientes', connection_id: 'c1', database: null, folder: null, updated_at: '' };
+        if (cmd === 'get_query') {
+          const sample = params.get('sample');
+          const sql = sample === 'editor' ? EDITOR_SAMPLE_SQL : sample === 'q' ? Q_SAMPLE : sample === 'named' ? NAMED_SAMPLE_SQL : 'select top 10 * from ventas.clientes';
+          return { id: 'q1', name: 'Query', sql, connection_id: 'c1', database: null, folder: null, updated_at: '' };
+        }
         if (params.get('sample') === 'editor') return installEditorSample.invoke(cmd, a?.args);
+        if (params.get('sample') === 'named') return installNamedSample.invoke(cmd, a?.args);
         if (params.get('sample') === 'q') return installQSample.invoke(cmd, a?.args);
         return null;
       }
@@ -462,6 +469,21 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
   if (view === 'query' && params.get('sample') === 'editor') installEditorSample();
   // view=query&sample=q: a KDB+-like connection, for q's highlighting and completion.
   if (view === 'query' && params.get('sample') === 'q') installQSample();
+  // view=query&sample=named: commented statements, their lenses and named result tabs.
+  if (view === 'query' && params.get('sample') === 'named') {
+    installNamedSample();
+    const click = (el: Element | null | undefined) => (el as HTMLElement | null)?.click();
+    if (params.get('exec')) setTimeout(() => click(document.querySelector('.qv-run-wrap button')), 900);
+    if (params.get('again')) {
+      setTimeout(() => {
+        const lens = [...document.querySelectorAll('.cm-run-lens')].find((l) => l.querySelector('.cm-run-lens-name')?.textContent === 'Pedidos del mes');
+        click(lens?.querySelector('.cm-run-lens-action'));
+      }, 2200);
+    }
+    const show = params.get('show');
+    if (show) setTimeout(() => click([...document.querySelectorAll('.qv-rt-main')].find((b) => b.textContent?.includes(show))), 3200);
+    if (params.get('rename')) setTimeout(() => document.querySelector('.qv-rt-main')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })), 3400);
+  }
   if (view === 'connection') {
     const ui = useUiStore();
     const engine = params.get('engine');

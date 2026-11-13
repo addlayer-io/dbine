@@ -27,6 +27,8 @@
     "clearResultsDone": "Gespeicherte Ergebnisse gelöscht.",
     "vim": "Vim-Modus im Editor",
     "vimHelp": "Vim-Tasten (NORMAL, INSERT, VISUAL) in den Editoren für Abfragen, Dateien und Routinen. Die Statuszeile des Editors zeigt den Modus, und :w speichert.",
+    "runLens": "„▶ Ausführen“ über jeder Anweisung anzeigen",
+    "runLensHelp": "Bei zwei oder mehr Anweisungen in einem Abfrage-Editor führt eine dezente Zeile über jeder Anweisung diese einzeln aus oder zeigt bei Engines mit Ausführungsplan deren Plan an. Ein Kommentar in der Zeile darüber benennt das Ergebnis.",
     "groupBySchema": "Nach Schema gruppieren",
     "groupBySchemaHelp": "Im Explorer ist jedes Schema ein Ordner mit seinen Objekten. Ausgeschaltet stehen Objekte in einer einzigen Liste, mit dem Schema vor dem Namen.",
     "theme": "Design",

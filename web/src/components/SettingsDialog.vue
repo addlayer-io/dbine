@@ -31,6 +31,7 @@ import LintSettings from './LintSettings.vue';
 import SnippetSettings from './SnippetSettings.vue';
 import ShortcutSettings from './ShortcutSettings.vue';
 import { VIM_SETTING } from '../composables/commands';
+import { RUN_LENS_SETTING } from '../composables/resultNames';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import { GLOBAL_INSTRUCTIONS } from '../composables/contexts';
@@ -43,7 +44,7 @@ import { checkForUpdateNow, checkingForUpdate, formatBytes } from '../composable
 import { ALL_ROWS } from '../composables/queryControls';
 import { KEPT_RESULTS_DEFAULT, KEPT_RESULTS_OPTIONS, KEPT_RESULTS_SETTING, keptLimit } from '../composables/resultRuns';
 import {
-  KEEP_RESULTS_SETTING, RESULTS_SPACE_DEFAULT, RESULTS_SPACE_OPTIONS, RESULTS_SPACE_SETTING, keepResults, resultsSpace,
+  KEEP_RESULTS_SETTING, RESULTS_SPACE_DEFAULT, RESULTS_SPACE_OPTIONS, RESULTS_SPACE_SETTING, keepResults, noteResultsClear, resultsSpace,
 } from '../composables/resultsStore';
 
 import { isMac } from '../composables/shortcuts';
@@ -143,6 +144,8 @@ async function clearStoredResults(ask = true) {
     } catch { return; }
   }
   try {
+    // A run going on now doesn't store its results when it ends.
+    noteResultsClear();
     await api.resultsClear();
     if (ask) ElMessage.success(t('settings:general.clearResultsDone'));
   } catch (e) {
@@ -184,6 +187,11 @@ const groupBySchema = computed({
 const vimMode = computed({
   get: () => settings.get<boolean>(VIM_SETTING, false),
   set: (v) => settings.set(VIM_SETTING, v),
+});
+/** "▶ Ejecutar" over each statement of a query editor (on unless turned off). */
+const runLens = computed({
+  get: () => settings.get<boolean>(RUN_LENS_SETTING, true) !== false,
+  set: (v) => settings.set(RUN_LENS_SETTING, v),
 });
 
 // -- drivers ------------------------------------------------------------------------
@@ -550,6 +558,10 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <div class="st-row">
           <div><strong>{{ $t('settings:general.vim') }}</strong><span>{{ $t('settings:general.vimHelp') }}</span></div>
           <el-switch v-model="vimMode" />
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.runLens') }}</strong><span>{{ $t('settings:general.runLensHelp') }}</span></div>
+          <el-switch v-model="runLens" />
         </div>
         <div class="st-row">
           <div><strong>{{ $t('settings:general.groupBySchema') }}</strong><span>{{ $t('settings:general.groupBySchemaHelp') }}</span></div>

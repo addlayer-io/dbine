@@ -12,9 +12,9 @@ let lastClaim: (() => void) | null = null;
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { EditorState, Compartment, StateEffect, StateField, type Extension } from '@codemirror/state';
+import { EditorState, Compartment, StateEffect, StateField, countColumn, type Extension, type Range } from '@codemirror/state';
 import {
-  Decoration, EditorView, hoverTooltip, keymap, placeholder as cmPlaceholder, repositionTooltips, showTooltip, tooltips,
+  Decoration, EditorView, WidgetType, hoverTooltip, keymap, placeholder as cmPlaceholder, repositionTooltips, showTooltip, tooltips,
   type DecorationSet, type Tooltip, type TooltipView,
 } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
@@ -46,6 +46,7 @@ import {
 import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand, runCommand } from '../composables/commands';
 import { useSettingsStore } from '../stores/settings';
 import type { TableHoverState, TableHoverTarget } from '../composables/tableHover';
+import type { RunLens } from '../composables/resultNames';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion.
@@ -101,9 +102,17 @@ const props = withDefaults(defineProps<{
   /** Names completion offers besides the tables in `schema` (KDB+'s
    *  functions and variables), each with its object kind. */
   otherNames?: { label: string; kind: string }[];
+  /** "▶ Ejecutar" above each statement's first line (with its name, if a
+   *  comment gives it one); the parent handles `lens`. Null: none. */
+  lenses?: RunLens[] | null;
+  /** The lens offers "Plan" too (engines with execution plans). */
+  lensPlan?: boolean;
+  /** A run is going on: the lenses show dimmed and do nothing. */
+  lensBusy?: boolean;
 }>(), {
   language: 'sql', dialect: '', readOnly: false, schema: () => ({}), databases: undefined, placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
   fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [], tableHover: null, otherNames: () => [],
+  lenses: null, lensPlan: false, lensBusy: false,
 });
 
 const emit = defineEmits<{
@@ -128,6 +137,9 @@ const emit = defineEmits<{
   needNames: [];
   /** ⌘/Ctrl+click on a name `linkAt` knows. */
   navigate: [doc: string, pos: number];
+  /** A lens was clicked: `lineFrom` is the start of its statement's line;
+   *  `plan`: its "Plan" (the estimated plan). */
+  lens: [lineFrom: number, plan: boolean];
 }>();
 
 const host = ref<HTMLDivElement | null>(null);
@@ -587,6 +599,89 @@ const tableHoverExt = [
   }),
 ];
 
+// -- the run lens: "▶ Ejecutar · Plan  name" above each statement --------------------------
+// A dim row over the statement's first line, as code lenses are: a block
+// widget of a fixed height, so lines don't jump. QueryView feeds the
+// statements (the engine's own split, a moment after typing stops); until
+// new ones arrive, the old ones move with the text.
+const LENS_HEIGHT = 18;
+class LensWidget extends WidgetType {
+  constructor(readonly name: string | null, readonly indent: number, readonly plan: boolean) { super(); }
+  eq(o: LensWidget) { return o.name === this.name && o.indent === this.indent && o.plan === this.plan; }
+  get estimatedHeight() { return LENS_HEIGHT; }
+  toDOM(v: EditorView) {
+    const dom = document.createElement('div');
+    dom.className = 'cm-run-lens';
+    dom.setAttribute('aria-hidden', 'true');
+    dom.style.paddingLeft = `calc(6px + ${this.indent}ch)`;
+    const action = (label: string, title: string, plan: boolean) => {
+      const a = document.createElement('span');
+      a.className = 'cm-run-lens-action';
+      a.textContent = label;
+      a.title = title;
+      // The editor keeps its focus and cursor.
+      a.addEventListener('mousedown', (e) => e.preventDefault());
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (!props.lensBusy) emit('lens', v.posAtDOM(dom), plan);
+      });
+      return a;
+    };
+    dom.append(action(`▶ ${t('editor:lens.run')}`, t('editor:lens.runTip'), false));
+    if (this.plan) {
+      const sep = document.createElement('span');
+      sep.className = 'cm-run-lens-sep';
+      sep.textContent = '|';
+      dom.append(sep, action(t('editor:lens.plan'), t('editor:lens.planTip'), true));
+    }
+    if (this.name) {
+      const n = document.createElement('span');
+      n.className = 'cm-run-lens-name';
+      n.textContent = this.name;
+      n.title = this.name;
+      dom.append(n);
+    }
+    return dom;
+  }
+}
+interface LensConfig { lenses: RunLens[]; plan: boolean }
+const setLenses = StateEffect.define<LensConfig>();
+function lensDecos(state: EditorState, c: LensConfig): DecorationSet {
+  const out: Range<Decoration>[] = [];
+  let last = -1;
+  for (const l of c.lenses) {
+    if (l.start < 0 || l.start > state.doc.length) continue;
+    const line = state.doc.lineAt(l.start);
+    // One per line: two statements on a line share the first's.
+    if (line.number === last) continue;
+    last = line.number;
+    const indent = countColumn(/^\s*/.exec(line.text)![0], state.tabSize);
+    out.push(Decoration.widget({ widget: new LensWidget(l.name, indent, c.plan), block: true, side: -1 }).range(line.from));
+  }
+  return Decoration.set(out, true);
+}
+const lensField = StateField.define<DecorationSet>({
+  create: (state) => (props.lenses?.length ? lensDecos(state, { lenses: props.lenses, plan: props.lensPlan }) : Decoration.none),
+  update(deco, tr) {
+    for (const e of tr.effects) if (e.is(setLenses)) return e.value.lenses.length ? lensDecos(tr.state, e.value) : Decoration.none;
+    return tr.docChanged ? deco.map(tr.changes) : deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+const lensExt = [
+  lensField,
+  EditorView.baseTheme({
+    '.cm-run-lens': {
+      display: 'flex', alignItems: 'center', height: `${LENS_HEIGHT}px`, overflow: 'hidden', whiteSpace: 'nowrap',
+      fontFamily: 'var(--nm-font)', fontSize: '11px', lineHeight: `${LENS_HEIGHT}px`, color: 'var(--nm-text-muted)', userSelect: 'none',
+    },
+    '.cm-run-lens-action': { cursor: 'pointer', flexShrink: 0 },
+    '.cm-run-lens-action:hover': { color: 'var(--ide-focus, var(--nm-primary))', textDecoration: 'underline' },
+    '.cm-run-lens-sep': { margin: '0 6px', opacity: 0.6, flexShrink: 0 },
+    '.cm-run-lens-name': { marginLeft: '12px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontStyle: 'italic', color: 'var(--nm-text-dim)' },
+  }),
+];
+
 /** The selection, or the whole text when nothing is selected. */
 function runnableText(v: EditorView): string {
   return runnable(v).text;
@@ -629,6 +724,7 @@ onMounted(() => {
         insertHints,
         insertTheme,
         tableHoverExt,
+        lensExt,
       ],
     }),
   });
@@ -737,6 +833,10 @@ watch(() => props.readOnly, (r) => view?.dispatch({ effects: ro.reconfigure(Edit
 watch(() => props.placeholder, (p) => view?.dispatch({ effects: ph.reconfigure(cmPlaceholder(p)) }));
 // Another connection or other rules: lint again with them.
 watch(() => props.lint, () => view?.dispatch({ effects: lintC.reconfigure(lintExt()) }));
+// New statements (or none): the lenses follow.
+watch(() => [props.lenses, props.lensPlan] as const, ([lenses, plan]) => {
+  view?.dispatch({ effects: setLenses.of({ lenses: lenses ?? [], plan }) });
+});
 
 // -- right-click menu ------------------------------------------------------------------------
 const { t } = useTranslation();
@@ -864,10 +964,13 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="host" class="ce" @contextmenu.prevent="openMenu" />
+  <div ref="host" class="ce" :class="{ 'ce-lens-busy': lensBusy }" @contextmenu.prevent="openMenu" />
   <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
 </template>
 
 <style scoped>
 .ce { height: 100%; min-height: 0; overflow: hidden; }
+/* While a run goes on, the lenses wait (as the Run button does). */
+.ce-lens-busy :deep(.cm-run-lens) { opacity: 0.45; }
+.ce-lens-busy :deep(.cm-run-lens-action) { cursor: default; text-decoration: none; color: inherit; }
 </style>

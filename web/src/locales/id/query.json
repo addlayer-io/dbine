@@ -107,11 +107,13 @@
     "unpin": "Lepas sematan",
     "pinTip": "Sematkan hasil ini: eksekusi berikutnya tidak akan menggantikannya",
     "rerun": "Jalankan lagi",
+    "rename": "Ubah nama",
     "rerunMulti": "Dijalankan di beberapa basis data: jalankan lagi dari “Jalankan di beberapa basis data…”",
     "rerunMoved": "Editor tidak lagi berada di basis data tempat kueri dijalankan ({{database}})",
     "copySql": "Salin kueri",
     "closeOthers": "Tutup yang lain yang tidak disematkan",
     "closeUnpinned": "Tutup yang tidak disematkan",
-    "ranAt": "Dijalankan: {{time}}"
+    "ranAt": "Dijalankan: {{time}}",
+    "namePlaceholder": "Nama hasil"
   }
 }

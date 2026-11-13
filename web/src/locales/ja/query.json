@@ -107,11 +107,13 @@
     "unpin": "ピン留めを外す",
     "pinTip": "この結果をピン留め：以降の実行では置き換えられません",
     "rerun": "再実行",
+    "rename": "名前を変更",
     "rerunMulti": "複数のデータベースで実行されました。「複数のデータベースで実行…」から再実行してください",
     "rerunMoved": "エディターは、実行されたデータベース（{{database}}）にありません",
     "copySql": "クエリをコピー",
     "closeOthers": "ほかのピン留めなしを閉じる",
     "closeUnpinned": "ピン留めなしを閉じる",
-    "ranAt": "実行日時：{{time}}"
+    "ranAt": "実行日時：{{time}}",
+    "namePlaceholder": "結果の名前"
   }
 }

@@ -31,6 +31,7 @@ export function storeArgs(r: ResultRun, tabId: string, maxBytes: number): StoreA
       id: r.key, tab_id: tabId, at: r.at, pinned: r.pinned,
       script: r.script, connection_id: r.connectionId, database: r.database, language: r.language,
       plan: r.plan, multi: r.multi, line_offset: r.lineOffset, run_base: r.runBase,
+      name: r.name ?? null, parts: r.parts ?? null, label: r.label ?? null, result_sql: r.resultSql ?? null,
     },
     max_bytes: maxBytes,
   };
@@ -44,18 +45,41 @@ export function restoredRun(m: StoredRunMeta, id: number): ResultRun {
     script: m.script ?? '', connectionId: m.connection_id ?? '', database: m.database ?? '',
     language: m.language ?? 'sql', plan, at: m.at, pinned: m.pinned,
     multi: m.multi ?? null, lineOffset: m.line_offset ?? null, runBase: m.run_base ?? 0,
+    // Runs stored before named results read as unnamed.
+    name: m.name ?? null, parts: m.parts ?? null, label: m.label ?? null, resultSql: m.result_sql ?? null,
   };
 }
 
-/** A restored run's outcome; one that's gone from the store comes back empty. */
-export async function loadRestored(r: ResultRun): Promise<void> {
-  if (!r.restored || r.outcome) return;
+/** A restored run's outcome. True: its rows are loaded (or a run replaced
+ *  them). One that's gone from the store, or can't be read, shows empty and
+ *  stays marked restored, so nothing saves that empty outcome over it. */
+export async function loadRestored(r: ResultRun): Promise<boolean> {
+  if (!r.restored) return true;
+  if (r.outcome) return false;
   let o: QueryOutcome | null = null;
   try {
     o = await api.resultsOutcome(r.key);
   } catch { /* shown empty */ }
-  if (!r.outcome) r.outcome = o ?? { results: [], messages: [], error: null, elapsed_ms: 0, plans: [], log: [], errors: [] };
-  r.restored = false;
+  if (!r.restored) return true;
+  if (o) {
+    r.outcome = o;
+    r.restored = false;
+    return true;
+  }
+  r.outcome ??= { results: [], messages: [], error: null, elapsed_ms: 0, plans: [], log: [], errors: [] };
+  return false;
+}
+
+let clears = 0;
+/** "Borrar ahora" (Configuración › General) is about to clear the store. */
+export function noteResultsClear() {
+  clears++;
+}
+/** How many times the store was cleared: a run that saw it change while it
+ *  ran doesn't store what it split into named tabs, as `execute_query`
+ *  doesn't store a run's outcome then. */
+export function resultsClears(): number {
+  return clears;
 }
 
 /** Quiet best-effort calls: the store failing never gets in the user's way. */

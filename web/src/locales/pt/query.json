@@ -10,7 +10,7 @@
   "continueOnErrorTip": "Se uma instrução falhar, executar as seguintes mesmo assim. Começa como faz a ferramenta do motor.",
   "estimatedPlanTip": "Plano de execução estimado, sem executar (⌘L)",
   "estimatedPlan": "Plano estimado",
-  "actualPlanTip": "Executar e incluir o plano real (⌘⇧↵)",
+  "actualPlanTip": "Executar e incluir o plano real (⌘⇧L)",
   "runWithPlan": "Executar + plano",
   "formatTip": "Formatar a seleção, ou tudo se não houver seleção (⇧⌥F)",
   "format": "Formatar",
@@ -111,11 +111,13 @@
     "unpin": "Desafixar",
     "pinTip": "Fixar este resultado: as próximas execuções não o substituem",
     "rerun": "Executar novamente",
+    "rename": "Renomear",
     "rerunMulti": "Foi executada em vários bancos: execute-a novamente em “Executar em vários bancos…”",
     "rerunMoved": "O editor não está mais no banco onde foi executada ({{database}})",
     "copySql": "Copiar a consulta",
     "closeOthers": "Fechar as outras não fixadas",
     "closeUnpinned": "Fechar as não fixadas",
-    "ranAt": "Executada: {{time}}"
+    "ranAt": "Executada: {{time}}",
+    "namePlaceholder": "Nome do resultado"
   }
 }

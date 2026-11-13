@@ -113,11 +113,13 @@
     "unpin": "Odepnij",
     "pinTip": "Przypnij ten wynik: kolejne uruchomienia go nie zastąpią",
     "rerun": "Uruchom ponownie",
+    "rename": "Zmień nazwę",
     "rerunMulti": "Zapytanie uruchomiono w wielu bazach: uruchom je ponownie przez „Uruchom w wielu bazach…”",
     "rerunMoved": "Edytor nie jest już w bazie, w której uruchomiono zapytanie ({{database}})",
     "copySql": "Kopiuj zapytanie",
     "closeOthers": "Zamknij pozostałe nieprzypięte",
     "closeUnpinned": "Zamknij nieprzypięte",
-    "ranAt": "Uruchomiono: {{time}}"
+    "ranAt": "Uruchomiono: {{time}}",
+    "namePlaceholder": "Nazwa wyniku"
   }
 }

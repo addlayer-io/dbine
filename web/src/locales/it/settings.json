@@ -27,6 +27,8 @@
     "clearResultsDone": "Risultati salvati eliminati.",
     "vim": "Modalità Vim nell'editor",
     "vimHelp": "Tasti di Vim (NORMAL, INSERT, VISUAL) negli editor di query, file e routine. La riga di stato dell'editor mostra la modalità e :w salva.",
+    "runLens": "Mostra «▶ Esegui» sopra ogni istruzione",
+    "runLensHelp": "Con due o più istruzioni in un editor di query, una riga tenue sopra ciascuna la esegue da sola, oppure mostra il suo piano nei motori che ne hanno uno. Un commento sulla riga superiore dà un nome al suo risultato.",
     "groupBySchema": "Raggruppa per schema",
     "groupBySchemaHelp": "Nell'esplora risorse, ogni schema è una cartella con i suoi oggetti. Disattivato, gli oggetti sono in un unico elenco con lo schema prima del nome.",
     "theme": "Tema",

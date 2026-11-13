@@ -10,7 +10,7 @@
   "continueOnErrorTip": "Schlägt eine Anweisung fehl, werden die folgenden trotzdem ausgeführt. Es beginnt so wie das eigene Tool der Engine.",
   "estimatedPlanTip": "Geschätzter Ausführungsplan, ohne Ausführung (⌘L)",
   "estimatedPlan": "Geschätzter Plan",
-  "actualPlanTip": "Ausführen und tatsächlichen Plan einbeziehen (⌘⇧↵)",
+  "actualPlanTip": "Ausführen und tatsächlichen Plan einbeziehen (⌘⇧L)",
   "runWithPlan": "Ausführen + Plan",
   "formatTip": "Die Auswahl formatieren, oder alles, wenn nichts markiert ist (⇧⌥F)",
   "format": "Formatieren",
@@ -109,11 +109,13 @@
     "unpin": "Lösen",
     "pinTip": "Dieses Ergebnis anheften: Spätere Ausführungen ersetzen es nicht",
     "rerun": "Erneut ausführen",
+    "rename": "Umbenennen",
     "rerunMulti": "Sie wurde auf mehreren Datenbanken ausgeführt: Führen Sie sie erneut über „Auf mehreren Datenbanken ausführen…“ aus",
     "rerunMoved": "Der Editor befindet sich nicht mehr auf der Datenbank, auf der sie ausgeführt wurde ({{database}})",
     "copySql": "Abfrage kopieren",
     "closeOthers": "Andere nicht angeheftete schließen",
     "closeUnpinned": "Nicht angeheftete schließen",
-    "ranAt": "Ausgeführt: {{time}}"
+    "ranAt": "Ausgeführt: {{time}}",
+    "namePlaceholder": "Name des Ergebnisses"
   }
 }

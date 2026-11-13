@@ -107,11 +107,13 @@
     "unpin": "고정 해제",
     "pinTip": "이 결과 고정: 이후 실행이 이 결과를 대체하지 않습니다",
     "rerun": "다시 실행",
+    "rename": "이름 바꾸기",
     "rerunMulti": "여러 데이터베이스에서 실행되었습니다. '여러 데이터베이스에서 실행…'에서 다시 실행하세요",
     "rerunMoved": "편집기가 실행된 데이터베이스({{database}})에 더 이상 있지 않습니다",
     "copySql": "쿼리 복사",
     "closeOthers": "고정되지 않은 다른 탭 닫기",
     "closeUnpinned": "고정되지 않은 탭 닫기",
-    "ranAt": "실행 시각: {{time}}"
+    "ranAt": "실행 시각: {{time}}",
+    "namePlaceholder": "결과 이름"
   }
 }

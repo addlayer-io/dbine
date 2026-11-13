@@ -115,6 +115,9 @@ on, and checks both.
   - when it ran, and whether it's pinned;
   - for a multi-database run, its labels and summary;
   - the line offset and run base;
+  - a named result's name; for a script split into named results, its
+    statements' names, its tab's label and the statement each result left
+    in that tab came from;
   - the outcome's metadata as JSON: messages, log, errors, elapsed time,
     plans, the transaction state, and per result set its columns, total
     rows, truncation and rows affected;
@@ -139,6 +142,15 @@ on, and checks both.
   - Outcomes the editor puts together itself (a run on several databases)
     or changes (saved edits) go through `results_save`.
   - A run again in place replaces its stored copy.
+  - A script with [named statements](query-editor.md#named-results) isn't
+    stored by `execute_query`: when it ends, the editor stores each named
+    statement's part under its tab, replacing that tab's earlier copy, and
+    what's left under the run's own tab, through `results_save`. A name is
+    never stored twice in an editor. **Clear now** during such a run keeps
+    its parts out of the store too, as `execute_query` does for a run's
+    outcome.
+  - Renaming a restored tab stores its name with its rows once they load;
+    if they can't be read, the stored copy stays as it is.
 - **Phase 2:** rows past what the window holds go to the store as they
   arrive, through `QueryOutcome::sink` and a bounded channel to a bulk
   load, without changing what the editor's live progress shows.

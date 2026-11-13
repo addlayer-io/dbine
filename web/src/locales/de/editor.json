@@ -26,14 +26,20 @@
     "notFound": "Es gibt keine Tabelle, Sicht oder Routine mit diesem Namen in der Datenbank des Tabs.",
     "notLoaded": "Die Datenbankobjekte sind noch nicht geladen: Verbinden Sie sich, um zur Definition zu springen."
   },
-  "insertColumn": "Spalte {{n}} von {{total}}: {{name}}",
-  "insertExtra": "Wert {{n}}: Die Liste hat {{total}} Spalten",
-  "pickFile": "Datei auswählen…",
-  "dataFiles": "Datendateien (CSV, Parquet, JSON, Excel)",
   "tableHover": {
     "loading": "Spalten werden geladen …",
     "empty": "Für diese Tabelle sind keine Metadaten verfügbar.",
     "error": "Die Spalten konnten nicht gelesen werden: {{error}}",
     "primaryKey": "Primärschlüssel"
+  },
+  "insertColumn": "Spalte {{n}} von {{total}}: {{name}}",
+  "insertExtra": "Wert {{n}}: Die Liste hat {{total}} Spalten",
+  "pickFile": "Datei auswählen…",
+  "dataFiles": "Datendateien (CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "Ausführen",
+    "runTip": "Nur diese Anweisung ausführen",
+    "plan": "Plan",
+    "planTip": "Geschätzter Ausführungsplan dieser Anweisung, ohne sie auszuführen"
   }
 }

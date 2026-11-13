@@ -27,6 +27,8 @@
     "clearResultsDone": "Zapisane wyniki zostały usunięte.",
     "vim": "Tryb Vim w edytorze",
     "vimHelp": "Klawisze Vim (NORMAL, INSERT, VISUAL) w edytorach zapytań, plików i procedur. Wiersz stanu edytora pokazuje tryb, a :w zapisuje.",
+    "runLens": "Pokazuj „▶ Uruchom” nad każdą instrukcją",
+    "runLensHelp": "Gdy edytor zapytań zawiera dwie lub więcej instrukcji, przyciemniony wiersz nad każdą z nich uruchamia ją osobno albo pokazuje jej plan w silnikach, które go mają. Komentarz w wierszu powyżej nadaje nazwę jej wynikowi.",
     "groupBySchema": "Grupuj według schematu",
     "groupBySchemaHelp": "W eksploratorze każdy schemat jest folderem ze swoimi obiektami. Gdy wyłączone, obiekty są na jednej liście ze schematem przed nazwą.",
     "theme": "Motyw",

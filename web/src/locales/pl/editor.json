@@ -26,14 +26,20 @@
     "notFound": "W bazie karty nie ma tabeli, widoku ani procedury o tej nazwie.",
     "notLoaded": "Obiekty bazy nie zostały jeszcze załadowane: połącz się, aby przejść do definicji."
   },
-  "insertColumn": "Kolumna {{n}} z {{total}}: {{name}}",
-  "insertExtra": "Wartość {{n}}: lista ma kolumn: {{total}}",
-  "pickFile": "Wybierz plik…",
-  "dataFiles": "Pliki danych (CSV, Parquet, JSON, Excel)",
   "tableHover": {
     "loading": "Wczytywanie kolumn…",
     "empty": "Brak metadanych dla tej tabeli.",
     "error": "Nie można odczytać kolumn: {{error}}",
     "primaryKey": "Klucz podstawowy"
+  },
+  "insertColumn": "Kolumna {{n}} z {{total}}: {{name}}",
+  "insertExtra": "Wartość {{n}}: lista ma kolumn: {{total}}",
+  "pickFile": "Wybierz plik…",
+  "dataFiles": "Pliki danych (CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "Uruchom",
+    "runTip": "Uruchom tylko tę instrukcję",
+    "plan": "Plan",
+    "planTip": "Szacowany plan wykonania tej instrukcji, bez jej uruchamiania"
   }
 }

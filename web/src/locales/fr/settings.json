@@ -27,6 +27,8 @@
     "clearResultsDone": "Résultats enregistrés supprimés.",
     "vim": "Mode Vim dans l'éditeur",
     "vimHelp": "Touches Vim (NORMAL, INSERT, VISUAL) dans les éditeurs de requêtes, de fichiers et de routines. La ligne d'état de l'éditeur affiche le mode et :w enregistre.",
+    "runLens": "Afficher « ▶ Exécuter » au-dessus de chaque instruction",
+    "runLensHelp": "Avec deux instructions ou plus dans un éditeur de requêtes, une ligne discrète au-dessus de chacune l’exécute seule, ou affiche son plan sur les moteurs qui en ont un. Un commentaire sur la ligne du dessus donne un nom à son résultat.",
     "groupBySchema": "Grouper par schéma",
     "groupBySchemaHelp": "Dans l'explorateur, chaque schéma est un dossier contenant ses objets. Désactivé, les objets sont dans une seule liste avec le schéma avant le nom.",
     "theme": "Thème",

@@ -460,3 +460,4 @@ backend:Vencimiento
 backend:Vencimiento (EXPIRED_TIME)
 backend:reflexión
 scheduled.json:designer.scriptTitle
+editor.json:lens.plan

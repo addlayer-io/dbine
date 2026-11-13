@@ -10,7 +10,7 @@
   "continueOnErrorTip": "If a statement fails, run the following ones anyway. It starts the way the engine's own tool does.",
   "estimatedPlanTip": "Estimated execution plan, without running (⌘L)",
   "estimatedPlan": "Estimated plan",
-  "actualPlanTip": "Run and include the actual plan (⌘⇧↵)",
+  "actualPlanTip": "Run and include the actual plan (⌘⇧L)",
   "runWithPlan": "Run + plan",
   "formatTip": "Format the selection, or everything if nothing is selected (⇧⌥F)",
   "format": "Format",
@@ -111,11 +111,13 @@
     "unpin": "Unpin",
     "pinTip": "Pin this result: later runs won't replace it",
     "rerun": "Run again",
+    "rename": "Rename",
     "rerunMulti": "It ran on several databases: run it again from “Run on several databases…”",
     "rerunMoved": "The editor is no longer on the database where it ran ({{database}})",
     "copySql": "Copy query",
     "closeOthers": "Close other unpinned",
     "closeUnpinned": "Close unpinned",
-    "ranAt": "Ran: {{time}}"
+    "ranAt": "Ran: {{time}}",
+    "namePlaceholder": "Result name"
   }
 }
