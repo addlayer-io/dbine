@@ -8,13 +8,17 @@
 //! doesn't show (its data sources, owner, Dashboards' visual editor
 //! state). Monitors another plugin manages (Security Analytics' detectors)
 //! are read only: the REST update refuses them.
+//!
+//! "Reconocer alertas…" acknowledges the active alerts the user picks
+//! (`_acknowledge/alerts`): Alerting's counterpart of Watcher's
+//! acknowledgement, per alert instead of per action.
 
-use super::{bad, json_text, obj, s, same, Choices, Ctx, Plan, Req, Shape, Vals};
+use super::{bad, json_text, obj, s, same, shown, Choices, Ctx, Plan, Req, Shape, Vals};
 use crate::ddl::path_segment;
 use crate::jobs::{self, num, text};
 use crate::json::J;
 use crate::EsSession;
-use dbine_driver::{FormField, FormKind, FormSection, FormValues, Result};
+use dbine_driver::{FormField, FormKind, FormSection, FormValues, ObjectForm, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -458,6 +462,212 @@ pub(crate) fn delete_plan(p: &str, cur: &Cur) -> Result<Plan> {
             format!("/{p}/_alerting/monitors/{}", path_segment(&cur.id)),
             None,
         )],
+        name,
+        ..Plan::default()
+    })
+}
+
+// ---------------------------------------------------------------------------
+// "Reconocer alertas…"
+// ---------------------------------------------------------------------------
+
+/// The action's key.
+pub(crate) const ACK_ALERTS: &str = "ack_alerts";
+
+/// The most active alerts a form lists (Alerting's `size`).
+pub(crate) const ALERTS_MAX: usize = 1000;
+
+/// Alerting answers an acknowledgement only if its own lookups go well:
+/// when they fail inside the plugin the request is never answered.
+const ACK_WAIT_S: u64 = 30;
+const ACK_UNANSWERED: &str = "El clúster no respondió al reconocimiento en 30 segundos: el plugin Alerting a veces no contesta cuando falla por dentro (sus registros lo dicen). Revisá el estado de las alertas antes de reintentar.";
+
+const ACK_ALERTS_NOTE: &str = "Se listan las alertas activas del monitor. Reconocida, una alerta ya no ejecuta las acciones de su disparador; cuando el disparador deja de cumplirse pasa a COMPLETED, y si vuelve a cumplirse se abre una alerta nueva.";
+
+/// `monitors/alerts` with the monitor's active alerts, oldest first (by
+/// default Alerting sorts by monitor name, a tie for all of them): past
+/// [`ALERTS_MAX`] the form lists really the oldest, and the plan reads the
+/// same ones again.
+pub(crate) fn alerts_path(p: &str, id: &str) -> String {
+    format!(
+        "/{p}/_alerting/monitors/alerts?monitorId={}&alertState=ACTIVE&size={ALERTS_MAX}&sortString=start_time&sortOrder=asc",
+        path_segment(id)
+    )
+}
+
+/// The monitor's active alerts in an answer of `monitors/alerts`, oldest
+/// first, as `(id, label)`: its trigger, a bucket monitor's bucket or a
+/// document-level monitor's documents, its severity and since when; the
+/// alert's id too when that still leaves two the same.
+pub(crate) fn active_alerts(v: &J, monitor: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(f64, String, String)> = v
+        .get("alerts")
+        .and_then(J::as_arr)
+        .into_iter()
+        .flatten()
+        .filter(|a| {
+            text(a.get("state")).as_deref() == Some("ACTIVE")
+                && text(a.get("monitor_id")).as_deref() == Some(monitor)
+        })
+        .filter_map(|a| {
+            let id = text(a.get("id"))?;
+            let mut label = text(a.get("trigger_name")).unwrap_or_else(|| id.clone());
+            let keys = a
+                .at(&["agg_alert_content", "bucket_keys"])
+                .and_then(J::as_arr)
+                .map(|k| k.iter().map(J::text).collect::<Vec<_>>().join(", "))
+                .filter(|k| !k.is_empty());
+            if let Some(k) = keys {
+                label.push_str(&format!(" [{k}]"));
+            }
+            // A document-level monitor opens one per matching document,
+            // all in the same run (and the same millisecond).
+            let docs: Vec<String> = a
+                .get("related_doc_ids")
+                .and_then(J::as_arr)
+                .into_iter()
+                .flatten()
+                .filter_map(|d| text(Some(d)))
+                .collect();
+            match docs.as_slice() {
+                [] => {}
+                [d] => label.push_str(&format!(" · doc {}", doc_label(d))),
+                [d, rest @ ..] => {
+                    label.push_str(&format!(" · doc {} y {} más", doc_label(d), rest.len()))
+                }
+            }
+            if let Some(sev) = text(a.get("severity")) {
+                label.push_str(&format!(" · sev {sev}"));
+            }
+            if let Some(t) = jobs::millis(a.get("start_time")) {
+                label.push_str(&format!(" · {t}"));
+            }
+            Some((num(a.get("start_time")).unwrap_or(0.0), id, label))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut count: BTreeMap<String, usize> = BTreeMap::new();
+    for (_, _, l) in &out {
+        *count.entry(l.clone()).or_default() += 1;
+    }
+    out.into_iter()
+        .map(|(_, id, l)| {
+            let l = if count[&l] > 1 {
+                format!("{l} · {id}")
+            } else {
+                l
+            };
+            (id, l)
+        })
+        .collect()
+}
+
+/// A related document as Alerting names it, `<id>|<index>`, as `<id>
+/// (<index>)` (an index name has no `|`; an id may).
+fn doc_label(d: &str) -> String {
+    match d.rsplit_once('|') {
+        Some((id, index)) if !id.is_empty() && !index.is_empty() => format!("{id} ({index})"),
+        _ => d.to_string(),
+    }
+}
+
+/// How many active alerts the answer says there are (more than it lists
+/// past [`ALERTS_MAX`]).
+pub(crate) fn alerts_total(v: &J, listed: usize) -> usize {
+    num(v.get("totalAlerts")).map_or(listed, |n| (n as usize).max(listed))
+}
+
+fn monitor_name(cur: &Cur) -> String {
+    text(cur.monitor.get("name")).unwrap_or_else(|| cur.id.clone())
+}
+
+fn none_active(cur: &Cur) -> dbine_driver::Error {
+    bad(format!(
+        "El monitor «{}» no tiene alertas activas: se reconoce una alerta que su disparador abrió y sigue activa.",
+        monitor_name(cur)
+    ))
+}
+
+/// The form: the monitor's active alerts (its own choices), all of them
+/// picked to start with.
+pub(crate) fn ack_alerts_form(
+    cur: &Cur,
+    alerts: &[(String, String)],
+    total: usize,
+) -> Result<ObjectForm> {
+    if alerts.is_empty() {
+        return Err(none_active(cur));
+    }
+    let mut f = ObjectForm {
+        sections: vec![FormSection::new("ack", "Reconocimiento").field(
+            FormField::new("alerts", "Alertas", FormKind::reference("alert", true))
+                .required()
+                .help("Las alertas activas del monitor; al menos una."),
+        )],
+        ..ObjectForm::default()
+    };
+    let ids: Vec<&str> = alerts.iter().map(|(id, _)| id.as_str()).collect();
+    f.values.insert("alerts".into(), json!(ids));
+    f.choices.insert("alert".into(), alerts.to_vec());
+    f.notes.push(ACK_ALERTS_NOTE.into());
+    if total > alerts.len() {
+        f.notes.push(format!(
+            "El monitor tiene {total} alertas activas: se listan las {} más antiguas.",
+            alerts.len()
+        ));
+    }
+    Ok(f)
+}
+
+/// `_acknowledge/alerts` with the picked alerts, each an active one of
+/// this monitor now. Alerting answers 200 and lists under `failed` what it
+/// didn't acknowledge, which fails the request.
+pub(crate) fn ack_alerts_plan(
+    p: &str,
+    cur: &Cur,
+    alerts: &[(String, String)],
+    values: &FormValues,
+) -> Result<Plan> {
+    if alerts.is_empty() {
+        return Err(none_active(cur));
+    }
+    let name = monitor_name(cur);
+    let mut picked: Vec<String> = Vec::new();
+    for a in Vals(&values.values).strings("alerts") {
+        if !picked.contains(&a) {
+            picked.push(a);
+        }
+    }
+    if picked.is_empty() {
+        return Err(bad("Elegí al menos una alerta para reconocer.".into()));
+    }
+    for a in &picked {
+        if !alerts.iter().any(|(id, _)| id == a) {
+            return Err(bad(format!(
+                "«{}» no es una alerta activa del monitor «{name}»: ya se reconoció, se resolvió o es de otro monitor.",
+                shown(a)
+            )));
+        }
+    }
+    Ok(Plan {
+        notes: vec![
+            format!("Monitor «{name}»"),
+            format!(
+                "Alertas que reconoce: {} de {} activas. Ya no ejecutan las acciones de su disparador.",
+                picked.len(),
+                alerts.len()
+            ),
+        ],
+        reqs: vec![Req::new(
+            "POST",
+            format!(
+                "/{p}/_alerting/monitors/{}/_acknowledge/alerts",
+                path_segment(&cur.id)
+            ),
+            Some(obj(vec![("alerts", Some(super::strs(&picked)))])),
+        )
+        .failed_in_answer()
+        .wait_at_most(ACK_WAIT_S, ACK_UNANSWERED)],
         name,
         ..Plan::default()
     })

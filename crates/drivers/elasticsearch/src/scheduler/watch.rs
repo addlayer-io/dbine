@@ -6,6 +6,10 @@
 //! cluster redacts, `::es_redacted::`, are kept by such an update);
 //! `_activate` / `_deactivate` follow "Activo". A new id is a new watch
 //! (the old one is deleted after it): its history stays under the old id.
+//!
+//! The actions that ran because the condition held wait for an
+//! acknowledgement: "Reconocer" acknowledges them all (`_ack`),
+//! "Reconocer acciones…" the ones the user picks (`_ack/<a>,<b>`).
 
 use super::{
     bad, has_redacted, json_text, ms_time, obj, plain_id, s, same, shown, split_list, Plan, Req,
@@ -15,7 +19,7 @@ use crate::ddl::path_segment;
 use crate::jobs::{num, text};
 use crate::json::J;
 use crate::EsSession;
-use dbine_driver::{FormField, FormKind, FormSection, FormValues, Result};
+use dbine_driver::{FormField, FormKind, FormSection, FormValues, ObjectForm, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -53,23 +57,46 @@ pub(crate) struct Cur {
     pub(crate) active: bool,
     /// Some action waits for an acknowledgement.
     pub(crate) ackable: bool,
+    /// The actions that wait for one (`ackable` in the watch's status), in
+    /// the definition's order.
+    pub(crate) waiting: Vec<String>,
     pub(crate) seq: String,
     pub(crate) term: String,
 }
 
 pub(crate) async fn read(s: &EsSession, id: &str) -> Result<Cur> {
     let hit = s.es_watch(id).await?;
+    let watch = hit.get("watch").cloned().unwrap_or(J::Null);
+    let waiting = action_names(&watch)
+        .into_iter()
+        .filter(|a| {
+            text(hit.at(&["status", "actions", a, "ack", "state"])).as_deref() == Some("ackable")
+        })
+        .map(str::to_string)
+        .collect();
     Ok(Cur {
         id: id.to_string(),
-        watch: hit.get("watch").cloned().unwrap_or(J::Null),
         active: hit
             .at(&["status", "state", "active"])
             .and_then(J::as_bool)
             .unwrap_or(true),
         ackable: crate::jobs::watch_ackable(&hit),
+        waiting,
+        watch,
         seq: text(hit.get("_seq_no")).unwrap_or_default(),
         term: text(hit.get("_primary_term")).unwrap_or_default(),
     })
+}
+
+/// The watch's actions, in its definition's order.
+fn action_names(watch: &J) -> Vec<&str> {
+    watch
+        .get("actions")
+        .and_then(J::as_obj)
+        .into_iter()
+        .flatten()
+        .map(|(k, _)| k.as_str())
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -614,7 +641,7 @@ pub(crate) fn merge(base: &J, patch: &J) -> J {
 }
 
 /// A time value in milliseconds (`1m` → 60000).
-fn time_ms(t: &str) -> Option<i64> {
+pub(crate) fn time_ms(t: &str) -> Option<i64> {
     let digits = t.bytes().take_while(u8::is_ascii_digit).count();
     let (n, unit) = t.split_at(digits);
     let n: i64 = n.parse().ok()?;
@@ -735,10 +762,7 @@ pub(crate) fn delete_plan(cur: &Cur) -> Plan {
 /// acknowledge.
 pub(crate) fn ack_plan(cur: &Cur) -> Result<Plan> {
     if !cur.ackable {
-        return Err(bad(format!(
-            "Ninguna acción del watch «{}» espera un reconocimiento: se reconoce una acción que se ejecutó porque se cumplió la condición.",
-            cur.id
-        )));
+        return Err(nothing_waits(cur));
     }
     Ok(Plan {
         notes: vec![format!(
@@ -748,6 +772,150 @@ pub(crate) fn ack_plan(cur: &Cur) -> Result<Plan> {
         reqs: vec![Req::new(
             "PUT",
             format!("/_watcher/watch/{}/_ack", path_segment(&cur.id)),
+            None,
+        )],
+        name: cur.id.clone(),
+        ..Plan::default()
+    })
+}
+
+fn nothing_waits(cur: &Cur) -> dbine_driver::Error {
+    bad(format!(
+        "Ninguna acción del watch «{}» espera un reconocimiento: se reconoce una acción que se ejecutó porque se cumplió la condición.",
+        cur.id
+    ))
+}
+
+/// "Reconocer acciones…"'s key: `_ack/<action_ids>` on the actions the
+/// user picks among those waiting ("Reconocer" acknowledges them all).
+pub(crate) const ACK_SOME: &str = "ack_actions";
+
+const ACK_SOME_NOTE: &str = "Se listan las acciones que esperan un reconocimiento: se ejecutaron porque se cumplió la condición del watch. Reconocida, Watcher no vuelve a ejecutar una acción hasta que la condición deje de cumplirse; las que no se elijan siguen ejecutándose.";
+
+/// What an action does (`logging`, `webhook`, `email`…): its key that
+/// isn't one of an action's own settings.
+fn action_type(a: &J) -> Option<&str> {
+    a.as_obj()?.iter().map(|(k, _)| k.as_str()).find(|k| {
+        !matches!(
+            *k,
+            "condition"
+                | "transform"
+                | "throttle_period"
+                | "throttle_period_in_millis"
+                | "foreach"
+                | "max_iterations"
+        )
+    })
+}
+
+/// The form: the actions waiting for an acknowledgement (the choices of
+/// this watch, from its status), all of them picked to start with.
+pub(crate) fn ack_some_form(cur: &Cur) -> Result<ObjectForm> {
+    if cur.waiting.is_empty() {
+        return Err(nothing_waits(cur));
+    }
+    let labels = cur
+        .waiting
+        .iter()
+        .map(|a| {
+            let kind = cur.watch.at(&["actions", a.as_str()]).and_then(action_type);
+            let label = match kind {
+                Some(k) => format!("{a} ({k})"),
+                None => a.clone(),
+            };
+            (a.clone(), label)
+        })
+        .collect();
+    let mut f = ObjectForm {
+        sections: vec![FormSection::new("ack", "Reconocimiento").field(
+            FormField::new("actions", "Acciones", FormKind::reference("action", true))
+                .required()
+                .help("Las acciones del watch que esperan un reconocimiento; al menos una."),
+        )],
+        ..ObjectForm::default()
+    };
+    f.values.insert("actions".into(), json!(cur.waiting));
+    f.choices.insert("action".into(), labels);
+    f.notes.push(ACK_SOME_NOTE.into());
+    Ok(f)
+}
+
+/// `_ack/<a>,<b>` on the picked actions: each one of the watch's, waiting
+/// now, and nameable in the list. A comma would split it; Watcher takes
+/// `_all` as every action; and alone, `.` and `..` are dot segments the
+/// URL parser removes, so `_ack/.` acknowledges them all and `_ack/..`
+/// becomes `PUT _watcher/watch/<id>`.
+pub(crate) fn ack_some_plan(cur: &Cur, values: &FormValues) -> Result<Plan> {
+    if cur.waiting.is_empty() {
+        return Err(nothing_waits(cur));
+    }
+    let mut picked: Vec<String> = Vec::new();
+    for a in Vals(&values.values).strings("actions") {
+        if !picked.contains(&a) {
+            picked.push(a);
+        }
+    }
+    if picked.is_empty() {
+        return Err(bad("Elegí al menos una acción para reconocer.".into()));
+    }
+    let all = action_names(&cur.watch);
+    for a in &picked {
+        if !all.contains(&a.as_str()) {
+            return Err(bad(format!(
+                "«{}» no es una acción del watch «{}».",
+                shown(a),
+                cur.id
+            )));
+        }
+        if !cur.waiting.contains(a) {
+            return Err(bad(format!(
+                "La acción «{}» del watch «{}» no espera un reconocimiento: ya se reconoció, o no se ejecutó desde que se cumplió la condición.",
+                shown(a),
+                cur.id
+            )));
+        }
+        if a.contains(',') {
+            return Err(bad(format!(
+                "La acción «{}» tiene una coma en el nombre y la API no la reconoce sola: «Reconocer las acciones del watch» las reconoce todas.",
+                shown(a)
+            )));
+        }
+        if a == "_all" || (picked.len() == 1 && (a == "." || a == "..")) {
+            return Err(bad(format!(
+                "La API no reconoce sola la acción «{}»: toma ese nombre como todas las acciones o como otra ruta. «Reconocer las acciones del watch» las reconoce todas.",
+                shown(a)
+            )));
+        }
+    }
+    let (acked, left): (Vec<&String>, Vec<&String>) =
+        cur.waiting.iter().partition(|a| picked.contains(a));
+    let names = |v: &[&String]| {
+        v.iter()
+            .map(|a| format!("«{a}»"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut notes = vec![format!(
+        "Acciones que reconoce del watch «{}»: {}. Watcher no las vuelve a ejecutar hasta que su condición deje de cumplirse.",
+        cur.id,
+        names(&acked)
+    )];
+    if !left.is_empty() {
+        notes.push(format!(
+            "Siguen esperando un reconocimiento: {}.",
+            names(&left)
+        ));
+    }
+    let ids: Vec<String> = acked.iter().map(|a| path_segment(a)).collect();
+    Ok(Plan {
+        notes,
+        reqs: vec![Req::new(
+            "PUT",
+            format!(
+                "/_watcher/watch/{}/_ack/{}",
+                path_segment(&cur.id),
+                ids.join(",")
+            ),
             None,
         )],
         name: cur.id.clone(),

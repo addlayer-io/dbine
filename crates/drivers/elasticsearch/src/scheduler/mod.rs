@@ -89,6 +89,8 @@ const CLOUD_SLM_NOTE: &str = "Elastic Cloud toma los snapshots del deployment co
 const ONE_STEP: &str = "este job se ejecuta entero: no empieza en uno de sus pasos (eso es para las acciones de un watch); para correrlo ahora está «Ejecutar ahora»";
 const TRANSFORM_WHOLE: &str = "un transform se ejecuta entero, no desde uno de sus pasos: se inicia con el interruptor de habilitado (y uno continuo ya iniciado se ejecuta de nuevo con «Ejecutar ahora»)";
 const OS_NO_RUN: &str = "OpenSearch ejecuta este job según su programación: no hay forma de empezarlo a mano, ni en un paso";
+const NO_FROM: &str = "este clúster no inicia un transform desde una fecha (el parámetro from de _start llegó en Elasticsearch 8.7)";
+const NO_FORM: &str = "esa acción no pide valores en este motor";
 /// A script with more than one request that writes: the cluster has no
 /// transactions.
 pub(crate) const NOT_ATOMIC: &str = "Los pedidos se envían uno por uno, sin transacción: si uno falla, los anteriores quedan aplicados y los siguientes no se envían.";
@@ -195,6 +197,9 @@ pub(crate) struct Ctx {
     pub(crate) manage_lifecycle: bool,
     /// Elasticsearch resets a transform (`_reset`, 8.1 on).
     pub(crate) reset: bool,
+    /// Elasticsearch starts a transform from a time (`_start?from=`, 8.7
+    /// on).
+    pub(crate) start_from: bool,
     pub(crate) notes: Vec<String>,
 }
 
@@ -263,6 +268,7 @@ async fn ctx(s: &EsSession) -> Result<Ctx> {
         )
         .await?;
         c.reset = jobs::version_at_least(&s.version, 8, 1);
+        c.start_from = jobs::version_at_least(&s.version, 8, 7);
         c.lifecycle = feature(x.as_ref(), "ilm");
         c.manage_lifecycle = c.lifecycle && privs.get("manage_ilm").copied().unwrap_or(true);
         if c.lifecycle && !c.manage_lifecycle {
@@ -368,18 +374,27 @@ fn kind_of(s: &EsSession, kind: &str) -> Result<Kind> {
 
 /// The job kind's actions besides "run now" and the enabled switch (which
 /// already start and stop a transform, activate a watch, run an SLM policy
-/// or a monitor): a stopped transform reset, a watch's actions
-/// acknowledged.
+/// or a monitor): a stopped transform reset or started from a time; a
+/// watch's actions acknowledged, all or some; a monitor's active alerts
+/// acknowledged. OpenSearch's transforms start with no time to start from
+/// (`_start` takes none) and OpenSearch has no Watcher.
 fn job_actions(c: &Ctx) -> Vec<SchedulerAction> {
     let mut a = Vec::new();
     if c.reset && c.may(Type::Transform) {
         a.push(SchedulerAction::new("reset", "Restablecer el transform"));
+    }
+    if c.start_from && c.may(Type::Transform) {
+        a.push(SchedulerAction::new("start_from", "Iniciar desde…").with_params());
     }
     if c.may(Type::Watch) {
         a.push(SchedulerAction::new(
             "ack",
             "Reconocer las acciones del watch",
         ));
+        a.push(SchedulerAction::new("ack_actions", "Reconocer acciones…").with_params());
+    }
+    if c.may(Type::Monitor) {
+        a.push(SchedulerAction::new("ack_alerts", "Reconocer alertas…").with_params());
     }
     a
 }
@@ -423,7 +438,8 @@ pub(crate) async fn items(s: &EsSession, kind: &str) -> Result<SchedulerList> {
     }
     let c = ctx(s).await?;
     let list = s.jobs_list().await?;
-    // The watches whose actions wait for an acknowledgement now.
+    // The jobs with something to acknowledge now: watches whose actions
+    // wait for it, monitors with active alerts.
     let mut ackable = BTreeSet::new();
     if !c.os && c.may(Type::Watch) {
         if let Ok(ws) = s.es_watches().await? {
@@ -431,7 +447,18 @@ pub(crate) async fn items(s: &EsSession, kind: &str) -> Result<SchedulerList> {
                 .iter()
                 .filter(|h| jobs::watch_ackable(h))
                 .filter_map(|h| text(h.get("_id")))
+                .map(|id| Type::Watch.job_id(&id))
                 .collect();
+        }
+    }
+    if c.may(Type::Monitor) {
+        let path = format!(
+            "/{}/_alerting/monitors/alerts?alertState=ACTIVE&size={}",
+            c.plugins,
+            monitor::ALERTS_MAX
+        );
+        if let Ok((200, v)) = s.job_probe("GET", &path, None).await {
+            ackable.extend(monitors_to_ack(&c, &v, &list.jobs));
         }
     }
     Ok(SchedulerList {
@@ -444,10 +471,36 @@ pub(crate) async fn items(s: &EsSession, kind: &str) -> Result<SchedulerList> {
     })
 }
 
+/// The monitors (their job ids) the tree offers "Reconocer alertas…" on,
+/// from one page of the cluster's active alerts (`v`): those with an alert
+/// in it. When the cluster has more active alerts than the page holds (a
+/// document-level monitor opens one per document), the page doesn't show
+/// every monitor that has some: then every monitor of the list offers it,
+/// and its form says whether it has any.
+fn monitors_to_ack(c: &Ctx, v: &J, jobs: &[ServerJob]) -> BTreeSet<String> {
+    let page = v.get("alerts").and_then(J::as_arr).unwrap_or(&[]);
+    if monitor::alerts_total(v, page.len()) > page.len() {
+        return jobs
+            .iter()
+            .filter(|j| {
+                jobs::parse_id(&j.id).map(|(k, _)| Type::of_job(k, c.os)) == Some(Type::Monitor)
+            })
+            .map(|j| j.id.clone())
+            .collect();
+    }
+    page.iter()
+        .filter(|a| text(a.get("state")).as_deref() == Some("ACTIVE"))
+        .filter_map(|a| text(a.get("monitor_id")))
+        .map(|id| Type::Monitor.job_id(&id))
+        .collect()
+}
+
 /// A job as the tree lists it, with what it may do now: another plugin's
 /// monitor and Elasticsearch's own watches are neither changed nor deleted
 /// from here, Elastic Cloud's snapshot policy isn't deleted; a stopped
-/// transform can be reset, a watch whose actions ran acknowledged.
+/// transform can be reset, and started from a time while it is continuous
+/// and has no checkpoint; a watch whose actions ran, or a monitor with
+/// active alerts (`ackable`: their job ids), acknowledged.
 fn item_of(c: &Ctx, j: ServerJob, ackable: &BTreeSet<String>) -> SchedulerItem {
     let t = jobs::parse_id(&j.id).map(|(k, rest)| (Type::of_job(k, c.os), rest.to_string()));
     let (mut can_edit, mut can_delete) = (None, None);
@@ -462,11 +515,24 @@ fn item_of(c: &Ctx, j: ServerJob, ackable: &BTreeSet<String>) -> SchedulerItem {
     let actions = (!job_actions(c).is_empty()).then(|| {
         let mut a = Vec::new();
         match &t {
-            Some((Type::Transform, _)) if c.reset && c.may(Type::Transform) && !j.enabled => {
-                a.push("reset".to_string());
+            Some((Type::Transform, _)) if c.may(Type::Transform) && !j.enabled => {
+                if c.reset {
+                    a.push("reset".to_string());
+                }
+                if c.start_from && fresh_continuous(&j) {
+                    a.push("start_from".to_string());
+                }
             }
-            Some((Type::Watch, id)) if c.may(Type::Watch) && !j.system && ackable.contains(id) => {
+            Some((Type::Watch, _))
+                if c.may(Type::Watch) && !j.system && ackable.contains(&j.id) =>
+            {
                 a.push("ack".to_string());
+                a.push("ack_actions".to_string());
+            }
+            Some((Type::Monitor, _))
+                if c.may(Type::Monitor) && !j.system && ackable.contains(&j.id) =>
+            {
+                a.push("ack_alerts".to_string());
             }
             _ => {}
         }
@@ -488,6 +554,13 @@ fn item_of(c: &Ctx, j: ServerJob, ackable: &BTreeSet<String>) -> SchedulerItem {
         run_from_step,
         clear_history,
     }
+}
+
+/// A transform's job ([`jobs::es_transform_job`]) that is continuous (it
+/// has a schedule, its frequency) and hasn't completed a checkpoint (no
+/// last outcome; a failed one has one): `_start?from=` applies to it.
+fn fresh_continuous(j: &ServerJob) -> bool {
+    j.schedule.is_some() && j.last_outcome.is_none()
 }
 
 /// Whether a job of this type starts at one of its steps and keeps a
@@ -1092,9 +1165,9 @@ pub(crate) async fn run_from(s: &EsSession, id: &str, step: &str) -> Result<()> 
 // Actions
 // ---------------------------------------------------------------------------
 
-/// The requests of one of the job kind's actions ([`job_actions`]) on a
-/// job.
-async fn action_plan(s: &EsSession, kind: &str, id: &str, action: &str) -> Result<Plan> {
+/// The job of an action ([`job_actions`]): its type and engine id, with
+/// the context. Index lifecycle policies have none.
+async fn action_target(s: &EsSession, kind: &str, id: &str) -> Result<(Ctx, Type, String)> {
     if kind_of(s, kind)? == Kind::Lifecycle {
         return Err(Error::Unsupported(
             "las políticas de ciclo de vida no tienen acciones: se aplican solas a sus índices"
@@ -1103,12 +1176,105 @@ async fn action_plan(s: &EsSession, kind: &str, id: &str, action: &str) -> Resul
     }
     let c = ctx(s).await?;
     let (t, rest) = parse(s, id)?;
-    let unknown = || {
-        Error::Unsupported(format!(
-            "«{}» no es una acción de este tipo de job.",
-            shown(action)
-        ))
-    };
+    Ok((c, t, rest))
+}
+
+fn unknown_action(action: &str) -> Error {
+    Error::Unsupported(format!(
+        "«{}» no es una acción de este tipo de job.",
+        shown(action)
+    ))
+}
+
+/// A transform that can start from a time: the cluster's version and the
+/// user's privilege.
+fn start_from_allowed(c: &Ctx) -> Result<()> {
+    if !c.start_from {
+        return Err(Error::Unsupported(NO_FROM.into()));
+    }
+    if !c.may(Type::Transform) {
+        return Err(bad(NO_PRIV_TRANSFORM.into()));
+    }
+    Ok(())
+}
+
+/// A watch the user acknowledges: manage_watcher, not Elasticsearch's own.
+async fn ackable_watch(s: &EsSession, c: &Ctx, id: &str) -> Result<watch::Cur> {
+    if !c.may(Type::Watch) {
+        return Err(bad(NO_PRIV_WATCHER.into()));
+    }
+    let cur = watch::read(s, id).await?;
+    if jobs::system_watch(&cur.watch) {
+        return Err(bad(SYSTEM_WATCH.into()));
+    }
+    Ok(cur)
+}
+
+/// A monitor whose alerts the user acknowledges (Alerting's own, not
+/// another plugin's, whose alerts live in that plugin's indices), and its
+/// active alerts with how many there are.
+async fn alerting_monitor(
+    s: &EsSession,
+    c: &Ctx,
+    id: &str,
+) -> Result<(monitor::Cur, Vec<(String, String)>, usize)> {
+    if !c.may(Type::Monitor) {
+        return Err(Error::Unsupported(NO_ALERTING.into()));
+    }
+    let cur = monitor::read(s, id).await?;
+    if let Some(owner) = jobs::os_monitor_owner(&cur.monitor) {
+        return Err(bad(format!(
+            "este monitor lo administra {owner}: sus alertas se reconocen desde ese plugin"
+        )));
+    }
+    let (_, v) = s
+        .job_call("GET", &monitor::alerts_path(c.plugins, id), None)
+        .await?;
+    let alerts = monitor::active_alerts(&v, id);
+    let total = monitor::alerts_total(&v, alerts.len());
+    Ok((cur, alerts, total))
+}
+
+/// The form of an action that asks for values: the time a transform
+/// starts from, the watch's actions or the monitor's alerts to
+/// acknowledge (each the object's own choices).
+pub(crate) async fn action_form(
+    s: &EsSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<ObjectForm> {
+    let (c, t, rest) = action_target(s, kind, id).await?;
+    match (t, action.trim()) {
+        (Type::Transform, es_transform::START_FROM) => {
+            start_from_allowed(&c)?;
+            es_transform::start_from_form(
+                &es_transform::read(s, &rest).await?,
+                os_transform::now_ms(),
+            )
+        }
+        (Type::Watch, watch::ACK_SOME) => watch::ack_some_form(&ackable_watch(s, &c, &rest).await?),
+        (Type::Monitor, monitor::ACK_ALERTS) => {
+            let (cur, alerts, total) = alerting_monitor(s, &c, &rest).await?;
+            monitor::ack_alerts_form(&cur, &alerts, total)
+        }
+        (Type::Transform, "reset") | (Type::Watch, "ack") => {
+            Err(Error::Unsupported(NO_FORM.into()))
+        }
+        _ => Err(unknown_action(action)),
+    }
+}
+
+/// The requests of one of the job kind's actions ([`job_actions`]) on a
+/// job, with its form's values (empty for an action without one).
+async fn action_plan(
+    s: &EsSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<Plan> {
+    let (c, t, rest) = action_target(s, kind, id).await?;
     match (t, action.trim()) {
         (Type::Transform, "reset") => {
             if !c.reset {
@@ -1122,17 +1288,23 @@ async fn action_plan(s: &EsSession, kind: &str, id: &str, action: &str) -> Resul
             }
             es_transform::reset_plan(&es_transform::read(s, &rest).await?)
         }
-        (Type::Watch, "ack") => {
-            if !c.may(t) {
-                return Err(bad(NO_PRIV_WATCHER.into()));
-            }
-            let cur = watch::read(s, &rest).await?;
-            if jobs::system_watch(&cur.watch) {
-                return Err(bad(SYSTEM_WATCH.into()));
-            }
-            watch::ack_plan(&cur)
+        (Type::Transform, es_transform::START_FROM) => {
+            start_from_allowed(&c)?;
+            es_transform::start_from_plan(
+                &es_transform::read(s, &rest).await?,
+                values,
+                os_transform::now_ms(),
+            )
         }
-        _ => Err(unknown()),
+        (Type::Watch, "ack") => watch::ack_plan(&ackable_watch(s, &c, &rest).await?),
+        (Type::Watch, watch::ACK_SOME) => {
+            watch::ack_some_plan(&ackable_watch(s, &c, &rest).await?, values)
+        }
+        (Type::Monitor, monitor::ACK_ALERTS) => {
+            let (cur, alerts, _) = alerting_monitor(s, &c, &rest).await?;
+            monitor::ack_alerts_plan(c.plugins, &cur, &alerts, values)
+        }
+        _ => Err(unknown_action(action)),
     }
 }
 
@@ -1141,13 +1313,20 @@ pub(crate) async fn action_script(
     kind: &str,
     id: &str,
     action: &str,
+    values: &FormValues,
 ) -> Result<String> {
-    Ok(action_plan(s, kind, id, action).await?.render())
+    Ok(action_plan(s, kind, id, action, values).await?.render())
 }
 
-pub(crate) async fn action(s: &EsSession, kind: &str, id: &str, action: &str) -> Result<()> {
+pub(crate) async fn action(
+    s: &EsSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<()> {
     s.check_writable("Conexión de solo lectura: no se pueden cambiar jobs del servidor.")?;
-    let plan = action_plan(s, kind, id, action).await?;
+    let plan = action_plan(s, kind, id, action, values).await?;
     run(s, &plan).await.map(|_| ())
 }
 
@@ -1472,6 +1651,20 @@ impl<'a> Vals<'a> {
         }
     }
 
+    /// A date and time ([`date_time_ms`]) in milliseconds since 1970;
+    /// `None` when empty.
+    pub(crate) fn date_time(&self, k: &str, label: &str) -> Result<Option<i64>> {
+        let Some(t) = self.opt(k) else {
+            return Ok(None);
+        };
+        date_time_ms(&t).map(Some).ok_or_else(|| {
+            bad(format!(
+                "«{label}»: «{}» no es una fecha y hora válida (AAAA-MM-DDTHH:MM:SS, en UTC o con su zona).",
+                shown(&t)
+            ))
+        })
+    }
+
     /// An Elasticsearch time value (`30s`, `5m`, `1h`, `7d`…).
     pub(crate) fn time(&self, k: &str, label: &str) -> Result<Option<String>> {
         match self.opt(k) {
@@ -1497,6 +1690,64 @@ impl<'a> Vals<'a> {
         };
         check_cron(&c, label, fields).map(Some)
     }
+}
+
+/// RFC 3339 (`2026-11-13T10:00:00Z`, a fraction, `+02:00`; without a zone,
+/// UTC, as Elasticsearch reads it) as milliseconds since 1970, checked
+/// whole: the separators, each part's range, a day the month has.
+pub(crate) fn date_time_ms(t: &str) -> Option<i64> {
+    let b = t.as_bytes();
+    if b.len() < 19 || !t.is_ascii() {
+        return None;
+    }
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    let shape = digits(0..4)
+        && b[4] == b'-'
+        && digits(5..7)
+        && b[7] == b'-'
+        && digits(8..10)
+        && matches!(b[10], b'T' | b't' | b' ')
+        && digits(11..13)
+        && b[13] == b':'
+        && digits(14..16)
+        && b[16] == b':'
+        && digits(17..19);
+    if !shape {
+        return None;
+    }
+    let n = |r: std::ops::Range<usize>| t[r].parse::<u32>().ok();
+    let (mo, d, h, mi, s) = (n(5..7)?, n(8..10)?, n(11..13)?, n(14..16)?, n(17..19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || s > 59 {
+        return None;
+    }
+    let mut rest = &t[19..];
+    if let Some(r) = rest.strip_prefix('.') {
+        let end = r.find(|c: char| !c.is_ascii_digit()).unwrap_or(r.len());
+        if end == 0 || end > 9 {
+            return None;
+        }
+        rest = &r[end..];
+    }
+    if !matches!(rest, "" | "Z" | "z") {
+        let z = rest.as_bytes();
+        let ok = z.len() == 6
+            && matches!(z[0], b'+' | b'-')
+            && z[1..3].iter().all(u8::is_ascii_digit)
+            && z[3] == b':'
+            && z[4..6].iter().all(u8::is_ascii_digit)
+            && rest[1..3].parse::<u32>().ok()? <= 23
+            && rest[4..6].parse::<u32>().ok()? <= 59;
+        if !ok {
+            return None;
+        }
+    }
+    // The day exists in that month (no 30 February).
+    let date = &t[..10];
+    let midnight = jobs::iso_ms(&format!("{date}T00:00:00Z"))?;
+    if jobs::rfc3339_ms(midnight).get(..10) != Some(date) {
+        return None;
+    }
+    jobs::iso_ms(t)
 }
 
 /// A comma- or line-separated list, trimmed, without empties.
@@ -1652,6 +1903,13 @@ pub(crate) struct Req {
     /// What is left on the cluster when this request fails after the
     /// earlier ones were applied.
     pub(crate) if_fails: Option<String>,
+    /// The cluster answers 200 and lists under `failed` what it didn't do
+    /// (Alerting's acknowledgement): a non-empty list fails the request.
+    pub(crate) failed_in_answer: bool,
+    /// Seconds to wait for the answer, for a request the cluster may never
+    /// answer (Alerting's acknowledgement when the plugin fails inside),
+    /// and what to tell then.
+    pub(crate) wait_at_most: Option<(u64, &'static str)>,
 }
 
 impl Req {
@@ -1663,7 +1921,19 @@ impl Req {
             note: None,
             guard_from: None,
             if_fails: None,
+            failed_in_answer: false,
+            wait_at_most: None,
         }
+    }
+
+    pub(crate) fn wait_at_most(mut self, secs: u64, unanswered: &'static str) -> Req {
+        self.wait_at_most = Some((secs, unanswered));
+        self
+    }
+
+    pub(crate) fn failed_in_answer(mut self) -> Req {
+        self.failed_in_answer = true;
+        self
     }
 
     pub(crate) fn note(mut self, n: &str) -> Req {
@@ -1853,11 +2123,34 @@ async fn run(s: &EsSession, plan: &Plan) -> Result<Option<String>> {
                 .header("Content-Type", "application/json")
                 .body(b.compact());
         }
-        let (status, body) = http::send(rb).await?;
+        if let Some((secs, _)) = r.wait_at_most {
+            rb = rb.timeout(std::time::Duration::from_secs(secs));
+        }
+        let (status, body) = match (http::send(rb).await, r.wait_at_most) {
+            (Err(Error::Connect(m)), Some((_, unanswered)))
+                if m.starts_with("Tiempo de espera") =>
+            {
+                return Err(failed(unanswered.into()))
+            }
+            (sent, _) => sent?,
+        };
         if status >= 400 {
             return Err(failed(es_error_message(status, &body)));
         }
         let answer = J::parse(&body).unwrap_or(J::Null);
+        if r.failed_in_answer {
+            if let Some(f) = answer
+                .get("failed")
+                .and_then(J::as_arr)
+                .filter(|f| !f.is_empty())
+            {
+                return Err(failed(format!(
+                    "el clúster no hizo {} de lo pedido: {}",
+                    f.len(),
+                    jobs::cut(&J::Arr(f.to_vec()).compact())
+                )));
+            }
+        }
         if plan.id_from == Some(i) {
             if let Some(new) = text(answer.get("_id")) {
                 id = Some(Type::Monitor.job_id(&new));
