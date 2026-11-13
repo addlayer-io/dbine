@@ -1,0 +1,197 @@
+# OpenSearch SQL (the SQL plugin, not PPL): the functions its SQL reference
+# documents (docs/user/dql/functions.rst, aggregations.rst, window.rst and
+# beyond/fulltext.rst of opensearch-project/sql). `since=` is the first
+# OpenSearch release whose reference lists the function; the plugin's
+# version follows OpenSearch's. The plugin has no SHOW FUNCTIONS.
+# CASE is syntax, not a call, and is left out.
+
+# Type conversion
+s CAST(expr AS type)
+
+# Mathematical
+s ABS(x)
+s ACOS(x) -> DOUBLE
+s ADD(x, y)
+s ASIN(x) -> DOUBLE
+s ATAN(x) -> DOUBLE
+s ATAN(y, x) -> DOUBLE
+s ATAN2(y, x) -> DOUBLE
+s CBRT(number) -> DOUBLE
+s CEIL(x)
+s CEILING(x) since=2.5
+s CONV(x, a, b) -> STRING
+s COS(x) -> DOUBLE
+s COSH(x)
+s COT(x) -> DOUBLE
+s CRC32(str) -> LONG
+s DEGREES(x) -> DOUBLE
+s DIVIDE(x, y)
+s E() -> DOUBLE
+s EXP(x) -> DOUBLE
+s EXPM1(x) -> DOUBLE
+s FLOOR(x) -> LONG
+s LN(x) -> DOUBLE
+s LOG(x) -> DOUBLE
+s LOG(b, x) -> DOUBLE
+s LOG2(x) -> DOUBLE
+s LOG10(x) -> DOUBLE
+s MOD(x, y)
+s MODULUS(x, y) since=2.7
+s MULTIPLY(x, y)
+s PI() -> DOUBLE
+s POW(x, y) -> DOUBLE
+s POWER(x, y) -> DOUBLE
+s RADIANS(x) -> DOUBLE
+s RAND() -> FLOAT
+s RAND(N) -> FLOAT
+s RINT(x) -> DOUBLE
+s ROUND(x[, d])
+s SIGN(x) -> INTEGER
+s SIGNUM(x) -> INTEGER
+s SIN(x) -> DOUBLE
+s SINH(x) -> DOUBLE
+s SQRT(x)
+s STRCMP(str1, str2) -> INTEGER
+s SUBTRACT(x, y)
+s TAN(x) -> DOUBLE
+s TRUNCATE(x, d)
+
+# Date and time
+s ADDDATE(date, INTERVAL expr unit)
+s ADDDATE(date, days)
+s ADDTIME(expr1, expr2) since=2.5
+s CONVERT_TZ(timestamp, from_timezone, to_timezone) -> TIMESTAMP since=2.4
+s CURDATE() -> DATE
+s CURRENT_DATE() -> DATE since=2.4
+s CURRENT_TIME() -> TIME since=2.4
+s CURRENT_TIMESTAMP() -> TIMESTAMP since=2.4
+s CURTIME() -> TIME since=2.4
+s DATE(expr) -> DATE
+s DATETIME(timestamp) since=2.4
+s DATETIME(timestamp, to_timezone) since=2.4
+s DATE_ADD(date, INTERVAL expr unit) -> TIMESTAMP
+s DATE_FORMAT(date, format) -> STRING
+s DATE_SUB(date, INTERVAL expr unit) -> TIMESTAMP
+s DATEDIFF(date1, date2) -> LONG since=2.5
+s DAY(date) -> INTEGER
+s DAYNAME(date) -> STRING
+s DAYOFMONTH(date) -> INTEGER
+s DAY_OF_MONTH(date) -> INTEGER since=2.5
+s DAYOFWEEK(date) -> INTEGER
+s DAYOFYEAR(date) -> INTEGER
+s DAY_OF_YEAR(date) -> INTEGER since=2.5
+s EXTRACT(part FROM date) -> LONG since=2.8
+s FROM_DAYS(N) -> DATE
+s FROM_UNIXTIME(unix_timestamp) since=2.4
+s FROM_UNIXTIME(unix_timestamp, format) since=2.4
+s GET_FORMAT(type, format_type) -> STRING since=2.6
+s HOUR(time) -> INTEGER
+s LAST_DAY(date) -> DATE since=2.6
+s LOCALTIMESTAMP() -> TIMESTAMP since=2.4
+s LOCALTIME() -> TIMESTAMP since=2.4
+s MAKEDATE(year, day_of_year) -> DATE since=2.3
+s MAKETIME(hour, minute, second) -> TIME
+s MICROSECOND(expr) -> INTEGER
+s MINUTE(time) -> INTEGER
+s MINUTE_OF_DAY(time) -> INTEGER since=2.5
+s MONTH(date) -> INTEGER
+s MONTHNAME(date) -> STRING
+s NOW() -> TIMESTAMP
+s PERIOD_ADD(P, N) -> INTEGER since=2.4
+s PERIOD_DIFF(P1, P2) -> INTEGER since=2.4
+s QUARTER(date) -> INTEGER
+s SEC_TO_TIME(number) -> TIME since=2.7
+s SECOND(time) -> INTEGER
+s STR_TO_DATE(string, format) -> TIMESTAMP since=2.7
+s SUBDATE(date, INTERVAL expr unit)
+s SUBDATE(date, days)
+s SUBTIME(expr1, expr2) since=2.5
+s SYSDATE([fsp]) -> TIMESTAMP since=2.4
+s TIME(expr) -> TIME
+s TIME_FORMAT(time, format) -> STRING since=2.6
+s TIME_TO_SEC(time) -> LONG
+s TIMEDIFF(time1, time2) -> TIME since=2.5
+s TIMESTAMP(expr)
+s TIMESTAMP(expr1, expr2)
+s TIMESTAMPADD(interval, count, timestamp) -> TIMESTAMP since=2.7
+s TIMESTAMPDIFF(interval, start, end) since=2.7
+s TO_DAYS(date) -> LONG
+s TO_SECONDS(date) -> LONG since=2.7
+s UNIX_TIMESTAMP([date]) -> DOUBLE since=2.4
+s UTC_DATE() -> DATE since=2.5
+s UTC_TIME() -> TIME since=2.5
+s UTC_TIMESTAMP() -> TIMESTAMP since=2.5
+s WEEK(date[, mode]) -> INTEGER
+s WEEKDAY(date) -> INTEGER since=2.8
+s WEEK_OF_YEAR(date[, mode]) -> INTEGER since=2.5
+s WEEKOFYEAR(date[, mode]) -> INTEGER since=2.6
+s YEAR(date) -> INTEGER
+s YEARWEEK(date[, mode]) -> INTEGER since=2.7
+
+# String
+s ASCII(str) -> INTEGER
+s CONCAT(str1, str2, ...) -> STRING
+s CONCAT_WS(sep, str1, str2, ...) -> STRING
+s LEFT(str, len) -> STRING
+s LENGTH(str) -> INTEGER
+s LOCATE(substr, str) -> INTEGER
+s LOCATE(substr, str, pos) -> INTEGER
+s LOWER(str) -> STRING
+s LTRIM(str) -> STRING
+s POSITION(substr IN str) -> INTEGER since=2.5
+s REPLACE(str, from_str, to_str) -> STRING
+s REVERSE(str) -> STRING since=2.5
+s RIGHT(str, len) -> STRING
+s RTRIM(str) -> STRING
+s SUBSTRING(str, start) -> STRING
+s SUBSTRING(str, start, length) -> STRING
+s TRIM(str) -> STRING
+s UPPER(str) -> STRING
+
+# Conditional
+s IF(condition, expr1, expr2)
+s IFNULL(expr1, expr2)
+s ISNULL(expr) -> BOOLEAN
+s NULLIF(expr1, expr2)
+
+# System
+s TYPEOF(expr) -> STRING since=2.4
+
+# Full-text search (relevance)
+s MATCH(field_expression, query_expression[, option=<option_value>]*) since=1.2
+s MATCHQUERY(field_expression, query_expression[, option=<option_value>]*) since=2.5
+s MATCH_QUERY(field_expression, query_expression[, option=<option_value>]*)
+s MATCH_PHRASE(field_expression, query_expression[, option=<option_value>]*)
+s MATCH_BOOL_PREFIX(field_expression, query_expression[, option=<option_value>]*) since=2.2
+s MATCH_PHRASE_PREFIX(field_expression, query_expression[, option=<option_value>]*) since=2.2
+s MULTI_MATCH([field_expression+], query_expression[, option=<option_value>]*) since=2.1
+s MULTI_MATCH('query'=query_expression, 'fields'=field_pattern)
+s SIMPLE_QUERY_STRING([field_expression+], query_expression[, option=<option_value>]*) since=2.1
+s QUERY_STRING([field_expression+], query_expression[, option=<option_value>]*) since=2.2
+s QUERY(query_expression[, option=<option_value>]*)
+s WILDCARD_QUERY(field_expression, query_expression[, option=<option_value>]*) since=2.5
+s SCORE(relevance_expression[, boost])
+s HIGHLIGHT(field_expression) since=2.2
+s NESTED(field[, path]) since=2.7
+
+# Aggregates
+a COUNT(expr)
+a COUNT(DISTINCT expr)
+a SUM(expr)
+a AVG(expr)
+a MAX(expr)
+a MIN(expr)
+a VAR_POP(expr)
+a VAR_SAMP(expr)
+a VARIANCE(expr)
+a STDDEV_POP(expr)
+a STDDEV_SAMP(expr)
+a STD(expr)
+a STDDEV(expr)
+a PERCENTILE(expr, percent) since=2.15
+a PERCENTILE_APPROX(expr, percent) since=2.15
+
+# Window (ranking)
+w ROW_NUMBER()
+w RANK()
+w DENSE_RANK()

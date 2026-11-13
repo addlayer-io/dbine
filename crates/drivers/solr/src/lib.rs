@@ -1197,9 +1197,11 @@ impl Session for SolrSession {
         permissions::check(self).await
     }
 
-    /// The function queries of the server's version (see [`functions`]).
+    /// The function queries of the server's version and, on SolrCloud where
+    /// Parallel SQL runs, the functions of the console's SQL lines (see
+    /// [`functions`]).
     async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
-        Ok(functions::catalog(Some(&self.version)))
+        Ok(functions::catalog(self).await)
     }
 }
 

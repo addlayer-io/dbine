@@ -36,6 +36,14 @@
 //   data); and, outside strings, after a dot that follows a name, `)` or `]`
 //   (not a number's), the scalar entries (the MongoDB shell's methods:
 //   `db.orders.find`).
+// - **SQL lines of a JSON console** (Elasticsearch's, OpenSearch's, Solr's:
+//   a line starting with SELECT, SHOW, DESCRIBE or DESC starts a statement,
+//   cut as the driver cuts it, see `consoleSqlFrom`): the entries whose
+//   `language` is `sql`, by the SQL rules, with strings and comments found
+//   by a lexical scan (the JSON parser doesn't read SQL; these engines
+//   don't agree on a backslash in a string, see `LexRules.escapes`). Only a
+//   catalog with such entries has SQL lines; on them the JSON rules don't
+//   apply, and anywhere else those entries are never offered.
 //
 // Each keystroke where nothing fits asks again, so the code before the
 // cursor is read from at most LOOK_BACK before it (at a line's start; in SQL,
@@ -97,6 +105,9 @@ export interface FunctionIndex {
   commandOptions: Completion[];
   /** The text of "+N overloads". */
   overloads: (n: number) => string;
+  /** The entries of another editor language, `sql` (a JSON console's SQL
+   *  lines), apart: null without any. The others are the language's own. */
+  sql: FunctionIndex | null;
 }
 
 /** What a function is reached through when written in code: its schema
@@ -190,7 +201,7 @@ export function matchShown(c: Completion, matched?: readonly number[]): readonly
   return shift ? matched.map((p) => p + shift) : matched;
 }
 
-export function functionIndex(list: readonly FunctionInfo[], overloads: (n: number) => string): FunctionIndex {
+function buildIndex(list: readonly FunctionInfo[], overloads: (n: number) => string, sql: FunctionIndex | null): FunctionIndex {
   const expr = groupsOf(list, ['scalar', 'aggregate', 'window'], 'qualified');
   const table = groupsOf(list, ['table'], 'qualified');
   return {
@@ -202,16 +213,31 @@ export function functionIndex(list: readonly FunctionInfo[], overloads: (n: numb
     operatorOptions: groupsOf(list, ['operator'], 'raw').map((g) => option(g, g.name, overloads, (t) => t, 'keyword', 0)),
     commandOptions: groupsOf(list, ['command'], 'raw').map((g) => option(g, g.name, overloads, commandApply, 'function', 0)),
     overloads,
+    sql,
   };
 }
 
+/** The catalog's index: the language's own entries (no `language`), and
+ *  the SQL lines' (`language` `sql`) apart. An entry of any other language
+ *  is never offered. */
+export function functionIndex(list: readonly FunctionInfo[], overloads: (n: number) => string): FunctionIndex {
+  const own = list.filter((f) => !f.language);
+  const sql = list.filter((f) => f.language === 'sql');
+  return buildIndex(own, overloads, sql.length ? buildIndex(sql, overloads, null) : null);
+}
+
+/** The JSON rules have something to offer. */
+const jsonOffers = (index: FunctionIndex) => index.operatorOptions.length > 0 || index.exprOptions.length > 0;
+const codeOffers = (index: FunctionIndex) => index.exprOptions.length > 0 || index.tableOptions.length > 0;
+
 /** The catalog has something the language takes: one without (an engine
- *  without a catalog, an Elasticsearch body) reads nothing at all. */
+ *  without a catalog, an Elasticsearch without SQL) reads nothing at all.
+ *  JSON takes the SQL lines' entries too. */
 export function offersAny(index: FunctionIndex, flavor: FunctionFlavor): boolean {
   switch (flavor) {
     case 'commands': return index.commandOptions.length > 0;
-    case 'json': return index.operatorOptions.length > 0 || index.exprOptions.length > 0;
-    default: return index.exprOptions.length > 0 || index.tableOptions.length > 0;
+    case 'json': return jsonOffers(index) || (!!index.sql && codeOffers(index.sql));
+    default: return codeOffers(index);
   }
 }
 
@@ -233,20 +259,35 @@ function qualifiedOptions(groups: Group[], parents: string[], overloads: (n: num
   return out;
 }
 
-// -- strings and comments without a grammar (Cypher, Flux, JSON) -------------------------------
+// -- strings and comments without a grammar (Cypher, Flux, JSON, a console's SQL) ---------------
 interface LexRules {
-  /** `/* … *\/` comments (`//` ones are in every language here). */
+  /** `/* … *\/` comments. */
   block: boolean;
+  /** What starts a comment to the line's end: `//` (the default), SQL's `--`. */
+  line?: string;
   quotes: string;
+  /** A backslash escapes the next character in a string (true, the
+   *  default); SQL doubles its quotes instead (false). `'quote'`: the SQL
+   *  lines of a JSON console, where Elasticsearch takes a backslash as
+   *  itself (`'C:\'` ends at its quote) and OpenSearch's and Open Distro's
+   *  SQL as an escape (`'it\'s'`). The editor doesn't know the engine (the
+   *  three share the language and an empty dialect), so a backslash escapes
+   *  only a quote that a letter or digit follows, which reads both right;
+   *  only an OpenSearch string with an escaped quote that no letter or digit
+   *  follows (`'say \'hi\' now'`) is misread, the rest of its statement
+   *  then taken as a string. */
+  escapes?: boolean | 'quote';
   /** Strings end at the line's end (JSON). */
   oneLine: boolean;
   /** `/…/` regex literals (the MongoDB shell's, Flux's). */
   regex: boolean;
 }
-const LEX: Record<'cypher' | 'flux' | 'json', LexRules> = {
+const LEX: Record<'cypher' | 'flux' | 'json' | 'sql', LexRules> = {
   cypher: { block: true, quotes: `'"\``, oneLine: false, regex: false },
   flux: { block: false, quotes: '"', oneLine: false, regex: true },
   json: { block: true, quotes: `"'`, oneLine: true, regex: true },
+  // The SQL lines of a JSON console: strings, quoted names, `--` and `/* */`.
+  sql: { block: true, line: '--', quotes: `'"\``, escapes: 'quote', oneLine: false, regex: false },
 };
 
 /** Where a lexical scan of a text ended: `masked` is the text with the
@@ -267,13 +308,21 @@ export function scanCode(text: string, rules: LexRules): Scan {
   let lastCode = '';
   let i = 0;
   const end = (inside: Scan['inside'], quote = '', stringStart = -1): Scan => ({ masked: out.join(''), inside, quote, stringStart });
+  const line = rules.line ?? '//';
+  const escapes = rules.escapes ?? true;
+  /** How far a string's character at `j` (closed by `q`) goes. */
+  const step = (j: number, q: string) => {
+    if (text[j] !== '\\' || !escapes) return 1;
+    if (escapes === true) return 2;
+    return text[j + 1] === q && /[\p{L}\p{N}]/u.test(text[j + 2] ?? '') ? 2 : 1;
+  };
   while (i < n) {
     const c = text[i];
     const two = text.slice(i, i + 2);
-    if (two === '//' || (rules.block && two === '/*')) {
-      const close = two === '//' ? text.indexOf('\n', i) : text.indexOf('*/', i + 2);
+    if (two === line || (rules.block && two === '/*')) {
+      const close = two === line ? text.indexOf('\n', i) : text.indexOf('*/', i + 2);
       if (close < 0) { out.push(blank(text.slice(i))); return end('comment'); }
-      const to = two === '//' ? close : close + 2;
+      const to = two === line ? close : close + 2;
       out.push(blank(text.slice(i, to)));
       i = to;
       continue;
@@ -281,7 +330,7 @@ export function scanCode(text: string, rules: LexRules): Scan {
     const regex = rules.regex && c === '/' && (lastCode === '' || /[(,:=[!&|?{};~]/.test(lastCode));
     if (rules.quotes.includes(c) || regex) {
       let j = i + 1;
-      while (j < n && text[j] !== c && !((rules.oneLine || regex) && text[j] === '\n')) j += text[j] === '\\' ? 2 : 1;
+      while (j < n && text[j] !== c && !((rules.oneLine || regex) && text[j] === '\n')) j += step(j, c);
       if (j >= n) { out.push(c + blank(text.slice(i + 1))); return end('string', c, i); }
       if (text[j] === '\n') {
         // An unclosed string ends with its line; a `/` that opens no regex is a `/`.
@@ -458,6 +507,12 @@ function codeCompletion(ctx: CompletionContext, index: FunctionIndex, flavor: Co
     if (scan.inside !== 'code') return null;
     before = flavor === 'cypher' ? scan.masked.slice(scan.masked.lastIndexOf(';') + 1) : scan.masked;
   }
+  return codeAt(ctx, index, flavor, word, before);
+}
+
+/** What fits where `word` is typed after `before` (the statement's code
+ *  before it, strings and comments blanked). */
+function codeAt(ctx: CompletionContext, index: FunctionIndex, flavor: CodeFlavor, word: { from: number; text: string }, before: string): CompletionResult | null {
   const done = (options: Completion[]): CompletionResult | null =>
     (options.length ? { from: word.from, options, validFor: VALID[flavor], getMatch: matchShown } : null);
 
@@ -499,6 +554,98 @@ function commandCompletion(ctx: CompletionContext, index: FunctionIndex): Comple
   return subs.length ? { from: line.from + second[1].length, options: subs, validFor: COMMAND_VALID } : null;
 }
 
+// -- a JSON console's SQL lines ------------------------------------------------------------------
+// The console of Elasticsearch, OpenSearch and Solr (the drivers' console.rs
+// `scan`): a request is a `METHOD /path` line and its body, which goes on
+// across blank lines while its braces are open; a line whose first word is
+// SELECT, SHOW, DESCRIBE or DESC (any case, then a blank or the line's end)
+// starts a SQL statement, which ends at a blank line, a line ending in `;`
+// or the next request line; whole lines starting with `#` or `//` are
+// comments, left out of everything.
+const CONSOLE_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'PATCH']);
+const CONSOLE_SQL = new Set(['SELECT', 'SHOW', 'DESCRIBE', 'DESC']);
+
+/** A line's first word, upper case, when a blank or the line's end follows it. */
+const firstWord = (line: string) => /^\s*([A-Za-z]+)(?=\s|$)/.exec(line)?.[1].toUpperCase() ?? '';
+const consoleComment = (line: string) => /^\s*(?:#|\/\/)/.test(line);
+
+/** Where the SQL statement the cursor's `line` is part of starts, from the
+ *  start of `before` (the lines before it, each with its `\n`), or null when
+ *  the line isn't SQL: a request, its body, a comment, or anything else. A
+ *  blank line where the cursor is goes on with the statement above (what's
+ *  typed there will). */
+export function consoleSqlFrom(before: string, line: string): number | null {
+  let cur: 'none' | 'request' | 'sql' | 'bad' = 'none';
+  let from = 0;
+  // The request body's open `{`/`[`, outside its strings, as the lines go.
+  let depth = 0;
+  let lines = 0;
+  let inString = false;
+  let escaped = false;
+  const feed = (text: string) => {
+    for (const c of text) {
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (c === '\\') escaped = true;
+        else if (c === '"') inString = false;
+      } else if (c === '"') inString = true;
+      else if (c === '{' || c === '[') depth++;
+      else if (c === '}' || c === ']') depth--;
+    }
+  };
+  const body = (l: string) => { feed(lines++ ? `\n${l}` : l); };
+  const indent = (l: string) => l.length - l.trimStart().length;
+  let at = 0;
+  for (const raw of before.split('\n').slice(0, -1)) {
+    const start = at;
+    at += raw.length + 1;
+    const l = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (consoleComment(l)) continue;
+    const word = firstWord(l);
+    const method = CONSOLE_METHODS.has(word);
+    if (cur === 'request' && depth > 0 && !method) { body(l); continue; }
+    if (!l.trim()) { cur = 'none'; continue; }
+    if (method) {
+      cur = l.trim().length > word.length ? 'request' : 'bad';
+      depth = lines = 0;
+      inString = escaped = false;
+      continue;
+    }
+    if (CONSOLE_SQL.has(word) && cur !== 'sql') { cur = 'sql'; from = start + indent(l); }
+    if (cur === 'request') body(l);
+    else if (cur === 'sql') { if (l.trimEnd().endsWith(';')) cur = 'none'; }
+    else if (cur === 'none') cur = 'bad';
+  }
+  const l = line.endsWith('\r') ? line.slice(0, -1) : line;
+  const word = firstWord(l);
+  if (consoleComment(l) || CONSOLE_METHODS.has(word) || (cur === 'request' && depth > 0)) return null;
+  if (cur === 'sql') return from;
+  return CONSOLE_SQL.has(word) ? at + indent(l) : null;
+}
+
+/** consoleSqlFrom at the cursor, as a document position. The lines read
+ *  start at most LOOK_BACK before the cursor's line. */
+function consoleSqlAt(ctx: CompletionContext): number | null {
+  const { doc } = ctx.state;
+  const line = doc.lineAt(ctx.pos);
+  let first = doc.lineAt(Math.max(0, line.from - LOOK_BACK));
+  if (first.from < line.from - LOOK_BACK) first = doc.line(first.number + 1);
+  const from = consoleSqlFrom(doc.sliceString(first.from, line.from), line.text);
+  return from === null ? null : first.from + from;
+}
+
+/** The SQL rules on a console's SQL statement starting at `from`. */
+function consoleSqlCompletion(ctx: CompletionContext, index: FunctionIndex, from: number): CompletionResult | null {
+  if (!codeOffers(index)) return null;
+  const word = ctx.matchBefore(WORD.sql) ?? { from: ctx.pos, text: '' };
+  if (word.from < from || /^\d/.test(word.text) || idle(ctx, word.from, word.text)) return null;
+  // The console leaves its comment lines out of the statement.
+  const text = ctx.state.sliceDoc(from, word.from).split('\n').map((l) => (consoleComment(l) ? blank(l) : l)).join('\n');
+  const scan = scanCode(text, LEX.sql);
+  if (scan.inside !== 'code') return null;
+  return codeAt(ctx, index, 'sql', word, scan.masked.slice(statementAt(scan.masked, scan.masked.length).from));
+}
+
 // -- JSON ------------------------------------------------------------------------------------------
 const OPERATOR_VALID = /^\$[\w$.]*$/;
 
@@ -524,6 +671,12 @@ function jsonCompletion(ctx: CompletionContext, index: FunctionIndex): Completio
   // The cheap checks first: a number, or nothing typed where nothing was asked for.
   const typed = ctx.matchBefore(/[\w$]*$/) ?? { from: ctx.pos, text: '' };
   if (/^\d/.test(typed.text) || idle(ctx, typed.from, typed.text)) return null;
+  // A console's SQL line: SQL only (a catalog without SQL entries has none).
+  if (index.sql) {
+    const sqlFrom = consoleSqlAt(ctx);
+    if (sqlFrom !== null) return consoleSqlCompletion(ctx, index.sql, sqlFrom);
+  }
+  if (!jsonOffers(index)) return null;
   const from = readFrom(ctx, ctx.pos, JSON_TOKENS);
   const text = ctx.state.sliceDoc(from, ctx.pos);
   const scan = scanCode(text, LEX.json);

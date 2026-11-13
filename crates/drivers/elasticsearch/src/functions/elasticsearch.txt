@@ -1,0 +1,188 @@
+# Elasticsearch SQL: the functions `SHOW FUNCTIONS` lists, with the
+# arguments and result types of the Elasticsearch SQL reference
+# (docs/reference/sql/functions). `since=` is the first release whose
+# `SHOW FUNCTIONS` lists the function (x-pack/plugin/sql/qa command.csv-spec
+# of each release); SQL itself arrived in 6.3, but under `/_xpack/sql` until
+# 7.0, and the console sends it to `/_sql`: the catalog offers nothing
+# before 7.0, so the 6.x values only say when. CASE is listed by the server
+# but is syntax, not a call, and is left out. The last section has the
+# documented functions the server doesn't list (they are grammar, not
+# registered functions).
+
+# Aggregates
+a AVG(numeric_field) -> double
+a COUNT(expression) -> numeric
+a COUNT(ALL field_name) -> numeric
+a COUNT(DISTINCT field_name) -> numeric
+a MAX(field_name)
+a MIN(field_name)
+a SUM(field_name)
+a STDDEV_POP(field_name) -> double
+a VAR_POP(field_name) -> double
+a PERCENTILE(field_name, percentile[, method[, method_parameter]]) -> double
+a PERCENTILE_RANK(field_name, value[, method[, method_parameter]]) -> double
+a SUM_OF_SQUARES(field_name) -> double
+a SKEWNESS(field_name) -> double
+a KURTOSIS(field_name) -> double
+a FIRST(field_name [, ordering_field_name]) since=6.7
+a FIRST_VALUE(field_name [, ordering_field_name]) since=6.7
+a LAST(field_name [, ordering_field_name]) since=6.7
+a LAST_VALUE(field_name [, ordering_field_name]) since=6.7
+a MAD(field_name) -> double since=7.2
+a STDDEV_SAMP(field_name) -> double since=7.9
+a VAR_SAMP(field_name) -> double since=7.9
+
+# Grouping
+s HISTOGRAM(numeric_exp, numeric_interval) since=6.6
+s HISTOGRAM(date_exp, date_time_interval) since=6.6
+
+# Conditional
+s COALESCE(expression, expression, ...) since=6.6
+s GREATEST(expression, expression, ...) since=6.6
+s IFNULL(expression, expression) since=6.6
+s ISNULL(expression, expression) since=6.6
+s LEAST(expression, expression, ...) since=6.6
+s NULLIF(expression, expression) since=6.6
+s NVL(expression, expression) since=6.6
+s IIF(expression, expression, [expression]) since=7.2
+
+# Scalar: math, string, date and time, geo, type conversion, system
+s DAY_OF_MONTH(datetime_exp) -> integer
+s DAY(datetime_exp) -> integer
+s DOM(datetime_exp) -> integer
+s DAY_OF_WEEK(datetime_exp) -> integer
+s DOW(datetime_exp) -> integer
+s DAY_OF_YEAR(datetime_exp) -> integer
+s DOY(datetime_exp) -> integer
+s HOUR_OF_DAY(datetime_exp) -> integer
+s HOUR(datetime_exp) -> integer
+s MINUTE_OF_DAY(datetime_exp) -> integer
+s MINUTE_OF_HOUR(datetime_exp) -> integer
+s MINUTE(datetime_exp) -> integer
+s SECOND_OF_MINUTE(datetime_exp) -> integer
+s SECOND(datetime_exp) -> integer
+s MONTH_OF_YEAR(datetime_exp) -> integer
+s MONTH(datetime_exp) -> integer
+s YEAR(datetime_exp) -> integer
+s WEEK_OF_YEAR(datetime_exp) -> integer
+s WEEK(datetime_exp) -> integer
+s ABS(numeric_exp) -> numeric
+s ACOS(numeric_exp) -> double
+s ASIN(numeric_exp) -> double
+s ATAN(numeric_exp) -> double
+s ATAN2(ordinate, abscisa) -> double
+s CBRT(numeric_exp) -> double
+s CEIL(numeric_exp) -> long
+s CEILING(numeric_exp) -> long
+s COS(numeric_exp) -> double
+s COSH(numeric_exp) -> double
+s COT(numeric_exp) -> double
+s DEGREES(numeric_exp) -> double
+s E() -> double
+s EXP(numeric_exp) -> double
+s EXPM1(numeric_exp) -> double
+s FLOOR(numeric_exp) -> long
+s LOG(numeric_exp) -> double
+s LOG10(numeric_exp) -> double
+s MOD
+s PI() -> double
+s POWER(numeric_exp, integer_exp) -> double
+s RADIANS(numeric_exp) -> double
+s RANDOM(seed) -> double
+s RAND(seed) -> double
+s ROUND(numeric_exp [, integer_exp]) -> numeric
+s SIGN(numeric_exp) -> integer
+s SIGNUM(numeric_exp) -> integer
+s SIN(numeric_exp) -> double
+s SINH(numeric_exp) -> double
+s SQRT(numeric_exp) -> double
+s TAN(numeric_exp) -> double
+s ASCII(string_exp) -> integer since=6.4
+s CHAR(code) -> string since=6.4
+s BIT_LENGTH(string_exp) -> integer since=6.4
+s CHAR_LENGTH(string_exp) -> integer since=6.4
+s LCASE(string_exp) -> string since=6.4
+s LENGTH(string_exp) -> integer since=6.4
+s LTRIM(string_exp) -> string since=6.4
+s RTRIM(string_exp) -> string since=6.4
+s SPACE(count) -> string since=6.4
+s UCASE(string_exp) -> string since=6.4
+s DAYNAME(datetime_exp) -> string since=6.5
+s DAYOFMONTH(datetime_exp) -> integer since=6.5
+s DAYOFWEEK(datetime_exp) -> integer since=6.5
+s DAYOFYEAR(datetime_exp) -> integer since=6.5
+s DAY_NAME(datetime_exp) -> string since=6.5
+s MONTHNAME(datetime_exp) -> string since=6.5
+s MONTH_NAME(datetime_exp) -> string since=6.5
+s QUARTER(datetime_exp) -> integer since=6.5
+s TRUNCATE(numeric_exp [, integer_exp]) -> numeric since=6.5
+s CHARACTER_LENGTH(string_exp) -> integer since=6.5
+s CONCAT(string_exp1, string_exp2) -> string since=6.5
+s INSERT(source, start, length, replacement) -> string since=6.5
+s LEFT(string_exp, count) -> string since=6.5
+s LOCATE(pattern, source [, start]) -> integer since=6.5
+s OCTET_LENGTH(string_exp) -> integer since=6.5
+s POSITION(string_exp1, string_exp2) -> integer since=6.5
+s REPEAT(string_exp, count) -> string since=6.5
+s REPLACE(source, pattern, replacement) -> string since=6.5
+s RIGHT(string_exp, count) -> string since=6.5
+s SUBSTRING(source, start, length) -> string since=6.5
+s CAST(expression AS data_type) since=6.5
+s CONVERT(expression, data_type) since=6.5
+s CURRENT_TIMESTAMP([precision]) since=6.6
+s IDOW(datetime_exp) -> integer since=6.6
+s ISODAYOFWEEK(datetime_exp) -> integer since=6.6
+s ISODOW(datetime_exp) -> integer since=6.6
+s ISOWEEK(datetime_exp) -> integer since=6.6
+s ISOWEEKOFYEAR(datetime_exp) -> integer since=6.6
+s ISO_DAY_OF_WEEK(datetime_exp) -> integer since=6.6
+s ISO_WEEK_OF_YEAR(datetime_exp) -> integer since=6.6
+s IW(datetime_exp) -> integer since=6.6
+s IWOY(datetime_exp) -> integer since=6.6
+s NOW() -> datetime since=6.6
+s DATABASE() -> string since=6.6
+s USER() -> string since=6.6
+s CURDATE() -> date since=6.7
+s CURRENT_DATE() -> date since=6.7
+s TODAY() -> date since=6.7
+s CURRENT_TIME([precision]) -> time since=7.2
+s CURTIME([precision]) -> time since=7.2
+s ST_ASTEXT(geometry) -> string since=7.2
+s ST_ASWKT(geometry) -> string since=7.2
+s ST_DISTANCE(geometry, geometry) -> double since=7.2
+s ST_GEOMETRYTYPE(geometry) -> string since=7.2
+s ST_GEOMFROMTEXT(string) -> geometry since=7.2
+s ST_WKTTOSQL(string) -> geometry since=7.2
+s ST_X(geometry) -> double since=7.2
+s ST_Y(geometry) -> double since=7.2
+s ST_Z(geometry) -> double since=7.2
+s DATEADD(string_exp, integer_exp, datetime_exp) -> datetime since=7.5
+s DATEDIFF(string_exp, datetime_exp, datetime_exp) -> integer since=7.5
+s DATEPART(string_exp, datetime_exp) -> integer since=7.5
+s DATETRUNC(string_exp, datetime_exp/interval_exp) since=7.5
+s DATE_ADD(string_exp, integer_exp, datetime_exp) -> datetime since=7.5
+s DATE_DIFF(string_exp, datetime_exp, datetime_exp) -> integer since=7.5
+s DATE_PART(string_exp, datetime_exp) -> integer since=7.5
+s DATE_TRUNC(string_exp, datetime_exp/interval_exp) since=7.5
+s TIMESTAMPADD(string_exp, integer_exp, datetime_exp) -> datetime since=7.5
+s TIMESTAMPDIFF(string_exp, datetime_exp, datetime_exp) -> integer since=7.5
+s TIMESTAMP_ADD(string_exp, integer_exp, datetime_exp) -> datetime since=7.5
+s TIMESTAMP_DIFF(string_exp, datetime_exp, datetime_exp) -> integer since=7.5
+s TRUNC(numeric_exp [, integer_exp]) -> numeric since=7.6
+s DATETIME_FORMAT(date_exp/datetime_exp/time_exp, string_exp) -> string since=7.8
+s DATETIME_PARSE(string_exp, string_exp) -> datetime since=7.8
+s TIME_PARSE(string_exp, string_exp) -> time since=7.9
+s STARTS_WITH(source, pattern) -> boolean since=7.9
+s TRIM(string_exp) -> string since=7.9
+s DATE_PARSE(string_exp, string_exp) -> date since=7.10
+s FORMAT(date_exp/datetime_exp/time_exp, string_exp) -> string since=7.10
+s TO_CHAR(date_exp/datetime_exp/time_exp, string_exp) -> string since=7.12
+s DATE_FORMAT(date_exp/datetime_exp/time_exp, string_exp) -> string since=8.5
+
+# Score
+s SCORE() -> double
+
+# Not listed by SHOW FUNCTIONS
+s EXTRACT(datetime_function FROM datetime_exp) -> integer
+s MATCH(field_exp, constant_exp [, options])
+s QUERY(constant_exp [, options])

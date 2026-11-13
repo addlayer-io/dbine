@@ -13,6 +13,7 @@ mod backup;
 pub mod console;
 pub mod ddl;
 pub mod flatten;
+mod functions;
 pub mod http;
 mod jobs;
 pub mod json;
@@ -1536,6 +1537,12 @@ impl Session for EsSession {
     /// Cluster privileges (see `permissions`); a cluster has no databases.
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self).await
+    }
+
+    /// The functions of the console's SQL lines (see [`functions`]); the
+    /// query DSL has none.
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        Ok(functions::catalog(self).await)
     }
 }
 

@@ -21,6 +21,7 @@ const { json } = await import('@codemirror/lang-json');
 const { ensureSyntaxTree } = await import('@codemirror/language');
 const {
   functionCompletion, functionFlavor, functionIndex, matchShown, scanCode, withoutFunctionNames, exprSlot, tableSlotKind, offersAny, LOOK_BACK,
+  consoleSqlFrom,
 } = await import('./functionCompletion.ts');
 const { qCompletion } = await import('./qLanguage.ts');
 
@@ -345,6 +346,105 @@ test('JSON: function queries in string values when the catalog has no operators'
   assert.equal(pick(jsonAt(SOLR, '{ "sort": "su‸'), 'sum', '{ "sort": "su‸'), '{ "sort": "sum(‸)');
 });
 
+// -- a JSON console's SQL lines ---------------------------------------------------------------
+/** Elasticsearch: only SQL entries (its requests are the query DSL). */
+const ES = functionIndex([
+  F('AVG', 'aggregate', { args: '(numeric_field)', returns: 'double', language: 'sql' }),
+  F('ABS', 'scalar', { args: '(numeric_exp)', language: 'sql' }),
+  F('MATCH', 'scalar', { args: '(field_exp, constant_exp)', language: 'sql' }),
+], overloads);
+const ES_ALL = ['ABS', 'AVG', 'MATCH'];
+/** SolrCloud: function queries for the JSON, aggregates for the SQL lines. */
+const SOLR_CLOUD = functionIndex([
+  F('sum', 'scalar', { args: '(x, y, ...)' }), F('div', 'scalar', { args: '(x, y)' }),
+  F('COUNT', 'aggregate', { args: '(*)', language: 'sql' }), F('MIN', 'aggregate', { args: '(field)', language: 'sql' }),
+], overloads);
+
+test("a console's SQL lines take the SQL entries, by the SQL rules", () => {
+  for (const text of [
+    'SELECT A‸', 'select a, A‸', '  SELECT A‸', 'SELECT a,\n  A‸', 'SELECT a\nFROM t\nWHERE A‸', 'SELECT * FROM "my-index" WHERE a = A‸',
+    'SELECT a FROM t WHERE b > 1 AND A‸', 'SHOW FUNCTIONS;\nSELECT A‸', 'GET /_cat/indices\n\nSELECT A‸', 'GET /_cat/indices\nSELECT A‸',
+    'POST /i/_search\n{\n  "query": { "match_all": {} }\n}\nSELECT A‸', 'POST /i/_search\n{"size": 0}\nSELECT A‸',
+    // The console's comment lines are left out; SQL's own comments and strings are blanked.
+    'SELECT a,\n// a note\n  A‸', 'SELECT a,\n# a note\n  A‸', "SELECT 'x -- y', A‸", 'SELECT a, -- note\n  A‸', 'SELECT /* x */ A‸',
+    // A subquery's line goes on with the statement.
+    'SELECT a FROM t WHERE b IN (\nSELECT A‸', 'SELECT 1; SELECT A‸',
+    // After a string with a backslash: Elasticsearch's (a character) and
+    // OpenSearch's (an escaped quote).
+    "SELECT a FROM t WHERE b = 'C:\\' AND A‸", "SELECT a FROM t WHERE b = 'it\\'s' AND A‸",
+  ]) {
+    assert.deepEqual(labels(jsonAt(ES, text)).sort(), ES_ALL, text);
+  }
+  assert.deepEqual(labels(jsonAt(ES, 'SELECT ‸', true)).sort(), ES_ALL);
+  const r = jsonAt(ES, 'SELECT A‸');
+  assert.equal(r.options.find((o) => o.label === 'AVG').detail, '(numeric_field) → double');
+  assert.equal(pick(r, 'AVG', 'SELECT A‸'), 'SELECT AVG(‸)');
+  assert.equal(pick(jsonAt(ES, 'GET /x\n\nselect a, A‸'), 'ABS', 'GET /x\n\nselect a, A‸'), 'GET /x\n\nselect a, ABS(‸)');
+  // Where the SQL rules offer nothing.
+  for (const text of [
+    'SELECT a A‸', 'SELECT a AS A‸', "SELECT 'A‸", "SELECT 'it''s A‸", "SELECT 'it\\'s A‸", 'SELECT "A‸', 'SELECT `A‸', 'SELECT a -- A‸', 'SELECT /* A‸',
+    'SELECT t.A‸', 'SELECT * FROM A‸', 'SELECT 1‸', 'SELECT ‸',
+  ]) {
+    assert.equal(jsonAt(ES, text), null, text);
+  }
+});
+
+test("…and nowhere else in the console: requests, bodies, comments, the lines after a statement", () => {
+  for (const text of [
+    'A‸', 'GET /_search A‸', 'GET /i/_search\n{ "query": { "match": { "a": "A‸', 'GET /i/_search\n{ "aggs": { "x": { "A‸',
+    // A body goes on across a blank line while its braces are open.
+    'POST /i/_search\n{\n  "query": "x",\n\nSELECT A‸', 'POST /i/_doc\n{ "q": "{ SELECT",\nSELECT A‸',
+    // A statement ends at a blank line, a `;` and a request line.
+    'SELECT a FROM t\n\nA‸', 'SELECT a FROM t;\nA‸', 'SELECT a FROM t\nGET /x\nA‸',
+    // Not SQL's first words; comments.
+    'SELECTED A‸', 'DESCRIBES A‸', '# SELECT A‸', '// SELECT A‸', 'SELECT a,\n// A‸', 'db.orders.A‸', '{ "a": "AV‸',
+  ]) {
+    assert.equal(jsonAt(ES, text), null, text);
+  }
+});
+
+test("SQL entries only on SQL lines, the JSON's own only elsewhere", () => {
+  // SolrCloud: function queries in the JSON, never the SQL aggregates…
+  assert.deepEqual(labels(jsonAt(SOLR_CLOUD, '{ "sort": "su‸')).sort(), ['div', 'sum']);
+  assert.deepEqual(labels(jsonAt(SOLR_CLOUD, 'GET /solr/c/select\n{ "fl": "id, su‸')).sort(), ['div', 'sum']);
+  assert.deepEqual(labels(jsonAt(SOLR_CLOUD, 'SELECT a FROM c\n\nGET /solr/c/select\n{ "fl": "su‸')).sort(), ['div', 'sum']);
+  // …and the aggregates on SQL lines, never a function query, not even in a string.
+  assert.deepEqual(labels(jsonAt(SOLR_CLOUD, 'SELECT M‸')).sort(), ['COUNT', 'MIN']);
+  assert.deepEqual(labels(jsonAt(SOLR_CLOUD, '{ "fl": "x" }\n\nSELECT a, M‸')).sort(), ['COUNT', 'MIN']);
+  for (const text of ['SELECT a FROM c WHERE b = "su‸', "SELECT a FROM c WHERE b = 'su‸", 'SELECT { "fl": "su‸']) {
+    assert.equal(jsonAt(SOLR_CLOUD, text), null, text);
+  }
+  // A catalog without SQL entries has no SQL lines: the JSON rules everywhere (`show dbs` in the MongoDB shell).
+  const ops = ['$dateTrunc', '$gt', '$match', '$sum'];
+  assert.deepEqual(labels(jsonAt(MONGO, 'show dbs\n[{ "$ma‸')).sort(), ops);
+  assert.deepEqual(labels(jsonAt(MONGO, 'SELECT [{ "$ma‸')).sort(), ops);
+  assert.deepEqual(labels(jsonAt(SOLR, 'SELECT a FROM c WHERE b = "su‸')).sort(), ['div', 'sum']);
+  // Only SQL entries: the JSON reads them for its SQL lines, a SQL editor never.
+  assert.equal(offersAny(ES, 'json'), true);
+  assert.equal(offersAny(ES, 'sql'), false);
+  assert.equal(functionCompletion(ctxOf('SELECT A‸'), ES, 'sql'), null);
+  assert.equal(offersAny(functionIndex([F('X', 'scalar', { language: 'cypher' })], overloads), 'json'), false);
+});
+
+test("the console's statements, cut as the driver cuts them", () => {
+  assert.equal(consoleSqlFrom('', 'SELECT 1'), 0);
+  assert.equal(consoleSqlFrom('', '  desc t'), 2);
+  assert.equal(consoleSqlFrom('GET /x\n\n', 'SELECT 1'), 8);
+  assert.equal(consoleSqlFrom('SELECT a,\n', '  b'), 0);
+  assert.equal(consoleSqlFrom('SELECT a,\n', ''), 0);
+  assert.equal(consoleSqlFrom('# x\nSELECT a,\n// y\n', 'b'), 4);
+  assert.equal(consoleSqlFrom('SELECT a;\n', 'b'), null);
+  assert.equal(consoleSqlFrom('SELECT a;\n', 'SHOW TABLES'), 10);
+  assert.equal(consoleSqlFrom('POST /x\n{\n\n', 'SELECT 1'), null);
+  assert.equal(consoleSqlFrom('POST /x\n{"a": "}"\n', 'SELECT 1'), null);
+  assert.equal(consoleSqlFrom('POST /x\n{"a": "}"}\n', 'SELECT 1'), 19);
+  // A method line without its path is still a request line.
+  assert.equal(consoleSqlFrom('SELECT a\n', 'GET'), null);
+  assert.equal(consoleSqlFrom('GET\n', 'SELECT 1'), 4);
+  assert.equal(consoleSqlFrom('x\n', 'y'), null);
+  assert.equal(consoleSqlFrom('SELECT a\r\n', 'b'), 0);
+});
+
 // -- the lexical scan, the expression rule ---------------------------------------------------
 test('the lexical scan blanks strings and comments and says where it ended', () => {
   const rules = { block: true, quotes: `'"\``, oneLine: false, regex: false };
@@ -360,6 +460,25 @@ test('the lexical scan blanks strings and comments and says where it ended', () 
   assert.equal(scanCode('{ "a\n', j).inside, 'code');
   assert.equal(scanCode('{ a: /x', j).inside, 'string');
   assert.equal(scanCode('{ a: /x/i, b: ', j).inside, 'code');
+  // A console's SQL: `--` comments, doubled quotes, a backslash is a character.
+  const q = { block: true, line: '--', quotes: `'"\``, escapes: false, oneLine: false, regex: false };
+  assert.equal(scanCode("SELECT 'a\\', x", q).inside, 'code');
+  assert.equal(scanCode("SELECT 'it''s", q).inside, 'string');
+  assert.equal(scanCode('SELECT 1 -- x', q).inside, 'comment');
+  assert.equal(scanCode('SELECT 1 // x', q).inside, 'code');
+  assert.equal(scanCode('SELECT 1 /* x', q).inside, 'comment');
+  // …where a backslash escapes only a quote a letter or digit follows:
+  // Elasticsearch's `'C:\'` and OpenSearch's `'it\'s'` both end where they do.
+  const c = { ...q, escapes: 'quote' };
+  assert.equal(scanCode("SELECT 'C:\\', x", c).inside, 'code');
+  assert.equal(scanCode("SELECT 'C:\\'", c).inside, 'code');
+  assert.equal(scanCode("SELECT 'it\\'s', x", c).inside, 'code');
+  assert.equal(scanCode("SELECT 'it\\'s", c).inside, 'string');
+  assert.equal(scanCode("SELECT 'l\\'été', x", c).inside, 'code');
+  assert.equal(scanCode("SELECT 'a\\\\', x", c).inside, 'code');
+  assert.equal(scanCode("SELECT 'it''s', x", c).inside, 'code');
+  assert.equal(scanCode('SELECT "my\\"x", y', c).inside, 'code');
+  assert.equal(scanCode("SELECT 'it\\'s', x", c).masked, "SELECT '     ', x");
 });
 
 test('the expression rule, flavor by flavor', () => {
@@ -426,6 +545,11 @@ test('a long script is read from LOOK_BACK before the cursor, never from inside 
   assert.ok(jsonAt(MONGO, `${lines}[{ "$ma‸`));
   assert.equal(jsonAt(MONGO, `${lines}{ "name": "$ma‸`), null);
   assert.ok(labels(flux(`${'x = "a // b"\n'.repeat(1000)}fr‸`)).includes('from'));
+  // A console's lines: from a line's start LOOK_BACK before the cursor's.
+  const requests = 'GET /i/_search\n{ "query": { "match_all": {} } }\n\n'.repeat(1000);
+  assert.deepEqual(labels(jsonAt(ES, `${requests}SELECT a,\n  A‸`)).sort(), ES_ALL);
+  assert.equal(jsonAt(ES, `${requests}A‸`), null);
+  assert.deepEqual(labels(jsonAt(SOLR_CLOUD, `${requests}{ "fl": "su‸`)).sort(), ['div', 'sum']);
   assert.equal(cypher(`${"RETURN 'a // b';\n".repeat(1000)}MATCH (n) RETURN n co‸`), null);
   assert.ok(labels(cypher(`${"RETURN 'a // b';\n".repeat(1000)}MATCH (n) RETURN co‸`)).includes('count'));
   // A minified JSON line longer than that: out of the string the window starts in.
