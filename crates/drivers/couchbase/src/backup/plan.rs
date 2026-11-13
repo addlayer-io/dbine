@@ -258,6 +258,9 @@ pub(crate) async fn items(s: &CbSession) -> Result<SchedulerList> {
             name: p.name,
             enabled: None,
             system: p.default,
+            can_edit: None,
+            can_delete: None,
+            actions: None,
         })
         .collect();
     Ok(SchedulerList {

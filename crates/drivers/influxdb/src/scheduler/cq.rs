@@ -77,6 +77,9 @@ pub(crate) async fn items(s: &mut InfluxQlSession) -> Result<SchedulerList> {
                 }),
                 enabled: None,
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             }
         })
         .collect();

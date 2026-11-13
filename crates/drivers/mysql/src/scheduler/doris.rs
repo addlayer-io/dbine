@@ -138,6 +138,9 @@ fn item(j: &Job) -> SchedulerItem {
         },
         enabled: Some(j.active()),
         system: false,
+        can_edit: None,
+        can_delete: None,
+        actions: None,
     }
 }
 

@@ -175,6 +175,9 @@ pub(crate) fn items(_c: &Connection, _ctx: &Ctx) -> Result<SchedulerList> {
             description: None,
             enabled: None,
             system: true,
+            can_edit: None,
+            can_delete: None,
+            actions: None,
         }],
         notes: Vec::new(),
     })

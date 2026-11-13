@@ -423,6 +423,9 @@ fn job_items(
                 description: j.description,
                 enabled: enabled.then_some(j.enabled),
                 system: j.system,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: l.notes,

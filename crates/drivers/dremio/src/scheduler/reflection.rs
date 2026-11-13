@@ -963,6 +963,9 @@ pub(crate) async fn items(s: &mut DremioSession) -> Result<SchedulerList> {
                 description: Some(format!("{} · {}", g(r, "type"), g(r, "dataset_name"))),
                 enabled: Some(g(r, "status") != "DISABLED"),
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
         })
         .collect();

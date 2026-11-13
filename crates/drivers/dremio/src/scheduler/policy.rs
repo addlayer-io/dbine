@@ -632,6 +632,9 @@ pub(crate) async fn table_items(s: &mut DremioSession) -> Result<SchedulerList> 
                 description: Some(summary(&p)),
                 enabled: None,
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             });
         }
     }
@@ -659,6 +662,9 @@ pub(crate) async fn source_items(s: &mut DremioSession) -> Result<SchedulerList>
                 )),
                 enabled: None,
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
         })
         .collect();

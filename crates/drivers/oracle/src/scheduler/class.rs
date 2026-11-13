@@ -225,6 +225,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     name,
                     description: r.t("COMMENTS"),
                     enabled: None,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

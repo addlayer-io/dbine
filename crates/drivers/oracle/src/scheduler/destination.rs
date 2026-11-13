@@ -199,6 +199,9 @@ pub(crate) fn db_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     description: r.t("COMMENTS").or_else(|| r.t("CONNECT_INFO")),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),
@@ -362,6 +365,9 @@ pub(crate) fn external_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList>
                     }),
                     enabled: Some(r.yes("ENABLED")),
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),
@@ -729,6 +735,9 @@ pub(crate) fn group_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

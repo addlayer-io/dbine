@@ -2031,6 +2031,37 @@ impl Session for RemoteSession {
             .await
             .map(|_| ())
     }
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        match self
+            .host
+            .call(Call::SchedulerActionScript {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.to_string(),
+                action: action.to_string(),
+            })
+            .await?
+        {
+            Reply::Text(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        self.host
+            .call(Call::SchedulerAction {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.to_string(),
+                action: action.to_string(),
+            })
+            .await
+            .map(|_| ())
+    }
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
         self.host
             .call(Call::RunJobFrom {

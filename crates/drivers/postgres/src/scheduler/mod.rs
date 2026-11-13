@@ -496,6 +496,9 @@ pub(crate) async fn items(s: &PgSession, kind: &str) -> Result<SchedulerList> {
                         description: j.description,
                         enabled: Some(j.enabled),
                         system: j.system,
+                        can_edit: None,
+                        can_delete: None,
+                        actions: None,
                     })
                     .collect(),
                 notes: list.notes,

@@ -30,6 +30,38 @@ pub struct SchedulerKind {
     pub can_edit: bool,
     #[serde(default)]
     pub can_delete: bool,
+    /// What else can be done with its objects: run now, open a window,
+    /// start a transform… Each one is shown as a script and confirmed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<SchedulerAction>,
+    /// Its objects start at one of their steps
+    /// ([`crate::Session::run_job_from`]).
+    #[serde(default)]
+    pub run_from_step: bool,
+    /// Its objects keep a run history the user can delete
+    /// ([`crate::Session::clear_job_history`]).
+    #[serde(default)]
+    pub clear_history: bool,
+}
+
+/// An action on an object besides editing and deleting it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SchedulerAction {
+    /// What the app sends back: "run", "open_window", "start"…
+    pub key: String,
+    /// In Spanish, as the menu says it ("Ejecutar ahora").
+    pub label: String,
+}
+
+impl SchedulerAction {
+    /// `label` in Spanish, written as a literal in the call (the extractor
+    /// finds it by this constructor's name).
+    pub fn new(key: &str, label: &str) -> Self {
+        Self {
+            key: key.into(),
+            label: label.into(),
+        }
+    }
 }
 
 impl SchedulerKind {
@@ -48,6 +80,19 @@ impl SchedulerKind {
         self.can_create = create;
         self.can_edit = edit;
         self.can_delete = delete;
+        self
+    }
+    /// An action on its objects (see [`SchedulerAction::new`]).
+    pub fn action(mut self, a: SchedulerAction) -> Self {
+        self.actions.push(a);
+        self
+    }
+    pub fn run_from_step(mut self, yes: bool) -> Self {
+        self.run_from_step = yes;
+        self
+    }
+    pub fn clear_history(mut self, yes: bool) -> Self {
+        self.clear_history = yes;
         self
     }
 }
@@ -79,6 +124,15 @@ pub struct SchedulerItem {
     /// It comes with the engine (system category, built-in schedule…).
     #[serde(default)]
     pub system: bool,
+    /// `None`: as its kind says. `Some(false)`: not this one (a system
+    /// category, a monitor another plugin owns, another owner's object).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_edit: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_delete: Option<bool>,
+    /// The keys of its kind's actions it offers now; `None`: all of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<String>>,
 }
 
 /// The objects of a kind, with what the user should know about the list.
@@ -120,6 +174,13 @@ pub enum FormKind {
     /// offers the list's rows and the value is the row's `title_field`
     /// value (the step's name), which the driver resolves when it writes
     /// the script. Such a source has no entry in `choices`.
+    ///
+    /// A source may name other fields between braces
+    /// (`perf_counter:{object}`): the app fills them in from the same row
+    /// (inside a list) or the form's values, and offers
+    /// `choices["perf_counter:SQLServer:Buffer Manager"]`. The driver lists
+    /// every filled-in source it can offer; with none listed, the field
+    /// takes free text.
     Ref {
         source: String,
         #[serde(default)]
@@ -212,6 +273,9 @@ pub struct FormField {
     /// The value of a new object or row.
     #[serde(default)]
     pub default: Option<Value>,
+    /// More conditions like `when`, all of which must hold too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub when_all: Vec<(String, Vec<String>)>,
 }
 
 impl FormField {
@@ -229,6 +293,7 @@ impl FormField {
             read_only: false,
             when: None,
             default: None,
+            when_all: Vec::new(),
         }
     }
     pub fn required(mut self) -> Self {
@@ -255,6 +320,17 @@ impl FormField {
         self.default = Some(v);
         self
     }
+    /// One more condition: shown only while `field` also has one of these
+    /// values (`when` and every `and_when` must hold).
+    pub fn and_when(mut self, field: &str, values: &[&str]) -> Self {
+        let cond = (field.into(), values.iter().map(|v| v.to_string()).collect());
+        if self.when.is_none() {
+            self.when = Some(cond);
+        } else {
+            self.when_all.push(cond);
+        }
+        self
+    }
 }
 
 /// A list inside a form: a job's steps, its schedules, an alert's
@@ -278,6 +354,10 @@ pub struct FormList {
     /// Rows can't be added or removed (shown only).
     #[serde(default)]
     pub read_only: bool,
+    /// Shown (and sent) only while a top-level field has one of these
+    /// values, like a field's `when`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<(String, Vec<String>)>,
 }
 
 impl FormList {
@@ -307,6 +387,10 @@ impl FormList {
         self.read_only = r;
         self
     }
+    pub fn when(mut self, field: &str, values: &[&str]) -> Self {
+        self.when = Some((field.into(), values.iter().map(|v| v.to_string()).collect()));
+        self
+    }
 }
 
 /// A tab of the designer.
@@ -319,6 +403,10 @@ pub struct FormSection {
     pub fields: Vec<FormField>,
     #[serde(default)]
     pub lists: Vec<FormList>,
+    /// The tab shows only while a top-level field has one of these values
+    /// (a job's type picks its tabs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<(String, Vec<String>)>,
 }
 
 impl FormSection {
@@ -340,6 +428,10 @@ impl FormSection {
     }
     pub fn list(mut self, l: FormList) -> Self {
         self.lists.push(l);
+        self
+    }
+    pub fn when(mut self, field: &str, values: &[&str]) -> Self {
+        self.when = Some((field.into(), values.iter().map(|v| v.to_string()).collect()));
         self
     }
 }
@@ -427,7 +519,9 @@ mod tests {
                     min_rows: 0,
                     title_field: "name".into(),
                     read_only: false,
+                    when: None,
                 }],
+                when: None,
             }],
             values: BTreeMap::from([("name".into(), json!("j"))]),
             choices: BTreeMap::from([("login".into(), vec![("sa".into(), "sa".into())])]),

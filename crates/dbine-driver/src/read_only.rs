@@ -782,6 +782,19 @@ impl Session for ReadOnlySession {
             "Conexión de solo lectura: no se pueden borrar objetos del planificador.".into(),
         ))
     }
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        self.inner.scheduler_action_script(kind, id, action).await
+    }
+    async fn scheduler_action(&mut self, _kind: &str, _id: &str, _action: &str) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden ejecutar acciones del planificador.".into(),
+        ))
+    }
     async fn run_job_from(&mut self, _id: &str, _step: &str) -> Result<()> {
         Err(Error::Query(
             "Conexión de solo lectura: no se pueden ejecutar jobs del servidor.".into(),

@@ -577,6 +577,9 @@ pub(crate) async fn policy_items(s: &PgSession, c: &Ctx, p: Policy) -> Result<Sc
                 description: Some(j.name.clone()),
                 enabled: Some(j.scheduled),
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: Vec::new(),

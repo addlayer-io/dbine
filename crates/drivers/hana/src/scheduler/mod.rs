@@ -1334,6 +1334,9 @@ pub(crate) async fn items(conn: &Connection, kind: &str) -> Result<SchedulerList
                 },
                 enabled: Some(j.enabled),
                 system: j.system,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: list.notes,

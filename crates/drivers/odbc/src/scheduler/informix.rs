@@ -872,6 +872,9 @@ pub(super) fn group_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
                     description: s.get(r, "group_description").map(str::to_string),
                     enabled: None,
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 })
             })
             .collect(),

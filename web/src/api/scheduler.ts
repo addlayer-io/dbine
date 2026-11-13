@@ -14,6 +14,19 @@ export interface SchedulerKind {
   can_create?: boolean;
   can_edit?: boolean;
   can_delete?: boolean;
+  /** What else can be done with its objects (run now, open a window…): shown as a script, confirmed. */
+  actions?: SchedulerAction[];
+  /** Its objects (jobs) start at one of their steps (`schedulerApi.runFrom`). */
+  run_from_step?: boolean;
+  /** Its objects keep a run history the user can delete (`schedulerApi.clearHistory`). */
+  clear_history?: boolean;
+}
+
+/** An action on an object besides editing and deleting it. Label in Spanish: translate with `tb`. */
+export interface SchedulerAction {
+  /** What `schedulerApi.action` takes: "run", "open_window", "start"… */
+  key: string;
+  label: string;
 }
 
 /** What the server's scheduler has. */
@@ -34,6 +47,11 @@ export interface SchedulerItem {
   /** null: the kind has no enabled state. */
   enabled: boolean | null;
   system?: boolean;
+  /** Absent: as its kind says; false: not this one (a system category, another plugin's monitor…). */
+  can_edit?: boolean | null;
+  can_delete?: boolean | null;
+  /** The keys of its kind's actions it offers now; absent: all of them. */
+  actions?: string[] | null;
 }
 
 export interface SchedulerList {
@@ -51,7 +69,9 @@ export type FormKind =
   | { type: 'select'; options: [string, string][] }
   | { type: 'multi_select'; options: [string, string][] }
   /** Picks from `ObjectForm.choices[source]`; a source `list:<key>` picks a row of the same
-   *  form's list `<key>` as edited now, by its `title_field` value (a job's start step). */
+   *  form's list `<key>` as edited now, by its `title_field` value (a job's start step). A source
+   *  may name fields between braces (`perf_counter:{object}`): filled from the same row, else the
+   *  form's values, before looking it up; with nothing listed for it, the field takes free text. */
   | { type: 'ref'; source: string; multiple?: boolean }
   | { type: 'code'; language: string }
   /** YYYY-MM-DD */
@@ -80,6 +100,8 @@ export interface FormField {
   when?: [string, string[]] | null;
   /** The value of a new object or row. */
   default?: unknown;
+  /** More conditions like `when`, all of which must hold too. */
+  when_all?: [string, string[]][];
 }
 
 export type FormRow = Record<string, unknown>;
@@ -96,6 +118,8 @@ export interface FormList {
   title_field: string;
   /** Rows can't be added or removed. */
   read_only?: boolean;
+  /** Shown (and sent) only while that top-level field has one of these values. */
+  when?: [string, string[]] | null;
 }
 
 export interface FormSection {
@@ -103,6 +127,8 @@ export interface FormSection {
   label: string;
   fields?: FormField[];
   lists?: FormList[];
+  /** The tab shows only while that top-level field has one of these values. */
+  when?: [string, string[]] | null;
 }
 
 export interface ObjectForm {
@@ -139,6 +165,12 @@ export const schedulerApi = {
   deleteScript: (connectionId: string, kind: string, id: string) =>
     invoke<string>('scheduler_delete_script', a(connectionId, { kind, id })),
   delete: (connectionId: string, kind: string, id: string) => invoke<void>('scheduler_delete', a(connectionId, { kind, id })),
+  /** The script of one of the kind's actions on an object; nothing runs. */
+  actionScript: (connectionId: string, kind: string, id: string, action: string) =>
+    invoke<string>('scheduler_action_script', a(connectionId, { kind, id, action })),
+  /** Runs one of the kind's actions on an object (after the user confirmed its script). */
+  action: (connectionId: string, kind: string, id: string, action: string) =>
+    invoke<void>('scheduler_action', a(connectionId, { kind, id, action })),
   /** Starts the job at one of its steps. */
   runFrom: (connectionId: string, id: string, step: string) => invoke<void>('jobs_run_from', a(connectionId, { id, step })),
   clearHistory: (connectionId: string, id: string) => invoke<void>('jobs_clear_history', a(connectionId, { id })),

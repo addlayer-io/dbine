@@ -1922,6 +1922,9 @@ impl KsqlSession {
                     description: Some(format!("{} ← {}", sinks.join(", "), sources.join(", "))),
                     enabled: pause.then(|| !paused(q)),
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 })
             })
             .collect();

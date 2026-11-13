@@ -257,6 +257,9 @@ fn cq_item(c: &jobs::Cq) -> SchedulerItem {
         description: c.query.as_deref().and_then(jobs::every),
         enabled: Some(c.state.eq_ignore_ascii_case("ACTIVE")),
         system: false,
+        can_edit: None,
+        can_delete: None,
+        actions: None,
     }
 }
 
@@ -268,6 +271,9 @@ fn pipe_item(p: &jobs::Pipe) -> SchedulerItem {
         description: job.description,
         enabled: Some(job.enabled),
         system: job.system,
+        can_edit: None,
+        can_delete: None,
+        actions: None,
     }
 }
 

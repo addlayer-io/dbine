@@ -90,6 +90,9 @@ pub(crate) fn item(p: &Plugin) -> SchedulerItem {
         description: Some(p.class.clone()).filter(|c| !c.is_empty()),
         enabled: None,
         system: p.builtin,
+        can_edit: None,
+        can_delete: None,
+        actions: None,
     }
 }
 

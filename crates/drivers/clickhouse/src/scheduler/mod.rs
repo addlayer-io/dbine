@@ -232,6 +232,9 @@ impl ClickHouseSession {
                 description: j.schedule.clone(),
                 enabled: Some(j.enabled),
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect();
         let missing = self.missing();

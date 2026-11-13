@@ -482,6 +482,9 @@ pub(super) fn items(src: &mut dyn JobSource, k: Kind) -> Result<SchedulerList> {
                         description: j.description,
                         enabled: None,
                         system: false,
+                        can_edit: None,
+                        can_delete: None,
+                        actions: None,
                     }
                 }
                 _ => {
@@ -492,6 +495,9 @@ pub(super) fn items(src: &mut dyn JobSource, k: Kind) -> Result<SchedulerList> {
                         name: sc.name,
                         enabled: None,
                         system: false,
+                        can_edit: None,
+                        can_delete: None,
+                        actions: None,
                     }
                 }
             })

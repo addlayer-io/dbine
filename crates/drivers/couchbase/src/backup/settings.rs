@@ -31,6 +31,9 @@ pub(crate) fn items(_c: &Ctx) -> Result<SchedulerList> {
             description: Some("Historial de tareas".into()),
             enabled: None,
             system: true,
+            can_edit: None,
+            can_delete: None,
+            actions: None,
         }],
         notes: Vec::new(),
     })

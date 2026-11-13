@@ -260,6 +260,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                         .or_else(|| r.t("RESOURCE_UNITS").map(|u| format!("{u} unidades"))),
                     enabled: Some(r.t("STATUS").as_deref() != Some("IGNORE_CONSTRAINTS")),
                     system: ctx.oracle_schema(&owner),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),
@@ -633,6 +636,9 @@ pub(crate) fn incompat_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList>
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

@@ -261,6 +261,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                         .or_else(|| r.t("USERNAME").map(|u| format!("Usuario {u}"))),
                     enabled: r.0.contains_key("ENABLED").then(|| r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

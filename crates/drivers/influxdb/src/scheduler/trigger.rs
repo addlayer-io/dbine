@@ -89,6 +89,9 @@ pub(crate) async fn items(s: &SqlSession) -> Result<SchedulerList> {
                 name: t.name,
                 enabled: Some(!t.disabled),
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             });
         }
     }

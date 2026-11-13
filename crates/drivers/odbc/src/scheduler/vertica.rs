@@ -254,6 +254,9 @@ pub(super) fn schedule_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
                 description: using_of(&s, r).map(|u| u.clause()),
                 enabled: None,
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
         })
         .collect();

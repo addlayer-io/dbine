@@ -166,6 +166,9 @@ pub(crate) async fn items(s: &EsSession, c: &Ctx) -> Result<SchedulerList> {
                         description: text(pol.get("description")),
                         enabled: None,
                         system: false,
+                        can_edit: None,
+                        can_delete: None,
+                        actions: None,
                     });
                 }
             }
@@ -198,6 +201,9 @@ pub(crate) async fn items(s: &EsSession, c: &Ctx) -> Result<SchedulerList> {
                     .or_else(|| (!phases.is_empty()).then(|| phases.join(", "))),
                 enabled: None,
                 system: pol.at(&["_meta", "managed"]).and_then(J::as_bool) == Some(true),
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             });
         }
         items.sort_by(|a, b| a.name.cmp(&b.name));

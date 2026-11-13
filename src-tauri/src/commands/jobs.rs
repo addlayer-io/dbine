@@ -223,6 +223,39 @@ pub async fn scheduler_delete(state: State<'_, AppState>, args: ObjectIdArgs) ->
         .scheduler_delete(&args.kind, &args.id))?)
 }
 
+#[derive(Deserialize)]
+pub struct ObjectActionArgs {
+    pub connection_id: String,
+    pub kind: String,
+    pub id: String,
+    pub action: String,
+}
+
+/// The script of one of the kind's actions on an object (nothing runs).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_action_script(
+    state: State<'_, AppState>,
+    args: ObjectActionArgs,
+) -> CommandResult<String> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_action_script(
+            &args.kind,
+            &args.id,
+            &args.action
+        ))?)
+}
+
+/// Runs one of the kind's actions on an object (the user confirmed).
+/// Refused on read-only connections.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_action(
+    state: State<'_, AppState>,
+    args: ObjectActionArgs,
+) -> CommandResult<()> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_action(&args.kind, &args.id, &args.action))?)
+}
+
 /// Starts the job at one of its steps (the user confirmed).
 #[tauri::command(rename_all = "camelCase")]
 pub async fn jobs_run_from(state: State<'_, AppState>, args: JobStepArgs) -> CommandResult<()> {

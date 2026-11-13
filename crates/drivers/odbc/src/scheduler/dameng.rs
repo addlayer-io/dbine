@@ -163,6 +163,9 @@ pub(super) fn items(
                 description: j.description,
                 enabled: Some(j.enabled),
                 system: j.system,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: l.notes,
@@ -192,6 +195,9 @@ fn operator_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
                     description: crate::jobs::get(&s, r, OP_EMAIL).map(str::to_string),
                     enabled: Some(int(s.get(r, "ENABLE")) != Some(0)),
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 })
             })
             .collect(),
@@ -210,6 +216,9 @@ fn alert_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
                     description: s.get(r, "DESCRIBE").map(str::to_string),
                     enabled: Some(int(s.get(r, "ENABLE")) != Some(0)),
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 })
             })
             .collect(),

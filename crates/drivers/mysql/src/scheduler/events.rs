@@ -272,6 +272,9 @@ pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerL
                 }),
                 enabled: Some(e.enabled()),
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: Vec::new(),

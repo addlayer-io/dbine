@@ -511,6 +511,9 @@ pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
                 description: j.description.clone(),
                 enabled: Some(j.enabled),
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: list.notes,

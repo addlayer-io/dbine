@@ -1290,6 +1290,9 @@ fn item_of(j: ServerJob) -> SchedulerItem {
         system: false,
         id: j.id,
         name: j.name,
+        can_edit: None,
+        can_delete: None,
+        actions: None,
     }
 }
 

@@ -72,8 +72,8 @@ pub use model::{
 };
 pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
 pub use scheduler::{
-    FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, SchedulerInfo,
-    SchedulerItem, SchedulerKind, SchedulerList, SECRET_MASK,
+    FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, SchedulerAction,
+    SchedulerInfo, SchedulerItem, SchedulerKind, SchedulerList, SECRET_MASK,
 };
 pub use sort::SortKey;
 
@@ -1306,6 +1306,29 @@ pub trait Session: Send {
         let _ = (kind, id);
         Err(Error::Unsupported(
             "este motor no administra su planificador desde DBine".into(),
+        ))
+    }
+
+    /// The script of one of the kind's actions ([`scheduler::SchedulerAction`])
+    /// on an object, shown before it runs. Nothing runs.
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        let _ = (kind, id, action);
+        Err(Error::Unsupported(
+            "este motor no ofrece esa acción en su planificador".into(),
+        ))
+    }
+
+    /// Runs one of the kind's actions on an object (the user saw its script
+    /// and confirmed).
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        let _ = (kind, id, action);
+        Err(Error::Unsupported(
+            "este motor no ofrece esa acción en su planificador".into(),
         ))
     }
 

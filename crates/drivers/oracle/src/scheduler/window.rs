@@ -221,6 +221,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     name,
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),
@@ -576,6 +579,9 @@ pub(crate) fn group_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     name,
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

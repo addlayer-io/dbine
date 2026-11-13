@@ -645,6 +645,9 @@ pub(crate) async fn items(s: &mut CouchSession) -> Result<SchedulerList> {
                 description: j.description,
                 enabled: None,
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: list.notes,

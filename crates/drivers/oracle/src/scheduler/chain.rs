@@ -628,6 +628,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

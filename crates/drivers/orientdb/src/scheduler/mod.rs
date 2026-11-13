@@ -1025,6 +1025,9 @@ impl OrientSession {
                     },
                     enabled: None,
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 })
                 .collect(),
             notes,

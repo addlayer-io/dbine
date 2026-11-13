@@ -1715,6 +1715,9 @@ pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<Schedule
                 description: j.description.clone(),
                 enabled: Some(j.enabled),
                 system: jobs::built_in(j),
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: Vec::new(),

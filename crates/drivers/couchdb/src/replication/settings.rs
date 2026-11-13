@@ -172,6 +172,9 @@ pub(crate) async fn items(s: &CouchSession) -> Result<SchedulerList> {
                 description: Some("Replicador".into()),
                 enabled: None,
                 system: true,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
             .collect(),
         notes: Vec::new(),

@@ -187,6 +187,9 @@ pub(crate) async fn items(s: &mut TdSession, kind: &str) -> Result<SchedulerList
                     description: j.schedule,
                     enabled: Some(j.enabled),
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

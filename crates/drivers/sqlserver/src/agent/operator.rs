@@ -189,6 +189,9 @@ pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<Schedule
                         description: text(r, "email_address"),
                         enabled: Some(int(r, "enabled") == Some(1)),
                         system: false,
+                        can_edit: None,
+                        can_delete: None,
+                        actions: None,
                     })
                 })
                 .collect()

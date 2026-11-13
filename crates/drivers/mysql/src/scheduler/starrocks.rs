@@ -143,6 +143,9 @@ pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerL
                     }),
                     enabled: Some(v.active),
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 },
                 None => SchedulerItem {
                     id: sj::task_id(&t.name, false),
@@ -153,6 +156,9 @@ pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerL
                     },
                     enabled: None,
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 },
             })
         })

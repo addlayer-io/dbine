@@ -429,6 +429,8 @@ impl Call {
             | SchedulerSave { session, .. }
             | SchedulerDeleteScript { session, .. }
             | SchedulerDelete { session, .. }
+            | SchedulerActionScript { session, .. }
+            | SchedulerAction { session, .. }
             | RunJobFrom { session, .. }
             | ClearJobHistory { session, .. }
             | SchedulerLogs { session }
@@ -1426,6 +1428,33 @@ impl State {
                     .lock()
                     .await
                     .scheduler_delete(&kind, &id)
+                    .await?;
+                Reply::Unit
+            }
+            Call::SchedulerActionScript {
+                session,
+                kind,
+                id,
+                action,
+            } => Reply::Text(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_action_script(&kind, &id, &action)
+                    .await?,
+            ),
+            Call::SchedulerAction {
+                session,
+                kind,
+                id,
+                action,
+            } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_action(&kind, &id, &action)
                     .await?;
                 Reply::Unit
             }

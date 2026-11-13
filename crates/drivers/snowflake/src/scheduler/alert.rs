@@ -121,6 +121,9 @@ pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
             description: a.comment.clone(),
             enabled: Some(a.started),
             system: a.app_owned(),
+            can_edit: None,
+            can_delete: None,
+            actions: None,
         })
         .collect();
     items.sort_by(|a, b| a.id.cmp(&b.id));

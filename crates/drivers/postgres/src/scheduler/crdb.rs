@@ -2654,6 +2654,9 @@ pub(crate) async fn ttl_items(s: &PgSession, c: &Caps) -> Result<SchedulerList> 
                             && sched.is_none_or(|x| x.active),
                     ),
                     system: false,
+                    can_edit: None,
+                    can_delete: None,
+                    actions: None,
                 }
             })
             .collect(),

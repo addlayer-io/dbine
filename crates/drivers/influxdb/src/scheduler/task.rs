@@ -77,6 +77,9 @@ pub(crate) async fn items(s: &FluxSession) -> Result<SchedulerList> {
                 description: text_of(t.get("description")),
                 enabled: Some(t.get("status").and_then(J::as_str) == Some("active")),
                 system: false,
+                can_edit: None,
+                can_delete: None,
+                actions: None,
             })
         })
         .collect();

@@ -242,11 +242,11 @@ def monitor_labels(src: str):
 
 
 # The scheduler designer's forms (crates/dbine-driver/src/scheduler.rs): field,
-# section, list and kind labels and select options, taken by the constructors
+# section, list, kind and action labels and select options, taken by the constructors
 # that carry them ("Pasos", "Reintentos", "Diaria"). Help texts are sentences
 # the filter above already takes; placeholders are examples, kept as written.
 _FORM = [
-    (re.compile(r"\b(?:FormField|FormSection|FormList)::new\(\s*" + _LIT + r"\s*,\s*" + _LIT), (2,)),
+    (re.compile(r"\b(?:FormField|FormSection|FormList|SchedulerAction)::new\(\s*" + _LIT + r"\s*,\s*" + _LIT), (2,)),
     (re.compile(r"\bSchedulerKind::new\(\s*" + _LIT + r"\s*,\s*" + _LIT + r"\s*,\s*" + _LIT), (2, 3)),
 ]
 _FORM_OPTIONS = re.compile(r"\bFormKind::(?:select|multi)\(\s*&\[([^\]]*)\]")

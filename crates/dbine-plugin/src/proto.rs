@@ -603,6 +603,18 @@ pub enum Call {
         session: u64,
         id: String,
     },
+    SchedulerActionScript {
+        session: u64,
+        kind: String,
+        id: String,
+        action: String,
+    },
+    SchedulerAction {
+        session: u64,
+        kind: String,
+        id: String,
+        action: String,
+    },
     SchedulerLogs {
         session: u64,
     },
@@ -1625,6 +1637,26 @@ mod tests {
                 "ClearJobHistory",
             ),
             (50, Call::SchedulerLogs { session: 3 }, "SchedulerLogs"),
+            (
+                51,
+                Call::SchedulerActionScript {
+                    session: 3,
+                    kind: "window".into(),
+                    id: "w".into(),
+                    action: "open_window".into(),
+                },
+                "SchedulerActionScript",
+            ),
+            (
+                52,
+                Call::SchedulerAction {
+                    session: 3,
+                    kind: "window".into(),
+                    id: "w".into(),
+                    action: "open_window".into(),
+                },
+                "SchedulerAction",
+            ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -1653,6 +1685,7 @@ mod tests {
                 label: "General".into(),
                 fields: vec![FormField::new("name", "Nombre", FormKind::Text)],
                 lists: vec![],
+                when: None,
             }],
             values: [("name".to_string(), serde_json::json!("j"))].into(),
             ..Default::default()

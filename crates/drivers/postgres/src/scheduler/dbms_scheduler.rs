@@ -820,6 +820,9 @@ pub(crate) async fn items(s: &PgSession, c: &Caps, kind: &str) -> Result<Schedul
             description,
             enabled,
             system: false,
+            can_edit: None,
+            can_delete: None,
+            actions: None,
         });
     }
     out.items.retain(|i| Named::parse(&i.id).is_some());

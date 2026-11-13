@@ -675,6 +675,9 @@ pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<Schedule
         description: Some(usage(&row)),
         enabled: Some(row.enabled),
         system: false,
+        can_edit: None,
+        can_delete: None,
+        actions: None,
     })
     .collect();
     Ok(SchedulerList {

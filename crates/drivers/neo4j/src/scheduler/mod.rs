@@ -706,6 +706,9 @@ impl GraphSession {
                         description: Some(j.describe()),
                         enabled: Some(!j.finished()),
                         system: false,
+                        can_edit: None,
+                        can_delete: None,
+                        actions: None,
                     })
                     .collect(),
                 notes: vec![IN_MEMORY.into()],
