@@ -378,6 +378,24 @@ impl Conn {
         from_wide(&buf[..n])
     }
 
+    /// A 32-bit mask from SQLGetInfo (SQL_STRING_FUNCTIONS…), `None` when
+    /// the driver doesn't say.
+    pub fn info_u32(&self, what: u16) -> Option<u32> {
+        let mut v = 0u32;
+        let mut len = 0i16;
+        // SAFETY: a 4-byte out buffer, declared as such.
+        let rc = unsafe {
+            (self.api.SQLGetInfoW)(
+                self.dbc.0,
+                what,
+                &mut v as *mut u32 as *mut c_void,
+                4,
+                &mut len,
+            )
+        };
+        ok(rc).then_some(v)
+    }
+
     pub fn stmt<'a>(&'a self, shared: &'a StmtSlot) -> Result<Stmt<'a>> {
         let mut h: Handle = ptr::null_mut();
         // SAFETY: valid connection handle and out-pointer.
@@ -1080,6 +1098,28 @@ impl Stmt<'_> {
                 b.len(),
                 c.ptr(),
                 c.len(),
+            )
+        };
+        self.check(rc)
+    }
+
+    /// SQLProcedureColumns: the parameters, result value and result columns
+    /// of every routine in the schemas `schema` matches (a search pattern).
+    pub fn procedure_columns(&self, schema: &str) -> Result<()> {
+        let (a, b) = (WArg::new(None), WArg::new(Some(schema)));
+        let (c, d) = (WArg::new(Some("%")), WArg::new(Some("%")));
+        // SAFETY: arguments outlive the call.
+        let rc = unsafe {
+            (self.api.SQLProcedureColumnsW)(
+                self.h.0,
+                a.ptr(),
+                a.len(),
+                b.ptr(),
+                b.len(),
+                c.ptr(),
+                c.len(),
+                d.ptr(),
+                d.len(),
             )
         };
         self.check(rc)

@@ -1,1 +1,326 @@
-# Static function catalog (see functions::parse_catalog). Filled per engine from its documentation.
+# SQL Server's built-in functions (Microsoft Learn, "What are the SQL database
+# functions?"), as T-SQL writes them. Versions are SQL Server's major ones:
+# 10 = 2008, 10.50 = 2008 R2, 11 = 2012, 13 = 2016, 14 = 2017, 15 = 2019,
+# 16 = 2022, 17 = 2025. The niladic ones written without parentheses
+# (CURRENT_TIMESTAMP, CURRENT_DATE, CURRENT_USER, SESSION_USER,
+# SYSTEM_USER, USER) are left out: the editor inserts an entry as a call,
+# `name()`, which T-SQL refuses for them; the SQL keywords complete them
+# as written. See functions::parse_catalog for the format.
+# Aggregates.
+a APPROX_COUNT_DISTINCT(expression) since=15
+a APPROX_PERCENTILE_CONT(numeric_literal) since=16
+a APPROX_PERCENTILE_DISC(numeric_literal) since=16
+a AVG([ALL | DISTINCT] expression)
+a CHECKSUM_AGG([ALL | DISTINCT] expression)
+a COUNT({[ALL | DISTINCT] expression | *})
+a COUNT_BIG({[ALL | DISTINCT] expression | *})
+a GROUPING(column_expression)
+a GROUPING_ID(column_expression [, ...n]) since=10
+a JSON_ARRAYAGG(value_expression [ORDER BY ...] [json_null_clause]) since=17
+a JSON_OBJECTAGG(key : value [json_null_clause]) since=17
+a MAX([ALL | DISTINCT] expression)
+a MIN([ALL | DISTINCT] expression)
+a PRODUCT([ALL | DISTINCT] expression) since=17
+a STDEV([ALL | DISTINCT] expression)
+a STDEVP([ALL | DISTINCT] expression)
+a STRING_AGG(expression, separator) since=14
+a SUM([ALL | DISTINCT] expression)
+a VAR([ALL | DISTINCT] expression)
+a VARP([ALL | DISTINCT] expression)
+# Ranking and analytic functions.
+w CUME_DIST() since=11
+w DENSE_RANK()
+w FIRST_VALUE(scalar_expression) since=11
+w LAG(scalar_expression [, offset [, default]]) since=11
+w LAST_VALUE(scalar_expression) since=11
+w LEAD(scalar_expression [, offset [, default]]) since=11
+w NTILE(integer_expression)
+w PERCENT_RANK() since=11
+w PERCENTILE_CONT(numeric_literal) since=11
+w PERCENTILE_DISC(numeric_literal) since=11
+w RANK()
+w ROW_NUMBER()
+# Conversion.
+s CAST(expression AS data_type [(length)])
+s CONVERT(data_type [(length)], expression [, style])
+s PARSE(string_value AS data_type [USING culture]) since=11
+s TRY_CAST(expression AS data_type [(length)]) since=11
+s TRY_CONVERT(data_type [(length)], expression [, style]) since=11
+s TRY_PARSE(string_value AS data_type [USING culture]) since=11
+# Dates and times.
+s CURRENT_TIMEZONE() since=16
+s CURRENT_TIMEZONE_ID() since=16
+s DATE_BUCKET(datepart, number, date [, origin]) since=16
+s DATEADD(datepart, number, date)
+s DATEDIFF(datepart, startdate, enddate)
+s DATEDIFF_BIG(datepart, startdate, enddate) since=13
+s DATEFROMPARTS(year, month, day) since=11
+s DATENAME(datepart, date)
+s DATEPART(datepart, date)
+s DATETIME2FROMPARTS(year, month, day, hour, minute, seconds, fractions, precision) since=11
+s DATETIMEFROMPARTS(year, month, day, hour, minute, seconds, milliseconds) since=11
+s DATETIMEOFFSETFROMPARTS(year, month, day, hour, minute, seconds, fractions, hour_offset, minute_offset, precision) since=11
+s DATETRUNC(datepart, date) since=16
+s DAY(date)
+s EOMONTH(start_date [, month_to_add]) since=11
+s GETDATE()
+s GETUTCDATE()
+s ISDATE(expression)
+s MONTH(date)
+s SMALLDATETIMEFROMPARTS(year, month, day, hour, minute) since=11
+s SWITCHOFFSET(datetimeoffset_expression, timezoneoffset_expression) since=10
+s SYSDATETIME() since=10
+s SYSDATETIMEOFFSET() since=10
+s SYSUTCDATETIME() since=10
+s TIMEFROMPARTS(hour, minute, seconds, fractions, precision) since=11
+s TODATETIMEOFFSET(datetime_expression, timezoneoffset_expression) since=10
+s YEAR(date)
+# Strings.
+s ASCII(character_expression)
+s BASE64_DECODE(expression) since=17
+s BASE64_ENCODE(expression [, url_safe]) since=17
+s CHAR(integer_expression)
+s CHARINDEX(expressionToFind, expressionToSearch [, start_location])
+s CONCAT(argument1, argument2 [, argumentN]) since=11
+s CONCAT_WS(separator, argument1, argument2 [, argumentN]) since=14
+s DIFFERENCE(character_expression, character_expression)
+s EDIT_DISTANCE(character_expression, character_expression [, maximum_distance]) since=17
+s EDIT_DISTANCE_SIMILARITY(character_expression, character_expression) since=17
+s FORMAT(value, format [, culture]) since=11
+s JARO_WINKLER_DISTANCE(character_expression, character_expression) since=17
+s JARO_WINKLER_SIMILARITY(character_expression, character_expression) since=17
+s LEFT(character_expression, integer_expression)
+s LEN(string_expression)
+s LOWER(character_expression)
+s LTRIM(character_expression)
+s LTRIM(character_expression, characters) since=16
+s NCHAR(integer_expression)
+s PATINDEX('%pattern%', expression)
+s QUOTENAME('character_string' [, 'quote_character'])
+s REGEXP_COUNT(string_expression, pattern_expression [, start [, flags]]) since=17
+s REGEXP_INSTR(string_expression, pattern_expression [, start [, occurrence [, return_option [, flags [, group]]]]]) since=17
+s REGEXP_LIKE(string_expression, pattern_expression [, flags]) since=17
+t REGEXP_MATCHES(string_expression, pattern_expression [, flags]) since=17
+s REGEXP_REPLACE(string_expression, pattern_expression [, string_replacement [, start [, occurrence [, flags]]]]) since=17
+t REGEXP_SPLIT_TO_TABLE(string_expression, pattern_expression [, flags]) since=17
+s REGEXP_SUBSTR(string_expression, pattern_expression [, start [, occurrence [, flags [, group]]]]) since=17
+s REPLACE(string_expression, string_pattern, string_replacement)
+s REPLICATE(string_expression, integer_expression)
+s REVERSE(string_expression)
+s RIGHT(character_expression, integer_expression)
+s RTRIM(character_expression)
+s RTRIM(character_expression, characters) since=16
+s SOUNDEX(character_expression)
+s SPACE(integer_expression)
+s STR(float_expression [, length [, decimal]])
+s STRING_ESCAPE(text, type) since=13
+t STRING_SPLIT(string, separator [, enable_ordinal]) since=13
+s STUFF(character_expression, start, length, replace_with_expression)
+s SUBSTRING(expression, start, length)
+s TRANSLATE(inputString, characters, translations) since=14
+s TRIM([characters FROM] string) since=14
+s UNICODE('ncharacter_expression')
+s UNISTR('character_expression' [, 'unicode_escape_character']) since=17
+s UPPER(character_expression)
+s COLLATIONPROPERTY(collation_name, property)
+s TERTIARY_WEIGHTS(non_Unicode_character_string_expression)
+# Mathematics.
+s ABS(numeric_expression)
+s ACOS(float_expression)
+s ASIN(float_expression)
+s ATAN(float_expression)
+s ATN2(float_expression, float_expression)
+s CEILING(numeric_expression)
+s COS(float_expression)
+s COT(float_expression)
+s DEGREES(numeric_expression)
+s EXP(float_expression)
+s FLOOR(numeric_expression)
+s LOG(float_expression [, base])
+s LOG10(float_expression)
+s PI()
+s POWER(float_expression, y)
+s RADIANS(numeric_expression)
+s RAND([seed])
+s ROUND(numeric_expression, length [, function])
+s SIGN(numeric_expression)
+s SIN(float_expression)
+s SQRT(float_expression)
+s SQUARE(float_expression)
+s TAN(float_expression)
+# Bit manipulation.
+s BIT_COUNT(expression_value) since=16
+s GET_BIT(expression_value, bit_offset) since=16
+s LEFT_SHIFT(expression_value, shift_amount) since=16
+s RIGHT_SHIFT(expression_value, shift_amount) since=16
+s SET_BIT(expression_value, bit_offset [, bit_value]) since=16
+# Logical.
+s CHOOSE(index, val_1, val_2 [, val_n]) since=11
+s GREATEST(expression1 [, ...expressionN]) since=16
+s IIF(boolean_expression, true_value, false_value) since=11
+s LEAST(expression1 [, ...expressionN]) since=16
+# JSON.
+s ISJSON(expression [, json_type_constraint]) since=13
+s JSON_ARRAY([json_array_value [, ...n]] [json_null_clause]) since=16
+s JSON_CONTAINS(target_expression, search_value_expression [, path_expression] [, search_mode]) since=17
+s JSON_MODIFY(expression, path, newValue) since=13
+s JSON_OBJECT([key : value [, ...n]] [json_null_clause]) since=16
+s JSON_PATH_EXISTS(value_expression, sql_json_path) since=16
+s JSON_QUERY(expression [, path] [WITH ARRAY WRAPPER]) since=13
+s JSON_VALUE(expression, path [RETURNING data_type]) since=13
+t OPENJSON(jsonExpression [, path]) since=13
+# Vectors and AI.
+s VECTOR_DISTANCE(distance_metric, vector1, vector2) since=17
+s VECTOR_NORM(vector, norm_type) since=17
+s VECTOR_NORMALIZE(vector, norm_type) since=17
+s VECTORPROPERTY(vector, property) since=17
+s AI_GENERATE_EMBEDDINGS(source USE MODEL model_identifier [PARAMETERS optional_json_request_body_parameters]) since=17
+t AI_GENERATE_CHUNKS(source = text_expression, chunk_type = FIXED, chunk_size = numeric_expression [, overlap = numeric_expression]) since=17
+t VECTOR_SEARCH(TABLE = object [AS alias], COLUMN = vector_column, SIMILAR_TO = query_vector, METRIC = metric, TOP_N = k) since=17
+# Graph.
+s EDGE_ID_FROM_PARTS(object_id, graph_id) since=14
+s GRAPH_ID_FROM_EDGE_ID(edge_id) since=14
+s GRAPH_ID_FROM_NODE_ID(node_id) since=14
+s NODE_ID_FROM_PARTS(object_id, graph_id) since=14
+s OBJECT_ID_FROM_EDGE_ID(edge_id) since=14
+s OBJECT_ID_FROM_NODE_ID(node_id) since=14
+# System.
+s BINARY_CHECKSUM(* | expression [, ...n])
+s CHECKSUM(* | expression [, ...n])
+s COALESCE(expression [, ...n])
+s COMPRESS(expression) since=13
+s CONNECTIONPROPERTY(property)
+s CONTEXT_INFO()
+s CURRENT_REQUEST_ID()
+s CURRENT_TRANSACTION_ID() since=13
+s DECOMPRESS(expression) since=13
+s ERROR_LINE()
+s ERROR_MESSAGE()
+s ERROR_NUMBER()
+s ERROR_PROCEDURE()
+s ERROR_SEVERITY()
+s ERROR_STATE()
+s FORMATMESSAGE({msg_number | 'msg_string' | @msg_variable} [, param_value [, ...n]])
+s GET_FILESTREAM_TRANSACTION_CONTEXT() since=10
+s GETANSINULL(['database'])
+s HOST_ID()
+s HOST_NAME()
+s ISNULL(check_expression, replacement_value)
+s ISNUMERIC(expression)
+s MIN_ACTIVE_ROWVERSION()
+s NEWID()
+s NEWSEQUENTIALID()
+s NULLIF(expression, expression)
+s ROWCOUNT_BIG()
+s SESSION_CONTEXT(N'key') since=13
+s XACT_STATE()
+s CURSOR_STATUS({'local' | 'global' | 'variable'}, {'cursor_name' | 'cursor_variable'})
+s DATALENGTH(expression)
+s IDENT_CURRENT('table_or_view')
+s IDENT_INCR('table_or_view')
+s IDENT_SEED('table_or_view')
+s IDENTITY(data_type [, seed, increment])
+s SQL_VARIANT_PROPERTY(expression, property)
+# Triggers.
+s COLUMNS_UPDATED()
+s EVENTDATA()
+s TRIGGER_NESTLEVEL([object_id] [, 'trigger_type'] [, 'trigger_event_category'])
+s UPDATE(column)
+# Full-text search.
+s CONTAINS({column_name | (column_list) | *}, '<contains_search_condition>' [, LANGUAGE language_term])
+s FREETEXT({column_name | (column_list) | *}, 'freetext_string' [, LANGUAGE language_term])
+t CONTAINSTABLE(table, {column_name | (column_list) | *}, '<contains_search_condition>' [, LANGUAGE language_term] [, top_n_by_rank])
+t FREETEXTTABLE(table, {column_name | (column_list) | *}, 'freetext_string' [, LANGUAGE language_term] [, top_n_by_rank])
+# Rowset functions.
+t CHANGETABLE({CHANGES table, last_sync_version | VERSION table, <primary_key_values>}) since=10
+t GENERATE_SERIES(start, stop [, step]) since=16
+t OPENDATASOURCE(provider_name, init_string)
+t OPENQUERY(linked_server, 'query')
+t OPENROWSET({'provider_name', 'datasource';'user_id';'password' | BULK 'data_file', ...}, {object | 'query'})
+t OPENXML(idoc, rowpattern [, flags])
+# Metadata.
+s APP_NAME()
+s APPLOCK_MODE('database_principal', 'resource_name', 'lock_owner')
+s APPLOCK_TEST('database_principal', 'resource_name', 'lock_mode', 'lock_owner')
+s ASSEMBLYPROPERTY('assembly_name', 'property_name')
+s COL_LENGTH('table', 'column')
+s COL_NAME(table_id, column_id)
+s COLUMNPROPERTY(id, column, property)
+s DATABASEPROPERTYEX(database, property)
+s DB_ID(['database_name'])
+s DB_NAME([database_id])
+s FILE_ID(file_name)
+s FILE_IDEX(file_name)
+s FILE_NAME(file_id)
+s FILEGROUP_ID('filegroup_name')
+s FILEGROUP_NAME(filegroup_id)
+s FILEGROUPPROPERTY(filegroup_name, property)
+s FILEPROPERTY(file_name, property)
+s FULLTEXTCATALOGPROPERTY('catalog_name', 'property')
+s FULLTEXTSERVICEPROPERTY('property')
+s INDEX_COL('[database_name.[schema_name].|schema_name.]table_or_view_name', index_id, key_id)
+s INDEXKEY_PROPERTY(object_ID, index_ID, key_ID, property)
+s INDEXPROPERTY(object_ID, index_or_statistics_name, property)
+s OBJECT_DEFINITION(object_id)
+s OBJECT_ID('[database_name.[schema_name].|schema_name.]object_name' [, 'object_type'])
+s OBJECT_NAME(object_id [, database_id])
+s OBJECT_SCHEMA_NAME(object_id [, database_id])
+s OBJECTPROPERTY(id, property)
+s OBJECTPROPERTYEX(id, property)
+s ORIGINAL_DB_NAME()
+s PARSENAME('object_name', object_piece)
+s SCHEMA_ID([schema_name])
+s SCHEMA_NAME([schema_id])
+s SCOPE_IDENTITY()
+s SERVERPROPERTY('propertyname')
+s STATS_DATE(object_id, stats_id)
+s TYPE_ID([schema_name.] type_name)
+s TYPE_NAME(type_id)
+s TYPEPROPERTY(type, property)
+# Security.
+s DATABASE_PRINCIPAL_ID(['principal_name'])
+s HAS_DBACCESS('database_name')
+s HAS_PERMS_BY_NAME(securable, securable_class, permission [, sub_securable] [, sub_securable_class])
+s IS_MEMBER({'group' | 'role'})
+s IS_ROLEMEMBER('role' [, 'database_principal']) since=10.50
+s IS_SRVROLEMEMBER('role' [, 'login'])
+s LOGINPROPERTY('login_name', 'property_name')
+s ORIGINAL_LOGIN()
+s PERMISSIONS([objectid [, 'column']])
+s PWDCOMPARE('clear_text_password', password_hash [, version])
+s PWDENCRYPT('password')
+s SESSIONPROPERTY(option)
+s SUSER_ID(['login'])
+s SUSER_NAME([server_user_id])
+s SUSER_SID(['login'] [, Param2])
+s SUSER_SNAME([server_user_sid])
+s USER_ID(['user'])
+s USER_NAME([id])
+# Cryptography.
+s ASYMKEY_ID('Asym_Key_Name')
+s ASYMKEYPROPERTY(Key_ID, 'algorithm_desc' | 'string_sid' | 'sid')
+s CERT_ID('cert_name')
+s CERTENCODED(cert_id) since=11
+s CERTPRIVATEKEY(cert_ID, 'encryption_password' [, 'decryption_password']) since=11
+s CERTPROPERTY(Cert_ID, 'property_name')
+s CRYPT_GEN_RANDOM(length [, seed])
+s DECRYPTBYASYMKEY(Asym_Key_ID, {'ciphertext' | @ciphertext} [, 'Asym_Key_Password'])
+s DECRYPTBYCERT(certificate_ID, {'ciphertext' | @ciphertext} [, {'cert_password' | @cert_password}])
+s DECRYPTBYKEY({'ciphertext' | @ciphertext} [, add_authenticator, {authenticator | @authenticator}])
+s DECRYPTBYKEYAUTOASYMKEY(akey_ID, akey_password, {'ciphertext' | @ciphertext} [, add_authenticator, authenticator])
+s DECRYPTBYKEYAUTOCERT(cert_ID, cert_password, {'ciphertext' | @ciphertext} [, add_authenticator, authenticator])
+s DECRYPTBYPASSPHRASE({'passphrase' | @passphrase}, {'ciphertext' | @ciphertext} [, add_authenticator, authenticator])
+s ENCRYPTBYASYMKEY(Asym_Key_ID, {'plaintext' | @plaintext})
+s ENCRYPTBYCERT(certificate_ID, {'cleartext' | @cleartext})
+s ENCRYPTBYKEY(key_GUID, {'cleartext' | @cleartext} [, add_authenticator, authenticator])
+s ENCRYPTBYPASSPHRASE({'passphrase' | @passphrase}, {'cleartext' | @cleartext} [, add_authenticator, authenticator])
+s HASHBYTES('algorithm', {@input | 'input'})
+s IS_OBJECTSIGNED('OBJECT', @object_id, @class, @thumbprint) since=10
+s KEY_GUID('Key_Name')
+s KEY_ID('Key_Name')
+s KEY_NAME(ciphertext | key_guid) since=10
+s SIGNBYASYMKEY(Asym_Key_ID, @plaintext [, 'password'])
+s SIGNBYCERT(certificate_ID, @cleartext [, 'password'])
+s SYMKEYPROPERTY(Key_ID, 'algorithm_desc' | 'string_sid' | 'sid')
+s VERIFYSIGNEDBYASYMKEY(Asym_Key_ID, clear_text, signature)
+s VERIFYSIGNEDBYCERT(Cert_ID, signed_data, signature)

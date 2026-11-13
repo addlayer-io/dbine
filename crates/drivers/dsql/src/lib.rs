@@ -13,6 +13,10 @@ mod index_usage;
 // tokio-postgres over rustls, shared with the PostgreSQL driver.
 mod monitor;
 mod permissions;
+// The function catalog of pg_proc, shared with the PostgreSQL driver.
+#[allow(dead_code)]
+#[path = "../../postgres/src/pg_functions.rs"]
+mod pg_functions;
 mod plan;
 mod processes;
 mod rename;
@@ -52,6 +56,8 @@ const PORT: u16 = 5432;
 const DATABASE: &str = "postgres";
 /// Seconds the signed token stays valid; it's only needed to log in.
 const TOKEN_TTL: u64 = 900;
+/// The PostgreSQL version whose SQL DSQL speaks (`server_version_num`).
+const DSQL_PG_VERSION: i32 = 160000;
 /// Schemas that aren't the user's.
 const SYSTEM_SCHEMAS: &str = "('pg_catalog', 'information_schema', 'sys', 'pg_toast')";
 
@@ -825,6 +831,43 @@ impl Session for DsqlSession {
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         Ok(vec![DATABASE.into()])
+    }
+
+    /// `pg_proc`: PostgreSQL 16's built-ins as DSQL keeps them, with their
+    /// comments, and the user's SQL functions with their schema;
+    /// PostgreSQL 16's static catalog if DSQL refuses the query or it
+    /// lists nothing.
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        for sql in pg_functions::pg_proc_queries(DSQL_PG_VERSION) {
+            match self.client.simple_query(&sql).await {
+                Ok(msgs) => {
+                    let out: Vec<_> = msgs
+                        .iter()
+                        .filter_map(|m| match m {
+                            SimpleQueryMessage::Row(r) => {
+                                let c = |i: usize| r.get(i).unwrap_or_default();
+                                pg_functions::pg_entry(
+                                    c(0),
+                                    c(1),
+                                    c(2),
+                                    c(3),
+                                    c(4),
+                                    c(5),
+                                    c(6) == "t",
+                                )
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    if !out.is_empty() {
+                        return Ok(out);
+                    }
+                    tracing::debug!("dsql: pg_proc listed no functions");
+                }
+                Err(e) => tracing::debug!("dsql: pg_proc unavailable: {e}"),
+            }
+        }
+        Ok(pg_functions::fallback(DSQL_PG_VERSION))
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

@@ -1,0 +1,260 @@
+# RisingWave's built-in functions (see dbine_driver::functions::parse_catalog),
+# from docs.risingwave.com (SQL functions and operators), with the version
+# that added each one after 1.0 (from the release notes and proto/expr.proto
+# at each release tag). RisingWave's pg_proc is empty, so the built-ins come
+# from here; the user's functions from rw_catalog.rw_functions.
+
+# Mathematical
+s abs(input_value)
+s cbrt(double precision) -> double precision
+s ceil(numeric)
+s ceiling(numeric)
+s degrees(double precision) -> double precision
+s exp(numeric)
+s floor(numeric)
+s ln(numeric)
+s log10(numeric)
+s pi() -> double precision
+s pow(x, y)
+s power(x, y)
+s radians(double precision) -> double precision
+s round(x [, y])
+s scale(numeric) -> integer since=1.2
+s min_scale(numeric) -> integer since=1.2
+s sign(x) since=1.1
+s sqrt(x)
+s trim_scale(numeric) -> numeric since=1.2
+s trunc(x [, y])
+s acos(double precision) -> double precision
+s acosd(double precision) -> double precision since=2.0
+s acosh(double precision) -> double precision
+s asin(double precision) -> double precision
+s asind(double precision) -> double precision
+s asinh(double precision) -> double precision
+s atan(double precision) -> double precision
+s atan2(y double precision, x double precision) -> double precision
+s atan2d(y double precision, x double precision) -> double precision since=2.4
+s atand(double precision) -> double precision since=2.4
+s atanh(double precision) -> double precision
+s cos(double precision) -> double precision
+s cosd(double precision) -> double precision
+s cosh(double precision) -> double precision
+s cot(double precision) -> double precision
+s cotd(double precision) -> double precision
+s sin(double precision) -> double precision
+s sind(double precision) -> double precision
+s sinh(double precision) -> double precision
+s tan(double precision) -> double precision
+s tand(double precision) -> double precision
+s tanh(double precision) -> double precision
+
+# String
+s ascii(input_string) -> integer
+s bit_length(input_string) -> integer
+s btrim(input_string [, characters]) -> varchar
+s char_length(input_string) -> integer
+s character_length(input_string) -> integer
+s chr(input_int) -> varchar
+s concat(input_value [, ...]) -> varchar since=1.8
+s concat_ws(separator, input_value [, ...]) -> varchar
+s convert_from(bytes bytea, src_encoding) -> varchar since=1.5
+s convert_to(string varchar, dest_encoding) -> bytea since=1.5
+s decode(input_string, format) -> bytea
+s encode(input_bytea, format) -> varchar
+s format(format_string [, format_arg [, ...]]) -> varchar since=1.2
+s initcap(input_string) -> varchar
+s left(input_string, n) -> varchar
+s length(input_string) -> integer
+s lower(input_string) -> varchar
+s lpad(input_string, length [, fill]) -> varchar
+s ltrim(input_string [, characters]) -> varchar
+s octet_length(input_string) -> integer
+s overlay(input_string PLACING replace_string FROM start [FOR count]) -> varchar
+s position(substring IN input_string) -> integer
+s quote_ident(input_string) -> varchar
+s quote_literal(input_value) -> varchar since=1.10
+s quote_nullable(input_value) -> varchar since=1.10
+s regexp_count(input_string, pattern [, start [, flags]]) -> integer since=1.2
+s regexp_match(input_string, pattern [, flags]) -> varchar[]
+t regexp_matches(input_string, pattern [, flags]) -> setof varchar[]
+s regexp_replace(input_string, pattern, replacement [, start [, N]] [, flags]) -> varchar since=1.2
+s regexp_split_to_array(input_string, pattern [, flags]) -> varchar[] since=1.4
+s repeat(input_string, n) -> varchar
+s replace(input_string, from_string, to_string) -> varchar
+s reverse(input_string) -> varchar
+s right(input_string, n) -> varchar
+s rpad(input_string, length [, fill]) -> varchar
+s rtrim(input_string [, characters]) -> varchar
+s split_part(input_string, delimiter, n) -> varchar
+s starts_with(input_string, prefix) -> boolean
+s string_to_array(input_string, delimiter [, null_string]) -> varchar[]
+s strpos(input_string, substring) -> integer
+s substr(input_string, start [, count]) -> varchar
+s substring(input_string [FROM start] [FOR count]) -> varchar
+s to_ascii(input_string) -> varchar
+s to_hex(input_int) -> varchar
+s translate(input_string, from, to) -> varchar
+s trim([LEADING | TRAILING | BOTH] [characters FROM] input_string) -> varchar
+s upper(input_string) -> varchar
+
+# Cryptographic
+s md5(input) -> varchar
+s sha1(input bytea) -> bytea
+s sha224(input bytea) -> bytea
+s sha256(input bytea) -> bytea
+s sha384(input bytea) -> bytea
+s sha512(input bytea) -> bytea
+s hmac(secret, payload, algorithm) -> bytea since=2.2
+s encrypt(data bytea, key bytea, mode varchar) -> bytea since=1.7
+s decrypt(data bytea, key bytea, mode varchar) -> bytea since=1.7
+
+# Date and time
+s date_part(field, source) -> double precision
+s date_trunc(field, source [, time_zone]) -> timestamp
+s extract(field FROM source) -> numeric
+s make_date(year, month, day) -> date since=1.7
+s make_time(hour, min, sec) -> time since=1.7
+s make_timestamp(year, month, day, hour, min, sec) -> timestamp since=1.7
+s make_timestamptz(year, month, day, hour, min, sec [, timezone]) -> timestamptz since=1.5
+s now() -> timestamptz
+s proctime() -> timestamptz
+s to_char(timestamp, format) -> varchar
+s to_date(date_string, format) -> date since=1.2
+s to_timestamp(seconds double precision | input_string, format) -> timestamptz
+
+# JSON
+s jsonb_array_length(jsonb) -> integer
+s jsonb_build_array(VARIADIC "any") -> jsonb since=1.5
+s jsonb_build_object(VARIADIC "any") -> jsonb since=1.5
+s jsonb_extract_path(from_json jsonb, VARIADIC path_elems varchar[]) -> jsonb since=1.4
+s jsonb_extract_path_text(from_json jsonb, VARIADIC path_elems varchar[]) -> varchar since=1.4
+s jsonb_object(varchar[]) -> jsonb since=1.4
+s jsonb_path_exists(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> boolean since=1.5
+s jsonb_path_match(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> boolean since=1.5
+s jsonb_path_query_array(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> jsonb since=1.5
+s jsonb_path_query_first(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> jsonb since=1.5
+s jsonb_populate_record(base anyelement, from_json jsonb) -> anyelement since=1.9
+s jsonb_pretty(jsonb) -> varchar since=1.4
+s jsonb_set(target jsonb, path varchar[], new_value jsonb [, create_if_missing boolean]) -> jsonb since=1.10
+s jsonb_strip_nulls(jsonb) -> jsonb since=1.4
+s jsonb_typeof(jsonb) -> varchar
+s to_jsonb(any) -> jsonb since=1.5
+t jsonb_array_elements(jsonb) -> setof jsonb
+t jsonb_array_elements_text(jsonb) -> setof varchar
+t jsonb_each(jsonb) -> setof record
+t jsonb_each_text(jsonb) -> setof record
+t jsonb_object_keys(jsonb) -> setof varchar
+t jsonb_path_query(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> setof jsonb since=1.5
+t jsonb_populate_recordset(base anyelement, from_json jsonb) -> setof anyelement since=1.9
+t jsonb_to_recordset(jsonb) -> setof record since=1.9
+
+# Arrays
+s array_append(array, element) -> array
+s array_cat(array, array) -> array
+s array_dims(array) -> varchar
+s array_distinct(array) -> array
+s array_length(array [, dimension]) -> integer
+s array_lower(array, dimension) -> integer
+s array_max(array) -> element since=1.3
+s array_min(array) -> element since=1.3
+s array_ndims(array) -> integer
+s array_position(array, element) -> integer
+s array_positions(array, element) -> integer[]
+s array_prepend(element, array) -> array
+s array_remove(array, element) -> array
+s array_replace(array, current_element, new_element) -> array
+s array_sort(array) -> array since=1.3
+s array_sum(array) -> element since=1.3
+s array_to_string(array, delimiter [, null_string]) -> varchar
+s array_transform(array, lambda) -> array since=1.2
+s array_upper(array, dimension) -> integer
+s cardinality(array) -> integer
+s trim_array(array, n) -> array
+t unnest(array) -> setof element
+
+# Maps
+s map_access(map, key) -> value since=2.0
+s map_cat(map, map) -> map since=2.0
+s map_contains(map, key) -> boolean since=2.0
+s map_delete(map, key) -> map since=2.0
+s map_entries(map) -> struct[] since=2.0
+s map_from_entries(struct[]) -> map since=2.0
+s map_from_key_values(keys array, values array) -> map since=2.0
+s map_insert(map, key, value) -> map since=2.0
+s map_keys(map) -> array since=2.0
+s map_length(map) -> integer since=2.0
+s map_values(map) -> array since=2.0
+
+# Conditional
+s coalesce(value [, ...])
+s greatest(value [, ...]) since=1.3
+s least(value [, ...]) since=1.3
+s nullif(value1, value2)
+
+# Aggregate
+a approx_count_distinct(expression) -> bigint
+a approx_percentile(percentile [, relative_error]) WITHIN GROUP (ORDER BY expression) -> double precision since=2.0
+a array_agg(expression [ORDER BY sort_expression]) -> array
+a avg(expression)
+a bit_and(expression)
+a bit_or(expression)
+a bit_xor(expression)
+a bool_and(boolean) -> boolean
+a bool_or(boolean) -> boolean
+a count(*) -> bigint
+a count(expression) -> bigint
+a jsonb_agg(expression [ORDER BY sort_expression]) -> jsonb
+a jsonb_object_agg(key, value [ORDER BY sort_expression]) -> jsonb
+a max(expression)
+a min(expression)
+a mode() WITHIN GROUP (ORDER BY sort_expression)
+a percentile_cont(fraction) WITHIN GROUP (ORDER BY sort_expression) -> double precision
+a percentile_disc(fraction) WITHIN GROUP (ORDER BY sort_expression)
+a stddev_pop(expression) -> double precision
+a stddev_samp(expression) -> double precision
+a string_agg(expression, delimiter [ORDER BY sort_expression]) -> varchar
+a sum(expression)
+a var_pop(expression) -> double precision
+a var_samp(expression) -> double precision
+
+# Window
+w row_number() -> bigint
+w rank() -> bigint
+w dense_rank() -> bigint
+w lag(value [, offset [, default]]) since=1.1
+w lead(value [, offset [, default]]) since=1.1
+w first_value(value) since=1.1
+w last_value(value) since=1.1
+
+# Table and time window functions
+t generate_series(start, stop [, step]) -> setof numeric_type
+t range(start, stop [, step]) -> setof numeric_type
+t tumble(table_or_source, time_col, window_size [, offset]) -> setof record
+t hop(table_or_source, time_col, hop_size, window_size [, offset]) -> setof record
+t file_scan(file_format, storage_type, region, access_key, secret_key, file_location) -> setof record since=2.0
+t postgres_query(hostname, port, username, password, database_name, query) -> setof record since=2.1
+t mysql_query(hostname, port, username, password, database_name, query) -> setof record since=2.2
+
+# System information
+s current_database() -> varchar
+s current_schema() -> varchar
+s current_schemas(include_implicit boolean) -> varchar[]
+s current_setting(setting_name [, missing_ok]) -> varchar
+s format_type(type_oid, typemod) -> varchar
+s has_any_column_privilege([user,] table, privilege) -> boolean since=1.9
+s has_function_privilege([user,] function, privilege) -> boolean since=2.4
+s has_schema_privilege([user,] schema, privilege) -> boolean since=1.9
+s has_table_privilege([user,] table, privilege) -> boolean since=1.9
+s col_description(table_oid, column_number) -> varchar
+s obj_description(object_oid [, catalog_name]) -> varchar
+s pg_get_indexdef(index_oid) -> varchar
+s pg_get_userbyid(role_oid) -> varchar
+s pg_get_viewdef(view_oid) -> varchar since=1.7
+s pg_is_in_recovery() -> boolean since=2.0
+s pg_relation_size(relation [, fork]) -> bigint since=1.2
+s pg_table_is_visible(table_oid) -> boolean
+s pg_typeof(any) -> regtype
+s rw_epoch_to_ts(epoch bigint) -> timestamptz since=2.2
+s rw_recovery_status() -> varchar since=2.0
+s set_config(setting_name, new_value, is_local) -> varchar since=1.1
+s version() -> varchar

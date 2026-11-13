@@ -1,1 +1,154 @@
 # Static function catalog (see functions::parse_catalog). Filled per engine from its documentation.
+# The SQL standard's functions (ISO/IEC 9075-2, SQL:2003 to SQL:2023): the
+# base an engine reached through ODBC or Flight SQL gets when it has no
+# catalog of its own. The ODBC scalar functions (LOCATE, SOUNDEX…) are not
+# here: they come from what the driver says it supports (SQLGetInfo,
+# GetSqlInfo). An escape-only one (UCASE, IFNULL, DAYOFWEEK…) works only
+# inside `{fn …}`, so the bare call the editor inserts fails on engines
+# without that native name.
+
+# Aggregates
+a ANY_VALUE(expr)
+a ARRAY_AGG(expr [ORDER BY sort_specification])
+a AVG([DISTINCT | ALL] expr)
+a CORR(y, x)
+a COUNT(* | [DISTINCT | ALL] expr)
+a COVAR_POP(y, x)
+a COVAR_SAMP(y, x)
+a EVERY(boolean_expr)
+a GROUPING(column [, column]...)
+a JSON_ARRAYAGG(expr [ORDER BY sort_specification] [{NULL | ABSENT} ON NULL])
+a JSON_OBJECTAGG(key VALUE expr [{NULL | ABSENT} ON NULL] [{WITH | WITHOUT} UNIQUE KEYS])
+a LISTAGG([DISTINCT | ALL] expr [, separator]) WITHIN GROUP (ORDER BY sort_specification)
+a MAX([DISTINCT | ALL] expr)
+a MIN([DISTINCT | ALL] expr)
+a PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY expr)
+a PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY expr)
+a REGR_AVGX(y, x)
+a REGR_AVGY(y, x)
+a REGR_COUNT(y, x)
+a REGR_INTERCEPT(y, x)
+a REGR_R2(y, x)
+a REGR_SLOPE(y, x)
+a REGR_SXX(y, x)
+a REGR_SXY(y, x)
+a REGR_SYY(y, x)
+a STDDEV_POP(expr)
+a STDDEV_SAMP(expr)
+a SUM([DISTINCT | ALL] expr)
+a VAR_POP(expr)
+a VAR_SAMP(expr)
+a XMLAGG(xml_expr [ORDER BY sort_specification])
+
+# Window functions
+w CUME_DIST() OVER (window_specification)
+w DENSE_RANK() OVER (window_specification)
+w FIRST_VALUE(expr) [RESPECT NULLS | IGNORE NULLS] OVER (window_specification)
+w LAG(expr [, offset [, default]]) [RESPECT NULLS | IGNORE NULLS] OVER (window_specification)
+w LAST_VALUE(expr) [RESPECT NULLS | IGNORE NULLS] OVER (window_specification)
+w LEAD(expr [, offset [, default]]) [RESPECT NULLS | IGNORE NULLS] OVER (window_specification)
+w NTH_VALUE(expr, n) [FROM FIRST | FROM LAST] [RESPECT NULLS | IGNORE NULLS] OVER (window_specification)
+w NTILE(n) OVER (window_specification)
+w PERCENT_RANK() OVER (window_specification)
+w RANK() OVER (window_specification)
+w ROW_NUMBER() OVER (window_specification)
+
+# Numeric
+s ABS(n)
+s ACOS(n)
+s ASIN(n)
+s ATAN(n)
+s CARDINALITY(collection)
+s CEIL(n)
+s CEILING(n)
+s CHAR_LENGTH(string [USING {CHARACTERS | OCTETS}])
+s CHARACTER_LENGTH(string [USING {CHARACTERS | OCTETS}])
+s COS(n)
+s COSH(n)
+s EXP(n)
+s EXTRACT(field FROM datetime_or_interval)
+s FLOOR(n)
+s LN(n)
+s LOG(base, n)
+s LOG10(n)
+s MOD(n, m)
+s OCCURRENCES_REGEX(pattern IN string)
+s OCTET_LENGTH(string)
+s POSITION(substring IN string)
+s POSITION_REGEX(pattern IN string)
+s POWER(base, exponent)
+s SIN(n)
+s SINH(n)
+s SQRT(n)
+s TAN(n)
+s TANH(n)
+s WIDTH_BUCKET(expr, min, max, count)
+
+# String
+s BTRIM(string [, characters])
+s CONVERT(string USING conversion_name)
+s LOWER(string)
+s LPAD(string, length [, fill])
+s LTRIM(string [, characters])
+s NORMALIZE(string [, {NFC | NFD | NFKC | NFKD}])
+s OVERLAY(string PLACING replacement FROM start [FOR length])
+s RPAD(string, length [, fill])
+s RTRIM(string [, characters])
+s SUBSTRING(string FROM start [FOR length])
+s SUBSTRING_REGEX(pattern IN string)
+s TRANSLATE(string USING translation_name)
+s TRANSLATE_REGEX(pattern IN string [WITH replacement])
+s TRIM([[LEADING | TRAILING | BOTH] [characters] FROM] string)
+s UPPER(string)
+
+# Date and time
+s CURRENT_DATE
+s CURRENT_TIME
+s CURRENT_TIMESTAMP
+s LOCALTIME
+s LOCALTIMESTAMP
+
+# Session
+s CURRENT_CATALOG
+s CURRENT_ROLE
+s CURRENT_SCHEMA
+s CURRENT_USER
+s SESSION_USER
+s SYSTEM_USER
+
+# Conditional and conversion
+s CAST(expr AS data_type)
+s COALESCE(expr [, expr]...)
+s GREATEST(expr [, expr]...)
+s LEAST(expr [, expr]...)
+s NULLIF(expr1, expr2)
+
+# Arrays and tables
+s TRIM_ARRAY(array, n)
+t UNNEST(collection [, collection]...) [WITH ORDINALITY]
+
+# JSON
+s JSON(expr)
+s JSON_ARRAY([expr [, expr]...] [{NULL | ABSENT} ON NULL])
+s JSON_EXISTS(json_expr, path [{TRUE | FALSE | UNKNOWN | ERROR} ON ERROR])
+s JSON_OBJECT([key VALUE expr [, key VALUE expr]...] [{NULL | ABSENT} ON NULL] [{WITH | WITHOUT} UNIQUE KEYS])
+s JSON_QUERY(json_expr, path [RETURNING data_type] [wrapper_behavior] [ON EMPTY] [ON ERROR])
+s JSON_SCALAR(expr)
+s JSON_SERIALIZE(json_expr [RETURNING data_type])
+s JSON_VALUE(json_expr, path [RETURNING data_type] [ON EMPTY] [ON ERROR])
+t JSON_TABLE(json_expr, path COLUMNS (column_definition [, column_definition]...))
+
+# XML
+s XMLCAST(expr AS data_type)
+s XMLCOMMENT(string)
+s XMLCONCAT(xml_expr [, xml_expr]...)
+s XMLDOCUMENT(xml_expr)
+s XMLELEMENT(NAME name [, XMLATTRIBUTES(...)] [, content]...)
+s XMLEXISTS(xquery PASSING xml_expr)
+s XMLFOREST(expr [AS name] [, expr [AS name]]...)
+s XMLPARSE({DOCUMENT | CONTENT} string)
+s XMLPI(NAME target [, string])
+s XMLQUERY(xquery PASSING xml_expr RETURNING {CONTENT | SEQUENCE})
+s XMLSERIALIZE({DOCUMENT | CONTENT} xml_expr AS data_type)
+s XMLTEXT(string)
+t XMLTABLE(xquery PASSING xml_expr COLUMNS column_definition [, column_definition]...)

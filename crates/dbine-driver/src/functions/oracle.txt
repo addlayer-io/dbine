@@ -1,1 +1,410 @@
 # Static function catalog (see functions::parse_catalog). Filled per engine from its documentation.
+# Oracle Database: the SQL functions of the SQL Language Reference
+# (11g Release 2 to 23ai). `since` is the release that added a function
+# (major.minor as `Oracle Database x.y`); entries with no `since` are in
+# every release DBine connects to.
+
+# Numeric
+s ABS(n) -> NUMBER
+s ACOS(n) -> NUMBER
+s ASIN(n) -> NUMBER
+s ATAN(n) -> NUMBER
+s ATAN2(n1, n2) -> NUMBER
+s BITAND(expr1, expr2) -> NUMBER
+s CEIL(n) -> NUMBER
+s COS(n) -> NUMBER
+s COSH(n) -> NUMBER
+s EXP(n) -> NUMBER
+s FLOOR(n) -> NUMBER
+s LN(n) -> NUMBER
+s LOG(n2, n1) -> NUMBER
+s MOD(n2, n1) -> NUMBER
+s NANVL(n2, n1)
+s POWER(n2, n1) -> NUMBER
+s REMAINDER(n2, n1) -> NUMBER
+s ROUND(n [, integer]) -> NUMBER
+s ROUND_TIES_TO_EVEN(n [, integer]) -> NUMBER since=23
+s SIGN(n) -> NUMBER
+s SIN(n) -> NUMBER
+s SINH(n) -> NUMBER
+s SQRT(n) -> NUMBER
+s TAN(n) -> NUMBER
+s TANH(n) -> NUMBER
+s TRUNC(n [, integer]) -> NUMBER
+s WIDTH_BUCKET(expr, min_value, max_value, num_buckets) -> NUMBER
+
+# Character functions returning character values
+s CHR(n [USING NCHAR_CS]) -> VARCHAR2
+s CONCAT(char1, char2) -> VARCHAR2
+s INITCAP(char) -> VARCHAR2
+s LOWER(char) -> VARCHAR2
+s LPAD(expr1, n [, expr2]) -> VARCHAR2
+s LTRIM(char [, set]) -> VARCHAR2
+s NCHR(number) -> NVARCHAR2
+s NLS_INITCAP(char [, 'nlsparam']) -> VARCHAR2
+s NLS_LOWER(char [, 'nlsparam']) -> VARCHAR2
+s NLS_UPPER(char [, 'nlsparam']) -> VARCHAR2
+s NLSSORT(char [, 'nlsparam']) -> RAW
+s REGEXP_REPLACE(source_char, pattern [, replace_string [, position [, occurrence [, match_param]]]]) -> VARCHAR2
+s REGEXP_SUBSTR(source_char, pattern [, position [, occurrence [, match_param [, subexpr]]]]) -> VARCHAR2
+s REPLACE(char, search_string [, replacement_string]) -> VARCHAR2
+s RPAD(expr1, n [, expr2]) -> VARCHAR2
+s RTRIM(char [, set]) -> VARCHAR2
+s SOUNDEX(char) -> VARCHAR2
+s SUBSTR(char, position [, substring_length]) -> VARCHAR2
+s SUBSTRB(char, position [, substring_length]) -> VARCHAR2
+s SUBSTRC(char, position [, substring_length]) -> VARCHAR2
+s SUBSTR2(char, position [, substring_length]) -> VARCHAR2
+s SUBSTR4(char, position [, substring_length]) -> VARCHAR2
+s TRANSLATE(expr, from_string, to_string) -> VARCHAR2
+s TRIM([LEADING | TRAILING | BOTH] [trim_character FROM] trim_source) -> VARCHAR2
+s UPPER(char) -> VARCHAR2
+
+# Character functions returning number values
+s ASCII(char) -> NUMBER
+s INSTR(string, substring [, position [, occurrence]]) -> NUMBER
+s INSTRB(string, substring [, position [, occurrence]]) -> NUMBER
+s INSTRC(string, substring [, position [, occurrence]]) -> NUMBER
+s INSTR2(string, substring [, position [, occurrence]]) -> NUMBER
+s INSTR4(string, substring [, position [, occurrence]]) -> NUMBER
+s LENGTH(char) -> NUMBER
+s LENGTHB(char) -> NUMBER
+s LENGTHC(char) -> NUMBER
+s LENGTH2(char) -> NUMBER
+s LENGTH4(char) -> NUMBER
+s REGEXP_COUNT(source_char, pattern [, position [, match_param]]) -> NUMBER
+s REGEXP_INSTR(source_char, pattern [, position [, occurrence [, return_opt [, match_param [, subexpr]]]]]) -> NUMBER
+s REGEXP_LIKE(source_char, pattern [, match_param]) -> BOOLEAN
+
+# Data quality
+s FUZZY_MATCH(algorithm, string1, string2 [, option]) -> NUMBER since=23.4
+s PHONIC_ENCODE(algorithm, string [, max_code_len]) -> VARCHAR2 since=23.4
+
+# Character set and collation
+s NLS_CHARSET_DECL_LEN(byte_count, char_set_id) -> NUMBER
+s NLS_CHARSET_ID(string) -> NUMBER
+s NLS_CHARSET_NAME(number) -> VARCHAR2
+s COLLATION(expr) -> VARCHAR2 since=12.2
+s NLS_COLLATION_ID(expr) -> NUMBER since=12.2
+s NLS_COLLATION_NAME(expr [, flag]) -> VARCHAR2 since=12.2
+
+# Datetime
+s ADD_MONTHS(date, integer) -> DATE
+s CURRENT_DATE -> DATE
+s CURRENT_TIMESTAMP -> TIMESTAMP WITH TIME ZONE
+s DBTIMEZONE -> VARCHAR2
+s EXTRACT(field FROM expr) -> NUMBER
+s FROM_TZ(timestamp_value, time_zone_value) -> TIMESTAMP WITH TIME ZONE
+s LAST_DAY(date) -> DATE
+s LOCALTIMESTAMP -> TIMESTAMP
+s MONTHS_BETWEEN(date1, date2) -> NUMBER
+s NEW_TIME(date, timezone1, timezone2) -> DATE
+s NEXT_DAY(date, char) -> DATE
+s NUMTODSINTERVAL(n, 'interval_unit') -> INTERVAL DAY TO SECOND
+s NUMTOYMINTERVAL(n, 'interval_unit') -> INTERVAL YEAR TO MONTH
+s ORA_DST_AFFECTED(datetime_expr) -> NUMBER
+s ORA_DST_CONVERT(datetime_expr [, integer [, integer]]) -> TIMESTAMP WITH TIME ZONE
+s ORA_DST_ERROR(datetime_expr) -> NUMBER
+s ROUND(date [, fmt]) -> DATE
+s SESSIONTIMEZONE -> VARCHAR2
+s SYS_EXTRACT_UTC(datetime_with_timezone) -> TIMESTAMP
+s SYSDATE -> DATE
+s SYSTIMESTAMP -> TIMESTAMP WITH TIME ZONE
+s TO_CHAR(datetime [, fmt [, 'nlsparam']]) -> VARCHAR2
+s TO_DSINTERVAL(sql_format) -> INTERVAL DAY TO SECOND
+s TO_TIMESTAMP(char [, fmt [, 'nlsparam']]) -> TIMESTAMP
+s TO_TIMESTAMP_TZ(char [, fmt [, 'nlsparam']]) -> TIMESTAMP WITH TIME ZONE
+s TO_UTC_TIMESTAMP_TZ(varchar) -> TIMESTAMP WITH TIME ZONE since=18
+s TO_YMINTERVAL(char) -> INTERVAL YEAR TO MONTH
+s TRUNC(date [, fmt]) -> DATE
+s TZ_OFFSET(time_zone_name | '+hh:mi' | SESSIONTIMEZONE | DBTIMEZONE) -> VARCHAR2
+s TIME_BUCKET(datetime, stride, origin [, START | END]) since=23.26
+
+# Comparison and NULL handling
+s GREATEST(expr [, expr]...)
+s LEAST(expr [, expr]...)
+s COALESCE(expr [, expr]...)
+s LNNVL(condition) -> BOOLEAN
+s NULLIF(expr1, expr2)
+s NVL(expr1, expr2)
+s NVL2(expr1, expr2, expr3)
+
+# Conversion
+s ASCIISTR(char) -> VARCHAR2
+s BIN_TO_NUM(expr [, expr]...) -> NUMBER
+s CAST(expr AS type_name [DEFAULT return_value ON CONVERSION ERROR] [, fmt [, 'nlsparam']])
+s CHARTOROWID(char) -> ROWID
+s COMPOSE(char) -> VARCHAR2
+s CONVERT(char, dest_char_set [, source_char_set]) -> VARCHAR2
+s DECOMPOSE(string [, CANONICAL | COMPATIBILITY]) -> VARCHAR2
+s HEXTORAW(char) -> RAW
+s RAWTOHEX(raw) -> VARCHAR2
+s RAWTONHEX(raw) -> NVARCHAR2
+s ROWIDTOCHAR(rowid) -> VARCHAR2
+s ROWIDTONCHAR(rowid) -> NVARCHAR2
+s SCN_TO_TIMESTAMP(number) -> TIMESTAMP
+s TIMESTAMP_TO_SCN(timestamp) -> NUMBER
+s TO_BINARY_DOUBLE(expr [DEFAULT return_value ON CONVERSION ERROR] [, fmt [, 'nlsparam']]) -> BINARY_DOUBLE
+s TO_BINARY_FLOAT(expr [DEFAULT return_value ON CONVERSION ERROR] [, fmt [, 'nlsparam']]) -> BINARY_FLOAT
+s TO_BLOB(raw_value | bfile [, mime_type]) -> BLOB
+s TO_BOOLEAN(expr) -> BOOLEAN since=23
+s TO_CHAR(n [, fmt [, 'nlsparam']]) -> VARCHAR2
+s TO_CLOB(lob_column | char) -> CLOB
+s TO_DATE(char [DEFAULT return_value ON CONVERSION ERROR] [, fmt [, 'nlsparam']]) -> DATE
+s TO_LOB(long_column)
+s TO_MULTI_BYTE(char) -> VARCHAR2
+s TO_NCHAR(expr [, fmt [, 'nlsparam']]) -> NVARCHAR2
+s TO_NCLOB(lob_column | char) -> NCLOB
+s TO_NUMBER(expr [DEFAULT return_value ON CONVERSION ERROR] [, fmt [, 'nlsparam']]) -> NUMBER
+s TO_SINGLE_BYTE(char) -> VARCHAR2
+s TREAT(expr AS [REF] [schema.]type)
+s UNISTR(string) -> NVARCHAR2
+s VALIDATE_CONVERSION(expr AS type_name [, fmt [, 'nlsparam']]) -> NUMBER since=12.2
+
+# Large objects
+s BFILENAME('directory', 'filename') -> BFILE
+s EMPTY_BLOB() -> BLOB
+s EMPTY_CLOB() -> CLOB
+
+# Collections
+s CARDINALITY(nested_table) -> NUMBER
+s POWERMULTISET(expr)
+s POWERMULTISET_BY_CARDINALITY(expr, cardinality)
+s SET(nested_table)
+
+# Hierarchical
+s SYS_CONNECT_BY_PATH(column, char) -> VARCHAR2
+
+# Encoding and decoding
+s DECODE(expr, search, result [, search, result]... [, default])
+s DUMP(expr [, return_fmt [, start_position [, length]]]) -> VARCHAR2
+s ORA_HASH(expr [, max_bucket [, seed_value]]) -> NUMBER
+s STANDARD_HASH(expr [, 'method']) -> RAW since=12.1
+s VSIZE(expr) -> NUMBER
+
+# Environment and identifiers
+s CON_DBID_TO_ID(container_dbid) -> NUMBER since=12.1
+s CON_GUID_TO_ID(container_guid) -> NUMBER since=12.1
+s CON_NAME_TO_ID(container_name) -> NUMBER since=12.1
+s CON_UID_TO_ID(container_uid) -> NUMBER since=12.1
+s CON_ID_TO_CON_NAME(container_id) -> VARCHAR2 since=23
+s CON_ID_TO_DBID(container_id) -> NUMBER since=23
+s CON_ID_TO_GUID(container_id) -> RAW since=23
+s CON_ID_TO_UID(container_id) -> NUMBER since=23
+s ORA_INVOKING_USER -> VARCHAR2 since=12.1
+s ORA_INVOKING_USERID -> NUMBER since=12.1
+s SYS_CONTEXT('namespace', 'parameter' [, length]) -> VARCHAR2
+s SYS_GUID() -> RAW
+s SYS_TYPEID(object_type_value) -> RAW
+s UID -> NUMBER
+s USER -> VARCHAR2
+s USERENV('parameter') -> VARCHAR2
+s UUID([version]) -> RAW since=23.26
+s IS_UUID(expr [, version]) -> BOOLEAN since=23.26
+s RAW_TO_UUID(raw_value) -> VARCHAR2 since=23.26
+s UUID_TO_RAW(uuid_string) -> RAW since=23.26
+
+# Object references
+s DEREF(expr)
+s MAKE_REF(table | view, key [, key]...)
+s REF(correlation_variable)
+s REFTOHEX(expr) -> VARCHAR2
+s VALUE(correlation_variable)
+
+# Model clause
+s CV([dimension_column])
+s ITERATION_NUMBER -> NUMBER
+s PRESENTNNV(cell_reference, expr1, expr2)
+s PRESENTV(cell_reference, expr1, expr2)
+s PREVIOUS(cell_reference)
+
+# Row pattern matching (MATCH_RECOGNIZE)
+s CLASSIFIER() -> VARCHAR2 since=12.1
+s MATCH_NUMBER() -> NUMBER since=12.1
+s NEXT(expr [, offset]) since=12.1
+s PREV(expr [, offset]) since=12.1
+
+# Data mining
+s CLUSTER_DETAILS([schema.]model [, cluster_id [, topN]] [DESC | ASC | ABS] mining_attribute_clause) -> XMLTYPE
+s CLUSTER_DISTANCE([schema.]model [, cluster_id] mining_attribute_clause) -> BINARY_DOUBLE
+s CLUSTER_ID([schema.]model mining_attribute_clause) -> NUMBER
+s CLUSTER_PROBABILITY([schema.]model [, cluster_id] mining_attribute_clause) -> BINARY_DOUBLE
+s CLUSTER_SET([schema.]model [, topN [, cutoff]] mining_attribute_clause)
+s FEATURE_COMPARE([schema.]model mining_attribute_clause AND mining_attribute_clause) -> BINARY_DOUBLE since=12.2
+s FEATURE_DETAILS([schema.]model [, feature_id [, topN]] [DESC | ASC | ABS] mining_attribute_clause) -> XMLTYPE
+s FEATURE_ID([schema.]model mining_attribute_clause) -> NUMBER
+s FEATURE_SET([schema.]model [, topN [, cutoff]] mining_attribute_clause)
+s FEATURE_VALUE([schema.]model [, feature_id] mining_attribute_clause) -> BINARY_DOUBLE
+s ORA_DM_PARTITION_NAME([schema.]model mining_attribute_clause) -> VARCHAR2 since=12.2
+s PREDICTION([schema.]model [cost_matrix_clause] mining_attribute_clause)
+s PREDICTION_BOUNDS([schema.]model [, confidence_level [, class_value]] mining_attribute_clause)
+s PREDICTION_COST([schema.]model [, class] cost_matrix_clause mining_attribute_clause) -> BINARY_DOUBLE
+s PREDICTION_DETAILS([schema.]model [, class_value [, topN]] [DESC | ASC | ABS] mining_attribute_clause) -> XMLTYPE
+s PREDICTION_PROBABILITY([schema.]model [, class] mining_attribute_clause) -> BINARY_DOUBLE
+s PREDICTION_SET([schema.]model [, bestN [, cutoff]] [cost_matrix_clause] mining_attribute_clause)
+
+# XML
+s DEPTH(correlation_integer) -> NUMBER
+s EXISTSNODE(XMLType_instance, XPath_string [, namespace_string]) -> NUMBER
+s EXTRACT(XMLType_instance, XPath_string [, namespace_string]) -> XMLTYPE
+s EXTRACTVALUE(XMLType_instance, XPath_string [, namespace_string]) -> VARCHAR2
+s PATH(correlation_integer) -> VARCHAR2
+s SYS_DBURIGEN(column | attribute [rowid] [, 'text()']) -> DBURITYPE
+s SYS_XMLGEN(expr [, fmt]) -> XMLTYPE
+s UPDATEXML(XMLType_instance, XPath_string, value_expr [, namespace_string]) -> XMLTYPE
+s XMLCAST(value_expression AS datatype)
+s XMLCDATA(value_expr) -> XMLTYPE
+s XMLCOLATTVAL(value_expr [AS c_alias] [, value_expr [AS c_alias]]...) -> XMLTYPE
+s XMLCOMMENT(value_expr) -> XMLTYPE
+s XMLCONCAT(XMLType_instance [, XMLType_instance]...) -> XMLTYPE
+s XMLDIFF(XMLType_document, XMLType_document [, integer, string]) -> XMLTYPE
+s XMLELEMENT([ENTITYESCAPING | NOENTITYESCAPING] [NAME] identifier [, XML_attributes_clause] [, value_expr [[AS] c_alias]]...) -> XMLTYPE
+s XMLEXISTS(XQuery_string [XML_passing_clause]) -> BOOLEAN
+s XMLFOREST(value_expr [AS c_alias] [, value_expr [AS c_alias]]...) -> XMLTYPE
+s XMLISVALID(XMLType_instance [, XMLSchema_URL [, element]]) -> NUMBER
+s XMLPARSE({DOCUMENT | CONTENT} value_expr [WELLFORMED]) -> XMLTYPE
+s XMLPATCH(XMLType_document, XMLType_document) -> XMLTYPE
+s XMLPI([NAME] identifier [, value_expr]) -> XMLTYPE
+s XMLQUERY(XQuery_string [XML_passing_clause] RETURNING CONTENT [NULL ON EMPTY]) -> XMLTYPE
+s XMLROOT(value_expr, VERSION {value_expr | NO VALUE} [, STANDALONE {YES | NO | NO VALUE}]) -> XMLTYPE
+s XMLSEQUENCE(XMLType_instance | sys_refcursor_instance [, fmt])
+s XMLSERIALIZE({DOCUMENT | CONTENT} value_expr [AS datatype] [ENCODING xml_encoding_spec] [VERSION string_literal] [NO INDENT | INDENT [SIZE = number]] [HIDE DEFAULTS | SHOW DEFAULTS])
+s XMLTRANSFORM(XMLType_instance, XMLType_instance | string) -> XMLTYPE
+t XMLTABLE([XMLnamespaces_clause ,] XQuery_string XMLTABLE_options)
+
+# JSON
+s JSON(expr) -> JSON since=21
+s JSON_ARRAY([JSON_array_content]) since=12.2
+s JSON_EQUAL(expr, expr) -> BOOLEAN since=18
+s JSON_EXISTS(expr [FORMAT JSON], JSON_basic_path_expression [JSON_passing_clause] [JSON_exists_on_error_clause]) -> BOOLEAN since=12.1
+s JSON_ID(UUID | OID [, binary_value]) since=23
+s JSON_MERGEPATCH(target_expr, patch_expr [RETURNING data_type] [PRETTY] [ASCII] [TRUNCATE] [on_error_clause]) since=19
+s JSON_OBJECT([JSON_object_content]) since=12.2
+s JSON_QUERY(expr [FORMAT JSON], JSON_basic_path_expression [JSON_query_returning_clause] [JSON_query_wrapper_clause] [JSON_query_on_error_clause] [JSON_query_on_empty_clause]) since=12.1
+s JSON_SCALAR(expr [SQL | JSON] [NULL ON NULL]) -> JSON since=21
+s JSON_SERIALIZE(target_expr [RETURNING data_type] [PRETTY] [ASCII] [TRUNCATE] [{NULL | ERROR | EMPTY} ON ERROR]) since=19
+s JSON_TEXTCONTAINS(column, JSON_basic_path_expression, string) -> BOOLEAN since=12.1
+s JSON_TRANSFORM(input_expr, operation [, operation]... [JSON_transform_returning_clause] [JSON_passing_clause]) since=21
+s JSON_VALUE(expr [FORMAT JSON], JSON_basic_path_expression [JSON_value_returning_clause] [JSON_value_on_error_clause] [JSON_value_on_empty_clause]) since=12.1
+t JSON_TABLE(expr [FORMAT JSON] [, JSON_basic_path_expression] [JSON_table_on_error_clause] [JSON_table_on_empty_clause] JSON_columns_clause) since=12.1
+
+# Domains
+s DOMAIN_CHECK([schema.]domain_name, expr [, expr]...) -> BOOLEAN since=23
+s DOMAIN_CHECK_TYPE([schema.]domain_name, expr [, expr]...) -> BOOLEAN since=23
+s DOMAIN_DISPLAY(expr [, expr]...) since=23
+s DOMAIN_NAME(expr [, expr]...) -> VARCHAR2 since=23
+s DOMAIN_ORDER(expr [, expr]...) since=23
+
+# AI vector search
+s COSINE_DISTANCE(expr1, expr2) -> BINARY_DOUBLE since=23.4
+s FROM_VECTOR(expr [RETURNING data_type]) since=23.4
+s HAMMING_DISTANCE(expr1, expr2) -> BINARY_DOUBLE since=23.4
+s INNER_PRODUCT(expr1, expr2) -> BINARY_DOUBLE since=23.4
+s JACCARD_DISTANCE(expr1, expr2) -> BINARY_DOUBLE since=23.26
+s L1_DISTANCE(expr1, expr2) -> BINARY_DOUBLE since=23.4
+s L2_DISTANCE(expr1, expr2) -> BINARY_DOUBLE since=23.4
+s TO_VECTOR(expr [, number_of_dimensions [, dimension_element_format]]) -> VECTOR since=23.4
+s VECTOR(expr [, number_of_dimensions [, dimension_element_format]]) -> VECTOR since=23.4
+s VECTOR_DIMENSION_COUNT(expr) -> NUMBER since=23.4
+s VECTOR_DIMENSION_FORMAT(expr) -> VARCHAR2 since=23.4
+s VECTOR_DIMS(expr) -> NUMBER since=23.4
+s VECTOR_DISTANCE(expr1, expr2 [, metric]) -> BINARY_DOUBLE since=23.4
+s VECTOR_EMBEDDING(model_name USING data AS label) -> VECTOR since=23.4
+s VECTOR_NORM(expr) -> BINARY_DOUBLE since=23.4
+s VECTOR_SERIALIZE(expr [RETURNING data_type]) since=23.4
+t VECTOR_CHUNKS(text_document chunking_spec) since=23.4
+
+# OLAP
+t CUBE_TABLE('[schema.]cube [HIERARCHY dimension hierarchy]...')
+
+# Aggregates
+a ANY_VALUE([DISTINCT | ALL] expr) since=21
+a APPROX_COUNT(* | [DISTINCT | ALL] expr [, 'MAX_ERROR']) -> NUMBER since=18
+a APPROX_COUNT_DISTINCT(expr) -> NUMBER since=12.1
+a APPROX_COUNT_DISTINCT_AGG(detail) since=12.2
+a APPROX_COUNT_DISTINCT_DETAIL(expr) since=12.2
+a APPROX_MEDIAN(expr [DETERMINISTIC] [, {'ERROR_RATE' | 'CONFIDENCE'}]) since=12.2
+a APPROX_PERCENTILE(expr [DETERMINISTIC] [, {'ERROR_RATE' | 'CONFIDENCE'}]) WITHIN GROUP (ORDER BY expr [DESC | ASC]) since=12.2
+a APPROX_PERCENTILE_AGG(expr) since=12.2
+a APPROX_PERCENTILE_DETAIL(expr [DETERMINISTIC]) since=12.2
+a APPROX_RANK([PARTITION BY partition_by_clause] [ORDER BY order_by_clause DESC]) -> NUMBER since=18
+a APPROX_SUM(* | expr [, 'MAX_ERROR']) -> NUMBER since=18
+a AVG([DISTINCT | ALL] expr) -> NUMBER
+a BIT_AND_AGG([DISTINCT | ALL | UNIQUE] expr) -> NUMBER since=21
+a BIT_OR_AGG([DISTINCT | ALL | UNIQUE] expr) -> NUMBER since=21
+a BIT_XOR_AGG([DISTINCT | ALL | UNIQUE] expr) -> NUMBER since=21
+a BOOLEAN_AND_AGG(expr) -> BOOLEAN since=23
+a BOOLEAN_OR_AGG(expr) -> BOOLEAN since=23
+a CHECKSUM([ALL | DISTINCT | UNIQUE] expr) -> NUMBER since=21
+a COLLECT([DISTINCT | UNIQUE] column [ORDER BY expr])
+a CORR(expr1, expr2) -> NUMBER
+a CORR_K(expr1, expr2 [, {COEFFICIENT | ONE_SIDED_SIG | ONE_SIDED_SIG_POS | ONE_SIDED_SIG_NEG | TWO_SIDED_SIG}]) -> NUMBER
+a CORR_S(expr1, expr2 [, {COEFFICIENT | ONE_SIDED_SIG | ONE_SIDED_SIG_POS | ONE_SIDED_SIG_NEG | TWO_SIDED_SIG}]) -> NUMBER
+a COUNT(* | [DISTINCT | ALL] expr) -> NUMBER
+a COVAR_POP(expr1, expr2) -> NUMBER
+a COVAR_SAMP(expr1, expr2) -> NUMBER
+a FIRST(expr) KEEP (DENSE_RANK FIRST ORDER BY expr)
+a GROUP_ID() -> NUMBER
+a GROUPING(expr) -> NUMBER
+a GROUPING_ID(expr [, expr]...) -> NUMBER
+a JSON_ARRAYAGG(expr [FORMAT JSON] [order_by_clause] [JSON_on_null_clause] [JSON_agg_returning_clause] [STRICT]) since=12.2
+a JSON_DATAGUIDE(expr [, format [, flag]]) -> CLOB since=12.2
+a JSON_OBJECTAGG([KEY] string VALUE expr [FORMAT JSON] [JSON_on_null_clause] [JSON_agg_returning_clause] [STRICT] [WITH UNIQUE KEYS]) since=12.2
+a KURTOSIS_POP([DISTINCT | ALL | UNIQUE] expr) -> NUMBER since=21
+a KURTOSIS_SAMP([DISTINCT | ALL | UNIQUE] expr) -> NUMBER since=21
+a LAST(expr) KEEP (DENSE_RANK LAST ORDER BY expr)
+a LISTAGG([ALL | DISTINCT] measure_expr [, 'delimiter'] [listagg_overflow_clause]) WITHIN GROUP (order_by_clause) -> VARCHAR2 since=11.2
+a MAX([DISTINCT | ALL] expr)
+a MEDIAN(expr) -> NUMBER
+a MIN([DISTINCT | ALL] expr)
+a PERCENTILE_CONT(expr) WITHIN GROUP (ORDER BY expr [DESC | ASC])
+a PERCENTILE_DISC(expr) WITHIN GROUP (ORDER BY expr [DESC | ASC])
+a REGR_AVGX(expr1, expr2) -> NUMBER
+a REGR_AVGY(expr1, expr2) -> NUMBER
+a REGR_COUNT(expr1, expr2) -> NUMBER
+a REGR_INTERCEPT(expr1, expr2) -> NUMBER
+a REGR_R2(expr1, expr2) -> NUMBER
+a REGR_SLOPE(expr1, expr2) -> NUMBER
+a REGR_SXX(expr1, expr2) -> NUMBER
+a REGR_SXY(expr1, expr2) -> NUMBER
+a REGR_SYY(expr1, expr2) -> NUMBER
+a SKEWNESS_POP([DISTINCT | ALL | UNIQUE] expr) -> NUMBER since=21
+a SKEWNESS_SAMP([DISTINCT | ALL | UNIQUE] expr) -> NUMBER since=21
+a STATS_BINOMIAL_TEST(expr1, expr2, p [, {TWO_SIDED_PROB | EXACT_PROB | ONE_SIDED_PROB_OR_MORE | ONE_SIDED_PROB_OR_LESS}]) -> NUMBER
+a STATS_CROSSTAB(expr1, expr2 [, {CHISQ_OBS | CHISQ_SIG | CHISQ_DF | PHI_COEFFICIENT | CRAMERS_V | CONT_COEFFICIENT | COHENS_K}]) -> NUMBER
+a STATS_F_TEST(expr1, expr2 [, {STATISTIC | DF_NUM | DF_DEN | ONE_SIDED_SIG | TWO_SIDED_SIG} [, expr3]]) -> NUMBER
+a STATS_KS_TEST(expr1, expr2 [, {STATISTIC | SIG}]) -> NUMBER
+a STATS_MODE(expr)
+a STATS_MW_TEST(expr1, expr2 [, {STATISTIC | U_STATISTIC | ONE_SIDED_SIG | TWO_SIDED_SIG} [, expr3]]) -> NUMBER
+a STATS_ONE_WAY_ANOVA(expr1, expr2 [, {SUM_SQUARES_BETWEEN | SUM_SQUARES_WITHIN | DF_BETWEEN | DF_WITHIN | MEAN_SQUARES_BETWEEN | MEAN_SQUARES_WITHIN | F_RATIO | SIG}]) -> NUMBER
+a STATS_T_TEST_INDEP(expr1, expr2 [, {STATISTIC | ONE_SIDED_SIG | TWO_SIDED_SIG | DF} [, expr3]]) -> NUMBER
+a STATS_T_TEST_INDEPU(expr1, expr2 [, {STATISTIC | ONE_SIDED_SIG | TWO_SIDED_SIG | DF} [, expr3]]) -> NUMBER
+a STATS_T_TEST_ONE(expr1 [, expr2] [, {STATISTIC | ONE_SIDED_SIG | TWO_SIDED_SIG | DF}]) -> NUMBER
+a STATS_T_TEST_PAIRED(expr1, expr2 [, {STATISTIC | ONE_SIDED_SIG | TWO_SIDED_SIG | DF} [, expr3]]) -> NUMBER
+a STATS_WSR_TEST(expr1, expr2 [, {STATISTIC | ONE_SIDED_SIG | TWO_SIDED_SIG}]) -> NUMBER
+a STDDEV([DISTINCT | ALL] expr) -> NUMBER
+a STDDEV_POP(expr) -> NUMBER
+a STDDEV_SAMP(expr) -> NUMBER
+a SUM([DISTINCT | ALL] expr)
+s SYS_OP_ZONE_ID([[schema.]table.]rowid [, scale]) since=12.1
+a SYS_XMLAGG(expr [, fmt]) -> XMLTYPE
+a TO_APPROX_COUNT_DISTINCT(detail) since=12.2
+a TO_APPROX_PERCENTILE(detail, expr, 'datatype' [, {'DESC' | 'ASC' | 'ERROR_RATE' | 'CONFIDENCE'}]) since=12.2
+a VAR_POP(expr) -> NUMBER
+a VAR_SAMP(expr) -> NUMBER
+a VARIANCE([DISTINCT | ALL] expr) -> NUMBER
+a XMLAGG(XMLType_instance [order_by_clause]) -> XMLTYPE
+
+# Analytic (window) functions
+w CUME_DIST() OVER ([query_partition_clause] order_by_clause) -> NUMBER
+w DENSE_RANK() OVER ([query_partition_clause] order_by_clause) -> NUMBER
+w FIRST_VALUE(expr [IGNORE NULLS]) OVER (analytic_clause)
+w LAG(value_expr [, offset [, default]]) [IGNORE NULLS | RESPECT NULLS] OVER ([query_partition_clause] order_by_clause)
+w LAST_VALUE(expr [IGNORE NULLS]) OVER (analytic_clause)
+w LEAD(value_expr [, offset [, default]]) [IGNORE NULLS | RESPECT NULLS] OVER ([query_partition_clause] order_by_clause)
+w NTH_VALUE(measure_expr, n) [FROM FIRST | FROM LAST] [RESPECT NULLS | IGNORE NULLS] OVER (analytic_clause) since=11.2
+w NTILE(expr) OVER ([query_partition_clause] order_by_clause) -> NUMBER
+w PERCENT_RANK() OVER ([query_partition_clause] order_by_clause) -> NUMBER
+w RANK() OVER ([query_partition_clause] order_by_clause) -> NUMBER
+w RATIO_TO_REPORT(expr) OVER ([query_partition_clause]) -> NUMBER
+w ROW_NUMBER() OVER ([query_partition_clause] order_by_clause) -> NUMBER

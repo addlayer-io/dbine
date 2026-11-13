@@ -10,6 +10,7 @@ mod backup;
 mod blocking;
 mod create_db;
 mod ddl;
+mod functions;
 mod health;
 mod index_usage;
 mod jobs;
@@ -1851,6 +1852,12 @@ impl Session for OracleSession {
     /// ALL_TAB_COMMENTS (views) and ALL_MVIEW_COMMENTS (see `stats`).
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         self.object_comments_impl().await
+    }
+
+    /// The documented built-ins for the server's release, checked against
+    /// V$SQLFN_METADATA, and the schema's functions (see `functions`).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_catalog_impl().await
     }
 
     /// One query: SESSION_PRIVS and SESSION_ROLES (see `permissions`).

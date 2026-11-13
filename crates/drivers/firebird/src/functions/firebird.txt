@@ -1,0 +1,177 @@
+# Firebird: the built-in functions, aggregates, window functions and
+# context variables of the Firebird Language Reference (3.0 to 5.0).
+# `since` is the Firebird version that added one; no `since`: 3.0 or
+# earlier (DBine connects to 3.0 and later).
+
+# Context
+s RDB$GET_CONTEXT(namespace, varname) -> VARCHAR(255)
+s RDB$SET_CONTEXT(namespace, varname, value) -> INTEGER
+s RDB$GET_TRANSACTION_CN(transaction_id) -> BIGINT since=4.0
+s RDB$ROLE_IN_USE(role_name) -> BOOLEAN since=4.0
+s RDB$SYSTEM_PRIVILEGE(privilege) -> BOOLEAN since=4.0
+s RDB$ERROR(context) since=4.0
+s CURRENT_CONNECTION -> BIGINT
+s CURRENT_DATE -> DATE
+s CURRENT_ROLE -> VARCHAR(63)
+s CURRENT_TIME -> TIME
+s CURRENT_TIMESTAMP -> TIMESTAMP
+s CURRENT_TRANSACTION -> BIGINT
+s CURRENT_USER -> VARCHAR(63)
+s LOCALTIME -> TIME since=3.0.4
+s LOCALTIMESTAMP -> TIMESTAMP since=3.0.4
+s ROW_COUNT -> INTEGER
+s USER -> VARCHAR(63)
+
+# Mathematical
+s ABS(number)
+s ACOS(number) -> DOUBLE PRECISION
+s ACOSH(number) -> DOUBLE PRECISION since=4.0
+s ASIN(number) -> DOUBLE PRECISION
+s ASINH(number) -> DOUBLE PRECISION since=4.0
+s ATAN(number) -> DOUBLE PRECISION
+s ATAN2(y, x) -> DOUBLE PRECISION
+s ATANH(number) -> DOUBLE PRECISION since=4.0
+s CEIL(number)
+s CEILING(number)
+s COS(angle) -> DOUBLE PRECISION
+s COSH(number) -> DOUBLE PRECISION
+s COT(angle) -> DOUBLE PRECISION
+s EXP(number) -> DOUBLE PRECISION
+s FLOOR(number)
+s LN(number) -> DOUBLE PRECISION
+s LOG(x, y) -> DOUBLE PRECISION
+s LOG10(number) -> DOUBLE PRECISION
+s MOD(a, b)
+s PI() -> DOUBLE PRECISION
+s POWER(x, y) -> DOUBLE PRECISION
+s RAND() -> DOUBLE PRECISION
+s ROUND(number [, scale])
+s SIGN(number) -> SMALLINT
+s SIN(angle) -> DOUBLE PRECISION
+s SINH(number) -> DOUBLE PRECISION
+s SQRT(number) -> DOUBLE PRECISION
+s TAN(angle) -> DOUBLE PRECISION
+s TANH(number) -> DOUBLE PRECISION
+s TRUNC(number [, scale])
+
+# String
+s ASCII_CHAR(code) -> CHAR(1)
+s ASCII_VAL(ch) -> SMALLINT
+s BASE64_DECODE(base64_data) -> VARBINARY since=4.0
+s BASE64_ENCODE(binary_data) -> VARCHAR since=4.0
+s BIT_LENGTH(string) -> INTEGER
+s BLOB_APPEND(expr [, expr]...) -> BLOB since=5.0
+s CHAR_LENGTH(string) -> INTEGER
+s CHARACTER_LENGTH(string) -> INTEGER
+s CRYPT_HASH(value USING {MD5 | SHA1 | SHA256 | SHA512 | SHA3_224 | SHA3_256 | SHA3_384 | SHA3_512}) -> VARBINARY since=4.0
+s HASH(value) -> BIGINT
+s HASH(value USING CRC32) -> BIGINT since=4.0
+s HEX_DECODE(hex_data) -> VARBINARY since=4.0
+s HEX_ENCODE(binary_data) -> VARCHAR since=4.0
+s LEFT(string, length)
+s LOWER(string)
+s LPAD(str, endlen [, padstr])
+s OCTET_LENGTH(string) -> INTEGER
+s OVERLAY(string PLACING replacement FROM pos [FOR length])
+s POSITION(substr IN string)
+s POSITION(substr, string [, startpos]) -> INTEGER
+s REPLACE(str, find, repl)
+s REVERSE(string)
+s RIGHT(string, length)
+s RPAD(str, endlen [, padstr])
+s SUBSTRING(str FROM startpos [FOR length])
+s SUBSTRING(str SIMILAR pattern ESCAPE escape)
+s TRIM([{LEADING | TRAILING | BOTH}] [trim_str] FROM str)
+s UNICODE_CHAR(code) -> CHAR(1) since=5.0
+s UNICODE_VAL(string) -> INTEGER since=5.0
+s UPPER(string)
+
+# Date and time
+s DATEADD(amount unit TO datetime)
+s DATEADD(unit, amount, datetime)
+s DATEDIFF(unit FROM moment1 TO moment2) -> BIGINT
+s DATEDIFF(unit, moment1, moment2) -> BIGINT
+s EXTRACT(part FROM datetime)
+s FIRST_DAY(OF {YEAR | MONTH | QUARTER | WEEK} FROM date_or_timestamp) since=4.0
+s LAST_DAY(OF {YEAR | MONTH | QUARTER | WEEK} FROM date_or_timestamp) since=4.0
+
+# Type casting and identifiers
+s CAST(value AS type)
+s MAKE_DBKEY(relation, recnum [, dpnum [, ppnum]]) -> BINARY(8)
+
+# Bitwise
+s BIN_AND(number, number [, number]...)
+s BIN_NOT(number)
+s BIN_OR(number, number [, number]...)
+s BIN_SHL(number, shift)
+s BIN_SHR(number, shift)
+s BIN_XOR(number, number [, number]...)
+
+# UUID
+s CHAR_TO_UUID(ascii_uuid) -> BINARY(16)
+s GEN_UUID() -> BINARY(16)
+s UUID_TO_CHAR(uuid) -> CHAR(36)
+
+# Sequences
+s GEN_ID(generator, step) -> BIGINT
+
+# Conditional
+s COALESCE(expr1, expr2 [, exprN]...)
+s DECODE(testexpr, expr1, result1 [, exprN, resultN]... [, defaultresult])
+s IIF(condition, resultT, resultF)
+s MAXVALUE(expr [, expr]...)
+s MINVALUE(expr [, expr]...)
+s NULLIF(expr1, expr2)
+
+# Cryptographic
+s DECRYPT(encrypted_input USING algorithm [MODE mode] KEY key [IV iv] [counter_type] [CTR_LENGTH ctr_length] [COUNTER initial_counter]) -> VARBINARY since=4.0
+s ENCRYPT(input USING algorithm [MODE mode] KEY key [IV iv] [counter_type] [CTR_LENGTH ctr_length] [COUNTER initial_counter]) -> VARBINARY since=4.0
+s RSA_DECRYPT(encrypted_input KEY private_key [LPARAM tag_string] [HASH hash] [PKCS_1_5]) -> VARBINARY since=4.0
+s RSA_ENCRYPT(input KEY public_key [LPARAM tag_string] [HASH hash] [PKCS_1_5]) -> VARBINARY since=4.0
+s RSA_PRIVATE(key_length) -> VARBINARY since=4.0
+s RSA_PUBLIC(private_key) -> VARBINARY since=4.0
+s RSA_SIGN_HASH(message_digest KEY private_key [HASH hash] [SALT_LENGTH salt_length] [PKCS_1_5]) -> VARBINARY since=4.0
+s RSA_VERIFY_HASH(message_digest SIGNATURE signature KEY public_key [HASH hash] [SALT_LENGTH salt_length] [PKCS_1_5]) -> BOOLEAN since=4.0
+
+# DECFLOAT
+s COMPARE_DECFLOAT(decfloat1, decfloat2) -> SMALLINT since=4.0
+s NORMALIZE_DECFLOAT(decfloat_value) since=4.0
+s QUANTIZE(decfloat_value, exp_value) since=4.0
+s TOTALORDER(decfloat1, decfloat2) -> SMALLINT since=4.0
+
+# Aggregates
+a AVG([ALL | DISTINCT] expr)
+a COUNT([ALL | DISTINCT] expr | *) -> BIGINT
+a LIST([ALL | DISTINCT] expr [, separator])
+a MAX([ALL | DISTINCT] expr)
+a MIN([ALL | DISTINCT] expr)
+a SUM([ALL | DISTINCT] expr)
+a CORR(y, x) -> DOUBLE PRECISION since=4.0
+a COVAR_POP(y, x) -> DOUBLE PRECISION since=4.0
+a COVAR_SAMP(y, x) -> DOUBLE PRECISION since=4.0
+a STDDEV_POP(expr) -> DOUBLE PRECISION since=4.0
+a STDDEV_SAMP(expr) -> DOUBLE PRECISION since=4.0
+a VAR_POP(expr) -> DOUBLE PRECISION since=4.0
+a VAR_SAMP(expr) -> DOUBLE PRECISION since=4.0
+a REGR_AVGX(y, x) -> DOUBLE PRECISION since=4.0
+a REGR_AVGY(y, x) -> DOUBLE PRECISION since=4.0
+a REGR_COUNT(y, x) -> BIGINT since=4.0
+a REGR_INTERCEPT(y, x) -> DOUBLE PRECISION since=4.0
+a REGR_R2(y, x) -> DOUBLE PRECISION since=4.0
+a REGR_SLOPE(y, x) -> DOUBLE PRECISION since=4.0
+a REGR_SXX(y, x) -> DOUBLE PRECISION since=4.0
+a REGR_SXY(y, x) -> DOUBLE PRECISION since=4.0
+a REGR_SYY(y, x) -> DOUBLE PRECISION since=4.0
+
+# Window functions
+w CUME_DIST() OVER (window_spec) -> DOUBLE PRECISION since=4.0
+w DENSE_RANK() OVER (window_spec) -> BIGINT
+w FIRST_VALUE(expr) OVER (window_spec)
+w LAG(expr [, offset [, default]]) OVER (window_spec)
+w LAST_VALUE(expr) OVER (window_spec)
+w LEAD(expr [, offset [, default]]) OVER (window_spec)
+w NTH_VALUE(expr, offset) [FROM FIRST | FROM LAST] OVER (window_spec)
+w NTILE(number_of_tiles) OVER (window_spec) -> BIGINT since=4.0
+w PERCENT_RANK() OVER (window_spec) -> DOUBLE PRECISION since=4.0
+w RANK() OVER (window_spec) -> BIGINT
+w ROW_NUMBER() OVER (window_spec) -> BIGINT

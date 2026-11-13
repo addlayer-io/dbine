@@ -1,0 +1,272 @@
+# Vertica: the SQL functions of the Vertica documentation (10.x to 24.x).
+# `since` is the Vertica version that added one.
+
+# Aggregate
+a APPROXIMATE_COUNT_DISTINCT(expression [, error_tolerance]) -> INTEGER
+a APPROXIMATE_COUNT_DISTINCT_SYNOPSIS(expression [, error_tolerance])
+a APPROXIMATE_COUNT_DISTINCT_OF_SYNOPSIS(synopsis_obj [, error_tolerance]) -> INTEGER
+a APPROXIMATE_MEDIAN(expression) -> FLOAT
+a APPROXIMATE_PERCENTILE(expression USING PARAMETERS percentiles='p') -> FLOAT
+a ARGMAX_AGG(target, arg)
+a ARGMIN_AGG(target, arg)
+a AVG([ALL | DISTINCT] expression) -> FLOAT
+a BIT_AND(expression)
+a BIT_OR(expression)
+a BIT_XOR(expression)
+a BOOL_AND(expression) -> BOOLEAN
+a BOOL_OR(expression) -> BOOLEAN
+a BOOL_XOR(expression) -> BOOLEAN
+a CORR(expression1, expression2) -> FLOAT
+a COUNT([* | DISTINCT] expression) -> INTEGER
+a COVAR_POP(expression1, expression2) -> FLOAT
+a COVAR_SAMP(expression1, expression2) -> FLOAT
+a GROUPING(expression) -> INTEGER
+a GROUPING_ID([expression [, expression]...]) -> INTEGER
+a GROUP_ID() -> INTEGER
+a LISTAGG(expression [USING PARAMETERS max_length=n, separator='s', on_overflow='o']) -> VARCHAR
+a MAX([ALL | DISTINCT] expression)
+a MIN([ALL | DISTINCT] expression)
+a REGR_AVGX(y, x) -> FLOAT
+a REGR_AVGY(y, x) -> FLOAT
+a REGR_COUNT(y, x) -> INTEGER
+a REGR_INTERCEPT(y, x) -> FLOAT
+a REGR_R2(y, x) -> FLOAT
+a REGR_SLOPE(y, x) -> FLOAT
+a REGR_SXX(y, x) -> FLOAT
+a REGR_SXY(y, x) -> FLOAT
+a REGR_SYY(y, x) -> FLOAT
+a STDDEV(expression) -> FLOAT
+a STDDEV_POP(expression) -> FLOAT
+a STDDEV_SAMP(expression) -> FLOAT
+a SUM([ALL | DISTINCT] expression)
+a SUM_FLOAT([ALL | DISTINCT] expression) -> FLOAT
+a VAR_POP(expression) -> FLOAT
+a VAR_SAMP(expression) -> FLOAT
+a VARIANCE(expression) -> FLOAT
+a IMPLODE(input_column [USING PARAMETERS ...]) since=11.0
+
+# Analytic
+w ARGMAX(target, arg) OVER (window_specification)
+w ARGMIN(target, arg) OVER (window_specification)
+w CONDITIONAL_CHANGE_EVENT(expression) OVER (window_specification) -> INTEGER
+w CONDITIONAL_TRUE_EVENT(boolean_expression) OVER (window_specification) -> INTEGER
+w CUME_DIST() OVER (window_specification) -> FLOAT
+w DENSE_RANK() OVER (window_specification) -> INTEGER
+w EXPONENTIAL_MOVING_AVERAGE(expression, smoothing_factor) OVER (window_specification) -> FLOAT
+w FIRST_VALUE(expression [IGNORE NULLS]) OVER (window_specification)
+w LAG(expression [, offset [, default]]) OVER (window_specification)
+w LAST_VALUE(expression [IGNORE NULLS]) OVER (window_specification)
+w LEAD(expression [, offset [, default]]) OVER (window_specification)
+w MEDIAN(expression) OVER (window_specification)
+w NTH_VALUE(expression, row_number [IGNORE NULLS]) OVER (window_specification)
+w NTILE(constant_value) OVER (window_specification) -> INTEGER
+w PERCENTILE_CONT(percentile) WITHIN GROUP (ORDER BY expression [ASC | DESC]) OVER (window_specification)
+w PERCENTILE_DISC(percentile) WITHIN GROUP (ORDER BY expression [ASC | DESC]) OVER (window_specification)
+w PERCENT_RANK() OVER (window_specification) -> FLOAT
+w RANK() OVER (window_specification) -> INTEGER
+w ROW_NUMBER() OVER (window_specification) -> INTEGER
+
+# Date and time
+s ADD_MONTHS(start_date, num_months) -> DATE
+s AGE_IN_MONTHS(end_date [, start_date]) -> INTEGER
+s AGE_IN_YEARS(end_date [, start_date]) -> INTEGER
+s CLOCK_TIMESTAMP() -> TIMESTAMP WITH TIME ZONE
+s CURRENT_DATE -> DATE
+s CURRENT_TIME -> TIME WITH TIME ZONE
+s CURRENT_TIMESTAMP -> TIMESTAMP WITH TIME ZONE
+s DATE(value) -> DATE
+s DATE_PART('field', date) -> FLOAT
+s DATE_TRUNC(precision, trunc_target)
+s DATEDIFF(datepart, start, end) -> INTEGER
+s DAY(value) -> INTEGER
+s DAYOFMONTH(date) -> INTEGER
+s DAYOFWEEK(date) -> INTEGER
+s DAYOFWEEK_ISO(date) -> INTEGER
+s DAYOFYEAR(date) -> INTEGER
+s DAYS(date) -> INTEGER
+s EXTRACT(field FROM date) -> INTEGER
+s GETDATE() -> TIMESTAMP
+s GETUTCDATE() -> TIMESTAMP
+s HOUR(date) -> INTEGER
+s ISFINITE(timestamp) -> BOOLEAN
+s JULIAN_DAY(date) -> INTEGER
+s LAST_DAY(date) -> DATE
+s LOCALTIME -> TIME
+s LOCALTIMESTAMP -> TIMESTAMP
+s MICROSECOND(date) -> INTEGER
+s MIDNIGHT_SECONDS(date) -> INTEGER
+s MINUTE(date) -> INTEGER
+s MONTH(date) -> INTEGER
+s MONTHS_BETWEEN(date1, date2) -> FLOAT
+s NEW_TIME(timestamp, timezone1, timezone2) -> TIMESTAMP
+s NEXT_DAY(date, 'day_string') -> DATE
+s NOW() -> TIMESTAMP WITH TIME ZONE
+s OVERLAPS(start, end, start, end) -> BOOLEAN
+s QUARTER(date) -> INTEGER
+s ROUND(date [, precision])
+s SECOND(date) -> INTEGER
+s STATEMENT_TIMESTAMP() -> TIMESTAMP WITH TIME ZONE
+s SYSDATE -> TIMESTAMP
+s TIME_SLICE(expr, slice_length [, time_unit [, start_or_end]]) -> TIMESTAMP
+s TIMEOFDAY() -> VARCHAR
+s TIMESTAMPADD(datepart, count, start) -> TIMESTAMP
+s TIMESTAMPDIFF(datepart, start, end) -> INTEGER
+s TIMESTAMP_ROUND(timestamp [, precision]) -> TIMESTAMP
+s TIMESTAMP_TRUNC(timestamp [, precision]) -> TIMESTAMP
+s TRANSACTION_TIMESTAMP() -> TIMESTAMP WITH TIME ZONE
+s TRUNC(date [, precision])
+s WEEK(date) -> INTEGER
+s WEEK_ISO(date) -> INTEGER
+s YEAR(date) -> INTEGER
+s YEAR_ISO(date) -> INTEGER
+
+# Formatting
+s TO_BITSTRING(expression) -> VARCHAR
+s TO_CHAR(expression [, pattern]) -> VARCHAR
+s TO_DATE(expression, pattern) -> DATE
+s TO_HEX(number) -> VARCHAR
+s TO_NUMBER(expression [, pattern]) -> NUMERIC
+s TO_TIMESTAMP(expression, pattern) -> TIMESTAMP
+s TO_TIMESTAMP_TZ(expression, pattern) -> TIMESTAMP WITH TIME ZONE
+
+# Mathematical
+s ABS(expression)
+s ACOS(expression) -> FLOAT
+s ASIN(expression) -> FLOAT
+s ATAN(expression) -> FLOAT
+s ATAN2(quotient, divisor) -> FLOAT
+s CBRT(expression) -> FLOAT
+s CEILING(expression)
+s CEIL(expression)
+s COS(expression) -> FLOAT
+s COSH(expression) -> FLOAT
+s COT(expression) -> FLOAT
+s DEGREES(radians) -> FLOAT
+s DISTANCE(lat0, lon0, lat1, lon1 [, radius_of_curvature]) -> FLOAT
+s DISTANCEV(lat0, lon0, lat1, lon1) -> FLOAT
+s EXP(exponent) -> FLOAT
+s FLOOR(expression)
+s HASH(expression [, expression]...) -> INTEGER
+s LN(expression) -> FLOAT
+s LOG(base, expression) -> FLOAT
+s LOG10(expression) -> FLOAT
+s MOD(expression1, expression2)
+s PI() -> FLOAT
+s POWER(expression1, expression2)
+s RADIANS(degrees) -> FLOAT
+s RANDOM() -> FLOAT
+s RANDOMINT(n) -> INTEGER
+s ROUND(expression [, places])
+s SIGN(expression)
+s SIN(expression) -> FLOAT
+s SINH(expression) -> FLOAT
+s SQRT(expression) -> FLOAT
+s TAN(expression) -> FLOAT
+s TANH(expression) -> FLOAT
+s TRUNC(expression [, places])
+s WIDTH_BUCKET(expression, hist_min, hist_max, bucket_count) -> INTEGER
+
+# String
+s ASCII(string) -> INTEGER
+s BIT_LENGTH(expression) -> INTEGER
+s BITCOUNT(expression) -> INTEGER
+s BITSTRING_TO_BINARY(expression) -> VARBINARY
+s BTRIM(expression [, characters_to_remove])
+s CHARACTER_LENGTH(expression [USING {CHARACTERS | OCTETS}]) -> INTEGER
+s CHAR_LENGTH(expression [USING {CHARACTERS | OCTETS}]) -> INTEGER
+s CHR(expression) -> CHAR
+s COLLATION(expression [, locale_or_collation_name])
+s CONCAT(string1, string2)
+s DECODE(expression, search, result [, search, result]... [, default])
+s EDIT_DISTANCE(string1, string2) -> INTEGER
+s GREATEST(expression [, expression]...)
+s GREATESTB(expression [, expression]...)
+s HEX_TO_BINARY(expression) -> VARBINARY
+s HEX_TO_INTEGER(string) -> INTEGER
+s INET_ATON(expression) -> INTEGER
+s INET_NTOA(expression) -> VARCHAR
+s INITCAP(expression) -> VARCHAR
+s INSERT(string, position, number, replace_with)
+s INSTR(string, substring [, start_position [, occurrence]]) -> INTEGER
+s LEAST(expression [, expression]...)
+s LEFT(string_expr, length)
+s LENGTH(expression) -> INTEGER
+s LOWER(expression)
+s LPAD(expression, length [, fill])
+s LTRIM(expression [, characters])
+s MD5(string) -> VARCHAR
+s OCTET_LENGTH(expression) -> INTEGER
+s OVERLAY(input_string PLACING replace_string FROM position [FOR extent])
+s POSITION(substring IN string) -> INTEGER
+s QUOTE_IDENT(string) -> VARCHAR
+s QUOTE_LITERAL(string) -> VARCHAR
+s QUOTE_NULLABLE(string) -> VARCHAR
+s REGEXP_COUNT(string, pattern [, position [, regexp_modifier]]) -> INTEGER
+s REGEXP_ILIKE(string, pattern) -> BOOLEAN
+s REGEXP_INSTR(string, pattern [, position [, occurrence [, return_position [, regexp_modifier [, captured_subexp]]]]]) -> INTEGER
+s REGEXP_LIKE(string, pattern [, modifiers]) -> BOOLEAN
+s REGEXP_NOT_ILIKE(string, pattern) -> BOOLEAN
+s REGEXP_NOT_LIKE(string, pattern) -> BOOLEAN
+s REGEXP_REPLACE(string, target [, replacement [, position [, occurrence [, regexp_modifiers]]]])
+s REGEXP_SUBSTR(string, pattern [, position [, occurrence [, regexp_modifier [, captured_subexp]]]])
+s REPEAT(string, repetitions)
+s REPLACE(string, target, replacement)
+s RIGHT(string_expr, length)
+s RPAD(expression, length [, fill])
+s RTRIM(expression [, characters])
+s SHA1(string) -> VARCHAR
+s SHA224(string) -> VARCHAR
+s SHA256(string) -> VARCHAR
+s SHA384(string) -> VARCHAR
+s SHA512(string) -> VARCHAR
+s SPACE(n) -> VARCHAR
+s SPLIT_PART(string, delimiter, field) -> VARCHAR
+s STRPOS(string, substring) -> INTEGER
+s SUBSTR(string, position [, extent])
+s SUBSTRING(string, position [, length [USING {CHARACTERS | OCTETS}]])
+s TRANSLATE(string_to_replace, from_string, to_string)
+s TRIM([[BOTH | LEADING | TRAILING] [characters] FROM] expression)
+s UPPER(expression)
+
+# NULL handling and conditional
+s COALESCE(expression, expression [, expression]...)
+s IFNULL(expression1, expression2)
+s ISNULL(expression1, expression2)
+s NULLIF(expression1, expression2)
+s NULLIFZERO(expression)
+s NVL(expression1, expression2)
+s NVL2(expression1, expression2, expression3)
+s ZEROIFNULL(expression)
+
+# System information
+s CURRENT_DATABASE() -> VARCHAR
+s CURRENT_SCHEMA() -> VARCHAR
+s CURRENT_USER -> VARCHAR
+s DBNAME() -> VARCHAR
+s HAS_TABLE_PRIVILEGE([user,] table, privilege) -> BOOLEAN
+s SESSION_USER -> VARCHAR
+s USER -> VARCHAR
+s USERNAME() -> VARCHAR
+s VERSION() -> VARCHAR
+
+# Complex types and flex tables
+s APPLY_AVG(array) -> FLOAT since=10.0
+s APPLY_COUNT(array) -> INTEGER since=10.0
+s APPLY_MAX(array) since=10.0
+s APPLY_MIN(array) since=10.0
+s APPLY_SUM(array) since=10.0
+s ARRAY_CAT(array1, array2) since=10.0
+s ARRAY_CONTAINS(array, value) -> BOOLEAN since=10.0
+s ARRAY_COUNT(array) -> INTEGER since=10.0
+s ARRAY_DIMS(array) -> INTEGER since=10.0
+s ARRAY_FIND(array, value) -> INTEGER since=10.0
+s ARRAY_LENGTH(array) -> INTEGER since=10.0
+s CONTAINS(array, value) -> BOOLEAN since=10.0
+s MAPLOOKUP(VMap_data, 'virtual_column_name' [USING PARAMETERS ...])
+s MAPTOSTRING(VMap_data [USING PARAMETERS canonical_json=bool]) -> LONG VARCHAR
+s MAPCONTAINSKEY(VMap_data, 'virtual_column_name') -> BOOLEAN
+s MAPSIZE(VMap_data) -> INTEGER
+# Transform functions: in the SELECT list, with OVER
+w EXPLODE(column [, column]... [USING PARAMETERS ...]) OVER (partition_clause) since=10.0
+w MAPKEYS(VMap_data) OVER (partition_clause)
+w MAPITEMS(VMap_data [USING PARAMETERS ...]) OVER (partition_clause)

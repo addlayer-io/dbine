@@ -14,6 +14,7 @@ mod cells;
 pub(crate) mod cloud_auth;
 mod create_db;
 mod design;
+mod functions;
 mod health;
 mod index_usage;
 mod jobs;

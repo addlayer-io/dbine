@@ -1,0 +1,217 @@
+# SAP SQL Anywhere: the SQL functions of the SQL Anywhere SQL Reference
+# (16 and 17). `since` is the version that added one.
+
+# Aggregate
+a AVG([DISTINCT] expr) -> DOUBLE
+a BIT_AND(expr)
+a BIT_OR(expr)
+a BIT_XOR(expr)
+a CORR(y, x) -> DOUBLE
+a COUNT(* | [DISTINCT] expr) -> INTEGER
+a COUNT_BIG(* | [DISTINCT] expr) -> BIGINT
+a COUNT_SET_BITS(expr) -> UNSIGNED INT
+a COVAR_POP(y, x) -> DOUBLE
+a COVAR_SAMP(y, x) -> DOUBLE
+a FIRST_VALUE(expr [IGNORE NULLS])
+a GROUPING(group_by_expression) -> INTEGER
+a LAST_VALUE(expr [IGNORE NULLS])
+a LIST([ALL | DISTINCT] string_expr [, delimiter] [ORDER BY order_by_expression]) -> LONG VARCHAR
+a MAX([DISTINCT] expr)
+a MEDIAN([ALL | DISTINCT] expr)
+a MIN([DISTINCT] expr)
+a REGR_AVGX(y, x) -> DOUBLE
+a REGR_AVGY(y, x) -> DOUBLE
+a REGR_COUNT(y, x) -> INTEGER
+a REGR_INTERCEPT(y, x) -> DOUBLE
+a REGR_R2(y, x) -> DOUBLE
+a REGR_SLOPE(y, x) -> DOUBLE
+a REGR_SXX(y, x) -> DOUBLE
+a REGR_SXY(y, x) -> DOUBLE
+a REGR_SYY(y, x) -> DOUBLE
+a SET_BITS(expr) -> LONG VARBIT
+a STDDEV(expr) -> DOUBLE
+a STDDEV_POP(expr) -> DOUBLE
+a STDDEV_SAMP(expr) -> DOUBLE
+a SUM([DISTINCT] expr)
+a VAR_POP(expr) -> DOUBLE
+a VAR_SAMP(expr) -> DOUBLE
+a VARIANCE(expr) -> DOUBLE
+a XMLAGG(value_expression [ORDER BY order_by_expression]) -> XML
+a ARRAY_AGG(expr [ORDER BY order_by_expression]) since=16
+
+# Window
+w CUME_DIST() OVER (window_spec) -> DOUBLE
+w DENSE_RANK() OVER (window_spec) -> INTEGER
+w LAG(expr [, offset [, default]]) OVER (window_spec)
+w LEAD(expr [, offset [, default]]) OVER (window_spec)
+w NTILE(n) OVER (window_spec) -> INTEGER
+w PERCENT_RANK() OVER (window_spec) -> DOUBLE
+w PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY expr) OVER (window_spec)
+w PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY expr) OVER (window_spec)
+w RANK() OVER (window_spec) -> INTEGER
+w ROW_NUMBER() OVER (window_spec) -> INTEGER
+
+# Numeric
+s ABS(numeric_expression)
+s ACOS(numeric_expression) -> DOUBLE
+s ASIN(numeric_expression) -> DOUBLE
+s ATAN(numeric_expression) -> DOUBLE
+s ATAN2(numeric_expression1, numeric_expression2) -> DOUBLE
+s CEILING(numeric_expression)
+s COS(numeric_expression) -> DOUBLE
+s COT(numeric_expression) -> DOUBLE
+s DEGREES(numeric_expression) -> DOUBLE
+s EXP(numeric_expression) -> DOUBLE
+s FLOOR(numeric_expression)
+s LOG(numeric_expression) -> DOUBLE
+s LOG10(numeric_expression) -> DOUBLE
+s MOD(dividend, divisor)
+s PI() -> DOUBLE
+s POWER(numeric_expression1, numeric_expression2)
+s RADIANS(numeric_expression) -> DOUBLE
+s RAND([integer_expression]) -> DOUBLE
+s REMAINDER(dividend, divisor)
+s ROUND(numeric_expression, integer_expression)
+s SIGN(numeric_expression) -> SMALLINT
+s SIN(numeric_expression) -> DOUBLE
+s SQRT(numeric_expression) -> DOUBLE
+s TAN(numeric_expression) -> DOUBLE
+s TRUNCNUM(numeric_expression, integer_expression)
+s WIDTH_BUCKET(expression, min_value, max_value, num_buckets) -> INTEGER
+
+# String
+s ASCII(string_expression) -> SMALLINT
+s BASE64_DECODE(string_expression) -> LONG BINARY
+s BASE64_ENCODE(string_expression) -> LONG VARCHAR
+s BYTE_LENGTH(string_expression) -> INTEGER
+s BYTE_SUBSTR(string_expression, start [, length])
+s CHAR(integer_expression) -> CHAR
+s CHAR_LENGTH(string_expression) -> INTEGER
+s CHARINDEX(string_expression1, string_expression2) -> INTEGER
+s COMPARE(string_expression1, string_expression2 [, collation_name]) -> INTEGER
+s COMPRESS(string_expression [, 'algorithm']) -> LONG BINARY
+s CONNECTION_EXTENDED_PROPERTY(property_name [, property_specific_argument]) -> LONG VARCHAR
+s CSCONVERT(string_expression, target_charset [, source_charset [, options]])
+s DECOMPRESS(string_expression [, 'algorithm']) -> LONG BINARY
+s DECRYPT(string_expression, key [, algorithm [, IV]]) -> LONG BINARY
+s DIFFERENCE(string_expression1, string_expression2) -> SMALLINT
+s ENCRYPT(string_expression, key [, algorithm [, IV]]) -> LONG BINARY
+s HASH(string_expression [, algorithm]) -> VARCHAR
+s HTML_DECODE(string) -> LONG VARCHAR
+s HTML_ENCODE(string) -> LONG VARCHAR
+s INSERTSTR(integer_expression, string_expression1, string_expression2)
+s LCASE(string_expression)
+s LEFT(string_expression, numeric_expression)
+s LENGTH(string_expression) -> INTEGER
+s LOCATE(string_expression1, string_expression2 [, integer_expression]) -> INTEGER
+s LOWER(string_expression)
+s LTRIM(string_expression)
+s NCHAR(integer_expression) -> NCHAR
+s PATINDEX('%pattern%', string_expression [, return_type]) -> INTEGER
+s REGEXP_SUBSTR(expression, regular_expression [, start_at [, occurrence [, escape_character]]]) -> LONG VARCHAR
+s REPEAT(string_expression, integer_expression)
+s REPLACE(original_string, search_string, replace_string)
+s REPLICATE(string_expression, integer_expression)
+s REVERSE(expression)
+s RIGHT(string_expression, numeric_expression)
+s RTRIM(string_expression)
+s SIMILAR(string_expression1, string_expression2) -> SMALLINT
+s SORTKEY(string_expression [, collation_name])
+s SOUNDEX(string_expression) -> SMALLINT
+s SPACE(integer_expression) -> LONG VARCHAR
+s STR(numeric_expression [, length [, decimal]]) -> VARCHAR
+s STR_REPLACE(string_expression1, string_expression2, string_expression3)
+s STRING(string_expression [, ...]) -> LONG VARCHAR
+s STRTOUUID(string_expression) -> UNIQUEIDENTIFIER
+s STUFF(string_expression1, start, length, string_expression2)
+s SUBSTRING(string_expression, start [, length])
+s SUBSTR(string_expression, start [, length])
+s TO_CHAR(string_expression) -> CHAR
+s TO_NCHAR(string_expression) -> NCHAR
+s TRIM(string_expression)
+s UCASE(string_expression)
+s UNICODE(nchar_expression) -> INTEGER
+s UNISTR(string_expression) -> LONG NVARCHAR
+s UPPER(string_expression)
+s UUIDTOSTR(uuid_expression) -> VARCHAR
+s XMLELEMENT(NAME element_name [, XMLATTRIBUTES(...)] [, content]...) -> XML
+s XMLFOREST(content_expression [AS name] [, ...]) -> XML
+s XMLGEN(xml_string [, content_expression [AS name]]...) -> XML
+s XMLCONCAT(xml_value [, xml_value]...) -> XML
+
+# Date and time
+s CURRENT_DATE -> DATE
+s CURRENT_TIME -> TIME
+s CURRENT_TIMESTAMP -> TIMESTAMP
+s CURRENT_UTC_TIMESTAMP -> TIMESTAMP WITH TIME ZONE
+s DATE(expression) -> DATE
+s DATEADD(date_part, numeric_expression, date_expression) -> TIMESTAMP
+s DATEDIFF(date_part, date_expression1, date_expression2) -> INTEGER
+s DATEFORMAT(datetime_expression, string_expression) -> VARCHAR
+s DATENAME(date_part, date_expression) -> VARCHAR
+s DATEPART(date_part, date_expression) -> INTEGER
+s DATETIME(expression) -> TIMESTAMP
+s DAY(date_expression) -> SMALLINT
+s DAYNAME(date_expression) -> VARCHAR
+s DAYS(datetime_expression [, integer_expression])
+s DOW(date_expression) -> SMALLINT
+s GETDATE() -> TIMESTAMP
+s HOUR(datetime_expression) -> SMALLINT
+s HOURS(datetime_expression [, integer_expression])
+s MINUTE(datetime_expression) -> SMALLINT
+s MINUTES(datetime_expression [, integer_expression])
+s MONTH(date_expression) -> SMALLINT
+s MONTHNAME(date_expression) -> VARCHAR
+s MONTHS(date_expression [, integer_expression])
+s NOW(*) -> TIMESTAMP
+s QUARTER(date_expression) -> SMALLINT
+s SECOND(datetime_expression) -> SMALLINT
+s SECONDS(datetime_expression [, integer_expression])
+s SWITCHOFFSET(datetime_expression, time_zone) -> TIMESTAMP WITH TIME ZONE
+s TODATETIMEOFFSET(datetime_expression, time_zone) -> TIMESTAMP WITH TIME ZONE
+s TODAY(*) -> DATE
+s WEEKS(datetime_expression [, integer_expression])
+s YEAR(datetime_expression) -> SMALLINT
+s YEARS(datetime_expression [, integer_expression])
+s YMD(year, month, day) -> DATE
+
+# Conversion
+s CAST(expression AS data_type)
+s CONVERT(data_type, expression [, format_style])
+s HEXTOINT(hexadecimal_string) -> INTEGER
+s INTTOHEX(integer_expression) -> VARCHAR
+s ISDATE(string) -> INTEGER
+s ISNUMERIC(string) -> INTEGER
+
+# Miscellaneous
+s ARGN(integer_expression, expression [, ...])
+s COALESCE(expression, expression [, ...])
+s CONNECTION_PROPERTY({integer_expression1 | string_expression} [, integer_expression2])
+s DB_ID([database_name]) -> INTEGER
+s DB_NAME([database_id]) -> VARCHAR
+s DB_PROPERTY({property_id | property_name} [, {database_id | database_name}])
+s ERRORMSG([sqlstate | sqlcode]) -> VARCHAR
+s EVENT_PARAMETER(context_name) -> VARCHAR
+s GET_IDENTITY(table_name [, number_to_allocate]) -> UNSIGNED BIGINT
+s GREATER(expression1, expression2)
+s IFNULL(expression1, expression2 [, expression3])
+s ISNULL(expression, expression [, ...])
+s LESSER(expression1, expression2)
+s NEWID() -> UNIQUEIDENTIFIER
+s NEXT_CONNECTION([connection_id] [, database_id]) -> INTEGER
+s NULLIF(expression1, expression2)
+s NUMBER(*) -> INTEGER
+s PROPERTY({property_id | property_name}) -> VARCHAR
+s ROWID(correlation_name) -> UNSIGNED BIGINT
+s SQLDIALECT(sql_statement) -> VARCHAR
+s TRACEBACK(*) -> LONG VARCHAR
+s TRANSACTSQL(sql_statement) -> LONG VARCHAR
+s USER_ID([user_name]) -> INTEGER
+s USER_NAME([user_id]) -> VARCHAR
+s WATCOMSQL(sql_statement) -> LONG VARCHAR
+
+# Table functions
+t sa_rowgenerator([rstart [, rend [, rstep]]])
+t sa_split_list(str [, delim [, maxlen]])
+t OPENSTRING(VALUE string_expression) WITH (column_definitions)
+t OPENXML(xml_data, xpath [, flags [, namespace_declaration]]) WITH (column_definitions)

@@ -4,6 +4,7 @@
 // Public for the libSQL driver, which reuses the designer, the DDL, the
 // catalog reader, the plans and the monitor over HTTP.
 pub mod backup;
+pub mod functions;
 pub mod index_usage;
 pub mod monitor;
 mod permissions;
@@ -416,6 +417,27 @@ impl Session for SqliteSession {
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         select_top(Quote::Double, Limit::Limit, obj.schema(), &obj.name, limit)
+    }
+
+    /// What `pragma_function_list` lists on this connection, with the
+    /// static catalog's argument names; the static catalog alone where the
+    /// pragma isn't there (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.with(|c| {
+            let version = rusqlite::version();
+            let rows = c.prepare(functions::LIST).and_then(|mut stmt| {
+                stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect::<rusqlite::Result<Vec<(String, String, i64)>>>()
+            });
+            Ok(match rows {
+                Ok(rows) => functions::from_server(&rows, version),
+                Err(e) => {
+                    tracing::debug!("sqlite: pragma_function_list unavailable: {e}");
+                    functions::fallback(version)
+                }
+            })
+        })
+        .await
     }
 
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {

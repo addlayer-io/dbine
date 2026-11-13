@@ -8,6 +8,7 @@
 
 mod backup;
 mod files;
+mod functions;
 mod index_usage;
 mod loader;
 mod monitor;
@@ -611,6 +612,44 @@ impl Session for DuckDbSession {
             .strings("SELECT database_name FROM duckdb_databases() WHERE NOT internal ORDER BY database_name", vec![], 1)
             .await?;
         Ok(rows.into_iter().filter_map(|mut r| r.remove(0)).collect())
+    }
+
+    /// `duckdb_functions()`: the built-ins of this DuckDB with their
+    /// descriptions, the loaded extensions' functions and the macros of the
+    /// open database, plus the window functions (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let catalog = self.catalog.clone();
+        self.with(move |c| {
+            let version = c.version().map_err(Error::query)?;
+            let mut stmt = c.prepare(functions::LIST).map_err(Error::query)?;
+            let text = |v: Value| match v {
+                Value::Text(s) => s,
+                _ => String::new(),
+            };
+            let list = |v: Value| match v {
+                Value::List(items) | Value::Array(items) => items.into_iter().map(text).collect(),
+                _ => Vec::new(),
+            };
+            let rows = stmt
+                .query_map([&catalog], |r| {
+                    Ok(functions::Row {
+                        schema: text(r.get(0)?),
+                        name: text(r.get(1)?),
+                        kind: text(r.get(2)?),
+                        description: text(r.get(3)?),
+                        returns: text(r.get(4)?),
+                        params: list(r.get(5)?),
+                        types: list(r.get(6)?),
+                        varargs: text(r.get(7)?),
+                        internal: r.get::<_, Option<bool>>(8)?.unwrap_or(true),
+                    })
+                })
+                .map_err(Error::query)?
+                .collect::<duckdb::Result<Vec<_>>>()
+                .map_err(Error::query)?;
+            Ok(functions::catalog(&rows, &version))
+        })
+        .await
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

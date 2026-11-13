@@ -1,0 +1,278 @@
+# IBM Db2: the built-in functions of the Db2 LUW SQL Reference (9.7 to
+# 12.1) except the LUW-only ones, which are in db2_luw.txt. With that file,
+# Db2 LUW's fallback when SYSCAT.ROUTINES can't be read; alone, the catalog
+# of Db2 for i and z/OS (a release of theirs may still lack some of these).
+# `since` is the Db2 LUW release that added one.
+
+# Aggregate
+a ARRAY_AGG(expression [ORDER BY sort_key]) since=9.5
+a AVG([ALL | DISTINCT] expression)
+a CORRELATION(expression1, expression2) -> DOUBLE
+a COUNT([ALL | DISTINCT] expression | *) -> INTEGER
+a COUNT_BIG([ALL | DISTINCT] expression | *) -> BIGINT
+a COVARIANCE(expression1, expression2) -> DOUBLE
+a COVARIANCE_SAMP(expression1, expression2) -> DOUBLE since=11.1
+a GROUPING(expression) -> SMALLINT
+a LISTAGG([ALL | DISTINCT] expression [, delimiter]) WITHIN GROUP (ORDER BY sort_key) -> VARCHAR since=9.7
+a MAX([ALL | DISTINCT] expression)
+a MEDIAN(expression) -> DOUBLE since=11.1
+a MIN([ALL | DISTINCT] expression)
+a PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY sort_key) since=11.1
+a PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY sort_key) since=11.1
+a REGR_AVGX(y, x) -> DOUBLE
+a REGR_AVGY(y, x) -> DOUBLE
+a REGR_COUNT(y, x) -> INTEGER
+a REGR_INTERCEPT(y, x) -> DOUBLE
+a REGR_R2(y, x) -> DOUBLE
+a REGR_SLOPE(y, x) -> DOUBLE
+a REGR_SXX(y, x) -> DOUBLE
+a REGR_SXY(y, x) -> DOUBLE
+a REGR_SYY(y, x) -> DOUBLE
+a STDDEV([ALL | DISTINCT] expression) -> DOUBLE
+a STDDEV_SAMP([ALL | DISTINCT] expression) -> DOUBLE since=11.1
+a SUM([ALL | DISTINCT] expression)
+a VARIANCE([ALL | DISTINCT] expression) -> DOUBLE
+a VARIANCE_SAMP([ALL | DISTINCT] expression) -> DOUBLE since=11.1
+a XMLAGG(xml_expression [ORDER BY sort_key]) -> XML
+
+# OLAP (window) functions
+w CUME_DIST() OVER (window_specification) -> DECFLOAT since=11.1
+w DENSE_RANK() OVER (window_specification) -> BIGINT
+w FIRST_VALUE(expression [, 'IGNORE NULLS' | 'RESPECT NULLS']) OVER (window_specification)
+w LAG(expression [, offset [, default [, 'IGNORE NULLS' | 'RESPECT NULLS']]]) OVER (window_specification)
+w LAST_VALUE(expression [, 'IGNORE NULLS' | 'RESPECT NULLS']) OVER (window_specification)
+w LEAD(expression [, offset [, default [, 'IGNORE NULLS' | 'RESPECT NULLS']]]) OVER (window_specification)
+w NTH_VALUE(expression, offset) [FROM FIRST | FROM LAST] [RESPECT NULLS | IGNORE NULLS] OVER (window_specification) since=11.1
+w NTILE(num_tiles) OVER (window_specification) -> INTEGER since=11.1
+w PERCENT_RANK() OVER (window_specification) -> DECFLOAT since=11.1
+w RANK() OVER (window_specification) -> BIGINT
+w RATIO_TO_REPORT(expression) OVER (window_specification) -> DECFLOAT since=11.1
+w ROW_NUMBER() OVER (window_specification) -> BIGINT
+
+# Special registers
+s CURRENT_DATE -> DATE
+s CURRENT_PATH -> VARCHAR
+s CURRENT_SCHEMA -> VARCHAR
+s CURRENT_SERVER -> VARCHAR
+s CURRENT_TIME -> TIME
+s CURRENT_TIMESTAMP -> TIMESTAMP
+s CURRENT_TIMEZONE -> DECIMAL
+s CURRENT_USER -> VARCHAR
+s SESSION_USER -> VARCHAR
+s SYSTEM_USER -> VARCHAR
+s USER -> VARCHAR
+
+# Numeric
+s ABS(expression)
+s ACOS(expression) -> DOUBLE
+s ASIN(expression) -> DOUBLE
+s ATAN(expression) -> DOUBLE
+s ATAN2(expression1, expression2) -> DOUBLE
+s ATANH(expression) -> DOUBLE
+s BITAND(expression1, expression2)
+s BITANDNOT(expression1, expression2)
+s BITNOT(expression)
+s BITOR(expression1, expression2)
+s BITXOR(expression1, expression2)
+s CEILING(expression)
+s CEIL(expression)
+s COS(expression) -> DOUBLE
+s COSH(expression) -> DOUBLE
+s COT(expression) -> DOUBLE
+s DEGREES(expression) -> DOUBLE
+s EXP(expression) -> DOUBLE
+s FLOOR(expression)
+s LN(expression) -> DOUBLE
+s LOG10(expression) -> DOUBLE
+s MOD(expression1, expression2)
+s MULTIPLY_ALT(expression1, expression2) -> DECIMAL
+s POWER(expression1, expression2)
+s QUANTIZE(expression1, expression2) -> DECFLOAT
+s RADIANS(expression) -> DOUBLE
+s RAND([expression]) -> DOUBLE
+s RANDOM([expression]) -> DOUBLE since=11.1
+s ROUND(expression1 [, expression2])
+s SIGN(expression)
+s SIN(expression) -> DOUBLE
+s SINH(expression) -> DOUBLE
+s SQRT(expression) -> DOUBLE
+s TAN(expression) -> DOUBLE
+s TANH(expression) -> DOUBLE
+s TRUNCATE(expression1 [, expression2])
+s TRUNC(expression1 [, expression2])
+s WIDTH_BUCKET(expression, low, high, count) -> INTEGER since=11.1
+
+# String
+s ASCII(expression) -> INTEGER
+s BTRIM(string [, trim_string]) since=11.1
+s CHARACTER_LENGTH(expression [, CODEUNITS16 | CODEUNITS32 | OCTETS]) -> INTEGER
+s CHAR_LENGTH(expression [, CODEUNITS16 | CODEUNITS32 | OCTETS]) -> INTEGER
+s CHR(expression) -> CHAR
+s CONCAT(expression1, expression2)
+s DIFFERENCE(expression1, expression2) -> INTEGER
+s INITCAP(string) -> VARCHAR since=9.7
+s INSERT(source_string, start, length, insert_string)
+s INSTR(source_string, search_string [, start [, instance]]) -> INTEGER since=9.7
+s LCASE(expression)
+s LEFT(expression, length [, CODEUNITS16 | CODEUNITS32 | OCTETS])
+s LENGTH(expression [, CODEUNITS16 | CODEUNITS32 | OCTETS]) -> INTEGER
+s LOCATE(search_string, source_string [, start [, CODEUNITS16 | CODEUNITS32 | OCTETS]]) -> INTEGER
+s LOCATE_IN_STRING(source_string, search_string [, start [, instance [, CODEUNITS16 | CODEUNITS32 | OCTETS]]]) -> INTEGER
+s LOWER(expression)
+s LPAD(string, integer [, pad])
+s LTRIM(string [, trim_string])
+s OCTET_LENGTH(expression) -> INTEGER
+s OVERLAY(source_string PLACING insert_string FROM start [FOR length] [USING CODEUNITS16 | CODEUNITS32 | OCTETS])
+s POSITION(search_string IN source_string USING CODEUNITS16 | CODEUNITS32 | OCTETS) -> INTEGER
+s POSSTR(source_string, search_string) -> INTEGER
+s REGEXP_COUNT(source_string, pattern [, start [, flags]]) -> INTEGER since=11.1
+s REGEXP_INSTR(source_string, pattern [, start [, occurrence [, return_option [, flags [, group]]]]]) -> INTEGER since=11.1
+s REGEXP_LIKE(source_string, pattern [, start [, flags]]) -> BOOLEAN since=11.1
+s REGEXP_REPLACE(source_string, pattern [, replacement [, start [, occurrence [, flags]]]]) since=11.1
+s REGEXP_SUBSTR(source_string, pattern [, start [, occurrence [, flags [, group]]]]) since=11.1
+s REPEAT(expression, count)
+s REPLACE(source_string, search_string [, replace_string])
+s REVERSE(string) since=11.1
+s RIGHT(expression, length [, CODEUNITS16 | CODEUNITS32 | OCTETS])
+s RPAD(string, integer [, pad])
+s RTRIM(string [, trim_string])
+s SOUNDEX(expression) -> CHAR(4)
+s SPACE(expression) -> VARCHAR
+s STRIP(string [, BOTH | LEADING | TRAILING [, strip_character]])
+s SUBSTR(string, start [, length])
+s SUBSTRING(expression, start [, length], CODEUNITS16 | CODEUNITS32 | OCTETS)
+s TRANSLATE(string [, to_string, from_string [, pad]])
+s TRIM([BOTH | LEADING | TRAILING] [strip_character] FROM string)
+s UCASE(expression)
+s UPPER(expression)
+
+# Date and time
+s ADD_DAYS(expression, numeric_expression) -> DATE since=11.1
+s ADD_HOURS(expression, numeric_expression) -> TIMESTAMP since=11.1
+s ADD_MINUTES(expression, numeric_expression) -> TIMESTAMP since=11.1
+s ADD_MONTHS(expression, numeric_expression) -> DATE since=9.7
+s ADD_SECONDS(expression, numeric_expression [, fraction]) -> TIMESTAMP since=11.1
+s ADD_YEARS(expression, numeric_expression) -> DATE since=11.1
+s DATE(expression) -> DATE
+s DAY(expression) -> INTEGER
+s DAYNAME(expression [, locale_name]) -> VARCHAR
+s DAYOFMONTH(expression) -> INTEGER since=11.1
+s DAYOFWEEK(expression) -> INTEGER
+s DAYOFWEEK_ISO(expression) -> INTEGER
+s DAYOFYEAR(expression) -> INTEGER
+s DAYS(expression) -> INTEGER
+s EXTRACT(field FROM expression)
+s FIRST_DAY(expression) -> DATE since=11.1
+s FROM_UTC_TIMESTAMP(expression, time_zone) -> TIMESTAMP since=10.5
+s HOUR(expression) -> INTEGER
+s JULIAN_DAY(expression) -> INTEGER
+s LAST_DAY(expression) -> DATE since=9.7
+s MICROSECOND(expression) -> INTEGER
+s MIDNIGHT_SECONDS(expression) -> INTEGER
+s MINUTE(expression) -> INTEGER
+s MONTH(expression) -> INTEGER
+s MONTHNAME(expression [, locale_name]) -> VARCHAR
+s MONTHS_BETWEEN(expression1, expression2) -> DECIMAL since=9.7
+s NEXT_DAY(expression, string [, locale_name]) -> DATE since=9.7
+s NOW() -> TIMESTAMP since=11.1
+s QUARTER(expression) -> INTEGER
+s ROUND_TIMESTAMP(expression [, format_string]) -> TIMESTAMP since=9.7
+s SECOND(expression [, integer_constant])
+s TIME(expression) -> TIME
+s TIMESTAMP(expression1 [, expression2]) -> TIMESTAMP
+s TIMESTAMPDIFF(numeric_expression, string_expression) -> INTEGER
+s TIMESTAMP_FORMAT(string, format_string [, precision]) -> TIMESTAMP
+s TIMESTAMP_ISO(expression) -> TIMESTAMP
+s TIMEZONE(expression [, from_time_zone [, to_time_zone]]) -> TIMESTAMP since=11.5
+s TO_DATE(string, format_string) -> TIMESTAMP
+s TO_UTC_TIMESTAMP(expression, time_zone) -> TIMESTAMP since=10.5
+s TRUNC_TIMESTAMP(expression [, format_string]) -> TIMESTAMP since=9.7
+s VARCHAR_FORMAT(expression [, format_string [, locale_name]]) -> VARCHAR
+s WEEK(expression) -> INTEGER
+s WEEK_ISO(expression) -> INTEGER
+s YEAR(expression) -> INTEGER
+
+# Casting
+s BIGINT(expression) -> BIGINT
+s BINARY(expression [, length]) -> BINARY
+s BLOB(expression [, length]) -> BLOB
+s BOOLEAN(expression) -> BOOLEAN since=11.1
+s CAST(expression AS data_type)
+s CHAR(expression [, length]) -> CHAR
+s CLOB(expression [, length]) -> CLOB
+s DECFLOAT(expression [, 16 | 34]) -> DECFLOAT
+s DECIMAL(expression [, precision [, scale]]) -> DECIMAL
+s DOUBLE(expression) -> DOUBLE
+s FLOAT(expression) -> DOUBLE
+s GRAPHIC(expression [, length]) -> GRAPHIC
+s HEX(expression) -> VARCHAR
+s HEXTORAW(expression) -> VARBINARY since=11.1
+s INTEGER(expression) -> INTEGER
+s INT(expression) -> INTEGER
+s RAWTOHEX(expression) -> VARCHAR since=11.1
+s REAL(expression) -> REAL
+s SMALLINT(expression) -> SMALLINT
+s TO_CHAR(expression [, format_string]) -> VARCHAR
+s TO_NUMBER(string [, format_string]) -> DECFLOAT since=9.7
+s VARBINARY(expression [, length]) -> VARBINARY
+s VARCHAR(expression [, length]) -> VARCHAR
+s VARGRAPHIC(expression [, length]) -> VARGRAPHIC
+
+# Comparison, NULL handling and miscellaneous
+s COALESCE(expression, expression [, expression]...)
+s DECODE(expression, search, result [, search, result]... [, default])
+s GENERATE_UNIQUE() -> CHAR(13)
+s GREATEST(expression, expression [, expression]...)
+s HASH(expression [, algorithm]) -> VARBINARY since=11.1
+s IDENTITY_VAL_LOCAL() -> DECIMAL
+s LEAST(expression, expression [, expression]...)
+s NULLIF(expression1, expression2)
+s NVL(expression, expression [, expression]...)
+s NVL2(expression1, expression2, expression3) since=9.7
+s RAISE_ERROR(sqlstate, diagnostic_string)
+s TYPE_NAME(expression) -> VARCHAR
+s TYPE_SCHEMA(expression) -> VARCHAR
+s VALUE(expression, expression [, expression]...)
+
+# JSON (ISO SQL)
+s BSON_TO_JSON(bson_expression) -> CLOB since=11.1
+s JSON_ARRAY([expression [, expression]...] [{NULL | ABSENT} ON NULL]) since=11.1
+s JSON_EXISTS(json_expression, sql_json_path [{TRUE | FALSE | UNKNOWN | ERROR} ON ERROR]) -> INTEGER since=11.1
+s JSON_OBJECT([KEY key VALUE value [, KEY key VALUE value]...] [{NULL | ABSENT} ON NULL]) since=11.1
+s JSON_QUERY(json_expression, sql_json_path [RETURNING data_type] [wrapper] [ON EMPTY] [ON ERROR]) since=11.1
+s JSON_TO_BSON(json_expression) -> BLOB since=11.1
+s JSON_VALUE(json_expression, sql_json_path [RETURNING data_type] [ON EMPTY] [ON ERROR]) since=11.1
+t JSON_TABLE(json_expression, sql_json_path COLUMNS (column_definition [, column_definition]...) [ERROR ON ERROR]) since=11.1
+a JSON_ARRAYAGG(expression [ORDER BY sort_key] [{NULL | ABSENT} ON NULL]) since=11.5
+a JSON_OBJECTAGG(KEY key VALUE value [{NULL | ABSENT} ON NULL]) since=11.5
+
+# XML
+s XMLATTRIBUTES(value [AS name] [, value [AS name]]...) -> XML
+s XMLCOMMENT(string) -> XML
+s XMLCONCAT(xml_expression [, xml_expression]...) -> XML
+s XMLDOCUMENT(xml_expression) -> XML
+s XMLELEMENT(NAME name [, namespace_declaration] [, attribute_function] [, content]...) -> XML
+s XMLFOREST([namespace_declaration ,] value [AS name] [, value [AS name]]...) -> XML
+s XMLNAMESPACES(namespace_declaration [, namespace_declaration]...) -> XML
+s XMLPARSE(DOCUMENT string [STRIP WHITESPACE | PRESERVE WHITESPACE]) -> XML
+s XMLPI(NAME name [, string]) -> XML
+s XMLQUERY(xquery_expression [PASSING argument_list] [RETURNING SEQUENCE]) -> XML
+s XMLSERIALIZE([CONTENT] xml_expression AS data_type [VERSION '1.0'] [EXCLUDING XMLDECLARATION | INCLUDING XMLDECLARATION])
+s XMLTEXT(string) -> XML
+s XMLVALIDATE([DOCUMENT] xml_expression [ACCORDING TO XMLSCHEMA ...]) -> XML
+s XSLTRANSFORM(xml_document USING xsl_stylesheet [WITH params] [AS data_type])
+t XMLTABLE([namespace_declaration ,] row_xquery [PASSING argument_list] COLUMNS column_definition [, column_definition]...)
+
+# Table functions
+t UNNEST(array_expression [, array_expression]...) [WITH ORDINALITY] since=9.5
+t BASE_TABLE(schema, table_name)
+
+# Arrays
+s ARRAY_DELETE(array_expression [, array_index1 [, array_index2]]) since=9.5
+s ARRAY_FIRST(array_expression) since=9.5
+s ARRAY_LAST(array_expression) since=9.5
+s ARRAY_NEXT(array_expression, array_index) since=9.5
+s ARRAY_PRIOR(array_expression, array_index) since=9.5
+s CARDINALITY(array_expression) -> BIGINT since=9.5
+s MAX_CARDINALITY(array_expression) -> BIGINT since=9.5
+s TRIM_ARRAY(array_expression, numeric_expression) since=9.5

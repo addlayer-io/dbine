@@ -1131,6 +1131,13 @@ impl Session for PgSession {
         }
     }
 
+    /// The functions this server offers: `pg_proc` where the variant
+    /// keeps PostgreSQL's catalog, its own catalog or a static one where it
+    /// doesn't (see [`crate::functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        crate::functions::catalog(self).await
+    }
+
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         select_top(Quote::Double, Limit::Limit, obj.schema(), &obj.name, limit)
     }

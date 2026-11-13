@@ -1,0 +1,216 @@
+# Teradata Vantage: the built-in functions of the Teradata SQL Functions,
+# Expressions, and Predicates manual (16.20 to 17.x). `since` is the
+# Teradata release that added one.
+
+# Aggregate
+a AVG([DISTINCT] value_expression)
+a AVERAGE([DISTINCT] value_expression)
+a CORR(y, x) -> FLOAT
+a COUNT(* | [DISTINCT] value_expression) -> INTEGER
+a COVAR_POP(y, x) -> FLOAT
+a COVAR_SAMP(y, x) -> FLOAT
+a GROUPING(column) -> INTEGER
+a KURTOSIS([DISTINCT] value_expression) -> FLOAT
+a MAX([DISTINCT] value_expression)
+a MAXIMUM([DISTINCT] value_expression)
+a MEDIAN(value_expression) since=16.20
+a MIN([DISTINCT] value_expression)
+a MINIMUM([DISTINCT] value_expression)
+a PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY value_expression) since=16.20
+a PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY value_expression) since=16.20
+a REGR_AVGX(y, x) -> FLOAT
+a REGR_AVGY(y, x) -> FLOAT
+a REGR_COUNT(y, x) -> INTEGER
+a REGR_INTERCEPT(y, x) -> FLOAT
+a REGR_R2(y, x) -> FLOAT
+a REGR_SLOPE(y, x) -> FLOAT
+a REGR_SXX(y, x) -> FLOAT
+a REGR_SXY(y, x) -> FLOAT
+a REGR_SYY(y, x) -> FLOAT
+a SKEW([DISTINCT] value_expression) -> FLOAT
+a STDDEV_POP([DISTINCT] value_expression) -> FLOAT
+a STDDEV_SAMP([DISTINCT] value_expression) -> FLOAT
+a SUM([DISTINCT] value_expression)
+a VAR_POP([DISTINCT] value_expression) -> FLOAT
+a VAR_SAMP([DISTINCT] value_expression) -> FLOAT
+a JSON_AGG(value_expression [AS name] [, value_expression [AS name]]...) -> JSON since=15.10
+a JSON_COMPOSE(value_expression [AS name] [, value_expression [AS name]]...) -> JSON since=15.10
+a XMLAGG(xml_value_expression [ORDER BY sort_key]) -> XML
+
+# Ordered analytical (window)
+w CSUM(value_expression, sort_expression [, sort_expression]...)
+w CUME_DIST() OVER (window_specification) since=16.20
+w DENSE_RANK() OVER (window_specification) since=16.20
+w FIRST_VALUE(value_expression [IGNORE NULLS | RESPECT NULLS]) OVER (window_specification)
+w LAG(value_expression [, offset [, default]]) [IGNORE NULLS | RESPECT NULLS] OVER (window_specification) since=16.20
+w LAST_VALUE(value_expression [IGNORE NULLS | RESPECT NULLS]) OVER (window_specification)
+w LEAD(value_expression [, offset [, default]]) [IGNORE NULLS | RESPECT NULLS] OVER (window_specification) since=16.20
+w MAVG(value_expression, width, sort_expression [, sort_expression]...)
+w MDIFF(value_expression, width, sort_expression [, sort_expression]...)
+w MLINREG(value_expression, width, sort_expression)
+w MSUM(value_expression, width, sort_expression [, sort_expression]...)
+w PERCENT_RANK() OVER (window_specification)
+w QUANTILE(quantile_literal, sort_expression [, sort_expression]...)
+w RANK() OVER (window_specification)
+w ROW_NUMBER() OVER (window_specification)
+
+# Arithmetic and trigonometric
+s ABS(arg)
+s ACOS(arg) -> FLOAT
+s ACOSH(arg) -> FLOAT
+s ASIN(arg) -> FLOAT
+s ASINH(arg) -> FLOAT
+s ATAN(arg) -> FLOAT
+s ATAN2(x, y) -> FLOAT
+s ATANH(arg) -> FLOAT
+s CEILING(arg)
+s CEIL(arg)
+s COS(arg) -> FLOAT
+s COSH(arg) -> FLOAT
+s DEGREES(arg) -> FLOAT
+s EXP(arg) -> FLOAT
+s FLOOR(arg)
+s GREATEST(expr, expr [, expr]...)
+s LEAST(expr, expr [, expr]...)
+s LN(arg) -> FLOAT
+s LOG(arg) -> FLOAT
+s MOD(dividend, divisor)
+s NULLIFZERO(arg)
+s POWER(base, exponent)
+s RADIANS(arg) -> FLOAT
+s RANDOM(lower_bound, upper_bound) -> INTEGER
+s ROUND(arg [, places])
+s SIGN(arg)
+s SIN(arg) -> FLOAT
+s SINH(arg) -> FLOAT
+s SQRT(arg) -> FLOAT
+s TAN(arg) -> FLOAT
+s TANH(arg) -> FLOAT
+s TRUNC(arg [, places])
+s WIDTH_BUCKET(value_expression, lower_bound, upper_bound, partition_count) -> INTEGER
+s ZEROIFNULL(arg)
+
+# Bit and byte
+s BITAND(target, bit_mask)
+s BITNOT(target)
+s BITOR(target, bit_mask)
+s BITXOR(target, bit_mask)
+s COUNTSET(target [, target_value]) -> INTEGER
+s GETBIT(target, target_bit) -> BYTEINT
+s ROTATELEFT(target, num_bits_to_rotate)
+s ROTATERIGHT(target, num_bits_to_rotate)
+s SETBIT(target, target_bit [, target_value])
+s SHIFTLEFT(target, num_bits_to_shift)
+s SHIFTRIGHT(target, num_bits_to_shift)
+s SUBBITSTR(target, position, num_bits) -> VARBYTE
+s TO_BYTE(target) -> VARBYTE
+
+# String
+s ASCII(string) -> INTEGER
+s CHAR2HEXINT(character_string_expression) -> CHAR
+s CHARACTER_LENGTH(string) -> INTEGER
+s CHAR_LENGTH(string) -> INTEGER
+s CHR(n) -> CHAR
+s CONCAT(string1, string2 [, stringN]...)
+s CSV(value_expression [, value_expression]...) -> VARCHAR
+s EDITDISTANCE(string1, string2 [, ci, cd, cs, ct]) -> INTEGER
+s INDEX(string, substring) -> INTEGER
+s INITCAP(string)
+s INSTR(source_string, search_string [, position [, occurrence]]) -> INTEGER
+s LEFT(string, n)
+s LENGTH(string) -> INTEGER
+s LOCATE(search_string, source_string [, position]) -> INTEGER
+s LOWER(string)
+s LPAD(source_string, length [, fill_string])
+s LTRIM(source_string [, trim_string])
+s NGRAM(string1, string2, length [, position]) -> INTEGER
+s NVP(instring, name_to_search [, name_delimiters [, value_delimiters [, occurrence]]]) -> VARCHAR
+s OREPLACE(source_string, search_string [, replace_string])
+s OTRANSLATE(source_string, from_string, to_string)
+s POSITION(substring IN string) -> INTEGER
+s REGEXP_INSTR(source_string, regexp_string [, position [, occurrence [, return_option [, match]]]]) -> INTEGER
+s REGEXP_REPLACE(source_string, regexp_string [, replace_string [, position [, occurrence [, match]]]])
+s REGEXP_SIMILAR(source_string, regexp_string [, match]) -> INTEGER
+t REGEXP_SPLIT_TO_TABLE(in_k, source_string, regexp_string, match) RETURNS (column_definitions)
+s REGEXP_SUBSTR(source_string, regexp_string [, position [, occurrence [, match]]])
+s REVERSE(string)
+s RIGHT(string, n)
+s RPAD(source_string, length [, fill_string])
+s RTRIM(source_string [, trim_string])
+s SOUNDEX(string) -> VARCHAR
+s STRTOK(instring, delimiters, tokennum) -> VARCHAR
+s SUBSTR(string, start [, length])
+s SUBSTRING(string FROM start [FOR length])
+s TRANSLATE(string USING source_repertoire_to_target_repertoire)
+s TRIM([[BOTH | TRAILING | LEADING] [trim_expression] FROM] string)
+s UPPER(string)
+s VARGRAPHIC(string)
+
+# Date and time
+s ADD_MONTHS(date_or_timestamp, integer)
+s CURRENT_DATE -> DATE
+s CURRENT_TIME -> TIME WITH TIME ZONE
+s CURRENT_TIMESTAMP -> TIMESTAMP WITH TIME ZONE
+s DATE -> DATE
+s DAYNUMBER_OF_MONTH(date_expression [, calendar_name]) -> INTEGER
+s DAYNUMBER_OF_WEEK(date_expression [, ISO | COMPATIBLE | TERADATA]) -> INTEGER
+s DAYNUMBER_OF_YEAR(date_expression [, ISO]) -> INTEGER
+s EXTRACT(field FROM value_expression) -> INTEGER
+s LAST_DAY(date_expression) -> DATE
+s MONTHNUMBER_OF_YEAR(date_expression [, ISO]) -> INTEGER
+s MONTHS_BETWEEN(date_expression1, date_expression2) -> NUMBER
+s NEXT_DAY(date_expression, day_value) -> DATE
+s NUMTODSINTERVAL(n, unit)
+s NUMTOYMINTERVAL(n, unit)
+s OADD_MONTHS(date_expression, integer) -> DATE
+s ROUND(date_expression [, format])
+s TD_DAY_OF_CALENDAR(date_expression) -> INTEGER
+s TD_DAY_OF_MONTH(date_expression) -> INTEGER
+s TD_DAY_OF_WEEK(date_expression) -> INTEGER
+s TD_DAY_OF_YEAR(date_expression) -> INTEGER
+s TD_MONTH_BEGIN(date_expression) -> DATE
+s TD_MONTH_END(date_expression) -> DATE
+s TD_WEEK_BEGIN(date_expression) -> DATE
+s TD_WEEK_END(date_expression) -> DATE
+s TD_YEAR_BEGIN(date_expression) -> DATE
+s TD_YEAR_END(date_expression) -> DATE
+s TIME -> TIME
+s TO_DATE(string_expression [, format_string]) -> DATE
+s TO_DSINTERVAL(string_expression)
+s TO_TIMESTAMP(string_expression [, format_string]) -> TIMESTAMP
+s TO_TIMESTAMP_TZ(string_expression [, format_string]) -> TIMESTAMP WITH TIME ZONE
+s TO_YMINTERVAL(string_expression)
+s TRUNC(date_expression [, format])
+s WEEKNUMBER_OF_YEAR(date_expression [, ISO]) -> INTEGER
+s YEARNUMBER_OF_CALENDAR(date_expression [, ISO]) -> INTEGER
+
+# Conversion
+s CAST(expression AS data_type)
+s TO_CHAR(expression [, format_string]) -> VARCHAR
+s TO_NUMBER(string_expression [, format_string]) -> NUMBER
+s TRYCAST(expression AS data_type) since=16.20
+
+# Conditional and miscellaneous
+s COALESCE(expression, expression [, expression]...)
+s DECODE(expression, search, result [, search, result]... [, default])
+s HASHAMP([hash_bucket]) -> INTEGER
+s HASHBAKAMP([hash_bucket]) -> INTEGER
+s HASHBUCKET([row_hash]) -> INTEGER
+s HASHROW([expression [, expression]...]) -> BYTE
+s NULLIF(expression1, expression2)
+s NVL(expression1, expression2)
+s NVL2(expression1, expression2, expression3)
+s SESSION -> INTEGER
+s TYPE(column_name) -> VARCHAR
+s USER -> VARCHAR
+s DATABASE -> VARCHAR
+s ACCOUNT -> VARCHAR
+s ROLE -> VARCHAR
+s PROFILE -> VARCHAR
+
+# JSON
+s JSON_CHECK(string) -> CHAR since=15.10
+t JSON_KEYS(ON (SELECT json_column FROM table)) since=15.10
+t JSON_TABLE(ON (SELECT id, json_column FROM table) USING rowexpr(path) colexpr(columns)) since=15.10
+t STRTOK_SPLIT_TO_TABLE(in_key, in_string, in_delimiters) RETURNS (column_definitions)
+t TD_UNPIVOT(ON table USING VALUE_COLUMNS(...) UNPIVOT_COLUMN(...) COLUMN_LIST(...))

@@ -8,6 +8,7 @@ mod create_db;
 mod delta;
 mod dependencies;
 mod entra;
+mod functions;
 mod health;
 mod index_usage;
 mod jobs;
@@ -2065,6 +2066,12 @@ impl Session for SqlServerSession {
             }
             r => r,
         }
+    }
+
+    /// T-SQL's built-ins for the server's version plus the database's own
+    /// functions (see `functions`).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        functions::catalog(self).await
     }
 }
 

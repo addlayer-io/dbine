@@ -1,0 +1,243 @@
+# CUBRID: the built-in functions of the CUBRID SQL manual (10.x and 11.x).
+# `since` is the CUBRID version that added one.
+
+# Aggregate
+a AVG([DISTINCT | UNIQUE | ALL] expr) -> DOUBLE
+a BIT_AND(expr)
+a BIT_OR(expr)
+a BIT_XOR(expr)
+a COUNT(* | [DISTINCT | UNIQUE | ALL] expr) -> INTEGER
+a GROUP_CONCAT([DISTINCT] expr [ORDER BY expr] [SEPARATOR str]) -> VARCHAR
+a JSON_ARRAYAGG(expr) -> JSON since=11.0
+a JSON_OBJECTAGG(key, value) -> JSON since=11.0
+a MAX([DISTINCT | UNIQUE | ALL] expr)
+a MEDIAN(expr)
+a MIN([DISTINCT | UNIQUE | ALL] expr)
+a PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY expr)
+a PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY expr)
+a STDDEV([DISTINCT | UNIQUE | ALL] expr) -> DOUBLE
+a STDDEV_POP([DISTINCT | UNIQUE | ALL] expr) -> DOUBLE
+a STDDEV_SAMP([DISTINCT | UNIQUE | ALL] expr) -> DOUBLE
+a SUM([DISTINCT | UNIQUE | ALL] expr)
+a VAR_POP([DISTINCT | UNIQUE | ALL] expr) -> DOUBLE
+a VAR_SAMP([DISTINCT | UNIQUE | ALL] expr) -> DOUBLE
+a VARIANCE([DISTINCT | UNIQUE | ALL] expr) -> DOUBLE
+
+# Analytic
+w CUME_DIST() OVER (window_specification) -> DOUBLE
+w DENSE_RANK() OVER (window_specification) -> INTEGER
+w FIRST_VALUE(expr) [IGNORE NULLS | RESPECT NULLS] OVER (window_specification)
+w LAG(expr [, offset [, default]]) OVER (window_specification)
+w LAST_VALUE(expr) [IGNORE NULLS | RESPECT NULLS] OVER (window_specification)
+w LEAD(expr [, offset [, default]]) OVER (window_specification)
+w NTH_VALUE(expr, n) [FROM FIRST | FROM LAST] [IGNORE NULLS | RESPECT NULLS] OVER (window_specification)
+w NTILE(n) OVER (window_specification) -> INTEGER
+w PERCENT_RANK() OVER (window_specification) -> DOUBLE
+w RANK() OVER (window_specification) -> INTEGER
+w ROW_NUMBER() OVER (window_specification) -> INTEGER
+
+# Numeric
+s ABS(n)
+s ACOS(x) -> DOUBLE
+s ASIN(x) -> DOUBLE
+s ATAN(y [, x]) -> DOUBLE
+s ATAN2(y, x) -> DOUBLE
+s CEIL(n)
+s CONV(n, from_base, to_base) -> VARCHAR
+s COS(x) -> DOUBLE
+s COT(x) -> DOUBLE
+s CRC32(string) -> INTEGER
+s DEGREES(x) -> DOUBLE
+s DRAND([seed]) -> DOUBLE
+s DRANDOM([seed]) -> DOUBLE
+s EXP(x) -> DOUBLE
+s FLOOR(n)
+s HEX(n) -> VARCHAR
+s LN(x) -> DOUBLE
+s LOG10(x) -> DOUBLE
+s LOG2(x) -> DOUBLE
+s MOD(m, n)
+s PI() -> DOUBLE
+s POW(x, y) -> DOUBLE
+s POWER(x, y) -> DOUBLE
+s RADIANS(x) -> DOUBLE
+s RAND([seed]) -> INTEGER
+s RANDOM([seed]) -> INTEGER
+s ROUND(n [, integer])
+s SIGN(n) -> INTEGER
+s SIN(x) -> DOUBLE
+s SQRT(x) -> DOUBLE
+s TAN(x) -> DOUBLE
+s TRUNC(n [, integer])
+s TRUNCATE(n, integer)
+s WIDTH_BUCKET(expr, min, max, count) -> INTEGER
+
+# String
+s ASCII(str) -> INTEGER
+s BIN(n) -> VARCHAR
+s BIT_LENGTH(str) -> INTEGER
+s CHAR_LENGTH(str) -> INTEGER
+s CHARACTER_LENGTH(str) -> INTEGER
+s CHR(n [USING charset]) -> VARCHAR
+s CONCAT(str1, str2 [, str]...) -> VARCHAR
+s CONCAT_WS(separator, str1, str2 [, str]...) -> VARCHAR
+s ELT(n, str1, str2 [, str]...) -> VARCHAR
+s FIELD(search, str1, str2 [, str]...) -> INTEGER
+s FIND_IN_SET(str, str_list) -> INTEGER
+s FROM_BASE64(str) -> VARCHAR
+s INSERT(str, pos, len, new_str) -> VARCHAR
+s INSTR(str, substr [, position]) -> INTEGER
+s LCASE(str) -> VARCHAR
+s LEFT(str, len) -> VARCHAR
+s LENGTH(str) -> INTEGER
+s LOCATE(substr, str [, pos]) -> INTEGER
+s LOWER(str) -> VARCHAR
+s LPAD(str, len [, pad]) -> VARCHAR
+s LTRIM(str [, trim_str]) -> VARCHAR
+s MID(str, pos, len) -> VARCHAR
+s OCTET_LENGTH(str) -> INTEGER
+s POSITION(substr IN str) -> INTEGER
+s REGEXP_COUNT(str, pattern [, position [, match_type]]) -> INTEGER since=11.0
+s REGEXP_INSTR(str, pattern [, position [, occurrence [, return_option [, match_type]]]]) -> INTEGER since=11.0
+s REGEXP_LIKE(str, pattern [, match_type]) -> INTEGER since=11.0
+s REGEXP_REPLACE(str, pattern, replacement [, position [, occurrence [, match_type]]]) -> VARCHAR since=11.0
+s REGEXP_SUBSTR(str, pattern [, position [, occurrence [, match_type]]]) -> VARCHAR since=11.0
+s REPEAT(str, count) -> VARCHAR
+s REPLACE(str, from_str [, to_str]) -> VARCHAR
+s REVERSE(str) -> VARCHAR
+s RIGHT(str, len) -> VARCHAR
+s RPAD(str, len [, pad]) -> VARCHAR
+s RTRIM(str [, trim_str]) -> VARCHAR
+s SPACE(n) -> VARCHAR
+s STRCMP(str1, str2) -> INTEGER
+s SUBSTR(str, pos [, len]) -> VARCHAR
+s SUBSTRING(str FROM pos [FOR len]) -> VARCHAR
+s SUBSTRING_INDEX(str, delim, count) -> VARCHAR
+s TO_BASE64(str) -> VARCHAR
+s TRANSLATE(str, from_str, to_str) -> VARCHAR
+s TRIM([[LEADING | TRAILING | BOTH] [trim_str] FROM] str) -> VARCHAR
+s UCASE(str) -> VARCHAR
+s UPPER(str) -> VARCHAR
+
+# Date and time
+s ADD_MONTHS(date, n) -> DATE
+s ADDDATE(date, days | INTERVAL expr unit)
+s ADDTIME(datetime, time)
+s CURDATE() -> DATE
+s CURRENT_DATE -> DATE
+s CURRENT_DATETIME -> DATETIME
+s CURRENT_TIME -> TIME
+s CURRENT_TIMESTAMP -> TIMESTAMP
+s CURTIME() -> TIME
+s DATE(datetime) -> VARCHAR
+s DATE_ADD(date, INTERVAL expr unit)
+s DATE_FORMAT(date, format) -> VARCHAR
+s DATE_SUB(date, INTERVAL expr unit)
+s DATEDIFF(date1, date2) -> INTEGER
+s DAY(date) -> INTEGER
+s DAYOFMONTH(date) -> INTEGER
+s DAYOFWEEK(date) -> INTEGER
+s DAYOFYEAR(date) -> INTEGER
+s EXTRACT(field FROM date) -> INTEGER
+s FROM_DAYS(n) -> DATE
+s FROM_TZ(datetime, timezone) since=10.0
+s FROM_UNIXTIME(unix_timestamp [, format])
+s HOUR(time) -> INTEGER
+s LAST_DAY(date) -> DATE
+s LOCALTIME -> DATETIME
+s LOCALTIMESTAMP -> DATETIME
+s MAKEDATE(year, dayofyear) -> DATE
+s MAKETIME(hour, min, sec) -> TIME
+s MINUTE(time) -> INTEGER
+s MONTH(date) -> INTEGER
+s MONTHS_BETWEEN(date1, date2) -> DOUBLE
+s NEW_TIME(datetime, from_tz, to_tz) since=10.0
+s NOW() -> DATETIME
+s QUARTER(date) -> INTEGER
+s ROUND(date [, fmt]) -> DATE
+s SEC_TO_TIME(seconds) -> TIME
+s SECOND(time) -> INTEGER
+s SUBDATE(date, days | INTERVAL expr unit)
+s SYS_DATE -> DATE
+s SYS_DATETIME -> DATETIME
+s SYS_TIME -> TIME
+s SYS_TIMESTAMP -> TIMESTAMP
+s SYSDATE -> DATE
+s SYSDATETIME -> DATETIME
+s SYSTIME -> TIME
+s SYSTIMESTAMP -> TIMESTAMP
+s TIME(datetime) -> VARCHAR
+s TIME_FORMAT(time, format) -> VARCHAR
+s TIME_TO_SEC(time) -> INTEGER
+s TIMEDIFF(expr1, expr2) -> TIME
+s TIMESTAMP(date [, time]) -> DATETIME
+s TO_DAYS(date) -> INTEGER
+s TRUNC(date [, fmt]) -> DATE
+s TZ_OFFSET(timezone) -> VARCHAR since=10.0
+s UNIX_TIMESTAMP([date]) -> INTEGER
+s UTC_DATE() -> DATE
+s UTC_TIME() -> TIME
+s WEEK(date [, mode]) -> INTEGER
+s WEEKDAY(date) -> INTEGER
+s YEAR(date) -> INTEGER
+
+# Conversion
+s CAST(expr AS type)
+s DATE_FORMAT(date, format) -> VARCHAR
+s FORMAT(n, decimals) -> VARCHAR
+s STR_TO_DATE(str, format)
+s TO_CHAR(expr [, format [, date_lang]]) -> VARCHAR
+s TO_DATE(str [, format [, date_lang]]) -> DATE
+s TO_DATETIME(str [, format [, date_lang]]) -> DATETIME
+s TO_NUMBER(str [, format]) -> NUMERIC
+s TO_TIME(str [, format [, date_lang]]) -> TIME
+s TO_TIMESTAMP(str [, format [, date_lang]]) -> TIMESTAMP
+
+# Conditional and miscellaneous
+s COALESCE(expr [, expr]...)
+s DATABASE() -> VARCHAR
+s DECODE(expr, search, result [, search, result]... [, default])
+s GREATEST(expr [, expr]...)
+s IF(condition, expr1, expr2)
+s IFNULL(expr1, expr2)
+s INET_ATON(ip_string) -> BIGINT
+s INET_NTOA(n) -> VARCHAR
+s ISNULL(expr) -> INTEGER
+s LAST_INSERT_ID() -> NUMERIC
+s LEAST(expr [, expr]...)
+s LIST_DBS() -> VARCHAR
+s MD5(str) -> VARCHAR
+s NULLIF(expr1, expr2)
+s NVL(expr1, expr2)
+s NVL2(expr1, expr2, expr3)
+s ROW_COUNT() -> INTEGER
+s SCHEMA() -> VARCHAR
+s SHA1(str) -> VARCHAR
+s SHA2(str, hash_length) -> VARCHAR
+s SYS_GUID() -> VARCHAR
+s USER() -> VARCHAR
+s VERSION() -> VARCHAR
+
+# JSON
+s JSON_ARRAY([value [, value]...]) -> JSON since=10.2
+s JSON_ARRAY_APPEND(json_doc, path, value [, path, value]...) -> JSON since=10.2
+s JSON_ARRAY_INSERT(json_doc, path, value [, path, value]...) -> JSON since=10.2
+s JSON_CONTAINS(json_doc, value [, path]) -> INTEGER since=10.2
+s JSON_CONTAINS_PATH(json_doc, one_or_all, path [, path]...) -> INTEGER since=10.2
+s JSON_DEPTH(json_doc) -> INTEGER since=10.2
+s JSON_EXTRACT(json_doc, path [, path]...) -> JSON since=10.2
+s JSON_INSERT(json_doc, path, value [, path, value]...) -> JSON since=10.2
+s JSON_KEYS(json_doc [, path]) -> JSON since=10.2
+s JSON_LENGTH(json_doc [, path]) -> INTEGER since=10.2
+s JSON_MERGE(json_doc, json_doc [, json_doc]...) -> JSON since=10.2
+s JSON_OBJECT([key, value [, key, value]...]) -> JSON since=10.2
+s JSON_PRETTY(json_doc) -> VARCHAR since=11.0
+s JSON_QUOTE(string) -> VARCHAR since=10.2
+s JSON_REMOVE(json_doc, path [, path]...) -> JSON since=10.2
+s JSON_REPLACE(json_doc, path, value [, path, value]...) -> JSON since=10.2
+s JSON_SEARCH(json_doc, one_or_all, search_str [, escape_char [, path]...]) -> JSON since=10.2
+s JSON_SET(json_doc, path, value [, path, value]...) -> JSON since=10.2
+s JSON_TYPE(json_doc) -> VARCHAR since=10.2
+s JSON_UNQUOTE(json_val) -> VARCHAR since=10.2
+s JSON_VALID(value) -> INTEGER since=10.2
+t JSON_TABLE(json_doc, path COLUMNS (column_definition [, column_definition]...)) since=11.0

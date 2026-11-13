@@ -1,0 +1,300 @@
+# Amazon Redshift's SQL functions (see dbine_driver::functions::parse_catalog),
+# from docs.aws.amazon.com/redshift/latest/dg/c_SQL_functions.html. Redshift's
+# pg_proc keeps PostgreSQL 8.0's functions, most of which the compute nodes
+# don't run, so the built-ins come from here; the user's functions from
+# pg_proc_info. Leader-node-only functions are left out.
+
+# Aggregate
+a any_value(expression)
+a avg(expression)
+a bit_and(expression)
+a bit_or(expression)
+a bool_and(expression) -> boolean
+a bool_or(expression) -> boolean
+a count(*) -> bigint
+a count(expression) -> bigint
+a listagg(aggregate_expression [, 'delimiter']) WITHIN GROUP (ORDER BY order_list) -> varchar
+a max(expression)
+a median(median_expression)
+a min(expression)
+a percentile_cont(percentile) WITHIN GROUP (ORDER BY expr)
+a percentile_disc(percentile) WITHIN GROUP (ORDER BY expr)
+a stddev(expression) -> double precision
+a stddev_pop(expression) -> double precision
+a stddev_samp(expression) -> double precision
+a sum(expression)
+a variance(expression) -> double precision
+a var_pop(expression) -> double precision
+a var_samp(expression) -> double precision
+a hll(expression) -> bigint
+a hll_create_sketch(expression) -> hllsketch
+a hll_combine(hllsketch) -> hllsketch
+
+# Arrays (SUPER)
+s array(expr1 [, expr2, ...]) -> super
+s array_concat(super_expr1, super_expr2) -> super
+s array_contains(array, value) -> boolean
+s array_distinct(array) -> super
+s array_flatten(super_expr1, super_expr2, ...) -> super
+s array_position(array, value) -> integer
+s array_sort(array) -> super
+s get_array_length(super_expr) -> bigint
+s split_to_array(string [, delimiter]) -> super
+s subarray(super_expr, start_position, length) -> super
+
+# Conditional
+s coalesce(expression, expression [, ...])
+s decode(expression, search, result [, search, result] [, default])
+s greatest(value [, ...])
+s least(value [, ...])
+s nullif(expression1, expression2)
+s nvl(expression, expression [, ...])
+s nvl2(expression, not_null_return_value, null_return_value)
+
+# Date and time
+s add_months(date | timestamp, integer) -> timestamp
+s convert_timezone(['source_timezone',] 'target_timezone', 'timestamp') -> timestamp
+s date_cmp(date1, date2) -> integer
+s date_cmp_timestamp(date, timestamp) -> integer
+s date_cmp_timestamptz(date, timestamptz) -> integer
+s date_part(datepart, {date | timestamp}) -> double precision
+s date_part_year(date) -> integer
+s date_trunc('datepart', timestamp) -> timestamp
+s dateadd(datepart, interval, {date | time | timetz | timestamp}) -> timestamp
+s datediff(datepart, {date | time | timetz | timestamp}, {date | time | timetz | timestamp}) -> bigint
+s extract(datepart FROM source) -> integer
+s getdate() -> timestamp
+s interval_cmp(interval1, interval2) -> integer
+s last_day(date) -> date
+s months_between(date1, date2) -> float8
+s next_day(date, day) -> date
+s timeofday() -> varchar
+s timestamp_cmp(timestamp1, timestamp2) -> integer
+s timestamp_cmp_date(timestamp, date) -> integer
+s timestamp_cmp_timestamptz(timestamp, timestamptz) -> integer
+s timestamptz_cmp(timestamptz1, timestamptz2) -> integer
+s timestamptz_cmp_date(timestamptz, date) -> integer
+s timestamptz_cmp_timestamp(timestamptz, timestamp) -> integer
+s timezone('timezone', {timestamp | timestamptz}) -> timestamp
+s to_timestamp(timestamp, format [, is_strict]) -> timestamptz
+s trunc(timestamp) -> date
+
+# Hash
+s checksum(expression) -> integer
+s crc32(string) -> bigint
+s farmfingerprint64(value) -> bigint
+s fnv_hash(value [, seed]) -> bigint
+s func_sha1(string) -> varchar
+s md5(string) -> varchar
+s murmur3_32_hash(value [, seed]) -> integer
+s sha(string) -> varchar
+s sha1(string) -> varchar
+s sha2(string, bits) -> varchar
+
+# HyperLogLog
+s hll_cardinality(hllsketch) -> bigint
+s hll_combine_sketches(hllsketch, hllsketch) -> hllsketch
+
+# JSON and SUPER
+s can_json_parse(json_string) -> boolean
+s is_array(super_expression) -> boolean
+s is_bigint(super_expression) -> boolean
+s is_boolean(super_expression) -> boolean
+s is_char(super_expression) -> boolean
+s is_decimal(super_expression) -> boolean
+s is_float(super_expression) -> boolean
+s is_integer(super_expression) -> boolean
+s is_object(super_expression) -> boolean
+s is_scalar(super_expression) -> boolean
+s is_smallint(super_expression) -> boolean
+s is_valid_json(json_string) -> boolean
+s is_valid_json_array(json_array) -> boolean
+s is_varchar(super_expression) -> boolean
+s json_array_length(json_array [, null_if_invalid]) -> integer
+s json_extract_array_element_text(json_string, pos [, null_if_invalid]) -> varchar
+s json_extract_path_text(json_string, path_elem [, path_elem ...] [, null_if_invalid]) -> varchar
+s json_parse(json_string) -> super
+s json_serialize(super_expression) -> varchar
+s json_serialize_to_varbyte(super_expression) -> varbyte
+s json_size(super_expression) -> integer
+s json_typeof(super_expression) -> varchar
+s lower_attribute_names(super_expression) -> super
+s object(key, value [, key, value ...]) -> super
+s object_transform(super_expression [KEEP path [, ...]] [SET path, value [, ...]]) -> super
+s upper_attribute_names(super_expression) -> super
+
+# Math
+s abs(number)
+s acos(number) -> double precision
+s asin(number) -> double precision
+s atan(number) -> double precision
+s atan2(number1, number2) -> double precision
+s cbrt(number) -> double precision
+s ceil(number)
+s ceiling(number)
+s cos(double_precision) -> double precision
+s cot(number) -> double precision
+s degrees(number) -> double precision
+s dexp(number) -> double precision
+s dlog1(number) -> double precision
+s dlog10(number) -> double precision
+s exp(expression) -> double precision
+s floor(number)
+s ln(expression) -> double precision
+s log(expression) -> double precision
+s mod(number1, number2)
+s pi() -> double precision
+s power(expression1, expression2) -> double precision
+s radians(number) -> double precision
+s random() -> double precision
+s round(number [, integer])
+s sign(number)
+s sin(number) -> double precision
+s sqrt(expression) -> double precision
+s tan(number) -> double precision
+s trunc(number [, integer])
+
+# Spatial
+s st_area(geo) -> double precision
+s st_asbinary(geo) -> varbyte
+s st_asewkt(geo) -> varchar
+s st_asgeojson(geo) -> varchar
+s st_astext(geo) -> varchar
+s st_azimuth(point1, point2) -> double precision
+s st_boundary(geom) -> geometry
+s st_buffer(geom, distance) -> geometry
+s st_centroid(geom) -> geometry
+s st_contains(geom1, geom2) -> boolean
+s st_convexhull(geom) -> geometry
+s st_coveredby(geom1, geom2) -> boolean
+s st_covers(geom1, geom2) -> boolean
+s st_crosses(geom1, geom2) -> boolean
+s st_dimension(geom) -> integer
+s st_disjoint(geom1, geom2) -> boolean
+s st_distance(geo1, geo2) -> double precision
+s st_distancesphere(geom1, geom2 [, radius]) -> double precision
+s st_dwithin(geom1, geom2, threshold) -> boolean
+s st_endpoint(geom) -> geometry
+s st_envelope(geom) -> geometry
+s st_equals(geom1, geom2) -> boolean
+s st_geogfromtext(wkt_string) -> geography
+s st_geomfromgeojson(geojson_string) -> geometry
+s st_geomfromtext(wkt_string [, srid]) -> geometry
+s st_geomfromwkb(wkb_string [, srid]) -> geometry
+s st_geometrytype(geom) -> varchar
+s st_intersection(geom1, geom2) -> geometry
+s st_intersects(geom1, geom2) -> boolean
+s st_isempty(geom) -> boolean
+s st_isvalid(geom) -> boolean
+s st_length(geo) -> double precision
+s st_makeenvelope(xmin, ymin, xmax, ymax [, srid]) -> geometry
+s st_makeline(geom1, geom2) -> geometry
+s st_makepoint(x, y [, z [, m]]) -> geometry
+s st_makepolygon(linestring) -> geometry
+s st_npoints(geom) -> integer
+s st_perimeter(geo) -> double precision
+s st_point(x, y) -> geometry
+s st_setsrid(geom, srid) -> geometry
+s st_simplify(geom, tolerance) -> geometry
+s st_srid(geo) -> integer
+s st_startpoint(geom) -> geometry
+s st_touches(geom1, geom2) -> boolean
+s st_transform(geom, srid) -> geometry
+s st_union(geom1, geom2) -> geometry
+s st_within(geom1, geom2) -> boolean
+s st_x(point) -> double precision
+s st_y(point) -> double precision
+
+# String
+s ascii(string) -> integer
+s btrim(string [, trim_chars]) -> varchar
+s char_length(expression) -> integer
+s character_length(expression) -> integer
+s charindex(substring, string) -> integer
+s chr(number) -> char
+s collate(string, 'case_sensitive' | 'case_insensitive') -> varchar
+s concat(expression1, expression2) -> varchar
+s difference(string1, string2) -> integer
+s initcap(string) -> varchar
+s left(string, integer) -> varchar
+s len(expression) -> integer
+s length(expression) -> integer
+s lower(string) -> varchar
+s lpad(string1, length [, string2]) -> varchar
+s ltrim(string [, trim_chars]) -> varchar
+s octet_length(expression) -> integer
+s octetindex(substring, string) -> integer
+s position(substring IN string) -> integer
+s quote_ident(string) -> varchar
+s quote_literal(value) -> varchar
+s regexp_count(source_string, pattern [, position [, parameters]]) -> integer
+s regexp_instr(source_string, pattern [, position [, occurrence [, option [, parameters]]]]) -> integer
+s regexp_replace(source_string, pattern [, replace_string [, position [, parameters]]]) -> varchar
+s regexp_substr(source_string, pattern [, position [, occurrence [, parameters]]]) -> varchar
+s repeat(string, integer) -> varchar
+s replace(string, old_chars, new_chars) -> varchar
+s replicate(string, integer) -> varchar
+s reverse(expression) -> varchar
+s right(string, integer) -> varchar
+s rpad(string1, length [, string2]) -> varchar
+s rtrim(string [, trim_chars]) -> varchar
+s soundex(string) -> varchar
+s split_part(string, delimiter, position) -> varchar
+s strpos(string, substring) -> integer
+s strtol(num_string, base) -> bigint
+s substr(string, start_position [, number_characters]) -> varchar
+s substring(string FROM start_position [FOR number_characters]) -> varchar
+s textlen(expression) -> integer
+s translate(expression, characters_to_replace, characters_to_substitute) -> varchar
+s trim([BOTH] ['characters' FROM] string) -> varchar
+s upper(string) -> varchar
+
+# VARBYTE
+s from_hex(hex_string) -> varbyte
+s from_varbyte(binary_value, format) -> varchar
+s getbit(binary_value, index) -> integer
+s to_hex(string) -> varchar
+s to_varbyte(string, format) -> varbyte
+
+# Type formatting
+s cast(expression AS type)
+s convert(type, expression)
+s texttonumericalt(expression [, format] [, precision, scale]) -> numeric
+s to_char(timestamp_expression | numeric_expression, 'format') -> varchar
+s to_date(string, format [, is_strict]) -> date
+s to_number(string, format) -> numeric
+
+# Window
+w cume_dist() -> double precision
+w dense_rank() -> bigint
+w first_value(expression [IGNORE NULLS | RESPECT NULLS])
+w lag(value_expr [, offset]) [IGNORE NULLS | RESPECT NULLS]
+w last_value(expression [IGNORE NULLS | RESPECT NULLS])
+w lead(value_expr [, offset]) [IGNORE NULLS | RESPECT NULLS]
+w nth_value(expr, offset) [FROM {FIRST | LAST}] [IGNORE NULLS | RESPECT NULLS]
+w ntile(expr) -> bigint
+w percent_rank() -> double precision
+w rank() -> bigint
+w ratio_to_report(ratio_expression)
+w row_number() -> bigint
+
+# System information
+s current_database() -> name
+s current_schema() -> name
+s current_schemas(include_implicit) -> name[]
+s current_user_id() -> integer
+s has_database_privilege([user,] database, privilege) -> boolean
+s has_schema_privilege([user,] schema, privilege) -> boolean
+s has_table_privilege([user,] table, privilege) -> boolean
+s pg_backend_pid() -> integer
+t pg_get_cols([view_name]) -> setof record
+s pg_get_grantee_by_iam_role(iam_role_arn) -> varchar
+s pg_get_iam_role_by_user(user_name) -> varchar
+t pg_get_late_binding_view_cols() -> setof record
+s pg_last_copy_count() -> bigint
+s pg_last_copy_id() -> integer
+s pg_last_query_id() -> integer
+s pg_last_unload_count() -> bigint
+s pg_last_unload_id() -> varchar
+s slice_num() -> integer
+s version() -> varchar

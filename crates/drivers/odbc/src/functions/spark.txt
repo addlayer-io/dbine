@@ -1,0 +1,375 @@
+# Spark SQL: the built-in functions of the Spark SQL reference (3.x). Used
+# to name what SHOW FUNCTIONS lists (kind and arguments), and on its own
+# when SHOW FUNCTIONS can't be read.
+
+# Aggregate
+a any(expr) -> boolean
+a any_value(expr [, isIgnoreNull])
+a approx_count_distinct(expr [, relativeSD]) -> bigint
+a approx_percentile(col, percentage [, accuracy])
+a array_agg(expr) -> array
+a avg(expr) -> double
+a bit_and(expr)
+a bit_or(expr)
+a bit_xor(expr)
+a bool_and(expr) -> boolean
+a bool_or(expr) -> boolean
+a collect_list(expr) -> array
+a collect_set(expr) -> array
+a corr(expr1, expr2) -> double
+a count(* | expr [, expr...]) -> bigint
+a count_if(expr) -> bigint
+a count_min_sketch(col, eps, confidence, seed) -> binary
+a covar_pop(expr1, expr2) -> double
+a covar_samp(expr1, expr2) -> double
+a every(expr) -> boolean
+a first(expr [, isIgnoreNull])
+a first_value(expr [, isIgnoreNull])
+a grouping(col) -> tinyint
+a grouping_id([col1 [, col2 ...]]) -> bigint
+a histogram_numeric(expr, nb) -> array
+a kurtosis(expr) -> double
+a last(expr [, isIgnoreNull])
+a last_value(expr [, isIgnoreNull])
+a listagg(expr [, delimiter]) WITHIN GROUP (ORDER BY key) -> string
+a max(expr)
+a max_by(x, y)
+a mean(expr) -> double
+a median(col)
+a min(expr)
+a min_by(x, y)
+a mode(col)
+a percentile(col, percentage [, frequency])
+a percentile_approx(col, percentage [, accuracy])
+a percentile_cont(percentage) WITHIN GROUP (ORDER BY col)
+a percentile_disc(percentage) WITHIN GROUP (ORDER BY col)
+a regr_avgx(y, x) -> double
+a regr_avgy(y, x) -> double
+a regr_count(y, x) -> bigint
+a regr_intercept(y, x) -> double
+a regr_r2(y, x) -> double
+a regr_slope(y, x) -> double
+a regr_sxx(y, x) -> double
+a regr_sxy(y, x) -> double
+a regr_syy(y, x) -> double
+a skewness(expr) -> double
+a some(expr) -> boolean
+a std(expr) -> double
+a stddev(expr) -> double
+a stddev_pop(expr) -> double
+a stddev_samp(expr) -> double
+a string_agg(expr [, delimiter]) -> string
+a sum(expr)
+a try_avg(expr)
+a try_sum(expr)
+a var_pop(expr) -> double
+a var_samp(expr) -> double
+a variance(expr) -> double
+
+# Window
+w cume_dist() -> double
+w dense_rank() -> int
+w lag(input [, offset [, default]])
+w lead(input [, offset [, default]])
+w nth_value(input, offset [, ignoreNulls])
+w ntile(n) -> int
+w percent_rank() -> double
+w rank() -> int
+w row_number() -> int
+
+# Generators: written in the SELECT list or after LATERAL VIEW (offered where
+# expressions go), except range, a table-valued function
+s explode(expr)
+s explode_outer(expr)
+s inline(expr)
+s inline_outer(expr)
+s json_tuple(jsonStr, p1, p2, ..., pn)
+s posexplode(expr)
+s posexplode_outer(expr)
+t range(start [, end [, step [, numSlices]]])
+s stack(n, expr1, ..., exprk)
+
+# Arrays and maps
+s array(expr, ...) -> array
+s array_append(array, element) -> array
+s array_compact(array) -> array
+s array_contains(array, value) -> boolean
+s array_distinct(array) -> array
+s array_except(array1, array2) -> array
+s array_insert(array, pos, element) -> array
+s array_intersect(array1, array2) -> array
+s array_join(array, delimiter [, nullReplacement]) -> string
+s array_max(array)
+s array_min(array)
+s array_position(array, element) -> bigint
+s array_prepend(array, element) -> array
+s array_remove(array, element) -> array
+s array_repeat(element, count) -> array
+s array_size(expr) -> int
+s array_sort(expr [, func]) -> array
+s array_union(array1, array2) -> array
+s arrays_overlap(a1, a2) -> boolean
+s arrays_zip(a1, a2, ...) -> array
+s cardinality(expr) -> int
+s concat(col1, col2, ..., colN)
+s element_at(array | map, index | key)
+s exists(expr, pred) -> boolean
+s filter(expr, func) -> array
+s flatten(arrayOfArrays) -> array
+s forall(expr, pred) -> boolean
+s map(key0, value0, key1, value1, ...) -> map
+s map_concat(map, ...) -> map
+s map_contains_key(map, key) -> boolean
+s map_entries(map) -> array
+s map_filter(expr, func) -> map
+s map_from_arrays(keys, values) -> map
+s map_from_entries(arrayOfEntries) -> map
+s map_keys(map) -> array
+s map_values(map) -> array
+s map_zip_with(map1, map2, function) -> map
+s named_struct(name1, val1, name2, val2, ...) -> struct
+s reverse(array | str)
+s sequence(start, stop [, step]) -> array
+s shuffle(array) -> array
+s size(expr) -> int
+s slice(x, start, length) -> array
+s sort_array(array [, ascendingOrder]) -> array
+s str_to_map(text [, pairDelim [, keyValueDelim]]) -> map
+s struct(col1, col2, col3, ...) -> struct
+s transform(expr, func) -> array
+s transform_keys(expr, func) -> map
+s transform_values(expr, func) -> map
+s try_element_at(array | map, index | key)
+s zip_with(left, right, func) -> array
+s aggregate(expr, start, merge [, finish])
+s reduce(expr, start, merge [, finish])
+
+# Date and time
+s add_months(start_date, num_months) -> date
+s convert_timezone([sourceTz, ] targetTz, sourceTs) -> timestamp_ntz
+s curdate() -> date
+s current_date() -> date
+s current_timestamp() -> timestamp
+s current_timezone() -> string
+s date_add(start_date, num_days) -> date
+s date_diff(endDate, startDate) -> int
+s date_format(timestamp, fmt) -> string
+s date_from_unix_date(days) -> date
+s date_part(field, source)
+s date_sub(start_date, num_days) -> date
+s date_trunc(fmt, ts) -> timestamp
+s dateadd(start_date, num_days) -> date
+s datediff(endDate, startDate) -> int
+s datepart(field, source)
+s day(date) -> int
+s dayofmonth(date) -> int
+s dayofweek(date) -> int
+s dayofyear(date) -> int
+s extract(field FROM source)
+s from_unixtime(unix_time [, fmt]) -> string
+s from_utc_timestamp(timestamp, timezone) -> timestamp
+s hour(timestamp) -> int
+s last_day(date) -> date
+s localtimestamp() -> timestamp_ntz
+s make_date(year, month, day) -> date
+s make_interval([years [, months [, weeks [, days [, hours [, mins [, secs]]]]]]])
+s make_timestamp(year, month, day, hour, min, sec [, timezone]) -> timestamp
+s minute(timestamp) -> int
+s month(date) -> int
+s months_between(timestamp1, timestamp2 [, roundOff]) -> double
+s next_day(start_date, day_of_week) -> date
+s now() -> timestamp
+s quarter(date) -> int
+s second(timestamp) -> int
+s timestamp_micros(microseconds) -> timestamp
+s timestamp_millis(milliseconds) -> timestamp
+s timestamp_seconds(seconds) -> timestamp
+s to_date(date_str [, fmt]) -> date
+s to_timestamp(timestamp_str [, fmt]) -> timestamp
+s to_unix_timestamp(timeExp [, fmt]) -> bigint
+s to_utc_timestamp(timestamp, timezone) -> timestamp
+s trunc(date, fmt) -> date
+s try_to_timestamp(timestamp_str [, fmt]) -> timestamp
+s unix_date(date) -> int
+s unix_micros(timestamp) -> bigint
+s unix_millis(timestamp) -> bigint
+s unix_seconds(timestamp) -> bigint
+s unix_timestamp([timeExp [, fmt]]) -> bigint
+s weekday(date) -> int
+s weekofyear(date) -> int
+s window(time_column, window_duration [, slide_duration [, start_time]]) -> struct
+s year(date) -> int
+
+# Strings
+s ascii(str) -> int
+s base64(bin) -> string
+s bit_length(expr) -> int
+s btrim(str [, trimStr]) -> string
+s char(expr) -> string
+s char_length(expr) -> int
+s character_length(expr) -> int
+s chr(expr) -> string
+s concat_ws(sep [, str | array(str)]+) -> string
+s contains(left, right) -> boolean
+s decode(bin, charset) -> string
+s elt(n, input1, input2, ...)
+s encode(str, charset) -> binary
+s endswith(left, right) -> boolean
+s find_in_set(str, str_array) -> int
+s format_number(expr1, expr2) -> string
+s format_string(strfmt, obj, ...) -> string
+s initcap(str) -> string
+s instr(str, substr) -> int
+s lcase(str) -> string
+s left(str, len) -> string
+s len(expr) -> int
+s length(expr) -> int
+s levenshtein(str1, str2 [, threshold]) -> int
+s locate(substr, str [, pos]) -> int
+s lower(str) -> string
+s lpad(str, len [, pad]) -> string
+s ltrim(str) -> string
+s mask(input [, upperChar, lowerChar, digitChar, otherChar]) -> string
+s octet_length(expr) -> int
+s overlay(input PLACING replace FROM pos [FOR len])
+s position(substr, str [, pos]) -> int
+s printf(strfmt, obj, ...) -> string
+s regexp_count(str, regexp) -> int
+s regexp_extract(str, regexp [, idx]) -> string
+s regexp_extract_all(str, regexp [, idx]) -> array
+s regexp_instr(str, regexp) -> int
+s regexp_like(str, regexp) -> boolean
+s regexp_replace(str, regexp, rep [, position]) -> string
+s regexp_substr(str, regexp) -> string
+s repeat(str, n) -> string
+s replace(str, search [, replace]) -> string
+s right(str, len) -> string
+s rlike(str, regexp) -> boolean
+s rpad(str, len [, pad]) -> string
+s rtrim(str) -> string
+s sentences(str [, lang, country]) -> array
+s soundex(str) -> string
+s space(n) -> string
+s split(str, regex [, limit]) -> array
+s split_part(str, delimiter, partNum) -> string
+s startswith(left, right) -> boolean
+s substr(str, pos [, len]) -> string
+s substring(str, pos [, len]) -> string
+s substring_index(str, delim, count) -> string
+s to_binary(str [, fmt]) -> binary
+s to_char(numberExpr, formatExpr) -> string
+s to_number(expr, fmt) -> decimal
+s translate(input, from, to) -> string
+s trim(str) -> string
+s try_to_number(expr, fmt) -> decimal
+s ucase(str) -> string
+s unbase64(str) -> binary
+s upper(str) -> string
+s url_decode(str) -> string
+s url_encode(str) -> string
+
+# Math
+s abs(expr)
+s acos(expr) -> double
+s acosh(expr) -> double
+s asin(expr) -> double
+s asinh(expr) -> double
+s atan(expr) -> double
+s atan2(exprY, exprX) -> double
+s atanh(expr) -> double
+s bin(expr) -> string
+s bround(expr [, d])
+s cbrt(expr) -> double
+s ceil(expr [, scale])
+s ceiling(expr [, scale])
+s conv(num, from_base, to_base) -> string
+s cos(expr) -> double
+s cosh(expr) -> double
+s cot(expr) -> double
+s degrees(expr) -> double
+s e() -> double
+s exp(expr) -> double
+s expm1(expr) -> double
+s factorial(expr) -> bigint
+s floor(expr [, scale])
+s greatest(expr, ...)
+s hex(expr) -> string
+s hypot(expr1, expr2) -> double
+s least(expr, ...)
+s ln(expr) -> double
+s log(base, expr) -> double
+s log10(expr) -> double
+s log1p(expr) -> double
+s log2(expr) -> double
+s mod(expr1, expr2)
+s negative(expr)
+s pi() -> double
+s pmod(expr1, expr2)
+s positive(expr)
+s pow(expr1, expr2) -> double
+s power(expr1, expr2) -> double
+s radians(expr) -> double
+s rand([seed]) -> double
+s randn([seed]) -> double
+s random([seed]) -> double
+s rint(expr) -> double
+s round(expr [, d])
+s sign(expr) -> double
+s signum(expr) -> double
+s sin(expr) -> double
+s sinh(expr) -> double
+s sqrt(expr) -> double
+s tan(expr) -> double
+s tanh(expr) -> double
+s try_add(expr1, expr2)
+s try_divide(dividend, divisor)
+s try_multiply(expr1, expr2)
+s try_subtract(expr1, expr2)
+s unhex(expr) -> binary
+s width_bucket(value, min_value, max_value, num_bucket) -> bigint
+
+# Conditional, hashing and miscellaneous
+s assert_true(expr [, message])
+s coalesce(expr1, expr2, ...)
+s crc32(expr) -> bigint
+s current_catalog() -> string
+s current_database() -> string
+s current_schema() -> string
+s current_user() -> string
+s hash(expr1, expr2, ...) -> int
+s if(expr1, expr2, expr3)
+s ifnull(expr1, expr2)
+s input_file_name() -> string
+s isnan(expr) -> boolean
+s isnotnull(expr) -> boolean
+s isnull(expr) -> boolean
+s md5(expr) -> string
+s monotonically_increasing_id() -> bigint
+s nanvl(expr1, expr2)
+s nullif(expr1, expr2)
+s nvl(expr1, expr2)
+s nvl2(expr1, expr2, expr3)
+s raise_error(expr)
+s sha(expr) -> string
+s sha1(expr) -> string
+s sha2(expr, bitLength) -> string
+s spark_partition_id() -> int
+s typeof(expr) -> string
+s uuid() -> string
+s version() -> string
+s xxhash64(expr1, expr2, ...) -> bigint
+s cast(expr AS type)
+s try_cast(expr AS type)
+
+# JSON, CSV and XML
+s from_csv(csvStr, schema [, options]) -> struct
+s from_json(jsonStr, schema [, options])
+s get_json_object(json_txt, path) -> string
+s json_array_length(jsonArray) -> int
+s json_object_keys(json_object) -> array
+s schema_of_csv(csv [, options]) -> string
+s schema_of_json(json [, options]) -> string
+s to_csv(expr [, options]) -> string
+s to_json(expr [, options]) -> string
+s xpath(xml, xpath) -> array
+s xpath_string(xml, xpath) -> string

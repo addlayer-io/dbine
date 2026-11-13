@@ -1,0 +1,719 @@
+# PostgreSQL's documented functions (see dbine_driver::functions::parse_catalog),
+# from postgresql.org/docs/current/functions.html, with the version that
+# added each one. The driver reads pg_proc where it can; this catalog is for
+# when it can't. Keywords written without parentheses (current_date,
+# current_user, localtimestamp…) aren't here.
+
+# Comparison
+s num_nonnulls(VARIADIC "any") -> integer since=9.6
+s num_nulls(VARIADIC "any") -> integer since=9.6
+
+# Mathematical
+s abs(numeric_type) -> numeric_type
+s cbrt(double precision) -> double precision
+s ceil(numeric) -> numeric
+s ceiling(numeric) -> numeric
+s degrees(double precision) -> double precision
+s div(y numeric, x numeric) -> numeric
+s erf(double precision) -> double precision since=16
+s erfc(double precision) -> double precision since=16
+s exp(numeric) -> numeric
+s factorial(bigint) -> numeric
+s floor(numeric) -> numeric
+s gamma(double precision) -> double precision since=18
+s gcd(numeric_type, numeric_type) -> numeric_type since=13
+s lcm(numeric_type, numeric_type) -> numeric_type since=13
+s lgamma(double precision) -> double precision since=18
+s ln(numeric) -> numeric
+s log(numeric) -> numeric
+s log(b numeric, x numeric) -> numeric
+s log10(numeric) -> numeric since=12
+s min_scale(numeric) -> integer since=13
+s mod(y numeric_type, x numeric_type) -> numeric_type
+s pi() -> double precision
+s power(a numeric, b numeric) -> numeric
+s radians(double precision) -> double precision
+s round(numeric) -> numeric
+s round(v numeric, s integer) -> numeric
+s scale(numeric) -> integer
+s sign(numeric) -> numeric
+s sqrt(numeric) -> numeric
+s trim_scale(numeric) -> numeric since=13
+s trunc(numeric) -> numeric
+s trunc(v numeric, s integer) -> numeric
+s width_bucket(operand numeric, low numeric, high numeric, count integer) -> integer
+s width_bucket(operand anycompatible, thresholds anycompatiblearray) -> integer since=9.5
+s random() -> double precision
+s random(min integer, max integer) -> integer since=17
+s random_normal(mean double precision, stddev double precision) -> double precision since=16
+s setseed(double precision) -> void
+s acos(double precision) -> double precision
+s acosd(double precision) -> double precision since=9.6
+s asin(double precision) -> double precision
+s asind(double precision) -> double precision since=9.6
+s atan(double precision) -> double precision
+s atand(double precision) -> double precision since=9.6
+s atan2(y double precision, x double precision) -> double precision
+s atan2d(y double precision, x double precision) -> double precision since=9.6
+s cos(double precision) -> double precision
+s cosd(double precision) -> double precision since=9.6
+s cot(double precision) -> double precision
+s cotd(double precision) -> double precision since=9.6
+s sin(double precision) -> double precision
+s sind(double precision) -> double precision since=9.6
+s tan(double precision) -> double precision
+s tand(double precision) -> double precision since=9.6
+s sinh(double precision) -> double precision since=12
+s cosh(double precision) -> double precision since=12
+s tanh(double precision) -> double precision since=12
+s asinh(double precision) -> double precision since=12
+s acosh(double precision) -> double precision since=12
+s atanh(double precision) -> double precision since=12
+
+# String
+s ascii(text) -> integer
+s bit_length(text) -> integer
+s btrim(string text [, characters text]) -> text
+s casefold(text) -> text since=18
+s char_length(text) -> integer
+s character_length(text) -> integer
+s chr(integer) -> text
+s concat(val1 "any" [, val2 "any" [, ...]]) -> text
+s concat_ws(sep text, val1 "any" [, val2 "any" [, ...]]) -> text
+s format(formatstr text [, formatarg "any" [, ...]]) -> text
+s initcap(text) -> text
+s is_normalized(text [, form]) -> boolean since=13
+s left(string text, n integer) -> text
+s length(text) -> integer
+s lower(text) -> text
+s lpad(string text, length integer [, fill text]) -> text
+s ltrim(string text [, characters text]) -> text
+s md5(text) -> text
+s normalize(text [, form]) -> text since=13
+s octet_length(text) -> integer
+s overlay(string text PLACING newsubstring text FROM start integer [FOR count integer]) -> text
+s parse_ident(qualified_identifier text [, strict_mode boolean]) -> text[] since=9.6
+s pg_client_encoding() -> name
+s position(substring text IN string text) -> integer
+s quote_ident(text) -> text
+s quote_literal(text) -> text
+s quote_nullable(text) -> text
+s regexp_count(string text, pattern text [, start integer [, flags text]]) -> integer since=15
+s regexp_instr(string text, pattern text [, start integer [, N integer [, endoption integer [, flags text [, subexpr integer]]]]]) -> integer since=15
+s regexp_like(string text, pattern text [, flags text]) -> boolean since=15
+s regexp_match(string text, pattern text [, flags text]) -> text[] since=10
+t regexp_matches(string text, pattern text [, flags text]) -> setof text[]
+s regexp_replace(string text, pattern text, replacement text [, start integer] [, flags text]) -> text
+s regexp_split_to_array(string text, pattern text [, flags text]) -> text[]
+t regexp_split_to_table(string text, pattern text [, flags text]) -> setof text
+s regexp_substr(string text, pattern text [, start integer [, N integer [, flags text [, subexpr integer]]]]) -> text since=15
+s repeat(string text, number integer) -> text
+s replace(string text, from text, to text) -> text
+s reverse(text) -> text
+s right(string text, n integer) -> text
+s rpad(string text, length integer [, fill text]) -> text
+s rtrim(string text [, characters text]) -> text
+s split_part(string text, delimiter text, n integer) -> text
+s starts_with(string text, prefix text) -> boolean since=11
+s string_to_array(string text, delimiter text [, null_string text]) -> text[]
+t string_to_table(string text, delimiter text [, null_string text]) -> setof text since=14
+s strpos(string text, substring text) -> integer
+s substr(string text, start integer [, count integer]) -> text
+s substring(string text [FROM start integer] [FOR count integer]) -> text
+s to_ascii(string text) -> text
+s to_bin(integer) -> text since=18
+s to_hex(integer) -> text
+s to_oct(integer) -> text since=18
+s translate(string text, from text, to text) -> text
+s trim([LEADING | TRAILING | BOTH] [characters text] FROM string text) -> text
+s unistr(text) -> text since=14
+s upper(text) -> text
+
+# Binary string
+s bit_count(bytea) -> bigint since=14
+s convert(bytes bytea, src_encoding name, dest_encoding name) -> bytea
+s convert_from(bytes bytea, src_encoding name) -> text
+s convert_to(string text, dest_encoding name) -> bytea
+s crc32(bytea) -> bigint since=18
+s crc32c(bytea) -> bigint since=18
+s decode(string text, format text) -> bytea
+s encode(bytes bytea, format text) -> text
+s get_bit(bytes bytea, n bigint) -> integer
+s get_byte(bytes bytea, n integer) -> integer
+s set_bit(bytes bytea, n bigint, newvalue integer) -> bytea
+s set_byte(bytes bytea, n integer, newvalue integer) -> bytea
+s sha224(bytea) -> bytea since=11
+s sha256(bytea) -> bytea since=11
+s sha384(bytea) -> bytea since=11
+s sha512(bytea) -> bytea since=11
+
+# Formatting
+s to_char(value, format text) -> text
+s to_date(text, format text) -> date
+s to_number(text, format text) -> numeric
+s to_timestamp(text, format text) -> timestamp with time zone
+s to_timestamp(double precision) -> timestamp with time zone
+
+# Date and time
+s age(timestamp, timestamp) -> interval
+s age(timestamp) -> interval
+s clock_timestamp() -> timestamp with time zone
+s date_add(timestamp with time zone, interval [, text]) -> timestamp with time zone since=16
+s date_bin(interval, timestamp, timestamp) -> timestamp since=14
+s date_part(text, timestamp) -> double precision
+s date_subtract(timestamp with time zone, interval [, text]) -> timestamp with time zone since=16
+s date_trunc(text, timestamp [, text]) -> timestamp
+s extract(field FROM source) -> numeric
+s isfinite(timestamp) -> boolean
+s justify_days(interval) -> interval
+s justify_hours(interval) -> interval
+s justify_interval(interval) -> interval
+s make_date(year integer, month integer, day integer) -> date since=9.4
+s make_interval([years integer [, months integer [, weeks integer [, days integer [, hours integer [, mins integer [, secs double precision]]]]]]]) -> interval since=9.4
+s make_time(hour integer, min integer, sec double precision) -> time without time zone since=9.4
+s make_timestamp(year integer, month integer, day integer, hour integer, min integer, sec double precision) -> timestamp without time zone since=9.4
+s make_timestamptz(year integer, month integer, day integer, hour integer, min integer, sec double precision [, timezone text]) -> timestamp with time zone since=9.4
+s now() -> timestamp with time zone
+s pg_sleep(double precision) -> void
+s pg_sleep_for(interval) -> void since=9.4
+s pg_sleep_until(timestamp with time zone) -> void since=9.4
+s statement_timestamp() -> timestamp with time zone
+s timeofday() -> text
+s timezone(zone text, timestamp) -> timestamp with time zone
+s transaction_timestamp() -> timestamp with time zone
+
+# Enum
+s enum_first(anyenum) -> anyenum
+s enum_last(anyenum) -> anyenum
+s enum_range(anyenum [, anyenum]) -> anyarray
+
+# Geometric
+s area(geometric_type) -> double precision
+s bound_box(box, box) -> box
+s box(geometric_type) -> box
+s center(geometric_type) -> point
+s circle(geometric_type) -> circle
+s diagonal(box) -> lseg since=14
+s diameter(circle) -> double precision
+s height(box) -> double precision
+s isclosed(path) -> boolean
+s isopen(path) -> boolean
+s length(geometric_type) -> double precision
+s line(point, point) -> line
+s lseg(point, point) -> lseg
+s npoints(geometric_type) -> integer
+s path(polygon) -> path
+s pclose(path) -> path
+s point(x double precision, y double precision) -> point
+s polygon(geometric_type) -> polygon
+s popen(path) -> path
+s radius(circle) -> double precision
+s slope(point, point) -> double precision since=14
+s width(box) -> double precision
+
+# Network address
+s abbrev(inet) -> text
+s broadcast(inet) -> inet
+s family(inet) -> integer
+s host(inet) -> text
+s hostmask(inet) -> inet
+s inet_merge(inet, inet) -> cidr since=9.5
+s inet_same_family(inet, inet) -> boolean since=9.5
+s macaddr8_set7bit(macaddr8) -> macaddr8 since=10
+s masklen(inet) -> integer
+s netmask(inet) -> inet
+s network(inet) -> cidr
+s set_masklen(inet, integer) -> inet
+s text(inet) -> text
+s trunc(macaddr) -> macaddr
+
+# Text search
+s array_to_tsvector(text[]) -> tsvector since=9.6
+s get_current_ts_config() -> regconfig
+s json_to_tsvector([config regconfig,] document json, filter jsonb) -> tsvector since=11
+s jsonb_to_tsvector([config regconfig,] document jsonb, filter jsonb) -> tsvector since=11
+s length(tsvector) -> integer
+s numnode(tsquery) -> integer
+s phraseto_tsquery([config regconfig,] query text) -> tsquery since=9.6
+s plainto_tsquery([config regconfig,] query text) -> tsquery
+s querytree(tsquery) -> text
+s setweight(vector tsvector, weight "char" [, lexemes text[]]) -> tsvector
+s strip(tsvector) -> tsvector
+s to_tsquery([config regconfig,] query text) -> tsquery
+s to_tsvector([config regconfig,] document text) -> tsvector
+s ts_delete(vector tsvector, lexeme text) -> tsvector since=9.6
+s ts_filter(vector tsvector, weights "char"[]) -> tsvector since=9.6
+s ts_headline([config regconfig,] document text, query tsquery [, options text]) -> text
+s ts_lexize(dict regdictionary, token text) -> text[]
+s ts_rank([weights real[],] vector tsvector, query tsquery [, normalization integer]) -> real
+s ts_rank_cd([weights real[],] vector tsvector, query tsquery [, normalization integer]) -> real
+s ts_rewrite(query tsquery, target tsquery, substitute tsquery) -> tsquery
+s tsquery_phrase(query1 tsquery, query2 tsquery [, distance integer]) -> tsquery since=9.6
+s tsvector_to_array(tsvector) -> text[] since=9.6
+s websearch_to_tsquery([config regconfig,] query text) -> tsquery since=11
+t ts_debug([config regconfig,] document text) -> setof record
+t ts_parse(parser_name text, document text) -> setof record
+t ts_stat(sqlquery text [, weights text]) -> setof record
+t ts_token_type(parser_name text) -> setof record
+
+# UUID
+s gen_random_uuid() -> uuid since=13
+s uuid_extract_timestamp(uuid) -> timestamp with time zone since=17
+s uuid_extract_version(uuid) -> smallint since=17
+s uuidv4() -> uuid since=18
+s uuidv7([shift interval]) -> uuid since=18
+
+# XML
+s cursor_to_xml(cursor refcursor, count integer, nulls boolean, tableforest boolean, targetns text) -> xml
+s query_to_xml(query text, nulls boolean, tableforest boolean, targetns text) -> xml
+s table_to_xml(table regclass, nulls boolean, tableforest boolean, targetns text) -> xml
+s xml_is_well_formed(text) -> boolean
+s xml_is_well_formed_content(text) -> boolean
+s xml_is_well_formed_document(text) -> boolean
+s xmlcomment(text) -> xml
+s xmlconcat(xml [, ...]) -> xml
+s xmlelement(NAME name [, XMLATTRIBUTES(attvalue [AS attname] [, ...])] [, content [, ...]]) -> xml
+s xmlexists(text PASSING [BY {REF|VALUE}] xml [BY {REF|VALUE}]) -> boolean
+s xmlforest(content [AS name] [, ...]) -> xml
+s xmlpi(NAME name [, content]) -> xml
+s xmlroot(xml, VERSION {text|NO VALUE} [, STANDALONE {YES|NO|NO VALUE}]) -> xml
+s xmltext(text) -> xml since=17
+t xmltable([XMLNAMESPACES(namespace_uri AS namespace_name [, ...]),] row_expression PASSING document_expression COLUMNS name type [, ...]) -> setof record since=10
+s xpath(xpath text, xml xml [, nsarray text[]]) -> xml[]
+s xpath_exists(xpath text, xml xml [, nsarray text[]]) -> boolean
+
+# JSON creation
+s array_to_json(anyarray [, boolean]) -> json since=9.2
+s json(expression [FORMAT JSON] [{WITH|WITHOUT} UNIQUE [KEYS]]) -> json since=17
+s json_array([{value_expression [FORMAT JSON]} [, ...]] [{NULL|ABSENT} ON NULL] [RETURNING data_type]) -> json since=16
+s json_build_array(VARIADIC "any") -> json since=9.4
+s json_build_object(VARIADIC "any") -> json since=9.4
+s json_object(text[]) -> json since=9.4
+s json_object(keys text[], values text[]) -> json since=9.4
+s json_scalar(expression) -> json since=17
+s json_serialize(expression [FORMAT JSON] [RETURNING data_type]) -> text since=17
+s jsonb_build_array(VARIADIC "any") -> jsonb since=9.5
+s jsonb_build_object(VARIADIC "any") -> jsonb since=9.5
+s jsonb_object(text[]) -> jsonb since=9.5
+s jsonb_object(keys text[], values text[]) -> jsonb since=9.5
+s row_to_json(record [, boolean]) -> json since=9.2
+s to_json(anyelement) -> json since=9.3
+s to_jsonb(anyelement) -> jsonb since=9.5
+
+# JSON processing
+t json_array_elements(json) -> setof json since=9.3
+t json_array_elements_text(json) -> setof text since=9.4
+s json_array_length(json) -> integer since=9.3
+t json_each(json) -> setof record since=9.3
+t json_each_text(json) -> setof record since=9.3
+s json_extract_path(from_json json, VARIADIC path_elems text[]) -> json since=9.3
+s json_extract_path_text(from_json json, VARIADIC path_elems text[]) -> text since=9.3
+t json_object_keys(json) -> setof text since=9.3
+s json_populate_record(base anyelement, from_json json) -> anyelement since=9.3
+t json_populate_recordset(base anyelement, from_json json) -> setof anyelement since=9.3
+s json_strip_nulls(json [, strip_in_arrays boolean]) -> json since=9.5
+s json_to_record(json) -> record since=9.4
+t json_to_recordset(json) -> setof record since=9.4
+s json_typeof(json) -> text since=9.4
+t jsonb_array_elements(jsonb) -> setof jsonb since=9.4
+t jsonb_array_elements_text(jsonb) -> setof text since=9.4
+s jsonb_array_length(jsonb) -> integer since=9.4
+t jsonb_each(jsonb) -> setof record since=9.4
+t jsonb_each_text(jsonb) -> setof record since=9.4
+s jsonb_extract_path(from_json jsonb, VARIADIC path_elems text[]) -> jsonb since=9.4
+s jsonb_extract_path_text(from_json jsonb, VARIADIC path_elems text[]) -> text since=9.4
+s jsonb_insert(target jsonb, path text[], new_value jsonb [, insert_after boolean]) -> jsonb since=9.6
+t jsonb_object_keys(jsonb) -> setof text since=9.4
+s jsonb_path_exists(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> boolean since=12
+s jsonb_path_exists_tz(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> boolean since=13
+s jsonb_path_match(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> boolean since=12
+s jsonb_path_match_tz(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> boolean since=13
+t jsonb_path_query(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> setof jsonb since=12
+s jsonb_path_query_array(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> jsonb since=12
+s jsonb_path_query_array_tz(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> jsonb since=13
+s jsonb_path_query_first(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> jsonb since=12
+s jsonb_path_query_first_tz(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> jsonb since=13
+t jsonb_path_query_tz(target jsonb, path jsonpath [, vars jsonb [, silent boolean]]) -> setof jsonb since=13
+s jsonb_populate_record(base anyelement, from_json jsonb) -> anyelement since=9.4
+s jsonb_populate_record_valid(base anyelement, from_json jsonb) -> boolean since=17
+t jsonb_populate_recordset(base anyelement, from_json jsonb) -> setof anyelement since=9.4
+s jsonb_pretty(jsonb) -> text since=9.5
+s jsonb_set(target jsonb, path text[], new_value jsonb [, create_if_missing boolean]) -> jsonb since=9.5
+s jsonb_set_lax(target jsonb, path text[], new_value jsonb [, create_if_missing boolean [, null_value_treatment text]]) -> jsonb since=13
+s jsonb_strip_nulls(jsonb [, strip_in_arrays boolean]) -> jsonb since=9.5
+s jsonb_to_record(jsonb) -> record since=9.4
+t jsonb_to_recordset(jsonb) -> setof record since=9.4
+s jsonb_typeof(jsonb) -> text since=9.4
+s json_exists(context_item, path_expression [PASSING {value AS varname} [, ...]] [{TRUE|FALSE|UNKNOWN|ERROR} ON ERROR]) -> boolean since=17
+s json_query(context_item, path_expression [PASSING {value AS varname} [, ...]] [RETURNING data_type [FORMAT JSON]] [wrapper] [quotes] [ON EMPTY] [ON ERROR]) -> jsonb since=17
+s json_value(context_item, path_expression [PASSING {value AS varname} [, ...]] [RETURNING data_type] [ON EMPTY] [ON ERROR]) -> text since=17
+t json_table(context_item, path_expression [AS json_path_name] [PASSING {value AS varname} [, ...]] COLUMNS (json_table_column [, ...])) -> setof record since=17
+
+# Sequences
+s currval(regclass) -> bigint
+s lastval() -> bigint
+s nextval(regclass) -> bigint
+s setval(regclass, bigint [, boolean]) -> bigint
+
+# Conditional
+s coalesce(value [, ...])
+s greatest(value [, ...])
+s least(value [, ...])
+s nullif(value1, value2)
+
+# Arrays
+s array_append(anycompatiblearray, anycompatible) -> anycompatiblearray
+s array_cat(anycompatiblearray, anycompatiblearray) -> anycompatiblearray
+s array_dims(anyarray) -> text
+s array_fill(anyelement, integer[] [, integer[]]) -> anyarray
+s array_length(anyarray, integer) -> integer
+s array_lower(anyarray, integer) -> integer
+s array_ndims(anyarray) -> integer
+s array_position(anycompatiblearray, anycompatible [, integer]) -> integer since=9.5
+s array_positions(anycompatiblearray, anycompatible) -> integer[] since=9.5
+s array_prepend(anycompatible, anycompatiblearray) -> anycompatiblearray
+s array_remove(anycompatiblearray, anycompatible) -> anycompatiblearray
+s array_replace(anycompatiblearray, anycompatible, anycompatible) -> anycompatiblearray
+s array_reverse(anyarray) -> anyarray since=18
+s array_sample(array anyarray, n integer) -> anyarray since=16
+s array_shuffle(anyarray) -> anyarray since=16
+s array_sort(array anyarray [, descending boolean [, nulls_first boolean]]) -> anyarray since=18
+s array_to_string(array anyarray, delimiter text [, null_string text]) -> text
+s array_upper(anyarray, integer) -> integer
+s cardinality(anyarray) -> integer since=9.4
+s trim_array(array anyarray, n integer) -> anyarray since=14
+t unnest(anyarray) -> setof anyelement
+t unnest(anyarray, anyarray [, ...]) -> setof anyelement, anyelement [, ...] since=9.4
+
+# Ranges and multiranges
+s isempty(anyrange) -> boolean
+s lower(anyrange) -> anyelement
+s lower_inc(anyrange) -> boolean
+s lower_inf(anyrange) -> boolean
+s multirange(anyrange) -> anymultirange since=14
+s range_merge(anyrange, anyrange) -> anyrange since=9.5
+s upper(anyrange) -> anyelement
+s upper_inc(anyrange) -> boolean
+s upper_inf(anyrange) -> boolean
+s int4range(lower integer, upper integer [, bounds text]) -> int4range
+s int8range(lower bigint, upper bigint [, bounds text]) -> int8range
+s numrange(lower numeric, upper numeric [, bounds text]) -> numrange
+s tsrange(lower timestamp, upper timestamp [, bounds text]) -> tsrange
+s tstzrange(lower timestamptz, upper timestamptz [, bounds text]) -> tstzrange
+s daterange(lower date, upper date [, bounds text]) -> daterange
+s int4multirange(int4range [, ...]) -> int4multirange since=14
+s int8multirange(int8range [, ...]) -> int8multirange since=14
+s nummultirange(numrange [, ...]) -> nummultirange since=14
+s tsmultirange(tsrange [, ...]) -> tsmultirange since=14
+s tstzmultirange(tstzrange [, ...]) -> tstzmultirange since=14
+s datemultirange(daterange [, ...]) -> datemultirange since=14
+t unnest(anymultirange) -> setof anyrange since=14
+
+# Aggregates
+a any_value(anyelement) -> anyelement since=16
+a array_agg(anynonarray ORDER BY input_sort_columns) -> anyarray
+a avg(numeric_type) -> numeric
+a bit_and(integer_type) -> integer_type
+a bit_or(integer_type) -> integer_type
+a bit_xor(integer_type) -> integer_type since=14
+a bool_and(boolean) -> boolean
+a bool_or(boolean) -> boolean
+a count(*) -> bigint
+a count("any") -> bigint
+a every(boolean) -> boolean
+a json_agg(anyelement ORDER BY input_sort_columns) -> json since=9.3
+a json_agg_strict(anyelement) -> json since=16
+a json_arrayagg([value_expression] [ORDER BY sort_expression] [{NULL|ABSENT} ON NULL] [RETURNING data_type]) -> json since=16
+a json_object_agg(key "any", value "any" ORDER BY input_sort_columns) -> json since=9.4
+a json_object_agg_strict(key "any", value "any") -> json since=16
+a json_object_agg_unique(key "any", value "any") -> json since=16
+a json_object_agg_unique_strict(key "any", value "any") -> json since=16
+a json_objectagg([{key_expression {VALUE|':'} value_expression}] [{NULL|ABSENT} ON NULL] [{WITH|WITHOUT} UNIQUE [KEYS]] [RETURNING data_type]) -> json since=16
+a jsonb_agg(anyelement ORDER BY input_sort_columns) -> jsonb since=9.5
+a jsonb_agg_strict(anyelement) -> jsonb since=16
+a jsonb_object_agg(key "any", value "any" ORDER BY input_sort_columns) -> jsonb since=9.5
+a jsonb_object_agg_strict(key "any", value "any") -> jsonb since=16
+a jsonb_object_agg_unique(key "any", value "any") -> jsonb since=16
+a jsonb_object_agg_unique_strict(key "any", value "any") -> jsonb since=16
+a max(expression)
+a min(expression)
+a range_agg(value anyrange) -> anymultirange since=14
+a range_intersect_agg(value anyrange) -> anyrange
+a string_agg(value text, delimiter text ORDER BY input_sort_columns) -> text since=9.0
+a string_agg(value bytea, delimiter bytea ORDER BY input_sort_columns) -> bytea since=9.0
+a sum(numeric_type) -> numeric_type
+a xmlagg(xml ORDER BY input_sort_columns) -> xml
+a corr(Y double precision, X double precision) -> double precision
+a covar_pop(Y double precision, X double precision) -> double precision
+a covar_samp(Y double precision, X double precision) -> double precision
+a regr_avgx(Y double precision, X double precision) -> double precision
+a regr_avgy(Y double precision, X double precision) -> double precision
+a regr_count(Y double precision, X double precision) -> bigint
+a regr_intercept(Y double precision, X double precision) -> double precision
+a regr_r2(Y double precision, X double precision) -> double precision
+a regr_slope(Y double precision, X double precision) -> double precision
+a regr_sxx(Y double precision, X double precision) -> double precision
+a regr_sxy(Y double precision, X double precision) -> double precision
+a regr_syy(Y double precision, X double precision) -> double precision
+a stddev(numeric_type) -> double precision
+a stddev_pop(numeric_type) -> double precision
+a stddev_samp(numeric_type) -> double precision
+a variance(numeric_type) -> double precision
+a var_pop(numeric_type) -> double precision
+a var_samp(numeric_type) -> double precision
+a mode() WITHIN GROUP (ORDER BY anyelement) -> anyelement since=9.4
+a percentile_cont(fraction double precision) WITHIN GROUP (ORDER BY double precision) -> double precision since=9.4
+a percentile_disc(fraction double precision) WITHIN GROUP (ORDER BY anyelement) -> anyelement since=9.4
+s grouping(group_by_expression [, ...]) -> integer since=9.5
+
+# Window
+w row_number() -> bigint
+w rank() -> bigint
+w dense_rank() -> bigint
+w percent_rank() -> double precision
+w cume_dist() -> double precision
+w ntile(num_buckets integer) -> integer
+w lag(value anycompatible [, offset integer [, default anycompatible]]) -> anycompatible
+w lead(value anycompatible [, offset integer [, default anycompatible]]) -> anycompatible
+w first_value(value anyelement) -> anyelement
+w last_value(value anyelement) -> anyelement
+w nth_value(value anyelement, n integer) -> anyelement
+
+# Set returning
+t generate_series(start, stop [, step]) -> setof numeric_type
+t generate_series(start timestamp, stop timestamp, step interval [, timezone text]) -> setof timestamp
+t generate_subscripts(array anyarray, dim integer [, reverse boolean]) -> setof integer
+
+# Session and catalog information
+s current_database() -> name
+s current_query() -> text
+s current_schema() -> name
+s current_schemas(include_implicit boolean) -> name[]
+s current_setting(setting_name text [, missing_ok boolean]) -> text
+s inet_client_addr() -> inet
+s inet_client_port() -> integer
+s inet_server_addr() -> inet
+s inet_server_port() -> integer
+s pg_backend_pid() -> integer
+s pg_blocking_pids(integer) -> integer[] since=9.6
+s pg_conf_load_time() -> timestamp with time zone
+s pg_current_logfile([text]) -> text since=10
+s pg_is_other_temp_schema(oid) -> boolean
+s pg_jit_available() -> boolean since=11
+t pg_listening_channels() -> setof text
+s pg_my_temp_schema() -> oid
+s pg_notification_queue_usage() -> double precision since=9.5
+s pg_postmaster_start_time() -> timestamp with time zone
+s pg_safe_snapshot_blocking_pids(integer) -> integer[] since=10
+s pg_trigger_depth() -> integer
+s set_config(setting_name text, new_value text, is_local boolean) -> text
+s version() -> text
+s has_any_column_privilege([user name or oid,] table text or oid, privilege text) -> boolean
+s has_column_privilege([user name or oid,] table text or oid, column text or smallint, privilege text) -> boolean
+s has_database_privilege([user name or oid,] database text or oid, privilege text) -> boolean
+s has_foreign_data_wrapper_privilege([user name or oid,] fdw text or oid, privilege text) -> boolean
+s has_function_privilege([user name or oid,] function text or oid, privilege text) -> boolean
+s has_language_privilege([user name or oid,] language text or oid, privilege text) -> boolean
+s has_parameter_privilege([user name or oid,] parameter text, privilege text) -> boolean since=15
+s has_schema_privilege([user name or oid,] schema text or oid, privilege text) -> boolean
+s has_sequence_privilege([user name or oid,] sequence text or oid, privilege text) -> boolean
+s has_server_privilege([user name or oid,] server text or oid, privilege text) -> boolean
+s has_table_privilege([user name or oid,] table text or oid, privilege text) -> boolean
+s has_tablespace_privilege([user name or oid,] tablespace text or oid, privilege text) -> boolean
+s has_type_privilege([user name or oid,] type text or oid, privilege text) -> boolean
+s pg_has_role([user name or oid,] role text or oid, privilege text) -> boolean
+s row_security_active(table text or oid) -> boolean since=9.5
+s acldefault(type "char", ownerId oid) -> aclitem[]
+t aclexplode(aclitem[]) -> setof record
+s makeaclitem(grantee oid, grantor oid, privileges text, is_grantable boolean) -> aclitem
+s pg_function_is_visible(function oid) -> boolean
+s pg_table_is_visible(table oid) -> boolean
+s pg_type_is_visible(type oid) -> boolean
+s col_description(table oid, column integer) -> text
+s format_type(type oid, typemod integer) -> text
+s obj_description(object oid [, catalog name]) -> text
+s pg_column_compression("any") -> text since=14
+s pg_column_toast_chunk_id("any") -> oid since=17
+s pg_describe_object(classid oid, objid oid, objsubid integer) -> text
+s pg_get_constraintdef(constraint oid [, pretty boolean]) -> text
+s pg_get_expr(expr pg_node_tree, relation oid [, pretty boolean]) -> text
+s pg_get_function_arguments(func oid) -> text
+s pg_get_function_identity_arguments(func oid) -> text
+s pg_get_function_result(func oid) -> text
+s pg_get_functiondef(func oid) -> text
+s pg_get_indexdef(index oid [, column integer, pretty boolean]) -> text
+t pg_get_keywords() -> setof record
+s pg_get_object_address(type text, object_names text[], object_args text[]) -> record since=9.5
+s pg_get_ruledef(rule oid [, pretty boolean]) -> text
+s pg_get_serial_sequence(table text, column text) -> text
+s pg_get_statisticsobjdef(statobj oid) -> text since=10
+s pg_get_triggerdef(trigger oid [, pretty boolean]) -> text
+s pg_get_userbyid(role oid) -> name
+s pg_get_viewdef(view oid [, pretty boolean]) -> text
+s pg_identify_object(classid oid, objid oid, objsubid integer) -> record
+s pg_identify_object_as_address(classid oid, objid oid, objsubid integer) -> record since=9.5
+s pg_index_column_has_property(index regclass, column integer, property text) -> boolean since=9.6
+s pg_index_has_property(index regclass, property text) -> boolean since=9.6
+s pg_indexam_has_property(am oid, property text) -> boolean since=9.6
+s pg_input_error_info(string text, type text) -> record since=16
+s pg_input_is_valid(string text, type text) -> boolean since=16
+t pg_options_to_table(options_array text[]) -> setof record
+s pg_settings_get_flags(guc text) -> text[] since=15
+t pg_tablespace_databases(tablespace oid) -> setof oid
+s pg_tablespace_location(tablespace oid) -> text
+s pg_typeof("any") -> regtype
+s shobj_description(object oid, catalog name) -> text
+s to_regclass(text) -> regclass since=9.4
+s to_regcollation(text) -> regcollation since=13
+s to_regnamespace(text) -> regnamespace since=9.5
+s to_regoper(text) -> regoper since=9.4
+s to_regoperator(text) -> regoperator since=9.4
+s to_regproc(text) -> regproc since=9.4
+s to_regprocedure(text) -> regprocedure since=9.4
+s to_regrole(text) -> regrole since=9.5
+s to_regtype(text) -> regtype since=9.4
+s to_regtypemod(text) -> integer since=17
+
+# Transactions and snapshots
+s age(xid) -> integer
+s mxid_age(xid) -> integer since=9.5
+s pg_current_snapshot() -> pg_snapshot since=13
+s pg_current_xact_id() -> xid8 since=13
+s pg_current_xact_id_if_assigned() -> xid8 since=13
+s pg_last_committed_xact() -> record since=9.5
+t pg_snapshot_xip(pg_snapshot) -> setof xid8 since=13
+s pg_snapshot_xmax(pg_snapshot) -> xid8 since=13
+s pg_snapshot_xmin(pg_snapshot) -> xid8 since=13
+s pg_visible_in_snapshot(xid8, pg_snapshot) -> boolean since=13
+s pg_xact_commit_timestamp(xid) -> timestamp with time zone since=9.5
+s pg_xact_status(xid8) -> text since=13
+s txid_current() -> bigint
+s txid_current_if_assigned() -> bigint since=10
+s txid_current_snapshot() -> txid_snapshot
+s txid_status(bigint) -> text since=10
+s pg_control_checkpoint() -> record since=9.6
+s pg_control_init() -> record since=9.6
+s pg_control_recovery() -> record since=9.6
+s pg_control_system() -> record since=9.6
+
+# Server administration
+s pg_cancel_backend(pid integer) -> boolean
+s pg_log_backend_memory_contexts(pid integer) -> boolean since=14
+s pg_reload_conf() -> boolean
+s pg_rotate_logfile() -> boolean
+s pg_terminate_backend(pid integer [, timeout bigint]) -> boolean
+s pg_backup_start(label text [, fast boolean]) -> pg_lsn since=15
+s pg_backup_stop([wait_for_archive boolean]) -> record since=15
+s pg_create_restore_point(name text) -> pg_lsn
+s pg_current_wal_flush_lsn() -> pg_lsn since=10
+s pg_current_wal_insert_lsn() -> pg_lsn since=10
+s pg_current_wal_lsn() -> pg_lsn since=10
+s pg_split_walfile_name(file_name text) -> record since=16
+s pg_switch_wal() -> pg_lsn since=10
+s pg_wal_lsn_diff(lsn1 pg_lsn, lsn2 pg_lsn) -> numeric since=10
+s pg_walfile_name(lsn pg_lsn) -> text since=10
+s pg_walfile_name_offset(lsn pg_lsn) -> record since=10
+s pg_get_wal_replay_pause_state() -> text since=14
+s pg_is_in_recovery() -> boolean
+s pg_is_wal_replay_paused() -> boolean since=10
+s pg_last_wal_receive_lsn() -> pg_lsn since=10
+s pg_last_wal_replay_lsn() -> pg_lsn since=10
+s pg_last_xact_replay_timestamp() -> timestamp with time zone
+s pg_log_standby_snapshot() -> pg_lsn since=16
+s pg_promote([wait boolean [, wait_seconds integer]]) -> boolean since=12
+s pg_wal_replay_pause() -> void since=10
+s pg_wal_replay_resume() -> void since=10
+s pg_export_snapshot() -> text
+s pg_copy_logical_replication_slot(src_slot_name name, dst_slot_name name [, temporary boolean [, plugin name]]) -> record since=12
+s pg_copy_physical_replication_slot(src_slot_name name, dst_slot_name name [, temporary boolean]) -> record since=12
+s pg_create_logical_replication_slot(slot_name name, plugin name [, temporary boolean, twophase boolean, failover boolean]) -> record since=9.4
+s pg_create_physical_replication_slot(slot_name name [, immediately_reserve boolean, temporary boolean]) -> record since=9.4
+s pg_drop_replication_slot(slot_name name) -> void since=9.4
+s pg_logical_emit_message(transactional boolean, prefix text, content text [, flush boolean]) -> pg_lsn since=9.6
+t pg_logical_slot_get_binary_changes(slot_name name, upto_lsn pg_lsn, upto_nchanges integer, VARIADIC options text[]) -> setof record since=9.4
+t pg_logical_slot_get_changes(slot_name name, upto_lsn pg_lsn, upto_nchanges integer, VARIADIC options text[]) -> setof record since=9.4
+t pg_logical_slot_peek_binary_changes(slot_name name, upto_lsn pg_lsn, upto_nchanges integer, VARIADIC options text[]) -> setof record since=9.4
+t pg_logical_slot_peek_changes(slot_name name, upto_lsn pg_lsn, upto_nchanges integer, VARIADIC options text[]) -> setof record since=9.4
+s pg_replication_origin_advance(node_name text, lsn pg_lsn) -> void since=9.5
+s pg_replication_origin_create(node_name text) -> oid since=9.5
+s pg_replication_origin_drop(node_name text) -> void since=9.5
+s pg_replication_origin_oid(node_name text) -> oid since=9.5
+s pg_replication_origin_progress(node_name text, flush boolean) -> pg_lsn since=9.5
+s pg_replication_origin_session_is_setup() -> boolean since=9.5
+s pg_replication_origin_session_progress(flush boolean) -> pg_lsn since=9.5
+s pg_replication_origin_session_reset() -> void since=9.5
+s pg_replication_origin_session_setup(node_name text) -> void since=9.5
+s pg_replication_origin_xact_reset() -> void since=9.5
+s pg_replication_origin_xact_setup(origin_lsn pg_lsn, origin_timestamp timestamp with time zone) -> void since=9.5
+s pg_replication_slot_advance(slot_name name, upto_lsn pg_lsn) -> record since=11
+s pg_sync_replication_slots() -> void since=17
+s pg_column_size("any") -> integer
+s pg_database_size(name or oid) -> bigint
+s pg_indexes_size(regclass) -> bigint
+s pg_relation_size(relation regclass [, fork text]) -> bigint
+s pg_size_bytes(text) -> bigint since=9.6
+s pg_size_pretty(bigint or numeric) -> text
+s pg_table_size(regclass) -> bigint
+s pg_tablespace_size(name or oid) -> bigint
+s pg_total_relation_size(regclass) -> bigint
+s pg_filenode_relation(tablespace oid, filenode oid) -> regclass since=9.4
+s pg_relation_filenode(relation regclass) -> oid
+s pg_relation_filepath(relation regclass) -> text
+s pg_collation_actual_version(oid) -> text since=10
+s pg_database_collation_actual_version(oid) -> text since=15
+s pg_import_system_collations(schema regnamespace) -> integer since=10
+t pg_mcv_list_items(pg_mcv_list) -> setof record since=12
+s brin_desummarize_range(index regclass, blockNumber bigint) -> void since=10
+s brin_summarize_new_values(index regclass) -> integer since=9.5
+s brin_summarize_range(index regclass, blockNumber bigint) -> integer since=10
+s gin_clean_pending_list(index regclass) -> bigint since=9.6
+t pg_partition_ancestors(regclass) -> setof regclass since=12
+s pg_partition_root(regclass) -> regclass since=12
+t pg_partition_tree(regclass) -> setof record since=12
+t pg_ls_archive_statusdir() -> setof record since=12
+t pg_ls_dir(dirname text [, missing_ok boolean, include_dot_dirs boolean]) -> setof text
+t pg_ls_logdir() -> setof record since=10
+t pg_ls_logicalmapdir() -> setof record since=15
+t pg_ls_logicalsnapdir() -> setof record since=15
+t pg_ls_replslotdir(slot_name text) -> setof record since=15
+t pg_ls_tmpdir([tablespace oid]) -> setof record since=12
+t pg_ls_waldir() -> setof record since=10
+s pg_read_binary_file(filename text [, offset bigint, length bigint] [, missing_ok boolean]) -> bytea
+s pg_read_file(filename text [, offset bigint, length bigint] [, missing_ok boolean]) -> text
+s pg_stat_file(filename text [, missing_ok boolean]) -> record
+s pg_advisory_lock(key bigint) -> void
+s pg_advisory_lock_shared(key bigint) -> void
+s pg_advisory_unlock(key bigint) -> boolean
+s pg_advisory_unlock_all() -> void
+s pg_advisory_unlock_shared(key bigint) -> boolean
+s pg_advisory_xact_lock(key bigint) -> void
+s pg_advisory_xact_lock_shared(key bigint) -> void
+s pg_try_advisory_lock(key bigint) -> boolean
+s pg_try_advisory_lock_shared(key bigint) -> boolean
+s pg_try_advisory_xact_lock(key bigint) -> boolean
+s pg_try_advisory_xact_lock_shared(key bigint) -> boolean
+s pg_notify(channel text, payload text) -> void
+s pg_stat_clear_snapshot() -> void
+s pg_stat_have_stats(kind text, dboid oid, objoid bigint) -> boolean since=15
+s pg_stat_reset() -> void
+s pg_stat_reset_replication_slot(text) -> void since=14
+s pg_stat_reset_shared([target text]) -> void
+s pg_stat_reset_single_function_counters(oid) -> void
+s pg_stat_reset_single_table_counters(oid) -> void
+s pg_stat_reset_slru([target text]) -> void since=13
+s pg_stat_reset_subscription_stats(oid) -> void since=15
+
+# Event triggers
+t pg_event_trigger_ddl_commands() -> setof record since=9.5
+t pg_event_trigger_dropped_objects() -> setof record since=9.4
+s pg_event_trigger_table_rewrite_oid() -> oid since=9.5
+s pg_event_trigger_table_rewrite_reason() -> integer since=9.5
+
+# Large objects
+s lo_create(loid oid) -> oid
+s lo_export(loid oid, filename text) -> integer
+s lo_from_bytea(loid oid, data bytea) -> oid since=9.4
+s lo_get(loid oid [, offset bigint, length integer]) -> bytea since=9.4
+s lo_import(filename text [, loid oid]) -> oid
+s lo_put(loid oid, offset bigint, data bytea) -> void since=9.4
+s lo_unlink(loid oid) -> integer

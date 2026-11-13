@@ -1,0 +1,449 @@
+# MySQL's built-in functions (MySQL Reference Manual, as its help tables
+# list them), for servers whose help tables are empty or unreadable and to
+# complete them. See functions::parse_catalog for the format.
+a AVG([DISTINCT] expr)
+a BIT_AND(expr)
+a BIT_OR(expr)
+a BIT_XOR(expr)
+a COUNT(expr)
+a COUNT(DISTINCT expr,[expr...])
+a GROUP_CONCAT(expr)
+a JSON_ARRAYAGG(col_or_expr) since=5.7.22
+a JSON_OBJECTAGG(key, value) since=5.7.22
+a MAX([DISTINCT] expr)
+a MIN([DISTINCT] expr)
+a STD(expr)
+a STDDEV(expr)
+a STDDEV_POP(expr)
+a STDDEV_SAMP(expr)
+a SUM([DISTINCT] expr)
+a VARIANCE(expr)
+a VAR_POP(expr)
+a VAR_SAMP(expr)
+s BIT_COUNT(N)
+s CAST(expr AS type [ARRAY])
+s CONVERT(expr USING transcoding_name)
+s COALESCE(value,...)
+s EXISTS(query)
+s GREATEST(value1,value2,...)
+s INTERVAL(N,N1,N2,N3,...)
+s ISNULL(expr)
+s LEAST(value1,value2,...)
+s ADDDATE(date,INTERVAL expr unit)
+s ADDDATE(date,days)
+s ADDTIME(expr1,expr2)
+s CONVERT_TZ(dt,from_tz,to_tz)
+s CURDATE()
+s CURRENT_DATE()
+s CURRENT_TIME([fsp])
+s CURRENT_TIMESTAMP([fsp])
+s CURTIME([fsp])
+s DATE(expr)
+s DATEDIFF(expr1,expr2)
+s DATE_ADD(date,INTERVAL expr unit)
+s DATE_SUB(date,INTERVAL expr unit)
+s DATE_FORMAT(date,format)
+s DAY(date)
+s DAYNAME(date)
+s DAYOFMONTH(date)
+s DAYOFWEEK(date)
+s DAYOFYEAR(date)
+s EXTRACT(unit FROM date)
+s FROM_DAYS(N)
+s FROM_UNIXTIME(unix_timestamp[,format])
+s GET_FORMAT({DATE|TIME|DATETIME}, {'EUR'|'USA'|'JIS'|'ISO'|'INTERNAL'})
+s HOUR(time)
+s LAST_DAY(date)
+s LOCALTIME([fsp])
+s LOCALTIMESTAMP([fsp])
+s MAKEDATE(year,dayofyear)
+s MAKETIME(hour,minute,second)
+s MICROSECOND(expr)
+s MINUTE(time)
+s MONTH(date)
+s MONTHNAME(date)
+s NOW([fsp])
+s PERIOD_ADD(P,N)
+s PERIOD_DIFF(P1,P2)
+s QUARTER(date)
+s SECOND(time)
+s SEC_TO_TIME(seconds)
+s STR_TO_DATE(str,format)
+s SUBDATE(date,INTERVAL expr unit)
+s SUBDATE(expr,days)
+s SUBTIME(expr1,expr2)
+s SYSDATE([fsp])
+s TIME(expr)
+s TIMEDIFF(expr1,expr2)
+s TIMESTAMP(expr)
+s TIMESTAMP(expr1,expr2)
+s TIMESTAMPADD(unit,interval,datetime_expr)
+s TIMESTAMPDIFF(unit,datetime_expr1,datetime_expr2)
+s TIME_FORMAT(time,format)
+s TIME_TO_SEC(time)
+s TO_DAYS(date)
+s TO_SECONDS(expr)
+s UNIX_TIMESTAMP([date])
+s UTC_DATE()
+s UTC_TIME([fsp])
+s UTC_TIMESTAMP([fsp])
+s WEEK(date[,mode])
+s WEEKDAY(date)
+s WEEKOFYEAR(date)
+s YEAR(date)
+s YEARWEEK(date)
+s YEARWEEK(date,mode)
+s AES_DECRYPT(crypt_str,key_str[,init_vector][,kdf_name][,salt][,info | iterations])
+s AES_ENCRYPT(str,key_str[,init_vector][,kdf_name][,salt][,info | iterations])
+s COMPRESS(string_to_compress)
+s MD5(str)
+s RANDOM_BYTES(len)
+s SHA1(str)
+s SHA(str)
+s SHA2(str, hash_length)
+s STATEMENT_DIGEST(statement) since=8.0.4
+s STATEMENT_DIGEST_TEXT(statement) since=8.0.4
+s UNCOMPRESS(string_to_uncompress)
+s UNCOMPRESSED_LENGTH(compressed_string)
+s VALIDATE_PASSWORD_STRENGTH(str)
+s IF(expr1,expr2,expr3)
+s IFNULL(expr1,expr2)
+s NULLIF(expr1,expr2)
+s GeomCollection(g [, g] ...)
+s GeometryCollection(g [, g] ...)
+s LineString(pt [, pt] ...)
+s MultiLineString(ls [, ls] ...)
+s MultiPoint(pt [, pt2] ...)
+s MultiPolygon(poly [, poly] ...)
+s Point(x, y)
+s Polygon(ls [, ls] ...)
+s ST_Dimension(g)
+s ST_Envelope(g)
+s ST_GeometryType(g)
+s ST_IsEmpty(g)
+s ST_IsSimple(g)
+s ST_SRID(g [, srid])
+s ST_Contains(g1, g2)
+s ST_Crosses(g1, g2)
+s ST_Disjoint(g1, g2)
+s ST_Distance(g1, g2 [, unit])
+s ST_Equals(g1, g2)
+s ST_FrechetDistance(g1, g2 [, unit]) since=8.0.23
+s ST_HausdorffDistance(g1, g2 [, unit]) since=8.0.23
+s ST_Intersects(g1, g2)
+s ST_Overlaps(g1, g2)
+s ST_Touches(g1, g2)
+s ST_Within(g1, g2)
+s ST_Buffer(g, d [, strategy1 [, strategy2 [, strategy3]]])
+s ST_Buffer_Strategy(strategy [, points_per_circle]) since=5.7.6
+s ST_ConvexHull(g)
+s ST_Difference(g1, g2)
+s ST_GeometryN(gc, N)
+s ST_Intersection(g1, g2)
+s ST_LineInterpolatePoint(ls, fractional_distance) since=8.0.24
+s ST_LineInterpolatePoints(ls, fractional_distance) since=8.0.24
+s ST_NumGeometries(gc)
+s ST_PointAtDistance(ls, distance) since=8.0.24
+s ST_SymDifference(g1, g2)
+s ST_Transform(g, target_srid) since=8.0.13
+s ST_Union(g1, g2)
+s GTID_SUBSET(set1,set2)
+s GTID_SUBTRACT(set1,set2)
+s MASTER_POS_WAIT(log_name,log_pos[,timeout][,channel])
+s SOURCE_POS_WAIT(log_name,log_pos[,timeout][,channel]) since=8.0.26
+s WAIT_FOR_EXECUTED_GTID_SET(gtid_set[, timeout]) since=5.7.5
+s BENCHMARK(count,expr)
+s CHARSET(str)
+s COERCIBILITY(str)
+s COLLATION(str)
+s CONNECTION_ID()
+s CURRENT_ROLE() since=8.0.0
+s CURRENT_USER()
+s DATABASE()
+s FOUND_ROWS()
+s ICU_VERSION() since=8.0.4
+s LAST_INSERT_ID()
+s LAST_INSERT_ID(expr)
+s ROLES_GRAPHML() since=8.0.0
+s ROW_COUNT()
+s SCHEMA()
+s SESSION_USER()
+s SYSTEM_USER()
+s USER()
+s VERSION()
+s ST_EndPoint(ls)
+s ST_IsClosed(ls)
+s ST_Length(ls [, unit])
+s ST_NumPoints(ls)
+s ST_PointN(ls, N)
+s ST_StartPoint(ls)
+s GET_LOCK(str,timeout)
+s IS_FREE_LOCK(str)
+s IS_USED_LOCK(str)
+s RELEASE_ALL_LOCKS()
+s RELEASE_LOCK(str)
+s JSON_ARRAY([val[, val] ...]) since=5.7.8
+s JSON_ARRAY_APPEND(json_doc, path, val[, path, val] ...) since=5.7.9
+s JSON_ARRAY_INSERT(json_doc, path, val[, path, val] ...) since=5.7.8
+s JSON_CONTAINS(target, candidate[, path]) since=5.7.8
+s JSON_CONTAINS_PATH(json_doc, one_or_all, path[, path] ...) since=5.7.8
+s JSON_DEPTH(json_doc) since=5.7.8
+s JSON_EXTRACT(json_doc, path[, path] ...) since=5.7.8
+s JSON_INSERT(json_doc, path, val[, path, val] ...) since=5.7.8
+s JSON_KEYS(json_doc[, path]) since=5.7.8
+s JSON_LENGTH(json_doc[, path]) since=5.7.8
+s JSON_MERGE(json_doc, json_doc[, json_doc] ...) since=5.7.8
+s JSON_MERGE_PATCH(json_doc, json_doc[, json_doc] ...) since=5.7.22
+s JSON_MERGE_PRESERVE(json_doc, json_doc[, json_doc] ...) since=5.7.22
+s JSON_OBJECT([key, val[, key, val] ...]) since=5.7.8
+s JSON_OVERLAPS(json_doc1, json_doc2) since=8.0.17
+s JSON_PRETTY(json_val) since=5.7.22
+s JSON_QUOTE(string) since=5.7.8
+s JSON_REMOVE(json_doc, path[, path] ...) since=5.7.8
+s JSON_REPLACE(json_doc, path, val[, path, val] ...) since=5.7.8
+s JSON_SCHEMA_VALID(schema,document) since=8.0.17
+s JSON_SCHEMA_VALIDATION_REPORT(schema,document) since=8.0.17
+s JSON_SEARCH(json_doc, one_or_all, search_str[, escape_char[, path] ...]) since=5.7.8
+s JSON_SET(json_doc, path, val[, path, val] ...) since=5.7.8
+s JSON_STORAGE_FREE(json_val) since=8.0.2
+s JSON_STORAGE_SIZE(json_val) since=5.7.22
+t JSON_TABLE(expr, path COLUMNS (column_list) [AS] alias) since=8.0.4
+s JSON_TYPE(json_val) since=5.7.8
+s JSON_UNQUOTE(json_val) since=5.7.8
+s JSON_VALID(val) since=5.7.8
+s JSON_VALUE(json_doc, path) since=8.0.21
+s MBRContains(g1, g2)
+s MBRCoveredBy(g1, g2)
+s MBRCovers(g1, g2)
+s MBRDisjoint(g1, g2)
+s MBREquals(g1, g2)
+s MBRIntersects(g1, g2)
+s MBROverlaps(g1, g2)
+s MBRTouches(g1, g2)
+s MBRWithin(g1, g2)
+s ST_AsGeoJSON(g [, max_dec_digits [, options]]) since=5.7.5
+a ST_Collect([DISTINCT] g) since=8.0.24
+s ST_Distance_Sphere(g1, g2 [, radius]) since=5.7.6
+s ST_GeoHash(longitude, latitude, max_length) since=5.7.5
+s ST_GeoHash(point, max_length) since=5.7.5
+s ST_GeomFromGeoJSON(str [, options [, srid]]) since=5.7.5
+s ST_IsValid(g) since=5.7.5
+s ST_LatFromGeoHash(geohash_str) since=5.7.5
+s ST_LongFromGeoHash(geohash_str) since=5.7.5
+s ST_MakeEnvelope(pt1, pt2) since=5.7.6
+s ST_PointFromGeoHash(geohash_str, srid) since=5.7.5
+s ST_Simplify(g, max_distance) since=5.7.6
+s ST_Validate(g) since=5.7.6
+s ANY_VALUE(arg) since=5.7.5
+s BIN_TO_UUID(binary_uuid) since=8.0.0
+s BIN_TO_UUID(binary_uuid, swap_flag) since=8.0.0
+s DEFAULT(col_name)
+s GROUPING(expr [, expr] ...) since=8.0.1
+s INET6_ATON(expr)
+s INET6_NTOA(expr)
+s INET_ATON(expr)
+s INET_NTOA(expr)
+s IS_IPV4(expr)
+s IS_IPV4_COMPAT(expr)
+s IS_IPV4_MAPPED(expr)
+s IS_IPV6(expr)
+s IS_UUID(string_uuid) since=8.0.0
+s NAME_CONST(name,value)
+s SLEEP(duration)
+s UUID()
+s UUID_SHORT()
+s UUID_TO_BIN(string_uuid) since=8.0.0
+s UUID_TO_BIN(string_uuid, swap_flag) since=8.0.0
+s VALUES(col_name)
+s ABS(X)
+s ACOS(X)
+s ASIN(X)
+s ATAN(X)
+s ATAN(Y,X)
+s ATAN2(Y,X)
+s CEIL(X)
+s CEILING(X)
+s CONV(N,from_base,to_base)
+s COS(X)
+s COT(X)
+s CRC32(expr)
+s DEGREES(X)
+s EXP(X)
+s FLOOR(X)
+s LN(X)
+s LOG(X)
+s LOG(B,X)
+s LOG10(X)
+s LOG2(X)
+s MOD(N,M)
+s PI()
+s POW(X,Y)
+s POWER(X,Y)
+s RADIANS(X)
+s RAND([N])
+s ROUND(X)
+s ROUND(X,D)
+s SIGN(X)
+s SIN(X)
+s SQRT(X)
+s TAN(X)
+s TRUNCATE(X,D)
+s FORMAT_BYTES(count) since=8.0.16
+s FORMAT_PICO_TIME(time_val) since=8.0.16
+s PS_CURRENT_THREAD_ID() since=8.0.16
+s PS_THREAD_ID(connection_id) since=8.0.16
+s ST_Latitude(p [, new_latitude_val]) since=8.0.12
+s ST_Longitude(p [, new_longitude_val]) since=8.0.12
+s ST_X(p [, new_x_val])
+s ST_Y(p [, new_y_val])
+s ST_Area({poly|mpoly})
+s ST_Centroid({poly|mpoly})
+s ST_ExteriorRing(poly)
+s ST_InteriorRingN(poly, N)
+s ST_NumInteriorRing(poly)
+s ST_NumInteriorRings(poly)
+s ASCII(str)
+s BIN(N)
+s BIT_LENGTH(str)
+s CHAR(N,... [USING charset_name])
+s CHARACTER_LENGTH(str)
+s CHAR_LENGTH(str)
+s CONCAT(str1,str2,...)
+s CONCAT_WS(separator,str1,str2,...)
+s ELT(N,str1,str2,str3,...)
+s EXPORT_SET(bits,on,off[,separator[,number_of_bits]])
+s FIELD(str,str1,str2,str3,...)
+s FIND_IN_SET(str,strlist)
+s FORMAT(X,D[,locale])
+s FROM_BASE64(str)
+s HEX(str)
+s HEX(N)
+s INSERT(str,pos,len,newstr)
+s INSTR(str,substr)
+s LCASE(str)
+s LEFT(str,len)
+s LENGTH(str)
+s LOAD_FILE(file_name)
+s LOCATE(substr,str)
+s LOCATE(substr,str,pos)
+s LOWER(str)
+s LPAD(str,len,padstr)
+s LTRIM(str)
+s MAKE_SET(bits,str1,str2,...)
+s MATCH(col1,col2,...)
+s MID(str,pos)
+s MID(str FROM pos)
+s MID(str,pos,len)
+s MID(str FROM pos FOR len)
+s OCT(N)
+s OCTET_LENGTH(str)
+s ORD(str)
+s POSITION(substr IN str)
+s QUOTE(str)
+s REGEXP_INSTR(expr, pat[, pos[, occurrence[, return_option[, match_type]]]]) since=8.0.4
+s REGEXP_LIKE(expr, pat[, match_type]) since=8.0.4
+s REGEXP_REPLACE(expr, pat, repl[, pos[, occurrence[, match_type]]]) since=8.0.4
+s REGEXP_SUBSTR(expr, pat[, pos[, occurrence[, match_type]]]) since=8.0.4
+s REPEAT(str,count)
+s REPLACE(str,from_str,to_str)
+s REVERSE(str)
+s RIGHT(str,len)
+s RPAD(str,len,padstr)
+s RTRIM(str)
+s SOUNDEX(str)
+s SPACE(N)
+s STRCMP(expr1,expr2)
+s SUBSTR(str,pos)
+s SUBSTR(str FROM pos)
+s SUBSTR(str,pos,len)
+s SUBSTR(str FROM pos FOR len)
+s SUBSTRING(str,pos)
+s SUBSTRING(str FROM pos)
+s SUBSTRING(str,pos,len)
+s SUBSTRING(str FROM pos FOR len)
+s SUBSTRING_INDEX(str,delim,count)
+s TO_BASE64(str)
+s TRIM([{BOTH | LEADING | TRAILING} [remstr] FROM] str)
+s TRIM([remstr FROM] str)
+s UCASE(str)
+s UNHEX(str)
+s UPPER(str)
+s WEIGHT_STRING(str [AS {CHAR|BINARY}(N)] [flags])
+w CUME_DIST() since=8.0.2
+w DENSE_RANK() since=8.0.2
+w FIRST_VALUE(expr) since=8.0.2
+w LAG(expr [, N[, default]]) since=8.0.2
+w LAST_VALUE(expr) since=8.0.2
+w LEAD(expr [, N[, default]]) since=8.0.2
+w NTH_VALUE(expr, N) since=8.0.2
+w NTILE(N) since=8.0.2
+w PERCENT_RANK() since=8.0.2
+w RANK() since=8.0.2
+w ROW_NUMBER() since=8.0.2
+s ST_AsBinary(g [, options])
+s ST_AsWKB(g [, options])
+s ST_AsText(g [, options])
+s ST_AsWKT(g [, options])
+s ST_GeomCollFromWKB(wkb [, srid [, options]])
+s ST_GeometryCollectionFromWKB(wkb [, srid [, options]])
+s ST_GeomFromWKB(wkb [, srid [, options]])
+s ST_GeometryFromWKB(wkb [, srid [, options]])
+s ST_LineFromWKB(wkb [, srid [, options]])
+s ST_LineStringFromWKB(wkb [, srid [, options]])
+s ST_MLineFromWKB(wkb [, srid [, options]])
+s ST_MultiLineStringFromWKB(wkb [, srid [, options]])
+s ST_MPointFromWKB(wkb [, srid [, options]])
+s ST_MultiPointFromWKB(wkb [, srid [, options]])
+s ST_MPolyFromWKB(wkb [, srid [, options]])
+s ST_MultiPolygonFromWKB(wkb [, srid [, options]])
+s ST_PointFromWKB(wkb [, srid [, options]])
+s ST_PolyFromWKB(wkb [, srid [, options]])
+s ST_PolygonFromWKB(wkb [, srid [, options]])
+s ST_SwapXY(g) since=8.0.0
+s ST_GeomCollFromText(wkt [, srid [, options]])
+s ST_GeometryCollectionFromText(wkt [, srid [, options]])
+s ST_GeomCollFromTxt(wkt [, srid [, options]])
+s ST_GeomFromText(wkt [, srid [, options]])
+s ST_GeometryFromText(wkt [, srid [, options]])
+s ST_LineFromText(wkt [, srid [, options]])
+s ST_LineStringFromText(wkt [, srid [, options]])
+s ST_MLineFromText(wkt [, srid [, options]])
+s ST_MultiLineStringFromText(wkt [, srid [, options]])
+s ST_MPointFromText(wkt [, srid [, options]])
+s ST_MultiPointFromText(wkt [, srid [, options]])
+s ST_MPolyFromText(wkt [, srid [, options]])
+s ST_MultiPolygonFromText(wkt [, srid [, options]])
+s ST_PointFromText(wkt [, srid [, options]])
+s ST_PolyFromText(wkt [, srid [, options]])
+s ST_PolygonFromText(wkt [, srid [, options]])
+s ExtractValue(xml_frag, xpath_expr)
+s UpdateXML(xml_target, xpath_expr, new_xml)
+# Vectors (MySQL 9).
+s STRING_TO_VECTOR(string) since=9.0.0
+s TO_VECTOR(string) since=9.0.0
+s VECTOR_TO_STRING(vector) since=9.0.0
+s FROM_VECTOR(vector) since=9.0.0
+s VECTOR_DIM(vector) since=9.0.0
+# Removed in later releases.
+s PASSWORD(str) until=8.0.11
+s OLD_PASSWORD(str) until=5.7.5
+s ENCRYPT(str[,salt]) until=8.0.3
+s DES_ENCRYPT(str[,{key_num|key_str}]) until=8.0.3
+s DES_DECRYPT(crypt_str[,key_str]) until=8.0.3
+s ENCODE(str,pass_str) until=8.0.3
+s DECODE(crypt_str,pass_str) until=8.0.3
+s JSON_APPEND(json_doc, path, val[, path, val] ...) since=5.7.8 until=8.0.0
+s WAIT_UNTIL_SQL_THREAD_AFTER_GTIDS(gtid_set[, timeout][,channel]) until=8.2.0
+s AsText(g) until=8.0.0
+s AsBinary(g) until=8.0.0
+s GeomFromText(wkt[,srid]) until=8.0.0
+s GeomFromWKB(wkb[,srid]) until=8.0.0
+s PointFromText(wkt[,srid]) until=8.0.0
+s Contains(g1,g2) until=8.0.0
+s Within(g1,g2) until=8.0.0
+s Intersects(g1,g2) until=8.0.0
+s Area(poly) until=8.0.0
+s GLength(ls) until=8.0.0
+s X(p) until=8.0.0
+s Y(p) until=8.0.0
+s SRID(g) until=8.0.0

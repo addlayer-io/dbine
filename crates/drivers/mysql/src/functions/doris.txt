@@ -1,0 +1,810 @@
+# Apache Doris' built-in functions (Doris documentation, the names SHOW BUILTIN
+# FUNCTIONS lists in 4.1), with their kind and, where documented here, their
+# arguments: Doris 4 lists names only. Also VeloDB's. See
+# functions::parse_catalog for the format.
+s abs(X)
+s acos(X)
+s acosh
+s add_months
+s add_time
+s adddate(date,INTERVAL expr unit)
+s aes_decrypt(crypt_str,key_str[,init_vector][,kdf_name][,salt][,info | iterations])
+s aes_encrypt(str,key_str[,init_vector][,kdf_name][,salt][,info | iterations])
+a ai_agg
+s ai_classify
+s ai_extract
+s ai_filter
+s ai_fixgrammar
+s ai_generate
+s ai_mask
+s ai_sentiment
+s ai_similarity
+s ai_summarize
+s ai_translate
+a any(expr)
+a any_value(expr)
+s append_trailing_char_if_absent
+a approx_count_distinct(expr)
+s array(value [, value ...])
+a array_agg(expr)
+s array_append(array, value)
+s array_apply
+s array_avg(array)
+s array_compact
+s array_concat(array, array [, ...])
+s array_contains(array, value)
+s array_contains_all
+s array_count
+s array_cross_product
+s array_cum_sum
+s array_difference
+s array_distinct(array)
+s array_enumerate
+s array_enumerate_uniq
+s array_except(array, array)
+s array_exists
+s array_filter(lambda, array)
+s array_first
+s array_first_index
+s array_flatten(array)
+s array_intersect(array, array [, ...])
+s array_join(array, sep [, null_replace])
+s array_last
+s array_last_index
+s array_map(lambda, array [, array ...])
+s array_match_all
+s array_match_any
+s array_max(array)
+s array_min(array)
+s array_popback
+s array_popfront
+s array_position(array, value)
+s array_product
+s array_pushback
+s array_pushfront
+s array_range
+s array_remove(array, value)
+s array_repeat
+s array_reverse_sort(array)
+s array_reverse_split
+s array_shuffle
+s array_size(array)
+s array_slice(array, offset [, length])
+s array_sort(array)
+s array_sortby
+s array_split
+s array_sum(array)
+s array_union(array, array [, ...])
+s array_with_constant
+s array_zip
+s arrays_overlap(array, array)
+s ascii(str)
+s asin(X)
+s asinh
+s assert_true
+s atan(X)
+s atan2(Y,X)
+s atanh
+s auto_partition_name
+a avg([DISTINCT] expr)
+a avg_weighted(x, weight)
+t backends
+s bin(N)
+s bit_count(N)
+s bit_length(str)
+s bit_shift_left
+s bit_shift_right
+s bit_test
+s bit_test_all
+a bitmap_agg(expr)
+s bitmap_and(bitmap, bitmap [, ...])
+s bitmap_and_count
+s bitmap_and_not
+s bitmap_and_not_count
+s bitmap_andnot(bitmap, bitmap)
+s bitmap_andnot_count
+s bitmap_contains(bitmap, value)
+s bitmap_count(bitmap)
+s bitmap_empty()
+s bitmap_from_array(array)
+s bitmap_from_base64
+s bitmap_from_string(str)
+s bitmap_has_all(bitmap, bitmap)
+s bitmap_has_any(bitmap, bitmap)
+s bitmap_hash(expr)
+s bitmap_hash64(expr)
+a bitmap_intersect(bitmap)
+s bitmap_max(bitmap)
+s bitmap_min(bitmap)
+s bitmap_not(bitmap, bitmap)
+s bitmap_or(bitmap, bitmap [, ...])
+s bitmap_or_count
+s bitmap_remove
+s bitmap_subset_in_range
+s bitmap_subset_limit
+s bitmap_to_array(bitmap)
+s bitmap_to_base64
+s bitmap_to_string(bitmap)
+a bitmap_union(bitmap)
+a bitmap_union_count(bitmap)
+a bitmap_union_int(expr)
+s bitmap_xor(bitmap, bitmap [, ...])
+s bitmap_xor_count
+a bool_and
+a bool_or
+a bool_xor
+a booland_agg
+a boolor_agg
+a boolxor_agg
+s cardinality(array)
+t catalogs
+s cbrt
+t cdc_stream
+s ceil(X)
+s ceiling(X)
+s century
+s char(N,... [USING charset_name])
+s char_length(str)
+s character_length(str)
+s coalesce(value,...)
+a collect_list(expr [, max_size])
+a collect_set(expr [, max_size])
+s compress(string_to_compress)
+s concat(str1,str2,...)
+s concat_ws(separator,str1,str2,...)
+s connection_id()
+s conv(N,from_base,to_base)
+s convert_to
+s convert_tz(dt,from_tz,to_tz)
+a corr(x, y)
+a corr_welford
+s cos(X)
+s cosh
+s cosine_distance(array1, array2)
+s cosine_similarity(array1, array2)
+s cot(X)
+a count([DISTINCT] expr [, expr ...])
+a count_by_enum
+s count_substrings
+s countequal
+a covar(x, y)
+a covar_pop(x, y)
+a covar_samp(x, y)
+s crc32(expr)
+s crc32_internal
+s cross_product
+s csc
+w cume_dist()
+s curdate()
+s current_catalog
+s current_database
+s current_date()
+s current_time([fsp])
+s current_timestamp([fsp])
+s current_user()
+s curtime([fsp])
+s cut_ipv6
+s cut_to_first_significant_subdomain
+s database()
+s datasketches_hll_estimate
+a datasketches_hll_union_agg
+s date(expr)
+s date_add(date,INTERVAL expr unit)
+s date_format(date,format)
+s date_sub(date,INTERVAL expr unit)
+s date_trunc(datetime, unit)
+s datediff(expr1,expr2)
+s datev2
+s day(date)
+s day_ceil
+s day_floor
+s day_hour
+s day_microsecond
+s day_minute
+s day_second
+s dayname(date)
+s dayofmonth(date)
+s dayofweek(date)
+s dayofyear(date)
+s days_add(datetime, n)
+s days_diff(end, start)
+s days_sub(datetime, n)
+s dceil
+s decode_as_varchar
+s deduplicate_map
+s degrees(X)
+w dense_rank()
+s dexp
+s dfloor
+s dict_get
+s dict_get_many
+s digital_masking
+s dlog1
+s dlog10
+s domain
+s domain_without_www
+s dow
+s doy
+s dpow
+s dround
+s ds_hll_estimate
+s dsqrt
+s e()
+s element_at(array_or_map, index_or_key)
+s elt(N,str1,str2,str3,...)
+s embed
+s encode_as_bigint
+s encode_as_int
+s encode_as_largeint
+s encode_as_smallint
+s ends_with(str, suffix)
+s esquery
+s even
+s exp(X)
+t explode(array)
+t explode_bitmap(bitmap)
+t explode_bitmap_outer
+t explode_json_array_double(json)
+t explode_json_array_double_outer
+t explode_json_array_int(json)
+t explode_json_array_int_outer
+t explode_json_array_json(json)
+t explode_json_array_json_outer
+t explode_json_array_string(json)
+t explode_json_array_string_outer
+t explode_json_object(json)
+t explode_json_object_outer
+t explode_map(map)
+t explode_map_outer
+t explode_numbers(n)
+t explode_numbers_outer
+t explode_outer(array)
+t explode_split(str, delimiter)
+t explode_split_outer(str, delimiter)
+t explode_variant_array
+a exponential_moving_average
+s export_set(bits,on,off[,separator[,number_of_bits]])
+s extract_url_parameter
+s factorial
+s field(str,str1,str2,str3,...)
+t file
+s find_in_set(str,strlist)
+s first_significant_subdomain
+w first_value(expr [IGNORE NULLS])
+s floor(X)
+s fmod
+s format(X,D[,locale])
+s format_number
+s format_round
+s fpow
+s from_base64(str)
+s from_base64_binary
+s from_binary
+s from_days(N)
+s from_hex
+s from_iso8601_date
+s from_microsecond
+s from_millisecond
+s from_second
+s from_unixtime(unix_timestamp[,format])
+t frontends
+t frontends_disks
+s g
+s gcd
+s get_format({DATE|TIME|DATETIME}, {'EUR'|'USA'|'JIS'|'ISO'|'INTERNAL'})
+s get_json_bigint(json_str, json_path)
+s get_json_double(json_str, json_path)
+s get_json_int(json_str, json_path)
+s get_json_string(json_str, json_path)
+s greatest(value1,value2,...)
+a group_array
+a group_array_intersect
+a group_array_union
+a group_bit_and(expr)
+a group_bit_or(expr)
+a group_bit_xor(expr)
+a group_bitmap_xor
+s group_commit
+a group_concat([DISTINCT] expr [, sep] [ORDER BY ...])
+a group_uniq_array
+s grouping(expr [, expr] ...)
+s grouping_id
+s hassubstr
+t hdfs("uri" = "...", "format" = "...", ...)
+s hex(str)
+a hist
+a histogram(expr [, max_num_buckets])
+s hll_cardinality(hll)
+s hll_empty()
+s hll_from_base64
+s hll_hash(expr)
+a hll_raw_agg(hll)
+s hll_to_base64
+a hll_union(hll)
+a hll_union_agg(hll)
+s hour(time)
+s hour_ceil
+s hour_floor
+s hour_from_unixtime
+s hour_microsecond
+s hour_minute
+s hour_second
+s hours_add(datetime, n)
+s hours_diff(end, start)
+s hours_sub(datetime, n)
+t http
+t http_stream
+t hudi_meta
+t iceberg_meta
+s if(expr1,expr2,expr3)
+s ifnull(expr1,expr2)
+s ignore
+s inet6_aton(expr)
+s inet6_ntoa(expr)
+s inet_aton(expr)
+s inet_ntoa(expr)
+s initcap(str)
+s inner_product(array1, array2)
+s inner_product_approximate
+s insert(str,pos,len,newstr)
+s instr(str,substr)
+s int_to_uuid
+a intersect_count(bitmap, column, value [, value ...])
+s interval(N,N1,N2,N3,...)
+s ipv4_cidr_to_range
+s ipv4_num_to_string
+s ipv4_string_to_num
+s ipv4_string_to_num_or_default
+s ipv4_string_to_num_or_null
+s ipv4_to_ipv6
+s ipv6_cidr_to_range
+s ipv6_from_uint128_string_or_null
+s ipv6_num_to_string
+s ipv6_string_to_num
+s ipv6_string_to_num_or_default
+s ipv6_string_to_num_or_null
+s is_ip_address_in_range
+s is_ipv4(expr)
+s is_ipv4_compat(expr)
+s is_ipv4_mapped(expr)
+s is_ipv4_string
+s is_ipv6(expr)
+s is_ipv6_string
+s is_valid_utf8
+s isinf
+s isnan
+s isvalidutf8
+t jobs
+s json_array([val[, val] ...])
+s json_array_ignore_null
+s json_contains(target, candidate[, path])
+t json_each(json)
+t json_each_outer
+t json_each_text(json)
+t json_each_text_outer
+s json_exists_path(json, path)
+s json_extract(json_doc, path[, path] ...)
+s json_extract_bigint(json, path)
+s json_extract_bool(json, path)
+s json_extract_double(json, path)
+s json_extract_int(json, path)
+s json_extract_isnull(json, path)
+s json_extract_largeint
+s json_extract_no_quotes
+s json_extract_string(json, path)
+s json_hash
+s json_insert(json_doc, path, val[, path, val] ...)
+s json_keys(json_doc[, path])
+s json_length(json_doc[, path])
+s json_object([key, val[, key, val] ...])
+s json_object_flatten
+s json_parse(json_str)
+s json_parse_error_to_null
+s json_parse_error_to_value
+s json_quote(string)
+s json_remove(json_doc, path[, path] ...)
+s json_replace(json_doc, path, val[, path, val] ...)
+s json_search(json_doc, one_or_all, search_str[, escape_char[, path] ...])
+s json_set(json_doc, path, val[, path, val] ...)
+s json_type(json_val)
+s json_unquote(json_val)
+s json_valid(val)
+s jsonb_array
+s jsonb_array_ignore_null
+s jsonb_exists_path
+s jsonb_extract
+s jsonb_extract_bigint
+s jsonb_extract_bool
+s jsonb_extract_double
+s jsonb_extract_int
+s jsonb_extract_isnull
+s jsonb_extract_largeint
+s jsonb_extract_string
+s jsonb_hash
+s jsonb_insert
+s jsonb_keys
+s jsonb_object
+s jsonb_parse
+s jsonb_parse_error_to_null
+s jsonb_parse_error_to_value
+s jsonb_replace
+s jsonb_set
+s jsonb_type
+s jsonb_valid
+a kurt(expr)
+a kurt_pop
+a kurtosis(expr)
+s l1_distance(array1, array2)
+s l2_distance(array1, array2)
+s l2_distance_approximate
+w lag(expr [, offset [, default]])
+s last_day(date)
+s last_query_id
+w last_value(expr [IGNORE NULLS])
+s lcase(str)
+s lcm
+w lead(expr [, offset [, default]])
+s least(value1,value2,...)
+s left(str,len)
+s length(str)
+s like
+a linear_histogram
+s ln(X)
+t local("file_path" = "...", "backend_id" = "...", "format" = "...")
+s localtime([fsp])
+s localtimestamp([fsp])
+s locate(substr,str)
+s log(X)
+s log10(X)
+s log2(X)
+s lower(str)
+s lpad(str,len,padstr)
+s ltrim(str)
+s ltrim_in
+s make_set(bits,str1,str2,...)
+s makedate(year,dayofyear)
+s maketime(hour,minute,second)
+s map(key, value [, key, value ...])
+a map_agg(key, value)
+a map_agg_v1
+a map_agg_v2
+s map_contains_entry
+s map_contains_key(map, key)
+s map_contains_value(map, value)
+s map_entries
+s map_keys(map)
+s map_size(map)
+s map_values(map)
+s mask
+s mask_first_n
+s mask_last_n
+a max(expr)
+a max_by(x, y)
+s md5(str)
+s md5sum
+a median(expr)
+s microsecond(expr)
+s microsecond_from_unixtime
+s microsecond_timestamp
+s microseconds_add(datetime, n)
+s microseconds_diff(end, start)
+s microseconds_sub(datetime, n)
+s mid(str,pos)
+s millisecond_timestamp
+s milliseconds_add(datetime, n)
+s milliseconds_diff(end, start)
+s milliseconds_sub(datetime, n)
+a min(expr)
+a min_by(x, y)
+s minute(time)
+s minute_ceil
+s minute_floor
+s minute_from_unixtime
+s minute_microsecond
+s minute_second
+s minutes_add(datetime, n)
+s minutes_diff(end, start)
+s minutes_sub(datetime, n)
+s money_format(number)
+s month(date)
+s month_ceil
+s month_floor
+s monthname(date)
+s months_add(datetime, n)
+s months_between
+s months_diff(end, start)
+s months_sub(datetime, n)
+a multi_distinct_count(expr)
+a multi_distinct_group_concat
+a multi_distinct_sum(expr)
+a multi_distinct_sum0
+s multi_match
+s multi_match_any
+s multi_search_all_positions
+s murmur_hash3_128
+s murmur_hash3_32(expr [, expr ...])
+s murmur_hash3_64(expr [, expr ...])
+s murmur_hash3_64_v2
+s murmur_hash3_u128
+s murmur_hash3_u64_v2
+t mv_infos
+s named_struct(name, value [, name, value ...])
+a ndv(expr)
+s negative
+s next_day
+s ngram_search
+s non_nullable
+s normal_cdf
+s normalize_json_numbers_to_double
+s normalize_jsonb_numbers_to_double
+s not_null_or_empty(str)
+s now([precision])
+w nth_value(expr, n)
+w ntile(n)
+s null_or_empty(str)
+s nullable
+s nullif(expr1,expr2)
+t numbers("number" = "n")
+s nvl(expr1, expr2)
+s octet_length(str)
+a orthogonal_bitmap_expr_calculate
+a orthogonal_bitmap_expr_calculate_count
+a orthogonal_bitmap_intersect
+a orthogonal_bitmap_intersect_count
+a orthogonal_bitmap_union_count
+s overlay
+t parquet_bloom_probe
+t parquet_file_metadata
+t parquet_kv_metadata
+t parquet_meta
+s parse_data_size
+s parse_url(url, part [, key])
+t partition_values
+t partitions
+s password
+w percent_rank()
+a percentile(expr, p)
+a percentile_approx(expr, p [, compression])
+a percentile_approx_weighted
+a percentile_array(expr, array_p)
+a percentile_cont(expr, p)
+a percentile_reservoir
+s period_add(P,N)
+s period_diff(P1,P2)
+s pi()
+s pmod
+t posexplode(array)
+t posexplode_outer(array)
+s position(substr IN str)
+s positive
+s pow(X,Y)
+s power(X,Y)
+s previous_day
+s protocol
+s quantile_percent
+s quantile_state_empty
+s quantile_state_from_base64
+s quantile_state_to_base64
+a quantile_union
+s quarter(date)
+s quarter_ceil
+s quarter_floor
+s quarters_add(datetime, n)
+s quarters_diff
+s quarters_sub(datetime, n)
+t query
+s quote(str)
+s radians(X)
+s rand([N])
+s random([seed])
+s random_bytes(len)
+w rank()
+s regexp
+s regexp_count(str, pattern)
+s regexp_extract(str, pattern, pos)
+s regexp_extract_all(str, pattern [, pos])
+s regexp_extract_or_null
+s regexp_replace(expr, pat, repl[, pos[, occurrence[, match_type]]])
+s regexp_replace_one(str, pattern, repl)
+s regexp_split_to_array(str, pattern)
+a regr_intercept(y, x)
+a regr_slope(y, x)
+s repeat(str,count)
+s replace(str,from_str,to_str)
+s replace_empty
+a retention(event1, event2 [, ...])
+s reverse(str)
+s right(str,len)
+s round(X)
+s round_bankers
+w row_number()
+s rpad(str,len,padstr)
+s rtrim(str)
+s rtrim_in
+t s3("uri" = "...", "format" = "...", ...)
+s schema()
+s score
+s search
+s sec
+s sec_to_time(seconds)
+s second(time)
+s second_ceil
+s second_floor
+s second_from_unixtime
+s second_microsecond
+s second_timestamp
+s seconds_add(datetime, n)
+s seconds_diff(end, start)
+s seconds_sub(datetime, n)
+a sem
+s sequence
+a sequence_count(pattern, timestamp, cond1, cond2 [, ...])
+a sequence_match(pattern, timestamp, cond1, cond2 [, ...])
+s session_user()
+s sha(str)
+s sha1(str)
+s sha2(str, hash_length)
+s shuffle
+s sign(X)
+s signbit
+s sin(X)
+s sinh
+s size
+a skew(expr)
+a skew_pop
+a skewness(expr)
+s sleep(duration)
+s sm3
+s sm3sum
+s sm4_decrypt
+s sm4_encrypt
+s sort_json_object_keys
+s sort_jsonb_object_keys
+s soundex(str)
+s space(N)
+s split(str, delimiter)
+s split_by_regexp
+s split_by_string(str, separator)
+s split_part(str, delimiter, part)
+s sqrt(X)
+s st_angle
+s st_angle_sphere
+s st_area_square_km
+s st_area_square_meters
+s st_asbinary(g [, options])
+s st_astext(g [, options])
+s st_aswkt(g [, options])
+s st_azimuth
+s st_circle
+s st_contains(g1, g2)
+s st_disjoint(g1, g2)
+s st_distance(g1, g2 [, unit])
+s st_distance_sphere(g1, g2 [, radius])
+s st_geometryfromtext(wkt [, srid [, options]])
+s st_geometryfromwkb(wkb [, srid [, options]])
+s st_geometrytype(g)
+s st_geomfromtext(wkt [, srid [, options]])
+s st_geomfromwkb(wkb [, srid [, options]])
+s st_intersects(g1, g2)
+s st_length(ls [, unit])
+s st_linefromtext(wkt [, srid [, options]])
+s st_linestringfromtext(wkt [, srid [, options]])
+s st_point
+s st_polyfromtext(wkt [, srid [, options]])
+s st_polygon
+s st_polygonfromtext(wkt [, srid [, options]])
+s st_touches(g1, g2)
+s st_x(p [, new_x_val])
+s st_y(p [, new_y_val])
+s starts_with(str, prefix)
+a std(expr)
+a stddev(expr)
+a stddev_pop(expr)
+a stddev_samp(expr)
+s str_to_date(str,format)
+s str_to_map
+s strcmp(expr1,expr2)
+s strip_null_value
+s strleft
+s strright
+s struct(value [, value ...])
+s struct_element(struct, field)
+s sub_binary
+s sub_bitmap
+s sub_replace
+s sub_time
+s subdate(date,INTERVAL expr unit)
+s substr(str,pos)
+s substring(str,pos)
+s substring_index(str,delim,count)
+a sum([DISTINCT] expr)
+a sum0
+s tan(X)
+s tanh
+t tasks
+s time(expr)
+s time_format(time,format)
+s time_to_sec(time)
+s timediff(expr1,expr2)
+s timestamp(expr)
+s to_base64(str)
+s to_base64_binary
+s to_binary
+s to_bitmap(expr)
+s to_bitmap_with_check
+s to_date(datetime)
+s to_datev2
+s to_days(date)
+s to_hex
+s to_ipv4
+s to_ipv4_or_default
+s to_ipv4_or_null
+s to_ipv6
+s to_ipv6_or_default
+s to_ipv6_or_null
+s to_iso8601
+s to_json(value)
+s to_monday
+s to_quantile_state
+s to_seconds(expr)
+s tokenize
+s top_level_domain
+a topn(expr, top_num [, space_expand_rate])
+a topn_array(expr, top_num [, space_expand_rate])
+a topn_weighted
+s translate
+s trim([{BOTH | LEADING | TRAILING} [remstr] FROM] str)
+s trim_in
+s truncate(X,D)
+s ucase(str)
+s uncompress(string_to_uncompress)
+s unhex(str)
+s unhex_null
+s unicode_normalize
+s uniform
+s unix_timestamp([date])
+t unnest(array [, array ...])
+s upper(str)
+s url_decode(str)
+s url_encode(str)
+s user()
+s utc_date()
+s utc_time([fsp])
+s utc_timestamp([fsp])
+s uuid()
+s uuid_numeric()
+s uuid_to_int
+a var_pop(expr)
+a var_samp(expr)
+a variance(expr)
+a variance_pop(expr)
+a variance_samp(expr)
+s variant_type
+s version()
+s week(date[,mode])
+s week_ceil
+s week_floor
+s weekday(date)
+s weekofyear(date)
+s weeks_add(datetime, n)
+s weeks_diff(end, start)
+s weeks_sub(datetime, n)
+s width_bucket(expr, min_value, max_value, num_buckets)
+a window_funnel(window, mode, timestamp, event1 [, event2 ...])
+a window_funnel_v1
+a window_funnel_v2
+s xor
+s xpath_string
+s xxhash3_64
+s xxhash_32(expr [, expr ...])
+s xxhash_64(expr [, expr ...])
+s year(date)
+s year_ceil
+s year_floor
+s year_month
+s year_of_week
+s years_add(datetime, n)
+s years_diff(end, start)
+s years_sub(datetime, n)
+s yearweek(date)
+s yow

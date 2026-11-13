@@ -1,0 +1,130 @@
+# Denodo's VQL functions (see dbine_driver::functions::parse_catalog), from
+# the Denodo Virtual DataPort VQL Guide (Functions). Denodo's PostgreSQL
+# interface has no catalog of its functions, so they all come from here.
+
+# Aggregation
+a avg(field)
+a count(*) -> long
+a count(field) -> long
+a first(field)
+a group_concat([ignore_null,] [separator,] field [, field ...]) -> text
+a last(field)
+a list(field) -> array
+a max(field)
+a median(field)
+a min(field)
+a nest(field [, field ...]) -> array
+a stdev(field) -> double
+a stdevp(field) -> double
+a sum(field)
+a var(field) -> double
+a varp(field) -> double
+
+# Arithmetic
+s abs(value)
+s acos(value) -> double
+s add(value, value)
+s asin(value) -> double
+s atan(value) -> double
+s atan2(y, x) -> double
+s ceil(value)
+s cos(value) -> double
+s cot(value) -> double
+s degrees(value) -> double
+s div(dividend, divisor)
+s exp(value) -> double
+s floor(value)
+s ln(value) -> double
+s log(value) -> double
+s mod(dividend, divisor)
+s mult(value, value)
+s pi() -> double
+s power(base, exponent) -> double
+s radians(value) -> double
+s rand() -> double
+s round(value [, decimals])
+s sign(value) -> int
+s sin(value) -> double
+s sqrt(value) -> double
+s subtract(value, value)
+s tan(value) -> double
+s trunc(value [, decimals])
+
+# Conversion
+s cast(type, value)
+s to_boolean(value) -> boolean
+s to_double(value) -> double
+s to_float(value) -> float
+s to_int(value) -> int
+s to_localdate(pattern, value [, locale]) -> localdate
+s to_long(value) -> long
+s to_time(pattern, value [, locale]) -> time
+s to_timestamp(pattern, value [, locale]) -> timestamp
+s to_timestamptz(pattern, value [, locale [, timezone]]) -> timestamptz
+
+# Date and time
+s addday(date, increment) -> date
+s addhour(date, increment) -> date
+s addminute(date, increment) -> date
+s addmonth(date, increment) -> date
+s addsecond(date, increment) -> date
+s addweek(date, increment) -> date
+s addyear(date, increment) -> date
+s extract(field FROM date) -> int
+s firstdayofmonth(date) -> date
+s firstdayofweek(date [, locale]) -> date
+s formatdate(pattern, date [, locale]) -> text
+s getday(date) -> long
+s getdayofweek(date) -> long
+s getdayofyear(date) -> long
+s getdaysbetween(date, date) -> long
+s gethour(date) -> long
+s getmillisecond(date) -> long
+s getminute(date) -> long
+s getmonth(date) -> long
+s getmonthsbetween(date, date) -> long
+s getquarter(date) -> long
+s getsecond(date) -> long
+s gettimefromepoch(epoch) -> timestamp
+s gettimeinmillis(date) -> long
+s getweek(date) -> long
+s getyear(date) -> long
+s getyearsbetween(date, date) -> long
+s lastdayofmonth(date) -> date
+s lastdayofweek(date [, locale]) -> date
+s nextweekday(date, day [, locale]) -> date
+s now() -> timestamp
+s previousweekday(date, day [, locale]) -> date
+
+# Text
+s concat(value, value [, ...]) -> text
+s instr(text, search) -> int
+s len(text) -> int
+s lower(text) -> text
+s lpad(text, length [, padding]) -> text
+s ltrim(text) -> text
+s regexp(text, pattern, replacement) -> text
+s removeaccents(text) -> text
+s replace(text, search, replacement) -> text
+s replacemap(text, map_view_name) -> text
+s rpad(text, length [, padding]) -> text
+s rtrim(text) -> text
+s similarity(text, text [, algorithm]) -> double
+s split(regex, text) -> array
+s substr(text, start [, length]) -> text
+s substring(text, start [, end]) -> text
+s trim(text) -> text
+s upper(text) -> text
+
+# XML and JSON
+s jsonpath(json, path) -> text
+s xpath(xml, path [, namespaces]) -> text
+s xslt(xml, stylesheet) -> text
+
+# Other
+s coalesce(value [, ...])
+s getsession(property) -> text
+s getvar(variable [, type [, default]])
+s hash(value [, algorithm]) -> text
+s nullif(value, value)
+s nvl(value, value)
