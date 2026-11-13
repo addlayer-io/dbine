@@ -88,7 +88,10 @@ pub fn flux_with_suggestions(
         out.push(match by_name.get(name) {
             Some(known) => (*known).clone(),
             None => {
-                let params: Vec<&str> = f
+                // Sorted: the answer is a JSON object, whose key order is
+                // not something to rely on (nor is serde_json's, which
+                // depends on its `preserve_order` feature).
+                let mut params: Vec<&str> = f
                     .get("params")
                     .and_then(J::as_object)
                     .map(|p| {
@@ -98,6 +101,7 @@ pub fn flux_with_suggestions(
                             .collect()
                     })
                     .unwrap_or_default();
+                params.sort_unstable();
                 FunctionInfo::new(name, FunctionKind::Scalar)
                     .args(format!("({})", params.join(", ")))
             }
