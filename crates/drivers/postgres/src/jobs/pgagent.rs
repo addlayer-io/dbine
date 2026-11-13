@@ -29,20 +29,34 @@ struct Privileges {
     agents: bool,
 }
 
-const PRIVILEGES_SQL: &str = "SELECT has_schema_privilege('pgagent', 'USAGE')
-        AND has_table_privilege('pgagent.pga_job', 'SELECT')
-        AND has_table_privilege('pgagent.pga_jobstep', 'SELECT')
-        AND has_table_privilege('pgagent.pga_schedule', 'SELECT') AS read,
-    has_table_privilege('pgagent.pga_job', 'UPDATE') AS write,
-    has_table_privilege('pgagent.pga_joblog', 'SELECT')
-        AND has_table_privilege('pgagent.pga_jobsteplog', 'SELECT') AS log,
-    has_table_privilege('pgagent.pga_jobagent', 'SELECT') AS agents";
+/// By the tables' oids: naming them (`'pgagent.pga_job'`) fails without
+/// USAGE on the schema, and `AND` doesn't keep the server from trying.
+fn privileges_sql() -> String {
+    let rel = |name: &str, privilege: &str| {
+        format!(
+            "coalesce((SELECT has_table_privilege(c.oid, '{privilege}') FROM pg_catalog.pg_class c
+               JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = 'pgagent' AND c.relname = '{name}'), false)"
+        )
+    };
+    format!(
+        "SELECT has_schema_privilege('pgagent', 'USAGE') AND {job} AND {step} AND {sched} AS read,
+                {update} AS write, {log} AND {steplog} AS log, {agents} AS agents",
+        job = rel("pga_job", "SELECT"),
+        step = rel("pga_jobstep", "SELECT"),
+        sched = rel("pga_schedule", "SELECT"),
+        update = rel("pga_job", "UPDATE"),
+        log = rel("pga_joblog", "SELECT"),
+        steplog = rel("pga_jobsteplog", "SELECT"),
+        agents = rel("pga_jobagent", "SELECT"),
+    )
+}
 
 const UNREADABLE: &str =
     "Tu usuario no puede leer los jobs de pgAgent: necesita USAGE en el esquema pgagent y SELECT en sus tablas.";
 
 async fn privileges(s: &PgSession) -> Result<Privileges> {
-    let rows = s.text(PRIVILEGES_SQL).await?;
+    let rows = s.text(&privileges_sql()).await?;
     Ok(rows
         .first()
         .map(|r| Privileges {
@@ -679,9 +693,15 @@ pub(super) async fn script(s: &PgSession, n: i32) -> Result<String> {
     ))
 }
 
+/// A connection string's key whose value is a secret: the password, and
+/// the passphrase of the client's key (`sslpassword`).
+pub(crate) fn secret_param(key: &str) -> bool {
+    key.eq_ignore_ascii_case("password") || key.eq_ignore_ascii_case("sslpassword")
+}
+
 /// A libpq connection string (`key=value …` or a `postgresql://` URI)
-/// without its password, and whether it had one.
-pub(super) fn without_password(conn: &str) -> (String, bool) {
+/// without its password (nor its key's passphrase), and whether it had one.
+pub(crate) fn without_password(conn: &str) -> (String, bool) {
     let t = conn.trim();
     if t.starts_with("postgres://") || t.starts_with("postgresql://") {
         return uri_without_password(t);
@@ -729,7 +749,7 @@ pub(super) fn without_password(conn: &str) -> (String, bool) {
             }
         }
         let token: String = chars[start..i.min(chars.len())].iter().collect();
-        if key.eq_ignore_ascii_case("password") {
+        if secret_param(&key) {
             removed = true;
         } else {
             kept.push(token);
@@ -758,9 +778,9 @@ fn uri_without_password(t: &str) -> (String, bool) {
                 .split('&')
                 .filter(|kv| {
                     let key = kv.split('=').next().unwrap_or("");
-                    let password = key.eq_ignore_ascii_case("password");
-                    removed |= password;
-                    !password
+                    let secret = secret_param(key);
+                    removed |= secret;
+                    !secret
                 })
                 .collect();
             if kept.is_empty() {
@@ -1002,6 +1022,15 @@ mod tests {
         assert_eq!(
             without_password("postgresql://h/db"),
             ("postgresql://h/db".into(), false)
+        );
+        // The client key's passphrase is a secret too.
+        assert_eq!(
+            without_password("host=a sslkey=/k sslpassword=k3y sslmode=verify-full"),
+            ("host=a sslkey=/k sslmode=verify-full".into(), true)
+        );
+        assert_eq!(
+            without_password("postgresql://u@h/db?sslpassword=k3y&sslmode=require"),
+            ("postgresql://u@h/db?sslmode=require".into(), true)
         );
     }
 

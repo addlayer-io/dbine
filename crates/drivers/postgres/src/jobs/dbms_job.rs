@@ -12,6 +12,11 @@
 //! every zone (`pkg_service.job_update`, a day before now in UTC), and the
 //! scheduler takes it within a second. Enabling is `pkg_service.job_finish`
 //! (a finished job is a broken one). There's no way to stop a run.
+//!
+//! openGauss declares `pkg_service`'s functions `IMMUTABLE`: with constant
+//! arguments the planner runs them while planning, which fails or brings
+//! the server down (7.0.0-RC3). The id goes in a subquery to keep the call
+//! for execution.
 
 use super::{flag, message, ms, not_found, prop, text, time, yes_no, Found, JobId, Part, Row};
 use crate::catalog::{comment_text, lit};
@@ -213,8 +218,11 @@ pub(super) async fn set_enabled(s: &PgSession, n: i64, enabled: bool) -> Result<
     ready(s).await?;
     row(s, n).await?;
     // A finished job is a broken one; unfinishing it schedules it from now.
-    s.text(&format!("SELECT pkg_service.job_finish({n}, {})", !enabled))
-        .await?;
+    s.text(&format!(
+        "SELECT pkg_service.job_finish((SELECT {n}::bigint), {})",
+        !enabled
+    ))
+    .await?;
     Ok(())
 }
 
@@ -233,7 +241,7 @@ fn script_of(v: Variant, r: &dyn Row) -> String {
         None => "'null'".into(),
     };
     let submit = format!(
-        "pkg_service.job_submit(NULL, {}, {next}, {interval})",
+        "pkg_service.job_submit((SELECT NULL::bigint), {}, {next}, {interval})",
         lit(v, &r.get("what").unwrap_or_default())
     );
     let call = if text(r, "job_status").as_deref() == Some("d") {
@@ -305,12 +313,12 @@ mod tests {
     fn the_script_submits_it_again() {
         let sql = script_of(Variant::OpenGauss, &nightly("s"));
         assert!(
-            sql.ends_with("SELECT pkg_service.job_submit(NULL, E'CALL purge(''it''''s'');', E'2026-11-13 13:31:05.000000'::timestamp, E'sysdate + 1');\n"),
+            sql.ends_with("SELECT pkg_service.job_submit((SELECT NULL::bigint), E'CALL purge(''it''''s'');', E'2026-11-13 13:31:05.000000'::timestamp, E'sysdate + 1');\n"),
             "{sql}"
         );
         let broken = script_of(Variant::OpenGauss, &nightly("d"));
         assert!(
-            broken.contains("SELECT pkg_service.job_finish(pkg_service.job_submit(NULL, E'CALL purge(''it''''s'');', sysdate, E'sysdate + 1'), true);"),
+            broken.contains("SELECT pkg_service.job_finish(pkg_service.job_submit((SELECT NULL::bigint), E'CALL purge(''it''''s'');', sysdate, E'sysdate + 1'), true);"),
             "{broken}"
         );
     }

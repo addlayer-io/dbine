@@ -36,11 +36,11 @@ const LAST_JOBS: u32 = 20;
 
 /// Who's asking and on what version.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct Who {
-    user: String,
-    admin: bool,
+pub(crate) struct Who {
+    pub(crate) user: String,
+    pub(crate) admin: bool,
     /// (major, minor), e.g. (26, 3).
-    version: Option<(u32, u32)>,
+    pub(crate) version: Option<(u32, u32)>,
 }
 
 impl Who {
@@ -61,7 +61,7 @@ impl Who {
 }
 
 /// `CockroachDB CCL v26.3.2 (…)` → (26, 3).
-fn version_of(text: &str) -> Option<(u32, u32)> {
+pub(crate) fn version_of(text: &str) -> Option<(u32, u32)> {
     let at = text.find(" v")? + 2;
     let mut parts = text[at..]
         .split(|c: char| !c.is_ascii_digit())
@@ -69,7 +69,7 @@ fn version_of(text: &str) -> Option<(u32, u32)> {
     Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
-async fn who(s: &PgSession) -> Result<Who> {
+pub(crate) async fn who(s: &PgSession) -> Result<Who> {
     let rows = s
         .text("SELECT current_user AS usr, pg_has_role('admin', 'MEMBER') AS admin, version() AS version")
         .await?;
@@ -85,7 +85,7 @@ async fn who(s: &PgSession) -> Result<Who> {
 
 /// What a schedule runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScheduleKind {
+pub(crate) enum ScheduleKind {
     Backup,
     Changefeed,
     Ttl,
@@ -94,7 +94,7 @@ enum ScheduleKind {
 }
 
 impl ScheduleKind {
-    fn of(r: &dyn Row) -> ScheduleKind {
+    pub(crate) fn of(r: &dyn Row) -> ScheduleKind {
         let command: Option<serde_json::Value> = text(r, "command")
             .as_deref()
             .and_then(|c| serde_json::from_str(c).ok());
@@ -134,7 +134,7 @@ impl ScheduleKind {
     }
 
     /// The statement it runs, from `command`.
-    fn statement(self, r: &dyn Row) -> Option<String> {
+    pub(crate) fn statement(self, r: &dyn Row) -> Option<String> {
         let key = match self {
             ScheduleKind::Backup => "backup_statement",
             ScheduleKind::Changefeed => "changefeed_statement",
@@ -147,7 +147,7 @@ impl ScheduleKind {
 
 /// The incremental schedule of a full + incremental backup pair
 /// (`backup_type` 1, or `INCREMENTAL` in JSON that names the enum).
-fn incremental(r: &dyn Row) -> bool {
+pub(crate) fn incremental(r: &dyn Row) -> bool {
     let command: Option<serde_json::Value> = text(r, "command")
         .as_deref()
         .and_then(|c| serde_json::from_str(c).ok());
@@ -158,7 +158,7 @@ fn incremental(r: &dyn Row) -> bool {
     }
 }
 
-fn schedules_sql(id: Option<i64>) -> String {
+pub(crate) fn schedules_sql(id: Option<i64>) -> String {
     let filter = id.map(|n| format!(" WHERE id = {n}")).unwrap_or_default();
     // `*`: the columns vary by version (on_previous_running and
     // on_execution_failure are newer).
@@ -170,7 +170,7 @@ fn schedules_sql(id: Option<i64>) -> String {
     )
 }
 
-fn changefeeds_sql(id: Option<i64>) -> String {
+pub(crate) fn changefeeds_sql(id: Option<i64>) -> String {
     let filter = match id {
         Some(n) => format!("WHERE job_id = {n}"),
         // The ones still going: running, pending, paused, being paused…
@@ -313,7 +313,7 @@ fn changefeed_job(r: &dyn Row, who: &Who) -> Option<ServerJob> {
 }
 
 /// A query that may need `VIEWJOB`: `None` when the user lacks it.
-async fn guarded(s: &PgSession, sql: &str) -> Result<Option<Vec<SimpleQueryRow>>> {
+pub(crate) async fn guarded(s: &PgSession, sql: &str) -> Result<Option<Vec<SimpleQueryRow>>> {
     match s.client.simple_query(sql).await {
         Ok(m) => Ok(Some(rows(m))),
         Err(e) if e.code() == Some(&SqlState::INSUFFICIENT_PRIVILEGE) => Ok(None),
@@ -321,7 +321,7 @@ async fn guarded(s: &PgSession, sql: &str) -> Result<Option<Vec<SimpleQueryRow>>
     }
 }
 
-pub(super) async fn list(s: &PgSession) -> Result<JobList> {
+pub(crate) async fn list(s: &PgSession) -> Result<JobList> {
     let who = who(s).await?;
     let mut out = JobList::default();
     match guarded(s, &schedules_sql(None)).await? {
@@ -399,7 +399,7 @@ fn policy_text(value: &str) -> String {
     }
 }
 
-pub(super) async fn schedule_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
+pub(crate) async fn schedule_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
     let who = who(s).await?;
     let r = schedule_row(s, n).await?;
     let runs = schedule_runs(s, n, LAST_JOBS).await.unwrap_or_default();
@@ -442,7 +442,7 @@ pub(super) async fn schedule_detail(s: &PgSession, n: i64) -> Result<JobDetail> 
     })
 }
 
-pub(super) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
+pub(crate) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
     let who = who(s).await?;
     let r = changefeed_row(s, n).await?;
     let job = changefeed_job(&r, &who).ok_or_else(|| not_found(JobId::CrdbJob(n)))?;
@@ -479,7 +479,7 @@ pub(super) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
     })
 }
 
-pub(super) async fn runs(s: &PgSession, n: i64, limit: u32) -> Result<Vec<JobRun>> {
+pub(crate) async fn runs(s: &PgSession, n: i64, limit: u32) -> Result<Vec<JobRun>> {
     schedule_row(s, n).await?;
     schedule_runs(s, n, limit).await
 }
@@ -518,14 +518,14 @@ fn run_sql(r: &dyn Row, n: i64, who: &Who) -> Result<String> {
     Ok(sql)
 }
 
-pub(super) async fn run(s: &PgSession, n: i64) -> Result<()> {
+pub(crate) async fn run(s: &PgSession, n: i64) -> Result<()> {
     let who = who(s).await?;
     let r = schedule_row(s, n).await?;
     s.text(&run_sql(&r, n, &who)?).await?;
     Ok(())
 }
 
-pub(super) async fn stop_schedule(s: &PgSession, n: i64) -> Result<()> {
+pub(crate) async fn stop_schedule(s: &PgSession, n: i64) -> Result<()> {
     schedule_row(s, n).await?;
     let going: Vec<String> = schedule_runs(s, n, LAST_JOBS)
         .await?
@@ -544,27 +544,27 @@ pub(super) async fn stop_schedule(s: &PgSession, n: i64) -> Result<()> {
     Ok(())
 }
 
-pub(super) async fn cancel_job(s: &PgSession, n: i64) -> Result<()> {
+pub(crate) async fn cancel_job(s: &PgSession, n: i64) -> Result<()> {
     changefeed_row(s, n).await?;
     s.text(&format!("CANCEL JOB {n}")).await?;
     Ok(())
 }
 
-pub(super) async fn set_schedule_enabled(s: &PgSession, n: i64, enabled: bool) -> Result<()> {
+pub(crate) async fn set_schedule_enabled(s: &PgSession, n: i64, enabled: bool) -> Result<()> {
     schedule_row(s, n).await?;
     let verb = if enabled { "RESUME" } else { "PAUSE" };
     s.text(&format!("{verb} SCHEDULE {n}")).await?;
     Ok(())
 }
 
-pub(super) async fn set_job_enabled(s: &PgSession, n: i64, enabled: bool) -> Result<()> {
+pub(crate) async fn set_job_enabled(s: &PgSession, n: i64, enabled: bool) -> Result<()> {
     changefeed_row(s, n).await?;
     let verb = if enabled { "RESUME" } else { "PAUSE" };
     s.text(&format!("{verb} JOB {n}")).await?;
     Ok(())
 }
 
-pub(super) async fn schedule_script(s: &PgSession, n: i64) -> Result<String> {
+pub(crate) async fn schedule_script(s: &PgSession, n: i64) -> Result<String> {
     let r = schedule_row(s, n).await?;
     if !matches!(
         ScheduleKind::of(&r),
@@ -603,7 +603,7 @@ fn script_text(label: &str, stmt: &str, active: bool) -> String {
     out
 }
 
-pub(super) async fn job_script(s: &PgSession, n: i64) -> Result<String> {
+pub(crate) async fn job_script(s: &PgSession, n: i64) -> Result<String> {
     let r = changefeed_row(s, n).await?;
     let stmt = text(&r, "description").ok_or_else(|| not_found(JobId::CrdbJob(n)))?;
     let mut out = format!("-- CockroachDB: changefeed {n}\n");

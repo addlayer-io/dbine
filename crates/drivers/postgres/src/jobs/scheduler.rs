@@ -25,17 +25,17 @@ use crate::Variant;
 use dbine_driver::{JobOutcome, JobRun, JobStep, PropertyInfo, ServerJob};
 use std::collections::HashMap;
 
-pub(super) const KIND: &str = "DBMS_SCHEDULER";
+pub(crate) const KIND: &str = "DBMS_SCHEDULER";
 
 /// The engine, for what each one spells its own way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Dialect {
+pub(crate) enum Dialect {
     Edb,
     Kingbase,
 }
 
 impl Dialect {
-    pub(super) fn variant(self) -> Variant {
+    pub(crate) fn variant(self) -> Variant {
         match self {
             Dialect::Edb => Variant::Edb,
             Dialect::Kingbase => Variant::Kingbase,
@@ -44,7 +44,7 @@ impl Dialect {
 
     /// The schemas its job views are in, the preferred first. Only these
     /// are searched: `sys.jobs` is a name a user's table can have too.
-    fn schemas(self) -> &'static [&'static str] {
+    pub(crate) fn schemas(self) -> &'static [&'static str] {
         match self {
             Dialect::Edb => &["sys"],
             // `kdb_job` moved from `kdb_schedule` to the catalog; the
@@ -55,19 +55,19 @@ impl Dialect {
 
     /// A package procedure called as a statement of its own, the way each
     /// documents it: an anonymous block on EDB, `CALL` on KingbaseES.
-    pub(super) fn call(self, proc: &str) -> String {
+    pub(crate) fn call(self, proc: &str) -> String {
         match self {
             Dialect::Edb => format!("BEGIN {proc}; END;"),
             Dialect::Kingbase => format!("CALL {proc}"),
         }
     }
 
-    pub(super) fn lit(self, s: &str) -> String {
+    pub(crate) fn lit(self, s: &str) -> String {
         lit(self.variant(), s)
     }
 
     /// A `timestamptz` from its ISO 8601 text.
-    pub(super) fn time_lit(self, iso: &str) -> String {
+    pub(crate) fn time_lit(self, iso: &str) -> String {
         format!("CAST({} AS TIMESTAMP WITH TIME ZONE)", self.lit(iso))
     }
 }
@@ -77,7 +77,7 @@ impl Dialect {
 
 /// How a column is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     TimeTz,
     /// `timestamp` or `date`: local time.
     Time,
@@ -98,26 +98,26 @@ impl Kind {
 
 /// A view (or table) of the scheduler found in the catalog.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(super) struct View {
+pub(crate) struct View {
     pub schema: String,
     pub name: String,
     /// The user may read it.
     pub readable: bool,
     /// Lower-case name → the name as the catalog has it, and its kind.
-    cols: HashMap<String, (String, Kind)>,
+    pub(crate) cols: HashMap<String, (String, Kind)>,
 }
 
 impl View {
-    pub(super) fn from(&self) -> String {
+    pub(crate) fn from(&self) -> String {
         format!("{}.{}", ident(&self.schema), ident(&self.name))
     }
 
-    pub(super) fn has(&self, col: &str) -> bool {
+    pub(crate) fn has(&self, col: &str) -> bool {
         self.cols.contains_key(col)
     }
 
     /// `a."Col"`, if the view has the column.
-    pub(super) fn col(&self, a: &str, col: &str) -> Option<String> {
+    pub(crate) fn col(&self, a: &str, col: &str) -> Option<String> {
         self.cols
             .get(col)
             .map(|(name, _)| format!("{a}.{}", ident(name)))
@@ -125,7 +125,7 @@ impl View {
 
     /// The column as text: a time as epoch seconds (UTC), an interval as
     /// milliseconds; NULL when the view has no such column.
-    pub(super) fn read(&self, a: &str, col: &str) -> String {
+    pub(crate) fn read(&self, a: &str, col: &str) -> String {
         let Some((name, kind)) = self.cols.get(col) else {
             return "NULL::text".into();
         };
@@ -141,7 +141,7 @@ impl View {
     }
 
     /// The column as the server writes it.
-    pub(super) fn raw(&self, a: &str, col: &str) -> String {
+    pub(crate) fn raw(&self, a: &str, col: &str) -> String {
         self.col(a, col)
             .map(|x| format!("{x}::text"))
             .unwrap_or_else(|| "NULL::text".into())
@@ -149,7 +149,7 @@ impl View {
 
     /// A time column as ISO 8601 with its offset, whatever the session's
     /// `DateStyle` (for a script); NULL when missing or not a time.
-    pub(super) fn iso(&self, a: &str, col: &str) -> String {
+    pub(crate) fn iso(&self, a: &str, col: &str) -> String {
         match self.cols.get(col) {
             Some((name, Kind::TimeTz)) => format!("to_json({a}.{}) #>> '{{}}'", ident(name)),
             Some((name, Kind::Time)) => format!(
@@ -163,7 +163,7 @@ impl View {
 
 /// How much of the scheduler a view shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Scope {
+pub(crate) enum Scope {
     /// `DBA_*`: every job.
     All,
     /// `ALL_*`: the jobs the user has access to.
@@ -174,12 +174,12 @@ pub(super) enum Scope {
 
 /// The scheduler's views and tables in this database, by lower-case name.
 #[derive(Debug, Clone, Default)]
-pub(super) struct Catalog {
-    views: HashMap<String, View>,
+pub(crate) struct Catalog {
+    pub(crate) views: HashMap<String, View>,
 }
 
 impl Catalog {
-    pub(super) async fn read(
+    pub(crate) async fn read(
         s: &crate::session::PgSession,
         d: Dialect,
         names: &[&str],
@@ -188,16 +188,16 @@ impl Catalog {
         Ok(catalog_of(&super::refs(&rows)))
     }
 
-    pub(super) fn get(&self, name: &str) -> Option<&View> {
+    pub(crate) fn get(&self, name: &str) -> Option<&View> {
         self.views.get(name)
     }
 
-    pub(super) fn readable(&self, name: &str) -> Option<&View> {
+    pub(crate) fn readable(&self, name: &str) -> Option<&View> {
         self.get(name).filter(|v| v.readable)
     }
 
     /// The widest readable of `dba_<x>`, `all_<x>` and `user_<x>`.
-    pub(super) fn widest(&self, x: &str) -> Option<(&View, Scope)> {
+    pub(crate) fn widest(&self, x: &str) -> Option<(&View, Scope)> {
         [
             ("dba", Scope::All),
             ("all", Scope::Visible),
@@ -209,14 +209,14 @@ impl Catalog {
 
     /// Whether any of `dba_<x>`, `all_<x>` and `user_<x>` is there,
     /// readable or not.
-    pub(super) fn any(&self, x: &str) -> bool {
+    pub(crate) fn any(&self, x: &str) -> bool {
         ["dba", "all", "user"]
             .iter()
             .any(|p| self.views.contains_key(&format!("{p}_{x}")))
     }
 
     #[cfg(test)]
-    pub(super) fn with(views: Vec<View>) -> Catalog {
+    pub(crate) fn with(views: Vec<View>) -> Catalog {
         Catalog {
             views: views.into_iter().map(|v| (v.name.clone(), v)).collect(),
         }
@@ -226,7 +226,7 @@ impl Catalog {
 #[cfg(test)]
 impl View {
     /// A readable view with these columns.
-    pub(super) fn fake(schema: &str, name: &str, cols: &[(&str, Kind)]) -> View {
+    pub(crate) fn fake(schema: &str, name: &str, cols: &[(&str, Kind)]) -> View {
         View {
             schema: schema.into(),
             name: name.into(),
@@ -239,7 +239,7 @@ impl View {
     }
 
     /// The same view, there but not readable by the user.
-    pub(super) fn hidden(self) -> View {
+    pub(crate) fn hidden(self) -> View {
         View {
             readable: false,
             ..self
@@ -250,7 +250,7 @@ impl View {
 /// The columns of the views and tables named `names` (lower case) in the
 /// engine's schemas, the preferred schema first. A domain reads as its
 /// base type.
-fn catalog_sql(d: Dialect, names: &[&str]) -> String {
+pub(crate) fn catalog_sql(d: Dialect, names: &[&str]) -> String {
     let list = |xs: &[&str]| {
         xs.iter()
             .map(|x| format!("'{x}'"))
@@ -308,7 +308,7 @@ fn catalog_of(rows: &[&dyn Row]) -> Catalog {
 }
 
 /// A yes/no cell however the engine writes it (`t`, `true`, `TRUE`, `Y`…).
-pub(super) fn yes(v: &str) -> bool {
+pub(crate) fn yes(v: &str) -> bool {
     matches!(
         v.trim().to_ascii_lowercase().as_str(),
         "t" | "true" | "y" | "yes" | "1"
@@ -340,16 +340,20 @@ const JOB_COLUMNS: &[&str] = &[
     "last_run_duration",
     "next_run_date",
     "comments",
+    "auto_drop",
+    "number_of_arguments",
 ];
 
 /// A job's columns from view `v` (aliased `a`) as `v_<column>`, plus the
 /// ISO text of its start, end and next run for the script.
-pub(super) fn job_select(v: &View, a: &str) -> Vec<String> {
+pub(crate) fn job_select(v: &View, a: &str) -> Vec<String> {
     let mut out: Vec<String> = JOB_COLUMNS
         .iter()
         .map(|c| match *c {
             // Text as the server has it: KingbaseES writes `enabled` as text.
-            "enabled" | "state" | "job_type" => format!("{} AS v_{c}", v.raw(a, c)),
+            "enabled" | "state" | "job_type" | "auto_drop" => {
+                format!("{} AS v_{c}", v.raw(a, c))
+            }
             _ => format!("{} AS v_{c}", v.read(a, c)),
         })
         .collect();
@@ -361,7 +365,7 @@ pub(super) fn job_select(v: &View, a: &str) -> Vec<String> {
 
 /// The named schedule of each job (`*_SCHEDULER_SCHEDULES`), as `s_*`
 /// columns and the join that reads them; NULLs without that view.
-pub(super) fn schedule_join(
+pub(crate) fn schedule_join(
     jobs: &View,
     a: &str,
     schedules: Option<&View>,
@@ -400,7 +404,7 @@ pub(super) fn schedule_join(
 
 /// One row per job from view `v`: the one with the latest start where a
 /// view repeats a job (KingbaseES has a row per action state).
-pub(super) fn jobs_sql(
+pub(crate) fn jobs_sql(
     v: &View,
     schedules: Option<&View>,
     filter: Option<String>,
@@ -430,7 +434,7 @@ pub(super) fn jobs_sql(
 
 /// `v.job_name = …` (and its owner, where the view has owners and the id
 /// names one), for one job.
-pub(super) fn job_filter(
+pub(crate) fn job_filter(
     d: Dialect,
     v: &View,
     a: &str,
@@ -446,7 +450,7 @@ pub(super) fn job_filter(
 
 /// A scheduler job as its view says it.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(super) struct SchedJob {
+pub(crate) struct SchedJob {
     pub owner: Option<String>,
     pub name: String,
     pub job_type: Option<String>,
@@ -471,11 +475,14 @@ pub(super) struct SchedJob {
     pub comments: Option<String>,
     /// The named schedule's comment.
     pub schedule_comments: Option<String>,
+    /// Dropped once it can't run again.
+    pub auto_drop: Option<bool>,
+    pub number_of_arguments: Option<String>,
 }
 
 impl SchedJob {
     /// [`jobs_sql`]'s row; `None` without a name.
-    pub(super) fn from_row(r: &dyn Row) -> Option<SchedJob> {
+    pub(crate) fn from_row(r: &dyn Row) -> Option<SchedJob> {
         Some(SchedJob {
             owner: text(r, "v_owner"),
             name: text(r, "v_job_name")?,
@@ -500,21 +507,23 @@ impl SchedJob {
             next_iso: text(r, "v_next_iso"),
             comments: text(r, "v_comments"),
             schedule_comments: text(r, "s_comments"),
+            auto_drop: text(r, "v_auto_drop").map(|e| yes(&e)),
+            number_of_arguments: text(r, "v_number_of_arguments"),
         })
     }
 
-    fn state_is(&self, s: &str) -> bool {
+    pub(crate) fn state_is(&self, s: &str) -> bool {
         self.state
             .as_deref()
             .is_some_and(|st| st.trim().eq_ignore_ascii_case(s))
     }
 
     /// Its `enabled` column, else whether its state isn't `DISABLED`.
-    pub(super) fn is_enabled(&self) -> bool {
+    pub(crate) fn is_enabled(&self) -> bool {
         self.enabled.unwrap_or_else(|| !self.state_is("disabled"))
     }
 
-    pub(super) fn running(&self) -> bool {
+    pub(crate) fn running(&self) -> bool {
         self.state_is("running")
     }
 
@@ -529,7 +538,7 @@ impl SchedJob {
 
     /// The job as the list shows it. The caller sets its id and what the
     /// user may do with it.
-    pub(super) fn server_job(&self) -> ServerJob {
+    pub(crate) fn server_job(&self) -> ServerJob {
         let enabled = self.is_enabled();
         ServerJob {
             id: String::new(),
@@ -550,7 +559,7 @@ impl SchedJob {
     }
 
     /// What it runs: its action, or its program's.
-    pub(super) fn steps(&self, program: Option<&Program>) -> Vec<JobStep> {
+    pub(crate) fn steps(&self, program: Option<&Program>) -> Vec<JobStep> {
         let command = self
             .action
             .clone()
@@ -571,7 +580,7 @@ impl SchedJob {
     }
 
     /// The rest its view says about it.
-    pub(super) fn properties(&self) -> Vec<PropertyInfo> {
+    pub(crate) fn properties(&self) -> Vec<PropertyInfo> {
         let mut out = Vec::new();
         let mut add = |label: &str, value: &Option<String>| {
             if let Some(v) = value {
@@ -614,7 +623,7 @@ fn run_outcome(status: Option<&str>) -> JobOutcome {
 }
 
 /// The engine's program or job type in words.
-pub(super) fn step_kind(t: &str) -> String {
+pub(crate) fn step_kind(t: &str) -> String {
     let t = t.trim();
     match t.to_ascii_uppercase().as_str() {
         "PLSQL_BLOCK" => "Bloque PL/SQL",
@@ -634,7 +643,7 @@ pub(super) fn step_kind(t: &str) -> String {
 
 /// A program (`*_SCHEDULER_PROGRAMS`).
 #[derive(Debug, Clone, Default, PartialEq)]
-pub(super) struct Program {
+pub(crate) struct Program {
     pub name: String,
     pub kind: Option<String>,
     pub action: Option<String>,
@@ -642,7 +651,7 @@ pub(super) struct Program {
     pub comments: Option<String>,
 }
 
-pub(super) fn program_sql(d: Dialect, v: &View, name: &str) -> Option<String> {
+pub(crate) fn program_sql(d: Dialect, v: &View, name: &str) -> Option<String> {
     let col = v.col("p", "program_name")?;
     Some(format!(
         "SELECT {col}::text AS name, {} AS kind, {} AS action, {} AS enabled, {} AS comments
@@ -657,7 +666,7 @@ pub(super) fn program_sql(d: Dialect, v: &View, name: &str) -> Option<String> {
 }
 
 impl Program {
-    pub(super) fn from_row(r: &dyn Row) -> Option<Program> {
+    pub(crate) fn from_row(r: &dyn Row) -> Option<Program> {
         Some(Program {
             name: text(r, "name")?,
             kind: text(r, "kind"),
@@ -672,7 +681,7 @@ impl Program {
 // Runs
 
 /// The newest `limit` runs of a job from `*_SCHEDULER_JOB_RUN_DETAILS`.
-pub(super) fn runs_sql(
+pub(crate) fn runs_sql(
     d: Dialect,
     v: &View,
     owner: Option<&str>,
@@ -702,7 +711,7 @@ pub(super) fn runs_sql(
     ))
 }
 
-pub(super) fn run_of(r: &dyn Row) -> JobRun {
+pub(crate) fn run_of(r: &dyn Row) -> JobRun {
     JobRun {
         id: text(r, "id"),
         started: time(r, "started")
@@ -728,19 +737,19 @@ pub(super) fn run_of(r: &dyn Row) -> JobRun {
 /// one-shot DBMS_JOB that calls `RUN_JOB` would return at once, but whether
 /// such a job is removed after it runs, and isn't retried when it fails,
 /// couldn't be checked on a real server of either engine.
-pub(super) const RUN_WAITS: &str = "«Ejecutar ahora» no está disponible para los jobs de DBMS_SCHEDULER: RUN_JOB los ejecuta en la sesión de DBine hasta que terminan.";
+pub(crate) const RUN_WAITS: &str = "«Ejecutar ahora» no está disponible para los jobs de DBMS_SCHEDULER: RUN_JOB los ejecuta en la sesión de DBine hasta que terminan.";
 
-pub(super) fn run_waits() -> dbine_driver::Error {
+pub(crate) fn run_waits() -> dbine_driver::Error {
     dbine_driver::Error::Unsupported(RUN_WAITS.trim_end_matches('.').into())
 }
 
-pub(super) fn enable_sql(d: Dialect, name: &str, enabled: bool) -> String {
+pub(crate) fn enable_sql(d: Dialect, name: &str, enabled: bool) -> String {
     let proc = if enabled { "ENABLE" } else { "DISABLE" };
     d.call(&format!("DBMS_SCHEDULER.{proc}({})", d.lit(name)))
 }
 
 /// `TRUE` / `FALSE`.
-pub(super) fn bool_lit(b: bool) -> &'static str {
+pub(crate) fn bool_lit(b: bool) -> &'static str {
     if b {
         "TRUE"
     } else {
@@ -749,17 +758,17 @@ pub(super) fn bool_lit(b: bool) -> &'static str {
 }
 
 /// A value or `NULL`.
-fn or_null(d: Dialect, v: Option<&str>) -> String {
+pub(crate) fn or_null(d: Dialect, v: Option<&str>) -> String {
     v.map(|v| d.lit(v)).unwrap_or_else(|| "NULL".into())
 }
 
-fn time_or_null(d: Dialect, iso: Option<&str>) -> String {
+pub(crate) fn time_or_null(d: Dialect, iso: Option<&str>) -> String {
     iso.map(|t| d.time_lit(t)).unwrap_or_else(|| "NULL".into())
 }
 
 /// EDB's `CREATE_JOB`: with its program and schedule when it has both,
 /// else with its own action and timing. `None` when neither is known.
-pub(super) fn edb_script(j: &SchedJob) -> Option<String> {
+pub(crate) fn edb_script(j: &SchedJob) -> Option<String> {
     let d = Dialect::Edb;
     let mut out = format!(
         "-- EDB Postgres Advanced Server: {} ({KIND})\n",
@@ -814,7 +823,7 @@ pub(super) fn edb_script(j: &SchedJob) -> Option<String> {
 /// KingbaseES's `CREATE_JOB` only takes a program and a schedule: the
 /// script creates both too. A program's connection string isn't copied (it
 /// may carry a password). `None` without a program and a schedule.
-pub(super) fn kingbase_script(
+pub(crate) fn kingbase_script(
     j: &SchedJob,
     program: Option<&Program>,
     database: &str,

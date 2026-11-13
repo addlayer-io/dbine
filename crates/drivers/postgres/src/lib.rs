@@ -36,6 +36,7 @@ mod profiler;
 mod properties;
 mod rename;
 mod rustls_connect;
+mod scheduler;
 mod schemas;
 mod script;
 mod search;

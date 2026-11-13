@@ -234,6 +234,7 @@ pub fn capabilities(v: Variant) -> Capabilities {
         cancel_query: crate::processes::cancel_supported(v),
         database_properties: crate::properties::supported(v),
         jobs: crate::jobs::supported(v),
+        scheduler: crate::scheduler::supported(v),
         ..engine_capabilities(v)
     }
 }

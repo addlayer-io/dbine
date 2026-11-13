@@ -63,20 +63,20 @@ const VIEWS_UNREADABLE: &str = "Tu usuario no puede leer las vistas de DBMS_SCHE
 const PARTIAL: &str = "Se ven solo los jobs a los que tiene acceso este usuario: para verlos todos hace falta poder leer kdb_job o kdb_schedule.dba_scheduler_jobs.";
 
 /// What this database has of kdb_schedule, and who's asking.
-struct Kdb {
-    cat: Catalog,
-    superuser: bool,
-    database: String,
+pub(crate) struct Kdb {
+    pub(crate) cat: Catalog,
+    pub(crate) superuser: bool,
+    pub(crate) database: String,
     /// The kdb_schedule extension is in this database.
-    extension: bool,
+    pub(crate) extension: bool,
     /// `job_queue_processes` is 0: no job runs.
-    queue_off: bool,
+    pub(crate) queue_off: bool,
     /// The jobs `user_scheduler_jobs` shows: the user's own.
-    own: HashSet<String>,
+    pub(crate) own: HashSet<String>,
 }
 
 impl Kdb {
-    async fn read(s: &PgSession, f: &Found) -> Result<Kdb> {
+    pub(crate) async fn read(s: &PgSession, f: &Found) -> Result<Kdb> {
         let cat = Catalog::read(s, D, NAMES).await?;
         let extension = s
             .text(EXTENSION_SQL)
@@ -102,7 +102,7 @@ impl Kdb {
         Ok(k)
     }
 
-    fn own_sql(&self) -> Option<String> {
+    pub(crate) fn own_sql(&self) -> Option<String> {
         let v = self.cat.readable("user_scheduler_jobs")?;
         Some(format!(
             "SELECT DISTINCT {}::text AS name FROM {} u",
@@ -111,24 +111,24 @@ impl Kdb {
         ))
     }
 
-    fn kdb_job(&self) -> Option<&View> {
+    pub(crate) fn kdb_job(&self) -> Option<&View> {
         self.cat
             .readable("kdb_job")
             .filter(|v| v.has("jobid") && v.has("jobname"))
     }
 
-    fn jobs(&self) -> Option<(&View, Scope)> {
+    pub(crate) fn jobs(&self) -> Option<(&View, Scope)> {
         self.cat
             .widest("scheduler_jobs")
             .filter(|(v, _)| v.has("job_name"))
     }
 
-    fn present(&self) -> bool {
+    pub(crate) fn present(&self) -> bool {
         self.extension || self.cat.get("kdb_job").is_some() || self.cat.any("scheduler_jobs")
     }
 
     /// A run-details view and how much it shows.
-    fn run_details(&self) -> Option<(&View, Scope)> {
+    pub(crate) fn run_details(&self) -> Option<(&View, Scope)> {
         self.cat
             .widest("scheduler_job_run_details")
             .filter(|(v, _)| v.has("job_name"))
@@ -136,20 +136,20 @@ impl Kdb {
 
     /// The run-details view that has job `name`'s runs: a `USER_` one only
     /// has the user's own.
-    fn runs_of(&self, name: &str) -> Option<&View> {
+    pub(crate) fn runs_of(&self, name: &str) -> Option<&View> {
         match self.run_details()? {
             (_, Scope::Own) if !self.own.contains(name) => None,
             (v, _) => Some(v),
         }
     }
 
-    fn may(&self, name: &str) -> bool {
+    pub(crate) fn may(&self, name: &str) -> bool {
         self.superuser || self.own.contains(name)
     }
 
     /// What the list says about the jobs views when it reads `kdb_job`
     /// without them: missing, or not readable.
-    fn views_note(&self) -> Option<&'static str> {
+    pub(crate) fn views_note(&self) -> Option<&'static str> {
         match (self.kdb_job(), self.jobs()) {
             (Some(_), None) if self.cat.any("scheduler_jobs") => Some(VIEWS_UNREADABLE),
             (Some(_), None) => Some(NO_VIEWS),
@@ -161,7 +161,7 @@ impl Kdb {
 
 /// The number of a DBMS_JOB job from its name in `kdb_job`
 /// (`internal_job<n>:<created>`).
-fn dbms_job_number(name: &str) -> Option<i64> {
+pub(crate) fn dbms_job_number(name: &str) -> Option<i64> {
     let (digits, _) = name.strip_prefix("internal_job")?.split_once(':')?;
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -171,7 +171,7 @@ fn dbms_job_number(name: &str) -> Option<i64> {
 
 /// Every job (or the one named `name`): `kdb_job` with its row of the jobs
 /// view, or the view alone. `k_*` are `kdb_job`'s columns.
-fn jobs_sql(k: &Kdb, name: Option<&str>) -> Option<String> {
+pub(crate) fn jobs_sql(k: &Kdb, name: Option<&str>) -> Option<String> {
     let view = k.jobs().map(|(v, _)| v);
     let schedules = k.cat.widest("scheduler_schedules").map(|(v, _)| v);
     let now = "extract(epoch FROM now())::text AS now";
@@ -227,27 +227,27 @@ fn jobs_sql(k: &Kdb, name: Option<&str>) -> Option<String> {
 
 /// A job as `kdb_job` and the views say it.
 #[derive(Debug, Clone, Default, PartialEq)]
-struct KJob {
+pub(crate) struct KJob {
     /// `kdb_job.jobid`.
-    id: Option<i64>,
-    name: String,
+    pub(crate) id: Option<i64>,
+    pub(crate) name: String,
     /// `kdb_job.jobenabled`.
-    enabled: Option<bool>,
-    last: Option<String>,
-    next: Option<String>,
-    next_iso: Option<String>,
-    next_epoch: Option<f64>,
-    now: Option<f64>,
+    pub(crate) enabled: Option<bool>,
+    pub(crate) last: Option<String>,
+    pub(crate) next: Option<String>,
+    pub(crate) next_iso: Option<String>,
+    pub(crate) next_epoch: Option<f64>,
+    pub(crate) now: Option<f64>,
     /// Its row of the jobs view.
-    view: Option<SchedJob>,
+    pub(crate) view: Option<SchedJob>,
 }
 
-fn epoch(r: &dyn Row, name: &str) -> Option<f64> {
+pub(crate) fn epoch(r: &dyn Row, name: &str) -> Option<f64> {
     r.get(name).and_then(|v| v.trim().parse::<f64>().ok())
 }
 
 impl KJob {
-    fn from_row(r: &dyn Row) -> Option<KJob> {
+    pub(crate) fn from_row(r: &dyn Row) -> Option<KJob> {
         let view = SchedJob::from_row(r);
         let name = text(r, "k_name").or_else(|| view.as_ref().map(|v| v.name.clone()))?;
         Some(KJob {
@@ -264,14 +264,14 @@ impl KJob {
     }
 
     /// Its DBMS_JOB number, if DBMS_JOB created it: the one in its name.
-    fn number(&self) -> Option<i64> {
+    pub(crate) fn number(&self) -> Option<i64> {
         dbms_job_number(&self.name)
     }
 
     /// Its name's DBMS_JOB number `n`, to call DBMS_JOB with, unless
     /// `kdb_job.jobid` says another (then which one DBMS_JOB takes can't be
     /// told, and the job isn't run or changed).
-    fn checked(&self, n: i64) -> Result<i64> {
+    pub(crate) fn checked(&self, n: i64) -> Result<i64> {
         match self.id {
             Some(id) if id != n => {
                 tracing::debug!(
@@ -286,18 +286,18 @@ impl KJob {
         }
     }
 
-    fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         self.enabled
             .or_else(|| self.view.as_ref().map(SchedJob::is_enabled))
             .unwrap_or(true)
     }
 
-    fn action(&self) -> Option<&str> {
+    pub(crate) fn action(&self) -> Option<&str> {
         self.view.as_ref().and_then(|v| v.action.as_deref())
     }
 
     /// Its next run as ISO text, when it's still ahead.
-    fn next_ahead(&self) -> Option<String> {
+    pub(crate) fn next_ahead(&self) -> Option<String> {
         let (next, now) = (self.next_epoch?, self.now?);
         (next > now)
             .then(|| {
@@ -308,7 +308,7 @@ impl KJob {
             .flatten()
     }
 
-    fn id(&self) -> JobId {
+    pub(crate) fn id(&self) -> JobId {
         JobId::Kingbase(Named {
             owner: None,
             name: self.name.clone(),
@@ -316,7 +316,7 @@ impl KJob {
     }
 
     /// Whether DBine can write its script with what the views show.
-    fn scriptable(&self) -> bool {
+    pub(crate) fn scriptable(&self) -> bool {
         match (self.number(), &self.view) {
             (Some(_), _) => self.action().is_some(),
             (None, Some(v)) => {
@@ -328,7 +328,7 @@ impl KJob {
         }
     }
 
-    fn server_job(&self, k: &Kdb) -> ServerJob {
+    pub(crate) fn server_job(&self, k: &Kdb) -> ServerJob {
         let base = self
             .view
             .as_ref()
@@ -389,7 +389,7 @@ impl KJob {
 // ---------------------------------------------------------------------------
 // The calls
 
-pub(super) async fn list(s: &PgSession, f: &Found) -> Result<Option<Part>> {
+pub(crate) async fn list(s: &PgSession, f: &Found) -> Result<Option<Part>> {
     let k = Kdb::read(s, f).await?;
     if !k.present() {
         return Ok(None);
@@ -422,7 +422,7 @@ pub(super) async fn list(s: &PgSession, f: &Found) -> Result<Option<Part>> {
     Ok(Some(part))
 }
 
-async fn ready(s: &PgSession) -> Result<Kdb> {
+pub(crate) async fn ready(s: &PgSession) -> Result<Kdb> {
     let f = Found::detect(s).await?;
     let k = Kdb::read(s, &f).await?;
     if !k.present() {
@@ -433,7 +433,7 @@ async fn ready(s: &PgSession) -> Result<Kdb> {
     Ok(k)
 }
 
-async fn row(s: &PgSession, k: &Kdb, id: &Named) -> Result<KJob> {
+pub(crate) async fn row(s: &PgSession, k: &Kdb, id: &Named) -> Result<KJob> {
     let sql = jobs_sql(k, Some(&id.name)).ok_or_else(|| Error::Query(UNREADABLE.into()))?;
     s.text(&sql)
         .await?
@@ -443,7 +443,7 @@ async fn row(s: &PgSession, k: &Kdb, id: &Named) -> Result<KJob> {
         .ok_or_else(|| not_found(JobId::Kingbase(id.clone())))
 }
 
-async fn program(s: &PgSession, k: &Kdb, j: &SchedJob) -> Option<Program> {
+pub(crate) async fn program(s: &PgSession, k: &Kdb, j: &SchedJob) -> Option<Program> {
     let (v, _) = k.cat.widest("scheduler_programs")?;
     let sql = scheduler::program_sql(D, v, j.program.as_deref()?)?;
     match s.text(&sql).await {
@@ -455,7 +455,7 @@ async fn program(s: &PgSession, k: &Kdb, j: &SchedJob) -> Option<Program> {
     }
 }
 
-pub(super) async fn detail(s: &PgSession, id: &Named) -> Result<JobDetail> {
+pub(crate) async fn detail(s: &PgSession, id: &Named) -> Result<JobDetail> {
     let k = ready(s).await?;
     let j = row(s, &k, id).await?;
     let mut properties = Vec::new();
@@ -490,7 +490,7 @@ pub(super) async fn detail(s: &PgSession, id: &Named) -> Result<JobDetail> {
     })
 }
 
-pub(super) async fn runs(s: &PgSession, id: &Named, limit: u32) -> Result<Vec<JobRun>> {
+pub(crate) async fn runs(s: &PgSession, id: &Named, limit: u32) -> Result<Vec<JobRun>> {
     let k = ready(s).await?;
     let j = row(s, &k, id).await?;
     let sql = k
@@ -516,7 +516,7 @@ fn run_sql(n: i64) -> String {
 
 /// A DBMS_JOB job is made due now. A DBMS_SCHEDULER job never runs here
 /// (see [`scheduler::RUN_WAITS`]); an unknown id still says so first.
-pub(super) async fn run(s: &PgSession, id: &Named) -> Result<()> {
+pub(crate) async fn run(s: &PgSession, id: &Named) -> Result<()> {
     let k = ready(s).await?;
     let j = row(s, &k, id).await?;
     let Some(n) = j.number() else {
@@ -551,7 +551,7 @@ fn enable_sql(j: &KJob, enabled: bool) -> Result<String> {
     })
 }
 
-pub(super) async fn set_enabled(s: &PgSession, id: &Named, enabled: bool) -> Result<()> {
+pub(crate) async fn set_enabled(s: &PgSession, id: &Named, enabled: bool) -> Result<()> {
     let k = ready(s).await?;
     let j = row(s, &k, id).await?;
     s.text(&enable_sql(&j, enabled)?).await?;
@@ -585,7 +585,7 @@ fn dbms_job_script(j: &KJob, n: i64) -> Option<String> {
     ))
 }
 
-pub(super) async fn script(s: &PgSession, id: &Named) -> Result<String> {
+pub(crate) async fn script(s: &PgSession, id: &Named) -> Result<String> {
     let k = ready(s).await?;
     let j = row(s, &k, id).await?;
     let unsupported = || {

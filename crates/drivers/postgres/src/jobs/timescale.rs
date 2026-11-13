@@ -33,6 +33,8 @@ enum Policy {
     Retention,
     Refresh,
     Reorder,
+    /// Merges small compressed chunks (2.2x+).
+    Compaction,
 }
 
 impl Policy {
@@ -45,6 +47,7 @@ impl Policy {
             "policy_retention" => Some(Policy::Retention),
             "policy_refresh_continuous_aggregate" => Some(Policy::Refresh),
             "policy_reorder" => Some(Policy::Reorder),
+            "policy_compaction" => Some(Policy::Compaction),
             _ => None,
         }
     }
@@ -55,6 +58,7 @@ impl Policy {
             Policy::Retention => "TimescaleDB · retención",
             Policy::Refresh => "TimescaleDB · agregado continuo",
             Policy::Reorder => "TimescaleDB · reordenamiento",
+            Policy::Compaction => "TimescaleDB · compactación",
         }
     }
 
@@ -82,6 +86,10 @@ impl Policy {
                 ],
             ),
             Policy::Reorder => ("add_reorder_policy", &["index_name"]),
+            Policy::Compaction => (
+                "add_compaction_policy",
+                &["max_chunks", "max_batches", "inactive_for"],
+            ),
         }
     }
 }
