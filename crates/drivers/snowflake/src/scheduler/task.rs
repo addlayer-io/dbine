@@ -293,7 +293,7 @@ async fn params_of_tasks(r: Run<'_>, ids: &[String]) -> Vec<Params> {
         .collect()
 }
 
-fn not_found(db: &str, schema: &str, name: &str) -> Error {
+pub(crate) fn not_found(db: &str, schema: &str, name: &str) -> Error {
     bad(format!(
         "No existe la tarea {db}.{schema}.{name} o el rol no la ve."
     ))
@@ -505,8 +505,9 @@ pub(crate) fn current(g: &Graph) -> Spec {
 /// The jobs list's graphs, each with what the role may do with it, as its
 /// form and its delete say: a graph another role owns (and the role's
 /// roles don't inherit), a native application's or a child whose root the
-/// role doesn't see can't be changed nor dropped; a task graph object's
-/// root is dropped with its graph, not alone.
+/// role doesn't see can't be changed nor dropped (nor run: it has no
+/// actions); a task graph object's root is dropped with its graph, not
+/// alone.
 pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
     let (list, owned) = jobs::listed_owned(r).await?;
     // Only the rows the role check decides: a native application's owner
@@ -536,7 +537,10 @@ pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
                     system: o.app,
                     can_edit: (!mine).then_some(false),
                     can_delete: (!mine || o.in_graph).then_some(false),
-                    actions: None,
+                    // A run with another configuration, where "Ejecutar
+                    // ahora" is offered: not on a child whose root the
+                    // role doesn't see (Snowflake runs only roots).
+                    actions: o.orphan.then(Vec::new),
                     // A graph starts at its root (or retries from a task); a
                     // child whose root the role doesn't see runs only with
                     // its graph.

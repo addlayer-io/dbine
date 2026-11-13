@@ -659,7 +659,10 @@ pub(crate) fn alter_plan(cur: &Spec, want: &Spec, pending: bool) -> Plan {
     p
 }
 
-fn pending(g: &GraphRow) -> bool {
+/// Whether the graph has changes staged (`has_pending_changes`): what
+/// `SHOW TASK GRAPHS` shows then is the staged version, not the published
+/// one a run uses.
+pub(crate) fn pending(g: &GraphRow) -> bool {
     g.pending
         .as_deref()
         .is_some_and(|v| v.eq_ignore_ascii_case("true"))
@@ -791,6 +794,11 @@ pub(crate) async fn delete_plan(r: Run<'_>, id: &str) -> Result<Plan> {
     Ok(drop_plan(&rd.graph))
 }
 
+/// A run of a graph with changes staged (a "⚠" line, one whole sentence):
+/// `EXECUTE TASK GRAPH` runs the published version, without them, and a
+/// graph never published is published (COMMIT) once, with them, first.
+pub(crate) const RUNS_PUBLISHED: &str = "El grafo de tareas tiene cambios sin publicar: la ejecución usa la versión publicada, sin esos cambios, y si el grafo nunca se publicó, Snowflake lo publica (COMMIT) con ellos antes de ejecutarlo.";
+
 /// "Ejecutar ahora": `EXECUTE TASK GRAPH`, a run of the graph's published
 /// version now (the statement "Ejecutar ahora" sends for its root's job).
 /// Snowflake says whether the role may.
@@ -802,6 +810,9 @@ pub(crate) fn execute_plan_of(g: &GraphRow) -> Plan {
             g.database, g.schema, g.name
         ),
     );
+    if pending(g) {
+        p.warn(RUNS_PUBLISHED);
+    }
     p.push(format!("EXECUTE TASK GRAPH {}", g.id()));
     p
 }
