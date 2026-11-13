@@ -333,3 +333,25 @@ backend:Rutina
 backend:TimescaleDB · política
 backend:TimescaleDB · retención
 backend:clúster {0}
+backend:Archivo {0}
+backend:Construcción
+backend:Definidor
+backend:Desplazamiento (OFFSET)
+backend:Directorio
+backend:Disparador
+backend:En {0}: {1}
+backend:Espacio de nombres
+backend:Estándar
+backend:Hipertabla
+backend:Planificador
+backend:Plantilla
+backend:Procedimiento almacenado
+backend:Proveedor
+backend:Rama
+backend:Reflexión
+backend:SQL: archivo
+backend:SQL: consulta
+backend:Tiempo de espera
+backend:reflexión
+backend:repositorio
+scheduled.json:designer.scriptTitle

@@ -37,7 +37,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
 const KIND: &str = "Backup repository";
-const API: &str = "/_p/backup/api/v1";
+pub(crate) const API: &str = "/_p/backup/api/v1";
 /// Repositories whose last run is read for the list.
 const MAX_LAST_RUNS: usize = 200;
 /// Characters kept of a message.
@@ -45,9 +45,9 @@ const MAX_MESSAGE: usize = 4000;
 /// Longest repository name taken back.
 const MAX_NAME: usize = 128;
 
-const NO_SERVICE: &str = "Este cluster no tiene el servicio de backup, que es el que programa tareas en Couchbase (Enterprise Edition 7.0 en adelante): no hay jobs del servidor.";
-const COMMUNITY: &str = "Couchbase Community Edition no tiene el servicio de backup, que es el que programa tareas en Couchbase: no hay jobs del servidor.";
-const DENIED: &str = "Este usuario no puede ver el servicio de backup (hace falta el rol Read-Only Admin, Backup Full Admin o Full Admin).";
+pub(crate) const NO_SERVICE: &str = "Este cluster no tiene el servicio de backup, que es el que programa tareas en Couchbase (Enterprise Edition 7.0 en adelante): no hay jobs del servidor.";
+pub(crate) const COMMUNITY: &str = "Couchbase Community Edition no tiene el servicio de backup, que es el que programa tareas en Couchbase: no hay jobs del servidor.";
+pub(crate) const DENIED: &str = "Este usuario no puede ver el servicio de backup (hace falta el rol Read-Only Admin, Backup Full Admin o Full Admin).";
 const SCOPE: &str = "Se listan los repositorios activos del servicio de backup; los archivados no tienen tareas programadas. Las funciones de Eventing no se listan: reaccionan a cambios en los documentos.";
 const RUN_NOTE: &str = "«Ejecutar ahora» hace un backup incremental (el primero de un repositorio es completo). Los merges se programan en el plan.";
 const NO_STOP_NOTE: &str = "El servicio de backup no permite cancelar una tarea en curso.";
@@ -57,7 +57,7 @@ pub(crate) fn job_id(repo: &str) -> String {
 }
 
 /// A repository name: letters, digits, `_`, `-` and `.`, not only dots.
-fn repo_name(r: &str) -> bool {
+pub(crate) fn repo_name(r: &str) -> bool {
     !r.is_empty()
         && r.len() <= MAX_NAME
         && r.chars()
@@ -77,7 +77,7 @@ pub(crate) fn parse_id(id: &str) -> Result<String> {
         })
 }
 
-fn s(v: &Value, k: &str) -> Option<String> {
+pub(crate) fn s(v: &Value, k: &str) -> Option<String> {
     v.get(k)
         .and_then(Value::as_str)
         .map(str::trim)
@@ -133,7 +133,7 @@ pub(crate) fn epoch_ms(t: &str) -> Option<i64> {
 }
 
 /// Milliseconds since 1970 as RFC 3339 in UTC, to the second.
-fn rfc3339(ms: i64) -> String {
+pub(crate) fn rfc3339(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let z = days + 719_468;
@@ -152,7 +152,7 @@ fn rfc3339(ms: i64) -> String {
     )
 }
 
-fn utc(t: Option<String>) -> Option<String> {
+pub(crate) fn utc(t: Option<String>) -> Option<String> {
     t.as_deref().and_then(epoch_ms).map(rfc3339)
 }
 
@@ -476,7 +476,7 @@ pub(crate) fn script_of(repo: &Value, plan: Option<&Value>) -> Result<String> {
     Ok(out)
 }
 
-fn denied(e: &Error) -> bool {
+pub(crate) fn denied(e: &Error) -> bool {
     match e {
         Error::AuthFailed(_) => true,
         Error::Query(m) => m.starts_with("Sin permiso") || m.contains("HTTP 403"),
@@ -508,7 +508,7 @@ impl CbSession {
 
     /// Whether some node runs the Backup Service, and whether the cluster
     /// is Enterprise.
-    async fn backup_service(&self) -> Result<(bool, bool)> {
+    pub(crate) async fn backup_service(&self) -> Result<(bool, bool)> {
         let enterprise = self
             .conn
             .mgmt_get("/pools")
@@ -530,7 +530,7 @@ impl CbSession {
         Ok((has, enterprise))
     }
 
-    async fn repo(&self, name: &str) -> Result<Value> {
+    pub(crate) async fn repo(&self, name: &str) -> Result<Value> {
         self.backup_get(&format!("/cluster/self/repository/active/{}", encode(name)))
             .await
             .map_err(|e| match e {
@@ -539,7 +539,7 @@ impl CbSession {
             })
     }
 
-    async fn plan(&self, name: &str) -> Option<Value> {
+    pub(crate) async fn plan(&self, name: &str) -> Option<Value> {
         match self.backup_get(&format!("/plan/{}", encode(name))).await {
             Ok(p) => Some(p),
             Err(e) => {

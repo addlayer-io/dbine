@@ -39,13 +39,13 @@
 //! or `<source>:"owner"."name"` ([`Named`]), each part only ever written
 //! in a statement as a quoted literal.
 
-mod cockroach;
+pub(crate) mod cockroach;
 mod cron;
-mod dbms_job;
-mod edb;
-mod kingbase;
-mod pgagent;
-mod scheduler;
+pub(crate) mod dbms_job;
+pub(crate) mod edb;
+pub(crate) mod kingbase;
+pub(crate) mod pgagent;
+pub(crate) mod scheduler;
 mod timescale;
 
 use crate::catalog::{cell, comment_text};
@@ -161,7 +161,7 @@ impl JobId {
     }
 
     /// The id, refused when it belongs to another family of engines.
-    fn parse_for(v: Variant, id: &str) -> Result<JobId> {
+    pub(crate) fn parse_for(v: Variant, id: &str) -> Result<JobId> {
         let job = JobId::parse(id)?;
         let fits = match &job {
             JobId::EdbJob(_) | JobId::EdbScheduler(_) => v == Variant::Edb,
@@ -210,7 +210,7 @@ const MAX_NAME: usize = 256;
 impl Named {
     /// Only the exact text [`fmt::Display`] writes, with parts that aren't
     /// empty, too long or carry control characters.
-    fn parse(s: &str) -> Option<Named> {
+    pub(crate) fn parse(s: &str) -> Option<Named> {
         let (first, rest) = quoted(s)?;
         let named = if rest.is_empty() {
             Named {
@@ -280,7 +280,8 @@ fn not_found(id: JobId) -> Error {
 // What a PostgreSQL database has installed
 
 /// The schedulers the current database has, and who's asking.
-pub(super) struct Found {
+#[derive(Default)]
+pub(crate) struct Found {
     pub database: String,
     pub user: String,
     pub superuser: bool,
@@ -308,7 +309,7 @@ pub(super) struct Found {
 }
 
 impl Found {
-    pub(super) async fn detect(s: &PgSession) -> Result<Found> {
+    pub(crate) async fn detect(s: &PgSession) -> Result<Found> {
         Ok(Found::from_row(
             s.text(&detect_sql(s.version))
                 .await?
@@ -341,7 +342,7 @@ impl Found {
     }
 
     /// Why TimescaleDB's scheduler starts no job, if it doesn't.
-    fn timescale_off(&self) -> Option<String> {
+    pub(crate) fn timescale_off(&self) -> Option<String> {
         if self.timescale_restoring {
             Some(
                 "TimescaleDB está en modo restauración (timescaledb.restoring = on): sus jobs no se ejecutan."
@@ -406,7 +407,7 @@ fn detect_sql(version: i32) -> String {
 }
 
 /// What the list says about pg_cron when it isn't here or isn't running.
-fn cron_notes(f: &Found) -> Vec<String> {
+pub(crate) fn cron_notes(f: &Found) -> Vec<String> {
     let mut notes = Vec::new();
     match (&f.cron_database, f.cron) {
         (Some(db), false) if *db != f.database => notes.push(format!(
@@ -691,7 +692,7 @@ pub(crate) async fn script(s: &PgSession, id: &str) -> Result<String> {
 // Helpers for the sources
 
 /// A row's cells by column name: a query's row, or a fixture in the tests.
-pub(super) trait Row {
+pub(crate) trait Row {
     /// The cell as the server sent it, `None` when null or missing.
     fn get(&self, name: &str) -> Option<String>;
 }
@@ -704,7 +705,7 @@ impl Row for SimpleQueryRow {
 
 /// Column name → text, standing in for a query's row.
 #[cfg(test)]
-pub(super) struct Fixture(pub std::collections::HashMap<String, String>);
+pub(crate) struct Fixture(pub std::collections::HashMap<String, String>);
 
 #[cfg(test)]
 impl Row for Fixture {
@@ -714,7 +715,7 @@ impl Row for Fixture {
 }
 
 #[cfg(test)]
-pub(super) fn fixture(cells: &[(&str, &str)]) -> Fixture {
+pub(crate) fn fixture(cells: &[(&str, &str)]) -> Fixture {
     Fixture(
         cells
             .iter()
@@ -724,12 +725,12 @@ pub(super) fn fixture(cells: &[(&str, &str)]) -> Fixture {
 }
 
 /// A query's rows as [`Row`]s.
-pub(super) fn refs(rows: &[SimpleQueryRow]) -> Vec<&dyn Row> {
+pub(crate) fn refs(rows: &[SimpleQueryRow]) -> Vec<&dyn Row> {
     rows.iter().map(|r| r as &dyn Row).collect()
 }
 
 /// A trimmed, non-empty cell.
-pub(super) fn text(r: &dyn Row, name: &str) -> Option<String> {
+pub(crate) fn text(r: &dyn Row, name: &str) -> Option<String> {
     r.get(name)
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
@@ -749,7 +750,7 @@ pub(super) fn message(r: &dyn Row, name: &str) -> Option<String> {
 }
 
 /// A boolean cell (`t`, `true`, `1`).
-pub(super) fn flag(r: &dyn Row, name: &str) -> bool {
+pub(crate) fn flag(r: &dyn Row, name: &str) -> bool {
     matches!(
         r.get(name)
             .map(|v| v.trim().to_ascii_lowercase())
@@ -759,7 +760,7 @@ pub(super) fn flag(r: &dyn Row, name: &str) -> bool {
 }
 
 /// A time the query gave as `extract(epoch FROM …)`, as RFC 3339 in UTC.
-pub(super) fn time(r: &dyn Row, name: &str) -> Option<String> {
+pub(crate) fn time(r: &dyn Row, name: &str) -> Option<String> {
     r.get(name)
         .and_then(|v| v.trim().parse::<f64>().ok())
         .and_then(rfc3339)
@@ -767,7 +768,7 @@ pub(super) fn time(r: &dyn Row, name: &str) -> Option<String> {
 
 /// Seconds since 1970 (UTC) as `2026-11-12T03:00:00Z`; `None` for
 /// `±infinity` and years out of RFC 3339's range.
-pub(super) fn rfc3339(secs: f64) -> Option<String> {
+pub(crate) fn rfc3339(secs: f64) -> Option<String> {
     if !secs.is_finite() {
         return None;
     }
@@ -802,7 +803,7 @@ pub(super) fn prop(group: &str, label: &str, value: impl Into<String>) -> Proper
 }
 
 /// An identifier, always double-quoted.
-pub(super) fn ident(name: &str) -> String {
+pub(crate) fn ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
@@ -817,13 +818,13 @@ pub(super) fn yes_no(b: bool) -> &'static str {
 
 /// `s` as a dollar-quoted literal (the command of a job reads better than
 /// with every quote doubled), with a tag that can't end it early.
-pub(super) fn dollar(s: &str) -> String {
+pub(crate) fn dollar(s: &str) -> String {
     dollar_tagged(s, "cmd")
 }
 
 /// [`dollar`] with tags `$<base>$`, `$<base>1$`…: an outer block (a `DO`)
 /// takes another base than the literals inside it.
-pub(super) fn dollar_tagged(s: &str, base: &str) -> String {
+pub(crate) fn dollar_tagged(s: &str, base: &str) -> String {
     let mut n = 0;
     loop {
         let tag = if n == 0 {

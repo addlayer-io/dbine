@@ -12,52 +12,52 @@ pub const NO_RUN_NOW: &str = "el planificador de trabajos de IBM i no envía una
 pub const NO_HISTORY: &str = "el planificador de trabajos de IBM i no guarda el historial de sus entradas: se ve en el registro histórico (QHST)";
 
 const KIND: &str = "WRKJOBSCDE";
-pub(super) const LIST: &str = "SELECT * FROM QSYS2.SCHEDULED_JOB_INFO";
-const NOW: &str = "SELECT CURRENT TIMESTAMP AS LOCAL_NOW, CURRENT TIMESTAMP - CURRENT TIMEZONE AS UTC_NOW FROM SYSIBM.SYSDUMMY1";
+pub(crate) const LIST: &str = "SELECT * FROM QSYS2.SCHEDULED_JOB_INFO";
+pub(crate) const NOW: &str = "SELECT CURRENT TIMESTAMP AS LOCAL_NOW, CURRENT TIMESTAMP - CURRENT TIMEZONE AS UTC_NOW FROM SYSIBM.SYSDUMMY1";
 
-const NO_VIEW: &str =
+pub(crate) const NO_VIEW: &str =
     "Este sistema no tiene QSYS2.SCHEDULED_JOB_INFO (llegó con IBM i 7.2 TR2 y 7.1 TR10).";
-const NO_READ: &str = "Este usuario no puede leer el planificador de trabajos (necesita *USE sobre QUSRSYS/QDFTJOBSCD).";
-const PARTIAL: &str = "Sin la autorización especial *JOBCTL no se ven todos los datos de las entradas de otros usuarios.";
+pub(crate) const NO_READ: &str = "Este usuario no puede leer el planificador de trabajos (necesita *USE sobre QUSRSYS/QDFTJOBSCD).";
+pub(crate) const PARTIAL: &str = "Sin la autorización especial *JOBCTL no se ven todos los datos de las entradas de otros usuarios.";
 
-const ENTRY: &[&str] = &["SCHEDULED_JOB_ENTRY_NUMBER", "ENTRY_NUMBER", "ENTRYNO"];
-const NAME: &[&str] = &["SCHEDULED_JOB_NAME", "SCDJOBNAME", "JOB_NAME"];
-const STATUS: &[&str] = &["STATUS"];
-const DESCRIPTION: &[&str] = &["DESCRIPTION", "TEXT"];
-const SCHEDULED_BY: &[&str] = &["SCHEDULED_BY", "SCDBY"];
-const FREQUENCY: &[&str] = &["FREQUENCY", "FRQ"];
-const DATE_VALUE: &[&str] = &["SCHEDULED_DATE_VALUE", "SCDDATEV"];
-const DATE: &[&str] = &["SCHEDULED_DATE", "SCDDATE"];
-const TIME: &[&str] = &["SCHEDULED_TIME", "SCDTIME"];
-const DAYS: &[&str] = &["SCHEDULED_DAYS", "SCDDAYS"];
-const REL_DAYS: &[&str] = &["RELATIVE_DAYS_OF_MONTH", "RELDAYMON"];
-const NEXT: &[&str] = &["NEXT_SUBMISSION_DATE", "NXTSUBDATE"];
-const OMITTED: &[&str] = &["DATES_OMITTED", "OMITDATES", "OMITDATE"];
-const RECOVERY: &[&str] = &["RECOVERY_ACTION", "RCYACN"];
-const JOBQ: &[&str] = &["JOB_QUEUE_NAME", "JOBQ"];
-const JOBQ_LIB: &[&str] = &["JOB_QUEUE_LIBRARY_NAME", "JOBQLIB"];
-const JOBD: &[&str] = &["JOB_DESCRIPTION_NAME", "JOBD"];
-const JOBD_LIB: &[&str] = &["JOB_DESCRIPTION_LIBRARY_NAME", "JOBDLIB"];
-const USER: &[&str] = &["USER_PROFILE_FOR_SUBMITTED_JOB", "USER_PROFILE", "SBMUSER"];
-const MSGQ: &[&str] = &["MESSAGE_QUEUE_NAME", "MSGQ"];
-const MSGQ_LIB: &[&str] = &["MESSAGE_QUEUE_LIBRARY_NAME", "MSGQLIB"];
-const KEEP: &[&str] = &["KEEP_ENTRY", "SAVE"];
-const COMMAND: &[&str] = &["COMMAND_STRING", "COMMAND"];
+pub(crate) const ENTRY: &[&str] = &["SCHEDULED_JOB_ENTRY_NUMBER", "ENTRY_NUMBER", "ENTRYNO"];
+pub(crate) const NAME: &[&str] = &["SCHEDULED_JOB_NAME", "SCDJOBNAME", "JOB_NAME"];
+pub(crate) const STATUS: &[&str] = &["STATUS"];
+pub(crate) const DESCRIPTION: &[&str] = &["DESCRIPTION", "TEXT"];
+pub(crate) const SCHEDULED_BY: &[&str] = &["SCHEDULED_BY", "SCDBY"];
+pub(crate) const FREQUENCY: &[&str] = &["FREQUENCY", "FRQ"];
+pub(crate) const DATE_VALUE: &[&str] = &["SCHEDULED_DATE_VALUE", "SCDDATEV"];
+pub(crate) const DATE: &[&str] = &["SCHEDULED_DATE", "SCDDATE"];
+pub(crate) const TIME: &[&str] = &["SCHEDULED_TIME", "SCDTIME"];
+pub(crate) const DAYS: &[&str] = &["SCHEDULED_DAYS", "SCDDAYS"];
+pub(crate) const REL_DAYS: &[&str] = &["RELATIVE_DAYS_OF_MONTH", "RELDAYMON"];
+pub(crate) const NEXT: &[&str] = &["NEXT_SUBMISSION_DATE", "NXTSUBDATE"];
+pub(crate) const OMITTED: &[&str] = &["DATES_OMITTED", "OMITDATES", "OMITDATE"];
+pub(crate) const RECOVERY: &[&str] = &["RECOVERY_ACTION", "RCYACN"];
+pub(crate) const JOBQ: &[&str] = &["JOB_QUEUE_NAME", "JOBQ"];
+pub(crate) const JOBQ_LIB: &[&str] = &["JOB_QUEUE_LIBRARY_NAME", "JOBQLIB"];
+pub(crate) const JOBD: &[&str] = &["JOB_DESCRIPTION_NAME", "JOBD"];
+pub(crate) const JOBD_LIB: &[&str] = &["JOB_DESCRIPTION_LIBRARY_NAME", "JOBDLIB"];
+pub(crate) const USER: &[&str] = &["USER_PROFILE_FOR_SUBMITTED_JOB", "USER_PROFILE", "SBMUSER"];
+pub(crate) const MSGQ: &[&str] = &["MESSAGE_QUEUE_NAME", "MSGQ"];
+pub(crate) const MSGQ_LIB: &[&str] = &["MESSAGE_QUEUE_LIBRARY_NAME", "MSGQLIB"];
+pub(crate) const KEEP: &[&str] = &["KEEP_ENTRY", "SAVE"];
+pub(crate) const COMMAND: &[&str] = &["COMMAND_STRING", "COMMAND"];
 /// The last attempt first: its status is the one the list shows.
-const LAST_SUBMIT: &[&str] = &[
+pub(crate) const LAST_SUBMIT: &[&str] = &[
     "LAST_ATTEMPTED_SUBMISSION_TIMESTAMP",
     "LAST_SUCCESSFUL_SUBMISSION_TIMESTAMP",
     "SBMTIMSTMP",
 ];
-const LAST_STATUS: &[&str] = &["LAST_ATTEMPTED_SUBMISSION_STATUS", "SBMJOBSTS"];
-const LAST_JOB: &[&str] = &[
+pub(crate) const LAST_STATUS: &[&str] = &["LAST_ATTEMPTED_SUBMISSION_STATUS", "SBMJOBSTS"];
+pub(crate) const LAST_JOB: &[&str] = &[
     "LAST_SUBMITTED_JOB_NAME",
     "LAST_SUCCESSFUL_SUBMISSION_JOB_NAME",
 ];
 
 /// An IBM i object name: up to ten of A–Z, 0–9, `$ # @ _ .`, not starting
 /// with a digit (upper-cased).
-fn name_ok(s: &str) -> bool {
+pub(crate) fn name_ok(s: &str) -> bool {
     (1..=10).contains(&s.len())
         && !s.as_bytes()[0].is_ascii_digit()
         && s.bytes().all(|b| {
@@ -68,7 +68,7 @@ fn name_ok(s: &str) -> bool {
 }
 
 /// `000123/NAME` → the six-digit entry number and the job name.
-fn parse_id(id: &str) -> Result<(String, String)> {
+pub(crate) fn parse_id(id: &str) -> Result<(String, String)> {
     let t = id.trim().to_ascii_uppercase();
     let (n, name) = t.split_once('/').ok_or_else(|| bad_id(id))?;
     let ok = (1..=6).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()) && name_ok(name);
@@ -79,7 +79,38 @@ fn parse_id(id: &str) -> Result<(String, String)> {
     Ok((format!("{n:06}"), name.to_string()))
 }
 
-fn row_id(s: &Set, r: usize) -> Option<(String, String)> {
+/// IBM-supplied profiles that ship with no password (IBM's list of the
+/// profiles QSYRESPA resets): nobody signs on with them, so an entry they
+/// added came from IBM i or a licensed program. QSECOFR, QPGMR, QSYSOPR
+/// and the like aren't here: people sign on with them.
+const IBM_PROFILES: &[&str] = &["QSYS", "QSRVAGT", "QMGTC", "QYPSJSVR", "QPM400"];
+
+/// Operational Assistant's backup entries (GO BACKUP): `QEZBKMG<day>`, the
+/// message before the backup, and `QEZBKTM<day>`, the backup itself.
+fn oa_backup(name: &str) -> bool {
+    const DAYS: &[&str] = &["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+    let n = name.trim().to_ascii_uppercase();
+    ["QEZBKMG", "QEZBKTM"]
+        .iter()
+        .any(|p| n.strip_prefix(p).is_some_and(|d| DAYS.contains(&d)))
+}
+
+/// An entry IBM supplies: one of Operational Assistant's backup entries,
+/// or one an IBM-supplied profile added. A name that begins with Q isn't
+/// enough: IBM i only recommends leaving those names to IBM, and
+/// ADDJOBSCDE takes them.
+pub(crate) fn ibm_supplied(name: &str, scheduled_by: Option<&str>) -> bool {
+    oa_backup(name)
+        || scheduled_by
+            .is_some_and(|u| IBM_PROFILES.contains(&u.trim().to_ascii_uppercase().as_str()))
+}
+
+/// A name that begins with Q, the letter IBM i keeps for its own objects.
+pub(crate) fn q_name(name: &str) -> bool {
+    name.trim().starts_with(['Q', 'q'])
+}
+
+pub(crate) fn row_id(s: &Set, r: usize) -> Option<(String, String)> {
     let n = int(get(s, r, ENTRY))?;
     let name = get(s, r, NAME)?.to_ascii_uppercase();
     (n >= 0 && name_ok(&name)).then(|| (format!("{n:06}"), name))
@@ -90,14 +121,14 @@ fn status(s: &Set, r: usize) -> String {
 }
 
 /// A special value (`*MON`, `*CURRENT`…) with its asterisk.
-fn special(v: &str) -> Option<String> {
+pub(crate) fn special(v: &str) -> Option<String> {
     let t = v.trim().trim_start_matches('*').to_ascii_uppercase();
     (!t.is_empty() && t.bytes().all(|b| b.is_ascii_alphanumeric())).then(|| format!("*{t}"))
 }
 
 /// The tokens of a list column (`*MON *WED`, `1 3`, `*LAST`…), each one
 /// kept only if it's a special value or a number.
-fn tokens(v: Option<&str>) -> Vec<String> {
+pub(crate) fn tokens(v: Option<&str>) -> Vec<String> {
     v.unwrap_or_default()
         .split([' ', ','])
         .filter(|t| !t.is_empty())
@@ -112,7 +143,7 @@ fn tokens(v: Option<&str>) -> Vec<String> {
 }
 
 /// `HHMMSS` from the view's time.
-fn hhmmss(v: Option<&str>) -> Option<String> {
+pub(crate) fn hhmmss(v: Option<&str>) -> Option<String> {
     let ms = parse_time(v?)?;
     let s = ms / 1000;
     Some(format!("{:02}{:02}{:02}", s / 3600, s / 60 % 60, s % 60))
@@ -169,6 +200,7 @@ fn job(s: &Set, r: usize, tz: &Tz) -> Option<ServerJob> {
     let next = get(s, r, NEXT)
         .filter(|_| enabled)
         .map(|d| format!("{} {}", d, get(s, r, TIME).unwrap_or("00:00:00")));
+    let system = ibm_supplied(&name, get(s, r, SCHEDULED_BY));
     Some(ServerJob {
         id: format!("{n}/{name}"),
         name,
@@ -188,7 +220,7 @@ fn job(s: &Set, r: usize, tz: &Tz) -> Option<ServerJob> {
         can_enable: matches!(st.as_str(), "SCHEDULED" | "HELD"),
         has_history: false,
         has_script: true,
-        system: false,
+        system,
     })
 }
 
@@ -299,7 +331,7 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
     })
 }
 
-fn qcmdexc(cl: &str) -> String {
+pub(crate) fn qcmdexc(cl: &str) -> String {
     format!("CALL QSYS2.QCMDEXC({})", lit(cl))
 }
 

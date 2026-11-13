@@ -59,16 +59,16 @@ const KIND: &str = "SQL Server Agent";
 /// What msdb stores as the description of a job created without one.
 const NO_DESCRIPTION: &str = "No description available.";
 
-const AZURE_SQL_NOTE: &str = "Azure SQL Database no tiene el Agente SQL Server. Los trabajos elásticos (Elastic Jobs) viven en una base de trabajos aparte, que DBine todavía no lee.";
-const NO_AGENT_NOTE: &str = "Este servicio no tiene el Agente SQL Server.";
-const NO_ACCESS_NOTE: &str = "Este usuario no puede ver los jobs del Agente SQL Server: necesita el rol SQLAgentUserRole, SQLAgentReaderRole o SQLAgentOperatorRole en msdb, o ser sysadmin.";
+pub(crate) const AZURE_SQL_NOTE: &str = "Azure SQL Database no tiene el Agente SQL Server. Los trabajos elásticos (Elastic Jobs) viven en una base de trabajos aparte, que DBine todavía no lee.";
+pub(crate) const NO_AGENT_NOTE: &str = "Este servicio no tiene el Agente SQL Server.";
+pub(crate) const NO_ACCESS_NOTE: &str = "Este usuario no puede ver los jobs del Agente SQL Server: necesita el rol SQLAgentUserRole, SQLAgentReaderRole o SQLAgentOperatorRole en msdb, o ser sysadmin.";
 const OWN_JOBS_NOTE: &str = "Se ven solo los jobs de los que este usuario es dueño (rol SQLAgentUserRole): para ver todos hace falta SQLAgentReaderRole o SQLAgentOperatorRole en msdb.";
-const AGENT_STOPPED_NOTE: &str = "El Agente SQL Server no está en ejecución: los jobs no corren según su programación ni se pueden ejecutar desde DBine.";
-const EXPRESS_NOTE: &str =
+pub(crate) const AGENT_STOPPED_NOTE: &str = "El Agente SQL Server no está en ejecución: los jobs no corren según su programación ni se pueden ejecutar desde DBine.";
+pub(crate) const EXPRESS_NOTE: &str =
     "SQL Server Express no incluye el Agente SQL Server: estos jobs no se ejecutan.";
-const NOT_FOUND: &str = "El job no existe o este usuario no puede verlo.";
-const OPEN_TRANSACTION: &str = "Hay una transacción abierta en esta sesión: confirmala o deshacela antes de ejecutar, detener o cambiar un job.";
-const UNSUPPORTED: &str = "este motor no tiene jobs del servidor";
+pub(crate) const NOT_FOUND: &str = "El job no existe o este usuario no puede verlo.";
+pub(crate) const OPEN_TRANSACTION: &str = "Hay una transacción abierta en esta sesión: confirmala o deshacela antes de ejecutar, detener o cambiar un job.";
+pub(crate) const UNSUPPORTED: &str = "este motor no tiene jobs del servidor";
 
 /// msdb's error for a job id that doesn't exist (or the login can't see).
 const JOB_NOT_FOUND: u32 = 14262;
@@ -80,7 +80,7 @@ pub(crate) fn supported(v: Variant) -> bool {
     matches!(v, Variant::SqlServer | Variant::AzureSql)
 }
 
-fn check_variant(s: &SqlServerSession) -> Result<()> {
+pub(crate) fn check_variant(s: &SqlServerSession) -> Result<()> {
     if supported(s.variant) {
         Ok(())
     } else {
@@ -90,7 +90,7 @@ fn check_variant(s: &SqlServerSession) -> Result<()> {
 
 /// The id as the other calls take it back: a job's GUID, lowercase. Anything
 /// else is refused before it reaches the server.
-fn job_id(id: &str) -> Result<String> {
+pub(crate) fn job_id(id: &str) -> Result<String> {
     let t = id.trim();
     let ok = t.len() == 36
         && t.char_indices().all(|(i, c)| match i {
@@ -113,18 +113,18 @@ fn job_id(id: &str) -> Result<String> {
 
 /// One result set with its column names (an empty one still says what it
 /// is: the procedures are told apart by their columns).
-struct ResultSet {
-    columns: Vec<String>,
-    rows: Vec<Row>,
+pub(crate) struct ResultSet {
+    pub(crate) columns: Vec<String>,
+    pub(crate) rows: Vec<Row>,
 }
 
 impl ResultSet {
-    fn has(&self, column: &str) -> bool {
+    pub(crate) fn has(&self, column: &str) -> bool {
         self.columns.iter().any(|c| c == column)
     }
 }
 
-fn first_with<'a>(sets: &'a [ResultSet], column: &str) -> Option<&'a ResultSet> {
+pub(crate) fn first_with<'a>(sets: &'a [ResultSet], column: &str) -> Option<&'a ResultSet> {
     sets.iter().find(|s| s.has(column))
 }
 
@@ -170,7 +170,7 @@ async fn try_sets(
     Ok(sets)
 }
 
-async fn sets(
+pub(crate) async fn sets(
     s: &mut SqlServerSession,
     sql: &str,
     params: &[&str],
@@ -195,7 +195,7 @@ fn job_error(e: tiberius::error::Error) -> Error {
 
 /// An integer column, whatever its width; text such as `0 (unknown)` reads
 /// its leading number.
-fn int(r: &Row, c: &str) -> Option<i64> {
+pub(crate) fn int(r: &Row, c: &str) -> Option<i64> {
     if let Ok(Some(v)) = r.try_get::<i32, _>(c) {
         return Some(v.into());
     }
@@ -226,7 +226,7 @@ fn leading_int(v: &str) -> Option<i64> {
     t[..end].parse().ok()
 }
 
-fn text(r: &Row, c: &str) -> Option<String> {
+pub(crate) fn text(r: &Row, c: &str) -> Option<String> {
     r.try_get::<&str, _>(c)
         .ok()
         .flatten()
@@ -235,11 +235,11 @@ fn text(r: &Row, c: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn datetime(r: &Row, c: &str) -> Option<NaiveDateTime> {
+pub(crate) fn datetime(r: &Row, c: &str) -> Option<NaiveDateTime> {
     r.try_get::<NaiveDateTime, _>(c).ok().flatten()
 }
 
-fn guid(r: &Row, c: &str) -> Option<Uuid> {
+pub(crate) fn guid(r: &Row, c: &str) -> Option<Uuid> {
     if let Ok(Some(v)) = r.try_get::<Uuid, _>(c) {
         return Some(v);
     }
@@ -257,7 +257,7 @@ fn operator(r: &Row, c: &str) -> Option<String> {
 
 /// `yyyymmdd` and `hhmmss` integers (`run_date` / `run_time`, server local
 /// time). A zero date is "never".
-fn agent_time(date: i64, time: i64) -> Option<NaiveDateTime> {
+pub(crate) fn agent_time(date: i64, time: i64) -> Option<NaiveDateTime> {
     if date <= 0 || time < 0 {
         return None;
     }
@@ -274,7 +274,7 @@ fn agent_time(date: i64, time: i64) -> Option<NaiveDateTime> {
     Some(d.and_time(t))
 }
 
-fn agent_time_of(r: &Row, date: &str, time: &str) -> Option<NaiveDateTime> {
+pub(crate) fn agent_time_of(r: &Row, date: &str, time: &str) -> Option<NaiveDateTime> {
     agent_time(int(r, date)?, int(r, time).unwrap_or(0))
 }
 
@@ -455,23 +455,23 @@ BEGIN
 END;";
 
 #[derive(Debug, Clone, Default)]
-struct Probe {
-    edition: i64,
+pub(crate) struct Probe {
+    pub(crate) edition: i64,
     /// Babelfish for PostgreSQL, reached as SQL Server.
-    babelfish: bool,
-    major: i64,
-    sysadmin: bool,
+    pub(crate) babelfish: bool,
+    pub(crate) major: i64,
+    pub(crate) sysadmin: bool,
     /// The Agent service runs (see [`PROBE_SQL`]).
-    agent_running: bool,
-    offset_min: i64,
-    login: String,
+    pub(crate) agent_running: bool,
+    pub(crate) offset_min: i64,
+    pub(crate) login: String,
     /// `SERVERPROPERTY('ServerName')`, uppercase: what msdb names the jobs
     /// made here as their originating server.
-    server: String,
-    access: bool,
-    zone: Option<String>,
-    reader: bool,
-    operator: bool,
+    pub(crate) server: String,
+    pub(crate) access: bool,
+    pub(crate) zone: Option<String>,
+    pub(crate) reader: bool,
+    pub(crate) operator: bool,
 }
 
 impl Probe {
@@ -501,12 +501,12 @@ impl Probe {
     }
 
     /// The server has no Agent at all.
-    fn no_agent(&self) -> bool {
+    pub(crate) fn no_agent(&self) -> bool {
         self.babelfish || edition_without_agent(self.edition)
     }
 
     /// Why there are no Agent jobs to show here, when there are none.
-    fn missing(&self) -> Option<&'static str> {
+    pub(crate) fn missing(&self) -> Option<&'static str> {
         match self.edition {
             _ if self.babelfish => Some(NO_AGENT_NOTE),
             5 => Some(AZURE_SQL_NOTE),
@@ -518,12 +518,12 @@ impl Probe {
 
     /// Jobs start here: the Agent runs (Express has none, whatever 'Agent
     /// XPs' says).
-    fn agent_runs(&self) -> bool {
+    pub(crate) fn agent_runs(&self) -> bool {
         self.agent_running && self.edition != 4
     }
 
     /// What the list should say about itself.
-    fn notes(&self) -> Vec<String> {
+    pub(crate) fn notes(&self) -> Vec<String> {
         let mut n = Vec::new();
         if self.edition == 4 {
             n.push(EXPRESS_NOTE.to_string());
@@ -538,7 +538,7 @@ impl Probe {
 
     /// The login may start, stop and enable this job: sysadmin and
     /// SQLAgentOperatorRole any of them, the rest the ones they own.
-    fn manages(&self, owner: Option<&str>) -> bool {
+    pub(crate) fn manages(&self, owner: Option<&str>) -> bool {
         self.sysadmin
             || self.operator
             || owner.is_some_and(|o| !self.login.is_empty() && o.eq_ignore_ascii_case(&self.login))
@@ -546,7 +546,7 @@ impl Probe {
 
     /// The job came from a master server (this one is its target): msdb
     /// refuses to change it here (`sp_update_job`, error 14274).
-    fn sent_by_master(&self, job: &JobRow) -> bool {
+    pub(crate) fn sent_by_master(&self, job: &JobRow) -> bool {
         !self.server.is_empty()
             && job
                 .origin
@@ -555,7 +555,7 @@ impl Probe {
     }
 }
 
-async fn probe(s: &mut SqlServerSession) -> Result<Probe> {
+pub(crate) async fn probe(s: &mut SqlServerSession) -> Result<Probe> {
     let engine = sets(s, ENGINE_SQL, &[], None).await?;
     let row = engine.first().and_then(|s| s.rows.first());
     let edition = row.and_then(|r| int(r, "edition")).unwrap_or(0);
@@ -586,40 +586,40 @@ async fn probe_for_job(s: &mut SqlServerSession) -> Result<Probe> {
 
 /// A job as `sp_help_job` describes it.
 #[derive(Debug, Clone, Default)]
-struct JobRow {
-    id: Uuid,
-    name: String,
-    enabled: bool,
-    description: Option<String>,
-    start_step: i64,
-    category: Option<String>,
-    owner: Option<String>,
-    origin: Option<String>,
-    notify_eventlog: i64,
-    notify_email: i64,
-    notify_netsend: i64,
-    notify_page: i64,
-    email_operator: Option<String>,
-    netsend_operator: Option<String>,
-    page_operator: Option<String>,
-    delete_level: i64,
-    created: Option<NaiveDateTime>,
-    modified: Option<NaiveDateTime>,
-    version: Option<i64>,
+pub(crate) struct JobRow {
+    pub(crate) id: Uuid,
+    pub(crate) name: String,
+    pub(crate) enabled: bool,
+    pub(crate) description: Option<String>,
+    pub(crate) start_step: i64,
+    pub(crate) category: Option<String>,
+    pub(crate) owner: Option<String>,
+    pub(crate) origin: Option<String>,
+    pub(crate) notify_eventlog: i64,
+    pub(crate) notify_email: i64,
+    pub(crate) notify_netsend: i64,
+    pub(crate) notify_page: i64,
+    pub(crate) email_operator: Option<String>,
+    pub(crate) netsend_operator: Option<String>,
+    pub(crate) page_operator: Option<String>,
+    pub(crate) delete_level: i64,
+    pub(crate) created: Option<NaiveDateTime>,
+    pub(crate) modified: Option<NaiveDateTime>,
+    pub(crate) version: Option<i64>,
     /// The last finished run (sysjobservers), local time.
-    last_run: Option<NaiveDateTime>,
-    last_outcome: i64,
-    next_run: Option<NaiveDateTime>,
-    status: i64,
-    current_step: Option<String>,
-    steps: i64,
-    targets: i64,
+    pub(crate) last_run: Option<NaiveDateTime>,
+    pub(crate) last_outcome: i64,
+    pub(crate) next_run: Option<NaiveDateTime>,
+    pub(crate) status: i64,
+    pub(crate) current_step: Option<String>,
+    pub(crate) steps: i64,
+    pub(crate) targets: i64,
     /// 1 local, 2 multiserver.
-    kind: i64,
+    pub(crate) kind: i64,
 }
 
 impl JobRow {
-    fn read(r: &Row) -> Option<JobRow> {
+    pub(crate) fn read(r: &Row) -> Option<JobRow> {
         Some(JobRow {
             id: guid(r, "job_id")?,
             name: text(r, "name")?,
@@ -654,7 +654,7 @@ impl JobRow {
 
 /// A job's row in `sp_help_jobactivity` (the Agent's current session).
 #[derive(Debug, Clone, Default)]
-struct ActivityRow {
+pub(crate) struct ActivityRow {
     job: Uuid,
     /// `run_requested_source`: 1 schedule, 2 alert, 3 startup, 4 user, 6
     /// CPU idle.
@@ -686,27 +686,30 @@ impl ActivityRow {
 
 /// A schedule as `sp_help_jobschedule` gives it.
 #[derive(Debug, Clone, Default)]
-struct ScheduleRow {
-    name: String,
-    enabled: bool,
-    freq_type: i64,
-    freq_interval: i64,
-    subday_type: i64,
-    subday_interval: i64,
-    relative_interval: i64,
-    recurrence_factor: i64,
-    start_date: i64,
-    end_date: i64,
-    start_time: i64,
-    end_time: i64,
-    uid: Option<String>,
+pub(crate) struct ScheduleRow {
+    /// `schedule_id`.
+    pub(crate) id: Option<i64>,
+    pub(crate) name: String,
+    pub(crate) enabled: bool,
+    pub(crate) freq_type: i64,
+    pub(crate) freq_interval: i64,
+    pub(crate) subday_type: i64,
+    pub(crate) subday_interval: i64,
+    pub(crate) relative_interval: i64,
+    pub(crate) recurrence_factor: i64,
+    pub(crate) start_date: i64,
+    pub(crate) end_date: i64,
+    pub(crate) start_time: i64,
+    pub(crate) end_time: i64,
+    pub(crate) uid: Option<String>,
     /// Jobs that share it.
-    job_count: i64,
+    pub(crate) job_count: i64,
 }
 
 impl ScheduleRow {
-    fn read(r: &Row) -> Option<ScheduleRow> {
+    pub(crate) fn read(r: &Row) -> Option<ScheduleRow> {
         Some(ScheduleRow {
+            id: int(r, "schedule_id"),
             name: text(r, "schedule_name")?,
             enabled: int(r, "enabled") == Some(1),
             freq_type: int(r, "freq_type").unwrap_or(0),
@@ -727,16 +730,16 @@ impl ScheduleRow {
 
 /// A target server of a job (`sp_help_jobserver`, last run details).
 #[derive(Debug, Clone, Default)]
-struct ServerRow {
+pub(crate) struct ServerRow {
     /// 0: this server.
-    id: i64,
-    name: String,
-    duration_ms: Option<u64>,
-    message: Option<String>,
+    pub(crate) id: i64,
+    pub(crate) name: String,
+    pub(crate) duration_ms: Option<u64>,
+    pub(crate) message: Option<String>,
 }
 
 impl ServerRow {
-    fn read(r: &Row) -> Option<ServerRow> {
+    pub(crate) fn read(r: &Row) -> Option<ServerRow> {
         Some(ServerRow {
             id: int(r, "server_id")?,
             name: text(r, "server_name").unwrap_or_default(),
@@ -748,29 +751,29 @@ impl ServerRow {
 
 /// A step as `sp_help_jobstep` gives it.
 #[derive(Debug, Clone, Default)]
-struct StepRow {
-    id: i64,
-    name: String,
-    subsystem: String,
-    command: Option<String>,
-    flags: i64,
-    success_code: i64,
-    on_success: i64,
-    on_success_step: i64,
-    on_fail: i64,
-    on_fail_step: i64,
-    server: Option<String>,
-    database: Option<String>,
-    database_user: Option<String>,
-    retry_attempts: i64,
-    retry_interval: i64,
-    os_priority: i64,
-    output_file: Option<String>,
-    proxy_id: Option<i64>,
+pub(crate) struct StepRow {
+    pub(crate) id: i64,
+    pub(crate) name: String,
+    pub(crate) subsystem: String,
+    pub(crate) command: Option<String>,
+    pub(crate) flags: i64,
+    pub(crate) success_code: i64,
+    pub(crate) on_success: i64,
+    pub(crate) on_success_step: i64,
+    pub(crate) on_fail: i64,
+    pub(crate) on_fail_step: i64,
+    pub(crate) server: Option<String>,
+    pub(crate) database: Option<String>,
+    pub(crate) database_user: Option<String>,
+    pub(crate) retry_attempts: i64,
+    pub(crate) retry_interval: i64,
+    pub(crate) os_priority: i64,
+    pub(crate) output_file: Option<String>,
+    pub(crate) proxy_id: Option<i64>,
 }
 
 impl StepRow {
-    fn read(r: &Row) -> Option<StepRow> {
+    pub(crate) fn read(r: &Row) -> Option<StepRow> {
         Some(StepRow {
             id: int(r, "step_id")?,
             name: text(r, "step_name").unwrap_or_default(),
@@ -828,11 +831,11 @@ impl HistoryRow {
 
 /// A job with what the list shows of it.
 #[derive(Debug, Clone, Default)]
-struct Raw {
-    job: JobRow,
-    schedules: Vec<ScheduleRow>,
-    servers: Vec<ServerRow>,
-    activity: Option<ActivityRow>,
+pub(crate) struct Raw {
+    pub(crate) job: JobRow,
+    pub(crate) schedules: Vec<ScheduleRow>,
+    pub(crate) servers: Vec<ServerRow>,
+    pub(crate) activity: Option<ActivityRow>,
 }
 
 impl Raw {
@@ -854,7 +857,7 @@ impl Raw {
     }
 }
 
-fn read_all<T>(set: Option<&ResultSet>, read: fn(&Row) -> Option<T>) -> Vec<T> {
+pub(crate) fn read_all<T>(set: Option<&ResultSet>, read: fn(&Row) -> Option<T>) -> Vec<T> {
     set.map(|s| s.rows.iter().filter_map(read).collect())
         .unwrap_or_default()
 }
@@ -1029,7 +1032,7 @@ fn server_job(raw: &Raw, p: &Probe, clock: &Clock) -> ServerJob {
 /// Maintenance Job" and "SSIS Failover Monitor Job"). Jobs a maintenance
 /// plan or a wizard creates (category "Database Maintenance", replication
 /// agents…) are the user's: they did set them up.
-fn built_in(j: &JobRow) -> bool {
+pub(crate) fn built_in(j: &JobRow) -> bool {
     j.name == "syspolicy_purge_history"
         || j.owner
             .as_deref()
@@ -1051,7 +1054,7 @@ const WEEKDAYS: [&str; 7] = [
 ];
 
 /// `hhmmss` as `HH:MM`, or `HH:MM:SS` when it has seconds.
-fn time_of_day(t: i64) -> String {
+pub(crate) fn time_of_day(t: i64) -> String {
     let (h, m, s) = (t / 10000, t / 100 % 100, t % 100);
     if s == 0 {
         format!("{h:02}:{m:02}")
@@ -1061,7 +1064,7 @@ fn time_of_day(t: i64) -> String {
 }
 
 /// `yyyymmdd` as `yyyy-mm-dd`.
-fn day(d: i64) -> String {
+pub(crate) fn day(d: i64) -> String {
     format!("{:04}-{:02}-{:02}", d / 10000, d / 100 % 100, d % 100)
 }
 
@@ -1075,7 +1078,7 @@ fn enumerate(items: &[&str]) -> String {
 
 /// A schedule as SSMS's dialog states it, in Spanish, with the server's
 /// local times.
-fn describe(s: &ScheduleRow) -> String {
+pub(crate) fn describe(s: &ScheduleRow) -> String {
     let every = |n: i64, one: &str, many: &str| {
         if n <= 1 {
             one.to_string()
@@ -1220,7 +1223,20 @@ async fn read_job(s: &mut SqlServerSession, id: &str) -> Result<(Probe, Raw, Vec
     check_variant(s)?;
     let id = job_id(id)?;
     let p = probe_for_job(s).await?;
-    let sets = sets(s, &detail_sql(p.major), &[&id], None).await?;
+    let (raw, steps) = read_job_as(s, &p, &id).await?;
+    let mut clock = Clock::new(&p);
+    clock.learn(s, raw.times()).await;
+    Ok((p, raw, steps, clock))
+}
+
+/// The job (`id` already checked) and its steps, steps by id, with the
+/// probe the caller made.
+pub(crate) async fn read_job_as(
+    s: &mut SqlServerSession,
+    p: &Probe,
+    id: &str,
+) -> Result<(Raw, Vec<StepRow>)> {
+    let sets = sets(s, &detail_sql(p.major), &[id], None).await?;
     let Some(job) = first_with(&sets, "current_execution_status")
         .and_then(|s| s.rows.first())
         .and_then(JobRow::read)
@@ -1235,9 +1251,7 @@ async fn read_job(s: &mut SqlServerSession, id: &str) -> Result<(Probe, Raw, Vec
         activity: activities(&sets).remove(&job.id),
         job,
     };
-    let mut clock = Clock::new(&p);
-    clock.learn(s, raw.times()).await;
-    Ok((p, raw, steps, clock))
+    Ok((raw, steps))
 }
 
 pub(crate) async fn detail(s: &mut SqlServerSession, id: &str) -> Result<JobDetail> {
@@ -1256,7 +1270,7 @@ pub(crate) async fn detail(s: &mut SqlServerSession, id: &str) -> Result<JobDeta
 }
 
 /// What runs a step, in words.
-fn subsystem(name: &str) -> String {
+pub(crate) fn subsystem(name: &str) -> String {
     match name.to_ascii_uppercase().as_str() {
         "TSQL" => "T-SQL".into(),
         "CMDEXEC" => "CmdExec".into(),
@@ -1613,6 +1627,17 @@ pub(crate) async fn runs(s: &mut SqlServerSession, id: &str, limit: u32) -> Resu
 async fn act(s: &mut SqlServerSession, sql: &str, id: &str) -> Result<()> {
     check_variant(s)?;
     let id = job_id(id)?;
+    change(s, sql, &[&id]).await.map(|_| ())
+}
+
+/// A batch that changes msdb, `params` bound as `@P1`…, under the same rules
+/// as [`act`]: refused inside an open transaction, run with implicit
+/// transactions off. Returns its result sets.
+pub(crate) async fn change(
+    s: &mut SqlServerSession,
+    sql: &str,
+    params: &[&str],
+) -> Result<Vec<ResultSet>> {
     let open = s
         .rows("SELECT CAST(@@TRANCOUNT AS int) AS n", &[])
         .await?
@@ -1626,7 +1651,15 @@ async fn act(s: &mut SqlServerSession, sql: &str, id: &str) -> Result<()> {
     if manual {
         s.batch("SET IMPLICIT_TRANSACTIONS OFF").await?;
     }
-    let done = sets(s, sql, &[&id], None).await.map(|_| ());
+    let done = sets(s, sql, params, None).await;
+    if done.is_err() {
+        // An error that ends the batch (not the script's own checks) can
+        // leave its transaction open, holding msdb's locks: none was open
+        // before, so whatever is open now is the batch's.
+        if let Err(e) = s.batch("IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION").await {
+            tracing::debug!("sqlserver jobs: could not roll back after an error: {e}");
+        }
+    }
     if manual {
         if let Err(e) = s.batch("SET IMPLICIT_TRANSACTIONS ON").await {
             tracing::debug!("sqlserver jobs: could not restore implicit transactions: {e}");
@@ -1661,7 +1694,10 @@ fn enable_sql(enabled: bool) -> String {
 
 /// The names of the proxies the steps run as (`sp_help_proxy`, which the
 /// Agent roles may run). One the login can't see stays unnamed.
-async fn proxy_names(s: &mut SqlServerSession, steps: &[StepRow]) -> HashMap<i64, String> {
+pub(crate) async fn proxy_names(
+    s: &mut SqlServerSession,
+    steps: &[StepRow],
+) -> HashMap<i64, String> {
     let ids: BTreeSet<i64> = steps.iter().filter_map(|s| s.proxy_id).collect();
     let mut names = HashMap::new();
     for id in ids {
@@ -1690,7 +1726,7 @@ pub(crate) async fn script(s: &mut SqlServerSession, id: &str) -> Result<String>
 
 /// A line of the script could read as a `GO` (SSMS and sqlcmd cut batches
 /// there even inside a string).
-fn has_go_line(text: &str) -> bool {
+pub(crate) fn has_go_line(text: &str) -> bool {
     text.lines().any(|l| {
         let t = l.trim();
         t.get(..2).is_some_and(|go| go.eq_ignore_ascii_case("GO"))
@@ -1701,21 +1737,36 @@ fn has_go_line(text: &str) -> bool {
     })
 }
 
+/// A line of the text, starting a line of the script, would read as one of
+/// the driver's warnings (a comment whose text starts with "⚠": the app
+/// lists those above the script and asks to continue).
+pub(crate) fn has_warning_line(text: &str) -> bool {
+    text.lines().any(|l| {
+        let t = l.trim_start();
+        let t = ["--", "#", "//", "/*", "*"]
+            .iter()
+            .find_map(|p| t.strip_prefix(p))
+            .unwrap_or(t);
+        t.trim_start().starts_with('⚠')
+    })
+}
+
 /// Builds the script, naming each long text a variable when it can't go as
 /// a literal.
-struct ScriptWriter {
-    out: String,
-    vars: usize,
+pub(crate) struct ScriptWriter {
+    pub(crate) out: String,
+    pub(crate) vars: usize,
     /// Inside a `BEGIN … END`.
-    nested: bool,
+    pub(crate) nested: bool,
 }
 
 impl ScriptWriter {
     /// A text value for a procedure parameter: an `N'…'` literal, or, when a
-    /// line of it could read as `GO`, a variable set on one line with the
-    /// line breaks as `NCHAR(13)` / `NCHAR(10)`.
-    fn text(&mut self, value: &str) -> String {
-        if !has_go_line(value) {
+    /// line of it could read as `GO` or as a warning of the driver's (the
+    /// user's text among them), a variable set on one line with the line
+    /// breaks as `NCHAR(13)` / `NCHAR(10)`.
+    pub(crate) fn text(&mut self, value: &str) -> String {
+        if !has_go_line(value) && !has_warning_line(value) {
             return literal(value);
         }
         self.vars += 1;
@@ -1745,7 +1796,7 @@ impl ScriptWriter {
     }
 
     /// `EXEC @ReturnCode = proc @a = x, …;` and the rollback check.
-    fn exec(&mut self, proc_name: &str, args: &[(&str, String)]) {
+    pub(crate) fn exec(&mut self, proc_name: &str, args: &[(&str, String)]) {
         let pad = if self.nested { "    " } else { "" };
         let args: Vec<String> = args.iter().map(|(k, v)| format!("@{k} = {v}")).collect();
         let _ = writeln!(
@@ -1755,12 +1806,12 @@ impl ScriptWriter {
         );
     }
 
-    fn begin(&mut self) {
+    pub(crate) fn begin(&mut self) {
         self.out.push_str("BEGIN\n");
         self.nested = true;
     }
 
-    fn end(&mut self) {
+    pub(crate) fn end(&mut self) {
         self.out.push_str("END;\n");
         self.nested = false;
     }
@@ -2709,6 +2760,36 @@ mod tests {
         assert!(!has_go_line("GOTO done"));
         assert!(!has_go_line("SELECT 'GO'"));
         assert!(!has_go_line("going"));
+    }
+
+    #[test]
+    fn warning_lines_are_spotted() {
+        for warned in [
+            "a\n-- ⚠ x",
+            "a\r\n  ⚠ x",
+            "# ⚠ x",
+            "//⚠ x",
+            "/* ⚠ x */",
+            " * ⚠ x",
+        ] {
+            assert!(has_warning_line(warned), "{warned}");
+        }
+        for plain in ["a ⚠ x", "--- ⚠ x", "SELECT '⚠'", "-- x ⚠"] {
+            assert!(!has_warning_line(plain), "{plain}");
+        }
+        // Such a value is set on one line: no line of the script starts
+        // with it.
+        let mut w = ScriptWriter {
+            out: String::new(),
+            vars: 0,
+            nested: false,
+        };
+        assert_eq!(w.text("SELECT 1;\n-- ⚠ x"), "@text1");
+        assert_eq!(
+            w.out,
+            "DECLARE @text1 nvarchar(max);\nSET @text1 = CAST(N'' AS nvarchar(max)) + N'SELECT 1;' + NCHAR(10) + N'-- ⚠ x';\n"
+        );
+        assert_eq!(w.text("SELECT 1; -- ⚠ x"), "N'SELECT 1; -- ⚠ x'");
     }
 
     #[test]

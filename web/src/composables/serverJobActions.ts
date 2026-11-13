@@ -1,6 +1,7 @@
 import { ElMessage } from 'element-plus';
 import { errorMessage } from '../api/client';
 import { jobsApi, type ServerJob } from '../api/jobs';
+import { schedulerApi, type SchedulerAction } from '../api/scheduler';
 import type { MenuItem } from '../components/ContextMenu.vue';
 import { t } from '../i18n';
 import { confirmNative } from '../native';
@@ -8,17 +9,24 @@ import { useConnectionsStore } from '../stores/connections';
 import { useServerJobsStore } from '../stores/serverJobs';
 import { useTabsStore } from '../stores/tabs';
 import { newQuery } from './actions';
+import { actionMenuItems, canChange, deleteSchedulerObject, objectAbilities, runSchedulerAction } from './schedulerActions';
+import { askStep } from './schedulerDialogs';
 
 // What can be done with a server job (docs/server-jobs.md), from the
 // sidebar's menu and from the job's tab. Everything that changes the server
 // asks first, naming the job and the connection; read-only connections
-// don't offer it (the backend refuses it anyway).
+// don't offer it (the backend refuses it anyway). Engines whose scheduler
+// DBine manages whole (`capabilities.scheduler`) also offer Editar (the
+// designer), the job kind's actions, Iniciar en el paso… and Borrar
+// historial where the job kind says so (`run_from_step`, `clear_history`),
+// and Borrar, each job as the job kind's objects say (an ES transform that
+// runs offers no reset, a job the login can't manage no Borrar).
+
+/** What "Iniciar en el paso…" and "Borrar historial" need of a job: the
+ *  designer has only its id and name. */
+export type JobRef = Pick<ServerJob, 'id' | 'name'>;
 
 type Action = 'run' | 'stop' | 'enable' | 'disable';
-
-function canChange(connectionId: string): boolean {
-  return !useConnectionsStore().byId(connectionId)?.config.read_only;
-}
 
 async function confirmed(connectionId: string, job: ServerJob, action: Action): Promise<boolean> {
   const connection = useConnectionsStore().byId(connectionId)?.name ?? '';
@@ -38,7 +46,10 @@ async function change(connectionId: string, job: ServerJob, action: Action): Pro
     else if (action === 'stop') await jobsApi.stop(connectionId, job.id);
     else await jobsApi.setEnabled(connectionId, job.id, action === 'enable');
     ElMessage.success(t(`scheduled:server.done.${action}`, { job: job.name }));
-    void useServerJobsStore().load(connectionId);
+    const store = useServerJobsStore();
+    void store.load(connectionId);
+    // Turned on or off: an open designer of the job shows the old state.
+    if (action === 'enable' || action === 'disable') store.objectChanged(connectionId, 'job', job.id);
     return true;
   } catch (e) {
     ElMessage.error(errorMessage(e));
@@ -61,15 +72,105 @@ export async function openServerJobScript(connectionId: string, job: ServerJob) 
   }
 }
 
+/** "Iniciar en el paso…": the job's steps to pick from, then the run from
+ *  the one picked (the dialog names the job and the connection). True when
+ *  the server took it. */
+export async function runServerJobFrom(connectionId: string, job: JobRef): Promise<boolean> {
+  let steps;
+  try {
+    steps = (await jobsApi.detail(connectionId, job.id)).steps;
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return false;
+  }
+  if (!steps.length) {
+    ElMessage.info(t('scheduled:server.runFromDialog.noSteps', { job: job.name }));
+    return false;
+  }
+  const connection = useConnectionsStore().byId(connectionId)?.name ?? '';
+  const step = await askStep({
+    title: t('scheduled:server.runFromDialog.title'),
+    message: t('scheduled:server.runFromDialog.message', { job: job.name, connection }),
+    steps: steps.map((s) => ({ name: s.name, kind: s.kind })),
+    okLabel: t('scheduled:server.runFromDialog.start'),
+  });
+  if (!step) return false;
+  try {
+    await schedulerApi.runFrom(connectionId, job.id, step);
+    ElMessage.success(t('scheduled:server.done.runFrom', { job: job.name, step }));
+    void useServerJobsStore().load(connectionId);
+    return true;
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return false;
+  }
+}
+
+/** "Borrar historial", after the user's yes. True when it was cleared. */
+export async function clearServerJobHistory(connectionId: string, job: JobRef): Promise<boolean> {
+  const connection = useConnectionsStore().byId(connectionId)?.name ?? '';
+  const ok = await confirmNative(t('scheduled:server.confirm.clearHistory', { job: job.name, connection }), {
+    title: t('scheduled:server.clearHistory'),
+    okLabel: t('scheduled:server.clearHistory'),
+    kind: 'warning',
+  });
+  if (!ok) return false;
+  try {
+    await schedulerApi.clearHistory(connectionId, job.id);
+    ElMessage.success(t('scheduled:server.done.clearHistory', { job: job.name }));
+    void useServerJobsStore().load(connectionId);
+    return true;
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return false;
+  }
+}
+
+/** "Borrar": the delete script, the user's yes, then the delete. */
+export const deleteServerJob = (connectionId: string, job: ServerJob) =>
+  deleteSchedulerObject(connectionId, 'job', job.id, job.name);
+
+/** "Editar": the job in the designer. */
+export function editServerJob(connectionId: string, job: ServerJob) {
+  useTabsStore().openSchedulerObject(connectionId, 'job', job.id, job.name);
+}
+
+/** One of the job kind's actions on a job (its script, the user's yes, then
+ *  the action). True when it ran. */
+export function runServerJobAction(connectionId: string, job: JobRef, action: SchedulerAction): Promise<boolean> {
+  const kind = useServerJobsStore().kind(connectionId, 'job');
+  return kind ? runSchedulerAction(connectionId, kind, job.id, job.name, action) : Promise.resolve(false);
+}
+
 /** What a job's row and tab offer, with what its engine and the
- *  connection allow. */
+ *  connection allow. "Iniciar en el paso…" and "Borrar historial" only where
+ *  the scheduler's job kind says its jobs have them (an engine whose
+ *  scheduler has no job kind offers neither). Editar, Borrar and the job
+ *  kind's actions as the job kind's objects say for this job
+ *  (`objectAbilities`); until they're read, Borrar and the actions aren't
+ *  offered, and Editar (which opens the designer, read-only until it knows)
+ *  follows the kind. */
 export function serverJobActions(connectionId: string, job: ServerJob) {
   const writable = canChange(connectionId);
+  const store = useServerJobsStore();
+  const scheduler = store.hasScheduler(connectionId);
+  const kind = store.kind(connectionId, 'job');
+  const abilities = objectAbilities(connectionId, kind, job.id);
+  // The job's own word first (kinds that mix sorts of object), else its kind's.
+  const item = store.item(connectionId, 'job', job.id);
+  const runFromStep = item?.run_from_step ?? !!kind?.run_from_step;
+  const clearsHistory = item?.clear_history ?? !!kind?.clear_history;
   return {
     run: writable && !!job.can_run,
     stop: writable && !!job.can_stop && !!job.running,
     toggle: writable && !!job.can_enable,
     script: !!job.has_script,
+    edit: scheduler && (!kind || (abilities ? abilities.edit : !!kind.can_edit)),
+    runFrom: scheduler && writable && !!job.can_run && runFromStep,
+    clearHistory: scheduler && writable && !!job.has_history && clearsHistory,
+    delete: scheduler && writable && !!abilities?.delete,
+    /** The job kind's actions this job offers now (none on a read-only connection). */
+    actions: scheduler && writable ? abilities?.actions ?? [] : [],
   };
 }
 
@@ -77,8 +178,10 @@ export function serverJobActions(connectionId: string, job: ServerJob) {
 export function serverJobMenu(connectionId: string, job: ServerJob): MenuItem[] {
   const tabs = useTabsStore();
   const can = serverJobActions(connectionId, job);
+  const kind = useServerJobsStore().kind(connectionId, 'job');
   const items: MenuItem[] = [{ label: t('scheduled:open'), action: () => tabs.openServerJob(connectionId, job.id) }];
   if (can.run) items.push({ label: t('scheduled:server.run'), action: () => void runServerJob(connectionId, job) });
+  if (can.runFrom) items.push({ label: t('scheduled:server.runFrom'), action: () => void runServerJobFrom(connectionId, job) });
   if (can.stop) items.push({ label: t('scheduled:server.stop'), action: () => void stopServerJob(connectionId, job) });
   if (can.toggle) {
     items.push({
@@ -86,6 +189,12 @@ export function serverJobMenu(connectionId: string, job: ServerJob): MenuItem[] 
       action: () => void toggleServerJob(connectionId, job),
     });
   }
-  if (can.script) items.push({ label: t('scheduled:server.script'), divided: true, action: () => void openServerJobScript(connectionId, job) });
+  if (kind) items.push(...actionMenuItems(connectionId, kind, can.actions, job.id, job.name));
+  if (can.edit) items.push({ label: t('scheduled:server.edit'), divided: true, action: () => editServerJob(connectionId, job) });
+  if (can.script) items.push({ label: t('scheduled:server.script'), divided: !can.edit, action: () => void openServerJobScript(connectionId, job) });
+  if (can.clearHistory) items.push({ label: t('scheduled:server.clearHistory'), divided: true, action: () => void clearServerJobHistory(connectionId, job) });
+  if (can.delete) {
+    items.push({ label: t('scheduled:server.delete'), danger: true, divided: !can.clearHistory, action: () => void deleteServerJob(connectionId, job) });
+  }
   return items;
 }

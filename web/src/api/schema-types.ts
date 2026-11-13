@@ -135,4 +135,6 @@ export interface Capabilities {
   database_properties?: boolean;
   /** The server's jobs ("Programadas › En los servidores"). */
   jobs?: boolean;
+  /** Its scheduler's objects are created, edited and deleted from DBine (the designer). */
+  scheduler?: boolean;
 }

@@ -35,6 +35,7 @@ mod plan;
 mod processes;
 mod properties;
 mod rename;
+mod scheduler;
 mod security;
 mod stats;
 mod steps;
@@ -221,6 +222,8 @@ impl Driver for OrientDriver {
             kill_session: true,
             database_properties: true,
             jobs: true,
+            // The OSchedule events managed whole (see `scheduler`).
+            scheduler: true,
             ..Default::default()
         }
     }
@@ -1565,6 +1568,49 @@ impl Session for OrientSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.server_job_script(id).await
+    }
+
+    /// The OSchedule events through the designer (see [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        self.sched_info().await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        self.sched_items(kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        self.sched_form(kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        self.sched_script(kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        self.sched_save(kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        self.sched_delete_script(kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.sched_delete(kind, id).await
     }
 
     async fn read_batches(

@@ -33,11 +33,11 @@ use serde_json::{Map, Value};
 
 const KIND: &str = "Stream";
 /// Jobs listed at most.
-const MAX_JOBS: usize = 5000;
+pub(crate) const MAX_JOBS: usize = 5000;
 /// Longest name a stream or a database can have.
-const MAX_NAME: usize = 192;
+pub(crate) const MAX_NAME: usize = 192;
 
-const NO_PAUSE: &str = "Esta versión de TDengine no tiene PAUSE STREAM ni RESUME STREAM (llegaron en la 3.1): los streams no se pueden suspender.";
+pub(crate) const NO_PAUSE: &str = "Esta versión de TDengine no tiene PAUSE STREAM ni RESUME STREAM (llegaron en la 3.1): los streams no se pueden suspender.";
 const STREAM_NOTE: &str = "Un stream procesa los datos a medida que llegan: no tiene «Ejecutar ahora», no se detiene una ejecución y TDengine no guarda un historial de ejecuciones.";
 
 /// One stream as `ins_streams` has it.
@@ -63,7 +63,7 @@ impl Stream {
     }
 
     /// `` `db`.`s` `` or `` `s` ``, for the statements.
-    fn target(&self) -> String {
+    pub(crate) fn target(&self) -> String {
         match &self.db {
             Some(db) => format!("{}.{}", q(db), q(&self.name)),
             None => q(&self.name),
@@ -74,7 +74,7 @@ impl Stream {
         self.status.trim().to_ascii_lowercase()
     }
 
-    fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         !matches!(self.status_lower().as_str(), "paused" | "stopped" | "stop")
     }
 
@@ -100,7 +100,7 @@ fn s(r: &Map<String, Value>, k: &str) -> Option<String> {
 }
 
 /// A name that can go between backticks and come back unchanged.
-fn plain_name(n: &str) -> bool {
+pub(crate) fn plain_name(n: &str) -> bool {
     !n.is_empty() && n.len() <= MAX_NAME && !n.chars().any(|c| c == '`' || c.is_control())
 }
 
@@ -340,7 +340,7 @@ pub(crate) fn detail_of(st: &Stream, suspend: bool) -> JobDetail {
 
 /// TDengine refuses to suspend or resume a stream whose tasks are still
 /// starting (0x4104, "Invalid task status to proceed").
-fn starting_up(e: Error, name: &str) -> Error {
+pub(crate) fn starting_up(e: Error, name: &str) -> Error {
     match &e {
         Error::Statement(se) if se.code.as_deref() == Some("0x4104") => Error::Query(format!(
             "El stream «{name}» todavía se está poniendo en marcha y no se puede suspender ni reanudar: probá de nuevo en unos segundos."

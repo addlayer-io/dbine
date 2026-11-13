@@ -383,3 +383,42 @@ backend:Lote
 backend:Marca de agua
 backend:Nodo {0}
 backend:Válido
+backend:Abril
+backend:Booleano
+backend:Definidor
+backend:Desfase
+backend:Desplazamiento (OFFSET)
+backend:Disparador
+backend:Espacio de nombres
+backend:Evento (EVENT_WINDOW)
+backend:Finalizador
+backend:Hipertabla
+backend:Inicio de sesión
+backend:Intervalo (GROUP BY time)
+backend:Metadatos (_meta)
+backend:Noviembre
+backend:Operador (correo)
+backend:Operador (net send)
+backend:Plantilla
+backend:Por defecto (DROP)
+backend:Por defecto (WINDOW_CLOSE)
+backend:Procedimiento almacenado
+backend:Proveedor
+backend:Rama
+backend:Reflexión
+backend:Replicador
+backend:Ruta
+backend:SQL: archivo
+backend:Septiembre
+backend:Subcadena
+backend:Ventana (INTERVAL)
+backend:evento
+backend:grafo de tareas
+backend:operador
+backend:programa
+backend:recurso
+backend:reflexión
+backend:ventana
+backend:vista refrescable
+scheduled.json:server.edit
+backend:Programa {0}

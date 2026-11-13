@@ -251,6 +251,7 @@
     "tab": "잡",
     "noConnections": "서버 잡이 있는 엔진을 사용하는 연결이 없습니다(SQL Server Agent, DBMS_SCHEDULER, Snowflake 태스크, Databricks 잡, pg_cron, MySQL 이벤트 등).",
     "none": "이 서버에는 잡이 없습니다.",
+    "failedCount_other": "잡 {{count}}개가 마지막 실행에서 실패했습니다",
     "onDemand": "요청 시",
     "showSystem_other": "시스템 잡 {{count}}개 표시",
     "hideSystem_other": "시스템 잡 숨기기",
@@ -267,13 +268,16 @@
       "run": "{{connection}}에서 잡 「{{job}}」을(를) 지금 실행할까요?",
       "stop": "{{connection}}에서 잡 「{{job}}」의 진행 중인 실행을 중지할까요?",
       "enable": "{{connection}}에서 잡 「{{job}}」을(를) 활성화할까요? 일정에 따라 다시 실행됩니다.",
-      "disable": "{{connection}}에서 잡 「{{job}}」을(를) 비활성화할까요? 일정에 따른 실행이 중단됩니다."
+      "disable": "{{connection}}에서 잡 「{{job}}」을(를) 비활성화할까요? 일정에 따른 실행이 중단됩니다.",
+      "clearHistory": "{{connection}}에서 잡 「{{job}}」의 실행 기록을 삭제할까요? 되돌릴 수 없습니다."
     },
     "done": {
       "run": "서버가 「{{job}}」 실행을 시작했습니다.",
       "stop": "「{{job}}」 중지를 요청했습니다.",
       "enable": "「{{job}}」이(가) 활성화되었습니다.",
-      "disable": "「{{job}}」이(가) 비활성화되었습니다."
+      "disable": "「{{job}}」이(가) 비활성화되었습니다.",
+      "clearHistory": "「{{job}}」의 기록을 삭제했습니다.",
+      "runFrom": "서버가 「{{job}}」을(를) 「{{step}}」 단계부터 실행하기 시작했습니다."
     },
     "outcome": {
       "succeeded": "성공",
@@ -303,6 +307,73 @@
     "trigger": "트리거",
     "message": "메시지",
     "moreRuns": "실행 더 보기",
-    "failedCount_other": "잡 {{count}}개가 마지막 실행에서 실패했습니다"
+    "newJob": "새 잡",
+    "edit": "편집",
+    "runFrom": "단계에서 시작…",
+    "clearHistory": "기록 삭제",
+    "delete": "삭제",
+    "more": "더 많은 동작",
+    "systemObjectsHint": "시스템 개체는 엔진에 기본으로 포함되어 있으며, 사용자가 만든 것이 아닙니다.",
+    "log": "스케줄러 로그",
+    "noItems": "항목이 없습니다.",
+    "runFromDialog": {
+      "title": "단계에서 시작",
+      "message": "{{connection}}에서 잡 「{{job}}」을(를) 지금 실행합니다. 선택한 단계부터 시작합니다.",
+      "start": "시작",
+      "noSteps": "잡 「{{job}}」에는 단계가 없습니다."
+    }
+  },
+  "designer": {
+    "newTitle": "{{kind}} 만들기",
+    "readOnly": "읽기 전용",
+    "readOnlyHint": "저장할 수 없습니다. 연결이 읽기 전용이거나, 서버가 이 사용자로는 이 개체를 변경하도록 허용하지 않습니다.",
+    "viewScript": "스크립트 보기",
+    "openInQuery": "쿼리에서 열기",
+    "reload": "다시 불러오기",
+    "required": "필수",
+    "invalid": "확인이 필요한 필드가 있습니다. 빨간색으로 표시되어 있습니다.",
+    "errors": {
+      "required": "이 필드를 입력해야 합니다.",
+      "min": "{{n}} 이상이어야 합니다.",
+      "max": "{{n}} 이하여야 합니다.",
+      "missing": "「{{value}}」은(는) 옵션에 없습니다. 다른 값을 선택하세요.",
+      "minRows_other": "행이 {{count}}개 이상 필요합니다.",
+      "row": "{{n}}행 · {{field}}: {{error}}"
+    },
+    "add": "추가",
+    "view": "보기",
+    "moveUp": "위로 이동",
+    "moveDown": "아래로 이동",
+    "minRowsHint_other": "제거할 수 없습니다. 목록에 행이 {{count}}개 이상 필요합니다.",
+    "noRows": "행이 없습니다.",
+    "newRow": "새 행",
+    "secretKeep": "변경 없음: 현재 값을 유지하려면 비워 두세요",
+    "secretMasked": "스크립트에는 입력한 비밀 값이 ********로 표시됩니다. 저장해야만 실제 값이 기록됩니다. 쿼리에서 열 경우 실행하기 전에 실제 값으로 바꾸세요.",
+    "secretMaskedSave": "스크립트에는 입력한 비밀 값이 ********로 표시되며, 저장하면 실제 값이 기록됩니다.",
+    "secretComment": "비밀 값은 ********로 표시됩니다. 이 스크립트를 실행하기 전에 실제 값으로 바꾸세요.",
+    "seconds": "초",
+    "untitled": "(이름 없음)",
+    "dirtyClose": "「{{name}}」에 저장하지 않은 변경 사항이 있습니다. 탭을 닫고 변경 사항을 버릴까요?",
+    "dirtyReload": "「{{name}}」에 저장하지 않은 변경 사항이 있습니다. 변경 사항을 버리고 서버에서 다시 읽을까요?",
+    "discard": "버리기",
+    "unsavedTitle": "저장하지 않은 변경 사항",
+    "scriptTitle": "스크립트 · {{name}}",
+    "saveTitle": "서버에 저장",
+    "deleteTitle": "서버에서 삭제",
+    "confirmCreate": "{{connection}}에 「{{name}}」({{kind}})을(를) 만들까요? 다음 스크립트를 실행합니다:",
+    "confirmSave": "{{connection}}의 「{{name}}」({{kind}}) 변경 사항을 저장할까요? 다음 스크립트를 실행합니다:",
+    "confirmDelete": "{{connection}}에서 「{{name}}」({{kind}})을(를) 삭제할까요? 다음 스크립트를 실행하며 되돌릴 수 없습니다:",
+    "prodWarning": "{{connection}}은(는) 프로덕션 연결입니다.",
+    "saved": "「{{name}}」을(를) 저장했습니다.",
+    "deleted": "「{{name}}」을(를) 삭제했습니다.",
+    "confirmAction": "{{connection}}에서 「{{name}}」({{kind}})에 「{{action}}」을(를) 실행합니다. 스크립트는 다음과 같습니다:",
+    "actionDone": "「{{name}}」에 「{{action}}」을(를) 실행했습니다.",
+    "noScript": "서버가 스크립트를 반환하지 않았습니다. 저장할 변경 사항이 없습니다.",
+    "consequences": "계속하기 전에 확인하세요:",
+    "continue": "계속"
+  },
+  "log": {
+    "tab": "스케줄러 로그",
+    "empty": "서버에 스케줄러 로그가 없습니다."
   }
 }

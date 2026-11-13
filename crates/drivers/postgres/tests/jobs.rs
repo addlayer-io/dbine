@@ -791,7 +791,7 @@ async fn opengauss_dbms_job() {
         eprintln!("{script}");
         assert!(
             script.contains(
-                "pkg_service.job_submit(NULL, E'insert into dbine_test_jobs_log values (sysdate);'"
+                "pkg_service.job_submit((SELECT NULL::bigint), E'insert into dbine_test_jobs_log values (sysdate);'"
             ),
             "{script}"
         );

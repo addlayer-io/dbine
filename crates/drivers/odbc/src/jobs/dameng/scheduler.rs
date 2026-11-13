@@ -11,27 +11,27 @@
 
 use super::*;
 
-pub(in crate::jobs) const KIND: &str = "DBMS_SCHEDULER";
+pub(crate) const KIND: &str = "DBMS_SCHEDULER";
 const OWN_ONLY: &str = "De DBMS_SCHEDULER se ven solo los jobs de este usuario.";
 const NO_ARGS_SCRIPT: &str = "el job toma argumentos que DBine no lee: el script no se puede armar";
 
 /// Where DBMS_SCHEDULER's jobs are read from.
 #[derive(Clone, Copy)]
-pub(in crate::jobs) struct Views {
+pub(crate) struct Views {
     pub jobs: &'static str,
     pub runs: &'static str,
     pub running: &'static str,
     pub own: bool,
 }
 
-pub(in crate::jobs) const DBA: Views = Views {
+pub(crate) const DBA: Views = Views {
     jobs: "DBA_SCHEDULER_JOBS",
     runs: "DBA_SCHEDULER_JOB_RUN_DETAILS",
     running: "DBA_SCHEDULER_RUNNING_JOBS",
     own: false,
 };
 
-pub(in crate::jobs) const USER: Views = Views {
+pub(crate) const USER: Views = Views {
     jobs: "USER_SCHEDULER_JOBS",
     runs: "USER_SCHEDULER_JOB_RUN_DETAILS",
     running: "USER_SCHEDULER_RUNNING_JOBS",
@@ -57,7 +57,7 @@ fn params<'a>(v: &Views, owner: &'a str, name: &'a str) -> Vec<&'a str> {
 }
 
 /// The jobs (all, or the one named) from the first view this user reads.
-fn read(src: &mut dyn JobSource, key: Option<(&str, &str)>) -> Result<(Set, Views)> {
+pub(crate) fn read(src: &mut dyn JobSource, key: Option<(&str, &str)>) -> Result<(Set, Views)> {
     let sql = |v: &Views| match key {
         Some(_) => format!("SELECT * FROM {} {}", v.jobs, filter(v)),
         None => format!("SELECT * FROM {} ORDER BY JOB_NAME", v.jobs),
@@ -203,11 +203,11 @@ pub(super) fn list(src: &mut dyn JobSource) -> (Vec<ServerJob>, Option<&'static 
 }
 
 /// This is one of DBMS_SCHEDULER's ids (the job system's are digits).
-pub(super) fn is_mine(id: &str) -> bool {
+pub(crate) fn is_mine(id: &str) -> bool {
     id.trim_start().starts_with('"')
 }
 
-fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, Views, String, String)> {
+pub(crate) fn one(src: &mut dyn JobSource, id: &str) -> Result<(Set, Views, String, String)> {
     let (owner, name) = parse_pair(id)?;
     let (s, v) = read(src, Some((&owner, &name)))?;
     if s.rows.is_empty() {
@@ -302,16 +302,18 @@ fn managed(src: &mut dyn JobSource, id: &str) -> Result<(String, Set)> {
     Ok((lit(&dotted(&owner, &name, true)), s))
 }
 
-pub(super) fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(super) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let (job, _) = managed(src, id)?;
-    src.exec(&format!("CALL DBMS_SCHEDULER.RUN_JOB({job}, FALSE)"), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!(
+        "CALL DBMS_SCHEDULER.RUN_JOB({job}, FALSE)"
+    )))
 }
 
-pub(super) fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(super) fn stop(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let (job, _) = managed(src, id)?;
-    src.exec(&format!("CALL DBMS_SCHEDULER.STOP_JOB({job})"), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!(
+        "CALL DBMS_SCHEDULER.STOP_JOB({job})"
+    )))
 }
 
 pub(super) fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {

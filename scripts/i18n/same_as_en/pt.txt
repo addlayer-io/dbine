@@ -233,3 +233,14 @@ backend:Cadena
 backend:Copia de seguridad (V1.0)
 backend:Copia de seguridad (V2.0)
 backend:clúster {0}
+backend:Cubetas (BUCKET)
+backend:Disparador
+backend:Disparadores
+backend:Espacio de nombres
+backend:Hipertabla
+backend:Inicio de sesión
+backend:Plantilla
+backend:Rama
+backend:Reflexión
+backend:reflexión
+scheduled.json:designer.scriptTitle

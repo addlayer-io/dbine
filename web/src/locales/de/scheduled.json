@@ -254,6 +254,8 @@
     "tab": "Job",
     "noConnections": "Keine Verbindung nutzt eine Engine mit Server-Jobs (SQL Server Agent, DBMS_SCHEDULER, Snowflake-Tasks, Databricks-Jobs, pg_cron, MySQL-Events…).",
     "none": "Dieser Server hat keine Jobs.",
+    "failedCount_one": "{{count}} Job ist bei der letzten Ausführung fehlgeschlagen",
+    "failedCount_other": "{{count}} Jobs sind bei der letzten Ausführung fehlgeschlagen",
     "onDemand": "Bei Bedarf",
     "showSystem_one": "Systemjob anzeigen",
     "showSystem_other": "{{count}} Systemjobs anzeigen",
@@ -272,13 +274,16 @@
       "run": "Den Job „{{job}}“ auf {{connection}} jetzt ausführen?",
       "stop": "Die laufende Ausführung des Jobs „{{job}}“ auf {{connection}} beenden?",
       "enable": "Den Job „{{job}}“ auf {{connection}} aktivieren? Er wird wieder nach seinem Zeitplan ausgeführt.",
-      "disable": "Den Job „{{job}}“ auf {{connection}} deaktivieren? Er wird nicht mehr nach seinem Zeitplan ausgeführt."
+      "disable": "Den Job „{{job}}“ auf {{connection}} deaktivieren? Er wird nicht mehr nach seinem Zeitplan ausgeführt.",
+      "clearHistory": "Den Ausführungsverlauf des Jobs „{{job}}“ auf {{connection}} löschen? Das lässt sich nicht rückgängig machen."
     },
     "done": {
       "run": "Der Server hat die Ausführung von „{{job}}“ gestartet.",
       "stop": "Das Beenden von „{{job}}“ wurde angefordert.",
       "enable": "„{{job}}“ wurde aktiviert.",
-      "disable": "„{{job}}“ wurde deaktiviert."
+      "disable": "„{{job}}“ wurde deaktiviert.",
+      "clearHistory": "Der Verlauf von „{{job}}“ wurde gelöscht.",
+      "runFrom": "Der Server hat die Ausführung von „{{job}}“ ab dem Schritt „{{step}}“ gestartet."
     },
     "outcome": {
       "succeeded": "Erfolgreich",
@@ -308,7 +313,75 @@
     "trigger": "Auslöser",
     "message": "Meldung",
     "moreRuns": "Weitere Ausführungen anzeigen",
-    "failedCount_one": "{{count}} Job ist bei der letzten Ausführung fehlgeschlagen",
-    "failedCount_other": "{{count}} Jobs sind bei der letzten Ausführung fehlgeschlagen"
+    "newJob": "Neuer Job",
+    "edit": "Bearbeiten",
+    "runFrom": "Ab Schritt starten …",
+    "clearHistory": "Verlauf löschen",
+    "delete": "Löschen",
+    "more": "Weitere Aktionen",
+    "systemObjectsHint": "Systemobjekte werden mit der Engine mitgeliefert: Sie wurden nicht von einem Benutzer angelegt.",
+    "log": "Scheduler-Protokoll",
+    "noItems": "Keine Elemente.",
+    "runFromDialog": {
+      "title": "Ab Schritt starten",
+      "message": "Der Job „{{job}}“ wird jetzt auf {{connection}} ausgeführt, beginnend mit dem Schritt, den Sie wählen.",
+      "start": "Starten",
+      "noSteps": "Der Job „{{job}}“ hat keine Schritte."
+    }
+  },
+  "designer": {
+    "newTitle": "{{kind}} erstellen",
+    "readOnly": "Schreibgeschützt",
+    "readOnlyHint": "Speichern nicht möglich: Die Verbindung ist schreibgeschützt, oder der Server erlaubt diesem Benutzer nicht, dieses Objekt zu ändern.",
+    "viewScript": "Skript anzeigen",
+    "openInQuery": "In einer Abfrage öffnen",
+    "reload": "Neu laden",
+    "required": "Pflichtfeld",
+    "invalid": "Einige Felder müssen geprüft werden: Sie sind rot markiert.",
+    "errors": {
+      "required": "Dieses Feld muss ausgefüllt werden.",
+      "min": "Der Wert muss {{n}} oder größer sein.",
+      "max": "Der Wert muss {{n}} oder kleiner sein.",
+      "missing": "„{{value}}“ gehört nicht zu den Optionen: Wählen Sie eine andere.",
+      "minRows_one": "Mindestens eine Zeile ist erforderlich.",
+      "minRows_other": "Mindestens {{count}} Zeilen sind erforderlich.",
+      "row": "Zeile {{n}} · {{field}}: {{error}}"
+    },
+    "add": "Hinzufügen",
+    "view": "Anzeigen",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "minRowsHint_one": "Entfernen nicht möglich: Die Liste braucht mindestens eine Zeile.",
+    "minRowsHint_other": "Entfernen nicht möglich: Die Liste braucht mindestens {{count}} Zeilen.",
+    "noRows": "Keine Zeilen.",
+    "newRow": "neue Zeile",
+    "secretKeep": "Unverändert: leer lassen, um den aktuellen Wert beizubehalten",
+    "secretMasked": "Das Skript zeigt die geheimen Werte, die Sie eingegeben haben, als ******** an: Nur Speichern schreibt die echten Werte. Wenn Sie es in einer Abfrage öffnen, ersetzen Sie sie vor dem Ausführen.",
+    "secretMaskedSave": "Das Skript zeigt die geheimen Werte, die Sie eingegeben haben, als ******** an; beim Speichern werden die echten Werte geschrieben.",
+    "secretComment": "Geheime Werte erscheinen als ********: Ersetzen Sie sie durch die echten Werte, bevor Sie dieses Skript ausführen.",
+    "seconds": "Sekunden",
+    "untitled": "(ohne Namen)",
+    "dirtyClose": "„{{name}}“ hat nicht gespeicherte Änderungen. Den Tab schließen und die Änderungen verwerfen?",
+    "dirtyReload": "„{{name}}“ hat nicht gespeicherte Änderungen. Verwerfen und erneut vom Server lesen?",
+    "discard": "Verwerfen",
+    "unsavedTitle": "Nicht gespeicherte Änderungen",
+    "scriptTitle": "Skript · {{name}}",
+    "saveTitle": "Auf dem Server speichern",
+    "deleteTitle": "Vom Server löschen",
+    "confirmCreate": "„{{name}}“ ({{kind}}) auf {{connection}} erstellen? Dieses Skript wird ausgeführt:",
+    "confirmSave": "Die Änderungen an „{{name}}“ ({{kind}}) auf {{connection}} speichern? Dieses Skript wird ausgeführt:",
+    "confirmDelete": "„{{name}}“ ({{kind}}) von {{connection}} löschen? Dieses Skript wird ausgeführt und lässt sich nicht rückgängig machen:",
+    "prodWarning": "{{connection}} ist eine Produktionsverbindung.",
+    "saved": "„{{name}}“ wurde gespeichert.",
+    "deleted": "„{{name}}“ wurde gelöscht.",
+    "confirmAction": "„{{action}}“ wird auf „{{name}}“ ({{kind}}) auf {{connection}} ausgeführt, mit diesem Skript:",
+    "actionDone": "„{{action}}“ wurde auf „{{name}}“ ausgeführt.",
+    "noScript": "Der Server hat kein Skript zurückgegeben: Es gibt keine Änderungen zu speichern.",
+    "consequences": "Bitte beachten Sie vor dem Fortfahren:",
+    "continue": "Fortfahren"
+  },
+  "log": {
+    "tab": "Scheduler-Protokoll",
+    "empty": "Der Server hat keine Scheduler-Protokolle."
   }
 }

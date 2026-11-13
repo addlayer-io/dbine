@@ -46,19 +46,19 @@
 //! in these catalogs: [`Tz`] turns them into UTC with the offset the server
 //! reports at the moment of the call.
 
-mod altibase;
-mod ase;
-mod dameng;
-mod db2;
-mod db2i;
-mod hive;
-mod informix;
-mod iris;
-mod sqla;
+pub(crate) mod altibase;
+pub(crate) mod ase;
+pub(crate) mod dameng;
+pub(crate) mod db2;
+pub(crate) mod db2i;
+pub(crate) mod hive;
+pub(crate) mod informix;
+pub(crate) mod iris;
+pub(crate) mod sqla;
 #[cfg(test)]
 mod tests;
-mod vertica;
-mod virtuoso;
+pub(crate) mod vertica;
+pub(crate) mod virtuoso;
 
 use crate::design::{eng, Eng};
 use crate::monitor::Set;
@@ -241,39 +241,93 @@ pub fn runs(p: &Preset, src: &mut dyn JobSource, id: &str, limit: u32) -> Result
     Ok(out)
 }
 
-pub fn run(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<()> {
-    match eng(p) {
-        Eng::Db2 | Eng::Db2zos => Err(Error::Unsupported(db2::NO_RUN_NOW.into())),
-        Eng::Db2i => Err(Error::Unsupported(db2i::NO_RUN_NOW.into())),
-        Eng::Informix => informix::run(src, ctx, id),
-        Eng::Ase => ase::control(src, id, "run_now"),
-        Eng::Sqla => sqla::run(src, id),
-        Eng::Iris => Err(Error::Unsupported(iris::NO_CONTROL.into())),
-        Eng::Hive => hive::run(src, id),
-        Eng::Vertica => vertica::run(src, id),
-        Eng::Dameng => dameng::run(src, id),
-        Eng::Altibase => Err(Error::Unsupported(altibase::NO_RUN_NOW.into())),
-        Eng::Virtuoso => Err(Error::Unsupported(virtuoso::NO_RUN_NOW.into())),
-        _ => Err(unsupported(p)),
+/// A statement that runs a job now or stops its run: what [`run`] and
+/// [`stop`] send, and what the scheduler's actions show first.
+pub(crate) struct Control {
+    pub(crate) sql: String,
+    /// It answers rows (a function called with `SELECT` or `EXECUTE
+    /// FUNCTION`), so it goes as a query.
+    pub(crate) rows: bool,
+}
+
+impl Control {
+    pub(crate) fn exec(sql: String) -> Control {
+        Control { sql, rows: false }
+    }
+    pub(crate) fn query(sql: String) -> Control {
+        Control { sql, rows: true }
     }
 }
 
+/// Sends the statements in order.
+fn send(src: &mut dyn JobSource, stmts: Vec<Control>) -> Result<()> {
+    for c in stmts {
+        if c.rows {
+            src.query(&c.sql, &[])?;
+        } else {
+            src.exec(&c.sql, &[])?;
+        }
+    }
+    Ok(())
+}
+
+const NO_STOP: &str = "el planificador de este motor no detiene una ejecución en curso";
+
+pub fn run(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<()> {
+    let stmts = run_stmts(p, src, ctx, id)?;
+    send(src, stmts)
+}
+
+/// What runs job `id` now, checked against the server (it exists, the
+/// session may run it).
+pub(crate) fn run_stmts(
+    p: &Preset,
+    src: &mut dyn JobSource,
+    ctx: &Ctx,
+    id: &str,
+) -> Result<Vec<Control>> {
+    let one = match eng(p) {
+        Eng::Db2 | Eng::Db2zos => return Err(Error::Unsupported(db2::NO_RUN_NOW.into())),
+        Eng::Db2i => return Err(Error::Unsupported(db2i::NO_RUN_NOW.into())),
+        Eng::Informix => informix::run(src, ctx, id)?,
+        Eng::Ase => ase::control(src, id, "run_now")?,
+        Eng::Sqla => sqla::run(src, id)?,
+        Eng::Iris => return Err(Error::Unsupported(iris::NO_CONTROL.into())),
+        Eng::Hive => hive::run(src, id)?,
+        Eng::Vertica => vertica::run(src, id)?,
+        Eng::Dameng => dameng::run(src, id)?,
+        Eng::Altibase => return Err(Error::Unsupported(altibase::NO_RUN_NOW.into())),
+        Eng::Virtuoso => return Err(Error::Unsupported(virtuoso::NO_RUN_NOW.into())),
+        _ => return Err(unsupported(p)),
+    };
+    Ok(vec![one])
+}
+
 pub fn stop(p: &Preset, src: &mut dyn JobSource, id: &str) -> Result<()> {
+    let stmts = stop_stmts(p, src, id)?;
+    send(src, stmts)
+}
+
+/// What stops job `id`'s current run, checked against the server (it is
+/// running, the session may stop it).
+pub(crate) fn stop_stmts(p: &Preset, src: &mut dyn JobSource, id: &str) -> Result<Vec<Control>> {
     match eng(p) {
-        Eng::Ase => ase::control(src, id, "terminate"),
+        Eng::Ase => Ok(vec![ase::control(src, id, "terminate")?]),
         Eng::Hive => hive::stop(src, id),
-        Eng::Dameng => dameng::stop(src, id),
+        Eng::Dameng => Ok(vec![dameng::stop(src, id)?]),
         Eng::Iris => Err(Error::Unsupported(iris::NO_CONTROL.into())),
+        // ADMIN_TASK_CANCEL answers through output parameters, which plain
+        // statements can't read: the session stops a z/OS task with the
+        // scheduler's plan (`scheduler::action`, `db2zos::cancel_plan`),
+        // and so does the scheduler's own "stop". Nothing reaches here.
+        Eng::Db2zos => Err(unsupported(p)),
         Eng::Db2
-        | Eng::Db2zos
         | Eng::Db2i
         | Eng::Informix
         | Eng::Sqla
         | Eng::Vertica
         | Eng::Altibase
-        | Eng::Virtuoso => Err(Error::Unsupported(
-            "el planificador de este motor no detiene una ejecución en curso".into(),
-        )),
+        | Eng::Virtuoso => Err(Error::Unsupported(NO_STOP.into())),
         _ => Err(unsupported(p)),
     }
 }
@@ -282,7 +336,10 @@ pub fn set_enabled(p: &Preset, src: &mut dyn JobSource, id: &str, enabled: bool)
     match eng(p) {
         Eng::Db2i => db2i::set_enabled(src, id, enabled),
         Eng::Informix => informix::set_enabled(src, id, enabled),
-        Eng::Ase => ase::control(src, id, if enabled { "enable" } else { "disable" }),
+        Eng::Ase => {
+            let c = ase::control(src, id, if enabled { "enable" } else { "disable" })?;
+            send(src, vec![c])
+        }
         Eng::Sqla => sqla::set_enabled(src, id, enabled),
         Eng::Hive => hive::set_enabled(src, id, enabled),
         Eng::Vertica => vertica::set_enabled(src, id, enabled),
@@ -316,7 +373,7 @@ pub fn script(p: &Preset, src: &mut dyn JobSource, id: &str) -> Result<String> {
 // ------------------------------------------------------------- helpers
 
 /// The first of `names` the set has with a value in row `r`.
-fn get<'a>(s: &'a Set, r: usize, names: &[&str]) -> Option<&'a str> {
+pub(crate) fn get<'a>(s: &'a Set, r: usize, names: &[&str]) -> Option<&'a str> {
     names.iter().find_map(|n| s.get(r, n))
 }
 
@@ -325,12 +382,12 @@ fn owned(s: Option<&str>) -> Option<String> {
 }
 
 /// `'text'`, doubling embedded quotes.
-fn lit(s: &str) -> String {
+pub(crate) fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
 /// An id as the error shows it: trimmed and short.
-fn shown(id: &str) -> String {
+pub(crate) fn shown(id: &str) -> String {
     let t = id.trim();
     match t.char_indices().nth(60) {
         Some((at, _)) => format!("{}…", &t[..at]),
@@ -338,11 +395,11 @@ fn shown(id: &str) -> String {
     }
 }
 
-fn bad_id(id: &str) -> Error {
+pub(crate) fn bad_id(id: &str) -> Error {
     Error::Query(format!("«{}» no es un id de job válido", shown(id)))
 }
 
-fn not_found(id: &str) -> Error {
+pub(crate) fn not_found(id: &str) -> Error {
     Error::Query(format!(
         "no existe el job «{}» o este usuario no lo ve",
         shown(id)
@@ -350,7 +407,7 @@ fn not_found(id: &str) -> Error {
 }
 
 /// A whole number id (`TASKID`, `tk_id`, `event_id`…): digits only.
-fn int_id(id: &str) -> Result<u64> {
+pub(crate) fn int_id(id: &str) -> Result<u64> {
     let t = id.trim();
     if t.is_empty() || t.len() > 18 || !t.bytes().all(|b| b.is_ascii_digit()) {
         return Err(bad_id(id));
@@ -360,7 +417,7 @@ fn int_id(id: &str) -> Result<u64> {
 
 /// A name used as the id as it is (Virtuoso's event names): any text
 /// without control characters, of a sane length. It's only ever bound.
-fn name_id(id: &str) -> Result<&str> {
+pub(crate) fn name_id(id: &str) -> Result<&str> {
     let t = id.trim();
     if t.is_empty() || t.chars().count() > 1000 || t.chars().any(char::is_control) {
         return Err(bad_id(id));
@@ -370,7 +427,7 @@ fn name_id(id: &str) -> Result<&str> {
 
 /// `"a"."b"`: a two-part name with both parts in double quotes (inner
 /// quotes doubled), as Vertica's ids are made.
-fn quote_pair(a: &str, b: &str) -> String {
+pub(crate) fn quote_pair(a: &str, b: &str) -> String {
     use dbine_driver::sql::{quote_ident, Quote};
     format!(
         "{}.{}",
@@ -382,7 +439,7 @@ fn quote_pair(a: &str, b: &str) -> String {
 /// A two-part name inside a string a function takes (`'schema.name'`):
 /// plain when both parts are plain identifiers (in capitals, where the
 /// engine folds unquoted names to them), quoted otherwise.
-fn dotted(a: &str, b: &str, folds_upper: bool) -> String {
+pub(crate) fn dotted(a: &str, b: &str, folds_upper: bool) -> String {
     let plain = |s: &str| {
         let mut it = s.bytes();
         it.next()
@@ -399,7 +456,7 @@ fn dotted(a: &str, b: &str, folds_upper: bool) -> String {
 
 /// The two parts of an id made by [`quote_pair`]; an error for anything
 /// else (an unquoted name, a third part, text after the last quote…).
-fn parse_pair(id: &str) -> Result<(String, String)> {
+pub(crate) fn parse_pair(id: &str) -> Result<(String, String)> {
     fn part(it: &mut std::iter::Peekable<std::str::Chars>) -> Option<String> {
         if it.next()? != '"' {
             return None;
@@ -431,7 +488,7 @@ fn parse_pair(id: &str) -> Result<(String, String)> {
 }
 
 /// A whole number in a column.
-fn int(s: Option<&str>) -> Option<i64> {
+pub(crate) fn int(s: Option<&str>) -> Option<i64> {
     let t = s?.trim();
     t.parse::<i64>().ok().or_else(|| {
         t.parse::<f64>()
@@ -441,7 +498,7 @@ fn int(s: Option<&str>) -> Option<i64> {
     })
 }
 
-fn yes(s: Option<&str>) -> bool {
+pub(crate) fn yes(s: Option<&str>) -> bool {
     matches!(
         s.map(|v| v.trim().to_ascii_uppercase()).as_deref(),
         Some("1" | "T" | "Y" | "YES" | "TRUE" | "ON")
@@ -449,7 +506,7 @@ fn yes(s: Option<&str>) -> bool {
 }
 
 /// The engine's own error number, when the driver reported one.
-fn code(e: &Error) -> Option<i64> {
+pub(crate) fn code(e: &Error) -> Option<i64> {
     match e {
         Error::Statement(s) => s.code.as_deref().and_then(|c| c.trim().parse().ok()),
         _ => None,
@@ -457,7 +514,7 @@ fn code(e: &Error) -> Option<i64> {
 }
 
 /// Keeps `n` characters at most.
-fn clip(s: &str, n: usize) -> String {
+pub(crate) fn clip(s: &str, n: usize) -> String {
     match s.char_indices().nth(n) {
         Some((at, _)) => s[..at].to_string(),
         None => s.to_string(),
@@ -491,7 +548,7 @@ fn newest_first(runs: &mut [JobRun]) {
 // ---------------------------------------------------------------- time
 
 /// Days from 1970-01-01 to a civil date (proleptic Gregorian).
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+pub(crate) fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
@@ -529,7 +586,7 @@ fn digits(s: &str, max: usize) -> Option<(i64, &str)> {
 
 /// `HH:MM[:SS[.fff]]` (or with dots, as Db2 writes it) in ms after
 /// midnight.
-fn parse_time(s: &str) -> Option<i64> {
+pub(crate) fn parse_time(s: &str) -> Option<i64> {
     let s = s.trim();
     let (h, rest) = digits(s, 2)?;
     let rest = rest.strip_prefix([':', '.'])?;
@@ -551,7 +608,7 @@ fn parse_time(s: &str) -> Option<i64> {
 
 /// `YYYY-MM-DD[ HH:MM:SS[.ffffff]]` (also with `T` or Db2's `-` before
 /// the time) as ms since the epoch, read as if it were UTC.
-fn parse_ts(s: &str) -> Option<i64> {
+pub(crate) fn parse_ts(s: &str) -> Option<i64> {
     let s = s.trim();
     let (y, rest) = digits(s, 4)?;
     let rest = rest.strip_prefix('-')?;
@@ -569,7 +626,7 @@ fn parse_ts(s: &str) -> Option<i64> {
     Some(day + parse_time(rest)?)
 }
 
-fn rfc3339(ms: i64) -> String {
+pub(crate) fn rfc3339(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
     let t = secs.rem_euclid(86_400);
@@ -618,7 +675,7 @@ fn offset_ms(s: &str) -> Option<i64> {
 
 /// ms since the epoch as `YYYY-MM-DD HH:MM:SS`, with no zone: how the
 /// scripts write a server's local time.
-fn plain(ms: i64) -> String {
+pub(crate) fn plain(ms: i64) -> String {
     let iso = rfc3339(ms);
     format!("{} {}", &iso[..10], &iso[11..19])
 }
@@ -666,14 +723,19 @@ impl Tz {
         }
     }
 
+    /// The server's local now, ms (as [`parse_ts`] reads it).
+    pub(crate) fn now(&self) -> Option<i64> {
+        self.now
+    }
+
     /// `local` (a time of the server) is already past.
-    fn past(&self, local: Option<&str>) -> bool {
+    pub(crate) fn past(&self, local: Option<&str>) -> bool {
         matches!((local.and_then(parse_ts), self.now), (Some(t), Some(n)) if t <= n)
     }
 
     /// Asks the server with `sql`, whose first row has the columns
     /// `LOCAL_NOW` and `UTC_NOW`. UTC when it fails.
-    fn query(src: &mut dyn JobSource, sql: &str) -> Tz {
+    pub(crate) fn query(src: &mut dyn JobSource, sql: &str) -> Tz {
         match src.query(sql, &[]) {
             Ok(s) if !s.rows.is_empty() => Tz::from_now(s.get(0, "LOCAL_NOW"), s.get(0, "UTC_NOW")),
             Ok(_) => Tz::default(),

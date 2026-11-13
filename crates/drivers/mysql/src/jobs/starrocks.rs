@@ -4,9 +4,11 @@
 //! Two kinds share the catalog:
 //!
 //! - Tasks made with `SUBMIT TASK`, run once or on a `SCHEDULE … EVERY`.
-//!   StarRocks has no statement to run one again, and `ALTER TASK …
-//!   SUSPEND | RESUME` exists but the catalog doesn't say which tasks are
-//!   suspended: DBine offers neither and says so.
+//!   StarRocks has no statement to run one again (checked up to 4.1.4:
+//!   `ALTER TASK` takes only `SUSPEND`, `RESUME` and `SET`), and `ALTER TASK
+//!   … SUSPEND | RESUME` exists but the catalog doesn't say which tasks are
+//!   suspended: no enable switch here (the scheduler designer offers both
+//!   as actions). A pipe's tasks are the server's (`system`).
 //! - The refresh task of each asynchronous materialized view (`mv-<id>`),
 //!   shown as the view: `REFRESH MATERIALIZED VIEW … WITH ASYNC MODE` runs
 //!   it now, `CANCEL REFRESH MATERIALIZED VIEW` stops the refresh going on.
@@ -23,8 +25,8 @@ use dbine_driver::jobs::{JobDetail, JobList, JobOutcome, JobRun, JobStep, Server
 use dbine_driver::{Error, Result};
 use std::collections::HashMap;
 
-pub(super) const TASK: &str = "Task";
-pub(super) const MV: &str = "Materialized view";
+pub(crate) const TASK: &str = "Task";
+pub(crate) const MV: &str = "Materialized view";
 
 /// Runs per task the list reads, to find the last finished one.
 const RECENT: usize = 3;
@@ -33,24 +35,24 @@ const RECENT: usize = 3;
 const NO_TASKS_NOTE: &str = "Esta versión de StarRocks no tiene tareas.";
 
 /// The note for a user who doesn't see every database's tasks.
-const PARTIAL_NOTE: &str =
+pub(crate) const PARTIAL_NOTE: &str =
     "Se ven solo las tareas de las bases en las que este usuario tiene privilegios.";
 
 /// The built-in roles that hold privileges on every database.
 const ALL_DATABASES_ROLES: [&str; 2] = ["root", "db_admin"];
 
 const TASKS: &str = "SELECT * FROM information_schema.tasks{filter} ORDER BY TASK_NAME";
-const VIEWS: &str = "SELECT * FROM information_schema.materialized_views";
+pub(crate) const VIEWS: &str = "SELECT * FROM information_schema.materialized_views";
 const RECENT_RUNS: &str = "SELECT * FROM (SELECT r.*, ROW_NUMBER() OVER (PARTITION BY r.TASK_NAME ORDER BY r.CREATE_TIME DESC) AS dbine_rn FROM information_schema.task_runs r) x WHERE dbine_rn <= {RECENT}";
 
 /// A task's id: `` task:`name` ``, or `` mv:`name` `` for a materialized
 /// view's refresh task.
-fn task_id(name: &str, mv: bool) -> String {
+pub(crate) fn task_id(name: &str, mv: bool) -> String {
     format!("{}:{}", if mv { "mv" } else { "task" }, quoted(name))
 }
 
 /// The task name in an id and whether it's a view's.
-fn parse_id(id: &str) -> Result<(String, bool)> {
+pub(crate) fn parse_id(id: &str) -> Result<(String, bool)> {
     if let Some(n) = one_name(id, "task:") {
         return Ok((n, false));
     }
@@ -59,23 +61,42 @@ fn parse_id(id: &str) -> Result<(String, bool)> {
         .ok_or_else(|| bad_id(id, "tarea de StarRocks"))
 }
 
-fn not_found(name: &str) -> Error {
+pub(crate) fn not_found(name: &str) -> Error {
     Error::Query(format!("no existe la tarea {name} o este usuario no la ve"))
+}
+
+/// A task a pipe runs (`CREATE PIPE`): StarRocks names them
+/// `pipe-<pipe>-task-<id>-<n>`, makes them and drops them with the pipe's
+/// loads. They're the server's, not the user's.
+pub(crate) fn pipe_task(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("pipe-") else {
+        return false;
+    };
+    let mut parts = rest.rsplitn(3, '-');
+    let (Some(n), Some(id), Some(head)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(n)
+        && digits(id)
+        && head
+            .strip_suffix("-task")
+            .is_some_and(|pipe| !pipe.is_empty())
 }
 
 /// One row of `information_schema.tasks`.
 #[derive(Debug, Clone, Default, PartialEq)]
-struct Task {
-    name: String,
-    created: Option<String>,
+pub(crate) struct Task {
+    pub(crate) name: String,
+    pub(crate) created: Option<String>,
     /// `PERIODICAL START(…) EVERY(1 HOURS)`, `MANUAL`, `EVENT_TRIGGERED`.
-    schedule: Option<String>,
-    catalog: Option<String>,
-    database: Option<String>,
-    definition: Option<String>,
-    expire: Option<String>,
-    properties: Option<String>,
-    creator: Option<String>,
+    pub(crate) schedule: Option<String>,
+    pub(crate) catalog: Option<String>,
+    pub(crate) database: Option<String>,
+    pub(crate) definition: Option<String>,
+    pub(crate) expire: Option<String>,
+    pub(crate) properties: Option<String>,
+    pub(crate) creator: Option<String>,
 }
 
 fn task(r: &mysql_async::Row) -> Task {
@@ -94,15 +115,15 @@ fn task(r: &mysql_async::Row) -> Task {
 
 /// The view a refresh task belongs to.
 #[derive(Debug, Clone, Default, PartialEq)]
-struct View {
-    schema: String,
-    name: String,
-    active: bool,
-    refresh_type: Option<String>,
-    inactive_reason: Option<String>,
+pub(crate) struct View {
+    pub(crate) schema: String,
+    pub(crate) name: String,
+    pub(crate) active: bool,
+    pub(crate) refresh_type: Option<String>,
+    pub(crate) inactive_reason: Option<String>,
 }
 
-fn views(rows: &[mysql_async::Row]) -> HashMap<String, View> {
+pub(crate) fn views(rows: &[mysql_async::Row]) -> HashMap<String, View> {
     rows.iter()
         .filter_map(|r| {
             Some((
@@ -122,7 +143,7 @@ fn views(rows: &[mysql_async::Row]) -> HashMap<String, View> {
 
 /// One row of `information_schema.task_runs`, times still local.
 #[derive(Debug, Clone, Default, PartialEq)]
-struct Run {
+pub(crate) struct Run {
     task: String,
     query_id: Option<String>,
     state: String,
@@ -175,7 +196,7 @@ impl Run {
 
 impl Task {
     /// What follows `PERIODICAL`: `START(2026-11-12T12:58:19) EVERY(1 MINUTES)`.
-    fn periodical(&self) -> Option<&str> {
+    pub(crate) fn periodical(&self) -> Option<&str> {
         let s = self.schedule.as_deref()?.trim();
         s.strip_prefix("PERIODICAL")
             .map(str::trim)
@@ -184,7 +205,7 @@ impl Task {
 
     /// The start and step of a periodical schedule: `2026-11-12 12:58:19`,
     /// `(1, "MINUTE")`.
-    fn start_every(&self) -> (Option<String>, Option<(u64, String)>) {
+    pub(crate) fn start_every(&self) -> (Option<String>, Option<(u64, String)>) {
         let Some(p) = self.periodical() else {
             return (None, None);
         };
@@ -245,7 +266,7 @@ impl Task {
 }
 
 /// `('k1'='v1','k2'='v2')` as pairs.
-fn parse_properties(s: &str) -> Vec<(String, String)> {
+pub(crate) fn parse_properties(s: &str) -> Vec<(String, String)> {
     let s = s.trim();
     let s = s
         .strip_prefix('(')
@@ -363,23 +384,23 @@ fn job(t: &Task, view: Option<&View>, s: Summary) -> ServerJob {
             last_started: s.last_started,
             last_duration_ms: s.last_duration_ms,
             next_run: None,
-            system: false,
+            system: pipe_task(&t.name),
         },
     }
 }
 
 /// Everything the list and the detail read.
-struct Catalog {
-    tasks: Vec<Task>,
-    views: HashMap<String, View>,
-    runs: Vec<Run>,
-    tz: String,
-    utc: HashMap<(Civil, String), Civil>,
+pub(crate) struct Catalog {
+    pub(crate) tasks: Vec<Task>,
+    pub(crate) views: HashMap<String, View>,
+    pub(crate) runs: Vec<Run>,
+    pub(crate) tz: String,
+    pub(crate) utc: HashMap<(Civil, String), Civil>,
 }
 
 /// The catalog, or the note for a server that has none to show (no
 /// `information_schema.tasks`, or, listing all, the user may not read it).
-async fn catalog(
+pub(crate) async fn catalog(
     s: &mut MySqlSession,
     only: Option<&str>,
 ) -> Result<std::result::Result<Catalog, &'static str>> {
@@ -469,7 +490,7 @@ pub(super) async fn list(s: &mut MySqlSession) -> Result<JobList> {
 
 /// Whether the user sees every database's tasks and views: StarRocks leaves
 /// out those of databases the user has no privilege on or in.
-async fn sees_all_databases(s: &mut MySqlSession) -> bool {
+pub(crate) async fn sees_all_databases(s: &mut MySqlSession) -> bool {
     let rows = s
         .optional_rows("SELECT CURRENT_USER() AS sr_user, CURRENT_ROLE() AS sr_roles")
         .await;
@@ -528,7 +549,7 @@ fn grants_every_database(grants: &[String]) -> bool {
 }
 
 /// One task and its view, or the error for an unknown one.
-async fn one(s: &mut MySqlSession, id: &str) -> Result<(Task, Option<View>, Catalog)> {
+pub(crate) async fn one(s: &mut MySqlSession, id: &str) -> Result<(Task, Option<View>, Catalog)> {
     let (name, mv) = parse_id(id)?;
     let c = catalog(s, Some(&name))
         .await?

@@ -33,6 +33,7 @@ fn dialect(b: [u8; 3]) -> ScriptDialect {
         compound_blocks: bit(14),
         tsql_blocks: bit(15),
         dash_comment_space: bit(16),
+        backtick_backslash: bit(17),
         batch: match b[2] >> 6 {
             0 => BatchLine::Go,
             1 => BatchLine::Slash,

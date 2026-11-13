@@ -1926,6 +1926,171 @@ impl Session for RemoteSession {
             .await
             .map(|_| ())
     }
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        match self
+            .host
+            .call(Call::SchedulerInfo { session: self.id })
+            .await?
+        {
+            Reply::SchedulerInfo(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        match self
+            .host
+            .call(Call::SchedulerItems {
+                session: self.id,
+                kind: kind.to_string(),
+            })
+            .await?
+        {
+            Reply::SchedulerList(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        match self
+            .host
+            .call(Call::SchedulerForm {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.map(str::to_string),
+            })
+            .await?
+        {
+            Reply::ObjectForm(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        match self
+            .host
+            .call(Call::SchedulerScript {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.map(str::to_string),
+                values: values.clone(),
+            })
+            .await?
+        {
+            Reply::Text(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        match self
+            .host
+            .call(Call::SchedulerSave {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.map(str::to_string),
+                values: values.clone(),
+            })
+            .await?
+        {
+            Reply::MaybeText(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        match self
+            .host
+            .call(Call::SchedulerDeleteScript {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.to_string(),
+            })
+            .await?
+        {
+            Reply::Text(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.host
+            .call(Call::SchedulerDelete {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.to_string(),
+            })
+            .await
+            .map(|_| ())
+    }
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        match self
+            .host
+            .call(Call::SchedulerActionScript {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.to_string(),
+                action: action.to_string(),
+            })
+            .await?
+        {
+            Reply::Text(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        self.host
+            .call(Call::SchedulerAction {
+                session: self.id,
+                kind: kind.to_string(),
+                id: id.to_string(),
+                action: action.to_string(),
+            })
+            .await
+            .map(|_| ())
+    }
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        self.host
+            .call(Call::RunJobFrom {
+                session: self.id,
+                id: id.to_string(),
+                step: step.to_string(),
+            })
+            .await
+            .map(|_| ())
+    }
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        self.host
+            .call(Call::ClearJobHistory {
+                session: self.id,
+                id: id.to_string(),
+            })
+            .await
+            .map(|_| ())
+    }
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        match self
+            .host
+            .call(Call::SchedulerLogs { session: self.id })
+            .await?
+        {
+            Reply::SchedulerLogs(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
     async fn job_script(&mut self, id: &str) -> Result<String> {
         match self
             .host

@@ -20,6 +20,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod scheduler;
 mod script;
 mod search;
 mod security;
@@ -696,6 +697,8 @@ impl Driver for OracleDriver {
             database_properties: true,
             // DBMS_SCHEDULER (and DBMS_JOB before 19c), see `jobs`.
             jobs: true,
+            // The whole Scheduler in the designer, see `scheduler`.
+            scheduler: true,
         }
     }
 
@@ -1605,6 +1608,89 @@ impl Session for OracleSession {
     async fn job_script(&mut self, id: &str) -> Result<String> {
         let id = id.to_string();
         self.run(move |c| jobs::script(c, &id)).await
+    }
+
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        self.run(scheduler::info).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        let kind = kind.to_string();
+        self.run(move |c| scheduler::items(c, &kind)).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        let (kind, id) = (kind.to_string(), id.map(str::to_string));
+        self.run(move |c| scheduler::form(c, &kind, id.as_deref()))
+            .await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        let (kind, id, values) = (kind.to_string(), id.map(str::to_string), values.clone());
+        self.run(move |c| scheduler::script(c, &kind, id.as_deref(), &values))
+            .await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        let (kind, id, values) = (kind.to_string(), id.map(str::to_string), values.clone());
+        self.run(move |c| scheduler::save(c, &kind, id.as_deref(), &values))
+            .await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        let (kind, id) = (kind.to_string(), id.to_string());
+        self.run(move |c| scheduler::delete_script(c, &kind, &id))
+            .await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        let (kind, id) = (kind.to_string(), id.to_string());
+        self.run(move |c| scheduler::delete(c, &kind, &id)).await
+    }
+
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
+        self.run(move |c| scheduler::action_script(c, &kind, &id, &action))
+            .await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
+        self.run(move |c| scheduler::run_action(c, &kind, &id, &action))
+            .await
+    }
+
+    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
+        let (id, step) = (id.to_string(), step.to_string());
+        self.run(move |c| scheduler::run_from(c, &id, &step)).await
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        let id = id.to_string();
+        self.run(move |c| scheduler::clear_history(c, &id)).await
+    }
+
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        self.run(scheduler::logs).await
     }
 
     async fn read_batches(

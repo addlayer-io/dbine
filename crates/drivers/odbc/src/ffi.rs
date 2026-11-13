@@ -62,6 +62,8 @@ pub const SQL_DESC_TYPE_NAME: u16 = 14;
 
 // SQLBindParameter
 pub const SQL_PARAM_INPUT: i16 = 1;
+pub const SQL_PARAM_INPUT_OUTPUT: i16 = 2;
+pub const SQL_PARAM_OUTPUT: i16 = 4;
 
 // C data types.
 pub const SQL_C_CHAR: i16 = 1;

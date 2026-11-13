@@ -149,7 +149,6 @@ backend:Fuera de línea (OFFLINE)
 backend:Fuera de línea (offline)
 backend:Operador
 backend:Perú
-backend:Programa
 backend:Puerto
 backend:Región
 backend:Región (datacenter)
@@ -177,3 +176,16 @@ enterprise.json:signIn.title
 scheduled.json:server.tab
 backend:Argumento {0}
 backend:Problema
+backend:Alerta
+backend:Definidor
+backend:Momento
+backend:Operador (net send)
+backend:Reflexión
+backend:SQL: alerta
+backend:alerta
+backend:operador
+backend:programa
+backend:reflexión
+backend:Programa {0}
+backend:Programa
+backend:Programa {0}

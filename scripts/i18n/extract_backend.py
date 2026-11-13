@@ -241,6 +241,27 @@ def monitor_labels(src: str):
             yield _unescape(lit)
 
 
+# The scheduler designer's forms (crates/dbine-driver/src/scheduler.rs): field,
+# section, list, kind and action labels and select options, taken by the constructors
+# that carry them ("Pasos", "Reintentos", "Diaria"). Help texts are sentences
+# the filter above already takes; placeholders are examples, kept as written.
+_FORM = [
+    (re.compile(r"\b(?:FormField|FormSection|FormList|SchedulerAction)::new\(\s*" + _LIT + r"\s*,\s*" + _LIT), (2,)),
+    (re.compile(r"\bSchedulerKind::new\(\s*" + _LIT + r"\s*,\s*" + _LIT + r"\s*,\s*" + _LIT), (2, 3)),
+]
+_FORM_OPTIONS = re.compile(r"\bFormKind::(?:select|multi)\(\s*&\[([^\]]*)\]")
+
+
+def form_labels(src: str):
+    for pat, groups in _FORM:
+        for m in pat.finditer(src):
+            for g in groups:
+                yield _unescape(m.group(g))
+    for m in _FORM_OPTIONS.finditer(src):
+        for _, label in _PAIR.findall(m.group(1)):
+            yield _unescape(label)
+
+
 def monitor_label(s: str) -> bool:
     text = PLACEHOLDER.sub("", s).strip()
     if not re.search(r"[a-záéíóúñ]", text):
@@ -268,7 +289,7 @@ def main():
         for lit in literals(src):
             if user_facing(lit):
                 msgs.setdefault(normalize(lit), set()).add(str(f.relative_to(ROOT)))
-        for lit in monitor_labels(src):
+        for lit in [*monitor_labels(src), *form_labels(src)]:
             if monitor_label(lit):
                 msgs.setdefault(normalize(lit), set()).add(str(f.relative_to(ROOT)))
     out = {m: sorted(v) for m, v in sorted(msgs.items())}

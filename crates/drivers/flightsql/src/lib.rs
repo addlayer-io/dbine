@@ -1043,6 +1043,9 @@ const UNSUPPORTED_PROCESSES: &str = "Flight SQL no define cómo listar ni cancel
      lo atiende. Para Dremio o Apache Doris, usá su driver propio, que sí las lista";
 const UNSUPPORTED_JOBS: &str = "Flight SQL no define jobs del servidor: los refrescos de reflexiones de Dremio y los jobs de Apache Doris \
      se ven con el driver propio de cada uno";
+const UNSUPPORTED_SCHEDULER: &str = "Flight SQL no define un planificador: las reflexiones de Dremio y sus políticas de refresco se administran \
+     con el driver de Dremio (su API REST cambia una reflexión en el lugar y guarda las políticas, que el SQL de Dremio no puede), y los jobs \
+     de Apache Doris con el suyo";
 
 #[async_trait]
 impl Session for FlightSession {
@@ -1453,6 +1456,17 @@ impl Session for FlightSession {
     /// through their own drivers.
     async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
         Err(Error::Unsupported(UNSUPPORTED_JOBS.into()))
+    }
+
+    /// Nor a scheduler to manage: Dremio's reflections and refresh
+    /// policies need its REST API (see the Dremio driver's scheduler),
+    /// which Flight SQL doesn't reach.
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        Err(Error::Unsupported(UNSUPPORTED_SCHEDULER.into()))
+    }
+
+    async fn scheduler_items(&mut self, _kind: &str) -> Result<dbine_driver::SchedulerList> {
+        Err(Error::Unsupported(UNSUPPORTED_SCHEDULER.into()))
     }
 
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {

@@ -59,6 +59,8 @@ import OptimizerView from './views/OptimizerView.vue';
 import SubsetView from './views/SubsetView.vue';
 import ScheduledTaskView from './views/ScheduledTaskView.vue';
 import ServerJobView from './views/ServerJobView.vue';
+import SchedulerObjectView from './views/SchedulerObjectView.vue';
+import SchedulerLogView from './views/SchedulerLogView.vue';
 import SparklesIcon from './components/SparklesIcon.vue';
 import ConnectionView from './views/ConnectionView.vue';
 import MonitorView from './views/MonitorView.vue';
@@ -288,6 +290,8 @@ watch(
               <SubsetView v-else-if="t.kind === 'subset'" :tab="t" />
               <ScheduledTaskView v-else-if="t.kind === 'scheduledTask'" :tab="t" />
               <ServerJobView v-else-if="t.kind === 'serverJob'" :tab="t" :active="shown" />
+              <SchedulerObjectView v-else-if="t.kind === 'schedulerObject'" :tab="t" />
+              <SchedulerLogView v-else-if="t.kind === 'schedulerLog'" :tab="t" :active="shown" />
               <ConnectionView v-else-if="t.kind === 'connection'" :tab="t" />
             </div>
           </template>

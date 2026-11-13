@@ -20,6 +20,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod scheduler;
 mod script;
 mod security;
 mod stats;
@@ -180,6 +181,7 @@ impl Driver for DremioDriver {
             processes: true,
             cancel_query: true,
             jobs: true,
+            scheduler: true,
             ..Default::default()
         }
     }
@@ -1274,6 +1276,85 @@ impl Session for DremioSession {
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         self.server_job_script(id).await
+    }
+
+    /// Reflections and refresh policies in the designer (see
+    /// [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_info_impl().await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_items_impl(kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_form_impl(kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_script_impl(kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_save_impl(kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_delete_script_impl(kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_delete_impl(kind, id).await
+    }
+
+    /// A table policy's "refresh its reflections now".
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_action_script_impl(kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_action_impl(kind, id, action).await
+    }
+
+    /// Dremio drops old materializations itself: there's no history to
+    /// clear.
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        self.clear_history_impl(id).await
+    }
+
+    /// The reflections' refreshes (`sys.materializations`).
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_logs_impl().await
     }
 
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {

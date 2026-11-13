@@ -9,6 +9,9 @@
 //! - Stopping is `TERMINATE`, which deletes the query for good: the stream
 //!   or table it fed stays, with nothing writing to it. The job's tab says
 //!   so.
+//! - The query a `CREATE SOURCE TABLE` runs (`CST_…`) can be neither
+//!   stopped nor disabled: ksqlDB refuses both ("linked to a source
+//!   table"), it ends with its table.
 //! - There's no "run now" (a persistent query is always running) and no
 //!   history of runs; `queryErrors` (the latest errors the server kept) goes
 //!   to the detail.
@@ -36,7 +39,21 @@ const MAX_MESSAGE: usize = 4000;
 const MAX_JOBS: usize = 5000;
 
 const TERMINATE_NOTE: &str = "Detener ejecuta TERMINATE: la consulta se borra para siempre y el stream o la tabla que alimenta quedan sin quien escriba en ellos. Para frenarla un tiempo, deshabilitala (PAUSE).";
-const NO_PAUSE_NOTE: &str = "Esta versión de ksqlDB no tiene PAUSE ni RESUME (llegaron en ksqlDB 0.26, Confluent Platform 7.3): las consultas no se pueden deshabilitar.";
+pub(crate) const NO_PAUSE_NOTE: &str = "Esta versión de ksqlDB no tiene PAUSE ni RESUME (llegaron en ksqlDB 0.26, Confluent Platform 7.3): las consultas no se pueden deshabilitar.";
+const SOURCE_TABLE_NOTE: &str = "Es la consulta de una tabla de origen (CREATE SOURCE TABLE): ksqlDB no la deja detener ni deshabilitar, termina cuando se borra la tabla.";
+
+/// The query a `CREATE SOURCE TABLE` keeps running (`CST_…`): ksqlDB
+/// refuses to terminate or pause it ("linked to a source table"), it ends
+/// with its table.
+fn source_table_query(id: &str, q: &Value) -> bool {
+    id.starts_with("CST_")
+        || q.get("statementText").map(text).is_some_and(|s| {
+            s.split_whitespace()
+                .take(3)
+                .map(str::to_ascii_uppercase)
+                .eq(["CREATE", "SOURCE", "TABLE"])
+        })
+}
 
 /// The server can `PAUSE` / `RESUME` a query: ksqlDB 0.26 on, or
 /// Confluent Platform 7.3 on (its versions are 5.x and up). An unknown
@@ -112,6 +129,7 @@ pub(crate) fn job_of(q: &Value, pause: bool) -> Option<ServerJob> {
     let running = any("RUNNING");
     let failed = any("ERROR");
     let sinks = list_of(q, "sinks");
+    let source_table = source_table_query(&id, q);
     Some(ServerJob {
         name: id.clone(),
         kind: KIND.into(),
@@ -133,8 +151,8 @@ pub(crate) fn job_of(q: &Value, pause: bool) -> Option<ServerJob> {
         last_duration_ms: None,
         next_run: None,
         can_run: false,
-        can_stop: true,
-        can_enable: pause,
+        can_stop: !source_table,
+        can_enable: pause && !source_table,
         has_history: false,
         has_script: q
             .get("statementText")
@@ -182,8 +200,13 @@ pub(crate) fn detail_of(q: &Value, pause: bool) -> Option<JobDetail> {
             properties.push(prop("Propiedades", k, text(v)));
         }
     }
-    let mut notes = vec![TERMINATE_NOTE.to_string()];
-    if !pause {
+    let mut notes = vec![if job.can_stop {
+        TERMINATE_NOTE
+    } else {
+        SOURCE_TABLE_NOTE
+    }
+    .to_string()];
+    if !pause && job.can_stop {
         notes.push(NO_PAUSE_NOTE.into());
     }
     // The newest error the server kept, if any.
@@ -219,7 +242,7 @@ pub(crate) fn detail_of(q: &Value, pause: bool) -> Option<JobDetail> {
 }
 
 /// Milliseconds since 1970 as RFC 3339 in UTC.
-fn utc_ms(ms: i64) -> String {
+pub(crate) fn utc_ms(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
     let z = days + 719_468;
@@ -250,7 +273,7 @@ fn not_found(id: &str) -> Error {
 }
 
 impl KsqlSession {
-    async fn version(&self) -> String {
+    pub(crate) async fn version(&self) -> String {
         match self.get_json("/info").await {
             Ok(v) => v
                 .pointer("/KsqlServerInfo/version")
@@ -310,7 +333,9 @@ impl KsqlSession {
     }
 
     pub(crate) async fn stop_server_job(&mut self, id: &str) -> Result<()> {
-        self.description(id).await?;
+        if source_table_query(id, &self.description(id).await?) {
+            return Err(Error::Unsupported(SOURCE_TABLE_NOTE.into()));
+        }
         // The id has the shape `valid_id` checked: letters, digits, `_`, `-`.
         self.ksql(&format!("TERMINATE {id}"))
             .await
@@ -327,7 +352,9 @@ impl KsqlSession {
         if !can_pause(&self.version().await) {
             return Err(Error::Unsupported(NO_PAUSE_NOTE.into()));
         }
-        self.description(id).await?;
+        if source_table_query(id, &self.description(id).await?) {
+            return Err(Error::Unsupported(SOURCE_TABLE_NOTE.into()));
+        }
         let stmt = if enabled { "RESUME" } else { "PAUSE" };
         self.ksql(&format!("{stmt} {id}"))
             .await
@@ -432,6 +459,26 @@ mod tests {
         let d = detail_of(descriptions(&ents)[0], false).unwrap();
         assert!(d.notes.iter().any(|n| n.contains("PAUSE")));
         assert_eq!(p("Escribe en").as_deref(), Some("X"));
+    }
+
+    #[test]
+    fn a_source_tables_query_can_be_neither_stopped_nor_disabled() {
+        let cst = json!({"id": "CST_DBINE_TEST_SCHED_SRC_3", "queryType": "PERSISTENT",
+            "statementText": "CREATE SOURCE TABLE DBINE_TEST_SCHED_SRC (ID INTEGER PRIMARY KEY, V STRING) WITH (KAFKA_TOPIC='t', VALUE_FORMAT='JSON');",
+            "sinks": ["DBINE_TEST_SCHED_SRC"], "ksqlHostQueryStatus": {"h1:8088": "RUNNING"}});
+        let j = job_of(&cst, true).unwrap();
+        assert!(!j.can_stop && !j.can_enable && j.running && j.has_script);
+        let d = detail_of(&cst, false).unwrap();
+        assert_eq!(d.notes, [SOURCE_TABLE_NOTE]);
+        // Told by its statement too, whatever the id.
+        assert!(source_table_query(
+            "Q_1",
+            &json!({"statementText": "  create  source\ntable t (id int primary key) with (kafka_topic='t');"})
+        ));
+        assert!(!source_table_query(
+            "CTAS_T_7",
+            &json!({"statementText": "CREATE TABLE T AS SELECT * FROM S;"})
+        ));
     }
 
     #[test]

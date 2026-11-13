@@ -91,7 +91,11 @@ pub fn map(
 }
 
 impl SpannerSession {
-    async fn test_iam(&self, resource: &str, perms: &[&str]) -> Option<BTreeSet<String>> {
+    pub(crate) async fn test_iam(
+        &self,
+        resource: &str,
+        perms: &[&str],
+    ) -> Option<BTreeSet<String>> {
         match self
             .api
             .post(&format!("{resource}:testIamPermissions"), &request(perms))

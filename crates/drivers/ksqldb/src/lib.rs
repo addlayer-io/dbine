@@ -28,6 +28,7 @@ mod jobs;
 mod monitor;
 mod plan;
 mod processes;
+mod scheduler;
 mod steps;
 mod sync;
 #[path = "../../influxdb/src/tls_http.rs"]
@@ -150,6 +151,7 @@ impl Driver for KsqlDriver {
             processes: true,
             cancel_query: true,
             jobs: true,
+            scheduler: true,
             ..Capabilities::default()
         }
     }
@@ -1007,6 +1009,55 @@ impl Session for KsqlSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.server_job_script(id).await
+    }
+
+    /// Persistent queries in the designer (see [`scheduler`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        self.scheduler_info_impl().await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        self.scheduler_items_impl(kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        self.scheduler_form_impl(kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        self.scheduler_script_impl(kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        self.scheduler_save_impl(kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        self.scheduler_delete_script_impl(kind, id).await
+    }
+
+    /// `TERMINATE`.
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        self.scheduler_delete_impl(kind, id).await
+    }
+
+    /// The errors each persistent query keeps.
+    async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
+        self.scheduler_logs_impl().await
     }
 
     /// A pull query read to the end, typed by its column types.

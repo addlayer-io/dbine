@@ -251,6 +251,7 @@
     "tab": "作业",
     "noConnections": "没有连接使用支持服务器作业的引擎（SQL Server Agent、DBMS_SCHEDULER、Snowflake 任务、Databricks 作业、pg_cron、MySQL 事件……）。",
     "none": "此服务器没有作业。",
+    "failedCount_other": "{{count}} 个作业上次运行失败",
     "onDemand": "按需",
     "showSystem_other": "显示 {{count}} 个系统作业",
     "hideSystem_other": "隐藏系统作业",
@@ -267,13 +268,16 @@
       "run": "要在 {{connection}} 上立即运行作业“{{job}}”吗？",
       "stop": "要停止 {{connection}} 上作业“{{job}}”的当前运行吗？",
       "enable": "要在 {{connection}} 上启用作业“{{job}}”吗？它将重新按计划运行。",
-      "disable": "要在 {{connection}} 上禁用作业“{{job}}”吗？它将不再按计划运行。"
+      "disable": "要在 {{connection}} 上禁用作业“{{job}}”吗？它将不再按计划运行。",
+      "clearHistory": "清除 {{connection}} 中作业“{{job}}”的运行历史？此操作无法撤销。"
     },
     "done": {
       "run": "服务器已开始运行“{{job}}”。",
       "stop": "已请求停止“{{job}}”。",
       "enable": "“{{job}}”已启用。",
-      "disable": "“{{job}}”已禁用。"
+      "disable": "“{{job}}”已禁用。",
+      "clearHistory": "已清除“{{job}}”的历史。",
+      "runFrom": "服务器已从步骤“{{step}}”开始运行“{{job}}”。"
     },
     "outcome": {
       "succeeded": "成功",
@@ -303,6 +307,73 @@
     "trigger": "触发方式",
     "message": "消息",
     "moreRuns": "查看更多运行",
-    "failedCount_other": "{{count}} 个作业上次运行失败"
+    "newJob": "新建作业",
+    "edit": "编辑",
+    "runFrom": "从步骤开始…",
+    "clearHistory": "清除历史",
+    "delete": "删除",
+    "more": "更多操作",
+    "systemObjectsHint": "系统对象随引擎自带：不是用户创建的。",
+    "log": "调度器日志",
+    "noItems": "没有项目。",
+    "runFromDialog": {
+      "title": "从步骤开始",
+      "message": "现在在 {{connection}} 上运行作业“{{job}}”，从你选择的步骤开始。",
+      "start": "开始",
+      "noSteps": "作业“{{job}}”没有步骤。"
+    }
+  },
+  "designer": {
+    "newTitle": "创建{{kind}}",
+    "readOnly": "只读",
+    "readOnlyHint": "无法保存：该连接为只读，或服务器不允许此用户更改此对象。",
+    "viewScript": "查看脚本",
+    "openInQuery": "在查询中打开",
+    "reload": "重新加载",
+    "required": "必填",
+    "invalid": "有字段需要检查：已标为红色。",
+    "errors": {
+      "required": "请填写此字段。",
+      "min": "必须大于或等于 {{n}}。",
+      "max": "必须小于或等于 {{n}}。",
+      "missing": "“{{value}}”不在可选项中：请另选一项。",
+      "minRows_other": "至少需要 {{count}} 行。",
+      "row": "第 {{n}} 行 · {{field}}：{{error}}"
+    },
+    "add": "添加",
+    "view": "查看",
+    "moveUp": "上移",
+    "moveDown": "下移",
+    "minRowsHint_other": "无法移除：列表至少需要 {{count}} 行。",
+    "noRows": "没有行。",
+    "newRow": "新行",
+    "secretKeep": "未更改：留空以保留当前值",
+    "secretMasked": "脚本中你输入的机密值显示为 ********：只有“保存”才会写入真实值。如果在查询中打开，请在运行前替换它们。",
+    "secretMaskedSave": "脚本中你输入的机密值显示为 ********；保存时会写入真实值。",
+    "secretComment": "机密值显示为 ********：运行此脚本前请替换为真实值。",
+    "seconds": "秒",
+    "untitled": "（未命名）",
+    "dirtyClose": "“{{name}}”有未保存的更改。关闭标签页并放弃更改？",
+    "dirtyReload": "“{{name}}”有未保存的更改。放弃更改并从服务器重新读取？",
+    "discard": "放弃",
+    "unsavedTitle": "未保存的更改",
+    "scriptTitle": "脚本 · {{name}}",
+    "saveTitle": "保存到服务器",
+    "deleteTitle": "从服务器删除",
+    "confirmCreate": "在 {{connection}} 中创建“{{name}}”（{{kind}}）？将运行以下脚本：",
+    "confirmSave": "将“{{name}}”（{{kind}}）的更改保存到 {{connection}}？将运行以下脚本：",
+    "confirmDelete": "从 {{connection}} 删除“{{name}}”（{{kind}}）？将运行以下脚本，且无法撤销：",
+    "prodWarning": "{{connection}} 是生产环境连接。",
+    "saved": "已保存“{{name}}”。",
+    "deleted": "已删除“{{name}}”。",
+    "confirmAction": "将对 {{connection}} 中的“{{name}}”（{{kind}}）执行“{{action}}”，脚本如下：",
+    "actionDone": "已对“{{name}}”执行“{{action}}”。",
+    "noScript": "服务器未返回任何脚本：没有可保存的更改。",
+    "consequences": "继续之前，请注意：",
+    "continue": "继续"
+  },
+  "log": {
+    "tab": "调度器日志",
+    "empty": "服务器没有调度器日志。"
   }
 }

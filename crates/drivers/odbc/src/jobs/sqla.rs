@@ -20,19 +20,19 @@ pub(super) const LIST: &str =
   LEFT OUTER JOIN SYS.SYSEVENTTYPE T ON T.event_type_id = E.event_type_id
  ORDER BY E.event_name";
 
-pub(super) const ONE: &str =
+pub(crate) const ONE: &str =
     "SELECT E.event_id, E.event_name, E.enabled, E.location, E.condition, E.remarks, E.action,
        USER_NAME(E.creator) AS creator_name, T.name AS event_type
   FROM SYS.SYSEVENT E
   LEFT OUTER JOIN SYS.SYSEVENTTYPE T ON T.event_type_id = E.event_type_id
  WHERE E.event_id = ?";
 
-pub(super) const SCHEDULES: &str =
+pub(crate) const SCHEDULES: &str =
     "SELECT event_id, sched_name, recurring, start_time, stop_time, start_date,
        days_of_week, days_of_month, interval_units, interval_amt
   FROM SYS.SYSSCHEDULE ORDER BY event_id, sched_name";
 
-const WEEKDAYS: [&str; 7] = [
+pub(crate) const WEEKDAYS: [&str; 7] = [
     "Sunday",
     "Monday",
     "Tuesday",
@@ -42,7 +42,7 @@ const WEEKDAYS: [&str; 7] = [
     "Saturday",
 ];
 
-fn q(name: &str) -> String {
+pub(crate) fn q(name: &str) -> String {
     quote_ident(Quote::Double, name)
 }
 
@@ -188,7 +188,7 @@ fn one(src: &mut dyn JobSource, id: &str) -> Result<Set> {
     Ok(s)
 }
 
-fn location(v: Option<&str>) -> Option<&'static str> {
+pub(crate) fn location(v: Option<&str>) -> Option<&'static str> {
     match v.map(|v| v.trim().to_ascii_uppercase()).as_deref() {
         Some("C") => Some("CONSOLIDATED"),
         Some("R") => Some("REMOTE"),
@@ -232,11 +232,10 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
     })
 }
 
-pub fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let s = one(src, id)?;
     let name = s.get(0, "event_name").ok_or_else(|| not_found(id))?;
-    src.exec(&format!("TRIGGER EVENT {}", q(name)), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!("TRIGGER EVENT {}", q(name))))
 }
 
 pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {
@@ -254,7 +253,7 @@ pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<(
 }
 
 /// A text literal for SQL Anywhere, where `\` escapes too.
-fn sqla_lit(v: &str) -> String {
+pub(crate) fn sqla_lit(v: &str) -> String {
     lit(&v.replace('\\', "\\\\"))
 }
 

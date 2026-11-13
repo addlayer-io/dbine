@@ -105,6 +105,10 @@ pub struct ScriptDialect {
     pub bracket_idents: bool,
     /// `` `name` `` is an identifier (MySQL, BigQuery, ClickHouse, Spark…).
     pub backtick_idents: bool,
+    /// `\`` escapes a backtick inside `` `name` `` (ClickHouse, BigQuery);
+    /// elsewhere only a doubled ``` `` ``` does (MySQL, Spark…). Read wrong,
+    /// a name holding `` \`; `` would split a script in two.
+    pub backtick_backslash: bool,
     pub batch: BatchLine,
     /// `DELIMITER x` on its own line switches the terminator (mysql CLI).
     pub delimiter_command: bool,
@@ -153,6 +157,7 @@ impl ScriptDialect {
             q_quotes: false,
             bracket_idents: false,
             backtick_idents: true,
+            backtick_backslash: false,
             batch: BatchLine::None,
             delimiter_command: false,
             set_term: false,
@@ -676,7 +681,10 @@ impl Scanner<'_> {
                     self.d.backslash_escapes && !self.d.dquote_idents,
                 ),
             ),
-            b'`' if self.d.backtick_idents => (Tok::Quoted, self.quote_end(i + 1, b'`', false)),
+            b'`' if self.d.backtick_idents => (
+                Tok::Quoted,
+                self.quote_end(i + 1, b'`', self.d.backtick_backslash),
+            ),
             b'[' if self.d.bracket_idents => (Tok::Quoted, self.quote_end(i + 1, b']', false)),
             b'$' if self.d.dollar_quotes && !is_ident(prev) => match self.dollar_tag(i) {
                 Some(tag_end) => (Tok::Quoted, self.dollar_end(i, tag_end)),
@@ -1516,6 +1524,33 @@ mod tests {
         assert_eq!(
             texts(r"select 'a\'; select 2", ScriptDialect::postgres()),
             vec![r"select 'a\'", "select 2"]
+        );
+    }
+
+    #[test]
+    fn backslash_escaped_backticks_keep_a_hostile_name_whole() {
+        // ClickHouse's SHOW CREATE writes a name holding a backtick as
+        // `a\`b`: read as two quotes, the rest of the name would run.
+        let ch = ScriptDialect {
+            backslash_escapes: true,
+            backtick_backslash: true,
+            ..ScriptDialect::generic()
+        };
+        let hostile = r"DROP TABLE `x\`; DROP DATABASE prod; --`; SELECT 2";
+        assert_eq!(
+            texts(hostile, ch),
+            vec![r"DROP TABLE `x\`; DROP DATABASE prod; --`", "SELECT 2"]
+        );
+        // A doubled backtick still escapes there.
+        assert_eq!(
+            texts("SELECT `a``;b`; SELECT 2", ch),
+            vec!["SELECT `a``;b`", "SELECT 2"]
+        );
+        // MySQL: the backslash is literal inside a name, which ends at the
+        // next backtick.
+        assert_eq!(
+            texts(r"SELECT `a\`; SELECT 2", ScriptDialect::mysql()),
+            vec![r"SELECT `a\`", "SELECT 2"]
         );
     }
 

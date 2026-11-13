@@ -511,6 +511,33 @@ impl InfluxQlSession {
         Ok(results)
     }
 
+    /// A statement that writes (by POST) in `db`, whatever database the
+    /// session uses, failing on its error.
+    pub(crate) async fn write_on(&self, db: &str, q: &str) -> Result<()> {
+        let req = self
+            .http
+            .post(format!("{}/query", self.base))
+            .form(&[("q", q), ("db", db)]);
+        let req = if self.username.is_empty() {
+            req
+        } else {
+            req.basic_auth(&self.username, Some(&self.password))
+        };
+        let resp = req.send().await.map_err(send_err)?;
+        let v: J = serde_json::from_str(&http::text(resp).await?)?;
+        let error = v.get("error").and_then(|e| e.as_str()).or_else(|| {
+            v.get("results")
+                .and_then(|r| r.as_array())
+                .into_iter()
+                .flatten()
+                .find_map(|r| r.get("error").and_then(|e| e.as_str()))
+        });
+        match error {
+            Some(e) => Err(Error::Query(e.to_string())),
+            None => Ok(()),
+        }
+    }
+
     /// A statement that writes (by POST), failing on its error.
     pub(crate) async fn write_statement(&self, q: &str) -> Result<()> {
         let v = self.raw(q, true).await?;
@@ -1013,6 +1040,63 @@ impl Session for InfluxQlSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.job_create_script(id).await
+    }
+
+    /// Continuous queries managed whole (see [`crate::scheduler::cq`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        crate::scheduler::cq::info(self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::cq::items(self).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::cq::form(self, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::cq::script(self, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::cq::save(self, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::cq::delete_script(self, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        crate::scheduler::check_kind(kind)?;
+        crate::scheduler::cq::delete(self, id).await
+    }
+
+    async fn run_job_from(&mut self, _id: &str, _step: &str) -> Result<()> {
+        Err(crate::scheduler::cq::no_steps())
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        crate::scheduler::cq::clear_history(self, id).await
     }
 
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {

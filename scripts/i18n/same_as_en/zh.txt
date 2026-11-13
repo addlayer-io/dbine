@@ -92,3 +92,5 @@ tunnel.json:sourceAlias
 enterprise.json:header
 enterprise.json:signIn.title
 backend:Id de Snowflake
+backend:Reflexión
+backend:Replicador

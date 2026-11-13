@@ -86,26 +86,26 @@ const DBMS_JOB_PARTIAL: &str = "Se ven solo los jobs de DBMS_JOB a los que tiene
 const SCHEDULER_PARTIAL: &str = "Se ven solo los jobs de DBMS_SCHEDULER a los que tiene acceso este usuario: para verlos todos hace falta poder leer sys.dba_scheduler_jobs.";
 
 /// What this database has of EDB's schedulers, and who's asking.
-struct Edb {
-    cat: Catalog,
-    user: String,
-    superuser: bool,
-    database: String,
-    reads_settings: bool,
-    pgagent: bool,
-    version: i32,
+pub(crate) struct Edb {
+    pub(crate) cat: Catalog,
+    pub(crate) user: String,
+    pub(crate) superuser: bool,
+    pub(crate) database: String,
+    pub(crate) reads_settings: bool,
+    pub(crate) pgagent: bool,
+    pub(crate) version: i32,
     /// The edb_job_scheduler extension is in this database.
-    scheduler: bool,
+    pub(crate) scheduler: bool,
     /// The server loaded edb_job_scheduler's library, as far as the user
     /// can see (`pg_settings` has its setting).
-    loaded: bool,
+    pub(crate) loaded: bool,
     /// `edb_job_scheduler.database_list` (empty when it lists none), when
     /// the server has it and the user may read it.
-    database_list: Option<String>,
+    pub(crate) database_list: Option<String>,
 }
 
 impl Edb {
-    async fn read(s: &PgSession, f: &Found) -> Result<Edb> {
+    pub(crate) async fn read(s: &PgSession, f: &Found) -> Result<Edb> {
         let cat = Catalog::read(s, D, NAMES).await?;
         let rows = s.text(STATE_SQL).await?;
         let r = rows.first();
@@ -126,7 +126,7 @@ impl Edb {
         })
     }
 
-    fn dbms_jobs(&self) -> Option<(&View, Scope)> {
+    pub(crate) fn dbms_jobs(&self) -> Option<(&View, Scope)> {
         self.cat
             .readable("dba_jobs")
             .map(|v| (v, Scope::All))
@@ -134,18 +134,18 @@ impl Edb {
             .filter(|(v, _)| v.has("job"))
     }
 
-    fn sched_jobs(&self) -> Option<(&View, Scope)> {
+    pub(crate) fn sched_jobs(&self) -> Option<(&View, Scope)> {
         self.cat
             .widest("scheduler_jobs")
             .filter(|(v, _)| v.has("job_name"))
     }
 
-    fn schedules(&self) -> Option<&View> {
+    pub(crate) fn schedules(&self) -> Option<&View> {
         self.cat.widest("scheduler_schedules").map(|(v, _)| v)
     }
 
     /// DBMS_JOB or DBMS_SCHEDULER is in this database.
-    fn present(&self) -> bool {
+    pub(crate) fn present(&self) -> bool {
         self.cat.get("dba_jobs").is_some()
             || self.cat.get("all_jobs").is_some()
             || self.cat.any("scheduler_jobs")
@@ -153,11 +153,11 @@ impl Edb {
 
     /// The packages keep their jobs in pgAgent: before EPAS 16, without
     /// edb_job_scheduler.
-    fn on_pgagent(&self) -> bool {
+    pub(crate) fn on_pgagent(&self) -> bool {
         !self.scheduler && self.pgagent && self.version > 0 && self.version < 160000
     }
 
-    fn off(&self) -> Option<String> {
+    pub(crate) fn off(&self) -> Option<String> {
         off_note(
             self.version,
             self.scheduler,
@@ -169,14 +169,14 @@ impl Edb {
     }
 
     /// May change a DBMS_JOB job of `owner` (DBMS_JOB takes its number).
-    fn may(&self, owner: Option<&str>) -> bool {
+    pub(crate) fn may(&self, owner: Option<&str>) -> bool {
         self.superuser || owner == Some(self.user.as_str())
     }
 
     /// The owner of a DBMS_SCHEDULER job listed from a view of `scope`:
     /// a `USER_*` view has no owner column, and every job in it is the
     /// user's.
-    fn owner_of(&self, j: &SchedJob, scope: Scope) -> Option<String> {
+    pub(crate) fn owner_of(&self, j: &SchedJob, scope: Scope) -> Option<String> {
         j.owner
             .clone()
             .or_else(|| (scope == Scope::Own).then(|| self.user.clone()))
@@ -184,7 +184,7 @@ impl Edb {
 
     /// Whether the user's own: DBMS_SCHEDULER's calls take the bare name,
     /// which reaches the caller's job, a superuser's included.
-    fn owns(&self, owner: Option<&str>) -> bool {
+    pub(crate) fn owns(&self, owner: Option<&str>) -> bool {
         owner == Some(self.user.as_str())
     }
 
@@ -193,7 +193,11 @@ impl Edb {
     /// owners, or for a name only one owner has; a `USER_` one for the
     /// user's own), else `sys.jobs` for a name only one owner has.
     /// `unique`: no other owner's job of that name is in sight.
-    fn sched_history(&self, owner: Option<&str>, unique: bool) -> Option<SchedHistory<'_>> {
+    pub(crate) fn sched_history(
+        &self,
+        owner: Option<&str>,
+        unique: bool,
+    ) -> Option<SchedHistory<'_>> {
         if let Some((v, scope)) = self.run_details() {
             let fits = match scope {
                 Scope::Own => self.owns(owner),
@@ -230,7 +234,7 @@ impl Edb {
     }
 
     /// `sys.jobs` and `sys.job_run_details`, when the user may read them.
-    fn history(&self) -> Option<(&View, &View)> {
+    pub(crate) fn history(&self) -> Option<(&View, &View)> {
         let jobs = self
             .cat
             .readable("jobs")
@@ -244,7 +248,7 @@ impl Edb {
 
     /// A `*_SCHEDULER_JOB_RUN_DETAILS` view, where there's one, and how
     /// much it shows.
-    fn run_details(&self) -> Option<(&View, Scope)> {
+    pub(crate) fn run_details(&self) -> Option<(&View, Scope)> {
         self.cat
             .widest("scheduler_job_run_details")
             .filter(|(v, _)| v.has("job_name"))
@@ -253,7 +257,7 @@ impl Edb {
 
 /// Where a DBMS_SCHEDULER job's runs are read.
 #[derive(Debug, Clone, Copy)]
-enum SchedHistory<'a> {
+pub(crate) enum SchedHistory<'a> {
     /// A `*_SCHEDULER_JOB_RUN_DETAILS` view.
     Details(&'a View),
     /// `sys.jobs` and `sys.job_run_details`.
@@ -317,7 +321,7 @@ fn usable(job: &mut ServerJob) {
 // ---------------------------------------------------------------------------
 // The list
 
-pub(super) async fn list(s: &PgSession, f: &Found) -> Result<Option<Part>> {
+pub(crate) async fn list(s: &PgSession, f: &Found) -> Result<Option<Part>> {
     let e = Edb::read(s, f).await?;
     if !e.present() && !e.scheduler {
         return Ok(None);
@@ -392,7 +396,7 @@ pub(super) async fn list(s: &PgSession, f: &Found) -> Result<Option<Part>> {
     Ok(Some(part))
 }
 
-async fn ready(s: &PgSession) -> Result<Edb> {
+pub(crate) async fn ready(s: &PgSession) -> Result<Edb> {
     let f = Found::detect(s).await?;
     let e = Edb::read(s, &f).await?;
     if e.on_pgagent() {
@@ -409,7 +413,7 @@ async fn ready(s: &PgSession) -> Result<Edb> {
 
 /// `DBA_JOBS` (or `ALL_JOBS`), every job or job `id`. Its times are
 /// `timestamptz`; `now` is there to tell a next date still ahead.
-fn dbms_jobs_sql(v: &View, id: Option<i64>) -> Option<String> {
+pub(crate) fn dbms_jobs_sql(v: &View, id: Option<i64>) -> Option<String> {
     let job = v.col("j", "job")?;
     let filter = id
         .map(|n| format!(" WHERE {job} = {n}"))
@@ -435,27 +439,27 @@ fn dbms_jobs_sql(v: &View, id: Option<i64>) -> Option<String> {
     ))
 }
 
-fn epoch(r: &dyn Row, name: &str) -> Option<f64> {
+pub(crate) fn epoch(r: &dyn Row, name: &str) -> Option<f64> {
     r.get(name).and_then(|v| v.trim().parse::<f64>().ok())
 }
 
 /// The `interval` that sets its next date; `None` for a job that runs once.
-fn interval(r: &dyn Row) -> Option<String> {
+pub(crate) fn interval(r: &dyn Row) -> Option<String> {
     text(r, "job_interval").filter(|i| !i.eq_ignore_ascii_case("null"))
 }
 
-fn broken(r: &dyn Row) -> bool {
+pub(crate) fn broken(r: &dyn Row) -> bool {
     text(r, "broken").is_some_and(|b| scheduler::yes(&b))
 }
 
 /// Its next date, unless it's the far one of a broken job.
-fn next(r: &dyn Row) -> Option<String> {
+pub(crate) fn next(r: &dyn Row) -> Option<String> {
     time(r, "next_date").filter(|_| epoch(r, "next_date").is_some_and(|t| t < BROKEN_DATE))
 }
 
 /// Its next date as ISO text, when it's still ahead (to keep it when the
 /// job is enabled again).
-fn next_ahead(r: &dyn Row) -> Option<String> {
+pub(crate) fn next_ahead(r: &dyn Row) -> Option<String> {
     let (next, now) = (epoch(r, "next_date")?, epoch(r, "now")?);
     (next > now && next < BROKEN_DATE)
         .then(|| text(r, "next_iso"))
@@ -506,7 +510,7 @@ fn dbms_job(r: &dyn Row, e: &Edb) -> Option<ServerJob> {
     })
 }
 
-async fn job_row(s: &PgSession, e: &Edb, n: i64) -> Result<SimpleQueryRow> {
+pub(crate) async fn job_row(s: &PgSession, e: &Edb, n: i64) -> Result<SimpleQueryRow> {
     let (v, _) = e.dbms_jobs().ok_or_else(|| {
         Error::Query("esta base no tiene DBMS_JOB, o tu usuario no puede leer sys.all_jobs".into())
     })?;
@@ -517,7 +521,7 @@ async fn job_row(s: &PgSession, e: &Edb, n: i64) -> Result<SimpleQueryRow> {
         .ok_or_else(|| not_found(JobId::EdbJob(n)))
 }
 
-pub(super) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
+pub(crate) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
     let e = ready(s).await?;
     let r = job_row(s, &e, n).await?;
     let job = dbms_job(&r, &e).ok_or_else(|| not_found(JobId::EdbJob(n)))?;
@@ -550,7 +554,7 @@ pub(super) async fn job_detail(s: &PgSession, n: i64) -> Result<JobDetail> {
     })
 }
 
-pub(super) async fn job_runs(s: &PgSession, n: i64, limit: u32) -> Result<Vec<JobRun>> {
+pub(crate) async fn job_runs(s: &PgSession, n: i64, limit: u32) -> Result<Vec<JobRun>> {
     let e = ready(s).await?;
     job_row(s, &e, n).await?;
     let (jobs, runs) = e.history().ok_or_else(no_history)?;
@@ -562,7 +566,7 @@ fn job_run_sql(n: i64) -> String {
     D.call(&format!("DBMS_JOB.NEXT_DATE({n}, SYSDATE)"))
 }
 
-pub(super) async fn job_run(s: &PgSession, n: i64) -> Result<()> {
+pub(crate) async fn job_run(s: &PgSession, n: i64) -> Result<()> {
     let e = ready(s).await?;
     let r = job_row(s, &e, n).await?;
     if broken(&r) {
@@ -587,7 +591,7 @@ fn job_enable_sql(n: i64, enabled: bool, keep: Option<&str>) -> String {
     })
 }
 
-pub(super) async fn job_set_enabled(s: &PgSession, n: i64, enabled: bool) -> Result<()> {
+pub(crate) async fn job_set_enabled(s: &PgSession, n: i64, enabled: bool) -> Result<()> {
     let e = ready(s).await?;
     let r = job_row(s, &e, n).await?;
     let keep = if enabled { next_ahead(&r) } else { None };
@@ -623,7 +627,7 @@ fn job_script_of(r: &dyn Row) -> String {
     out
 }
 
-pub(super) async fn job_script(s: &PgSession, n: i64) -> Result<String> {
+pub(crate) async fn job_script(s: &PgSession, n: i64) -> Result<String> {
     let e = ready(s).await?;
     let r = job_row(s, &e, n).await?;
     Ok(job_script_of(&r))
@@ -651,12 +655,12 @@ fn sched_job(j: &SchedJob, e: &Edb, scope: Scope, unique: bool) -> ServerJob {
     job
 }
 
-fn no_scheduler() -> Error {
+pub(crate) fn no_scheduler() -> Error {
     Error::Query("esta base no tiene DBMS_SCHEDULER, o tu usuario no puede leer sus vistas".into())
 }
 
 /// Job `id` from the widest jobs view, and that view's scope.
-async fn sched_row(s: &PgSession, e: &Edb, id: &Named) -> Result<(SchedJob, Scope)> {
+pub(crate) async fn sched_row(s: &PgSession, e: &Edb, id: &Named) -> Result<(SchedJob, Scope)> {
     let (v, scope) = e.sched_jobs().ok_or_else(no_scheduler)?;
     let filter = scheduler::job_filter(D, v, "v", id.owner.as_deref(), &id.name);
     let sql = scheduler::jobs_sql(v, e.schedules(), filter).unwrap_or_default();
@@ -671,7 +675,7 @@ async fn sched_row(s: &PgSession, e: &Edb, id: &Named) -> Result<(SchedJob, Scop
 
 /// How many owners have a job named `name` in view `v`; `None` when the
 /// view has no owners (the name is the key there).
-fn owners_sql(v: &View, name: &str) -> Option<String> {
+pub(crate) fn owners_sql(v: &View, name: &str) -> Option<String> {
     Some(format!(
         "SELECT count(DISTINCT {})::text AS owners FROM {} v WHERE {} = {}",
         v.col("v", "owner")?,
@@ -682,7 +686,7 @@ fn owners_sql(v: &View, name: &str) -> Option<String> {
 }
 
 /// No other owner's job named `name` is in sight.
-async fn unique(s: &PgSession, e: &Edb, name: &str) -> Result<bool> {
+pub(crate) async fn unique(s: &PgSession, e: &Edb, name: &str) -> Result<bool> {
     let Some(sql) = e.sched_jobs().and_then(|(v, _)| owners_sql(v, name)) else {
         return Ok(true);
     };
@@ -695,7 +699,7 @@ async fn unique(s: &PgSession, e: &Edb, name: &str) -> Result<bool> {
     Ok(owners.is_none_or(|n| n <= 1))
 }
 
-async fn program(s: &PgSession, e: &Edb, j: &SchedJob) -> Option<Program> {
+pub(crate) async fn program(s: &PgSession, e: &Edb, j: &SchedJob) -> Option<Program> {
     let (v, _) = e.cat.widest("scheduler_programs")?;
     let sql = scheduler::program_sql(D, v, j.program.as_deref()?)?;
     match s.text(&sql).await {
@@ -707,7 +711,7 @@ async fn program(s: &PgSession, e: &Edb, j: &SchedJob) -> Option<Program> {
     }
 }
 
-pub(super) async fn sched_detail(s: &PgSession, id: &Named) -> Result<JobDetail> {
+pub(crate) async fn sched_detail(s: &PgSession, id: &Named) -> Result<JobDetail> {
     let e = ready(s).await?;
     let (j, scope) = sched_row(s, &e, id).await?;
     let unique = unique(s, &e, &j.name).await?;
@@ -723,7 +727,7 @@ pub(super) async fn sched_detail(s: &PgSession, id: &Named) -> Result<JobDetail>
     })
 }
 
-pub(super) async fn sched_runs(s: &PgSession, id: &Named, limit: u32) -> Result<Vec<JobRun>> {
+pub(crate) async fn sched_runs(s: &PgSession, id: &Named, limit: u32) -> Result<Vec<JobRun>> {
     let e = ready(s).await?;
     let (j, scope) = sched_row(s, &e, id).await?;
     let owner = e.owner_of(&j, scope);
@@ -749,13 +753,13 @@ pub(super) async fn sched_runs(s: &PgSession, id: &Named, limit: u32) -> Result<
 
 /// Never runs it: see [`scheduler::RUN_WAITS`]. An unknown id still says
 /// so first.
-pub(super) async fn sched_run(s: &PgSession, id: &Named) -> Result<()> {
+pub(crate) async fn sched_run(s: &PgSession, id: &Named) -> Result<()> {
     let e = ready(s).await?;
     sched_row(s, &e, id).await?;
     Err(scheduler::run_waits())
 }
 
-pub(super) async fn sched_set_enabled(s: &PgSession, id: &Named, enabled: bool) -> Result<()> {
+pub(crate) async fn sched_set_enabled(s: &PgSession, id: &Named, enabled: bool) -> Result<()> {
     let e = ready(s).await?;
     let (j, scope) = sched_row(s, &e, id).await?;
     if !e.owns(e.owner_of(&j, scope).as_deref()) {
@@ -768,7 +772,7 @@ pub(super) async fn sched_set_enabled(s: &PgSession, id: &Named, enabled: bool) 
     Ok(())
 }
 
-pub(super) async fn sched_script(s: &PgSession, id: &Named) -> Result<String> {
+pub(crate) async fn sched_script(s: &PgSession, id: &Named) -> Result<String> {
     let e = ready(s).await?;
     let (j, _) = sched_row(s, &e, id).await?;
     scheduler::edb_script(&j).ok_or_else(|| {
@@ -782,7 +786,7 @@ pub(super) async fn sched_script(s: &PgSession, id: &Named) -> Result<String> {
 // ---------------------------------------------------------------------------
 // edb_job_scheduler's history
 
-fn no_history() -> Error {
+pub(crate) fn no_history() -> Error {
     Error::Unsupported(
         "no se puede leer el historial de edb_job_scheduler (sys.job_run_details) con este usuario"
             .into(),
@@ -792,7 +796,7 @@ fn no_history() -> Error {
 /// How a job's rows in `sys.jobs` are told apart: by the command
 /// edb_job_scheduler runs for it.
 #[derive(Debug, Clone, Copy)]
-enum Needle<'a> {
+pub(crate) enum Needle<'a> {
     /// `dbms_job.run(<n>, …)`.
     Job(i64),
     /// A DBMS_SCHEDULER call with the job's name as a literal.
@@ -801,7 +805,7 @@ enum Needle<'a> {
 
 /// The newest `limit` runs in `sys.job_run_details` of the jobs in
 /// `sys.jobs` whose command is the needle's.
-fn history_sql(jobs: &View, runs: &View, needle: Needle, limit: u32) -> Option<String> {
+pub(crate) fn history_sql(jobs: &View, runs: &View, needle: Needle, limit: u32) -> Option<String> {
     let cmd = jobs.col("j", "jobcommand")?;
     let matches = match needle {
         Needle::Job(n) => format!(

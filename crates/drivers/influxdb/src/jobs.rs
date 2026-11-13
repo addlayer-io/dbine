@@ -81,14 +81,14 @@ pub fn task_id(id: &str) -> Option<&str> {
     .then_some(id)
 }
 
-fn bad_id(id: &str) -> Error {
+pub(crate) fn bad_id(id: &str) -> Error {
     Error::Query(format!(
         "«{}» no es un id de job de este servidor",
         id.chars().take(200).collect::<String>()
     ))
 }
 
-fn s(v: Option<&J>) -> Option<String> {
+pub(crate) fn s(v: Option<&J>) -> Option<String> {
     match v? {
         J::String(s) => Some(s.trim().to_string()).filter(|s| !s.is_empty()),
         J::Null => None,
@@ -314,7 +314,7 @@ impl FluxSession {
         Ok(format!("{}/api/v2/tasks/{id}", self.base))
     }
 
-    async fn task(&self, id: &str) -> Result<J> {
+    pub(crate) async fn task(&self, id: &str) -> Result<J> {
         let url = self.task_url(id)?;
         self.send(self.http.get(url)).await
     }
@@ -332,7 +332,7 @@ impl FluxSession {
     }
 
     /// User ids → names (empty when the token can't list users).
-    async fn user_names(&self) -> BTreeMap<String, String> {
+    pub(crate) async fn user_names(&self) -> BTreeMap<String, String> {
         let Ok(v) = self.get("/api/v2/users", &[]).await else {
             return BTreeMap::new();
         };
@@ -344,7 +344,8 @@ impl FluxSession {
             .collect()
     }
 
-    pub(crate) async fn jobs_list(&self) -> Result<JobList> {
+    /// Every task of the organization the token can read, page by page.
+    pub(crate) async fn all_tasks(&self) -> Result<Vec<J>> {
         let mut tasks: Vec<J> = Vec::new();
         let mut after: Option<String> = None;
         loop {
@@ -365,6 +366,11 @@ impl FluxSession {
                 break;
             }
         }
+        Ok(tasks)
+    }
+
+    pub(crate) async fn jobs_list(&self) -> Result<JobList> {
+        let tasks = self.all_tasks().await?;
         let users = self.user_names().await;
         // Each task's two newest runs: whether one is going, and the last
         // finished one.
@@ -480,9 +486,9 @@ impl FluxSession {
 // ---------------------------------------------------------------- 1.x
 
 const V1_KIND: &str = "Continuous query";
-const V1_FIXED: &str = "InfluxDB 1.x ejecuta las continuous queries solas en cada intervalo: no se pueden ejecutar a mano, detener ni pausar";
-const V1_NO_STATS: &str = "el historial de las continuous queries se guarda solo con query-stats-enabled en la sección [continuous_queries] de la configuración";
-const V1_NO_ACCESS: &str =
+pub(crate) const V1_FIXED: &str = "InfluxDB 1.x ejecuta las continuous queries solas en cada intervalo: no se pueden ejecutar a mano, detener ni pausar";
+pub(crate) const V1_NO_STATS: &str = "el historial de las continuous queries se guarda solo con query-stats-enabled en la sección [continuous_queries] de la configuración";
+pub(crate) const V1_NO_ACCESS: &str =
     "este usuario no puede ver las continuous queries (SHOW CONTINUOUS QUERIES)";
 
 /// What a `CREATE CONTINUOUS QUERY` says.
@@ -653,7 +659,7 @@ pub fn v1_runs(results: &[J]) -> Vec<JobRun> {
 
 impl InfluxQlSession {
     /// The runs are recorded (`query-stats-enabled` wrote `cq_query`).
-    async fn cq_stats(&mut self) -> bool {
+    pub(crate) async fn cq_stats(&mut self) -> bool {
         self.query("SHOW MEASUREMENTS ON \"_internal\" WITH MEASUREMENT = \"cq_query\"")
             .await
             .is_ok_and(|r| {
@@ -665,11 +671,11 @@ impl InfluxQlSession {
             })
     }
 
-    async fn cqs(&mut self) -> Result<Vec<(String, String, String)>> {
+    pub(crate) async fn cqs(&mut self) -> Result<Vec<(String, String, String)>> {
         Ok(v1_cqs(&self.query("SHOW CONTINUOUS QUERIES").await?))
     }
 
-    async fn cq(&mut self, id: &str) -> Result<(String, String, String)> {
+    pub(crate) async fn cq(&mut self, id: &str) -> Result<(String, String, String)> {
         let (db, name) = parse_pair(id).ok_or_else(|| bad_id(id))?;
         self.cqs()
             .await?
@@ -752,9 +758,10 @@ impl InfluxQlSession {
 const V3_KIND: &str = "Trigger";
 const V3_NONE: &str =
     "este servidor no tiene triggers del motor de procesamiento (processing engine)";
-const V3_OLD: &str =
+pub(crate) const V3_OLD: &str =
     "esta versión de InfluxDB 3 no informa los triggers del motor de procesamiento";
-const V3_NO_RUN: &str = "InfluxDB 3 no permite disparar un trigger a mano ni detener una ejecución";
+pub(crate) const V3_NO_RUN: &str =
+    "InfluxDB 3 no permite disparar un trigger a mano ni detener una ejecución";
 
 /// A Go-style duration from seconds ("1h30m", "5s").
 fn duration_text(secs: u64) -> String {
@@ -816,7 +823,7 @@ fn trigger_schedule(spec: &str) -> Option<String> {
 }
 
 /// What fires it, in Spanish.
-fn trigger_fires(spec: &str) -> String {
+pub(crate) fn trigger_fires(spec: &str) -> String {
     if let Some(t) = spec.strip_prefix("table:") {
         format!("Al escribir en la tabla {t}")
     } else if spec == "all_tables" {
@@ -994,10 +1001,11 @@ pub fn v3_script(db: &str, cols: &[String], row: &[J], args: &[(String, String)]
     cmd
 }
 
-const TRIGGERS: &str = "SELECT * FROM system.processing_engine_triggers ORDER BY trigger_name";
+pub(crate) const TRIGGERS: &str =
+    "SELECT * FROM system.processing_engine_triggers ORDER BY trigger_name";
 
 impl SqlSession {
-    async fn jobs_sql(&self, db: &str, q: &str) -> Result<(Vec<String>, Vec<Vec<J>>)> {
+    pub(crate) async fn jobs_sql(&self, db: &str, q: &str) -> Result<(Vec<String>, Vec<Vec<J>>)> {
         let req = self
             .http
             .post(format!("{}/api/v3/query_sql", self.base))
@@ -1007,7 +1015,7 @@ impl SqlSession {
     }
 
     /// The trigger's row, and the table's columns.
-    async fn trigger(&self, id: &str) -> Result<(String, Vec<String>, Vec<J>)> {
+    pub(crate) async fn trigger(&self, id: &str) -> Result<(String, Vec<String>, Vec<J>)> {
         let (db, name) = parse_pair(id).ok_or_else(|| bad_id(id))?;
         let (cols, rows) = self.jobs_sql(&db, TRIGGERS).await?;
         let at = cols.iter().position(|c| c == "trigger_name");
@@ -1018,7 +1026,7 @@ impl SqlSession {
         Ok((db, cols, row))
     }
 
-    async fn trigger_args(&self, db: &str, name: &str) -> Vec<(String, String)> {
+    pub(crate) async fn trigger_args(&self, db: &str, name: &str) -> Vec<(String, String)> {
         let q = format!(
             "SELECT argument_key, argument_value FROM system.processing_engine_trigger_arguments WHERE trigger_name = '{}' ORDER BY argument_key",
             name.replace('\'', "''")

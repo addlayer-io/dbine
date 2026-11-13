@@ -23,10 +23,10 @@
 //! refused before anything reaches the server. Names go into statements
 //! quoted again as identifiers or as string literals, never as they came.
 
-mod clock;
-mod doris;
-mod events;
-mod starrocks;
+pub(crate) mod clock;
+pub(crate) mod doris;
+pub(crate) mod events;
+pub(crate) mod starrocks;
 
 use crate::session::{lit, named, MySqlSession};
 use crate::Variant;
@@ -48,7 +48,7 @@ pub(crate) fn supported(v: Variant) -> bool {
 }
 
 /// Why a variant has no jobs.
-fn unsupported(v: Variant) -> Error {
+pub(crate) fn unsupported(v: Variant) -> Error {
     Error::Unsupported(
         match v.base() {
             Variant::TiDb => "TiDB no tiene eventos ni otro programador de jobs",
@@ -139,11 +139,11 @@ pub(crate) async fn script(s: &mut MySqlSession, id: &str) -> Result<String> {
 // ---- ids ----
 
 /// Longest name an id may carry (engines allow 64 to 256 characters).
-const MAX_NAME: usize = 256;
+pub(crate) const MAX_NAME: usize = 256;
 
 /// A backtick-quoted name at the start of `s` (backticks inside doubled):
 /// the name and what follows the closing backtick.
-fn unquote(s: &str) -> Option<(String, &str)> {
+pub(crate) fn unquote(s: &str) -> Option<(String, &str)> {
     let rest = s.strip_prefix('`')?;
     let mut name = String::new();
     let mut chars = rest.char_indices().peekable();
@@ -164,12 +164,12 @@ fn unquote(s: &str) -> Option<(String, &str)> {
 }
 
 /// `` `name` `` as an id part.
-fn quoted(name: &str) -> String {
+pub(crate) fn quoted(name: &str) -> String {
     dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Backtick, name)
 }
 
 /// `prefix` + one quoted name, nothing else.
-fn one_name(id: &str, prefix: &str) -> Option<String> {
+pub(crate) fn one_name(id: &str, prefix: &str) -> Option<String> {
     match unquote(id.strip_prefix(prefix)?)? {
         (name, "") => Some(name),
         _ => None,
@@ -200,7 +200,7 @@ fn qualify(create: &str, keyword: &str, schema: &str, name: &str) -> String {
 }
 
 /// Whether a failed catalog query failed for lack of privileges.
-fn denied(e: &Error) -> bool {
+pub(crate) fn denied(e: &Error) -> bool {
     let m = e.to_string().to_ascii_lowercase();
     m.contains("denied") || m.contains("privilege")
 }
@@ -208,7 +208,10 @@ fn denied(e: &Error) -> bool {
 /// The rows of a query on a catalog table or table function that older
 /// versions lack: `None` when the server says it has no such table or
 /// function, the error for any other failure.
-async fn rows_if_present(s: &mut MySqlSession, sql: &str) -> Result<Option<Vec<mysql_async::Row>>> {
+pub(crate) async fn rows_if_present(
+    s: &mut MySqlSession,
+    sql: &str,
+) -> Result<Option<Vec<mysql_async::Row>>> {
     use mysql_async::prelude::Queryable;
     match s.conn.query::<mysql_async::Row, _>(sql).await {
         Ok(rows) => Ok(Some(rows)),
@@ -244,7 +247,7 @@ fn missing(code: u16, message: &str) -> bool {
 const DENIED_NOTE: &str = "Este usuario no tiene permiso para ver los jobs del servidor.";
 
 /// The error for an id that isn't one of ours.
-fn bad_id(id: &str, what: &str) -> Error {
+pub(crate) fn bad_id(id: &str, what: &str) -> Error {
     let shown: String = id.chars().take(120).collect();
     Error::Query(format!("«{shown}» no es un id de {what}"))
 }
@@ -252,7 +255,7 @@ fn bad_id(id: &str, what: &str) -> Error {
 // ---- rows ----
 
 /// A cell by column name, trimmed; `None` for NULL, empty and Doris's `\N`.
-fn text(r: &mysql_async::Row, names: &[&str]) -> Option<String> {
+pub(crate) fn text(r: &mysql_async::Row, names: &[&str]) -> Option<String> {
     named(r, names)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty() && s != "\\N")

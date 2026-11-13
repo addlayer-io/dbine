@@ -15,6 +15,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod scheduler;
 mod security;
 mod tls_http;
 mod transfer;
@@ -126,7 +127,8 @@ impl Driver for InfluxDriver {
     /// (v2, v3) or InfluxQL (v1). No foreign keys in InfluxDB. Running
     /// queries are listed on v1 and v3, and only v1 can stop one (see
     /// [`processes`]). Every version has server jobs of its own (see
-    /// [`jobs`]).
+    /// [`jobs`]), created, edited and deleted from the scheduler designer
+    /// (see [`scheduler`]).
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             create_database: true,
@@ -139,6 +141,8 @@ impl Driver for InfluxDriver {
             // Tasks (2.x), continuous queries (1.x), processing engine
             // triggers (3.x); see `jobs`.
             jobs: true,
+            // The same, managed whole; see `scheduler`.
+            scheduler: true,
             ..Default::default()
         }
     }

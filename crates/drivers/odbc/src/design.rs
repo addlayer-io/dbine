@@ -283,6 +283,7 @@ pub fn capabilities(p: &Preset) -> Capabilities {
         cancel_query: crate::processes::supports_cancel(p),
         database_properties: crate::properties::supported(p),
         jobs: crate::jobs::supported(p),
+        scheduler: crate::scheduler::supported(p),
     }
 }
 

@@ -16,20 +16,20 @@ pub const NO_ENABLE: &str =
 
 const KIND: &str = "ADMIN_TASK";
 
-pub(super) const NOW: &str = "SELECT CURRENT TIMESTAMP AS LOCAL_NOW, CURRENT TIMESTAMP - CURRENT TIMEZONE AS UTC_NOW FROM SYSIBM.SYSDUMMY1";
+pub(crate) const NOW: &str = "SELECT CURRENT TIMESTAMP AS LOCAL_NOW, CURRENT TIMESTAMP - CURRENT TIMEZONE AS UTC_NOW FROM SYSIBM.SYSDUMMY1";
 
 // ------------------------------------------------------------------ LUW
 
-pub(super) const ATS_TABLES: &str = "SELECT TABNAME FROM SYSCAT.TABLES WHERE TABSCHEMA = 'SYSTOOLS' AND TABNAME IN ('ADMIN_TASK_LIST', 'ADMIN_TASK_STATUS')";
+pub(crate) const ATS_TABLES: &str = "SELECT TABNAME FROM SYSCAT.TABLES WHERE TABSCHEMA = 'SYSTOOLS' AND TABNAME IN ('ADMIN_TASK_LIST', 'ADMIN_TASK_STATUS')";
 
 const ATS_ENABLE: &str =
     "SELECT REG_VAR_VALUE FROM SYSIBMADM.REG_VARIABLES WHERE REG_VAR_NAME = 'DB2_ATS_ENABLE'";
 
-const NO_ATS: &str = "Esta base no tiene el planificador de tareas de Db2 (SYSTOOLS.ADMIN_TASK_LIST): se crea con la primera llamada a SYSPROC.ADMIN_TASK_ADD.";
-const ATS_OFF: &str =
+pub(crate) const NO_ATS: &str = "Esta base no tiene el planificador de tareas de Db2 (SYSTOOLS.ADMIN_TASK_LIST): se crea con la primera llamada a SYSPROC.ADMIN_TASK_ADD.";
+pub(crate) const ATS_OFF: &str =
     "DB2_ATS_ENABLE no está activado en la instancia: el planificador no ejecuta las tareas.";
-const OWN_ONLY: &str = "Db2 muestra solo las tareas que creó este usuario.";
-const NO_READ: &str = "Este usuario no puede leer el planificador de tareas de Db2.";
+pub(crate) const OWN_ONLY: &str = "Db2 muestra solo las tareas que creó este usuario.";
+pub(crate) const NO_READ: &str = "Este usuario no puede leer el planificador de tareas de Db2.";
 
 /// Which of the two views exist. Both, when the catalog can't be read
 /// (the queries on them decide).
@@ -58,7 +58,7 @@ fn probe(src: &mut dyn JobSource) -> Ats {
 }
 
 /// The note when `DB2_ATS_ENABLE` is off (unset is off too).
-fn ats_off(src: &mut dyn JobSource) -> Option<&'static str> {
+pub(crate) fn ats_off(src: &mut dyn JobSource) -> Option<&'static str> {
     let s = src.query(ATS_ENABLE, &[]).ok()?;
     let on = (0..s.rows.len()).any(|r| yes(s.get(r, "REG_VAR_VALUE")));
     (!on).then_some(ATS_OFF)
@@ -241,7 +241,7 @@ fn luw_runs_sql(task: u64, limit: u32, with_msg: bool) -> String {
 
 /// SQLERRMC's tokens: the driver sends that FOR BIT DATA column as hex,
 /// tokens separated by X'FF'.
-pub(super) fn tokens(v: &str) -> String {
+pub(crate) fn tokens(v: &str) -> String {
     let t = v.trim();
     let hex =
         t.len().is_multiple_of(2) && !t.is_empty() && t.bytes().all(|b| b.is_ascii_hexdigit());
@@ -310,7 +310,7 @@ pub fn runs(src: &mut dyn JobSource, id: &str, limit: u32) -> Result<Vec<JobRun>
 }
 
 /// `YYYY-MM-DD-HH.MM.SS.000000`, Db2's own form.
-fn db2_ts(ms: i64) -> String {
+pub(crate) fn db2_ts(ms: i64) -> String {
     let iso = rfc3339(ms);
     // 2026-11-12T03:00:00Z
     format!(
@@ -411,12 +411,13 @@ fn luw_script(s: &Set, r: usize, tz: &Tz) -> String {
 
 // ----------------------------------------------------------------- z/OS
 
-pub(super) const ZOS_LIST: &str = "SELECT * FROM TABLE(DSNADM.ADMIN_TASK_LIST()) AS T";
-pub(super) const ZOS_STATUS: &str = "SELECT * FROM TABLE(DSNADM.ADMIN_TASK_STATUS()) AS S";
+pub(crate) const ZOS_LIST: &str = "SELECT * FROM TABLE(DSNADM.ADMIN_TASK_LIST()) AS T";
+pub(crate) const ZOS_STATUS: &str = "SELECT * FROM TABLE(DSNADM.ADMIN_TASK_STATUS()) AS S";
 
-const NO_ZOS_ATS: &str =
+pub(crate) const NO_ZOS_ATS: &str =
     "Este subsistema no tiene el planificador de tareas administrativas (DSNADM.ADMIN_TASK_LIST).";
-const NO_ZOS_STATUS: &str = "Sin el privilegio MONITOR1 no se ve cómo terminaron las tareas.";
+pub(crate) const NO_ZOS_STATUS: &str =
+    "Sin el privilegio MONITOR1 no se ve cómo terminaron las tareas.";
 
 /// A task name as the app sends it back: up to 128 characters, none of
 /// them control characters. It's only ever bound as a parameter.
@@ -554,7 +555,9 @@ fn zos_job(t: &Set, r: usize, status: Option<&Set>, tz: &Tz) -> Option<ServerJob
         last_duration_ms: took,
         next_run: None,
         can_run: false,
-        can_stop: false,
+        // ADMIN_TASK_CANCEL, through the scheduler's plan (it reads the
+        // procedure's output parameters).
+        can_stop: running,
         can_enable: false,
         has_history: status.is_some(),
         has_script: true,

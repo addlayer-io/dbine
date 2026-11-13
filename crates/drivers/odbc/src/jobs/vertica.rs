@@ -37,30 +37,31 @@ const NO_SCHEDULE_SCRIPT: &str =
 const ONLY_SUPERUSER: &str =
     "en Vertica solo un superusuario ejecuta, habilita o deshabilita un trigger programado";
 
-const NOT_HERE: &str =
+pub(crate) const NOT_HERE: &str =
     "Este servidor no tiene ejecución programada de procedimientos (llega con Vertica 11.1.1).";
-const OFF: &str = "El planificador de procedimientos está apagado (EnableStoredProcedureScheduler = 0): los triggers no se ejecutan.";
-const SUPERUSER_ONLY: &str = "Solo un superusuario ve los triggers programados de Vertica.";
+pub(crate) const OFF: &str = "El planificador de procedimientos está apagado (EnableStoredProcedureScheduler = 0): los triggers no se ejecutan.";
+pub(crate) const SUPERUSER_ONLY: &str =
+    "Solo un superusuario ve los triggers programados de Vertica.";
 
 const KIND: &str = "Trigger";
 
-pub(super) const TRIGGERS: &str =
+pub(crate) const TRIGGERS: &str =
     "SELECT * FROM v_catalog.stored_proc_triggers ORDER BY schema_name, trigger_name";
-pub(super) const ONE: &str =
+pub(crate) const ONE: &str =
     "SELECT * FROM v_catalog.stored_proc_triggers WHERE schema_name = ? AND trigger_name = ?";
-pub(super) const SCHEDULES: &str = "SELECT * FROM v_catalog.user_schedules";
+pub(crate) const SCHEDULES: &str = "SELECT * FROM v_catalog.user_schedules";
 /// The next starts in UTC, computed by the server: the driver's text of a
 /// TIMESTAMPTZ may come without its offset.
-pub(super) const TIME_TABLE_UTC: &str = "SELECT schedule_name, attached_trigger, scheduled_execution_time AT TIME ZONE 'UTC' AS next_utc FROM v_catalog.scheduler_time_table";
+pub(crate) const TIME_TABLE_UTC: &str = "SELECT schedule_name, attached_trigger, scheduled_execution_time AT TIME ZONE 'UTC' AS next_utc FROM v_catalog.scheduler_time_table";
 /// [`TIME_TABLE_UTC`] where that column has another name.
-pub(super) const TIME_TABLE: &str = "SELECT * FROM v_catalog.scheduler_time_table";
-pub(super) const PROCEDURES: &str =
+pub(crate) const TIME_TABLE: &str = "SELECT * FROM v_catalog.scheduler_time_table";
+pub(crate) const PROCEDURES: &str =
     "SELECT schema_name, procedure_name FROM v_catalog.user_procedures WHERE procedure_name = ?";
 /// No row: the table isn't there (before 11.1.1).
-pub(super) const TABLE: &str = "SELECT is_superuser_only AS S FROM v_catalog.system_tables WHERE table_schema = 'v_catalog' AND table_name ILIKE 'stored_proc_triggers'";
-pub(super) const SUPERUSER: &str =
+pub(crate) const TABLE: &str = "SELECT is_superuser_only AS S FROM v_catalog.system_tables WHERE table_schema = 'v_catalog' AND table_name ILIKE 'stored_proc_triggers'";
+pub(crate) const SUPERUSER: &str =
     "SELECT is_super_user AS S FROM v_catalog.users WHERE user_name = CURRENT_USER()";
-pub(super) const CONFIG: &str =
+pub(crate) const CONFIG: &str =
     "SELECT GET_CONFIG_PARAMETER('EnableStoredProcedureScheduler') AS V";
 pub(super) const ASN: &str = "SELECT ACTIVE_SCHEDULER_NODE() AS ASN";
 pub(super) const ME: &str = "SELECT LOCAL_NODE_NAME() AS ME";
@@ -76,7 +77,7 @@ const NEXT_TIME: &[&str] = &[
 /// they go back into SQL as the same values: numbers, NULL, TRUE, FALSE
 /// and texts without a quote inside (the catalog doesn't double them).
 /// Empty when it takes none.
-pub(super) fn safe_args(v: Option<&str>) -> Option<String> {
+pub(crate) fn safe_args(v: Option<&str>) -> Option<String> {
     let mut rest = v.unwrap_or_default().trim();
     if rest.is_empty() {
         return Some(String::new());
@@ -114,16 +115,16 @@ pub(super) fn safe_args(v: Option<&str>) -> Option<String> {
     Some(out.join(", "))
 }
 
-fn q(name: &str) -> String {
+pub(crate) fn q(name: &str) -> String {
     quote_ident(Quote::Double, name)
 }
 
 /// A name as a meta-function takes it (Vertica folds no case).
-fn meta_name(schema: &str, name: &str) -> String {
+pub(crate) fn meta_name(schema: &str, name: &str) -> String {
     dotted(schema, name, false)
 }
 
-fn best_effort(src: &mut dyn JobSource, sql: &str) -> Set {
+pub(crate) fn best_effort(src: &mut dyn JobSource, sql: &str) -> Set {
     src.query(sql, &[]).unwrap_or_else(|e| {
         tracing::debug!("odbc jobs: {sql} failed: {e}");
         Set::default()
@@ -132,7 +133,7 @@ fn best_effort(src: &mut dyn JobSource, sql: &str) -> Set {
 
 /// The `user_schedules` row of the trigger: the one whose
 /// `attached_trigger` names it, preferring one in the trigger's schema.
-fn schedule_row(sch: &Set, schema: &str, trigger: &str) -> Option<usize> {
+pub(crate) fn schedule_row(sch: &Set, schema: &str, trigger: &str) -> Option<usize> {
     let qualified = format!("{schema}.{trigger}");
     let hits: Vec<usize> = (0..sch.rows.len())
         .filter(|r| {
@@ -150,7 +151,7 @@ fn schedule_row(sch: &Set, schema: &str, trigger: &str) -> Option<usize> {
 }
 
 /// The timestamps of a `DATE_TIME_LIST`.
-fn datetimes(list: &str) -> Vec<&str> {
+pub(crate) fn datetimes(list: &str) -> Vec<&str> {
     list.split(',')
         .map(str::trim)
         .filter(|t| !t.is_empty())
@@ -174,7 +175,7 @@ fn using(sch: &Set, r: usize) -> Option<String> {
 }
 
 /// The next start the scheduler has for the trigger, RFC 3339 in UTC.
-fn next_run(tt: &Set, schedule: Option<&str>, trigger: &str) -> Option<String> {
+pub(crate) fn next_run(tt: &Set, schedule: Option<&str>, trigger: &str) -> Option<String> {
     (0..tt.rows.len())
         .filter(|r| {
             tt.get(*r, "attached_trigger") == Some(trigger)
@@ -187,7 +188,7 @@ fn next_run(tt: &Set, schedule: Option<&str>, trigger: &str) -> Option<String> {
 
 /// The scheduler's time table, with the next starts in UTC where the
 /// server can say so.
-fn time_table(src: &mut dyn JobSource) -> Set {
+pub(crate) fn time_table(src: &mut dyn JobSource) -> Set {
     src.query(TIME_TABLE_UTC, &[]).unwrap_or_else(|e| {
         tracing::debug!("odbc jobs: scheduler_time_table in UTC failed: {e}");
         best_effort(src, TIME_TABLE)
@@ -232,14 +233,14 @@ fn job(s: &Set, r: usize, c: &Seen) -> Option<ServerJob> {
     })
 }
 
-fn superuser(src: &mut dyn JobSource) -> bool {
+pub(crate) fn superuser(src: &mut dyn JobSource) -> bool {
     yes(best_effort(src, SUPERUSER).get(0, "S"))
 }
 
 /// What `system_tables` says of `stored_proc_triggers`: `None` when it
 /// can't be read, `Some(None)` when the table isn't there, else whether
 /// it's for superusers only.
-fn table(src: &mut dyn JobSource) -> Option<Option<bool>> {
+pub(crate) fn table(src: &mut dyn JobSource) -> Option<Option<bool>> {
     match src.query(TABLE, &[]) {
         Ok(s) if s.rows.is_empty() => Some(None),
         Ok(s) => Some(Some(yes(s.get(0, "S")))),
@@ -402,10 +403,12 @@ fn controlled(src: &mut dyn JobSource, id: &str) -> Result<String> {
     Ok(meta_name(schema, name))
 }
 
-pub fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let name = controlled(src, id)?;
-    src.query(&format!("SELECT EXECUTE_TRIGGER({})", lit(&name)), &[])
-        .map(|_| ())
+    Ok(Control::query(format!(
+        "SELECT EXECUTE_TRIGGER({})",
+        lit(&name)
+    )))
 }
 
 pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {

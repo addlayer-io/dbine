@@ -38,9 +38,9 @@ use std::time::Duration;
 const REFRESH_KIND: &str = "Refreshable MV";
 const TASK_KIND: &str = "Task";
 /// What the server puts in `query_log.client_name` for a refresh.
-const REFRESH_CLIENT: &str = "refreshable materialized view";
+pub(crate) const REFRESH_CLIENT: &str = "refreshable materialized view";
 /// Characters kept of an error message.
-const MAX_MESSAGE: usize = 4000;
+pub(crate) const MAX_MESSAGE: usize = 4000;
 /// How long `run_job` waits on Proton's `EXECUTE TASK` for an early refusal
 /// before leaving the run going on its own.
 const EXECUTE_WAIT: Duration = Duration::from_secs(3);
@@ -146,13 +146,13 @@ fn utc_millis(s: &str) -> Option<i64> {
     Some(((days * 86_400 + h * 3600 + mi * 60 + se) * 1000) + frac)
 }
 
-fn opt(v: Option<&Value>) -> Option<String> {
+pub(crate) fn opt(v: Option<&Value>) -> Option<String> {
     v.map(text)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
 
-fn num(v: Option<&Value>) -> Option<f64> {
+pub(crate) fn num(v: Option<&Value>) -> Option<f64> {
     match v? {
         Value::Number(n) => n.as_f64(),
         Value::String(s) => s.trim().parse().ok(),
@@ -393,7 +393,7 @@ impl Refresh {
         self.status.starts_with("Running")
     }
 
-    fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         self.status != "Disabled"
     }
 
@@ -572,7 +572,7 @@ pub(crate) enum History {
 }
 
 impl History {
-    fn note(self) -> Option<&'static str> {
+    pub(crate) fn note(self) -> Option<&'static str> {
         match self {
             History::Readable => None,
             History::Untagged => Some(UNTAGGED),
@@ -676,7 +676,7 @@ impl Task {
         opt(self.row.first()).unwrap_or_default()
     }
 
-    fn enabled(&self) -> bool {
+    pub(crate) fn enabled(&self) -> bool {
         // `status` 1: paused.
         num(self.row.get(3)).is_none_or(|s| s == 0.0)
     }
@@ -782,7 +782,7 @@ impl Task {
 }
 
 /// The server has no refreshable views (before 23.12).
-const NO_REFRESHABLE: &str =
+pub(crate) const NO_REFRESHABLE: &str =
     "esta versión de ClickHouse no tiene vistas materializadas refrescables (llegaron en la 23.12)";
 const NONE_YET: &str = "en ClickHouse, los jobs son las vistas materializadas refrescables (REFRESH EVERY / AFTER) y este servidor no tiene ninguna";
 const NO_QUERY_LOG: &str =
@@ -794,7 +794,7 @@ const TASKS_NO_STATE_READONLY: &str =
     "en una conexión de solo lectura Timeplus Proton no deja leer la última ejecución de las tareas";
 const TASKS_NO_STATE: &str =
     "no se pudo leer la última ejecución de las tareas (system.task_execution_state)";
-const NO_TASKS: &str =
+pub(crate) const NO_TASKS: &str =
     "esta versión de Timeplus Proton no tiene tareas programadas (CREATE TASK llegó en la 3.0)";
 const TASK_LAST_ONLY: &str = "Timeplus Proton guarda solo la última ejecución de cada tarea";
 
@@ -928,7 +928,7 @@ impl ClickHouseSession {
     }
 
     /// `system.view_refreshes`' columns on this server (empty: it has none).
-    async fn refresh_columns(&self) -> Result<BTreeSet<String>> {
+    pub(crate) async fn refresh_columns(&self) -> Result<BTreeSet<String>> {
         let rows = self
             .rows(
                 "SELECT name FROM system.columns WHERE database = 'system' AND table = 'view_refreshes'",
@@ -940,7 +940,7 @@ impl ClickHouseSession {
 
     /// Whether past refreshes can be read: the server tags them with their
     /// view (25.4 on) and the user can read `system.query_log`.
-    async fn history(&self) -> History {
+    pub(crate) async fn history(&self) -> History {
         let version = self
             .rows("SELECT version()", &[])
             .await
@@ -984,7 +984,7 @@ impl ClickHouseSession {
     }
 
     /// One refreshable view, or an error saying there's none by that name.
-    async fn refresh(&self, db: &str, view: &str) -> Result<Refresh> {
+    pub(crate) async fn refresh(&self, db: &str, view: &str) -> Result<Refresh> {
         let cols = self.refresh_columns().await?;
         if cols.is_empty() {
             return Err(Error::Unsupported(NO_REFRESHABLE.into()));
@@ -1061,7 +1061,7 @@ impl ClickHouseSession {
     /// `verbose` setting goes on the request (a read-only connection takes
     /// it there); a user whose profile is read-only can't set it at all and
     /// gets only the names.
-    async fn tasks_in(&self, db: &str) -> Result<(Vec<Vec<Value>>, bool)> {
+    pub(crate) async fn tasks_in(&self, db: &str) -> Result<(Vec<Vec<Value>>, bool)> {
         let sql = format!("SHOW TASKS FROM {}", q(db));
         match self.rows_with(&sql, &[], &[("verbose", "1")]).await {
             Ok(rows) => Ok((rows, true)),
@@ -1105,7 +1105,7 @@ impl ClickHouseSession {
             .collect())
     }
 
-    async fn task(&self, db: &str, name: &str) -> Result<Task> {
+    pub(crate) async fn task(&self, db: &str, name: &str) -> Result<Task> {
         let row = self
             .tasks_in(db)
             .await
@@ -1173,13 +1173,13 @@ impl ClickHouseSession {
 
 /// The server refused something because the request or the profile is
 /// read-only (`READONLY`, 164).
-fn readonly_refusal(e: &Error) -> bool {
+pub(crate) fn readonly_refusal(e: &Error) -> bool {
     let m = e.to_string();
     m.contains("(READONLY)") || m.contains("Code: 164.")
 }
 
 /// The server has no tasks (`SHOW TASKS` is a syntax error before 3.0).
-fn no_tasks(e: &Error) -> bool {
+pub(crate) fn no_tasks(e: &Error) -> bool {
     let m = e.to_string();
     m.contains("Syntax error") || m.contains("SYNTAX_ERROR")
 }

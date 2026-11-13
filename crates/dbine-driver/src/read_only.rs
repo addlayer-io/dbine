@@ -741,6 +741,73 @@ impl Session for ReadOnlySession {
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.inner.job_script(id).await
     }
+    async fn scheduler_info(&mut self) -> Result<crate::SchedulerInfo> {
+        self.inner.scheduler_info().await
+    }
+    async fn scheduler_items(&mut self, kind: &str) -> Result<crate::SchedulerList> {
+        self.inner.scheduler_items(kind).await
+    }
+    async fn scheduler_form(&mut self, kind: &str, id: Option<&str>) -> Result<crate::ObjectForm> {
+        let mut form = self.inner.scheduler_form(kind, id).await?;
+        form.read_only = true;
+        form.notes.push(
+            "Conexión de solo lectura: se puede ver y generar el script, pero no guardar.".into(),
+        );
+        Ok(form)
+    }
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &crate::FormValues,
+    ) -> Result<String> {
+        self.inner.scheduler_script(kind, id, values).await
+    }
+    async fn scheduler_save(
+        &mut self,
+        _kind: &str,
+        _id: Option<&str>,
+        _values: &crate::FormValues,
+    ) -> Result<Option<String>> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden crear ni cambiar objetos del planificador."
+                .into(),
+        ))
+    }
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        self.inner.scheduler_delete_script(kind, id).await
+    }
+    async fn scheduler_delete(&mut self, _kind: &str, _id: &str) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden borrar objetos del planificador.".into(),
+        ))
+    }
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        self.inner.scheduler_action_script(kind, id, action).await
+    }
+    async fn scheduler_action(&mut self, _kind: &str, _id: &str, _action: &str) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden ejecutar acciones del planificador.".into(),
+        ))
+    }
+    async fn run_job_from(&mut self, _id: &str, _step: &str) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se pueden ejecutar jobs del servidor.".into(),
+        ))
+    }
+    async fn clear_job_history(&mut self, _id: &str) -> Result<()> {
+        Err(Error::Query(
+            "Conexión de solo lectura: no se puede borrar el historial de un job.".into(),
+        ))
+    }
+    async fn scheduler_logs(&mut self) -> Result<Vec<crate::MonitorTable>> {
+        self.inner.scheduler_logs().await
+    }
     async fn run_job(&mut self, _id: &str) -> Result<()> {
         Err(Error::Query(
             "Conexión de solo lectura: no se pueden ejecutar jobs del servidor.".into(),

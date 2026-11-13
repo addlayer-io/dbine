@@ -422,6 +422,18 @@ impl Call {
             | StopJob { session, .. }
             | SetJobEnabled { session, .. }
             | JobScript { session, .. }
+            | SchedulerInfo { session }
+            | SchedulerItems { session, .. }
+            | SchedulerForm { session, .. }
+            | SchedulerScript { session, .. }
+            | SchedulerSave { session, .. }
+            | SchedulerDeleteScript { session, .. }
+            | SchedulerDelete { session, .. }
+            | SchedulerActionScript { session, .. }
+            | SchedulerAction { session, .. }
+            | RunJobFrom { session, .. }
+            | ClearJobHistory { session, .. }
+            | SchedulerLogs { session }
             | ExecuteBound { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
@@ -1350,6 +1362,126 @@ impl State {
                     .lock()
                     .await
                     .job_script(&id)
+                    .await?,
+            ),
+            Call::SchedulerInfo { session } => Reply::SchedulerInfo(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_info()
+                    .await?,
+            ),
+            Call::SchedulerItems { session, kind } => Reply::SchedulerList(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_items(&kind)
+                    .await?,
+            ),
+            Call::SchedulerForm { session, kind, id } => Reply::ObjectForm(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_form(&kind, id.as_deref())
+                    .await?,
+            ),
+            Call::SchedulerScript {
+                session,
+                kind,
+                id,
+                values,
+            } => Reply::Text(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_script(&kind, id.as_deref(), &values)
+                    .await?,
+            ),
+            Call::SchedulerSave {
+                session,
+                kind,
+                id,
+                values,
+            } => Reply::MaybeText(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_save(&kind, id.as_deref(), &values)
+                    .await?,
+            ),
+            Call::SchedulerDeleteScript { session, kind, id } => Reply::Text(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_delete_script(&kind, &id)
+                    .await?,
+            ),
+            Call::SchedulerDelete { session, kind, id } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_delete(&kind, &id)
+                    .await?;
+                Reply::Unit
+            }
+            Call::SchedulerActionScript {
+                session,
+                kind,
+                id,
+                action,
+            } => Reply::Text(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_action_script(&kind, &id, &action)
+                    .await?,
+            ),
+            Call::SchedulerAction {
+                session,
+                kind,
+                id,
+                action,
+            } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_action(&kind, &id, &action)
+                    .await?;
+                Reply::Unit
+            }
+            Call::RunJobFrom { session, id, step } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .run_job_from(&id, &step)
+                    .await?;
+                Reply::Unit
+            }
+            Call::ClearJobHistory { session, id } => {
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .clear_job_history(&id)
+                    .await?;
+                Reply::Unit
+            }
+            Call::SchedulerLogs { session } => Reply::SchedulerLogs(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_logs()
                     .await?,
             ),
         })

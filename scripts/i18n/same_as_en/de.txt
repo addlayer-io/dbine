@@ -371,3 +371,28 @@ backend:Lote
 backend:Multiservidor
 backend:Problema
 backend:Rutina
+backend:010 - Información
+backend:Abril
+backend:Agosto
+backend:Cubetas (BUCKET)
+backend:Cuenta regresiva (apoc.periodic.countdown)
+backend:Código
+backend:Definición
+backend:Disparador
+backend:En {0}: {1}
+backend:Espacio de nombres
+backend:Estándar
+backend:Finalizador
+backend:Grafo
+backend:Información
+backend:Lotes
+backend:Noviembre
+backend:Operador (net send)
+backend:Pausa
+backend:Planificador
+backend:Posición
+backend:Rama
+backend:Reflexión
+backend:Septiembre
+backend:Tiempo de espera
+backend:Transformación

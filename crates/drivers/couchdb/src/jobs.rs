@@ -48,12 +48,12 @@ const MAX_MESSAGE: usize = 4000;
 /// What replaces a hidden credential.
 const HIDDEN: &str = "***";
 
-const DENIED: &str =
+pub(crate) const DENIED: &str =
     "Solo un administrador del servidor ve las replicaciones (/_scheduler): este usuario no lo es.";
-const NO_SCHEDULER: &str = "Esta versión de CouchDB no tiene el planificador de replicaciones (/_scheduler, CouchDB 2.1 en adelante).";
+pub(crate) const NO_SCHEDULER: &str = "Esta versión de CouchDB no tiene el planificador de replicaciones (/_scheduler, CouchDB 2.1 en adelante).";
 const DOC_STOP_NOTE: &str = "CouchDB no tiene pausa: «Detener» borra el documento de _replicator y la replicación deja de existir. El script de esta pestaña la vuelve a crear.";
 const DOC_RUN_NOTE: &str = "«Ejecutar ahora» vuelve a guardar el documento sin el estado que le escribió CouchDB, y la replicación arranca de nuevo.";
-const TRANSIENT_NOTE: &str = "Es una replicación transitoria (POST /_replicate): no tiene documento, se pierde si el servidor se reinicia y su script se arma con lo que informa el planificador, sin credenciales ni filtros.";
+pub(crate) const TRANSIENT_NOTE: &str = "Es una replicación transitoria (POST /_replicate): no tiene documento, se pierde si el servidor se reinicia y su script se arma con lo que informa el planificador, sin credenciales ni filtros.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum JobId {
@@ -137,7 +137,7 @@ pub(crate) fn parse_id(id: &str) -> Result<JobId> {
     Err(bad())
 }
 
-fn s(v: &Value, k: &str) -> Option<String> {
+pub(crate) fn s(v: &Value, k: &str) -> Option<String> {
     v.get(k)
         .and_then(Value::as_str)
         .map(str::trim)
@@ -156,7 +156,7 @@ fn epoch(t: &str) -> Option<i64> {
 }
 
 /// An instant CouchDB wrote as RFC 3339 in UTC, to the second.
-fn utc(t: &str) -> Option<String> {
+pub(crate) fn utc(t: &str) -> Option<String> {
     chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| {
         d.with_timezone(&chrono::Utc)
             .format("%Y-%m-%dT%H:%M:%SZ")
@@ -420,7 +420,7 @@ fn final_run(d: &Value) -> Option<JobRun> {
 }
 
 /// Keys whose value is a secret, wherever they are in a document.
-fn secret_key(k: &str) -> bool {
+pub(crate) fn secret_key(k: &str) -> bool {
     let k = k.to_ascii_lowercase();
     [
         "password",
@@ -493,7 +493,7 @@ pub(crate) fn redacted(v: &Value) -> (Value, bool) {
 
 /// What the replicator writes on a document, which isn't part of its
 /// definition.
-fn replicator_state(k: &str) -> bool {
+pub(crate) fn replicator_state(k: &str) -> bool {
     k.starts_with("_replication_")
 }
 
@@ -578,7 +578,7 @@ fn stats_props(info: &Value, out: &mut Vec<PropertyInfo>) {
     }
 }
 
-fn denied(e: &Error) -> bool {
+pub(crate) fn denied(e: &Error) -> bool {
     match e {
         Error::AuthFailed(_) => true,
         Error::Statement(se) => matches!(se.code.as_deref(), Some("unauthorized" | "forbidden")),
@@ -586,7 +586,7 @@ fn denied(e: &Error) -> bool {
     }
 }
 
-fn missing(e: &Error) -> bool {
+pub(crate) fn missing(e: &Error) -> bool {
     match e {
         Error::Statement(se) => matches!(se.code.as_deref(), Some("not_found" | "missing")),
         _ => false,
@@ -595,7 +595,7 @@ fn missing(e: &Error) -> bool {
 
 /// A server without `/_scheduler` (before CouchDB 2.1) takes `_scheduler`
 /// as a database name: `illegal_database_name` (or `not_found`).
-fn no_scheduler(e: &Error) -> bool {
+pub(crate) fn no_scheduler(e: &Error) -> bool {
     match e {
         Error::Statement(se) => matches!(
             se.code.as_deref(),
@@ -610,7 +610,7 @@ fn truncated_note() -> String {
     format!("Se muestran las primeras {MAX_JOBS} replicaciones.")
 }
 
-fn not_found(id: &str) -> Error {
+pub(crate) fn not_found(id: &str) -> Error {
     Error::Query(format!(
         "no existe la replicación «{}» o ya no está en el planificador",
         id.chars().take(200).collect::<String>()
@@ -619,7 +619,7 @@ fn not_found(id: &str) -> Error {
 
 impl CouchSession {
     /// Every row of a paged scheduler listing (`docs` or `jobs`).
-    async fn scheduler(&self, what: &str) -> Result<Vec<Value>> {
+    pub(crate) async fn scheduler(&self, what: &str) -> Result<Vec<Value>> {
         let mut out = Vec::new();
         loop {
             let page = self
@@ -651,7 +651,7 @@ impl CouchSession {
         }
     }
 
-    async fn scheduler_doc(&self, db: &str, doc: &str) -> Result<Value> {
+    pub(crate) async fn scheduler_doc(&self, db: &str, doc: &str) -> Result<Value> {
         self.call(
             Method::GET,
             &format!("/_scheduler/docs/{}/{}", seg(db), seg(doc)),
@@ -667,7 +667,7 @@ impl CouchSession {
         }))
     }
 
-    async fn transient(&self, rep: &str) -> Result<Value> {
+    pub(crate) async fn transient(&self, rep: &str) -> Result<Value> {
         self.scheduler("jobs")
             .await?
             .into_iter()
@@ -677,7 +677,7 @@ impl CouchSession {
             .ok_or_else(|| not_found(&format!("rep:{rep}")))
     }
 
-    async fn replication_doc(&self, db: &str, doc: &str) -> Result<Value> {
+    pub(crate) async fn replication_doc(&self, db: &str, doc: &str) -> Result<Value> {
         self.call(Method::GET, &format!("/{}/{}", seg(db), seg(doc)), None)
             .await
     }

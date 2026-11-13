@@ -53,6 +53,7 @@ mod permissions;
 mod plan;
 mod processes;
 mod properties;
+mod replication;
 mod security;
 mod stats;
 mod steps;
@@ -231,6 +232,7 @@ impl Driver for CouchDriver {
             cancel_query: true,
             database_properties: true,
             jobs: true,
+            scheduler: true,
             ..Default::default()
         }
     }
@@ -1039,6 +1041,60 @@ impl Session for CouchSession {
 
     async fn job_script(&mut self, id: &str) -> Result<String> {
         self.server_job_script(id).await
+    }
+
+    /// Replications and the replicator's settings, managed whole (see
+    /// [`replication`]).
+    async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
+        replication::info(self).await
+    }
+
+    async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {
+        replication::items(self, kind).await
+    }
+
+    async fn scheduler_form(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+    ) -> Result<dbine_driver::ObjectForm> {
+        replication::form(self, kind, id).await
+    }
+
+    async fn scheduler_script(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        replication::script(self, kind, id, values).await
+    }
+
+    async fn scheduler_save(
+        &mut self,
+        kind: &str,
+        id: Option<&str>,
+        values: &dbine_driver::FormValues,
+    ) -> Result<Option<String>> {
+        replication::save(self, kind, id, values).await
+    }
+
+    async fn scheduler_delete_script(&mut self, kind: &str, id: &str) -> Result<String> {
+        replication::delete_script(self, kind, id).await
+    }
+
+    async fn scheduler_delete(&mut self, kind: &str, id: &str) -> Result<()> {
+        replication::delete(self, kind, id).await
+    }
+
+    /// A replication has one step and runs again whole with "run now":
+    /// refused, as its job kind says (`run_from_step` false).
+    async fn run_job_from(&mut self, id: &str, _step: &str) -> Result<()> {
+        replication::run_from(self, id).await
+    }
+
+    async fn clear_job_history(&mut self, id: &str) -> Result<()> {
+        replication::clear_history(self, id).await
     }
 
     async fn read_batches(
