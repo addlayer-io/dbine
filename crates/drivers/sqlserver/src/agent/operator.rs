@@ -6,8 +6,8 @@
 
 use super::choices::{self, Catalog};
 use super::{
-    bad, fits, int_id, pick, rows, shown, time_field, time_text, Ctx, Kind, Plan, Script, Vals, A,
-    SYSADMIN_ONLY_FORM, SYSNAME,
+    bad, fits, int_id, pick, quoted, rows, shown, time_field, time_text, Ctx, Kind, Plan, Script,
+    Vals, A, SYSADMIN_ONLY_FORM, SYSNAME,
 };
 use crate::jobs::{self, agent_time_of, first_with, int, text};
 use crate::SqlServerSession;
@@ -586,11 +586,26 @@ pub(crate) fn alter_script(cur: &Operator, op: &Operator) -> Option<String> {
     (sc.calls() > 0).then(|| sc.finish(None))
 }
 
-pub(crate) fn drop_script(name: &str) -> String {
+/// `sp_delete_operator`: msdb deletes its notifications too, and the jobs
+/// that notify it stop doing so; each, where it applies, is a warning.
+/// `alerts` and `jobs`: those that notify it.
+pub(crate) fn drop_script(name: &str, alerts: &[String], jobs: &[String]) -> String {
     let mut sc = Script::new(
         &format!("Borra el operador «{name}» del Agente SQL Server"),
         &[],
     );
+    if !alerts.is_empty() {
+        sc.warn(&format!(
+            "Las alertas que avisan a este operador dejan de avisarle: {}.",
+            quoted(alerts)
+        ));
+    }
+    if !jobs.is_empty() {
+        sc.warn(&format!(
+            "Los jobs que avisan a este operador dejan de avisarle: {}.",
+            quoted(jobs)
+        ));
+    }
     sc.call(
         "msdb.dbo.sp_delete_operator",
         vec![("name", A::T(name.into()))],
@@ -641,5 +656,12 @@ pub(crate) async fn delete_script(s: &mut SqlServerSession, c: &Ctx, id: &str) -
         return Err(Error::Query(SYSADMIN_ONLY_FORM.into()));
     }
     let r = read(s, id).await?;
-    Ok(drop_script(&r.op.name))
+    let alerts: Vec<String> = r.op.alerts.keys().cloned().collect();
+    let jobs: Vec<String> = r
+        .jobs
+        .iter()
+        .filter(|(_, when)| when.iter().any(|w| !w.is_empty()))
+        .map(|(name, _)| name.clone())
+        .collect();
+    Ok(drop_script(&r.op.name, &alerts, &jobs))
 }

@@ -1737,6 +1737,20 @@ pub(crate) fn has_go_line(text: &str) -> bool {
     })
 }
 
+/// A line of the text, starting a line of the script, would read as one of
+/// the driver's warnings (a comment whose text starts with "⚠": the app
+/// lists those above the script and asks to continue).
+pub(crate) fn has_warning_line(text: &str) -> bool {
+    text.lines().any(|l| {
+        let t = l.trim_start();
+        let t = ["--", "#", "//", "/*", "*"]
+            .iter()
+            .find_map(|p| t.strip_prefix(p))
+            .unwrap_or(t);
+        t.trim_start().starts_with('⚠')
+    })
+}
+
 /// Builds the script, naming each long text a variable when it can't go as
 /// a literal.
 pub(crate) struct ScriptWriter {
@@ -1748,10 +1762,11 @@ pub(crate) struct ScriptWriter {
 
 impl ScriptWriter {
     /// A text value for a procedure parameter: an `N'…'` literal, or, when a
-    /// line of it could read as `GO`, a variable set on one line with the
-    /// line breaks as `NCHAR(13)` / `NCHAR(10)`.
+    /// line of it could read as `GO` or as a warning of the driver's (the
+    /// user's text among them), a variable set on one line with the line
+    /// breaks as `NCHAR(13)` / `NCHAR(10)`.
     pub(crate) fn text(&mut self, value: &str) -> String {
-        if !has_go_line(value) {
+        if !has_go_line(value) && !has_warning_line(value) {
             return literal(value);
         }
         self.vars += 1;
@@ -2745,6 +2760,36 @@ mod tests {
         assert!(!has_go_line("GOTO done"));
         assert!(!has_go_line("SELECT 'GO'"));
         assert!(!has_go_line("going"));
+    }
+
+    #[test]
+    fn warning_lines_are_spotted() {
+        for warned in [
+            "a\n-- ⚠ x",
+            "a\r\n  ⚠ x",
+            "# ⚠ x",
+            "//⚠ x",
+            "/* ⚠ x */",
+            " * ⚠ x",
+        ] {
+            assert!(has_warning_line(warned), "{warned}");
+        }
+        for plain in ["a ⚠ x", "--- ⚠ x", "SELECT '⚠'", "-- x ⚠"] {
+            assert!(!has_warning_line(plain), "{plain}");
+        }
+        // Such a value is set on one line: no line of the script starts
+        // with it.
+        let mut w = ScriptWriter {
+            out: String::new(),
+            vars: 0,
+            nested: false,
+        };
+        assert_eq!(w.text("SELECT 1;\n-- ⚠ x"), "@text1");
+        assert_eq!(
+            w.out,
+            "DECLARE @text1 nvarchar(max);\nSET @text1 = CAST(N'' AS nvarchar(max)) + N'SELECT 1;' + NCHAR(10) + N'-- ⚠ x';\n"
+        );
+        assert_eq!(w.text("SELECT 1; -- ⚠ x"), "N'SELECT 1; -- ⚠ x'");
     }
 
     #[test]

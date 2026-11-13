@@ -14,7 +14,9 @@
 
 use super::choices::{self, Catalog};
 use super::schedule::{self, Freq};
-use super::{bad, fits, guid_literal, pick, rows, shown, Ctx, Plan, Script, Vals, A, SYSNAME};
+use super::{
+    bad, fits, guid_literal, pick, quoted, rows, shown, Ctx, Plan, Script, Vals, A, SYSNAME,
+};
 use crate::jobs::{self, first_with, text, JobRow, Raw, StepRow};
 use crate::SqlServerSession;
 use dbine_driver::{
@@ -37,6 +39,9 @@ const NO_ALERTS: &str =
 const CHANGED: &str =
     "El job cambió en el servidor desde que se abrió el formulario: recargalo antes de guardar.";
 const UNCATEGORIZED: &str = "[Uncategorized (Local)]";
+/// Warnings (`-- ⚠ …` lines) of a delete or an edit.
+pub(crate) const DELETES_HISTORY: &str = "Se borra también el historial de ejecuciones del job.";
+pub(crate) const STEP_LOGS_MOVE: &str = "Los pasos cambian de orden y se reescriben por posición (msdb no puede moverlos): la salida que un paso registró en la tabla queda con el paso que ocupa ahora su lugar.";
 /// msdb's "no job" for an alert's response.
 const NO_JOB: &str = "N'00000000-0000-0000-0000-000000000000'";
 
@@ -677,6 +682,26 @@ pub(crate) fn plan_steps(current: &[Step], finals: &[Wanted]) -> Vec<StepOp> {
     ops
 }
 
+/// The steps change order, so [`plan_steps`] rewrites them by place (each
+/// place keeps its step's uid), and a place whose step logged its output
+/// to the table (`sysjobstepslogs`, by uid) now holds another step: that
+/// log goes with the place, not with the step.
+pub(crate) fn moves_table_logs(current: &[Step], finals: &[Wanted]) -> bool {
+    let order: Vec<i64> = finals.iter().filter_map(|w| w.orig).collect();
+    if order.windows(2).all(|p| p[0] < p[1]) {
+        return false;
+    }
+    let kept: BTreeSet<i64> = order.iter().copied().collect();
+    // The places left after the deletes, each with the step it holds.
+    let places: Vec<i64> = (1..=current.len() as i64)
+        .filter(|id| kept.contains(id))
+        .collect();
+    places
+        .iter()
+        .zip(finals)
+        .any(|(id, w)| w.orig != Some(*id) && current[*id as usize - 1].flags & (8 | 16) != 0)
+}
+
 /// The `sp_update_jobstep` arguments that turn `o` into `d`.
 pub(crate) fn step_changes(d: &Step, o: &Step) -> Vec<(&'static str, A)> {
     let mut a: Vec<(&'static str, A)> = Vec::new();
@@ -905,6 +930,9 @@ pub(crate) struct JobState {
     /// The owner of each of its schedules (by id), where it was read
     /// (`sp_help_jobschedule` doesn't say).
     pub(crate) schedule_owners: HashMap<i64, Option<String>>,
+    /// msdb holds rows of its history (`sysjobhistory`); `None` where the
+    /// login can't read them (the SQLAgent roles).
+    pub(crate) history: Option<bool>,
 }
 
 impl JobState {
@@ -1342,6 +1370,9 @@ pub(crate) fn alter_script(st: &JobState, j: &JobSpec, c: &Ctx) -> Option<String
 
     // Steps.
     write_steps(&mut sc, &plan_steps(&st.steps, &j.steps));
+    if moves_table_logs(&st.steps, &j.steps) {
+        sc.warn(STEP_LOGS_MOVE);
+    }
 
     // The job itself, once its steps are in place (its start step must be
     // one of them).
@@ -1422,6 +1453,7 @@ pub(crate) fn alter_script(st: &JobState, j: &JobSpec, c: &Ctx) -> Option<String
         .filter_map(|s| s.id)
         .chain(j.shared.iter().copied())
         .collect();
+    let mut deleted = Vec::new();
     for r in &st.raw.schedules {
         let Some(id) = r.id else { continue };
         if !wanted.contains(&id) {
@@ -1429,6 +1461,9 @@ pub(crate) fn alter_script(st: &JobState, j: &JobSpec, c: &Ctx) -> Option<String
             // delete it (it refuses the whole detach otherwise, 14394): a
             // shared one, or another login's, is only detached.
             let delete = r.job_count <= 1 && st.owns_schedule(c, id) == Some(true);
+            if delete {
+                deleted.push(r.name.clone());
+            }
             sc.call(
                 "msdb.dbo.sp_detach_schedule",
                 vec![
@@ -1438,6 +1473,12 @@ pub(crate) fn alter_script(st: &JobState, j: &JobSpec, c: &Ctx) -> Option<String
                 ],
             );
         }
+    }
+    if !deleted.is_empty() {
+        sc.warn(&format!(
+            "Las programaciones que se quitan y ningún otro job usa se borran: {}.",
+            quoted(&deleted)
+        ));
     }
     for s in &j.schedules {
         let Some(id) = s.id else { continue };
@@ -1545,12 +1586,39 @@ fn schedule_update(
 }
 
 /// `sp_delete_job`; schedules no other job uses go with it, as in SSMS.
-pub(crate) fn drop_script(id: &str, name: &str) -> String {
+/// msdb also deletes the job's history and takes it off the alerts that
+/// run it: each, where it applies, is a warning. The history is the rows
+/// msdb holds, where they were read; else the job's last run (which
+/// outlives a purge of its history).
+pub(crate) fn drop_script(st: &JobState) -> String {
+    let name = &st.raw.job.name;
     let mut sc = Script::new(&format!("Borra el job del Agente SQL Server «{name}»"), &[]);
+    if st.history.unwrap_or(st.raw.job.last_run.is_some()) {
+        sc.warn(DELETES_HISTORY);
+    }
+    let unused: Vec<String> = st
+        .raw
+        .schedules
+        .iter()
+        .filter(|r| r.job_count <= 1)
+        .map(|r| r.name.clone())
+        .collect();
+    if !unused.is_empty() {
+        sc.warn(&format!(
+            "Se borran también las programaciones que solo usa este job: {}.",
+            quoted(&unused)
+        ));
+    }
+    if let Some(alerts) = st.alerts.as_ref().filter(|a| !a.is_empty()) {
+        sc.warn(&format!(
+            "Las alertas que ejecutan este job se quedan sin job que ejecutar: {}.",
+            quoted(alerts)
+        ));
+    }
     sc.call(
         "msdb.dbo.sp_delete_job",
         vec![
-            ("job_id", A::R(guid_literal(id))),
+            ("job_id", A::R(guid_literal(&st.id))),
             ("delete_unused_schedule", A::I(1)),
         ],
     );
@@ -1561,14 +1629,17 @@ pub(crate) fn drop_script(id: &str, name: &str) -> String {
 // Reading
 // ---------------------------------------------------------------------------
 
-/// The alerts that run the job (`@P1`), where the login may read them, and
-/// the owners of its schedules `ids` (integers msdb gave; the SQLAgent
-/// roles read `sysschedules_localserver_view` but not `sysjobschedules`).
+/// The alerts that run the job (`@P1`), whether msdb holds history of it,
+/// where the login may read them, and the owners of its schedules `ids`
+/// (integers msdb gave; the SQLAgent roles read
+/// `sysschedules_localserver_view` but not `sysjobschedules`).
 pub(crate) fn extra_sql(ids: &[i64]) -> String {
     let mut sql = String::from(
         "SET NOCOUNT ON;
 IF HAS_PERMS_BY_NAME(N'msdb.dbo.sysalerts', N'OBJECT', N'SELECT') = 1
-    SELECT name AS dbine_alert FROM msdb.dbo.sysalerts WHERE job_id = @P1 ORDER BY name;",
+    SELECT name AS dbine_alert FROM msdb.dbo.sysalerts WHERE job_id = @P1 ORDER BY name;
+IF HAS_PERMS_BY_NAME(N'msdb.dbo.sysjobhistory', N'OBJECT', N'SELECT') = 1
+    SELECT TOP (1) 1 AS dbine_history FROM msdb.dbo.sysjobhistory WHERE job_id = @P1;",
     );
     if !ids.is_empty() {
         let list: Vec<String> = ids.iter().map(i64::to_string).collect();
@@ -1607,12 +1678,15 @@ async fn read_state(s: &mut SqlServerSession, c: &Ctx, id: &str) -> Result<JobSt
                 .collect()
         })
         .unwrap_or_default();
+    // An empty set still has its column: no history.
+    let history = first_with(&sets, "dbine_history").map(|set| !set.rows.is_empty());
     Ok(JobState {
         id: id.to_string(),
         raw,
         steps,
         alerts,
         schedule_owners,
+        history,
     })
 }
 
@@ -1696,13 +1770,31 @@ pub(crate) async fn plan(
 
 pub(crate) async fn delete_script(s: &mut SqlServerSession, c: &Ctx, id: &str) -> Result<String> {
     let id = jobs::job_id(id)?;
-    let (raw, _) = jobs::read_job_as(s, &c.p, &id).await?;
+    let st = read_state(s, c, &id).await?;
     if c.writable() {
-        if let Err(why) = may_change(c, &raw.job) {
+        if let Err(why) = may_change(c, &st.raw.job) {
             return Err(Error::Query(why.into()));
         }
     }
-    Ok(drop_script(&id, &raw.job.name))
+    Ok(drop_script(&st))
+}
+
+/// This login may start the job at one of its steps: `sp_start_job
+/// @step_name` applies to a local job (`sp_help_job`'s `type` 1; a
+/// multiserver job is posted to its targets whole, one without a target
+/// server doesn't start) that has steps, and runs it for its owner,
+/// SQLAgentOperatorRole and sysadmin.
+pub(crate) fn starts_at_step(c: &Ctx, j: &JobRow) -> bool {
+    j.kind == 1 && j.steps > 0 && c.p.manages(j.owner.as_deref())
+}
+
+/// This login may purge the job's history (`sp_purge_jobhistory`, given
+/// its EXECUTE): sysadmin and SQLAgentOperatorRole any job's; whoever else
+/// was granted it (a SQLAgentReaderRole member sees every job), only the
+/// jobs it owns (14392 otherwise). The procedure checks nothing else: a
+/// multiserver job's history purges like a local one's.
+pub(crate) fn purges_history(c: &Ctx, j: &JobRow) -> bool {
+    c.p.manages(j.owner.as_deref())
 }
 
 /// A job in the tree, with what this login may do with it.
@@ -1717,8 +1809,8 @@ pub(crate) fn item(c: &Ctx, j: &JobRow) -> SchedulerItem {
         can_edit: mine,
         can_delete: mine,
         actions: None,
-        run_from_step: None,
-        clear_history: None,
+        run_from_step: super::unless(c.run_from_step(), starts_at_step(c, j)),
+        clear_history: super::unless(c.writable() && c.purge_history, purges_history(c, j)),
     }
 }
 

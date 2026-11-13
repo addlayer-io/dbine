@@ -8,7 +8,7 @@ use super::operator::{self, Operator};
 use super::proxy::{self, Proxy};
 use super::schedule::{self, Freq};
 use super::*;
-use crate::jobs::{has_go_line, JobRow, Raw, ScheduleRow, ServerRow};
+use crate::jobs::{has_go_line, has_warning_line, JobRow, Raw, ScheduleRow, ServerRow};
 use dbine_driver::{FormField, FormKind};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -87,6 +87,13 @@ fn one_batch(sql: &str) {
             .count(),
         "{sql}"
     );
+}
+
+/// A script's warnings, as the app reads them (its `-- ⚠ …` lines).
+fn warnings(sql: &str) -> Vec<&str> {
+    sql.lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .collect()
 }
 
 fn catalog() -> Catalog {
@@ -449,7 +456,10 @@ fn scripts_have_ssms_shape() {
     assert_eq!(sc.calls(), 2);
     let sql = sc.finish(Some("SELECT 1 AS x;"));
     one_batch(&sql);
-    assert!(sql.starts_with("-- Prueba «x»?DROP TABLE t\nSET NOCOUNT ON;\nBEGIN TRANSACTION;\nDECLARE @ReturnCode int, @jobId uniqueidentifier;\nSET @ReturnCode = 0;\n"), "{sql}");
+    // A call after the commit isn't atomic with the rest: a warning under
+    // the first line.
+    assert!(sql.starts_with(&format!("-- Prueba «x»?DROP TABLE t\n-- ⚠ {AFTER_COMMIT_WARNING}\nSET NOCOUNT ON;\nBEGIN TRANSACTION;\nDECLARE @ReturnCode int, @jobId uniqueidentifier;\nSET @ReturnCode = 0;\n")), "{sql}");
+    assert_eq!(warnings(&sql), [AFTER_COMMIT_WARNING]);
     assert!(sql.contains("SET @text1 = CAST(N'' AS nvarchar(max)) + N'it''s' + NCHAR(10) + N'GO' + NCHAR(10) + N'next';"), "{sql}");
     assert!(sql.contains(&format!("EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = N'{ID}',\n    @description = @text1,\n    @enabled = 1;\nIF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback;")), "{sql}");
     // After the commit and the tail, with its own failure path.
@@ -464,9 +474,22 @@ fn scripts_have_ssms_shape() {
         "{sql}"
     );
     assert!(sql.contains(&format!("QuitWithRollback:\n    IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION;\n    RAISERROR ({}, 16, 1);\n    GOTO EndSave;\nQuitAfterCommit:\n    RAISERROR ({}, 16, 1);\nEndSave:\n", literal(ROLLED_BACK), literal(AFTER_COMMIT))), "{sql}");
-    // Without calls after the commit, no second path.
+    // Without calls after the commit, no second path and no warning.
     let sql = Script::new("x", &[]).finish(None);
     assert!(!sql.contains("QuitAfterCommit"), "{sql}");
+    assert!(warnings(&sql).is_empty(), "{sql}");
+    // Warnings go under the first line in the order given, each on one
+    // line, whatever was written before them.
+    let mut sc = Script::new("x", &[]);
+    sc.call("msdb.dbo.sp_a", vec![]);
+    sc.warn("uno\nGO");
+    sc.warn("dos.");
+    let sql = sc.finish(None);
+    one_batch(&sql);
+    assert!(
+        sql.starts_with("-- x\n-- ⚠ uno?GO\n-- ⚠ dos.\nSET NOCOUNT ON;\n"),
+        "{sql}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -726,11 +749,13 @@ fn shared_schedule_scripts() {
         sql.contains("msdb.dbo.sp_delete_schedule @schedule_id = 5;"),
         "{sql}"
     );
+    assert!(warnings(&sql).is_empty(), "{sql}");
+    // Taken off the jobs that use it: the user accepts that first.
     let sql = schedule::drop_script(5, "x", &["a".into(), "b\nGO".into()]);
     one_batch(&sql);
-    assert!(
-        sql.contains("-- La usan 2 jobs: se quita de ellos (a, b?GO).\n"),
-        "{sql}"
+    assert_eq!(
+        warnings(&sql),
+        ["Se quita también de los jobs que la usan: «a», «b?GO»."]
     );
     assert!(
         sql.contains("@schedule_id = 5,\n    @force_delete = 1;"),
@@ -1298,6 +1323,69 @@ fn reordering_rewrites_by_place_and_frees_names() {
     assert_eq!(ops[0], StepOp::Rename(3, "dbine_tmp_3".into()));
 }
 
+/// msdb can't move a step: a new order rewrites each place, and the output
+/// a step logged to the table stays with its place (its uid).
+#[test]
+fn reordered_steps_warn_when_a_table_log_changes_step() {
+    let logged = |name: &str, command: &str, flags: i64| Step {
+        flags,
+        ..tsql(name, command)
+    };
+    // In order: every step keeps its place.
+    let cur = vec![logged("a", "1", 8), tsql("b", "2")];
+    let finals = vec![w(Some(1), logged("a", "1", 8)), w(Some(2), tsql("b", "2"))];
+    assert!(!job::moves_table_logs(&cur, &finals));
+    // A new step in the middle: msdb moves the later ones, uids and all.
+    let finals = vec![
+        w(Some(1), logged("a", "1", 8)),
+        w(None, tsql("n", "0")),
+        w(Some(2), tsql("b", "2")),
+    ];
+    assert!(!job::moves_table_logs(&cur, &finals));
+    // Swapped: a's log stays at place 1, now b's.
+    let finals = vec![w(Some(2), tsql("b", "2")), w(Some(1), logged("a", "1", 8))];
+    assert!(job::moves_table_logs(&cur, &finals));
+    // Swapped, neither logs to the table: nothing to lose.
+    let plain = vec![tsql("a", "1"), tsql("b", "2")];
+    let finals = vec![w(Some(2), tsql("b", "2")), w(Some(1), tsql("a", "1"))];
+    assert!(!job::moves_table_logs(&plain, &finals));
+    // a deleted, c and d swapped: b (logging) keeps place 1.
+    let cur = vec![
+        tsql("a", "1"),
+        logged("b", "2", 8),
+        tsql("c", "3"),
+        tsql("d", "4"),
+    ];
+    let finals = vec![
+        w(Some(2), logged("b", "2", 8)),
+        w(Some(4), tsql("d", "4")),
+        w(Some(3), tsql("c", "3")),
+    ];
+    assert!(!job::moves_table_logs(&cur, &finals));
+    // c appending to the table: its place goes to d.
+    let mut cur = cur;
+    cur[2].flags = 16;
+    assert!(job::moves_table_logs(&cur, &finals));
+    // In the job's script, as a warning, only then.
+    let mut st = state();
+    st.steps[0].flags = 8;
+    let mut j = same();
+    j.steps[0].step.flags = 8;
+    j.description = "other".into();
+    let sql = job::alter_script(&st, &j, &sa()).unwrap();
+    assert!(warnings(&sql).is_empty(), "{sql}");
+    j.steps.swap(0, 1);
+    for x in &mut j.steps {
+        if x.step.on_fail == 4 {
+            x.step.on_fail_step = 2;
+        }
+    }
+    j.start_step = 2;
+    let sql = job::alter_script(&st, &j, &sa()).unwrap();
+    one_batch(&sql);
+    assert_eq!(warnings(&sql), [job::STEP_LOGS_MOVE]);
+}
+
 #[test]
 fn step_scripts_set_only_what_changed() {
     let old = Step {
@@ -1463,6 +1551,33 @@ fn the_create_script_makes_the_whole_job() {
     );
 }
 
+#[test]
+fn the_users_text_never_reads_as_a_warning() {
+    // A step command or a description with a line the app would list as
+    // the driver's warning goes on one line, through a variable.
+    let mut j = spec();
+    j.steps[0].step.command = "SELECT 1;\n-- ⚠ revisar antes\nSELECT 2;".into();
+    j.description = "carga\n⚠ no tocar".into();
+    let sql = job::create_script(&j, "sa");
+    one_batch(&sql);
+    // As the app reads them: no line starts as a warning.
+    assert!(!has_warning_line(&sql), "{sql}");
+    assert!(
+        sql.contains(
+            "SET @text1 = CAST(N'' AS nvarchar(max)) + N'carga' + NCHAR(10) + N'⚠ no tocar';"
+        ),
+        "{sql}"
+    );
+    assert!(sql.contains("SET @text2 = CAST(N'' AS nvarchar(max)) + N'SELECT 1;' + NCHAR(10) + N'-- ⚠ revisar antes' + NCHAR(10) + N'SELECT 2;';"), "{sql}");
+    assert!(sql.contains("@command = @text2,"), "{sql}");
+    // The same in an edit.
+    let mut j = same();
+    j.steps[1].step.command = "SELECT 2;\n  /* ⚠ x */".into();
+    let sql = job::alter_script(&state(), &j, &sa()).unwrap();
+    one_batch(&sql);
+    assert!(!has_warning_line(&sql), "{sql}");
+}
+
 fn state() -> JobState {
     let s = spec();
     JobState {
@@ -1513,6 +1628,7 @@ fn state() -> JobState {
         steps: s.steps.iter().map(|w| w.step.clone()).collect(),
         alerts: Some(vec!["disk".into()]),
         schedule_owners: Default::default(),
+        history: None,
     }
 }
 
@@ -1560,8 +1676,10 @@ fn the_alter_script_changes_the_job_in_place() {
         "in place: {sql}"
     );
     assert!(sql.contains("msdb.dbo.sp_update_job @job_id = @jobId,\n    @new_name = N'renamed ''job''',\n    @enabled = 0,\n    @description = N'',\n    @notify_level_email = 0,\n    @notify_email_operator_name = N'',\n    @notify_level_page = 3,\n    @notify_page_operator_name = N'dba',\n    @delete_level = 1;"), "{sql}");
-    // A shared schedule is only detached (other jobs use it).
+    // A shared schedule is only detached (other jobs use it): nothing is
+    // lost, no warning.
     assert!(sql.contains("msdb.dbo.sp_detach_schedule @job_id = @jobId,\n    @schedule_id = 8,\n    @delete_unused_schedule = 0;"), "{sql}");
+    assert!(warnings(&sql).is_empty(), "{sql}");
     assert!(
         sql.contains("msdb.dbo.sp_update_schedule @schedule_id = 7,\n    @freq_interval = 2;"),
         "{sql}"
@@ -1632,7 +1750,9 @@ fn a_job_removes_schedules_as_msdb_lets_the_login() {
     let mut j = same();
     j.schedules.clear();
     j.shared.clear();
-    // The owner of the job and of schedule 7: 7 goes; 8 is shared.
+    // The owner of the job and of schedule 7: 7 goes (deleted, which the
+    // user accepts first); 8 is shared.
+    let deleted = ["Las programaciones que se quitan y ningún otro job usa se borran: «night»."];
     let sql = job::alter_script(&st, &j, &ana).unwrap();
     assert!(
         sql.contains("@schedule_id = 7,\n    @delete_unused_schedule = 1;"),
@@ -1642,6 +1762,7 @@ fn a_job_removes_schedules_as_msdb_lets_the_login() {
         sql.contains("@schedule_id = 8,\n    @delete_unused_schedule = 0;"),
         "{sql}"
     );
+    assert_eq!(warnings(&sql), deleted);
     // Schedule 7 is sa's (made for the job by sysadmin): only detached.
     st.schedule_owners.insert(7, Some("sa".into()));
     let sql = job::alter_script(&st, &j, &ana).unwrap();
@@ -1649,18 +1770,21 @@ fn a_job_removes_schedules_as_msdb_lets_the_login() {
         sql.contains("@schedule_id = 7,\n    @delete_unused_schedule = 0;"),
         "{sql}"
     );
+    assert!(warnings(&sql).is_empty(), "{sql}");
     // sysadmin deletes it; an owner that wasn't read is left to msdb.
     let sql = job::alter_script(&st, &j, &sa()).unwrap();
     assert!(
         sql.contains("@schedule_id = 7,\n    @delete_unused_schedule = 1;"),
         "{sql}"
     );
+    assert_eq!(warnings(&sql), deleted);
     st.schedule_owners.clear();
     let sql = job::alter_script(&st, &j, &ana).unwrap();
     assert!(
         sql.contains("@schedule_id = 7,\n    @delete_unused_schedule = 0;"),
         "{sql}"
     );
+    assert!(warnings(&sql).is_empty(), "{sql}");
     // Changing sa's schedule from ana's own job is refused before msdb.
     let cat = catalog();
     let mut st = state();
@@ -1715,7 +1839,11 @@ fn a_job_without_steps_starts_at_one() {
 
 #[test]
 fn the_drop_script_and_a_stale_form() {
-    let sql = job::drop_script(ID, "a\nGO");
+    // Schedule 7 is the job's alone (msdb deletes it with the job), 8 is
+    // shared; the alert "disk" runs it; it never ran.
+    let mut st = state();
+    st.raw.job.name = "a\nGO".into();
+    let sql = job::drop_script(&st);
     one_batch(&sql);
     assert!(
         sql.starts_with("-- Borra el job del Agente SQL Server «a?GO»\n"),
@@ -1724,6 +1852,40 @@ fn the_drop_script_and_a_stale_form() {
     assert!(sql.contains(&format!(
         "msdb.dbo.sp_delete_job @job_id = N'{ID}',\n    @delete_unused_schedule = 1;"
     )));
+    assert_eq!(
+        warnings(&sql),
+        [
+            "Se borran también las programaciones que solo usa este job: «night».",
+            "Las alertas que ejecutan este job se quedan sin job que ejecutar: «disk».",
+        ]
+    );
+    // It ran (and its history couldn't be read): its history goes too.
+    st.raw.job.last_run =
+        chrono::NaiveDate::from_ymd_opt(2026, 11, 12).and_then(|d| d.and_hms_opt(3, 0, 0));
+    let sql = job::drop_script(&st);
+    assert_eq!(warnings(&sql)[0], job::DELETES_HISTORY);
+    assert_eq!(warnings(&sql).len(), 3, "{sql}");
+    // msdb holds no history of it (purged, or past the Agent's retention)
+    // although it ran: nothing of it is lost.
+    st.history = Some(false);
+    let sql = job::drop_script(&st);
+    assert!(!warnings(&sql).contains(&job::DELETES_HISTORY), "{sql}");
+    assert_eq!(warnings(&sql).len(), 2, "{sql}");
+    // The rows msdb holds are what count.
+    st.history = Some(true);
+    st.raw.job.last_run = None;
+    let sql = job::drop_script(&st);
+    assert_eq!(warnings(&sql)[0], job::DELETES_HISTORY);
+    // Nothing else goes: only shared schedules, no alert (or alerts this
+    // login can't see), never run.
+    st.history = None;
+    st.raw.schedules.retain(|r| r.job_count > 1);
+    for alerts in [Some(vec![]), None] {
+        st.alerts = alerts;
+        let sql = job::drop_script(&st);
+        one_batch(&sql);
+        assert!(warnings(&sql).is_empty(), "{sql}");
+    }
     let st = state();
     assert!(job::stale(&fv(json!({"version_number": 4}), json!({})), &st).is_ok());
     assert!(job::stale(&fv(json!({}), json!({})), &st).is_ok());
@@ -1994,9 +2156,29 @@ fn operator_scripts() {
         let at = sql.find(part).unwrap_or_else(|| panic!("{part}: {sql}"));
         assert!(at > rename);
     }
-    let sql = operator::drop_script("o'neil");
+    let sql = operator::drop_script("o'neil", &[], &[]);
     one_batch(&sql);
     assert!(sql.contains("msdb.dbo.sp_delete_operator @name = N'o''neil';"));
+    assert!(warnings(&sql).is_empty(), "{sql}");
+    // Alerts and jobs that notify it stop doing so: the user accepts it.
+    let sql = operator::drop_script("o'neil", &["disk".into()], &[]);
+    assert_eq!(
+        warnings(&sql),
+        ["Las alertas que avisan a este operador dejan de avisarle: «disk»."]
+    );
+    let sql = operator::drop_script(
+        "o'neil",
+        &["disk".into(), "sev 17".into()],
+        &["nightly".into()],
+    );
+    one_batch(&sql);
+    assert_eq!(
+        warnings(&sql),
+        [
+            "Las alertas que avisan a este operador dejan de avisarle: «disk», «sev 17».",
+            "Los jobs que avisan a este operador dejan de avisarle: «nightly».",
+        ]
+    );
 }
 
 #[test]
@@ -2325,6 +2507,10 @@ fn proxy_scripts() {
     );
     assert!(sql.find("@login_name = N'ana'").unwrap() < commit);
     assert!(sql.contains("COMMIT TRANSACTION;\nSELECT @proxyId AS proxy_id;\n"));
+    // Not atomic: the user accepts it first.
+    assert_eq!(warnings(&sql), [AFTER_COMMIT_WARNING]);
+    let sql = proxy::create_script(&prox());
+    assert!(warnings(&sql).is_empty(), "{sql}");
     assert_eq!(proxy::alter_script(4, &prox(), &prox(), true), None);
     let mut q = prox();
     q.name = "files2".into();
@@ -2337,9 +2523,13 @@ fn proxy_scripts() {
     let sql = proxy::alter_script(4, &prox(), &q, true).unwrap();
     one_batch(&sql);
     assert!(sql.contains("msdb.dbo.sp_update_proxy @proxy_id = 4,\n    @new_name = N'files2',\n    @enabled = 0;"), "{sql}");
-    assert!(
-        sql.contains("-- sp_update_proxy no deja vacía la descripción"),
-        "{sql}"
+    // The description msdb won't empty, and the revokes after the commit.
+    assert_eq!(
+        warnings(&sql),
+        [
+            "sp_update_proxy no deja vacía la descripción de un proxy: se mantiene la que tiene.",
+            AFTER_COMMIT_WARNING,
+        ]
     );
     assert!(sql.contains(
         "sp_revoke_proxy_from_subsystem @proxy_id = 4,\n    @subsystem_name = N'CmdExec';"
@@ -2362,6 +2552,33 @@ fn proxy_scripts() {
     r.enabled = false;
     let sql = proxy::alter_script(4, &Proxy::default(), &r, false).unwrap();
     assert!(!sql.contains("grant") && !sql.contains("revoke"), "{sql}");
+    // A new description and in-transaction grants only: nothing to accept.
+    let mut r = prox();
+    r.description = "moves".into();
+    r.logins.push("sa".into());
+    let sql = proxy::alter_script(4, &prox(), &r, true).unwrap();
+    one_batch(&sql);
+    assert!(warnings(&sql).is_empty(), "{sql}");
+    // Emptying the description is all the edit changes: nothing to save,
+    // and the user is still told msdb keeps it.
+    let mut r = prox();
+    r.description = String::new();
+    assert_eq!(proxy::alter_script(4, &prox(), &r, true), None);
+    let plan = proxy::edit_plan(4, &prox(), &r, true);
+    assert!(plan.empty && plan.id.as_deref() == Some("4"));
+    assert_eq!(warnings(&plan.script), [proxy::KEEPS_DESCRIPTION]);
+    assert!(
+        plan.script
+            .starts_with("-- «files»: no hay cambios que guardar.\n"),
+        "{}",
+        plan.script
+    );
+    // Nothing changed at all: nothing to accept.
+    let plan = proxy::edit_plan(4, &prox(), &prox(), true);
+    assert!(plan.empty && warnings(&plan.script).is_empty());
+    // A change to save: its script.
+    let plan = proxy::edit_plan(4, &prox(), &q, true);
+    assert!(!plan.empty && plan.script.contains("sp_update_proxy"));
     let sql = proxy::drop_script(4, "files");
     one_batch(&sql);
     assert!(sql.contains("msdb.dbo.sp_delete_proxy @proxy_id = 4;"));
@@ -2445,9 +2662,33 @@ fn category_scripts() {
     let sql = category::rename_script(&cat, "on call").unwrap();
     one_batch(&sql);
     assert!(sql.contains("msdb.dbo.sp_update_category @class = N'OPERATOR',\n    @name = N'ops',\n    @new_name = N'on call';"), "{sql}");
-    let sql = category::drop_script(&cat);
+    let sql = category::drop_script(&cat, &[]);
     one_batch(&sql);
     assert!(sql.contains("msdb.dbo.sp_delete_category @class = N'OPERATOR',\n    @name = N'ops';"));
+    assert!(warnings(&sql).is_empty(), "{sql}");
+    // Its members move to the class's default category.
+    let sql = category::drop_script(&cat, &["dba".into(), "o'neil".into()]);
+    one_batch(&sql);
+    assert_eq!(
+        warnings(&sql),
+        ["Sus miembros pasan a la categoría «[Uncategorized]»: «dba», «o'neil»."]
+    );
+    for (class, kind, to) in [
+        (1, 1, "[Uncategorized (Local)]"),
+        (1, 2, "[Uncategorized (Multi-Server)]"),
+        (2, 3, "[Uncategorized]"),
+    ] {
+        let c = Category {
+            class,
+            kind,
+            ..cat.clone()
+        };
+        let sql = category::drop_script(&c, &["m".into()]);
+        assert_eq!(
+            warnings(&sql),
+            [format!("Sus miembros pasan a la categoría «{to}»: «m».")]
+        );
+    }
     assert!(Category {
         id: 0,
         class: 1,
@@ -2689,6 +2930,90 @@ fn each_item_says_what_this_login_may_do_with_it() {
     assert_eq!(abilities(&sa(), &job_of("sa", "MSX1")), Some(false));
     // Where the kind can't anyway, the kind says it.
     assert_eq!(abilities(&express, &job_of("ana", "SRV")), None);
+    // Start at a step: a local job with steps, for its owner,
+    // SQLAgentOperatorRole and sysadmin; `sp_start_job @step_name` refuses
+    // the rest.
+    let at_step = |c: &Ctx, j: &JobRow| job::item(c, j).run_from_step;
+    let local = |owner: &str| JobRow {
+        kind: 1,
+        steps: 2,
+        ..job_of(owner, "SRV")
+    };
+    assert_eq!(at_step(&sa(), &local("ana")), None);
+    assert_eq!(at_step(&user(), &local("ANA")), None);
+    assert_eq!(at_step(&user(), &local("sa")), Some(false));
+    let operator = Ctx {
+        p: Probe {
+            operator: true,
+            ..user().p
+        },
+        ..user()
+    };
+    assert_eq!(at_step(&operator, &local("sa")), None);
+    // No steps, no target server, a multiserver job (posted to its targets
+    // whole).
+    for kind in [0, 2] {
+        assert_eq!(
+            at_step(
+                &sa(),
+                &JobRow {
+                    kind,
+                    ..local("sa")
+                }
+            ),
+            Some(false)
+        );
+    }
+    let no_steps = JobRow {
+        steps: 0,
+        ..local("sa")
+    };
+    assert_eq!(at_step(&sa(), &no_steps), Some(false));
+    // The Agent stopped: the kind says it.
+    let stopped = Ctx {
+        p: Probe {
+            agent_running: false,
+            ..probe_sa()
+        },
+        ..sa()
+    };
+    assert_eq!(at_step(&stopped, &no_steps), None);
+    // Clear the history (given EXECUTE on sp_purge_jobhistory): sysadmin
+    // and SQLAgentOperatorRole any job's, whoever else was granted it only
+    // the jobs it owns (msdb raises 14392); multiserver or not.
+    let purges = |c: &Ctx, j: &JobRow| job::item(c, j).clear_history;
+    let multi = |owner: &str| JobRow {
+        kind: 2,
+        ..local(owner)
+    };
+    assert_eq!(purges(&sa(), &multi("ana")), None);
+    assert_eq!(purges(&sa(), &local("ana")), None);
+    let operator = Ctx {
+        purge_history: true,
+        ..operator
+    };
+    assert_eq!(purges(&operator, &local("sa")), None);
+    assert_eq!(purges(&operator, &multi("sa")), None);
+    // A SQLAgentReaderRole member (it sees every job) granted the EXECUTE.
+    let granted = Ctx {
+        purge_history: true,
+        p: Probe {
+            reader: true,
+            ..user().p
+        },
+        ..user()
+    };
+    assert_eq!(purges(&granted, &local("sa")), Some(false));
+    assert_eq!(purges(&granted, &multi("sa")), Some(false));
+    assert_eq!(purges(&granted, &local("ANA")), None);
+    assert_eq!(purges(&granted, &multi("ana")), None);
+    // Without the EXECUTE, or on Express, the kind says it.
+    assert_eq!(purges(&user(), &local("sa")), None);
+    let express_purge = Ctx {
+        purge_history: true,
+        ..express.clone()
+    };
+    assert_eq!(purges(&express_purge, &multi("sa")), None);
     // Shared schedules: the owner's or sysadmin's.
     let row = ScheduleRow {
         name: "s".into(),

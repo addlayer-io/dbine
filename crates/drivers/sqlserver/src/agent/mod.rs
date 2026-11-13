@@ -17,6 +17,12 @@
 //!   error 22022 inside procedures that still succeed; XACT_ABORT would turn
 //!   it into a rollback of every save. A batch-ending error is rolled back
 //!   by the driver after the batch.
+//! - Warnings: what a script does that the user loses or risks, beyond
+//!   the change itself, is a `-- ⚠ …` line under its first one (the app
+//!   asks to continue): calls run after the commit, a proxy description
+//!   msdb won't empty, schedules deleted or taken off jobs, a job's history,
+//!   alerts and notifications left without their job or operator, members
+//!   moved to the default category, step logs left with another step.
 //! - Values and ids come from the app as untrusted text: ids are parsed (a
 //!   job's GUID, the integer ids of the rest) and looked up on the server,
 //!   names picked from lists are checked against the server's, and every
@@ -74,6 +80,8 @@ const ROLLED_BACK: &str =
     "No se guardó ningún cambio: el servidor rechazó una de las instrucciones del script.";
 /// What the script raises when a call it makes after the commit fails.
 const AFTER_COMMIT: &str = "Se guardaron los cambios, salvo los que el script hace después de confirmarlos: el servidor rechazó uno.";
+/// The warning of a script with calls after the commit: not atomic.
+const AFTER_COMMIT_WARNING: &str = "Parte del script se ejecuta después de confirmar el resto, porque msdb no puede hacerlo dentro de una transacción: si esa parte falla, lo anterior queda guardado igual.";
 
 /// The Agent isn't running, so msdb couldn't tell it about the change (it
 /// is made anyway).
@@ -112,6 +120,15 @@ pub(crate) fn unless(kind_can: bool, this_can: bool) -> Option<bool> {
 /// Text from the app, short and on one line, for a message.
 fn shown(s: &str) -> String {
     comment_text(s.trim()).chars().take(60).collect()
+}
+
+/// Names for a warning: «a», «b».
+pub(crate) fn quoted(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|n| format!("«{n}»"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +223,8 @@ pub(crate) struct Ctx {
     pub(crate) start_jobs: bool,
     /// May run `sp_purge_jobhistory`: msdb grants it to
     /// SQLAgentOperatorRole only (and sysadmin), not even for the jobs a
-    /// SQLAgentUserRole member owns.
+    /// SQLAgentUserRole member owns, unless someone granted its EXECUTE.
+    /// Whose history it then purges: [`job::purges_history`].
     pub(crate) purge_history: bool,
     /// This is a master server (MSX) with target servers enlisted.
     pub(crate) msx: bool,
@@ -229,6 +247,13 @@ impl Ctx {
     /// Azure SQL Managed Instance.
     pub(crate) fn managed(&self) -> bool {
         self.p.edition == 8
+    }
+
+    /// "Start Job at Step" needs the Agent running (`sp_start_job` is
+    /// refused otherwise) and the procedure's EXECUTE; Express has no
+    /// Agent.
+    pub(crate) fn run_from_step(&self) -> bool {
+        self.p.agent_runs() && self.start_jobs
     }
 
     fn has(&self, kind: Kind) -> bool {
@@ -347,7 +372,7 @@ fn info_of(c: &Ctx) -> SchedulerInfo {
         // it. Express has neither. Each needs its procedure's EXECUTE.
         SchedulerKind::new("job", "Jobs", "job")
             .abilities(w, w, w)
-            .run_from_step(c.p.agent_runs() && c.start_jobs)
+            .run_from_step(c.run_from_step())
             .clear_history(w && c.purge_history),
         SchedulerKind::new("schedule", "Programaciones", "programación").abilities(w, w, w),
         SchedulerKind::new("operator", "Operadores", "operador").abilities(a, a, a),
@@ -465,6 +490,21 @@ impl Plan {
             lookup: None,
         }
     }
+
+    /// Nothing to save although the form changed something msdb won't
+    /// take: `why` is a warning, so the app still shows it.
+    fn nothing_but(name: &str, id: String, why: &str) -> Plan {
+        let mut p = Plan::nothing(name, id);
+        p.script.push_str(&warning_line(why));
+        p
+    }
+}
+
+/// A consequence the user must accept, one whole Spanish sentence: a
+/// `-- ⚠ …` line, which the app lists above the script before asking to
+/// continue.
+fn warning_line(text: &str) -> String {
+    format!("-- ⚠ {}\n", comment_text(text))
 }
 
 async fn plan(
@@ -826,6 +866,9 @@ pub(crate) struct Script {
     calls: usize,
     /// Calls msdb can't make inside a transaction, run after the commit.
     after: String,
+    /// What the user must accept before it runs (`-- ⚠ …` lines, under
+    /// the script's first line): the app lists them and asks to continue.
+    warnings: Vec<String>,
 }
 
 impl Script {
@@ -849,7 +892,15 @@ impl Script {
             w,
             calls: 0,
             after: String::new(),
+            warnings: Vec::new(),
         }
+    }
+
+    /// A consequence the user must accept (something lost or at risk),
+    /// one whole Spanish sentence: a `-- ⚠ …` line under the script's
+    /// first one.
+    pub(crate) fn warn(&mut self, text: &str) {
+        self.warnings.push(warning_line(text));
     }
 
     /// `EXEC @ReturnCode = proc @a = x, …;` and the check.
@@ -888,11 +939,6 @@ impl Script {
         self.w.out.push('\n');
     }
 
-    /// A comment line.
-    pub(crate) fn comment(&mut self, text: &str) {
-        let _ = writeln!(self.w.out, "-- {}", comment_text(text));
-    }
-
     pub(crate) fn calls(&self) -> usize {
         self.calls
     }
@@ -900,6 +946,11 @@ impl Script {
     /// The commit, `tail` after it (the new object's id), and the
     /// rollback.
     pub(crate) fn finish(mut self, tail: Option<&str>) -> String {
+        if !self.after.is_empty() {
+            self.warn(AFTER_COMMIT_WARNING);
+        }
+        let head = self.w.out.find('\n').map_or(self.w.out.len(), |i| i + 1);
+        self.w.out.insert_str(head, &self.warnings.concat());
         self.w.out.push_str("COMMIT TRANSACTION;\n");
         if let Some(t) = tail {
             self.w.out.push_str(t);

@@ -21,7 +21,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 const NOT_FOUND: &str = "El proxy no existe o este usuario no puede verlo.";
-const KEEPS_DESCRIPTION: &str =
+pub(crate) const KEEPS_DESCRIPTION: &str =
     "sp_update_proxy no deja vacía la descripción de un proxy: se mantiene la que tiene.";
 const GRANTS_HIDDEN: &str =
     "Solo un miembro de sysadmin ve los subsistemas y las entidades de seguridad de un proxy.";
@@ -489,7 +489,7 @@ pub(crate) fn alter_script(id: i64, cur: &Proxy, p: &Proxy, grants_known: bool) 
     }
     if p.description != cur.description {
         if p.description.is_empty() {
-            sc.comment(KEEPS_DESCRIPTION);
+            sc.warn(KEEPS_DESCRIPTION);
         } else {
             args.push(("description", A::T(p.description.clone())));
         }
@@ -501,6 +501,24 @@ pub(crate) fn alter_script(id: i64, cur: &Proxy, p: &Proxy, grants_known: bool) 
         grants(&mut sc, A::I(id), p, cur);
     }
     (sc.calls() > 0).then(|| sc.finish(None))
+}
+
+/// An edit's plan: [`alter_script`]'s, or nothing to save; where emptying
+/// the description was all it changed, nothing still says msdb keeps it.
+pub(crate) fn edit_plan(id: i64, cur: &Proxy, p: &Proxy, grants_known: bool) -> Plan {
+    match alter_script(id, cur, p, grants_known) {
+        Some(script) => Plan {
+            script,
+            empty: false,
+            id: Some(id.to_string()),
+            output: None,
+            lookup: None,
+        },
+        None if p.description.is_empty() && !cur.description.is_empty() => {
+            Plan::nothing_but(&cur.name, id.to_string(), KEEPS_DESCRIPTION)
+        }
+        None => Plan::nothing(&cur.name, id.to_string()),
+    }
 }
 
 pub(crate) fn drop_script(id: i64, name: &str) -> String {
@@ -544,16 +562,7 @@ pub(crate) async fn plan(
         }),
         Some(id) => {
             let r = read(s, id).await?;
-            Ok(match alter_script(r.id, &r.proxy, &p, r.grants) {
-                Some(script) => Plan {
-                    script,
-                    empty: false,
-                    id: Some(r.id.to_string()),
-                    output: None,
-                    lookup: None,
-                },
-                None => Plan::nothing(&r.proxy.name, r.id.to_string()),
-            })
+            Ok(edit_plan(r.id, &r.proxy, &p, r.grants))
         }
     }
 }

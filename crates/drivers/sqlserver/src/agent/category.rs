@@ -4,7 +4,9 @@
 //! "[Uncategorized]"). The system's own categories (id under 100) are
 //! read-only. sysadmin only.
 
-use super::{bad, fits, int_id, Ctx, Kind, Plan, Script, Vals, A, SYSADMIN_ONLY_FORM, SYSNAME};
+use super::{
+    bad, fits, int_id, quoted, Ctx, Kind, Plan, Script, Vals, A, SYSADMIN_ONLY_FORM, SYSNAME,
+};
 use crate::jobs::{self, first_with, int, text};
 use crate::SqlServerSession;
 use dbine_driver::{
@@ -261,11 +263,30 @@ pub(crate) fn rename_script(cat: &Category, name: &str) -> Option<String> {
     Some(sc.finish(None))
 }
 
-pub(crate) fn drop_script(cat: &Category) -> String {
+/// Where `sp_delete_category` moves a category's members: its class's
+/// own "[Uncategorized]" (for jobs, of the category's type).
+fn default_of(cat: &Category) -> &'static str {
+    match (cat.class, cat.kind) {
+        (1, 2) => "[Uncategorized (Multi-Server)]",
+        (1, _) => "[Uncategorized (Local)]",
+        _ => "[Uncategorized]",
+    }
+}
+
+/// `sp_delete_category`; its `members` (where they were read) move to
+/// the class's default category: a warning.
+pub(crate) fn drop_script(cat: &Category, members: &[String]) -> String {
     let mut sc = Script::new(
         &format!("Borra la categoría «{}» del Agente SQL Server", cat.name),
         &[],
     );
+    if !members.is_empty() {
+        sc.warn(&format!(
+            "Sus miembros pasan a la categoría «{}»: {}.",
+            default_of(cat),
+            quoted(members)
+        ));
+    }
     sc.call(
         "msdb.dbo.sp_delete_category",
         vec![
@@ -343,12 +364,12 @@ pub(crate) async fn plan(
 }
 
 pub(crate) async fn delete_script(s: &mut SqlServerSession, c: &Ctx, id: &str) -> Result<String> {
-    let (cat, _) = read(s, id).await?;
+    let (cat, members) = read(s, id).await?;
     if cat.system() {
         return Err(Error::Query(SYSTEM.into()));
     }
     if !c.p.sysadmin && c.writable() {
         return Err(Error::Query(SYSADMIN_ONLY_FORM.into()));
     }
-    Ok(drop_script(&cat))
+    Ok(drop_script(&cat, &members))
 }

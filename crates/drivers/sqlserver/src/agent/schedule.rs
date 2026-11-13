@@ -11,8 +11,8 @@
 
 use super::choices::{self, Catalog};
 use super::{
-    bad, date_field, date_text, fits, int_id, pick, shown, time_field, time_text, Ctx, Kind, Plan,
-    Script, Vals, A, SYSNAME,
+    bad, date_field, date_text, fits, int_id, pick, quoted, shown, time_field, time_text, Ctx,
+    Kind, Plan, Script, Vals, A, SYSNAME,
 };
 use crate::jobs::{self, describe, first_with, int, read_all, text, ScheduleRow};
 use crate::SqlServerSession;
@@ -900,10 +900,9 @@ pub(crate) fn drop_script(id: i64, name: &str, jobs: &[String]) -> String {
     );
     let mut args = vec![("schedule_id", A::I(id))];
     if !jobs.is_empty() {
-        sc.comment(&format!(
-            "La usan {} jobs: se quita de ellos ({}).",
-            jobs.len(),
-            jobs.join(", ")
+        sc.warn(&format!(
+            "Se quita también de los jobs que la usan: {}.",
+            quoted(jobs)
         ));
         args.push(("force_delete", A::I(1)));
     }
