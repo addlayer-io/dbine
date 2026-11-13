@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.5.0 | 2026-11-11 | 6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e in vendor/winauth and crates/drivers/kdb, the only code that range changes; e8d6961e..e50a062f, the fixes for the open findings, in src-tauri, crates/dbine-core, crates/drivers/kdb and web/src | 0 open | 8d440027, the query editor's result tabs (#75, web/src only), released without a scan by the owner's decision; release-notes and translation text |
 | codeql | 2026-11-13 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-13 | every lockfile (Cargo, npm) at [`c9b425f02`](https://github.com/addlayer-io/dbine/commit/c9b425f025dc) | 0 open | — |
-| scorecard | 2026-11-12 | repository settings and workflows at [`dbf202f6f`](https://github.com/addlayer-io/dbine/commit/dbf202f6fb2e) | score 7.5/10 | — |
-| trivy | 2026-11-13 | whole repository at [`c9b425f02`](https://github.com/addlayer-io/dbine/commit/c9b425f025dc) | 0 open | — |
+| osv | 2026-11-13 | every lockfile (Cargo, npm) at [`230cca8c7`](https://github.com/addlayer-io/dbine/commit/230cca8c701d) | 0 open | — |
+| scorecard | 2026-11-13 | repository settings and workflows at [`c9b425f02`](https://github.com/addlayer-io/dbine/commit/c9b425f025dc) | score 7.5/10 | — |
+| trivy | 2026-11-13 | whole repository at [`230cca8c7`](https://github.com/addlayer-io/dbine/commit/230cca8c701d) | 0 open | — |
 
 ## Not counted, and why
 
@@ -390,7 +390,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.5/10** (2026-11-12). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.5/10** (2026-11-13). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
