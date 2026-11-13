@@ -6459,6 +6459,7 @@
   "no se pudieron cifrar las credenciales": "não foi possível criptografar as credenciais",
   "no se pudieron descifrar las credenciales": "não foi possível descriptografar as credenciais",
   "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": "não foi possível guardar as linhas em um arquivo temporário enquanto chegam seus tipos: {0}",
+  "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": "não foi possível ler as linhas guardadas no arquivo temporário: o arquivo mudou enquanto seus tipos chegavam",
   "no se pudieron listar": "não foi possível listá-los",
   "no se pudo abrir el navegador: {0}": "não foi possível abrir o navegador: {0}",
   "no se pudo abrir {0}: {1}": "não foi possível abrir {0}: {1}",

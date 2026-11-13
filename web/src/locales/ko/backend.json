@@ -6459,6 +6459,7 @@
   "no se pudieron cifrar las credenciales": "자격 증명을 암호화하지 못했습니다",
   "no se pudieron descifrar las credenciales": "자격 증명을 복호화하지 못했습니다",
   "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": "유형이 도착하는 동안 행을 임시 파일에 저장하지 못했습니다: {0}",
+  "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": "임시 파일에 저장된 행을 읽지 못했습니다: 유형이 도착하는 동안 파일이 변경되었습니다",
   "no se pudieron listar": "나열하지 못했습니다",
   "no se pudo abrir el navegador: {0}": "브라우저를 열지 못했습니다: {0}",
   "no se pudo abrir {0}: {1}": "{0}을(를) 열지 못했습니다: {1}",

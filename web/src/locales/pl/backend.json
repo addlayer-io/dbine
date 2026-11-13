@@ -9265,6 +9265,7 @@
   "no se pudieron desactivar las restricciones CHECK del clon para copiar las filas; no se clona": "nie udało się wyłączyć ograniczeń CHECK klonu, aby skopiować wiersze; nie jest klonowany",
   "no se pudieron descifrar las credenciales": "nie udało się odszyfrować poświadczeń",
   "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": "nie udało się zapisać wierszy w pliku tymczasowym w trakcie napływu ich typów: {0}",
+  "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": "nie udało się odczytać wierszy zapisanych w pliku tymczasowym: plik zmienił się w trakcie napływu ich typów",
   "no se pudieron leer las opciones de la clave primaria del original (orden de las columnas, FILLFACTOR, compresión…): el clon la tiene con las de por omisión": "nie udało się odczytać opcji klucza głównego oryginału (kolejność kolumn, FILLFACTOR, kompresja…): klon ma go z domyślnymi",
   "no se pudieron leer las particiones de los índices locales de la tabla; no se clona": "nie udało się odczytać partycji indeksów lokalnych tabeli; nie jest klonowany",
   "no se pudieron leer las restricciones únicas del clon; no se clona": "nie udało się odczytać ograniczeń unikalności klonu; nie jest klonowany",

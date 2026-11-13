@@ -11,10 +11,12 @@
 //! digit. Temporal values come as epoch milliseconds, binaries as base64
 //! (decoded whole), maps and lists as JSON. Older servers send the types
 //! after the rows: those rows wait in memory up to a bound, then in a
-//! temporary file.
+//! temporary file, encrypted with a key that only exists in memory.
 
 use crate::{http_error, text, Conn, DrillSession};
 use base64::Engine as _;
+use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
+use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, Cell, ReadSpec, TransferColumn};
 use dbine_driver::{Error, Result};
 use serde_json::Value;
@@ -422,10 +424,26 @@ struct Pending {
     spill: Option<Spill>,
 }
 
+/// The temporary file. Its rows are the server's values, so they never
+/// reach the disk in the clear: they go in blocks sealed with
+/// ChaCha20-Poly1305 under a random key that exists only in this struct's
+/// memory. A file left behind (DBine killed mid-transfer) can't be read by
+/// anyone, and one changed meanwhile fails instead of giving wrong rows.
 struct Spill {
     path: std::path::PathBuf,
     file: std::io::BufWriter<std::fs::File>,
+    cipher: ChaCha20Poly1305,
+    /// Rows not sealed yet, each one length-prefixed.
+    block: Vec<u8>,
+    /// Blocks sealed so far; block `n` carries `n` as associated data, so
+    /// blocks can't be reordered or dropped unnoticed.
+    sealed: u64,
+    /// The largest sealed block (what a read may allocate).
+    largest: usize,
 }
+
+/// A block is sealed once its rows reach this size.
+const SPILL_BLOCK: usize = 64 << 10;
 
 impl Drop for Spill {
     fn drop(&mut self) {
@@ -439,6 +457,13 @@ fn spill_error(e: std::io::Error) -> Error {
     ))
 }
 
+fn spill_changed() -> Error {
+    Error::Query(
+        "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos"
+            .into(),
+    )
+}
+
 impl Pending {
     fn new(limit: usize) -> Pending {
         Pending {
@@ -450,7 +475,6 @@ impl Pending {
     }
 
     fn push(&mut self, raw: &[u8]) -> Result<()> {
-        use std::io::Write as _;
         if self.spill.is_none() && self.bytes + raw.len() <= self.limit {
             self.bytes += raw.len();
             self.mem.push(raw.to_vec());
@@ -465,11 +489,7 @@ impl Pending {
             .map(Vec::as_slice)
             .chain([raw])
         {
-            spill
-                .file
-                .write_all(&(row.len() as u64).to_le_bytes())
-                .and_then(|_| spill.file.write_all(row))
-                .map_err(spill_error)?;
+            spill.write(row).map_err(spill_error)?;
         }
         self.bytes = 0;
         Ok(())
@@ -484,22 +504,44 @@ impl Pending {
         let Some(spill) = self.spill.as_mut() else {
             return Ok(());
         };
+        spill.seal().map_err(spill_error)?;
         std::io::Write::flush(&mut spill.file).map_err(spill_error)?;
         let mut file = std::io::BufReader::new(spill.file.get_ref());
         file.seek(std::io::SeekFrom::Start(0))
             .map_err(spill_error)?;
         let mut len = [0u8; 8];
-        let mut row = Vec::new();
-        loop {
-            match file.read_exact(&mut len) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-                Err(e) => return Err(spill_error(e)),
+        let mut nonce = [0u8; 12];
+        let mut sealed = Vec::new();
+        for n in 0..spill.sealed {
+            file.read_exact(&mut len).map_err(|_| spill_changed())?;
+            file.read_exact(&mut nonce).map_err(|_| spill_changed())?;
+            let len = usize::try_from(u64::from_le_bytes(len)).unwrap_or(usize::MAX);
+            if len > spill.largest {
+                return Err(spill_changed());
             }
-            row.resize(u64::from_le_bytes(len) as usize, 0);
-            file.read_exact(&mut row).map_err(spill_error)?;
-            f(&row)?;
+            sealed.resize(len, 0);
+            file.read_exact(&mut sealed).map_err(|_| spill_changed())?;
+            let block = spill
+                .cipher
+                .decrypt(
+                    Nonce::from_slice(&nonce),
+                    Payload {
+                        msg: &sealed,
+                        aad: &n.to_le_bytes(),
+                    },
+                )
+                .map_err(|_| spill_changed())?;
+            let mut rest = block.as_slice();
+            while !rest.is_empty() {
+                let (len, tail) = rest.split_at_checked(8).ok_or_else(spill_changed)?;
+                let len = u64::from_le_bytes(len.try_into().expect("8 bytes"));
+                let len = usize::try_from(len).map_err(|_| spill_changed())?;
+                let (row, tail) = tail.split_at_checked(len).ok_or_else(spill_changed)?;
+                f(row)?;
+                rest = tail;
+            }
         }
+        Ok(())
     }
 }
 
@@ -524,7 +566,49 @@ impl Spill {
         Ok(Spill {
             path,
             file: std::io::BufWriter::new(file),
+            cipher: ChaCha20Poly1305::new(&ChaCha20Poly1305::generate_key(&mut OsRng)),
+            block: Vec::new(),
+            sealed: 0,
+            largest: 0,
         })
+    }
+
+    /// Add a row; a full block is sealed and written.
+    fn write(&mut self, row: &[u8]) -> std::io::Result<()> {
+        self.block
+            .extend_from_slice(&(row.len() as u64).to_le_bytes());
+        self.block.extend_from_slice(row);
+        if self.block.len() >= SPILL_BLOCK {
+            self.seal()?;
+        }
+        Ok(())
+    }
+
+    /// Seal the rows not sealed yet and write them: the sealed block's
+    /// length, its random nonce, then the block.
+    fn seal(&mut self) -> std::io::Result<()> {
+        use std::io::Write as _;
+        if self.block.is_empty() {
+            return Ok(());
+        }
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let sealed = self
+            .cipher
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: &self.block,
+                    aad: &self.sealed.to_le_bytes(),
+                },
+            )
+            .map_err(|_| std::io::Error::other("ChaCha20-Poly1305"))?;
+        self.file.write_all(&(sealed.len() as u64).to_le_bytes())?;
+        self.file.write_all(&nonce)?;
+        self.file.write_all(&sealed)?;
+        self.sealed += 1;
+        self.largest = self.largest.max(sealed.len());
+        self.block.clear();
+        Ok(())
     }
 }
 
@@ -1014,5 +1098,68 @@ mod tests {
         assert!(path.exists() && p.mem.is_empty());
         drop(p);
         assert!(!path.exists(), "the temporary file is removed");
+    }
+
+    fn person(i: usize) -> Vec<u8> {
+        format!(r#"[{i},"{:08}","Ana","Pérez"]"#, 20_000_000 + i).into_bytes()
+    }
+
+    fn contains(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn the_temporary_file_holds_no_value_in_the_clear() {
+        use std::io::Write as _;
+        let rows: Vec<Vec<u8>> = (0..5_000).map(person).collect();
+        let mut p = Pending::new(0);
+        for r in &rows {
+            p.push(r).unwrap();
+        }
+        let spill = p.spill.as_mut().unwrap();
+        spill.seal().unwrap();
+        spill.file.flush().unwrap();
+        assert!(spill.sealed > 1, "several blocks");
+        let raw = std::fs::read(&spill.path).unwrap();
+        assert!(!raw.is_empty());
+        for needle in [&b"Ana"[..], b"P\xc3\xa9rez", b"20000042"] {
+            assert!(!contains(&raw, needle), "{needle:?} is on disk");
+        }
+        let mut got = Vec::new();
+        p.drain(|r| {
+            got.push(r.to_vec());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(got, rows, "every row back, in order");
+    }
+
+    #[test]
+    fn a_changed_temporary_file_fails_instead_of_giving_rows() {
+        use std::io::{Seek as _, Write as _};
+        for at in [0u64, 9, 40] {
+            let mut p = Pending::new(0);
+            for i in 0..100 {
+                p.push(&person(i)).unwrap();
+            }
+            let spill = p.spill.as_mut().unwrap();
+            spill.seal().unwrap();
+            spill.file.flush().unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&spill.path)
+                .unwrap();
+            f.seek(std::io::SeekFrom::Start(at)).unwrap();
+            f.write_all(&[0xff]).unwrap();
+            drop(f);
+            let mut n = 0;
+            let r = p.drain(|_| {
+                n += 1;
+                Ok(())
+            });
+            assert!(r.is_err(), "a byte changed at {at}");
+            assert_eq!(n, 0, "no row from a changed file");
+        }
     }
 }
