@@ -1271,8 +1271,10 @@ pub trait Session: Send {
     /// created again and loses its history or state, a property the
     /// server doesn't show isn't kept, a non-atomic change can stop half
     /// way) goes in comment lines whose text starts with "⚠" (`-- ⚠ …`,
-    /// `# ⚠ …`), one whole Spanish sentence each: the app lists them above
-    /// the script and asks "Continuar". The same holds for
+    /// `# ⚠ …`), one whole Spanish sentence each, in the script's leading
+    /// comment block (before its first statement): the app lists them above
+    /// the script and asks "Continuar". A "⚠" further down is the object's
+    /// own text, never a warning. The same holds for
     /// [`Self::scheduler_delete_script`] and
     /// [`Self::scheduler_action_script`].
     async fn scheduler_script(

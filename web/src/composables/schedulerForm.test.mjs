@@ -574,19 +574,31 @@ test('an object offers what it says, else its kind, system ones included', () =>
   assert.deepEqual(itemAbilities(undefined, { system: false }), { edit: false, delete: false, actions: [] });
 });
 
-test('script warnings are the comment lines marked with ⚠', () => {
+test('script warnings are the ⚠ lines of the leading comment block', () => {
   const script = [
+    '-- Edita el job «x».',
     '-- ⚠ Doris no tiene ALTER para este job: se borra y se crea de nuevo.',
     '-- Un comentario común.',
+    '',
     '# ⚠ Se pierde el historial de ejecuciones.',
     '/* ⚠ Las propiedades que no ves acá no se envían. */',
-    "SELECT '⚠ no es un aviso';",
+    '/*',
+    ' * ⚠ Dentro de un bloque.',
+    ' */',
     '--⚠',
+    "DROP JOB x;",
+    '-- ⚠ Después de una sentencia: es del cuerpo, no un aviso.',
+    "CREATE JOB x DO INSERT INTO t SELECT '⚠ no es un aviso';",
   ].join('\n');
   assert.deepEqual(scriptWarnings(script), [
     'Doris no tiene ALTER para este job: se borra y se crea de nuevo.',
     'Se pierde el historial de ejecuciones.',
     'Las propiedades que no ves acá no se envían.',
+    'Dentro de un bloque.',
   ]);
   assert.deepEqual(scriptWarnings('BEGIN\n  NULL;\nEND;'), []);
+  // A body line the user wrote can't pose as one.
+  assert.deepEqual(scriptWarnings("-- Paso 1\nEXEC sp_add_jobstep @command = N'SELECT 1\n-- ⚠ falso aviso\nSELECT 2';"), []);
+  // A bare "⚠" line (no comment marker) isn't one either.
+  assert.deepEqual(scriptWarnings('⚠ no es comentario\nSELECT 1;'), []);
 });

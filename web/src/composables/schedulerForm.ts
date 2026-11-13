@@ -548,15 +548,33 @@ export function humanDuration(seconds: number): string {
   return parts.join(' ');
 }
 
-/** The warnings a driver put in a script: comment lines whose text starts
- *  with "⚠" (`-- ⚠ …`, `# ⚠ …`, `// ⚠ …`, ` * ⚠ …`), in order, without the
- *  marker. The confirm dialog lists them and asks "Continuar" (a change that
- *  recreates an object or loses its history, a non-atomic edit…). */
+/** The warnings a driver put in a script: in its leading comment block
+ *  (the comment and blank lines before the first statement), the lines whose
+ *  text starts with "⚠" (`-- ⚠ …`, `# ⚠ …`, `// ⚠ …`, or in a block comment), in order,
+ *  without the marker. Only that block: a "⚠" inside a statement (a job's
+ *  command, a body the user wrote) is the object's text, not the driver's
+ *  word. The confirm dialog lists them and asks "Continuar". */
 export function scriptWarnings(script: string): string[] {
   const out: string[] = [];
-  for (const line of script.split(/\r?\n/)) {
-    const m = /^\s*(?:--|#|\/\/|\/\*|\*)?\s*⚠\uFE0F?\s*(.*?)\s*(?:\*\/)?\s*$/.exec(line);
-    if (m && m[1]) out.push(m[1]);
+  let inBlock = false;
+  for (const raw of script.split(/\r?\n/)) {
+    const line = raw.trim();
+    let text: string | null = null;
+    if (inBlock) {
+      text = line.replace(/^\*(?!\/)\s?/, '');
+      if (line.includes('*/')) inBlock = false;
+    } else if (!line) {
+      continue;
+    } else if (line.startsWith('/*')) {
+      text = line.slice(2);
+      if (!line.includes('*/', 2)) inBlock = true;
+    } else {
+      const m = /^(?:--|#|\/\/)(.*)$/.exec(line);
+      if (!m) break; // the first statement ends the block
+      text = m[1];
+    }
+    const w = /^\s*⚠\uFE0F?\s*(.*?)\s*(?:\*\/)?\s*$/.exec(text.replace(/\*\/\s*$/, ''));
+    if (w && w[1]) out.push(w[1]);
   }
   return out;
 }
