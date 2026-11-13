@@ -19,7 +19,7 @@
 
 use super::{
     bad, datetime_field, id as ident, name_of, pick, plain, shown, transaction, ts_lit, utc_sql,
-    with_current, Ctx, NewId, Plan, Vals,
+    warned, with_current, Ctx, NewId, Plan, Vals,
 };
 use crate::catalog::{comment_text, lit};
 use crate::jobs::{flag, text, JobId};
@@ -38,8 +38,8 @@ const FIRST_USER_JOB: i32 = 1000;
 const SYSTEM_JOB: &str =
     "Este job es de TimescaleDB: se puede cambiar su programación y su configuración, pero no borrarlo.";
 const NOT_OWNER: &str = "Solo el dueño del job (o un superusuario) puede cambiarlo.";
-const NEW_PROC: &str = "TimescaleDB no permite cambiar el procedimiento de un job: al guardar otro, el job se borra y se crea de nuevo, con otro id y sin sus estadísticas ni su historial.";
-const NEW_TARGET: &str = "Cambiar la hipertabla (o el agregado continuo) de una política la crea de nuevo sobre la otra y quita la actual: otro id, sin sus estadísticas ni su historial.";
+pub(crate) const NEW_PROC: &str = "TimescaleDB no permite cambiar el procedimiento de un job: al guardar otro, el job se borra y se crea de nuevo, con otro id y sin sus estadísticas ni su historial.";
+pub(crate) const NEW_TARGET: &str = "Cambiar la hipertabla (o el agregado continuo) de una política la crea de nuevo sobre la otra y quita la actual: otro id, sin sus estadísticas ni su historial.";
 
 // ---------------------------------------------------------------------------
 // Policies
@@ -287,6 +287,8 @@ fn param_fields(p: Policy, takes: &dyn Fn(&str) -> bool) -> Vec<FormField> {
 pub(crate) struct Caps {
     /// The schema of its functions.
     pub(crate) schema: String,
+    /// The current user: `add_job` makes it the new job's owner.
+    pub(crate) user: String,
     pub(crate) superuser: bool,
     /// `add_job` / `alter_job` take `job_name`.
     pub(crate) job_name: bool,
@@ -363,11 +365,12 @@ fn caps_sql(v: Variant, schema: &str) -> String {
     )
 }
 
-pub(crate) async fn caps(s: &PgSession, schema: &str) -> Result<Caps> {
+pub(crate) async fn caps(s: &PgSession, schema: &str, user: &str) -> Result<Caps> {
     let rows = s.text(&caps_sql(s.variant, schema)).await?;
     let Some(r) = rows.first() else {
         return Ok(Caps {
             schema: schema.into(),
+            user: user.into(),
             ..Caps::default()
         });
     };
@@ -393,6 +396,7 @@ pub(crate) async fn caps(s: &PgSession, schema: &str) -> Result<Caps> {
     };
     Ok(Caps {
         schema: schema.into(),
+        user: user.into(),
         superuser: flag(r, "superuser"),
         job_name: flag(r, "job_name"),
         alter_job_name: flag(r, "alter_job_name"),
@@ -1290,7 +1294,7 @@ pub(crate) fn add_job_script(v: Variant, caps: &Caps, j: &JobSpec) -> String {
 
 pub(crate) fn job_create(v: Variant, caps: &Caps, j: &JobSpec) -> String {
     transaction(
-        &format!(
+        format!(
             "TimescaleDB: nuevo job «{}»",
             j.sched.name.as_deref().unwrap_or(&j.proc)
         ),
@@ -1302,8 +1306,18 @@ pub(crate) fn job_create(v: Variant, caps: &Caps, j: &JobSpec) -> String {
 /// the procedure changes. `None`: nothing changed.
 pub(crate) fn job_alter(v: Variant, caps: &Caps, cur: &Job, j: &JobSpec) -> Option<String> {
     if j.proc != cur.proc() && !cur.system() {
+        // add_job makes the current user its owner (a superuser's, or a
+        // member of the owner's role's, edit): it runs with their rights.
+        let owner = unquote(&cur.owner);
+        let new_owner = (owner != caps.user).then(|| {
+            format!(
+                "El job se crea de nuevo a nombre de tu usuario: deja de ser de «{owner}» y corre con tus permisos."
+            )
+        });
+        let mut warnings = vec![NEW_PROC];
+        warnings.extend(new_owner.as_deref());
         return Some(transaction(
-            &format!("TimescaleDB: job «{}»\n{NEW_PROC}", cur.name),
+            warned(&format!("TimescaleDB: job «{}»", cur.name), &warnings),
             &[
                 format!("SELECT {}({})", caps.f("delete_job"), cur.id),
                 add_job_script(v, caps, j),
@@ -1343,7 +1357,7 @@ pub(crate) fn job_alter(v: Variant, caps: &Caps, cur: &Job, j: &JobSpec) -> Opti
         j.sched.timezone.as_deref(),
     ));
     Some(transaction(
-        &format!("TimescaleDB: job «{}»", cur.name),
+        format!("TimescaleDB: job «{}»", cur.name),
         &[format!(
             "SELECT job_id FROM {}({}, {})",
             caps.f("alter_job"),
@@ -1497,7 +1511,7 @@ pub(crate) fn add_policy_script(v: Variant, caps: &Caps, p: Policy, ps: &PolicyS
 
 pub(crate) fn policy_create(v: Variant, caps: &Caps, p: Policy, ps: &PolicySpec) -> String {
     transaction(
-        &format!(
+        format!(
             "TimescaleDB: nueva {} de {}",
             p.title(),
             unquote(&ps.target)
@@ -1521,11 +1535,14 @@ pub(crate) fn policy_alter(
     let target = cur.target.clone().unwrap_or_default();
     if ps.target != target {
         return Some(transaction(
-            &format!(
-                "TimescaleDB: {} de {} pasa a {}\n{NEW_TARGET}",
-                p.title(),
-                unquote(&target),
-                unquote(&ps.target)
+            warned(
+                &format!(
+                    "TimescaleDB: {} de {} pasa a {}",
+                    p.title(),
+                    unquote(&target),
+                    unquote(&ps.target)
+                ),
+                &[NEW_TARGET],
             ),
             &[
                 remove_call(caps, v, p, &target),
@@ -1577,7 +1594,7 @@ pub(crate) fn policy_alter(
         ps.sched.timezone.as_deref(),
     ));
     Some(transaction(
-        &format!("TimescaleDB: {} de {}", p.title(), unquote(&target)),
+        format!("TimescaleDB: {} de {}", p.title(), unquote(&target)),
         &[format!(
             "SELECT job_id FROM {}({}, {})",
             caps.f("alter_job"),
@@ -1937,6 +1954,7 @@ pub(crate) fn caps_for_tests() -> Caps {
     );
     Caps {
         schema: "public".into(),
+        user: "postgres".into(),
         superuser: true,
         job_name: true,
         alter_job_name: true,

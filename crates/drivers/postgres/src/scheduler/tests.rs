@@ -134,11 +134,17 @@ fn values_read_as_the_fields_expect() {
 
 #[test]
 fn a_script_runs_in_one_transaction() {
-    let s = transaction("uno\ndos\u{0}", &["SELECT 1".into(), "SELECT 2;".into()]);
+    let s = transaction(
+        Comment::new("uno").note("dos\u{0}"),
+        &["SELECT 1".into(), "SELECT 2;".into()],
+    );
     assert_eq!(
         s,
         "-- uno\n-- dos?\nBEGIN;\nSELECT 1;\nSELECT 2;\nCOMMIT;\n"
     );
+    // A title is one line, whatever it holds.
+    let s = transaction("uno\ndos\u{0}", &["SELECT 1".into()]);
+    assert_eq!(s, "-- uno?dos?\nBEGIN;\nSELECT 1;\nCOMMIT;\n");
 }
 
 #[test]
@@ -703,14 +709,80 @@ fn a_cron_rename_without_rights_schedules_again() {
         .unwrap()
         .unwrap();
     assert!(
-        s.starts_with("-- pg_cron: «nightly» pasa a llamarse «renamed»\n-- pg_cron no permite"),
+        s.starts_with(&format!(
+            "-- pg_cron: «nightly» pasa a llamarse «renamed»\n-- ⚠ {}\n",
+            cron::CRON_RENAME
+        )),
         "{s}"
     );
+    assert_eq!(warnings(&s), [cron::CRON_RENAME]);
     let schedule = s
         .find("cron.schedule_in_database(job_name := E'renamed'")
         .unwrap();
     let unschedule = s.find("SELECT cron.unschedule(12);").unwrap();
     assert!(schedule < unschedule, "{s}");
+}
+
+#[test]
+fn a_name_with_a_line_break_cant_pass_for_a_warning() {
+    let comment = warned("Tarea: «a\n⚠ Nada que temer»", &[cron::TASK_RECREATE]);
+    let s = transaction(&comment, &["SELECT 1".into()]);
+    assert_eq!(warnings(&s), [cron::TASK_RECREATE]);
+    assert!(s.starts_with("-- Tarea: «a?⚠ Nada que temer»\n"), "{s}");
+    // A title without warnings is one line too, in every writer.
+    let s = transaction("Tarea: «a\n⚠ Nada que temer»", &["SELECT 1".into()]);
+    assert!(warnings(&s).is_empty(), "{s}");
+    assert!(
+        s.starts_with("-- Tarea: «a?⚠ Nada que temer»\nBEGIN;"),
+        "{s}"
+    );
+    assert!(warnings(&commented("a\r\n⚠ b\u{2028}⚠ c")).is_empty());
+    // An in-place change of a job named that way.
+    let caps = timescale::caps_for_tests();
+    let cur = TsJob {
+        name: "x\n⚠ Nada que temer".into(),
+        ..ts_job()
+    };
+    let mut spec = ts_spec(&cur);
+    spec.sched.every = Some("02:00:00".into());
+    let s = timescale::job_alter(V, &caps, &cur, &spec).unwrap();
+    assert!(warnings(&s).is_empty(), "{s}");
+    assert!(
+        s.starts_with("-- TimescaleDB: job «x?⚠ Nada que temer»\nBEGIN;"),
+        "{s}"
+    );
+    // A warning with a name filled in stays on its line.
+    let s = commented(Comment::new("t").warn("«a\n⚠ b»"));
+    assert_eq!(warnings(&s), ["«a?⚠ b»"]);
+}
+
+#[test]
+fn only_a_cron_job_scheduled_again_warns() {
+    // A rename in place, a change by alter_job or by name: the same job.
+    let renamed = spec("renamed", "0 4 * * *", "VACUUM", "app", "postgres", true);
+    let s = cron::cron_alter(V, &cron_caps(), &cron_job(), &renamed)
+        .unwrap()
+        .unwrap();
+    assert!(warnings(&s).is_empty(), "{s}");
+    let caps = CronCaps {
+        alter: false,
+        superuser: false,
+        ..cron_caps()
+    };
+    let new = spec("nightly", "0 4 * * *", "VACUUM", "app", "postgres", true);
+    let s = cron::cron_alter(V, &caps, &cron_job(), &new)
+        .unwrap()
+        .unwrap();
+    assert!(s.contains("cron.schedule(job_name"), "{s}");
+    assert!(warnings(&s).is_empty(), "{s}");
+    let s = cron::cron_create(V, &cron_caps(), &new).unwrap();
+    assert!(warnings(&s).is_empty(), "{s}");
+    // Deleting keeps the history (in cron.job_run_details).
+    let s = cron::delete_sql(Flavor::Cron, &cron_caps(), &cron_job());
+    assert_eq!(
+        s,
+        "-- pg_cron: borrar el job «nightly» (su historial queda en cron.job_run_details)\nSELECT cron.unschedule(12);\n"
+    );
 }
 
 #[test]
@@ -913,9 +985,13 @@ fn a_task_changes_in_place_or_is_created_again() {
     )
     .unwrap();
     assert!(
-        s.contains("pasa a llamarse «t2»") && s.contains("otro id, sin su historial"),
+        s.starts_with(&format!(
+            "-- Tarea: «t» pasa a llamarse «t2»\n-- ⚠ {}\nBEGIN;\n",
+            cron::TASK_RECREATE
+        )),
         "{s}"
     );
+    assert_eq!(warnings(&s), [cron::TASK_RECREATE]);
     let drop = s.find("DROP TASK \"t\";").unwrap();
     let create = s.find("CREATE TASK \"t2\"").unwrap();
     assert!(drop < create, "{s}");
@@ -929,6 +1005,31 @@ fn a_task_changes_in_place_or_is_created_again() {
     .unwrap();
     assert!(
         s.contains("SET LOCAL ROLE \"bob\";\nDROP TASK \"t\";\nRESET ROLE;\nCREATE TASK \"t\""),
+        "{s}"
+    );
+    assert!(s.starts_with("-- Tarea: «t»\n-- ⚠ "), "{s}");
+    assert_eq!(warnings(&s), [cron::TASK_RECREATE]);
+    // Changed in place: nothing to accept.
+    let s = cron::task_alter(
+        V,
+        &caps,
+        &other,
+        &spec("t", "0 5 * * *", "SELECT 1", "demo", "bob", false),
+    )
+    .unwrap();
+    assert!(warnings(&s).is_empty(), "{s}");
+    assert!(warnings(&cron::task_create(
+        V,
+        &caps,
+        &spec("t", "0 5 * * *", "SELECT 1", "demo", "bob", false)
+    ))
+    .is_empty());
+    // Deleting a task deletes its history.
+    let s = cron::delete_sql(Flavor::Task, &caps, &other);
+    assert_eq!(warnings(&s), [cron::TASK_DROP_HISTORY]);
+    assert!(
+        s.starts_with("-- Tarea: borrar «t»\n-- ⚠ ")
+            && s.contains("SET LOCAL ROLE \"bob\";\nDROP TASK \"t\";\nRESET ROLE;"),
         "{s}"
     );
 }
@@ -1167,6 +1268,7 @@ fn a_pgagent_job_is_created_in_one_block() {
     );
     assert!(shown.contains("RETURNING jscid INTO scid;\n    INSERT INTO pgagent.pga_exception (jexscid, jexdate, jextime) VALUES (scid, E'2026-12-25'::date, E'10:00:00'::time);"), "{shown}");
     assert!(shown.trim_end().ends_with("$job$;"), "{shown}");
+    assert!(warnings(&shown).is_empty(), "{shown}");
     let real = pgagent::create_script(V, &j, false);
     assert!(real.contains("password=''p\\\\''w''"), "{real}");
 }
@@ -1225,6 +1327,42 @@ fn a_pgagent_job_changes_only_what_differs() {
             "VALUES (3, E'03 new', E'', true, E's', $cmd$SELECT 3$cmd$, E'', E'postgres', E'f');"
         ),
         "{s}"
+    );
+    // A step removed takes its rows of the history with it.
+    assert!(
+        s.starts_with(&format!(
+            "-- pgAgent: job «nightly»\n-- ⚠ {}\nDO $job$",
+            pgagent::STEP_HISTORY
+        )),
+        "{s}"
+    );
+    assert_eq!(warnings(&s), [pgagent::STEP_HISTORY]);
+}
+
+#[test]
+fn a_pgagent_job_warns_only_when_its_history_goes() {
+    let cur = agent_job();
+    // Steps edited and added, a schedule removed: no history goes.
+    let mut values = agent_values(&cur);
+    let steps = values.lists.get_mut("steps").unwrap();
+    steps[0].insert("code".into(), json!("VACUUM ANALYZE"));
+    steps.push(map(
+        json!({"name": "03 new", "kind": "sql", "dbname": "postgres", "code": "SELECT 3"}),
+    ));
+    values.lists.insert("schedules".into(), Vec::new());
+    values.lists.insert("exceptions".into(), Vec::new());
+    let spec = pgagent::spec(&values, Some(&cur), &classes(), &dbs()).unwrap();
+    let s = pgagent::alter_script(V, &cur, &spec, true).unwrap();
+    assert!(s.contains("DELETE FROM pgagent.pga_schedule"), "{s}");
+    assert!(warnings(&s).is_empty(), "{s}");
+    // Deleting the job deletes its history.
+    let s = pgagent::delete_sql(&cur);
+    assert_eq!(
+        s,
+        format!(
+            "-- pgAgent: borrar el job «nightly», con sus pasos y programaciones\n-- ⚠ {}\nDELETE FROM pgagent.pga_job WHERE jobid = 3;\n",
+            pgagent::DROP_HISTORY
+        )
     );
 }
 
@@ -1667,10 +1805,40 @@ fn another_procedure_adds_the_job_again() {
     let mut spec = ts_spec(&cur);
     spec.proc = "\"public\".\"other\"".into();
     let s = timescale::job_alter(V, &caps, &cur, &spec).unwrap();
-    assert!(s.contains("no permite cambiar el procedimiento"), "{s}");
+    assert!(
+        s.starts_with(&format!(
+            "-- TimescaleDB: job «{}»\n-- ⚠ {}\nBEGIN;\n",
+            cur.name,
+            timescale::NEW_PROC
+        )),
+        "{s}"
+    );
+    assert_eq!(warnings(&s), [timescale::NEW_PROC]);
     let delete = s.find("SELECT \"public\".delete_job(1000);").unwrap();
     let add = s.find("add_job(proc => E'\"public\".\"other\"'").unwrap();
     assert!(delete < add, "{s}");
+    // Another user's job (a superuser's or a member's edit): add_job makes
+    // the user its owner.
+    let theirs = TsJob {
+        owner: "\"Ana\"".into(),
+        ..cur.clone()
+    };
+    let s = timescale::job_alter(V, &caps, &theirs, &spec).unwrap();
+    assert_eq!(
+        warnings(&s),
+        [
+            timescale::NEW_PROC,
+            "El job se crea de nuevo a nombre de tu usuario: deja de ser de «Ana» y corre con tus permisos."
+        ]
+    );
+    // Changed in place, or added: nothing to accept, whoever's it is.
+    let mut spec = ts_spec(&cur);
+    spec.sched.every = Some("02:00:00".into());
+    let s = timescale::job_alter(V, &caps, &cur, &spec).unwrap();
+    assert!(warnings(&s).is_empty(), "{s}");
+    let s = timescale::job_alter(V, &caps, &theirs, &spec).unwrap();
+    assert!(warnings(&s).is_empty(), "{s}");
+    assert!(warnings(&timescale::job_create(V, &caps, &spec)).is_empty());
 }
 
 fn policy_job(p: Policy, config: &str) -> TsJob {
@@ -1836,6 +2004,7 @@ fn a_policys_settings_change_in_its_config() {
         s.contains("alter_job(1001, config => E'{\"compress_created_before\":\"10 days\",\"hypertable_id\":1}'::jsonb);"),
         "{s}"
     );
+    assert!(warnings(&s).is_empty(), "{s}");
     // Another hypertable: removed and added again.
     let ps = timescale::PolicySpec {
         target: "\"public\".\"m2\"".into(),
@@ -1849,6 +2018,11 @@ fn a_policys_settings_change_in_its_config() {
         .find("add_compression_policy(E'\"public\".\"m2\"'")
         .unwrap();
     assert!(remove < add, "{s}");
+    assert_eq!(warnings(&s), [timescale::NEW_TARGET]);
+    assert!(
+        s.contains(&format!("\n-- ⚠ {}\nBEGIN;", timescale::NEW_TARGET)),
+        "{s}"
+    );
     // A refresh window opened at its start keeps the key, as null.
     let cur = policy_job(
         Policy::Refresh,
@@ -2270,6 +2444,97 @@ fn each_job_says_what_the_user_may_do_with_it() {
     // A scheduler that isn't here: shown only.
     let gone = item(listed("dbms_job:1", None));
     assert_eq!((gone.can_edit, gone.can_delete), (Some(false), Some(false)));
+}
+
+#[test]
+fn each_job_says_whether_it_starts_at_a_step_and_has_a_history_to_clear() {
+    let flags = |c: &Ctx, j: ServerJob| {
+        let i = job_item(c, j);
+        (i.run_from_step, i.clear_history)
+    };
+    let history = (Some(false), Some(true));
+    let none = (Some(false), Some(false));
+    // pg_cron (the user's own jobs), pgAgent and TimescaleDB keep one; the
+    // server's tasks don't (a system catalog).
+    let c = ctx_of(
+        Some(cron_plain_user()),
+        Some(task_caps()),
+        Some(agent_caps(true)),
+        Some(timescale::caps_for_tests()),
+    );
+    assert_eq!(flags(&c, listed("pg_cron:1", Some("ana"))), history);
+    assert_eq!(flags(&c, listed("pg_cron:2", Some("bob"))), none);
+    assert_eq!(flags(&c, listed("task:3", Some("x"))), none);
+    assert_eq!(flags(&c, listed("pgagent:4", None)), history);
+    assert_eq!(flags(&c, listed("timescaledb:1001", Some("bob"))), history);
+    // A scheduler that isn't here.
+    assert_eq!(flags(&c, listed("dbms_job:1", None)), none);
+    // Without DELETE on each one's history.
+    let c = ctx_of(
+        Some(CronCaps {
+            clear: false,
+            ..cron_caps()
+        }),
+        None,
+        Some(agent_caps(false)),
+        Some(timescale::Caps {
+            clear: false,
+            ..timescale::caps_for_tests()
+        }),
+    );
+    for id in ["pg_cron:1", "pgagent:4", "timescaledb:1001"] {
+        assert_eq!(flags(&c, listed(id, Some("postgres"))), none, "{id}");
+    }
+    // In one database with a job that has it, the kind offers it: each
+    // job says whether it's one.
+    let c = ctx_of(
+        Some(cron_caps()),
+        Some(task_caps()),
+        Some(agent_caps(false)),
+        None,
+    );
+    assert!(info_of(&c).kinds[0].clear_history);
+    assert_eq!(flags(&c, listed("pgagent:4", None)), none);
+    assert_eq!(flags(&c, listed("task:3", Some("x"))), none);
+    // openGauss keeps only the last run.
+    let mut c = ctx_of(None, None, None, None);
+    c.v = Variant::OpenGauss;
+    c.dbms = Some(gauss_caps());
+    assert_eq!(flags(&c, listed("dbms_job:1", Some("gaussdb"))), none);
+    // EDB: edb_job_scheduler's runs, of the user's own jobs (a DBMS_SCHEDULER
+    // job's name no other owner has), with DELETE on them.
+    let c = packages_ctx(Variant::Edb, edb_dbms_caps(true, true));
+    let edb = |id: &str, owner: &str| ServerJob {
+        can_enable: owner == "app",
+        ..listed(id, Some(owner))
+    };
+    assert_eq!(flags(&c, edb("edb_job:104", "app")), history);
+    assert_eq!(flags(&c, edb("edb_job:105", "bob")), none);
+    assert_eq!(
+        flags(&c, edb("edb_scheduler:\"app\".\"nightly\"", "app")),
+        history
+    );
+    assert_eq!(
+        flags(&c, edb("edb_scheduler:\"bob\".\"nightly\"", "bob")),
+        none
+    );
+    let c = packages_ctx(Variant::Edb, edb_dbms_caps(true, false));
+    assert_eq!(flags(&c, edb("edb_job:104", "app")), none);
+    assert_eq!(
+        flags(&c, edb("edb_scheduler:\"app\".\"nightly\"", "app")),
+        none
+    );
+    // KingbaseES: kdb_schedule's history isn't cleared.
+    let c = packages_ctx(
+        Variant::Kingbase,
+        kdb_dbms_caps(&["internal_job7:2031-01-01"]),
+    );
+    let kdb = |name: &str| ServerJob {
+        can_enable: true,
+        ..listed(&format!("kdb_schedule:\"{name}\""), None)
+    };
+    assert_eq!(flags(&c, kdb("internal_job7:2031-01-01")), none);
+    assert_eq!(flags(&c, kdb("nightly")), none);
 }
 
 fn abilities(i: SchedulerItem) -> Abilities {

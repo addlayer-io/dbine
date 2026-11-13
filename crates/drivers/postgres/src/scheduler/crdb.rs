@@ -37,8 +37,8 @@
 //! `SELECT`.
 
 use super::{
-    bad, combine, datetime_field, name_of, offers, plain, redact_passwords, run_now_action, shown,
-    Abilities, Source, Vals, RUN_NOW,
+    bad, combine, commented, datetime_field, name_of, offers, plain, redact_passwords,
+    run_now_action, shown, warned, Abilities, Comment, Source, Vals, RUN_NOW,
 };
 use crate::catalog::{comment_text, rows};
 use crate::jobs::cockroach::{self as cj, ScheduleKind};
@@ -63,12 +63,22 @@ const NOT_ADMIN: &str = "Tu usuario no es admin: los backups programados piden e
 const OTHERS: &str = "Este schedule es de otro usuario: solo su dueño o un admin pueden cambiarlo.";
 const FEED_OTHERS: &str =
     "Este changefeed es de otro usuario: solo su dueño o un admin pueden cambiarlo.";
-const BACKUP_RECREATE: &str = "ALTER BACKUP SCHEDULE no cambia qué se respalda ni la ubicación de los incrementales: al guardar esos cambios el schedule se borra y se crea de nuevo (otros ids, sin su historial de ejecuciones); los backups que ya están en la ubicación quedan.";
+const BACKUP_RECREATE: &str = "CockroachDB no cambia con ALTER BACKUP SCHEDULE qué se respalda ni la ubicación de los incrementales: al guardar esos cambios el schedule se borra y se crea de nuevo (otros ids, sin su historial de ejecuciones); los backups que ya están en la ubicación quedan.";
 const FEED_RECREATE: &str = "CockroachDB no cambia un changefeed programado: al guardar cualquier cambio salvo «Activo» el schedule se borra y se crea de nuevo, con otro id y sin su historial de ejecuciones.";
-const FEED_PAUSE: &str = "ALTER CHANGEFEED solo cambia un changefeed en pausa: si está corriendo, DBine lo pone en pausa, espera a que lo esté, lo cambia y lo reanuda.";
+const FEED_PAUSE: &str = "CockroachDB solo cambia un changefeed en pausa (ALTER CHANGEFEED): si está corriendo, DBine lo pone en pausa, espera a que lo esté, lo cambia y lo reanuda.";
+/// A paused changefeed changed and resumed: two statements.
+const FEED_APART: &str = "El cambio y la reanudación se ejecutan por separado: si la reanudación falla, el changefeed queda cambiado y en pausa.";
+/// `SET FULL BACKUP ALWAYS` on a pair: CockroachDB gives the full schedule
+/// the incremental's recurrence and deletes the incremental one.
+const INC_DROPPED: &str = "Con «Siempre completo» CockroachDB borra el schedule incremental del par, con su historial de ejecuciones.";
 const PAIR: &str = "Este backup es un par de schedules (completo e incremental) con el mismo nombre: se cambian, pausan y borran juntos.";
 const SECRETS: &str = "CockroachDB oculta las credenciales de la ubicación (redacted) y la contraseña de cifrado: para crear el schedule de nuevo hay que escribirlas.";
 const TTL_COMMITS: &str = "CockroachDB confirma cada cambio de esquema por separado: si una sentencia falla, las anteriores quedan hechas.";
+/// Without `ttl_expire_after` the table loses the column it added.
+const TTL_COLUMN: &str = "Se borra la columna oculta crdb_internal_expiration que «Vence a los» le agregó a la tabla, con la fecha de vencimiento de cada fila.";
+const SETTING_APART: &str = "CockroachDB no ejecuta SET CLUSTER SETTING en una transacción: cada sentencia se ejecuta sola y, si una falla, las anteriores quedan hechas.";
+const FEED_PAUSED: &str = "DBine pone el changefeed en pausa para cambiarlo: si algo falla después, intenta reanudarlo y, si no puede, el changefeed queda en pausa.";
+const FEED_CREATED_RUNNING: &str = "El changefeed se crea corriendo y DBine lo pone en pausa después: hasta entonces emite cambios y, si la pausa falla, queda activo.";
 const SYSTEM: &str = "Este schedule es del clúster: no se borra, y su programación es una configuración del clúster.";
 const OTHER: &str =
     "DBine no conoce este tipo de schedule: se ve tal como está y solo se puede borrar.";
@@ -1865,7 +1875,11 @@ pub(crate) fn backup_create_sql(b: &Backup, ignore: bool, reveal: bool) -> Strin
 }
 
 /// A script in one transaction (`hold`: DDL kept in it), comment first.
-fn transaction(comment: &str, hold: Option<String>, statements: Vec<String>) -> String {
+fn transaction(
+    comment: impl Into<Comment>,
+    hold: Option<String>,
+    statements: Vec<String>,
+) -> String {
     let mut all = Vec::new();
     all.extend(hold);
     all.extend(statements);
@@ -1885,7 +1899,7 @@ pub(crate) fn backup_create(b: &Backup, reveal: bool) -> String {
         st.push(pause_by_label(&b.label));
     }
     transaction(
-        &format!("CockroachDB: nuevo backup programado «{}»", b.label),
+        format!("CockroachDB: nuevo backup programado «{}»", b.label),
         None,
         st,
     )
@@ -1898,9 +1912,19 @@ fn ids_list(ids: &[i64]) -> String {
         .join(", ")
 }
 
-/// The change of a backup schedule (or pair) `ids` (full first) in place,
-/// or dropped and created again when ALTER can't make it; `None`: nothing
-/// changed.
+/// A schedule of `owner` created again by another user (an admin): `CREATE
+/// SCHEDULE` makes the user its owner, and it runs as them.
+fn new_owner(c: &Caps, owner: Option<&str>) -> Option<String> {
+    owner.filter(|o| *o != c.user).map(|o| {
+        format!(
+            "El schedule se crea de nuevo a nombre de tu usuario: deja de ser de «{o}» y corre con tus permisos."
+        )
+    })
+}
+
+/// The change of a backup schedule (or pair) `ids` (full first) of `owner`
+/// in place, or dropped and created again when ALTER can't make it;
+/// `None`: nothing changed.
 pub(crate) fn backup_alter(
     c: &Caps,
     ids: &[i64],
@@ -1908,6 +1932,7 @@ pub(crate) fn backup_alter(
     cur: &Backup,
     b: &Backup,
     reveal: bool,
+    owner: Option<&str>,
 ) -> Result<Option<String>> {
     let id = ids[0];
     if b.what != cur.what || b.incremental_location != cur.incremental_location {
@@ -1926,10 +1951,13 @@ pub(crate) fn backup_alter(
         if !b.enabled {
             st.push(pause_by_label(&b.label));
         }
+        let owner = new_owner(c, owner);
+        let mut warnings = vec![BACKUP_RECREATE];
+        warnings.extend(owner.as_deref());
         return Ok(Some(transaction(
-            &format!(
-                "CockroachDB: backup programado «{}»\n{BACKUP_RECREATE}",
-                cur.label
+            warned(
+                &format!("CockroachDB: backup programado «{}»", cur.label),
+                &warnings,
             ),
             c.hold_ddl(),
             st,
@@ -2004,10 +2032,18 @@ pub(crate) fn backup_alter(
     if b.recurring != cur.recurring {
         cmds.push(format!("SET RECURRING {}", q(&b.recurring)));
     }
+    let mut warnings = Vec::new();
     if b.full != cur.full {
         cmds.push(match &b.full {
             Full::Cron(c) => format!("SET FULL BACKUP {}", q(c)),
-            _ => "SET FULL BACKUP ALWAYS".to_string(),
+            _ => {
+                // A pair (its full backups on a cron of their own) loses
+                // its incremental schedule.
+                if matches!(cur.full, Full::Cron(_)) {
+                    warnings.push(INC_DROPPED);
+                }
+                "SET FULL BACKUP ALWAYS".to_string()
+            }
         });
     }
     if b.previous != cur.previous {
@@ -2054,7 +2090,10 @@ pub(crate) fn backup_alter(
         return Ok(None);
     }
     Ok(Some(transaction(
-        &format!("CockroachDB: backup programado «{}»", cur.label),
+        warned(
+            &format!("CockroachDB: backup programado «{}»", cur.label),
+            &warnings,
+        ),
         None,
         st,
     )))
@@ -2331,20 +2370,21 @@ pub(crate) fn feed_sched_create(f: &Feed, reveal: bool) -> String {
         st.push(pause_by_label(&f.label));
     }
     transaction(
-        &format!("CockroachDB: nuevo changefeed programado «{}»", f.label),
+        format!("CockroachDB: nuevo changefeed programado «{}»", f.label),
         None,
         st,
     )
 }
 
-/// A changefeed schedule's change: pause or resume in place, anything else
-/// drops and creates it again.
+/// A changefeed schedule's change (of `owner`): pause or resume in place,
+/// anything else drops and creates it again.
 pub(crate) fn feed_sched_alter(
     c: &Caps,
     id: i64,
     cur: &Feed,
     f: &Feed,
     reveal: bool,
+    owner: Option<&str>,
 ) -> Result<Option<String>> {
     let same = Feed {
         enabled: cur.enabled,
@@ -2372,10 +2412,13 @@ pub(crate) fn feed_sched_alter(
     if !f.enabled {
         st.push(pause_by_label(&f.label));
     }
+    let owner = new_owner(c, owner);
+    let mut warnings = vec![FEED_RECREATE];
+    warnings.extend(owner.as_deref());
     Ok(Some(transaction(
-        &format!(
-            "CockroachDB: changefeed programado «{}»\n{FEED_RECREATE}",
-            cur.label
+        warned(
+            &format!("CockroachDB: changefeed programado «{}»", cur.label),
+            &warnings,
         ),
         c.hold_ddl(),
         st,
@@ -2543,12 +2586,28 @@ pub(crate) fn feed_alter(cur: &Running, f: &Feed, reveal: bool) -> Result<Option
     Ok(Some(out))
 }
 
+/// A changefeed's change: its title, and what may be left if the change
+/// fails once it paused a running changefeed, or (one already paused)
+/// when its resume fails after the change.
+pub(crate) fn feed_comment(n: i64, stages: &[Stage]) -> Comment {
+    let paused = stages.iter().any(|st| matches!(st, Stage::PauseFor(_)));
+    let statements = stages
+        .iter()
+        .filter(|st| matches!(st, Stage::Sql(_)))
+        .count();
+    let warnings: &[&str] = if paused {
+        &[FEED_PAUSED]
+    } else if statements > 1 {
+        &[FEED_APART]
+    } else {
+        &[]
+    };
+    warned(&format!("CockroachDB: changefeed {n}"), warnings)
+}
+
 /// The stages as a script to show.
-pub(crate) fn render(comment: &str, stages: &[Stage]) -> String {
-    let mut out = String::new();
-    for line in comment.lines() {
-        out.push_str(&format!("-- {}\n", comment_text(line)));
-    }
+pub(crate) fn render(comment: impl Into<Comment>, stages: &[Stage]) -> String {
+    let mut out = commented(comment);
     for st in stages {
         match st {
             Stage::Sql(sql) => {
@@ -3039,6 +3098,12 @@ pub(crate) fn ttl_statements(
     out
 }
 
+/// The change takes `ttl_expire_after` away (the TTL now expires rows by an
+/// expression): CockroachDB drops the column it added.
+pub(crate) fn drops_expiration(cur: &TtlParams, new: &BTreeMap<String, Option<String>>) -> bool {
+    cur.contains_key("ttl_expire_after") && matches!(new.get("ttl_expire_after"), Some(None))
+}
+
 // ---------------------------------------------------------------------------
 // The cluster's own schedules
 // ---------------------------------------------------------------------------
@@ -3429,7 +3494,7 @@ impl CPlan {
     }
 
     fn statements(
-        comment: &str,
+        comment: impl Into<Comment>,
         st: Vec<String>,
         id: Option<String>,
         new_id: Option<NewId>,
@@ -3474,19 +3539,7 @@ pub(crate) async fn plan(
                 new_id: Some(NewId::Query(by_label(&f.label), SCHEDULE)),
             })
         }
-        Obj::New(_) => {
-            let f = feed_spec(values, false, false)?;
-            let mut stages = vec![Stage::Sql(feed_create_sql(&f, false, reveal))];
-            if !f.enabled {
-                stages.push(Stage::PauseCreated);
-            }
-            Ok(CPlan {
-                script: render("CockroachDB: nuevo changefeed", &stages),
-                stages,
-                id: None,
-                new_id: Some(NewId::Job),
-            })
-        }
+        Obj::New(_) => Ok(feed_create(&feed_spec(values, false, false)?, reveal)),
         Obj::Feed(n) => {
             let cur = running(s, n).await?;
             if !c.may_change(cur.owner.as_deref()) {
@@ -3497,7 +3550,7 @@ pub(crate) async fn plan(
             match feed_alter(&cur, &f, reveal)? {
                 None => Ok(CPlan::nothing(&format!("changefeed {n}"), id)),
                 Some(stages) => Ok(CPlan {
-                    script: render(&format!("CockroachDB: changefeed {n}"), &stages),
+                    script: render(feed_comment(n, &stages), &stages),
                     stages,
                     id: Some(id),
                     new_id: None,
@@ -3539,7 +3592,7 @@ pub(crate) async fn plan(
                     return Ok(CPlan::nothing(&sched.label, id));
                 }
                 return Ok(CPlan::statements(
-                    &format!("CockroachDB: schedule del clúster «{}»\nSET CLUSTER SETTING no va en una transacción: cada sentencia se ejecuta sola.", sched.label),
+                    system_comment(&sched.label, &st),
                     st,
                     Some(id),
                     None,
@@ -3562,7 +3615,7 @@ pub(crate) async fn plan(
                     let id = format!("{SCHEDULE}{}", full.id);
                     let recreate =
                         b.what != cur.what || b.incremental_location != cur.incremental_location;
-                    match backup_alter(c, &ids, waiting, &cur, &b, reveal)? {
+                    match backup_alter(c, &ids, waiting, &cur, &b, reveal, full.owner.as_deref())? {
                         None => Ok(CPlan::nothing(&cur.label, id)),
                         Some(sql) => Ok(CPlan {
                             stages: vec![Stage::Sql(sql.clone())],
@@ -3583,7 +3636,7 @@ pub(crate) async fn plan(
                         enabled: cur.enabled,
                         ..f.clone()
                     } != cur;
-                    match feed_sched_alter(c, n, &cur, &f, reveal)? {
+                    match feed_sched_alter(c, n, &cur, &f, reveal, sched.owner.as_deref())? {
                         None => Ok(CPlan::nothing(&cur.label, id)),
                         Some(sql) => Ok(CPlan {
                             stages: vec![Stage::Sql(sql.clone())],
@@ -3600,6 +3653,56 @@ pub(crate) async fn plan(
         }
         Obj::Ttl(id) => ttl_plan(s, c, id, None, values).await,
     }
+}
+
+/// A new changefeed: created, then paused when it's to start paused
+/// (`CREATE CHANGEFEED` has no paused state).
+pub(crate) fn feed_create(f: &Feed, reveal: bool) -> CPlan {
+    let mut stages = vec![Stage::Sql(feed_create_sql(f, false, reveal))];
+    let mut warnings = Vec::new();
+    if !f.enabled {
+        stages.push(Stage::PauseCreated);
+        warnings.push(FEED_CREATED_RUNNING);
+    }
+    CPlan {
+        script: render(warned("CockroachDB: nuevo changefeed", &warnings), &stages),
+        stages,
+        id: None,
+        new_id: Some(NewId::Job),
+    }
+}
+
+/// A cluster schedule's change: each statement runs on its own, so it can
+/// stop half way only with two of them.
+pub(crate) fn system_comment(label: &str, st: &[String]) -> Comment {
+    let title = format!("CockroachDB: schedule del clúster «{label}»");
+    if st.len() > 1 {
+        warned(&title, &[SETTING_APART])
+    } else {
+        Comment::new(&title)
+            .note("SET CLUSTER SETTING no va en una transacción: cada sentencia se ejecuta sola.")
+    }
+}
+
+/// A TTL's change: the column `ttl_expire_after` added, when it goes; each
+/// statement commits on its own, so it can stop half way only with two.
+pub(crate) fn ttl_comment(
+    table: &Table,
+    cur: &TtlParams,
+    new: &BTreeMap<String, Option<String>>,
+    st: &[String],
+) -> Comment {
+    let mut warnings = Vec::new();
+    if drops_expiration(cur, new) {
+        warnings.push(TTL_COLUMN);
+    }
+    if st.len() > 1 {
+        warnings.push(TTL_COMMITS);
+    }
+    warned(
+        &format!("CockroachDB: TTL de «{}»", table.display()),
+        &warnings,
+    )
 }
 
 async fn ttl_plan(
@@ -3651,7 +3754,7 @@ async fn ttl_plan(
         return Ok(CPlan::nothing(&table.display(), item));
     }
     Ok(CPlan::statements(
-        &format!("CockroachDB: TTL de «{}»\n{TTL_COMMITS}", table.display()),
+        ttl_comment(&table, &cur, &new, &st),
         st,
         Some(item),
         None,
@@ -3866,12 +3969,25 @@ pub(crate) async fn delete_script(s: &PgSession, c: &Caps, obj: Obj) -> Result<S
 }
 
 async fn ttl_delete(s: &PgSession, n: i64) -> Result<String> {
-    let (table, _) = ttl_table(s, n).await?;
-    Ok(format!(
-        "-- CockroachDB: quitar la TTL de «{}» (y su schedule; con «Vence a los», también la columna crdb_internal_expiration)\nALTER TABLE {} RESET (ttl);\n",
-        comment_text(&table.display()),
-        table.sql()
-    ))
+    let (table, cur) = ttl_table(s, n).await?;
+    Ok(ttl_delete_sql(&table, &cur))
+}
+
+/// `RESET (ttl)`: the TTL goes with its schedule, and with `ttl_expire_after`
+/// the column it added.
+pub(crate) fn ttl_delete_sql(table: &Table, cur: &TtlParams) -> String {
+    let warnings: &[&str] = if cur.contains_key("ttl_expire_after") {
+        &[TTL_COLUMN]
+    } else {
+        &[]
+    };
+    let title = format!(
+        "CockroachDB: quitar la TTL de «{}» (y su schedule)",
+        table.display()
+    );
+    let mut out = commented(warned(&title, warnings));
+    out.push_str(&format!("ALTER TABLE {} RESET (ttl);\n", table.sql()));
+    out
 }
 
 #[cfg(test)]
@@ -4151,6 +4267,7 @@ mod tests {
             "{script}"
         );
         assert!(script.starts_with("-- CockroachDB: nuevo backup programado «nightly»\nBEGIN;\n"));
+        assert!(super::super::warnings(&script).is_empty(), "{script}");
     }
 
     #[test]
@@ -4158,7 +4275,7 @@ mod tests {
         let c = root();
         let cur = backup();
         assert_eq!(
-            backup_alter(&c, &[1, 2], false, &cur, &cur, false).unwrap(),
+            backup_alter(&c, &[1, 2], false, &cur, &cur, false, None).unwrap(),
             None
         );
         let mut b = cur.clone();
@@ -4171,29 +4288,46 @@ mod tests {
         b.failure = "pause".into();
         b.metrics = true;
         b.locality = Some("region=eu".into());
-        let sql = backup_alter(&c, &[1, 2], false, &cur, &b, false)
+        let sql = backup_alter(&c, &[1, 2], false, &cur, &b, false, None)
             .unwrap()
             .unwrap();
+        // "Siempre completo" on a pair: CockroachDB deletes its incremental.
+        assert_eq!(super::super::warnings(&sql), [INC_DROPPED]);
         assert!(sql.contains("ALTER BACKUP SCHEDULE 1 SET LABEL 'n2', SET INTO 's3://other', SET WITH revision_history = true, SET WITH execution locality = 'region=eu', SET WITH updates_cluster_monitoring_metrics = true, SET RECURRING '@hourly', SET FULL BACKUP ALWAYS, SET SCHEDULE OPTION on_previous_running = 'start', SET SCHEDULE OPTION on_execution_failure = 'pause';"), "{sql}");
         assert!(!sql.contains("autocommit_before_ddl"));
+        // The same change on a single schedule (no incremental), or a
+        // single schedule given a full cadence of its own: nothing goes.
+        let single = Backup {
+            full: Full::Always,
+            ..cur.clone()
+        };
+        let sql = backup_alter(&c, &[1], false, &single, &b, false, None)
+            .unwrap()
+            .unwrap();
+        assert!(super::super::warnings(&sql).is_empty(), "{sql}");
+        let sql = backup_alter(&c, &[1], false, &single, &cur, false, None)
+            .unwrap()
+            .unwrap();
+        assert!(sql.contains("SET FULL BACKUP '@weekly'"), "{sql}");
+        assert!(super::super::warnings(&sql).is_empty(), "{sql}");
         // Paused: both; resumed: the incremental only when it isn't
         // waiting for its first full backup.
         let off = Backup {
             enabled: false,
             ..cur.clone()
         };
-        let p = backup_alter(&c, &[1, 2], false, &cur, &off, false)
+        let p = backup_alter(&c, &[1, 2], false, &cur, &off, false, None)
             .unwrap()
             .unwrap();
         assert!(p.contains("PAUSE SCHEDULES VALUES (1), (2);"), "{p}");
-        let on = backup_alter(&c, &[1, 2], true, &off, &cur, false)
+        let on = backup_alter(&c, &[1, 2], true, &off, &cur, false, None)
             .unwrap()
             .unwrap();
         assert!(
             on.contains("RESUME SCHEDULE 1;") && !on.contains("(2)"),
             "{on}"
         );
-        let both = backup_alter(&c, &[1, 2], false, &off, &cur, false)
+        let both = backup_alter(&c, &[1, 2], false, &off, &cur, false, None)
             .unwrap()
             .unwrap();
         assert!(both.contains("RESUME SCHEDULES VALUES (1), (2);"), "{both}");
@@ -4203,7 +4337,7 @@ mod tests {
             passphrase: Some("x".into()),
             ..cur.clone()
         };
-        let e = backup_alter(&c, &[1], false, &cur, &enc, false)
+        let e = backup_alter(&c, &[1], false, &cur, &enc, false, None)
             .unwrap()
             .unwrap();
         assert!(
@@ -4220,7 +4354,8 @@ mod tests {
                 ..cur.clone()
             },
             &cur,
-            false
+            false,
+            None
         )
         .is_err());
         assert!(backup_alter(
@@ -4232,7 +4367,8 @@ mod tests {
                 ..cur.clone()
             },
             &cur,
-            false
+            false,
+            None
         )
         .is_err());
         // A redacted location can't be written back.
@@ -4240,7 +4376,7 @@ mod tests {
             locations: vec!["s3://b?AWS_SECRET_ACCESS_KEY=redacted&x=1".into()],
             ..cur.clone()
         };
-        assert!(backup_alter(&c, &[1], false, &cur, &red, false).is_err());
+        assert!(backup_alter(&c, &[1], false, &cur, &red, false, None).is_err());
     }
 
     #[test]
@@ -4249,13 +4385,36 @@ mod tests {
         let cur = backup();
         let mut b = cur.clone();
         b.what = What::Tables(vec![parse_name("app.public.t", true, "Tablas").unwrap()]);
-        let sql = backup_alter(&c, &[1, 2], false, &cur, &b, false)
+        let sql = backup_alter(&c, &[1, 2], false, &cur, &b, false, None)
             .unwrap()
             .unwrap();
         assert!(
-            sql.contains("ALTER BACKUP SCHEDULE no cambia qué se respalda"),
+            sql.starts_with(&format!(
+                "-- CockroachDB: backup programado «nightly»\n-- ⚠ {BACKUP_RECREATE}\nBEGIN;\n"
+            )),
             "{sql}"
         );
+        assert_eq!(super::super::warnings(&sql), [BACKUP_RECREATE]);
+        // Its owner's, or another user's (an admin's edit): created again,
+        // it's the user's and runs with the user's rights.
+        let own = backup_alter(&c, &[1, 2], false, &cur, &b, false, Some("root"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(own, sql);
+        let other = backup_alter(&c, &[1, 2], false, &cur, &b, false, Some("bob"))
+            .unwrap()
+            .unwrap();
+        let moved = "El schedule se crea de nuevo a nombre de tu usuario: deja de ser de «bob» y corre con tus permisos.";
+        assert_eq!(super::super::warnings(&other), [BACKUP_RECREATE, moved]);
+        // In place, it keeps its owner.
+        let mut label = cur.clone();
+        label.label = "n2".into();
+        assert!(super::super::warnings(
+            &backup_alter(&c, &[1, 2], false, &cur, &label, false, Some("bob"))
+                .unwrap()
+                .unwrap()
+        )
+        .is_empty());
         assert!(sql.contains("BEGIN;\nSET LOCAL autocommit_before_ddl = false;\nDROP SCHEDULES SELECT id FROM [SHOW SCHEDULES] WHERE id IN (1, 2);\nCREATE SCHEDULE 'nightly' FOR BACKUP TABLE \"app\".\"public\".\"t\" INTO"), "{sql}");
         assert!(sql.contains("ignore_existing_backups;\nCOMMIT;"), "{sql}");
         // Before 24.3 there's no autocommit_before_ddl.
@@ -4263,14 +4422,14 @@ mod tests {
             version: Some((23, 2)),
             ..root()
         };
-        assert!(!backup_alter(&old, &[1], false, &cur, &b, false)
+        assert!(!backup_alter(&old, &[1], false, &cur, &b, false, None)
             .unwrap()
             .unwrap()
             .contains("autocommit_before_ddl"));
         // Secrets the server hides have to be typed again.
         let mut red = b.clone();
         red.locations = vec!["s3://b?AWS_SECRET_ACCESS_KEY=redacted".into()];
-        assert!(backup_alter(&c, &[1], false, &cur, &red, false)
+        assert!(backup_alter(&c, &[1], false, &cur, &red, false, None)
             .unwrap_err()
             .to_string()
             .contains("escribirlas"));
@@ -4280,7 +4439,7 @@ mod tests {
             encryption: Encryption::Passphrase,
             ..cur.clone()
         };
-        assert!(backup_alter(&c, &[1], false, &cur_pw, &pw, false).is_err());
+        assert!(backup_alter(&c, &[1], false, &cur_pw, &pw, false, None).is_err());
     }
 
     #[test]
@@ -4409,35 +4568,83 @@ mod tests {
         };
         assert!(feed_sched_create(&off, false)
             .contains("PAUSE SCHEDULES SELECT id FROM [SHOW SCHEDULES] WHERE label = 'export';"));
+        assert!(super::super::warnings(&feed_sched_create(&off, false)).is_empty());
+        // A changefeed has no paused start: created running, paused after.
+        let p = feed_create(&off, false);
+        assert_eq!(p.stages.last(), Some(&Stage::PauseCreated));
+        assert_eq!(super::super::warnings(&p.script), [FEED_CREATED_RUNNING]);
+        assert!(
+            p.script.starts_with(&format!(
+                "-- CockroachDB: nuevo changefeed\n-- ⚠ {FEED_CREATED_RUNNING}\nCREATE CHANGEFEED "
+            )),
+            "{}",
+            p.script
+        );
+        let p = feed_create(&feed(), false);
+        assert_eq!(p.stages.len(), 1);
+        assert!(super::super::warnings(&p.script).is_empty(), "{}", p.script);
     }
 
     #[test]
     fn a_changefeed_schedule_pauses_in_place_and_recreates_otherwise() {
         let c = root();
         let cur = feed();
-        assert_eq!(feed_sched_alter(&c, 7, &cur, &cur, false).unwrap(), None);
+        assert_eq!(
+            feed_sched_alter(&c, 7, &cur, &cur, false, None).unwrap(),
+            None
+        );
         let off = Feed {
             enabled: false,
             ..cur.clone()
         };
         assert_eq!(
-            feed_sched_alter(&c, 7, &cur, &off, false).unwrap().unwrap(),
+            feed_sched_alter(&c, 7, &cur, &off, false, None)
+                .unwrap()
+                .unwrap(),
             "-- CockroachDB: changefeed programado «export»\nPAUSE SCHEDULE 7;\n"
         );
         let other = Feed {
             options: vec![("format".into(), OptVal::One("parquet".into()))],
             ..cur.clone()
         };
-        let sql = feed_sched_alter(&c, 7, &cur, &other, false)
+        let sql = feed_sched_alter(&c, 7, &cur, &other, false, None)
             .unwrap()
             .unwrap();
         assert!(sql.contains("SET LOCAL autocommit_before_ddl = false;\nDROP SCHEDULE 7;\nCREATE SCHEDULE 'export'"), "{sql}");
-        assert!(sql.contains("sin su historial"), "{sql}");
+        assert!(
+            sql.starts_with(&format!(
+                "-- CockroachDB: changefeed programado «export»\n-- ⚠ {FEED_RECREATE}\nBEGIN;\n"
+            )),
+            "{sql}"
+        );
+        assert_eq!(super::super::warnings(&sql), [FEED_RECREATE]);
+        // Another user's (an admin's edit): created again, it's the user's.
+        let other_sql = feed_sched_alter(&c, 7, &cur, &other, false, Some("ana\n⚠ x"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            super::super::warnings(&other_sql),
+            [
+                FEED_RECREATE,
+                "El schedule se crea de nuevo a nombre de tu usuario: deja de ser de «ana?⚠ x» y corre con tus permisos."
+            ]
+        );
+        assert_eq!(
+            feed_sched_alter(&c, 7, &cur, &other, false, Some("root")).unwrap(),
+            Some(sql)
+        );
+        // Paused in place: nothing to accept, whoever's it is.
+        assert!(super::super::warnings(
+            &feed_sched_alter(&c, 7, &cur, &off, false, Some("bob"))
+                .unwrap()
+                .unwrap()
+        )
+        .is_empty());
         let red = Feed {
             sink: "s3://b?AWS_SECRET_ACCESS_KEY=redacted".into(),
             ..other
         };
-        assert!(feed_sched_alter(&c, 7, &cur, &red, false).is_err());
+        assert!(feed_sched_alter(&c, 7, &cur, &red, false, None).is_err());
     }
 
     fn running(status: &str) -> Running {
@@ -4484,6 +4691,15 @@ mod tests {
             shown.contains("PAUSE JOB 9;\n-- DBine espera a que el changefeed 9 quede en pausa"),
             "{shown}"
         );
+        // Paused to change it: it may be left paused.
+        let shown = render(feed_comment(9, &st), &st);
+        assert!(
+            shown.starts_with(&format!(
+                "-- CockroachDB: changefeed 9\n-- ⚠ {FEED_PAUSED}\nPAUSE JOB 9;\n"
+            )),
+            "{shown}"
+        );
+        assert_eq!(super::super::warnings(&shown), [FEED_PAUSED]);
         // Without resuming it: paused, changed, left paused.
         let off = Feed {
             enabled: false,
@@ -4519,6 +4735,35 @@ mod tests {
         assert_eq!(
             feed_alter(&p, &on, false).unwrap().unwrap(),
             vec![Stage::Sql("RESUME JOB 9".into())]
+        );
+        // Changed while paused, paused or resumed: nothing is left half way.
+        for st in [
+            feed_alter(&p, &g, false).unwrap().unwrap(),
+            feed_alter(&cur, &off, false).unwrap().unwrap(),
+            feed_alter(&p, &on, false).unwrap().unwrap(),
+        ] {
+            assert!(
+                super::super::warnings(&render(feed_comment(9, &st), &st)).is_empty(),
+                "{st:?}"
+            );
+        }
+        // Changed while paused and resumed: two statements, the resume may
+        // fail after the change.
+        let g_on = Feed {
+            enabled: true,
+            ..g.clone()
+        };
+        let st = feed_alter(&p, &g_on, false).unwrap().unwrap();
+        assert_eq!(
+            st,
+            vec![
+                Stage::Sql("ALTER CHANGEFEED 9 ADD TABLE \"d\".\"public\".\"v\" DROP TABLE \"d\".\"public\".\"t\" SET sink = 'kafka://k:9092?sasl_password=********'".into()),
+                Stage::Sql("RESUME JOB 9".into()),
+            ]
+        );
+        assert_eq!(
+            super::super::warnings(&render(feed_comment(9, &st), &st)),
+            [FEED_APART]
         );
         // Its query can't change.
         let q = Feed {
@@ -4647,6 +4892,69 @@ mod tests {
     }
 
     #[test]
+    fn a_ttl_warns_when_its_column_goes_or_it_can_stop_half_way() {
+        let t = Table {
+            id: 104,
+            db: "d".into(),
+            schema: "public".into(),
+            name: "t".into(),
+        };
+        let after: TtlParams = [
+            ("ttl".to_string(), "on".to_string()),
+            ("ttl_expire_after".into(), "3 days".into()),
+        ]
+        .into_iter()
+        .collect();
+        // From "after" to an expression: two statements, and the column goes.
+        let expr = ttl_spec(&fv(json!({
+            "expire_mode": "expression", "ttl_expiration_expression": "c + INTERVAL '1 day'"
+        })))
+        .unwrap();
+        let st = ttl_statements(&t, &after, &expr);
+        assert_eq!(st.len(), 2);
+        let comment = ttl_comment(&t, &after, &expr, &st);
+        assert_eq!(
+            comment.to_string(),
+            format!("CockroachDB: TTL de «d.public.t»\n⚠ {TTL_COLUMN}\n⚠ {TTL_COMMITS}")
+        );
+        let script = CPlan::statements(&comment, st, None, None).script;
+        assert_eq!(super::super::warnings(&script), [TTL_COLUMN, TTL_COMMITS]);
+        // One statement, the column kept: nothing to accept.
+        let longer = ttl_spec(&fv(
+            json!({"expire_mode": "after", "ttl_expire_after": "5 days"}),
+        ))
+        .unwrap();
+        let st = ttl_statements(&t, &after, &longer);
+        assert_eq!(st.len(), 1);
+        assert_eq!(
+            ttl_comment(&t, &after, &longer, &st).to_string(),
+            "CockroachDB: TTL de «d.public.t»"
+        );
+        // A new TTL.
+        let st = ttl_statements(&t, &TtlParams::new(), &longer);
+        assert!(super::super::warnings(
+            &CPlan::statements(
+                ttl_comment(&t, &TtlParams::new(), &longer, &st),
+                st,
+                None,
+                None
+            )
+            .script
+        )
+        .is_empty());
+        // Removed: the column with it, only where "Vence a los" added it.
+        let sql = ttl_delete_sql(&t, &after);
+        assert_eq!(
+            sql,
+            format!("-- CockroachDB: quitar la TTL de «d.public.t» (y su schedule)\n-- ⚠ {TTL_COLUMN}\nALTER TABLE \"d\".\"public\".\"t\" RESET (ttl);\n")
+        );
+        let by_expr: TtlParams = [("ttl_expiration_expression".to_string(), "c".to_string())]
+            .into_iter()
+            .collect();
+        assert!(super::super::warnings(&ttl_delete_sql(&t, &by_expr)).is_empty());
+    }
+
+    #[test]
     fn the_clusters_schedules() {
         assert_eq!(
             setting_of("sql-stats-compaction"),
@@ -4681,6 +4989,14 @@ mod tests {
             system_statements(&s, None, None, Some("x"), false),
             vec!["PAUSE SCHEDULE 3".to_string()]
         );
+        // Each statement runs alone: only two can stop half way.
+        let two = system_statements(&s, set, Some("@hourly"), Some("0 * * * *"), false);
+        let script = CPlan::statements(system_comment(&s.label, &two), two, None, None).script;
+        assert_eq!(super::super::warnings(&script), [SETTING_APART]);
+        let one = system_statements(&s, set, Some("@hourly"), Some("0 * * * *"), true);
+        assert_eq!(one.len(), 1);
+        let script = CPlan::statements(system_comment(&s.label, &one), one, None, None).script;
+        assert!(super::super::warnings(&script).is_empty(), "{script}");
     }
 
     #[test]

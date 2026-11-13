@@ -27,7 +27,10 @@
 //! the views through the catalog ([`Catalog`]) so a column a version lacks
 //! reads as empty.
 
-use super::{bad, datetime_field, name_of, pairs, plain, shown, valid_datetime, Vals};
+use super::{
+    bad, commented, datetime_field, name_of, pairs, plain, shown, valid_datetime, warned, Comment,
+    Vals,
+};
 use crate::catalog::comment_text;
 use crate::jobs::scheduler::{self, bool_lit, Catalog, Dialect, SchedJob, Scope, View};
 use crate::jobs::{text, Found, Named, Row};
@@ -64,9 +67,22 @@ const KDB_OTHERS: &str =
     "Este job no es de tu usuario: solo su dueño o un superusuario pueden cambiarlo.";
 const JOB_RECREATE: &str = "DBMS_SCHEDULER no cambia la acción, la programación ni las opciones de un job ya creado (no tiene SET_ATTRIBUTE): al guardarlas el job se borra y se crea de nuevo, y su historial de ejecuciones queda con el anterior. Habilitarlo y sus argumentos cambian en el lugar.";
 const KDB_JOB_RECREATE: &str = "KingbaseES no cambia un job de DBMS_SCHEDULER ya creado: al guardar cualquier cambio salvo «Habilitado» el job se borra y se crea de nuevo, y su historial de ejecuciones queda con el anterior.";
+/// What a job's save that drops and creates it again loses (both engines).
+const JOB_RECREATED: &str =
+    "El job se borra y se crea de nuevo: su historial de ejecuciones queda con el anterior.";
 const RECREATE_UNUSED: &str = "DBMS_SCHEDULER no cambia un programa ni una programación ya creados: al guardar se borran y se crean de nuevo, lo que solo se puede mientras ningún job los usa.";
 const NO_ARGS_VIEW: &str = "Este servidor no muestra los argumentos (no tiene la vista *_scheduler_program_args / *_scheduler_job_args): los que tenga no se ven ni se cambian.";
+/// EDB without `*_scheduler_job_args`: a job created again loses them.
+const JOB_ARGS_LOST: &str =
+    "Este servidor no muestra los argumentos del job: al crearlo de nuevo se crea sin sus valores.";
+/// EDB without `*_scheduler_program_args`: a program created again loses
+/// them.
+const PROGRAM_ARGS_LOST: &str =
+    "Este servidor no muestra los argumentos del programa: al crearlo de nuevo se crea sin ellos.";
 const KDB_PROGRAM_CONN: &str = "La cadena de conexión de un programa de KingbaseES no se lee ni se escribe (puede llevar una contraseña): el programa corre en la base que elijas, como el usuario de kdb_schedule.";
+/// A KingbaseES program created again: `CREATE_PROGRAM` without the
+/// connection string it may have had.
+const KDB_PROGRAM_CONN_LOST: &str = "La cadena de conexión del programa no se lee: al crearlo de nuevo queda sin ella y, si la tenía, hay que darla otra vez.";
 
 /// What this database has of DBMS_SCHEDULER, and who's asking.
 pub(crate) struct Caps {
@@ -194,12 +210,9 @@ impl Caps {
 
     /// The calls as one script: an anonymous block on EDB, `CALL`s in a
     /// transaction on KingbaseES.
-    fn script(&self, comment: &str, calls: &[String]) -> String {
+    fn script(&self, comment: impl Into<Comment>, calls: &[String]) -> String {
         if self.edb() {
-            let mut out = String::new();
-            for line in comment.lines() {
-                out.push_str(&format!("-- {}\n", comment_text(line)));
-            }
+            let mut out = commented(comment);
             out.push_str("BEGIN\n");
             for c in calls {
                 out.push_str(&format!("  {c};\n"));
@@ -1305,7 +1318,7 @@ pub(crate) fn job_create_calls(c: &Caps, j: &JobSpec) -> Vec<String> {
 
 pub(crate) fn job_create(c: &Caps, j: &JobSpec) -> String {
     c.script(
-        &format!("{}: nuevo job «{}» (DBMS_SCHEDULER)", c.engine(), j.name),
+        format!("{}: nuevo job «{}» (DBMS_SCHEDULER)", c.engine(), j.name),
         &job_create_calls(c, j),
     )
 }
@@ -1341,23 +1354,23 @@ pub(crate) fn job_alter(c: &Caps, cur: &JobSpec, j: &JobSpec) -> Option<String> 
         }
         if !calls.is_empty() {
             return Some(c.script(
-                &format!("{}: job «{}» (DBMS_SCHEDULER)", c.engine(), cur.name),
+                format!("{}: job «{}» (DBMS_SCHEDULER)", c.engine(), cur.name),
                 &calls,
             ));
         }
     }
     let mut calls = vec![format!("DBMS_SCHEDULER.DROP_JOB({name})")];
     calls.extend(job_create_calls(c, j));
+    let mut warnings = vec![JOB_RECREATED];
+    // Values it may have that this server doesn't show (a program's
+    // arguments are unknown here: it may take some).
+    if c.edb() && c.job_args().is_none() && cur.own.as_ref().is_none_or(|o| o.args > 0) {
+        warnings.push(JOB_ARGS_LOST);
+    }
     Some(c.script(
-        &format!(
-            "{}: job «{}» (DBMS_SCHEDULER)\n{}",
-            c.engine(),
-            cur.name,
-            if c.edb() {
-                JOB_RECREATE
-            } else {
-                KDB_JOB_RECREATE
-            }
+        warned(
+            &format!("{}: job «{}» (DBMS_SCHEDULER)", c.engine(), cur.name),
+            &warnings,
         ),
         &calls,
     ))
@@ -1488,7 +1501,7 @@ pub(crate) async fn job_delete_script(s: &PgSession, c: &Caps, id: &Named) -> Re
     let cur = read_job(s, c, id).await?;
     may_job(s, c, cur.owner.as_deref(), &cur.job.name).await?;
     Ok(c.script(
-        &format!(
+        format!(
             "{}: borrar el job «{}» (DBMS_SCHEDULER)",
             c.engine(),
             cur.job.name
@@ -1813,7 +1826,7 @@ pub(crate) fn prog_alter(
             ));
         }
         return Ok(Some(c.script(
-            &format!("{}: programa «{}» (DBMS_SCHEDULER)", c.engine(), cur.name),
+            format!("{}: programa «{}» (DBMS_SCHEDULER)", c.engine(), cur.name),
             &calls,
         )));
     }
@@ -1826,11 +1839,16 @@ pub(crate) fn prog_alter(
     }
     let mut calls = vec![format!("DBMS_SCHEDULER.DROP_PROGRAM({name})")];
     calls.extend(prog_create_calls(c, p));
+    let mut warnings = vec![RECREATE_UNUSED];
+    if !c.edb() {
+        warnings.push(KDB_PROGRAM_CONN_LOST);
+    } else if c.program_args().is_none() && cur.args > 0 {
+        warnings.push(PROGRAM_ARGS_LOST);
+    }
     Ok(Some(c.script(
-        &format!(
-            "{}: programa «{}» (DBMS_SCHEDULER)\n{RECREATE_UNUSED}",
-            c.engine(),
-            cur.name
+        warned(
+            &format!("{}: programa «{}» (DBMS_SCHEDULER)", c.engine(), cur.name),
+            &warnings,
         ),
         &calls,
     )))
@@ -1947,7 +1965,7 @@ pub(crate) async fn program_plan(
     match id {
         None => Ok(super::Plan {
             script: c.script(
-                &format!(
+                format!(
                     "{}: nuevo programa «{}» (DBMS_SCHEDULER)",
                     c.engine(),
                     p.name
@@ -2100,10 +2118,13 @@ pub(crate) fn sched_alter(
         )));
     }
     Ok(Some(c.script(
-        &format!(
-            "{}: programación «{}» (DBMS_SCHEDULER)\n{RECREATE_UNUSED}",
-            c.engine(),
-            cur.name
+        warned(
+            &format!(
+                "{}: programación «{}» (DBMS_SCHEDULER)",
+                c.engine(),
+                cur.name
+            ),
+            &[RECREATE_UNUSED],
         ),
         &[
             format!("DBMS_SCHEDULER.DROP_SCHEDULE({})", c.lit(&cur.name)),
@@ -2179,7 +2200,7 @@ pub(crate) async fn schedule_plan(
     match id {
         None => Ok(super::Plan {
             script: c.script(
-                &format!(
+                format!(
                     "{}: nueva programación «{}» (DBMS_SCHEDULER)",
                     c.engine(),
                     x.name
@@ -2246,7 +2267,7 @@ pub(crate) async fn object_delete_script(
         )));
     }
     Ok(c.script(
-        &format!("{}: borrar {what} «{name}» (DBMS_SCHEDULER)", c.engine()),
+        format!("{}: borrar {what} «{name}» (DBMS_SCHEDULER)", c.engine()),
         &[format!("DBMS_SCHEDULER.{call}({})", c.lit(&name))],
     ))
 }
@@ -2265,10 +2286,7 @@ pub(crate) fn run_sql(c: &Caps, name: &str) -> String {
         c.engine()
     );
     if c.edb() {
-        let mut out = String::new();
-        for line in comment.lines() {
-            out.push_str(&format!("-- {}\n", comment_text(line)));
-        }
+        let mut out = commented(comment.as_str());
         out.push_str(&format!("BEGIN\n  {call};\nEND;\n"));
         out
     } else {
@@ -2490,7 +2508,21 @@ mod tests {
             sql.contains("DBMS_SCHEDULER.DROP_JOB(E'nightly');\n  DBMS_SCHEDULER.CREATE_JOB("),
             "{sql}"
         );
-        assert!(sql.contains("no tiene SET_ATTRIBUTE"), "{sql}");
+        assert!(
+            sql.starts_with(&format!(
+                "-- EDB Postgres Advanced Server: job «nightly» (DBMS_SCHEDULER)\n-- ⚠ {JOB_RECREATED}\nBEGIN\n"
+            )),
+            "{sql}"
+        );
+        assert_eq!(super::super::warnings(&sql), [JOB_RECREATED]);
+        // In place, or new: nothing to accept.
+        for sql in [
+            job_alter(&c, &cur, &off).unwrap(),
+            job_alter(&c, &cur, &args).unwrap(),
+            job_create(&c, &cur),
+        ] {
+            assert!(super::super::warnings(&sql).is_empty(), "{sql}");
+        }
     }
 
     /// An EDB job that runs once (its own action, no repeat interval), as
@@ -2590,6 +2622,8 @@ mod tests {
         other.schedule = Some("s2".into());
         let sql = job_alter(&c, &j, &other).unwrap();
         assert!(sql.contains("CALL DBMS_SCHEDULER.DROP_JOB(E'kj');\nCALL DBMS_SCHEDULER.CREATE_JOB(E'kj', E'p', E's2'"), "{sql}");
+        assert_eq!(super::super::warnings(&sql), [JOB_RECREATED]);
+        assert!(super::super::warnings(&job_alter(&c, &j, &on).unwrap()).is_empty());
         // Kingbase's jobs take a program and a schedule.
         assert!(job_spec(
             &c,
@@ -2655,14 +2689,169 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("j1"));
-        assert!(prog_alter(&c, &p, &action, &[])
-            .unwrap()
-            .unwrap()
-            .contains("DBMS_SCHEDULER.DROP_PROGRAM(E'purge');\n  DBMS_SCHEDULER.CREATE_PROGRAM("));
+        let sql = prog_alter(&c, &p, &action, &[]).unwrap().unwrap();
+        assert!(
+            sql.contains(
+                "DBMS_SCHEDULER.DROP_PROGRAM(E'purge');\n  DBMS_SCHEDULER.CREATE_PROGRAM("
+            ),
+            "{sql}"
+        );
+        assert_eq!(super::super::warnings(&sql), [RECREATE_UNUSED]);
+        // In place: nothing to accept.
+        assert!(
+            super::super::warnings(&prog_alter(&c, &p, &args, &[]).unwrap().unwrap()).is_empty()
+        );
         // KingbaseES: positional, with the database it runs in.
         let k = caps(Dialect::Kingbase);
         let kp = prog_spec(&k, &fv(json!({"name": "kp", "program_type": "EXECUTABLE", "program_action": "/bin/true", "database": "db2"}), json!({}))).unwrap();
         assert_eq!(prog_create_calls(&k, &kp), vec!["DBMS_SCHEDULER.CREATE_PROGRAM(E'kp', E'EXECUTABLE', E'/bin/true', NULL, E'db2', 0, TRUE, NULL)".to_string()]);
+    }
+
+    #[test]
+    fn a_kingbase_program_created_again_loses_its_connection_string() {
+        let k = caps(Dialect::Kingbase);
+        let kp = prog_spec(&k, &fv(json!({"name": "kp", "program_type": "EXECUTABLE", "program_action": "/bin/true", "database": "db2"}), json!({}))).unwrap();
+        let mut action = kp.clone();
+        action.action = "/bin/false".into();
+        let sql = prog_alter(&k, &kp, &action, &[]).unwrap().unwrap();
+        assert!(
+            sql.contains("CALL DBMS_SCHEDULER.DROP_PROGRAM(E'kp');\nCALL DBMS_SCHEDULER.CREATE_PROGRAM(E'kp', E'EXECUTABLE', E'/bin/false', NULL,"),
+            "{sql}"
+        );
+        assert_eq!(
+            super::super::warnings(&sql),
+            [RECREATE_UNUSED, KDB_PROGRAM_CONN_LOST]
+        );
+        // Enabling it is in place: it keeps it.
+        let mut off = kp.clone();
+        off.enabled = false;
+        let sql = prog_alter(&k, &kp, &off, &[]).unwrap().unwrap();
+        assert!(sql.contains("CALL DBMS_SCHEDULER.DISABLE(E'kp');"), "{sql}");
+        assert!(super::super::warnings(&sql).is_empty(), "{sql}");
+        // EDB's programs have none.
+        let c = caps(Dialect::Edb);
+        let p = prog_spec(
+            &c,
+            &fv(
+                json!({"name": "p", "program_action": "BEGIN NULL; END;"}),
+                json!({}),
+            ),
+        )
+        .unwrap();
+        let mut q = p.clone();
+        q.action = "BEGIN NULL; NULL; END;".into();
+        let sql = prog_alter(&c, &p, &q, &[]).unwrap().unwrap();
+        assert_eq!(super::super::warnings(&sql), [RECREATE_UNUSED]);
+    }
+
+    /// EDB without the `*_scheduler_job_args` / `*_scheduler_program_args`
+    /// views: the arguments can't be read.
+    fn edb_without_args() -> Caps {
+        Caps {
+            cat: Catalog::with(vec![View::fake(
+                "sys",
+                "dba_scheduler_jobs",
+                &[("owner", Kind::Other), ("job_name", Kind::Other)],
+            )]),
+            ..caps(Dialect::Edb)
+        }
+    }
+
+    #[test]
+    fn arguments_this_server_hides_are_lost_when_created_again() {
+        let c = edb_without_args();
+        assert!(c.job_args().is_none() && c.program_args().is_none());
+        // A job of a stored procedure with arguments.
+        let cur = job_spec(
+            &c,
+            &fv(
+                json!({
+                    "name": "nightly", "timing": "expression", "job_type": "STORED_PROCEDURE",
+                    "job_action": "purge", "number_of_arguments": 2, "repeat_interval": "FREQ=DAILY",
+                    "enabled": true
+                }),
+                json!({}),
+            ),
+        )
+        .unwrap();
+        let mut other = cur.clone();
+        other.own.as_mut().unwrap().repeat = Some("FREQ=HOURLY".into());
+        let sql = job_alter(&c, &cur, &other).unwrap();
+        assert!(sql.contains("DROP_JOB"), "{sql}");
+        assert_eq!(super::super::warnings(&sql), [JOB_RECREATED, JOB_ARGS_LOST]);
+        // With the view, the values are set again: only the recreate.
+        let full = caps(Dialect::Edb);
+        assert_eq!(
+            super::super::warnings(&job_alter(&full, &cur, &other).unwrap()),
+            [JOB_RECREATED]
+        );
+        // A PL/SQL block takes none.
+        let block = job_spec(
+            &c,
+            &fv(
+                json!({"name": "b", "timing": "expression", "job_action": "BEGIN NULL; END;", "repeat_interval": "FREQ=DAILY"}),
+                json!({}),
+            ),
+        )
+        .unwrap();
+        let mut b2 = block.clone();
+        b2.own.as_mut().unwrap().repeat = Some("FREQ=HOURLY".into());
+        assert_eq!(
+            super::super::warnings(&job_alter(&c, &block, &b2).unwrap()),
+            [JOB_RECREATED]
+        );
+        // A program's job: its program may take some.
+        let prog = job_spec(
+            &c,
+            &fv(
+                json!({"name": "pj", "timing": "program", "program_name": "p", "schedule_name": "s"}),
+                json!({}),
+            ),
+        )
+        .unwrap();
+        let mut prog2 = prog.clone();
+        prog2.schedule = Some("s2".into());
+        assert_eq!(
+            super::super::warnings(&job_alter(&c, &prog, &prog2).unwrap()),
+            [JOB_RECREATED, JOB_ARGS_LOST]
+        );
+        // In place: nothing lost.
+        let mut off = cur.clone();
+        off.enabled = false;
+        assert!(super::super::warnings(&job_alter(&c, &cur, &off).unwrap()).is_empty());
+        // A program with arguments: their definitions.
+        let p = prog_spec(
+            &c,
+            &fv(
+                json!({"name": "purge", "program_type": "STORED_PROCEDURE", "program_action": "purge_logs", "number_of_arguments": 2}),
+                json!({}),
+            ),
+        )
+        .unwrap();
+        let mut action = p.clone();
+        action.action = "purge_more".into();
+        let sql = prog_alter(&c, &p, &action, &[]).unwrap().unwrap();
+        assert_eq!(
+            super::super::warnings(&sql),
+            [RECREATE_UNUSED, PROGRAM_ARGS_LOST]
+        );
+        assert_eq!(
+            super::super::warnings(&prog_alter(&full, &p, &action, &[]).unwrap().unwrap()),
+            [RECREATE_UNUSED]
+        );
+        // Without arguments, nothing to lose.
+        let none = ProgSpec {
+            args: 0,
+            ..p.clone()
+        };
+        let none2 = ProgSpec {
+            action: "purge_more".into(),
+            ..none.clone()
+        };
+        assert_eq!(
+            super::super::warnings(&prog_alter(&c, &none, &none2, &[]).unwrap().unwrap()),
+            [RECREATE_UNUSED]
+        );
     }
 
     #[test]
@@ -2689,6 +2878,7 @@ mod tests {
             ),
             "{sql}"
         );
+        assert_eq!(super::super::warnings(&sql), [RECREATE_UNUSED]);
         assert!(sched_spec(&fv(
             json!({"name": "s", "rep_mode": "expression", "repeat_interval": "FREQ=DAILY\n;x"}),
             json!({})

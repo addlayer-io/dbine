@@ -27,7 +27,7 @@
 //! cleared.
 
 use super::{
-    bad, code_lit, databases, id as ident, login_roles, name_of, pick, shown, transaction,
+    bad, code_lit, databases, id as ident, login_roles, name_of, pick, shown, transaction, warned,
     with_current, Ctx, NewId, Plan, Vals,
 };
 use crate::catalog::{comment_text, lit};
@@ -77,8 +77,10 @@ const OTHERS_JOB: &str =
     "Este job es de otro usuario: solo su dueño o un superusuario puede cambiarlo.";
 const OTHERS_TASK: &str =
     "Esta tarea es de otro usuario: solo su dueño o un superusuario puede cambiarla.";
-const CRON_RENAME: &str = "pg_cron no permite cambiarle el nombre a un job (solo su dueño o un superusuario pueden, en cron.job): al guardar con otro nombre se programa de nuevo y se borra el actual; el job cambia de id y su historial queda con el id anterior.";
-const TASK_RECREATE: &str = "El servidor no permite cambiarle el nombre a una tarea, ni el usuario a la de otro: al guardar esos cambios la tarea se borra y se crea de nuevo, con otro id y sin su historial de ejecuciones.";
+pub(crate) const CRON_RENAME: &str = "pg_cron no permite cambiarle el nombre a un job (solo su dueño o un superusuario pueden, en cron.job): al guardar con otro nombre se programa de nuevo y se borra el actual; el job cambia de id y su historial queda con el id anterior.";
+pub(crate) const TASK_RECREATE: &str = "El servidor no permite cambiarle el nombre a una tarea, ni el usuario a la de otro: al guardar esos cambios la tarea se borra y se crea de nuevo, con otro id y sin su historial de ejecuciones.";
+pub(crate) const TASK_DROP_HISTORY: &str =
+    "Al borrar la tarea también se borra su historial de ejecuciones.";
 
 /// What pg_cron (or the tasks) has here, and what the user may do.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -621,7 +623,7 @@ pub(crate) fn spec(
 pub(crate) fn cron_create(v: Variant, caps: &Caps, j: &Spec) -> Result<String> {
     let call = cron_schedule_call(v, caps, j)?;
     Ok(transaction(
-        &format!(
+        format!(
             "pg_cron: nuevo job «{}»",
             j.name.as_deref().unwrap_or("(sin nombre)")
         ),
@@ -702,10 +704,13 @@ pub(crate) fn cron_alter(v: Variant, caps: &Caps, cur: &Job, j: &Spec) -> Result
     if renamed && !caps.rename {
         let call = cron_schedule_call(v, caps, j)?;
         return Ok(Some(transaction(
-            &format!(
-                "pg_cron: «{}» pasa a llamarse «{}»\npg_cron no permite cambiarle el nombre a un job: se programa de nuevo y se borra el actual (el job cambia de id; su historial queda con el id anterior).",
-                cur.name.as_deref().unwrap_or_default(),
-                title
+            warned(
+                &format!(
+                    "pg_cron: «{}» pasa a llamarse «{}»",
+                    cur.name.as_deref().unwrap_or_default(),
+                    title
+                ),
+                &[CRON_RENAME],
             ),
             &[
                 format!("SELECT {call} AS jobid"),
@@ -750,7 +755,7 @@ pub(crate) fn cron_alter(v: Variant, caps: &Caps, cur: &Job, j: &Spec) -> Result
         ));
     }
     Ok(Some(transaction(
-        &format!("pg_cron: job «{title}»"),
+        format!("pg_cron: job «{title}»"),
         &statements,
     )))
 }
@@ -795,7 +800,7 @@ fn task_create_statements(v: Variant, caps: &Caps, j: &Spec) -> Vec<String> {
 
 pub(crate) fn task_create(v: Variant, caps: &Caps, j: &Spec) -> String {
     transaction(
-        &format!("Tarea: nueva «{}»", j.name.as_deref().unwrap_or_default()),
+        format!("Tarea: nueva «{}»", j.name.as_deref().unwrap_or_default()),
         &task_create_statements(v, caps, j),
     )
 }
@@ -815,9 +820,16 @@ pub(crate) fn task_alter(v: Variant, caps: &Caps, cur: &Job, j: &Spec) -> Option
         );
         statements.extend(task_create_statements(v, caps, j));
         return Some(transaction(
-            &format!(
-                "Tarea: «{old}»{}\nEl servidor no permite cambiarle el nombre a una tarea, ni el usuario a la de otro: se borra y se crea de nuevo (otro id, sin su historial de ejecuciones).",
-                if renamed { format!(" pasa a llamarse «{new}»") } else { String::new() }
+            warned(
+                &format!(
+                    "Tarea: «{old}»{}",
+                    if renamed {
+                        format!(" pasa a llamarse «{new}»")
+                    } else {
+                        String::new()
+                    }
+                ),
+                &[TASK_RECREATE],
             ),
             &statements,
         ));
@@ -842,7 +854,7 @@ pub(crate) fn task_alter(v: Variant, caps: &Caps, cur: &Job, j: &Spec) -> Option
         return None;
     }
     Some(transaction(
-        &format!("Tarea: «{old}»"),
+        format!("Tarea: «{old}»"),
         &as_owner(
             &cur.username,
             &caps.user,
@@ -992,17 +1004,23 @@ pub(crate) async fn delete_script(
             Flavor::Task => OTHERS_TASK.into(),
         }));
     }
+    Ok(delete_sql(flavor, caps, &j))
+}
+
+/// `cron.unschedule` (its history stays) or `DROP TASK` (its history goes).
+pub(crate) fn delete_sql(flavor: Flavor, caps: &Caps, j: &Job) -> String {
+    let n = j.id;
     let name = j.name.clone().unwrap_or_else(|| format!("job {n}"));
-    Ok(match flavor {
+    match flavor {
         Flavor::Cron => format!(
             "-- pg_cron: borrar el job «{}» (su historial queda en cron.job_run_details)\nSELECT cron.unschedule({n});\n",
             comment_text(&name)
         ),
         Flavor::Task => transaction(
-            &format!("Tarea: borrar «{name}» (y su historial)"),
+            warned(&format!("Tarea: borrar «{name}»"), &[TASK_DROP_HISTORY]),
             &as_owner(&j.username, &caps.user, format!("DROP TASK {}", ident(&name))),
         ),
-    })
+    }
 }
 
 pub(crate) async fn clear_script(s: &PgSession, c: &Ctx, flavor: Flavor, n: i64) -> Result<String> {

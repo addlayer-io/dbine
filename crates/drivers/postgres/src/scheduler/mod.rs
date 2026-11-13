@@ -21,8 +21,10 @@
 //!   ([`run_script`]). An edit is the scheduler's own in-place call
 //!   (`cron.alter_job`, `ALTER TASK`, `UPDATE pgagent.…`, `alter_job`)
 //!   with only what changed. Where the engine can only drop and create the
-//!   object again (renaming a task, a TimescaleDB job's procedure…), the
-//!   script says so at its top, with what is lost, and so does the form.
+//!   object again (renaming a task, a TimescaleDB job's procedure…), or a
+//!   change loses something else or can stop half way, the script says so
+//!   at its top in a "⚠" line ([`warn`]), which the app asks the user to
+//!   accept before it runs, and so does the form.
 //! - Values and ids come from the app as untrusted text: ids parse as
 //!   [`JobId`] or numbers and are looked up on the server, names picked
 //!   from lists are checked against the server's ([`pick`]), and text
@@ -437,7 +439,7 @@ pub(crate) async fn ctx(s: &PgSession) -> Result<Ctx> {
         c.agent = caps.read.then_some(caps);
     }
     if let Some(schema) = c.found.timescale.clone() {
-        c.ts = Some(timescale::caps(s, &schema).await?);
+        c.ts = Some(timescale::caps(s, &schema, &c.found.user).await?);
     }
     Ok(c)
 }
@@ -561,10 +563,10 @@ pub(crate) type Abilities = (Option<bool>, Option<bool>, Option<Vec<String>>);
 /// A job of the list as the tree shows it, with what the user may do with
 /// it (another user's job, the extension's own, a cluster schedule…).
 pub(crate) fn job_item(c: &Ctx, j: ServerJob) -> SchedulerItem {
-    let (can_edit, can_delete, actions) = match job_target(c, &j.id) {
-        Ok(t) => job_abilities(c, &t, &j),
+    let ((can_edit, can_delete, actions), history) = match job_target(c, &j.id) {
+        Ok(t) => (job_abilities(c, &t, &j), job_history_of(c, &t, &j)),
         // Not a scheduler this designer manages here: shown only.
-        Err(_) => (Some(false), Some(false), offers(&[])),
+        Err(_) => ((Some(false), Some(false), offers(&[])), false),
     };
     SchedulerItem {
         id: j.id,
@@ -575,8 +577,41 @@ pub(crate) fn job_item(c: &Ctx, j: ServerJob) -> SchedulerItem {
         can_edit,
         can_delete,
         actions,
-        run_from_step: None,
-        clear_history: None,
+        // The kind mixes schedulers: each job says what its own allows.
+        // None of them starts a job at one of its steps.
+        run_from_step: Some(false),
+        clear_history: Some(history),
+    }
+}
+
+/// This job keeps a run history the user may delete: what
+/// [`clear_history`] takes for its scheduler (pg_cron's for the job's
+/// owner, pgAgent's, TimescaleDB's, edb_job_scheduler's for the job's
+/// owner). The server's tasks, openGauss, KingbaseES and CockroachDB keep
+/// none DBine can delete.
+fn job_history_of(c: &Ctx, t: &Target, j: &ServerJob) -> bool {
+    let owner = j.owner.as_deref();
+    match t {
+        Target::Cron(cron::Flavor::Cron, _) => c
+            .cron
+            .as_ref()
+            .is_some_and(|k| k.runs && k.clear && k.may_change(owner.unwrap_or_default())),
+        Target::Cron(cron::Flavor::Task, _) => false,
+        Target::Agent(_) => c.agent.as_ref().is_some_and(|a| a.log_delete),
+        Target::Timescale(_) => {
+            c.ts.as_ref()
+                .is_some_and(|ts| ts.history.is_some() && ts.clear)
+        }
+        Target::Dbms(id @ JobId::EdbJob(_)) => c
+            .dbms
+            .as_ref()
+            .is_some_and(|d| d.edb_history() && d.may_job(id, owner)),
+        // Its runs are found by its name: the user's own, with a name no
+        // other owner has (the list's `can_enable`).
+        Target::Sched(_) if c.v == Variant::Edb => {
+            j.can_enable && c.dbms.as_ref().is_some_and(|d| d.edb_history())
+        }
+        _ => false,
     }
 }
 
@@ -1550,12 +1585,102 @@ pub(crate) fn redact_passwords(text: &str) -> String {
     out
 }
 
-/// A script in one transaction, with a comment first.
-pub(crate) fn transaction(comment: &str, statements: &[String]) -> String {
-    let mut out = String::new();
-    for line in comment.lines() {
-        out.push_str(&format!("-- {}\n", comment_text(line)));
+/// What the user must accept before a script runs (the object dropped and
+/// created again, its run history lost, a change that can stop half way…)
+/// as a line of the script's comment, which [`commented`] starts with
+/// `-- `: the app lists the lines that start with "⚠" above the script and
+/// asks the user to go on. `sentence` is one whole Spanish sentence, a
+/// message of its own (the app translates it); a name filled into it stays
+/// on its line. Only where the change does what it says.
+fn warn(sentence: &str) -> String {
+    format!("⚠ {}", comment_text(sentence))
+}
+
+/// A script's comment, line by line: a title, then plain notes and
+/// [`warn`] lines. Every line is made one line here, so a server's name
+/// with a line break in a title can't start a line of its own, nor pass
+/// for a warning: only [`Comment::warn`] (and [`warned`]) adds those. The
+/// script writers ([`transaction`], [`commented`]…) take one, or a title
+/// (`&str`, `String`) as a one-line comment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Comment(Vec<String>);
+
+impl Comment {
+    pub(crate) fn new(title: &str) -> Comment {
+        Comment(vec![comment_text(title)])
     }
+
+    /// A line that says what the script does: nothing to accept.
+    pub(crate) fn note(mut self, line: &str) -> Comment {
+        self.0.push(comment_text(line));
+        self
+    }
+
+    /// A [`warn`] line.
+    pub(crate) fn warn(mut self, sentence: &str) -> Comment {
+        self.0.push(warn(sentence));
+        self
+    }
+}
+
+impl From<&str> for Comment {
+    fn from(title: &str) -> Comment {
+        Comment::new(title)
+    }
+}
+
+impl From<&String> for Comment {
+    fn from(title: &String) -> Comment {
+        Comment::new(title)
+    }
+}
+
+impl From<String> for Comment {
+    fn from(title: String) -> Comment {
+        Comment::new(&title)
+    }
+}
+
+impl From<&Comment> for Comment {
+    fn from(c: &Comment) -> Comment {
+        c.clone()
+    }
+}
+
+/// Its lines, one per line.
+impl std::fmt::Display for Comment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.join("\n"))
+    }
+}
+
+/// A script's comment: `title`, then a [`warn`] line for each sentence.
+pub(crate) fn warned(title: &str, sentences: &[&str]) -> Comment {
+    sentences.iter().fold(Comment::new(title), |c, s| c.warn(s))
+}
+
+/// A comment as a script's `--` lines.
+pub(crate) fn commented(comment: impl Into<Comment>) -> String {
+    comment
+        .into()
+        .0
+        .iter()
+        .map(|line| format!("-- {line}\n"))
+        .collect()
+}
+
+/// A script's [`warn`] sentences, as the app reads them.
+#[cfg(test)]
+pub(crate) fn warnings(script: &str) -> Vec<&str> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .collect()
+}
+
+/// A script in one transaction, with a comment first.
+pub(crate) fn transaction(comment: impl Into<Comment>, statements: &[String]) -> String {
+    let mut out = commented(comment);
     out.push_str("BEGIN;\n");
     for st in statements {
         out.push_str(st.trim_end());

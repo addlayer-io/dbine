@@ -19,8 +19,8 @@
 //!   that names its schedule.
 
 use super::{
-    bad, code_lit, databases, name_of, pick, plain, rows, shown, ts_lit, utc_sql, valid_date,
-    valid_time, with_current, Ctx, NewId, Plan, Vals,
+    bad, code_lit, commented, databases, name_of, pick, plain, rows, shown, ts_lit, utc_sql,
+    valid_date, valid_time, warned, with_current, Comment, Ctx, NewId, Plan, Vals,
 };
 use crate::catalog::{comment_text, lit};
 use crate::jobs::pgagent::without_password;
@@ -39,6 +39,11 @@ const UNREADABLE: &str = "Tu usuario no puede leer los jobs de pgAgent: necesita
 const STALE: &str = "El job cambió en el servidor desde que se abrió el formulario: volvé a abrirlo para no pisar esos cambios.";
 const ORDER_NOTE: &str = "pgAgent ejecuta los pasos en el orden alfabético de sus nombres: el orden de la lista tiene que ser ese (por ejemplo, empezá los nombres con 01, 02…).";
 const LAST_DAY: &str = "Último día";
+pub(crate) const DROP_HISTORY: &str =
+    "Al borrar el job también se borra su historial de ejecuciones.";
+/// `pga_jobsteplog` rows go with their step (`ON DELETE CASCADE`).
+pub(crate) const STEP_HISTORY: &str =
+    "Al quitar un paso también se borran sus registros del historial de ejecuciones.";
 
 /// What the user may do with pgAgent's tables.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1356,12 +1361,9 @@ fn insert_exception(v: Variant, schedule: &str, e: &ExceptionSpec) -> String {
 }
 
 /// The `DO` block around `body`, with the variables it uses.
-fn do_block(comment: &str, body: &str) -> String {
+fn do_block(comment: impl Into<Comment>, body: &str) -> String {
     let block = format!("\nDECLARE\n    jid integer;\n    scid integer;\nBEGIN\n{body}END\n");
-    let mut out = String::new();
-    for line in comment.lines() {
-        out.push_str(&format!("-- {}\n", comment_text(line)));
-    }
+    let mut out = commented(comment);
     out.push_str(&format!("DO {};\n", dollar_tagged(&block, "job")));
     out
 }
@@ -1387,7 +1389,7 @@ pub(crate) fn create_script(v: Variant, j: &JobSpec, mask: bool) -> String {
             body.push_str(&insert_exception(v, "scid", e));
         }
     }
-    do_block(&format!("pgAgent: nuevo job «{}»", j.name), &body)
+    do_block(format!("pgAgent: nuevo job «{}»", j.name), &body)
 }
 
 /// The step's changed columns.
@@ -1551,8 +1553,10 @@ pub(crate) fn alter_script(v: Variant, cur: &Job, j: &JobSpec, mask: bool) -> Op
             }
         }
     }
+    let mut steps_gone = false;
     for st in &cur.steps {
         if !j.steps.iter().any(|x| x.id == Some(st.id)) {
+            steps_gone = true;
             parts.push_str(&format!(
                 "    DELETE FROM pgagent.pga_jobstep WHERE jstid = {} AND jstjobid = {n};\n",
                 st.id
@@ -1584,7 +1588,9 @@ pub(crate) fn alter_script(v: Variant, cur: &Job, j: &JobSpec, mask: bool) -> Op
         job_set.join(", ")
     ));
     body.push_str(&parts);
-    Some(do_block(&format!("pgAgent: job «{}»", j.name), &body))
+    let title = format!("pgAgent: job «{}»", j.name);
+    let warnings: &[&str] = if steps_gone { &[STEP_HISTORY] } else { &[] };
+    Some(do_block(warned(&title, warnings), &body))
 }
 
 /// The steps' names in the order the server sorts them (its collation):
@@ -1682,10 +1688,22 @@ pub(crate) async fn delete_script(s: &PgSession, c: &Ctx, n: i32) -> Result<Stri
         return Err(bad(NO_WRITE.into()));
     }
     let j = read(s, n).await?;
-    Ok(format!(
-        "-- pgAgent: borrar el job «{}», con sus pasos, programaciones e historial\nDELETE FROM pgagent.pga_job WHERE jobid = {n};\n",
-        comment_text(&j.name)
-    ))
+    Ok(delete_sql(&j))
+}
+
+/// `DELETE` of the job: its steps, schedules and exceptions go with it, and
+/// so does its history.
+pub(crate) fn delete_sql(j: &Job) -> String {
+    let title = format!(
+        "pgAgent: borrar el job «{}», con sus pasos y programaciones",
+        j.name
+    );
+    let mut out = commented(warned(&title, &[DROP_HISTORY]));
+    out.push_str(&format!(
+        "DELETE FROM pgagent.pga_job WHERE jobid = {};\n",
+        j.id
+    ));
+    out
 }
 
 pub(crate) async fn clear_script(s: &PgSession, c: &Ctx, n: i32) -> Result<String> {

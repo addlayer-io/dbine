@@ -630,7 +630,8 @@ pub(crate) fn create(d: D, j: &Spec, id: Option<i64>) -> String {
                 format!("-- openGauss: nuevo job (DBMS_JOB)\n-- {GAUSS_PLAN}\nSELECT {submit} AS job;\n")
             } else {
                 super::transaction(
-                    &format!("openGauss: nuevo job (DBMS_JOB), deshabilitado\n{GAUSS_PLAN}"),
+                    super::Comment::new("openGauss: nuevo job (DBMS_JOB), deshabilitado")
+                        .note(GAUSS_PLAN),
                     &[
                         format!("SELECT {submit} AS job"),
                         format!("SELECT pkg_service.job_finish({}, true)", gauss_id(id)),
@@ -695,7 +696,10 @@ pub(crate) fn alter(d: D, n: i64, cur: &Job, j: &Spec) -> Option<String> {
                     format!("SELECT pkg_service.job_finish({id}, true)")
                 });
             }
-            Some(super::transaction(&format!("{title}\n{GAUSS_PLAN}"), &st))
+            Some(super::transaction(
+                super::Comment::new(&title).note(GAUSS_PLAN),
+                &st,
+            ))
         }
         D::Edb | D::Kdb => {
             let mut calls = Vec::new();
