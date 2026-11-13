@@ -55,6 +55,13 @@ pub(crate) fn shown(s: &str) -> String {
     comment_text(s.trim()).chars().take(60).collect()
 }
 
+/// A comment the app lists above the script as a consequence the user
+/// accepts before it runs (the contract's "⚠" lines): `text` is one whole
+/// Spanish sentence, a literal of its own or a literal format.
+fn warning(text: impl AsRef<str>) -> String {
+    format!("⚠ {}", text.as_ref())
+}
+
 fn comment_text(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -560,9 +567,12 @@ pub(crate) fn plan(
     let mut p = Plan::new(&st.name, id);
     p.comments.push(format!("Stream «{}» de TDengine", st.id()));
     if old.as_ref() != Some(&new) {
-        p.comments
-            .push("TDengine no tiene ALTER STREAM: se borra el stream y se vuelve a crear.".into());
-        p.comments.push("Se pierde su estado (ventanas abiertas, avance); la tabla de destino y sus filas quedan.".into());
+        p.comments.push(warning(
+            "TDengine no tiene ALTER STREAM: se borra el stream y se vuelve a crear.",
+        ));
+        p.comments.push(warning(
+            "Se pierde su estado (ventanas abiertas, avance); la tabla de destino y sus filas quedan.",
+        ));
         if new != as_written {
             p.comments.push(TAG_NAMES.into());
         }
@@ -605,12 +615,25 @@ pub(crate) fn plan(
                 false,
                 false,
             ));
+            // Suspended and kept so: the new one runs for a while.
+            if !st.enabled() {
+                p.comments.push(warning(
+                    "El stream nuevo arranca al crearse: procesa datos hasta que DBine lo suspende, apenas sus tareas están listas.",
+                ));
+            }
         }
         return Ok(p);
     }
     if enabled != st.enabled() {
         if !c.suspend {
             return Err(Error::Unsupported(jobs::NO_PAUSE.into()));
+        }
+        // Resumed skipping the backlog: what came meanwhile is never
+        // processed.
+        if enabled && skip {
+            p.comments.push(warning(
+                "Saltea lo que llegó mientras estuvo suspendido (IGNORE UNTREATED): esos datos no se procesan.",
+            ));
         }
         p.push(suspend_stmt(c, &st.id(), &st.target(), enabled, skip));
     }

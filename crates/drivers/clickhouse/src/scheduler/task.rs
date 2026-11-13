@@ -21,7 +21,7 @@
 use super::lex::{self, Parser, T};
 use super::{
     bad, database_field, id_pairs, ids, name_field, one_statement, qname, query_field, same_pairs,
-    shown, Ctx, Plan, Vals,
+    shown, warning, Ctx, Plan, Vals,
 };
 use crate::jobs::{self, job_id, parse_id};
 use crate::schema::string_literal;
@@ -30,6 +30,7 @@ use dbine_driver::{Error, FormField, FormKind, FormSection, FormValues, ObjectFo
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
+const PAUSED_AGAIN: &str = "Al reemplazarla o crearla de nuevo, la tarea queda sin pausar hasta que DBine la vuelve a pausar (SYSTEM PAUSE TASK): si le toca ejecutarse en ese momento, se ejecuta.";
 const REPLACE_NOTE: &str = "Los cambios reemplazan la tarea en su lugar (CREATE OR REPLACE TASK): conserva su UUID y su última ejecución.";
 const RENAME_NOTE: &str = "Timeplus Proton no renombra tareas: con otro nombre o en otra base de datos se crea una tarea nueva y se borra esta, con su UUID y su última ejecución.";
 const NO_STATUS_NOTE: &str =
@@ -530,16 +531,21 @@ pub(crate) fn plan_edit(
         id: job_id(&w.database, &w.name),
         restore: None,
     };
+    // A paused task that stays paused runs unpaused for a moment.
+    let paused_again = !enabled && cur_enabled != Some(true);
     if (&cur.database, &cur.name) != (&w.database, &w.name) {
-        p.comments.push(format!(
+        p.comments.push(warning(format!(
             "Timeplus Proton no renombra tareas: se crea {} y se borra {}; se pierden su UUID y su última ejecución.",
             label(w),
             label(cur)
-        ));
+        )));
         p.database = Some(w.database.clone());
         p.statements.push(create_sql(w, false));
         if !enabled {
             p.statements.push(format!("SYSTEM PAUSE TASK {new_id}"));
+            if paused_again {
+                p.comments.push(warning(PAUSED_AGAIN));
+            }
         }
         p.statements.push(format!("DROP TASK {old_id}"));
         return checked(p);
@@ -556,6 +562,9 @@ pub(crate) fn plan_edit(
         p.statements.push(create_sql(w, true));
         if !enabled {
             p.statements.push(format!("SYSTEM PAUSE TASK {new_id}"));
+            if paused_again {
+                p.comments.push(warning(PAUSED_AGAIN));
+            }
         }
     } else if enabled != cur_enabled.unwrap_or(true) {
         let verb = if enabled { "UNPAUSE" } else { "PAUSE" };

@@ -372,7 +372,7 @@ async fn clickhouse_refreshable_views_managed_whole() {
         set(&mut v, "enabled", json!(false));
         let sc = script(&mut s, Some(&mv), &v).await;
         assert!(sc.contains("CREATE OR REPLACE MATERIALIZED VIEW `dbine_test_sched_ch`.`dbine_test_sched_mv`"), "{sc}");
-        assert!(sc.contains("-- ClickHouse no cambia en su lugar"), "{sc}");
+        assert!(sc.contains("-- ⚠ ClickHouse no cambia en su lugar"), "{sc}");
         save(&mut s, Some(&mv), &v).await;
         let q = create_query(&mut s, DB, MV).await;
         assert!(q.contains("ORDER BY tuple()") && q.contains("REFRESH EVERY 2 HOUR"), "{q}");

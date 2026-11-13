@@ -268,8 +268,10 @@ fn cq_item(c: &jobs::Cq, may: bool) -> SchedulerItem {
         can_edit: unless(may),
         can_delete: unless(may),
         actions: None,
-        run_from_step: None,
-        clear_history: None,
+        // The "job" kind holds continuous queries and pipes: each says
+        // itself that it has no steps and no history (IoTDB keeps none).
+        run_from_step: Some(false),
+        clear_history: Some(false),
     }
 }
 
@@ -287,8 +289,8 @@ fn pipe_item(p: &jobs::Pipe, may: bool) -> SchedulerItem {
         can_edit: unless(may),
         can_delete: unless(may),
         actions: None,
-        run_from_step: None,
-        clear_history: None,
+        run_from_step: Some(false),
+        clear_history: Some(false),
     }
 }
 
@@ -473,6 +475,9 @@ pub(crate) struct Stmt {
     pub(crate) real: std::result::Result<String, String>,
     /// The credentials `real` carries: taken out of the server's errors.
     pub(crate) secrets: Vec<String>,
+    /// `real`'s `Err` is a credential IoTDB doesn't return, to type again
+    /// (a "⚠" line), not a value the form left out.
+    pub(crate) hidden: bool,
 }
 
 impl Stmt {
@@ -481,6 +486,7 @@ impl Stmt {
             shown: sql.clone(),
             real: Ok(sql),
             secrets: Vec::new(),
+            hidden: false,
         }
     }
 }
@@ -522,6 +528,13 @@ impl Plan {
 
     pub(crate) fn comment(&mut self, text: impl Into<String>) {
         self.comments.push(text.into());
+    }
+
+    /// A comment the app lists above the script as a consequence the user
+    /// accepts before it runs (the contract's "⚠" lines): `text` is one
+    /// whole Spanish sentence, a literal of its own or a literal format.
+    pub(crate) fn warn(&mut self, text: impl AsRef<str>) {
+        self.comments.push(format!("⚠ {}", text.as_ref()));
     }
 
     pub(crate) fn push(&mut self, st: Stmt) -> usize {

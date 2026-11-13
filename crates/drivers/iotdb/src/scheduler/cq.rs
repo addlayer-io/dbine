@@ -359,7 +359,7 @@ pub(crate) fn plan(current: Option<&jobs::Cq>, values: &FormValues) -> Result<Pl
         return Ok(p);
     }
     p.comment(format!("Consulta continua «{}» de IoTDB", cq.id));
-    p.comment("IoTDB no tiene ALTER para las consultas continuas: se borra y se vuelve a crear.");
+    p.warn("IoTDB no tiene ALTER para las consultas continuas: se borra y se vuelve a crear.");
     p.comment("No se pierde un historial (IoTDB no guarda uno); las ejecuciones se cuentan de nuevo desde BOUNDARY.");
     let drop = p.push(Stmt::plain(drop_sql(&cq.id)));
     let made = p.push(Stmt::plain(create(&d)));

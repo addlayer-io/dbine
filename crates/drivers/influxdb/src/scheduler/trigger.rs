@@ -24,7 +24,7 @@
 //! - The scheduler's log is the processing engine's
 //!   (`system.processing_engine_logs`), kept in memory by the server.
 
-use super::{bad, check_line, cron_ok, duration_ok, render, rows, shown, Req, Vals};
+use super::{bad, check_line, cron_ok, duration_ok, render, rows, shown, warning, Req, Vals};
 use crate::http::{self, send_err};
 use crate::jobs::{
     bad_id, pair_id, parse_pair, s as text_of, trigger_fires, trigger_spec, TRIGGERS, V3_NO_RUN,
@@ -590,11 +590,12 @@ fn upload_note(plugin: &str, shared: &[String]) -> String {
             plugin
         )
     } else {
-        format!(
+        // The other triggers run the new code too.
+        warning(format!(
             "Sube el código como el archivo «{}» del directorio de plugins del servidor; también lo usan: {}.",
             plugin,
             shared.join(", ")
-        )
+        ))
     }
 }
 
@@ -647,6 +648,14 @@ pub(crate) fn edit_plan(old: &Trigger, w: &Wanted, shared: &[String]) -> Plan {
                 )
                 .query("db", &old.db),
             );
+            // The file is rewritten: the other triggers on it run the new
+            // code too.
+            if !shared.is_empty() {
+                header.push(warning(format!(
+                    "El archivo del plugin lo usan también: {}; pasan a ejecutar el código nuevo.",
+                    shared.join(", ")
+                )));
+            }
         }
         if t.disabled != old.disabled {
             let verb = if t.disabled { "disable" } else { "enable" };
@@ -680,16 +689,26 @@ pub(crate) fn edit_plan(old: &Trigger, w: &Wanted, shared: &[String]) -> Plan {
             id,
         };
     }
-    header.push(
-        "InfluxDB 3 no puede cambiar un trigger: se borra y se vuelve a crear. Se pierde la caché del plugin (influxdb3_local.cache); su registro queda, con su nombre.".into(),
-    );
+    header.push(warning(
+        "InfluxDB 3 no puede cambiar un trigger: se borra y se vuelve a crear.",
+    ));
+    header.push(warning(
+        "Se pierde la caché del plugin (influxdb3_local.cache); su registro queda, con su nombre.",
+    ));
     if w.run_async.is_none() {
-        header.push(
-            "InfluxDB 3 no informa si el trigger se ejecutaba en modo asíncrono: el nuevo se ejecuta en modo síncrono.".into(),
-        );
+        header.push(warning(
+            "InfluxDB 3 no informa si el trigger se ejecutaba en modo asíncrono: el nuevo se ejecuta en modo síncrono.",
+        ));
     }
     if let Some(code) = &w.code {
         header.push(upload_note(&t.plugin, shared));
+        // The file goes up first: a change the server refuses leaves the
+        // old trigger (kept, or put back) running the new code.
+        if t.plugin == old.plugin {
+            header.push(warning(
+                "El código se sube antes de cambiar el trigger: si el servidor rechaza el cambio, el trigger anterior queda con el código nuevo.",
+            ));
+        }
         reqs.push(upload_req(&t.plugin, code));
     }
     let create = create_req(t, w.run_async.unwrap_or(false));

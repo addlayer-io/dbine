@@ -29,6 +29,8 @@ const KEEP_SECRETS: &str =
     "IoTDB no devuelve las credenciales: dejalas vacías para conservar las que tiene el servidor.";
 const NEW_STARTS: &str = "Un pipe arranca apenas se crea; si se desmarca «En marcha», DBine lo detiene enseguida (STOP PIPE).";
 const RESTARTS: &str = "Volver a crear un pipe lo hace empezar de cero: vuelve a enviar lo histórico según source.history.* y source.start-time.";
+const RUNS_BEFORE_STOP: &str =
+    "El pipe nuevo arranca al crearse: envía datos hasta que DBine lo detiene (STOP PIPE).";
 
 /// The three parts of a pipe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,6 +257,8 @@ struct Part {
     shown: String,
     real: std::result::Result<String, String>,
     secrets: Vec<String>,
+    /// `real`'s `Err` is a credential IoTDB hides (see [`Stmt::hidden`]).
+    hidden: bool,
 }
 
 /// `'key'='value', …` as the script shows it and as the save sends it.
@@ -268,7 +272,8 @@ fn attr_list(
     let mut shown_parts = Vec::new();
     let mut real_parts = Vec::new();
     let mut secrets = Vec::new();
-    let mut missing: Option<String> = None;
+    // Why the save can't write it, and whether IoTDB hides it.
+    let mut missing: Option<(String, bool)> = None;
     for (k, v) in attrs {
         let key = lit(k, k)?;
         let (s, r) = match v {
@@ -299,12 +304,18 @@ fn attr_list(
                     }
                     None => {
                         missing.get_or_insert_with(|| match server {
-                            Some(_) => format!(
-                                "«{}»: IoTDB no devuelve el valor de esta credencial y hay que escribir {} entero: escribila de nuevo (o quitala).",
-                                shown(k),
-                                clause.label()
+                            Some(_) => (
+                                format!(
+                                    "«{}»: IoTDB no devuelve el valor de esta credencial y hay que escribir {} entero: escribila de nuevo (o quitala).",
+                                    shown(k),
+                                    clause.label()
+                                ),
+                                true,
                             ),
-                            None => format!("Falta el valor de la credencial «{}».", shown(k)),
+                            None => (
+                                format!("Falta el valor de la credencial «{}».", shown(k)),
+                                false,
+                            ),
                         });
                         (masked.clone(), None)
                     }
@@ -316,14 +327,16 @@ fn attr_list(
             real_parts.push(format!("{key}={r}"));
         }
     }
+    let hidden = missing.as_ref().is_some_and(|(_, h)| *h);
     let real = match missing {
-        Some(m) => Err(m),
+        Some((m, _)) => Err(m),
         None => Ok(real_parts.join(", ")),
     };
     Ok(Part {
         shown: shown_parts.join(", "),
         real,
         secrets,
+        hidden,
     })
 }
 
@@ -347,7 +360,11 @@ fn append(st: &mut Stmt, word: &str, part: Part) {
             r.push_str(&format!("\n{word} ({p})"));
             Ok(r)
         }
-        (Err(m), _) | (_, Err(m)) => Err(m),
+        (Err(m), _) => Err(m),
+        (Ok(_), Err(m)) => {
+            st.hidden = part.hidden;
+            Err(m)
+        }
     };
 }
 
@@ -460,6 +477,7 @@ pub(crate) fn plan(c: &Ctx, current: Option<&Pipe>, values: &FormValues) -> Resu
             plan.comment("Arranca al crearse: se detiene enseguida (STOP PIPE).");
             plan.push(start_stop(&d.name, false));
         }
+        warn_credentials(&mut plan);
         return Ok(plan);
     };
     if jobs::system_pipe(&p.name) {
@@ -471,15 +489,19 @@ pub(crate) fn plan(c: &Ctx, current: Option<&Pipe>, values: &FormValues) -> Resu
         if jobs::system_pipe(&d.name) {
             return Err(bad(SYSTEM.into()));
         }
-        plan.comment(
+        plan.warn(
             "IoTDB no permite renombrar un pipe: se crea el nuevo y después se borra el anterior.",
         );
-        plan.comment(RESTARTS);
+        plan.warn(RESTARTS);
         plan.push(create_stmt(&d.name, &d.clauses, Some(p))?);
         if !d.enabled {
             plan.push(start_stop(&d.name, false));
+            if !running(p) {
+                plan.warn(RUNS_BEFORE_STOP);
+            }
         }
         plan.push(drop_stmt(&p.name));
+        warn_credentials(&mut plan);
         return Ok(plan);
     }
     let changes: Vec<Change> = CLAUSES
@@ -492,12 +514,12 @@ pub(crate) fn plan(c: &Ctx, current: Option<&Pipe>, values: &FormValues) -> Resu
         .zip(&changes)
         .any(|(cl, ch)| *ch != Change::Same && !c.alters(*cl));
     if recreate {
-        plan.comment(if c.alters(Clause::Sink) {
+        plan.warn(if c.alters(Clause::Sink) {
             "Esta versión de IoTDB no cambia el origen de un pipe con ALTER PIPE (llegó en la 2.0): se borra y se vuelve a crear."
         } else {
             "Esta versión de IoTDB no tiene ALTER PIPE: el pipe se borra y se vuelve a crear."
         });
-        plan.comment(RESTARTS);
+        plan.warn(RESTARTS);
         let drop = plan.push(drop_stmt(&p.name));
         let made = plan.push(create_stmt(&p.name, &d.clauses, Some(p))?);
         let mut restore = vec![create_stmt(&p.name, &restore_clauses(p), Some(p))?];
@@ -512,7 +534,11 @@ pub(crate) fn plan(c: &Ctx, current: Option<&Pipe>, values: &FormValues) -> Resu
         });
         if !d.enabled {
             plan.push(start_stop(&p.name, false));
+            if !running(p) {
+                plan.warn(RUNS_BEFORE_STOP);
+            }
         }
+        warn_credentials(&mut plan);
         return Ok(plan);
     }
     if changes.iter().any(|ch| *ch != Change::Same) {
@@ -538,7 +564,27 @@ pub(crate) fn plan(c: &Ctx, current: Option<&Pipe>, values: &FormValues) -> Resu
     if d.enabled != running(p) {
         plan.push(start_stop(&p.name, d.enabled));
     }
+    warn_credentials(&mut plan);
     Ok(plan)
+}
+
+/// A credential the save doesn't have, said in the script before anything
+/// runs: one IoTDB 2.x hides (a clause written whole needs it) is a "⚠"
+/// line, the user has to type it again; one the form left without a value
+/// is a plain comment, the save refuses it.
+fn warn_credentials(plan: &mut Plan) {
+    let missing: Vec<(String, bool)> = plan
+        .stmts
+        .iter()
+        .filter_map(|st| st.real.as_ref().err().map(|m| (m.clone(), st.hidden)))
+        .collect();
+    for (m, hidden) in missing {
+        if hidden {
+            plan.warn(m);
+        } else {
+            plan.comment(m);
+        }
+    }
 }
 
 pub(crate) fn drop_plan(p: &Pipe) -> Result<Plan> {

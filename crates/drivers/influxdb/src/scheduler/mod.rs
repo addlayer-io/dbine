@@ -63,6 +63,13 @@ pub(crate) fn one_line(s: &str) -> String {
         .collect()
 }
 
+/// A header line the app lists above the script as a consequence the user
+/// accepts before it runs (the contract's "⚠" lines): `text` is one whole
+/// Spanish sentence, a literal of its own or a literal format.
+pub(crate) fn warning(text: impl AsRef<str>) -> String {
+    format!("⚠ {}", text.as_ref())
+}
+
 /// Refuses any kind but [`JOB`].
 pub(crate) fn check_kind(kind: &str) -> Result<()> {
     if kind.trim() == JOB {

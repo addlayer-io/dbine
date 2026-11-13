@@ -127,6 +127,12 @@ impl Ctx {
             Vec::new()
         }
     }
+
+    /// From 25.4 `system.query_log` tags each refresh with its view's name:
+    /// the job's history follows the name.
+    pub(crate) fn tagged_history(&self) -> bool {
+        version_at_least(&self.version, 25, 4)
+    }
 }
 
 impl ClickHouseSession {
@@ -501,8 +507,16 @@ fn refresh_log_row(r: &[Value]) -> Vec<Value> {
 // What a change runs
 // ---------------------------------------------------------------------------
 
-/// A change: comments that say what it does (and what it loses), the
-/// statements in order, and the object's id afterwards.
+/// A comment line the app lists above the script as a consequence the user
+/// accepts before it runs (the contract's "⚠" lines): `text` is one whole
+/// Spanish sentence, a literal of its own or a literal format.
+pub(crate) fn warning(text: impl AsRef<str>) -> String {
+    format!("⚠ {}", text.as_ref())
+}
+
+/// A change: comments that say what it does (and, marked with
+/// [`warning`], what it loses), the statements in order, and the object's
+/// id afterwards.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Plan {
     pub(crate) comments: Vec<String>,

@@ -65,6 +65,18 @@ const STALE: &str = "La consulta cambió en el servidor desde que se abrió el f
 const REPLACE_NOTE: &str = "Un cambio en la consulta o en sus propiedades se aplica en el lugar (CREATE OR REPLACE): conserva su id, su estado y sus offsets, si ksqlDB acepta el cambio. Cambiar el destino (topic, formatos, particiones…) o marcar «Recrear la consulta» la termina, borra su stream o tabla (el topic queda) y la crea de nuevo: se pierden su estado y sus offsets, y vuelve a leer su entrada desde «Leer desde».";
 const INSERT_NOTE: &str = "ksqlDB no cambia una INSERT INTO en el lugar: guardar un cambio la termina y la crea de nuevo con el mismo id. Se pierden su estado y sus offsets, y vuelve a leer su entrada desde «Leer desde» (desde el principio, el destino recibe otra vez lo que ya tenía).";
 const PROPS_NOTE: &str = "Las propiedades valen solo para esta consulta: ksqlDB guarda las que se le pasaron al crearla o reemplazarla, y una consulta nueva o reemplazada usa las de este formulario.";
+// What a change loses or risks: the script's "⚠" lines.
+const STATE_LOST: &str = "Se pierden su estado y sus offsets: la consulta nueva lee su entrada otra vez desde auto.offset.reset.";
+const READS_AGAIN: &str = "Vuelve a leer su entrada desde el principio (earliest): el destino recibe otra vez lo que ya tenía.";
+const SKIPS_MEANWHILE: &str =
+    "Lee solo lo nuevo (latest): lo que llegue a su entrada mientras se recrea no se procesa.";
+const REPLACE_UNPAUSES: &str = "Al reemplazarla (CREATE OR REPLACE), queda en marcha: procesa su entrada hasta que DBine la vuelve a pausar (PAUSE).";
+const NEW_RUNS: &str =
+    "La consulta nueva arranca en marcha: procesa su entrada hasta que DBine la pausa (PAUSE).";
+// TERMINATE drops the query's in-memory error log, which is its history.
+const LOG_AND_ID_LOST: &str = "Se pierde su registro de errores; la consulta nueva tiene otro id.";
+const LOG_LOST: &str =
+    "Se pierde su registro de errores: ksqlDB lo guarda en memoria con la consulta.";
 const LOG_NOTE: &str = "El registro son los últimos errores que ksqlDB guarda en memoria de cada consulta persistente (ksql.query.error.max.queue.size): se pierden al reiniciar el servidor.";
 
 /// Longest the save waits for one command.
@@ -84,6 +96,13 @@ fn shown(s: &str) -> String {
         .chars()
         .take(60)
         .collect()
+}
+
+/// A heading line the app lists above the script as a consequence the
+/// user accepts before it runs (the contract's "⚠" lines): `text` is one
+/// whole Spanish sentence, a literal of its own or a literal format.
+fn warning(text: impl AsRef<str>) -> String {
+    format!("⚠ {}", text.as_ref())
 }
 
 /// Text for a `--` comment line: a name from the server can't end the
@@ -1343,15 +1362,20 @@ pub(crate) fn alter_plan(q: &Query, w: &Wanted, readers: &[String], pause: bool)
     // A replaced or recreated query runs: paused only when asked.
     let toggle = (!w.enabled && pause).then_some(Toggle::Pause);
     let recreate = q.def.stmt == Stmt::Insert || with_changed || w.recreate;
+    // Paused and kept so: it runs until DBine pauses it again.
+    let runs_meanwhile = q.paused && toggle.is_some();
     if !recreate {
         let steps = vec![Step {
             sql: statement(w, true),
             with_props: true,
         }];
-        let head = vec![format!(
+        let mut head = vec![format!(
             "Consulta persistente {}: se reemplaza en el lugar (CREATE OR REPLACE); conserva su id, su estado y sus offsets.",
             q.id
         )];
+        if runs_meanwhile {
+            head.push(warning(REPLACE_UNPAUSES));
+        }
         return Ok(Plan {
             script: render(&head, &steps, &w.props, toggle.map(|t| (t, q.id.as_str()))),
             steps,
@@ -1374,17 +1398,19 @@ pub(crate) fn alter_plan(q: &Query, w: &Wanted, readers: &[String], pause: bool)
         with_props: false,
     }];
     let mut head = Vec::new();
+    // The query writes again where it wrote.
+    let mut same_topic = true;
     if q.def.stmt == Stmt::Insert {
-        head.push(format!(
+        head.push(warning(format!(
             "ksqlDB no cambia una INSERT INTO en el lugar: se termina {} y se crea de nuevo con el mismo id.",
             q.id
-        ));
+        )));
     } else {
-        head.push(format!(
+        head.push(warning(format!(
             "Se recrea la consulta persistente {}: TERMINATE, DROP {} (el topic queda) y CREATE.",
             q.id,
             q.def.stmt.word()
-        ));
+        )));
         steps.push(Step {
             sql: format!("DROP {} {};", q.def.stmt.word(), server_name(&q.def.sink)),
             with_props: false,
@@ -1394,15 +1420,28 @@ pub(crate) fn alter_plan(q: &Query, w: &Wanted, readers: &[String], pause: bool)
             wanted_with.get("KAFKA_TOPIC"),
         ) {
             if old != new {
-                head.push(format!(
+                same_topic = false;
+                head.push(warning(format!(
                     "El topic {old} queda con lo que tenía; la consulta nueva escribe en {new}."
-                ));
+                )));
             }
         }
     }
-    head.push(
-        "Se pierden su estado y sus offsets: la consulta nueva lee su entrada otra vez desde auto.offset.reset.".into(),
-    );
+    head.push(warning(STATE_LOST));
+    // An INSERT INTO keeps its id; a CREATE … AS SELECT gets another one.
+    head.push(warning(if q.def.stmt == Stmt::Insert {
+        LOG_LOST
+    } else {
+        LOG_AND_ID_LOST
+    }));
+    match w.props.get("auto.offset.reset").map(String::as_str) {
+        Some("earliest") if same_topic => head.push(warning(READS_AGAIN)),
+        Some("latest") => head.push(warning(SKIPS_MEANWHILE)),
+        _ => {}
+    }
+    if runs_meanwhile {
+        head.push(warning(NEW_RUNS));
+    }
     head.push(
         "Si ksqlDB rechaza la sentencia nueva, DBine vuelve a crear la consulta anterior como estaba (también sin su estado ni sus offsets).".into(),
     );
@@ -2418,7 +2457,9 @@ mod tests {
             p.id.is_none(),
             "a recreated CREATE … AS SELECT gets a new id"
         );
-        assert!(p.script.starts_with("-- Se recrea la consulta persistente"));
+        assert!(p
+            .script
+            .starts_with("-- ⚠ Se recrea la consulta persistente"));
         assert!(p.script.contains("El topic dbine_test_sched_out queda"));
         assert!(p.script.contains("Se pierden su estado y sus offsets"));
         // Not while another query reads from it.
@@ -2453,7 +2494,99 @@ mod tests {
         assert!(p.script.contains("PAUSE DBINE_TEST_SCHED_Q1;"));
         assert!(p
             .script
-            .starts_with("-- ksqlDB no cambia una INSERT INTO en el lugar"));
+            .starts_with("-- ⚠ ksqlDB no cambia una INSERT INTO en el lugar"));
+    }
+
+    /// The script's "⚠" lines, as the app lists them above it.
+    fn warnings(script: &str) -> Vec<String> {
+        script
+            .lines()
+            .filter_map(|l| l.strip_prefix("-- ⚠ "))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn a_change_warns_of_what_a_recreate_loses() {
+        let q = csas();
+        let with = |changes: Value| {
+            let mut v = values_of(&q);
+            for (k, x) in changes.as_object().unwrap() {
+                v.values.insert(k.clone(), x.clone());
+            }
+            alter_plan(&q, &wanted(&v, Some(&q), None).unwrap(), &[], true).unwrap()
+        };
+        // In place, or only paused: nothing to accept.
+        for changes in [
+            json!({"select": "SELECT ID, V, N FROM S EMIT CHANGES"}),
+            json!({"enabled": false}),
+        ] {
+            let p = with(changes.clone());
+            assert!(warnings(&p.script).is_empty(), "{changes}: {}", p.script);
+        }
+        // Recreated into the same topic from the beginning: it gets again
+        // what it had.
+        let p = with(json!({"recreate": true}));
+        assert_eq!(
+            warnings(&p.script),
+            [
+                "Se recrea la consulta persistente CSAS_DBINE_TEST_SCHED_OUT_855: TERMINATE, DROP STREAM (el topic queda) y CREATE.",
+                STATE_LOST,
+                LOG_AND_ID_LOST,
+                READS_AGAIN,
+            ],
+            "{}",
+            p.script
+        );
+        // Into another topic: the old one keeps what it had, nothing is
+        // written twice.
+        let p = with(json!({"kafka_topic": "other_topic"}));
+        let ws = warnings(&p.script);
+        assert_eq!(ws.len(), 4, "{}", p.script);
+        assert!(ws[1].starts_with("El topic dbine_test_sched_out queda"));
+        assert!(!ws.iter().any(|w| w == READS_AGAIN));
+        // From the end: what arrives meanwhile isn't read.
+        let p = with(json!({"recreate": true, "offset_reset": "latest"}));
+        assert_eq!(warnings(&p.script).last().unwrap(), SKIPS_MEANWHILE);
+        // The server's default: only the general one.
+        let p = with(json!({"recreate": true, "offset_reset": ""}));
+        assert_eq!(warnings(&p.script).len(), 3, "{}", p.script);
+
+        // A paused one replaced in place: running until it's paused again.
+        let mut paused = csas();
+        paused.paused = true;
+        let mut v = values_of(&paused);
+        v.values.insert(
+            "select".into(),
+            json!("SELECT ID, V, N FROM S EMIT CHANGES"),
+        );
+        let w = wanted(&v, Some(&paused), None).unwrap();
+        assert!(!w.enabled);
+        let p = alter_plan(&paused, &w, &[], true).unwrap();
+        assert_eq!(warnings(&p.script), [REPLACE_UNPAUSES], "{}", p.script);
+        // A paused INSERT INTO kept paused: made again, it runs until it's
+        // paused again.
+        let q = insert();
+        let mut v = values_of(&q);
+        v.values.insert(
+            "select".into(),
+            json!("SELECT id, UCASE(v) AS v FROM s EMIT CHANGES"),
+        );
+        let p = alter_plan(&q, &wanted(&v, Some(&q), None).unwrap(), &[], true).unwrap();
+        let ws = warnings(&p.script);
+        assert!(ws[0].starts_with("ksqlDB no cambia una INSERT INTO en el lugar"));
+        // Its id stays: only its error log goes.
+        assert!(ws.iter().any(|w| w == LOG_LOST), "{}", p.script);
+        assert!(!ws.iter().any(|w| w == LOG_AND_ID_LOST), "{}", p.script);
+        assert_eq!(ws.last().unwrap(), NEW_RUNS, "{}", p.script);
+        // Resumed by the same save: nothing about the pause.
+        v.values.insert("enabled".into(), json!(true));
+        let p = alter_plan(&q, &wanted(&v, Some(&q), None).unwrap(), &[], true).unwrap();
+        assert!(!warnings(&p.script).iter().any(|w| w == NEW_RUNS));
+        // New and deleted: nothing.
+        assert!(warnings(&delete_script(&q)).is_empty());
+        let v = values_of(&csas());
+        assert!(warnings(&create_plan(&wanted(&v, None, Some(&[])).unwrap()).script).is_empty());
     }
 
     #[test]

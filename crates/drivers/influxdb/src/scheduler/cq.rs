@@ -15,7 +15,7 @@
 //! - The history is `_internal`'s `cq_query` (with `query-stats-enabled`):
 //!   clearing it deletes the query's series there.
 
-use super::{bad, check_line, duration_ok, shown, Vals};
+use super::{bad, check_line, duration_ok, shown, warning, Vals};
 use crate::jobs::{bad_id, cq_def, pair_id, parse_pair, V1_FIXED, V1_NO_ACCESS, V1_NO_STATS};
 use crate::v1::{ident, InfluxQlSession};
 use dbine_driver::{
@@ -28,6 +28,7 @@ use serde_json::json;
 const UNITS: &[&str] = &["ns", "u", "µ", "ms", "s", "m", "h", "d", "w"];
 
 const NO_ALTER: &str = "InfluxDB 1.x no tiene ALTER CONTINUOUS QUERY: al guardar un cambio, la consulta continua se borra y se vuelve a crear. Solo se pierde el momento de su última ejecución: la nueva empieza en el intervalo siguiente (RESAMPLE FOR recalcula los anteriores). Si el servidor rechaza la nueva, DBine vuelve a crear la anterior.";
+const HISTORY_STAYS: &str = "Su historial de ejecuciones (cq_query en _internal) queda con el nombre anterior: con el nombre nuevo empieza vacío.";
 const NONE_HERE: &str = "Este servidor no tiene consultas continuas: la API compatible con InfluxDB 1.x de InfluxDB 2 y 3 no las tiene.";
 
 fn refused(e: &Error) -> bool {
@@ -425,7 +426,9 @@ pub(crate) fn create_plan(w: &Wanted) -> Plan {
     }
 }
 
-pub(crate) fn edit_plan(old: &Cq, w: &Wanted) -> Plan {
+/// `history`: the server records the runs (`query-stats-enabled`), which
+/// stay with the query's name.
+pub(crate) fn edit_plan(old: &Cq, w: &Wanted, history: bool) -> Plan {
     let id = pair_id(&w.db, &w.name);
     let same_place = w.db == old.db && w.name == old.name;
     let unchanged =
@@ -439,9 +442,12 @@ pub(crate) fn edit_plan(old: &Cq, w: &Wanted) -> Plan {
         };
     }
     let mut header = vec![
-        "InfluxDB 1.x no tiene ALTER CONTINUOUS QUERY: la consulta continua se borra y se vuelve a crear.".to_string(),
-        "Se pierde el momento de su última ejecución: la nueva empieza en el intervalo siguiente (RESAMPLE FOR recalcula los anteriores).".to_string(),
+        warning("InfluxDB 1.x no tiene ALTER CONTINUOUS QUERY: la consulta continua se borra y se vuelve a crear."),
+        warning("Se pierde el momento de su última ejecución: la nueva empieza en el intervalo siguiente (RESAMPLE FOR recalcula los anteriores)."),
     ];
+    if history && !same_place {
+        header.push(warning(HISTORY_STAYS));
+    }
     if same_place {
         header.push(
             "Si el servidor rechaza la nueva, DBine vuelve a crear la anterior tal como estaba."
@@ -577,7 +583,11 @@ async fn plan(s: &mut InfluxQlSession, id: Option<&str>, v: &FormValues) -> Resu
     let w = wanted(v, &databases(s).await?)?;
     Ok(match &old {
         None => create_plan(&w),
-        Some(old) => edit_plan(old, &w),
+        Some(old) => {
+            let renamed = (&old.db, &old.name) != (&w.db, &w.name);
+            let history = renamed && s.cq_stats().await;
+            edit_plan(old, &w, history)
+        }
     })
 }
 

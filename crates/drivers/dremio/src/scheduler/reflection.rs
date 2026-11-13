@@ -10,7 +10,7 @@
 
 use super::{
     bad, column, columns_of, comment_text, one_line, path_label, path_of, rest_script, rows,
-    segment, shown, sql_path, uuid_id, Plan, Step, Vals,
+    segment, shown, sql_path, uuid_id, warning, Plan, Step, Vals,
 };
 use crate::index_usage::dataset_path;
 use crate::jobs::{is_uuid, policy};
@@ -1131,11 +1131,19 @@ pub(crate) fn alter_plan(uuid: &str, current: &Def, d: &Def, r: &Value) -> Plan 
         enabled: current.enabled,
         ..d.clone()
     };
-    if shape != *current {
-        why.push_str("\nSus columnas u organización cambian: Dremio la vuelve a materializar.");
+    // Only a reflection with data, kept enabled, is materialized again: a
+    // disabled one has none, and enabling one materializes it anyway.
+    if shape != *current && current.enabled && d.enabled {
+        why.push('\n');
+        why.push_str(&warning(
+            "Sus columnas u organización cambian: Dremio la vuelve a materializar.",
+        ));
     }
     if current.enabled && !d.enabled {
-        why.push_str("\nDeshabilitarla borra sus datos y la saca de las consultas.");
+        why.push('\n');
+        why.push_str(&warning(
+            "Deshabilitarla borra sus datos y la saca de las consultas.",
+        ));
     }
     Plan {
         script: rest_script(&why, "PUT", &path, Some(&body)),
@@ -1396,7 +1404,8 @@ mod tests {
         assert!(p
             .script
             .contains("-- PUT /api/v3/reflection/d215b51c-01f2-49f0-8120-74e508386c42"));
-        assert!(p.script.contains("vuelve a materializar"));
+        // Disabled by the same save: its data goes, nothing is rebuilt.
+        assert!(!p.script.contains("vuelve a materializar"));
         assert!(p.script.contains("Deshabilitarla borra sus datos"));
         let Step::Rest {
             body: Some(b),
@@ -1415,6 +1424,73 @@ mod tests {
             json!(["MIN", "MAX"])
         );
         assert!(b.get("status").is_none() && b.get("displayFields").is_none());
+    }
+
+    /// The script's "⚠" lines, as the app lists them above it.
+    fn warnings(script: &str) -> Vec<String> {
+        script
+            .lines()
+            .filter_map(|l| l.strip_prefix("-- ⚠ "))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn a_change_warns_where_it_rebuilds_or_drops_the_data() {
+        let r = agg_json();
+        let f = form_of(Some(&existing(&r)), &[]);
+        let current = def_of(&r).unwrap();
+        let plan = |edit: &dyn Fn(&mut FormValues)| {
+            let mut v = values_of(&f);
+            edit(&mut v);
+            let d = wanted(&v, &cols(), Some(current.kind)).unwrap();
+            alter_plan("d215b51c-01f2-49f0-8120-74e508386c42", &current, &d, &r)
+        };
+        // Renamed only: in place, nothing to accept.
+        let p = plan(&|v| {
+            v.values.insert("name".into(), json!("renamed"));
+        });
+        assert!(warnings(&p.script).is_empty(), "{}", p.script);
+        // Its measures: materialized again.
+        let p = plan(&|v| {
+            v.lists.get_mut("measures").unwrap()[1].insert("functions".into(), json!(["MIN"]));
+        });
+        assert_eq!(
+            warnings(&p.script),
+            ["Sus columnas u organización cambian: Dremio la vuelve a materializar."]
+        );
+        // Disabled: its data goes.
+        let p = plan(&|v| {
+            v.values.insert("enabled".into(), json!(false));
+        });
+        assert_eq!(
+            warnings(&p.script),
+            ["Deshabilitarla borra sus datos y la saca de las consultas."]
+        );
+        // A disabled one has no data: its measures change without a
+        // rebuild, kept disabled or enabled by the save.
+        let mut off = r.clone();
+        off["enabled"] = json!(false);
+        let current = def_of(&off).unwrap();
+        assert!(!current.enabled);
+        let f = form_of(Some(&existing(&off)), &[]);
+        for enabled in [false, true] {
+            let mut v = values_of(&f);
+            v.values.insert("enabled".into(), json!(enabled));
+            v.lists.get_mut("measures").unwrap()[1].insert("functions".into(), json!(["MIN"]));
+            let d = wanted(&v, &cols(), Some(current.kind)).unwrap();
+            assert_ne!(d, current);
+            let p = alter_plan("d215b51c-01f2-49f0-8120-74e508386c42", &current, &d, &off);
+            assert!(warnings(&p.script).is_empty(), "{}", p.script);
+        }
+        // Deleted: nothing more than itself.
+        let (script, _) = drop_sql(
+            &["s".into(), "t".into()],
+            "d215b51c-01f2-49f0-8120-74e508386c42",
+            "r",
+            "s.t",
+        );
+        assert!(warnings(&script).is_empty());
     }
 
     #[test]

@@ -46,6 +46,15 @@ const V12: Ctx = Ctx {
     pipe: true,
 };
 
+/// The script's "⚠" lines, as the app lists them above it.
+fn warnings(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
 fn real(p: &Plan) -> Vec<String> {
     p.stmts.iter().map(|s| s.real.clone().unwrap()).collect()
 }
@@ -298,7 +307,7 @@ fn a_changed_continuous_query_is_dropped_and_created_again() {
     assert_eq!((rc.drop, rc.create), (0, 1));
     assert_eq!(rc.restore[0].real.as_deref().unwrap(), Q1);
     assert!(p.script().starts_with(
-        "-- Consulta continua «dbine_test_sched_cq1» de IoTDB\n-- IoTDB no tiene ALTER"
+        "-- Consulta continua «dbine_test_sched_cq1» de IoTDB\n-- ⚠ IoTDB no tiene ALTER"
     ));
     // Renamed: the new id.
     v.values
@@ -435,6 +444,15 @@ fn a_new_pipe() {
         .as_ref()
         .unwrap_err()
         .contains("Falta el valor"));
+    // Said in the script, not as a consequence to accept: the save
+    // refuses it.
+    assert!(
+        p.script()
+            .contains("\n-- Falta el valor de la credencial «sink.password».\n"),
+        "{}",
+        p.script()
+    );
+    assert!(warnings(&p.script()).is_empty(), "{}", p.script());
 }
 
 #[test]
@@ -837,6 +855,13 @@ fn pipe_plugins() {
     v.values.insert("uri".into(), json!("file:///x.jar"));
     let p = plugin::plan(Some(&all[1]), &v).unwrap();
     assert_eq!(real(&p)[0], "DROP PIPEPLUGIN `DBINE_TEST_SCHED_PLUGIN`");
+    assert_eq!(
+        warnings(&p.script()),
+        [
+            "IoTDB no cambia un plugin cargado: se borra y se vuelve a cargar desde la URI.",
+            "Si la carga falla, el plugin queda borrado: IoTDB no guarda la URI para volver a cargarlo.",
+        ]
+    );
     assert!(real(&p)[1]
         .starts_with("CREATE PIPEPLUGIN `DBINE_TEST_SCHED_PLUGIN` AS 'org.example.Other'"));
     // The script of a loaded plugin (the designer's "Script"): the JAR's
@@ -851,6 +876,24 @@ fn pipe_plugins() {
     let p = plugin::plan(Some(&all[1]), &v).unwrap();
     assert!(real(&p)[0].starts_with("CREATE PIPEPLUGIN `other`"));
     assert_eq!(p.id, "plugin:OTHER");
+    assert_eq!(
+        warnings(&p.script()),
+        [
+            "IoTDB no cambia un plugin cargado: se borra y se vuelve a cargar desde la URI.",
+            "Los pipes que lo usan por su nombre anterior dejan de encontrarlo.",
+        ]
+    );
+    // Created or deleted: nothing to accept.
+    assert!(warnings(
+        &plugin::plan(
+            None,
+            &values(json!({"name": "n", "class_name": "a.B", "uri": "u"}))
+        )
+        .unwrap()
+        .script()
+    )
+    .is_empty());
+    assert!(warnings(&plugin::drop_plan(&all[1]).unwrap().script()).is_empty());
     assert_eq!(
         plugin::drop_plan(&all[1]).unwrap().script(),
         "-- Borra el plugin de pipe «DBINE_TEST_SCHED_PLUGIN» de IoTDB\nDROP PIPEPLUGIN `DBINE_TEST_SCHED_PLUGIN`;\n"
@@ -870,4 +913,118 @@ fn credentials_never_reach_a_message() {
         "secrets": [{"clause": "sink", "key": "sink.password", "value": "s3cr'et"}]}));
     let p = pipe::plan(&V205, None, &v).unwrap();
     assert_eq!(p.stmts[0].secrets, ["s3cr'et"]);
+}
+
+#[test]
+fn a_continuous_query_made_again_says_so() {
+    let current = cq("dbine_test_sched_cq1", Q1);
+    let f = cq::form(&V205, Some(&current));
+    let mut v = FormValues {
+        values: f.values.clone(),
+        lists: Default::default(),
+    };
+    assert!(warnings(&cq::plan(Some(&current), &v).unwrap().script()).is_empty());
+    v.values.insert("every".into(), json!("1m"));
+    let p = cq::plan(Some(&current), &v).unwrap();
+    assert_eq!(
+        warnings(&p.script()),
+        ["IoTDB no tiene ALTER para las consultas continuas: se borra y se vuelve a crear."]
+    );
+    assert!(warnings(&cq::plan(None, &v).unwrap().script()).is_empty());
+    assert!(warnings(&cq::drop_plan(&current).script()).is_empty());
+}
+
+#[test]
+fn a_pipe_change_warns_only_where_it_starts_over() {
+    // In place: ALTER PIPE keeps its progress.
+    let p2 = pipe_v2();
+    let f = pipe::form_of(&V205, Some(&p2), None);
+    let mut v = back(&f);
+    for r in v.lists.get_mut("source_attrs").unwrap() {
+        if r["key"] == json!("source.path") {
+            r.insert("value".into(), json!("root.b.**"));
+        }
+    }
+    let plan = pipe::plan(&V205, Some(&p2), &v).unwrap();
+    assert!(!plan.stmts.is_empty() && warnings(&plan.script()).is_empty());
+    // REPLACE without the credential IoTDB 2.x hides: it has to be typed
+    // again, and the script says so.
+    let mut v = back(&f);
+    v.lists.get_mut("sink_attrs").unwrap().clear();
+    let plan = pipe::plan(&V205, Some(&p2), &v).unwrap();
+    let ws = warnings(&plan.script());
+    assert_eq!(ws.len(), 1, "{}", plan.script());
+    assert!(ws[0].contains("IoTDB no devuelve el valor de esta credencial"));
+    for r in v.lists.get_mut("secrets").unwrap() {
+        r.insert("value".into(), json!("pw"));
+    }
+    assert!(warnings(&pipe::plan(&V205, Some(&p2), &v).unwrap().script()).is_empty());
+    // A new credential left without a value: a plain comment (the save
+    // refuses it), nothing to accept.
+    let mut v = back(&f);
+    let row = json!({"clause": "sink", "key": "sink.token", "value": null});
+    v.lists
+        .entry("secrets".into())
+        .or_default()
+        .push(serde_json::from_value(row).unwrap());
+    let plan = pipe::plan(&V205, Some(&p2), &v).unwrap();
+    assert!(
+        plan.script()
+            .contains("\n-- Falta el valor de la credencial «sink.token».\n"),
+        "{}",
+        plan.script()
+    );
+    assert!(warnings(&plan.script()).is_empty(), "{}", plan.script());
+
+    // 1.3 can't alter the source: dropped and created, it starts over.
+    let p1 = pipe_v1();
+    let f = pipe::form_of(&V132, Some(&p1), None);
+    let mut v = back(&f);
+    for r in v.lists.get_mut("source_attrs").unwrap() {
+        r.insert("value".into(), json!("root.b"));
+    }
+    let ws = warnings(&pipe::plan(&V132, Some(&p1), &v).unwrap().script());
+    assert_eq!(ws.len(), 2, "{ws:?}");
+    assert!(ws[0].ends_with("se borra y se vuelve a crear."));
+    assert!(ws[1].starts_with("Volver a crear un pipe lo hace empezar de cero"));
+    // A rename of a running pipe: created again, it starts over.
+    let mut v = back(&f);
+    v.values
+        .insert("name".into(), json!("dbine_test_sched_p1b"));
+    let ws = warnings(&pipe::plan(&V132, Some(&p1), &v).unwrap().script());
+    assert_eq!(ws.len(), 2, "{ws:?}");
+    assert!(ws[0].starts_with("IoTDB no permite renombrar un pipe"));
+    // A stopped one kept stopped: the new one runs until it's stopped, and
+    // on 2.x its hidden credentials have to be typed again.
+    let mut v = back(&pipe::form_of(&V205, Some(&p2), None));
+    v.values.insert("name".into(), json!("x"));
+    let ws = warnings(&pipe::plan(&V205, Some(&p2), &v).unwrap().script());
+    assert!(
+        ws.iter()
+            .any(|w| w.starts_with("El pipe nuevo arranca al crearse")),
+        "{ws:?}"
+    );
+    assert!(
+        ws.iter().any(|w| w.contains("no devuelve el valor")),
+        "{ws:?}"
+    );
+    // Created or deleted: nothing.
+    let v = values(json!({"name": "p", "sink": "do-nothing-sink"}));
+    assert!(warnings(&pipe::plan(&V205, None, &v).unwrap().script()).is_empty());
+    assert!(warnings(&pipe::drop_plan(&p1).unwrap().script()).is_empty());
+}
+
+#[test]
+fn the_job_kinds_items_say_they_have_no_steps_nor_history() {
+    let cq = Cq {
+        id: "c".into(),
+        state: "ACTIVE".into(),
+        ..Cq::default()
+    };
+    for it in [cq_item(&cq, true), pipe_item(&pipe_v2(), true)] {
+        assert_eq!(
+            (it.run_from_step, it.clear_history),
+            (Some(false), Some(false))
+        );
+    }
 }

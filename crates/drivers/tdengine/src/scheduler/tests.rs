@@ -4,6 +4,15 @@ use serde_json::json;
 
 const OLD: &str = "3.3.6.13";
 
+/// The script's "⚠" lines, as the app lists them above it.
+fn warnings(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
 fn old_ctx() -> Ctx {
     ctx_of(OLD, false)
 }
@@ -307,6 +316,23 @@ fn old_streams_change_by_dropping_and_creating() {
         sqls(&p),
         ["RESUME STREAM IGNORE UNTREATED `dbine_test_sched_s1`"]
     );
+    assert_eq!(
+        warnings(&p.script()),
+        ["Saltea lo que llegó mientras estuvo suspendido (IGNORE UNTREATED): esos datos no se procesan."]
+    );
+    // Resumed with the backlog: nothing to accept.
+    v.values
+        .insert("resume_ignore_untreated".into(), json!(false));
+    let p = plan(&c, Some(&paused), &v, Targets::default()).unwrap();
+    assert_eq!(sqls(&p), ["RESUME STREAM `dbine_test_sched_s1`"]);
+    assert!(warnings(&p.script()).is_empty(), "{}", p.script());
+    // Paused with the box ticked: nothing is skipped.
+    v.values
+        .insert("resume_ignore_untreated".into(), json!(true));
+    v.values.insert("enabled".into(), json!(false));
+    let p = plan(&c, Some(&st), &v, Targets::default()).unwrap();
+    assert_eq!(sqls(&p), ["PAUSE STREAM `dbine_test_sched_s1`"]);
+    assert!(warnings(&p.script()).is_empty(), "{}", p.script());
     // A new watermark: drop, create in the source database, the old
     // statement to put back (paused again if it was).
     let mut v = back();
@@ -336,7 +362,7 @@ fn old_streams_change_by_dropping_and_creating() {
     let script = p.script();
     assert!(
         script.starts_with(
-            "-- Stream «dbine_test_sched_s1» de TDengine\n-- TDengine no tiene ALTER STREAM"
+            "-- Stream «dbine_test_sched_s1» de TDengine\n-- ⚠ TDengine no tiene ALTER STREAM"
         ),
         "{script}"
     );
@@ -345,6 +371,39 @@ fn old_streams_change_by_dropping_and_creating() {
             .contains("DROP STREAM `dbine_test_sched_s1`;\nUSE `dbine_test_sched`;\nCREATE STREAM"),
         "{script}"
     );
+    // Dropped and created again: its state goes; paused and kept so, the
+    // new one runs until it's paused.
+    assert_eq!(
+        warnings(&script),
+        [
+            "TDengine no tiene ALTER STREAM: se borra el stream y se vuelve a crear.",
+            "Se pierde su estado (ventanas abiertas, avance); la tabla de destino y sus filas quedan.",
+            "El stream nuevo arranca al crearse: procesa datos hasta que DBine lo suspende, apenas sus tareas están listas.",
+        ]
+    );
+    // Running and paused by this save: only the recreate.
+    let p = plan(&c, Some(&st), &v, Targets::default()).unwrap();
+    assert_eq!(warnings(&p.script()).len(), 2, "{}", p.script());
+    // Running and kept so.
+    v.values.insert("enabled".into(), json!(true));
+    let p = plan(&c, Some(&st), &v, Targets::default()).unwrap();
+    assert_eq!(warnings(&p.script()).len(), 2, "{}", p.script());
+    // Paused, resumed or left alone: nothing to accept.
+    let mut v = back();
+    assert!(warnings(
+        &plan(&c, Some(&st), &v, Targets::default())
+            .unwrap()
+            .script()
+    )
+    .is_empty());
+    v.values.insert("enabled".into(), json!(false));
+    assert!(warnings(
+        &plan(&c, Some(&st), &v, Targets::default())
+            .unwrap()
+            .script()
+    )
+    .is_empty());
+    assert!(warnings(&drop_plan(&st).script()).is_empty());
     // Without PAUSE (before 3.1): refused.
     let c30 = ctx_of("3.0.7.1", false);
     let mut v = back();
@@ -389,6 +448,7 @@ fn a_new_old_engine_stream() {
         p.script(),
         "-- Stream «dbine_test_sched_s» de TDengine\n-- Arranca al crearse: se suspende apenas sus tareas están listas.\nUSE `db`;\nCREATE STREAM `dbine_test_sched_s`\n  TRIGGER AT_ONCE\n  INTO db.agg\n  AS\nselect _wstart, count(*) from m interval(1m);\nPAUSE STREAM `dbine_test_sched_s`;\n"
     );
+    assert!(warnings(&p.script()).is_empty());
 }
 
 // --------------------------------------------------------------- new engine

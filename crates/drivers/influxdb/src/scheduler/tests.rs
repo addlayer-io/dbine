@@ -35,6 +35,17 @@ fn with_list(mut f: FormValues, list: &str, rows: Value) -> FormValues {
     f
 }
 
+/// The script's "⚠" lines (`comment`: its comment marker), as the app
+/// lists them above it.
+fn warnings(script: &str, comment: &str) -> Vec<String> {
+    let mark = format!("{comment} ⚠ ");
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix(mark.as_str()))
+        .map(str::to_string)
+        .collect()
+}
+
 /// What the designer sends back for a form as it came.
 fn as_sent(form: &ObjectForm) -> FormValues {
     let mut values = form.values.clone();
@@ -629,7 +640,7 @@ mod cqs {
         assert!(f.notes[0].contains("ALTER"));
         // Sent back as it came: nothing to do.
         let w = wanted(&as_sent(&f), &dbs()).unwrap();
-        let p = edit_plan(&c, &w);
+        let p = edit_plan(&c, &w, true);
         assert!(p.statements.is_empty());
         assert!(p.script().contains("no hay cambios"));
         let f = form_of(None, &dbs());
@@ -659,7 +670,7 @@ mod cqs {
         let old = parse("dbine_db", "dbine cq", SHOWN);
         let mut v2 = as_sent(&form_of(Some(&old), &dbs()));
         v2.values.insert("resample_every".into(), json!("1h"));
-        let p = edit_plan(&old, &wanted(&v2, &dbs()).unwrap());
+        let p = edit_plan(&old, &wanted(&v2, &dbs()).unwrap(), false);
         assert_eq!(p.statements.len(), 2);
         assert_eq!(
             p.statements[0],
@@ -671,13 +682,13 @@ mod cqs {
         assert_eq!(p.restore.as_deref(), Some(SHOWN));
         let s = p.script();
         assert!(
-            s.starts_with("-- InfluxDB 1.x no tiene ALTER CONTINUOUS QUERY"),
+            s.starts_with("-- ⚠ InfluxDB 1.x no tiene ALTER CONTINUOUS QUERY"),
             "{s}"
         );
         // Another name: the new one first, nothing to put back.
         v2.values.insert("name".into(), json!("dbine cq2"));
         v2.values.insert("database".into(), json!("other"));
-        let p = edit_plan(&old, &wanted(&v2, &dbs()).unwrap());
+        let p = edit_plan(&old, &wanted(&v2, &dbs()).unwrap(), false);
         assert!(p.statements[0].starts_with("CREATE CONTINUOUS QUERY \"dbine cq2\" ON \"other\""));
         assert_eq!(
             p.statements[1],
@@ -754,6 +765,36 @@ mod cqs {
             let m = err(wanted(&v, &dbs()));
             assert!(m.contains(msg), "{msg}: {m}");
         }
+    }
+
+    #[test]
+    fn a_change_warns_that_the_query_is_made_again() {
+        let has_warnings = |p: &Plan| warnings(&p.script(), "--");
+        let old = parse("dbine_db", "dbine cq", SHOWN);
+        let f = form_of(Some(&old), &dbs());
+        // Nothing to save, or a new one: nothing to accept.
+        let w = wanted(&as_sent(&f), &dbs()).unwrap();
+        assert!(has_warnings(&edit_plan(&old, &w, true)).is_empty());
+        assert!(has_warnings(&create_plan(&w)).is_empty());
+        assert!(has_warnings(&drop_plan(&old)).is_empty());
+        // Changed: dropped and created, its last run forgotten.
+        let mut v = as_sent(&f);
+        v.values.insert("resample_every".into(), json!("1h"));
+        let ws = has_warnings(&edit_plan(&old, &wanted(&v, &dbs()).unwrap(), true));
+        assert_eq!(
+            ws,
+            [
+                "InfluxDB 1.x no tiene ALTER CONTINUOUS QUERY: la consulta continua se borra y se vuelve a crear.",
+                "Se pierde el momento de su última ejecución: la nueva empieza en el intervalo siguiente (RESAMPLE FOR recalcula los anteriores).",
+            ]
+        );
+        // Renamed where the runs are recorded: they stay with the old name.
+        v.values.insert("name".into(), json!("dbine cq2"));
+        let w = wanted(&v, &dbs()).unwrap();
+        let ws = has_warnings(&edit_plan(&old, &w, true));
+        assert_eq!(ws.len(), 3);
+        assert!(ws[2].starts_with("Su historial de ejecuciones (cq_query en _internal)"));
+        assert_eq!(has_warnings(&edit_plan(&old, &w, false)).len(), 2);
     }
 }
 
@@ -1049,6 +1090,81 @@ mod triggers {
         );
         assert_eq!(r[0][1], "db2");
         assert_eq!(r[0][4], "ok");
+    }
+
+    #[test]
+    fn a_recreate_warns_of_the_cache_and_what_the_server_hides() {
+        let f = form_of(Some(&old()), &dbs(), None);
+        let base = as_sent(&f);
+        let plan = |changes: Value, shared: &[String]| {
+            let mut x = base.clone();
+            for (k, v) in changes.as_object().unwrap() {
+                x.values.insert(k.clone(), v.clone());
+            }
+            edit_plan(&old(), &wanted(&x, &dbs()).unwrap(), shared)
+        };
+        let ws = |p: &Plan| warnings(&p.script(), "--");
+        // In place: nothing to accept, unless the code is another
+        // trigger's too.
+        assert!(ws(&plan(json!({"enabled": false}), &[])).is_empty());
+        assert!(ws(&plan(json!({"plugin_code": "print(2)"}), &[])).is_empty());
+        let p = plan(
+            json!({"plugin_code": "print(2)"}),
+            &["other".to_string(), "x".to_string()],
+        );
+        assert_eq!(p.reqs[0].method, "PUT");
+        assert_eq!(
+            ws(&p),
+            ["El archivo del plugin lo usan también: other, x; pasan a ejecutar el código nuevo."],
+            "{}",
+            p.script()
+        );
+        // Created again: deleted and created, the cache lost, and the
+        // asynchronous setting the server doesn't report.
+        let p = plan(json!({"every": "1m"}), &[]);
+        assert_eq!(
+            ws(&p),
+            [
+                "InfluxDB 3 no puede cambiar un trigger: se borra y se vuelve a crear.",
+                "Se pierde la caché del plugin (influxdb3_local.cache); su registro queda, con su nombre.",
+                "InfluxDB 3 no informa si el trigger se ejecutaba en modo asíncrono: el nuevo se ejecuta en modo síncrono.",
+            ],
+            "{}",
+            p.script()
+        );
+        // Asked for: nothing hidden is lost.
+        assert_eq!(
+            ws(&plan(json!({"every": "1m", "run_async": true}), &[])).len(),
+            2
+        );
+        // New code another trigger runs too; uploaded before the change, it
+        // stays with the old trigger if the server refuses the new one.
+        const FIRST: &str = "El código se sube antes de cambiar el trigger: si el servidor rechaza el cambio, el trigger anterior queda con el código nuevo.";
+        let p = plan(
+            json!({"every": "1m", "plugin_code": "print(3)"}),
+            &["other".to_string()],
+        );
+        let w = ws(&p);
+        assert!(w[w.len() - 2]
+            .ends_with("del directorio de plugins del servidor; también lo usan: other."));
+        assert_eq!(w.last().unwrap(), FIRST, "{}", p.script());
+        let p = plan(json!({"every": "1m", "plugin_code": "print(3)"}), &[]);
+        assert_eq!(ws(&p).len(), 4, "{}", p.script());
+        assert_eq!(ws(&p).last().unwrap(), FIRST);
+        // Renamed: the old one stays if the new one is refused.
+        let p = plan(json!({"name": "tock", "plugin_code": "print(3)"}), &[]);
+        assert!(ws(&p).iter().any(|w| w == FIRST), "{}", p.script());
+        // Another file: the old trigger's code doesn't change.
+        let p = plan(json!({"plugin": "q.py", "plugin_code": "print(3)"}), &[]);
+        assert!(!ws(&p).iter().any(|w| w == FIRST), "{}", p.script());
+        // Created and deleted: nothing.
+        let w = wanted(&base, &dbs()).unwrap();
+        assert!(ws(&create_plan(&w, &[])).is_empty());
+        assert_eq!(
+            ws(&create_plan(&w, &["x".to_string()])).len(),
+            usize::from(w.code.is_some())
+        );
+        assert!(ws(&drop_plan(&old())).is_empty());
     }
 }
 

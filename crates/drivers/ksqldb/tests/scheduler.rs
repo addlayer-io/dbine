@@ -367,7 +367,7 @@ async fn body(c: ConnectionConfig) {
     let mut v6 = values_of(&form);
     set(&mut v6, "kafka_topic", json!("dbine_test_sched_out2"));
     let script = s.scheduler_script("job", Some(&out_id), &v6).await.unwrap();
-    assert!(script.starts_with("-- Se recrea"), "{script}");
+    assert!(script.starts_with("-- ⚠ Se recrea"), "{script}");
     assert!(script.contains(&format!(
         "TERMINATE {out_id};\nDROP STREAM `DBINE_TEST_SCHED_OUT`;"
     )));
@@ -491,7 +491,7 @@ async fn body(c: ConnectionConfig) {
     );
     let script = s.scheduler_script("job", Some(&ins_id), &i2).await.unwrap();
     assert!(
-        script.starts_with("-- ksqlDB no cambia una INSERT INTO"),
+        script.starts_with("-- ⚠ ksqlDB no cambia una INSERT INTO"),
         "{script}"
     );
     let again = s

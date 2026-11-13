@@ -230,6 +230,13 @@ pub(crate) fn comment_text(s: &str) -> String {
         .collect()
 }
 
+/// A heading line the app lists above the script as a consequence the
+/// user accepts before it runs (the contract's "⚠" lines): `text` is one
+/// whole Spanish sentence, a literal of its own or a literal format.
+pub(crate) fn warning(text: impl AsRef<str>) -> String {
+    format!("⚠ {}", text.as_ref())
+}
+
 /// A REST request DBine sends, as script lines: commented, since Dremio's
 /// SQL can't say it. `why` heads it.
 pub(crate) fn rest_script(why: &str, method: &str, path: &str, body: Option<&Value>) -> String {

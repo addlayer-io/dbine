@@ -26,7 +26,7 @@
 use super::lex::{self, Parser, T};
 use super::{
     bad, database_field, id_pairs, ids, name_field, one_statement, qi, qname, query_field,
-    same_pairs, shown, Ctx, Plan, Restore, Vals,
+    same_pairs, shown, warning, Ctx, Plan, Restore, Vals,
 };
 use crate::jobs::{self, job_id, parse_id};
 use crate::schema::string_literal;
@@ -42,6 +42,20 @@ const DEPENDS_NOTE: &str =
     "Las vistas que la nombran en DEPENDS ON siguen esperando el nombre anterior.";
 const STOP_NOT_KEPT: &str =
     "SYSTEM STOP VIEW la deshabilita hasta que el servidor se reinicia: al arrancar vuelve a refrescar.";
+
+// What a change loses or risks: the script's "⚠" lines.
+const RECREATED: &str = "ClickHouse no cambia en su lugar el destino, el motor, las columnas ni APPEND de una vista: se vuelve a crear con la definición nueva.";
+const STATE_LOST_OWN_TABLE: &str = "Se pierde su estado de refresco (el último y el próximo), y su tabla propia se vuelve a crear vacía: la llena el primer refresco.";
+const STATE_LOST_TARGET: &str =
+    "Se pierde su estado de refresco (el último y el próximo); la tabla destino conserva sus filas.";
+const OWN_TABLE_DROPPED_FOR_TARGET: &str =
+    "Su tabla propia se borra con sus datos: la vista nueva escribe en la tabla destino.";
+const MOVED_STATE_LOST: &str =
+    "Se pierde su estado de refresco, y su tabla propia nueva empieza vacía: la llena el primer refresco.";
+const HISTORY_STAYS: &str =
+    "Su historial de refrescos queda con el nombre anterior: con el nombre nuevo empieza vacío.";
+const STARTS_BEFORE_STOP: &str = "La vista vuelve a crearse habilitada: si le toca un refresco antes de que SYSTEM STOP VIEW la detenga, lo hace.";
+const OWN_TABLE_DROPPED: &str = "Su tabla propia se borra con ella, con sus datos.";
 
 // The refresh settings with a field of their own.
 const RETRIES: &str = "refresh_retries";
@@ -674,6 +688,24 @@ impl ClickHouseSession {
         Ok((d, r.enabled()))
     }
 
+    /// The refreshable views whose `DEPENDS ON` names `db.name`, as
+    /// `db.view`; `None` when their definitions can't be read.
+    async fn dependents(&self, db: &str, name: &str) -> Option<Vec<String>> {
+        let rows = self
+            .rows(
+                &format!(
+                    "SELECT database, name, create_table_query FROM system.tables
+                     WHERE engine = 'MaterializedView' AND database NOT IN {SYSTEM_DBS}
+                       AND positionCaseInsensitive(create_table_query, 'DEPENDS') > 0
+                     ORDER BY database, name LIMIT 20000"
+                ),
+                &[],
+            )
+            .await
+            .ok()?;
+        dependents_of(&rows, db, name)
+    }
+
     async fn table_exists(&self, db: &str, name: &str) -> Result<bool> {
         let rows = self
             .rows(
@@ -687,6 +719,34 @@ impl ClickHouseSession {
             .unwrap_or(0.0)
             > 0.0)
     }
+}
+
+/// Of `rows` (database, name, `CREATE` statement), the views whose
+/// `DEPENDS ON` names `db.name` (an unqualified name is in the view's own
+/// database), as `db.view`; `None` when a statement can't be read.
+pub(crate) fn dependents_of(rows: &[Vec<Value>], db: &str, name: &str) -> Option<Vec<String>> {
+    let mut out = Vec::new();
+    for r in rows {
+        let vdb = jobs::opt(r.first())?;
+        let vname = jobs::opt(r.get(1))?;
+        let create = jobs::opt(r.get(2)).unwrap_or_default();
+        // A plain materialized view has no refresh clause to name it in.
+        if !create
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|w| w.eq_ignore_ascii_case("REFRESH"))
+        {
+            continue;
+        }
+        let d = parse_view(&create)?;
+        let names_it = d.depends_on.iter().any(|(x, n)| {
+            let x = if x.is_empty() { vdb.as_str() } else { x };
+            x == db && n == name
+        });
+        if names_it && (vdb.as_str(), vname.as_str()) != (db, name) {
+            out.push(format!("{vdb}.{vname}"));
+        }
+    }
+    Some(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,13 +1302,28 @@ pub(crate) fn plan_create(w: &ViewDef, enabled: bool, c: &Ctx) -> Result<Plan> {
     if !enabled {
         p.statements
             .push(format!("SYSTEM STOP VIEW {}", qname(&w.database, &w.name)));
-        p.comments.push(STOP_NOT_KEPT.into());
+        p.comments.push(warning(STOP_NOT_KEPT));
     }
     checked(p)
 }
 
+/// The "⚠" line about the views whose `DEPENDS ON` names this one, which
+/// a new name leaves waiting for the old one (`None`: they couldn't be
+/// read, so it says it of any).
+fn depends_warning(dependents: Option<&[String]>) -> Option<String> {
+    match dependents {
+        None => Some(warning(DEPENDS_NOTE)),
+        Some([]) => None,
+        Some(views) => Some(warning(format!(
+            "Las vistas {} la nombran en DEPENDS ON: siguen esperando el nombre anterior.",
+            views.join(", ")
+        ))),
+    }
+}
+
 /// The change from `cur` (started or not) to `w`. `replaceable`: the
-/// database takes `CREATE OR REPLACE`.
+/// database takes `CREATE OR REPLACE`. `dependents`: the views whose
+/// `DEPENDS ON` names `cur` (`None`: unknown).
 pub(crate) fn plan_edit(
     cur: &ViewDef,
     cur_enabled: bool,
@@ -1256,6 +1331,7 @@ pub(crate) fn plan_edit(
     enabled: bool,
     c: &Ctx,
     replaceable: bool,
+    dependents: Option<&[String]>,
 ) -> Result<Plan> {
     // What the clauses list keeps the server's order.
     let w = &in_server_order(cur, w);
@@ -1272,22 +1348,26 @@ pub(crate) fn plan_edit(
     // ClickHouse doesn't move a view with its own table to another
     // database: it's created there and the old one dropped.
     if cur.database != w.database && w.to.is_none() {
-        p.comments.push(format!(
+        p.comments.push(warning(format!(
             "ClickHouse no mueve a otra base de datos una vista con tabla propia: se crea {} con la definición nueva y se borra {}.",
             label(w),
             label(cur)
-        ));
-        p.comments.push(
-            "Se pierde su estado de refresco, y su tabla propia nueva empieza vacía: la llena el primer refresco.".into(),
-        );
-        p.comments.push(DEPENDS_NOTE.into());
+        )));
+        p.comments.push(warning(MOVED_STATE_LOST));
+        if c.tagged_history() {
+            p.comments.push(warning(HISTORY_STAYS));
+        }
+        p.comments.extend(depends_warning(dependents));
         let mut d = w.clone();
         d.empty = false;
         p.database = Some(w.database.clone());
         p.statements.push(create_sql(&d, false, c.sql_security()));
         if !enabled {
             p.statements.push(format!("SYSTEM STOP VIEW {new_id}"));
-            p.comments.push(STOP_NOT_KEPT.into());
+            if !cur_enabled {
+                p.comments.push(warning(STARTS_BEFORE_STOP));
+            }
+            p.comments.push(warning(STOP_NOT_KEPT));
         }
         p.statements.push(format!("DROP VIEW {old_id}"));
         return checked(p);
@@ -1303,12 +1383,17 @@ pub(crate) fn plan_edit(
         || !same(&cur.columns, &w.columns)
         || cur.append != w.append;
     if recreate {
-        p.comments.push("ClickHouse no cambia en su lugar el destino, el motor, las columnas ni APPEND de una vista: se vuelve a crear con la definición nueva.".into());
-        p.comments.push(if w.to.is_none() {
-            "Se pierde su estado de refresco (el último y el próximo), y su tabla propia se vuelve a crear vacía: la llena el primer refresco.".into()
+        p.comments.push(warning(RECREATED));
+        p.comments.push(warning(if w.to.is_none() {
+            STATE_LOST_OWN_TABLE
         } else {
-            "Se pierde su estado de refresco (el último y el próximo); la tabla destino conserva sus filas.".into()
-        });
+            STATE_LOST_TARGET
+        }));
+        // From its own table to a target: the own table goes, rows and all
+        // (CREATE OR REPLACE and DROP VIEW alike).
+        if cur.to.is_none() && w.to.is_some() {
+            p.comments.push(warning(OWN_TABLE_DROPPED_FOR_TARGET));
+        }
         let mut d = w.clone();
         d.database = cur.database.clone();
         d.name = cur.name.clone();
@@ -1372,7 +1457,10 @@ pub(crate) fn plan_edit(
     if (&cur.database, &cur.name) != (&w.database, &w.name) {
         p.statements
             .push(format!("RENAME TABLE {old_id} TO {new_id}"));
-        p.comments.push(DEPENDS_NOTE.into());
+        if c.tagged_history() {
+            p.comments.push(warning(HISTORY_STAYS));
+        }
+        p.comments.extend(depends_warning(dependents));
     }
     // A view created again starts refreshing.
     let started = recreate || cur_enabled;
@@ -1380,7 +1468,10 @@ pub(crate) fn plan_edit(
         let verb = if enabled { "START" } else { "STOP" };
         p.statements.push(format!("SYSTEM {verb} VIEW {new_id}"));
         if !enabled {
-            p.comments.push(STOP_NOT_KEPT.into());
+            if recreate && !cur_enabled {
+                p.comments.push(warning(STARTS_BEFORE_STOP));
+            }
+            p.comments.push(warning(STOP_NOT_KEPT));
         }
     }
     if p.statements.is_empty() {
@@ -1396,7 +1487,7 @@ pub(crate) fn drop_plan(cur: &ViewDef) -> Plan {
             format!("Borra la vista refrescable {}.", label(cur)),
             match &cur.to {
                 Some((db, t)) => format!("La tabla destino {db}.{t} queda, con sus filas."),
-                None => "Su tabla propia se borra con ella, con sus datos.".into(),
+                None => warning(OWN_TABLE_DROPPED),
             },
         ],
         settings: Vec::new(),
@@ -1430,6 +1521,12 @@ pub(crate) async fn plan(
                     w.database, w.name
                 )));
             }
+            let renamed = (&w.database, &w.name) != (&cur.database, &cur.name);
+            let dependents = if renamed {
+                s.dependents(&cur.database, &cur.name).await
+            } else {
+                Some(Vec::new())
+            };
             plan_edit(
                 &cur,
                 cur_enabled,
@@ -1437,6 +1534,7 @@ pub(crate) async fn plan(
                 enabled,
                 c,
                 ch.replaceable(&cur.database),
+                dependents.as_deref(),
             )
         }
     }

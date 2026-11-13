@@ -364,7 +364,7 @@ fn values_read_back_into_the_same_view() {
         let (w, enabled) = refresh::wanted(&values, &new_ch(), &ch, Some(&d)).unwrap();
         assert!(enabled);
         assert_eq!(w, d, "{text}");
-        let p = refresh::plan_edit(&d, true, &w, true, &new_ch(), true).unwrap();
+        let p = refresh::plan_edit(&d, true, &w, true, &new_ch(), true, None).unwrap();
         assert!(p.statements.is_empty(), "{p:?}");
         assert_eq!(p.script(), "-- db.mv: no hay cambios que guardar.\n");
     }
@@ -493,7 +493,7 @@ fn a_new_view_is_one_create() {
     let script = p.script();
     assert!(
         script.starts_with(
-            "-- Crea la vista refrescable db.dbine_test_sched_mv 'x'.\n-- SYSTEM STOP VIEW"
+            "-- Crea la vista refrescable db.dbine_test_sched_mv 'x'.\n-- ⚠ SYSTEM STOP VIEW"
         ),
         "{script}"
     );
@@ -567,7 +567,7 @@ fn edit(changes: Value) -> (ViewDef, bool) {
 
 fn edit_plan(changes: Value) -> Plan {
     let (w, enabled) = edit(changes);
-    refresh::plan_edit(&current(), true, &w, enabled, &new_ch(), true).unwrap()
+    refresh::plan_edit(&current(), true, &w, enabled, &new_ch(), true, None).unwrap()
 }
 
 #[test]
@@ -614,7 +614,7 @@ fn each_change_is_its_own_alter() {
     assert_eq!(p.statements, ["SYSTEM STOP VIEW `db`.`mv`"]);
     assert!(p.comments.iter().any(|c| c.contains("se reinicia")));
     let (w, _) = edit(json!({}));
-    let p = refresh::plan_edit(&current(), false, &w, true, &new_ch(), true).unwrap();
+    let p = refresh::plan_edit(&current(), false, &w, true, &new_ch(), true, None).unwrap();
     assert_eq!(p.statements, ["SYSTEM START VIEW `db`.`mv`"]);
 
     // Renamed, with a new query: the ALTERs on the old name, then the
@@ -683,7 +683,7 @@ fn an_append_view_keeps_append_in_its_refresh() {
         Some(&cur),
     )
     .unwrap();
-    let p = refresh::plan_edit(&cur, true, &w, enabled, &new_ch(), true).unwrap();
+    let p = refresh::plan_edit(&cur, true, &w, enabled, &new_ch(), true, None).unwrap();
     assert_eq!(
         p.statements,
         ["ALTER TABLE `db`.`b` MODIFY REFRESH AFTER 1 MINUTE DEPENDS ON `db`.`a` APPEND"]
@@ -703,7 +703,7 @@ fn what_cant_change_in_place_creates_the_view_again() {
     assert_eq!(p.statements[1], "SYSTEM STOP VIEW `db`.`mv`");
     let script = p.script();
     assert!(
-        script.contains("-- ClickHouse no cambia en su lugar"),
+        script.contains("-- ⚠ ClickHouse no cambia en su lugar"),
         "{script}"
     );
     assert!(
@@ -714,20 +714,20 @@ fn what_cant_change_in_place_creates_the_view_again() {
     // Created again, it starts: a stopped view the user wants started
     // needs nothing more.
     let (w, _) = edit(json!({"append": true}));
-    let p = refresh::plan_edit(&current(), false, &w, true, &new_ch(), true).unwrap();
+    let p = refresh::plan_edit(&current(), false, &w, true, &new_ch(), true, None).unwrap();
     assert_eq!(p.statements.len(), 1);
     assert!(p.statements[0].contains(" APPEND\n"), "{p:?}");
 
     // To a target table: its rows stay.
     let (w, _) = edit(json!({"target_mode": "to", "target": "`db`.`dst`"}));
-    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), true).unwrap();
+    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), true, None).unwrap();
     assert!(p.statements[0].contains("\nTO `db`.`dst`\n") && !p.statements[0].contains("ENGINE"));
     assert!(p.comments.iter().any(|c| c.contains("conserva sus filas")));
 
     // A database without REPLACE: drop and create, and the old view made
     // again when the server refuses the new one.
     let (w, _) = edit(json!({"columns": "`c` UInt64, `d` UInt8"}));
-    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), false).unwrap();
+    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), false, None).unwrap();
     assert_eq!(p.statements[0], "DROP VIEW `db`.`mv`");
     assert!(p.statements[1].starts_with("CREATE MATERIALIZED VIEW `db`.`mv`\n"));
     assert!(choices().replaceable("db") && !choices().replaceable("old"));
@@ -751,13 +751,13 @@ fn what_cant_change_in_place_creates_the_view_again() {
     );
     assert!(m.ends_with(&r.statements[0]), "{m}");
     // A stopped view is stopped again.
-    let p = refresh::plan_edit(&current(), false, &w, false, &new_ch(), false).unwrap();
+    let p = refresh::plan_edit(&current(), false, &w, false, &new_ch(), false, None).unwrap();
     assert_eq!(
         p.restore.unwrap().statements[1],
         "SYSTEM STOP VIEW `db`.`mv`"
     );
     // With REPLACE, or changed in place, there is nothing to restore.
-    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), true).unwrap();
+    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), true, None).unwrap();
     assert!(p.restore.is_none());
     assert!(edit_plan(json!({"query": "SELECT 2 AS c"}))
         .restore
@@ -790,7 +790,7 @@ fn the_refresh_clause_changes_only_when_its_meaning_does() {
             Some(&cur),
         )
         .unwrap();
-        refresh::plan_edit(&cur, true, &w, enabled, &new_ch(), true).unwrap()
+        refresh::plan_edit(&cur, true, &w, enabled, &new_ch(), true, None).unwrap()
     };
     // Read back as it is (the DEPENDS ON picked in another order): nothing.
     let p = read(json!({"depends_on": ["`db`.`a`", "`x y`.`b`"]}));
@@ -838,7 +838,7 @@ fn deleting_and_clearing() {
     assert!(p.database.is_none());
     assert_eq!(
         p.script(),
-        "-- Borra la vista refrescable db.mv.\n-- Su tabla propia se borra con ella, con sus datos.\nDROP VIEW `db`.`mv`;\n"
+        "-- Borra la vista refrescable db.mv.\n-- ⚠ Su tabla propia se borra con ella, con sus datos.\nDROP VIEW `db`.`mv`;\n"
     );
     let mut d = current();
     d.to = Some(("db".into(), "dst".into()));
@@ -1189,4 +1189,250 @@ fn hostile_names_stay_names_in_the_editor_too() {
         p.script()
     );
     assert_eq!(parse_task(&p.statements[0]).unwrap().name, odd);
+}
+
+/// The script's "⚠" lines, as the app lists them above it.
+fn warnings(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_view_change_warns_only_of_what_it_loses() {
+    let has = |p: &Plan, needle: &str| warnings(&p.script()).iter().any(|w| w.contains(needle));
+    // In place: nothing to accept.
+    for changes in [
+        json!({"query": "SELECT 2 AS c"}),
+        json!({"comment": "x"}),
+        json!({"mode": "after", "interval": "2 HOUR"}),
+        json!({"enabled": true}),
+    ] {
+        let p = edit_plan(changes.clone());
+        assert!(
+            warnings(&p.script()).is_empty(),
+            "{changes}: {}",
+            p.script()
+        );
+    }
+    // Stopped in place: the server forgets the stop on a restart.
+    let p = edit_plan(json!({"enabled": false}));
+    assert_eq!(warnings(&p.script()).len(), 1, "{}", p.script());
+    assert!(has(&p, "hasta que el servidor se reinicia"));
+
+    // Created again: the refresh state, and the own table's rows.
+    let p = edit_plan(json!({"engine": "MergeTree ORDER BY tuple()"}));
+    let w = warnings(&p.script());
+    assert_eq!(w.len(), 2, "{}", p.script());
+    assert!(w[0].starts_with("ClickHouse no cambia en su lugar"));
+    assert!(w[1].contains("su tabla propia se vuelve a crear vacía"));
+    // From its own table to a target: the target's rows stay, the own
+    // table goes with its rows (replaced or dropped and created).
+    let (w, _) = edit(json!({"target_mode": "to", "target": "`db`.`dst`"}));
+    for replaceable in [true, false] {
+        let p =
+            refresh::plan_edit(&current(), true, &w, true, &new_ch(), replaceable, None).unwrap();
+        assert_eq!(
+            warnings(&p.script())[1..],
+            [
+                "Se pierde su estado de refresco (el último y el próximo); la tabla destino conserva sus filas.",
+                "Su tabla propia se borra con sus datos: la vista nueva escribe en la tabla destino.",
+            ],
+            "{}",
+            p.script()
+        );
+    }
+    // Already writing to a table, to another one: no own table to lose.
+    let mut to_dst = current();
+    to_dst.to = Some(("db".into(), "dst".into()));
+    let (w, _) = edit(json!({"target_mode": "to", "target": "`db`.`src`"}));
+    let p = refresh::plan_edit(&to_dst, true, &w, true, &new_ch(), true, None).unwrap();
+    assert!(
+        has(&p, "la tabla destino conserva sus filas"),
+        "{}",
+        p.script()
+    );
+    assert!(!has(&p, "tabla propia"), "{}", p.script());
+    // A stopped view kept stopped: created again, it may refresh before the
+    // stop; a started one being stopped doesn't add that.
+    let (w, _) = edit(json!({"engine": "Memory", "enabled": false}));
+    let p = refresh::plan_edit(&current(), false, &w, false, &new_ch(), true, None).unwrap();
+    assert!(has(&p, "vuelve a crearse habilitada"), "{}", p.script());
+    assert!(has(&p, "hasta que el servidor se reinicia"));
+    let p = refresh::plan_edit(&current(), true, &w, false, &new_ch(), true, None).unwrap();
+    assert!(!has(&p, "vuelve a crearse habilitada"), "{}", p.script());
+    // Without REPLACE: the same warnings; the restore stays a plain note.
+    let (w, _) = edit(json!({"columns": "`c` UInt64, `d` UInt8"}));
+    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), false, None).unwrap();
+    assert_eq!(warnings(&p.script()).len(), 2, "{}", p.script());
+    assert!(p
+        .script()
+        .contains("\n-- Si el servidor rechaza la vista nueva"));
+}
+
+#[test]
+fn a_renamed_view_warns_of_its_history_and_its_dependents() {
+    let (w, _) = edit(json!({"name": "mv2"}));
+    let rename = |c: &Ctx, deps: Option<&[String]>| {
+        refresh::plan_edit(&current(), true, &w, true, c, true, deps).unwrap()
+    };
+    // Dependents unknown: said of any.
+    let p = rename(&new_ch(), None);
+    let ws = warnings(&p.script());
+    assert_eq!(
+        ws,
+        [
+            "Su historial de refrescos queda con el nombre anterior: con el nombre nuevo empieza vacío.",
+            "Las vistas que la nombran en DEPENDS ON siguen esperando el nombre anterior.",
+        ],
+        "{}",
+        p.script()
+    );
+    // None depends on it: only the history.
+    let p = rename(&new_ch(), Some(&[]));
+    assert_eq!(warnings(&p.script()).len(), 1, "{}", p.script());
+    // Named.
+    let p = rename(&new_ch(), Some(&["db.a".to_string(), "x y.b".to_string()]));
+    assert!(warnings(&p.script()).contains(
+        &"Las vistas db.a, x y.b la nombran en DEPENDS ON: siguen esperando el nombre anterior."
+            .to_string()
+    ));
+    // Before 25.4 the history isn't kept by name.
+    let p = rename(&ctx("24.12.1"), Some(&[]));
+    assert!(warnings(&p.script()).is_empty(), "{}", p.script());
+
+    // Moved with its own table: made again in the other database.
+    let (w, _) = edit(json!({"database": "x y"}));
+    let p = refresh::plan_edit(&current(), true, &w, true, &new_ch(), true, Some(&[])).unwrap();
+    let ws = warnings(&p.script());
+    assert_eq!(ws.len(), 3, "{}", p.script());
+    assert!(ws[0].starts_with("ClickHouse no mueve a otra base de datos"));
+    assert!(ws[1].contains("su tabla propia nueva empieza vacía"));
+    assert!(ws[2].starts_with("Su historial de refrescos"));
+}
+
+#[test]
+fn creating_and_deleting_a_view_warn_where_they_lose() {
+    let (w, enabled) =
+        refresh::wanted(&view_values(json!({})), &new_ch(), &choices(), None).unwrap();
+    assert!(warnings(
+        &refresh::plan_create(&w, enabled, &new_ch())
+            .unwrap()
+            .script()
+    )
+    .is_empty());
+    let (w, enabled) = refresh::wanted(
+        &view_values(json!({"enabled": false})),
+        &new_ch(),
+        &choices(),
+        None,
+    )
+    .unwrap();
+    let ws = warnings(
+        &refresh::plan_create(&w, enabled, &new_ch())
+            .unwrap()
+            .script(),
+    );
+    assert_eq!(ws.len(), 1);
+    assert!(ws[0].starts_with("SYSTEM STOP VIEW la deshabilita"));
+    // Its own table goes with it; a target table stays.
+    assert_eq!(
+        warnings(&refresh::drop_plan(&current()).script()),
+        ["Su tabla propia se borra con ella, con sus datos."]
+    );
+    let mut d = current();
+    d.to = Some(("db".into(), "dst".into()));
+    assert!(warnings(&refresh::drop_plan(&d).script()).is_empty());
+}
+
+#[test]
+fn the_views_that_depend_on_one_are_read_from_their_definitions() {
+    let row = |db: &str, name: &str, create: &str| vec![json!(db), json!(name), json!(create)];
+    let rows = vec![
+        row(
+            "db",
+            "b",
+            "CREATE MATERIALIZED VIEW db.b REFRESH EVERY 1 HOUR DEPENDS ON db.mv (`c` UInt64) ENGINE = Memory AS SELECT 1 AS c",
+        ),
+        // Unqualified: the view's own database.
+        row(
+            "db",
+            "c",
+            "CREATE MATERIALIZED VIEW c REFRESH EVERY 1 HOUR DEPENDS ON mv, `x y`.b (`c` UInt64) ENGINE = Memory AS SELECT 1 AS c",
+        ),
+        row(
+            "x y",
+            "d",
+            "CREATE MATERIALIZED VIEW `x y`.d REFRESH EVERY 1 HOUR DEPENDS ON mv (`c` UInt64) ENGINE = Memory AS SELECT 1 AS c",
+        ),
+        // A plain materialized view that only says the word.
+        row(
+            "db",
+            "e",
+            "CREATE MATERIALIZED VIEW db.e TO db.dst AS SELECT 'DEPENDS' AS c FROM db.src",
+        ),
+    ];
+    assert_eq!(
+        refresh::dependents_of(&rows, "db", "mv").unwrap(),
+        ["db.b", "db.c"]
+    );
+    assert_eq!(refresh::dependents_of(&rows, "x y", "b").unwrap(), ["db.c"]);
+    // One that can't be read: unknown.
+    let mut bad = rows.clone();
+    bad.push(row("db", "f", "CREATE MATERIALIZED VIEW db.f REFRESH oops"));
+    assert!(refresh::dependents_of(&bad, "db", "mv").is_none());
+}
+
+#[test]
+fn a_task_change_warns_of_a_rename_and_of_running_unpaused() {
+    let ch = task_choices();
+    let cur = parse_task(TASK).unwrap();
+    let plan = |cur_enabled: Option<bool>, changes: Value| {
+        let form = task::build_form(&cur, cur_enabled, true, &ch);
+        let mut values = form.values.clone();
+        for (k, x) in changes.as_object().unwrap() {
+            values.insert(k.clone(), x.clone());
+        }
+        let (w, enabled) = task::wanted(
+            &FormValues {
+                values,
+                lists: BTreeMap::new(),
+            },
+            &ch,
+            Some(&cur),
+        )
+        .unwrap();
+        task::plan_edit(&cur, cur_enabled, &w, enabled).unwrap()
+    };
+    // Replaced in place, running: nothing to accept.
+    let p = plan(Some(true), json!({"schedule": "5 minutes"}));
+    assert!(warnings(&p.script()).is_empty(), "{}", p.script());
+    // Paused and kept paused: unpaused for a moment.
+    let p = plan(Some(false), json!({"schedule": "5 minutes"}));
+    let ws = warnings(&p.script());
+    assert_eq!(ws.len(), 1, "{}", p.script());
+    assert!(ws[0].contains("queda sin pausar"));
+    // Paused now by this save: it ran anyway until now.
+    let p = plan(
+        Some(true),
+        json!({"schedule": "5 minutes", "enabled": false}),
+    );
+    assert!(warnings(&p.script()).is_empty(), "{}", p.script());
+    // Pausing alone: nothing.
+    let p = plan(Some(true), json!({"enabled": false}));
+    assert!(warnings(&p.script()).is_empty(), "{}", p.script());
+    // Renamed: its UUID and last run go.
+    let p = plan(Some(true), json!({"name": "t2"}));
+    let ws = warnings(&p.script());
+    assert_eq!(ws.len(), 1, "{}", p.script());
+    assert_eq!(
+        ws[0],
+        "Timeplus Proton no renombra tareas: se crea default.t2 y se borra default.dbine_test_sched_t1; se pierden su UUID y su última ejecución."
+    );
+    let p = plan(Some(false), json!({"name": "t2"}));
+    assert_eq!(warnings(&p.script()).len(), 2, "{}", p.script());
+    // Created and deleted: nothing.
+    assert!(warnings(&task::drop_plan(&cur).script()).is_empty());
 }

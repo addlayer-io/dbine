@@ -222,6 +222,7 @@ pub(crate) fn plan(current: Option<&Plugin>, values: &FormValues) -> Result<Plan
                     shown: st.shown,
                     real: Err(NEED_URI.into()),
                     secrets: Vec::new(),
+                    hidden: false,
                 });
             }
             (None, None) => return Err(bad(NEED_URI.into())),
@@ -238,13 +239,13 @@ pub(crate) fn plan(current: Option<&Plugin>, values: &FormValues) -> Result<Plan
     }
     let uri = uri.ok_or_else(|| bad(NO_URI.into()))?;
     plan.comment(format!("Plugin de pipe «{}» de IoTDB", p.name));
-    plan.comment("IoTDB no cambia un plugin cargado: se borra y se vuelve a cargar desde la URI.");
+    plan.warn("IoTDB no cambia un plugin cargado: se borra y se vuelve a cargar desde la URI.");
     if renamed {
-        plan.comment("Los pipes que lo usan por su nombre anterior dejan de encontrarlo.");
+        plan.warn("Los pipes que lo usan por su nombre anterior dejan de encontrarlo.");
         plan.push(create(&name, &class, &uri)?);
         plan.push(drop(&p.name));
     } else {
-        plan.comment("Si la carga falla, el plugin queda borrado: IoTDB no guarda la URI para volver a cargarlo.");
+        plan.warn("Si la carga falla, el plugin queda borrado: IoTDB no guarda la URI para volver a cargarlo.");
         plan.push(drop(&p.name));
         plan.push(create(&name, &class, &uri)?);
     }
