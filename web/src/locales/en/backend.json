@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "invalid local database alias: {0}",
   "no se pudo guardar el dato cifrado: {0}": "couldn't save the encrypted data: {0}",
   "no se pudo cifrar el dato": "couldn't encrypt the data",
+  "dato cifrado sin pestaña o con una inválida": "encrypted data without a tab or with an invalid one",
   "el dato es demasiado grande para guardarlo": "the data is too large to save"
 }

@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "ungültiger Alias der lokalen Datenbank: {0}",
   "no se pudo guardar el dato cifrado: {0}": "Die verschlüsselten Daten konnten nicht gespeichert werden: {0}",
   "no se pudo cifrar el dato": "Die Daten konnten nicht verschlüsselt werden",
+  "dato cifrado sin pestaña o con una inválida": "Verschlüsselte Daten ohne Tab oder mit einem ungültigen Tab",
   "el dato es demasiado grande para guardarlo": "Die Daten sind zu groß zum Speichern"
 }

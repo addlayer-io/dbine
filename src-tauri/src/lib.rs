@@ -449,6 +449,7 @@ pub fn run() {
             commands::sealed::sealed_get,
             commands::sealed::sealed_set,
             commands::sealed::sealed_delete,
+            commands::sealed::sealed_prune,
             commands::export::export_rows_to_file,
             commands::export::export_query_to_file,
             commands::chart::chart_aggregate,

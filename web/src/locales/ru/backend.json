@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "недопустимый псевдоним локальной базы: {0}",
   "no se pudo guardar el dato cifrado: {0}": "не удалось сохранить зашифрованные данные: {0}",
   "no se pudo cifrar el dato": "не удалось зашифровать данные",
+  "dato cifrado sin pestaña o con una inválida": "зашифрованные данные без вкладки или с недопустимой вкладкой",
   "el dato es demasiado grande para guardarlo": "данные слишком велики для сохранения"
 }

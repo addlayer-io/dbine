@@ -13550,5 +13550,6 @@
   "alias de base local inválido: {0}": "alias de base locale non valide : {0}",
   "no se pudo guardar el dato cifrado: {0}": "impossible d'enregistrer la donnée chiffrée : {0}",
   "no se pudo cifrar el dato": "impossible de chiffrer la donnée",
+  "dato cifrado sin pestaña o con una inválida": "donnée chiffrée sans onglet ou avec un onglet non valide",
   "el dato es demasiado grande para guardarlo": "la donnée est trop volumineuse pour être enregistrée"
 }
