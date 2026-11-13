@@ -13,8 +13,9 @@
 //!
 //! `real_project`: against a real project with the Data Transfer API on and
 //! credentials that can create datasets and transfer configs (a
-//! service-account key file, or `adc`). It creates, edits part by part and
-//! deletes scheduled queries in a dataset of its own; every object it makes
+//! service-account key file, or `adc`). It creates, edits part by part,
+//! runs (now and for past dates) and deletes scheduled queries in a dataset
+//! of its own; every object it makes
 //! is named `dbine_test_sched_*` and is deleted at the end, whether the test
 //! passed or not:
 //!
@@ -95,14 +96,35 @@ async fn emulator() {
         s.scheduler_logs().await,
         Err(Error::Unsupported(_))
     ));
-    // No action besides the jobs list's run (a backfill needs a time range).
+    // No action without the service: the backfill's form, script and run
+    // are refused, and "run" is the jobs list's, not an action.
+    let range = FormValues {
+        values: [
+            ("mode".to_string(), json!("range")),
+            ("start_date".to_string(), json!("2026-01-01")),
+            ("end_date".to_string(), json!("2026-01-02")),
+        ]
+        .into(),
+        lists: Default::default(),
+    };
+    unsupported(s.scheduler_action_form("job", id, "backfill").await);
+    unsupported(
+        s.scheduler_action_script("job", id, "backfill", &range)
+            .await,
+    );
+    unsupported(s.scheduler_action("job", id, "backfill", &range).await);
     for a in ["run", "backfill"] {
         assert!(matches!(
-            s.scheduler_action_script("job", id, a).await,
+            s.scheduler_action_form("job", id, a).await,
             Err(Error::Unsupported(_))
         ));
         assert!(matches!(
-            s.scheduler_action("job", id, a).await,
+            s.scheduler_action_script("job", id, a, &Default::default())
+                .await,
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            s.scheduler_action("job", id, a, &Default::default()).await,
             Err(Error::Unsupported(_))
         ));
     }
@@ -112,6 +134,7 @@ async fn emulator() {
         ro.scheduler_save("job", None, &v).await.map(|_| ()),
         ro.scheduler_delete("job", id).await,
         ro.clear_job_history(id).await,
+        ro.scheduler_action("job", id, "backfill", &range).await,
     ] {
         assert!(
             matches!(&r, Err(Error::Query(m)) if m.contains("solo lectura")),
@@ -267,7 +290,8 @@ async fn real_project() {
             eprintln!("{info:#?}");
             let k = &info.kinds[0];
             assert!(k.key == "job" && k.can_create && k.can_edit && k.can_delete);
-            assert!(!k.run_from_step && k.clear_history && k.actions.is_empty());
+            assert!(!k.run_from_step && k.clear_history);
+            assert!(k.actions.iter().any(|a| a.key == "backfill" && a.params));
 
             // Create.
             let form = s.scheduler_form("job", None).await.unwrap();
@@ -385,6 +409,51 @@ async fn real_project() {
                     break;
                 }
             }
+            // Run it for past dates: once, for a past time, then for
+            // yesterday (one run per scheduled time of that day).
+            let form = s
+                .scheduler_action_form("job", &id, "backfill")
+                .await
+                .unwrap();
+            assert_eq!(form.values["mode"], json!("range"));
+            let mut once = values_of(&form);
+            let past = (chrono::Utc::now() - chrono::Duration::days(2))
+                .format("%Y-%m-%dT03:00:00Z")
+                .to_string();
+            once.values.insert("mode".into(), json!("once"));
+            once.values.insert("run_time".into(), json!(past));
+            let script = s
+                .scheduler_action_script("job", &id, "backfill", &once)
+                .await
+                .unwrap();
+            eprintln!("{script}");
+            assert!(script.contains(":startManualRuns") && script.contains("requestedRunTime"));
+            assert!(script.contains("# ⚠ "));
+            s.scheduler_action("job", &id, "backfill", &once)
+                .await
+                .unwrap();
+            let range = values_of(&form);
+            let script = s
+                .scheduler_action_script("job", &id, "backfill", &range)
+                .await
+                .unwrap();
+            eprintln!("{script}");
+            assert!(script.contains("requestedTimeRange"));
+            match s.scheduler_action("job", &id, "backfill", &range).await {
+                Ok(()) => {}
+                // A schedule that starts tomorrow has no time yesterday.
+                Err(e) => assert!(e.to_string().contains("no creó ninguna ejecución"), "{e}"),
+            }
+            for _ in 0..40 {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                let runs = s.job_runs(&id, 10).await.unwrap();
+                if runs
+                    .iter()
+                    .all(|r| r.outcome != dbine_driver::JobOutcome::Running)
+                {
+                    break;
+                }
+            }
             s.clear_job_history(&id).await.unwrap();
             assert!(s.job_runs(&id, 5).await.unwrap().is_empty());
 
@@ -407,6 +476,22 @@ async fn real_project() {
             let f = s.scheduler_form("job", Some(&dml)).await.unwrap();
             assert_eq!(f.values["dataset"], Value::Null);
             assert_eq!(f.values["mode"], json!("manual"));
+            // On demand: no period to fill, refused before the service.
+            let form = s
+                .scheduler_action_form("job", &dml, "backfill")
+                .await
+                .unwrap();
+            assert_eq!(form.values["mode"], json!("once"));
+            let mut range = values_of(&form);
+            range.values.insert("mode".into(), json!("range"));
+            let e = s
+                .scheduler_action_script("job", &dml, "backfill", &range)
+                .await
+                .unwrap_err();
+            assert!(
+                e.to_string().contains("no corre según una programación"),
+                "{e}"
+            );
 
             // Delete.
             let script = s.scheduler_delete_script("job", &dml).await.unwrap();

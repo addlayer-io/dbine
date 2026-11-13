@@ -379,6 +379,7 @@
     "saved": "«{{name}}» salvato.",
     "deleted": "«{{name}}» eliminato.",
     "confirmAction": "Verrà eseguita «{{action}}» su «{{name}}» ({{kind}}) su {{connection}}, con questo script:",
+    "actionForm": "Compila i valori di «{{action}}» per «{{name}}» ({{kind}}) su {{connection}}. Vedrai il suo script prima che venga eseguita.",
     "actionDone": "«{{action}}» eseguita su «{{name}}».",
     "noScript": "Il server non ha restituito alcuno script: non ci sono modifiche da salvare.",
     "consequences": "Prima di continuare, tieni presente:",

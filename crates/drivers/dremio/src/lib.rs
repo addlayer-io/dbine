@@ -1335,12 +1335,19 @@ impl Session for DremioSession {
         kind: &str,
         id: &str,
         action: &str,
+        _values: &dbine_driver::FormValues,
     ) -> Result<String> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         self.scheduler_action_script_impl(kind, id, action).await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        _values: &dbine_driver::FormValues,
+    ) -> Result<()> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         self.scheduler_action_impl(kind, id, action).await
     }

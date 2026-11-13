@@ -1662,20 +1662,41 @@ impl Session for OracleSession {
         self.run(move |c| scheduler::delete(c, &kind, &id)).await
     }
 
+    /// A step of the chain a job runs now, to steer or stop.
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
+        self.run(move |c| scheduler::action_form(c, &kind, &id, &action))
+            .await
+    }
+
     async fn scheduler_action_script(
         &mut self,
         kind: &str,
         id: &str,
         action: &str,
+        values: &dbine_driver::FormValues,
     ) -> Result<String> {
         let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
-        self.run(move |c| scheduler::action_script(c, &kind, &id, &action))
+        let values = values.clone();
+        self.run(move |c| scheduler::action_script(c, &kind, &id, &action, &values))
             .await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<()> {
         let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
-        self.run(move |c| scheduler::run_action(c, &kind, &id, &action))
+        let values = values.clone();
+        self.run(move |c| scheduler::run_action(c, &kind, &id, &action, &values))
             .await
     }
 

@@ -83,10 +83,12 @@ pub fn split(script: &str) -> Vec<String> {
 /// A unit of an editor script, as cqlsh reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
-    /// The statement (without its `;`; a batch whole), or the command line.
+    /// The statement (without its `;`; a batch whole), or the command line:
+    /// `script[start..end]`.
     pub text: String,
-    /// Byte offset and 1-based line in the script.
+    /// Byte offsets and 1-based line of `start` in the script.
     pub start: usize,
+    pub end: usize,
     pub line: u32,
     /// A cqlsh command (`CONSISTENCY`, `PAGING`…): the client handles it.
     /// It takes the rest of its line; the `;` is optional.
@@ -166,6 +168,17 @@ pub fn script(text: &str) -> Vec<Unit> {
             .count() as u32
             + 1
     };
+    // `text[from..to]` without its trailing blanks.
+    let unit = |from: usize, to: usize, command: bool| {
+        let t = text[from..to].trim_end();
+        Unit {
+            text: t.to_string(),
+            start: from,
+            end: from + t.len(),
+            line: line(from),
+            command,
+        }
+    };
     let mut out: Vec<Unit> = Vec::new();
     // The open batch: its start in `text`.
     let mut batch: Option<usize> = None;
@@ -176,54 +189,61 @@ pub fn script(text: &str) -> Vec<Unit> {
             break;
         }
         let rest = &text[at..];
-        let words = first_words(rest, 2);
-        let first = words.first().map(String::as_str).unwrap_or("");
-        let alone = rest.len() == first.len()
-            || rest[first.len()..].starts_with(|c: char| c.is_whitespace() || c == ';');
-        if batch.is_none() && SHELL_COMMANDS.contains(&first) && alone {
+        // The word the unit starts with (none when it starts with a sign).
+        let lead = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .unwrap_or(rest.len());
+        let first = rest[..lead].to_ascii_lowercase();
+        let alone = rest[lead..]
+            .chars()
+            .next()
+            .is_none_or(|c| c.is_whitespace() || c == ';');
+        if batch.is_none() && SHELL_COMMANDS.contains(&first.as_str()) && alone {
             let end = rest.find('\n').unwrap_or(rest.len());
             let cmd = rest[..end].trim_end().trim_end_matches(';').trim_end();
-            out.push(Unit {
-                text: cmd.to_string(),
-                start: at,
-                line: line(at),
-                command: true,
-            });
+            out.push(unit(at, at + cmd.len(), true));
             at += end;
             continue;
         }
         let end = statement_end(text, at);
+        let apply = first == "apply"
+            && lead > 0
+            && first_words(rest, 2).get(1).is_some_and(|w| w == "batch");
         match batch {
-            Some(from) if words.len() >= 2 && first == "apply" && words[1] == "batch" => {
-                out.push(Unit {
-                    text: text[from..end].trim_end().to_string(),
-                    start: from,
-                    line: line(from),
-                    command: false,
-                });
+            Some(from) if apply => {
+                out.push(unit(from, end, false));
                 batch = None;
             }
             Some(_) => {}
             None if first == "begin" => batch = Some(at),
-            None => out.push(Unit {
-                text: text[at..end].trim_end().to_string(),
-                start: at,
-                line: line(at),
-                command: false,
-            }),
+            None => out.push(unit(at, end, false)),
         }
         at = (end + 1).min(text.len());
     }
     if let Some(from) = batch {
         // No APPLY BATCH: the server says what's missing.
-        out.push(Unit {
-            text: text[from..].trim_end().to_string(),
-            start: from,
-            line: line(from),
-            command: false,
-        });
+        out.push(unit(from, text.len(), false));
     }
     out
+}
+
+/// [`script`] as the app's units: what `execute` numbers, at the same
+/// places, so "run the statement at the cursor", the run lens and named
+/// results see the statements cqlsh runs. A cqlsh command is a unit the
+/// driver runs (not a client command the app would skip).
+pub fn statements(text: &str) -> Vec<dbine_driver::ScriptStatement> {
+    script(text)
+        .into_iter()
+        .map(|u| dbine_driver::ScriptStatement {
+            text: u.text,
+            start: u.start,
+            end: u.end,
+            line: u.line,
+            kind: dbine_driver::StatementKind::Sql,
+            repeat: 1,
+            error: None,
+        })
+        .collect()
 }
 
 /// Up to the end of the line (kept, so line numbers in errors still match).
@@ -403,13 +423,90 @@ mod tests {
             ]
         );
         for x in &u {
-            assert!(s[x.start..].starts_with(&x.text), "{x:?}");
+            assert_eq!(s[x.start..x.end], x.text, "{x:?}");
         }
         // A column called `paging` in a statement isn't a command.
         assert_eq!(script("SELECT paging FROM t").len(), 1);
         assert!(!script("SELECT paging FROM t")[0].command);
         assert!(script("PAGING")[0].command);
         assert!(script("-- only\n/* comments */").is_empty());
+        // A sign before a word isn't a word: no panic, one statement.
+        assert_eq!(script("€x;").len(), 1);
+        assert_eq!(script("(paging);")[0].text, "(paging)");
+    }
+
+    /// (text, start, end, line) of each unit the app gets.
+    fn placed(s: &str) -> Vec<(String, usize, usize, u32)> {
+        let units = statements(s);
+        for u in &units {
+            assert_eq!(s[u.start..u.end], u.text, "{u:?}");
+            assert_eq!(u.kind, dbine_driver::StatementKind::Sql);
+        }
+        units
+            .into_iter()
+            .map(|u| (u.text, u.start, u.end, u.line))
+            .collect()
+    }
+
+    #[test]
+    fn app_units_match_what_execute_numbers() {
+        // The audit's scripts.
+        assert_eq!(placed("SELECT * FROM a;\nSELECT * FROM b;").len(), 2);
+        assert_eq!(
+            placed("PAGING OFF\nSELECT * FROM t;"),
+            [
+                ("PAGING OFF".into(), 0, 10, 1),
+                ("SELECT * FROM t".into(), 11, 26, 2)
+            ]
+        );
+        assert_eq!(
+            placed("CONSISTENCY ONE\nTRACING ON"),
+            [
+                ("CONSISTENCY ONE".into(), 0, 15, 1),
+                ("TRACING ON".into(), 16, 26, 2)
+            ]
+        );
+        let b = "BEGIN BATCH\nINSERT INTO t (a) VALUES (1);\nINSERT INTO t (a) VALUES (2);\nAPPLY BATCH;\nSELECT * FROM t;";
+        let u = placed(b);
+        assert_eq!(u.len(), 2);
+        assert_eq!((u[0].1, u[0].3), (0, 1));
+        assert!(u[0].0.ends_with("APPLY BATCH"));
+        assert_eq!((u[1].0.as_str(), u[1].3), ("SELECT * FROM t", 5));
+        // Three statements, a multi-line one, separators in quotes and
+        // bodies, comments and blank lines before a statement (not part
+        // of it), every cqlsh command word.
+        let s = "-- head\n\nSELECT a,\n  b FROM t WHERE a = 'x;y';\n\n/* c; */ INSERT INTO t (a) VALUES ($$p;q$$);\n// e;\nSELECT \"c;d\" FROM t;";
+        let u = placed(s);
+        assert_eq!(
+            u.iter().map(|x| x.3).collect::<Vec<_>>(),
+            [3, 6, 8],
+            "{u:?}"
+        );
+        assert_eq!(u[0].0, "SELECT a,\n  b FROM t WHERE a = 'x;y'");
+        assert_eq!(u[1].0, "INSERT INTO t (a) VALUES ($$p;q$$)");
+        for cmd in SHELL_COMMANDS {
+            let u = placed(&format!("{cmd} x\nSELECT 1 FROM t;"));
+            assert_eq!(u.len(), 2, "{cmd}");
+            assert_eq!(u[0].0, format!("{cmd} x"));
+        }
+        // CRLF: the line ends before its `\r`.
+        let u = placed("SERIAL CONSISTENCY SERIAL;\r\nSELECT 1 FROM t;\r\nEXPAND ON\r\n");
+        assert_eq!(
+            u,
+            [
+                ("SERIAL CONSISTENCY SERIAL".into(), 0, 25, 1),
+                ("SELECT 1 FROM t".into(), 28, 43, 2),
+                ("EXPAND ON".into(), 46, 55, 3)
+            ]
+        );
+        // Without `;`, two statements are one, as in cqlsh.
+        assert_eq!(placed("SELECT 1 FROM t\nSELECT 2 FROM t").len(), 1);
+        // Inside an open batch a command word is CQL: without APPLY BATCH
+        // the batch runs to the end (the server says what's missing).
+        assert_eq!(
+            placed("BEGIN UNLOGGED BATCH\nUPDATE t SET v = 1 WHERE a = 1;\nPAGING OFF\nSELECT 1 FROM t;").len(),
+            1
+        );
     }
 
     #[test]

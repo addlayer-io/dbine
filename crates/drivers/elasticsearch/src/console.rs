@@ -21,6 +21,8 @@
 //! ends at a blank line, a trailing `;` or the next request line. Whole
 //! lines starting with `#` or `//` are comments.
 
+use dbine_driver::{ScriptStatement, StatementKind};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Http(Request),
@@ -131,9 +133,21 @@ enum Cur {
     None,
     Req(String, String, Vec<String>),
     Sql(Vec<String>),
+    /// A line that's neither a request nor SQL (its message), with the
+    /// lines after it up to a blank line or the next request / SQL line.
+    Bad(String),
 }
 
-/// A command with where it starts in the script.
+/// Where the current command is: its first character and line, and the
+/// end of its last non-blank line.
+#[derive(Clone, Copy)]
+struct Span {
+    start: usize,
+    line: u32,
+    end: usize,
+}
+
+/// A command with where it is in the script.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Located {
     pub command: Command,
@@ -141,6 +155,9 @@ pub struct Located {
     pub offset: usize,
     /// 1-based line of that character.
     pub line: u32,
+    /// Byte offset where it ends: its last non-blank line's end, without an
+    /// SQL statement's `;`.
+    pub end: usize,
 }
 
 /// A line that's neither a request nor SQL, and where it is.
@@ -149,11 +166,24 @@ pub struct ParseError {
     pub message: String,
     pub offset: usize,
     pub line: u32,
+    /// The end of the lines that go with it (up to a blank line or the
+    /// next request / SQL line).
+    pub end: usize,
 }
 
-fn finish(cur: Cur, at: (usize, u32), out: &mut Vec<Located>) {
+fn finish(text: &str, cur: Cur, at: Span, out: &mut Vec<Result<Located, ParseError>>) {
+    let mut end = at.end;
     let command = match cur {
         Cur::None => return,
+        Cur::Bad(message) => {
+            out.push(Err(ParseError {
+                message,
+                offset: at.start,
+                end,
+                line: at.line,
+            }));
+            return;
+        }
         Cur::Req(method, path, body) => {
             let body = body.join("\n");
             let body = body.trim();
@@ -173,14 +203,20 @@ fn finish(cur: Cur, at: (usize, u32), out: &mut Vec<Located>) {
             if s.is_empty() {
                 return;
             }
+            // Without its `;`, as the SQL splitter leaves a statement.
+            end = at.start
+                + text[at.start..end]
+                    .trim_end_matches(|c: char| c == ';' || c.is_whitespace())
+                    .len();
             Command::Sql(s.to_string())
         }
     };
-    out.push(Located {
+    out.push(Ok(Located {
         command,
-        offset: at.0,
-        line: at.1,
-    });
+        offset: at.start,
+        end,
+        line: at.line,
+    }));
 }
 
 /// Split a console script into requests and SQL statements.
@@ -191,18 +227,62 @@ pub fn parse(text: &str) -> Result<Vec<Command>, String> {
         .map_err(|e| e.message)
 }
 
-/// [`parse`], keeping where each command starts in `text`.
+/// [`parse`], keeping where each command is in `text`.
 pub fn parse_located(text: &str) -> Result<Vec<Located>, ParseError> {
+    scan(text).into_iter().collect()
+}
+
+/// The script cut into the units `execute` runs and numbers, in the same
+/// order and at the same places ([`parse_located`]): a request (its method
+/// line and body) or an SQL statement (without its `;`). Comment and blank
+/// lines before one aren't part of it. A line that's neither is still a
+/// unit (with the lines that go with it), without an `error`, and the rest
+/// of the script is still cut: a request being typed (`GE`, `GET` without
+/// its path yet) keeps the lenses of the others, and running it reports
+/// the parse error at its place (`execute` refuses the script).
+pub fn split(text: &str) -> Vec<ScriptStatement> {
+    scan(text)
+        .into_iter()
+        .map(|r| {
+            let (start, end, line) = match r {
+                Ok(l) => (l.offset, l.end, l.line),
+                Err(e) => (e.offset, e.end, e.line),
+            };
+            ScriptStatement {
+                text: text[start..end].to_string(),
+                start,
+                end,
+                line,
+                kind: StatementKind::Sql,
+                repeat: 1,
+                error: None,
+            }
+        })
+        .collect()
+}
+
+/// Every command of the script in order, and an `Err` for each line that's
+/// neither a request nor SQL (the scan goes on after it). Before the first
+/// `Err` it is what [`parse_located`] returns.
+fn scan(text: &str) -> Vec<Result<Located, ParseError>> {
     let mut out = Vec::new();
     let mut cur = Cur::None;
-    let mut at = (0usize, 1u32);
+    let mut at = Span {
+        start: 0,
+        line: 1,
+        end: 0,
+    };
     let mut pos = 0usize;
     for (n, raw) in text.split_inclusive('\n').enumerate() {
         let start = pos;
         pos += raw.len();
         let line = raw.strip_suffix('\n').unwrap_or(raw);
         let line = line.strip_suffix('\r').unwrap_or(line);
-        let here = (start + (line.len() - line.trim_start().len()), n as u32 + 1);
+        let here = Span {
+            start: start + (line.len() - line.trim_start().len()),
+            line: n as u32 + 1,
+            end: start + line.trim_end().len(),
+        };
         if is_comment(line) {
             continue;
         }
@@ -211,55 +291,54 @@ pub fn parse_located(text: &str) -> Result<Vec<Located>, ParseError> {
         if let Cur::Req(_, _, body) = &mut cur {
             if depth(&body.join("\n")) > 0 && method_of(line).is_none() {
                 body.push(line.to_string());
+                if !blank {
+                    at.end = here.end;
+                }
                 continue;
             }
         }
         if blank {
-            finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
+            finish(text, std::mem::replace(&mut cur, Cur::None), at, &mut out);
             continue;
         }
         if let Some(m) = method_of(line) {
-            finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
+            finish(text, std::mem::replace(&mut cur, Cur::None), at, &mut out);
             let path = line.trim_start()[m.len()..].trim().to_string();
-            if path.is_empty() {
-                return Err(ParseError {
-                    message: format!("Línea {}: falta la ruta después de {m}.", n + 1),
-                    offset: here.0,
-                    line: here.1,
-                });
-            }
-            cur = Cur::Req(m, path, Vec::new());
+            cur = if path.is_empty() {
+                Cur::Bad(format!("Línea {}: falta la ruta después de {m}.", n + 1))
+            } else {
+                Cur::Req(m, path, Vec::new())
+            };
             at = here;
             continue;
         }
         if is_sql_start(line) && !matches!(cur, Cur::Sql(_)) {
-            finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
+            finish(text, std::mem::replace(&mut cur, Cur::None), at, &mut out);
             cur = Cur::Sql(Vec::new());
             at = here;
         }
+        at.end = here.end;
         match &mut cur {
             Cur::Req(_, _, body) => body.push(line.to_string()),
             Cur::Sql(lines) => {
                 lines.push(line.to_string());
                 if line.trim_end().ends_with(';') {
-                    finish(std::mem::replace(&mut cur, Cur::None), at, &mut out);
+                    finish(text, std::mem::replace(&mut cur, Cur::None), at, &mut out);
                 }
             }
+            Cur::Bad(_) => {}
             Cur::None => {
-                return Err(ParseError {
-                    message: format!(
-                        "Línea {}: se esperaba una petición (GET /ruta, POST /ruta…) o una sentencia SQL: {}",
-                        n + 1,
-                        line.trim()
-                    ),
-                    offset: here.0,
-                    line: here.1,
-                })
+                cur = Cur::Bad(format!(
+                    "Línea {}: se esperaba una petición (GET /ruta, POST /ruta…) o una sentencia SQL: {}",
+                    n + 1,
+                    line.trim()
+                ));
+                at = here;
             }
         }
     }
-    finish(cur, at, &mut out);
-    Ok(out)
+    finish(text, cur, at, &mut out);
+    out
 }
 
 #[cfg(test)]
@@ -372,5 +451,105 @@ mod tests {
     fn garbage_is_an_error() {
         assert!(parse("hello world").unwrap_err().contains("Línea 1"));
         assert!(parse("GET").is_err());
+    }
+
+    /// `(start, end, line)` and text of each unit, checking that the units
+    /// are where `execute` numbers its commands and that each unit's text
+    /// alone parses to that one command (what "run the statement at the
+    /// cursor" sends).
+    fn units(s: &str) -> Vec<(usize, usize, u32, String)> {
+        let units = split(s);
+        let located = parse_located(s).unwrap();
+        assert_eq!(units.len(), located.len(), "{units:?}");
+        for (u, l) in units.iter().zip(&located) {
+            assert_eq!((u.start, u.end, u.line), (l.offset, l.end, l.line));
+            assert_eq!(u.error, None);
+            assert_eq!(&s[u.start..u.end], u.text);
+            assert_eq!(parse(&u.text).unwrap(), vec![l.command.clone()]);
+        }
+        units
+            .into_iter()
+            .map(|u| (u.start, u.end, u.line, u.text))
+            .collect()
+    }
+
+    #[test]
+    fn split_two_requests() {
+        let u =
+            units("GET /_cat/indices\nGET /idx/_search\n{\n  \"query\": {\"match_all\": {}}\n}");
+        assert_eq!(u.len(), 2);
+        assert_eq!(u[0], (0, 17, 1, "GET /_cat/indices".into()));
+        assert_eq!(u[1].2, 2);
+        assert_eq!(
+            u[1].3,
+            "GET /idx/_search\n{\n  \"query\": {\"match_all\": {}}\n}"
+        );
+    }
+
+    #[test]
+    fn split_comments_blank_lines_and_separators_in_strings() {
+        let s = "# c\nGET _cluster/health\n\n// next\nPOST idx/_count\n{\"query\": {\"term\": {\"x\": \"x;y\\n}\\\" GET /z\"}}}\n# after\n\n";
+        let u = units(s);
+        assert_eq!(u.len(), 2);
+        assert_eq!((u[0].2, u[0].3.as_str()), (2, "GET _cluster/health"));
+        assert_eq!(u[1].2, 5);
+        assert!(u[1].3.starts_with("POST idx/_count\n{"));
+        assert!(u[1].3.ends_with("}}}"), "{:?}", u[1].3);
+    }
+
+    #[test]
+    fn split_three_with_sql_ndjson_and_crlf() {
+        let s = "SELECT a\r\nFROM t;\r\nPOST /_bulk\r\n{\"index\":{}}\r\n{\"a\":1}\r\n\r\nshow tables\r\n";
+        let u = units(s);
+        assert_eq!(u.len(), 3);
+        assert_eq!((u[0].2, u[0].3.as_str()), (1, "SELECT a\r\nFROM t"));
+        assert_eq!(
+            (u[1].2, u[1].3.as_str()),
+            (3, "POST /_bulk\r\n{\"index\":{}}\r\n{\"a\":1}")
+        );
+        assert_eq!((u[2].2, u[2].3.as_str()), (7, "show tables"));
+        // `;` statements one after another, and a request right after SQL.
+        let u = units("SELECT 1;\nSELECT 2;\nGET /a");
+        assert_eq!(
+            u.iter().map(|u| u.3.as_str()).collect::<Vec<_>>(),
+            ["SELECT 1", "SELECT 2", "GET /a"]
+        );
+        // A blank line inside an open body stays in it.
+        let u = units("  PUT /b\n{\n\n  \"x\": 1\n}\n\nDELETE /b");
+        assert_eq!(u.len(), 2);
+        assert_eq!((u[0].0, u[0].2), (2, 1));
+        assert_eq!(u[0].3, "PUT /b\n{\n\n  \"x\": 1\n}");
+    }
+
+    #[test]
+    fn split_cuts_around_lines_that_are_neither() {
+        let s = "GET /a\n\nhola\n  mundo\n\nGET\n{}\nPOST /b";
+        let u = split(s);
+        let got: Vec<_> = u.iter().map(|u| (u.text.as_str(), u.line)).collect();
+        assert_eq!(
+            got,
+            [
+                ("GET /a", 1),
+                ("hola\n  mundo", 3),
+                ("GET\n{}", 6),
+                ("POST /b", 8),
+            ]
+        );
+        // No unit carries an error (the editor keeps every lens while a
+        // request is being typed): running one reports it at its place.
+        assert!(u.iter().all(|u| u.error.is_none()));
+        let e = parse_located(s).unwrap_err();
+        assert_eq!((e.offset, e.line), (u[1].start, 3));
+        assert_eq!(parse_located(&u[1].text).unwrap_err().offset, 0);
+        assert!(parse(&u[2].text).is_err());
+        for typing in ["G", "GE", "GET"] {
+            let s = format!("GET /a\n\n{typing}\n\nPOST /b");
+            let u = split(&s);
+            assert_eq!(u.len(), 3, "{typing}");
+            assert!(u.iter().all(|u| u.error.is_none()), "{typing}");
+            assert!(parse(&s).is_err(), "{typing}");
+        }
+        assert!(split("").is_empty());
+        assert!(split("# solo\n\n// comentarios\n").is_empty());
     }
 }

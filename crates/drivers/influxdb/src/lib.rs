@@ -88,6 +88,16 @@ impl Driver for InfluxDriver {
         }
     }
 
+    /// InfluxQL as the influx CLI reads it (see `v1::units`): statements end
+    /// at `;`, and a `USE db[.rp]` line is a unit of its own (its own
+    /// number and run lens) even without `;`. Flux and SQL: the dialect's.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        match self.api {
+            Api::InfluxQl => v1::units(text),
+            Api::Flux | Api::Sql => dbine_driver::sql::split_script(text, &self.script_dialect()),
+        }
+    }
+
     /// Line protocol through the write API of each version (see
     /// `transfer.rs`).
     fn supports_bulk_load(&self) -> bool {
@@ -269,6 +279,22 @@ impl Driver for InfluxDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// InfluxQL: a `USE` line is a unit of its own; a Flux script is one
+    /// program; the SQL of v3 splits at `;`.
+    #[test]
+    fn split_script_per_language() {
+        let d = drivers();
+        let count = |i: usize, s: &str| d[i].split_script(s).len();
+        assert_eq!(d[1].info().id, "influxdb1");
+        assert_eq!(count(1, "USE mydb\nSHOW MEASUREMENTS;"), 2);
+        assert_eq!(count(1, "SHOW DATABASES;\nSHOW MEASUREMENTS;"), 2);
+        assert_eq!(
+            count(0, "from(bucket: \"b\")\n  |> range(start: -1h)\nbuckets()"),
+            1
+        );
+        assert_eq!(count(2, "SELECT 1;\nSELECT 2;"), 2);
+    }
 
     #[test]
     fn updates_are_unsupported() {

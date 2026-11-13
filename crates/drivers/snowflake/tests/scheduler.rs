@@ -98,6 +98,25 @@ fn schema() -> String {
     format!("\"{DB}\".\"PUBLIC\"")
 }
 
+/// The script's `EXECUTE` statement, sent for an object that doesn't exist
+/// instead of `real`: Snowflake compiles it (the statement's syntax and its
+/// quoted, escaped CONFIG literal) and then refuses the name, so nothing
+/// runs on the warehouse.
+async fn compiles(s: &mut Box<dyn Session>, script: &str, real: &str) {
+    let stmt = script
+        .lines()
+        .find(|l| l.starts_with("EXECUTE "))
+        .unwrap_or_else(|| panic!("no EXECUTE statement in {script}"))
+        .trim_end_matches(';')
+        .replace(real, &id("DBINE_TEST_SCHED_MISSING"));
+    let e = run(s, &stmt)
+        .await
+        .expect_err("an object that doesn't exist can't run")
+        .to_string();
+    assert!(!e.to_lowercase().contains("syntax error"), "{stmt}: {e}");
+    assert!(e.contains("does not exist"), "{stmt}: {e}");
+}
+
 async fn task(s: &mut Box<dyn Session>, name: &str) -> BTreeMap<String, String> {
     rows(
         s,
@@ -129,14 +148,21 @@ async fn tasks(s: &mut Box<dyn Session>, wh: &str) {
         "{kinds:?}"
     );
     // A graph starts at a step; its history isn't cleared. Alerts and task
-    // graph objects run now by their action.
+    // graph objects run now by their action; graphs (jobs and task graph
+    // objects) run once with another configuration, asked for first.
+    let keys = |i: usize| -> Vec<(&str, bool)> {
+        info.kinds[i]
+            .actions
+            .iter()
+            .map(|a| (a.key.as_str(), a.params))
+            .collect()
+    };
     assert!(info.kinds[0].run_from_step && !info.kinds[0].clear_history);
-    assert!(info.kinds[0].actions.is_empty());
-    assert!(info.kinds[1..].iter().all(|k| k
-        .actions
-        .iter()
-        .map(|a| a.key.as_str())
-        .eq(["execute"])));
+    assert_eq!(keys(0), [("run_config", true)]);
+    assert_eq!(keys(1), [("execute", false)]);
+    if info.kinds.len() > 2 {
+        assert_eq!(keys(2), [("execute", false), ("run_config", true)]);
+    }
 
     // A new graph: root, child and finalizer, created suspended.
     let form = s.scheduler_form("job", None).await.unwrap();
@@ -278,6 +304,40 @@ async fn tasks(s: &mut Box<dyn Session>, wh: &str) {
     s.scheduler_save("job", Some(&id(ROOT)), &v).await.unwrap();
     assert_eq!(task(s, ROOT).await["state"], "suspended");
 
+    // A run with another configuration: the form starts from the root's
+    // CONFIG and the script merges the one written (shown, not run: the
+    // graph would run on the warehouse; its statement is compiled on a task
+    // that doesn't exist). A child isn't run alone.
+    let form = s
+        .scheduler_action_form("job", &id(ROOT), "run_config")
+        .await
+        .unwrap();
+    let now: Value = serde_json::from_str(form.values["config"].as_str().unwrap()).unwrap();
+    assert_eq!(now, json!({"env": "test"}), "{form:?}");
+    let v = FormValues {
+        values: BTreeMap::from([(
+            "config".to_string(),
+            json!(r#"{"env": "it's dev", "dir": "C:\\tmp"}"#),
+        )]),
+        ..Default::default()
+    };
+    let script = s
+        .scheduler_action_script("job", &id(ROOT), "run_config", &v)
+        .await
+        .unwrap();
+    assert!(
+        script.contains(&format!(
+            r#"EXECUTE TASK {} USING CONFIG = '{{"env": "it''s dev", "dir": "C:\\\\tmp"}}';"#,
+            id(ROOT)
+        )),
+        "{script}"
+    );
+    compiles(s, &script, &id(ROOT)).await;
+    assert!(s
+        .scheduler_action_form("job", &id(CHILD), "run_config")
+        .await
+        .is_err());
+
     // Start at a child: only a retry of a failed run (none here).
     assert!(s.run_job_from(&id(ROOT), CHILD).await.is_err());
     assert!(matches!(
@@ -360,18 +420,18 @@ async fn alerts(s: &mut Box<dyn Session>, wh: &str) {
     let mine = items.items.iter().find(|i| i.id == id(ALERT)).unwrap();
     assert_eq!((mine.can_edit, mine.can_delete), (None, None), "{mine:?}");
     let script = s
-        .scheduler_action_script("alert", &id(ALERT), "execute")
+        .scheduler_action_script("alert", &id(ALERT), "execute", &Default::default())
         .await
         .unwrap();
     assert!(
         script.contains(&format!("EXECUTE ALERT {};", id(ALERT))),
         "{script}"
     );
-    s.scheduler_action("alert", &id(ALERT), "execute")
+    s.scheduler_action("alert", &id(ALERT), "execute", &Default::default())
         .await
         .unwrap();
     assert!(s
-        .scheduler_action("alert", &id(ALERT), "drop")
+        .scheduler_action("alert", &id(ALERT), "drop", &Default::default())
         .await
         .is_err());
 
@@ -419,13 +479,41 @@ async fn task_graphs(s: &mut Box<dyn Session>, wh: &str) {
         "{items:?}"
     );
     let script = s
-        .scheduler_action_script("task_graph", &id(GRAPH), "execute")
+        .scheduler_action_script("task_graph", &id(GRAPH), "execute", &Default::default())
         .await
         .unwrap();
     assert!(
         script.contains(&format!("EXECUTE TASK GRAPH {};", id(GRAPH))),
         "{script}"
     );
+    // Once with another configuration (shown, not run; its statement is
+    // compiled on a graph that doesn't exist): the graph has none, so the
+    // form starts from an empty object.
+    let form = s
+        .scheduler_action_form("task_graph", &id(GRAPH), "run_config")
+        .await
+        .unwrap();
+    let now: Value = serde_json::from_str(form.values["config"].as_str().unwrap()).unwrap();
+    assert!(now.is_object(), "{form:?}");
+    let v = FormValues {
+        values: BTreeMap::from([(
+            "config".to_string(),
+            json!(r#"{"a": 1, "who": "it's", "dir": "C:\\tmp"}"#),
+        )]),
+        ..Default::default()
+    };
+    let script = s
+        .scheduler_action_script("task_graph", &id(GRAPH), "run_config", &v)
+        .await
+        .unwrap();
+    assert!(
+        script.contains(&format!(
+            r#"EXECUTE TASK GRAPH {} USING CONFIG = '{{"a": 1, "who": "it''s", "dir": "C:\\\\tmp"}}';"#,
+            id(GRAPH)
+        )),
+        "{script}"
+    );
+    compiles(s, &script, &id(GRAPH)).await;
     let form = s
         .scheduler_form("task_graph", Some(&id(GRAPH)))
         .await

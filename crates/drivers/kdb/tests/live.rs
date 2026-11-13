@@ -764,3 +764,35 @@ async fn charts_aggregate_on_the_server() {
     assert_eq!(a.rows_scanned, Some(4));
     run(&mut s, "delete dbine_ag from `.").await;
 }
+
+/// The editor's units (`split_script`: the lens, the statement at the
+/// cursor, named results) are the statements `execute` numbers, at the
+/// same offsets and lines: an unindented line starts one, an indented
+/// line or an open `{…}` stays in it.
+#[tokio::test]
+#[ignore]
+async fn editor_units_are_the_numbered_statements() {
+    let d = dbine_driver_kdb::drivers().remove(0);
+    let mut s = d.connect(&cfg(false), None).await.unwrap();
+    let text = "/ head\ndbine_units_a:1\n\ndbine_units_f:{x+\n  1}\ndbine_units_f 2\r\nselect from ([] a:1 2 3)";
+    let units = d.split_script(text);
+    assert_eq!(units.len(), 4, "{units:?}");
+    let out = run(&mut s, text).await;
+    let mut seen: Vec<usize> = Vec::new();
+    for r in &out.results {
+        let i = r.statement.expect("numbered");
+        assert_eq!(
+            (r.offset, r.line),
+            (Some(units[i].start), Some(units[i].line)),
+            "{i}"
+        );
+        if !seen.contains(&i) {
+            seen.push(i);
+        }
+    }
+    assert_eq!(seen, (0..units.len()).collect::<Vec<_>>());
+    // Each unit run alone (the lens) does what it does in the script.
+    let out = run(&mut s, &units[2].text).await;
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(3));
+    run(&mut s, "delete dbine_units_a, dbine_units_f from `.").await;
+}

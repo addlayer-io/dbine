@@ -1,5 +1,6 @@
 //! Editor scripts against a real server, as in tests/integration.rs: each
-//! command's place, errors with their code and line, and MULTI / EXEC.
+//! command's place, errors with their code and line, MULTI / EXEC, and the
+//! editor's units matching what `execute` numbers.
 //!
 //! `DBINE_TEST_REDIS_URL=redis://localhost:25400 cargo test -p dbine-driver-redis --test script -- --ignored`
 //! (`DBINE_TEST_VALKEY_URL` / `DBINE_TEST_DRAGONFLY_URL` too).
@@ -16,11 +17,14 @@ async fn open(driver: &str, url: &str) -> Box<dyn Session> {
         port: port.trim_end_matches('/').parse().unwrap(),
         ..Default::default()
     };
-    let d = dbine_driver_redis::drivers()
+    find(driver).connect(&c, Some("9")).await.unwrap()
+}
+
+fn find(driver: &str) -> std::sync::Arc<dyn dbine_driver::Driver> {
+    dbine_driver_redis::drivers()
         .into_iter()
         .find(|d| d.info().id == driver)
-        .unwrap();
-    d.connect(&c, Some("9")).await.unwrap()
+        .unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) -> dbine_driver::Result<QueryOutcome> {
@@ -104,6 +108,32 @@ async fn check(driver: &str, url: &str) {
     assert_eq!(
         run(&mut s, "GET dbine:script:a").await.unwrap().results[0].rows[0][0],
         json!("3")
+    );
+
+    // The editor's units (`split_script`: the lens, the statement at the
+    // cursor, named results) are the commands `execute` numbers: one per
+    // line, MULTI and EXEC included, at the same offsets and lines.
+    let text = "# head\nSET dbine:script:a 5\n\n  GET \"dbine:script:a\" # c\r\nMULTI\nINCR dbine:script:a\nEXEC\nSET dbine:script:l 'a;b'";
+    let units = find(driver).split_script(text);
+    assert_eq!(units.len(), 6);
+    let out = run(&mut s, text).await.unwrap();
+    let mut seen: Vec<usize> = Vec::new();
+    for r in &out.results {
+        let i = r.statement.expect("numbered");
+        assert_eq!(
+            (r.offset, r.line),
+            (Some(units[i].start), Some(units[i].line)),
+            "{i}"
+        );
+        if !seen.contains(&i) {
+            seen.push(i);
+        }
+    }
+    assert_eq!(seen, (0..units.len()).collect::<Vec<_>>());
+    // Each unit run alone (the lens) does what it does in the script.
+    assert_eq!(
+        run(&mut s, &units[1].text).await.unwrap().results[0].rows[0][0],
+        json!("6")
     );
     run(&mut s, "DEL dbine:script:a dbine:script:l")
         .await

@@ -29,6 +29,7 @@ fn es_ctx() -> Ctx {
         lifecycle: true,
         manage_lifecycle: true,
         reset: true,
+        start_from: true,
         notes: Vec::new(),
     }
 }
@@ -53,6 +54,7 @@ fn os_ctx(opendistro: bool) -> Ctx {
         lifecycle: true,
         manage_lifecycle: true,
         reset: false,
+        start_from: false,
         notes: Vec::new(),
     }
 }
@@ -350,6 +352,8 @@ fn tf_cur(def: &str, state: &str) -> es_transform::Cur {
         def: j(def),
         state: state.into(),
         managed: false,
+        checkpoint: 0,
+        indexed: 0,
     }
 }
 
@@ -558,6 +562,7 @@ fn watch_cur(watch: &str, active: bool) -> watch::Cur {
         watch: j(watch),
         active,
         ackable: false,
+        waiting: Vec::new(),
         seq: "7".into(),
         term: "2".into(),
     }
@@ -1444,12 +1449,28 @@ fn lifecycle_kinds() {
 #[test]
 fn flags_and_actions_per_cluster() {
     // Elasticsearch: watches start at an action; watches and SLM keep a
-    // history; a stopped transform resets, a watch's actions are acked.
+    // history; a stopped transform resets or starts from a time, a watch's
+    // actions are acked (all, or some: that one asks which).
     let es = info_of(&es_ctx());
     let job = &es.kinds[0];
     assert!(job.run_from_step && job.clear_history);
-    let keys: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
-    assert_eq!(keys, ["reset", "ack"]);
+    let keys: Vec<(&str, bool)> = job
+        .actions
+        .iter()
+        .map(|a| (a.key.as_str(), a.params))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            ("reset", false),
+            ("start_from", true),
+            ("ack", false),
+            ("ack_actions", true)
+        ]
+    );
+    let labels: Vec<&str> = job.actions.iter().map(|a| a.label.as_str()).collect();
+    assert_eq!(labels[1], "Iniciar desde…");
+    assert_eq!(labels[3], "Reconocer acciones…");
     assert!(es.kinds[1].actions.is_empty() && !es.kinds[1].run_from_step);
     // Without Watcher (basic license): no start at a step; SLM's history.
     let mut c = es_ctx();
@@ -1457,8 +1478,16 @@ fn flags_and_actions_per_cluster() {
     c.manage = c.types.clone();
     let job = &info_of(&c).kinds[0];
     assert!(!job.run_from_step && job.clear_history);
-    assert_eq!(job.actions.len(), 1);
-    // Before 8.1 there's no _reset; without manage_transform, no action.
+    assert_eq!(job.actions.len(), 2);
+    // Before 8.7 no start from a time, before 8.1 no _reset; without
+    // manage_transform, no action.
+    c.start_from = false;
+    let keys: Vec<String> = info_of(&c).kinds[0]
+        .actions
+        .iter()
+        .map(|a| a.key.clone())
+        .collect();
+    assert_eq!(keys, ["reset"]);
     c.reset = false;
     assert!(info_of(&c).kinds[0].actions.is_empty());
     let mut c = es_ctx();
@@ -1472,11 +1501,19 @@ fn flags_and_actions_per_cluster() {
     let job = &info_of(&c).kinds[0];
     assert!(!job.run_from_step && job.clear_history);
     let keys: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
-    assert_eq!(keys, ["reset"]);
-    // OpenSearch and Open Distro: the switch and "run now" are all there is.
+    assert_eq!(keys, ["reset", "start_from"]);
+    // OpenSearch and Open Distro: besides the switch and "run now", a
+    // monitor's active alerts are acknowledged (no Watcher; a transform's
+    // _start takes no time to start from).
     for c in [os_ctx(false), os_ctx(true)] {
         let job = &info_of(&c).kinds[0];
-        assert!(!job.run_from_step && !job.clear_history && job.actions.is_empty());
+        assert!(!job.run_from_step && !job.clear_history);
+        let keys: Vec<(&str, &str, bool)> = job
+            .actions
+            .iter()
+            .map(|a| (a.key.as_str(), a.label.as_str(), a.params))
+            .collect();
+        assert_eq!(keys, [("ack_alerts", "Reconocer alertas…", true)]);
     }
 }
 
@@ -1507,19 +1544,44 @@ fn a_job(id: &str, enabled: bool, system: bool) -> ServerJob {
 #[test]
 fn each_job_says_what_it_may_do() {
     let c = es_ctx();
-    let ackable = BTreeSet::from(["w1".to_string()]);
+    let ackable = BTreeSet::from(["watch:w1".to_string(), "monitor:m1".to_string()]);
     let item =
         |id: &str, enabled: bool, system: bool| item_of(&c, a_job(id, enabled, system), &ackable);
-    // A stopped transform resets; a started one doesn't.
+    // A stopped transform resets; a started one doesn't. A stopped
+    // continuous one (it has a schedule, its frequency) that hasn't
+    // completed a checkpoint (no last outcome) starts from a time too.
     assert_eq!(
         item("transform:t", false, false).actions,
         Some(vec!["reset".into()])
     );
     assert_eq!(item("transform:t", true, false).actions, Some(vec![]));
-    // A watch with an action waiting is acked; another isn't.
+    let tf = |enabled: bool, outcome: Option<dbine_driver::JobOutcome>| {
+        let mut j = a_job("transform:t", enabled, false);
+        j.schedule = Some("frequency 1m".into());
+        j.last_outcome = outcome;
+        item_of(&c, j, &ackable).actions
+    };
+    assert_eq!(
+        tf(false, None),
+        Some(vec!["reset".into(), "start_from".into()])
+    );
+    assert_eq!(
+        tf(false, Some(dbine_driver::JobOutcome::Succeeded)),
+        Some(vec!["reset".into()])
+    );
+    assert_eq!(tf(true, None), Some(vec![]));
+    let mut old = es_ctx();
+    old.start_from = false;
+    let mut j = a_job("transform:t", false, false);
+    j.schedule = Some("frequency 1m".into());
+    assert_eq!(
+        item_of(&old, j, &ackable).actions,
+        Some(vec!["reset".into()])
+    );
+    // A watch with an action waiting is acked, all or some; another isn't.
     assert_eq!(
         item("watch:w1", true, false).actions,
-        Some(vec!["ack".into()])
+        Some(vec!["ack".into(), "ack_actions".into()])
     );
     assert_eq!(item("watch:w2", true, false).actions, Some(vec![]));
     assert_eq!(item("slm:p", true, false).actions, Some(vec![]));
@@ -1532,15 +1594,62 @@ fn each_job_says_what_it_may_do() {
     assert_eq!((cloud.can_edit, cloud.can_delete), (None, Some(false)));
     let own = item("slm:p", true, false);
     assert_eq!((own.can_edit, own.can_delete), (None, None));
-    // OpenSearch: another plugin's monitor; no actions at all.
+    // OpenSearch: another plugin's monitor is neither changed, deleted nor
+    // acknowledged; Alerting's own with active alerts is acknowledged.
     let c = os_ctx(false);
-    let m = item_of(&c, a_job("monitor:m", true, true), &BTreeSet::new());
+    let m = item_of(&c, a_job("monitor:m1", true, true), &ackable);
     assert_eq!(
         (m.can_edit, m.can_delete, m.actions),
-        (Some(false), Some(false), None)
+        (Some(false), Some(false), Some(vec![]))
     );
-    let m = item_of(&c, a_job("monitor:m", true, false), &BTreeSet::new());
+    let m = item_of(&c, a_job("monitor:m1", true, false), &ackable);
     assert_eq!((m.can_edit, m.can_delete), (None, None));
+    assert_eq!(m.actions, Some(vec!["ack_alerts".into()]));
+    let m = item_of(&c, a_job("monitor:m2", true, false), &ackable);
+    assert_eq!(m.actions, Some(vec![]));
+    let t = item_of(&c, a_job("transform:t", false, false), &ackable);
+    assert_eq!(t.actions, Some(vec![]));
+}
+
+#[test]
+fn the_tree_offers_acknowledging_alerts_past_one_page() {
+    let c = os_ctx(false);
+    let list = [
+        a_job("monitor:m1", true, false),
+        a_job("monitor:m2", true, false),
+        a_job("monitor:m3", true, true),
+        a_job("transform:t", false, false),
+    ];
+    // The whole set in the page: the monitors with an active alert.
+    let page = j(r#"{"alerts":[
+     {"id":"a1","monitor_id":"m1","state":"ACTIVE"},
+     {"id":"a2","monitor_id":"m1","state":"ACTIVE"},
+     {"id":"a3","monitor_id":"m2","state":"ACKNOWLEDGED"}
+    ],"totalAlerts":2}"#);
+    assert_eq!(
+        monitors_to_ack(&c, &page, &list),
+        BTreeSet::from(["monitor:m1".to_string()])
+    );
+    assert!(monitors_to_ack(&c, &j(r#"{"alerts":[],"totalAlerts":0}"#), &list).is_empty());
+    // More active alerts than the page holds (one monitor's thousand can
+    // hide another's): every monitor offers it, and its form says whether
+    // it has any. Another plugin's monitor still doesn't (item_of).
+    let partial =
+        j(r#"{"alerts":[{"id":"a1","monitor_id":"m1","state":"ACTIVE"}],"totalAlerts":1500}"#);
+    let all = monitors_to_ack(&c, &partial, &list);
+    assert_eq!(
+        all,
+        BTreeSet::from([
+            "monitor:m1".to_string(),
+            "monitor:m2".to_string(),
+            "monitor:m3".to_string()
+        ])
+    );
+    assert_eq!(
+        item_of(&c, list[1].clone(), &all).actions,
+        Some(vec!["ack_alerts".into()])
+    );
+    assert_eq!(item_of(&c, list[2].clone(), &all).actions, Some(vec![]));
 }
 
 #[test]
@@ -1551,6 +1660,8 @@ fn a_transform_resets_only_stopped() {
         def: def.clone(),
         state: state.into(),
         managed,
+        checkpoint: 3,
+        indexed: 40,
     };
     let p = es_transform::reset_plan(&cur("stopped", false)).unwrap();
     let r = p.render();
@@ -2086,4 +2197,507 @@ fn each_job_says_whether_it_starts_at_a_step_and_keeps_a_history() {
     for id in ["transform:t", "monitor:m", "sm:p"] {
         assert_eq!(flags(&c, id), (Some(false), Some(false)), "{id}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Actions that ask for values
+// ---------------------------------------------------------------------------
+
+#[test]
+fn date_times_are_checked_whole() {
+    let utc = date_time_ms("2026-11-13T10:00:00Z").unwrap();
+    assert_eq!(jobs::rfc3339_ms(utc), "2026-11-13T10:00:00Z");
+    // No zone: UTC, as Elasticsearch reads it; an offset moves it.
+    assert_eq!(date_time_ms("2026-11-13T10:00:00"), Some(utc));
+    assert_eq!(date_time_ms("2026-11-13 10:00:00"), Some(utc));
+    assert_eq!(date_time_ms("2026-11-13T12:00:00+02:00"), Some(utc));
+    assert_eq!(date_time_ms("2026-11-13T07:00:00-03:00"), Some(utc));
+    assert_eq!(date_time_ms("2026-11-13T10:00:00.250Z"), Some(utc + 250));
+    assert!(date_time_ms("2024-02-29T00:00:00Z").is_some());
+    for bad in [
+        "",
+        "2026-11-13",
+        "2026-11-13T10:00",
+        "2026-13-01T00:00:00Z",
+        "2026-02-30T00:00:00Z",
+        "2025-02-29T00:00:00Z",
+        "2026-04-31T00:00:00Z",
+        "2026-11-13T24:00:00Z",
+        "2026-11-13T10:60:00Z",
+        "2026-11-13T10:00:61Z",
+        "2026-11-13T10:00:00+25:00",
+        "2026-11-13T10:00:00+0200",
+        "2026-11-13T10:00:00.Z",
+        "2026-11-13T10:00:00Z&x=1",
+        "2026-11-13T10:00:00Z ",
+        "now-30d",
+        "2026/11/13T10:00:00Z",
+        "２０２６-11-13T10:00:00Z",
+    ] {
+        assert_eq!(date_time_ms(bad), None, "{bad:?}");
+    }
+    let v = map(json!({"a": "2026-02-30T00:00:00Z", "b": "  ", "c": 5}));
+    let e = Vals(&v).date_time("a", "Desde").unwrap_err().to_string();
+    assert!(
+        e.contains("«Desde»") && e.contains("no es una fecha"),
+        "{e}"
+    );
+    assert_eq!(Vals(&v).date_time("b", "Desde").unwrap(), None);
+    assert!(Vals(&v).date_time("c", "Desde").is_err());
+}
+
+/// 2026-11-13T10:00:00Z.
+const NOW: i64 = 1_794_564_000_000;
+
+fn fresh_tf(def: &str, state: &str, checkpoint: u64) -> es_transform::Cur {
+    let mut c = tf_cur(def, state);
+    c.checkpoint = checkpoint;
+    c
+}
+
+#[test]
+fn a_transform_starts_from_a_time() {
+    assert_eq!(jobs::rfc3339_ms(NOW), "2026-11-13T10:00:00Z");
+    let cur = fresh_tf(TF_DEF, "stopped", 0);
+    // The form: now minus the sync delay (60s), the sync field and delay.
+    let f = es_transform::start_from_form(&cur, NOW).unwrap();
+    assert_eq!(f.values["from"], "2026-11-13T09:59:00Z");
+    assert_eq!(f.values["sync_field"], "@timestamp");
+    assert_eq!(f.values["sync_delay"], "60s");
+    let fields = &f.sections[0].fields;
+    assert_eq!(fields[0].key, "from");
+    assert!(fields[0].required && matches!(fields[0].kind, FormKind::DateTime));
+    // The picker shows the UTC time with no zone and takes none: the label
+    // and the help say UTC, with no choice of zone.
+    assert_eq!(fields[0].label, "Desde (UTC)");
+    let help = fields[0].help.as_deref().unwrap_or_default();
+    assert!(
+        help.starts_with("En UTC; no puede ser futura.") && !help.contains("zona"),
+        "{help}"
+    );
+    assert!(fields[1].read_only && fields[2].read_only);
+    assert!(f.notes[0].contains("primer checkpoint"));
+    // Without a delay, 60s, as Elasticsearch; another delay is taken.
+    let other = TF_DEF.replace(r#","delay":"60s""#, r#","delay":"5m""#);
+    let f = es_transform::start_from_form(&fresh_tf(&other, "stopped", 0), NOW).unwrap();
+    assert_eq!(f.values["from"], "2026-11-13T09:55:00Z");
+    let none = TF_DEF.replace(r#","delay":"60s""#, "");
+    let f = es_transform::start_from_form(&fresh_tf(&none, "stopped", 0), NOW).unwrap();
+    assert_eq!(f.values["from"], "2026-11-13T09:59:00Z");
+    assert_eq!(f.values["sync_delay"], "60s");
+
+    // The script: _start with the time in UTC, percent-encoded; a ⚠ that
+    // says what the first checkpoint leaves out.
+    let p =
+        es_transform::start_from_plan(&cur, &fv(json!({"from": "2026-11-12T07:30:00-03:00"})), NOW)
+            .unwrap();
+    let r = p.render();
+    assert!(
+        r.ends_with("POST /_transform/ventas/_start?from=2026-11-12T10%3A30%3A00Z\n"),
+        "{r}"
+    );
+    assert!(r.contains("desde 2026-11-12T10:30:00Z (UTC)"), "{r}");
+    let w = p.warnings();
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(
+        w[0].contains("solo los grupos") && w[0].contains("«@timestamp»"),
+        "{w:?}"
+    );
+    assert!(r.contains(&format!("# ⚠ {}", w[0])), "{r}");
+    // A latest transform: the keys without documents since then.
+    let latest = TF_DEF.replace(
+        r#""pivot":{"group_by":{"cliente":{"terms":{"field":"cliente"}}},"aggregations":{"total":{"sum":{"field":"importe"}}}}"#,
+        r#""latest":{"unique_key":["cliente"],"sort":"@timestamp"}"#,
+    );
+    let p = es_transform::start_from_plan(
+        &fresh_tf(&latest, "stopped", 0),
+        &fv(json!({"from": "2026-11-12T10:30:00Z"})),
+        NOW,
+    )
+    .unwrap();
+    assert!(p.warnings()[0].contains("las claves sin documentos"));
+    // Stopped partway through its first checkpoint (no checkpoint, but
+    // documents written): `from` still applies, and what that run wrote
+    // stays in the destination.
+    let mut midway = cur.clone();
+    midway.indexed = 490;
+    let p =
+        es_transform::start_from_plan(&midway, &fv(json!({"from": "2026-11-12T10:30:00Z"})), NOW)
+            .unwrap();
+    let w = p.warnings();
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(
+        w[1].contains("ya había escrito 490 documentos")
+            && w[1].contains("primer checkpoint que no terminó")
+            && w[1].contains("desde 2026-11-12T10:30:00Z"),
+        "{w:?}"
+    );
+    assert!(p
+        .render()
+        .ends_with("/_start?from=2026-11-12T10%3A30%3A00Z\n"));
+    assert!(es_transform::start_from_form(&midway, NOW).is_ok());
+    // A managed transform says so.
+    let mut managed = cur.clone();
+    managed.managed = true;
+    let r =
+        es_transform::start_from_plan(&managed, &fv(json!({"from": "2026-11-12T10:30:00Z"})), NOW)
+            .unwrap()
+            .render();
+    assert!(r.contains("Lo administra Elastic"), "{r}");
+    // Now is fine; the future, a missing or bad time aren't.
+    assert!(
+        es_transform::start_from_plan(&cur, &fv(json!({"from": "2026-11-13T10:00:00Z"})), NOW)
+            .is_ok()
+    );
+    for (v, want) in [
+        (json!({"from": "2026-11-13T10:00:01Z"}), "futura"),
+        (json!({}), "«Desde (UTC)»"),
+        (json!({"from": ""}), "«Desde (UTC)»"),
+        (json!({"from": "ayer"}), "no es una fecha"),
+        (
+            json!({"from": "2026-11-13T10:00:00Z&wait=1"}),
+            "no es una fecha",
+        ),
+        (json!({"from": ["2026-11-13T09:00:00Z"]}), "«Desde (UTC)»"),
+    ] {
+        let e = err(es_transform::start_from_plan(&cur, &fv(v.clone()), NOW));
+        assert!(e.contains(want), "{v}: {e}");
+    }
+}
+
+#[test]
+fn only_a_stopped_continuous_transform_without_checkpoints_starts_from_a_time() {
+    let ok = fv(json!({"from": "2026-11-12T10:30:00Z"}));
+    // A batch transform refuses `from`.
+    let batch = TF_DEF.replace(
+        r#""sync":{"time":{"field":"@timestamp","delay":"60s"}},"#,
+        "",
+    );
+    let cur = fresh_tf(&batch, "stopped", 0);
+    assert!(!cur.continuous());
+    for e in [
+        err(es_transform::start_from_plan(&cur, &ok, NOW)),
+        es_transform::start_from_form(&cur, NOW)
+            .unwrap_err()
+            .to_string(),
+    ] {
+        assert!(e.contains("por lotes"), "{e}");
+    }
+    // A started (or failed) one has to be stopped first.
+    for state in ["started", "indexing", "failed"] {
+        let e = err(es_transform::start_from_plan(
+            &fresh_tf(TF_DEF, state, 0),
+            &ok,
+            NOW,
+        ));
+        assert!(e.contains("no está detenido") && e.contains(state), "{e}");
+    }
+    // With a checkpoint Elasticsearch ignores `from`: reset it first.
+    let e = err(es_transform::start_from_plan(
+        &fresh_tf(TF_DEF, "stopped", 4),
+        &ok,
+        NOW,
+    ));
+    assert!(e.contains("el 4") && e.contains("Restablecer"), "{e}");
+    assert!(es_transform::start_from_form(&fresh_tf(TF_DEF, "stopped", 4), NOW).is_err());
+    // The id stays one path segment.
+    let mut odd = fresh_tf(TF_DEF, "stopped", 0);
+    odd.id = "a/b?c".into();
+    let r = es_transform::start_from_plan(&odd, &ok, NOW)
+        .unwrap()
+        .render();
+    assert!(r.contains("POST /_transform/a%2Fb%3Fc/_start?from="), "{r}");
+}
+
+#[test]
+fn the_tree_and_the_transform_agree_on_a_fresh_continuous_transform() {
+    let def = j(TF_DEF);
+    let stats = |state: &str, checkpoint: u64| {
+        j(&format!(
+            r#"{{"id":"ventas","state":"{state}","checkpointing":{{"last":{{"checkpoint":{checkpoint}}}}}}}"#
+        ))
+    };
+    let job = |d: &J, s: &J| jobs::es_transform_job(d, Some(s), true);
+    assert!(fresh_continuous(&job(&def, &stats("stopped", 0))));
+    assert!(!fresh_continuous(&job(&def, &stats("stopped", 2))));
+    assert!(!fresh_continuous(&job(&def, &stats("failed", 0))));
+    let batch = j(&TF_DEF.replace(
+        r#""sync":{"time":{"field":"@timestamp","delay":"60s"}},"#,
+        "",
+    ));
+    assert!(!fresh_continuous(&job(&batch, &stats("stopped", 0))));
+}
+
+fn waiting_watch(waiting: &[&str]) -> watch::Cur {
+    let mut cur = watch_cur(WATCH, true);
+    cur.waiting = waiting.iter().map(|a| a.to_string()).collect();
+    cur.ackable = !waiting.is_empty();
+    cur
+}
+
+#[test]
+fn some_of_a_watchs_actions_are_acknowledged() {
+    // The form: the actions waiting (with their type), all picked.
+    let cur = waiting_watch(&["uno", "dos"]);
+    let f = watch::ack_some_form(&cur).unwrap();
+    assert_eq!(
+        f.choices["action"],
+        [
+            ("uno".to_string(), "uno (logging)".to_string()),
+            ("dos".to_string(), "dos (logging)".to_string())
+        ]
+    );
+    assert_eq!(f.values["actions"], json!(["uno", "dos"]));
+    let field = &f.sections[0].fields[0];
+    assert!(field.required);
+    assert_eq!(field.kind, FormKind::reference("action", true));
+    // Some: in the definition's order, the rest still waiting.
+    let p = watch::ack_some_plan(&cur, &fv(json!({"actions": ["dos"]}))).unwrap();
+    let r = p.render();
+    assert!(r.ends_with("PUT /_watcher/watch/errores/_ack/dos\n"), "{r}");
+    assert!(
+        r.contains("Siguen esperando un reconocimiento: «uno»."),
+        "{r}"
+    );
+    assert!(p.warnings().is_empty());
+    let r = watch::ack_some_plan(&cur, &fv(json!({"actions": ["dos", "uno", "dos"]})))
+        .unwrap()
+        .render();
+    assert!(
+        r.ends_with("PUT /_watcher/watch/errores/_ack/uno,dos\n"),
+        "{r}"
+    );
+    assert!(!r.contains("Siguen esperando"), "{r}");
+    // A comma-separated text is taken too.
+    let r = watch::ack_some_plan(&cur, &fv(json!({"actions": "uno"})))
+        .unwrap()
+        .render();
+    assert!(r.ends_with("/_ack/uno\n"), "{r}");
+    // None picked, another watch's action, one not waiting.
+    for (v, want) in [
+        (json!({}), "al menos una"),
+        (json!({"actions": []}), "al menos una"),
+        (json!({"actions": ["nope"]}), "no es una acción"),
+        (json!({"actions": ["hook"]}), "no espera un reconocimiento"),
+        (json!({"actions": ["uno", "x/../y"]}), "no es una acción"),
+    ] {
+        let e = err(watch::ack_some_plan(&cur, &fv(v.clone())));
+        assert!(e.contains(want), "{v}: {e}");
+    }
+    // Nothing waiting: neither the form nor the script.
+    let idle = waiting_watch(&[]);
+    assert!(watch::ack_some_form(&idle)
+        .unwrap_err()
+        .to_string()
+        .contains("Ninguna acción"));
+    assert!(err(watch::ack_some_plan(
+        &idle,
+        &fv(json!({"actions": ["uno"]}))
+    ))
+    .contains("Ninguna acción"));
+    // Names stay one segment each; a comma can't be named alone, nor
+    // `_all` (every action to Watcher), nor `.` or `..` alone (dot
+    // segments the URL parser removes: `_ack/` or `PUT _watcher/watch/<id>`).
+    let odd = r#"{"actions":{"a b/c":{"logging":{"text":"x"}},"x,y":{"webhook":{"host":"h","port":80},"throttle_period":"5m"},"_all":{"logging":{"text":"x"}},".":{"logging":{"text":"x"}},"..":{"logging":{"text":"x"}}}}"#;
+    let mut cur = watch_cur(odd, true);
+    cur.waiting = ["a b/c", "x,y", "_all", ".", ".."]
+        .map(String::from)
+        .to_vec();
+    cur.ackable = true;
+    let f = watch::ack_some_form(&cur).unwrap();
+    assert_eq!(f.choices["action"][1].1, "x,y (webhook)");
+    let r = watch::ack_some_plan(&cur, &fv(json!({"actions": ["a b/c"]})))
+        .unwrap()
+        .render();
+    assert!(
+        r.ends_with("PUT /_watcher/watch/errores/_ack/a%20b%2Fc\n"),
+        "{r}"
+    );
+    for (picked, want) in [
+        (json!(["x,y"]), "coma"),
+        (json!(["_all"]), "todas las acciones"),
+        (json!(["a b/c", "_all"]), "todas las acciones"),
+        (json!(["."]), "todas las acciones"),
+        (json!([".."]), "todas las acciones"),
+    ] {
+        let e = err(watch::ack_some_plan(
+            &cur,
+            &fv(json!({ "actions": picked.clone() })),
+        ));
+        assert!(
+            e.contains(want) && e.contains("«Reconocer las acciones del watch»"),
+            "{picked}: {e}"
+        );
+    }
+    // In a list, `.` and `..` aren't segments of their own.
+    let r = watch::ack_some_plan(&cur, &fv(json!({"actions": ["..", ".", "a b/c"]})))
+        .unwrap()
+        .render();
+    assert!(
+        r.ends_with("PUT /_watcher/watch/errores/_ack/a%20b%2Fc,.,..\n"),
+        "{r}"
+    );
+}
+
+const ALERTS: &str = r#"{"alerts":[
+ {"id":"a2","monitor_id":"m1","state":"ACTIVE","trigger_name":"alto","severity":"2","start_time":1794556800000,"agg_alert_content":{"bucket_keys":["web-1","GET"]}},
+ {"id":"a1","monitor_id":"m1","state":"ACTIVE","trigger_name":"alto","severity":"1","start_time":1794553200000},
+ {"id":"a3","monitor_id":"m1","state":"ACKNOWLEDGED","trigger_name":"alto","severity":"1","start_time":1},
+ {"id":"a4","monitor_id":"m2","state":"ACTIVE","trigger_name":"otro","severity":"1","start_time":1},
+ {"monitor_id":"m1","state":"ACTIVE","trigger_name":"sin id"},
+ {"id":"d1","monitor_id":"m3","state":"ACTIVE","trigger_name":"coincide","severity":"1","start_time":1794553200000,"finding_ids":["f1"],"related_doc_ids":["doc-a|logs-1"]},
+ {"id":"d2","monitor_id":"m3","state":"ACTIVE","trigger_name":"coincide","severity":"1","start_time":1794553200000,"finding_ids":["f2"],"related_doc_ids":["doc-b","doc-c","doc-d"]},
+ {"id":"d3","monitor_id":"m3","state":"ACTIVE","trigger_name":"coincide","severity":"1","start_time":1794553200000},
+ {"id":"d4","monitor_id":"m3","state":"ACTIVE","trigger_name":"coincide","severity":"1","start_time":1794553200000}
+],"totalAlerts":8}"#;
+
+fn a_monitor() -> monitor::Cur {
+    monitor::Cur {
+        id: "m1".into(),
+        monitor: j(MONITOR),
+        seq: "3".into(),
+        term: "1".into(),
+    }
+}
+
+#[test]
+fn a_monitors_active_alerts_are_acknowledged() {
+    // Its own active alerts, oldest first, with what tells them apart.
+    let v = j(ALERTS);
+    let alerts = monitor::active_alerts(&v, "m1");
+    assert_eq!(
+        alerts,
+        [
+            (
+                "a1".to_string(),
+                "alto · sev 1 · 2026-11-13T07:00:00Z".to_string()
+            ),
+            (
+                "a2".to_string(),
+                "alto [web-1, GET] · sev 2 · 2026-11-13T08:00:00Z".to_string()
+            ),
+        ]
+    );
+    assert_eq!(monitor::alerts_total(&v, alerts.len()), 8);
+    assert_eq!(monitor::alerts_total(&j(r#"{"alerts":[]}"#), 0), 0);
+    // Oldest first from Alerting too, so a capped list is really the
+    // oldest and the plan reads the same ones again.
+    assert_eq!(
+        monitor::alerts_path("_opendistro", "m 1/x"),
+        "/_opendistro/_alerting/monitors/alerts?monitorId=m%201%2Fx&alertState=ACTIVE&size=1000&sortString=start_time&sortOrder=asc"
+    );
+    // A document-level monitor's alerts, opened in the same run: their
+    // documents tell them apart, or else their ids.
+    assert_eq!(
+        monitor::active_alerts(&v, "m3"),
+        [
+            (
+                "d1".to_string(),
+                "coincide · doc doc-a (logs-1) · sev 1 · 2026-11-13T07:00:00Z".to_string()
+            ),
+            (
+                "d2".to_string(),
+                "coincide · doc doc-b y 2 más · sev 1 · 2026-11-13T07:00:00Z".to_string()
+            ),
+            (
+                "d3".to_string(),
+                "coincide · sev 1 · 2026-11-13T07:00:00Z · d3".to_string()
+            ),
+            (
+                "d4".to_string(),
+                "coincide · sev 1 · 2026-11-13T07:00:00Z · d4".to_string()
+            ),
+        ]
+    );
+
+    let cur = a_monitor();
+    let f = monitor::ack_alerts_form(&cur, &alerts, 2).unwrap();
+    assert_eq!(f.choices["alert"], alerts);
+    assert_eq!(f.values["alerts"], json!(["a1", "a2"]));
+    assert_eq!(
+        f.sections[0].fields[0].kind,
+        FormKind::reference("alert", true)
+    );
+    assert_eq!(f.notes.len(), 1);
+    let f = monitor::ack_alerts_form(&cur, &alerts, 1500).unwrap();
+    assert!(f.notes[1].contains("1500"), "{:?}", f.notes);
+    assert!(monitor::ack_alerts_form(&cur, &[], 0)
+        .unwrap_err()
+        .to_string()
+        .contains("no tiene alertas activas"));
+
+    // The script: the picked ones in the body, the answer's `failed`
+    // checked.
+    let p = monitor::ack_alerts_plan(
+        "_plugins",
+        &cur,
+        &alerts,
+        &fv(json!({"alerts": ["a2", "a2"]})),
+    )
+    .unwrap();
+    let r = p.render();
+    assert!(
+        r.contains("POST /_plugins/_alerting/monitors/m1/_acknowledge/alerts\n{\n  \"alerts\": [\n    \"a2\"\n  ]\n}\n"),
+        "{r}"
+    );
+    assert!(r.contains("1 de 2 activas"), "{r}");
+    assert!(p.reqs[0].failed_in_answer);
+    assert_eq!(p.reqs[0].wait_at_most.map(|w| w.0), Some(30));
+    assert!(p.warnings().is_empty());
+    let r = monitor::ack_alerts_plan(
+        "_opendistro",
+        &cur,
+        &alerts,
+        &fv(json!({"alerts": ["a1", "a2"]})),
+    )
+    .unwrap()
+    .render();
+    assert!(
+        r.contains("POST /_opendistro/_alerting/monitors/m1/_acknowledge/alerts"),
+        "{r}"
+    );
+    for (v, want) in [
+        (json!({}), "al menos una"),
+        (json!({"alerts": []}), "al menos una"),
+        (json!({"alerts": ["a3"]}), "no es una alerta activa"),
+        (json!({"alerts": ["a4"]}), "no es una alerta activa"),
+        (json!({"alerts": ["a1", "\"]}"]}), "no es una alerta activa"),
+    ] {
+        let e = err(monitor::ack_alerts_plan(
+            "_plugins",
+            &cur,
+            &alerts,
+            &fv(v.clone()),
+        ));
+        assert!(e.contains(want), "{v}: {e}");
+    }
+    assert!(err(monitor::ack_alerts_plan(
+        "_plugins",
+        &cur,
+        &[],
+        &fv(json!({"alerts": ["a1"]}))
+    ))
+    .contains("no tiene alertas activas"));
+}
+
+#[test]
+fn only_actions_with_a_form_have_one() {
+    // The actions that don't ask for values are refused by the form call
+    // before the cluster (checked in action_form's match): the keys are the
+    // ones job_actions offers.
+    assert_eq!(es_transform::START_FROM, "start_from");
+    assert_eq!(watch::ACK_SOME, "ack_actions");
+    assert_eq!(monitor::ACK_ALERTS, "ack_alerts");
+    let keys: Vec<String> = job_actions(&es_ctx())
+        .into_iter()
+        .filter(|a| a.params)
+        .map(|a| a.key)
+        .collect();
+    assert_eq!(keys, ["start_from", "ack_actions"]);
+    let keys: Vec<String> = job_actions(&os_ctx(true))
+        .into_iter()
+        .filter(|a| a.params)
+        .map(|a| a.key)
+        .collect();
+    assert_eq!(keys, ["ack_alerts"]);
 }

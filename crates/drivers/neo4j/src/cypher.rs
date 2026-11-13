@@ -98,10 +98,12 @@ pub fn split(text: &str) -> Vec<String> {
 /// A unit of an editor script, as cypher-shell reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
-    /// The statement (without its `;`), or the whole command line.
+    /// The statement (without its `;`), or the whole command line:
+    /// `script[start..end]`.
     pub text: String,
-    /// Byte offset and 1-based line in the script.
+    /// Byte offsets and 1-based line of `start` in the script.
     pub start: usize,
+    pub end: usize,
     pub line: u32,
     /// A client command (`:use`, `:begin`, `:param`…): a line starting
     /// with `:` where a statement would start. It takes its line and needs
@@ -147,6 +149,7 @@ pub fn script(text: &str) -> Vec<Unit> {
             out.push(Unit {
                 text: cmd.to_string(),
                 start: at,
+                end: at + cmd.len(),
                 line,
                 command: true,
             });
@@ -168,12 +171,32 @@ pub fn script(text: &str) -> Vec<Unit> {
             out.push(Unit {
                 text: stmt.to_string(),
                 start: at,
+                end: at + stmt.len(),
                 line,
                 command: false,
             });
         }
         at += semi.map_or(rest.len(), |s| s + 1);
     }
+}
+
+/// [`script`] as the app's units: what `execute` numbers, at the same
+/// places, so "run the statement at the cursor", the run lens and named
+/// results see the statements cypher-shell runs. A `:command` is a unit the
+/// driver runs (not a client command the app would skip).
+pub fn statements(text: &str) -> Vec<dbine_driver::ScriptStatement> {
+    script(text)
+        .into_iter()
+        .map(|u| dbine_driver::ScriptStatement {
+            text: u.text,
+            start: u.start,
+            end: u.end,
+            line: u.line,
+            kind: dbine_driver::StatementKind::Sql,
+            repeat: 1,
+            error: None,
+        })
+        .collect()
 }
 
 /// A statement Neo4j only runs in an implicit (auto-commit) transaction:
@@ -444,12 +467,72 @@ mod tests {
             ]
         );
         for x in &u {
-            assert!(s[x.start..].starts_with(&x.text), "{x:?}");
+            assert_eq!(s[x.start..x.end], x.text, "{x:?}");
         }
         // A colon inside a statement is Cypher.
         assert_eq!(script("MATCH (n\n:Person) RETURN n").len(), 1);
         assert!(script("  // only\n/* comments */ ;").is_empty());
         assert!(script("// x\n").is_empty());
+    }
+
+    /// (text, start, end, line) of each unit the app gets.
+    fn placed(s: &str) -> Vec<(String, usize, usize, u32)> {
+        let units = statements(s);
+        for u in &units {
+            assert_eq!(s[u.start..u.end], u.text, "{u:?}");
+            assert_eq!(u.kind, dbine_driver::StatementKind::Sql);
+        }
+        units
+            .into_iter()
+            .map(|u| (u.text, u.start, u.end, u.line))
+            .collect()
+    }
+
+    #[test]
+    fn app_units_match_what_execute_numbers() {
+        // The audit's scripts.
+        assert_eq!(placed("MATCH (n) RETURN n;\nMATCH (m) RETURN m;").len(), 2);
+        assert_eq!(
+            placed(":use neo4j\nMATCH (n) RETURN n;"),
+            [
+                (":use neo4j".into(), 0, 10, 1),
+                ("MATCH (n) RETURN n".into(), 11, 29, 2)
+            ]
+        );
+        assert_eq!(
+            placed(":param x => 1\nMATCH (n) WHERE n.v = $x RETURN n;"),
+            [
+                (":param x => 1".into(), 0, 13, 1),
+                ("MATCH (n) WHERE n.v = $x RETURN n".into(), 14, 47, 2)
+            ]
+        );
+        // Three statements, a multi-line one, separators in strings and
+        // quoted names, comments and blank lines before a statement (not
+        // part of it).
+        let s = "// head\n\nMATCH (n)\nWHERE n.t = 'a;b' AND n.u = \"c\\\";d\"\nRETURN n;\n\n/* x; */ MATCH (`we;ird`) RETURN 1;\n// y;\n  RETURN 3";
+        let u = placed(s);
+        assert_eq!(
+            u.iter().map(|x| x.3).collect::<Vec<_>>(),
+            [3, 7, 9],
+            "{u:?}"
+        );
+        assert_eq!(
+            u[0].0,
+            "MATCH (n)\nWHERE n.t = 'a;b' AND n.u = \"c\\\";d\"\nRETURN n"
+        );
+        assert_eq!(u[1].0, "MATCH (`we;ird`) RETURN 1");
+        assert_eq!(u[2].0, "RETURN 3");
+        // CRLF: a command line ends before its `\r`.
+        assert_eq!(
+            placed(":begin\r\nCREATE (:A);\r\n:commit\r\n"),
+            [
+                (":begin".into(), 0, 6, 1),
+                ("CREATE (:A)".into(), 8, 19, 2),
+                (":commit".into(), 22, 29, 3)
+            ]
+        );
+        // Without `;`, two statements are one, as in cypher-shell.
+        assert_eq!(placed("RETURN 1\nRETURN 2").len(), 1);
     }
 
     #[test]

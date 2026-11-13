@@ -5,8 +5,9 @@
 //! Cosmos SQL (`SELECT … FROM c WHERE …`) runs against **one container**,
 //! which the query text must name. In order of precedence:
 //!
-//! 1. A directive comment: `-- container: <name>` (applies to the
-//!    statements after it). Works on read-only connections too.
+//! 1. A directive comment: `-- container: <name>` on its own line
+//!    (applies to the statements after it, and ends the one before it).
+//!    Works on read-only connections too.
 //! 2. `USE <name>;` (also `USE "name"`), which stays for the session's
 //!    later runs. Read-only connections refuse `USE` (the shared SQL
 //!    read-only guard only lets reads through): use the directive there.
@@ -211,6 +212,14 @@ impl Driver for CosmosDriver {
 
     fn query_help(&self) -> &'static str {
         QUERY_HELP
+    }
+
+    /// As `execute` reads it (see `ddl::split_located`): a statement ends at
+    /// `;` outside quotes, comments and JSON bodies, and a `-- container: x`
+    /// line is a `USE` of its own that ends the statement before it. The
+    /// same units, in the same order, that `execute` numbers.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        units(text)
     }
 
     fn supports_explain(&self) -> bool {
@@ -1169,14 +1178,12 @@ pub fn parse_script(text: &str) -> Result<Vec<Stmt>> {
     Ok(parse_located(text)?.into_iter().map(|(s, _)| s).collect())
 }
 
-/// [`parse_script`], with where each statement starts in `text`.
+/// [`parse_script`], with where each statement starts in `text`: the
+/// statements of [`ddl::split_located`], the editor's units too.
 pub fn parse_located(text: &str) -> Result<Vec<(Stmt, usize)>> {
-    let pieces = split_pieces(text);
-    let mut from = 0;
     let mut out = Vec::new();
-    for s in pieces {
-        let (at, next) = anchor(text, from, &s);
-        from = next;
+    for p in ddl::split_located(text) {
+        let at = p.start;
         // In the script: where the statement starts.
         let placed = |e: Error| {
             if e.is_query() {
@@ -1189,15 +1196,15 @@ pub fn parse_located(text: &str) -> Result<Vec<(Stmt, usize)>> {
                 e
             }
         };
-        let stmt = if let Some(a) = ddl::parse_admin(&s).map_err(placed)? {
+        let stmt = if let Some(a) = ddl::parse_admin(&p.sql).map_err(placed)? {
             Stmt::Admin(a)
         } else {
-            let mut words = s.splitn(2, char::is_whitespace);
+            let mut words = p.sql.splitn(2, char::is_whitespace);
             match (words.next(), words.next()) {
                 (Some(w), Some(rest)) if w.eq_ignore_ascii_case("use") => {
                     Stmt::Use(unquote(rest.trim()))
                 }
-                _ => Stmt::Query { sql: s },
+                _ => Stmt::Query { sql: p.sql },
             }
         };
         out.push((stmt, at));
@@ -1205,47 +1212,23 @@ pub fn parse_located(text: &str) -> Result<Vec<(Stmt, usize)>> {
     Ok(out)
 }
 
-/// Where a statement (comments taken out) starts in the script, from
-/// `from` (its first line, or the `-- container:` line it came from), and
-/// where to look for the next one.
-fn anchor(text: &str, from: usize, piece: &str) -> (usize, usize) {
-    let first = piece.lines().next().unwrap_or("").trim();
-    let found = text[from..].find(first).filter(|_| !first.is_empty());
-    let directive = text[from..].to_ascii_lowercase().find("container:");
-    // A `USE "x"` the directive wrote isn't in the text (unless typed after it).
-    let injected =
-        first.starts_with("USE \"") && directive.is_some_and(|d| found.is_none_or(|i| d < i));
-    match (found, directive) {
-        (Some(i), _) if !injected => (from + i, from + i + first.len()),
-        (_, Some(d)) => {
-            let start = text[..from + d].rfind('\n').map_or(0, |n| n + 1).max(from);
-            let end = text[from + d..]
-                .find('\n')
-                .map_or(text.len(), |n| from + d + n);
-            (start, end)
-        }
-        _ => (from, from),
-    }
-}
-
-fn split_pieces(text: &str) -> Vec<String> {
-    let mut pre = String::with_capacity(text.len());
-    for line in text.lines() {
-        let t = line.trim();
-        let directive = t.strip_prefix("--").map(str::trim).and_then(|r| {
-            let (k, v) = r.split_once(':')?;
-            (k.trim().eq_ignore_ascii_case("container") && !v.trim().is_empty())
-                .then(|| v.trim().to_string())
-        });
-        match directive {
-            Some(name) => pre.push_str(&format!(";\nUSE \"{}\";\n", name.replace('"', "\"\""))),
-            None => {
-                pre.push_str(line);
-                pre.push('\n');
-            }
-        }
-    }
-    ddl::split_script(&pre)
+/// The script's statements as the app's units: what `execute` numbers, at
+/// the same places, so "run the statement at the cursor", the run lens and
+/// named results see them. A `-- container:` line is a unit (a `USE`) the
+/// driver runs, not a client command the app would skip.
+pub fn units(text: &str) -> Vec<dbine_driver::ScriptStatement> {
+    ddl::split_located(text)
+        .into_iter()
+        .map(|p| dbine_driver::ScriptStatement {
+            text: text[p.start..p.end].to_string(),
+            start: p.start,
+            end: p.end,
+            line: steps::line_at(text, p.start),
+            kind: dbine_driver::StatementKind::Sql,
+            repeat: 1,
+            error: None,
+        })
+        .collect()
 }
 
 fn unquote(s: &str) -> String {
@@ -2100,6 +2083,83 @@ mod tests {
         assert!(s[at[4]..].starts_with("USE \"third\""));
         assert!(s[at[5]..].starts_with("SELECT c.é"));
         assert!(matches!(&v[3].0, Stmt::Use(c) if c == "other"));
+    }
+
+    /// (text, start, end, line) of each unit the app gets.
+    fn placed(s: &str) -> Vec<(String, usize, usize, u32)> {
+        let units = CosmosDriver.split_script(s);
+        let stmts = parse_located(s).unwrap();
+        assert_eq!(units.len(), stmts.len(), "execute runs the same units");
+        for (u, (_, at)) in units.iter().zip(&stmts) {
+            assert_eq!(s[u.start..u.end], u.text, "{u:?}");
+            assert_eq!(u.start, *at);
+            assert_eq!(u.kind, dbine_driver::StatementKind::Sql);
+        }
+        units
+            .into_iter()
+            .map(|u| (u.text, u.start, u.end, u.line))
+            .collect()
+    }
+
+    #[test]
+    fn app_units_match_what_execute_numbers() {
+        // The audit's scripts.
+        assert_eq!(
+            placed("SELECT * FROM c;\nSELECT VALUE COUNT(1) FROM c;").len(),
+            2
+        );
+        let s = "-- container: a\nSELECT * FROM c\n-- container: b\nSELECT * FROM c";
+        assert_eq!(
+            placed(s),
+            [
+                ("-- container: a".into(), 0, 15, 1),
+                ("SELECT * FROM c".into(), 16, 31, 2),
+                ("-- container: b".into(), 32, 47, 3),
+                ("SELECT * FROM c".into(), 48, 63, 4),
+            ]
+        );
+        assert!(matches!(&parse_script(s).unwrap()[2], Stmt::Use(c) if c == "b"));
+        // Three statements, multi-line JSON bodies with `;`, `\"` and
+        // braces in strings, comments and blank lines before a statement
+        // (not part of it), an indented directive.
+        let s = "-- head\n\nINSERT INTO \"it\" {\n  \"id\": \"1\",\n  \"note\": \"a;b \\\" c}; d\"\n};\n\n/* x; */ SELECT 'p;q' FROM c -- tail;\n  -- container: other\n\nSELECT VALUE COUNT(1) FROM c";
+        let u = placed(s);
+        assert_eq!(
+            u.iter().map(|x| x.3).collect::<Vec<_>>(),
+            [3, 8, 9, 11],
+            "{u:?}"
+        );
+        assert!(u[0].0.starts_with("INSERT INTO") && u[0].0.ends_with('}'));
+        assert_eq!(u[1].0, "SELECT 'p;q' FROM c");
+        assert_eq!(u[2].0, "-- container: other");
+        let stmts = parse_script(s).unwrap();
+        let Stmt::Admin(Admin::Insert { doc, .. }) = &stmts[0] else {
+            panic!("{stmts:?}")
+        };
+        assert_eq!(doc["note"], json!("a;b \" c}; d"));
+        assert_eq!(
+            stmts[1],
+            Stmt::Query {
+                sql: "SELECT 'p;q' FROM c".into()
+            }
+        );
+        // CRLF: a directive line ends before its `\r`.
+        assert_eq!(
+            placed("-- container: a\r\nSELECT 1;\r\nSELECT 2\r\n"),
+            [
+                ("-- container: a".into(), 0, 15, 1),
+                ("SELECT 1".into(), 17, 25, 2),
+                ("SELECT 2".into(), 28, 36, 3),
+            ]
+        );
+        // A directive inside a string or a block comment isn't one.
+        assert_eq!(
+            placed("SELECT * FROM c WHERE c.n = '\n-- container: x\n'").len(),
+            1
+        );
+        assert_eq!(placed("/*\n-- container: x\n*/ SELECT * FROM c").len(), 1);
+        // Without `;`, two statements are one, as the server reads them.
+        assert_eq!(placed("SELECT 1\nSELECT 2").len(), 1);
     }
 
     #[test]

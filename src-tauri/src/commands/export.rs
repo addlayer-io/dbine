@@ -143,7 +143,9 @@ fn estimate_allowed(cfg: &ConnectionConfig, driver: &dyn Driver, sql: &str) -> b
     if driver.info().language != Language::Sql {
         return !sql.trim().is_empty();
     }
-    match driver.split_script(sql).as_slice() {
+    // A line that only sets the context (Cosmos DB's `-- container: x`)
+    // isn't a second statement.
+    match crate::commands::chart::query_units(driver, sql).as_slice() {
         [one] if one.error.is_none() && one.repeat <= 1 => {
             matches!(
                 leading_keyword(&one.text, &driver.script_dialect()).as_deref(),
@@ -452,6 +454,18 @@ mod tests {
         assert!(!estimate_allowed(&cfg, ms, "EXEC dbo.p"));
         assert!(!estimate_allowed(&cfg, ms, "SELECT 1\nGO\nSELECT 2"));
         assert!(!estimate_allowed(&cfg, ms, "SELECT 1\nGO 3"));
+        // Cosmos DB: the container line is part of the query it names.
+        let (cosmos, cfg) = (driver("cosmosdb"), with("cosmosdb", &[]));
+        assert!(estimate_allowed(
+            &cfg,
+            cosmos,
+            "-- container: items\nSELECT * FROM c"
+        ));
+        assert!(!estimate_allowed(
+            &cfg,
+            cosmos,
+            "-- container: items\nSELECT * FROM c;\nSELECT VALUE COUNT(1) FROM c"
+        ));
     }
 
     #[test]

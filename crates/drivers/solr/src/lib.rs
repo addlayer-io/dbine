@@ -24,13 +24,14 @@ pub mod transfer;
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, Language, MonitorSnapshot,
-    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, Session, TableSchema, TlsLevel,
-    TlsSupport,
+    ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError, ScriptStatement,
+    Session, TableSchema, TlsLevel, TlsSupport,
 };
 use dbine_driver_elasticsearch::console::{self, Command, Request};
 use dbine_driver_elasticsearch::flatten;
 use dbine_driver_elasticsearch::http;
 use dbine_driver_elasticsearch::json::{Obj, J};
+use dbine_driver_elasticsearch::steps::Step;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -278,6 +279,13 @@ impl Driver for Solr {
 
     fn query_help(&self) -> &'static str {
         QUERY_HELP
+    }
+
+    /// One unit per request (its method line and body) or SQL statement,
+    /// numbered as `execute` numbers them: the console syntax is
+    /// Elasticsearch's (see [`console::split`]).
+    fn split_script(&self, text: &str) -> Vec<ScriptStatement> {
+        console::split(text)
     }
 
     fn supports_explain(&self) -> bool {
@@ -1153,18 +1161,32 @@ impl Session for SolrSession {
         Ok(())
     }
 
+    /// Requests and SQL statements one after another, each one's results
+    /// numbered and placed in the script as the editor splits it
+    /// ([`Driver::split_script`]). A line that's neither runs nothing; a
+    /// failing request stops the script unless the editor run continues on
+    /// errors (see `Step::end`).
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        let cmds = console::parse(text).map_err(Error::Query)?;
+        let cmds = console::parse_located(text).map_err(|e| {
+            Error::from(
+                ScriptError::new(e.message)
+                    .at_offset(e.offset)
+                    .at_line(e.line),
+            )
+        })?;
         if cmds.is_empty() {
             return Err(Error::Query(
                 "No hay ninguna petición para ejecutar.".into(),
             ));
         }
-        for c in &cmds {
-            match c {
-                Command::Http(r) => self.run_request(r, max_rows, out).await?,
-                Command::Sql(s) => self.run_sql(s, max_rows, out).await?,
-            }
+        let own = out.current_statement.is_none();
+        for (i, c) in cmds.iter().enumerate() {
+            let step = Step::start(out, own, i, c.offset, c.line);
+            let r = match &c.command {
+                Command::Http(r) => self.run_request(r, max_rows, out).await,
+                Command::Sql(s) => self.run_sql(s, max_rows, out).await,
+            };
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -1418,5 +1440,43 @@ mod tls_options_tests {
         let mut n = new_connection();
         n.host = "http://db.example.com".into();
         assert_eq!(level(&n), TlsLevel::Off);
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    /// The editor's units are the requests `execute` numbers: same count,
+    /// starts and lines (`console::parse_located`), and each unit's text
+    /// alone is that one request.
+    fn units(text: &str) -> Vec<ScriptStatement> {
+        let units = Solr::new().split_script(text);
+        let located = console::parse_located(text).unwrap();
+        assert_eq!(units.len(), located.len(), "{units:?}");
+        for (u, l) in units.iter().zip(&located) {
+            assert_eq!(
+                (u.start, u.line, u.error.as_deref()),
+                (l.offset, l.line, None)
+            );
+            assert_eq!(console::parse(&u.text).unwrap(), vec![l.command.clone()]);
+        }
+        units
+    }
+
+    #[test]
+    fn one_unit_per_request() {
+        let u = units("GET /solr/admin/cores?action=STATUS\nGET /solr/c/select?q=*:*");
+        assert_eq!(u.len(), 2);
+        assert_eq!(
+            (u[1].line, u[1].text.as_str()),
+            (2, "GET /solr/c/select?q=*:*")
+        );
+        let t = "# cores\r\nGET /solr/admin/cores?action=STATUS\r\n\r\n// query\r\nPOST /films/query\r\n{\r\n  \"query\": \"name:\\\"a;b\\\"\",\r\n  \"filter\": [\"genre_s:x\"]\r\n}\r\nSELECT id FROM films;\r\n";
+        let u = units(t);
+        assert_eq!(u.len(), 3);
+        assert_eq!(u.iter().map(|u| u.line).collect::<Vec<_>>(), [2, 5, 10]);
+        assert!(u[1].text.starts_with("POST /films/query\r\n{") && u[1].text.ends_with('}'));
+        assert_eq!(u[2].text, "SELECT id FROM films");
     }
 }

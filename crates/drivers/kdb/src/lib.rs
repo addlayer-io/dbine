@@ -1315,6 +1315,39 @@ mod tests {
         assert!(d[0].capabilities().monitor);
     }
 
+    /// The editor's units are the statements `execute` numbers: both come
+    /// from `script::split`, one per unindented line, an indented line or
+    /// an open `{…}` staying in the statement above.
+    #[test]
+    fn split_script_is_what_execute_numbers() {
+        let d = drivers().remove(0);
+        for (s, expected) in [
+            ("a:1\nb:2", &["a:1", "b:2"][..]),
+            (
+                "select from t\nselect from u",
+                &["select from t", "select from u"],
+            ),
+            ("f:{x+1\n }\nf 2", &["f:{x+1\n }", "f 2"]),
+            (
+                "/ c\r\nt:([] a:1 2;\r\n  b:`x`y)\r\n\r\nselect from t\r\n",
+                &["t:([] a:1 2;\r\n  b:`x`y)", "select from t"],
+            ),
+        ] {
+            let units = d.split_script(s);
+            assert_eq!(units, script::split(s), "{s:?}");
+            let texts: Vec<&str> = units.iter().map(|u| u.text.as_str()).collect();
+            assert_eq!(texts, expected, "{s:?}");
+            for u in &units {
+                assert_eq!(&s[u.start..u.end], u.text);
+                assert!(u.error.is_none());
+            }
+        }
+        // Positions: the first code line of each, past comments and blanks.
+        let u = d.split_script("/ c\n\na:1\n  +1\n\nb:2");
+        let at: Vec<_> = u.iter().map(|u| (u.start, u.end, u.line)).collect();
+        assert_eq!(at, [(5, 13, 3), (15, 18, 6)]);
+    }
+
     #[test]
     fn new_connections_verify_and_options_apply() {
         let i = info();

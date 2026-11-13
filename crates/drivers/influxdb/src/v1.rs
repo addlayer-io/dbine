@@ -288,7 +288,10 @@ fn use_target(stmt: &str) -> Option<(String, Option<String>)> {
 
 /// A unit whose first line is a `USE` (the influx CLI reads a script line
 /// by line, so `USE db` needs no `;`): that line, and the rest of the unit
-/// as a unit of its own. `(None, None)` for any other unit.
+/// as a unit of its own, from its first token (comment and blank lines
+/// before it left out, as the splitter leaves them out of any unit, so a
+/// `USE` after a comment is read as one too). `(None, None)` for any other
+/// unit.
 fn use_line(
     u: &dbine_driver::ScriptStatement,
 ) -> (Option<String>, Option<dbine_driver::ScriptStatement>) {
@@ -299,19 +302,49 @@ fn use_line(
     let Some(nl) = u.text.find('\n') else {
         return (Some(u.text.clone()), None);
     };
-    let rest = &u.text[nl + 1..];
-    let trimmed = rest.trim_start();
-    if trimmed.is_empty() {
-        return (Some(u.text[..nl].trim().to_string()), None);
-    }
-    let skip = nl + 1 + rest.len() - trimmed.len();
+    let head = u.text[..nl].trim().to_string();
+    // Only comments and blanks after the line: nothing more to run.
+    let Some(next) =
+        dbine_driver::sql::split_script(&u.text[nl + 1..], &dbine_driver::ScriptDialect::generic())
+            .into_iter()
+            .next()
+    else {
+        return (Some(head), None);
+    };
+    let skip = nl + 1 + next.start;
     let next = dbine_driver::ScriptStatement {
-        text: trimmed.to_string(),
+        text: u.text[skip..].to_string(),
         start: u.start + skip,
         line: u.line + u.text[..skip].matches('\n').count() as u32,
         ..u.clone()
     };
-    (Some(u.text[..nl].trim().to_string()), Some(next))
+    (Some(head), Some(next))
+}
+
+/// The script's units as the influx CLI reads it: statements end at `;`,
+/// and a `USE db[.rp]` line ends at its line (no `;` needed), a unit of
+/// its own with its own number. The app runs these one by one (the
+/// driver's `split_script`), and `execute` cuts what it gets the same way.
+pub(crate) fn units(text: &str) -> Vec<dbine_driver::ScriptStatement> {
+    let mut units = Vec::new();
+    let mut queue: std::collections::VecDeque<_> =
+        dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic()).into();
+    while let Some(u) = queue.pop_front() {
+        match use_line(&u) {
+            (Some(head), rest) if use_target(&head).is_some() => {
+                if let Some(rest) = rest {
+                    queue.push_front(rest);
+                }
+                units.push(dbine_driver::ScriptStatement {
+                    end: u.start + head.len(),
+                    text: head,
+                    ..u
+                });
+            }
+            _ => units.push(u),
+        }
+    }
+    units
 }
 
 /// A refused request: `error parsing query: … at line L, char C` placed in
@@ -914,22 +947,11 @@ impl Session for InfluxQlSession {
     /// statements after it and of later runs, and the tab follows. Like in
     /// the CLI it may end at its line, without `;`.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        // Units, with a `USE` line split off the statement under it.
-        let mut units = Vec::new();
-        let mut queue: std::collections::VecDeque<_> =
-            dbine_driver::sql::split_script(text, &dbine_driver::ScriptDialect::generic()).into();
-        while let Some(u) = queue.pop_front() {
-            let (head, rest) = use_line(&u);
-            match head.as_deref().and_then(use_target) {
-                Some(target) => {
-                    if let Some(rest) = rest {
-                        queue.push_front(rest);
-                    }
-                    units.push((Some(target), u));
-                }
-                None => units.push((None, u)),
-            }
-        }
+        // Units, a `USE` line on its own (the editor's units, see `units`).
+        let units: Vec<_> = units(text)
+            .into_iter()
+            .map(|u| (use_target(&u.text), u))
+            .collect();
         if self.read_only {
             if let Some(kw) = units
                 .iter()
@@ -1550,6 +1572,91 @@ mod tests {
             Error::Query(_)
         ));
         assert_eq!(ident("a\"b"), r#""a\"b""#);
+    }
+
+    /// (text, start, end, line) of each unit.
+    fn placed(s: &str) -> Vec<(String, usize, usize, u32)> {
+        units(s)
+            .into_iter()
+            .map(|u| {
+                assert_eq!(s[u.start..u.end], u.text, "{u:?}");
+                (u.text, u.start, u.end, u.line)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_use_line_is_a_unit_of_its_own() {
+        // The audit's scripts.
+        assert_eq!(placed("SHOW DATABASES;\nSHOW MEASUREMENTS;").len(), 2);
+        assert_eq!(
+            placed("USE mydb\nSHOW MEASUREMENTS;"),
+            [
+                ("USE mydb".into(), 0, 8, 1),
+                ("SHOW MEASUREMENTS".into(), 9, 26, 2)
+            ]
+        );
+        // Three statements and two USE lines, a multi-line statement,
+        // `;` in strings, comments and blank lines before a statement
+        // (not part of it), CRLF.
+        let s = "-- head\r\n\r\nuse \"my db\".\"a.rp\"\r\nSELECT * FROM cpu\r\n  WHERE host = 'a;b';\r\n/* x; */ SHOW TAG KEYS;\r\nUSE other;\r\nSELECT \"v;w\" FROM m";
+        assert_eq!(
+            placed(s),
+            [
+                ("use \"my db\".\"a.rp\"".into(), 11, 29, 3),
+                (
+                    "SELECT * FROM cpu\r\n  WHERE host = 'a;b'".into(),
+                    31,
+                    70,
+                    4
+                ),
+                ("SHOW TAG KEYS".into(), 82, 95, 6),
+                ("USE other".into(), 98, 107, 7),
+                ("SELECT \"v;w\" FROM m".into(), 110, 129, 8),
+            ]
+        );
+        // Not a USE line: the statement stays whole (the server says why).
+        assert_eq!(placed("USE a b\nSHOW DATABASES;").len(), 1);
+        assert_eq!(placed("USEFUL;\nSHOW DATABASES;").len(), 2);
+        // Each unit alone is cut the same.
+        for u in units(s) {
+            assert_eq!(units(&u.text).len(), 1);
+        }
+    }
+
+    #[test]
+    fn comments_after_a_use_line_are_not_the_next_statement() {
+        // The statement under it starts at its first code line.
+        assert_eq!(
+            placed("USE mydb\n-- cpu\n/* load */\n\nSELECT * FROM cpu"),
+            [
+                ("USE mydb".into(), 0, 8, 1),
+                ("SELECT * FROM cpu".into(), 28, 45, 5)
+            ]
+        );
+        // A USE after a comment is a USE too, not text sent to the server.
+        let s = "USE a\r\n-- c\r\nUSE b.rp\r\nSELECT 1";
+        assert_eq!(
+            placed(s),
+            [
+                ("USE a".into(), 0, 5, 1),
+                ("USE b.rp".into(), 13, 21, 3),
+                ("SELECT 1".into(), 23, 31, 4)
+            ]
+        );
+        assert_eq!(
+            units(s)
+                .iter()
+                .map(|u| use_target(&u.text))
+                .collect::<Vec<_>>(),
+            [
+                Some(("a".into(), None)),
+                Some(("b".into(), Some("rp".into()))),
+                None
+            ]
+        );
+        // Only comments after it: the USE alone.
+        assert_eq!(placed("USE a\n-- done\n"), [("USE a".into(), 0, 5, 1)]);
     }
 
     #[test]

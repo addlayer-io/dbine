@@ -92,11 +92,22 @@ fn the_kinds_follow_the_user() {
     assert_eq!(keys, ["job", "plan", "archived", "imported", "settings"]);
     assert!(i.kinds[0].can_create && i.kinds[0].can_edit && i.kinds[0].can_delete);
     // A task of the plan starts now; the history is rotated, not cleared;
-    // a full backup and a merge of every backup are the repository's
-    // actions.
+    // a full backup, a merge of every backup and one of a range of dates
+    // (which asks for them) are the repository's actions.
     assert!(i.kinds[0].run_from_step && !i.kinds[0].clear_history);
-    let acts: Vec<&str> = i.kinds[0].actions.iter().map(|a| a.key.as_str()).collect();
-    assert_eq!(acts, ["backup_now", "merge_now"]);
+    let acts: Vec<(&str, bool)> = i.kinds[0]
+        .actions
+        .iter()
+        .map(|a| (a.key.as_str(), a.params))
+        .collect();
+    assert_eq!(
+        acts,
+        [
+            ("backup_now", false),
+            ("merge_now", false),
+            ("merge_range", true)
+        ]
+    );
     assert!(i.kinds[1..]
         .iter()
         .all(|k| k.actions.is_empty() && !k.run_from_step));
@@ -805,7 +816,7 @@ fn a_cloud_repository_is_not_merged() {
     for local in [json!({}), json!({"cloud_info": null})] {
         assert_eq!(
             repo::repo_actions(&local),
-            ["backup_now", "merge_now"],
+            ["backup_now", "merge_now", "merge_range"],
             "{local}"
         );
     }
@@ -945,5 +956,209 @@ fn changes_warn_about_what_they_lose_or_risk() {
     assert!(warned(&repo::backup_now_change("r").script()).is_empty());
     assert!(
         warned(&repo::stored_delete_change(Stored::Archived, "a", "/data/b").script()).is_empty()
+    );
+}
+
+#[test]
+fn backups_by_day_on_the_nodes_calendar() {
+    const DAY: i64 = 86_400;
+    let s = repo::stamp("2026-11-13T00_42_34.721581812Z").unwrap();
+    assert_eq!(s.day, 20_770);
+    assert_eq!(s.time, Some((42 * 60 + 34, 0)));
+    let s = repo::stamp("2020-06-08T10_26_08.93-07_00").unwrap();
+    assert_eq!(
+        (repo::civil_text(s.day).as_str(), s.time),
+        ("2020-06-08", Some((10 * 3_600 + 26 * 60 + 8, -7 * 3_600)))
+    );
+    assert_eq!(repo::stamp("2026-11-13").unwrap().time, None);
+    for bad in ["2026-02-30", "2026-13-01", "13-11-2026", "2026/11/13", ""] {
+        assert!(repo::stamp(bad).is_none(), "{bad}");
+    }
+    for d in [0, 11_017, 18_421, 20_770, -1, 2_932_896] {
+        let t = repo::civil_text(d);
+        assert_eq!(repo::stamp(&t).unwrap().day, d, "{t}");
+    }
+    assert_eq!(repo::civil_text(20_770), "2026-11-13");
+    // Today on the nodes' calendar: the newest backup's offset. At 22:00
+    // UTC it's already tomorrow at +03:00, still today at -07:00.
+    let now = 20_770 * DAY + 22 * 3_600;
+    let east = [
+        "2026-11-10T09_00_00+03_00".to_string(),
+        "2026-11-13T23_00_00+03_00".to_string(),
+    ];
+    assert_eq!(
+        repo::backup_days(&east, now),
+        (vec![20_767, 20_770], 20_771)
+    );
+    let west = ["2026-11-13T10_00_00-07_00".to_string()];
+    assert_eq!(repo::backup_days(&west, now).1, 20_770);
+    // Without an offset (or a backup): UTC.
+    assert_eq!(
+        repo::backup_days(&["2026-11-13".to_string()], now).1,
+        20_770
+    );
+    assert_eq!(repo::backup_days(&[], now), (vec![], 20_770));
+    // Oldest first, whatever order the service gave; unreadable ones left out.
+    let mixed = [
+        "2026-11-13T10_00_00Z".to_string(),
+        "garbage".to_string(),
+        "2026-11-01T10_00_00Z".to_string(),
+    ];
+    assert_eq!(repo::backup_days(&mixed, now).0, vec![20_758, 20_770]);
+}
+
+fn dated(days: &[(&str, usize)]) -> Vec<String> {
+    days.iter()
+        .flat_map(|(d, n)| (0..*n).map(move |i| format!("{d}T10_{i:02}_00.5Z")))
+        .collect()
+}
+
+#[test]
+fn a_merge_of_a_range_of_dates() {
+    const DAY: i64 = 86_400;
+    // 2026-11-13 at noon, UTC.
+    let now = 20_770 * DAY + 12 * 3_600;
+    let dates = dated(&[
+        ("2026-11-01", 1),
+        ("2026-11-10", 2),
+        ("2026-11-12", 1),
+        ("2026-11-13", 3),
+    ]);
+    // The form: from the oldest day to the last one with backups before the
+    // newest's (OK alone leaves the newest restore points), and the backups
+    // per day.
+    let f = repo::merge_range_form("r1", &dates, now).unwrap();
+    let fields = &f.sections[0].fields;
+    assert_eq!(
+        (
+            fields[0].key.as_str(),
+            fields[0].default.clone(),
+            fields[0].required
+        ),
+        ("from", Some(json!("2026-11-01")), true)
+    );
+    assert!(matches!(fields[0].kind, dbine_driver::FormKind::Date));
+    assert_eq!(
+        (
+            fields[1].key.as_str(),
+            fields[1].default.clone(),
+            fields[1].required
+        ),
+        ("to", Some(json!("2026-11-12")), true)
+    );
+    // Fewer than two backups before the newest day: no «Hasta» to propose,
+    // the user picks it.
+    let to_of = |days: &[(&str, usize)]| {
+        repo::merge_range_form("r1", &dated(days), now)
+            .unwrap()
+            .sections[0]
+            .fields[1]
+            .default
+            .clone()
+    };
+    assert_eq!(to_of(&[("2026-11-13", 2)]), None);
+    assert_eq!(to_of(&[("2026-11-12", 1), ("2026-11-13", 1)]), None);
+    assert_eq!(
+        to_of(&[("2026-11-10", 2), ("2026-11-13", 1)]),
+        Some(json!("2026-11-10"))
+    );
+    // A newest backup dated after today (the nodes' clock): «Hasta» is
+    // today at most.
+    assert_eq!(
+        to_of(&[
+            ("2026-11-01", 1),
+            ("2026-11-12", 1),
+            ("2026-11-14", 1),
+            ("2026-11-15", 1)
+        ]),
+        Some(json!("2026-11-13"))
+    );
+    assert!(
+        f.notes[1].contains("2026-11-13 (3), 2026-11-12 (1), 2026-11-10 (2), 2026-11-01 (1)"),
+        "{:?}",
+        f.notes
+    );
+    assert!(err(repo::merge_range_form(
+        "r1",
+        &dated(&[("2026-11-13", 1)]),
+        now
+    ))
+    .contains("un solo backup"));
+    assert!(err(repo::merge_range_form("r1", &[], now)).contains("no tiene backups"));
+    // Days back from today: offset_start the newer, offset_end the older.
+    let range = |from: &str, to: &str| FormValues {
+        values: vals(json!({"from": from, "to": to})),
+        lists: BTreeMap::new(),
+    };
+    let ch =
+        repo::merge_range_change("r1", &dates, now, &range("2026-11-10", "2026-11-12")).unwrap();
+    assert_eq!(ch.calls[0].path, "/cluster/self/repository/active/r1/merge");
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 1, "offset_end": 3}))
+    );
+    let sc = ch.script();
+    assert!(
+        sc.contains("los 3 backups")
+            && sc.contains("entre el 2026-11-10 y el 2026-11-12")
+            && sc.contains("de 1 a 3 días atrás"),
+        "{sc}"
+    );
+    assert_eq!(warned(&sc).len(), 1, "{sc}");
+    assert_eq!(ch.id.as_deref(), Some("repo:r1"));
+    // Today only.
+    let ch =
+        repo::merge_range_change("r1", &dates, now, &range("2026-11-13", "2026-11-13")).unwrap();
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 0, "offset_end": 0}))
+    );
+    // Everything, from before the oldest.
+    let ch =
+        repo::merge_range_change("r1", &dates, now, &range("2026-10-01", "2026-11-13")).unwrap();
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 0, "offset_end": 43}))
+    );
+    // Refused: fewer than two in the range, the wrong order, the future,
+    // dates that aren't, missing ones.
+    for (from, to, says) in [
+        ("2026-11-01", "2026-11-09", "tiene 1 backup"),
+        ("2026-11-02", "2026-11-09", "tiene 0 backup"),
+        ("2026-11-12", "2026-11-12", "tiene 1 backup"),
+        (
+            "2026-11-12",
+            "2026-11-10",
+            "no puede ser posterior a «Hasta»",
+        ),
+        ("2026-11-10", "2026-11-14", "posterior a hoy (2026-11-13"),
+        (
+            "2026-11-10",
+            "2026-02-30",
+            "«Hasta»: «2026-02-30» no es una fecha",
+        ),
+        ("2026-11-10T00:00:00", "2026-11-13", "«Desde»"),
+        ("2026-11-10'}", "2026-11-13", "«Desde»"),
+        ("", "2026-11-13", "Falta «Desde»"),
+    ] {
+        let e = err(repo::merge_range_change(
+            "r1",
+            &dates,
+            now,
+            &range(from, to),
+        ));
+        assert!(e.contains(says), "{from} {to}: {e}");
+    }
+    // A repository east of UTC: today is already tomorrow there.
+    let late = 20_770 * DAY + 22 * 3_600;
+    let east = vec![
+        "2026-11-13T09_00_00+03_00".to_string(),
+        "2026-11-14T00_30_00+03_00".to_string(),
+    ];
+    let ch =
+        repo::merge_range_change("r1", &east, late, &range("2026-11-13", "2026-11-14")).unwrap();
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 0, "offset_end": 1}))
     );
 }

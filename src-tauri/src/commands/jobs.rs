@@ -229,6 +229,23 @@ pub struct ObjectActionArgs {
     pub kind: String,
     pub id: String,
     pub action: String,
+    /// What the user filled in the action's form (none: it has no form).
+    #[serde(default)]
+    pub values: dbine_driver::FormValues,
+}
+
+/// The form of an action that asks for values first, for that object.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduler_action_form(
+    state: State<'_, AppState>,
+    args: ObjectActionArgs,
+) -> CommandResult<dbine_driver::ObjectForm> {
+    Ok(on_jobs_session!(state, &args.connection_id, |s| s
+        .scheduler_action_form(
+            &args.kind,
+            &args.id,
+            &args.action
+        ))?)
 }
 
 /// The script of one of the kind's actions on an object (nothing runs).
@@ -241,7 +258,8 @@ pub async fn scheduler_action_script(
         .scheduler_action_script(
             &args.kind,
             &args.id,
-            &args.action
+            &args.action,
+            &args.values
         ))?)
 }
 
@@ -253,7 +271,12 @@ pub async fn scheduler_action(
     args: ObjectActionArgs,
 ) -> CommandResult<()> {
     Ok(on_jobs_session!(state, &args.connection_id, |s| s
-        .scheduler_action(&args.kind, &args.id, &args.action))?)
+        .scheduler_action(
+            &args.kind,
+            &args.id,
+            &args.action,
+            &args.values
+        ))?)
 }
 
 /// Starts the job at one of its steps (the user confirmed).

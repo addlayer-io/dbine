@@ -367,6 +367,7 @@
     "saved": "已保存“{{name}}”。",
     "deleted": "已删除“{{name}}”。",
     "confirmAction": "将对 {{connection}} 中的“{{name}}”（{{kind}}）执行“{{action}}”，脚本如下：",
+    "actionForm": "请填写 {{connection}} 中“{{name}}”（{{kind}}）的“{{action}}”所需的值。执行之前，您会看到对应的脚本。",
     "actionDone": "已对“{{name}}”执行“{{action}}”。",
     "noScript": "服务器未返回任何脚本：没有可保存的更改。",
     "consequences": "继续之前，请注意：",

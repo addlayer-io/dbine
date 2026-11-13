@@ -212,9 +212,10 @@ impl Driver for CassandraDriver {
         true
     }
 
-    /// For "run the statement at the cursor": `$$` bodies, and no `BEGIN …
-    /// END` blocks (a CQL batch ends with `APPLY BATCH`). Editor scripts
-    /// are split by the driver itself, as cqlsh does.
+    /// `$$` bodies, and no `BEGIN … END` blocks (a CQL batch ends with
+    /// `APPLY BATCH`), for the read-only guard and the other checks that
+    /// read CQL with the generic lexer. Statements are cut by
+    /// [`Driver::split_script`], as cqlsh does.
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
         dbine_driver::ScriptDialect {
             dollar_quotes: true,
@@ -223,6 +224,14 @@ impl Driver for CassandraDriver {
             slash_comments: true,
             ..dbine_driver::ScriptDialect::generic()
         }
+    }
+
+    /// As cqlsh and `execute` read it (see `cql::script`): a statement ends
+    /// at `;`, a cqlsh command (`CONSISTENCY`, `PAGING`…) at its line, and
+    /// `BEGIN BATCH` … `APPLY BATCH` is one statement. The same units, in
+    /// the same order, that `execute` numbers.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        cql::statements(text)
     }
 
     /// As cqlsh -f: a failed statement doesn't stop the script (the tab's
@@ -1927,6 +1936,23 @@ fn trace(info: &TracingInfo) -> plan::Trace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every flavor cuts the editor's script as `execute` numbers it.
+    #[test]
+    fn split_script_is_cqlshs() {
+        let s = "PAGING OFF\nSELECT * FROM t;\nBEGIN BATCH\nINSERT INTO t (a) VALUES (1);\nAPPLY BATCH;";
+        let starts: Vec<usize> = cql::script(s).iter().map(|u| u.start).collect();
+        for d in drivers() {
+            let units = d.split_script(s);
+            assert_eq!(
+                units.iter().map(|u| u.start).collect::<Vec<_>>(),
+                starts,
+                "{}",
+                d.info().id
+            );
+            assert_eq!(units.len(), 3);
+        }
+    }
 
     #[test]
     fn error_positions() {

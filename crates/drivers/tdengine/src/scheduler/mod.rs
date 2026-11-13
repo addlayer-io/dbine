@@ -22,11 +22,16 @@
 //!   engine's source database), so the names without one resolve as they
 //!   did; the script says so with a `USE`.
 //!
+//! - A stream of the new engine is recalculated over a range of time
+//!   ([`recalc`], `RECALCULATE STREAM`), an action that asks for the range
+//!   first.
+//!
 //! TDengine keeps no history of a stream's runs and no scheduler log, and
 //! a stream has no steps: `run_job_from`, `clear_job_history` and
 //! `scheduler_logs` stay unsupported. Nor does it say what a user may do
 //! with streams before trying: the server refuses what it doesn't allow.
 
+mod recalc;
 mod stream;
 
 use crate::jobs::{self, Stream};
@@ -159,9 +164,25 @@ fn check_kind(kind: &str) -> Result<()> {
     )))
 }
 
+/// The streams' one action, recalculating a range of time: only the new
+/// engine has it.
+fn check_action(c: &Ctx, action: &str) -> Result<()> {
+    if c.new_engine && action.trim() == recalc::RECALCULATE {
+        return Ok(());
+    }
+    Err(Error::Unsupported(format!(
+        "«{}» no es una acción de los streams de esta versión de TDengine",
+        shown(action)
+    )))
+}
+
 fn info_of(c: &Ctx) -> SchedulerInfo {
+    let mut kind = SchedulerKind::new("job", "Streams", "stream").abilities(true, true, true);
+    if c.new_engine {
+        kind = kind.action(recalc::action());
+    }
     SchedulerInfo {
-        kinds: vec![SchedulerKind::new("job", "Streams", "stream").abilities(true, true, true)],
+        kinds: vec![kind],
         logs: false,
         notes: if c.suspend {
             Vec::new()
@@ -196,7 +217,14 @@ pub(crate) async fn items(s: &mut TdSession, kind: &str) -> Result<SchedulerList
                     system: false,
                     can_edit: None,
                     can_delete: None,
-                    actions: None,
+                    // Recalculated where the server would take it (new
+                    // engine, running, not PERIOD).
+                    actions: c.new_engine.then(|| {
+                        recalc::offered(&c, st)
+                            .then(|| recalc::RECALCULATE.to_string())
+                            .into_iter()
+                            .collect()
+                    }),
                     run_from_step: None,
                     clear_history: None,
                 }
@@ -254,6 +282,58 @@ pub(crate) async fn delete(s: &mut TdSession, kind: &str, id: &str) -> Result<()
     s.cancel.flag.store(false, Ordering::SeqCst);
     let (_, all) = read(s).await?;
     run(s, &drop_plan(&find(all, id)?)).await
+}
+
+/// The stream an action is for, and the server's context, checked.
+async fn action_target(s: &TdSession, kind: &str, id: &str, action: &str) -> Result<(Ctx, Stream)> {
+    check_kind(kind)?;
+    let (c, all) = read(s).await?;
+    check_action(&c, action)?;
+    let st = find(all, id)?;
+    Ok((c, st))
+}
+
+/// The form of "Recalcular un rango de tiempo": today so far, by default.
+pub(crate) async fn action_form(
+    s: &mut TdSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<ObjectForm> {
+    let (c, st) = action_target(s, kind, id, action).await?;
+    recalc::check(&c, &st)?;
+    let now = match s.strings("SELECT NOW()").await {
+        Ok(rows) => rows.into_iter().next().and_then(|r| r.into_iter().next()),
+        Err(e) => {
+            tracing::debug!("tdengine scheduler: the server's time: {e}");
+            None
+        }
+    };
+    Ok(recalc::form_of(&st, now.as_deref()))
+}
+
+pub(crate) async fn action_script(
+    s: &mut TdSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<String> {
+    let (c, st) = action_target(s, kind, id, action).await?;
+    Ok(recalc::plan(&c, &st, values)?.script())
+}
+
+pub(crate) async fn action(
+    s: &mut TdSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<()> {
+    s.cancel.flag.store(false, Ordering::SeqCst);
+    let (c, st) = action_target(s, kind, id, action).await?;
+    let p = recalc::plan(&c, &st, values)?;
+    recalc::run(s, &st, &p).await
 }
 
 // ---------------------------------------------------------------------------

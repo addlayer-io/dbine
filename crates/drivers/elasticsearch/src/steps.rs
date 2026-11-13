@@ -1,6 +1,8 @@
 //! Editor bookkeeping for the statements this driver splits itself: each
 //! one's results carry its place in the script and its time, and its
 //! error the script offset and line, as when the app splits the script.
+//! The Solr driver, which runs the same console syntax, numbers its
+//! requests with it too.
 
 use dbine_driver::{Error, QueryOutcome, Result, ScriptError, StatementEnd};
 use std::time::Instant;

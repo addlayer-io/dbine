@@ -1,6 +1,6 @@
 import { ElMessage } from 'element-plus';
 import { errorMessage } from '../api/client';
-import { schedulerApi, type SchedulerAction, type SchedulerItem, type SchedulerKind } from '../api/scheduler';
+import { schedulerApi, type FormValues, type ObjectForm, type SchedulerAction, type SchedulerItem, type SchedulerKind } from '../api/scheduler';
 import type { MenuItem } from '../components/ContextMenu.vue';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -8,8 +8,8 @@ import { useConnectionsStore } from '../stores/connections';
 import { useServerJobsStore } from '../stores/serverJobs';
 import { useTabsStore } from '../stores/tabs';
 import { newQuery } from './actions';
-import { askScript } from './schedulerDialogs';
-import { formValues, initialLists, initialValues, itemAbilities, type Abilities } from './schedulerForm';
+import { askForm, askScript } from './schedulerDialogs';
+import { actionText, formValues, initialLists, initialValues, itemAbilities, type Abilities } from './schedulerForm';
 import { isProdConnection } from './tags';
 
 // What can be done with the objects of a server's scheduler (the designer,
@@ -18,7 +18,8 @@ import { isProdConnection } from './tags';
 // naming the object and the connection; read-only connections don't offer
 // changes (the backend refuses them anyway). Each object offers what it says
 // it can (`itemAbilities`): its own edit / delete flags, else its kind's, and
-// the kind's actions it lists.
+// the kind's actions it lists. An action that asks for values first (a time
+// range, job parameters, a chain's step) opens its form before the script.
 
 /** The connection isn't read-only: changes are offered. */
 export function canChange(connectionId: string): boolean {
@@ -105,39 +106,68 @@ export async function deleteSchedulerObject(connectionId: string, kind: string, 
   return true;
 }
 
+/** An action's label in the UI's language, with "…" when it asks for
+ *  values first (menus, buttons). */
+export function actionLabel(action: SchedulerAction): string {
+  return actionText(tb(action.label), action.params);
+}
+
 /** One of the kind's actions on an object (run now, open a window…): its
  *  script, the user's yes naming the object and the connection (and the
  *  production notice), then the action; the tree reads again and an open
- *  designer of the object too. Never on a read-only connection. True when
- *  it ran. */
+ *  designer of the object too. One that asks for values first
+ *  (`SchedulerAction.params`) shows its form for the object before: OK
+ *  writes the script with those values, a "no" to it goes back to the form,
+ *  and an error from the script or the run shows in the form with the
+ *  values kept for a retry. Never on a read-only connection (the backend
+ *  refuses the run anyway). True when it ran. */
 export async function runSchedulerAction(connectionId: string, kind: SchedulerKind, id: string, name: string, action: SchedulerAction): Promise<boolean> {
   if (!canChange(connectionId)) return false;
   const label = tb(action.label);
-  let script: string;
-  try {
-    script = await schedulerApi.actionScript(connectionId, kind.key, id, action.key);
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-    return false;
+  const what = { action: label, name, kind: tb(kind.singular), connection: useConnectionsStore().byId(connectionId)?.name ?? '' };
+  /** The script for these values, the user's yes, the run: false when the
+   *  user said no. Errors throw. */
+  const confirmAndRun = async (values?: FormValues): Promise<boolean> => {
+    const script = await schedulerApi.actionScript(connectionId, kind.key, id, action.key, values);
+    const ok = await askScript({
+      mode: 'confirm',
+      title: label,
+      message: t('scheduled:designer.confirmAction', what),
+      warning: prodWarning(connectionId),
+      script,
+      dialect: dialectOf(connectionId),
+      okLabel: label,
+    });
+    if (!ok) return false;
+    await schedulerApi.action(connectionId, kind.key, id, action.key, values);
+    return true;
+  };
+  let done: boolean;
+  if (action.params) {
+    let form: ObjectForm;
+    try {
+      form = await schedulerApi.actionForm(connectionId, kind.key, id, action.key);
+    } catch (e) {
+      ElMessage.error(errorMessage(e));
+      return false;
+    }
+    done = await askForm({
+      title: label,
+      message: t('scheduled:designer.actionForm', what),
+      form,
+      okLabel: label,
+      dialect: dialectOf(connectionId),
+      submit: confirmAndRun,
+    });
+  } else {
+    try {
+      done = await confirmAndRun();
+    } catch (e) {
+      ElMessage.error(errorMessage(e));
+      return false;
+    }
   }
-  const ok = await askScript({
-    mode: 'confirm',
-    title: label,
-    message: t('scheduled:designer.confirmAction', {
-      action: label, name, kind: tb(kind.singular), connection: useConnectionsStore().byId(connectionId)?.name ?? '',
-    }),
-    warning: prodWarning(connectionId),
-    script,
-    dialect: dialectOf(connectionId),
-    okLabel: label,
-  });
-  if (!ok) return false;
-  try {
-    await schedulerApi.action(connectionId, kind.key, id, action.key);
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-    return false;
-  }
+  if (!done) return false;
   ElMessage.success(t('scheduled:designer.actionDone', { action: label, name }));
   const store = useServerJobsStore();
   store.refreshAfterChange(connectionId);
@@ -150,7 +180,7 @@ export async function runSchedulerAction(connectionId: string, kind: SchedulerKi
 export function actionMenuItems(connectionId: string, kind: SchedulerKind, actions: SchedulerAction[], id: string, name: string): MenuItem[] {
   if (!canChange(connectionId)) return [];
   return actions.map((a, i) => ({
-    label: tb(a.label), divided: i === 0, action: () => void runSchedulerAction(connectionId, kind, id, name, a),
+    label: actionLabel(a), divided: i === 0, action: () => void runSchedulerAction(connectionId, kind, id, name, a),
   }));
 }
 

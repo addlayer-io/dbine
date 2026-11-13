@@ -7,6 +7,7 @@
 //! extended JSON before turning into BSON.
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use dbine_driver::{ScriptStatement, StatementKind};
 use mongodb::bson::{doc, oid::ObjectId, Bson, Document};
 use serde_json::{json, Map, Value};
 
@@ -96,11 +97,14 @@ pub enum Item {
     Show(String),
 }
 
-/// A unit of an editor script, with its place (byte offset, 1-based line).
+/// A unit of an editor script, with its place: the byte offsets of its
+/// first character and past its last one (the comments and blank lines
+/// around it and its `;` left out), and the 1-based line of `start`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Unit {
     pub item: Item,
     pub start: usize,
+    pub end: usize,
     pub line: u32,
 }
 
@@ -117,6 +121,52 @@ pub struct ParseError {
 /// line). A syntax error anywhere runs nothing, as a script file that
 /// doesn't parse.
 pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
+    pieces(text)
+        .into_iter()
+        .map(|p| {
+            p.parsed.map(|item| Unit {
+                item,
+                start: p.start,
+                end: p.end,
+                line: p.line,
+            })
+        })
+        .collect()
+}
+
+/// The script's statements for the editor (the run lens, "run the
+/// statement at the cursor", named results): the units [`parse_units`]
+/// gives `execute`, which numbers its results by them, so both agree on
+/// where each statement starts and ends and on its number. A unit that
+/// doesn't parse is still one, bounded by its brackets, strings and
+/// comments ([`unit_end`]): the statements around one being written keep
+/// theirs, and running it reports the syntax error at its place.
+pub(crate) fn statements(text: &str) -> Vec<ScriptStatement> {
+    pieces(text)
+        .into_iter()
+        .map(|p| ScriptStatement {
+            text: text[p.start..p.end].to_string(),
+            start: p.start,
+            end: p.end,
+            line: p.line,
+            kind: StatementKind::Sql,
+            repeat: 1,
+            error: None,
+        })
+        .collect()
+}
+
+/// A unit of the script: what it does, or why it doesn't parse.
+struct Piece {
+    parsed: std::result::Result<Item, ParseError>,
+    start: usize,
+    end: usize,
+    line: u32,
+}
+
+/// Every unit of the script, in order: after one that doesn't parse, the
+/// parser goes on where [`unit_end`] says it ends.
+fn pieces(text: &str) -> Vec<Piece> {
     let mut p = P {
         s: text.chars().collect(),
         i: 0,
@@ -126,7 +176,8 @@ pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
         .map(|(b, _)| b)
         .chain(std::iter::once(text.len()))
         .collect();
-    let line = |b: usize| text.as_bytes()[..b].iter().filter(|&&c| c == b'\n').count() as u32 + 1;
+    let breaks: Vec<usize> = text.match_indices('\n').map(|(b, _)| b).collect();
+    let line = |b: usize| breaks.partition_point(|&n| n < b) as u32 + 1;
     let mut out = Vec::new();
     loop {
         p.ws();
@@ -134,8 +185,8 @@ pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
             p.i += 1;
             p.ws();
         }
-        let Some(c) = p.peek() else { return Ok(out) };
-        let start = bytes[p.i];
+        let Some(c) = p.peek() else { return out };
+        let first = p.i;
         let item = if c == '{' {
             p.value()
                 .and_then(to_doc)
@@ -145,23 +196,151 @@ pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
         } else {
             p.db_call().map(Item::Run)
         };
-        match item {
-            Ok(item) => out.push(Unit {
-                item,
-                start,
-                line: line(start),
-            }),
+        let (parsed, last) = match item {
+            // A helper takes the rest of its line: its `;` and the blank
+            // space before the line break aren't part of it.
+            Ok(item) => {
+                let mut last = p.i;
+                while last > first && (p.s[last - 1].is_whitespace() || p.s[last - 1] == ';') {
+                    last -= 1;
+                }
+                (Ok(item), last)
+            }
             Err(m) => {
                 let at = bytes[p.i.min(p.s.len())];
+                let last = unit_end(&p.s, first).max(first + 1);
+                p.i = last;
                 // The error carries the line apart (no "línea N: " prefix).
-                return Err(ParseError {
+                let e = ParseError {
                     message: m,
                     offset: at,
                     line: line(at),
-                });
+                };
+                (Err(e), last)
             }
+        };
+        out.push(Piece {
+            parsed,
+            start: bytes[first],
+            end: bytes[last],
+            line: line(bytes[first]),
+        });
+    }
+}
+
+/// Where a unit that doesn't parse ends (the char index past its last
+/// character), from `start`, its first one. Brackets, strings, regexes and
+/// comments are counted as the parser reads them: it ends at a `;` or a
+/// line break outside brackets, unless the next line goes on with the call
+/// chain (`.limit(…)`), and, with brackets left open (one being written),
+/// before a line that starts a `db.` call, which is never a value.
+fn unit_end(s: &[char], start: usize) -> usize {
+    let mut depth = 0usize;
+    let mut i = start;
+    let mut end = start;
+    while let Some(&c) = s.get(i) {
+        match c {
+            '/' if matches!(s.get(i + 1), Some('/' | '*')) => {
+                i = skip_comment(s, i);
+                continue;
+            }
+            '"' | '\'' | '/' => {
+                i = skip_quoted(s, i);
+                end = i;
+                continue;
+            }
+            '\n' => {
+                let next = skip_blank(s, i);
+                let ends = if depth == 0 {
+                    s.get(next) != Some(&'.')
+                } else {
+                    starts_db_call(s, next)
+                };
+                if ends {
+                    return end;
+                }
+                i = next;
+                continue;
+            }
+            ';' if depth == 0 => return end,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            c if c.is_whitespace() => {
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+        end = i;
+    }
+    end
+}
+
+/// Past the `//` (up to its line break, not included) or `/* */` comment
+/// at `i`.
+fn skip_comment(s: &[char], mut i: usize) -> usize {
+    if s.get(i + 1) == Some(&'/') {
+        while s.get(i).is_some_and(|&c| c != '\n') {
+            i += 1;
+        }
+        return i;
+    }
+    i += 2;
+    while i < s.len() && !(s[i] == '*' && s.get(i + 1) == Some(&'/')) {
+        i += 1;
+    }
+    (i + 2).min(s.len())
+}
+
+/// Past the string (`"…"`, `'…'`) or regex (`/…/flags`) at `i`. One left
+/// open ends at its line break, so it doesn't take the lines after it.
+fn skip_quoted(s: &[char], mut i: usize) -> usize {
+    let q = s[i];
+    let mut class = false;
+    i += 1;
+    while let Some(&c) = s.get(i) {
+        match c {
+            '\n' => return i,
+            '\\' => i += 1,
+            '[' if q == '/' => class = true,
+            ']' if q == '/' => class = false,
+            c if c == q && !class => {
+                i += 1;
+                if q == '/' {
+                    while s.get(i).is_some_and(|c| c.is_ascii_alphabetic()) {
+                        i += 1;
+                    }
+                }
+                return i;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    s.len()
+}
+
+/// The first char past the blank space and comments from `i`.
+fn skip_blank(s: &[char], mut i: usize) -> usize {
+    loop {
+        match s.get(i) {
+            Some(c) if c.is_whitespace() => i += 1,
+            Some('/') if matches!(s.get(i + 1), Some('/' | '*')) => i = skip_comment(s, i),
+            _ => return i,
         }
     }
+}
+
+/// `db.` or `db[` (blank space allowed before the `.` or `[`) at `i`.
+fn starts_db_call(s: &[char], i: usize) -> bool {
+    if s.get(i..i + 2) != Some(&['d', 'b'][..]) {
+        return false;
+    }
+    let next = s[i + 2..]
+        .iter()
+        .find(|c| !c.is_whitespace() || **c == '\n');
+    matches!(next, Some('.' | '['))
 }
 
 /// How a raw command document runs, from its first key.
@@ -551,19 +730,24 @@ impl P {
             (parts.join("."), method, args)
         };
         let mut stmt = coll_method(&coll, &method, args).or_else(|e| self.err(e))?;
-        // Chained modifiers: .sort(…).limit(…)…
+        // Chained modifiers: .sort(…).limit(…)… The call ends at its last
+        // character, without the blank space or comments after it.
         loop {
+            let end = self.i;
             self.ws();
             if self.peek() != Some('.') {
+                self.i = end;
                 break;
             }
             self.i += 1;
             let Some(m) = self.ident() else {
                 return self.err("se esperaba un método después de '.'");
             };
+            let end = self.i;
             let a = if self.eat_peek('(') {
                 self.args()?
             } else {
+                self.i = end;
                 Vec::new()
             };
             modifier(&mut stmt, &m, a).or_else(|e| self.err(e))?;
@@ -1389,5 +1573,186 @@ mod tests {
     fn comments_are_skipped() {
         let v = parse_script("// all\ndb.c.find({ /* none */ })\n/* end */").unwrap();
         assert_eq!(v.len(), 1);
+    }
+
+    /// `(text, start, end, line)` of each statement the editor gets.
+    fn cut(text: &str) -> Vec<(&str, usize, usize, u32)> {
+        statements(text)
+            .iter()
+            .map(|s| {
+                assert_eq!(s.text, text[s.start..s.end]);
+                assert_eq!((s.kind, s.repeat, &s.error), (StatementKind::Sql, 1, &None));
+                (&text[s.start..s.end], s.start, s.end, s.line)
+            })
+            .collect()
+    }
+
+    /// The editor's statements are `execute`'s units: the same places, in
+    /// the same order (its results are numbered by them), and each one runs
+    /// alone as it runs in the whole script.
+    fn same_as_execute(text: &str) {
+        let units = parse_units(text).unwrap();
+        let st = statements(text);
+        assert_eq!(st.len(), units.len(), "{text:?}");
+        for (s, u) in st.iter().zip(&units) {
+            assert_eq!(
+                (s.start, s.end, s.line),
+                (u.start, u.end, u.line),
+                "{text:?}"
+            );
+            let alone = parse_units(&s.text).unwrap();
+            assert_eq!(alone.len(), 1, "{:?}", s.text);
+            assert_eq!(alone[0].item, u.item, "{:?}", s.text);
+        }
+    }
+
+    #[test]
+    fn one_statement_per_unit_without_semicolons() {
+        let t = "db.a.find({})\ndb.b.find({})";
+        assert_eq!(
+            cut(t),
+            [("db.a.find({})", 0, 13, 1), ("db.b.find({})", 14, 27, 2)]
+        );
+        same_as_execute(t);
+        let t = "use test\nshow collections";
+        assert_eq!(
+            cut(t),
+            [("use test", 0, 8, 1), ("show collections", 9, 25, 2)]
+        );
+        same_as_execute(t);
+        // A pipeline over several lines stays whole.
+        let t = "db.a.aggregate([\n  { $match: { x: 1 } },\n  { $group: { _id: \"$k\", n: { $sum: 1 } } }\n])\ndb.b.countDocuments({})";
+        let c = cut(t);
+        assert_eq!(c.len(), 2, "{c:?}");
+        assert!(c[0].0.starts_with("db.a.aggregate([") && c[0].0.ends_with("])"));
+        assert_eq!(c[0].3, 1);
+        assert_eq!(c[1], ("db.b.countDocuments({})", t.len() - 23, t.len(), 5));
+        same_as_execute(t);
+    }
+
+    #[test]
+    fn three_statements_with_and_without_semicolons() {
+        let t = "use ventas;\nshow collections ;  \n{ ping: 1 }; db.c.find({ a: 1 })\n  .limit(2);";
+        assert_eq!(
+            cut(t),
+            [
+                ("use ventas", 0, 10, 1),
+                ("show collections", 12, 28, 2),
+                ("{ ping: 1 }", 33, 44, 3),
+                ("db.c.find({ a: 1 })\n  .limit(2)", 46, 77, 3),
+            ]
+        );
+        same_as_execute(t);
+        let t = "db.a.find()\n\n\ndb.b.find()\n;;\ndb.c.find()";
+        let lines: Vec<u32> = cut(t).iter().map(|c| c.3).collect();
+        assert_eq!(lines, [1, 4, 6]);
+        same_as_execute(t);
+    }
+
+    #[test]
+    fn strings_regexes_and_comments_hold_separators() {
+        let t = "db.a.find({ s: \"x;y\\\" })\\ndb.b\", t: '// no', u: '/* no */' })\ndb.b.find({ r: /[/;)]+\\/x/i, k: 'a)]}' })";
+        let c = cut(t);
+        assert_eq!(c.len(), 2, "{c:?}");
+        assert!(c[1].0.starts_with("db.b.find({ r: /"), "{c:?}");
+        same_as_execute(t);
+        // Comments before a statement aren't part of it (the lens sits on
+        // its first code line); comments after it either.
+        let t = "// clientes: activos\n/* varias\n   líneas */\ndb.clientes.find({ /* dentro */ a: 1 }) // al final\n\n// otra\n  .limit(5) // límite\n// siguiente\ndb.b.find()";
+        let c = cut(t);
+        assert_eq!(c.len(), 2, "{c:?}");
+        assert_eq!(c[0].3, 4);
+        assert!(c[0].0.starts_with("db.clientes.find(") && c[0].0.ends_with(".limit(5)"));
+        assert_eq!(c[1].0, "db.b.find()");
+        assert_eq!(c[1].3, 9);
+        same_as_execute(t);
+    }
+
+    #[test]
+    fn crlf_and_byte_offsets() {
+        let t = "use test\r\nshow collections\r\ndb.a.find({ n: 'ñandú' })\r\n  .sort({ n: 1 })\r\ndb.b.find()\r\n";
+        assert_eq!(
+            cut(t),
+            [
+                ("use test", 0, 8, 1),
+                ("show collections", 10, 26, 2),
+                ("db.a.find({ n: 'ñandú' })\r\n  .sort({ n: 1 })", 28, 74, 3),
+                ("db.b.find()", 76, 87, 5),
+            ]
+        );
+        same_as_execute(t);
+    }
+
+    #[test]
+    fn a_unit_that_doesnt_parse_keeps_the_others_in_place() {
+        // A bad value: execute runs nothing; the editor still sees three.
+        let t = "db.a.find({})\ndb.b.find({ a: })\ndb.c.find()";
+        assert!(parse_units(t).is_err());
+        assert_eq!(
+            cut(t),
+            [
+                ("db.a.find({})", 0, 13, 1),
+                ("db.b.find({ a: })", 14, 31, 2),
+                ("db.c.find()", 32, 43, 3),
+            ]
+        );
+        // Brackets left open (being written): the next `db.` line is
+        // another statement.
+        let t = "db.a.aggregate([\n  { $match: { a: 1 }\ndb.c.find()";
+        let c = cut(t);
+        assert_eq!(c.len(), 2, "{c:?}");
+        assert_eq!(c[1], ("db.c.find()", 38, 49, 3));
+        // A quote left open ends at its line.
+        let t = "db.a.find({ a: 'x })\ndb.b.find()";
+        assert_eq!(cut(t)[1], ("db.b.find()", 21, 32, 2));
+        // A chain being written, its `;`, an unknown method.
+        let t = "db.a.find().\ndb.b.find();db.c.frob({ x: ';' }); { ping: 1 }\nselect 1";
+        assert_eq!(
+            cut(t).iter().map(|c| c.0).collect::<Vec<_>>(),
+            [
+                "db.a.find().",
+                "db.b.find()",
+                "db.c.frob({ x: ';' })",
+                "{ ping: 1 }",
+                "select 1"
+            ]
+        );
+        assert!(statements("").is_empty() && statements(" ;\n// nada\n").is_empty());
+    }
+
+    /// As the text is typed, every prefix cuts into ordered statements that
+    /// start and end on code, and the complete ones agree with `execute`.
+    #[test]
+    fn every_prefix_while_typing() {
+        let t = "// nombre: año\nuse ventas\r\ndb.a.find({ s: 'ñ;\"' /* c */, r: /[/]x/i })\n  .sort({ a: -1 }); db['b c'].aggregate([\n  { $match: {} }\n])\n{ ping: 1 }\nshow dbs;";
+        same_as_execute(t);
+        for (cut_at, _) in t.char_indices().chain(std::iter::once((t.len(), ' '))) {
+            let text = &t[..cut_at];
+            let parses = parse_units(text).is_ok();
+            if parses {
+                same_as_execute(text);
+            }
+            let mut prev = 0;
+            for s in statements(text) {
+                assert!(
+                    prev <= s.start && s.start < s.end && s.end <= text.len(),
+                    "{text:?}"
+                );
+                assert!(text.is_char_boundary(s.start) && text.is_char_boundary(s.end));
+                assert_eq!(s.text, s.text.trim_start(), "{text:?}");
+                assert!(
+                    !s.text.starts_with("//") && !s.text.starts_with("/*"),
+                    "{text:?}"
+                );
+                // (Blank space or a `;` may end one inside a quote left open.)
+                if parses {
+                    assert!(
+                        s.text == s.text.trim() && !s.text.ends_with(';'),
+                        "{text:?}"
+                    );
+                }
+                prev = s.end;
+            }
+        }
     }
 }

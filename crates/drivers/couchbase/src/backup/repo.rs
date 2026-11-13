@@ -1499,12 +1499,13 @@ fn cloud(r: &Value) -> bool {
 }
 
 /// The actions a repository offers: a full backup always (paused ones
-/// too: the service takes one-off tasks on them), a merge where the service
-/// merges.
+/// too: the service takes one-off tasks on them), a merge of every backup
+/// or of a range of dates where the service merges.
 pub(crate) fn repo_actions(r: &Value) -> Vec<String> {
     let mut a = vec!["backup_now".to_string()];
     if !cloud(r) {
         a.push("merge_now".into());
+        a.push("merge_range".into());
     }
     a
 }
@@ -1547,57 +1548,98 @@ fn two(s: &str, i: usize) -> Option<i64> {
         .then(|| t.parse().ok())?
 }
 
-/// The instant (seconds since 1970-01-01T00:00:00Z) of a backup's date as
-/// the service writes it: the node's local time and its offset, with `_`
-/// for `:` (`2026-11-13T00_42_34.721581812Z`,
-/// `2020-06-08T10_26_08.93-07_00`). A date whose time or offset doesn't
-/// read is taken at the earliest instant it can be (its day's start, 14
-/// hours ahead of UTC), so a merge window reaching it still covers it.
-pub(crate) fn backup_time(date: &str) -> Option<i64> {
-    let date = date.trim();
-    let mut it = date.get(..10)?.split('-');
-    let y: i64 = it.next()?.parse().ok()?;
-    let m: i64 = it.next()?.parse().ok()?;
-    let d: i64 = it.next()?.parse().ok()?;
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+/// A backup's date as the service writes it: the node's local time and its
+/// offset, with `_` for `:` (`2026-11-13T00_42_34.721581812Z`,
+/// `2020-06-08T10_26_08.93-07_00`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    /// The day on the node's calendar, in days since 1970-01-01.
+    pub(crate) day: i64,
+    /// The seconds into that day and the node's offset (seconds ahead of
+    /// UTC), when the time and the offset read.
+    pub(crate) time: Option<(i64, i64)>,
+}
+
+/// A date `YYYY-MM-DD` at the start of `s`, in days since 1970-01-01.
+fn civil_day(s: &str) -> Option<i64> {
+    let s = s.get(..10)?;
+    let b = s.as_bytes();
+    if b[4] != b'-' || b[7] != b'-' {
         return None;
     }
-    let day = days_from_civil(y, m, d) * DAY;
-    let earliest = day - MAX_AHEAD;
-    let Some(t) = date.get(10..).and_then(|t| t.strip_prefix(['T', 't', ' '])) else {
-        return Some(earliest);
+    let num = |a: usize, z: usize| -> Option<i64> {
+        let t = &s[a..z];
+        t.bytes()
+            .all(|c| c.is_ascii_digit())
+            .then(|| t.parse().ok())?
     };
-    let sep = |i: usize| matches!(t.as_bytes().get(i), Some(b'_' | b':'));
-    let (Some(h), Some(min), Some(sec), true, true) =
-        (two(t, 0), two(t, 3), two(t, 6), sep(2), sep(5))
-    else {
-        return Some(earliest);
+    let (y, m, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let days_in_month = match m {
+        2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        1..=12 => 31,
+        _ => return None,
     };
-    if h > 23 || min > 59 || sec > 60 {
-        return Some(earliest);
-    }
-    let local = day + h * 3_600 + min * 60 + sec;
-    // The fraction of a second, then the offset.
-    let zone = t[8..].trim_start_matches(|c: char| c == '.' || c == ',' || c.is_ascii_digit());
-    let offset = match zone.as_bytes().first() {
-        Some(b'Z' | b'z') if zone.len() == 1 => 0,
-        Some(&sign @ (b'+' | b'-')) => {
-            let (Some(oh), Some(om)) = (two(zone, 1), two(zone, 4).or_else(|| two(zone, 3))) else {
-                return Some(earliest);
-            };
-            if oh > 14 || om > 59 {
-                return Some(earliest);
-            }
-            let o = oh * 3_600 + om * 60;
-            if sign == b'+' {
-                o
-            } else {
-                -o
-            }
+    (y >= 1 && (1..=days_in_month).contains(&d)).then(|| days_from_civil(y, m, d))
+}
+
+/// The civil date of a day since 1970-01-01, `YYYY-MM-DD`.
+pub(crate) fn civil_text(days: i64) -> String {
+    let z = days + 719_468;
+    let (era, doe) = (z.div_euclid(146_097), z.rem_euclid(146_097));
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+pub(crate) fn stamp(date: &str) -> Option<Stamp> {
+    let date = date.trim();
+    let day = civil_day(date)?;
+    let time = (|| {
+        let t = date.get(10..)?.strip_prefix(['T', 't', ' '])?;
+        let sep = |i: usize| matches!(t.as_bytes().get(i), Some(b'_' | b':'));
+        let (h, min, sec) = (two(t, 0)?, two(t, 3)?, two(t, 6)?);
+        if !sep(2) || !sep(5) || h > 23 || min > 59 || sec > 60 {
+            return None;
         }
-        _ => return Some(earliest),
-    };
-    Some(local - offset)
+        // The fraction of a second, then the offset.
+        let zone = t[8..].trim_start_matches(|c: char| c == '.' || c == ',' || c.is_ascii_digit());
+        let offset = match zone.as_bytes().first() {
+            Some(b'Z' | b'z') if zone.len() == 1 => 0,
+            Some(&sign @ (b'+' | b'-')) => {
+                let (oh, om) = (two(zone, 1)?, two(zone, 4).or_else(|| two(zone, 3))?);
+                if oh > 14 || om > 59 {
+                    return None;
+                }
+                let o = oh * 3_600 + om * 60;
+                if sign == b'+' {
+                    o
+                } else {
+                    -o
+                }
+            }
+            _ => return None,
+        };
+        Some((h * 3_600 + min * 60 + sec, offset))
+    })();
+    Some(Stamp { day, time })
+}
+
+/// The instant (seconds since 1970-01-01T00:00:00Z) of a backup's date
+/// ([`Stamp`]). A date whose time or offset doesn't read is taken at the
+/// earliest instant it can be (its day's start, 14 hours ahead of UTC), so
+/// a merge window reaching it still covers it.
+pub(crate) fn backup_time(date: &str) -> Option<i64> {
+    let s = stamp(date)?;
+    Some(match s.time {
+        Some((secs, offset)) => s.day * DAY + secs - offset,
+        None => s.day * DAY - MAX_AHEAD,
+    })
 }
 
 /// "Unir todos los backups ahora": a merge from today back to the oldest
@@ -1636,8 +1678,158 @@ pub(crate) fn merge_all_change(name: &str, times: &[i64], now: i64) -> Result<Ch
     })
 }
 
-/// Each backup's instant, from `…/info`.
-async fn backup_times(s: &CbSession, name: &str) -> Result<Vec<i64>> {
+// ---------------------------------------------------------------------------
+// Merging the backups of a range of dates
+// ---------------------------------------------------------------------------
+
+/// The repository's backups by day on the backup nodes' calendar, oldest
+/// first, and that calendar's day `now` (seconds since 1970): the node's
+/// offset is the one its newest backup says (UTC when none does).
+pub(crate) fn backup_days(dates: &[String], now: i64) -> (Vec<i64>, i64) {
+    let mut stamps: Vec<Stamp> = dates.iter().filter_map(|d| stamp(d)).collect();
+    stamps.sort_by_key(|s| (s.day, s.time.map(|t| t.0)));
+    let offset = stamps
+        .iter()
+        .rev()
+        .find_map(|s| s.time.map(|t| t.1))
+        .unwrap_or(0);
+    let days = stamps.iter().map(|s| s.day).collect();
+    (days, (now + offset).div_euclid(DAY))
+}
+
+/// Refuses a repository with fewer than two backups: nothing to merge.
+fn two_or_more(name: &str, n: usize) -> Result<()> {
+    match n {
+        0 => Err(bad(format!(
+            "El repositorio «{name}» no tiene backups: no hay nada que unir."
+        ))),
+        1 => Err(bad(format!(
+            "El repositorio «{name}» tiene un solo backup: hacen falta al menos dos para unirlos."
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// "Unir los backups de un rango de fechas": the form, for the repository
+/// `name` whose backups are dated `dates` (as the service writes them);
+/// `now`, the instant now in seconds. «Desde» defaults to the oldest
+/// backup's day and «Hasta» to the last day with backups before the
+/// newest's: a merge can't be undone, so OK alone never takes the newest
+/// restore points. When that range has fewer than two backups, «Hasta» has
+/// no default and the user picks it.
+pub(crate) fn merge_range_form(name: &str, dates: &[String], now: i64) -> Result<ObjectForm> {
+    let (days, today) = backup_days(dates, now);
+    two_or_more(name, days.len())?;
+    let first = days[0];
+    let mut per_day: Vec<(i64, usize)> = Vec::new();
+    for d in &days {
+        match per_day.last_mut() {
+            Some((day, n)) if day == d => *n += 1,
+            _ => per_day.push((*d, 1)),
+        }
+    }
+    let before_newest = per_day
+        .len()
+        .checked_sub(2)
+        .map(|i| per_day[i].0.min(today))
+        .filter(|to| days.iter().filter(|d| (first..=*to).contains(*d)).count() >= 2);
+    let mut to = FormField::new("to", "Hasta", FormKind::Date)
+        .required()
+        .help("El día del más reciente que se une (los backups de los dos días entran). El último día con backups no se propone: sus backups se unen solo si se elige ese día.");
+    if let Some(d) = before_newest {
+        to = to.default(json!(civil_text(d)));
+    }
+    const SHOWN_DAYS: usize = 14;
+    let mut listed: Vec<String> = per_day
+        .iter()
+        .rev()
+        .take(SHOWN_DAYS)
+        .map(|(d, n)| format!("{} ({n})", civil_text(*d)))
+        .collect();
+    if per_day.len() > SHOWN_DAYS {
+        listed.push("…".into());
+    }
+    Ok(ObjectForm {
+        sections: vec![FormSection::new("range", "Rango")
+            .field(
+                FormField::new("from", "Desde", FormKind::Date)
+                    .required()
+                    .default(json!(civil_text(first)))
+                    .help("El día del backup más viejo que se une, en el calendario de los nodos de backup."),
+            )
+            .field(to)],
+        notes: vec![
+            format!(
+                "El servicio une en uno los backups del repositorio «{name}» hechos entre esas dos fechas: queda uno solo, con la fecha del más reciente."
+            ),
+            format!(
+                "Backups por día, del más reciente al más viejo: {}.",
+                listed.join(", ")
+            ),
+        ],
+        ..ObjectForm::default()
+    })
+}
+
+/// A day the form sent (`YYYY-MM-DD`), in days since 1970-01-01.
+fn form_day(v: Vals, key: &str, label: &str) -> Result<i64> {
+    let t = v.opt(key).ok_or_else(|| bad(format!("Falta «{label}».")))?;
+    civil_day(&t).filter(|_| t.len() == 10).ok_or_else(|| {
+        bad(format!(
+            "«{label}»: «{}» no es una fecha (AAAA-MM-DD).",
+            shown(&t)
+        ))
+    })
+}
+
+/// The merge of the repository `name`'s backups between the form's two
+/// dates: the service takes them as days back from today on the nodes'
+/// calendar (`offset_start` the newer, `offset_end` the older).
+pub(crate) fn merge_range_change(
+    name: &str,
+    dates: &[String],
+    now: i64,
+    values: &FormValues,
+) -> Result<Change> {
+    let v = Vals(&values.values);
+    let from = form_day(v, "from", "Desde")?;
+    let to = form_day(v, "to", "Hasta")?;
+    if from > to {
+        return Err(bad("«Desde» no puede ser posterior a «Hasta».".into()));
+    }
+    let (days, today) = backup_days(dates, now);
+    two_or_more(name, days.len())?;
+    if to > today {
+        return Err(bad(format!(
+            "«Hasta» no puede ser posterior a hoy ({}, en el calendario de los nodos de backup).",
+            civil_text(today)
+        )));
+    }
+    let n = days.iter().filter(|d| (from..=to).contains(*d)).count();
+    let (a, b) = (civil_text(from), civil_text(to));
+    if n < 2 {
+        return Err(bad(format!(
+            "Entre el {a} y el {b} el repositorio «{name}» tiene {n} backup(s): hacen falta al menos dos para unirlos."
+        )));
+    }
+    let (start, end) = (today - to, today - from);
+    Ok(Change {
+        comments: vec![format!(
+            "Une en uno los {n} backups del repositorio «{name}» hechos entre el {a} y el {b}: de {start} a {end} días atrás, en el calendario de los nodos de backup."
+        )],
+        warnings: vec![MERGED.into()],
+        calls: vec![Call::new(
+            Method::POST,
+            format!("{}/merge", active_path(name)),
+            Some(json!({"offset_start": start, "offset_end": end})),
+        )],
+        id: Some(job_id(name)),
+        ..Change::default()
+    })
+}
+
+/// Each backup's date, as the service writes it, from `…/info`.
+async fn backup_dates(s: &CbSession, name: &str) -> Result<Vec<String>> {
     let v = s
         .backup_call(Method::GET, &format!("{}/info", active_path(name)), None)
         .await?;
@@ -1645,28 +1837,68 @@ async fn backup_times(s: &CbSession, name: &str) -> Result<Vec<i64>> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|b| b.get("date").and_then(Value::as_str).and_then(backup_time))
+        .filter_map(|b| b.get("date").and_then(Value::as_str).map(str::to_string))
         .collect())
 }
 
-/// The requests of one of the repositories' actions.
-pub(crate) async fn action_change(s: &CbSession, id: &str, action: &str) -> Result<Change> {
+/// Each backup's instant, from `…/info`.
+async fn backup_times(s: &CbSession, name: &str) -> Result<Vec<i64>> {
+    Ok(backup_dates(s, name)
+        .await?
+        .iter()
+        .filter_map(|d| backup_time(d))
+        .collect())
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
+const NO_CLOUD_MERGE: &str = "El servicio de backup no hace merges en repositorios en la nube.";
+
+fn unknown_action(action: &str) -> Error {
+    Error::Unsupported(format!(
+        "«{}» no es una acción de un repositorio de backup.",
+        shown(action)
+    ))
+}
+
+/// The form of a repository's action that asks for values: the range of
+/// dates of a merge.
+pub(crate) async fn action_form(s: &CbSession, id: &str, action: &str) -> Result<ObjectForm> {
+    if action.trim() != "merge_range" {
+        return Err(Error::Unsupported(format!(
+            "«{}» no es una acción de un repositorio de backup que pida valores.",
+            shown(action)
+        )));
+    }
     let name = jobs::parse_id(id)?;
     let r = s.repo(&name).await?;
-    match action.trim() {
+    if cloud(&r) {
+        return Err(bad(NO_CLOUD_MERGE.into()));
+    }
+    merge_range_form(&name, &backup_dates(s, &name).await?, now_secs())
+}
+
+/// The requests of one of the repositories' actions.
+pub(crate) async fn action_change(
+    s: &CbSession,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<Change> {
+    let action = action.trim();
+    if !matches!(action, "backup_now" | "merge_now" | "merge_range") {
+        return Err(unknown_action(action));
+    }
+    let name = jobs::parse_id(id)?;
+    let r = s.repo(&name).await?;
+    match action {
         "backup_now" => Ok(backup_now_change(&name)),
-        "merge_now" if cloud(&r) => Err(bad(
-            "El servicio de backup no hace merges en repositorios en la nube.".into(),
-        )),
-        "merge_now" => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_secs() as i64);
-            merge_all_change(&name, &backup_times(s, &name).await?, now)
-        }
-        other => Err(Error::Unsupported(format!(
-            "«{}» no es una acción de un repositorio de backup.",
-            shown(other)
-        ))),
+        _ if cloud(&r) => Err(bad(NO_CLOUD_MERGE.into())),
+        "merge_now" => merge_all_change(&name, &backup_times(s, &name).await?, now_secs()),
+        _ => merge_range_change(&name, &backup_dates(s, &name).await?, now_secs(), values),
     }
 }

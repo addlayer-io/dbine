@@ -27,6 +27,9 @@ export interface SchedulerAction {
   /** What `schedulerApi.action` takes: "run", "open_window", "start"… */
   key: string;
   label: string;
+  /** It asks for values first: read its form with `schedulerApi.actionForm` for the object,
+   *  then pass what the user filled in to `actionScript` and `action`. */
+  params?: boolean;
 }
 
 /** What the server's scheduler has. */
@@ -168,12 +171,15 @@ export const schedulerApi = {
   deleteScript: (connectionId: string, kind: string, id: string) =>
     invoke<string>('scheduler_delete_script', a(connectionId, { kind, id })),
   delete: (connectionId: string, kind: string, id: string) => invoke<void>('scheduler_delete', a(connectionId, { kind, id })),
-  /** The script of one of the kind's actions on an object; nothing runs. */
-  actionScript: (connectionId: string, kind: string, id: string, action: string) =>
-    invoke<string>('scheduler_action_script', a(connectionId, { kind, id, action })),
+  /** The form of an action that asks for values first (`SchedulerAction.params`), for that object. */
+  actionForm: (connectionId: string, kind: string, id: string, action: string) =>
+    invoke<ObjectForm>('scheduler_action_form', a(connectionId, { kind, id, action })),
+  /** The script of one of the kind's actions on an object, with its form's values; nothing runs. */
+  actionScript: (connectionId: string, kind: string, id: string, action: string, values?: FormValues) =>
+    invoke<string>('scheduler_action_script', a(connectionId, { kind, id, action, values: values ?? { values: {}, lists: {} } })),
   /** Runs one of the kind's actions on an object (after the user confirmed its script). */
-  action: (connectionId: string, kind: string, id: string, action: string) =>
-    invoke<void>('scheduler_action', a(connectionId, { kind, id, action })),
+  action: (connectionId: string, kind: string, id: string, action: string, values?: FormValues) =>
+    invoke<void>('scheduler_action', a(connectionId, { kind, id, action, values: values ?? { values: {}, lists: {} } })),
   /** Starts the job at one of its steps. */
   runFrom: (connectionId: string, id: string, step: string) => invoke<void>('jobs_run_from', a(connectionId, { id, step })),
   clearHistory: (connectionId: string, id: string) => invoke<void>('jobs_clear_history', a(connectionId, { id })),

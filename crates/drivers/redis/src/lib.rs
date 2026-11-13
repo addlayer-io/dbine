@@ -196,6 +196,13 @@ impl Driver for RedisDriver {
         &self.info
     }
 
+    /// One command per line, the ones `execute` numbers (see
+    /// [`command::split`]): MULTI, each queued command and EXEC are units of
+    /// their own.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        command::split(text)
+    }
+
     /// As redis-cli with a piped script: a failed command doesn't stop the script (the tab's
     /// toggle overrides it).
     fn script_defaults(&self) -> dbine_driver::ScriptDefaults {
@@ -1129,6 +1136,27 @@ mod tests {
         assert_eq!(tls_of(&cfg(false, true, &[])), None);
         assert_eq!(tls_of(&cfg(true, false, &[])), Some(false));
         assert_eq!(tls_of(&cfg(true, true, &[])), Some(true));
+    }
+
+    /// Every driver of the crate (Redis, Valkey, Dragonfly) hands the
+    /// editor one unit per command line, as `execute` numbers them.
+    #[test]
+    fn every_driver_splits_one_command_per_line() {
+        for d in drivers() {
+            for (s, n) in [
+                ("SET a 1\nGET a", 2),
+                ("SET k \"a;b\"\nGET k", 2),
+                ("MULTI\nINCR a\nEXEC", 3),
+                ("# c\r\nSET a 1 # x\r\n\r\nGET a\r\n", 2),
+            ] {
+                let units = d.split_script(s);
+                let placed = command::parse_placed(s).unwrap();
+                assert_eq!(units.len(), n, "{} {s:?}", d.info().id);
+                let a: Vec<_> = units.iter().map(|u| (u.start, u.end, u.line)).collect();
+                let b: Vec<_> = placed.iter().map(|p| (p.start, p.end, p.line)).collect();
+                assert_eq!(a, b, "{} {s:?}", d.info().id);
+            }
+        }
     }
 
     #[test]

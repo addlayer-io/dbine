@@ -148,6 +148,58 @@ They are in the job's menu and under **More actions** in the job's tab and
 designer. Which engines offer them, and the permission each needs, is in the
 engine support table.
 
+### Actions that ask for values
+
+Some actions open a form first. Their name ends in "…" in menus and buttons,
+and the form is built and checked like the designer's: fields that show by
+what you pick, choices the server lists, required fields and limits. **OK**
+puts the values in the action's script, which is shown and confirmed as for
+any action, and **Cancel** there takes you back to the form. If the engine
+refuses the values, or the action fails, the error shows in the form and what
+you typed stays there for another try. On a read-only connection the form and
+the script open but the run is refused. The labels below are the ones in the
+code; the app shows them in the interface language.
+
+| Engine | Action | What it asks for |
+|---|---|---|
+| BigQuery | **Ejecutar para fechas pasadas** | A period (first and last day, in UTC, both included) or a single run time. The script is a `startManualRuns` call. Days that haven't ended and future times are refused before the request. The runs are billed, and the script warns about what happens to the destination table. |
+| Databricks | **Ejecutar con parámetros** | The job's parameters, each filled with its default, or the task-level parameters of its kinds of task when the job has none. Only what you changed is sent. It also picks the tasks to run and a full refresh of its pipelines, which the script warns about. The script is a `run-now` call. |
+| TDengine | **Recalcular un rango de tiempo** | A start and an optional end, today so far by default. The script is `RECALCULATE STREAM … FROM … [TO …]`, and the results replace the rows the stream already wrote to its target table. Offered on enabled streams that aren't `PERIOD`-triggered, on 3.3.7 and later. |
+| Oracle | **Cambiar un paso de la cadena en curso** | The step of a running chain and the change: its state, `SKIP`, `PAUSE`, `PAUSE_BEFORE` or taking its pause off. It calls `ALTER_RUNNING_CHAIN`. |
+| Oracle | **Detener un paso en curso** | The running step to stop (`STOP_JOB`); `force` is offered only with `MANAGE SCHEDULER`. |
+| Couchbase | **Unir los backups de un rango de fechas** | A start and an end date. The default leaves out the newest day, and it asks for at least two backups in the range. |
+| Snowflake | **Ejecutar con otra configuración** | A JSON object for `EXECUTE TASK [GRAPH] … USING CONFIG`. Snowflake merges it into the task's own configuration for that run only. |
+| Elasticsearch (8.7+) | **Iniciar desde…** | A time, **Desde (UTC)**, never in the future; the default is now minus the transform's sync delay. It sends `POST _transform/<id>/_start?from=<time>`. Offered on a stopped continuous transform that hasn't completed a checkpoint (new, or just reset). |
+| Elasticsearch | **Reconocer acciones…** | The watch's actions waiting for an acknowledgement, all picked by default. It sends `PUT _watcher/watch/<id>/_ack/<a>,<b>`. |
+| OpenSearch, Open Distro | **Reconocer alertas…** | The monitor's active alerts, labelled by trigger, bucket keys or documents, severity and start time. It sends `POST _plugins/_alerting/monitors/<id>/_acknowledge/alerts` (`_opendistro` on Open Distro). |
+
+On Oracle, changing the state of a step, stopping one or taking a pause off
+makes the chain evaluate its rules again, so other steps may start or the
+chain may end and stop the steps still running: the script warns. Both
+actions are offered on a chain that is running now, where the login manages
+it.
+
+On Snowflake the configuration is combined with the task's, not substituted
+for it: fields you leave out keep their values, and a field you delete from
+the editor isn't removed. The editor starts from the current configuration.
+If the graph is already running, the new run starts when it ends. A task
+graph with unpublished changes runs its published version, and one that was
+never published is published first; the form and the script warn about it,
+and so does **Ejecutar ahora**.
+
+On Elasticsearch, a transform started from a time processes in its first
+checkpoint only the groups (pivot) or keys (latest) with documents whose sync
+field is at or after it; the rest reach the destination index when they
+change, and after that it runs like any continuous transform. Elasticsearch
+refuses `from` on batch transforms and ignores it once a checkpoint exists:
+reset the transform first to start an existing one from a date. If a first
+checkpoint was interrupted, the documents it already wrote stay, and the
+script warns. **Reconocer acciones…** throttles only the picked actions until
+the condition stops holding; the others keep running, and **Reconocer** still
+acknowledges them all. On OpenSearch, acknowledged alerts stop running their
+trigger's actions until they complete. If the Alerting plugin doesn't answer
+within 30 seconds, DBine reports it instead of waiting.
+
 ### Scheduler log
 
 Engines that keep a log for the scheduler as a whole (SQL Server Agent's error

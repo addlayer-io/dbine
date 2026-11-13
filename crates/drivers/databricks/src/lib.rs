@@ -1330,6 +1330,37 @@ impl Session for DatabricksSession {
         self.sched_delete(kind, id).await
     }
 
+    /// "Ejecutar con parámetros": its form (the job's or its tasks'
+    /// parameters, the tasks to run).
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        self.sched_action_form(kind, id, action).await
+    }
+
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        self.sched_action_script(kind, id, action, values).await
+    }
+
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<()> {
+        self.sched_action(kind, id, action, values).await
+    }
+
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
         self.sched_run_from(id, step).await
     }

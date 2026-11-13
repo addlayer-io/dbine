@@ -287,11 +287,13 @@ async fn body(c: ConnectionConfig, mgmt: String) {
     assert!(info.kinds.iter().all(|k| k.can_edit || k.key != "plan"));
     assert!(info.logs, "8.0 has the event log");
     // A repository starts at a task of its plan; nothing to clear; a full
-    // backup and a merge of every backup now.
+    // backup and a merge of every backup now, and a merge of a range of
+    // dates, which asks for them.
     let job = &info.kinds[0];
     assert!(job.run_from_step && !job.clear_history, "{job:?}");
     let acts: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
-    assert_eq!(acts, ["backup_now", "merge_now"]);
+    assert_eq!(acts, ["backup_now", "merge_now", "merge_range"]);
+    assert!(job.actions[2].params && !job.actions[1].params);
 
     // A built-in plan: read-only, and saving or deleting it is refused.
     assert!(listed(&mut s, "plan")
@@ -511,10 +513,14 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         .unwrap();
     assert_eq!(
         it.actions,
-        Some(vec!["backup_now".to_string(), "merge_now".to_string()])
+        Some(vec![
+            "backup_now".to_string(),
+            "merge_now".to_string(),
+            "merge_range".to_string()
+        ])
     );
     let sc = s
-        .scheduler_action_script("job", &id, "backup_now")
+        .scheduler_action_script("job", &id, "backup_now", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -522,7 +528,7 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         "{sc}"
     );
     let before = task_names(&mgmt, REPO).await;
-    s.scheduler_action("job", &id, "backup_now")
+    s.scheduler_action("job", &id, "backup_now", &Default::default())
         .await
         .expect("full backup now");
     assert_eq!(task_done(&mgmt, REPO, "BACKUP", &before).await, "done");
@@ -548,7 +554,7 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         "{i}"
     );
     let sc = s
-        .scheduler_action_script("job", &id, "merge_now")
+        .scheduler_action_script("job", &id, "merge_now", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -556,7 +562,7 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         "{sc}"
     );
     let before = task_names(&mgmt, REPO).await;
-    s.scheduler_action("job", &id, "merge_now")
+    s.scheduler_action("job", &id, "merge_now", &Default::default())
         .await
         .expect("merge now");
     assert_eq!(task_done(&mgmt, REPO, "MERGE", &before).await, "done");
@@ -564,16 +570,88 @@ async fn body(c: ConnectionConfig, mgmt: String) {
     assert_eq!(i["backups"].as_array().map_or(0, Vec::len), 1, "{i}");
     // One backup left: nothing to merge. No other action, nor on a plan.
     let e = s
-        .scheduler_action_script("job", &id, "merge_now")
+        .scheduler_action_script("job", &id, "merge_now", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("un solo backup"), "{e}");
     assert!(s
-        .scheduler_action_script("job", &id, "archive")
+        .scheduler_action_script("job", &id, "archive", &Default::default())
         .await
         .is_err());
     assert!(s
-        .scheduler_action_script("plan", PLAN, "backup_now")
+        .scheduler_action_script("plan", PLAN, "backup_now", &Default::default())
+        .await
+        .is_err());
+
+    // The backups of a range of dates merged: two more backups, then
+    // today's three into one. One backup: nothing to merge yet.
+    let e = s
+        .scheduler_action_form("job", &id, "merge_range")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("un solo backup"), "{e}");
+    for _ in 0..2 {
+        let before = task_names(&mgmt, REPO).await;
+        s.scheduler_action("job", &id, "backup_now", &Default::default())
+            .await
+            .expect("full backup now");
+        assert_eq!(task_done(&mgmt, REPO, "BACKUP", &before).await, "done");
+    }
+    let f = s
+        .scheduler_action_form("job", &id, "merge_range")
+        .await
+        .expect("form");
+    let mut v = values_of(&f);
+    // All three are today's: «Desde» is today, and «Hasta» has no default
+    // (it would take the newest restore points): the user picks it.
+    let today = v.values["from"].as_str().unwrap().to_string();
+    assert!(!v.values.contains_key("to"), "{v:?}");
+    set(&mut v, "to", json!(today.clone()));
+    assert!(
+        f.notes[1].contains(&format!("{today} (3)")),
+        "{:?}",
+        f.notes
+    );
+    // A day without backups: refused before the service sees it.
+    let mut bad = v.clone();
+    set(&mut bad, "from", json!("2020-01-01"));
+    set(&mut bad, "to", json!("2020-01-02"));
+    let e = s
+        .scheduler_action_script("job", &id, "merge_range", &bad)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("tiene 0 backup"), "{e}");
+    set(&mut bad, "to", json!("2020-01-02\"}"));
+    assert!(s
+        .scheduler_action("job", &id, "merge_range", &bad)
+        .await
+        .is_err());
+    // A range from long ago to today: all three.
+    set(&mut v, "from", json!("2020-01-01"));
+    let sc = s
+        .scheduler_action_script("job", &id, "merge_range", &v)
+        .await
+        .unwrap();
+    assert!(
+        sc.contains(&format!("/active/{REPO}/merge"))
+            && sc.contains("\"offset_start\": 0")
+            && sc.contains("los 3 backups")
+            && sc.contains("// ⚠ "),
+        "{sc}"
+    );
+    let before = task_names(&mgmt, REPO).await;
+    s.scheduler_action("job", &id, "merge_range", &v)
+        .await
+        .expect("merge a range");
+    assert_eq!(task_done(&mgmt, REPO, "MERGE", &before).await, "done");
+    let i = info_of().await;
+    assert_eq!(i["backups"].as_array().map_or(0, Vec::len), 1, "{i}");
+    assert!(s
+        .scheduler_action_form("plan", PLAN, "merge_range")
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_form("job", &id, "merge_now")
         .await
         .is_err());
 

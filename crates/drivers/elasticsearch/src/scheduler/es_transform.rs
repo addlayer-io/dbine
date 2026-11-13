@@ -7,16 +7,21 @@
 //! in place: the transform is deleted and created again (`_preview` checks
 //! the new one first), which loses its checkpoints and stats; the
 //! destination index stays.
+//!
+//! Actions: "Restablecer" (`_reset`, 8.1 on) and "Iniciar desde…"
+//! (`_start?from=`, 8.7 on), which starts a stopped continuous transform
+//! without checkpoints from a time: its first checkpoint takes only the
+//! changes since then.
 
 use super::{
     bad, json_text, list_text, obj, s, same, same_opt, shown, split_list, strs, Plan, Req, Shape,
     Vals,
 };
 use crate::ddl::path_segment;
-use crate::jobs::{self, text};
+use crate::jobs::{self, rfc3339_ms, text};
 use crate::json::J;
 use crate::EsSession;
-use dbine_driver::{FormField, FormKind, FormSection, FormValues, Result};
+use dbine_driver::{FormField, FormKind, FormSection, FormValues, ObjectForm, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -52,11 +57,22 @@ pub(crate) struct Cur {
     /// `stopped`, `started`, `indexing`, `failed`…
     pub(crate) state: String,
     pub(crate) managed: bool,
+    /// The last checkpoint it completed (0: none yet, or reset since).
+    pub(crate) checkpoint: u64,
+    /// The documents it wrote to the destination since it was created or
+    /// reset (`stats.documents_indexed`): with no checkpoint, what a first
+    /// checkpoint stopped partway left there.
+    pub(crate) indexed: u64,
 }
 
 impl Cur {
     fn started(&self) -> bool {
         !self.state.is_empty() && self.state != "stopped"
+    }
+
+    /// It syncs (`sync.time`): a continuous transform.
+    pub(crate) fn continuous(&self) -> bool {
+        self.def.get("sync").is_some()
     }
 }
 
@@ -68,14 +84,18 @@ pub(crate) async fn read(s: &EsSession, id: &str) -> Result<Cur> {
         )));
     }
     let (def, stats) = s.es_transform(id).await?;
+    let stat = |path: &[&str]| stats.as_ref().and_then(|s| s.at(path));
     Ok(Cur {
         id: id.to_string(),
         managed: def.at(&["_meta", "managed"]).and_then(J::as_bool) == Some(true),
         def,
-        state: stats
-            .as_ref()
-            .and_then(|s| text(s.get("state")))
-            .unwrap_or_default(),
+        state: text(stat(&["state"])).unwrap_or_default(),
+        checkpoint: jobs::num(stat(&["checkpointing", "last", "checkpoint"]))
+            .filter(|n| *n > 0.0)
+            .map_or(0, |n| n as u64),
+        indexed: jobs::num(stat(&["stats", "documents_indexed"]))
+            .filter(|n| *n > 0.0)
+            .map_or(0, |n| n as u64),
     })
 }
 
@@ -740,6 +760,164 @@ pub(crate) fn reset_plan(cur: &Cur) -> Result<Plan> {
         reqs: vec![Req::new(
             "POST",
             format!("/_transform/{}/_reset", path_segment(&cur.id)),
+            None,
+        )],
+        name: cur.id.clone(),
+        ..Plan::default()
+    })
+}
+
+// ---------------------------------------------------------------------------
+// "Iniciar desde…"
+// ---------------------------------------------------------------------------
+
+/// The action's key: `_start?from=<time>` (Elasticsearch 8.7 on).
+pub(crate) const START_FROM: &str = "start_from";
+
+/// The time it starts from, always in UTC: the form's date and time picker
+/// shows a UTC value with no zone and takes none.
+const FROM_LABEL: &str = "Desde (UTC)";
+
+/// Under the form and on top of the script.
+const FROM_NOTE: &str = "Elasticsearch procesa el primer checkpoint con los cambios desde esa fecha y después sigue como cualquier transform continuo, un checkpoint tras otro.";
+
+/// Whether `_start?from=` does what it says on this transform: a stopped,
+/// continuous one that hasn't completed a checkpoint (new, or reset).
+/// Elasticsearch refuses `from` for a batch transform and ignores it once
+/// there is a checkpoint (it goes on from that one).
+///
+/// One stopped partway through its first checkpoint (a plain `_stop`, as
+/// the "Iniciado" switch sends) still takes `from`: its state keeps the
+/// position, but the indexer picks how to run from `from` first and looks
+/// only for the changes since then (checked on 8.15: none of the groups
+/// past the position reached the destination). What that first run
+/// already wrote stays in the destination; the script says so.
+pub(crate) fn start_from_ready(cur: &Cur) -> Result<()> {
+    if !cur.continuous() {
+        return Err(bad(format!(
+            "El transform «{}» es por lotes: Elasticsearch empieza desde una fecha solo un transform continuo (con campo de sincronización).",
+            cur.id
+        )));
+    }
+    if cur.started() {
+        return Err(bad(format!(
+            "El transform «{}» no está detenido (estado: {}): se inicia desde una fecha solo un transform detenido.",
+            cur.id,
+            shown(&cur.state)
+        )));
+    }
+    if cur.checkpoint > 0 {
+        return Err(bad(format!(
+            "El transform «{}» ya completó checkpoints (el último, el {}): Elasticsearch ignora la fecha de inicio una vez que hay uno. Para empezar desde una fecha hay que restablecerlo antes («Restablecer el transform»), lo que borra sus checkpoints y el índice de destino que creó.",
+            cur.id, cur.checkpoint
+        )));
+    }
+    Ok(())
+}
+
+/// `sync.time.delay` in milliseconds (60s when unset, as Elasticsearch).
+fn sync_delay_ms(cur: &Cur) -> i64 {
+    text(cur.def.at(&["sync", "time", "delay"]))
+        .and_then(|d| super::watch::time_ms(&d))
+        .unwrap_or(60_000)
+}
+
+/// The form: the time it processes from, now minus the transform's sync
+/// delay to start with (what arrives from now on), and its sync field and
+/// delay, shown.
+pub(crate) fn start_from_form(cur: &Cur, now_ms: i64) -> Result<ObjectForm> {
+    start_from_ready(cur)?;
+    let sync = cur.def.at(&["sync", "time"]);
+    let mut f = ObjectForm {
+        sections: vec![FormSection::new("start", "Inicio").fields(vec![
+            FormField::new("from", FROM_LABEL, FormKind::DateTime)
+                .required()
+                .help("En UTC; no puede ser futura. Se compara con el campo de sincronización del transform. Viene con ahora menos la demora del transform: lo que llegue desde ahora."),
+            FormField::new("sync_field", "Campo de sincronización", FormKind::Text).read_only(true),
+            FormField::new("sync_delay", "Demora", FormKind::Text)
+                .read_only(true)
+                .help("Cada checkpoint procesa hasta ahora menos esta demora, para dar tiempo a que lleguen los documentos."),
+        ])],
+        ..ObjectForm::default()
+    };
+    f.values.insert(
+        "from".into(),
+        json!(rfc3339_ms(now_ms - sync_delay_ms(cur))),
+    );
+    f.values.insert(
+        "sync_field".into(),
+        json!(text(sync.and_then(|s| s.get("field"))).unwrap_or_default()),
+    );
+    f.values.insert(
+        "sync_delay".into(),
+        json!(text(sync.and_then(|s| s.get("delay"))).unwrap_or_else(|| "60s".into())),
+    );
+    f.notes.push(FROM_NOTE.into());
+    if cur.managed {
+        f.notes.push(super::MANAGED.into());
+    }
+    Ok(f)
+}
+
+/// The request for the form's values: `_start` with `from`, a checked
+/// time that isn't ahead of `now_ms`, sent in UTC and percent-encoded.
+pub(crate) fn start_from_plan(cur: &Cur, values: &FormValues, now_ms: i64) -> Result<Plan> {
+    start_from_ready(cur)?;
+    let from_ms = Vals(&values.values)
+        .date_time("from", FROM_LABEL)?
+        .ok_or_else(|| {
+            bad(format!(
+                "Elegí desde qué fecha y hora procesa el transform («{FROM_LABEL}»)."
+            ))
+        })?;
+    if from_ms > now_ms {
+        return Err(bad(format!(
+            "«{FROM_LABEL}» no puede ser futura: el transform procesa los cambios que ya llegaron al origen."
+        )));
+    }
+    let from = rfc3339_ms(from_ms);
+    let field = text(cur.def.at(&["sync", "time", "field"])).unwrap_or_default();
+    // What the first checkpoint leaves out (Elasticsearch's indexer: with
+    // `from`, the first checkpoint looks for changes since then, as a
+    // later checkpoint does since the one before).
+    let first = if cur.def.get("latest").is_some() {
+        format!(
+            "En su primer checkpoint, el transform toma solo los documentos con «{field}» desde {from}: las claves sin documentos desde entonces no llegan al índice de destino (hasta que tengan uno nuevo), aunque tengan datos anteriores."
+        )
+    } else {
+        format!(
+            "En su primer checkpoint, el transform procesa solo los grupos que tienen documentos con «{field}» desde {from}: los grupos sin cambios desde entonces no llegan al índice de destino (hasta que cambien), aunque tengan datos anteriores."
+        )
+    };
+    let mut warnings = vec![first];
+    if cur.indexed > 0 {
+        // A first checkpoint stopped partway: its documents stay.
+        warnings.push(format!(
+            "El transform ya había escrito {} documentos en el índice de destino en un primer checkpoint que no terminó: se conservan aunque no tengan cambios desde {from}.",
+            cur.indexed
+        ));
+    }
+    let mut notes = vec![
+        format!("Transform «{}»", cur.id),
+        format!(
+            "Inicia el transform continuo «{}» desde {from} (UTC).",
+            cur.id
+        ),
+        FROM_NOTE.into(),
+    ];
+    if cur.managed {
+        notes.push(super::MANAGED.into());
+    }
+    Ok(Plan {
+        notes,
+        warnings,
+        reqs: vec![Req::new(
+            "POST",
+            format!(
+                "/_transform/{}/_start?from={}",
+                path_segment(&cur.id),
+                path_segment(&from)
+            ),
             None,
         )],
         name: cur.id.clone(),

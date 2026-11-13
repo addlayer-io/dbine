@@ -391,6 +391,7 @@
     "saved": "Zapisano „{{name}}”.",
     "deleted": "Usunięto „{{name}}”.",
     "confirmAction": "Zostanie wykonana akcja „{{action}}” na „{{name}}” ({{kind}}) w {{connection}}, z tym skryptem:",
+    "actionForm": "Uzupełnij wartości dla „{{action}}” dla „{{name}}” ({{kind}}) w {{connection}}. Przed wykonaniem zobaczysz jego skrypt.",
     "actionDone": "Wykonano akcję „{{action}}” na „{{name}}”.",
     "noScript": "Serwer nie zwrócił żadnego skryptu: nie ma zmian do zapisania.",
     "consequences": "Zanim przejdziesz dalej, weź pod uwagę:",

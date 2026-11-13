@@ -24,7 +24,9 @@
 //! Kinds' flags and actions: a `job` starts at its root or retries its last
 //! run where it failed (`run_from_step`); its history is Snowflake's and
 //! isn't cleared. Alerts and task graph objects run now with an "execute"
-//! action (`EXECUTE ALERT`, `EXECUTE TASK GRAPH`). An object another role
+//! action (`EXECUTE ALERT`, `EXECUTE TASK GRAPH`). Jobs and task graph
+//! objects run once with a configuration the user writes ("run_config",
+//! `EXECUTE TASK … USING CONFIG`, see `run_config`). An object another role
 //! owns (one the session's roles don't inherit), a native application's or
 //! a child task whose root the role doesn't see comes with `can_edit` /
 //! `can_delete` false, as its read-only form says.
@@ -49,6 +51,7 @@
 mod alert;
 mod graph;
 mod logs;
+mod run_config;
 mod task;
 
 pub(crate) use logs::{clear_history, logs, run_from, run_now};
@@ -219,7 +222,12 @@ fn info_of(role_note: Option<String>, graphs: Graphs) -> SchedulerInfo {
         SchedulerKind::new("job", "Tareas", "tarea")
             .abilities(true, true, true)
             .run_from_step(true)
-            .clear_history(false),
+            .clear_history(false)
+            // "Ejecutar ahora" is the jobs list's; this one asks for the
+            // run's configuration first.
+            .action(
+                SchedulerAction::new("run_config", "Ejecutar con otra configuración").with_params(),
+            ),
         SchedulerKind::new("alert", "Alertas", "alerta")
             .abilities(true, true, true)
             .action(SchedulerAction::new("execute", "Ejecutar ahora")),
@@ -240,7 +248,11 @@ fn info_of(role_note: Option<String>, graphs: Graphs) -> SchedulerInfo {
         kinds.push(
             SchedulerKind::new("task_graph", "Grafos de tareas", "grafo de tareas")
                 .abilities(true, true, true)
-                .action(SchedulerAction::new("execute", "Ejecutar ahora")),
+                .action(SchedulerAction::new("execute", "Ejecutar ahora"))
+                .action(
+                    SchedulerAction::new("run_config", "Ejecutar con otra configuración")
+                        .with_params(),
+                ),
         );
     }
     SchedulerInfo {
@@ -324,16 +336,48 @@ pub(crate) async fn delete(r: Run<'_>, kind: &str, id: &str) -> Result<()> {
     run_plan(r, &p).await
 }
 
+fn no_action(action: &str) -> Error {
+    bad(format!(
+        "El planificador de Snowflake no tiene la acción «{}» para este tipo de objeto.",
+        shown(action)
+    ))
+}
+
 /// A kind's action on one of its objects: running an alert or a task graph
-/// object now. Anything else is refused before anything runs.
-async fn action_plan(r: Run<'_>, kind: Kind, id: &str, action: &str) -> Result<Plan> {
+/// object now, or a graph once with another configuration (`values`: its
+/// form's). Anything else is refused before anything runs.
+async fn action_plan(
+    r: Run<'_>,
+    kind: Kind,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<Plan> {
     match (kind, action.trim()) {
         (Kind::Alert, EXECUTE) => alert::execute_plan(r, id).await,
         (Kind::Graph, EXECUTE) => graph::execute_plan(r, id).await,
-        (_, other) => Err(bad(format!(
-            "El planificador de Snowflake no tiene la acción «{}» para este tipo de objeto.",
-            shown(other)
-        ))),
+        (Kind::Job | Kind::Graph, run_config::RUN_CONFIG) => {
+            run_config::plan(r, kind, id, values).await
+        }
+        (_, other) => Err(no_action(other)),
+    }
+}
+
+/// The form of an action that asks for values: the configuration of a run
+/// with another one.
+pub(crate) async fn action_form(
+    r: Run<'_>,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<ObjectForm> {
+    let kind = Kind::parse(kind)?;
+    match (kind, action.trim()) {
+        (Kind::Job | Kind::Graph, run_config::RUN_CONFIG) => run_config::form(r, kind, id).await,
+        (Kind::Alert | Kind::Graph, EXECUTE) => Err(Error::Unsupported(
+            "esa acción no pide valores en este motor".into(),
+        )),
+        (_, other) => Err(no_action(other)),
     }
 }
 
@@ -342,14 +386,21 @@ pub(crate) async fn action_script(
     kind: &str,
     id: &str,
     action: &str,
+    values: &FormValues,
 ) -> Result<String> {
     let kind = Kind::parse(kind)?;
-    Ok(action_plan(r, kind, id, action).await?.script())
+    Ok(action_plan(r, kind, id, action, values).await?.script())
 }
 
-pub(crate) async fn action(r: Run<'_>, kind: &str, id: &str, action: &str) -> Result<()> {
+pub(crate) async fn action(
+    r: Run<'_>,
+    kind: &str,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<()> {
     let kind = Kind::parse(kind)?;
-    let p = action_plan(r, kind, id, action).await?;
+    let p = action_plan(r, kind, id, action, values).await?;
     run_plan(r, &p).await
 }
 

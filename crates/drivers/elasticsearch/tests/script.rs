@@ -3,6 +3,7 @@
 //! errors as warnings.
 //!
 //! `DBINE_TEST_ELASTICSEARCH_URL=http://localhost:25520 DBINE_TEST_OPENSEARCH_URL=http://localhost:25521 \
+//!   DBINE_TEST_OPENDISTRO_URL=http://localhost:25524 \
 //!   cargo test -p dbine-driver-elasticsearch --test script -- --ignored`
 
 use dbine_driver::{ConnectionConfig, MessageLevel, QueryOutcome, Session};
@@ -32,12 +33,8 @@ async fn run(s: &mut Box<dyn Session>, text: &str) -> dbine_driver::Result<Query
 async fn check(id: &str, url: &str) {
     let mut s = session(id, url).await;
     let _ = run(&mut s, "DELETE /dbine_script").await;
-    let out = run(
-        &mut s,
-        "# setup\nPUT /dbine_script/_doc/1?refresh=true\n{\"a\": 1}\n\nGET /dbine_script/_count\nSELECT a FROM dbine_script",
-    )
-    .await
-    .unwrap();
+    let script = "# setup\nPUT /dbine_script/_doc/1?refresh=true\n{\"a\": 1}\n\nGET /dbine_script/_count\nSELECT a FROM dbine_script";
+    let out = run(&mut s, script).await.unwrap();
     let place: Vec<_> = out
         .results
         .iter()
@@ -46,6 +43,18 @@ async fn check(id: &str, url: &str) {
     assert_eq!(place[0], (Some(0), Some(2), Some(8)));
     assert_eq!(place[1], (Some(1), Some(5), Some(56)));
     assert_eq!(place.last().unwrap().1, Some(6));
+    // The editor's split gives each request the number and place its
+    // results carry.
+    let units = dbine_driver_elasticsearch::drivers()
+        .into_iter()
+        .find(|d| d.info().id == id)
+        .unwrap()
+        .split_script(script);
+    assert_eq!(units.len(), 3);
+    for (i, line, offset) in place {
+        let u = &units[i.unwrap()];
+        assert_eq!((line, offset), (Some(u.line), Some(u.start)));
+    }
 
     // _msearch: a failing search is a warning, the others' hits stay.
     let out = run(&mut s, "POST /_msearch\n{\"index\": \"dbine_script\"}\n{\"query\": {\"match_all\": {}}}\n{\"index\": \"dbine_nope\"}\n{\"query\": {\"match_all\": {}}}").await.unwrap();
@@ -94,4 +103,13 @@ async fn opensearch_scripts() {
         return;
     };
     check("opensearch", &url).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn opendistro_scripts() {
+    let Ok(url) = std::env::var("DBINE_TEST_OPENDISTRO_URL") else {
+        return;
+    };
+    check("opendistro", &url).await;
 }

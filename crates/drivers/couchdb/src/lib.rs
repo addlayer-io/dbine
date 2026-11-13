@@ -186,6 +186,12 @@ impl Driver for CouchDriver {
         QUERY_HELP
     }
 
+    /// One unit per HTTP line (with its body) or Mango query, numbered as
+    /// `execute` numbers them (see [`split`]).
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        split(text)
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -510,72 +516,214 @@ fn http_line(line: &str) -> Option<(String, String, &str)> {
     (!path.is_empty()).then(|| (m, path.to_string(), tail))
 }
 
-fn json_values(text: &str) -> std::result::Result<Vec<Value>, String> {
-    serde_json::Deserializer::from_str(text)
-        .into_iter::<Value>()
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| format!("JSON inválido: {e}"))
+/// A JSON value with its start and end in the script, or why it doesn't
+/// parse and where it starts.
+type LocatedValue = std::result::Result<(Value, usize, usize), (String, usize)>;
+
+/// The JSON values of `body` (which starts at byte `from` of the script),
+/// up to the first one that doesn't parse.
+fn located_values(body: &str, from: usize) -> Vec<LocatedValue> {
+    let mut values = serde_json::Deserializer::from_str(body).into_iter::<Value>();
+    let mut out = Vec::new();
+    loop {
+        let before = values.byte_offset();
+        let rest = &body[before..];
+        let start = from + before + (rest.len() - rest.trim_start_matches(JSON_SPACE).len());
+        match values.next() {
+            None => return out,
+            Some(Ok(v)) => out.push(Ok((v, start, from + values.byte_offset()))),
+            Some(Err(e)) => {
+                out.push(Err((format!("JSON inválido: {e}"), start)));
+                return out;
+            }
+        }
+    }
 }
+
+const JSON_SPACE: [char; 4] = [' ', '\t', '\n', '\r'];
 
 /// Split a script into statements.
 pub fn parse_script(text: &str) -> std::result::Result<Vec<Stmt>, String> {
     parse_located(text)
-        .map(|v| v.into_iter().map(|(s, _)| s).collect())
+        .map(|v| v.into_iter().map(|l| l.stmt).collect())
         .map_err(|(e, _)| e)
 }
 
-/// [`parse_script`], with where each statement's block starts (its HTTP
-/// line, or the first line of loose JSON). An error carries its block's.
-pub fn parse_located(text: &str) -> std::result::Result<Vec<(Stmt, usize)>, (String, usize)> {
-    // Blocks: an HTTP line plus the lines until the next HTTP line, or the
-    // loose JSON before the first one.
-    type Block = (Option<(String, String)>, String, Option<usize>);
-    let mut blocks: Vec<Block> = vec![(None, String::new(), None)];
+/// A statement and where it is in the script.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Located {
+    pub stmt: Stmt,
+    /// Byte offset of its first character: its HTTP line's method, or the
+    /// `{` of a Mango query.
+    pub start: usize,
+    /// Byte offset of its end: the end of its path, or of its JSON value
+    /// (a POST / PUT body, a Mango query).
+    pub end: usize,
+    /// 1-based line of `start`.
+    pub line: u32,
+}
+
+/// A part of the script that doesn't parse: from where the failing
+/// statement starts to the end of its block (up to the next HTTP line).
+struct Bad {
+    message: String,
+    start: usize,
+    end: usize,
+    line: u32,
+}
+
+/// [`parse_script`], with where each statement is: its own start, end and
+/// line, also for each of several Mango queries in a row. An error carries
+/// where its statement starts (the HTTP line whose body doesn't parse, or
+/// the loose JSON value that isn't a Mango query).
+pub fn parse_located(text: &str) -> std::result::Result<Vec<Located>, (String, usize)> {
+    scan(text)
+        .into_iter()
+        .map(|r| r.map_err(|b| (b.message, b.start)))
+        .collect()
+}
+
+/// The script cut into the statements `execute` runs and numbers, in the
+/// same order and at the same places ([`parse_located`]): an HTTP line with
+/// its body, or a Mango query. Comment and blank lines before one aren't
+/// part of it. What doesn't parse is still a unit (up to the next HTTP
+/// line), without an `error`, and the rest of the script is still cut: a
+/// Mango query being typed keeps the lenses of the others, and running it
+/// reports the parse error at its place (`execute` refuses the script).
+pub fn split(text: &str) -> Vec<dbine_driver::ScriptStatement> {
+    scan(text)
+        .into_iter()
+        .map(|r| {
+            let (start, end, line) = match r {
+                Ok(l) => (l.start, l.end, l.line),
+                Err(b) => (b.start, b.end, b.line),
+            };
+            dbine_driver::ScriptStatement {
+                text: text[start..end].to_string(),
+                start,
+                end,
+                line,
+                kind: dbine_driver::StatementKind::Sql,
+                repeat: 1,
+                error: None,
+            }
+        })
+        .collect()
+}
+
+/// 1-based lines of byte offsets, without counting from the start each time.
+struct LineIndex(Vec<usize>);
+
+impl LineIndex {
+    fn new(text: &str) -> Self {
+        Self(text.match_indices('\n').map(|(i, _)| i).collect())
+    }
+
+    fn line(&self, offset: usize) -> u32 {
+        self.0.partition_point(|&nl| nl < offset) as u32 + 1
+    }
+}
+
+/// Every statement of the script in order, and an `Err` for each part that
+/// doesn't parse (the scan goes on with the next HTTP line). Before the
+/// first `Err` it is what [`parse_located`] returns.
+fn scan(text: &str) -> Vec<std::result::Result<Located, Bad>> {
+    // Blocks: an HTTP line (method, path, where it starts and where its
+    // path ends) plus the text after its path up to the next HTTP line; the
+    // loose JSON before the first one has no HTTP line. Comment lines are
+    // blanked out of `masked`, which keeps every offset of `text`.
+    struct Block {
+        head: Option<(String, String, usize, usize)>,
+        from: usize,
+        to: usize,
+    }
+    let mut masked = String::with_capacity(text.len());
+    let mut blocks = vec![Block {
+        head: None,
+        from: 0,
+        to: text.len(),
+    }];
     let mut at = 0;
-    for line in text.split_inclusive('\n') {
-        let start = at + (line.len() - line.trim_start().len());
-        at += line.len();
-        let line = line.strip_suffix('\n').unwrap_or(line);
+    for raw in text.split_inclusive('\n') {
+        let line_start = at;
+        at += raw.len();
+        let line = raw.strip_suffix('\n').unwrap_or(raw);
         let t = line.trim_start();
         if t.starts_with("//") || t.starts_with('#') {
+            masked.extend(std::iter::repeat_n(' ', line.len()));
+            masked.push_str(&raw[line.len()..]);
             continue;
         }
+        masked.push_str(raw);
         if let Some((m, p, tail)) = http_line(line) {
-            blocks.push((Some((m, p)), format!("{tail}\n"), Some(start)));
-        } else {
-            let b = blocks.last_mut().expect("a block");
-            if b.2.is_none() && !t.trim().is_empty() {
-                b.2 = Some(start);
-            }
-            b.1.push_str(line);
-            b.1.push('\n');
+            let start = line_start + (line.len() - t.len());
+            let path_end = line_start + line.len() - tail.len();
+            blocks.last_mut().expect("a block").to = line_start;
+            blocks.push(Block {
+                head: Some((m, p, start, path_end)),
+                from: path_end,
+                to: text.len(),
+            });
         }
     }
+    let lines = LineIndex::new(text);
     let mut out = Vec::new();
-    for (head, body, start) in blocks {
-        let start = start.unwrap_or(0);
-        let mut values = json_values(&body).map_err(|e| (e, start))?.into_iter();
-        if let Some((method, path)) = head {
+    for b in blocks {
+        let body = &masked[b.from..b.to];
+        // Where what fails in this block ends: past its last character that
+        // isn't JSON whitespace (so never before where the failure starts).
+        let block_end = b.from + body.trim_end_matches(JSON_SPACE).len();
+        let bad = |message: String, start: usize| {
+            Err(Bad {
+                message,
+                start,
+                end: block_end,
+                line: lines.line(start),
+            })
+        };
+        let ok = |stmt: Stmt, start: usize, end: usize| {
+            Ok(Located {
+                stmt,
+                start,
+                end,
+                line: lines.line(start),
+            })
+        };
+        let mut values = located_values(body, b.from).into_iter();
+        if let Some((method, path, start, path_end)) = b.head {
             // POST/PUT take the JSON after them as their body; loose JSON
             // after a GET is the next statement.
-            let body = if matches!(method.as_str(), "POST" | "PUT") {
-                values.next()
-            } else {
-                None
-            };
-            out.push((Stmt::Http { method, path, body }, start));
+            let (mut body, mut end) = (None, path_end);
+            if matches!(method.as_str(), "POST" | "PUT") {
+                match values.next() {
+                    Some(Ok((v, _, e))) => (body, end) = (Some(v), e),
+                    Some(Err((message, _))) => {
+                        out.push(bad(message, start));
+                        continue;
+                    }
+                    None => {}
+                }
+            }
+            out.push(ok(Stmt::Http { method, path, body }, start, end));
         }
         for v in values {
-            if !v.is_object() {
-                return Err((
-                    format!("se esperaba una consulta Mango {{\"selector\": …}}, no {v}"),
-                    start,
-                ));
+            match v {
+                Ok((v, start, end)) if v.is_object() => out.push(ok(Stmt::Mango(v), start, end)),
+                Ok((v, start, _)) => {
+                    out.push(bad(
+                        format!("se esperaba una consulta Mango {{\"selector\": …}}, no {v}"),
+                        start,
+                    ));
+                    break;
+                }
+                Err((message, start)) => {
+                    out.push(bad(message, start));
+                    break;
+                }
             }
-            out.push((Stmt::Mango(v), start));
         }
     }
-    Ok(out)
+    out
 }
 
 /// POST endpoints that only read.
@@ -1129,11 +1277,11 @@ impl Session for CouchSession {
             return Err(Error::Query("No hay nada para ejecutar.".into()));
         }
         let own = out.current_statement.is_none();
-        for (i, (stmt, at)) in stmts.into_iter().enumerate() {
-            let step = steps::Step::start(out, own, i, at, steps::line_at(text, at));
-            let r = match self.check_read_only(&stmt) {
+        for (i, l) in stmts.iter().enumerate() {
+            let step = steps::Step::start(out, own, i, l.start, l.line);
+            let r = match self.check_read_only(&l.stmt) {
                 Ok(()) => self
-                    .send(&stmt, max_rows, false)
+                    .send(&l.stmt, max_rows, false)
                     .await
                     .map(|reply| push_reply(out, &reply, max_rows)),
                 Err(e) => Err(e),
@@ -1402,6 +1550,29 @@ fn push_reply(out: &mut QueryOutcome, reply: &Value, max_rows: usize) {
 mod tests {
     use super::*;
 
+    /// The audit's scripts: two units each, where `execute` numbers its
+    /// statements.
+    #[test]
+    fn split_script_gives_one_unit_per_statement() {
+        let d = &drivers()[0];
+        for s in [
+            "GET /_all_dbs\nGET /db/_all_docs",
+            "{\"selector\": {\"a\": 1}}\n{\"selector\": {\"b\": 2}}",
+            "POST /db/_find\n{\"selector\": {\"x\": \"x;y\"}}\nGET /db",
+            "GET /_all_dbs\r\n\r\n{\"selector\": {}}\r\n",
+        ] {
+            let units = d.split_script(s);
+            let at: Vec<_> = units.iter().map(|u| (u.start, u.line)).collect();
+            let numbered: Vec<_> = parse_located(s)
+                .unwrap()
+                .iter()
+                .map(|l| (l.start, l.line))
+                .collect();
+            assert_eq!(units.len(), 2, "{s:?} {units:?}");
+            assert_eq!(at, numbered);
+        }
+    }
+
     #[test]
     fn a_language_cannot_end_its_comment() {
         let c = format!(
@@ -1413,13 +1584,107 @@ mod tests {
     }
 
     #[test]
-    fn statements_keep_their_block() {
+    fn statements_keep_their_place() {
         let t = "{\"selector\": {}}\n// c\nGET /db/_all_docs\n  POST _find {\"selector\": {\"a\": 1}}\n{\"selector\": {}}";
         let v = parse_located(t).unwrap();
-        let at: Vec<usize> = v.iter().map(|(_, a)| *a).collect();
-        assert_eq!(at, [0, 22, 42, 42]);
+        let at: Vec<(usize, usize, u32)> = v.iter().map(|l| (l.start, l.end, l.line)).collect();
+        assert_eq!(at, [(0, 16, 1), (22, 39, 3), (42, 75, 4), (76, 92, 5)]);
         let e = parse_located("GET /db\nPOST _find {nope").unwrap_err();
         assert_eq!(e.1, 8);
+        // A loose value that isn't a query: there, not at its block.
+        let e = parse_located("GET /db\n{\"selector\": {}}\n[1]").unwrap_err();
+        assert_eq!(e.1, 25);
+    }
+
+    /// `(line, text)` of each unit, checking that the units are where
+    /// `execute` numbers its statements and that each unit's text alone
+    /// parses to that one statement (what "run the statement at the
+    /// cursor" sends).
+    fn units(s: &str) -> Vec<(u32, String)> {
+        let units = split(s);
+        let located = parse_located(s).unwrap();
+        assert_eq!(units.len(), located.len(), "{units:?}");
+        for (u, l) in units.iter().zip(&located) {
+            assert_eq!((u.start, u.end, u.line), (l.start, l.end, l.line));
+            assert_eq!(u.error, None);
+            assert_eq!(&s[u.start..u.end], u.text);
+            assert_eq!(parse_script(&u.text).unwrap(), vec![l.stmt.clone()]);
+        }
+        units.into_iter().map(|u| (u.line, u.text)).collect()
+    }
+
+    #[test]
+    fn split_http_lines_and_mango_queries() {
+        assert_eq!(
+            units("GET /_all_dbs\nGET /db/_all_docs"),
+            [(1, "GET /_all_dbs".into()), (2, "GET /db/_all_docs".into())]
+        );
+        // Two loose Mango queries, each with its own place.
+        assert_eq!(
+            units("{\"selector\": {\"a\": 1}}\n\n// next\n{\n  \"selector\": {}\n}\n"),
+            [
+                (1, "{\"selector\": {\"a\": 1}}".into()),
+                (4, "{\n  \"selector\": {}\n}".into())
+            ]
+        );
+        // A body holding separators and brace-like text in its strings.
+        let u = units("POST /db/_find\n{\"selector\": {\"x\": \"x;y } GET /z\"}}\nGET /db");
+        assert_eq!(u.len(), 2);
+        assert_eq!(
+            u[0].1,
+            "POST /db/_find\n{\"selector\": {\"x\": \"x;y } GET /z\"}}"
+        );
+        assert_eq!(u[1], (3, "GET /db".into()));
+    }
+
+    #[test]
+    fn split_three_with_comments_and_crlf() {
+        let s = "# a\r\nPUT /db/doc1\r\n// body\r\n{\"a\": 1}\r\n\r\n{\"selector\": {}} {\"selector\": {\"a\": 1}}\r\nDELETE /db/doc1?rev=1-x\r\n";
+        let u = units(s);
+        assert_eq!(
+            u,
+            [
+                (2, "PUT /db/doc1\r\n// body\r\n{\"a\": 1}".into()),
+                (6, "{\"selector\": {}}".into()),
+                (6, "{\"selector\": {\"a\": 1}}".into()),
+                (7, "DELETE /db/doc1?rev=1-x".into()),
+            ]
+        );
+        // A GET takes no body: the JSON after it is a query of its own.
+        let u = units("GET /db {\"selector\": {}}");
+        assert_eq!(u, [(1, "GET /db".into()), (1, "{\"selector\": {}}".into())]);
+    }
+
+    #[test]
+    fn split_cuts_around_what_does_not_parse() {
+        let s = "GET /db\n{nope\n\nPOST _find\n[1]\nGET /db/_all_docs\n";
+        let u = split(s);
+        let got: Vec<_> = u.iter().map(|u| (u.text.as_str(), u.line)).collect();
+        assert_eq!(
+            got,
+            [
+                ("GET /db", 1),
+                ("{nope", 2),
+                ("POST _find\n[1]", 4),
+                ("GET /db/_all_docs", 6),
+            ]
+        );
+        // No unit carries an error (the editor keeps every lens while a
+        // query is being typed): running one reports it at its place.
+        assert!(u.iter().all(|u| u.error.is_none()));
+        let e = parse_located(s).unwrap_err();
+        assert_eq!(e.1, u[1].start);
+        assert_eq!(parse_located(&u[1].text).unwrap_err().1, 0);
+        let typing = "GET /db\n{\"selector\": {\"a\": \nGET /db/_all_docs";
+        let u = split(typing);
+        assert_eq!(u.len(), 3);
+        assert!(u.iter().all(|u| u.error.is_none()));
+        assert!(parse_script(typing).is_err());
+        assert!(split("// solo comentarios\n\n# nada\n").is_empty());
+        // Whitespace JSON doesn't take is what fails, not past the end.
+        let u = split("GET /db\n\u{a0}\n");
+        assert_eq!((u[1].text.as_str(), u[1].line), ("\u{a0}", 2));
+        assert!(parse_script(&u[1].text).is_err());
     }
 
     #[test]

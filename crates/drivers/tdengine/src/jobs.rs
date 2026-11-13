@@ -178,23 +178,19 @@ pub(crate) fn trigger_of(sql: &str) -> Option<String> {
         rest = r.trim_start();
         offset = lower.len() - rest.len();
     }
-    // The name: a run of non-space characters (backticks keep spaces in).
-    let name_len = if rest.starts_with('`') {
-        let mut n = 0;
-        let mut in_q = false;
-        for (i, c) in rest.char_indices() {
-            if c == '`' {
-                in_q = !in_q;
-            } else if c.is_whitespace() && !in_q {
-                n = i;
-                break;
-            }
-            n = i + c.len_utf8();
+    // The name: a run of non-space characters (backticks keep spaces in,
+    // in either part of `db.name`).
+    let mut name_len = 0;
+    let mut in_q = false;
+    for (i, c) in rest.char_indices() {
+        if c == '`' {
+            in_q = !in_q;
+        } else if c.is_whitespace() && !in_q {
+            name_len = i;
+            break;
         }
-        n
-    } else {
-        rest.find(char::is_whitespace).unwrap_or(rest.len())
-    };
+        name_len = i + c.len_utf8();
+    }
     let after = offset + name_len;
     let tail = &lower[after..];
     let end = [
@@ -553,6 +549,14 @@ mod tests {
         );
         assert_eq!(trigger_of("create stream s into t as select 1"), None);
         assert_eq!(trigger_of("select 1"), None);
+        // Backticks in either part of the name keep its spaces in it.
+        for sql in [
+            "create stream db.`s 8` period(1m) into db.o as select now()",
+            "create stream `my db`.`s 8` period(1m) into db.o as select now()",
+            "create stream `s 8` period(1m) into db.o as select now()",
+        ] {
+            assert_eq!(trigger_of(sql).as_deref(), Some("period(1m)"), "{sql}");
+        }
     }
 
     #[test]

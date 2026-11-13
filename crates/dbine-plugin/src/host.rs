@@ -429,6 +429,7 @@ impl Call {
             | SchedulerSave { session, .. }
             | SchedulerDeleteScript { session, .. }
             | SchedulerDelete { session, .. }
+            | SchedulerActionForm { session, .. }
             | SchedulerActionScript { session, .. }
             | SchedulerAction { session, .. }
             | RunJobFrom { session, .. }
@@ -1431,17 +1432,31 @@ impl State {
                     .await?;
                 Reply::Unit
             }
+            Call::SchedulerActionForm {
+                session,
+                kind,
+                id,
+                action,
+            } => Reply::ObjectForm(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .scheduler_action_form(&kind, &id, &action)
+                    .await?,
+            ),
             Call::SchedulerActionScript {
                 session,
                 kind,
                 id,
                 action,
+                values,
             } => Reply::Text(
                 self.slot(session)?
                     .session
                     .lock()
                     .await
-                    .scheduler_action_script(&kind, &id, &action)
+                    .scheduler_action_script(&kind, &id, &action, &values)
                     .await?,
             ),
             Call::SchedulerAction {
@@ -1449,12 +1464,13 @@ impl State {
                 kind,
                 id,
                 action,
+                values,
             } => {
                 self.slot(session)?
                     .session
                     .lock()
                     .await
-                    .scheduler_action(&kind, &id, &action)
+                    .scheduler_action(&kind, &id, &action, &values)
                     .await?;
                 Reply::Unit
             }

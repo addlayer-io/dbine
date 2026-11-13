@@ -124,3 +124,74 @@ async fn use_show_and_errors() {
     .await
     .unwrap();
 }
+
+/// The editor's statements (`split_script`: the run lens, "run the
+/// statement at the cursor", named results) are the ones `execute` numbers:
+/// each result's statement, offset and line point at its unit, and a unit
+/// run alone (as the lens runs it) gives what it gave in the whole script.
+/// FerretDB too: `DBINE_TEST_FERRETDB_URL=mongodb://root:secret@localhost:25203/`.
+#[tokio::test]
+#[ignore]
+async fn split_matches_execution_numbering() {
+    for (env, id) in [
+        ("DBINE_TEST_MONGODB_URL", "mongodb"),
+        ("DBINE_TEST_FERRETDB_URL", "ferretdb"),
+    ] {
+        let Ok(url) = std::env::var(env) else {
+            continue;
+        };
+        let mut c = ConnectionConfig {
+            driver: id.into(),
+            database: "dbine_script_split".into(),
+            ..Default::default()
+        };
+        c.options.insert("connection_string".into(), url);
+        let drivers = dbine_driver_mongodb::drivers();
+        let d = drivers.iter().find(|d| d.info().id == id).unwrap();
+        let mut s = d.connect(&c, None).await.unwrap();
+        run(&mut s, "db.dropDatabase()").await.unwrap();
+
+        let script = "// la base\nuse dbine_script_split\r\n\
+            db.t.insertMany([{ _id: 1, k: 'a' }, { _id: 2, k: 'b;c' }, { _id: 3, k: 'a' }])\n\
+            // por clave\n\
+            db.t.aggregate([\n  { $group: { _id: '$k', n: { $sum: 1 } } },\n  { $sort: { _id: 1 } }\n])\n\
+            db.t.countDocuments({}); { count: 't', query: { k: 'a' } }\n\
+            db.t.find({ k: { $ne: 'x' } }, { k: 1 })\n  // ordenados\n  .sort({ _id: -1 })\n\
+            show collections";
+        let units = d.split_script(script);
+        let texts: Vec<&str> = units.iter().map(|u| u.text.as_str()).collect();
+        assert_eq!(texts.len(), 7, "{id}: {texts:#?}");
+        assert_eq!(texts[0], "use dbine_script_split");
+        assert!(texts[2].starts_with("db.t.aggregate([") && texts[2].ends_with("])"));
+        assert_eq!(texts[4], "{ count: 't', query: { k: 'a' } }");
+        assert!(texts[5].ends_with(".sort({ _id: -1 })"));
+
+        let whole = run(&mut s, script).await.unwrap();
+        let mut numbered: Vec<usize> = Vec::new();
+        for r in &whole.results {
+            let i = r.statement.unwrap();
+            assert_eq!(
+                (r.offset, r.line),
+                (Some(units[i].start), Some(units[i].line)),
+                "{id}: statement {i}"
+            );
+            numbered.push(i);
+        }
+        numbered.dedup();
+        assert_eq!(numbered, [1, 2, 3, 4, 5, 6], "{id}");
+        // Each read alone, as the lens runs it: the same rows, numbered 0.
+        for i in [2, 3, 4, 5, 6] {
+            let alone = run(&mut s, &units[i].text).await.unwrap();
+            let r = &alone.results[0];
+            assert_eq!((r.statement, r.offset, r.line), (Some(0), Some(0), Some(1)));
+            let before = whole
+                .results
+                .iter()
+                .find(|r| r.statement == Some(i))
+                .unwrap();
+            assert_eq!(r.rows, before.rows, "{id}: {}", units[i].text);
+        }
+
+        run(&mut s, "db.dropDatabase()").await.unwrap();
+    }
+}

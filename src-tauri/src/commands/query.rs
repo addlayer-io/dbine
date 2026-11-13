@@ -1235,10 +1235,15 @@ pub async fn split_script(
     ))
 }
 
+/// With `statements`, the driver's own units where they already are its
+/// statements: SQL*Plus scripts, and every dialect where the terminator
+/// ends a statement (there `statements()` changes nothing, and the driver
+/// may know more, such as a console's requests or a `USE` line). Only
+/// dialects where a batch goes whole (T-SQL's `GO`) are cut again at `;`.
 fn split_for_ui(driver: Option<&dyn Driver>, sql: &str, statements: bool) -> Vec<SplitStatement> {
     let dialect = driver.map_or_else(sql::ScriptDialect::generic, |d| d.script_dialect());
     let units = match (driver, statements) {
-        (Some(d), true) if sqlplus_units(&dialect) => d.split_script(sql),
+        (Some(d), true) if sqlplus_units(&dialect) || dialect.semicolons => d.split_script(sql),
         (_, true) => sql::split_script(sql, &dialect.statements()),
         (Some(d), false) => d.split_script(sql),
         (None, false) => sql::split_script(sql, &dialect),
@@ -1896,6 +1901,60 @@ select
                 .collect::<Vec<_>>(),
             vec![("UPDATE t SET a = 1", 4)]
         );
+    }
+
+    #[test]
+    fn the_statement_at_the_cursor_is_the_drivers_unit() {
+        // Where the terminator ends a statement, the driver's own units
+        // reach the run lens and "run the statement at the cursor": a
+        // console's requests, a command per line, a context line.
+        for (id, script) in [
+            (
+                "elasticsearch",
+                "GET /_cat/indices\nGET /idx/_search\n{\n  \"size\": 1\n}",
+            ),
+            ("solr", "GET /solr/admin/cores\nGET /solr/c/select?q=*:*"),
+            ("couchdb", "GET /_all_dbs\n{\"selector\": {}}"),
+            ("redis", "SET k \"a;b\"\nGET k"),
+            ("etcd", "put k v\nget k"),
+            ("mongodb", "db.a.find()\ndb.b.find({x: 1})"),
+            ("influxdb1", "USE mydb\nSHOW MEASUREMENTS"),
+            ("cosmosdb", "-- container: items\nSELECT * FROM c"),
+            ("cassandra", "CONSISTENCY ONE\nSELECT * FROM ks.t"),
+            ("neo4j", ":use db\nMATCH (n) RETURN n"),
+        ] {
+            let d = dbine_drivers::find(id).unwrap().as_ref();
+            let st = split_for_ui(Some(d), script, true);
+            assert_eq!(st.len(), 2, "{id}: {st:?}");
+            assert_eq!(
+                st.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
+                d.split_script(script)
+                    .iter()
+                    .map(|u| u.text.as_str())
+                    .collect::<Vec<_>>(),
+                "{id}"
+            );
+        }
+        // The other engines with units of their own: statements, a
+        // scripting block whole (a statement inside it can't run alone).
+        for id in ["snowflake", "bigquery", "databricks"] {
+            let d = dbine_drivers::find(id).unwrap().as_ref();
+            let two = "SELECT 1;\nSELECT 2;";
+            assert_eq!(split_for_ui(Some(d), two, true).len(), 2, "{id}");
+            let block = "BEGIN\n  SELECT 1;\n  SELECT 2;\nEND;\nSELECT 3;";
+            assert_eq!(split_for_ui(Some(d), block, true).len(), 2, "{id}");
+        }
+        // psql: a meta-command line is a statement of its own.
+        let pg = dbine_drivers::find("postgres").unwrap().as_ref();
+        let st = split_for_ui(Some(pg), "\\timing on\nselect 1", true);
+        assert_eq!(
+            st.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
+            ["\\timing on", "select 1"]
+        );
+        // T-SQL: a batch runs whole, its statements are cut at `;`.
+        let ms = dbine_drivers::find("sqlserver").unwrap().as_ref();
+        assert_eq!(split_for_ui(Some(ms), "SELECT 1; SELECT 2", false).len(), 1);
+        assert_eq!(split_for_ui(Some(ms), "SELECT 1; SELECT 2", true).len(), 2);
     }
 
     #[test]

@@ -354,5 +354,14 @@ mod tests {
             .all(|st| !st.lines().next().unwrap_or("").contains('\t')));
         assert!(s.statements[0].starts_with("PUT /x%0Adelete%09victim/_block/write"));
         assert!(check_index_name("a\nb").is_err());
+        // Each statement is one request as the editor and `execute` cut it
+        // (the app refuses a rename statement that splits).
+        for st in &s.statements {
+            let units = crate::console::split(st);
+            assert!(
+                units.len() == 1 && crate::console::parse(st).is_ok(),
+                "{st}"
+            );
+        }
     }
 }

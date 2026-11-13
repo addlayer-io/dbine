@@ -529,6 +529,7 @@ async fn scenario(cfg: ConnectionConfig, chains_run: bool) {
     // queue's notifications afterwards.
     runs(&mut s, &prog2, chains_run).await;
     actions(&cfg, &mut s, &prog2, chains_run).await;
+    running_chains(&cfg, &mut s, chains_run).await;
     let (cal, evt) = schedules(&mut s).await;
     let chain = chains(&mut s, &prog2, &evt).await;
     let class = classes(&mut s).await;
@@ -1557,9 +1558,10 @@ async fn guards(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, job: &str) {
     assert!(jobk.can_create);
     assert!(info.notes.iter().any(|n| n.contains("MANAGE SCHEDULER")));
     // Without MANAGE SCHEDULER: no history to clear, no forced stop, no
-    // window to open; a program of its own still runs once.
+    // window to open; a program of its own still runs once, and a chain
+    // of its own is steered.
     assert!(jobk.run_from_step && !jobk.clear_history);
-    assert_eq!(keys(jobk), ["end_detached"]);
+    assert_eq!(keys(jobk), ["end_detached", "steer_chain", "stop_step"]);
     assert!(win.actions.is_empty());
     let progk = info.kinds.iter().find(|k| k.key == "program").unwrap();
     assert_eq!(keys(progk), ["run"]);
@@ -1569,7 +1571,12 @@ async fn guards(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, job: &str) {
         (Some(false), Some(false), None)
     );
     let e = u
-        .scheduler_action_script("window", "SYS.WEEKNIGHT_WINDOW", "open_window")
+        .scheduler_action_script(
+            "window",
+            "SYS.WEEKNIGHT_WINDOW",
+            "open_window",
+            &Default::default(),
+        )
         .await
         .unwrap_err();
     assert!(e.to_string().contains("MANAGE SCHEDULER"), "{e}");
@@ -1649,7 +1656,10 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     let kind = |k: &str| info.kinds.iter().find(|x| x.key == k).unwrap().clone();
     let job = kind("job");
     assert!(job.run_from_step && job.clear_history);
-    assert_eq!(keys(&job), ["force_stop", "end_detached"]);
+    assert_eq!(
+        keys(&job),
+        ["force_stop", "end_detached", "steer_chain", "stop_step"]
+    );
     assert_eq!(keys(&kind("window")), ["open_window", "close_window"]);
     assert_eq!(keys(&kind("program")), ["run"]);
     assert_eq!(keys(&kind("chain")), ["run"]);
@@ -1661,12 +1671,14 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         ("window", "run"),
     ] {
         assert!(
-            s.scheduler_action_script(k, prog2, a).await.is_err(),
+            s.scheduler_action_script(k, prog2, a, &Default::default())
+                .await
+                .is_err(),
             "{k} {a}"
         );
     }
     assert!(s
-        .scheduler_action("schedule", "SYSTEM.X", "run")
+        .scheduler_action("schedule", "SYSTEM.X", "run", &Default::default())
         .await
         .is_err());
 
@@ -1684,11 +1696,11 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     // A read-only connection shows the script, doesn't run it.
     let mut ro = ReadOnlySession::new(connect(cfg).await);
     assert!(ro
-        .scheduler_action_script("window", &w1, "open_window")
+        .scheduler_action_script("window", &w1, "open_window", &Default::default())
         .await
         .is_ok());
     assert!(ro
-        .scheduler_action("window", &w1, "open_window")
+        .scheduler_action("window", &w1, "open_window", &Default::default())
         .await
         .is_err());
     assert_eq!(
@@ -1702,7 +1714,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     .await;
     if open == "0" {
         let script = s
-            .scheduler_action_script("window", &w1, "open_window")
+            .scheduler_action_script("window", &w1, "open_window", &Default::default())
             .await
             .unwrap();
         assert!(
@@ -1710,7 +1722,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
                 && script.contains("00:10:00"),
             "{script}"
         );
-        s.scheduler_action("window", &w1, "open_window")
+        s.scheduler_action("window", &w1, "open_window", &Default::default())
             .await
             .unwrap();
         assert_eq!(
@@ -1719,20 +1731,20 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         );
         assert_eq!(actions_of(&item(s, "window", &w1).await), ["close_window"]);
         let e = s
-            .scheduler_action_script("window", &w1, "open_window")
+            .scheduler_action_script("window", &w1, "open_window", &Default::default())
             .await
             .unwrap_err();
         assert!(e.to_string().contains("ya está abierta"), "{e}");
         // Only one is open at a time: opening another closes it.
         let script = s
-            .scheduler_action_script("window", &w2, "open_window")
+            .scheduler_action_script("window", &w2, "open_window", &Default::default())
             .await
             .unwrap();
         assert!(
             script.contains("force => TRUE") && script.contains("SYS.DBINE_TEST_SCHED_WACT "),
             "{script}"
         );
-        s.scheduler_action("window", &w2, "open_window")
+        s.scheduler_action("window", &w2, "open_window", &Default::default())
             .await
             .unwrap();
         assert_eq!(
@@ -1740,14 +1752,14 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
             "DBINE_TEST_SCHED_WACT=FALSE,DBINE_TEST_SCHED_WACT2=TRUE"
         );
         let script = s
-            .scheduler_action_script("window", &w2, "close_window")
+            .scheduler_action_script("window", &w2, "close_window", &Default::default())
             .await
             .unwrap();
         assert!(
             script.contains("CLOSE_WINDOW(window_name => '\"SYS\".\"DBINE_TEST_SCHED_WACT2\"');"),
             "{script}"
         );
-        s.scheduler_action("window", &w2, "close_window")
+        s.scheduler_action("window", &w2, "close_window", &Default::default())
             .await
             .unwrap();
         assert_eq!(
@@ -1755,7 +1767,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
             "DBINE_TEST_SCHED_WACT=FALSE,DBINE_TEST_SCHED_WACT2=FALSE"
         );
         let e = s
-            .scheduler_action_script("window", &w2, "close_window")
+            .scheduler_action_script("window", &w2, "close_window", &Default::default())
             .await
             .unwrap_err();
         assert!(e.to_string().contains("no está abierta"), "{e}");
@@ -1768,7 +1780,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     save(s, "window", Some(&w2), &v).await;
     assert!(actions_of(&item(s, "window", &w2).await).is_empty());
     let e = s
-        .scheduler_action_script("window", &w2, "open_window")
+        .scheduler_action_script("window", &w2, "open_window", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("deshabilitada"), "{e}");
@@ -1793,13 +1805,13 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     let aprog = save(s, "program", None, &v).await;
     assert!(actions_of(&item(s, "program", &aprog).await).is_empty());
     let e = s
-        .scheduler_action_script("program", &aprog, "run")
+        .scheduler_action_script("program", &aprog, "run", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("argumentos sin valor"), "{e}");
     delete(s, "program", &aprog, "DROP_PROGRAM").await;
     let script = s
-        .scheduler_action_script("program", prog2, "run")
+        .scheduler_action_script("program", prog2, "run", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -1828,7 +1840,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     let achain = save(s, "chain", None, &v).await;
     assert_eq!(actions_of(&item(s, "chain", &achain).await), ["run"]);
     let script = flat(
-        &s.scheduler_action_script("chain", &achain, "run")
+        &s.scheduler_action_script("chain", &achain, "run", &Default::default())
             .await
             .unwrap(),
     );
@@ -1837,14 +1849,18 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         "{script}"
     );
     if chains_run {
-        s.scheduler_action("program", prog2, "run").await.unwrap();
+        s.scheduler_action("program", prog2, "run", &Default::default())
+            .await
+            .unwrap();
         wait_for(
             s,
             "SELECT COUNT(*) FROM dba_scheduler_job_run_details WHERE owner = 'SYSTEM' AND job_name LIKE 'RUN\\_PROG$DBINE\\_TE%' ESCAPE '\\' AND status = 'SUCCEEDED'",
             "the program's run",
         )
         .await;
-        s.scheduler_action("chain", &achain, "run").await.unwrap();
+        s.scheduler_action("chain", &achain, "run", &Default::default())
+            .await
+            .unwrap();
         wait_for(
             s,
             "SELECT COUNT(*) FROM dba_scheduler_job_run_details WHERE job_name LIKE 'RUN\\_CHAIN$DBINE\\_%' ESCAPE '\\' AND job_subname = 'A1'",
@@ -1865,7 +1881,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     save(s, "chain", Some(&achain), &v).await;
     assert!(actions_of(&item(s, "chain", &achain).await).is_empty());
     let e = s
-        .scheduler_action_script("chain", &achain, "run")
+        .scheduler_action_script("chain", &achain, "run", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("deshabilitada"), "{e}");
@@ -1895,7 +1911,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
     .await;
     assert_eq!(actions_of(&item(s, "job", &sjob).await), ["force_stop"]);
     let script = s
-        .scheduler_action_script("job", &sjob, "force_stop")
+        .scheduler_action_script("job", &sjob, "force_stop", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -1904,7 +1920,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         ),
         "{script}"
     );
-    s.scheduler_action("job", &sjob, "force_stop")
+    s.scheduler_action("job", &sjob, "force_stop", &Default::default())
         .await
         .unwrap();
     assert_ne!(
@@ -1912,7 +1928,7 @@ async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, 
         "RUNNING"
     );
     let e = s
-        .scheduler_action_script("job", &sjob, "force_stop")
+        .scheduler_action_script("job", &sjob, "force_stop", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("no se está ejecutando"), "{e}");
@@ -1946,7 +1962,7 @@ END;",
         );
         assert_eq!(actions_of(&sys_job), ["force_stop"]);
         let script = s
-            .scheduler_action_script("job", &sys_job.id, "force_stop")
+            .scheduler_action_script("job", &sys_job.id, "force_stop", &Default::default())
             .await
             .unwrap();
         assert!(
@@ -1955,7 +1971,7 @@ END;",
             ),
             "{script}"
         );
-        s.scheduler_action("job", &sys_job.id, "force_stop")
+        s.scheduler_action("job", &sys_job.id, "force_stop", &Default::default())
             .await
             .unwrap();
         assert_ne!(
@@ -1964,7 +1980,7 @@ END;",
         );
         // Ending its run is the owner's business, as "Detener" is.
         assert!(s
-            .scheduler_action_script("job", &sys_job.id, "end_detached")
+            .scheduler_action_script("job", &sys_job.id, "end_detached", &Default::default())
             .await
             .is_err());
         exec(&mut sys, SYS_CLEANUP).await;
@@ -1994,14 +2010,14 @@ END;",
         ["force_stop", "end_detached"]
     );
     let script = s
-        .scheduler_action_script("job", &djob, "end_detached")
+        .scheduler_action_script("job", &djob, "end_detached", &Default::default())
         .await
         .unwrap();
     assert!(
         script.contains("END_DETACHED_JOB_RUN(job_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_DJOB\"', error_number => 0);"),
         "{script}"
     );
-    s.scheduler_action("job", &djob, "end_detached")
+    s.scheduler_action("job", &djob, "end_detached", &Default::default())
         .await
         .unwrap();
     wait_for(
@@ -2011,12 +2027,243 @@ END;",
     )
     .await;
     let e = s
-        .scheduler_action_script("job", &djob, "end_detached")
+        .scheduler_action_script("job", &djob, "end_detached", &Default::default())
         .await
         .unwrap_err();
     assert!(e.to_string().contains("desacoplado"), "{e}");
     delete(s, "job", &djob, "DROP_JOB").await;
     delete(s, "program", &dprog, "DROP_PROGRAM").await;
+}
+
+/// A step of `job`'s running chain, as `dba_scheduler_running_chains`
+/// has it: `state|skip|pause|pause_before`, empty when the chain isn't
+/// running.
+async fn chain_step(s: &mut Box<dyn Session>, step: &str) -> String {
+    scalar(
+        s,
+        &format!(
+            "SELECT state || '|' || skip || '|' || pause || '|' || pause_before FROM dba_scheduler_running_chains WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_CJOB' AND step_name = '{step}' AND job_subname IS NULL"
+        ),
+    )
+    .await
+}
+
+/// A job running a chain: a step steered (SKIP, PAUSE_BEFORE, its pause
+/// taken off), a running step stopped; each one's form and script first,
+/// what the server refuses, and a read-only connection.
+async fn running_chains(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, chains_run: bool) {
+    let mut v = new_form(s, "program").await;
+    set(&mut v, "name", json!("dbine_test_sched_slow"));
+    set(
+        &mut v,
+        "plsql",
+        json!("BEGIN DBMS_SESSION.SLEEP(120); END;"),
+    );
+    let slow = save(s, "program", None, &v).await;
+    let mut v = new_form(s, "program").await;
+    set(&mut v, "name", json!("dbine_test_sched_quick"));
+    set(&mut v, "plsql", json!("BEGIN NULL; END;"));
+    let quick = save(s, "program", None, &v).await;
+    let mut v = new_form(s, "chain").await;
+    set(&mut v, "name", json!("dbine_test_sched_cchain"));
+    list(
+        &mut v,
+        "steps",
+        json!([
+            {"step_name": "S1", "step_type": "PROGRAM", "program": slow},
+            {"step_name": "S2", "step_type": "PROGRAM", "program": quick},
+            {"step_name": "S3", "step_type": "PROGRAM", "program": quick}
+        ]),
+    );
+    list(
+        &mut v,
+        "rules",
+        json!([
+            {"condition": "TRUE", "action": "START S1"},
+            {"condition": "S1 COMPLETED", "action": "START S2"},
+            {"condition": "S2 COMPLETED", "action": "START S3"},
+            {"condition": "S3 COMPLETED", "action": "END"}
+        ]),
+    );
+    let chain = save(s, "chain", None, &v).await;
+    let mut v = new_form(s, "job").await;
+    set(&mut v, "name", json!("dbine_test_sched_cjob"));
+    set(&mut v, "job_type", json!("CHAIN"));
+    set(&mut v, "chain", json!(chain));
+    set(&mut v, "enabled", json!(false));
+    let cjob = save(s, "job", None, &v).await;
+    // Not running: neither action is offered, nor does a form open.
+    let i = item(s, "job", &cjob).await;
+    assert!(actions_of(&i).is_empty(), "{i:?}");
+    let e = s
+        .scheduler_action_form("job", &cjob, "steer_chain")
+        .await
+        .unwrap_err();
+    assert!(
+        e.to_string().contains("no está ejecutando una cadena"),
+        "{e}"
+    );
+    assert!(s
+        .scheduler_action_form("job", &cjob, "force_stop")
+        .await
+        .is_err());
+    if !chains_run {
+        eprintln!("one job slave: steering a running chain skipped");
+        delete(s, "job", &cjob, "DROP_JOB").await;
+        delete(s, "chain", &chain, "DROP_CHAIN").await;
+        delete(s, "program", &slow, "DROP_PROGRAM").await;
+        delete(s, "program", &quick, "DROP_PROGRAM").await;
+        return;
+    }
+    s.run_job(&cjob).await.unwrap();
+    wait_for(
+        s,
+        "SELECT COUNT(*) FROM dba_scheduler_running_chains WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_CJOB' AND step_name = 'S1' AND state = 'RUNNING'",
+        "the chain's first step running",
+    )
+    .await;
+    assert_eq!(
+        actions_of(&item(s, "job", &cjob).await),
+        ["force_stop", "steer_chain", "stop_step"]
+    );
+
+    // The steer form: the chain's steps with their state.
+    let f = s
+        .scheduler_action_form("job", &cjob, "steer_chain")
+        .await
+        .expect("steer form");
+    let steps: Vec<&str> = f.choices["step"].iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(steps, ["S1", "S2", "S3"]);
+    assert_eq!(f.choices["step"][0].1, "S1 — RUNNING");
+    // S2 skipped when its turn comes, S3 paused before it starts.
+    let steer = |step: &str, change: &str| FormValues {
+        values: BTreeMap::from([
+            ("step".to_string(), json!(step)),
+            ("change".to_string(), json!(change)),
+        ]),
+        lists: BTreeMap::new(),
+    };
+    let script = s
+        .scheduler_action_script("job", &cjob, "steer_chain", &steer("S2", "skip"))
+        .await
+        .unwrap();
+    assert!(
+        flat(&script).contains("ALTER_RUNNING_CHAIN(job_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_CJOB\"', step_name => 'S2', attribute => 'SKIP', value => TRUE);"),
+        "{script}"
+    );
+    // A read-only connection shows the form and the script, doesn't run it.
+    let mut ro = ReadOnlySession::new(connect(cfg).await);
+    assert!(ro
+        .scheduler_action_form("job", &cjob, "steer_chain")
+        .await
+        .is_ok());
+    assert!(ro
+        .scheduler_action("job", &cjob, "steer_chain", &steer("S2", "skip"))
+        .await
+        .is_err());
+    s.scheduler_action("job", &cjob, "steer_chain", &steer("S2", "skip"))
+        .await
+        .unwrap();
+    assert_eq!(chain_step(s, "S2").await, "NOT_STARTED|TRUE|FALSE|FALSE");
+    s.scheduler_action("job", &cjob, "steer_chain", &steer("S3", "pause_before"))
+        .await
+        .unwrap();
+    assert_eq!(chain_step(s, "S3").await, "NOT_STARTED|FALSE|FALSE|TRUE");
+    // Refused before the server sees them: the running step's state, a
+    // step the chain doesn't have.
+    for (step, change, says) in [
+        ("S1", "succeeded", "se está ejecutando"),
+        ("S2", "skip", "ya está marcado"),
+        ("S9", "pause", "no tiene un paso"),
+    ] {
+        let e = s
+            .scheduler_action("job", &cjob, "steer_chain", &steer(step, change))
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains(says), "{step} {change}: {e}");
+    }
+
+    // The running step stopped: S2 is skipped, S3 waits paused.
+    let f = s
+        .scheduler_action_form("job", &cjob, "stop_step")
+        .await
+        .expect("stop form");
+    assert_eq!(f.choices["step"].len(), 1);
+    assert_eq!(f.choices["step"][0].0, "S1");
+    let stop = FormValues {
+        values: BTreeMap::from([
+            ("step".to_string(), json!("S1")),
+            ("force".to_string(), json!(false)),
+        ]),
+        lists: BTreeMap::new(),
+    };
+    let script = s
+        .scheduler_action_script("job", &cjob, "stop_step", &stop)
+        .await
+        .unwrap();
+    assert!(
+        flat(&script).contains(
+            "STOP_JOB(job_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_CJOB\".\"S1\"', force => FALSE);"
+        ),
+        "{script}"
+    );
+    s.scheduler_action("job", &cjob, "stop_step", &stop)
+        .await
+        .unwrap();
+    wait_for(
+        s,
+        "SELECT COUNT(*) FROM dba_scheduler_running_chains WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_CJOB' AND step_name = 'S3' AND state = 'PAUSED'",
+        "S3 paused before it starts",
+    )
+    .await;
+    assert!(chain_step(s, "S1").await.starts_with("STOPPED|"));
+    assert!(chain_step(s, "S2").await.starts_with("SUCCEEDED|TRUE|"));
+    // Nothing running now: the step can't be stopped.
+    assert_eq!(
+        actions_of(&item(s, "job", &cjob).await),
+        ["force_stop", "steer_chain"]
+    );
+    let e = s
+        .scheduler_action_form("job", &cjob, "stop_step")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("Ningún paso"), "{e}");
+    // S3's pause taken off: it runs, and the chain ends.
+    let script = s
+        .scheduler_action_script("job", &cjob, "steer_chain", &steer("S3", "resume"))
+        .await
+        .unwrap();
+    assert!(
+        flat(&script).contains("attribute => 'PAUSE_BEFORE', value => FALSE"),
+        "{script}"
+    );
+    s.scheduler_action("job", &cjob, "steer_chain", &steer("S3", "resume"))
+        .await
+        .unwrap();
+    wait_for(
+        s,
+        "SELECT COUNT(*) FROM dba_scheduler_job_run_details WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_CJOB' AND job_subname = 'S3' AND status = 'SUCCEEDED'",
+        "S3 run",
+    )
+    .await;
+    wait_for(
+        s,
+        "SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM dba_scheduler_running_chains WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_CJOB'",
+        "the chain ended",
+    )
+    .await;
+    let e = s
+        .scheduler_action_script("job", &cjob, "steer_chain", &steer("S3", "succeeded"))
+        .await
+        .unwrap_err();
+    assert!(
+        e.to_string().contains("no está ejecutando una cadena"),
+        "{e}"
+    );
+    delete(s, "job", &cjob, "DROP_JOB").await;
+    delete(s, "chain", &chain, "DROP_CHAIN").await;
+    delete(s, "program", &slow, "DROP_PROGRAM").await;
+    delete(s, "program", &quick, "DROP_PROGRAM").await;
 }
 
 /// What each object allows: Oracle's own are shown, not changed nor
@@ -2059,7 +2306,7 @@ async fn abilities(s: &mut Box<dyn Session>, job: &str, class: &str) {
         if kind == "program" {
             assert_eq!(sys.actions, Some(Vec::new()));
             assert!(s
-                .scheduler_action_script(kind, &sys.id, "run")
+                .scheduler_action_script(kind, &sys.id, "run", &Default::default())
                 .await
                 .is_err());
         }

@@ -29,7 +29,7 @@ fn sources(destinations: bool) -> Sources {
 
 /// A job with every kind of task and every part of the settings, as
 /// `jobs/get` gives it.
-fn rich_job() -> Json {
+pub(super) fn rich_job() -> Json {
     let mut j = json!({
         "job_id": 42,
         "creator_user_name": "ana@example.com",
@@ -86,7 +86,7 @@ fn rich_job() -> Json {
 }
 
 /// The rich job's tasks, one of each kind.
-fn rich_tasks() -> Vec<Json> {
+pub(super) fn rich_tasks() -> Vec<Json> {
     vec![
         json!({
                     "task_key": "ingesta",
@@ -207,7 +207,7 @@ fn rich_tasks() -> Vec<Json> {
     ]
 }
 
-fn rich_acl() -> Vec<Json> {
+pub(super) fn rich_acl() -> Vec<Json> {
     vec![
         json!({ "user_name": "ana@example.com", "display_name": "Ana", "all_permissions": [{ "permission_level": "IS_OWNER", "inherited": false }] }),
         json!({ "group_name": "datos", "all_permissions": [{ "permission_level": "CAN_MANAGE_RUN", "inherited": false }] }),
@@ -215,7 +215,7 @@ fn rich_acl() -> Vec<Json> {
     ]
 }
 
-fn rich() -> Current {
+pub(super) fn rich() -> Current {
     Current {
         id: 42,
         job: rich_job(),
@@ -1362,11 +1362,11 @@ fn who_may_change_the_job() {
 // Against a mock workspace
 // ---------------------------------------------------------------------------
 
-type Seen = Arc<Mutex<Vec<(String, String, String)>>>;
+pub(super) type Seen = Arc<Mutex<Vec<(String, String, String)>>>;
 
 /// A workspace with job 42 (the rich one), a few lists, and a log of what
 /// was asked. `admin`: SCIM `Me` lists `admins`.
-async fn workspace(seen: Seen, admin: bool) -> String {
+pub(super) async fn workspace(seen: Seen, admin: bool) -> String {
     let job = Arc::new(Mutex::new(rich_job()));
     serve(Arc::new(move |m, p, b| {
         seen.lock().unwrap().push((m.to_string(), p.to_string(), b.to_string()));
@@ -1422,7 +1422,7 @@ async fn workspace(seen: Seen, admin: bool) -> String {
     .await
 }
 
-fn posts(seen: &Seen) -> Vec<(String, String, Json)> {
+pub(super) fn posts(seen: &Seen) -> Vec<(String, String, Json)> {
     seen.lock()
         .unwrap()
         .iter()
@@ -1644,8 +1644,12 @@ async fn a_job_starts_at_a_task_and_its_finished_runs_are_deleted() {
     let info = s.scheduler_info().await.unwrap();
     let k = &info.kinds[0];
     assert!(k.run_from_step && k.clear_history);
-    // "Ejecutar ahora" is the jobs list's run-now: no action of its own.
-    assert!(k.actions.is_empty());
+    // "Ejecutar ahora" is the jobs list's run-now; its one action runs it
+    // with other parameters, after a form.
+    assert_eq!(
+        k.actions,
+        [SchedulerAction::new("run_with_params", "Ejecutar con parámetros").with_params()]
+    );
     let refused = serve(Arc::new(|_, _, _| {
         (
             403,
@@ -1655,6 +1659,7 @@ async fn a_job_starts_at_a_task_and_its_finished_runs_are_deleted() {
     .await;
     let info = session(refused).scheduler_info().await.unwrap();
     assert!(!info.kinds[0].run_from_step && !info.kinds[0].clear_history);
+    assert!(info.kinds[0].actions.is_empty());
 }
 
 /// A workspace whose jobs 1-4 the login (`bea`, in no admin group unless

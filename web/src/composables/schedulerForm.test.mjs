@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  canRemoveRow, codeMode, fieldOptions, fieldProblem, fillSource, formValues, hasTypedSecret, humanDuration,
+  actionText, canRemoveRow, codeMode, fieldOptions, fieldProblem, fillSource, formValues, hasTypedSecret, humanDuration,
   initialLists, initialValues, isVisible, itemAbilities, listVisible, moveRow, newRow, optionLabel, problemText,
   refChoices, refOptions, refsToCheck, renameRefs, rowProblems, scriptWarnings, sectionVisible, snapshot, sourceFields, splitOffset,
   summaryFields, topContext, validate, visibleLists, whenText,
@@ -601,4 +601,38 @@ test('script warnings are the ⚠ lines of the leading comment block', () => {
   assert.deepEqual(scriptWarnings("-- Paso 1\nEXEC sp_add_jobstep @command = N'SELECT 1\n-- ⚠ falso aviso\nSELECT 2';"), []);
   // A bare "⚠" line (no comment marker) isn't one either.
   assert.deepEqual(scriptWarnings('⚠ no es comentario\nSELECT 1;'), []);
+});
+
+test('an action that asks for values first shows "…" after its label, once', () => {
+  assert.equal(actionText('Ejecutar ahora'), 'Ejecutar ahora');
+  assert.equal(actionText('Ejecutar ahora', false), 'Ejecutar ahora');
+  assert.equal(actionText('Rellenar un período', true), 'Rellenar un período…');
+  // The driver's label may already have one (either form): not twice.
+  assert.equal(actionText('Recalcular…', true), 'Recalcular…');
+  assert.equal(actionText('Recalcular...', true), 'Recalcular...');
+  assert.equal(actionText('Recalcular ', true), 'Recalcular…');
+  assert.equal(actionText('', true), '');
+});
+
+test("an action's form starts from its values and its fields' defaults, checked and sent like the designer's", () => {
+  // A BigQuery-like backfill: a range or a single run time.
+  const form = {
+    sections: [{
+      key: 'range', label: 'Período',
+      fields: [
+        f('run_type', 'select', { kind: { options: [['range', 'Período'], ['time', 'Una']] }, required: true, default: 'range' }),
+        f('start_time', 'date_time', { required: true, when: ['run_type', ['range']], default: '2026-11-06T03:00:00Z' }),
+        f('end_time', 'date_time', { required: true, when: ['run_type', ['range']] }),
+        f('run_time', 'date_time', { required: true, when: ['run_type', ['time']] }),
+      ],
+    }],
+    values: { end_time: '2026-11-13T03:00:00Z' },
+  };
+  const values = initialValues(form, true);
+  assert.deepEqual(values, { run_type: 'range', start_time: '2026-11-06T03:00:00Z', end_time: '2026-11-13T03:00:00Z' });
+  // The single run time hides: it isn't required while the range shows.
+  assert.equal(validate(form, values, initialLists(form), true).count, 0);
+  const one = { ...values, run_type: 'time' };
+  assert.deepEqual(Object.keys(validate(form, one, {}, true).fields), ['run_time']);
+  assert.deepEqual(formValues(form, values, initialLists(form)), { values, lists: {} });
 });

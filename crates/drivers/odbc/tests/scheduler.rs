@@ -188,7 +188,7 @@ async fn round_trip(
     };
     for a in offered {
         let script = s
-            .scheduler_action_script(kind, &id, &a)
+            .scheduler_action_script(kind, &id, &a, &Default::default())
             .await
             .map_err(|e| format!("{a}: {e}"))?;
         println!("{script}");

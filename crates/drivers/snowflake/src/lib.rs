@@ -1711,19 +1711,39 @@ impl Session for SnowflakeSession {
         scheduler::delete(&*self, kind, id).await
     }
 
+    /// "run_config": a graph (a job's root or a task graph object) run once
+    /// with a configuration the user writes, starting from its CONFIG.
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::action_form(&*self, kind, id, action).await
+    }
+
     /// Alerts and task graph objects run now ("execute": `EXECUTE ALERT`,
-    /// `EXECUTE TASK GRAPH`); a graph as a job runs with `run_job`.
+    /// `EXECUTE TASK GRAPH`); a graph as a job runs with `run_job`. Jobs
+    /// and task graph objects run once with another configuration
+    /// ("run_config": `EXECUTE TASK … USING CONFIG`).
     async fn scheduler_action_script(
         &mut self,
         kind: &str,
         id: &str,
         action: &str,
+        values: &dbine_driver::FormValues,
     ) -> Result<String> {
-        scheduler::action_script(&*self, kind, id, action).await
+        scheduler::action_script(&*self, kind, id, action, values).await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
-        scheduler::action(&*self, kind, id, action).await
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<()> {
+        scheduler::action(&*self, kind, id, action, values).await
     }
 
     /// The root runs the whole graph; another task, the retry of the last

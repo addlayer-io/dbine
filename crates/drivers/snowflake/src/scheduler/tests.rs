@@ -4,6 +4,7 @@
 use super::alert::{self, AlertRow};
 use super::graph::{self, GraphRow};
 use super::logs;
+use super::run_config;
 use super::task;
 use super::*;
 use dbine_driver::FormList;
@@ -1715,19 +1716,27 @@ async fn each_kind_says_what_it_does_besides_editing() {
     let i = info(&f).await.unwrap();
     let (job, alert, graph) = (&i.kinds[0], &i.kinds[1], &i.kinds[2]);
     // A graph starts at its root or retries where it failed; Snowflake
-    // keeps its history. "Ejecutar ahora" is the jobs list's.
+    // keeps its history. "Ejecutar ahora" is the jobs list's; a run with
+    // another configuration asks for it first.
+    let with_config =
+        SchedulerAction::new("run_config", "Ejecutar con otra configuración").with_params();
     assert!(job.run_from_step && !job.clear_history);
-    assert!(job.actions.is_empty());
+    assert_eq!(job.actions, std::slice::from_ref(&with_config));
+    assert!(job.actions[0].params);
     for k in [alert, graph] {
         assert!(!k.run_from_step && !k.clear_history, "{}", k.key);
         assert_eq!(
-            k.actions,
-            [SchedulerAction::new("execute", "Ejecutar ahora")],
+            k.actions[0],
+            SchedulerAction::new("execute", "Ejecutar ahora"),
             "{}",
             k.key
         );
+        assert!(!k.actions[0].params);
     }
-    // Without task graph objects, the alerts keep theirs.
+    // Alerts have no configuration to run with; task graph objects do.
+    assert_eq!(alert.actions.len(), 1);
+    assert_eq!(graph.actions[1..], *std::slice::from_ref(&with_config));
+    // Without task graph objects, the alerts and the jobs keep theirs.
     let mut f = Fake::new(vec![]);
     f.errors = vec![(
         "SHOW TASK GRAPHS".into(),
@@ -1735,6 +1744,7 @@ async fn each_kind_says_what_it_does_besides_editing() {
     )];
     let i = info(&f).await.unwrap();
     assert_eq!(i.kinds.len(), 2);
+    assert_eq!(i.kinds[0].actions, [with_config]);
     assert_eq!(i.kinds[1].actions.len(), 1);
 }
 
@@ -1802,24 +1812,30 @@ async fn alerts_and_task_graphs_run_now_by_their_action() {
         ("IS_ROLE_IN_SESSION", set(&["r0"], &[&["false"]])),
     ]);
     let alert = r#""DB"."MON"."HIGH_LOAD""#;
-    let s = action_script(&f, "alert", alert, "execute").await.unwrap();
+    let s = action_script(&f, "alert", alert, "execute", &FormValues::default())
+        .await
+        .unwrap();
     assert!(
         s.starts_with("-- Ejecuta ahora la alerta DB.MON.HIGH_LOAD"),
         "{s}"
     );
     assert!(s.ends_with(&format!("\nEXECUTE ALERT {alert};\n")), "{s}");
     // Not only the owner's: another role's alert runs if Snowflake lets it.
-    action(&f, "alert", alert, " execute ").await.unwrap();
+    action(&f, "alert", alert, " execute ", &FormValues::default())
+        .await
+        .unwrap();
     assert_eq!(f.seen().last().unwrap(), &format!("EXECUTE ALERT {alert}"));
     let pipe = r#""DB"."ETL"."PIPE""#;
-    let s = action_script(&f, "task_graph", pipe, "execute")
+    let s = action_script(&f, "task_graph", pipe, "execute", &FormValues::default())
         .await
         .unwrap();
     assert!(
         s.contains(&format!("\nEXECUTE TASK GRAPH {pipe};\n")),
         "{s}"
     );
-    action(&f, "task_graph", pipe, "execute").await.unwrap();
+    action(&f, "task_graph", pipe, "execute", &FormValues::default())
+        .await
+        .unwrap();
     assert_eq!(
         f.seen().last().unwrap(),
         &format!("EXECUTE TASK GRAPH {pipe}")
@@ -1846,9 +1862,9 @@ async fn alerts_and_task_graphs_run_now_by_their_action() {
         ("alert", alert, "execute", "No existe la alerta"),
         ("operator", alert, "execute", "no es un tipo"),
     ] {
-        let e = err_of(action_script(&f, kind, id, act).await);
+        let e = err_of(action_script(&f, kind, id, act, &FormValues::default()).await);
         assert!(e.contains(says), "{kind} {act}: {e}");
-        let e = err_of(action(&f, kind, id, act).await);
+        let e = err_of(action(&f, kind, id, act, &FormValues::default()).await);
         assert!(e.contains(says), "{kind} {act}: {e}");
     }
     assert!(
@@ -1942,6 +1958,10 @@ async fn items_say_which_objects_the_role_may_change() {
     // graph); a standalone task is as its kind says.
     assert_eq!(load.run_from_step, Some(false));
     assert_eq!(other.run_from_step, None);
+    // Nor does it run with another configuration (no "Ejecutar ahora"
+    // either); a standalone task does, as the kind says, whoever owns it.
+    assert_eq!(load.actions, Some(vec![]));
+    assert_eq!(other.actions, None);
     // Their owners aren't asked about: the app isn't a role, and the
     // orphan is decided already.
     assert!(
@@ -2310,4 +2330,390 @@ fn an_alert_change_warns_only_with_several_statements() {
     let s = alert::spec(&v, &choices(), None).unwrap();
     assert!(warned(&alert::create_plan(&s).script()).is_empty());
     assert!(warned(&alert::drop_plan(&a).script()).is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// A run with another configuration (EXECUTE TASK … USING CONFIG)
+// ---------------------------------------------------------------------------
+
+fn config_values(config: Value) -> FormValues {
+    fv(json!({ "config": config }), json!({}))
+}
+
+/// `SHOW TASK GRAPHS` of `ETL`: one graph with its CONFIG.
+fn graph_with_config(name: &str, config: &str) -> Set {
+    set(
+        &[
+            "database_name",
+            "schema_name",
+            "name",
+            "owner",
+            "state",
+            "config",
+        ],
+        &[&["DB", "ETL", name, "SYSADMIN", "started", config]],
+    )
+}
+
+fn executed(f: &Fake) -> Vec<String> {
+    f.seen()
+        .into_iter()
+        .filter(|s| s.starts_with("EXECUTE"))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_run_with_another_configuration_starts_from_the_current_one() {
+    let f = server(r#"{"Predecessors":[]}"#, true);
+    let form = action_form(&f, "job", ROOT_ID, "run_config").await.unwrap();
+    // One JSON field, with the root's CONFIG as it is now.
+    let fields: Vec<&FormField> = form.sections.iter().flat_map(|s| &s.fields).collect();
+    assert_eq!(fields.len(), 1);
+    assert_eq!(
+        (fields[0].key.as_str(), fields[0].required, &fields[0].kind),
+        ("config", true, &FormKind::code("json"))
+    );
+    assert_eq!(form.values["config"], json!(r#"{"a": 1}"#));
+    assert!(!form.read_only);
+    assert!(
+        form.notes[0].contains("solo para esta ejecución") && form.notes[0].contains("borres"),
+        "{:?}",
+        form.notes
+    );
+    // Reading the form runs nothing.
+    assert!(executed(&f).is_empty(), "{:?}", f.seen());
+
+    // As it came: the whole graph, by its root, with that configuration.
+    let s = action_script(&f, "job", ROOT_ID, " run_config ", &values_of(&form))
+        .await
+        .unwrap();
+    assert!(
+        s.starts_with(
+            "-- Ejecuta ahora el grafo de la tarea raíz DB.ETL.ROOT de Snowflake una vez, con esta configuración\n"
+        ),
+        "{s}"
+    );
+    assert_eq!(warned(&s), [run_config::TASK_CONFIG]);
+    assert!(
+        s.ends_with(&format!(
+            "\nEXECUTE TASK {ROOT_ID} USING CONFIG = '{{\"a\": 1}}';\n"
+        )),
+        "{s}"
+    );
+    assert!(executed(&f).is_empty(), "{:?}", f.seen());
+
+    // Changed: the run takes what the form says, and only that runs.
+    let v = config_values(json!("\n{\n  \"a\": 2,\n  \"env\": \"test\"\n}\n"));
+    action(&f, "job", ROOT_ID, "run_config", &v).await.unwrap();
+    assert_eq!(
+        executed(&f),
+        [format!(
+            "EXECUTE TASK {ROOT_ID} USING CONFIG = '{{\n  \"a\": 2,\n  \"env\": \"test\"\n}}'"
+        )]
+    );
+
+    // A standalone task: itself; without a CONFIG the form starts empty.
+    let mut tasks = tasks_set(r#"{"Predecessors":[]}"#);
+    let at = TASK_COLS.iter().position(|c| *c == "config").unwrap();
+    for r in &mut tasks.rows {
+        if r[2].as_deref() == Some("OTHER") {
+            r[at] = None;
+        }
+    }
+    let f = Fake::new(vec![("SHOW TASKS IN SCHEMA", tasks)]);
+    let other = r#""DB"."ETL"."OTHER""#;
+    let form = action_form(&f, "job", other, "run_config").await.unwrap();
+    assert_eq!(form.values["config"], json!("{}"));
+    let s = action_script(
+        &f,
+        "job",
+        other,
+        "run_config",
+        &config_values(json!(r#"{"k": "v"}"#)),
+    )
+    .await
+    .unwrap();
+    assert!(
+        s.starts_with("-- Ejecuta ahora la tarea DB.ETL.OTHER de Snowflake una vez"),
+        "{s}"
+    );
+    assert!(
+        s.ends_with(&format!(
+            "\nEXECUTE TASK {other} USING CONFIG = '{{\"k\": \"v\"}}';\n"
+        )),
+        "{s}"
+    );
+}
+
+#[tokio::test]
+async fn a_task_graph_object_runs_with_another_configuration_by_the_object() {
+    let pipe = r#""DB"."ETL"."PIPE""#;
+    let mut f = server(r#"{"Predecessors":[],"TaskGraph":"DB.ETL.PIPE"}"#, true);
+    f.answers.insert(
+        0,
+        (
+            "SHOW TASK GRAPHS LIKE 'PIPE' IN SCHEMA \"DB\".\"ETL\"".into(),
+            graph_with_config("PIPE", r#"{"env": "prod"}"#),
+        ),
+    );
+    // Its root's job: the object's configuration, run by the object (as
+    // "Ejecutar ahora" runs it).
+    let form = action_form(&f, "job", ROOT_ID, "run_config").await.unwrap();
+    assert_eq!(form.values["config"], json!(r#"{"env": "prod"}"#));
+    assert!(
+        form.notes
+            .iter()
+            .any(|n| n.contains("raíz del grafo de tareas DB.ETL.PIPE")),
+        "{:?}",
+        form.notes
+    );
+    let v = config_values(json!(r#"{"env": "dev"}"#));
+    let s = action_script(&f, "job", ROOT_ID, "run_config", &v)
+        .await
+        .unwrap();
+    assert!(
+        s.starts_with("-- Ejecuta ahora el grafo de tareas DB.ETL.PIPE de Snowflake (su versión publicada) una vez"),
+        "{s}"
+    );
+    assert_eq!(warned(&s), [run_config::GRAPH_CONFIG]);
+    let stmt = format!(r#"EXECUTE TASK GRAPH {pipe} USING CONFIG = '{{"env": "dev"}}'"#);
+    assert!(s.ends_with(&format!("\n{stmt};\n")), "{s}");
+    // The object itself: the same form and statement.
+    let form = action_form(&f, "task_graph", pipe, "run_config")
+        .await
+        .unwrap();
+    assert_eq!(form.values["config"], json!(r#"{"env": "prod"}"#));
+    assert!(!form.notes.iter().any(|n| n.contains("raíz")));
+    assert_eq!(
+        action_script(&f, "task_graph", pipe, "run_config", &v)
+            .await
+            .unwrap(),
+        s
+    );
+    action(&f, "task_graph", pipe, "run_config", &v)
+        .await
+        .unwrap();
+    assert_eq!(executed(&f), [stmt]);
+    // A graph the role doesn't see.
+    let f = Fake::new(vec![("SHOW TASK GRAPHS", graph_with_config("OTHER", ""))]);
+    let e = err_of(action_form(&f, "task_graph", pipe, "run_config").await);
+    assert!(
+        e.contains("No existe el grafo de tareas DB.ETL.PIPE"),
+        "{e}"
+    );
+}
+
+/// `SHOW TASK GRAPHS` of `ETL`: `PIPE` with its CONFIG and whether it has
+/// changes staged.
+fn graph_with_pending(pending: &str, config: &str) -> Set {
+    set(
+        &[
+            "database_name",
+            "schema_name",
+            "name",
+            "owner",
+            "state",
+            "has_pending_changes",
+            "config",
+        ],
+        &[&["DB", "ETL", "PIPE", "SYSADMIN", "started", pending, config]],
+    )
+}
+
+#[tokio::test]
+async fn a_graph_with_unpublished_changes_runs_its_published_version() {
+    let pipe = r#""DB"."ETL"."PIPE""#;
+    let mut f = server(r#"{"Predecessors":[],"TaskGraph":"DB.ETL.PIPE"}"#, true);
+    f.answers.insert(
+        0,
+        (
+            "SHOW TASK GRAPHS LIKE 'PIPE' IN SCHEMA \"DB\".\"ETL\"".into(),
+            graph_with_pending("true", r#"{"env": "staged"}"#),
+        ),
+    );
+    let v = config_values(json!(r#"{"env": "dev"}"#));
+    // The object and its root's job: the editor starts from the CONFIG
+    // SHOW TASK GRAPHS shows (maybe the staged one) and says Snowflake
+    // merges with the published one; the script warns that the run leaves
+    // the staged changes out (or publishes them, if never published).
+    for (kind, id) in [("task_graph", pipe), ("job", ROOT_ID)] {
+        let form = action_form(&f, kind, id, "run_config").await.unwrap();
+        assert_eq!(form.values["config"], json!(r#"{"env": "staged"}"#));
+        assert!(
+            form.notes.iter().any(|n| n == run_config::STAGED_CONFIG),
+            "{kind}: {:?}",
+            form.notes
+        );
+        assert!(
+            form.notes
+                .last()
+                .is_some_and(|n| n.contains("solo la última configuración pedida")),
+            "{kind}: {:?}",
+            form.notes
+        );
+        let s = action_script(&f, kind, id, "run_config", &v).await.unwrap();
+        assert_eq!(
+            warned(&s),
+            [run_config::GRAPH_CONFIG, graph::RUNS_PUBLISHED],
+            "{kind}"
+        );
+        assert!(
+            s.ends_with(&format!(
+                "\nEXECUTE TASK GRAPH {pipe} USING CONFIG = '{{\"env\": \"dev\"}}';\n"
+            )),
+            "{s}"
+        );
+    }
+    // "Ejecutar ahora" runs the published version too.
+    let s = action_script(&f, "task_graph", pipe, "execute", &FormValues::default())
+        .await
+        .unwrap();
+    assert_eq!(warned(&s), [graph::RUNS_PUBLISHED]);
+    assert!(
+        s.ends_with(&format!("\nEXECUTE TASK GRAPH {pipe};\n")),
+        "{s}"
+    );
+    assert!(executed(&f).is_empty(), "{:?}", f.seen());
+
+    // Nothing staged: neither the note nor the warning.
+    f.answers[0].1 = graph_with_pending("false", r#"{"env": "prod"}"#);
+    for (kind, id) in [("task_graph", pipe), ("job", ROOT_ID)] {
+        let form = action_form(&f, kind, id, "run_config").await.unwrap();
+        assert!(
+            !form.notes.iter().any(|n| n == run_config::STAGED_CONFIG),
+            "{kind}: {:?}",
+            form.notes
+        );
+        let s = action_script(&f, kind, id, "run_config", &v).await.unwrap();
+        assert_eq!(warned(&s), [run_config::GRAPH_CONFIG], "{kind}");
+    }
+    let s = action_script(&f, "task_graph", pipe, "execute", &FormValues::default())
+        .await
+        .unwrap();
+    assert!(warned(&s).is_empty(), "{s}");
+    // A plain task's run has nothing staged to leave out.
+    let root = task::Shown {
+        database: "DB".into(),
+        schema: "ETL".into(),
+        name: "ROOT".into(),
+        ..task::Shown::default()
+    };
+    let t = run_config::task_target(&root, false);
+    assert!(!t.pending);
+    assert!(!run_config::form_of(&t)
+        .notes
+        .iter()
+        .any(|n| n == run_config::STAGED_CONFIG));
+}
+
+#[test]
+fn a_run_configuration_is_a_json_object_written_as_a_literal() {
+    let root = task::Shown {
+        database: "DB".into(),
+        schema: "ETL".into(),
+        name: "it's".into(),
+        ..task::Shown::default()
+    };
+    let t = run_config::task_target(&root, true);
+    // Quotes and backslashes (a JSON escape) can't leave the literal.
+    let typed = r#"{"path": "C:\\tmp", "who": "it's", "x": "'); DROP TASK y; --"}"#;
+    let p = run_config::plan_of(&t, &config_values(json!(typed))).unwrap();
+    assert_eq!(
+        p.steps,
+        [
+            r#"EXECUTE TASK "DB"."ETL"."it's" USING CONFIG = '{"path": "C:\\\\tmp", "who": "it''s", "x": "''); DROP TASK y; --"}'"#
+        ]
+    );
+    // One statement: nothing else to accept than the configuration.
+    assert_eq!(warned(&p.script()), [run_config::TASK_CONFIG]);
+    // An object sent as JSON is taken too.
+    let p = run_config::plan_of(&t, &config_values(json!({"a": [1, 2]}))).unwrap();
+    assert!(
+        p.steps[0].ends_with(r#"USING CONFIG = '{"a":[1,2]}'"#),
+        "{}",
+        p.steps[0]
+    );
+    for (v, says) in [
+        (json!(""), "no puede quedar vacía"),
+        (json!("  \n "), "no puede quedar vacía"),
+        (Value::Null, "no puede quedar vacía"),
+        (json!("[1, 2]"), "tiene que ser un objeto JSON"),
+        (json!(r#""text""#), "tiene que ser un objeto JSON"),
+        (json!(5), "tiene que ser un objeto JSON"),
+        (json!(true), "tiene que ser un objeto JSON"),
+        (json!(r#"{"a": "#), "no es JSON válido"),
+        (json!(r#"{"a": 1} {"b": 2}"#), "no es JSON válido"),
+        (json!("{'a': 1}"), "no es JSON válido"),
+    ] {
+        let e = err_of(run_config::plan_of(&t, &config_values(v.clone())));
+        assert!(e.contains(says), "{v}: {e}");
+        assert!(e.contains("Configuración (CONFIG)"), "{v}: {e}");
+    }
+    let e = err_of(run_config::plan_of(&t, &FormValues::default()));
+    assert!(e.contains("no puede quedar vacía"), "{e}");
+}
+
+#[tokio::test]
+async fn a_run_with_another_configuration_is_refused_before_anything_runs() {
+    let f = server(r#"{"Predecessors":[]}"#, true);
+    let good = config_values(json!(r#"{"a": 2}"#));
+    // A bad value is refused before anything is read.
+    let e = err_of(
+        action(
+            &f,
+            "job",
+            ROOT_ID,
+            "run_config",
+            &config_values(json!("[]")),
+        )
+        .await,
+    );
+    assert!(e.contains("objeto JSON"), "{e}");
+    assert!(f.seen().is_empty(), "{:?}", f.seen());
+    let load = r#""DB"."ETL"."LOAD""#;
+    for (kind, id, act, says) in [
+        // Snowflake runs only a standalone task or a root.
+        ("job", load, "run_config", "es una tarea hija"),
+        (
+            "job",
+            r#""DB"."ETL"."NOPE""#,
+            "run_config",
+            "No existe la tarea",
+        ),
+        (
+            "job",
+            "x'); DROP TASK y; --",
+            "run_config",
+            "no es un id de tarea",
+        ),
+        (
+            "job",
+            ROOT_ID,
+            "run_config; DROP TASK y",
+            "no tiene la acción",
+        ),
+        ("job", ROOT_ID, "execute", "no tiene la acción"),
+        (
+            "alert",
+            r#""DB"."MON"."HIGH_LOAD""#,
+            "run_config",
+            "no tiene la acción",
+        ),
+        ("task_graph", "nope", "run_config", "no es un id de grafo"),
+    ] {
+        let e = err_of(action_form(&f, kind, id, act).await);
+        assert!(e.contains(says), "{kind} {id} {act}: {e}");
+        let e = err_of(action_script(&f, kind, id, act, &good).await);
+        assert!(e.contains(says), "{kind} {id} {act}: {e}");
+        let e = err_of(action(&f, kind, id, act, &good).await);
+        assert!(e.contains(says), "{kind} {id} {act}: {e}");
+    }
+    assert!(executed(&f).is_empty(), "{:?}", f.seen());
+    // "Ejecutar ahora" asks for nothing.
+    for kind in ["alert", "task_graph"] {
+        assert!(matches!(
+            action_form(&f, kind, r#""DB"."ETL"."X""#, "execute").await,
+            Err(Error::Unsupported(_))
+        ));
+    }
 }

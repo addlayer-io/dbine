@@ -745,3 +745,190 @@ fn tags_go_by_name_into_an_existing_table() {
     let t = values(json!({"database": "db", "into": "AGG"}));
     assert_eq!(stream::target_table(&t), Some(("db".into(), "agg".into())));
 }
+
+// ----------------------------------------------------------- recalculating
+
+#[test]
+fn only_the_new_engine_recalculates() {
+    let new = info_of(&new_ctx());
+    let a = &new.kinds[0].actions;
+    assert_eq!(a.len(), 1);
+    assert_eq!(
+        (a[0].key.as_str(), a[0].label.as_str(), a[0].params),
+        ("recalculate", "Recalcular un rango de tiempo", true)
+    );
+    assert!(info_of(&old_ctx()).kinds[0].actions.is_empty());
+    assert!(check_action(&new_ctx(), " recalculate ").is_ok());
+    for (c, a) in [
+        (new_ctx(), "run"),
+        (new_ctx(), "recalculate'; DROP"),
+        (old_ctx(), "recalculate"),
+    ] {
+        assert!(
+            matches!(check_action(&c, a), Err(Error::Unsupported(_))),
+            "{a}"
+        );
+    }
+    // A stream of the old engine, whatever it is.
+    let old = old_stream(OLD_S1, "ready");
+    assert!(matches!(
+        recalc::check(&old_ctx(), &old),
+        Err(Error::Unsupported(_))
+    ));
+}
+
+#[test]
+fn which_streams_recalculate() {
+    let c = new_ctx();
+    for sql in [NEW_S1, NEW_S3, NEW_S4, NEW_S6, NEW_S7, NEW_S9, NEW_S12] {
+        assert!(recalc::offered(&c, &new_stream(sql, "Running")), "{sql}");
+        // Idle (still starting) is tried: the server says if it isn't ready.
+        assert!(recalc::offered(&c, &new_stream(sql, "Idle")), "{sql}");
+    }
+    // Triggered by time: no windows over a table's time.
+    for sql in [NEW_S2, NEW_S8] {
+        let e = recalc::check(&c, &new_stream(sql, "Running")).unwrap_err();
+        assert!(e.to_string().contains("PERIOD"), "{e}");
+    }
+    let e = recalc::check(&c, &new_stream(NEW_S1, "Stopped")).unwrap_err();
+    assert!(e.to_string().contains("detenido"), "{e}");
+}
+
+#[test]
+fn recalculation_times_are_checked() {
+    let at = |v: &str| recalc::parse_at(v, "Desde").map(|a| a.text);
+    assert_eq!(at("2026-01-01").unwrap(), "2026-01-01 00:00:00");
+    assert_eq!(at(" 2026-01-01T10:20 ").unwrap(), "2026-01-01 10:20:00");
+    assert_eq!(at("2026-01-01T10:20:30").unwrap(), "2026-01-01 10:20:30");
+    assert_eq!(
+        at("2024-02-29 23:59:59.125").unwrap(),
+        "2024-02-29 23:59:59.125"
+    );
+    assert_eq!(
+        at("2026-01-01T10:20:30Z").unwrap(),
+        "2026-01-01T10:20:30+00:00"
+    );
+    assert_eq!(
+        at("2026-01-01 10:20:30.5-0330").unwrap(),
+        "2026-01-01T10:20:30.5-03:30"
+    );
+    for bad in [
+        "",
+        "now",
+        "now - 1d",
+        "1767225600000",
+        "2026-13-01",
+        "2025-02-29",
+        "2026-01-01 24:00:00",
+        "2026-01-01 10:20:61",
+        "2026-01-01 10",
+        "2026-01-01 10:20:30.",
+        "2026-01-01 10:20:30.1234567890",
+        "2026-01-01 10:20:30+15:00",
+        "2026-01-01x",
+        "2026-01-01' OR '1'='1",
+        "2026-01-01 00:00:00'; DROP DATABASE x; --",
+        "2026-01-01\n00:00:00",
+    ] {
+        let e = at(bad).unwrap_err();
+        assert!(e.to_string().contains("«Desde»"), "{bad}: {e}");
+    }
+}
+
+#[test]
+fn the_recalculation_script() {
+    let c = new_ctx();
+    let st = new_stream(NEW_S1, "Running");
+    let v = values(json!({"from": "2026-01-01T00:00:00", "to": "2026-01-02T12:30:00"}));
+    let p = recalc::plan(&c, &st, &v).unwrap();
+    assert_eq!(
+        sqls(&p),
+        ["RECALCULATE STREAM `dbine_test_sched`.`s1` FROM '2026-01-01 00:00:00' TO '2026-01-02 12:30:00'"]
+    );
+    let s = p.script();
+    assert!(s.starts_with(
+        "-- Recalcula el stream «dbine_test_sched.s1» de TDengine entre 2026-01-01 00:00:00 y 2026-01-02 12:30:00.\n"
+    ), "{s}");
+    assert_eq!(warnings(&s).len(), 1, "{s}");
+    assert!(warnings(&s)[0].contains("reemplazan"), "{s}");
+    // Without an end: from the start on.
+    let v = values(json!({"from": "2026-01-01", "to": ""}));
+    let p = recalc::plan(&c, &st, &v).unwrap();
+    assert_eq!(
+        sqls(&p),
+        ["RECALCULATE STREAM `dbine_test_sched`.`s1` FROM '2026-01-01 00:00:00'"]
+    );
+    assert!(p.script().contains("en adelante"));
+    // The end after the start, when both say their zone (or neither).
+    for (from, to) in [
+        ("2026-01-02", "2026-01-01"),
+        ("2026-01-01 10:00:00", "2026-01-01 10:00:00"),
+        ("2026-01-01T10:00:00Z", "2026-01-01T12:00:00+03:00"),
+    ] {
+        let v = values(json!({"from": from, "to": to}));
+        let e = recalc::plan(&c, &st, &v).unwrap_err();
+        assert!(e.to_string().contains("posterior"), "{from} {to}: {e}");
+    }
+    let v = values(json!({"from": "2026-01-01T10:00:00Z", "to": "2026-01-01T12:00:00+01:00"}));
+    assert!(recalc::plan(&c, &st, &v).is_ok());
+    // A missing start, a bad end, a stream it doesn't take.
+    let e = recalc::plan(&c, &st, &values(json!({"to": "2026-01-01"}))).unwrap_err();
+    assert!(e.to_string().contains("Falta «Desde»"), "{e}");
+    let v = values(json!({"from": "2026-01-01", "to": ["x"]}));
+    assert!(
+        recalc::plan(&c, &st, &v).is_ok(),
+        "a list is no value: no end"
+    );
+    let v = values(json!({"from": "2026-01-01", "to": "mañana"}));
+    assert!(recalc::plan(&c, &st, &v)
+        .unwrap_err()
+        .to_string()
+        .contains("«Hasta»"));
+    let v = values(json!({"from": "2026-01-01"}));
+    assert!(recalc::plan(&c, &new_stream(NEW_S2, "Running"), &v).is_err());
+    assert!(recalc::plan(&c, &new_stream(NEW_S1, "Stopped"), &v).is_err());
+    // A name that needs backticks.
+    let odd = stream_row(
+        json!({"stream_name": "s 8", "db_name": "db", "status": "Running",
+        "sql": "create stream db.`s 8` interval(10s) sliding(10s) from db.t into db.o as select _twstart, count(*) from %%trows"}),
+    );
+    let p = recalc::plan(&c, &odd, &values(json!({"from": "2026-01-01"}))).unwrap();
+    assert!(sqls(&p)[0].starts_with("RECALCULATE STREAM `db`.`s 8` FROM"));
+}
+
+#[test]
+fn the_recalculation_form() {
+    let st = new_stream(NEW_S1, "Running");
+    let f = recalc::form_of(&st, Some("2026-11-13T17:38:43.883Z"));
+    let fields = &f.sections[0].fields;
+    assert_eq!(fields[0].key, "from");
+    assert!(fields[0].required && matches!(fields[0].kind, FormKind::DateTime));
+    assert_eq!(fields[0].default, Some(json!("2026-11-13T00:00:00")));
+    assert_eq!(fields[1].key, "to");
+    assert!(!fields[1].required);
+    assert_eq!(fields[1].default, Some(json!("2026-11-13T17:38:43")));
+    assert!(f.notes[0].contains("dbine_test_sched.s1"));
+    // In the session's zone, as the server says the time.
+    let f = recalc::form_of(&st, Some("2026-11-13T14:38:43.883-03:00"));
+    assert_eq!(
+        f.sections[0].fields[1].default,
+        Some(json!("2026-11-13T14:38:43"))
+    );
+    // Without the server's time: no defaults.
+    let f = recalc::form_of(&st, None);
+    assert!(f.sections[0].fields.iter().all(|x| x.default.is_none()));
+    let f = recalc::form_of(&st, Some("garbage"));
+    assert!(f.sections[0].fields.iter().all(|x| x.default.is_none()));
+    // What the form fills in makes a script.
+    let f = recalc::form_of(&st, Some("2026-11-13T17:38:43.883Z"));
+    let v = FormValues {
+        values: f
+            .sections
+            .iter()
+            .flat_map(|s| s.fields.iter())
+            .filter_map(|x| Some((x.key.clone(), x.default.clone()?)))
+            .collect(),
+        lists: BTreeMap::new(),
+    };
+    assert!(recalc::plan(&new_ctx(), &st, &v).is_ok());
+}

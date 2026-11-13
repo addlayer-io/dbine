@@ -19,7 +19,13 @@
 // be deleted —, alerts, proxies, categories and the Agent's log; on Oracle
 // jobs and windows) next to the designer; `scheduler-log` the Agent's error
 // logs; `scheduler-jobtab` a job's tab alone, as restored with the app with
-// its connection closed in the sidebar. The script the fake drivers write follows the values as edited.
+// its connection closed in the sidebar. On a BigQuery-like connection
+// (`conn=bq`): scheduled queries whose "Ejecutar para fechas pasadas…" asks
+// for values first, as the driver's form has it — a period of days or a
+// single run time (`when`), the schedule read-only, its notes, a script with
+// "⚠" lines, and a refusal for a period that ends before it starts, with the
+// form's values kept for a retry. The script the fake drivers write
+// follows the values as edited.
 import { h } from 'vue';
 import type { JobDetail, JobList, ServerJob } from '../api/jobs';
 import type { FormField, FormKind, FormRow, FormValues, ObjectForm, SchedulerInfo, SchedulerItem, SchedulerList } from '../api/scheduler';
@@ -36,6 +42,7 @@ const JOB_ID = '6c1f0d2e-9a1b-4c3d-8e7f-001122334455';
 const ALERT_ID = 'alert-9002';
 const ALERT_PERF_ID = 'alert-log-80';
 const ORA_JOB_ID = 'ERP.CIERRE_DIARIO';
+const BQ_JOB_ID = 'projects/analytics-prod/locations/us/transferConfigs/6512a3f0-0000-2e4b-9c11-089e08e4d1b2';
 const WINDOW_ID = 'SYS.WEEKNIGHT_WINDOW';
 
 const job = (o: Partial<ServerJob> & { id: string; name: string }): ServerJob => ({
@@ -521,7 +528,113 @@ function windowForm(id: string | null): ObjectForm {
   };
 }
 
+// -- BigQuery: scheduled queries, and an action that asks for values first ------------------
+
+const BQ_INFO: SchedulerInfo = {
+  kinds: [{
+    key: 'job', label: 'Consultas programadas', singular: 'consulta programada', can_create: true, can_edit: true, can_delete: true,
+    run_from_step: false, clear_history: true,
+    // `params`: its form (a period, or a run time) comes first (`bqActionForm`).
+    actions: [{ key: 'backfill', label: 'Ejecutar para fechas pasadas', params: true }],
+  }],
+};
+const BQ_JOBS: JobList = {
+  jobs: [
+    job({ id: BQ_JOB_ID, name: 'ventas_diarias', kind: 'Consulta programada', owner: 'etl@analytics-prod.iam.gserviceaccount.com', schedule: 'every 24 hours', can_stop: false, next_run: '2026-11-14T03:00:00Z' }),
+    job({ id: 'projects/analytics-prod/locations/us/transferConfigs/7f3c9b21-0000-2a1d-8e4b-30fd38152c07', name: 'refresco_tablero', kind: 'Consulta programada', owner: 'etl@analytics-prod.iam.gserviceaccount.com', schedule: 'every 1 hours', can_stop: false, last_outcome: 'failed' }),
+  ],
+};
+const bqItems = (): SchedulerList => ({ items: BQ_JOBS.jobs.map((j) => item(j.id, j.name, { enabled: j.enabled })) });
+
+function bqJobForm(id: string | null): ObjectForm {
+  const j = BQ_JOBS.jobs.find((x) => x.id === id);
+  return {
+    sections: [
+      {
+        key: 'general', label: 'General',
+        fields: [
+          F('display_name', 'Nombre', { type: 'text' }, { required: true }),
+          F('enabled', 'Habilitada', { type: 'bool' }, { default: true }),
+          F('query', 'Consulta', { type: 'code', language: 'sql' }, { required: true }),
+        ],
+      },
+      {
+        key: 'destination', label: 'Destino',
+        fields: [
+          F('dataset', 'Dataset de destino', ref('dataset')),
+          F('table', 'Tabla de destino', { type: 'text' }, { placeholder: 'ventas_{run_date}' }),
+          F('write_disposition', 'Si la tabla existe', sel([['WRITE_APPEND', 'Agregar las filas'], ['WRITE_TRUNCATE', 'Reemplazarla']]), { default: 'WRITE_APPEND' }),
+        ],
+      },
+      {
+        key: 'schedule', label: 'Programación',
+        fields: [
+          F('schedule', 'Programación', { type: 'text' }, { required: true, placeholder: 'every 24 hours' }),
+          F('start_time', 'Empieza', { type: 'date_time' }),
+          F('end_time', 'Termina', { type: 'date_time' }, { help: 'Vacío: sin fecha de fin.' }),
+        ],
+      },
+    ],
+    values: j ? {
+      display_name: j.name, enabled: true, schedule: j.schedule, dataset: 'reportes', table: 'ventas_{run_date}', write_disposition: 'WRITE_TRUNCATE',
+      query: 'SELECT fecha, sucursal, SUM(importe) AS total\nFROM `analytics-prod.ventas.tickets`\nWHERE fecha = @run_date\nGROUP BY fecha, sucursal',
+    } : {},
+    choices: { dataset: [['reportes', 'reportes'], ['ventas', 'ventas'], ['staging', 'staging']] },
+  };
+}
+
+/** "Ejecutar para fechas pasadas" (crates/drivers/bigquery's backfill): the
+ *  schedule's runs of a period of past days, or one run for a past time, as
+ *  `startManualRuns` takes them. */
+function bqActionForm(): ObjectForm {
+  return {
+    sections: [{
+      key: 'backfill', label: 'Ejecución',
+      fields: [
+        F('mode', 'Ejecutar', sel([['range', 'Para un período: cada ejecución programada de esos días'], ['once', 'Una vez, para una fecha y hora']]), { required: true, default: 'range' }),
+        F('start_date', 'Desde', { type: 'date' }, { required: true, when: ['mode', ['range']], help: 'El primer día, incluido, en UTC.' }),
+        F('end_date', 'Hasta', { type: 'date' }, { required: true, when: ['mode', ['range']], help: 'El último día, incluido, en UTC. Como mucho ayer: el servicio no ejecuta un día que no terminó.' }),
+        F('run_time', 'Fecha y hora', { type: 'date_time' }, { required: true, when: ['mode', ['once']], help: 'En UTC. La consulta la recibe como @run_time, y su día como @run_date. No puede ser futura.' }),
+        F('schedule', 'Programación', { type: 'text' }, { read_only: true, when: ['mode', ['range']], help: 'En UTC: cada día del período corre a estas horas.' }),
+      ],
+    }],
+    values: { mode: 'range', start_date: '2026-11-12', end_date: '2026-11-12', run_time: '2026-11-12T03:00:00Z', schedule: 'every 24 hours' },
+    notes: ['Los días y las horas van en UTC, como la programación de la consulta.'],
+  };
+}
+
+function bqActionScript(id: string, v: FormValues): string {
+  const x = v.values;
+  const range = x.mode !== 'once';
+  if (range && String(x.start_date ?? '') > String(x.end_date ?? '')) {
+    // As the driver refuses it: the form stays open with its values.
+    throw { kind: 'query', message: '«Desde» no puede ser posterior a «Hasta».' };
+  }
+  // A day after another, as the service takes a period: to the midnight after the last day.
+  const next = (d: unknown) => new Date(Date.parse(`${String(d)}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const utc = (t: unknown) => (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(String(t)) ? String(t) : `${String(t)}Z`);
+  const body = range
+    ? ['# {', '#   "requestedTimeRange": {', `#     "startTime": "${String(x.start_date)}T00:00:00Z",`, `#     "endTime": "${next(x.end_date)}T00:00:00Z"`, '#   }', '# }']
+    : ['# {', `#   "requestedRunTime": "${utc(x.run_time)}"`, '# }'];
+  return [
+    `# «${BQ_JOBS.jobs.find((j) => j.id === id)?.name ?? id}» ${range ? `para los días del ${String(x.start_date)} al ${String(x.end_date)} (UTC), en cada hora de su programación` : `una vez, para ${utc(x.run_time)}`}.`,
+    '# ⚠ Cada ejecución corre la consulta y se factura como cualquier consulta de BigQuery.',
+    '# ⚠ Cada ejecución reemplaza los datos de su tabla de destino: si el nombre de la tabla no lleva la fecha, queda solo el resultado de la última.',
+    '#',
+    `# POST https://bigquerydatatransfer.googleapis.com/v1/${id}:startManualRuns`,
+    ...body,
+  ].join('\n') + '\n';
+}
+
+function bqScript(id: string | null, v: FormValues): string {
+  const x = v.values;
+  const body = JSON.stringify({ displayName: x.display_name, schedule: x.schedule, disabled: !x.enabled, destinationDatasetId: x.dataset, params: { query: x.query, destination_table_name_template: x.table, write_disposition: x.write_disposition } }, null, 2);
+  const head = id ? `# PATCH https://bigquerydatatransfer.googleapis.com/v1/${id}?updateMask=displayName,schedule,disabled,destinationDatasetId,params` : '# POST https://bigquerydatatransfer.googleapis.com/v1/projects/analytics-prod/locations/us/transferConfigs';
+  return [head, ...body.split('\n').map((l) => `# ${l}`)].join('\n') + '\n';
+}
+
 function formFor(conn: string, kind: string, id: string | null): ObjectForm {
+  if (conn === 'bq') return bqJobForm(id);
   if (conn === 'ora') return kind === 'window' ? windowForm(id) : oraJobForm(id);
   if (kind === 'operator') return operatorForm(id === null);
   if (kind === 'alert') return alertForm(id);
@@ -595,6 +708,7 @@ function actionScriptFor(id: string, action: string): string {
 
 function scriptFor(conn: string, kind: string, id: string | null, v: FormValues): string {
   const x = v.values;
+  if (conn === 'bq') return bqScript(id, v);
   if (conn === 'ora') return oraScript(kind, id, v);
   if (kind === 'job') return jobScript(id, v);
   if (kind === 'operator') {
@@ -615,6 +729,7 @@ function scriptFor(conn: string, kind: string, id: string | null, v: FormValues)
 }
 
 function deleteScriptFor(conn: string, kind: string, id: string): string {
+  if (conn === 'bq') return `# DELETE https://bigquerydatatransfer.googleapis.com/v1/${id}\n`;
   if (conn === 'ora') return `BEGIN\n  DBMS_SCHEDULER.DROP_${kind === 'window' ? 'WINDOW' : 'JOB'}(${q(id)});\nEND;\n/`;
   if (kind === 'job') return `USE [msdb];\nGO\nEXEC msdb.dbo.sp_delete_job @job_id = N'${id}', @delete_unused_schedule = 1;\nGO`;
   return `USE [msdb];\nGO\nEXEC msdb.dbo.sp_delete_${kind} @name = N'${id}';\nGO`;
@@ -651,22 +766,29 @@ export function installSchedulerMock() {
       const conn = String(a.connection_id ?? '');
       switch (cmd) {
         case 'scheduled_tasks_list': return [];
-        case 'jobs_list': return conn === 'ms' ? JOBS : conn === 'ora' ? ORA_JOBS : { jobs: [], notes: ['pg_cron está instalado en la base «postgres»: conectate a esa base para ver sus jobs'] };
+        case 'jobs_list': return conn === 'ms' ? JOBS : conn === 'ora' ? ORA_JOBS : conn === 'bq' ? BQ_JOBS : { jobs: [], notes: ['pg_cron está instalado en la base «postgres»: conectate a esa base para ver sus jobs'] };
         case 'jobs_detail': {
-          const j = conn === 'ora' ? ORA_JOBS.jobs.find((x) => x.id === id) : null;
+          const j = conn === 'ora' || conn === 'bq' ? (conn === 'ora' ? ORA_JOBS : BQ_JOBS).jobs.find((x) => x.id === id) : null;
           return j ? { job: j, steps: [], schedules: [], properties: [] } : DETAIL;
         }
         case 'jobs_runs': return [];
-        case 'scheduler_info': return conn === 'ora' ? ORA_INFO : INFO;
-        case 'scheduler_items': await wait(150); return conn === 'ora' ? oraItems(kind) : ITEMS[kind] ?? { items: [] };
+        case 'scheduler_info': return conn === 'ora' ? ORA_INFO : conn === 'bq' ? BQ_INFO : INFO;
+        case 'scheduler_items': await wait(150); return conn === 'ora' ? oraItems(kind) : conn === 'bq' ? bqItems() : ITEMS[kind] ?? { items: [] };
         case 'scheduler_form': await wait(120); return formFor(conn, kind, id);
         case 'scheduler_script': return scriptFor(conn, kind, id, a.values as FormValues);
         case 'scheduler_save': await wait(400); return id ?? `${kind}-new`;
         case 'scheduler_delete_script': return deleteScriptFor(conn, kind, String(id));
-        case 'scheduler_action_script': return actionScriptFor(String(id), String(a.action));
+        case 'scheduler_action_form': await wait(120); return bqActionForm();
+        case 'scheduler_action_script':
+          if (a.action === 'backfill') { await wait(150); return bqActionScript(String(id), a.values as FormValues); }
+          return actionScriptFor(String(id), String(a.action));
         case 'scheduler_action':
           await wait(300);
           if (a.action === 'open_window' || a.action === 'close_window') windowOpen[String(id)] = a.action === 'open_window';
+          if (a.action === 'backfill') {
+            const j = BQ_JOBS.jobs.find((x) => x.id === id);
+            if (j) Object.assign(j, { running: true, last_outcome: 'running', last_started: '2026-11-13T15:00:00Z', last_duration_ms: null });
+          }
           if (a.action === 'force_stop') {
             const j = ORA_JOBS.jobs.find((x) => x.id === id);
             if (j) Object.assign(j, { running: false, last_outcome: 'canceled', last_duration_ms: 95_000 });
@@ -684,10 +806,10 @@ let tabId = '';
 export function setupScheduler(params: URLSearchParams) {
   const conns = useConnectionsStore();
   const driver = (id: string, name: string, caps: Record<string, boolean>) =>
-    ({ id, name, language: 'sql', dialect: id === 'sqlserver' ? 'mssql' : id === 'oracle' ? 'oracle' : 'postgres', capabilities: { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ...caps } }) as never;
+    ({ id, name, language: 'sql', dialect: id === 'sqlserver' ? 'mssql' : id === 'oracle' ? 'oracle' : id === 'bigquery' ? 'bigquery' : 'postgres', capabilities: { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ...caps } }) as never;
   conns.drivers = [
     driver('sqlserver', 'SQL Server', { jobs: true, scheduler: true }), driver('oracle', 'Oracle', { jobs: true, scheduler: true }),
-    driver('postgres', 'PostgreSQL', { jobs: true }),
+    driver('postgres', 'PostgreSQL', { jobs: true }), driver('bigquery', 'BigQuery', { jobs: true, scheduler: true }),
   ];
   const conn = (id: string, name: string, drv: string, tags: string[]) => ({
     id, name, color: null, folder_id: null, tags, save_password: true, updated_at: '',
@@ -695,10 +817,11 @@ export function setupScheduler(params: URLSearchParams) {
   });
   conns.list = [
     conn('ms', 'SQL Server · Producción', 'sqlserver', ['prod']), conn('ora', 'Oracle · ERP', 'oracle', ['prod']), conn('pg', 'Ventas PG', 'postgres', []),
+    conn('bq', 'BigQuery · analytics-prod', 'bigquery', ['prod']),
   ] as never;
   conns.ensureConnected = async () => true;
   const jobs = useServerJobsStore();
-  const on = params.get('conn') === 'ora' ? 'ora' : 'ms';
+  const on = params.get('conn') === 'ora' ? 'ora' : params.get('conn') === 'bq' ? 'bq' : 'ms';
   // The job's tab alone: a tab restored with the app, its connection closed
   // in the sidebar (nothing else reads the scheduler).
   jobs.expanded = params.get('view') === 'scheduler-jobtab' ? [] : [on];
@@ -707,7 +830,10 @@ export function setupScheduler(params: URLSearchParams) {
   const tabs = useTabsStore();
   let id: string | null;
   let title: string;
-  if (on === 'ora') {
+  if (on === 'bq') {
+    id = BQ_JOB_ID;
+    title = BQ_JOBS.jobs[0].name;
+  } else if (on === 'ora') {
     // `job=EXPORTAR_FACTURAS` (running: "Forzar la detención" only) or `job=PURGE_LOG` (SYS's: read-only, no Borrar).
     const oraJob = ORA_JOBS.jobs.find((j) => j.name === params.get('job')) ?? ORA_JOBS.jobs[0];
     id = kind === 'window' ? WINDOW_ID : oraJob.id;

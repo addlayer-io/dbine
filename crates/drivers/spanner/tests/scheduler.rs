@@ -104,8 +104,14 @@ async fn emulator() {
     unsupported(s.run_job_from(id, "Backup").await);
     unsupported(s.scheduler_logs().await);
     // No action: a backup schedule has no run call.
-    unsupported(s.scheduler_action_script("job", id, "run").await);
-    unsupported(s.scheduler_action("job", id, "run").await);
+    unsupported(
+        s.scheduler_action_script("job", id, "run", &Default::default())
+            .await,
+    );
+    unsupported(
+        s.scheduler_action("job", id, "run", &Default::default())
+            .await,
+    );
 
     // Ids and values from the app never leave the driver when they're bad.
     for bad in ["db1", "db1/../../backups", "db1/a b", "DB1/x", ""] {

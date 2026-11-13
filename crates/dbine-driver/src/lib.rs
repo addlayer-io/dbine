@@ -1320,24 +1320,47 @@ pub trait Session: Send {
         ))
     }
 
+    /// The form of an action that asks for values first
+    /// ([`scheduler::SchedulerAction::params`]), for that object: its fields,
+    /// defaults and choices (a chain's steps, a sensible time range).
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<scheduler::ObjectForm> {
+        let _ = (kind, id, action);
+        Err(Error::Unsupported(
+            "esa acción no pide valores en este motor".into(),
+        ))
+    }
+
     /// The script of one of the kind's actions ([`scheduler::SchedulerAction`])
-    /// on an object, shown before it runs. Nothing runs.
+    /// on an object, shown before it runs. Nothing runs. `values`: what the
+    /// user filled in its form (empty for an action without one).
     async fn scheduler_action_script(
         &mut self,
         kind: &str,
         id: &str,
         action: &str,
+        values: &scheduler::FormValues,
     ) -> Result<String> {
-        let _ = (kind, id, action);
+        let _ = (kind, id, action, values);
         Err(Error::Unsupported(
             "este motor no ofrece esa acción en su planificador".into(),
         ))
     }
 
     /// Runs one of the kind's actions on an object (the user saw its script
-    /// and confirmed).
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
-        let _ = (kind, id, action);
+    /// and confirmed), with the values of its form.
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &scheduler::FormValues,
+    ) -> Result<()> {
+        let _ = (kind, id, action, values);
         Err(Error::Unsupported(
             "este motor no ofrece esa acción en su planificador".into(),
         ))

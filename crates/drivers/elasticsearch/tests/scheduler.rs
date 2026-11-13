@@ -377,11 +377,24 @@ async fn es_transforms(base: String) {
     assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
     assert!(info.logs);
     // Watches start at an action; watches and SLM keep a history; a stopped
-    // transform resets and a watch's actions are acknowledged.
+    // transform resets or starts from a time, and a watch's actions are
+    // acknowledged, all or some (the ones that ask for values first).
     let job = &info.kinds[0];
     assert!(job.run_from_step && job.clear_history, "{job:?}");
-    let acts: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
-    assert_eq!(acts, ["reset", "ack"]);
+    let acts: Vec<(&str, bool)> = job
+        .actions
+        .iter()
+        .map(|a| (a.key.as_str(), a.params))
+        .collect();
+    assert_eq!(
+        acts,
+        [
+            ("reset", false),
+            ("start_from", true),
+            ("ack", false),
+            ("ack_actions", true)
+        ]
+    );
 
     // Create a continuous pivot transform, started.
     let v = new_job(
@@ -486,7 +499,7 @@ async fn es_transforms(base: String) {
     // index it created.
     wait_actions(&mut s, &id, &["reset"]).await;
     let sc = s
-        .scheduler_action_script("job", &id, "reset")
+        .scheduler_action_script("job", &id, "reset", &Default::default())
         .await
         .unwrap();
     assert!(
@@ -495,19 +508,30 @@ async fn es_transforms(base: String) {
     );
     let mut ro = ReadOnlySession::new(open("elasticsearch", &base).await);
     assert!(ro
-        .scheduler_action_script("job", &id, "reset")
+        .scheduler_action_script("job", &id, "reset", &Default::default())
         .await
         .is_ok());
-    assert!(ro.scheduler_action("job", &id, "reset").await.is_err());
-    assert!(s.scheduler_action_script("job", &id, "ack").await.is_err());
-    assert!(s.scheduler_action_script("job", &id, "nope").await.is_err());
+    assert!(ro
+        .scheduler_action("job", &id, "reset", &Default::default())
+        .await
+        .is_err());
     assert!(s
-        .scheduler_action_script("ilm", &id, "reset")
+        .scheduler_action_script("job", &id, "ack", &Default::default())
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_script("job", &id, "nope", &Default::default())
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_script("ilm", &id, "reset", &Default::default())
         .await
         .is_err());
     let (st, _) = http("GET", &format!("{base}/dbine_test_sched_dst"), None).await;
     assert_eq!(st, 200, "the destination index is there before the reset");
-    s.scheduler_action("job", &id, "reset").await.unwrap();
+    s.scheduler_action("job", &id, "reset", &Default::default())
+        .await
+        .unwrap();
     let (st, _) = http("GET", &format!("{base}/dbine_test_sched_dst"), None).await;
     assert_eq!(
         st, 404,
@@ -526,6 +550,122 @@ async fn es_transforms(base: String) {
         0,
         "{st}"
     );
+
+    // Reset, it has no checkpoint: it starts from a time, and its first
+    // checkpoint takes only the hosts with documents since then (a and b
+    // are from 2026-11-12T10:00Z; c, ten minutes ago, is newer than the
+    // time it starts from).
+    wait_actions(&mut s, &id, &["reset", "start_from"]).await;
+    let form = s
+        .scheduler_action_form("job", &id, "start_from")
+        .await
+        .unwrap();
+    assert_eq!(form.values["sync_field"], "t");
+    assert_eq!(form.values["sync_delay"], "30s");
+    let default = form.values["from"].as_str().unwrap();
+    assert!(default.len() == 20 && default.ends_with('Z'), "{default}");
+    assert!(s.scheduler_action_form("job", &id, "reset").await.is_err());
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let (st, b) = http(
+        "POST",
+        &format!("{base}/dbine_test_sched_src/_doc?refresh=true"),
+        Some(json!({"host": "c", "v": 4, "t": now_ms - 600_000})),
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    let from = FormValues {
+        values: [("from".to_string(), json!("2026-11-12T08:00:00-03:00"))].into(),
+        lists: Default::default(),
+    };
+    let sc = s
+        .scheduler_action_script("job", &id, "start_from", &from)
+        .await
+        .unwrap();
+    assert!(
+        sc.contains("POST /_transform/dbine_test_sched_tf/_start?from=2026-11-12T11%3A00%3A00Z\n"),
+        "{sc}"
+    );
+    assert!(sc.contains("# ⚠ En su primer checkpoint"), "{sc}");
+    for (bad, want) in [
+        ("2999-01-01T00:00:00Z", "futura"),
+        ("ayer", "no es una fecha"),
+        ("2026-02-30T00:00:00Z", "no es una fecha"),
+    ] {
+        let v = FormValues {
+            values: [("from".to_string(), json!(bad))].into(),
+            lists: Default::default(),
+        };
+        let e = refusal(
+            s.scheduler_action_script("job", &id, "start_from", &v)
+                .await,
+        );
+        assert!(e.contains(want), "{bad}: {e}");
+    }
+    let mut ro = ReadOnlySession::new(open("elasticsearch", &base).await);
+    assert!(ro
+        .scheduler_action_form("job", &id, "start_from")
+        .await
+        .is_ok());
+    assert!(ro
+        .scheduler_action_script("job", &id, "start_from", &from)
+        .await
+        .is_ok());
+    assert!(ro
+        .scheduler_action("job", &id, "start_from", &from)
+        .await
+        .is_err());
+    s.scheduler_action("job", &id, "start_from", &from)
+        .await
+        .unwrap();
+    wait_until("the first checkpoint", || async {
+        let (_, st) = http(
+            "GET",
+            &format!("{base}/_transform/dbine_test_sched_tf/_stats"),
+            None,
+        )
+        .await;
+        st["transforms"][0]["checkpointing"]["last"]["checkpoint"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 1
+    })
+    .await;
+    http(
+        "POST",
+        &format!("{base}/dbine_test_sched_dst/_refresh"),
+        None,
+    )
+    .await;
+    let (_, found) = http(
+        "POST",
+        &format!("{base}/dbine_test_sched_dst/_search"),
+        Some(json!({"size": 10, "query": {"match_all": {}}})),
+    )
+    .await;
+    let hosts: Vec<&str> = found["hits"]["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|h| h["_source"]["host"].as_str())
+        .collect();
+    assert_eq!(hosts, ["c"], "{found}");
+    // Started, then stopped with a checkpoint: no start from a time.
+    let (st, b) = http(
+        "POST",
+        &format!("{base}/_transform/dbine_test_sched_tf/_stop?wait_for_completion=true"),
+        None,
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    wait_actions(&mut s, &id, &["reset"]).await;
+    let e = refusal(
+        s.scheduler_action_script("job", &id, "start_from", &from)
+            .await,
+    );
+    assert!(e.contains("ya completó checkpoints"), "{e}");
 
     // Remove the retention and the setting, in place.
     let v = edit(
@@ -655,6 +795,143 @@ async fn es_transforms(base: String) {
     }
     let ids = items(&mut s).await;
     assert!(!ids.iter().any(|i| i.contains(PREFIX)), "{ids:?}");
+}
+
+/// A continuous transform stopped partway through its first checkpoint (a
+/// plain `_stop`, as the "Iniciado" switch sends) keeps its position, yet
+/// `_start?from=` still looks only for the changes since then: the groups
+/// past the position never reach the destination, and what the first run
+/// wrote stays, as the script says.
+async fn es_transform_midway(base: String) {
+    let mut s = open("elasticsearch", &base).await;
+    let (src, dst, tf) = (
+        "dbine_test_sched_mid_src",
+        "dbine_test_sched_mid_dst",
+        "dbine_test_sched_mid",
+    );
+    let (st, b) = http(
+        "PUT",
+        &format!("{base}/{src}"),
+        Some(json!({"mappings": {"properties": {"host": {"type": "keyword"}, "v": {"type": "double"}, "t": {"type": "date"}}}})),
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    // 30,000 hosts from 2026-11-01 read ten per page (a first checkpoint
+    // of thousands of pages), and one from ten minutes ago.
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let mut bulk = String::new();
+    for i in 0..30_000 {
+        bulk.push_str(&format!(
+            "{{\"index\":{{}}}}\n{{\"host\":\"h{i:05}\",\"v\":1,\"t\":\"2026-11-01T00:00:00Z\"}}\n"
+        ));
+    }
+    bulk.push_str(&format!(
+        "{{\"index\":{{}}}}\n{{\"host\":\"nuevo\",\"v\":1,\"t\":{}}}\n",
+        now_ms - 600_000
+    ));
+    let r = reqwest::Client::new()
+        .post(format!("{base}/{src}/_bulk?refresh=true"))
+        .header("Content-Type", "application/x-ndjson")
+        .body(bulk)
+        .send()
+        .await
+        .unwrap();
+    assert!(r.status().is_success());
+    let (st, b) = http(
+        "PUT",
+        &format!("{base}/_transform/{tf}"),
+        Some(json!({
+            "source": {"index": [src]},
+            "dest": {"index": dst},
+            "frequency": "1s",
+            "sync": {"time": {"field": "t", "delay": "1s"}},
+            "pivot": {"group_by": {"host": {"terms": {"field": "host"}}},
+                      "aggregations": {"v": {"sum": {"field": "v"}}}},
+            "settings": {"max_page_search_size": 10}
+        })),
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    let stats = || async {
+        let (_, v) = http("GET", &format!("{base}/_transform/{tf}/_stats"), None).await;
+        v["transforms"][0].clone()
+    };
+    let (st, b) = http("POST", &format!("{base}/_transform/{tf}/_start"), None).await;
+    assert!(st < 300, "{b}");
+    wait_until("the first checkpoint under way", || async {
+        stats().await["checkpointing"]["next"]["position"].is_object()
+    })
+    .await;
+    let (st, b) = http(
+        "POST",
+        &format!("{base}/_transform/{tf}/_stop?wait_for_completion=true"),
+        None,
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    let st = stats().await;
+    if st["checkpointing"]["last"]["checkpoint"]
+        .as_u64()
+        .unwrap_or(0)
+        > 0
+    {
+        eprintln!("the first checkpoint ended before the stop; nothing to check");
+        return;
+    }
+    let indexed = st["stats"]["documents_indexed"].as_u64().unwrap_or(0);
+    assert!(indexed > 0 && indexed < 30_000, "{st}");
+
+    // No checkpoint: the tree offers it, and the script says what stays.
+    let id = format!("transform:{tf}");
+    wait_actions(&mut s, &id, &["reset", "start_from"]).await;
+    let from = FormValues {
+        values: [("from".to_string(), json!("2026-11-12T00:00:00Z"))].into(),
+        lists: Default::default(),
+    };
+    let sc = s
+        .scheduler_action_script("job", &id, "start_from", &from)
+        .await
+        .unwrap();
+    assert!(
+        sc.contains(&format!("ya había escrito {indexed} documentos")),
+        "{sc}"
+    );
+    assert!(
+        sc.contains("/_start?from=2026-11-12T00%3A00%3A00Z\n"),
+        "{sc}"
+    );
+    s.scheduler_action("job", &id, "start_from", &from)
+        .await
+        .unwrap();
+    wait_until("the first checkpoint", || async {
+        stats().await["checkpointing"]["last"]["checkpoint"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 1
+    })
+    .await;
+    http("POST", &format!("{base}/{dst}/_refresh"), None).await;
+    let count = |q: Value| {
+        let base = base.clone();
+        async move {
+            let (_, v) = http(
+                "POST",
+                &format!("{base}/{dst}/_count"),
+                Some(json!({ "query": q })),
+            )
+            .await;
+            v["count"].as_u64().unwrap_or(0)
+        }
+    };
+    assert_eq!(count(json!({"term": {"host": "nuevo"}})).await, 1);
+    assert_eq!(
+        count(json!({"prefix": {"host": "h"}})).await,
+        indexed,
+        "only the hosts the first run wrote before the stop"
+    );
 }
 
 async fn es_watches(base: String) {
@@ -808,19 +1085,136 @@ async fn es_watches(base: String) {
         "{run:?}"
     );
 
+    // Started at the first, "uno" waits for an acknowledgement too: only
+    // it is acknowledged, "dos" still waits.
+    s.run_job_from(&id, "uno").await.unwrap();
+    let ack_state = |a: &'static str| {
+        let base = base.clone();
+        async move {
+            let (_, w) = http(
+                "GET",
+                &format!("{base}/_watcher/watch/dbine_test_sched_w"),
+                None,
+            )
+            .await;
+            w["status"]["actions"][a]["ack"]["state"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        }
+    };
+    wait_until("uno waiting", || async {
+        ack_state("uno").await == "ackable"
+    })
+    .await;
+    // Its run recorded too (the history clear below takes both).
+    wait_until("two recorded runs", || async {
+        let (_, h) = http(
+            "POST",
+            &format!("{base}/.watcher-history-*/_search?ignore_unavailable=true"),
+            Some(json!({"query": {"term": {"watch_id": "dbine_test_sched_w"}}})),
+        )
+        .await;
+        h["hits"]["total"]["value"].as_u64().unwrap_or(0) >= 2
+    })
+    .await;
+    wait_actions(&mut s, &id, &["ack", "ack_actions"]).await;
+    let form = s
+        .scheduler_action_form("job", &id, "ack_actions")
+        .await
+        .unwrap();
+    let picks: Vec<&str> = form.choices["action"]
+        .iter()
+        .map(|(v, _)| v.as_str())
+        .collect();
+    assert!(
+        picks.contains(&"uno") && picks.contains(&"dos"),
+        "{picks:?}"
+    );
+    assert!(
+        form.choices["action"].contains(&("uno".into(), "uno (logging)".into())),
+        "{:?}",
+        form.choices
+    );
+    assert_eq!(form.values["actions"], json!(picks));
+    let uno = FormValues {
+        values: [("actions".to_string(), json!(["uno"]))].into(),
+        lists: Default::default(),
+    };
+    let sc = s
+        .scheduler_action_script("job", &id, "ack_actions", &uno)
+        .await
+        .unwrap();
+    assert!(
+        sc.ends_with("PUT /_watcher/watch/dbine_test_sched_w/_ack/uno\n"),
+        "{sc}"
+    );
+    for bad in [json!([]), json!(["nope"])] {
+        let v = FormValues {
+            values: [("actions".to_string(), bad.clone())].into(),
+            lists: Default::default(),
+        };
+        assert!(
+            s.scheduler_action_script("job", &id, "ack_actions", &v)
+                .await
+                .is_err(),
+            "{bad}"
+        );
+    }
+    let mut ro = ReadOnlySession::new(open("elasticsearch", &base).await);
+    assert!(ro
+        .scheduler_action_form("job", &id, "ack_actions")
+        .await
+        .is_ok());
+    assert!(ro
+        .scheduler_action_script("job", &id, "ack_actions", &uno)
+        .await
+        .is_ok());
+    assert!(ro
+        .scheduler_action("job", &id, "ack_actions", &uno)
+        .await
+        .is_err());
+    s.scheduler_action("job", &id, "ack_actions", &uno)
+        .await
+        .unwrap();
+    assert_eq!(ack_state("uno").await, "acked");
+    assert_eq!(ack_state("dos").await, "ackable");
+    let e = refusal(
+        s.scheduler_action_script("job", &id, "ack_actions", &uno)
+            .await,
+    );
+    assert!(e.contains("no espera un reconocimiento"), "{e}");
+    let form = s
+        .scheduler_action_form("job", &id, "ack_actions")
+        .await
+        .unwrap();
+    let picks: Vec<&str> = form.choices["action"]
+        .iter()
+        .map(|(v, _)| v.as_str())
+        .collect();
+    assert!(
+        !picks.contains(&"uno") && picks.contains(&"dos"),
+        "{picks:?}"
+    );
+
     // The actions that ran wait for an acknowledgement: acked, Watcher
     // throttles them, and there's nothing left to acknowledge.
-    wait_actions(&mut s, &id, &["ack"]).await;
-    let sc = s.scheduler_action_script("job", &id, "ack").await.unwrap();
+    wait_actions(&mut s, &id, &["ack", "ack_actions"]).await;
+    let sc = s
+        .scheduler_action_script("job", &id, "ack", &Default::default())
+        .await
+        .unwrap();
     assert!(
         sc.contains("PUT /_watcher/watch/dbine_test_sched_w/_ack"),
         "{sc}"
     );
     assert!(s
-        .scheduler_action_script("job", &id, "reset")
+        .scheduler_action_script("job", &id, "reset", &Default::default())
         .await
         .is_err());
-    s.scheduler_action("job", &id, "ack").await.unwrap();
+    s.scheduler_action("job", &id, "ack", &Default::default())
+        .await
+        .unwrap();
     let (_, w) = http(
         "GET",
         &format!("{base}/_watcher/watch/dbine_test_sched_w"),
@@ -832,7 +1226,12 @@ async fn es_watches(base: String) {
         "{w}"
     );
     assert_eq!(item_actions(&mut s, &id).await, Some(vec![]));
-    assert!(s.scheduler_action("job", &id, "ack").await.is_err());
+    assert!(s
+        .scheduler_action("job", &id, "ack", &Default::default())
+        .await
+        .is_err());
+    let e = refusal(s.scheduler_action_form("job", &id, "ack_actions").await);
+    assert!(e.contains("Ninguna acción"), "{e}");
 
     // Clear the history.
     s.clear_job_history(&id).await.unwrap();
@@ -951,8 +1350,19 @@ async fn es_watches(base: String) {
         refusal(s.scheduler_save("job", Some(&sys), &v).await),
         refusal(s.scheduler_delete_script("job", &sys).await),
         refusal(s.scheduler_delete("job", &sys).await),
-        refusal(s.scheduler_action_script("job", &sys, "ack").await),
-        refusal(s.scheduler_action("job", &sys, "ack").await),
+        refusal(
+            s.scheduler_action_script("job", &sys, "ack", &Default::default())
+                .await,
+        ),
+        refusal(
+            s.scheduler_action("job", &sys, "ack", &Default::default())
+                .await,
+        ),
+        refusal(s.scheduler_action_form("job", &sys, "ack_actions").await),
+        refusal(
+            s.scheduler_action_script("job", &sys, "ack_actions", &Default::default())
+                .await,
+        ),
     ] {
         assert!(e.contains("Monitoring"), "{e}");
     }
@@ -1232,6 +1642,15 @@ async fn elasticsearch_transforms() {
 
 #[tokio::test]
 #[ignore]
+async fn elasticsearch_transform_started_from_partway() {
+    let Some(base) = url("DBINE_TEST_ES_SCHED_URL") else {
+        return;
+    };
+    with_cleanup(es_transform_midway(base.clone()), || es_cleanup(base)).await;
+}
+
+#[tokio::test]
+#[ignore]
 async fn elasticsearch_watches() {
     let Some(base) = url("DBINE_TEST_ES_SCHED_URL") else {
         return;
@@ -1264,7 +1683,7 @@ async fn elasticsearch_basic_license() {
         let job = &info.kinds[0];
         assert!(!job.run_from_step && job.clear_history, "{job:?}");
         let acts: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
-        assert_eq!(acts, ["reset"]);
+        assert_eq!(acts, ["reset", "start_from"]);
         let form = s.scheduler_form("job", None).await.unwrap();
         let ty = &form.sections[0].fields[0];
         let opts = serde_json::to_value(&ty.kind).unwrap();
@@ -1328,6 +1747,17 @@ async fn os_cleanup(base: String, p: &'static str) -> usize {
             .filter_map(|h| h["_id"].as_str().map(str::to_string))
             .collect::<Vec<_>>()
     };
+    // The test monitors' alerts, before their monitors go (Alerting then
+    // moves a deleted monitor's alerts to its history) and after.
+    let drop_alerts = || async {
+        http(
+            "POST",
+            &format!("{base}/.opendistro-alerting-alert*/_delete_by_query?refresh=true&conflicts=proceed&expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true"),
+            Some(json!({"query": {"prefix": {"monitor_name": PREFIX}}})),
+        )
+        .await;
+    };
+    drop_alerts().await;
     for id in monitors().await {
         http(
             "DELETE",
@@ -1336,6 +1766,7 @@ async fn os_cleanup(base: String, p: &'static str) -> usize {
         )
         .await;
     }
+    drop_alerts().await;
     let policies = || async {
         let (_, v) = http("GET", &format!("{base}/{p}/_sm/policies"), None).await;
         v["policies"]
@@ -1381,12 +1812,17 @@ async fn os_jobs(base: String) {
     source_index(&base, "dbine_test_sched_src").await;
     let info = s.scheduler_info().await.unwrap();
     assert_eq!(info.kinds[0].key, "job");
-    // The switch and "run now" are all OpenSearch's jobs have.
+    // Besides the switch and "run now", a monitor's active alerts are
+    // acknowledged (OpenSearch has no Watcher, and its transforms' _start
+    // takes no time to start from).
     let job = &info.kinds[0];
-    assert!(
-        !job.run_from_step && !job.clear_history && job.actions.is_empty(),
-        "{job:?}"
-    );
+    assert!(!job.run_from_step && !job.clear_history, "{job:?}");
+    let acts: Vec<(&str, bool)> = job
+        .actions
+        .iter()
+        .map(|a| (a.key.as_str(), a.params))
+        .collect();
+    assert_eq!(acts, [("ack_alerts", true)]);
     let form = s.scheduler_form("job", None).await.unwrap();
     let opts = serde_json::to_value(&form.sections[0].fields[0].kind).unwrap();
     assert_eq!(opts["options"].as_array().unwrap().len(), 3, "{opts}");
@@ -1541,7 +1977,19 @@ async fn os_jobs(base: String) {
         .into_iter()
         .find(|i| i.id == mid)
         .unwrap();
-    assert_eq!((it.can_edit, it.can_delete, it.actions), (None, None, None));
+    // No active alert: nothing to acknowledge.
+    assert_eq!(
+        (it.can_edit, it.can_delete, it.actions),
+        (None, None, Some(vec![]))
+    );
+    assert!(s
+        .scheduler_action_form("job", &mid, "ack_alerts")
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_form("job", &tid, "start_from")
+        .await
+        .is_err());
 
     // A per document monitor, with its type's inputs and triggers.
     let v = new_job(
@@ -1653,6 +2101,8 @@ async fn os_jobs(base: String) {
         assert!(s.scheduler_script("job", None, &v).await.is_err());
     }
 
+    ack_alerts(&mut s, &base, "_plugins").await;
+
     // Logs.
     let logs = s.scheduler_logs().await.unwrap();
     assert!(logs.iter().any(|t| t.key == "alerts"), "{logs:?}");
@@ -1663,6 +2113,164 @@ async fn os_jobs(base: String) {
     }
     let ids = items(&mut s).await;
     assert!(!ids.contains(&tid) && !ids.contains(&mid), "{ids:?}");
+}
+
+/// A monitor whose two triggers always hold, run once: two active alerts,
+/// acknowledged one and then the other.
+async fn ack_alerts(s: &mut Box<dyn Session>, base: &str, p: &str) {
+    let trigger = |name: &str| {
+        json!({"name": name, "severity": "2",
+            "condition": {"script": {"source": "return true", "lang": "painless"}}, "actions": []})
+    };
+    let triggers = if p == "_opendistro" {
+        json!([trigger("siempre"), trigger("también")])
+    } else {
+        json!([{"query_level_trigger": trigger("siempre")}, {"query_level_trigger": trigger("también")}])
+    };
+    let key = if p == "_opendistro" {
+        "triggers"
+    } else {
+        "triggers_query"
+    };
+    let inputs = if p == "_opendistro" {
+        "inputs"
+    } else {
+        "inputs_query"
+    };
+    let mut values = json!({
+        "type": "monitor",
+        "name": "dbine_test_sched_alerta",
+        "enabled": false,
+        "m_schedule_kind": "period",
+        "m_interval": 10,
+        "m_interval_unit": "minutes"
+    });
+    values[inputs] = json!("[{\"search\": {\"indices\": [\"dbine_test_sched_src\"], \"query\": {\"size\": 0, \"query\": {\"match_all\": {}}}}}]");
+    values[key] = json!(triggers.to_string());
+    if p != "_opendistro" {
+        values["monitor_type"] = json!("query_level_monitor");
+    }
+    let v = new_job(s, values).await;
+    let mid = save(s, None, &v).await;
+    let raw = mid.trim_start_matches("monitor:").to_string();
+    let (st, b) = http(
+        "POST",
+        &format!("{base}/{p}/_alerting/monitors/{raw}/_execute"),
+        None,
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    let alerts = || {
+        let (base, raw) = (base.to_string(), raw.clone());
+        async move {
+            let (_, v) = http(
+                "GET",
+                &format!("{base}/{p}/_alerting/monitors/alerts?monitorId={raw}&size=100"),
+                None,
+            )
+            .await;
+            v["alerts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|a| {
+                    (
+                        a["id"].as_str().unwrap_or("").to_string(),
+                        a["state"].as_str().unwrap_or("").to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+    };
+    wait_until("two active alerts", || async {
+        alerts()
+            .await
+            .iter()
+            .filter(|(_, st)| st == "ACTIVE")
+            .count()
+            == 2
+    })
+    .await;
+    wait_actions(s, &mid, &["ack_alerts"]).await;
+    let form = s
+        .scheduler_action_form("job", &mid, "ack_alerts")
+        .await
+        .unwrap();
+    let ids: Vec<String> = form.choices["alert"]
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect();
+    assert_eq!(ids.len(), 2, "{:?}", form.choices);
+    assert!(
+        form.choices["alert"]
+            .iter()
+            .all(|(_, l)| l.contains("sev 2")),
+        "{:?}",
+        form.choices
+    );
+    assert_eq!(form.values["alerts"], json!(ids));
+    let first = FormValues {
+        values: [("alerts".to_string(), json!([ids[0]]))].into(),
+        lists: Default::default(),
+    };
+    let sc = s
+        .scheduler_action_script("job", &mid, "ack_alerts", &first)
+        .await
+        .unwrap();
+    assert!(
+        sc.contains(&format!(
+            "POST /{p}/_alerting/monitors/{raw}/_acknowledge/alerts"
+        )),
+        "{sc}"
+    );
+    assert!(sc.contains(&ids[0]) && !sc.contains(&ids[1]), "{sc}");
+    let ro_driver = if p == "_opendistro" {
+        "opendistro"
+    } else {
+        "opensearch"
+    };
+    let mut ro = ReadOnlySession::new(open(ro_driver, base).await);
+    assert!(ro
+        .scheduler_action_form("job", &mid, "ack_alerts")
+        .await
+        .is_ok());
+    assert!(ro
+        .scheduler_action("job", &mid, "ack_alerts", &first)
+        .await
+        .is_err());
+    s.scheduler_action("job", &mid, "ack_alerts", &first)
+        .await
+        .unwrap();
+    let now = alerts().await;
+    let state = |id: &str| now.iter().find(|(x, _)| x == id).map(|(_, st)| st.clone());
+    assert_eq!(state(&ids[0]).as_deref(), Some("ACKNOWLEDGED"), "{now:?}");
+    assert_eq!(state(&ids[1]).as_deref(), Some("ACTIVE"), "{now:?}");
+    // Acknowledged, it isn't offered nor taken again.
+    let e = refusal(
+        s.scheduler_action_script("job", &mid, "ack_alerts", &first)
+            .await,
+    );
+    assert!(e.contains("no es una alerta activa"), "{e}");
+    wait_actions(s, &mid, &["ack_alerts"]).await;
+    let rest = FormValues {
+        values: [("alerts".to_string(), json!([ids[1]]))].into(),
+        lists: Default::default(),
+    };
+    s.scheduler_action("job", &mid, "ack_alerts", &rest)
+        .await
+        .unwrap();
+    wait_actions(s, &mid, &[]).await;
+    let e = refusal(s.scheduler_action_form("job", &mid, "ack_alerts").await);
+    assert!(e.contains("no tiene alertas activas"), "{e}");
+    // Its alerts first: Alerting would move them to its history once the
+    // monitor goes, after the cleanup.
+    http(
+        "POST",
+        &format!("{base}/.opendistro-alerting-alert*/_delete_by_query?refresh=true&conflicts=proceed&expand_wildcards=all&ignore_unavailable=true&allow_no_indices=true"),
+        Some(json!({"query": {"term": {"monitor_id": raw}}})),
+    )
+    .await;
+    s.scheduler_delete("job", &mid).await.unwrap();
 }
 
 /// ISM policies: create, change in place, a new id, delete.
@@ -1834,6 +2442,7 @@ async fn opendistro_monitors() {
         assert!(logs.iter().any(|t| t.key == "alerts"), "{logs:?}");
         s.scheduler_delete("job", &mid).await.unwrap();
         assert!(!items(&mut s).await.contains(&mid));
+        ack_alerts(&mut s, &b, "_opendistro").await;
         ism(&mut s, &b, "_opendistro").await;
     };
     with_cleanup(body, || os_cleanup(base, "_opendistro")).await;

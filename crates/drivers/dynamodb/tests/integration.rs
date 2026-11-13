@@ -2,7 +2,7 @@
 //!   docker run -d --name dbine-test-dynamodb -p 25300:8000 amazon/dynamodb-local -jar DynamoDBLocal.jar -inMemory
 //!   DBINE_TEST_DYNAMODB_URL=http://localhost:25300 cargo test -p dbine-driver-dynamodb -- --ignored
 
-use dbine_driver::{kinds, ConnectionConfig, Error, ObjectRef, QueryOutcome, Session};
+use dbine_driver::{kinds, ConnectionConfig, ObjectRef, QueryOutcome, Session};
 use serde_json::json;
 
 fn cfg(read_only: bool) -> Option<ConnectionConfig> {
@@ -191,12 +191,43 @@ async fn round_trip() {
     assert_eq!(out.results[0].rows.len(), 2);
     assert_eq!(s.columns(&i).await.unwrap()[0].name, "year");
 
-    // Errors from the server come back as Query.
+    // Errors from the server come back as the statement's, placed.
     let mut out = QueryOutcome::default();
-    assert!(matches!(
-        s.execute("SELECT * FROM \"nope\"", 10, &mut out).await,
-        Err(Error::Query(_))
-    ));
+    let e = s
+        .execute(
+            "SELECT * FROM \"dbine_music\";\nSELECT * FROM \"nope\"",
+            10,
+            &mut out,
+        )
+        .await
+        .unwrap_err();
+    assert!(e.is_query(), "{e:?}");
+    let se = e.to_script_error();
+    assert_eq!((se.offset, se.line), (Some(29), Some(2)), "{se:?}");
+    assert_eq!(out.results.len(), 1, "stops at the error");
+
+    // The editor's units are the statements execute numbers, at the same
+    // places (the run lens, the statement at the cursor, named results).
+    let d = dbine_driver_dynamodb::drivers().pop().unwrap();
+    let text = "-- a\nSELECT * FROM \"dbine_music\" WHERE artist = 'A' AND song <> 'x;y';\n\nSELECT * FROM \"dbine_music\" WHERE artist = 'A'";
+    let mut out = QueryOutcome::default();
+    s.execute(text, 10, &mut out).await.unwrap();
+    let units = d.split_script(text);
+    assert_eq!(units.len(), 2);
+    let placed: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| (r.statement, r.offset, r.line))
+        .collect();
+    assert_eq!(
+        placed,
+        [
+            (Some(0), Some(units[0].start), Some(2)),
+            (Some(1), Some(units[1].start), Some(4))
+        ]
+    );
+    assert_eq!(out.results[0].rows.len(), 1);
+    assert_eq!(out.results[1].rows.len(), 1);
 
     // Read-only refuses writes.
     let mut ro = open(true).await.unwrap();
@@ -208,7 +239,7 @@ async fn round_trip() {
             &mut out,
         )
         .await;
-    assert!(matches!(e, Err(Error::Query(_))));
+    assert!(e.is_err_and(|e| e.is_query()));
 
     client
         .delete_table()

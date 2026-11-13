@@ -11,6 +11,7 @@ mod monitor;
 mod permissions;
 mod plan;
 mod stats;
+mod steps;
 mod sync;
 mod transfer;
 
@@ -112,6 +113,24 @@ where
     )
 }
 
+/// The script's statements as the app's units: what `execute` numbers, at
+/// the same places, so "run the statement at the cursor", the run lens and
+/// named results see them.
+fn units(text: &str) -> Vec<dbine_driver::ScriptStatement> {
+    ddl::split_located(text)
+        .into_iter()
+        .map(|p| dbine_driver::ScriptStatement {
+            text: text[p.start..p.end].to_string(),
+            start: p.start,
+            end: p.end,
+            line: steps::line_at(text, p.start),
+            kind: dbine_driver::StatementKind::Sql,
+            repeat: 1,
+            error: None,
+        })
+        .collect()
+}
+
 #[async_trait]
 impl Driver for DynamoDriver {
     fn info(&self) -> &DriverInfo {
@@ -120,6 +139,14 @@ impl Driver for DynamoDriver {
 
     fn query_help(&self) -> &'static str {
         QUERY_HELP
+    }
+
+    /// As `execute` reads it (see `ddl::split_located`): a statement ends
+    /// at `;` outside quotes, comments and the JSON bodies of the
+    /// extensions (where `\"` escapes a quote). The same units, in the same
+    /// order, that `execute` numbers.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        units(text)
     }
 
     fn supports_explain(&self) -> bool {
@@ -841,11 +868,19 @@ impl Session for DynamoSession {
         self.transfer_load(spec, columns, source, progress).await
     }
 
+    /// Statements one by one, each numbered with its place in the script
+    /// (see `steps`); the first failing one stops the script unless the
+    /// editor run continues on errors.
     async fn execute(&mut self, text: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
-        for stmt in ddl::split_script(text) {
-            if !self.run_admin(&stmt, out).await? {
-                self.run(&stmt, max_rows, out).await?;
-            }
+        let own = out.current_statement.is_none();
+        for (i, p) in ddl::split_located(text).into_iter().enumerate() {
+            let step = steps::Step::start(out, own, i, p.start, steps::line_at(text, p.start));
+            let r = match self.run_admin(&p.sql, out).await {
+                Ok(true) => Ok(()),
+                Ok(false) => self.run(&p.sql, max_rows, out).await,
+                Err(e) => Err(e),
+            };
+            step.end(out, r)?;
         }
         Ok(())
     }
@@ -1292,6 +1327,31 @@ fn table_json(d: &TableDescription) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The editor's units are the driver's own statements, not the
+    /// dialect's: a `\"` or a `;` inside a JSON body doesn't end one.
+    #[test]
+    fn split_script_is_executes() {
+        let d = drivers().pop().unwrap();
+        let s = "SELECT * FROM \"a\";\nCREATE TABLE \"b\" {\n  \"x\": \"p\\\"; q\",\n  \"y\": [1; 2]\n};\n\n-- c\nSELECT * FROM \"b\"";
+        let units = d.split_script(s);
+        let pieces = ddl::split_located(s);
+        assert_eq!(units.len(), 3, "{units:?}");
+        assert_eq!(
+            units.iter().map(|u| (u.start, u.end)).collect::<Vec<_>>(),
+            pieces.iter().map(|p| (p.start, p.end)).collect::<Vec<_>>()
+        );
+        assert_eq!(units.iter().map(|u| u.line).collect::<Vec<_>>(), [1, 2, 8]);
+        for u in &units {
+            assert_eq!(s[u.start..u.end], u.text);
+        }
+        // Two statements: two units, as the dialect's split.
+        assert_eq!(
+            d.split_script("SELECT * FROM \"a\";\nSELECT * FROM \"b\";")
+                .len(),
+            2
+        );
+    }
 
     /// AWS's endpoints are https; only a typed endpoint (DynamoDB Local)
     /// changes the scheme.

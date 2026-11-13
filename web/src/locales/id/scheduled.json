@@ -367,6 +367,7 @@
     "saved": "«{{name}}» telah disimpan.",
     "deleted": "«{{name}}» telah dihapus.",
     "confirmAction": "«{{action}}» akan dijalankan pada «{{name}}» ({{kind}}) di {{connection}}, dengan skrip ini:",
+    "actionForm": "Isi nilai untuk «{{action}}» pada «{{name}}» ({{kind}}) di {{connection}}. Sebelum dijalankan, Anda akan melihat skripnya.",
     "actionDone": "«{{action}}» telah dijalankan pada «{{name}}».",
     "noScript": "Server tidak mengembalikan skrip: tidak ada perubahan untuk disimpan.",
     "consequences": "Sebelum melanjutkan, perhatikan:",

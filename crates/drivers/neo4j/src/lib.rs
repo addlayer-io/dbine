@@ -248,14 +248,23 @@ impl Driver for GraphDriver {
     }
 
     /// Cypher strings take backslash escapes, and there are no `BEGIN …
-    /// END` bodies (for "run the statement at the cursor"; the driver
-    /// splits editor scripts itself, with the client commands).
+    /// END` bodies (for the checks that read Cypher with the generic
+    /// lexer). Statements are cut by [`Driver::split_script`], with the
+    /// client commands.
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
         dbine_driver::ScriptDialect {
             backslash_escapes: true,
             compound_blocks: false,
             ..dbine_driver::ScriptDialect::generic()
         }
+    }
+
+    /// As cypher-shell and `execute` read it (see `cypher::script`): a
+    /// statement ends at `;`, and a `:command` line (`:use`, `:param`,
+    /// `:begin`…) where a statement would start is a unit of its own. The
+    /// same units, in the same order, that `execute` numbers.
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        cypher::statements(text)
     }
 
     /// `:begin` … `:commit` and the Auto/Manual switch (Neo4j, Memgraph).
@@ -2401,6 +2410,23 @@ impl GraphSession {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Every flavor cuts the editor's script as `execute` numbers it.
+    #[test]
+    fn split_script_is_cypher_shells() {
+        let s = ":use neo4j\nMATCH (n) RETURN n;\n:param x => 1\nRETURN $x;";
+        let starts: Vec<usize> = cypher::script(s).iter().map(|u| u.start).collect();
+        for d in drivers() {
+            let units = d.split_script(s);
+            assert_eq!(
+                units.iter().map(|u| u.start).collect::<Vec<_>>(),
+                starts,
+                "{}",
+                d.info().id
+            );
+            assert_eq!(units.len(), 4);
+        }
+    }
 
     #[test]
     fn infos() {

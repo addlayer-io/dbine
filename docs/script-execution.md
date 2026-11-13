@@ -74,10 +74,11 @@ the script runs, not at the end:
 `Cmd+Shift+Enter` (macOS) or `Ctrl+Shift+Enter` runs only the statement where
 the cursor is, delimited with the same lexer rules (a `;`, a `GO` batch, a
 PL/SQL block); with the cursor between two statements, the one before it.
-Engines whose statements don't end in `;` (Redis and etcd, MongoDB
-without `;`, the Elasticsearch, OpenSearch, Solr and CouchDB consoles) run
-the whole script instead:
-[engine-support.md](engine-support.md#named-results). The lens above each statement (**▶ Run**)
+Engines whose statements don't end in `;` (Redis and etcd, MongoDB, the
+Elasticsearch, OpenSearch, Solr and CouchDB consoles, Cassandra, Neo4j, Cosmos
+DB, InfluxDB 1, DynamoDB, KDB+) are cut as their execution cuts them:
+[Statements on other engines](query-editor.md#statements-on-other-engines).
+The lens above each statement (**▶ Run**)
 runs it with a click. Running part of a script, named results and changing
 these keys:
 [Query editor](query-editor.md#running-part-of-a-script).

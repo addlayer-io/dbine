@@ -25,7 +25,7 @@ mod rename;
 mod scheduler;
 mod security;
 mod stats;
-mod steps;
+pub mod steps;
 mod sync;
 pub mod tls;
 mod transfer;
@@ -366,6 +366,13 @@ impl Driver for Es {
             continue_on_error: true,
             ..dbine_driver::ScriptDefaults::for_language(self.info().language)
         }
+    }
+
+    /// One unit per request (its method line and JSON / NDJSON body) or SQL
+    /// statement, numbered as `execute` numbers them (see
+    /// [`console::split`]).
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        console::split(text)
     }
 
     fn supports_explain(&self) -> bool {
@@ -1420,17 +1427,33 @@ impl Session for EsSession {
         scheduler::delete(self, kind, id).await
     }
 
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::action_form(self, kind, id, action).await
+    }
+
     async fn scheduler_action_script(
         &mut self,
         kind: &str,
         id: &str,
         action: &str,
+        values: &dbine_driver::FormValues,
     ) -> Result<String> {
-        scheduler::action_script(self, kind, id, action).await
+        scheduler::action_script(self, kind, id, action, values).await
     }
 
-    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
-        scheduler::action(self, kind, id, action).await
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<()> {
+        scheduler::action(self, kind, id, action, values).await
     }
 
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
@@ -1537,6 +1560,30 @@ async fn cancel_tasks(client: &reqwest::Client, base: &str, opaque_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every flavor cuts a console script into its requests, where
+    /// `execute` numbers them.
+    #[test]
+    fn split_script_gives_one_unit_per_request() {
+        for d in drivers() {
+            for s in [
+                "GET /_cat/indices\nGET /idx/_search\n{\n  \"query\": {\"match_all\": {}}\n}",
+                "# c\nGET _cluster/health\n\nPOST idx/_count\n{\"query\": {\"term\": {\"a\": \"x;y\"}}}",
+                "GET /_cat/indices\r\nGET /idx/_search\r\n{\"size\": 1}\r\n",
+                "SELECT a FROM t;\nSELECT b FROM t;",
+            ] {
+                let units = d.split_script(s);
+                let at: Vec<_> = units.iter().map(|u| (u.start, u.line)).collect();
+                let numbered: Vec<_> = console::parse_located(s)
+                    .unwrap()
+                    .iter()
+                    .map(|l| (l.offset, l.line))
+                    .collect();
+                assert_eq!(units.len(), 2, "{}: {s:?} {units:?}", d.info().id);
+                assert_eq!(at, numbered);
+            }
+        }
+    }
 
     #[test]
     fn sql_error_positions() {

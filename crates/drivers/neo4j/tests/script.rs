@@ -29,11 +29,15 @@ fn cfg(driver: &str, url: &str) -> ConnectionConfig {
     }
 }
 
-async fn open(id: &str, url: &str) -> Box<dyn Session> {
-    let d = dbine_driver_neo4j::drivers()
+fn driver(id: &str) -> std::sync::Arc<dyn dbine_driver::Driver> {
+    dbine_driver_neo4j::drivers()
         .into_iter()
         .find(|d| d.info().id == id)
-        .unwrap();
+        .unwrap()
+}
+
+async fn open(id: &str, url: &str) -> Box<dyn Session> {
+    let d = driver(id);
     assert!(d.supports_manual_transactions());
     d.connect(&cfg(id, url), None).await.unwrap()
 }
@@ -99,12 +103,41 @@ async fn check(id: &str, url: &str, multi_db: bool) {
     }
 
     // :param, evaluated by the server and sent with the next statements.
-    let out = run(&mut s, ":param x => 21 * 2\n:param {nombre: 'Ana', n: $x + 1}\nRETURN $x AS x, $nombre AS nombre, $n AS n").await.unwrap();
+    let text = ":param x => 21 * 2\n:param {nombre: 'Ana', n: $x + 1}\nRETURN $x AS x, $nombre AS nombre, $n AS n";
+    let out = run(&mut s, text).await.unwrap();
     assert_eq!(
         out.results.last().unwrap().rows[0],
         vec![json!(42), json!("Ana"), json!(43)]
     );
     assert!(out.log.iter().any(|m| m.text == "$x = 42"), "{:?}", out.log);
+    // The editor's units are the statements execute numbers, at the same
+    // places (the run lens, the statement at the cursor, named results).
+    let units = driver(id).split_script(text);
+    assert_eq!(units.len(), 3);
+    for r in &out.results {
+        let u = &units[r.statement.unwrap()];
+        assert_eq!((r.offset, r.line), (Some(u.start), Some(u.line)));
+    }
+    assert_eq!(out.results.last().unwrap().statement, Some(2));
+    let text = "// a\nRETURN 'x;y' AS a;\n\n:params\nRETURN 2 AS b;";
+    let out = run(&mut s, text).await.unwrap();
+    let units = driver(id).split_script(text);
+    let placed: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| (r.statement, r.offset, r.line))
+        .collect();
+    assert_eq!(
+        placed,
+        (0..3)
+            .map(|i| (Some(i), Some(units[i].start), Some(units[i].line)))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(units.iter().map(|u| u.line).collect::<Vec<_>>(), [2, 4, 5]);
+    // Each unit alone runs as it does in the script.
+    for u in &units {
+        run(&mut s, &u.text).await.unwrap();
+    }
     let out = run(&mut s, ":params").await.unwrap();
     assert_eq!(out.results[0].rows.len(), 3);
     let out = run(&mut s, "RETURN $nombre AS n").await.unwrap();
