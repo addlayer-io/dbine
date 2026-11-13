@@ -187,3 +187,5 @@ backend:operador
 backend:programa
 backend:reflexión
 backend:Programa {0}
+backend:Programa
+backend:Programa {0}
