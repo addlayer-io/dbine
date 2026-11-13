@@ -4,6 +4,8 @@
   "left": "Gauche",
   "right": "Droite",
   "table": "Table",
+  "schema": "Schéma",
+  "allSchemas": "Tous les schémas",
   "key": "Clé (la primaire)",
   "compare": "Comparer",
   "pickBoth": "Choisissez une table de chaque côté.",

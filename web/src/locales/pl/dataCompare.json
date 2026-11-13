@@ -4,6 +4,8 @@
   "left": "Lewa strona",
   "right": "Prawa strona",
   "table": "Tabela",
+  "schema": "Schemat",
+  "allSchemas": "Wszystkie schematy",
   "key": "Klucz (główny)",
   "compare": "Porównaj",
   "pickBoth": "Wybierz tabelę z każdej strony.",

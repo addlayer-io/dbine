@@ -4,6 +4,8 @@
   "left": "Kiri",
   "right": "Kanan",
   "table": "Tabel",
+  "schema": "Skema",
+  "allSchemas": "Semua skema",
   "key": "Kunci (kunci primer)",
   "compare": "Bandingkan",
   "pickBoth": "Pilih satu tabel di setiap sisi.",

@@ -4,6 +4,8 @@
   "left": "Links",
   "right": "Rechts",
   "table": "Tabelle",
+  "schema": "Schema",
+  "allSchemas": "Alle Schemas",
   "key": "Schlüssel (der primäre)",
   "compare": "Vergleichen",
   "pickBoth": "Wählen Sie auf jeder Seite eine Tabelle.",

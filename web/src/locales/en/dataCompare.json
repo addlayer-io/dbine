@@ -4,6 +4,8 @@
   "left": "Left",
   "right": "Right",
   "table": "Table",
+  "schema": "Schema",
+  "allSchemas": "All schemas",
   "key": "Key (the primary one)",
   "compare": "Compare",
   "pickBoth": "Pick a table on each side.",

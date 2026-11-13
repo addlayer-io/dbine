@@ -4,6 +4,8 @@
   "left": "左侧",
   "right": "右侧",
   "table": "表",
+  "schema": "架构",
+  "allSchemas": "所有架构",
   "key": "键（主键）",
   "compare": "比较",
   "pickBoth": "请在两侧各选择一张表。",
