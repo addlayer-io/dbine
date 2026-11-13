@@ -101,7 +101,8 @@
     "messages_many": "{{count}} messaggi",
     "delete": "Elimina questa conversazione",
     "clear": "Cancella cronologia",
-    "clearConfirm": "Tutte le conversazioni precedenti verranno eliminate. Quella attuale non viene toccata."
+    "clearConfirm": "Tutte le conversazioni precedenti verranno eliminate. Quella attuale non viene toccata.",
+    "notKept": "Questo sistema non ha un portachiavi disponibile: le conversazioni restano solo in memoria e vanno perse alla chiusura di DBine."
   },
   "tools": {
     "read_one": "Ha consultato la connessione {{count}} volta",

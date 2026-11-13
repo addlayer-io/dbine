@@ -91,7 +91,8 @@
     "messages_other": "{{count}} 条消息",
     "delete": "删除此对话",
     "clear": "清空历史记录",
-    "clearConfirm": "所有以往的对话都将被删除。当前对话不受影响。"
+    "clearConfirm": "所有以往的对话都将被删除。当前对话不受影响。",
+    "notKept": "此系统没有可用的钥匙串：对话仅保留在内存中，关闭 DBine 后会丢失。"
   },
   "tools": {
     "read_other": "已查询连接 {{count}} 次"

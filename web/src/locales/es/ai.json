@@ -101,7 +101,8 @@
     "messages_many": "{{count}} mensajes",
     "delete": "Borrar esta conversación",
     "clear": "Borrar historial",
-    "clearConfirm": "Se borran todas las conversaciones anteriores. La actual no se toca."
+    "clearConfirm": "Se borran todas las conversaciones anteriores. La actual no se toca.",
+    "notKept": "Este sistema no tiene un llavero disponible: las conversaciones quedan solo en memoria y se pierden al cerrar DBine."
   },
   "tools": {
     "read_one": "Consultó la conexión {{count}} vez",

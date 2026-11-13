@@ -318,8 +318,24 @@ The conversation stays on the machine (the last 60 entries). "New
 conversation" does not delete it: it moves it to the **History** (the clock
 icon in the panel header), which keeps the last 50 conversations with their
 first question as the title. From there one is resumed (the current one goes
-to the history) or one or all are deleted. Everything stays in the app's local
-storage; if it fills up, the oldest are discarded first.
+to the history) or one or all are deleted.
+
+Conversations can quote rows the assistant read, so they're kept encrypted
+on disk and can't be read outside DBine:
+- **Storage:** two files in the `sealed/` folder next to DBine's vault, one
+  for the current conversation and one for the history. They're encrypted
+  with AES-256-GCM under a random 256-bit key created once and kept in the
+  vault. Only the user can read them (mode 0600).
+- **If the files can't be opened** (the vault was reset, or a file was
+  changed), they're deleted and the assistant starts empty.
+- **Without a vault** (no system keychain), nothing is written:
+  conversations stay in memory until DBine closes, and the history panel
+  says so.
+- **Earlier versions** kept conversations in the webview's local storage, in
+  the clear. The first start moves them into the encrypted files and removes
+  them from there.
+- **Size:** if the history grows too large for its file (32 MB), the oldest
+  conversations are dropped first.
 
 ## Commands
 

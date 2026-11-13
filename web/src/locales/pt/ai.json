@@ -101,7 +101,8 @@
     "messages_many": "{{count}} mensagens",
     "delete": "Excluir esta conversa",
     "clear": "Limpar histórico",
-    "clearConfirm": "Todas as conversas anteriores serão excluídas. A atual não é afetada."
+    "clearConfirm": "Todas as conversas anteriores serão excluídas. A atual não é afetada.",
+    "notKept": "Este sistema não tem um chaveiro disponível: as conversas ficam apenas na memória e são perdidas ao fechar o DBine."
   },
   "tools": {
     "read_one": "Consultou a conexão {{count}} vez",

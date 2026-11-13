@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "没有 DBine 数据文件夹",
   "una fila distinta no se pudo leer de la base local": "无法从本地数据库读取不同的行",
   "ya hay una comparación en curso con ese id": "已有使用该 ID 的比较正在进行",
-  "alias de base local inválido: {0}": "本地数据库别名无效：{0}"
+  "alias de base local inválido: {0}": "本地数据库别名无效：{0}",
+  "no se pudo guardar el dato cifrado: {0}": "无法保存加密数据：{0}",
+  "no se pudo cifrar el dato": "无法加密数据",
+  "el dato es demasiado grande para guardarlo": "数据太大，无法保存"
 }

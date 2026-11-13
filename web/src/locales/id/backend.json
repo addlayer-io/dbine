@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "tidak ada folder data DBine",
   "una fila distinta no se pudo leer de la base local": "baris yang berbeda tidak dapat dibaca dari basis data lokal",
   "ya hay una comparación en curso con ese id": "perbandingan dengan ID itu sedang berjalan",
-  "alias de base local inválido: {0}": "alias basis data lokal tidak valid: {0}"
+  "alias de base local inválido: {0}": "alias basis data lokal tidak valid: {0}",
+  "no se pudo guardar el dato cifrado: {0}": "tidak dapat menyimpan data terenkripsi: {0}",
+  "no se pudo cifrar el dato": "tidak dapat mengenkripsi data",
+  "el dato es demasiado grande para guardarlo": "data terlalu besar untuk disimpan"
 }

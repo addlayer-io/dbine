@@ -11,6 +11,7 @@
 - **Testing a connection:** when **Test connection** fails, the error shows next to the button, and **What's wrong…** explains it (firewall, timeout, DNS, TLS or credentials) as it does for a saved connection.
 - **Monitor processes:** the selected session opens in a panel next to the list, which stays where it was, with its whole statement and **Analyze**, which takes it to the optimizer, besides cancelling it or ending the session. The arrow keys move between sessions.
 - **Execution plans:** **Full screen** shows the plan over the whole window, and Esc brings it back.
+- **AI assistant conversations encrypted:** the assistant's conversation and its history can quote rows it read, so they're now kept in encrypted files on your computer, with the key in DBine's vault, instead of in the app's local storage in the clear. Conversations from earlier versions are moved over on the first start.
 
 ### Fixes
 - **Monitor CPU on Oracle and SQL Server:** the database's CPU is now a share of all the server's CPUs. With several busy cores it read over 100 %, such as 500 % with five.

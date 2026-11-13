@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "DBine 데이터 폴더가 없습니다",
   "una fila distinta no se pudo leer de la base local": "다른 행을 로컬 데이터베이스에서 읽을 수 없습니다",
   "ya hay una comparación en curso con ese id": "해당 ID의 비교가 이미 진행 중입니다",
-  "alias de base local inválido: {0}": "로컬 데이터베이스 별칭이 잘못되었습니다: {0}"
+  "alias de base local inválido: {0}": "로컬 데이터베이스 별칭이 잘못되었습니다: {0}",
+  "no se pudo guardar el dato cifrado: {0}": "암호화된 데이터를 저장할 수 없습니다: {0}",
+  "no se pudo cifrar el dato": "데이터를 암호화할 수 없습니다",
+  "el dato es demasiado grande para guardarlo": "데이터가 너무 커서 저장할 수 없습니다"
 }

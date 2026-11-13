@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "não há uma pasta de dados do DBine",
   "una fila distinta no se pudo leer de la base local": "não foi possível ler uma linha diferente do banco local",
   "ya hay una comparación en curso con ese id": "já há uma comparação em andamento com esse id",
-  "alias de base local inválido: {0}": "alias de banco local inválido: {0}"
+  "alias de base local inválido: {0}": "alias de banco local inválido: {0}",
+  "no se pudo guardar el dato cifrado: {0}": "não foi possível salvar o dado criptografado: {0}",
+  "no se pudo cifrar el dato": "não foi possível criptografar o dado",
+  "el dato es demasiado grande para guardarlo": "o dado é grande demais para ser salvo"
 }

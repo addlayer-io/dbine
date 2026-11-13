@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "DBine のデータフォルダーがありません",
   "una fila distinta no se pudo leer de la base local": "異なる行をローカルデータベースから読み取れませんでした",
   "ya hay una comparación en curso con ese id": "その ID の比較はすでに実行中です",
-  "alias de base local inválido: {0}": "ローカル データベースのエイリアスが無効です: {0}"
+  "alias de base local inválido: {0}": "ローカル データベースのエイリアスが無効です: {0}",
+  "no se pudo guardar el dato cifrado: {0}": "暗号化したデータを保存できませんでした: {0}",
+  "no se pudo cifrar el dato": "データを暗号化できませんでした",
+  "el dato es demasiado grande para guardarlo": "データが大きすぎて保存できません"
 }
