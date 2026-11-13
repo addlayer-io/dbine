@@ -1261,7 +1261,7 @@ pub(crate) fn add_job_script(v: Variant, caps: &Caps, j: &JobSpec) -> String {
         ),
     ];
     if let Some(c) = &j.config {
-        args.push(format!("config => {}::jsonb", lit(v, &c.to_string())));
+        args.push(format!("config => {}::jsonb", lit(v, &sorted_json(c))));
     }
     if let Some(t) = &j.sched.initial_start {
         args.push(format!("initial_start => {}", ts_lit(v, t)));
@@ -1331,7 +1331,7 @@ pub(crate) fn job_alter(v: Variant, caps: &Caps, cur: &Job, j: &JobSpec) -> Opti
         .and_then(|c| serde_json::from_str(c).ok());
     if j.config != cur_cfg {
         a.push(match &j.config {
-            Some(c) => format!("config => {}::jsonb", lit(v, &c.to_string())),
+            Some(c) => format!("config => {}::jsonb", lit(v, &sorted_json(c))),
             // alter_job reads NULL as "unchanged": JSON null clears it.
             None => "config => 'null'::jsonb".into(),
         });
@@ -1576,7 +1576,7 @@ pub(crate) fn policy_alter(
     if cfg != before {
         a.push(format!(
             "config => {}::jsonb",
-            lit(v, &Value::Object(cfg).to_string())
+            lit(v, &sorted_json(&Value::Object(cfg)))
         ));
     }
     let tz_changed = caps.timezone && ps.sched.timezone != cur.timezone;
@@ -1976,4 +1976,32 @@ pub(crate) fn schedule_sections_for_tests(
     policy: Option<Policy>,
 ) -> Vec<FormSection> {
     schedule_sections(caps, existing, policy)
+}
+
+/// Compact JSON with every object's keys in name order, whatever order the
+/// map keeps (serde_json's `preserve_order` may be on in the build): the
+/// script reads the same every time.
+fn sorted_json(v: &Value) -> String {
+    match v {
+        Value::Object(o) => {
+            let mut keys: Vec<&String> = o.keys().collect();
+            keys.sort();
+            let parts: Vec<String> = keys
+                .iter()
+                .map(|k| {
+                    format!(
+                        "{}:{}",
+                        Value::String((*k).clone()),
+                        sorted_json(&o[k.as_str()])
+                    )
+                })
+                .collect();
+            format!("{{{}}}", parts.join(","))
+        }
+        Value::Array(a) => format!(
+            "[{}]",
+            a.iter().map(sorted_json).collect::<Vec<_>>().join(",")
+        ),
+        other => other.to_string(),
+    }
 }
