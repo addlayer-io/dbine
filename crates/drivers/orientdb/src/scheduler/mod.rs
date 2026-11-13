@@ -342,13 +342,19 @@ pub(crate) fn literal(v: &Value) -> String {
         Value::Number(n) => n.to_string(),
         Value::String(s) => string(s),
         Value::Array(a) => format!("[{}]", a.iter().map(literal).collect::<Vec<_>>().join(", ")),
-        Value::Object(o) => format!(
-            "{{{}}}",
-            o.iter()
-                .map(|(k, v)| format!("{}: {}", string(k), literal(v)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        // Keys in name order, whatever order the map keeps (serde_json's
+        // `preserve_order` may be on in the build): the same script every time.
+        Value::Object(o) => {
+            let mut keys: Vec<&String> = o.keys().collect();
+            keys.sort();
+            format!(
+                "{{{}}}",
+                keys.iter()
+                    .map(|k| format!("{}: {}", string(k), literal(&o[k.as_str()])))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     }
 }
 
