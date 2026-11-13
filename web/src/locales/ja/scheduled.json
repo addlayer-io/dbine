@@ -367,6 +367,7 @@
     "saved": "「{{name}}」を保存しました。",
     "deleted": "「{{name}}」を削除しました。",
     "confirmAction": "{{connection}} の「{{name}}」({{kind}}) に対して「{{action}}」を実行します。スクリプトは次のとおりです:",
+    "actionForm": "{{connection}} の「{{name}}」({{kind}})に対する「{{action}}」の値を入力してください。実行前にそのスクリプトが表示されます。",
     "actionDone": "「{{name}}」に対して「{{action}}」を実行しました。",
     "noScript": "サーバーがスクリプトを返しませんでした。保存する変更はありません。",
     "consequences": "続行する前にご注意ください:",

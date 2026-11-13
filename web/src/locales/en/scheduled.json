@@ -375,6 +375,7 @@
     "saved": "«{{name}}» was saved.",
     "deleted": "«{{name}}» was deleted.",
     "confirmAction": "«{{action}}» will run on «{{name}}» ({{kind}}) on {{connection}}, with this script:",
+    "actionForm": "Fill in the values for «{{action}}» on «{{name}}» ({{kind}}) on {{connection}}. You will see its script before it runs.",
     "actionDone": "«{{action}}» ran on «{{name}}».",
     "noScript": "The server returned no script: there are no changes to save.",
     "consequences": "Before continuing, keep in mind:",

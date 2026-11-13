@@ -375,6 +375,7 @@
     "saved": "„{{name}}“ wurde gespeichert.",
     "deleted": "„{{name}}“ wurde gelöscht.",
     "confirmAction": "„{{action}}“ wird auf „{{name}}“ ({{kind}}) auf {{connection}} ausgeführt, mit diesem Skript:",
+    "actionForm": "Füllen Sie die Werte von „{{action}}“ für „{{name}}“ ({{kind}}) in {{connection}} aus. Bevor es ausgeführt wird, sehen Sie das Skript dazu.",
     "actionDone": "„{{action}}“ wurde auf „{{name}}“ ausgeführt.",
     "noScript": "Der Server hat kein Skript zurückgegeben: Es gibt keine Änderungen zu speichern.",
     "consequences": "Bitte beachten Sie vor dem Fortfahren:",

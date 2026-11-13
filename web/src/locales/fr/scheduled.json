@@ -377,6 +377,7 @@
     "saved": "« {{name}} » a été enregistré.",
     "deleted": "« {{name}} » a été supprimé.",
     "confirmAction": "« {{action}} » va être exécuté sur « {{name}} » ({{kind}}) sur {{connection}}, avec ce script :",
+    "actionForm": "Renseignez les valeurs de « {{action}} » pour « {{name}} » ({{kind}}) sur {{connection}}. Vous verrez son script avant son exécution.",
     "actionDone": "« {{action}} » a été exécuté sur « {{name}} ».",
     "noScript": "Le serveur n'a renvoyé aucun script : il n'y a pas de modifications à enregistrer.",
     "consequences": "Avant de continuer, gardez à l'esprit :",
