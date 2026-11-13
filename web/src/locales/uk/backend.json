@@ -9265,6 +9265,7 @@
   "no se pudieron desactivar las restricciones CHECK del clon para copiar las filas; no se clona": "не вдалося вимкнути обмеження CHECK клона для копіювання рядків; не клонується",
   "no se pudieron descifrar las credenciales": "не вдалося розшифрувати облікові дані",
   "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": "не вдалося зберегти рядки в тимчасовий файл, поки надходять їхні типи: {0}",
+  "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": "не вдалося прочитати рядки, збережені в тимчасовому файлі: файл змінився, поки надходили їхні типи",
   "no se pudieron leer las opciones de la clave primaria del original (orden de las columnas, FILLFACTOR, compresión…): el clon la tiene con las de por omisión": "не вдалося прочитати параметри первинного ключа оригіналу (порядок стовпців, FILLFACTOR, стиснення…): у клона він має параметри за замовчуванням",
   "no se pudieron leer las particiones de los índices locales de la tabla; no se clona": "не вдалося прочитати партиції локальних індексів таблиці; не клонується",
   "no se pudieron leer las restricciones únicas del clon; no se clona": "не вдалося прочитати унікальні обмеження клона; не клонується",

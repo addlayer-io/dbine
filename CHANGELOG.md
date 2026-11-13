@@ -12,6 +12,7 @@
 - **Monitor processes:** the selected session opens in a panel next to the list, which stays where it was, with its whole statement and **Analyze**, which takes it to the optimizer, besides cancelling it or ending the session. The arrow keys move between sessions.
 - **Execution plans:** **Full screen** shows the plan over the whole window, and Esc brings it back.
 - **AI conversations and notebook drafts encrypted:** the AI assistant's conversation and history can quote rows it read, and an untitled notebook's draft holds chart points and cell outputs. Both are now kept in encrypted files on your computer, with the key in DBine's vault, instead of in the app's local storage in the clear. What earlier versions kept is moved over on the first start.
+- **Apache Drill transfers from servers before 1.19:** the rows that wait for their column types once they no longer fit in memory now go to an encrypted temporary file, whose key exists only in memory, instead of a plain one. A file left behind if DBine closes mid-transfer can't be read.
 
 ### Fixes
 - **Monitor CPU on Oracle and SQL Server:** the database's CPU is now a share of all the server's CPUs. With several busy cores it read over 100 %, such as 500 % with five.

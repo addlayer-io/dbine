@@ -36647,6 +36647,9 @@
  "las filas del clon no cumplen {0} «{1}», que en el original está validada (¿cambiaron durante la copia los datos a los que apunta?); no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": [
+  "crates/drivers/drill/src/transfer.rs"
+ ],
  "las filas no cumplen la restricción CHECK {0} (ORA-02293)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],

@@ -6459,6 +6459,7 @@
   "no se pudieron cifrar las credenciales": "couldn't encrypt the credentials",
   "no se pudieron descifrar las credenciales": "couldn't decrypt the credentials",
   "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": "the rows could not be saved to a temporary file while their types arrive: {0}",
+  "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": "the rows saved in the temporary file could not be read: the file changed while their types were arriving",
   "no se pudieron listar": "they couldn't be listed",
   "no se pudo abrir el navegador: {0}": "couldn't open the browser: {0}",
   "no se pudo abrir {0}: {1}": "couldn't open {0}: {1}",

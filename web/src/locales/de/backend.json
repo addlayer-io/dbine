@@ -5616,6 +5616,7 @@
   "no se pudieron cifrar las credenciales": "Die Anmeldedaten konnten nicht verschlüsselt werden",
   "no se pudieron descifrar las credenciales": "Die Anmeldedaten konnten nicht entschlüsselt werden",
   "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": "Die Zeilen konnten nicht in einer temporären Datei gespeichert werden, während ihre Typen eintreffen: {0}",
+  "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": "Die in der temporären Datei gespeicherten Zeilen konnten nicht gelesen werden: Die Datei hat sich geändert, während ihre Typen eintrafen",
   "no se pudieron listar": "Sie konnten nicht aufgelistet werden",
   "no se pudo abrir el navegador: {0}": "Der Browser konnte nicht geöffnet werden: {0}",
   "no se pudo abrir {0}: {1}": "{0} konnte nicht geöffnet werden: {1}",

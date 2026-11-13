@@ -6459,6 +6459,7 @@
   "no se pudieron cifrar las credenciales": "資格情報を暗号化できませんでした",
   "no se pudieron descifrar las credenciales": "資格情報を復号できませんでした",
   "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": "型が届くまでの間、行を一時ファイルに保存できませんでした: {0}",
+  "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos": "一時ファイルに保存された行を読み取れませんでした: 型が届く間にファイルが変更されました",
   "no se pudieron listar": "一覧できませんでした",
   "no se pudo abrir el navegador: {0}": "ブラウザーを開けませんでした: {0}",
   "no se pudo abrir {0}: {1}": "{0} を開けませんでした: {1}",
