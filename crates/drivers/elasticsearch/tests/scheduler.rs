@@ -33,6 +33,11 @@ use std::future::Future;
 use std::time::Duration;
 
 const PREFIX: &str = "dbine_test_sched_";
+/// A watch made as Monitoring makes its own.
+const SYS_WATCH: &str = "dbine_test_sched_wsys";
+/// Elastic Cloud's snapshot policy, made by the snapshot test with
+/// `config.metadata.dbine_test_sched` so the cleanup knows it's its own.
+const CLOUD_SLM: &str = "cloud-snapshot-policy";
 
 fn url(var: &str) -> Option<String> {
     match std::env::var(var) {
@@ -68,6 +73,14 @@ async fn http(method: &str, url: &str, body: Option<Value>) -> (u16, Value) {
     let r = rb.send().await.unwrap();
     let status = r.status().as_u16();
     (status, r.json().await.unwrap_or(Value::Null))
+}
+
+/// A call that must be refused: its message.
+fn refusal<T: std::fmt::Debug>(r: dbine_driver::Result<T>) -> String {
+    match r {
+        Err(e) => e.to_string(),
+        Ok(x) => panic!("expected a refusal, got {x:?}"),
+    }
 }
 
 /// Runs the test, then the cleanup, and only then lets a failed assertion
@@ -157,6 +170,30 @@ async fn items(s: &mut Box<dyn Session>) -> Vec<String> {
         .collect()
 }
 
+/// The actions the tree offers on a job now.
+async fn item_actions(s: &mut Box<dyn Session>, id: &str) -> Option<Vec<String>> {
+    s.scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == id)
+        .unwrap_or_else(|| panic!("{id} isn't listed"))
+        .actions
+}
+
+/// Waits until the tree offers `want` on the job.
+async fn wait_actions(s: &mut Box<dyn Session>, id: &str, want: &[&str]) {
+    let want: Vec<String> = want.iter().map(|a| a.to_string()).collect();
+    for _ in 0..120 {
+        if item_actions(s, id).await.as_ref() == Some(&want) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    panic!("timed out: {id} offering {want:?}");
+}
+
 async fn wait_until<F, Fut>(what: &str, f: F)
 where
     F: Fn() -> Fut,
@@ -231,7 +268,7 @@ async fn es_cleanup(base: String) -> usize {
         )
         .await;
     }
-    for w in ["dbine_test_sched_w", "dbine_test_sched_w2"] {
+    for w in ["dbine_test_sched_w", "dbine_test_sched_w2", SYS_WATCH] {
         http("DELETE", &format!("{base}/_watcher/watch/{w}"), None).await;
     }
     let (_, v) = http("GET", &format!("{base}/_slm/policy"), None).await;
@@ -239,6 +276,13 @@ async fn es_cleanup(base: String) -> usize {
         if id.starts_with(PREFIX) {
             http("DELETE", &format!("{base}/_slm/policy/{id}"), None).await;
         }
+    }
+    let cloud_slm_ours = || async {
+        let (st, v) = http("GET", &format!("{base}/_slm/policy/{CLOUD_SLM}"), None).await;
+        st == 200 && v[CLOUD_SLM]["policy"]["config"]["metadata"]["dbine_test_sched"] == true
+    };
+    if cloud_slm_ours().await {
+        http("DELETE", &format!("{base}/_slm/policy/{CLOUD_SLM}"), None).await;
     }
     let (st, _) = http(
         "GET",
@@ -296,7 +340,7 @@ async fn es_cleanup(base: String) -> usize {
     left += drop_indices(&base).await;
     let (_, v) = http("GET", &format!("{base}/_transform/{PREFIX}*"), None).await;
     left += v["count"].as_u64().unwrap_or(0) as usize;
-    for w in ["dbine_test_sched_w", "dbine_test_sched_w2"] {
+    for w in ["dbine_test_sched_w", "dbine_test_sched_w2", SYS_WATCH] {
         let (st, _) = http("GET", &format!("{base}/_watcher/watch/{w}"), None).await;
         left += usize::from(st == 200);
     }
@@ -304,6 +348,7 @@ async fn es_cleanup(base: String) -> usize {
     left += v
         .as_object()
         .map_or(0, |o| o.keys().filter(|k| k.starts_with(PREFIX)).count());
+    left += usize::from(cloud_slm_ours().await);
     let (st, _) = http(
         "GET",
         &format!("{base}/_snapshot/dbine_test_sched_repo"),
@@ -331,6 +376,12 @@ async fn es_transforms(base: String) {
     assert_eq!(keys, ["job", "ilm"]);
     assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
     assert!(info.logs);
+    // Watches start at an action; watches and SLM keep a history; a stopped
+    // transform resets and a watch's actions are acknowledged.
+    let job = &info.kinds[0];
+    assert!(job.run_from_step && job.clear_history, "{job:?}");
+    let acts: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(acts, ["reset", "ack"]);
 
     // Create a continuous pivot transform, started.
     let v = new_job(
@@ -363,6 +414,10 @@ async fn es_transforms(base: String) {
     let id = save(&mut s, None, &v).await;
     assert_eq!(id, "transform:dbine_test_sched_tf");
     assert!(items(&mut s).await.contains(&id));
+    // Started: no reset; and a transform doesn't start at a step.
+    assert_eq!(item_actions(&mut s, &id).await, Some(vec![]));
+    let e = s.run_job_from(&id, "Transform").await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutar ahora"), "{e}");
     let (_, t) = http(
         "GET",
         &format!("{base}/_transform/dbine_test_sched_tf"),
@@ -426,6 +481,51 @@ async fn es_transforms(base: String) {
     })
     .await;
     no_changes(&mut s, &id).await;
+
+    // Stopped, it resets: its checkpoints go, and so does the destination
+    // index it created.
+    wait_actions(&mut s, &id, &["reset"]).await;
+    let sc = s
+        .scheduler_action_script("job", &id, "reset")
+        .await
+        .unwrap();
+    assert!(
+        sc.contains("POST /_transform/dbine_test_sched_tf/_reset"),
+        "{sc}"
+    );
+    let mut ro = ReadOnlySession::new(open("elasticsearch", &base).await);
+    assert!(ro
+        .scheduler_action_script("job", &id, "reset")
+        .await
+        .is_ok());
+    assert!(ro.scheduler_action("job", &id, "reset").await.is_err());
+    assert!(s.scheduler_action_script("job", &id, "ack").await.is_err());
+    assert!(s.scheduler_action_script("job", &id, "nope").await.is_err());
+    assert!(s
+        .scheduler_action_script("ilm", &id, "reset")
+        .await
+        .is_err());
+    let (st, _) = http("GET", &format!("{base}/dbine_test_sched_dst"), None).await;
+    assert_eq!(st, 200, "the destination index is there before the reset");
+    s.scheduler_action("job", &id, "reset").await.unwrap();
+    let (st, _) = http("GET", &format!("{base}/dbine_test_sched_dst"), None).await;
+    assert_eq!(
+        st, 404,
+        "the destination index it created goes with the reset"
+    );
+    let (_, st) = http(
+        "GET",
+        &format!("{base}/_transform/dbine_test_sched_tf/_stats"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        st["transforms"][0]["checkpointing"]["last"]["checkpoint"]
+            .as_u64()
+            .unwrap_or(0),
+        0,
+        "{st}"
+    );
 
     // Remove the retention and the setting, in place.
     let v = edit(
@@ -708,6 +808,32 @@ async fn es_watches(base: String) {
         "{run:?}"
     );
 
+    // The actions that ran wait for an acknowledgement: acked, Watcher
+    // throttles them, and there's nothing left to acknowledge.
+    wait_actions(&mut s, &id, &["ack"]).await;
+    let sc = s.scheduler_action_script("job", &id, "ack").await.unwrap();
+    assert!(
+        sc.contains("PUT /_watcher/watch/dbine_test_sched_w/_ack"),
+        "{sc}"
+    );
+    assert!(s
+        .scheduler_action_script("job", &id, "reset")
+        .await
+        .is_err());
+    s.scheduler_action("job", &id, "ack").await.unwrap();
+    let (_, w) = http(
+        "GET",
+        &format!("{base}/_watcher/watch/dbine_test_sched_w"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        w["status"]["actions"]["dos"]["ack"]["state"], "acked",
+        "{w}"
+    );
+    assert_eq!(item_actions(&mut s, &id).await, Some(vec![]));
+    assert!(s.scheduler_action("job", &id, "ack").await.is_err());
+
     // Clear the history.
     s.clear_job_history(&id).await.unwrap();
     assert!(s.job_runs(&id, 10).await.unwrap().is_empty());
@@ -788,6 +914,57 @@ async fn es_watches(base: String) {
     );
     s.scheduler_delete("job", &new_id).await.unwrap();
     assert!(!items(&mut s).await.contains(&new_id));
+
+    // A watch of Monitoring's (Elasticsearch creates and keeps them):
+    // listed and shown, but neither changed, deleted nor acknowledged.
+    let (st, b) = http(
+        "PUT",
+        &format!("{base}/_watcher/watch/{SYS_WATCH}?active=false"),
+        Some(json!({
+            "trigger": {"schedule": {"interval": "1h"}},
+            "input": {"simple": {}},
+            "actions": {"registro": {"logging": {"text": "x"}}},
+            "metadata": {"xpack": {"type": "monitoring"}}
+        })),
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    let sys = format!("watch:{SYS_WATCH}");
+    let item = s
+        .scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == sys)
+        .expect("the system watch listed");
+    assert!(item.system);
+    assert_eq!((item.can_edit, item.can_delete), (Some(false), Some(false)));
+    assert_eq!(item.actions, Some(vec![]));
+    let form = s.scheduler_form("job", Some(&sys)).await.unwrap();
+    assert!(form.read_only, "{:?}", form.notes);
+    assert!(form.notes[0].contains("Monitoring"), "{:?}", form.notes);
+    let mut v = values_of(&form);
+    set(&mut v, json!({"description": "cambiada"}));
+    for e in [
+        refusal(s.scheduler_script("job", Some(&sys), &v).await),
+        refusal(s.scheduler_save("job", Some(&sys), &v).await),
+        refusal(s.scheduler_delete_script("job", &sys).await),
+        refusal(s.scheduler_delete("job", &sys).await),
+        refusal(s.scheduler_action_script("job", &sys, "ack").await),
+        refusal(s.scheduler_action("job", &sys, "ack").await),
+    ] {
+        assert!(e.contains("Monitoring"), "{e}");
+    }
+    let (st, w) = http("GET", &format!("{base}/_watcher/watch/{SYS_WATCH}"), None).await;
+    assert_eq!(st, 200);
+    assert!(w["watch"]["metadata"].get("name").is_none(), "{w}");
+    http(
+        "DELETE",
+        &format!("{base}/_watcher/watch/{SYS_WATCH}"),
+        None,
+    )
+    .await;
 }
 
 async fn es_slm(base: String) {
@@ -875,7 +1052,10 @@ async fn es_slm(base: String) {
     .await;
     let runs = s.job_runs(&id, 10).await.unwrap();
     assert!(!runs.is_empty());
-    assert!(s.run_job_from(&id, "Snapshot").await.is_ok());
+    // A policy has one step: it runs whole, "Ejecutar ahora".
+    let e = s.run_job_from(&id, "Snapshot").await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutar ahora"), "{e}");
+    assert_eq!(item_actions(&mut s, &id).await, Some(vec![]));
     let logs = s.scheduler_logs().await.unwrap();
     assert!(logs
         .iter()
@@ -890,6 +1070,86 @@ async fn es_slm(base: String) {
     assert!(ids.contains(&new_id) && !ids.contains(&id), "{ids:?}");
     s.scheduler_delete("job", &new_id).await.unwrap();
     assert!(!items(&mut s).await.contains(&new_id));
+
+    // Elastic Cloud's own policy (made here as Cloud makes it, scheduled
+    // far ahead so it never runs): its schedule changes in place; its id,
+    // its repository and the policy itself stay.
+    let (st, _) = http("GET", &format!("{base}/_slm/policy/{CLOUD_SLM}"), None).await;
+    if st != 404 {
+        eprintln!("the cluster already has a {CLOUD_SLM}: its checks skipped");
+        return;
+    }
+    let (st, b) = http(
+        "PUT",
+        &format!("{base}/_slm/policy/{CLOUD_SLM}"),
+        Some(json!({
+            "name": "<cloud-snapshot-{now/d}>",
+            "schedule": "0 0 0 1 1 ? 2099",
+            "repository": "dbine_test_sched_repo",
+            "config": {"partial": true, "metadata": {"dbine_test_sched": true}},
+            "retention": {"expire_after": "30d", "min_count": 1, "max_count": 10}
+        })),
+    )
+    .await;
+    assert!(st < 300, "{b}");
+    let cloud = format!("slm:{CLOUD_SLM}");
+    let item = s
+        .scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == cloud)
+        .expect("Elastic Cloud's policy listed");
+    assert_eq!((item.can_edit, item.can_delete), (None, Some(false)));
+    let form = s.scheduler_form("job", Some(&cloud)).await.unwrap();
+    assert!(!form.read_only, "{:?}", form.notes);
+    assert!(form.notes[0].contains("Elastic Cloud"), "{:?}", form.notes);
+    let locked: Vec<&str> = form
+        .sections
+        .iter()
+        .flat_map(|s| s.fields.iter())
+        .filter(|f| f.read_only)
+        .map(|f| f.key.as_str())
+        .collect();
+    assert_eq!(locked, ["type", "id", "repository"]);
+    for change in [
+        json!({"id": "dbine_test_sched_cloud"}),
+        json!({"repository": "otro"}),
+    ] {
+        let v = edit(&mut s, &cloud, change.clone()).await;
+        for e in [
+            refusal(s.scheduler_script("job", Some(&cloud), &v).await),
+            refusal(s.scheduler_save("job", Some(&cloud), &v).await),
+        ] {
+            assert!(e.contains("Elastic Cloud"), "{change}: {e}");
+        }
+    }
+    for e in [
+        refusal(s.scheduler_delete_script("job", &cloud).await),
+        refusal(s.scheduler_delete("job", &cloud).await),
+    ] {
+        assert!(e.contains("Elastic Cloud"), "{e}");
+    }
+    let v = edit(
+        &mut s,
+        &cloud,
+        json!({"slm_schedule": "0 0 0 2 1 ? 2099", "max_count": 20}),
+    )
+    .await;
+    let sc = script(&mut s, Some(&cloud), &v).await;
+    assert!(
+        sc.contains(&format!("PUT /_slm/policy/{CLOUD_SLM}")) && !sc.contains("DELETE"),
+        "{sc}"
+    );
+    save(&mut s, Some(&cloud), &v).await;
+    let (_, p) = http("GET", &format!("{base}/_slm/policy/{CLOUD_SLM}"), None).await;
+    let p = &p[CLOUD_SLM]["policy"];
+    assert_eq!(p["schedule"], "0 0 0 2 1 ? 2099");
+    assert_eq!(p["retention"]["max_count"], 20);
+    assert_eq!(p["repository"], "dbine_test_sched_repo");
+    assert_eq!(p["config"]["metadata"]["dbine_test_sched"], true);
+    http("DELETE", &format!("{base}/_slm/policy/{CLOUD_SLM}"), None).await;
 }
 
 async fn es_ilm(base: String) {
@@ -906,6 +1166,10 @@ async fn es_ilm(base: String) {
         .iter()
         .find(|i| i.system)
         .expect("a managed policy");
+    assert_eq!(
+        (managed.can_edit, managed.can_delete),
+        (Some(false), Some(false))
+    );
     let form = s.scheduler_form("ilm", Some(&managed.id)).await.unwrap();
     assert!(form.read_only);
     assert!(s.scheduler_delete("ilm", &managed.id).await.is_err());
@@ -996,6 +1260,11 @@ async fn elasticsearch_basic_license() {
         let mut s = open("elasticsearch", &b).await;
         let info = s.scheduler_info().await.unwrap();
         assert!(info.notes.iter().any(|n| n.contains("Watcher")), "{info:?}");
+        // Without Watcher nothing starts at a step; SLM keeps a history.
+        let job = &info.kinds[0];
+        assert!(!job.run_from_step && job.clear_history, "{job:?}");
+        let acts: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
+        assert_eq!(acts, ["reset"]);
         let form = s.scheduler_form("job", None).await.unwrap();
         let ty = &form.sections[0].fields[0];
         let opts = serde_json::to_value(&ty.kind).unwrap();
@@ -1112,9 +1381,32 @@ async fn os_jobs(base: String) {
     source_index(&base, "dbine_test_sched_src").await;
     let info = s.scheduler_info().await.unwrap();
     assert_eq!(info.kinds[0].key, "job");
+    // The switch and "run now" are all OpenSearch's jobs have.
+    let job = &info.kinds[0];
+    assert!(
+        !job.run_from_step && !job.clear_history && job.actions.is_empty(),
+        "{job:?}"
+    );
     let form = s.scheduler_form("job", None).await.unwrap();
     let opts = serde_json::to_value(&form.sections[0].fields[0].kind).unwrap();
     assert_eq!(opts["options"].as_array().unwrap().len(), 3, "{opts}");
+    // Each type's own tabs, shown for it only.
+    let tabs: Vec<(&str, Option<&str>)> = form
+        .sections
+        .iter()
+        .map(|t| (t.key.as_str(), t.when.as_ref().map(|w| w.1[0].as_str())))
+        .collect();
+    assert_eq!(tabs[0], ("general", None));
+    assert!(
+        tabs[1..]
+            .iter()
+            .all(|(k, w)| w.is_some_and(|w| k.starts_with(w))),
+        "{tabs:?}"
+    );
+    assert!(
+        tabs.contains(&("monitor_inputs", Some("monitor"))),
+        "{tabs:?}"
+    );
 
     // ---- transform
     let v = new_job(
@@ -1202,8 +1494,8 @@ async fn os_jobs(base: String) {
             "m_schedule_kind": "period",
             "m_interval": 10,
             "m_interval_unit": "minutes",
-            "inputs": "[{\"search\": {\"indices\": [\"dbine_test_sched_src\"], \"query\": {\"size\": 0, \"query\": {\"match_all\": {}}}}}]",
-            "triggers": triggers.to_string()
+            "inputs_query": "[{\"search\": {\"indices\": [\"dbine_test_sched_src\"], \"query\": {\"size\": 0, \"query\": {\"match_all\": {}}}}}]",
+            "triggers_query": triggers.to_string()
         }),
     )
     .await;
@@ -1237,8 +1529,62 @@ async fn os_jobs(base: String) {
     // The trigger keeps its id.
     assert!(m["monitor"]["triggers"][0]["query_level_trigger"]["id"].is_string());
     no_changes(&mut s, &mid).await;
-    assert!(s.run_job_from(&mid, "Entradas").await.is_ok());
-    assert!(s.run_job_from(&mid, "nunca").await.is_err());
+    // A monitor runs whole ("Ejecutar ahora"), not from a step.
+    let e = s.run_job_from(&mid, "Entradas").await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutar ahora"), "{e}");
+    assert!(s.run_job_from(&tid, "Transform").await.is_err());
+    let it = s
+        .scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == mid)
+        .unwrap();
+    assert_eq!((it.can_edit, it.can_delete, it.actions), (None, None, None));
+
+    // A per document monitor, with its type's inputs and triggers.
+    let v = new_job(
+        &mut s,
+        json!({
+            "type": "monitor",
+            "name": "dbine_test_sched_doc",
+            "monitor_type": "doc_level_monitor",
+            "enabled": false,
+            "m_schedule_kind": "period",
+            "m_interval": 10,
+            "m_interval_unit": "minutes",
+            "inputs_doc": "[{\"doc_level_input\": {\"description\": \"\", \"indices\": [\"dbine_test_sched_src\"], \"queries\": [{\"id\": \"q1\", \"name\": \"q1\", \"query\": \"host:\\\"a\\\"\", \"tags\": []}]}}]",
+            "triggers_doc": "[{\"document_level_trigger\": {\"name\": \"t\", \"severity\": \"1\", \"condition\": {\"script\": {\"source\": \"query[name=q1]\", \"lang\": \"painless\"}}, \"actions\": []}}]"
+        }),
+    )
+    .await;
+    let did = save(&mut s, None, &v).await;
+    let (_, m) = http(
+        "GET",
+        &format!(
+            "{base}/_plugins/_alerting/monitors/{}",
+            did.trim_start_matches("monitor:")
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(m["monitor"]["monitor_type"], "doc_level_monitor", "{m}");
+    assert_eq!(
+        m["monitor"]["inputs"][0]["doc_level_input"]["indices"][0],
+        "dbine_test_sched_src"
+    );
+    assert!(
+        m["monitor"]["triggers"][0]["document_level_trigger"].is_object(),
+        "{m}"
+    );
+    let form = s.scheduler_form("job", Some(&did)).await.unwrap();
+    assert!(form.values["inputs_doc"]
+        .as_str()
+        .unwrap()
+        .contains("doc_level_input"));
+    no_changes(&mut s, &did).await;
+    s.scheduler_delete("job", &did).await.unwrap();
 
     // ---- snapshot management
     let v = new_job(

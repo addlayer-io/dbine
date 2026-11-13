@@ -869,11 +869,16 @@ impl Rights {
                 .any(|(p, _, o)| p == "CREATE ANY" && o.is_none())
     }
 
-    fn changes(&self, privilege: &str, job: &Job) -> bool {
+    /// May use `privilege` on the job `schema.name` owned by `owner`.
+    fn changes_job(&self, privilege: &str, schema: &str, name: &str, owner: Option<&str>) -> bool {
         self.admin
-            || job.owner.as_deref() == Some(self.user.as_str())
-            || self.owns.contains(&job.schema)
-            || self.grant(privilege, &job.schema, Some(&job.name))
+            || owner == Some(self.user.as_str())
+            || self.owns.contains(schema)
+            || self.grant(privilege, schema, Some(name))
+    }
+
+    fn changes(&self, privilege: &str, job: &Job) -> bool {
+        self.changes_job(privilege, &job.schema, &job.name, job.owner.as_deref())
     }
 
     pub(crate) fn alters(&self, job: &Job) -> bool {
@@ -883,7 +888,34 @@ impl Rights {
     pub(crate) fn drops(&self, job: &Job) -> bool {
         self.changes("DROP", job)
     }
+}
 
+/// A job as the tree lists it: HANA's own jobs, and the ones the login
+/// can't alter or drop, aren't offered for editing or deleting (`rights`
+/// `None`: unknown, the server decides).
+pub(crate) fn item_of(j: dbine_driver::ServerJob, rights: Option<&Rights>) -> SchedulerItem {
+    let schema = j.group.clone().unwrap_or_default();
+    let may = |privilege: &str| {
+        !j.system
+            && rights.is_none_or(|r| r.changes_job(privilege, &schema, &j.name, j.owner.as_deref()))
+    };
+    let (can_edit, can_delete) = (may("ALTER"), may("DROP"));
+    SchedulerItem {
+        description: j.description.clone().or(j.schedule.clone()),
+        name: match &j.group {
+            Some(schema) => format!("{schema}.{}", j.name),
+            None => j.name.clone(),
+        },
+        can_edit: (!can_edit).then_some(false),
+        can_delete: (!can_delete).then_some(false),
+        id: j.id,
+        enabled: Some(j.enabled),
+        system: j.system,
+        actions: None,
+    }
+}
+
+impl Rights {
     /// May change or delete some job (its own, or others' through a grant).
     pub(crate) fn changes_any(&self) -> bool {
         self.creates()
@@ -1311,7 +1343,11 @@ pub(crate) async fn info(conn: &Connection) -> Result<SchedulerInfo> {
     Ok(SchedulerInfo {
         kinds: vec![
             SchedulerKind::new("job", "Jobs del planificador", "job del planificador")
-                .abilities(create, change, change),
+                .abilities(create, change, change)
+                // HANA has no statement to run a job now (from a step or
+                // whole) or to clear its runs, and no other action on it.
+                .run_from_step(false)
+                .clear_history(false),
         ],
         logs: false,
         notes,
@@ -1321,23 +1357,12 @@ pub(crate) async fn info(conn: &Connection) -> Result<SchedulerInfo> {
 pub(crate) async fn items(conn: &Connection, kind: &str) -> Result<SchedulerList> {
     check_kind(kind)?;
     let list = jobs::list(conn).await?;
+    let rights = rights(conn).await;
     Ok(SchedulerList {
         items: list
             .jobs
             .into_iter()
-            .map(|j| SchedulerItem {
-                description: j.description.clone().or(j.schedule.clone()),
-                id: j.id,
-                name: match &j.group {
-                    Some(schema) => format!("{schema}.{}", j.name),
-                    None => j.name,
-                },
-                enabled: Some(j.enabled),
-                system: j.system,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
-            })
+            .map(|j| item_of(j, rights.as_ref()))
             .collect(),
         notes: list.notes,
     })

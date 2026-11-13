@@ -38,6 +38,84 @@ pub(crate) async fn read(s: &EsSession, id: &str) -> Result<Cur> {
 }
 
 const DEFAULT_INPUTS: &str = "[\n  {\n    \"search\": {\n      \"indices\": [\"logs-*\"],\n      \"query\": {\n        \"size\": 0,\n        \"query\": { \"match_all\": {} }\n      }\n    }\n  }\n]";
+const BUCKET_INPUTS: &str = "[\n  {\n    \"search\": {\n      \"indices\": [\"logs-*\"],\n      \"query\": {\n        \"size\": 0,\n        \"query\": { \"match_all\": {} },\n        \"aggregations\": {\n          \"por_host\": {\n            \"composite\": {\n              \"sources\": [{ \"host\": { \"terms\": { \"field\": \"host.keyword\" } } }]\n            }\n          }\n        }\n      }\n    }\n  }\n]";
+const DOC_INPUTS: &str = "[\n  {\n    \"doc_level_input\": {\n      \"description\": \"\",\n      \"indices\": [\"logs-*\"],\n      \"queries\": [\n        { \"id\": \"errores\", \"name\": \"errores\", \"query\": \"status:500\", \"tags\": [] }\n      ]\n    }\n  }\n]";
+const CLUSTER_INPUTS: &str = "[\n  {\n    \"uri\": {\n      \"api_type\": \"CLUSTER_HEALTH\",\n      \"path\": \"_cluster/health\",\n      \"path_params\": \"\",\n      \"url\": \"http://localhost:9200/_cluster/health\"\n    }\n  }\n]";
+
+/// Each type of monitor's inputs and triggers fields: the type, the key
+/// suffix of its fields (`inputs_query`…), its default inputs, and the
+/// key of its triggers (a cluster metrics monitor's triggers are per query,
+/// like a query monitor's).
+const SHAPES: [(&str, &str, &str, &str); 4] = [
+    ("query_level_monitor", "query", DEFAULT_INPUTS, "query"),
+    ("bucket_level_monitor", "bucket", BUCKET_INPUTS, "bucket"),
+    ("doc_level_monitor", "doc", DOC_INPUTS, "doc"),
+    (
+        "cluster_metrics_monitor",
+        "cluster",
+        CLUSTER_INPUTS,
+        "query",
+    ),
+];
+
+/// The keys of a monitor type's inputs and triggers fields (Open Distro:
+/// `inputs` and `triggers`, its monitors have no type).
+fn keys_of(c: &Ctx, monitor_type: &str) -> (String, String) {
+    if c.opendistro {
+        return ("inputs".into(), "triggers".into());
+    }
+    let (_, i, _, t) = SHAPES
+        .iter()
+        .find(|(ty, ..)| *ty == monitor_type)
+        .unwrap_or(&SHAPES[0]);
+    (format!("inputs_{i}"), format!("triggers_{t}"))
+}
+
+/// The inputs and triggers fields of each type of monitor, each shown only
+/// for its type. The labels and help are literals, for the message
+/// extractor.
+fn typed_fields() -> (Vec<FormField>, Vec<FormField>) {
+    let inputs = vec![
+        FormField::new("inputs_query", "Entradas", FormKind::code("json"))
+            .required()
+            .when("monitor_type", &["query_level_monitor"])
+            .default(json!(DEFAULT_INPUTS))
+            .help("Una entrada search: los índices y la consulta (query DSL) que corre en cada ejecución; los disparadores leen su respuesta en ctx.results[0]."),
+        FormField::new("inputs_bucket", "Entradas", FormKind::code("json"))
+            .required()
+            .when("monitor_type", &["bucket_level_monitor"])
+            .default(json!(BUCKET_INPUTS))
+            .help("Una entrada search cuya consulta agrupa con una agregación composite: cada bucket se evalúa por separado."),
+        FormField::new("inputs_doc", "Entradas", FormKind::code("json"))
+            .required()
+            .when("monitor_type", &["doc_level_monitor"])
+            .default(json!(DOC_INPUTS))
+            .help("Una entrada doc_level_input: los índices y las consultas por documento (id, name, query en sintaxis de query string, tags)."),
+        FormField::new("inputs_cluster", "Entradas", FormKind::code("json"))
+            .required()
+            .when("monitor_type", &["cluster_metrics_monitor"])
+            .default(json!(CLUSTER_INPUTS))
+            .help("Una entrada uri: la API del clúster que se consulta (api_type, path y path_params, como CLUSTER_HEALTH, CLUSTER_STATS o NODES_STATS)."),
+    ];
+    let triggers = vec![
+        FormField::new("triggers_query", "Disparadores", FormKind::code("json"))
+            .when("monitor_type", &["query_level_monitor", "cluster_metrics_monitor"])
+            .default(json!("[]"))
+            .placeholder("[{ \"query_level_trigger\": { \"name\": \"hay errores\", \"severity\": \"1\", \"condition\": { \"script\": { \"source\": \"ctx.results[0].hits.total.value > 0\", \"lang\": \"painless\" } }, \"actions\": [] } }]")
+            .help("Lista de query_level_trigger: name, severity (1 a 5), condition (un script sobre ctx.results) y actions (cada una con destination_id = el id de un canal, message_template y throttle)."),
+        FormField::new("triggers_bucket", "Disparadores", FormKind::code("json"))
+            .when("monitor_type", &["bucket_level_monitor"])
+            .default(json!("[]"))
+            .placeholder("[{ \"bucket_level_trigger\": { \"name\": \"muchos\", \"severity\": \"1\", \"condition\": { \"buckets_path\": { \"_count\": \"_count\" }, \"parent_bucket_path\": \"por_host\", \"script\": { \"source\": \"params._count > 50\" } }, \"actions\": [] } }]")
+            .help("Lista de bucket_level_trigger: name, severity (1 a 5), condition (buckets_path, parent_bucket_path = la agregación composite, y un script por bucket) y actions."),
+        FormField::new("triggers_doc", "Disparadores", FormKind::code("json"))
+            .when("monitor_type", &["doc_level_monitor"])
+            .default(json!("[]"))
+            .placeholder("[{ \"document_level_trigger\": { \"name\": \"errores\", \"severity\": \"1\", \"condition\": { \"script\": { \"source\": \"query[name=errores]\", \"lang\": \"painless\" } }, \"actions\": [] } }]")
+            .help("Lista de document_level_trigger: name, severity (1 a 5), condition (un script que nombra las consultas: query[name=…], query[tag=…]) y actions."),
+    ];
+    (inputs, triggers)
+}
 
 pub(crate) fn sections(c: &Ctx, new: bool, choices: &Choices) -> Vec<FormSection> {
     let mut general = vec![FormField::new("name", "Nombre", FormKind::Text)
@@ -72,13 +150,19 @@ pub(crate) fn sections(c: &Ctx, new: bool, choices: &Choices) -> Vec<FormSection
         .filter(|(id, _)| !id.is_empty())
         .map(|(id, name)| format!("{id}: {name}"))
         .collect();
-    let mut triggers = vec![FormField::new("triggers", "Disparadores", FormKind::code("json"))
-        .default(json!("[]"))
-        .help(if c.opendistro {
-            "Lista de disparadores: name, severity (1 a 5), condition (un script) y actions (cada una con destination_id, message_template y throttle)."
-        } else {
-            "Lista de disparadores (query_level_trigger, bucket_level_trigger o document_level_trigger): name, severity (1 a 5), condition y actions (cada una con destination_id = el id de un canal, message_template, throttle)."
-        })];
+    let (inputs, mut triggers) = if c.opendistro {
+        (
+            vec![FormField::new("inputs", "Entradas", FormKind::code("json"))
+                .required()
+                .default(json!(DEFAULT_INPUTS))
+                .help("Lista de entradas: search (índices y consulta) o http.")],
+            vec![FormField::new("triggers", "Disparadores", FormKind::code("json"))
+                .default(json!("[]"))
+                .help("Lista de disparadores: name, severity (1 a 5), condition (un script) y actions (cada una con destination_id, message_template y throttle).")],
+        )
+    } else {
+        typed_fields()
+    };
     if !channels.is_empty() {
         triggers.push(
             FormField::new("channels", "Canales disponibles", FormKind::Textarea)
@@ -92,10 +176,7 @@ pub(crate) fn sections(c: &Ctx, new: bool, choices: &Choices) -> Vec<FormSection
             FormField::new(
                 "m_schedule_kind",
                 "Programación",
-                FormKind::select(&[
-                    ("period", "Cada cierto tiempo"),
-                    ("cron", "Expresión cron"),
-                ]),
+                FormKind::select(&[("period", "Cada cierto tiempo"), ("cron", "Expresión cron")]),
             )
             .required()
             .default(json!("period")),
@@ -106,11 +187,7 @@ pub(crate) fn sections(c: &Ctx, new: bool, choices: &Choices) -> Vec<FormSection
             FormField::new(
                 "m_interval_unit",
                 "Unidad",
-                FormKind::select(&[
-                    ("minutes", "Minutos"),
-                    ("hours", "Horas"),
-                    ("days", "Días"),
-                ]),
+                FormKind::select(&[("minutes", "Minutos"), ("hours", "Horas"), ("days", "Días")]),
             )
             .required()
             .when("m_schedule_kind", &["period"])
@@ -124,29 +201,21 @@ pub(crate) fn sections(c: &Ctx, new: bool, choices: &Choices) -> Vec<FormSection
                 .when("m_schedule_kind", &["cron"])
                 .default(json!("UTC")),
         ]),
-        FormSection::new("inputs", "Entradas").fields(vec![FormField::new(
-            "inputs",
-            "Entradas",
-            FormKind::code("json"),
-        )
-        .required()
-        .default(json!(DEFAULT_INPUTS))
-        .help("Lista de entradas: search (índices y consulta), doc_level_input (índices y consultas por documento) o uri (API del clúster).")]),
+        FormSection::new("inputs", "Entradas").fields(inputs),
         FormSection::new("triggers", "Disparadores").fields(triggers),
     ]
 }
 
-pub(crate) fn values_of(cur: &Cur) -> BTreeMap<String, Value> {
+pub(crate) fn values_of(c: &Ctx, cur: &Cur) -> BTreeMap<String, Value> {
     let m = &cur.monitor;
     let mut v = BTreeMap::new();
     v.insert(
         "name".into(),
         json!(text(m.get("name")).unwrap_or_default()),
     );
-    v.insert(
-        "monitor_type".into(),
-        json!(text(m.get("monitor_type")).unwrap_or_else(|| "query_level_monitor".into())),
-    );
+    let monitor_type = text(m.get("monitor_type")).unwrap_or_else(|| TYPES[0].into());
+    let (inputs_key, triggers_key) = keys_of(c, &monitor_type);
+    v.insert("monitor_type".into(), json!(monitor_type));
     v.insert(
         "enabled".into(),
         json!(m.get("enabled").and_then(J::as_bool).unwrap_or(false)),
@@ -175,11 +244,11 @@ pub(crate) fn values_of(cur: &Cur) -> BTreeMap<String, Value> {
         );
     }
     v.insert(
-        "inputs".into(),
+        inputs_key,
         json_text(Some(m.get("inputs").unwrap_or(&J::Arr(Vec::new())))),
     );
     v.insert(
-        "triggers".into(),
+        triggers_key,
         json_text(Some(m.get("triggers").unwrap_or(&J::Arr(Vec::new())))),
     );
     v
@@ -259,11 +328,25 @@ pub(crate) fn spec(c: &Ctx, values: &BTreeMap<String, Value>) -> Result<Monitor>
             )))
         }
     };
+    // The fields of the monitor's type; `inputs` / `triggers` when they
+    // aren't there at all (a caller that doesn't know the form's keys).
+    let (inputs_key, triggers_key) = keys_of(c, monitor_type.as_deref().unwrap_or(TYPES[0]));
+    let present = |k: String, generic: &str| {
+        if values.contains_key(&k) {
+            k
+        } else {
+            generic.to_string()
+        }
+    };
     let inputs = v
-        .json("inputs", "Entradas", Shape::Array)?
+        .json(&present(inputs_key, "inputs"), "Entradas", Shape::Array)?
         .ok_or_else(|| bad("Faltan las entradas del monitor.".into()))?;
     let triggers = v
-        .json("triggers", "Disparadores", Shape::Array)?
+        .json(
+            &present(triggers_key, "triggers"),
+            "Disparadores",
+            Shape::Array,
+        )?
         .unwrap_or(J::Arr(Vec::new()));
     Ok(Monitor {
         name,
@@ -324,7 +407,7 @@ pub(crate) fn plan(c: &Ctx, cur: Option<&Cur>, values: &FormValues) -> Result<Pl
             "este monitor lo administra {owner}: el plugin Alerting no deja cambiarlo desde aquí"
         )));
     }
-    let have = spec(c, &values_of(cur))?;
+    let have = spec(c, &values_of(c, cur))?;
     let mut plan = Plan {
         notes: vec![format!("Monitor «{}»", have.name)],
         id: Some(super::Type::Monitor.job_id(&cur.id)),

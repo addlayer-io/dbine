@@ -286,6 +286,12 @@ async fn body(c: ConnectionConfig, mgmt: String) {
     assert_eq!(keys, ["job", "plan", "archived", "imported", "settings"]);
     assert!(info.kinds.iter().all(|k| k.can_edit || k.key != "plan"));
     assert!(info.logs, "8.0 has the event log");
+    // A repository starts at a task of its plan; nothing to clear; a full
+    // backup and a merge of every backup now.
+    let job = &info.kinds[0];
+    assert!(job.run_from_step && !job.clear_history, "{job:?}");
+    let acts: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(acts, ["backup_now", "merge_now"]);
 
     // A built-in plan: read-only, and saving or deleting it is refused.
     assert!(listed(&mut s, "plan")
@@ -402,6 +408,14 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         f.notes
     );
     assert!(s.scheduler_delete_script("plan", PLAN).await.is_err());
+    // The tree offers neither an edit nor a delete on it, nor on a
+    // built-in plan; the plan nobody uses, both.
+    let plans = s.scheduler_items("plan").await.unwrap().items;
+    for (p, fixed) in [(PLAN, true), ("_hourly_backups", true), (PLAN2, false)] {
+        let it = plans.iter().find(|i| i.id == p).unwrap();
+        let want = if fixed { Some(false) } else { None };
+        assert_eq!((it.can_edit, it.can_delete), (want, want), "{p}");
+    }
 
     // Its form: what the service says of it.
     let f = s.scheduler_form("job", Some(&id)).await.expect("repo form");
@@ -485,6 +499,83 @@ async fn body(c: ConnectionConfig, mgmt: String) {
         s.clear_job_history(&id).await,
         Err(Error::Unsupported(_))
     ));
+
+    // The actions: a full backup now, then every backup merged into one.
+    let it = s
+        .scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == id)
+        .unwrap();
+    assert_eq!(
+        it.actions,
+        Some(vec!["backup_now".to_string(), "merge_now".to_string()])
+    );
+    let sc = s
+        .scheduler_action_script("job", &id, "backup_now")
+        .await
+        .unwrap();
+    assert!(
+        sc.contains(&format!("/active/{REPO}/backup")) && sc.contains("\"full_backup\": true"),
+        "{sc}"
+    );
+    let before = task_names(&mgmt, REPO).await;
+    s.scheduler_action("job", &id, "backup_now")
+        .await
+        .expect("full backup now");
+    assert_eq!(task_done(&mgmt, REPO, "BACKUP", &before).await, "done");
+    let info_of = || async {
+        backup(
+            &mgmt,
+            Method::GET,
+            &format!("/cluster/self/repository/active/{REPO}/info"),
+            None,
+        )
+        .await
+        .1
+    };
+    let i = info_of().await;
+    let n = i["backups"].as_array().map_or(0, Vec::len);
+    assert!(n >= 2, "{i}");
+    assert!(
+        i["backups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["type"] == "FULL"),
+        "{i}"
+    );
+    let sc = s
+        .scheduler_action_script("job", &id, "merge_now")
+        .await
+        .unwrap();
+    assert!(
+        sc.contains(&format!("/active/{REPO}/merge")) && sc.contains("\"offset_start\": 0"),
+        "{sc}"
+    );
+    let before = task_names(&mgmt, REPO).await;
+    s.scheduler_action("job", &id, "merge_now")
+        .await
+        .expect("merge now");
+    assert_eq!(task_done(&mgmt, REPO, "MERGE", &before).await, "done");
+    let i = info_of().await;
+    assert_eq!(i["backups"].as_array().map_or(0, Vec::len), 1, "{i}");
+    // One backup left: nothing to merge. No other action, nor on a plan.
+    let e = s
+        .scheduler_action_script("job", &id, "merge_now")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("un solo backup"), "{e}");
+    assert!(s
+        .scheduler_action_script("job", &id, "archive")
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_script("plan", PLAN, "backup_now")
+        .await
+        .is_err());
 
     // The service's events.
     let logs = s.scheduler_logs().await.expect("logs");
@@ -642,6 +733,11 @@ async fn read_only_body(c: ConnectionConfig, mgmt: String) {
         "{:?}",
         info.notes
     );
+    // No actions, nor a task started now.
+    assert!(info
+        .kinds
+        .iter()
+        .all(|k| k.actions.is_empty() && !k.run_from_step));
     let f = s.scheduler_form("plan", None).await.expect("form");
     assert!(f.read_only);
     let mut v = values_of(&f);

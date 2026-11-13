@@ -51,6 +51,8 @@ pub(crate) struct Cur {
     pub(crate) id: String,
     pub(crate) watch: J,
     pub(crate) active: bool,
+    /// Some action waits for an acknowledgement.
+    pub(crate) ackable: bool,
     pub(crate) seq: String,
     pub(crate) term: String,
 }
@@ -64,6 +66,7 @@ pub(crate) async fn read(s: &EsSession, id: &str) -> Result<Cur> {
             .at(&["status", "state", "active"])
             .and_then(J::as_bool)
             .unwrap_or(true),
+        ackable: crate::jobs::watch_ackable(&hit),
         seq: text(hit.get("_seq_no")).unwrap_or_default(),
         term: text(hit.get("_primary_term")).unwrap_or_default(),
     })
@@ -720,6 +723,32 @@ pub(crate) fn delete_plan(cur: &Cur) -> Plan {
         name: cur.id.clone(),
         ..Plan::default()
     }
+}
+
+/// "Reconocer": `_ack` on every action of the watch, which Watcher then
+/// throttles until the watch's condition stops holding. Only an action
+/// that ran since its condition last held (`ackable`) has something to
+/// acknowledge.
+pub(crate) fn ack_plan(cur: &Cur) -> Result<Plan> {
+    if !cur.ackable {
+        return Err(bad(format!(
+            "Ninguna acción del watch «{}» espera un reconocimiento: se reconoce una acción que se ejecutó porque se cumplió la condición.",
+            cur.id
+        )));
+    }
+    Ok(Plan {
+        notes: vec![format!(
+            "Reconoce las acciones del watch «{}»: Watcher no las vuelve a ejecutar hasta que su condición deje de cumplirse.",
+            cur.id
+        )],
+        reqs: vec![Req::new(
+            "PUT",
+            format!("/_watcher/watch/{}/_ack", path_segment(&cur.id)),
+            None,
+        )],
+        name: cur.id.clone(),
+        ..Plan::default()
+    })
 }
 
 /// `_execute`'s body that runs the actions from `step` on: the earlier

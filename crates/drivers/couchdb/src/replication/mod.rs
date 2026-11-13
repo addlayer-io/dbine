@@ -137,7 +137,15 @@ pub(crate) fn info_of(c: &Ctx) -> SchedulerInfo {
     }
     SchedulerInfo {
         kinds: vec![
-            SchedulerKind::new("job", "Replicaciones", "replicación").abilities(true, true, true),
+            SchedulerKind::new("job", "Replicaciones", "replicación")
+                .abilities(true, true, true)
+                // One step, the replication itself: starting it again is
+                // the job's "run now" (a new revision of its document);
+                // `run_job_from` refuses.
+                .run_from_step(false)
+                // Its history lives in the scheduler's memory, with no call
+                // to clear it.
+                .clear_history(false),
             SchedulerKind::new("settings", "Configuración", "configuración")
                 .abilities(false, true, false),
         ],
@@ -230,9 +238,9 @@ pub(crate) async fn delete(s: &CouchSession, kind: &str, id: &str) -> Result<()>
     run(s, &ch).await.map(|_| ())
 }
 
-pub(crate) async fn run_from(s: &mut CouchSession, id: &str, step: &str) -> Result<()> {
+pub(crate) async fn run_from(s: &CouchSession, id: &str) -> Result<()> {
     ready(s).await?;
-    doc::run_from(s, id, step).await
+    doc::run_from(id)
 }
 
 pub(crate) async fn clear_history(s: &CouchSession, id: &str) -> Result<()> {

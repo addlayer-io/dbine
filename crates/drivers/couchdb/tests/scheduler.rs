@@ -247,6 +247,12 @@ async fn body(c: ConnectionConfig, h: Http) {
     let info = s.scheduler_info().await.expect("info");
     let keys: Vec<&str> = info.kinds.iter().map(|k| k.key.as_str()).collect();
     assert_eq!(keys, ["job", "settings"]);
+    // One step, restarted by "run now"; no history to clear; no actions.
+    let job = &info.kinds[0];
+    assert!(
+        !job.run_from_step && !job.clear_history && job.actions.is_empty(),
+        "{job:?}"
+    );
 
     // A one-shot replication with credentials and a selector, into a target
     // it creates.
@@ -293,12 +299,17 @@ async fn body(c: ConnectionConfig, h: Http) {
     assert!(items.items.iter().any(|i| i.id == id));
     assert!(s.jobs().await.unwrap().jobs.iter().any(|j| j.id == id));
 
-    // Run it again: a new revision, done again.
+    // Run it again: a new revision, done again. It has one step: starting
+    // at it is refused, as the kind's flag says.
     let rev = doc(&h, DOC_A).await["_rev"].clone();
-    assert!(s.run_job_from(&id, "Otro").await.is_err());
-    s.run_job_from(&id, "Replicación")
-        .await
-        .expect("run from its step");
+    for step in ["Replicación", "Otro"] {
+        match s.run_job_from(&id, step).await {
+            Err(Error::Unsupported(m)) => assert!(m.contains("Ejecutar ahora"), "{m}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(doc(&h, DOC_A).await["_rev"], rev);
+    s.run_job(&id).await.expect("run it again");
     assert_ne!(doc(&h, DOC_A).await["_rev"], rev);
     wait_state(&h, DOC_A, &["completed"]).await;
     assert!(matches!(
@@ -310,6 +321,7 @@ async fn body(c: ConnectionConfig, h: Http) {
     let f = s.scheduler_form("job", Some(&id)).await.expect("form");
     assert!(!f.read_only);
     assert!(f.values["source_password"].is_null());
+    assert_eq!(f.values["source_auth"], "basic");
     assert_eq!(f.values["source_url"], inner(SRC).as_str());
     assert_eq!(f.values["source_user"], h.user.as_str());
     assert_eq!(f.values["filter_type"], "selector");
@@ -350,7 +362,7 @@ async fn body(c: ConnectionConfig, h: Http) {
     assert_eq!(d["owner"], h.user.as_str());
     wait_state(&h, DOC_A, &["running"]).await;
     // A running one doesn't start again.
-    assert!(s.run_job_from(&id, "Replicación").await.is_err());
+    assert!(s.run_job(&id).await.is_err());
 
     // One without an id, through a view, with a header.
     let f = s.scheduler_form("job", None).await.unwrap();
@@ -379,6 +391,44 @@ async fn body(c: ConnectionConfig, h: Http) {
         .send(Method::GET, &format!("/{DST3}/_all_docs"), None)
         .await;
     assert_eq!(dst3["total_rows"], 2, "{dst3}");
+
+    // Its target authenticates with a token instead: the header comes from
+    // the Token field, the user and password go, the other header stays.
+    let f = s.scheduler_form("job", Some(&id_b)).await.unwrap();
+    assert_eq!(f.values["target_auth"], "basic");
+    let mut v = values_of(&f);
+    set(&mut v, "target_auth", json!("bearer"));
+    set(&mut v, "target_token", json!("t0k-dbine"));
+    let script = s.scheduler_script("job", Some(&id_b), &v).await.unwrap();
+    assert!(!script.contains("t0k-dbine"), "{script}");
+    save(&mut s, "job", Some(&id_b), &v).await;
+    let d = doc(&h, &doc_b).await;
+    assert_eq!(
+        d["target"]["headers"],
+        json!({"X-Dbine": "test", "Authorization": "Bearer t0k-dbine"})
+    );
+    assert!(d["target"].get("auth").is_none(), "{d}");
+    let f = s.scheduler_form("job", Some(&id_b)).await.unwrap();
+    assert_eq!(f.values["target_auth"], "bearer");
+    assert!(f.values["target_token"].is_null());
+    assert!(!f.values["target_headers"]
+        .as_str()
+        .unwrap()
+        .contains("Authorization"));
+    let script = s
+        .scheduler_script("job", Some(&id_b), &values_of(&f))
+        .await
+        .unwrap();
+    assert!(script.contains("no hay cambios"), "{script}");
+    // And back to its user, the password typed again: the token goes.
+    let mut v = values_of(&f);
+    set(&mut v, "target_auth", json!("basic"));
+    set(&mut v, "target_user", json!(h.user));
+    set(&mut v, "target_password", json!(h.pass));
+    save(&mut s, "job", Some(&id_b), &v).await;
+    let d = doc(&h, &doc_b).await;
+    assert_eq!(d["target"]["headers"], json!({"X-Dbine": "test"}));
+    assert_eq!(d["target"]["auth"]["basic"]["password"], h.pass.as_str());
 
     // A transient replication: shown read-only, deleted = cancelled.
     let (st, r) = h
@@ -409,6 +459,16 @@ async fn body(c: ConnectionConfig, h: Http) {
     }
     let f = s.scheduler_form("job", Some(&rep)).await.unwrap();
     assert!(f.read_only && f.values["continuous"] == true);
+    // The tree offers no edit on it, only its cancel.
+    let it = s
+        .scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == rep)
+        .unwrap();
+    assert_eq!((it.can_edit, it.can_delete), (Some(false), None));
     assert!(s
         .scheduler_save("job", Some(&rep), &values_of(&f))
         .await

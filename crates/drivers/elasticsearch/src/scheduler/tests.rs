@@ -28,6 +28,7 @@ fn es_ctx() -> Ctx {
         slm_running: true,
         lifecycle: true,
         manage_lifecycle: true,
+        reset: true,
         notes: Vec::new(),
     }
 }
@@ -51,6 +52,7 @@ fn os_ctx(opendistro: bool) -> Ctx {
         slm_running: true,
         lifecycle: true,
         manage_lifecycle: true,
+        reset: false,
         notes: Vec::new(),
     }
 }
@@ -213,41 +215,36 @@ fn scripts_mask_secrets_but_keep_the_redaction_marker() {
     assert_eq!(empty.render(), "# «x y»: no hay cambios que guardar.\n");
 }
 
-/// Every field of a new job's form shows only for its type: either its
-/// own `when` on the type, or a `when` on a field only its type has.
+/// Every field of a new job's form shows only for its type (its `when` or
+/// one of its `when_all` names the type), and so does every tab but
+/// "General", which holds the type.
 fn gated(sections: &[FormSection]) {
-    let fields: Vec<&FormField> = sections.iter().flat_map(|s| s.fields.iter()).collect();
-    let type_of = |f: &FormField| -> Option<Vec<String>> {
-        match &f.when {
-            Some((k, v)) if k == "type" => Some(v.clone()),
-            _ => None,
-        }
-    };
-    for f in &fields {
-        if f.key == "type" {
-            assert!(f.when.is_none());
-            continue;
-        }
-        let Some((k, _)) = &f.when else {
-            panic!("{} shows for every type", f.key);
+    assert_eq!(sections[0].key, "general");
+    assert!(sections[0].when.is_none());
+    for s in &sections[1..] {
+        let Some((k, v)) = &s.when else {
+            panic!("tab {} shows for every type", s.key);
         };
-        if k == "type" {
-            continue;
+        assert_eq!(k, "type", "{}", s.key);
+        assert!(s.key.starts_with(&format!("{}_", v[0])), "{}", s.key);
+    }
+    for (i, s) in sections.iter().enumerate() {
+        for f in &s.fields {
+            if f.key == "type" {
+                assert!(f.when.is_none() && f.when_all.is_empty());
+                continue;
+            }
+            let t = type_of(f.when.as_ref(), &f.when_all)
+                .unwrap_or_else(|| panic!("{} shows for every type", f.key));
+            if i > 0 {
+                assert_eq!(Some(&t), s.when.as_ref().map(|w| &w.1[0]), "{}", f.key);
+            }
         }
-        let owners: Vec<_> = fields.iter().filter(|o| &o.key == k).collect();
-        assert!(!owners.is_empty(), "{} depends on a missing {k}", f.key);
-        let types: Vec<Vec<String>> = owners.iter().filter_map(|o| type_of(o)).collect();
-        assert_eq!(types.len(), owners.len(), "{k} isn't gated by type");
-        assert!(
-            types.windows(2).all(|w| w[0] == w[1]),
-            "{k} is shared by types: {} would show for all of them",
-            f.key
-        );
     }
 }
 
 #[test]
-fn a_new_jobs_form_shows_each_types_fields_only_for_it() {
+fn a_new_jobs_form_shows_each_types_tabs_only_for_it() {
     let ch = choices();
     for c in [es_ctx(), os_ctx(false), os_ctx(true)] {
         let parts = c
@@ -264,7 +261,37 @@ fn a_new_jobs_form_shows_each_types_fields_only_for_it() {
             panic!()
         };
         assert_eq!(options.len(), c.types.len());
+        // Each type's own tabs, as an existing job of that type has them.
+        for t in &c.types {
+            let own: Vec<String> = sections_of(&c, *t, true, &ch)
+                .iter()
+                .filter(|s| s.key != "general")
+                .map(|s| format!("{}_{}", t.key(), s.key))
+                .collect();
+            let shown: Vec<String> = sections
+                .iter()
+                .filter(|s| s.when.as_ref().is_some_and(|w| w.1 == [t.key()]))
+                .map(|s| s.key.clone())
+                .collect();
+            assert_eq!(shown, own, "{t:?}");
+        }
     }
+    // A watch's trigger fields follow the schedule's kind and the type.
+    let c = es_ctx();
+    let sections = combined(&c, vec![(Type::Watch, watch::sections())]);
+    let interval = sections
+        .iter()
+        .flat_map(|s| s.fields.iter())
+        .find(|f| f.key == "interval")
+        .unwrap();
+    assert_eq!(
+        interval.when,
+        Some(("trigger_kind".into(), vec!["interval".into()]))
+    );
+    assert_eq!(
+        interval.when_all,
+        [("type".to_string(), vec!["watch".to_string()])]
+    );
     // A type the user may not manage isn't offered.
     let mut c = es_ctx();
     c.manage = vec![Type::Transform];
@@ -528,6 +555,7 @@ fn watch_cur(watch: &str, active: bool) -> watch::Cur {
         id: "errores".into(),
         watch: j(watch),
         active,
+        ackable: false,
         seq: "7".into(),
         term: "2".into(),
     }
@@ -858,6 +886,65 @@ fn slm_policies() {
     assert_eq!(p.id.as_deref(), Some("slm:noche2"));
 }
 
+#[test]
+fn elastic_clouds_snapshot_policy_keeps_its_id_and_repository() {
+    let ch = choices();
+    let cur = slm::Cur {
+        id: "cloud-snapshot-policy".into(),
+        entry: j(SLM),
+    };
+    let base = FormValues {
+        values: slm::values_of(&cur),
+        lists: BTreeMap::new(),
+    };
+    assert!(slm_plan(Some(&cur), &base, &ch).unwrap().reqs.is_empty());
+    // A new id would create another policy and delete this one; another
+    // repository would stop the deployment's snapshots: both refused.
+    for (k, x) in [
+        ("id", json!("otra")),
+        ("repository", json!("repo2")),
+        ("id", json!("")),
+    ] {
+        let mut v = base.clone();
+        v.values.insert(k.into(), x);
+        let e = err(slm_plan(Some(&cur), &v, &ch));
+        assert!(
+            e.contains("Elastic Cloud") && e.contains("repositorio"),
+            "{k}: {e}"
+        );
+    }
+    // Its schedule, retention and snapshots' options change in place.
+    let mut v = base.clone();
+    v.values.insert("slm_schedule".into(), json!("0 0 2 * * ?"));
+    v.values.insert("max_count".into(), json!(9));
+    v.values.insert("partial".into(), json!(true));
+    let p = slm_plan(Some(&cur), &v, &ch).unwrap();
+    let paths: Vec<(&str, &str)> = p.reqs.iter().map(|r| (r.method, r.path.as_str())).collect();
+    assert_eq!(paths, [("PUT", "/_slm/policy/cloud-snapshot-policy")]);
+    // Any other policy is renamed as before.
+    let other = slm::Cur {
+        id: "noche".into(),
+        entry: j(SLM),
+    };
+    let mut v = FormValues {
+        values: slm::values_of(&other),
+        lists: BTreeMap::new(),
+    };
+    v.values.insert("id".into(), json!("noche2"));
+    assert_eq!(slm_plan(Some(&other), &v, &ch).unwrap().reqs.len(), 2);
+    // Its form shows the id and the repository read only.
+    let mut sections = slm::sections();
+    lock_cloud_slm(&mut sections);
+    let locked: Vec<&str> = sections
+        .iter()
+        .flat_map(|s| s.fields.iter())
+        .filter(|f| f.read_only)
+        .map(|f| f.key.as_str())
+        .collect();
+    assert_eq!(locked, ["id", "repository"]);
+    assert!(sections[0].fields[0].help.is_none());
+}
+
 // ---------------------------------------------------------------------------
 // OpenSearch transforms
 // ---------------------------------------------------------------------------
@@ -1000,7 +1087,7 @@ fn monitors() {
         r#"{"period":{"interval":1,"unit":"MINUTES"}}"#
     );
     for (k, x, says) in [
-        ("inputs", json!("{}"), "lista JSON"),
+        ("inputs_query", json!("{}"), "lista JSON"),
         ("monitor_type", json!("composite"), "tipo de monitor"),
         ("m_interval", json!(0), "entre 1"),
         ("name", json!(""), "nombre"),
@@ -1017,7 +1104,8 @@ fn monitors() {
         .iter()
         .flat_map(|s| s.fields.iter())
         .any(|f| f.key == "monitor_type"));
-    let p = monitor::plan(&od, None, &v).unwrap();
+    let odv = with_defaults(&fields, json!({"name": "m"}));
+    let p = monitor::plan(&od, None, &odv).unwrap();
     assert_eq!(p.reqs[0].path, "/_opendistro/_alerting/monitors");
     assert!(p.reqs[0]
         .body
@@ -1032,7 +1120,7 @@ fn monitors() {
         seq: "4".into(),
         term: "1".into(),
     };
-    let base = monitor::values_of(&cur);
+    let base = monitor::values_of(&c, &cur);
     let edit = |change: Value| {
         let mut v = FormValues {
             values: base.clone(),
@@ -1060,9 +1148,10 @@ fn monitors() {
         j(MONITOR).get("triggers").unwrap().compact()
     );
     // Other inputs: the visual editor's state goes.
-    let p =
-        edit(json!({"inputs": "[{\"search\": {\"indices\": [\"j\"], \"query\": {\"size\": 0}}}]"}))
-            .unwrap();
+    let p = edit(
+        json!({"inputs_query": "[{\"search\": {\"indices\": [\"j\"], \"query\": {\"size\": 0}}}]"}),
+    )
+    .unwrap();
     assert!(p.reqs[0]
         .body
         .as_ref()
@@ -1079,7 +1168,7 @@ fn monitors() {
         &c,
         Some(&other),
         &FormValues {
-            values: monitor::values_of(&other),
+            values: monitor::values_of(&c, &other),
             lists: BTreeMap::new()
         }
     )
@@ -1100,6 +1189,87 @@ fn monitors() {
         json!("ch1: ch1"),
         "the channels' ids for the actions"
     );
+}
+
+#[test]
+fn each_monitor_type_has_its_own_inputs_and_triggers() {
+    let c = os_ctx(false);
+    let ch = choices();
+    let sections = monitor::sections(&c, true, &ch);
+    let fields: Vec<&FormField> = sections.iter().flat_map(|s| s.fields.iter()).collect();
+    for (key, types) in [
+        ("inputs_query", vec!["query_level_monitor"]),
+        ("inputs_bucket", vec!["bucket_level_monitor"]),
+        ("inputs_doc", vec!["doc_level_monitor"]),
+        ("inputs_cluster", vec!["cluster_metrics_monitor"]),
+        (
+            "triggers_query",
+            vec!["query_level_monitor", "cluster_metrics_monitor"],
+        ),
+        ("triggers_bucket", vec!["bucket_level_monitor"]),
+        ("triggers_doc", vec!["doc_level_monitor"]),
+    ] {
+        let f = fields.iter().find(|f| f.key == key).unwrap();
+        let want: Vec<String> = types.iter().map(|t| t.to_string()).collect();
+        assert_eq!(f.when, Some(("monitor_type".into(), want)), "{key}");
+    }
+    assert!(!fields
+        .iter()
+        .any(|f| f.key == "inputs" || f.key == "triggers"));
+    // A document level monitor sends its own inputs and triggers.
+    let v = with_defaults(
+        &sections,
+        json!({"name": "d", "monitor_type": "doc_level_monitor",
+               "triggers_doc": "[{\"document_level_trigger\": {\"name\": \"t\", \"severity\": \"1\", \"condition\": {\"script\": {\"source\": \"query[name=errores]\", \"lang\": \"painless\"}}, \"actions\": []}}]"}),
+    );
+    let p = monitor::plan(&c, None, &v).unwrap();
+    let b = p.reqs[0].body.as_ref().unwrap();
+    assert_eq!(b.get("monitor_type").unwrap().text(), "doc_level_monitor");
+    assert!(b
+        .at(&["inputs"])
+        .unwrap()
+        .compact()
+        .contains("doc_level_input"));
+    assert!(b
+        .at(&["triggers"])
+        .unwrap()
+        .compact()
+        .contains("document_level_trigger"));
+    // A cluster metrics monitor: the uri input and per query triggers.
+    let v = with_defaults(
+        &sections,
+        json!({"name": "c", "monitor_type": "cluster_metrics_monitor"}),
+    );
+    let b = monitor::plan(&c, None, &v).unwrap().reqs[0]
+        .body
+        .clone()
+        .unwrap();
+    assert!(b
+        .at(&["inputs"])
+        .unwrap()
+        .compact()
+        .contains("CLUSTER_HEALTH"));
+    // A caller that sends `inputs` without the form's keys is understood.
+    let v = fv(json!({"name": "q", "monitor_type": "bucket_level_monitor",
+                      "m_schedule_kind": "period", "m_interval": 5, "m_interval_unit": "minutes",
+                      "inputs": "[{\"search\": {\"indices\": [\"x\"], \"query\": {\"size\": 0}}}]"}));
+    let b = monitor::plan(&c, None, &v).unwrap().reqs[0]
+        .body
+        .clone()
+        .unwrap();
+    assert!(b.at(&["inputs"]).unwrap().compact().contains("\"x\""));
+    // An existing monitor's values go to its type's fields.
+    let cur = monitor::Cur {
+        id: "Ab1".into(),
+        monitor: j(&MONITOR.replace("query_level_monitor", "bucket_level_monitor")),
+        seq: "4".into(),
+        term: "1".into(),
+    };
+    let v = monitor::values_of(&c, &cur);
+    assert!(v.contains_key("inputs_bucket") && v.contains_key("triggers_bucket"));
+    assert!(!v.contains_key("inputs_query"));
+    let od = monitor::values_of(&os_ctx(true), &cur);
+    assert!(od.contains_key("inputs") && od.contains_key("triggers"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1267,6 +1437,153 @@ fn lifecycle_kinds() {
     c.manage_lifecycle = false;
     assert!(lifecycle_ready(&c, false).is_ok() && lifecycle_ready(&c, true).is_err());
     assert!(!info_of(&c).kinds[1].can_create);
+}
+
+#[test]
+fn flags_and_actions_per_cluster() {
+    // Elasticsearch: watches start at an action; watches and SLM keep a
+    // history; a stopped transform resets, a watch's actions are acked.
+    let es = info_of(&es_ctx());
+    let job = &es.kinds[0];
+    assert!(job.run_from_step && job.clear_history);
+    let keys: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, ["reset", "ack"]);
+    assert!(es.kinds[1].actions.is_empty() && !es.kinds[1].run_from_step);
+    // Without Watcher (basic license): no start at a step; SLM's history.
+    let mut c = es_ctx();
+    c.types = vec![Type::Transform, Type::Slm];
+    c.manage = c.types.clone();
+    let job = &info_of(&c).kinds[0];
+    assert!(!job.run_from_step && job.clear_history);
+    assert_eq!(job.actions.len(), 1);
+    // Before 8.1 there's no _reset; without manage_transform, no action.
+    c.reset = false;
+    assert!(info_of(&c).kinds[0].actions.is_empty());
+    let mut c = es_ctx();
+    c.manage = vec![Type::Slm];
+    assert!(info_of(&c).kinds[0].actions.is_empty());
+    // Watcher there but without manage_watcher (monitor_watcher only):
+    // `_execute` would be refused, so no start at a step; the history of
+    // the watches is still there to clear.
+    let mut c = es_ctx();
+    c.manage = vec![Type::Transform, Type::Slm];
+    let job = &info_of(&c).kinds[0];
+    assert!(!job.run_from_step && job.clear_history);
+    let keys: Vec<&str> = job.actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, ["reset"]);
+    // OpenSearch and Open Distro: the switch and "run now" are all there is.
+    for c in [os_ctx(false), os_ctx(true)] {
+        let job = &info_of(&c).kinds[0];
+        assert!(!job.run_from_step && !job.clear_history && job.actions.is_empty());
+    }
+}
+
+fn a_job(id: &str, enabled: bool, system: bool) -> ServerJob {
+    ServerJob {
+        id: id.into(),
+        name: id.into(),
+        kind: String::new(),
+        group: None,
+        description: None,
+        owner: None,
+        enabled,
+        schedule: None,
+        running: false,
+        last_outcome: None,
+        last_started: None,
+        last_duration_ms: None,
+        next_run: None,
+        can_run: true,
+        can_stop: false,
+        can_enable: true,
+        has_history: false,
+        has_script: true,
+        system,
+    }
+}
+
+#[test]
+fn each_job_says_what_it_may_do() {
+    let c = es_ctx();
+    let ackable = BTreeSet::from(["w1".to_string()]);
+    let item =
+        |id: &str, enabled: bool, system: bool| item_of(&c, a_job(id, enabled, system), &ackable);
+    // A stopped transform resets; a started one doesn't.
+    assert_eq!(
+        item("transform:t", false, false).actions,
+        Some(vec!["reset".into()])
+    );
+    assert_eq!(item("transform:t", true, false).actions, Some(vec![]));
+    // A watch with an action waiting is acked; another isn't.
+    assert_eq!(
+        item("watch:w1", true, false).actions,
+        Some(vec!["ack".into()])
+    );
+    assert_eq!(item("watch:w2", true, false).actions, Some(vec![]));
+    assert_eq!(item("slm:p", true, false).actions, Some(vec![]));
+    // Elasticsearch's own watches are neither changed nor deleted.
+    let sys = item("watch:w1", true, true);
+    assert_eq!((sys.can_edit, sys.can_delete), (Some(false), Some(false)));
+    assert_eq!(sys.actions, Some(vec![]));
+    // Elastic Cloud's snapshot policy is changed, not deleted.
+    let cloud = item("slm:cloud-snapshot-policy", true, true);
+    assert_eq!((cloud.can_edit, cloud.can_delete), (None, Some(false)));
+    let own = item("slm:p", true, false);
+    assert_eq!((own.can_edit, own.can_delete), (None, None));
+    // OpenSearch: another plugin's monitor; no actions at all.
+    let c = os_ctx(false);
+    let m = item_of(&c, a_job("monitor:m", true, true), &BTreeSet::new());
+    assert_eq!(
+        (m.can_edit, m.can_delete, m.actions),
+        (Some(false), Some(false), None)
+    );
+    let m = item_of(&c, a_job("monitor:m", true, false), &BTreeSet::new());
+    assert_eq!((m.can_edit, m.can_delete), (None, None));
+}
+
+#[test]
+fn a_transform_resets_only_stopped() {
+    let def = j(r#"{"id":"t1","source":{"index":["a"]},"dest":{"index":"b"},"pivot":{}}"#);
+    let cur = |state: &str, managed: bool| es_transform::Cur {
+        id: "t1".into(),
+        def: def.clone(),
+        state: state.into(),
+        managed,
+    };
+    let p = es_transform::reset_plan(&cur("stopped", false)).unwrap();
+    let r = p.render();
+    assert!(r.ends_with("POST /_transform/t1/_reset\n"), "{r}");
+    assert!(r.contains("índice de destino"), "{r}");
+    assert!(!r.contains("Lo administra Elastic"));
+    assert!(es_transform::reset_plan(&cur("stopped", true))
+        .unwrap()
+        .render()
+        .contains("Lo administra Elastic"));
+    for state in ["started", "indexing", "failed"] {
+        let e = err(es_transform::reset_plan(&cur(state, false)));
+        assert!(e.contains("detenerlo") && e.contains(state), "{e}");
+    }
+}
+
+#[test]
+fn a_watch_is_acked_when_an_action_waits() {
+    let mut cur = watch_cur(WATCH, true);
+    assert!(err(watch::ack_plan(&cur)).contains("Ninguna acción"));
+    cur.ackable = true;
+    let r = watch::ack_plan(&cur).unwrap().render();
+    assert!(r.ends_with("PUT /_watcher/watch/errores/_ack\n"), "{r}");
+    let hit = |state: &str| {
+        j(&format!(
+            r#"{{"_id":"w","status":{{"actions":{{"a":{{"ack":{{"state":"awaits_successful_execution"}}}},"b":{{"ack":{{"state":"{state}"}}}}}}}}}}"#
+        ))
+    };
+    assert!(jobs::watch_ackable(&hit("ackable")));
+    assert!(!jobs::watch_ackable(&hit("acked")));
+    assert!(!jobs::watch_ackable(&j(r#"{"_id":"w"}"#)));
+    assert!(jobs::system_watch(&j(
+        r#"{"metadata":{"xpack":{"type":"monitoring"}}}"#
+    )));
+    assert!(!jobs::system_watch(&j(r#"{"metadata":{"name":"x"}}"#)));
 }
 
 const ISM: &str = r#"{"policy_id":"p","description":"d","last_updated_time":1,"schema_version":21,"error_notification":null,"default_state":"hot","states":[{"name":"hot","actions":[],"transitions":[{"state_name":"delete","conditions":{"min_index_age":"30d"}}]},{"name":"delete","actions":[{"retry":{"count":3,"backoff":"exponential","delay":"1m"},"delete":{}}],"transitions":[]}],"ism_template":[{"index_patterns":["logs-*"],"priority":10,"last_updated_time":1}]}"#;

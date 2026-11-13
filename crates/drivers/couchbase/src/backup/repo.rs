@@ -158,17 +158,22 @@ fn item(r: &Value, id: String, enabled: Option<bool>) -> Option<SchedulerItem> {
     })
 }
 
-pub(crate) async fn active_items(s: &CbSession) -> Result<SchedulerList> {
+/// `write`: the user may change the service, so the actions are offered.
+pub(crate) async fn active_items(s: &CbSession, write: bool) -> Result<SchedulerList> {
     let items = list(s, "active")
         .await?
         .iter()
         .filter_map(|r| {
             let name = field(r, "id").filter(|n| repo_name(n))?;
-            item(
+            let mut it = item(
                 r,
                 job_id(&name),
                 Some(field(r, "state").as_deref() != Some("paused")),
-            )
+            )?;
+            if write {
+                it.actions = Some(repo_actions(r));
+            }
+            Some(it)
         })
         .collect();
     Ok(SchedulerList {
@@ -1465,4 +1470,189 @@ pub(crate) async fn run_from(s: &CbSession, id: &str, step: &str) -> Result<()> 
 pub(crate) async fn clear_history(_s: &CbSession, id: &str) -> Result<()> {
     jobs::parse_id(id)?;
     Err(Error::Unsupported(NO_HISTORY_CLEAR.into()))
+}
+
+// ---------------------------------------------------------------------------
+// Actions: a full backup now, every backup merged now
+// ---------------------------------------------------------------------------
+
+/// A repository in the cloud (S3, Azure, GCS): the service doesn't merge
+/// its backups.
+fn cloud(r: &Value) -> bool {
+    r.get("cloud_info").is_some_and(|c| !c.is_null())
+}
+
+/// The actions a repository offers: a full backup always (paused ones
+/// too: the service takes one-off tasks on them), a merge where the service
+/// merges.
+pub(crate) fn repo_actions(r: &Value) -> Vec<String> {
+    let mut a = vec!["backup_now".to_string()];
+    if !cloud(r) {
+        a.push("merge_now".into());
+    }
+    a
+}
+
+/// "Backup completo ahora": the job's "run now" is an incremental one.
+pub(crate) fn backup_now_change(name: &str) -> Change {
+    Change {
+        comments: vec![format!(
+            "Hace ahora un backup completo del repositorio «{name}» («Ejecutar ahora» hace uno incremental)."
+        )],
+        calls: vec![Call::new(
+            Method::POST,
+            format!("{}/backup", active_path(name)),
+            Some(json!({"full_backup": true})),
+        )],
+        id: Some(job_id(name)),
+        ..Change::default()
+    }
+}
+
+/// Days since 1970-01-01 of a civil date (proleptic Gregorian).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+const DAY: i64 = 86_400;
+/// The furthest a zone is ahead of UTC (+14:00).
+const MAX_AHEAD: i64 = 14 * 3_600;
+
+/// Two digits at `i` of `s`.
+fn two(s: &str, i: usize) -> Option<i64> {
+    let t = s.get(i..i + 2)?;
+    t.bytes()
+        .all(|b| b.is_ascii_digit())
+        .then(|| t.parse().ok())?
+}
+
+/// The instant (seconds since 1970-01-01T00:00:00Z) of a backup's date as
+/// the service writes it: the node's local time and its offset, with `_`
+/// for `:` (`2026-11-13T00_42_34.721581812Z`,
+/// `2020-06-08T10_26_08.93-07_00`). A date whose time or offset doesn't
+/// read is taken at the earliest instant it can be (its day's start, 14
+/// hours ahead of UTC), so a merge window reaching it still covers it.
+pub(crate) fn backup_time(date: &str) -> Option<i64> {
+    let date = date.trim();
+    let mut it = date.get(..10)?.split('-');
+    let y: i64 = it.next()?.parse().ok()?;
+    let m: i64 = it.next()?.parse().ok()?;
+    let d: i64 = it.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let day = days_from_civil(y, m, d) * DAY;
+    let earliest = day - MAX_AHEAD;
+    let Some(t) = date.get(10..).and_then(|t| t.strip_prefix(['T', 't', ' '])) else {
+        return Some(earliest);
+    };
+    let sep = |i: usize| matches!(t.as_bytes().get(i), Some(b'_' | b':'));
+    let (Some(h), Some(min), Some(sec), true, true) =
+        (two(t, 0), two(t, 3), two(t, 6), sep(2), sep(5))
+    else {
+        return Some(earliest);
+    };
+    if h > 23 || min > 59 || sec > 60 {
+        return Some(earliest);
+    }
+    let local = day + h * 3_600 + min * 60 + sec;
+    // The fraction of a second, then the offset.
+    let zone = t[8..].trim_start_matches(|c: char| c == '.' || c == ',' || c.is_ascii_digit());
+    let offset = match zone.as_bytes().first() {
+        Some(b'Z' | b'z') if zone.len() == 1 => 0,
+        Some(&sign @ (b'+' | b'-')) => {
+            let (Some(oh), Some(om)) = (two(zone, 1), two(zone, 4).or_else(|| two(zone, 3))) else {
+                return Some(earliest);
+            };
+            if oh > 14 || om > 59 {
+                return Some(earliest);
+            }
+            let o = oh * 3_600 + om * 60;
+            if sign == b'+' {
+                o
+            } else {
+                -o
+            }
+        }
+        _ => return Some(earliest),
+    };
+    Some(local - offset)
+}
+
+/// "Unir todos los backups ahora": a merge from today back to the oldest
+/// backup: the whole days since it, rounded up, and one more for the
+/// clocks and for a service that counts days on the node's calendar
+/// (`times`: each backup's instant, [`backup_time`]; `now`: the instant
+/// now, both in seconds). The service merges two or more.
+pub(crate) fn merge_all_change(name: &str, times: &[i64], now: i64) -> Result<Change> {
+    let refused = match times {
+        [] => Some(format!(
+            "El repositorio «{name}» no tiene backups: no hay nada que unir."
+        )),
+        [_] => Some(format!(
+            "El repositorio «{name}» tiene un solo backup: hacen falta al menos dos para unirlos."
+        )),
+        _ => None,
+    };
+    if let Some(why) = refused {
+        return Err(bad(why));
+    }
+    let oldest = times.iter().copied().min().unwrap_or(now);
+    let back = ((now - oldest).max(0) + DAY - 1) / DAY + 1;
+    Ok(Change {
+        comments: vec![
+            format!(
+                "Une en uno los {} backups del repositorio «{name}»: los de hoy hasta {back} días atrás, donde está el más viejo.",
+                times.len()
+            ),
+            "Después solo se puede restaurar el estado del más reciente: los puntos intermedios dejan de estar.".into(),
+        ],
+        calls: vec![Call::new(
+            Method::POST,
+            format!("{}/merge", active_path(name)),
+            Some(json!({"offset_start": 0, "offset_end": back})),
+        )],
+        id: Some(job_id(name)),
+        ..Change::default()
+    })
+}
+
+/// Each backup's instant, from `…/info`.
+async fn backup_times(s: &CbSession, name: &str) -> Result<Vec<i64>> {
+    let v = s
+        .backup_call(Method::GET, &format!("{}/info", active_path(name)), None)
+        .await?;
+    Ok(v.get("backups")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b.get("date").and_then(Value::as_str).and_then(backup_time))
+        .collect())
+}
+
+/// The requests of one of the repositories' actions.
+pub(crate) async fn action_change(s: &CbSession, id: &str, action: &str) -> Result<Change> {
+    let name = jobs::parse_id(id)?;
+    let r = s.repo(&name).await?;
+    match action.trim() {
+        "backup_now" => Ok(backup_now_change(&name)),
+        "merge_now" if cloud(&r) => Err(bad(
+            "El servicio de backup no hace merges en repositorios en la nube.".into(),
+        )),
+        "merge_now" => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs() as i64);
+            merge_all_change(&name, &backup_times(s, &name).await?, now)
+        }
+        other => Err(Error::Unsupported(format!(
+            "«{}» no es una acción de un repositorio de backup.",
+            shown(other)
+        ))),
+    }
 }

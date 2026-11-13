@@ -49,7 +49,8 @@ pub(crate) use repo::{clear_history, run_from};
 use crate::jobs::{self, denied, API};
 use crate::CbSession;
 use dbine_driver::{
-    Error, FormValues, ObjectForm, Result, SchedulerInfo, SchedulerKind, SchedulerList, SECRET_MASK,
+    Error, FormValues, ObjectForm, Result, SchedulerAction, SchedulerInfo, SchedulerKind,
+    SchedulerList, SECRET_MASK,
 };
 use reqwest::Method;
 use serde_json::{Map, Value};
@@ -342,8 +343,24 @@ pub(crate) fn info_of(c: &Ctx) -> SchedulerInfo {
         };
     }
     let w = c.write;
+    let mut job = SchedulerKind::new("job", "Repositorios", "repositorio")
+        .abilities(w, w, w)
+        // A task of the repository's plan, now (`run_job_from`).
+        .run_from_step(w)
+        // The service rotates the task history by size: nothing to clear.
+        .clear_history(false);
+    if w {
+        // "Ejecutar ahora" is an incremental backup: a full one, and a
+        // merge of every backup, are the console's other two.
+        job = job
+            .action(SchedulerAction::new("backup_now", "Backup completo ahora"))
+            .action(SchedulerAction::new(
+                "merge_now",
+                "Unir todos los backups ahora",
+            ));
+    }
     let kinds = vec![
-        SchedulerKind::new("job", "Repositorios", "repositorio").abilities(w, w, w),
+        job,
         SchedulerKind::new("plan", "Planes", "plan").abilities(w, w, w),
         SchedulerKind::new(
             "archived",
@@ -383,7 +400,7 @@ pub(crate) async fn items(s: &CbSession, kind: &str) -> Result<SchedulerList> {
     let kind = Kind::parse(kind)?;
     let c = ready(s).await?;
     match kind {
-        Kind::Job => repo::active_items(s).await,
+        Kind::Job => repo::active_items(s, c.write).await,
         Kind::Plan => plan::items(s).await,
         Kind::Archived => repo::stored_items(s, repo::Stored::Archived).await,
         Kind::Imported => repo::stored_items(s, repo::Stored::Imported).await,
@@ -443,6 +460,35 @@ pub(crate) async fn delete(s: &CbSession, kind: &str, id: &str) -> Result<()> {
     ready_to_change(s).await?;
     let ch = delete_change(s, kind, id).await?;
     run(s, &ch).await
+}
+
+pub(crate) async fn action_script(
+    s: &CbSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    let kind = Kind::parse(kind)?;
+    ready(s).await?;
+    Ok(action_change(s, kind, id, action).await?.script())
+}
+
+pub(crate) async fn action(s: &CbSession, kind: &str, id: &str, action: &str) -> Result<()> {
+    let kind = Kind::parse(kind)?;
+    ready_to_change(s).await?;
+    let ch = action_change(s, kind, id, action).await?;
+    run(s, &ch).await
+}
+
+/// Only active repositories have actions (a full backup, a merge now).
+async fn action_change(s: &CbSession, kind: Kind, id: &str, action: &str) -> Result<Change> {
+    match kind {
+        Kind::Job => repo::action_change(s, id, action).await,
+        _ => Err(Error::Unsupported(
+            "solo los repositorios activos tienen acciones (un backup completo o unir sus backups ahora)"
+                .into(),
+        )),
+    }
 }
 
 async fn change(

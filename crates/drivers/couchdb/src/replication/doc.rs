@@ -16,20 +16,21 @@ use super::{bad, shown, Call, Change, Ctx, Vals};
 use crate::jobs::{self, replication_doc, replicator_db, s as field, JobId};
 use crate::{seg, CouchSession};
 use dbine_driver::{
-    FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerItem, SchedulerList,
-    SECRET_MASK,
+    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerItem,
+    SchedulerList, SECRET_MASK,
 };
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use reqwest::Method;
 use serde_json::{json, Map, Value};
 
 const DEFAULT_DB: &str = "_replicator";
-/// The one step a replication has (as its job detail names it).
-const STEP: &str = "Replicación";
+/// "Start at step" on a replication, refused: its job kind doesn't offer
+/// it.
+const ONE_STEP: &str = "una replicación se ejecuta entera: no empieza en uno de sus pasos; para correrla de nuevo está «Ejecutar ahora»";
 
 const EDIT_NOTE: &str =
     "Guardar un cambio reinicia la replicación: CouchDB la retoma desde su último checkpoint.";
-const SECRET_NOTE: &str = "Las contraseñas y los encabezados secretos no se muestran: una contraseña vacía y los encabezados con asteriscos quedan como están.";
+const SECRET_NOTE: &str = "Las contraseñas, los tokens y los encabezados secretos no se muestran: una contraseña o un token vacíos y los encabezados con asteriscos quedan como están.";
 const TRANSIENT_READ_ONLY: &str =
     "Una replicación transitoria no se puede cambiar: no tiene documento. Borrarla la cancela.";
 
@@ -88,15 +89,40 @@ pub(crate) fn split_userinfo(u: &str) -> (String, Option<String>, Option<String>
     )
 }
 
-/// What a form shows of an endpoint: its URL without credentials, its
-/// user, whether it has a password, its headers (secret ones masked) and
-/// its proxy.
+/// What a form shows of an endpoint: its URL without credentials, how it
+/// authenticates, its user, whether it has a password, its headers
+/// (secret ones masked; a bearer token's `Authorization` left out, it has
+/// its own field) and its proxy.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct EndpointView {
     pub(crate) url: String,
+    /// `none`, `basic` (a user and a password, in `auth.basic` or the URL)
+    /// or `bearer` (an `Authorization: Bearer` header).
+    pub(crate) auth: &'static str,
     pub(crate) user: Option<String>,
     pub(crate) has_password: bool,
     pub(crate) headers: Map<String, Value>,
+}
+
+/// The token of an `Authorization: Bearer …` header value.
+fn bearer_token(v: &str) -> Option<&str> {
+    let v = v.trim();
+    let head = v.get(..7)?;
+    head.eq_ignore_ascii_case("bearer ")
+        .then(|| v[7..].trim())
+        .filter(|t| !t.is_empty())
+}
+
+/// The bearer token an endpoint sends, to keep it when the form brings
+/// none.
+fn bearer_of(v: &Value) -> Option<String> {
+    v.get("headers")?
+        .as_object()?
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("authorization"))
+        .and_then(|(_, v)| v.as_str())
+        .and_then(bearer_token)
+        .map(str::to_string)
 }
 
 pub(crate) fn endpoint_view(v: &Value) -> EndpointView {
@@ -119,11 +145,19 @@ pub(crate) fn endpoint_view(v: &Value) -> EndpointView {
         .and_then(Value::as_str)
         .is_some_and(|p| !p.is_empty())
         || url_pass.is_some_and(|p| !p.is_empty());
+    let auth = if user.is_some() || has_password {
+        "basic"
+    } else if bearer_of(v).is_some() {
+        "bearer"
+    } else {
+        "none"
+    };
     let headers = obj
         .and_then(|m| m.get("headers"))
         .and_then(Value::as_object)
         .map(|h| {
             h.iter()
+                .filter(|(k, _)| auth != "bearer" || !k.eq_ignore_ascii_case("authorization"))
                 .map(|(k, v)| {
                     if jobs::secret_key(k) {
                         (k.clone(), Value::String(SECRET_MASK.into()))
@@ -136,6 +170,7 @@ pub(crate) fn endpoint_view(v: &Value) -> EndpointView {
         .unwrap_or_default();
     EndpointView {
         url,
+        auth,
         user,
         has_password,
         headers,
@@ -262,12 +297,36 @@ fn headers_text(h: &Map<String, Value>) -> String {
 
 /// The endpoint the form describes; the old one as it was when nothing of
 /// it changed.
+/// How the form says the endpoint authenticates. A caller that doesn't
+/// send it gets what its other values say: a user is a user and password.
+fn auth_of(side: Side, v: Vals) -> Result<&'static str> {
+    match v.text(&side.f("auth")).as_str() {
+        "" if v.opt(&side.f("user")).is_some() || v.secret(&side.f("password")).is_some() => {
+            Ok("basic")
+        }
+        "" | "none" => Ok("none"),
+        "basic" => Ok("basic"),
+        "bearer" => Ok("bearer"),
+        other => Err(bad(format!(
+            "«{}» no es una forma de autenticación de «{}».",
+            shown(other),
+            side.label
+        ))),
+    }
+}
+
 pub(crate) fn endpoint_from(c: &Ctx, side: Side, v: Vals, old: Option<&Value>) -> Result<Value> {
     let url = v
         .opt(&side.f("url"))
         .ok_or_else(|| bad(format!("Falta la URL de «{}».", side.label)))?;
     check_url(side, &url)?;
-    let user = v.opt(&side.f("user"));
+    let auth = auth_of(side, v)?;
+    // The other ways' fields may still hold what they had: not this one's.
+    let user = if auth == "basic" {
+        v.opt(&side.f("user"))
+    } else {
+        None
+    };
     if user
         .as_deref()
         .is_some_and(|u| u.chars().any(char::is_control))
@@ -277,7 +336,16 @@ pub(crate) fn endpoint_from(c: &Ctx, side: Side, v: Vals, old: Option<&Value>) -
             side.label
         )));
     }
-    let typed = v.secret(&side.f("password"));
+    let typed = if auth == "basic" {
+        v.secret(&side.f("password"))
+    } else {
+        None
+    };
+    let token_typed = if auth == "bearer" {
+        v.secret(&side.f("token"))
+    } else {
+        None
+    };
     let headers_raw = v.raw(&side.f("headers"));
     if let Some(old) = old {
         let view = endpoint_view(old);
@@ -288,16 +356,54 @@ pub(crate) fn endpoint_from(c: &Ctx, side: Side, v: Vals, old: Option<&Value>) -
             serde_json::from_str::<Value>(&headers_raw).ok()
                 == Some(Value::Object(view.headers.clone()))
         };
-        if typed.is_none() && view.url == url && view.user == user && same_headers {
+        if typed.is_none()
+            && token_typed.is_none()
+            && view.auth == auth
+            && view.url == url
+            && view.user == user
+            && same_headers
+        {
             return Ok(old.clone());
         }
     }
-    let headers = headers_from(side, &headers_raw, old)?;
+    let mut headers = headers_from(side, &headers_raw, old)?;
+    if auth == "bearer" {
+        if headers
+            .keys()
+            .any(|k| k.eq_ignore_ascii_case("authorization"))
+        {
+            return Err(bad(format!(
+                "Con un token, el encabezado Authorization de «{}» sale del campo Token: sacalo de los encabezados.",
+                side.label
+            )));
+        }
+        let token = match token_typed {
+            // Typed with its "Bearer " or without it.
+            Some(t) => {
+                let t = t.trim();
+                bearer_token(t).unwrap_or(t).to_string()
+            }
+            None => old.and_then(bearer_of).unwrap_or_default(),
+        };
+        if token.is_empty() {
+            return Err(bad(format!("Falta el token de «{}».", side.label)));
+        }
+        if token.chars().any(char::is_control) {
+            return Err(bad(format!(
+                "El token de «{}» no puede tener saltos de línea.",
+                side.label
+            )));
+        }
+        headers.insert(
+            "Authorization".into(),
+            Value::String(format!("Bearer {token}")),
+        );
+    }
     let password = typed.clone().or_else(|| old.and_then(password_of));
     let creds = match (&user, password) {
         (Some(u), Some(p)) => Some((u.clone(), p)),
         (Some(_), None) => return Err(bad(format!("Falta la contraseña de «{}».", side.label))),
-        (None, _) if typed.is_some() => {
+        (None, _) if auth == "basic" => {
             return Err(bad(format!("Falta el usuario de «{}».", side.label)))
         }
         (None, _) => None,
@@ -640,12 +746,14 @@ pub(crate) async fn items(s: &mut CouchSession) -> Result<SchedulerList> {
             .jobs
             .into_iter()
             .map(|j| SchedulerItem {
+                // A transient replication has no document to change; its
+                // delete cancels it.
+                can_edit: matches!(jobs::parse_id(&j.id), Ok(JobId::Transient(_))).then_some(false),
                 id: j.id,
                 name: j.name,
                 description: j.description,
                 enabled: None,
                 system: false,
-                can_edit: None,
                 can_delete: None,
                 actions: None,
             })
@@ -684,21 +792,41 @@ async fn read_doc(s: &CouchSession, db: &str, doc: &str, id: &str) -> Result<Map
 
 fn side_fields(side: Side, existing: bool) -> Vec<FormField> {
     // The keys are literals so the message extractor finds the labels.
-    let [url, user, password, headers] = if side.key == "source" {
+    let [url, auth, user, password, token, headers] = if side.key == "source" {
         [
             FormField::new("source_url", "URL", FormKind::Text).help(
                 "La base de datos que se copia, como la ve el servidor (localhost es el propio servidor).",
             ),
+            FormField::new(
+                "source_auth",
+                "Autenticación",
+                FormKind::select(&[
+                    ("none", "Sin credenciales"),
+                    ("basic", "Usuario y contraseña"),
+                    ("bearer", "Token (Authorization: Bearer)"),
+                ]),
+            ),
             FormField::new("source_user", "Usuario", FormKind::Text),
             FormField::new("source_password", "Contraseña", FormKind::Secret),
+            FormField::new("source_token", "Token", FormKind::Secret),
             FormField::new("source_headers", "Encabezados (JSON)", FormKind::code("json")),
         ]
     } else {
         [
             FormField::new("target_url", "URL", FormKind::Text)
                 .help("La base de datos donde se copia, como la ve el servidor."),
+            FormField::new(
+                "target_auth",
+                "Autenticación",
+                FormKind::select(&[
+                    ("none", "Sin credenciales"),
+                    ("basic", "Usuario y contraseña"),
+                    ("bearer", "Token (Authorization: Bearer)"),
+                ]),
+            ),
             FormField::new("target_user", "Usuario", FormKind::Text),
             FormField::new("target_password", "Contraseña", FormKind::Secret),
+            FormField::new("target_token", "Token", FormKind::Secret),
             FormField::new(
                 "target_headers",
                 "Encabezados (JSON)",
@@ -706,14 +834,23 @@ fn side_fields(side: Side, existing: bool) -> Vec<FormField> {
             ),
         ]
     };
-    debug_assert!(url.key == side.f("url"));
+    debug_assert!(url.key == side.f("url") && auth.key == side.f("auth"));
+    let by = side.f("auth");
     vec![
         url.required().placeholder("https://servidor:6984/ventas"),
-        user,
-        password.help(if existing {
+        auth.required()
+            .default(json!("basic"))
+            .help("Cómo se identifica el replicador ante esta base de datos: con un usuario y su contraseña (auth.basic), o con un token, como un JWT, en el encabezado Authorization."),
+        user.required().when(&by, &["basic"]),
+        password.when(&by, &["basic"]).help(if existing {
             "Vacía: queda la que tiene."
         } else {
-            "Con un usuario, su contraseña."
+            "La contraseña del usuario."
+        }),
+        token.when(&by, &["bearer"]).help(if existing {
+            "Vacío: queda el que tiene."
+        } else {
+            "Va en el encabezado Authorization: Bearer; se puede escribir con o sin «Bearer»."
         }),
         headers
             .placeholder("{\"X-Origen\": \"dbine\"}")
@@ -892,8 +1029,13 @@ pub(crate) fn doc_values(db: &str, doc_id: &str, doc: &Map<String, Value>) -> Ma
     for side in [SOURCE, TARGET] {
         let e = doc.get(side.key).map(endpoint_view).unwrap_or_default();
         v.insert(side.f("url"), json!(e.url));
+        v.insert(
+            side.f("auth"),
+            json!(if e.auth.is_empty() { "none" } else { e.auth }),
+        );
         v.insert(side.f("user"), e.user.map_or(Value::Null, Value::from));
         v.insert(side.f("password"), Value::Null);
+        v.insert(side.f("token"), Value::Null);
         v.insert(side.f("headers"), json!(headers_text(&e.headers)));
     }
     let b = |k: &str, d: bool| doc.get(k).and_then(Value::as_bool).unwrap_or(d);
@@ -1076,8 +1218,10 @@ pub(crate) async fn form(s: &CouchSession, c: &Ctx, id: Option<&str>) -> Result<
             for side in [SOURCE, TARGET] {
                 let url = field(&j, side.key).unwrap_or_default();
                 values.insert(side.f("url"), json!(split_userinfo(&url).0));
+                values.insert(side.f("auth"), json!("none"));
                 values.insert(side.f("user"), Value::Null);
                 values.insert(side.f("password"), Value::Null);
+                values.insert(side.f("token"), Value::Null);
                 values.insert(side.f("headers"), json!(""));
             }
             values.insert("doc_id".into(), json!(""));
@@ -1302,14 +1446,11 @@ pub(crate) async fn delete(s: &CouchSession, id: &str) -> Result<Change> {
     }
 }
 
-pub(crate) async fn run_from(s: &mut CouchSession, id: &str, step: &str) -> Result<()> {
-    if !step.trim().eq_ignore_ascii_case(STEP) {
-        return Err(bad(format!(
-            "Una replicación tiene un solo paso, «{STEP}»: «{}» no es uno.",
-            shown(step)
-        )));
-    }
-    // A new revision of its document without the replicator's state: a
-    // replication that ended, failed or keeps crashing starts again.
-    s.run_server_job(id).await
+/// "Start at step": a replication has one step, the replication itself,
+/// and runs again whole with the job's "run now" (a new revision of its
+/// document), so its job kind doesn't offer starting at a step
+/// (`run_from_step` false) and this refuses it.
+pub(crate) fn run_from(id: &str) -> Result<()> {
+    jobs::parse_id(id)?;
+    Err(Error::Unsupported(ONE_STEP.into()))
 }

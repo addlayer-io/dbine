@@ -287,7 +287,7 @@ pub(crate) fn without(v: &J, drop: &[&str]) -> J {
 }
 
 /// The `major.minor` in "Elasticsearch 8.15.3".
-fn version_at_least(version: &str, major: u64, minor: u64) -> bool {
+pub(crate) fn version_at_least(version: &str, major: u64, minor: u64) -> bool {
     let num = version
         .split_whitespace()
         .find(|w| w.chars().next().is_some_and(|c| c.is_ascii_digit()))
@@ -515,8 +515,25 @@ pub(crate) fn watch_job(hit: &J, history: bool) -> ServerJob {
         has_history: history,
         has_script: true,
         // Monitoring's cluster alerts, which Elasticsearch creates itself.
-        system: text(w.at(&["metadata", "xpack", "type"])).as_deref() == Some("monitoring"),
+        system: system_watch(w),
     }
+}
+
+/// A watch Elasticsearch makes and keeps itself (Monitoring's cluster
+/// alerts): Kibana neither edits nor deletes it.
+pub(crate) fn system_watch(w: &J) -> bool {
+    text(w.at(&["metadata", "xpack", "type"])).as_deref() == Some("monitoring")
+}
+
+/// Some action of the watch (a hit of `_watcher/_query/watches`) waits for
+/// an acknowledgement: its condition held and it ran (`ackable`), so
+/// `_ack` would throttle it until the condition stops holding.
+pub(crate) fn watch_ackable(hit: &J) -> bool {
+    hit.at(&["status", "actions"])
+        .and_then(J::as_obj)
+        .into_iter()
+        .flatten()
+        .any(|(_, a)| text(a.at(&["ack", "state"])).as_deref() == Some("ackable"))
 }
 
 pub(crate) fn watch_detail(hit: &J, history: bool) -> JobDetail {
@@ -1373,7 +1390,7 @@ impl EsSession {
 
     /// `refused`: the whole message (the contract's read-only wording), so
     /// the UI translates it as one.
-    fn check_writable(&self, refused: &'static str) -> Result<()> {
+    pub(crate) fn check_writable(&self, refused: &'static str) -> Result<()> {
         if self.read_only {
             return Err(Error::Query(refused.into()));
         }
@@ -1474,7 +1491,7 @@ impl EsSession {
 
     /// Every watch (`Err` with the note when Watcher isn't there or the
     /// user may not see the watches).
-    async fn es_watches(&self) -> Result<std::result::Result<Vec<J>, &'static str>> {
+    pub(crate) async fn es_watches(&self) -> Result<std::result::Result<Vec<J>, &'static str>> {
         let mut out = Vec::new();
         let mut from = 0;
         loop {

@@ -1420,6 +1420,19 @@ impl Session for EsSession {
         scheduler::delete(self, kind, id).await
     }
 
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        scheduler::action_script(self, kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        scheduler::action(self, kind, id, action).await
+    }
+
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
         scheduler::run_from(self, id, step).await
     }

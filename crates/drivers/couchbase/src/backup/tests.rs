@@ -91,6 +91,15 @@ fn the_kinds_follow_the_user() {
     let keys: Vec<&str> = i.kinds.iter().map(|k| k.key.as_str()).collect();
     assert_eq!(keys, ["job", "plan", "archived", "imported", "settings"]);
     assert!(i.kinds[0].can_create && i.kinds[0].can_edit && i.kinds[0].can_delete);
+    // A task of the plan starts now; the history is rotated, not cleared;
+    // a full backup and a merge of every backup are the repository's
+    // actions.
+    assert!(i.kinds[0].run_from_step && !i.kinds[0].clear_history);
+    let acts: Vec<&str> = i.kinds[0].actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(acts, ["backup_now", "merge_now"]);
+    assert!(i.kinds[1..]
+        .iter()
+        .all(|k| k.actions.is_empty() && !k.run_from_step));
     assert!(i.kinds[2].can_create && !i.kinds[2].can_edit && i.kinds[2].can_delete);
     assert!(!i.kinds[4].can_create && i.kinds[4].can_edit && !i.kinds[4].can_delete);
     assert!(i.logs);
@@ -117,6 +126,10 @@ fn the_kinds_follow_the_user() {
         .kinds
         .iter()
         .all(|k| !k.can_create && !k.can_edit && !k.can_delete));
+    assert!(ro
+        .kinds
+        .iter()
+        .all(|k| k.actions.is_empty() && !k.run_from_step));
     assert!(ro.notes.iter().any(|n| n.contains("no cambiarlo")));
 
     let none = info_of(&Ctx {
@@ -700,6 +713,116 @@ fn running_a_task_now() {
     assert!(err(repo::run_call("r", &t("MERGE", false, None), true)).contains("en la nube"));
     let c = repo::run_call("r", &t("PRUNE", false, None), false).unwrap();
     assert_eq!(c.path, "/cluster/self/repository/active/r/prune");
+}
+
+#[test]
+fn a_full_backup_and_a_merge_of_everything_now() {
+    let ch = repo::backup_now_change("r1");
+    assert_eq!(
+        ch.calls[0].path,
+        "/cluster/self/repository/active/r1/backup"
+    );
+    assert_eq!(ch.calls[0].body, Some(json!({"full_backup": true})));
+    assert!(ch.script().contains("incremental"));
+    assert_eq!(ch.id.as_deref(), Some("repo:r1"));
+    // Dates as the service writes them: the node's local time and offset.
+    const DAY: i64 = 86_400;
+    let t0 = repo::backup_time("2026-11-13T00_42_34.721581812Z").unwrap();
+    assert_eq!(t0, 20_770 * DAY + 42 * 60 + 34);
+    assert_eq!(repo::backup_time("1970-01-01T00_00_00Z"), Some(0));
+    assert_eq!(
+        repo::backup_time("2000-03-01T00_00_00Z"),
+        Some(11_017 * DAY)
+    );
+    // 10:26:08 at -07:00 is 17:26:08 UTC.
+    assert_eq!(
+        repo::backup_time("2020-06-08T10_26_08.93-07_00"),
+        Some(18_421 * DAY + 17 * 3_600 + 26 * 60 + 8)
+    );
+    // Just after midnight at +03:00 is the day before in UTC.
+    let east = repo::backup_time("2026-11-13T00_30_00.000000000+03_00").unwrap();
+    assert_eq!(east, 20_769 * DAY + 21 * 3_600 + 30 * 60);
+    assert_eq!(repo::backup_time("2026-11-13T00:30:00+0300"), Some(east));
+    // A time or an offset that doesn't read: the earliest the day can be.
+    for odd in [
+        "2026-11-13",
+        "2026-11-13T25_00_00Z",
+        "2026-11-13T00_30_00",
+        "2026-11-13T00_30_00+3",
+    ] {
+        assert_eq!(
+            repo::backup_time(odd),
+            Some(20_770 * DAY - 14 * 3_600),
+            "{odd}"
+        );
+    }
+    assert!(repo::backup_time("13-11-2026").is_none() && repo::backup_time("").is_none());
+    // From now back to the oldest backup: whole days, rounded up, and one
+    // more for the clocks.
+    let ch = repo::merge_all_change("r1", &[t0 - 9 * DAY, t0 - 2 * DAY, t0], t0).unwrap();
+    assert_eq!(ch.calls[0].path, "/cluster/self/repository/active/r1/merge");
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 0, "offset_end": 10}))
+    );
+    let sc = ch.script();
+    assert!(
+        sc.contains("los 3 backups") && sc.contains("10 días"),
+        "{sc}"
+    );
+    let ch = repo::merge_all_change("r1", &[t0 - 9 * DAY, t0], t0 + 3_600).unwrap();
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 0, "offset_end": 11}))
+    );
+    // Now's only: still a day back.
+    let ch = repo::merge_all_change("r1", &[t0, t0], t0).unwrap();
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 0, "offset_end": 1}))
+    );
+    // The oldest taken east of UTC just after its midnight: 2 days and 30
+    // minutes ago at 22:00 UTC two days later, so 4 days back (its local
+    // date alone gave 2, which left it out).
+    let now = 20_771 * DAY + 22 * 3_600;
+    let ch = repo::merge_all_change("r1", &[east, t0], now).unwrap();
+    assert_eq!(
+        ch.calls[0].body,
+        Some(json!({"offset_start": 0, "offset_end": 4}))
+    );
+    // Fewer than two: nothing to merge.
+    assert!(err(repo::merge_all_change("r1", &[t0], t0)).contains("un solo backup"));
+    assert!(err(repo::merge_all_change("r1", &[], t0)).contains("no tiene backups"));
+}
+
+#[test]
+fn a_cloud_repository_is_not_merged() {
+    assert_eq!(
+        repo::repo_actions(&json!({"cloud_info": {"region": "us-east-1"}})),
+        ["backup_now"]
+    );
+    for local in [json!({}), json!({"cloud_info": null})] {
+        assert_eq!(
+            repo::repo_actions(&local),
+            ["backup_now", "merge_now"],
+            "{local}"
+        );
+    }
+}
+
+#[test]
+fn built_in_plans_and_plans_in_use_are_fixed() {
+    let b = plan::item_of(plan_of(&builtin()).unwrap(), &[]);
+    assert!(b.system);
+    assert_eq!((b.can_edit, b.can_delete), (Some(false), Some(false)));
+    let mut own = builtin();
+    own["name"] = json!("mio");
+    own["default"] = json!(false);
+    let p = plan::item_of(plan_of(&own).unwrap(), &["otro".into()]);
+    assert!(!p.system);
+    assert_eq!((p.can_edit, p.can_delete), (None, None));
+    let used = plan::item_of(plan_of(&own).unwrap(), &["mio".into()]);
+    assert_eq!((used.can_edit, used.can_delete), (Some(false), Some(false)));
 }
 
 // ---------------------------------------------------------------------------

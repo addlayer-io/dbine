@@ -48,11 +48,11 @@ use crate::jobs::{self, one_name, text, Kind as JobKind};
 use crate::json::J;
 use crate::{es_error_message, http, EsSession};
 use dbine_driver::{
-    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerInfo,
-    SchedulerItem, SchedulerKind, SchedulerList, SECRET_MASK,
+    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerAction,
+    SchedulerInfo, SchedulerItem, SchedulerKind, SchedulerList, ServerJob, SECRET_MASK,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) use logs::logs;
 
@@ -79,6 +79,13 @@ const NO_PRIV_ILM: &str =
 const NO_PRIV_SLM: &str = "este usuario no puede crear ni cambiar políticas de snapshots (hace falta el privilegio manage_slm)";
 const MANAGED: &str = "Lo administra Elastic (una integración o Kibana): conviene cambiarlo desde allí, porque una actualización de la integración puede reemplazar los cambios.";
 const REDACTED: &str = "::es_redacted::";
+const SYSTEM_WATCH: &str = "Este watch lo crea y lo mantiene Elasticsearch (las alertas del clúster de Monitoring): no se cambia ni se borra desde aquí.";
+/// Elastic Cloud's own snapshot policy.
+const CLOUD_SLM: &str = "cloud-snapshot-policy";
+const CLOUD_SLM_NOTE: &str = "Elastic Cloud toma los snapshots del deployment con esta política: se pueden cambiar su programación, su retención y las opciones de los snapshots, pero no su id ni su repositorio, y no se borra desde aquí.";
+const ONE_STEP: &str = "este job se ejecuta entero: no empieza en uno de sus pasos (eso es para las acciones de un watch); para correrlo ahora está «Ejecutar ahora»";
+const TRANSFORM_WHOLE: &str = "un transform se ejecuta entero, no desde uno de sus pasos: se inicia con el interruptor de habilitado (y uno continuo ya iniciado se ejecuta de nuevo con «Ejecutar ahora»)";
+const OS_NO_RUN: &str = "OpenSearch ejecuta este job según su programación: no hay forma de empezarlo a mano, ni en un paso";
 
 fn bad(message: String) -> Error {
     Error::Query(message)
@@ -180,6 +187,8 @@ pub(crate) struct Ctx {
     pub(crate) lifecycle: bool,
     /// The user may change them.
     pub(crate) manage_lifecycle: bool,
+    /// Elasticsearch resets a transform (`_reset`, 8.1 on).
+    pub(crate) reset: bool,
     pub(crate) notes: Vec<String>,
 }
 
@@ -247,6 +256,7 @@ async fn ctx(s: &EsSession) -> Result<Ctx> {
             ],
         )
         .await?;
+        c.reset = jobs::version_at_least(&s.version, 8, 1);
         c.lifecycle = feature(x.as_ref(), "ilm");
         c.manage_lifecycle = c.lifecycle && privs.get("manage_ilm").copied().unwrap_or(true);
         if c.lifecycle && !c.manage_lifecycle {
@@ -350,9 +360,37 @@ fn kind_of(s: &EsSession, kind: &str) -> Result<Kind> {
     Ok(k)
 }
 
+/// The job kind's actions besides "run now" and the enabled switch (which
+/// already start and stop a transform, activate a watch, run an SLM policy
+/// or a monitor): a stopped transform reset, a watch's actions
+/// acknowledged.
+fn job_actions(c: &Ctx) -> Vec<SchedulerAction> {
+    let mut a = Vec::new();
+    if c.reset && c.may(Type::Transform) {
+        a.push(SchedulerAction::new("reset", "Restablecer el transform"));
+    }
+    if c.may(Type::Watch) {
+        a.push(SchedulerAction::new(
+            "ack",
+            "Reconocer las acciones del watch",
+        ));
+    }
+    a
+}
+
 fn info_of(c: &Ctx) -> SchedulerInfo {
     let any = !c.manage.is_empty();
-    let mut kinds = vec![SchedulerKind::new("job", "Jobs", "job").abilities(any, any, any)];
+    let mut job = SchedulerKind::new("job", "Jobs", "job")
+        .abilities(any, any, any)
+        // Only a watch starts at one of its steps (an action), through
+        // `_execute`, which takes manage_watcher; the other types run whole.
+        .run_from_step(c.may(Type::Watch))
+        // Watcher and SLM keep their runs in history indices.
+        .clear_history(c.has(Type::Watch) || c.has(Type::Slm));
+    for a in job_actions(c) {
+        job = job.action(a);
+    }
+    let mut kinds = vec![job];
     if c.lifecycle {
         let m = c.manage_lifecycle;
         kinds.push(if c.os {
@@ -377,24 +415,67 @@ pub(crate) async fn items(s: &EsSession, kind: &str) -> Result<SchedulerList> {
         let c = ctx(s).await?;
         return lifecycle::items(s, &c).await;
     }
+    let c = ctx(s).await?;
     let list = s.jobs_list().await?;
+    // The watches whose actions wait for an acknowledgement now.
+    let mut ackable = BTreeSet::new();
+    if !c.os && c.may(Type::Watch) {
+        if let Ok(ws) = s.es_watches().await? {
+            ackable = ws
+                .iter()
+                .filter(|h| jobs::watch_ackable(h))
+                .filter_map(|h| text(h.get("_id")))
+                .collect();
+        }
+    }
     Ok(SchedulerList {
         items: list
             .jobs
             .into_iter()
-            .map(|j| SchedulerItem {
-                id: j.id,
-                name: j.name,
-                description: j.description,
-                enabled: Some(j.enabled),
-                system: j.system,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
-            })
+            .map(|j| item_of(&c, j, &ackable))
             .collect(),
         notes: list.notes,
     })
+}
+
+/// A job as the tree lists it, with what it may do now: another plugin's
+/// monitor and Elasticsearch's own watches are neither changed nor deleted
+/// from here, Elastic Cloud's snapshot policy isn't deleted; a stopped
+/// transform can be reset, a watch whose actions ran acknowledged.
+fn item_of(c: &Ctx, j: ServerJob, ackable: &BTreeSet<String>) -> SchedulerItem {
+    let t = jobs::parse_id(&j.id).map(|(k, rest)| (Type::of_job(k, c.os), rest.to_string()));
+    let (mut can_edit, mut can_delete) = (None, None);
+    match &t {
+        Some((Type::Monitor | Type::Watch, _)) if j.system => {
+            can_edit = Some(false);
+            can_delete = Some(false);
+        }
+        Some((Type::Slm, id)) if id == CLOUD_SLM => can_delete = Some(false),
+        _ => {}
+    }
+    let actions = (!job_actions(c).is_empty()).then(|| {
+        let mut a = Vec::new();
+        match &t {
+            Some((Type::Transform, _)) if c.reset && c.may(Type::Transform) && !j.enabled => {
+                a.push("reset".to_string());
+            }
+            Some((Type::Watch, id)) if c.may(Type::Watch) && !j.system && ackable.contains(id) => {
+                a.push("ack".to_string());
+            }
+            _ => {}
+        }
+        a
+    });
+    SchedulerItem {
+        id: j.id,
+        name: j.name,
+        description: j.description,
+        enabled: Some(j.enabled),
+        system: j.system,
+        can_edit,
+        can_delete,
+        actions,
+    }
 }
 
 /// The type and the engine's id of a job id, checked.
@@ -434,46 +515,49 @@ fn type_field(c: &Ctx, own: Option<Type>) -> FormField {
         .read_only(own.is_some())
 }
 
-/// The four tabs of a new job's form, and which of them a type's own tab
-/// goes to.
-fn generic_index(section: &str) -> usize {
-    match section {
-        "general" => 0,
-        "schedule" | "trigger" => 1,
-        "settings" | "retention" | "options" | "deletion" | "notification" => 3,
-        _ => 2,
-    }
+/// The type a field or a tab of a new job's form is shown for (`None`:
+/// every type).
+fn type_of(when: Option<&(String, Vec<String>)>, all: &[(String, Vec<String>)]) -> Option<String> {
+    when.into_iter()
+        .chain(all)
+        .find(|(k, _)| k == "type")
+        .and_then(|(_, v)| v.first().cloned())
 }
 
-fn generic_sections() -> Vec<FormSection> {
-    vec![
-        FormSection::new("general", "General"),
-        FormSection::new("schedule", "Programación"),
-        FormSection::new("definition", "Definición"),
-        FormSection::new("options", "Opciones"),
-    ]
-}
-
-/// A new job's form: the type, then each type's fields in the generic
-/// tabs, shown only for their type (a field that depends on another of its
-/// type's fields follows it).
+/// A new job's form: "General" with the type and each type's general
+/// fields, then each type's own tabs, as an existing job of that type has
+/// them; a tab shows only for its type, and so does each field (on top of
+/// its own condition, like a watch's trigger fields on the schedule's
+/// kind).
 fn combined(c: &Ctx, parts: Vec<(Type, Vec<FormSection>)>) -> Vec<FormSection> {
-    let mut out = generic_sections();
-    out[0].fields.push(type_field(c, None));
+    let mut general = FormSection::new("general", "General").field(type_field(c, None));
+    let mut tabs = Vec::new();
     for (t, sections) in parts {
+        let k = t.key();
         for sec in sections {
-            let i = generic_index(&sec.key);
-            for f in sec.fields {
-                let f = if f.when.is_none() {
-                    f.when("type", &[t.key()])
-                } else {
-                    f
-                };
-                out[i].fields.push(f);
+            let fields: Vec<FormField> = sec
+                .fields
+                .into_iter()
+                .map(|f| f.and_when("type", &[k]))
+                .collect();
+            if sec.key == "general" {
+                general.fields.extend(fields);
+                continue;
             }
+            tabs.push(FormSection {
+                key: format!("{k}_{}", sec.key),
+                label: sec.label,
+                fields,
+                lists: sec.lists,
+                when: Some(("type".into(), vec![k.to_string()])),
+            });
         }
     }
-    out.retain(|s| !s.fields.is_empty());
+    let mut out = vec![general];
+    out.extend(
+        tabs.into_iter()
+            .filter(|s| !s.fields.is_empty() || !s.lists.is_empty()),
+    );
     out
 }
 
@@ -608,10 +692,8 @@ pub(crate) async fn form(s: &EsSession, kind: &str, id: Option<&str>) -> Result<
         // The first type's defaults win where two types share a key.
         for sec in sections.iter() {
             for fld in &sec.fields {
-                let first_type = fld
-                    .when
-                    .as_ref()
-                    .is_some_and(|(k, v)| k == "type" && v.iter().any(|x| x == first.key()));
+                let first_type =
+                    type_of(fld.when.as_ref(), &fld.when_all).as_deref() == Some(first.key());
                 if let (true, Some(d)) = (first_type, &fld.default) {
                     values.insert(fld.key.clone(), d.clone());
                 }
@@ -650,11 +732,21 @@ pub(crate) async fn form(s: &EsSession, kind: &str, id: Option<&str>) -> Result<
         }
         Type::Watch => {
             let cur = watch::read(s, &rest).await?;
-            (watch::values_of(&cur), vec![watch::NOTE.to_string()])
+            let mut notes = vec![watch::NOTE.to_string()];
+            if jobs::system_watch(&cur.watch) {
+                locked = true;
+                notes.insert(0, SYSTEM_WATCH.into());
+            }
+            (watch::values_of(&cur), notes)
         }
         Type::Slm => {
             let cur = slm::read(s, &rest).await?;
-            (slm::values_of(&cur), vec![slm::NOTE.to_string()])
+            let mut notes = vec![slm::NOTE.to_string()];
+            if cur.id == CLOUD_SLM {
+                lock_cloud_slm(&mut sections);
+                notes.insert(0, CLOUD_SLM_NOTE.into());
+            }
+            (slm::values_of(&cur), notes)
         }
         Type::OsTransform => {
             let cur = os_transform::read(s, &rest).await?;
@@ -672,7 +764,7 @@ pub(crate) async fn form(s: &EsSession, kind: &str, id: Option<&str>) -> Result<
                     "este monitor lo administra {owner}: el plugin Alerting no deja cambiarlo desde aquí"
                 ));
             }
-            (monitor::values_of(&cur), notes)
+            (monitor::values_of(&c, &cur), notes)
         }
         Type::Sm => {
             let cur = sm::read(s, &rest).await?;
@@ -709,6 +801,36 @@ pub(crate) async fn form(s: &EsSession, kind: &str, id: Option<&str>) -> Result<
         notes,
         read_only,
     })
+}
+
+/// Elastic Cloud's snapshot policy in its form: the id and the repository
+/// (`found-snapshots`) shown but not changed, since the deployment's
+/// snapshots are taken with both.
+fn lock_cloud_slm(sections: &mut [FormSection]) {
+    for f in sections.iter_mut().flat_map(|s| s.fields.iter_mut()) {
+        if matches!(f.key.as_str(), "id" | "repository") {
+            f.read_only = true;
+            // "Changing it creates a new policy" doesn't apply.
+            f.help = None;
+        }
+    }
+}
+
+/// An SLM policy's requests. Elastic Cloud's own keeps its id (a new one
+/// would delete it) and its repository: only its schedule, its retention
+/// and its snapshots' options change.
+fn slm_plan(cur: Option<&slm::Cur>, values: &FormValues, choices: &Choices) -> Result<Plan> {
+    if let Some(cur) = cur.filter(|c| c.id == CLOUD_SLM) {
+        let have = slm::values_of(cur);
+        let (want, have) = (Vals(&values.values), Vals(&have));
+        if ["id", "repository"]
+            .iter()
+            .any(|k| want.text(k) != have.text(k))
+        {
+            return Err(bad(CLOUD_SLM_NOTE.into()));
+        }
+    }
+    slm::plan(cur, values, choices)
 }
 
 /// What a new job's form says about each type.
@@ -784,6 +906,9 @@ async fn plan(s: &EsSession, c: &Ctx, id: Option<&str>, values: &FormValues) -> 
                 Some(id) => Some(watch::read(s, id).await?),
                 None => None,
             };
+            if cur.as_ref().is_some_and(|w| jobs::system_watch(&w.watch)) {
+                return Err(bad(SYSTEM_WATCH.into()));
+            }
             watch::plan(cur.as_ref(), values)
         }
         Type::Slm => {
@@ -791,7 +916,7 @@ async fn plan(s: &EsSession, c: &Ctx, id: Option<&str>, values: &FormValues) -> 
                 Some(id) => Some(slm::read(s, id).await?),
                 None => None,
             };
-            slm::plan(cur.as_ref(), values, &choices)
+            slm_plan(cur.as_ref(), values, &choices)
         }
         Type::OsTransform => {
             let cur = match &cur {
@@ -871,8 +996,20 @@ async fn delete_plan(s: &EsSession, id: &str) -> Result<Plan> {
     let (t, rest) = parse(s, id)?;
     Ok(match t {
         Type::Transform => es_transform::delete_plan(&es_transform::read(s, &rest).await?),
-        Type::Watch => watch::delete_plan(&watch::read(s, &rest).await?),
-        Type::Slm => slm::delete_plan(&slm::read(s, &rest).await?),
+        Type::Watch => {
+            let cur = watch::read(s, &rest).await?;
+            if jobs::system_watch(&cur.watch) {
+                return Err(bad(SYSTEM_WATCH.into()));
+            }
+            watch::delete_plan(&cur)
+        }
+        Type::Slm => {
+            let cur = slm::read(s, &rest).await?;
+            if cur.id == CLOUD_SLM {
+                return Err(bad(CLOUD_SLM_NOTE.into()));
+            }
+            slm::delete_plan(&cur)
+        }
         Type::OsTransform => {
             os_transform::delete_plan(s.plugins(), &os_transform::read(s, &rest).await?)
         }
@@ -898,13 +1035,17 @@ pub(crate) async fn delete(s: &EsSession, kind: &str, id: &str) -> Result<()> {
 }
 
 /// "Start at step": a watch runs its actions from that one on (the earlier
-/// ones skipped, the rest forced past their throttling); a job of one
-/// step, or a monitor at its inputs, runs whole.
+/// ones skipped, the rest forced past their throttling). The other types
+/// have no steps to start at: an SLM policy or a monitor runs whole
+/// ("Ejecutar ahora"), a transform when it's started (the enabled switch;
+/// a continuous one already started, "Ejecutar ahora" too), and OpenSearch
+/// runs its transforms and snapshot policies only on their schedule.
 pub(crate) async fn run_from(s: &EsSession, id: &str, step: &str) -> Result<()> {
     let (t, rest) = parse(s, id)?;
     let step = step.trim();
     match t {
         Type::Watch => {
+            s.check_writable("Conexión de solo lectura: no se pueden ejecutar jobs del servidor.")?;
             let cur = watch::read(s, &rest).await?;
             let body = watch::run_from_body(&cur, step)?;
             s.execute_detached(
@@ -913,22 +1054,73 @@ pub(crate) async fn run_from(s: &EsSession, id: &str, step: &str) -> Result<()> 
             )
             .await
         }
-        Type::Monitor => {
-            if step != "Entradas" {
-                return Err(bad(
-                    "el plugin Alerting ejecuta el monitor entero: solo se puede empezar por sus entradas".into(),
+        Type::Transform => Err(Error::Unsupported(TRANSFORM_WHOLE.into())),
+        Type::Slm | Type::Monitor => Err(Error::Unsupported(ONE_STEP.into())),
+        Type::OsTransform | Type::Sm => Err(Error::Unsupported(OS_NO_RUN.into())),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+/// The requests of one of the job kind's actions ([`job_actions`]) on a
+/// job.
+async fn action_plan(s: &EsSession, kind: &str, id: &str, action: &str) -> Result<Plan> {
+    if kind_of(s, kind)? == Kind::Lifecycle {
+        return Err(Error::Unsupported(
+            "las políticas de ciclo de vida no tienen acciones: se aplican solas a sus índices"
+                .into(),
+        ));
+    }
+    let c = ctx(s).await?;
+    let (t, rest) = parse(s, id)?;
+    let unknown = || {
+        Error::Unsupported(format!(
+            "«{}» no es una acción de este tipo de job.",
+            shown(action)
+        ))
+    };
+    match (t, action.trim()) {
+        (Type::Transform, "reset") => {
+            if !c.reset {
+                return Err(Error::Unsupported(
+                    "este clúster no restablece transforms (_reset llegó en Elasticsearch 8.1)"
+                        .into(),
                 ));
             }
-            s.job_start(id).await
-        }
-        Type::Transform | Type::OsTransform | Type::Slm | Type::Sm => {
-            let detail = s.job_info(id).await?;
-            if !detail.steps.iter().any(|x| x.name == step) {
-                return Err(bad(format!("«{}» no es un paso de este job.", shown(step))));
+            if !c.may(t) {
+                return Err(bad(NO_PRIV_TRANSFORM.into()));
             }
-            s.job_start(id).await
+            es_transform::reset_plan(&es_transform::read(s, &rest).await?)
         }
+        (Type::Watch, "ack") => {
+            if !c.may(t) {
+                return Err(bad(NO_PRIV_WATCHER.into()));
+            }
+            let cur = watch::read(s, &rest).await?;
+            if jobs::system_watch(&cur.watch) {
+                return Err(bad(SYSTEM_WATCH.into()));
+            }
+            watch::ack_plan(&cur)
+        }
+        _ => Err(unknown()),
     }
+}
+
+pub(crate) async fn action_script(
+    s: &EsSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    Ok(action_plan(s, kind, id, action).await?.render())
+}
+
+pub(crate) async fn action(s: &EsSession, kind: &str, id: &str, action: &str) -> Result<()> {
+    s.check_writable("Conexión de solo lectura: no se pueden cambiar jobs del servidor.")?;
+    let plan = action_plan(s, kind, id, action).await?;
+    run(s, &plan).await.map(|_| ())
 }
 
 /// A watch's records in `.watcher-history-*`, an SLM policy's in

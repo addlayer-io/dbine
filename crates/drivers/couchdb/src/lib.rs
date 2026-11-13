@@ -1087,9 +1087,10 @@ impl Session for CouchSession {
         replication::delete(self, kind, id).await
     }
 
-    /// A replication has one step: it starts again.
-    async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
-        replication::run_from(self, id, step).await
+    /// A replication has one step and runs again whole with "run now":
+    /// refused, as its job kind says (`run_from_step` false).
+    async fn run_job_from(&mut self, id: &str, _step: &str) -> Result<()> {
+        replication::run_from(self, id).await
     }
 
     async fn clear_job_history(&mut self, id: &str) -> Result<()> {

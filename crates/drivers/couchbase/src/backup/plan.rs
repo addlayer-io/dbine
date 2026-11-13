@@ -249,24 +249,41 @@ fn in_use(users: &[String]) -> String {
 }
 
 pub(crate) async fn items(s: &CbSession) -> Result<SchedulerList> {
+    // The plans the active repositories use: the service refuses to change
+    // or delete them, as it does the built-in ones.
+    let used: Vec<String> = s
+        .backup_call(Method::GET, "/cluster/self/repository/active", None)
+        .await?
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| field(r, "plan_name"))
+        .collect();
     let items = all(s)
         .await?
         .into_iter()
-        .map(|p| SchedulerItem {
-            id: p.name.clone(),
-            description: Some(p.description.clone()).filter(|d| !d.is_empty()),
-            name: p.name,
-            enabled: None,
-            system: p.default,
-            can_edit: None,
-            can_delete: None,
-            actions: None,
-        })
+        .map(|p| item_of(p, &used))
         .collect();
     Ok(SchedulerList {
         items,
         notes: Vec::new(),
     })
+}
+
+/// A plan as the tree lists it: a built-in one, or one an active
+/// repository uses, is neither changed nor deleted (the service refuses).
+pub(crate) fn item_of(p: PlanDef, used: &[String]) -> SchedulerItem {
+    let fixed = p.default || used.contains(&p.name);
+    SchedulerItem {
+        id: p.name.clone(),
+        description: Some(p.description.clone()).filter(|d| !d.is_empty()),
+        name: p.name,
+        enabled: None,
+        system: p.default,
+        can_edit: fixed.then_some(false),
+        can_delete: fixed.then_some(false),
+        actions: None,
+    }
 }
 
 // ---------------------------------------------------------------------------

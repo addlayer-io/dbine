@@ -708,3 +708,37 @@ pub(crate) fn delete_plan(cur: &Cur) -> Plan {
         ..Plan::default()
     }
 }
+
+/// "Restablecer": `_reset` (8.1 on) on a stopped transform. Its
+/// checkpoints, state and stats go, and so does its destination index when
+/// the transform created it; started again, it processes the source from
+/// the beginning.
+pub(crate) fn reset_plan(cur: &Cur) -> Result<Plan> {
+    if cur.started() {
+        return Err(bad(format!(
+            "El transform «{}» no está detenido (estado: {}): hay que detenerlo antes de restablecerlo.",
+            cur.id,
+            shown(&cur.state)
+        )));
+    }
+    let mut notes = vec![
+        format!(
+            "Restablece el transform «{}»: borra sus checkpoints, su estado y sus estadísticas; al iniciarlo de nuevo procesa el origen desde el principio.",
+            cur.id
+        ),
+        "Si el transform creó su índice de destino, Elasticsearch también borra ese índice; un índice de destino creado aparte se conserva.".to_string(),
+    ];
+    if cur.managed {
+        notes.push(super::MANAGED.into());
+    }
+    Ok(Plan {
+        notes,
+        reqs: vec![Req::new(
+            "POST",
+            format!("/_transform/{}/_reset", path_segment(&cur.id)),
+            None,
+        )],
+        name: cur.id.clone(),
+        ..Plan::default()
+    })
+}

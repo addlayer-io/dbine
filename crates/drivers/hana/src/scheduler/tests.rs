@@ -791,3 +791,66 @@ fn the_form_and_the_save_follow_the_privileges() {
     assert!(e.contains("CREATE ANY"), "{e}");
     assert!(check_rights(Some(&rights("DAN", &["APP"], &[])), Some(&job), &w, &p).is_ok());
 }
+
+fn listed(schema: &str, name: &str, owner: &str) -> dbine_driver::ServerJob {
+    dbine_driver::ServerJob {
+        id: jobs::job_id(schema, name),
+        name: name.into(),
+        kind: "SCHEDULER JOB".into(),
+        group: Some(schema.into()),
+        description: None,
+        owner: Some(owner.into()),
+        enabled: true,
+        schedule: Some("* * * * * 0 0".into()),
+        running: false,
+        last_outcome: None,
+        last_started: None,
+        last_duration_ms: None,
+        next_run: None,
+        can_run: false,
+        can_stop: false,
+        can_enable: true,
+        has_history: true,
+        has_script: true,
+        system: jobs::hana_own(schema) || jobs::hana_own(owner),
+    }
+}
+
+#[test]
+fn the_tree_offers_only_what_the_login_may_do() {
+    // HANA's own jobs: never.
+    let sys = item_of(
+        listed("_SYS_STATISTICS", "COLLECT", "_SYS_STATISTICS"),
+        None,
+    );
+    assert!(sys.system);
+    assert_eq!((sys.can_edit, sys.can_delete), (Some(false), Some(false)));
+    assert_eq!(sys.name, "_SYS_STATISTICS.COLLECT");
+    // Privileges unknown: the server decides.
+    let j = item_of(listed("APP", "NIGHTLY", "ANA"), None);
+    assert_eq!((j.can_edit, j.can_delete), (None, None));
+    // Its owner, or the schema's: both.
+    for r in [rights("ANA", &[], &[]), rights("DAN", &["APP"], &[])] {
+        let j = item_of(listed("APP", "NIGHTLY", "ANA"), Some(&r));
+        assert_eq!((j.can_edit, j.can_delete), (None, None), "{}", r.user);
+    }
+    // ALTER on the job but no DROP: edited, not deleted.
+    let alter_only = rights(
+        "CARL",
+        &[],
+        &[&[
+            Some("ALTER"),
+            Some("SCHEDULERJOB"),
+            Some("APP"),
+            Some("NIGHTLY"),
+        ]],
+    );
+    let j = item_of(listed("APP", "NIGHTLY", "ANA"), Some(&alter_only));
+    assert_eq!((j.can_edit, j.can_delete), (None, Some(false)));
+    // Someone else's job, nothing granted: neither.
+    let j = item_of(
+        listed("APP", "NIGHTLY", "ANA"),
+        Some(&rights("EVE", &[], &[])),
+    );
+    assert_eq!((j.can_edit, j.can_delete), (Some(false), Some(false)));
+}

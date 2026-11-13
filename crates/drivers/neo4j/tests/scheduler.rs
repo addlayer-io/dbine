@@ -164,6 +164,8 @@ async fn apoc_body(c: ConnectionConfig) {
     let k = &info.kinds[0];
     assert_eq!((k.key.as_str(), k.label.as_str()), ("job", "Jobs de APOC"));
     assert!(k.can_create && k.can_edit && k.can_delete);
+    // APOC jobs have no steps, no history and no other actions.
+    assert!(!k.run_from_step && !k.clear_history && k.actions.is_empty());
     assert!(!info.logs && info.notes.iter().any(|n| n.contains("reinicio")));
 
     let f = s.scheduler_form("job", None).await.expect("new form");
@@ -258,6 +260,14 @@ async fn apoc_body(c: ConnectionConfig) {
     let f = s.scheduler_form("job", Some(&did)).await.expect("form");
     assert_eq!(f.values["type"], json!("countdown"), "{:?}", f.values);
     assert_eq!(f.values["rate"], json!(1));
+    // The job tab says "Detener" doesn't stop it.
+    let d = s.job_detail(&did).await.expect("detail");
+    assert!(d.job.can_stop);
+    assert!(
+        d.notes.iter().any(|n| n.contains("«Detener» no la frena")),
+        "{:?}",
+        d.notes
+    );
     // Its own name again is refused: its pending run would replace it.
     let e = s
         .scheduler_save("job", Some(&did), &down)

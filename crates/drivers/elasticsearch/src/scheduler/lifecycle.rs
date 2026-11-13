@@ -194,15 +194,18 @@ pub(crate) async fn items(s: &EsSession, c: &Ctx) -> Result<SchedulerList> {
                 .flatten()
                 .map(|(k, _)| k.clone())
                 .collect();
+            // Elastic's own (`_meta.managed`): neither changed nor deleted
+            // from here (see `ilm_plan` and `delete_plan`).
+            let managed = pol.at(&["_meta", "managed"]).and_then(J::as_bool) == Some(true);
             items.push(SchedulerItem {
                 id: id.clone(),
                 name: id.clone(),
                 description: text(pol.at(&["_meta", "description"]))
                     .or_else(|| (!phases.is_empty()).then(|| phases.join(", "))),
                 enabled: None,
-                system: pol.at(&["_meta", "managed"]).and_then(J::as_bool) == Some(true),
-                can_edit: None,
-                can_delete: None,
+                system: managed,
+                can_edit: managed.then_some(false),
+                can_delete: managed.then_some(false),
                 actions: None,
             });
         }

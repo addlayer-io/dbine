@@ -1689,6 +1689,20 @@ impl Session for CbSession {
         backup::delete(self, kind, id).await
     }
 
+    /// A repository's full backup now, or every backup of it merged now.
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        backup::action_script(self, kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        backup::action(self, kind, id, action).await
+    }
+
     /// Runs a task of the repository's plan now: a backup, a merge or a
     /// prune.
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {

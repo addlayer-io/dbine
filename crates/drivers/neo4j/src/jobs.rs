@@ -30,6 +30,8 @@ pub(crate) const NO_APOC: &str =
 const NO_STOP_REPEAT: &str = "APOC no detiene una ejecución de un job que se repite: solo lo cancela para siempre (apoc.periodic.cancel)";
 const STOP_CANCELS: &str =
     "al detenerlo, APOC lo cancela y lo quita de la lista: no se puede reanudar";
+const STOP_COUNTDOWN: &str = "Es una cuenta regresiva (apoc.periodic.countdown): «Detener» no la frena. APOC no puede cancelarla entre dos ejecuciones: la próxima ya está programada y la vuelve a armar, hasta que su consulta devuelva 0 o se reinicie el servidor.";
+const STOP_MAYBE_COUNTDOWN: &str = "Si es una cuenta regresiva (apoc.periodic.countdown; después de su primera ejecución APOC la lista como un job de una vez), «Detener» no la frena: su próxima ejecución ya programada la vuelve a armar, hasta que su consulta devuelva 0 o se reinicie el servidor.";
 const MEMGRAPH: &str = "Memgraph no tiene jobs programados: sus triggers se disparan con los cambios y sus procedimientos periodic corren dentro de la consulta que los llama";
 const NEPTUNE: &str = "Neptune no tiene jobs programados en la base de datos";
 
@@ -116,6 +118,16 @@ fn detail(r: &Map<String, Value>) -> Option<JobDetail> {
     let mut notes = Vec::new();
     if job.can_stop {
         notes.push(STOP_CANCELS.into());
+        // APOC lists a countdown as one (a delay, no rate) until its first
+        // run re-arms it; then it looks like a one-off job.
+        notes.push(
+            if int(r, "delay") > 0 {
+                STOP_COUNTDOWN
+            } else {
+                STOP_MAYBE_COUNTDOWN
+            }
+            .into(),
+        );
     } else if int(r, "rate") > 0 && job.enabled {
         notes.push(cancel_note(&job.name));
     }
@@ -283,8 +295,19 @@ mod tests {
             json!({"name": "once", "delay": 0, "rate": 0, "done": false, "cancelled": false}),
         ))
         .unwrap();
-        assert_eq!(d.notes, [STOP_CANCELS]);
+        // It may be a countdown APOC no longer tells apart: "Detener"
+        // wouldn't stop that.
+        assert_eq!(d.notes, [STOP_CANCELS, STOP_MAYBE_COUNTDOWN]);
         assert!(!d.properties.iter().any(|p| p.label == "Al detenerlo"));
+        // A countdown as APOC lists it before its first run: "Detener"
+        // doesn't stop it.
+        let d = detail(&row(
+            json!({"name": "cd", "delay": 5, "rate": 0, "done": false, "cancelled": false}),
+        ))
+        .unwrap();
+        assert!(d.job.can_stop);
+        assert_eq!(d.notes, [STOP_CANCELS, STOP_COUNTDOWN]);
+        assert!(d.notes[1].contains("«Detener» no la frena"));
         let done = job(&row(
             json!({"name": "d", "delay": 1, "rate": 0, "done": true, "cancelled": false}),
         ))

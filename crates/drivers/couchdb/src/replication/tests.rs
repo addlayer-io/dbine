@@ -62,6 +62,18 @@ fn kinds_versions_and_notes() {
     assert!(i.kinds[0].can_create && i.kinds[0].can_edit && i.kinds[0].can_delete);
     assert!(!i.kinds[1].can_create && i.kinds[1].can_edit && !i.kinds[1].can_delete);
     assert!(!i.logs);
+    // One step (the job's "run now" restarts it); a history in memory.
+    assert!(!i.kinds[0].run_from_step && !i.kinds[0].clear_history);
+    assert!(i.kinds[0].actions.is_empty());
+    // Starting at a step is refused as the flag says, "run now" named.
+    match doc::run_from("doc:_replicator:a") {
+        Err(Error::Unsupported(m)) => assert!(m.contains("Ejecutar ahora"), "{m}"),
+        other => panic!("{other:?}"),
+    }
+    assert!(!matches!(
+        doc::run_from("nope"),
+        Err(Error::Unsupported(_)) | Ok(())
+    ));
     let denied = info_of(&Ctx {
         missing: Some(jobs::DENIED),
         ..c35()
@@ -198,11 +210,23 @@ fn endpoints_keep_what_the_form_cannot_show() {
         json!({"url": "http://h/db", "auth": {"basic": {"username": "w", "password": "pw"}}})
     );
     // A secret header left masked keeps its value; a plugin's key stays.
-    let old =
-        json!({"url": "http://h/db", "headers": {"Authorization": "Bearer t0k"}, "x_plugin": 1});
+    let old = json!({"url": "http://h/db", "headers": {"Cookie": "AuthSession=1"}, "x_plugin": 1});
     let view = endpoint_view(&old);
     let v = vals(json!({"source_url": "http://h/other",
         "source_headers": serde_json::to_string(&Value::Object(view.headers)).unwrap()}));
+    assert_eq!(
+        endpoint_from(&c35(), SOURCE, Vals(&v), Some(&old)).unwrap(),
+        json!({"url": "http://h/other", "headers": {"Cookie": "AuthSession=1"}, "x_plugin": 1})
+    );
+    // A bearer token kept when none is typed (the header isn't shown).
+    let old =
+        json!({"url": "http://h/db", "headers": {"Authorization": "Bearer t0k"}, "x_plugin": 1});
+    let view = endpoint_view(&old);
+    assert_eq!(view.auth, "bearer");
+    assert!(view.headers.is_empty());
+    let v = vals(
+        json!({"source_url": "http://h/other", "source_auth": "bearer", "source_token": null, "source_headers": ""}),
+    );
     assert_eq!(
         endpoint_from(&c35(), SOURCE, Vals(&v), Some(&old)).unwrap(),
         json!({"url": "http://h/other", "headers": {"Authorization": "Bearer t0k"}, "x_plugin": 1})
@@ -214,6 +238,86 @@ fn endpoints_keep_what_the_form_cannot_show() {
         endpoint_from(&c35(), SOURCE, Vals(&v), Some(&old)).unwrap(),
         json!("http://h/db2")
     );
+}
+
+#[test]
+fn each_way_of_authenticating_has_its_fields() {
+    let f = |v: serde_json::Value, old: Option<&Value>| {
+        endpoint_from(&c35(), SOURCE, Vals(&vals(v)), old)
+    };
+    // A token, typed with or without "Bearer".
+    for t in ["abc.def", "Bearer abc.def", "  bearer abc.def "] {
+        assert_eq!(
+            f(
+                json!({"source_url": "http://h/db", "source_auth": "bearer", "source_token": t}),
+                None
+            )
+            .unwrap(),
+            json!({"url": "http://h/db", "headers": {"Authorization": "Bearer abc.def"}}),
+            "{t}"
+        );
+    }
+    for (v, want) in [
+        (
+            json!({"source_url": "http://h/db", "source_auth": "bearer"}),
+            "Falta el token",
+        ),
+        (
+            json!({"source_url": "http://h/db", "source_auth": "bearer", "source_token": "t",
+                   "source_headers": "{\"authorization\": \"x\"}"}),
+            "campo Token",
+        ),
+        (
+            json!({"source_url": "http://h/db", "source_auth": "bearer", "source_token": "a\nb"}),
+            "saltos de línea",
+        ),
+        (
+            json!({"source_url": "http://h/db", "source_auth": "basic"}),
+            "Falta el usuario",
+        ),
+        (
+            json!({"source_url": "http://h/db", "source_auth": "kerberos"}),
+            "forma de autenticación",
+        ),
+    ] {
+        let e = err(f(v, None));
+        assert!(e.contains(want), "{e} / {want}");
+    }
+    // Without credentials, what the other ways' fields still hold is left
+    // out: the credentials go.
+    let basic =
+        json!({"url": "http://h/db", "auth": {"basic": {"username": "u", "password": "p"}}});
+    assert_eq!(endpoint_view(&basic).auth, "basic");
+    assert_eq!(
+        f(json!({"source_url": "http://h/db", "source_auth": "none", "source_user": "u", "source_token": "t"}), Some(&basic)).unwrap(),
+        json!("http://h/db")
+    );
+    // From a user to a token: auth.basic goes, the header comes.
+    assert_eq!(
+        f(json!({"source_url": "http://h/db", "source_auth": "bearer", "source_user": "u", "source_token": "t"}), Some(&basic)).unwrap(),
+        json!({"url": "http://h/db", "headers": {"Authorization": "Bearer t"}})
+    );
+    // From a token to a user: the header goes.
+    let bearer =
+        json!({"url": "http://h/db", "headers": {"Authorization": "Bearer t", "X-A": "1"}});
+    assert_eq!(
+        f(json!({"source_url": "http://h/db", "source_auth": "basic", "source_user": "u", "source_password": "p",
+                 "source_headers": "{\"X-A\": \"1\"}"}), Some(&bearer)).unwrap(),
+        json!({"url": "http://h/db", "auth": {"basic": {"username": "u", "password": "p"}}, "headers": {"X-A": "1"}})
+    );
+    // Unchanged, the old value as it was.
+    assert_eq!(
+        f(json!({"source_url": "http://h/db", "source_auth": "bearer", "source_headers": "{\"X-A\": \"1\"}"}), Some(&bearer)).unwrap(),
+        bearer
+    );
+    assert_eq!(endpoint_view(&json!("http://h/db")).auth, "none");
+    // The form's values say how each side authenticates.
+    let d = obj(json!({"source": bearer, "target": "http://u:p@h/b"}));
+    let v = doc_values("_replicator", "d", &d);
+    assert_eq!(v["source_auth"], "bearer");
+    assert_eq!(v["target_auth"], "basic");
+    assert!(v["source_token"].is_null() && v["target_password"].is_null());
+    assert_eq!(v["source_headers"], json!("{\n  \"X-A\": \"1\"\n}"));
 }
 
 #[test]
