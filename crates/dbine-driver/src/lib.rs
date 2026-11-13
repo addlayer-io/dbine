@@ -20,6 +20,7 @@ pub mod ddl;
 pub mod dependencies;
 pub mod error;
 pub mod filter;
+pub mod functions;
 pub mod health;
 pub mod index_usage;
 pub mod info;
@@ -57,6 +58,7 @@ pub use dependencies::{
 };
 pub use error::{ConnectFailure, ConnectFailureKind, Error, Result};
 pub use filter::{ColumnFilter, FilterOp};
+pub use functions::{FunctionInfo, FunctionKind};
 pub use index_usage::{IndexUsage, IndexUsageReport};
 pub use info::{
     kinds, DatabaseProperties, DriverInfo, Family, Field, FieldChoices, FieldKind, FieldSection,
@@ -1231,6 +1233,19 @@ pub trait Session: Send {
         let _ = id;
         Err(Error::Unsupported(
             "este motor no genera el script de sus jobs".into(),
+        ))
+    }
+
+    /// The functions the engine's query language offers on this connection,
+    /// for the editor's completion (see [`functions`]): read from the server
+    /// where it lists them, so its version, extensions and the user's own
+    /// functions count; otherwise the built-ins the engine documents for the
+    /// server's version. Languages without functions return what plays
+    /// their part (commands, operators). `Unsupported` where there is
+    /// nothing to offer.
+    async fn function_catalog(&mut self) -> Result<Vec<functions::FunctionInfo>> {
+        Err(Error::Unsupported(
+            "este motor no ofrece un catálogo de funciones".into(),
         ))
     }
 
