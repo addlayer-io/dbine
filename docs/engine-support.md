@@ -4754,3 +4754,166 @@ TLS.
 | Arrow Flight SQL (`flightsql`) | `disableCertificateVerification` | tonic, the gRPC client, has no way to skip the certificate check (it would take a TLS connector of our own). A server with a private or self-signed certificate needs its CA in `tlsRootCerts`. |
 | Azure Cosmos DB (`cosmosdb`) | A CA file | The SDKs' connection string has no option for one. The emulator's self-signed certificate is accepted with `DisableServerCertificateValidation`. |
 | InfluxDB, IoTDB, TimechoDB, ksqlDB, TDengine, Phoenix, Avatica, Cosmos DB, libSQL through an SSH tunnel to a server given by its IP address | Verifying the certificate | The HTTP client checks the name it dials, and through the tunnel that is 127.0.0.1. With a host name the driver keeps it for the check; with an IP address it refuses to connect unless the host-name check (or the whole check) is off. |
+
+## Function completion
+
+The editor's completion of functions ([`query-editor.md`](query-editor.md#function-completion)) is in **every engine that has a catalog DBine can reach**. It takes the list from `Session::function_catalog` (default `Unsupported`). What each engine offers is its own: SQL functions, or what plays their part in its language (Redis, Valkey, Dragonfly and etcd commands; MongoDB, FerretDB, DocumentDB and CouchDB operators; Solr function queries; Cypher and Flux functions; q's functions). Descriptions come only from the server, as it writes them: a static catalog has none.
+
+Two sources, in this order:
+
+1. **The server's catalog**, read with a single query or command, where the server lists its functions. The list then follows the server's version and installed extensions and includes the user's own functions with their schema. If the read fails (missing permission, an old version, the feature not compiled in), the driver falls back to the static catalog instead of returning an error.
+2. **A static catalog** built from the engine's documentation (aggregates, string, numeric, date, JSON, window and table functions; internal and undocumented functions left out), where each function that arrived in a later version carries it, and the list is filtered by the server's version.
+
+Enterprise (gateway) connections get no functions yet: the gateway doesn't forward the new call, so the editor shows none for them until it does. This is an explicit pending item (see the end of this section).
+
+### PostgreSQL, SQLite, DuckDB and their family
+
+| Engine | Where its functions come from | Left out |
+|---|---|---|
+| PostgreSQL, Aurora PostgreSQL, Cloud SQL for PostgreSQL, AlloyDB, TimescaleDB, YugabyteDB, Greenplum, Greengage DB, Apache Cloudberry, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres, KingbaseES, openGauss, Yellowbrick | `pg_proc`: one entry per overload, with its arguments and result and the server's comment as description. The kind (aggregate, window, set-returning, scalar) comes from `prokind` (`proisagg` and `proiswindow` before 11). Extensions' and the user's functions carry their schema. If the query fails or is empty: PostgreSQL's documented functions for the server's version | Procedures; trigger and event-trigger functions and handlers; what only the server calls (functions that take or return `internal` or `cstring`, type input and output, index support, the aggregates' transition, final, combine, serialization and moving-aggregate functions, the range types' canonical and difference functions); the functions behind operators that the documentation doesn't list; undocumented `pg_catalog` functions; each engine's internal schemas (`crdb_internal`, `_timescaledb_*`, `dbe_perf`…) |
+| CockroachDB | `pg_proc`, which lists its built-ins with descriptions, and the user's functions | As above |
+| Amazon Aurora DSQL | `pg_proc` with the user's SQL functions; if refused, PostgreSQL 16's documented functions | As above |
+| Materialize | `mz_catalog.mz_functions`, with argument, variadic and result types | `mz_internal` and `mz_unsafe`. If the read fails: the SQL standard's functions |
+| CrateDB | Its `pg_proc` (built-ins and the user's functions), with type names from `pg_type` (`any` if that can't be read) | Its names for operators and syntax (`op_and`, `subscript`, `_cast`…). If the read fails: the SQL standard's functions |
+| RisingWave | Static catalog (its `pg_proc` is empty), filtered by the version in `version()`, plus the user's functions from `rw_catalog.rw_functions` | |
+| H2 (PostgreSQL protocol) | Static catalog filtered by `H2VERSION()`, plus `CREATE ALIAS` and `CREATE AGGREGATE` routines from `INFORMATION_SCHEMA.ROUTINES` | |
+| Amazon Redshift | Static catalog from its SQL reference (its `pg_proc` keeps PostgreSQL 8.0's functions, most of which the compute nodes don't run), plus the user's functions from `pg_proc_info` with `prokind = 'f'` (`pg_proc` if that view can't be read) | Functions that run only on the leader node; stored procedures |
+| Denodo | Static catalog of VQL's functions (its PostgreSQL interface lists none) | |
+| SQLite | `pragma_function_list` and `pragma_module_list` on the connection (so the build's options and loaded extensions count), with argument names from SQLite's documentation. Without the pragma: the documented functions for the library's version | |
+| libSQL / Turso | The same pragmas on the server, including libSQL's own and bundled-extension functions. Otherwise: SQLite's documented functions for the server's version | |
+| DuckDB, CSV / Parquet / JSON files | `duckdb_functions()`: built-ins with their parameters, result and description, loaded extensions' functions and the user's macros, plus a static list of DuckDB's window functions (the binder, not that list, has them) | Argument lists stop after 6 parameters |
+
+**Tested against real servers:** PostgreSQL 16, CockroachDB, TimescaleDB, YugabyteDB, Greengage 6 (PostgreSQL 9.4, the older query form) and 7, Apache Cloudberry, openGauss, Materialize, CrateDB, RisingWave 3.1, H2, SQLite, libSQL and DuckDB; Aurora DSQL through its password login against PostgreSQL 16. Following the vendors' documentation only: Redshift, KingbaseES, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres, AlloyDB, Cloud SQL, Aurora PostgreSQL, Yellowbrick and Denodo.
+
+### MySQL, SQL Server and their family
+
+| Engine | Built-in functions | User functions |
+|---|---|---|
+| MySQL, Aurora MySQL, Cloud SQL for MySQL | The server's help tables (`mysql.help_topic`, with its descriptions) completed by a static catalog filtered by version; the static catalog alone when the tables are empty or unreadable. MySQL Enterprise, internal and loadable-function topics are left out | Stored functions (`information_schema.ROUTINES`); loadable functions from `performance_schema.user_defined_functions` (8.0+) or `mysql.func` |
+| MariaDB | The same. Spider's functions only once Spider is installed | Stored functions; loadable functions from `mysql.func` |
+| TiDB | `SHOW BUILTINS` without its operators, with arguments, aggregates and window functions from a static catalog | None (TiDB has no stored functions) |
+| StarRocks, Apache Doris, VeloDB | `SHOW FULL BUILTIN FUNCTIONS` (Doris 4 lists names only; arguments and kinds from a static catalog) | `SHOW FULL FUNCTIONS` and the global ones |
+| Databend | `system.functions` without operators and planner internals (server syntax and description for aggregates only), plus static window and table functions; static catalog if it can't be read | `system.user_functions` |
+| OceanBase (MySQL mode) | Static catalog filtered by OceanBase's version | Stored functions from `information_schema.ROUTINES` |
+| SingleStore | Static catalog | Stored functions from `information_schema.ROUTINES` |
+| Manticore Search, GreptimeDB | Static catalog (neither lists its functions) | None |
+| SQL Server (also the legacy-TLS driver) | Static T-SQL catalog filtered by `ProductVersion` | `sys.objects` and `sys.all_parameters` (scalar, table-valued, CLR, aggregate) with schema, result type and `MS_Description` |
+| Azure SQL Database, SQL database in Fabric | The whole T-SQL catalog | As SQL Server |
+| Azure SQL Managed Instance | The whole catalog on the always-up-to-date policy; that SQL Server release's on its update policy | As SQL Server |
+| Azure Synapse (dedicated and serverless) | SQL Server 2019's, plus `GREATEST`, `LEAST`, `JSON_PATH_EXISTS` and `PRODUCT` | As SQL Server |
+| Fabric Data Warehouse and SQL analytics endpoint | The whole catalog without the vector and AI functions, `CURRENT_TIMEZONE_ID`, `JSON_CONTAINS`, `REGEXP_MATCHES` and `REGEXP_SPLIT_TO_TABLE`; plus `MEDIAN` | As SQL Server |
+| Babelfish for PostgreSQL | The T-SQL names it implements, read from its catalog, with the T-SQL catalog's arguments | As SQL Server (`sys.all_parameters`, with `MS_Description`) |
+| SAP ASE (Sybase) | Static catalog | Functions from `sysobjects` type `SF` (through ODBC) |
+
+`CURRENT_TIMESTAMP`, `CURRENT_DATE`, `CURRENT_USER`, `SESSION_USER`, `SYSTEM_USER` and `USER` (SAP ASE: `USER`) are written without parentheses; the editor completes them as keywords, not as functions. Fabric reached through a plain SQL Server connection reports the same edition as Synapse serverless and gets Synapse's list.
+
+**Tested against real servers:** MySQL 8.4, MariaDB 11.8, TiDB 8.5, StarRocks 4.1, Doris 4.1, GreptimeDB 1.2, SQL Server 2022 and Babelfish. Following the vendors' documentation only: Databend (its server path), OceanBase, SingleStore, Manticore Search, Azure SQL, Synapse and Fabric, and SAP ASE (its catalog is checked to parse).
+
+### Oracle, SAP HANA, Firebird and ODBC engines
+
+| Engine | Where its functions come from |
+|---|---|
+| Oracle, Oracle Autonomous Database | The documented SQL functions for the server's release, plus any documented function `V$SQLFN_METADATA` lists; the schema's functions, package functions, aggregates and pipelined table functions from `ALL_PROCEDURES` and `ALL_ARGUMENTS`. No built-in has a description: the view's own description only repeats the function name |
+| SAP HANA | The SQL Reference's built-ins for the server's version (HANA lists none), plus the schema's functions from `SYS.FUNCTIONS` with their parameters |
+| Firebird | The Language Reference's built-ins for the engine's version, plus `RDB$FUNCTIONS`: the database's functions, UDFs, public package functions and the system packages' functions, with their `COMMENT ON` text as description. A function declared only in a package body is left out (it can't be called from outside) |
+| IBM Db2 (LUW) | `SYSCAT.ROUTINES` (SYSIBM, SYSFUN and the user's schemas), plus the documented built-ins the catalog doesn't list (`CAST`, the SQL/XML and SQL/JSON constructors, window functions, special registers); a static catalog by version if that read fails |
+| IBM Db2 for i, Db2 for z/OS | Db2 LUW's static list without its LUW-only functions (the Netezza and Oracle compatibility sets), not filtered by version |
+| Apache Hive, Cloudera CDP, Spark Thrift Server, Apache Kyuubi | `SHOW FUNCTIONS`; kinds and arguments from a static catalog, which is also the fallback |
+| Apache Impala | `SHOW [AGGREGATE \| ANALYTIC] FUNCTIONS IN _impala_builtins` with signatures and result types, plus the current database's functions |
+| MonetDB | `sys.functions` with `sys.args`, without its internal helpers |
+| Informix, GBase 8s, Teradata, Vertica, Exasol, Netezza, Altibase, CUBRID, SAP SQL Anywhere, SAP ASE, Access, dBase | A static catalog per engine, filtered by the server's version where the numbering allows it (GBase 8s, Access and dBase are not filtered) |
+| SQL Server, Oracle and SQLite behind the generic ODBC preset | The shared catalog of that engine, recognized by the DBMS name and filtered by `SQL_DBMS_VER`; SQL Server's list is whole on Azure SQL, Managed Instance, Synapse and Fabric |
+| Dameng | The Oracle functions DM8 also documents (about 130 names) |
+| Generic ODBC and Ocient, Virtuoso, Ingres, Mimer, InterSystems IRIS and Caché, Progress OpenEdge, Actian Zen, SQream, SAP MaxDB, NuoDB, HeavyDB, Machbase, Apache Ignite 2 and 3, NetSuite | The ODBC scalar functions the driver reports (`SQLGetInfo`) plus the SQL standard's functions. None of these engines has a catalog DBine can read |
+
+On every ODBC engine whose built-ins are static or generic, the user's functions come from the driver (`SQLProcedures` and `SQLProcedureColumns`), or from `sys.objects` on SQL Server and `sysobjects` on ASE. A function whose arguments the driver doesn't give shows `(...)`. The ODBC names that only work as escapes (`UCASE`, `LCASE`, `IFNULL`, `DAYOFWEEK`, `CURDATE`…) are left out, because a bare call fails where the engine lacks the name.
+
+**Tested against real servers:** Oracle 23, Firebird 5.0, and SQL Server through the generic ODBC preset. The other engines in this table follow the vendors' documentation and are covered by unit tests only (see the pending items below).
+
+### Analytics and cloud SQL
+
+| Engine | Where its functions come from |
+|---|---|
+| ClickHouse | `system.functions` and `system.table_functions`: built-ins with the server's documentation (arguments, result and description from 23.x; names and kinds on 22.x), aliases and the user's SQL functions. Window functions are recognized by name. If the read fails: a static catalog generated from ClickHouse 26.9, filtered by the version that added each function |
+| Timeplus Proton | The same tables; its own static catalog as fallback |
+| Trino, Starburst, Presto | `SHOW FUNCTIONS` (each overload's types, kind and description), plus the user's SQL routines in the session's schema (not inside an open transaction); a static catalog (Trino 483, Presto 0.299) as fallback |
+| Amazon Athena | `SHOW FUNCTIONS` (engine version 3 runs Trino); if the workgroup refuses it, Trino's documented built-ins |
+| Databricks, Azure Databricks | `SHOW FUNCTIONS` for the names (built-ins and the user's functions in the current schema); kinds and arguments from a static catalog of Databricks' documentation. Generators (`explode`, `inline`, `stack`…) are offered both in the select list and in `FROM`. A name the catalog lacks is offered as a scalar function |
+| Snowflake | `SHOW FUNCTIONS` (built-ins and the user's functions in scope, with signatures, aggregate and table flags and descriptions); if it fails, a static catalog of the documented functions, names and kinds only, including `SNOWFLAKE.CORTEX`, `SNOWFLAKE.CORE` and `SNOWFLAKE.LOCAL` |
+| Google BigQuery | The built-ins from a static catalog of the GoogleSQL documentation (BigQuery has no versions), plus the user's functions and table functions from the region's `INFORMATION_SCHEMA.ROUTINES`; the session dataset's view when the region's can't be read or reads empty with no location set |
+| Google Cloud Spanner | The built-ins from a static catalog of the GoogleSQL documentation for Spanner (graph functions included), plus the change streams' read functions from `INFORMATION_SCHEMA.ROUTINES` (on the emulator, from `CHANGE_STREAMS`) |
+| Dremio | `/apiv2/sql/functions`, the list its SQL editor completes from, plus the user's functions from `sys.user_defined_functions`. Servers without that endpoint: a static catalog generated from Dremio 26, where only the few entries that name a version are filtered |
+| Apache Drill | `sys.functions` (1.15+): built-ins and UDF-jar functions, with overloads folded per name and argument count; kinds and window functions from a static catalog generated from Drill 1.22 (also the fallback) |
+| Arrow Flight SQL | Depends on the server behind it. DuckDB (GizmoSQL): `duckdb_functions()`. SQLite: `pragma_function_list`, or SQLite's static catalog. DataFusion and InfluxDB 3: `information_schema.routines`. Dremio: Dremio's catalog for the server's version plus `sys.user_defined_functions`. Any other server: the names `GetSqlInfo` reports plus the SQL standard's functions |
+
+**Tested against real servers:** ClickHouse (latest and 22.8), Timeplus Proton, Trino 483, Presto 0.299, the BigQuery and Spanner emulators (the BigQuery emulator has no `ROUTINES`, so its user functions aren't tested), Dremio OSS 26, Apache Drill 1.22, and GizmoSQL with its DuckDB and SQLite backends. Snowflake, Databricks, Amazon Athena, Dremio over Flight SQL and the DataFusion path of Flight SQL follow the vendors' documentation and are covered by unit tests only.
+
+### Time series, streaming and others
+
+| Engine | Where its functions come from | Left out |
+|---|---|---|
+| InfluxDB 1 (InfluxQL) | Static, from the InfluxQL reference, filtered by the server's version | `HISTOGRAM()`: documented but not implemented. Through InfluxDB 2 or 3's compatibility API the whole 1.x list is offered, unfiltered |
+| InfluxDB 2 (Flux) | The prelude from the server's `/api/v2/query/suggestions`; the standard library's packages from a static catalog filtered by the server's Flux version, each with its import path. All static when the suggestions can't be read | Internal, testing and contrib packages. `date/boundaries` from Flux 0.177.1 on, where its functions only fail (`experimental/date/boundaries` is offered) |
+| InfluxDB 3 (SQL) | `information_schema.routines`, with the server's descriptions; a static catalog (3 Core 3.11) if it can't be read | The internal `influx_*` functions |
+| Apache IoTDB, TimechoDB | `SHOW FUNCTIONS` (built-ins and UDFs), with arguments from the static catalog, filtered by version when the list can't be read | UDFs that aren't `AVAILABLE` (2.x); the table model's functions |
+| TDengine | Built-ins from a static catalog filtered by the server's version, plus the user's UDFs from `information_schema.ins_functions` | UDFs show no arguments |
+| ksqlDB | `SHOW FUNCTIONS`, with arguments from a static catalog built from the server's `DESCRIBE FUNCTION`; `CAST` added. Table functions are offered as scalars, because ksqlDB calls them in the select list | Confluent's test UDFs. UDFs the static catalog doesn't know show no arguments |
+| Apache Phoenix | Static, from its language reference (its JDBC metadata lists no functions) | The user's functions (see the pending items) |
+| Apache Calcite Avatica | The server's JDBC function lists plus the SQL standard's functions | |
+| OrientDB | Bundled, full-text and spatial functions from a static catalog filtered by the server's version, plus the database's own functions (`OFunction`) | Methods (`.append()`…), called after a dot |
+| KDB+ | One request: q's keywords that are functions (`.Q.res`), `.q`'s named functions and the user's functions per namespace with their parameters (`[x;y]`); a static catalog if it can't be read | kdb+'s own namespaces (`.q`, `.Q`, `.h`, `.j`, `.o`, `.s`, `.z`) and DBine's staging one; q-sql and control words (completed as keywords) |
+| Azure Cosmos DB | Static catalog of the system functions (126), taken from each function's page. The service has no version | The user's functions (see the pending items) |
+
+**Tested against real servers:** TDengine 3.3 and 3.4, kdb+ 5, InfluxDB 2.9, InfluxQL 1.8, InfluxDB 3.11, IoTDB 1.3 and 2.0 (also as TimechoDB), ksqlDB (Confluent Platform 7.7), Phoenix 5.0, OrientDB 3.2 and the Cosmos DB emulator. The IoTDB and ksqlDB tests check that the catalog has exactly the server's `SHOW FUNCTIONS` names, and the Flux test that the prelude is the server's suggestions.
+
+### NoSQL and graph
+
+| Engine | Where its functions come from |
+|---|---|
+| Redis, Valkey | `COMMAND DOCS`: every command the server has, modules included, with its arguments and the server's summary; subcommands as `CLIENT KILL`. Redis 6 and older: the names `COMMAND` lists with the arguments of the static catalog (from Redis's command reference, filtered by the `redis_version` the server reports). Inside an open `MULTI` nothing is sent: the static catalog |
+| Dragonfly | `COMMAND` (it refuses `COMMAND DOCS`), with arguments and subcommands from the static Redis catalog |
+| etcd | The `etcdctl` commands the editor runs, filtered by the server's version (static) |
+| MongoDB, FerretDB | Aggregation stages and operators, query and update operators and system variables from the MongoDB manual, filtered by the version the server reports, plus the shell methods the console accepts (static: MongoDB lists none) |
+| Amazon DocumentDB | The operators AWS documents as supported, filtered by DocumentDB's version, plus the shell methods (static) |
+| CouchDB | The Mango selector operators, filtered by version (`$allMatch` from 2.1, `$keyMapMatch` from 3.2, `$beginsWith` from 3.4) (static) |
+| Couchbase | Static SQL++ built-ins filtered by the server's version, plus the user's functions from `system:functions` (7.0+) |
+| Amazon DynamoDB | The PartiQL functions (`EXISTS`, `BEGINS_WITH`, `ATTRIBUTE_TYPE`, `CONTAINS`, `SIZE`); the service has no versions |
+| Apache Cassandra | Static CQL built-ins filtered by version (the `current*` functions from 4.0, `cast` from 3.2, 5.0's snake_case, math, masking and vector functions; `dateOf` and `unixTimestampOf` until 5.0), plus the user's functions and aggregates from `system_schema` |
+| ScyllaDB | Its own static catalog, by its own versions, plus the user's functions and aggregates from `system_schema` |
+| Amazon Keyspaces | The scalar functions its guide lists; it has no aggregates or user functions |
+| Neo4j | `SHOW FUNCTIONS` (4.3+) or `dbms.functions()`: built-ins and installed plugins' functions (APOC, GDS…) with the server's descriptions. If the server refuses both, or inside an explicit transaction, the built-ins of the server's version (static) |
+| Memgraph | Its documented built-ins by the version `SHOW VERSION` gives (for example `nullIf` from 3.14), plus the query modules' functions from `mg.functions()` |
+| Amazon Neptune | The openCypher functions its guide lists, by engine release (static); Neptune has no user functions |
+| Solr | Its function queries by version (static), offered inside the console's JSON string values |
+
+**Tested against real servers:** Redis 7.4 and 6.2, Valkey 9, Dragonfly 2, etcd 3.5, MongoDB 7, CouchDB 3.5, Couchbase 8.0 (Enterprise and Community), DynamoDB Local, Cassandra 5.0, ScyllaDB 2026.3, Neo4j 5.26, Memgraph 3.13 and Solr 9.10. Following the vendors' documentation only (unit tests): FerretDB, Amazon DocumentDB, Amazon Keyspaces and Amazon Neptune.
+
+### Elasticsearch, OpenSearch and Open Distro
+
+The consoles' JSON lines (the query DSL) call no functions, so there is nothing to complete in them. The SQL lines (those starting with `SELECT`, `SHOW`, `DESCRIBE` or `DESC`) do use functions: Elasticsearch runs them through `_sql`, OpenSearch through `_plugins/_sql`, Open Distro through `_opendistro/_sql` and Solr through Parallel SQL (`/solr/<collection>/sql`).
+
+TODO (#97): complete functions in those SQL lines. Elasticsearch lists them (`SHOW FUNCTIONS` returns each name and its type); OpenSearch and Open Distro refuse that statement and need a static list. The console's editor is JSON and does not yet complete inside SQL lines. Solr's function queries are already offered.
+
+### Pending items
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Elasticsearch, OpenSearch, Open Distro, Solr | Functions in the console's SQL lines | **Explicit pending item** (see the TODO above): the engines have functions and the feature is being built, not missing for lack of a capability. |
+| DataFrame SQL notebook cells | Functions (DuckDB's) | **Explicit pending item**: being built. |
+| Enterprise (gateway) connections | Every function | **Explicit pending item**: the gateway does not forward the `function_catalog` call yet, so the editor gets no list through it. Nothing is lost for direct connections. |
+| Azure Cosmos DB | The user's functions | Each user-defined function belongs to one container and is called as `udf.<name>()`, so listing them takes one request per container. **Explicit pending item.** |
+| Apache Phoenix | The user's functions | `SYSTEM."FUNCTION"`, where they are recorded, exists only when UDFs are enabled on the server. **Explicit pending item**: reading it when it is there. |
+| Dameng | DM8's own functions that Oracle lacks | **Explicit pending item**: a catalog from the DM8 manual. Until then Dameng gets about 130 Oracle function names that DM8 is judged to document; that list isn't yet checked against the manual. |
+| Db2 for i, Db2 for z/OS | Catalogs of their own | Their release numbering differs from Db2 LUW's, so the LUW list isn't filtered by version and may offer a name a given release lacks. **Explicit pending item.** |
+| ODBC engines (Db2, MonetDB, Hive, Spark, Impala, Informix, GBase 8s, Teradata, Vertica, Exasol, Netezza, Altibase, CUBRID, SQL Anywhere, SAP ASE, Access, dBase, Dameng, and the generic presets other than SQL Server) | Live test | Their queries have unit tests only: the test machine has only SQL Server's ODBC driver, and Db2, MonetDB, Hive, Spark and Impala also need their `dbine-test-*` containers. **Explicit pending item.** |
+| SAP HANA | Live test | No HANA test container. **Explicit pending item.** |
+| Databricks, Snowflake, Amazon Athena | Live test | They need an account, a workspace or AWS credentials that the test machine doesn't have. **Explicit pending item.** |
+| Amazon Redshift, KingbaseES, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres, AlloyDB, Cloud SQL, Aurora PostgreSQL, Yellowbrick, Denodo, FerretDB, Amazon DocumentDB, Amazon Keyspaces, Amazon Neptune, SingleStore, Azure SQL / Synapse / Fabric | Live test | No container or emulator. **Explicit pending item.** |
+| OceanBase, Manticore Search | Live test | Their test containers don't start (OceanBase "boot failed"; Manticore exits with "port 0 is out of range"). **Explicit pending item.** |
+| Databend | Live test of the server path | No container or image on the test machine; its operator names were checked against its source instead. **Explicit pending item.** |
+| Dremio over Flight SQL, Flight SQL over DataFusion | Live test | The Dremio test container doesn't expose Flight SQL's port (32010); there is no DataFusion server. **Explicit pending item.** |
+| BigQuery, Cassandra | Live test of the user's functions | The BigQuery emulator has no `INFORMATION_SCHEMA.ROUTINES`, and the Cassandra containers have UDFs disabled. Unit tests cover them. **Explicit pending item.** |
+| Databend, SingleStore, Manticore Search, GreptimeDB | Per-version filtering | Per-function versions could not be confirmed from the vendors' documentation, so the catalog describes the current release. **Explicit pending item.** |
+| Oracle | Descriptions of the built-ins | `V$SQLFN_METADATA`'s description only repeats the function name, and the documented catalog carries none. |
+| Fabric through a plain SQL Server connection | Exact function list | Edition 11 is shared by Synapse serverless and Fabric, and the two can't be told apart through that connection: it gets Synapse's list, so some functions are missing rather than wrong. |
+| ODBC engines | `UCASE`, `LCASE`, `IFNULL`, `DAYOFWEEK`, `CURDATE`… (ODBC escape-only names) | A bare call fails where the engine lacks the name, and inserting them as `{fn …}` escapes needs an escape flag in the contract. **Explicit pending item.** |

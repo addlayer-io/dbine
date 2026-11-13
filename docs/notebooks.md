@@ -263,6 +263,10 @@ JOIN regiones_mongo r ON r.cliente = v.cliente
 GROUP BY ALL
 ```
 
+<!-- TODO(#97): function completion in DataFrame SQL cells (DuckDB's functions)
+is still being built; describe it here when it is done. See
+[Function completion](query-editor.md#function-completion). -->
+
 - **Cell names.** Every SQL cell has a name, shown in its header and edited
   there with a click: letters, digits and `_`, starting with a letter or `_`,
   up to 63, not an SQL keyword, unique in the notebook (ignoring case, as

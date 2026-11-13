@@ -246,9 +246,10 @@ pub mod shared {
     /// SQLite (also libSQL / Turso), for builds without
     /// `pragma_function_list`.
     pub const SQLITE: &str = include_str!("functions/sqlite.txt");
-    /// The SQL standard's functions plus the ODBC scalar functions: the
-    /// fallback for an engine reached through ODBC with no catalog of its
-    /// own.
+    /// The SQL standard's functions: the base for an engine reached through
+    /// ODBC or Flight SQL with no catalog of its own. The ODBC scalar
+    /// functions come from what the driver reports (SQLGetInfo,
+    /// GetSqlInfo), not from here.
     pub const ANSI: &str = include_str!("functions/ansi.txt");
 }
 
