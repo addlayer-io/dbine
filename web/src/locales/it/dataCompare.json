@@ -4,6 +4,8 @@
   "left": "Sinistra",
   "right": "Destra",
   "table": "Tabella",
+  "schema": "Schema",
+  "allSchemas": "Tutti gli schemi",
   "key": "Chiave (la primaria)",
   "compare": "Confronta",
   "pickBoth": "Scegli una tabella per lato.",

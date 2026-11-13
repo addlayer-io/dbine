@@ -4,6 +4,8 @@
   "left": "왼쪽",
   "right": "오른쪽",
   "table": "테이블",
+  "schema": "스키마",
+  "allSchemas": "모든 스키마",
   "key": "키(기본 키)",
   "compare": "비교",
   "pickBoth": "양쪽에서 테이블을 하나씩 선택하세요.",

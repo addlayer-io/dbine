@@ -14,6 +14,7 @@
 - **Execution plans:** **Full screen** shows the plan over the whole window, and Esc brings it back.
 - **AI conversations and notebook drafts encrypted:** the AI assistant's conversation and history can quote rows it read, and an untitled notebook's draft holds chart points and cell outputs. Both are now kept in encrypted files on your computer, with the key in DBine's vault, instead of in the app's local storage in the clear. What earlier versions kept is moved over on the first start.
 - **Apache Drill transfers from servers before 1.19:** the rows that wait for their column types once they no longer fit in memory now go to an encrypted temporary file, whose key exists only in memory, instead of a plain one. A file left behind if DBine closes mid-transfer can't be read.
+- **Schemas in Compare data:** each side picks its schema in a list of its own, then a table of that schema, which helps on servers with many schemas.
 
 ### Fixes
 - **Monitor CPU on Oracle and SQL Server:** the database's CPU is now a share of all the server's CPUs. With several busy cores it read over 100 %, such as 500 % with five.
@@ -26,6 +27,7 @@
 - **Dremio reflection scripts:** they wrote `DISTRIBUTE BY` after `PARTITION BY`, which Dremio refuses; the order is now the one Dremio takes.
 - **pgAgent jobs:** a user without access to the pgagent schema no longer gets "permission denied for schema pgagent" when listing jobs.
 - **Snowflake task graphs:** a graph's finalizer was listed as a separate job; it's now part of its root's job.
+- **Choosing the key in Compare data:** after a comparison, picking other tables left the key list with the previous comparison's columns; it now offers the new table's, and a result is dropped as soon as either side changes.
 
 ## [1.5.0] - 2026-11-11
 

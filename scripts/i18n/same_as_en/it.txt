@@ -355,3 +355,4 @@ backend:Tiempo de espera
 backend:reflexión
 backend:repositorio
 scheduled.json:designer.scriptTitle
+dataCompare.json:schema

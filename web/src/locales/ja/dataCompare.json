@@ -4,6 +4,8 @@
   "left": "左",
   "right": "右",
   "table": "テーブル",
+  "schema": "スキーマ",
+  "allSchemas": "すべてのスキーマ",
   "key": "キー(主キー)",
   "compare": "比較",
   "pickBoth": "左右それぞれのテーブルを選択してください。",

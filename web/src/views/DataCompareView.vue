@@ -95,6 +95,37 @@ watch(() => [left.table, tablesOf(right).length], () => {
   if (same) right.table = tableId(same);
 });
 
+// -- the schema, picked apart from the table (#92) -----------------------------------
+// Engines with many schemas (Databricks' catalog.schema, SQL Server's) list
+// hundreds of tables: a side picks its schema first, then one of its tables.
+const schemaOf = (id: string) => id.split('\u0001')[0] ?? '';
+/** The schemas a side's tables are in (none: the engine has no schemas). */
+function schemasOf(p: Pick): string[] {
+  return [...new Set(tablesOf(p).map((o) => o.schema ?? '').filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+const sideOf = (p: Pick): 'left' | 'right' => (p === left ? 'left' : 'right');
+/** Each side's schema ('': every schema). */
+const schemaPick = reactive<Record<'left' | 'right', string>>({ left: schemaOf(left.table), right: schemaOf(right.table) });
+/** The side's tables in its schema. */
+function tablesIn(p: Pick) {
+  const s = schemaPick[sideOf(p)];
+  return s ? tablesOf(p).filter((o) => (o.schema ?? '') === s) : tablesOf(p);
+}
+/** Another schema: a table that isn't in it is let go. */
+function pickSchema(p: Pick, s: string | undefined) {
+  schemaPick[sideOf(p)] = s ?? '';
+  if (p.table && s && schemaOf(p.table) !== s) p.table = '';
+}
+for (const p of [left, right]) {
+  // A table chosen (or matched on the right) brings its schema.
+  watch(() => p.table, (id) => { if (id) schemaPick[sideOf(p)] = schemaOf(id); });
+  // Another connection or database without that schema: every schema.
+  watch(() => conns.objects[dbKey(p.connectionId, p.database)]?.status, (st) => {
+    const s = schemaPick[sideOf(p)];
+    if (st === 'ready' && s && !schemasOf(p).includes(s)) schemaPick[sideOf(p)] = '';
+  });
+}
+
 function side(p: Pick): DataSide | null {
   const o = tablesOf(p).find((x) => tableId(x) === p.table);
   return o ? { connection_id: p.connectionId, database: p.database, object: { kind: o.kind, schema: o.schema, name: o.name } } : null;
@@ -124,6 +155,16 @@ const error = ref<string | null>(null);
 const view = ref<'changed' | 'only_left' | 'only_right'>('changed');
 const key = ref<string[]>(props.tab.picks?.key ?? []);
 const tabs = useTabsStore();
+/** What a result compared: the tables of both sides. */
+const picked = () => [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table].join('\u0001');
+// A result belongs to the tables it compared: picking another table (or
+// connection, or database) on either side drops it, and with it its
+// columns, which the key list offered instead of the new table's (#92).
+watch(picked, () => {
+  result.value = null;
+  error.value = null;
+  cancelled.value = false;
+});
 watch(
   () => [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table, key.value.join('\u0001')],
   () => tabs.setPicks(props.tab.id, { left: { ...left }, right: { ...right }, key: [...key.value] }),
@@ -183,8 +224,12 @@ async function compare() {
     live.phase = p.phase;
     live.differences = p.differences;
   }).catch(() => null);
+  const asked = picked();
   try {
-    result.value = await dataCompareApi.compare(l, r, key.value, run);
+    const got = await dataCompareApi.compare(l, r, key.value, run);
+    // The tables changed while it ran: it isn't theirs.
+    if (picked() !== asked) return;
+    result.value = got;
     key.value = result.value.key;
     view.value = result.value.counts.changed ? 'changed' : result.value.counts.only_left ? 'only_left' : 'only_right';
   } catch (e) {
@@ -867,8 +912,18 @@ async function suggestKey() {
         >
           <el-option v-for="d in dbsOf(p)" :key="d" :label="d" :value="d" />
         </el-select>
+        <el-select
+          v-if="schemasOf(p).length > 1" :model-value="schemaPick[sideOf(p)]" filterable clearable size="small" class="dc-schema"
+          :placeholder="$t('dataCompare:allSchemas')" :aria-label="$t('dataCompare:schema')"
+          @update:model-value="(s: string | undefined) => pickSchema(p, s)"
+        >
+          <el-option v-for="s in schemasOf(p)" :key="s" :label="s" :value="s" />
+        </el-select>
         <el-select v-model="p.table" filterable size="small" class="dc-table" :placeholder="$t('dataCompare:table')">
-          <el-option v-for="o in tablesOf(p)" :key="tableId(o)" :label="o.schema ? `${o.schema}.${o.name}` : o.name" :value="tableId(o)" />
+          <el-option
+            v-for="o in tablesIn(p)" :key="tableId(o)" :value="tableId(o)"
+            :label="schemaPick[sideOf(p)] || !o.schema ? o.name : `${o.schema}.${o.name}`"
+          />
         </el-select>
       </div>
       <div class="dc-actions">
@@ -1051,6 +1106,7 @@ async function suggestKey() {
 .dc-conn { width: 180px; }
 .dc-db { width: 150px; }
 .dc-table { width: 220px; }
+.dc-schema { width: 150px; }
 .dc-actions { display: flex; gap: 6px; align-items: center; flex-basis: 100%; }
 .dc-key { width: 320px; }
 .dc-ai { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--nm-border); }
