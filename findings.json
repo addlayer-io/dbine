@@ -53,7 +53,7 @@
     {
       "source": "osv",
       "date": "2026-11-13",
-      "revision": "e47b8bdbd96b",
+      "revision": "a31f55051efc",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 6
@@ -61,7 +61,7 @@
     {
       "source": "trivy",
       "date": "2026-11-13",
-      "revision": "e47b8bdbd96b",
+      "revision": "a31f55051efc",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -77,10 +77,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-13",
-      "revision": "b0dab9c6ddbc",
+      "revision": "e47b8bdbd96b",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.5
+      "score": 7.3
     }
   ],
   "findings": [
@@ -4575,7 +4575,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/2 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/3 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4612,6 +4612,17 @@
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases",
       "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Vulnerabilities",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Vulnerabilities: 7/10 — 3 existing vulnerabilities detected",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
+      "found": "2026-11-13",
       "status": "open"
     }
   ],
