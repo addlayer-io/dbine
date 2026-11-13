@@ -1,7 +1,9 @@
 // Tests for the editors' function catalogs (functionCatalog.ts): read once
 // per connection as it is now and database, never connecting, read again
 // after a reconnect or an edit, a failed read tried again after a while, and
-// a late answer for a connection that moved on dropped. Run: `node --test
+// a late answer for a connection that moved on dropped. The local DuckDB's
+// ("DataFrame SQL" cells): kept once read, an empty answer (DuckDB not
+// downloaded yet) asked again later or after a DataFrame SQL run. Run: `node --test
 // src/composables/functionCatalog.test.mjs` from web/ (Node 23.6+ strips the
 // TypeScript types itself). Not part of the app's build.
 import { test } from 'node:test';
@@ -13,7 +15,7 @@ import { register } from 'node:module';
 // store are stand-ins the tests drive (`globalThis.fake`).
 register('data:text/javascript,' + encodeURIComponent(`
 const stubs = {
-  '../api/functions': 'export const functionsApi = { catalog: (c, d) => globalThis.fake.catalog(c, d) };',
+  '../api/functions': 'export const functionsApi = { catalog: (c, d) => globalThis.fake.catalog(c, d), localCatalog: () => globalThis.fake.catalog(null, null) };',
   '../stores/connections': 'export const useConnectionsStore = () => globalThis.fake.store;',
 };
 export async function resolve(spec, ctx, next) {
@@ -45,7 +47,10 @@ function fakes() {
 const F = (name) => ({ name, kind: 'scalar', args: '', returns: '', description: '', schema: '' });
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-const { functionCatalog, loadFunctionCatalog, shouldLoad, settled, catalogOf, RETRY_MS } = await import('./functionCatalog.ts');
+const {
+  functionCatalog, loadFunctionCatalog, shouldLoad, settled, catalogOf, RETRY_MS,
+  localFunctionCatalog, loadLocalFunctionCatalog, localDuckdbUsed, shouldLoadLocal, settledLocal,
+} = await import('./functionCatalog.ts');
 
 test('asking never connects; an open connection is read once per database', async () => {
   const { asked, connect } = fakes();
@@ -145,4 +150,61 @@ test('the load decision and the settle guard', () => {
   assert.equal(settled({ ...loading, live: other }, live, [F('a')], now), null);
   assert.equal(settled(undefined, live, [F('a')], now), null);
   assert.equal(catalogOf({ live, list: [F('a')], loading: false, failedAt: 0 }, other), null);
+});
+
+test('DataFrame SQL cells: an empty answer (DuckDB not downloaded) is asked again; a catalog is kept', async () => {
+  const { asked } = fakes();
+  assert.equal(localFunctionCatalog(), null);
+  loadLocalFunctionCatalog();
+  loadLocalFunctionCatalog(); // while it reads
+  assert.equal(asked.length, 1);
+  assert.deepEqual([asked[0].connectionId, asked[0].database], [null, null], 'no connection');
+  // DuckDB not downloaded yet: nothing kept, the editor still sees "not loaded".
+  asked[0].answer([]);
+  await tick();
+  assert.equal(localFunctionCatalog(), null);
+  loadLocalFunctionCatalog();
+  assert.equal(asked.length, 1, 'not right away');
+  // A DataFrame SQL run brought DuckDB: the next ask reads again.
+  localDuckdbUsed();
+  loadLocalFunctionCatalog();
+  assert.equal(asked.length, 2);
+  // A failed read waits too, until the next run.
+  asked[1].fail(new Error('busy'));
+  await tick();
+  assert.equal(localFunctionCatalog(), null);
+  loadLocalFunctionCatalog();
+  assert.equal(asked.length, 2);
+  localDuckdbUsed();
+  loadLocalFunctionCatalog();
+  assert.equal(asked.length, 3);
+  // A run while it reads: an empty answer from before it is asked again at once.
+  localDuckdbUsed();
+  asked[2].answer([]);
+  await tick();
+  loadLocalFunctionCatalog();
+  assert.equal(asked.length, 4);
+  asked[3].answer([F('read_parquet')]);
+  await tick();
+  assert.deepEqual(localFunctionCatalog().map((f) => f.name), ['read_parquet']);
+  // Kept for the app run: neither asking nor running reads it again.
+  localDuckdbUsed();
+  loadLocalFunctionCatalog();
+  assert.equal(asked.length, 4);
+  assert.deepEqual(localFunctionCatalog().map((f) => f.name), ['read_parquet']);
+});
+
+test('the local load decision and its settle', () => {
+  const now = 1_000_000;
+  assert.equal(shouldLoadLocal({ list: null, loading: false, failedAt: 0 }, now), true);
+  assert.equal(shouldLoadLocal({ list: null, loading: true, failedAt: 0 }, now), false);
+  assert.equal(shouldLoadLocal({ list: [F('a')], loading: false, failedAt: 0 }, now), false);
+  // Empty or failed: again only after RETRY_MS.
+  const empty = { list: null, loading: false, failedAt: now };
+  assert.equal(shouldLoadLocal(empty, now + RETRY_MS - 1), false);
+  assert.equal(shouldLoadLocal(empty, now + RETRY_MS), true);
+  // An empty catalog is not kept; a failure neither; functions are.
+  assert.deepEqual(settledLocal([], now), { list: null, loading: false, failedAt: now });
+  assert.deepEqual(settledLocal(null, now), { list: null, loading: false, failedAt: now });
+  assert.deepEqual(settledLocal([F('a')], now), { list: [F('a')], loading: false, failedAt: 0 });
 });

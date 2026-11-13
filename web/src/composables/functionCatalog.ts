@@ -1,4 +1,4 @@
-import { shallowReactive, toRaw } from 'vue';
+import { shallowReactive, shallowRef, toRaw } from 'vue';
 import { functionsApi } from '../api/functions';
 import type { FunctionInfo } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
@@ -75,4 +75,61 @@ export function loadFunctionCatalog(connectionId: string | null | undefined, dat
     if (next) entries.set(key, next);
   };
   functionsApi.catalog(connectionId, database).then(settle, () => settle(null));
+}
+
+// -- "DataFrame SQL" notebook cells -------------------------------------------------------------
+// They have no connection: DuckDB's functions come from the app's local
+// DuckDB, read once per app run (local_function_catalog). Before DuckDB's
+// first use the backend answers an empty list (it never downloads DuckDB
+// for this): that isn't kept, the editor keeps seeing "not loaded yet" and
+// it's asked again after RETRY_MS, or at the next ask after a DataFrame SQL
+// run (`localDuckdbUsed`), which brings DuckDB. A failed read waits as well.
+
+export interface LocalCatalogEntry {
+  list: FunctionInfo[] | null;
+  loading: boolean;
+  /** When the last read came back empty or failed (ms). */
+  failedAt: number;
+}
+
+/** Whether to read the local catalog: none kept, none reading, and the last
+ *  empty or failed answer at least RETRY_MS ago. */
+export function shouldLoadLocal(e: LocalCatalogEntry, now: number): boolean {
+  return !e.list && !e.loading && now - e.failedAt >= RETRY_MS;
+}
+
+/** What an answer (`list`, null when it failed) leaves: a catalog is kept;
+ *  an empty one (DuckDB not downloaded yet) or a failure is asked again
+ *  after RETRY_MS from `at` (0: at the next ask). */
+export function settledLocal(list: FunctionInfo[] | null, at: number): LocalCatalogEntry {
+  return list?.length ? { list, loading: false, failedAt: 0 } : { list: null, loading: false, failedAt: at };
+}
+
+const local = shallowRef<LocalCatalogEntry>({ list: null, loading: false, failedAt: 0 });
+/** Moves on each DataFrame SQL run (`localDuckdbUsed`). */
+let localRuns = 0;
+
+/** DuckDB's functions for "DataFrame SQL" cells, null while not loaded.
+ *  Reactive, like `functionCatalog`. */
+export function localFunctionCatalog(): FunctionInfo[] | null {
+  return local.value.list;
+}
+
+/** Read it (a DataFrame SQL cell's `needFunctions`); never downloads DuckDB. */
+export function loadLocalFunctionCatalog(): void {
+  if (!shouldLoadLocal(local.value, Date.now())) return;
+  const runs = localRuns;
+  local.value = { list: null, loading: true, failedAt: 0 };
+  // A run while it read may have brought DuckDB: an empty answer from
+  // before it is asked again right away.
+  const settle = (list: FunctionInfo[] | null) => { local.value = settledLocal(list, runs === localRuns ? Date.now() : 0); };
+  functionsApi.localCatalog().then(settle, () => settle(null));
+}
+
+/** A DataFrame SQL cell ran: DuckDB is downloaded now, so a catalog not
+ *  read yet is read at the next ask, without waiting RETRY_MS. */
+export function localDuckdbUsed(): void {
+  localRuns++;
+  const e = local.value;
+  if (!e.list && !e.loading && e.failedAt) local.value = { ...e, failedAt: 0 };
 }

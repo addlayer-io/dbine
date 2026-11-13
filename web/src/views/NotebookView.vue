@@ -37,7 +37,7 @@ import {
   moveFileAliases, projectDefaultTarget, rememberAlias, rememberFileAlias, resolveTarget, targetText, type FileKey, type ResolvedTarget,
 } from '../composables/notebookTargets';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
-import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
+import { functionCatalog, loadFunctionCatalog, localFunctionCatalog, loadLocalFunctionCatalog, localDuckdbUsed } from '../composables/functionCatalog';
 import { fileDocs, type FileDocHandle } from '../composables/tabDocument';
 import { notebookTitle } from '../composables/tabTitle';
 import { registerEditor, useAiStore } from '../stores/ai';
@@ -751,6 +751,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
         language: 'sql', dialect: duck?.dialect, schema: localSchema(c), snippets: snippetsFor(duck, userSnippets.value),
         target: t('notebook:target.dataframeSql'), overridden: !emptyTarget(c.target), unresolved: false,
         localFiles: true, grantedFiles: grantedFiles.value, params: paramCompletions.value,
+        functions: localFunctionCatalog(),
       };
       continue;
     }
@@ -784,8 +785,10 @@ function needNames(cell: NotebookCell) {
   const r = resolved(cell);
   if (r.ok && !conns.isConnected(r.target.connectionId)) void conns.ensureConnected(r.target.connectionId, { auto: true });
 }
-/** A cell's editor asked for its target's functions (on focus, on completion). */
+/** A cell's editor asked for its target's functions (on focus, on completion);
+ *  a "DataFrame SQL" cell, for DuckDB's on the local DuckDB. */
 function needFunctions(cell: NotebookCell) {
+  if (isLocal(cell)) return loadLocalFunctionCatalog();
   const r = resolved(cell);
   if (r.ok) loadFunctionCatalog(r.target.connectionId, r.target.database);
 }
@@ -1093,6 +1096,8 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
       if (decision === 'always') void loadGrantedFiles();
       r = await notebookApi.runLocal({ ...args, approval: req.token });
     }
+    // It ran on DuckDB, downloaded by now: its functions can be read.
+    localDuckdbUsed();
     const o = r.outcome;
     cell.execution_count = ++counter;
     const params = recordedValues(usedNames);

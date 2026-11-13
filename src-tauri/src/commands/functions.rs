@@ -12,12 +12,20 @@
 //! explorer's own (`FUNCTIONS_LIMIT`), and one that runs out of time is not
 //! tried again until the connection reconnects: its database keeps an empty
 //! catalog, instead of stalling the explorer again on every keystroke.
+//!
+//! Notebook cells on "DataFrame SQL" have no connection: they run DuckDB SQL
+//! on a local DuckDB instance (`local_duckdb`), whose catalog
+//! `local_function_catalog` reads once per app run, on a session of its own.
+//! That read never downloads DuckDB (its driver or its library): before
+//! DuckDB's first use it answers an empty list, kept by nobody, and the
+//! editor asks again later.
 
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dashmap::DashMap;
 use dbine_driver::{Error, FunctionInfo};
 use serde::Deserialize;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,9 +43,38 @@ pub struct FunctionCatalogs {
     /// Moves on each `forget_connection`: a read that started before it
     /// isn't kept (it may come from the session that just closed).
     generation: AtomicU64,
+    /// The local DuckDB's ("DataFrame SQL" cells), once read: no connection
+    /// closes it, it's kept for the app run.
+    local: tokio::sync::OnceCell<Arc<Vec<FunctionInfo>>>,
 }
 
 impl FunctionCatalogs {
+    /// The local DuckDB's catalog: kept after the first `read` that gives
+    /// one; until then each ask reads (one at a time). A `read` that finds
+    /// no DuckDB yet (`None`) answers an empty list, not kept; one that
+    /// fails answers the error, not kept either.
+    pub async fn local<F, Fut>(&self, read: F) -> CommandResult<Vec<FunctionInfo>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = CommandResult<Option<Vec<FunctionInfo>>>>,
+    {
+        let kept = self
+            .local
+            .get_or_try_init(|| async {
+                match read().await {
+                    Ok(Some(catalog)) => Ok(Arc::new(catalog)),
+                    Ok(None) => Err(None),
+                    Err(e) => Err(Some(e)),
+                }
+            })
+            .await;
+        match kept {
+            Ok(catalog) => Ok(catalog.as_ref().clone()),
+            Err(None) => Ok(Vec::new()),
+            Err(Some(e)) => Err(e),
+        }
+    }
+
     pub fn get(&self, connection_id: &str, database: &str) -> Option<Arc<Vec<FunctionInfo>>> {
         self.entries
             .get(&(connection_id.to_string(), database.to_string()))
@@ -165,6 +202,34 @@ pub async fn function_catalog(
     Ok(kept.as_ref().clone())
 }
 
+/// The local DuckDB's catalog, read on a session of its own that never
+/// downloads DuckDB (`None`: it isn't here yet). Its built-ins: no
+/// extension loads there.
+async fn read_local() -> CommandResult<Option<Vec<FunctionInfo>>> {
+    use crate::local_duckdb::{exec, open_session_if_installed, NO_EXTENSIONS};
+    let read = async {
+        let Some(mut s) = open_session_if_installed().await? else {
+            return Ok(None);
+        };
+        exec(s.as_mut(), NO_EXTENSIONS).await?;
+        Ok(Some(or_empty(s.function_catalog().await)?))
+    };
+    tokio::time::timeout(FUNCTIONS_LIMIT, read)
+        .await
+        .map_err(|_| CommandError::Busy("the local DuckDB took too long".into()))?
+}
+
+/// The functions "DataFrame SQL" notebook cells complete: DuckDB's own, on
+/// the app's local DuckDB, read once per app run. An empty list while
+/// DuckDB isn't downloaded (this never downloads it): the editor asks again
+/// later, as after a cell's first run.
+#[tauri::command]
+pub async fn local_function_catalog(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<FunctionInfo>> {
+    state.functions.local(read_local).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +325,48 @@ mod tests {
             .functions
             .put("pg", "ventas", before, catalog("upper"));
         assert!(state.functions.get("pg", "ventas").is_none());
+    }
+
+    #[tokio::test]
+    async fn the_local_catalog_is_read_until_duckdb_is_there_then_kept() {
+        use std::sync::atomic::AtomicUsize;
+        let c = FunctionCatalogs::default();
+        let reads = AtomicUsize::new(0);
+        let read = |answer: CommandResult<Option<Vec<FunctionInfo>>>| {
+            let reads = &reads;
+            move || async move {
+                reads.fetch_add(1, Ordering::SeqCst);
+                answer
+            }
+        };
+        // DuckDB not downloaded yet: an empty list, not kept…
+        assert!(c.local(read(Ok(None))).await.unwrap().is_empty());
+        // …so the next ask reads again; a failed read isn't kept either.
+        assert!(c
+            .local(read(Err(CommandError::Busy("x".into()))))
+            .await
+            .is_err());
+        assert_eq!(reads.load(Ordering::SeqCst), 2);
+        // Read: kept for the app run, never read again.
+        let first = c.local(read(Ok(Some(catalog("upper"))))).await.unwrap();
+        assert_eq!(first[0].name, "upper");
+        let again = c.local(read(Ok(Some(catalog("lower"))))).await.unwrap();
+        assert_eq!(again[0].name, "upper");
+        assert_eq!(reads.load(Ordering::SeqCst), 3);
+        // No connection's close touches it.
+        c.forget_connection("pg");
+        let after = c.local(read(Ok(None))).await.unwrap();
+        assert_eq!(after[0].name, "upper");
+        assert_eq!(reads.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn the_local_read_answers_duckdbs_functions_or_nothing_yet() {
+        // Without a download: DuckDB's built-ins if it's here (another test
+        // of this run may have downloaded it), else nothing yet.
+        if let Some(catalog) = read_local().await.unwrap() {
+            assert!(catalog.iter().any(|f| f.name == "upper"));
+        }
     }
 
     #[test]

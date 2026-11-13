@@ -9,4 +9,8 @@ export const functionsApi = {
   /** `database` '' : the connection's default. */
   catalog: (connectionId: string, database: string) =>
     invoke<FunctionInfo[]>('function_catalog', { args: { connection_id: connectionId, database } }),
+  /** "DataFrame SQL" notebook cells: DuckDB's functions on the app's local
+   *  DuckDB, read once per app run. Empty while DuckDB isn't downloaded
+   *  (asking never downloads it): ask again later. */
+  localCatalog: () => invoke<FunctionInfo[]>('local_function_catalog'),
 };

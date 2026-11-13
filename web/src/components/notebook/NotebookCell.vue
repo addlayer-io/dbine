@@ -34,8 +34,8 @@ export interface CellContext {
   grantedFiles?: string[];
   /** The notebook's parameters, offered by completion as `{{name}}`. */
   params?: { name: string; detail?: string }[];
-  /** The target's function catalog (null: not loaded yet, asked for with
-   *  `needFunctions`; absent: none, as in a "DataFrame SQL" cell). */
+  /** The target's function catalog, DuckDB's for a "DataFrame SQL" cell
+   *  (null: not loaded yet, asked for with `needFunctions`; absent: none). */
   functions?: FunctionInfo[] | null;
 }
 
