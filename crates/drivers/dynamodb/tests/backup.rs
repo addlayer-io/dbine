@@ -43,6 +43,14 @@ async fn local_endpoint_has_no_backups() {
         })
         .unwrap();
     let mut out = QueryOutcome::default();
-    let e = s.execute(&script, 10, &mut out).await.unwrap_err();
-    assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
+    // Placed on its statement, as every failure of a script.
+    let e = s
+        .execute(&script, 10, &mut out)
+        .await
+        .unwrap_err()
+        .to_script_error();
+    assert!(
+        e.message.contains("DynamoDB Local no los implementa") && e.line == Some(1),
+        "{e:?}"
+    );
 }

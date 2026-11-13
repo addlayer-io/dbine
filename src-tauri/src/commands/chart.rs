@@ -23,7 +23,9 @@ use crate::commands::schema::driver_of;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::aggregate::{self, Aggregator, ChartAggregate, ChartKind};
-use dbine_driver::{Driver, Error, Language, QueryOutcome, RowSinkRef, Session};
+use dbine_driver::{
+    sql, Driver, Error, Language, QueryOutcome, RowSinkRef, ScriptStatement, Session,
+};
 use serde::Deserialize;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -121,6 +123,27 @@ impl From<Fail> for CommandError {
     }
 }
 
+/// `query` cut for the checks that want a single query (the chart over the
+/// whole result, the export's row estimate): the driver's units, or its
+/// dialect's when those are fewer. A driver's own units may set apart a
+/// line that only sets the context of the statement under it (Cosmos DB's
+/// `-- container: x`, InfluxQL's `USE db`, a cqlsh command such as
+/// `CONSISTENCY ONE`, a psql meta-command), which its `execute` runs with
+/// that statement as one query; the dialect only cuts at the terminator
+/// and at its batch lines, so it keeps them together.
+pub(crate) fn query_units(driver: &dyn Driver, query: &str) -> Vec<ScriptStatement> {
+    let own = driver.split_script(query);
+    if own.len() < 2 {
+        return own;
+    }
+    let plain = sql::split_script(query, &driver.script_dialect());
+    if plain.len() < own.len() {
+        plain
+    } else {
+        own
+    }
+}
+
 /// The aggregation on `s` (a read-only session): the server's `GROUP BY`
 /// where the driver builds one and the server runs it, else the client
 /// path over at most `cap` rows.
@@ -139,7 +162,7 @@ pub(crate) async fn aggregate_on(
         ));
     }
     let language = driver.info().language;
-    if matches!(language, Language::Sql | Language::Cql) && driver.split_script(query).len() > 1 {
+    if matches!(language, Language::Sql | Language::Cql) && query_units(driver, query).len() > 1 {
         return Err(CommandError::BadRequest(
             "el gráfico sobre todo el resultado lee una sola consulta: dejá solo la consulta del gráfico".into(),
         ));
@@ -291,3 +314,66 @@ async fn until<F: Future<Output = dbine_driver::Result<()>>>(
 #[cfg(test)]
 #[path = "chart_live_tests.rs"]
 mod live_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn driver(id: &str) -> &'static dyn Driver {
+        dbine_drivers::find(id)
+            .unwrap_or_else(|| panic!("driver {id} not built in"))
+            .as_ref()
+    }
+
+    /// A line that only sets the context of the query under it is a unit
+    /// of its own for the driver (its run lens, its number), but not a
+    /// second query for the chart; two queries still are.
+    #[test]
+    fn a_context_line_and_its_query_are_one_query() {
+        for (id, context, first, second) in [
+            (
+                "cosmosdb",
+                "-- container: items\n",
+                "SELECT c.cat, c.n FROM c",
+                "SELECT VALUE COUNT(1) FROM c",
+            ),
+            (
+                "influxdb1",
+                "USE mydb\n",
+                "SELECT mean(v) FROM cpu WHERE time > now() - 1h GROUP BY time(1m)",
+                "SELECT * FROM mem",
+            ),
+            (
+                "cassandra",
+                "CONSISTENCY ONE\n",
+                "SELECT k, v FROM ks.t",
+                "SELECT k FROM ks.u",
+            ),
+            (
+                "scylladb",
+                "PAGING OFF\n",
+                "SELECT k, v FROM ks.t",
+                "SELECT k FROM ks.u",
+            ),
+        ] {
+            let d = driver(id);
+            let one = format!("{context}{first}");
+            assert_eq!(
+                d.split_script(&one).len(),
+                2,
+                "{id}: the driver's own units"
+            );
+            assert_eq!(query_units(d, &one).len(), 1, "{id}");
+            let one = format!("{context}{first};\n");
+            assert_eq!(query_units(d, &one).len(), 1, "{id}");
+            let two = format!("{context}{first};\n{second};");
+            assert_eq!(query_units(d, &two).len(), 2, "{id}");
+        }
+        // A context line after `;` is still cut there by the dialect too.
+        let influx = driver("influxdb1");
+        assert_eq!(query_units(influx, "USE mydb;\nSELECT * FROM cpu").len(), 2);
+        let pg = driver("postgres");
+        assert_eq!(query_units(pg, "SELECT 1; SELECT 2").len(), 2);
+        assert_eq!(query_units(pg, "SELECT 1").len(), 1);
+    }
+}

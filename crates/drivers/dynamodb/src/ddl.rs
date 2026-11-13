@@ -611,50 +611,85 @@ pub(crate) fn filtered_browse(browse: &str, filters: &[ColumnFilter]) -> Result<
 }
 
 /// Splits a script on `;` outside quotes, comments and the JSON bodies of
-/// the extensions (where `\"` escapes a quote).
+/// the extensions (where `\"` escapes a quote); see [`split_located`].
 pub(crate) fn split_script(text: &str) -> Vec<String> {
+    split_located(text).into_iter().map(|p| p.sql).collect()
+}
+
+/// A statement of a script (see [`split_located`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Piece {
+    /// What runs: the statement with its comments taken out, trimmed.
+    pub sql: String,
+    /// Byte range in the script: from its first token to its last, without
+    /// the `;` (comments and blank lines around it left out).
+    pub start: usize,
+    pub end: usize,
+}
+
+/// The script's statements, in order, with their places: split on `;`
+/// outside quotes, comments and the JSON bodies of the extensions (where
+/// `\"` escapes a quote). `execute` runs these and the editor's units are
+/// these, so both number the same statements.
+pub(crate) fn split_located(text: &str) -> Vec<Piece> {
+    // `c`, at `i` in the script, goes into the statement.
+    fn keep(cur: &mut String, span: &mut Option<(usize, usize)>, i: usize, c: char) {
+        cur.push(c);
+        if !c.is_whitespace() {
+            *span = Some((span.map_or(i, |s| s.0), i + c.len_utf8()));
+        }
+    }
+    fn flush(cur: &mut String, span: &mut Option<(usize, usize)>, out: &mut Vec<Piece>) {
+        let sql = std::mem::take(cur).trim().to_string();
+        if let (Some((start, end)), false) = (span.take(), sql.is_empty()) {
+            out.push(Piece { sql, start, end });
+        }
+    }
     let mut out = Vec::new();
     let mut cur = String::new();
-    let mut chars = text.chars().peekable();
+    // Where the code of `cur` starts and ends in `text`.
+    let mut span: Option<(usize, usize)> = None;
+    let mut chars = text.char_indices().peekable();
     let mut quote: Option<char> = None;
     let mut depth = 0usize;
-    while let Some(c) = chars.next() {
+    while let Some((i, c)) = chars.next() {
         if let Some(qc) = quote {
-            cur.push(c);
+            keep(&mut cur, &mut span, i, c);
             if c == '\\' && qc == '"' && depth > 0 {
-                if let Some(n) = chars.next() {
-                    cur.push(n);
+                if let Some((j, n)) = chars.next() {
+                    keep(&mut cur, &mut span, j, n);
                 }
             } else if c == qc {
                 quote = None;
             }
             continue;
         }
+        let next = chars.peek().map(|&(_, n)| n);
         match c {
             '\'' | '"' => {
                 quote = Some(c);
-                cur.push(c);
+                keep(&mut cur, &mut span, i, c);
             }
             '{' | '[' => {
                 depth += 1;
-                cur.push(c);
+                keep(&mut cur, &mut span, i, c);
             }
             '}' | ']' => {
                 depth = depth.saturating_sub(1);
-                cur.push(c);
+                keep(&mut cur, &mut span, i, c);
             }
-            '-' if chars.peek() == Some(&'-') => {
-                for n in chars.by_ref() {
+            '-' if next == Some('-') => {
+                for (_, n) in chars.by_ref() {
                     if n == '\n' {
                         cur.push('\n');
                         break;
                     }
                 }
             }
-            '/' if chars.peek() == Some(&'*') => {
+            '/' if next == Some('*') => {
                 chars.next();
                 let mut prev = ' ';
-                for n in chars.by_ref() {
+                for (_, n) in chars.by_ref() {
                     if prev == '*' && n == '/' {
                         break;
                     }
@@ -662,15 +697,12 @@ pub(crate) fn split_script(text: &str) -> Vec<String> {
                 }
                 cur.push(' ');
             }
-            ';' if depth == 0 => out.push(std::mem::take(&mut cur)),
-            _ => cur.push(c),
+            ';' if depth == 0 => flush(&mut cur, &mut span, &mut out),
+            _ => keep(&mut cur, &mut span, i, c),
         }
     }
-    out.push(cur);
-    out.into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    flush(&mut cur, &mut span, &mut out);
+    out
 }
 
 /// Text for a `--` comment line: a server-controlled name can't end the
@@ -1038,6 +1070,42 @@ mod tests {
         assert!(s[0].ends_with('}'));
         assert_eq!(s[1], "SELECT * FROM \"a\"");
         assert_eq!(s[2], "DROP TABLE a");
+    }
+
+    #[test]
+    fn statements_keep_their_place() {
+        let at = |s: &str| -> Vec<(String, usize, usize)> {
+            split_located(s)
+                .into_iter()
+                .map(|p| {
+                    assert!(s[p.start..p.end].starts_with(&p.sql[..1]), "{p:?}");
+                    (s[p.start..p.end].to_string(), p.start, p.end)
+                })
+                .collect()
+        };
+        assert_eq!(
+            at("SELECT * FROM \"a\";\nSELECT * FROM \"b\";"),
+            [
+                ("SELECT * FROM \"a\"".into(), 0, 17),
+                ("SELECT * FROM \"b\"".into(), 19, 36)
+            ]
+        );
+        // Comments and blank lines before a statement aren't part of it,
+        // nor a comment after it; `;`, `\"` and braces inside a JSON body,
+        // and `;` inside a PartiQL string, don't end it. CRLF.
+        let s = "-- head\r\n\r\nCREATE TABLE \"a\" {\r\n \"x\": \"semi; \\\" }; it's\"\r\n};\r\n/* c; */ SELECT * FROM \"a\" WHERE n = 'p;q' -- t;\r\n;\r\n\r\nDELETE FROM \"a\" WHERE id = 'é'";
+        let p = at(s);
+        assert_eq!(p.len(), 3, "{p:?}");
+        assert!(p[0].0.starts_with("CREATE TABLE") && p[0].0.ends_with('}'));
+        assert_eq!(p[0].1, 11);
+        assert_eq!(p[1].0, "SELECT * FROM \"a\" WHERE n = 'p;q'");
+        assert_eq!(p[2].0, "DELETE FROM \"a\" WHERE id = 'é'");
+        assert_eq!(p[2].2, s.len());
+        assert_eq!(
+            split_located(s)[1].sql,
+            "SELECT * FROM \"a\" WHERE n = 'p;q'"
+        );
+        assert!(split_located("-- only\n/* comments */ ;\n").is_empty());
     }
 
     #[test]

@@ -5,8 +5,16 @@
 //! `DBINE_TEST_SCYLLADB_URL=localhost:25413 cargo test -p dbine-driver-cassandra --test script -- --ignored`
 //! (or `DBINE_TEST_CASSANDRA_URL`).
 
-use dbine_driver::{ConnectionConfig, QueryOutcome, Session};
+use dbine_driver::{ConnectionConfig, Driver, QueryOutcome, Session};
 use serde_json::json;
+use std::sync::Arc;
+
+fn find(driver: &str) -> Arc<dyn Driver> {
+    dbine_driver_cassandra::drivers()
+        .into_iter()
+        .find(|d| d.info().id == driver)
+        .unwrap()
+}
 
 async fn open(driver: &str, url: &str) -> Box<dyn Session> {
     let (host, port) = url.rsplit_once(':').unwrap();
@@ -16,11 +24,7 @@ async fn open(driver: &str, url: &str) -> Box<dyn Session> {
         port: port.parse().unwrap(),
         ..Default::default()
     };
-    let d = dbine_driver_cassandra::drivers()
-        .into_iter()
-        .find(|d| d.info().id == driver)
-        .unwrap();
-    d.connect(&c, None).await.unwrap()
+    find(driver).connect(&c, None).await.unwrap()
 }
 
 async fn run(s: &mut Box<dyn Session>, text: &str) -> dbine_driver::Result<QueryOutcome> {
@@ -41,12 +45,8 @@ async fn check(driver: &str, url: &str) {
     .unwrap();
 
     // cqlsh commands on their own line, no `;`; a batch whole.
-    let out = run(
-        &mut s,
-        "CONSISTENCY ONE\nBEGIN BATCH\n  INSERT INTO t (k, c, v) VALUES (1, 1, 'a;b');\n  INSERT INTO t (k, c, v) VALUES (1, 2, 'c');\nAPPLY BATCH;\nSELECT count(*) FROM t",
-    )
-    .await
-    .unwrap();
+    let text = "CONSISTENCY ONE\nBEGIN BATCH\n  INSERT INTO t (k, c, v) VALUES (1, 1, 'a;b');\n  INSERT INTO t (k, c, v) VALUES (1, 2, 'c');\nAPPLY BATCH;\nSELECT count(*) FROM t";
+    let out = run(&mut s, text).await.unwrap();
     assert!(
         out.log
             .iter()
@@ -62,6 +62,38 @@ async fn check(driver: &str, url: &str) {
         ),
         (Some(2), Some(6))
     );
+    // The editor's units are the statements execute numbers, at the same
+    // places (the run lens, the statement at the cursor, named results).
+    let units = find(driver).split_script(text);
+    assert_eq!(units.len(), 3);
+    assert_eq!(out.results.len(), 2, "the batch and the SELECT");
+    for r in &out.results {
+        let u = &units[r.statement.unwrap()];
+        assert_eq!((r.offset, r.line), (Some(u.start), Some(u.line)));
+    }
+    let text =
+        "PAGING OFF\nSELECT count(*) FROM t;\n\n-- c\nSELECT v FROM t WHERE k = 1 AND c = 1;";
+    let out = run(&mut s, text).await.unwrap();
+    let units = find(driver).split_script(text);
+    assert_eq!(units.len(), 3);
+    let placed: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| (r.statement, r.offset, r.line))
+        .collect();
+    assert_eq!(
+        placed,
+        [
+            (Some(1), Some(units[1].start), Some(2)),
+            (Some(2), Some(units[2].start), Some(5))
+        ]
+    );
+    assert_eq!(out.results[1].rows[0][0], json!("a;b"));
+    // Each unit alone runs as it does in the script.
+    for u in &units {
+        run(&mut s, &u.text).await.unwrap();
+    }
+    run(&mut s, "PAGING ON").await.unwrap();
     // The level lasts across runs.
     let out = run(&mut s, "CONSISTENCY").await.unwrap();
     assert_eq!(out.log[0].text, "Nivel de consistencia actual: ONE.");

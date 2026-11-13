@@ -857,50 +857,111 @@ pub fn parse_admin(stmt: &str) -> Result<Option<Admin>> {
 }
 
 /// Splits a script on `;` outside quotes, comments and JSON bodies (where
-/// `\"` escapes a quote).
+/// `\"` escapes a quote); see [`split_located`].
 pub fn split_script(text: &str) -> Vec<String> {
+    split_located(text).into_iter().map(|p| p.sql).collect()
+}
+
+/// A statement of a script (see [`split_located`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Piece {
+    /// What runs: the statement with its comments taken out, trimmed;
+    /// `USE "x"` for a `-- container: x` line.
+    pub sql: String,
+    /// Byte range in the script: from its first token to its last, without
+    /// the `;` (comments and blank lines around it left out); the
+    /// directive itself for a `-- container:` line.
+    pub start: usize,
+    pub end: usize,
+}
+
+/// The container a `-- container: x` line names.
+fn directive(line: &str) -> Option<String> {
+    let r = line.trim().strip_prefix("--")?.trim();
+    let (k, v) = r.split_once(':')?;
+    (k.trim().eq_ignore_ascii_case("container") && !v.trim().is_empty())
+        .then(|| v.trim().to_string())
+}
+
+/// The script's statements, in order, with their places: split on `;`
+/// outside quotes, comments and JSON bodies (where `\"` escapes a quote).
+/// A `-- container: x` line (outside a quote or a block comment) is a
+/// `USE` of its own and ends the statement before it. `execute` runs these
+/// and the editor's units are these, so both number the same statements.
+pub fn split_located(text: &str) -> Vec<Piece> {
+    fn flush(cur: &mut String, span: &mut Option<(usize, usize)>, out: &mut Vec<Piece>) {
+        let sql = std::mem::take(cur).trim().to_string();
+        if let (Some((start, end)), false) = (span.take(), sql.is_empty()) {
+            out.push(Piece { sql, start, end });
+        }
+    }
+    // `c`, at `i` in the script, goes into the statement.
+    fn keep(cur: &mut String, span: &mut Option<(usize, usize)>, i: usize, c: char) {
+        cur.push(c);
+        if !c.is_whitespace() {
+            *span = Some((span.map_or(i, |s| s.0), i + c.len_utf8()));
+        }
+    }
     let mut out = Vec::new();
     let mut cur = String::new();
-    let mut chars = text.chars().peekable();
+    // Where the code of `cur` starts and ends in `text`.
+    let mut span: Option<(usize, usize)> = None;
+    let mut chars = text.char_indices().peekable();
     let mut quote: Option<char> = None;
     let mut depth = 0usize;
-    while let Some(c) = chars.next() {
+    while let Some((i, c)) = chars.next() {
         if let Some(qc) = quote {
-            cur.push(c);
+            keep(&mut cur, &mut span, i, c);
             if c == '\\' && qc == '"' && depth > 0 {
-                if let Some(n) = chars.next() {
-                    cur.push(n);
+                if let Some((j, n)) = chars.next() {
+                    keep(&mut cur, &mut span, j, n);
                 }
             } else if c == qc {
                 quote = None;
             }
             continue;
         }
+        if i == 0 || text.as_bytes()[i - 1] == b'\n' {
+            let eol = text[i..].find('\n').map_or(text.len(), |n| i + n);
+            let line = &text[i..eol];
+            if let Some(name) = directive(line) {
+                flush(&mut cur, &mut span, &mut out);
+                depth = 0;
+                out.push(Piece {
+                    sql: format!("USE \"{}\"", name.replace('"', "\"\"")),
+                    start: i + line.len() - line.trim_start().len(),
+                    end: i + line.trim_end().len(),
+                });
+                while chars.next_if(|&(j, _)| j < eol).is_some() {}
+                continue;
+            }
+        }
+        let next = chars.peek().map(|&(_, n)| n);
         match c {
             '\'' | '"' => {
                 quote = Some(c);
-                cur.push(c);
+                keep(&mut cur, &mut span, i, c);
             }
             '{' | '[' | '(' => {
                 depth += 1;
-                cur.push(c);
+                keep(&mut cur, &mut span, i, c);
             }
             '}' | ']' | ')' => {
                 depth = depth.saturating_sub(1);
-                cur.push(c);
+                keep(&mut cur, &mut span, i, c);
             }
-            '-' if chars.peek() == Some(&'-') => {
-                for n in chars.by_ref() {
+            '-' if next == Some('-') => {
+                for (_, n) in chars.by_ref() {
                     if n == '\n' {
                         cur.push('\n');
                         break;
                     }
                 }
             }
-            '/' if chars.peek() == Some(&'*') => {
+            '/' if next == Some('*') => {
                 chars.next();
                 let mut prev = ' ';
-                for n in chars.by_ref() {
+                for (_, n) in chars.by_ref() {
                     if prev == '*' && n == '/' {
                         break;
                     }
@@ -908,15 +969,12 @@ pub fn split_script(text: &str) -> Vec<String> {
                 }
                 cur.push(' ');
             }
-            ';' if depth == 0 => out.push(std::mem::take(&mut cur)),
-            _ => cur.push(c),
+            ';' if depth == 0 => flush(&mut cur, &mut span, &mut out),
+            _ => keep(&mut cur, &mut span, i, c),
         }
     }
-    out.push(cur);
-    out.into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
+    flush(&mut cur, &mut span, &mut out);
+    out
 }
 
 /// The partition key header value of a document: its values at the

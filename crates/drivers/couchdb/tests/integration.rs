@@ -134,6 +134,35 @@ async fn end_to_end() {
     assert!(out.results[1].columns.iter().any(|c| c.name == "_rev"));
     assert!(out.results[2].truncated);
     assert_eq!(out.results[3].columns[0].name, "value");
+    let placed: Vec<_> = out.results.iter().map(|r| (r.statement, r.line)).collect();
+    assert_eq!(
+        placed,
+        [
+            (Some(0), Some(1)),
+            (Some(1), Some(2)),
+            (Some(2), Some(3)),
+            (Some(3), Some(4))
+        ]
+    );
+
+    // Mango queries in a row: each one numbered at its own place, the
+    // place the editor's split gives it.
+    let script = "// two\n{\"selector\": {\"age\": {\"$gt\": 26}}}\n{\"selector\": {\"name\": \"Bruno\"}}\r\n\r\nGET _all_docs";
+    let out = run(&mut s, script, 10).await.unwrap();
+    let placed: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| (r.statement.unwrap(), r.offset.unwrap(), r.line.unwrap()))
+        .collect();
+    let units: Vec<_> = d
+        .split_script(script)
+        .iter()
+        .enumerate()
+        .map(|(i, u)| (i, u.start, u.line))
+        .collect();
+    assert_eq!(placed, units);
+    assert_eq!(units.iter().map(|u| u.2).collect::<Vec<_>>(), [2, 3, 5]);
+    assert_eq!(out.results[1].rows.len(), 1);
 
     // Server errors.
     let e = run(&mut s, "{\"selector\": {\"age\": {\"$nope\": 1}}}", 10)

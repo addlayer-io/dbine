@@ -438,3 +438,44 @@ async fn delete_script_runs() {
         .await
         .unwrap();
 }
+
+/// The editor's units (`split_script`: the lens, the statement at the
+/// cursor, named results) are the commands `execute` numbers: one per
+/// line, at the same offsets and lines.
+#[tokio::test]
+#[ignore]
+async fn editor_units_are_the_numbered_commands() {
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_etcd::drivers().remove(0);
+    let mut s = d.connect(&c, None).await.unwrap();
+    let text = "# head\nput /dbine_units/a 1\n\n  put \"/dbine_units/b\" 'x;y' # c\r\nget /dbine_units/ --prefix\nget /dbine_units/ --prefix --count-only";
+    let units = d.split_script(text);
+    assert_eq!(units.len(), 4);
+    let mut out = QueryOutcome::default();
+    s.execute(text, 100, &mut out).await.unwrap();
+    let mut seen: Vec<usize> = Vec::new();
+    for r in &out.results {
+        let i = r.statement.expect("numbered");
+        assert_eq!(
+            (r.offset, r.line),
+            (Some(units[i].start), Some(units[i].line)),
+            "{i}"
+        );
+        if !seen.contains(&i) {
+            seen.push(i);
+        }
+    }
+    assert_eq!(seen, (0..units.len()).collect::<Vec<_>>());
+    assert_eq!(out.results[3].rows[0][0], json!(2));
+    // Each unit run alone (the lens) does what it does in the script.
+    let mut out = QueryOutcome::default();
+    s.execute(&units[3].text, 10, &mut out).await.unwrap();
+    assert_eq!(out.results[0].rows[0][0], json!(2));
+    s.execute(
+        "del /dbine_units/ --prefix",
+        10,
+        &mut QueryOutcome::default(),
+    )
+    .await
+    .unwrap();
+}

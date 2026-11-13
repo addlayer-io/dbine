@@ -22,6 +22,12 @@
 //! `--ttl` on `put` is DBine's own: it grants a lease and attaches it; so
 //! is the password as an argument of `user add` / `user passwd` (etcdctl
 //! prompts for it or takes `--new-user-password`).
+//!
+//! A quote never spans lines, so a command is always one line. `execute`
+//! and the editor's units ([`split`]) come from the same lines, so they
+//! number the same commands at the same places.
+
+use dbine_driver::{ScriptStatement, StatementKind};
 
 /// One parsed command: words (lower-cased verb kept as typed) and flags.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -92,69 +98,149 @@ pub fn parse_script(text: &str) -> Result<Vec<Command>, String> {
         .map_err(|(e, line, _)| format!("línea {line}: {e}"))
 }
 
-/// A command of an editor script with its place: byte offset of its first
-/// word and 1-based line.
+/// A command of an editor script with its place: byte range from its
+/// first word to the end of its last (a trailing comment left out) and
+/// 1-based line.
 pub struct Placed {
     pub command: Command,
     pub start: usize,
+    pub end: usize,
     pub line: u32,
+}
+
+/// A line that doesn't parse: its error, its 1-based number and where it
+/// starts, and the range of its text (blanks around it left out).
+struct Unparsed {
+    error: String,
+    line: u32,
+    line_start: usize,
+    start: usize,
+    end: usize,
+}
+
+/// Each line of `text` that holds a command, placed, in order; a line that
+/// doesn't parse comes as [`Unparsed`]. Comment and blank lines give
+/// nothing. Both [`parse_placed`] (what `execute` runs and numbers) and
+/// [`split`] (the editor's units) read the script through it.
+fn placed(text: &str) -> impl Iterator<Item = Result<Placed, Unparsed>> + '_ {
+    let mut at = 0;
+    text.split('\n').enumerate().filter_map(move |(n, raw)| {
+        let line_start = at;
+        at += raw.len() + 1;
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        let n = n as u32 + 1;
+        match parse_line(line) {
+            Ok(w) if w.words.is_empty() => None,
+            Ok(w) => Some(Ok(Placed {
+                command: command(w.words),
+                start: line_start + w.from,
+                end: line_start + w.to,
+                line: n,
+            })),
+            Err(error) => {
+                let t = line.trim_end();
+                Some(Err(Unparsed {
+                    error,
+                    line: n,
+                    line_start,
+                    start: line_start + t.len() - t.trim_start().len(),
+                    end: line_start + t.len(),
+                }))
+            }
+        }
+    })
+}
+
+/// A line's words as a command: an unquoted `--name[=value]` is a flag.
+fn command(words: Vec<(Vec<u8>, bool)>) -> Command {
+    let mut c = Command::default();
+    for (w, quoted) in words {
+        match std::str::from_utf8(&w)
+            .ok()
+            .filter(|s| !quoted && s.starts_with("--") && s.len() > 2)
+        {
+            Some(f) => {
+                let f = &f[2..];
+                let (k, v) = match f.split_once('=') {
+                    Some((k, v)) => (k, Some(v.to_string())),
+                    None => (f, None),
+                };
+                c.flags.push((k.to_ascii_lowercase(), v));
+            }
+            None => c.args.push(w),
+        }
+    }
+    c
+}
+
+/// The script's commands as the editor's units ([`Driver::split_script`]):
+/// the ones [`parse_placed`] gives `execute`, in the same order and at the
+/// same places, so a result's statement number points at its line. It
+/// never fails: a line that doesn't parse is still a unit, without an
+/// `error`, so a command being typed (an open quote) keeps the lenses of
+/// the others; running it reports the error at its line (`execute` runs
+/// nothing of such a script).
+///
+/// [`Driver::split_script`]: dbine_driver::Driver::split_script
+pub fn split(text: &str) -> Vec<ScriptStatement> {
+    placed(text)
+        .map(|r| {
+            let (start, end, line) = match r {
+                Ok(p) => (p.start, p.end, p.line),
+                Err(u) => (u.start, u.end, u.line),
+            };
+            ScriptStatement {
+                text: text[start..end].to_string(),
+                start,
+                end,
+                line,
+                kind: StatementKind::Sql,
+                repeat: 1,
+                error: None,
+            }
+        })
+        .collect()
 }
 
 /// [`parse_script`] with each command's place; an error carries the line
 /// and where it starts.
 pub fn parse_placed(text: &str) -> Result<Vec<Placed>, (String, u32, usize)> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    for (n, raw) in text.split('\n').enumerate() {
-        let line_start = at;
-        at += raw.len() + 1;
-        let line = raw.strip_suffix('\r').unwrap_or(raw);
-        let words = parse_line(line).map_err(|e| (e, n as u32 + 1, line_start))?;
-        if words.is_empty() {
-            continue;
-        }
-        let start = line_start + (line.len() - line.trim_start().len());
-        let mut c = Command::default();
-        for (w, quoted) in words {
-            match std::str::from_utf8(&w)
-                .ok()
-                .filter(|s| !quoted && s.starts_with("--") && s.len() > 2)
-            {
-                Some(f) => {
-                    let f = &f[2..];
-                    let (k, v) = match f.split_once('=') {
-                        Some((k, v)) => (k, Some(v.to_string())),
-                        None => (f, None),
-                    };
-                    c.flags.push((k.to_ascii_lowercase(), v));
-                }
-                None => c.args.push(w),
-            }
-        }
-        out.push(Placed {
-            command: c,
-            start,
-            line: n as u32 + 1,
-        });
-    }
-    Ok(out)
+    placed(text)
+        .map(|r| r.map_err(|u| (u.error, u.line, u.line_start)))
+        .collect()
 }
 
 fn hex(b: u8) -> Option<u8> {
     (b as char).to_digit(16).map(|d| d as u8)
 }
 
-/// Words of a line and whether each was quoted.
-fn parse_line(line: &str) -> Result<Vec<(Vec<u8>, bool)>, String> {
+/// A line's words, whether each was quoted, and where they are in it:
+/// `from` is where the first one starts and `to` where the last one ends
+/// (both 0 without words).
+struct Words {
+    words: Vec<(Vec<u8>, bool)>,
+    from: usize,
+    to: usize,
+}
+
+fn parse_line(line: &str) -> Result<Words, String> {
     let b = line.as_bytes();
     let mut out = Vec::new();
+    let (mut from, mut to) = (0, 0);
     let mut i = 0;
     loop {
         while i < b.len() && b[i].is_ascii_whitespace() {
             i += 1;
         }
         if i >= b.len() || b[i] == b'#' {
-            return Ok(out);
+            return Ok(Words {
+                words: out,
+                from,
+                to,
+            });
+        }
+        if out.is_empty() {
+            from = i;
         }
         let mut cur = Vec::new();
         let mut quoted = false;
@@ -218,6 +304,7 @@ fn parse_line(line: &str) -> Result<Vec<(Vec<u8>, bool)>, String> {
             }
         }
         out.push((cur, quoted));
+        to = i;
     }
 }
 
@@ -278,16 +365,16 @@ mod tests {
     #[test]
     fn placed_commands() {
         let p = parse_placed("get a\r\n# c\n\n  put \"é\" v\nlease list").unwrap();
-        let v: Vec<(usize, u32, String)> = p
+        let v: Vec<(usize, usize, u32, String)> = p
             .iter()
-            .map(|c| (c.start, c.line, c.command.verb()))
+            .map(|c| (c.start, c.end, c.line, c.command.verb()))
             .collect();
         assert_eq!(
             v,
             [
-                (0, 1, "get".into()),
-                (14, 4, "put".into()),
-                (25, 5, "lease".into())
+                (0, 5, 1, "get".into()),
+                (14, 24, 4, "put".into()),
+                (25, 35, 5, "lease".into())
             ]
         );
         assert_eq!(
@@ -297,6 +384,122 @@ mod tests {
         assert!(parse_script("get a\nget \"open")
             .unwrap_err()
             .starts_with("línea 2: "));
+    }
+
+    /// `(text, start, end, line)` of each unit; every unit's text is its
+    /// range of the script.
+    fn units(s: &str) -> Vec<(String, usize, usize, u32)> {
+        split(s)
+            .into_iter()
+            .map(|u| {
+                assert_eq!(&s[u.start..u.end], u.text);
+                assert_eq!((u.kind, u.repeat), (StatementKind::Sql, 1));
+                (u.text, u.start, u.end, u.line)
+            })
+            .collect()
+    }
+
+    fn texts(s: &str) -> Vec<String> {
+        units(s).into_iter().map(|u| u.0).collect()
+    }
+
+    /// The editor's units are the commands `execute` numbers: same count,
+    /// order, places, and each unit parses to its command.
+    fn agrees(s: &str) {
+        let placed = parse_placed(s).unwrap();
+        let units = split(s);
+        assert_eq!(units.len(), placed.len(), "{s:?}");
+        for (u, p) in units.iter().zip(&placed) {
+            assert_eq!((u.start, u.end, u.line), (p.start, p.end, p.line), "{s:?}");
+            assert!(u.error.is_none());
+            assert_eq!(
+                parse_script(&u.text).unwrap(),
+                std::slice::from_ref(&p.command)
+            );
+        }
+    }
+
+    #[test]
+    fn one_unit_per_command_line() {
+        // The audit's scripts: one unit per line.
+        assert_eq!(texts("get a\nput a 1"), ["get a", "put a 1"]);
+        assert_eq!(texts("put k \"a;b\"\nget k"), ["put k \"a;b\"", "get k"]);
+        assert_eq!(
+            units("get /a --prefix --limit=5\nlease grant 60\nmember list"),
+            [
+                ("get /a --prefix --limit=5".into(), 0, 25, 1),
+                ("lease grant 60".into(), 26, 40, 2),
+                ("member list".into(), 41, 52, 3)
+            ]
+        );
+        for s in [
+            "get a\nput a 1",
+            "put k \"a;b\"\nget k",
+            "get /a --prefix --limit=5\nlease grant 60\nmember list",
+        ] {
+            agrees(s);
+        }
+    }
+
+    #[test]
+    fn quotes_flags_comments_blank_lines_and_crlf() {
+        // Separators of other languages inside quotes; `'…'` is verbatim;
+        // a quoted `--x` is a value; a trailing comment isn't in the unit.
+        let s = "put k 'a; \\ GO' --prev-kv  # c\nput \"k 2\" \"x\\\"y # z\" \"--x\"\n";
+        assert_eq!(
+            texts(s),
+            [
+                "put k 'a; \\ GO' --prev-kv",
+                "put \"k 2\" \"x\\\"y # z\" \"--x\""
+            ]
+        );
+        agrees(s);
+        // Comment lines and blank lines aren't units, nor part of one.
+        let s = "# first\n\n   # indented\nget a\n\nauth status\n";
+        assert_eq!(
+            units(s),
+            [
+                ("get a".into(), 23, 28, 4),
+                ("auth status".into(), 30, 41, 6)
+            ]
+        );
+        agrees(s);
+        // CRLF and indentation: a unit starts at its first word and ends
+        // at its last.
+        let s = "get a\r\n\r\n\t del  \"é\" --prefix \r\nuser list\r\n";
+        assert_eq!(
+            units(s),
+            [
+                ("get a".into(), 0, 5, 1),
+                ("del  \"é\" --prefix".into(), 11, 29, 3),
+                ("user list".into(), 32, 41, 4)
+            ]
+        );
+        agrees(s);
+        assert!(split("").is_empty());
+        assert!(split("# only\n\n").is_empty());
+    }
+
+    #[test]
+    fn a_line_that_does_not_parse_is_still_a_unit() {
+        // A quote doesn't span lines: the next line is its own unit.
+        let s = "get a\n  put k \"open  \nget b";
+        let u = split(s);
+        assert_eq!(u.len(), 3);
+        assert_eq!(
+            (u[1].text.as_str(), u[1].start, u[1].line),
+            ("put k \"open", 8, 2)
+        );
+        assert_eq!(u[2].text, "get b");
+        // No unit carries an error (the editor keeps every lens while a
+        // command is being typed): `execute` refuses that script at the
+        // same line, and that unit alone with the same message.
+        assert!(u.iter().all(|u| u.error.is_none()));
+        assert_eq!(parse_placed(s).err().map(|e| e.1), Some(2));
+        assert_eq!(
+            parse_placed(&u[1].text).err().map(|e| e.0).as_deref(),
+            Some("comillas sin cerrar")
+        );
     }
 
     #[test]

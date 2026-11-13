@@ -135,6 +135,26 @@ async fn exercise(s: &mut Box<dyn Session>, url: &str, core: &str) {
     assert_eq!(out.results[3].rows.len(), 3, "scifi docs");
     assert_eq!(col_names(&out, 4), ["val", "count"]);
     assert_eq!(col_names(&out, 5), ["facet", "value"]);
+    // Each request's results carry its number and place, the same the
+    // editor's split gives it.
+    let units = dbine_driver_solr::drivers()[0].split_script(&script);
+    assert_eq!(units.len(), 2);
+    let placed: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| (r.statement, r.offset, r.line))
+        .collect();
+    for (i, u) in units.iter().enumerate() {
+        assert!(
+            placed.contains(&(Some(i), Some(u.start), Some(u.line))),
+            "{placed:?} {units:?}"
+        );
+    }
+    assert_eq!(placed[0], (Some(0), Some(0), Some(1)));
+    assert_eq!(
+        placed.last().unwrap(),
+        &(Some(1), Some(units[1].start), Some(3))
+    );
 
     // Errors keep what ran before.
     let mut out = QueryOutcome::default();
@@ -146,8 +166,21 @@ async fn exercise(s: &mut Box<dyn Session>, url: &str, core: &str) {
         )
         .await
         .unwrap_err();
-    assert!(matches!(&e, Error::Query(m) if m.contains("nope")), "{e:?}");
+    // Placed on its request (line 3), numbered as the editor splits it.
+    let se = e.to_script_error();
+    assert!(
+        e.is_query() && se.message.contains("nope") && se.line == Some(3),
+        "{e:?}"
+    );
     assert_eq!(out.results.len(), 1);
+    assert_eq!(
+        (
+            out.results[0].statement,
+            out.results[0].line,
+            out.results[0].offset
+        ),
+        (Some(0), Some(1), Some(0))
+    );
 
     // Read-only.
     let mut ro = session(url, true).await;
@@ -164,7 +197,7 @@ async fn exercise(s: &mut Box<dyn Session>, url: &str, core: &str) {
     ] {
         let e = run(&mut ro, &w, 10).await.unwrap_err();
         assert!(
-            matches!(&e, Error::Query(m) if m.contains("solo lectura")),
+            e.is_query() && e.to_string().contains("solo lectura"),
             "{w}: {e:?}"
         );
     }
@@ -182,7 +215,10 @@ async fn solr_standalone() {
     let e = run(&mut s, "SELECT id FROM testcore", 10)
         .await
         .unwrap_err();
-    assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
+    assert!(
+        e.to_string().contains("solo está disponible en SolrCloud"),
+        "{e:?}"
+    );
 }
 
 #[tokio::test]
@@ -230,7 +266,7 @@ async fn solr_cloud() {
     let e = run(&mut s, "SELECT nope_field FROM dbine_books", 10)
         .await
         .unwrap_err();
-    assert!(matches!(e, Error::Query(_)), "{e:?}");
+    assert!(e.is_query(), "{e:?}");
 
     run(
         &mut s,

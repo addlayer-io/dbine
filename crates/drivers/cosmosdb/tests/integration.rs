@@ -234,6 +234,32 @@ async fn end_to_end() {
     assert_eq!(out.results[0].rows.len(), 2);
     assert!(out.results[0].truncated);
 
+    // The editor's units are the statements execute numbers, at the same
+    // places: a `-- container:` line is a unit (a USE) and ends the one
+    // before it.
+    let text = "-- container: items\nSELECT VALUE COUNT(1) FROM c\n-- container: other-coll\nSELECT c.id FROM c";
+    let out = run(&mut s, text, 10).await.unwrap();
+    let units = d.split_script(text);
+    assert_eq!(
+        units.iter().map(|u| u.start).collect::<Vec<_>>(),
+        [0, 20, 49, 74]
+    );
+    let placed: Vec<_> = out
+        .results
+        .iter()
+        .map(|r| (r.statement, r.offset, r.line))
+        .collect();
+    assert_eq!(
+        placed,
+        [(Some(1), Some(20), Some(2)), (Some(3), Some(74), Some(4))]
+    );
+    assert_eq!(out.results[0].rows, vec![vec![json!(3)]]);
+    assert_eq!(out.results[1].rows, vec![vec![json!("z")]]);
+    // Each unit alone runs as it does in the script (the container stays).
+    for u in &units {
+        run(&mut s, &u.text, 10).await.unwrap();
+    }
+
     // Errors: bad syntax, missing container, not a SELECT.
     let e = run(&mut s, "-- container: items\nSELECT * FORM c", 10)
         .await

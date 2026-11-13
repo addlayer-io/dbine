@@ -126,6 +126,12 @@ impl Driver for EtcdDriver {
         HELP
     }
 
+    /// One etcdctl command per line, the ones `execute` numbers (see
+    /// [`command::split`]).
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        command::split(text)
+    }
+
     /// Transactions of puts (see [`transfer`]).
     fn supports_bulk_load(&self) -> bool {
         true
@@ -1516,6 +1522,26 @@ mod tests {
         );
         assert_eq!(r[5], json!("1a"));
         assert_eq!(kv_row(&kv, true), vec![json!("/a")]);
+    }
+
+    /// The driver hands the editor one unit per command line, as `execute`
+    /// numbers them.
+    #[test]
+    fn the_driver_splits_one_command_per_line() {
+        for d in drivers() {
+            for (s, n) in [
+                ("get a\nput a 1", 2),
+                ("put k \"a;b\"\nget k", 2),
+                ("# c\r\nlease grant 60 # x\r\n\r\nget /a --prefix\r\n", 2),
+            ] {
+                let units = d.split_script(s);
+                let placed = command::parse_placed(s).unwrap();
+                assert_eq!(units.len(), n, "{s:?}");
+                let a: Vec<_> = units.iter().map(|u| (u.start, u.end, u.line)).collect();
+                let b: Vec<_> = placed.iter().map(|p| (p.start, p.end, p.line)).collect();
+                assert_eq!(a, b, "{s:?}");
+            }
+        }
     }
 
     #[test]

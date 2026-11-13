@@ -479,6 +479,13 @@ impl Driver for MongoDriver {
         QUERY_HELP
     }
 
+    /// The units `execute` runs and numbers, one per statement: a `db.…`
+    /// call chain, a `{…}` command document or a `use` / `show` line, with
+    /// or without `;` (see `shell::statements`).
+    fn split_script(&self, text: &str) -> Vec<dbine_driver::ScriptStatement> {
+        shell::statements(text)
+    }
+
     fn supports_explain(&self) -> bool {
         true
     }
@@ -1581,6 +1588,68 @@ mod tests {
             .fields
             .iter()
             .all(|f| f.key != "auth" && f.when.is_none()));
+    }
+
+    /// Every flavor cuts a script into the units `execute` numbers, also
+    /// the scripts this driver writes for the grid and data compare.
+    #[test]
+    fn split_script_gives_one_statement_per_unit() {
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "clientes".into(),
+        };
+        let cols = vec!["_id".to_string(), "nombre".to_string()];
+        let rows: Vec<Vec<serde_json::Value>> = (1..=3)
+            .map(|i| vec![serde_json::json!(i), serde_json::json!(format!("n;{i}"))])
+            .collect();
+        let changes: Vec<dbine_driver::RowChange> = (1..=2)
+            .map(|i| dbine_driver::RowChange {
+                key: vec![("_id".into(), serde_json::json!(i))],
+                set: vec![("nombre".into(), serde_json::json!("x\ny"))],
+                row: vec![],
+            })
+            .collect();
+        let keys = vec![vec![("_id".to_string(), serde_json::json!(9))]];
+        for d in drivers() {
+            let id = d.info().id;
+            let texts = |t: &str| -> Vec<String> {
+                d.split_script(t).into_iter().map(|s| s.text).collect()
+            };
+            assert_eq!(
+                texts("db.a.find({})\ndb.b.find({})"),
+                ["db.a.find({})", "db.b.find({})"],
+                "{id}"
+            );
+            assert_eq!(
+                texts("use test\nshow collections"),
+                ["use test", "show collections"],
+                "{id}"
+            );
+            assert_eq!(
+                texts("db.a.aggregate([\n  { $match: {} },\n  { $count: 'n' }\n])\ndb.b.countDocuments({})"),
+                [
+                    "db.a.aggregate([\n  { $match: {} },\n  { $count: 'n' }\n])",
+                    "db.b.countDocuments({})"
+                ],
+                "{id}"
+            );
+            assert_eq!(texts(&browse_text("my-coll", 5)).len(), 1, "{id}");
+            for script in [
+                d.insert_script(&target, &cols, &rows),
+                d.update_script(&target, &changes),
+                d.delete_script(&target, &keys),
+            ] {
+                let script = script.unwrap();
+                let units = shell::parse_units(&script).unwrap();
+                let split = d.split_script(&script);
+                assert_eq!(split.len(), units.len(), "{id}: {script}");
+                for (s, u) in split.iter().zip(&units) {
+                    assert_eq!((s.start, s.line), (u.start, u.line), "{id}: {script}");
+                    assert_eq!(shell::parse_units(&s.text).unwrap()[0].item, u.item);
+                }
+            }
+        }
     }
 
     #[test]

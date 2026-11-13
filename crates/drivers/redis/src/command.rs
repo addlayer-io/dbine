@@ -1,6 +1,14 @@
 //! The editor's language: one Redis command per line, quoted like
 //! `redis-cli` (`"…"` with backslash escapes, `'…'` with only `\'`), and
 //! `#` starting a comment. Also the read-only allow-list.
+//!
+//! A quote never spans lines, so a command is always one line: MULTI, the
+//! commands it queues and EXEC are separate commands, and an EVAL body
+//! sits inside its line. `execute` and the editor's units
+//! ([`split`]) come from the same lines, so they number the same commands
+//! at the same places.
+
+use dbine_driver::{ScriptStatement, StatementKind};
 
 /// Commands of a script, each as its raw arguments. A `#` at the start of
 /// an argument (outside quotes) comments out the rest of the line.
@@ -16,44 +24,122 @@ pub fn parse_script(text: &str) -> Result<Vec<Vec<Vec<u8>>>, String> {
     Ok(out)
 }
 
-/// A command of an editor script with its place: byte offset of its first
-/// argument and 1-based line.
+/// A command of an editor script with its place: byte range from its first
+/// argument to the end of its last (a trailing comment left out) and
+/// 1-based line.
 pub struct Placed {
     pub args: Vec<Vec<u8>>,
     pub start: usize,
+    pub end: usize,
     pub line: u32,
+}
+
+/// A line that doesn't parse: its error, its 1-based number and where it
+/// starts, and the range of its text (blanks around it left out).
+struct Unparsed {
+    error: String,
+    line: u32,
+    line_start: usize,
+    start: usize,
+    end: usize,
+}
+
+/// Each line of `text` that holds a command, placed, in order; a line that
+/// doesn't parse comes as [`Unparsed`]. Comment and blank lines give
+/// nothing. Both [`parse_placed`] (what `execute` runs and numbers) and
+/// [`split`] (the editor's units) read the script through it.
+fn placed(text: &str) -> impl Iterator<Item = Result<Placed, Unparsed>> + '_ {
+    let mut at = 0;
+    text.split('\n').enumerate().filter_map(move |(n, raw)| {
+        let line_start = at;
+        at += raw.len() + 1;
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        let n = n as u32 + 1;
+        match parse_args(line) {
+            Ok(p) if p.args.is_empty() => None,
+            Ok(p) => Some(Ok(Placed {
+                args: p.args,
+                start: line_start + p.from,
+                end: line_start + p.to,
+                line: n,
+            })),
+            Err(error) => {
+                let t = line.trim_end();
+                Some(Err(Unparsed {
+                    error,
+                    line: n,
+                    line_start,
+                    start: line_start + t.len() - t.trim_start().len(),
+                    end: line_start + t.len(),
+                }))
+            }
+        }
+    })
 }
 
 /// [`parse_script`] with each command's place; an error carries the line
 /// and its start.
 pub fn parse_placed(text: &str) -> Result<Vec<Placed>, (String, u32, usize)> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    for (n, line) in text.split('\n').enumerate() {
-        let args = parse_line(line.trim_end_matches('\r')).map_err(|e| (e, n as u32 + 1, at))?;
-        if !args.is_empty() {
-            let indent = line.len() - line.trim_start().len();
-            out.push(Placed {
-                args,
-                start: at + indent,
-                line: n as u32 + 1,
-            });
-        }
-        at += line.len() + 1;
-    }
-    Ok(out)
+    placed(text)
+        .map(|r| r.map_err(|u| (u.error, u.line, u.line_start)))
+        .collect()
+}
+
+/// The script's commands as the editor's units ([`Driver::split_script`]):
+/// the ones [`parse_placed`] gives `execute`, in the same order and at the
+/// same places, so a result's statement number points at its line. It
+/// never fails: a line that doesn't parse is still a unit, without an
+/// `error`, so a command being typed (an open quote) keeps the lenses of
+/// the others; running it reports the error at its line (`execute` runs
+/// nothing of such a script).
+///
+/// [`Driver::split_script`]: dbine_driver::Driver::split_script
+pub fn split(text: &str) -> Vec<ScriptStatement> {
+    placed(text)
+        .map(|r| {
+            let (start, end, line) = match r {
+                Ok(p) => (p.start, p.end, p.line),
+                Err(u) => (u.start, u.end, u.line),
+            };
+            ScriptStatement {
+                text: text[start..end].to_string(),
+                start,
+                end,
+                line,
+                kind: StatementKind::Sql,
+                repeat: 1,
+                error: None,
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn parse_line(line: &str) -> Result<Vec<Vec<u8>>, String> {
+    parse_args(line).map(|p| p.args)
+}
+
+/// A line's arguments and where they are in it: `from` is where the first
+/// one starts and `to` where the last one ends (both 0 without arguments).
+struct Args {
+    args: Vec<Vec<u8>>,
+    from: usize,
+    to: usize,
+}
+
+fn parse_args(line: &str) -> Result<Args, String> {
     let b = line.as_bytes();
     let mut args = Vec::new();
+    let (mut from, mut to) = (0, 0);
     let mut i = 0;
     loop {
         while i < b.len() && b[i].is_ascii_whitespace() {
             i += 1;
         }
         if i >= b.len() || b[i] == b'#' {
-            return Ok(args);
+            return Ok(Args { args, from, to });
+        }
+        if args.is_empty() {
+            from = i;
         }
         let mut cur = Vec::new();
         let mut quote: Option<u8> = None;
@@ -116,6 +202,7 @@ pub(crate) fn parse_line(line: &str) -> Result<Vec<Vec<u8>>, String> {
             i += 1;
         }
         args.push(cur);
+        to = i;
     }
 }
 
@@ -390,12 +477,126 @@ mod tests {
     #[test]
     fn placed_commands() {
         let p = parse_placed("SET a 1\r\n# c\n\n  GET \"é\"\nDEL a").unwrap();
-        let v: Vec<(usize, u32)> = p.iter().map(|c| (c.start, c.line)).collect();
-        assert_eq!(v, [(0, 1), (16, 4), (25, 5)]);
+        let v: Vec<(usize, usize, u32)> = p.iter().map(|c| (c.start, c.end, c.line)).collect();
+        assert_eq!(v, [(0, 7, 1), (16, 24, 4), (25, 30, 5)]);
         assert_eq!(
             parse_placed("GET a\nGET \"open").err(),
             Some(("comillas sin cerrar".to_string(), 2, 6))
         );
+    }
+
+    /// `(text, start, end, line)` of each unit; every unit's text is its
+    /// range of the script.
+    fn units(s: &str) -> Vec<(String, usize, usize, u32)> {
+        split(s)
+            .into_iter()
+            .map(|u| {
+                assert_eq!(&s[u.start..u.end], u.text);
+                assert_eq!((u.kind, u.repeat), (StatementKind::Sql, 1));
+                (u.text, u.start, u.end, u.line)
+            })
+            .collect()
+    }
+
+    fn texts(s: &str) -> Vec<String> {
+        units(s).into_iter().map(|u| u.0).collect()
+    }
+
+    /// The editor's units are the commands `execute` numbers: same count,
+    /// order, starts and lines.
+    fn agrees(s: &str) {
+        let placed = parse_placed(s).unwrap();
+        let units = split(s);
+        assert_eq!(units.len(), placed.len(), "{s:?}");
+        for (u, p) in units.iter().zip(&placed) {
+            assert_eq!((u.start, u.end, u.line), (p.start, p.end, p.line), "{s:?}");
+            assert!(u.error.is_none());
+            assert_eq!(parse_line(&u.text).unwrap(), p.args);
+        }
+    }
+
+    #[test]
+    fn one_unit_per_command_line() {
+        // The audit's scripts: one unit per line.
+        assert_eq!(texts("SET a 1\nGET a"), ["SET a 1", "GET a"]);
+        assert_eq!(texts("SET k \"a;b\"\nGET k"), ["SET k \"a;b\"", "GET k"]);
+        assert_eq!(texts("MULTI\nINCR a\nEXEC"), ["MULTI", "INCR a", "EXEC"]);
+        assert_eq!(
+            units("SET a 1\nGET a\nDEL a"),
+            [
+                ("SET a 1".into(), 0, 7, 1),
+                ("GET a".into(), 8, 13, 2),
+                ("DEL a".into(), 14, 19, 3)
+            ]
+        );
+        for s in [
+            "SET a 1\nGET a",
+            "SET k \"a;b\"\nGET k",
+            "MULTI\nINCR a\nEXEC",
+            "SET a 1\nGET a\nDEL a",
+        ] {
+            agrees(s);
+        }
+    }
+
+    #[test]
+    fn quotes_comments_blank_lines_and_crlf() {
+        // Separators of other languages inside quotes, `\'` and escapes.
+        let s = "SET k 'it\\'s; GO' \nHSET h f \"a\\\"b # c\" # trailing\n";
+        assert_eq!(texts(s), ["SET k 'it\\'s; GO'", "HSET h f \"a\\\"b # c\""]);
+        agrees(s);
+        // Comment lines and blank lines aren't units, nor part of one; `//`
+        // isn't a comment in redis-cli, so it is a command.
+        let s = "# first\n\n   # indented\nGET a\n\n// not a comment\n";
+        assert_eq!(
+            units(s),
+            [
+                ("GET a".into(), 23, 28, 4),
+                ("// not a comment".into(), 30, 46, 6)
+            ]
+        );
+        agrees(s);
+        // A `#` inside an argument doesn't comment.
+        assert_eq!(texts("GET a#b # c"), ["GET a#b"]);
+        // CRLF and indentation: the unit starts at its first argument and
+        // ends at its last.
+        let s = "SET a 1\r\n\r\n\t GET  \"é\"  \r\nEVAL \"return 1\" 0\r\n";
+        assert_eq!(
+            units(s),
+            [
+                ("SET a 1".into(), 0, 7, 1),
+                ("GET  \"é\"".into(), 13, 22, 3),
+                ("EVAL \"return 1\" 0".into(), 26, 43, 4)
+            ]
+        );
+        agrees(s);
+        assert!(split("").is_empty());
+        assert!(split("# only\n\n").is_empty());
+    }
+
+    #[test]
+    fn a_line_that_does_not_parse_is_still_a_unit() {
+        // A quote doesn't span lines: the next line is its own unit.
+        let s = "GET a\n  SET k \"open  \nGET b";
+        let u = split(s);
+        assert_eq!(u.len(), 3);
+        assert_eq!(
+            (u[1].text.as_str(), u[1].start, u[1].line),
+            ("SET k \"open", 8, 2)
+        );
+        assert_eq!(u[2].text, "GET b");
+        // No unit carries an error (the editor keeps every lens while a
+        // command is being typed): `execute` refuses that script at the
+        // same line, and that unit alone with the same message.
+        assert!(u.iter().all(|u| u.error.is_none()));
+        assert_eq!(parse_placed(s).err().map(|e| e.1), Some(2));
+        assert_eq!(
+            parse_placed(&u[1].text).err().map(|e| e.0).as_deref(),
+            Some("comillas sin cerrar")
+        );
+        let bad = split("GET \"a\"b");
+        assert!(bad.len() == 1 && bad[0].error.is_none());
+        assert!(parse_placed("GET \"a\"b").is_err());
     }
 
     fn words(line: &str) -> Vec<String> {
