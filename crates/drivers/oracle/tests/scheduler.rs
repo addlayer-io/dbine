@@ -2,9 +2,14 @@
 //! real server (`DBINE_TEST_ORACLE_ADMIN_URL`, an admin such as SYSTEM):
 //! every kind created, read back, edited part by part (checked in the
 //! dictionary), its script with secrets masked, and deleted; start a
-//! chain job at a step, clear a job's history, the logs; a login without
-//! MANAGE SCHEDULER, a read-only connection, a stale form and ids that
-//! aren't what the driver gave. Skipped without the variable:
+//! chain job at a step, clear a job's history, the logs; the kinds'
+//! actions (open and close a window, run a program and a chain once, stop
+//! a running job by force, its own and, with the SYSDBA variable below,
+//! one of SYS's, end a detached run); what each object allows
+//! (Oracle's own are shown, not changed); the fields, lists and tabs that
+//! show only for some modes and types; a login without MANAGE SCHEDULER, a
+//! read-only connection, a stale form and ids that aren't what the driver
+//! gave. Skipped without the variable:
 //!
 //! ```sh
 //! DBINE_TEST_ORACLE_ADMIN_URL=oracle://system:Secret123@localhost:25601/FREEPDB1 \
@@ -21,11 +26,14 @@
 //! with the notifications of an earlier run's queues).
 //!
 //! Every object it makes is named `DBINE_TEST_SCHED_*` and is dropped at
-//! the end, whether the test passed or not; the Scheduler attributes it
-//! changes are put back.
+//! the end, whether the test passed or not (SYS's job by SYS); the
+//! Scheduler attributes it changes are put back, and the job slaves once
+//! AQ's notification job left by the event-based objects has ended.
 
 use dbine_driver::read_only::ReadOnlySession;
-use dbine_driver::{ConnectionConfig, FormValues, ObjectForm, QueryOutcome, Session};
+use dbine_driver::{
+    ConnectionConfig, FormValues, ObjectForm, QueryOutcome, SchedulerItem, SchedulerKind, Session,
+};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -76,6 +84,15 @@ fn sysdba_config() -> Option<ConnectionConfig> {
     Some(cfg)
 }
 
+/// SYS as SYSDBA on the test's PDB (the admin's service), to own a job
+/// there as Oracle's own jobs are owned.
+fn sys_pdb_config(cfg: &ConnectionConfig) -> Option<ConnectionConfig> {
+    let mut sys = sysdba_config()?;
+    sys.options
+        .insert("service".into(), cfg.options.get("service")?.clone());
+    Some(sys)
+}
+
 async fn connect(cfg: &ConnectionConfig) -> Box<dyn Session> {
     let d = dbine_driver_oracle::drivers().remove(0);
     d.connect(cfg, None).await.expect("connect")
@@ -122,7 +139,8 @@ async fn scalar(s: &mut Box<dyn Session>, sql: &str) -> String {
 /// Drops everything the test made, by its prefix only.
 const CLEANUP: &str = r#"BEGIN
   FOR r IN (SELECT owner, job_name FROM dba_scheduler_jobs
-             WHERE job_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\' OR job_name LIKE 'RUN\_CHAIN$DBINE\_%' ESCAPE '\') LOOP
+             WHERE job_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\' OR job_name LIKE 'RUN\_CHAIN$DBINE\_%' ESCAPE '\'
+                OR job_name LIKE 'RUN\_PROG$DBINE\_%' ESCAPE '\') LOOP
     BEGIN DBMS_SCHEDULER.DROP_JOB('"' || r.owner || '"."' || r.job_name || '"', force => TRUE);
     EXCEPTION WHEN OTHERS THEN NULL; END;
   END LOOP;
@@ -177,7 +195,8 @@ const CLEANUP: &str = r#"BEGIN
     EXCEPTION WHEN OTHERS THEN NULL; END;
   END LOOP;
   FOR r IN (SELECT DISTINCT owner, job_name FROM dba_scheduler_job_log
-             WHERE job_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\' OR job_name LIKE 'RUN\_CHAIN$DBINE\_%' ESCAPE '\') LOOP
+             WHERE job_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\' OR job_name LIKE 'RUN\_CHAIN$DBINE\_%' ESCAPE '\'
+                OR job_name LIKE 'RUN\_PROG$DBINE\_%' ESCAPE '\') LOOP
     DBMS_SCHEDULER.PURGE_LOG(log_history => 0, which_log => 'JOB_LOG',
       job_name => '"' || r.owner || '"."' || r.job_name || '"');
   END LOOP;
@@ -207,12 +226,51 @@ const CLEANUP: &str = r#"BEGIN
   END LOOP;
 END;"#;
 
+/// Drops the test's job in SYS's schema and its log, as SYS (on the PDB):
+/// the admin can't drop SYS's jobs. Before [`CLEANUP`], which would purge
+/// that log by an owner-qualified name.
+const SYS_CLEANUP: &str = r#"BEGIN
+  FOR r IN (SELECT job_name FROM dba_scheduler_jobs
+             WHERE owner = 'SYS' AND job_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\') LOOP
+    DBMS_SCHEDULER.DROP_JOB('"SYS"."' || r.job_name || '"', force => TRUE);
+  END LOOP;
+  FOR r IN (SELECT DISTINCT job_name FROM dba_scheduler_job_log
+             WHERE owner = 'SYS' AND job_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\') LOOP
+    DBMS_SCHEDULER.PURGE_LOG(log_history => 0, which_log => 'JOB_LOG', job_name => r.job_name);
+  END LOOP;
+END;"#;
+
+/// [`SYS_CLEANUP`], where `DBINE_TEST_ORACLE_SYSDBA_URL` is set; an error
+/// is returned, so the rest of the cleanup still runs.
+async fn sys_cleanup(cfg: &ConnectionConfig) -> Result<(), String> {
+    let Some(sys) = sys_pdb_config(cfg) else {
+        return Ok(());
+    };
+    let d = dbine_driver_oracle::drivers().remove(0);
+    let mut s = d.connect(&sys, None).await.map_err(|e| e.to_string())?;
+    let mut out = QueryOutcome::default();
+    s.execute(SYS_CLEANUP, 100, &mut out)
+        .await
+        .map_err(|e| e.to_string())?;
+    if out.errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{:?}", out.errors))
+    }
+}
+
+/// The PL/SQL notification jobs AQ runs on a job slave (an event-based
+/// job's queue leaves one for a while).
+const NOTIFYING: &str = r"SELECT COUNT(*) FROM dba_scheduler_running_jobs WHERE job_name LIKE 'AQ$\_PLSQL\_NTFN%' ESCAPE '\'";
+
 /// What's left of the test's objects.
 const LEFT: &str = r"SELECT (SELECT COUNT(*) FROM dba_objects WHERE object_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\')
      + (SELECT COUNT(*) FROM dba_scheduler_windows WHERE window_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\')
      + (SELECT COUNT(*) FROM dba_scheduler_job_classes WHERE job_class_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\')
      + (SELECT COUNT(*) FROM dba_scheduler_groups WHERE group_name LIKE 'DBINE\_TEST\_SCHED\_%' ESCAPE '\')
      + (SELECT COUNT(*) FROM dba_scheduler_jobs WHERE job_name LIKE 'RUN\_CHAIN$DBINE\_%' ESCAPE '\')
+     + (SELECT COUNT(*) FROM dba_scheduler_jobs WHERE job_name LIKE 'RUN\_PROG$DBINE\_%' ESCAPE '\')
+     + (SELECT COUNT(*) FROM dba_scheduler_job_log WHERE job_name LIKE 'RUN\_PROG$DBINE\_%' ESCAPE '\')
      + (SELECT COUNT(*) FROM dba_users WHERE username = 'DBINE_TEST_SCHED_USER') FROM dual";
 
 const QUEUE: &str = "SELECT value FROM v$parameter WHERE name = 'job_queue_processes'";
@@ -320,6 +378,7 @@ async fn the_scheduler_managed_whole() {
         .iter()
         .all(|d| d.capabilities().scheduler));
     let mut admin = connect(&cfg).await;
+    sys_cleanup(&cfg).await.expect("SYS's cleanup");
     exec(&mut admin, CLEANUP).await;
     let before = rows(&mut admin, GLOBALS).await;
     // A chain run takes two job slaves: raised on the CDB for the test
@@ -352,8 +411,21 @@ async fn the_scheduler_managed_whole() {
     // In its own task: whatever fails in it, the cleanup below still runs.
     let result = tokio::spawn(scenario(cfg.clone(), slaves >= 2)).await;
     let mut admin = connect(&cfg).await;
+    let sys_cleaned = sys_cleanup(&cfg).await;
     let mut out = QueryOutcome::default();
     let cleaned = admin.execute(CLEANUP, 100, &mut out).await;
+    // The event-based job and schedule leave AQ's notification job on a
+    // slave for a while (it ends some two minutes after its last
+    // notification): waited for, bounded, before the slaves go back to
+    // what they were, which may be one, so the next suite finds it free.
+    let until = Instant::now() + Duration::from_secs(180);
+    while scalar(&mut admin, NOTIFYING).await != "0" {
+        if Instant::now() >= until {
+            eprintln!("AQ's notification job still holds a job slave");
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
     for row in &before {
         let (attr, value) = (text(&row[0]), text(&row[1]));
         let v = if value.is_empty() {
@@ -388,6 +460,7 @@ async fn the_scheduler_managed_whole() {
     if let Err(e) = result {
         std::panic::resume_unwind(e.into_panic());
     }
+    assert_eq!(sys_cleaned, Ok(()), "SYS's cleanup");
     assert!(
         cleaned.is_ok() && out.errors.is_empty(),
         "cleanup: {cleaned:?} {:?}",
@@ -455,6 +528,7 @@ async fn scenario(cfg: ConnectionConfig, chains_run: bool) {
     // Runs first: an event-based job keeps a job slave busy with its
     // queue's notifications afterwards.
     runs(&mut s, &prog2, chains_run).await;
+    actions(&cfg, &mut s, &prog2, chains_run).await;
     let (cal, evt) = schedules(&mut s).await;
     let chain = chains(&mut s, &prog2, &evt).await;
     let class = classes(&mut s).await;
@@ -465,6 +539,8 @@ async fn scenario(cfg: ConnectionConfig, chains_run: bool) {
     let dgrp = destinations(&mut s, &cred).await;
     globals_and_logs(&mut s, &job).await;
     guards(&cfg, &mut s, &job).await;
+    abilities(&mut s, &job, &class).await;
+    conditions(&mut s).await;
 
     // Deleted, each through its own script.
     delete(&mut s, "incompatibility", &inc, "DROP_INCOMPATIBILITY").await;
@@ -1480,6 +1556,23 @@ async fn guards(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, job: &str) {
     let jobk = info.kinds.iter().find(|k| k.key == "job").unwrap();
     assert!(jobk.can_create);
     assert!(info.notes.iter().any(|n| n.contains("MANAGE SCHEDULER")));
+    // Without MANAGE SCHEDULER: no history to clear, no forced stop, no
+    // window to open; a program of its own still runs once.
+    assert!(jobk.run_from_step && !jobk.clear_history);
+    assert_eq!(keys(jobk), ["end_detached"]);
+    assert!(win.actions.is_empty());
+    let progk = info.kinds.iter().find(|k| k.key == "program").unwrap();
+    assert_eq!(keys(progk), ["run"]);
+    let w = item(&mut u, "window", "SYS.WEEKNIGHT_WINDOW").await;
+    assert_eq!(
+        (w.can_edit, w.can_delete, w.actions),
+        (Some(false), Some(false), None)
+    );
+    let e = u
+        .scheduler_action_script("window", "SYS.WEEKNIGHT_WINDOW", "open_window")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("MANAGE SCHEDULER"), "{e}");
     let f = u
         .scheduler_form("window", Some("SYS.WEEKNIGHT_WINDOW"))
         .await
@@ -1516,4 +1609,629 @@ async fn guards(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, job: &str) {
     set(&mut v, "plsql", json!("BEGIN NULL; END;"));
     assert!(u.scheduler_save("job", None, &v).await.is_err());
     delete(&mut u, "job", &ujob, "DROP_JOB").await;
+}
+
+/// One object as the tree lists it.
+async fn item(s: &mut Box<dyn Session>, kind: &str, id: &str) -> SchedulerItem {
+    s.scheduler_items(kind)
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == id)
+        .unwrap_or_else(|| panic!("{kind} {id} not listed"))
+}
+
+/// A script on one line: a long call is written one argument a line.
+fn flat(script: &str) -> String {
+    script
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("( ", "(")
+}
+
+fn actions_of(i: &SchedulerItem) -> Vec<String> {
+    i.actions.clone().expect("the item says its actions")
+}
+
+fn keys(k: &SchedulerKind) -> Vec<&str> {
+    k.actions.iter().map(|a| a.key.as_str()).collect()
+}
+
+const WACT: &str = "SELECT LISTAGG(window_name || '=' || active, ',') WITHIN GROUP (ORDER BY window_name) FROM dba_scheduler_windows WHERE window_name LIKE 'DBINE\\_TEST\\_SCHED\\_WACT%' ESCAPE '\\'";
+
+/// The kinds' actions: a window opened for its duration and closed, a
+/// program and a chain run once, a running job stopped by force and a
+/// detached run ended; each one's script first.
+async fn actions(cfg: &ConnectionConfig, s: &mut Box<dyn Session>, prog2: &str, chains_run: bool) {
+    let info = s.scheduler_info().await.unwrap();
+    let kind = |k: &str| info.kinds.iter().find(|x| x.key == k).unwrap().clone();
+    let job = kind("job");
+    assert!(job.run_from_step && job.clear_history);
+    assert_eq!(keys(&job), ["force_stop", "end_detached"]);
+    assert_eq!(keys(&kind("window")), ["open_window", "close_window"]);
+    assert_eq!(keys(&kind("program")), ["run"]);
+    assert_eq!(keys(&kind("chain")), ["run"]);
+    assert!(kind("schedule").actions.is_empty() && !kind("program").run_from_step);
+    // Not the kind's, or no action at all.
+    for (k, a) in [
+        ("program", "open_window"),
+        ("program", "run'; --"),
+        ("window", "run"),
+    ] {
+        assert!(
+            s.scheduler_action_script(k, prog2, a).await.is_err(),
+            "{k} {a}"
+        );
+    }
+    assert!(s
+        .scheduler_action("schedule", "SYSTEM.X", "run")
+        .await
+        .is_err());
+
+    // Windows: opened now for their duration, closed before their time.
+    let mut v = new_form(s, "window").await;
+    set(&mut v, "name", json!("dbine_test_sched_wact"));
+    set(&mut v, "byhour", json!("1"));
+    set(&mut v, "duration", json!(600));
+    let w1 = save(s, "window", None, &v).await;
+    set(&mut v, "name", json!("dbine_test_sched_wact2"));
+    let w2 = save(s, "window", None, &v).await;
+    let i = item(s, "window", &w1).await;
+    assert_eq!(actions_of(&i), ["open_window"]);
+    assert_eq!((i.system, i.can_edit, i.can_delete), (false, None, None));
+    // A read-only connection shows the script, doesn't run it.
+    let mut ro = ReadOnlySession::new(connect(cfg).await);
+    assert!(ro
+        .scheduler_action_script("window", &w1, "open_window")
+        .await
+        .is_ok());
+    assert!(ro
+        .scheduler_action("window", &w1, "open_window")
+        .await
+        .is_err());
+    assert_eq!(
+        scalar(s, WACT).await,
+        "DBINE_TEST_SCHED_WACT=FALSE,DBINE_TEST_SCHED_WACT2=FALSE"
+    );
+    let open = scalar(
+        s,
+        "SELECT COUNT(*) FROM dba_scheduler_windows WHERE active = 'TRUE'",
+    )
+    .await;
+    if open == "0" {
+        let script = s
+            .scheduler_action_script("window", &w1, "open_window")
+            .await
+            .unwrap();
+        assert!(
+            script.contains("OPEN_WINDOW(window_name => '\"SYS\".\"DBINE_TEST_SCHED_WACT\"', duration => NULL, force => FALSE);")
+                && script.contains("00:10:00"),
+            "{script}"
+        );
+        s.scheduler_action("window", &w1, "open_window")
+            .await
+            .unwrap();
+        assert_eq!(
+            scalar(s, WACT).await,
+            "DBINE_TEST_SCHED_WACT=TRUE,DBINE_TEST_SCHED_WACT2=FALSE"
+        );
+        assert_eq!(actions_of(&item(s, "window", &w1).await), ["close_window"]);
+        let e = s
+            .scheduler_action_script("window", &w1, "open_window")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("ya está abierta"), "{e}");
+        // Only one is open at a time: opening another closes it.
+        let script = s
+            .scheduler_action_script("window", &w2, "open_window")
+            .await
+            .unwrap();
+        assert!(
+            script.contains("force => TRUE") && script.contains("SYS.DBINE_TEST_SCHED_WACT "),
+            "{script}"
+        );
+        s.scheduler_action("window", &w2, "open_window")
+            .await
+            .unwrap();
+        assert_eq!(
+            scalar(s, WACT).await,
+            "DBINE_TEST_SCHED_WACT=FALSE,DBINE_TEST_SCHED_WACT2=TRUE"
+        );
+        let script = s
+            .scheduler_action_script("window", &w2, "close_window")
+            .await
+            .unwrap();
+        assert!(
+            script.contains("CLOSE_WINDOW(window_name => '\"SYS\".\"DBINE_TEST_SCHED_WACT2\"');"),
+            "{script}"
+        );
+        s.scheduler_action("window", &w2, "close_window")
+            .await
+            .unwrap();
+        assert_eq!(
+            scalar(s, WACT).await,
+            "DBINE_TEST_SCHED_WACT=FALSE,DBINE_TEST_SCHED_WACT2=FALSE"
+        );
+        let e = s
+            .scheduler_action_script("window", &w2, "close_window")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("no está abierta"), "{e}");
+    } else {
+        eprintln!("a window of the server's is open: opening the test's would close it; skipped");
+    }
+    // Oracle doesn't open a disabled window.
+    let mut v = form(s, "window", &w2).await;
+    set(&mut v, "enabled", json!(false));
+    save(s, "window", Some(&w2), &v).await;
+    assert!(actions_of(&item(s, "window", &w2).await).is_empty());
+    let e = s
+        .scheduler_action_script("window", &w2, "open_window")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("deshabilitada"), "{e}");
+    delete(s, "window", &w1, "DROP_WINDOW").await;
+    delete(s, "window", &w2, "DROP_WINDOW").await;
+
+    // A program run once, in a run-once job of its own; one whose argument
+    // has no value isn't.
+    assert_eq!(actions_of(&item(s, "program", prog2).await), ["run"]);
+    let mut v = new_form(s, "program").await;
+    set(&mut v, "name", json!("dbine_test_sched_aprog"));
+    set(&mut v, "program_type", json!("STORED_PROCEDURE"));
+    set(&mut v, "procedure", json!("SYSTEM.DBINE_TEST_SCHED_PROC"));
+    list(
+        &mut v,
+        "arguments",
+        json!([
+            {"name": "p_n", "metadata": "VALUE", "arg_type": "NUMBER"},
+            {"name": "p_job", "metadata": "JOB_NAME"}
+        ]),
+    );
+    let aprog = save(s, "program", None, &v).await;
+    assert!(actions_of(&item(s, "program", &aprog).await).is_empty());
+    let e = s
+        .scheduler_action_script("program", &aprog, "run")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("argumentos sin valor"), "{e}");
+    delete(s, "program", &aprog, "DROP_PROGRAM").await;
+    let script = s
+        .scheduler_action_script("program", prog2, "run")
+        .await
+        .unwrap();
+    assert!(
+        script.contains("job_name => DBMS_SCHEDULER.GENERATE_JOB_NAME('RUN_PROG$DBINE_TE')")
+            && script.contains("program_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_PROG2\"'")
+            && script.contains("enabled => TRUE")
+            && script.contains("auto_drop => TRUE"),
+        "{script}"
+    );
+    // A chain run once, from its start.
+    let mut v = new_form(s, "chain").await;
+    set(&mut v, "name", json!("dbine_test_sched_achain"));
+    list(
+        &mut v,
+        "steps",
+        json!([{"step_name": "A1", "step_type": "PROGRAM", "program": prog2}]),
+    );
+    list(
+        &mut v,
+        "rules",
+        json!([
+            {"condition": "TRUE", "action": "START A1"},
+            {"condition": "A1 COMPLETED", "action": "END"}
+        ]),
+    );
+    let achain = save(s, "chain", None, &v).await;
+    assert_eq!(actions_of(&item(s, "chain", &achain).await), ["run"]);
+    let script = flat(
+        &s.scheduler_action_script("chain", &achain, "run")
+            .await
+            .unwrap(),
+    );
+    assert!(
+        script.contains("RUN_CHAIN(chain_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_ACHAIN\"', start_steps => NULL, job_name => NULL);"),
+        "{script}"
+    );
+    if chains_run {
+        s.scheduler_action("program", prog2, "run").await.unwrap();
+        wait_for(
+            s,
+            "SELECT COUNT(*) FROM dba_scheduler_job_run_details WHERE owner = 'SYSTEM' AND job_name LIKE 'RUN\\_PROG$DBINE\\_TE%' ESCAPE '\\' AND status = 'SUCCEEDED'",
+            "the program's run",
+        )
+        .await;
+        s.scheduler_action("chain", &achain, "run").await.unwrap();
+        wait_for(
+            s,
+            "SELECT COUNT(*) FROM dba_scheduler_job_run_details WHERE job_name LIKE 'RUN\\_CHAIN$DBINE\\_%' ESCAPE '\\' AND job_subname = 'A1'",
+            "the chain's run",
+        )
+        .await;
+        // Its run-once job goes when the chain ends.
+        wait_for(
+            s,
+            "SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END FROM dba_scheduler_jobs WHERE job_name LIKE 'RUN\\_%$DBINE\\_%' ESCAPE '\\'",
+            "the run-once jobs dropped",
+        )
+        .await;
+    }
+    // Disabled, it doesn't run.
+    let mut v = form(s, "chain", &achain).await;
+    set(&mut v, "enabled", json!(false));
+    save(s, "chain", Some(&achain), &v).await;
+    assert!(actions_of(&item(s, "chain", &achain).await).is_empty());
+    let e = s
+        .scheduler_action_script("chain", &achain, "run")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("deshabilitada"), "{e}");
+    delete(s, "chain", &achain, "DROP_CHAIN").await;
+
+    if !chains_run {
+        eprintln!("one job slave: stopping a running job and ending a detached run skipped");
+        return;
+    }
+    // A job that runs a while, stopped by force.
+    let mut v = new_form(s, "job").await;
+    set(&mut v, "name", json!("dbine_test_sched_sjob"));
+    set(
+        &mut v,
+        "plsql",
+        json!("BEGIN DBMS_SESSION.SLEEP(120); END;"),
+    );
+    set(&mut v, "enabled", json!(false));
+    let sjob = save(s, "job", None, &v).await;
+    assert!(actions_of(&item(s, "job", &sjob).await).is_empty());
+    s.run_job(&sjob).await.unwrap();
+    wait_for(
+        s,
+        "SELECT COUNT(*) FROM dba_scheduler_jobs WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_SJOB' AND state = 'RUNNING'",
+        "the job running",
+    )
+    .await;
+    assert_eq!(actions_of(&item(s, "job", &sjob).await), ["force_stop"]);
+    let script = s
+        .scheduler_action_script("job", &sjob, "force_stop")
+        .await
+        .unwrap();
+    assert!(
+        script.contains(
+            "STOP_JOB(job_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_SJOB\"', force => TRUE);"
+        ),
+        "{script}"
+    );
+    s.scheduler_action("job", &sjob, "force_stop")
+        .await
+        .unwrap();
+    assert_ne!(
+        scalar(s, "SELECT state FROM dba_scheduler_jobs WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_SJOB'").await,
+        "RUNNING"
+    );
+    let e = s
+        .scheduler_action_script("job", &sjob, "force_stop")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("no se está ejecutando"), "{e}");
+    delete(s, "job", &sjob, "DROP_JOB").await;
+
+    // A job of SYS's running (as Oracle's own maintenance jobs are): this
+    // login (SYSTEM) can't change it, CREATE ANY JOB doesn't reach it, yet
+    // it stops it by force, since Oracle asks only for MANAGE SCHEDULER.
+    if let Some(sys) = sys_pdb_config(cfg) {
+        let mut sys = connect(&sys).await;
+        exec(
+            &mut sys,
+            "BEGIN
+  DBMS_SCHEDULER.CREATE_JOB(job_name => '\"SYS\".\"DBINE_TEST_SCHED_SYSJOB\"', job_type => 'PLSQL_BLOCK',
+    job_action => 'BEGIN DBMS_SESSION.SLEEP(120); END;', enabled => FALSE, auto_drop => FALSE);
+  DBMS_SCHEDULER.RUN_JOB('\"SYS\".\"DBINE_TEST_SCHED_SYSJOB\"', use_current_session => FALSE);
+END;",
+        )
+        .await;
+        wait_for(
+            s,
+            "SELECT COUNT(*) FROM dba_scheduler_jobs WHERE owner = 'SYS' AND job_name = 'DBINE_TEST_SCHED_SYSJOB' AND state = 'RUNNING'",
+            "SYS's job running",
+        )
+        .await;
+        let sys_job = item(s, "job", "SYS.DBINE_TEST_SCHED_SYSJOB").await;
+        assert!(sys_job.system);
+        assert_eq!(
+            (sys_job.can_edit, sys_job.can_delete),
+            (Some(false), Some(false))
+        );
+        assert_eq!(actions_of(&sys_job), ["force_stop"]);
+        let script = s
+            .scheduler_action_script("job", &sys_job.id, "force_stop")
+            .await
+            .unwrap();
+        assert!(
+            script.contains(
+                "STOP_JOB(job_name => '\"SYS\".\"DBINE_TEST_SCHED_SYSJOB\"', force => TRUE);"
+            ),
+            "{script}"
+        );
+        s.scheduler_action("job", &sys_job.id, "force_stop")
+            .await
+            .unwrap();
+        assert_ne!(
+            scalar(s, "SELECT state FROM dba_scheduler_jobs WHERE owner = 'SYS' AND job_name = 'DBINE_TEST_SCHED_SYSJOB'").await,
+            "RUNNING"
+        );
+        // Ending its run is the owner's business, as "Detener" is.
+        assert!(s
+            .scheduler_action_script("job", &sys_job.id, "end_detached")
+            .await
+            .is_err());
+        exec(&mut sys, SYS_CLEANUP).await;
+    }
+
+    // A detached program's run: running until it's ended.
+    let mut v = new_form(s, "program").await;
+    set(&mut v, "name", json!("dbine_test_sched_dprog"));
+    set(&mut v, "plsql", json!("BEGIN NULL; END;"));
+    set(&mut v, "detached", json!(true));
+    let dprog = save(s, "program", None, &v).await;
+    let mut v = new_form(s, "job").await;
+    set(&mut v, "name", json!("dbine_test_sched_djob"));
+    set(&mut v, "job_type", json!("PROGRAM"));
+    set(&mut v, "program", json!(dprog));
+    set(&mut v, "enabled", json!(false));
+    let djob = save(s, "job", None, &v).await;
+    s.run_job(&djob).await.unwrap();
+    wait_for(
+        s,
+        "SELECT COUNT(*) FROM dba_scheduler_jobs WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_DJOB' AND state = 'RUNNING'",
+        "the detached job running",
+    )
+    .await;
+    assert_eq!(
+        actions_of(&item(s, "job", &djob).await),
+        ["force_stop", "end_detached"]
+    );
+    let script = s
+        .scheduler_action_script("job", &djob, "end_detached")
+        .await
+        .unwrap();
+    assert!(
+        script.contains("END_DETACHED_JOB_RUN(job_name => '\"SYSTEM\".\"DBINE_TEST_SCHED_DJOB\"', error_number => 0);"),
+        "{script}"
+    );
+    s.scheduler_action("job", &djob, "end_detached")
+        .await
+        .unwrap();
+    wait_for(
+        s,
+        "SELECT COUNT(*) FROM dba_scheduler_jobs WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_DJOB' AND state <> 'RUNNING'",
+        "the detached run ended",
+    )
+    .await;
+    let e = s
+        .scheduler_action_script("job", &djob, "end_detached")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("desacoplado"), "{e}");
+    delete(s, "job", &djob, "DROP_JOB").await;
+    delete(s, "program", &dprog, "DROP_PROGRAM").await;
+}
+
+/// What each object allows: Oracle's own are shown, not changed nor
+/// dropped (its maintenance windows and their group change, as Oracle
+/// documents, but aren't dropped); the test's own, as their kind says.
+async fn abilities(s: &mut Box<dyn Session>, job: &str, class: &str) {
+    let own = item(s, "job", job).await;
+    assert_eq!((own.can_edit, own.can_delete), (None, None));
+    let jobs = s.scheduler_items("job").await.unwrap();
+    let sys_job = jobs
+        .items
+        .iter()
+        .find(|i| i.id.starts_with("SYS."))
+        .expect("SYS's jobs");
+    assert!(sys_job.system);
+    assert_eq!(
+        (sys_job.can_edit, sys_job.can_delete),
+        (Some(false), Some(false))
+    );
+    let f = s.scheduler_form("job", Some(&sys_job.id)).await.unwrap();
+    assert!(
+        f.read_only && f.notes.iter().any(|n| n.contains("de Oracle")),
+        "{:?}",
+        f.notes
+    );
+    assert!(s.scheduler_delete_script("job", &sys_job.id).await.is_err());
+    // A program and a schedule of SYS's: the same, and not run.
+    for kind in ["program", "schedule"] {
+        let items = s.scheduler_items(kind).await.unwrap();
+        let sys = items
+            .items
+            .iter()
+            .find(|i| i.id.starts_with("SYS."))
+            .unwrap_or_else(|| panic!("SYS's {kind}s"));
+        assert_eq!(
+            (sys.can_edit, sys.can_delete),
+            (Some(false), Some(false)),
+            "{kind}"
+        );
+        if kind == "program" {
+            assert_eq!(sys.actions, Some(Vec::new()));
+            assert!(s
+                .scheduler_action_script(kind, &sys.id, "run")
+                .await
+                .is_err());
+        }
+        let f = s.scheduler_form(kind, Some(&sys.id)).await.unwrap();
+        assert!(f.read_only, "{kind} {}", sys.id);
+        let v = values_of(&f);
+        assert!(s.scheduler_save(kind, Some(&sys.id), &v).await.is_err());
+    }
+    // Job classes Oracle installed: locked; the test's: as the kind.
+    let dc = item(s, "job_class", "SYS.DEFAULT_JOB_CLASS").await;
+    assert!(dc.system);
+    assert_eq!((dc.can_edit, dc.can_delete), (Some(false), Some(false)));
+    assert!(
+        s.scheduler_form("job_class", Some("SYS.DEFAULT_JOB_CLASS"))
+            .await
+            .unwrap()
+            .read_only
+    );
+    assert!(s
+        .scheduler_delete_script("job_class", "SYS.DEFAULT_JOB_CLASS")
+        .await
+        .is_err());
+    let tc = item(s, "job_class", class).await;
+    assert_eq!((tc.system, tc.can_edit, tc.can_delete), (false, None, None));
+    // Maintenance windows and their group: changed, not dropped; Oracle's
+    // internal groups: neither.
+    let mw = item(s, "window", "SYS.MONDAY_WINDOW").await;
+    assert_eq!(
+        (mw.system, mw.can_edit, mw.can_delete),
+        (true, None, Some(false))
+    );
+    let f = s
+        .scheduler_form("window", Some("SYS.MONDAY_WINDOW"))
+        .await
+        .unwrap();
+    assert!(!f.read_only, "{:?}", f.notes);
+    unchanged(s, "window", "SYS.MONDAY_WINDOW").await;
+    let e = s
+        .scheduler_delete_script("window", "SYS.MONDAY_WINDOW")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("no borrar"), "{e}");
+    let g = item(s, "window_group", "SYS.MAINTENANCE_WINDOW_GROUP").await;
+    assert_eq!(
+        (g.system, g.can_edit, g.can_delete),
+        (true, None, Some(false))
+    );
+    let groups = s.scheduler_items("window_group").await.unwrap();
+    if let Some(at) = groups
+        .items
+        .iter()
+        .find(|i| i.id.starts_with("SYS.\"ORA$") || i.id.starts_with("SYS.ORA$"))
+    {
+        assert_eq!(
+            (at.can_edit, at.can_delete),
+            (Some(false), Some(false)),
+            "{}",
+            at.id
+        );
+        assert!(
+            s.scheduler_form("window_group", Some(&at.id))
+                .await
+                .unwrap()
+                .read_only
+        );
+    }
+}
+
+fn field(f: &ObjectForm, key: &str) -> dbine_driver::FormField {
+    f.sections
+        .iter()
+        .flat_map(|s| s.fields.iter())
+        .find(|x| x.key == key)
+        .unwrap_or_else(|| panic!("no field {key}"))
+        .clone()
+}
+
+fn cond(field: &str, values: &[&str]) -> Option<(String, Vec<String>)> {
+    Some((
+        field.to_string(),
+        values.iter().map(|v| v.to_string()).collect(),
+    ))
+}
+
+/// The fields, lists and tabs that show only for some modes and types.
+async fn conditions(s: &mut Box<dyn Session>) {
+    let f = s.scheduler_form("job", None).await.unwrap();
+    let args = f
+        .sections
+        .iter()
+        .flat_map(|x| x.lists.iter())
+        .find(|l| l.key == "arguments")
+        .unwrap();
+    assert_eq!(
+        args.when,
+        cond(
+            "job_type",
+            &[
+                "STORED_PROCEDURE",
+                "EXECUTABLE",
+                "EXTERNAL_SCRIPT",
+                "PROGRAM"
+            ]
+        )
+    );
+    assert_eq!(
+        field(&f, "fail_on_script_error").when,
+        cond(
+            "job_type",
+            &["EXTERNAL_SCRIPT", "SQL_SCRIPT", "BACKUP_SCRIPT", "PROGRAM"]
+        )
+    );
+    assert_eq!(
+        field(&f, "byweekno").when,
+        cond("schedule_mode", &["calendar"])
+    );
+    assert_eq!(
+        field(&f, "byweekno").when_all,
+        [("freq".to_string(), vec!["YEARLY".to_string()])]
+    );
+    assert_eq!(
+        field(&f, "bysetpos").when_all,
+        [(
+            "freq".to_string(),
+            vec!["YEARLY".to_string(), "MONTHLY".to_string()]
+        )]
+    );
+    // 19c and later: no DBMS_JOB choice, so every tab shows.
+    assert!(f.sections.iter().all(|x| x.when.is_none()));
+    assert!(f
+        .sections
+        .iter()
+        .flat_map(|x| x.fields.iter())
+        .all(|x| x.key != "job_api"));
+    let f = s.scheduler_form("program", None).await.unwrap();
+    let tab = f.sections.iter().find(|x| x.key == "arguments").unwrap();
+    assert_eq!(
+        tab.when,
+        cond(
+            "program_type",
+            &["STORED_PROCEDURE", "EXECUTABLE", "EXTERNAL_SCRIPT"]
+        )
+    );
+    let f = s.scheduler_form("chain", None).await.unwrap();
+    let steps = f
+        .sections
+        .iter()
+        .flat_map(|x| x.lists.iter())
+        .find(|l| l.key == "steps")
+        .unwrap();
+    for k in ["credential", "destination"] {
+        let x = steps.fields.iter().find(|x| x.key == k).unwrap();
+        assert_eq!(x.when, cond("step_type", &["PROGRAM"]), "{k}");
+    }
+    // A job of a type without arguments: rows the hidden list still holds
+    // don't apply.
+    let mut v = new_form(s, "job").await;
+    set(&mut v, "name", json!("dbine_test_sched_cjob"));
+    set(&mut v, "plsql", json!("BEGIN NULL; END;"));
+    set(&mut v, "enabled", json!(false));
+    set(&mut v, "schedule_mode", json!("calendar"));
+    set(&mut v, "freq", json!("DAILY"));
+    set(&mut v, "byhour", json!("2"));
+    // Hidden under DAILY: Oracle would refuse them (ORA-27417, ORA-27424).
+    set(&mut v, "byweekno", json!("10"));
+    set(&mut v, "bysetpos", json!("-1"));
+    list(&mut v, "arguments", json!([{"value": "1"}]));
+    let cjob = save(s, "job", None, &v).await;
+    assert_eq!(
+        scalar(s, "SELECT repeat_interval || '|' || number_of_arguments FROM dba_scheduler_jobs WHERE owner = 'SYSTEM' AND job_name = 'DBINE_TEST_SCHED_CJOB'").await,
+        "FREQ=DAILY;BYHOUR=2|0"
+    );
+    unchanged(s, "job", &cjob).await;
+    delete(s, "job", &cjob, "DROP_JOB").await;
 }

@@ -8,7 +8,7 @@ use super::choices::{self, Catalog};
 use super::read::{self, Rec};
 use super::{
     bad, fingerprint, fits, fresh, new_name, new_owner, obj_id, parse_obj, Block, Ctx, Kind, Plan,
-    Vals, A, OWNER_ONLY,
+    Vals, A,
 };
 use dbine_driver::{
     FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerItem, SchedulerList,
@@ -253,6 +253,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("CREDENTIAL_NAME").unwrap_or_default();
+                let locked = ctx
+                    .locked(Kind::Credential, &owner, &name, ctx.oracle_schema(&owner))
+                    .is_some();
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
@@ -261,8 +264,8 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                         .or_else(|| r.t("USERNAME").map(|u| format!("Usuario {u}"))),
                     enabled: r.0.contains_key("ENABLED").then(|| r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
                     actions: None,
                 }
             })
@@ -286,9 +289,7 @@ pub(crate) fn plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "credencial")?;
             let old = read_state(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::Credential, &owner, &name, ctx.oracle_schema(&owner)) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(Kind::Credential, &owner, &name, ctx.oracle_schema(&owner))?;
             fresh(values, &fingerprint(&values_of(&old), &BTreeMap::new()))?;
             let new = spec_of(values, ctx, &cat, Some(&old))?;
             Ok(Plan::changes(alter_block(&old, &new, ctx), old.id(), &name))
@@ -299,9 +300,7 @@ pub(crate) fn plan(
 pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "credencial")?;
     let s = read_state(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::Credential, &owner, &name, ctx.oracle_schema(&owner)) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(Kind::Credential, &owner, &name, ctx.oracle_schema(&owner))?;
     let mut b = Block::new(&format!("Borra la credencial {}.", s.id()));
     b.note("Sin force, Oracle no la borra mientras un job, un programa o un observador la use.");
     b.call(
@@ -381,17 +380,18 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         choices: cat.lists,
         ..ObjectForm::default()
     };
+    let lock = state.as_ref().and_then(|s| {
+        ctx.locked(
+            Kind::Credential,
+            &s.owner,
+            &s.name,
+            ctx.oracle_schema(&s.owner),
+        )
+    });
     match &state {
-        Some(s)
-            if !ctx.may_change(
-                Kind::Credential,
-                &s.owner,
-                &s.name,
-                ctx.oracle_schema(&s.owner),
-            ) =>
-        {
+        Some(_) if lock.is_some() => {
             f.read_only = true;
-            f.notes.push(OWNER_ONLY.into());
+            f.notes.extend(lock.map(String::from));
         }
         None if !ctx.may_create(Kind::Credential) => {
             f.read_only = true;

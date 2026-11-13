@@ -72,6 +72,11 @@ impl Default for Calendar {
     }
 }
 
+/// The frequencies Oracle takes BYWEEKNO with (ORA-27417 with the rest).
+pub(crate) const WEEKNO_FREQS: [&str; 1] = ["YEARLY"];
+/// The frequencies Oracle takes BYSETPOS with (ORA-27424 with the rest).
+pub(crate) const SETPOS_FREQS: [&str; 2] = ["YEARLY", "MONTHLY"];
+
 /// The ranges each list takes (0 is never a value of the signed ones).
 const BYWEEKNO: (i64, i64) = (-53, 53);
 const BYYEARDAY: (i64, i64) = (-366, 366);
@@ -228,18 +233,30 @@ impl Calendar {
                 ))
             })?);
         }
+        // The form hides the lists the frequency doesn't take: what they
+        // still hold doesn't apply.
+        let byweekno = if WEEKNO_FREQS.contains(&freq.as_str()) {
+            list("byweekno", "Semanas del año", BYWEEKNO, true)?
+        } else {
+            Vec::new()
+        };
+        let bysetpos = if SETPOS_FREQS.contains(&freq.as_str()) {
+            list("bysetpos", "Posiciones", BYSETPOS, true)?
+        } else {
+            Vec::new()
+        };
         Ok(Calendar {
-            freq,
             interval: v.int("interval", "Cada", 1, 999)?.unwrap_or(1),
             bymonth,
-            byweekno: list("byweekno", "Semanas del año", BYWEEKNO, true)?,
+            byweekno,
             byyearday: list("byyearday", "Días del año", BYYEARDAY, true)?,
             bymonthday: list("bymonthday", "Días del mes", BYMONTHDAY, true)?,
             byday,
             byhour: list("byhour", "Horas", (0, 23), false)?,
             byminute: list("byminute", "Minutos", (0, 59), false)?,
             bysecond: list("bysecond", "Segundos", (0, 59), false)?,
-            bysetpos: list("bysetpos", "Posiciones", BYSETPOS, true)?,
+            bysetpos,
+            freq,
         })
     }
 

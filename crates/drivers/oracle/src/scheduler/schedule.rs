@@ -9,7 +9,7 @@ use super::read::{self, Rec};
 use super::timing::{self, When};
 use super::{
     bad, fingerprint, fits, fresh, new_name, new_owner, obj_id, parse_obj, Block, Ctx, Kind, Plan,
-    Vals, A, OWNER_ONLY,
+    Vals, A,
 };
 use dbine_driver::{
     FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerItem, SchedulerList,
@@ -170,14 +170,17 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("SCHEDULE_NAME").unwrap_or_default();
                 let when = when_of(r);
+                let locked = ctx
+                    .locked(Kind::Schedule, &owner, &name, ctx.oracle_schema(&owner))
+                    .is_some();
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
                     description: r.t("COMMENTS").or_else(|| when.repeat()),
                     enabled: None,
                     system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
                     actions: None,
                 }
             })
@@ -201,9 +204,7 @@ pub(crate) fn plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "programación")?;
             let old = read_state(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::Schedule, &owner, &name, ctx.oracle_schema(&owner)) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(Kind::Schedule, &owner, &name, ctx.oracle_schema(&owner))?;
             fresh(values, &fingerprint(&values_of(&old), &BTreeMap::new()))?;
             let new = spec_of(values, ctx, &cat, Some(&old))?;
             Ok(Plan::changes(alter_block(&old, &new), old.id(), &name))
@@ -214,9 +215,7 @@ pub(crate) fn plan(
 pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "programación")?;
     let s = read_state(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::Schedule, &owner, &name, ctx.oracle_schema(&owner)) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(Kind::Schedule, &owner, &name, ctx.oracle_schema(&owner))?;
     let mut b = Block::new(&format!("Borra la programación {}.", s.id()));
     b.note("Sin force, Oracle no la borra mientras un job o una ventana la use.");
     b.call(
@@ -282,14 +281,14 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
                     "Es una programación por evento: no se puede cambiar a una por tiempo.".into(),
                 );
             }
-            if !ctx.may_change(
+            if let Some(why) = ctx.locked(
                 Kind::Schedule,
                 &s.owner,
                 &s.name,
                 ctx.oracle_schema(&s.owner),
             ) {
                 f.read_only = true;
-                f.notes.insert(0, OWNER_ONLY.into());
+                f.notes.insert(0, why.into());
             }
         }
         None if !ctx.may_create(Kind::Schedule) => {

@@ -10,7 +10,7 @@ use super::read::{self, Rec};
 use super::script::{lit, name_lit};
 use super::{
     bad, fingerprint, fits, fresh, new_name, new_owner, obj_id, opt_ref, parse_obj, pick_ref, rows,
-    secs, shown, Block, Ctx, Kind, Plan, Vals, A, OWNER_ONLY,
+    secs, shown, Block, Ctx, Kind, Plan, Vals, A,
 };
 use crate::jobs;
 use dbine_driver::{
@@ -363,22 +363,37 @@ pub(crate) fn spec_of(
             } else {
                 None
             },
-            credential: opt_ref(
-                r,
-                "credential",
-                cat,
-                "credential",
-                before.and_then(|s| s.credential.as_deref()),
-                "Credencial",
-            )?,
-            destination: opt_ref(
-                r,
-                "destination",
-                cat,
-                "destination",
-                before.and_then(|s| s.destination.as_deref()),
-                "Destino",
-            )?,
+            // Hidden for other steps: they keep what they have while they
+            // keep their type (redefined as another type, a step loses it,
+            // and a call to set it again would be one the form hides).
+            credential: if kind == "PROGRAM" {
+                opt_ref(
+                    r,
+                    "credential",
+                    cat,
+                    "credential",
+                    before.and_then(|s| s.credential.as_deref()),
+                    "Credencial",
+                )?
+            } else {
+                before
+                    .filter(|s| s.kind == kind)
+                    .and_then(|s| s.credential.clone())
+            },
+            destination: if kind == "PROGRAM" {
+                opt_ref(
+                    r,
+                    "destination",
+                    cat,
+                    "destination",
+                    before.and_then(|s| s.destination.as_deref()),
+                    "Destino",
+                )?
+            } else {
+                before
+                    .filter(|s| s.kind == kind)
+                    .and_then(|s| s.destination.clone())
+            },
             kind,
             flags,
         });
@@ -616,21 +631,37 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
         10_000,
     )
     .map_err(crate::err)?;
+    // "Ejecutar ahora", where the kind offers it.
+    let runs = !super::action::of(ctx, Kind::Chain).is_empty();
+    let granted = if runs {
+        super::executable(c, ctx, "{v}_scheduler_chains", "chain_name")
+    } else {
+        Default::default()
+    };
     Ok(SchedulerList {
         items: rows
             .iter()
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("CHAIN_NAME").unwrap_or_default();
+                let system = ctx.oracle_schema(&owner);
+                let locked = ctx.locked(Kind::Chain, &owner, &name, system).is_some();
+                let run = !system && r.yes("ENABLED") && ctx.may_execute(&owner, &name, &granted);
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
-                    system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
+                    system,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
+                    actions: runs.then(|| {
+                        let mut keys = Vec::new();
+                        if run {
+                            keys.push(super::action::RUN.to_string());
+                        }
+                        keys
+                    }),
                 }
             })
             .collect(),
@@ -653,9 +684,7 @@ pub(crate) fn plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "cadena")?;
             let old = read_state(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::Chain, &owner, &name, ctx.oracle_schema(&owner)) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(Kind::Chain, &owner, &name, ctx.oracle_schema(&owner))?;
             let (v, l) = values_of(&old);
             fresh(values, &fingerprint(&v, &l))?;
             let new = spec_of(values, ctx, &cat, Some(&old))?;
@@ -667,9 +696,7 @@ pub(crate) fn plan(
 pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "cadena")?;
     let s = read_state(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::Chain, &owner, &name, ctx.oracle_schema(&owner)) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(Kind::Chain, &owner, &name, ctx.oracle_schema(&owner))?;
     let mut b = Block::new(&format!(
         "Borra la cadena {} con sus pasos y reglas.",
         s.id()
@@ -756,18 +783,24 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         FormField::new("timeout", "Tiempo de espera", FormKind::Duration)
             .help("Cuánto espera el evento antes de fallar. Vacío: sin límite.")
             .when("step_type", &event),
+        // Where and as whom a program step runs; a subchain's steps and
+        // an event step have their own.
         FormField::new(
             "credential",
             "Credencial",
             FormKind::reference("credential", false),
-        ),
+        )
+        .when("step_type", &["PROGRAM"]),
     ];
     if ctx.has(Kind::DbDestination) || ctx.has(Kind::ExternalDestination) {
-        step_fields.push(FormField::new(
-            "destination",
-            "Destino",
-            FormKind::reference("destination", false),
-        ));
+        step_fields.push(
+            FormField::new(
+                "destination",
+                "Destino",
+                FormKind::reference("destination", false),
+            )
+            .when("step_type", &["PROGRAM"]),
+        );
     }
     step_fields.extend([
         FormField::new("skip", "Saltear", FormKind::Bool)
@@ -815,9 +848,13 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         "Un paso que cambia de programa, subcadena o evento se define de nuevo; uno que cambia de nombre es otro paso (y las reglas lo nombran por su nombre).".into(),
     );
     match &state {
-        Some(s) if !ctx.may_change(Kind::Chain, &s.owner, &s.name, ctx.oracle_schema(&s.owner)) => {
-            f.read_only = true;
-            f.notes.insert(0, OWNER_ONLY.into());
+        Some(s) => {
+            if let Some(why) =
+                ctx.locked(Kind::Chain, &s.owner, &s.name, ctx.oracle_schema(&s.owner))
+            {
+                f.read_only = true;
+                f.notes.insert(0, why.into());
+            }
         }
         None if !ctx.may_create(Kind::Chain) => {
             f.read_only = true;

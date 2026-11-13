@@ -701,18 +701,22 @@ pub(crate) fn fields(has: &[&str], default_tz: &str) -> Vec<FormField> {
                 .placeholder("0")
                 .help("De 0 a 59, separados por comas.")
                 .when("schedule_mode", &cal),
+            // Oracle takes BYWEEKNO only with FREQ=YEARLY (ORA-27417).
             FormField::new("byweekno", "Semanas del año", FormKind::Text)
                 .placeholder("1,-1")
                 .help("Semanas ISO de -53 a 53, sin el 0, separadas por comas.")
-                .when("schedule_mode", &cal),
+                .when("schedule_mode", &cal)
+                .and_when("freq", &calendar::WEEKNO_FREQS),
             FormField::new("byyearday", "Días del año", FormKind::Text)
                 .placeholder("1,-1")
                 .help("De -366 a 366, sin el 0, separados por comas.")
                 .when("schedule_mode", &cal),
+            // And BYSETPOS only with YEARLY or MONTHLY (ORA-27424).
             FormField::new("bysetpos", "Posiciones", FormKind::Text)
                 .placeholder("-1")
                 .help("BYSETPOS: cuáles de las fechas de cada período se toman (1 la primera, -1 la última).")
-                .when("schedule_mode", &cal),
+                .when("schedule_mode", &cal)
+                .and_when("freq", &calendar::SETPOS_FREQS),
         ]);
     }
     if has.contains(&"expression") {

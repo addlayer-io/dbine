@@ -291,6 +291,238 @@ fn info_says_what_the_login_lacks() {
     assert!(info_of(&old).notes.iter().any(|n| n.contains("DBMS_JOB")));
 }
 
+#[test]
+fn kinds_say_their_actions_and_the_jobs_flags_by_privilege() {
+    fn kind(info: &SchedulerInfo, k: &str) -> SchedulerKind {
+        info.kinds.iter().find(|x| x.key == k).unwrap().clone()
+    }
+    fn keys(k: &SchedulerKind) -> Vec<&str> {
+        k.actions.iter().map(|a| a.key.as_str()).collect()
+    }
+    // MANAGE SCHEDULER and CREATE JOB.
+    let info = info_of(&ctx());
+    let job = kind(&info, "job");
+    assert!(job.run_from_step && job.clear_history);
+    assert_eq!(keys(&job), ["force_stop", "end_detached"]);
+    assert_eq!(
+        keys(&kind(&info, "window")),
+        ["open_window", "close_window"]
+    );
+    assert_eq!(keys(&kind(&info, "program")), ["run"]);
+    assert_eq!(keys(&kind(&info, "chain")), ["run"]);
+    for k in [
+        "schedule",
+        "window_group",
+        "job_class",
+        "credential",
+        "file_watcher",
+        "resource",
+        "global",
+    ] {
+        let k = kind(&info, k);
+        assert!(k.actions.is_empty(), "{}", k.key);
+        assert!(!k.run_from_step && !k.clear_history, "{}", k.key);
+    }
+    // Labels in Spanish, for the menus.
+    assert_eq!(job.actions[0].label, "Forzar la detención");
+    // Without either: a job still starts at a step, its history stays.
+    let mut none = ctx();
+    none.privs.clear();
+    let info = info_of(&none);
+    let job = kind(&info, "job");
+    assert!(job.run_from_step && !job.clear_history);
+    assert_eq!(keys(&job), ["end_detached"]);
+    assert!(kind(&info, "window").actions.is_empty());
+    assert!(kind(&info, "program").actions.is_empty());
+    assert!(kind(&info, "chain").actions.is_empty());
+}
+
+#[test]
+fn any_job_stops_by_force_with_manage_scheduler() {
+    // STOP_JOB with force takes MANAGE SCHEDULER, whoever owns the job:
+    // another user's (without CREATE ANY JOB), and Oracle's own.
+    let c = ctx();
+    assert!(action::force_stoppable(&c, "APP.J", false));
+    assert!(!c.may_change(Kind::Job, "OTHER", "J", false));
+    assert!(action::force_stoppable(&c, "OTHER.J", false));
+    assert!(action::force_stoppable(&c, "SYS.PURGE_LOG", true));
+    assert!(action::force_stoppable(&c, "SYS.ORA$AT_OS_OPT_SY_1", true));
+    // Not without it, nor a DBMS_JOB job, nor a name DBMS_SCHEDULER can't
+    // take.
+    let mut none = ctx();
+    none.privs.clear();
+    assert!(!action::force_stoppable(&none, "APP.J", false));
+    assert!(!action::force_stoppable(&c, "DBMS_JOB:42", false));
+    assert!(!action::force_stoppable(&c, "\"APP\".\"A,B\"", false));
+    // Autonomous Database locks Oracle's own jobs down.
+    let cloud = Ctx {
+        cloud: true,
+        ..ctx()
+    };
+    assert!(!action::force_stoppable(&cloud, "SYS.PURGE_LOG", true));
+    assert!(action::force_stoppable(&cloud, "ADMIN.J", false));
+}
+
+#[test]
+fn oracles_own_objects_are_locked_whoever_logs_in() {
+    let c = ctx();
+    // Its own; Oracle's (SYS or a schema Oracle maintains, SYSTEM aside);
+    // another user's.
+    assert_eq!(c.locked(Kind::Program, "APP", "P1", false), None);
+    assert_eq!(
+        c.locked(Kind::Program, "SYS", "P1", c.oracle_schema("SYS")),
+        Some(ORACLE_OWN)
+    );
+    assert_eq!(
+        c.locked(Kind::Schedule, "XDB", "S", c.oracle_schema("XDB")),
+        Some(ORACLE_OWN)
+    );
+    assert!(!c.oracle_schema("SYSTEM"));
+    assert_eq!(
+        c.locked(Kind::Program, "OTHER", "P1", false),
+        Some(OWNER_ONLY)
+    );
+    // Not even SYS changes SYS's.
+    let sys = Ctx {
+        access: Access {
+            user: "SYS".into(),
+            ..ctx().access
+        },
+        ..ctx()
+    };
+    assert_eq!(sys.locked(Kind::Job, "SYS", "J", true), Some(ORACLE_OWN));
+    assert!(sys.may_change(Kind::Job, "SYS", "J", true));
+    // Another user's: CREATE ANY JOB, or ALTER on it.
+    let mut any = ctx();
+    any.privs.insert("CREATE ANY JOB".into());
+    assert_eq!(any.locked(Kind::Job, "OTHER", "J", false), None);
+    let mut granted = ctx();
+    granted.access.granted.insert(("OTHER".into(), "J".into()));
+    assert_eq!(granted.locked(Kind::Job, "OTHER", "J", false), None);
+    // SYS's kinds take MANAGE SCHEDULER.
+    let mut none = ctx();
+    none.privs.clear();
+    assert_eq!(c.locked(Kind::Window, "SYS", "W1", false), None);
+    assert_eq!(
+        none.locked(Kind::Window, "SYS", "W1", false),
+        Some(MANAGE_ONLY)
+    );
+    assert!(c
+        .check_change(Kind::Schedule, "SYS", "S", true)
+        .unwrap_err()
+        .to_string()
+        .contains("de Oracle"));
+    assert_eq!(unless(true), Some(false));
+    assert_eq!(unless(false), None);
+    // Programs and chains to run: its own, EXECUTE on it, EXECUTE ANY
+    // PROGRAM.
+    let grants: HashSet<(String, String)> = HashSet::from([("OTHER".into(), "P".into())]);
+    assert!(c.may_execute("APP", "P", &HashSet::new()));
+    assert!(c.may_execute("OTHER", "P", &grants));
+    assert!(!c.may_execute("OTHER", "Q", &grants));
+    let mut exec = ctx();
+    exec.privs.insert("EXECUTE ANY PROGRAM".into());
+    assert!(exec.may_execute("OTHER", "Q", &HashSet::new()));
+    // Oracle's maintenance windows and their group change (as Oracle
+    // documents) but aren't dropped; its internal ones don't change.
+    assert_eq!(window::edit_locked(&c, "MONDAY_WINDOW", true), None);
+    assert_eq!(
+        window::drop_locked(&c, "MONDAY_WINDOW", true),
+        Some(ORACLE_NO_DROP)
+    );
+    assert_eq!(
+        window::drop_locked(&c, "MAINTENANCE_WINDOW_GROUP", true),
+        Some(ORACLE_NO_DROP)
+    );
+    assert_eq!(
+        window::edit_locked(&c, "ORA$AT_WGRP_OS", true),
+        Some(ORACLE_OWN)
+    );
+    // Its delete says the same as its form: not changed either.
+    assert_eq!(
+        window::drop_locked(&c, "ORA$AT_WGRP_OS", true),
+        Some(ORACLE_OWN)
+    );
+    assert_eq!(window::edit_locked(&c, "MY_WINDOW", false), None);
+    assert_eq!(window::drop_locked(&c, "MY_WINDOW", false), None);
+    assert_eq!(
+        window::edit_locked(&none, "MY_WINDOW", false),
+        Some(MANAGE_ONLY)
+    );
+    assert_eq!(
+        window::drop_locked(&none, "MONDAY_WINDOW", true),
+        Some(MANAGE_ONLY)
+    );
+    // Which are Oracle's: the dictionary's flag, else the names it gives.
+    assert!(installed_by(&None, "MONDAY_WINDOW", |n| n.ends_with("DAY_WINDOW")));
+    let set = Some(HashSet::from(["MONDAY_WINDOW".to_string()]));
+    assert!(installed_by(&set, "MONDAY_WINDOW", |_| false));
+    assert!(!installed_by(&set, "MY_DAY_WINDOW", |_| true));
+}
+
+#[test]
+fn windows_open_while_closed_and_close_while_open() {
+    let open = Rec::of(&[("ACTIVE", "TRUE"), ("ENABLED", "TRUE")]);
+    assert_eq!(window::window_actions(&open), ["close_window"]);
+    let closed = Rec::of(&[("ACTIVE", "FALSE"), ("ENABLED", "TRUE")]);
+    assert_eq!(window::window_actions(&closed), ["open_window"]);
+    // Oracle doesn't open a disabled window (ORA-27490).
+    let disabled = Rec::of(&[("ACTIVE", "FALSE"), ("ENABLED", "FALSE")]);
+    assert!(window::window_actions(&disabled).is_empty());
+}
+
+#[test]
+fn a_programs_run_is_named_as_oracle_names_a_chains() {
+    assert_eq!(
+        action::run_prefix("DBINE_TEST_SCHED_PROG2"),
+        "RUN_PROG$DBINE_TE"
+    );
+    assert_eq!(action::run_prefix("P1"), "RUN_PROG$P1");
+    // Only the plain head: GENERATE_JOB_NAME takes an identifier.
+    assert_eq!(action::run_prefix("AB c"), "RUN_PROG$AB");
+    assert_eq!(action::run_prefix("mi prog"), "RUN_PROG$");
+    assert!(action::run_prefix(&"X".repeat(128)).len() <= 18);
+}
+
+#[test]
+fn calendar_lists_the_frequency_doesnt_take_are_hidden_and_dropped() {
+    let fields = timing::fields(&["calendar", "expression"], "UTC");
+    let f = |k: &str| fields.iter().find(|f| f.key == k).unwrap().clone();
+    let cal = Some(("schedule_mode".to_string(), vec!["calendar".to_string()]));
+    assert_eq!(f("byweekno").when, cal);
+    assert_eq!(
+        f("byweekno").when_all,
+        [("freq".to_string(), vec!["YEARLY".to_string()])]
+    );
+    assert_eq!(
+        f("bysetpos").when_all,
+        [(
+            "freq".to_string(),
+            vec!["YEARLY".to_string(), "MONTHLY".to_string()]
+        )]
+    );
+    assert!(f("byday").when_all.is_empty() && f("byyearday").when_all.is_empty());
+    // What they still hold doesn't reach the expression.
+    let v = map(json!({"freq": "DAILY", "byweekno": "10", "bysetpos": "-1", "byhour": "3"}));
+    assert_eq!(
+        Calendar::from_values(Vals(&v)).unwrap().expression(),
+        "FREQ=DAILY;BYHOUR=3"
+    );
+    let v = map(json!({"freq": "MONTHLY", "byweekno": "10", "bysetpos": "-1", "byday": ["MON"]}));
+    assert_eq!(
+        Calendar::from_values(Vals(&v)).unwrap().expression(),
+        "FREQ=MONTHLY;BYDAY=MON;BYSETPOS=-1"
+    );
+    let v = map(json!({"freq": "YEARLY", "byweekno": "10"}));
+    assert_eq!(
+        Calendar::from_values(Vals(&v)).unwrap().expression(),
+        "FREQ=YEARLY;BYWEEKNO=10"
+    );
+    // Nor does a hidden one's bad text.
+    let v = map(json!({"freq": "DAILY", "byweekno": "x"}));
+    assert!(Calendar::from_values(Vals(&v)).is_ok());
+}
+
 // ---------------------------------------------------------------------------
 // Literals and blocks
 // ---------------------------------------------------------------------------
@@ -1198,10 +1430,17 @@ fn job_values_round_trip_and_bad_ones_are_refused() {
     assert!(bad(json!({"job_type": "CHAIN", "chain": "APP.NOPE"})).contains("Cadena"));
     assert!(bad(json!({"plsql": "x".repeat(4001)})).contains("4000"));
     assert!(bad(json!({"schedule_mode": "named", "schedule": "APP.S9"})).contains("Programación"));
-    // Arguments for a block that takes none.
+    // Arguments for a block that takes none: the form hides the list, and
+    // what it still holds doesn't apply.
     let mut l = lists.clone();
-    l.insert("arguments".into(), vec![map(json!({"value": "1"}))]);
-    let e = job::spec_of(
+    l.insert(
+        "arguments".into(),
+        vec![
+            map(json!({"value": "1"})),
+            map(json!({"value": "x".repeat(4001)})),
+        ],
+    );
+    let back = job::spec_of(
         &FormValues {
             values: values.clone(),
             lists: l,
@@ -1211,8 +1450,8 @@ fn job_values_round_trip_and_bad_ones_are_refused() {
         &cat,
         Some(&s),
     )
-    .unwrap_err();
-    assert!(e.to_string().contains("no recibe argumentos"), "{e}");
+    .unwrap();
+    assert!(back.args.is_empty(), "{:?}", back.args);
     // A lightweight job runs a program.
     let v = fv(
         json!({"name": "j2", "job_style": "LIGHTWEIGHT", "plsql": "BEGIN NULL; END;", "schedule_mode": "immediate"}),
@@ -1399,6 +1638,37 @@ fn legacy_jobs_use_dbms_job_and_commit_together() {
 // The other kinds
 // ---------------------------------------------------------------------------
 
+#[test]
+fn a_program_arguments_default_is_its_anydata_value() {
+    let r = Rec::of(&[
+        ("OWNER", "APP"),
+        ("PROGRAM_NAME", "P1"),
+        ("PROGRAM_TYPE", "STORED_PROCEDURE"),
+    ]);
+    let args = [
+        // Without a default the view says `<NO VALUE>`.
+        Rec::of(&[
+            ("ARGUMENT_NAME", "P_N"),
+            ("ARGUMENT_TYPE", "NUMBER"),
+            ("DEFAULT_VALUE", "<NO VALUE>"),
+        ]),
+        Rec::of(&[
+            ("ARGUMENT_NAME", "P_M"),
+            ("ARGUMENT_TYPE", "NUMBER"),
+            ("DEFAULT_VALUE", "5"),
+            ("DEFAULT_ANYDATA_VALUE", "Y"),
+        ]),
+        Rec::of(&[
+            ("ARGUMENT_NAME", "P_JOB"),
+            ("METADATA_ATTRIBUTE", "JOB_NAME"),
+            ("DEFAULT_VALUE", "<NO VALUE>"),
+        ]),
+    ];
+    let s = program::spec_of_rec(&r, &args);
+    let defaults: Vec<Option<&str>> = s.args.iter().map(|a| a.default.as_deref()).collect();
+    assert_eq!(defaults, [None, Some("5"), None]);
+}
+
 fn prog() -> ProgramSpec {
     ProgramSpec {
         owner: "APP".into(),
@@ -1458,14 +1728,16 @@ fn programs_define_their_arguments() {
         .unwrap_err()
         .to_string()
         .contains("tipo de dato"));
+    // A block takes none: the tab is hidden, what it holds doesn't apply
+    // (nor is it checked: this row has no data type).
     let v = fv(
         json!({"name": "p2", "plsql": "BEGIN NULL; END;"}),
-        json!({"arguments": [{"metadata": "JOB_NAME"}]}),
+        json!({"arguments": [{"name": "a", "metadata": "VALUE"}]}),
     );
     assert!(program::spec_of(&v, &ctx(), &cat, None)
-        .unwrap_err()
-        .to_string()
-        .contains("no recibe"));
+        .unwrap()
+        .args
+        .is_empty());
     let (values, lists) = program::values_of(&prog());
     let back =
         program::spec_of(&FormValues { values, lists }, &ctx(), &cat, Some(&prog())).unwrap();
@@ -1615,6 +1887,77 @@ fn chain_steps_and_rules_with_quoted_names_read_back_unchanged() {
     let s = chain::alter_block(&old, &back).script();
     assert!(!s.contains("DROP_CHAIN_STEP"), "{s}");
     assert!(s.contains("step_name => 'PASO2'"), "{s}");
+}
+
+#[test]
+fn only_program_steps_take_a_credential_and_a_destination() {
+    let c = ctx();
+    let cat = catalog();
+    let old = ChainSpec {
+        owner: "APP".into(),
+        name: "C1".into(),
+        enabled: true,
+        evaluation_interval: None,
+        comments: None,
+        steps: vec![
+            Step {
+                name: "S1".into(),
+                kind: "PROGRAM".into(),
+                target: "APP.P1".into(),
+                ..Step::default()
+            },
+            Step {
+                name: "S2".into(),
+                kind: "EVENT_SCHEDULE".into(),
+                target: "APP.EVT".into(),
+                credential: Some("APP.CRED".into()),
+                ..Step::default()
+            },
+        ],
+        rules: Vec::new(),
+    };
+    let (values, mut lists) = chain::values_of(&old);
+    // The form hides the fields on the event step: what they hold there
+    // doesn't apply, and the step keeps what it has.
+    for r in lists.get_mut("steps").unwrap() {
+        r.insert("credential".into(), json!("APP.CRED2"));
+        r.insert("destination".into(), json!("APP.DB1"));
+    }
+    let back = chain::spec_of(&FormValues { values, lists }, &c, &cat, Some(&old)).unwrap();
+    assert_eq!(back.steps[0].credential.as_deref(), Some("APP.CRED2"));
+    assert_eq!(back.steps[0].destination.as_deref(), Some("APP.DB1"));
+    assert_eq!(back.steps[1].credential.as_deref(), Some("APP.CRED"));
+    assert_eq!(back.steps[1].destination, None);
+    let s = chain::alter_block(&old, &back).script();
+    assert!(!s.contains("step_name => 'S2'"), "{s}");
+
+    // A program step with both, made a subchain: redefined, it loses them
+    // (DEFINE_CHAIN_STEP clears them), and nothing sets them again on a
+    // step whose form hides them.
+    let old = ChainSpec {
+        steps: vec![Step {
+            name: "S1".into(),
+            kind: "PROGRAM".into(),
+            target: "APP.P1".into(),
+            credential: Some("APP.CRED".into()),
+            destination: Some("APP.DB1".into()),
+            ..Step::default()
+        }],
+        ..old
+    };
+    let (values, mut lists) = chain::values_of(&old);
+    let row = &mut lists.get_mut("steps").unwrap()[0];
+    assert_eq!(row.get("credential"), Some(&json!("APP.CRED")));
+    row.insert("step_type".into(), json!("SUBCHAIN"));
+    row.insert("subchain".into(), json!("APP.C1"));
+    let back = chain::spec_of(&FormValues { values, lists }, &c, &cat, Some(&old)).unwrap();
+    assert_eq!(back.steps[0].kind, "SUBCHAIN");
+    assert_eq!(back.steps[0].credential, None);
+    assert_eq!(back.steps[0].destination, None);
+    let s = chain::alter_block(&old, &back).script();
+    assert!(s.contains("DEFINE_CHAIN_STEP"), "{s}");
+    assert!(!s.contains("CREDENTIAL_NAME"), "{s}");
+    assert!(!s.contains("DESTINATION_NAME"), "{s}");
 }
 
 #[test]

@@ -8,7 +8,7 @@ use super::read::{self, Rec};
 use super::script::name_lit;
 use super::{
     bad, fingerprint, fits, fresh, new_name, new_owner, obj_id, only, parse_obj, rows, shown,
-    Block, Ctx, Kind, Plan, Vals, A, OWNER_ONLY,
+    Block, Ctx, Kind, Plan, Vals, A,
 };
 use dbine_driver::{
     FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, Result, SchedulerItem,
@@ -16,7 +16,7 @@ use dbine_driver::{
 };
 use oracledb::Connection;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 const TYPES: [&str; 6] = [
     "PLSQL_BLOCK",
@@ -95,9 +95,11 @@ pub(crate) fn spec_of_rec(r: &Rec, args: &[Rec]) -> ProgramSpec {
                 arg_type: a
                     .t("ARGUMENT_TYPE")
                     .filter(|_| a.t("METADATA_ATTRIBUTE").is_none()),
-                default: a
-                    .raw("DEFAULT_VALUE")
-                    .filter(|_| a.t("METADATA_ATTRIBUTE").is_none()),
+                // DEFAULT_VALUE says `<NO VALUE>` for an argument without
+                // one: the default is whether the ANYDATA value is set.
+                default: a.raw("DEFAULT_VALUE").filter(|_| {
+                    a.t("METADATA_ATTRIBUTE").is_none() && a.yes("DEFAULT_ANYDATA_VALUE")
+                }),
             })
             .collect(),
         enabled: r.yes("ENABLED"),
@@ -200,7 +202,14 @@ pub(crate) fn spec_of(
     }
     fits(&Some(action.clone()), "Acción", 4000)?;
     let mut args = Vec::new();
-    for (i, r) in rows(values, "arguments").into_iter().enumerate() {
+    // The form hides the tab for a type that takes none: rows it still
+    // holds don't apply (nor are they checked).
+    let arg_rows = if WITH_ARGS.contains(&ptype.as_str()) {
+        rows(values, "arguments")
+    } else {
+        Vec::new()
+    };
+    for (i, r) in arg_rows.into_iter().enumerate() {
         let metadata = r.choice("metadata", "Tipo de argumento", &METADATA, "VALUE")?;
         let arg_type = r.opt("arg_type").map(|t| t.to_ascii_uppercase());
         if metadata == "VALUE" && arg_type.is_none() {
@@ -232,11 +241,6 @@ pub(crate) fn spec_of(
             default: default.filter(|_| metadata == "VALUE"),
             metadata,
         });
-    }
-    if !args.is_empty() && !WITH_ARGS.contains(&ptype.as_str()) {
-        return Err(bad(format!(
-            "Un programa de tipo {ptype} no recibe argumentos: quitalos de la lista «Argumentos»."
-        )));
     }
     if args.len() > 255 {
         return Err(bad("Un programa recibe a lo sumo 255 argumentos.".into()));
@@ -387,26 +391,74 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
         10_000,
     )
     .map_err(crate::err)?;
+    // "Ejecutar ahora", where the kind offers it: what each one allows.
+    let runs = !super::action::of(ctx, Kind::Program).is_empty();
+    let (granted, wanting) = if runs {
+        (
+            super::executable(c, ctx, "{v}_scheduler_programs", "program_name"),
+            wanting_args(c, ctx),
+        )
+    } else {
+        Default::default()
+    };
     Ok(SchedulerList {
         items: rows
             .iter()
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("PROGRAM_NAME").unwrap_or_default();
+                let system = ctx.oracle_schema(&owner);
+                let locked = ctx.locked(Kind::Program, &owner, &name, system).is_some();
+                let run = !system
+                    && r.yes("ENABLED")
+                    && RUNNABLE.contains(&r.t("PROGRAM_TYPE").unwrap_or_default().as_str())
+                    && !wanting.contains(&(owner.clone(), name.clone()))
+                    && ctx.may_execute(&owner, &name, &granted);
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
-                    system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
+                    system,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
+                    actions: runs.then(|| {
+                        let mut keys = Vec::new();
+                        if run {
+                            keys.push(super::action::RUN.to_string());
+                        }
+                        keys
+                    }),
                 }
             })
             .collect(),
         notes: Vec::new(),
     })
+}
+
+/// The program types a run of its own can start: the ones that need no
+/// credential, destination or connection.
+pub(crate) const RUNNABLE: [&str; 2] = ["PLSQL_BLOCK", "STORED_PROCEDURE"];
+
+/// Programs with an argument that has no value of its own (a default or a
+/// metadata attribute): a job has to give it one. Without a default,
+/// `DEFAULT_VALUE` says `<NO VALUE>` and the ANYDATA one is null.
+pub(crate) const WANTING_ARGS: &str = "SELECT p.owner, p.program_name FROM {v}_scheduler_programs p
+ WHERE p.number_of_arguments > (SELECT COUNT(*) FROM {v}_scheduler_program_args a
+   WHERE a.owner = p.owner AND a.program_name = p.program_name
+     AND (a.metadata_attribute IS NOT NULL OR a.default_anydata_value IS NOT NULL))";
+
+fn wanting_args(c: &Connection, ctx: &Ctx) -> HashSet<(String, String)> {
+    match crate::jobs::texts(c, &ctx.sql(WANTING_ARGS), &[], 10_000) {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|r| Some((crate::jobs::col(r, 0)?, crate::jobs::col(r, 1)?)))
+            .collect(),
+        Err(e) => {
+            tracing::debug!("oracle scheduler: program arguments: {e}");
+            HashSet::new()
+        }
+    }
 }
 
 pub(crate) fn plan(
@@ -424,9 +476,7 @@ pub(crate) fn plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "programa")?;
             let old = read_state(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::Program, &owner, &name, ctx.oracle_schema(&owner)) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(Kind::Program, &owner, &name, ctx.oracle_schema(&owner))?;
             let (v, l) = values_of(&old);
             fresh(values, &fingerprint(&v, &l))?;
             let new = spec_of(values, ctx, &cat, Some(&old))?;
@@ -438,9 +488,7 @@ pub(crate) fn plan(
 pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "programa")?;
     let s = read_state(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::Program, &owner, &name, ctx.oracle_schema(&owner)) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(Kind::Program, &owner, &name, ctx.oracle_schema(&owner))?;
     let mut b = Block::new(&format!("Borra el programa {}.", s.id()));
     b.note("Sin force, Oracle no lo borra mientras algún job lo use.");
     b.call(
@@ -509,49 +557,60 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
             .default(json!("PLSQL_BLOCK")),
         )
         .fields(action_fields("program_type"));
-    let args = FormSection::new("arguments", "Argumentos").list(
-        FormList::new(
-            "arguments",
-            "Argumentos",
-            "name",
-            vec![
-                FormField::new("name", "Nombre", FormKind::Text),
-                FormField::new(
-                    "metadata",
-                    "Qué recibe",
-                    FormKind::select(&[
-                        ("VALUE", "Un valor"),
-                        ("JOB_NAME", "El nombre del job"),
-                        ("JOB_OWNER", "El dueño del job"),
-                        ("JOB_START", "La hora de inicio del job"),
-                        ("WINDOW_START", "La apertura de la ventana"),
-                        ("WINDOW_END", "El cierre de la ventana"),
-                        ("JOB_SUBNAME", "El subnombre del job"),
-                        ("JOB_SCHEDULED_START", "La hora programada del job"),
-                        ("EVENT_MESSAGE", "El mensaje del evento"),
-                    ]),
-                )
-                .default(json!("VALUE")),
-                FormField::new("arg_type", "Tipo de dato", FormKind::Text)
-                    .placeholder("VARCHAR2")
-                    .when("metadata", &["VALUE"]),
-                FormField::new("default", "Valor predeterminado", FormKind::Text)
-                    .when("metadata", &["VALUE"]),
-            ],
+    let args = FormSection::new("arguments", "Argumentos")
+        .list(
+            FormList::new(
+                "arguments",
+                "Argumentos",
+                "name",
+                vec![
+                    FormField::new("name", "Nombre", FormKind::Text),
+                    FormField::new(
+                        "metadata",
+                        "Qué recibe",
+                        FormKind::select(&[
+                            ("VALUE", "Un valor"),
+                            ("JOB_NAME", "El nombre del job"),
+                            ("JOB_OWNER", "El dueño del job"),
+                            ("JOB_START", "La hora de inicio del job"),
+                            ("WINDOW_START", "La apertura de la ventana"),
+                            ("WINDOW_END", "El cierre de la ventana"),
+                            ("JOB_SUBNAME", "El subnombre del job"),
+                            ("JOB_SCHEDULED_START", "La hora programada del job"),
+                            ("EVENT_MESSAGE", "El mensaje del evento"),
+                        ]),
+                    )
+                    .default(json!("VALUE")),
+                    FormField::new("arg_type", "Tipo de dato", FormKind::Text)
+                        .placeholder("VARCHAR2")
+                        .when("metadata", &["VALUE"]),
+                    FormField::new("default", "Valor predeterminado", FormKind::Text)
+                        .when("metadata", &["VALUE"]),
+                ],
+            )
+            .orderable()
+            .rows(lists.get("arguments").cloned().unwrap_or_default()),
         )
-        .orderable()
-        .rows(lists.get("arguments").cloned().unwrap_or_default()),
-    );
+        // A PL/SQL block or a script takes no arguments.
+        .when("program_type", &WITH_ARGS);
     let mut f = ObjectForm {
         sections: vec![general, action, args],
         values,
         choices: cat.lists,
         ..ObjectForm::default()
     };
+    let lock = state.as_ref().and_then(|s| {
+        ctx.locked(
+            Kind::Program,
+            &s.owner,
+            &s.name,
+            ctx.oracle_schema(&s.owner),
+        )
+    });
     match &state {
-        Some(s) if !ctx.may_change(Kind::Program, &s.owner, &s.name, ctx.oracle_schema(&s.owner)) => {
+        Some(_) if lock.is_some() => {
             f.read_only = true;
-            f.notes.push(OWNER_ONLY.into());
+            f.notes.extend(lock.map(String::from));
         }
         None if !ctx.may_create(Kind::Program) => {
             f.read_only = true;

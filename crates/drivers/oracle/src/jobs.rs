@@ -853,7 +853,7 @@ fn yes_no(v: &Option<String>) -> Option<String> {
 }
 
 /// `[N d ]HH:MM:SS`.
-fn duration_text(ms: u64) -> String {
+pub(crate) fn duration_text(ms: u64) -> String {
     let s = ms / 1000;
     let (d, h, m, s) = (s / 86400, s / 3600 % 24, s / 60 % 60, s % 60);
     if d > 0 {

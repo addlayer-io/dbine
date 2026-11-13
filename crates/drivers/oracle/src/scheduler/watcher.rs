@@ -263,6 +263,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("FILE_WATCHER_NAME").unwrap_or_default();
+                let locked = ctx
+                    .locked(Kind::FileWatcher, &owner, &name, ctx.oracle_schema(&owner))
+                    .is_some();
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
@@ -275,8 +278,8 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     }),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
                     actions: None,
                 }
             })
@@ -300,9 +303,7 @@ pub(crate) fn plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "observador de archivos")?;
             let old = read_state(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::FileWatcher, &owner, &name, ctx.oracle_schema(&owner)) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(Kind::FileWatcher, &owner, &name, ctx.oracle_schema(&owner))?;
             fresh(values, &fingerprint(&values_of(&old), &BTreeMap::new()))?;
             let new = spec_of(values, ctx, &cat, Some(&old))?;
             Ok(Plan::changes(alter_block(&old, &new), old.id(), &name))
@@ -313,9 +314,7 @@ pub(crate) fn plan(
 pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "observador de archivos")?;
     let s = read_state(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::FileWatcher, &owner, &name, ctx.oracle_schema(&owner)) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(Kind::FileWatcher, &owner, &name, ctx.oracle_schema(&owner))?;
     let mut b = Block::new(&format!("Borra el observador de archivos {}.", s.id()));
     b.note("Sin force, Oracle no lo borra mientras un job lo use.");
     b.call(
@@ -400,17 +399,18 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         ..ObjectForm::default()
     };
     f.notes.push("El Scheduler revisa los directorios cada 10 minutos (lo cambia la programación SYS.FILE_WATCHER_SCHEDULE). El programa del job que lo usa recibe el archivo con un argumento de metadatos EVENT_MESSAGE.".into());
+    let lock = state.as_ref().and_then(|s| {
+        ctx.locked(
+            Kind::FileWatcher,
+            &s.owner,
+            &s.name,
+            ctx.oracle_schema(&s.owner),
+        )
+    });
     match &state {
-        Some(s)
-            if !ctx.may_change(
-                Kind::FileWatcher,
-                &s.owner,
-                &s.name,
-                ctx.oracle_schema(&s.owner),
-            ) =>
-        {
+        Some(_) if lock.is_some() => {
             f.read_only = true;
-            f.notes.insert(0, OWNER_ONLY.into());
+            f.notes.insert(0, lock.unwrap_or(OWNER_ONLY).into());
         }
         None if !ctx.may_create(Kind::FileWatcher) => {
             f.read_only = true;

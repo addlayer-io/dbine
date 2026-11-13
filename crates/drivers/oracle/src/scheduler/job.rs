@@ -43,6 +43,16 @@ pub(crate) const EXTERNAL: [&str; 4] = [
 ];
 /// The inline types that take arguments.
 pub(crate) const WITH_ARGS: [&str; 3] = ["STORED_PROCEDURE", "EXECUTABLE", "EXTERNAL_SCRIPT"];
+/// The job types that take arguments: those, and a program's.
+const ARG_TYPES: [&str; 4] = [
+    "STORED_PROCEDURE",
+    "EXECUTABLE",
+    "EXTERNAL_SCRIPT",
+    "PROGRAM",
+];
+/// The job types whose script can fail (`fail_on_script_error`), a
+/// program's maybe.
+const SCRIPT_TYPES: [&str; 4] = ["EXTERNAL_SCRIPT", "SQL_SCRIPT", "BACKUP_SCRIPT", "PROGRAM"];
 const STYLES: [&str; 4] = [
     "REGULAR",
     "LIGHTWEIGHT",
@@ -839,7 +849,14 @@ pub(crate) fn spec_of(
     }
     // Arguments.
     let cur_args = cur.map(|c| c.args.as_slice()).unwrap_or(&[]);
-    for (i, r) in rows(values, "arguments").into_iter().enumerate() {
+    // The form hides the list for a type that takes none: rows it still
+    // holds don't apply (nor are they checked).
+    let arg_rows = if s.action.takes_args() {
+        rows(values, "arguments")
+    } else {
+        Vec::new()
+    };
+    for (i, r) in arg_rows.into_iter().enumerate() {
         let raw = r.raw("value");
         let anydata = r.bool("anydata") && cur_args.get(i).is_some_and(|a| a.anydata);
         s.args.push(Arg {
@@ -847,12 +864,6 @@ pub(crate) fn spec_of(
             value: (!raw.is_empty()).then_some(raw),
             anydata,
         });
-    }
-    if !s.args.is_empty() && !s.action.takes_args() {
-        return Err(bad(format!(
-            "Un job de tipo {} no recibe argumentos: quitalos de la lista «Argumentos».",
-            s.action.job_type()
-        )));
     }
     if s.args.len() > 255 {
         return Err(bad("Un job recibe a lo sumo 255 argumentos.".into()));
@@ -1290,21 +1301,48 @@ fn set_inline(b: &mut Block, target: &A, new: &Action, old: Option<&Action>) {
 // The contract's calls
 // ---------------------------------------------------------------------------
 
-pub(crate) fn items(c: &Connection, _ctx: &Ctx) -> Result<SchedulerList> {
+pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
+    use super::action::{END_DETACHED, FORCE_STOP};
     let list = jobs::list(c)?;
+    let offered: Vec<String> = super::action::of(ctx, Kind::Job)
+        .into_iter()
+        .map(|a| a.key)
+        .collect();
+    let detached = if offered.iter().any(|k| k == END_DETACHED) {
+        super::action::detached_runs(c, ctx)
+    } else {
+        HashSet::new()
+    };
     Ok(SchedulerList {
         items: list
             .jobs
             .into_iter()
-            .map(|j| SchedulerItem {
-                id: j.id,
-                name: j.name,
-                description: j.description,
-                enabled: Some(j.enabled),
-                system: j.system,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
+            .map(|j| {
+                // Edited and dropped as its form allows: not Oracle's own,
+                // and where the login manages it (DBMS_JOB: its own).
+                let locked = j.system || !j.can_enable;
+                // Stopped by force while it runs: MANAGE SCHEDULER is
+                // all Oracle asks, whoever owns the job (Oracle's own too,
+                // but on Autonomous Database).
+                let mut actions = Vec::new();
+                if j.running && super::action::force_stoppable(ctx, &j.id, j.system) {
+                    actions.push(FORCE_STOP.to_string());
+                }
+                // Ended while it runs, where the login manages it as the
+                // jobs list's "Detener" does.
+                if j.can_stop && detached.contains(&j.id) {
+                    actions.push(END_DETACHED.to_string());
+                }
+                SchedulerItem {
+                    id: j.id,
+                    name: j.name,
+                    description: j.description,
+                    enabled: Some(j.enabled),
+                    system: j.system,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
+                    actions: (!offered.is_empty()).then_some(actions),
+                }
             })
             .collect(),
         notes: list.notes,
@@ -1345,9 +1383,7 @@ pub(crate) fn plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "job")?;
             let st = read_state(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::Job, &owner, &name, st.system) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(Kind::Job, &owner, &name, st.system)?;
             let (v, l) = values_of(&st.spec);
             fresh(values, &fingerprint(&v, &l))?;
             let s = spec_of(values, ctx, &cols, &cat, Some(&st.spec))?;
@@ -1366,9 +1402,7 @@ pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block>
     }
     let (owner, name) = parse_obj(id, "job")?;
     let st = read_state(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::Job, &owner, &name, st.system) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(Kind::Job, &owner, &name, st.system)?;
     let id = st.spec.id();
     let mut b = Block::new(&format!("Borra el job {id}."));
     b.note("Si se está ejecutando, hay que detenerlo antes (o pasar force => TRUE).");
@@ -1464,7 +1498,24 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         values.insert("job_api".into(), json!("dbms_scheduler"));
         general = general.fields(legacy::create_fields());
     }
-    general = general.fields(vec![
+    // Before 19c a new job may be a DBMS_JOB one: these fields (and the
+    // tabs after General) are DBMS_SCHEDULER's.
+    let sched_only = |f: FormField| {
+        if legacy_new {
+            f.when("job_api", &["dbms_scheduler"])
+        } else {
+            f
+        }
+    };
+    let sched_tab = |s: FormSection| {
+        if legacy_new {
+            s.when("job_api", &["dbms_scheduler"])
+        } else {
+            s
+        }
+    };
+    general = general.fields(
+        vec![
         FormField::new("owner", "Esquema", FormKind::reference("schema", false))
             .read_only(existing || !ctx.create_any(Kind::Job))
             .default(json!(ctx.user())),
@@ -1495,7 +1546,12 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
             .help("Oracle borra el job cuando ya no le quedan ejecuciones (se venció su fecha de fin o su máximo de ejecuciones).")
             .default(json!(false)),
         FormField::new("comments", "Descripción", FormKind::Textarea),
-    ]);
+    ]
+        .into_iter()
+        // "Habilitado" is both's.
+        .map(|f| if f.key == "enabled" { f } else { sched_only(f) })
+        .collect(),
+    );
     if let Some(st) = &state {
         let r = &st.rec;
         general = general.fields(vec![
@@ -1557,7 +1613,8 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         )
         // Not orderable: a row's place is its argument's position, the
         // one the program or procedure gives it.
-        .rows(lists.get("arguments").cloned().unwrap_or_default()),
+        .rows(lists.get("arguments").cloned().unwrap_or_default())
+        .when("job_type", &ARG_TYPES),
     );
 
     // When.
@@ -1664,6 +1721,9 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         if let Some(h) = help {
             field = field.help(h);
         }
+        if key == "fail_on_script_error" {
+            field = field.when("job_type", &SCRIPT_TYPES);
+        }
         options = options.field(field);
     }
     if has("MAX_RUNS") {
@@ -1734,9 +1794,15 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         );
     }
 
-    let mut sections = vec![general, action, schedule, options, dest];
+    let mut sections = vec![
+        general,
+        sched_tab(action),
+        sched_tab(schedule),
+        sched_tab(options),
+        sched_tab(dest),
+    ];
     if ctx.notifications() {
-        sections.push(
+        sections.push(sched_tab(
             FormSection::new("notifications", "Notificaciones").list(
                 FormList::new(
                     "notifications",
@@ -1764,7 +1830,7 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
                 .rows(lists.get("notifications").cloned().unwrap_or_default())
                 .read_only(!ctx.email()),
             ),
-        );
+        ));
         if !ctx.email() {
             f.notes.push(NO_EMAIL.into());
         }
@@ -1779,9 +1845,9 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         if st.spec.enabled {
             f.notes.push(ENABLED_EDIT.into());
         }
-        if !ctx.may_change(Kind::Job, &st.spec.owner, &st.spec.name, st.system) {
+        if let Some(why) = ctx.locked(Kind::Job, &st.spec.owner, &st.spec.name, st.system) {
             f.read_only = true;
-            f.notes.insert(0, OWNER_ONLY.into());
+            f.notes.insert(0, why.into());
         }
     } else if !ctx.may_create(Kind::Job) {
         f.read_only = true;
@@ -1820,6 +1886,8 @@ pub(crate) fn run_from(c: &Connection, id: &str, step: &str) -> Result<()> {
         let ctx = Ctx::read(c)?;
         let (owner, name) = parse_obj(id, "job")?;
         let st = read_state(c, &ctx, &owner, &name)?;
+        // As the jobs list runs it: Oracle's own jobs too, where the login
+        // manages them.
         if !ctx.may_change(Kind::Job, &owner, &name, st.system) {
             return Err(bad(OWNER_ONLY.into()));
         }

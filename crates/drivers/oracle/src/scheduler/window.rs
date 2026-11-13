@@ -3,35 +3,85 @@
 //! `REMOVE_GROUP_MEMBER` from 12c, `CREATE_WINDOW_GROUP` and its member
 //! calls before; `DROP_GROUP` / `DROP_WINDOW_GROUP`). Both are SYS's and
 //! need MANAGE SCHEDULER.
+//!
+//! What Oracle installed (`ORACLE_MAINTAINED`) isn't dropped. Its
+//! maintenance windows and `MAINTENANCE_WINDOW_GROUP` can be changed, as
+//! Oracle documents (when the automatic maintenance tasks run, which
+//! windows they use); its internal ones (`ORA$…`) can't.
 
+use super::action::{CLOSE_WINDOW, OPEN_WINDOW};
 use super::choices::{self, Catalog};
 use super::read::{self, Rec};
 use super::script::name_lit;
 use super::timing::{self, When};
 use super::{
-    bad, fingerprint, fits, fresh, new_name, obj_id, parse_obj, pick_ref, secs, Block, Ctx, Plan,
-    Vals, A, MANAGE_ONLY,
+    bad, fingerprint, fits, fresh, installed, installed_by, new_name, obj_id, parse_obj, pick_ref,
+    secs, unless, Block, Ctx, Plan, Vals, A, MANAGE_ONLY, ORACLE_NO_DROP, ORACLE_OWN,
 };
 use dbine_driver::{
     FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerItem, SchedulerList,
 };
 use oracledb::Connection;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 const MODES: [&str; 4] = ["once", "calendar", "expression", "named"];
 const SOURCES: [&str; 2] = ["resource_plan", "schedule"];
 
-fn sys(name: &str) -> String {
+/// The dictionary's types of windows and of window groups (12c's groups,
+/// 11.2's window groups).
+const WINDOW_TYPES: &str = "'WINDOW'";
+const GROUP_TYPES: &str = "'SCHEDULER GROUP', 'WINDOW GROUP'";
+
+pub(crate) fn sys(name: &str) -> String {
     obj_id(Some("SYS"), name)
 }
 
-/// The maintenance windows and groups Oracle installs.
+/// The maintenance windows and groups Oracle installs, by their names
+/// (where the dictionary doesn't say which are Oracle's, before 12.1).
 fn oracle_window(name: &str) -> bool {
     name.ends_with("DAY_WINDOW")
         || name.starts_with("WEEK")
         || name.starts_with("ORA$")
         || name == "MAINTENANCE_WINDOW_GROUP"
+}
+
+/// Why the login can't change the window or group `name` (Oracle's when
+/// `oracle`), if it can't.
+pub(crate) fn edit_locked(ctx: &Ctx, name: &str, oracle: bool) -> Option<&'static str> {
+    if !ctx.manage() {
+        Some(MANAGE_ONLY)
+    } else if oracle && name.starts_with("ORA$") {
+        Some(ORACLE_OWN)
+    } else {
+        None
+    }
+}
+
+/// Why the login can't drop it, if it can't: why it can't change it (an
+/// internal one of Oracle's says it can't be changed either), else
+/// Oracle installed it.
+pub(crate) fn drop_locked(ctx: &Ctx, name: &str, oracle: bool) -> Option<&'static str> {
+    edit_locked(ctx, name, oracle).or(oracle.then_some(ORACLE_NO_DROP))
+}
+
+fn refuse(why: Option<&'static str>) -> Result<()> {
+    match why {
+        Some(m) => Err(bad(m.into())),
+        None => Ok(()),
+    }
+}
+
+/// The actions a window offers now: close it while it's open, open it
+/// while it's closed and enabled (Oracle doesn't open a disabled one).
+pub(crate) fn window_actions(r: &Rec) -> Vec<String> {
+    if r.yes("ACTIVE") {
+        vec![CLOSE_WINDOW.to_string()]
+    } else if r.yes("ENABLED") {
+        vec![OPEN_WINDOW.to_string()]
+    } else {
+        Vec::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +111,7 @@ pub(crate) fn spec_of_rec(r: &Rec) -> WindowSpec {
     }
 }
 
-fn read_state(c: &Connection, ctx: &Ctx, name: &str) -> Result<(WindowSpec, Rec)> {
+pub(crate) fn read_state(c: &Connection, ctx: &Ctx, name: &str) -> Result<(WindowSpec, Rec)> {
     let r = read::row(
         c,
         &ctx.sql("{v}_scheduler_windows"),
@@ -210,20 +260,22 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
         10_000,
     )
     .map_err(crate::err)?;
+    let oracle: Option<HashSet<String>> = installed(c, ctx, WINDOW_TYPES);
     Ok(SchedulerList {
         items: rows
             .iter()
             .map(|r| {
                 let name = r.raw("WINDOW_NAME").unwrap_or_default();
+                let own = installed_by(&oracle, &name, oracle_window);
                 SchedulerItem {
                     id: sys(&name),
-                    system: oracle_window(&name),
+                    system: own,
+                    can_edit: unless(edit_locked(ctx, &name, own).is_some()),
+                    can_delete: unless(drop_locked(ctx, &name, own).is_some()),
+                    actions: ctx.manage().then(|| window_actions(r)),
                     name,
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
                 }
             })
             .collect(),
@@ -231,7 +283,7 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
     })
 }
 
-fn sys_name(id: &str, what: &str) -> Result<String> {
+pub(crate) fn sys_name(id: &str, what: &str) -> Result<String> {
     let (owner, name) = parse_obj(id, what)?;
     if owner != "SYS" {
         return Err(bad(format!(
@@ -260,6 +312,8 @@ pub(crate) fn plan(
         Some(id) => {
             let name = sys_name(id, "ventana")?;
             let (old, _) = read_state(c, ctx, &name)?;
+            let own = installed_by(&installed(c, ctx, WINDOW_TYPES), &name, oracle_window);
+            refuse(edit_locked(ctx, &name, own))?;
             fresh(values, &fingerprint(&values_of(&old), &BTreeMap::new()))?;
             let new = spec_of(values, ctx, &cat, Some(&old))?;
             Ok(Plan::changes(alter_block(&old, &new), sys(&name), &name))
@@ -273,6 +327,8 @@ pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block>
     }
     let name = sys_name(id, "ventana")?;
     read_state(c, ctx, &name)?;
+    let own = installed_by(&installed(c, ctx, WINDOW_TYPES), &name, oracle_window);
+    refuse(drop_locked(ctx, &name, own))?;
     let mut b = Block::new(&format!("Borra la ventana {}.", sys(&name)));
     b.note("Sin force, Oracle no la borra si está abierta o la usa un job.");
     b.call(
@@ -361,14 +417,23 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         choices: cat.lists,
         ..ObjectForm::default()
     };
-    if !ctx.manage() {
-        f.read_only = true;
-        f.notes.push(MANAGE_ONLY.into());
-    }
-    if let Some((s, _)) = &state {
-        if oracle_window(&s.name) {
-            f.notes.push("Es una ventana de mantenimiento de Oracle: cambiarla cambia cuándo corren sus tareas automáticas (estadísticas, segmentos, ajuste de SQL).".into());
+    let own = state.as_ref().is_some_and(|(s, _)| {
+        installed_by(&installed(c, ctx, WINDOW_TYPES), &s.name, oracle_window)
+    });
+    match &state {
+        Some((s, _)) => {
+            if let Some(why) = edit_locked(ctx, &s.name, own) {
+                f.read_only = true;
+                f.notes.push(why.into());
+            } else if own {
+                f.notes.push("Es una ventana de mantenimiento de Oracle: cambiarla cambia cuándo corren sus tareas automáticas (estadísticas, segmentos, ajuste de SQL).".into());
+            }
         }
+        None if !ctx.manage() => {
+            f.read_only = true;
+            f.notes.push(MANAGE_ONLY.into());
+        }
+        None => {}
     }
     Ok(f)
 }
@@ -568,20 +633,22 @@ pub(crate) fn group_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
         10_000,
     )
     .map_err(crate::err)?;
+    let oracle = installed(c, ctx, GROUP_TYPES);
     Ok(SchedulerList {
         items: rows
             .iter()
             .map(|r| {
                 let name = r.raw("WINDOW_GROUP_NAME").unwrap_or_default();
+                let own = installed_by(&oracle, &name, oracle_window);
                 SchedulerItem {
                     id: sys(&name),
-                    system: oracle_window(&name),
+                    system: own,
+                    can_edit: unless(edit_locked(ctx, &name, own).is_some()),
+                    can_delete: unless(drop_locked(ctx, &name, own).is_some()),
+                    actions: None,
                     name,
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
                 }
             })
             .collect(),
@@ -607,6 +674,8 @@ pub(crate) fn group_plan(
         Some(id) => {
             let name = sys_name(id, "grupo de ventanas")?;
             let old = read_group(c, ctx, &name)?;
+            let own = installed_by(&installed(c, ctx, GROUP_TYPES), &name, oracle_window);
+            refuse(edit_locked(ctx, &name, own))?;
             fresh(values, &fingerprint(&group_values(&old), &BTreeMap::new()))?;
             let new = group_spec(values, ctx, &cat, Some(&old))?;
             Ok(Plan::changes(
@@ -624,6 +693,8 @@ pub(crate) fn group_delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<
     }
     let name = sys_name(id, "grupo de ventanas")?;
     read_group(c, ctx, &name)?;
+    let own = installed_by(&installed(c, ctx, GROUP_TYPES), &name, oracle_window);
+    refuse(drop_locked(ctx, &name, own))?;
     let mut b = Block::new(&format!(
         "Borra el grupo de ventanas {} (sus ventanas quedan).",
         sys(&name)
@@ -673,9 +744,16 @@ pub(crate) fn group_form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<
         choices: cat.lists,
         ..ObjectForm::default()
     };
-    if !ctx.manage() {
+    let why = match &state {
+        Some(s) => {
+            let own = installed_by(&installed(c, ctx, GROUP_TYPES), &s.name, oracle_window);
+            edit_locked(ctx, &s.name, own)
+        }
+        None => (!ctx.manage()).then_some(MANAGE_ONLY),
+    };
+    if let Some(why) = why {
         f.read_only = true;
-        f.notes.push(MANAGE_ONLY.into());
+        f.notes.push(why.into());
     }
     Ok(f)
 }

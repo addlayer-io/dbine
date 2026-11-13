@@ -1,12 +1,13 @@
 //! Job classes: `CREATE_JOB_CLASS`, `SET_ATTRIBUTE` (consumer group,
 //! service, logging level, log history, comments), `DROP_JOB_CLASS`. They
-//! are SYS's and need MANAGE SCHEDULER.
+//! are SYS's and need MANAGE SCHEDULER. The ones Oracle installed
+//! (`ORACLE_MAINTAINED`) are shown, not changed nor dropped.
 
 use super::choices::{self, Catalog};
 use super::read::{self, Rec};
 use super::{
-    bad, fingerprint, fits, fresh, new_name, obj_id, parse_obj, pick_ref, Block, Ctx, Plan, Vals,
-    A, MANAGE_ONLY,
+    bad, fingerprint, fits, fresh, installed, installed_by, new_name, obj_id, parse_obj, pick_ref,
+    unless, Block, Ctx, Plan, Vals, A, MANAGE_ONLY, ORACLE_OWN,
 };
 use dbine_driver::{
     FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerItem, SchedulerList,
@@ -17,6 +18,7 @@ use std::collections::BTreeMap;
 
 const LOGGING: [&str; 4] = ["OFF", "RUNS", "FAILED_RUNS", "FULL"];
 const SOURCES: [&str; 2] = ["consumer_group", "service"];
+const TYPES: &str = "'JOB CLASS'";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ClassSpec {
@@ -32,7 +34,27 @@ fn sys(name: &str) -> String {
     obj_id(Some("SYS"), name)
 }
 
-/// The classes Oracle installs.
+/// Why the login can't change (nor drop) the class, if it can't: it
+/// lacks MANAGE SCHEDULER, or Oracle installed the class.
+fn locked(c: &Connection, ctx: &Ctx, name: &str) -> Option<&'static str> {
+    if !ctx.manage() {
+        Some(MANAGE_ONLY)
+    } else if installed_by(&installed(c, ctx, TYPES), name, oracle_class) {
+        Some(ORACLE_OWN)
+    } else {
+        None
+    }
+}
+
+fn refuse(why: Option<&'static str>) -> Result<()> {
+    match why {
+        Some(m) => Err(bad(m.into())),
+        None => Ok(()),
+    }
+}
+
+/// The classes Oracle installs, by their names (where the dictionary
+/// doesn't say which are Oracle's, before 12.1).
 fn oracle_class(name: &str) -> bool {
     name.contains('$')
         || matches!(
@@ -214,20 +236,22 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
         10_000,
     )
     .map_err(crate::err)?;
+    let oracle = installed(c, ctx, TYPES);
     Ok(SchedulerList {
         items: rows
             .iter()
             .map(|r| {
                 let name = r.raw("JOB_CLASS_NAME").unwrap_or_default();
+                let own = installed_by(&oracle, &name, oracle_class);
                 SchedulerItem {
                     id: sys(&name),
-                    system: oracle_class(&name),
+                    system: own,
+                    can_edit: unless(own),
+                    can_delete: unless(own),
+                    actions: None,
                     name,
                     description: r.t("COMMENTS"),
                     enabled: None,
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
                 }
             })
             .collect(),
@@ -264,6 +288,7 @@ pub(crate) fn plan(
         Some(id) => {
             let name = sys_name(id)?;
             let old = read_state(c, ctx, &name)?;
+            refuse(locked(c, ctx, &name))?;
             fresh(values, &fingerprint(&values_of(&old), &BTreeMap::new()))?;
             let new = spec_of(values, ctx, &cat, Some(&old))?;
             Ok(Plan::changes(alter_block(&old, &new), sys(&name), &name))
@@ -277,6 +302,7 @@ pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block>
     }
     let name = sys_name(id)?;
     read_state(c, ctx, &name)?;
+    refuse(locked(c, ctx, &name))?;
     let mut b = Block::new(&format!("Borra la clase de job {}.", sys(&name)));
     b.note("Sin force, Oracle no la borra mientras algún job sea de esta clase.");
     b.call(
@@ -348,15 +374,13 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         choices: cat.lists,
         ..ObjectForm::default()
     };
-    if !ctx.manage() {
+    let why = match &state {
+        Some(s) => locked(c, ctx, &s.name),
+        None => (!ctx.manage()).then_some(MANAGE_ONLY),
+    };
+    if let Some(why) = why {
         f.read_only = true;
-        f.notes.push(MANAGE_ONLY.into());
-    }
-    if state.as_ref().is_some_and(|s| oracle_class(&s.name)) {
-        f.notes.push(
-            "Es una clase de Oracle: cambiarla cambia cómo se ejecutan y registran sus jobs."
-                .into(),
-        );
+        f.notes.push(why.into());
     }
     Ok(f)
 }

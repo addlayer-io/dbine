@@ -34,11 +34,22 @@
 //!   owner, with ALTER on them, or with the `CREATE ANY …` privilege;
 //!   windows, window groups, job classes and the Scheduler's attributes need
 //!   MANAGE SCHEDULER. Forms come read-only (with a note) where Oracle
-//!   would refuse the change.
+//!   would refuse the change. Oracle's own objects (in SYS or a schema
+//!   Oracle maintains; the job classes and internal window groups it
+//!   installed) are shown, never changed nor dropped, whoever logs in; its
+//!   maintenance windows and their group can be changed, as Oracle
+//!   documents, not dropped. Each item says so in the tree, with the
+//!   kind's actions it offers now ([`action`]: open or close a window, run
+//!   a program or a chain once, stop a job by force, end a detached run).
+//! - A job starts at a step of its chain (`RUN_CHAIN`; any other job runs
+//!   whole) and its history is cleared with `PURGE_LOG` (MANAGE SCHEDULER).
+//!   Fields, lists and tabs show only for the modes and types they apply
+//!   to, and what a hidden one still holds is left out.
 //! - Versions: 12c and later (11.2 where the views allow); kinds the
 //!   version doesn't have aren't offered. Oracle Autonomous Database: the
 //!   same, without external jobs, file watchers or remote destinations.
 
+mod action;
 mod calendar;
 mod chain;
 mod choices;
@@ -90,6 +101,9 @@ pub(crate) const NO_RENAME: &str =
 pub(crate) const OWNER_ONLY: &str = "Este usuario no puede cambiar este objeto: hace falta ser su dueño, tener ALTER sobre él o el privilegio CREATE ANY JOB.";
 pub(crate) const MANAGE_ONLY: &str =
     "Solo quien tiene el privilegio MANAGE SCHEDULER puede cambiar este objeto.";
+pub(crate) const ORACLE_OWN: &str = "Es un objeto de Oracle (de SYS o de un esquema que mantiene Oracle): se puede ver, pero no cambiar ni borrar.";
+pub(crate) const ORACLE_NO_DROP: &str =
+    "Oracle instaló este objeto: se puede cambiar o deshabilitar, pero no borrar.";
 pub(crate) const CHANGED: &str = "El objeto cambió en el servidor desde que se abrió el diseñador: volvé a abrirlo antes de guardar, para no deshacer esos cambios.";
 const OPEN_TRANSACTION: &str = "Hay una transacción abierta en esta sesión: confirmala o deshacela antes de cambiar el Scheduler (DBMS_SCHEDULER confirma la transacción en cada cambio).";
 
@@ -378,6 +392,119 @@ impl Ctx {
     pub(crate) fn oracle_schema(&self, owner: &str) -> bool {
         self.access.oracle_schema(owner)
     }
+
+    /// Why the login can't change (nor drop) the object `owner.name`, if it
+    /// can't. A kind SYS owns needs MANAGE SCHEDULER (what Oracle installed
+    /// of those is the kind's own business). An object in a schema is
+    /// locked when it's Oracle's own (`system`: in SYS or a schema Oracle
+    /// maintains, or flagged by Oracle), whoever logs in, even SYS; else it
+    /// takes its owner, ALTER on it or the `CREATE ANY …` privilege.
+    pub(crate) fn locked(
+        &self,
+        kind: Kind,
+        owner: &str,
+        name: &str,
+        system: bool,
+    ) -> Option<&'static str> {
+        if kind.sys_owned() {
+            return (!self.manage()).then_some(MANAGE_ONLY);
+        }
+        if system {
+            return Some(ORACLE_OWN);
+        }
+        (!self.may_change(kind, owner, name, system)).then_some(OWNER_ONLY)
+    }
+
+    /// [`Ctx::locked`] as an error.
+    pub(crate) fn check_change(
+        &self,
+        kind: Kind,
+        owner: &str,
+        name: &str,
+        system: bool,
+    ) -> Result<()> {
+        match self.locked(kind, owner, name, system) {
+            Some(why) => Err(bad(why.into())),
+            None => Ok(()),
+        }
+    }
+
+    /// The login may use the program or chain `owner.name` in a job of its
+    /// own: its owner, EXECUTE on it (directly, through PUBLIC or a role)
+    /// or EXECUTE ANY PROGRAM.
+    pub(crate) fn may_execute(
+        &self,
+        owner: &str,
+        name: &str,
+        granted: &HashSet<(String, String)>,
+    ) -> bool {
+        owner == self.user()
+            || self.can("EXECUTE ANY PROGRAM")
+            || granted.contains(&(owner.to_string(), name.to_string()))
+    }
+}
+
+/// An item's `can_edit` / `can_delete`: `Some(false)` where it's locked,
+/// else as its kind says.
+pub(crate) fn unless(locked: bool) -> Option<bool> {
+    locked.then_some(false)
+}
+
+/// Programs and chains (of `view`: `{v}_scheduler_programs` or `_chains`)
+/// the login was granted EXECUTE on, directly, through PUBLIC or an enabled
+/// role.
+pub(crate) fn executable(
+    c: &Connection,
+    ctx: &Ctx,
+    view: &str,
+    col: &str,
+) -> HashSet<(String, String)> {
+    let sql = ctx.sql(&format!(
+        "SELECT p.table_schema, p.table_name FROM all_tab_privs p
+          WHERE p.privilege = 'EXECUTE'
+            AND (p.grantee IN (USER, 'PUBLIC') OR p.grantee IN (SELECT role FROM session_roles))
+            AND (p.table_schema, p.table_name) IN (SELECT owner, {col} FROM {view})"
+    ));
+    match jobs::texts(c, &sql, &[], 10_000) {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|r| Some((jobs::col(r, 0)?, jobs::col(r, 1)?)))
+            .collect(),
+        Err(e) => {
+            tracing::debug!("oracle scheduler: EXECUTE grants: {e}");
+            HashSet::new()
+        }
+    }
+}
+
+/// The names of SYS's Scheduler objects of these dictionary types that
+/// Oracle installed (`ORACLE_MAINTAINED = 'Y'`, 12.1+): windows, window
+/// groups, job classes. `None` where the view doesn't say (11.2): the
+/// caller guesses by the names Oracle gives them.
+pub(crate) fn installed(c: &Connection, ctx: &Ctx, types: &str) -> Option<HashSet<String>> {
+    let sql = ctx.sql(&format!(
+        "SELECT object_name FROM {{v}}_objects
+          WHERE owner = 'SYS' AND object_type IN ({types}) AND oracle_maintained = 'Y'"
+    ));
+    match jobs::texts(c, &sql, &[], 10_000) {
+        Ok(rows) => Some(rows.iter().filter_map(|r| jobs::col(r, 0)).collect()),
+        Err(e) => {
+            tracing::debug!("oracle scheduler: Oracle's own objects: {e}");
+            None
+        }
+    }
+}
+
+/// Oracle installed `name`: as [`installed`] says, else as `guess` does.
+pub(crate) fn installed_by(
+    set: &Option<HashSet<String>>,
+    name: &str,
+    guess: fn(&str) -> bool,
+) -> bool {
+    match set {
+        Some(s) => s.contains(name),
+        None => guess(name),
+    }
 }
 
 /// The kinds, in the tree's order, and the notes.
@@ -388,12 +515,19 @@ pub(crate) fn info_of(c: &Ctx) -> SchedulerInfo {
     let mut kinds = Vec::new();
     let mut push = |k: Kind, kind: SchedulerKind, (create, edit, delete): (bool, bool, bool)| {
         if c.has(k) {
-            kinds.push(kind.abilities(create, edit, delete));
+            let mut kind = kind.abilities(create, edit, delete);
+            kind.actions = action::of(c, k);
+            kinds.push(kind);
         }
     };
     push(
         Kind::Job,
-        SchedulerKind::new("job", "Jobs", "job"),
+        SchedulerKind::new("job", "Jobs", "job")
+            // A chain job starts at any of its steps (`RUN_CHAIN`); any
+            // other job's one step is itself, and it runs whole.
+            .run_from_step(true)
+            // `PURGE_LOG` asks for MANAGE SCHEDULER, whoever owns the job.
+            .clear_history(c.manage()),
         schema(Kind::Job),
     );
     push(
@@ -720,6 +854,23 @@ pub fn delete(c: &Connection, kind: &str, id: &str) -> Result<()> {
     within(c, CALL_LIMIT, || {
         let (kind, ctx) = ready(c, kind)?;
         let block = delete_block(c, &ctx, kind, id)?;
+        script::run(c, &block)
+    })
+}
+
+/// The script of one of the kind's actions ([`action`]); nothing runs.
+pub fn action_script(c: &Connection, kind: &str, id: &str, action: &str) -> Result<String> {
+    within(c, QUERY_LIMIT, || {
+        let (kind, ctx) = ready(c, kind)?;
+        Ok(action::block(c, &ctx, kind, id, action)?.script())
+    })
+}
+
+/// Runs one of the kind's actions, checked again as for its script.
+pub fn run_action(c: &Connection, kind: &str, id: &str, action: &str) -> Result<()> {
+    within(c, CALL_LIMIT, || {
+        let (kind, ctx) = ready(c, kind)?;
+        let block = action::block(c, &ctx, kind, id, action)?;
         script::run(c, &block)
     })
 }

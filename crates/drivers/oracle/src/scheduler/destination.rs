@@ -193,14 +193,22 @@ pub(crate) fn db_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("DESTINATION_NAME").unwrap_or_default();
+                let locked = ctx
+                    .locked(
+                        Kind::DbDestination,
+                        &owner,
+                        &name,
+                        ctx.oracle_schema(&owner),
+                    )
+                    .is_some();
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
                     description: r.t("COMMENTS").or_else(|| r.t("CONNECT_INFO")),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
                     actions: None,
                 }
             })
@@ -224,9 +232,12 @@ pub(crate) fn db_plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "destino")?;
             let old = read_db(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::DbDestination, &owner, &name, false) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(
+                Kind::DbDestination,
+                &owner,
+                &name,
+                ctx.oracle_schema(&owner),
+            )?;
             fresh(values, &fingerprint(&db_values(&old), &BTreeMap::new()))?;
             let new = db_spec(values, ctx, &cat, Some(&old))?;
             Ok(Plan::changes(db_alter(&old, &new), old.id(), &name))
@@ -237,9 +248,12 @@ pub(crate) fn db_plan(
 pub(crate) fn db_delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "destino")?;
     let s = read_db(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::DbDestination, &owner, &name, false) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(
+        Kind::DbDestination,
+        &owner,
+        &name,
+        ctx.oracle_schema(&owner),
+    )?;
     let mut b = Block::new(&format!("Borra el destino de base de datos {}.", s.id()));
     b.call(
         "DBMS_SCHEDULER.DROP_DATABASE_DESTINATION",
@@ -302,10 +316,18 @@ pub(crate) fn db_form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Obj
     if no_agents {
         f.notes.push("No hay agentes registrados en esta base: un destino de base de datos necesita uno (schagent -registerdatabase en el host remoto).".into());
     }
+    let lock = state.as_ref().and_then(|s| {
+        ctx.locked(
+            Kind::DbDestination,
+            &s.owner,
+            &s.name,
+            ctx.oracle_schema(&s.owner),
+        )
+    });
     match &state {
-        Some(s) if !ctx.may_change(Kind::DbDestination, &s.owner, &s.name, false) => {
+        Some(_) if lock.is_some() => {
             f.read_only = true;
-            f.notes.insert(0, OWNER_ONLY.into());
+            f.notes.insert(0, lock.unwrap_or(OWNER_ONLY).into());
         }
         None if !ctx.may_create(Kind::DbDestination) => {
             f.read_only = true;
@@ -729,14 +751,22 @@ pub(crate) fn group_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("GROUP_NAME").unwrap_or_default();
+                let locked = ctx
+                    .locked(
+                        Kind::DestinationGroup,
+                        &owner,
+                        &name,
+                        ctx.oracle_schema(&owner),
+                    )
+                    .is_some();
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
                     actions: None,
                 }
             })
@@ -768,9 +798,12 @@ pub(crate) fn group_plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "grupo de destinos")?;
             let old = read_group(c, ctx, &owner, &name)?;
-            if !ctx.may_change(Kind::DestinationGroup, &owner, &name, false) {
-                return Err(bad(OWNER_ONLY.into()));
-            }
+            ctx.check_change(
+                Kind::DestinationGroup,
+                &owner,
+                &name,
+                ctx.oracle_schema(&owner),
+            )?;
             let (v, l) = group_values(&old);
             fresh(values, &fingerprint(&v, &l))?;
             let new = group_spec(values, ctx, &cat, Some(&old))?;
@@ -782,9 +815,12 @@ pub(crate) fn group_plan(
 pub(crate) fn group_delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "grupo de destinos")?;
     let s = read_group(c, ctx, &owner, &name)?;
-    if !ctx.may_change(Kind::DestinationGroup, &owner, &name, false) {
-        return Err(bad(OWNER_ONLY.into()));
-    }
+    ctx.check_change(
+        Kind::DestinationGroup,
+        &owner,
+        &name,
+        ctx.oracle_schema(&owner),
+    )?;
     let mut b = Block::new(&format!(
         "Borra el grupo de destinos {} (sus destinos quedan).",
         s.id()
@@ -872,10 +908,18 @@ pub(crate) fn group_form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<
     if !existing {
         f.notes.push("Los miembros tienen que ser del tipo del grupo: destinos de base de datos o destinos externos (agentes), además de LOCAL.".into());
     }
+    let lock = state.as_ref().and_then(|s| {
+        ctx.locked(
+            Kind::DestinationGroup,
+            &s.owner,
+            &s.name,
+            ctx.oracle_schema(&s.owner),
+        )
+    });
     match &state {
-        Some(s) if !ctx.may_change(Kind::DestinationGroup, &s.owner, &s.name, false) => {
+        Some(_) if lock.is_some() => {
             f.read_only = true;
-            f.notes.insert(0, OWNER_ONLY.into());
+            f.notes.insert(0, lock.unwrap_or(OWNER_ONLY).into());
         }
         None if !ctx.may_create(Kind::DestinationGroup) => {
             f.read_only = true;

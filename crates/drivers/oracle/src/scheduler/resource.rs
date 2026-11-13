@@ -9,7 +9,7 @@ use super::read::{self, Rec};
 use super::script::name_lit;
 use super::{
     bad, fingerprint, fits, fresh, new_name, new_owner, obj_id, parse_obj, pick_ref, rows, Block,
-    Ctx, Kind, Plan, Vals, A, OWNER_ONLY,
+    Ctx, Kind, Plan, Vals, A,
 };
 use dbine_driver::{
     FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, Result, SchedulerItem,
@@ -25,8 +25,9 @@ const SOURCES: [&str; 2] = ["schema", "job_or_program"];
 
 type Rows = Vec<BTreeMap<String, Value>>;
 
-fn may(ctx: &Ctx, kind: Kind, owner: &str, name: &str) -> bool {
-    ctx.may_change(kind, owner, name, ctx.oracle_schema(owner))
+/// Why the login can't change (nor drop) it, if it can't.
+fn locked(ctx: &Ctx, kind: Kind, owner: &str, name: &str) -> Option<&'static str> {
+    ctx.locked(kind, owner, name, ctx.oracle_schema(owner))
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +253,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("RESOURCE_NAME").unwrap_or_default();
+                let locked = ctx
+                    .locked(Kind::Resource, &owner, &name, ctx.oracle_schema(&owner))
+                    .is_some();
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
@@ -260,8 +264,8 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                         .or_else(|| r.t("RESOURCE_UNITS").map(|u| format!("{u} unidades"))),
                     enabled: Some(r.t("STATUS").as_deref() != Some("IGNORE_CONSTRAINTS")),
                     system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
                     actions: None,
                 }
             })
@@ -285,8 +289,8 @@ pub(crate) fn plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "recurso")?;
             let old = read_resource(c, ctx, &owner, &name)?;
-            if !may(ctx, Kind::Resource, &owner, &name) {
-                return Err(bad(OWNER_ONLY.into()));
+            if let Some(why) = locked(ctx, Kind::Resource, &owner, &name) {
+                return Err(bad(why.into()));
             }
             let (v, l) = resource_values(&old);
             fresh(values, &fingerprint(&v, &l))?;
@@ -299,8 +303,8 @@ pub(crate) fn plan(
 pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "recurso")?;
     let s = read_resource(c, ctx, &owner, &name)?;
-    if !may(ctx, Kind::Resource, &owner, &name) {
-        return Err(bad(OWNER_ONLY.into()));
+    if let Some(why) = locked(ctx, Kind::Resource, &owner, &name) {
+        return Err(bad(why.into()));
     }
     let mut b = Block::new(&format!(
         "Borra el recurso {} y lo que los jobs y programas tenían de él.",
@@ -403,10 +407,13 @@ pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<Object
         choices: cat.lists,
         ..ObjectForm::default()
     };
+    let lock = state
+        .as_ref()
+        .and_then(|s| locked(ctx, Kind::Resource, &s.owner, &s.name));
     match &state {
-        Some(s) if !may(ctx, Kind::Resource, &s.owner, &s.name) => {
+        Some(_) if lock.is_some() => {
             f.read_only = true;
-            f.notes.push(OWNER_ONLY.into());
+            f.notes.extend(lock.map(String::from));
         }
         None if !ctx.may_create(Kind::Resource) => {
             f.read_only = true;
@@ -630,14 +637,22 @@ pub(crate) fn incompat_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList>
             .map(|r| {
                 let owner = r.t("OWNER").unwrap_or_default();
                 let name = r.raw("INCOMPATIBILITY_NAME").unwrap_or_default();
+                let locked = ctx
+                    .locked(
+                        Kind::Incompatibility,
+                        &owner,
+                        &name,
+                        ctx.oracle_schema(&owner),
+                    )
+                    .is_some();
                 SchedulerItem {
                     id: obj_id(Some(&owner), &name),
                     name: super::item_name(ctx, &owner, &name),
                     description: r.t("COMMENTS"),
                     enabled: Some(r.yes("ENABLED")),
                     system: ctx.oracle_schema(&owner),
-                    can_edit: None,
-                    can_delete: None,
+                    can_edit: super::unless(locked),
+                    can_delete: super::unless(locked),
                     actions: None,
                 }
             })
@@ -661,8 +676,8 @@ pub(crate) fn incompat_plan(
         Some(id) => {
             let (owner, name) = parse_obj(id, "incompatibilidad")?;
             let old = read_incompat(c, ctx, &owner, &name)?;
-            if !may(ctx, Kind::Incompatibility, &owner, &name) {
-                return Err(bad(OWNER_ONLY.into()));
+            if let Some(why) = locked(ctx, Kind::Incompatibility, &owner, &name) {
+                return Err(bad(why.into()));
             }
             fresh(
                 values,
@@ -677,8 +692,8 @@ pub(crate) fn incompat_plan(
 pub(crate) fn incompat_delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let (owner, name) = parse_obj(id, "incompatibilidad")?;
     let s = read_incompat(c, ctx, &owner, &name)?;
-    if !may(ctx, Kind::Incompatibility, &owner, &name) {
-        return Err(bad(OWNER_ONLY.into()));
+    if let Some(why) = locked(ctx, Kind::Incompatibility, &owner, &name) {
+        return Err(bad(why.into()));
     }
     let mut b = Block::new(&format!("Borra la incompatibilidad {}.", s.id()));
     b.call(
@@ -748,10 +763,13 @@ pub(crate) fn incompat_form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Resu
         choices: cat.lists,
         ..ObjectForm::default()
     };
+    let lock = state
+        .as_ref()
+        .and_then(|s| locked(ctx, Kind::Incompatibility, &s.owner, &s.name));
     match &state {
-        Some(s) if !may(ctx, Kind::Incompatibility, &s.owner, &s.name) => {
+        Some(_) if lock.is_some() => {
             f.read_only = true;
-            f.notes.push(OWNER_ONLY.into());
+            f.notes.extend(lock.map(String::from));
         }
         None if !ctx.may_create(Kind::Incompatibility) => {
             f.read_only = true;

@@ -1662,6 +1662,23 @@ impl Session for OracleSession {
         self.run(move |c| scheduler::delete(c, &kind, &id)).await
     }
 
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
+        self.run(move |c| scheduler::action_script(c, &kind, &id, &action))
+            .await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
+        self.run(move |c| scheduler::run_action(c, &kind, &id, &action))
+            .await
+    }
+
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
         let (id, step) = (id.to_string(), step.to_string());
         self.run(move |c| scheduler::run_from(c, &id, &step)).await
