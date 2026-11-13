@@ -4,9 +4,11 @@
 //! Two kinds share the catalog:
 //!
 //! - Tasks made with `SUBMIT TASK`, run once or on a `SCHEDULE … EVERY`.
-//!   StarRocks has no statement to run one again, and `ALTER TASK …
-//!   SUSPEND | RESUME` exists but the catalog doesn't say which tasks are
-//!   suspended: DBine offers neither and says so.
+//!   StarRocks has no statement to run one again (checked up to 4.1.4:
+//!   `ALTER TASK` takes only `SUSPEND`, `RESUME` and `SET`), and `ALTER TASK
+//!   … SUSPEND | RESUME` exists but the catalog doesn't say which tasks are
+//!   suspended: no enable switch here (the scheduler designer offers both
+//!   as actions). A pipe's tasks are the server's (`system`).
 //! - The refresh task of each asynchronous materialized view (`mv-<id>`),
 //!   shown as the view: `REFRESH MATERIALIZED VIEW … WITH ASYNC MODE` runs
 //!   it now, `CANCEL REFRESH MATERIALIZED VIEW` stops the refresh going on.
@@ -61,6 +63,25 @@ pub(crate) fn parse_id(id: &str) -> Result<(String, bool)> {
 
 pub(crate) fn not_found(name: &str) -> Error {
     Error::Query(format!("no existe la tarea {name} o este usuario no la ve"))
+}
+
+/// A task a pipe runs (`CREATE PIPE`): StarRocks names them
+/// `pipe-<pipe>-task-<id>-<n>`, makes them and drops them with the pipe's
+/// loads. They're the server's, not the user's.
+pub(crate) fn pipe_task(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("pipe-") else {
+        return false;
+    };
+    let mut parts = rest.rsplitn(3, '-');
+    let (Some(n), Some(id), Some(head)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(n)
+        && digits(id)
+        && head
+            .strip_suffix("-task")
+            .is_some_and(|pipe| !pipe.is_empty())
 }
 
 /// One row of `information_schema.tasks`.
@@ -363,7 +384,7 @@ fn job(t: &Task, view: Option<&View>, s: Summary) -> ServerJob {
             last_started: s.last_started,
             last_duration_ms: s.last_duration_ms,
             next_run: None,
-            system: false,
+            system: pipe_task(&t.name),
         },
     }
 }

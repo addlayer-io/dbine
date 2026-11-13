@@ -18,16 +18,26 @@
 //!   `jobs()` doesn't say which database a job was created in, where its
 //!   statement's bare table names point: the form asks for it when the job
 //!   is created again.
+//!   Only a streaming job takes `PROPERTIES` (a scheduled job's are
+//!   accepted, but neither kept nor applied), so the properties tab, like
+//!   the job's progress, shows only for that type. A job has no actions:
+//!   Doris has no statement that runs one now (checked up to 4.1.3: its
+//!   grammar has only CREATE, ALTER, PAUSE, RESUME and DROP JOB and CANCEL
+//!   TASK).
 //! - "mv_refresh": how an asynchronous materialized view refreshes: method
 //!   (`AUTO`, `COMPLETE`), trigger (`ON MANUAL`, `ON COMMIT`, `ON SCHEDULE
 //!   EVERY … STARTS …`), its properties (`SET (…)`) and its refresh job
 //!   paused or not, all changed in place (`ALTER MATERIALIZED VIEW`). Views
-//!   are created and dropped with the view, not here. The job list's `mv:`
-//!   rows open this form under "job" too.
+//!   are created and dropped with the view, not here (their rows can't be
+//!   deleted). The job list's `mv:` rows open this form under "job" too.
+//!   Actions: refresh now, what changed (`REFRESH MATERIALIZED VIEW …
+//!   AUTO`) or all of it (`… COMPLETE`).
+//! - Neither kind has steps, and no statement deletes a job's tasks.
 
 use super::{
-    bad, databases, datetime, form_time, name, no_kind, one_line, pick, properties_list,
-    properties_sql, property_changes, read_properties, shown, Plan, Vals,
+    action_keys, bad, databases, datetime, form_time, name, no_action, no_kind, one_line, pick,
+    properties_list, properties_sql, property_changes, read_properties, refresh_head, shown,
+    with_refresh, Plan, Vals, REFRESH, REFRESH_COMPLETE,
 };
 use crate::jobs::doris::{self as dj, Job, Strategy, Type};
 use crate::jobs::{quoted, rows_if_present, text};
@@ -95,15 +105,25 @@ pub(super) async fn info(s: &mut MySqlSession) -> Result<SchedulerInfo> {
         notes.push(ADMIN_ONLY.to_string());
     }
     notes.push(VIEWS_NOTE.to_string());
+    // A job runs only on its schedule: Doris has no statement that runs one
+    // now (PAUSE / RESUME are its enabled switch). The refresh actions are
+    // the views' rows', listed among the jobs too. A job runs one statement
+    // (no steps), and no statement deletes its tasks.
     Ok(SchedulerInfo {
         kinds: vec![
-            SchedulerKind::new("job", "Jobs", "job").abilities(admin, admin, admin),
-            SchedulerKind::new(
-                "mv_refresh",
-                "Refrescos de vistas materializadas",
-                "refresco de vista materializada",
+            with_refresh(SchedulerKind::new("job", "Jobs", "job").abilities(admin, admin, admin))
+                .run_from_step(false)
+                .clear_history(false),
+            with_refresh(
+                SchedulerKind::new(
+                    "mv_refresh",
+                    "Refrescos de vistas materializadas",
+                    "refresco de vista materializada",
+                )
+                .abilities(false, true, false),
             )
-            .abilities(false, true, false),
+            .run_from_step(false)
+            .clear_history(false),
         ],
         logs: false,
         notes,
@@ -118,8 +138,23 @@ async fn jobs_of(s: &mut MySqlSession, t: Type, only: Option<&str>) -> Result<Ve
     }
 }
 
-fn item(j: &Job) -> SchedulerItem {
+/// A row of the list, with what can be done with it: a view's job (Doris'
+/// own, made and dropped with the view) has its refresh edited and run, not
+/// deleted; a job has no actions, and a one-time job that already ran has
+/// nothing left to change.
+pub(super) fn item(j: &Job) -> SchedulerItem {
     let mv = j.ty() == Type::Mv;
+    let (can_edit, can_delete, actions) = if mv {
+        let refresh: &[&str] = if switchable(j) {
+            &[REFRESH, REFRESH_COMPLETE]
+        } else {
+            &[]
+        };
+        (Some(true), Some(false), action_keys(refresh))
+    } else {
+        let ran = j.execute_type == "ONE_TIME" && j.status == "FINISHED";
+        (ran.then_some(false), None, action_keys(&[]))
+    };
     SchedulerItem {
         id: dj::job_id(j.ty(), &j.name),
         name: if mv {
@@ -138,9 +173,9 @@ fn item(j: &Job) -> SchedulerItem {
         },
         enabled: Some(j.active()),
         system: false,
-        can_edit: None,
-        can_delete: None,
-        actions: None,
+        can_edit,
+        can_delete,
+        actions,
     }
 }
 
@@ -617,9 +652,16 @@ pub(super) fn job_spec_from(
             return Err(bad(NO_JOB_PROPERTIES.into()));
         }
     }
+    // A scheduled job's PROPERTIES are accepted but neither kept nor
+    // applied: refused rather than shown in a script that loses them (and
+    // read back as none, which would drop and create the job for nothing).
+    if spec.mode != Mode::Streaming && !spec.properties.is_empty() {
+        return Err(bad(SCHEDULED_PROPERTIES.into()));
+    }
     Ok(spec)
 }
 
+const SCHEDULED_PROPERTIES: &str = "Doris solo aplica propiedades a un job continuo: en un job programado las acepta pero no las guarda ni las usa.";
 const ONE_STATEMENT: &str = "La instrucción del job tiene que ser una sola, sin «;» en el medio: el servidor guardaría en el job solo lo anterior y ejecutaría el resto al guardar.";
 const NO_STREAMING_JOBS: &str = "Esta versión de Doris no tiene jobs continuos (ON STREAMING).";
 const NO_JOB_PROPERTIES: &str = "Esta versión de Doris no toma propiedades en un job.";
@@ -979,9 +1021,20 @@ fn job_unit_select() -> FormKind {
     ])
 }
 
+const JOB_PROPS_HELP: &str = "Las de un job continuo: max_interval, s3.max_batch_files, s3.max_batch_bytes y variables de sesión como session.query_timeout.";
+
 /// The job form's sections; without `streaming` (an older Doris), no
-/// streaming type and no properties.
-pub(super) fn job_sections(existing: bool, streaming: bool) -> Vec<FormSection> {
+/// streaming type and no properties. `props`: the job's properties.
+///
+/// Only a streaming job takes properties: Doris accepts a `PROPERTIES`
+/// clause on a scheduled job but neither keeps nor applies it (its
+/// `session.*` variables don't reach the job's tasks), so the tab and its
+/// list show only for that type, as does a streaming job's progress.
+pub(super) fn job_sections(
+    existing: bool,
+    streaming: bool,
+    props: &[(String, String)],
+) -> Vec<FormSection> {
     let mut general = FormSection::new("general", "General").fields(vec![
         FormField::new("name", "Nombre", FormKind::Text).required(),
         FormField::new(
@@ -1042,11 +1095,33 @@ pub(super) fn job_sections(existing: bool, streaming: bool) -> Vec<FormSection> 
     ];
     if streaming {
         sections.push(
-            FormSection::new("properties", "Propiedades").list(properties_list(
-                &[],
-                "Las del job: las de un job continuo (max_interval, s3.max_batch_files, s3.max_batch_bytes…) y variables de sesión como session.query_timeout.",
-            )),
+            FormSection::new("properties", "Propiedades")
+                .list(properties_list(props, JOB_PROPS_HELP).when("type", &["streaming"]))
+                .when("type", &["streaming"]),
         );
+        if existing {
+            sections.push(
+                FormSection::new("progress", "Progreso")
+                    .fields(vec![
+                        FormField::new("current_offset", "Leído hasta", FormKind::Textarea)
+                            .read_only(true),
+                        FormField::new("end_offset", "Fin del origen", FormKind::Textarea)
+                            .read_only(true),
+                        FormField::new("lag", "Retraso", FormKind::Text).read_only(true),
+                        FormField::new("last_success", "Última tarea correcta", FormKind::DateTime)
+                            .read_only(true),
+                        FormField::new(
+                            "load_statistic",
+                            "Estadísticas de carga",
+                            FormKind::Textarea,
+                        )
+                        .read_only(true),
+                        FormField::new("runtime_msg", "Estado de la ejecución", FormKind::Textarea)
+                            .read_only(true),
+                    ])
+                    .when("type", &["streaming"]),
+            );
+        }
     }
     sections
 }
@@ -1092,6 +1167,18 @@ fn job_values(spec: &JobSpec, j: Option<&Job>) -> BTreeMap<String, Value> {
             put(k, json!(n.map(|n| n.to_string()).unwrap_or_default()));
         }
         put("error", json!(j.error.clone().unwrap_or_default()));
+        if spec.mode == Mode::Streaming {
+            for (k, x) in [
+                ("current_offset", &j.current_offset),
+                ("end_offset", &j.end_offset),
+                ("lag", &j.lag),
+                ("load_statistic", &j.load_statistic),
+                ("runtime_msg", &j.runtime_msg),
+            ] {
+                put(k, json!(x.clone().unwrap_or_default()));
+            }
+            put("last_success", form_time(j.last_success.as_deref()));
+        }
     }
     v
 }
@@ -1110,7 +1197,13 @@ async fn read_job(s: &mut MySqlSession, id: &str) -> Result<Job> {
 
 /// The job may be paused or resumed (it hasn't finished).
 fn switchable(j: &Job) -> bool {
-    matches!(j.status.as_str(), "RUNNING" | "PAUSED")
+    live(&j.status)
+}
+
+/// A job's status while it may be paused or resumed (and its view
+/// refreshed): it hasn't finished, stopped or failed.
+fn live(status: &str) -> bool {
+    matches!(status, "RUNNING" | "PAUSED")
 }
 
 /// An `mv:` id, also under "job".
@@ -1135,25 +1228,14 @@ pub(super) async fn form(s: &mut MySqlSession, kind: &str, id: Option<&str>) -> 
                 Some(id) => Some(read_job(s, id).await?),
                 None => None,
             };
-            f.sections = job_sections(existing.is_some(), streaming);
             if !streaming {
                 f.notes.push(OLD_JOBS_NOTE.into());
             }
             match &existing {
                 Some(j) => {
                     let spec = spec_of(j);
+                    f.sections = job_sections(true, streaming, &spec.properties);
                     f.values = job_values(&spec, Some(j));
-                    if let Some(l) = f
-                        .sections
-                        .iter_mut()
-                        .flat_map(|s| s.lists.iter_mut())
-                        .find(|l| l.key == "properties")
-                    {
-                        *l = properties_list(
-                            &spec.properties,
-                            "Las del job: las de un job continuo (max_interval, s3.max_batch_files, s3.max_batch_bytes…) y variables de sesión como session.query_timeout.",
-                        );
-                    }
                     let fixed = |f: &mut ObjectForm, keys: &[&str]| {
                         for sec in f.sections.iter_mut() {
                             for fld in sec
@@ -1210,6 +1292,7 @@ pub(super) async fn form(s: &mut MySqlSession, kind: &str, id: Option<&str>) -> 
                         properties: Vec::new(),
                         sql: String::new(),
                     };
+                    f.sections = job_sections(false, streaming, &[]);
                     f.values = job_values(&spec, None);
                 }
             }
@@ -1296,4 +1379,64 @@ pub(super) async fn delete_plan(s: &mut MySqlSession, kind: &str, id: &str) -> R
         id: Some(id.to_string()),
         ..Plan::default()
     })
+}
+
+const NO_RUN: &str = "Doris no ejecuta un job a pedido: solo según su programación";
+
+/// The view `db`.`mv`'s refresh now for `action`, while its refresh job is
+/// `status`: only one running or paused (not finished, stopped or
+/// failed) refreshes it.
+pub(super) fn refresh_plan(
+    db: &str,
+    mv: &str,
+    status: &str,
+    action: &str,
+    id: &str,
+) -> Result<Plan> {
+    let complete = match action.trim() {
+        REFRESH => false,
+        REFRESH_COMPLETE => true,
+        other => return Err(no_action(other)),
+    };
+    if !live(status) {
+        return Err(bad(format!(
+            "El job que refresca la vista «{}.{}» está {}: Doris no la refresca.",
+            shown(db),
+            shown(mv),
+            shown(status)
+        )));
+    }
+    Ok(Plan {
+        head: refresh_head(&format!("{db}.{mv}"), complete),
+        steps: vec![format!(
+            "REFRESH MATERIALIZED VIEW {}.{} {}",
+            quoted(db),
+            quoted(mv),
+            if complete { "COMPLETE" } else { "AUTO" }
+        )],
+        id: Some(id.to_string()),
+        ..Plan::default()
+    })
+}
+
+/// A view's refresh now (`REFRESH MATERIALIZED VIEW … AUTO | COMPLETE`:
+/// Doris queues it and answers at once). A job has no actions: Doris has no
+/// statement that runs one now.
+pub(super) async fn action_plan(
+    s: &mut MySqlSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<Plan> {
+    let kind = kind_of(kind)?;
+    if kind == Kind::MvRefresh || is_mv_id(id) {
+        let st = read_mv(s, id).await?;
+        return refresh_plan(&st.db, &st.mv, &st.job.status, action, id);
+    }
+    // A job: read back first, so a foreign id is refused as such.
+    read_job(s, id).await?;
+    match action.trim() {
+        "run" => Err(Error::Unsupported(NO_RUN.into())),
+        other => Err(no_action(other)),
+    }
 }

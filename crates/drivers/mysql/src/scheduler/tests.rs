@@ -298,6 +298,8 @@ mod ev {
             session_zone: "SYSTEM".into(),
             session_mode: "STRICT_TRANS_TABLES".into(),
             mysql: true,
+            // Read, and no account holds SYSTEM_USER.
+            system_users: Some(Vec::new()),
             ..Ctx::default()
         }
     }
@@ -786,6 +788,95 @@ mod ev {
     }
 
     #[test]
+    fn a_system_users_events_are_locked_to_a_login_without_it() {
+        // MySQL 8.0.16+: root holds SYSTEM_USER, the login doesn't.
+        let c = Ctx {
+            privileges: vec!["EVENT".into(), "SET_ANY_DEFINER".into()],
+            system_users: Some(vec!["root@%".into(), "mysql.sys@localhost".into()]),
+            ..ctx()
+        };
+        assert!(c.guards_system_users());
+        assert!(c.protected("root@%"));
+        assert!(c.protected("mysql.sys@LOCALHOST"), "hosts in any case");
+        assert!(!c.protected("Root@%"), "users as written");
+        assert!(!c.protected("app@%") && !c.protected("root@localhost"));
+        // Unreadable: root's and the mysql.* accounts, as installed.
+        let guessed = Ctx {
+            system_users: None,
+            ..c.clone()
+        };
+        assert!(
+            guessed.protected("root@localhost") && guessed.protected("mysql.session@localhost")
+        );
+        assert!(!guessed.protected("admin@%"));
+        // The login's own account never is: it lacks SYSTEM_USER, even when
+        // it's a root the guess would lock.
+        let own_root = Ctx {
+            user: "root@%".into(),
+            ..guessed.clone()
+        };
+        assert!(!own_root.protected("root@%"));
+        assert!(own_root.protected("root@localhost"));
+        let own_listed = Ctx {
+            user: "mysql.sys@LOCALHOST".into(),
+            ..c.clone()
+        };
+        assert!(
+            !own_listed.protected("mysql.sys@localhost"),
+            "even when it's read, hosts in any case"
+        );
+        assert!(own_listed.protected("root@%"));
+        // A login with it, MariaDB, OceanBase and older MySQL: never.
+        for free in [
+            Ctx {
+                privileges: vec!["EVENT".into(), "SYSTEM_USER".into()],
+                ..c.clone()
+            },
+            Ctx {
+                mysql: false,
+                ..c.clone()
+            },
+            Ctx {
+                version: "8.0.15".into(),
+                ..c.clone()
+            },
+        ] {
+            assert!(!free.guards_system_users() && !free.protected("root@%"));
+        }
+        // Naming such a definer, or saving such an event, is refused before
+        // the server does it.
+        let mut v = values();
+        v["definer"] = json!("root@%");
+        let defs = vec![
+            ("app@%".to_string(), "app@%".to_string()),
+            ("root@%".to_string(), "root@%".to_string()),
+        ];
+        let e = err(spec_from(&fv(v.clone()), &c, &dbs(), &defs, None));
+        assert!(e.contains("SYSTEM_USER") && e.contains("definidor"), "{e}");
+        let cur = Spec {
+            definer: "root@%".into(),
+            ..spec()
+        };
+        let e = err(spec_from(&fv(v), &c, &dbs(), &defs, Some(&cur)));
+        assert!(e.contains("no le deja cambiar ni borrar"), "{e}");
+        // Taking over a plain account's event stays possible.
+        let mut v = values();
+        v["definer"] = json!("app@%");
+        let cur = Spec {
+            definer: "other@%".into(),
+            ..spec()
+        };
+        assert_eq!(
+            spec_from(&fv(v), &c, &dbs(), &definers(), Some(&cur))
+                .unwrap()
+                .definer,
+            "app@%"
+        );
+        assert!(same_account("a@HOST", "a@host") && !same_account("A@h", "a@h"));
+        assert!(same_account("role", "role") && !same_account("role", "role@%"));
+    }
+
+    #[test]
     fn the_log_names_the_event() {
         assert_eq!(
             log_line("Event Scheduler: [root@localhost][db.ev] Table 'db.x' doesn't exist"),
@@ -1150,9 +1241,29 @@ mod doris {
         assert!(job_spec_from(&fv(v.clone()), &dbs, None, true).is_ok());
         assert!(err(job_spec_from(&fv(v), &dbs, None, false)).contains("jobs continuos"));
         let v = with_props(fv(base.clone()), &[("session.query_timeout", "60")]);
-        assert!(job_spec_from(&v, &dbs, None, true).is_ok());
         assert!(err(job_spec_from(&v, &dbs, None, false)).contains("no toma propiedades"));
-        assert!(job_spec_from(&fv(base), &dbs, None, false).is_ok());
+        assert!(job_spec_from(&fv(base.clone()), &dbs, None, false).is_ok());
+        // Only a streaming job takes properties: a scheduled one's (sent by
+        // a host that doesn't hide the list) would be accepted and lost.
+        let mut streaming = base.clone();
+        streaming["type"] = json!("streaming");
+        let v = with_props(fv(streaming), &[("session.query_timeout", "60")]);
+        assert_eq!(
+            job_spec_from(&v, &dbs, None, true).unwrap().properties,
+            vec![("session.query_timeout".to_string(), "60".to_string())]
+        );
+        let mut once = base.clone();
+        once["type"] = json!("at");
+        once["at"] = json!("2030-01-01T00:00:00");
+        assert!(job_spec_from(&fv(once.clone()), &dbs, None, true).is_ok());
+        for v in [base, once] {
+            let v = with_props(fv(v), &[("session.query_timeout", "60")]);
+            let m = err(job_spec_from(&v, &dbs, None, true));
+            assert!(
+                m.contains("solo aplica propiedades a un job continuo"),
+                "{m}"
+            );
+        }
     }
 
     #[test]
@@ -1273,7 +1384,7 @@ mod doris {
 
     #[test]
     fn the_form_has_every_part_of_a_job() {
-        let keys: Vec<String> = job_sections(true, true)
+        let keys: Vec<String> = job_sections(true, true, &[])
             .iter()
             .flat_map(|s| s.fields.iter().map(|f| f.key.clone()))
             .collect();
@@ -1296,12 +1407,116 @@ mod doris {
                 .clone();
             serde_json::to_string(&f.kind).unwrap()
         };
-        assert!(has_props(&job_sections(false, true)));
-        assert!(types(&job_sections(false, true)).contains("streaming"));
+        assert!(has_props(&job_sections(false, true, &[])));
+        assert!(types(&job_sections(false, true, &[])).contains("streaming"));
         // An older Doris: neither.
-        assert!(!has_props(&job_sections(false, false)));
-        let t = types(&job_sections(true, false));
+        assert!(!has_props(&job_sections(false, false, &[])));
+        let t = types(&job_sections(true, false, &[]));
         assert!(!t.contains("streaming") && t.contains("every"), "{t}");
+    }
+
+    #[test]
+    fn properties_and_progress_show_for_streaming_jobs_only() {
+        let streaming = Some(("type".to_string(), vec!["streaming".to_string()]));
+        let props = vec![("max_interval".to_string(), "10".to_string())];
+        let s = job_sections(true, true, &props);
+        let sec = |k: &str| s.iter().find(|x| x.key == k).cloned();
+        let p = sec("properties").expect("properties");
+        assert_eq!(p.when, streaming);
+        assert_eq!(p.lists[0].when, streaming);
+        assert_eq!(p.lists[0].rows.len(), 1, "the job's properties as rows");
+        let progress = sec("progress").expect("a streaming job's progress");
+        assert_eq!(progress.when, streaming);
+        assert!(progress.fields.iter().all(|f| f.read_only));
+        for k in [
+            "current_offset",
+            "end_offset",
+            "lag",
+            "last_success",
+            "load_statistic",
+            "runtime_msg",
+        ] {
+            assert!(progress.fields.iter().any(|f| f.key == k), "{k}");
+        }
+        // A new job has no progress yet; the other tabs always show.
+        let new = job_sections(false, true, &[]);
+        assert!(!new.iter().any(|x| x.key == "progress"));
+        assert!(new
+            .iter()
+            .filter(|x| x.key != "properties")
+            .all(|x| x.when.is_none()));
+        // An older Doris has neither.
+        assert!(!job_sections(true, false, &[])
+            .iter()
+            .any(|x| x.key == "progress" || x.key == "properties"));
+    }
+
+    #[test]
+    fn rows_say_what_each_job_offers() {
+        use crate::jobs::doris::{Job, Type};
+        let job = |t: Type, execute: &str, status: &str| Job {
+            t: Some(t),
+            name: "j".into(),
+            execute_type: execute.into(),
+            status: status.into(),
+            mv_name: Some("mv".into()),
+            mv_db: Some("db".into()),
+            ..Default::default()
+        };
+        let keys = |k: &[&str]| Some(k.iter().map(|x| x.to_string()).collect::<Vec<_>>());
+        // A view's job: edited and refreshed, never deleted here.
+        for status in ["RUNNING", "PAUSED"] {
+            let i = item(&job(Type::Mv, "RECURRING", status));
+            assert_eq!(i.id, "mv:`j`");
+            assert_eq!((i.can_edit, i.can_delete), (Some(true), Some(false)));
+            assert_eq!(i.actions, keys(&["refresh", "refresh_complete"]));
+        }
+        assert_eq!(item(&job(Type::Mv, "MANUAL", "STOPPED")).actions, keys(&[]));
+        // A job: no actions (Doris runs it only on its schedule); one that
+        // ran once has nothing left to change.
+        let i = item(&job(Type::Insert, "RECURRING", "RUNNING"));
+        assert_eq!(
+            (i.can_edit, i.can_delete, i.actions),
+            (None, None, keys(&[]))
+        );
+        let i = item(&job(Type::Insert, "ONE_TIME", "FINISHED"));
+        assert_eq!((i.can_edit, i.can_delete), (Some(false), None));
+        assert_eq!(
+            item(&job(Type::Insert, "ONE_TIME", "RUNNING")).can_edit,
+            None
+        );
+    }
+
+    #[test]
+    fn a_view_refreshes_only_while_its_job_runs_or_is_paused() {
+        let id = "mv:`j`";
+        for status in ["RUNNING", "PAUSED"] {
+            for (action, how) in [(REFRESH, "AUTO"), (REFRESH_COMPLETE, "COMPLETE")] {
+                let p = refresh_plan("db", "m`v", status, action, id).expect(action);
+                assert_eq!(
+                    p.steps,
+                    [format!("REFRESH MATERIALIZED VIEW `db`.`m``v` {how}")]
+                );
+                assert_eq!(p.id.as_deref(), Some(id));
+                assert!(p.undo.is_empty() && p.head.iter().any(|h| h.contains("db.m`v")));
+            }
+        }
+        // Stopped, finished or failed: Doris doesn't refresh it.
+        for status in ["STOPPED", "FINISHED", "FAILED"] {
+            for action in [REFRESH, REFRESH_COMPLETE] {
+                let m = err(refresh_plan("db", "mv", status, action, id));
+                assert!(
+                    m.contains("«db.mv» está")
+                        && m.contains(status)
+                        && m.contains("no la refresca"),
+                    "{status} {action}: {m}"
+                );
+            }
+        }
+        // An unknown key is not an action, whatever the job's state.
+        for status in ["RUNNING", "STOPPED"] {
+            assert!(err(refresh_plan("db", "mv", status, "pause", id)).contains("no es una acción"));
+        }
     }
 }
 
@@ -1600,6 +1815,64 @@ mod starrocks {
             "warehouse",
         ] {
             assert!(keys.contains(&k.to_string()), "{k}");
+        }
+    }
+
+    #[test]
+    fn rows_say_what_each_task_offers() {
+        use crate::jobs::starrocks::View;
+        let keys = |k: &[&str]| Some(k.iter().map(|x| x.to_string()).collect::<Vec<_>>());
+        let task = |name: &str, schedule: &str| Task {
+            name: name.into(),
+            schedule: Some(schedule.into()),
+            database: Some("db".into()),
+            ..Default::default()
+        };
+        let every = "PERIODICAL START(2026-11-13T00:26:24) EVERY(1 DAYS)";
+        // A scheduled task is suspended and resumed; one run once isn't.
+        let i = item(&task("t", every), None);
+        assert_eq!(i.id, "task:`t`");
+        assert_eq!(i.actions, keys(&["pause", "resume"]));
+        assert_eq!((i.can_edit, i.can_delete, i.system), (None, None, false));
+        assert_eq!(item(&task("t", "MANUAL"), None).actions, keys(&[]));
+        // A pipe's task: the server's, read only.
+        let i = item(&task("pipe-p1-task-12-0", every), None);
+        assert!(i.system);
+        assert_eq!(
+            (i.can_edit, i.can_delete, i.actions),
+            (Some(false), Some(false), keys(&[]))
+        );
+        // A view's refresh: refreshed while active, never deleted here.
+        let mut v = View {
+            schema: "db".into(),
+            name: "mv".into(),
+            active: true,
+            ..Default::default()
+        };
+        let i = item(&task("mv-1", every), Some(&v));
+        assert_eq!(i.id, "mv:`mv-1`");
+        assert_eq!((i.can_edit, i.can_delete), (None, Some(false)));
+        assert_eq!(i.actions, keys(&["refresh", "refresh_complete"]));
+        v.active = false;
+        assert_eq!(item(&task("mv-1", every), Some(&v)).actions, keys(&[]));
+    }
+
+    #[test]
+    fn pipe_tasks_are_told_by_their_name() {
+        use crate::jobs::starrocks::pipe_task;
+        for name in ["pipe-p1-task-12-0", "pipe-my-pipe-task-5-10"] {
+            assert!(pipe_task(name), "{name}");
+        }
+        for name in [
+            "pipe",
+            "pipeline-task-1-2",
+            "pipe-task-1-2",
+            "pipe-p-task-x-1",
+            "pipe-p-task-1-",
+            "my_task",
+            "mv-123",
+        ] {
+            assert!(!pipe_task(name), "{name}");
         }
     }
 }

@@ -12,24 +12,33 @@
 //!   a failed submit puts a scheduled task back (one without a schedule
 //!   already ran: submitted again it would run again, so it stays
 //!   dropped). The statement has to be one: a `;` would run the rest at
-//!   once. `DROP TASK` deletes.
+//!   once. `DROP TASK` deletes. Actions: a scheduled task's schedule
+//!   suspended and resumed (`ALTER TASK … SUSPEND | RESUME`); no "run
+//!   now", which StarRocks lacks (checked up to 4.1.4). A pipe's tasks
+//!   (`pipe-…-task-…`) are the server's: shown read-only.
 //! - "mv_refresh": how an asynchronous materialized view refreshes
 //!   (`REFRESH MANUAL`, `REFRESH ASYNC` when its base tables change, or
 //!   `REFRESH ASYNC [START(…)] EVERY(INTERVAL …)`), its refresh-related
 //!   properties (`SET (…)`) and whether it is active, all in place with
 //!   `ALTER MATERIALIZED VIEW`. Views are created and dropped with the
-//!   view, not here; the job list's `mv:` rows open this form under "job".
+//!   view, not here (their rows can't be deleted); the job list's `mv:`
+//!   rows open this form under "job". Actions, while the view is active:
+//!   refresh now what changed (`REFRESH MATERIALIZED VIEW … WITH ASYNC
+//!   MODE`) or all of it (`… FORCE WITH ASYNC MODE`).
+//! - Neither kind has steps, and StarRocks expires a task's runs on its
+//!   own: no statement deletes them.
 
 use super::{
-    bad, databases, datetime, form_time, name, no_kind, one_line, pick, properties_list,
-    properties_sql, property_changes, read_properties, Plan, Vals,
+    action_keys, bad, databases, datetime, form_time, name, no_action, no_kind, one_line, pick,
+    properties_list, properties_sql, property_changes, read_properties, refresh_head, with_refresh,
+    Plan, Vals, PAUSE, REFRESH, REFRESH_COMPLETE, RESUME,
 };
 use crate::jobs::starrocks::{self as sj, Task, View};
 use crate::jobs::{quoted, rows_if_present};
 use crate::session::{lit, MySqlSession};
 use dbine_driver::{
-    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerInfo,
-    SchedulerItem, SchedulerKind, SchedulerList,
+    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerAction,
+    SchedulerInfo, SchedulerItem, SchedulerKind, SchedulerList,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -42,6 +51,7 @@ const RUNS_AGAIN: &str =
     "Una tarea sin programación corre en cuanto se crea: volver a crearla la ejecuta otra vez.";
 const VIEW_CREATED_WITH: &str =
     "El refresco de una vista materializada se crea y se borra con la vista.";
+const PIPE_TASK: &str = "Esta tarea es de un pipe (CREATE PIPE): StarRocks la crea y la borra con las cargas del pipe, así que DBine no la cambia ni la borra. Para cambiarla, cambiá el pipe.";
 
 /// The units `EVERY(INTERVAL …)` takes, for tasks and views alike.
 pub(super) const UNITS: [&str; 4] = ["SECOND", "MINUTE", "HOUR", "DAY"];
@@ -99,15 +109,31 @@ pub(super) async fn info(s: &mut MySqlSession) -> Result<SchedulerInfo> {
     }
     notes.push(SUSPENDED_NOTE.to_string());
     notes.push(VIEWS_NOTE.to_string());
+    // No "run now": StarRocks has no statement that runs a task again. Its
+    // schedule is suspended and resumed apart from any switch (the catalog
+    // doesn't say which), and the refresh actions are the views' rows',
+    // listed among the tasks too. A task runs one statement (no steps), and
+    // StarRocks expires its runs on its own: no statement deletes them.
     Ok(SchedulerInfo {
         kinds: vec![
-            SchedulerKind::new("job", "Tareas", "tarea").abilities(true, true, true),
-            SchedulerKind::new(
-                "mv_refresh",
-                "Refrescos de vistas materializadas",
-                "refresco de vista materializada",
+            with_refresh(
+                SchedulerKind::new("job", "Tareas", "tarea")
+                    .abilities(true, true, true)
+                    .action(SchedulerAction::new("pause", "Suspender"))
+                    .action(SchedulerAction::new("resume", "Reanudar")),
             )
-            .abilities(false, true, false),
+            .run_from_step(false)
+            .clear_history(false),
+            with_refresh(
+                SchedulerKind::new(
+                    "mv_refresh",
+                    "Refrescos de vistas materializadas",
+                    "refresco de vista materializada",
+                )
+                .abilities(false, true, false),
+            )
+            .run_from_step(false)
+            .clear_history(false),
         ],
         logs: false,
         notes,
@@ -133,34 +159,7 @@ pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerL
             if kind == Kind::MvRefresh && view.is_none() {
                 return None;
             }
-            Some(match view {
-                Some(v) => SchedulerItem {
-                    id: sj::task_id(&t.name, true),
-                    name: v.name.clone(),
-                    description: Some(match &t.schedule {
-                        Some(sch) => format!("{} · {sch}", v.schema),
-                        None => v.schema.clone(),
-                    }),
-                    enabled: Some(v.active),
-                    system: false,
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
-                },
-                None => SchedulerItem {
-                    id: sj::task_id(&t.name, false),
-                    name: t.name.clone(),
-                    description: match (&t.database, &t.schedule) {
-                        (Some(db), Some(sch)) => Some(format!("{db} · {sch}")),
-                        (db, sch) => db.clone().or_else(|| sch.clone()),
-                    },
-                    enabled: None,
-                    system: false,
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
-                },
-            })
+            Some(item(t, view))
         })
         .collect();
     items.sort_by(|a, b| a.name.cmp(&b.name));
@@ -168,6 +167,53 @@ pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerL
         items,
         notes: Vec::new(),
     })
+}
+
+/// A row of the list, with what can be done with it: a view's refresh task
+/// is edited and refreshed (while the view is active), not deleted (it
+/// goes with the view); a scheduled task is suspended and resumed; a pipe's
+/// task is the server's, read only.
+pub(super) fn item(t: &Task, view: Option<&View>) -> SchedulerItem {
+    match view {
+        Some(v) => SchedulerItem {
+            id: sj::task_id(&t.name, true),
+            name: v.name.clone(),
+            description: Some(match &t.schedule {
+                Some(sch) => format!("{} · {sch}", v.schema),
+                None => v.schema.clone(),
+            }),
+            enabled: Some(v.active),
+            system: false,
+            can_edit: None,
+            can_delete: Some(false),
+            actions: action_keys(if v.active {
+                &[REFRESH, REFRESH_COMPLETE]
+            } else {
+                &[]
+            }),
+        },
+        None => {
+            let pipe = sj::pipe_task(&t.name);
+            let scheduled = t.start_every().1.is_some();
+            SchedulerItem {
+                id: sj::task_id(&t.name, false),
+                name: t.name.clone(),
+                description: match (&t.database, &t.schedule) {
+                    (Some(db), Some(sch)) => Some(format!("{db} · {sch}")),
+                    (db, sch) => db.clone().or_else(|| sch.clone()),
+                },
+                enabled: None,
+                system: pipe,
+                can_edit: pipe.then_some(false),
+                can_delete: pipe.then_some(false),
+                actions: action_keys(if scheduled && !pipe {
+                    &[PAUSE, RESUME]
+                } else {
+                    &[]
+                }),
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -813,11 +859,16 @@ pub(super) async fn form(s: &mut MySqlSession, kind: &str, id: Option<&str>) -> 
                     let spec = spec_of(&t);
                     f.sections = task_sections(true, &spec.properties);
                     f.values = task_values(&spec, Some(&t));
-                    f.notes.push(RECREATED.into());
-                    if spec.every.is_none() {
-                        f.notes.push(RUNS_AGAIN.into());
+                    if sj::pipe_task(&t.name) {
+                        f.read_only = true;
+                        f.notes.push(PIPE_TASK.into());
                     } else {
-                        f.notes.push(SUSPENDED_NOTE.into());
+                        f.notes.push(RECREATED.into());
+                        if spec.every.is_none() {
+                            f.notes.push(RUNS_AGAIN.into());
+                        } else {
+                            f.notes.push(SUSPENDED_NOTE.into());
+                        }
                     }
                 }
                 None => {
@@ -874,6 +925,9 @@ pub(super) async fn plan(
         }
         (_, Some(id)) => {
             let t = read_task(s, id).await?;
+            if sj::pipe_task(&t.name) {
+                return Err(bad(PIPE_TASK.into()));
+            }
             let dbs = databases(s).await;
             let cur = spec_of(&t);
             let (want, change) = task_spec_from(values, &dbs)?;
@@ -890,12 +944,95 @@ pub(super) async fn delete_plan(s: &mut MySqlSession, kind: &str, id: &str) -> R
         return Err(Error::Unsupported(VIEW_CREATED_WITH.into()));
     }
     let t = read_task(s, id).await?;
+    if sj::pipe_task(&t.name) {
+        return Err(bad(PIPE_TASK.into()));
+    }
     Ok(Plan {
         head: vec![format!(
             "Borra la tarea «{}» de StarRocks",
             one_line(&t.name)
         )],
         steps: vec![format!("DROP TASK {}", quoted(&t.name))],
+        id: Some(id.to_string()),
+        ..Plan::default()
+    })
+}
+
+const NO_RUN: &str = "StarRocks no ejecuta una tarea a pedido: no tiene una instrucción para eso (ALTER TASK solo la suspende, la reanuda o cambia sus propiedades).";
+
+/// What an action does: a view refreshed now (`REFRESH MATERIALIZED VIEW
+/// … [FORCE] WITH ASYNC MODE`: StarRocks queues it and answers at once), a
+/// scheduled task suspended or resumed.
+pub(super) async fn action_plan(
+    s: &mut MySqlSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<Plan> {
+    let kind = kind_of(kind)?;
+    let action = action.trim();
+    if kind == Kind::MvRefresh || is_mv_id(id) {
+        let st = read_mv(s, id).await?;
+        let complete = match action {
+            REFRESH => false,
+            REFRESH_COMPLETE => true,
+            other => return Err(no_action(other)),
+        };
+        let label = format!("{}.{}", st.view.schema, st.view.name);
+        if !st.view.active {
+            return Err(bad(format!(
+                "La vista materializada «{label}» está inactiva: StarRocks no la refresca. Activala antes, en su refresco."
+            )));
+        }
+        return Ok(Plan {
+            head: refresh_head(&label, complete),
+            steps: vec![format!(
+                "REFRESH MATERIALIZED VIEW {}.{}{} WITH ASYNC MODE",
+                quoted(&st.view.schema),
+                quoted(&st.view.name),
+                if complete { " FORCE" } else { "" }
+            )],
+            id: Some(id.to_string()),
+            ..Plan::default()
+        });
+    }
+    let t = read_task(s, id).await?;
+    let suspend = match action {
+        PAUSE => true,
+        RESUME => false,
+        "run" => return Err(Error::Unsupported(NO_RUN.into())),
+        other => return Err(no_action(other)),
+    };
+    if sj::pipe_task(&t.name) {
+        return Err(bad(PIPE_TASK.into()));
+    }
+    if t.start_every().1.is_none() {
+        return Err(bad(
+            "Una tarea sin programación no se suspende ni se reanuda: corre una sola vez, al crearse."
+                .into(),
+        ));
+    }
+    let change = if suspend {
+        StateChange::Suspend
+    } else {
+        StateChange::Resume
+    };
+    Ok(Plan {
+        head: vec![
+            if suspend {
+                format!(
+                    "Suspende la programación de la tarea «{}» de StarRocks",
+                    t.name
+                )
+            } else {
+                format!(
+                    "Reanuda la programación de la tarea «{}» de StarRocks",
+                    t.name
+                )
+            },
+            "StarRocks no informa si ya lo estaba: repetirlo no cambia nada.".into(),
+        ],
+        steps: state_sql(&t.name, change).into_iter().collect(),
         id: Some(id.to_string()),
         ..Plan::default()
     })

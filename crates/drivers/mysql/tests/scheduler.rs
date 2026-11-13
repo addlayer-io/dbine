@@ -238,6 +238,25 @@ async fn drop_events(s: &mut Box<dyn Session>) {
         }
         let _ = run(s, &format!("DROP DATABASE IF EXISTS {db}")).await;
     }
+    for user in [LOGIN, OTHER] {
+        let _ = run(s, &format!("DROP USER IF EXISTS '{user}'@'%'")).await;
+    }
+    if let Ok(o) = run(
+        s,
+        &format!("SELECT COUNT(*) FROM mysql.user WHERE User IN ('{LOGIN}', '{OTHER}')"),
+    )
+    .await
+    {
+        let n = o
+            .results
+            .iter()
+            .rfind(|r| !r.columns.is_empty())
+            .map(|r| r.rows[0][0].clone());
+        assert!(
+            matches!(n, Some(ref v) if v == &json!(0) || v == &json!("0")),
+            "login left behind: {n:?}"
+        );
+    }
     let left = rows(
         s,
         "SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_NAME LIKE 'dbine\\_test\\_sched\\_%' OR EVENT_SCHEMA LIKE 'dbine\\_test\\_sched\\_%'",
@@ -251,6 +270,13 @@ const EV2: &str = "dbine_test_sched_ev 'renamed'";
 const ONCE: &str = "dbine_test_sched_once";
 const FAILS: &str = "dbine_test_sched_fails";
 const TAKEN: &str = "dbine_test_sched_taken";
+const OWN: &str = "dbine_test_sched_own";
+/// A login with only the EVENT privilege.
+const LOGIN: &str = "dbine_test_sched_login";
+const LOGIN_PW: &str = "Dbine_test_1";
+/// Another plain account (no SYSTEM_USER), and its event.
+const OTHER: &str = "dbine_test_sched_other";
+const OTHERS: &str = "dbine_test_sched_others";
 
 fn event_row_sql(db: &str, name: &str) -> String {
     format!(
@@ -287,6 +313,9 @@ async fn events(driver: &str, env: &str) {
             assert_eq!(keys, ["job"]);
             assert_eq!(info.kinds[0].label, "Eventos");
             assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
+            // No run now, no steps, no history to clear.
+            assert!(info.kinds[0].actions.is_empty(), "{info:?}");
+            assert!(!info.kinds[0].run_from_step && !info.kinds[0].clear_history);
             let on = scheduler.eq_ignore_ascii_case("ON") || scheduler == "1";
             assert_eq!(
                 info.notes.iter().any(|n| n.contains("event_scheduler")),
@@ -327,7 +356,24 @@ async fn events(driver: &str, env: &str) {
             let listed = s.jobs().await.expect("jobs");
             assert!(listed.jobs.iter().any(|j| j.id == id), "the job list has it");
             let items = s.scheduler_items("job").await.expect("items");
-            assert!(items.items.iter().any(|i| i.id == id && i.enabled == Some(false)));
+            assert!(items.items.iter().any(|i| i.id == id
+                && i.enabled == Some(false)
+                && i.can_edit.is_none()
+                && i.can_delete.is_none()));
+            // The server runs an event only on its schedule.
+            match s.scheduler_action_script("job", &id, "run").await {
+                Err(Error::Unsupported(m)) => assert!(m.contains("a pedido"), "{m}"),
+                other => panic!("an event has no run now: {other:?}"),
+            }
+            match s.scheduler_action_script("job", &id, "refresh").await {
+                Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
+                other => panic!("an event has no refresh: {other:?}"),
+            }
+            assert!(s.scheduler_action("job", &id, "run").await.is_err());
+            assert!(s
+                .scheduler_action_script("job", &format!("{id}; DROP DATABASE {DB}"), "run")
+                .await
+                .is_err());
             let r = one_row(&mut s, &event_row_sql(DB, EV)).await;
             assert_eq!(r[0], "DISABLED");
             assert_eq!(r[1].trim_matches('\''), "1:30");
@@ -548,6 +594,96 @@ async fn events(driver: &str, env: &str) {
                 assert!(ro.scheduler_delete("job", &once).await.is_err());
             }
 
+            // Another login, with only the EVENT privilege, on root's event
+            // and on one of its own. MySQL 8.0.16+ locks root's (root holds
+            // SYSTEM_USER) to it, even to take it over or drop it; MariaDB
+            // has no SYSTEM_USER: it takes root's event over as definer.
+            if !ob {
+                exec(&mut s, &format!("CREATE USER '{LOGIN}'@'%' IDENTIFIED BY '{LOGIN_PW}'")).await;
+                exec(&mut s, &format!("GRANT EVENT, INSERT ON {DB}.* TO '{LOGIN}'@'%'")).await;
+                // And another plain account's event (it lacks SYSTEM_USER).
+                exec(&mut s, &format!("CREATE USER '{OTHER}'@'%' IDENTIFIED BY '{LOGIN_PW}'")).await;
+                exec(&mut s, &format!("GRANT EVENT ON {DB}.* TO '{OTHER}'@'%'")).await;
+                exec(
+                    &mut s,
+                    &format!("CREATE DEFINER = '{OTHER}'@'%' EVENT {DB}.{OTHERS} ON SCHEDULE EVERY 1 DAY STARTS '2030-01-01 00:00:00' DISABLE DO SELECT 1"),
+                )
+                .await;
+                let mut lcfg = cfg.clone();
+                lcfg.username = Some(LOGIN.into());
+                lcfg.password = Some(LOGIN_PW.into());
+                let mut l = connect(driver, &lcfg).await;
+                let account = one_row(&mut l, "SELECT CURRENT_USER()").await[0].clone();
+                exec(
+                    &mut l,
+                    &format!("CREATE EVENT {DB}.{OWN} ON SCHEDULE EVERY 1 DAY STARTS '2030-01-01 00:00:00' DISABLE DO SELECT 1"),
+                )
+                .await;
+                let own = format!("`{DB}`.`{OWN}`");
+                let items = l.scheduler_items("job").await.expect("items");
+                eprintln!("{items:?}");
+                let item = |id: &str| items.items.iter().find(|i| i.id == id).cloned().expect(id);
+                assert_eq!((item(&own).can_edit, item(&own).can_delete), (None, None));
+                let nums: Vec<u64> = version
+                    .split(|c: char| !c.is_ascii_digit())
+                    .take(3)
+                    .map(|p| p.parse().unwrap_or(0))
+                    .collect();
+                let locked = driver == "mysql" && (nums[0], nums[1], nums[2]) >= (8, 0, 16);
+                let form = l.scheduler_form("job", Some(&once)).await.expect("form");
+                let mut v = values_of(&form);
+                set(&mut v, "definer", json!(account));
+                set(&mut v, "comment", json!("taken over"));
+                if locked {
+                    let root = item(&once);
+                    assert_eq!((root.can_edit, root.can_delete), (Some(false), Some(false)));
+                    assert!(items.notes.iter().any(|n| n.contains("SYSTEM_USER")), "{items:?}");
+                    assert!(form.read_only && form.notes.iter().any(|n| n.contains("SYSTEM_USER")), "{:?}", form.notes);
+                    let m = query_err(&mut l, "job", Some(&once), &v).await;
+                    assert!(m.contains("no le deja cambiar ni borrar"), "{m}");
+                    assert!(l.scheduler_delete_script("job", &once).await.is_err());
+                    // As the server has it: neither taken over nor dropped.
+                    for sql in [
+                        format!("ALTER DEFINER = CURRENT_USER EVENT {DB}.{ONCE} COMMENT 'x'"),
+                        format!("DROP EVENT {DB}.{ONCE}"),
+                    ] {
+                        let e = run(&mut l, &sql).await.unwrap_err();
+                        assert!(e.to_string().contains("SYSTEM_USER"), "{sql}: {e}");
+                    }
+                } else {
+                    let root = item(&once);
+                    assert_eq!((root.can_edit, root.can_delete), (None, None));
+                    assert!(!form.read_only, "{:?}", form.notes);
+                    save(&mut l, "job", Some(&once), &v).await;
+                    let r = one_row(&mut s, &event_row_sql(DB, ONCE)).await;
+                    assert_eq!((r[6].as_str(), r[10].as_str()), ("taken over", account.as_str()));
+                }
+                // Another plain account's event stays open on every server
+                // (MySQL 8.0.16+ included: its definer lacks SYSTEM_USER): the
+                // login takes it over by naming itself definer.
+                let others = format!("`{DB}`.`{OTHERS}`");
+                let other = item(&others);
+                assert_eq!((other.can_edit, other.can_delete), (None, None), "{other:?}");
+                let form = l.scheduler_form("job", Some(&others)).await.expect("form");
+                assert!(!form.read_only, "{:?}", form.notes);
+                assert!(
+                    val(&form, "definer").as_str().is_some_and(|d| d.starts_with(&format!("{OTHER}@"))),
+                    "{:?}",
+                    form.values
+                );
+                assert!(l.scheduler_delete_script("job", &others).await.is_ok());
+                let mut v = values_of(&form);
+                set(&mut v, "definer", json!(account));
+                save(&mut l, "job", Some(&others), &v).await;
+                let r = one_row(&mut s, &event_row_sql(DB, OTHERS)).await;
+                assert_eq!(r[10], account);
+                drop(l);
+                exec(&mut s, &format!("DROP EVENT {DB}.{OWN}")).await;
+                exec(&mut s, &format!("DROP EVENT {DB}.{OTHERS}")).await;
+                exec(&mut s, &format!("DROP USER '{LOGIN}'@'%'")).await;
+                exec(&mut s, &format!("DROP USER '{OTHER}'@'%'")).await;
+            }
+
             // The scheduler's log (MySQL 8.0.22+): a failing event's error.
             if info.logs && on {
                 let form = s.scheduler_form("job", None).await.expect("form");
@@ -681,6 +817,13 @@ async fn doris_jobs_and_views() {
             assert_eq!(keys, ["job", "mv_refresh"]);
             assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
             assert!(!info.kinds[1].can_create && info.kinds[1].can_edit && !info.kinds[1].can_delete);
+            // The views' refresh, now; no run now for a job, no steps, no
+            // history to clear.
+            for k in &info.kinds {
+                let actions: Vec<&str> = k.actions.iter().map(|a| a.key.as_str()).collect();
+                assert_eq!(actions, ["refresh", "refresh_complete"], "{}", k.key);
+                assert!(!k.run_from_step && !k.clear_history, "{}", k.key);
+            }
 
             // A recurring job, from 2030 to 2031, with a comment.
             let form = s.scheduler_form("job", None).await.expect("form");
@@ -703,6 +846,20 @@ async fn doris_jobs_and_views() {
             assert_eq!(r[2], "RUNNING");
             assert_eq!(r[3], "INSERT INTO dst SELECT * FROM src");
             assert_eq!(r[4], "it's DBine's \\ job");
+            // A job offers no action: Doris runs it only on its schedule.
+            let items = s.scheduler_items("job").await.expect("items");
+            let it = items.items.iter().find(|i| i.id == id).expect("listed");
+            assert_eq!((it.can_edit, it.can_delete), (None, None));
+            assert_eq!(it.actions, Some(Vec::new()));
+            match s.scheduler_action_script("job", &id, "run").await {
+                Err(Error::Unsupported(m)) => assert!(m.contains("a pedido"), "{m}"),
+                other => panic!("a Doris job has no run now: {other:?}"),
+            }
+            match s.scheduler_action_script("job", &id, "refresh").await {
+                Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
+                other => panic!("a job isn't refreshed: {other:?}"),
+            }
+            assert!(s.scheduler_action("job", &id, "refresh").await.is_err());
 
             // Read back; unchanged, nothing to do.
             let form = s.scheduler_form("job", Some(&id)).await.expect("form");
@@ -783,9 +940,18 @@ async fn doris_jobs_and_views() {
             let r = doris_job(&mut s, ATJOB).await;
             assert_eq!(&r[..2], ["ONE_TIME", "AT 2030-06-01 12:00:00"]);
             // Doris has the form's newer parts: streaming jobs, properties.
+            // The properties tab and the progress show for a streaming job
+            // only (Doris neither keeps nor applies a scheduled job's).
             let form = s.scheduler_form("job", Some(&at)).await.expect("form");
             assert!(form.sections.iter().any(|s| s.lists.iter().any(|l| l.key == "properties")));
             assert!(!form.notes.iter().any(|n| n.contains("no tiene jobs continuos")), "{:?}", form.notes);
+            let streaming_only = Some(("type".to_string(), vec!["streaming".to_string()]));
+            for key in ["properties", "progress"] {
+                let sec = form.sections.iter().find(|s| s.key == key).expect(key);
+                assert_eq!(sec.when, streaming_only, "{key}");
+                assert!(sec.lists.iter().all(|l| l.when == streaming_only), "{key}");
+            }
+            assert_eq!(val(&form, "type"), json!("at"));
 
             // A one-time job at a past time: refused before Doris refuses it.
             let mut pv = v.clone();
@@ -820,6 +986,12 @@ async fn doris_jobs_and_views() {
             let m = query_err(&mut s, "job", Some(&past), &v2).await;
             assert!(m.contains("ya pasó su hora"), "{m}");
             assert!(!rows(&mut s, &format!("SELECT Name FROM jobs('type'='insert') WHERE Name = '{PASTJOB}'")).await.is_empty(), "still there");
+            // Once it ran, its row says there's nothing to change.
+            if doris_job(&mut s, PASTJOB).await[2] == "FINISHED" {
+                let items = s.scheduler_items("job").await.expect("items");
+                let it = items.items.iter().find(|i| i.id == past).expect("listed");
+                assert_eq!((it.can_edit, it.can_delete), (Some(false), None));
+            }
             s.scheduler_delete("job", &past).await.expect("delete");
 
             // A streaming job's script (its S3 source isn't reachable here).
@@ -895,6 +1067,58 @@ async fn doris_jobs_and_views() {
             assert!(s.scheduler_form("mv_refresh", None).await.is_err());
             assert!(s.scheduler_delete("mv_refresh", &mv_id).await.is_err());
 
+            // The view's row, under both kinds: edited and refreshed, never
+            // deleted here (Doris' own job, made and dropped with the view).
+            for kind in ["mv_refresh", "job"] {
+                let items = s.scheduler_items(kind).await.expect("items");
+                let it = items.items.iter().find(|i| i.id == mv_id).expect("listed");
+                assert_eq!((it.can_edit, it.can_delete), (Some(true), Some(false)), "{kind}");
+                assert_eq!(
+                    it.actions,
+                    Some(vec!["refresh".to_string(), "refresh_complete".to_string()]),
+                    "{kind}"
+                );
+            }
+            // Refreshed now: what changed (AUTO), then all of it (COMPLETE),
+            // each a task of the view's job.
+            let job_name = val(&form, "job").as_str().expect("the view's job").to_string();
+            let count = format!("SELECT COUNT(*) FROM tasks('type'='mv') WHERE JobName = '{job_name}'");
+            let going = format!("SELECT TaskId FROM tasks('type'='mv') WHERE JobName = '{job_name}' AND Status IN ('PENDING', 'RUNNING')");
+            for (action, mode) in [("refresh", "AUTO"), ("refresh_complete", "COMPLETE")] {
+                let sc = s
+                    .scheduler_action_script("job", &mv_id, action)
+                    .await
+                    .expect("action script");
+                eprintln!("--- {action}\n{sc}");
+                assert!(sc.contains(&format!("REFRESH MATERIALIZED VIEW `{DB}`.`{MV}` {mode};")), "{sc}");
+                let before: u64 = one_row(&mut s, &count).await[0].parse().unwrap();
+                s.scheduler_action("mv_refresh", &mv_id, action).await.expect(action);
+                let until = Instant::now() + Duration::from_secs(20);
+                while one_row(&mut s, &count).await[0].parse::<u64>().unwrap() <= before {
+                    assert!(Instant::now() < until, "{action}: a task of the view's job");
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                // Let it end before the next one.
+                let until = Instant::now() + Duration::from_secs(60);
+                while !rows(&mut s, &going).await.is_empty() {
+                    assert!(Instant::now() < until, "{action}: the refresh ends");
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
+            match s.scheduler_action_script("mv_refresh", &mv_id, "pause").await {
+                Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
+                other => panic!("no pause on a view: {other:?}"),
+            }
+            assert!(s
+                .scheduler_action_script("mv_refresh", &format!("{mv_id}; DROP DATABASE {DB}"), "refresh")
+                .await
+                .is_err());
+            {
+                let mut ro = ReadOnlySession::new(connect(driver, &cfg).await);
+                assert!(ro.scheduler_action_script("mv_refresh", &mv_id, "refresh").await.is_ok());
+                assert!(ro.scheduler_action("mv_refresh", &mv_id, "refresh").await.is_err());
+            }
+
             refuses_foreign_ids(&mut s, &["job", "mv_refresh"], &id2).await;
             let sc = s.scheduler_delete_script("job", &at).await.expect("delete script");
             assert!(sc.contains("DROP JOB WHERE jobname = 'dbine_test_sched_at'"), "{sc}");
@@ -964,6 +1188,15 @@ async fn starrocks_tasks_and_views() {
             let keys: Vec<&str> = info.kinds.iter().map(|k| k.key.as_str()).collect();
             assert_eq!(keys, ["job", "mv_refresh"]);
             assert_eq!(info.kinds[0].label, "Tareas");
+            // A task's schedule suspended and resumed, the views' refresh;
+            // no run now (StarRocks has none), no steps, no history to
+            // clear.
+            let actions = |i: usize| -> Vec<String> {
+                info.kinds[i].actions.iter().map(|a| a.key.clone()).collect()
+            };
+            assert_eq!(actions(0), ["pause", "resume", "refresh", "refresh_complete"]);
+            assert_eq!(actions(1), ["refresh", "refresh_complete"]);
+            assert!(info.kinds.iter().all(|k| !k.run_from_step && !k.clear_history));
 
             // A periodic task from 2030, with a session variable.
             let form = s.scheduler_form("job", None).await.expect("form");
@@ -987,6 +1220,31 @@ async fn starrocks_tasks_and_views() {
             assert_eq!(r[1], DB);
             assert_eq!(r[2], "INSERT INTO dst SELECT * FROM src");
             assert!(r[3].contains("'query_timeout'='120'"), "{r:?}");
+            // Its schedule suspended, then resumed, as actions.
+            let items = s.scheduler_items("job").await.expect("items");
+            let it = items.items.iter().find(|i| i.id == id).expect("listed");
+            assert_eq!(it.actions, Some(vec!["pause".to_string(), "resume".to_string()]));
+            assert_eq!((it.can_edit, it.can_delete, it.system), (None, None, false));
+            for (action, verb) in [("pause", "SUSPEND"), ("resume", "RESUME")] {
+                let sc = s.scheduler_action_script("job", &id, action).await.expect(action);
+                eprintln!("--- {action}\n{sc}");
+                assert!(sc.contains(&format!("ALTER TASK `{TASK}` {verb};")), "{sc}");
+                s.scheduler_action("job", &id, action).await.expect(action);
+            }
+            match s.scheduler_action_script("job", &id, "run").await {
+                Err(Error::Unsupported(m)) => assert!(m.contains("a pedido"), "{m}"),
+                other => panic!("StarRocks has no run now: {other:?}"),
+            }
+            match s.scheduler_action_script("job", &id, "refresh").await {
+                Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
+                other => panic!("a task isn't refreshed: {other:?}"),
+            }
+            {
+                let mut ro = ReadOnlySession::new(connect(driver, &cfg).await);
+                assert!(ro.scheduler_action_script("job", &id, "pause").await.is_ok());
+                assert!(ro.scheduler_action("job", &id, "pause").await.is_err());
+            }
+            assert_eq!(sr_task(&mut s, TASK).await[0], "PERIODICAL START(2030-01-01T00:00) EVERY(1 HOURS)");
 
             // Read back; unchanged, nothing to do.
             let form = s.scheduler_form("job", Some(&id)).await.expect("form");
@@ -1049,6 +1307,15 @@ async fn starrocks_tasks_and_views() {
                     assert!(Instant::now() < until, "the task ran once");
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
+                // Without a schedule, nothing to suspend.
+                let items = s.scheduler_items("job").await.expect("items");
+                let it = items.items.iter().find(|i| i.id == once).expect("listed");
+                assert_eq!(it.actions, Some(Vec::new()));
+                let m = match s.scheduler_action_script("job", &once, "pause").await {
+                    Err(Error::Query(m)) => m,
+                    other => panic!("expected a refusal, got {other:?}"),
+                };
+                assert!(m.contains("sin programación"), "{m}");
                 let form = s.scheduler_form("job", Some(&once)).await.expect("form");
                 let mut v = values_of(&form);
                 set(&mut v, "definition", json!("INSERT INTO dbine_test_sched_missing SELECT * FROM src"));
@@ -1111,6 +1378,15 @@ async fn starrocks_tasks_and_views() {
             assert_eq!(r[1], "false");
             let form = s.scheduler_form("mv_refresh", Some(&mv_id)).await.expect("form");
             assert_eq!(val(&form, "active"), json!(false));
+            // Inactive: StarRocks doesn't refresh it.
+            let items = s.scheduler_items("mv_refresh").await.expect("items");
+            let it = items.items.iter().find(|i| i.id == mv_id).expect("listed");
+            assert_eq!(it.actions, Some(Vec::new()));
+            let m = match s.scheduler_action_script("mv_refresh", &mv_id, "refresh").await {
+                Err(Error::Query(m)) => m,
+                other => panic!("expected a refusal, got {other:?}"),
+            };
+            assert!(m.contains("inactiva"), "{m}");
             let pr = &form.sections[1].lists[0].rows;
             assert!(pr.iter().any(|r| r["key"] == json!("session.query_timeout") && r["value"] == json!("500")), "{pr:?}");
             let sc = script(&mut s, "mv_refresh", Some(&mv_id), &values_of(&form)).await;
@@ -1126,6 +1402,46 @@ async fn starrocks_tasks_and_views() {
             .await;
             assert_eq!(r, ["EVENT_TRIGGERED", "true"]);
             assert!(s.scheduler_delete("mv_refresh", &mv_id).await.is_err());
+
+            // Active, under both kinds: refreshed now, never deleted here.
+            for kind in ["mv_refresh", "job"] {
+                let items = s.scheduler_items(kind).await.expect("items");
+                let it = items.items.iter().find(|i| i.id == mv_id).expect("listed");
+                assert_eq!(it.can_delete, Some(false), "{kind}");
+                assert_eq!(
+                    it.actions,
+                    Some(vec!["refresh".to_string(), "refresh_complete".to_string()]),
+                    "{kind}"
+                );
+            }
+            // What changed, then all of it (FORCE): each a run of its task.
+            let task = val(&form, "task").as_str().expect("the view's task").to_string();
+            let count = format!("SELECT COUNT(*) FROM information_schema.task_runs WHERE TASK_NAME = '{task}'");
+            let going = format!("SELECT QUERY_ID FROM information_schema.task_runs WHERE TASK_NAME = '{task}' AND STATE IN ('PENDING', 'RUNNING')");
+            for (action, force) in [("refresh", ""), ("refresh_complete", " FORCE")] {
+                let sc = s
+                    .scheduler_action_script("job", &mv_id, action)
+                    .await
+                    .expect("action script");
+                eprintln!("--- {action}\n{sc}");
+                assert!(sc.contains(&format!("REFRESH MATERIALIZED VIEW `{DB}`.`{MV}`{force} WITH ASYNC MODE;")), "{sc}");
+                let before: u64 = one_row(&mut s, &count).await[0].parse().unwrap();
+                s.scheduler_action("mv_refresh", &mv_id, action).await.expect(action);
+                let until = Instant::now() + Duration::from_secs(30);
+                while one_row(&mut s, &count).await[0].parse::<u64>().unwrap() <= before {
+                    assert!(Instant::now() < until, "{action}: a run of the view's task");
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                let until = Instant::now() + Duration::from_secs(60);
+                while !rows(&mut s, &going).await.is_empty() {
+                    assert!(Instant::now() < until, "{action}: the refresh ends");
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            }
+            match s.scheduler_action_script("mv_refresh", &mv_id, "pause").await {
+                Err(Error::Query(m)) => assert!(m.contains("no es una acción"), "{m}"),
+                other => panic!("no pause on a view: {other:?}"),
+            }
 
             refuses_foreign_ids(&mut s, &["job", "mv_refresh"], &id2).await;
             let sc = s.scheduler_delete_script("job", &id2).await.expect("delete script");

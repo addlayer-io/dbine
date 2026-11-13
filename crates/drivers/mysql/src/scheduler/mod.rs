@@ -23,6 +23,11 @@
 //!   statement the object runs (an event's, a job's, a task's) has to be
 //!   one for the server: the session runs with multi-statements on, so a
 //!   `;` would end the object's statement and run the rest at once.
+//! - Actions besides editing and deleting (each shown as a script first):
+//!   a materialized view's refresh now (Doris, StarRocks) and a StarRocks
+//!   task's schedule suspended or resumed. No engine here has a "run now"
+//!   for its jobs, steps to start a job at, or a statement that deletes a
+//!   job's history. Each item says which actions it offers now.
 //! - With autocommit off, a change is refused while the session has a
 //!   transaction open (the DDL would commit it); the transaction the
 //!   scheduler's own catalog reads open is rolled back after them.
@@ -44,7 +49,7 @@ use crate::session::{at, lit, MySqlSession};
 use crate::Variant;
 use dbine_driver::{
     Error, FormField, FormKind, FormList, FormValues, MonitorTable, ObjectForm, Result,
-    SchedulerInfo, SchedulerList, Session, TxState,
+    SchedulerAction, SchedulerInfo, SchedulerKind, SchedulerList, Session, TxState,
 };
 use mysql_async::prelude::Queryable;
 use serde_json::{json, Value};
@@ -192,6 +197,41 @@ pub(crate) async fn delete(s: &mut MySqlSession, kind: &str, id: &str) -> Result
     run(s, &plan).await
 }
 
+async fn action_plan(s: &mut MySqlSession, kind: &str, id: &str, action: &str) -> Result<Plan> {
+    match s.variant {
+        Variant::MySql | Variant::MariaDb | Variant::OceanBase => {
+            events::action_plan(s, kind, id, action).await
+        }
+        Variant::Doris => doris::action_plan(s, kind, id, action).await,
+        Variant::StarRocks => starrocks::action_plan(s, kind, id, action).await,
+        v => Err(unsupported(v)),
+    }
+}
+
+pub(crate) async fn action_script(
+    s: &mut MySqlSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    let had = in_transaction(s).await;
+    let planned = action_plan(s, kind, id, action).await;
+    end_own_reads(s, had).await;
+    Ok(planned?.script())
+}
+
+pub(crate) async fn action(s: &mut MySqlSession, kind: &str, id: &str, action: &str) -> Result<()> {
+    let had = open_transaction(s).await?;
+    let planned = action_plan(s, kind, id, action).await;
+    end_own_reads(s, had).await;
+    let mut plan = planned?;
+    if had {
+        return Err(Error::State(OPEN_TRANSACTION.into()));
+    }
+    back_to_database(s, &mut plan).await;
+    run(s, &plan).await
+}
+
 pub(crate) async fn logs(s: &mut MySqlSession) -> Result<Vec<MonitorTable>> {
     let had = in_transaction(s).await;
     let out = match s.variant {
@@ -272,6 +312,57 @@ pub(crate) fn no_kind(kind: &str) -> Error {
         "«{}» no es un tipo de objeto del planificador de este servidor",
         shown(kind)
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Actions besides editing and deleting
+// ---------------------------------------------------------------------------
+
+/// A materialized view refreshed now: what changed in its base tables
+/// (Doris' `AUTO`, StarRocks' default)…
+pub(crate) const REFRESH: &str = "refresh";
+/// …or all of it (Doris' `COMPLETE`, StarRocks' `FORCE`).
+pub(crate) const REFRESH_COMPLETE: &str = "refresh_complete";
+/// A StarRocks task's schedule suspended and resumed (`ALTER TASK …
+/// SUSPEND | RESUME`): StarRocks doesn't say which, so it's no switch.
+pub(crate) const PAUSE: &str = "pause";
+pub(crate) const RESUME: &str = "resume";
+
+/// The kind with the materialized views' refresh actions.
+pub(crate) fn with_refresh(k: SchedulerKind) -> SchedulerKind {
+    k.action(SchedulerAction::new("refresh", "Refrescar ahora"))
+        .action(SchedulerAction::new(
+            "refresh_complete",
+            "Refrescar todo ahora",
+        ))
+}
+
+/// An item's actions, by key.
+pub(crate) fn action_keys(keys: &[&str]) -> Option<Vec<String>> {
+    Some(keys.iter().map(|k| k.to_string()).collect())
+}
+
+/// The error for an action the object doesn't have.
+pub(crate) fn no_action(action: &str) -> Error {
+    bad(format!(
+        "«{}» no es una acción de este objeto del planificador.",
+        shown(action)
+    ))
+}
+
+/// The head of a view's refresh script.
+pub(crate) fn refresh_head(label: &str, complete: bool) -> Vec<String> {
+    vec![
+        if complete {
+            format!(
+                "Refresca ahora la vista materializada «{label}» entera: todas sus particiones."
+            )
+        } else {
+            format!("Refresca ahora la vista materializada «{label}»: solo las particiones cuyas tablas base cambiaron.")
+        },
+        "El refresco corre en segundo plano: su resultado queda en el historial de la vista."
+            .into(),
+    ]
 }
 
 // ---------------------------------------------------------------------------

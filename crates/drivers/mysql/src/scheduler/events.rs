@@ -17,6 +17,14 @@
 //! - The statement: one, or one `BEGIN … END` block (a `;` outside it
 //!   would end the `CREATE` there and run the rest at once).
 //! - Delete: `DROP EVENT`.
+//! - No actions: the server runs an event only on its schedule, keeps no
+//!   history of its runs, and an event has no steps.
+//! - MySQL 8.0.16+: an event whose definer holds SYSTEM_USER can't be
+//!   changed nor dropped by a login without it (not even taking it over as
+//!   definer): the list marks it so, the form is read-only, and such an
+//!   account isn't offered as definer. Any other event of someone else's
+//!   is changed by naming the login as definer (or keeping its own with
+//!   SET_USER_ID / SET_ANY_DEFINER) and dropped with the EVENT privilege.
 //! - OceanBase creates and changes events only in the current database
 //!   (the script starts with `USE`), doesn't move one to another database,
 //!   and reads every time on the tenant's global zone.
@@ -25,7 +33,8 @@
 //!   [definer][db.event] …`).
 
 use super::{
-    bad, databases, datetime, form_time, name, no_kind, one_line, pick, shown, Plan, Vals,
+    bad, databases, datetime, form_time, name, no_action, no_kind, one_line, pick, shown, Plan,
+    Vals,
 };
 use crate::jobs::clock::Civil;
 use crate::jobs::events::{self as ev, Event};
@@ -44,6 +53,10 @@ const OB_NOTE: &str = "OceanBase lee las horas de los eventos en la zona horaria
 const CHANGED: &str = "El evento cambió en el servidor desde que se abrió el formulario: volvé a abrirlo antes de guardar.";
 const NO_LOG: &str = "Este servidor no deja leer el registro del programador de eventos: está en performance_schema.error_log desde MySQL 8.0.22, con el privilegio SELECT sobre esa tabla.";
 const ONE_STATEMENT: &str = "La instrucción del evento tiene que ser una sola: con un «;» fuera de un bloque BEGIN … END, el servidor guardaría en el evento solo lo anterior y ejecutaría el resto al guardar. Para varias, encerralas en BEGIN … END (y una columna llamada begin o end, entre comillas invertidas).";
+const SYSTEM_DEFINER: &str = "El definidor de este evento tiene el privilegio SYSTEM_USER y este usuario no: el servidor no le deja cambiar ni borrar el evento.";
+const SYSTEM_DEFINERS: &str = "Los eventos cuyo definidor tiene el privilegio SYSTEM_USER solo los cambia o los borra un usuario que también lo tenga.";
+const SYSTEM_DEFINER_NEW: &str = "Solo un usuario con el privilegio SYSTEM_USER puede poner como definidor a una cuenta que lo tiene.";
+const NO_RUN: &str = "el servidor no ejecuta un evento a pedido: solo según su programación";
 
 /// The interval units `EVERY` takes, in the order the form offers them.
 pub(super) const UNITS: [&str; 15] = [
@@ -89,6 +102,10 @@ pub(super) struct Ctx {
     pub(super) ob: bool,
     /// `performance_schema.error_log` is readable.
     pub(super) error_log: bool,
+    /// MySQL 8.0.16+ and a login without SYSTEM_USER: the accounts that hold
+    /// it (`user@host`, from `mysql.global_grants`), `None` when they can't
+    /// be read.
+    pub(super) system_users: Option<Vec<String>>,
 }
 
 impl Ctx {
@@ -96,6 +113,33 @@ impl Ctx {
         self.privileges
             .iter()
             .any(|p| p == "ALL" || p == "ALL PRIVILEGES" || any.contains(&p.as_str()))
+    }
+
+    /// MySQL 8.0.16+ and the login lacks SYSTEM_USER: the server refuses it
+    /// any change to, and the drop of, an object whose definer holds it.
+    pub(super) fn guards_system_users(&self) -> bool {
+        self.mysql && version_at_least(&self.version, 8, 0, 16) && !self.has(&["SYSTEM_USER"])
+    }
+
+    /// The server refuses this login any change to an event of `definer`'s
+    /// (and naming `definer`): the definer holds SYSTEM_USER and the login
+    /// doesn't. When the accounts that hold it can't be read, root's and
+    /// the server's own `mysql.*` accounts, which hold it out of the box.
+    /// Never the login's own account: it doesn't hold SYSTEM_USER.
+    pub(super) fn protected(&self, definer: &str) -> bool {
+        if !self.guards_system_users() || definer.is_empty() {
+            return false;
+        }
+        if same_account(definer, &self.user) {
+            return false;
+        }
+        match &self.system_users {
+            Some(accounts) => accounts.iter().any(|a| same_account(a, definer)),
+            None => {
+                let user = definer.rsplit_once('@').map_or(definer, |(u, _)| u);
+                user == "root" || user.starts_with("mysql.")
+            }
+        }
     }
 
     /// `DEFINER = <someone else>` is allowed.
@@ -132,6 +176,15 @@ pub(super) fn version_at_least(version: &str, major: u64, minor: u64, patch: u64
         nums.get(2).copied().unwrap_or(0),
     );
     v >= (major, minor, patch)
+}
+
+/// Two `user@host` accounts are one: the user as written, the host in any
+/// case.
+pub(super) fn same_account(a: &str, b: &str) -> bool {
+    match (a.rsplit_once('@'), b.rsplit_once('@')) {
+        (Some((ua, ha)), Some((ub, hb))) => ua == ub && ha.eq_ignore_ascii_case(hb),
+        _ => a == b,
+    }
 }
 
 /// An `EVENT` (or `ALL`) privilege among `SHOW GRANTS` lines, on any level
@@ -226,6 +279,21 @@ pub(super) async fn ctx(s: &mut MySqlSession) -> Result<Ctx> {
             .await
             .is_ok();
     }
+    if c.guards_system_users() {
+        c.system_users = s
+            .rows("SELECT USER AS ev_user, HOST AS ev_host FROM mysql.global_grants WHERE PRIV = 'SYSTEM_USER'")
+            .await
+            .ok()
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| {
+                        let user = crate::session::named(r, &["ev_user"])?;
+                        let host = crate::session::named(r, &["ev_host"]).unwrap_or_default();
+                        Some(format!("{user}@{host}"))
+                    })
+                    .collect()
+            });
+    }
     Ok(c)
 }
 
@@ -243,7 +311,13 @@ pub(super) async fn info(s: &mut MySqlSession) -> Result<SchedulerInfo> {
         notes.push(OB_NOTE.to_string());
     }
     Ok(SchedulerInfo {
-        kinds: vec![SchedulerKind::new("job", "Eventos", "evento").abilities(w, w, w)],
+        // No actions: the server runs an event only on its schedule. An
+        // event is one statement with no steps, and the server keeps no
+        // history of its runs.
+        kinds: vec![SchedulerKind::new("job", "Eventos", "evento")
+            .abilities(w, w, w)
+            .run_from_step(false)
+            .clear_history(false)],
         logs: c.error_log,
         notes,
     })
@@ -259,11 +333,14 @@ fn check_kind(kind: &str) -> Result<()> {
 
 pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerList> {
     check_kind(kind)?;
+    let c = ctx(s).await?;
     let events = ev::load(s, None).await?;
-    Ok(SchedulerList {
-        items: events
-            .iter()
-            .map(|e| SchedulerItem {
+    let items: Vec<SchedulerItem> = events
+        .iter()
+        .map(|e| {
+            // Another definer's event the login can't change nor drop.
+            let locked = c.protected(e.definer.as_deref().unwrap_or(""));
+            SchedulerItem {
                 id: ev::id(&e.schema, &e.name),
                 name: e.name.clone(),
                 description: Some(match &e.comment {
@@ -272,13 +349,17 @@ pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerL
                 }),
                 enabled: Some(e.enabled()),
                 system: false,
-                can_edit: None,
-                can_delete: None,
+                can_edit: locked.then_some(false),
+                can_delete: locked.then_some(false),
                 actions: None,
-            })
-            .collect(),
-        notes: Vec::new(),
-    })
+            }
+        })
+        .collect();
+    let mut notes = Vec::new();
+    if items.iter().any(|i| i.can_edit == Some(false)) {
+        notes.push(SYSTEM_DEFINERS.to_string());
+    }
+    Ok(SchedulerList { items, notes })
 }
 
 // ---------------------------------------------------------------------------
@@ -720,6 +801,14 @@ pub(super) fn spec_from(
             shown(&definer)
         )));
     }
+    if c.protected(&definer) {
+        // Left out of the choices: the server would refuse it.
+        return Err(bad(if cur.is_some_and(|cur| cur.definer == definer) {
+            SYSTEM_DEFINER.into()
+        } else {
+            SYSTEM_DEFINER_NEW.into()
+        }));
+    }
     let definer = if definers.is_empty() {
         definer
     } else {
@@ -855,14 +944,16 @@ async fn definers(s: &mut MySqlSession, c: &Ctx, also: Option<&str>) -> Vec<(Str
                 continue;
             }
             let role = at(r, 2).is_some_and(|x| x.eq_ignore_ascii_case("Y"));
-            out.push(
-                if role || (host.is_empty() && s.variant == Variant::MariaDb) {
-                    (u.clone(), u)
-                } else {
-                    let d = format!("{u}@{host}");
-                    (d.clone(), d)
-                },
-            );
+            let d = if role || (host.is_empty() && s.variant == Variant::MariaDb) {
+                u
+            } else {
+                format!("{u}@{host}")
+            };
+            // One the server wouldn't take from this login.
+            if c.protected(&d) {
+                continue;
+            }
+            out.push((d.clone(), d));
         }
     }
     for d in [Some(c.user.as_str()), also].into_iter().flatten() {
@@ -1073,7 +1164,10 @@ pub(super) async fn form(s: &mut MySqlSession, kind: &str, id: Option<&str>) -> 
             f.values = values_of(&spec, Some(e));
             f.choices
                 .insert("definer".into(), definers(s, &c, Some(&spec.definer)).await);
-            if !c.sets_any_definer() && spec.definer != c.user {
+            if c.protected(&spec.definer) {
+                f.read_only = true;
+                f.notes.push(SYSTEM_DEFINER.into());
+            } else if !c.sets_any_definer() && spec.definer != c.user {
                 f.notes.push(FOREIGN_DEFINER.into());
             }
         }
@@ -1145,6 +1239,9 @@ pub(super) async fn plan(
             let e = read(s, id).await?;
             stale(values, &e)?;
             let cur = spec_of(&e, c.ob_zone.as_deref());
+            if c.protected(&cur.definer) {
+                return Err(bad(SYSTEM_DEFINER.into()));
+            }
             let defs = definers(s, &c, Some(&cur.definer)).await;
             let want = spec_from(values, &c, &dbs, &defs, Some(&cur))?;
             Ok(alter_plan(&cur, &want, c.flavor()).unwrap_or_else(|| {
@@ -1160,11 +1257,31 @@ pub(super) async fn plan(
 pub(super) async fn delete_plan(s: &mut MySqlSession, kind: &str, id: &str) -> Result<Plan> {
     check_kind(kind)?;
     let e = read(s, id).await?;
+    if s.variant == Variant::MySql && ctx(s).await?.protected(e.definer.as_deref().unwrap_or("")) {
+        return Err(bad(SYSTEM_DEFINER.into()));
+    }
     let f = Flavor {
         ob: s.variant == Variant::OceanBase,
         ..Flavor::default()
     };
     Ok(drop_plan(&e.schema, &e.name, f))
+}
+
+/// The kind has no actions: the server runs an event only on its schedule
+/// (no statement runs one now). The id is still read back and looked up;
+/// "run" is answered why, any other key as not an action.
+pub(super) async fn action_plan(
+    s: &mut MySqlSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<Plan> {
+    check_kind(kind)?;
+    read(s, id).await?;
+    match action.trim() {
+        "run" => Err(Error::Unsupported(NO_RUN.into())),
+        other => Err(no_action(other)),
+    }
 }
 
 // ---------------------------------------------------------------------------

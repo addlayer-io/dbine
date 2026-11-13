@@ -192,6 +192,15 @@ pub(crate) struct Job {
     pub(crate) mv_db: Option<String>,
     /// The job's `PROPERTIES` (a streaming job's), as `jobs()` prints them.
     pub(crate) properties: Option<String>,
+    /// A streaming job's progress, as `jobs()` prints it: where it has
+    /// read up to and where its source ends, how far behind it is, its
+    /// last successful task, what it loaded and what it's doing.
+    pub(crate) current_offset: Option<String>,
+    pub(crate) end_offset: Option<String>,
+    pub(crate) lag: Option<String>,
+    pub(crate) last_success: Option<String>,
+    pub(crate) load_statistic: Option<String>,
+    pub(crate) runtime_msg: Option<String>,
 }
 
 fn job_row(t: Type, r: &mysql_async::Row) -> Job {
@@ -217,6 +226,12 @@ fn job_row(t: Type, r: &mysql_async::Row) -> Job {
         mv_name: text(r, &["MvName"]),
         mv_db: text(r, &["MvDatabaseName"]),
         properties: text(r, &["Properties"]),
+        current_offset: text(r, &["CurrentOffset"]),
+        end_offset: text(r, &["EndOffset"]),
+        lag: text(r, &["Lag"]),
+        last_success: text(r, &["LastTaskSuccessTime"]),
+        load_statistic: text(r, &["LoadStatistic"]),
+        runtime_msg: text(r, &["JobRuntimeMsg"]),
     }
 }
 

@@ -2182,6 +2182,19 @@ impl Session for MySqlSession {
         crate::scheduler::delete(self, kind, id).await
     }
 
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        crate::scheduler::action_script(self, kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        crate::scheduler::action(self, kind, id, action).await
+    }
+
     async fn scheduler_logs(&mut self) -> Result<Vec<dbine_driver::MonitorTable>> {
         crate::scheduler::logs(self).await
     }
