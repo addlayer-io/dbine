@@ -159,7 +159,7 @@ impl Caps {
     }
 
     /// The user may change a job of `owner`.
-    fn may_change(&self, owner: &str) -> bool {
+    pub(crate) fn may_change(&self, owner: &str) -> bool {
         self.superuser || owner == self.user
     }
 }

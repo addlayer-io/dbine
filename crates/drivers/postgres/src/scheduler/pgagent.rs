@@ -350,6 +350,48 @@ async fn read(s: &PgSession, n: i32) -> Result<Job> {
     Ok(out)
 }
 
+/// "Programar para ahora", as pgAdmin's "Run now" does it: the job's next
+/// run moved to now, which an agent takes on its next poll. A disabled job
+/// isn't taken, and a running one gets its next run computed again when the
+/// run ends: both are refused. `agents`: the ones connected now (`None`:
+/// the user can't read them, and the script says nothing about them).
+pub(crate) fn run_now_sql(j: &Job, agents: Option<&[String]>) -> Result<String> {
+    if !j.enabled {
+        return Err(bad(
+            "El job está deshabilitado: pgAgent no lo ejecuta hasta habilitarlo.".into(),
+        ));
+    }
+    if j.agent.is_some() {
+        return Err(bad(
+            "El job se está ejecutando: pgAgent calcula su próxima ejecución cuando termina."
+                .into(),
+        ));
+    }
+    let mut out = format!(
+        "-- pgAgent: programar el job «{}» para ahora; un agente lo inicia en su próxima revisión (cada 10 segundos, salvo que se lo inicie con otro -t) y DBine no espera a que termine.\n",
+        comment_text(&j.name)
+    );
+    if agents.is_some_and(|a| a.is_empty()) {
+        out.push_str(
+            "-- Ahora no hay ningún agente de pgAgent conectado: el job empieza cuando se conecte uno.\n",
+        );
+    }
+    out.push_str(&format!(
+        "UPDATE pgagent.pga_job SET jobnextrun = now() WHERE jobid = {} AND jobenabled;\n",
+        j.id
+    ));
+    Ok(out)
+}
+
+pub(crate) async fn run_now_script(s: &PgSession, c: &Ctx, n: i32) -> Result<String> {
+    let caps = caps_of(c)?;
+    if !caps.job_update {
+        return Err(bad(NO_WRITE.into()));
+    }
+    let j = read(s, n).await?;
+    run_now_sql(&j, agents(s).await.as_deref())
+}
+
 /// The job classes, by name, with their ids.
 async fn classes(s: &PgSession) -> Result<Vec<(i32, String)>> {
     Ok(
@@ -361,16 +403,16 @@ async fn classes(s: &PgSession) -> Result<Vec<(i32, String)>> {
     )
 }
 
-/// The connected agents' hosts, when the user may read them.
-async fn agents(s: &PgSession) -> Vec<String> {
+/// The connected agents' hosts; `None` when the user can't read them.
+async fn agents(s: &PgSession) -> Option<Vec<String>> {
     match s
         .text("SELECT DISTINCT jagstation FROM pgagent.pga_jobagent ORDER BY 1")
         .await
     {
-        Ok(rows) => rows.iter().filter_map(|r| text(r, "jagstation")).collect(),
+        Ok(rows) => Some(rows.iter().filter_map(|r| text(r, "jagstation")).collect()),
         Err(e) => {
             tracing::debug!("pgagent: agents: {e}");
-            Vec::new()
+            None
         }
     }
 }
@@ -613,13 +655,16 @@ pub(crate) async fn form(s: &PgSession, c: &Ctx, n: Option<i32>) -> Result<Objec
     let classes = classes(s).await?;
     let agents = agents(s).await;
     let default_class = classes.first().map(|(_, n)| n.clone()).unwrap_or_default();
-    let host_help = if agents.is_empty() {
-        "Vacío: lo ejecuta cualquier agente. Ahora no hay ningún agente conectado.".to_string()
-    } else {
-        format!(
+    // Unknown (no right to read them): nothing said about them.
+    let host_help = match agents.as_deref() {
+        None => "Vacío: lo ejecuta cualquier agente.".to_string(),
+        Some([]) => {
+            "Vacío: lo ejecuta cualquier agente. Ahora no hay ningún agente conectado.".to_string()
+        }
+        Some(agents) => format!(
             "Vacío: lo ejecuta cualquier agente. Agentes conectados ahora: {}.",
             agents.join(", ")
-        )
+        ),
     };
     let mut general = FormSection::new("general", "General");
     if job.is_some() {
@@ -1682,6 +1727,13 @@ pub(crate) async fn class_items(s: &PgSession, c: &Ctx) -> Result<SchedulerList>
             notes: vec!["pgAgent no está en esta base.".into()],
         });
     }
+    // A class some job is in can't be deleted (pga_job references it).
+    let used: HashSet<i32> = s
+        .text("SELECT DISTINCT jobjclid::text AS id FROM pgagent.pga_job")
+        .await?
+        .iter()
+        .filter_map(|r| int(r, "id"))
+        .collect();
     Ok(SchedulerList {
         items: classes(s)
             .await?
@@ -1693,7 +1745,7 @@ pub(crate) async fn class_items(s: &PgSession, c: &Ctx) -> Result<SchedulerList>
                 enabled: None,
                 system: false,
                 can_edit: None,
-                can_delete: None,
+                can_delete: used.contains(&id).then_some(false),
                 actions: None,
             })
             .collect(),

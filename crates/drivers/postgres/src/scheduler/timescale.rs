@@ -567,19 +567,24 @@ pub(crate) async fn policy_items(s: &PgSession, c: &Ctx, p: Policy) -> Result<Sc
         items: rows
             .iter()
             .filter_map(|r| job_of(r))
-            .map(|j| SchedulerItem {
-                id: JobId::Timescale(j.id).to_string(),
-                name: j
-                    .target
-                    .as_deref()
-                    .map(unquote)
-                    .unwrap_or_else(|| j.name.clone()),
-                description: Some(j.name.clone()),
-                enabled: Some(j.scheduled),
-                system: false,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
+            .map(|j| {
+                // Only its owner (or a superuser) changes, removes or runs
+                // a policy.
+                let mine = j.mine || caps_of(c).is_ok_and(|t| t.superuser);
+                SchedulerItem {
+                    id: JobId::Timescale(j.id).to_string(),
+                    name: j
+                        .target
+                        .as_deref()
+                        .map(unquote)
+                        .unwrap_or_else(|| j.name.clone()),
+                    description: Some(j.name.clone()),
+                    enabled: Some(j.scheduled),
+                    system: false,
+                    can_edit: Some(mine),
+                    can_delete: Some(mine && !j.system()),
+                    actions: super::offers(if mine { &[super::RUN] } else { &[] }),
+                }
             })
             .collect(),
         notes: Vec::new(),
@@ -1802,6 +1807,44 @@ pub(crate) async fn delete_script(
             caps.f("delete_job")
         ),
     })
+}
+
+/// "Ejecutar ahora": `CALL run_job`, which runs the job in this session
+/// until it ends, whether it's scheduled or not. It's a procedure that may
+/// commit as it goes (a compression policy commits chunk by chunk), so it's
+/// called on its own, outside a transaction.
+pub(crate) fn run_sql(caps: &Caps, j: &Job) -> String {
+    let what = match (j.policy(), &j.target) {
+        (Some(p), Some(t)) => format!("la {} de {}", p.title(), unquote(t)),
+        _ => format!("el job «{}»", j.name),
+    };
+    format!(
+        "-- TimescaleDB: ejecutar ahora {}, en esta sesión: DBine espera a que termine.\nCALL {}({});\n",
+        comment_text(&what),
+        caps.f("run_job"),
+        j.id
+    )
+}
+
+pub(crate) async fn run_script(
+    s: &PgSession,
+    c: &Ctx,
+    kind: Option<Policy>,
+    n: i32,
+) -> Result<String> {
+    let caps = caps_of(c)?;
+    let j = read(s, n).await?;
+    if let Some(k) = kind.filter(|k| j.policy() != Some(*k)) {
+        return Err(bad(format!(
+            "El job {} no es una {}.",
+            JobId::Timescale(n),
+            k.title()
+        )));
+    }
+    if !(j.mine || caps.superuser) {
+        return Err(bad(NOT_OWNER.into()));
+    }
+    Ok(run_sql(caps, &j))
 }
 
 pub(crate) async fn clear_script(s: &PgSession, c: &Ctx, n: i32) -> Result<String> {

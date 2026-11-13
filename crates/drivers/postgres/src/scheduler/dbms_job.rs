@@ -61,11 +61,25 @@ pub(crate) struct Caps {
     pub(crate) readable: bool,
     /// Why the scheduler starts nothing, if it doesn't.
     pub(crate) off: Option<String>,
+    /// EDB: the user may delete edb_job_scheduler's runs (`DELETE` on
+    /// `sys.job_run_details`).
+    pub(crate) history_delete: bool,
 }
 
 impl Caps {
     pub(crate) fn may_change(&self, owner: Option<&str>) -> bool {
         self.admin || owner == Some(self.user.as_str())
+    }
+
+    /// Whether the user may change job `id` of `owner` (as the jobs list
+    /// has it: openGauss's `log_user`, EDB's `log_user`; KingbaseES's
+    /// views have none, its own jobs are by name). The one rule the tree
+    /// and every script follow.
+    pub(crate) fn may_job(&self, id: &JobId, owner: Option<&str>) -> bool {
+        match (&self.engine, id) {
+            (Engine::Kdb(k), JobId::Kingbase(n)) => k.may(&n.name),
+            _ => self.may_change(owner),
+        }
     }
 
     pub(crate) fn notes(&self) -> Vec<String> {
@@ -88,6 +102,42 @@ impl Caps {
             Engine::Kdb(_) => D::Kdb,
         }
     }
+
+    /// "Ejecutar ahora" is `DBMS_JOB.RUN` (EDB, KingbaseES), which runs
+    /// the job in the session; openGauss has no such call
+    /// (`pkg_service` has none), so its jobs are "programar para ahora".
+    pub(crate) fn runs_here(&self) -> bool {
+        !matches!(self.engine, Engine::Gauss)
+    }
+
+    /// edb_job_scheduler keeps the runs (`sys.job_run_details`), and the
+    /// user can read them and delete them.
+    pub(crate) fn edb_history(&self) -> bool {
+        match &self.engine {
+            Engine::Edb(e) => self.history_delete && e.history().is_some(),
+            _ => false,
+        }
+    }
+}
+
+/// The user may delete the runs in edb_job_scheduler's
+/// `sys.job_run_details` (false when they can't read it).
+async fn edb_history_delete(s: &PgSession, e: &Edb) -> Result<bool> {
+    let Some((_, runs)) = e.history() else {
+        return Ok(false);
+    };
+    let table = format!(
+        "{}.{}",
+        crate::jobs::ident(&runs.schema),
+        crate::jobs::ident(&runs.name)
+    );
+    Ok(s.text(&format!(
+        "SELECT has_table_privilege({}, 'DELETE') AS may",
+        lit(Variant::Edb, &table)
+    ))
+    .await?
+    .first()
+    .is_some_and(|r| flag(r, "may")))
 }
 
 /// openGauss's DBMS_JOB: always there.
@@ -109,6 +159,7 @@ pub(crate) async fn gauss_caps(s: &PgSession, f: &Found) -> Result<Caps> {
         off: (f.job_queue_processes.as_deref() == Some("0")).then(|| {
             "El programador de jobs de openGauss está apagado (job_queue_processes = 0): sus jobs no se ejecutan.".to_string()
         }),
+        history_delete: false,
     })
 }
 
@@ -123,6 +174,7 @@ pub(crate) async fn edb_caps(s: &PgSession, f: &Found) -> Result<(Option<Caps>, 
     if e.on_pgagent() {
         return Ok((None, Some(EDB_PGAGENT.into())));
     }
+    let history_delete = edb_history_delete(s, &e).await?;
     Ok((
         Some(Caps {
             user: f.user.clone(),
@@ -130,6 +182,7 @@ pub(crate) async fn edb_caps(s: &PgSession, f: &Found) -> Result<(Option<Caps>, 
             database: f.database.clone(),
             readable: e.dbms_jobs().is_some(),
             off: e.off(),
+            history_delete,
             engine: Engine::Edb(Box::new(e)),
         }),
         None,
@@ -150,6 +203,7 @@ pub(crate) async fn kdb_caps(s: &PgSession, f: &Found) -> Result<Option<Caps>> {
         off: k.queue_off.then(|| {
             "El programador de jobs de KingbaseES está apagado (job_queue_processes = 0): sus jobs no se ejecutan.".to_string()
         }),
+        history_delete: false,
         engine: Engine::Kdb(Box::new(k)),
     }))
 }
@@ -307,10 +361,7 @@ pub(crate) async fn read(s: &PgSession, c: &Caps, id: &JobId) -> Result<Job> {
 
 /// Whether the user may change `job`.
 pub(crate) fn may(c: &Caps, id: &JobId, job: &Job) -> bool {
-    match (&c.engine, id) {
-        (Engine::Kdb(k), JobId::Kingbase(n)) => k.may(&n.name),
-        _ => c.may_change(job.owner.as_deref()),
-    }
+    c.may_job(id, job.owner.as_deref())
 }
 
 // ---------------------------------------------------------------------------
@@ -798,6 +849,54 @@ pub(crate) async fn delete_script(s: &PgSession, c: &Caps, id: &JobId) -> Result
     Ok(delete(c.dialect(), cur.number))
 }
 
+/// An action on job `j`: "Ejecutar ahora" (`DBMS_JOB.RUN`, which runs it in
+/// this session even while it's broken: EDB, KingbaseES) or, on openGauss,
+/// "Programar para ahora": its next run moved to a moment already past in
+/// every time zone, which the job scheduler takes within a second (as the
+/// jobs list's "run now" does).
+pub(crate) fn action_sql(d: D, j: &Job, action: &str) -> Result<String> {
+    let n = j.number;
+    match (d, action) {
+        (D::Gauss, super::RUN_NOW) => {
+            if !j.enabled {
+                return Err(bad(
+                    "El job está deshabilitado: openGauss no lo ejecuta hasta habilitarlo.".into(),
+                ));
+            }
+            Ok(format!(
+                "-- openGauss: programar el job {n} para ahora (DBMS_JOB): su próxima ejecución pasa a una hora ya pasada y el programador de jobs lo toma enseguida; DBine no espera a que termine.\n-- {GAUSS_PLAN}\nSELECT pkg_service.job_update({}, (now() AT TIME ZONE 'UTC') - interval '1 day', NULL, NULL);\n",
+                gauss_id(Some(n))
+            ))
+        }
+        (D::Edb, super::RUN) => Ok(format!(
+            "-- EDB Postgres Advanced Server: ejecutar ahora el job {n} (DBMS_JOB.RUN), en esta sesión y aunque esté deshabilitado: DBine espera a que termine.\nBEGIN\n  DBMS_JOB.RUN({n});\nEND;\n"
+        )),
+        (D::Kdb, super::RUN) => Ok(format!(
+            "-- KingbaseES: ejecutar ahora el job {n} (DBMS_JOB.RUN).\nCALL DBMS_JOB.RUN({n});\n"
+        )),
+        _ => Err(super::no_action(action)),
+    }
+}
+
+pub(crate) async fn action_script(
+    s: &PgSession,
+    c: &Caps,
+    id: &JobId,
+    action: &str,
+) -> Result<String> {
+    let cur = read(s, c, id).await?;
+    if !may(c, id, &cur) {
+        return Err(bad(OTHERS.into()));
+    }
+    let d = c.dialect();
+    if d == D::Gauss && action == super::RUN_NOW {
+        if let Some(why) = &c.off {
+            return Err(bad(why.clone()));
+        }
+    }
+    action_sql(d, &cur, action)
+}
+
 /// Unsupported: DBMS_JOB has no steps.
 pub(crate) fn no_steps() -> Error {
     Error::Unsupported("un job de DBMS_JOB es un solo comando: no tiene pasos".into())
@@ -857,22 +956,7 @@ pub(crate) async fn edb_clear_script(s: &PgSession, f: &Found, needle: Needle) -
         )
     };
     let (jobs, runs) = e.history().ok_or_else(no)?;
-    let may = s
-        .text(&format!(
-            "SELECT has_table_privilege({}, 'DELETE') AS may",
-            lit(
-                Variant::Edb,
-                &format!(
-                    "{}.{}",
-                    crate::jobs::ident(&runs.schema),
-                    crate::jobs::ident(&runs.name)
-                )
-            )
-        ))
-        .await?
-        .first()
-        .is_some_and(|r| flag(r, "may"));
-    if !may {
+    if !edb_history_delete(s, &e).await? {
         return Err(bad(
             "Tu usuario no puede borrar el historial de edb_job_scheduler (DELETE en sys.job_run_details).".into(),
         ));

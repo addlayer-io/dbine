@@ -797,36 +797,45 @@ pub(crate) async fn items(s: &PgSession, c: &Caps, kind: &str) -> Result<Schedul
     }
     .unwrap_or_default();
     let rows = s.text(&sql).await?;
-    for r in &rows {
-        let (owner, name, description, enabled) = if kind == "program" {
-            let Some(p) = prog_of(r) else { continue };
-            (
-                p.owner,
-                p.name,
-                p.comments.or(Some(p.action)),
-                Some(p.enabled),
-            )
-        } else {
-            let Some(x) = sched_of(r) else { continue };
-            (x.owner, x.name, x.comments.or(x.interval), None)
-        };
-        let named = Named { owner, name };
-        out.items.push(SchedulerItem {
-            id: named.to_string(),
-            name: match &named.owner {
-                Some(o) if scope != Scope::Own => format!("{o}.{}", named.name),
-                _ => named.name.clone(),
-            },
-            description,
-            enabled,
-            system: false,
-            can_edit: None,
-            can_delete: None,
-            actions: None,
-        });
-    }
-    out.items.retain(|i| Named::parse(&i.id).is_some());
+    out.items = rows
+        .iter()
+        .filter_map(|r| item_of(c, kind, scope, r))
+        .collect();
     Ok(out)
+}
+
+/// A program or a schedule (`kind`) read from a view of `scope`, as the
+/// tree shows it; `None` when its name can't make an id.
+fn item_of(c: &Caps, kind: &str, scope: Scope, r: &dyn Row) -> Option<SchedulerItem> {
+    let (owner, name, description, enabled) = if kind == "program" {
+        let p = prog_of(r)?;
+        (
+            p.owner,
+            p.name,
+            p.comments.or(Some(p.action)),
+            Some(p.enabled),
+        )
+    } else {
+        let x = sched_of(r)?;
+        (x.owner, x.name, x.comments.or(x.interval), None)
+    };
+    // EDB finds them by their bare name: only the user's own change.
+    let mine = c.owns(c.owner_of(owner.clone(), scope).as_deref());
+    let named = Named { owner, name };
+    let item = SchedulerItem {
+        id: named.to_string(),
+        name: match &named.owner {
+            Some(o) if scope != Scope::Own => format!("{o}.{}", named.name),
+            _ => named.name.clone(),
+        },
+        description,
+        enabled,
+        system: false,
+        can_edit: Some(mine),
+        can_delete: Some(mine),
+        actions: None,
+    };
+    Named::parse(&item.id).is_some().then_some(item)
 }
 
 async fn choices(s: &PgSession, c: &Caps) -> Result<BTreeMap<String, Vec<(String, String)>>> {
@@ -954,6 +963,7 @@ fn job_fields(c: &Caps, edit: bool) -> Vec<FormSection> {
                 .when("timing", &["fields", "expression", "once"])
                 .help("Un bloque PL/SQL, o el nombre de un procedimiento almacenado."),
         );
+        // A PL/SQL block takes no arguments.
         action.push(
             FormField::new(
                 "number_of_arguments",
@@ -961,6 +971,7 @@ fn job_fields(c: &Caps, edit: bool) -> Vec<FormSection> {
                 FormKind::number(Some(0.0), Some(255.0)),
             )
             .when("timing", &["fields", "expression", "once"])
+            .and_when("job_type", &["STORED_PROCEDURE"])
             .default(json!(0))
             .help("Los de un procedimiento almacenado: sus valores van en «Argumentos»."),
         );
@@ -996,7 +1007,12 @@ fn job_fields(c: &Caps, edit: bool) -> Vec<FormSection> {
                 .when("timing", &["fields", "expression"])
                 .help("Vacío: sin fin."),
         );
-        sections.push(FormSection::new("timing", "Programación").fields(timing));
+        // A program's job takes its timing from the schedule picked.
+        sections.push(
+            FormSection::new("timing", "Programación")
+                .fields(timing)
+                .when("timing", &["fields", "expression", "once"]),
+        );
         let list = FormList::new(
             "arguments",
             "Argumentos",
@@ -1121,13 +1137,19 @@ pub(crate) fn job_spec(c: &Caps, values: &FormValues) -> Result<JobSpec> {
         if action.trim().is_empty() {
             return Err(bad("«Acción» no puede quedar vacía.".into()));
         }
+        // The field hides for a PL/SQL block, which takes no arguments: a
+        // count left from another type doesn't count.
+        let args = if kind == "STORED_PROCEDURE" {
+            v.int("number_of_arguments", "Cantidad de argumentos", 0, 255)?
+                .unwrap_or(0)
+        } else {
+            0
+        };
         (
             Some(OwnAction {
                 kind: kind.into(),
                 action,
-                args: v
-                    .int("number_of_arguments", "Cantidad de argumentos", 0, 255)?
-                    .unwrap_or(0),
+                args,
                 start: date_field(v, "start_date", "Inicio")?,
                 repeat: repeat_of(v, "timing")?,
                 end: date_field(v, "end_date", "Fin")?,
@@ -1145,6 +1167,13 @@ pub(crate) fn job_spec(c: &Caps, values: &FormValues) -> Result<JobSpec> {
             return Err(bad(format!("La posición {p} está en más de un argumento.")));
         }
         args.push((p, row.raw("value")));
+    }
+    // Its own action takes arguments only as a stored procedure (the
+    // server refuses a value for a block, which has none).
+    if own.as_ref().is_some_and(|o| o.kind != "STORED_PROCEDURE") && !args.is_empty() {
+        return Err(bad(
+            "Solo un job de tipo «Procedimiento almacenado» tiene argumentos: quitalos o cambiá el tipo.".into(),
+        ));
     }
     let class = if c.edb() {
         None
@@ -1173,23 +1202,28 @@ pub(crate) fn job_spec(c: &Caps, values: &FormValues) -> Result<JobSpec> {
 pub(crate) fn spec_of(c: &Caps, j: &Job) -> JobSpec {
     let x = &j.job;
     let program = x.program.is_some() && x.schedule_name.is_some();
+    let procedure = matches!(
+        x.job_type
+            .as_deref()
+            .map(str::to_ascii_uppercase)
+            .as_deref(),
+        Some("STORED_PROCEDURE") | Some("PROCEDURE")
+    );
     JobSpec {
         name: x.name.clone(),
         own: (!program).then(|| OwnAction {
-            kind: match x
-                .job_type
-                .as_deref()
-                .map(str::to_ascii_uppercase)
-                .as_deref()
-            {
-                Some("STORED_PROCEDURE") | Some("PROCEDURE") => "STORED_PROCEDURE".into(),
-                _ => "PLSQL_BLOCK".into(),
+            kind: if procedure {
+                "STORED_PROCEDURE".into()
+            } else {
+                "PLSQL_BLOCK".into()
             },
             action: x.action.clone().unwrap_or_default(),
+            // As the form reads it: a PL/SQL block takes none.
             args: x
                 .number_of_arguments
                 .as_deref()
                 .and_then(|n| n.parse().ok())
+                .filter(|_| procedure)
                 .unwrap_or(0),
             start: x.start_iso.clone(),
             repeat: x
@@ -1496,12 +1530,14 @@ fn program_fields(c: &Caps, edit: bool) -> Vec<FormSection> {
             .help("Un bloque PL/SQL, el nombre de un procedimiento almacenado o un comando, según el tipo."),
     );
     if c.edb() {
+        // A PL/SQL block takes no arguments.
         general.push(
             FormField::new(
                 "number_of_arguments",
                 "Cantidad de argumentos",
                 FormKind::number(Some(0.0), Some(255.0)),
             )
+            .when("program_type", &["STORED_PROCEDURE"])
             .default(json!(0)),
         );
     } else {
@@ -1520,28 +1556,31 @@ fn program_fields(c: &Caps, edit: bool) -> Vec<FormSection> {
     let mut sections = vec![FormSection::new("general", "General").fields(general)];
     if c.edb() {
         sections.push(
-            FormSection::new("arguments", "Argumentos").list(
-                FormList::new(
-                    "arguments",
-                    "Argumentos",
-                    "position",
-                    vec![
-                        FormField::new(
-                            "position",
-                            "Posición",
-                            FormKind::number(Some(1.0), Some(255.0)),
-                        )
-                        .required(),
-                        FormField::new("name", "Nombre", FormKind::Text),
-                        FormField::new("type", "Tipo", FormKind::Text)
-                            .required()
-                            .placeholder("VARCHAR2"),
-                        FormField::new("default", "Valor por defecto", FormKind::Text),
-                        FormField::new("out", "De salida", FormKind::Bool),
-                    ],
-                )
-                .read_only(edit && c.program_args().is_none()),
-            ),
+            FormSection::new("arguments", "Argumentos")
+                .when("program_type", &["STORED_PROCEDURE"])
+                .list(
+                    FormList::new(
+                        "arguments",
+                        "Argumentos",
+                        "position",
+                        vec![
+                            FormField::new(
+                                "position",
+                                "Posición",
+                                FormKind::number(Some(1.0), Some(255.0)),
+                            )
+                            .required(),
+                            FormField::new("name", "Nombre", FormKind::Text),
+                            FormField::new("type", "Tipo", FormKind::Text)
+                                .required()
+                                .placeholder("VARCHAR2"),
+                            FormField::new("default", "Valor por defecto", FormKind::Text),
+                            FormField::new("out", "De salida", FormKind::Bool),
+                        ],
+                    )
+                    .read_only(edit && c.program_args().is_none())
+                    .when("program_type", &["STORED_PROCEDURE"]),
+                ),
         );
     }
     sections
@@ -1608,9 +1647,20 @@ pub(crate) fn prog_spec(c: &Caps, values: &FormValues) -> Result<ProgSpec> {
         });
     }
     arguments.sort_by_key(|a| a.position);
-    let args = v
-        .int("number_of_arguments", "Cantidad de argumentos", 0, 255)?
-        .unwrap_or(0);
+    // Only a stored procedure takes arguments (the fields hide for the
+    // rest): a count left from another type doesn't count.
+    let procedure = kind == "STORED_PROCEDURE";
+    if !procedure && !arguments.is_empty() {
+        return Err(bad(
+            "Solo un programa de tipo «Procedimiento almacenado» tiene argumentos: quitalos o cambiá el tipo.".into(),
+        ));
+    }
+    let args = if procedure {
+        v.int("number_of_arguments", "Cantidad de argumentos", 0, 255)?
+            .unwrap_or(0)
+    } else {
+        0
+    };
     if arguments.iter().any(|a| a.position > args) {
         return Err(bad(
             "Un argumento tiene una posición mayor que la cantidad de argumentos del programa."
@@ -1692,15 +1742,21 @@ pub(crate) fn prog_create_calls(c: &Caps, p: &ProgSpec) -> Vec<String> {
 }
 
 fn prog_spec_of(p: &Prog, database: &str) -> ProgSpec {
+    let kind: String = match p.kind.to_ascii_uppercase().as_str() {
+        "STORED_PROCEDURE" | "PROCEDURE" => "STORED_PROCEDURE".into(),
+        "EXECUTABLE" | "BATCH" => "EXECUTABLE".into(),
+        _ => "PLSQL_BLOCK".into(),
+    };
     ProgSpec {
         name: p.name.clone(),
-        kind: match p.kind.to_ascii_uppercase().as_str() {
-            "STORED_PROCEDURE" | "PROCEDURE" => "STORED_PROCEDURE".into(),
-            "EXECUTABLE" | "BATCH" => "EXECUTABLE".into(),
-            _ => "PLSQL_BLOCK".into(),
+        // As the form reads it: only a stored procedure takes arguments.
+        args: if kind == "STORED_PROCEDURE" {
+            p.args
+        } else {
+            0
         },
+        kind,
         action: p.action.clone(),
-        args: p.args,
         database: (!database.is_empty()).then(|| database.to_string()),
         enabled: p.enabled,
         comments: p.comments.clone(),
@@ -2193,6 +2249,38 @@ pub(crate) async fn object_delete_script(
     ))
 }
 
+/// "Ejecutar ahora": `RUN_JOB`, which runs the job in this session until it
+/// ends (neither engine takes `use_current_session => FALSE`).
+pub(crate) fn run_sql(c: &Caps, name: &str) -> String {
+    let call = if c.edb() {
+        // As EDB's documentation calls it: the job's name and TRUE.
+        format!("DBMS_SCHEDULER.RUN_JOB({}, TRUE)", c.lit(name))
+    } else {
+        format!("DBMS_SCHEDULER.RUN_JOB({})", c.lit(name))
+    };
+    let comment = format!(
+        "{}: ejecutar ahora el job «{name}» (DBMS_SCHEDULER.RUN_JOB), en esta sesión: DBine espera a que termine.",
+        c.engine()
+    );
+    if c.edb() {
+        let mut out = String::new();
+        for line in comment.lines() {
+            out.push_str(&format!("-- {}\n", comment_text(line)));
+        }
+        out.push_str(&format!("BEGIN\n  {call};\nEND;\n"));
+        out
+    } else {
+        // Not in a transaction of DBine's: the job's own commits are its.
+        format!("-- {}\nCALL {call};\n", comment_text(&comment))
+    }
+}
+
+pub(crate) async fn run_script(s: &PgSession, c: &Caps, id: &Named) -> Result<String> {
+    let cur = read_job(s, c, id).await?;
+    may_job(s, c, cur.owner.as_deref(), &cur.job.name).await?;
+    Ok(run_sql(c, &cur.job.name))
+}
+
 /// Errors that say a call isn't available.
 pub(crate) fn no_steps() -> Error {
     Error::Unsupported(
@@ -2369,8 +2457,9 @@ mod tests {
     fn edb_jobs_change_in_place_or_again() {
         let c = caps(Dialect::Edb);
         let base = json!({
-            "name": "nightly", "timing": "expression", "job_type": "PLSQL_BLOCK",
-            "job_action": "BEGIN NULL; END;", "repeat_interval": "FREQ=DAILY", "enabled": true
+            "name": "nightly", "timing": "expression", "job_type": "STORED_PROCEDURE",
+            "job_action": "purge", "number_of_arguments": 2, "repeat_interval": "FREQ=DAILY",
+            "enabled": true
         });
         let cur = job_spec(
             &c,
@@ -2641,6 +2730,229 @@ mod tests {
         assert!(
             !keys(&k).contains(&"job_action".to_string())
                 && keys(&k).contains(&"job_class".to_string())
+        );
+    }
+
+    #[test]
+    fn run_job_runs_in_the_session() {
+        let edb = run_sql(&caps(Dialect::Edb), "night'ly");
+        assert!(
+            edb.ends_with("BEGIN\n  DBMS_SCHEDULER.RUN_JOB(E'night''ly', TRUE);\nEND;\n"),
+            "{edb}"
+        );
+        assert!(edb.contains("en esta sesión"), "{edb}");
+        let kdb = run_sql(&caps(Dialect::Kingbase), "nightly");
+        assert!(
+            kdb.ends_with("\nCALL DBMS_SCHEDULER.RUN_JOB(E'nightly');\n"),
+            "{kdb}"
+        );
+        // Not inside a transaction of DBine's.
+        assert!(!kdb.contains("BEGIN"), "{kdb}");
+    }
+
+    #[test]
+    fn a_plsql_block_takes_no_arguments() {
+        let c = caps(Dialect::Edb);
+        // The job form: the count only for a stored procedure, the timing
+        // tab only for a job's own action.
+        let sections = job_fields(&c, false);
+        let count = sections
+            .iter()
+            .flat_map(|s| s.fields.iter())
+            .find(|f| f.key == "number_of_arguments")
+            .unwrap();
+        assert_eq!(count.when.as_ref().unwrap().0, "timing");
+        assert_eq!(
+            count.when_all,
+            vec![("job_type".to_string(), vec!["STORED_PROCEDURE".to_string()])]
+        );
+        let timing = sections.iter().find(|s| s.key == "timing").unwrap();
+        assert_eq!(
+            timing.when,
+            Some((
+                "timing".to_string(),
+                vec!["fields".into(), "expression".into(), "once".into()]
+            ))
+        );
+        // A count left from a stored procedure doesn't reach a block.
+        let j = job_spec(
+            &c,
+            &fv(
+                json!({"name": "b", "timing": "once", "job_type": "PLSQL_BLOCK", "job_action": "BEGIN NULL; END;", "number_of_arguments": 3}),
+                json!({}),
+            ),
+        )
+        .unwrap();
+        assert_eq!(j.own.unwrap().args, 0);
+        // Argument rows left from a stored procedure: refused for a block
+        // (the server would refuse their values after CREATE_JOB).
+        let rows = json!({"arguments": [{"position": 1, "value": "30"}]});
+        let e = job_spec(
+            &c,
+            &fv(
+                json!({"name": "b", "timing": "once", "job_type": "PLSQL_BLOCK", "job_action": "BEGIN NULL; END;"}),
+                rows.clone(),
+            ),
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("Procedimiento almacenado"), "{e}");
+        // A stored procedure and a program's job take them.
+        assert!(job_spec(
+            &c,
+            &fv(
+                json!({"name": "b", "timing": "once", "job_type": "STORED_PROCEDURE", "job_action": "purge", "number_of_arguments": 1}),
+                rows.clone(),
+            ),
+        )
+        .is_ok());
+        assert!(job_spec(
+            &c,
+            &fv(
+                json!({"name": "b", "timing": "program", "job_type": "PLSQL_BLOCK", "program_name": "p", "schedule_name": "s"}),
+                rows,
+            ),
+        )
+        .is_ok());
+        // The program form: the count and the arguments only for a stored
+        // procedure.
+        let sections = program_fields(&c, false);
+        let count = sections[0]
+            .fields
+            .iter()
+            .find(|f| f.key == "number_of_arguments")
+            .unwrap();
+        let sp = Some((
+            "program_type".to_string(),
+            vec!["STORED_PROCEDURE".to_string()],
+        ));
+        assert_eq!(count.when, sp);
+        let args = sections.iter().find(|s| s.key == "arguments").unwrap();
+        assert_eq!(args.when, sp);
+        assert_eq!(args.lists[0].when, sp);
+        let block = prog_spec(
+            &c,
+            &fv(
+                json!({"name": "p", "program_type": "PLSQL_BLOCK", "program_action": "x", "number_of_arguments": 2}),
+                json!({}),
+            ),
+        )
+        .unwrap();
+        assert_eq!(block.args, 0);
+        assert!(prog_spec(
+            &c,
+            &fv(
+                json!({"name": "p", "program_type": "PLSQL_BLOCK", "program_action": "x"}),
+                json!({"arguments": [{"position": 1, "type": "INTEGER"}]}),
+            ),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("Procedimiento almacenado"));
+        // KingbaseES has neither.
+        let k = caps(Dialect::Kingbase);
+        assert!(program_fields(&k, false).iter().all(|s| s.lists.is_empty()));
+    }
+
+    #[test]
+    fn programs_and_schedules_say_whose_they_are() {
+        use crate::jobs::fixture;
+        let c = caps(Dialect::Edb);
+        let prog = |owner: &str| {
+            fixture(&[
+                ("owner", owner),
+                ("name", "purge"),
+                ("kind", "PLSQL_BLOCK"),
+                ("action", "BEGIN NULL; END;"),
+                ("enabled", "TRUE"),
+            ])
+        };
+        let abilities = |i: SchedulerItem| (i.can_edit, i.can_delete, i.actions);
+        // EDB: the user's own program changes, another owner's is shown
+        // only (the calls take the bare name).
+        let own = item_of(&c, "program", Scope::All, &prog("app")).unwrap();
+        assert_eq!(own.name, "app.purge");
+        assert_eq!(abilities(own), (Some(true), Some(true), None));
+        let theirs = item_of(&c, "program", Scope::All, &prog("bob")).unwrap();
+        assert_eq!(abilities(theirs), (Some(false), Some(false), None));
+        // A superuser too: EDB would reach their own of that name.
+        let su = Caps {
+            superuser: true,
+            ..caps(Dialect::Edb)
+        };
+        let theirs = item_of(&su, "program", Scope::All, &prog("bob")).unwrap();
+        assert_eq!(abilities(theirs), (Some(false), Some(false), None));
+        // A USER_ view has no owner: every row is the user's.
+        let mine = fixture(&[("name", "weekly"), ("repeat", "FREQ=WEEKLY")]);
+        let s = item_of(&c, "schedule", Scope::Own, &mine).unwrap();
+        assert_eq!(s.name, "weekly");
+        assert_eq!(abilities(s), (Some(true), Some(true), None));
+        let other = fixture(&[
+            ("owner", "bob"),
+            ("name", "weekly"),
+            ("repeat", "FREQ=WEEKLY"),
+        ]);
+        let s = item_of(&c, "schedule", Scope::Visible, &other).unwrap();
+        assert_eq!(abilities(s), (Some(false), Some(false), None));
+        // KingbaseES: the server decides.
+        let k = caps(Dialect::Kingbase);
+        let s = item_of(&k, "schedule", Scope::Visible, &other).unwrap();
+        assert_eq!(abilities(s), (Some(true), Some(true), None));
+        // A name that can't make an id isn't listed.
+        let bad_name = fixture(&[("owner", "app"), ("name", "a\u{1}b")]);
+        assert!(item_of(&c, "schedule", Scope::All, &bad_name).is_none());
+    }
+
+    #[test]
+    fn a_new_edb_job_shows_only_the_picked_packages_tabs() {
+        use crate::scheduler::{combine, dbms_job, Source};
+        let job = ObjectForm {
+            sections: dbms_job::fields(dbms_job::D::Edb, None),
+            values: BTreeMap::from([("enabled".to_string(), json!(true))]),
+            ..Default::default()
+        };
+        let sched = ObjectForm {
+            sections: job_fields(&caps(Dialect::Edb), false),
+            values: BTreeMap::from([
+                ("timing".to_string(), json!("fields")),
+                ("job_type".to_string(), json!("PLSQL_BLOCK")),
+            ]),
+            ..Default::default()
+        };
+        let f = combine(vec![(Source::EdbJob, job), (Source::EdbScheduler, sched)]);
+        let only = |s: &str| Some(("source".to_string(), vec![s.to_string()]));
+        let tab = |k: &str| f.sections.iter().find(|s| s.key == k).unwrap();
+        // The timing tab keeps its own condition (hidden for a program's
+        // job): the field it names is DBMS_SCHEDULER's only, hidden with
+        // DBMS_JOB picked, which hides the tab too.
+        assert_eq!(
+            tab("timing").when,
+            Some((
+                "timing".to_string(),
+                vec!["fields".into(), "expression".into(), "once".into()]
+            ))
+        );
+        let timing = tab("action")
+            .fields
+            .iter()
+            .find(|x| x.key == "timing")
+            .unwrap();
+        assert_eq!(timing.when, only("edb_scheduler"));
+        assert_eq!(tab("action").when, only("edb_scheduler"));
+        assert_eq!(tab("arguments").when, only("edb_scheduler"));
+        assert_eq!(tab("arguments").lists[0].when, only("edb_scheduler"));
+        assert_eq!(tab("command").when, only("edb_job"));
+        let count = tab("action")
+            .fields
+            .iter()
+            .find(|x| x.key == "number_of_arguments")
+            .unwrap();
+        assert_eq!(count.when.as_ref().unwrap().0, "timing");
+        assert_eq!(
+            count.when_all,
+            vec![
+                ("job_type".to_string(), vec!["STORED_PROCEDURE".to_string()]),
+                ("source".to_string(), vec!["edb_scheduler".to_string()]),
+            ]
         );
     }
 }

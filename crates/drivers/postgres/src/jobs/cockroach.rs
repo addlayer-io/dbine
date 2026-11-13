@@ -112,7 +112,7 @@ impl ScheduleKind {
         }
     }
 
-    fn tag(self) -> &'static str {
+    pub(crate) fn tag(self) -> &'static str {
         match self {
             ScheduleKind::Backup => "Schedule · backup",
             ScheduleKind::Changefeed => "Schedule · changefeed",
@@ -120,6 +120,19 @@ impl ScheduleKind {
             ScheduleKind::System => "Schedule · sistema",
             ScheduleKind::Other => "Schedule",
         }
+    }
+
+    /// The kind of a listed schedule, from its job's `kind`.
+    pub(crate) fn of_tag(tag: &str) -> Option<ScheduleKind> {
+        [
+            ScheduleKind::Backup,
+            ScheduleKind::Changefeed,
+            ScheduleKind::Ttl,
+            ScheduleKind::System,
+            ScheduleKind::Other,
+        ]
+        .into_iter()
+        .find(|k| k.tag() == tag)
     }
 
     /// Whether this version runs it now, and how.

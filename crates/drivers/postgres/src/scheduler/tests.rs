@@ -206,13 +206,27 @@ fn several_schedulers_make_one_form_with_a_picker() {
     dedup.sort();
     dedup.dedup();
     assert_eq!(keys.len(), dedup.len(), "{keys:?}");
-    assert!(f
-        .sections
+    // pgAgent's steps: their tab and their list only while it's picked;
+    // pg_cron's command tab only while it is; the picker's tab always.
+    let only = |s: &str| Some(("source".to_string(), vec![s.to_string()]));
+    let tab = |k: &str| f.sections.iter().find(|s| s.key == k).unwrap();
+    assert_eq!(tab("steps").when, only("pgagent"));
+    assert_eq!(tab("steps").lists[0].key, "steps");
+    assert_eq!(tab("steps").lists[0].when, only("pgagent"));
+    assert_eq!(tab("command").when, only("pg_cron"));
+    assert_eq!(tab("general").when, None);
+    // A step's fields keep their own conditions (the step's type).
+    let code = &tab("steps").lists[0]
+        .fields
         .iter()
-        .any(|s| s.lists.iter().any(|l| l.key == "steps")));
+        .find(|x| x.key == "code")
+        .unwrap();
+    assert_eq!(code.when.as_ref().unwrap().0, "kind");
+    assert!(code.when_all.is_empty());
     assert_eq!(f.values["source"], json!("pg_cron"));
     assert_eq!(f.values["job_class"], json!("Routine Maintenance"));
-    assert!(f.notes.iter().any(|n| n.contains("pgAgent")));
+    // Nothing to explain: the tabs that aren't the picked scheduler's hide.
+    assert!(f.notes.is_empty(), "{:?}", f.notes);
     // Lists of pgAgent with another scheduler picked are refused.
     let v = fv(json!({}), json!({"steps": [{"name": "a"}]}));
     assert!(pgagent::no_lists(&v).is_err());
@@ -374,6 +388,73 @@ fn a_when_follows_its_field_when_renamed() {
     };
     let f = combine(vec![(Source::Cron, a), (Source::Agent, b)]);
     assert_eq!(f.values["pgagent.on"], json!(true));
+}
+
+#[test]
+fn a_tab_keeps_its_own_condition_only_where_it_hides_for_the_others() {
+    let select = || FormKind::select(&[("x", "X"), ("y", "Y")]);
+    let form = |sections: Vec<FormSection>| ObjectForm {
+        sections,
+        ..ObjectForm::default()
+    };
+    let tab =
+        |f: &ObjectForm, k: &str| f.sections.iter().find(|s| s.key == k).unwrap().when.clone();
+    let cond = |k: &str| Some((k.to_string(), vec!["x".to_string()]));
+    // pgAgent's own field: the tab keeps its condition.
+    let a = form(vec![FormSection::new("general", "General")]);
+    let b = form(vec![
+        FormSection::new("general", "General").field(FormField::new("mode", "Modo", select())),
+        FormSection::new("more", "Más").when("mode", &["x"]),
+    ]);
+    let f = combine(vec![(Source::Cron, a), (Source::Agent, b)]);
+    assert_eq!(tab(&f, "more"), cond("mode"));
+    assert_eq!(fields_named(&f, "mode")[0].when, only_source("pgagent"));
+    // A field pg_cron has too (shown with it picked): the picker's
+    // condition instead.
+    let a = form(vec![
+        FormSection::new("general", "General").field(FormField::new("mode", "Modo", select()))
+    ]);
+    let b = form(vec![
+        FormSection::new("general", "General").field(FormField::new("mode", "Modo", select())),
+        FormSection::new("more", "Más").when("mode", &["x"]),
+    ]);
+    let f = combine(vec![(Source::Cron, a), (Source::Agent, b)]);
+    assert_eq!(tab(&f, "more"), only_source("pgagent"));
+    // A key that's only a value, no field: the picker's.
+    let a = form(vec![FormSection::new("general", "General")]);
+    let mut b = form(vec![
+        FormSection::new("general", "General"),
+        FormSection::new("more", "Más").when("mode", &["x"]),
+    ]);
+    b.values.insert("mode".into(), json!("x"));
+    let f = combine(vec![(Source::Cron, a), (Source::Agent, b)]);
+    assert_eq!(tab(&f, "more"), only_source("pgagent"));
+    // Two schedulers with the tab, one without the condition: the picker's.
+    let c = form(vec![FormSection::new("general", "General")]);
+    let a = form(vec![
+        FormSection::new("general", "General"),
+        FormSection::new("more", "Más"),
+    ]);
+    let b = form(vec![
+        FormSection::new("general", "General").field(FormField::new("mode", "Modo", select())),
+        FormSection::new("more", "Más").when("mode", &["x"]),
+    ]);
+    let f = combine(vec![
+        (Source::Cron, a),
+        (Source::Agent, b),
+        (Source::Timescale, c),
+    ]);
+    assert_eq!(
+        tab(&f, "more"),
+        Some((
+            "source".to_string(),
+            vec!["pg_cron".to_string(), "pgagent".to_string()]
+        ))
+    );
+}
+
+fn only_source(s: &str) -> Option<(String, Vec<String>)> {
+    Some(("source".to_string(), vec![s.to_string()]))
 }
 
 // ---------------------------------------------------------------------------
@@ -1878,4 +1959,550 @@ fn passwords_never_come_back_in_an_error() {
         "nada que ocultar: ñandú"
     );
     assert_eq!(redact_passwords("postgres://u@h/db"), "postgres://u@h/db");
+}
+
+// ---------------------------------------------------------------------------
+// Actions, what each job allows, conditions
+// ---------------------------------------------------------------------------
+
+fn ctx_of(
+    cron: Option<CronCaps>,
+    task: Option<CronCaps>,
+    agent: Option<pgagent::Caps>,
+    ts: Option<timescale::Caps>,
+) -> Ctx {
+    Ctx {
+        v: V,
+        found: jobs::Found::default(),
+        cron,
+        task,
+        agent,
+        ts,
+        crdb: None,
+        dbms: None,
+        sched: None,
+        notes: Vec::new(),
+    }
+}
+
+fn agent_caps(write: bool) -> pgagent::Caps {
+    pgagent::Caps {
+        read: true,
+        job_insert: write,
+        job_update: write,
+        job_delete: write,
+        parts: write,
+        class_insert: write,
+        class_update: write,
+        class_delete: write,
+        log_delete: write,
+        database: "postgres".into(),
+    }
+}
+
+fn gauss_caps() -> dbms_job::Caps {
+    dbms_job::Caps {
+        engine: dbms_job::Engine::Gauss,
+        user: "gaussdb".into(),
+        admin: true,
+        database: "postgres".into(),
+        readable: true,
+        off: None,
+        history_delete: false,
+    }
+}
+
+/// EDB's DBMS_JOB for user `app` (not a superuser): `history`, it can read
+/// edb_job_scheduler's runs; `delete`, it may delete them.
+fn edb_dbms_caps(history: bool, delete: bool) -> dbms_job::Caps {
+    use crate::jobs::scheduler::{Catalog, Kind as Col, View};
+    let mut views = vec![View::fake("sys", "all_jobs", &[("job", Col::Other)])];
+    if history {
+        views.push(View::fake(
+            "sys",
+            "jobs",
+            &[("jobid", Col::Other), ("jobcommand", Col::Other)],
+        ));
+        views.push(View::fake(
+            "sys",
+            "job_run_details",
+            &[("jobid", Col::Other), ("status", Col::Other)],
+        ));
+    }
+    dbms_job::Caps {
+        engine: dbms_job::Engine::Edb(Box::new(crate::jobs::edb::Edb {
+            cat: Catalog::with(views),
+            user: "app".into(),
+            superuser: false,
+            database: "edb".into(),
+            reads_settings: true,
+            pgagent: false,
+            version: 170002,
+            scheduler: true,
+            loaded: true,
+            database_list: None,
+        })),
+        user: "app".into(),
+        admin: false,
+        database: "edb".into(),
+        readable: true,
+        off: None,
+        history_delete: delete,
+    }
+}
+
+/// KingbaseES's DBMS_JOB for a user whose own jobs are `own`.
+fn kdb_dbms_caps(own: &[&str]) -> dbms_job::Caps {
+    dbms_job::Caps {
+        engine: dbms_job::Engine::Kdb(Box::new(crate::jobs::kingbase::Kdb {
+            cat: crate::jobs::scheduler::Catalog::default(),
+            superuser: false,
+            database: "kb".into(),
+            extension: true,
+            queue_off: false,
+            own: own.iter().map(|s| s.to_string()).collect(),
+        })),
+        user: "app".into(),
+        admin: false,
+        database: "kb".into(),
+        readable: true,
+        off: None,
+        history_delete: false,
+    }
+}
+
+fn sched_caps_of(d: jobs::scheduler::Dialect) -> dbms_scheduler::Caps {
+    dbms_scheduler::Caps {
+        d,
+        user: "app".into(),
+        superuser: false,
+        database: "db".into(),
+        cat: jobs::scheduler::Catalog::default(),
+        own: Default::default(),
+    }
+}
+
+/// EDB 16+ (DBMS_JOB and DBMS_SCHEDULER) or KingbaseES, with these
+/// DBMS_JOB caps.
+fn packages_ctx(v: Variant, dbms: dbms_job::Caps) -> Ctx {
+    let d = if v == Variant::Edb {
+        jobs::scheduler::Dialect::Edb
+    } else {
+        jobs::scheduler::Dialect::Kingbase
+    };
+    let mut c = ctx_of(None, None, None, None);
+    c.v = v;
+    c.dbms = Some(dbms);
+    c.sched = Some(sched_caps_of(d));
+    c
+}
+
+fn listed(id: &str, owner: Option<&str>) -> ServerJob {
+    ServerJob {
+        id: id.into(),
+        name: "j".into(),
+        owner: owner.map(Into::into),
+        enabled: true,
+        ..ServerJob::default()
+    }
+}
+
+fn keys(actions: &[dbine_driver::SchedulerAction]) -> Vec<&str> {
+    actions.iter().map(|a| a.key.as_str()).collect()
+}
+
+#[test]
+fn the_job_kind_says_its_actions_and_history_by_scheduler() {
+    // pg_cron, pgAgent and TimescaleDB in one database.
+    let c = ctx_of(
+        Some(cron_caps()),
+        None,
+        Some(agent_caps(true)),
+        Some(timescale::caps_for_tests()),
+    );
+    let info = info_of(&c);
+    let job = &info.kinds[0];
+    assert_eq!(job.key, "job");
+    assert_eq!(keys(&job.actions), ["run", "run_now"]);
+    assert_eq!(job.actions[0].label, "Ejecutar ahora");
+    assert_eq!(job.actions[1].label, "Programar para ahora");
+    assert!(!job.run_from_step, "none of them starts at a step");
+    assert!(job.clear_history);
+    // Every policy runs now and keeps its history.
+    let policies: Vec<_> = info
+        .kinds
+        .iter()
+        .filter(|k| k.key.ends_with("_policy"))
+        .collect();
+    assert_eq!(policies.len(), Policy::ALL.len());
+    for p in policies {
+        assert_eq!(keys(&p.actions), ["run"], "{}", p.key);
+        assert!(p.clear_history && !p.run_from_step, "{}", p.key);
+    }
+    // The job classes: nothing to run, no history.
+    let classes = info.kinds.iter().find(|k| k.key == "job_class").unwrap();
+    assert!(classes.actions.is_empty() && !classes.clear_history);
+    // pg_cron alone: no "run now"; its history only with DELETE on it.
+    let c = ctx_of(Some(cron_caps()), None, None, None);
+    let job = &info_of(&c).kinds[0];
+    assert!(job.actions.is_empty() && job.clear_history);
+    let c = ctx_of(
+        Some(CronCaps {
+            clear: false,
+            ..cron_caps()
+        }),
+        None,
+        None,
+        None,
+    );
+    assert!(!info_of(&c).kinds[0].clear_history);
+    // Cloudberry's tasks: neither (their history is a system catalog).
+    let c = ctx_of(None, Some(task_caps()), None, None);
+    let job = &info_of(&c).kinds[0];
+    assert!(job.actions.is_empty() && !job.clear_history);
+    // pgAgent without UPDATE on pga_job: nothing to run.
+    let c = ctx_of(None, None, Some(agent_caps(false)), None);
+    let job = &info_of(&c).kinds[0];
+    assert!(job.actions.is_empty() && !job.clear_history);
+    // TimescaleDB without DELETE on its history.
+    let ts = timescale::Caps {
+        clear: false,
+        ..timescale::caps_for_tests()
+    };
+    let c = ctx_of(None, None, None, Some(ts));
+    let info = info_of(&c);
+    assert!(info.kinds.iter().all(|k| !k.clear_history));
+    // openGauss: "programar para ahora", no history; nothing while its job
+    // scheduler is off (nothing would take the job).
+    let mut c = ctx_of(None, None, None, None);
+    c.v = Variant::OpenGauss;
+    c.dbms = Some(gauss_caps());
+    let job = &info_of(&c).kinds[0];
+    assert_eq!(keys(&job.actions), ["run_now"]);
+    assert!(!job.clear_history);
+    c.dbms = Some(dbms_job::Caps {
+        off: Some("apagado".into()),
+        ..gauss_caps()
+    });
+    assert!(info_of(&c).kinds[0].actions.is_empty());
+    // EDB 16+: "Ejecutar ahora" (DBMS_JOB.RUN, DBMS_SCHEDULER.RUN_JOB), its
+    // programs and schedules; edb_job_scheduler's history only with DELETE
+    // on it.
+    let c = packages_ctx(Variant::Edb, edb_dbms_caps(true, true));
+    let info = info_of(&c);
+    let job = &info.kinds[0];
+    assert_eq!(keys(&job.actions), ["run"]);
+    assert!(job.clear_history && !job.run_from_step);
+    let kinds: Vec<&str> = info.kinds.iter().map(|k| k.key.as_str()).collect();
+    assert_eq!(kinds, ["job", "program", "schedule"]);
+    assert!(info.kinds[1..]
+        .iter()
+        .all(|k| k.actions.is_empty() && !k.clear_history));
+    for (history, delete) in [(true, false), (false, true), (false, false)] {
+        let c = packages_ctx(Variant::Edb, edb_dbms_caps(history, delete));
+        let job = &info_of(&c).kinds[0];
+        assert!(!job.clear_history, "{history} {delete}");
+        assert_eq!(keys(&job.actions), ["run"]);
+    }
+    // KingbaseES: "Ejecutar ahora", no history to clear (kdb_schedule's
+    // table isn't documented).
+    let c = packages_ctx(Variant::Kingbase, kdb_dbms_caps(&[]));
+    let job = &info_of(&c).kinds[0];
+    assert_eq!(keys(&job.actions), ["run"]);
+    assert!(!job.clear_history && !job.run_from_step);
+}
+
+#[test]
+fn each_job_says_what_the_user_may_do_with_it() {
+    let c = ctx_of(
+        Some(cron_plain_user()),
+        Some(task_caps()),
+        Some(agent_caps(true)),
+        Some(timescale::caps_for_tests()),
+    );
+    let item = |j: ServerJob| job_item(&c, j);
+    // pg_cron: the user's own job, another's; never "run now".
+    let own = item(listed("pg_cron:1", Some("ana")));
+    assert_eq!(
+        (own.can_edit, own.can_delete, own.actions),
+        (Some(true), Some(true), Some(vec![]))
+    );
+    let other = item(listed("pg_cron:2", Some("bob")));
+    assert_eq!(
+        (other.can_edit, other.can_delete),
+        (Some(false), Some(false))
+    );
+    // A task: its owner (gpadmin here, a superuser in the caps: anyone's).
+    let task = item(listed("task:3", Some("x")));
+    assert_eq!((task.can_edit, task.can_delete), (Some(true), Some(true)));
+    // pgAgent: "programar para ahora" while enabled and idle.
+    let idle = item(listed("pgagent:4", None));
+    assert_eq!(idle.actions, Some(vec!["run_now".to_string()]));
+    let off = item(ServerJob {
+        enabled: false,
+        ..listed("pgagent:4", None)
+    });
+    assert_eq!(off.actions, Some(vec![]));
+    let busy = item(ServerJob {
+        running: true,
+        ..listed("pgagent:4", None)
+    });
+    assert_eq!(busy.actions, Some(vec![]));
+    // TimescaleDB: its own jobs (below 1000) change but aren't deleted;
+    // another owner's job is shown only.
+    let system = item(ServerJob {
+        system: true,
+        can_enable: true,
+        ..listed("timescaledb:1", Some("postgres"))
+    });
+    assert_eq!(
+        (system.can_edit, system.can_delete, system.actions),
+        (Some(true), Some(false), Some(vec!["run".to_string()]))
+    );
+    let theirs = item(ServerJob {
+        can_enable: false,
+        ..listed("timescaledb:1001", Some("bob"))
+    });
+    assert_eq!(
+        (theirs.can_edit, theirs.can_delete, theirs.actions),
+        (Some(false), Some(false), Some(vec![]))
+    );
+    // A scheduler that isn't here: shown only.
+    let gone = item(listed("dbms_job:1", None));
+    assert_eq!((gone.can_edit, gone.can_delete), (Some(false), Some(false)));
+}
+
+fn abilities(i: SchedulerItem) -> Abilities {
+    (i.can_edit, i.can_delete, i.actions)
+}
+
+#[test]
+fn each_dbms_job_says_what_the_user_may_do_with_it() {
+    let yes = |actions: &[&str]| (Some(true), Some(true), offers(actions));
+    let no = (Some(false), Some(false), offers(&[]));
+    // openGauss: "programar para ahora" for the job's `log_user` (or an
+    // administrator), enabled and idle (`can_run`), while the scheduler is
+    // on. The list's `can_enable` also counts `priv_user`, which
+    // pkg_service doesn't take as the owner.
+    let mut c = ctx_of(None, None, None, None);
+    c.v = Variant::OpenGauss;
+    c.dbms = Some(dbms_job::Caps {
+        user: "app".into(),
+        admin: false,
+        ..gauss_caps()
+    });
+    let gauss = |owner: &str, can_run: bool| ServerJob {
+        can_enable: true,
+        can_run,
+        ..listed("dbms_job:1", Some(owner))
+    };
+    assert_eq!(
+        abilities(job_item(&c, gauss("app", true))),
+        yes(&["run_now"])
+    );
+    // Running or broken (the list's `can_run` is false).
+    assert_eq!(abilities(job_item(&c, gauss("app", false))), yes(&[]));
+    // Only its `priv_user`: shown only.
+    assert_eq!(abilities(job_item(&c, gauss("bob", true))), no);
+    // An administrator: anyone's.
+    c.dbms = Some(gauss_caps());
+    assert_eq!(
+        abilities(job_item(&c, gauss("bob", true))),
+        yes(&["run_now"])
+    );
+    // The job scheduler off: nothing takes the job.
+    c.dbms = Some(dbms_job::Caps {
+        off: Some("apagado".into()),
+        ..gauss_caps()
+    });
+    assert_eq!(abilities(job_item(&c, gauss("app", true))), yes(&[]));
+
+    // EDB's DBMS_JOB: "Ejecutar ahora" in the session for the user's own
+    // jobs (DBMS_JOB.RUN takes a broken one too), not while one runs.
+    let c = packages_ctx(Variant::Edb, edb_dbms_caps(true, true));
+    let edb = |id: &str, owner: &str| ServerJob {
+        can_enable: owner == "app",
+        ..listed(id, Some(owner))
+    };
+    assert_eq!(
+        abilities(job_item(&c, edb("edb_job:104", "app"))),
+        yes(&["run"])
+    );
+    let broken = ServerJob {
+        enabled: false,
+        ..edb("edb_job:104", "app")
+    };
+    assert_eq!(abilities(job_item(&c, broken)), yes(&["run"]));
+    let running = ServerJob {
+        running: true,
+        ..edb("edb_job:104", "app")
+    };
+    assert_eq!(abilities(job_item(&c, running)), yes(&[]));
+    assert_eq!(abilities(job_item(&c, edb("edb_job:105", "bob"))), no);
+    // A superuser: anyone's.
+    let su = packages_ctx(
+        Variant::Edb,
+        dbms_job::Caps {
+            admin: true,
+            ..edb_dbms_caps(true, true)
+        },
+    );
+    assert_eq!(
+        abilities(job_item(&su, edb("edb_job:105", "bob"))),
+        yes(&["run"])
+    );
+    // EDB's DBMS_SCHEDULER: the list's `can_enable` is the user's own job
+    // with a name no other owner has (EDB finds it by the bare name).
+    let own = edb("edb_scheduler:\"app\".\"nightly\"", "app");
+    assert_eq!(abilities(job_item(&c, own.clone())), yes(&["run"]));
+    let running = ServerJob {
+        running: true,
+        ..own.clone()
+    };
+    assert_eq!(abilities(job_item(&c, running)), yes(&[]));
+    let shared_name = ServerJob {
+        can_enable: false,
+        ..own
+    };
+    assert_eq!(abilities(job_item(&c, shared_name)), no);
+    assert_eq!(
+        abilities(job_item(
+            &c,
+            edb("edb_scheduler:\"bob\".\"nightly\"", "bob")
+        )),
+        no
+    );
+    // Neither package on another engine's ids.
+    assert_eq!(
+        abilities(job_item(&c, listed("kdb_schedule:\"x\"", None))),
+        no
+    );
+
+    // KingbaseES: the views have no owner; the user's own jobs are the
+    // ones `user_scheduler_jobs` shows. A DBMS_JOB job by its number in
+    // the name, a DBMS_SCHEDULER job by its name.
+    let c = packages_ctx(
+        Variant::Kingbase,
+        kdb_dbms_caps(&["internal_job7:2031-01-01"]),
+    );
+    let kdb = |name: &str, mine: bool| ServerJob {
+        can_enable: mine,
+        ..listed(&format!("kdb_schedule:\"{name}\""), None)
+    };
+    assert_eq!(
+        abilities(job_item(&c, kdb("internal_job7:2031-01-01", true))),
+        yes(&["run"])
+    );
+    let running = ServerJob {
+        running: true,
+        ..kdb("internal_job7:2031-01-01", true)
+    };
+    assert_eq!(abilities(job_item(&c, running)), yes(&[]));
+    // Another user's: `user_scheduler_jobs` doesn't show it.
+    assert_eq!(
+        abilities(job_item(&c, kdb("internal_job8:2031-01-01", true))),
+        no
+    );
+    assert_eq!(abilities(job_item(&c, kdb("nightly", true))), yes(&["run"]));
+    assert_eq!(abilities(job_item(&c, kdb("nightly", false))), no);
+    let running = ServerJob {
+        running: true,
+        ..kdb("nightly", true)
+    };
+    assert_eq!(abilities(job_item(&c, running)), yes(&[]));
+}
+
+#[test]
+fn a_scheduler_without_run_now_says_why() {
+    for f in [cron::Flavor::Cron, cron::Flavor::Task] {
+        let e = runs_only_on_schedule(f);
+        assert!(matches!(e, Error::Unsupported(_)), "{e}");
+        assert!(e.to_string().contains("programación"), "{e}");
+    }
+    let e = no_action("drop'; --");
+    assert!(e.to_string().contains("no es una acción"), "{e}");
+}
+
+#[test]
+fn run_now_on_pgagent_is_what_pgadmin_does() {
+    let j = agent_job();
+    let sql = pgagent::run_now_sql(&j, Some(&["etl1".into()])).unwrap();
+    assert!(
+        sql.starts_with("-- pgAgent: programar el job «nightly» para ahora"),
+        "{sql}"
+    );
+    assert!(sql.ends_with(
+        "UPDATE pgagent.pga_job SET jobnextrun = now() WHERE jobid = 3 AND jobenabled;\n"
+    ));
+    assert!(!sql.contains("ningún agente"), "{sql}");
+    let none = pgagent::run_now_sql(&j, Some(&[])).unwrap();
+    assert!(none.contains("no hay ningún agente"), "{none}");
+    // The agents can't be read (no SELECT on pga_jobagent): nothing said.
+    let unknown = pgagent::run_now_sql(&j, None).unwrap();
+    assert!(!unknown.contains("agente de pgAgent"), "{unknown}");
+    assert!(
+        unknown.ends_with("WHERE jobid = 3 AND jobenabled;\n"),
+        "{unknown}"
+    );
+    let off = AgentJob {
+        enabled: false,
+        ..agent_job()
+    };
+    assert!(pgagent::run_now_sql(&off, Some(&[])).is_err());
+    let busy = AgentJob {
+        agent: Some("4242".into()),
+        ..agent_job()
+    };
+    assert!(pgagent::run_now_sql(&busy, None)
+        .unwrap_err()
+        .to_string()
+        .contains("ejecutando"));
+}
+
+#[test]
+fn timescaledb_runs_a_job_or_a_policy_in_the_session() {
+    let caps = timescale::caps_for_tests();
+    let sql = timescale::run_sql(&caps, &ts_job());
+    assert!(
+        sql.ends_with(&format!("\nCALL \"public\".run_job({});\n", ts_job().id)),
+        "{sql}"
+    );
+    assert!(sql.contains("en esta sesión"), "{sql}");
+    // Called alone: run_job may commit as it goes.
+    assert!(!sql.contains("BEGIN"), "{sql}");
+    let p = policy_job(Policy::Compression, r#"{"compress_after": "7 days"}"#);
+    let sql = timescale::run_sql(&caps, &p);
+    assert!(sql.contains("política de compresión"), "{sql}");
+}
+
+#[test]
+fn dbms_job_runs_in_the_session_or_is_scheduled_for_now() {
+    use dbms_job::{action_sql, Job, D};
+    let j = Job {
+        number: 7,
+        enabled: true,
+        ..Job::default()
+    };
+    let edb = action_sql(D::Edb, &j, RUN).unwrap();
+    assert!(edb.ends_with("BEGIN\n  DBMS_JOB.RUN(7);\nEND;\n"), "{edb}");
+    let kdb = action_sql(D::Kdb, &j, RUN).unwrap();
+    assert!(kdb.ends_with("\nCALL DBMS_JOB.RUN(7);\n"), "{kdb}");
+    // openGauss has no RUN: the next run goes to the past, the id in a
+    // subquery (pkg_service is IMMUTABLE).
+    let og = action_sql(D::Gauss, &j, RUN_NOW).unwrap();
+    assert!(
+        og.ends_with("SELECT pkg_service.job_update((SELECT 7::bigint), (now() AT TIME ZONE 'UTC') - interval '1 day', NULL, NULL);\n"),
+        "{og}"
+    );
+    let broken = Job {
+        enabled: false,
+        ..j.clone()
+    };
+    assert!(action_sql(D::Gauss, &broken, RUN_NOW).is_err());
+    // EDB runs a broken job too.
+    assert!(action_sql(D::Edb, &broken, RUN).is_ok());
+    // The other dialect's action, or an unknown one.
+    assert!(action_sql(D::Gauss, &j, RUN).is_err());
+    assert!(action_sql(D::Edb, &j, RUN_NOW).is_err());
+    assert!(action_sql(D::Kdb, &j, "drop").is_err());
 }

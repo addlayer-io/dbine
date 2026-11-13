@@ -1624,6 +1624,19 @@ impl Session for PgSession {
         crate::scheduler::delete(self, kind, id).await
     }
 
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        crate::scheduler::action_script(self, kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        crate::scheduler::action(self, kind, id, action).await
+    }
+
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {
         crate::scheduler::run_from(self, id, step).await
     }

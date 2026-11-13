@@ -36,14 +36,17 @@
 //! values are always string literals; a changefeed's query must be one
 //! `SELECT`.
 
-use super::{bad, combine, datetime_field, name_of, plain, redact_passwords, shown, Source, Vals};
+use super::{
+    bad, combine, datetime_field, name_of, offers, plain, redact_passwords, run_now_action, shown,
+    Abilities, Source, Vals, RUN_NOW,
+};
 use crate::catalog::{comment_text, rows};
 use crate::jobs::cockroach::{self as cj, ScheduleKind};
 use crate::jobs::{ident, text, time, Row};
 use crate::session::PgSession;
 use dbine_driver::{
     Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerItem,
-    SchedulerKind, SchedulerList, Session, TxState, SECRET_MASK,
+    SchedulerKind, SchedulerList, ServerJob, Session, TxState, SECRET_MASK,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -150,16 +153,121 @@ impl Caps {
     /// needs rights on that table: the server decides (see NOT_ADMIN).
     pub(crate) fn kinds(&self) -> Vec<SchedulerKind> {
         let change = self.schedules || self.may("CHANGEFEED");
-        vec![
-            SchedulerKind::new("job", "Schedules", "schedule").abilities(
-                !sources(self).is_empty(),
-                change,
-                change,
-            ),
-            SchedulerKind::new("ttl", "TTL por filas", "TTL de una tabla")
-                .abilities(true, true, true),
-        ]
+        // A schedule is one statement (no steps), and its runs are cluster
+        // jobs, which can't be deleted.
+        let mut job = SchedulerKind::new("job", "Schedules", "schedule")
+            .abilities(!sources(self).is_empty(), change, change)
+            .run_from_step(false)
+            .clear_history(false);
+        if self.at_least((24, 1)) {
+            job = job.action(run_now_action());
+        }
+        let mut ttl = SchedulerKind::new("ttl", "TTL por filas", "TTL de una tabla")
+            .abilities(true, true, true);
+        if self.at_least((26, 1)) && self.schedules {
+            ttl = ttl.action(run_now_action());
+        }
+        vec![job, ttl]
     }
+}
+
+/// What the user may do with a schedule or changefeed of the jobs list.
+pub(crate) fn job_abilities(c: &Caps, obj: Obj, j: &ServerJob) -> Abilities {
+    let mine = c.may_change(j.owner.as_deref());
+    // `can_run`: this version runs it now, it's active, idle and the
+    // user's (or the user is admin).
+    let run = offers(if j.can_run { &[RUN_NOW] } else { &[] });
+    match obj {
+        Obj::Feed(_) => (Some(mine), Some(mine), offers(&[])),
+        Obj::Schedule(_) => match ScheduleKind::of_tag(&j.kind) {
+            Some(ScheduleKind::Backup | ScheduleKind::Changefeed) => (Some(mine), Some(mine), run),
+            // A table's TTL: the rights on the table decide (the server).
+            Some(ScheduleKind::Ttl) => (None, None, run),
+            // The cluster's own: never deleted; its recurrence is a
+            // cluster setting, its pause an admin's.
+            Some(ScheduleKind::System) => (
+                Some(c.admin || (setting_of(&j.name).is_some() && c.has("MODIFYCLUSTERSETTING"))),
+                Some(false),
+                run,
+            ),
+            _ => (Some(false), Some(mine), offers(&[])),
+        },
+        _ => (None, None, None),
+    }
+}
+
+/// "Programar para ahora": the schedule's next run moved to now
+/// (`ALTER BACKUP SCHEDULE … EXECUTE [FULL] IMMEDIATELY` from 24.1,
+/// `EXECUTE SCHEDULE` for the rest from 26.1); the scheduler starts it on
+/// its next pass. Of a backup pair, the plain form runs the incremental
+/// schedule whichever id it's given: the full one goes with `FULL`.
+pub(crate) fn run_now_sql(c: &Caps, x: &Sched) -> Result<String> {
+    let n = x.id;
+    let (stmt, what) = match x.kind {
+        ScheduleKind::Backup if c.at_least((24, 1)) => {
+            if x.incremental() {
+                (
+                    format!("ALTER BACKUP SCHEDULE {n} EXECUTE IMMEDIATELY"),
+                    " (backup incremental)",
+                )
+            } else {
+                (
+                    format!("ALTER BACKUP SCHEDULE {n} EXECUTE FULL IMMEDIATELY"),
+                    " (backup completo)",
+                )
+            }
+        }
+        ScheduleKind::Backup => {
+            return Err(Error::Unsupported(
+                "esta versión de CockroachDB no ejecuta un schedule en el momento (ALTER BACKUP SCHEDULE … EXECUTE IMMEDIATELY llegó en la 24.1)".into(),
+            ))
+        }
+        ScheduleKind::Other => {
+            return Err(Error::Unsupported(
+                "CockroachDB no ejecuta en el momento este tipo de schedule".into(),
+            ))
+        }
+        _ if c.at_least((26, 1)) => (format!("EXECUTE SCHEDULE {n}"), ""),
+        _ => {
+            return Err(Error::Unsupported(
+                "esta versión de CockroachDB solo ejecuta en el momento los schedules de backup (EXECUTE SCHEDULE llegó en la 26.1)".into(),
+            ))
+        }
+    };
+    if !x.active {
+        return Err(bad(
+            "El schedule está en pausa: CockroachDB no lo ejecuta hasta reanudarlo.".into(),
+        ));
+    }
+    // A table's TTL too: EXECUTE SCHEDULE takes the schedule's owner (the
+    // table's creator) or an admin, whatever the rights on the table.
+    if !c.may_change(x.owner.as_deref()) {
+        return Err(bad(OTHERS.into()));
+    }
+    Ok(format!(
+        "-- CockroachDB: programar para ahora el schedule «{}»{what}: su próxima ejecución pasa a ahora y el planificador la inicia en su próxima pasada (jobs.scheduler.pace, un minuto por defecto); DBine no espera a que termine.\n{stmt};\n",
+        comment_text(&x.label)
+    ))
+}
+
+pub(crate) async fn run_now_script(s: &PgSession, c: &Caps, obj: Obj) -> Result<String> {
+    let sched = match obj {
+        Obj::Schedule(n) => read(s, n).await?,
+        Obj::Ttl(Some(table)) => ttl_schedules(s, c)
+            .await
+            .into_iter()
+            .find(|x| x.table_id() == Some(table))
+            .ok_or_else(|| {
+                bad("DBine no encuentra el schedule de la TTL de esta tabla (o tu usuario no puede ver los schedules).".into())
+            })?,
+        Obj::Feed(_) => {
+            return Err(Error::Unsupported(
+                "un changefeed ya está corriendo: se reanuda con «Activo»".into(),
+            ))
+        }
+        Obj::New(_) | Obj::Ttl(None) => return Err(bad("No hay nada que ejecutar.".into())),
+    };
+    run_now_sql(c, &sched)
 }
 
 pub(crate) async fn caps(s: &PgSession) -> Result<Caps> {
@@ -2640,6 +2748,10 @@ pub(crate) async fn ttl_items(s: &PgSession, c: &Caps) -> Result<SchedulerList> 
             .into_iter()
             .map(|(t, p)| {
                 let sched = scheds.iter().find(|x| x.table_id() == Some(t.id));
+                // "Programar para ahora" runs its schedule (26.1+), while
+                // it's active, for its owner or an admin (as the jobs list).
+                let run = sched.is_some_and(|x| x.active && c.may_change(x.owner.as_deref()))
+                    && c.at_least((26, 1));
                 SchedulerItem {
                     id: t.id.to_string(),
                     name: t.display(),
@@ -2656,7 +2768,7 @@ pub(crate) async fn ttl_items(s: &PgSession, c: &Caps) -> Result<SchedulerList> 
                     system: false,
                     can_edit: None,
                     can_delete: None,
-                    actions: None,
+                    actions: offers(if run { &[RUN_NOW] } else { &[] }),
                 }
             })
             .collect(),
@@ -4728,5 +4840,252 @@ mod tests {
         assert_eq!(previous_of(Some("NO_WAIT")), "start");
         assert_eq!(failure_of(Some("RETRY_SOON")), "retry");
         assert_eq!(failure_of(Some("RESCHEDULE")), "reschedule");
+    }
+
+    fn sched(id: &str, label: &str, owner: &str, status: &str, cmd: &str) -> Sched {
+        Sched::of(&fixture(&[
+            ("sid", id),
+            ("label", label),
+            ("schedule_status", status),
+            ("owner", owner),
+            ("command", cmd),
+        ]))
+        .unwrap()
+    }
+
+    #[test]
+    fn schedules_are_programmed_for_now_where_the_version_can() {
+        let c = root();
+        let full = sched(
+            "1",
+            "nightly",
+            "root",
+            "ACTIVE",
+            r#"{"backup_statement": "BACKUP INTO 'x'", "dependent_schedule_id": 2}"#,
+        );
+        let inc = sched(
+            "2",
+            "nightly",
+            "root",
+            "ACTIVE",
+            r#"{"backup_statement": "BACKUP INTO LATEST IN 'x'", "backup_type": 1}"#,
+        );
+        let sql = run_now_sql(&c, &full).unwrap();
+        assert!(
+            sql.ends_with("\nALTER BACKUP SCHEDULE 1 EXECUTE FULL IMMEDIATELY;\n"),
+            "{sql}"
+        );
+        assert!(sql.contains("(backup completo)"), "{sql}");
+        assert!(run_now_sql(&c, &inc)
+            .unwrap()
+            .ends_with("\nALTER BACKUP SCHEDULE 2 EXECUTE IMMEDIATELY;\n"));
+        let feed = sched(
+            "3",
+            "feed",
+            "root",
+            "ACTIVE",
+            r#"{"changefeed_statement": "CREATE CHANGEFEED FOR t INTO 'kafka://k'"}"#,
+        );
+        assert!(run_now_sql(&c, &feed)
+            .unwrap()
+            .ends_with("\nEXECUTE SCHEDULE 3;\n"));
+        let system = sched("4", "sql-stats-compaction", "node", "ACTIVE", "{}");
+        assert_eq!(system.kind, ScheduleKind::System);
+        assert!(run_now_sql(&c, &system).is_ok());
+        // Versions: backups from 24.1, the rest from 26.1.
+        let v25 = Caps {
+            version: Some((25, 4)),
+            ..root()
+        };
+        assert!(run_now_sql(&v25, &full).is_ok());
+        assert!(matches!(
+            run_now_sql(&v25, &feed),
+            Err(Error::Unsupported(_))
+        ));
+        let v23 = Caps {
+            version: Some((23, 2)),
+            ..root()
+        };
+        assert!(matches!(
+            run_now_sql(&v23, &full),
+            Err(Error::Unsupported(_))
+        ));
+        // Paused, another user's, unknown kinds.
+        let paused = sched(
+            "5",
+            "p",
+            "root",
+            "PAUSED",
+            r#"{"backup_statement": "BACKUP INTO 'x'"}"#,
+        );
+        assert!(run_now_sql(&c, &paused)
+            .unwrap_err()
+            .to_string()
+            .contains("pausa"));
+        let ana = Caps {
+            user: "ana".into(),
+            admin: false,
+            ..root()
+        };
+        assert!(run_now_sql(&ana, &full).is_err());
+        assert!(run_now_sql(&ana, &system).is_err());
+        // A table's TTL: EXECUTE SCHEDULE takes its owner (who created the
+        // table) or an admin, whatever the rights on the table.
+        let ttl = |owner: &str| sched("7", "row-level-ttl: t [104]", owner, "ACTIVE", "{}");
+        assert_eq!(ttl("root").kind, ScheduleKind::Ttl);
+        assert!(run_now_sql(&c, &ttl("ana")).is_ok());
+        assert!(run_now_sql(&ana, &ttl("ana"))
+            .unwrap()
+            .ends_with("\nEXECUTE SCHEDULE 7;\n"));
+        assert!(run_now_sql(&ana, &ttl("root"))
+            .unwrap_err()
+            .to_string()
+            .contains("otro usuario"));
+        let other = sched("6", "odd", "root", "ACTIVE", "{}");
+        assert!(matches!(
+            run_now_sql(&c, &other),
+            Err(Error::Unsupported(_))
+        ));
+        // The kinds: run now from 24.1 on schedules, 26.1 on TTLs; no
+        // history to clear, no steps.
+        let kinds = c.kinds();
+        assert_eq!(kinds[0].actions[0].key, "run_now");
+        assert_eq!(kinds[1].actions[0].key, "run_now");
+        assert!(kinds.iter().all(|k| !k.clear_history && !k.run_from_step));
+        let kinds = v25.kinds();
+        assert_eq!(kinds[0].actions.len(), 1);
+        assert!(kinds[1].actions.is_empty());
+        assert!(v23.kinds()[0].actions.is_empty());
+    }
+
+    #[test]
+    fn the_clusters_schedules_and_other_users_ones_allow_less() {
+        let job = |id: &str, kind: ScheduleKind, owner: &str, can_run: bool| ServerJob {
+            id: id.into(),
+            name: "sql-stats-compaction".into(),
+            kind: kind.tag().into(),
+            owner: Some(owner.into()),
+            can_run,
+            ..ServerJob::default()
+        };
+        let ana = Caps {
+            user: "ana".into(),
+            admin: false,
+            ..root()
+        };
+        let run = Some(vec![RUN_NOW.to_string()]);
+        // The cluster's own: never deleted; edited by an admin.
+        let sys = job("crdb_schedule:1", ScheduleKind::System, "node", true);
+        assert_eq!(
+            job_abilities(&root(), Obj::Schedule(1), &sys),
+            (Some(true), Some(false), run.clone())
+        );
+        let sys = job("crdb_schedule:1", ScheduleKind::System, "node", false);
+        assert_eq!(
+            job_abilities(&ana, Obj::Schedule(1), &sys),
+            (Some(false), Some(false), Some(vec![]))
+        );
+        let setter = Caps {
+            privileges: vec!["MODIFYCLUSTERSETTING".into()],
+            ..ana.clone()
+        };
+        assert_eq!(job_abilities(&setter, Obj::Schedule(1), &sys).0, Some(true));
+        // Another user's backup schedule; the user's own.
+        let theirs = job("crdb_schedule:2", ScheduleKind::Backup, "bob", false);
+        assert_eq!(
+            job_abilities(&ana, Obj::Schedule(2), &theirs),
+            (Some(false), Some(false), Some(vec![]))
+        );
+        let mine = job("crdb_schedule:2", ScheduleKind::Backup, "ana", true);
+        assert_eq!(
+            job_abilities(&ana, Obj::Schedule(2), &mine),
+            (Some(true), Some(true), run.clone())
+        );
+        // A schedule DBine doesn't know: only deleted.
+        let odd = job("crdb_schedule:3", ScheduleKind::Other, "ana", false);
+        assert_eq!(
+            job_abilities(&ana, Obj::Schedule(3), &odd),
+            (Some(false), Some(true), Some(vec![]))
+        );
+        // A table's TTL: the server decides.
+        let ttl = job("crdb_schedule:4", ScheduleKind::Ttl, "root", true);
+        assert_eq!(
+            job_abilities(&ana, Obj::Schedule(4), &ttl),
+            (None, None, run)
+        );
+        // A changefeed: its owner's; nothing to run (it's running).
+        let feed = ServerJob {
+            id: "crdb_job:9".into(),
+            owner: Some("bob".into()),
+            ..ServerJob::default()
+        };
+        assert_eq!(
+            job_abilities(&ana, Obj::Feed(9), &feed),
+            (Some(false), Some(false), Some(vec![]))
+        );
+    }
+
+    #[test]
+    fn a_new_schedules_form_shows_only_the_picked_types_tabs_and_fields() {
+        let backup = ObjectForm {
+            sections: backup_fields(false),
+            values: BTreeMap::from([
+                ("backup_target".to_string(), json!("database")),
+                ("encryption".to_string(), json!("none")),
+            ]),
+            ..Default::default()
+        };
+        let feed_form = |schedule: bool| ObjectForm {
+            sections: feed_fields(schedule, false, false),
+            values: BTreeMap::from([("feed_mode".to_string(), json!("tables"))]),
+            ..Default::default()
+        };
+        let f = combine(vec![
+            (Source::CrdbBackup, backup),
+            (Source::CrdbChangefeed, feed_form(true)),
+            (Source::CrdbFeed, feed_form(false)),
+        ]);
+        let tab = |k: &str| {
+            f.sections
+                .iter()
+                .find(|s| s.key == k)
+                .unwrap_or_else(|| panic!("{k}: {:?}", f.sections))
+        };
+        let when = |v: &[&str]| {
+            Some((
+                "source".to_string(),
+                v.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+            ))
+        };
+        assert_eq!(tab("general").when, None);
+        assert_eq!(tab("general").fields[0].key, "source");
+        assert_eq!(tab("backup").when, when(&["crdb_backup"]));
+        assert_eq!(
+            tab("changefeed").when,
+            when(&["crdb_changefeed", "crdb_job"])
+        );
+        assert_eq!(
+            tab("schedule").when,
+            when(&["crdb_backup", "crdb_changefeed"])
+        );
+        // A field with a condition of its own also waits for its type: a
+        // changefeed's tables don't show for a backup (feed_mode starts at
+        // "tables" for every type).
+        let field = |k: &str| {
+            f.sections
+                .iter()
+                .flat_map(|s| s.fields.iter())
+                .find(|x| x.key == k)
+                .unwrap_or_else(|| panic!("{k}"))
+        };
+        let databases = field("databases");
+        assert_eq!(databases.when.as_ref().unwrap().0, "backup_target");
+        assert_eq!(
+            databases.when_all,
+            vec![("source".to_string(), vec!["crdb_backup".to_string()])]
+        );
+        let full_cron = field("full_cron");
+        assert_eq!(full_cron.when.as_ref().unwrap().0, "full_backup");
+        assert_eq!(full_cron.when_all[0].0, "source");
     }
 }

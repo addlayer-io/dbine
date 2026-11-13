@@ -52,8 +52,8 @@ use crate::jobs::{self, dollar, ident, JobId, Named};
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::{
-    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerInfo,
-    SchedulerItem, SchedulerList, Session, TxState,
+    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerAction,
+    SchedulerInfo, SchedulerItem, SchedulerList, ServerJob, Session, TxState,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -65,7 +65,38 @@ use tokio_postgres::SimpleQueryMessage;
 
 pub(crate) const OPEN_TRANSACTION: &str = "Hay una transacción abierta en esta sesión: confirmala (COMMIT) o deshacela (ROLLBACK) antes de cambiar el planificador.";
 const NO_SOURCE: &str = "Esta base no tiene un planificador en el que tu usuario pueda crear jobs (pg_cron, pgAgent, TimescaleDB, las tareas del servidor, DBMS_JOB o DBMS_SCHEDULER).";
-const COMBINED: &str = "Los pasos y las programaciones son de los jobs de pgAgent: los demás planificadores no los usan.";
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+/// Runs the object here, in DBine's session, until it ends (TimescaleDB's
+/// `run_job`, `DBMS_JOB.RUN`, `DBMS_SCHEDULER.RUN_JOB`).
+pub(crate) const RUN: &str = "run";
+/// Moves the object's next run to now: its scheduler starts it on its next
+/// pass and DBine doesn't wait (pgAgent, CockroachDB, openGauss).
+pub(crate) const RUN_NOW: &str = "run_now";
+
+pub(crate) fn run_action() -> SchedulerAction {
+    SchedulerAction::new("run", "Ejecutar ahora")
+}
+
+pub(crate) fn run_now_action() -> SchedulerAction {
+    SchedulerAction::new("run_now", "Programar para ahora")
+}
+
+/// An item's actions, as the keys it offers now.
+pub(crate) fn offers(keys: &[&str]) -> Option<Vec<String>> {
+    Some(keys.iter().map(|k| k.to_string()).collect())
+}
+
+/// An action this object doesn't have.
+pub(crate) fn no_action(action: &str) -> Error {
+    bad(format!(
+        "«{}» no es una acción de este objeto del planificador.",
+        shown(action)
+    ))
+}
 
 pub(crate) fn bad(message: String) -> Error {
     Error::Query(message)
@@ -288,6 +319,47 @@ impl Ctx {
             || self.dbms.as_ref().is_some_and(|d| d.readable)
             || self.sched.is_some()
     }
+
+    /// The actions of the jobs here (pg_cron and the server's tasks have
+    /// none: they run only on their schedule).
+    fn job_actions(&self) -> Vec<SchedulerAction> {
+        let run = self.ts.is_some()
+            || self.sched.is_some()
+            || self
+                .dbms
+                .as_ref()
+                .is_some_and(|d| d.readable && d.runs_here());
+        // openGauss: not while its job scheduler is off (nothing would take
+        // the job).
+        let run_now = self.agent.as_ref().is_some_and(|a| a.job_update)
+            || self
+                .dbms
+                .as_ref()
+                .is_some_and(|d| d.readable && !d.runs_here() && d.off.is_none());
+        let mut out = Vec::new();
+        if run {
+            out.push(run_action());
+        }
+        if run_now {
+            out.push(run_now_action());
+        }
+        out
+    }
+
+    /// Some job here keeps a run history the user may delete: pg_cron's
+    /// (`cron.job_run_details`), pgAgent's (`pga_joblog`), TimescaleDB's
+    /// (`bgw_job_stat_history` / `job_errors`), edb_job_scheduler's
+    /// (`sys.job_run_details`). A job of another scheduler refuses with
+    /// the reason ([`clear_history`]).
+    fn job_history(&self) -> bool {
+        self.cron.as_ref().is_some_and(|c| c.runs && c.clear)
+            || self.agent.as_ref().is_some_and(|a| a.log_delete)
+            || self
+                .ts
+                .as_ref()
+                .is_some_and(|t| t.history.is_some() && t.clear)
+            || self.dbms.as_ref().is_some_and(|d| d.edb_history())
+    }
 }
 
 pub(crate) async fn ctx(s: &PgSession) -> Result<Ctx> {
@@ -372,19 +444,30 @@ pub(crate) async fn ctx(s: &PgSession) -> Result<Ctx> {
 
 /// The kinds, in the order of the tree, and the notes.
 fn info_of(c: &Ctx) -> SchedulerInfo {
-    let mut kinds = vec![
-        dbine_driver::SchedulerKind::new("job", "Jobs", "job").abilities(
+    // None of these schedulers starts a job at one of its steps: pgAgent
+    // runs every enabled step of a job, the rest have no steps.
+    let mut job = dbine_driver::SchedulerKind::new("job", "Jobs", "job")
+        .abilities(
             !c.job_sources().is_empty(),
             c.any_job_edit(),
             c.any_job_delete(),
-        ),
-    ];
+        )
+        .run_from_step(false)
+        .clear_history(c.job_history());
+    for a in c.job_actions() {
+        job = job.action(a);
+    }
+    let mut kinds = vec![job];
     if let Some(a) = &c.agent {
         kinds.push(pgagent::class_kind(a));
     }
     if let Some(t) = &c.ts {
         for p in t.policies() {
-            kinds.push(p.kind());
+            kinds.push(
+                p.kind()
+                    .action(run_action())
+                    .clear_history(t.history.is_some() && t.clear),
+            );
         }
     }
     if let Some(x) = &c.crdb {
@@ -471,6 +554,103 @@ pub(crate) fn job_target(c: &Ctx, id: &str) -> Result<Target> {
     }
 }
 
+/// What the user may do with one job of the list: edit it, delete it, and
+/// which of the kind's actions it offers now.
+pub(crate) type Abilities = (Option<bool>, Option<bool>, Option<Vec<String>>);
+
+/// A job of the list as the tree shows it, with what the user may do with
+/// it (another user's job, the extension's own, a cluster schedule…).
+pub(crate) fn job_item(c: &Ctx, j: ServerJob) -> SchedulerItem {
+    let (can_edit, can_delete, actions) = match job_target(c, &j.id) {
+        Ok(t) => job_abilities(c, &t, &j),
+        // Not a scheduler this designer manages here: shown only.
+        Err(_) => (Some(false), Some(false), offers(&[])),
+    };
+    SchedulerItem {
+        id: j.id,
+        name: j.name,
+        description: j.description,
+        enabled: Some(j.enabled),
+        system: j.system,
+        can_edit,
+        can_delete,
+        actions,
+    }
+}
+
+pub(crate) fn job_abilities(c: &Ctx, t: &Target, j: &ServerJob) -> Abilities {
+    let owner = j.owner.as_deref().unwrap_or_default();
+    match t {
+        Target::Cron(flavor, _) => {
+            let caps = match flavor {
+                cron::Flavor::Cron => c.cron.as_ref(),
+                cron::Flavor::Task => c.task.as_ref(),
+            };
+            let Some(caps) = caps else {
+                return (Some(false), Some(false), offers(&[]));
+            };
+            let mine = caps.may_change(owner);
+            // pg_cron and the tasks run a job only on its schedule.
+            (
+                Some(mine && caps.may_edit()),
+                Some(mine && caps.may_delete()),
+                offers(&[]),
+            )
+        }
+        Target::Agent(_) => {
+            let a = c.agent.clone().unwrap_or_default();
+            // A disabled job isn't taken, and a running one gets its next
+            // run computed again when the run ends.
+            let run_now = a.job_update && j.enabled && !j.running;
+            (
+                Some(a.may_edit()),
+                Some(a.may_delete()),
+                offers(if run_now { &[RUN_NOW] } else { &[] }),
+            )
+        }
+        Target::Timescale(_) => {
+            // `can_enable`: the job's owner's rights (a superuser's too).
+            let mine = j.can_enable;
+            (
+                Some(mine),
+                Some(mine && !j.system),
+                offers(if mine && !j.running { &[RUN] } else { &[] }),
+            )
+        }
+        Target::Dbms(id) => {
+            let Some(d) = c.dbms.as_ref() else {
+                return (Some(false), Some(false), offers(&[]));
+            };
+            // The scripts' rule: openGauss's `log_user` (the list also
+            // counts `priv_user`, which pkg_service doesn't take as the
+            // owner).
+            let mine = d.may_job(id, j.owner.as_deref());
+            let action = if d.runs_here() {
+                (mine && !j.running).then_some(RUN)
+            } else {
+                // openGauss: enabled and idle (`can_run`), while its job
+                // scheduler is on.
+                (mine && j.can_run && d.off.is_none()).then_some(RUN_NOW)
+            };
+            (Some(mine), Some(mine), offers(action.as_slice()))
+        }
+        Target::Sched(_) => {
+            // EDB: the user's own, with a name no other owner has;
+            // KingbaseES: the user's own (or a superuser).
+            let mine = j.can_enable;
+            (
+                Some(mine),
+                Some(mine),
+                offers(if mine && !j.running { &[RUN] } else { &[] }),
+            )
+        }
+        Target::Crdb(obj) => match &c.crdb {
+            Some(x) => crdb::job_abilities(x, *obj, j),
+            None => (Some(false), Some(false), offers(&[])),
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The contract's calls
 // ---------------------------------------------------------------------------
@@ -487,20 +667,7 @@ pub(crate) async fn items(s: &PgSession, kind: &str) -> Result<SchedulerList> {
         Kind::Job => {
             let list = jobs::list(s).await?;
             Ok(SchedulerList {
-                items: list
-                    .jobs
-                    .into_iter()
-                    .map(|j| SchedulerItem {
-                        id: j.id,
-                        name: j.name,
-                        description: j.description,
-                        enabled: Some(j.enabled),
-                        system: j.system,
-                        can_edit: None,
-                        can_delete: None,
-                        actions: None,
-                    })
-                    .collect(),
+                items: list.jobs.into_iter().map(|j| job_item(&c, j)).collect(),
                 notes: list.notes,
             })
         }
@@ -661,8 +828,13 @@ fn shape_of(f: &ObjectForm, key: &str) -> Shape {
     )
 }
 
-/// `f`'s keys in `renamed` as [`own_key`]s: its fields, the `when`s that
-/// name them (its rows' too) and its values.
+/// A field's conditions: its `when` and the rest (`when_all`).
+fn conditions(field: &mut FormField) -> impl Iterator<Item = &mut (String, Vec<String>)> {
+    field.when.iter_mut().chain(field.when_all.iter_mut())
+}
+
+/// `f`'s keys in `renamed` as [`own_key`]s: its fields, the conditions that
+/// name them (its rows', lists' and tabs' too) and its values.
 fn rename_keys(source: Source, f: &mut ObjectForm, renamed: &[String]) {
     if renamed.is_empty() {
         return;
@@ -670,24 +842,26 @@ fn rename_keys(source: Source, f: &mut ObjectForm, renamed: &[String]) {
     let to = |k: &str| own_key(source, k);
     let hit = |k: &str| renamed.iter().any(|r| r == k);
     for section in &mut f.sections {
+        if let Some((k, _)) = section.when.as_mut().filter(|(k, _)| hit(k)) {
+            *k = to(k);
+        }
         for field in &mut section.fields {
             if hit(&field.key) {
                 field.key = to(&field.key);
             }
-            if let Some((k, _)) = field.when.as_mut().filter(|(k, _)| hit(k)) {
+            for (k, _) in conditions(field).filter(|(k, _)| hit(k)) {
                 *k = to(k);
             }
         }
         for list in &mut section.lists {
+            if let Some((k, _)) = list.when.as_mut().filter(|(k, _)| hit(k)) {
+                *k = to(k);
+            }
             let row_keys: Vec<String> = list.fields.iter().map(|x| x.key.clone()).collect();
             for field in &mut list.fields {
-                // A row's `when` names the top level only when the row
+                // A row's condition names the top level only when the row
                 // has no field of that key.
-                if let Some((k, _)) = field
-                    .when
-                    .as_mut()
-                    .filter(|(k, _)| hit(k) && !row_keys.contains(k))
-                {
+                for (k, _) in conditions(field).filter(|(k, _)| hit(k) && !row_keys.contains(k)) {
                     *k = to(k);
                 }
             }
@@ -708,12 +882,42 @@ fn rename_keys(source: Source, f: &mut ObjectForm, renamed: &[String]) {
     }
 }
 
+/// A field's, list's or tab's condition: a key and the values it shows for.
+type Cond = (String, Vec<String>);
+
+/// The schedulers (by key) whose forms have each tab and each list.
+type Holders = (
+    HashMap<String, Vec<&'static str>>,
+    HashMap<String, Vec<&'static str>>,
+);
+
+fn holders(forms: &[(Source, ObjectForm)]) -> Holders {
+    let (mut tabs, mut lists): Holders = Default::default();
+    for (source, f) in forms {
+        for section in &f.sections {
+            let who = tabs.entry(section.key.clone()).or_default();
+            if !who.contains(&source.key()) {
+                who.push(source.key());
+            }
+            for list in &section.lists {
+                let who = lists.entry(list.key.clone()).or_default();
+                if !who.contains(&source.key()) {
+                    who.push(source.key());
+                }
+            }
+        }
+    }
+    (tabs, lists)
+}
+
 /// The forms of several schedulers as one: a "Planificador" select first,
-/// each scheduler's fields shown only while it's the one picked (a field
-/// every scheduler has stays always shown). A key two schedulers use for
-/// fields that differ (kind, read-only, help, starting value…) stays the
-/// first one's; the others' fields with it get [`own_key`]s, and
-/// [`picked_values`] gives them their keys back for the scheduler picked.
+/// each scheduler's fields, lists and tabs shown only while it's the one
+/// picked (what every scheduler has stays always shown; a field with
+/// conditions of its own keeps them and adds this one). A key two
+/// schedulers use for fields that differ (kind, read-only, help, starting
+/// value…) stays the first one's; the others' fields with it get
+/// [`own_key`]s, and [`picked_values`] gives them their keys back for the
+/// scheduler picked.
 pub(crate) fn combine(forms: Vec<(Source, ObjectForm)>) -> ObjectForm {
     let all: Vec<Source> = forms.iter().map(|(s, _)| *s).collect();
     let options: Vec<(String, String)> = all
@@ -723,6 +927,7 @@ pub(crate) fn combine(forms: Vec<(Source, ObjectForm)>) -> ObjectForm {
     let picker = FormField::new("source", "Planificador", FormKind::Select { options })
         .required()
         .default(json!(all[0].key()));
+    let (tab_holders, list_holders) = holders(&forms);
     // Each key as its first scheduler has it; the schedulers that have it
     // the same way share it, the rest get their own.
     let mut first: HashMap<String, Shape> = HashMap::new();
@@ -758,6 +963,19 @@ pub(crate) fn combine(forms: Vec<(Source, ObjectForm)>) -> ObjectForm {
         }
         rename_keys(*source, f, &renamed);
     }
+    // Each tab's own conditions, one per scheduler that has it (after the
+    // renames), and the keys that have a field.
+    let mut tab_whens: HashMap<String, Vec<Option<Cond>>> = HashMap::new();
+    let mut field_keys: Vec<String> = Vec::new();
+    for (_, f) in &forms {
+        for section in &f.sections {
+            tab_whens
+                .entry(section.key.clone())
+                .or_default()
+                .push(section.when.clone());
+            field_keys.extend(section.fields.iter().map(|x| x.key.clone()));
+        }
+    }
     let mut out = ObjectForm::default();
     out.values.insert("source".into(), json!(all[0].key()));
     // The scheduler whose fields of each key are in the form.
@@ -783,15 +1001,22 @@ pub(crate) fn combine(forms: Vec<(Source, ObjectForm)>) -> ObjectForm {
                     continue;
                 }
                 let who = owners.get(&field.key).cloned().unwrap_or_default();
-                if who.len() < all.len() && field.when.is_none() {
-                    field = field.when("source", &who);
+                if who.len() < all.len() {
+                    field = field.and_when("source", &who);
                 }
                 out.sections[idx].fields.push(field);
             }
-            for list in section.lists {
-                if !out.sections[idx].lists.iter().any(|l| l.key == list.key) {
-                    out.sections[idx].lists.push(list);
+            for mut list in section.lists {
+                if out.sections[idx].lists.iter().any(|l| l.key == list.key) {
+                    continue;
                 }
+                let who = list_holders.get(&list.key).cloned().unwrap_or_default();
+                // A list takes one condition: the scheduler's comes first
+                // (another scheduler's rows would be refused anyway).
+                if who.len() < all.len() {
+                    list = list.when("source", &who);
+                }
+                out.sections[idx].lists.push(list);
             }
         }
         for (k, v) in f.values {
@@ -806,14 +1031,36 @@ pub(crate) fn combine(forms: Vec<(Source, ObjectForm)>) -> ObjectForm {
             }
         }
     }
+    // A tab only some schedulers have shows while one of them is picked.
+    // Its own condition stays when every scheduler that has the tab has it
+    // and it names a field only they have: with another scheduler picked
+    // that field hides, and a condition on a hidden field doesn't hold, so
+    // the tab hides too. Otherwise the picker's condition takes its place
+    // (the fields in it keep theirs). The picker's tab always shows.
+    for section in &mut out.sections {
+        let who = tab_holders.get(&section.key).cloned().unwrap_or_default();
+        if section.key == "general" || who.len() == all.len() {
+            continue;
+        }
+        let keeps = section.when.as_ref().is_some_and(|(k, _)| {
+            tab_whens
+                .get(&section.key)
+                .is_some_and(|w| w.iter().all(|x| x == &section.when))
+                && field_keys.contains(k)
+                && owners
+                    .get(k)
+                    .is_some_and(|o| !o.is_empty() && o.iter().all(|s| who.contains(s)))
+        });
+        if !keeps {
+            section.when = Some(("source".into(), who.iter().map(|w| w.to_string()).collect()));
+        }
+    }
     if let Some(general) = out.sections.iter_mut().find(|s| s.key == "general") {
+        general.when = None;
         general.fields.insert(0, picker);
     } else {
         out.sections
             .insert(0, FormSection::new("general", "General").field(picker));
-    }
-    if all.contains(&Source::Agent) {
-        out.notes.push(COMBINED.into());
     }
     out
 }
@@ -1119,6 +1366,70 @@ pub(crate) async fn clear_history(s: &mut PgSession, id: &str) -> Result<()> {
         Target::Dbms(_) => return Err(bad("Este job no es de este servidor.".into())),
     };
     run_script(s, &script).await.map(|_| ())
+}
+
+pub(crate) async fn action_script(
+    s: &PgSession,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    let kind = Kind::parse(kind)?;
+    let c = ctx(s).await?;
+    action_plan(s, &c, kind, id, action.trim()).await
+}
+
+/// Runs one of the kind's actions: its script, written again from what the
+/// server has now.
+pub(crate) async fn action(s: &mut PgSession, kind: &str, id: &str, action: &str) -> Result<()> {
+    let kind = Kind::parse(kind)?;
+    let c = ctx(s).await?;
+    let script = action_plan(s, &c, kind, id, action.trim()).await?;
+    run_script(s, &script).await.map(|_| ())
+}
+
+/// Why pg_cron and the server's tasks have no "run now".
+fn runs_only_on_schedule(flavor: cron::Flavor) -> Error {
+    Error::Unsupported(
+        match flavor {
+            cron::Flavor::Cron => {
+                "pg_cron no ejecuta un job fuera de su programación: para probarlo, ejecutá su comando en una consulta"
+            }
+            cron::Flavor::Task => {
+                "el servidor no ejecuta una tarea fuera de su programación: para probarla, ejecutá su comando en una consulta"
+            }
+        }
+        .into(),
+    )
+}
+
+async fn action_plan(s: &PgSession, c: &Ctx, kind: Kind, id: &str, action: &str) -> Result<String> {
+    if let Some(x) = &c.crdb {
+        return match (kind, action) {
+            (Kind::Job | Kind::Ttl, RUN_NOW) => {
+                crdb::run_now_script(s, x, crdb_obj(c, kind, Some(id))?).await
+            }
+            _ => Err(no_action(action)),
+        };
+    }
+    match kind {
+        Kind::Job => match job_target(c, id)? {
+            Target::Cron(flavor, _) => Err(runs_only_on_schedule(flavor)),
+            Target::Agent(n) if action == RUN_NOW => pgagent::run_now_script(s, c, n).await,
+            Target::Timescale(n) if action == RUN => timescale::run_script(s, c, None, n).await,
+            Target::Dbms(job) if action == RUN || action == RUN_NOW => {
+                dbms_job::action_script(s, dbms_caps(c)?, &job, action).await
+            }
+            Target::Sched(n) if action == RUN => {
+                dbms_scheduler::run_script(s, sched_caps(c)?, &n).await
+            }
+            _ => Err(no_action(action)),
+        },
+        Kind::Policy(p) if action == RUN => {
+            timescale::run_script(s, c, Some(p), timescale::policy_id(id)?).await
+        }
+        _ => Err(no_action(action)),
+    }
 }
 
 // ---------------------------------------------------------------------------

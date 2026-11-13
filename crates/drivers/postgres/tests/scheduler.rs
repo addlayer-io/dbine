@@ -406,6 +406,14 @@ async fn pg_cron_as_a_plain_user() {
         set_in(&form, &mut v, "command", json!("SELECT 1"));
         let id = save(&mut s, "job", None, &v).await;
         assert_eq!(cron_job_row(&mut admin, &id).await[4], json!(USER));
+        // The user's own job: changed and deleted, never run now (pg_cron
+        // runs a job only on its schedule; pgAgent isn't this user's).
+        assert!(info.kinds[0].actions.is_empty(), "{info:?}");
+        let it = item(&mut s, "job", &id).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(true), Some(true), offers(&[]))
+        );
         // Rescheduled by its name: the same id.
         let form = s.scheduler_form("job", Some(&id)).await.unwrap();
         let mut v = values_of(&form);
@@ -934,6 +942,19 @@ async fn cloudberry_tasks_managed_whole() {
         set_in(&form, &mut v, "active", json!(false));
         let id = save(&mut s, "job", None, &v).await;
         assert!(id.starts_with("task:"), "{id}");
+        // Tasks run only on their schedule, and their history is a system
+        // catalog: no actions, nothing to clear (unless pg_cron is here too).
+        if info.kinds[0].actions.is_empty() {
+            assert!(!info.kinds[0].clear_history, "{info:?}");
+        }
+        assert!(!info.kinds[0].run_from_step);
+        let it = item(&mut s, "job", &id).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(true), Some(true), offers(&[]))
+        );
+        let e = s.scheduler_action_script("job", &id, "run").await.unwrap_err();
+        assert!(matches!(&e, Error::Unsupported(m) if m.contains("tarea")), "{e:?}");
         let row = |n: &str| format!("SELECT jobname, schedule, command, database, active FROM pg_catalog.pg_task WHERE jobid = {n}");
         let r = rows(&mut s, &row(number(&id))).await;
         assert_eq!(r[0], [json!("dbine_test_sched_task"), json!("0 3 * * *"), json!("SELECT 'dbine'"), json!(db), json!("f")]);
@@ -1780,6 +1801,8 @@ async fn opengauss_dbms_job_managed_whole() {
 }
 
 const CRDB_USER: &str = "dbine_test_sched_user";
+/// The plain user's test database.
+const CRDB_PLAIN_DB: &str = "dbine_test_sched_plain";
 
 /// A user who isn't admin: without VIEWJOB the schedules can't be read;
 /// with it, another user's schedule shows read-only and isn't changed.
@@ -1790,8 +1813,11 @@ async fn cockroach_as_a_plain_user() {
         return;
     };
     let mut admin = connect(&base).await;
+    // The database goes first: its tables' TTL schedules go with it, and
+    // the user's grants and table on it with them.
     let drop_user = format!(
         "DROP SCHEDULES SELECT id FROM [SHOW SCHEDULES] WHERE label LIKE 'dbine_test_sched%';
+DROP DATABASE IF EXISTS {CRDB_PLAIN_DB} CASCADE;
 REVOKE SYSTEM VIEWJOB FROM {CRDB_USER};
 DROP USER IF EXISTS {CRDB_USER}"
     );
@@ -1806,7 +1832,7 @@ DROP USER IF EXISTS {CRDB_USER}"
             scalar(
                 &mut s,
                 &format!(
-                    "SELECT (SELECT count(*) FROM [SHOW SCHEDULES] WHERE label LIKE 'dbine_test_sched%') + (SELECT count(*) FROM [SHOW USERS] WHERE username = '{CRDB_USER}')"
+                    "SELECT (SELECT count(*) FROM [SHOW SCHEDULES] WHERE label LIKE 'dbine_test_sched%') + (SELECT count(*) FROM [SHOW USERS] WHERE username = '{CRDB_USER}') + (SELECT count(*) FROM [SHOW DATABASES] WHERE database_name = '{CRDB_PLAIN_DB}')"
                 ),
             )
             .await
@@ -1814,6 +1840,16 @@ DROP USER IF EXISTS {CRDB_USER}"
     };
     cleanup(drop_user.clone()).await;
     run(&mut admin, &format!("CREATE USER {CRDB_USER}")).await;
+    // A table with a TTL, root's (and so its TTL schedule), that the user
+    // may read; the user may create tables of their own beside it.
+    for st in [
+        format!("CREATE DATABASE {CRDB_PLAIN_DB}"),
+        format!("CREATE TABLE {CRDB_PLAIN_DB}.t (id INT PRIMARY KEY, created TIMESTAMPTZ NOT NULL DEFAULT now()) WITH (ttl_expire_after = '30 days')"),
+        format!("GRANT SELECT ON TABLE {CRDB_PLAIN_DB}.t TO {CRDB_USER}"),
+        format!("GRANT CREATE ON DATABASE {CRDB_PLAIN_DB} TO {CRDB_USER}"),
+    ] {
+        run(&mut admin, &st).await;
+    }
     run(
         &mut admin,
         "CREATE SCHEDULE 'dbine_test_sched_root' FOR BACKUP INTO 'nodelocal://1/dbine_test_sched_root' RECURRING '@daily' FULL BACKUP ALWAYS WITH SCHEDULE OPTIONS first_run = '2031-01-01 00:00:00+00'",
@@ -1859,6 +1895,26 @@ DROP USER IF EXISTS {CRDB_USER}"
         let form = s.scheduler_form("job", Some(&id)).await.expect("form");
         assert!(form.read_only, "{form:?}");
         assert!(form.notes[0].contains("otro usuario"), "{:?}", form.notes);
+        // The tree says so too, and offers nothing to run; the cluster's
+        // own schedules aren't this user's either.
+        let it = item(&mut s, "job", &id).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(false), Some(false), offers(&[]))
+        );
+        assert!(s
+            .scheduler_action_script("job", &id, "run_now")
+            .await
+            .is_err());
+        let items = s.scheduler_items("job").await.unwrap().items;
+        let sys = items
+            .iter()
+            .find(|i| i.name == "sql-stats-compaction")
+            .expect("sql-stats-compaction");
+        assert_eq!(
+            (sys.can_edit, sys.can_delete, sys.actions.clone()),
+            (Some(false), Some(false), offers(&[]))
+        );
         let mut v = values_of(&form);
         set(&mut v, "recurring", json!("@hourly"));
         assert!(s.scheduler_script("job", Some(&id), &v).await.is_err());
@@ -1872,9 +1928,554 @@ DROP USER IF EXISTS {CRDB_USER}"
             .await,
             "@daily"
         );
+
+        // A table's TTL: EXECUTE SCHEDULE takes the schedule's owner (the
+        // table's creator) or an admin, so root's isn't offered to this
+        // user, in the TTL kind or among the schedules, and the user's own
+        // is.
+        let info = s.scheduler_info().await.unwrap();
+        let ttl_kind = info.kinds.iter().find(|k| k.key == "ttl").unwrap();
+        assert_eq!(action_keys(ttl_kind), ["run_now"], "26.1+ with VIEWJOB");
+        run(
+            &mut s,
+            &format!(
+                "CREATE TABLE {CRDB_PLAIN_DB}.mine (id INT PRIMARY KEY, created TIMESTAMPTZ NOT NULL DEFAULT now()) WITH (ttl_expire_after = '1 day')"
+            ),
+        )
+        .await;
+        let ttl = s.scheduler_items("ttl").await.unwrap().items;
+        let find = |name: &str| {
+            ttl.iter()
+                .find(|i| i.name == format!("{CRDB_PLAIN_DB}.public.{name}"))
+                .unwrap_or_else(|| panic!("{name}: {ttl:?}"))
+                .clone()
+        };
+        let (roots, mine) = (find("t"), find("mine"));
+        assert_eq!(roots.actions, offers(&[]), "{roots:?}");
+        assert_eq!(mine.actions, offers(&["run_now"]), "{mine:?}");
+        let e = s
+            .scheduler_action_script("ttl", &roots.id, "run_now")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("otro usuario"), "{e}");
+        let script = s
+            .scheduler_action_script("ttl", &mine.id, "run_now")
+            .await
+            .unwrap();
+        assert!(script.contains("\nEXECUTE SCHEDULE "), "{script}");
+        // The same schedules in the jobs list: the same rule.
+        let sched_sql = |table: &str| {
+            format!(
+                "SELECT 'crdb_schedule:' || id::STRING FROM [SHOW SCHEDULES] WHERE label = 'row-level-ttl: {table} [' || '{CRDB_PLAIN_DB}.{table}'::REGCLASS::OID::STRING || ']'"
+            )
+        };
+        let roots_sched = scalar(&mut admin, &sched_sql("t")).await;
+        let mine_sched = scalar(&mut admin, &sched_sql("mine")).await;
+        assert_eq!(item(&mut s, "job", &roots_sched).await.actions, offers(&[]));
+        assert_eq!(
+            item(&mut s, "job", &mine_sched).await.actions,
+            offers(&["run_now"])
+        );
+        assert!(s
+            .scheduler_action_script("job", &roots_sched, "run_now")
+            .await
+            .is_err());
     };
     let result = AssertUnwindSafe(body).catch_unwind().await;
     let left = cleanup(drop_user).await;
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+    assert_eq!(left, "0", "objects left behind");
+}
+
+// ---------------------------------------------------------------------------
+// Actions ("Ejecutar ahora", "Programar para ahora"), what each object
+// allows, and the tabs of a new job
+// ---------------------------------------------------------------------------
+
+async fn item(s: &mut Box<dyn Session>, kind: &str, id: &str) -> dbine_driver::SchedulerItem {
+    s.scheduler_items(kind)
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == id)
+        .unwrap_or_else(|| panic!("{kind} {id}"))
+}
+
+fn action_keys(k: &dbine_driver::SchedulerKind) -> Vec<&str> {
+    k.actions.iter().map(|a| a.key.as_str()).collect()
+}
+
+fn only(source: &str) -> Option<(String, Vec<String>)> {
+    Some(("source".to_string(), vec![source.to_string()]))
+}
+
+fn tab<'a>(form: &'a ObjectForm, key: &str) -> &'a dbine_driver::FormSection {
+    form.sections
+        .iter()
+        .find(|t| t.key == key)
+        .unwrap_or_else(|| panic!("tab {key}"))
+}
+
+fn offers(keys: &[&str]) -> Option<Vec<String>> {
+    Some(keys.iter().map(|k| k.to_string()).collect())
+}
+
+/// pg_cron (no "run now") and pgAgent ("programar para ahora", as pgAdmin
+/// does it) in one database; a new job shows only the picked scheduler's
+/// tabs.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn pg_cron_and_pgagent_actions() {
+    let Some(cfg) = cfg("postgres", "DBINE_TEST_PGCRON_URL") else {
+        return;
+    };
+    let cleanup = format!("{CRON_CLEANUP}\n{AGENT_CLEANUP}");
+    let left = format!("SELECT ({CRON_LEFT}) + ({AGENT_LEFT})");
+    let c2 = cfg.clone();
+    let cleanup2 = cleanup.clone();
+    with_cleanup(&cfg, &cleanup, &left, async move {
+        let cfg = c2;
+        let mut s = connect(&cfg).await;
+        run(&mut s, &cleanup2).await;
+        let info = s.scheduler_info().await.unwrap();
+        let job = &info.kinds[0];
+        assert!(action_keys(job).contains(&"run_now"), "{job:?}");
+        assert!(job.clear_history && !job.run_from_step, "{job:?}");
+
+        // A new job: pgAgent's tabs and lists only while it's picked.
+        let form = s.scheduler_form("job", None).await.unwrap();
+        assert_eq!(tab(&form, "general").when, None);
+        assert_eq!(tab(&form, "command").when, only("pg_cron"));
+        for t in ["steps", "schedules"] {
+            assert_eq!(tab(&form, t).when, only("pgagent"), "{t}");
+            assert!(tab(&form, t).lists.iter().all(|l| l.when == only("pgagent")), "{t}");
+        }
+        assert!(form.notes.iter().all(|n| !n.contains("pasos y las programaciones")));
+
+        // pg_cron: shown without actions; "run now" says why.
+        let mut v = values_of(&form);
+        set(&mut v, "source", json!("pg_cron"));
+        set_in(&form, &mut v, "name", json!("dbine_test_sched_act"));
+        set_in(&form, &mut v, "schedule", json!("0 3 * * *"));
+        set_in(&form, &mut v, "command", json!("SELECT 1"));
+        let cron_id = save(&mut s, "job", None, &v).await;
+        let it = item(&mut s, "job", &cron_id).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(true), Some(true), offers(&[]))
+        );
+        let e = s
+            .scheduler_action_script("job", &cron_id, "run_now")
+            .await
+            .unwrap_err();
+        assert!(matches!(&e, Error::Unsupported(m) if m.contains("pg_cron")), "{e:?}");
+
+        // pgAgent: programmed for now.
+        let mut v = values_of(&form);
+        set(&mut v, "source", json!("pgagent"));
+        set_in(&form, &mut v, "name", json!(AGENT_JOB));
+        v.lists.insert(
+            "steps".into(),
+            vec![new_row(&form, "steps", json!({"name": "01", "kind": "sql", "dbname": "postgres", "code": "SELECT 1"}))],
+        );
+        let id = save(&mut s, "job", None, &v).await;
+        let n = number(&id).to_string();
+        run(&mut s, &format!("UPDATE pgagent.pga_job SET jobnextrun = '2031-01-01' WHERE jobid = {n}")).await;
+        let it = item(&mut s, "job", &id).await;
+        assert_eq!(it.actions, offers(&["run_now"]), "{it:?}");
+        assert_eq!((it.can_edit, it.can_delete), (Some(true), Some(true)));
+        let script = s.scheduler_action_script("job", &id, "run_now").await.unwrap();
+        eprintln!("{script}");
+        assert!(
+            script.ends_with(&format!("UPDATE pgagent.pga_job SET jobnextrun = now() WHERE jobid = {n} AND jobenabled;\n")),
+            "{script}"
+        );
+        assert!(s.scheduler_action_script("job", &id, "run").await.is_err());
+        // Read-only connections show the script, never run it.
+        let mut ro = ReadOnlySession::new(connect(&cfg).await);
+        assert!(ro.scheduler_action_script("job", &id, "run_now").await.is_ok());
+        assert!(ro.scheduler_action("job", &id, "run_now").await.is_err());
+        s.scheduler_action("job", &id, "run_now").await.expect("run now");
+        let next = scalar(&mut s, &format!(
+            "SELECT jobnextrun <= now() + interval '1 second' OR joblastrun IS NOT NULL FROM pgagent.pga_job WHERE jobid = {n}"
+        )).await;
+        assert_eq!(next, "t");
+        // Its class is in use: it can't be deleted.
+        let class = scalar(&mut s, &format!("SELECT jobjclid FROM pgagent.pga_job WHERE jobid = {n}")).await;
+        assert_eq!(item(&mut s, "job_class", &class).await.can_delete, Some(false));
+        // Disabled: nothing to run.
+        run(&mut s, &format!("UPDATE pgagent.pga_job SET jobenabled = false WHERE jobid = {n}")).await;
+        assert_eq!(item(&mut s, "job", &id).await.actions, offers(&[]));
+        let e = s.scheduler_action_script("job", &id, "run_now").await.unwrap_err();
+        assert!(e.to_string().contains("deshabilitado"), "{e}");
+        // Ids and actions that weren't written here.
+        assert!(s.scheduler_action_script("job", "pgagent:0", "run_now").await.is_err());
+        assert!(s.scheduler_action_script("job", &id, "x'; DROP TABLE t").await.is_err());
+        assert!(s.scheduler_action_script("job_class", &class, "run_now").await.is_err());
+    })
+    .await;
+}
+
+const TS_ACT_SETUP: &str = r"CREATE TABLE dbine_test_sched_runs (job int, at timestamptz DEFAULT now());
+CREATE TABLE dbine_test_sched_ht (t timestamptz NOT NULL, v int);
+SELECT create_hypertable('dbine_test_sched_ht', 't');
+CREATE PROCEDURE dbine_test_sched_proc(job_id int, config jsonb) LANGUAGE plpgsql AS
+  $$BEGIN INSERT INTO dbine_test_sched_runs (job) VALUES (job_id); END$$;";
+
+/// TimescaleDB: "Ejecutar ahora" is `CALL run_job`, for jobs (scheduled or
+/// not) and policies; the extension's own jobs aren't deleted.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn timescaledb_actions() {
+    let Some(cfg) = cfg("timescaledb", "DBINE_TEST_TIMESCALEDB_URL") else {
+        return;
+    };
+    let cleanup = format!("{TS_CLEANUP}\nDROP TABLE IF EXISTS dbine_test_sched_runs;");
+    let c2 = cfg.clone();
+    let cleanup2 = cleanup.clone();
+    with_cleanup(&cfg, &cleanup, TS_LEFT, async move {
+        let cfg = c2;
+        let mut s = connect(&cfg).await;
+        run(&mut s, &cleanup2).await;
+        run(&mut s, TS_ACT_SETUP).await;
+        let info = s.scheduler_info().await.unwrap();
+        for k in &info.kinds {
+            if k.key == "job" || k.key.ends_with("_policy") {
+                assert_eq!(action_keys(k), ["run"], "{k:?}");
+                assert!(k.clear_history && !k.run_from_step, "{k:?}");
+            }
+        }
+        // The extension's own jobs: changed, never deleted.
+        let items = s.scheduler_items("job").await.unwrap().items;
+        let own = items.iter().find(|i| i.system).expect("a system job");
+        assert_eq!(
+            (own.can_edit, own.can_delete),
+            (Some(true), Some(false)),
+            "{own:?}"
+        );
+
+        // A job, unscheduled: run here all the same.
+        let form = s.scheduler_form("job", None).await.unwrap();
+        let mut v = values_of(&form);
+        set_in(&form, &mut v, "name", json!("dbine_test_sched_act"));
+        set_in(
+            &form,
+            &mut v,
+            "proc",
+            json!(r#""public"."dbine_test_sched_proc""#),
+        );
+        set_in(&form, &mut v, "schedule_interval", json!("1 day"));
+        let id = save(&mut s, "job", None, &v).await;
+        let n = number(&id).to_string();
+        run(
+            &mut s,
+            &format!("SELECT alter_job({n}, scheduled => false)"),
+        )
+        .await;
+        let it = item(&mut s, "job", &id).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(true), Some(true), offers(&["run"]))
+        );
+        let script = s.scheduler_action_script("job", &id, "run").await.unwrap();
+        eprintln!("{script}");
+        assert!(
+            script.ends_with(&format!("\nCALL \"public\".run_job({n});\n")),
+            "{script}"
+        );
+        assert!(s
+            .scheduler_action_script("job", &id, "run_now")
+            .await
+            .is_err());
+        s.scheduler_action("job", &id, "run").await.expect("run");
+        assert_eq!(
+            scalar(
+                &mut s,
+                &format!("SELECT count(*) FROM dbine_test_sched_runs WHERE job = {n}")
+            )
+            .await,
+            "1"
+        );
+
+        // A policy runs the same way.
+        let p = scalar(
+            &mut s,
+            "SELECT add_retention_policy('dbine_test_sched_ht', INTERVAL '30 days')",
+        )
+        .await;
+        let pid = format!("timescaledb:{p}");
+        let it = item(&mut s, "retention_policy", &pid).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(true), Some(true), offers(&["run"]))
+        );
+        let script = s
+            .scheduler_action_script("retention_policy", &pid, "run")
+            .await
+            .unwrap();
+        assert!(script.contains("política de retención"), "{script}");
+        s.scheduler_action("retention_policy", &pid, "run")
+            .await
+            .expect("run the policy");
+        // Not a compression policy; not a job of this server.
+        assert!(s
+            .scheduler_action_script("compression_policy", &pid, "run")
+            .await
+            .is_err());
+        assert!(s
+            .scheduler_action_script("job", "timescaledb:0", "run")
+            .await
+            .is_err());
+        let mut ro = ReadOnlySession::new(connect(&cfg).await);
+        assert!(ro.scheduler_action("job", &id, "run").await.is_err());
+    })
+    .await;
+}
+
+/// openGauss has no DBMS_JOB.RUN: "programar para ahora" moves the next
+/// run to the past and the job scheduler takes it.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn opengauss_actions() {
+    let Some(cfg) = cfg("opengauss", "DBINE_TEST_OPENGAUSS_URL") else {
+        return;
+    };
+    let mut first = connect(&cfg).await;
+    run(&mut first, GAUSS_CLEANUP).await;
+    let c2 = cfg.clone();
+    with_cleanup(&cfg, GAUSS_CLEANUP, GAUSS_LEFT, async move {
+        let mut s = connect(&c2).await;
+        run(&mut s, "CREATE TABLE dbine_test_sched_log (n int)").await;
+        let info = s.scheduler_info().await.expect("info");
+        assert_eq!(action_keys(&info.kinds[0]), ["run_now"]);
+        assert!(!info.kinds[0].clear_history && !info.kinds[0].run_from_step);
+        let form = s.scheduler_form("job", None).await.unwrap();
+        let mut v = values_of(&form);
+        set(&mut v, "source", json!("dbms_job"));
+        set(
+            &mut v,
+            "what",
+            json!("insert into dbine_test_sched_log values (1);"),
+        );
+        set_in(&form, &mut v, "next_date", json!("2031-01-02T03:04:05"));
+        set_in(&form, &mut v, "interval", json!("sysdate + 1"));
+        let id = save(&mut s, "job", None, &v).await;
+        let it = item(&mut s, "job", &id).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(true), Some(true), offers(&["run_now"]))
+        );
+        assert!(s.scheduler_action_script("job", &id, "run").await.is_err());
+        let script = s
+            .scheduler_action_script("job", &id, "run_now")
+            .await
+            .unwrap();
+        eprintln!("{script}");
+        assert!(
+            script.contains(&format!(
+                "pkg_service.job_update((SELECT {}::bigint)",
+                number(&id)
+            )),
+            "{script}"
+        );
+        s.scheduler_action("job", &id, "run_now")
+            .await
+            .expect("run now");
+        // The scheduler takes it within seconds: the row it inserts.
+        let mut ran = false;
+        for _ in 0..30 {
+            if scalar(&mut s, "SELECT count(*) FROM dbine_test_sched_log").await != "0" {
+                ran = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        let row = gauss_row(&mut s, &id).await;
+        assert!(ran, "the job didn't run: {row:?}");
+        // Disabled: nothing to run.
+        let mut e = values_of(&s.scheduler_form("job", Some(&id)).await.unwrap());
+        set(&mut e, "enabled", json!(false));
+        save(&mut s, "job", Some(&id), &e).await;
+        assert_eq!(item(&mut s, "job", &id).await.actions, offers(&[]));
+        assert!(s
+            .scheduler_action_script("job", &id, "run_now")
+            .await
+            .is_err());
+        s.scheduler_delete("job", &id).await.expect("delete");
+    })
+    .await;
+}
+
+/// CockroachDB: "programar para ahora" (ALTER BACKUP SCHEDULE … EXECUTE
+/// IMMEDIATELY, EXECUTE SCHEDULE for a table's TTL) with the cluster's
+/// scheduler stopped, so nothing runs; the cluster's own schedules aren't
+/// deleted.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cockroach_actions() {
+    let Some(base) = cfg("cockroachdb", "DBINE_TEST_COCKROACH_URL") else {
+        return;
+    };
+    let mut admin = connect(&base).await;
+    crdb_cleanup(&base).await;
+    let rangefeed = scalar(&mut admin, "SHOW CLUSTER SETTING kv.rangefeed.enabled").await;
+    let scheduler = rows(
+        &mut admin,
+        "SELECT value, origin FROM [SHOW ALL CLUSTER SETTINGS] WHERE variable = 'jobs.scheduler.enabled'",
+    )
+    .await;
+    let scheduler_default = scheduler
+        .first()
+        .and_then(|r| r.get(1))
+        .and_then(Value::as_str)
+        == Some("default");
+    let scheduler_on = scheduler
+        .first()
+        .and_then(|r| r.first())
+        .and_then(Value::as_str)
+        .unwrap_or("true")
+        .to_string();
+    for st in CRDB_SETUP.split(";\n") {
+        run(&mut admin, st).await;
+    }
+    run(
+        &mut admin,
+        "SET CLUSTER SETTING jobs.scheduler.enabled = false",
+    )
+    .await;
+    let cfg = ConnectionConfig {
+        database: CRDB_DB.into(),
+        ..base.clone()
+    };
+    let body = async move {
+        let mut s = connect(&cfg).await;
+        let info = s.scheduler_info().await.expect("info");
+        assert_eq!(action_keys(&info.kinds[0]), ["run_now"]);
+        assert_eq!(action_keys(&info.kinds[1]), ["run_now"], "TTL on 26.1+");
+        assert!(info
+            .kinds
+            .iter()
+            .all(|k| !k.clear_history && !k.run_from_step));
+        // The cluster's own: never deleted.
+        let items = s.scheduler_items("job").await.unwrap().items;
+        let sys = items
+            .iter()
+            .find(|i| i.name == "sql-stats-compaction")
+            .expect("sql-stats-compaction");
+        assert_eq!(
+            (sys.can_edit, sys.can_delete),
+            (Some(true), Some(false)),
+            "{sys:?}"
+        );
+
+        // A backup schedule, never due on its own.
+        let form = s.scheduler_form("job", None).await.unwrap();
+        assert_eq!(tab(&form, "backup").when, only("crdb_backup"));
+        let mut v = values_of(&form);
+        set(&mut v, "source", json!("crdb_backup"));
+        set_in(&form, &mut v, "name", json!("dbine_test_sched_act"));
+        set_in(&form, &mut v, "databases", json!([CRDB_DB]));
+        set(
+            &mut v,
+            "locations",
+            json!("nodelocal://1/dbine_test_sched_act"),
+        );
+        set_in(&form, &mut v, "recurring", json!("@daily"));
+        set_in(&form, &mut v, "full_backup", json!("always"));
+        set_in(&form, &mut v, "first_run", json!("2031-01-01T00:00:00Z"));
+        let id = save(&mut s, "job", None, &v).await;
+        let it = item(&mut s, "job", &id).await;
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.actions),
+            (Some(true), Some(true), offers(&["run_now"]))
+        );
+        let script = s
+            .scheduler_action_script("job", &id, "run_now")
+            .await
+            .unwrap();
+        eprintln!("{script}");
+        assert!(
+            script.ends_with(&format!(
+                "\nALTER BACKUP SCHEDULE {} EXECUTE FULL IMMEDIATELY;\n",
+                number(&id)
+            )),
+            "{script}"
+        );
+        assert!(s.scheduler_action_script("job", &id, "run").await.is_err());
+        s.scheduler_action("job", &id, "run_now")
+            .await
+            .expect("run now");
+        let due = scalar(
+            &mut s,
+            &format!(
+                "SELECT next_run < now() + INTERVAL '1 minute' FROM [SHOW SCHEDULES] WHERE id = {}",
+                number(&id)
+            ),
+        )
+        .await;
+        assert_eq!(due, "t");
+        // Paused: refused.
+        run(&mut s, &format!("PAUSE SCHEDULE {}", number(&id))).await;
+        assert_eq!(item(&mut s, "job", &id).await.actions, offers(&[]));
+        let e = s
+            .scheduler_action_script("job", &id, "run_now")
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("pausa"), "{e}");
+
+        // A table's TTL: its schedule, programmed for now.
+        run(
+            &mut s,
+            "ALTER TABLE dbine_test_sched_db.t SET (ttl_expire_after = '30 days')",
+        )
+        .await;
+        let ttl = s.scheduler_items("ttl").await.unwrap().items;
+        let t = ttl
+            .iter()
+            .find(|i| i.name.ends_with(".t"))
+            .unwrap_or_else(|| panic!("{ttl:?}"));
+        assert_eq!(t.actions, offers(&["run_now"]), "{t:?}");
+        let script = s
+            .scheduler_action_script("ttl", &t.id, "run_now")
+            .await
+            .unwrap();
+        eprintln!("{script}");
+        assert!(script.contains("\nEXECUTE SCHEDULE "), "{script}");
+        s.scheduler_action("ttl", &t.id, "run_now")
+            .await
+            .expect("run the TTL now");
+        let mut ro = ReadOnlySession::new(connect(&cfg).await);
+        assert!(ro
+            .scheduler_action_script("ttl", &t.id, "run_now")
+            .await
+            .is_ok());
+        assert!(ro.scheduler_action("ttl", &t.id, "run_now").await.is_err());
+    };
+    let result = AssertUnwindSafe(body).catch_unwind().await;
+    let left = crdb_cleanup(&base).await;
+    run(
+        &mut admin,
+        &format!(
+            "SET CLUSTER SETTING kv.rangefeed.enabled = {}",
+            rangefeed == "true"
+        ),
+    )
+    .await;
+    if scheduler_default {
+        run(&mut admin, "RESET CLUSTER SETTING jobs.scheduler.enabled").await;
+    } else {
+        run(
+            &mut admin,
+            &format!(
+                "SET CLUSTER SETTING jobs.scheduler.enabled = {}",
+                scheduler_on == "true"
+            ),
+        )
+        .await;
+    }
     if let Err(panic) = result {
         std::panic::resume_unwind(panic);
     }
