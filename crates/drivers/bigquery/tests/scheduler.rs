@@ -95,6 +95,17 @@ async fn emulator() {
         s.scheduler_logs().await,
         Err(Error::Unsupported(_))
     ));
+    // No action besides the jobs list's run (a backfill needs a time range).
+    for a in ["run", "backfill"] {
+        assert!(matches!(
+            s.scheduler_action_script("job", id, a).await,
+            Err(Error::Unsupported(_))
+        ));
+        assert!(matches!(
+            s.scheduler_action("job", id, a).await,
+            Err(Error::Unsupported(_))
+        ));
+    }
     // Read-only: nothing changes, whatever the server is.
     let mut ro = ReadOnlySession::new(d.connect(&c, Some("ds1")).await.unwrap());
     for r in [
@@ -256,6 +267,7 @@ async fn real_project() {
             eprintln!("{info:#?}");
             let k = &info.kinds[0];
             assert!(k.key == "job" && k.can_create && k.can_edit && k.can_delete);
+            assert!(!k.run_from_step && k.clear_history && k.actions.is_empty());
 
             // Create.
             let form = s.scheduler_form("job", None).await.unwrap();

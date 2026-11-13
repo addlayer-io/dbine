@@ -113,17 +113,35 @@ pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
         }
         Err(e) => return Err(e),
     };
-    let mut items: Vec<SchedulerItem> = alert_rows(&s)
+    let rows = alert_rows(&s);
+    // A native application's owner is the app, not a role: it isn't asked.
+    let owners: Vec<String> = rows
         .iter()
-        .map(|a| SchedulerItem {
-            id: a.id(),
-            name: a.name.clone(),
-            description: a.comment.clone(),
-            enabled: Some(a.started),
-            system: a.app_owned(),
-            can_edit: None,
-            can_delete: None,
-            actions: None,
+        .filter(|a| !a.app_owned())
+        .filter_map(|a| a.owner.clone())
+        .collect();
+    let roles = held(r, &owners).await;
+    // As the form and the delete say: only the owner role (or one that
+    // inherits it) changes or drops an alert; a native application's, no
+    // one. Whether the role may run it now (`EXECUTE ALERT`) is Snowflake's
+    // to say.
+    let mut items: Vec<SchedulerItem> = rows
+        .iter()
+        .map(|a| {
+            let mine = !a.app_owned()
+                && a.owner
+                    .as_ref()
+                    .is_none_or(|o| roles.get(o).copied().unwrap_or(true));
+            SchedulerItem {
+                id: a.id(),
+                name: a.name.clone(),
+                description: a.comment.clone(),
+                enabled: Some(a.started),
+                system: a.app_owned(),
+                can_edit: (!mine).then_some(false),
+                can_delete: (!mine).then_some(false),
+                actions: None,
+            }
         })
         .collect();
     items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -513,6 +531,26 @@ pub(crate) async fn delete_plan(r: Run<'_>, id: &str) -> Result<Plan> {
     let a = read(r, id).await?;
     may_change(r, &a).await?;
     Ok(drop_plan(&a))
+}
+
+/// "Ejecutar ahora": `EXECUTE ALERT`, which evaluates the condition at once
+/// and, when it returns rows, runs the action. Snowflake says whether the
+/// role may (it isn't only the owner's).
+pub(crate) fn execute_plan_of(a: &AlertRow) -> Plan {
+    let mut p = Plan::new(
+        None,
+        &format!(
+            "Ejecuta ahora la alerta {}.{}.{} de Snowflake: evalúa su condición y, si devuelve filas, ejecuta su acción",
+            a.database, a.schema, a.name
+        ),
+    );
+    p.push(format!("EXECUTE ALERT {}", a.id()));
+    p
+}
+
+pub(crate) async fn execute_plan(r: Run<'_>, id: &str) -> Result<Plan> {
+    let a = read(r, id).await?;
+    Ok(execute_plan_of(&a))
 }
 
 // ---------------------------------------------------------------------------

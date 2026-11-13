@@ -191,7 +191,30 @@ fn type_field(ty: &str) -> Option<&'static str> {
     TYPES.iter().find(|(t, _)| *t == ty).map(|(_, f)| *f)
 }
 
-/// Types that run on a cluster or serverless (and take libraries).
+/// A task's compute on a cluster: what takes task libraries (serverless
+/// takes its dependencies from its environment). The form shows
+/// "Bibliotecas" only on these, and a hidden value isn't sent.
+pub(crate) const CLUSTERS: [&str; 4] = [
+    "existing",
+    "job_cluster",
+    "new_cluster",
+    "new_cluster_autoscale",
+];
+/// The access modes a cluster has a dedicated user (or group) in
+/// (`single_user_name`), the automatic one and none chosen included. The
+/// form shows "Usuario dedicado" only in these, and a hidden value isn't
+/// sent.
+pub(crate) const DEDICATED_MODES: [&str; 6] = [
+    "",
+    "DATA_SECURITY_MODE_AUTO",
+    "SINGLE_USER",
+    "DATA_SECURITY_MODE_DEDICATED",
+    "LEGACY_SINGLE_USER",
+    "LEGACY_SINGLE_USER_STANDARD",
+];
+
+/// Types that run on a cluster or serverless (and, on a cluster, take
+/// libraries).
 pub(crate) fn uses_compute(ty: &str) -> bool {
     matches!(
         ty,
@@ -448,7 +471,11 @@ fn cluster(r: Vals, base: Option<&Json>, autoscale: bool, what: &str) -> Result<
     ] {
         put(&mut c, k, id_opt(r, k, l)?);
     }
-    put(&mut c, "single_user_name", text_opt(r, "single_user_name"));
+    // The dedicated user only in a mode that has one: the form hides it in
+    // the rest and sends back what it had.
+    if DEDICATED_MODES.contains(&r.text("data_security_mode").as_str()) {
+        put(&mut c, "single_user_name", text_opt(r, "single_user_name"));
+    }
     for (k, l) in [
         ("data_security_mode", "Modo de acceso"),
         ("runtime_engine", "Motor"),
@@ -928,7 +955,8 @@ fn task(r: Vals, key: &str, base: Option<&Json>, refs: &Refs) -> Result<Json> {
 
     // Where it runs.
     if uses_compute(&ty) {
-        match r.opt("compute").as_deref().unwrap_or("serverless") {
+        let compute = r.opt("compute").unwrap_or_else(|| "serverless".into());
+        match compute.as_str() {
             "serverless" => {
                 let env = match r.opt("environment_key") {
                     None => None,
@@ -971,11 +999,16 @@ fn task(r: Vals, key: &str, base: Option<&Json>, refs: &Refs) -> Result<Json> {
                 )))
             }
         }
-        put(
-            &mut t,
-            "libraries",
-            parse_libraries(&r.raw("libraries"))?.map(Json::Array),
-        );
+        // Task libraries only on a cluster: serverless takes its
+        // dependencies from its environment, and the form hides the field
+        // there and sends back what it had.
+        if CLUSTERS.contains(&compute.as_str()) {
+            put(
+                &mut t,
+                "libraries",
+                parse_libraries(&r.raw("libraries"))?.map(Json::Array),
+            );
+        }
     }
 
     // Retries, limits, notifications, health.

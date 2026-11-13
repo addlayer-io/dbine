@@ -8,7 +8,8 @@ use super::lines::{
     render_args, render_libraries, render_list, render_map, render_rule, render_subscriber,
 };
 use super::spec::{
-    task_modeled, task_type, uses_compute, CLUSTER_KEYS, EMAIL_KEYS, HOOK_KEYS, IGNORED, JOB_KEYS,
+    task_modeled, task_type, uses_compute, CLUSTERS, CLUSTER_KEYS, DEDICATED_MODES, EMAIL_KEYS,
+    HOOK_KEYS, IGNORED, JOB_KEYS,
 };
 use super::{Current, Sources};
 use crate::Json;
@@ -558,7 +559,8 @@ fn cluster_fields(
             ]),
         )),
         all(FormField::new("single_user_name", "Usuario dedicado", FormKind::Text)
-            .help("El usuario o grupo que usa el clúster en modo dedicado.")),
+            .help("El usuario o grupo que usa el clúster en modo dedicado."))
+        .and_when("data_security_mode", &DEDICATED_MODES),
         all(FormField::new("policy_id", "Política de clúster", sources.one("policy"))),
         all(FormField::new("instance_pool_id", "Pool de instancias", sources.one("instance_pool"))),
         all(FormField::new(
@@ -785,6 +787,7 @@ pub(crate) fn task_fields(sources: &Sources) -> Vec<FormField> {
     f.extend([
         FormField::new("libraries", "Bibliotecas", FormKind::Textarea)
             .when("type", &COMPUTE_TYPES)
+            .and_when("compute", &CLUSTERS)
             .help("Una por línea: pypi:paquete==versión [repo=…], maven:grupo:artefacto:versión [repo=…] [exclusions=…], cran:paquete, jar:ruta, whl:ruta, egg:ruta, requirements:ruta.")
             .placeholder("pypi:pandas==2.2.2"),
         // Retries and limits.
@@ -952,15 +955,21 @@ pub(crate) fn acl_rows(acl: &[Json]) -> (Vec<Row>, Vec<Row>) {
     (direct, inherited)
 }
 
-/// Whether the login may change the job: an admin, or CAN_MANAGE /
-/// IS_OWNER for it or a group of its. `None`: unknown. SCIM `Me` lists
-/// only the groups the login is directly in, so a grant to another group
-/// (which may hold the login's group) leaves it unknown: the API decides.
-fn may_manage(acl: Option<&[Json]>, me: Option<&Json>) -> Option<bool> {
-    let me = me?;
-    if crate::permissions::is_admin(me) {
+/// Whether the login may change (and delete) the job: an admin, or
+/// CAN_MANAGE / IS_OWNER for it or a group of its. `None`: unknown. SCIM
+/// `Me` lists only the groups the login is directly in, so a grant to
+/// another group (which may hold the login's group) leaves it unknown: the
+/// API decides. `denied`: the workspace refused to show the job's
+/// permissions, which only an admin or someone with CAN_MANAGE reads, so
+/// the login has neither.
+pub(crate) fn may_manage(acl: Option<&[Json]>, denied: bool, me: Option<&Json>) -> Option<bool> {
+    if me.is_some_and(crate::permissions::is_admin) {
         return Some(true);
     }
+    if denied {
+        return Some(false);
+    }
+    let me = me?;
     let acl = acl?;
     let user = me
         .get("userName")
@@ -997,7 +1006,19 @@ fn may_manage(acl: Option<&[Json]>, me: Option<&Json>) -> Option<bool> {
 
 /// The designer's form: a new job's defaults (`cur` `None`) or the job as
 /// the workspace has it.
+#[cfg(test)]
 pub(crate) fn form(cur: Option<&Current>, sources: &Sources, me: Option<&Json>) -> ObjectForm {
+    form_with(cur, sources, me, false)
+}
+
+/// [`form`], with `acl_denied` when the workspace refused to show the job's
+/// permissions (the login has no CAN_MANAGE: the form is read only).
+pub(crate) fn form_with(
+    cur: Option<&Current>,
+    sources: &Sources,
+    me: Option<&Json>,
+    acl_denied: bool,
+) -> ObjectForm {
     let settings = cur.map_or_else(|| Json::Object(Map::new()), Current::effective);
     let s = &settings;
     let mut values = job_values(s, sources);
@@ -1098,6 +1119,8 @@ pub(crate) fn form(cur: Option<&Current>, sources: &Sources, me: Option<&Json>) 
             values.insert("permissions_read".into(), json!(c.acl.is_some()));
             match &c.acl {
                 Some(acl) => (acl_direct, acl_inherited) = acl_rows(acl),
+                // Refused: the form is read only, and says why first.
+                None if acl_denied => {}
                 None => notes.push(NO_ACL.to_string()),
             }
             if s.pointer("/deployment/kind").and_then(Json::as_str) == Some("BUNDLE") {
@@ -1449,7 +1472,7 @@ pub(crate) fn form(cur: Option<&Current>, sources: &Sources, me: Option<&Json>) 
 
     let mut read_only = false;
     if let Some(c) = cur {
-        if may_manage(c.acl.as_deref(), me) == Some(false) {
+        if may_manage(c.acl.as_deref(), acl_denied, me) == Some(false) {
             read_only = true;
             notes.insert(0, MANAGE_ONLY.to_string());
         }

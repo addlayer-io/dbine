@@ -158,6 +158,8 @@ async fn databricks_scheduler() {
             eprintln!("{info:#?}");
             assert_eq!(info.kinds[0].key, "job");
             assert!(info.kinds[0].can_create);
+            assert!(info.kinds[0].run_from_step && info.kinds[0].clear_history);
+            assert!(info.kinds[0].actions.is_empty());
 
             // Create: a paused schedule, three tasks, a parameter, tags.
             let mut v = back(&s.scheduler_form("job", None).await.unwrap());
@@ -201,10 +203,12 @@ async fn databricks_scheduler() {
                 json!([{ "name": "fecha", "default": "hoy" }])
             );
             let items = s.scheduler_items("job").await.unwrap();
-            assert!(items
-                .items
-                .iter()
-                .any(|i| i.id == id && i.enabled == Some(false)));
+            // The login created it (IS_OWNER): changed and deleted as the
+            // kind says.
+            assert!(items.items.iter().any(|i| i.id == id
+                && i.enabled == Some(false)
+                && i.can_edit.is_none()
+                && i.can_delete.is_none()));
 
             // An unchanged form changes nothing.
             let f = s.scheduler_form("job", Some(&id)).await.unwrap();

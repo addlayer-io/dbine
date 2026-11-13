@@ -938,10 +938,14 @@ async fn info_says_what_the_service_and_the_account_allow() {
         ("job", "Consultas programadas")
     );
     assert!(k.can_create && k.can_edit && k.can_delete && !i.logs);
+    // One query: no step to start at; its finished runs are deleted; "run
+    // now" is the jobs list's manual run, so no action.
+    assert!(!k.run_from_step && k.clear_history && k.actions.is_empty());
     assert!(i.notes.is_empty());
     *grants.lock().unwrap() = Some(false);
     let i = info_with(&api, &dts, &crm).await.unwrap();
     assert!(!i.kinds[0].can_create && !i.kinds[0].can_edit && !i.kinds[0].can_delete);
+    assert!(!i.kinds[0].clear_history);
     assert_eq!(i.notes, [NO_PERMISSION]);
     *grants.lock().unwrap() = None;
     assert!(info_with(&api, &dts, &crm).await.unwrap().kinds[0].can_create);

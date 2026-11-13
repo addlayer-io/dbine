@@ -613,6 +613,8 @@ async fn the_designer_calls_the_admin_api_as_documented() {
     let k = &info.kinds[0];
     assert_eq!(k.key, "job");
     assert!(k.can_create && k.can_edit && !k.can_delete);
+    // No steps, no run call, a history that is the backups themselves.
+    assert!(!k.run_from_step && !k.clear_history && k.actions.is_empty());
     assert_eq!(info.notes, [NO_DELETE]);
     knobs.lock().unwrap().edition = "STANDARD";
     assert_eq!(super::info(&s).await.unwrap().notes, [NO_DELETE, STANDARD]);

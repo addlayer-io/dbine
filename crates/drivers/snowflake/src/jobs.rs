@@ -55,6 +55,8 @@ struct Task {
     /// Snowflake's own id for it.
     sf_id: Option<String>,
     owner: Option<String>,
+    /// `ROLE`, or `APPLICATION` for a native application's.
+    owner_type: Option<String>,
     comment: Option<String>,
     warehouse: Option<String>,
     schedule: Option<String>,
@@ -281,6 +283,7 @@ fn tasks(s: &Set) -> Vec<Task> {
                 name: text(s, i, "name")?,
                 sf_id: text(s, i, "id"),
                 owner: text(s, i, "owner"),
+                owner_type: text(s, i, "owner_role_type"),
                 comment: text(s, i, "comment"),
                 warehouse: text(s, i, "warehouse"),
                 schedule: text(s, i, "schedule"),
@@ -721,14 +724,53 @@ pub(crate) async fn partial_note(r: &(dyn Runner + Sync)) -> Option<String> {
     }
 }
 
-/// The jobs `list` gives, without their last and next runs (the
-/// scheduler's tree of tasks), with the notes about what the role sees and
-/// each job's tasks.
-pub(crate) async fn listed(r: &(dyn Runner + Sync)) -> Result<JobList> {
-    listed_with_members(r).await.map(|(list, _)| list)
+/// Whose a listed job is, and what it is besides the list's fields: what
+/// the scheduler's tree needs to tell the jobs the role may change or drop.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Owned {
+    /// The owner role (only it, or a role that inherits it, changes the
+    /// graph).
+    pub(crate) owner: Option<String>,
+    /// A native application owns it: nobody changes it.
+    pub(crate) app: bool,
+    /// A child task whose root the role doesn't see.
+    pub(crate) orphan: bool,
+    /// The root of a task graph object: dropped with the graph, not alone.
+    pub(crate) in_graph: bool,
 }
 
-async fn listed_with_members(r: &(dyn Runner + Sync)) -> Result<(JobList, Vec<Vec<Key>>)> {
+/// The jobs `list` gives, without their last and next runs (the
+/// scheduler's tree of tasks), with the notes about what the role sees and
+/// whose each job is.
+pub(crate) async fn listed_owned(r: &(dyn Runner + Sync)) -> Result<(JobList, Vec<Owned>)> {
+    let (list, _, all) = listed_with_members(r).await?;
+    let by_id: HashMap<String, &Task> = all.iter().map(|t| (t.id(), t)).collect();
+    let owned = list
+        .jobs
+        .iter()
+        .map(|j| {
+            let t = by_id.get(&j.id);
+            Owned {
+                owner: j.owner.clone(),
+                app: t.is_some_and(|t| {
+                    t.owner_type
+                        .as_deref()
+                        .is_some_and(|o| o.eq_ignore_ascii_case("APPLICATION"))
+                }),
+                // Only a graph's root (or a standalone task) has the job's
+                // actions: a child listed alone is one whose root is hidden.
+                orphan: !j.can_run,
+                in_graph: t.is_some_and(|t| t.graph.is_some()),
+            }
+        })
+        .collect();
+    Ok((list, owned))
+}
+
+/// The jobs, each job's tasks and every task listed.
+async fn listed_with_members(
+    r: &(dyn Runner + Sync),
+) -> Result<(JobList, Vec<Vec<Key>>, Vec<Task>)> {
     let mut notes = Vec::new();
     let shown = match r.rows("SHOW TASKS IN ACCOUNT").await {
         Ok(s) => s,
@@ -764,7 +806,7 @@ async fn listed_with_members(r: &(dyn Runner + Sync)) -> Result<(JobList, Vec<Ve
     } else if let Some(n) = partial_note(r).await {
         notes.push(n);
     }
-    Ok((JobList { jobs, notes }, members))
+    Ok((JobList { jobs, notes }, members, all))
 }
 
 pub(crate) async fn list(r: &(dyn Runner + Sync)) -> Result<JobList> {
@@ -774,6 +816,7 @@ pub(crate) async fn list(r: &(dyn Runner + Sync)) -> Result<JobList> {
             mut notes,
         },
         members,
+        _,
     ) = listed_with_members(r).await?;
     if !fill_latest(r, &mut jobs, &members, &mut notes).await {
         for j in &mut jobs {

@@ -84,17 +84,28 @@ pub(crate) fn graph_rows(s: &Set) -> Vec<GraphRow> {
 pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
     match r.rows("SHOW TASK GRAPHS IN ACCOUNT").await {
         Ok(s) => {
-            let mut items: Vec<SchedulerItem> = graph_rows(&s)
+            let rows = graph_rows(&s);
+            let owners: Vec<String> = rows.iter().filter_map(|g| g.owner.clone()).collect();
+            let roles = held(r, &owners).await;
+            // As the form and the delete say: only the owner role (or one
+            // that inherits it) changes or drops a graph.
+            let mut items: Vec<SchedulerItem> = rows
                 .iter()
-                .map(|g| SchedulerItem {
-                    id: g.id(),
-                    name: g.name.clone(),
-                    description: g.comment.clone(),
-                    enabled: Some(g.started),
-                    system: false,
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
+                .map(|g| {
+                    let mine = g
+                        .owner
+                        .as_ref()
+                        .is_none_or(|o| roles.get(o).copied().unwrap_or(true));
+                    SchedulerItem {
+                        id: g.id(),
+                        name: g.name.clone(),
+                        description: g.comment.clone(),
+                        enabled: Some(g.started),
+                        system: false,
+                        can_edit: (!mine).then_some(false),
+                        can_delete: (!mine).then_some(false),
+                        actions: None,
+                    }
                 })
                 .collect();
             items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -749,6 +760,26 @@ pub(crate) async fn delete_plan(r: Run<'_>, id: &str) -> Result<Plan> {
     let rd = read(r, id).await?;
     may_change(r, &rd.graph).await?;
     Ok(drop_plan(&rd.graph))
+}
+
+/// "Ejecutar ahora": `EXECUTE TASK GRAPH`, a run of the graph's published
+/// version now (the statement "Ejecutar ahora" sends for its root's job).
+/// Snowflake says whether the role may.
+pub(crate) fn execute_plan_of(g: &GraphRow) -> Plan {
+    let mut p = Plan::new(
+        None,
+        &format!(
+            "Ejecuta ahora el grafo de tareas {}.{}.{} de Snowflake (su versión publicada)",
+            g.database, g.schema, g.name
+        ),
+    );
+    p.push(format!("EXECUTE TASK GRAPH {}", g.id()));
+    p
+}
+
+pub(crate) async fn execute_plan(r: Run<'_>, id: &str) -> Result<Plan> {
+    let rd = read(r, id).await?;
+    Ok(execute_plan_of(&rd.graph))
 }
 
 // ---------------------------------------------------------------------------

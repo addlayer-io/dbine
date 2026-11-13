@@ -128,6 +128,15 @@ async fn tasks(s: &mut Box<dyn Session>, wh: &str) {
         kinds == ["job", "alert", "task_graph"] || kinds == ["job", "alert"],
         "{kinds:?}"
     );
+    // A graph starts at a step; its history isn't cleared. Alerts and task
+    // graph objects run now by their action.
+    assert!(info.kinds[0].run_from_step && !info.kinds[0].clear_history);
+    assert!(info.kinds[0].actions.is_empty());
+    assert!(info.kinds[1..].iter().all(|k| k
+        .actions
+        .iter()
+        .map(|a| a.key.as_str())
+        .eq(["execute"])));
 
     // A new graph: root, child and finalizer, created suspended.
     let form = s.scheduler_form("job", None).await.unwrap();
@@ -185,7 +194,9 @@ async fn tasks(s: &mut Box<dyn Session>, wh: &str) {
     let jobs = s.jobs().await.unwrap();
     assert!(jobs.jobs.iter().any(|j| j.id == id(ROOT)));
     let items = s.scheduler_items("job").await.unwrap();
-    assert!(items.items.iter().any(|i| i.id == id(ROOT)));
+    let mine = items.items.iter().find(|i| i.id == id(ROOT)).unwrap();
+    // The session's role owns it: changed and dropped as the kind says.
+    assert_eq!((mine.can_edit, mine.can_delete), (None, None), "{mine:?}");
 
     // Read back: nothing to save.
     let form = s.scheduler_form("job", Some(&id(ROOT))).await.unwrap();
@@ -343,6 +354,27 @@ async fn alerts(s: &mut Box<dyn Session>, wh: &str) {
         .await
         .is_err());
 
+    // Ours to change, and to run now (its condition finds no rows: the
+    // action doesn't run).
+    let items = s.scheduler_items("alert").await.unwrap();
+    let mine = items.items.iter().find(|i| i.id == id(ALERT)).unwrap();
+    assert_eq!((mine.can_edit, mine.can_delete), (None, None), "{mine:?}");
+    let script = s
+        .scheduler_action_script("alert", &id(ALERT), "execute")
+        .await
+        .unwrap();
+    assert!(
+        script.contains(&format!("EXECUTE ALERT {};", id(ALERT))),
+        "{script}"
+    );
+    s.scheduler_action("alert", &id(ALERT), "execute")
+        .await
+        .unwrap();
+    assert!(s
+        .scheduler_action("alert", &id(ALERT), "drop")
+        .await
+        .is_err());
+
     s.scheduler_delete("alert", &id(ALERT)).await.unwrap();
     assert!(rows(
         s,
@@ -381,7 +413,19 @@ async fn task_graphs(s: &mut Box<dyn Session>, wh: &str) {
         .unwrap_or_else(|e| panic!("task graphs are offered but a new one failed: {e}"));
     assert_eq!(saved.as_deref(), Some(id(GRAPH).as_str()));
     let items = s.scheduler_items("task_graph").await.unwrap();
-    assert!(items.items.iter().any(|i| i.id == id(GRAPH)), "{items:?}");
+    let mine = items.items.iter().find(|i| i.id == id(GRAPH));
+    assert!(
+        mine.is_some_and(|i| i.can_edit.is_none() && i.can_delete.is_none()),
+        "{items:?}"
+    );
+    let script = s
+        .scheduler_action_script("task_graph", &id(GRAPH), "execute")
+        .await
+        .unwrap();
+    assert!(
+        script.contains(&format!("EXECUTE TASK GRAPH {};", id(GRAPH))),
+        "{script}"
+    );
     let form = s
         .scheduler_form("task_graph", Some(&id(GRAPH)))
         .await

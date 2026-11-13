@@ -30,9 +30,19 @@
 //!   are fixed. The API refuses ids that don't exist and changes the login
 //!   may not make.
 //! - Run from a task: `run-now` with `only`, the task and every task after
-//!   it in the graph. Clear history: `runs/delete` of each finished run.
-//!   No scheduler log: a job's runs are its history, and the workspace's
-//!   audit log of the jobs is the system table `system.access.audit`.
+//!   it in the graph (a new run; `runs/repair`, which reruns an existing
+//!   run's failed tasks, isn't a start at a task). Clear history:
+//!   `runs/delete` of each finished run (the API refuses an active one).
+//!   "Ejecutar ahora" is the jobs list's `run-now`: the kind has no other
+//!   action. No scheduler log: a job's runs are its history, and the
+//!   workspace's audit log of the jobs is the system table
+//!   `system.access.audit`.
+//! - What the login may do with each job: an admin anything; anyone else
+//!   needs CAN_MANAGE (or ownership) to change or delete it, and the
+//!   workspace shows a job's permissions only to them, so a refused read
+//!   means no. The form is read only then, and the tree's item says it
+//!   (one permissions request per job, for the first jobs, a few at a
+//!   time).
 
 mod form;
 mod lines;
@@ -48,7 +58,7 @@ use dbine_driver::{
     SchedulerList,
 };
 use serde_json::json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 const JOBS_REFUSED: &str = "Databricks no deja usar la API de jobs con estas credenciales";
@@ -64,6 +74,21 @@ const MAX_CHOICES: usize = 2000;
 const MAX_CLEARED: usize = 100_000;
 /// How long the form waits for SCIM `Me`.
 const ME_LIMIT: Duration = Duration::from_secs(20);
+/// Jobs whose permissions the tree reads for a login that isn't an admin,
+/// at most (one request each).
+const MAX_ACL_ITEMS: usize = 200;
+/// Permission requests at a time.
+const ACL_PARALLEL: usize = 8;
+/// How long the tree waits for them.
+const ACL_LIMIT: Duration = Duration::from_secs(15);
+
+/// A permissions answer's `access_control_list`.
+fn acl_of(r: &Json) -> Vec<Json> {
+    r.get("access_control_list")
+        .and_then(Json::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
 
 fn bad(message: String) -> Error {
     Error::Query(message)
@@ -596,10 +621,7 @@ impl DatabricksSession {
             .api
             .get(&format!("/api/2.0/permissions/jobs/{id}"))
             .await?;
-        Ok(r.get("access_control_list")
-            .and_then(Json::as_array)
-            .cloned()
-            .unwrap_or_default())
+        Ok(acl_of(&r))
     }
 
     /// The job as the workspace has it; its permissions too when `acl`.
@@ -630,24 +652,69 @@ impl DatabricksSession {
         if ok && !self.workspace_admin().await {
             notes.push(NOT_ADMIN.to_string());
         }
+        // A job starts at a task (`run-now` with `only`: the task and every
+        // one after it) and its finished runs can be deleted (an active one
+        // can't); "Ejecutar ahora" is the jobs list's `run-now`, so no
+        // action of its own.
         Ok(SchedulerInfo {
-            kinds: vec![SchedulerKind::new("job", "Jobs", "job").abilities(ok, ok, ok)],
+            kinds: vec![SchedulerKind::new("job", "Jobs", "job")
+                .abilities(ok, ok, ok)
+                .run_from_step(ok)
+                .clear_history(ok)],
             logs: false,
             notes,
         })
     }
 
+    /// The permissions of these jobs, a few requests at a time and within
+    /// [`ACL_LIMIT`]: each one's list, or whether the workspace refused to
+    /// show it (`Err(true)`: the login has no CAN_MANAGE) or failed
+    /// otherwise (`Err(false)`). Jobs not read in time are left out.
+    async fn acls(&self, ids: &[u64]) -> HashMap<u64, std::result::Result<Vec<Json>, bool>> {
+        let mut out = HashMap::new();
+        let deadline = tokio::time::Instant::now() + ACL_LIMIT;
+        for chunk in ids.chunks(ACL_PARALLEL) {
+            let mut set = tokio::task::JoinSet::new();
+            for &id in chunk {
+                let api = self.api.clone();
+                set.spawn(async move {
+                    let r = api.get(&format!("/api/2.0/permissions/jobs/{id}")).await;
+                    (id, r)
+                });
+            }
+            loop {
+                match tokio::time::timeout_at(deadline, set.join_next()).await {
+                    Ok(Some(Ok((id, r)))) => {
+                        let read = match r {
+                            Ok(resp) => Ok(acl_of(&resp)),
+                            Err(e) => {
+                                tracing::debug!(
+                                    "databricks scheduler: permissions of job {id}: {e}"
+                                );
+                                Err(matches!(e, Error::AuthFailed(_)))
+                            }
+                        };
+                        out.insert(id, read);
+                    }
+                    Ok(Some(Err(e))) => tracing::debug!("databricks scheduler: {e}"),
+                    Ok(None) => break,
+                    // Out of time: the rest stay unknown (dropping the set
+                    // stops their requests).
+                    Err(_) => return out,
+                }
+            }
+        }
+        out
+    }
+
     pub(crate) async fn sched_items(&self, kind: &str) -> Result<SchedulerList> {
         check_kind(kind)?;
-        let (all, cut) = match self
-            .pages(
-                "/api/2.1/jobs/list",
-                &[("limit", "100".into())],
-                "jobs",
-                MAX_JOBS,
-            )
-            .await
-        {
+        let query = [("limit", "100".to_string())];
+        let (listed, me) = tokio::join!(
+            self.pages("/api/2.1/jobs/list", &query, "jobs", MAX_JOBS),
+            self.me()
+        );
+        let (all, cut) = match listed {
             Ok(p) => p,
             Err(Error::AuthFailed(m)) => {
                 return Ok(SchedulerList {
@@ -672,6 +739,29 @@ impl DatabricksSession {
             })
             .collect();
         items.sort_by_key(|i| i.name.to_lowercase());
+        // What the login may do with each job, as its form says: an admin
+        // anything; anyone else, what its permissions give (the first
+        // MAX_ACL_ITEMS jobs, one request each; the rest as the kind says,
+        // and the API decides).
+        if !me.as_ref().is_some_and(crate::permissions::is_admin) {
+            let ids: Vec<u64> = items
+                .iter()
+                .take(MAX_ACL_ITEMS)
+                .filter_map(|i| i.id.parse().ok())
+                .collect();
+            let acls = self.acls(&ids).await;
+            for i in &mut items {
+                let manages = match i.id.parse::<u64>().ok().and_then(|n| acls.get(&n)) {
+                    Some(Ok(acl)) => form::may_manage(Some(acl), false, me.as_ref()),
+                    Some(Err(denied)) => form::may_manage(None, *denied, me.as_ref()),
+                    None => None,
+                };
+                if manages == Some(false) {
+                    i.can_edit = Some(false);
+                    i.can_delete = Some(false);
+                }
+            }
+        }
         let mut notes = Vec::new();
         if cut {
             notes.push(format!(
@@ -683,6 +773,7 @@ impl DatabricksSession {
 
     pub(crate) async fn sched_form(&self, kind: &str, id: Option<&str>) -> Result<ObjectForm> {
         check_kind(kind)?;
+        let mut denied = false;
         let current = match id {
             Some(id) => {
                 let n = jobs::checked(id)?;
@@ -691,11 +782,13 @@ impl DatabricksSession {
                     return Err(bad(format!("Databricks no devolvió el job {n}")));
                 }
                 // Reading the permissions needs CAN_MANAGE: a refusal leaves
-                // them out of the form, not the job.
+                // them out of the form, not the job, and says the login
+                // can't change it.
                 let acl = match self.acl(n).await {
                     Ok(a) => Some(a),
                     Err(e) => {
                         tracing::debug!("databricks scheduler: permissions of job {n}: {e}");
+                        denied = matches!(e, Error::AuthFailed(_));
                         None
                     }
                 };
@@ -704,7 +797,7 @@ impl DatabricksSession {
             None => None,
         };
         let (sources, me) = tokio::join!(self.sources(), self.me());
-        let mut f = form::form(current.as_ref(), &sources, me.as_ref());
+        let mut f = form::form_with(current.as_ref(), &sources, me.as_ref(), denied);
         f.notes.extend(sources.notes());
         Ok(f)
     }

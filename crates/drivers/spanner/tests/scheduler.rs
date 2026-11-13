@@ -103,6 +103,9 @@ async fn emulator() {
     unsupported(s.clear_job_history(id).await);
     unsupported(s.run_job_from(id, "Backup").await);
     unsupported(s.scheduler_logs().await);
+    // No action: a backup schedule has no run call.
+    unsupported(s.scheduler_action_script("job", id, "run").await);
+    unsupported(s.scheduler_action("job", id, "run").await);
 
     // Ids and values from the app never leave the driver when they're bad.
     for bad in ["db1", "db1/../../backups", "db1/a b", "DB1/x", ""] {
@@ -247,6 +250,7 @@ async fn real_instance() {
             eprintln!("{info:#?}");
             let k = &info.kinds[0];
             assert!(k.key == "job" && k.can_create && k.can_edit && k.can_delete);
+            assert!(!k.run_from_step && !k.clear_history && k.actions.is_empty());
             let standard = info.notes.iter().any(|n| n.contains("edición Standard"));
 
             // Create.

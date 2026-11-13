@@ -930,10 +930,15 @@ pub(crate) async fn info(s: &SpannerSession) -> Result<SchedulerInfo> {
     if s.edition().await.as_deref() == Some("STANDARD") {
         notes.push(STANDARD.into());
     }
+    // A backup schedule has no steps, no run call and no history but its
+    // backups (which clearing would delete): no start at a step, no
+    // clearing, no action.
     Ok(SchedulerInfo {
         kinds: vec![
             SchedulerKind::new("job", "Programas de backup", "programa de backup")
-                .abilities(c, u, d),
+                .abilities(c, u, d)
+                .run_from_step(false)
+                .clear_history(false),
         ],
         logs: false,
         notes,

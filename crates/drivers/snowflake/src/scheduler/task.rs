@@ -499,21 +499,42 @@ pub(crate) fn current(g: &Graph) -> Spec {
 // Items
 // ---------------------------------------------------------------------------
 
+/// The jobs list's graphs, each with what the role may do with it, as its
+/// form and its delete say: a graph another role owns (and the role's
+/// roles don't inherit), a native application's or a child whose root the
+/// role doesn't see can't be changed nor dropped; a task graph object's
+/// root is dropped with its graph, not alone.
 pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
-    let list = jobs::listed(r).await?;
+    let (list, owned) = jobs::listed_owned(r).await?;
+    // Only the rows the role check decides: a native application's owner
+    // is the app, not a role, and an orphan child is decided already.
+    let owners: Vec<String> = owned
+        .iter()
+        .filter(|o| !o.app && !o.orphan)
+        .filter_map(|o| o.owner.clone())
+        .collect();
+    let roles = held(r, &owners).await;
     Ok(SchedulerList {
         items: list
             .jobs
             .iter()
-            .map(|j| SchedulerItem {
-                id: j.id.clone(),
-                name: j.name.clone(),
-                description: j.description.clone(),
-                enabled: Some(j.enabled),
-                system: false,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
+            .zip(&owned)
+            .map(|(j, o)| {
+                let mine = !o.orphan
+                    && !o.app
+                    && o.owner
+                        .as_ref()
+                        .is_none_or(|w| roles.get(w).copied().unwrap_or(true));
+                SchedulerItem {
+                    id: j.id.clone(),
+                    name: j.name.clone(),
+                    description: j.description.clone(),
+                    enabled: Some(j.enabled),
+                    system: o.app,
+                    can_edit: (!mine).then_some(false),
+                    can_delete: (!mine || o.in_graph).then_some(false),
+                    actions: None,
+                }
             })
             .collect(),
         notes: list.notes,
@@ -860,6 +881,9 @@ pub(crate) async fn form(r: Run<'_>, id: Option<&str>) -> Result<ObjectForm> {
             FormKind::number(Some(10.0), Some(604_800.0)),
         )
         .read_only(obj)
+        // A triggered task is one without a schedule (it runs on its
+        // streams' new data).
+        .when("schedule", &["none"])
         .help("USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS, para las tareas disparadas por datos. Vacío: el heredado (30)."),
     );
     let schedule = FormSection::new("schedule", "Programación").fields(sched);
@@ -1136,12 +1160,24 @@ pub(crate) fn spec(values: &FormValues, choices: &Choices, g: Option<&Graph>) ->
                     0,
                     i64::from(i32::MAX),
                 )?,
-                min_trigger: pick_int(
-                    "min_trigger",
-                    "Intervalo mínimo entre disparos (segundos)",
-                    10,
-                    604_800,
-                )?,
+                // A triggered task's (one without a schedule): the form hides
+                // it otherwise and sends back what it had. Then a new task
+                // leaves it out and an edit keeps the server's.
+                min_trigger: if v.text("schedule") == "none" {
+                    pick_int(
+                        "min_trigger",
+                        "Intervalo mínimo entre disparos (segundos)",
+                        10,
+                        604_800,
+                    )?
+                } else {
+                    g.and_then(|g| {
+                        param_int(
+                            &g.root_params,
+                            "USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS",
+                        )
+                    })
+                },
                 error_integration: integration(
                     "error_integration",
                     "Integración para los errores",

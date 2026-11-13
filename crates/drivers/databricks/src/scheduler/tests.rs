@@ -163,7 +163,7 @@ fn rich_tasks() -> Vec<Json> {
         json!({
                     "task_key": "dbt",
                     "dbt_task": { "commands": ["dbt deps", "dbt run --select ventas"], "project_directory": "dbt/", "warehouse_id": "abc123", "schema": "ventas", "catalog": "main" },
-                    "environment_key": "default",
+                    "existing_cluster_id": "0101-123456-abcdefgh",
                     "libraries": [{ "pypi": { "package": "dbt-databricks>=1.8.0,<2.0" } }]
         }),
         json!({
@@ -1631,4 +1631,299 @@ async fn bad_ids_and_kinds_never_reach_the_workspace() {
         "{:?}",
         seen.lock().unwrap()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Flags, what each job allows and fields per type
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_job_starts_at_a_task_and_its_finished_runs_are_deleted() {
+    let mut s = session(workspace(Arc::new(Mutex::new(Vec::new())), true).await);
+    let info = s.scheduler_info().await.unwrap();
+    let k = &info.kinds[0];
+    assert!(k.run_from_step && k.clear_history);
+    // "Ejecutar ahora" is the jobs list's run-now: no action of its own.
+    assert!(k.actions.is_empty());
+    let refused = serve(Arc::new(|_, _, _| {
+        (
+            403,
+            json!({ "error_code": "PERMISSION_DENIED", "message": "Invalid scope" }).to_string(),
+        )
+    }))
+    .await;
+    let info = session(refused).scheduler_info().await.unwrap();
+    assert!(!info.kinds[0].run_from_step && !info.kinds[0].clear_history);
+}
+
+/// A workspace whose jobs 1-4 the login (`bea`, in no admin group unless
+/// `admin`) sees: it manages 1; 2 shows its permissions without a grant to
+/// it; 3 refuses them; 4 fails.
+async fn shared_workspace(seen: Seen, admin: bool) -> String {
+    serve(Arc::new(move |m, p, _| {
+        seen.lock().unwrap().push((m.to_string(), p.to_string(), String::new()));
+        let path = p.split_once('?').map_or(p, |(a, _)| a);
+        let grant = |who: &str, level: &str| {
+            json!({ "access_control_list": [
+                { "user_name": who, "all_permissions": [{ "permission_level": level, "inherited": false }] },
+                { "group_name": "admins", "all_permissions": [{ "permission_level": "CAN_MANAGE", "inherited": true }] }
+            ] })
+        };
+        let body = match path {
+            "/api/2.1/jobs/list" => json!({
+                "jobs": (1..=4).map(|n| json!({ "job_id": n, "settings": { "name": format!("job {n}") } })).collect::<Vec<_>>(),
+                "has_more": false
+            }),
+            "/api/2.0/preview/scim/v2/Me" => {
+                let groups = if admin { json!([{ "display": "admins" }]) } else { json!([{ "display": "datos" }]) };
+                json!({ "userName": "bea@example.com", "groups": groups })
+            }
+            "/api/2.0/permissions/jobs/1" => grant("bea@example.com", "CAN_MANAGE"),
+            "/api/2.0/permissions/jobs/2" => grant("ana@example.com", "IS_OWNER"),
+            "/api/2.0/permissions/jobs/3" => {
+                return (403, json!({ "error_code": "PERMISSION_DENIED", "message": "no CAN_MANAGE" }).to_string())
+            }
+            _ => return (500, json!({ "error_code": "INTERNAL_ERROR", "message": "boom" }).to_string()),
+        };
+        (200, body.to_string())
+    }))
+    .await
+}
+
+#[tokio::test]
+async fn items_say_which_jobs_the_login_may_change() {
+    let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+    let mut s = session(shared_workspace(seen.clone(), false).await);
+    let list = s.scheduler_items("job").await.unwrap();
+    let can: Vec<(&str, Option<bool>, Option<bool>)> = list
+        .items
+        .iter()
+        .map(|i| (i.id.as_str(), i.can_edit, i.can_delete))
+        .collect();
+    assert_eq!(
+        can,
+        [
+            ("1", None, None),
+            ("2", Some(false), Some(false)),
+            ("3", Some(false), Some(false)),
+            // A failure says nothing: as the kind says, the API decides.
+            ("4", None, None),
+        ]
+    );
+    assert!(list.items.iter().all(|i| i.actions.is_none()));
+    let asked = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.1.starts_with("/api/2.0/permissions/jobs/"))
+        .count();
+    assert_eq!(asked, 4);
+
+    // An admin: no permissions read, everything as the kind says.
+    let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+    let mut s = session(shared_workspace(seen.clone(), true).await);
+    let list = s.scheduler_items("job").await.unwrap();
+    assert!(list
+        .items
+        .iter()
+        .all(|i| i.can_edit.is_none() && i.can_delete.is_none()));
+    assert!(!seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|c| c.1.starts_with("/api/2.0/permissions")));
+}
+
+#[tokio::test]
+async fn a_job_whose_permissions_are_refused_has_a_read_only_form() {
+    // The rich job, whose permissions the workspace won't show this login.
+    let job = rich_job();
+    let base = serve(Arc::new(move |_, p, _| {
+        let (path, _) = p.split_once('?').unwrap_or((p, ""));
+        match path {
+            "/api/2.1/jobs/get" => (200, job.to_string()),
+            "/api/2.0/permissions/jobs/42" => (
+                403,
+                json!({ "error_code": "PERMISSION_DENIED", "message": "no" }).to_string(),
+            ),
+            "/api/2.0/preview/scim/v2/Me" => (
+                200,
+                json!({ "userName": "bea@example.com", "groups": [] }).to_string(),
+            ),
+            _ => (
+                404,
+                json!({ "error_code": "NOT_FOUND", "message": "no" }).to_string(),
+            ),
+        }
+    }))
+    .await;
+    let f = session(base)
+        .scheduler_form("job", Some("42"))
+        .await
+        .unwrap();
+    assert!(f.read_only);
+    assert!(f.notes[0].contains("no tiene CAN_MANAGE"), "{:?}", f.notes);
+    assert!(!f
+        .notes
+        .iter()
+        .any(|n| n.contains("No se pudieron leer los permisos")));
+}
+
+#[test]
+fn a_refused_permissions_read_means_no_manage_unless_an_admin() {
+    let admin = json!({ "userName": "x", "groups": [{ "display": "admins" }] });
+    let user = json!({ "userName": "x", "groups": [] });
+    assert_eq!(form::may_manage(None, true, Some(&admin)), Some(true));
+    assert_eq!(form::may_manage(None, true, Some(&user)), Some(false));
+    assert_eq!(form::may_manage(None, true, None), Some(false));
+    assert_eq!(form::may_manage(None, false, Some(&user)), None);
+    assert_eq!(form::may_manage(None, false, None), None);
+    let cur = Current {
+        acl: None,
+        ..rich()
+    };
+    let f = form::form_with(Some(&cur), &sources(true), None, true);
+    assert!(f.read_only);
+    let f = form::form_with(Some(&cur), &sources(true), None, false);
+    assert!(!f.read_only);
+}
+
+#[test]
+fn libraries_and_the_dedicated_user_show_only_where_they_apply() {
+    let f = form::form(None, &sources(true), None);
+    let tasks = f
+        .sections
+        .iter()
+        .flat_map(|s| s.lists.iter())
+        .find(|l| l.key == "tasks")
+        .unwrap();
+    let field =
+        |l: &dbine_driver::FormList, k: &str| l.fields.iter().find(|f| f.key == k).unwrap().clone();
+    let strs = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // Serverless takes its dependencies from its environment.
+    let libs = field(tasks, "libraries");
+    assert_eq!(libs.when.as_ref().unwrap().0, "type");
+    assert_eq!(
+        libs.when_all,
+        [(
+            "compute".to_string(),
+            strs(&[
+                "existing",
+                "job_cluster",
+                "new_cluster",
+                "new_cluster_autoscale"
+            ])
+        )]
+    );
+    // A cluster's dedicated user, only in a mode that has one.
+    let modes = strs(&[
+        "",
+        "DATA_SECURITY_MODE_AUTO",
+        "SINGLE_USER",
+        "DATA_SECURITY_MODE_DEDICATED",
+        "LEGACY_SINGLE_USER",
+        "LEGACY_SINGLE_USER_STANDARD",
+    ]);
+    let user = field(tasks, "single_user_name");
+    assert_eq!(user.when.as_ref().unwrap().0, "compute");
+    assert_eq!(
+        user.when_all,
+        [("data_security_mode".to_string(), modes.clone())]
+    );
+    let clusters = f
+        .sections
+        .iter()
+        .flat_map(|s| s.lists.iter())
+        .find(|l| l.key == "job_clusters")
+        .unwrap();
+    let user = field(clusters, "single_user_name");
+    assert_eq!(user.when, Some(("data_security_mode".to_string(), modes)));
+    assert!(user.when_all.is_empty());
+}
+
+#[test]
+fn hidden_libraries_and_dedicated_user_are_not_sent() {
+    let cur = rich();
+    let base = back(&form::form(Some(&cur), &sources(true), None));
+    let lib_typo = "esto no es una biblioteca";
+    assert!(parse_libraries(lib_typo).is_err());
+
+    // A task on a cluster with libraries moves to serverless: the field
+    // hides but keeps its text, typo included; neither is sent nor checked.
+    let mut v = base.clone();
+    let t = task(&mut v, "ingesta");
+    t.insert("compute".into(), json!("serverless"));
+    t.insert(
+        "libraries".into(),
+        json!(format!("pypi:requests==2.32.3\n{lib_typo}")),
+    );
+    let p = plan::change(&cur, &v).unwrap();
+    let (_, _, body) = only(&p);
+    let t = &body["new_settings"]["tasks"][0];
+    assert_eq!(t["task_key"], "ingesta");
+    assert!(t.get("libraries").is_none(), "{t:#}");
+    assert!(t.get("job_cluster_key").is_none(), "{t:#}");
+
+    // A job cluster from dedicated to standard: its dedicated user hides
+    // and isn't sent.
+    let mut v = base.clone();
+    let jc = row(&mut v, "job_clusters", "jc", "job_cluster_key");
+    assert_eq!(jc["single_user_name"], "ana@example.com");
+    jc.insert("data_security_mode".into(), json!("USER_ISOLATION"));
+    let p = plan::change(&cur, &v).unwrap();
+    let (_, _, body) = only(&p);
+    let c = &body["new_settings"]["job_clusters"][0]["new_cluster"];
+    assert_eq!(c["data_security_mode"], "USER_ISOLATION");
+    assert!(c.get("single_user_name").is_none(), "{c:#}");
+
+    // A new job: a serverless task and a task's new standard cluster, each
+    // with the hidden value still in the form.
+    let mut v = back(&form::form(None, &sources(true), None));
+    v.values
+        .insert("name".into(), json!("dbine_test_sched oculto"));
+    v.lists.insert(
+        "tasks".into(),
+        vec![
+            serde_json::from_value(json!({
+                "task_key": "a", "type": "notebook", "notebook_path": "/x",
+                "compute": "serverless", "libraries": lib_typo
+            }))
+            .unwrap(),
+            serde_json::from_value(json!({
+                "task_key": "b", "type": "notebook", "notebook_path": "/y",
+                "compute": "new_cluster", "spark_version": "15.4.x-scala2.12",
+                "node_type_id": "i3.xlarge", "num_workers": 1,
+                "data_security_mode": "DATA_SECURITY_MODE_STANDARD",
+                "single_user_name": "ana@example.com",
+                "libraries": "pypi:pandas==2.2.2"
+            }))
+            .unwrap(),
+        ],
+    );
+    let p = plan::create(&v).unwrap();
+    let (_, _, body) = only(&p);
+    let (a, b) = (&body["tasks"][0], &body["tasks"][1]);
+    assert!(a.get("libraries").is_none(), "{a:#}");
+    assert!(b["new_cluster"].get("single_user_name").is_none(), "{b:#}");
+    assert_eq!(
+        b["new_cluster"]["data_security_mode"],
+        "DATA_SECURITY_MODE_STANDARD"
+    );
+    // On a cluster the libraries still go.
+    assert_eq!(
+        b["libraries"],
+        json!([{ "pypi": { "package": "pandas==2.2.2" } }])
+    );
+
+    // In a dedicated mode, or none chosen, the user still goes.
+    for mode in ["", "SINGLE_USER", "DATA_SECURITY_MODE_AUTO"] {
+        let mut v = v.clone();
+        v.lists.get_mut("tasks").unwrap()[1].insert("data_security_mode".into(), json!(mode));
+        let p = plan::create(&v).unwrap();
+        let (_, _, body) = only(&p);
+        assert_eq!(
+            body["tasks"][1]["new_cluster"]["single_user_name"], "ana@example.com",
+            "{mode}"
+        );
+    }
 }

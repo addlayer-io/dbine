@@ -1333,10 +1333,16 @@ async fn info_with(api: &Api, dts: &Dts<'_>, crm: &str) -> Result<SchedulerInfo>
     if !may {
         notes.push(NO_PERMISSION.into());
     }
+    // A scheduled query is one query: no step to start at, and "Ejecutar
+    // ahora" is the jobs list's manual run (`startManualRuns`), so no action
+    // of its own. Its finished runs can be deleted (`runs.delete`, which
+    // `bigquery.transfers.update` allows); one going on stays.
     Ok(SchedulerInfo {
         kinds: vec![
             SchedulerKind::new("job", "Consultas programadas", "consulta programada")
-                .abilities(may, may, may),
+                .abilities(may, may, may)
+                .run_from_step(false)
+                .clear_history(may),
         ],
         logs: false,
         notes,

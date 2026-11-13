@@ -887,6 +887,7 @@ async fn each_property_changes_in_place() {
         x.insert("condition".into(), json!("SYSTEM$STREAM_HAS_DATA('S')"));
         x.insert("definition".into(), json!("CALL load_all();"));
         x.insert("execute_as".into(), json!("svc"));
+        // Hidden with a schedule: left as the server has it (none).
         x.insert("min_trigger".into(), json!(60));
         x.insert("suspend_after".into(), json!(0));
         v.lists.insert(
@@ -903,7 +904,7 @@ async fn each_property_changes_in_place() {
             format!("ALTER TASK {r} SUSPEND"),
             format!("ALTER TASK {r} UNSET CONFIG, ERROR_INTEGRATION, WAREHOUSE, USER_TASK_TIMEOUT_MS, TIMEZONE"),
             format!(
-                "ALTER TASK {r} SET\n  USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = 'SMALL'\n  SCHEDULE = '30 SECONDS'\n  OVERLAP_POLICY = ALLOW_ALL_OVERLAP\n  AUTOCOMMIT = TRUE\n  SUSPEND_TASK_AFTER_NUM_FAILURES = 0\n  SUCCESS_INTEGRATION = \"NOTIFY\"\n  LOG_LEVEL = 'WARN'\n  USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS = 60\n  TARGET_COMPLETION_INTERVAL = '15 MINUTES'"
+                "ALTER TASK {r} SET\n  USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = 'SMALL'\n  SCHEDULE = '30 SECONDS'\n  OVERLAP_POLICY = ALLOW_ALL_OVERLAP\n  AUTOCOMMIT = TRUE\n  SUSPEND_TASK_AFTER_NUM_FAILURES = 0\n  SUCCESS_INTEGRATION = \"NOTIFY\"\n  LOG_LEVEL = 'WARN'\n  TARGET_COMPLETION_INTERVAL = '15 MINUTES'"
             ),
             format!("ALTER TASK {r} SET EXECUTE AS USER \"SVC\""),
             format!("ALTER TASK {r} MODIFY WHEN SYSTEM$STREAM_HAS_DATA('S')"),
@@ -1702,4 +1703,383 @@ async fn the_log_never_wakes_a_warehouse_and_the_history_is_not_cleared() {
     let e = clear_history(&f, ROOT_ID).await.unwrap_err();
     assert!(matches!(e, Error::Unsupported(_)));
     assert!(clear_history(&f, "nope").await.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Flags, actions and what each object allows
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn each_kind_says_what_it_does_besides_editing() {
+    let f = Fake::new(vec![("CURRENT_ROLE", set(&["role"], &[&["SYSADMIN"]]))]);
+    let i = info(&f).await.unwrap();
+    let (job, alert, graph) = (&i.kinds[0], &i.kinds[1], &i.kinds[2]);
+    // A graph starts at its root or retries where it failed; Snowflake
+    // keeps its history. "Ejecutar ahora" is the jobs list's.
+    assert!(job.run_from_step && !job.clear_history);
+    assert!(job.actions.is_empty());
+    for k in [alert, graph] {
+        assert!(!k.run_from_step && !k.clear_history, "{}", k.key);
+        assert_eq!(
+            k.actions,
+            [SchedulerAction::new("execute", "Ejecutar ahora")],
+            "{}",
+            k.key
+        );
+    }
+    // Without task graph objects, the alerts keep theirs.
+    let mut f = Fake::new(vec![]);
+    f.errors = vec![(
+        "SHOW TASK GRAPHS".into(),
+        "Unsupported feature 'TASK GRAPH'. (SQLSTATE 0A000)".into(),
+    )];
+    let i = info(&f).await.unwrap();
+    assert_eq!(i.kinds.len(), 2);
+    assert_eq!(i.kinds[1].actions.len(), 1);
+}
+
+const ALERT_COLS: [&str; 14] = [
+    "database_name",
+    "schema_name",
+    "name",
+    "owner",
+    "owner_role_type",
+    "comment",
+    "warehouse",
+    "schedule",
+    "state",
+    "condition",
+    "action",
+    "runbook",
+    "config",
+    "was_auto_suspended",
+];
+
+/// An alert of `MON` owned by `owner` (`APPLICATION` for an app's).
+fn alert_of<'a>(name: &'a str, owner: &'a str, owner_type: &'a str) -> Vec<&'a str> {
+    vec![
+        "DB",
+        "MON",
+        name,
+        owner,
+        owner_type,
+        "",
+        "WH",
+        "5 MINUTE",
+        "started",
+        "SELECT 1",
+        "CALL notify()",
+        "",
+        "",
+        "false",
+    ]
+}
+
+fn graphs_set(rows: &[(&str, &str)]) -> Set {
+    let rows: Vec<Vec<&str>> = rows
+        .iter()
+        .map(|(name, owner)| vec!["DB", "ETL", *name, *owner, "started"])
+        .collect();
+    let refs: Vec<&[&str]> = rows.iter().map(Vec::as_slice).collect();
+    set(
+        &["database_name", "schema_name", "name", "owner", "state"],
+        &refs,
+    )
+}
+
+#[tokio::test]
+async fn alerts_and_task_graphs_run_now_by_their_action() {
+    let f = Fake::new(vec![
+        (
+            "SHOW ALERTS",
+            set(&ALERT_COLS, &[&alert_of("HIGH_LOAD", "OTHER_ROLE", "ROLE")]),
+        ),
+        ("SHOW TASK GRAPHS", graphs_set(&[("PIPE", "OTHER_ROLE")])),
+        (
+            "SHOW TASKS IN SCHEMA",
+            tasks_set(r#"{"Predecessors":[],"TaskGraph":"DB.ETL.PIPE"}"#),
+        ),
+        ("IS_ROLE_IN_SESSION", set(&["r0"], &[&["false"]])),
+    ]);
+    let alert = r#""DB"."MON"."HIGH_LOAD""#;
+    let s = action_script(&f, "alert", alert, "execute").await.unwrap();
+    assert!(
+        s.starts_with("-- Ejecuta ahora la alerta DB.MON.HIGH_LOAD"),
+        "{s}"
+    );
+    assert!(s.ends_with(&format!("\nEXECUTE ALERT {alert};\n")), "{s}");
+    // Not only the owner's: another role's alert runs if Snowflake lets it.
+    action(&f, "alert", alert, " execute ").await.unwrap();
+    assert_eq!(f.seen().last().unwrap(), &format!("EXECUTE ALERT {alert}"));
+    let pipe = r#""DB"."ETL"."PIPE""#;
+    let s = action_script(&f, "task_graph", pipe, "execute")
+        .await
+        .unwrap();
+    assert!(
+        s.contains(&format!("\nEXECUTE TASK GRAPH {pipe};\n")),
+        "{s}"
+    );
+    action(&f, "task_graph", pipe, "execute").await.unwrap();
+    assert_eq!(
+        f.seen().last().unwrap(),
+        &format!("EXECUTE TASK GRAPH {pipe}")
+    );
+    // The same statement as "Ejecutar ahora" on the graph's root job.
+    run_now(&f, "DB", "ETL", "ROOT").await.unwrap();
+    assert_eq!(
+        f.seen().last().unwrap(),
+        &format!("EXECUTE TASK GRAPH {pipe}")
+    );
+
+    // What isn't an action, or an object that isn't there, runs nothing.
+    let f = Fake::new(vec![("SHOW ALERTS", set(&ALERT_COLS, &[]))]);
+    for (kind, id, act, says) in [
+        ("job", ROOT_ID, "execute", "no tiene la acción"),
+        ("alert", alert, "run", "no tiene la acción"),
+        (
+            "alert",
+            alert,
+            "execute; DROP ALERT x",
+            "no tiene la acción",
+        ),
+        ("alert", "nope", "execute", "no es un id de alerta"),
+        ("alert", alert, "execute", "No existe la alerta"),
+        ("operator", alert, "execute", "no es un tipo"),
+    ] {
+        let e = err_of(action_script(&f, kind, id, act).await);
+        assert!(e.contains(says), "{kind} {act}: {e}");
+        let e = err_of(action(&f, kind, id, act).await);
+        assert!(e.contains(says), "{kind} {act}: {e}");
+    }
+    assert!(
+        !f.seen().iter().any(|s| s.starts_with("EXECUTE")),
+        "{:?}",
+        f.seen()
+    );
+}
+
+#[tokio::test]
+async fn items_say_which_objects_the_role_may_change() {
+    // Tasks: another role's graph is shown but not changed nor dropped.
+    let shown = tasks_set(r#"{"Predecessors":[]}"#);
+    let mut f = Fake::new(vec![
+        ("SHOW TASKS IN ACCOUNT", shown.clone()),
+        ("IS_ROLE_IN_SESSION", set(&["r0"], &[&["false"]])),
+    ]);
+    let l = items(&f, "job").await.unwrap();
+    assert_eq!(l.items.len(), 2);
+    for i in &l.items {
+        assert_eq!(
+            (i.can_edit, i.can_delete),
+            (Some(false), Some(false)),
+            "{}",
+            i.id
+        );
+        assert_eq!(i.actions, None);
+    }
+    assert!(f
+        .seen()
+        .iter()
+        .any(|s| s.contains("IS_ROLE_IN_SESSION('SYSADMIN')")));
+    f.answers[1].1 = set(&["r0"], &[&["true"]]);
+    let l = items(&f, "job").await.unwrap();
+    assert!(l
+        .items
+        .iter()
+        .all(|i| i.can_edit.is_none() && i.can_delete.is_none() && !i.system));
+    // A task graph object's root changes in place but goes only with its
+    // graph.
+    f.answers[0].1 = tasks_set(r#"{"Predecessors":[],"TaskGraph":"DB.ETL.PIPE"}"#);
+    let l = items(&f, "job").await.unwrap();
+    assert_eq!(l.items[0].id, ROOT_ID);
+    assert_eq!(
+        (l.items[0].can_edit, l.items[0].can_delete),
+        (None, Some(false))
+    );
+    assert_eq!(l.items[1].can_delete, None);
+    // A native application's task, and a child whose root the role doesn't
+    // see, can't be changed nor dropped, whoever the session is.
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for row in &shown.rows {
+        let name = row[2].clone().unwrap_or_default();
+        if name == "ROOT" {
+            continue;
+        }
+        let mut r: Vec<String> = row.iter().map(|c| c.clone().unwrap_or_default()).collect();
+        if name == "OTHER" {
+            r[4] = "THE_APP".into();
+            r[5] = "APPLICATION".into();
+        }
+        if name == "LOAD" {
+            r[4] = "LOST_ROLE".into();
+        }
+        rows.push(r);
+    }
+    let refs: Vec<Vec<&str>> = rows
+        .iter()
+        .map(|r| r.iter().map(String::as_str).collect())
+        .collect();
+    let refs: Vec<&[&str]> = refs.iter().map(Vec::as_slice).collect();
+    let f = Fake::new(vec![
+        ("SHOW TASKS IN ACCOUNT", set(&TASK_COLS, &refs)),
+        ("IS_ROLE_IN_SESSION", set(&["r0"], &[&["true"]])),
+    ]);
+    let l = items(&f, "job").await.unwrap();
+    let load = l.items.iter().find(|i| i.name == "LOAD").unwrap();
+    assert_eq!((load.can_edit, load.can_delete), (Some(false), Some(false)));
+    let other = l.items.iter().find(|i| i.name == "OTHER").unwrap();
+    assert_eq!(
+        (other.can_edit, other.can_delete),
+        (Some(false), Some(false))
+    );
+    assert!(other.system);
+    // Their owners aren't asked about: the app isn't a role, and the
+    // orphan is decided already.
+    assert!(
+        !f.seen()
+            .iter()
+            .any(|s| s.contains("'THE_APP'") || s.contains("'LOST_ROLE'")),
+        "{:?}",
+        f.seen()
+    );
+
+    // Alerts: the roles are asked once, in name order (r0, r1), a native
+    // application's owner left out.
+    let f = Fake::new(vec![
+        (
+            "SHOW ALERTS",
+            set(
+                &ALERT_COLS,
+                &[
+                    &alert_of("MINE", "ADMIN_ROLE", "ROLE"),
+                    &alert_of("THEIRS", "OTHER_ROLE", "ROLE"),
+                    &alert_of("APPS", "APP", "APPLICATION"),
+                ],
+            ),
+        ),
+        (
+            "IS_ROLE_IN_SESSION",
+            set(&["r0", "r1"], &[&["true", "false"]]),
+        ),
+    ]);
+    let l = items(&f, "alert").await.unwrap();
+    let by = |n: &str| l.items.iter().find(|i| i.name == n).unwrap().clone();
+    assert_eq!((by("MINE").can_edit, by("MINE").can_delete), (None, None));
+    assert_eq!(
+        (by("THEIRS").can_edit, by("THEIRS").can_delete),
+        (Some(false), Some(false))
+    );
+    assert_eq!(
+        (by("APPS").can_edit, by("APPS").can_delete),
+        (Some(false), Some(false))
+    );
+    assert!(by("APPS").system);
+    let asked: Vec<String> = f
+        .seen()
+        .into_iter()
+        .filter(|s| s.contains("IS_ROLE_IN_SESSION"))
+        .collect();
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(asked[0].contains("IS_ROLE_IN_SESSION('ADMIN_ROLE') AS r0"));
+    assert!(asked[0].contains("IS_ROLE_IN_SESSION('OTHER_ROLE') AS r1"));
+    assert!(!asked[0].contains("'APP'"), "{asked:?}");
+
+    // Task graph objects.
+    let f = Fake::new(vec![
+        (
+            "SHOW TASK GRAPHS",
+            graphs_set(&[("A", "ADMIN_ROLE"), ("B", "OTHER_ROLE")]),
+        ),
+        (
+            "IS_ROLE_IN_SESSION",
+            set(&["r0", "r1"], &[&["true", "false"]]),
+        ),
+    ]);
+    let l = items(&f, "task_graph").await.unwrap();
+    assert_eq!((l.items[0].can_edit, l.items[0].can_delete), (None, None));
+    assert_eq!(
+        (l.items[1].can_edit, l.items[1].can_delete),
+        (Some(false), Some(false))
+    );
+    // A session that can't tell its roles leaves it to Snowflake.
+    let mut f = Fake::new(vec![(
+        "SHOW TASK GRAPHS",
+        graphs_set(&[("B", "OTHER_ROLE")]),
+    )]);
+    f.fail = vec!["IS_ROLE_IN_SESSION".into()];
+    let l = items(&f, "task_graph").await.unwrap();
+    assert_eq!(l.items[0].can_edit, None);
+}
+
+#[tokio::test]
+async fn the_minimum_trigger_interval_shows_only_for_a_triggered_task() {
+    let f = server(r#"{"Predecessors":[]}"#, true);
+    let form = task::form(&f, Some(ROOT_ID)).await.unwrap();
+    let field = form
+        .sections
+        .iter()
+        .flat_map(|s| s.fields.iter())
+        .find(|f| f.key == "min_trigger")
+        .unwrap();
+    assert_eq!(
+        field.when,
+        Some(("schedule".to_string(), vec!["none".to_string()]))
+    );
+}
+
+#[tokio::test]
+async fn a_hidden_minimum_trigger_interval_is_left_alone() {
+    const KEY: &str = "USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS";
+    // A new scheduled task: the hidden value is neither checked nor sent.
+    let c = choices();
+    for hidden in [json!(5), json!(60), json!("x")] {
+        let mut v = new_graph_values();
+        v.values.insert("min_trigger".into(), hidden.clone());
+        let s = task::spec(&v, &c, None).unwrap();
+        assert_eq!(s.root.min_trigger, None, "{hidden}");
+        let p = task::create_plan(&s).unwrap();
+        assert!(!p.steps[0].contains(KEY), "{}", p.steps[0]);
+    }
+    // A triggered one (no schedule): checked and sent.
+    let mut v = new_graph_values();
+    v.values.insert("schedule".into(), json!("none"));
+    v.values.insert("min_trigger".into(), json!(5));
+    assert!(err_of(task::spec(&v, &c, None)).contains("Intervalo mínimo"));
+    v.values.insert("min_trigger".into(), json!(60));
+    let p = task::create_plan(&task::spec(&v, &c, None).unwrap()).unwrap();
+    assert!(
+        p.steps[0].contains(&format!("{KEY} = 60")),
+        "{}",
+        p.steps[0]
+    );
+
+    // An edit of a scheduled root that has its own value: hidden, kept
+    // whatever the form sends back for it (no UNSET, no range error).
+    let mut f = server(r#"{"Predecessors":[]}"#, true);
+    for (k, s) in f.answers.iter_mut() {
+        if k == r#"SHOW PARAMETERS IN TASK "DB"."ETL"."ROOT""# {
+            *s = params_set(&[
+                ("USER_TASK_TIMEOUT_MS", "60000", "NUMBER"),
+                ("TIMEZONE", "UTC", "STRING"),
+                (KEY, "120", "NUMBER"),
+            ]);
+        }
+    }
+    let form = task::form(&f, Some(ROOT_ID)).await.unwrap();
+    assert_eq!(form.values["schedule"], json!("cron"));
+    assert_eq!(form.values["min_trigger"], json!(120));
+    for hidden in [json!(""), json!(5), json!(60)] {
+        let mut v = values_of(&form);
+        v.values.insert("min_trigger".into(), hidden.clone());
+        let p = task::plan(&f, Some(ROOT_ID), &v).await.unwrap();
+        assert!(p.steps.is_empty(), "{hidden}: {:?}", p.steps);
+    }
+    // Made a triggered task, the value is the form's again.
+    let mut v = values_of(&form);
+    v.values.insert("schedule".into(), json!("none"));
+    v.values.insert("min_trigger".into(), json!(60));
+    let p = task::plan(&f, Some(ROOT_ID), &v).await.unwrap();
+    let all = p.steps.join("\n");
+    assert!(all.contains("UNSET SCHEDULE"), "{all}");
+    assert!(all.contains(&format!("{KEY} = 60")), "{all}");
 }

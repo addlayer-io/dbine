@@ -1711,6 +1711,21 @@ impl Session for SnowflakeSession {
         scheduler::delete(&*self, kind, id).await
     }
 
+    /// Alerts and task graph objects run now ("execute": `EXECUTE ALERT`,
+    /// `EXECUTE TASK GRAPH`); a graph as a job runs with `run_job`.
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        scheduler::action_script(&*self, kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        scheduler::action(&*self, kind, id, action).await
+    }
+
     /// The root runs the whole graph; another task, the retry of the last
     /// run when it failed there (`EXECUTE TASK … RETRY LAST`).
     async fn run_job_from(&mut self, id: &str, step: &str) -> Result<()> {

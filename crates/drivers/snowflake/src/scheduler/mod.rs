@@ -21,6 +21,14 @@
 //!   `DROP TASK GRAPH`. Offered only where the account has them: `info`
 //!   asks with `SHOW TASK GRAPHS IN ACCOUNT LIMIT 1`.
 //!
+//! Kinds' flags and actions: a `job` starts at its root or retries its last
+//! run where it failed (`run_from_step`); its history is Snowflake's and
+//! isn't cleared. Alerts and task graph objects run now with an "execute"
+//! action (`EXECUTE ALERT`, `EXECUTE TASK GRAPH`). An object another role
+//! owns (one the session's roles don't inherit), a native application's or
+//! a child task whose root the role doesn't see comes with `can_edit` /
+//! `can_delete` false, as its read-only form says.
+//!
 //! Everything here runs on cloud services (SHOW, DDL, EXECUTE TASK): no
 //! statement wakes a warehouse. Only the scheduler's log and the start at a
 //! task read the history (`TASK_HISTORY`, `ALERT_HISTORY`), and only with
@@ -45,8 +53,8 @@ pub(crate) use logs::{clear_history, logs, run_from, run_now};
 use crate::jobs::{self, get, literal, parse_id, text};
 use crate::monitor::{quote, Runner, Set};
 use dbine_driver::{
-    Error, FormField, FormKind, FormList, FormValues, ObjectForm, Result, SchedulerInfo,
-    SchedulerKind, SchedulerList,
+    Error, FormField, FormKind, FormList, FormValues, ObjectForm, Result, SchedulerAction,
+    SchedulerInfo, SchedulerKind, SchedulerList,
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -163,11 +171,25 @@ fn missing_feature(e: &Error) -> bool {
         || m.contains("sqlstate 42000")
 }
 
+/// The key of the one action alerts and task graph objects have: run now
+/// (`EXECUTE ALERT`, `EXECUTE TASK GRAPH`); the kinds write it as a literal
+/// next to its label, for the message extractor. A graph as a job runs from
+/// the jobs list ("Ejecutar ahora"), with no action of its own.
+pub(crate) const EXECUTE: &str = "execute";
+
 fn info_of(role_note: Option<String>, graphs: Graphs) -> SchedulerInfo {
     let mut notes = Vec::new();
     let mut kinds = vec![
-        SchedulerKind::new("job", "Tareas", "tarea").abilities(true, true, true),
-        SchedulerKind::new("alert", "Alertas", "alerta").abilities(true, true, true),
+        // A graph starts at its root, or retries its last run from the
+        // task where it failed (`run_from`); Snowflake keeps the history
+        // itself, and nothing clears it.
+        SchedulerKind::new("job", "Tareas", "tarea")
+            .abilities(true, true, true)
+            .run_from_step(true)
+            .clear_history(false),
+        SchedulerKind::new("alert", "Alertas", "alerta")
+            .abilities(true, true, true)
+            .action(SchedulerAction::new("execute", "Ejecutar ahora")),
     ];
     if graphs == Graphs::Missing {
         if role_note.is_some() {
@@ -184,7 +206,8 @@ fn info_of(role_note: Option<String>, graphs: Graphs) -> SchedulerInfo {
         notes.push(PREVIEW.to_string());
         kinds.push(
             SchedulerKind::new("task_graph", "Grafos de tareas", "grafo de tareas")
-                .abilities(true, true, true),
+                .abilities(true, true, true)
+                .action(SchedulerAction::new("execute", "Ejecutar ahora")),
         );
     }
     SchedulerInfo {
@@ -265,6 +288,35 @@ pub(crate) async fn delete_script(r: Run<'_>, kind: &str, id: &str) -> Result<St
 pub(crate) async fn delete(r: Run<'_>, kind: &str, id: &str) -> Result<()> {
     let kind = Kind::parse(kind)?;
     let p = delete_plan(r, kind, id).await?;
+    run_plan(r, &p).await
+}
+
+/// A kind's action on one of its objects: running an alert or a task graph
+/// object now. Anything else is refused before anything runs.
+async fn action_plan(r: Run<'_>, kind: Kind, id: &str, action: &str) -> Result<Plan> {
+    match (kind, action.trim()) {
+        (Kind::Alert, EXECUTE) => alert::execute_plan(r, id).await,
+        (Kind::Graph, EXECUTE) => graph::execute_plan(r, id).await,
+        (_, other) => Err(bad(format!(
+            "El planificador de Snowflake no tiene la acción «{}» para este tipo de objeto.",
+            shown(other)
+        ))),
+    }
+}
+
+pub(crate) async fn action_script(
+    r: Run<'_>,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    let kind = Kind::parse(kind)?;
+    Ok(action_plan(r, kind, id, action).await?.script())
+}
+
+pub(crate) async fn action(r: Run<'_>, kind: &str, id: &str, action: &str) -> Result<()> {
+    let kind = Kind::parse(kind)?;
+    let p = action_plan(r, kind, id, action).await?;
     run_plan(r, &p).await
 }
 
