@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { ElMessage } from 'element-plus';
 import CodeEditor from './CodeEditor.vue';
 import { answerScript, answerStep, schedulerDialogs as d, useDialogsHost } from '../composables/schedulerDialogs';
 import { tb } from '../i18n/backend';
+import { scriptWarnings } from '../composables/schedulerForm';
 
 // Draws the scheduler's dialogs (composables/schedulerDialogs.ts): a
 // script to read (Copiar, Abrir en una consulta) or to confirm before it
@@ -16,6 +17,10 @@ const host = useDialogsHost();
 const step = ref<string>('');
 
 watch(() => d.step, (r) => { step.value = r?.steps[0]?.name ?? ''; });
+
+/** What the driver warned about in the script it's about to run ("⚠"
+ *  comment lines): listed above it, and the yes becomes "Continuar". */
+const warnings = computed(() => (d.script?.mode === 'confirm' ? scriptWarnings(d.script.script).map((w) => tb(w)) : []));
 
 async function copy() {
   if (!d.script) return;
@@ -48,6 +53,11 @@ function open() {
         <p v-if="d.script.message" class="schd-msg">{{ d.script.message }}</p>
         <el-alert v-if="d.script.warning" type="warning" :title="d.script.warning" :closable="false" show-icon class="schd-warn" />
         <el-alert v-if="d.script.notice" type="info" :title="d.script.notice" :closable="false" show-icon class="schd-warn" />
+        <el-alert v-if="warnings.length" type="warning" :title="$t('scheduled:designer.consequences')" :closable="false" show-icon class="schd-warn">
+          <ul class="schd-list">
+            <li v-for="(w, i) in warnings" :key="i">{{ w }}</li>
+          </ul>
+        </el-alert>
         <div class="schd-code">
           <CodeEditor :model-value="d.script.script" language="sql" :dialect="d.script.dialect" read-only />
         </div>
@@ -60,7 +70,7 @@ function open() {
         </template>
         <template v-else-if="d.script">
           <el-button @click="answerScript(false)">{{ $t('common:cancel') }}</el-button>
-          <el-button :type="d.script.danger ? 'danger' : 'primary'" @click="answerScript(true)">{{ d.script.okLabel ?? $t('common:accept') }}</el-button>
+          <el-button :type="d.script.danger ? 'danger' : 'primary'" @click="answerScript(true)">{{ warnings.length ? $t('scheduled:designer.continue') : (d.script.okLabel ?? $t('common:accept')) }}</el-button>
         </template>
       </template>
     </el-dialog>
@@ -93,6 +103,7 @@ function open() {
 <style scoped>
 .schd-msg { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--nm-text); }
 .schd-warn { margin-bottom: 10px; }
+.schd-list { margin: 4px 0 0; padding-left: 18px; }
 .schd-code { height: min(52vh, 440px); border: 1px solid var(--nm-border-soft); border-radius: 4px; overflow: hidden; background: var(--ide-editor); }
 .schd-steps { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 100%; }
 .schd-step { margin: 0; height: auto; padding: 5px 8px; border-radius: 4px; }

@@ -547,3 +547,16 @@ export function humanDuration(seconds: number): string {
   if (r || !parts.length) parts.push(`${r} s`);
   return parts.join(' ');
 }
+
+/** The warnings a driver put in a script: comment lines whose text starts
+ *  with "⚠" (`-- ⚠ …`, `# ⚠ …`, `// ⚠ …`, ` * ⚠ …`), in order, without the
+ *  marker. The confirm dialog lists them and asks "Continuar" (a change that
+ *  recreates an object or loses its history, a non-atomic edit…). */
+export function scriptWarnings(script: string): string[] {
+  const out: string[] = [];
+  for (const line of script.split(/\r?\n/)) {
+    const m = /^\s*(?:--|#|\/\/|\/\*|\*)?\s*⚠\uFE0F?\s*(.*?)\s*(?:\*\/)?\s*$/.exec(line);
+    if (m && m[1]) out.push(m[1]);
+  }
+  return out;
+}

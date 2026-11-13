@@ -1,6 +1,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue';
 import { t } from '../i18n';
 import { confirmNative } from '../native';
+import { tb } from '../i18n/backend';
+import { scriptWarnings } from './schedulerForm';
 
 // The scheduler's dialogs, asked from anywhere (the sidebar's menus, a job's
 // tab, the designer): a script to look at, or to run after the user's yes,
@@ -61,8 +63,11 @@ export function askScript(r: ScriptRequest): Promise<boolean> {
   if (!schedulerDialogs.hosts.length) {
     // Nothing to draw it (shouldn't happen): at least the question.
     if (r.mode === 'view') return Promise.resolve(false);
-    return confirmNative([r.message, r.warning, r.notice].filter(Boolean).join('\n\n'), {
-      title: r.title, okLabel: r.okLabel ?? t('common:accept'), kind: r.danger ? 'warning' : 'info',
+    const warned = scriptWarnings(r.script).map((w) => tb(w));
+    return confirmNative([r.message, r.warning, r.notice, ...warned].filter(Boolean).join('\n\n'), {
+      title: r.title,
+      okLabel: warned.length ? t('scheduled:designer.continue') : (r.okLabel ?? t('common:accept')),
+      kind: r.danger || warned.length ? 'warning' : 'info',
     });
   }
   schedulerDialogs.script?.resolve(false);

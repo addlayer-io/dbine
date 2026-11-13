@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {
   canRemoveRow, codeMode, fieldOptions, fieldProblem, fillSource, formValues, hasTypedSecret, humanDuration,
   initialLists, initialValues, isVisible, itemAbilities, listVisible, moveRow, newRow, optionLabel, problemText,
-  refChoices, refOptions, refsToCheck, renameRefs, rowProblems, sectionVisible, snapshot, sourceFields, splitOffset,
+  refChoices, refOptions, refsToCheck, renameRefs, rowProblems, scriptWarnings, sectionVisible, snapshot, sourceFields, splitOffset,
   summaryFields, topContext, validate, visibleLists, whenText,
 } from './schedulerForm.ts';
 
@@ -572,4 +572,21 @@ test('an object offers what it says, else its kind, system ones included', () =>
   // A kind that can't, or no kind at all (its info failed): nothing.
   assert.deepEqual(itemAbilities({ ...kind, can_edit: false, can_delete: false, actions: undefined }, {}), { edit: false, delete: false, actions: [] });
   assert.deepEqual(itemAbilities(undefined, { system: false }), { edit: false, delete: false, actions: [] });
+});
+
+test('script warnings are the comment lines marked with ⚠', () => {
+  const script = [
+    '-- ⚠ Doris no tiene ALTER para este job: se borra y se crea de nuevo.',
+    '-- Un comentario común.',
+    '# ⚠ Se pierde el historial de ejecuciones.',
+    '/* ⚠ Las propiedades que no ves acá no se envían. */',
+    "SELECT '⚠ no es un aviso';",
+    '--⚠',
+  ].join('\n');
+  assert.deepEqual(scriptWarnings(script), [
+    'Doris no tiene ALTER para este job: se borra y se crea de nuevo.',
+    'Se pierde el historial de ejecuciones.',
+    'Las propiedades que no ves acá no se envían.',
+  ]);
+  assert.deepEqual(scriptWarnings('BEGIN\n  NULL;\nEND;'), []);
 });

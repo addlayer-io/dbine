@@ -377,7 +377,9 @@
     "deleted": "Se borró «{{name}}».",
     "confirmAction": "Se va a ejecutar «{{action}}» sobre «{{name}}» ({{kind}}) en {{connection}}, con este script:",
     "actionDone": "Se ejecutó «{{action}}» sobre «{{name}}».",
-    "noScript": "El servidor no devolvió ningún script: no hay cambios para guardar."
+    "noScript": "El servidor no devolvió ningún script: no hay cambios para guardar.",
+    "consequences": "Antes de seguir, tené en cuenta:",
+    "continue": "Continuar"
   },
   "log": {
     "tab": "Registro del planificador",

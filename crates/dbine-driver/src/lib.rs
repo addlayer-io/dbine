@@ -1266,6 +1266,15 @@ pub trait Session: Send {
 
     /// The script that creates the object (`None`) or changes it in place
     /// to `values`, in the engine's language. Nothing runs.
+    ///
+    /// What the user must accept before it runs (the object is dropped and
+    /// created again and loses its history or state, a property the
+    /// server doesn't show isn't kept, a non-atomic change can stop half
+    /// way) goes in comment lines whose text starts with "⚠" (`-- ⚠ …`,
+    /// `# ⚠ …`), one whole Spanish sentence each: the app lists them above
+    /// the script and asks "Continuar". The same holds for
+    /// [`Self::scheduler_delete_script`] and
+    /// [`Self::scheduler_action_script`].
     async fn scheduler_script(
         &mut self,
         kind: &str,
