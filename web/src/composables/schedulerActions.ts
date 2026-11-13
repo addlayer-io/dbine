@@ -1,6 +1,6 @@
 import { ElMessage } from 'element-plus';
 import { errorMessage } from '../api/client';
-import { schedulerApi, type SchedulerItem, type SchedulerKind } from '../api/scheduler';
+import { schedulerApi, type SchedulerAction, type SchedulerItem, type SchedulerKind } from '../api/scheduler';
 import type { MenuItem } from '../components/ContextMenu.vue';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -9,14 +9,16 @@ import { useServerJobsStore } from '../stores/serverJobs';
 import { useTabsStore } from '../stores/tabs';
 import { newQuery } from './actions';
 import { askScript } from './schedulerDialogs';
-import { formValues, initialLists, initialValues } from './schedulerForm';
+import { formValues, initialLists, initialValues, itemAbilities, type Abilities } from './schedulerForm';
 import { isProdConnection } from './tags';
 
 // What can be done with the objects of a server's scheduler (the designer,
 // docs/server-jobs.md) from the sidebar's tree, a job's tab and the
 // designer. Every change asks first, showing the script that will run and
 // naming the object and the connection; read-only connections don't offer
-// changes (the backend refuses them anyway).
+// changes (the backend refuses them anyway). Each object offers what it says
+// it can (`itemAbilities`): its own edit / delete flags, else its kind's, and
+// the kind's actions it lists.
 
 /** The connection isn't read-only: changes are offered. */
 export function canChange(connectionId: string): boolean {
@@ -38,6 +40,15 @@ export function prodWarning(connectionId: string): string | null {
 export function singularOf(connectionId: string, kind: string): string {
   const k = useServerJobsStore().kind(connectionId, kind);
   return k ? tb(k.singular) : kind;
+}
+
+/** What an existing object offers (`itemAbilities`) as the last read of
+ *  its kind's objects has it, or null while that list hasn't been read (or
+ *  its read failed): nothing is offered on a guess. One missing from the
+ *  list read (created since, past the list's cut) offers what its kind says. */
+export function objectAbilities(connectionId: string, kind: SchedulerKind | undefined, id: string): Abilities | null {
+  const list = kind ? useServerJobsStore().scheduler[connectionId]?.items[kind.key]?.list : null;
+  return kind && list ? itemAbilities(kind, list.items.find((i) => i.id === id)) : null;
 }
 
 /** "Crear <singular>" in the tree and the designer is offered. */
@@ -94,14 +105,65 @@ export async function deleteSchedulerObject(connectionId: string, kind: string, 
   return true;
 }
 
+/** One of the kind's actions on an object (run now, open a window…): its
+ *  script, the user's yes naming the object and the connection (and the
+ *  production notice), then the action; the tree reads again and an open
+ *  designer of the object too. Never on a read-only connection. True when
+ *  it ran. */
+export async function runSchedulerAction(connectionId: string, kind: SchedulerKind, id: string, name: string, action: SchedulerAction): Promise<boolean> {
+  if (!canChange(connectionId)) return false;
+  const label = tb(action.label);
+  let script: string;
+  try {
+    script = await schedulerApi.actionScript(connectionId, kind.key, id, action.key);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return false;
+  }
+  const ok = await askScript({
+    mode: 'confirm',
+    title: label,
+    message: t('scheduled:designer.confirmAction', {
+      action: label, name, kind: tb(kind.singular), connection: useConnectionsStore().byId(connectionId)?.name ?? '',
+    }),
+    warning: prodWarning(connectionId),
+    script,
+    dialect: dialectOf(connectionId),
+    okLabel: label,
+  });
+  if (!ok) return false;
+  try {
+    await schedulerApi.action(connectionId, kind.key, id, action.key);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return false;
+  }
+  ElMessage.success(t('scheduled:designer.actionDone', { action: label, name }));
+  const store = useServerJobsStore();
+  store.refreshAfterChange(connectionId);
+  store.objectChanged(connectionId, kind.key, id);
+  return true;
+}
+
+/** Menu entries for the kind's actions an object offers (none on a
+ *  read-only connection). */
+export function actionMenuItems(connectionId: string, kind: SchedulerKind, actions: SchedulerAction[], id: string, name: string): MenuItem[] {
+  if (!canChange(connectionId)) return [];
+  return actions.map((a, i) => ({
+    label: tb(a.label), divided: i === 0, action: () => void runSchedulerAction(connectionId, kind, id, name, a),
+  }));
+}
+
 /** The tree's context menu on one object of a kind. */
 export function schedulerItemMenu(connectionId: string, kind: SchedulerKind, item: SchedulerItem): MenuItem[] {
   const tabs = useTabsStore();
+  const can = itemAbilities(kind, item);
   const items: MenuItem[] = [
     { label: t('common:open'), action: () => tabs.openSchedulerObject(connectionId, kind.key, item.id, item.name) },
     { label: t('scheduled:server.script'), action: () => void openObjectScript(connectionId, kind.key, item.id, item.name) },
+    ...actionMenuItems(connectionId, kind, can.actions, item.id, item.name),
   ];
-  if (kind.can_delete && canChange(connectionId)) {
+  if (can.delete && canChange(connectionId)) {
     items.push({ label: t('scheduled:server.delete'), danger: true, divided: true, action: () => void deleteSchedulerObject(connectionId, kind.key, item.id, item.name) });
   }
   return items;

@@ -1,20 +1,32 @@
-// view=scheduler[&kind=job|operator|alert][&theme=light], view=scheduler-tree
-// and view=scheduler-log (preview/main.ts): the scheduler designer over a fake SQL Server Agent.
+// view=scheduler[&conn=ms|ora][&kind=job|operator|alert|window][&set=perf][&job=<Oracle job>][&theme=light],
+// view=scheduler-tree[&conn=ora], view=scheduler-log and
+// view=scheduler-jobtab[&conn=ora&job=<Oracle job>] (preview/main.ts): the
+// scheduler designer over a fake SQL Server Agent and a fake Oracle Scheduler.
 // `scheduler` mounts a designer tab: a job with its six sections (three
 // steps of different types whose actions point at each other, two
-// schedules — one shared —, an alert, notifications and the targets, read
-// only), a new operator (`kind=operator`) or an alert whose fields follow its
-// type (`kind=alert`). `scheduler-tree` shows "Programadas" with the
-// connection's tree (jobs, schedules, operators, alerts, proxies,
-// categories and the Agent's log) next to the job's designer;
-// `scheduler-log` the Agent's error logs. The script
-// the fake driver writes follows the values as edited.
+// schedules — one shared, whose "Desde las / Hasta las" use `when_all` —,
+// an alert, notifications and the targets, read only), a new operator
+// (`kind=operator`) or an alert whose fields follow its type (`kind=alert`;
+// `set=perf`: a performance condition whose counter depends on the object
+// and whose instance on the counter, free text where nothing is listed).
+// On Oracle (`conn=ora`): a job whose type picks a tab (Argumentos) and a
+// list (Destinos remotos), and a window (`kind=window`) with the "Abrir
+// ventana" / "Cerrar ventana" actions. Each Oracle job narrows its kind's
+// two actions (`job=EXPORTAR_FACTURAS`: running, "Forzar la detención"
+// only; the others none) and SYS's can't be edited nor dropped
+// (`job=PURGE_LOG`). `scheduler-tree` shows "Programadas"
+// with the connection's tree (jobs, schedules, operators — one that can't
+// be deleted —, alerts, proxies, categories and the Agent's log; on Oracle
+// jobs and windows) next to the designer; `scheduler-log` the Agent's error
+// logs; `scheduler-jobtab` a job's tab alone, as restored with the app with
+// its connection closed in the sidebar. The script the fake drivers write follows the values as edited.
 import { h } from 'vue';
 import type { JobDetail, JobList, ServerJob } from '../api/jobs';
-import type { FormField, FormKind, FormRow, FormValues, ObjectForm, SchedulerInfo, SchedulerList } from '../api/scheduler';
+import type { FormField, FormKind, FormRow, FormValues, ObjectForm, SchedulerInfo, SchedulerItem, SchedulerList } from '../api/scheduler';
 import type { MonitorTable } from '../api/types';
 import ScheduledSidebar from '../components/ScheduledSidebar.vue';
 import SchedulerLogView from '../views/SchedulerLogView.vue';
+import ServerJobView from '../views/ServerJobView.vue';
 import SchedulerObjectView from '../views/SchedulerObjectView.vue';
 import { useConnectionsStore } from '../stores/connections';
 import { useServerJobsStore } from '../stores/serverJobs';
@@ -22,6 +34,9 @@ import { useTabsStore, type SchedulerObjectTab } from '../stores/tabs';
 
 const JOB_ID = '6c1f0d2e-9a1b-4c3d-8e7f-001122334455';
 const ALERT_ID = 'alert-9002';
+const ALERT_PERF_ID = 'alert-log-80';
+const ORA_JOB_ID = 'ERP.CIERRE_DIARIO';
+const WINDOW_ID = 'SYS.WEEKNIGHT_WINDOW';
 
 const job = (o: Partial<ServerJob> & { id: string; name: string }): ServerJob => ({
   kind: 'SQL Server Agent', group: null, description: null, owner: 'sa', enabled: true, schedule: null,
@@ -51,7 +66,7 @@ const DETAIL: JobDetail = {
 
 const INFO: SchedulerInfo = {
   kinds: [
-    { key: 'job', label: 'Jobs', singular: 'job', can_create: true, can_edit: true, can_delete: true },
+    { key: 'job', label: 'Jobs', singular: 'job', can_create: true, can_edit: true, can_delete: true, run_from_step: true, clear_history: true },
     { key: 'schedule', label: 'Programaciones', singular: 'programación', can_create: true, can_edit: true, can_delete: true },
     { key: 'operator', label: 'Operadores', singular: 'operador', can_create: true, can_edit: true, can_delete: true },
     { key: 'alert', label: 'Alertas', singular: 'alerta', can_create: true, can_edit: true, can_delete: true },
@@ -62,8 +77,8 @@ const INFO: SchedulerInfo = {
   notes: ['Database Mail no tiene un perfil predeterminado: los avisos por mail no salen hasta que se configure uno.'],
 };
 
-const item = (id: string, name: string, o: { description?: string; enabled?: boolean | null; system?: boolean } = {}) => ({
-  id, name, description: o.description ?? null, enabled: o.enabled === undefined ? true : o.enabled, system: !!o.system,
+const item = (id: string, name: string, o: Partial<Omit<SchedulerItem, 'id' | 'name'>> = {}): SchedulerItem => ({
+  ...o, id, name, description: o.description ?? null, enabled: o.enabled === undefined ? true : o.enabled, system: !!o.system,
 });
 const ITEMS: Record<string, SchedulerList> = {
   schedule: {
@@ -79,11 +94,14 @@ const ITEMS: Record<string, SchedulerList> = {
       item('1', 'DBA de guardia', { description: 'dba@example.com' }),
       item('2', 'Equipo de datos', { description: 'datos@example.com' }),
       item('3', 'Mesa de ayuda', { enabled: false }),
+      // The master server's operator: a multiserver job uses it, so it can't go.
+      item('4', 'MSXOperator', { description: 'Lo usan los jobs multiservidor', can_delete: false }),
     ],
   },
   alert: {
     items: [
       item(ALERT_ID, 'Log de transacciones lleno (9002)'),
+      item(ALERT_PERF_ID, 'Log de ventas al 80 %'),
       item('alert-17', 'Severidad 017: recursos insuficientes'),
       item('alert-823', 'Error de E/S (823)', { enabled: false }),
     ],
@@ -91,8 +109,9 @@ const ITEMS: Record<string, SchedulerList> = {
   proxy: { items: [item('1', 'Proxy PowerShell', { enabled: true }), item('2', 'Proxy CmdExec ETL')] },
   category: {
     items: [
-      item('0', '[Uncategorized (Local)]', { enabled: null, system: true }),
-      item('3', 'Database Maintenance', { enabled: null, system: true }),
+      // The engine's own: the driver says they can't go (`system` alone doesn't).
+      item('0', '[Uncategorized (Local)]', { enabled: null, system: true, can_delete: false }),
+      item('3', 'Database Maintenance', { enabled: null, system: true, can_delete: false }),
       item('100', 'ETL', { enabled: null }),
       item('101', 'Ventas', { enabled: null }),
     ],
@@ -166,8 +185,9 @@ const SCHEDULE_FIELDS: FormField[] = [
   F('active_start_time', 'A las', { type: 'time' }, { when: ['subday_type', ['once']], required: true, default: '00:00:00' }),
   F('subday_interval', 'Cada', num(1, 100), { when: ['subday_type', ['every']], required: true, default: 1 }),
   F('subday_unit', 'Unidad', sel([['hours', 'horas'], ['minutes', 'minutos'], ['seconds', 'segundos']]), { when: ['subday_type', ['every']], default: 'hours' }),
-  F('window_start', 'Desde las', { type: 'time' }, { when: ['subday_type', ['every']], default: '00:00:00' }),
-  F('window_end', 'Hasta las', { type: 'time' }, { when: ['subday_type', ['every']], default: '23:59:59' }),
+  // "Cada … desde / hasta" only on a recurring schedule (`when_all`, as the driver writes it with `and_when`).
+  F('window_start', 'Desde las', { type: 'time' }, { when: ['subday_type', ['every']], when_all: [['freq_type', ['daily', 'weekly', 'monthly', 'monthly_relative']]], default: '00:00:00' }),
+  F('window_end', 'Hasta las', { type: 'time' }, { when: ['subday_type', ['every']], when_all: [['freq_type', ['daily', 'weekly', 'monthly', 'monthly_relative']]], default: '23:59:59' }),
   F('active_start_date', 'Vigente desde', { type: 'date' }, { required: true }),
   F('active_end_date', 'Vigente hasta', { type: 'date' }, { help: 'Vacío: sin fecha de fin.' }),
 ];
@@ -186,6 +206,19 @@ const CHOICES: Record<string, [string, string][]> = {
   operator: [['DBA de guardia', 'DBA de guardia'], ['Equipo de datos', 'Equipo de datos'], ['Mesa de ayuda', 'Mesa de ayuda']],
   alert: ITEMS.alert.items.map((a): [string, string] => [a.name, a.name]),
   job: JOBS.jobs.filter((j) => !j.system).map((j): [string, string] => [j.name, j.name]),
+  // A performance condition: counters by object, instances by counter. An
+  // object or a counter with nothing listed (User Settable, Buffer Manager's
+  // counters) takes free text.
+  perf_object: ['SQLServer:Databases', 'SQLServer:Buffer Manager', 'SQLServer:Locks', 'SQLServer:User Settable'].map((o): [string, string] => [o, o]),
+  'perf_counter:SQLServer:Databases': ['Percent Log Used', 'Log File(s) Used Size (KB)', 'Log Growths', 'Transactions/sec'].map((c): [string, string] => [c, c]),
+  'perf_counter:SQLServer:Buffer Manager': ['Page life expectancy', 'Buffer cache hit ratio'].map((c): [string, string] => [c, c]),
+  'perf_counter:SQLServer:Locks': ['Lock Waits/sec', 'Number of Deadlocks/sec'].map((c): [string, string] => [c, c]),
+  ...Object.fromEntries(['Percent Log Used', 'Log File(s) Used Size (KB)', 'Log Growths', 'Transactions/sec'].map((c) => [
+    `perf_instance:${c}`, ['_Total', 'master', 'msdb', 'ventas', 'crm', 'staging'].map((d): [string, string] => [d, d]),
+  ])),
+  ...Object.fromEntries(['Lock Waits/sec', 'Number of Deadlocks/sec'].map((c) => [
+    `perf_instance:${c}`, ['_Total', 'Database', 'File', 'Key', 'Object', 'Page', 'RID'].map((d): [string, string] => [d, d]),
+  ])),
 };
 
 function jobForm(isNew: boolean): ObjectForm {
@@ -296,7 +329,7 @@ function operatorForm(isNew: boolean): ObjectForm {
   };
 }
 
-function alertForm(): ObjectForm {
+function alertForm(id: string | null): ObjectForm {
   return {
     sections: [
       {
@@ -310,9 +343,9 @@ function alertForm(): ObjectForm {
           F('message_id', 'Número de error', num(1, 2147483647), { when: ['raise_by', ['message']], required: true }),
           F('severity', 'Severidad', sel([['17', '017 - Recursos insuficientes'], ['19', '019 - Error grave en un recurso'], ['20', '020 - Error grave en el proceso actual'], ['23', '023 - Error grave de integridad de la base'], ['24', '024 - Error grave de hardware'], ['25', '025 - Error grave']]), { when: ['raise_by', ['severity']], required: true }),
           F('event_keyword', 'Si el mensaje contiene', { type: 'text' }, { when: ['alert_type', ['event']] }),
-          F('performance_object', 'Objeto', { type: 'text' }, { when: ['alert_type', ['performance']], required: true, placeholder: 'SQLServer:Databases' }),
-          F('performance_counter', 'Contador', { type: 'text' }, { when: ['alert_type', ['performance']], required: true, placeholder: 'Percent Log Used' }),
-          F('performance_instance', 'Instancia', { type: 'text' }, { when: ['alert_type', ['performance']], placeholder: 'ventas' }),
+          F('performance_object', 'Objeto', ref('perf_object'), { when: ['alert_type', ['performance']], required: true }),
+          F('performance_counter', 'Contador', ref('perf_counter:{performance_object}'), { when: ['alert_type', ['performance']], required: true, placeholder: 'Percent Log Used' }),
+          F('performance_instance', 'Instancia', ref('perf_instance:{performance_counter}'), { when: ['alert_type', ['performance']], placeholder: 'ventas' }),
           F('comparator', 'Se dispara si el contador', sel([['<', 'es menor que'], ['=', 'es igual a'], ['>', 'es mayor que']]), { when: ['alert_type', ['performance']], default: '>' }),
           F('threshold', 'Valor', num(null, null), { when: ['alert_type', ['performance']], required: true }),
           F('wmi_namespace', 'Espacio de nombres', { type: 'text' }, { when: ['alert_type', ['wmi']], required: true, default: '\\\\.\\root\\Microsoft\\SqlServer\\ServerEvents\\MSSQLSERVER' }),
@@ -341,7 +374,11 @@ function alertForm(): ObjectForm {
         ],
       },
     ],
-    values: {
+    values: id === ALERT_PERF_ID ? {
+      name: 'Log de ventas al 80 %', enabled: true, alert_type: 'performance', performance_object: 'SQLServer:Databases',
+      performance_counter: 'Percent Log Used', performance_instance: 'ventas', comparator: '>', threshold: 80, job_name: 'Backup nocturno',
+      include_event_description: ['email'], notification_message: 'El log de ventas pasó el 80 %: revisar el último backup de log.', delay_between_responses: 1800,
+    } : {
       name: 'Log de transacciones lleno (9002)', enabled: true, alert_type: 'event', database_name: null, raise_by: 'message', message_id: 9002,
       comparator: '>', job_name: null, include_event_description: ['email'], notification_message: 'Revisar el espacio del log y el último backup de log.',
       delay_between_responses: 900,
@@ -350,9 +387,144 @@ function alertForm(): ObjectForm {
   };
 }
 
-function formFor(kind: string, id: string | null): ObjectForm {
+// -- Oracle: a job whose type picks a tab and a list; windows with actions -------------------
+
+const ORA_INFO: SchedulerInfo = {
+  kinds: [
+    // DBMS_SCHEDULER purges a job's log, but has no "start at a step". Its
+    // jobs' actions: each job lists the ones it offers now (`oraItems`).
+    {
+      key: 'job', label: 'Jobs', singular: 'job', can_create: true, can_edit: true, can_delete: true, run_from_step: false, clear_history: true,
+      actions: [{ key: 'force_stop', label: 'Forzar la detención' }, { key: 'end_detached', label: 'Dar por terminada la ejecución' }],
+    },
+    {
+      key: 'window', label: 'Ventanas', singular: 'ventana', can_create: true, can_edit: true, can_delete: true,
+      actions: [{ key: 'open_window', label: 'Abrir ventana' }, { key: 'close_window', label: 'Cerrar ventana' }],
+    },
+  ],
+};
+const ORA_JOBS: JobList = {
+  jobs: [
+    job({ id: ORA_JOB_ID, name: 'CIERRE_DIARIO', kind: 'DBMS_SCHEDULER', group: 'ERP', owner: 'ERP', schedule: 'FREQ=DAILY;BYHOUR=1;BYMINUTE=30', next_run: '2026-11-13T04:30:00Z' }),
+    job({ id: 'ERP.EXPORTAR_FACTURAS', name: 'EXPORTAR_FACTURAS', kind: 'DBMS_SCHEDULER', group: 'ERP', owner: 'ERP', schedule: 'FREQ=HOURLY', running: true, last_outcome: 'running', last_duration_ms: null }),
+    job({ id: 'SYS.PURGE_LOG', name: 'PURGE_LOG', kind: 'DBMS_SCHEDULER', group: 'SYS', owner: 'SYS', system: true, schedule: 'DAILY_PURGE_SCHEDULE' }),
+  ],
+};
+/** Windows open now: "Abrir ventana" / "Cerrar ventana" flip them. */
+const windowOpen: Record<string, boolean> = { [WINDOW_ID]: true, 'SYS.WEEKEND_WINDOW': false, 'ERP.CIERRE_MENSUAL': false };
+const WINDOWS: [string, string, boolean][] = [[WINDOW_ID, 'WEEKNIGHT_WINDOW', true], ['SYS.WEEKEND_WINDOW', 'WEEKEND_WINDOW', true], ['ERP.CIERRE_MENSUAL', 'CIERRE_MENSUAL', false]];
+function oraItems(kind: string): SchedulerList {
+  if (kind === 'job') {
+    // What each job offers now: one running can be forced to stop; one
+    // idle offers none of its kind's actions; SYS's can't be changed nor
+    // dropped (the driver says so: `system` alone doesn't).
+    return {
+      items: ORA_JOBS.jobs.map((j) => item(j.id, j.name, {
+        system: j.system, enabled: j.enabled, actions: j.running ? ['force_stop'] : [],
+        ...(j.system ? { can_edit: false, can_delete: false } : {}),
+      })),
+    };
+  }
+  if (kind !== 'window') return { items: [] };
+  return {
+    items: WINDOWS.map(([id, name, system]) => item(id, name, {
+      system, description: windowOpen[id] ? 'Abierta ahora' : null, actions: [windowOpen[id] ? 'close_window' : 'open_window'],
+      ...(system ? { can_delete: false } : {}),
+    })),
+    notes: ['Las ventanas de SYS vienen con la base: se pueden abrir, cerrar y cambiar, pero no borrar.'],
+  };
+}
+
+const JOB_TYPES: [string, string][] = [['PLSQL_BLOCK', 'Bloque PL/SQL'], ['STORED_PROCEDURE', 'Procedimiento almacenado'], ['EXECUTABLE', 'Ejecutable externo']];
+
+function oraJobForm(id: string | null): ObjectForm {
+  const isNew = id === null;
+  return {
+    sections: [
+      {
+        key: 'general', label: 'General',
+        fields: [
+          F('name', 'Nombre', { type: 'text' }, { required: true, placeholder: 'CIERRE_DIARIO' }),
+          F('job_type', 'Tipo', sel(JOB_TYPES), { required: true, default: 'PLSQL_BLOCK' }),
+          F('job_action', 'Bloque PL/SQL', { type: 'code', language: 'plsql' }, { when: ['job_type', ['PLSQL_BLOCK']], required: true }),
+          F('procedure', 'Procedimiento', { type: 'text' }, { when: ['job_type', ['STORED_PROCEDURE']], required: true, placeholder: 'ERP.PKG_CIERRE.CERRAR_DIA' }),
+          F('executable', 'Ejecutable', { type: 'text' }, { when: ['job_type', ['EXECUTABLE']], required: true, placeholder: '/u01/app/erp/bin/exportar.sh' }),
+          F('enabled', 'Habilitado', { type: 'bool' }, { default: true }),
+          F('comments', 'Comentarios', { type: 'textarea' }),
+        ],
+      },
+      {
+        key: 'schedule', label: 'Programación',
+        fields: [
+          F('repeat_interval', 'Repetición', { type: 'text' }, { placeholder: 'FREQ=DAILY;BYHOUR=1;BYMINUTE=30', help: 'Vacío: solo a pedido.' }),
+          F('start_date', 'Desde', { type: 'date_time' }),
+          F('end_date', 'Hasta', { type: 'date_time' }, { help: 'Vacío: sin fecha de fin.' }),
+        ],
+      },
+      {
+        // Only a procedure or an executable takes arguments.
+        key: 'arguments', label: 'Argumentos', when: ['job_type', ['STORED_PROCEDURE', 'EXECUTABLE']],
+        lists: [{
+          key: 'arguments', label: 'Argumentos', title_field: 'value', orderable: true,
+          fields: [F('value', 'Valor', { type: 'text' }, { required: true }), F('type', 'Tipo de dato', sel([['VARCHAR2', 'VARCHAR2'], ['NUMBER', 'NUMBER'], ['DATE', 'DATE']]), { default: 'VARCHAR2' })],
+          rows: isNew ? [] : [{ value: 'SYSDATE - 1', type: 'DATE' }],
+        }],
+      },
+      {
+        key: 'options', label: 'Opciones',
+        fields: [
+          F('auto_drop', 'Borrarlo cuando termine', { type: 'bool' }, { default: false }),
+          F('restartable', 'Reiniciable', { type: 'bool' }, { default: false, help: 'Si la base se cae a mitad de una ejecución, vuelve a empezar.' }),
+          F('max_runs', 'Ejecuciones como máximo', num(1, null), { help: 'Vacío: sin límite.' }),
+        ],
+        lists: [{
+          // Only an external executable runs on remote agents.
+          key: 'destinations', label: 'Destinos remotos', title_field: 'destination', when: ['job_type', ['EXECUTABLE']], min_rows: 1,
+          fields: [F('destination', 'Destino', ref('destination'), { required: true }), F('credential', 'Credencial', ref('credential'), { required: true })],
+          rows: [{ destination: 'AGENTE_ERP_01', credential: 'ERP.CRED_AGENTE' }],
+        }],
+      },
+    ],
+    values: isNew ? {} : {
+      name: ORA_JOBS.jobs.find((j) => j.id === id)?.name ?? 'CIERRE_DIARIO', job_type: 'PLSQL_BLOCK', enabled: true, comments: 'Cierra el día contable y recalcula los saldos.',
+      job_action: 'BEGIN\n  erp.pkg_cierre.cerrar_dia(p_fecha => TRUNC(SYSDATE) - 1);\n  COMMIT;\nEND;',
+      repeat_interval: 'FREQ=DAILY;BYHOUR=1;BYMINUTE=30', start_date: '2025-07-01T01:30:00-03:00', auto_drop: false, restartable: true,
+    },
+    choices: {
+      destination: [['AGENTE_ERP_01', 'AGENTE_ERP_01'], ['AGENTE_ERP_02', 'AGENTE_ERP_02']],
+      credential: [['ERP.CRED_AGENTE', 'ERP.CRED_AGENTE']],
+    },
+  };
+}
+
+function windowForm(id: string | null): ObjectForm {
+  const w = WINDOWS.find(([x]) => x === id);
+  return {
+    sections: [{
+      key: 'general', label: 'General',
+      fields: [
+        F('name', 'Nombre', { type: 'text' }, { required: true, read_only: id !== null }),
+        F('enabled', 'Habilitada', { type: 'bool' }, { default: true }),
+        F('resource_plan', 'Plan de recursos', ref('resource_plan'), { help: 'Vacío: queda el plan que esté activo.' }),
+        F('repeat_interval', 'Se abre', { type: 'text' }, { required: true, placeholder: 'FREQ=DAILY;BYDAY=MON,TUE,WED,THU,FRI;BYHOUR=22' }),
+        F('duration', 'Queda abierta', { type: 'duration' }, { required: true, default: 14400 }),
+        F('window_priority', 'Prioridad', sel([['LOW', 'Baja'], ['HIGH', 'Alta']]), { default: 'LOW', help: 'Si dos ventanas se superponen, queda abierta la de prioridad alta.' }),
+        F('comments', 'Comentarios', { type: 'textarea' }),
+      ],
+    }],
+    values: w ? {
+      name: w[1], enabled: true, resource_plan: 'DEFAULT_MAINTENANCE_PLAN', repeat_interval: 'FREQ=WEEKLY;BYDAY=MON,TUE,WED,THU,FRI;BYHOUR=22;BYMINUTE=0;BYSECOND=0',
+      duration: 14400, window_priority: 'LOW', comments: 'Ventana de mantenimiento de lunes a viernes',
+    } : {},
+    choices: { resource_plan: [['DEFAULT_MAINTENANCE_PLAN', 'DEFAULT_MAINTENANCE_PLAN'], ['ERP_NOCTURNO', 'ERP_NOCTURNO']] },
+    notes: id && windowOpen[id] ? ['La ventana está abierta ahora: se cierra sola a las 02:00, o con «Cerrar ventana».'] : [],
+  };
+}
+
+function formFor(conn: string, kind: string, id: string | null): ObjectForm {
+  if (conn === 'ora') return kind === 'window' ? windowForm(id) : oraJobForm(id);
   if (kind === 'operator') return operatorForm(id === null);
-  if (kind === 'alert') return alertForm();
+  if (kind === 'alert') return alertForm(id);
   return jobForm(id === null);
 }
 
@@ -389,8 +561,41 @@ function jobScript(id: string | null, v: FormValues): string {
   return out.join('\n');
 }
 
-function scriptFor(kind: string, id: string | null, v: FormValues): string {
+const q = (v: unknown) => (v === null || v === undefined || v === '' ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`);
+
+function oraScript(kind: string, id: string | null, v: FormValues): string {
   const x = v.values;
+  const name = id ?? `ERP.${String(x.name ?? 'NUEVO')}`;
+  const what = kind === 'window' ? 'window' : 'job';
+  const action = x.job_type === 'PLSQL_BLOCK' ? x.job_action : x.job_type === 'STORED_PROCEDURE' ? x.procedure : x.executable;
+  const set = (attr: string, val: string) => `  DBMS_SCHEDULER.SET_ATTRIBUTE(name => ${q(name)}, attribute => '${attr}', value => ${val});`;
+  const out = ['BEGIN'];
+  if (kind === 'window') {
+    out.push(set('resource_plan', q(x.resource_plan)), set('repeat_interval', q(x.repeat_interval)),
+      set('duration', `NUMTODSINTERVAL(${Number(x.duration ?? 0)}, 'SECOND')`), set('window_priority', q(x.window_priority)), set('comments', q(x.comments)));
+  } else if (!id) {
+    out.push(`  DBMS_SCHEDULER.CREATE_JOB(\n    job_name => ${q(name)},\n    job_type => ${q(x.job_type)},\n    job_action => ${q(action)},\n    number_of_arguments => ${(v.lists.arguments ?? []).length},\n    repeat_interval => ${q(x.repeat_interval)},\n    enabled => FALSE);`);
+  } else {
+    out.push(set('job_type', q(x.job_type)), set('job_action', q(action)), set('number_of_arguments', String((v.lists.arguments ?? []).length)), set('repeat_interval', q(x.repeat_interval)));
+  }
+  // A list that doesn't show isn't sent: a PL/SQL block has no arguments nor destinations.
+  (v.lists.arguments ?? []).forEach((r, i) => out.push(`  DBMS_SCHEDULER.SET_JOB_ARGUMENT_VALUE(job_name => ${q(name)}, argument_position => ${i + 1}, argument_value => ${q(r.value)});`));
+  if (v.lists.destinations) out.push(set('destination_name', q((v.lists.destinations).map((r) => r.destination).join(','))), set('credential_name', q(v.lists.destinations[0]?.credential)));
+  if (what === 'job') out.push(`  DBMS_SCHEDULER.${x.enabled ? 'ENABLE' : 'DISABLE'}(${q(name)});`);
+  out.push('END;', '/');
+  return out.join('\n');
+}
+
+function actionScriptFor(id: string, action: string): string {
+  if (action === 'open_window') return `BEGIN\n  DBMS_SCHEDULER.OPEN_WINDOW(window_name => ${q(id)}, duration => NULL, force => FALSE);\nEND;\n/`;
+  if (action === 'close_window') return `BEGIN\n  DBMS_SCHEDULER.CLOSE_WINDOW(window_name => ${q(id)});\nEND;\n/`;
+  if (action === 'force_stop') return `BEGIN\n  DBMS_SCHEDULER.STOP_JOB(job_name => ${q(id)}, force => TRUE);\nEND;\n/`;
+  return `-- ${action} ${id}`;
+}
+
+function scriptFor(conn: string, kind: string, id: string | null, v: FormValues): string {
+  const x = v.values;
+  if (conn === 'ora') return oraScript(kind, id, v);
   if (kind === 'job') return jobScript(id, v);
   if (kind === 'operator') {
     const proc = id ? 'sp_update_operator' : 'sp_add_operator';
@@ -409,7 +614,8 @@ function scriptFor(kind: string, id: string | null, v: FormValues): string {
   return `-- ${kind} ${id ?? '(nuevo)'}`;
 }
 
-function deleteScriptFor(kind: string, id: string): string {
+function deleteScriptFor(conn: string, kind: string, id: string): string {
+  if (conn === 'ora') return `BEGIN\n  DBMS_SCHEDULER.DROP_${kind === 'window' ? 'WINDOW' : 'JOB'}(${q(id)});\nEND;\n/`;
   if (kind === 'job') return `USE [msdb];\nGO\nEXEC msdb.dbo.sp_delete_job @job_id = N'${id}', @delete_unused_schedule = 1;\nGO`;
   return `USE [msdb];\nGO\nEXEC msdb.dbo.sp_delete_${kind} @name = N'${id}';\nGO`;
 }
@@ -442,17 +648,30 @@ export function installSchedulerMock() {
       const a = payload?.args ?? {};
       const kind = String(a.kind ?? '');
       const id = (a.id as string | null | undefined) ?? null;
+      const conn = String(a.connection_id ?? '');
       switch (cmd) {
         case 'scheduled_tasks_list': return [];
-        case 'jobs_list': return a.connection_id === 'ms' ? JOBS : { jobs: [], notes: ['pg_cron está instalado en la base «postgres»: conectate a esa base para ver sus jobs'] };
-        case 'jobs_detail': return DETAIL;
+        case 'jobs_list': return conn === 'ms' ? JOBS : conn === 'ora' ? ORA_JOBS : { jobs: [], notes: ['pg_cron está instalado en la base «postgres»: conectate a esa base para ver sus jobs'] };
+        case 'jobs_detail': {
+          const j = conn === 'ora' ? ORA_JOBS.jobs.find((x) => x.id === id) : null;
+          return j ? { job: j, steps: [], schedules: [], properties: [] } : DETAIL;
+        }
         case 'jobs_runs': return [];
-        case 'scheduler_info': return INFO;
-        case 'scheduler_items': await wait(150); return ITEMS[kind] ?? { items: [] };
-        case 'scheduler_form': await wait(120); return formFor(kind, id);
-        case 'scheduler_script': return scriptFor(kind, id, a.values as FormValues);
+        case 'scheduler_info': return conn === 'ora' ? ORA_INFO : INFO;
+        case 'scheduler_items': await wait(150); return conn === 'ora' ? oraItems(kind) : ITEMS[kind] ?? { items: [] };
+        case 'scheduler_form': await wait(120); return formFor(conn, kind, id);
+        case 'scheduler_script': return scriptFor(conn, kind, id, a.values as FormValues);
         case 'scheduler_save': await wait(400); return id ?? `${kind}-new`;
-        case 'scheduler_delete_script': return deleteScriptFor(kind, String(id));
+        case 'scheduler_delete_script': return deleteScriptFor(conn, kind, String(id));
+        case 'scheduler_action_script': return actionScriptFor(String(id), String(a.action));
+        case 'scheduler_action':
+          await wait(300);
+          if (a.action === 'open_window' || a.action === 'close_window') windowOpen[String(id)] = a.action === 'open_window';
+          if (a.action === 'force_stop') {
+            const j = ORA_JOBS.jobs.find((x) => x.id === id);
+            if (j) Object.assign(j, { running: false, last_outcome: 'canceled', last_duration_ms: 95_000 });
+          }
+          return null;
         case 'scheduler_logs': return LOGS;
         default: return null;
       }
@@ -465,22 +684,40 @@ let tabId = '';
 export function setupScheduler(params: URLSearchParams) {
   const conns = useConnectionsStore();
   const driver = (id: string, name: string, caps: Record<string, boolean>) =>
-    ({ id, name, language: 'sql', dialect: id === 'sqlserver' ? 'mssql' : 'postgres', capabilities: { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ...caps } }) as never;
-  conns.drivers = [driver('sqlserver', 'SQL Server', { jobs: true, scheduler: true }), driver('postgres', 'PostgreSQL', { jobs: true })];
+    ({ id, name, language: 'sql', dialect: id === 'sqlserver' ? 'mssql' : id === 'oracle' ? 'oracle' : 'postgres', capabilities: { create_database: true, drop_database: true, foreign_keys: true, monitor: true, ...caps } }) as never;
+  conns.drivers = [
+    driver('sqlserver', 'SQL Server', { jobs: true, scheduler: true }), driver('oracle', 'Oracle', { jobs: true, scheduler: true }),
+    driver('postgres', 'PostgreSQL', { jobs: true }),
+  ];
   const conn = (id: string, name: string, drv: string, tags: string[]) => ({
     id, name, color: null, folder_id: null, tags, save_password: true, updated_at: '',
     config: { driver: drv, host: 'db', port: 0, database: '', username: 'app', password: null, encrypt: true, trust_server_certificate: false, read_only: false, options: {} },
   });
-  conns.list = [conn('ms', 'SQL Server · Producción', 'sqlserver', ['prod']), conn('pg', 'Ventas PG', 'postgres', [])] as never;
+  conns.list = [
+    conn('ms', 'SQL Server · Producción', 'sqlserver', ['prod']), conn('ora', 'Oracle · ERP', 'oracle', ['prod']), conn('pg', 'Ventas PG', 'postgres', []),
+  ] as never;
   conns.ensureConnected = async () => true;
   const jobs = useServerJobsStore();
-  jobs.expanded = ['ms'];
-  jobs.kindsOpen = { 'ms\u0000schedule': true, 'ms\u0000operator': true };
+  const on = params.get('conn') === 'ora' ? 'ora' : 'ms';
+  // The job's tab alone: a tab restored with the app, its connection closed
+  // in the sidebar (nothing else reads the scheduler).
+  jobs.expanded = params.get('view') === 'scheduler-jobtab' ? [] : [on];
+  jobs.kindsOpen = on === 'ora' ? { 'ora\u0000window': true } : { 'ms\u0000schedule': true, 'ms\u0000operator': true };
   const kind = params.get('kind') ?? 'job';
   const tabs = useTabsStore();
-  const id = kind === 'operator' ? null : kind === 'alert' ? ALERT_ID : JOB_ID;
-  const title = kind === 'alert' ? 'Log de transacciones lleno (9002)' : kind === 'job' ? NIGHTLY.name : '';
-  tabs.openSchedulerObject('ms', kind, id, title);
+  let id: string | null;
+  let title: string;
+  if (on === 'ora') {
+    // `job=EXPORTAR_FACTURAS` (running: "Forzar la detención" only) or `job=PURGE_LOG` (SYS's: read-only, no Borrar).
+    const oraJob = ORA_JOBS.jobs.find((j) => j.name === params.get('job')) ?? ORA_JOBS.jobs[0];
+    id = kind === 'window' ? WINDOW_ID : oraJob.id;
+    title = kind === 'window' ? 'WEEKNIGHT_WINDOW' : oraJob.name;
+  } else {
+    const perf = params.get('set') === 'perf';
+    id = kind === 'operator' ? null : kind === 'alert' ? (perf ? ALERT_PERF_ID : ALERT_ID) : JOB_ID;
+    title = kind === 'alert' ? (perf ? 'Log de ventas al 80 %' : 'Log de transacciones lleno (9002)') : kind === 'job' ? NIGHTLY.name : '';
+  }
+  tabs.openSchedulerObject(on, kind, id, title);
   tabId = tabs.activeId ?? '';
 }
 
@@ -503,5 +740,14 @@ export function schedulerTreePreview() {
 export function schedulerLogPreview() {
   return h('div', { style: 'height: 100vh; display: flex; flex-direction: column; background: var(--nm-bg)' }, [
     h(SchedulerLogView, { tab: { id: 'slog', kind: 'schedulerLog', connectionId: 'ms', database: '', preview: false }, active: true }),
+  ]);
+}
+
+/** A job's tab on its own (`conn=ora&job=EXPORTAR_FACTURAS`): its "Más acciones" from the job kind and the job's abilities. */
+export function schedulerJobTabPreview() {
+  const t = useTabsStore().tabs.find((x) => x.id === tabId) as SchedulerObjectTab | undefined;
+  if (!t || t.objectId === null) return null;
+  return h('div', { style: 'height: 100vh; display: flex; flex-direction: column; background: var(--nm-bg)' }, [
+    h(ServerJobView, { tab: { id: 'sj', kind: 'serverJob', connectionId: t.connectionId, database: '', jobId: t.objectId, jobName: t.title, preview: false } as never, active: true }),
   ]);
 }

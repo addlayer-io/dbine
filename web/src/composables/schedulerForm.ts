@@ -1,24 +1,34 @@
 // The scheduler designer's form logic ("Programadas › En los servidores",
-// docs/server-jobs.md): which fields show, a new object's and a new row's
-// values, the checks before a script or a save, what a reference offers, and
-// what goes back to the driver. Plain functions over the form the driver
-// describes (api/scheduler.ts), so `node --test` runs them
+// docs/server-jobs.md): which fields, lists and tabs show, a new object's and
+// a new row's values, the checks before a script or a save, what a reference
+// offers, what goes back to the driver, and what an object of the tree
+// offers (edit, delete, its kind's actions). Plain functions over what the
+// driver describes (api/scheduler.ts), so `node --test` runs them
 // (schedulerForm.test.mjs). The driver stays the authority: it checks every
 // value again when it writes the script.
 
-import type { FormField, FormList, FormRow, FormValues, ObjectForm } from '../api/scheduler';
+import type {
+  FormField, FormList, FormRow, FormSection, FormValues, ObjectForm, SchedulerAction, SchedulerItem, SchedulerKind,
+} from '../api/scheduler';
 import type { Language } from '../api/types';
 
 /** Values by field key: the form's top level, or one row of a list. */
 export type Scope = Record<string, unknown>;
 
-/** Where a field's `when` is looked up: the fields beside it and their
- *  values; a row's context has the form's top level as its parent. */
+/** Where a field's `when` (and a ref source's `{field}`) is looked up: the
+ *  fields beside it and their values; a row's context has the form's top
+ *  level as its parent. */
 export interface FormCtx {
   fields: FormField[];
   values: Scope;
   parent?: FormCtx;
+  /** The form's top level (`topContext`): the tabs each field is on. A
+   *  field whose tabs all hide doesn't show, so it holds no condition. */
+  tabsOf?: Map<FormField, FormSection[]>;
 }
+
+/** A condition: a field's key and the values that show what hangs from it. */
+export type Cond = [string, string[]];
 
 const clone = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
 
@@ -36,25 +46,75 @@ function matches(v: unknown, wanted: string[]): boolean {
   return wanted.includes(whenText(v));
 }
 
-/** Whether a field shows. Its `when` names a field of the same row (or
- *  form), else of the form's top level; a field that depends on a hidden
- *  one is hidden too (the frequency's interval under a frequency that
- *  doesn't apply). A `when` naming no field compares the value as it is. */
-export function isVisible(field: FormField, ctx: FormCtx, seen: Set<FormField> = new Set()): boolean {
-  const when = field.when;
-  if (!when) return true;
-  if (seen.has(field)) return true; // a cycle: don't hide everything over it
-  seen.add(field);
-  const [key, wanted] = when;
+/** What a visibility check has already been through (fields and tabs): met
+ *  again, it's a cycle. */
+type Seen = Set<FormField | FormSection>;
+
+/** Whether one condition holds: the field it names (of the same row or
+ *  form, else of the form's top level) shows and has one of the values. A
+ *  top-level field shows only on a tab that shows: a value left on a tab
+ *  that hid holds nothing elsewhere. A condition naming no field compares
+ *  the value as it is. */
+function holds([key, wanted]: Cond, ctx: FormCtx, self: FormField | null, seen: Seen): boolean {
   for (let c: FormCtx | undefined = ctx; c; c = c.parent) {
-    const owners = c.fields.filter((f) => f.key === key && f !== field);
+    const owners = c.fields.filter((f) => f.key === key && f !== self);
     if (!owners.length) continue;
     // Several fields may share a key under exclusive `when`s: one shown is enough.
     const at = c;
-    if (!owners.some((o) => isVisible(o, at, new Set(seen)))) return false;
+    if (!owners.some((o) => { const s = new Set(seen); return isVisible(o, at, s) && onShownTab(o, at, s); })) return false;
     return matches(c.values[key], wanted);
   }
   return matches(key in ctx.values ? ctx.values[key] : ctx.parent?.values[key], wanted);
+}
+
+/** A top-level field is on a tab that shows (any field elsewhere: true). */
+function onShownTab(field: FormField, ctx: FormCtx, seen: Seen): boolean {
+  const tabs = ctx.tabsOf?.get(field);
+  return !tabs || tabs.some((s) => tabShows(s, ctx, seen));
+}
+
+function tabShows(section: FormSection, top: FormCtx, seen: Seen): boolean {
+  if (!section.when) return true;
+  if (seen.has(section)) return true; // a cycle: don't hide everything over it
+  seen.add(section);
+  return holds(section.when, top, null, seen);
+}
+
+/** Whether a field shows: its `when` and every `when_all` hold. Each names
+ *  a field of the same row (or form), else of the form's top level; a field
+ *  that depends on a hidden one is hidden too (the frequency's interval
+ *  under a frequency that doesn't apply, a field of a tab that hid). */
+export function isVisible(field: FormField, ctx: FormCtx, seen: Seen = new Set()): boolean {
+  const conds = [...(field.when ? [field.when] : []), ...(field.when_all ?? [])];
+  if (!conds.length) return true;
+  if (seen.has(field)) return true; // a cycle: don't hide everything over it
+  seen.add(field);
+  return conds.every((c) => holds(c, ctx, field, seen));
+}
+
+/** The form's top level as conditions see it, with the tabs of each field. */
+export function topContext(form: ObjectForm, values: Scope): FormCtx {
+  const tabsOf = new Map<FormField, FormSection[]>();
+  for (const s of form.sections) for (const f of s.fields ?? []) tabsOf.set(f, [...(tabsOf.get(f) ?? []), s]);
+  return { fields: formFields(form), values, tabsOf };
+}
+
+/** Whether a section's tab shows: its `when` names a top-level field (a
+ *  job's type picks its tabs). */
+export function sectionVisible(section: FormSection, top: FormCtx): boolean {
+  return tabShows(section, top, new Set());
+}
+
+/** Whether a list shows (and is checked and sent): its `when`, on a
+ *  top-level field, holds. Its section's own `when` is `sectionVisible`'s. */
+export function listVisible(list: FormList, top: FormCtx): boolean {
+  return !list.when || holds(list.when, top, null, new Set());
+}
+
+/** The lists that show now: those of the tabs that show, whose own `when`
+ *  holds. Only they are checked and sent. */
+export function visibleLists(form: ObjectForm, top: FormCtx): FormList[] {
+  return form.sections.filter((s) => sectionVisible(s, top)).flatMap((s) => (s.lists ?? []).filter((l) => listVisible(l, top)));
 }
 
 /** Every top-level field of the form, section after section. */
@@ -121,6 +181,34 @@ export function refChoices(source: string, form: ObjectForm, lists: Record<strin
     out.push([String(v), `${i + 1} · ${String(v)}`]);
   });
   return out;
+}
+
+const PLACEHOLDER = /\{([^{}]+)\}/g;
+
+/** The fields a `ref` source names between braces (`perf_counter:{object}`). */
+export function sourceFields(source: string): string[] {
+  return [...source.matchAll(PLACEHOLDER)].map((m) => m[1]);
+}
+
+/** A source with each `{field}` filled in from the context: the row's own
+ *  field first (inside a list), else the form's top level; nothing as "". */
+export function fillSource(source: string, ctx?: FormCtx): string {
+  return source.replace(PLACEHOLDER, (_, key: string) => {
+    for (let c: FormCtx | undefined = ctx; c; c = c.parent) {
+      if (key in c.values || c.fields.some((f) => f.key === key)) return whenText(c.values[key]);
+    }
+    return '';
+  });
+}
+
+/** What a `ref` field offers where it is (`ctx`: its row, or the top level),
+ *  or null when it takes free text: its source names fields and the driver
+ *  listed nothing for the filled-in source (`perf_counter:SQLServer:Locks`).
+ *  Other sources as `refChoices`. */
+export function refOptions(source: string, form: ObjectForm, lists: Record<string, FormRow[]>, ctx?: FormCtx, skip?: RowRef): [string, string][] | null {
+  if (!sourceFields(source).length) return refChoices(source, form, lists, skip);
+  const listed = form.choices?.[fillSource(source, ctx)];
+  return listed?.length ? listed : null;
 }
 
 /** A select's or a ref's options as the driver gave them (labels in its
@@ -238,8 +326,9 @@ export function isBlank(v: unknown): boolean {
  *  (null keeps the one the server has). Number bounds are checked here, not
  *  by the control (it would change a server value as it shows it). With
  *  `choices`, a `list:` reference must name one of them (a row renamed or
- *  removed since); other sources aren't checked (the server may have values
- *  this login can't list). */
+ *  removed since), and so must a reference whose source names fields (a
+ *  counter of another object); other sources aren't checked (the server may
+ *  have values this login can't list). */
 export function fieldProblem(field: FormField, value: unknown, isNew: boolean, choices?: [string, string][]): Problem | null {
   if (field.read_only) return null;
   const kind = field.kind;
@@ -249,50 +338,68 @@ export function fieldProblem(field: FormField, value: unknown, isNew: boolean, c
     if (kind.max != null && value > kind.max) return { code: 'max', n: kind.max };
   }
   if (kind.type === 'duration' && typeof value === 'number' && value < 0) return { code: 'min', n: 0 };
-  if (kind.type === 'ref' && kind.source.startsWith('list:') && choices && !isBlank(value)) {
+  const checked = kind.type === 'ref' && (kind.source.startsWith('list:') || sourceFields(kind.source).length > 0);
+  if (checked && choices && !isBlank(value)) {
     const gone = (Array.isArray(value) ? value : [value]).map(whenText).find((v) => v !== '' && !choices.some(([c]) => c === v));
     if (gone !== undefined) return { code: 'missing', value: gone };
   }
   return null;
 }
 
-/** A source's choices, for the checks of `list:` references. */
-export type RefsOf = (source: string) => [string, string][];
+/** The choices a `ref` field's value must be one of where it is, or
+ *  undefined when it isn't checked. */
+export type RefsOf = (field: FormField, ctx: FormCtx) => [string, string][] | undefined;
+
+/** The references the checks look at: a `list:` source's rows as they are
+ *  now (`skip`: the row being checked, which can't name itself), and a
+ *  source with `{field}`s while the driver listed something for it (with
+ *  nothing listed, the field takes free text). */
+export function refsToCheck(form: ObjectForm, lists: Record<string, FormRow[]>, skip?: RowRef): RefsOf {
+  return (f, ctx) => {
+    if (f.kind.type !== 'ref') return undefined;
+    const src = f.kind.source;
+    if (sourceFields(src).length) return refOptions(src, form, lists, ctx) ?? undefined;
+    return src.startsWith('list:') ? refChoices(src, form, lists, skip) : undefined;
+  };
+}
 
 /** One row's problems (its visible fields), in the order of the list's
- *  fields. `refs`: its `list:` references' choices (without the row itself). */
+ *  fields. `refs`: what its references are checked against. */
 export function rowProblems(list: FormList, row: FormRow, top: FormCtx | undefined, isNew: boolean, refs?: RefsOf): { field: string; problem: Problem }[] {
   const ctx: FormCtx = { fields: list.fields, values: row, parent: top };
   const out: { field: string; problem: Problem }[] = [];
   for (const f of list.fields) {
     if (!isVisible(f, ctx)) continue;
-    const p = fieldProblem(f, row[f.key], isNew, f.kind.type === 'ref' && refs ? refs(f.kind.source) : undefined);
+    const p = fieldProblem(f, row[f.key], isNew, refs?.(f, ctx));
     if (p && !out.some((x) => x.field === f.key)) out.push({ field: f.key, problem: p });
   }
   return out;
 }
 
 /** The checks before a script or a save: required fields that show, list
- *  sizes, number bounds and `list:` references that still name a row, rows
- *  included. Nothing is sent while there's one. Lists that can't be edited
- *  aren't checked (the user couldn't fix them). */
+ *  sizes, number bounds and references that still name one of their
+ *  choices, rows included. Nothing is sent while there's one. Tabs and lists
+ *  that don't show aren't checked (they aren't sent), nor are lists that
+ *  can't be edited (the user couldn't fix them). */
 export function validate(form: ObjectForm, values: Scope, lists: Record<string, FormRow[]>, isNew: boolean): Problems {
   const out: Problems = { fields: {}, lists: {}, rows: {}, sections: [], count: 0 };
-  const top: FormCtx = { fields: formFields(form), values };
+  const top = topContext(form, values);
+  const topRefs = refsToCheck(form, lists);
   for (const s of form.sections) {
+    if (!sectionVisible(s, top)) continue;
     let bad = false;
     for (const f of s.fields ?? []) {
       if (!isVisible(f, top) || out.fields[f.key]) continue;
-      const p = fieldProblem(f, values[f.key], isNew, f.kind.type === 'ref' ? refChoices(f.kind.source, form, lists) : undefined);
+      const p = fieldProblem(f, values[f.key], isNew, topRefs(f, top));
       if (p) { out.fields[f.key] = p; out.count++; bad = true; }
     }
     for (const l of s.lists ?? []) {
-      if (l.read_only) continue;
+      if (l.read_only || !listVisible(l, top)) continue;
       const rows = lists[l.key] ?? [];
       if (rows.length < (l.min_rows ?? 0)) { out.lists[l.key] = { code: 'minRows', n: l.min_rows ?? 0 }; out.count++; bad = true; }
       const rp: RowProblem[] = [];
       rows.forEach((r, i) => {
-        const refs: RefsOf = (src) => refChoices(src, form, lists, { list: l.key, index: i });
+        const refs = refsToCheck(form, lists, { list: l.key, index: i });
         for (const p of rowProblems(l, r, top, isNew, refs)) rp.push({ row: i, ...p });
       });
       if (rp.length) { out.rows[l.key] = rp; out.count += rp.length; bad = true; }
@@ -308,15 +415,17 @@ function outValue(field: FormField | undefined, v: unknown): unknown {
   return v === undefined ? null : v;
 }
 
-/** What goes to `script` and `save`: the top-level values and each list's
- *  rows in their current order. Rows keep every key they came with (their
- *  ids: the driver tells an edited row from a new one); hidden fields keep
- *  their values (the driver ignores what doesn't apply). */
+/** What goes to `script` and `save`: the top-level values and the rows of
+ *  each list that shows, in their current order (a list that doesn't show
+ *  — its `when` or its tab's — isn't sent: no key). Rows keep every key
+ *  they came with (their ids: the driver tells an edited row from a new
+ *  one); hidden fields keep their values (the driver ignores what doesn't
+ *  apply). */
 export function formValues(form: ObjectForm, values: Scope, lists: Record<string, FormRow[]>): FormValues {
   const fields = formFields(form);
   const out: FormValues = { values: {}, lists: {} };
   for (const [k, v] of Object.entries(values)) out.values[k] = outValue(fields.find((f) => f.key === k), v);
-  for (const l of formLists(form)) {
+  for (const l of visibleLists(form, topContext(form, values))) {
     out.lists[l.key] = (lists[l.key] ?? []).map((r) => {
       const row: FormRow = {};
       for (const [k, v] of Object.entries(r)) row[k] = outValue(l.fields.find((f) => f.key === k), v);
@@ -326,12 +435,13 @@ export function formValues(form: ObjectForm, values: Scope, lists: Record<string
   return out;
 }
 
-/** A secret was typed (top level or a row's): the script shows it as the
- *  driver's mask, so that script can't be run as it is — only "Guardar"
- *  writes the real value. */
+/** A secret was typed (top level or a row's of a list that's sent): the
+ *  script shows it as the driver's mask, so that script can't be run as it
+ *  is — only "Guardar" writes the real value. */
 export function hasTypedSecret(form: ObjectForm, values: Scope, lists: Record<string, FormRow[]>): boolean {
   const typed = (fields: FormField[], scope: Scope) => fields.some((f) => f.kind.type === 'secret' && !isBlank(scope[f.key]));
-  return typed(formFields(form), values) || formLists(form).some((l) => (lists[l.key] ?? []).some((r) => typed(l.fields, r)));
+  return typed(formFields(form), values)
+    || visibleLists(form, topContext(form, values)).some((l) => (lists[l.key] ?? []).some((r) => typed(l.fields, r)));
 }
 
 /** JSON with sorted object keys: two equal values give the same text. */
@@ -394,6 +504,32 @@ export function splitOffset(v: string): [string, string] {
   if (!v.includes('T')) return [v, ''];
   const m = /^(.*?)(Z|[+-]\d{2}:?\d{2})$/i.exec(v);
   return m ? [m[1], m[2]] : [v, ''];
+}
+
+/** What an object of the tree offers before the connection has its say (a
+ *  read-only one offers no change). */
+export interface Abilities {
+  edit: boolean;
+  delete: boolean;
+  /** Its kind's actions it offers now, in the kind's order. */
+  actions: SchedulerAction[];
+}
+
+/** An object's abilities: its own `can_edit` / `can_delete` where the
+ *  driver sent them, else its kind's (the contract: absent is as the kind
+ *  says, `system` objects included — a driver that protects one sends
+ *  false), and its kind's actions, narrowed to the keys it lists. */
+export function itemAbilities(
+  kind: SchedulerKind | undefined,
+  item?: Pick<SchedulerItem, 'can_edit' | 'can_delete' | 'actions'>,
+): Abilities {
+  const all = kind?.actions ?? [];
+  const keys = item?.actions;
+  return {
+    edit: item?.can_edit ?? !!kind?.can_edit,
+    delete: item?.can_delete ?? !!kind?.can_delete,
+    actions: keys ? all.filter((a) => keys.includes(a.key)) : all,
+  };
 }
 
 /** Seconds in words the reader takes in at a glance: "1 h 30 min", "45 s". */

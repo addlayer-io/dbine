@@ -7,7 +7,8 @@ import SchedulerField from './SchedulerField.vue';
 
 // A labeled form of the scheduler designer: label, control, its help, and
 // its problem once the checks ran. Used for a section's fields and for a
-// list's row editor. `when` hides a field (composables/schedulerForm.ts).
+// list's row editor. `when` and `when_all` hide a field
+// (composables/schedulerForm.ts).
 
 defineProps<{
   fields: FormField[];
@@ -19,8 +20,9 @@ defineProps<{
   readOnly?: boolean;
   isNew?: boolean;
   dialect?: string;
-  /** A `ref` field's choices. */
-  choicesFor: (field: FormField) => [string, string][];
+  /** A `ref` field's choices where it is (`ctx`: its row's sources with
+   *  `{field}`s fill from it), or null: free text (nothing listed). */
+  choicesFor: (field: FormField, ctx: FormCtx) => [string, string][] | null;
 }>();
 const emit = defineEmits<{ update: [key: string, value: unknown] }>();
 const { t } = useTranslation();
@@ -41,7 +43,8 @@ const wide = (f: FormField) => f.kind.type === 'code';
           <SchedulerField
             :field="f"
             :model-value="values[f.key]"
-            :options="f.kind.type === 'ref' ? choicesFor(f) : undefined"
+            :options="f.kind.type === 'ref' ? choicesFor(f, ctx) ?? [] : undefined"
+            :free-text="f.kind.type === 'ref' && choicesFor(f, ctx) === null"
             :disabled="readOnly || f.read_only"
             :is-new="isNew"
             :dialect="dialect"

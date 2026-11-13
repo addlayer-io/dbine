@@ -3,20 +3,22 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { errorMessage } from '../api/client';
-import { schedulerApi, type FormField, type FormList, type FormRow, type ObjectForm } from '../api/scheduler';
+import { schedulerApi, type FormField, type FormList, type FormRow, type FormSection, type ObjectForm, type SchedulerAction } from '../api/scheduler';
 import ConnectionState from '../components/ConnectionState.vue';
 import EngineIcon from '../components/EngineIcon.vue';
 import SchedulerDialogs from '../components/SchedulerDialogs.vue';
 import SchedulerFormFields from '../components/SchedulerFormFields.vue';
 import { newQuery } from '../composables/actions';
 import { useConnectionGate } from '../composables/connectionGate';
-import { deleteSchedulerObject, dialectOf, prodWarning } from '../composables/schedulerActions';
+import { canChange, deleteSchedulerObject, dialectOf, objectAbilities, prodWarning, runSchedulerAction } from '../composables/schedulerActions';
 import { askScript } from '../composables/schedulerDialogs';
 import {
-  canRemoveRow, formFields, formValues, hasTypedSecret, humanDuration, initialLists, initialValues, isVisible, moveRow,
-  newRow, optionLabel, problemText, refChoices, renameRefs, rowProblems, snapshot, summaryFields, validate, whenText,
-  type FormCtx, type Problem, type RowRef, type Scope,
+  canRemoveRow, formValues, hasTypedSecret, humanDuration, initialLists, initialValues, isVisible,
+  listVisible, moveRow, newRow, optionLabel, problemText, refOptions, refsToCheck, renameRefs, rowProblems,
+  sectionVisible, snapshot, summaryFields, topContext, validate, whenText, type FormCtx, type Problem, type RowRef,
+  type Scope,
 } from '../composables/schedulerForm';
+import { clearServerJobHistory, runServerJobFrom } from '../composables/serverJobActions';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useServerJobsStore } from '../stores/serverJobs';
@@ -28,8 +30,14 @@ import { useUiStore } from '../stores/ui';
 // form its driver describes. Sections are tabs; lists (a job's steps and
 // schedules) are tables edited row by row. Nothing reaches the server
 // without its script shown first: "Ver script", "Abrir en una consulta", and
-// "Guardar", which asks with the script before it runs. Driver texts
-// (labels, help, options, notes) come in Spanish: `tb`.
+// "Guardar", which asks with the script before it runs. Tabs, lists and
+// fields show by their conditions (`when`, `when_all`): a tab that hides
+// takes its fields and lists with it, and what doesn't show isn't checked
+// nor sent. An existing object offers what it says it can (its own edit /
+// delete flags, else its kind's) and its kind's actions, each shown as a
+// script and confirmed; a job also "Iniciar en el paso…" and "Borrar
+// historial" where its kind has them. Driver texts (labels, help, options,
+// notes) come in Spanish: `tb`.
 
 const props = defineProps<{ tab: SchedulerObjectTab }>();
 const { t } = useTranslation();
@@ -49,7 +57,7 @@ const loading = ref(false);
 let loadSeq = 0;
 const loadError = ref<string | null>(null);
 const actionError = ref<string | null>(null);
-const busy = ref<'' | 'script' | 'query' | 'save' | 'delete'>('');
+const busy = ref<'' | 'script' | 'query' | 'save' | 'delete' | 'action'>('');
 const section = ref('');
 /** The checks ran (script or save): problems show from then on. */
 const showErrors = ref(false);
@@ -59,17 +67,40 @@ const isNew = computed(() => props.tab.objectId === null);
 const conn = computed(() => conns.byId(cid.value));
 const driver = computed(() => conns.driverOf(cid.value));
 const kind = computed(() => store.kind(cid.value, props.tab.objectKind));
-/** Why the kind is unknown, when reading the scheduler's info failed. */
-const infoError = computed(() => (kind.value ? null : store.scheduler[cid.value]?.error ?? null));
 const singular = computed(() => (kind.value ? tb(kind.value.singular) : props.tab.objectKind));
 const kindLabel = computed(() => (kind.value ? tb(kind.value.label) : props.tab.objectKind));
 const dialect = computed(() => dialectOf(cid.value));
 const connReadOnly = computed(() => !!conn.value?.config.read_only);
+/** What the object offers, as the last read of its kind's objects has it
+ *  (a job's: the job kind's objects); null until that list is read. */
+const abilities = computed(() => (props.tab.objectId === null ? null : objectAbilities(cid.value, kind.value, props.tab.objectId)));
 /** Nothing is offered on a guess: until the kind's abilities are known (the
- *  scheduler's info), the object is read-only. */
+ *  scheduler's info) and, for an existing object, its own (its kind's
+ *  list), it's read-only, with no Borrar and no actions. */
 const readOnly = computed(() => !!form.value?.read_only || connReadOnly.value || !kind.value
-  || (isNew.value ? !kind.value.can_create : !kind.value.can_edit));
-const canDelete = computed(() => !isNew.value && !!kind.value?.can_delete && !connReadOnly.value && !form.value?.read_only);
+  || (isNew.value ? !kind.value.can_create : !abilities.value?.edit));
+const canDelete = computed(() => !isNew.value && !!abilities.value?.delete && !connReadOnly.value && !form.value?.read_only);
+/** The kind's actions this object offers now (none on a read-only connection). */
+const actions = computed<SchedulerAction[]>(() => (isNew.value || !canChange(cid.value) ? [] : abilities.value?.actions ?? []));
+/** Why what the object may do is unknown: reading the scheduler's info, or
+ *  its kind's objects, failed. */
+const infoError = computed(() => {
+  if (!kind.value) return store.scheduler[cid.value]?.error ?? null;
+  return isNew.value || abilities.value ? null : store.scheduler[cid.value]?.items[props.tab.objectKind]?.error ?? null;
+});
+/** A job's "Iniciar en el paso…" and "Borrar historial", where its kind has
+ *  them (and its row, once read, agrees: it can run, it keeps a history). */
+const jobRunFrom = computed(() => props.tab.objectKind === 'job' && !isNew.value && !connReadOnly.value
+  && !!kind.value?.run_from_step && (store.job(cid.value, props.tab.objectId!)?.can_run ?? true));
+const jobClearHistory = computed(() => props.tab.objectKind === 'job' && !isNew.value && !connReadOnly.value
+  && !!kind.value?.clear_history && (store.job(cid.value, props.tab.objectId!)?.has_history ?? true));
+/** Up to two actions show as buttons; more go to "Más acciones" with the job's. */
+const actionButtons = computed(() => (actions.value.length <= 2 ? actions.value : []));
+const moreItems = computed(() => [
+  ...(actions.value.length > 2 ? actions.value.map((a) => ({ command: `action:${a.key}`, label: tb(a.label) })) : []),
+  ...(jobRunFrom.value ? [{ command: 'runFrom', label: t('scheduled:server.runFrom') }] : []),
+  ...(jobClearHistory.value ? [{ command: 'clearHistory', label: t('scheduled:server.clearHistory') }] : []),
+]);
 
 /** The object's name as typed now (its `name` field), else the tab's. */
 const name = computed(() => {
@@ -81,20 +112,42 @@ const title = computed(() => {
   return props.tab.objectKind === 'job' ? t('scheduled:server.newJob') : t('scheduled:designer.newTitle', { kind: singular.value });
 });
 
-const topCtx = computed<FormCtx>(() => ({ fields: form.value ? formFields(form.value) : [], values: values.value }));
+const topCtx = computed<FormCtx>(() => (form.value ? topContext(form.value, values.value) : { fields: [], values: values.value }));
+/** The tabs that show now (a job's type picks some of them). */
+const sections = computed<FormSection[]>(() => (form.value ? form.value.sections.filter((s) => sectionVisible(s, topCtx.value)) : []));
+/** A tab's lists that show now. */
+const shownLists = (s: FormSection) => (s.lists ?? []).filter((l) => listVisible(l, topCtx.value));
+// The tab shown hides (its field changed): the first one that shows instead.
+watch(sections, (now) => {
+  if (now.length && !now.some((s) => s.key === section.value)) section.value = now[0].key;
+});
 /** Changed since it was read. A read-only object never is: nothing of it
  *  can be saved, so closing it never asks. */
 const dirty = computed(() => !!form.value && !readOnly.value && snapshot(form.value, values.value, lists.value) !== loadedSnap.value);
 const problems = computed(() => (form.value ? validate(form.value, values.value, lists.value, isNew.value) : null));
 const shown = computed(() => (showErrors.value ? problems.value : null));
 
-/** A `ref` field's choices; `skip`: the row being edited (it isn't offered
- *  to its own `list:` fields — a step doesn't go to itself). */
-function choicesFor(f: FormField, skip?: RowRef): [string, string][] {
-  return form.value && f.kind.type === 'ref' ? refChoices(f.kind.source, form.value, lists.value, skip) : [];
+/** A `ref` field's choices where it is (`ctx`: its row, or the top level;
+ *  a source with `{field}`s fills from it), or null: free text. `skip`: the
+ *  row being edited (it isn't offered to its own `list:` fields — a step
+ *  doesn't go to itself). */
+function choicesFor(f: FormField, ctx: FormCtx = topCtx.value, skip?: RowRef): [string, string][] | null {
+  return form.value && f.kind.type === 'ref' ? refOptions(f.kind.source, form.value, lists.value, ctx, skip) : [];
 }
 
 // -- reading -------------------------------------------------------------------------------
+
+/** Reads the object's kind's list if the tree hasn't: it says what the
+ *  object may do. A job's comes with the jobs (their row: can it run, does
+ *  it keep a history). Never fails: a failed read leaves the object
+ *  read-only and says why. */
+async function readOwnAbilities() {
+  const k = props.tab.objectKind;
+  if (isNew.value || !store.hasScheduler(cid.value)) return;
+  const items = store.scheduler[cid.value]?.items[k];
+  if (k === 'job' && !store.entries[cid.value]?.at) await store.load(cid.value, { auto: true });
+  else if (!items?.list && !items?.loading) await store.loadItems(cid.value, k);
+}
 
 async function load() {
   // The latest read wins: one started while another runs (Recargar, the
@@ -108,14 +161,18 @@ async function load() {
     // The kind's abilities (can it be created, edited?) before the form:
     // until they're known the object is read-only.
     await store.ensureInfo(cid.value);
-    const f = await schedulerApi.form(cid.value, props.tab.objectKind, props.tab.objectId);
+    // The object's own abilities come with the tree's list of its kind:
+    // read with the form if the tree hasn't (a tab restored with the app),
+    // so the form shows with them.
+    const [f] = await Promise.all([schedulerApi.form(cid.value, props.tab.objectKind, props.tab.objectId), readOwnAbilities()]);
     if (seq !== loadSeq) return;
     form.value = f;
     values.value = initialValues(f, isNew.value);
     lists.value = initialLists(f);
     loadedSnap.value = snapshot(f, values.value, lists.value);
     showErrors.value = false;
-    if (!f.sections.some((s) => s.key === section.value)) section.value = f.sections[0]?.key ?? '';
+    const visible = f.sections.filter((s) => sectionVisible(s, topContext(f, values.value)));
+    if (!visible.some((s) => s.key === section.value)) section.value = visible[0]?.key ?? '';
     // The tab follows the name the server has.
     const n = values.value.name;
     if (!isNew.value && typeof n === 'string' && n && n !== props.tab.title) tabs.schedulerObjectSaved(props.tab.id, props.tab.objectId!, n);
@@ -136,6 +193,14 @@ async function reload() {
   }
   void load();
 }
+
+// The server's copy changed from elsewhere (one of its actions, from here or
+// the tree; a job turned on or off): read it again, asking first if there
+// are changes here.
+watch(() => store.changed?.seq, () => {
+  const c = store.changed;
+  if (c && c.connectionId === cid.value && c.kind === props.tab.objectKind && c.id === props.tab.objectId && form.value) void reload();
+});
 
 // -- modified mark and closing -------------------------------------------------------------
 
@@ -270,6 +335,28 @@ async function remove() {
   }
 }
 
+/** One of the kind's actions on this object: script, confirmation, action. */
+async function runAction(a: SchedulerAction) {
+  if (!kind.value || !props.tab.objectId) return;
+  busy.value = 'action';
+  try {
+    await runSchedulerAction(cid.value, kind.value, props.tab.objectId, props.tab.title || name.value, a);
+  } finally {
+    busy.value = '';
+  }
+}
+
+/** "Más acciones": the kind's actions beyond two, then a job's own. */
+async function moreAction(cmd: string) {
+  const id = props.tab.objectId;
+  if (!id) return;
+  const job = { id, name: props.tab.title || name.value };
+  if (cmd === 'runFrom') { await runServerJobFrom(cid.value, job); return; }
+  if (cmd === 'clearHistory') { await clearServerJobHistory(cid.value, job); return; }
+  const a = actions.value.find((x) => `action:${x.key}` === cmd);
+  if (a) await runAction(a);
+}
+
 // -- lists ---------------------------------------------------------------------------------
 
 /** Rows can be added, removed and reordered. */
@@ -280,18 +367,19 @@ const rowCtx = (l: FormList, row: FormRow): FormCtx => ({ fields: l.fields, valu
 /** A summary column's cell: the field of that key that shows in this row
  *  (several may share a key under exclusive `when`s), or nothing. */
 function summaryCell(l: FormList, c: FormField, row: FormRow): string {
-  const f = l.fields.find((x) => x.key === c.key && isVisible(x, rowCtx(l, row)));
-  return f ? cellText(f, row[c.key]) : '';
+  const ctx = rowCtx(l, row);
+  const f = l.fields.find((x) => x.key === c.key && isVisible(x, ctx));
+  return f ? cellText(f, row[c.key], ctx) : '';
 }
 const rowHasProblem = (l: FormList, i: number) => !!shown.value?.rows[l.key]?.some((p) => p.row === i);
 
 /** A cell of a list's table, as the user reads it. A select's or a ref's
  *  value is looked up first: "" may be an option ("Cuenta de servicio del
  *  Agente"). */
-function cellText(f: FormField | undefined, v: unknown): string {
+function cellText(f: FormField | undefined, v: unknown, ctx: FormCtx): string {
   const k = f?.kind;
   if (f && (k?.type === 'select' || k?.type === 'multi_select' || k?.type === 'ref') && v !== null && v !== undefined) {
-    const choices = choicesFor(f);
+    const choices = choicesFor(f, ctx) ?? [];
     return (Array.isArray(v) ? v : [v]).map((x) => {
       const label = optionLabel(f, x, choices);
       return label === null ? whenText(x) : tb(label);
@@ -328,12 +416,11 @@ const rowEdit = ref<{ list: FormList; index: number | null; row: FormRow; showEr
 const rowReadOnly = computed(() => !!rowEdit.value && (readOnly.value || !!rowEdit.value.list.read_only));
 /** The edited row, left out of its own list's choices. */
 const rowSkip = computed<RowRef | undefined>(() => (rowEdit.value ? { list: rowEdit.value.list.key, index: rowEdit.value.index } : undefined));
-const rowChoicesFor = (f: FormField) => choicesFor(f, rowSkip.value);
+const rowChoicesFor = (f: FormField, ctx: FormCtx) => choicesFor(f, ctx, rowSkip.value);
 const rowEditProblems = computed(() => {
   const r = rowEdit.value;
   if (!r || !form.value) return null;
-  const f = form.value;
-  const refs = (src: string) => refChoices(src, f, lists.value, rowSkip.value);
+  const refs = refsToCheck(form.value, lists.value, rowSkip.value);
   return Object.fromEntries(rowProblems(r.list, r.row, topCtx.value, isNew.value, refs).map((p) => [p.field, p.problem]));
 });
 
@@ -391,6 +478,17 @@ const rowTitle = computed(() => {
       <template v-if="form">
         <el-button size="small" :loading="busy === 'script'" :disabled="!!busy && busy !== 'script'" @click="viewScript">{{ $t('scheduled:designer.viewScript') }}</el-button>
         <el-button size="small" :loading="busy === 'query'" :disabled="!!busy && busy !== 'query'" @click="scriptInQuery">{{ $t('scheduled:designer.openInQuery') }}</el-button>
+        <el-button v-for="a in actionButtons" :key="a.key" size="small" :disabled="!!busy" @click="runAction(a)">{{ tb(a.label) }}</el-button>
+        <el-dropdown v-if="moreItems.length" trigger="click" :disabled="!!busy" @command="moreAction">
+          <el-button size="small" :disabled="!!busy" :aria-label="$t('scheduled:server.more')" :title="$t('scheduled:server.more')">
+            <el-icon><ei-more-filled /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="m in moreItems" :key="m.command" :command="m.command">{{ m.label }}</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button v-if="canDelete" size="small" type="danger" plain :loading="busy === 'delete'" :disabled="!!busy && busy !== 'delete'" @click="remove">{{ $t('scheduled:server.delete') }}</el-button>
         <el-button
           v-if="!readOnly"
@@ -422,7 +520,7 @@ const rowTitle = computed(() => {
       </div>
 
       <el-tabs v-model="section" class="sod-tabs">
-        <el-tab-pane v-for="s in form.sections" :key="s.key" :name="s.key" lazy>
+        <el-tab-pane v-for="s in sections" :key="s.key" :name="s.key" lazy>
           <template #label>
             <span class="sod-tab-label" :class="{ bad: shown?.sections.includes(s.key) }">
               {{ tb(s.label) }}
@@ -442,7 +540,7 @@ const rowTitle = computed(() => {
               :choices-for="choicesFor"
               @update="(k, v) => (values[k] = v)"
             />
-            <section v-for="l in s.lists ?? []" :key="l.key" class="sod-list">
+            <section v-for="l in shownLists(s)" :key="l.key" class="sod-list">
               <div class="sod-list-head">
                 <h3 class="nm-section-title">{{ tb(l.label) }}</h3>
                 <span class="sod-count">{{ rowsOf(l).length }}</span>
@@ -463,7 +561,7 @@ const rowTitle = computed(() => {
                 <tbody>
                   <tr v-for="(r, i) in rowsOf(l)" :key="i" :class="{ invalid: rowHasProblem(l, i) }" @dblclick="editRow(l, i)">
                     <td v-if="l.orderable" class="num">{{ i + 1 }}</td>
-                    <td class="title">{{ cellText(titleField(l), r[l.title_field]) || $t('scheduled:designer.untitled') }}</td>
+                    <td class="title">{{ cellText(titleField(l), r[l.title_field], rowCtx(l, r)) || $t('scheduled:designer.untitled') }}</td>
                     <td v-for="c in summaryFields(l)" :key="c.key">{{ summaryCell(l, c, r) }}</td>
                     <td class="acts">
                       <button

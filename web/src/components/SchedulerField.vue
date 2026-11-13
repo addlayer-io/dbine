@@ -9,13 +9,17 @@ import CodeEditor from './CodeEditor.vue';
 // `FormKind`). Option labels come in Spanish from the driver (`tb`);
 // placeholders are examples and show as they come. Values keep the formats
 // the contract documents: dates YYYY-MM-DD, times HH:MM:SS, date-times RFC
-// 3339 (their offset kept as it came), durations in seconds.
+// 3339 (their offset kept as it came), durations in seconds. A `ref` whose
+// source hangs from another field (`perf_counter:{object}`) takes free text
+// while the driver lists nothing for it (`freeText`).
 
 const props = defineProps<{
   field: FormField;
   modelValue: unknown;
   /** A `ref` field's choices, resolved by the designer (`list:` sources included). */
   options?: [string, string][];
+  /** A `ref` with nothing listed for its filled-in source: typed, not picked. */
+  freeText?: boolean;
   disabled?: boolean;
   /** The object is new: a secret has nothing to keep. */
   isNew?: boolean;
@@ -123,6 +127,19 @@ const placeholder = computed(() => props.field.placeholder ?? '');
       <span v-if="typeof num === 'number' && num >= 60" class="sf-unit">= {{ humanDuration(num) }}</span>
     </div>
     <el-switch v-else-if="kind.type === 'bool'" v-model="bool" :disabled="disabled" />
+    <el-input v-else-if="kind.type === 'ref' && freeText && !multiple" v-model="text" :placeholder="placeholder" :disabled="disabled" class="sf-input" />
+    <el-select
+      v-else-if="kind.type === 'ref' && freeText"
+      v-model="many"
+      multiple
+      filterable
+      allow-create
+      default-first-option
+      :reserve-keyword="false"
+      :placeholder="placeholder"
+      :disabled="disabled"
+      class="sf-input"
+    />
     <el-select
       v-else-if="(kind.type === 'select' || kind.type === 'ref') && !multiple"
       v-model="one"

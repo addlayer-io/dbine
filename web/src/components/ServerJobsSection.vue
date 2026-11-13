@@ -66,8 +66,9 @@ function toggleSystem(connectionId: string) {
  *  so far) are the engine's own. */
 function systemCount(connectionId: string): number {
   const jobs = store.entries[connectionId]?.list?.jobs.filter((j) => j.system).length ?? 0;
-  const items = Object.values(store.scheduler[connectionId]?.items ?? {})
-    .reduce((n, k) => n + (k.list?.items.filter((i) => i.system).length ?? 0), 0);
+  // The job kind's objects are the jobs again (read for what each may do).
+  const items = Object.entries(store.scheduler[connectionId]?.items ?? {})
+    .reduce((n, [key, k]) => n + (key === 'job' ? 0 : k.list?.items.filter((i) => i.system).length ?? 0), 0);
   return jobs + items;
 }
 
@@ -128,8 +129,10 @@ function rows(connectionId: string): Row[] {
       loading: isJob ? !!e?.loading : !!items?.loading,
     });
     if (!open) continue;
-    if (isJob) { jobRows(true); continue; }
+    // A failed read of the kind's objects. Jobs still show (their list is
+    // read apart), but without what each may do: no Borrar, no actions.
     if (items?.error) out.push({ type: 'error', key: `ke:${k.key}`, text: items.error, nested: true, retry: () => void store.loadItems(connectionId, k.key) });
+    if (isJob) { jobRows(true); continue; }
     (items?.list?.notes ?? []).forEach((n, i) => out.push({ type: 'note', key: `kn:${k.key}:${i}`, text: tb(n), nested: true }));
     const list = shownItems(connectionId, k.key);
     for (const item of list) out.push({ type: 'item', key: `i:${k.key}:${item.id}`, kind: k, item });

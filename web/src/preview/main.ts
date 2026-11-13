@@ -12,7 +12,7 @@
 // |nbxresults[&dialog=1] (cells on three engines and a "DataFrame SQL" cell joining them: preview/nbx-samples.ts)
 // |schedule[&set=report|problems] (the "Ejecutar notebook" step and the mail with its HTML body: preview/schedule-samples.ts)
 // |jobs ("Programadas" with its server jobs next to a job's tab: preview/jobs-samples.ts)
-// |scheduler[&kind=job|operator|alert]|scheduler-tree|scheduler-log (the scheduler designer and the server's tree over a fake SQL Server Agent: preview/scheduler-samples.ts)
+// |scheduler[&kind=job|operator|alert]|scheduler-tree|scheduler-log|scheduler-jobtab (the scheduler designer, the server's tree and a job's tab over a fake SQL Server Agent: preview/scheduler-samples.ts)
 // |nbwrite[&state=form|confirm|result|error|full][&prod=1] (a write cell, its confirmation and its result: preview/nbwrite-samples.ts)
 // |nbperm[&set=one|many|glob|unsaved|sidecars|remote|settings|notebook] (a notebook's file approval dialog and the grants lists: preview/nbperm-samples.ts)
 // |nbparams[&open=panel|dialog|edit] (a notebook's parameters: the panel, the run's dialog, a stale result: preview/nbparams-samples.ts)
@@ -95,7 +95,7 @@ import { notebookWritePreview } from './nbwrite-samples';
 import { installNbPermMock, nbPermPreview } from './nbperm-samples';
 import { installScheduleMock, installScheduledTaskMock, schedulePreview, scheduledTaskPreview, setupScheduleConnections } from './schedule-samples';
 import { installJobsMock, jobsPreview, setupJobs } from './jobs-samples';
-import { installSchedulerMock, schedulerLogPreview, schedulerPreview, schedulerTreePreview, setupScheduler } from './scheduler-samples';
+import { installSchedulerMock, schedulerJobTabPreview, schedulerLogPreview, schedulerPreview, schedulerTreePreview, setupScheduler } from './scheduler-samples';
 import { notebookParamsPreview } from './nbparams-samples';
 import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
 import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
@@ -348,6 +348,7 @@ const app = createApp({
         : view === 'scheduler' ? schedulerPreview()
         : view === 'scheduler-tree' ? schedulerTreePreview()
         : view === 'scheduler-log' ? schedulerLogPreview()
+        : view === 'scheduler-jobtab' ? schedulerJobTabPreview()
         : view === 'nbparams' ? notebookParamsPreview(params)
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()

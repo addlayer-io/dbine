@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { errorMessage } from '../api/client';
 import { jobsApi, type JobList, type ServerJob } from '../api/jobs';
-import { schedulerApi, type SchedulerInfo, type SchedulerKind, type SchedulerList } from '../api/scheduler';
+import { schedulerApi, type SchedulerInfo, type SchedulerItem, type SchedulerKind, type SchedulerList } from '../api/scheduler';
 import type { SavedConnection } from '../api/types';
 import { t } from '../i18n';
 import { useConnectionsStore } from './connections';
@@ -12,7 +12,9 @@ import { readJson, writeJson } from './storage';
 // its group is open: opening the view never connects to every server.
 // Engines whose scheduler DBine manages whole (`capabilities.scheduler`)
 // also read what their scheduler has (its kinds of object, notes) with the
-// jobs, and each kind's objects when its node is opened.
+// jobs, each kind's objects when its node is opened, and the job kind's
+// objects with the jobs: what each job may do (edit, delete, which of its
+// kind's actions) comes with them, not with the jobs list.
 
 export interface JobsEntry {
   loading: boolean;
@@ -41,6 +43,7 @@ const EXPANDED = 'dbine.serverJobs.expanded';
 const KINDS_OPEN = 'dbine.serverJobs.kindsOpen';
 const kindKey = (connectionId: string, kind: string) => `${connectionId}\u0000${kind}`;
 let focusSeq = 0;
+let changeSeq = 0;
 /** Reads asked while the same read was running (connection ids, and
  *  connection + kind for a kind's objects): they run once more when it
  *  ends, so a refresh after a change never shows what was read before it. */
@@ -58,6 +61,10 @@ export const useServerJobsStore = defineStore('serverJobs', {
     kindsOpen: readJson<Record<string, boolean>>(KINDS_OPEN, {}),
     /** "Jobs del servidor" from the explorer: App opens the sidebar on it. */
     focus: null as { seq: number; connectionId: string } | null,
+    /** The last object changed from outside its designer (one of its kind's
+     *  actions, a job turned on or off): an open designer of it reads it
+     *  again, asking first if it has changes. */
+    changed: null as { seq: number; connectionId: string; kind: string; id: string } | null,
   }),
   getters: {
     /** Saved connections whose driver lists jobs (or manages its
@@ -90,6 +97,15 @@ export const useServerJobsStore = defineStore('serverJobs', {
     kind(connectionId: string, key: string): SchedulerKind | undefined {
       return this.scheduler[connectionId]?.info?.kinds.find((k) => k.key === key);
     },
+    /** One object of a kind as the last read of its objects has it (a job,
+     *  with what it may do: kind `job`). */
+    item(connectionId: string, kind: string, id: string): SchedulerItem | undefined {
+      return this.scheduler[connectionId]?.items[kind]?.list?.items.find((i) => i.id === id);
+    },
+    /** Tells an open designer of the object that the server's copy changed. */
+    objectChanged(connectionId: string, kind: string, id: string) {
+      this.changed = { seq: ++changeSeq, connectionId, kind, id };
+    },
     isKindOpen(connectionId: string, kind: string): boolean {
       return this.kindsOpen[kindKey(connectionId, kind)] ?? kind === 'job';
     },
@@ -99,7 +115,8 @@ export const useServerJobsStore = defineStore('serverJobs', {
       writeJson(KINDS_OPEN, this.kindsOpen);
       if (open && kind !== 'job' && !this.sched(connectionId).items[kind]?.list) void this.loadItems(connectionId, kind);
     },
-    /** Reads a kind's objects (not "job": the jobs list has them). */
+    /** Reads a kind's objects ("job": what each job may do; the tree shows
+     *  the jobs list's rows). */
     async loadItems(connectionId: string, kind: string) {
       const s = this.sched(connectionId);
       if (!s.items[kind]) s.items[kind] = { loading: false, error: null, list: null };
@@ -117,7 +134,8 @@ export const useServerJobsStore = defineStore('serverJobs', {
         if (readAgain.delete(again)) void this.loadItems(connectionId, kind);
       }
     },
-    /** What the scheduler has, then the objects of its open kinds. */
+    /** What the scheduler has, then the objects of its open kinds and the
+     *  job kind's (read with the jobs: a job's menu and tab need them). */
     async loadScheduler(connectionId: string) {
       const s = this.sched(connectionId);
       try {
@@ -128,8 +146,16 @@ export const useServerJobsStore = defineStore('serverJobs', {
         return;
       }
       await Promise.all(s.info.kinds
-        .filter((k) => k.key !== 'job' && (this.isKindOpen(connectionId, k.key) || s.items[k.key]?.list))
+        .filter((k) => k.key === 'job' || this.isKindOpen(connectionId, k.key) || s.items[k.key]?.list)
         .map((k) => this.loadItems(connectionId, k.key)));
+    },
+    /** What the job kind's objects say each job may do, read once for a
+     *  view that needs it (a job's tab or designer restored with the app,
+     *  its connection closed in the sidebar). */
+    async ensureJobItems(connectionId: string) {
+      await this.ensureInfo(connectionId);
+      const k = this.scheduler[connectionId]?.items.job;
+      if (this.kind(connectionId, 'job') && !k?.list && !k?.loading) await this.loadItems(connectionId, 'job');
     },
     /** The scheduler's kinds for a view that needs them (a designer tab
      *  restored with the app): read once, connecting if needed. */

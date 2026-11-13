@@ -8,8 +8,8 @@ import EngineIcon from '../components/EngineIcon.vue';
 import SchedulerDialogs from '../components/SchedulerDialogs.vue';
 import { useConnectionGate } from '../composables/connectionGate';
 import {
-  clearServerJobHistory, deleteServerJob, editServerJob, openServerJobScript, runServerJob, runServerJobFrom,
-  serverJobActions, stopServerJob, toggleServerJob,
+  clearServerJobHistory, deleteServerJob, editServerJob, openServerJobScript, runServerJob, runServerJobAction,
+  runServerJobFrom, serverJobActions, stopServerJob, toggleServerJob,
 } from '../composables/serverJobActions';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -58,6 +58,10 @@ async function load() {
   loading.value = true;
   try {
     if (!(await ensureConnection({ auto: !!detail.value }))) return;
+    // The job kind (its flags and actions) and what this job may do: the
+    // sidebar reads them only for the connections open in it, and a tab
+    // restored with the app may come first. Beside the job, not before it.
+    if (jobs.hasScheduler(props.tab.connectionId)) void jobs.ensureJobItems(props.tab.connectionId);
     detail.value = await jobsApi.detail(props.tab.connectionId, props.tab.jobId);
     error.value = null;
     jobs.put(props.tab.connectionId, detail.value.job);
@@ -89,11 +93,16 @@ async function act(fn: typeof runServerJob) {
   if (job.value && (await fn(props.tab.connectionId, job.value))) void load();
 }
 
-/** "Más acciones" (engines whose scheduler is managed from DBine). */
-function moreAction(cmd: 'runFrom' | 'clearHistory' | 'delete') {
+/** "Más acciones" (engines whose scheduler is managed from DBine): the job
+ *  kind's actions (`action:<key>`), then the job's own. */
+function moreAction(cmd: string) {
   if (cmd === 'runFrom') void act(runServerJobFrom);
   else if (cmd === 'clearHistory') void act(clearServerJobHistory);
-  else if (job.value) void deleteServerJob(props.tab.connectionId, job.value);
+  else if (cmd === 'delete') { if (job.value) void deleteServerJob(props.tab.connectionId, job.value); }
+  else {
+    const a = can.value?.actions.find((x) => `action:${x.key}` === cmd);
+    if (a) void act((cid, j) => runServerJobAction(cid, j, a));
+  }
 }
 
 function more() {
@@ -136,14 +145,15 @@ function toggleRun(key: string) {
         </el-button>
         <el-button v-if="can.script" size="small" @click="openServerJobScript(tab.connectionId, job)">{{ $t('scheduled:server.script') }}</el-button>
         <el-button v-if="can.edit" size="small" @click="editServerJob(tab.connectionId, job)">{{ $t('scheduled:server.edit') }}</el-button>
-        <el-dropdown v-if="can.runFrom || can.clearHistory || can.delete" trigger="click" @command="moreAction">
+        <el-dropdown v-if="can.actions.length || can.runFrom || can.clearHistory || can.delete" trigger="click" @command="moreAction">
           <el-button size="small" :aria-label="$t('scheduled:server.more')" :title="$t('scheduled:server.more')">
             <el-icon><ei-more-filled /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="can.runFrom" command="runFrom">{{ $t('scheduled:server.runFrom') }}</el-dropdown-item>
-              <el-dropdown-item v-if="can.clearHistory" command="clearHistory">{{ $t('scheduled:server.clearHistory') }}</el-dropdown-item>
+              <el-dropdown-item v-for="a in can.actions" :key="a.key" :command="`action:${a.key}`">{{ tb(a.label) }}</el-dropdown-item>
+              <el-dropdown-item v-if="can.runFrom" command="runFrom" :divided="can.actions.length > 0">{{ $t('scheduled:server.runFrom') }}</el-dropdown-item>
+              <el-dropdown-item v-if="can.clearHistory" command="clearHistory" :divided="can.actions.length > 0 && !can.runFrom">{{ $t('scheduled:server.clearHistory') }}</el-dropdown-item>
               <el-dropdown-item v-if="can.delete" command="delete" divided class="sjv-danger">{{ $t('scheduled:server.delete') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>

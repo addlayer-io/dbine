@@ -4,9 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  canRemoveRow, codeMode, fieldOptions, fieldProblem, formValues, hasTypedSecret, humanDuration, initialLists,
-  initialValues, isVisible, moveRow, newRow, optionLabel, problemText, refChoices, renameRefs, snapshot, splitOffset,
-  summaryFields, validate, whenText,
+  canRemoveRow, codeMode, fieldOptions, fieldProblem, fillSource, formValues, hasTypedSecret, humanDuration,
+  initialLists, initialValues, isVisible, itemAbilities, listVisible, moveRow, newRow, optionLabel, problemText,
+  refChoices, refOptions, refsToCheck, renameRefs, rowProblems, sectionVisible, snapshot, sourceFields, splitOffset,
+  summaryFields, topContext, validate, visibleLists, whenText,
 } from './schedulerForm.ts';
 
 const f = (key, type = 'text', { kind = {}, ...extra } = {}) => ({ key, label: key, kind: { type, ...kind }, ...extra });
@@ -318,4 +319,257 @@ test('a date-time keeps its offset; durations read in units', () => {
   assert.equal(humanDuration(45), '45 s');
   assert.equal(humanDuration(0), '0 s');
   assert.equal(humanDuration(90061), '1 d 1 h 1 min 1 s');
+});
+
+// -- second pass: combined conditions, conditional lists and tabs, dependent choices, abilities --
+
+test('when_all: every condition holds besides when, and a hidden owner hides', () => {
+  const fields = [
+    f('freq', 'select', { kind: { options: [['once', 'Una vez'], ['daily', 'Diaria']] } }),
+    f('sub', 'select', { kind: { options: [['once', 'Una vez'], ['every', 'Cada']] }, when: ['freq', ['daily']] }),
+    f('until', 'time', { when: ['sub', ['every']], when_all: [['freq', ['daily']]] }),
+    // when_all alone (no `when`) is a condition too.
+    f('only_all', 'text', { when_all: [['freq', ['once']], ['sub', ['once', 'every']]] }),
+  ];
+  const until = fields[2];
+  const ctx = (values) => ({ fields, values });
+  assert.equal(isVisible(until, ctx({ freq: 'daily', sub: 'every' })), true);
+  assert.equal(isVisible(until, ctx({ freq: 'daily', sub: 'once' })), false);
+  // `sub` still says every, but freq once both hides `sub` and fails when_all.
+  assert.equal(isVisible(until, ctx({ freq: 'once', sub: 'every' })), false);
+  // A when_all naming a hidden field fails even when its value matches.
+  assert.equal(isVisible(fields[3], ctx({ freq: 'once', sub: 'every' })), false);
+  const free = [f('a', 'text'), f('b', 'text'), f('c', 'text', { when_all: [['a', ['1']], ['b', ['2']]] })];
+  assert.equal(isVisible(free[2], { fields: free, values: { a: '1', b: '2' } }), true);
+  assert.equal(isVisible(free[2], { fields: free, values: { a: '1', b: '3' } }), false);
+  // In a row: one condition on the row, another on the form's top level.
+  const top = { fields: [f('type', 'select')], values: { type: 'CHAIN' } };
+  const rowField = f('x', 'text', { when: ['kind', ['step']], when_all: [['type', ['CHAIN']]] });
+  const row = (kind, type) => ({ fields: [f('kind', 'text'), rowField], values: { kind }, parent: { ...top, values: { type } } });
+  assert.equal(isVisible(rowField, row('step', 'CHAIN')), true);
+  assert.equal(isVisible(rowField, row('step', 'PLSQL_BLOCK')), false);
+  assert.equal(isVisible(rowField, row('rule', 'CHAIN')), false);
+});
+
+// An Oracle-like job: its type picks a tab (arguments) and a list (remote destinations).
+const typed = () => ({
+  sections: [
+    {
+      key: 'general', label: 'General',
+      fields: [
+        f('name', 'text', { required: true }),
+        f('job_type', 'select', { kind: { options: [['PLSQL_BLOCK', 'Bloque'], ['STORED_PROCEDURE', 'Procedimiento'], ['EXECUTABLE', 'Ejecutable']] } }),
+        f('advanced', 'bool'),
+        f('dest_type', 'select', { when: ['advanced', ['true']] }),
+      ],
+    },
+    {
+      key: 'args', label: 'Argumentos', when: ['job_type', ['STORED_PROCEDURE', 'EXECUTABLE']],
+      fields: [f('arg_count', 'number', { required: true })],
+      lists: [{ key: 'arguments', label: 'Argumentos', title_field: 'value', min_rows: 1, fields: [f('value', 'text', { required: true })] }],
+    },
+    {
+      key: 'options', label: 'Opciones',
+      lists: [
+        { key: 'destinations', label: 'Destinos', title_field: 'host', min_rows: 1, when: ['job_type', ['EXECUTABLE']], fields: [f('host', 'text', { required: true }), f('pwd', 'secret')] },
+        { key: 'remote', label: 'Remotos', title_field: 'host', when: ['dest_type', ['remote']], fields: [f('host', 'text')] },
+      ],
+    },
+  ],
+});
+
+test('a list or a tab shows while the top-level field it names has one of the values', () => {
+  const fl = typed();
+  const top = (values) => topContext(fl, values);
+  const [general, args, options] = fl.sections;
+  assert.equal(sectionVisible(general, top({ job_type: 'PLSQL_BLOCK' })), true);
+  assert.equal(sectionVisible(args, top({ job_type: 'PLSQL_BLOCK' })), false);
+  assert.equal(sectionVisible(args, top({ job_type: 'EXECUTABLE' })), true);
+  assert.equal(listVisible(options.lists[0], top({ job_type: 'STORED_PROCEDURE' })), false);
+  assert.equal(listVisible(options.lists[0], top({ job_type: 'EXECUTABLE' })), true);
+  // A list hanging from a hidden field is hidden too.
+  assert.equal(listVisible(options.lists[1], top({ advanced: false, dest_type: 'remote' })), false);
+  assert.equal(listVisible(options.lists[1], top({ advanced: true, dest_type: 'remote' })), true);
+  // A list in a hidden tab doesn't show either.
+  assert.deepEqual(visibleLists(fl, top({ job_type: 'PLSQL_BLOCK' })).map((l) => l.key), []);
+  assert.deepEqual(visibleLists(fl, top({ job_type: 'EXECUTABLE' })).map((l) => l.key), ['arguments', 'destinations']);
+});
+
+test('a field on a tab that hid holds no condition elsewhere', () => {
+  // `dest_type` lives on the "Avanzado" tab, shown only for executables; the
+  // "Remotos" list and the "Puerto" field hang from it.
+  const fl = {
+    sections: [
+      {
+        key: 'general', label: 'General',
+        fields: [
+          f('job_type', 'select', { kind: { options: [['PLSQL_BLOCK', 'PL/SQL'], ['EXECUTABLE', 'Ejecutable']] } }),
+          f('port', 'number', { when: ['dest_type', ['remote']], required: true }),
+        ],
+      },
+      { key: 'advanced', label: 'Avanzado', when: ['job_type', ['EXECUTABLE']], fields: [f('dest_type', 'select', { kind: { options: [['local', 'Local'], ['remote', 'Remoto']] } })] },
+      {
+        key: 'targets', label: 'Destinos',
+        lists: [{ key: 'remote', label: 'Remotos', title_field: 'host', min_rows: 1, when: ['dest_type', ['remote']], fields: [f('host', 'text')] }],
+      },
+      // A tab whose own field picks it (a cycle) doesn't hide over it.
+      { key: 'self', label: 'Propio', when: ['mode', ['on']], fields: [f('mode', 'select', { kind: { options: [['on', 'Sí']] } })] },
+    ],
+  };
+  const [general, advanced, targets, self] = fl.sections;
+  const list = targets.lists[0];
+  const port = general.fields[1];
+  // An executable: the tab shows, so its value counts.
+  let top = topContext(fl, { job_type: 'EXECUTABLE', dest_type: 'remote' });
+  assert.equal(sectionVisible(advanced, top), true);
+  assert.equal(listVisible(list, top), true);
+  assert.equal(isVisible(port, top), true);
+  assert.deepEqual(visibleLists(fl, top).map((l) => l.key), ['remote']);
+  // Back to PL/SQL: the tab hides with "remote" still on it; nothing hangs from it.
+  top = topContext(fl, { job_type: 'PLSQL_BLOCK', dest_type: 'remote' });
+  assert.equal(sectionVisible(advanced, top), false);
+  assert.equal(listVisible(list, top), false);
+  assert.equal(isVisible(port, top), false);
+  assert.deepEqual(visibleLists(fl, top).map((l) => l.key), []);
+  // Neither checked nor sent.
+  const p = validate(fl, { job_type: 'PLSQL_BLOCK', dest_type: 'remote' }, { remote: [] }, true);
+  assert.equal(p.count, 0, JSON.stringify(p));
+  assert.deepEqual(Object.keys(formValues(fl, { job_type: 'PLSQL_BLOCK', dest_type: 'remote' }, { remote: [] }).lists), []);
+  assert.deepEqual(validate(fl, { job_type: 'EXECUTABLE', dest_type: 'remote' }, { remote: [] }, true).lists, { remote: { code: 'minRows', n: 1 } });
+  // A row field hanging from it hides too.
+  const host = f('host', 'text', { when: ['dest_type', ['remote']] });
+  const row = (values) => ({ fields: [host], values: {}, parent: topContext(fl, values) });
+  assert.equal(isVisible(host, row({ job_type: 'EXECUTABLE', dest_type: 'remote' })), true);
+  assert.equal(isVisible(host, row({ job_type: 'PLSQL_BLOCK', dest_type: 'remote' })), false);
+  // The cycle: the tab shows as its own field's value says.
+  assert.equal(sectionVisible(self, topContext(fl, { mode: 'on' })), true);
+  assert.equal(sectionVisible(self, topContext(fl, { mode: 'off' })), false);
+});
+
+test('what doesn\'t show isn\'t checked nor sent: hidden lists leave their key out', () => {
+  const fl = typed();
+  const lists = { arguments: [], destinations: [], remote: [{ host: 'x' }] };
+  // A PL/SQL block: no arguments tab, no destinations, nothing missing.
+  let p = validate(fl, { name: 'j', job_type: 'PLSQL_BLOCK' }, lists, true);
+  assert.equal(p.count, 0, JSON.stringify(p));
+  let out = formValues(fl, { name: 'j', job_type: 'PLSQL_BLOCK' }, lists);
+  assert.deepEqual(Object.keys(out.lists), []);
+  // An executable: its tab's field and both lists are checked and sent.
+  p = validate(fl, { name: 'j', job_type: 'EXECUTABLE' }, lists, true);
+  assert.deepEqual(p.fields.arg_count, { code: 'required' });
+  assert.deepEqual(p.lists, { arguments: { code: 'minRows', n: 1 }, destinations: { code: 'minRows', n: 1 } });
+  assert.deepEqual(p.sections, ['args', 'options']);
+  out = formValues(fl, { name: 'j', job_type: 'EXECUTABLE' }, { ...lists, destinations: [{ host: 'h1' }] });
+  assert.deepEqual(Object.keys(out.lists).sort(), ['arguments', 'destinations']);
+  assert.deepEqual(out.lists.destinations, [{ host: 'h1' }]);
+  // The snapshot follows: the type changed, so did what's sent.
+  assert.notEqual(snapshot(fl, { job_type: 'PLSQL_BLOCK' }, lists), snapshot(fl, { job_type: 'EXECUTABLE' }, lists));
+  // A typed secret in a list that isn't sent doesn't make the script masked.
+  const withPwd = { ...lists, destinations: [{ host: 'h1', pwd: 's3cret' }] };
+  assert.equal(hasTypedSecret(fl, { job_type: 'PLSQL_BLOCK' }, withPwd), false);
+  assert.equal(hasTypedSecret(fl, { job_type: 'EXECUTABLE' }, withPwd), true);
+});
+
+// A SQL Server performance-condition alert: counters by object, instances by counter.
+const perf = () => ({
+  sections: [{
+    key: 'general', label: 'General',
+    fields: [
+      f('object', 'ref', { kind: { source: 'perf_object' }, required: true }),
+      f('counter', 'ref', { kind: { source: 'perf_counter:{object}' }, required: true }),
+      f('instance', 'ref', { kind: { source: 'perf_instance:{counter}' } }),
+    ],
+    lists: [{
+      key: 'watch', label: 'Contadores', title_field: 'counter',
+      fields: [f('object', 'ref', { kind: { source: 'perf_object' } }), f('counter', 'ref', { kind: { source: 'perf_counter:{object}' } }), f('note', 'text')],
+    }],
+  }],
+  choices: {
+    perf_object: [['SQLServer:Databases', 'Databases'], ['SQLServer:Locks', 'Locks'], ['SQLServer:User Settable', 'User Settable']],
+    'perf_counter:SQLServer:Databases': [['Percent Log Used', 'Percent Log Used'], ['Log Growths', 'Log Growths']],
+    'perf_counter:SQLServer:Locks': [['Lock Waits/sec', 'Lock Waits/sec']],
+    'perf_instance:Percent Log Used': [['ventas', 'ventas'], ['crm', 'crm'], ['_Total', '_Total']],
+    'perf_counter:': [],
+  },
+});
+
+test('a source with {field}s is filled from the row first, then the form', () => {
+  assert.deepEqual(sourceFields('perf_instance:{object}|{counter}'), ['object', 'counter']);
+  assert.deepEqual(sourceFields('database'), []);
+  const fl = perf();
+  const top = topContext(fl, { object: 'SQLServer:Databases', counter: 'Percent Log Used' });
+  assert.equal(fillSource('perf_counter:{object}', top), 'perf_counter:SQLServer:Databases');
+  assert.equal(fillSource('x:{object}|{counter}', top), 'x:SQLServer:Databases|Percent Log Used');
+  assert.equal(fillSource('x:{nope}', top), 'x:');
+  const list = fl.sections[0].lists[0];
+  // The row's own `object`, even before it has a value; else the form's.
+  const row = { fields: list.fields, values: { object: 'SQLServer:Locks' }, parent: top };
+  assert.equal(fillSource('perf_counter:{object}', row), 'perf_counter:SQLServer:Locks');
+  assert.equal(fillSource('perf_counter:{object}', { fields: list.fields, values: {}, parent: top }), 'perf_counter:');
+  assert.equal(fillSource('perf_instance:{instance}', { fields: list.fields, values: {}, parent: { ...top, values: { instance: 'crm' } } }), 'perf_instance:crm');
+});
+
+test('dependent choices: what the filled source lists, or free text when nothing is', () => {
+  const fl = perf();
+  const lists = { watch: [] };
+  const at = (values) => topContext(fl, values);
+  assert.deepEqual(refOptions('perf_counter:{object}', fl, lists, at({ object: 'SQLServer:Locks' })), [['Lock Waits/sec', 'Lock Waits/sec']]);
+  assert.equal(refOptions('perf_instance:{counter}', fl, lists, at({ counter: 'Percent Log Used' })).length, 3);
+  // Nothing listed (an object the driver has no counters for, nothing chosen yet): free text.
+  assert.equal(refOptions('perf_counter:{object}', fl, lists, at({ object: 'SQLServer:User Settable' })), null);
+  assert.equal(refOptions('perf_counter:{object}', fl, lists, at({})), null);
+  assert.equal(refOptions('perf_instance:{counter}', fl, lists, at({ counter: 'Lock Waits/sec' })), null);
+  // Sources without fields stay as they were.
+  assert.deepEqual(refOptions('perf_object', fl, lists, at({})), fl.choices.perf_object);
+  assert.deepEqual(refOptions('nope', fl, lists, at({})), []);
+});
+
+test('a dependent reference is checked against its choices only when there are some', () => {
+  const fl = perf();
+  const ok = { object: 'SQLServer:Databases', counter: 'Percent Log Used', instance: 'ventas' };
+  assert.equal(validate(fl, ok, { watch: [] }, true).count, 0);
+  // Another object: the counter chosen for the first one isn't among its counters.
+  let p = validate(fl, { ...ok, object: 'SQLServer:Locks' }, { watch: [] }, true);
+  assert.deepEqual(p.fields.counter, { code: 'missing', value: 'Percent Log Used' });
+  // The instance hangs from the counter: Lock Waits/sec lists none, so any text goes.
+  p = validate(fl, { object: 'SQLServer:Locks', counter: 'Lock Waits/sec', instance: 'whatever' }, { watch: [] }, true);
+  assert.equal(p.count, 0, JSON.stringify(p));
+  // An object with nothing listed: free text, not checked.
+  assert.equal(validate(fl, { object: 'SQLServer:User Settable', counter: 'Query 1' }, { watch: [] }, true).count, 0);
+  // Inside a row, the row's object decides.
+  const rows = [{ object: 'SQLServer:Locks', counter: 'Lock Waits/sec' }, { object: 'SQLServer:Locks', counter: 'Log Growths' }];
+  p = validate(fl, ok, { watch: rows }, true);
+  assert.deepEqual(p.rows.watch, [{ row: 1, field: 'counter', problem: { code: 'missing', value: 'Log Growths' } }]);
+  // The same check the row editor runs.
+  const list = fl.sections[0].lists[0];
+  assert.deepEqual(rowProblems(list, rows[1], topContext(fl, ok), true, refsToCheck(fl, { watch: rows })),
+    [{ field: 'counter', problem: { code: 'missing', value: 'Log Growths' } }]);
+  // Plain sources still aren't checked, `list:` ones still are.
+  const check = refsToCheck(fl, { watch: rows });
+  assert.equal(check(fl.sections[0].fields[0], topContext(fl, ok)), undefined);
+  assert.equal(check(f('t', 'text'), topContext(fl, ok)), undefined);
+  assert.deepEqual(check(f('s', 'ref', { kind: { source: 'list:watch' } }), topContext(fl, ok)), [['Lock Waits/sec', '1 · Lock Waits/sec'], ['Log Growths', '2 · Log Growths']]);
+});
+
+test('an object offers what it says, else its kind, system ones included', () => {
+  const kind = {
+    key: 'window', label: 'Ventanas', singular: 'ventana', can_create: true, can_edit: true, can_delete: true,
+    actions: [{ key: 'open_window', label: 'Abrir ventana' }, { key: 'close_window', label: 'Cerrar ventana' }],
+  };
+  assert.deepEqual(itemAbilities(kind, {}), { edit: true, delete: true, actions: kind.actions });
+  assert.deepEqual(itemAbilities(kind, { can_delete: false }).delete, false);
+  assert.deepEqual(itemAbilities(kind, { can_edit: false }).edit, false);
+  // System: as the kind says unless the object says otherwise (the contract:
+  // absent is the kind's; a driver that protects one sends false).
+  assert.deepEqual(itemAbilities(kind, { system: true }), { edit: true, delete: true, actions: kind.actions });
+  assert.equal(itemAbilities(kind, { system: true, can_delete: null }).delete, true);
+  assert.equal(itemAbilities(kind, { system: true, can_delete: false }).delete, false);
+  assert.equal(itemAbilities({ ...kind, can_delete: false }, { system: true, can_delete: true }).delete, true);
+  // The actions it lists, in the kind's order; none listed: none.
+  assert.deepEqual(itemAbilities(kind, { actions: ['close_window'] }).actions.map((a) => a.key), ['close_window']);
+  assert.deepEqual(itemAbilities(kind, { actions: ['close_window', 'open_window', 'gone'] }).actions.map((a) => a.key), ['open_window', 'close_window']);
+  assert.deepEqual(itemAbilities(kind, { actions: [] }).actions, []);
+  // A kind that can't, or no kind at all (its info failed): nothing.
+  assert.deepEqual(itemAbilities({ ...kind, can_edit: false, can_delete: false, actions: undefined }, {}), { edit: false, delete: false, actions: [] });
+  assert.deepEqual(itemAbilities(undefined, { system: false }), { edit: false, delete: false, actions: [] });
 });
