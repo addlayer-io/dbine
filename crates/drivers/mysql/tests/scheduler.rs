@@ -421,7 +421,7 @@ async fn events(driver: &str, env: &str) {
             let sc = script(&mut s, "job", Some(&id), &v).await;
             let e = s.scheduler_save("job", Some(&id), &v).await.unwrap_err();
             if driver != "mysql" {
-                assert!(sc.contains("2037-12-31 23:59:59") && sc.contains("le devuelve al evento su programación"), "{sc}");
+                assert!(sc.contains("2037-12-31 23:59:59") && sc.contains("\n-- ⚠ El cambio va en dos ALTER EVENT") && sc.contains("le devuelve al evento su programación"), "{sc}");
                 assert!(e.to_string().contains("dejó el objeto como estaba"), "{e:?}");
             }
             let r = one_row(&mut s, &event_row_sql(DB, EV)).await;
@@ -674,6 +674,15 @@ async fn events(driver: &str, env: &str) {
                 assert!(l.scheduler_delete_script("job", &others).await.is_ok());
                 let mut v = values_of(&form);
                 set(&mut v, "definer", json!(account));
+                // The new definer's privileges, and no way back for a login
+                // that can't name another account.
+                let sc = script(&mut l, "job", Some(&others), &v).await;
+                assert!(
+                    sc.contains(&format!("\n-- ⚠ El definidor del evento pasa de «{OTHER}@"))
+                        && sc.contains(&format!("» a «{account}»: desde ahora el evento corre con los privilegios de esa cuenta."))
+                        && sc.contains("\n-- ⚠ Este usuario no puede nombrar a otra cuenta como definidor"),
+                    "{sc}"
+                );
                 save(&mut l, "job", Some(&others), &v).await;
                 let r = one_row(&mut s, &event_row_sql(DB, OTHERS)).await;
                 assert_eq!(r[10], account);
@@ -757,12 +766,21 @@ const JOB2: &str = "dbine_test_sched_job2";
 const ATJOB: &str = "dbine_test_sched_at";
 const PASTJOB: &str = "dbine_test_sched_past";
 const MV: &str = "dbine_test_sched_mv";
+/// Another account's job, created again by the test's login.
+const OWNED: &str = "dbine_test_sched_owned";
+const OWNER: &str = "dbine_test_sched_owner";
 
 async fn drop_doris(s: &mut Box<dyn Session>) {
-    for j in [JOB, JOB2, ATJOB, PASTJOB] {
+    for j in [JOB, JOB2, ATJOB, PASTJOB, OWNED] {
         let _ = run(s, &format!("DROP JOB WHERE jobname = '{j}'")).await;
     }
+    let _ = run(s, &format!("DROP USER IF EXISTS '{OWNER}'@'%'")).await;
     let _ = run(s, &format!("DROP DATABASE IF EXISTS {DB} FORCE")).await;
+    let left = rows(s, "SHOW ALL GRANTS").await;
+    assert!(
+        !left.iter().any(|r| r.iter().any(|c| c.contains(OWNER))),
+        "{OWNER} left behind"
+    );
     let left = rows(
         s,
         "SELECT Name FROM jobs('type'='insert') WHERE Name LIKE 'dbine_test_sched%'",
@@ -891,7 +909,11 @@ async fn doris_jobs_and_views() {
             assert!(m.contains("elegí «Base de datos»"), "{m}");
             set(&mut v, "database", json!(DB));
             let sc = script(&mut s, "job", Some(&id), &v).await;
-            assert!(sc.contains("se borra y se vuelve a crear") || sc.contains("lo borra y lo vuelve a crear"), "{sc}");
+            assert!(sc.contains("\n-- ⚠ Doris no cambia un job programado: guardar un cambio lo borra y lo vuelve a crear"), "{sc}");
+            // Still paused: paused after it's created, which is said.
+            assert!(sc.contains("\n-- ⚠ Doris no crea un job pausado: el script lo pausa después de crearlo"), "{sc}");
+            // Root's job saved by root: its owner stays.
+            assert!(!sc.contains("El job pasa de"), "{sc}");
             assert!(sc.contains("DROP JOB WHERE jobname = 'dbine_test_sched_job'") && sc.contains("CREATE JOB `dbine_test_sched_job`"), "{sc}");
             exec(&mut s, "USE information_schema").await;
             save(&mut s, "job", Some(&id), &v).await;
@@ -1035,6 +1057,11 @@ async fn doris_jobs_and_views() {
             set(&mut v, "starts", json!("2030-01-01T00:00:00"));
             set(&mut v, "enabled", json!(false));
             props(&mut v, &[("grace_period", "10"), ("excluded_trigger_tables", "src")]);
+            // A new method and trigger: Doris creates the view's job again,
+            // running, so the script pauses it after; both are warned of.
+            let sc = script(&mut s, "mv_refresh", Some(&mv_id), &v).await;
+            assert!(sc.contains("\n-- ⚠ Doris vuelve a crear el job de refresco de la vista") && sc.contains("\n-- ⚠ El script pausa el job después"), "{sc}");
+            assert!(sc.trim_end().ends_with(&format!("PAUSE MATERIALIZED VIEW JOB ON `{DB}`.`{MV}`;")), "{sc}");
             save(&mut s, "mv_refresh", Some(&mv_id), &v).await;
             let r = one_row(
                 &mut s,
@@ -1056,6 +1083,13 @@ async fn doris_jobs_and_views() {
             set(&mut v, "trigger", json!("COMMIT"));
             props(&mut v, &[("grace_period", "20"), ("excluded_trigger_tables", "src")]);
             set(&mut v, "enabled", json!(true));
+            // Paused, then enabled with a new trigger: the job Doris creates
+            // again already runs (no RESUME after it).
+            let mv_job = format!("SELECT Status, CreateTime FROM jobs('type'='mv') WHERE MvName = '{MV}'");
+            let before = one_row(&mut s, &mv_job).await;
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            let sc = script(&mut s, "mv_refresh", Some(&mv_id), &v).await;
+            assert!(!sc.contains("RESUME") && !sc.contains("El script pausa") && sc.contains("-- ⚠ Doris vuelve a crear"), "{sc}");
             save(&mut s, "mv_refresh", Some(&mv_id), &v).await;
             let r = one_row(
                 &mut s,
@@ -1064,6 +1098,38 @@ async fn doris_jobs_and_views() {
             .await;
             assert_eq!(r[0], "BUILD DEFERRED REFRESH COMPLETE ON COMMIT");
             assert!(r[1].contains("grace_period=20"), "{r:?}");
+            let after = one_row(&mut s, &mv_job).await;
+            assert_eq!(after[0], "RUNNING", "{before:?} -> {after:?}");
+            assert_ne!(after[1], before[1], "the job is created again");
+            // Paused (in place: no warning), then a new trigger while it
+            // stays paused: paused again after Doris creates it running.
+            let form = s.scheduler_form("mv_refresh", Some(&mv_id)).await.expect("form");
+            let mut v = values_of(&form);
+            set(&mut v, "enabled", json!(false));
+            let sc = script(&mut s, "mv_refresh", Some(&mv_id), &v).await;
+            assert!(!sc.contains('⚠') && !sc.contains(" REFRESH "), "{sc}");
+            save(&mut s, "mv_refresh", Some(&mv_id), &v).await;
+            assert_eq!(one_row(&mut s, &mv_job).await[0], "PAUSED");
+            let form = s.scheduler_form("mv_refresh", Some(&mv_id)).await.expect("form");
+            let mut v = values_of(&form);
+            set(&mut v, "trigger", json!("MANUAL"));
+            let sc = script(&mut s, "mv_refresh", Some(&mv_id), &v).await;
+            assert!(sc.contains("-- ⚠ El script pausa el job después"), "{sc}");
+            save(&mut s, "mv_refresh", Some(&mv_id), &v).await;
+            let r = one_row(
+                &mut s,
+                &format!("SELECT RefreshInfo FROM mv_infos('database'='{DB}') WHERE Name = '{MV}'"),
+            )
+            .await;
+            assert_eq!(r[0], "BUILD DEFERRED REFRESH COMPLETE ON MANUAL");
+            assert_eq!(one_row(&mut s, &mv_job).await[0], "PAUSED");
+            // Running again for the checks below.
+            let form = s.scheduler_form("mv_refresh", Some(&mv_id)).await.expect("form");
+            let mut v = values_of(&form);
+            set(&mut v, "trigger", json!("COMMIT"));
+            set(&mut v, "enabled", json!(true));
+            save(&mut s, "mv_refresh", Some(&mv_id), &v).await;
+            assert_eq!(one_row(&mut s, &mv_job).await[0], "RUNNING");
             assert!(s.scheduler_form("mv_refresh", None).await.is_err());
             assert!(s.scheduler_delete("mv_refresh", &mv_id).await.is_err());
 
@@ -1119,9 +1185,40 @@ async fn doris_jobs_and_views() {
                 assert!(ro.scheduler_action("mv_refresh", &mv_id, "refresh").await.is_err());
             }
 
+            // Another account's job: created again, it becomes the login's
+            // and runs with its privileges, and the script says so.
+            exec(&mut s, &format!("CREATE USER '{OWNER}'@'%' IDENTIFIED BY 'dbine_Pw_1'")).await;
+            exec(&mut s, &format!("GRANT ADMIN_PRIV ON *.*.* TO '{OWNER}'@'%'")).await;
+            {
+                let mut oc = cfg.clone();
+                oc.username = Some(OWNER.into());
+                oc.password = Some("dbine_Pw_1".into());
+                let mut o = connect(driver, &oc).await;
+                exec(&mut o, &format!("USE {DB}")).await;
+                exec(
+                    &mut o,
+                    &format!("CREATE JOB {OWNED} ON SCHEDULE EVERY 1 DAY STARTS '2030-01-01 00:00:00' DO INSERT INTO {DB}.dst SELECT * FROM {DB}.src"),
+                )
+                .await;
+            }
+            let owned = format!("job:`{OWNED}`");
+            let form = s.scheduler_form("job", Some(&owned)).await.expect("form");
+            let mut v = values_of(&form);
+            set(&mut v, "comment", json!("taken over"));
+            let sc = script(&mut s, "job", Some(&owned), &v).await;
+            assert!(
+                sc.contains(&format!("\n-- ⚠ El job pasa de «{OWNER}» a «root»: Doris lo vuelve a crear a nombre de quien guarda el cambio")),
+                "{sc}"
+            );
+            save(&mut s, "job", Some(&owned), &v).await;
+            let r = one_row(&mut s, &format!("SELECT Definer, Comment FROM jobs('type'='insert') WHERE Name = '{OWNED}'")).await;
+            assert_eq!(r, ["root", "taken over"]);
+            s.scheduler_delete("job", &owned).await.expect("delete");
+            exec(&mut s, &format!("DROP USER '{OWNER}'@'%'")).await;
+
             refuses_foreign_ids(&mut s, &["job", "mv_refresh"], &id2).await;
             let sc = s.scheduler_delete_script("job", &at).await.expect("delete script");
-            assert!(sc.contains("DROP JOB WHERE jobname = 'dbine_test_sched_at'"), "{sc}");
+            assert!(sc.contains("DROP JOB WHERE jobname = 'dbine_test_sched_at'") && sc.contains("\n-- ⚠ Doris borra con el job su historial de tareas"), "{sc}");
             s.scheduler_delete("job", &at).await.expect("delete");
             s.scheduler_delete("job", &id2).await.expect("delete");
             assert!(rows(&mut s, "SELECT Name FROM jobs('type'='insert') WHERE Name LIKE 'dbine_test_sched%'").await.is_empty());
@@ -1273,6 +1370,11 @@ async fn starrocks_tasks_and_views() {
             set(&mut v, "state", json!("resume"));
             let sc = script(&mut s, "job", Some(&id), &v).await;
             assert!(sc.contains("DROP TASK `dbine_test_sched_task`") && sc.contains("SUBMIT TASK"), "{sc}");
+            assert!(sc.contains("\n-- ⚠ StarRocks no cambia la programación, la instrucción, la base ni el nombre de una tarea"), "{sc}");
+            // Resumed: the state is set, no suspension to lose.
+            assert!(sc.contains("ALTER TASK `dbine_test_sched_task` RESUME") && !sc.contains("StarRocks no informa si la tarea estaba suspendida") && !sc.contains("su suspensión"), "{sc}");
+            // Root's task submitted again by root: its creator stays.
+            assert!(!sc.contains("La tarea pasa de"), "{sc}");
             save(&mut s, "job", Some(&id), &v).await;
             let r = sr_task(&mut s, TASK).await;
             assert_eq!(r[0], "PERIODICAL START(2030-01-01T00:00) EVERY(2 DAYS)");
@@ -1320,7 +1422,7 @@ async fn starrocks_tasks_and_views() {
                 let mut v = values_of(&form);
                 set(&mut v, "definition", json!("INSERT INTO dbine_test_sched_missing SELECT * FROM src"));
                 let sc = script(&mut s, "job", Some(&once), &v).await;
-                assert!(sc.contains("queda borrada") && !sc.contains("DBine vuelve a crear"), "{sc}");
+                assert!(sc.contains("\n-- ⚠ Si la creación falla, la tarea anterior queda borrada") && !sc.contains("DBine vuelve a crear"), "{sc}");
                 let e = s.scheduler_save("job", Some(&once), &v).await.unwrap_err();
                 assert!(!e.to_string().contains("como estaba"), "{e:?}");
                 assert!(rows(&mut s, &format!("SELECT TASK_NAME FROM information_schema.tasks WHERE TASK_NAME = '{TASK3}'")).await.is_empty());

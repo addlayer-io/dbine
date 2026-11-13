@@ -35,9 +35,10 @@
 //! - Neither kind has steps, and no statement deletes a job's tasks.
 
 use super::{
-    action_keys, bad, databases, datetime, form_time, name, no_action, no_kind, one_line, pick,
-    properties_list, properties_sql, property_changes, read_properties, refresh_head, shown,
-    with_refresh, Plan, Vals, REFRESH, REFRESH_COMPLETE,
+    action_keys, bad, current_user, databases, datetime, form_time, name, no_action, no_kind,
+    one_line, other_owner, pick, properties_list, properties_sql, property_changes,
+    read_properties, refresh_head, shown, user_name, warning, with_refresh, Plan, Vals, REFRESH,
+    REFRESH_COMPLETE,
 };
 use crate::jobs::doris::{self as dj, Job, Strategy, Type};
 use crate::jobs::{quoted, rows_if_present, text};
@@ -54,6 +55,14 @@ const ADMIN_ONLY: &str = "Crear, cambiar y borrar jobs de Doris requiere el priv
 const VIEWS_NOTE: &str = "Los refrescos de las vistas materializadas se crean y se borran con la vista: acá se cambia cuándo y cómo se refrescan.";
 const NO_JOBS: &str = "Esta versión de Doris no tiene jobs (llegaron en Doris 2.1).";
 const RECREATED: &str = "Doris no cambia un job programado: guardar un cambio lo borra y lo vuelve a crear, y se pierden su historial de tareas, sus contadores y su fecha de creación.";
+const STREAMING_RECREATED: &str = "Doris no cambia el nombre, el comentario ni el tipo de un job continuo, ni le quita una propiedad: guardar este cambio lo borra y lo vuelve a crear, y se pierden su historial de tareas, sus contadores y su fecha de creación.";
+const REREAD: &str = "Un job continuo creado de nuevo vuelve a leer desde el principio: pierde hasta dónde había leído.";
+/// A view's refresh method or trigger changed: Doris drops the view's job
+/// and creates it again, running (`ALTER_REFRESH_INFO` rebuilds it).
+const MV_JOB_RECREATED: &str = "Doris vuelve a crear el job de refresco de la vista cuando cambian su método o su disparador: el job pierde su fecha de creación y queda en marcha.";
+const MV_PAUSED_AFTER: &str = "El script pausa el job después: si eso falla, la vista se sigue refrescando según su disparador.";
+const PAUSED_AFTER_CREATE: &str = "Doris no crea un job pausado: el script lo pausa después de crearlo, y si eso falla, el job queda en marcha.";
+const PAUSED_FOR_CHANGE: &str = "El cambio pausa el job continuo y va en varios pasos: si falla, DBine lo reanuda, y si no puede, el job queda pausado.";
 const UNKNOWN_DB: &str = "Doris no informa en qué base se creó el job: si su instrucción nombra tablas sin la base, elegí la base antes de guardar un cambio que lo vuelva a crear.";
 const STREAMING_NOTE: &str = "Un job continuo se cambia en su lugar (ALTER JOB) mientras está pausado: el script lo pausa y, si queda habilitado, lo reanuda.";
 const CDC_NOTE: &str = "Este job continuo copia los cambios de otra base (FROM … TO DATABASE): DBine cambia sus propiedades y su estado; para cambiar su origen hay que borrarlo y crearlo de nuevo con SQL.";
@@ -308,9 +317,15 @@ fn drop_job(name: &str) -> String {
 }
 
 pub(super) fn create_plan(j: &JobSpec) -> Plan {
+    let mut head = vec![format!("Crea el job «{}» de Doris", j.name)];
+    if !j.enabled {
+        head.push(warning(PAUSED_AFTER_CREATE));
+    }
+    let steps = create_steps(j);
     Plan {
-        head: vec![format!("Crea el job «{}» de Doris", j.name)],
-        steps: create_steps(j),
+        head,
+        saved: paused_after(j, &steps),
+        steps,
         id: Some(dj::job_id(Type::Insert, &j.name)),
         ..Plan::default()
     }
@@ -426,10 +441,19 @@ pub(super) fn alter_plan(cur: &JobSpec, want: &JobSpec, switchable: bool) -> Opt
             undo_from = Some(steps.len());
             undo.push(pause_job(&cur.name, true));
             steps.push(pause_job(&cur.name, false));
-            head.push("Si el cambio falla, DBine reanuda el job.".into());
+            // Kept running: a change that stops half way can leave it
+            // paused. One the user pauses is left as asked.
+            head.push(if want.enabled {
+                warning(PAUSED_FOR_CHANGE)
+            } else {
+                "Si el cambio falla, DBine reanuda el job.".into()
+            });
         }
+        let mut saved = None;
         steps.push(st);
         if want.enabled {
+            // Resumed after the ALTER JOB: if that fails, the change stays.
+            saved = Some(steps.len() - 1);
             steps.push(pause_job(&cur.name, true));
         }
         return Some(Plan {
@@ -437,6 +461,7 @@ pub(super) fn alter_plan(cur: &JobSpec, want: &JobSpec, switchable: bool) -> Opt
             steps,
             undo_from,
             undo,
+            saved,
             id,
             ..Plan::default()
         });
@@ -459,22 +484,33 @@ pub(super) fn alter_plan(cur: &JobSpec, want: &JobSpec, switchable: bool) -> Opt
         ..cur.clone()
     };
     undo.extend(create_steps(&old));
-    let mut head = vec![
-        format!("Cambia el job «{}» de Doris", cur.name),
-        RECREATED.into(),
-    ];
+    let mut head = vec![format!("Cambia el job «{}» de Doris", cur.name)];
     if cur.mode == Mode::Streaming {
-        head.push("Un job continuo creado de nuevo vuelve a leer desde el principio: pierde hasta dónde había leído.".into());
+        head.push(warning(STREAMING_RECREATED));
+        head.push(warning(REREAD));
+    } else {
+        head.push(warning(RECREATED));
+    }
+    if !want.enabled {
+        head.push(warning(PAUSED_AFTER_CREATE));
     }
     head.push("Si la creación falla, DBine vuelve a crear el job como estaba.".into());
     Some(Plan {
         head,
+        saved: paused_after(want, &steps),
         steps,
         undo_from: Some(drop_at),
         undo,
         id,
         ..Plan::default()
     })
+}
+
+/// The `CREATE JOB` of steps that end in pausing the job it creates
+/// ([`create_steps`] of a disabled one): a failed `PAUSE JOB` leaves the
+/// new job, running.
+fn paused_after(j: &JobSpec, steps: &[String]) -> Option<usize> {
+    (!j.enabled).then(|| steps.len().saturating_sub(2))
 }
 
 /// A job's spec as the server has it.
@@ -803,33 +839,47 @@ pub(super) fn mv_alter_plan(
         )));
     }
     let mut steps = Vec::new();
+    let mut head = vec![format!(
+        "Cambia el refresco de la vista materializada «{label}»"
+    )];
     if !set.is_empty() {
         steps.push(format!(
             "ALTER MATERIALIZED VIEW {view} SET {}",
             properties_sql(&set)
         ));
     }
-    if cur.method != want.method || cur.trigger != want.trigger {
+    // A new method or trigger: Doris drops the view's job and creates it
+    // again, running, so one that stays paused is paused again after.
+    let rebuilt = cur.method != want.method || cur.trigger != want.trigger;
+    if rebuilt {
         steps.push(format!(
             "ALTER MATERIALIZED VIEW {view} REFRESH {} {}",
             want.method,
             trigger_sql(&want.trigger)
         ));
+        head.push(warning(MV_JOB_RECREATED));
+        if !want.enabled {
+            head.push(warning(MV_PAUSED_AFTER));
+        }
     }
-    if cur.enabled != want.enabled {
+    // The rebuilt job already runs: resumed only when it isn't rebuilt.
+    let pause = !want.enabled && (cur.enabled || rebuilt);
+    let resume = want.enabled && !cur.enabled && !rebuilt;
+    // A PAUSE after the rebuild that fails leaves the new refresh saved.
+    let saved = (rebuilt && pause).then(|| steps.len() - 1);
+    if pause || resume {
         steps.push(format!(
             "{} MATERIALIZED VIEW JOB ON {view}",
-            if want.enabled { "RESUME" } else { "PAUSE" }
+            if resume { "RESUME" } else { "PAUSE" }
         ));
     }
     if steps.is_empty() {
         return Ok(None);
     }
     Ok(Some(Plan {
-        head: vec![format!(
-            "Cambia el refresco de la vista materializada «{label}»"
-        )],
+        head,
         steps,
+        saved,
         ..Plan::default()
     }))
 }
@@ -1362,10 +1412,28 @@ pub(super) async fn plan(
                     return Err(bad(NEEDS_DATABASE.into()));
                 }
             }
-            let plan = alter_plan(&cur, &want, switchable(&j));
+            let mut plan = alter_plan(&cur, &want, switchable(&j));
+            if let Some(p) = plan.as_mut().filter(|_| recreates(&cur, &want)) {
+                let me = current_user(s).await;
+                if let Some(w) = owner_warning(j.definer.as_deref(), me.as_deref()) {
+                    p.add_warning(w);
+                }
+            }
             Ok(plan.unwrap_or_else(|| Plan::nothing(&j.name, id.to_string())))
         }
     }
+}
+
+/// A job created again by another account than its owner (`definer`, the
+/// `Definer` of `jobs()`): Doris makes the login (`me`, `CURRENT_USER()`)
+/// its owner and runs its tasks with the login's privileges.
+pub(super) fn owner_warning(definer: Option<&str>, me: Option<&str>) -> Option<String> {
+    let owner = other_owner(definer, me)?;
+    Some(warning(&format!(
+        "El job pasa de «{}» a «{}»: Doris lo vuelve a crear a nombre de quien guarda el cambio y lo ejecuta con los privilegios de esa cuenta.",
+        owner,
+        user_name(me?)
+    )))
 }
 
 pub(super) async fn delete_plan(s: &mut MySqlSession, kind: &str, id: &str) -> Result<Plan> {
@@ -1375,15 +1443,24 @@ pub(super) async fn delete_plan(s: &mut MySqlSession, kind: &str, id: &str) -> R
         return Err(Error::Unsupported(VIEW_CREATED_WITH.into()));
     }
     let j = read_job(s, id).await?;
-    Ok(Plan {
-        head: vec![format!("Borra el job «{}» de Doris", one_line(&j.name))],
-        steps: vec![drop_job(&j.name)],
+    Ok(drop_plan(&j.name, id))
+}
+
+/// `DROP JOB`: its tasks and counters live in the job and go with it.
+pub(super) fn drop_plan(name: &str, id: &str) -> Plan {
+    Plan {
+        head: vec![
+            format!("Borra el job «{}» de Doris", one_line(name)),
+            warning(DROPS_HISTORY),
+        ],
+        steps: vec![drop_job(name)],
         id: Some(id.to_string()),
         ..Plan::default()
-    })
+    }
 }
 
 const NO_RUN: &str = "Doris no ejecuta un job a pedido: solo según su programación";
+const DROPS_HISTORY: &str = "Doris borra con el job su historial de tareas y sus contadores.";
 
 /// The view `db`.`mv`'s refresh now for `action`, while its refresh job is
 /// `status`: only one running or paused (not finished, stopped or

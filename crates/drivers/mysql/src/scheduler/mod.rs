@@ -19,7 +19,10 @@
 //!   clauses that changed, in place, where the engine has a statement for
 //!   it; where it can only drop and create again (a Doris scheduled job, a
 //!   StarRocks task's schedule or statement) the script says so at the top,
-//!   with what is lost, and a failed create puts the old one back. A
+//!   with what is lost, and a failed create puts the old one back. What a
+//!   change, delete or action loses or risks (history, owner, a state, a
+//!   change in two statements) goes in `-- ⚠ …` lines ([`warning`]), which
+//!   the app lists and asks the user to accept before it runs. A
 //!   statement the object runs (an event's, a job's, a task's) has to be
 //!   one for the server: the session runs with multi-statements on, so a
 //!   `;` would end the object's statement and run the rest at once.
@@ -352,7 +355,7 @@ pub(crate) fn no_action(action: &str) -> Error {
 
 /// The head of a view's refresh script.
 pub(crate) fn refresh_head(label: &str, complete: bool) -> Vec<String> {
-    vec![
+    let mut head = vec![
         if complete {
             format!(
                 "Refresca ahora la vista materializada «{label}» entera: todas sus particiones."
@@ -362,7 +365,82 @@ pub(crate) fn refresh_head(label: &str, complete: bool) -> Vec<String> {
         },
         "El refresco corre en segundo plano: su resultado queda en el historial de la vista."
             .into(),
-    ]
+    ];
+    // What the asked-for refresh costs, not something lost: a plain line.
+    if complete {
+        head.push(REFRESH_ALL.into());
+    }
+    head
+}
+
+const REFRESH_ALL: &str = "Un refresco completo vuelve a calcular todas las particiones de la vista, también las que estaban al día: en una vista grande puede tardar y cargar el servidor.";
+
+// ---------------------------------------------------------------------------
+// Warnings the user accepts before a script runs
+// ---------------------------------------------------------------------------
+
+/// A script head line the app lists above the script and asks to accept
+/// ("Continuar") before it runs: what the change loses or risks (the
+/// object dropped and created again, its history, its owner, a change
+/// that can stop half way). `text` is one whole Spanish sentence written
+/// as its own literal (a `const`, or a format string that is itself the
+/// sentence), so the message extractor takes it and the app's `tb()`
+/// matches it after the "⚠". Plain head lines say what the script does.
+pub(crate) fn warning(text: &str) -> String {
+    format!("{WARN} {text}")
+}
+
+const WARN: &str = "⚠";
+
+/// The login's account as `CURRENT_USER()` names it (`'root'@'%'`), when
+/// the server says.
+pub(crate) async fn current_user(s: &mut MySqlSession) -> Option<String> {
+    s.optional_rows("SELECT CURRENT_USER() AS dbine_user")
+        .await
+        .first()
+        .and_then(|r| at(r, 0))
+        .filter(|u| !u.trim().is_empty())
+}
+
+/// An account's user and host (`'root'@'%'`, `root@%`, Doris' `root`
+/// without one), unquoted.
+fn account_parts(a: &str) -> (String, Option<String>) {
+    let unquote = |p: &str| {
+        p.trim()
+            .trim_matches(|c| c == '\'' || c == '`' || c == '"')
+            .to_string()
+    };
+    let a = a.trim();
+    let a = a.strip_prefix("default_cluster:").unwrap_or(a);
+    match a.rsplit_once('@') {
+        Some((u, h)) => (unquote(u), Some(unquote(h).to_ascii_lowercase())),
+        None => (unquote(a), None),
+    }
+}
+
+/// An account's user, unquoted and without its host (Doris names a job's
+/// owner so).
+pub(crate) fn user_name(a: &str) -> String {
+    account_parts(a).0
+}
+
+/// Whether `owner` (a job's or task's, as the catalog shows it) is the
+/// login (`me`, `CURRENT_USER()`): the same user, and the same host where
+/// both name one.
+pub(crate) fn same_owner(owner: &str, me: &str) -> bool {
+    let (ou, oh) = account_parts(owner);
+    let (mu, mh) = account_parts(me);
+    ou == mu && (oh.is_none() || mh.is_none() || oh == mh)
+}
+
+/// The object's owner as the catalog shows it, when a save that creates it
+/// again would make the login (`me`) its owner instead: Doris and
+/// StarRocks make whoever creates a job or task its owner and run it with
+/// that account's privileges. `None` when either isn't known.
+pub(crate) fn other_owner<'a>(owner: Option<&'a str>, me: Option<&str>) -> Option<&'a str> {
+    let owner = owner.map(str::trim).filter(|o| !o.is_empty())?;
+    let me = me?;
+    (!same_owner(owner, me)).then_some(owner)
 }
 
 // ---------------------------------------------------------------------------
@@ -674,10 +752,15 @@ pub(crate) struct Plan {
     /// session's SQL mode and zone, its database, put back.
     pub(crate) finally: Vec<String>,
     /// The step that leaves the object half changed (dropped to be created
-    /// again, paused, its schedule cleared): a later step that fails runs
-    /// `undo`, which puts the object back as it was.
+    /// again, paused, its schedule cleared): a later step that fails (up to
+    /// `saved`) runs `undo`, which puts the object back as it was.
     pub(crate) undo_from: Option<usize>,
     pub(crate) undo: Vec<String>,
+    /// The step that saves the change when the steps after it only finish
+    /// it (pause or resume what it created or changed): one of those that
+    /// fails leaves the change saved, so nothing is undone and the error
+    /// says what is left to run.
+    pub(crate) saved: Option<usize>,
     /// Nothing differs from what the server has.
     pub(crate) empty: bool,
     /// The object's id once saved.
@@ -692,6 +775,27 @@ impl Plan {
             id: Some(id),
             ..Plan::default()
         }
+    }
+
+    /// A [`warning`] after the head's other warnings (at the end when it
+    /// has none).
+    pub(crate) fn add_warning(&mut self, line: String) {
+        let at = self
+            .head
+            .iter()
+            .rposition(|h| h.starts_with(WARN))
+            .map_or(self.head.len(), |i| i + 1);
+        self.head.insert(at, line);
+    }
+
+    /// The head's warnings, without the mark: what the app lists.
+    #[cfg(test)]
+    pub(crate) fn warnings(&self) -> Vec<String> {
+        self.script()
+            .lines()
+            .filter_map(|l| l.strip_prefix(&format!("-- {WARN} ")))
+            .map(str::to_string)
+            .collect()
     }
 
     /// The script as the editor runs it.
@@ -723,16 +827,44 @@ pub(crate) fn push_statement(out: &mut String, st: &str) {
     }
 }
 
+/// What a failed step leads to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OnFailure {
+    /// The error as it is.
+    Report,
+    /// The object put back as it was ([`undo`]).
+    Undo,
+    /// The change stays saved: what is left to run ([`unfinished`]).
+    Finish,
+}
+
+/// What step `i` failing with `e` leads to: past `saved`, the change
+/// stays; past `undo_from`, it is undone. A lost connection runs nothing
+/// more.
+pub(crate) fn on_failure(plan: &Plan, i: usize, e: &Error) -> OnFailure {
+    if matches!(e, Error::Connect(_)) {
+        OnFailure::Report
+    } else if plan.saved.is_some_and(|at| i > at) {
+        OnFailure::Finish
+    } else if plan.undo_from.is_some_and(|from| i > from) {
+        OnFailure::Undo
+    } else {
+        OnFailure::Report
+    }
+}
+
 /// Runs a plan's statements one by one, then its `finally` whatever
-/// happened; a failure past `undo_from` puts the object back.
+/// happened; a failure past `undo_from` (and not past `saved`) puts the
+/// object back.
 async fn run(s: &mut MySqlSession, plan: &Plan) -> Result<()> {
     let mut outcome = Ok(());
     for (i, st) in plan.steps.iter().enumerate() {
         if let Err(e) = s.conn.query_drop(st.as_str()).await {
             let e = crate::err(e);
-            outcome = match plan.undo_from {
-                Some(from) if i > from && !matches!(e, Error::Connect(_)) => undo(s, plan, e).await,
-                _ => Err(e),
+            outcome = match on_failure(plan, i, &e) {
+                OnFailure::Undo => undo(s, plan, e).await,
+                OnFailure::Finish => Err(unfinished(plan, i, &e)),
+                OnFailure::Report => Err(e),
             };
             break;
         }
@@ -763,6 +895,18 @@ async fn undo(s: &mut MySqlSession, plan: &Plan, e: Error) -> Result<()> {
     Err(Error::Query(format!(
         "No se guardó el cambio: {e}. DBine dejó el objeto como estaba."
     )))
+}
+
+/// Step `i`, after the one that saved the change, failed with `e`: the
+/// change stays, and the steps from `i` on are what is left to run.
+pub(crate) fn unfinished(plan: &Plan, i: usize, e: &Error) -> Error {
+    let mut rest = String::new();
+    for st in plan.steps.iter().skip(i) {
+        push_statement(&mut rest, st);
+    }
+    Error::Query(format!(
+        "Se guardó el cambio, pero no se pudo completar ({e}). Para completarlo:\n{rest}"
+    ))
 }
 
 // ---------------------------------------------------------------------------

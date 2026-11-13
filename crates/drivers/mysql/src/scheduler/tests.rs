@@ -67,6 +67,99 @@ fn scripts_end_each_statement_and_frame_compound_ones() {
 }
 
 #[test]
+fn warnings_are_marked_comment_lines_after_the_others() {
+    let mut p = Plan {
+        head: vec![
+            "Cambia algo".into(),
+            warning("Se pierde el historial."),
+            "Si falla, DBine lo deja como estaba.".into(),
+        ],
+        steps: vec!["SELECT 1".into()],
+        ..Plan::default()
+    };
+    p.add_warning(warning("Cambia el dueño."));
+    assert_eq!(
+        p.script(),
+        "-- Cambia algo\n-- ⚠ Se pierde el historial.\n-- ⚠ Cambia el dueño.\n-- Si falla, DBine lo deja como estaba.\nSELECT 1;\n"
+    );
+    assert_eq!(
+        p.warnings(),
+        ["Se pierde el historial.", "Cambia el dueño."]
+    );
+    // Without warnings, at the end; a plain head has none.
+    let mut p = Plan {
+        head: vec!["Cambia algo".into()],
+        ..Plan::default()
+    };
+    assert!(p.warnings().is_empty());
+    p.add_warning(warning("Cambia el dueño."));
+    assert_eq!(p.head, ["Cambia algo", "⚠ Cambia el dueño."]);
+    // A complete refresh says it computes the whole view again, plainly:
+    // a cost of what was asked, nothing lost.
+    assert!(refresh_head("d.v", false)
+        .iter()
+        .all(|h| !h.starts_with('⚠') && h != REFRESH_ALL));
+    let complete = refresh_head("d.v", true);
+    assert_eq!(complete.last().map(String::as_str), Some(REFRESH_ALL));
+    assert!(complete.iter().all(|h| !h.starts_with('⚠')));
+}
+
+#[test]
+fn a_step_after_the_saved_change_finishes_it_rather_than_undo_it() {
+    // Paused, changed, resumed: the PAUSE undone by a RESUME.
+    let p = Plan {
+        steps: vec![
+            "PAUSE JOB WHERE jobname = 'j'".into(),
+            "ALTER JOB `j`".into(),
+            "RESUME JOB WHERE jobname = 'j'".into(),
+        ],
+        undo_from: Some(0),
+        undo: vec!["RESUME JOB WHERE jobname = 'j'".into()],
+        saved: Some(1),
+        ..Plan::default()
+    };
+    let q = Error::Query("x".into());
+    let lost = Error::Connect("gone".into());
+    assert_eq!(on_failure(&p, 0, &q), OnFailure::Report);
+    assert_eq!(on_failure(&p, 1, &q), OnFailure::Undo);
+    // The ALTER JOB went in: not "left as it was", what's left to run.
+    assert_eq!(on_failure(&p, 2, &q), OnFailure::Finish);
+    // A lost connection runs nothing more.
+    assert_eq!(on_failure(&p, 1, &lost), OnFailure::Report);
+    assert_eq!(on_failure(&p, 2, &lost), OnFailure::Report);
+    let m = unfinished(&p, 2, &q).to_string();
+    assert!(
+        m.contains("Se guardó el cambio, pero no se pudo completar")
+            && m.ends_with("Para completarlo:\nRESUME JOB WHERE jobname = 'j';\n"),
+        "{m}"
+    );
+    // Without `saved`, as before: undone past `undo_from`.
+    let p = Plan { saved: None, ..p };
+    assert_eq!(on_failure(&p, 2, &q), OnFailure::Undo);
+}
+
+#[test]
+fn an_owner_is_the_login_by_user_and_host_where_both_say() {
+    // StarRocks' CREATOR and CURRENT_USER() alike.
+    assert!(same_owner("'root'@'%'", "'root'@'%'"));
+    assert!(!same_owner("'bob'@'%'", "'root'@'%'"));
+    assert!(!same_owner("'root'@'10.0.%'", "'root'@'%'"));
+    assert!(same_owner("'root'@'LOCALHOST'", "root@localhost"));
+    // Doris' Definer has no host.
+    assert!(same_owner("root", "'root'@'%'"));
+    assert!(same_owner("default_cluster:root", "'root'@'%'"));
+    assert!(!same_owner("Root", "'root'@'%'"));
+    assert_eq!(user_name("'root'@'%'"), "root");
+    assert_eq!(user_name("`a@b`@`%`"), "a@b");
+    assert_eq!(other_owner(Some("bob"), Some("'root'@'%'")), Some("bob"));
+    assert_eq!(other_owner(Some("root"), Some("'root'@'%'")), None);
+    // Unknown on either side: nothing said.
+    assert_eq!(other_owner(None, Some("'root'@'%'")), None);
+    assert_eq!(other_owner(Some(" "), Some("'root'@'%'")), None);
+    assert_eq!(other_owner(Some("bob"), None), None);
+}
+
+#[test]
 fn times_from_the_form_read_as_the_engines_take_them() {
     assert_eq!(
         parse_datetime("2030-01-01T00:00:00").as_deref(),
@@ -533,6 +626,143 @@ mod ev {
     }
 
     #[test]
+    fn an_event_warns_only_of_two_alters_and_a_new_definer() {
+        let cur = spec();
+        let mut no_end = cur.clone();
+        if let Schedule::Every { ends, .. } = &mut no_end.schedule {
+            *ends = None;
+        }
+        // Creating, dropping and a plain edit risk nothing.
+        for f in [MYSQL8, MARIADB, OB] {
+            assert!(create_plan(&cur, f).warnings().is_empty());
+            assert!(drop_plan("db", "ev", f).warnings().is_empty());
+            let want = Spec {
+                comment: "x".into(),
+                body: "DELETE FROM t".into(),
+                ..cur.clone()
+            };
+            assert!(alter_plan(&cur, &want, f).unwrap().warnings().is_empty());
+            // An end that stays, or that wasn't there, is one ALTER.
+            let later = Spec {
+                comment: "x".into(),
+                ..no_end.clone()
+            };
+            assert!(alter_plan(&no_end, &later, f)
+                .unwrap()
+                .warnings()
+                .is_empty());
+        }
+        // The end cleared: one ALTER on MySQL 8, two (and a warning) where
+        // the server keeps an ENDS left out.
+        assert!(alter_plan(&cur, &no_end, MYSQL8)
+            .unwrap()
+            .warnings()
+            .is_empty());
+        for f in [MARIADB, OB] {
+            let p = alter_plan(&cur, &no_end, f).unwrap();
+            assert_eq!(
+                p.warnings(),
+                ["El cambio va en dos ALTER EVENT y puede quedar a medias: si el segundo falla, DBine le devuelve al evento su programación, y si eso también falla, el evento queda programado una sola vez, para el 2037-12-31 23:59:59."]
+            );
+            assert!(p.undo_from.is_some());
+        }
+        // Another definer: the event runs with its privileges.
+        let mine = Spec {
+            definer: "app@%".into(),
+            ..cur.clone()
+        };
+        let said = "El definidor del evento pasa de «root@localhost» a «app@%»: desde ahora el evento corre con los privilegios de esa cuenta.";
+        for f in [MYSQL8, MARIADB, OB] {
+            assert_eq!(alter_plan(&cur, &mine, f).unwrap().warnings(), [said]);
+        }
+        // A login that can't name another can't give it back either.
+        let own_only = Flavor {
+            any_definer: false,
+            ..MYSQL8
+        };
+        let w = alter_plan(&cur, &mine, own_only).unwrap().warnings();
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert_eq!(w[0], said);
+        assert!(w[1].contains("ya no podrá devolverle el evento a su definidor"));
+        // Both at once, each said once.
+        let both = Spec {
+            definer: "app@%".into(),
+            ..no_end.clone()
+        };
+        let w = alter_plan(&cur, &both, MARIADB).unwrap().warnings();
+        assert!(
+            w.len() == 2 && w[0].starts_with("El cambio va en dos") && w[1] == said,
+            "{w:?}"
+        );
+        // A definer the server didn't report isn't a change to warn of.
+        let unknown = Spec {
+            definer: String::new(),
+            ..cur.clone()
+        };
+        assert!(alter_plan(&unknown, &cur, MYSQL8)
+            .unwrap()
+            .warnings()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_one_time_event_at_a_past_time_is_refused_where_the_server_wouldnt_keep_it() {
+        let now = Some("2030-06-01 12:00:00");
+        let at = |t: &str, preserve: bool, status: Status| Spec {
+            schedule: Schedule::At(t.into()),
+            preserve,
+            status,
+            ..spec()
+        };
+        let msg = |s: &Spec| match not_past(s, now) {
+            Err(Error::Query(m)) => m,
+            other => panic!("expected a refusal: {other:?}"),
+        };
+        // Dropped when done: the server wouldn't create it (only a note)
+        // nor move one there, whatever its state.
+        for status in [Status::Enabled, Status::Disabled, Status::ReplicaSide] {
+            for t in ["2030-06-01 11:59:59", "2030-06-01 12:00:00"] {
+                let m = msg(&at(t, false, status));
+                assert!(
+                    m.contains("en la zona del evento son las 2030-06-01 12:00:00")
+                        && m.contains("que se borra al terminar"),
+                    "{m}"
+                );
+            }
+        }
+        // Kept when done: the server leaves an enabled one disabled.
+        let m = msg(&at("2030-01-01 00:00:00", true, Status::Enabled));
+        assert!(m.contains("deja deshabilitado"), "{m}");
+        // … and keeps a disabled one as asked.
+        for status in [Status::Disabled, Status::ReplicaSide] {
+            assert!(not_past(&at("2030-01-01 00:00:00", true, status), now).is_ok());
+        }
+        // Ahead, recurring, or a clock the server didn't give: as asked.
+        assert!(not_past(&at("2030-06-01 12:00:01", false, Status::Enabled), now).is_ok());
+        assert!(not_past(&spec(), now).is_ok());
+        assert!(not_past(&at("2020-01-01 00:00:00", false, Status::Enabled), None).is_ok());
+        // Checked when the change sets the schedule: a new one or a new
+        // zone (not on OceanBase, which keeps the tenant's).
+        let cur = at("2030-01-01 00:00:00", true, Status::Disabled);
+        assert!(!sets_schedule(
+            &cur,
+            &Spec {
+                comment: "x".into(),
+                ..cur.clone()
+            },
+            MYSQL8
+        ));
+        let moved = at("2030-02-01 00:00:00", true, Status::Disabled);
+        assert!(sets_schedule(&cur, &moved, MYSQL8));
+        let zoned = Spec {
+            time_zone: "+03:00".into(),
+            ..cur.clone()
+        };
+        assert!(sets_schedule(&cur, &zoned, MARIADB));
+        assert!(!sets_schedule(&cur, &zoned, OB));
+    }
+
+    #[test]
     fn the_server_row_reads_back_as_the_form_writes_it() {
         let e = Event {
             schema: "db".into(),
@@ -976,6 +1206,7 @@ mod doris {
                 "PAUSE JOB WHERE jobname = 'j'",
             ]
         );
+        assert_eq!(p.saved, Some(1));
         j.mode = Mode::At("2030-06-01 12:00:00".into());
         j.comment.clear();
         j.enabled = true;
@@ -1028,6 +1259,9 @@ mod doris {
         assert!(p.steps[2].starts_with("CREATE JOB `j`\nON SCHEDULE EVERY 1 DAY\nCOMMENT 'c'"));
         assert_eq!(p.steps[3], "PAUSE JOB WHERE jobname = 'j'");
         assert_eq!(p.undo_from, Some(1));
+        // A failed PAUSE leaves the new job: not undone (its name is
+        // taken), what's left to run said.
+        assert_eq!(p.saved, Some(2));
         assert_eq!(p.undo[0], "USE `db`");
         assert!(p.undo[1]
             .starts_with("CREATE JOB `j`\nON SCHEDULE EVERY 2 HOUR STARTS '2030-01-01 00:00:00'"));
@@ -1067,9 +1301,11 @@ mod doris {
                 "RESUME JOB WHERE jobname = 'j'",
             ]
         );
-        // A failed ALTER JOB resumes the job it paused.
+        // A failed ALTER JOB resumes the job it paused; a failed RESUME
+        // after it leaves the change saved.
         assert_eq!(p.undo_from, Some(1));
         assert_eq!(p.undo, ["RESUME JOB WHERE jobname = 'j'"]);
+        assert_eq!(p.saved, Some(2));
         assert!(!recreates(&cur, &want));
         // Left paused by the change: still resumed if the ALTER fails.
         let off = JobSpec {
@@ -1079,6 +1315,7 @@ mod doris {
         let p = alter_plan(&cur, &off, true).unwrap();
         assert_eq!(p.steps.len(), 3, "no RESUME after: {:?}", p.steps);
         assert_eq!(p.undo, ["RESUME JOB WHERE jobname = 'j'"]);
+        assert_eq!(p.saved, None);
         // A paused job: nothing to undo.
         let paused = JobSpec {
             enabled: false,
@@ -1087,6 +1324,10 @@ mod doris {
         let p = alter_plan(&paused, &off, true).unwrap();
         assert_eq!(p.steps[1], "ALTER JOB `j`\nPROPERTIES ('max_interval' = '5')\nINSERT INTO dst SELECT * FROM S3('uri'='s3://b/*')");
         assert!(p.undo_from.is_none() && p.undo.is_empty());
+        // … and resumed after the change: a failed RESUME leaves it saved.
+        let p = alter_plan(&paused, &want, true).unwrap();
+        assert_eq!(p.steps.len(), 3, "{:?}", p.steps);
+        assert_eq!(p.saved, Some(1));
         // A property taken away: created again (ALTER JOB can't unset).
         let want = JobSpec {
             properties: Vec::new(),
@@ -1499,6 +1740,15 @@ mod doris {
                 );
                 assert_eq!(p.id.as_deref(), Some(id));
                 assert!(p.undo.is_empty() && p.head.iter().any(|h| h.contains("db.m`v")));
+                // Nothing lost either way: the complete one says what it
+                // costs, plainly.
+                assert!(p.warnings().is_empty(), "{:?}", p.head);
+                assert_eq!(
+                    p.head.iter().any(|h| h.starts_with("Un refresco completo")),
+                    action == REFRESH_COMPLETE,
+                    "{:?}",
+                    p.head
+                );
             }
         }
         // Stopped, finished or failed: Doris doesn't refresh it.
@@ -1516,6 +1766,231 @@ mod doris {
         // An unknown key is not an action, whatever the job's state.
         for status in ["RUNNING", "STOPPED"] {
             assert!(err(refresh_plan("db", "mv", status, "pause", id)).contains("no es una acción"));
+        }
+    }
+
+    #[test]
+    fn a_job_warns_only_when_it_is_created_again_or_deleted() {
+        let cur = job();
+        let recreated = "Doris no cambia un job programado: guardar un cambio lo borra y lo vuelve a crear, y se pierden su historial de tareas, sus contadores y su fecha de creación.";
+        let paused_after = "Doris no crea un job pausado: el script lo pausa después de crearlo, y si eso falla, el job queda en marcha.";
+        // Created running, or paused and resumed in place: nothing lost.
+        assert!(create_plan(&cur).warnings().is_empty());
+        let off = JobSpec {
+            enabled: false,
+            ..cur.clone()
+        };
+        assert!(alter_plan(&cur, &off, true).unwrap().warnings().is_empty());
+        assert!(alter_plan(&off, &cur, true).unwrap().warnings().is_empty());
+        // Created paused: CREATE JOB, then PAUSE JOB, which may fail.
+        assert_eq!(create_plan(&off).warnings(), [paused_after]);
+        // A scheduled job created again: its history, counters and
+        // creation time, whatever changed; paused after, if it was asked.
+        for (want, paused) in [
+            (
+                JobSpec {
+                    comment: "c".into(),
+                    ..cur.clone()
+                },
+                false,
+            ),
+            (
+                JobSpec {
+                    name: "k".into(),
+                    ..cur.clone()
+                },
+                false,
+            ),
+            (
+                JobSpec {
+                    mode: Mode::At("2030-06-01 12:00:00".into()),
+                    ..off.clone()
+                },
+                true,
+            ),
+        ] {
+            let p = alter_plan(&cur, &want, true).unwrap();
+            if paused {
+                assert_eq!(p.warnings(), [recreated, paused_after]);
+            } else {
+                assert_eq!(p.warnings(), [recreated]);
+            }
+            // The plain line after it: a failed create puts the old one back.
+            assert!(p
+                .head
+                .last()
+                .unwrap()
+                .contains("vuelve a crear el job como estaba"));
+        }
+        // A streaming job in place (paused, ALTER JOB, resumed): it can
+        // stop half way and stay paused.
+        let st = JobSpec {
+            mode: Mode::Streaming,
+            properties: vec![("max_interval".into(), "10".into())],
+            ..job()
+        };
+        let set = JobSpec {
+            properties: vec![("max_interval".into(), "5".into())],
+            sql: "INSERT INTO dst SELECT * FROM S3('uri'='s3://b/*')".into(),
+            ..st.clone()
+        };
+        let in_place = "El cambio pausa el job continuo y va en varios pasos: si falla, DBine lo reanuda, y si no puede, el job queda pausado.";
+        let p = alter_plan(&st, &set, true).unwrap();
+        assert_eq!(p.warnings(), [in_place]);
+        assert!(!p
+            .head
+            .iter()
+            .any(|h| h == "Si el cambio falla, DBine reanuda el job."));
+        // Paused by the change, or paused already: left as asked, nothing.
+        let st_off = JobSpec {
+            enabled: false,
+            ..st.clone()
+        };
+        let set_off = JobSpec {
+            enabled: false,
+            ..set.clone()
+        };
+        let p = alter_plan(&st, &set_off, true).unwrap();
+        assert!(p.warnings().is_empty(), "{:?}", p.head);
+        assert!(p
+            .head
+            .iter()
+            .any(|h| h == "Si el cambio falla, DBine reanuda el job."));
+        for want in [&set_off, &set] {
+            let p = alter_plan(&st_off, want, true).unwrap();
+            assert!(p.warnings().is_empty(), "{:?}", p.head);
+        }
+        // Created again: that, and it reads its source from the start.
+        for want in [
+            JobSpec {
+                name: "k".into(),
+                ..st.clone()
+            },
+            JobSpec {
+                properties: Vec::new(),
+                ..st.clone()
+            },
+            JobSpec {
+                mode: Mode::Every {
+                    n: 1,
+                    unit: "DAY".into(),
+                    starts: None,
+                    ends: None,
+                },
+                properties: Vec::new(),
+                ..st.clone()
+            },
+        ] {
+            let w = alter_plan(&st, &want, true).unwrap().warnings();
+            assert_eq!(w.len(), 2, "{w:?}");
+            assert!(w[0].starts_with(
+                "Doris no cambia el nombre, el comentario ni el tipo de un job continuo"
+            ));
+            assert!(w[1].contains("pierde hasta dónde había leído"));
+        }
+        // A job of another account's, created again under the login.
+        assert_eq!(
+            owner_warning(Some("etl"), Some("'root'@'%'")),
+            Some(warning("El job pasa de «etl» a «root»: Doris lo vuelve a crear a nombre de quien guarda el cambio y lo ejecuta con los privilegios de esa cuenta."))
+        );
+        assert_eq!(owner_warning(Some("root"), Some("'root'@'%'")), None);
+        assert_eq!(owner_warning(Some("etl"), None), None);
+        let mut p = alter_plan(
+            &cur,
+            &JobSpec {
+                comment: "c".into(),
+                ..cur.clone()
+            },
+            true,
+        )
+        .unwrap();
+        p.add_warning(owner_warning(Some("etl"), Some("'root'@'%'")).unwrap());
+        let w = p.warnings();
+        assert!(
+            w.len() == 2 && w[1].starts_with("El job pasa de «etl»"),
+            "{w:?}"
+        );
+        // Deleted: its tasks and counters go with it.
+        let d = drop_plan("j", "job:`j`");
+        assert_eq!(d.steps, ["DROP JOB WHERE jobname = 'j'"]);
+        assert_eq!(
+            d.warnings(),
+            ["Doris borra con el job su historial de tareas y sus contadores."]
+        );
+    }
+
+    #[test]
+    fn a_new_refresh_method_or_trigger_recreates_the_views_job() {
+        let v = "`d`.`v`";
+        let cur = MvSpec {
+            method: "AUTO".into(),
+            trigger: Trigger::Manual,
+            enabled: true,
+            properties: vec![("grace_period".into(), "10".into())],
+        };
+        let off = MvSpec {
+            enabled: false,
+            ..cur.clone()
+        };
+        let mv = |a: &MvSpec, b: &MvSpec| mv_alter_plan(v, "d.v", a, b).unwrap().unwrap();
+        // Properties, pause and resume: in place, nothing said.
+        let p = mv(&cur, &off);
+        assert_eq!(p.steps, ["PAUSE MATERIALIZED VIEW JOB ON `d`.`v`"]);
+        assert!(p.warnings().is_empty());
+        assert_eq!(p.saved, None);
+        let p = mv(&off, &cur);
+        assert_eq!(p.steps, ["RESUME MATERIALIZED VIEW JOB ON `d`.`v`"]);
+        assert!(p.warnings().is_empty());
+        let props = MvSpec {
+            properties: vec![("grace_period".into(), "20".into())],
+            ..off.clone()
+        };
+        assert!(mv(&off, &props).warnings().is_empty());
+        // A new trigger or method: Doris creates the job again, running.
+        let rebuilt = "Doris vuelve a crear el job de refresco de la vista cuando cambian su método o su disparador: el job pierde su fecha de creación y queda en marcha.";
+        for want in [
+            MvSpec {
+                trigger: Trigger::Commit,
+                ..cur.clone()
+            },
+            MvSpec {
+                method: "COMPLETE".into(),
+                ..cur.clone()
+            },
+        ] {
+            let p = mv(&cur, &want);
+            assert_eq!(p.steps.len(), 1, "{:?}", p.steps);
+            assert!(p.steps[0].contains(" REFRESH "));
+            assert_eq!(p.warnings(), [rebuilt]);
+            // Paused before, enabled now: the new job already runs, so no
+            // RESUME after it.
+            let p = mv(&off, &want);
+            assert_eq!(p.steps.len(), 1, "{:?}", p.steps);
+            assert_eq!(p.warnings(), [rebuilt]);
+            // Kept paused, or paused with it: paused again after, said.
+            let paused = MvSpec {
+                enabled: false,
+                ..want.clone()
+            };
+            for from in [&off, &cur] {
+                let p = mv(from, &paused);
+                assert_eq!(
+                    p.steps.last().map(String::as_str),
+                    Some("PAUSE MATERIALIZED VIEW JOB ON `d`.`v`"),
+                    "{:?}",
+                    p.steps
+                );
+                assert_eq!(p.steps.len(), 2, "{:?}", p.steps);
+                assert_eq!(
+                    p.warnings(),
+                    [
+                        rebuilt,
+                        "El script pausa el job después: si eso falla, la vista se sigue refrescando según su disparador."
+                    ]
+                );
+                // A failed PAUSE leaves the new refresh saved.
+                assert_eq!(p.saved, Some(0));
+            }
         }
     }
 }
@@ -1655,6 +2130,175 @@ mod starrocks {
                 p.head
             );
             assert!(!p.head.iter().any(|h| h.contains("DBine vuelve a crear")));
+        }
+    }
+
+    #[test]
+    fn a_task_warns_only_when_it_is_submitted_again() {
+        let cur = task();
+        let once = TaskSpec {
+            every: None,
+            ..cur.clone()
+        };
+        let suspended_after = "StarRocks no crea una tarea suspendida: el script la suspende después de crearla, y si eso falla, la tarea queda activa.";
+        let suspension_lost = "StarRocks no informa si la tarea estaba suspendida: creada de nuevo, queda activa y corre según su programación.";
+        // Created as it comes, or changed in place (properties set,
+        // state): nothing.
+        for change in [StateChange::Keep, StateChange::Resume] {
+            assert!(create_plan(&cur, change).warnings().is_empty());
+        }
+        // Without a schedule there's nothing to suspend: nothing either.
+        for change in [StateChange::Keep, StateChange::Suspend] {
+            let p = create_plan(&once, change);
+            assert!(p.warnings().is_empty(), "{:?}", p.head);
+            assert_eq!((p.steps.len(), p.saved), (2, None));
+        }
+        // Created suspended: SUBMIT TASK, then ALTER TASK … SUSPEND, which
+        // may fail and leave it active.
+        let p = create_plan(&cur, StateChange::Suspend);
+        assert_eq!(p.warnings(), [suspended_after]);
+        assert_eq!(p.saved, Some(1));
+        let set = TaskSpec {
+            properties: vec![("query_timeout".into(), "60".into())],
+            ..cur.clone()
+        };
+        assert!(!recreates(&cur, &set));
+        let p = alter_plan(&cur, &set, StateChange::Suspend).unwrap();
+        assert!(p.warnings().is_empty());
+        // A failed SUSPEND after the SET leaves the properties saved.
+        assert_eq!(p.saved, Some(0));
+        let p = alter_plan(&cur, &cur, StateChange::Suspend).unwrap();
+        assert_eq!((p.steps.len(), p.saved), (1, None));
+        // Schedule, statement, database or name: submitted again; kept as
+        // it comes, a suspension StarRocks doesn't report is lost.
+        let recreated = "StarRocks no cambia la programación, la instrucción, la base ni el nombre de una tarea: guardar uno de ellos la borra y la vuelve a crear, y se pierde su historial de ejecuciones.";
+        for want in [
+            TaskSpec {
+                definition: "INSERT INTO dst SELECT 1".into(),
+                ..cur.clone()
+            },
+            TaskSpec {
+                name: "u".into(),
+                properties: Vec::new(),
+                ..cur.clone()
+            },
+        ] {
+            assert!(recreates(&cur, &want));
+            assert_eq!(
+                alter_plan(&cur, &want, StateChange::Keep)
+                    .unwrap()
+                    .warnings(),
+                [recreated, suspension_lost]
+            );
+            // Resumed: the state is set, nothing about it to lose.
+            let p = alter_plan(&cur, &want, StateChange::Resume).unwrap();
+            assert_eq!(p.warnings(), [recreated]);
+            assert!(p.steps[2].starts_with("SUBMIT TASK"), "{:?}", p.steps);
+            assert_eq!(p.saved, Some(2), "{:?}", p.steps);
+            // Suspended: set after the submit, which may fail.
+            let p = alter_plan(&cur, &want, StateChange::Suspend).unwrap();
+            assert_eq!(p.warnings(), [recreated, suspended_after]);
+            assert!(p.steps[3].ends_with(" SUSPEND"), "{:?}", p.steps);
+            assert_eq!(p.saved, Some(2));
+        }
+        // Only a property taken away: that's the reason given.
+        let gone = TaskSpec {
+            properties: Vec::new(),
+            ..cur.clone()
+        };
+        assert!(recreates(&cur, &gone));
+        assert_eq!(
+            alter_plan(&cur, &gone, StateChange::Keep).unwrap().warnings(),
+            [
+                "StarRocks no le quita una propiedad a una tarea: guardar este cambio la borra y la vuelve a crear, y se pierde su historial de ejecuciones.",
+                suspension_lost
+            ]
+        );
+        // Without a schedule now: it runs again when submitted, and has no
+        // suspension to lose or set, whatever the form says.
+        for change in [StateChange::Keep, StateChange::Suspend, StateChange::Resume] {
+            let w = alter_plan(&cur, &once, change).unwrap().warnings();
+            assert_eq!(w.len(), 2, "{w:?}");
+            assert_eq!(w[0], recreated);
+            assert!(w[1].contains("la ejecuta otra vez"));
+        }
+        // Without a schedule before: there was no suspension to lose, and
+        // a failed change leaves it dropped.
+        let w = alter_plan(&once, &cur, StateChange::Keep)
+            .unwrap()
+            .warnings();
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(w[1].starts_with("Si la creación falla, la tarea anterior queda borrada"));
+        assert_eq!(
+            alter_plan(&once, &cur, StateChange::Resume)
+                .unwrap()
+                .warnings(),
+            w
+        );
+        let w = alter_plan(&once, &cur, StateChange::Suspend)
+            .unwrap()
+            .warnings();
+        assert_eq!(w.len(), 3, "{w:?}");
+        assert_eq!(w[1], suspended_after);
+        let w = alter_plan(
+            &once,
+            &TaskSpec {
+                definition: "INSERT INTO dst SELECT 1".into(),
+                ..once.clone()
+            },
+            StateChange::Keep,
+        )
+        .unwrap()
+        .warnings();
+        assert_eq!(w.len(), 3, "{w:?}");
+        // A task of another account's, submitted again by the login.
+        assert_eq!(
+            owner_warning(Some("'etl'@'%'"), Some("'root'@'%'")),
+            Some(warning("La tarea pasa de «'etl'@'%'» a «'root'@'%'»: StarRocks la vuelve a crear a nombre de quien guarda el cambio y la ejecuta con los privilegios de esa cuenta."))
+        );
+        assert_eq!(owner_warning(Some("'root'@'%'"), Some("'root'@'%'")), None);
+        assert_eq!(owner_warning(None, Some("'root'@'%'")), None);
+    }
+
+    #[test]
+    fn an_inactive_view_takes_the_ones_on_it_and_forgets_its_data() {
+        let cur = MvSpec {
+            trigger: Trigger::Manual,
+            active: true,
+            properties: Vec::new(),
+        };
+        let off = MvSpec {
+            active: false,
+            ..cur.clone()
+        };
+        let p = mv_alter_plan("`d`.`v`", "d.v", &cur, &off)
+            .unwrap()
+            .unwrap();
+        assert_eq!(p.steps, ["ALTER MATERIALIZED VIEW `d`.`v` INACTIVE"]);
+        let w = p.warnings();
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(w[0].contains("también desactiva las vistas materializadas construidas sobre esta"));
+        assert!(w[1].contains("la vuelve a calcular entera"));
+        // Active again, a new trigger, a property: nothing said.
+        for (a, b) in [
+            (&off, &cur),
+            (
+                &cur,
+                &MvSpec {
+                    trigger: Trigger::Async,
+                    ..cur.clone()
+                },
+            ),
+            (
+                &cur,
+                &MvSpec {
+                    properties: vec![("partition_refresh_number".into(), "1".into())],
+                    ..cur.clone()
+                },
+            ),
+        ] {
+            let p = mv_alter_plan("`d`.`v`", "d.v", a, b).unwrap().unwrap();
+            assert!(p.warnings().is_empty(), "{:?}", p.head);
         }
     }
 

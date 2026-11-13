@@ -29,9 +29,10 @@
 //!   own: no statement deletes them.
 
 use super::{
-    action_keys, bad, databases, datetime, form_time, name, no_action, no_kind, one_line, pick,
-    properties_list, properties_sql, property_changes, read_properties, refresh_head, with_refresh,
-    Plan, Vals, PAUSE, REFRESH, REFRESH_COMPLETE, RESUME,
+    action_keys, bad, current_user, databases, datetime, form_time, name, no_action, no_kind,
+    one_line, other_owner, pick, properties_list, properties_sql, property_changes,
+    read_properties, refresh_head, warning, with_refresh, Plan, Vals, PAUSE, REFRESH,
+    REFRESH_COMPLETE, RESUME,
 };
 use crate::jobs::starrocks::{self as sj, Task, View};
 use crate::jobs::{quoted, rows_if_present};
@@ -46,9 +47,16 @@ use std::collections::BTreeMap;
 const NO_TASKS: &str = "Esta versión de StarRocks no tiene tareas.";
 const VIEWS_NOTE: &str = "Los refrescos de las vistas materializadas se crean y se borran con la vista: acá se cambia cuándo y cómo se refrescan.";
 const SUSPENDED_NOTE: &str = "StarRocks no informa si una tarea periódica está suspendida: el formulario pregunta qué hacer con su programación al guardar.";
-const RECREATED: &str = "StarRocks no cambia la programación, la instrucción, la base ni el nombre de una tarea: guardar uno de ellos la borra y la vuelve a crear, y se pierden su historial de ejecuciones y su suspensión.";
+const RECREATED: &str = "StarRocks no cambia la programación, la instrucción, la base ni el nombre de una tarea: guardar uno de ellos la borra y la vuelve a crear, y se pierde su historial de ejecuciones.";
+const PROPERTY_RECREATED: &str = "StarRocks no le quita una propiedad a una tarea: guardar este cambio la borra y la vuelve a crear, y se pierde su historial de ejecuciones.";
+/// A scheduled task submitted again with its state kept: StarRocks
+/// doesn't say whether it was suspended, and a new one is active.
+const SUSPENSION_LOST: &str = "StarRocks no informa si la tarea estaba suspendida: creada de nuevo, queda activa y corre según su programación.";
+/// `ALTER TASK … SUSPEND` after `SUBMIT TASK`.
+const SUSPENDED_AFTER: &str = "StarRocks no crea una tarea suspendida: el script la suspende después de crearla, y si eso falla, la tarea queda activa.";
 const RUNS_AGAIN: &str =
     "Una tarea sin programación corre en cuanto se crea: volver a crearla la ejecuta otra vez.";
+const LEFT_DROPPED: &str = "Si la creación falla, la tarea anterior queda borrada: ya corrió, y DBine no la vuelve a crear porque la ejecutaría otra vez.";
 const VIEW_CREATED_WITH: &str =
     "El refresco de una vista materializada se crea y se borra con la vista.";
 const PIPE_TASK: &str = "Esta tarea es de un pipe (CREATE PIPE): StarRocks la crea y la borra con las cargas del pipe, así que DBine no la cambia ni la borra. Para cambiarla, cambiá el pipe.";
@@ -291,36 +299,63 @@ fn state_sql(name: &str, change: StateChange) -> Option<String> {
 
 pub(super) fn create_plan(t: &TaskSpec, change: StateChange) -> Plan {
     let mut steps = submit_steps(t);
-    if t.every.is_some() {
-        steps.extend(state_sql(&t.name, change));
-    }
+    let change = if t.every.is_some() {
+        change
+    } else {
+        StateChange::Keep
+    };
+    let saved = state_after(&mut steps, &t.name, change);
     let mut head = vec![format!("Crea la tarea «{}» de StarRocks", t.name)];
     if t.every.is_none() {
         head.push("Sin programación, la tarea corre en cuanto se crea.".into());
     }
+    if change == StateChange::Suspend {
+        head.push(warning(SUSPENDED_AFTER));
+    }
     Plan {
         head,
         steps,
+        saved,
         id: Some(sj::task_id(&t.name, false)),
         ..Plan::default()
     }
+}
+
+/// The schedule's state set after `steps` (a `SUBMIT TASK`, an `ALTER
+/// TASK … SET`); the step before it, when there are both: a state step
+/// that fails leaves what that one saved.
+fn state_after(steps: &mut Vec<String>, name: &str, change: StateChange) -> Option<usize> {
+    steps.push(state_sql(name, change)?);
+    steps.len().checked_sub(2)
+}
+
+/// Nothing but the properties differs.
+fn same_rest(cur: &TaskSpec, want: &TaskSpec) -> bool {
+    cur.name == want.name
+        && cur.database == want.database
+        && cur.every == want.every
+        && cur.definition == want.definition
+}
+
+/// The change drops the task and submits it again: anything but its
+/// properties set and its schedule's state.
+pub(super) fn recreates(cur: &TaskSpec, want: &TaskSpec) -> bool {
+    let (_, removed) = property_changes(&cur.properties, &want.properties);
+    !(same_rest(cur, want) && removed.is_empty())
 }
 
 /// From `cur` to `want`: properties and the schedule's state in place,
 /// anything else by submitting the task again.
 pub(super) fn alter_plan(cur: &TaskSpec, want: &TaskSpec, change: StateChange) -> Option<Plan> {
     let id = Some(sj::task_id(&want.name, false));
-    let (set, removed) = property_changes(&cur.properties, &want.properties);
-    let same_rest = cur.name == want.name
-        && cur.database == want.database
-        && cur.every == want.every
-        && cur.definition == want.definition;
+    let (set, _) = property_changes(&cur.properties, &want.properties);
+    let same_rest = same_rest(cur, want);
     let change = if want.every.is_some() {
         change
     } else {
         StateChange::Keep
     };
-    if same_rest && removed.is_empty() {
+    if !recreates(cur, want) {
         let mut steps = Vec::new();
         if !set.is_empty() {
             steps.push(format!(
@@ -329,28 +364,42 @@ pub(super) fn alter_plan(cur: &TaskSpec, want: &TaskSpec, change: StateChange) -
                 properties_sql(&set)
             ));
         }
-        steps.extend(state_sql(&cur.name, change));
+        let saved = state_after(&mut steps, &cur.name, change);
         if steps.is_empty() {
             return None;
         }
         return Some(Plan {
             head: vec![format!("Cambia la tarea «{}» de StarRocks", cur.name)],
             steps,
+            saved,
             id,
             ..Plan::default()
         });
     }
     let mut steps = vec![format!("DROP TASK {}", quoted(&cur.name))];
     steps.extend(submit_steps(want));
-    if want.every.is_some() {
-        steps.extend(state_sql(&want.name, change));
-    }
+    // `change` is `Keep` for a task without a schedule.
+    let saved = state_after(&mut steps, &want.name, change);
     let mut head = vec![
         format!("Cambia la tarea «{}» de StarRocks", cur.name),
-        RECREATED.into(),
+        // Only a property taken away: the reason is that one.
+        warning(if same_rest {
+            PROPERTY_RECREATED
+        } else {
+            RECREATED
+        }),
     ];
     if want.every.is_none() {
-        head.push(RUNS_AGAIN.into());
+        head.push(warning(RUNS_AGAIN));
+    }
+    match change {
+        // A suspension there may have been, not set again: lost. Without a
+        // schedule before or now, there was or is none.
+        StateChange::Keep if cur.every.is_some() && want.every.is_some() => {
+            head.push(warning(SUSPENSION_LOST));
+        }
+        StateChange::Suspend => head.push(warning(SUSPENDED_AFTER)),
+        _ => {}
     }
     // A task without a schedule already ran: submitted again to undo a
     // failed change, it would run its statement once more.
@@ -358,7 +407,7 @@ pub(super) fn alter_plan(cur: &TaskSpec, want: &TaskSpec, change: StateChange) -
     head.push(if restorable {
         "Si la creación falla, DBine vuelve a crear la tarea como estaba.".into()
     } else {
-        "Si la creación falla, la tarea anterior queda borrada: ya corrió, y DBine no la vuelve a crear porque la ejecutaría otra vez.".into()
+        warning(LEFT_DROPPED)
     });
     Some(Plan {
         head,
@@ -369,6 +418,7 @@ pub(super) fn alter_plan(cur: &TaskSpec, want: &TaskSpec, change: StateChange) -
         } else {
             Vec::new()
         },
+        saved,
         id,
         ..Plan::default()
     })
@@ -690,14 +740,24 @@ pub(super) fn mv_alter_plan(
     if steps.is_empty() {
         return Ok(None);
     }
+    let mut head = vec![format!(
+        "Cambia el refresco de la vista materializada «{label}»"
+    )];
+    if cur.active && !want.active {
+        // `INACTIVE` goes down to the views on top of this one and clears
+        // what the view knows it holds (its base tables' versions).
+        head.push(warning(INACTIVE_DEPENDENTS));
+        head.push(warning(INACTIVE_FORGETS));
+    }
     Ok(Some(Plan {
-        head: vec![format!(
-            "Cambia el refresco de la vista materializada «{label}»"
-        )],
+        head,
         steps,
         ..Plan::default()
     }))
 }
+
+const INACTIVE_DEPENDENTS: &str = "StarRocks también desactiva las vistas materializadas construidas sobre esta, y activarla de nuevo no las activa.";
+const INACTIVE_FORGETS: &str = "Una vista desactivada olvida qué datos de sus tablas base ya tiene: al activarla de nuevo, su próximo refresco la vuelve a calcular entera.";
 
 pub(super) fn mv_spec_from(values: &FormValues) -> Result<MvSpec> {
     let v = Vals(&values.values);
@@ -935,10 +995,29 @@ pub(super) async fn plan(
             let dbs = databases(s).await;
             let cur = spec_of(&t);
             let (want, change) = task_spec_from(values, &dbs)?;
-            Ok(alter_plan(&cur, &want, change)
-                .unwrap_or_else(|| Plan::nothing(&cur.name, id.to_string())))
+            let mut plan = alter_plan(&cur, &want, change);
+            if let Some(p) = plan.as_mut().filter(|_| recreates(&cur, &want)) {
+                let me = current_user(s).await;
+                if let Some(w) = owner_warning(t.creator.as_deref(), me.as_deref()) {
+                    p.add_warning(w);
+                }
+            }
+            Ok(plan.unwrap_or_else(|| Plan::nothing(&cur.name, id.to_string())))
         }
     }
+}
+
+/// A task submitted again by another account than its creator (`creator`,
+/// `CREATOR` of `information_schema.tasks`): StarRocks makes the login
+/// (`me`, `CURRENT_USER()`) its creator and runs it with the login's
+/// privileges.
+pub(super) fn owner_warning(creator: Option<&str>, me: Option<&str>) -> Option<String> {
+    let owner = other_owner(creator, me)?;
+    Some(warning(&format!(
+        "La tarea pasa de «{}» a «{}»: StarRocks la vuelve a crear a nombre de quien guarda el cambio y la ejecuta con los privilegios de esa cuenta.",
+        owner,
+        me?
+    )))
 }
 
 pub(super) async fn delete_plan(s: &mut MySqlSession, kind: &str, id: &str) -> Result<Plan> {

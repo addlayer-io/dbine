@@ -33,8 +33,8 @@
 //!   [definer][db.event] …`).
 
 use super::{
-    bad, databases, datetime, form_time, name, no_action, no_kind, one_line, pick, shown, Plan,
-    Vals,
+    bad, databases, datetime, form_time, name, no_action, no_kind, one_line, pick, shown, warning,
+    Plan, Vals,
 };
 use crate::jobs::clock::Civil;
 use crate::jobs::events::{self as ev, Event};
@@ -610,13 +610,68 @@ pub(super) fn create_plan(spec: &Spec, f: Flavor) -> Plan {
     )
 }
 
+/// The change sets the event's schedule again (`ON SCHEDULE`): a new one,
+/// or a new zone, which the event takes from the session that sets it.
+pub(super) fn sets_schedule(cur: &Spec, want: &Spec, f: Flavor) -> bool {
+    let zone_changed = !f.ob && !cur.time_zone.eq_ignore_ascii_case(&want.time_zone);
+    cur.schedule != want.schedule || zone_changed
+}
+
+/// A one-time event's time still ahead on the server's clock (`now`, in
+/// the event's zone), where the server would otherwise do something else
+/// with only a note: MySQL and MariaDB don't create, and refuse to move
+/// to a past time, an event dropped when done (`NOT PRESERVE`), and they
+/// create or change an enabled one that is kept (`PRESERVE`) disabled.
+pub(super) fn not_past(spec: &Spec, now: Option<&str>) -> Result<()> {
+    let (Schedule::At(t), Some(n)) = (&spec.schedule, now) else {
+        return Ok(());
+    };
+    if t.as_str() > n {
+        return Ok(());
+    }
+    if !spec.preserve {
+        Err(bad(format!(
+            "«Fecha y hora» ya pasó (en la zona del evento son las {n}): el servidor no programa en una hora pasada un evento de una sola vez que se borra al terminar."
+        )))
+    } else if spec.status == Status::Enabled {
+        Err(bad(format!(
+            "«Fecha y hora» ya pasó (en la zona del evento son las {n}): el servidor deja deshabilitado un evento de una sola vez con una hora pasada. Elegí una hora futura o el estado Deshabilitado."
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// The server's time now in `zone` (`SYSTEM`, `+03:00`, a name), as an
+/// event's `AT` reads it; `None` when it can't say (a named zone without
+/// the zone tables).
+async fn now_in(s: &mut MySqlSession, zone: &str) -> Option<String> {
+    s.optional_rows(&format!(
+        "SELECT CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', {}) AS ev_now",
+        lit(zone)
+    ))
+    .await
+    .first()
+    .and_then(|r| at(r, 0))
+    .and_then(|t| super::parse_datetime(&t))
+}
+
+/// [`not_past`] for a statement that sets `spec`'s schedule. Not on
+/// OceanBase, whose event scheduler isn't MySQL's.
+async fn check_time(s: &mut MySqlSession, c: &Ctx, spec: &Spec) -> Result<()> {
+    if c.ob || !matches!(spec.schedule, Schedule::At(_)) {
+        return Ok(());
+    }
+    let now = now_in(s, &spec.time_zone).await;
+    not_past(spec, now.as_deref())
+}
+
 /// The `ALTER EVENT` from `cur` to `want`, only what changed; `None` when
 /// nothing did.
 pub(super) fn alter_plan(cur: &Spec, want: &Spec, f: Flavor) -> Option<Plan> {
     let mut clauses = Vec::new();
     let mut before = None;
-    let zone_changed = !f.ob && !cur.time_zone.eq_ignore_ascii_case(&want.time_zone);
-    if cur.schedule != want.schedule || zone_changed {
+    if sets_schedule(cur, want, f) {
         let mut schedule = schedule_sql(&want.schedule);
         if let Schedule::Every { starts, ends, .. } = &want.schedule {
             // Left out, STARTS would stay where ALTER keeps it.
@@ -705,12 +760,25 @@ pub(super) fn alter_plan(cur: &Spec, want: &Spec, f: Flavor) -> Option<Plan> {
             "Este servidor no quita el fin de una programación con un solo ALTER EVENT: el script la pasa antes a una sola vez lejana."
                 .into(),
         );
-        plan.head
-            .push("Si el cambio falla, DBine le devuelve al evento su programación.".into());
+        plan.head.push(warning(&format!(
+            "El cambio va en dos ALTER EVENT y puede quedar a medias: si el segundo falla, DBine le devuelve al evento su programación, y si eso también falla, el evento queda programado una sola vez, para el {CLEAR_ENDS_AT}."
+        )));
+    }
+    if !cur.definer.is_empty() && cur.definer != want.definer {
+        // The event runs its statement with its definer's privileges.
+        plan.head.push(warning(&format!(
+            "El definidor del evento pasa de «{}» a «{}»: desde ahora el evento corre con los privilegios de esa cuenta.",
+            cur.definer, want.definer
+        )));
+        if !f.any_definer {
+            plan.head.push(warning(TAKEN_OVER));
+        }
     }
     plan.id = Some(ev::id(&want.schema, &want.name));
     Some(plan)
 }
+
+const TAKEN_OVER: &str = "Este usuario no puede nombrar a otra cuenta como definidor: después de guardar ya no podrá devolverle el evento a su definidor de ahora.";
 
 pub(super) fn drop_plan(schema: &str, name: &str, f: Flavor) -> Plan {
     let mut steps = Vec::new();
@@ -1235,6 +1303,7 @@ pub(super) async fn plan(
         None => {
             let defs = definers(s, &c, None).await;
             let spec = spec_from(values, &c, &dbs, &defs, None)?;
+            check_time(s, &c, &spec).await?;
             Ok(create_plan(&spec, c.flavor()))
         }
         Some(id) => {
@@ -1246,6 +1315,9 @@ pub(super) async fn plan(
             }
             let defs = definers(s, &c, Some(&cur.definer)).await;
             let want = spec_from(values, &c, &dbs, &defs, Some(&cur))?;
+            if sets_schedule(&cur, &want, c.flavor()) {
+                check_time(s, &c, &want).await?;
+            }
             Ok(alter_plan(&cur, &want, c.flavor()).unwrap_or_else(|| {
                 Plan::nothing(
                     &format!("{}.{}", cur.schema, cur.name),
