@@ -15,7 +15,7 @@
 
 use crate::{http_error, text, Conn, DrillSession};
 use base64::Engine as _;
-use chacha20poly1305::aead::{Aead, KeyInit, OsRng};
+use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use dbine_driver::transfer::{BatchBuilder, BatchSinkRef, Cell, ReadSpec, TransferColumn};
 use dbine_driver::{Error, Result};
@@ -435,7 +435,8 @@ struct Spill {
     cipher: ChaCha20Poly1305,
     /// Rows not sealed yet, each one length-prefixed.
     block: Vec<u8>,
-    /// Blocks sealed so far; block `n` is sealed with nonce `n`.
+    /// Blocks sealed so far; block `n` carries `n` as associated data, so
+    /// blocks can't be reordered or dropped unnoticed.
     sealed: u64,
     /// The largest sealed block (what a read may allocate).
     largest: usize,
@@ -461,13 +462,6 @@ fn spill_changed() -> Error {
         "las filas guardadas en el archivo temporal no se pudieron leer: el archivo cambió mientras llegaban sus tipos"
             .into(),
     )
-}
-
-/// Block `n`'s nonce: unique for the spill's key, which seals nothing else.
-fn spill_nonce(n: u64) -> Nonce {
-    let mut b = [0u8; 12];
-    b[4..].copy_from_slice(&n.to_le_bytes());
-    *Nonce::from_slice(&b)
 }
 
 impl Pending {
@@ -516,9 +510,11 @@ impl Pending {
         file.seek(std::io::SeekFrom::Start(0))
             .map_err(spill_error)?;
         let mut len = [0u8; 8];
+        let mut nonce = [0u8; 12];
         let mut sealed = Vec::new();
         for n in 0..spill.sealed {
             file.read_exact(&mut len).map_err(|_| spill_changed())?;
+            file.read_exact(&mut nonce).map_err(|_| spill_changed())?;
             let len = usize::try_from(u64::from_le_bytes(len)).unwrap_or(usize::MAX);
             if len > spill.largest {
                 return Err(spill_changed());
@@ -527,7 +523,13 @@ impl Pending {
             file.read_exact(&mut sealed).map_err(|_| spill_changed())?;
             let block = spill
                 .cipher
-                .decrypt(&spill_nonce(n), sealed.as_slice())
+                .decrypt(
+                    Nonce::from_slice(&nonce),
+                    Payload {
+                        msg: &sealed,
+                        aad: &n.to_le_bytes(),
+                    },
+                )
                 .map_err(|_| spill_changed())?;
             let mut rest = block.as_slice();
             while !rest.is_empty() {
@@ -582,18 +584,26 @@ impl Spill {
         Ok(())
     }
 
-    /// Seal the rows not sealed yet and write them: the length, then the
-    /// sealed block.
+    /// Seal the rows not sealed yet and write them: the sealed block's
+    /// length, its random nonce, then the block.
     fn seal(&mut self) -> std::io::Result<()> {
         use std::io::Write as _;
         if self.block.is_empty() {
             return Ok(());
         }
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         let sealed = self
             .cipher
-            .encrypt(&spill_nonce(self.sealed), self.block.as_slice())
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: &self.block,
+                    aad: &self.sealed.to_le_bytes(),
+                },
+            )
             .map_err(|_| std::io::Error::other("ChaCha20-Poly1305"))?;
         self.file.write_all(&(sealed.len() as u64).to_le_bytes())?;
+        self.file.write_all(&nonce)?;
         self.file.write_all(&sealed)?;
         self.sealed += 1;
         self.largest = self.largest.max(sealed.len());
