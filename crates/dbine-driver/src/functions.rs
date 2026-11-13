@@ -135,10 +135,7 @@ pub fn parse_catalog(text: &str, version: Option<&str>) -> Vec<FunctionInfo> {
         let mut since = None;
         let mut until = None;
         // Trailing `since=` / `until=`, in either order.
-        loop {
-            let Some(at) = rest.rfind(char::is_whitespace) else {
-                break;
-            };
+        while let Some(at) = rest.rfind(char::is_whitespace) {
             let last = &rest[at + 1..];
             if let Some(v) = last.strip_prefix("since=") {
                 since = Some(v);

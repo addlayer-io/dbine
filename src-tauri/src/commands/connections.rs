@@ -661,6 +661,9 @@ pub async fn connect(
             .or_default()
             .insert("password".to_string(), p);
     }
+    // A (re)connection may reach another server version: the editor's
+    // function catalogs are read again.
+    state.functions.forget_connection(&args.connection_id);
     let result = async {
         let cfg = state.resolve_config(&args.connection_id)?;
         let key = meta_key(&args.connection_id, "");

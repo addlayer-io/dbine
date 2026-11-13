@@ -34,7 +34,7 @@ import { qCompletion, qLanguage, qPath } from '../composables/qLanguage';
 import { editorTheme } from '../composables/editorTheme';
 import { editorFontSize, resolvedTheme } from '../composables/appearance';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
-import type { Language } from '../api/types';
+import type { FunctionInfo, Language } from '../api/types';
 import { useTranslation } from 'i18next-vue';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import type { Snippet } from '../composables/snippets';
@@ -43,13 +43,15 @@ import {
   fileCompletion, isTableSlot, nameCompletion, nameTree, quotePath, readerPathAt, readerSnippet, tableSlotAt,
   type NameNode,
 } from '../composables/sqlCompletion';
+import { functionCompletion, functionFlavor, functionIndex, offersAny, withoutFunctionNames, type FunctionIndex } from '../composables/functionCompletion';
 import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand, runCommand } from '../composables/commands';
 import { useSettingsStore } from '../stores/settings';
 import type { TableHoverState, TableHoverTarget } from '../composables/tableHover';
 import type { RunLens } from '../composables/resultNames';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
-// (`language` + `dialect`), `schema` feeds table/column completion.
+// (`language` + `dialect`), `schema` feeds table/column completion and
+// `functions` the engine's functions (composables/functionCompletion.ts).
 // ⌘↵ runs the selection (or everything), ⌘⇧↵ the statement at the cursor,
 // ⌘L shows the estimated plan, ⌘⇧L runs with the actual plan, ⌘S saves.
 // Those keys come from the action registry (composables/commands.ts), so the
@@ -102,6 +104,10 @@ const props = withDefaults(defineProps<{
   /** Names completion offers besides the tables in `schema` (KDB+'s
    *  functions and variables), each with its object kind. */
   otherNames?: { label: string; kind: string }[];
+  /** The engine's function catalog (`Session::function_catalog`) for
+   *  completion. Null: not loaded yet, asked for with `needFunctions` on
+   *  focus and on completion; absent: none for this editor. */
+  functions?: FunctionInfo[] | null;
   /** "▶ Ejecutar" above each statement's first line (with its name, if a
    *  comment gives it one); the parent handles `lens`. Null: none. */
   lenses?: RunLens[] | null;
@@ -112,7 +118,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   language: 'sql', dialect: '', readOnly: false, schema: () => ({}), databases: undefined, placeholder: '', lint: null, runActions: false, menuItems: null, snippets: () => [], linkAt: null,
   fileReaders: false, grantedFiles: () => [], pickFile: null, params: () => [], tableHover: null, otherNames: () => [],
-  lenses: null, lensPlan: false, lensBusy: false,
+  lenses: null, lensPlan: false, lensBusy: false, functions: undefined,
 });
 
 const emit = defineEmits<{
@@ -135,6 +141,9 @@ const emit = defineEmits<{
   /** Completion was asked for while `schema` is empty. The list reopens
    *  when `schema` brings names. */
   needNames: [];
+  /** The editor took the focus, or completion was asked for, while
+   *  `functions` is null. The list reopens when they arrive. */
+  needFunctions: [];
   /** ⌘/Ctrl+click on a name `linkAt` knows. */
   navigate: [doc: string, pos: number];
   /** A lens was clicked: `lineFrom` is the start of its statement's line;
@@ -279,11 +288,50 @@ const fileSource = (ctx: CompletionContext): CompletionResult | null =>
 /** Where the cursor was when a table's columns were asked for. */
 let reopenAt: number | null = null;
 
+// -- the engine's functions (composables/functionCompletion.ts) -----------------------------
+/** The index of `functions`, built once per catalog. */
+let functionsOf: { list: readonly FunctionInfo[]; index: FunctionIndex } | null = null;
+function functionIndexNow(): FunctionIndex | null {
+  const list = props.functions;
+  if (!list) return null;
+  if (functionsOf?.list !== list) functionsOf = { list, index: functionIndex(list, (n) => t('editor:functionOverloads', { count: n })) };
+  return functionsOf.index;
+}
+/** Where the cursor was when completion found the catalog not loaded yet. */
+let functionsReopenAt: number | null = null;
+/** The catalog isn't loaded: ask the host for it (it loads it once). */
+function askFunctions() {
+  if (props.functions !== null || props.readOnly) return;
+  if (!functionFlavor(props.language, props.dialect) && props.dialect !== 'q') return;
+  emit('needFunctions');
+}
+/** What the functions offer at a position, once per state: the keywords
+ *  ask too, to leave out those a function stands for. */
+const functionsMemo = new WeakMap<EditorState, { pos: number; explicit: boolean; result: CompletionResult | null }>();
+function functionsAt(ctx: CompletionContext): CompletionResult | null {
+  const flavor = functionFlavor(props.language, props.dialect);
+  if (!flavor || props.readOnly) return null;
+  const index = functionIndexNow();
+  if (!index) {
+    if (props.functions === null && (ctx.explicit || ctx.matchBefore(/[\w$]$/))) functionsReopenAt = ctx.pos;
+    askFunctions();
+    return null;
+  }
+  // An engine without a catalog (or nothing this language takes): no reading at all.
+  if (!offersAny(index, flavor)) return null;
+  const memo = functionsMemo.get(ctx.state);
+  if (memo && memo.pos === ctx.pos && memo.explicit === ctx.explicit) return memo.result;
+  const result = functionCompletion(ctx, index, flavor);
+  functionsMemo.set(ctx.state, { pos: ctx.pos, explicit: ctx.explicit, result });
+  return result;
+}
+
 /** The SQL language with DBine's name completion, and keywords kept out of
  *  the list where a table name goes (or after a dot), so the names aren't
- *  buried under them. */
+ *  buried under them. Keywords rank below names and functions, and those
+ *  that name a function the list offers (MySQL's `LEFT`) are left out. */
 function sqlLanguage(dialect: SQLDialect): Extension {
-  const keywords = keywordCompletionSource(dialect, true);
+  const keywords = keywordCompletionSource(dialect, true, (label, type) => ({ label, type, boost: -2 }));
   const afterDot = (ctx: CompletionContext) => {
     const word = ctx.matchBefore(/[\w$#]*/);
     return /\.\s*$/.test(ctx.state.sliceDoc(Math.max(0, (word?.from ?? ctx.pos) - 2), word?.from ?? ctx.pos));
@@ -292,7 +340,13 @@ function sqlLanguage(dialect: SQLDialect): Extension {
     dialect.language,
     dialect.language.data.of({ autocomplete: nameSource(dialect) }),
     dialect.language.data.of({ autocomplete: fileSource }),
-    dialect.language.data.of({ autocomplete: (ctx: CompletionContext) => (tableSlotAt(ctx) || afterDot(ctx) ? null : keywords(ctx)) }),
+    dialect.language.data.of({
+      autocomplete: (ctx: CompletionContext) => {
+        if (tableSlotAt(ctx) || afterDot(ctx)) return null;
+        const r = keywords(ctx);
+        return r && !(r instanceof Promise) ? withoutFunctionNames(r, functionsAt(ctx)) : r;
+      },
+    }),
   ];
 }
 
@@ -303,7 +357,11 @@ function qExtension(): Extension {
   const source = (ctx: CompletionContext): CompletionResult | null => {
     if (inStringOrComment(ctx.state, ctx.pos)) return null;
     const n = names();
-    const { result, needColumns } = qCompletion(ctx, { tables: props.schema, others: props.otherNames });
+    const { result, needColumns } = qCompletion(ctx, { tables: props.schema, others: props.otherNames, functions: props.functions });
+    if (props.functions === null) {
+      if (result) functionsReopenAt = ctx.pos;
+      askFunctions();
+    }
     if (!Object.keys(props.schema).length && !props.otherNames.length && !n.namesAsked) {
       n.namesAsked = true;
       reopenAt = ctx.pos;
@@ -719,7 +777,7 @@ onMounted(() => {
           if (u.docChanged) emit('update:modelValue', u.state.doc.toString());
         }),
         openTableList,
-        EditorState.languageData.of(() => [{ autocomplete: snippetSource }, { autocomplete: paramSource }]),
+        EditorState.languageData.of(() => [{ autocomplete: snippetSource }, { autocomplete: paramSource }, { autocomplete: functionsAt }]),
         links,
         insertHints,
         insertTheme,
@@ -732,6 +790,7 @@ onMounted(() => {
   host.value!.addEventListener('keydown', onKeyCapture, true);
   host.value!.addEventListener('keydown', onKeyBubble);
   host.value!.addEventListener('focusin', claimCommands);
+  host.value!.addEventListener('focusin', askFunctions);
 });
 
 onBeforeUnmount(() => {
@@ -827,6 +886,15 @@ watch(() => [props.schema, props.databases], () => {
   const at = reopenAt;
   reopenAt = null;
   if (at !== null && view.state.selection.main.empty && view.state.selection.main.head === at) startCompletion(view);
+});
+// The catalog arrived: the list opens again if completion asked for it
+// where the cursor still is.
+watch(() => props.functions, (list) => {
+  const at = functionsReopenAt;
+  if (!list) return;
+  functionsReopenAt = null;
+  const sel = view?.state.selection.main;
+  if (view?.hasFocus && at !== null && sel?.empty && sel.head === at) startCompletion(view);
 });
 watch(() => props.readOnly, (r) => view?.dispatch({ effects: ro.reconfigure(EditorState.readOnly.of(r)) }));
 // The placeholder follows a language switch.

@@ -37,6 +37,7 @@ import {
   moveFileAliases, projectDefaultTarget, rememberAlias, rememberFileAlias, resolveTarget, targetText, type FileKey, type ResolvedTarget,
 } from '../composables/notebookTargets';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
+import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import { fileDocs, type FileDocHandle } from '../composables/tabDocument';
 import { notebookTitle } from '../composables/tabTitle';
 import { registerEditor, useAiStore } from '../stores/ai';
@@ -764,6 +765,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
       overridden: !emptyTarget(c.target),
       unresolved: !r.ok,
       params: paramCompletions.value,
+      functions: r.ok ? functionCatalog(r.target.connectionId, r.target.database) : undefined,
     };
   }
   return out;
@@ -781,6 +783,11 @@ watch(() => [...new Set((nb.value?.cells ?? []).flatMap((c) => {
 function needNames(cell: NotebookCell) {
   const r = resolved(cell);
   if (r.ok && !conns.isConnected(r.target.connectionId)) void conns.ensureConnected(r.target.connectionId, { auto: true });
+}
+/** A cell's editor asked for its target's functions (on focus, on completion). */
+function needFunctions(cell: NotebookCell) {
+  const r = resolved(cell);
+  if (r.ok) loadFunctionCatalog(r.target.connectionId, r.target.database);
 }
 function needColumns(cell: NotebookCell, path: string[]) {
   const r = resolved(cell);
@@ -1613,6 +1620,7 @@ const breadcrumbDir = computed(() => {
           @save="save"
           @need-columns="(p: string[]) => needColumns(cell, p)"
           @need-names="needNames(cell)"
+          @need-functions="needFunctions(cell)"
           @write-to="writeTo(cell)"
         />
       </template>

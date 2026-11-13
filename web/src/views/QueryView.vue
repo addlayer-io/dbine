@@ -31,6 +31,7 @@ import { useTasksStore } from '../stores/tasks';
 import { lintSourceFor, type LintProblem } from '../composables/lint';
 import { nameAt, unknownNames, type NameIndex } from '../composables/nameRefs';
 import { useTableHover } from '../composables/tableHoverData';
+import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import {
   fillParams, findParams, guessType, hasNull, paramItems, paramMarkers, type ParamItem, type ParamTarget, type ParamValue,
 } from '../composables/queryParams';
@@ -227,6 +228,12 @@ const otherNames = computed(() => {
     .filter((o) => !driver.value?.object_kinds.find((k) => k.id === o.kind)?.has_columns)
     .map((o) => ({ label: o.schema ? `${o.schema}.${o.name}` : o.name, kind: o.kind }));
 });
+
+/** The engine's functions for completion: read on the editor's first focus
+ *  or completion once the connection is open, kept until it closes or the
+ *  tab moves to another database (composables/functionCatalog.ts). */
+const functions = computed(() => functionCatalog(props.tab.connectionId, props.tab.database));
+const loadFunctions = () => loadFunctionCatalog(props.tab.connectionId, props.tab.database);
 
 /** On engines whose queries read the connection's other databases
  *  (`db.table`), those databases for completion: each one's names once
@@ -1608,6 +1615,7 @@ function runOverflow(i: number) {
           :dialect="editorDialect"
           :schema="schema"
           :other-names="otherNames"
+          :functions="functions"
           :databases="otherDatabases"
           :placeholder="$t('query:editorPlaceholder')"
           :lint="lintSource"
@@ -1619,6 +1627,7 @@ function runOverflow(i: number) {
           @need-columns="loadColumnsFor"
           @need-database="(db: string) => conns.loadObjects(props.tab.connectionId, db)"
           @need-names="loadNames"
+          @need-functions="loadFunctions"
           run-actions
           :menu-items="editorMenu"
           :snippets="snippets"

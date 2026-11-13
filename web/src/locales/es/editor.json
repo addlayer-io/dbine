@@ -35,6 +35,8 @@
   "insertColumn": "Columna {{n}} de {{total}}: {{name}}",
   "insertExtra": "Valor {{n}}: la lista tiene {{total}} columnas",
   "pickFile": "Elegir archivo…",
+  "functionOverloads_one": "+{{count}} sobrecarga",
+  "functionOverloads_other": "+{{count}} sobrecargas",
   "dataFiles": "Archivos de datos (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Ejecutar",

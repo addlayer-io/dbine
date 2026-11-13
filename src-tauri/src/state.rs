@@ -52,6 +52,9 @@ pub struct AppState {
     /// The explorer's cache (`cache.db`); unset if it couldn't be opened,
     /// and then the explorer simply waits for the server as before.
     pub cache: Arc<std::sync::OnceLock<dbine_core::ExplorerCache>>,
+    /// The editor's function catalogs read this run, per connection and
+    /// database (`function_catalog`); a connection's go when it closes.
+    pub functions: Arc<crate::commands::functions::FunctionCatalogs>,
     /// Sessions being opened, by key: callers that ask for the same key
     /// while it opens wait for that attempt and share its outcome instead
     /// of each starting a connect of their own (see `session`).
@@ -202,6 +205,7 @@ impl AppState {
             sync: Arc::new(std::sync::OnceLock::new()),
             tunnels: Arc::default(),
             cache: Arc::new(std::sync::OnceLock::new()),
+            functions: Arc::default(),
             opening: Arc::default(),
             disconnects: Arc::default(),
         }
@@ -692,6 +696,9 @@ impl AppState {
         crate::secret_sources::forget_cached(connection_id);
         // Vault's database credentials: their leases are revoked.
         crate::secret_sources::release_leases(connection_id);
+        // Its function catalogs: read again on the next session (another
+        // server version, other extensions, the edited connection's server).
+        self.functions.forget_connection(connection_id);
         self.sessions.retain(|_, e| {
             let keep = e.connection_id != connection_id;
             if !keep {
