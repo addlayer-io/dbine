@@ -1,0 +1,236 @@
+# The operators Amazon DocumentDB supports, from its "Supported MongoDB
+# APIs, operations, and data types" page: the MongoDB names it supports,
+# each with `since=` the first DocumentDB version (3.6, 4.0, 5.0, 8.0, as
+# its buildInfo reports) that supports it in any of its uses. Operators the
+# page doesn't list, or lists as unsupported everywhere, are left out.
+o $addFields
+o $bucket since=8.0
+o $bucketAuto since=8.0
+o $changeStream
+o $changeStreamSplitLargeEvent since=8.0
+o $collStats since=4.0
+o $count
+o $currentOp
+o $facet since=8.0
+o $geoNear
+o $graphLookup since=8.0
+o $group
+o $indexStats
+o $limit
+o $listSearchIndexes since=8.0
+o $lookup
+o $match
+o $merge since=8.0
+o $out
+o $project
+o $redact
+o $replaceRoot
+o $replaceWith since=8.0
+o $sample
+o $search since=5.0
+o $set
+o $setWindowFields since=8.0
+o $skip
+o $sort
+o $sortByCount since=8.0
+o $unset
+o $unwind
+o $vectorSearch since=8.0
+o $abs
+o $add
+o $ceil since=4.0
+o $divide
+o $exp since=4.0
+o $floor since=4.0
+o $ln since=4.0
+o $log since=4.0
+o $log10 since=4.0
+o $mod
+o $multiply
+o $pow since=5.0
+o $round since=8.0
+o $sigmoid since=8.0
+o $sqrt since=4.0
+o $subtract
+o $trunc since=8.0
+o $arrayElemAt
+o $arrayToObject
+o $concatArrays
+o $filter
+o $first
+o $firstN since=8.0
+o $in
+o $indexOfArray
+o $isArray
+o $last
+o $lastN since=8.0
+o $map
+o $maxN since=8.0
+o $minN since=8.0
+o $objectToArray
+o $range
+o $reduce
+o $reverseArray
+o $size
+o $slice
+o $sortArray since=8.0
+o $zip
+o $bitAnd since=8.0
+o $bitNot since=8.0
+o $bitOr since=8.0
+o $bitXor since=8.0
+o $and
+o $not
+o $or
+o $cmp
+o $eq
+o $gt
+o $gte
+o $lt
+o $lte
+o $ne
+o $cond
+o $ifNull
+o $switch since=4.0
+o $binarySize since=8.0
+o $bsonSize since=8.0
+o $dateAdd since=5.0
+o $dateDiff since=5.0
+o $dateFromParts since=5.0
+o $dateFromString
+o $dateSubtract since=5.0
+o $dateToParts since=5.0
+o $dateToString
+o $dateTrunc since=8.0
+o $dayOfMonth
+o $dayOfWeek
+o $dayOfYear
+o $hour
+o $isoDayOfWeek
+o $isoWeek
+o $isoWeekYear
+o $millisecond
+o $minute
+o $month
+o $second
+o $toDate since=4.0
+o $week
+o $year
+o $literal
+o $getField since=5.0
+o $rand since=5.0
+o $sampleRate since=8.0
+o $mergeObjects
+o $let
+o $allElementsTrue since=4.0
+o $anyElementTrue since=4.0
+o $setDifference since=4.0
+o $setEquals
+o $setIntersection
+o $setIsSubset
+o $setUnion
+o $concat
+o $indexOfBytes
+o $indexOfCP
+o $ltrim since=4.0
+o $regexFind since=5.0
+o $regexFindAll since=5.0
+o $regexMatch since=5.0
+o $replaceAll since=5.0
+o $replaceOne since=5.0
+o $rtrim since=4.0
+o $split
+o $strLenBytes
+o $strLenCP
+o $strcasecmp
+o $substr
+o $substrBytes
+o $substrCP
+o $toLower
+o $toString since=4.0
+o $toUpper
+o $trim since=4.0
+o $meta since=5.0
+o $tsIncrement since=8.0
+o $tsSecond since=8.0
+o $sin since=8.0
+o $cos since=8.0
+o $tan since=8.0
+o $asin since=8.0
+o $acos since=8.0
+o $atan since=8.0
+o $atan2 since=8.0
+o $asinh since=8.0
+o $acosh since=8.0
+o $atanh since=8.0
+o $sinh since=8.0
+o $cosh since=8.0
+o $tanh since=8.0
+o $degreesToRadians since=8.0
+o $radiansToDegrees since=8.0
+o $convert since=4.0
+o $isNumber since=8.0
+o $toBool since=4.0
+o $toDecimal since=4.0
+o $toDouble since=4.0
+o $toInt since=4.0
+o $toLong since=4.0
+o $toObjectId since=4.0
+o $toUUID since=8.0
+o $type
+o $addToSet
+o $avg
+o $bottom since=8.0
+o $bottomN since=8.0
+o $max
+o $median since=8.0
+o $min
+o $percentile since=8.0
+o $push
+o $stdDevPop since=8.0
+o $stdDevSamp since=8.0
+o $sum
+o $top since=8.0
+o $topN since=8.0
+o $covariancePop since=8.0
+o $covarianceSamp since=8.0
+o $denseRank since=8.0
+o $documentNumber since=8.0
+o $rank since=8.0
+o $nin
+o $nor
+o $exists
+o $expr since=4.0
+o $jsonSchema since=4.0
+o $regex
+o $text since=5.0
+o $geoIntersects
+o $geoWithin
+o $near
+o $nearSphere
+o $geometry
+o $maxDistance
+o $minDistance
+o $all
+o $elemMatch
+o $bitsAllClear
+o $bitsAllSet
+o $bitsAnyClear
+o $bitsAnySet
+o $comment
+o $natural
+o $currentDate
+o $inc
+o $mul
+o $rename
+o $setOnInsert
+o $pop
+o $pull
+o $pullAll
+o $each
+o $position
+o $bit
+o $$DESCEND
+o $$PRUNE
+o $$KEEP
+o $$ROOT

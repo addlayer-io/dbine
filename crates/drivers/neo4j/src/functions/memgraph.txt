@@ -1,0 +1,113 @@
+# Memgraph's built-in Cypher functions, for the editor's completion, as
+# Memgraph's documentation lists them (memgraph.com/docs/querying/functions),
+# with their signatures. Memgraph doesn't list its built-ins (mg.functions()
+# lists the query modules' functions, read from the server on top of these).
+# `since=` is the Memgraph release that added each one, as its release notes
+# date them (SHOW VERSION gives the server's). Overloads are separate lines;
+# a namespaced name (point.distance) has its namespace as the schema.
+s duration(value: NULL|string|Duration) -> NULL|Duration
+s date(value: NULL|string|Date|LocalDateTime|ZonedDateTime) -> NULL|Date
+s localTime(value: NULL|string|LocalTime|LocalDateTime|ZonedDateTime) -> NULL|LocalTime
+s localDateTime(value: NULL|string|LocalDateTime|ZonedDateTime) -> NULL|LocalDateTime
+s datetime(value: NULL|string|map|ZonedDateTime) -> NULL|ZonedDateTime
+s assert(expression: boolean, message: string = null)
+s coalesce(expression: any [, expression: any]*) -> any
+s counter(name: string, initial-value: integer, increment: integer = 1) -> integer
+s degree(node: Node) -> integer
+s outDegree(node: Node) -> integer
+s inDegree(node: Node) -> integer
+s endNode(relationship: Relationship) -> Node
+s getHopsCounter() -> integer since=3.4.0
+s head(list: List[any]) -> any
+s id(value: Node|Relationship) -> integer
+s elementId(value: Node|Relationship) -> string since=3.11.0
+s last(list: List[any]) -> any
+s length(value: List|string|Map|Path) -> integer
+s nullIf(value1: any, value2: any) -> any since=3.14.0
+s properties(value: Node|Relationship) -> Map[string, any]
+s propertySize(entity: Node|Relationship, property-name: string) -> integer since=2.15.0
+s randomUUID() -> string
+s size(value: List|string|Map|Path) -> integer
+s startNode(relationship: Relationship) -> Node
+s toBoolean(value: boolean|integer|string) -> boolean
+s toFloat(value: number|string) -> float
+s toInteger(value: boolean|number|string) -> integer
+s toBooleanOrNull(value: any) -> boolean since=3.11.0
+s toFloatOrNull(value: any) -> float since=3.11.0
+s toIntegerOrNull(value: any) -> integer since=3.11.0
+s toString(value: any) -> string
+s toStringOrNull(value: any) -> string since=3.0.0
+s type(relationship: Relationship) -> string
+s timestamp() -> integer
+s valueType(any) -> string
+s username() -> string since=3.8.0
+s roles(db_name?: string) -> List[string] since=3.8.0
+s exists(pattern: Pattern)
+s all(variable IN list WHERE predicate)
+s any(element IN list WHERE predicate_using_element)
+s extract(variable IN list|expression)
+s labels(node: Node) -> List[string]
+s nodes(path: Path) -> List[Node]
+s none(variable IN list WHERE predicate)
+s range(start-number: integer, end-number: integer, increment: integer = 1) -> List[integer]
+s reduce(accumulator = initial_value, variable IN list|expression)
+s relationships(path: Path) -> List[Relationship]
+s single(variable IN list WHERE predicate)
+s tail(list: List[any]) -> List[any]
+s toBooleanList(list: List[any]) -> List[boolean] since=3.8.0
+s toFloatList(list: List[any]) -> List[float] since=3.8.0
+s toIntegerList(list: List[any]) -> List[integer] since=3.8.0
+s toStringList(list: List[any]) -> List[string] since=3.11.0
+s toSet(list: List[any]) -> List[any] since=3.1.0
+s uniformSample(list: List[any], size: integer) -> List[any]
+s keys(map[Any, Any]|Node|Relationship) -> List[Any]
+s values(map[Any, Any]|Node|Relationship) -> List[Any]
+s ToEnum(value: string) -> enum
+s ToEnum(name: string, value: string) -> enum
+s point(parameters: map) -> null|point
+s point.distance(x: null|point, y: null|point) -> null|float
+s point.withinbbox(point: null|point, lower_left_corner: null|point, upper_right_corner: null|point) -> null|boolean
+s abs(number: integer|float) -> integer|float
+s acos(number: integer|float) -> float
+s asin(number: integer|float) -> float
+s atan(number: integer|float) -> float
+s atan2(y: integer|float, x: integer|float) -> float
+s ceil(number: integer|float) -> float
+s cos(number: integer|float) -> float
+s e() -> float
+s exp(number: integer|float) -> float
+s floor(number: integer|float) -> float
+s log(number: integer|float) -> float
+s log10(number: integer|float) -> float
+s pi() -> float
+s rand() -> float
+s round(number: integer|float) -> float
+s sign(number: integer| float) -> integer
+s sin(number: integer|float) -> float
+s sqrt(number: integer|float) -> float
+s tan(number: integer|float) -> float
+a avg(row: int|float) -> float
+a collect(values: any) -> List[any]
+a collect(key: string, value: any) -> Map[string, any]
+a count(values: any) -> integer
+a max(row: any) -> any
+a min(row: any) -> any
+a sum(row: integer|float) -> integer|float
+a project(row: path) -> map("nodes":list[Node], "edges":list[Edge])
+s project(nodes: List[Node], edges:List[Edge]) -> map("nodes":list[Node], "edges":list[Edge])
+a derive(row: path, options: Map) -> map("nodes":list[Node], "edges":list[Edge]) since=3.11.0
+s contains(string: string, substring: string) -> boolean
+s endsWith(string: string, substring: string) -> boolean
+s left(string: string, count: integer) -> string
+s lTrim(string: string) -> string
+s replace(string: string, search-string: string, replacement-string: string) -> string
+s reverse(string: string) -> string
+s right(string: string, count: integer) -> string
+s rTrim(string: string) -> string
+s split(string: string, delimiter: string) -> List[string]
+s startsWith(string: string, substring: string) -> boolean
+s substring(string: string, start-index: integer, length: integer = null) -> string
+s toLower(string: string) -> string
+s toUpper(string: string) -> string
+s trim(string: string) -> string
+s convert.str2object(string: string) -> object: any since=2.12.0

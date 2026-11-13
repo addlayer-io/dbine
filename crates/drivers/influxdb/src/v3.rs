@@ -434,6 +434,38 @@ impl Session for SqlSession {
         Err(Error::Unsupported(processes::V3_NO_CANCEL.into()))
     }
 
+    /// `information_schema.routines`, read through a database (the session's
+    /// or the first one); the static catalog when there is none or it can't
+    /// be read (see [`crate::functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let saved = self.db.clone();
+        if self.db.is_none() {
+            self.db = match self.databases().await {
+                Ok(dbs) => dbs.into_iter().find(|d| !d.starts_with('_')),
+                Err(e) => {
+                    tracing::debug!("influxdb3 functions: {e}");
+                    None
+                }
+            };
+        }
+        let read = match self.db {
+            Some(_) => Some(self.sql(ROUTINES).await),
+            None => None,
+        };
+        self.db = saved;
+        match read {
+            Some(Ok((cols, rows))) => {
+                let catalog = crate::functions::sql_from_routines(&cols, &rows);
+                if !catalog.is_empty() {
+                    return Ok(catalog);
+                }
+            }
+            Some(Err(e)) => tracing::debug!("influxdb3 routines: {e}"),
+            None => {}
+        }
+        Ok(crate::functions::sql_static())
+    }
+
     /// The processing engine's triggers (see [`crate::jobs`]).
     async fn jobs(&mut self) -> Result<dbine_driver::JobList> {
         self.jobs_list().await
@@ -905,6 +937,11 @@ impl Session for SqlSession {
         crate::permissions::v3(answer, database)
     }
 }
+
+/// Every function the server's DataFusion has, one row per signature.
+const ROUTINES: &str =
+    "SELECT routine_name, function_type, data_type, description, syntax_example \
+                        FROM information_schema.routines";
 
 /// The browse query restricted by the grid's column filters (DataFusion
 /// SQL). LIKE patterns rely on the default `\` escape: no ESCAPE clause.

@@ -1,0 +1,86 @@
+# The openCypher functions Amazon Neptune supports, for the editor's
+# completion, as its user guide lists them ("openCypher specification
+# compliance in Amazon Neptune" and "openCypher extensions in Amazon
+# Neptune"). `since=` is the Neptune engine release that added Neptune's
+# own functions. Neptune has no user functions.
+s exists(pattern)
+s coalesce(expression, ...)
+s endNode(relationship)
+s epochmillis(datetime)
+s head(list)
+s id(entity)
+s last(list)
+s length(path)
+s randomUUID()
+s properties(entity)
+s removeKeyFromMap(map, key)
+s size(value)
+s startNode(relationship)
+s timestamp()
+s toBoolean(value)
+s toFloat(value)
+s toInteger(value)
+s type(relationship)
+s datetime(value)
+a avg(expression)
+a collect(expression)
+a count(expression)
+a max(expression)
+a min(expression)
+a percentileDisc(expression, percentile)
+a percentileCont(expression, percentile)
+a stDev(expression)
+a stDevP(expression)
+a sum(expression)
+s join(list, delimiter)
+s keys(entity)
+s labels(node)
+s nodes(path)
+s range(start, end, step)
+s relationships(path)
+s reverse(value)
+s tail(list)
+s abs(number)
+s ceil(number)
+s floor(number)
+s rand()
+s round(number)
+s sign(number)
+s e()
+s exp(number)
+s log(number)
+s log10(number)
+s sqrt(number)
+s acos(number)
+s asin(number)
+s atan(number)
+s atan2(y, x)
+s cos(number)
+s cot(number)
+s degrees(number)
+s pi()
+s radians(number)
+s sin(number)
+s tan(number)
+s left(string, length)
+s lTrim(string)
+s replace(string, search, replace)
+s right(string, length)
+s rTrim(string)
+s split(string, delimiter)
+s substring(string, start, length)
+s toLower(string)
+s toString(value)
+s toUpper(string)
+s trim(string)
+s textIndexOf(text, lookup, from, to) -> INTEGER since=1.4.1.0
+s collToSet(values) -> LIST since=1.4.1.0
+s collSubtract(first, second) -> LIST since=1.4.1.0
+s collIntersection(first, second) -> LIST since=1.4.1.0
+s collSort(coll, config) -> LIST since=1.4.1.0
+s collSortMaps(coll, config) -> LIST since=1.4.1.0
+s collSortNodes(coll, config) -> LIST since=1.4.1.0
+s day(temporal) -> LONG since=1.4.5.0
+s month(temporal) -> LONG since=1.4.5.0
+s year(temporal) -> LONG since=1.4.5.0
+s reduce(accumulator = initial, variable IN list | expression) since=1.4.6.0

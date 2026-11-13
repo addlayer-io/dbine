@@ -12,6 +12,7 @@
 //! `sys.memory` and `sys.jobs`.
 
 mod ddl;
+mod functions;
 mod index_usage;
 mod jobs;
 mod permissions;
@@ -783,6 +784,12 @@ impl Session for DremioSession {
             .cloned()
             .unwrap_or_default();
         Ok(format!("Dremio {}", v.split('-').next().unwrap_or(&v)))
+    }
+
+    /// `/apiv2/sql/functions` and `sys.user_defined_functions` (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
     }
 
     /// Top-level containers: spaces, sources, homes and `$scratch`.

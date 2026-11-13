@@ -1,0 +1,9 @@
+# The functions DynamoDB's PartiQL takes, for the editor's completion, as
+# the DynamoDB developer guide lists them ("PartiQL functions"). DynamoDB
+# has no versions to filter by. MISSING is written as a predicate
+# (`attr IS MISSING`), not called, so it is a keyword, not an entry here.
+s EXISTS(statement) -> boolean
+s BEGINS_WITH(path, value) -> boolean
+s ATTRIBUTE_TYPE(path, type) -> boolean
+s CONTAINS(path, value) -> boolean
+s SIZE(path) -> number

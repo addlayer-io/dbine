@@ -42,6 +42,7 @@
 
 mod create_db;
 pub mod ddl;
+mod functions;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -1543,6 +1544,12 @@ impl Session for CosmosSession {
         } else {
             format!("Azure Cosmos DB (NoSQL) · {id}")
         })
+    }
+
+    /// The system functions of the query language, static (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        Ok(functions::system())
     }
 
     /// Account, databases (with the account usage and quota headers),

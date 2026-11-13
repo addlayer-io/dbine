@@ -7,6 +7,7 @@
 
 mod create_db;
 mod csv;
+mod functions;
 mod http;
 mod jobs;
 mod monitor;

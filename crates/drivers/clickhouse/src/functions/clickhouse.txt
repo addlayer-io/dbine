@@ -1,0 +1,1999 @@
+# ClickHouse built-in functions (see dbine_driver::functions::parse_catalog), generated from
+# system.functions and system.table_functions of ClickHouse 26.9.2.8: the server's own
+# documentation, with the version that added each function (introduced_in) as since=.
+# The fallback when a server's system.functions can't be read.
+a aggThrow(throw_prob) since=20.1.0
+a analysisOfVariance(val, group_no) -> Tuple(Float64, Float64) since=22.10.0
+a anova(val, group_no) -> Tuple(Float64, Float64) since=22.10.0
+a any(column)[ RESPECT NULLS] -> Any
+a any_respect_nulls
+a any_value(column)[ RESPECT NULLS] -> Any
+a any_value_respect_nulls
+a anyHeavy(column) -> Any
+a anyLast(column) [RESPECT NULLS] -> Any
+a anyLast_respect_nulls
+a anyLastRespectNulls
+a anyRespectNulls
+a anyValueRespectNulls
+a approx_top_count(N[, reserved])(column) -> Array
+a approx_top_k(N[, reserved])(column) -> Array
+a approx_top_sum(N[, reserved])(column, weight) -> Array
+a argAndMax(arg, val) -> Tuple
+a argAndMin(arg, val) -> Tuple
+a argMax(arg, val)
+a argMin(arg, val)
+a array_agg(x) -> Array
+a array_concat_agg
+a avg(x) -> Float64
+a avgWeighted(x, weight) -> Float64 since=20.1.0
+a BIT_AND(expr) -> (U)Int*
+a BIT_OR(expr) -> (U)Int*
+a BIT_XOR(expr) -> (U)Int*
+a boundingRatio(x, y) -> Float64 since=20.1.0
+a categoricalInformationValue(category1[, category2, ...,]tag) -> Array(Float64) since=20.1.0
+a contingency(column1, column2) -> Float64 since=22.1.0
+a corr(x, y) -> Float64
+a corrMatrix(x1[, x2, ...]) -> Array(Array(Float64)) since=23.2.0
+a corrStable(x, y) -> Float64
+a count([expr]) -> UInt64
+a COVAR_POP(x, y) -> Float64
+a COVAR_SAMP(x, y) -> Float64
+a covarPop(x, y) -> Float64
+a covarPopMatrix(x1[, x2, ...]) -> Array(Array(Float64)) since=23.2.0
+a covarPopStable(x, y) -> Float64
+a covarSamp(x, y) -> Float64
+a covarSampMatrix(x1[, x2, ...]) -> Array(Array(Float64)) since=23.2.0
+a covarSampStable(x, y) -> Float64
+a cramersV(column1, column2) -> Float64 since=22.1.0
+a cramersVBiasCorrected(column1, column2) -> Float64 since=22.1.0
+a deltaSum(x1[, x2, ...]) -> (U)Int* or Float* since=21.3.0
+a deltaSumTimestamp(value, timestamp) -> (U)Int* or Float* or Date or DateTime since=21.6.0
+a denseRank
+a distinctDynamicTypes(dynamic) -> Array(String) since=24.9.0
+a distinctJSONPaths(json) -> Array(String) since=24.9.0
+a distinctJSONPathsAndTypes(json) -> Map(String, Array(String)) since=24.9.0
+a entropy(val) -> Float64 since=20.1.0
+a estimateCompressionRatio([codec, block_size_bytes])(column) -> Float64 since=25.4.0
+a exponentialMovingAverage(x)(value, timeunit) -> Float64 since=21.11.0
+a exponentialTimeDecayedAvg(x)(v, t) -> Float64 since=21.12.0
+a exponentialTimeDecayedCount(x)(t) -> Float64 since=21.12.0
+a exponentialTimeDecayedMax(x)(value, timeunit) -> Float64 since=21.12.0
+a exponentialTimeDecayedSum(x)(v, t) -> Float64 since=21.12.0
+a first_value(column)[ RESPECT NULLS] -> Any
+a first_value_respect_nulls
+a firstValueRespectNulls
+a flameGraph(traces[, size[, ptr]]) -> Array(String) since=23.8.0
+a gini(expr) -> Float64 since=26.8.0
+a group_concat(expression) -> String since=24.8.0
+a groupArray(x) -> Array
+a groupArrayInsertAt(default_x, size)([x, pos]) -> Array
+a groupArrayIntersect(x) -> Array since=24.2.0
+a groupArrayLast(max_size)(x) -> Array(T) since=23.1.0
+a groupArrayMovingAvg(numbers_for_summing) -> Array since=20.1.0
+a groupArrayMovingSum(numbers_for_summing) -> Array since=20.1.0
+a groupArraySample(max_size[, seed])(x) -> Array(T) since=20.3.0
+a groupArraySorted(N)(column) -> Array since=24.2.0
+a groupBitAnd(expr) -> (U)Int*
+a groupBitmap(expr) -> UInt64 since=20.1.0
+a groupBitmapAnd(expr) -> UInt64 since=20.1.0
+a groupBitmapOr(expr) -> UInt64 since=20.1.0
+a groupBitmapXor(expr) -> UInt64 since=20.1.0
+a groupBitOr(expr) -> (U)Int*
+a groupBitXor(expr) -> (U)Int*
+a groupConcat(expression) -> String since=24.8.0
+a groupFormat(format)(x, y, ...) -> String
+a groupNumericIndexedVector
+a groupUniqArray(x) -> Array
+a hierarchicalKMeans(k[, branching[, max_iter[, sample_cap[, seed[, cosine_distance]]]]])(vec) -> Array(Array(Float32)) since=26.8.0
+a histogram
+a intervalLengthSum(start, end) -> UInt64 or Float64 since=21.7.0
+a kolmogorovSmirnovTest([alternative, computation_method])(sample_data, sample_index) -> Tuple(Float64, Float64) since=23.4.0
+a kurtPop(expr) -> Float64 since=20.1.0
+a kurtSamp(expr) -> Float64 since=20.1.0
+a largestTriangleThreeBuckets(n)(x, y) -> Array(Tuple(Float64, Float64)) since=23.10.0
+a last_value(column) [RESPECT NULLS] -> Any
+a last_value_respect_nulls
+a lastValueRespectNulls
+a lttb(n)(x, y) -> Array(Tuple(Float64, Float64)) since=23.10.0
+a mannWhitneyUTest(sample_data, sample_index) -> Tuple(Float64, Float64) since=21.1.0
+a max(column) -> Any
+a max_by(arg, val)
+a maxIntersections(start_column, end_column) -> UInt64 since=20.1.0
+a maxIntersectionsPosition(start_column, end_column) -> Any
+a maxMappedArrays(key, value) -> Tuple(Array(T), Array(T)) since=20.5.0
+a meanZTest(population_variance_x, population_variance_y, confidence_level)(sample_data, sample_index) -> Tuple(Float64, Float64, Float64, Float64) since=22.2.0
+a median(level)(expr) -> Float64 or Decimal* or Date or DateTime or DateTime64
+a medianBFloat16(expr) -> Float64 or Date or DateTime since=21.7.0
+a medianBFloat16Weighted(level)(expr, weight) -> Float64 or Date or DateTime since=21.10.0
+a medianDD(relative_accuracy, [level])(expr) -> Float64 or Date or DateTime since=24.1.0
+a medianDeterministic(level)(expr, determinator) -> Float64 or Date or DateTime
+a medianExact(level)(expr) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64
+a medianExactHigh(level)(expr) -> (U)Int* or Float* or Decimal* or Date or DateTime or DateTime64 since=20.8.0
+a medianExactLow(level)(expr) -> (U)Int* or Float* or Decimal* or Date or DateTime or DateTime64 since=20.8.0
+a medianExactWeighted(level)(expr, weight) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64
+a medianExactWeightedInterpolated(level)(expr, weight) -> Float64 or Decimal* or Date or DateTime or DateTime64 since=24.10.0
+a medianGK(accuracy, level)(expr) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64 since=23.4.0
+a medianInterpolatedWeighted(level)(expr, weight) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64 since=23.1.0
+a medianTDigest(level)(expr) -> Float32 or Date or DateTime
+a medianTDigestWeighted(level)(expr, weight) -> Float32 or Date or DateTime since=20.1.0
+a medianTiming(level)(expr) -> Float32
+a medianTimingWeighted(level)(expr, weight) -> Float32
+a mergedJSONPatch(json, sort_key) -> JSON since=26.8.0
+a min(column) -> Any
+a min_by(arg, val)
+a minMappedArrays(key, value) -> Tuple(Array(T), Array(T)) since=20.5.0
+a MVTEncode(layer_name[, extent[, feature_id_name[, stringify_unsupported]]])(geometry[, properties]) -> String since=26.7.0
+a nonNegativeDerivative
+a nothing
+a nothingNull
+a nothingUInt64
+a percentRank
+a quantile(level)(expr) -> Float64 or Decimal* or Date or DateTime or DateTime64
+a quantileBFloat16(expr) -> Float64 or Date or DateTime since=21.7.0
+a quantileBFloat16Weighted(level)(expr, weight) -> Float64 or Date or DateTime since=21.10.0
+a quantileDD(relative_accuracy, [level])(expr) -> Float64 or Date or DateTime since=24.1.0
+a quantileDeterministic(level)(expr, determinator) -> Float64 or Date or DateTime
+a quantileExact(level)(expr) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64
+a quantileExactExclusive(level)(expr) -> Float64 since=20.1.0
+a quantileExactHigh(level)(expr) -> (U)Int* or Float* or Decimal* or Date or DateTime or DateTime64 since=20.8.0
+a quantileExactInclusive(level)(expr) -> Float64 since=20.1.0
+a quantileExactLow(level)(expr) -> (U)Int* or Float* or Decimal* or Date or DateTime or DateTime64 since=20.8.0
+a quantileExactWeighted(level)(expr, weight) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64
+a quantileExactWeightedInterpolated(level)(expr, weight) -> Float64 or Decimal* or Date or DateTime or DateTime64 since=24.10.0
+a quantileGK(accuracy, level)(expr) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64 since=23.4.0
+a quantileInterpolatedWeighted(level)(expr, weight) -> (U)Int* or Int128 or UInt128 or Int256 or UInt256 or Float* or Decimal* or Date or DateTime or DateTime64 since=23.1.0
+a quantilePrometheusHistogram(level)(bucket_upper_bound, cumulative_bucket_value) -> Float32 or Float64 since=25.10.0
+a quantiles(level1, level2, ...)(expr) -> Array(Float64) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64)
+a quantilesBFloat16(level1, level2, ...)(expr) -> Array(Float64) or Array(Date) or Array(DateTime) since=21.7.0
+a quantilesBFloat16Weighted(level1, level2, ...)(expr, weight) -> Array(Float64) or Array(Date) or Array(DateTime) since=21.10.0
+a quantilesDD(relative_accuracy, level1, level2, ...)(expr) -> Array(Float64) or Array(Date) or Array(DateTime) since=24.1.0
+a quantilesDeterministic(level1, level2, ...)(expr, determinator) -> Array(Float64) or Array(Date) or Array(DateTime)
+a quantilesExact(level1, level2, ...)(expr) -> Array((U)Int*) or Array(Int128) or Array(UInt128) or Array(Int256) or Array(UInt256) or Array(Float*) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64)
+a quantilesExactExclusive(level1, level2, ...)(expr) -> Array(Float64) since=20.1.0
+a quantilesExactHigh(level1, level2, ...)(expr) -> Array((U)Int*) or Array(Float*) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64) since=20.8.0
+a quantilesExactInclusive(level1, level2, ...)(expr) -> Array(Float64) since=20.1.0
+a quantilesExactLow(level1, level2, ...)(expr) -> Array((U)Int*) or Array(Float*) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64) since=20.8.0
+a quantilesExactWeighted(level1, level2, ...)(expr, weight) -> Array((U)Int*) or Array(Int128) or Array(UInt128) or Array(Int256) or Array(UInt256) or Array(Float*) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64)
+a quantilesExactWeightedInterpolated(level1, level2, ...)(expr, weight) -> Array(Float64) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64) since=24.10.0
+a quantilesGK(accuracy, level1, level2, ...)(expr) -> Array((U)Int*) or Array(Int128) or Array(UInt128) or Array(Int256) or Array(UInt256) or Array(Float*) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64) since=23.4.0
+a quantilesInterpolatedWeighted(level1, level2, ...)(expr, weight) -> Array((U)Int*) or Array(Int128) or Array(UInt128) or Array(Int256) or Array(UInt256) or Array(Float*) or Array(Decimal*) or Array(Date) or Array(DateTime) or Array(DateTime64) since=23.1.0
+a quantilesPrometheusHistogram(level1, level2, ...)(bucket_upper_bound, cumulative_bucket_value) -> Array(Float32) or Array(Float64) since=25.10.0
+a quantilesTDigest(level1, level2, ...)(expr) -> Array(Float32) or Array(Date) or Array(DateTime)
+a quantilesTDigestWeighted(level1, level2, ...)(expr, weight) -> Array(Float32) or Array(Date) or Array(DateTime) since=20.1.0
+a quantilesTiming(level1, level2, ...)(expr) -> Array(Float32)
+a quantilesTimingWeighted(level1, level2, ...)(expr, weight) -> Array(Float32)
+a quantileTDigest(level)(expr) -> Float32 or Date or DateTime
+a quantileTDigestWeighted(level)(expr, weight) -> Float32 or Date or DateTime since=20.1.0
+a quantileTiming(level)(expr) -> Float32
+a quantileTimingWeighted(level)(expr, weight) -> Float32
+a rankCorr(x, y) -> Float64 since=20.9.0
+a regr_avgx(y, x) -> Float64 since=26.9.0
+a regr_avgy(y, x) -> Float64 since=26.9.0
+a regr_count(y, x) -> UInt64 since=26.9.0
+a regr_intercept(y, x) -> Float64 since=26.9.0
+a regr_r2(y, x) -> Float64 since=26.9.0
+a regr_slope(y, x) -> Float64 since=26.9.0
+a regr_sxx(y, x) -> Float64 since=26.9.0
+a regr_sxy(y, x) -> Float64 since=26.9.0
+a regr_syy(y, x) -> Float64 since=26.9.0
+a retention
+a sequenceCount
+a sequenceMatch
+a sequenceMatchEvents
+a sequenceNextNode
+a simpleLinearRegression(x, y) -> Tuple(Float64, Float64) since=20.1.0
+a singleValueOrNull(x) -> Any or NULL since=21.9.0
+a skewPop(expr) -> Float64 since=20.1.0
+a skewSamp(expr) -> Float64 since=20.1.0
+a sparkbar(buckets[, min_x, max_x])(x, y) -> String since=21.11.0
+a sparkBar(buckets[, min_x, max_x])(x, y) -> String since=21.11.0
+a ST_AsMVT(layer_name[, extent[, feature_id_name[, stringify_unsupported]]])(geometry[, properties]) -> String since=26.7.0
+a STD(x) -> Float64
+a STDDEV(x) -> Float64
+a STDDEV_POP(x) -> Float64
+a STDDEV_SAMP(x) -> Float64
+a stddevPop(x) -> Float64
+a stddevPopStable(x) -> Float64
+a stddevSamp(x) -> Float64
+a stddevSampStable(x) -> Float64
+a stochasticLinearRegression([learning_rate, l2_regularization_coef, mini_batch_size, method])(target, x1, x2, ...) -> Array(Float64) since=20.1.0
+a stochasticLogisticRegression([learning_rate, l2_regularization_coef, mini_batch_size, method])(target, x1, x2, ...) -> Array(Float64) since=20.1.0
+a string_agg(expression) -> String since=24.8.0
+a studentTTest([confidence_level])(sample_data, sample_index) -> Tuple(Float64, Float64) or Tuple(Float64, Float64, Float64, Float64) since=21.1.0
+a studentTTestOneSample([confidence_level])(sample_data, population_mean) -> Tuple(Float64, Float64) or Tuple(Float64, Float64, Float64, Float64) since=25.10.0
+a sum(num) -> (U)Int* or Float* or Decimal*
+a sumCount(x) -> Tuple since=21.6.0
+a sumKahan(x) -> (U)Int* or Float* or Decimal
+a sumMapFiltered
+a sumMapFilteredWithOverflow
+a sumMappedArrays(key, value1 [, value2, ...]) -> Tuple
+a sumMapWithOverflow(key, value) -> Tuple(Array, Array) since=20.1.0
+a sumWithOverflow(num) -> (U)Int* or Float* or Decimal*
+a theilsU(column1, column2) -> Float64 since=22.1.0
+a timeSeriesAvgToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float*)) since=26.9.0
+a timeSeriesBottomKMasks(k, key, values) -> Array(Tuple(key UInt64, steps_mask Array(UInt8))) since=26.8.0
+a timeSeriesChangesToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) since=25.6.0
+a timeSeriesCountToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float*)) since=26.9.0
+a timeSeriesDeltaToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float64)) since=25.6.0
+a timeSeriesDerivToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) since=25.6.0
+a timeSeriesGroupArray(timestamp, value) -> Array(Tuple(T1, T2)) since=25.8.0
+a timeSeriesIncreaseToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float64)) since=26.8.0
+a timeSeriesInstantDeltaToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float64)) since=25.6.0
+a timeSeriesInstantRateToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float64)) since=25.6.0
+a timeSeriesLastToGrid(start_timestamp, end_timestamp, grid_step, staleness_window)(timestamp, value) -> Array(Nullable(Float64)) since=25.6.0
+a timeSeriesLastTwoSamples(timestamp, value) -> Tuple(Array(DateTime), Array(Float64)) since=25.6.0
+a timeSeriesLimitKMasks(k, key, sampling_key, values) -> Array(Tuple(key UInt64, steps_mask Array(UInt8))) since=26.8.0
+a timeSeriesMaxToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float*)) since=26.9.0
+a timeSeriesMinToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float*)) since=26.9.0
+a timeSeriesPredictLinearToGrid(start_timestamp, end_timestamp, grid_step, staleness, predict_offset)(timestamp, value) since=25.6.0
+a timeSeriesRateToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float64)) since=25.6.0
+a timeSeriesResampleToGridWithStaleness(start_timestamp, end_timestamp, grid_step, staleness_window)(timestamp, value) -> Array(Nullable(Float64)) since=25.6.0
+a timeSeriesResetsToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) since=25.6.0
+a timeSeriesSumToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) -> Array(Nullable(Float*)) since=26.9.0
+a timeSeriesTimestampOfMaxToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) since=26.9.0
+a timeSeriesTimestampOfMinToGrid(start_timestamp, end_timestamp, grid_step, staleness)(timestamp, value) since=26.9.0
+a timeSeriesTopKMasks(k, key, values) -> Array(Tuple(key UInt64, steps_mask Array(UInt8))) since=26.8.0
+a topK(N)(column) -> Array
+a topKWeighted(N)(column, weight) -> Array
+a uniq(x[, ...]) -> UInt64
+a uniqCombined(HLL_precision)(x[, ...]) -> UInt64
+a uniqCombined64(HLL_precision)(x[, ...]) -> UInt64 since=20.1.0
+a uniqExact(x[, ...]) -> UInt64
+a uniqHLL12(x[, ...]) -> UInt64
+a uniqTheta(x[, ...]) -> UInt64 since=21.6.0
+a uniqUpTo
+a VAR_POP(x) -> Float64
+a VAR_SAMP(x) -> Float64
+a varPop(x) -> Float64
+a varPopStable(x) -> Float64
+a varSamp(x) -> Float64
+a varSampStable(x) -> Float64
+a welchTTest([confidence_level])(sample_data, sample_index) -> Tuple(Float64, Float64) or Tuple(Float64, Float64, Float64, Float64) since=21.1.0
+a windowFunnel
+s abs(x)
+s accurateCast(x, T) -> Any
+s accurateCastOrDefault(x, T[, default_value]) -> Any since=21.1.0
+s accurateCastOrNull(x, T) -> Any
+s acos(x) -> Float*
+s acosh(x) -> Float64 since=20.12.0
+s addDate(datetime, interval) -> Date or Date32 or DateTime or DateTime64 since=23.9.0
+s addDays(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s addHours(datetime, num) -> DateTime or DateTime64(3)
+s addInterval(interval_1, interval_2) -> Tuple(Interval) since=22.11.0
+s addMicroseconds(datetime, num) -> DateTime64 since=22.6.0
+s addMilliseconds(datetime, num) -> DateTime64 since=22.6.0
+s addMinutes(datetime, num) -> DateTime or DateTime64(3)
+s addMonths(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s addNanoseconds(datetime, num) -> DateTime64 since=22.6.0
+s addQuarters(datetime, num) -> Date or Date32 or DateTime or DateTime64 since=20.1.0
+s addressToLine(address_of_binary_instruction) -> String since=20.1.0
+s addressToLineWithInlines(address_of_binary_instruction) -> Array(String) since=22.2.0
+s addressToSymbol(address_of_binary_instruction) -> String since=20.1.0
+s addSeconds(datetime, num) -> DateTime or DateTime64(3)
+s addTupleOfIntervals(datetime, intervals) -> Date or Date32 or DateTime or DateTime64 since=22.11.0
+s addWeeks(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s addYears(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s aes_decrypt_mysql(mode, ciphertext, key[, iv]) -> String since=20.12.0
+s aes_encrypt_mysql(mode, plaintext, key[, iv]) -> String since=20.12.0
+s age('unit', startdate, enddate[, timezone]) -> Int32 since=23.1.0
+s aiClassify(text, categories[, params]) -> String since=26.4.0
+s AIClassify(text, categories[, params]) -> String since=26.4.0
+s aiEmbed(text, model[, params]) -> Array(Float32) since=26.6.0
+s AIEmbed(text, model[, params]) -> Array(Float32) since=26.6.0
+s aiExtract(text, instruction_or_schema[, params]) -> String since=26.4.0
+s AIExtract(text, instruction_or_schema[, params]) -> String since=26.4.0
+s aiFilter(text, condition[, params]) -> UInt8 since=26.8.0
+s AIFilter(text, condition[, params]) -> UInt8 since=26.8.0
+s aiGenerate(prompt[, params]) -> String since=26.4.0
+s AIGenerate(prompt[, params]) -> String since=26.4.0
+s aiRedact(text, categories[, params]) -> String since=26.8.0
+s AIRedact(text, categories[, params]) -> String since=26.8.0
+s aiSimilarity(text1, text2, model[, params]) -> Nullable(Float32) since=26.8.0
+s AISimilarity(text1, text2, model[, params]) -> Nullable(Float32) since=26.8.0
+s aiTranslate(text, target_language[, params]) -> String since=26.4.0
+s AITranslate(text, target_language[, params]) -> String since=26.4.0
+s alphaTokens(s[, max_substrings]) -> Array(String)
+s and(val1, val2[, ...]) -> Nullable(UInt8)
+s appendTrailingCharIfAbsent(s, c) -> String
+s areaCartesian(object) -> Float64 since=25.12.0
+s areaSpherical(object) -> Float64 since=25.12.0
+s array(x1 [, x2, ..., xN]) -> Array(T)
+s array_remove(arr, elem) -> Array(T) since=25.11.0
+s array_to_string(arr[, separator]) -> String
+s arrayAll(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> UInt8
+s arrayAUC(scores, labels[, scale[, partial_offsets]]) -> Float64 since=20.4.0
+s arrayAUCPR(scores, labels[, partial_offsets]) -> Float64 since=20.4.0
+s arrayAutocorrelation(arr, [max_lag]) -> Array(Float64) since=26.4.0
+s arrayAvg([func(x[, y1, ..., yN])], source_arr[, cond1_arr, ... , condN_arr]) -> Float64 since=21.1.0
+s arrayBottomK([f,] K, arr [, arr1, ... ,arrN]) since=26.6.0
+s arrayCompact(arr) -> Array(T) since=20.1.0
+s arrayConcat(arr1 [, arr2, ... , arrN]) -> Array(T)
+s arrayCount([func, ] arr1, ...) -> UInt32
+s arrayCumSum([func,] arr1[, arr2, ... , arrN]) -> Array(T)
+s arrayCumSumNonNegative([func,] arr1[, arr2, ... , arrN]) -> Array(T) since=18.12.0
+s arrayDifference(arr) -> UInt*
+s arrayDistinct(arr) -> Array(T)
+s arrayDotProduct(v1, v2) -> (U)Int* or Float* or Decimal since=23.5.0
+s arrayElement(arr, n) -> Any or Array(T) or Array(Nullable(T))
+s arrayElementOrNull(arr, n) -> Any or Nullable(T) or Array(T) or Array(Nullable(T))
+s arrayEnumerate(arr) -> Array(UInt32)
+s arrayEnumerateDense(arr) -> Array(T) since=18.12.0
+s arrayEnumerateDenseRanked(clear_depth, arr, max_array_depth) -> Array since=20.1.0
+s arrayEnumerateUniq(arr1[, arr2, ... , arrN]) -> Array(T)
+s arrayEnumerateUniqRanked(clear_depth, arr, max_array_depth) -> Array(T) since=20.1.0
+s arrayExcept(source, except) -> Array(T) since=25.9.0
+s arrayExists(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> UInt8
+s arrayFill(func(x [, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> Array(T) since=20.1.0
+s arrayFilter(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr])] -> Array(T)
+s arrayFirst(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr])
+s arrayFirstIndex(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> UInt32
+s arrayFirstOrNull(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr])
+s arrayFlatten(arr) -> Array(T) since=20.1.0
+s arrayFlattenedLength(arr) -> UInt64 since=26.9.0
+s arrayFold(λ(acc, x1 [, x2, x3, ... xN]), arr1 [, arr2, arr3, ... arrN], acc) since=23.10.0
+s arrayIntersect(arr, arr1, ..., arrN) -> Array(T)
+s arrayJaccardIndex(arr_x, arr_y) -> Float64 since=23.7.0
+s arrayJoin(arr)
+s arrayLast(func(x[, y1, ..., yN]), source[, cond1, ... , condN_arr])
+s arrayLastIndex(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> UInt32
+s arrayLastOrNull(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr])
+s arrayLevenshteinDistance(from, to) -> Float64 since=25.4.0
+s arrayLevenshteinDistanceWeighted(from, to, from_weights, to_weights) -> Float64 since=25.4.0
+s arrayMap(func, arr) -> Array(T)
+s arrayMax([func(x[, y1, ..., yN])], source_arr[, cond1_arr, ... , condN_arr]) since=21.1.0
+s arrayMin([func(x[, y1, ..., yN])], source_arr[, cond1_arr, ... , condN_arr]) since=21.1.0
+s arrayNormalizedGini(predicted, label) -> Tuple(Float64, Float64, Float64) since=25.1.0
+s arrayPartialReverseSort([f,] limit, arr [, arr1, ... ,arrN]) since=23.2.0
+s arrayPartialShuffle(arr [, limit[, seed]]) -> Array(T) since=23.2.0
+s arrayPartialSort([f,] limit, arr [, arr1, ... ,arrN]) since=23.2.0
+s arrayPopBack(arr) -> Array(T)
+s arrayPopFront(arr) -> Array(T)
+s arrayPRAUC(scores, labels[, partial_offsets]) -> Float64 since=20.4.0
+s arrayProduct([func(x[, y1, ..., yN])], source_arr[, cond1_arr, ... , condN_arr]) -> Float64 since=21.1.0
+s arrayPushBack(arr, x) -> Array(T)
+s arrayPushFront(arr, x) -> Array(T)
+s arrayRandomSample(arr, samples) -> Array(T) since=23.10.0
+s arrayReduce(agg_f, arr1[, arr2, ... , arrN])
+s arrayReduceInRanges(agg_f, ranges, arr1[, arr2, ... ,arrN]) -> Array(T) since=20.4.0
+s arrayRemove(arr, elem) -> Array(T) since=25.11.0
+s arrayResize(arr, size[, extender]) -> Array(T)
+s arrayReverse(arr) -> Array(T)
+s arrayReverseFill(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> Array(T) since=20.1.0
+s arrayReverseSort([f,] arr [, arr1, ... ,arrN]) -> Array(T)
+s arrayReverseSplit(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> Array(Array(T)) since=20.1.0
+s arrayROCAUC(scores, labels[, scale[, partial_offsets]]) -> Float64 since=20.4.0
+s arrayRotateLeft(arr, n) -> Array(T) since=23.8.0
+s arrayRotateRight(arr, n) -> Array(T) since=23.8.0
+s arrayShiftLeft(arr, n[, default]) -> Array(T) since=23.8.0
+s arrayShiftRight(arr, n[, default]) -> Array(T) since=23.8.0
+s arrayShingles(arr, l) -> Array(T) since=24.1.0
+s arrayShuffle(arr [, seed]) -> Array(T) since=23.2.0
+s arraySimilarity(from, to, from_weights, to_weights) -> Float64 since=25.4.0
+s arraySlice(arr, offset [, length]) -> Array(T)
+s arraySort([f,] arr [, arr1, ... ,arrN]) -> Array(T)
+s arraySplit(func(x[, y1, ..., yN]), source_arr[, cond1_arr, ... , condN_arr]) -> Array(Array(T)) since=20.1.0
+s arrayStringConcat(arr[, separator]) -> String
+s arraySum([func(x[, y1, ..., yN])], source_arr[, cond1_arr, ... , condN_arr]) since=21.1.0
+s arraySymmetricDifference(arr1, arr2, ... , arrN) -> Array(T) since=25.4.0
+s arrayTopK([f,] K, arr [, arr1, ... ,arrN]) since=26.6.0
+s arrayTranspose(arr) -> Array(Array(T)) since=26.4.0
+s arrayUnion(arr1, arr2, ..., arrN) -> Array(T) since=24.10.0
+s arrayUniq(arr1[, arr2, ..., arrN]) -> UInt32
+s arrayWithConstant(N, x) -> Array(T) since=20.1.0
+s arrayZip(arr1, arr2, ... , arrN) -> Array(T) since=20.1.0
+s arrayZipUnaligned(arr1, arr2, ..., arrN) -> Array(T) or Tuple(T1, T2, ...) since=20.1.0
+s ascii(s) -> Int32 since=22.11.0
+s asin(x) -> Float64
+s asinh(x) -> Float64 since=20.12.0
+s assignCentroid(vec, centroids | dict_name) -> UInt32 since=26.8.0
+s assumeNotNull(x) -> Any
+s atan(x) -> Float*
+s atan2(y, x) -> Float64 since=20.12.0
+s atanh(x) -> Float64 since=20.12.0
+s authenticatedUser() -> String since=25.11.0
+s authUser() -> String since=25.11.0
+s avg2(x1, x2]) since=25.11.0
+s bar(x, min, max[, width]) -> String
+s base32Decode(encoded) -> String since=25.6.0
+s base32Encode(plaintext) -> String or FixedString since=25.6.0
+s base58Decode(encoded[, expected_size]) -> String since=22.7.0
+s base58Encode(plaintext) -> String since=22.7.0
+s base64Decode(encoded) -> String since=18.16.0
+s base64Encode(plaintext) -> String since=18.16.0
+s base64URLDecode(encoded) -> String since=24.6.0
+s base64URLEncode(plaintext) -> String since=18.16.0
+s basename(expr) -> String since=20.1.0
+s bech32Decode(address[, 'raw']) -> Tuple(String, String) since=25.6.0
+s bech32Encode(hrp, data[, witver | 'bech32' | 'bech32m']) -> String since=25.6.0
+s bin(arg) -> String since=21.8.0
+s bitAnd(a, b)
+s bitCount(x) -> UInt8 since=20.3.0
+s bitHammingDistance(x, y) -> UInt8 since=21.1.0
+s bitmapAnd(bitmap1, bitmap2) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapAndCardinality(bitmap1, bitmap2) -> UInt64 since=20.1.0
+s bitmapAndnot(bitmap1, bitmap2) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapAndnotCardinality(bitmap1, bitmap2) -> UInt64 since=20.1.0
+s bitmapBuild(array) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapCardinality(bitmap) -> UInt64 since=20.1.0
+s bitmapContains(bitmap, value) -> UInt8 since=20.1.0
+s bitmapHasAll(bitmap1, bitmap2) -> UInt8 since=20.1.0
+s bitmapHasAny(bitmap1, bitmap2) -> UInt8 since=20.1.0
+s bitmapMax(bitmap) -> UInt64 since=20.1.0
+s bitmapMin(bitmap) -> UInt64 since=20.1.0
+s bitmapOr(bitmap1, bitmap2) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapOrCardinality(bitmap1, bitmap2) -> UInt64 since=20.1.0
+s bitmapSubsetInRange(bitmap, start, end) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapSubsetLimit(bitmap, range_start, cardinality_limit) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapToArray(bitmap) -> Array(T) since=20.1.0
+s bitmapTransform(bitmap, from_array, to_array) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapXor(bitmap1, bitmap2) -> AggregateFunction(groupBitmap, T) since=20.1.0
+s bitmapXorCardinality(bitmap1, bitmap2) -> UInt64 since=20.1.0
+s bitmaskToArray(num) -> Array(UInt64)
+s bitmaskToList(num) -> String
+s bitNot(a)
+s bitOr(a, b)
+s bitPositionsToArray(arg) -> Array(UInt64) since=21.7.0
+s bitRotateLeft(a, N) -> (U)Int8/16/32/64
+s bitRotateRight(a, N) -> (U)Int8/16/32/64
+s bitShiftLeft(a, N)
+s bitShiftRight(a, N)
+s bitSlice(s, offset[, length]) -> String since=22.2.0
+s bitTest(a, i) -> UInt8
+s bitTestAll(a, index1[, index2, ... , indexN]) -> UInt8
+s bitTestAny(a, index1[, index2, ... , indexN]) -> UInt8
+s bitXor(a, b)
+s BLAKE3(message) -> FixedString(32) since=22.10.0
+s blockNumber() -> UInt64
+s blockSerializedSize(x1[, x2[, ...]]) -> UInt64 since=20.3.0
+s blockSize() -> UInt64
+s buildId() -> String since=20.5.0
+s byteHammingDistance(s1, s2) -> UInt64 since=23.9.0
+s byteSize(arg1[, arg2, ...]) -> UInt64 since=21.1.0
+s byteSlice(s, offset[, length]) -> String
+s byteSwap(x) -> (U)Int* since=23.10.0
+s CARDINALITY(x) -> UInt64
+s caseFoldUTF8(str) -> String since=26.3.0
+s caseWithExpr
+s caseWithoutExpr(cond_1, then_1, cond_2, then_2, ..., else)
+s caseWithoutExpression(cond_1, then_1, cond_2, then_2, ..., else)
+s CAST(x, T) -> Any
+s cbrt(x) -> Float*
+s ceil(x[, N]) -> Float* or Decimal* or (U)Int*
+s ceiling(x[, N]) -> Float* or Decimal* or (U)Int*
+s changeDay(date_or_datetime, value) -> Date or Date32 or DateTime or DateTime64 since=24.7.0
+s changeHour(date_or_datetime, value) -> DateTime or DateTime64 since=24.7.0
+s changeMinute(date_or_datetime, value) -> DateTime or DateTime64 since=24.7.0
+s changeMonth(date_or_datetime, value) -> Date or Date32 or DateTime or DateTime64 since=24.7.0
+s changeSecond(date_or_datetime, value) -> DateTime or DateTime64 since=24.7.0
+s changeYear(date_or_datetime, value) -> Date or Date32 or DateTime or DateTime64 since=24.7.0
+s char(num1[, num2[, ...]]) -> String since=20.1.0
+s CHAR_LENGTH(s) -> UInt64
+s CHARACTER_LENGTH(s) -> UInt64
+s cityHash64(arg1[, arg2, ...]) -> UInt64
+s clamp(value, min, max) since=24.5.0
+s coalesce(x[, y, ...]) -> Any or NULL
+s colorOKLABToSRGB(tuple [, gamma]) -> Tuple(Float64, Float64, Float64) since=26.2.0
+s colorOKLCHToSRGB(tuple [, gamma]) -> Tuple(Float64, Float64, Float64) since=25.7.0
+s colorSRGBToOKLAB(tuple[, gamma]) -> Tuple(Float64, Float64, Float64) since=26.2.0
+s colorSRGBToOKLCH(tuple[, gamma]) -> Tuple(Float64, Float64, Float64) since=25.7.0
+s compareSubstrings(s1, s2, s1_offset, s2_offset, num_bytes) -> Int8 since=25.2.0
+s concat([s1, s2, ...]) -> Nullable(String)
+s concat_ws(sep[, exp1, exp2, ...]) -> String since=22.12.0
+s concatAssumeInjective([s1, s2, ...]) -> String
+s concatWithSeparator(sep[, exp1, exp2, ...]) -> String since=22.12.0
+s concatWithSeparatorAssumeInjective(sep[, exp1, exp2, ... ]) -> String since=22.12.0
+s connection_id
+s connectionId() -> UInt64 since=21.3.0
+s conv(number, from_base, to_base) since=25.10.0
+s convertCharset(s, from, to) -> String
+s cos(x) -> Float*
+s cosh(x) -> Float64 since=20.12.0
+s cosineDistance(vector1, vector2) -> Float* since=21.11.0
+s cosineDistanceTransposed(vector1, vector2, p[, used_dims]) -> Float64 since=26.1.0
+s cosineDistanceTransposedQuantized(vectors, reference, p[, used_dims]) -> Float64 since=26.7.0
+s countDigits(x) -> UInt8 since=20.8.0
+s countEqual(arr, x) -> UInt64
+s countMatches(haystack, pattern) -> UInt64 since=21.1.0
+s countMatchesCaseInsensitive(haystack, pattern) -> UInt64 since=21.1.0
+s countSubstrings(haystack, needle[, start_pos]) -> UInt64 since=21.1.0
+s countSubstringsCaseInsensitive(haystack, needle[, start_pos]) -> UInt64 since=21.1.0
+s countSubstringsCaseInsensitiveUTF8(haystack, needle[, start_pos]) -> UInt64 since=21.1.0
+s CRC32(s) -> UInt32 since=20.1.0
+s CRC32IEEE(s) -> UInt32 since=20.1.0
+s CRC64(s) -> UInt64 since=20.1.0
+s curdate() -> Date
+s current_database() -> String
+s current_date() -> Date
+s current_query_id() since=25.2.0
+s current_schemas(bool) -> Array(String) since=23.7.0
+s current_timestamp([timezone]) -> DateTime
+s current_user() -> String since=20.1.0
+s currentDatabase() -> String
+s currentHandler() -> String since=26.6.0
+s currentProfiles() -> Array(String) since=21.9.0
+s currentQueryID() since=25.2.0
+s currentRequestURL() -> String since=26.6.0
+s currentRoles() -> Array(String) since=21.9.0
+s currentSchemas(bool) -> Array(String) since=23.7.0
+s currentUser() -> String since=20.1.0
+s cutFragment(url) -> String
+s cutIPv6(x, bytesToCutForIPv6, bytesToCutForIPv4) -> String
+s cutQueryString(url) -> String
+s cutQueryStringAndFragment(url) -> String
+s cutToFirstSignificantSubdomain(url) -> String
+s cutToFirstSignificantSubdomainCustom(url, tld_list_name) -> String since=21.1.0
+s cutToFirstSignificantSubdomainCustomRFC(url, tld_list_name) -> String since=22.10.0
+s cutToFirstSignificantSubdomainCustomWithWWW(url, tld_list_name) -> String since=21.1.0
+s cutToFirstSignificantSubdomainCustomWithWWWRFC(url, tld_list_name) -> String since=22.10.0
+s cutToFirstSignificantSubdomainRFC(url) -> String since=22.10.0
+s cutToFirstSignificantSubdomainWithWWW(url) -> String since=20.12.0
+s cutToFirstSignificantSubdomainWithWWWRFC(url) -> String since=22.10.0
+s cutURLParameter(url, name) -> String
+s cutWWW(url) -> String
+s damerauLevenshteinDistance(s1, s2) -> UInt64 since=24.1.0
+s DATABASE() -> String
+s DATE(expr) -> Date since=21.2.0
+s date_bin(value, INTERVAL x unit[, time_zone]) -> DateTime since=20.1.0
+s DATE_DIFF(unit, startdate, enddate[, timezone]) -> Int64 since=23.4.0
+s date_diff(unit, startdate, enddate[, timezone]) -> Int64 since=23.4.0
+s DATE_FORMAT(datetime, format[, timezone]) -> String
+s DATE_TRUNC(unit, datetime[, timezone]) -> Date32 or Date or DateTime64 or DateTime since=20.8.0
+s dateDiff(unit, startdate, enddate[, timezone]) -> Int64 since=23.4.0
+s dateName(date_part, date[, timezone]) -> String since=21.7.0
+s dateTime64ToSnowflakeID(value[, epoch]) -> UInt64 since=24.6.0
+s dateTimeToSnowflakeID(value[, epoch]) -> UInt64 since=24.6.0
+s dateTimeToUUIDv7(value) -> UUID since=25.8.0
+s dateTrunc(unit, datetime[, timezone]) -> Date32 or Date or DateTime64 or DateTime since=20.8.0
+s DAY(datetime) -> UInt8
+s DAYOFMONTH(datetime) -> UInt8
+s DAYOFWEEK(datetime[, mode[, timezone]]) -> UInt8
+s DAYOFYEAR(datetime) -> UInt16 since=18.4.0
+s decodeHTMLComponent(s) -> String since=23.9.0
+s decodeURLComponent(url) -> String
+s decodeURLFormComponent(url) -> String
+s decodeXMLComponent(s) -> String since=21.2.0
+s decrypt(mode, ciphertext, key[, iv, aad]) -> String since=20.12.0
+s defaultProfiles() -> Array(String) since=21.9.0
+s defaultRoles() -> Array(String) since=21.9.0
+s defaultValueOfArgumentType(expression) -> UInt8 or String or NULL
+s defaultValueOfTypeName(type) -> UInt8 or String or NULL
+s degrees(x) -> Float64 since=22.2.0
+s demangle(symbol) -> String since=20.1.0
+s dequantizeInt8ToBFloat16(x) -> BFloat16 or Array(BFloat16) or QBit(BFloat16) since=26.7.0
+s detectCharset(s) -> String since=22.2.0
+s detectLanguage(s) -> String since=22.2.0
+s detectLanguageMixed(s) -> Map(String, Float32) since=22.2.0
+s detectLanguageUnknown('s') -> String since=22.2.0
+s detectTonality(s) -> Float32 since=22.2.0
+s dictGet('dict_name', attr_names, id_expr) since=18.16.0
+s dictGetAll(dict_name, attr_names, id_expr[, limit]) -> Array(T) since=23.5.0
+s dictGetChildren(dict_name, key) -> Array(UInt64) since=21.4.0
+s dictGetDate(dict_name, attr_name, id_expr)
+s dictGetDateOrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetDateTime(dict_name, attr_name, id_expr)
+s dictGetDateTimeOrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetDescendants(dict_name, key, level) -> Array(UInt64) since=21.4.0
+s dictGetFloat32(dict_name, attr_name, id_expr)
+s dictGetFloat32OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetFloat64(dict_name, attr_name, id_expr)
+s dictGetFloat64OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetHierarchy(dict_name, key) -> Array(UInt64)
+s dictGetInt16(dict_name, attr_name, id_expr)
+s dictGetInt16OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetInt32(dict_name, attr_name, id_expr)
+s dictGetInt32OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetInt64(dict_name, attr_name, id_expr)
+s dictGetInt64OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetInt8(dict_name, attr_name, id_expr)
+s dictGetInt8OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetIPv4(dict_name, attr_name, id_expr)
+s dictGetIPv4OrDefault(dict_name, attr_name, id_expr, default_value_expr) since=23.1.0
+s dictGetIPv6(dict_name, attr_name, id_expr) since=23.1.0
+s dictGetIPv6OrDefault(dict_name, attr_name, id_expr, default_value_expr) since=23.1.0
+s dictGetKeys('dict_name', 'attr_name', value_expr) since=25.12.0
+s dictGetOrDefault('dict_name', attr_names, id_expr, default_value) since=18.16.0
+s dictGetOrNull('dict_name', 'attr_name', id_expr) since=21.4.0
+s dictGetRoot(dict_name, key) -> UInt64 since=26.7.0
+s dictGetString(dict_name, attr_name, id_expr)
+s dictGetStringOrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetUInt16(dict_name, attr_name, id_expr)
+s dictGetUInt16OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetUInt32(dict_name, attr_name, id_expr)
+s dictGetUInt32OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetUInt64(dict_name, attr_name, id_expr)
+s dictGetUInt64OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetUInt8(dict_name, attr_name, id_expr)
+s dictGetUInt8OrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictGetUUID(dict_name, attr_name, id_expr)
+s dictGetUUIDOrDefault(dict_name, attr_name, id_expr, default_value_expr)
+s dictHas('dict_name', id_expr) -> UInt8
+s dictIsIn(dict_name, child_id_expr, ancestor_id_expr) -> UInt8
+s digits(n, offset[, length]) -> UInt64 since=26.7.0
+s displayName() -> String since=22.11.0
+s distanceCosine(vector1, vector2) -> Float* since=21.11.0
+s distanceCosineTransposed(vector1, vector2, p[, used_dims]) -> Float64 since=26.1.0
+s distanceL1(vector1, vector2) -> (U)Int* or Float* since=21.11.0
+s distanceL2(vector1, vector2) -> Float* since=21.11.0
+s distanceL2Squared(vector1, vector2) -> (U)Int* or Float* since=22.7.0
+s distanceL2Transposed(vector1, vector2, p[, used_dims]) -> Float64 since=25.10.0
+s distanceLinf(vector1, vector2) -> Float* since=21.11.0
+s distanceLp(vector1, vector2, p) -> Float* since=21.11.0
+s divide(x, y)
+s divideDecimal(x, y[, result_scale]) -> Decimal256 since=22.12.0
+s divideOrNull(x, y) since=25.5.0
+s domain(url) -> String
+s domainRFC(url) -> String since=22.10.0
+s domainWithoutWWW(url) -> String
+s domainWithoutWWWRFC(url) -> String
+s dotProduct(vector1, vector2) -> (U)Int* or Float* or Decimal since=21.11.0
+s dotProductTransposed(vector1, vector2, p[, used_dims]) -> Float64 since=26.7.0
+s dotProductTransposedQuantized(vectors, reference, p[, used_dims]) -> Float64 since=26.7.0
+s dumpColumnStructure(x) -> String
+s dynamicElement(dynamic, type_name) -> Any since=24.1.0
+s dynamicType(dynamic) -> String since=24.1.0
+s e() -> Float64
+s editDistance(s1, s2) -> UInt64 since=23.9.0
+s editDistanceUTF8(s1, s2) -> UInt64 since=24.6.0
+s empty(arr) -> UInt8
+s emptyArrayDate() -> Array(T)
+s emptyArrayDateTime() -> Array(T)
+s emptyArrayFloat32() -> Array(T)
+s emptyArrayFloat64() -> Array(T)
+s emptyArrayInt16() -> Array(T)
+s emptyArrayInt32() -> Array(T)
+s emptyArrayInt64() -> Array(T)
+s emptyArrayInt8() -> Array(T)
+s emptyArrayString() -> Array(T)
+s emptyArrayToSingle(arr) -> Array(T)
+s emptyArrayUInt16() -> Array(T)
+s emptyArrayUInt32() -> Array(T)
+s emptyArrayUInt64() -> Array(T)
+s emptyArrayUInt8() -> Array(T)
+s enabledProfiles() -> Array(String) since=21.9.0
+s enabledRoles() -> Array(String) since=21.9.0
+s encodeURLComponent(url) -> String since=22.3.0
+s encodeURLFormComponent(url) -> String since=22.3.0
+s encodeXMLComponent(s) -> String since=21.1.0
+s encrypt(mode, plaintext, key[, iv, aad]) -> String since=20.12.0
+s endsWith(s, suffix) -> UInt8
+s endsWithCaseInsensitive(s, suffix) -> UInt8 since=25.10.0
+s endsWithCaseInsensitiveUTF8(s, suffix) -> UInt8 since=25.10.0
+s endsWithUTF8(s, suffix) -> UInt8 since=23.8.0
+s equals(a, b) -> UInt8
+s erf(x) -> Float*
+s erfc(x) -> Float*
+s errorCodeToName(error_code) -> String since=20.12.0
+s evalMLMethod(model, x1[, x2, ...]) -> Float64 since=20.1.0
+s exp(x) -> Float*
+s exp10(x) -> Float*
+s exp2(x) -> Float*
+s extract(haystack, pattern) -> String
+s extractAll(haystack, pattern) -> Array(String)
+s extractAllGroups(s, regexp) -> Array(Array(String)) since=20.5.0
+s extractAllGroupsHorizontal(s, regexp) -> Array(Array(String)) since=20.5.0
+s extractAllGroupsVertical(s, regexp) -> Array(Array(String)) since=20.5.0
+s extractGroups(s, regexp) -> Array(String) since=20.5.0
+s extractKeyValuePairs(data, [key_value_delimiter], [pair_delimiter], [quoting_character], [unexpected_quoting_character_strategy]) since=23.4.0
+s extractKeyValuePairsWithEscaping(data, [key_value_delimiter], [pair_delimiter], [quoting_character], [unexpected_quoting_character_strategy]) since=23.4.0
+s extractTextFromHTML(html) -> String since=21.3.0
+s extractURLParameter(url, name) -> String
+s extractURLParameterNames(url) -> Array(String)
+s extractURLParameters(url) -> Array(String)
+s factorial(n) -> UInt64 since=22.11.0
+s farmFingerprint64(arg1[, arg2, ...]) -> UInt64 since=20.12.0
+s farmHash64(arg1[, arg2, ...]) -> UInt64
+s file(path[, default]) -> String since=21.3.0
+s filesystemAvailable([disk_name]) -> UInt64 since=20.1.0
+s filesystemCapacity([disk_name]) -> UInt64 since=20.1.0
+s filesystemUnreserved([disk_name]) -> UInt64 since=22.12.0
+s finalizeAggregation(state) -> Any
+s financialInternalRateOfReturn(cashflows[, guess]) -> Float64 since=25.7.0
+s financialInternalRateOfReturnExtended(cashflow, date [, guess, daycount]) -> Float64 since=25.7.0
+s financialNetPresentValue(rate, cashflows[, start_from_zero]) -> Float64 since=25.7.0
+s financialNetPresentValueExtended(rate, cashflows, dates[, daycount]) -> Float64 since=25.7.0
+s firstLine(s) -> String since=23.7.0
+s firstNonDefault(arg1[, arg2[ ...]]) since=25.9.0
+s firstSignificantSubdomain(url)
+s firstSignificantSubdomainCustom(url, tld_list_name) -> String since=21.1.0
+s firstSignificantSubdomainCustomRFC(url, tld_list_name) -> String since=22.10.0
+s firstSignificantSubdomainRFC(url) since=22.10.0
+s flatten(arr) -> Array(T) since=20.1.0
+s flattenTuple(input) -> Tuple(T) since=22.6.0
+s flipCoordinates(geometry) -> Point or MultiPoint or Ring or Polygon or MultiPolygon or LineString or MultiLineString or Geometry since=25.11.0
+s floor(x[, N]) -> Float* or Decimal* or (U)Int*
+s format(pattern, s0[, s1, ...]) -> String since=20.1.0
+s FORMAT_BYTES(value[, precision]) -> String
+s formatDateTime(datetime, format[, timezone]) -> String
+s formatDateTimeInJodaSyntax(datetime, format[, timezone]) -> String since=20.1.0
+s formatQuery(query) -> String since=23.10.0
+s formatQueryFromJSON(json[, original_query]) -> String since=26.8.0
+s formatQueryOrNull(query) -> String since=23.11.0
+s formatQuerySingleLine(query) -> String since=23.10.0
+s formatQuerySingleLineOrNull(query) -> String since=23.11.0
+s formatReadableDecimalSize(value[, precision]) -> String since=22.11.0
+s formatReadableQuantity(value[, precision]) -> String since=20.10.0
+s formatReadableSize(value[, precision]) -> String
+s formatReadableTimeDelta(column[, maximum_unit, minimum_unit]) -> String since=20.12.0
+s formatRow(format, x, y, ...) -> String since=20.7.0
+s formatRowNoNewline(format, x, y, ...) -> String since=20.7.0
+s FQDN() -> String since=20.1.0
+s fragment(url) -> String
+s FROM_BASE64(encoded) -> String since=18.16.0
+s FROM_DAYS(days) -> Date since=23.11.0
+s FROM_UNIXTIME(timestamp) -> DateTime or String since=20.8.0
+s from_utc_timestamp(datetime, time_zone) -> DateTime or DateTime64 since=22.1.0
+s fromDaysSinceYearZero(days) -> Date since=23.11.0
+s fromDaysSinceYearZero32(days) -> Date32 since=23.11.0
+s fromModifiedJulianDay(day) -> String since=21.1.0
+s fromModifiedJulianDayOrNull(day) -> Nullable(String) since=21.1.0
+s fromUnixTimestamp(timestamp) -> DateTime or String since=20.8.0
+s fromUnixTimestamp64Micro(value[, timezone]) -> DateTime64(6) since=20.5.0
+s fromUnixTimestamp64Milli(value[, timezone]) -> DateTime64(3) since=20.5.0
+s fromUnixTimestamp64Nano(value[, timezone]) -> DateTime64(9) since=20.5.0
+s fromUnixTimestamp64Second(value[, timezone]) -> DateTime64(0) since=24.12.0
+s fromUnixTimestampInJodaSyntax(timestamp) -> DateTime or String since=23.1.0
+s fromUTCTimestamp(datetime, time_zone) -> DateTime or DateTime64 since=22.1.0
+s fullHostName() -> String since=20.1.0
+s fuzzBits(s, p) -> String or FixedString since=20.5.0
+s fuzzQuery(query) -> String since=26.2.0
+s gccMurmurHash(arg1[, arg2, ...]) -> UInt64 since=20.1.0
+s gcd(x, y)
+s generateRandomStructure([number_of_columns, seed]) -> String since=23.5.0
+s generateSerialID(series_identifier[, start_value]) -> UInt64 since=25.1.0
+s generateSnowflakeID([expr, [machine_id]]) -> UInt64 since=24.6.0
+s generateULID([x]) -> FixedString(26) since=23.2.0
+s generateUUIDv4([expr]) -> UUID
+s generateUUIDv7([expr]) -> UUID since=24.5.0
+s geoDistance(lon1Deg, lat1Deg, lon2Deg, lat2Deg) -> Float64
+s geohashDecode(hash_str) -> Tuple(Float64, Float64) since=20.1.0
+s geohashEncode(longitude, latitude, [precision]) -> String since=20.1.0
+s geohashesInBox(longitude_min, latitude_min, longitude_max, latitude_max, precision) -> Array(String) since=20.1.0
+s geometryIntersectCartesian(geometry1, geometry2) -> Bool since=26.7.0
+s geometryIntersectSpherical(geometry1, geometry2) -> Bool since=26.7.0
+s geoToH3(lat, lon, resolution) -> UInt64 since=20.1.0
+s geoToMGRS(longitude, latitude[, precision]) -> String since=26.7.0
+s geoToS2(lon, lat) -> UInt64 since=21.9.0
+s geoToUTM(longitude, latitude[, zone]) -> Tuple(Float64, Float64, UInt8, FixedString(1)) since=26.7.0
+s getClientHTTPHeader(name) -> String since=24.5.0
+s getMacro(name) -> String since=20.1.0
+s getMaxTableNameLengthForDatabase(database_name) since=25.1.0
+s getMergeTreeSetting(setting_name) since=25.6.0
+s getOSKernelVersion() -> String since=21.11.0
+s getServerPort(port_name) -> UInt16 since=21.10.0
+s getServerSetting(setting_name') -> Any since=25.6.0
+s getSetting(setting_name) -> Any since=20.7.0
+s getSettingOrDefault(setting_name, default_value) since=24.10.0
+s getSizeOfEnumType(x) -> UInt8/16
+s getSubcolumn(nested_value, subcolumn_name) since=23.3.0
+s getTypeSerializationStreams(col) -> Array(String) since=22.6.0
+s globalIn(x, set) -> UInt8
+s globalInIgnoreSet(x, set) -> UInt8
+s globalNotIn(x, set) -> UInt8
+s globalNotInIgnoreSet(x, set) -> UInt8
+s globalNotNullIn(x, set) -> UInt8
+s globalNotNullInIgnoreSet(x, set) -> UInt8
+s globalNullIn(x, set) -> UInt8
+s globalNullInIgnoreSet(x, set) -> UInt8
+s globalVariable(name) -> Any since=20.5.0
+s greatCircleAngle(lon1Deg, lat1Deg, lon2Deg, lat2Deg) -> Float64
+s greatCircleDistance(lon1Deg, lat1Deg, lon2Deg, lat2Deg) -> Float64
+s greater(a, b) -> UInt8
+s greaterOrEquals(a, b) -> UInt8
+s greatest(x1[, x2, ...]) -> Any
+s h3CellAreaM2(index) -> Float64 since=22.1.0
+s h3CellAreaRads2(index) -> Float64 since=22.1.0
+s h3Distance(start, end) -> Int64 since=22.6.0
+s h3EdgeAngle(resolution) -> Float64 since=20.1.0
+s h3EdgeLengthKm(resolution) -> Float64 since=20.1.0
+s h3EdgeLengthM(resolution) -> Float64 since=20.1.0
+s h3ExactEdgeLengthKm(index) -> Float64 since=22.2.0
+s h3ExactEdgeLengthM(index) -> Float64 since=22.2.0
+s h3ExactEdgeLengthRads(index) -> Float64 since=22.2.0
+s h3GetBaseCell(index) -> UInt8 since=20.3.0
+s h3GetDestinationIndexFromUnidirectionalEdge(edge) -> UInt64 since=22.6.0
+s h3GetFaces(index) -> Array(UInt8) since=21.11.0
+s h3GetIndexesFromUnidirectionalEdge(edge) -> Tuple(UInt64, UInt64) since=22.6.0
+s h3GetOriginIndexFromUnidirectionalEdge(edge) -> UInt64 since=22.6.0
+s h3GetPentagonIndexes(resolution) -> Array(UInt64) since=22.6.0
+s h3GetRes0Indexes() -> Array(UInt64) since=22.6.0
+s h3GetResolution(index) -> UInt8 since=20.1.0
+s h3GetUnidirectionalEdge(origin, destination) -> UInt64 since=22.6.0
+s h3GetUnidirectionalEdgeBoundary(index) -> Array(Tuple(Float64, Float64)) since=22.6.0
+s h3GetUnidirectionalEdgesFromHexagon(index) -> Array(UInt64) since=22.6.0
+s h3HexAreaKm2(resolution) -> Float64 since=22.1.0
+s h3HexAreaM2(resolution) -> Float64 since=20.3.0
+s h3HexRing(index, k) -> Array(UInt64) since=22.6.0
+s h3IndexesAreNeighbors(index1, index2) -> UInt8 since=20.3.0
+s h3IsPentagon(index) -> UInt8 since=21.11.0
+s h3IsResClassIII(index) -> UInt8 since=21.11.0
+s h3IsValid(h3index) -> UInt8 since=20.1.0
+s h3kRing(h3index, k) -> Array(UInt64) since=20.1.0
+s h3Line(start, end) -> Array(UInt64) since=22.6.0
+s h3NumHexagons(resolution) -> Int64 since=22.2.0
+s h3PointDistKm(lat1, lon1, lat2, lon2) -> Float64 since=22.6.0
+s h3PointDistM(lat1, lon1, lat2, lon2) -> Float64 since=22.6.0
+s h3PointDistRads(lat1, lon1, lat2, lon2) -> Float64 since=22.6.0
+s h3PolygonToCells(geometry, resolution) since=25.11.0
+s h3PolygonToCellsWithContainment(geometry, resolution, flags) since=26.6.0
+s h3ToCenterChild(index, resolution) -> UInt64 since=22.2.0
+s h3ToChildren(index, resolution) -> Array(UInt64) since=20.3.0
+s h3ToGeo(h3Index) -> Tuple(Float64, Float64) since=21.9.0
+s h3ToGeoBoundary(h3Index) -> Array(Tuple(Float64, Float64)) since=21.11.0
+s h3ToParent(index, resolution) -> UInt64 since=20.3.0
+s h3ToString(index) -> String since=20.3.0
+s h3UnidirectionalEdgeIsValid(index) -> UInt8 since=22.6.0
+s halfMD5(arg1[, arg2, ..., argN]) -> UInt64
+s has(haystack, needle) -> UInt8
+s hasAll(set, subset)
+s hasAllToken(input, needles[, tokenizer]) -> UInt8 since=25.10.0
+s hasAllTokens(input, needles[, tokenizer]) -> UInt8 since=25.10.0
+s hasAny(arr_x, arr_y)
+s hasAnyToken(input, needles[, tokenizer]) -> UInt8 since=25.10.0
+s hasAnyTokens(input, needles[, tokenizer]) -> UInt8 since=25.10.0
+s hasColumnInTable(database, table, column) -> UInt8
+s hasPhrase(input, phrase[, tokenizer]) -> UInt8 since=26.4.0
+s hasSubsequence(haystack, needle) -> UInt8 since=23.7.0
+s hasSubsequenceCaseInsensitive(haystack, needle) -> UInt8 since=23.7.0
+s hasSubsequenceCaseInsensitiveUTF8(haystack, needle) -> UInt8 since=23.7.0
+s hasSubsequenceUTF8(haystack, needle) -> UInt8 since=23.7.0
+s hasSubstr(arr1, arr2) -> UInt8 since=20.6.0
+s hasThreadFuzzer() -> UInt8 since=20.6.0
+s hasToken(haystack, token) -> UInt8 since=20.1.0
+s hasTokenCaseInsensitive(haystack, needle) since=20.1.0
+s hasTokenCaseInsensitiveOrNull(haystack, needle) since=23.1.0
+s hasTokenOrNull(haystack, token) -> Nullable(UInt8) since=20.1.0
+s hex(arg) -> String
+s highlight(haystack, needles[, open_tag, close_tag]) -> String since=26.4.0
+s highlightQuery(query) -> Array(Tuple(begin UInt64, end UInt64, type Enum8(...))) since=26.5.0
+s hilbertDecode(tuple_size, code) -> Tuple(UInt64) since=24.6.0
+s hilbertEncode(args) -> UInt64 since=24.6.0
+s hiveHash(arg) -> Int32 since=20.1.0
+s HMAC(mode, message, key) -> String since=25.12.0
+s hop(time_attr, hop_interval, window_interval[, timezone]) -> Tuple(DateTime, DateTime) since=21.12.0
+s hopEnd(time_attr, hop_interval, window_interval[, timezone]) -> DateTime since=22.1.0
+s hopStart(time_attr, hop_interval, window_interval[, timezone]) -> DateTime since=22.1.0
+s hostName() -> String since=20.5.0
+s hostname() -> String since=20.5.0
+s HOUR(datetime) -> UInt8
+s hypot(x, y) -> Float64 since=20.12.0
+s icebergBucket(N, value) -> Int32 since=25.5.0
+s icebergHash(value) -> Int32 since=25.5.0
+s icebergTruncate(N, value) since=25.3.0
+s identity(x) -> Any
+s idnaDecode(s) -> String since=24.1.0
+s idnaEncode(s) -> String since=24.1.0
+s if(cond, then, else)
+s ifNotFinite(x,y) since=20.3.0
+s ifNull(x, alt) -> Any
+s ignore(x) -> UInt8
+s ilike(haystack, pattern[, escape_character]) -> UInt8 since=20.6.0
+s in(x, set) -> UInt8
+s indexHint(expression) -> UInt8
+s indexOf(arr, x) -> UInt64
+s indexOfAssumeSorted(arr, x) -> UInt64 since=24.12.0
+s INET6_ATON(string) -> FixedString(16)
+s INET6_NTOA(x) -> String
+s INET_ATON(string) -> UInt32
+s INET_NTOA(num) -> String
+s inIgnoreSet(x, set) -> UInt8
+s initcap(s) -> String since=23.7.0
+s initcapUTF8(s) -> String since=23.7.0
+s initial_query_id() -> String
+s initial_query_start_time() -> DateTime since=25.4.0
+s initializeAggregation(aggregate_function, arg1[, arg2, ...]) -> Any since=20.6.0
+s initialQueryID() -> String
+s initialQueryStartTime() -> DateTime since=25.4.0
+s instr(haystack, needle[, start_pos]) -> UInt64
+s intDiv(x, y)
+s intDivOrNull(x, y) since=25.5.0
+s intDivOrZero(a, b)
+s intExp10(x) -> UInt64
+s intExp2(x) -> UInt64
+s intHash32(arg) -> UInt32
+s intHash64(int) -> UInt64
+s IPv4CIDRToRange(ipv4, cidr) -> Tuple(IPv4, IPv4) since=20.1.0
+s IPv4NumToString(num) -> String
+s IPv4NumToStringClassC(num) -> String
+s IPv4StringToNum(string) -> UInt32
+s IPv4StringToNumOrDefault(string) -> UInt32 since=22.3.0
+s IPv4StringToNumOrNull(string) -> Nullable(UInt32) since=22.3.0
+s IPv4ToIPv6(x) -> FixedString(16)
+s IPv6CIDRToRange(ipv6, cidr) -> Tuple(IPv6, IPv6) since=20.1.0
+s IPv6NumToString(x) -> String
+s IPv6StringToNum(string) -> FixedString(16)
+s IPv6StringToNumOrDefault(string) -> FixedString(16) since=22.3.0
+s IPv6StringToNumOrNull(string) -> Nullable(FixedString(16)) since=22.3.0
+s isASCII(str) since=25.9.0
+s isConstant(x) -> UInt8 since=20.3.0
+s isDecimalOverflow(value[, precision]) -> UInt8 since=20.8.0
+s isDistinctFrom(x, y) -> Bool since=25.11.0
+s isDynamicElementInSharedData(dynamic) -> Bool since=24.1.0
+s isFinite(x)
+s isInfinite(x)
+s isIPAddressInRange(address, prefix) -> UInt8 since=21.4.0
+s isIPv4String(string) -> UInt8 since=21.1.0
+s isIPv6String(string) -> UInt8 since=21.1.0
+s isMergeTreePartCoveredBy(nested_part, covering_part) -> UInt8 since=25.6.0
+s isNaN(x)
+s isNotDistinctFrom(x, y) -> Bool since=23.8.0
+s isNotNull(x) -> UInt8
+s isNull(x) -> UInt8
+s isNullable(x) -> UInt8 since=22.7.0
+s isPrime(n) -> UInt8 since=26.5.0
+s isProbablePrime(n[, rounds]) -> UInt8 since=26.5.0
+s isValidASCII(str) since=25.9.0
+s isValidJSON(json) -> UInt8 since=20.1.0
+s isValidUTF8(s) -> UInt8 since=20.1.0
+s isZeroOrNull(x) -> UInt8/16/32/64 or Float32/Float64 since=20.3.0
+s jaroSimilarity(s1, s2) -> Float64 since=24.1.0
+s jaroWinklerSimilarity(s1, s2) -> Float64 since=24.1.0
+s javaHash(arg) -> Int32 since=20.1.0
+s javaHashUTF16LE(arg) -> Int32 since=20.1.0
+s joinGet(join_storage_table_name, value_column, join_keys) -> Any since=18.16.0
+s joinGetOrNull(join_storage_table_name, value_column, join_keys) -> Any since=20.4.0
+s JSON_ARRAY_LENGTH(json) -> Nullable(UInt64) since=23.2.0
+s JSON_EXISTS(json, path) -> UInt8 since=21.8.0
+s JSON_QUERY(json, path) -> String since=21.8.0
+s JSON_VALUE(json, path) -> String since=21.11.0
+s JSONAllPaths(json) -> Array(String) since=24.8.0
+s JSONAllPathsWithTypes(json) -> Map(String, String) since=24.8.0
+s JSONAllValues(json) -> Array(String) since=26.4.0
+s JSONArrayLength(json) -> Nullable(UInt64) since=23.2.0
+s JSONDynamicPaths(json) -> Array(String) since=24.8.0
+s JSONDynamicPathsWithTypes(json) -> Map(String, String) since=24.8.0
+s JSONExtract(json[, indices_or_keys, ...], return_type) since=19.14.0
+s JSONExtractArrayRaw(json[, indices_or_keys, ...]) -> Array(String) since=20.1.0
+s JSONExtractArrayRawCaseInsensitive(json [, indices_or_keys]...) -> Array(String) since=25.8.0
+s JSONExtractBool(json[, indices_or_keys, ...]) -> Bool since=20.1.0
+s JSONExtractBoolCaseInsensitive(json [, indices_or_keys]...) -> UInt8 since=25.8.0
+s JSONExtractCaseInsensitive(json [, indices_or_keys...], return_type) -> Any since=25.8.0
+s JSONExtractFloat(json[, indices_or_keys, ...]) -> Float64 since=20.1.0
+s JSONExtractFloatCaseInsensitive(json [, indices_or_keys]...) -> Float64 since=25.8.0
+s JSONExtractInt(json[, indices_or_keys, ...]) -> Int64 since=20.1.0
+s JSONExtractIntCaseInsensitive(json [, indices_or_keys]...) -> Int64 since=25.8.0
+s JSONExtractKeys(json[, indices_or_keys, ...]) -> Array(String) since=21.11.0
+s JSONExtractKeysAndValues(json[, indices_or_keys, ...], value_type) -> Array(Tuple(String, value_type)) since=20.1.0
+s JSONExtractKeysAndValuesCaseInsensitive(json [, indices_or_keys...], value_type) -> Array(Tuple(String, T)) since=25.8.0
+s JSONExtractKeysAndValuesRaw(json[, indices_or_keys, ...]) -> Array(Tuple(String, String)) since=20.4.0
+s JSONExtractKeysAndValuesRawCaseInsensitive(json [, indices_or_keys]...) -> Array(Tuple(String, String)) since=25.8.0
+s JSONExtractKeysCaseInsensitive(json [, indices_or_keys]...) -> Array(String) since=25.8.0
+s JSONExtractRaw(json[, indices_or_keys, ...]) -> String since=20.1.0
+s JSONExtractRawCaseInsensitive(json [, indices_or_keys]...) -> String since=25.8.0
+s JSONExtractString(json[, indices_or_keys, ...]) -> String since=20.1.0
+s JSONExtractStringCaseInsensitive(json [, indices_or_keys]...) -> String since=25.8.0
+s JSONExtractUInt(json [, indices_or_keys, ...]) -> UInt64 since=20.1.0
+s JSONExtractUIntCaseInsensitive(json [, indices_or_keys]...) -> UInt64 since=25.8.0
+s JSONHas(json[ ,indices_or_keys, ...]) -> UInt8 since=20.1.0
+s JSONKey(json[, indices_or_keys, ...]) -> String since=20.1.0
+s JSONLength(json [, indices_or_keys, ...]) -> UInt64 since=20.1.0
+s JSONMergePatch(json1[, json2, ...]) -> String since=23.10.0
+s jsonMergePatch(json1[, json2, ...]) -> String since=23.10.0
+s JSONSharedDataPaths(json) -> Array(String) since=24.8.0
+s JSONSharedDataPathsWithTypes(json) -> Map(String, String) since=24.8.0
+s JSONType(json[, indices_or_keys, ...]) -> Enum since=20.1.0
+s jumpConsistentHash(key, buckets) -> Int32
+s kafkaMurmurHash(arg1[, arg2, ...]) -> UInt32 since=23.4.0
+s keccak256(message) -> FixedString(32) since=25.4.0
+s kostikConsistentHash(input, n) -> UInt16 since=22.6.0
+s kqlBin(value, roundTo) since=26.8.0
+s kqlBinAt(value, binSize, fixedPoint) since=26.8.0
+s kqlDateTimeBinAt(value, binSize, fixedPoint) since=26.8.0
+s kqlDivide(x, y) since=26.8.0
+s kqlMultiply(x, y) since=26.8.0
+s kqlParameterCast(value, type, parameter) since=26.9.0
+s kqlRangeCount(from, to, step) since=26.8.0
+s kqlToTimespan(x) since=26.8.0
+s L1Distance(vector1, vector2) -> (U)Int* or Float* since=21.11.0
+s L1Norm(vector) -> UInt* or Float* or Decimal since=21.11.0
+s L1Normalize(vector) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s L2Distance(vector1, vector2) -> Float* since=21.11.0
+s L2DistanceTransposed(vector1, vector2, p[, used_dims]) -> Float64 since=25.10.0
+s L2DistanceTransposedQuantized(vectors, reference, p[, used_dims]) -> Float64 since=26.7.0
+s L2Norm(vector) -> UInt* or Float* since=21.11.0
+s L2Normalize(vector) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s L2SquaredDistance(vector1, vector2) -> (U)Int* or Float* since=22.7.0
+s L2SquaredNorm(vector) -> UInt* or Float* or Decimal since=22.7.0
+s LAST_DAY(value) -> Date
+s lcase(s) -> String
+s lcm(x, y) -> (U)Int*
+s least(x1[, x2, ...]) -> Any
+s left(s, offset) -> String since=22.1.0
+s leftPad(string, length[, pad_string]) -> String since=21.8.0
+s leftPadUTF8(string, length[, pad_string]) -> String since=21.8.0
+s leftUTF8(s, offset) -> String since=22.1.0
+s lemmatize(lang, word) -> String since=21.9.0
+s length(x) -> UInt64
+s lengthUTF8(s) -> UInt64
+s less(a, b) -> UInt8
+s lessOrEquals(a, b) -> UInt8
+s levenshteinDistance(s1, s2) -> UInt64 since=23.9.0
+s levenshteinDistanceUTF8(s1, s2) -> UInt64 since=24.6.0
+s lgamma(x) -> Float*
+s like(haystack, pattern[, escape_character]) -> UInt8
+s LinfDistance(vector1, vector2) -> Float* since=21.11.0
+s LinfNorm(vector) -> Float64 since=21.11.0
+s LinfNormalize(vector) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s ln(x) -> Float*
+s localtime() -> Time since=26.7.0
+s localtimestamp([timezone]) -> DateTime
+s locate(needle, haystack[, start_pos]) -> UInt64 since=18.16.0
+s log(x) -> Float*
+s log10(x) -> Float*
+s log1p(x) -> Float64 since=20.12.0
+s log2(x) -> Float*
+s logTrace(message) -> UInt8 since=20.12.0
+s lowCardinalityIndices(col) -> UInt64 since=18.12.0
+s lowCardinalityKeys(col) -> UInt64 since=18.12.0
+s lower(s) -> String
+s lowerUTF8(input) -> String
+s lpad(string, length[, pad_string]) -> String since=21.8.0
+s LpDistance(vector1, vector2, p) -> Float* since=21.11.0
+s LpNorm(vector, p) -> Float64 since=21.11.0
+s LpNormalize(vector, p) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s ltrim(input[, trim_characters]) -> String since=20.1.0
+s MACNumToString(num) -> String
+s MACStringToNum(s) -> UInt64
+s MACStringToOUI(s) -> UInt64
+s makeDate(year, month, day) -> Date since=22.6.0
+s makeDate32(year, month, day) -> Date32 since=22.6.0
+s makeDateTime(year, month, day, hour, minute, second[, timezone]) -> DateTime since=22.6.0
+s makeDateTime64(year, month, day, hour, minute, second[, fraction[, precision[, timezone]]]) -> DateTime64 since=22.6.0
+s map(key1, value1[, key2, value2, ...]) -> Map(Any, Any) since=21.1.0
+s MAP_FROM_ARRAYS(keys, values) -> Map since=23.3.0
+s mapAdd(arg1[, arg2, ...]) -> Map(K, V) or Tuple(Array(T), Array(T)) since=20.7.0
+s mapAll([func,] map) -> UInt8 since=23.4.0
+s mapApply(func, map) -> Map(K, V) since=22.3.0
+s mapConcat(maps) -> Map since=23.4.0
+s mapContains(map, key) -> UInt8 since=21.2.0
+s mapContainsKey(map, key) -> UInt8 since=21.2.0
+s mapContainsKeyLike(map, pattern) -> UInt8 since=23.4.0
+s mapContainsValue(map, value) -> UInt8 since=25.6.0
+s mapContainsValueLike(map, pattern) -> UInt8 since=25.5.0
+s mapExists([func,] map) -> UInt8 since=23.4.0
+s mapExtractKeyLike(map, pattern) -> Map(K, V) since=23.4.0
+s mapExtractValueLike(map, pattern) -> Map(K, V) since=25.5.0
+s mapFilter(func, map) -> Map(K, V) since=22.3.0
+s mapFromArrays(keys, values) -> Map since=23.3.0
+s mapFromString(data, [key_value_delimiter], [pair_delimiter], [quoting_character], [unexpected_quoting_character_strategy]) since=23.4.0
+s mapKeys(map) -> Array(T) since=21.2.0
+s mapPartialReverseSort([func,] limit, map) -> Map(K, V) since=23.4.0
+s mapPartialSort([func,] limit, map) -> Map(K, V) since=23.4.0
+s mapPopulateSeries(map[, max]) | mapPopulateSeries(keys, values[, max]) -> Map(K, V) or Tuple(Array(UInt*), Array(Any)) since=20.10.0
+s mapReverseSort([func,] map) -> Map(K, V) since=23.4.0
+s mapSort([func,] map) -> Map(K, V) since=23.4.0
+s mapSubtract(arg1[, arg2, ...]) -> Map(K, V) or Tuple(Array(T), Array(T)) since=20.7.0
+s mapUpdate(map1, map2) -> Map(K, V) since=22.3.0
+s mapValues(map) -> Array(T) since=21.2.0
+s match(haystack, pattern) -> UInt8
+s matchCaseInsensitive(haystack, pattern) -> UInt8 since=26.8.0
+s matchPhrase(input, phrase[, tokenizer]) -> UInt8 since=26.4.0
+s materialize(x) -> Any
+s max2(x, y) -> Float64 since=21.11.0
+s MD4(s) -> FixedString(16) since=21.11.0
+s MD5(s) -> FixedString(16)
+s mergeTreePartInfo(part_name) -> Tuple since=25.6.0
+s metroHash64(arg1[, arg2, ...]) -> UInt64
+s MGRSToGeo(mgrs) -> Tuple(Float64, Float64) since=26.7.0
+s MICROSECOND(datetime) -> UInt32 since=25.7.0
+s mid(s, offset[, length]) -> String
+s midpoint(x1[, x2, ...]) since=25.11.0
+s MILLISECOND(datetime) -> UInt16 since=24.2.0
+s min2(x, y) -> Float64 since=21.11.0
+s minSampleSizeContinous(baseline, sigma, mde, power, alpha) -> Tuple(Float64, Float64, Float64) since=23.10.0
+s minSampleSizeContinuous(baseline, sigma, mde, power, alpha) -> Tuple(Float64, Float64, Float64) since=23.10.0
+s minSampleSizeConversion(baseline, mde, power, alpha) -> Tuple(Float64, Float64, Float64) since=22.6.0
+s minus(x, y)
+s MINUTE(datetime) -> UInt8
+s mismatches(s1, s2) -> UInt64 since=23.9.0
+s mod(a, b)
+s modOrNull(x, y) since=25.5.0
+s modulo(a, b)
+s moduloLegacy(a, b) -> (U)Int* or Float*
+s moduloOrNull(x, y) since=25.5.0
+s moduloOrZero(a, b) since=20.3.0
+s MONTH(datetime) -> UInt8
+s monthName(datetime) -> String since=22.1.0
+s mortonDecode(tuple_size, code) -> Tuple(UInt64) since=24.6.0
+s mortonEncode(args) -> UInt64 since=24.6.0
+s multiFuzzyMatchAllIndices(haystack, distance, [pattern1, pattern2, ..., patternN]) -> Array(UInt64) since=20.1.0
+s multiFuzzyMatchAny(haystack, distance, [pattern1, pattern2, ..., patternN]) -> UInt8 since=20.1.0
+s multiFuzzyMatchAnyIndex(haystack, distance, [pattern1, pattern2, ..., patternn]) -> UInt64 since=20.1.0
+s multiIf(cond_1, then_1, cond_2, then_2, ..., else)
+s multiMatchAllIndices(haystack, [pattern1, pattern2, ..., patternn]) -> Array(UInt64) since=20.1.0
+s multiMatchAny(haystack, pattern1[, pattern2, ...]) -> UInt8 since=20.1.0
+s multiMatchAnyIndex(haystack, [pattern1, pattern2, ..., patternn]) -> UInt64 since=20.1.0
+s multiply(x, y)
+s multiplyDecimal(a, b[, result_scale]) -> Decimal256 since=22.12.0
+s multiSearchAllPositions(haystack, needle1[, needle2, ...]) -> Array(UInt64) since=20.1.0
+s multiSearchAllPositionsCaseInsensitive(haystack, needle1[, needle2, ...]) -> Array(UInt64) since=20.1.0
+s multiSearchAllPositionsCaseInsensitiveUTF8(haystack, [needle1, needle2, ..., needleN]) -> Array since=20.1.0
+s multiSearchAllPositionsUTF8(haystack, needle1[, needle2, ...]) -> Array since=20.1.0
+s multiSearchAny(haystack, needle1[, needle2, ...]) -> UInt8 since=20.1.0
+s multiSearchAnyCaseInsensitive(haystack, [needle1, needle2, ..., needleN]) -> UInt8 since=20.1.0
+s multiSearchAnyCaseInsensitiveUTF8(haystack, [needle1, needle2, ..., needleN]) -> UInt8 since=20.1.0
+s multiSearchAnyUTF8(haystack, [needle1, needle2, ..., needleN]) -> UInt8 since=20.1.0
+s multiSearchFirstIndex(haystack, [needle1, needle2, ..., needleN]) -> UInt64 since=20.1.0
+s multiSearchFirstIndexCaseInsensitive(haystack, [needle1, needle2, ..., needleN] -> UInt8 since=20.1.0
+s multiSearchFirstIndexCaseInsensitiveUTF8(haystack, [needle1, needle2, ..., needleN]) -> UInt64 since=20.1.0
+s multiSearchFirstIndexUTF8(haystack, [needle1, needle2, ..., needleN]) -> UInt8 since=20.1.0
+s multiSearchFirstPosition(haystack, needle1[, needle2, ...]) -> UInt64 since=20.1.0
+s multiSearchFirstPositionCaseInsensitive(haystack, [needle1, needle2, ..., needleN]) -> UInt64 since=20.1.0
+s multiSearchFirstPositionCaseInsensitiveUTF8(haystack, [needle1, needle2, ..., needleN]) -> UInt64 since=20.1.0
+s multiSearchFirstPositionUTF8(haystack, [needle1, needle2, ..., needleN]) -> UInt64 since=20.1.0
+s murmurHash2_32(arg1[, arg2, ...]) -> UInt32 since=18.5.0
+s murmurHash2_64(arg1[, arg2, ...]) -> UInt64 since=18.10.0
+s murmurHash3_128(arg1[, arg2, ...]) -> FixedString(16) since=18.10.0
+s murmurHash3_32(arg1[, arg2, ...]) -> UInt32 since=18.10.0
+s murmurHash3_64(arg1[, arg2, ...]) -> UInt64 since=18.10.0
+s MVTBoundingBox(zoom, tile_x, tile_y[, margin]) -> Tuple(Float64, Float64, Float64, Float64) since=26.7.0
+s MVTBoundingBoxMercator(zoom, tile_x, tile_y[, margin]) -> Tuple(Float64, Float64, Float64, Float64) since=26.7.0
+s MVTEncodeGeom(geometry, zoom, tile_x, tile_y[, extent[, buffer[, clip]]]) -> Geometry since=26.7.0
+s naiveBayesClassifier(dictionary_name, input_text) -> UInt32 since=25.11.0
+s naiveBayesClassifierWithAllProbs(dictionary_name, input_text) -> Array(Tuple(UInt32, Float64)) since=26.7.0
+s naiveBayesClassifierWithProb(dictionary_name, input_text) -> Tuple(UInt32, Float64) since=26.7.0
+s naiveBayesNgrams(text, n, mode[, start_token, end_token]) -> Array(String) since=26.7.0
+s NANOSECOND(datetime) -> UInt32 since=25.7.0
+s NATURAL_SORT_KEY(s) -> String since=26.3.0
+s naturalSortKey(s) -> String since=26.3.0
+s negate(x)
+s neighbor(column, offset[, default_value]) -> Any since=20.1.0
+s netloc(url) -> String since=20.5.0
+s ngramDistance(haystack, needle) -> Float32 since=20.1.0
+s ngramDistanceCaseInsensitive(haystack, needle) -> Float32 since=20.1.0
+s ngramDistanceCaseInsensitiveUTF8(haystack, needle) -> Float32 since=20.1.0
+s ngramDistanceUTF8(haystack, needle) -> Float32 since=20.1.0
+s ngramMinHash(string[, ngramsize, hashnum]) -> Tuple since=21.1.0
+s ngramMinHashArg(string[, ngramsize, hashnum]) -> Tuple(String) since=21.1.0
+s ngramMinHashArgCaseInsensitive(string[, ngramsize, hashnum]) -> Tuple(Tuple(String)) since=21.1.0
+s ngramMinHashArgCaseInsensitiveUTF8(string[, ngramsize, hashnum]) -> Tuple(Tuple(String)) since=21.1.0
+s ngramMinHashArgUTF8(string[, ngramsize, hashnum]) -> Tuple(Tuple(String)) since=21.1.0
+s ngramMinHashCaseInsensitive(string[, ngramsize, hashnum]) -> Tuple since=21.1.0
+s ngramMinHashCaseInsensitiveUTF8(string [, ngramsize, hashnum]) -> Tuple since=21.1.0
+s ngramMinHashUTF8(string[, ngramsize, hashnum]) -> Tuple since=21.1.0
+s ngrams(s, N) -> Array(String) since=21.11.0
+s ngramSearch(haystack, needle) -> UInt8 since=20.1.0
+s ngramSearchCaseInsensitive(haystack, needle) -> UInt8 since=20.1.0
+s ngramSearchCaseInsensitiveUTF8(haystack, needle) -> UInt8 since=20.1.0
+s ngramSearchUTF8(haystack, needle) -> UInt8 since=20.1.0
+s ngramSimHash(string[, ngramsize]) -> UInt64 since=21.1.0
+s ngramSimHashCaseInsensitive(string[, ngramsize]) -> UInt64 since=21.1.0
+s ngramSimHashCaseInsensitiveUTF8(string[, ngramsize]) -> UInt64 since=21.1.0
+s ngramSimHashUTF8(string[, ngramsize]) -> UInt64 since=21.1.0
+s normalizedQueryHash(x) -> UInt64 since=20.8.0
+s normalizedQueryHashKeepNames(x) -> UInt64 since=21.2.0
+s normalizeL1(vector) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s normalizeL2(vector) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s normalizeLinf(vector) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s normalizeLp(vector, p) -> Tuple(Float64) or Array(Float32) or Array(Float64) since=21.11.0
+s normalizeQuery(x) -> String since=20.8.0
+s normalizeQueryKeepNames(x) -> String since=21.2.0
+s normalizeUTF8NFC(str) -> String since=21.11.0
+s normalizeUTF8NFD(str) -> String since=21.11.0
+s normalizeUTF8NFKC(str) -> String since=21.11.0
+s normalizeUTF8NFKCCasefold(str) -> String since=26.3.0
+s normalizeUTF8NFKD(str) -> String since=21.11.0
+s normL1(vector) -> UInt* or Float* or Decimal since=21.11.0
+s normL2(vector) -> UInt* or Float* since=21.11.0
+s normL2Squared(vector) -> UInt* or Float* or Decimal since=22.7.0
+s normLinf(vector) -> Float64 since=21.11.0
+s normLp(vector, p) -> Float64 since=21.11.0
+s not(val) -> Nullable(UInt8)
+s notEmpty(arr) -> UInt8
+s notEquals(a, b) -> UInt8
+s notHas(haystack, needle) -> UInt8 since=26.8.0
+s notILike(haystack, pattern[, escape_character]) -> UInt8 since=20.6.0
+s notIn(x, set) -> UInt8
+s notInIgnoreSet(x, set) -> UInt8
+s notLike(haystack, pattern[, escape_character]) -> UInt8
+s notMatch(haystack, pattern) -> UInt8 since=26.8.0
+s notMatchCaseInsensitive(haystack, pattern) -> UInt8 since=26.8.0
+s notNullIn(x, set) -> UInt8
+s notNullInIgnoreSet(x, set) -> UInt8
+s now([timezone]) -> DateTime
+s now64([scale[, timezone]]) -> DateTime64 since=20.1.0
+s nowInBlock([timezone]) -> DateTime since=22.8.0
+s nowInBlock64([scale[, timezone]]) -> DateTime64 since=25.8.0
+s nullIf(x, y) -> NULL or Nullable(x)
+s nullIn(x, set) -> UInt8
+s nullInIgnoreSet(x, set) -> UInt8
+s numericIndexedVectorAllValueSum(v) -> Float64 since=25.7.0
+s numericIndexedVectorBuild(map) -> AggregateFunction since=25.7.0
+s numericIndexedVectorCardinality(v) -> UInt64 since=25.7.0
+s numericIndexedVectorGetValue(v, i) -> (U)Int* or Float* since=25.7.0
+s numericIndexedVectorPointwiseAdd(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseDivide(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseEqual(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseGreater(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseGreaterEqual(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseLess(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseLessEqual(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseMultiply(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseNotEqual(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorPointwiseSubtract(v1, v2) -> numericIndexedVector since=25.7.0
+s numericIndexedVectorShortDebugString(v) -> String since=25.7.0
+s numericIndexedVectorToMap(v) -> Map since=25.7.0
+s obfuscateQuery(query[, tag]) -> String since=26.4.0
+s obfuscateQueryWithSeed(query, seed) -> String since=26.4.0
+s OCTET_LENGTH(x) -> UInt64
+s or(val1, val2[, ...]) -> Nullable(UInt8)
+s overlay(s, replace, offset[, length]) -> String since=24.9.0
+s overlayUTF8(s, replace, offset[, length]) -> String since=24.9.0
+s parseDateTime(time_string, format[, timezone]) -> DateTime since=23.3.0
+s parseDateTime32BestEffort(time_string[, time_zone]) -> DateTime since=20.9.0
+s parseDateTime32BestEffortOrNull(time_string[, time_zone]) -> DateTime since=20.9.0
+s parseDateTime32BestEffortOrZero(time_string[, time_zone]) -> DateTime since=20.9.0
+s parseDateTime64(time_string, format[, timezone]) -> DateTime64 since=24.11.0
+s parseDateTime64BestEffort(time_string[, precision[, time_zone]]) -> DateTime64 since=20.1.0
+s parseDateTime64BestEffortOrNull(time_string[, precision[, time_zone]]) -> DateTime64 or NULL since=20.1.0
+s parseDateTime64BestEffortOrZero(time_string[, precision[, time_zone]]) -> DateTime64 since=20.1.0
+s parseDateTime64BestEffortUS(time_string [, precision [, time_zone]]) -> DateTime64 since=22.8.0
+s parseDateTime64BestEffortUSOrNull(time_string[, precision[, time_zone]]) -> DateTime64 or NULL since=22.8.0
+s parseDateTime64BestEffortUSOrZero(time_string [, precision [, time_zone]]) -> DateTime64 since=22.8.0
+s parseDateTime64InJodaSyntax(time_string, format[, timezone]) -> DateTime64 since=24.10.0
+s parseDateTime64InJodaSyntaxOrNull(time_string, format[, timezone]) -> Nullable(DateTime64) since=24.10.0
+s parseDateTime64InJodaSyntaxOrZero(time_string, format[, timezone]) -> DateTime64 since=24.10.0
+s parseDateTime64OrNull(time_string, format[, timezone]) -> Nullable(DateTime64) since=24.11.0
+s parseDateTime64OrZero(time_string, format[, timezone]) -> DateTime64 since=24.11.0
+s parseDateTimeBestEffort(time_string[, time_zone]) -> DateTime
+s parseDateTimeBestEffortOrNull(time_string[, time_zone]) -> DateTime or NULL
+s parseDateTimeBestEffortOrZero(time_string[, time_zone]) -> DateTime
+s parseDateTimeBestEffortUS(time_string[, time_zone]) -> DateTime
+s parseDateTimeBestEffortUSOrNull(time_string[, time_zone]) -> DateTime or NULL
+s parseDateTimeBestEffortUSOrZero(time_string[, time_zone]) -> DateTime
+s parseDateTimeInJodaSyntax(time_string, format[, timezone]) -> DateTime since=23.3.0
+s parseDateTimeInJodaSyntaxOrNull(time_string, format[, timezone]) -> Nullable(DateTime) since=23.3.0
+s parseDateTimeInJodaSyntaxOrZero(time_string, format[, timezone]) -> DateTime since=23.3.0
+s parseDateTimeOrNull(time_string, format[, timezone]) -> Nullable(DateTime) since=23.3.0
+s parseDateTimeOrZero(time_string, format[, timezone]) -> DateTime since=23.3.0
+s parseISO8601Duration(duration) -> Float64 since=26.9.0
+s parseQueryToJSON(sql) -> String since=26.8.0
+s parseReadableSize(x) -> UInt64 since=24.6.0
+s parseReadableSizeOrNull(x) -> Nullable(UInt64) since=24.6.0
+s parseReadableSizeOrZero(x) -> UInt64 since=24.6.0
+s parseTimeDelta(timestr) -> Float64 since=22.7.0
+s partitionId(column1[, column2, ...]) -> String since=21.4.0
+s partitionID(column1[, column2, ...]) -> String since=21.4.0
+s path(url) -> String
+s pathFull(url) -> String
+s perimeterCartesian(object) -> Float64 since=25.12.0
+s perimeterSpherical(object) -> Float64 since=25.12.0
+s pg_get_userbyid(oid) -> String since=26.8.0
+s pg_table_is_visible(oid) -> UInt8 since=26.8.0
+s pgGetUserById(oid) -> String since=26.8.0
+s pgTableIsVisible(oid) -> UInt8 since=26.8.0
+s pi() -> Float64
+s plus(x, y)
+s pmod(x, y) since=22.11.0
+s pmodOrNull(x, y) since=25.5.0
+s pointInEllipses(x, y, x₀, y₀, a₀, b₀,...,xₙ, yₙ, aₙ, bₙ) -> UInt8
+s pointInPolygon((x, y), [(a, b), (c, d) ...], ...) -> UInt8
+s polygonAreaCartesian(polygon) -> Float64 since=21.4.0
+s polygonAreaSpherical(polygon) -> Float64 since=21.4.0
+s polygonConvexHullCartesian(multipolygon) -> Polygon since=21.4.0
+s polygonPerimeterCartesian(polygon) -> Float64 since=21.4.0
+s polygonPerimeterSpherical(polygon) -> Float64 since=21.4.0
+s polygonsDistanceCartesian(polygon1, polygon2) -> Float64 since=21.4.0
+s polygonsDistanceSpherical(polygon1, polygon2) -> Float64 since=21.4.0
+s polygonsEqualsCartesian(polygon1, polygon2) -> UInt8 since=21.4.0
+s polygonsIntersectCartesian(polygon1, polygon2) -> Bool since=25.7.0
+s polygonsIntersectionCartesian(polygon1, polygon2) -> MultiPolygon since=21.4.0
+s polygonsIntersectionSpherical(polygon1, polygon2) -> MultiPolygon since=21.4.0
+s polygonsIntersectSpherical(polygon1, polygon2) -> Bool since=25.7.0
+s polygonsSymDifferenceCartesian(polygon1, polygon2) -> MultiPolygon since=21.4.0
+s polygonsSymDifferenceSpherical(polygon1, polygon2) -> MultiPolygon since=21.4.0
+s polygonsUnionCartesian(polygon1, polygon2) -> MultiPolygon since=21.4.0
+s polygonsUnionSpherical(polygon1, polygon2) -> MultiPolygon since=21.4.0
+s polygonsWithinCartesian(polygon1, polygon2) -> UInt8 since=21.4.0
+s polygonsWithinSpherical(polygon1, polygon2) -> UInt8 since=21.4.0
+s port(url[, default_port]) -> UInt16 since=20.5.0
+s portRFC(url[, default_port]) -> UInt16 since=22.10.0
+s position(haystack, needle[, start_pos]) -> UInt64
+s positionCaseInsensitive(haystack, needle[, start_pos]) -> UInt64
+s positionCaseInsensitiveUTF8(haystack, needle[, start_pos]) -> UInt64
+s positionUTF8(haystack, needle[, start_pos]) -> UInt64
+s positive_modulo(x, y) since=22.11.0
+s positive_modulo_or_null(x, y) since=25.5.0
+s positiveModulo(x, y) since=22.11.0
+s positiveModuloOrNull(x, y) since=25.5.0
+s pow(x, y) -> Float64
+s power(x, y) -> Float64
+s prettyPrintJSON(json [, indent]) -> String since=26.4.0
+s printf(format[, sub1, sub2, ...]) -> String since=24.8.0
+s proportionsZTest(successes_x, successes_y, trials_x, trials_y, conf_level, pool_type) -> Tuple(Float64, Float64, Float64, Float64) since=22.3.0
+s protocol(url) -> String
+s punycodeDecode(s) -> String since=24.1.0
+s punycodeEncode(s) -> String since=24.1.0
+s quantizeBFloat16ToInt8(x) -> Int8 or Array(Int8) or QBit(Int8) since=26.7.0
+s QUARTER(datetime) -> UInt8
+s query_id() -> String since=21.9.0
+s queryID() -> String since=21.9.0
+s queryString(url) -> String
+s queryStringAndFragment(url) -> String
+s radians(x) -> Float64 since=22.2.0
+s rand([x]) -> UInt32
+s rand32([x]) -> UInt32
+s rand64([x]) -> UInt64
+s randBernoulli(probability[, x]) -> UInt64 since=22.10.0
+s randBinomial(experiments, probability[, x]) -> UInt64 since=22.10.0
+s randCanonical([x]) -> Float64 since=22.11.0
+s randChiSquared(degree_of_freedom[, x]) -> Float64 since=22.10.0
+s randConstant([x]) -> UInt32
+s randExponential(lambda[, x]) -> Float64 since=22.10.0
+s randFisherF(d1, d2[, x]) -> Float64 since=22.10.0
+s randLogNormal(mean, stddev[, x]) -> Float64 since=22.10.0
+s randNegativeBinomial(experiments, probability[, x]) -> UInt64 since=22.10.0
+s randNormal(mean, stddev[, x]) -> Float64 since=22.10.0
+s randomFixedString(length) -> FixedString since=20.5.0
+s randomHadamardTransform(vector[, seed[, output_dims]]) -> Array(BFloat16) or Array(Float32) or Array(Float64) since=26.7.0
+s randomPrintableASCII(length[, x]) -> String since=20.1.0
+s randomString(length[, x]) -> String since=20.5.0
+s randomStringUTF8(length) -> String since=20.5.0
+s randPoisson(n[, x]) -> UInt64 since=22.10.0
+s randStudentT(degree_of_freedom[, x]) -> Float64 since=22.10.0
+s randUniform(min, max[, x]) -> Float64 since=22.10.0
+s range([start, ] end [, step]) -> Array(T)
+s readWKB(wkb_string) -> Geo since=25.12.0
+s readWkb(wkb_string) -> Geo since=25.12.0
+s readWKBLineString(wkb_string) -> Geo since=25.6.0
+s readWKBMultiLineString(wkb_string) -> Geo since=25.6.0
+s readWKBMultiPoint(wkb_string) -> Geo since=26.7.0
+s readWKBMultiPolygon(wkb_string) -> Geo since=25.6.0
+s readWKBPoint(wkb_string) -> Geo since=25.6.0
+s readWKBPolygon(wkb_string) -> Geo since=25.6.0
+s readWKT(wkt_string) since=25.12.0
+s readWkt(wkt_string) since=25.12.0
+s readWKTLineString(wkt_string) -> Geo since=21.4.0
+s readWKTMultiLineString(wkt_string) -> Geo since=21.4.0
+s readWKTMultiPoint(wkt_string) -> Geo since=26.7.0
+s readWKTMultiPolygon(wkt_string) -> MultiPolygon since=21.4.0
+s readWKTPoint(wkt_string) -> Geo since=21.4.0
+s readWKTPolygon(wkt_string) -> Polygon since=21.4.0
+s readWKTRing(wkt_string) -> Geo since=21.4.0
+s REGEXP_EXTRACT(haystack, pattern[, index]) -> String since=23.2.0
+s regexp_instr(haystack, pattern[, position[, occurrence[, return_option[, flags[, subexpression]]]]]) -> UInt64 since=26.5.0
+s REGEXP_MATCHES(haystack, pattern) -> UInt8
+s REGEXP_REPLACE(haystack, pattern, replacement) -> String
+s REGEXP_SUBSTR(haystack, pattern[, index]) -> String since=23.2.0
+s regexpExtract(haystack, pattern[, index]) -> String since=23.2.0
+s regexpInstr(haystack, pattern[, position[, occurrence[, return_option[, flags[, subexpression]]]]]) -> UInt64 since=26.5.0
+s regexpPosition(haystack, pattern[, position[, occurrence[, return_option[, flags[, subexpression]]]]]) -> UInt64 since=26.5.0
+s regexpQuoteMeta(s) -> String since=20.1.0
+s regionHierarchy(id[, geobase]) -> Array(UInt32)
+s regionIn(lhs, rhs[, geobase]) -> UInt8
+s regionToArea(id[, geobase]) -> UInt32
+s regionToCity(id[, geobase]) -> UInt32
+s regionToContinent(id[, geobase]) -> UInt32
+s regionToCountry(id[, geobase]) -> UInt32
+s regionToDistrict(id[, geobase]) -> UInt32
+s regionToName(id[, lang]) -> String
+s regionToPopulation(id[, geobase]) -> UInt32
+s regionToTopContinent(id[, geobase]) -> UInt32
+s reinterpret(x, type) -> Any
+s reinterpretAsDate(x) -> Date
+s reinterpretAsDateTime(x) -> DateTime
+s reinterpretAsFixedString(x) -> FixedString
+s reinterpretAsFloat32(x) -> Float32
+s reinterpretAsFloat64(x) -> Float64
+s reinterpretAsInt128(x) -> Int128
+s reinterpretAsInt16(x) -> Int16
+s reinterpretAsInt256(x) -> Int256
+s reinterpretAsInt32(x) -> Int32
+s reinterpretAsInt64(x) -> Int64
+s reinterpretAsInt8(x) -> Int8
+s reinterpretAsString(x) -> String
+s reinterpretAsUInt128(x) -> UInt128
+s reinterpretAsUInt16(x) -> UInt16
+s reinterpretAsUInt256(x) -> UInt256
+s reinterpretAsUInt32(x) -> UInt32
+s reinterpretAsUInt64(x) -> UInt64
+s reinterpretAsUInt8(x) -> UInt8
+s reinterpretAsUUID(fixed_string) -> UUID
+s removeAccentsUTF8(str) -> String since=26.3.0
+s removeDiacriticsUTF8(str) -> String since=26.3.0
+s repeat(s, n) -> String since=20.1.0
+s replace(haystack, pattern, replacement) -> String
+s replaceAll(haystack, pattern, replacement) -> String
+s replaceOne(haystack, pattern, replacement) -> String
+s replaceRegexpAll(haystack, pattern, replacement) -> String
+s replaceRegexpOne(haystack, pattern, replacement) -> String
+s replicate(x, arr) -> Array(T)
+s reverse(arr | str)
+s reverseBySeparator(string[, separator]) -> String since=26.2.0
+s reverseUTF8(s) -> String
+s revision() -> UInt32 since=22.7.0
+s right(s, offset) -> String since=22.1.0
+s rightPad(string, length[, pad_string]) -> String since=21.8.0
+s rightPadUTF8(string, length[, pad_string]) -> String since=21.8.0
+s rightUTF8(s, offset) -> String since=22.1.0
+s RIPEMD160(s) -> FixedString(20) since=24.10.0
+s round(x[, N]) -> Float* or Decimal* or (U)Int*
+s roundAge(num) -> UInt8
+s roundBankers(x[, N]) -> (U)Int* or Decimal* or Float* since=20.1.0
+s roundDown(num, arr) -> (U)Int* or Float* since=20.1.0
+s roundDuration(num) -> UInt16
+s roundToExp2(num) -> (U)Int* or Float*
+s rowNumberInAllBlocks() -> UInt64
+s rowNumberInBlock() -> UInt64
+s rpad(string, length[, pad_string]) -> String since=21.8.0
+s rtrim(s[, trim_characters]) -> String since=20.1.0
+s runningAccumulate(agg_state[, grouping]) -> Any
+s runningConcurrency(start, end) -> UInt32 since=21.3.0
+s runningDifference(x)
+s runningDifferenceStartingWithFirstValue(x) -> Any
+s s2CapContains(center, degrees, point) -> UInt8 since=21.9.0
+s s2CapUnion(center1, radius1, center2, radius2) -> Tuple(UInt64, Float64) since=21.9.0
+s s2CellsIntersect(s2index1, s2index2) -> UInt8 since=21.9.0
+s s2GetNeighbors(s2index) -> Array(UInt64) since=21.9.0
+s s2RectAdd(s2RectLow, s2RectHigh, s2Point) -> Tuple(UInt64, UInt64) since=21.9.0
+s s2RectContains(s2RectLow, s2RectHigh, s2Point) -> UInt8 since=21.9.0
+s s2RectIntersection(s2Rect1Low, s2Rect1High, s2Rect2Low, s2Rect2High) -> Tuple(UInt64, UInt64) since=21.9.0
+s s2RectUnion(s2Rect1Low, s2Rect1High, s2Rect2Low, s2Rect2High) -> Tuple(UInt64, UInt64) since=21.9.0
+s s2ToGeo(s2index) -> Tuple(Float64, Float64) since=21.9.0
+s scalarProduct(vector1, vector2) -> (U)Int* or Float* or Decimal since=21.11.0
+s scalarProductTransposed(vector1, vector2, p[, used_dims]) -> Float64 since=26.7.0
+s SCHEMA() -> String
+s SECOND(datetime) -> UInt8
+s seriesDecomposeSTL(series, period) -> Array(Array(Float32), Array(Float32), Array(Float32), Array(Float32)) since=24.1.0
+s seriesOutliersDetectTukey(series[, min_percentile, max_percentile, K]) -> Array(Float32) since=24.2.0
+s seriesPeriodDetectFFT(series) -> Float64 since=23.12.0
+s serverTimezone() -> String since=23.6.0
+s serverTimeZone() -> String since=23.6.0
+s serverUUID() -> UUID since=20.1.0
+s session_user() -> String since=20.1.0
+s SHA1(s) -> FixedString(20)
+s SHA224(s) -> FixedString(28)
+s SHA256(s) -> FixedString(32)
+s SHA384(s) -> FixedString(48)
+s SHA512(s) -> FixedString(64)
+s SHA512_256(s) -> FixedString(32)
+s shardCount() -> UInt32 since=21.9.0
+s shardNum() -> UInt32 since=21.9.0
+s showCertificate() -> Map(String, String) since=22.6.0
+s sigmoid(x) -> Float64 since=20.1.0
+s sign(x) -> Int8 since=21.2.0
+s simpleJSONExtractBool(json, field_name) -> UInt8 since=21.4.0
+s simpleJSONExtractFloat(json, field_name) -> Float64 since=21.4.0
+s simpleJSONExtractInt(json, field_name) -> Int64 since=21.4.0
+s simpleJSONExtractRaw(json, field_name) -> String since=21.4.0
+s simpleJSONExtractString(json, field_name) -> String since=21.4.0
+s simpleJSONExtractUInt(json, field_name) -> UInt64 since=21.4.0
+s simpleJSONHas(json, field_name) -> UInt8 since=21.4.0
+s sin(x)
+s sinh(x) -> Float64 since=20.12.0
+s sipHash128(arg1[, arg2, ...]) -> FixedString(16)
+s sipHash128Keyed((k0, k1), [arg1, arg2, ...]) -> FixedString(16) since=23.2.0
+s sipHash128Reference(arg1[, arg2, ...]) -> FixedString(16) since=23.2.0
+s sipHash128ReferenceKeyed((k0, k1), arg1[, arg2, ...]) -> FixedString(16) since=23.2.0
+s sipHash64(arg1[, arg2, ...]) -> UInt64
+s sipHash64Keyed((k0, k1), arg1[,arg2, ...]) -> UInt64 since=23.2.0
+s sleep(seconds) -> UInt8
+s sleepEachRow(seconds) -> UInt8
+s snowflakeIDToDateTime(value[, epoch[, time_zone]]) -> DateTime since=24.6.0
+s snowflakeIDToDateTime64(value[, epoch[, time_zone]]) -> DateTime64 since=24.6.0
+s soundex(s) -> String since=23.4.0
+s space(n) -> String since=23.5.0
+s sparseGrams(s[, min_ngram_length[, max_ngram_length[, min_cutoff_length]]]) -> Array(String) since=25.5.0
+s sparseGramsHashes(s[, min_ngram_length, max_ngram_length]) -> Array(UInt32) since=25.5.0
+s sparseGramsHashesUTF8(s[, min_ngram_length, max_ngram_length]) -> Array(UInt32) since=25.5.0
+s sparseGramsUTF8(s[, min_ngram_length[, max_ngram_length[, min_cutoff_length]]]) -> Array(String) since=25.5.0
+s splitByAlpha(s[, max_substrings]) -> Array(String)
+s splitByChar(separator, s[, max_substrings]) -> Array(String)
+s splitByNonAlpha(s[, max_substrings]) -> Array(String) since=21.9.0
+s splitByRegexp(regexp, s[, max_substrings]) -> Array(String) since=21.6.0
+s splitByString(separator, s[, max_substrings]) -> Array(String)
+s splitByWhitespace(s[, max_substrings]) -> Array(String) since=21.9.0
+s sqid(n1[, n2, ...]) -> String since=24.1.0
+s sqidDecode(sqid) -> Array(UInt64) since=24.1.0
+s sqidEncode(n1[, n2, ...]) -> String since=24.1.0
+s sqr(x) since=26.7.0
+s sqrt(x) -> Float*
+s ST_AsMVTGeom(geometry, zoom, tile_x, tile_y[, extent[, buffer[, clip]]]) -> Geometry since=26.7.0
+s ST_LineFromWKB(wkb_string) -> Geo since=25.6.0
+s ST_MLineFromWKB(wkb_string) -> Geo since=25.6.0
+s ST_MPointFromWKB(wkb_string) -> Geo since=26.7.0
+s ST_MPolyFromWKB(wkb_string) -> Geo since=25.6.0
+s ST_PointFromWKB(wkb_string) -> Geo since=25.6.0
+s ST_PolyFromWKB(wkb_string) -> Geo since=25.6.0
+s startsWith(s, prefix) -> UInt8
+s startsWithCaseInsensitive(s, prefix) -> UInt8 since=25.10.0
+s startsWithCaseInsensitiveUTF8(s, prefix) -> UInt8 since=25.10.0
+s startsWithUTF8(s, prefix) -> UInt8 since=23.8.0
+s stem(word, language) -> String or Array(String) since=21.9.0
+s str_to_date(time_string, format[, timezone]) -> Nullable(DateTime) since=23.3.0
+s str_to_map(data, [key_value_delimiter], [pair_delimiter], [quoting_character], [unexpected_quoting_character_strategy]) since=23.4.0
+s stringBytesEntropy(s) -> Float64 since=25.6.0
+s stringBytesUniq(s) -> UInt16 since=25.6.0
+s stringJaccardIndex(s1, s2) -> Float64 since=23.11.0
+s stringJaccardIndexUTF8(s1, s2) -> Float64 since=23.11.0
+s stringToH3(index_str) -> UInt64 since=20.4.0
+s structureToCapnProtoSchema(table_structure, message) since=23.8.0
+s structureToProtobufSchema(structure, message_name) -> String since=23.8.0
+s subBitmap(bitmap, offset, cardinality_limit) -> AggregateFunction(groupBitmap, T) since=21.9.0
+s subDate(datetime, interval) -> Date or Date32 or DateTime or DateTime64 since=23.9.0
+s substr(s, offset[, length]) -> String
+s substring(s, offset[, length]) -> String
+s SUBSTRING_INDEX(s, delim, count) -> String since=23.7.0
+s substringIndex(s, delim, count) -> String since=23.7.0
+s substringIndexUTF8(s, delim, count) -> String since=23.7.0
+s substringUTF8(s, offset[, length]) -> String
+s subtractDays(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s subtractHours(datetime, num) -> DateTime or DateTime64(3)
+s subtractInterval(interval_1, interval_2) -> Tuple(T) since=22.11.0
+s subtractMicroseconds(datetime, num) -> DateTime64 since=22.6.0
+s subtractMilliseconds(datetime, num) -> DateTime64 since=22.6.0
+s subtractMinutes(datetime, num) -> DateTime or DateTime64(3)
+s subtractMonths(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s subtractNanoseconds(datetime, num) -> DateTime64 since=20.1.0
+s subtractQuarters(datetime, num) -> Date or Date32 or DateTime or DateTime64 since=20.1.0
+s subtractSeconds(datetime, num) -> DateTime or DateTime64(3)
+s subtractTupleOfIntervals(datetime, intervals) -> Date or Date32 or DateTime or DateTime64 since=22.11.0
+s subtractWeeks(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s subtractYears(datetime, num) -> Date or Date32 or DateTime or DateTime64
+s svg(geometry[, style]) -> String since=21.4.0
+s SVG(geometry[, style]) -> String since=21.4.0
+s synonyms(ext_name, word) -> Array(String) since=21.9.0
+s tan(x) -> Float*
+s tanh(x) -> Float* since=20.1.0
+s tcpPort() -> UInt16 since=20.12.0
+s tgamma(x) -> Float*
+s throwIf(x[, message[, error_code]]) -> UInt8
+s tid() -> UInt64 since=20.12.0
+s time_bucket(value, INTERVAL x unit[, time_zone]) -> DateTime since=20.1.0
+s timeDiff(startdate, enddate) -> Int64 since=23.4.0
+s timeSeriesCopyTag(dest_group, src_group, tag_to_copy) -> UInt64 since=26.1.0
+s timeSeriesCopyTags(dest_group, src_group, tags_to_copy) -> UInt64 since=26.1.0
+s timeSeriesExtractTag(group) -> Nullable(String) since=26.1.0
+s timeSeriesFromGrid(start_timestamp, end_timestamp, step, values) -> Array(Tuple(DateTime64, Float64)) since=25.8.0
+s timeSeriesGroupToSamplingKey(group) -> UInt64 since=26.4.0
+s timeSeriesGroupToTags(group) -> Array(Tuple(String, String)) since=26.1.0
+s timeSeriesIdToGroup(id) -> UInt64 since=26.1.0
+s timeSeriesIdToTags(id) -> Array(Tuple(String, String)) since=25.8.0
+s timeSeriesIdToTagsGroup(id) -> UInt64 since=26.1.0
+s timeSeriesJoinTags(group, dest_tag, separator, src_tags) -> UInt64 since=26.1.0
+s timeSeriesMetricTypeToSuffixes(type) -> Array(String) since=26.8.0
+s timeSeriesPrometheusValueToString(value) -> String since=26.8.0
+s timeSeriesRange(start_timestamp, end_timestamp, step) -> Array(DateTime64) since=25.8.0
+s timeSeriesRemoveAllTagsExcept(group, tags_to_keep) -> UInt64 since=26.1.0
+s timeSeriesRemoveTag(group, tag_to_remove) -> UInt64 since=26.1.0
+s timeSeriesRemoveTags(group, tags_to_remove) -> UInt64 since=26.1.0
+s timeSeriesReplaceTag(group, dest_tag, replacement, src_tag, regex) -> UInt64 since=26.1.0
+s timeSeriesStoreTags(id, tags_array, separate_tag_name_1, separate_tag_value_1, ...) since=25.8.0
+s timeSeriesTagsGroupToTags(group) -> Array(Tuple(String, String)) since=26.1.0
+s timeSeriesTagsToGroup(tags_array, tag_name_1, tag_value_1, tag_name2, tag_value2, ...) -> UInt64 since=26.1.0
+s timeSeriesTagsToMap(tags_array, tag_name_1, tag_value_1, tag_name_2, tag_value_2, ...) -> Map(String, String) since=26.8.0
+s timeSeriesThrowDuplicateSeriesIf(condition, group) -> UInt8 since=26.2.0
+s timeSlot(time[, time_zone]) -> DateTime
+s timeSlots(StartTime, Duration[, Size]) -> Array(DateTime) or Array(DateTime64)
+s timestamp(expr[, expr_time]) -> DateTime64(6) since=23.9.0
+s TIMESTAMP_DIFF(unit, startdate, enddate[, timezone]) -> Int64 since=23.4.0
+s timestamp_diff(unit, startdate, enddate[, timezone]) -> Int64 since=23.4.0
+s timestampDiff(unit, startdate, enddate[, timezone]) -> Int64 since=23.4.0
+s timezone() -> String since=21.4.0
+s timeZone() -> String since=21.4.0
+s timezoneOf(datetime) -> String since=21.4.0
+s timeZoneOf(datetime) -> String since=21.4.0
+s timezoneOffset(datetime) -> Int32 since=21.6.0
+s timeZoneOffset(datetime) -> Int32 since=21.6.0
+s TO_BASE64(plaintext) -> String since=18.16.0
+s TO_DAYS(date[, time_zone]) -> UInt32 since=23.9.0
+s TO_UNIXTIME(time_string, format[, timezone]) -> DateTime since=23.3.0
+s to_utc_timestamp(datetime, time_zone) -> DateTime or DateTime64 since=23.8.0
+s toBFloat16(expr) -> BFloat16
+s toBFloat16OrNull(x) -> BFloat16 or NULL
+s toBFloat16OrZero(x) -> BFloat16
+s toBool(expr) -> Bool since=22.2.0
+s toColumnTypeName(value) -> String
+s toDate(x) -> Date
+s toDate32(expr) -> Date32 since=21.9.0
+s toDate32OrDefault(expr[, default]) -> Date32 since=21.11.0
+s toDate32OrNull(x) -> Date32 or NULL since=21.9.0
+s toDate32OrZero(x) -> Date32 since=21.9.0
+s toDateOrDefault(expr[, default]) -> Date since=21.11.0
+s toDateOrNull(x) -> Date or NULL
+s toDateOrZero(x) -> Date
+s toDateTime(expr[, time_zone]) -> DateTime
+s toDateTime32(x[, timezone]) -> DateTime since=20.9.0
+s toDateTime64(expr, scale[, timezone]) -> DateTime64 since=20.1.0
+s toDateTime64OrDefault(expr, scale[, timezone, default]) -> DateTime64 since=21.11.0
+s toDateTime64OrNull(x[, precision[, timezone]]) -> DateTime64 or NULL since=20.1.0
+s toDateTime64OrZero(x[, precision[, timezone]]) -> DateTime64 since=20.1.0
+s toDateTimeOrDefault(expr[, timezone, default]) -> DateTime since=21.11.0
+s toDateTimeOrNull(x[, timezone]) -> DateTime or NULL
+s toDateTimeOrZero(x) -> DateTime
+s today() -> Date
+s toDayOfMonth(datetime) -> UInt8
+s toDayOfWeek(datetime[, mode[, timezone]]) -> UInt8
+s toDayOfYear(datetime) -> UInt16 since=18.4.0
+s toDaysInMonth(datetime) -> UInt8 since=26.3.0
+s toDaysSinceYearZero(date[, time_zone]) -> UInt32 since=23.9.0
+s toDecimal128(expr, S) -> Decimal128(S) since=18.12.0
+s toDecimal128OrDefault(expr, S[, default]) -> Decimal128(S) since=21.11.0
+s toDecimal128OrNull(expr, S) -> Decimal128(S) or NULL since=20.1.0
+s toDecimal128OrZero(expr, S) -> Decimal128(S) since=20.1.0
+s toDecimal256(expr, S) -> Decimal256(S) since=20.8.0
+s toDecimal256OrDefault(expr, S[, default]) -> Decimal256(S) since=21.11.0
+s toDecimal256OrNull(expr, S) -> Decimal256(S) or NULL since=20.8.0
+s toDecimal256OrZero(expr, S) -> Decimal256(S) since=20.8.0
+s toDecimal32(expr, S) -> Decimal32(S) since=18.12.0
+s toDecimal32OrDefault(expr, S[, default]) -> Decimal32(S) since=21.11.0
+s toDecimal32OrNull(expr, S) -> Decimal32(S) or NULL since=20.1.0
+s toDecimal32OrZero(expr, S) -> Decimal32(S) since=20.1.0
+s toDecimal64(expr, S) -> Decimal(18, S) since=18.12.0
+s toDecimal64OrDefault(expr, S[, default]) -> Decimal64(S) since=21.11.0
+s toDecimal64OrNull(expr, S) -> Decimal64(S) or NULL since=20.1.0
+s toDecimal64OrZero(expr, S) -> Decimal64(S) since=20.1.0
+s toDecimalString(number, scale) -> String since=23.3.0
+s toFixedString(s, N) -> FixedString(N)
+s toFloat32(expr) -> Float32
+s toFloat32OrDefault(expr[, default]) -> Float32 since=21.11.0
+s toFloat32OrNull(x) -> Float32 or NULL
+s toFloat32OrZero(x) -> Float32
+s toFloat64(expr) -> Float64
+s toFloat64OrDefault(expr[, default]) -> Float64 since=21.11.0
+s toFloat64OrNull(x) -> Float64 or NULL
+s toFloat64OrZero(x) -> Float64
+s toHour(datetime) -> UInt8
+s toInt128(expr) -> Int128
+s toInt128OrDefault(expr[, default]) -> Int128 since=21.11.0
+s toInt128OrNull(x) -> Int128 or NULL since=20.8.0
+s toInt128OrZero(x) -> Int128 since=20.8.0
+s toInt16(expr) -> Int16
+s toInt16OrDefault(expr[, default]) -> Int16 since=21.11.0
+s toInt16OrNull(x) -> Int16 or NULL
+s toInt16OrZero(x) -> Int16
+s toInt256(expr) -> Int256
+s toInt256OrDefault(expr[, default]) -> Int256 since=21.11.0
+s toInt256OrNull(x) -> Int256 or NULL since=20.8.0
+s toInt256OrZero(x) -> Int256 since=20.8.0
+s toInt32(expr) -> Int32
+s toInt32OrDefault(expr[, default]) -> Int32 since=21.11.0
+s toInt32OrNull(x) -> Int32 or NULL
+s toInt32OrZero(x) -> Int32
+s toInt64(expr) -> Int64
+s toInt64OrDefault(expr[, default]) -> Int64 since=21.11.0
+s toInt64OrNull(x) -> Int64 or NULL
+s toInt64OrZero(x) -> Int64
+s toInt8(expr) -> Int8
+s toInt8OrDefault(expr[, default]) -> Int8 since=21.11.0
+s toInt8OrNull(x) -> Int8 or NULL
+s toInt8OrZero(x) -> Int8
+s toInterval(value, unit) -> Interval since=25.4.0
+s toIntervalDay(n) -> Interval
+s toIntervalHour(n) -> Interval
+s toIntervalMicrosecond(n) -> Interval since=22.6.0
+s toIntervalMillisecond(n) -> Interval since=22.6.0
+s toIntervalMinute(n) -> Interval
+s toIntervalMonth(n) -> Interval
+s toIntervalNanosecond(n) -> Interval since=22.6.0
+s toIntervalQuarter(n) -> Interval
+s toIntervalSecond(n) -> Interval
+s toIntervalWeek(n) -> Interval
+s toIntervalYear(n) -> Interval
+s toIPv4(x) -> IPv4 since=20.1.0
+s toIPv4OrDefault(string[, default]) -> IPv4 since=22.3.0
+s toIPv4OrNull(x) -> IPv4 or NULL since=22.3.0
+s toIPv4OrZero(x) -> IPv4 since=23.1.0
+s toIPv6(x) -> IPv6 since=20.1.0
+s toIPv6OrDefault(string[, default]) -> IPv6 since=22.3.0
+s toIPv6OrNull(x) -> IPv6 or NULL since=22.3.0
+s toIPv6OrZero(x) -> IPv6 since=23.1.0
+s toISOWeek(datetime[, timezone]) -> UInt8 since=20.1.0
+s toISOYear(datetime) -> UInt16 since=18.4.0
+s toJSONString(value) -> String since=21.7.0
+s tokenizeQuery(query) -> Array(Tuple(begin UInt64, end UInt64, type Enum8(...))) since=26.5.0
+s tokens(value) -> Array since=21.11.0
+s tokensForLikePattern(value[, tokenizer[, tokenizer_specific_arguments...]]) -> Array since=26.3.0
+s toLastDayOfMonth(value) -> Date
+s toLastDayOfWeek(datetime[, mode[, timezone]]) -> Date or Date32 since=23.5.0
+s toLowCardinality(expr) -> LowCardinality since=18.12.0
+s toMicrosecond(datetime) -> UInt32 since=25.7.0
+s toMillisecond(datetime) -> UInt16 since=24.2.0
+s toMinute(datetime) -> UInt8
+s toModifiedJulianDay(date) -> Int32 since=21.1.0
+s toModifiedJulianDayOrNull(date) -> Nullable(Int32) since=21.1.0
+s toMonday(value) -> Date
+s toMonth(datetime) -> UInt8
+s toMonthNumSinceEpoch(date) since=25.3.0
+s toNanosecond(datetime) -> UInt32 since=25.7.0
+s toNullable(x) -> Nullable(Any)
+s topLevelDomain(url) -> String
+s topLevelDomainRFC(url) -> String since=22.10.0
+s toQuarter(datetime) -> UInt8
+s toRelativeDayNum(date) -> UInt32
+s toRelativeHourNum(date) -> UInt32
+s toRelativeMinuteNum(date) -> UInt32
+s toRelativeMonthNum(date) -> UInt32
+s toRelativeQuarterNum(date) -> UInt32
+s toRelativeSecondNum(date) -> UInt32
+s toRelativeWeekNum(date) -> UInt32
+s toRelativeYearNum(date) -> UInt16
+s toSecond(datetime) -> UInt8
+s toStartOfDay(datetime) -> DateTime or DateTime64
+s toStartOfFifteenMinutes(datetime) -> DateTime or DateTime64
+s toStartOfFiveMinute(datetime) -> DateTime or DateTime64 since=22.6.0
+s toStartOfFiveMinutes(datetime) -> DateTime or DateTime64 since=22.6.0
+s toStartOfHour(datetime) -> DateTime or DateTime64
+s toStartOfInterval(value, INTERVAL x unit[, time_zone]) -> DateTime since=20.1.0
+s toStartOfISOYear(value) -> Date
+s toStartOfMicrosecond(datetime[, timezone]) -> DateTime64 since=22.6.0
+s toStartOfMillisecond(datetime[, timezone]) -> DateTime64 since=22.6.0
+s toStartOfMinute(datetime) -> DateTime or DateTime64
+s toStartOfMonth(value) -> Date
+s toStartOfNanosecond(datetime[, timezone]) -> DateTime64 since=22.6.0
+s toStartOfQuarter(value) -> Date
+s toStartOfSecond(datetime[, timezone]) -> DateTime64 since=20.5.0
+s toStartOfTenMinutes(datetime) -> DateTime or DateTime64 since=20.1.0
+s toStartOfWeek(datetime[, mode[, timezone]]) -> Date or Date32 since=20.1.0
+s toStartOfYear(value) -> Date
+s toString(value[, timezone]) -> String
+s toStringCutToZero(s) -> String
+s toTime(x) -> Time since=25.5.0
+s toTime64(x, scale) -> Time64 since=25.6.0
+s toTime64OrNull(x[, precision]) -> Time64 or NULL since=25.6.0
+s toTime64OrZero(x[, precision]) -> Time64 since=25.6.0
+s toTimeOrNull(x) -> Time or NULL since=25.5.0
+s toTimeOrZero(x) -> Time since=25.5.0
+s toTimeWithFixedDate(datetime[, timezone]) -> DateTime since=25.5.0
+s toTimezone(datetime, timezone) -> DateTime or DateTime64
+s toTimeZone(datetime, timezone) -> DateTime or DateTime64
+s toTypeName(x) -> String
+s toUInt128(expr) -> UInt128
+s toUInt128OrDefault(expr[, default]) -> UInt128 since=21.11.0
+s toUInt128OrNull(x) -> UInt128 or NULL since=21.6.0
+s toUInt128OrZero(x) -> UInt128
+s toUInt16(expr) -> UInt16
+s toUInt16OrDefault(expr[, default]) -> UInt16 since=21.11.0
+s toUInt16OrNull(x) -> UInt16 or NULL
+s toUInt16OrZero(x) -> UInt16
+s toUInt256(expr) -> UInt256
+s toUInt256OrDefault(expr[, default]) -> UInt256 since=21.11.0
+s toUInt256OrNull(x) -> UInt256 or NULL since=20.8.0
+s toUInt256OrZero(x) -> UInt256 since=20.8.0
+s toUInt32(expr) -> UInt32
+s toUInt32OrDefault(expr[, default]) -> UInt32 since=21.11.0
+s toUInt32OrNull(x) -> UInt32 or NULL
+s toUInt32OrZero(x) -> UInt32
+s toUInt64(expr) -> UInt64
+s toUInt64OrDefault(expr[, default]) -> UInt64 since=21.11.0
+s toUInt64OrNull(x) -> UInt64 or NULL
+s toUInt64OrZero(x) -> UInt64
+s toUInt8(expr) -> UInt8
+s toUInt8OrDefault(expr[, default]) -> UInt8 since=21.11.0
+s toUInt8OrNull(x) -> UInt8 or NULL
+s toUInt8OrZero(x) -> UInt8
+s toUnixTimestamp(date[, timezone]) -> UInt32
+s toUnixTimestamp64Micro(value) -> Int64 since=20.5.0
+s toUnixTimestamp64Milli(value) -> Int64 since=20.5.0
+s toUnixTimestamp64Nano(value) -> Int64 since=20.5.0
+s toUnixTimestamp64Second(value) -> Int64 since=24.12.0
+s toUTCTimestamp(datetime, time_zone) -> DateTime or DateTime64 since=23.8.0
+s toUUID(string) -> UUID
+s toUUIDOrDefault(string, default) -> UUID since=21.1.0
+s toUUIDOrNull(x) -> UUID or NULL since=20.12.0
+s toUUIDOrZero(x) -> UUID since=20.12.0
+s toValidUTF8(s) -> String since=20.1.0
+s toWeek(datetime[, mode[, time_zone]]) -> UInt32 since=20.1.0
+s toYear(datetime) -> UInt16
+s toYearNumSinceEpoch(date) since=25.3.0
+s toYearWeek(datetime[, mode[, timezone]]) -> UInt32 since=20.1.0
+s toYYYYMM(datetime[, timezone]) -> UInt32
+s toYYYYMMDD(datetime[, timezone]) -> UInt32
+s toYYYYMMDDhhmmss(datetime[, timezone]) -> UInt64
+s transactionID() -> Tuple(UInt64, UInt64, UUID) since=22.6.0
+s transactionLatestSnapshot() -> UInt64 since=22.6.0
+s transactionOldestSnapshot() -> UInt64 since=22.6.0
+s transform(x, array_from, array_to[, default]) -> Any
+s translate(s, from, to) -> String since=22.7.0
+s translateUTF8(s, from, to) -> String since=22.7.0
+s trim(s[, trim_characters]) -> String since=20.1.0
+s trimBoth(s[, trim_characters]) -> String since=20.1.0
+s trimLeft(input[, trim_characters]) -> String since=20.1.0
+s trimRight(s[, trim_characters]) -> String since=20.1.0
+s trunc(x[, N]) -> Float* or Decimal* or (U)Int*
+s truncate(x[, N]) -> Float* or Decimal* or (U)Int*
+s tryBase32Decode(encoded) -> String since=25.6.0
+s tryBase58Decode(encoded[, expected_size]) -> String since=22.10.0
+s tryBase64Decode(encoded) -> String since=18.16.0
+s tryBase64URLDecode(encoded) -> String since=18.16.0
+s tryDecrypt(mode, ciphertext, key[, iv, aad]) -> Nullable(String) since=22.10.0
+s tryIdnaEncode(s) -> String since=24.1.0
+s tryPunycodeDecode(s) -> String since=24.1.0
+s tumble(time_attr, interval[, timezone]) -> Tuple(DateTime, DateTime) since=21.12.0
+s tumbleEnd(time_attr, interval[, timezone]) -> DateTime since=22.1.0
+s tumbleStart(time_attr, interval[, timezone]) -> DateTime since=22.1.0
+s tuple([t1[, t2[ ...]])
+s tupleConcat(tuple1[, tuple2, [...]]) -> Tuple(T) since=23.8.0
+s tupleDivide(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s tupleDivideByNumber(tuple, number) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s tupleElement(tuple, index|name[, default_value]) -> Any
+s tupleHammingDistance(t1, t2) -> UInt8/16/32/64 since=21.1.0
+s tupleIntDiv(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=23.8.0
+s tupleIntDivByNumber(tuple_num, div) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=23.8.0
+s tupleIntDivOrZero(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=23.8.0
+s tupleIntDivOrZeroByNumber(tuple_num, div) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=23.8.0
+s tupleMinus(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s tupleModulo(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=23.8.0
+s tupleModuloByNumber(tuple_num, div) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=23.8.0
+s tupleMultiply(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s tupleMultiplyByNumber(tuple, number) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s tupleNames(tuple) since=24.8.0
+s tupleNegate(t) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s tuplePlus(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s tuplePositiveModuloByNumber(tuple_num, div) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=26.4.0
+s tupleToNameValuePairs(tuple) -> Array(Tuple(String, T)) since=21.9.0
+s ucase(s) -> String
+s ULIDStringToDateTime(ulid[, timezone]) -> DateTime64(3) since=23.3.0
+s unbin(arg) -> String since=21.8.0
+s unhex(arg) -> String
+s uniqThetaIntersect(uniqThetaSketch,uniqThetaSketch) -> UInt64 since=22.9.0
+s uniqThetaNot(uniqThetaSketch,uniqThetaSketch) -> UInt64 since=22.9.0
+s uniqThetaUnion(uniqThetaSketch,uniqThetaSketch) -> UInt64 since=22.9.0
+s unnest(arr)
+s upper(s) -> String
+s upperUTF8(s) -> String
+s uptime() -> UInt32
+s URLHash(url[, N]) -> UInt64
+s URLHierarchy(url) -> Array(String)
+s URLPathHierarchy(url) -> Array(String)
+s user() -> String since=20.1.0
+s UTC_timestamp() -> DateTime since=22.11.0
+s UTCTimestamp() -> DateTime since=22.11.0
+s UTMToGeo(easting, northing, zone, is_north) -> Tuple(Float64, Float64) since=26.7.0
+s UUIDNumToString(binary[, variant]) -> String
+s UUIDStringToNum(string[, variant = 1]) -> FixedString(16)
+s UUIDToNum(uuid[, variant = 1]) -> FixedString(16) since=24.5.0
+s UUIDv7ToDateTime(uuid[, timezone]) -> DateTime64(3) since=24.5.0
+s variantElement(variant, type_name[, default_value]) -> Any since=25.2.0
+s variantType(variant) -> Enum since=24.2.0
+s vectorDifference(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s vectorSum(t1, t2[, tN, ...]) -> Tuple((U)Int*) or Tuple(Float*) or Tuple(Decimal) since=21.11.0
+s version() -> String
+s visibleWidth(x) -> UInt64
+s visitParamExtractBool(json, field_name) -> UInt8 since=21.4.0
+s visitParamExtractFloat(json, field_name) -> Float64 since=21.4.0
+s visitParamExtractInt(json, field_name) -> Int64 since=21.4.0
+s visitParamExtractRaw(json, field_name) -> String since=21.4.0
+s visitParamExtractString(json, field_name) -> String since=21.4.0
+s visitParamExtractUInt(json, field_name) -> UInt64 since=21.4.0
+s visitParamHas(json, field_name) -> UInt8 since=21.4.0
+s week(datetime[, mode[, time_zone]]) -> UInt32 since=20.1.0
+s width_bucket(operand, low, high, count) -> UInt8/16/32/64 since=23.3.0
+s widthBucket(operand, low, high, count) -> UInt8/16/32/64 since=23.3.0
+s wkb(geometry) since=25.7.0
+s WKB(geometry) since=25.7.0
+s wkt(geometry) -> String since=21.4.0
+s WKT(geometry) -> String since=21.4.0
+s wordShingleMinHash(string[, shinglesize, hashnum]) -> Tuple(UInt64, UInt64) since=21.1.0
+s wordShingleMinHashArg(string[, shinglesize, hashnum]) -> Tuple(Tuple(String))
+s wordShingleMinHashArgCaseInsensitive(string[, shinglesize, hashnum]) -> Tuple(Tuple(String)) since=21.1.0
+s wordShingleMinHashArgCaseInsensitiveUTF8(string[, shinglesize, hashnum]) -> Tuple(Tuple(String)) since=21.1.0
+s wordShingleMinHashArgUTF8(string[, shinglesize, hashnum]) -> Tuple(Tuple(String)) since=21.1.0
+s wordShingleMinHashCaseInsensitive(string[, shinglesize, hashnum]) -> Tuple(UInt64, UInt64) since=21.1.0
+s wordShingleMinHashCaseInsensitiveUTF8(string[, shinglesize, hashnum]) -> Tuple(UInt64, UInt64) since=21.1.0
+s wordShingleMinHashUTF8(string[, shinglesize, hashnum]) -> Tuple(UInt64, UInt64) since=21.1.0
+s wordShingleSimHash(string[, shinglesize]) -> UInt64 since=21.1.0
+s wordShingleSimHashCaseInsensitive(string[, shinglesize]) -> UInt64 since=21.1.0
+s wordShingleSimHashCaseInsensitiveUTF8(string[, shinglesize]) -> UInt64
+s wordShingleSimHashUTF8(string[, shinglesize]) -> UInt64 since=21.1.0
+s wyHash64(arg) -> UInt64 since=22.7.0
+s xor(val1, val2[, ...]) -> Nullable(UInt8)
+s xxh3(expr) -> UInt64 since=22.12.0
+s xxh3_128(expr) -> UInt128 since=26.2.0
+s xxHash32(arg) -> UInt32 since=20.1.0
+s xxHash64(arg) -> UInt64 since=20.1.0
+s xxHash64Spark(arg) -> Int64 since=26.7.0
+s yandexConsistentHash(input, n) -> UInt16 since=22.6.0
+s YEAR(datetime) -> UInt16
+s yearweek(datetime[, mode[, timezone]]) -> UInt32 since=20.1.0
+s yesterday() -> Date
+s YYYYMMDDhhmmssToDateTime(YYYYMMDDhhmmss[, timezone]) -> DateTime since=23.9.0
+s YYYYMMDDhhmmssToDateTime64(YYYYMMDDhhmmss[, precision[, timezone]]) -> DateTime64 since=23.9.0
+s YYYYMMDDToDate(YYYYMMDD) -> Date since=23.9.0
+s YYYYMMDDToDate32(YYYYMMDD) -> Date32 since=23.9.0
+s zookeeperSessionUptime() -> UInt32 since=21.11.0
+w cume_dist
+w dense_rank
+w lag
+w lagInFrame
+w lead
+w leadInFrame
+w nth_value
+w ntile
+w percent_rank
+w rank
+w row_number
+t arrowFlight
+t arrowflight
+t azureBlobStorage
+t azureBlobStorageCluster
+t bigquery
+t cluster
+t clusterAllReplicas
+t cosn
+t deltaLake
+t deltaLakeAzure
+t deltaLakeAzureCluster
+t deltaLakeCluster
+t deltaLakeLocal
+t deltaLakeS3
+t deltaLakeS3Cluster
+t dictionary
+t eval
+t executable
+t file
+t fileCluster
+t filesystem
+t format
+t fuzzJSON
+t fuzzQuery
+t gcs
+t generate_series
+t generateRandom
+t generateSeries
+t hdfs
+t hdfsCluster
+t hive
+t hudi
+t hudiCluster
+t iceberg
+t icebergAzure
+t icebergAzureCluster
+t icebergCluster
+t icebergHDFS
+t icebergHDFSCluster
+t icebergLocal
+t icebergLocalCluster
+t icebergS3
+t icebergS3Cluster
+t input
+t jdbc
+t loop
+t merge
+t mergeTreeAnalyzeIndexes
+t mergeTreeAnalyzeIndexesUUID
+t mergeTreeCodecBlockCounts
+t mergeTreeIndex
+t mergeTreeProjection
+t mergeTreeTextIndex
+t mongodb
+t mysql
+t null
+t numbers
+t numbers_mt
+t odbc
+t oss
+t paimon
+t paimonAzure
+t paimonAzureCluster
+t paimonCluster
+t paimonHDFS
+t paimonHDFSCluster
+t paimonLocal
+t paimonS3
+t paimonS3Cluster
+t postgresql
+t primes
+t prometheusQuery
+t prometheusQueryRange
+t redis
+t remote
+t remoteSecure
+t s3
+t s3Cluster
+t sqlite
+t SQLStandardValues
+t timeSeriesData
+t timeSeriesMetricFamilies
+t timeSeriesMetrics
+t timeSeriesSamples
+t timeSeriesSelector
+t timeSeriesTags
+t url
+t urlCluster
+t values
+t view
+t viewExplain
+t viewIfPermitted
+t ytsaurus
+t zeros
+t zeros_mt

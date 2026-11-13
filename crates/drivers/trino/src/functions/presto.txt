@@ -1,0 +1,911 @@
+# Presto built-in functions (see dbine_driver::functions::parse_catalog), generated from
+# SHOW FUNCTIONS on Presto 0.299: one line per overload, with its argument and return types.
+# The fallback when SHOW FUNCTIONS can't be read.
+a any_value(T) -> T
+a approx_distinct(T) -> bigint
+a approx_distinct(T, double) -> bigint
+a approx_most_frequent(bigint, T, bigint) -> map(T,bigint)
+a approx_percentile(bigint, array(double)) -> array(bigint)
+a approx_percentile(bigint, array(double), double) -> array(bigint)
+a approx_percentile(bigint, bigint, array(double)) -> array(bigint)
+a approx_percentile(bigint, bigint, array(double), double) -> array(bigint)
+a approx_percentile(bigint, bigint, double) -> bigint
+a approx_percentile(bigint, bigint, double, double) -> bigint
+a approx_percentile(bigint, double) -> bigint
+a approx_percentile(bigint, double, double) -> bigint
+a approx_percentile(double, array(double)) -> array(double)
+a approx_percentile(double, array(double), double) -> array(double)
+a approx_percentile(double, bigint, array(double)) -> array(double)
+a approx_percentile(double, bigint, array(double), double) -> array(double)
+a approx_percentile(double, bigint, double) -> double
+a approx_percentile(double, bigint, double, double) -> double
+a approx_percentile(double, double) -> double
+a approx_percentile(double, double, double) -> double
+a approx_percentile(real, array(double)) -> array(real)
+a approx_percentile(real, array(double), double) -> array(real)
+a approx_percentile(real, bigint, array(double)) -> array(real)
+a approx_percentile(real, bigint, array(double), double) -> array(real)
+a approx_percentile(real, bigint, double) -> real
+a approx_percentile(real, bigint, double, double) -> real
+a approx_percentile(real, double) -> real
+a approx_percentile(real, double, double) -> real
+a approx_set(bigint) -> HyperLogLog
+a approx_set(bigint, double) -> HyperLogLog
+a approx_set(double) -> HyperLogLog
+a approx_set(double, double) -> HyperLogLog
+a approx_set(varchar(x)) -> HyperLogLog
+a approx_set(varchar(x), double) -> HyperLogLog
+a arbitrary(T) -> T
+a array_agg(T) -> array(T)
+a avg(bigint) -> double
+a avg(decimal(p,s)) -> decimal(p,s)
+a avg(double) -> double
+a avg(interval day to second) -> interval day to second
+a avg(interval year to month) -> interval year to month
+a avg(real) -> real
+a bitwise_and_agg(bigint) -> bigint
+a bitwise_or_agg(bigint) -> bigint
+a bitwise_xor_agg(bigint) -> bigint
+a bool_and(boolean) -> boolean
+a bool_or(boolean) -> boolean
+a checksum(T) -> varbinary
+a classification_fall_out(bigint, boolean, double) -> array(double)
+a classification_fall_out(bigint, boolean, double, double) -> array(double)
+a classification_miss_rate(bigint, boolean, double) -> array(double)
+a classification_miss_rate(bigint, boolean, double, double) -> array(double)
+a classification_precision(bigint, boolean, double) -> array(double)
+a classification_precision(bigint, boolean, double, double) -> array(double)
+a classification_recall(bigint, boolean, double) -> array(double)
+a classification_recall(bigint, boolean, double, double) -> array(double)
+a classification_thresholds(bigint, boolean, double) -> array(double)
+a classification_thresholds(bigint, boolean, double, double) -> array(double)
+a convex_hull_agg(Geometry) -> Geometry
+a corr(double, double) -> double
+a corr(real, real) -> real
+a count() -> bigint
+a count(T) -> bigint
+a count_if(boolean) -> bigint
+a covar_pop(double, double) -> double
+a covar_pop(real, real) -> real
+a covar_samp(double, double) -> double
+a covar_samp(real, real) -> real
+a create_vector_index(T, array(double)) -> varchar
+a create_vector_index(T, array(real)) -> varchar
+a create_vector_index(array(double)) -> varchar
+a create_vector_index(array(real)) -> varchar
+a differential_entropy(bigint, double) -> double
+a differential_entropy(bigint, double, double) -> double
+a differential_entropy(bigint, double, double, varchar, double, double) -> double
+a entropy(bigint) -> double
+a evaluate_classifier_predictions(bigint, bigint) -> varchar
+a evaluate_classifier_predictions(varchar(x), varchar(y)) -> varchar
+a every(boolean) -> boolean
+a geometric_mean(bigint) -> double
+a geometric_mean(double) -> double
+a geometric_mean(real) -> real
+a geometry_union_agg(Geometry) -> Geometry
+a histogram(K) -> map(K,bigint)
+a khyperloglog_agg(E, T) -> KHyperLogLog
+a kurtosis(bigint) -> double
+a kurtosis(double) -> double
+a learn_classifier(bigint, map(bigint,double)) -> Classifier(bigint)
+a learn_classifier(double, map(bigint,double)) -> Classifier(bigint)
+a learn_classifier(varchar, map(bigint,double)) -> Classifier(varchar)
+a learn_libsvm_classifier(bigint, map(bigint,double), varchar(x)) -> Classifier(bigint)
+a learn_libsvm_classifier(double, map(bigint,double), varchar) -> Classifier(bigint)
+a learn_libsvm_classifier(varchar, map(bigint,double), varchar) -> Classifier(varchar)
+a learn_libsvm_regressor(bigint, map(bigint,double), varchar) -> Regressor
+a learn_libsvm_regressor(double, map(bigint,double), varchar) -> Regressor
+a learn_regressor(bigint, map(bigint,double)) -> Regressor
+a learn_regressor(double, map(bigint,double)) -> Regressor
+a make_set_digest(T) -> SetDigest
+a map_agg(K, V) -> map(K,V)
+a map_union(map(K,V)) -> map(K,V)
+a map_union_sum(map(K,V)) -> map(K,V)
+a max(E) -> E
+a max(E, bigint) -> array(E)
+a max_by(V, K) -> V
+a max_by(V, K, bigint) -> array(V)
+a merge(HyperLogLog) -> HyperLogLog
+a merge(KHyperLogLog) -> KHyperLogLog
+a merge(SfmSketch) -> SfmSketch
+a merge(qdigest(T)) -> qdigest(T)
+a merge_set_digest(SetDigest) -> SetDigest
+a min(E) -> E
+a min(E, bigint) -> array(E)
+a min_by(V, K) -> V
+a min_by(V, K, bigint) -> array(V)
+a multimap_agg(K, V) -> map(K,array(V))
+a noisy_approx_distinct_sfm(T, double) -> bigint
+a noisy_approx_distinct_sfm(T, double, bigint) -> bigint
+a noisy_approx_distinct_sfm(T, double, bigint, bigint) -> bigint
+a noisy_approx_set_sfm(T, double) -> SfmSketch
+a noisy_approx_set_sfm(T, double, bigint) -> SfmSketch
+a noisy_approx_set_sfm(T, double, bigint, bigint) -> SfmSketch
+a noisy_approx_set_sfm_from_index_and_zeros(bigint, bigint, double, bigint) -> SfmSketch
+a noisy_approx_set_sfm_from_index_and_zeros(bigint, bigint, double, bigint, bigint) -> SfmSketch
+a noisy_avg_gaussian(T, double) -> double
+a noisy_avg_gaussian(T, double, bigint) -> double
+a noisy_avg_gaussian(T, double, double, double) -> double
+a noisy_avg_gaussian(T, double, double, double, bigint) -> double
+a noisy_count_gaussian(T, double) -> bigint
+a noisy_count_gaussian(T, double, bigint) -> bigint
+a noisy_count_if_gaussian(boolean, double) -> bigint
+a noisy_count_if_gaussian(boolean, double, bigint) -> bigint
+a noisy_sum_gaussian(T, double) -> double
+a noisy_sum_gaussian(T, double, bigint) -> double
+a noisy_sum_gaussian(T, double, double, double) -> double
+a noisy_sum_gaussian(T, double, double, double, bigint) -> double
+a numeric_histogram(bigint, double) -> map(double,double)
+a numeric_histogram(bigint, double, double) -> map(double,double)
+a numeric_histogram(bigint, real) -> map(real,real)
+a numeric_histogram(bigint, real, double) -> map(real,real)
+a qdigest_agg(V) -> qdigest(V)
+a qdigest_agg(V, bigint) -> qdigest(V)
+a qdigest_agg(V, bigint, double) -> qdigest(V)
+a reduce_agg(T, S, function(S,T,S), function(S,S,S)) -> S
+a regr_avgx(double, double) -> double
+a regr_avgx(real, real) -> real
+a regr_avgy(double, double) -> double
+a regr_avgy(real, real) -> real
+a regr_count(double, double) -> double
+a regr_count(real, real) -> real
+a regr_intercept(double, double) -> double
+a regr_intercept(real, real) -> real
+a regr_r2(double, double) -> double
+a regr_r2(real, real) -> real
+a regr_slope(double, double) -> double
+a regr_slope(real, real) -> real
+a regr_sxx(double, double) -> double
+a regr_sxx(real, real) -> real
+a regr_sxy(double, double) -> double
+a regr_sxy(real, real) -> real
+a regr_syy(double, double) -> double
+a regr_syy(real, real) -> real
+a reservoir_sample(array(T), bigint, T, integer) -> row(processed_count bigint,sample array(T))
+a set_agg(T) -> array(T)
+a set_union(array(T)) -> array(T)
+a sketch_kll(T) -> kllsketch(T)
+a sketch_kll_with_k(T, bigint) -> kllsketch(T)
+a sketch_theta(T) -> varbinary
+a skewness(bigint) -> double
+a skewness(double) -> double
+a spatial_partitioning(Geometry) -> varchar
+a stddev(bigint) -> double
+a stddev(double) -> double
+a stddev_pop(bigint) -> double
+a stddev_pop(double) -> double
+a stddev_samp(bigint) -> double
+a stddev_samp(double) -> double
+a sum(bigint) -> bigint
+a sum(decimal(p,s)) -> decimal(38,s)
+a sum(double) -> double
+a sum(interval day to second) -> interval day to second
+a sum(interval year to month) -> interval year to month
+a sum(real) -> real
+a tdigest_agg(V) -> tdigest(V)
+a tdigest_agg(V, bigint) -> tdigest(V)
+a tdigest_agg(V, bigint, double) -> tdigest(V)
+a var_pop(bigint) -> double
+a var_pop(double) -> double
+a var_samp(bigint) -> double
+a var_samp(double) -> double
+a variance(bigint) -> double
+a variance(double) -> double
+s abs(bigint) -> bigint
+s abs(decimal(p,s)) -> decimal(p,s)
+s abs(double) -> double
+s abs(integer) -> integer
+s abs(real) -> real
+s abs(smallint) -> smallint
+s abs(tinyint) -> tinyint
+s acos(double) -> double
+s all_match(array(T), function(T,boolean)) -> boolean
+s any_match(array(T), function(T,boolean)) -> boolean
+s array_cum_sum(array(T)) -> array(T)
+s array_distinct(array(E)) -> array(E)
+s array_except(array(E), array(E)) -> array(E)
+s array_intersect(array(E), array(E)) -> array(E)
+s array_join(array(T), varchar) -> varchar
+s array_join(array(T), varchar, varchar) -> varchar
+s array_max(array(T)) -> T
+s array_min(array(T)) -> T
+s array_normalize(array(T), T) -> array(T)
+s array_position(array(T), T) -> bigint
+s array_position(array(T), T, bigint) -> bigint
+s array_remove(array(E), E) -> array(E)
+s array_sort(array(E)) -> array(E)
+s array_sort(array(T), function(T,K)) -> array(T)
+s array_sort(array(T), function(T,T,integer)) -> array(T)
+s array_sort_desc(array(T), function(T,K)) -> array(T)
+s array_sum(array(bigint)) -> bigint
+s array_sum(array(double)) -> double
+s array_union(array(E), array(E)) -> array(E)
+s arrays_overlap(array(T), array(T)) -> boolean
+s asin(double) -> double
+s atan(double) -> double
+s atan2(double, double) -> double
+s bar(double, bigint) -> varchar
+s bar(double, bigint, color, color) -> varchar
+s beta_cdf(double, double, double) -> double
+s bing_tile(integer, integer, integer) -> BingTile
+s bing_tile(varchar) -> BingTile
+s bing_tile_at(double, double, integer) -> BingTile
+s bing_tile_children(BingTile) -> array(BingTile)
+s bing_tile_children(BingTile, integer) -> array(BingTile)
+s bing_tile_coordinates(BingTile) -> row(x integer,y integer)
+s bing_tile_parent(BingTile) -> BingTile
+s bing_tile_parent(BingTile, integer) -> BingTile
+s bing_tile_polygon(BingTile) -> Geometry
+s bing_tile_quadkey(BingTile) -> varchar
+s bing_tile_zoom_level(BingTile) -> tinyint
+s bing_tiles_around(double, double, integer) -> array(BingTile)
+s bing_tiles_around(double, double, integer, double) -> array(BingTile)
+s binomial_cdf(integer, double, integer) -> double
+s bit_count(bigint, bigint) -> bigint
+s bit_length(varchar(x)) -> bigint
+s bitwise_and(bigint, bigint) -> bigint
+s bitwise_arithmetic_shift_right(bigint, bigint) -> bigint
+s bitwise_left_shift(bigint, integer) -> bigint
+s bitwise_left_shift(integer, integer) -> integer
+s bitwise_left_shift(smallint, integer) -> smallint
+s bitwise_left_shift(tinyint, integer) -> tinyint
+s bitwise_logical_shift_right(bigint, bigint, bigint) -> bigint
+s bitwise_not(bigint) -> bigint
+s bitwise_or(bigint, bigint) -> bigint
+s bitwise_right_shift(bigint, integer) -> bigint
+s bitwise_right_shift(integer, integer) -> integer
+s bitwise_right_shift(smallint, integer) -> smallint
+s bitwise_right_shift(tinyint, integer) -> tinyint
+s bitwise_right_shift_arithmetic(bigint, integer) -> bigint
+s bitwise_right_shift_arithmetic(integer, integer) -> integer
+s bitwise_right_shift_arithmetic(smallint, integer) -> smallint
+s bitwise_right_shift_arithmetic(tinyint, integer) -> tinyint
+s bitwise_shift_left(bigint, bigint, bigint) -> bigint
+s bitwise_xor(bigint, bigint) -> bigint
+s bucket(bigint, integer) -> bigint
+s bucket(date, integer) -> bigint
+s bucket(timestamp with time zone, integer) -> bigint
+s bucket(timestamp, integer) -> bigint
+s bucket(varbinary, integer) -> bigint
+s bucket(varchar, integer) -> bigint
+s cardinality(HyperLogLog) -> bigint
+s cardinality(KHyperLogLog) -> bigint
+s cardinality(SetDigest) -> bigint
+s cardinality(SfmSketch) -> bigint
+s cardinality(array(E)) -> bigint
+s cardinality(map(K,V)) -> bigint
+s cauchy_cdf(double, double, double) -> double
+s cbrt(double) -> double
+s ceil(bigint) -> bigint
+s ceil(decimal(p,s)) -> decimal(rp,0)
+s ceil(double) -> double
+s ceil(integer) -> integer
+s ceil(real) -> real
+s ceil(smallint) -> smallint
+s ceil(tinyint) -> tinyint
+s ceiling(bigint) -> bigint
+s ceiling(decimal(p,s)) -> decimal(rp,0)
+s ceiling(double) -> double
+s ceiling(integer) -> integer
+s ceiling(real) -> real
+s ceiling(smallint) -> smallint
+s ceiling(tinyint) -> tinyint
+s char2hexint(varchar) -> varchar
+s chi_squared_cdf(double, double) -> double
+s chr(bigint) -> varchar(1)
+s classify(map(bigint,double), Classifier(bigint)) -> bigint
+s classify(map(bigint,double), Classifier(varchar)) -> varchar
+s codepoint(varchar(1)) -> integer
+s color(double, color, color) -> color
+s color(double, double, double, color, color) -> color
+s color(varchar(x)) -> color
+s combinations(array(T), integer) -> array(array(T))
+s concat(E, array(E)) -> array(E)
+s concat(array(E)) -> array(E)
+s concat(array(E), E) -> array(E)
+s concat(char(x), char(y)) -> char(u)
+s concat(varbinary) -> varbinary
+s concat(varchar) -> varchar
+s contains(array(T), T) -> boolean
+s cos(double) -> double
+s cosh(double) -> double
+s cosine_similarity(array(double), array(double)) -> double
+s cosine_similarity(map(varchar,double), map(varchar,double)) -> double
+s crc32(varbinary) -> bigint
+s current_date() -> date
+s current_time() -> time with time zone
+s current_timestamp() -> timestamp with time zone
+s current_timezone() -> varchar
+s date(timestamp) -> date
+s date(timestamp with time zone) -> date
+s date(varchar(x)) -> date
+s date_add(varchar(x), bigint, date) -> date
+s date_add(varchar(x), bigint, time) -> time
+s date_add(varchar(x), bigint, time with time zone) -> time with time zone
+s date_add(varchar(x), bigint, timestamp) -> timestamp
+s date_add(varchar(x), bigint, timestamp with time zone) -> timestamp with time zone
+s date_diff(varchar(x), date, date) -> bigint
+s date_diff(varchar(x), time with time zone, time with time zone) -> bigint
+s date_diff(varchar(x), time, time) -> bigint
+s date_diff(varchar(x), timestamp with time zone, timestamp with time zone) -> bigint
+s date_diff(varchar(x), timestamp, timestamp) -> bigint
+s date_format(timestamp with time zone, varchar(x)) -> varchar
+s date_format(timestamp, varchar(x)) -> varchar
+s date_parse(varchar(x), varchar(y)) -> timestamp
+s date_trunc(varchar(x), date) -> date
+s date_trunc(varchar(x), time) -> time
+s date_trunc(varchar(x), time with time zone) -> time with time zone
+s date_trunc(varchar(x), timestamp) -> timestamp
+s date_trunc(varchar(x), timestamp with time zone) -> timestamp with time zone
+s day(date) -> bigint
+s day(interval day to second) -> bigint
+s day(timestamp) -> bigint
+s day(timestamp with time zone) -> bigint
+s day_of_month(date) -> bigint
+s day_of_month(interval day to second) -> bigint
+s day_of_month(timestamp) -> bigint
+s day_of_month(timestamp with time zone) -> bigint
+s day_of_week(date) -> bigint
+s day_of_week(timestamp) -> bigint
+s day_of_week(timestamp with time zone) -> bigint
+s day_of_year(date) -> bigint
+s day_of_year(timestamp) -> bigint
+s day_of_year(timestamp with time zone) -> bigint
+s degrees(double) -> double
+s dot_product(array(double), array(double)) -> double
+s dot_product(array(real), array(real)) -> real
+s dow(date) -> bigint
+s dow(timestamp) -> bigint
+s dow(timestamp with time zone) -> bigint
+s doy(date) -> bigint
+s doy(timestamp) -> bigint
+s doy(timestamp with time zone) -> bigint
+s e() -> double
+s element_at(array(E), bigint) -> E
+s element_at(map(K,V), K) -> V
+s empty_approx_set() -> HyperLogLog
+s empty_approx_set(double) -> HyperLogLog
+s ends_with(varchar(x), varchar(y)) -> boolean
+s enum_key(T) -> varchar
+s exp(double) -> double
+s expand_envelope(Geometry, double) -> Geometry
+s f_cdf(double, double, double) -> double
+s factorial(integer) -> bigint
+s features(double) -> map(bigint,double)
+s features(double, double) -> map(bigint,double)
+s features(double, double, double) -> map(bigint,double)
+s features(double, double, double, double) -> map(bigint,double)
+s features(double, double, double, double, double) -> map(bigint,double)
+s features(double, double, double, double, double, double) -> map(bigint,double)
+s features(double, double, double, double, double, double, double) -> map(bigint,double)
+s features(double, double, double, double, double, double, double, double) -> map(bigint,double)
+s features(double, double, double, double, double, double, double, double, double) -> map(bigint,double)
+s features(double, double, double, double, double, double, double, double, double, double) -> map(bigint,double)
+s filter(array(T), function(T,boolean)) -> array(T)
+s find_first(array(T), bigint, function(T,boolean)) -> T
+s find_first(array(T), function(T,boolean)) -> T
+s find_first_index(array(T), bigint, function(T,boolean)) -> bigint
+s find_first_index(array(T), function(T,boolean)) -> bigint
+s flatten(array(array(E))) -> array(E)
+s flatten_geometry_collections(Geometry) -> array(Geometry)
+s floor(bigint) -> bigint
+s floor(decimal(p,s)) -> decimal(rp,0)
+s floor(double) -> double
+s floor(integer) -> integer
+s floor(real) -> real
+s floor(smallint) -> smallint
+s floor(tinyint) -> tinyint
+s fnv1_32(varbinary) -> integer
+s fnv1_64(varbinary) -> bigint
+s fnv1a_32(varbinary) -> integer
+s fnv1a_64(varbinary) -> bigint
+s format_datetime(timestamp with time zone, varchar(x)) -> varchar
+s format_datetime(timestamp, varchar(x)) -> varchar
+s from_base(varchar(x), bigint) -> bigint
+s from_base32(varbinary) -> varbinary
+s from_base32(varchar(x)) -> varbinary
+s from_base64(varbinary) -> varbinary
+s from_base64(varchar(x)) -> varbinary
+s from_base64url(varbinary) -> varbinary
+s from_base64url(varchar(x)) -> varbinary
+s from_big_endian_32(varbinary) -> integer
+s from_big_endian_64(varbinary) -> bigint
+s from_hex(varbinary) -> varbinary
+s from_hex(varchar(x)) -> varbinary
+s from_ieee754_32(varbinary) -> real
+s from_ieee754_64(varbinary) -> double
+s from_iso8601_date(varchar(x)) -> date
+s from_iso8601_timestamp(varchar(x)) -> timestamp with time zone
+s from_unixtime(double) -> timestamp
+s from_unixtime(double, bigint, bigint) -> timestamp with time zone
+s from_unixtime(double, varchar(x)) -> timestamp with time zone
+s from_utf8(varbinary) -> varchar
+s from_utf8(varbinary, bigint) -> varchar
+s from_utf8(varbinary, varchar(x)) -> varchar
+s gamma_cdf(double, double, double) -> double
+s geometry_as_geojson(Geometry) -> varchar
+s geometry_from_geojson(varchar) -> Geometry
+s geometry_invalid_reason(Geometry) -> varchar
+s geometry_nearest_points(Geometry, Geometry) -> array(Geometry)
+s geometry_to_bing_tiles(Geometry, integer) -> array(BingTile)
+s geometry_to_dissolved_bing_tiles(Geometry, integer) -> array(BingTile)
+s geometry_union(array(Geometry)) -> Geometry
+s google_polyline_decode(varchar) -> array(Geometry)
+s google_polyline_decode(varchar, integer) -> array(Geometry)
+s google_polyline_encode(array(Geometry)) -> varchar
+s google_polyline_encode(array(Geometry), integer) -> varchar
+s great_circle_distance(double, double, double, double) -> double
+s greatest(E) -> E
+s hamming_distance(varchar(x), varchar(y)) -> bigint
+s hash_counts(SetDigest) -> map(bigint,smallint)
+s hmac_md5(varbinary, varbinary) -> varbinary
+s hmac_sha1(varbinary, varbinary) -> varbinary
+s hmac_sha256(varbinary, varbinary) -> varbinary
+s hmac_sha512(varbinary, varbinary) -> varbinary
+s hour(interval day to second) -> bigint
+s hour(time) -> bigint
+s hour(time with time zone) -> bigint
+s hour(timestamp) -> bigint
+s hour(timestamp with time zone) -> bigint
+s index(varchar, varchar) -> bigint
+s infinity() -> double
+s intersection_cardinality(KHyperLogLog, KHyperLogLog) -> bigint
+s intersection_cardinality(SetDigest, SetDigest) -> bigint
+s inverse_beta_cdf(double, double, double) -> double
+s inverse_binomial_cdf(integer, double, double) -> integer
+s inverse_cauchy_cdf(double, double, double) -> double
+s inverse_chi_squared_cdf(double, double) -> double
+s inverse_f_cdf(double, double, double) -> double
+s inverse_gamma_cdf(double, double, double) -> double
+s inverse_laplace_cdf(double, double, double) -> double
+s inverse_normal_cdf(double, double, double) -> double
+s inverse_poisson_cdf(double, double) -> integer
+s inverse_t_cdf(double, double) -> double
+s inverse_weibull_cdf(double, double, double) -> double
+s ip_prefix(ipaddress, bigint) -> ipprefix
+s ip_prefix(varchar(x), bigint) -> ipprefix
+s ip_prefix_collapse(array(IPPREFIX)) -> array(IPPREFIX)
+s ip_prefix_subnets(ipprefix, bigint) -> array(IPPREFIX)
+s ip_subnet_max(ipprefix) -> ipaddress
+s ip_subnet_min(ipprefix) -> ipaddress
+s ip_subnet_range(ipprefix) -> array(IPADDRESS)
+s is_finite(double) -> boolean
+s is_infinite(double) -> boolean
+s is_json_scalar(json) -> boolean
+s is_json_scalar(varchar(x)) -> boolean
+s is_nan(double) -> boolean
+s is_private_ip(ipaddress) -> boolean
+s is_subnet_of(ipprefix, ipaddress) -> boolean
+s is_subnet_of(ipprefix, ipprefix) -> boolean
+s jaccard_index(KHyperLogLog, KHyperLogLog) -> double
+s jaccard_index(SetDigest, SetDigest) -> double
+s jarowinkler_similarity(varchar(x), varchar(y)) -> double
+s json_array_contains(json, bigint) -> boolean
+s json_array_contains(json, boolean) -> boolean
+s json_array_contains(json, double) -> boolean
+s json_array_contains(json, varchar(x)) -> boolean
+s json_array_contains(varchar(x), bigint) -> boolean
+s json_array_contains(varchar(x), boolean) -> boolean
+s json_array_contains(varchar(x), double) -> boolean
+s json_array_contains(varchar(x), varchar(y)) -> boolean
+s json_array_get(json, bigint) -> json
+s json_array_get(varchar(x), bigint) -> json
+s json_array_length(json) -> bigint
+s json_array_length(varchar(x)) -> bigint
+s json_extract(json, JsonPath) -> json
+s json_extract(varchar(x), JsonPath) -> json
+s json_extract_scalar(json, JsonPath) -> varchar
+s json_extract_scalar(varchar(x), JsonPath) -> varchar(x)
+s json_format(json) -> varchar
+s json_parse(varchar(x)) -> json
+s json_presto_query_plan_ids(json) -> ARRAY(varchar)
+s json_presto_query_plan_node_children(json, varchar) -> ARRAY(varchar)
+s json_presto_query_plan_scrub(json) -> json
+s json_size(json, JsonPath) -> bigint
+s json_size(varchar(x), JsonPath) -> bigint
+s l2_squared(array(double), array(double)) -> double
+s l2_squared(array(real), array(real)) -> real
+s laplace_cdf(double, double, double) -> double
+s last_day_of_month(date) -> date
+s last_day_of_month(timestamp) -> date
+s last_day_of_month(timestamp with time zone) -> date
+s least(E) -> E
+s length(char(x)) -> bigint
+s length(varbinary) -> bigint
+s length(varchar(x)) -> bigint
+s levenshtein_distance(varchar(x), varchar(y)) -> bigint
+s line_interpolate_point(Geometry, double) -> Geometry
+s line_locate_point(Geometry, Geometry) -> double
+s ln(double) -> double
+s localtime() -> time
+s localtimestamp() -> timestamp
+s log10(double) -> double
+s log2(double) -> double
+s longest_common_prefix(varchar(x), varchar(y)) -> varchar
+s lower(char(x)) -> char(x)
+s lower(varchar(x)) -> varchar(x)
+s lpad(varbinary, bigint, varbinary) -> varbinary
+s lpad(varchar(x), bigint, varchar(y)) -> varchar
+s ltrim(char(x)) -> char(x)
+s ltrim(char(x), CodePoints) -> char(x)
+s ltrim(varchar(x)) -> varchar(x)
+s ltrim(varchar(x), CodePoints) -> varchar(x)
+s map() -> map(unknown,unknown)
+s map(array(K), array(V)) -> map(K,V)
+s map_concat(map(K,V)) -> map(K,V)
+s map_entries(map(K,V)) -> array(row(K,V))
+s map_filter(map(K,V), function(K,V,boolean)) -> map(K,V)
+s map_from_entries(array(row(K,V))) -> map(K,V)
+s map_keys(map(K,V)) -> array(K)
+s map_subset(MAP(K,V), ARRAY(K)) -> MAP(K,V)
+s map_values(map(K,V)) -> array(V)
+s map_zip_with(map(K,V1), map(K,V2), function(K,V1,V2,V3)) -> map(K,V3)
+s md5(varbinary) -> varbinary
+s merge_hll(array(HyperLogLog)) -> HyperLogLog
+s merge_khll(array(KHyperLogLog)) -> KHyperLogLog
+s merge_sfm(array(SfmSketch)) -> SfmSketch
+s millisecond(interval day to second) -> bigint
+s millisecond(time) -> bigint
+s millisecond(time with time zone) -> bigint
+s millisecond(timestamp) -> bigint
+s millisecond(timestamp with time zone) -> bigint
+s minute(interval day to second) -> bigint
+s minute(time) -> bigint
+s minute(time with time zone) -> bigint
+s minute(timestamp) -> bigint
+s minute(timestamp with time zone) -> bigint
+s mod(bigint, bigint) -> bigint
+s mod(decimal(a_precision,a_scale), decimal(b_precision,b_scale)) -> decimal(r_precision,r_scale)
+s mod(double, double) -> double
+s mod(integer, integer) -> integer
+s mod(real, real) -> real
+s mod(smallint, smallint) -> smallint
+s mod(tinyint, tinyint) -> tinyint
+s month(date) -> bigint
+s month(interval year to month) -> bigint
+s month(timestamp) -> bigint
+s month(timestamp with time zone) -> bigint
+s multimap_from_entries(array(row(K,V))) -> map(K,array(V))
+s murmur3_x64_128(varbinary) -> varbinary
+s nan() -> double
+s ngrams(array(T), integer) -> array(array(T))
+s noisy_empty_approx_set_sfm(double) -> SfmSketch
+s noisy_empty_approx_set_sfm(double, bigint) -> SfmSketch
+s noisy_empty_approx_set_sfm(double, bigint, bigint) -> SfmSketch
+s none_match(array(T), function(T,boolean)) -> boolean
+s normal_cdf(double, double, double) -> double
+s normalize(varchar(x), varchar(y)) -> varchar
+s now() -> timestamp with time zone
+s objectid() -> ObjectId
+s objectid(varchar) -> ObjectId
+s parse_datetime(varchar(x), varchar(y)) -> timestamp with time zone
+s parse_duration(varchar(x)) -> interval day to second
+s parse_presto_data_size(varchar(x)) -> decimal(38,0)
+s pi() -> double
+s pinot_binary_decimal_to_double(varbinary, integer, integer, boolean) -> double
+s pmod(bigint, bigint) -> bigint
+s pmod(double, double) -> double
+s pmod(integer, integer) -> integer
+s pmod(real, real) -> real
+s pmod(smallint, smallint) -> smallint
+s pmod(tinyint, tinyint) -> tinyint
+s poisson_cdf(double, integer) -> double
+s pow(double, double) -> double
+s power(double, double) -> double
+s quantile_at_value(qdigest(bigint), bigint) -> double
+s quantile_at_value(qdigest(double), double) -> double
+s quantile_at_value(qdigest(real), real) -> double
+s quarter(date) -> bigint
+s quarter(timestamp) -> bigint
+s quarter(timestamp with time zone) -> bigint
+s radians(double) -> double
+s rand() -> double
+s rand(bigint) -> bigint
+s rand(integer) -> integer
+s rand(smallint) -> smallint
+s rand(tinyint) -> tinyint
+s random() -> double
+s random(bigint) -> bigint
+s random(integer) -> integer
+s random(smallint) -> smallint
+s random(tinyint) -> tinyint
+s reduce(array(T), S, function(S,T,S), function(S,R)) -> R
+s regexp_extract(varchar(x), JoniRegExp) -> varchar(x)
+s regexp_extract(varchar(x), JoniRegExp, bigint) -> varchar(x)
+s regexp_extract_all(varchar(x), JoniRegExp) -> array(varchar(x))
+s regexp_extract_all(varchar(x), JoniRegExp, bigint) -> array(varchar(x))
+s regexp_like(varchar(x), JoniRegExp) -> boolean
+s regexp_replace(varchar(x), JoniRegExp) -> varchar(x)
+s regexp_replace(varchar(x), JoniRegExp, varchar(y)) -> varchar(z)
+s regexp_replace(varchar, JoniRegExp, function(array(varchar),varchar(x))) -> varchar
+s regexp_split(varchar(x), JoniRegExp) -> array(varchar(x))
+s regress(map(bigint,double), Regressor) -> double
+s reidentification_potential(KHyperLogLog, bigint) -> double
+s render(bigint, color) -> varchar(35)
+s render(boolean) -> varchar(16)
+s render(double, color) -> varchar(41)
+s render(varchar(x), color) -> varchar(y)
+s repeat(T, integer) -> array(T)
+s replace(varchar(x), varchar(y)) -> varchar(x)
+s replace(varchar(x), varchar(y), varchar(z)) -> varchar(u)
+s reverse(array(E)) -> array(E)
+s reverse(varbinary) -> varbinary
+s reverse(varchar(x)) -> varchar(x)
+s rgb(bigint, bigint, bigint) -> color
+s round(bigint) -> bigint
+s round(bigint, integer) -> bigint
+s round(decimal(p,s)) -> decimal(rp,rs)
+s round(decimal(p,s), integer) -> decimal(rp,s)
+s round(double) -> double
+s round(double, integer) -> double
+s round(integer) -> integer
+s round(integer, integer) -> integer
+s round(real) -> real
+s round(real, integer) -> real
+s round(smallint) -> smallint
+s round(smallint, integer) -> smallint
+s round(tinyint) -> tinyint
+s round(tinyint, integer) -> tinyint
+s rpad(varbinary, bigint, varbinary) -> varbinary
+s rpad(varchar(x), bigint, varchar(y)) -> varchar
+s rtrim(char(x)) -> char(x)
+s rtrim(char(x), CodePoints) -> char(x)
+s rtrim(varchar(x)) -> varchar(x)
+s rtrim(varchar(x), CodePoints) -> varchar(x)
+s scale_qdigest(qdigest(bigint), double) -> qdigest(bigint)
+s scale_qdigest(qdigest(double), double) -> qdigest(double)
+s scale_qdigest(qdigest(real), double) -> qdigest(real)
+s second(interval day to second) -> bigint
+s second(time) -> bigint
+s second(time with time zone) -> bigint
+s second(timestamp) -> bigint
+s second(timestamp with time zone) -> bigint
+s secure_rand() -> double
+s secure_rand(bigint, bigint) -> bigint
+s secure_rand(double, double) -> double
+s secure_rand(integer, integer) -> integer
+s secure_rand(smallint, smallint) -> smallint
+s secure_rand(tinyint, tinyint) -> tinyint
+s secure_random() -> double
+s secure_random(bigint, bigint) -> bigint
+s secure_random(double, double) -> double
+s secure_random(integer, integer) -> integer
+s secure_random(smallint, smallint) -> smallint
+s secure_random(tinyint, tinyint) -> tinyint
+s sequence(bigint, bigint) -> array(bigint)
+s sequence(bigint, bigint, bigint) -> array(bigint)
+s sequence(date, date) -> array(date)
+s sequence(date, date, interval day to second) -> array(date)
+s sequence(date, date, interval year to month) -> array(date)
+s sequence(timestamp, timestamp, interval day to second) -> array(timestamp)
+s sequence(timestamp, timestamp, interval year to month) -> array(timestamp)
+s sha1(varbinary) -> varbinary
+s sha256(varbinary) -> varbinary
+s sha512(varbinary) -> varbinary
+s shuffle(array(E)) -> array(E)
+s sign(bigint) -> bigint
+s sign(decimal(p,s)) -> decimal(1,0)
+s sign(double) -> double
+s sign(integer) -> integer
+s sign(real) -> real
+s sign(smallint) -> smallint
+s sign(tinyint) -> tinyint
+s simplify_geometry(Geometry, double) -> Geometry
+s sin(double) -> double
+s sketch_kll_quantile(kllsketch(bigint), double) -> bigint
+s sketch_kll_quantile(kllsketch(bigint), double, boolean) -> bigint
+s sketch_kll_quantile(kllsketch(boolean), double) -> boolean
+s sketch_kll_quantile(kllsketch(boolean), double, boolean) -> boolean
+s sketch_kll_quantile(kllsketch(double), double) -> double
+s sketch_kll_quantile(kllsketch(double), double, boolean) -> double
+s sketch_kll_quantile(kllsketch(varchar), double) -> varchar
+s sketch_kll_quantile(kllsketch(varchar), double, boolean) -> varchar
+s sketch_kll_rank(kllsketch(bigint), bigint) -> double
+s sketch_kll_rank(kllsketch(bigint), bigint, boolean) -> double
+s sketch_kll_rank(kllsketch(boolean), boolean) -> double
+s sketch_kll_rank(kllsketch(boolean), boolean, boolean) -> double
+s sketch_kll_rank(kllsketch(double), double) -> double
+s sketch_kll_rank(kllsketch(double), double, boolean) -> double
+s sketch_kll_rank(kllsketch(varchar), varchar) -> double
+s sketch_kll_rank(kllsketch(varchar), varchar, boolean) -> double
+s sketch_theta_estimate(varbinary) -> double
+s sketch_theta_summary(varbinary) -> row(estimate double,theta double,upper_bound_std double,lower_bound_std double,retained_entries integer)
+s slice(array(E), bigint, bigint) -> array(E)
+s spatial_partitions(KdbTree, Geometry) -> array(integer)
+s spatial_partitions(KdbTree, Geometry, double) -> array(integer)
+s spatial_partitions(KdbTree, SphericalGeography) -> array(integer)
+s spatial_partitions(KdbTree, SphericalGeography, double) -> array(integer)
+s split(varchar(x), varchar(y)) -> array(varchar(x))
+s split(varchar(x), varchar(y), bigint) -> array(varchar(x))
+s split_part(varchar(x), varchar(y), bigint) -> varchar(x)
+s split_to_map(varchar, varchar, varchar) -> map(varchar,varchar)
+s split_to_map(varchar, varchar, varchar, function(varchar,varchar,varchar,varchar)) -> map(varchar,varchar)
+s split_to_multimap(varchar, varchar, varchar) -> map(varchar,array(varchar))
+s spooky_hash_v2_32(varbinary) -> varbinary
+s spooky_hash_v2_64(varbinary) -> varbinary
+s sqrt(double) -> double
+s st_area(Geometry) -> double
+s st_area(SphericalGeography) -> double
+s st_asbinary(Geometry) -> varbinary
+s st_astext(Geometry) -> varchar
+s st_astext(SphericalGeography) -> varchar
+s st_boundary(Geometry) -> Geometry
+s st_buffer(Geometry, double) -> Geometry
+s st_centroid(Geometry) -> Geometry
+s st_centroid(SphericalGeography) -> SphericalGeography
+s st_contains(Geometry, Geometry) -> boolean
+s st_convexhull(Geometry) -> Geometry
+s st_coorddim(Geometry) -> tinyint
+s st_crosses(Geometry, Geometry) -> boolean
+s st_difference(Geometry, Geometry) -> Geometry
+s st_dimension(Geometry) -> tinyint
+s st_disjoint(Geometry, Geometry) -> boolean
+s st_distance(Geometry, Geometry) -> double
+s st_distance(SphericalGeography, SphericalGeography) -> double
+s st_endpoint(Geometry) -> Geometry
+s st_envelope(Geometry) -> Geometry
+s st_envelopeaspts(Geometry) -> array(Geometry)
+s st_equals(Geometry, Geometry) -> boolean
+s st_exteriorring(Geometry) -> Geometry
+s st_geometries(Geometry) -> array(Geometry)
+s st_geometryfromtext(varchar) -> Geometry
+s st_geometryn(Geometry, integer) -> Geometry
+s st_geometrytype(Geometry) -> varchar
+s st_geomfrombinary(varbinary) -> Geometry
+s st_interiorringn(Geometry, integer) -> Geometry
+s st_interiorrings(Geometry) -> array(Geometry)
+s st_intersection(Geometry, Geometry) -> Geometry
+s st_intersects(Geometry, Geometry) -> boolean
+s st_isclosed(Geometry) -> boolean
+s st_isempty(Geometry) -> boolean
+s st_isring(Geometry) -> boolean
+s st_issimple(Geometry) -> boolean
+s st_isvalid(Geometry) -> boolean
+s st_length(Geometry) -> double
+s st_length(SphericalGeography) -> double
+s st_linefromtext(varchar) -> Geometry
+s st_linestring(array(Geometry)) -> Geometry
+s st_multipoint(array(Geometry)) -> Geometry
+s st_numgeometries(Geometry) -> integer
+s st_numinteriorring(Geometry) -> bigint
+s st_numpoints(Geometry) -> bigint
+s st_overlaps(Geometry, Geometry) -> boolean
+s st_point(double, double) -> Geometry
+s st_pointn(Geometry, integer) -> Geometry
+s st_points(Geometry) -> array(Geometry)
+s st_polygon(varchar) -> Geometry
+s st_relate(Geometry, Geometry, varchar) -> boolean
+s st_startpoint(Geometry) -> Geometry
+s st_symdifference(Geometry, Geometry) -> Geometry
+s st_touches(Geometry, Geometry) -> boolean
+s st_union(Geometry, Geometry) -> Geometry
+s st_within(Geometry, Geometry) -> boolean
+s st_x(Geometry) -> double
+s st_xmax(Geometry) -> double
+s st_xmin(Geometry) -> double
+s st_y(Geometry) -> double
+s st_ymax(Geometry) -> double
+s st_ymin(Geometry) -> double
+s starts_with(varchar(x), varchar(y)) -> boolean
+s strpos(varchar(x), varchar(y)) -> bigint
+s strpos(varchar(x), varchar(y), bigint) -> bigint
+s strrpos(varchar(x), varchar(y)) -> bigint
+s strrpos(varchar(x), varchar(y), bigint) -> bigint
+s substr(char(x), bigint) -> char(x)
+s substr(char(x), bigint, bigint) -> char(x)
+s substr(varbinary, bigint) -> varbinary
+s substr(varbinary, bigint, bigint) -> varbinary
+s substr(varchar(x), bigint) -> varchar(x)
+s substr(varchar(x), bigint, bigint) -> varchar(x)
+s substring(varchar(x), bigint) -> varchar(x)
+s substring(varchar(x), bigint, bigint) -> varchar(x)
+s t_cdf(double, double) -> double
+s tan(double) -> double
+s tanh(double) -> double
+s timezone_hour(timestamp with time zone) -> bigint
+s timezone_minute(timestamp with time zone) -> bigint
+s to_base(bigint, bigint) -> varchar(64)
+s to_base32(varbinary) -> varchar
+s to_base64(varbinary) -> varchar
+s to_base64url(varbinary) -> varchar
+s to_big_endian_32(integer) -> varbinary
+s to_big_endian_64(bigint) -> varbinary
+s to_char(timestamp with time zone, varchar) -> varchar
+s to_date(varchar, varchar) -> date
+s to_geometry(SphericalGeography) -> Geometry
+s to_hex(varbinary) -> varchar
+s to_ieee754_32(real) -> varbinary
+s to_ieee754_64(double) -> varbinary
+s to_iso8601(date) -> varchar(16)
+s to_iso8601(timestamp) -> varchar(35)
+s to_iso8601(timestamp with time zone) -> varchar(35)
+s to_milliseconds(interval day to second) -> bigint
+s to_spherical_geography(Geometry) -> SphericalGeography
+s to_timestamp(varchar, varchar) -> timestamp
+s to_unixtime(timestamp) -> double
+s to_unixtime(timestamp with time zone) -> double
+s to_utf8(varchar(x)) -> varbinary
+s transform(array(T), function(T,U)) -> array(U)
+s transform_keys(map(K1,V), function(K1,V,K2)) -> map(K2,V)
+s transform_values(map(K,V1), function(K,V1,V2)) -> map(K,V2)
+s trim(char(x)) -> char(x)
+s trim(char(x), CodePoints) -> char(x)
+s trim(varchar(x)) -> varchar(x)
+s trim(varchar(x), CodePoints) -> varchar(x)
+s trim_array(array(E), bigint) -> array(E)
+s truncate(decimal(p,s)) -> decimal(rp,0)
+s truncate(decimal(p,s), integer) -> decimal(p,s)
+s truncate(double) -> double
+s truncate(double, integer) -> double
+s truncate(real) -> real
+s truncate(real, integer) -> real
+s typeof(T) -> varchar
+s uniqueness_distribution(KHyperLogLog) -> map(bigint,double)
+s uniqueness_distribution(KHyperLogLog, bigint) -> map(bigint,double)
+s upper(char(x)) -> char(x)
+s upper(varchar(x)) -> varchar(x)
+s url_decode(varchar(x)) -> varchar(x)
+s url_encode(varchar(x)) -> varchar(y)
+s url_extract_fragment(varchar(x)) -> varchar(x)
+s url_extract_host(varchar(x)) -> varchar(x)
+s url_extract_parameter(varchar(x), varchar(y)) -> varchar(x)
+s url_extract_path(varchar(x)) -> varchar(x)
+s url_extract_port(varchar(x)) -> bigint
+s url_extract_protocol(varchar(x)) -> varchar(x)
+s url_extract_query(varchar(x)) -> varchar(x)
+s uuid() -> uuid
+s value_at_quantile(qdigest(bigint), double) -> bigint
+s value_at_quantile(qdigest(double), double) -> double
+s value_at_quantile(qdigest(real), double) -> real
+s values_at_quantiles(qdigest(bigint), array(double)) -> array(bigint)
+s values_at_quantiles(qdigest(double), array(double)) -> array(double)
+s values_at_quantiles(qdigest(real), array(double)) -> array(real)
+s week(date) -> bigint
+s week(timestamp) -> bigint
+s week(timestamp with time zone) -> bigint
+s week_of_year(date) -> bigint
+s week_of_year(timestamp) -> bigint
+s week_of_year(timestamp with time zone) -> bigint
+s weibull_cdf(double, double, double) -> double
+s width_bucket(double, array(double)) -> bigint
+s width_bucket(double, double, double, bigint) -> bigint
+s wilson_interval_lower(bigint, bigint, double) -> double
+s wilson_interval_upper(bigint, bigint, double) -> double
+s word_stem(varchar(x)) -> varchar(x)
+s word_stem(varchar(x), varchar(2)) -> varchar(x)
+s xxhash64(varbinary) -> varbinary
+s xxhash64(varbinary, bigint) -> varbinary
+s year(date) -> bigint
+s year(interval year to month) -> bigint
+s year(timestamp) -> bigint
+s year(timestamp with time zone) -> bigint
+s year_of_week(date) -> bigint
+s year_of_week(timestamp) -> bigint
+s year_of_week(timestamp with time zone) -> bigint
+s yow(date) -> bigint
+s yow(timestamp) -> bigint
+s yow(timestamp with time zone) -> bigint
+s zip(array(T1), array(T2)) -> array(row(T1,T2))
+s zip(array(T1), array(T2), array(T3)) -> array(row(T1,T2,T3))
+s zip(array(T1), array(T2), array(T3), array(T4)) -> array(row(T1,T2,T3,T4))
+s zip(array(T1), array(T2), array(T3), array(T4), array(T5)) -> array(row(T1,T2,T3,T4,T5))
+s zip(array(T1), array(T2), array(T3), array(T4), array(T5), array(T6)) -> array(row(T1,T2,T3,T4,T5,T6))
+s zip(array(T1), array(T2), array(T3), array(T4), array(T5), array(T6), array(T7)) -> array(row(T1,T2,T3,T4,T5,T6,T7))
+s zip_with(array(T), array(U), function(T,U,R)) -> array(R)
+s zorder(T) -> varbinary
+w cume_dist() -> double
+w dense_rank() -> bigint
+w first_value(T) -> T
+w lag(T) -> T
+w lag(T, bigint) -> T
+w lag(T, bigint, T) -> T
+w last_value(T) -> T
+w lead(T) -> T
+w lead(T, bigint) -> T
+w lead(T, bigint, T) -> T
+w nth_value(T, bigint) -> T
+w ntile(bigint) -> bigint
+w percent_rank() -> double
+w rank() -> bigint
+w row_number() -> bigint

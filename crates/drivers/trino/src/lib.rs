@@ -5,6 +5,7 @@
 //! headers. Cancel is a `DELETE` of the current `nextUri`.
 
 mod ddl;
+mod functions;
 mod literal;
 mod monitor;
 mod permissions;
@@ -917,6 +918,11 @@ impl Session for TrinoSession {
             .map(text)
             .unwrap_or_default();
         Ok(format!("{} {v}", info_name(self.flavor)))
+    }
+
+    /// `SHOW FUNCTIONS` (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {

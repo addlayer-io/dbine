@@ -13,6 +13,7 @@
 mod backup;
 mod command;
 mod ddl;
+mod functions;
 mod permissions;
 mod prom;
 mod security;
@@ -1175,6 +1176,13 @@ impl Session for EtcdSession {
 
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self).await
+    }
+
+    /// The commands the editor runs, for the server's version (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let version = self.server_version().await.ok();
+        Ok(functions::catalog(version.as_deref()))
     }
 }
 

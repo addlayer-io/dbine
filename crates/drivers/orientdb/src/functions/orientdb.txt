@@ -1,0 +1,87 @@
+# OrientDB SQL: the bundled functions of the "SQL Functions" reference,
+# plus the Lucene full-text (search_*, 3.0) and spatial (ST_*, 2.2) functions
+# of their own pages, bundled with the community distribution. since= is
+# the reference's "Available since"; versions before 1.7 aren't marked.
+# Methods (`.append()`, `.asString()`…) are called after a dot and aren't
+# here. The database's own functions (OFunction) come from the server.
+
+# Graph
+s out([label-1][, label-n]*)
+s in([label-1][, label-n]*)
+s both([label-1][, label-n]*)
+s outE([label-1][, label-n]*)
+s inE([label-1][, label-n]*)
+s bothE([label-1][, label-n]*)
+s outV()
+s inV()
+s bothV()
+s astar(sourceVertex, destinationVertex, weightEdgeFieldName[, options]) since=2.2
+s dijkstra(sourceVertex, destinationVertex, weightEdgeFieldName[, direction])
+s shortestPath(sourceVertex, destinationVertex[, direction[, edgeClassName[, additionalParams]]])
+s traversedElement(index[, items])
+s traversedEdge(index[, items])
+s traversedVertex(index[, items])
+
+# Math and aggregates (an aggregate when given one field)
+a count(field)
+a min(field[, field-n]*)
+a max(field[, field-n]*)
+a avg(field)
+a sum(field)
+a mode(field) since=2.0
+a median(field) since=2.0
+a percentile(field[, quantile-n]*) since=2.0
+a variance(field) since=2.0
+a stddev(field) since=2.0
+s abs(field) since=2.2
+s eval(expression)
+s decimal(number | string)
+s distance(x-field, y-field, x-value, y-value)
+
+# Collections
+s first(field)
+s last(field)
+s distinct(field)
+s unionall(field[, field-n]*)
+s intersect(field[, field-n]*)
+s difference(field[, field-n]*)
+s symmetricDifference(field[, field-n]*) since=2.0.7
+s set(field)
+s list(field)
+s map(key, value)
+s expand(field)
+
+# Misc
+s coalesce(field | value[, field-n | value-n]*)
+s if(expression, result-if-true, result-if-false)
+s ifnull(field | value, return-value-if-null)
+s date(date-as-string[, format][, timezone])
+s sysdate([format][, timezone])
+s format(format[, arg-1][, arg-n]*)
+s uuid() since=2.0
+s strcmpci(first-string, second-string) since=3.1.0
+s sequence(name) since=2.2
+
+# Lucene full-text search
+s search_class(query[, metadata]) since=3.0
+s search_index(index-name, query[, metadata]) since=3.0
+s search_fields(field-names, query[, metadata]) since=3.0
+s search_more(rid | record[, metadata]) since=3.0
+
+# Spatial
+s ST_AsBinary(geometry) since=2.2
+s ST_AsGeoJSON(geometry) since=2.2
+s ST_AsText(geometry) since=2.2
+s ST_Buffer(geometry, distance[, params]) since=2.2
+s ST_Contains(geometry-a, geometry-b) since=2.2
+s ST_Disjoint(geometry-a, geometry-b) since=2.2
+s ST_Distance(geometry-a, geometry-b) since=2.2
+s ST_Distance_Sphere(geometry-a, geometry-b) since=2.2
+s ST_DWithin(geometry-a, geometry-b, distance) since=2.2
+s ST_Envelope(geometry) since=2.2
+s ST_Equals(geometry-a, geometry-b) since=2.2
+s ST_GeomFromGeoJSON(geojson) since=2.2
+s ST_GeomFromText(wkt) since=2.2
+s ST_Intersects(geometry-a, geometry-b) since=2.2
+s ST_SRID(geometry) since=2.2
+s ST_Within(geometry-a, geometry-b) since=2.2

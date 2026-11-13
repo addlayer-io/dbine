@@ -12,6 +12,7 @@ mod blocking;
 mod blocks;
 mod create_db;
 mod ddl;
+mod functions;
 mod health;
 mod index_usage;
 mod jobs;
@@ -1121,6 +1122,11 @@ impl monitor::Runner for SnowflakeSession {
 
 #[async_trait]
 impl Session for SnowflakeSession {
+    /// `SHOW FUNCTIONS` (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
+    }
+
     async fn server_version(&mut self) -> Result<String> {
         let rows = self.text_rows("SELECT CURRENT_VERSION()", &[]).await?;
         let v = rows

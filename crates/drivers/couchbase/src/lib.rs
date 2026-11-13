@@ -13,6 +13,7 @@
 mod backup;
 mod create_db;
 mod ddl;
+mod functions;
 mod index_usage;
 mod jobs;
 mod permissions;
@@ -1987,6 +1988,18 @@ impl Session for CbSession {
         table: &ObjectRef,
     ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         self.index_usage_report(table).await
+    }
+
+    /// The built-ins of the server's version and the user's functions
+    /// (see [`functions`]); without `system:functions` (before 7.0, or no
+    /// permission), the built-ins alone.
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let version = self.server_version().await.ok();
+        let mut out = functions::builtins(version.as_deref());
+        if let Ok(rows) = self.results(functions::USER_FUNCTIONS).await {
+            out.extend(functions::user_functions(&rows));
+        }
+        Ok(out)
     }
 }
 

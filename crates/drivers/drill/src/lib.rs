@@ -12,6 +12,7 @@
 //! query's profile. The monitor reads `/status/metrics`, `sys.memory`,
 //! `sys.drillbits`, `sys.connections` and the running queries.
 
+mod functions;
 mod permissions;
 mod plan;
 mod processes;
@@ -1022,6 +1023,11 @@ impl Session for DrillSession {
                 .cloned()
                 .unwrap_or_default()
         ))
+    }
+
+    /// `sys.functions` (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {

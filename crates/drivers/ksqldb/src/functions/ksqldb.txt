@@ -1,0 +1,208 @@
+# ksqlDB: the built-in functions of Confluent Platform 7.7.1 (ksqlDB 0.29),
+# from the server's own DESCRIBE FUNCTION: one line per argument list, the
+# result type when every overload with that list agrees (T, S… are
+# generic). The server's SHOW FUNCTIONS is the source; this catalog gives
+# its entries their arguments and stands in when it can't be read. Without
+# the test UDFs Confluent's image carries (see `FIXTURES` in
+# functions.rs). Not filtered by version: SHOW FUNCTIONS answers on every
+# ksqlDB release, so this is only read when the server can't be reached.
+
+# Syntax written as a call (not in SHOW FUNCTIONS)
+s CAST(expression AS type)
+
+# Aggregate functions
+a ATTR(val1) -> T
+a AVG(val1) -> DOUBLE
+a COLLECT_LIST(val1) -> ARRAY<T>
+a COLLECT_SET(val1) -> ARRAY<T>
+a CORRELATION(val1, val2) -> DOUBLE
+a COUNT(val1) -> BIGINT
+a COUNT_DISTINCT(val1) -> BIGINT
+a EARLIEST_BY_OFFSET(val1) -> T
+a EARLIEST_BY_OFFSET(val1, earliestN) -> ARRAY<T>
+a EARLIEST_BY_OFFSET(val1, earliestN, ignoreNulls) -> ARRAY<T>
+a EARLIEST_BY_OFFSET(val1, ignoreNulls) -> T
+a HISTOGRAM(val1) -> MAP<VARCHAR, BIGINT>
+a LATEST_BY_OFFSET(val1) -> T
+a LATEST_BY_OFFSET(val1, latestN) -> ARRAY<T>
+a LATEST_BY_OFFSET(val1, latestN, ignoreNulls) -> ARRAY<T>
+a LATEST_BY_OFFSET(val1, ignoreNulls) -> T
+a MAX(val1)
+a MIN(val1)
+a STDDEV_SAMP(val1) -> DOUBLE
+a STDDEV_SAMPLE(val1) -> DOUBLE
+a SUM(val1)
+a SUM_LIST(val1)
+a TOPK(val1, val2..., k) -> ARRAY<S>
+a TOPKDISTINCT(val1, k)
+
+# Scalar functions
+s ABS(val)
+s ACOS(value) -> DOUBLE
+s ARRAY_CONCAT(left, right) -> ARRAY<T>
+s ARRAY_CONTAINS(array, val) -> BOOLEAN
+s ARRAY_DISTINCT(input) -> ARRAY<T>
+s ARRAY_EXCEPT(left, right) -> ARRAY<T>
+s ARRAY_INTERSECT(left, right) -> ARRAY<T>
+s ARRAY_JOIN(array) -> VARCHAR
+s ARRAY_JOIN(array, delimiter) -> VARCHAR
+s ARRAY_LENGTH(array) -> INT
+s ARRAY_MAX(input) -> T
+s ARRAY_MIN(input) -> T
+s ARRAY_REMOVE(array, victim) -> ARRAY<T>
+s ARRAY_SORT(input) -> ARRAY<T>
+s ARRAY_SORT(input, direction) -> ARRAY<T>
+s ARRAY_UNION(left, right) -> ARRAY<T>
+s ASIN(value) -> DOUBLE
+s AS_MAP(keys, values) -> MAP<VARCHAR, T>
+s AS_VALUE(keyColumn) -> T
+s ATAN(value) -> DOUBLE
+s ATAN2(y, x) -> DOUBLE
+s BIGINT_FROM_BYTES(value) -> BIGINT
+s BIGINT_FROM_BYTES(value, byteOrder) -> BIGINT
+s CBRT(value) -> DOUBLE
+s CEIL(val)
+s CHR(decimalCode) -> VARCHAR
+s CHR(utf16Code) -> VARCHAR
+s COALESCE(first, others...) -> T
+s CONCAT(inputs...)
+s CONCAT_WS(inputs...)
+s CONVERT_TZ(timestamp, fromTimeZone, toTimeZone) -> TIMESTAMP
+s COS(value) -> DOUBLE
+s COSH(value) -> DOUBLE
+s COT(value) -> DOUBLE
+s DATEADD(unit, interval, date) -> DATE
+s DATESUB(unit, interval, date) -> DATE
+s DATETOSTRING(epochDays, formatPattern) -> VARCHAR
+s DEGREES(value) -> DOUBLE
+s DOUBLE_FROM_BYTES(value) -> DOUBLE
+s DOUBLE_FROM_BYTES(value, byteOrder) -> DOUBLE
+s ELT(n, args...) -> VARCHAR
+s ENCODE(str, inputEncoding, outputEncoding) -> VARCHAR
+s ENTRIES(map, sorted)
+s EXP(exponent) -> DOUBLE
+s EXTRACTJSONFIELD(input, path) -> VARCHAR
+s FIELD(str, args...) -> INT
+s FILTER(map, biFunction) -> MAP<K, V>
+s FILTER(array, function) -> ARRAY<T>
+s FLOOR(val)
+s FORMAT_DATE(date, formatPattern) -> VARCHAR
+s FORMAT_TIME(time, formatPattern) -> VARCHAR
+s FORMAT_TIMESTAMP(timestamp, formatPattern) -> VARCHAR
+s FORMAT_TIMESTAMP(timestamp, formatPattern, timeZone) -> VARCHAR
+s FROM_BYTES(value, encoding) -> VARCHAR
+s FROM_DAYS(days) -> DATE
+s FROM_UNIXTIME(epochMilli) -> TIMESTAMP
+s GENERATE_SERIES(start, end)
+s GENERATE_SERIES(start, end, step)
+s GEO_DISTANCE(lat1, lon1, lat2, lon2, units) -> DOUBLE
+s GEO_DISTANCE(lat1, lon1, lat2, lon2) -> DOUBLE
+s GREATEST(val, vals...)
+s IFNULL(expression, altValue) -> T
+s INITCAP(str) -> VARCHAR
+s INSTR(str, substring) -> INT
+s INSTR(str, substring, position, occurrence) -> INT
+s INSTR(str, substring, position) -> INT
+s INT_FROM_BYTES(value) -> INT
+s INT_FROM_BYTES(value, byteOrder) -> INT
+s IS_JSON_STRING(input) -> BOOLEAN
+s JSON_ARRAY_CONTAINS(jsonArray, val) -> BOOLEAN
+s JSON_ARRAY_LENGTH(jsonArray) -> INT
+s JSON_CONCAT(jsonStrings...) -> VARCHAR
+s JSON_ITEMS(jsonItems) -> ARRAY<VARCHAR>
+s JSON_KEYS(jsonObj) -> ARRAY<VARCHAR>
+s JSON_RECORDS(jsonObj) -> MAP<VARCHAR, VARCHAR>
+s LCASE(input) -> VARCHAR
+s LEAST(val, vals...)
+s LEN(input) -> INT
+s LN(value) -> DOUBLE
+s LOG(base, value) -> DOUBLE
+s LOG(value) -> DOUBLE
+s LPAD(input, targetLen, padding)
+s MAP_KEYS(input) -> ARRAY<VARCHAR>
+s MAP_UNION(map1, map2) -> MAP<VARCHAR, T>
+s MAP_VALUES(input) -> ARRAY<T>
+s MASK(input STRING to be masked) -> VARCHAR
+s MASK(input STRING to be masked, upper-case mask, or NULL to use default, lower-case mask, or NULL to use default, digit mask, or NULL to use default, mask for other characters, or NULL to use default) -> VARCHAR
+s MASK_KEEP_LEFT(input STRING to be masked, number of characters to keep unmasked at the start, upper-case mask, or NULL to use default, lower-case mask, or NULL to use default, digit mask, or NULL to use default, mask for other characters, or NULL to use default) -> VARCHAR
+s MASK_KEEP_LEFT(input STRING to be masked, number of characters to keep unmasked at the start) -> VARCHAR
+s MASK_KEEP_RIGHT(input STRING to be masked, number of characters to keep unmasked at the end, upper-case mask, or NULL to use default, lower-case mask, or NULL to use default, digit mask, or NULL to use default, mask for other characters, or NULL to use default) -> VARCHAR
+s MASK_KEEP_RIGHT(input STRING to be masked, number of characters to keep unmasked at the end) -> VARCHAR
+s MASK_LEFT(input STRING to be masked, number of characters to mask from the start, upper-case mask, or NULL to use default, lower-case mask, or NULL to use default, digit mask, or NULL to use default, mask for other characters, or NULL to use default) -> VARCHAR
+s MASK_LEFT(input STRING to be masked, number of characters to mask from the start) -> VARCHAR
+s MASK_RIGHT(input STRING to be masked, number of characters to mask before the end, upper-case mask, or NULL to use default, lower-case mask, or NULL to use default, digit mask, or NULL to use default, mask for other characters, or NULL to use default) -> VARCHAR
+s MASK_RIGHT(input STRING to be masked, number of characters to mask before the end) -> VARCHAR
+s MD5(s) -> VARCHAR
+s NULLIF(expr1, expr2) -> T
+s PARSE_DATE(formattedDate, formatPattern) -> DATE
+s PARSE_TIME(formattedTime, formatPattern) -> TIME
+s PARSE_TIMESTAMP(formattedTimestamp, formatPattern) -> TIMESTAMP
+s PARSE_TIMESTAMP(formattedTimestamp, formatPattern, timeZone) -> TIMESTAMP
+s PI() -> DOUBLE
+s POWER(base, exponent) -> DOUBLE
+s RADIANS(value) -> DOUBLE
+s RANDOM() -> DOUBLE
+s REDUCE(map, initialState, triFunction) -> S
+s REDUCE(list, initialState, biFunction) -> S
+s REGEXP_EXTRACT(pattern, input) -> VARCHAR
+s REGEXP_EXTRACT(pattern, input, group) -> VARCHAR
+s REGEXP_EXTRACT_ALL(pattern, input) -> ARRAY<VARCHAR>
+s REGEXP_EXTRACT_ALL(pattern, input, group) -> ARRAY<VARCHAR>
+s REGEXP_REPLACE(str, regexp, newStr) -> VARCHAR
+s REGEXP_SPLIT_TO_ARRAY(string, regexp) -> ARRAY<VARCHAR>
+s REPLACE(str, oldStr, newStr) -> VARCHAR
+s ROUND(val)
+s ROUND(val, decimalPlaces)
+s RPAD(input, targetLen, padding)
+s SIGN(value) -> INT
+s SIN(value) -> DOUBLE
+s SINH(value) -> DOUBLE
+s SLICE(in, from, to) -> ARRAY<T>
+s SPLIT(string, delimiter) -> ARRAY<VARCHAR>
+s SPLIT(bytes, delimiter) -> ARRAY<BYTES>
+s SPLIT_TO_MAP(input, entryDelimiter, kvDelimiter) -> MAP<VARCHAR, VARCHAR>
+s SQRT(value) -> DOUBLE
+s STRINGTODATE(formattedDate, formatPattern) -> INT
+s STRINGTOTIMESTAMP(formattedTimestamp, formatPattern) -> BIGINT
+s STRINGTOTIMESTAMP(formattedTimestamp, formatPattern, timeZone) -> BIGINT
+s SUBSTRING(str, pos, length) -> VARCHAR
+s SUBSTRING(bytes, pos, length) -> BYTES
+s SUBSTRING(bytes, pos) -> BYTES
+s SUBSTRING(str, pos) -> VARCHAR
+s TAN(value) -> DOUBLE
+s TANH(value) -> DOUBLE
+s TIMEADD(unit, interval, time) -> TIME
+s TIMESTAMPADD(unit, interval, timestamp) -> TIMESTAMP
+s TIMESTAMPSUB(unit, interval, timestamp) -> TIMESTAMP
+s TIMESTAMPTOSTRING(epochMilli, formatPattern) -> VARCHAR
+s TIMESTAMPTOSTRING(epochMilli, formatPattern, timeZone) -> VARCHAR
+s TIMESUB(unit, interval, time) -> TIME
+s TO_BYTES(value, encoding) -> BYTES
+s TO_JSON_STRING(input) -> VARCHAR
+s TRANSFORM(map, biFunction1, biFunction2) -> MAP<R, T>
+s TRANSFORM(array, function) -> ARRAY<R>
+s TRIM(input) -> VARCHAR
+s TRUNC(val)
+s TRUNC(val, decimalPlaces)
+s UCASE(input) -> VARCHAR
+s UNIX_DATE() -> INT
+s UNIX_DATE(date) -> INT
+s UNIX_TIMESTAMP() -> BIGINT
+s UNIX_TIMESTAMP(timestamp) -> BIGINT
+s URL_DECODE_PARAM(input) -> VARCHAR
+s URL_ENCODE_PARAM(input) -> VARCHAR
+s URL_EXTRACT_FRAGMENT(input) -> VARCHAR
+s URL_EXTRACT_HOST(input) -> VARCHAR
+s URL_EXTRACT_PARAMETER(input, paramToFind) -> VARCHAR
+s URL_EXTRACT_PATH(input) -> VARCHAR
+s URL_EXTRACT_PORT(input) -> INT
+s URL_EXTRACT_PROTOCOL(input) -> VARCHAR
+s URL_EXTRACT_QUERY(input) -> VARCHAR
+s UUID() -> VARCHAR
+s UUID(bytes) -> VARCHAR
+
+# Table functions: ksqlDB calls them in the SELECT list, not in FROM,
+# so they're offered where scalars are.
+s CUBE_EXPLODE(columns) -> ARRAY<T>
+s EXPLODE(input) -> DECIMAL
+s EXPLODE(list) -> T

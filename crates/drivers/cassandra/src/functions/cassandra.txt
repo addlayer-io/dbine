@@ -1,0 +1,135 @@
+# Apache Cassandra's built-in CQL functions, for the editor's completion,
+# as the CQL reference (cassandra.apache.org/doc) lists them. `since=` is
+# the Cassandra version that added each one and `until=` the one that
+# removed it (dateOf and unixTimestampOf, gone in 5.0, which also added
+# snake_case names for the camelCase ones). The user's functions and
+# aggregates come from system_schema.
+s token(partition_key, ...)
+s ttl(column) -> int
+s writetime(column) -> bigint
+s maxwritetime(column) -> bigint since=5.0
+s cast(value AS type) since=3.2
+s now() -> timeuuid
+s uuid() -> uuid
+s currentTimeUUID() -> timeuuid since=4.0
+s currentTimestamp() -> timestamp since=4.0
+s currentDate() -> date since=4.0
+s currentTime() -> time since=4.0
+s minTimeuuid(timestamp) -> timeuuid
+s maxTimeuuid(timestamp) -> timeuuid
+s toDate(value) -> date since=2.2
+s toTimestamp(value) -> timestamp since=2.2
+s toUnixTimestamp(value) -> bigint since=2.2
+s toJson(value) -> text since=2.2
+s fromJson(json) since=2.2
+s dateOf(timeuuid) -> timestamp until=5.0
+s unixTimestampOf(timeuuid) -> bigint until=5.0
+s current_timeuuid() -> timeuuid since=5.0
+s current_timestamp() -> timestamp since=5.0
+s current_date() -> date since=5.0
+s current_time() -> time since=5.0
+s min_timeuuid(timestamp) -> timeuuid since=5.0
+s max_timeuuid(timestamp) -> timeuuid since=5.0
+s to_date(value) -> date since=5.0
+s to_timestamp(value) -> timestamp since=5.0
+s to_unix_timestamp(value) -> bigint since=5.0
+s to_json(value) -> text since=5.0
+s from_json(json) since=5.0
+s asciiAsBlob(value) -> blob
+s blobAsAscii(value) -> ascii
+s ascii_as_blob(value) -> blob since=5.0
+s blob_as_ascii(value) -> ascii since=5.0
+s bigintAsBlob(value) -> blob
+s blobAsBigint(value) -> bigint
+s bigint_as_blob(value) -> blob since=5.0
+s blob_as_bigint(value) -> bigint since=5.0
+s booleanAsBlob(value) -> blob
+s blobAsBoolean(value) -> boolean
+s boolean_as_blob(value) -> blob since=5.0
+s blob_as_boolean(value) -> boolean since=5.0
+s dateAsBlob(value) -> blob since=2.2
+s blobAsDate(value) -> date since=2.2
+s date_as_blob(value) -> blob since=5.0
+s blob_as_date(value) -> date since=5.0
+s decimalAsBlob(value) -> blob
+s blobAsDecimal(value) -> decimal
+s decimal_as_blob(value) -> blob since=5.0
+s blob_as_decimal(value) -> decimal since=5.0
+s doubleAsBlob(value) -> blob
+s blobAsDouble(value) -> double
+s double_as_blob(value) -> blob since=5.0
+s blob_as_double(value) -> double since=5.0
+s floatAsBlob(value) -> blob
+s blobAsFloat(value) -> float
+s float_as_blob(value) -> blob since=5.0
+s blob_as_float(value) -> float since=5.0
+s inetAsBlob(value) -> blob
+s blobAsInet(value) -> inet
+s inet_as_blob(value) -> blob since=5.0
+s blob_as_inet(value) -> inet since=5.0
+s intAsBlob(value) -> blob
+s blobAsInt(value) -> int
+s int_as_blob(value) -> blob since=5.0
+s blob_as_int(value) -> int since=5.0
+s smallintAsBlob(value) -> blob since=2.2
+s blobAsSmallint(value) -> smallint since=2.2
+s smallint_as_blob(value) -> blob since=5.0
+s blob_as_smallint(value) -> smallint since=5.0
+s textAsBlob(value) -> blob
+s blobAsText(value) -> text
+s text_as_blob(value) -> blob since=5.0
+s blob_as_text(value) -> text since=5.0
+s timeAsBlob(value) -> blob since=2.2
+s blobAsTime(value) -> time since=2.2
+s time_as_blob(value) -> blob since=5.0
+s blob_as_time(value) -> time since=5.0
+s timestampAsBlob(value) -> blob
+s blobAsTimestamp(value) -> timestamp
+s timestamp_as_blob(value) -> blob since=5.0
+s blob_as_timestamp(value) -> timestamp since=5.0
+s timeuuidAsBlob(value) -> blob
+s blobAsTimeuuid(value) -> timeuuid
+s timeuuid_as_blob(value) -> blob since=5.0
+s blob_as_timeuuid(value) -> timeuuid since=5.0
+s tinyintAsBlob(value) -> blob since=2.2
+s blobAsTinyint(value) -> tinyint since=2.2
+s tinyint_as_blob(value) -> blob since=5.0
+s blob_as_tinyint(value) -> tinyint since=5.0
+s uuidAsBlob(value) -> blob
+s blobAsUuid(value) -> uuid
+s uuid_as_blob(value) -> blob since=5.0
+s blob_as_uuid(value) -> uuid since=5.0
+s varcharAsBlob(value) -> blob
+s blobAsVarchar(value) -> varchar
+s varchar_as_blob(value) -> blob since=5.0
+s blob_as_varchar(value) -> varchar since=5.0
+s varintAsBlob(value) -> blob
+s blobAsVarint(value) -> varint
+s varint_as_blob(value) -> blob since=5.0
+s blob_as_varint(value) -> varint since=5.0
+s abs(value) since=5.0
+s exp(value) since=5.0
+s log(value) since=5.0
+s log10(value) since=5.0
+s round(value) since=5.0
+s map_keys(map) -> set since=5.0
+s map_values(map) -> list since=5.0
+s collection_count(collection) -> int since=5.0
+s collection_min(collection) since=5.0
+s collection_max(collection) since=5.0
+s collection_sum(collection) since=5.0
+s collection_avg(collection) since=5.0
+s mask_null(value) since=5.0
+s mask_default(value) since=5.0
+s mask_replace(value, replacement) since=5.0
+s mask_inner(value, begin, end [, padding]) -> text since=5.0
+s mask_outer(value, begin, end [, padding]) -> text since=5.0
+s mask_hash(value [, algorithm]) -> blob since=5.0
+s similarity_cosine(vector, vector) -> float since=5.0
+s similarity_euclidean(vector, vector) -> float since=5.0
+s similarity_dot_product(vector, vector) -> float since=5.0
+a count(column) -> bigint
+a min(column) since=2.2
+a max(column) since=2.2
+a sum(column) since=2.2
+a avg(column) since=2.2

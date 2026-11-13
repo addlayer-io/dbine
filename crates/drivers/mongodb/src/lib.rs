@@ -68,6 +68,7 @@
 mod blocking;
 mod convert;
 mod ddl;
+mod functions;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -1519,6 +1520,19 @@ impl Session for MongoSession {
         table: &ObjectRef,
     ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         self.index_usage_report(table).await
+    }
+
+    /// Operators and shell methods for the version `buildInfo` reports (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let version = self
+            .client
+            .database("admin")
+            .run_command(doc! { "buildInfo": 1 })
+            .await
+            .ok()
+            .and_then(|r| r.get_str("version").ok().map(str::to_string));
+        Ok(functions::catalog(self.flavor, version.as_deref()))
     }
 }
 

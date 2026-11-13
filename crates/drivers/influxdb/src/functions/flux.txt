@@ -1,0 +1,561 @@
+# Flux: the standard library's functions, generated from the Flux sources
+# (stdlib/**/*.flux at v0.201.0: each function's `introduced:` and
+# `deprecated:` metadata), without the internal, testing and contrib
+# packages. Versions are Flux versions (`runtime.version()`), not InfluxDB's:
+# since= is the version that introduced it, until= the first one that no
+# longer runs it. A deprecated function the server still runs (universe
+# join, experimental.join, experimental.addDuration and subDuration) has no
+# until=; date/boundaries' functions do, as from its deprecation in 0.177.1
+# they only fail ("moved to experimental/date/boundaries").
+# A result that is a stream of tables says `stream`, without the type
+# variable of Flux's signatures (`stream[A]`).
+#
+# A `# package: <path>` line starts the functions of that import path; the
+# section before the first one is the prelude (universe, plus `now` and
+# the influxdata/influxdb functions InfluxDB imports for every script).
+# Arguments are the named parameters; `?` marks an optional one, and the
+# piped `tables` is left out.
+
+# universe (no import)
+a aggregateWindow(every, ?period, fn, ?offset, ?location, ?column, ?timeSrc, ?timeDst, ?createEmpty) since=0.7.0
+s bool(v) -> bool since=0.7.0
+s bottom(n, ?columns) since=0.7.0
+s buckets(?org, ?orgID, ?host, ?token) since=0.16.0
+s bytes(v) -> bytes since=0.40.0
+s cardinality(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token, start, ?stop, ?predicate) since=0.92.0
+s chandeMomentumOscillator(n, ?columns) -> stream since=0.39.0
+s columns(?column) since=0.14.0
+s contains(value, set) since=0.19.0
+a count(?column) since=0.7.0
+a cov(x, y, on, ?pearsonr) since=0.7.0
+a covariance(?pearsonr, ?valueDst, columns) -> stream since=0.7.0
+s cumulativeSum(?columns) -> stream since=0.7.0
+s derivative(?unit, ?nonNegative, ?columns, ?timeColumn, ?initialZero) -> stream since=0.7.0
+s die(msg) since=0.82.0
+s difference(?nonNegative, ?columns, ?keepFirst, ?initialZero) -> stream since=0.7.1
+s display(v) -> string since=0.154.0
+s distinct(?column) since=0.7.0
+s doubleEMA(n) since=0.38.0
+s drop(?fn, ?columns) -> stream since=0.7.0
+s duplicate(column, as) -> stream since=0.7.0
+s duration(v) -> duration since=0.7.0
+s elapsed(?unit, ?timeColumn, ?columnName) -> stream since=0.36.0
+s exponentialMovingAverage(n) since=0.37.0
+s fill(?column, ?value, ?usePrevious) -> stream since=0.14.0
+s filter(fn, ?onEmpty) -> stream since=0.7.0
+s findColumn(fn, column) since=0.68.0
+s findRecord(fn, idx) since=0.68.0
+s first(?column) since=0.7.0
+s float(v) -> float since=0.7.0
+s from(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token) since=0.7.0
+s getColumn(table, column) since=0.29.0
+s getRecord(table, idx) since=0.29.0
+s group(?mode, ?columns) -> stream since=0.7.0
+s highestAverage(n, ?column, ?groupColumns) since=0.7.0
+s highestCurrent(n, ?column, ?groupColumns) since=0.7.0
+s highestMax(n, ?column, ?groupColumns) since=0.7.0
+s histogram(?column, ?upperBoundColumn, ?countColumn, bins, ?normalize) -> stream since=0.7.0
+s histogramQuantile(?quantile, ?countColumn, ?upperBoundColumn, ?valueColumn, ?minValue, ?onNonmonotonic) -> stream since=0.14.0
+s holtWinters(n, interval, ?withFit, ?column, ?timeColumn, ?seasonality, ?withMinSSE) -> stream since=0.38.0
+s hourSelection(start, stop, ?location, ?timeColumn) since=0.39.0
+s increase(?columns) since=0.71.0
+s int(v) -> int since=0.7.0
+a integral(?unit, ?timeColumn, ?column, ?interpolate) -> stream since=0.7.0
+s join(?method, ?on) since=0.7.0
+s kaufmansAMA(n, ?column) -> stream since=0.40.0
+s kaufmansER(n) since=0.40.0
+s keep(?columns, ?fn) -> stream since=0.7.0
+s keyValues(?keyColumns) since=0.13.0
+s keys(?column) since=0.13.0
+s last(?column) since=0.7.0
+s length(arr) -> int since=0.7.0
+s limit(n, ?offset) -> stream since=0.7.0
+s linearBins(start, width, count, ?infinity) since=0.19.0
+s logarithmicBins(start, factor, count, ?infinity) since=0.19.0
+s lowestAverage(n, ?column, ?groupColumns) since=0.7.0
+s lowestCurrent(n, ?column, ?groupColumns) since=0.7.0
+s lowestMin(n, ?column, ?groupColumns) since=0.7.0
+s map(fn, ?mergeKey) -> stream since=0.7.0
+s max(?column) since=0.7.0
+a mean(?column) since=0.7.0
+a median(?method, ?compression, ?column) since=0.7.0
+s min(?column) since=0.7.0
+a mode(?column) since=0.36.0
+s movingAverage(n) since=0.35.0
+s now() -> time since=0.7.0
+a pearsonr(x, y, on) since=0.7.0
+s pivot(rowKey, columnKey, valueColumn) -> stream since=0.7.0
+a quantile(?column, q, ?compression, ?method) -> stream since=0.24.0
+s range(start, ?stop) since=0.7.0
+a reduce(fn, identity) -> stream since=0.23.0
+s relativeStrengthIndex(n, ?columns) -> stream since=0.38.0
+s rename(?fn, ?columns) -> stream since=0.7.0
+s sample(n, ?pos, ?column) -> stream since=0.7.0
+s set(key, value) since=0.7.0
+a skew(?column) since=0.7.0
+s sort(?columns, ?desc) since=0.7.0
+a spread(?column) since=0.7.0
+s stateCount(fn, ?column) since=0.7.0
+s stateDuration(fn, ?column, ?timeColumn, ?unit) since=0.7.0
+s stateTracking(fn, ?countColumn, ?durationColumn, ?durationUnit, ?timeColumn) -> stream since=0.7.0
+a stddev(?column, ?mode) -> stream since=0.7.0
+s string(v) -> string since=0.7.0
+a sum(?column) since=0.7.0
+s tableFind(fn) -> stream since=0.29.0
+s tail(n, ?offset) -> stream since=0.39.0
+s time(v) -> time since=0.7.0
+s timeShift(duration, ?columns) -> stream since=0.7.0
+a timeWeightedAvg(unit) since=0.83.0
+s timedMovingAverage(every, period, ?column) since=0.36.0
+s to(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token, ?timeColumn, ?measurementColumn, ?tagColumns, ?fieldFn) -> stream since=0.7.0
+s toBool() since=0.7.0
+s toFloat() since=0.7.0
+s toInt() since=0.7.0
+s toString() since=0.7.0
+s toTime() since=0.7.0
+s toUInt() since=0.7.0
+s today() since=0.116.0
+s top(n, ?columns) since=0.7.0
+s tripleEMA(n) since=0.38.0
+s tripleExponentialDerivative(n) since=0.40.0
+s truncateTimeColumn(?timeColumn, unit) since=0.37.0
+s uint(v) -> uint since=0.7.0
+s union(tables) since=0.7.0
+s unique(?column) since=0.7.0
+s wideTo(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token) -> stream since=0.174.0
+s window(?every, ?period, ?offset, ?location, ?timeColumn, ?startColumn, ?stopColumn, ?createEmpty) since=0.7.0
+s yield(?name) since=0.7.0
+
+# package: array
+s concat(arr, v) since=0.173.0
+s filter(arr, fn) since=0.173.0
+s from(rows) since=0.103.0
+s map(arr, fn) since=0.173.0
+
+# package: bitwise
+s sand(a, b) -> int since=0.173.0
+s sclear(a, b) -> int since=0.173.0
+s slshift(a, b) -> int since=0.173.0
+s snot(a) -> int since=0.173.0
+s sor(a, b) -> int since=0.173.0
+s srshift(a, b) -> int since=0.173.0
+s sxor(a, b) -> int since=0.173.0
+s uand(a, b) -> uint since=0.173.0
+s uclear(a, b) -> uint since=0.173.0
+s ulshift(a, b) -> uint since=0.173.0
+s unot(a) -> uint since=0.173.0
+s uor(a, b) -> uint since=0.173.0
+s urshift(a, b) -> uint since=0.173.0
+s uxor(a, b) -> uint since=0.173.0
+
+# package: csv
+s from(?csv, ?file, ?mode) since=0.14.0
+
+# package: date
+s add(d, to, ?location) since=0.162.0
+s hour(t, ?location) since=0.37.0
+s microsecond(t) since=0.37.0
+s millisecond(t) since=0.37.0
+s minute(t, ?location) since=0.37.0
+s month(t, ?location) since=0.37.0
+s monthDay(t, ?location) since=0.37.0
+s nanosecond(t) since=0.37.0
+s quarter(t, ?location) since=0.37.0
+s scale(d, n) -> duration since=0.37.0
+s second(t) since=0.37.0
+s sub(d, from, ?location) since=0.162.0
+s time(t, ?location) since=0.172.0
+s truncate(t, unit, ?location) since=0.37.0
+s week(t, ?location) since=0.37.0
+s weekDay(t, ?location) since=0.37.0
+s year(t, ?location) since=0.37.0
+s yearDay(t, ?location) since=0.37.0
+
+# package: date/boundaries
+s friday() since=0.172.0 until=0.177.1
+s monday() since=0.172.0 until=0.177.1
+s month(?month_offset) since=0.172.0 until=0.177.1
+s saturday() since=0.172.0 until=0.177.1
+s sunday() since=0.172.0 until=0.177.1
+s thursday() since=0.172.0 until=0.177.1
+s tuesday() since=0.172.0 until=0.177.1
+s wednesday() since=0.172.0 until=0.177.1
+s week(?week_offset, ?start_sunday) since=0.172.0 until=0.177.1
+s yesterday() since=0.172.0 until=0.177.1
+
+# package: dict
+s fromList(pairs) since=0.97.0
+s get(dict, key, default) since=0.97.0
+s insert(dict, key, value) since=0.97.0
+s remove(dict, key) since=0.97.0
+
+# package: experimental
+s addDuration(d, to, ?location) since=0.39.0
+s alignTime(?alignTo) since=0.66.0
+s catch(fn) since=0.174.0
+s chain(first, second) since=0.68.0
+a count() since=0.107.0
+s diff(got, want) since=0.175.0
+s distinct() since=0.112.0
+s fill(?value, ?usePrevious) since=0.112.0
+s first() since=0.112.0
+s group(mode, columns) since=0.39.0
+s histogram(bins, ?normalize) since=0.112.0
+a histogramQuantile(?quantile, ?minValue) since=0.107.0
+a integral(?unit, ?interpolate) since=0.106.0
+s join(left, right, fn) -> stream since=0.65.0
+s kaufmansAMA(n) since=0.107.0
+s last() since=0.112.0
+s max() since=0.112.0
+a mean() since=0.107.0
+s min() since=0.112.0
+a mode() since=0.107.0
+s objectKeys(o) since=0.40.0
+s preview(?nrows, ?ntables) since=0.167.0
+a quantile(q, ?compression, ?method) since=0.107.0
+s set(o) since=0.40.0
+a skew() since=0.107.0
+a spread() since=0.107.0
+a stddev(?mode) since=0.107.0
+s subDuration(d, from, ?location) since=0.39.0
+a sum() since=0.107.0
+s unique() since=0.112.0
+s unpivot(?otherColumns) since=0.172.0
+s window(?every, ?period, ?offset, ?location, ?createEmpty) since=0.106.0
+
+# package: experimental/aggregate
+a rate(every, ?groupColumns, ?unit) since=0.61.0
+
+# package: experimental/array
+s toBool(arr) since=0.184.0
+s toDuration(arr) since=0.184.0
+s toFloat(arr) since=0.184.0
+s toInt(arr) since=0.184.0
+s toString(arr) since=0.184.0
+s toTime(arr) since=0.184.0
+s toUInt(arr) since=0.184.0
+
+# package: experimental/bigtable
+s from(token, project, instance, table) -> stream since=0.45.0
+
+# package: experimental/csv
+s from(url) since=0.64.0
+
+# package: experimental/date/boundaries
+s friday() since=0.177.1
+s monday() since=0.177.1
+s month(?month_offset) since=0.177.1
+s saturday() since=0.177.1
+s sunday() since=0.177.1
+s thursday() since=0.177.1
+s tuesday() since=0.177.1
+s wednesday() since=0.177.1
+s week(?week_offset, ?start_sunday) since=0.177.1
+s yesterday() since=0.177.1
+
+# package: experimental/dynamic
+s asArray(v) since=0.185.0
+s dynamic(v) -> dynamic since=0.185.0
+s isType(v, type) -> bool since=0.186.0
+s jsonEncode(v) -> bytes since=0.186.0
+s jsonParse(data) -> dynamic since=0.186.0
+
+# package: experimental/geo
+s ST_Contains(region, geometry, ?units) since=0.78.0
+s ST_DWithin(region, geometry, distance, ?units) since=0.78.0
+s ST_Distance(region, geometry, ?units) since=0.78.0
+s ST_Intersects(region, geometry, ?units) since=0.78.0
+s ST_Length(geometry, ?units) since=0.78.0
+a ST_LineString() since=0.78.0
+s asTracks(?groupBy, ?orderBy) since=0.63.0
+s filterRows(region, ?minSize, ?maxSize, ?level, ?s2cellIDLevel, ?strict) since=0.63.0
+s getGrid(region, ?minSize, ?maxSize, ?level, ?maxLevel, units) since=0.63.0
+s getLevel(token) -> int since=0.63.0
+s gridFilter(region, ?minSize, ?maxSize, ?level, ?s2cellIDLevel, ?units) since=0.63.0
+s groupByArea(newColumn, level, ?s2cellIDLevel) since=0.63.0
+s s2CellIDToken(?token, ?point, level) -> string since=0.64.0
+s s2CellLatLon(token) since=0.78.0
+s shapeData(latField, lonField, level) since=0.65.0
+s stContains(region, geometry, units) -> bool since=0.78.0
+s stDistance(region, geometry, units) -> float since=0.78.0
+s stLength(geometry, units) since=0.78.0
+s strictFilter(region) since=0.63.0
+s toRows() since=0.63.0
+a totalDistance(?outputColumn) since=0.192.0
+
+# package: experimental/http
+s get(url, ?headers, ?timeout) since=0.39.0
+
+# package: experimental/influxdb
+s api(method, path, ?host, ?token, ?body, ?headers, ?query, ?timeout) since=0.114.0
+
+# package: experimental/iox
+s from(bucket, measurement) since=0.152.0
+s sql(bucket, query) since=0.186.0
+s sqlInterval(d) since=0.192.0
+
+# package: experimental/json
+s parse(data) since=0.69.0
+
+# package: experimental/mqtt
+s publish(broker, topic, message, ?qos, ?retain, ?clientid, ?username, ?password, ?timeout) -> bool since=0.133.0
+s to(broker, ?topic, ?qos, ?retain, ?clientid, ?username, ?password, ?name, ?timeout, ?timeColumn, ?tagColumns, ?valueColumns) -> stream since=0.40.0
+
+# package: experimental/oee
+a APQ(runningState, plannedTime, idealCycleTime) since=0.112.0
+a computeAPQ(productionEvents, partEvents, runningState, plannedTime, idealCycleTime) since=0.112.0
+
+# package: experimental/polyline
+s rdp(?valColumn, ?timeColumn, ?epsilon, ?retention) -> stream since=0.181.0
+
+# package: experimental/prometheus
+a histogramQuantile(quantile, ?metricVersion, ?onNonmonotonic) since=0.50.0
+s scrape(url) since=0.50.0
+
+# package: experimental/query
+s filterFields(table, ?fields) since=0.60.0
+s filterMeasurement(table, measurement) since=0.60.0
+s fromRange(bucket, start, ?stop) since=0.60.0
+s inBucket(bucket, measurement, start, ?stop, ?fields, ?predicate) since=0.60.0
+
+# package: experimental/record
+s get(r, key, default) since=0.134.0
+
+# package: experimental/table
+s fill() since=0.115.0
+
+# package: experimental/usage
+s from(start, stop, ?host, ?orgID, ?token, ?raw) since=0.114.0
+s limits(?host, ?orgID, ?token) since=0.114.0
+
+# package: generate
+s from(start, stop, count, fn) since=0.17.0
+
+# package: http
+s basicAuth(u, p) -> string since=0.44.0
+s endpoint(url) since=0.39.0
+s pathEscape(inputString) -> string since=0.71.0
+s post(url, ?headers, ?data) since=0.40.0
+
+# package: http/requests
+s do(method, url, ?params, ?headers, ?body, ?config) since=0.173.0
+s get(url, ?params, ?headers, ?body, ?config) since=0.173.0
+s peek(response) since=0.173.0
+s post(url, ?params, ?headers, ?body, ?config) since=0.173.0
+
+# package: influxdata/influxdb
+s buckets(?org, ?orgID, ?host, ?token) since=0.16.0
+s cardinality(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token, start, ?stop, ?predicate) since=0.92.0
+s from(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token) since=0.7.0
+s to(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token, ?timeColumn, ?measurementColumn, ?tagColumns, ?fieldFn) -> stream since=0.7.0
+s wideTo(?bucket, ?bucketID, ?org, ?orgID, ?host, ?token) -> stream since=0.174.0
+
+# package: influxdata/influxdb/monitor
+s check(data, messageFn, ?crit, ?warn, ?info, ?ok) since=0.39.0
+s deadman(t) since=0.39.0
+s from(start, ?stop, ?fn) since=0.39.0
+s logs(start, ?stop, fn) since=0.39.0
+s notify(endpoint, data) since=0.39.0
+s stateChanges(?fromLevel, ?toLevel) since=0.42.0
+s stateChangesOnly() since=0.65.0
+
+# package: influxdata/influxdb/sample
+s alignToNow() since=0.123.0
+s data(set) since=0.123.0
+s list() since=0.123.0
+
+# package: influxdata/influxdb/schema
+s fieldKeys(bucket, ?predicate, ?start, ?stop) since=0.88.0
+s fieldsAsCols() since=0.88.0
+s measurementFieldKeys(bucket, measurement, ?start, ?stop) since=0.88.0
+s measurementTagKeys(bucket, measurement, ?start, ?stop) since=0.88.0
+s measurementTagValues(bucket, measurement, tag, ?start, ?stop) since=0.88.0
+s measurements(bucket, ?start, ?stop) since=0.88.0
+s tagKeys(bucket, ?predicate, ?start, ?stop) since=0.88.0
+s tagValues(bucket, tag, ?predicate, ?start, ?stop) since=0.88.0
+
+# package: influxdata/influxdb/secrets
+s get(key) -> string since=0.41.0
+
+# package: influxdata/influxdb/tasks
+s lastSuccess(orTime) since=0.84.0
+
+# package: influxdata/influxdb/v1
+s databases(?org, ?orgID, ?host, ?token) since=0.16.0
+s json(?json, ?file) since=0.16.0
+
+# package: interpolate
+s linear(every) since=0.87.0
+
+# package: join
+s full(left, right, on, as) since=0.172.0
+s inner(left, right, on, as) since=0.172.0
+s left(left, right, on, as) since=0.172.0
+s right(left, right, on, as) since=0.172.0
+s tables(left, right, on, as, method) -> stream since=0.172.0
+s time(left, right, as, ?method) since=0.172.0
+
+# package: json
+s encode(v) -> bytes since=0.40.0
+
+# package: kafka
+s to(brokers, topic, ?balancer, ?name, ?nameColumn, ?timeColumn, ?tagColumns, ?valueColumns) -> stream since=0.14.0
+
+# package: math
+s NaN() -> float since=0.22.0
+s abs(x) -> float since=0.22.0
+s acos(x) -> float since=0.22.0
+s acosh(x) -> float since=0.22.0
+s asin(x) -> float since=0.22.0
+s asinh(x) -> float since=0.22.0
+s atan(x) -> float since=0.22.0
+s atan2(y, x) -> float since=0.22.0
+s atanh(x) -> float since=0.22.0
+s cbrt(x) -> float since=0.22.0
+s ceil(x) -> float since=0.22.0
+s copysign(x, y) -> float since=0.22.0
+s cos(x) -> float since=0.22.0
+s cosh(x) -> float since=0.22.0
+s dim(x, y) -> float since=0.22.0
+s erf(x) -> float since=0.22.0
+s erfc(x) -> float since=0.22.0
+s erfcinv(x) -> float since=0.22.0
+s erfinv(x) -> float since=0.22.0
+s exp(x) -> float since=0.22.0
+s exp2(x) -> float since=0.22.0
+s expm1(x) -> float since=0.22.0
+s float64bits(f) -> uint since=0.22.0
+s float64frombits(b) -> float since=0.22.0
+s floor(x) -> float since=0.22.0
+s frexp(f) since=0.22.0
+s gamma(x) -> float since=0.22.0
+s hypot(p, q) -> float since=0.22.0
+s ilogb(x) -> int since=0.22.0
+s isInf(f, sign) -> bool since=0.22.0
+s isNaN(f) -> bool since=0.22.0
+s j0(x) -> float since=0.22.0
+s j1(x) -> float since=0.22.0
+s jn(n, x) -> float since=0.22.0
+s ldexp(frac, exp) -> float since=0.22.0
+s lgamma(x) since=0.22.0
+s log(x) -> float since=0.22.0
+s log10(x) -> float since=0.22.0
+s log1p(x) -> float since=0.22.0
+s log2(x) -> float since=0.22.0
+s logb(x) -> float since=0.22.0
+s mInf(sign) -> float since=0.22.0
+s mMax(x, y) -> float since=0.22.0
+s mMin(x, y) -> float since=0.22.0
+s mod(x, y) -> float since=0.22.0
+s modf(f) since=0.22.0
+s nextafter(x, y) -> float since=0.22.0
+s pow(x, y) -> float since=0.22.0
+s pow10(n) -> float since=0.22.0
+s remainder(x, y) -> float since=0.22.0
+s round(x) -> float since=0.22.0
+s roundtoeven(x) -> float since=0.22.0
+s signbit(x) -> bool since=0.22.0
+s sin(x) -> float since=0.22.0
+s sincos(x) since=0.22.0
+s sinh(x) -> float since=0.22.0
+s sqrt(x) -> float since=0.22.0
+s tan(x) -> float since=0.22.0
+s tanh(x) -> float since=0.22.0
+s trunc(x) -> float since=0.22.0
+s y0(x) -> float since=0.22.0
+s y1(x) -> float since=0.22.0
+s yn(n, x) -> float since=0.22.0
+
+# package: pagerduty
+s actionFromLevel(level) since=0.43.0
+s actionFromSeverity(severity) since=0.43.0
+s dedupKey(?exclude) since=0.43.0
+s endpoint(?url) since=0.43.0
+s sendEvent(?pagerdutyURL, routingKey, client, clientURL, dedupKey, class, group, severity, eventAction, source, ?component, summary, timestamp, ?customDetails) since=0.43.0
+s severityFromLevel(level) since=0.43.0
+
+# package: pushbullet
+s endpoint(?url, ?token) since=0.66.0
+s pushData(?url, ?token, data) since=0.66.0
+s pushNote(?url, ?token, title, text) since=0.66.0
+
+# package: regexp
+s compile(v) -> regexp since=0.33.0
+s findString(r, v) -> string since=0.33.0
+s findStringIndex(r, v) since=0.33.0
+s getString(r) -> string since=0.33.0
+s matchRegexpString(r, v) -> bool since=0.33.0
+s quoteMeta(v) -> string since=0.33.0
+s replaceAllString(r, v, t) -> string since=0.33.0
+s splitRegexp(r, v, i) since=0.33.0
+
+# package: runtime
+s version() -> string
+
+# package: sampledata
+s bool(?includeNull) since=0.128.0
+s float(?includeNull) since=0.128.0
+s int(?includeNull) since=0.128.0
+s numericBool(?includeNull) since=0.128.0
+s string(?includeNull) since=0.128.0
+s uint(?includeNull) since=0.128.0
+
+# package: slack
+s endpoint(?url, ?token) since=0.41.0
+s message(?url, ?token, channel, text, color) since=0.41.0
+s validateColorString(color) -> string since=0.41.0
+
+# package: socket
+s from(url, ?decoder) -> stream since=0.21.0
+
+# package: sql
+s from(driverName, dataSourceName, query) -> stream since=0.34.0
+s to(driverName, dataSourceName, table, ?batchSize) -> stream since=0.34.0
+
+# package: strings
+s compare(v, t) -> int since=0.18.0
+s containsAny(v, chars) -> bool since=0.18.0
+s containsStr(v, substr) -> bool since=0.18.0
+s countStr(v, substr) -> int since=0.18.0
+s equalFold(v, t) -> bool since=0.18.0
+s hasPrefix(v, prefix) -> bool since=0.18.0
+s hasSuffix(v, suffix) -> bool since=0.18.0
+s index(v, substr) -> int since=0.18.0
+s indexAny(v, chars) -> int since=0.18.0
+s isDigit(v) -> bool since=0.18.0
+s isLetter(v) -> bool since=0.18.0
+s isLower(v) -> bool since=0.18.0
+s isUpper(v) -> bool since=0.18.0
+s joinStr(arr, v) -> string since=0.18.0
+s lastIndex(v, substr) -> int since=0.18.0
+s lastIndexAny(v, chars) -> int since=0.18.0
+s repeat(v, i) -> string since=0.18.0
+s replace(v, t, u, i) -> string since=0.18.0
+s replaceAll(v, t, u) -> string since=0.18.0
+s split(v, t) since=0.18.0
+s splitAfter(v, t) since=0.18.0
+s splitAfterN(v, t, i) since=0.18.0
+s splitN(v, t, i) since=0.18.0
+s strlen(v) -> int since=0.18.0
+s substring(v, start, end) -> string since=0.18.0
+s title(v) -> string since=0.18.0
+s toLower(v) -> string since=0.18.0
+s toTitle(v) -> string since=0.18.0
+s toUpper(v) -> string since=0.18.0
+s trim(v, cutset) -> string since=0.18.0
+s trimLeft(v, cutset) -> string since=0.18.0
+s trimPrefix(v, prefix) -> string since=0.18.0
+s trimRight(v, cutset) -> string since=0.18.0
+s trimSpace(v) -> string since=0.18.0
+s trimSuffix(v, suffix) -> string since=0.18.0
+
+# package: system
+s time() -> time since=0.18.0
+
+# package: timezone
+s fixed(offset) since=0.134.0
+s location(name) since=0.134.0
+
+# package: types
+s isNumeric(v) since=0.187.0
+s isType(v, type) since=0.141.0

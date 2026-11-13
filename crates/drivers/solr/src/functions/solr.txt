@@ -1,0 +1,61 @@
+# Solr's function queries (fl, sort, boost, {!func}), for the editor's
+# completion, as the Solr Reference Guide documents them ("Function
+# Queries"), with its documented aliases (mul, add, sttf, ttf). `since=` is
+# the first release whose guide has the function (the 7.x guides are the
+# oldest compared).
+s abs(x)
+s childfield(field)
+s concat(value, ...)
+s def(field, default)
+s div(x, y)
+s dist(power, vector1, vector2)
+s vectorSimilarity(vector1, vector2) since=9.3
+s vectorSimilarity(ENCODING, SIMILARITY_FUNCTION, vector1, vector2) since=9.3
+s docfreq(field, val)
+s field(name [, min|max])
+s hsin(radius, convert, lat1, lon1, lat2, lon2)
+s idf(field, term)
+s if(test, value1, value2)
+s lateVector(field, vectors) since=10.1
+s linear(x, m, c)
+s log(x)
+s map(x, min, max, target [, default])
+s max(x, y, ...)
+s maxdoc()
+s min(x, y, ...)
+s ms([date1 [, date2]])
+s norm(field)
+s numdocs()
+s ord(field)
+s payload(field, term [, default [, function]])
+s pow(x, y)
+s product(x, y, ...)
+s mul(x, y, ...)
+s query(subquery [, default])
+s recip(x, m, a, b)
+s rord(field)
+s scale(x, minTarget, maxTarget)
+s sqedist(vector1, vector2)
+s sqrt(x)
+s strdist(s1, s2, algorithm)
+s sub(x, y)
+s sum(x, y, ...)
+s add(x, y, ...)
+s sumtotaltermfreq(field)
+s sttf(field)
+s termfreq(field, term)
+s tf(field, term)
+s top(x)
+s totaltermfreq(field, term)
+s ttf(field, term)
+s and(x, y, ...) -> boolean
+s or(x, y, ...) -> boolean
+s xor(x, y, ...) -> boolean
+s not(x) -> boolean
+s exists(x) -> boolean
+s gt(x, y) -> boolean
+s gte(x, y) -> boolean
+s lt(x, y) -> boolean
+s lte(x, y) -> boolean
+s eq(x, y) -> boolean
+s isnan(x) -> boolean since=9.2

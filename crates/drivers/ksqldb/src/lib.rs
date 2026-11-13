@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
 mod ddl;
+mod functions;
 mod jobs;
 mod monitor;
 mod plan;
@@ -914,6 +915,21 @@ impl Session for KsqlSession {
                 .map(text)
                 .unwrap_or_default()
         ))
+    }
+
+    /// `SHOW FUNCTIONS` (built-ins and UDFs), detailed from the static
+    /// catalog; the static catalog alone when it can't be read (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        match self.ksql(functions::SHOW_FUNCTIONS).await {
+            Ok(answer) => {
+                if let Some(catalog) = functions::from_show_functions(&answer) {
+                    return Ok(catalog);
+                }
+            }
+            Err(e) => tracing::debug!("ksqldb SHOW FUNCTIONS: {e}"),
+        }
+        Ok(functions::static_catalog())
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {

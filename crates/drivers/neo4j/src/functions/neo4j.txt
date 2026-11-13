@@ -1,0 +1,145 @@
+# Neo4j's built-in Cypher functions, for the editor's completion when the
+# server lists none (SHOW FUNCTIONS, or dbms.functions() before 4.3, both
+# refused): Neo4j 5.26 LTS's own list without its deprecated functions,
+# with `since=` for the ones added in 4.4 and 5.x. Overloads are separate
+# lines. A namespaced name (date.truncate) has its namespace as the schema.
+s abs(input :: INTEGER | FLOAT) -> INTEGER | FLOAT
+s acos(input :: FLOAT) -> FLOAT
+s all(variable :: VARIABLE IN list :: LIST<ANY> WHERE predicate :: ANY) -> BOOLEAN
+s any(variable :: VARIABLE IN list :: LIST<ANY> WHERE predicate :: ANY) -> BOOLEAN
+s asin(input :: FLOAT) -> FLOAT
+s atan(input :: FLOAT) -> FLOAT
+s atan2(y :: FLOAT, x :: FLOAT) -> FLOAT
+a avg(input :: INTEGER | FLOAT | DURATION) -> INTEGER | FLOAT | DURATION
+s btrim(input :: STRING) -> STRING since=5.20
+s btrim(input :: STRING, trimCharacterString :: STRING) -> STRING since=5.20
+s ceil(input :: FLOAT) -> FLOAT
+s char_length(input :: STRING) -> INTEGER since=5.13
+s character_length(input :: STRING) -> INTEGER since=5.13
+s coalesce(input :: ANY) -> ANY
+a collect(input :: ANY) -> LIST<ANY>
+s cos(input :: FLOAT) -> FLOAT
+s cot(input :: FLOAT) -> FLOAT
+a count(input :: ANY) -> INTEGER
+s date(input = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> DATE
+s date.realtime(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> DATE
+s date.statement(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> DATE
+s date.transaction(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> DATE
+s date.truncate(unit :: STRING, input = DEFAULT_TEMPORAL_ARGUMENT :: ANY, fields = null :: MAP) -> DATE
+s datetime(input = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED DATETIME
+s datetime.fromepoch(seconds :: INTEGER | FLOAT, nanoseconds :: INTEGER | FLOAT) -> ZONED DATETIME
+s datetime.fromepochmillis(milliseconds :: INTEGER | FLOAT) -> ZONED DATETIME
+s datetime.realtime(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED DATETIME
+s datetime.statement(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED DATETIME
+s datetime.transaction(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED DATETIME
+s datetime.truncate(unit :: STRING, input = DEFAULT_TEMPORAL_ARGUMENT :: ANY, fields = null :: MAP) -> ZONED DATETIME
+s degrees(input :: FLOAT) -> FLOAT
+s duration(input :: ANY) -> DURATION
+s duration.between(from :: ANY, to :: ANY) -> DURATION
+s duration.inDays(from :: ANY, to :: ANY) -> DURATION
+s duration.inMonths(from :: ANY, to :: ANY) -> DURATION
+s duration.inSeconds(from :: ANY, to :: ANY) -> DURATION
+s e() -> FLOAT
+s elementId(input :: NODE | RELATIONSHIP) -> STRING since=5.0
+s endNode(input :: RELATIONSHIP) -> NODE
+s exists(input :: ANY) -> BOOLEAN
+s exp(input :: FLOAT) -> FLOAT
+s file() -> STRING
+s floor(input :: FLOAT) -> FLOAT
+s graph.byElementId(elementId :: STRING) -> GRAPH since=5.13
+s graph.byName(name :: STRING) -> GRAPH since=5.0
+s haversin(input :: FLOAT) -> FLOAT
+s head(list :: LIST<ANY>) -> ANY
+s isEmpty(input :: STRING | MAP | LIST<ANY>) -> BOOLEAN
+s isNaN(input :: INTEGER | FLOAT) -> BOOLEAN since=5.0
+s keys(input :: NODE | RELATIONSHIP | MAP) -> LIST<STRING>
+s labels(input :: NODE) -> LIST<STRING>
+s last(list :: LIST<ANY>) -> ANY
+s left(original :: STRING, length :: INTEGER) -> STRING
+s length(input :: PATH) -> INTEGER
+s linenumber() -> INTEGER
+s localdatetime(input = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL DATETIME
+s localdatetime.realtime(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL DATETIME
+s localdatetime.statement(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL DATETIME
+s localdatetime.transaction(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL DATETIME
+s localdatetime.truncate(unit :: STRING, input = DEFAULT_TEMPORAL_ARGUMENT :: ANY, fields = null :: MAP) -> LOCAL DATETIME
+s localtime(input = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL TIME
+s localtime.realtime(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL TIME
+s localtime.statement(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL TIME
+s localtime.transaction(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> LOCAL TIME
+s localtime.truncate(unit :: STRING, input = DEFAULT_TEMPORAL_ARGUMENT :: ANY, fields = null :: MAP) -> LOCAL TIME
+s log(input :: FLOAT) -> FLOAT
+s log10(input :: FLOAT) -> FLOAT
+s lower(input :: STRING) -> STRING since=5.21
+s ltrim(input :: STRING) -> STRING
+s ltrim(input :: STRING, trimCharacterString :: STRING) -> STRING since=5.20
+a max(input :: ANY) -> ANY
+a min(input :: ANY) -> ANY
+s nodes(input :: PATH) -> LIST<NODE>
+s none(variable :: VARIABLE IN list :: LIST<ANY> WHERE predicate :: ANY) -> BOOLEAN
+s normalize(input :: STRING) -> STRING since=5.17
+s normalize(input :: STRING, normalForm = NFC :: [NFC, NFD, NFKC, NFKD]) -> STRING since=5.17
+s nullIf(v1 :: ANY, v2 :: ANY) -> ANY since=5.21
+a percentileCont(input :: FLOAT, percentile :: FLOAT) -> FLOAT
+a percentileDisc(input :: INTEGER | FLOAT, percentile :: FLOAT) -> INTEGER | FLOAT
+s pi() -> FLOAT
+s point(input :: MAP) -> POINT
+s point.distance(from :: POINT, to :: POINT) -> FLOAT since=4.4
+s point.withinBBox(point :: POINT, lowerLeft :: POINT, upperRight :: POINT) -> BOOLEAN since=4.4
+s properties(input :: NODE | RELATIONSHIP | MAP) -> MAP
+s radians(input :: FLOAT) -> FLOAT
+s rand() -> FLOAT
+s randomUUID() -> STRING
+s range(start :: INTEGER, end :: INTEGER) -> LIST<INTEGER>
+s range(start :: INTEGER, end :: INTEGER, step :: INTEGER) -> LIST<INTEGER>
+s reduce(accumulator :: VARIABLE = initial :: ANY, variable :: VARIABLE IN list :: LIST<ANY> | expression :: ANY) -> ANY
+s relationships(input :: PATH) -> LIST<RELATIONSHIP>
+s replace(original :: STRING, search :: STRING, replace :: STRING) -> STRING
+s reverse(input :: STRING | LIST<ANY>) -> STRING | LIST<ANY>
+s right(original :: STRING, length :: INTEGER) -> STRING
+s round(value :: FLOAT) -> FLOAT
+s round(value :: FLOAT, precision :: INTEGER | FLOAT) -> FLOAT
+s round(value :: FLOAT, precision :: INTEGER | FLOAT, mode :: STRING) -> FLOAT
+s rtrim(input :: STRING) -> STRING
+s rtrim(input :: STRING, trimCharacterString :: STRING) -> STRING since=5.20
+s sign(input :: INTEGER | FLOAT) -> INTEGER
+s sin(input :: FLOAT) -> FLOAT
+s single(variable :: VARIABLE IN list :: LIST<ANY> WHERE predicate :: ANY) -> BOOLEAN
+s size(input :: STRING | LIST<ANY>) -> INTEGER
+s split(original :: STRING, splitDelimiters :: STRING | LIST<STRING>) -> LIST<STRING>
+s sqrt(input :: FLOAT) -> FLOAT
+s startNode(input :: RELATIONSHIP) -> NODE
+a stdev(input :: FLOAT) -> FLOAT
+a stdevp(input :: FLOAT) -> FLOAT
+s substring(original :: STRING, start :: INTEGER) -> STRING
+s substring(original :: STRING, start :: INTEGER, length :: INTEGER) -> STRING
+a sum(input :: INTEGER | FLOAT | DURATION) -> INTEGER | FLOAT | DURATION
+s tail(input :: LIST<ANY>) -> LIST<ANY>
+s tan(input :: FLOAT) -> FLOAT
+s time(input = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED TIME
+s time.realtime(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED TIME
+s time.statement(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED TIME
+s time.transaction(timezone = DEFAULT_TEMPORAL_ARGUMENT :: ANY) -> ZONED TIME
+s time.truncate(unit :: STRING, input = DEFAULT_TEMPORAL_ARGUMENT :: ANY, fields = null :: MAP) -> ZONED TIME
+s timestamp() -> INTEGER
+s toBoolean(input :: BOOLEAN | STRING | INTEGER) -> BOOLEAN
+s toBooleanList(input :: LIST<ANY>) -> LIST<BOOLEAN>
+s toBooleanOrNull(input :: ANY) -> BOOLEAN
+s toFloat(input :: STRING | INTEGER | FLOAT) -> FLOAT
+s toFloatList(input :: LIST<ANY>) -> LIST<FLOAT>
+s toFloatOrNull(input :: ANY) -> FLOAT
+s toInteger(input :: BOOLEAN | STRING | INTEGER | FLOAT) -> INTEGER
+s toIntegerList(input :: LIST<ANY>) -> LIST<INTEGER>
+s toIntegerOrNull(input :: ANY) -> INTEGER
+s toLower(input :: STRING) -> STRING
+s toString(input :: ANY) -> STRING
+s toStringList(input :: LIST<ANY>) -> LIST<STRING>
+s toStringOrNull(input :: ANY) -> STRING
+s toUpper(input :: STRING) -> STRING
+s trim(input :: STRING) -> STRING
+s trim([[LEADING | TRAILING | BOTH] [trimCharacterString :: STRING] FROM] input :: STRING) -> STRING
+s type(input :: RELATIONSHIP) -> STRING
+s upper(input :: STRING) -> STRING since=5.21
+s valueType(input :: ANY) -> STRING since=5.13
+s vector.similarity.cosine(a :: LIST<INTEGER | FLOAT>, b :: LIST<INTEGER | FLOAT>) -> FLOAT since=5.18
+s vector.similarity.euclidean(a :: LIST<INTEGER | FLOAT>, b :: LIST<INTEGER | FLOAT>) -> FLOAT since=5.18

@@ -1,0 +1,307 @@
+# InfluxDB 3 SQL (DataFusion plus InfluxDB's own functions): the fallback
+# when `information_schema.routines` can't be read (no database yet, or a
+# token without access). Built from InfluxDB 3 Core 3.11's routines: one
+# line per name and argument list, the arguments as its syntax example
+# writes them, the result type when every overload agrees. The internal
+# `influx_*` functions are left out.
+
+s abs(numeric_expression)
+s acos(numeric_expression)
+s acosh(numeric_expression)
+a approx_distinct(expression)
+a approx_median(expression)
+a approx_percentile_cont(percentile [, centroids]) WITHIN GROUP (ORDER BY expression)
+a approx_percentile_cont_with_weight(weight, percentile [, centroids]) WITHIN GROUP (ORDER BY expression)
+a array_agg(expression [ORDER BY expression])
+s array_any_value(array)
+s array_append(array, element)
+s array_cat(array[, ..., array_n])
+s array_concat(array[, ..., array_n])
+s array_contains(array, element)
+s array_dims(array)
+s array_distance(array1, array2)
+s array_distinct(array)
+s array_element(array, index)
+s array_empty(array)
+s array_except(array1, array2)
+s array_extract(array, index)
+s array_has(array, element)
+s array_has_all(array, sub-array)
+s array_has_any(array, sub-array)
+s array_indexof(array, element)
+s array_intersect(array1, array2)
+s array_join(array, delimiter[, null_string])
+s array_length(array, dimension)
+s array_max(array)
+s array_min(array)
+s array_ndims(array, element)
+s array_pop_back(array)
+s array_pop_front(array)
+s array_position(array, element)
+s array_positions(array, element)
+s array_prepend(element, array)
+s array_push_back(array, element)
+s array_push_front(element, array)
+s array_remove(array, element)
+s array_remove_all(array, element)
+s array_remove_n(array, element, max)
+s array_repeat(element, count)
+s array_replace(array, from, to)
+s array_replace_all(array, from, to)
+s array_replace_n(array, from, to, max)
+s array_resize(array, size, value)
+s array_reverse(array)
+s array_slice(array, begin, end)
+s array_sort(array, desc, nulls_first)
+s array_to_string(array, delimiter[, null_string])
+s array_union(array1, array2)
+s arrays_overlap(array, sub-array)
+s arrow_cast(expression, datatype)
+s arrow_typeof(expression)
+s ascii(str) -> Int32
+s asin(numeric_expression)
+s asinh(numeric_expression)
+s atan(numeric_expression)
+s atan2(expression_y, expression_x)
+s atanh(numeric_expression)
+a avg(expression)
+a bit_and(expression)
+s bit_length(str)
+a bit_or(expression)
+a bit_xor(expression)
+a bool_and(expression) -> Boolean
+a bool_or(expression) -> Boolean
+s btrim(str[, trim_str]) -> String
+s cardinality(array)
+s cbrt(numeric_expression)
+s ceil(numeric_expression)
+s char_length(str)
+s character_length(str)
+s chr(expression) -> String
+s coalesce(expression1[, ..., expression_n])
+s concat(str[, ..., str_n]) -> String
+s concat_ws(separator, str[, ..., str_n]) -> String
+s contains(str, search_str) -> Boolean
+a corr(expression1, expression2) -> Float64
+s cos(numeric_expression)
+s cosh(numeric_expression)
+s cot(numeric_expression)
+a count(expression)
+a covar(expression1, expression2) -> Float64
+a covar_pop(expression1, expression2) -> Float64
+a covar_samp(expression1, expression2) -> Float64
+w cume_dist()
+s current_date()
+s current_time()
+s current_timestamp()
+s date_bin(interval, expression, origin-timestamp)
+s date_bin_gapfill(interval, expression[, origin_timestamp])
+s date_bin_wallclock(interval, expression[, origin_timestamp])
+s date_bin_wallclock_gapfill(interval, expression[, origin_timestamp])
+s date_format(expression, format) -> String
+s date_part(part, expression)
+s date_trunc(precision, expression)
+s datepart(part, expression)
+s datetrunc(precision, expression)
+s decode(expression, format)
+s degrees(numeric_expression)
+w dense_rank()
+w derivative(value, time[, unit])
+w difference()
+s digest(expression, algorithm) -> Binary
+s element_at(map, key)
+s empty(array)
+s encode(expression, format)
+s ends_with(str, substr) -> Boolean
+s exp(numeric_expression)
+s factorial(numeric_expression) -> Int64
+s find_in_set(str, strlist)
+a first_value(expression [ORDER BY expression])
+w first_value(expression)
+s flatten(array)
+s floor(numeric_expression)
+s from_unixtime(expression[, timezone])
+s gcd(expression_x, expression_y) -> Int64
+s generate_series(stop)
+s get_field(expression1, expression2)
+s greatest(expression1[, ..., expression_n])
+a grouping(expression)
+s ifnull(expression1, expression2)
+s initcap(str) -> String
+s instr(str, substr)
+s interpolate(aggregate_expression)
+s isnan(numeric_expression) -> Boolean
+s iszero(numeric_expression) -> Boolean
+w lag(expression, offset, default)
+a last_value(expression [ORDER BY expression])
+w last_value(expression)
+s lcm(expression_x, expression_y) -> Int64
+w lead(expression, offset, default)
+s least(expression1[, ..., expression_n])
+s left(str, n) -> String
+s length(str)
+s levenshtein(str1, str2)
+s list_any_value(array)
+s list_append(array, element)
+s list_cat(array[, ..., array_n])
+s list_concat(array[, ..., array_n])
+s list_contains(array, element)
+s list_dims(array)
+s list_distance(array1, array2)
+s list_distinct(array)
+s list_element(array, index)
+s list_empty(array)
+s list_except(array1, array2)
+s list_extract(array, index)
+s list_has(array, element)
+s list_has_all(array, sub-array)
+s list_has_any(array, sub-array)
+s list_indexof(array, element)
+s list_intersect(array1, array2)
+s list_join(array, delimiter[, null_string])
+s list_length(array, dimension)
+s list_max(array)
+s list_ndims(array, element)
+s list_pop_back(array)
+s list_pop_front(array)
+s list_position(array, element)
+s list_positions(array, element)
+s list_prepend(element, array)
+s list_push_back(array, element)
+s list_push_front(element, array)
+s list_remove(array, element)
+s list_remove_all(array, element)
+s list_remove_n(array, element, max)
+s list_repeat(element, count)
+s list_replace(array, from, to)
+s list_replace_all(array, from, to)
+s list_replace_n(array, from, to, max)
+s list_resize(array, size, value)
+s list_reverse(array)
+s list_slice(array, begin, end)
+s list_sort(array, desc, nulls_first)
+s list_to_string(array, delimiter[, null_string])
+s list_union(array1, array2)
+s ln(numeric_expression)
+s locf(aggregate_expression)
+s log(base, numeric_expression) -> Float64
+s log10(numeric_expression)
+s log2(numeric_expression)
+s lower(str) -> String
+s lpad(str, n[, padding_str]) -> String
+s ltrim(str[, trim_str]) -> String
+s make_array(expression1[, ..., expression_n])
+s make_date(year, month, day) -> Date
+s make_list(expression1[, ..., expression_n])
+s map(key, value)
+s map_entries(map)
+s map_extract(map, key)
+s map_keys(map)
+s map_values(map)
+a max(expression)
+s md5(expression) -> String
+a mean(expression)
+a median(expression)
+a min(expression)
+s named_struct(expression1_name, expression1_input[, ..., expression_n_name, expression_n_input])
+s nanvl(expression_x, expression_y)
+w non_negative_derivative(value, time[, unit])
+w non_negative_difference()
+s now()
+a nth_value(expression, n ORDER BY expression)
+w nth_value(expression, n)
+w ntile(expression)
+s nullif(expression1, expression2)
+s nvl(expression1, expression2)
+s nvl2(expression1, expression2, expression3)
+s octet_length(str)
+s overlay(str PLACING substr FROM pos [FOR count]) -> String
+w percent_rank()
+a percentile_cont(percentile) WITHIN GROUP (ORDER BY expression)
+s pi()
+s position(str, substr)
+s pow(base, exponent)
+s power(base, exponent)
+a quantile_cont(percentile) WITHIN GROUP (ORDER BY expression)
+s radians(numeric_expression)
+s random()
+s range(stop)
+w rank()
+s regexp_count(str, regexp[, start, flags]) -> Int64
+s regexp_instr(str, regexp[, start[, N[, flags[, subexpr]]]]) -> Int64
+s regexp_like(str, regexp[, flags]) -> Boolean
+s regexp_match(str, regexp[, flags])
+s regexp_replace(str, regexp, replacement[, flags]) -> String
+a regr_avgx(expression_y, expression_x) -> Float64
+a regr_avgy(expression_y, expression_x) -> Float64
+a regr_count(expression_y, expression_x) -> UInt64
+a regr_intercept(expression_y, expression_x) -> Float64
+a regr_r2(expression_y, expression_x) -> Float64
+a regr_slope(expression_y, expression_x) -> Float64
+a regr_sxx(expression_y, expression_x) -> Float64
+a regr_sxy(expression_y, expression_x) -> Float64
+a regr_syy(expression_y, expression_x) -> Float64
+s repeat(str, n) -> String
+s replace(str, substr, replacement) -> String
+s reverse(str) -> String
+s right(str, n) -> String
+s round(numeric_expression[, decimal_places])
+s row(expression1[, ..., expression_n])
+w row_number()
+s rpad(str, n[, padding_str]) -> String
+s rtrim(str[, trim_str]) -> String
+a selector_first(expression, timestamp)
+a selector_last(expression, timestamp)
+a selector_max(expression, timestamp)
+a selector_min(expression, timestamp)
+s sha224(expression) -> Binary
+s sha256(expression) -> Binary
+s sha384(expression) -> Binary
+s sha512(expression) -> Binary
+s signum(numeric_expression)
+s sin(numeric_expression)
+s sinh(numeric_expression)
+s sleep() -> Null
+s split_part(str, delimiter, pos) -> String
+s sqrt(numeric_expression)
+s starts_with(str, substr) -> Boolean
+a stddev(expression) -> Float64
+a stddev_pop(expression) -> Float64
+a stddev_samp(expression) -> Float64
+a string_agg([DISTINCT] expression, delimiter [ORDER BY expression]) -> String
+s string_to_array(str, delimiter[, null_str])
+s string_to_list(str, delimiter[, null_str])
+s strpos(str, substr)
+s struct(expression1[, ..., expression_n])
+s substr(str, start_pos[, length])
+s substr_index(str, delim, count) -> String
+s substring(str, start_pos[, length])
+s substring_index(str, delim, count) -> String
+a sum(expression)
+s tan(numeric_expression)
+s tanh(numeric_expression)
+s to_char(expression, format) -> String
+s to_date('2017-05-31', '%Y-%m-%d')
+s to_hex(int) -> String
+s to_local_time(expression)
+s to_timestamp()
+s to_timestamp_micros(expression[, ..., format_n])
+s to_timestamp_millis(expression[, ..., format_n])
+s to_timestamp_nanos(expression[, ..., format_n])
+s to_timestamp_seconds(expression[, ..., format_n])
+s to_unixtime(expression[, ..., format_n])
+s today()
+s translate(str, chars, translation) -> String
+s trim(str[, trim_str]) -> String
+s trunc(numeric_expression[, decimal_places])
+s tz(time_expression[, timezone])
+s union_extract(union, field_name)
+s union_tag(union_expression)
+s upper(str) -> String
+s uuid() -> String
+a var(expression) -> Float64
+a var_pop(expression) -> Float64
+a var_population(expression) -> Float64
+a var_samp(expression) -> Float64
+a var_sample(expression) -> Float64
+s version() -> String

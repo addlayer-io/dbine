@@ -6,6 +6,7 @@ mod admin;
 mod aws;
 mod backup;
 mod ddl;
+mod functions;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -949,6 +950,11 @@ impl Session for DynamoSession {
     /// IAM can't be asked (see `permissions`).
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         Ok(permissions::decide())
+    }
+
+    /// PartiQL's functions (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        Ok(functions::catalog())
     }
 
     async fn index_usage(

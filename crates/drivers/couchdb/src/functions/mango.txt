@@ -1,0 +1,25 @@
+# CouchDB's Mango selector operators (Mango queries, `_find`), for the
+# editor's completion, as CouchDB's documentation lists them. `since=` is
+# the CouchDB version that added each one (Mango itself is 2.0's).
+o $and
+o $or
+o $not
+o $nor
+o $all
+o $elemMatch
+o $allMatch since=2.1
+o $keyMapMatch since=3.2
+o $lt
+o $lte
+o $eq
+o $ne
+o $gte
+o $gt
+o $exists
+o $type
+o $in
+o $nin
+o $size
+o $mod
+o $regex
+o $beginsWith since=3.4

@@ -1,0 +1,270 @@
+# Couchbase SQL++ (N1QL) built-in functions, for the editor's completion,
+# as the Couchbase Server documentation lists them (one entry per name,
+# with the arguments it documents). `since=` is the first release whose
+# documentation lists the function (6.5 and earlier carry none); releases
+# before 7.2 are taken from the archived documentation.
+a ARRAY_AGG( [ ALL | DISTINCT ] expression)
+a AVG( [ ALL | DISTINCT ] expression)
+a COUNT(*)
+a COUNTN( [ ALL | DISTINCT ] expression )
+a MAX( [ ALL | DISTINCT ] expression)
+a MEAN( [ ALL | DISTINCT ] expression)
+a MEDIAN( [ ALL | DISTINCT ] expression)
+a MIN( [ ALL | DISTINCT ] expression)
+a STDDEV( [ ALL | DISTINCT ] expression)
+a STDDEV_POP( [ ALL | DISTINCT ] expression)
+a STDDEV_SAMP( [ ALL | DISTINCT ] expression)
+a SUM( [ ALL | DISTINCT ] expression)
+a VARIANCE( [ ALL | DISTINCT ] expression)
+a VARIANCE_POP( [ ALL | DISTINCT ] expression)
+a VARIANCE_SAMP( [ ALL | DISTINCT ] expression)
+a VAR_POP( [ ALL | DISTINCT ] expression)
+a VAR_SAMP( [ ALL | DISTINCT ] expression)
+w CUME_DIST()
+w DENSE_RANK()
+w FIRST_VALUE(expr)
+w LAG(expr [, offset [, default ] ] )
+w LAST_VALUE(expr)
+w LEAD(expr [, offset [, default ] ] )
+w NTH_VALUE(expr, offset)
+w NTILE(num_tiles)
+w PERCENT_RANK()
+w RANK()
+w RATIO_TO_REPORT(expr)
+w ROW_NUMBER()
+s ARRAY_APPEND(expr, val1, val2, ...)
+s ARRAY_AVG(expr)
+s ARRAY_BINARY_SEARCH(expr, val, ...)
+s ARRAY_CONCAT(expr1, expr2, ...)
+s ARRAY_CONTAINS(expr, val)
+s ARRAY_COUNT(expr)
+s ARRAY_DISTINCT(expr)
+s ARRAY_EXCEPT(expr1, expr2)
+s ARRAY_FLATTEN(expr, depth)
+s ARRAY_IFNULL(expr)
+s ARRAY_INSERT(expr, pos, val1, val2, ...)
+s ARRAY_INTERSECT(expr1, expr2, ...)
+s ARRAY_LENGTH(expr)
+s ARRAY_MAX(expr)
+s ARRAY_MIN(expr)
+s ARRAY_MOVE(expr, val1, val2)
+s ARRAY_POSITION(expr, val)
+s ARRAY_PREPEND(val1, val2, ..., expr)
+s ARRAY_PUT(expr, val1, val2, ...)
+s ARRAY_RANGE(start_num, end_num step_num ])
+s ARRAY_REMOVE(expr, val1, val2, ...)
+s ARRAY_REPEAT(val, rep_int)
+s ARRAY_REPLACE(expr, val1, val2 [, max_int])
+s ARRAY_REPLACE_EQUIVALENT(expr, val1, val2 [, max_int]) since=8.0
+s ARRAY_REVERSE(expr)
+s ARRAY_SORT(expr)
+s ARRAY_STAR(expr)
+s ARRAY_SUM(expr)
+s ARRAY_SYMDIFF(expr1, expr2, ...)
+s ARRAY_SYMDIFF1(expr1, expr2, ...)
+s ARRAY_SYMDIFFN(expr1, expr2, ...)
+s ARRAY_UNION(expr1, expr2, ...)
+s BITAND(int_value1, int_value2, ...)
+s BITCLEAR(int_value, positions)
+s BITNOT(int_value)
+s BITOR(int_value1, int_value2, ...)
+s BITSET(int_value, positions)
+s BITSHIFT(int_value, shift_amount, rotate)
+s BITTEST(int_value, positions [, all_set])
+s BITXOR(int_value1, int_value2, ...)
+s GREATEST(expr1, expr2, ...)
+s LEAST(expr1, expr2, ...)
+s IFINF(expr1, expr2, ...)
+s IFNAN(expr1, expr2, ...)
+s IFNANORINF(expr1, expr2, ...)
+s NANIF(expr1, expr2)
+s NEGINFIF(expr1, expr2)
+s POSINFIF(expr1, expr2)
+s COALESCE(expression1, expression2, ...)
+s DECODE(expression, search1, result1 [, search2, result2, ...] [, default])
+s IFMISSING(expression1, expression2, ...)
+s IFMISSINGORNULL(expression1, expression2, ...)
+s IFNULL(expression1, expression2, ...)
+s MISSINGIF(expression1, expression2)
+s NULLIF(expression1, expression2)
+s NVL(expression1, expression2)
+s NVL2(expression, value1, value2)
+s CLOCK_LOCAL([fmt])
+s CLOCK_MILLIS()
+s CLOCK_STR([fmt])
+s CLOCK_TZ(tz [, fmt])
+s CLOCK_UTC([fmt])
+s DATE_ADD_MILLIS(date1, n, part)
+s DATE_ADD_STR(date1, n, part)
+s DATE_DIFF_MILLIS(date1, date2, part)
+s DATE_DIFF_STR(date1, date2, part)
+s DATE_FORMAT_STR(date1, [input-fmt,] fmt)
+s DATE_PART_MILLIS(date1, part [, tz])
+s DATE_PART_STR(date1, part)
+s DATE_RANGE_MILLIS(date1, date2, part [,n])
+s DATE_RANGE_STR(start_date, end_date, date_interval [, quantity_int ])
+s DATE_TRUNC_MILLIS(date1, part)
+s DATE_TRUNC_STR(date1, part [,fmt])
+s DURATION_TO_STR(duration)
+s MILLIS(date1)
+s MILLIS_TO_LOCAL(date1 [, fmt])
+s MILLIS_TO_STR(date1 [, fmt ])
+s MILLIS_TO_TZ(date1, tz [, fmt])
+s MILLIS_TO_UTC(date1 [, fmt])
+s MILLIS_TO_ZONE_NAME(date1, tz [, fmt])
+s NOW_LOCAL([fmt])
+s NOW_MILLIS()
+s NOW_TZ(tz [, fmt])
+s NOW_STR([fmt])
+s NOW_UTC([fmt])
+s STR_TO_DURATION(duration)
+s STR_TO_MILLIS(date1 [, format])
+s STR_TO_UTC(date1 [, [input-fmt,] fmt])
+s STR_TO_TZ(date1, tz [, [input-fmt,] fmt])
+s STR_TO_ZONE_NAME(date1, tz)
+s WEEKDAY_MILLIS(expr [, tz ])
+s WEEKDAY_STR(date)
+s DECODE_JSON(expression)
+s ENCODE_JSON(expression)
+s ENCODED_SIZE(expression)
+s POLY_LENGTH(expression)
+s ABORT(expression) since=7.0
+s BASE64(expression)
+s BASE64_ENCODE(expression)
+s BASE64_DECODE(expression)
+s CURRENT_USERS()
+s DS_VERSION()
+s EVALUATE(statement [,params ]) since=8.0
+s EXTRACTDDL(filter [,options ]) since=8.0
+s FINDERR(expression) since=7.6
+s FLATTEN_KEYS(expr1 [ modifiers ], expr2 [ modifiers ], ...) since=7.1
+s FORMALIZE(statement [,query_context ]) since=7.6
+s HASHBYTES(input, [ options ]) since=7.6
+s LEN(expression) since=7.1
+s META( [ keyspace_expr ] )
+s NODE_NAME() since=7.2
+s NODE_UUID(expression) since=7.6
+s PAIRS(obj)
+s REDACT(expression [, filter-obj1, filter-obj2, ... ] ) since=8.0
+s UNNEST_POS(expr) since=7.1
+s UNNEST_POSITION(expr) since=7.1
+s UUID()
+s VERSION()
+s ABS(expression)
+s ACOS(expression)
+s ASIN(expression)
+s ATAN(expression)
+s ATAN2(expression1, expression2)
+s CEIL(expression)
+s COS(expression)
+s DEGREES(expression)
+s E()
+s EXP(expression)
+s FLOOR(expression)
+s IMOD(expression1, expression2) since=7.6
+s INF() since=7.6
+s LN(expression)
+s LOG(expression)
+s MOD(expression1, expression2) since=7.6
+s NAN() since=7.6
+s PI()
+s POWER(expression1, expression2)
+s RADIANS(expression)
+s RANDOM([ expression ])
+s ROUND(expression [, digits ])
+s SIGN(expression)
+s SIN(expression)
+s SQRT(expression)
+s TAN(expression)
+s TRUNC(expression [, digits ])
+s OBJECT_ADD(object, new_attr_key, new_attr_value)
+s OBJECT_CONCAT(expr, expr ...)
+s OBJECT_CONCAT2(expr, expr ...) since=7.6
+s OBJECT_FIELD(object, field) since=7.1
+s OBJECT_FILTER(expression [, options]) since=7.6
+s OBJECT_INNER_PAIRS(expression)
+s OBJECT_INNER_VALUES(expression)
+s OBJECT_LENGTH(expression)
+s OBJECT_NAMES(expression)
+s OBJECT_PAIRS(expression [, options ])
+s OBJECT_PAIRS_NESTED(object [, options]) since=7.1
+s OBJECT_PATHS(object [, options] ) since=7.1
+s OBJECT_PUT(object, attr_key, attr_value)
+s OBJECT_RENAME(input_obj, old_field, new_field)
+s OBJECT_REMOVE(object, attr_key)
+s OBJECT_REPLACE(input_obj, old_value, new_value)
+s OBJECT_TYPES(expression) since=7.6
+s OBJECT_TYPES_NESTED(expression) since=7.6
+s OBJECT_UNWRAP(expression)
+s OBJECT_VALUES(expression)
+s REGEXP_CONTAINS(expression, pattern)
+s REGEXP_LIKE(expression, pattern)
+s REGEXP_MATCHES(expression, pattern)
+s REGEXP_POSITION(expression, pattern)
+s REGEXP_REPLACE(expression, pattern, repl [, n])
+s REGEXP_SPLIT(expression, pattern)
+s SEARCH(identifier, query[, options])
+s SEARCH_META([identifier])
+s SEARCH_SCORE([identifier])
+s COMPRESS(input_string) since=8.0
+s CONCAT(string1, string2, ...)
+s CONCAT2(separator, arg1, arg2, ...)
+s CONTAINS(in_str, search_str)
+s INITCAP(in_str)
+s LENGTH(in_str)
+s LOWER(in_str)
+s LPAD(in_str, size [, char]) since=7.1
+s LTRIM(in_str [, char])
+s MASK(in_str [, options]) since=7.1
+s MB_LENGTH(in_str) since=7.6
+s MB_LPAD(in_str, size [, char]) since=7.6
+s MB_RPAD(in_str, size [, char]) since=7.6
+s MB_SUBSTR(in_str, start_pos [, length]) since=7.6
+s MB_SUBSTR1(in_str, start_pos [, length]) since=7.6
+s MB_POS(in_str, search_str) since=7.6
+s MB_POS1(in_str, search_str) since=7.6
+s MB_POSITION(in_str, search_str) since=7.6
+s MB_POSITION1(in_str, search_str) since=7.6
+s POS(in_str, search_str) since=7.6
+s POS1(in_str, search_str) since=7.6
+s POSITION(in_str, search_str)
+s POSITION1(in_str, search_str) since=7.6
+s REPEAT(in_str, n)
+s REPLACE(in_str, search_str, replace [, n ])
+s REVERSE(in_str)
+s RPAD(in_str, size [, char]) since=7.1
+s RTRIM(in_str [, char])
+s SPLIT(in_str [, in_substr])
+s SUBSTR(in_str, start_pos [, length])
+s SUBSTR1(in_str, start_pos [, length]) since=7.6
+s SUFFIXES(in_str)
+s TITLE(in_str)
+s TOKENS(in_str, opt)
+s TRIM(in_str [, char])
+s UPPER(in_str)
+s URLDECODE(encoded_string) since=7.6
+s URLENCODE(plain_string) since=7.6
+s UNCOMPRESS(input_string) since=8.0
+s CONTAINS_TOKEN(input_obj, token_expr [, options ])
+s CONTAINS_TOKEN_LIKE(input_obj, token_expr [, options ])
+s CONTAINS_TOKEN_REGEXP(input_obj, token_expr [, options ])
+s HAS_TOKEN(input_obj, token_expr [, options ])
+s ISARRAY(expression)
+s ISATOM(expression)
+s ISBOOLEAN(expression)
+s ISNUMBER(expression)
+s ISOBJECT(expression)
+s ISSTRING(expression)
+s ISVECTOR(vector, dimension, format) since=8.0
+s TYPE(expression)
+s TOARRAY(expression)
+s TOATOM(expression)
+s TOBOOLEAN(expression)
+s TONUMBER(expression [, string-expression])
+s TOOBJECT(expression)
+s TOSTRING(expression)
+s APPROX_VECTOR_DISTANCE(vec, queryvec, metric [, nprobes [, rerank [, topNScan]]]) since=8.0
+s DECODE_VECTOR(vector [, byte_order]) since=8.0
+s ENCODE_VECTOR(vector [, byte_order]) since=8.0
+s NORMALIZE_VECTOR(vector) since=8.0
+s VECTOR_DISTANCE(vec, queryvec, metric) since=7.6
