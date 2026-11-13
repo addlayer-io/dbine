@@ -35,12 +35,19 @@ export interface KindItems {
 export interface SchedulerEntry {
   info: SchedulerInfo | null;
   error: string | null;
+  /** When the kinds and their objects were last read whole (ms), 0: never. */
+  at: number;
   /** Kind key → its objects, once its node was opened. */
   items: Record<string, KindItems>;
 }
 
 const EXPANDED = 'dbine.serverJobs.expanded';
 const KINDS_OPEN = 'dbine.serverJobs.kindsOpen';
+/** How long the sidebar's timer leaves the scheduler's kinds and objects as
+ *  read: some engines pay for them per object (Databricks reads each job's
+ *  permissions), and they change only when someone changes the scheduler.
+ *  The jobs list itself still refreshes every minute. */
+const SCHEDULER_TTL = 5 * 60_000;
 const kindKey = (connectionId: string, kind: string) => `${connectionId}\u0000${kind}`;
 let focusSeq = 0;
 let changeSeq = 0;
@@ -86,7 +93,7 @@ export const useServerJobsStore = defineStore('serverJobs', {
     },
     /** The connection's scheduler entry, created empty (reactive, as `entry`). */
     sched(connectionId: string): SchedulerEntry {
-      if (!this.scheduler[connectionId]) this.scheduler[connectionId] = { info: null, error: null, items: {} };
+      if (!this.scheduler[connectionId]) this.scheduler[connectionId] = { info: null, error: null, at: 0, items: {} };
       return this.scheduler[connectionId];
     },
     /** The engine's scheduler is managed whole from DBine (the designer). */
@@ -135,9 +142,12 @@ export const useServerJobsStore = defineStore('serverJobs', {
       }
     },
     /** What the scheduler has, then the objects of its open kinds and the
-     *  job kind's (read with the jobs: a job's menu and tab need them). */
-    async loadScheduler(connectionId: string) {
+     *  job kind's (read with the jobs: a job's menu and tab need them).
+     *  `auto` (the sidebar's timer): only once SCHEDULER_TTL has passed. */
+    async loadScheduler(connectionId: string, opts: { auto?: boolean } = {}) {
       const s = this.sched(connectionId);
+      if (opts.auto && s.info && Date.now() - s.at < SCHEDULER_TTL) return;
+      s.at = Date.now();
       try {
         s.info = await schedulerApi.info(connectionId);
         s.error = null;
@@ -206,7 +216,7 @@ export const useServerJobsStore = defineStore('serverJobs', {
           e.error = conns.live[connectionId]?.error ?? t('common:error');
           return;
         }
-        const scheduler = this.hasScheduler(connectionId) ? this.loadScheduler(connectionId) : null;
+        const scheduler = this.hasScheduler(connectionId) ? this.loadScheduler(connectionId, opts) : null;
         e.list = conns.driverOf(connectionId)?.capabilities.jobs ? await jobsApi.list(connectionId) : { jobs: [] };
         e.error = null;
         await scheduler;
