@@ -26,14 +26,20 @@
     "notFound": "Não há tabela, view ou rotina com esse nome no banco da aba.",
     "notLoaded": "Os objetos do banco ainda não foram carregados: conecte-se para ir à definição."
   },
-  "insertColumn": "Coluna {{n}} de {{total}}: {{name}}",
-  "insertExtra": "Valor {{n}}: a lista tem {{total}} colunas",
-  "pickFile": "Escolher arquivo…",
-  "dataFiles": "Arquivos de dados (CSV, Parquet, JSON, Excel)",
   "tableHover": {
     "loading": "Carregando colunas…",
     "empty": "Não há metadados disponíveis para esta tabela.",
     "error": "Não foi possível ler as colunas: {{error}}",
     "primaryKey": "Chave primária"
+  },
+  "insertColumn": "Coluna {{n}} de {{total}}: {{name}}",
+  "insertExtra": "Valor {{n}}: a lista tem {{total}} colunas",
+  "pickFile": "Escolher arquivo…",
+  "dataFiles": "Arquivos de dados (CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "Executar",
+    "runTip": "Executar somente esta instrução",
+    "plan": "Plano",
+    "planTip": "Plano de execução estimado desta instrução, sem executá-la"
   }
 }

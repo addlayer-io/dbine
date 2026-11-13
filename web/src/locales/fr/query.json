@@ -10,7 +10,7 @@
   "continueOnErrorTip": "Si une instruction échoue, exécuter quand même les suivantes. Démarre comme le fait l'outil du moteur.",
   "estimatedPlanTip": "Plan d'exécution estimé, sans exécuter (⌘L)",
   "estimatedPlan": "Plan estimé",
-  "actualPlanTip": "Exécuter et inclure le plan réel (⌘⇧↵)",
+  "actualPlanTip": "Exécuter et inclure le plan réel (⌘⇧L)",
   "runWithPlan": "Exécuter + plan",
   "formatTip": "Formater la sélection, ou tout s'il n'y a pas de sélection (⇧⌥F)",
   "format": "Formater",
@@ -111,11 +111,13 @@
     "unpin": "Désépingler",
     "pinTip": "Épingler ce résultat : les exécutions suivantes ne le remplaceront pas",
     "rerun": "Exécuter à nouveau",
+    "rename": "Renommer",
     "rerunMulti": "Elle a été exécutée sur plusieurs bases : exécutez-la à nouveau depuis « Exécuter sur plusieurs bases… »",
     "rerunMoved": "L'éditeur n'est plus sur la base où elle a été exécutée ({{database}})",
     "copySql": "Copier la requête",
     "closeOthers": "Fermer les autres non épinglés",
     "closeUnpinned": "Fermer les non épinglés",
-    "ranAt": "Exécutée : {{time}}"
+    "ranAt": "Exécutée : {{time}}",
+    "namePlaceholder": "Nom du résultat"
   }
 }

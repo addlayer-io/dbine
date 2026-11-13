@@ -397,3 +397,4 @@ backend:Septiembre
 backend:Tiempo de espera
 backend:Transformación
 dataCompare.json:schema
+editor.json:lens.plan

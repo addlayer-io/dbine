@@ -582,6 +582,13 @@ export interface StoredRunMeta {
   multi?: { labels: string[]; summary: string } | null;
   line_offset?: number | null;
   run_base?: number;
+  /** A named result's name (docs/query-editor.md#named-results). */
+  name?: string | null;
+  /** A script split into named results: its units' names, its tab's label
+   *  and the statement each result left in it came from. */
+  parts?: (string | null)[] | null;
+  label?: string | null;
+  result_sql?: (string | null)[] | null;
 }
 
 /** What an editor run asks the store to keep (`execute_query`'s `store`). */

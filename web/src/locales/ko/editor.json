@@ -26,14 +26,20 @@
     "notFound": "탭의 데이터베이스에 해당 이름의 테이블, 뷰 또는 루틴이 없습니다.",
     "notLoaded": "데이터베이스의 개체를 아직 불러오지 못했습니다. 정의로 이동하려면 먼저 연결하세요."
   },
-  "insertColumn": "열 {{n}}/{{total}}: {{name}}",
-  "insertExtra": "값 {{n}}: 목록에 열이 {{total}}개 있습니다",
-  "pickFile": "파일 선택…",
-  "dataFiles": "데이터 파일(CSV, Parquet, JSON, Excel)",
   "tableHover": {
     "loading": "열을 불러오는 중…",
     "empty": "이 테이블에 사용할 수 있는 메타데이터가 없습니다.",
     "error": "열을 읽을 수 없습니다: {{error}}",
     "primaryKey": "기본 키"
+  },
+  "insertColumn": "열 {{n}}/{{total}}: {{name}}",
+  "insertExtra": "값 {{n}}: 목록에 열이 {{total}}개 있습니다",
+  "pickFile": "파일 선택…",
+  "dataFiles": "데이터 파일(CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "실행",
+    "runTip": "이 문만 실행",
+    "plan": "계획",
+    "planTip": "이 문의 예상 실행 계획(실행하지 않음)"
   }
 }

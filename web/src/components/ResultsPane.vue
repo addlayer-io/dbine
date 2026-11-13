@@ -51,6 +51,11 @@ const props = defineProps<{
   /** Where edited cells' UPDATE code comes from: the tab's table, or the
    *  query (`script`) the rows came from. */
   editSource?: { connectionId: string; database: string; language: string; target?: ObjectRef | null; script?: string } | null;
+  /** The statement each result came from (by result index), when the results
+   *  are only some of the script's (the others went to named result tabs):
+   *  "Exportar todo", editing, the foreign-key jumps and the chart's whole
+   *  result read that statement instead of the whole script. */
+  resultSql?: (string | null)[] | null;
   /** Column filters under the headers (a table's data). */
   filterable?: boolean;
   filters?: Record<string, FilterState>;
@@ -242,6 +247,24 @@ const gridEdits = computed<Edits>(() => {
   return out;
 });
 
+/** The current result's own statement (`resultSql`), and its place among
+ *  that statement's results: by index (an export runs the statement and
+ *  takes that one) and among those with rows (the SELECT behind it). */
+const own = computed(() => {
+  const i = active.value;
+  const sql = typeof i === 'number' ? props.resultSql?.[i] : null;
+  const results = props.outcome?.results ?? [];
+  if (!sql || typeof i !== 'number' || !results[i]) return null;
+  const before = results.slice(0, i).filter((r) => r.statement === results[i].statement);
+  return { sql, index: before.length, set: before.filter((r) => r.columns.length).length };
+});
+/** The script whose `pos`-th SELECT the current result came from: its own
+ *  statement when known, or the whole script. */
+function scriptOf(script: string | undefined): { script: string; pos: number } {
+  const o = own.value;
+  return o ? { script: o.sql, pos: o.set } : { script: script ?? '', pos: sets.value.findIndex((x) => x.i === active.value) };
+}
+
 /** How the current result can be edited, or why not. */
 const setup = ref<EditSetup | string | null>(null);
 let setupSeq = 0;
@@ -249,7 +272,7 @@ let setupSeq = 0;
 // render), watching its identity would loop.
 const editKey = computed(() => {
   const e = props.editSource;
-  return e ? JSON.stringify([e.connectionId, e.database, e.language, e.target ?? null, e.script ?? '']) : '';
+  return e ? JSON.stringify([e.connectionId, e.database, e.language, e.target ?? null, e.script ?? '', own.value?.sql ?? null]) : '';
 });
 watch(
   () => [editKey.value, active.value, props.outcome] as const,
@@ -261,8 +284,8 @@ watch(
     if (!src || !r || typeof active.value !== 'number') return;
     let target = src.target ?? null;
     if (!target) {
-      const pos = sets.value.findIndex((x) => x.i === active.value);
-      const inferred = inferTarget(src.script ?? '', pos, src.language);
+      const { script, pos } = scriptOf(src.script);
+      const inferred = inferTarget(script, pos, src.language);
       if (!inferred.target) { setup.value = inferred.reason; return; }
       target = inferred.target;
     }
@@ -293,9 +316,9 @@ watch(
     let target = src.target ?? null;
     let source: ((name: string) => string | null) | null = (n) => n;
     if (!target) {
-      const pos = sets.value.findIndex((x) => x.i === active.value);
-      target = inferTarget(src.script ?? '', pos, src.language).target;
-      source = inferColumnSources(src.script ?? '', pos);
+      const { script, pos } = scriptOf(src.script);
+      target = inferTarget(script, pos, src.language).target;
+      source = inferColumnSources(script, pos);
     }
     if (!target || !source) return;
     try {
@@ -693,11 +716,17 @@ const exporting = ref<{ format: ExportFormat } | null>(null);
 const runSource = computed(() => (props.source?.notebookTab ? null : props.source ?? null));
 /** What "Exportar todo" runs again: a connection's query, or a DataFrame SQL
  *  cell's SQL on its tab's DuckDB session (over the DataFrames its run read). */
-const exportSource = computed(() =>
-  props.source && typeof active.value === 'number' ? { ...props.source, resultIndex: active.value } : null);
+const exportSource = computed(() => {
+  if (!props.source || typeof active.value !== 'number') return null;
+  // Only some of the script's results here: the result's own statement runs.
+  const o = own.value;
+  return o ? { ...props.source, sql: o.sql, resultIndex: o.index } : { ...props.source, resultIndex: active.value };
+});
+/** What the chart's whole result reads: the result's own statement when known. */
+const chartSource = computed(() => (props.source && own.value ? { ...props.source, sql: own.value.sql } : props.source ?? null));
 /** A DataFrame SQL cell's result cut for display: its charts start over the
  *  whole result (DuckDB aggregates it locally, no server is involved). */
-const chartWholeByDefault = computed(() => wholeChartByDefault(props.source, current.value));
+const chartWholeByDefault = computed(() => wholeChartByDefault(chartSource.value, current.value));
 
 /** Quick export: the rows already loaded, straight to a file. */
 async function quickExport(format: ExportFormat) {
@@ -992,7 +1021,7 @@ const liveText = computed(() => {
         :settings="chartSettings"
         :stored-points="chartPoints"
         :stored-aggregate="chartAggregate"
-        :source="source"
+        :source="chartSource"
         :whole-by-default="chartWholeByDefault"
         @update:settings="(s: ChartState) => emit('update:chartSettings', s)"
       />

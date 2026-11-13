@@ -10,7 +10,7 @@
   "continueOnErrorTip": "Se un'istruzione fallisce, esegue comunque le successive. Parte come fa lo strumento del motore.",
   "estimatedPlanTip": "Piano di esecuzione stimato, senza eseguire (⌘L)",
   "estimatedPlan": "Piano stimato",
-  "actualPlanTip": "Esegui e includi il piano effettivo (⌘⇧↵)",
+  "actualPlanTip": "Esegui e includi il piano effettivo (⌘⇧L)",
   "runWithPlan": "Esegui + piano",
   "formatTip": "Formatta la selezione, o tutto se non c’è selezione (⇧⌥F)",
   "format": "Formatta",
@@ -111,11 +111,13 @@
     "unpin": "Rimuovi fissaggio",
     "pinTip": "Fissa questo risultato: le prossime esecuzioni non lo sostituiranno",
     "rerun": "Esegui di nuovo",
+    "rename": "Rinomina",
     "rerunMulti": "È stata eseguita su più database: eseguila di nuovo da «Esegui su più database…»",
     "rerunMoved": "L'editor non è più sul database in cui è stata eseguita ({{database}})",
     "copySql": "Copia la query",
     "closeOthers": "Chiudi le altre non fissate",
     "closeUnpinned": "Chiudi le non fissate",
-    "ranAt": "Eseguita: {{time}}"
+    "ranAt": "Eseguita: {{time}}",
+    "namePlaceholder": "Nome del risultato"
   }
 }

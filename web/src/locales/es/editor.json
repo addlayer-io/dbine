@@ -35,5 +35,11 @@
   "insertColumn": "Columna {{n}} de {{total}}: {{name}}",
   "insertExtra": "Valor {{n}}: la lista tiene {{total}} columnas",
   "pickFile": "Elegir archivo…",
-  "dataFiles": "Archivos de datos (CSV, Parquet, JSON, Excel)"
+  "dataFiles": "Archivos de datos (CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "Ejecutar",
+    "runTip": "Ejecutar solo esta sentencia",
+    "plan": "Plan",
+    "planTip": "Plan de ejecución estimado de esta sentencia, sin ejecutarla"
+  }
 }

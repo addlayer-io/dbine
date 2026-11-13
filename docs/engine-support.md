@@ -3025,6 +3025,28 @@ because of a busy port on the test machine; unit tests only).
 | Db2 | A loose `BEGIN [ATOMIC] … END` block is cut at its first `;` | `CREATE TRIGGER` / `PROCEDURE … BEGIN … END` stay whole. For anonymous blocks you have to use `--#SET TERMINATOR`, which is what the Db2 client does without an alternate terminator. |
 | Athena, InfluxDB 1 | One statement per request | Athena creates one execution per statement; InfluxDB 1.x loses the error reason of a statement that shares a request. |
 
+### Named results
+
+A comment above a statement names its result tab
+([query-editor.md](query-editor.md#named-results)) on every engine. A
+script of several statements is split into its named results where the app
+runs the statements one by one, and where the engine runs the text whole but
+numbers its statements and their place in the text itself (MongoDB, Redis,
+Neo4j, Cassandra, Elasticsearch, CouchDB, Cosmos DB, etcd, Firebird, SAP
+HANA, KDB+ and the ODBC presets that send the text whole). On those, the
+statements are the engine's own, so a MongoDB script without `;` or a Redis
+script of one command per line splits too. Where the engine's splitter
+keeps a comment as part of the statement (MongoDB's and Cypher's `//`,
+Redis's and the consoles' `#`), the comment lines a statement starts with
+name it.
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Snowflake, BigQuery, InfluxDB 2 (Flux), DynamoDB, Solr | A script of several statements keeps its results in the run's tab (a failed statement's error, where the engine says which one it was, goes to that statement's tab); only a run of one statement takes its name | The server answers the whole text as one request, without saying which statement each result came from. |
+| Engines whose plan runs the text whole | The plan of several statements isn't split | Same: the plan's results don't carry their statement. A plan of one statement takes its name. |
+| SQL Server, Sybase (and the ODBC presets with `GO`) | A batch of several statements, a script without `GO` included, isn't split by name: its results stay in the run's tab | The batch is what runs, and its results come back as the batch's. **Run the statement at the cursor** and the lens run one statement of the batch, and that one takes its name. |
+| Redis, etcd, MongoDB scripts without `;`, and the Elasticsearch, OpenSearch, Solr and CouchDB consoles | No lens over each statement, and **Run the statement at the cursor** runs the whole script | The editor cuts statements at `;`, and these end at the end of the line (Redis, etcd), at a newline (MongoDB) or at a blank line or the next request (the consoles). Cutting them as the engine does is a change to each driver's splitter. A run of the whole script still splits into its named results, by the engine's own numbering. |
+
 ### Manual transactions
 
 These offer Auto/Manual, Commit and Roll back: SQL Server, Babelfish,

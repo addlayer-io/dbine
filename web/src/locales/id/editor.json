@@ -26,14 +26,20 @@
     "notFound": "Tidak ada tabel, view, atau rutin dengan nama itu di basis data tab ini.",
     "notLoaded": "Objek basis data belum dimuat: hubungkan untuk menuju definisi."
   },
-  "insertColumn": "Kolom {{n}} dari {{total}}: {{name}}",
-  "insertExtra": "Nilai {{n}}: daftar memiliki {{total}} kolom",
-  "pickFile": "Pilih berkas…",
-  "dataFiles": "Berkas data (CSV, Parquet, JSON, Excel)",
   "tableHover": {
     "loading": "Memuat kolom…",
     "empty": "Tidak ada metadata untuk tabel ini.",
     "error": "Tidak dapat membaca kolom: {{error}}",
     "primaryKey": "Kunci primer"
+  },
+  "insertColumn": "Kolom {{n}} dari {{total}}: {{name}}",
+  "insertExtra": "Nilai {{n}}: daftar memiliki {{total}} kolom",
+  "pickFile": "Pilih berkas…",
+  "dataFiles": "Berkas data (CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "Jalankan",
+    "runTip": "Jalankan hanya pernyataan ini",
+    "plan": "Rencana",
+    "planTip": "Perkiraan rencana eksekusi pernyataan ini, tanpa menjalankannya"
   }
 }

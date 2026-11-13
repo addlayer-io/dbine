@@ -1,4 +1,41 @@
-# Query editor: navigation, parameters, snippets and result tabs
+# Query editor: running, navigation, parameters, snippets and result tabs
+
+## Running part of a script
+
+- **Run** (Cmd+Enter on macOS, Ctrl+Enter on Windows and Linux, or the
+  toolbar's **Run**) runs the selection or, with nothing selected, the whole
+  script.
+- **Run the statement at the cursor** (Cmd+Shift+Enter or Ctrl+Shift+Enter,
+  the toolbar button next to **Run**, or the editor menu) runs the statement
+  the cursor is in, without selecting it. The statement is cut by the
+  engine's own rules: `;`, a `GO` batch in SQL Server, a PL/SQL block ending
+  in `/` in Oracle, the terminator `DELIMITER` sets in MySQL or `SET TERM`
+  in Firebird, a MongoDB or Cypher statement ended by `;`… With the cursor
+  between two statements (on a blank line, or after a `;`), the one before
+  it runs. `DELIMITER` and `SET TERM` lines are the editor's, not the
+  server's: they never run on their own. Redis and etcd (a command per
+  line), MongoDB without `;` and the Elasticsearch, OpenSearch, Solr and
+  CouchDB consoles aren't cut into statements yet: there it runs the whole
+  script, and there's no lens
+  ([engine-support.md](engine-support.md#named-results)).
+- **The run lens.** With two or more statements in the editor, a dim line
+  above each one offers **▶ Run**, and **Plan** (the estimated plan) on
+  engines with execution plans, followed by the statement's
+  [name](#named-results) when a comment gives it one. A click runs exactly
+  that statement, as **Run the statement at the cursor** does. It follows
+  the same rules as the **Run** button (it waits while something runs), and
+  it isn't shown in a file tab without a database, nor on scripts of more
+  than 500 statements or 1 MB. **Settings › General › Show "▶ Run" above
+  each statement** turns it off.
+- **Estimated plan** (Cmd+L or Ctrl+L) and **Run with actual plan**
+  (Cmd+Shift+L or Ctrl+Shift+L) take the selection or the whole script.
+
+In SQL, blank lines don't split statements: two statements with no
+terminator between them are one for the engine, however far apart they are. Before
+running, the text goes through [parameters](#parameters); how a script runs
+statement by statement, its messages and its errors are in
+[Script execution](script-execution.md). Every key above can be changed:
+[Keyboard shortcuts](#keyboard-shortcuts).
 
 ## Go to definition from code
 
@@ -108,18 +145,20 @@ close them, so you can go back to an earlier result without running it again.
 - **How many are kept.** By default each editor keeps one unpinned result: a
   new run replaces it. **Settings › General › Results each editor keeps**
   raises that, up to 20. Past it, the unpinned result that ran longest ago
-  closes when a run ends.
+  closes when a run ends. [Named results](#named-results) don't count, as
+  pinned ones don't.
 - **Pin.** The pin on the results bar, or on a result's tab, keeps that
   result: later runs open a tab next to it instead of replacing it. A pinned
   result doesn't count toward the limit and only closes when you close it.
-- **The tabs.** With more than one result, or a pinned one, the tabs show
-  above the results, each with the first line of its query and the time it
-  ran. Hovering one shows its query, the connection and database it ran on,
-  and the date. A spinner marks the run in progress and a red mark one that
-  ended with an error.
+- **The tabs.** With more than one result, or a pinned or named one, the
+  tabs show above the results, each with its name or the first line of its
+  query, and the time it ran. Hovering one shows its name, its query, the
+  connection and database it ran on, and the date. A spinner marks the run
+  in progress and a red mark one that ended with an error.
 - **A tab's menu** (right-click, or Shift+F10): **Pin** or **Unpin**, **Run
-  again**, **Copy query**, **Close**, **Close other unpinned** and **Close
-  unpinned**. A middle click closes a tab; the one running can't be closed.
+  again**, **Rename**, **Copy query**, **Close**, **Close other unpinned**
+  and **Close unpinned**. A middle click closes a tab; the one running can't
+  be closed.
 - **Run again** runs the same text, with the parameter values it had, and
   its results replace that tab's. It's offered while the editor is on the
   connection and database where the result ran. A result of **Run on several
@@ -133,9 +172,99 @@ current text.
 **Kept when DBine closes.** With **Settings › General › Keep results when
 closing DBine** on (the default), each editor's result tabs are also saved
 to an encrypted file on this computer. Close DBine, or it crashes, and each
-editor shows its tabs again when it opens: pinned ones, the order and the
-rows as they were, without running anything or connecting. Closing an
+editor shows its tabs again when it opens: pinned and named ones, the order
+and the rows as they were, without running anything or connecting. Closing an
 editor deletes its saved results, and with none left the file goes too.
 **Space for saved results** (2 GB by default) caps them, dropping the
 oldest unpinned ones first, and **Clear now** deletes them all. Without a system keychain they stay in memory only.
 Details: [results-store.md](results-store.md).
+
+## Named results
+
+A line comment right above a statement names its result:
+
+```sql
+-- Active customers
+SELECT id, name FROM customers WHERE active;
+
+-- Orders this month
+SELECT id, customer_id, total FROM orders
+WHERE created >= date_trunc('month', now());
+```
+
+- **The name** is the comment on the line just before the statement, with
+  no blank line between, without its marker and spaces. The markers are
+  the engine's line comments: `--` in SQL; `#` where the engine has it
+  (MySQL and family, ClickHouse, BigQuery, Spanner, Redis and the JSON
+  consoles); `//` where it has it (Snowflake, Dremio, Drill, Cassandra,
+  MongoDB, Neo4j, Flux and the JSON consoles); `/` in KDB+'s q. With
+  several comment lines, the closest one wins. Where the engine keeps the
+  comment as part of the statement (MongoDB's and Neo4j's `//`, Redis's
+  `#`), the comment lines the statement starts with name it the same way,
+  and its lens goes over its first line of code. Block comments
+  (`/* … */`), a comment after code on the same line and Db2's
+  `--#SET TERMINATOR` lines don't name. A long name is kept whole: the tab
+  shows it shortened, and hovering the tab shows all of it.
+- **Its own tab.** A named statement's result goes to a result tab with its
+  name, whatever ran it: the whole script, a selection, **Run the statement
+  at the cursor** or its lens. Running a statement with that name again
+  refreshes that tab in place instead of opening another one, and the tab
+  keeps its place. Named tabs don't count toward **Results each editor
+  keeps**: like pinned ones, they close only when you close them. A name is
+  a statement's: a SQL Server or Sybase batch that holds several statements
+  (a script without `GO` is one) takes none, and its results stay in the
+  run's tab; **Run the statement at the cursor** or the lens runs one of
+  them, which takes its name.
+- **A script with named statements** runs as always, its progress live in
+  the run's own tab. When it ends, each named statement's results, messages
+  and errors move to its tab. What's left (statements without a name,
+  messages of no statement) stays in the run's tab, which then shows its
+  first statement without a name; if nothing is left, that tab closes and
+  the run's first named tab shows. **Run again** on the run's tab runs the
+  script again and splits it the same way. When two statements of a run
+  have the same name, the first one gets the tab.
+- **Run again** and **Export** on a named tab run only its statement, and
+  the line of each message still takes you to the statement in the editor.
+  On the run's own tab, which keeps only some of the script's results,
+  **Export**, editing the grid, the jumps by foreign key and the chart over
+  the whole result each read the statement its result came from, not the
+  whole script.
+- **Engines that get the whole text in one request.** Where the engine
+  numbers the statements itself (MongoDB, Redis, Neo4j, Firebird and
+  others), a script splits the same way, by the engine's own statements;
+  any run there, one statement's too, shows its progress in a tab of its
+  own, and its results move to their names' tabs when it ends. Where
+  nothing tells which statement each result came from (Snowflake,
+  BigQuery, InfluxDB 2 with Flux, DynamoDB, Solr, and plans on most
+  engines, since a plan runs its text whole), a script's results stay in
+  the run's tab, and only a run of one statement takes its name: the
+  statement at the cursor, its lens, or a selection of one statement. Per
+  engine: [engine-support.md](engine-support.md#named-results).
+- **Rename** a tab with a double-click on it, F2, or **Rename** in its menu:
+  Enter keeps the name, Esc cancels, and an empty name removes it. A
+  renamed tab is named from then on: a statement with that name refreshes
+  it. Another tab that had that name goes back to unnamed.
+
+Names are saved with the results when DBine closes
+([results-store.md](results-store.md)).
+
+## Keyboard shortcuts
+
+The keys of every action, the editor's included (**Run the selection or
+everything**, **Run the statement at the cursor**, **Estimated plan**, **Run
+with actual plan**, **Format**, **Comment or uncomment**, **Find and
+replace**, **Go to line…**, **Autocomplete suggestions**), are changed in
+**Settings › Keyboard shortcuts**:
+
+- The actions are listed by group (General, View, Editor, Results…), each
+  with its keys. The search box filters by action or by key.
+- Click an action's combination and press the new one; Esc cancels. The
+  change applies at once, in every editor and in the macOS menu, and
+  travels with the rest of the settings.
+- A combination another action uses where both act is allowed, but the row
+  shows the conflict and names the other action. A system shortcut (copy,
+  paste, undo…) is flagged too: it stops working where the action runs.
+- Each row can remove its combination (the action is left without keys) or
+  go back to the original one; **Reset all** restores every default.
+- The editor's right-click menu shows its run, plan, format, comment, find
+  and go-to-line actions with the keys they have now.

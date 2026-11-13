@@ -7,6 +7,8 @@
 - **Results kept when DBine closes:** each query editor's result tabs are saved to an encrypted file on your computer, so after closing DBine, or a crash, every editor shows them again as they were, pinned ones included, without running anything. The key never leaves your computer and user; **Settings › General** sets the space they may take, clears them, or turns it off.
 - **Monitor metrics that explain themselves:** every metric on the Monitor dashboard says what it measures, how to read it, and the view, query or API field its value comes from. **Metrics** picks which ones show, remembered per engine, and clicking a metric enlarges it to its last hour on a timeline you can zoom.
 - **Scheduler designer:** **Scheduled › On the servers** now manages each server's scheduler whole. Every object it has, such as SQL Server Agent jobs, schedules, operators, alerts, proxies and categories, Oracle DBMS_SCHEDULER jobs, programs, schedules, chains and windows, pg_cron, pgAgent and TimescaleDB jobs, events, tasks, transforms and refreshable views, is created, edited and deleted in a designer made for its engine, and the script is shown before anything runs. An edit changes only what changed, in place where the engine allows it; when a change has to recreate an object or loses its history, DBine says so and asks before going on. Where the engine has them, a job can start at one of its steps and have its history cleared, each kind of object has its own actions (run now, open a window, refresh a view…), and the scheduler's own log can be read. The objects the engine owns are protected, and read-only connections show the forms and scripts but change nothing.
+- **Named results:** a line comment right above a statement (`-- Customer summary`) names its result. Each named statement gets its own result tab, whether the whole script, a selection or that statement runs, and running it again refreshes that tab in place; the kept-results limit never closes it. A result tab can also be renamed with a double click.
+- **Run a single statement from the editor:** when the editor holds two or more statements, a small **▶ Run** (and **Plan**, where the engine has plans) sits above each one, with its name if it has one, and runs only that statement. It can be turned off in **Settings › General**.
 
 ### Improvements
 - **Testing a connection:** when **Test connection** fails, the error shows next to the button, and **What's wrong…** explains it (firewall, timeout, DNS, TLS or credentials) as it does for a saved connection.
@@ -28,6 +30,7 @@
 - **pgAgent jobs:** a user without access to the pgagent schema no longer gets "permission denied for schema pgagent" when listing jobs.
 - **Snowflake task graphs:** a graph's finalizer was listed as a separate job; it's now part of its root's job.
 - **Choosing the key in Compare data:** after a comparison, picking other tables left the key list with the previous comparison's columns; it now offers the new table's, and a result is dropped as soon as either side changes.
+- **Actual plan shortcut:** the tooltip of **Run and include the actual plan** showed ⌘⇧↵ in some languages; it's ⌘⇧L.
 
 ## [1.5.0] - 2026-11-11
 

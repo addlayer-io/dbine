@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { api, errorMessage } from '../api/client';
 import { locale, t } from '../i18n';
 import { tb } from '../i18n/backend';
-import type { QueryMessage, QueryOutcome, QueryProgress, TxState, UnsafeDml } from '../api/types';
+import type { QueryMessage, QueryOutcome, QueryProgress, ScriptUnit, TxState, UnsafeDml } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import ResultsPane from '../components/ResultsPane.vue';
@@ -44,8 +44,12 @@ import {
   KEPT_RESULTS_SETTING, keptLimit, overflow, runLabel, scriptPreview, type PlanMode, type ResultRun,
 } from '../composables/resultRuns';
 import {
-  KEEP_RESULTS_SETTING, RESULTS_SPACE_SETTING, forget, keepResults, loadRestored, restoredRun, resultsSpace, storeArgs,
+  KEEP_RESULTS_SETTING, RESULTS_SPACE_SETTING, forget, keepResults, loadRestored, restoredRun, resultsClears, resultsSpace, storeArgs,
 } from '../composables/resultsStore';
+import {
+  LENS_MAX_CHARS, LENS_MAX_STATEMENTS, RUN_LENS_SETTING, commentMarkers, linesAt, numberedStatements, oneStatementEach, splitOutcome,
+  statementHead, uniqueNames, type RunLens, type RunUnit,
+} from '../composables/resultNames';
 
 // A saved query, or a project's file, open in the editor. A query's text is
 // saved as you type (to the state store, under its database in the
@@ -629,6 +633,8 @@ onBeforeUnmount(stopClock);
  *  starts in the editor, so the lines of messages and errors map to it. */
 async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
   if (running.value || connecting.value) return;
+  // The editor's text as it is now: the comments that name the results.
+  const docText = text.value;
   const picked = sqlText !== undefined ? { text: sqlText, from: from ?? 0 } : editor.value?.runnable() ?? { text: text.value, from: 0 };
   const script = picked.text.trim();
   if (!script) return;
@@ -638,6 +644,7 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
   const filled = await withParams(script);
   if (filled === null) return;
   if (!(await confirmEnvironment())) return;
+  const naming = await nameRun(docText, base, script, filled, plan);
   // Where the confirmation was given: a retry after the tab moved to another
   // connection or database asks again before running there.
   const confirmedFor = `${props.tab.connectionId}\u0000${props.tab.database}`;
@@ -652,9 +659,206 @@ async function run(sqlText?: string, plan: PlanMode = 'none', from?: number) {
     if (doc.autosave && saveState.value === 'dirty') save();
     runBase = base;
     lineOffset = (editor.value?.lineAt(base) ?? 1) - 1;
-    await execute(filled, plan, false);
+    await execute(filled, plan, false, undefined, naming);
   };
   await go();
+}
+
+// -- named results: the comment above a statement names its result tab (composables/resultNames.ts) --
+/** The engine's line-comment markers. */
+const commentMarks = computed(() => commentMarkers(driver.value?.language, driver.value?.dialect));
+/** Where a run's results go by name. `whole`: the run is one named
+ *  statement, which runs in its name's tab. `units`: the app runs the
+ *  script's units one by one (a result's `statement` is its unit's index),
+ *  some named; their parts move to their tabs when it ends. `numbered`: the
+ *  engine gets the text whole (or a plan runs it whole), so its statements
+ *  are the ones its outcome numbers, found when it ends. */
+interface RunNaming { whole: string | null; units: RunUnit[] | null; numbered: Numbered | null }
+interface Numbered {
+  /** The text sent. */
+  sent: string;
+  /** The statements the outcome numbers (`numberedStatements`) as units, named. */
+  resolve: (statements: { statement: number; start: number; end: number }[]) => RunUnit[];
+  /** An outcome that numbers nothing: the name the whole run takes when it
+   *  was one statement (null: none). */
+  single: string | null;
+}
+
+/** "Volver a ejecutar" on a script's tab whose named statements went to
+ *  their tabs: the same split again, with the names they had (by statement). */
+async function rerunNaming(r: ResultRun): Promise<RunNaming | null> {
+  const parts = r.parts;
+  if (!parts?.some(Boolean)) return null;
+  if (!(perStatement.value && r.plan === 'none')) {
+    // The engine numbers the same statements the same way.
+    const resolve = (statements: { statement: number; start: number; end: number }[]) => {
+      const lines = linesAt(r.script, statements.map((s) => s.start));
+      return statements.map((s, i): RunUnit => ({
+        start: s.start, end: s.end, line: lines[i], text: r.script.slice(s.start, s.end),
+        editorStart: r.runBase + s.start, editorLine: (r.lineOffset ?? 0) + lines[i], client: false, name: parts[s.statement] ?? null,
+      }));
+    };
+    return { whole: null, units: null, numbered: { sent: r.script, resolve, single: null } };
+  }
+  let units: ScriptUnit[];
+  try {
+    units = await api.splitScript({ connectionId: r.connectionId, sql: r.script });
+  } catch {
+    return null;
+  }
+  if (units.length !== parts.length) return null;
+  return {
+    whole: null,
+    numbered: null,
+    units: units.map((u, i) => ({
+      start: u.start, end: u.end, line: u.line, text: u.text, editorStart: r.runBase + u.start, editorLine: (r.lineOffset ?? 0) + u.line,
+      client: u.kind === 'client_command', name: parts[i],
+    })),
+  };
+}
+
+/** The names of a run, read from `doc` (the editor's text): `base` is where
+ *  `script` (as written) starts in it, `sent` the text that runs (its
+ *  parameters filled). Null: nothing named. */
+async function nameRun(doc: string, base: number, script: string, sent: string, plan: PlanMode): Promise<RunNaming | null> {
+  const marks = commentMarks.value;
+  const dialect = driver.value?.dialect;
+  if (!marks.some((m) => doc.includes(m))) return null;
+  const split = (sql: string, statements = false) => api.splitScript({ connectionId: props.tab.connectionId, sql, statements });
+  // The units the app runs one by one (`statement` indexes into them).
+  let units: ScriptUnit[];
+  let written: ScriptUnit[];
+  try {
+    units = await split(sent);
+    written = sent === script ? units : await split(script);
+  } catch {
+    return null;
+  }
+  // Where an offset of the text sent is in the editor: by the text as
+  // written (a filled parameter moves what follows it).
+  const same = written.length === units.length;
+  const at = (offset: number) => {
+    if (!same || sent === script) return base + offset;
+    // The last unit that starts at or before it.
+    let lo = 0;
+    let hi = units.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (units[mid].start <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    const k = lo;
+    const u = units[k];
+    const w = written[k];
+    return u && offset >= u.start ? base + w.start + Math.min(offset - u.start, w.end - w.start) : base + offset;
+  };
+  const head = (start: number, end: number) => statementHead(doc, at(start), at(end), marks, dialect);
+  // A batch (SQL Server's, Sybase's) may hold several statements: a name
+  // is a statement's, so only a unit of one statement takes it.
+  let starts: number[] | null = null;
+  if (units.some((u) => u.kind === 'batch')) {
+    try {
+      starts = (await split(sent, true)).filter((u) => u.kind !== 'client_command')
+        .map((u) => statementHead(sent, u.start, u.end, marks, dialect).start).filter((s): s is number => s !== null);
+    } catch {
+      return null;
+    }
+  }
+  const single = (us: RunUnit[]) => (starts ? oneStatementEach(us, starts) : us);
+  const lines = linesAt(doc, units.map((u) => at(u.start)));
+  const named = single(units.map((u, i): RunUnit => {
+    const h = u.kind === 'client_command' ? null : head(u.start, u.end);
+    return {
+      start: u.start, end: u.end, line: u.line, text: u.text, editorStart: at(u.start), editorLine: lines[i],
+      client: h?.start == null, name: h?.name ?? null,
+    };
+  }));
+  const statements = named.filter((u) => !u.client);
+  if (perStatement.value) {
+    if (statements.length === 1) return statements[0].name ? { whole: statements[0].name, units: null, numbered: null } : null;
+    // Several, run one by one by the app.
+    if (plan === 'none') return named.some((u) => u.name) ? { whole: null, units: uniqueNames(named), numbered: null } : null;
+  }
+  // The engine gets the text whole (or its plan does): when the run ends,
+  // its outcome says where each statement starts, and the editor names it.
+  const resolve = (found: { statement: number; start: number; end: number }[]) => {
+    const inSent = linesAt(sent, found.map((s) => s.start));
+    const inDoc = linesAt(doc, found.map((s) => at(s.start)));
+    return uniqueNames(single(found.map((s, i): RunUnit => ({
+      start: s.start, end: s.end, line: inSent[i], text: sent.slice(s.start, s.end),
+      editorStart: at(s.start), editorLine: inDoc[i], client: false, name: head(s.start, s.end).name,
+    }))));
+  };
+  return { whole: null, units: null, numbered: { sent, resolve, single: statements.length === 1 ? statements[0].name : null } };
+}
+
+/** A script with named statements ended: each one's results, messages and
+ *  errors go to its name's tab (refreshed in place, or a new one after the
+ *  run's), the rest stays in the run's tab, which closes when nothing is
+ *  left (the run's first named tab shows instead). `clears`: the store's
+ *  clears when it started (one since: nothing is stored). */
+function splitRun(r: ResultRun, o: QueryOutcome, naming: RunNaming, clears: number) {
+  // Each statement of the outcome as its unit: by index where the app ran
+  // them one by one, or by where the engine's numbering puts them.
+  let byStatement: (RunUnit | undefined)[] = [];
+  let whole: RunUnit | null = null;
+  if (naming.units) byStatement = naming.units;
+  else if (naming.numbered) {
+    const n = naming.numbered;
+    const found = numberedStatements(o, n.sent, commentMarks.value);
+    n.resolve(found).forEach((u, i) => { byStatement[found[i].statement] = u; });
+    // An engine that numbers nothing: only a run of one statement is named.
+    if (!found.length && n.single) {
+      whole = {
+        start: 0, end: n.sent.length, line: 1, text: n.sent, editorStart: r.runBase, editorLine: (r.lineOffset ?? 0) + 1, client: false, name: n.single,
+      };
+    }
+  }
+  // The run's own tab may have been given a statement's name: that one stays in it.
+  if (r.name) byStatement = Array.from(byStatement, (u) => (u && u.name === r.name ? { ...u, name: null } : u));
+  if (whole?.name === r.name) whole = null;
+  const { rest, parts } = whole ? { rest: null, parts: [{ name: whole.name!, unit: 0, outcome: o }] } : splitOutcome(o, byStatement);
+  if (whole) byStatement = [whole];
+  if (!parts.length) {
+    persistRun(r, clears);
+    return;
+  }
+  let at = runs.value.indexOf(r) + 1;
+  const tabs: ResultRun[] = [];
+  for (const p of parts) {
+    const u = byStatement[p.unit]!;
+    // The tab holds its statement: "Volver a ejecutar" and exports run only
+    // it (a whole run's plan with it; a part's plans stay in the run's tab).
+    const fields = {
+      outcome: p.outcome, script: u.text, plan: whole ? r.plan : 'none' as PlanMode, connectionId: r.connectionId, database: r.database,
+      language: r.language, multi: null, lineOffset: u.editorLine - 1, runBase: u.editorStart, parts: null, label: null, resultSql: null,
+    };
+    let tab = runs.value.find((x) => x !== r && x.name === p.name);
+    if (tab) Object.assign(tab, fields, { at: Date.now(), restored: false });
+    else {
+      runs.value.splice(at, 0, { ...fields, name: p.name, id: nextRunId++, key: crypto.randomUUID(), at: Date.now(), pinned: false });
+      tab = runs.value[at++];
+    }
+    // Its stored copy is replaced in place (same key): never two of one name.
+    persistRun(tab, clears);
+    tabs.push(tab);
+  }
+  if (rest) {
+    r.outcome = rest;
+    // "Volver a ejecutar" runs the script again and splits it the same way;
+    // the tab reads as what stayed in it.
+    r.parts = Array.from(byStatement, (u) => u?.name ?? null);
+    const first = byStatement.find((u) => u && !u.name && !u.client);
+    r.label = first ? runLabel(first.text) : null;
+    // Its results are some of the script's: export, editing and the chart
+    // read each one's own statement, not the whole script.
+    r.resultSql = rest.results.map((x) => (x.statement != null ? byStatement[x.statement]?.text ?? null : null));
+    persistRun(r, clears);
+  } else {
+    const shown = activeRunId.value === r.id;
+    dropRun(r);
+    if (shown) activeRunId.value = tabs[0].id;
+  }
 }
 
 // -- parameters (`:name`, `?`, `@name`): asked before every kind of run ------------------------
@@ -684,8 +888,9 @@ async function withParams(script: string): Promise<string | null> {
 onBeforeUnmount(() => paramAsk.value?.resolve(null));
 
 /** `into`: "Volver a ejecutar" on a result tab, whose results this run
- *  replaces; otherwise the run opens a new tab. */
-async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean, into?: ResultRun) {
+ *  replaces; otherwise the run opens a new tab, or (`naming`) runs in its
+ *  name's tab, or splits into named tabs when it ends. */
+async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean, into?: ResultRun, naming?: RunNaming | null) {
   running.value = true;
   startClock();
   // What a cancel that closes the session would roll back: the transaction
@@ -694,20 +899,35 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
   // Statements fill it as they end (query-progress); the answer replaces it.
   const blank: QueryOutcome = { results: [], messages: [], error: null, elapsed_ms: 0, plans: [], log: [], errors: [] };
   const shownBefore = activeRunId.value;
-  const again = into && runs.value.includes(into) ? into : null;
-  const before = again ? { outcome: again.outcome, at: again.at } : null;
+  // "Borrar ahora" while it runs: what it splits into named tabs isn't stored.
+  const clears = resultsClears();
+  // A named statement runs in its name's tab, the one it has or a new one.
+  const named = !into && naming?.whole ? naming.whole : null;
+  const target = into ?? (named ? runs.value.find((x) => x.name === named) : undefined);
+  const again = target && runs.value.includes(target) ? target : null;
+  const before = again ? { ...again } : null;
+  const fields = {
+    script, plan, connectionId: props.tab.connectionId, database: props.tab.database,
+    language: driver.value?.language ?? 'sql', multi: null, lineOffset, runBase, parts: null, label: null, resultSql: null,
+  };
   let r: ResultRun;
   if (again) {
     r = again;
     r.restored = false;
     r.outcome = blank;
     r.at = Date.now();
+    // Whatever split it had is the end's to say again.
+    r.parts = null;
+    r.label = null;
+    r.resultSql = null;
+    // Its name's statement, from where it is now in the editor.
+    if (!into) Object.assign(r, fields);
   } else {
-    r = addRun({
-      outcome: blank, script, plan, connectionId: props.tab.connectionId, database: props.tab.database,
-      language: driver.value?.language ?? 'sql', multi: null, lineOffset, runBase,
-    });
+    r = addRun({ ...fields, outcome: blank, name: named });
   }
+  // Named statements in a script: their parts go to their tabs at the end,
+  // and each tab's results are stored then (not the whole run first).
+  const split = naming?.units || naming?.numbered ? naming : null;
   activeRunId.value = r.id;
   liveRun = r;
   liveRunId.value = r.id;
@@ -722,7 +942,7 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
       continueOnError: perStatement.value ? continueOnError.value : null,
       confirmedUnsafe,
       autocommit: offersManualTx.value ? !manualTx.value : null,
-      store: storing.value ? storeArgs(r, props.tab.id, resultsSpace(settings.values[RESULTS_SPACE_SETTING])) : null,
+      store: storing.value && !split ? storeArgs(r, props.tab.id, resultsSpace(settings.values[RESULTS_SPACE_SETTING])) : null,
     }).finally(() => { ui.historySeq++; });
     if (o.needs_confirmation?.length) {
       // Nothing ran: the previous results stay while the user decides.
@@ -745,10 +965,11 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
       const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
       if (o.error) output.add('error', `${firstLine}\n${tb(o.error)}`, { where, elapsedMs: o.elapsed_ms });
       else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });
+      if (split) splitRun(r, o, split, clears);
     }
   } catch (e) {
     r.outcome = { results: [], messages: [], error: errorMessage(e), elapsed_ms: Date.now() - startedAt.value, plans: [] };
-    persistRun(r);
+    persistRun(r, clears);
     output.add('error', errorMessage(e), { where });
     // A connection error: check the connection (the explorer and this pane
     // then show its state).
@@ -760,30 +981,92 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
     stopClock();
   }
   if (!unsafe) trimRuns(r);
-  if (unsafe && (await confirmUnsafe(script, unsafe, again ? again.lineOffset : lineOffset))) await execute(script, plan, true, into);
+  if (unsafe && (await confirmUnsafe(script, unsafe, into ? into.lineOffset : lineOffset))) await execute(script, plan, true, into, naming);
 }
 
-/** ⌘⇧↵: the statement the cursor is in (or the last one before it). */
-async function runStatement(doc: string, cursor: number) {
-  if (running.value) return;
+/** A statement of the editor, with where its code starts (past the
+ *  comment lines it starts with) and its name. */
+type EditorStatement = ScriptUnit & { code: number; name: string | null };
+/** The statements the engine cuts `doc` into. Client commands (DELIMITER,
+ *  SET TERM) are the editor's, not the server's, and a unit of nothing but
+ *  comments isn't one: neither is listed. */
+function editorStatements(doc: string, units: ScriptUnit[]): EditorStatement[] {
+  const out: EditorStatement[] = [];
+  for (const u of units) {
+    if (u.kind === 'client_command') continue;
+    const h = statementHead(doc, u.start, u.end, commentMarks.value, driver.value?.dialect);
+    if (h.start !== null) out.push({ ...u, code: h.start, name: h.name });
+  }
+  return out;
+}
+/** The statement of `doc` that `pick` chooses among those the engine cuts
+ *  it into, or null (said why). */
+async function statementOf(doc: string, pick: (units: EditorStatement[]) => EditorStatement | undefined): Promise<EditorStatement | null> {
   let units;
   try {
     units = await api.splitScript({ connectionId: props.tab.connectionId, sql: doc, statements: true });
   } catch (e) {
     ElMessage.error(errorMessage(e));
-    return;
+    return null;
   }
-  // Client commands (DELIMITER, SET TERM) are the editor's, not the server's:
-  // the nearest statement around them runs instead.
-  units = units.filter((u) => u.kind !== 'client_command');
-  const unit = units.find((u) => cursor >= u.start && cursor <= u.end)
+  // Around a client command, the nearest statement runs instead.
+  const unit = pick(editorStatements(doc, units));
+  if (!unit) ElMessage.info({ message: t('query:status.noStatement'), duration: 2000 });
+  return unit ?? null;
+}
+
+/** ⌘⇧↵: the statement the cursor is in (or the last one before it). */
+async function runStatement(doc: string, cursor: number) {
+  if (running.value) return;
+  const unit = await statementOf(doc, (units) => units.find((u) => cursor >= u.start && cursor <= u.end)
     ?? [...units].reverse().find((u) => u.start <= cursor)
-    ?? units[0];
-  if (!unit) {
-    ElMessage.info({ message: t('query:status.noStatement'), duration: 2000 });
+    ?? units[0]);
+  if (unit) await run(doc.slice(unit.start, unit.end), 'none', unit.start);
+}
+
+// -- the run lens: "▶ Ejecutar" over each statement (setting `editor.runLens`) --------------
+const lensOn = computed(() => settings.values[RUN_LENS_SETTING] !== false);
+/** The statements' starts and names, from the engine's own split; null: no lens. */
+const lenses = ref<RunLens[] | null>(null);
+let lensTimer: ReturnType<typeof setTimeout> | null = null;
+let lensSeq = 0;
+// Again a moment after typing stops; the old lenses stay (moved with the
+// text) until the new ones arrive.
+watch([text, lensOn, unbound, runnable, () => props.tab.connectionId, commentMarks], () => {
+  if (lensTimer) clearTimeout(lensTimer);
+  lensTimer = setTimeout(() => void refreshLenses(), 400);
+}, { immediate: true });
+onBeforeUnmount(() => { if (lensTimer) clearTimeout(lensTimer); });
+async function refreshLenses() {
+  const seq = ++lensSeq;
+  const doc = text.value;
+  if (!lensOn.value || unbound.value || !runnable.value || !driver.value || doc.length > LENS_MAX_CHARS) {
+    lenses.value = null;
     return;
   }
-  await run(doc.slice(unit.start, unit.end), 'none', unit.start);
+  let units: ScriptUnit[] | null;
+  try {
+    units = await api.splitScript({ connectionId: props.tab.connectionId, sql: doc, statements: true });
+  } catch {
+    units = null;
+  }
+  // A newer text has its own on the way.
+  if (seq !== lensSeq || doc !== text.value) return;
+  const found = !units || units.some((u) => u.error) || units.length > 2 * LENS_MAX_STATEMENTS ? [] : editorStatements(doc, units);
+  // Each lens over its statement's code (past the comment lines a unit may start with).
+  lenses.value = found.length >= 2 && found.length <= LENS_MAX_STATEMENTS ? found.map((u) => ({ start: u.code, name: u.name })) : null;
+}
+/** A lens was clicked (`lineFrom`: its line): the statement whose code
+ *  starts on that line runs, or its estimated plan, as "Ejecutar sentencia"
+ *  would. */
+async function runLens(lineFrom: number, plan: boolean) {
+  if (running.value || connecting.value) return;
+  const doc = text.value;
+  const nl = doc.indexOf('\n', lineFrom);
+  const lineEnd = nl < 0 ? doc.length : nl;
+  const unit = await statementOf(doc, (units) => units.find((u) => u.code >= lineFrom && u.code <= lineEnd)
+    ?? units.find((u) => lineFrom >= u.start && lineFrom <= u.end));
+  if (unit) await run(doc.slice(unit.start, unit.end), plan ? 'estimated' : 'none', unit.start);
 }
 
 /** "Optimizar consulta" (OptimizerView): the selection, or the statement at the cursor. */
@@ -861,8 +1144,10 @@ function togglePin(r: ResultRun) {
 const storing = computed(() => keepResults(settings.values[KEEP_RESULTS_SETTING]));
 /** Keep a tab's outcome as it is now: one the editor put together (several
  *  databases), changed (saved edits) or that failed before reaching the backend. */
-function persistRun(r: ResultRun) {
+function persistRun(r: ResultRun, clears?: number) {
   if (!storing.value || !r.outcome || r.restored) return;
+  // The store was cleared since the run began: as `execute_query` does, it isn't kept.
+  if (clears !== undefined && clears !== resultsClears()) return;
   void api.resultsSave(storeArgs(r, props.tab.id, resultsSpace(settings.values[RESULTS_SPACE_SETTING])), r.outcome).catch(() => {});
 }
 /** A restored editor shows its stored result tabs again, the newest one active. */
@@ -903,7 +1188,7 @@ async function rerun(r: ResultRun) {
       retryRun = go;
       return;
     }
-    await execute(r.script, r.plan, false, r);
+    await execute(r.script, r.plan, false, r, await rerunNaming(r));
   };
   await go();
 }
@@ -915,7 +1200,51 @@ function runTime(r: ResultRun) {
 function runTitle(r: ResultRun) {
   const where = `${conns.byId(r.connectionId)?.name ?? ''} · ${r.database || t('query:defaultDatabase')}`;
   const what = r.multi ? r.multi.summary : scriptPreview(r.script);
-  return `${what}\n\n${where}\n${t('query:runs.ranAt', { time: new Date(r.at).toLocaleString(locale()) })}`;
+  // A named one: its whole name first (the tab may show it shortened).
+  const name = r.name ? `${r.name}\n\n` : '';
+  return `${name}${what}\n\n${where}\n${t('query:runs.ranAt', { time: new Date(r.at).toLocaleString(locale()) })}`;
+}
+
+// -- renaming a result tab: double-click (or F2, or its menu), Enter keeps, Esc cancels ----
+const renamingId = ref<number | null>(null);
+const renameText = ref('');
+let renameInput: HTMLInputElement | null = null;
+function setRenameInput(el: unknown) {
+  renameInput = el instanceof HTMLInputElement ? el : null;
+}
+function startRename(r: ResultRun) {
+  // The one running gets its name when it ends (its stored copy is on the way).
+  if (r === liveRun) return;
+  renamingId.value = r.id;
+  renameText.value = r.name ?? '';
+  void nextTick(() => { renameInput?.focus(); renameInput?.select(); });
+}
+/** The name typed becomes the tab's: a statement with that name runs in it
+ *  from then on (another tab that had it goes back to unnamed). Empty: no
+ *  name. */
+function commitRename(r: ResultRun) {
+  if (renamingId.value !== r.id) return;
+  renamingId.value = null;
+  const name = renameText.value.trim().replace(/\s+/g, ' ') || null;
+  if (name === (r.name ?? null)) return;
+  for (const x of runs.value) {
+    if (x !== r && name && x.name === name) {
+      x.name = null;
+      void storeName(x);
+    }
+  }
+  r.name = name;
+  void storeName(r);
+}
+function cancelRename() {
+  renamingId.value = null;
+}
+/** The stored copy takes the new name (a restored tab's rows load first;
+ *  rows that can't be read leave the stored copy as it is, never empty). */
+async function storeName(r: ResultRun) {
+  if (!storing.value || r === liveRun) return;
+  if (r.restored && !(await loadRestored(r))) return;
+  persistRun(r);
 }
 const runMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 function openRunMenu(e: MouseEvent | KeyboardEvent, r: ResultRun) {
@@ -935,6 +1264,7 @@ function openRunMenu(e: MouseEvent | KeyboardEvent, r: ResultRun) {
     items: [
       { label: r.pinned ? t('query:runs.unpin') : t('query:runs.pin'), action: () => togglePin(r) },
       { label: t('query:runs.rerun'), action: () => void rerun(r), disabled: !!blocked || running.value, hint: blocked ?? undefined },
+      { label: t('query:runs.rename'), shortcut: 'F2', action: () => startRename(r), disabled: r === liveRun },
       { label: t('query:runs.copySql'), action: () => void copyRunSql(r) },
       { label: t('common:close'), action: () => closeRun(r), disabled: r === liveRun, divided: true },
       { label: t('query:runs.closeOthers'), action: () => closeUnpinned(r), disabled: !others },
@@ -950,9 +1280,9 @@ async function copyRunSql(r: ResultRun) {
     ElMessage.error(errorMessage(e));
   }
 }
-/** The strip shows with more than one result or a pinned one; a single
- *  result offers "Fijar" in the results' own bar. */
-const showRunStrip = computed(() => runs.value.length > 1 || runs.value.some((r) => r.pinned));
+/** The strip shows with more than one result or a pinned or named one; a
+ *  single result offers "Fijar" in the results' own bar. */
+const showRunStrip = computed(() => runs.value.length > 1 || runs.value.some((r) => r.pinned || r.name));
 
 // -- the tab's status bar ------------------------------------------------------------------------
 const serverVersion = computed(() => conns.live[props.tab.connectionId]?.serverVersion ?? '');
@@ -1294,7 +1624,11 @@ function runOverflow(i: number) {
           :snippets="snippets"
           :link-at="linkAt"
           :table-hover="tableHover"
+          :lenses="lenses"
+          :lens-plan="!!driver?.supports_explain"
+          :lens-busy="running || connecting"
           @navigate="(d: string, pos: number) => openNameAt(d, pos, false)"
+          @lens="runLens"
         />
       </div>
       <div class="qv-sash" @pointerdown="drag" />
@@ -1309,21 +1643,38 @@ function runOverflow(i: number) {
               class="qv-rt"
               :class="{ active: r.id === activeRunId, pinned: r.pinned }"
             >
+              <!-- Renaming: the name in a box in place of the tab's label. -->
+              <input
+                v-if="r.id === renamingId"
+                :ref="setRenameInput"
+                v-model="renameText"
+                class="qv-rt-input"
+                :size="Math.min(40, Math.max(20, renameText.length + 1))"
+                :placeholder="$t('query:runs.namePlaceholder')"
+                :aria-label="$t('query:runs.rename')"
+                @keydown.enter.prevent="commitRename(r)"
+                @keydown.esc.stop.prevent="cancelRename"
+                @blur="commitRename(r)"
+              >
               <button
+                v-else
                 role="tab"
                 class="qv-rt-main"
                 :aria-selected="r.id === activeRunId"
                 :title="runTitle(r)"
                 @click="activeRunId = r.id"
+                @dblclick="startRename(r)"
                 @auxclick.middle="closeRun(r)"
                 @contextmenu="openRunMenu($event, r)"
                 @keydown.shift.f10="openRunMenu($event, r)"
                 @keydown.context-menu="openRunMenu($event, r)"
+                @keydown.f2.prevent="startRename(r)"
               >
                 <el-icon v-if="r.id === liveRunId" class="is-loading qv-rt-state"><ei-loading /></el-icon>
                 <el-icon v-else-if="r.outcome?.error || r.outcome?.errors?.length" class="qv-rt-state qv-rt-error"><ei-circle-close-filled /></el-icon>
                 <el-icon v-else-if="r.multi" class="qv-rt-state"><ei-files /></el-icon>
-                <span class="qv-rt-name">{{ runLabel(r.script) }}</span>
+                <span v-if="r.name" class="qv-rt-name named">{{ r.name }}</span>
+                <span v-else class="qv-rt-name">{{ r.label || runLabel(r.script) }}</span>
                 <span class="qv-rt-time">{{ runTime(r) }}</span>
               </button>
               <button
@@ -1363,6 +1714,7 @@ function runOverflow(i: number) {
               :title="doc.title.value"
               :dialect="driver?.dialect ?? ''"
               :edit-source="r.multi ? null : { connectionId: r.connectionId, database: r.database, language: r.language, script: r.script }"
+              :result-sql="r.resultSql ?? null"
               :labels="r.multi?.labels ?? null"
               :line-offset="r.multi ? null : r.lineOffset ?? 0"
               hide-status
@@ -1493,6 +1845,13 @@ function runOverflow(i: number) {
 }
 .qv-rt-main:focus-visible { outline: 1px solid var(--ide-focus); outline-offset: -1px; }
 .qv-rt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--nm-mono); font-size: 11.5px; }
+/* A named result: its name, in the UI's font (it's a title, not code). */
+.qv-rt-name.named { font-family: inherit; font-size: 12px; font-weight: 600; }
+.qv-rt-input {
+  align-self: center; height: 20px; margin: 0 4px 0 6px; padding: 0 6px; min-width: 0; box-sizing: border-box;
+  border: 1px solid var(--ide-focus); border-radius: 3px; outline: none;
+  background: var(--ide-editor, var(--nm-bg-elev)); color: var(--nm-text-strong); font: inherit; font-size: 12px;
+}
 .qv-rt-time { flex-shrink: 0; color: var(--nm-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .qv-rt-state { flex-shrink: 0; font-size: 12px; }
 .qv-rt-error { color: var(--nm-danger); }

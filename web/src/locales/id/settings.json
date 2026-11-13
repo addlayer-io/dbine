@@ -27,6 +27,8 @@
     "clearResultsDone": "Hasil tersimpan dihapus.",
     "vim": "Mode Vim di editor",
     "vimHelp": "Tombol Vim (NORMAL, INSERT, VISUAL) di editor kueri, berkas, dan rutin. Baris status editor menampilkan mode dan :w menyimpan.",
+    "runLens": "Tampilkan “▶ Jalankan” di atas setiap pernyataan",
+    "runLensHelp": "Jika editor kueri berisi dua pernyataan atau lebih, baris samar di atas setiap pernyataan menjalankannya sendiri, atau menampilkan rencananya pada mesin yang mendukung. Komentar di baris atas memberi nama pada hasilnya.",
     "groupBySchema": "Kelompokkan menurut skema",
     "groupBySchemaHelp": "Di penjelajah, setiap skema adalah folder berisi objeknya. Jika dimatikan, objek berada dalam satu daftar dengan skema di depan nama.",
     "theme": "Tema",

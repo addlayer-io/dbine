@@ -3,7 +3,7 @@ import type { QueryOutcome } from '../api/types';
 // A query editor's result tabs: each run of the editor keeps its own results
 // (with the script, connection and database they came from) until it's
 // closed. A new run closes the oldest unpinned ones beyond the setting's
-// count; a pinned one only closes when the user closes it.
+// count; a pinned or named one only closes when the user closes it.
 
 /** How many unpinned results a query editor keeps (Configuración). */
 export const KEPT_RESULTS_SETTING = 'query.keptResults';
@@ -30,6 +30,18 @@ export interface ResultRun {
   /** When it last ran (ms). */
   at: number;
   pinned: boolean;
+  /** A named result (composables/resultNames.ts): a statement with this
+   *  name runs again in this tab. */
+  name?: string | null;
+  /** A script whose named statements went to their tabs: the names of its
+   *  units (a rerun splits it again), and what its tab shows instead of the
+   *  script's first line (its first unnamed statement). */
+  parts?: (string | null)[] | null;
+  label?: string | null;
+  /** Such a script's tab: the statement each of its results came from (by
+   *  result index), which its export, editing and chart read, since its
+   *  results are only some of the script's. */
+  resultSql?: (string | null)[] | null;
   /** A run on several databases: its sub-tab labels and summary. */
   multi: { labels: string[]; summary: string } | null;
   /** The editor's line of the script's first line, minus one (messages'
@@ -44,10 +56,10 @@ export function keptLimit(v: unknown): number {
 }
 
 /** The runs a new one (`fresh`) closes: the least recently run unpinned
- *  ones beyond `limit`. Never a pinned one, `fresh` itself or one that's
- *  running. */
+ *  ones beyond `limit`. Never a pinned or named one, `fresh` itself or one
+ *  that's running. */
 export function overflow(runs: ResultRun[], fresh: ResultRun, limit: number, running: ResultRun | null): ResultRun[] {
-  const loose = runs.filter((r) => !r.pinned);
+  const loose = runs.filter((r) => !r.pinned && !r.name);
   const extra = loose.length - limit;
   if (extra <= 0) return [];
   return loose

@@ -26,14 +26,20 @@
     "notFound": "Non esiste una tabella, vista o routine con quel nome nel database della scheda.",
     "notLoaded": "Gli oggetti del database non sono ancora stati caricati: connettiti per andare alla definizione."
   },
-  "insertColumn": "Colonna {{n}} di {{total}}: {{name}}",
-  "insertExtra": "Valore {{n}}: l'elenco ha {{total}} colonne",
-  "pickFile": "Scegli file…",
-  "dataFiles": "File di dati (CSV, Parquet, JSON, Excel)",
   "tableHover": {
     "loading": "Caricamento delle colonne…",
     "empty": "Nessun metadato disponibile per questa tabella.",
     "error": "Impossibile leggere le colonne: {{error}}",
     "primaryKey": "Chiave primaria"
+  },
+  "insertColumn": "Colonna {{n}} di {{total}}: {{name}}",
+  "insertExtra": "Valore {{n}}: l'elenco ha {{total}} colonne",
+  "pickFile": "Scegli file…",
+  "dataFiles": "File di dati (CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "Esegui",
+    "runTip": "Esegui solo questa istruzione",
+    "plan": "Piano",
+    "planTip": "Piano di esecuzione stimato di questa istruzione, senza eseguirla"
   }
 }

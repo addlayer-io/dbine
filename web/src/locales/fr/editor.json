@@ -26,14 +26,20 @@
     "notFound": "Il n'y a aucune table, vue ou routine de ce nom dans la base de l'onglet.",
     "notLoaded": "Les objets de la base ne sont pas encore chargés : connectez-vous pour aller à la définition."
   },
-  "insertColumn": "Colonne {{n}} sur {{total}} : {{name}}",
-  "insertExtra": "Valeur {{n}} : la liste a {{total}} colonnes",
-  "pickFile": "Choisir un fichier…",
-  "dataFiles": "Fichiers de données (CSV, Parquet, JSON, Excel)",
   "tableHover": {
     "loading": "Chargement des colonnes…",
     "empty": "Aucune métadonnée disponible pour cette table.",
     "error": "Impossible de lire les colonnes : {{error}}",
     "primaryKey": "Clé primaire"
+  },
+  "insertColumn": "Colonne {{n}} sur {{total}} : {{name}}",
+  "insertExtra": "Valeur {{n}} : la liste a {{total}} colonnes",
+  "pickFile": "Choisir un fichier…",
+  "dataFiles": "Fichiers de données (CSV, Parquet, JSON, Excel)",
+  "lens": {
+    "run": "Exécuter",
+    "runTip": "Exécuter uniquement cette instruction",
+    "plan": "Plan",
+    "planTip": "Plan d’exécution estimé de cette instruction, sans l’exécuter"
   }
 }

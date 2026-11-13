@@ -26,14 +26,20 @@
     "notFound": "该标签页的数据库中没有此名称的表、视图或例程。",
     "notLoaded": "数据库对象尚未加载：请先连接再转到定义。"
   },
-  "insertColumn": "第 {{n}} 列，共 {{total}} 列：{{name}}",
-  "insertExtra": "第 {{n}} 个值：列表有 {{total}} 列",
-  "pickFile": "选择文件…",
-  "dataFiles": "数据文件（CSV、Parquet、JSON、Excel）",
   "tableHover": {
     "loading": "正在加载列…",
     "empty": "此表没有可用的元数据。",
     "error": "无法读取列：{{error}}",
     "primaryKey": "主键"
+  },
+  "insertColumn": "第 {{n}} 列，共 {{total}} 列：{{name}}",
+  "insertExtra": "第 {{n}} 个值：列表有 {{total}} 列",
+  "pickFile": "选择文件…",
+  "dataFiles": "数据文件（CSV、Parquet、JSON、Excel）",
+  "lens": {
+    "run": "运行",
+    "runTip": "仅运行此语句",
+    "plan": "计划",
+    "planTip": "此语句的预估执行计划，不会运行它"
   }
 }

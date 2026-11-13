@@ -10,7 +10,7 @@
   "continueOnErrorTip": "如果某条语句失败，仍运行后续语句。其起始行为与引擎自带工具一致。",
   "estimatedPlanTip": "预估执行计划，不运行（⌘L）",
   "estimatedPlan": "预估计划",
-  "actualPlanTip": "运行并包含实际计划（⌘⇧↵）",
+  "actualPlanTip": "运行并包含实际计划（⌘⇧L）",
   "runWithPlan": "运行 + 计划",
   "formatTip": "格式化所选内容；未选择时格式化全部（⇧⌥F）",
   "format": "格式化",
@@ -107,11 +107,13 @@
     "unpin": "取消固定",
     "pinTip": "固定此结果：之后的运行不会替换它",
     "rerun": "重新运行",
+    "rename": "重命名",
     "rerunMulti": "该查询在多个数据库上运行过：请通过“在多个数据库上运行…”重新运行",
     "rerunMoved": "编辑器已不在运行该查询的数据库（{{database}}）上",
     "copySql": "复制查询",
     "closeOthers": "关闭其他未固定的",
     "closeUnpinned": "关闭未固定的",
-    "ranAt": "运行时间：{{time}}"
+    "ranAt": "运行时间：{{time}}",
+    "namePlaceholder": "结果名称"
   }
 }
