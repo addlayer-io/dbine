@@ -9,13 +9,20 @@ _Updated 2026-11-13._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 6 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| OSV-RUSTSEC-2026-0523-quinn-proto-13ee4b | MEDIUM | osv | quinn-proto 0.11.18: MAX_STREAM_DATA frame can open streams beyond the stream limit | `Cargo.lock` | upgrade to 0.11.19 |
+| OSV-RUSTSEC-2026-0523-quinn-proto-c4afe4 | MEDIUM | osv | quinn-proto 0.11.18: MAX_STREAM_DATA frame can open streams beyond the stream limit | `fuzz/Cargo.lock` | upgrade to 0.11.19 |
+| OSV-RUSTSEC-2026-0524-quinn-proto-13ee4b | MEDIUM | osv | quinn-proto 0.11.18: Long Retry token can panic or exhaust memory in a QUIC client | `Cargo.lock` | upgrade to 0.11.19 |
+| OSV-RUSTSEC-2026-0524-quinn-proto-c4afe4 | MEDIUM | osv | quinn-proto 0.11.18: Long Retry token can panic or exhaust memory in a QUIC client | `fuzz/Cargo.lock` | upgrade to 0.11.19 |
+| OSV-RUSTSEC-2026-0538-quinn-udp-13ee4b | MEDIUM | osv | quinn-udp 0.5.15: Receive loop can spin after a truncated datagram | `Cargo.lock` | upgrade to 0.5.16, 0.6.3 |
+| OSV-RUSTSEC-2026-0538-quinn-udp-c4afe4 | MEDIUM | osv | quinn-udp 0.5.15: Receive loop can spin after a truncated datagram | `fuzz/Cargo.lock` | upgrade to 0.5.16, 0.6.3 |
 
 ## What the last scans covered
 
@@ -23,9 +30,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.5.0 | 2026-11-11 | 6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e in vendor/winauth and crates/drivers/kdb, the only code that range changes; e8d6961e..e50a062f, the fixes for the open findings, in src-tauri, crates/dbine-core, crates/drivers/kdb and web/src | 0 open | 8d440027, the query editor's result tabs (#75, web/src only), released without a scan by the owner's decision; release-notes and translation text |
 | codeql | 2026-11-13 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-13 | every lockfile (Cargo, npm) at [`b0dab9c6d`](https://github.com/addlayer-io/dbine/commit/b0dab9c6ddbc) | 0 open | — |
-| scorecard | 2026-11-13 | repository settings and workflows at [`7f996932f`](https://github.com/addlayer-io/dbine/commit/7f996932f927) | score 7.5/10 | — |
-| trivy | 2026-11-13 | whole repository at [`b0dab9c6d`](https://github.com/addlayer-io/dbine/commit/b0dab9c6ddbc) | 0 open | — |
+| osv | 2026-11-13 | every lockfile (Cargo, npm) at [`e47b8bdbd`](https://github.com/addlayer-io/dbine/commit/e47b8bdbd96b) | 6 open | — |
+| scorecard | 2026-11-13 | repository settings and workflows at [`b0dab9c6d`](https://github.com/addlayer-io/dbine/commit/b0dab9c6ddbc) | score 7.5/10 | — |
+| trivy | 2026-11-13 | whole repository at [`e47b8bdbd`](https://github.com/addlayer-io/dbine/commit/e47b8bdbd96b) | 0 open | — |
 
 ## Not counted, and why
 
@@ -396,7 +403,7 @@ OpenSSF Scorecard: **7.5/10** (2026-11-13). The checks below 10, with Scorecard'
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/1 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/2 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 7 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
