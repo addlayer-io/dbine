@@ -69,6 +69,12 @@ pub struct FunctionInfo {
     /// Flux's `strings`). Empty otherwise.
     #[serde(default)]
     pub schema: String,
+    /// The editor language the entry belongs to when it isn't the driver's
+    /// own: `sql` for the SQL lines of a JSON console (Elasticsearch,
+    /// OpenSearch and Solr run `SELECT`/`SHOW` lines next to their JSON
+    /// requests). Empty for the driver's language.
+    #[serde(default)]
+    pub language: String,
 }
 
 impl FunctionInfo {
@@ -80,6 +86,7 @@ impl FunctionInfo {
             returns: String::new(),
             description: String::new(),
             schema: String::new(),
+            language: String::new(),
         }
     }
     pub fn args(mut self, args: impl Into<String>) -> Self {
@@ -96,6 +103,10 @@ impl FunctionInfo {
     }
     pub fn schema(mut self, schema: impl Into<String>) -> Self {
         self.schema = schema.into();
+        self
+    }
+    pub fn language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
         self
     }
 }

@@ -28,6 +28,10 @@ export interface FunctionInfo {
    *  reached by its bare name (a user's function in `sales`, Flux's
    *  `strings`); '' otherwise. */
   schema: string;
+  /** The editor language the entry belongs to when it isn't the driver's
+   *  own: 'sql' for the SQL lines of a JSON console (Elasticsearch,
+   *  OpenSearch, Solr); '' for the driver's language. */
+  language?: string;
 }
 
 export type FieldKind =
