@@ -283,6 +283,8 @@ pub(crate) fn item_of(p: PlanDef, used: &[String]) -> SchedulerItem {
         can_edit: fixed.then_some(false),
         can_delete: fixed.then_some(false),
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

@@ -2769,6 +2769,8 @@ pub(crate) async fn ttl_items(s: &PgSession, c: &Caps) -> Result<SchedulerList> 
                     can_edit: None,
                     can_delete: None,
                     actions: offers(if run { &[RUN_NOW] } else { &[] }),
+                    run_from_step: None,
+                    clear_history: None,
                 }
             })
             .collect(),

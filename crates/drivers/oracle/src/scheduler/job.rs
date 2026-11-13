@@ -1342,6 +1342,8 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     can_edit: super::unless(locked),
                     can_delete: super::unless(locked),
                     actions: (!offered.is_empty()).then_some(actions),
+                    run_from_step: None,
+                    clear_history: None,
                 }
             })
             .collect(),

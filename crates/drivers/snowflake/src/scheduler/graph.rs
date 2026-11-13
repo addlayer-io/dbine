@@ -105,6 +105,8 @@ pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
                         can_edit: (!mine).then_some(false),
                         can_delete: (!mine).then_some(false),
                         actions: None,
+                        run_from_step: None,
+                        clear_history: None,
                     }
                 })
                 .collect();

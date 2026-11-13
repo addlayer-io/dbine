@@ -178,6 +178,8 @@ pub(crate) fn items(_c: &Connection, _ctx: &Ctx) -> Result<SchedulerList> {
             can_edit: None,
             can_delete: None,
             actions: None,
+            run_from_step: None,
+            clear_history: None,
         }],
         notes: Vec::new(),
     })

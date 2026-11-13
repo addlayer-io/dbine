@@ -268,6 +268,8 @@ fn cq_item(c: &jobs::Cq, may: bool) -> SchedulerItem {
         can_edit: unless(may),
         can_delete: unless(may),
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 
@@ -285,6 +287,8 @@ fn pipe_item(p: &jobs::Pipe, may: bool) -> SchedulerItem {
         can_edit: unless(may),
         can_delete: unless(may),
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

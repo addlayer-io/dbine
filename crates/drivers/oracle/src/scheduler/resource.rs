@@ -267,6 +267,8 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     can_edit: super::unless(locked),
                     can_delete: super::unless(locked),
                     actions: None,
+                    run_from_step: None,
+                    clear_history: None,
                 }
             })
             .collect(),
@@ -654,6 +656,8 @@ pub(crate) fn incompat_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList>
                     can_edit: super::unless(locked),
                     can_delete: super::unless(locked),
                     actions: None,
+                    run_from_step: None,
+                    clear_history: None,
                 }
             })
             .collect(),

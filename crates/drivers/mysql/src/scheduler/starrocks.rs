@@ -191,6 +191,8 @@ pub(super) fn item(t: &Task, view: Option<&View>) -> SchedulerItem {
             } else {
                 &[]
             }),
+            run_from_step: None,
+            clear_history: None,
         },
         None => {
             let pipe = sj::pipe_task(&t.name);
@@ -211,6 +213,8 @@ pub(super) fn item(t: &Task, view: Option<&View>) -> SchedulerItem {
                 } else {
                     &[]
                 }),
+                run_from_step: None,
+                clear_history: None,
             }
         }
     }

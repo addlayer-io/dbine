@@ -688,6 +688,8 @@ pub(crate) fn item(c: &Ctx, id: i64, row: &ScheduleRow, owner: Option<&str>) -> 
         can_edit: mine,
         can_delete: mine,
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

@@ -133,6 +133,13 @@ pub struct SchedulerItem {
     /// The keys of its kind's actions it offers now; `None`: all of them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions: Option<Vec<String>>,
+    /// `None`: as its kind says. For kinds that hold different sorts of
+    /// object (Elasticsearch's jobs: transforms, watches, policies), whether
+    /// this one starts at a step / keeps a history the user can delete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_from_step: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear_history: Option<bool>,
 }
 
 /// The objects of a kind, with what the user should know about the list.

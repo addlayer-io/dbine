@@ -1747,6 +1747,8 @@ pub(crate) async fn class_items(s: &PgSession, c: &Ctx) -> Result<SchedulerList>
                 can_edit: None,
                 can_delete: used.contains(&id).then_some(false),
                 actions: None,
+                run_from_step: None,
+                clear_history: None,
             })
             .collect(),
         notes: Vec::new(),

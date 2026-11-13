@@ -52,6 +52,9 @@ export interface SchedulerItem {
   can_delete?: boolean | null;
   /** The keys of its kind's actions it offers now; absent: all of them. */
   actions?: string[] | null;
+  /** Absent: as its kind says; set for kinds mixing sorts of object (a watch starts at a step, a transform doesn't). */
+  run_from_step?: boolean | null;
+  clear_history?: boolean | null;
 }
 
 export interface SchedulerList {

@@ -199,6 +199,8 @@ fn operator_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
                     can_edit: None,
                     can_delete: None,
                     actions: None,
+                    run_from_step: None,
+                    clear_history: None,
                 })
             })
             .collect(),
@@ -220,6 +222,8 @@ fn alert_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
                     can_edit: None,
                     can_delete: None,
                     actions: None,
+                    run_from_step: None,
+                    clear_history: None,
                 })
             })
             .collect(),

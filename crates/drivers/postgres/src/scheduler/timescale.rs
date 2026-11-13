@@ -584,6 +584,8 @@ pub(crate) async fn policy_items(s: &PgSession, c: &Ctx, p: Policy) -> Result<Sc
                     can_edit: Some(mine),
                     can_delete: Some(mine && !j.system()),
                     actions: super::offers(if mine { &[super::RUN] } else { &[] }),
+                    run_from_step: None,
+                    clear_history: None,
                 }
             })
             .collect(),

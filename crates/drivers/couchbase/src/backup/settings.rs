@@ -34,6 +34,8 @@ pub(crate) fn items(_c: &Ctx) -> Result<SchedulerList> {
             can_edit: None,
             can_delete: None,
             actions: None,
+            run_from_step: None,
+            clear_history: None,
         }],
         notes: Vec::new(),
     })

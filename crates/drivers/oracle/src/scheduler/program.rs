@@ -429,6 +429,8 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                         }
                         keys
                     }),
+                    run_from_step: None,
+                    clear_history: None,
                 }
             })
             .collect(),

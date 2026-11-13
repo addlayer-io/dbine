@@ -923,6 +923,8 @@ pub(super) fn group_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
                     can_delete: system.then_some(false),
                     actions: None,
                     name,
+                    run_from_step: None,
+                    clear_history: None,
                 })
             })
             .collect(),

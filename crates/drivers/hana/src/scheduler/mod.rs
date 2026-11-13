@@ -912,6 +912,8 @@ pub(crate) fn item_of(j: dbine_driver::ServerJob, rights: Option<&Rights>) -> Sc
         enabled: Some(j.enabled),
         system: j.system,
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

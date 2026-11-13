@@ -155,6 +155,8 @@ fn item(r: &Value, id: String, enabled: Option<bool>) -> Option<SchedulerItem> {
         can_edit: None,
         can_delete: None,
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     })
 }
 

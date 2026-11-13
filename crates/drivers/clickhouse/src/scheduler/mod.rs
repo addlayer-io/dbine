@@ -249,6 +249,8 @@ impl ClickHouseSession {
                 can_edit: None,
                 can_delete: None,
                 actions: None,
+                run_from_step: None,
+                clear_history: None,
             })
             .collect();
         let missing = self.missing();

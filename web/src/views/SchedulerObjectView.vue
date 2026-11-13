@@ -90,10 +90,13 @@ const infoError = computed(() => {
 });
 /** A job's "Iniciar en el paso…" and "Borrar historial", where its kind has
  *  them (and its row, once read, agrees: it can run, it keeps a history). */
+const jobItem = computed(() => (props.tab.objectId ? store.item(cid.value, 'job', props.tab.objectId) : undefined));
 const jobRunFrom = computed(() => props.tab.objectKind === 'job' && !isNew.value && !connReadOnly.value
-  && !!kind.value?.run_from_step && (store.job(cid.value, props.tab.objectId!)?.can_run ?? true));
+  && (jobItem.value?.run_from_step ?? !!kind.value?.run_from_step)
+  && (store.job(cid.value, props.tab.objectId!)?.can_run ?? true));
 const jobClearHistory = computed(() => props.tab.objectKind === 'job' && !isNew.value && !connReadOnly.value
-  && !!kind.value?.clear_history && (store.job(cid.value, props.tab.objectId!)?.has_history ?? true));
+  && (jobItem.value?.clear_history ?? !!kind.value?.clear_history)
+  && (store.job(cid.value, props.tab.objectId!)?.has_history ?? true));
 /** Up to two actions show as buttons; more go to "Más acciones" with the job's. */
 const actionButtons = computed(() => (actions.value.length <= 2 ? actions.value : []));
 const moreItems = computed(() => [

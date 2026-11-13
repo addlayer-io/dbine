@@ -136,6 +136,8 @@ pub(crate) async fn items(s: &mut SqlServerSession, _c: &Ctx) -> Result<Schedule
                         can_edit: None,
                         can_delete: None,
                         actions: None,
+                        run_from_step: None,
+                        clear_history: None,
                     })
                 })
                 .collect()

@@ -681,6 +681,8 @@ pub(crate) async fn table_items(s: &mut DremioSession) -> Result<SchedulerList> 
                 can_edit: None,
                 can_delete: None,
                 actions: None,
+                run_from_step: None,
+                clear_history: None,
             });
         }
     }
@@ -711,6 +713,8 @@ pub(crate) async fn source_items(s: &mut DremioSession) -> Result<SchedulerList>
                 can_edit: None,
                 can_delete: None,
                 actions: None,
+                run_from_step: None,
+                clear_history: None,
             })
         })
         .collect();

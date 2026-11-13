@@ -125,6 +125,8 @@ pub(crate) fn item(ctx: &Ctx, c: &Category) -> SchedulerItem {
         can_edit: own,
         can_delete: own,
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

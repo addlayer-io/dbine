@@ -156,14 +156,18 @@ export function serverJobActions(connectionId: string, job: ServerJob) {
   const scheduler = store.hasScheduler(connectionId);
   const kind = store.kind(connectionId, 'job');
   const abilities = objectAbilities(connectionId, kind, job.id);
+  // The job's own word first (kinds that mix sorts of object), else its kind's.
+  const item = store.item(connectionId, 'job', job.id);
+  const runFromStep = item?.run_from_step ?? !!kind?.run_from_step;
+  const clearsHistory = item?.clear_history ?? !!kind?.clear_history;
   return {
     run: writable && !!job.can_run,
     stop: writable && !!job.can_stop && !!job.running,
     toggle: writable && !!job.can_enable,
     script: !!job.has_script,
     edit: scheduler && (!kind || (abilities ? abilities.edit : !!kind.can_edit)),
-    runFrom: scheduler && writable && !!job.can_run && !!kind?.run_from_step,
-    clearHistory: scheduler && writable && !!job.has_history && !!kind?.clear_history,
+    runFrom: scheduler && writable && !!job.can_run && runFromStep,
+    clearHistory: scheduler && writable && !!job.has_history && clearsHistory,
     delete: scheduler && writable && !!abilities?.delete,
     /** The job kind's actions this job offers now (none on a read-only connection). */
     actions: scheduler && writable ? abilities?.actions ?? [] : [],

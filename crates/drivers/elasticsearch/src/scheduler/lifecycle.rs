@@ -169,6 +169,8 @@ pub(crate) async fn items(s: &EsSession, c: &Ctx) -> Result<SchedulerList> {
                         can_edit: None,
                         can_delete: None,
                         actions: None,
+                        run_from_step: None,
+                        clear_history: None,
                     });
                 }
             }
@@ -207,6 +209,8 @@ pub(crate) async fn items(s: &EsSession, c: &Ctx) -> Result<SchedulerList> {
                 can_edit: managed.then_some(false),
                 can_delete: managed.then_some(false),
                 actions: None,
+                run_from_step: None,
+                clear_history: None,
             });
         }
         items.sort_by(|a, b| a.name.cmp(&b.name));

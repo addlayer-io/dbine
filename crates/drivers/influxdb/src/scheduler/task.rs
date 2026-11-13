@@ -115,6 +115,8 @@ pub(crate) fn item_of(t: &J) -> Option<SchedulerItem> {
         can_edit: (script || owned).then_some(false),
         can_delete: owned.then_some(false),
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     })
 }
 

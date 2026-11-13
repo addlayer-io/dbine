@@ -94,6 +94,8 @@ pub(crate) fn item(p: &Plugin) -> SchedulerItem {
         can_edit: p.builtin.then_some(false),
         can_delete: p.builtin.then_some(false),
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

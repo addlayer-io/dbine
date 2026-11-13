@@ -659,6 +659,8 @@ pub(super) fn job_item(
         can_edit,
         can_delete,
         actions,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

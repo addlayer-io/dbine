@@ -606,6 +606,8 @@ fn item_of(q: &Value, pause: bool) -> Option<SchedulerItem> {
         can_edit: (!readable).then_some(false),
         can_delete: (!readable).then_some(false),
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     })
 }
 

@@ -834,6 +834,8 @@ fn item_of(c: &Caps, kind: &str, scope: Scope, r: &dyn Row) -> Option<SchedulerI
         can_edit: Some(mine),
         can_delete: Some(mine),
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     };
     Named::parse(&item.id).is_some().then_some(item)
 }

@@ -352,6 +352,8 @@ pub(super) async fn items(s: &mut MySqlSession, kind: &str) -> Result<SchedulerL
                 can_edit: locked.then_some(false),
                 can_delete: locked.then_some(false),
                 actions: None,
+                run_from_step: None,
+                clear_history: None,
             }
         })
         .collect();

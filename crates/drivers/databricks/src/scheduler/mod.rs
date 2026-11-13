@@ -736,6 +736,8 @@ impl DatabricksSession {
                 can_edit: None,
                 can_delete: None,
                 actions: None,
+                run_from_step: None,
+                clear_history: None,
             })
             .collect();
         items.sort_by_key(|i| i.name.to_lowercase());

@@ -176,6 +176,8 @@ pub(super) fn item(j: &Job) -> SchedulerItem {
         can_edit,
         can_delete,
         actions,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 

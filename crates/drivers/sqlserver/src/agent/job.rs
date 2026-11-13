@@ -1717,6 +1717,8 @@ pub(crate) fn item(c: &Ctx, j: &JobRow) -> SchedulerItem {
         can_edit: mine,
         can_delete: mine,
         actions: None,
+        run_from_step: None,
+        clear_history: None,
     }
 }
 
