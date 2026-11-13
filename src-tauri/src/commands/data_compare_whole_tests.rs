@@ -387,8 +387,10 @@ async fn a_scratch_opened_early_matters_only_if_it_is_needed() {
 }
 
 /// A session whose batched read starts late (a cloud warehouse running its
-/// job, a view whose first row waits for a sort).
-struct Slow(Box<dyn Session>);
+/// job, a view whose first row waits for a sort): it gives its first row
+/// only once `go` is set (or after a minute), so the test decides when
+/// rather than a timer that a slow machine outruns.
+struct Slow(Box<dyn Session>, Arc<std::sync::atomic::AtomicBool>);
 
 #[dbine_driver::async_trait]
 impl Session for Slow {
@@ -423,7 +425,12 @@ impl Session for Slow {
         spec: &ReadSpec,
         sink: dbine_driver::BatchSinkRef,
     ) -> dbine_driver::Result<u64> {
-        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        let waited = std::time::Instant::now();
+        while !self.1.load(std::sync::atomic::Ordering::SeqCst)
+            && waited.elapsed() < Duration::from_secs(60)
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         self.0.read_batches(spec, sink).await
     }
 }
@@ -440,7 +447,11 @@ async fn a_side_goes_on_while_the_other_has_not_begun() {
     let mut r = duck(RIGHT).await;
     let (lo, ro) = (table("t"), table("T"));
     let cols = [l.columns(&lo).await.unwrap(), r.columns(&ro).await.unwrap()];
-    let mut slow = Slow(r);
+    // The slow side starts once the progress has shown the fast one read
+    // whole while it hadn't given a row (progress is sampled every 250 ms,
+    // and the scratch DuckDB may take a while to set up on a busy machine).
+    let go = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut slow = Slow(r, go.clone());
     let input = Input {
         key: vec!["id".into(), "k2".into()],
         wanted: Vec::new(),
@@ -448,7 +459,12 @@ async fn a_side_goes_on_while_the_other_has_not_begun() {
     };
     let seen = Arc::new(Mutex::new(Vec::<Progress>::new()));
     let s2 = seen.clone();
-    let progress = move |p: &Progress| s2.lock().unwrap().push(p.clone());
+    let progress = move |p: &Progress| {
+        if p.rows == [3001, 0] {
+            go.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        s2.lock().unwrap().push(p.clone());
+    };
     let got = compare(
         Side {
             session: l.as_mut(),
@@ -511,7 +527,13 @@ async fn cancel_stops_the_reads_and_the_duckdb_work_and_deletes_it() {
     .expect("cancelled");
     assert!(matches!(e, CommandError::Cancelled), "{e:?}");
     let seen = seen.lock().unwrap();
-    assert!(seen.iter().all(|p| p.phase == Phase::Reading), "{seen:?}");
+    // Cancelled while reading (preparing the scratch DuckDB is part of it):
+    // it never got to compare.
+    assert!(
+        seen.iter()
+            .all(|p| matches!(p.phase, Phase::Reading | Phase::Preparing)),
+        "{seen:?}"
+    );
     assert!(seen.last().unwrap().rows[0] < 2_000_000, "{seen:?}");
     eprintln!("cancelled after {:?}", started.elapsed());
     // Nothing left on disk.
