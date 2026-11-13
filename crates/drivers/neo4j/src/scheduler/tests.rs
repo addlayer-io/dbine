@@ -327,7 +327,7 @@ fn every_statement_is_one_unit_of_the_script() {
     };
     let p = plan(Some(&job("old\nline", 1, false, false)), &w, &[], "db").unwrap();
     assert_eq!(cypher::script(&p.script).len(), 2);
-    assert!(p.script.contains("// Reemplaza al job «old?line»"));
+    assert!(p.script.contains("// ⚠ Reemplaza al job «old?line»"));
 }
 
 #[test]
@@ -426,4 +426,57 @@ fn only_neo4j_has_the_designer() {
     assert!(supported(Flavor::Neo4j));
     assert!(!supported(Flavor::Memgraph));
     assert!(!supported(Flavor::Neptune));
+}
+
+/// The script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("// ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn scripts_warn_about_memory_recreation_and_countdowns() {
+    let w = wanted(&fv(
+        json!({"name": "j", "rate": 10, "statement": "RETURN 1"}),
+    ))
+    .unwrap();
+    // A new job: nothing to accept; that it doesn't survive a restart is
+    // a plain note (every APOC job lives in memory).
+    let p = plan(None, &w, &[], "neo4j").unwrap();
+    assert!(warned(&p.script).is_empty(), "{}", p.script);
+    assert!(p.script.contains(&format!("// {LOST_ON_RESTART}\n")));
+    // A new job under the name of a finished one that may be a countdown.
+    let once = job("j", 0, true, false);
+    let p = plan(None, &w, std::slice::from_ref(&once), "neo4j").unwrap();
+    assert_eq!(warned(&p.script), [MAYBE_COUNTDOWN]);
+    // The same name: scheduled again.
+    let cur = job("j", 10, false, false);
+    let p = plan(Some(&cur), &w, std::slice::from_ref(&cur), "neo4j").unwrap();
+    assert_eq!(warned(&p.script), [SAME_NAME]);
+    assert!(p.script.contains(&format!("// {LOST_ON_RESTART}\n")));
+    // Another name: two calls, each on its own.
+    let k = wanted(&fv(
+        json!({"name": "k", "rate": 10, "statement": "RETURN 1"}),
+    ))
+    .unwrap();
+    let p = plan(Some(&cur), &k, std::slice::from_ref(&cur), "neo4j").unwrap();
+    let got = warned(&p.script);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got[0].starts_with("Reemplaza al job «j»"));
+    assert_eq!(&got[1..], [NOT_ATOMIC]);
+    // A countdown renamed or deleted keeps going.
+    let c = countdown("down", 3, false);
+    let p = plan(Some(&c), &k, std::slice::from_ref(&c), "neo4j").unwrap();
+    assert!(warned(&p.script).iter().any(|x| x == COUNTDOWN));
+    assert_eq!(warned(&delete_plan(&c).unwrap().script), [COUNTDOWN]);
+    let once = job("once", 0, true, false);
+    assert_eq!(
+        warned(&delete_plan(&once).unwrap().script),
+        [MAYBE_COUNTDOWN]
+    );
+    // A plain job's delete: nothing to accept.
+    assert!(warned(&delete_plan(&cur).unwrap().script).is_empty());
 }

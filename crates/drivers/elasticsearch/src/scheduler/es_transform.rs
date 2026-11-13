@@ -22,6 +22,9 @@ use std::collections::BTreeMap;
 
 pub(crate) const RECREATE_NOTE: &str = "Elasticsearch no deja cambiar en el lugar el id de un transform, su pivot o su latest, ni convertir uno por lotes en continuo (o al revés): para eso DBine lo borra y lo vuelve a crear, y se pierden sus checkpoints y estadísticas (el índice de destino se conserva).";
 
+/// A reset: what goes with the transform's state.
+const RESET_DEST: &str = "Si el transform creó su índice de destino, Elasticsearch también borra ese índice; un índice de destino creado aparte se conserva.";
+
 /// The settings (`settings.*`): key, the server's default.
 const SETTINGS: &[(&str, Setting)] = &[
     ("max_page_search_size", Setting::Int(500, 10, 65_536)),
@@ -630,7 +633,7 @@ pub(crate) fn plan_change(cur: &Cur, have: &Tf, want: &Tf) -> Result<Plan> {
         ..Plan::default()
     };
     if must_recreate(have, want) {
-        plan.notes.push(RECREATE_NOTE.into());
+        plan.warnings.push(RECREATE_NOTE.into());
         if want.id != have.id {
             // The new one first: the old one goes only once the new exists.
             plan.reqs.push(
@@ -721,18 +724,19 @@ pub(crate) fn reset_plan(cur: &Cur) -> Result<Plan> {
             shown(&cur.state)
         )));
     }
-    let mut notes = vec![
-        format!(
-            "Restablece el transform «{}»: borra sus checkpoints, su estado y sus estadísticas; al iniciarlo de nuevo procesa el origen desde el principio.",
-            cur.id
-        ),
-        "Si el transform creó su índice de destino, Elasticsearch también borra ese índice; un índice de destino creado aparte se conserva.".to_string(),
-    ];
+    let mut notes = vec![format!("Transform «{}»", cur.id)];
     if cur.managed {
         notes.push(super::MANAGED.into());
     }
     Ok(Plan {
         notes,
+        warnings: vec![
+            format!(
+                "Restablece el transform «{}»: borra sus checkpoints, su estado y sus estadísticas; al iniciarlo de nuevo procesa el origen desde el principio.",
+                cur.id
+            ),
+            RESET_DEST.into(),
+        ],
         reqs: vec![Req::new(
             "POST",
             format!("/_transform/{}/_reset", path_segment(&cur.id)),

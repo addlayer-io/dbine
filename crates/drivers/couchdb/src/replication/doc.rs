@@ -30,6 +30,11 @@ const ONE_STEP: &str = "una replicación se ejecuta entera: no empieza en uno de
 
 const EDIT_NOTE: &str =
     "Guardar un cambio reinicia la replicación: CouchDB la retoma desde su último checkpoint.";
+/// An edit that makes it another replication for CouchDB.
+const NEW_IDENTITY: &str = "Cambian el origen, el destino, el filtro o «Solo las revisiones ganadoras» de la replicación: CouchDB la toma como otra y no usa sus checkpoints, así que vuelve a revisar todos los cambios desde el principio.";
+/// An edit of a one-off replication that had finished.
+const RUNS_AGAIN: &str =
+    "La replicación ya había terminado: al guardar el cambio, CouchDB la ejecuta de nuevo.";
 const SECRET_NOTE: &str = "Las contraseñas, los tokens y los encabezados secretos no se muestran: una contraseña o un token vacíos y los encabezados con asteriscos quedan como están.";
 const TRANSIENT_READ_ONLY: &str =
     "Una replicación transitoria no se puede cambiar: no tiene documento. Borrarla la cancela.";
@@ -1327,14 +1332,20 @@ pub(crate) fn update_change(
     if what.is_empty() {
         return Change::nothing(doc_id, id);
     }
+    let mut comments = vec![format!(
+        "Cambia la replicación «{doc_id}»: {}.",
+        what.join(", ")
+    )];
+    let warnings = update_warnings(old, &new);
+    if identity(old) == identity(&new) {
+        comments.push(EDIT_NOTE.into());
+    }
     let mut body = Map::new();
     body.insert("_rev".into(), json!(rev));
     body.extend(new);
     Change {
-        comments: vec![
-            format!("Cambia la replicación «{doc_id}»: {}.", what.join(", ")),
-            EDIT_NOTE.into(),
-        ],
+        comments,
+        warnings,
         calls: vec![Call::new(
             Method::PUT,
             doc_path(db, doc_id),
@@ -1343,6 +1354,92 @@ pub(crate) fn update_change(
         id: Some(id),
         id_from_reply: None,
     }
+}
+
+/// One endpoint as CouchDB tells replications apart: its URL without the
+/// password, its user and its headers (a bearer token is one).
+fn endpoint_identity(v: Option<&Value>) -> (String, Option<String>, Option<Value>) {
+    let Some(v) = v else {
+        return (String::new(), None, None);
+    };
+    let raw = match v {
+        Value::String(u) => u.as_str(),
+        Value::Object(m) => m.get("url").and_then(Value::as_str).unwrap_or_default(),
+        _ => "",
+    };
+    let (url, url_user, _) = split_userinfo(raw);
+    let user = v
+        .pointer("/auth/basic/username")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or(url_user);
+    (url, user, v.get("headers").cloned())
+}
+
+/// What CouchDB builds a replication's id from (with the server's id):
+/// both endpoints, what filters the documents and, from 3.3 on,
+/// `winning_revs_only` (`couch_replicator_ids:maybe_append_filters`: only
+/// `true` counts, `false` is the same id as absent). With another id it is
+/// another replication, which doesn't take this one's checkpoints.
+pub(crate) fn identity(doc: &Map<String, Value>) -> Vec<Value> {
+    let mut out = Vec::new();
+    for side in [SOURCE, TARGET] {
+        let (url, user, headers) = endpoint_identity(doc.get(side.key));
+        out.push(json!([url, user, headers]));
+    }
+    for k in ["filter", "query_params", "doc_ids", "selector"] {
+        out.push(doc.get(k).cloned().unwrap_or(Value::Null));
+    }
+    out.push(json!(
+        doc.get("winning_revs_only") == Some(&Value::Bool(true))
+    ));
+    out
+}
+
+/// The host and port a URL goes to.
+fn server_of(url: &str) -> Option<(String, Option<u16>)> {
+    let u = reqwest::Url::parse(url).ok()?;
+    Some((
+        u.host_str()?.to_ascii_lowercase(),
+        u.port_or_known_default(),
+    ))
+}
+
+/// What an edit of a replication makes the user lose or risk: checkpoints
+/// CouchDB won't use for what is now another replication, a finished
+/// replication that runs again, a password or token dropped with its way
+/// of authenticating, or kept and sent to another server.
+pub(crate) fn update_warnings(old: &Map<String, Value>, new: &Map<String, Value>) -> Vec<String> {
+    let mut out = Vec::new();
+    if identity(old) != identity(new) {
+        out.push(NEW_IDENTITY.to_string());
+    }
+    if old.get("_replication_state").and_then(Value::as_str) == Some("completed") {
+        out.push(RUNS_AGAIN.to_string());
+    }
+    for side in [SOURCE, TARGET] {
+        let (Some(was), Some(now)) = (old.get(side.key), new.get(side.key)) else {
+            continue;
+        };
+        let (a, b) = (endpoint_view(was), endpoint_view(now));
+        let had_secret = password_of(was).is_some() || bearer_of(was).is_some();
+        if a.auth != b.auth && had_secret {
+            out.push(format!(
+                "La autenticación de «{}» cambia: la contraseña o el token que tenía se quitan del documento, y para volver a usarlos hay que escribirlos de nuevo.",
+                side.label
+            ));
+            continue;
+        }
+        let kept = password_of(was).is_some_and(|p| password_of(now) == Some(p))
+            || bearer_of(was).is_some_and(|t| bearer_of(now) == Some(t));
+        if kept && server_of(&a.url) != server_of(&b.url) {
+            out.push(format!(
+                "La URL de «{}» apunta a otro servidor y conserva la contraseña o el token que tenía: se le mandan a ese servidor.",
+                side.label
+            ));
+        }
+    }
+    out
 }
 
 pub(crate) async fn change(
@@ -1408,6 +1505,7 @@ pub(crate) fn delete_doc_change(db: &str, doc: &str, rev: &str) -> Change {
         comments: vec![format!(
             "Borra la replicación «{doc}» (su documento en «{db}»): CouchDB la detiene."
         )],
+        warnings: Vec::new(),
         calls: vec![Call::new(
             Method::DELETE,
             format!("{}?rev={}", doc_path(db, doc), seg(rev)),
@@ -1421,6 +1519,7 @@ pub(crate) fn delete_doc_change(db: &str, doc: &str, rev: &str) -> Change {
 pub(crate) fn cancel_change(rep: &str) -> Change {
     Change {
         comments: vec!["Cancela la replicación transitoria: no tiene documento que borrar.".into()],
+        warnings: Vec::new(),
         calls: vec![Call::new(
             Method::POST,
             "/_replicate".into(),

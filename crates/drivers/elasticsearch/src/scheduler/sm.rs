@@ -394,7 +394,7 @@ pub(crate) fn plan(
         ..Plan::default()
     };
     if want.name != cur.name {
-        plan.notes.push(format!(
+        plan.warnings.push(format!(
             "Un nombre nuevo crea la política «{}» y borra «{}», con su estado; sus snapshots siguen en el repositorio.",
             want.name, cur.name
         ));

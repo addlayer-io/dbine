@@ -123,6 +123,7 @@ pub(crate) fn config_change(cfg: &Value, values: &FormValues) -> Result<Change> 
             "/config".into(),
             Some(Value::Object(body)),
         )],
+        warnings: Vec::new(),
         undo: None,
         id: Some(ID.into()),
     })

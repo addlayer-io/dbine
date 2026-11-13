@@ -554,3 +554,105 @@ fn replicator_settings() {
         .insert("verify_ssl_certificates".into(), json!("maybe"));
     assert!(err(settings::config_change("n@h", &cfg, &v)).contains("«true», «false» o vacío"));
 }
+
+/// The script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("// ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+/// `old` edited in the form with `extra` on top of what it shows.
+fn edited(old: &Map<String, Value>, extra: serde_json::Value) -> Change {
+    let mut values = doc_values("_replicator", "r", old);
+    for (k, x) in extra.as_object().unwrap() {
+        values.insert(k.clone(), x.clone());
+    }
+    let v = FormValues {
+        values: values.into_iter().collect(),
+        lists: BTreeMap::new(),
+    };
+    let new = build_doc(&c35(), &v, Some(old)).unwrap();
+    doc::update_change("_replicator", "r", "1-a", old, new)
+}
+
+#[test]
+fn edits_warn_about_checkpoints_runs_and_credentials() {
+    let old = obj(json!({"_id": "r", "_rev": "1-a",
+        "source": {"url": "http://h/a", "auth": {"basic": {"username": "u", "password": "p"}}},
+        "target": "http://h/b"}));
+    // Worker settings or "continuous": the same replication, from its
+    // checkpoint.
+    let ch = edited(&old, json!({"worker_processes": 3, "continuous": true}));
+    let sc = ch.script();
+    assert!(
+        warned(&sc).is_empty() && sc.contains("desde su último checkpoint"),
+        "{sc}"
+    );
+    // Another target, filter or user: another replication for CouchDB.
+    for extra in [
+        json!({"target_url": "http://h/c"}),
+        json!({"filter_type": "doc_ids", "doc_ids": "x"}),
+        json!({"source_user": "v"}),
+    ] {
+        let sc = edited(&old, extra.clone()).script();
+        let w = warned(&sc);
+        assert!(
+            w.len() == 1 && w[0].contains("no usa sus checkpoints"),
+            "{extra}: {sc}"
+        );
+        assert!(!sc.contains("desde su último checkpoint"), "{extra}: {sc}");
+    }
+    // "Only the winning revisions" (3.3 on) is part of CouchDB's
+    // replication id: turned on or off, another replication.
+    let mut winning = old.clone();
+    winning.insert("winning_revs_only".into(), json!(true));
+    for (from, to) in [(&old, true), (&winning, false)] {
+        let sc = edited(from, json!({ "winning_revs_only": to })).script();
+        let w = warned(&sc);
+        assert!(
+            w.len() == 1 && w[0].contains("«Solo las revisiones ganadoras»"),
+            "{to}: {sc}"
+        );
+        assert!(!sc.contains("desde su último checkpoint"), "{to}: {sc}");
+    }
+    // Written as `false` where it was absent: the same id.
+    let mut off = old.clone();
+    off.insert("winning_revs_only".into(), json!(false));
+    assert_eq!(doc::identity(&off), doc::identity(&old));
+    // A new password alone: the same replication.
+    assert!(warned(&edited(&old, json!({"source_password": "q"})).script()).is_empty());
+    // Another server keeps the password: it goes there.
+    let w = warned(&edited(&old, json!({"source_url": "http://otro:5984/a"})).script());
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(w[1].contains("«Origen» apunta a otro servidor"));
+    // ...unless one is typed for it.
+    let w = warned(
+        &edited(
+            &old,
+            json!({"source_url": "http://otro:5984/a", "source_password": "q"}),
+        )
+        .script(),
+    );
+    assert_eq!(w.len(), 1, "{w:?}");
+    // Another way of authenticating: the password goes for good.
+    let w = warned(&edited(&old, json!({"source_auth": "none"})).script());
+    assert!(
+        w.iter()
+            .any(|x| x.starts_with("La autenticación de «Origen» cambia")),
+        "{w:?}"
+    );
+    // A finished one-off replication runs again.
+    let mut done = old.clone();
+    done.insert("_replication_state".into(), json!("completed"));
+    let w = warned(&edited(&done, json!({"worker_processes": 3})).script());
+    assert!(w.len() == 1 && w[0].contains("ya había terminado"), "{w:?}");
+    // A new replication in a new database: two requests; a delete: none.
+    let ch = doc::create_change("_replicator", Some("r1"), Map::new(), false);
+    assert_eq!(warned(&ch.script()), [NOT_ATOMIC]);
+    let ch = doc::create_change("_replicator", Some("r1"), Map::new(), true);
+    assert!(warned(&ch.script()).is_empty());
+    assert!(warned(&doc::delete_doc_change("_replicator", "r", "1-a").script()).is_empty());
+}

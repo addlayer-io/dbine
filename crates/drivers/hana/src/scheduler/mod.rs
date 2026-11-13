@@ -60,7 +60,11 @@ mod tests;
 
 const PRIVILEGES: &str = "Para crear un scheduler job hace falta el privilegio CREATE ANY en su esquema y EXECUTE sobre el procedimiento; para cambiarlo o borrarlo, ser su dueño o tener ALTER o DROP sobre él. El job corre con los privilegios de quien lo creó.";
 const RECREATE_NOTE: &str = "SAP HANA no cambia con ALTER el nombre, el esquema ni el procedimiento de un scheduler job, ni le quita la ventana o todos los parámetros: para eso DBine lo crea de nuevo y se pierde el historial de sus ejecuciones.";
-const IN_TRANSACTION: &str = "DBine guarda estas sentencias en una sola transacción (SET TRANSACTION AUTOCOMMIT DDL OFF): si una falla, se deshacen todas y el job queda como estaba. Si el servidor no deja apagar AUTOCOMMIT DDL, cada sentencia se confirma sola.";
+/// A script of more than one statement ([`run`]).
+const IN_TRANSACTION: &str = "DBine guarda estas sentencias en una sola transacción (SET TRANSACTION AUTOCOMMIT DDL OFF): si una falla, se deshacen todas y el job queda como estaba.";
+/// The same script on a server that refuses `AUTOCOMMIT DDL OFF`: [`run`]
+/// falls back to one statement at a time.
+const NOT_ATOMIC: &str = "Si el servidor no deja apagar AUTOCOMMIT DDL, las sentencias se confirman una por una: si una falla, las anteriores quedan aplicadas.";
 const NO_ALTER: &str = "Este usuario no puede cambiar este scheduler job: no es su dueño ni tiene ALTER sobre él o sobre su esquema.";
 const NO_DROP: &str = "Este usuario no puede borrar este scheduler job: no es su dueño ni tiene DROP sobre él o sobre su esquema.";
 const NO_DROP_TO_RECREATE: &str = "Para este cambio SAP HANA borra el scheduler job y lo crea de nuevo, y este usuario no tiene DROP sobre él ni sobre su esquema.";
@@ -69,6 +73,9 @@ const NO_CREATE_ANY: &str =
 const DDL_OFF: &str = "SET TRANSACTION AUTOCOMMIT DDL OFF";
 const DDL_ON: &str = "SET TRANSACTION AUTOCOMMIT DDL ON";
 const NO_COMMENTS: &str = "Esta versión de SAP HANA no guarda comentarios de los scheduler jobs.";
+/// A delete: the job's runs go with it.
+const DELETES_HISTORY: &str =
+    "Con el scheduler job se borra también el historial de sus ejecuciones.";
 const MAX_NAME: usize = 127;
 const MAX_COMMENT: usize = 5000;
 const MAX_CHOICES: usize = 5000;
@@ -570,12 +577,33 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
-    fn new(comments: &[String], statements: Vec<String>, id: String) -> Result<Plan> {
+    /// `warnings`: what the user loses or risks, one Spanish sentence each,
+    /// written as `-- ⚠` lines after the comments (the app lists them and
+    /// asks to continue). More than one statement adds [`IN_TRANSACTION`]
+    /// to the comments and [`NOT_ATOMIC`] to the warnings.
+    fn new(
+        comments: &[String],
+        warnings: &[String],
+        statements: Vec<String>,
+        id: String,
+    ) -> Result<Plan> {
+        let many = statements.len() > 1;
         let mut script = String::new();
-        for c in comments {
+        for c in comments
+            .iter()
+            .map(String::as_str)
+            .chain(many.then_some(IN_TRANSACTION))
+        {
             script.push_str("-- ");
             script.push_str(&comment_text(c));
             script.push('\n');
+        }
+        for w in warnings
+            .iter()
+            .map(String::as_str)
+            .chain(many.then_some(NOT_ATOMIC))
+        {
+            script.push_str(&format!("-- ⚠ {}\n", comment_text(w)));
         }
         for s in &statements {
             script.push_str(s);
@@ -691,22 +719,19 @@ fn same_params(cur: &[(String, String)], wanted: &[(String, String)]) -> bool {
 }
 
 /// The script for `w`: a new job (`current` `None`) or the change of
-/// `current`. `params` are `w`'s parameters as SQL ([`Wanted::typed`]).
+/// `current`. `params` are `w`'s parameters as SQL ([`Wanted::typed`]);
+/// `user` the login that saves, when known (a job created again is its).
 pub(crate) fn plan(
     current: Option<&Job>,
     w: &Wanted,
     params: &[(String, String)],
     comments: bool,
+    user: Option<&str>,
 ) -> Result<Plan> {
     let id = job_id(&w.schema, &w.name);
     let header = format!("Scheduler job {} de SAP HANA", display(&w.schema, &w.name));
     let Some(cur) = current else {
-        let stmts = create_all(w, params);
-        let mut notes = vec![header];
-        if stmts.len() > 1 {
-            notes.push(IN_TRANSACTION.into());
-        }
-        return Plan::new(&notes, stmts, id);
+        return Plan::new(&[header], &[], create_all(w, params), id);
     };
     let renamed = cur.schema != w.schema || cur.name != w.name;
     let same_proc = cur.proc_schema.as_deref() == Some(w.proc_schema.as_str())
@@ -716,29 +741,39 @@ pub(crate) fn plan(
     let params_removed = !cur.params.is_empty() && w.params.is_empty();
     if renamed || !same_proc || bound_removed || params_removed {
         let old = display(&cur.schema, &cur.name);
-        let mut notes = vec![header];
+        let mut warnings = Vec::new();
         let stmts = if renamed {
-            notes.push(format!(
-                "SAP HANA no cambia el nombre ni el esquema de un scheduler job: se crea {} y se borra {old}; el historial de ejecuciones de {old} se pierde.",
+            warnings.push(format!(
+                "SAP HANA no cambia el nombre ni el esquema de un scheduler job: se crea {} y se borra {old}; se pierden el historial de ejecuciones y la fecha de creación de {old}.",
                 display(&w.schema, &w.name)
             ));
             let mut s = create_all(w, params);
             s.push(drop_statement(&cur.schema, &cur.name));
             s
         } else {
-            notes.push(if !same_proc {
-                format!("SAP HANA no cambia con ALTER el procedimiento de un scheduler job: se borra {old} y se vuelve a crear; se pierde el historial de sus ejecuciones.")
+            warnings.push(if !same_proc {
+                format!("SAP HANA no cambia con ALTER el procedimiento de un scheduler job: se borra {old} y se vuelve a crear; se pierden el historial de sus ejecuciones y su fecha de creación.")
             } else if bound_removed {
-                format!("SAP HANA no quita con ALTER la ventana (FROM / UNTIL) de un scheduler job: se borra {old} y se vuelve a crear; se pierde el historial de sus ejecuciones.")
+                format!("SAP HANA no quita con ALTER la ventana (FROM / UNTIL) de un scheduler job: se borra {old} y se vuelve a crear; se pierden el historial de sus ejecuciones y su fecha de creación.")
             } else {
-                format!("SAP HANA no quita con ALTER todos los parámetros de un scheduler job: se borra {old} y se vuelve a crear; se pierde el historial de sus ejecuciones.")
+                format!("SAP HANA no quita con ALTER todos los parámetros de un scheduler job: se borra {old} y se vuelve a crear; se pierden el historial de sus ejecuciones y su fecha de creación.")
             });
             let mut s = vec![drop_statement(&cur.schema, &cur.name)];
             s.extend(create_all(w, params));
             s
         };
-        notes.push(IN_TRANSACTION.into());
-        let mut plan = Plan::new(&notes, stmts, id)?;
+        // The job created again belongs to the login that saves, and runs
+        // with its privileges.
+        if let (Some(user), Some(owner)) = (user, cur.owner.as_deref()) {
+            if user != owner {
+                warnings.push(format!(
+                    "El scheduler job nuevo queda a nombre de {} y corre con sus privilegios, no con los de {}.",
+                    comment_text(user),
+                    comment_text(owner)
+                ));
+            }
+        }
+        let mut plan = Plan::new(&[header], &warnings, stmts, id)?;
         plan.drops = Some((cur.schema.clone(), cur.name.clone()));
         return Ok(plan);
     }
@@ -777,19 +812,16 @@ pub(crate) fn plan(
     if stmts.is_empty() {
         return Ok(Plan::nothing(cur));
     }
-    let mut notes = vec![format!("{header}: cambia en el lugar")];
-    if stmts.len() > 1 {
-        notes.push(IN_TRANSACTION.into());
-    }
-    Plan::new(&notes, stmts, id)
+    Plan::new(&[format!("{header}: cambia en el lugar")], &[], stmts, id)
 }
 
 pub(crate) fn delete_plan(job: &Job) -> Result<Plan> {
     Plan::new(
         &[format!(
-            "Borra el scheduler job {} de SAP HANA (con el historial de sus ejecuciones)",
+            "Borra el scheduler job {} de SAP HANA",
             display(&job.schema, &job.name)
         )],
+        &[DELETES_HISTORY.to_string()],
         vec![drop_statement(&job.schema, &job.name)],
         job_id(&job.schema, &job.name),
     )
@@ -1410,8 +1442,10 @@ async fn plan_for(conn: &Connection, id: Option<&str>, values: &FormValues) -> R
     };
     let proc = check_server(conn, &w).await?;
     let params = w.typed(&proc)?;
-    let p = plan(current.as_ref(), &w, &params, comments)?;
-    check_rights(rights(conn).await.as_ref(), current.as_ref(), &w, &p)?;
+    let rights = rights(conn).await;
+    let user = rights.as_ref().map(|r| r.user.as_str());
+    let p = plan(current.as_ref(), &w, &params, comments, user)?;
+    check_rights(rights.as_ref(), current.as_ref(), &w, &p)?;
     Ok(p)
 }
 

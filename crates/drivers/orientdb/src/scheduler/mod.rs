@@ -57,6 +57,8 @@ const NO_WRITE: &str =
     "Este usuario no puede crear, cambiar ni borrar eventos programados (la clase OSchedule).";
 const UNKNOWN_ACCESS: &str = "No se pudieron leer los roles de este usuario: DBine no sabe si puede cambiar los eventos programados; si no puede, el servidor lo rechazará al guardar.";
 const NOT_FOUND: &str = "No existe ese evento programado en esta base.";
+/// A script of more than one statement: each is its own command.
+const NOT_ATOMIC: &str = "Las sentencias se ejecutan una por una, sin transacción: si una falla, las anteriores quedan aplicadas.";
 
 /// Functions listed for the form at most.
 const MAX_FUNCTIONS: i64 = 5000;
@@ -582,9 +584,17 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
-    fn new(header: &str, statements: Vec<String>, id: String) -> Result<Plan> {
+    /// `warnings`: what the user loses or risks, one Spanish sentence each,
+    /// written as `/* ⚠ … */` lines after the header (the app lists them
+    /// and asks to continue); [`NOT_ATOMIC`] is added for more than one
+    /// statement.
+    fn new(header: &str, warnings: &[&str], statements: Vec<String>, id: String) -> Result<Plan> {
         one_unit_each(&statements)?;
         let mut script = format!("/* {} */\n", comment(header));
+        let atomic = (statements.len() > 1).then_some(NOT_ATOMIC);
+        for w in warnings.iter().copied().chain(atomic) {
+            script.push_str(&format!("/* ⚠ {} */\n", comment(w)));
+        }
         for s in &statements {
             script.push_str(s);
             script.push_str(";\n");
@@ -668,6 +678,7 @@ pub(crate) fn plan(
         }
         return Plan::new(
             &format!("Evento programado «{}» de la base «{database}»", w.name),
+            &[],
             vec![insert_statement(w)],
             w.name.clone(),
         );
@@ -681,9 +692,10 @@ pub(crate) fn plan(
         }
         return Plan::new(
             &format!(
-                "Evento programado «{}» de la base «{database}», con el nombre nuevo «{}». OrientDB no permite cambiar el nombre de un evento: se crea con el nombre nuevo y se borra el anterior; su contador de ejecuciones (nextExecId) vuelve a empezar.",
+                "Evento programado «{}» de la base «{database}», con el nombre nuevo «{}»",
                 cur.name, w.name
             ),
+            &[RENAME_NOTE],
             vec![insert_statement(w), delete_statement(&cur.name)],
             w.name.clone(),
         );
@@ -713,6 +725,7 @@ pub(crate) fn plan(
             "Evento programado «{}» de la base «{database}»: cambia en el lugar",
             cur.name
         ),
+        &[],
         vec![format!(
             "UPDATE OSchedule SET {} WHERE name = {}",
             sets.join(", "),
@@ -728,6 +741,7 @@ pub(crate) fn delete_plan(e: &Event, database: &str) -> Result<Plan> {
             "Borra el evento programado «{}» de la base «{database}»",
             e.name
         ),
+        &[],
         vec![delete_statement(&e.name)],
         e.name.clone(),
     )

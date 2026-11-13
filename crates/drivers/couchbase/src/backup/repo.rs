@@ -36,6 +36,10 @@ const ARCHIVED_NOTE: &str = "Un repositorio archivado no hace backups: guarda lo
 const IMPORTED_NOTE: &str = "Un repositorio importado no hace backups: registra un archivo (de este cluster o de otro) para restaurar o examinar sus backups. No se puede cambiar.";
 const ARCHIVE_FINAL: &str =
     "Archivar es definitivo: el repositorio deja de hacer backups y no vuelve a estar activo.";
+/// A merge: the backups it joins stop being points to restore.
+const MERGED: &str = "Después solo se puede restaurar el estado del más reciente: los puntos intermedios dejan de estar.";
+/// A plan change on an active repository: paused around it.
+const LEFT_PAUSED: &str = "Si un pedido falla después de la pausa, DBine intenta reanudar el repositorio, pero puede quedar en pausa.";
 const FIXED_NOTE: &str = "El bucket, el almacenamiento, los usuarios y el cifrado de un repositorio se eligen al crearlo: el servicio no los cambia después.";
 const NO_PLAN_CHANGE: &str = "Couchbase Server anterior a 8.0 no cambia el plan de un repositorio: para otras tareas, creá otro repositorio con el plan nuevo.";
 const NO_HISTORY_CLEAR: &str = "El servicio de backup de Couchbase no borra el historial de tareas de un repositorio: lo rota solo, por tamaño (ver la configuración del servicio).";
@@ -896,6 +900,7 @@ pub(crate) fn create_change(
     Change {
         comments: vec![format!("Crea el repositorio de backup «{name}».")],
         calls,
+        warnings: Vec::new(),
         undo: None,
         id: Some(job_id(name)),
     }
@@ -921,6 +926,9 @@ pub(crate) fn edit_change(
             "Cambia el plan del repositorio «{name}» de «{old_plan}» a «{new_plan}»: el servicio lo pide en pausa."
         ));
         if old_state == "active" {
+            if new_state == "active" {
+                ch.warnings.push(LEFT_PAUSED.into());
+            }
             ch.calls.push(Call::new(
                 Method::POST,
                 format!("{path}/pause"),
@@ -966,6 +974,11 @@ pub(crate) fn edit_change(
             } else {
                 format!("Guarda los backups del repositorio «{name}» {new} días.")
             });
+            if retroactive && new > 0 {
+                ch.warnings.push(format!(
+                    "La retención se aplica también a los backups que ya hay: los de más de {new} días vencen y los borra la tarea Prune del plan."
+                ));
+            }
             ch.calls.push(Call::new(
                 Method::POST,
                 format!("{path}/retentionSettings"),
@@ -1099,6 +1112,7 @@ pub(crate) fn active_delete_change(name: &str, archive: &str, archived_as: &str)
                 None,
             ),
         ],
+        warnings: Vec::new(),
         undo: None,
         id: None,
     }
@@ -1198,15 +1212,13 @@ pub(crate) async fn archived_form(s: &CbSession, _c: &Ctx, id: Option<&str>) -> 
 
 pub(crate) fn archive_change(source: &str, name: &str) -> Change {
     Change {
-        comments: vec![
-            format!("Archiva el repositorio «{source}» como «{name}»."),
-            ARCHIVE_FINAL.into(),
-        ],
+        comments: vec![format!("Archiva el repositorio «{source}» como «{name}».")],
         calls: vec![Call::new(
             Method::POST,
             format!("{}/archive", active_path(source)),
             Some(json!({"id": name})),
         )],
+        warnings: vec![ARCHIVE_FINAL.into()],
         undo: None,
         id: Some(name.to_string()),
     }
@@ -1331,6 +1343,7 @@ pub(crate) fn import_change(
             body: Some(Value::Object(body)),
             secrets,
         }],
+        warnings: Vec::new(),
         undo: None,
         id: Some(name.to_string()),
     }
@@ -1383,6 +1396,7 @@ pub(crate) fn stored_delete_change(kind: Stored, name: &str, archive: &str) -> C
             ),
             None,
         )],
+        warnings: Vec::new(),
         undo: None,
         id: None,
     }
@@ -1607,13 +1621,11 @@ pub(crate) fn merge_all_change(name: &str, times: &[i64], now: i64) -> Result<Ch
     let oldest = times.iter().copied().min().unwrap_or(now);
     let back = ((now - oldest).max(0) + DAY - 1) / DAY + 1;
     Ok(Change {
-        comments: vec![
-            format!(
-                "Une en uno los {} backups del repositorio «{name}»: los de hoy hasta {back} días atrás, donde está el más viejo.",
-                times.len()
-            ),
-            "Después solo se puede restaurar el estado del más reciente: los puntos intermedios dejan de estar.".into(),
-        ],
+        comments: vec![format!(
+            "Une en uno los {} backups del repositorio «{name}»: los de hoy hasta {back} días atrás, donde está el más viejo.",
+            times.len()
+        )],
+        warnings: vec![MERGED.into()],
         calls: vec![Call::new(
             Method::POST,
             format!("{}/merge", active_path(name)),

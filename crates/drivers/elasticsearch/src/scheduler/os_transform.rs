@@ -363,7 +363,7 @@ pub(crate) fn plan_change(p: &str, cur: &Cur, have: &Tf, want: &Tf) -> Plan {
         .iter()
         .any(|k| !super::same_opt(want.t.get(k), have.t.get(k)));
     if want.id != cur.id || fixed_changed {
-        plan.notes.push(RECREATE_NOTE.into());
+        plan.warnings.push(RECREATE_NOTE.into());
         let new_seg = path_segment(&want.id);
         if want.id == cur.id {
             plan.reqs.push(

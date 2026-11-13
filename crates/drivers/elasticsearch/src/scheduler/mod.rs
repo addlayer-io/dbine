@@ -19,7 +19,10 @@
 //!   continuous transform turned into a batch one, an OpenSearch
 //!   transform's indices, query, groups or aggregations, any id) is
 //!   deleted and created again, which the script and the form say, with
-//!   what is lost.
+//!   what is lost. What the user loses or risks (a recreation, a reset, a
+//!   watch's acknowledgements, requests that can stop half way) goes in
+//!   `# ⚠` lines, one Spanish sentence each, which the app lists and asks
+//!   to accept.
 //! - Values and ids come from the app as untrusted text: ids are checked
 //!   (Elasticsearch's own rule for transform ids, one path segment for the
 //!   rest) and go into the URL percent-encoded; the JSON fields are parsed
@@ -86,6 +89,9 @@ const CLOUD_SLM_NOTE: &str = "Elastic Cloud toma los snapshots del deployment co
 const ONE_STEP: &str = "este job se ejecuta entero: no empieza en uno de sus pasos (eso es para las acciones de un watch); para correrlo ahora está «Ejecutar ahora»";
 const TRANSFORM_WHOLE: &str = "un transform se ejecuta entero, no desde uno de sus pasos: se inicia con el interruptor de habilitado (y uno continuo ya iniciado se ejecuta de nuevo con «Ejecutar ahora»)";
 const OS_NO_RUN: &str = "OpenSearch ejecuta este job según su programación: no hay forma de empezarlo a mano, ni en un paso";
+/// A script with more than one request that writes: the cluster has no
+/// transactions.
+pub(crate) const NOT_ATOMIC: &str = "Los pedidos se envían uno por uno, sin transacción: si uno falla, los anteriores quedan aplicados y los siguientes no se envían.";
 
 fn bad(message: String) -> Error {
     Error::Query(message)
@@ -466,6 +472,10 @@ fn item_of(c: &Ctx, j: ServerJob, ackable: &BTreeSet<String>) -> SchedulerItem {
         }
         a
     });
+    let (run_from_step, clear_history) = match t.as_ref().map(|(t, _)| *t) {
+        Some(t) => item_flags(c, t),
+        None => (None, None),
+    };
     SchedulerItem {
         id: j.id,
         name: j.name,
@@ -475,8 +485,24 @@ fn item_of(c: &Ctx, j: ServerJob, ackable: &BTreeSet<String>) -> SchedulerItem {
         can_edit,
         can_delete,
         actions,
-        run_from_step: None,
-        clear_history: None,
+        run_from_step,
+        clear_history,
+    }
+}
+
+/// Whether a job of this type starts at one of its steps and keeps a
+/// history the user can delete: the job kind mixes types. Only a watch
+/// starts at a step (one of its actions, with manage_watcher); watches and
+/// SLM policies keep their runs in `.watcher-history-*` / `.slm-history-*`;
+/// transforms, OpenSearch's transforms and snapshot policies, and monitors
+/// do neither.
+fn item_flags(c: &Ctx, t: Type) -> (Option<bool>, Option<bool>) {
+    match t {
+        Type::Watch => (Some(c.may(Type::Watch)), Some(c.has(Type::Watch))),
+        Type::Slm => (Some(false), Some(c.has(Type::Slm))),
+        Type::Transform | Type::OsTransform | Type::Monitor | Type::Sm => {
+            (Some(false), Some(false))
+        }
     }
 }
 
@@ -1654,6 +1680,16 @@ impl Req {
         self.if_fails = Some(n);
         self
     }
+
+    /// It changes something on the cluster (`_preview` only checks).
+    fn writes(&self) -> bool {
+        !self
+            .path
+            .split('?')
+            .next()
+            .unwrap_or("")
+            .ends_with("/_preview")
+    }
 }
 
 /// `path` with the `if_seq_no` / `if_primary_term` of `answer` (a write's
@@ -1672,8 +1708,13 @@ pub(crate) fn guarded(path: &str, answer: &J) -> Option<String> {
 /// What a save or a delete sends.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Plan {
-    /// What the script does and what it costs, as `#` lines on top.
+    /// What the script does, as `#` lines on top.
     pub(crate) notes: Vec<String>,
+    /// What the user loses or risks with it (a recreation that loses the
+    /// checkpoints, a watch whose acknowledgements go…), one Spanish
+    /// sentence each, as `# ⚠` lines after the notes: the app lists them and
+    /// asks to continue. [`NOT_ATOMIC`] is added by [`Plan::warnings`].
+    pub(crate) warnings: Vec<String>,
     pub(crate) reqs: Vec<Req>,
     /// The saved job's id, when it's known before running.
     pub(crate) id: Option<String>,
@@ -1684,6 +1725,16 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    /// The plan's warnings, and [`NOT_ATOMIC`] when more than one of its
+    /// requests writes.
+    pub(crate) fn warnings(&self) -> Vec<String> {
+        let mut w = self.warnings.clone();
+        if self.reqs.iter().filter(|r| r.writes()).count() > 1 {
+            w.push(NOT_ATOMIC.into());
+        }
+        w
+    }
+
     pub(crate) fn render(&self) -> String {
         let mut out = String::new();
         for n in &self.notes {
@@ -1698,7 +1749,11 @@ impl Plan {
             ));
             return out;
         }
-        if !self.notes.is_empty() {
+        let warnings = self.warnings();
+        for w in &warnings {
+            out.push_str(&format!("# ⚠ {}\n", one_line(w)));
+        }
+        if !self.notes.is_empty() || !warnings.is_empty() {
             out.push('\n');
         }
         for (i, r) in self.reqs.iter().enumerate() {

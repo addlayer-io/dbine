@@ -271,7 +271,7 @@ pub(crate) fn plan(cur: Option<&Cur>, values: &FormValues, choices: &Choices) ->
         ..Plan::default()
     };
     if want.id != cur.id {
-        plan.notes.push(format!(
+        plan.warnings.push(format!(
             "Un id nuevo crea la política «{}» y borra «{}», con sus estadísticas; sus snapshots siguen en el repositorio.",
             want.id, cur.id
         ));

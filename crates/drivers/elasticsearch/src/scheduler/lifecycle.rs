@@ -385,7 +385,7 @@ pub(crate) fn ism_plan(c: &Ctx, cur: Option<&Cur>, values: &FormValues) -> Resul
         ..Plan::default()
     };
     if want.id != cur.id {
-        plan.notes.push(format!(
+        plan.warnings.push(format!(
             "Un id nuevo crea la política «{}» y borra «{}»; los índices que esta administra no pasan solos a la nueva.",
             want.id, cur.id
         ));

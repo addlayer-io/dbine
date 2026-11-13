@@ -590,6 +590,9 @@ fn put(id: &str, active: bool, extra: &str, body: &J) -> Req {
 
 const REDACTED_NEW: &str = "El watch tiene valores que el clúster ocultó (::es_redacted::): un watch nuevo (o con otro id) necesita los valores reales escritos en su lugar.";
 const REDACTED_REMOVAL: &str = "El watch tiene valores que el clúster ocultó (::es_redacted::) y el cambio quita partes de su definición: Elasticsearch conserva esos valores solo con una actualización que no puede quitar nada. Escriba los valores reales en lugar de ::es_redacted:: para reemplazar el watch entero.";
+/// A changed watch is written whole (with `if_seq_no` too): its status
+/// starts again.
+pub(crate) const REPLACED: &str = "Guardar reemplaza el watch entero: sus acciones pierden los reconocimientos (ack) y vuelven a esperar su primera ejecución.";
 const KEEPS_SECRETS: &str = "Se actualiza con if_seq_no para conservar los valores que el clúster ocultó (::es_redacted::).";
 
 /// The definition merged into `base` as an update with `if_seq_no` does
@@ -671,7 +674,7 @@ pub(crate) fn plan(cur: Option<&Cur>, values: &FormValues) -> Result<Plan> {
         if has_redacted(&want.body) {
             return Err(bad(REDACTED_NEW.into()));
         }
-        plan.notes.push(format!(
+        plan.warnings.push(format!(
             "Un id nuevo crea el watch «{}» y borra «{}»: el historial queda con el id viejo.",
             want.id, cur.id
         ));
@@ -681,6 +684,7 @@ pub(crate) fn plan(cur: Option<&Cur>, values: &FormValues) -> Result<Plan> {
         return Ok(plan);
     }
     if !same(&want.body, &have.body) {
+        plan.warnings.push(REPLACED.into());
         if has_redacted(&want.body) {
             // Only an update with if_seq_no keeps the redacted values, and
             // it merges the new definition into the stored one.

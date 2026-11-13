@@ -71,7 +71,7 @@ fn current() -> Job {
 fn plan_of(cur: Option<&Job>, values: Value, params: Value) -> Result<Plan> {
     let w = wanted(&fv(values, params), true)?;
     let typed = w.typed(&proc_params())?;
-    plan(cur, &w, &typed, true)
+    plan(cur, &w, &typed, true, None)
 }
 
 #[test]
@@ -474,7 +474,7 @@ fn the_form_reads_the_job() {
     };
     let w = wanted(&values, true).unwrap();
     let typed = w.typed(&proc_params()).unwrap();
-    assert!(plan(Some(&j), &w, &typed, true)
+    assert!(plan(Some(&j), &w, &typed, true, None)
         .unwrap()
         .statements
         .is_empty());
@@ -744,7 +744,7 @@ fn the_form_and_the_save_follow_the_privileges() {
 
     // The save refuses the same.
     let w = wanted(&fv(base(), json!([])), true).unwrap();
-    let new = plan(None, &w, &[], true).unwrap();
+    let new = plan(None, &w, &[], true, None).unwrap();
     assert!(check_rights(None, None, &w, &new).is_ok());
     let e = check_rights(Some(&bob), None, &w, &new)
         .unwrap_err()
@@ -754,7 +754,7 @@ fn the_form_and_the_save_follow_the_privileges() {
     let mut v = base();
     v["cron"] = json!("* * * * 4 0 0");
     let w = wanted(&fv(v, json!([{"name": "DAYS", "value": "7"}])), true).unwrap();
-    let alter = plan(Some(&job), &w, &[("DAYS".into(), "7".into())], false).unwrap();
+    let alter = plan(Some(&job), &w, &[("DAYS".into(), "7".into())], false, None).unwrap();
     assert!(check_rights(Some(&ana), Some(&job), &w, &alter).is_ok());
     let e = check_rights(Some(&bob), Some(&job), &w, &alter)
         .unwrap_err()
@@ -853,4 +853,125 @@ fn the_tree_offers_only_what_the_login_may_do() {
         Some(&rights("EVE", &[], &[])),
     );
     assert_eq!((j.can_edit, j.can_delete), (Some(false), Some(false)));
+}
+
+/// The script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_recreation_and_a_delete_warn_that_the_history_goes() {
+    let cur = current();
+    // In place, in one statement: nothing.
+    let mut v = base();
+    v["enabled"] = json!(false);
+    v["comments"] = json!("purga");
+    let p = plan_of(Some(&cur), v, json!([{"name": "DAYS", "value": "7"}])).unwrap();
+    assert_eq!(p.statements.len(), 1);
+    assert!(warned(&p.script).is_empty(), "{}", p.script);
+    assert!(!p.script.contains(IN_TRANSACTION), "{}", p.script);
+    // In several statements: one transaction, or one by one where the
+    // server refuses AUTOCOMMIT DDL OFF.
+    let mut v = base();
+    v["enabled"] = json!(false);
+    v["comments"] = json!("");
+    let p = plan_of(Some(&cur), v, json!([{"name": "DAYS", "value": "8"}])).unwrap();
+    assert!(p.statements.len() > 1);
+    assert_eq!(warned(&p.script), [NOT_ATOMIC], "{}", p.script);
+    assert!(
+        p.script.contains(&format!("-- {IN_TRANSACTION}\n")),
+        "{}",
+        p.script
+    );
+    // A new job: nothing; with its comment, two statements.
+    assert!(warned(&plan_of(None, base(), json!([])).unwrap().script).is_empty());
+    let mut v = base();
+    v["comments"] = json!("purga");
+    let p = plan_of(None, v, json!([])).unwrap();
+    assert_eq!(p.statements.len(), 2);
+    assert_eq!(warned(&p.script), [NOT_ATOMIC]);
+    // Each recreation: its run history and creation time are lost, and it
+    // runs in several statements.
+    let mut renamed = base();
+    renamed["name"] = json!("NIGHTLY2");
+    let mut other_proc = base();
+    other_proc["procedure"] = json!("\"APP\".\"OTHER\"");
+    let mut with_from = current();
+    with_from.from = Some("2026-11-12 10:00:00".into());
+    for (cur, v, params, says) in [
+        (
+            &cur,
+            renamed,
+            json!([{"name": "DAYS", "value": "7"}]),
+            "el nombre ni el esquema",
+        ),
+        (
+            &cur,
+            other_proc,
+            json!([{"name": "DAYS", "value": "7"}]),
+            "el procedimiento",
+        ),
+        (
+            &with_from,
+            base(),
+            json!([{"name": "DAYS", "value": "7"}]),
+            "FROM / UNTIL",
+        ),
+        (&cur, base(), json!([]), "todos los parámetros"),
+    ] {
+        let p = plan_of(Some(cur), v, params).unwrap();
+        let w = warned(&p.script);
+        assert_eq!(w.len(), 2, "{says}: {}", p.script);
+        assert!(
+            w[0].contains(says) && w[0].contains("historial") && w[0].contains("fecha de creación"),
+            "{w:?}"
+        );
+        assert_eq!(w[1], NOT_ATOMIC);
+    }
+    // A delete takes the history with it.
+    let p = delete_plan(&current()).unwrap();
+    assert_eq!(warned(&p.script), [DELETES_HISTORY]);
+}
+
+#[test]
+fn a_recreation_by_another_login_warns_that_the_job_changes_hands() {
+    let cur = current(); // owned by ANA
+    let mut v = base();
+    v["procedure"] = json!("\"APP\".\"OTHER\"");
+    let w = wanted(&fv(v, json!([{"name": "DAYS", "value": "7"}])), true).unwrap();
+    let typed = w.typed(&proc_params()).unwrap();
+    let owner_warning = |user: Option<&str>| -> Vec<String> {
+        let p = plan(Some(&cur), &w, &typed, true, user).unwrap();
+        assert!(p.drops.is_some());
+        warned(&p.script)
+            .into_iter()
+            .filter(|x| x.starts_with("El scheduler job nuevo queda a nombre de"))
+            .collect()
+    };
+    // Another login (the schema's owner, say): the new job is DAN's.
+    assert_eq!(
+        owner_warning(Some("DAN")),
+        ["El scheduler job nuevo queda a nombre de DAN y corre con sus privilegios, no con los de ANA."]
+    );
+    // Its owner, or a login not known: nothing.
+    assert!(owner_warning(Some("ANA")).is_empty());
+    assert!(owner_warning(None).is_empty());
+    // A job whose owner the catalog doesn't give: nothing to compare.
+    let mut unknown = current();
+    unknown.owner = None;
+    let p = plan(Some(&unknown), &w, &typed, true, Some("DAN")).unwrap();
+    assert!(!p.script.contains("queda a nombre de"), "{}", p.script);
+    // Changed in place: it stays ANA's.
+    let mut v = base();
+    v["enabled"] = json!(false);
+    v["comments"] = json!("purga");
+    let w = wanted(&fv(v, json!([{"name": "DAYS", "value": "7"}])), true).unwrap();
+    let p = plan(Some(&cur), &w, &typed, true, Some("DAN")).unwrap();
+    assert_eq!(p.drops, None);
+    assert!(warned(&p.script).is_empty(), "{}", p.script);
 }

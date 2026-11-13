@@ -55,10 +55,18 @@ const WHAT: &str = "Neo4j no tiene un planificador propio: estos son los jobs en
 const IN_MEMORY: &str = "Los jobs de APOC viven en la memoria del servidor: no sobreviven a un reinicio, y APOC no guarda su consulta ni un historial de sus ejecuciones.";
 const RETYPE: &str = "APOC no informa la consulta ni los parámetros de un job: para guardarlo hay que volver a escribirlos.";
 const REPLACE: &str = "APOC no cambia un job: al guardar se vuelve a crear (con el mismo nombre, APOC cancela el anterior y programa el nuevo; con otro nombre, se programa el nuevo y se cancela el anterior).";
-const COUNTDOWN: &str = "APOC no puede cancelar una cuenta regresiva entre dos ejecuciones: la próxima ya está programada, vuelve a armarla y reemplaza al job que tenga su nombre. Se detiene recién cuando su consulta devuelve 0 (o al reiniciar el servidor).";
+const COUNTDOWN: &str = "APOC no puede cancelar una cuenta regresiva entre dos ejecuciones: la próxima ya está programada, la vuelve a armar y reemplaza al job que tenga su nombre, hasta que su consulta devuelva 0 o se reinicie el servidor.";
 const COUNTDOWN_SAME_NAME: &str = "Es una cuenta regresiva: APOC no la puede reemplazar con el mismo nombre, porque su próxima ejecución pisaría al job nuevo. Guardala con otro nombre.";
 const MAYBE_COUNTDOWN: &str = "Si es una cuenta regresiva (después de su primera ejecución APOC la lista como un job de una vez), cancelarla no la detiene: su próxima ejecución la vuelve a armar y reemplaza al job que tenga su nombre.";
 const NOT_FOUND: &str = "No existe ese job de APOC en el servidor.";
+/// Every job a save schedules (a plain note: it is how every APOC job
+/// lives, not something this change loses).
+const LOST_ON_RESTART: &str = "Vive en la memoria del servidor: no sobrevive a un reinicio.";
+/// A same-name save: the job is scheduled again.
+const SAME_NAME: &str =
+    "APOC no cambia un job: con el mismo nombre, esta llamada cancela el anterior y programa este.";
+/// A script of more than one statement: each runs on its own.
+const NOT_ATOMIC: &str = "Las sentencias se ejecutan una por una, sin transacción: si una falla, las anteriores quedan aplicadas.";
 const READER: &str = "Este usuario solo tiene los roles reader y PUBLIC: APOC no le deja crear ni cambiar jobs (apoc.periodic.repeat, submit y countdown escriben), solo cancelarlos.";
 const MAX_NAME: usize = 512;
 const MAX_STATEMENT: usize = 1 << 20;
@@ -341,12 +349,25 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
-    fn new(comments: &[String], statements: Vec<String>, id: String) -> Result<Plan> {
+    /// `warnings`: what the user loses or risks, one Spanish sentence each,
+    /// written as `// ⚠` lines after the comments (the app lists them and
+    /// asks to continue); [`NOT_ATOMIC`] is added for more than one
+    /// statement.
+    fn new(
+        comments: &[String],
+        warnings: &[String],
+        statements: Vec<String>,
+        id: String,
+    ) -> Result<Plan> {
         let mut script = String::new();
         for c in comments {
             script.push_str("// ");
             script.push_str(&cypher::comment_text(c));
             script.push('\n');
+        }
+        let atomic = (statements.len() > 1).then(|| NOT_ATOMIC.to_string());
+        for w in warnings.iter().chain(atomic.as_ref()) {
+            script.push_str(&format!("// ⚠ {}\n", cypher::comment_text(w)));
         }
         for s in &statements {
             script.push_str(s);
@@ -430,7 +451,7 @@ pub(crate) fn plan(
         w.mode.procedure(),
         database_text(database)
     );
-    let lost = "Vive en la memoria del servidor: no sobrevive a un reinicio.".to_string();
+    let notes = [what, LOST_ON_RESTART.to_string()];
     let Some(cur) = current else {
         if taken(&w.name) {
             return Err(bad(format!(
@@ -438,25 +459,21 @@ pub(crate) fn plan(
                 shown(&w.name)
             )));
         }
-        let mut notes = vec![what, lost];
+        let mut warnings = Vec::new();
         if stale(&w.name) {
-            notes.push(MAYBE_COUNTDOWN.into());
+            warnings.push(MAYBE_COUNTDOWN.into());
         }
-        return Plan::new(&notes, vec![create_call(w)], job_id(&w.name));
+        return Plan::new(&notes, &warnings, vec![create_call(w)], job_id(&w.name));
     };
     if cur.name == w.name {
         if cur.countdown() {
             return Err(bad(COUNTDOWN_SAME_NAME.into()));
         }
-        let mut notes = vec![
-            what,
-            "APOC no cambia un job: con el mismo nombre, esta llamada cancela el anterior y programa este.".into(),
-            lost,
-        ];
+        let mut warnings = vec![SAME_NAME.to_string()];
         if cur.maybe_countdown() {
-            notes.push(MAYBE_COUNTDOWN.into());
+            warnings.push(MAYBE_COUNTDOWN.into());
         }
-        return Plan::new(&notes, vec![create_call(w)], job_id(&w.name));
+        return Plan::new(&notes, &warnings, vec![create_call(w)], job_id(&w.name));
     }
     if taken(&w.name) {
         return Err(bad(format!(
@@ -464,54 +481,54 @@ pub(crate) fn plan(
             shown(&w.name)
         )));
     }
-    let mut notes = vec![
-        what,
-        format!(
-            "Reemplaza al job «{}»: se programa el nuevo y después se cancela el anterior.",
-            cur.name
-        ),
-        lost,
-    ];
+    let mut warnings = vec![format!(
+        "Reemplaza al job «{}»: se programa el nuevo y después se cancela el anterior.",
+        cur.name
+    )];
     if cur.countdown() {
-        notes.push(COUNTDOWN.into());
+        warnings.push(COUNTDOWN.into());
     } else if cur.maybe_countdown() {
-        notes.push(MAYBE_COUNTDOWN.into());
+        warnings.push(MAYBE_COUNTDOWN.into());
     }
     if stale(&w.name) {
-        notes.push(MAYBE_COUNTDOWN.into());
+        warnings.push(MAYBE_COUNTDOWN.into());
     }
-    notes.dedup();
+    warnings.dedup();
     Plan::new(
         &notes,
+        &warnings,
         vec![create_call(w), cancel_call(&cur.name)],
         job_id(&w.name),
     )
 }
 
 pub(crate) fn delete_plan(j: &Job) -> Result<Plan> {
-    let notes = if j.countdown() {
-        vec![
-            format!(
+    let (notes, warnings) = if j.countdown() {
+        (
+            vec![format!(
                 "Cancela la cuenta regresiva de APOC «{}» y la quita de la lista del servidor, si todavía no terminó su primera ejecución.",
                 j.name
-            ),
-            COUNTDOWN.into(),
-        ]
-    } else if j.maybe_countdown() {
-        vec![
-            format!(
-                "Cancela el job de APOC «{}» y lo quita de la lista del servidor.",
-                j.name
-            ),
-            MAYBE_COUNTDOWN.into(),
-        ]
+            )],
+            vec![COUNTDOWN.to_string()],
+        )
     } else {
-        vec![format!(
+        let note = format!(
             "Cancela el job de APOC «{}» y lo quita de la lista del servidor.",
             j.name
-        )]
+        );
+        let warnings = if j.maybe_countdown() {
+            vec![MAYBE_COUNTDOWN.to_string()]
+        } else {
+            Vec::new()
+        };
+        (vec![note], warnings)
     };
-    Plan::new(&notes, vec![cancel_call(&j.name)], job_id(&j.name))
+    Plan::new(
+        &notes,
+        &warnings,
+        vec![cancel_call(&j.name)],
+        job_id(&j.name),
+    )
 }
 
 // ---------------------------------------------------------------------------

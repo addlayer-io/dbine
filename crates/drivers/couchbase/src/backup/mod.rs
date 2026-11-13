@@ -68,6 +68,9 @@ const DELETE_NOTE: &str = "El servicio de backup solo borra repositorios archiva
 /// On forms with keys: they never come back.
 pub(crate) const SECRET_KEYS_NOTE: &str = "Las claves secretas se escriben al crear el repositorio: el servicio no las devuelve, y el script las muestra con asteriscos.";
 
+/// A change of more than one request: the service has no transactions.
+pub(crate) const NOT_ATOMIC: &str = "Los pedidos se envían uno por uno, sin transacción: si uno falla, los anteriores quedan aplicados y los siguientes no se envían.";
+
 /// The first line of every script.
 const HEADER: &str = "// API REST del servicio de backup de Couchbase (puerto 8097, o /_p/backup en el puerto de administración).";
 
@@ -566,6 +569,11 @@ impl Call {
 pub(crate) struct Change {
     /// Comment lines on top of the script (without the `// `).
     pub(crate) comments: Vec<String>,
+    /// What the user loses or risks with it (backups merged into one, a
+    /// repository left paused…), one Spanish sentence each, as `// ⚠`
+    /// lines after the comments: the app lists them and asks to continue.
+    /// [`NOT_ATOMIC`] is added by [`Change::warnings`].
+    pub(crate) warnings: Vec<String>,
     pub(crate) calls: Vec<Call>,
     /// If a call after the one at this index fails, this call undoes what
     /// the earlier ones did (a resume after a pause).
@@ -583,10 +591,23 @@ impl Change {
         }
     }
 
+    /// The change's warnings, and [`NOT_ATOMIC`] when it sends more than
+    /// one request.
+    pub(crate) fn warnings(&self) -> Vec<String> {
+        let mut w = self.warnings.clone();
+        if self.calls.len() > 1 {
+            w.push(NOT_ATOMIC.into());
+        }
+        w
+    }
+
     pub(crate) fn script(&self) -> String {
         let mut out = format!("{HEADER}\n");
         for c in &self.comments {
             out.push_str(&format!("// {}\n", comment_text(c)));
+        }
+        for w in self.warnings() {
+            out.push_str(&format!("// ⚠ {}\n", comment_text(&w)));
         }
         for call in &self.calls {
             out.push('\n');

@@ -313,7 +313,8 @@ fn a_new_name_inserts_then_deletes_the_old_record() {
         "DELETE FROM OSchedule WHERE name = 'nightly'"
     );
     assert!(p.script.contains("no permite cambiar el nombre"));
-    assert!(p.script.contains("nextExecId"));
+    // Its run counter starts again, and the two statements run apart.
+    assert_eq!(warned(&p.script), [RENAME_NOTE, NOT_ATOMIC]);
     // Never an UPDATE of the name.
     assert!(!p.script.contains("UPDATE"));
     // The new name is taken.
@@ -487,4 +488,37 @@ fn the_form_reads_the_event() {
     };
     let f = form_of(None, &funcs(), unknown, "db1");
     assert!(!f.read_only && f.notes.iter().any(|n| n == UNKNOWN_ACCESS));
+}
+
+/// The script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("/* ⚠ "))
+        .filter_map(|l| l.strip_suffix(" */"))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn only_a_new_name_warns() {
+    let cur = event("nightly");
+    let w = wanted(&fv(base(), json!([])), &funcs()).unwrap();
+    // A new event, a change in place and a delete lose nothing.
+    assert!(warned(&plan(None, &w, &[], "db1").unwrap().script).is_empty());
+    let mut v = base();
+    v["rule"] = json!("0 0/10 * * * ?");
+    let w2 = wanted(&fv(v, json!([])), &funcs()).unwrap();
+    let p = plan(Some(&cur), &w2, std::slice::from_ref(&cur), "db1").unwrap();
+    assert!(warned(&p.script).is_empty(), "{}", p.script);
+    assert!(warned(&delete_plan(&cur, "db1").unwrap().script).is_empty());
+    // A new name: created again (its counter restarts), in two statements.
+    let mut v = base();
+    v["name"] = json!("nightly2");
+    let w3 = wanted(&fv(v, json!([])), &funcs()).unwrap();
+    let p = plan(Some(&cur), &w3, std::slice::from_ref(&cur), "db1").unwrap();
+    assert_eq!(warned(&p.script), [RENAME_NOTE, NOT_ATOMIC]);
+    assert!(p.script.starts_with(
+        "/* Evento programado «nightly» de la base «db1», con el nombre nuevo «nightly2» */\n"
+    ));
 }

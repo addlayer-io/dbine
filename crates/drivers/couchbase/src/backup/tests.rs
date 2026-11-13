@@ -160,6 +160,7 @@ fn scripts_mask_secrets_and_keep_comments_on_one_line() {
             body: Some(json!({"plan": "p", "cloud_credentials_key": "s3cr3t"})),
             secrets: vec!["cloud_credentials_key"],
         }],
+        warnings: Vec::new(),
         undo: None,
         id: None,
     };
@@ -879,4 +880,70 @@ fn the_service_events_newest_first() {
     assert_eq!(t.rows[0][2], "A repository has been deleted");
     assert_eq!(t.rows[0][1], "Advertencia");
     assert_eq!(t.rows[1][3], "repo=r, run_type=one_off");
+}
+
+// ---------------------------------------------------------------------------
+// Warnings the user accepts ("// ⚠" lines)
+// ---------------------------------------------------------------------------
+
+/// The script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("// ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn changes_warn_about_what_they_lose_or_risk() {
+    // An active repository's plan: paused around the change.
+    let w = warned(&repo::edit_change("r", ("p1", "p2"), ("active", "active"), None).script());
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(w[0].contains("puede quedar en pausa") && w[1] == NOT_ATOMIC);
+    // Left paused on purpose, or paused already: nothing to stay paused.
+    let w = warned(&repo::edit_change("r", ("p1", "p2"), ("active", "paused"), None).script());
+    assert_eq!(w, [NOT_ATOMIC]);
+    assert!(
+        warned(&repo::edit_change("r", ("p1", "p2"), ("paused", "paused"), None).script())
+            .is_empty()
+    );
+    // A retention applied to the backups there are: they may go.
+    let retention = |old: Option<i64>, new: i64, retroactive: bool| {
+        warned(
+            &repo::edit_change(
+                "r",
+                ("p", "p"),
+                ("active", "active"),
+                Some((old, new, retroactive)),
+            )
+            .script(),
+        )
+    };
+    let w = retention(Some(30), 15, true);
+    assert!(
+        w.len() == 1 && w[0].contains("de más de 15 días vencen"),
+        "{w:?}"
+    );
+    assert!(retention(Some(30), 15, false).is_empty());
+    assert!(retention(Some(30), 0, true).is_empty());
+    // A merge: the points in between go.
+    let ch = repo::merge_all_change("r1", &[0, 86_400 * 3], 86_400 * 3).unwrap();
+    assert_eq!(warned(&ch.script()), [ch.warnings[0].clone()]);
+    assert!(ch.warnings[0].contains("puntos intermedios"));
+    // Archiving is final; an active repository's delete archives it first.
+    let w = warned(&repo::archive_change("r", "r_old").script());
+    assert!(
+        w.len() == 1 && w[0].starts_with("Archivar es definitivo"),
+        "{w:?}"
+    );
+    assert_eq!(
+        warned(&repo::active_delete_change("r", "/data/b", "r-2").script()),
+        [NOT_ATOMIC]
+    );
+    // A full backup, a stored repository's delete, a plan's edit: nothing.
+    assert!(warned(&repo::backup_now_change("r").script()).is_empty());
+    assert!(
+        warned(&repo::stored_delete_change(Stored::Archived, "a", "/data/b").script()).is_empty()
+    );
 }

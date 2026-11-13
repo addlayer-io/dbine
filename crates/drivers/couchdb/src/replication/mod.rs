@@ -288,11 +288,19 @@ impl Call {
     }
 }
 
+/// A change of more than one request: CouchDB has no transactions.
+pub(crate) const NOT_ATOMIC: &str = "Los pedidos se envían uno por uno, sin transacción: si uno falla, los anteriores quedan aplicados y los siguientes no se envían.";
+
 /// What a save (or a delete) sends.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Change {
     /// Comment lines on top of the script (without the `// `).
     pub(crate) comments: Vec<String>,
+    /// What the user loses or risks with it (checkpoints CouchDB won't use,
+    /// a password dropped…), one Spanish sentence each, as `// ⚠` lines
+    /// after the comments: the app lists them and asks to continue.
+    /// [`NOT_ATOMIC`] is added by [`Change::warnings`].
+    pub(crate) warnings: Vec<String>,
     pub(crate) calls: Vec<Call>,
     /// The object's id after the change.
     pub(crate) id: Option<String>,
@@ -310,10 +318,23 @@ impl Change {
         }
     }
 
+    /// The change's warnings, and [`NOT_ATOMIC`] when it sends more than
+    /// one request.
+    pub(crate) fn warnings(&self) -> Vec<String> {
+        let mut w = self.warnings.clone();
+        if self.calls.len() > 1 {
+            w.push(NOT_ATOMIC.into());
+        }
+        w
+    }
+
     pub(crate) fn script(&self) -> String {
         let mut out = String::new();
         for c in &self.comments {
             out.push_str(&format!("// {}\n", comment_text(c)));
+        }
+        for w in self.warnings() {
+            out.push_str(&format!("// ⚠ {}\n", comment_text(&w)));
         }
         for call in &self.calls {
             if !out.is_empty() {

@@ -421,7 +421,7 @@ pub(crate) fn plan(c: &Ctx, cur: Option<&Cur>, values: &FormValues) -> Result<Pl
         let redefined = !same(&want.inputs, &have.inputs) || !same(&want.triggers, &have.triggers);
         if redefined && cur.monitor.get("ui_metadata").is_some() {
             b = jobs::without(&b, &["ui_metadata"]);
-            plan.notes.push(UI_METADATA.into());
+            plan.warnings.push(UI_METADATA.into());
         }
         plan.reqs.push(Req::new(
             "PUT",
@@ -437,7 +437,7 @@ pub(crate) fn plan(c: &Ctx, cur: Option<&Cur>, values: &FormValues) -> Result<Pl
     Ok(plan)
 }
 
-const UI_METADATA: &str = "Cambian las entradas o los disparadores: se quita el estado del editor visual de OpenSearch Dashboards (ui_metadata), que desde ahora muestra el monitor como definido por consulta.";
+pub(crate) const UI_METADATA: &str = "Cambian las entradas o los disparadores: se quita el estado del editor visual de OpenSearch Dashboards (ui_metadata), que desde ahora muestra el monitor como definido por consulta.";
 
 /// Deleting a monitor another plugin manages (a Security Analytics
 /// detector's) would pull it from under that plugin: refused, as its edit.
@@ -449,7 +449,7 @@ pub(crate) fn delete_plan(p: &str, cur: &Cur) -> Result<Plan> {
     }
     let name = text(cur.monitor.get("name")).unwrap_or_else(|| cur.id.clone());
     Ok(Plan {
-        notes: vec![format!(
+        warnings: vec![format!(
             "Borra el monitor «{name}» ({}); sus alertas pasan a estado DELETED.",
             cur.id
         )],

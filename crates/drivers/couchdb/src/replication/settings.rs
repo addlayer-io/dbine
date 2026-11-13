@@ -331,6 +331,7 @@ pub(crate) fn config_change(
             "Cambia la configuración del replicador del nodo «{node}»: {}.",
             changed.join(", ")
         )],
+        warnings: Vec::new(),
         calls,
         id: Some(node.to_string()),
         id_from_reply: None,

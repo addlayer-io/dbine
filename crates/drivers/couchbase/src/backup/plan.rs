@@ -628,6 +628,7 @@ pub(crate) fn create_change(p: &PlanDef) -> Change {
             format!("/plan/{}", encode(&p.name)),
             Some(plan_json(p)),
         )],
+        warnings: Vec::new(),
         undo: None,
         id: Some(p.name.clone()),
     }
@@ -652,6 +653,7 @@ pub(crate) fn update_change(old: &PlanDef, new: &PlanDef) -> Change {
             format!("/plan/{}", encode(&old.name)),
             Some(plan_json(new)),
         )],
+        warnings: Vec::new(),
         undo: None,
         id: Some(old.name.clone()),
     }
@@ -710,6 +712,7 @@ pub(crate) fn delete_change(p: &PlanDef) -> Change {
             format!("/plan/{}", encode(&p.name)),
             None,
         )],
+        warnings: Vec::new(),
         undo: None,
         id: None,
     }

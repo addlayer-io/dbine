@@ -360,7 +360,9 @@ fn es_transform_create() {
     let p = es_transform::plan(None, &tf_new(json!({"defer_validation": true}))).unwrap();
     let r = p.render();
     assert!(
-        r.starts_with("# Transform «ventas»\n\nPUT /_transform/ventas?defer_validation=true\n"),
+        r.starts_with(&format!(
+            "# Transform «ventas»\n# ⚠ {NOT_ATOMIC}\n\nPUT /_transform/ventas?defer_validation=true\n"
+        )),
         "{r}"
     );
     assert!(r.contains("\nPOST /_transform/ventas/_start\n"), "{r}");
@@ -1796,4 +1798,292 @@ fn ilm_policies() {
     assert!(lifecycle::delete_plan(&es_ctx(), &managed).is_err());
     let d = lifecycle::delete_plan(&es_ctx(), &cur).unwrap().render();
     assert!(d.contains("DELETE /_ilm/policy/logs\n"), "{d}");
+}
+
+// ---------------------------------------------------------------------------
+// Warnings the user accepts ("# ⚠" lines)
+// ---------------------------------------------------------------------------
+
+/// The script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("# ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_transform_warns_when_recreated_reset_or_sent_in_parts() {
+    let cur = tf_cur(TF_DEF, "started");
+    let base = es_transform::values_of(&cur);
+    let edit = |change: Value| {
+        let mut v = FormValues {
+            values: base.clone(),
+            lists: BTreeMap::new(),
+        };
+        for (k, x) in map(change) {
+            v.values.insert(k, x);
+        }
+        es_transform::plan(Some(&cur), &v).unwrap().render()
+    };
+    // In place, one request: nothing to accept.
+    assert!(warned(&edit(json!({"description": "x"}))).is_empty());
+    // In place and stopped: two requests.
+    assert_eq!(
+        warned(&edit(json!({"description": "x", "enabled": false}))),
+        [NOT_ATOMIC]
+    );
+    // Recreated (a new id too): checkpoints and stats go.
+    for change in [json!({"continuous": false}), json!({"id": "ventas-2"})] {
+        assert_eq!(
+            warned(&edit(change.clone())),
+            [es_transform::RECREATE_NOTE, NOT_ATOMIC],
+            "{change}"
+        );
+    }
+    // A new transform that starts: created, then started.
+    let p = es_transform::plan(None, &tf_new(json!({"enabled": true}))).unwrap();
+    assert_eq!(warned(&p.render()), [NOT_ATOMIC]);
+    let p = es_transform::plan(None, &tf_new(json!({"enabled": false}))).unwrap();
+    assert!(warned(&p.render()).is_empty());
+    // A reset loses the state, and the destination index it created.
+    let r = es_transform::reset_plan(&tf_cur(TF_DEF, "stopped"))
+        .unwrap()
+        .render();
+    let w = warned(&r);
+    assert_eq!(w.len(), 2, "{r}");
+    assert!(w[0].starts_with("Restablece el transform «ventas»: borra sus checkpoints"));
+    assert!(w[1].starts_with("Si el transform creó su índice de destino"));
+    // A delete keeps the destination index: nothing else goes.
+    assert!(warned(&es_transform::delete_plan(&cur).render()).is_empty());
+}
+
+#[test]
+fn a_watch_warns_when_replaced_or_renamed() {
+    let cur = watch_cur(WATCH, true);
+    let base = watch::values_of(&cur);
+    let edit = |change: Value| {
+        let mut v = FormValues {
+            values: base.clone(),
+            lists: BTreeMap::new(),
+        };
+        for (k, x) in map(change) {
+            v.values.insert(k, x);
+        }
+        watch::plan(Some(&cur), &v).unwrap().render()
+    };
+    // Written whole, with if_seq_no or not: the acknowledgements go.
+    assert_eq!(warned(&edit(json!({"times": "08:00"}))), [watch::REPLACED]);
+    // Only activated or deactivated: the status stays.
+    assert!(warned(&edit(json!({"enabled": false}))).is_empty());
+    // A new id: the history stays with the old one, in two requests.
+    let w = warned(&edit(json!({
+        "id": "errores2",
+        "actions": "{\"uno\": {\"logging\": {\"text\": \"uno\"}}}"
+    })));
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(w[0].starts_with("Un id nuevo crea el watch «errores2» y borra «errores»"));
+    assert_eq!(w[1], NOT_ATOMIC);
+    // A new watch, its delete and its acknowledgement: nothing to accept.
+    let new = with_defaults(
+        &watch::sections(),
+        json!({
+            "id": "errores", "description": "Errores", "enabled": false,
+            "actions": "{\"uno\": {\"logging\": {\"text\": \"uno\"}}}"
+        }),
+    );
+    assert!(warned(&watch::plan(None, &new).unwrap().render()).is_empty());
+    assert!(warned(&watch::delete_plan(&cur).render()).is_empty());
+    let mut acked = watch_cur(WATCH, true);
+    acked.ackable = true;
+    assert!(warned(&watch::ack_plan(&acked).unwrap().render()).is_empty());
+}
+
+#[test]
+fn snapshot_and_lifecycle_policies_warn_when_renamed() {
+    let ch = choices();
+    let cur = slm::Cur {
+        id: "noche".into(),
+        entry: j(SLM),
+    };
+    let mut v = FormValues {
+        values: slm::values_of(&cur),
+        lists: BTreeMap::new(),
+    };
+    v.values.insert("max_count".into(), json!(9));
+    assert!(warned(&slm::plan(Some(&cur), &v, &ch).unwrap().render()).is_empty());
+    v.values.insert("id".into(), json!("noche2"));
+    let w = warned(&slm::plan(Some(&cur), &v, &ch).unwrap().render());
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(w[0].contains("con sus estadísticas") && w[1] == NOT_ATOMIC);
+    assert!(warned(&slm::delete_plan(&cur).render()).is_empty());
+
+    let c = os_ctx(false);
+    let cur = sm::Cur {
+        name: "diaria".into(),
+        policy: j(SM),
+        seq: "9".into(),
+        term: "3".into(),
+    };
+    let base = sm::values_of(&cur);
+    let edit = |change: Value| {
+        let mut v = FormValues {
+            values: base.clone(),
+            lists: BTreeMap::new(),
+        };
+        for (k, x) in map(change) {
+            v.values.insert(k, x);
+        }
+        sm::plan(&c, Some(&cur), &v, &ch).unwrap().render()
+    };
+    assert!(warned(&edit(json!({"max_count": 10}))).is_empty());
+    assert_eq!(
+        warned(&edit(json!({"max_count": 10, "enabled": false}))),
+        [NOT_ATOMIC]
+    );
+    let w = warned(&edit(json!({"id": "diaria2"})));
+    assert!(w.len() == 2 && w[0].contains("con su estado"), "{w:?}");
+
+    let cur = lifecycle::Cur {
+        id: "p".into(),
+        policy: j(ISM),
+        seq: "5".into(),
+        term: "2".into(),
+        in_use: Vec::new(),
+    };
+    let base = lifecycle::ism_values(&cur);
+    let edit = |change: Value| {
+        let mut v = FormValues {
+            values: base.clone(),
+            lists: BTreeMap::new(),
+        };
+        for (k, x) in map(change) {
+            v.values.insert(k, x);
+        }
+        lifecycle::ism_plan(&c, Some(&cur), &v).unwrap().render()
+    };
+    assert!(warned(&edit(json!({"description": "otra"}))).is_empty());
+    let w = warned(&edit(json!({"id": "p2"})));
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(w[0].contains("no pasan solos a la nueva") && w[1] == NOT_ATOMIC);
+
+    // ILM: a new name keeps the indices on the old one (the cluster refuses
+    // its delete while they use it), so only the requests in parts.
+    let cur = lifecycle::Cur {
+        id: "logs".into(),
+        policy: j(r#"{"phases":{"delete":{"min_age":"30d","actions":{"delete":{}}}}}"#),
+        seq: String::new(),
+        term: String::new(),
+        in_use: Vec::new(),
+    };
+    let mut v = FormValues {
+        values: lifecycle::ilm_values(&cur),
+        lists: BTreeMap::new(),
+    };
+    v.values.insert("meta".into(), json!("{\"a\": 1}"));
+    assert!(warned(&lifecycle::ilm_plan(Some(&cur), &v).unwrap().render()).is_empty());
+    v.values.insert("id".into(), json!("logs2"));
+    assert_eq!(
+        warned(&lifecycle::ilm_plan(Some(&cur), &v).unwrap().render()),
+        [NOT_ATOMIC]
+    );
+}
+
+#[test]
+fn opensearch_jobs_warn_when_recreated_or_their_editor_state_goes() {
+    let c = os_ctx(false);
+    let cur = os_transform::Cur {
+        id: "t".into(),
+        t: j(OS_TF),
+        seq: "3".into(),
+        term: "1".into(),
+    };
+    let base = os_transform::values_of(&cur);
+    let edit = |change: Value| {
+        let mut v = FormValues {
+            values: base.clone(),
+            lists: BTreeMap::new(),
+        };
+        for (k, x) in map(change) {
+            v.values.insert(k, x);
+        }
+        os_transform::plan(&c, Some(&cur), &v).unwrap().render()
+    };
+    assert!(warned(&edit(json!({"description": "x"}))).is_empty());
+    for change in [json!({"dest_index": "dst2"}), json!({"id": "t2"})] {
+        assert_eq!(
+            warned(&edit(change.clone())),
+            [os_transform::RECREATE_NOTE, NOT_ATOMIC],
+            "{change}"
+        );
+    }
+    // Stopped and then deleted: it may stay stopped.
+    assert_eq!(
+        warned(&os_transform::delete_plan("_plugins", &cur).render()),
+        [NOT_ATOMIC]
+    );
+
+    let cur = monitor::Cur {
+        id: "Ab1".into(),
+        monitor: j(MONITOR),
+        seq: "4".into(),
+        term: "1".into(),
+    };
+    let base = monitor::values_of(&c, &cur);
+    let edit = |change: Value| {
+        let mut v = FormValues {
+            values: base.clone(),
+            lists: BTreeMap::new(),
+        };
+        for (k, x) in map(change) {
+            v.values.insert(k, x);
+        }
+        monitor::plan(&c, Some(&cur), &v).unwrap().render()
+    };
+    assert!(warned(&edit(json!({"enabled": true}))).is_empty());
+    assert_eq!(
+        warned(&edit(
+            json!({"inputs_query": "[{\"search\": {\"indices\": [\"j\"], \"query\": {\"size\": 0}}}]"})
+        )),
+        [monitor::UI_METADATA]
+    );
+    // Without the visual editor's state there's nothing to lose.
+    let plain = monitor::Cur {
+        monitor: j(&MONITOR.replace(r#","ui_metadata":{"x":1}"#, "")),
+        ..cur.clone()
+    };
+    let mut v = FormValues {
+        values: monitor::values_of(&c, &plain),
+        lists: BTreeMap::new(),
+    };
+    v.values.insert(
+        "inputs_query".into(),
+        json!("[{\"search\": {\"indices\": [\"j\"], \"query\": {\"size\": 0}}}]"),
+    );
+    assert!(warned(&monitor::plan(&c, Some(&plain), &v).unwrap().render()).is_empty());
+    // Its delete ends its alerts.
+    let w = warned(&monitor::delete_plan("_plugins", &cur).unwrap().render());
+    assert!(w.len() == 1 && w[0].contains("estado DELETED"), "{w:?}");
+}
+
+#[test]
+fn each_job_says_whether_it_starts_at_a_step_and_keeps_a_history() {
+    let flags = |c: &Ctx, id: &str| {
+        let i = item_of(c, a_job(id, true, false), &BTreeSet::new());
+        (i.run_from_step, i.clear_history)
+    };
+    let c = es_ctx();
+    assert_eq!(flags(&c, "watch:w"), (Some(true), Some(true)));
+    assert_eq!(flags(&c, "slm:p"), (Some(false), Some(true)));
+    assert_eq!(flags(&c, "transform:t"), (Some(false), Some(false)));
+    // Watcher without manage_watcher: its history, no start at a step.
+    let mut c = es_ctx();
+    c.manage = vec![Type::Transform, Type::Slm];
+    assert_eq!(flags(&c, "watch:w"), (Some(false), Some(true)));
+    // OpenSearch: none of its types.
+    let c = os_ctx(false);
+    for id in ["transform:t", "monitor:m", "sm:p"] {
+        assert_eq!(flags(&c, id), (Some(false), Some(false)), "{id}");
+    }
 }
