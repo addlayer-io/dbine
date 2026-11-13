@@ -403,7 +403,6 @@ backend:Plantilla
 backend:Por defecto (DROP)
 backend:Por defecto (WINDOW_CLOSE)
 backend:Procedimiento almacenado
-backend:Programa 
 backend:Proveedor
 backend:Rama
 backend:Reflexión
@@ -422,4 +421,4 @@ backend:reflexión
 backend:ventana
 backend:vista refrescable
 scheduled.json:server.edit
-backend:Programa 
+backend:Programa {0}
