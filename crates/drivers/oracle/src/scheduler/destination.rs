@@ -11,8 +11,8 @@ use super::choices::{self, Catalog};
 use super::read::{self, Rec};
 use super::script::lit;
 use super::{
-    bad, bare, fingerprint, fits, fresh, new_name, new_owner, obj_id, parse_obj, pick_ref, rows,
-    shown, Block, Ctx, Kind, Plan, Vals, A, MANAGE_ONLY, OWNER_ONLY,
+    affected, bad, bare, fingerprint, fits, fresh, listed, new_name, new_owner, obj_id, parse_obj,
+    pick_ref, rows, shown, Block, Ctx, Kind, Plan, Vals, A, MANAGE_ONLY, OWNER_ONLY,
 };
 use crate::jobs;
 use dbine_driver::{
@@ -24,6 +24,72 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub(crate) const AGENT_ONLY: &str = "Un destino externo lo crea el agente del Scheduler al registrarse en esta base (schagent -registerdatabase): no se crea ni se cambia desde DBine.";
+
+/// The jobs with a state at the database destination (`:1`, `:2`): the
+/// instances of `*_SCHEDULER_JOB_DESTS` its drop takes along.
+const JOBS_AT_DB_DEST: &str = "SELECT DISTINCT owner, job_name FROM {v}_scheduler_job_dests
+ WHERE destination_owner = :1 AND destination = :2 ORDER BY 1, 2";
+
+/// The same at the external destination `:1` (SYS's).
+const JOBS_AT_EXTERNAL_DEST: &str = "SELECT DISTINCT owner, job_name FROM {v}_scheduler_job_dests
+ WHERE destination = :1 AND NVL(destination_owner, 'SYS') = 'SYS' ORDER BY 1, 2";
+
+/// The database destinations that reach the database through the agent
+/// `:1`: its drop disables them and leaves them without one.
+const DB_DESTS_OF_AGENT: &str =
+    "SELECT owner, destination_name FROM {v}_scheduler_db_dests WHERE agent = :1 ORDER BY 1, 2";
+
+/// The jobs whose destination is the group (`:1`, `:2`).
+const JOBS_OF_GROUP: &str = "SELECT owner, job_name FROM {v}_scheduler_jobs
+ WHERE destination_owner = :1 AND destination = :2 ORDER BY 1, 2";
+
+/// The destination groups that have the destination `dest` (id) as a
+/// member, with whatever credential: its drop takes it out of them.
+fn groups_with(c: &Connection, ctx: &Ctx, dest: &str) -> Vec<String> {
+    let sql = ctx.sql(
+        "SELECT m.owner, m.group_name, m.member_name FROM {v}_scheduler_group_members m
+  JOIN {v}_scheduler_groups g ON g.owner = m.owner AND g.group_name = m.group_name
+ WHERE g.group_type IN ('DB_DEST', 'EXTERNAL_DEST') ORDER BY 1, 2",
+    );
+    let rows = match jobs::texts(c, &sql, &[], 10_000) {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::debug!("oracle scheduler: destination groups of {dest}: {e}");
+            return Vec::new();
+        }
+    };
+    let mut out: Vec<String> = Vec::new();
+    for r in &rows {
+        let (Some(owner), Some(group), Some(member)) =
+            (jobs::col(r, 0), jobs::col(r, 1), jobs::col(r, 2))
+        else {
+            continue;
+        };
+        let id = obj_id(Some(&owner), &group);
+        if Member::parse(&member, "SYS").destination == dest && !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// Warns of what a destination's drop takes along: its place in the
+/// destination groups that have it, and the state its jobs have there
+/// (running ones stop).
+fn warn_destination_drop(b: &mut Block, groups: &[String], jobs: &[String]) {
+    if !groups.is_empty() {
+        b.warn(&format!(
+            "El destino sale también de los grupos de destinos que lo incluyen: {}.",
+            listed(groups)
+        ));
+    }
+    if !jobs.is_empty() {
+        b.warn(&format!(
+            "Los jobs que corren en este destino pierden allí su estado y sus contadores, y se detienen si se están ejecutando en él: {}.",
+            listed(jobs)
+        ));
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Database destinations
@@ -256,12 +322,21 @@ pub(crate) fn db_delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Blo
         &name,
         ctx.oracle_schema(&owner),
     )?;
-    let mut b = Block::new(&format!("Borra el destino de base de datos {}.", s.id()));
+    let groups = groups_with(c, ctx, &s.id());
+    let jobs = affected(c, ctx, JOBS_AT_DB_DEST, &[&owner, &name]);
+    Ok(db_drop_block(&s.id(), &groups, &jobs))
+}
+
+/// Drops the database destination `id`; `groups` and `jobs`: the groups
+/// it's in and the jobs with a state there, which Oracle drops with it.
+pub(crate) fn db_drop_block(id: &str, groups: &[String], jobs: &[String]) -> Block {
+    let mut b = Block::new(&format!("Borra el destino de base de datos {id}."));
+    warn_destination_drop(&mut b, groups, jobs);
     b.call(
         "DBMS_SCHEDULER.DROP_DATABASE_DESTINATION",
-        vec![("destination_name", A::Name(s.id()))],
+        vec![("destination_name", A::Name(id.to_string()))],
     );
-    Ok(b)
+    b
 }
 
 pub(crate) fn db_form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<ObjectForm> {
@@ -438,15 +513,37 @@ pub(crate) fn external_delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Resu
     }
     let name = sys_name(id)?;
     read_external(c, ctx, &name)?;
+    let db_dests = affected(c, ctx, DB_DESTS_OF_AGENT, &[&name]);
+    let groups = groups_with(c, ctx, &obj_id(Some("SYS"), &name));
+    let jobs = affected(c, ctx, JOBS_AT_EXTERNAL_DEST, &[&name]);
+    Ok(external_drop_block(&name, &db_dests, &groups, &jobs))
+}
+
+/// Drops the external destination (agent) `name`; `db_dests`, `groups` and
+/// `jobs`: the database destinations that go through it, the groups it's
+/// in and the jobs with a state there, which its drop takes along.
+pub(crate) fn external_drop_block(
+    name: &str,
+    db_dests: &[String],
+    groups: &[String],
+    jobs: &[String],
+) -> Block {
     let mut b = Block::new(&format!(
-        "Quita el agente {} de los destinos de esta base (para volver, tiene que registrarse de nuevo).",
-        name
+        "Quita el agente {name} de los destinos de esta base."
     ));
+    b.warn("Para volver, el agente tiene que registrarse de nuevo en esta base (schagent -registerdatabase).");
+    if !db_dests.is_empty() {
+        b.warn(&format!(
+            "Los destinos de base de datos que usan este agente quedan deshabilitados y sin agente: {}.",
+            listed(db_dests)
+        ));
+    }
+    warn_destination_drop(&mut b, groups, jobs);
     b.call(
         "DBMS_SCHEDULER.DROP_AGENT_DESTINATION",
-        vec![("destination_name", A::R(lit(&crate::quote(&name))))],
+        vec![("destination_name", A::R(lit(&crate::quote(name))))],
     );
-    Ok(b)
+    b
 }
 
 // ---------------------------------------------------------------------------
@@ -710,10 +807,19 @@ pub(crate) fn group_create(s: &GroupSpec) -> Block {
     b
 }
 
-pub(crate) fn group_alter(old: &GroupSpec, new: &GroupSpec) -> Block {
+/// The calls that take the group from `old` to `new`; `users`: the jobs
+/// whose destination it is, which lose their state at a member that goes
+/// (`REMOVE_GROUP_MEMBER` drops their instances there).
+pub(crate) fn group_alter(old: &GroupSpec, new: &GroupSpec, users: &[String]) -> Block {
     let id = old.id();
     let target = A::Name(id.clone());
     let mut b = Block::new(&format!("Cambia el grupo de destinos {id}."));
+    if removes_members(old, new) && !users.is_empty() {
+        b.warn(&format!(
+            "Los jobs que usan este grupo pierden el estado y los contadores que tenían en los miembros que se quitan o cambian: {}.",
+            listed(users)
+        ));
+    }
     for m in old.members.iter().filter(|m| !new.members.contains(m)) {
         b.call(
             "DBMS_SCHEDULER.REMOVE_GROUP_MEMBER",
@@ -738,6 +844,11 @@ pub(crate) fn group_alter(old: &GroupSpec, new: &GroupSpec) -> Block {
         b.pcall(p, vec![target]);
     }
     b
+}
+
+/// A member of `old` (a destination, or its credential) isn't in `new`.
+fn removes_members(old: &GroupSpec, new: &GroupSpec) -> bool {
+    old.members.iter().any(|m| !new.members.contains(m))
 }
 
 pub(crate) fn group_items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
@@ -813,7 +924,16 @@ pub(crate) fn group_plan(
             let (v, l) = group_values(&old);
             fresh(values, &fingerprint(&v, &l))?;
             let new = group_spec(values, ctx, &cat, Some(&old))?;
-            Ok(Plan::changes(group_alter(&old, &new), old.id(), &name))
+            let users = if removes_members(&old, &new) {
+                affected(c, ctx, JOBS_OF_GROUP, &[&owner, &name])
+            } else {
+                Vec::new()
+            };
+            Ok(Plan::changes(
+                group_alter(&old, &new, &users),
+                old.id(),
+                &name,
+            ))
         }
     }
 }

@@ -326,16 +326,23 @@ pub(crate) fn alter_block(old: &ProgramSpec, new: &ProgramSpec) -> Block {
     let target = A::Name(id.clone());
     let mut b = Block::new(&format!("Cambia el programa {id}."));
     let structural = old.ptype != new.ptype || old.action != new.action || old.args != new.args;
-    let mut disabled = false;
-    if old.enabled && structural {
+    let disabled = old.enabled && structural;
+    if disabled {
         let t = target.clone();
-        b.disabled_first(&id, |b| {
+        let disable = |b: &mut Block| {
             b.call(
                 "DBMS_SCHEDULER.DISABLE",
                 vec![("name", t), ("force", A::B(true))],
             )
-        });
-        disabled = true;
+        };
+        if new.enabled {
+            // Enabled again at the end: a failure in between leaves it
+            // disabled, and the error says so.
+            b.disabled_first(&id, disable);
+        } else {
+            // It ends disabled, as asked, whatever fails after.
+            disable(&mut b);
+        }
     }
     if old.ptype != new.ptype {
         b.set_attr(&target, "program_type", A::S(new.ptype.clone()));

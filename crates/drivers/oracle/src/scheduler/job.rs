@@ -11,8 +11,8 @@ use super::read::{self, Rec};
 use super::script::name_lit;
 use super::timing::{self, local_time, When};
 use super::{
-    bad, fingerprint, fresh, new_name, new_owner, obj_id, only, opt_ref, parse_obj, pick_ref, rows,
-    secs, shown, Block, Ctx, Kind, Plan, Vals, A, OWNER_ONLY,
+    affected, bad, fingerprint, fresh, listed, new_name, new_owner, obj_id, only, opt_ref,
+    parse_obj, pick_ref, rows, secs, shown, Block, Ctx, Kind, Plan, Vals, A, OWNER_ONLY,
 };
 use crate::jobs::{self, JobId};
 use crate::processes::within;
@@ -1149,24 +1149,46 @@ pub(crate) fn create_block(s: &JobSpec, cols: &HashSet<String>) -> Block {
     b
 }
 
-/// The calls that take the job from `old` to `new`, in place.
-pub(crate) fn alter_block(old: &JobSpec, new: &JobSpec, cols: &HashSet<String>) -> Block {
+/// The calls that take the job from `old` to `new`, in place; `left`: the
+/// destinations where the job has a state, read when its destination
+/// changes (Oracle drops its instances there).
+pub(crate) fn alter_block(
+    old: &JobSpec,
+    new: &JobSpec,
+    cols: &HashSet<String>,
+    left: &[String],
+) -> Block {
     let id = old.id();
     let target = A::Name(id.clone());
     let mut b = Block::new(&format!("Cambia el job {id}."));
+    if old.destination != new.destination && !left.is_empty() {
+        b.warn(&format!(
+            "El job pierde el estado y los contadores que tenía en los destinos que deja: {}.",
+            listed(left)
+        ));
+    }
     // A calendar string Oracle refuses fails here, before anything changes.
     timing::check_first(&mut b, &old.when, &new.when);
     let structural = old.structure() != new.structure();
-    let mut disabled = false;
-    if old.enabled && structural {
+    // What an enabled job runs, when, where or as whom changes: disabled
+    // first, so it never runs half changed.
+    let disabled = old.enabled && structural;
+    if disabled {
         let t = target.clone();
-        b.disabled_first(&id, |b| {
+        let disable = |b: &mut Block| {
             b.call(
                 "DBMS_SCHEDULER.DISABLE",
                 vec![("name", t), ("force", A::B(true))],
             )
-        });
-        disabled = true;
+        };
+        if new.enabled {
+            // Enabled again at the end: a failure in between leaves it
+            // disabled, and the error says so.
+            b.disabled_first(&id, disable);
+        } else {
+            // It ends disabled, as asked, whatever fails after.
+            disable(&mut b);
+        }
     }
     // Values that won't apply: reset while their positions still exist
     // (all of them when what it runs changes: Oracle checks the positions
@@ -1313,6 +1335,9 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
     } else {
         HashSet::new()
     };
+    // The chain jobs: only they start at a step of their own (`None`: not
+    // known, as the kind says).
+    let chains = chain_jobs(c, ctx);
     Ok(SchedulerList {
         items: list
             .jobs
@@ -1334,6 +1359,8 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     actions.push(END_DETACHED.to_string());
                 }
                 SchedulerItem {
+                    run_from_step: starts_at_step(&j.id, chains.as_ref()),
+                    clear_history: keeps_history(&j.id),
                     id: j.id,
                     name: j.name,
                     description: j.description,
@@ -1342,13 +1369,48 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                     can_edit: super::unless(locked),
                     can_delete: super::unless(locked),
                     actions: (!offered.is_empty()).then_some(actions),
-                    run_from_step: None,
-                    clear_history: None,
                 }
             })
             .collect(),
         notes: list.notes,
     })
+}
+
+/// The ids of the jobs that run a chain, `None` when they can't be read.
+fn chain_jobs(c: &Connection, ctx: &Ctx) -> Option<HashSet<String>> {
+    match jobs::texts(
+        c,
+        &ctx.sql("SELECT owner, job_name FROM {v}_scheduler_jobs WHERE job_type = 'CHAIN'"),
+        &[],
+        100_000,
+    ) {
+        Ok(rows) => Some(
+            rows.iter()
+                .filter_map(|r| Some(jobs::job_id(&jobs::col(r, 0)?, &jobs::col(r, 1)?)))
+                .collect(),
+        ),
+        Err(e) => {
+            tracing::debug!("oracle scheduler: chain jobs: {e}");
+            None
+        }
+    }
+}
+
+/// Whether the job `id` starts at one of its steps: a chain job does
+/// (`RUN_CHAIN`); a job of one action or program, or a `DBMS_JOB` one,
+/// has none of its own. `None` (the kind's: yes) when the chain jobs
+/// couldn't be read.
+pub(crate) fn starts_at_step(id: &str, chains: Option<&HashSet<String>>) -> Option<bool> {
+    if legacy_id(id).is_some() {
+        return Some(false);
+    }
+    chains.map(|set| set.contains(id))
+}
+
+/// Whether the job `id` keeps a history to clear: a `DBMS_JOB` job before
+/// 19c keeps none; the others, as the kind says (MANAGE SCHEDULER).
+pub(crate) fn keeps_history(id: &str) -> Option<bool> {
+    legacy_id(id).is_some().then_some(false)
 }
 
 fn legacy_id(id: &str) -> Option<i64> {
@@ -1357,6 +1419,14 @@ fn legacy_id(id: &str) -> Option<i64> {
         _ => None,
     }
 }
+
+/// The destinations where the job (`:1`, `:2`) has a state, its instances
+/// in `*_SCHEDULER_JOB_DESTS`: `LOCAL` or the destination's id.
+const JOB_DESTS: &str =
+    "SELECT DISTINCT DECODE(destination, 'LOCAL', 'LOCAL', NVL(destination_owner, 'SYS')),
+       DECODE(destination, 'LOCAL', NULL, destination)
+  FROM {v}_scheduler_job_dests
+ WHERE owner = :1 AND job_name = :2 ORDER BY 1, 2";
 
 pub(crate) fn plan(
     c: &Connection,
@@ -1389,8 +1459,13 @@ pub(crate) fn plan(
             let (v, l) = values_of(&st.spec);
             fresh(values, &fingerprint(&v, &l))?;
             let s = spec_of(values, ctx, &cols, &cat, Some(&st.spec))?;
+            let left = if st.spec.destination.is_some() && st.spec.destination != s.destination {
+                affected(c, ctx, JOB_DESTS, &[&owner, &name])
+            } else {
+                Vec::new()
+            };
             Ok(Plan::changes(
-                alter_block(&st.spec, &s, &cols),
+                alter_block(&st.spec, &s, &cols, &left),
                 st.spec.id(),
                 &name,
             ))
@@ -1878,8 +1953,9 @@ fn events_multi() -> FormKind {
 // ---------------------------------------------------------------------------
 
 /// "Iniciar en el paso…": a chain job's chain run from that step
-/// (`RUN_CHAIN`, a run-once job of its own); any other job has one step,
-/// itself, and runs now.
+/// (`RUN_CHAIN`, a run-once job of its own). The items offer it only on
+/// chain jobs ([`starts_at_step`]); any other job asked for it has one
+/// step, itself, and runs now.
 pub(crate) fn run_from(c: &Connection, id: &str, step: &str) -> Result<()> {
     if legacy_id(id).is_some() {
         return jobs::run(c, id);

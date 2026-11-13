@@ -626,7 +626,7 @@ fn a_create_undoes_itself_and_a_failed_edit_leaves_it_disabled() {
         "{handler}"
     );
     assert!(
-        s.starts_with("-- e\n-- Oracle confirma cada llamada: si una falla, las anteriores ya quedaron hechas.\n-- Si una llamada falla después de deshabilitarlo, queda deshabilitado"),
+        s.starts_with("-- e\n-- ⚠ Oracle confirma cada llamada: si una falla, las anteriores ya quedaron hechas.\n-- ⚠ Si una llamada falla después de deshabilitarlo, queda deshabilitado"),
         "{s}"
     );
     one_block(&s);
@@ -647,7 +647,7 @@ fn edits_of_several_calls_say_each_one_commits() {
     b.set_attr(&t, "max_runs", A::I(3));
     assert!(
         b.script()
-            .starts_with("-- x\n-- Oracle confirma cada llamada: si una falla, las anteriores ya quedaron hechas.\nBEGIN\n"),
+            .starts_with("-- x\n-- ⚠ Oracle confirma cada llamada: si una falla, las anteriores ya quedaron hechas.\nBEGIN\n"),
         "{}",
         b.script()
     );
@@ -683,10 +683,353 @@ fn edits_of_several_calls_say_each_one_commits() {
     let b = credential::alter_block(&old, &new, &ctx());
     assert!(b.calls() > 1);
     assert!(
-        b.script().contains("-- Oracle confirma cada llamada"),
+        b.script().contains("-- ⚠ Oracle confirma cada llamada"),
         "{}",
         b.script()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Warnings the user accepts before a script runs
+// ---------------------------------------------------------------------------
+
+/// The script's warnings as the app reads them (`scriptWarnings`): every
+/// line whose text, after an optional comment marker, starts with "⚠",
+/// without the mark.
+fn warnings(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| {
+            let t = l.trim_start();
+            let t = ["--", "#", "//", "/*", "*"]
+                .iter()
+                .find_map(|m| t.strip_prefix(m))
+                .unwrap_or(t);
+            t.trim_start().strip_prefix('⚠')
+        })
+        .map(|t| t.trim().trim_end_matches("*/").trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+const NOT_ATOMIC: &str =
+    "Oracle confirma cada llamada: si una falla, las anteriores ya quedaron hechas.";
+const LEFT_DISABLED: &str = "Si una llamada falla después de deshabilitarlo, queda deshabilitado (no se vuelve a habilitar a medio cambiar): el error lo dice.";
+
+#[test]
+fn an_edit_warns_it_isnt_atomic_and_may_stay_disabled_only_when_it_is_so() {
+    let cols = all_cols();
+    let old = job_spec();
+    // One call: nothing to accept.
+    let mut new = old.clone();
+    new.comments = Some("x".into());
+    assert!(warnings(&job::alter_block(&old, &new, &cols, &[]).script()).is_empty());
+    // Several calls on a job that stays enabled: each one commits.
+    new.priority = 4;
+    assert_eq!(
+        warnings(&job::alter_block(&old, &new, &cols, &[]).script()),
+        vec![NOT_ATOMIC]
+    );
+    // What an enabled job runs changes: disabled first, left so if a call
+    // after that fails.
+    let mut new = old.clone();
+    new.action = Action::Inline {
+        kind: "PLSQL_BLOCK".into(),
+        action: "BEGIN NULL; NULL; END;".into(),
+    };
+    let s = job::alter_block(&old, &new, &cols, &[]).script();
+    assert_eq!(warnings(&s), vec![NOT_ATOMIC, LEFT_DISABLED], "{s}");
+    // The same on a disabled job: nothing is disabled first.
+    let mut off = old.clone();
+    off.enabled = false;
+    let mut new = off.clone();
+    new.action = Action::Inline {
+        kind: "PLSQL_BLOCK".into(),
+        action: "BEGIN NULL; NULL; END;".into(),
+    };
+    new.comments = Some("x".into());
+    assert_eq!(
+        warnings(&job::alter_block(&off, &new, &cols, &[]).script()),
+        vec![NOT_ATOMIC]
+    );
+    // Programs alike.
+    let p = prog();
+    let mut p2 = p.clone();
+    p2.action = "APP.PROC2".into();
+    assert_eq!(
+        warnings(&program::alter_block(&p, &p2).script()),
+        vec![NOT_ATOMIC, LEFT_DISABLED]
+    );
+    let mut p3 = p.clone();
+    p3.comments = Some("c".into());
+    assert!(warnings(&program::alter_block(&p, &p3).script()).is_empty());
+    // Disabled in the same save: disabled first, but it ends disabled
+    // anyway, so a failure risks nothing more than the other calls.
+    let mut ends_off = old.clone();
+    ends_off.action = Action::Inline {
+        kind: "PLSQL_BLOCK".into(),
+        action: "BEGIN NULL; NULL; END;".into(),
+    };
+    ends_off.enabled = false;
+    let s = job::alter_block(&old, &ends_off, &cols, &[]).script();
+    assert_eq!(warnings(&s), vec![NOT_ATOMIC], "{s}");
+    assert!(
+        s.contains("DBMS_SCHEDULER.DISABLE(name => '\"APP\".\"J1\"', force => TRUE);")
+            && !s.contains("disabled := TRUE")
+            && !s.contains("RAISE_APPLICATION_ERROR"),
+        "{s}"
+    );
+    assert!(
+        s.find("DBMS_SCHEDULER.DISABLE").unwrap() < s.find("'job_action'").unwrap(),
+        "{s}"
+    );
+    assert_eq!(s.matches("DBMS_SCHEDULER.DISABLE").count(), 1, "{s}");
+    one_block(&s);
+    let mut p4 = p2.clone();
+    p4.enabled = false;
+    let s = program::alter_block(&p, &p4).script();
+    assert_eq!(warnings(&s), vec![NOT_ATOMIC], "{s}");
+    assert!(!s.contains("disabled := TRUE"), "{s}");
+    assert_eq!(s.matches("DBMS_SCHEDULER.DISABLE").count(), 1, "{s}");
+    one_block(&s);
+    // A create drops what it made on a failure: all or nothing.
+    assert!(warnings(&job::create_block(&old, &cols).script()).is_empty());
+    assert!(warnings(&program::create_block(&p).script()).is_empty());
+    // Only in the script shown: the block that runs has no comments.
+    let mut on_new = ends_off.clone();
+    on_new.enabled = true;
+    assert!(job::alter_block(&old, &on_new, &cols, &[])
+        .runnable()
+        .0
+        .starts_with("DECLARE\n"));
+    assert!(job::alter_block(&old, &ends_off, &cols, &[])
+        .runnable()
+        .0
+        .starts_with("BEGIN\n"));
+}
+
+#[test]
+fn a_delete_warns_of_what_it_takes_along_only_when_there_is_some() {
+    // A window: the window groups it's in lose it.
+    assert!(warnings(&window::drop_block("W1", &[]).script()).is_empty());
+    assert_eq!(
+        warnings(&window::drop_block("W1", &["SYS.G1".into(), "SYS.G2".into()]).script()),
+        vec!["La ventana sale también de los grupos de ventanas que la incluyen: SYS.G1, SYS.G2."]
+    );
+    // A long list ends in "…".
+    let many: Vec<String> = (0..30).map(|i| format!("SYS.G{i}")).collect();
+    let w = warnings(&window::drop_block("W1", &many).script());
+    assert!(w[0].ends_with(": SYS.G0, SYS.G1, SYS.G2, SYS.G3, SYS.G4, SYS.G5, SYS.G6, SYS.G7, SYS.G8, SYS.G9, SYS.G10, SYS.G11, SYS.G12, SYS.G13, SYS.G14, SYS.G15, SYS.G16, SYS.G17, SYS.G18, SYS.G19, …."), "{w:?}");
+    // A database destination: its groups, and its jobs' state there.
+    assert!(warnings(&destination::db_drop_block("APP.DB1", &[], &[]).script()).is_empty());
+    let s = destination::db_drop_block("APP.DB1", &["APP.DG".into()], &["APP.J1".into()]).script();
+    assert_eq!(
+        warnings(&s),
+        vec![
+            "El destino sale también de los grupos de destinos que lo incluyen: APP.DG.",
+            "Los jobs que corren en este destino pierden allí su estado y sus contadores, y se detienen si se están ejecutando en él: APP.J1.",
+        ]
+    );
+    one_block(&s);
+    // An agent: it registers again to come back, always; what goes through
+    // it, when there's some.
+    const AGAIN: &str = "Para volver, el agente tiene que registrarse de nuevo en esta base (schagent -registerdatabase).";
+    let s = destination::external_drop_block("AGENT1", &[], &[], &[]).script();
+    assert_eq!(warnings(&s), vec![AGAIN]);
+    assert!(
+        s.starts_with("-- Quita el agente AGENT1 de los destinos de esta base.\n"),
+        "{s}"
+    );
+    let s = destination::external_drop_block(
+        "AGENT1",
+        &["APP.DB1".into()],
+        &["APP.DG".into()],
+        &["APP.J1".into()],
+    )
+    .script();
+    let w = warnings(&s);
+    assert_eq!(w.len(), 4, "{w:#?}");
+    assert_eq!(w[0], AGAIN);
+    assert_eq!(
+        w[1],
+        "Los destinos de base de datos que usan este agente quedan deshabilitados y sin agente: APP.DB1."
+    );
+    one_block(&s);
+    // A resource: the jobs and programs it's assigned to, when there are.
+    let mut r = ResourceSpec {
+        owner: "APP".into(),
+        name: "R".into(),
+        units: 4,
+        status: "ENFORCE_CONSTRAINTS".into(),
+        level: "JOB_LEVEL".into(),
+        comments: None,
+        constraints: Vec::new(),
+    };
+    let s = resource::resource_drop(&r).script();
+    assert!(warnings(&s).is_empty(), "{s}");
+    assert!(s.contains("force => TRUE"), "{s}");
+    r.constraints = vec![("APP.J1".into(), 2), ("APP.P1".into(), 1)];
+    assert_eq!(
+        warnings(&resource::resource_drop(&r).script()),
+        vec!["Los jobs y programas que lo usan dejan de tenerlo asignado: APP.J1, APP.P1."]
+    );
+}
+
+#[test]
+fn a_destination_group_warns_its_jobs_only_when_a_member_goes() {
+    let g = DestGroup {
+        owner: "APP".into(),
+        name: "DG".into(),
+        group_type: "DB_DEST".into(),
+        members: vec![
+            Member::parse("\"APP\".\"DB1\"", "SYS"),
+            Member::parse("LOCAL", "SYS"),
+        ],
+        enabled: true,
+        comments: None,
+    };
+    let users = vec!["APP.J1".to_string()];
+    const GONE: &str = "Los jobs que usan este grupo pierden el estado y los contadores que tenían en los miembros que se quitan o cambian: APP.J1.";
+    // A member added: nothing is lost.
+    let mut add = g.clone();
+    add.members.push(Member::parse("\"APP\".\"DB2\"", "SYS"));
+    assert!(warnings(&destination::group_alter(&g, &add, &users).script()).is_empty());
+    // One removed, or its credential changed, with jobs on the group.
+    let mut rm = g.clone();
+    rm.members.retain(|m| m.destination != "LOCAL");
+    assert_eq!(
+        warnings(&destination::group_alter(&g, &rm, &users).script()),
+        vec![GONE]
+    );
+    let mut cred = g.clone();
+    cred.members[0].credential = Some("APP.CRED".into());
+    let s = destination::group_alter(&g, &cred, &users).script();
+    assert_eq!(warnings(&s), vec![NOT_ATOMIC, GONE], "{s}");
+    // No job uses the group: nothing to accept.
+    assert!(warnings(&destination::group_alter(&g, &rm, &[]).script()).is_empty());
+}
+
+#[test]
+fn a_job_edit_warns_of_the_destinations_it_leaves_only_when_its_destination_changes() {
+    let cols = all_cols();
+    let mut old = job_spec();
+    old.enabled = false;
+    old.destination = Some("APP.DG1".into());
+    let left = vec!["APP.DB1".to_string(), "LOCAL".to_string()];
+    const LEFT: &str = "El job pierde el estado y los contadores que tenía en los destinos que deja: APP.DB1, LOCAL.";
+    // Moved to another group: its state where it was goes.
+    let mut new = old.clone();
+    new.destination = Some("APP.DG2".into());
+    let s = job::alter_block(&old, &new, &cols, &left).script();
+    assert_eq!(warnings(&s), vec![LEFT], "{s}");
+    assert!(s.contains("'destination_name', '\"APP\".\"DG2\"'"), "{s}");
+    one_block(&s);
+    // Or back to this database.
+    let mut local = old.clone();
+    local.destination = None;
+    assert_eq!(
+        warnings(&job::alter_block(&old, &local, &cols, &left).script()),
+        vec![LEFT]
+    );
+    // On an enabled job, with the rest of what the edit risks.
+    let mut on = old.clone();
+    on.enabled = true;
+    let mut on_new = new.clone();
+    on_new.enabled = true;
+    assert_eq!(
+        warnings(&job::alter_block(&on, &on_new, &cols, &left).script()),
+        vec![NOT_ATOMIC, LEFT, LEFT_DISABLED]
+    );
+    // The same destination: nothing is lost.
+    let mut same = old.clone();
+    same.comments = Some("x".into());
+    assert!(warnings(&job::alter_block(&old, &same, &cols, &left).script()).is_empty());
+    // No state anywhere (or none the login can read): nothing to name.
+    assert!(warnings(&job::alter_block(&old, &new, &cols, &[]).script()).is_empty());
+}
+
+#[test]
+fn text_the_user_typed_never_reads_as_a_warning() {
+    let cols = all_cols();
+    let mut s = job_spec();
+    s.action = Action::Inline {
+        kind: "PLSQL_BLOCK".into(),
+        action: "BEGIN\n-- ⚠ x\n  NULL;\nEND;".into(),
+    };
+    s.comments = Some("Nocturno\n⚠ crítico\n  * ⚠ no correr en horario\n/* ⚠ y */".into());
+    let script = job::create_block(&s, &cols).script();
+    assert!(warnings(&script).is_empty(), "{script}");
+    // The value is the same, its lines joined with CHR(10) on one line.
+    assert!(
+        script.contains(
+            "'BEGIN' || CHR(10) || '-- ⚠ x' || CHR(10) || '  NULL;' || CHR(10) || 'END;'"
+        ),
+        "{script}"
+    );
+    one_block(&script);
+    assert_eq!(lit("a\n  # ⚠ b"), "('a' || CHR(10) || '  # ⚠ b')");
+    assert_eq!(lit("a\n// ⚠ b"), "('a' || CHR(10) || '// ⚠ b')");
+    assert_eq!(lit("a\n\u{feff}⚠ b"), "('a' || CHR(10) || '\u{feff}⚠ b')");
+    // A ⚠ inside a line, or text without one, stays as typed.
+    assert_eq!(lit("a\nb ⚠ c"), "'a\nb ⚠ c'");
+    assert_eq!(lit("a\n-- b"), "'a\n-- b'");
+}
+
+#[test]
+fn actions_warn_of_what_else_they_close_stop_or_keep_elsewhere() {
+    // Opening with no other window open: nothing else closes.
+    let s = action::open_block("SYS.W1", 3600, None).script();
+    assert!(warnings(&s).is_empty(), "{s}");
+    assert!(s.contains("force => FALSE"), "{s}");
+    // Another one open: it closes, with the jobs that stop with it.
+    const NO_OTHER: &str = "Mientras esté abierta, Oracle no abre ninguna otra ventana programada, aunque tenga más prioridad.";
+    let closing = ("W2".to_string(), Vec::new());
+    let s = action::open_block("SYS.W1", 3600, Some(&closing)).script();
+    assert_eq!(
+        warnings(&s),
+        vec![
+            "Solo puede haber una ventana abierta: cierra la que está abierta ahora, SYS.W2 (force => TRUE).",
+            NO_OTHER,
+        ]
+    );
+    assert!(s.contains("force => TRUE"), "{s}");
+    const STOP: &str = "Se detienen ahora estos jobs, que se están ejecutando con «Detener al cerrar la ventana»: APP.J1.";
+    let closing = ("W2".to_string(), vec!["APP.J1".to_string()]);
+    let w = warnings(&action::open_block("SYS.W1", 3600, Some(&closing)).script());
+    assert_eq!(w.len(), 3, "{w:#?}");
+    assert_eq!(w[1], STOP);
+    assert_eq!(w[2], NO_OTHER);
+    // Closing: a warning only when running jobs stop.
+    let s = action::close_block("SYS.W1", &[]).script();
+    assert!(warnings(&s).is_empty(), "{s}");
+    assert_eq!(
+        warnings(&action::close_block("SYS.W1", &["APP.J1".into()]).script()),
+        vec![STOP]
+    );
+    // A program or a chain run once: the run-once job Oracle drops when it
+    // ends is only described, nothing the user has is lost.
+    let s = action::run_program_block("APP.P1", "P1", "APP").script();
+    assert!(warnings(&s).is_empty(), "{s}");
+    one_block(&s);
+    let s = action::run_chain_block("APP.C1", "APP").script();
+    assert!(warnings(&s).is_empty(), "{s}");
+    one_block(&s);
+}
+
+#[test]
+fn only_chain_jobs_start_at_a_step_and_dbms_job_ones_keep_no_history() {
+    let chains: HashSet<String> = HashSet::from(["APP.CJ".to_string()]);
+    assert_eq!(job::starts_at_step("APP.CJ", Some(&chains)), Some(true));
+    assert_eq!(job::starts_at_step("APP.J1", Some(&chains)), Some(false));
+    assert_eq!(
+        job::starts_at_step("DBMS_JOB:42", Some(&chains)),
+        Some(false)
+    );
+    assert_eq!(job::starts_at_step("DBMS_JOB:42", None), Some(false));
+    // The chain jobs couldn't be read: as the kind says.
+    assert_eq!(job::starts_at_step("APP.J1", None), None);
+    assert_eq!(job::keeps_history("DBMS_JOB:42"), Some(false));
+    assert_eq!(job::keeps_history("APP.J1"), None);
 }
 
 #[test]
@@ -1225,10 +1568,10 @@ fn program_jobs_take_their_style_and_arguments() {
 fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
     let old = job_spec();
     let mut new = old.clone();
-    assert_eq!(job::alter_block(&old, &new, &all_cols()).calls(), 0);
+    assert_eq!(job::alter_block(&old, &new, &all_cols(), &[]).calls(), 0);
     new.comments = Some("x".into());
     new.priority = 4;
-    let b = job::alter_block(&old, &new, &all_cols());
+    let b = job::alter_block(&old, &new, &all_cols(), &[]);
     let s = b.script();
     assert_eq!(b.calls(), 2, "{s}");
     assert!(!s.contains("DISABLE"), "comments don't disable it: {s}");
@@ -1249,7 +1592,7 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
             ..Arg::default()
         },
     ];
-    let s = job::alter_block(&old, &new, &all_cols()).script();
+    let s = job::alter_block(&old, &new, &all_cols(), &[]).script();
     let order = [
         "DBMS_SCHEDULER.DISABLE(name => '\"APP\".\"J1\"', force => TRUE);",
         "disabled := TRUE;",
@@ -1276,7 +1619,7 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
         value: Some("9".into()),
         ..Arg::default()
     }];
-    let s = job::alter_block(&new, &prog, &all_cols()).script();
+    let s = job::alter_block(&new, &prog, &all_cols(), &[]).script();
     let reset = s.find("RESET_JOB_ARGUMENT_VALUE").unwrap();
     let nulls = s
         .find("SET_ATTRIBUTE_NULL('\"APP\".\"J1\"', 'job_action')")
@@ -1288,7 +1631,7 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
     assert!(reset < nulls && nulls < count && count < program, "{s}");
     assert_eq!(s.matches("RESET_JOB_ARGUMENT_VALUE").count(), 2, "{s}");
     // Back to a block: the program goes, and the count is 0.
-    let s = job::alter_block(&prog, &old, &all_cols()).script();
+    let s = job::alter_block(&prog, &old, &all_cols(), &[]).script();
     assert!(
         s.contains("SET_ATTRIBUTE_NULL('\"APP\".\"J1\"', 'program_name')")
             && s.contains("'number_of_arguments', 0"),
@@ -1297,7 +1640,7 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
     // Fewer arguments: the ones that go are reset first.
     let mut fewer = new.clone();
     fewer.args.truncate(1);
-    let s = job::alter_block(&new, &fewer, &all_cols()).script();
+    let s = job::alter_block(&new, &fewer, &all_cols(), &[]).script();
     assert!(
         s.find("argument_position => 2);").unwrap() < s.find("'number_of_arguments', 1").unwrap(),
         "{s}"
@@ -1307,9 +1650,9 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
     off.enabled = false;
     let mut on = off.clone();
     on.enabled = true;
-    let s = job::alter_block(&off, &on, &all_cols()).script();
+    let s = job::alter_block(&off, &on, &all_cols(), &[]).script();
     assert!(!s.contains("DISABLE") && s.contains("ENABLE"), "{s}");
-    let s = job::alter_block(&on, &off, &all_cols()).script();
+    let s = job::alter_block(&on, &off, &all_cols(), &[]).script();
     assert!(
         s.contains("DBMS_SCHEDULER.DISABLE(name => '\"APP\".\"J1\"', force => TRUE)"),
         "{s}"
@@ -1327,7 +1670,7 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
         expr: "freq=weekly; byday=MON".into(),
         end: None,
     };
-    let b = job::alter_block(&named, &expr, &all_cols());
+    let b = job::alter_block(&named, &expr, &all_cols(), &[]);
     let s = b.script();
     let check = s
         .find("DBMS_SCHEDULER.EVALUATE_CALENDAR_STRING(\n      calendar_string => 'freq=weekly; byday=MON',\n      start_date => NULL,\n      return_date_after => NULL,\n      next_run_date => next_run);")
@@ -1348,7 +1691,7 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
     // Disabled in the same save: still disabled after a failure.
     let mut off = expr.clone();
     off.enabled = false;
-    let s = job::alter_block(&named, &off, &all_cols()).script();
+    let s = job::alter_block(&named, &off, &all_cols(), &[]).script();
     assert!(!s.contains("disabled := FALSE"), "{s}");
     // A PL/SQL expression, or the same calendar string: nothing checked.
     let mut plsql = old.clone();
@@ -1357,11 +1700,11 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
         expr: "SYSTIMESTAMP + 1".into(),
         end: None,
     };
-    let s = job::alter_block(&named, &plsql, &all_cols()).script();
+    let s = job::alter_block(&named, &plsql, &all_cols(), &[]).script();
     assert!(!s.contains("EVALUATE_CALENDAR_STRING"), "{s}");
     let mut same = old.clone();
     same.comments = Some("c".into());
-    let s = job::alter_block(&old, &same, &all_cols()).script();
+    let s = job::alter_block(&old, &same, &all_cols(), &[]).script();
     assert!(!s.contains("EVALUATE_CALENDAR_STRING"), "{s}");
     // Notifications are removed and added again.
     let mut n = old.clone();
@@ -1373,7 +1716,7 @@ fn a_job_edit_changes_only_what_changed_and_disables_it_around_its_action() {
         body: None,
         filter: None,
     }];
-    let s = job::alter_block(&n, &old, &all_cols()).script();
+    let s = job::alter_block(&n, &old, &all_cols(), &[]).script();
     assert!(
         s.contains("REMOVE_JOB_EMAIL_NOTIFICATION") && !s.contains("ADD_JOB"),
         "{s}"

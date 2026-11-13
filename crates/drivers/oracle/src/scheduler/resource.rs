@@ -308,15 +308,26 @@ pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block>
     if let Some(why) = locked(ctx, Kind::Resource, &owner, &name) {
         return Err(bad(why.into()));
     }
-    let mut b = Block::new(&format!(
-        "Borra el recurso {} y lo que los jobs y programas tenían de él.",
-        s.id()
-    ));
+    Ok(resource_drop(&s))
+}
+
+/// Drops the resource with its constraints (`force => TRUE`): the jobs and
+/// programs that use it stop having it.
+pub(crate) fn resource_drop(s: &ResourceSpec) -> Block {
+    let id = s.id();
+    let mut b = Block::new(&format!("Borra el recurso {id}."));
+    if !s.constraints.is_empty() {
+        let users: Vec<String> = s.constraints.iter().map(|(o, _)| o.clone()).collect();
+        b.warn(&format!(
+            "Los jobs y programas que lo usan dejan de tenerlo asignado: {}.",
+            super::listed(&users)
+        ));
+    }
     b.call(
         "DBMS_SCHEDULER.DROP_RESOURCE",
-        vec![("resource_name", A::Name(s.id())), ("force", A::B(true))],
+        vec![("resource_name", A::Name(id)), ("force", A::B(true))],
     );
-    Ok(b)
+    b
 }
 
 pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<ObjectForm> {

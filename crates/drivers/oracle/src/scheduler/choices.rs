@@ -45,27 +45,33 @@ fn read(c: &Connection, sql: &str) -> Result<Vec<Cells>, oracledb::Error> {
 
 /// (owner, name) rows as ids, labelled `OWNER.NAME` (just `NAME` when
 /// it's the login's own).
-fn ids(rows: &[Cells], user: &str, prefix: &str) -> Vec<(String, String)> {
+fn ids(rows: &[Cells], user: &str) -> Vec<(String, String)> {
     rows.iter()
         .filter_map(|r| {
             let owner = jobs::col(r, 0)?;
             let name = jobs::col(r, 1)?;
             let label = if owner == user {
-                format!("{prefix}{name}")
+                name.clone()
             } else {
-                format!("{prefix}{owner}.{name}")
+                format!("{owner}.{name}")
             };
             Some((obj_id(Some(&owner), &name), label))
         })
         .collect()
 }
 
+/// The labels of `list` as `label` writes them (a literal sentence with
+/// the name as `{0}`, which the app translates as a pattern).
+fn labelled(list: Vec<(String, String)>, label: fn(&str) -> String) -> Vec<(String, String)> {
+    list.into_iter().map(|(id, l)| (id, label(&l))).collect()
+}
+
 /// SYS's objects by name.
-fn sys_ids(rows: &[Cells], prefix: &str) -> Vec<(String, String)> {
+fn sys_ids(rows: &[Cells]) -> Vec<(String, String)> {
     rows.iter()
         .filter_map(|r| {
             let name = jobs::col(r, 0)?;
-            Some((obj_id(Some("SYS"), &name), format!("{prefix}{name}")))
+            Some((obj_id(Some("SYS"), &name), name))
         })
         .collect()
 }
@@ -102,57 +108,52 @@ pub(crate) fn load(c: &Connection, ctx: &Ctx, sources: &[&str]) -> Catalog {
                 "program" => ids(
                     &read(c, &ctx.sql("SELECT owner, program_name FROM {v}_scheduler_programs ORDER BY 1, 2"))?,
                     &user,
-                    "",
                 ),
                 "schedule" => ids(
                     &read(c, &ctx.sql("SELECT owner, schedule_name FROM {v}_scheduler_schedules ORDER BY 1, 2"))?,
                     &user,
-                    "",
                 ),
                 "event_schedule" => ids(
                     &read(c, &ctx.sql("SELECT owner, schedule_name FROM {v}_scheduler_schedules WHERE schedule_type = 'EVENT' ORDER BY 1, 2"))?,
                     &user,
-                    "",
                 ),
                 "chain" => ids(
                     &read(c, &ctx.sql("SELECT owner, chain_name FROM {v}_scheduler_chains ORDER BY 1, 2"))?,
                     &user,
-                    "",
                 ),
                 "job" => ids(
                     &read(c, &ctx.sql("SELECT owner, job_name FROM {v}_scheduler_jobs WHERE job_subname IS NULL ORDER BY 1, 2"))?,
                     &user,
-                    "",
                 ),
                 "job_or_program" => {
-                    let mut list = ids(
-                        &read(c, &ctx.sql("SELECT owner, job_name FROM {v}_scheduler_jobs WHERE job_subname IS NULL ORDER BY 1, 2"))?,
-                        &user,
-                        "Job ",
+                    let mut list = labelled(
+                        ids(
+                            &read(c, &ctx.sql("SELECT owner, job_name FROM {v}_scheduler_jobs WHERE job_subname IS NULL ORDER BY 1, 2"))?,
+                            &user,
+                        ),
+                        |name| format!("Job {0}", name),
                     );
-                    list.extend(ids(
-                        &read(c, &ctx.sql("SELECT owner, program_name FROM {v}_scheduler_programs ORDER BY 1, 2"))?,
-                        &user,
-                        "Programa ",
+                    list.extend(labelled(
+                        ids(
+                            &read(c, &ctx.sql("SELECT owner, program_name FROM {v}_scheduler_programs ORDER BY 1, 2"))?,
+                            &user,
+                        ),
+                        |name| format!("Programa {0}", name),
                     ));
                     list
                 }
                 "window" => sys_ids(
                     &read(c, &ctx.sql("SELECT window_name FROM {v}_scheduler_windows ORDER BY 1"))?,
-                    "",
                 ),
                 "window_group" => sys_ids(
                     &read(c, &ctx.sql("SELECT window_group_name FROM {v}_scheduler_window_groups ORDER BY 1"))?,
-                    "",
                 ),
                 "job_class" => sys_ids(
                     &read(c, &ctx.sql("SELECT job_class_name FROM {v}_scheduler_job_classes ORDER BY 1"))?,
-                    "",
                 ),
                 "file_watcher" => ids(
                     &read(c, &ctx.sql("SELECT owner, file_watcher_name FROM {v}_scheduler_file_watchers ORDER BY 1, 2"))?,
                     &user,
-                    "",
                 ),
                 "credential" => {
                     let sql = if ctx.credential_api() {
@@ -160,16 +161,14 @@ pub(crate) fn load(c: &Connection, ctx: &Ctx, sources: &[&str]) -> Catalog {
                     } else {
                         "SELECT owner, credential_name FROM {v}_scheduler_credentials ORDER BY 1, 2"
                     };
-                    ids(&read(c, &ctx.sql(sql))?, &user, "")
+                    ids(&read(c, &ctx.sql(sql))?, &user)
                 }
                 "external_destination" => sys_ids(
                     &read(c, &ctx.sql("SELECT destination_name FROM {v}_scheduler_external_dests ORDER BY 1"))?,
-                    "",
                 ),
                 "db_destination" => ids(
                     &read(c, &ctx.sql("SELECT owner, destination_name FROM {v}_scheduler_db_dests ORDER BY 1, 2"))?,
                     &user,
-                    "",
                 ),
                 "destination" => {
                     let mut list = Vec::new();
@@ -177,20 +176,17 @@ pub(crate) fn load(c: &Connection, ctx: &Ctx, sources: &[&str]) -> Catalog {
                         list.extend(ids(
                             &read(c, &ctx.sql("SELECT owner, destination_name FROM {v}_scheduler_db_dests ORDER BY 1, 2"))?,
                             &user,
-                            "",
                         ));
                     }
                     if ctx.has(Kind::ExternalDestination) {
                         list.extend(sys_ids(
                             &read(c, &ctx.sql("SELECT destination_name FROM {v}_scheduler_external_dests ORDER BY 1"))?,
-                            "",
                         ));
                     }
                     if ctx.has(Kind::DestinationGroup) {
                         list.extend(ids(
                             &read(c, &ctx.sql("SELECT owner, group_name FROM {v}_scheduler_groups WHERE group_type IN ('DB_DEST', 'EXTERNAL_DEST') ORDER BY 1, 2"))?,
                             &user,
-                            "",
                         ));
                     }
                     list
@@ -201,13 +197,11 @@ pub(crate) fn load(c: &Connection, ctx: &Ctx, sources: &[&str]) -> Catalog {
                         list.extend(ids(
                             &read(c, &ctx.sql("SELECT owner, destination_name FROM {v}_scheduler_db_dests ORDER BY 1, 2"))?,
                             &user,
-                            "",
                         ));
                     }
                     if source != "member:db" && ctx.has(Kind::ExternalDestination) {
                         list.extend(sys_ids(
                             &read(c, &ctx.sql("SELECT destination_name FROM {v}_scheduler_external_dests ORDER BY 1"))?,
-                            "",
                         ));
                     }
                     list

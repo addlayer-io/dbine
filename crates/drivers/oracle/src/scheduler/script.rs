@@ -22,6 +22,14 @@ const LEFT_DISABLED: usize = 20991;
 const NOT_ATOMIC: &str =
     "Oracle confirma cada llamada: si una falla, las anteriores ya quedaron hechas.";
 
+/// What a block leaves disabled when a call after its disable fails.
+const LEFT_DISABLED_NOTE: &str = "Si una llamada falla después de deshabilitarlo, queda deshabilitado (no se vuelve a habilitar a medio cambiar): el error lo dice.";
+
+/// The mark of a warning line (`-- ⚠ …`): what the user loses or risks
+/// when the block runs. The app lists those lines above the script and
+/// asks before running it.
+const WARNING: &str = "⚠";
+
 /// A call's argument.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum A {
@@ -70,6 +78,20 @@ fn ends_block(line: &str) -> bool {
     matches!(line.trim(), "/" | ".")
 }
 
+/// A line the app would list as one of the script's warnings: "⚠" first,
+/// after an optional comment marker (`--`, `#`, `//`, `/*`, `*`). Text
+/// the user typed never starts a script line like that.
+fn warning_like(line: &str) -> bool {
+    // As the app's `\s`, which also takes the byte order mark.
+    let space = |c: char| c.is_whitespace() || c == '\u{feff}';
+    let t = line.trim_start_matches(space);
+    let t = ["--", "#", "//", "/*", "*"]
+        .iter()
+        .find_map(|m| t.strip_prefix(m))
+        .unwrap_or(t);
+    t.trim_start_matches(space).starts_with(WARNING)
+}
+
 /// A control character written as `CHR(n)`: all but tab and line breaks
 /// (U+0001 is where the block keeps a secret until it's rendered).
 fn odd(c: char) -> bool {
@@ -99,11 +121,12 @@ fn line_lit(s: &str) -> String {
     parts.join(" || ")
 }
 
-/// `'text'`, quotes doubled. Text with a line that would end the block is
-/// written line by line, joined with `CHR(10)`, so no such line is left;
+/// `'text'`, quotes doubled. Text with a line that would end the block, or
+/// that the app would take for a warning, is written line by line, joined
+/// with `CHR(10)`, so no such line is left (the value is the same);
 /// control characters (but tab and line breaks) go as `CHR(n)`.
 pub(crate) fn lit(s: &str) -> String {
-    if !s.lines().any(ends_block) {
+    if !s.lines().any(|l| ends_block(l) || warning_like(l)) {
         if !s.contains(odd) {
             return jobs::lit(s);
         }
@@ -153,6 +176,13 @@ impl Block {
     /// Another comment line at the top.
     pub(crate) fn note(&mut self, text: &str) {
         self.head.push(comment_text(text));
+    }
+
+    /// A warning line at the top (`-- ⚠ text`): a whole Spanish sentence
+    /// about what the user loses or risks if the block runs, written only
+    /// when it applies to this block.
+    pub(crate) fn warn(&mut self, text: &str) {
+        self.head.push(format!("{WARNING} {}", comment_text(text)));
     }
 
     pub(crate) fn calls(&self) -> usize {
@@ -276,20 +306,24 @@ impl Block {
     /// never enabled again on a failure: `DBMS_SCHEDULER` has committed
     /// the calls before, and the object would run half changed (a job
     /// whose old schedule was nulled runs at once, and is dropped after
-    /// if it's `auto_drop`).
+    /// if it's `auto_drop`). Only for an object the block enables again
+    /// ([`Block::enabled_again`]): one the change leaves disabled is just
+    /// disabled first.
     pub(crate) fn disabled_first(&mut self, id: &str, disable: impl FnOnce(&mut Block)) {
         disable(self);
         self.declare("disabled BOOLEAN := FALSE;");
         self.line("disabled := TRUE;");
         self.disabled = Some(id.to_string());
-        self.note("Si una llamada falla después de deshabilitarlo, queda deshabilitado (no se vuelve a habilitar a medio cambiar): el error lo dice.");
     }
 
-    /// `enable` runs now, and a later failure leaves it so.
+    /// `enable` runs now, and a later failure leaves it so. After
+    /// [`Block::disabled_first`], the script warns that a failure in
+    /// between leaves it disabled: only then is that a risk.
     pub(crate) fn enabled_again(&mut self, enable: impl FnOnce(&mut Block)) {
         enable(self);
         if self.disabled.is_some() {
             self.line("disabled := FALSE;");
+            self.warn(LEFT_DISABLED_NOTE);
         }
     }
 
@@ -300,7 +334,7 @@ impl Block {
             for (i, h) in self.head.iter().enumerate() {
                 let _ = writeln!(out, "-- {h}");
                 if i == 0 && !self.atomic() {
-                    let _ = writeln!(out, "-- {NOT_ATOMIC}");
+                    let _ = writeln!(out, "-- {WARNING} {NOT_ATOMIC}");
                 }
             }
         }

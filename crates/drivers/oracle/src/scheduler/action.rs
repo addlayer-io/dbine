@@ -126,6 +126,31 @@ pub(crate) fn block(
 // Windows
 // ---------------------------------------------------------------------------
 
+/// The running jobs that stop when the window `:1` closes: their schedule
+/// is the window or a window group it's in, and they have «Detener al
+/// cerrar la ventana».
+const STOPPING_ON_CLOSE: &str = "SELECT owner, job_name FROM {v}_scheduler_jobs
+ WHERE state = 'RUNNING' AND stop_on_window_close = 'TRUE'
+   AND schedule_type IN ('WINDOW', 'WINDOW_ONCE', 'WINDOW_GROUP')
+   AND (schedule_name = :1 OR schedule_name IN
+        (SELECT window_group_name FROM {v}_scheduler_wingroup_members WHERE window_name = :2))
+ ORDER BY 1, 2";
+
+/// The running jobs that stop when the window `name` closes.
+fn stopping_on_close(c: &Connection, ctx: &Ctx, name: &str) -> Vec<String> {
+    super::affected(c, ctx, STOPPING_ON_CLOSE, &[&name, &name])
+}
+
+/// Warns of the running jobs that stop when a window closes, if any.
+fn warn_stopping(b: &mut Block, stopping: &[String]) {
+    if !stopping.is_empty() {
+        b.warn(&format!(
+            "Se detienen ahora estos jobs, que se están ejecutando con «Detener al cerrar la ventana»: {}.",
+            super::listed(stopping)
+        ));
+    }
+}
+
 fn open_window(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     let name = window::sys_name(id, "ventana")?;
     let (_, r) = window::read_state(c, ctx, &name)?;
@@ -151,26 +176,43 @@ fn open_window(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     .filter_map(|w| w.raw("WINDOW_NAME"))
     .find(|w| *w != name);
     let duration = u64::try_from(r.int("DURATION").unwrap_or(0)).unwrap_or(0);
+    let closing = open.map(|o| {
+        let stopping = stopping_on_close(c, ctx, &o);
+        (o, stopping)
+    });
+    Ok(open_block(&target, duration, closing.as_ref()))
+}
+
+/// Opens the window `target` (SYS's) for its `duration` (seconds),
+/// closing the window open now, with the jobs that stop with it, if any.
+pub(crate) fn open_block(
+    target: &str,
+    duration: u64,
+    closing: Option<&(String, Vec<String>)>,
+) -> Block {
     let mut b = Block::new(&format!(
         "Abre la ventana {target} ahora, por su duración ({}).",
         jobs::duration_text(duration * 1000)
     ));
     b.note("Mientras está abierta rige su plan de recursos y pueden correr los jobs que la usan.");
-    if let Some(o) = &open {
-        b.note(&format!(
+    if let Some((o, stopping)) = closing {
+        b.warn(&format!(
             "Solo puede haber una ventana abierta: cierra la que está abierta ahora, {} (force => TRUE).",
             window::sys(o)
         ));
+        warn_stopping(&mut b, stopping);
+        // OPEN_WINDOW with force => TRUE, as Oracle documents it.
+        b.warn("Mientras esté abierta, Oracle no abre ninguna otra ventana programada, aunque tenga más prioridad.");
     }
     b.call(
         "DBMS_SCHEDULER.OPEN_WINDOW",
         vec![
-            ("window_name", A::Name(target)),
+            ("window_name", A::Name(target.to_string())),
             ("duration", A::Null),
-            ("force", A::B(open.is_some())),
+            ("force", A::B(closing.is_some())),
         ],
     );
-    Ok(b)
+    b
 }
 
 fn close_window(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
@@ -180,15 +222,22 @@ fn close_window(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
     if !r.yes("ACTIVE") {
         return Err(bad(format!("La ventana {target} no está abierta.")));
     }
+    Ok(close_block(&target, &stopping_on_close(c, ctx, &name)))
+}
+
+/// Closes the window `target` (SYS's) now; `stopping`: the running jobs
+/// that stop with it.
+pub(crate) fn close_block(target: &str, stopping: &[String]) -> Block {
     let mut b = Block::new(&format!(
         "Cierra la ventana {target} ahora, antes de su hora."
     ));
     b.note("Vuelve el plan de recursos de antes; los jobs de la ventana que tienen «Detener al cerrar la ventana» se detienen.");
+    warn_stopping(&mut b, stopping);
     b.call(
         "DBMS_SCHEDULER.CLOSE_WINDOW",
-        vec![("window_name", A::Name(target))],
+        vec![("window_name", A::Name(target.to_string()))],
     );
-    Ok(b)
+    b
 }
 
 // ---------------------------------------------------------------------------
@@ -366,12 +415,17 @@ fn run_program(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
         "{v}_scheduler_programs",
         "program_name",
     )?;
+    Ok(run_program_block(&prog, &name, ctx.user()))
+}
+
+/// Runs the program `prog` (id; `name`, its name) once now, in a run-once
+/// job in `user`'s schema.
+pub(crate) fn run_program_block(prog: &str, name: &str, user: &str) -> Block {
     let mut b = Block::new(&format!(
         "Ejecuta el programa {prog} ahora, en un job de una sola vez que Oracle borra al terminar."
     ));
     b.note(&format!(
-        "El job se crea en el esquema {} con el nombre que da GENERATE_JOB_NAME; su ejecución queda en el registro de jobs.",
-        ctx.user()
+        "El job se crea en el esquema {user} con el nombre que da GENERATE_JOB_NAME; su ejecución queda en el registro de jobs."
     ));
     b.call(
         "DBMS_SCHEDULER.CREATE_JOB",
@@ -380,15 +434,15 @@ fn run_program(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
                 "job_name",
                 A::R(format!(
                     "DBMS_SCHEDULER.GENERATE_JOB_NAME({})",
-                    script::lit(&run_prefix(&name))
+                    script::lit(&run_prefix(name))
                 )),
             ),
-            ("program_name", A::Name(prog)),
+            ("program_name", A::Name(prog.to_string())),
             ("enabled", A::B(true)),
             ("auto_drop", A::B(true)),
         ],
     );
-    Ok(b)
+    b
 }
 
 fn run_chain(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
@@ -415,20 +469,25 @@ fn run_chain(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block> {
         )));
     }
     usable(c, ctx, &owner, &name, "{v}_scheduler_chains", "chain_name")?;
+    Ok(run_chain_block(&chain, ctx.user()))
+}
+
+/// Runs the chain `chain` (id) once now, from its start: `RUN_CHAIN`'s own
+/// run-once job in `user`'s schema.
+pub(crate) fn run_chain_block(chain: &str, user: &str) -> Block {
     let mut b = Block::new(&format!(
         "Ejecuta la cadena {chain} ahora, desde el principio: sus reglas eligen los primeros pasos."
     ));
     b.note(&format!(
-        "RUN_CHAIN crea un job de una sola vez en el esquema {} (RUN_CHAIN$…) que Oracle borra al terminar. La cadena necesita dos procesos de jobs libres: el del job y el de cada paso.",
-        ctx.user()
+        "RUN_CHAIN crea un job de una sola vez en el esquema {user} (RUN_CHAIN$…) que Oracle borra al terminar. La cadena necesita dos procesos de jobs libres: el del job y el de cada paso."
     ));
     b.call(
         "DBMS_SCHEDULER.RUN_CHAIN",
         vec![
-            ("chain_name", A::Name(chain)),
+            ("chain_name", A::Name(chain.to_string())),
             ("start_steps", A::Null),
             ("job_name", A::Null),
         ],
     );
-    Ok(b)
+    b
 }

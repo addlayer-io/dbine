@@ -22,6 +22,14 @@
 //!   error that says so, so it never runs half changed. A calendaring
 //!   repeat interval is checked (`EVALUATE_CALENDAR_STRING`) before any
 //!   call changes the object.
+//! - Warnings: what the user must accept before a script runs goes in its
+//!   `-- ⚠ …` lines ([`Block::warn`]), only where it applies: an edit of
+//!   several calls isn't atomic, an object disabled first stays so on a
+//!   failure, what a delete takes along (a window's place in its groups, a
+//!   destination's jobs' state there, an agent's database destinations, a
+//!   resource's assignments) and what an action closes, stops or keeps
+//!   elsewhere (the window open now, the jobs that stop with it, the run of
+//!   a run-once job Oracle drops). The app asks before running it.
 //! - Values and ids come from the app as untrusted text: ids are parsed
 //!   against the shape the lists give and looked up, names picked from
 //!   lists are checked against the server's, and every value goes into the
@@ -523,10 +531,11 @@ pub(crate) fn info_of(c: &Ctx) -> SchedulerInfo {
     push(
         Kind::Job,
         SchedulerKind::new("job", "Jobs", "job")
-            // A chain job starts at any of its steps (`RUN_CHAIN`); any
-            // other job's one step is itself, and it runs whole.
+            // A chain job starts at any of its steps (`RUN_CHAIN`); each
+            // item says whether it's one (`job::starts_at_step`).
             .run_from_step(true)
-            // `PURGE_LOG` asks for MANAGE SCHEDULER, whoever owns the job.
+            // `PURGE_LOG` asks for MANAGE SCHEDULER, whoever owns the job;
+            // a `DBMS_JOB` job before 19c says it keeps no history.
             .clear_history(c.manage()),
         schema(Kind::Job),
     );
@@ -899,6 +908,49 @@ pub(crate) fn no_open_transaction(c: &Connection) -> Result<()> {
 /// gives them). SYS-owned objects without an owner column get SYS.
 pub(crate) fn obj_id(owner: Option<&str>, name: &str) -> String {
     jobs::job_id(owner.filter(|o| !o.is_empty()).unwrap_or("SYS"), name)
+}
+
+/// How many objects a warning names; more end in "…".
+const AFFECTED_MAX: usize = 20;
+
+/// The objects a warning names, read with `sql` (`{v}` views): ids of the
+/// rows' (owner, name), or the first column alone when there's no second;
+/// one more than [`listed`] shows, so it can say there are more. Empty
+/// when there's none, or when the login can't read them (the warning is
+/// then left out: it only goes where it applies).
+pub(crate) fn affected(
+    c: &Connection,
+    ctx: &Ctx,
+    sql: &str,
+    params: &[&dyn oracledb::ToDbValue],
+) -> Vec<String> {
+    match jobs::texts(c, &ctx.sql(sql), params, AFFECTED_MAX + 1) {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|r| {
+                let first = jobs::col(r, 0)?;
+                Some(match jobs::col(r, 1) {
+                    Some(name) => obj_id(Some(&first), &name),
+                    None => first,
+                })
+            })
+            .collect(),
+        Err(e) => {
+            tracing::debug!("oracle scheduler: what a warning names: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// `A, B, C`: what a warning names (the first [`AFFECTED_MAX`], then "…").
+pub(crate) fn listed(names: &[String]) -> String {
+    match names
+        .get(..AFFECTED_MAX)
+        .filter(|_| names.len() > AFFECTED_MAX)
+    {
+        Some(head) => format!("{}, …", head.join(", ")),
+        None => names.join(", "),
+    }
 }
 
 /// An id that came back from the app: (owner, name), refused when it isn't

@@ -331,13 +331,32 @@ pub(crate) fn delete_block(c: &Connection, ctx: &Ctx, id: &str) -> Result<Block>
     read_state(c, ctx, &name)?;
     let own = installed_by(&installed(c, ctx, WINDOW_TYPES), &name, oracle_window);
     refuse(drop_locked(ctx, &name, own))?;
-    let mut b = Block::new(&format!("Borra la ventana {}.", sys(&name)));
+    // Window groups are SYS's.
+    let groups = super::affected(
+        c,
+        ctx,
+        "SELECT 'SYS', window_group_name FROM {v}_scheduler_wingroup_members WHERE window_name = :1 ORDER BY 2",
+        &[&name],
+    );
+    Ok(drop_block(&name, &groups))
+}
+
+/// Drops the window `name`; `groups`: the window groups it's in, which
+/// Oracle takes it out of.
+pub(crate) fn drop_block(name: &str, groups: &[String]) -> Block {
+    let mut b = Block::new(&format!("Borra la ventana {}.", sys(name)));
     b.note("Sin force, Oracle no la borra si está abierta o la usa un job.");
+    if !groups.is_empty() {
+        b.warn(&format!(
+            "La ventana sale también de los grupos de ventanas que la incluyen: {}.",
+            super::listed(groups)
+        ));
+    }
     b.call(
         "DBMS_SCHEDULER.DROP_WINDOW",
-        vec![("window_name", A::Name(sys(&name))), ("force", A::B(false))],
+        vec![("window_name", A::Name(sys(name))), ("force", A::B(false))],
     );
-    Ok(b)
+    b
 }
 
 pub(crate) fn form(c: &Connection, ctx: &Ctx, id: Option<&str>) -> Result<ObjectForm> {
