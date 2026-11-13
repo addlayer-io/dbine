@@ -1,5 +1,5 @@
 // Development only: the AI assistant sidebar with a mocked backend.
-// http://localhost:<port>/ai-preview.html?state=setup|chat|empty|history|approval
+// http://localhost:<port>/ai-preview.html?state=setup|chat|empty|history|approval|nokeychain
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next, { i18nReady } from '../i18n';
@@ -39,6 +39,8 @@ const providers = state === 'setup'
     { kind: 'claude_code', label: 'Claude Code', installed: true, available: true, local: false, status: 'instalado · usa tu cuenta de Claude', models: [{ id: 'sonnet', detail: 'Sonnet: equilibrado' }, { id: 'haiku', detail: 'Haiku: el más rápido' }], action: null, path: '/x/claude' },
   ];
 
+const sealed = new Map<string, string>();
+
 (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
   transformCallback: (cb: (e: unknown) => void) => { const id = ++n; callbacks.set(id, cb); return id; },
   unregisterCallback: (id: number) => callbacks.delete(id),
@@ -50,6 +52,13 @@ const providers = state === 'setup'
         listeners.set(args.event, l);
         return args.handler;
       }
+      // The encrypted store, in memory (?state=nokeychain: a system without one).
+      case 'sealed_get': return { available: state !== 'nokeychain', value: sealed.get(args.args.slot) ?? null };
+      case 'sealed_set':
+        if (state === 'nokeychain') return false;
+        sealed.set(args.args.slot, args.args.value);
+        return true;
+      case 'sealed_delete': sealed.delete(args.args.slot); return null;
       case 'list_settings': return {};
       case 'set_setting': return null;
       case 'ai_detect': return {
@@ -85,7 +94,7 @@ for (const [name, comp] of Object.entries(Icons)) app.component(`Ei${name}`, com
 if (state === 'history') {
   const day = 86_400_000;
   const chat = (q: string, a: string) => [{ id: 'u', role: 'user', content: q }, { id: 'a', role: 'assistant', content: a }];
-  localStorage.setItem('dbine.ai.history', JSON.stringify([
+  sealed.set('ai_history', JSON.stringify([
     { id: 'h1', title: 'me podés armar la siguiente query, pero armame los unions contra estas bases', updated: Date.now() - 3_600_000, messages: chat('me podés armar…', '```sql\nSELECT 1;\n```') },
     { id: 'h2', title: 'Clientes con más de 5 pedidos en 2025', updated: Date.now() - day, messages: [...chat('Clientes…', 'ok'), ...chat('y por mes?', 'ok')] },
     { id: 'h3', title: 'cómo veo qué sesiones están bloqueando a otras', updated: Date.now() - 6 * day, messages: chat('cómo veo…', 'ok') },

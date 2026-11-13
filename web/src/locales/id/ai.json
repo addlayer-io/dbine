@@ -91,7 +91,8 @@
     "messages_other": "{{count}} pesan",
     "delete": "Hapus percakapan ini",
     "clear": "Hapus riwayat",
-    "clearConfirm": "Semua percakapan sebelumnya akan dihapus. Percakapan saat ini tidak diubah."
+    "clearConfirm": "Semua percakapan sebelumnya akan dihapus. Percakapan saat ini tidak diubah.",
+    "notKept": "Sistem ini tidak memiliki keychain: percakapan hanya disimpan di memori dan hilang saat DBine ditutup."
   },
   "tools": {
     "read_other": "Mengakses koneksi {{count}} kali"

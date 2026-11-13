@@ -49,6 +49,7 @@ pub mod scheduled;
 pub mod schema;
 pub mod schemas;
 pub mod scripts;
+pub mod sealed;
 pub mod search;
 pub mod security;
 pub mod settings;

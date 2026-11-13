@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "es gibt keinen DBine-Datenordner",
   "una fila distinta no se pudo leer de la base local": "eine abweichende Zeile konnte nicht aus der lokalen Datenbank gelesen werden",
   "ya hay una comparación en curso con ese id": "ein Vergleich mit dieser ID läuft bereits",
-  "alias de base local inválido: {0}": "ungültiger Alias der lokalen Datenbank: {0}"
+  "alias de base local inválido: {0}": "ungültiger Alias der lokalen Datenbank: {0}",
+  "no se pudo guardar el dato cifrado: {0}": "Die verschlüsselten Daten konnten nicht gespeichert werden: {0}",
+  "no se pudo cifrar el dato": "Die Daten konnten nicht verschlüsselt werden",
+  "el dato es demasiado grande para guardarlo": "Die Daten sind zu groß zum Speichern"
 }

@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "there is no DBine data folder",
   "una fila distinta no se pudo leer de la base local": "a differing row could not be read from the local database",
   "ya hay una comparación en curso con ese id": "a comparison with that id is already running",
-  "alias de base local inválido: {0}": "invalid local database alias: {0}"
+  "alias de base local inválido: {0}": "invalid local database alias: {0}",
+  "no se pudo guardar el dato cifrado: {0}": "couldn't save the encrypted data: {0}",
+  "no se pudo cifrar el dato": "couldn't encrypt the data",
+  "el dato es demasiado grande para guardarlo": "the data is too large to save"
 }

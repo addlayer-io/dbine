@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "немає теки даних DBine",
   "una fila distinta no se pudo leer de la base local": "не вдалося прочитати відмінний рядок із локальної бази",
   "ya hay una comparación en curso con ese id": "порівняння з цим ідентифікатором уже виконується",
-  "alias de base local inválido: {0}": "неприпустимий псевдонім локальної бази: {0}"
+  "alias de base local inválido: {0}": "неприпустимий псевдонім локальної бази: {0}",
+  "no se pudo guardar el dato cifrado: {0}": "не вдалося зберегти зашифровані дані: {0}",
+  "no se pudo cifrar el dato": "не вдалося зашифрувати дані",
+  "el dato es demasiado grande para guardarlo": "дані завеликі для збереження"
 }

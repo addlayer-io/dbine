@@ -13547,5 +13547,8 @@
   "no hay una carpeta de datos de DBine": "il n'y a pas de dossier de données DBine",
   "una fila distinta no se pudo leer de la base local": "une ligne différente n'a pas pu être lue depuis la base locale",
   "ya hay una comparación en curso con ese id": "une comparaison avec cet identifiant est déjà en cours",
-  "alias de base local inválido: {0}": "alias de base locale non valide : {0}"
+  "alias de base local inválido: {0}": "alias de base locale non valide : {0}",
+  "no se pudo guardar el dato cifrado: {0}": "impossible d'enregistrer la donnée chiffrée : {0}",
+  "no se pudo cifrar el dato": "impossible de chiffrer la donnée",
+  "el dato es demasiado grande para guardarlo": "la donnée est trop volumineuse pour être enregistrée"
 }

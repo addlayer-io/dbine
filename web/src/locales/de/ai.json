@@ -96,7 +96,8 @@
     "messages_other": "{{count}} Nachrichten",
     "delete": "Diese Unterhaltung löschen",
     "clear": "Verlauf leeren",
-    "clearConfirm": "Alle früheren Unterhaltungen werden gelöscht. Die aktuelle bleibt unberührt."
+    "clearConfirm": "Alle früheren Unterhaltungen werden gelöscht. Die aktuelle bleibt unberührt.",
+    "notKept": "Auf diesem System ist kein Schlüsselbund verfügbar: Die Unterhaltungen bleiben nur im Arbeitsspeicher und gehen beim Schließen von DBine verloren."
   },
   "tools": {
     "read_one": "Die Verbindung {{count}} Mal abgefragt",

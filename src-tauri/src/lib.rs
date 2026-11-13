@@ -20,6 +20,7 @@ mod notebook;
 mod open_files;
 mod optimizer;
 mod results_store;
+mod sealed_store;
 mod secret_sources;
 mod ssh_config;
 mod state;
@@ -445,6 +446,9 @@ pub fn run() {
             commands::results::results_delete_tab,
             commands::results::results_keep_tabs,
             commands::results::results_clear,
+            commands::sealed::sealed_get,
+            commands::sealed::sealed_set,
+            commands::sealed::sealed_delete,
             commands::export::export_rows_to_file,
             commands::export::export_query_to_file,
             commands::chart::chart_aggregate,

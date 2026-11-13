@@ -255,6 +255,7 @@ const phaseText = computed(() => ({
         <strong>{{ $t('ai:history.title') }}</strong>
         <el-button v-if="ai.history.length" size="small" text @click="clearHistory">{{ $t('ai:history.clear') }}</el-button>
       </div>
+      <p v-if="!ai.kept" class="ai-muted">{{ $t('ai:history.notKept') }}</p>
       <p v-if="!ai.history.length" class="ai-muted">{{ $t('ai:history.empty') }}</p>
       <div v-for="c in ai.history" :key="c.id" class="ai-chat-row" v-key-activate @click="openChat(c.id)">
         <div class="ai-chat-main">

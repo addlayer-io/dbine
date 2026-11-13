@@ -31381,6 +31381,9 @@
  "el databank": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "el dato es demasiado grande para guardarlo": [
+  "src-tauri/src/sealed_store.rs"
+ ],
  "el del historial, o 1": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -38076,6 +38079,9 @@
  "no se pudo cifrar": [
   "crates/dbine-sync/src/crypto.rs"
  ],
+ "no se pudo cifrar el dato": [
+  "src-tauri/src/sealed_store.rs"
+ ],
  "no se pudo cifrar la vinculación": [
   "mobile/src-tauri/src/lib.rs"
  ],
@@ -38341,6 +38347,9 @@
  ],
  "no se pudo guardar el archivo: {0}": [
   "src-tauri/src/commands/projects.rs"
+ ],
+ "no se pudo guardar el dato cifrado: {0}": [
+  "src-tauri/src/sealed_store.rs"
  ],
  "no se pudo guardar el driver de {0} en {1}: {2}": [
   "crates/dbine-plugin/src/install.rs"

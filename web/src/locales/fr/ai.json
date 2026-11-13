@@ -101,7 +101,8 @@
     "messages_many": "{{count}} messages",
     "delete": "Supprimer cette conversation",
     "clear": "Effacer l'historique",
-    "clearConfirm": "Toutes les conversations précédentes seront supprimées. L'actuelle n'est pas touchée."
+    "clearConfirm": "Toutes les conversations précédentes seront supprimées. L'actuelle n'est pas touchée.",
+    "notKept": "Ce système n'a pas de trousseau disponible : les conversations restent uniquement en mémoire et sont perdues à la fermeture de DBine."
   },
   "tools": {
     "read_one": "A consulté la connexion {{count}} fois",

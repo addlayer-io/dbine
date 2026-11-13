@@ -100,7 +100,8 @@
     "messages_many": "{{count}} messages",
     "delete": "Delete this conversation",
     "clear": "Clear history",
-    "clearConfirm": "All previous conversations will be deleted. The current one is not touched."
+    "clearConfirm": "All previous conversations will be deleted. The current one is not touched.",
+    "notKept": "This system has no keychain available: conversations stay in memory only and are lost when you close DBine."
   },
   "tools": {
     "read_one": "Queried the connection {{count}} time",

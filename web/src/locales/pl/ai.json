@@ -106,7 +106,8 @@
     "messages_other": "{{count}} wiadomości",
     "delete": "Usuń tę rozmowę",
     "clear": "Wyczyść historię",
-    "clearConfirm": "Wszystkie poprzednie rozmowy zostaną usunięte. Bieżąca pozostanie bez zmian."
+    "clearConfirm": "Wszystkie poprzednie rozmowy zostaną usunięte. Bieżąca pozostanie bez zmian.",
+    "notKept": "Ten system nie ma dostępnego pęku kluczy: rozmowy pozostają tylko w pamięci i giną po zamknięciu DBine."
   },
   "tools": {
     "read_one": "Odpytano połączenie {{count}} raz",
