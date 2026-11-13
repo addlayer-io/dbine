@@ -36,8 +36,10 @@
 //!   it in the graph (a new run; `runs/repair`, which reruns an existing
 //!   run's failed tasks, isn't a start at a task). Clear history:
 //!   `runs/delete` of each finished run (the API refuses an active one).
-//!   "Ejecutar ahora" is the jobs list's `run-now`: the kind has no other
-//!   action. No scheduler log: a job's runs are its history, and the
+//!   "Ejecutar ahora" is the jobs list's `run-now`; the kind's one action,
+//!   "Ejecutar con parámetros" ([`run`]), is a `run-now` with other values
+//!   for the job's (or its tasks') parameters, after a form that asks for
+//!   them. No scheduler log: a job's runs are its history, and the
 //!   workspace's audit log of the jobs is the system table
 //!   `system.access.audit`.
 //! - What the login may do with each job: an admin anything; anyone else
@@ -50,6 +52,7 @@
 mod form;
 mod lines;
 mod plan;
+mod run;
 mod spec;
 #[cfg(test)]
 mod tests;
@@ -57,8 +60,8 @@ mod tests;
 use crate::jobs::{self, next_token, server_job};
 use crate::{DatabricksSession, Json};
 use dbine_driver::{
-    Error, FormKind, FormValues, ObjectForm, Result, SchedulerInfo, SchedulerItem, SchedulerKind,
-    SchedulerList,
+    Error, FormKind, FormValues, ObjectForm, Result, SchedulerAction, SchedulerInfo, SchedulerItem,
+    SchedulerKind, SchedulerList,
 };
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -657,13 +660,18 @@ impl DatabricksSession {
         }
         // A job starts at a task (`run-now` with `only`: the task and every
         // one after it) and its finished runs can be deleted (an active one
-        // can't); "Ejecutar ahora" is the jobs list's `run-now`, so no
-        // action of its own.
+        // can't); "Ejecutar ahora" is the jobs list's `run-now`, and its
+        // action a `run-now` with other parameters.
+        let mut job = SchedulerKind::new("job", "Jobs", "job")
+            .abilities(ok, ok, ok)
+            .run_from_step(ok)
+            .clear_history(ok);
+        if ok {
+            job = job
+                .action(SchedulerAction::new(run::ACTION, "Ejecutar con parámetros").with_params());
+        }
         Ok(SchedulerInfo {
-            kinds: vec![SchedulerKind::new("job", "Jobs", "job")
-                .abilities(ok, ok, ok)
-                .run_from_step(ok)
-                .clear_history(ok)],
+            kinds: vec![job],
             logs: false,
             notes,
         })

@@ -1324,7 +1324,7 @@ fn set_inline(b: &mut Block, target: &A, new: &Action, old: Option<&Action>) {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
-    use super::action::{END_DETACHED, FORCE_STOP};
+    use super::action::{END_DETACHED, FORCE_STOP, STEER_CHAIN, STOP_STEP};
     let list = jobs::list(c)?;
     let offered: Vec<String> = super::action::of(ctx, Kind::Job)
         .into_iter()
@@ -1338,6 +1338,16 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
     // The chain jobs: only they start at a step of their own (`None`: not
     // known, as the kind says).
     let chains = chain_jobs(c, ctx);
+    // Those running a chain whose steps run now (read only when one runs).
+    let any_chain_running = list
+        .jobs
+        .iter()
+        .any(|j| j.running && j.can_stop && chains.as_ref().is_some_and(|set| set.contains(&j.id)));
+    let stepping = if any_chain_running {
+        super::action::steps_running(c, ctx)
+    } else {
+        HashSet::new()
+    };
     Ok(SchedulerList {
         items: list
             .jobs
@@ -1357,6 +1367,14 @@ pub(crate) fn items(c: &Connection, ctx: &Ctx) -> Result<SchedulerList> {
                 // jobs list's "Detener" does.
                 if j.can_stop && detached.contains(&j.id) {
                     actions.push(END_DETACHED.to_string());
+                }
+                // A chain running now, where the login manages the job:
+                // a step steered, a running one stopped.
+                if j.can_stop && chains.as_ref().is_some_and(|set| set.contains(&j.id)) {
+                    actions.push(STEER_CHAIN.to_string());
+                    if stepping.contains(&j.id) {
+                        actions.push(STOP_STEP.to_string());
+                    }
                 }
                 SchedulerItem {
                     run_from_step: starts_at_step(&j.id, chains.as_ref()),

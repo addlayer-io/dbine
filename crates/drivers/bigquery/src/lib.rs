@@ -1426,6 +1426,36 @@ impl Session for BigQuerySession {
         scheduler::delete(self, kind, id).await
     }
 
+    /// "Ejecutar para fechas pasadas": its form (a period or a run time).
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::action_form(self, kind, id, action).await
+    }
+
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        scheduler::action_script(self, kind, id, action, values).await
+    }
+
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<()> {
+        scheduler::action(self, kind, id, action, values).await
+    }
+
     /// Deletes the scheduled query's finished runs.
     async fn clear_job_history(&mut self, id: &str) -> Result<()> {
         scheduler::clear_history(self, id).await

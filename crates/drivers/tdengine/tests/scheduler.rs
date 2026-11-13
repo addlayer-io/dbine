@@ -188,6 +188,95 @@ async fn common(s: &mut Box<dyn Session>, id: &str) {
     assert!(s.scheduler_items("pipe").await.is_err());
     assert!(s.run_job_from(id, "x").await.is_err());
     assert!(s.clear_job_history(id).await.is_err());
+    // No other action; not on an id it didn't list.
+    let none = FormValues::default();
+    assert!(s.scheduler_action_form("job", id, "run").await.is_err());
+    assert!(s
+        .scheduler_action_script("job", id, "run", &none)
+        .await
+        .is_err());
+    assert!(s
+        .scheduler_action_form("job", "nope", "recalculate")
+        .await
+        .is_err());
+}
+
+/// A running stream of the new engine recalculated over a range: the
+/// item offers it, the form has today so far, the script shows the
+/// statement, the run is retried while the stream is still starting.
+async fn recalculate(s: &mut Box<dyn Session>, id: &str, name: &str) {
+    let info = s.scheduler_info().await.unwrap();
+    let a = &info.kinds[0].actions;
+    assert_eq!(a.len(), 1);
+    assert!(a[0].key == "recalculate" && a[0].params, "{a:?}");
+    let items = s.scheduler_items("job").await.unwrap();
+    let it = items.items.iter().find(|i| i.id == id).unwrap();
+    assert_eq!(it.actions, Some(vec!["recalculate".to_string()]));
+    exec(
+        s,
+        &format!(
+            "INSERT INTO {DB}.d1 VALUES ('2026-01-01 00:00:00', 1) ('2026-01-01 00:00:15', 2)"
+        ),
+    )
+    .await
+    .expect("rows");
+    let form = s
+        .scheduler_action_form("job", id, "recalculate")
+        .await
+        .expect("form");
+    let mut v = values_of(&form);
+    assert!(
+        v.values["from"].as_str().unwrap().ends_with("T00:00:00"),
+        "{v:?}"
+    );
+    assert!(v.values["to"].as_str().is_some(), "{v:?}");
+    let script = s
+        .scheduler_action_script("job", id, "recalculate", &v)
+        .await
+        .expect("script of today so far");
+    assert!(
+        script.contains(&format!("RECALCULATE STREAM `{DB}`.`{name}` FROM '")),
+        "{script}"
+    );
+    set(&mut v, "from", json!("2026-01-01T00:00:00"));
+    set(&mut v, "to", json!("2026-01-01T00:01:00"));
+    let script = s
+        .scheduler_action_script("job", id, "recalculate", &v)
+        .await
+        .unwrap();
+    assert!(
+        script.ends_with(&format!(
+            "RECALCULATE STREAM `{DB}`.`{name}` FROM '2026-01-01 00:00:00' TO '2026-01-01 00:01:00';\n"
+        )) && script.contains("-- ⚠ "),
+        "{script}"
+    );
+    // Refused before the server sees it.
+    let mut bad = v.clone();
+    set(&mut bad, "to", json!("2025-12-31T00:00:00"));
+    assert!(s
+        .scheduler_action("job", id, "recalculate", &bad)
+        .await
+        .is_err());
+    set(&mut bad, "to", json!("2026-01-01' OR '1'='1"));
+    assert!(s
+        .scheduler_action("job", id, "recalculate", &bad)
+        .await
+        .is_err());
+    // Run; a stream just started may not be running yet.
+    let start = std::time::Instant::now();
+    loop {
+        match s.scheduler_action("job", id, "recalculate", &v).await {
+            Ok(()) => break,
+            Err(e) if e.to_string().contains("no está en marcha") => {
+                assert!(
+                    start.elapsed() < std::time::Duration::from_secs(90),
+                    "never running: {e}"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(e) => panic!("recalculate: {e:?}"),
+        }
+    }
 }
 
 async fn old_body(c: ConnectionConfig) {
@@ -238,6 +327,14 @@ async fn old_body(c: ConnectionConfig) {
         "{sql}"
     );
     common(&mut s, &id).await;
+    // The old engine recalculates nothing.
+    assert!(s.scheduler_info().await.unwrap().kinds[0]
+        .actions
+        .is_empty());
+    assert!(matches!(
+        s.scheduler_action_form("job", &id, "recalculate").await,
+        Err(dbine_driver::Error::Unsupported(_))
+    ));
 
     // Read back: as it came, nothing to do.
     let form = s.scheduler_form("job", Some(&id)).await.expect("form");
@@ -368,6 +465,7 @@ async fn new_body(c: ConnectionConfig) {
     set(&mut v, "enabled", json!(true));
     save(&mut s, Some(&id), &v).await;
     assert_ne!(status(&mut s, true, name).await.unwrap().0, "stopped");
+    recalculate(&mut s, &id, name).await;
     // An option: dropped and created again, into the table it made.
     set(&mut v, "watermark", json!("6s"));
     save(&mut s, Some(&id), &v).await;
@@ -397,6 +495,15 @@ async fn new_body(c: ConnectionConfig) {
     save(&mut s, Some(&id), &v).await;
     let (_, sql) = status(&mut s, true, name).await.unwrap();
     assert!(sql.contains("period(1m)"), "{sql}");
+    // Triggered by time: not recalculated.
+    let items = s.scheduler_items("job").await.unwrap();
+    let it = items.items.iter().find(|i| i.id == id).unwrap();
+    assert_eq!(it.actions, Some(Vec::new()));
+    let e = s
+        .scheduler_action_form("job", &id, "recalculate")
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("PERIOD"), "{e}");
     // Refused by the server: the old one is put back.
     let mut bad = v.clone();
     set(

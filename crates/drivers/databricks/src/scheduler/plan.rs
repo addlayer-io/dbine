@@ -65,7 +65,7 @@ pub(crate) struct Plan {
 }
 
 /// Text on one line for a comment.
-fn one_line(s: &str) -> String {
+pub(super) fn one_line(s: &str) -> String {
     s.chars()
         .map(|c| {
             if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
@@ -79,7 +79,7 @@ fn one_line(s: &str) -> String {
 
 /// JSON whose every line can go after `-- ` (the line separators Unicode
 /// has besides `\n` escaped too).
-fn json_lines(v: &Json) -> String {
+pub(super) fn json_lines(v: &Json) -> String {
     serde_json::to_string_pretty(v)
         .unwrap_or_default()
         .replace('\u{2028}', "\\u2028")

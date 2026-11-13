@@ -532,6 +532,14 @@ export function itemAbilities(
   };
 }
 
+/** An action's label as menus and buttons show it: with "…" when it asks
+ *  for values first (`SchedulerAction.params`: a dialog comes before its
+ *  script), unless the label already ends in one. */
+export function actionText(label: string, params?: boolean): string {
+  const l = label.trimEnd();
+  return params && l && !/(?:…|\.\.\.)$/.test(l) ? `${l}…` : label;
+}
+
 /** Seconds in words the reader takes in at a glance: "1 h 30 min", "45 s". */
 export function humanDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '';

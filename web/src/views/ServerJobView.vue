@@ -7,6 +7,7 @@ import ConnectionState from '../components/ConnectionState.vue';
 import EngineIcon from '../components/EngineIcon.vue';
 import SchedulerDialogs from '../components/SchedulerDialogs.vue';
 import { useConnectionGate } from '../composables/connectionGate';
+import { actionLabel } from '../composables/schedulerActions';
 import {
   clearServerJobHistory, deleteServerJob, editServerJob, openServerJobScript, runServerJob, runServerJobAction,
   runServerJobFrom, serverJobActions, stopServerJob, toggleServerJob,
@@ -151,7 +152,7 @@ function toggleRun(key: string) {
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-for="a in can.actions" :key="a.key" :command="`action:${a.key}`">{{ tb(a.label) }}</el-dropdown-item>
+              <el-dropdown-item v-for="a in can.actions" :key="a.key" :command="`action:${a.key}`">{{ actionLabel(a) }}</el-dropdown-item>
               <el-dropdown-item v-if="can.runFrom" command="runFrom" :divided="can.actions.length > 0">{{ $t('scheduled:server.runFrom') }}</el-dropdown-item>
               <el-dropdown-item v-if="can.clearHistory" command="clearHistory" :divided="can.actions.length > 0 && !can.runFrom">{{ $t('scheduled:server.clearHistory') }}</el-dropdown-item>
               <el-dropdown-item v-if="can.delete" command="delete" divided class="sjv-danger">{{ $t('scheduled:server.delete') }}</el-dropdown-item>

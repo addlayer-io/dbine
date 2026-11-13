@@ -1689,15 +1689,26 @@ impl Session for CbSession {
         backup::delete(self, kind, id).await
     }
 
-    /// A repository's full backup now, or every backup of it merged now.
+    /// The dates of a merge of a repository's backups between two days.
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        backup::action_form(self, kind, id, action).await
+    }
+
+    /// A repository's full backup now, every backup of it merged now, or
+    /// those between two dates.
     async fn scheduler_action_script(
         &mut self,
         kind: &str,
         id: &str,
         action: &str,
-        _values: &dbine_driver::FormValues,
+        values: &dbine_driver::FormValues,
     ) -> Result<String> {
-        backup::action_script(self, kind, id, action).await
+        backup::action_script(self, kind, id, action, values).await
     }
 
     async fn scheduler_action(
@@ -1705,9 +1716,9 @@ impl Session for CbSession {
         kind: &str,
         id: &str,
         action: &str,
-        _values: &dbine_driver::FormValues,
+        values: &dbine_driver::FormValues,
     ) -> Result<()> {
-        backup::action(self, kind, id, action).await
+        backup::action(self, kind, id, action, values).await
     }
 
     /// Runs a task of the repository's plan now: a backup, a merge or a

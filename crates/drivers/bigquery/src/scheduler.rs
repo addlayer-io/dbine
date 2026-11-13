@@ -23,6 +23,9 @@
 //!   their logs with them). A scheduled query is one query, so there's no
 //!   "start at a step"; the service keeps no log of its own beyond each
 //!   run's.
+//! - "Ejecutar para fechas pasadas" ([`backfill`]) runs it again for past
+//!   days or for one past date and time (`startManualRuns`), after a form
+//!   that asks which.
 //! - Ids are checked segment by segment and escaped, and must name a
 //!   scheduled query (another data source's transfer is refused). Every
 //!   value is validated before a request is written, the destination
@@ -34,13 +37,16 @@ use crate::jobs::{checked, parse_name, text, utc, Dts, Failed, DISABLED, EMULATO
 use crate::permissions;
 use crate::{Api, BigQuerySession, Json};
 use dbine_driver::{
-    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerInfo,
-    SchedulerItem, SchedulerKind, SchedulerList, ServerJob,
+    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerAction,
+    SchedulerInfo, SchedulerItem, SchedulerKind, SchedulerList, ServerJob,
 };
 use reqwest::Method;
 use serde_json::{json, Map};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
+
+mod backfill;
+pub(crate) use backfill::{action, action_form, action_script};
 
 const TRANSFERS_UPDATE: &str = "bigquery.transfers.update";
 /// How long the permission test may take before it's left unknown.
@@ -1362,16 +1368,21 @@ async fn info_with(api: &Api, dts: &Dts<'_>, crm: &str) -> Result<SchedulerInfo>
         notes.push(NO_PERMISSION.into());
     }
     // A scheduled query is one query: no step to start at, and "Ejecutar
-    // ahora" is the jobs list's manual run (`startManualRuns`), so no action
-    // of its own. Its finished runs can be deleted (`runs.delete`, which
-    // `bigquery.transfers.update` allows); one going on stays.
+    // ahora" is the jobs list's manual run (`startManualRuns`). Its own
+    // action runs it for past dates (the same call with a time range or a
+    // past run time), which `bigquery.transfers.update` allows, as it does
+    // deleting its finished runs (`runs.delete`; one going on stays).
+    let mut job = SchedulerKind::new("job", "Consultas programadas", "consulta programada")
+        .abilities(may, may, may)
+        .run_from_step(false)
+        .clear_history(may);
+    if may {
+        job = job.action(
+            SchedulerAction::new(backfill::ACTION, "Ejecutar para fechas pasadas").with_params(),
+        );
+    }
     Ok(SchedulerInfo {
-        kinds: vec![
-            SchedulerKind::new("job", "Consultas programadas", "consulta programada")
-                .abilities(may, may, may)
-                .run_from_step(false)
-                .clear_history(may),
-        ],
+        kinds: vec![job],
         logs: false,
         notes,
     })

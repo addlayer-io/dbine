@@ -9,8 +9,9 @@
 //! ```
 //!
 //! It creates its own job, `dbine_test_sched_<time>`, with if/else
-//! condition tasks (they need no compute), changes every part of it through
-//! the designer, checks each change with `jobs/get`, runs it from a task,
+//! condition tasks (they need no compute), runs it with another value for
+//! its parameter and only one task, changes every part of it through the
+//! designer, checks each change with `jobs/get`, runs it from a task,
 //! clears its history and deletes it. Every job named `dbine_test_sched_*`
 //! of this run is deleted at the end, also when an assertion fails.
 
@@ -159,7 +160,10 @@ async fn databricks_scheduler() {
             assert_eq!(info.kinds[0].key, "job");
             assert!(info.kinds[0].can_create);
             assert!(info.kinds[0].run_from_step && info.kinds[0].clear_history);
-            assert!(info.kinds[0].actions.is_empty());
+            assert!(info.kinds[0]
+                .actions
+                .iter()
+                .any(|a| a.key == "run_with_params" && a.params));
 
             // Create: a paused schedule, three tasks, a parameter, tags.
             let mut v = back(&s.scheduler_form("job", None).await.unwrap());
@@ -218,6 +222,62 @@ async fn databricks_scheduler() {
                 .await
                 .unwrap();
             assert!(script.contains("no hay cambios que guardar"), "{script}");
+
+            // Run with other parameters: its job parameter as a field, only
+            // its first task.
+            let f = s
+                .scheduler_action_form("job", &id, "run_with_params")
+                .await
+                .unwrap();
+            assert_eq!(f.values["param:fecha"], json!("hoy"));
+            let mut v = back(&f);
+            v.values.insert("param:fecha".into(), json!("ayer"));
+            v.values
+                .insert("only".into(), json!(["dbine_test_sched_a"]));
+            let script = s
+                .scheduler_action_script("job", &id, "run_with_params", &v)
+                .await
+                .unwrap();
+            assert!(script.contains("-- POST /api/2.1/jobs/run-now"), "{script}");
+            s.scheduler_action("job", &id, "run_with_params", &v)
+                .await
+                .unwrap();
+            let mut run = Json::Null;
+            for _ in 0..40 {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                let list = api(
+                    reqwest::Method::GET,
+                    &format!("/api/2.1/jobs/runs/list?job_id={id}&limit=1"),
+                    None,
+                )
+                .await;
+                let r = &list["runs"][0];
+                if r["state"]["life_cycle_state"] == "TERMINATED" {
+                    run = api(
+                        reqwest::Method::GET,
+                        &format!("/api/2.1/jobs/runs/get?run_id={}", r["run_id"]),
+                        None,
+                    )
+                    .await;
+                    break;
+                }
+            }
+            eprintln!("{run:#}");
+            let fecha = run["job_parameters"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|p| p["name"] == "fecha")
+                .cloned()
+                .unwrap_or(Json::Null);
+            assert_eq!(fecha["value"], json!("ayer"), "{run:#}");
+            let ran: Vec<&str> = run["tasks"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|t| t["task_key"].as_str())
+                .collect();
+            assert_eq!(ran, ["dbine_test_sched_a"], "{run:#}");
 
             // Edit: rename a task (its dependents follow), drop one, add
             // one, resume and change the schedule, a health rule.

@@ -1252,6 +1252,36 @@ impl Session for TdSession {
         scheduler::delete(self, kind, id).await
     }
 
+    /// A stream's recalculation over a range of time (new engine).
+    async fn scheduler_action_form(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<dbine_driver::ObjectForm> {
+        scheduler::action_form(self, kind, id, action).await
+    }
+
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<String> {
+        scheduler::action_script(self, kind, id, action, values).await
+    }
+
+    async fn scheduler_action(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+        values: &dbine_driver::FormValues,
+    ) -> Result<()> {
+        scheduler::action(self, kind, id, action, values).await
+    }
+
     async fn monitor(&mut self) -> Result<MonitorSnapshot> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         let mut snap = MonitorSnapshot::default();

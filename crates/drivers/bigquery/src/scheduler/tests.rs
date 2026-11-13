@@ -6,10 +6,10 @@ use crate::gcp;
 use dbine_driver::ConnectionConfig;
 use std::sync::{Arc, Mutex};
 
-const NAME: &str =
+pub(super) const NAME: &str =
     "projects/123456/locations/us/transferConfigs/6789abcd-0000-2a6d-91b4-089e0820c3c4";
 
-fn config() -> Json {
+pub(super) fn config() -> Json {
     json!({
         "name": NAME,
         "displayName": "ventas diarias",
@@ -37,11 +37,11 @@ fn config() -> Json {
     })
 }
 
-fn cur() -> Current {
+pub(super) fn cur() -> Current {
     current_of(&config()).unwrap()
 }
 
-fn map(v: Json) -> BTreeMap<String, Json> {
+pub(super) fn map(v: Json) -> BTreeMap<String, Json> {
     serde_json::from_value(v).unwrap()
 }
 
@@ -87,7 +87,7 @@ fn new_values() -> Json {
 }
 
 /// An `Api` that sends no token (as against an emulator), at `base`.
-fn api_at(base: &str) -> Api {
+pub(super) fn api_at(base: &str) -> Api {
     let http = reqwest::Client::new();
     let cfg = ConnectionConfig {
         options: [("endpoint_url".to_string(), "http://localhost:1".to_string())].into(),
@@ -104,7 +104,7 @@ fn api_at(base: &str) -> Api {
 }
 
 /// The JSON body a commented request carries in a script.
-fn body_in(script: &str) -> Json {
+pub(super) fn body_in(script: &str) -> Json {
     let lines: Vec<&str> = script
         .lines()
         .skip_while(|l| !l.starts_with("# {"))
@@ -612,7 +612,7 @@ fn edit_and_delete_scripts() {
 }
 
 /// A script's warnings, as the app reads them.
-fn warned(script: &str) -> Vec<String> {
+pub(super) fn warned(script: &str) -> Vec<String> {
     script
         .lines()
         .filter_map(|l| l.strip_prefix("# ⚠ "))
@@ -695,9 +695,9 @@ fn items_say_where_and_when() {
 
 /// A tiny HTTP server: one request per connection, answered by `h`
 /// (method, path with query, body) → (status, body).
-type Handler = Arc<dyn Fn(&str, &str, &str) -> (u16, String) + Send + Sync>;
+pub(super) type Handler = Arc<dyn Fn(&str, &str, &str) -> (u16, String) + Send + Sync>;
 
-async fn serve(h: Handler) -> String {
+pub(super) async fn serve(h: Handler) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
@@ -752,7 +752,7 @@ async fn serve(h: Handler) -> String {
     format!("http://{addr}")
 }
 
-type Seen = Arc<Mutex<Vec<(String, String, String)>>>;
+pub(super) type Seen = Arc<Mutex<Vec<(String, String, String)>>>;
 
 const OTHER: &str = "projects/123456/locations/us/transferConfigs/gcs-copy";
 
@@ -996,13 +996,21 @@ async fn info_says_what_the_service_and_the_account_allow() {
     );
     assert!(k.can_create && k.can_edit && k.can_delete && !i.logs);
     // One query: no step to start at; its finished runs are deleted; "run
-    // now" is the jobs list's manual run, so no action.
-    assert!(!k.run_from_step && k.clear_history && k.actions.is_empty());
+    // now" is the jobs list's manual run; its one action runs it for past
+    // dates, after a form.
+    assert!(!k.run_from_step && k.clear_history);
+    assert_eq!(
+        k.actions,
+        [
+            dbine_driver::SchedulerAction::new("backfill", "Ejecutar para fechas pasadas")
+                .with_params()
+        ]
+    );
     assert!(i.notes.is_empty());
     *grants.lock().unwrap() = Some(false);
     let i = info_with(&api, &dts, &crm).await.unwrap();
     assert!(!i.kinds[0].can_create && !i.kinds[0].can_edit && !i.kinds[0].can_delete);
-    assert!(!i.kinds[0].clear_history);
+    assert!(!i.kinds[0].clear_history && i.kinds[0].actions.is_empty());
     assert_eq!(i.notes, [NO_PERMISSION]);
     *grants.lock().unwrap() = None;
     assert!(info_with(&api, &dts, &crm).await.unwrap().kinds[0].can_create);

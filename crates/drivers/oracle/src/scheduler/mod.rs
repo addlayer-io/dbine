@@ -867,20 +867,42 @@ pub fn delete(c: &Connection, kind: &str, id: &str) -> Result<()> {
     })
 }
 
-/// The script of one of the kind's actions ([`action`]); nothing runs.
-pub fn action_script(c: &Connection, kind: &str, id: &str, action: &str) -> Result<String> {
+/// The form of one of the kind's actions that asks for values ([`action`]:
+/// a step of a running chain).
+pub fn action_form(c: &Connection, kind: &str, id: &str, action: &str) -> Result<ObjectForm> {
     within(c, QUERY_LIMIT, || {
         let (kind, ctx) = ready(c, kind)?;
-        Ok(action::block(c, &ctx, kind, id, action)?.script())
+        action::form(c, &ctx, kind, id, action)
+    })
+}
+
+/// The script of one of the kind's actions ([`action`]) with its form's
+/// values; nothing runs.
+pub fn action_script(
+    c: &Connection,
+    kind: &str,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<String> {
+    within(c, QUERY_LIMIT, || {
+        let (kind, ctx) = ready(c, kind)?;
+        Ok(action::block(c, &ctx, kind, id, action, values)?.script())
     })
 }
 
 /// Runs one of the kind's actions, checked again as for its script.
-pub fn run_action(c: &Connection, kind: &str, id: &str, action: &str) -> Result<()> {
+pub fn run_action(
+    c: &Connection,
+    kind: &str,
+    id: &str,
+    action: &str,
+    values: &FormValues,
+) -> Result<()> {
     within(c, CALL_LIMIT, || {
         let (kind, ctx) = ready(c, kind)?;
-        let block = action::block(c, &ctx, kind, id, action)?;
-        script::run(c, &block)
+        let block = action::block(c, &ctx, kind, id, action, values)?;
+        script::run(c, &block).map_err(|e| action::explained(action, e))
     })
 }
 

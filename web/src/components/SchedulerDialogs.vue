@@ -3,14 +3,16 @@ import { computed, ref, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { ElMessage } from 'element-plus';
 import CodeEditor from './CodeEditor.vue';
+import SchedulerActionForm from './SchedulerActionForm.vue';
 import { answerScript, answerStep, schedulerDialogs as d, useDialogsHost } from '../composables/schedulerDialogs';
 import { tb } from '../i18n/backend';
 import { scriptWarnings } from '../composables/schedulerForm';
 
 // Draws the scheduler's dialogs (composables/schedulerDialogs.ts): a
 // script to read (Copiar, Abrir en una consulta) or to confirm before it
-// runs, and the steps a job can start at. Mounted by each view that may ask;
-// only the first one mounted draws.
+// runs, the steps a job can start at, and an action's form
+// (SchedulerActionForm.vue; its script's confirmation opens over it).
+// Mounted by each view that may ask; only the first one mounted draws.
 
 const { t } = useTranslation();
 const host = useDialogsHost();
@@ -41,6 +43,8 @@ function open() {
 
 <template>
   <template v-if="host">
+    <SchedulerActionForm />
+
     <el-dialog
       :model-value="!!d.script"
       :title="d.script?.title"

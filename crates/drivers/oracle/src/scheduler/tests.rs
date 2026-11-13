@@ -303,7 +303,13 @@ fn kinds_say_their_actions_and_the_jobs_flags_by_privilege() {
     let info = info_of(&ctx());
     let job = kind(&info, "job");
     assert!(job.run_from_step && job.clear_history);
-    assert_eq!(keys(&job), ["force_stop", "end_detached"]);
+    assert_eq!(
+        keys(&job),
+        ["force_stop", "end_detached", "steer_chain", "stop_step"]
+    );
+    // A running chain's step is picked first.
+    let params: Vec<bool> = job.actions.iter().map(|a| a.params).collect();
+    assert_eq!(params, [false, false, true, true]);
     assert_eq!(
         keys(&kind(&info, "window")),
         ["open_window", "close_window"]
@@ -331,7 +337,7 @@ fn kinds_say_their_actions_and_the_jobs_flags_by_privilege() {
     let info = info_of(&none);
     let job = kind(&info, "job");
     assert!(job.run_from_step && !job.clear_history);
-    assert_eq!(keys(&job), ["end_detached"]);
+    assert_eq!(keys(&job), ["end_detached", "steer_chain", "stop_step"]);
     assert!(kind(&info, "window").actions.is_empty());
     assert!(kind(&info, "program").actions.is_empty());
     assert!(kind(&info, "chain").actions.is_empty());
@@ -2687,4 +2693,306 @@ fn legacy_blocks_run_on_a_server() {
     if let Some(r) = removed_once {
         r.unwrap();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Running chains: a step steered, a running step stopped
+// ---------------------------------------------------------------------------
+
+/// A script on one line: a long call is written one argument a line.
+fn flat(script: &str) -> String {
+    script
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("( ", "(")
+}
+
+fn run_step(name: &str, state: &str) -> action::RunStep {
+    action::RunStep {
+        name: name.into(),
+        state: state.into(),
+        error: None,
+        skip: false,
+        pause: false,
+        pause_before: Some(false),
+    }
+}
+
+fn running() -> action::RunningChain {
+    action::RunningChain {
+        owner: "APP".into(),
+        name: "J1".into(),
+        steps: vec![
+            run_step("S1", "RUNNING"),
+            run_step("S2", "NOT_STARTED"),
+            action::RunStep {
+                error: Some(1013),
+                pause: true,
+                ..run_step("S3", "PAUSED")
+            },
+            action::RunStep {
+                skip: true,
+                ..run_step("s 4", "NOT_STARTED")
+            },
+            action::RunStep {
+                error: Some(0),
+                ..run_step("S5", "SUCCEEDED")
+            },
+            action::RunStep {
+                pause_before: Some(true),
+                ..run_step("S6", "PAUSED")
+            },
+        ],
+    }
+}
+
+fn steer(step: &str, change: &str) -> Result<String> {
+    let v = BTreeMap::from([
+        ("step".to_string(), json!(step)),
+        ("change".to_string(), json!(change)),
+        ("error_code".to_string(), json!(20001)),
+    ]);
+    action::steer_block(&running(), Vals(&v)).map(|b| b.script())
+}
+
+#[test]
+fn running_chain_steps_read_from_the_view() {
+    let r = Rec::of(&[
+        ("STEP_NAME", "S1"),
+        ("STATE", "PAUSED"),
+        ("ERROR_CODE", "1013"),
+        ("SKIP", "FALSE"),
+        ("PAUSE", "TRUE"),
+        ("PAUSE_BEFORE", "TRUE"),
+    ]);
+    let s = action::RunStep::of(&r, true).unwrap();
+    assert_eq!(
+        (s.state.as_str(), s.error, s.skip, s.pause, s.pause_before),
+        ("PAUSED", Some(1013), false, true, Some(true))
+    );
+    // Before 12.1 the view has no PAUSE_BEFORE.
+    assert_eq!(action::RunStep::of(&r, false).unwrap().pause_before, None);
+    assert!(action::RunStep::of(&Rec::of(&[("STATE", "RUNNING")]), true).is_none());
+}
+
+#[test]
+fn the_running_chain_forms() {
+    let run = running();
+    let f = action::steer_form(&run);
+    let keys: Vec<&str> = f.sections[0]
+        .fields
+        .iter()
+        .map(|x| x.key.as_str())
+        .collect();
+    assert_eq!(keys, ["step", "change", "error_code"]);
+    assert!(
+        matches!(&f.sections[0].fields[0].kind, dbine_driver::FormKind::Ref { source, .. } if source == "step")
+    );
+    assert_eq!(
+        f.sections[0].fields[2].when,
+        Some(("change".into(), vec!["failed".into()]))
+    );
+    let steps = &f.choices["step"];
+    assert_eq!(steps.len(), 6);
+    assert_eq!(steps[0], ("S1".into(), "S1 — RUNNING".into()));
+    assert_eq!(steps[2].1, "S3 — PAUSED (1013) · PAUSE");
+    assert_eq!(steps[3].1, "s 4 — NOT_STARTED · SKIP");
+    assert_eq!(steps[4].1, "S5 — SUCCEEDED");
+    let changes = |f: &ObjectForm| match &f.sections[0].fields[1].kind {
+        dbine_driver::FormKind::Select { options } => {
+            options.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()
+        }
+        k => panic!("{k:?}"),
+    };
+    assert!(changes(&f).contains(&"pause_before".to_string()));
+    assert!(f.notes.iter().any(|n| n.contains("APP.J1")));
+    // Before 12.1: no PAUSE_BEFORE to offer.
+    let mut old = running();
+    for s in &mut old.steps {
+        s.pause_before = None;
+    }
+    assert!(!changes(&action::steer_form(&old)).contains(&"pause_before".to_string()));
+    // Stopping lists the running steps only; force with MANAGE SCHEDULER.
+    let f = action::stop_form(&run, true).unwrap();
+    assert_eq!(
+        f.choices["step"],
+        [("S1".to_string(), "S1 — RUNNING".to_string())]
+    );
+    assert_eq!(f.sections[0].fields[1].key, "force");
+    let f = action::stop_form(&run, false).unwrap();
+    assert_eq!(f.sections[0].fields.len(), 1);
+    let mut idle = running();
+    idle.steps.retain(|s| s.state != "RUNNING");
+    let e = action::stop_form(&idle, true).unwrap_err();
+    assert!(e.to_string().contains("Ningún paso"), "{e}");
+}
+
+#[test]
+fn a_running_chain_steered() {
+    // The state of a step that isn't running.
+    let s = steer("S2", "succeeded").unwrap();
+    assert!(
+        flat(&s).contains("DBMS_SCHEDULER.ALTER_RUNNING_CHAIN(job_name => '\"APP\".\"J1\"', step_name => 'S2', attribute => 'STATE', value => 'SUCCEEDED');"),
+        "{s}"
+    );
+    assert!(s.starts_with("-- Cambia el paso S2 de la cadena que ejecuta el job APP.J1: lo da por terminado bien (SUCCEEDED).\n"), "{s}");
+    assert_eq!(warnings(&s).len(), 1, "{s}");
+    assert!(warnings(&s)[0].contains("reglas de la cadena"), "{s}");
+    let s = steer("s2", "failed").unwrap();
+    assert!(
+        flat(&s).contains("attribute => 'STATE', value => 'FAILED 20001'"),
+        "{s}"
+    );
+    let s = steer("S3", "not_started").unwrap();
+    assert!(
+        flat(&s).contains("value => 'NOT_STARTED'") && s.contains("vuelve a ejecutarse"),
+        "{s}"
+    );
+    // Flags: a quoted name keeps its case.
+    let s = steer("S2", "skip").unwrap();
+    assert!(
+        flat(&s).contains("step_name => 'S2', attribute => 'SKIP', value => TRUE"),
+        "{s}"
+    );
+    assert!(warnings(&s).is_empty(), "{s}");
+    let s = steer("s 4", "unskip").unwrap();
+    assert!(
+        flat(&s).contains("step_name => '\"s 4\"', attribute => 'SKIP', value => FALSE"),
+        "{s}"
+    );
+    let s = steer("S1", "pause").unwrap();
+    assert!(
+        flat(&s).contains("attribute => 'PAUSE', value => TRUE")
+            && s.contains("sigue ejecutándose"),
+        "{s}"
+    );
+    assert_eq!(warnings(&s).len(), 1, "{s}");
+    let s = steer("S2", "pause_before").unwrap();
+    assert!(
+        flat(&s).contains("attribute => 'PAUSE_BEFORE', value => TRUE"),
+        "{s}"
+    );
+    // The pause taken off: only what is set.
+    let s = steer("S3", "resume").unwrap();
+    assert!(
+        flat(&s).contains("attribute => 'PAUSE', value => FALSE") && !s.contains("'PAUSE_BEFORE'"),
+        "{s}"
+    );
+    let s = steer("S6", "resume").unwrap();
+    assert!(
+        flat(&s).contains("attribute => 'PAUSE_BEFORE', value => FALSE")
+            && !s.contains("'PAUSE', value"),
+        "{s}"
+    );
+    assert!(warnings(&s).iter().any(|w| w.contains("reglas")), "{s}");
+    // Refused before the server sees it.
+    for (step, change, says) in [
+        ("S1", "succeeded", "se está ejecutando"),
+        ("S1", "failed", "se está ejecutando"),
+        ("S1", "not_started", "se está ejecutando"),
+        ("S2", "not_started", "todavía no empezó"),
+        ("s 4", "skip", "ya está marcado"),
+        ("S5", "skip", "todavía no empezó"),
+        ("S2", "unskip", "no está marcado"),
+        ("S3", "pause", "ya tiene PAUSE"),
+        ("S6", "pause_before", "ya tiene PAUSE_BEFORE"),
+        ("S5", "pause_before", "antes de que empiece"),
+        ("S2", "resume", "no está pausado"),
+        ("S2", "", "Falta «Cambio»"),
+        ("S2", "drop'); --", "no es un cambio"),
+        ("", "skip", "Falta «Paso»"),
+        ("S9", "skip", "no tiene un paso llamado «S9»"),
+        ("S2'); EXECUTE IMMEDIATE 'x", "skip", "no tiene un paso"),
+    ] {
+        let e = steer(step, change).unwrap_err().to_string();
+        assert!(e.contains(says), "{step} {change}: {e}");
+    }
+    // FAILED takes an error number other than 0.
+    for bad in [json!(0), json!(-1), json!("x"), json!(null)] {
+        let v = BTreeMap::from([
+            ("step".to_string(), json!("S2")),
+            ("change".to_string(), json!("failed")),
+            ("error_code".to_string(), bad.clone()),
+        ]);
+        assert!(action::steer_block(&running(), Vals(&v)).is_err(), "{bad}");
+    }
+    // Before 12.1.
+    let mut old = running();
+    old.steps[1].pause_before = None;
+    let v = BTreeMap::from([
+        ("step".to_string(), json!("S2")),
+        ("change".to_string(), json!("pause_before")),
+    ]);
+    assert!(matches!(
+        action::steer_block(&old, Vals(&v)),
+        Err(Error::Unsupported(_))
+    ));
+    // A name DBMS_SCHEDULER can't take (its calls take lists).
+    let mut odd = running();
+    odd.steps.push(run_step("A,B", "NOT_STARTED"));
+    let v = BTreeMap::from([
+        ("step".to_string(), json!("A,B")),
+        ("change".to_string(), json!("skip")),
+    ]);
+    assert!(action::steer_block(&odd, Vals(&v))
+        .unwrap_err()
+        .to_string()
+        .contains("coma"));
+}
+
+#[test]
+fn a_running_step_stopped() {
+    let stop = |step: &str, force: bool, manage: bool| {
+        let v = BTreeMap::from([
+            ("step".to_string(), json!(step)),
+            ("force".to_string(), json!(force)),
+        ]);
+        action::stop_block(&running(), Vals(&v), manage).map(|b| b.script())
+    };
+    let s = stop("S1", false, true).unwrap();
+    assert!(
+        flat(&s).contains(
+            "DBMS_SCHEDULER.STOP_JOB(job_name => '\"APP\".\"J1\".\"S1\"', force => FALSE);"
+        ),
+        "{s}"
+    );
+    assert!(warnings(&s)[0].contains("STOPPED"), "{s}");
+    let s = stop("S1", true, true).unwrap();
+    assert!(
+        flat(&s).contains("force => TRUE") && s.contains("en el acto"),
+        "{s}"
+    );
+    let e = stop("S1", true, false).unwrap_err().to_string();
+    assert!(e.contains("MANAGE SCHEDULER"), "{e}");
+    let e = stop("S2", false, true).unwrap_err().to_string();
+    assert!(e.contains("no se está ejecutando"), "{e}");
+    assert!(stop("S9", false, true).is_err());
+}
+
+#[test]
+fn server_refusals_of_a_running_chain_explained() {
+    let e = action::explained(
+        "steer_chain",
+        Error::Query("ORA-27433: cannot alter state of step \"S1\"".into()),
+    );
+    assert!(
+        e.to_string().starts_with("Oracle no deja poner ese estado"),
+        "{e}"
+    );
+    let e = action::explained(
+        "stop_step",
+        Error::Query("ORA-27366: job \"A\".\"B\" is not running".into()),
+    );
+    assert!(
+        e.to_string()
+            .starts_with("El job ya no está ejecutando la cadena."),
+        "{e}"
+    );
+    // Others' errors, as they came.
+    let e = action::explained("run", Error::Query("ORA-27433: x".into()));
+    assert_eq!(
+        e.to_string(),
+        Error::Query("ORA-27433: x".into()).to_string()
+    );
 }
