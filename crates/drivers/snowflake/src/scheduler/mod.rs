@@ -41,7 +41,10 @@
 //! statement each; ids are parsed back with [`crate::jobs::parse_id`].
 //! Snowflake commits each DDL statement on its own, so a save runs the
 //! script's statements in order and, when one fails, says which one and
-//! resumes the root it suspended.
+//! resumes the root it suspended. A script of several statements says so in
+//! a "⚠" line the app asks the user to accept, as it says that a delete
+//! takes the whole graph, that the tasks taken out of a graph are dropped
+//! and that a task graph object's COMMIT publishes changes staged before.
 
 mod alert;
 mod graph;
@@ -76,6 +79,23 @@ const PREVIEW: &str =
 const NO_GRAPHS: &str = "Esta cuenta no tiene grafos de tareas como objeto (TASK GRAPH, en vista previa en Snowflake): los grafos de las tareas están en Tareas.";
 const GRAPHS_DENIED: &str = "Snowflake no deja al rol listar los grafos de tareas (TASK GRAPH) de la cuenta: la lista puede quedar vacía o incompleta.";
 
+// What a script warns about ("⚠" lines: the app lists them and asks to
+// continue), each a whole sentence of its own for the message catalog.
+
+/// A plan of several statements: each one commits on its own.
+pub(crate) const NOT_ATOMIC: &str = "Snowflake confirma cada instrucción por separado: si una falla, las anteriores quedan aplicadas.";
+/// The same, for a change that suspended the graph's root.
+pub(crate) const NOT_ATOMIC_ROOT: &str = "Snowflake confirma cada instrucción por separado: si una falla, las anteriores quedan aplicadas y DBine reanuda la raíz; si no puede, el grafo queda suspendido.";
+/// A task graph object's COMMIT over changes staged before this one.
+pub(crate) const PENDING_COMMIT: &str =
+    "El grafo de tareas tiene cambios pendientes de antes: el COMMIT también los publica.";
+/// Dropping a whole graph (no count: one sentence in every language).
+pub(crate) const GRAPH_GOES: &str = "Se borra el grafo entero: la raíz y todas sus tareas.";
+
+/// The note of a task graph object's COMMIT when DBine doesn't know whether
+/// it has changes staged before this one (not a "⚠" line: it may have none).
+pub(crate) const MAY_PUBLISH_EARLIER: &str = "Los cambios quedan pendientes hasta el COMMIT, que también publica los que hubiera pendientes de antes.";
+
 fn bad(message: String) -> Error {
     Error::Query(message)
 }
@@ -86,6 +106,19 @@ pub(crate) fn shown(s: &str) -> String {
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .take(60)
+        .collect()
+}
+
+/// A sentence on one comment line (a name in it may hold a line break).
+fn shown_line(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
@@ -335,6 +368,10 @@ pub(crate) struct Plan {
     pub(crate) restore: Option<String>,
     /// The object's id after the change.
     pub(crate) id: Option<String>,
+    /// What the user loses or risks with this change, one whole Spanish
+    /// sentence each; the script adds its own about the statements
+    /// committing one by one.
+    pub(crate) warnings: Vec<String>,
 }
 
 impl Plan {
@@ -350,8 +387,30 @@ impl Plan {
         self.header.push(line.to_string());
     }
 
+    /// A consequence the user must accept (a "⚠" line of the script).
+    pub(crate) fn warn(&mut self, sentence: &str) {
+        self.warnings.push(sentence.to_string());
+    }
+
     pub(crate) fn push(&mut self, stmt: String) {
         self.steps.push(stmt);
+    }
+
+    /// What the script warns about: the plan's own warnings and, with more
+    /// than one statement, that each one commits on its own.
+    pub(crate) fn warnings(&self) -> Vec<&str> {
+        if self.steps.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<&str> = self.warnings.iter().map(String::as_str).collect();
+        if self.steps.len() > 1 {
+            out.push(if self.restore.is_some() {
+                NOT_ATOMIC_ROOT
+            } else {
+                NOT_ATOMIC
+            });
+        }
+        out
     }
 
     /// The script as the designer shows it.
@@ -367,6 +426,9 @@ impl Plan {
         if self.steps.is_empty() {
             out.push_str("-- No hay cambios que guardar.\n");
             return out;
+        }
+        for w in self.warnings() {
+            out.push_str(&format!("-- ⚠ {}\n", shown_line(w)));
         }
         for s in &self.steps {
             out.push('\n');

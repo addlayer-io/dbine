@@ -1261,8 +1261,9 @@ fn the_script_is_comments_whatever_the_values() {
         d,
         "-- Databricks Jobs API: las solicitudes que DBine envía al guardar, en este orden.\n\
          -- El editor de SQL no las envía: van comentadas.\n\
+         -- ⚠ Se borra también su historial de ejecuciones.\n\
          --\n\
-         -- Borra el job «dbine_test_sched carga» (42) con su historial de ejecuciones.\n\
+         -- Borra el job «dbine_test_sched carga» (42).\n\
          -- POST /api/2.1/jobs/delete\n\
          -- {\n\
          --   \"job_id\": 42\n\
@@ -1926,4 +1927,63 @@ fn hidden_libraries_and_dedicated_user_are_not_sent() {
             "{mode}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Warnings: the "⚠" lines the app lists before a script runs
+// ---------------------------------------------------------------------------
+
+/// A script's warnings, as the app reads them.
+fn warned(p: &Plan) -> Vec<String> {
+    p.script()
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_save_warns_only_about_what_it_risks() {
+    let cur = rich();
+    let base = back(&form::form(Some(&cur), &sources(true), None));
+    // Nothing to save; a new job; one request: nothing to accept.
+    assert!(warned(&plan::change(&cur, &base).unwrap()).is_empty());
+    assert!(warned(&plan::create(&base).unwrap()).is_empty());
+    let mut v = base.clone();
+    v.values.insert("description".into(), json!("otra"));
+    assert!(warned(&plan::change(&cur, &v).unwrap()).is_empty());
+    // A reset keeps the job's id, runs and permissions: no warning.
+    let mut v = base.clone();
+    v.lists.get_mut("parameters").unwrap().pop();
+    let p = plan::change(&cur, &v).unwrap();
+    assert_eq!(p.requests[0].path, "/api/2.1/jobs/reset");
+    assert!(warned(&p).is_empty(), "{}", p.script());
+    // The permissions alone: one request.
+    let grant = || -> BTreeMap<String, Json> {
+        serde_json::from_value(json!({ "principal_type": "user", "principal": "bea@example.com", "level": "CAN_MANAGE" })).unwrap()
+    };
+    let mut v = base.clone();
+    v.lists.get_mut("permissions").unwrap().push(grant());
+    assert!(warned(&plan::change(&cur, &v).unwrap()).is_empty());
+    // Settings and permissions: two requests, the second may fail.
+    v.values.insert("description".into(), json!("otra"));
+    let p = plan::change(&cur, &v).unwrap();
+    assert_eq!(p.requests.len(), 2);
+    assert_eq!(warned(&p), [plan::NOT_ATOMIC]);
+    // A delete takes the runs.
+    assert_eq!(warned(&plan::delete(&cur)), [plan::RUNS_GO]);
+}
+
+#[test]
+fn a_bundles_job_warns_that_its_next_deploy_overwrites_the_change() {
+    let mut j = rich_job();
+    j["settings"]["deployment"] = json!({ "kind": "BUNDLE", "metadata_file_path": "/x" });
+    let cur = Current { job: j, ..rich() };
+    let base = back(&form::form(Some(&cur), &sources(true), None));
+    let p = plan::change(&cur, &base).unwrap();
+    assert!(p.requests.is_empty());
+    assert!(warned(&p).is_empty(), "{}", p.script());
+    let mut v = base;
+    v.values.insert("description".into(), json!("otra"));
+    assert_eq!(warned(&plan::change(&cur, &v).unwrap()), [form::BUNDLE]);
 }

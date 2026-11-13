@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 
 pub(crate) type Row = BTreeMap<String, Json>;
 
-const BUNDLE: &str = "Este job lo despliega un bundle (Databricks Asset Bundles): lo que se cambie desde DBine se pierde en el próximo deploy del bundle.";
+pub(crate) const BUNDLE: &str = "Este job lo despliega un bundle (Databricks Asset Bundles): lo que se cambie desde DBine se pierde en el próximo deploy del bundle.";
 const UI_LOCKED: &str = "Este job está bloqueado en la interfaz del workspace (modo de edición «Bloqueado»): DBine lo cambia por la API igual.";
 const MANAGE_ONLY: &str = "Este usuario no tiene CAN_MANAGE sobre el job: puede verlo, pero cambiarlo o borrarlo lo puede solo su propietario, quien tenga CAN_MANAGE o un administrador del workspace.";
 const NO_ACL: &str =

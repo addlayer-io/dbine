@@ -370,6 +370,52 @@ fn an_edit_sends_only_what_changed() {
         .contains(CHAIN));
 }
 
+/// A script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("# ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn scripts_warn_only_about_what_they_lose() {
+    let base = "https://spanner.googleapis.com";
+    let c = cur();
+    // Nothing to save, a full schedule's edit, a delete: nothing to accept.
+    assert!(warned(&edit(&c, json!({})).script(base)).is_empty());
+    for changes in [
+        json!({ "cron": "0 3 * * *" }),
+        json!({ "retention": 86_400 }),
+        json!({ "encryption": "GOOGLE_DEFAULT_ENCRYPTION" }),
+    ] {
+        let sc = edit(&c, changes.clone()).script(base);
+        assert!(warned(&sc).is_empty(), "{changes}: {sc}");
+    }
+    assert!(warned(&delete_plan(INSTANCE, &c.spec).script(base)).is_empty());
+    // An incremental schedule's edit starts a new chain.
+    let mut inc = sched();
+    inc.as_object_mut().unwrap().remove("fullBackupSpec");
+    inc["incrementalBackupSpec"] = json!({});
+    let ci = current_of(&inc).unwrap();
+    assert_eq!(
+        warned(&edit(&ci, json!({ "retention": 86_400 })).script(base)),
+        [CHAIN]
+    );
+    // A new backup type, either way, deletes and creates it again.
+    let recreated = [RECREATE, UPDATE_TIME_LOST, RECREATE_FAILS];
+    let p = edit(
+        &c,
+        json!({ "backup_type": "incremental", "cron": "0 */6 * * *" }),
+    );
+    assert!(p.recreate);
+    assert_eq!(warned(&p.script(base)), recreated);
+    let p = edit(&ci, json!({ "backup_type": "full", "cron": "0 3 * * *" }));
+    assert!(p.recreate);
+    assert_eq!(warned(&p.script(base)), recreated);
+}
+
 #[test]
 fn a_new_backup_type_deletes_and_creates_again() {
     let c = cur();
@@ -380,7 +426,15 @@ fn a_new_backup_type_deletes_and_creates_again() {
     assert!(p.recreate);
     let sc = p.script("https://spanner.googleapis.com");
     assert!(sc.starts_with("# Cambia el programa de backup «diario» de la base «ventas» de Spanner de backups completos a incrementales.\n"), "{sc}");
-    assert!(sc.contains(TYPE_CHANGE));
+    assert_eq!(
+        warned(&sc),
+        [RECREATE, UPDATE_TIME_LOST, RECREATE_FAILS],
+        "{sc}"
+    );
+    assert!(
+        sc.contains("# Los backups que ya hizo se conservan.\n"),
+        "{sc}"
+    );
     let delete = sc
         .find(&format!(
             "# DELETE https://spanner.googleapis.com/v1/{NAME}\n"

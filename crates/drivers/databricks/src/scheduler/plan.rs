@@ -27,6 +27,14 @@ const RESET: [&str; 3] = [
 const NO_OWNER: &str =
     "Permisos: el job necesita un propietario (un usuario o un service principal con «Propietario»).";
 
+// What a script warns about ("⚠" lines: the app lists them and asks to
+// continue), each a whole sentence of its own for the message catalog.
+
+/// A delete takes the job's runs with it.
+pub(crate) const RUNS_GO: &str = "Se borra también su historial de ejecuciones.";
+/// The settings and the permissions are two requests.
+pub(crate) const NOT_ATOMIC: &str = "Los ajustes y los permisos van en dos solicitudes: si la segunda falla, los ajustes quedan guardados sin los permisos nuevos.";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Method {
     Post,
@@ -51,6 +59,9 @@ pub(crate) struct Plan {
     pub(crate) job_id: Option<u64>,
     /// Its name, for an empty plan's script.
     pub(crate) name: String,
+    /// What the user loses or risks with it, one whole Spanish sentence
+    /// each: the script's "⚠" lines.
+    pub(crate) warnings: Vec<String>,
 }
 
 /// Text on one line for a comment.
@@ -87,6 +98,9 @@ impl Plan {
         let mut out = String::new();
         for h in HEADER {
             out.push_str(&format!("-- {h}\n"));
+        }
+        for w in &self.warnings {
+            out.push_str(&format!("-- ⚠ {}\n", one_line(w)));
         }
         for r in &self.requests {
             out.push_str("--\n");
@@ -258,6 +272,7 @@ pub(crate) fn create(values: &FormValues) -> Result<Plan> {
         }],
         job_id: None,
         name,
+        warnings: Vec::new(),
     })
 }
 
@@ -349,11 +364,28 @@ pub(crate) fn change(cur: &Current, values: &FormValues) -> Result<Plan> {
             });
         }
     }
+    let mut warnings = Vec::new();
+    if !requests.is_empty() && bundled(cur) {
+        warnings.push(super::form::BUNDLE.to_string());
+    }
+    if requests.len() > 1 {
+        warnings.push(NOT_ATOMIC.to_string());
+    }
     Ok(Plan {
         requests,
         job_id: Some(cur.id),
         name,
+        warnings,
     })
+}
+
+/// A Databricks Asset Bundle deploys the job: its next deploy writes the
+/// bundle's settings over what DBine saves.
+fn bundled(cur: &Current) -> bool {
+    cur.settings()
+        .pointer("/deployment/kind")
+        .and_then(Json::as_str)
+        == Some("BUNDLE")
 }
 
 pub(crate) fn delete(cur: &Current) -> Plan {
@@ -362,14 +394,11 @@ pub(crate) fn delete(cur: &Current) -> Plan {
             method: Method::Post,
             path: "/api/2.1/jobs/delete".into(),
             body: json!({ "job_id": cur.id }),
-            comment: vec![format!(
-                "Borra el job «{}» ({}) con su historial de ejecuciones.",
-                cur.name(),
-                cur.id
-            )],
+            comment: vec![format!("Borra el job «{}» ({}).", cur.name(), cur.id)],
         }],
         job_id: Some(cur.id),
         name: cur.name(),
+        warnings: vec![RUNS_GO.to_string()],
     }
 }
 

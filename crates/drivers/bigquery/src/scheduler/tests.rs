@@ -607,8 +607,65 @@ fn edit_and_delete_scripts() {
     let sc = delete_plan(&dts, &c).unwrap().script();
     assert_eq!(
         sc,
-        format!("# Borra la consulta programada «ventas diarias» de BigQuery, con su historial de ejecuciones y sus registros.\n#\n# DELETE https://bigquerydatatransfer.googleapis.com/v1/{NAME}\n")
+        format!("# Borra la consulta programada «ventas diarias» de BigQuery.\n# ⚠ Se borran también su historial de ejecuciones y sus registros.\n#\n# DELETE https://bigquerydatatransfer.googleapis.com/v1/{NAME}\n")
     );
+}
+
+/// A script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("# ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn scripts_warn_only_about_what_they_lose() {
+    let api = api_at("http://localhost:1");
+    let dts = Dts {
+        api: &api,
+        base: crate::jobs::DTS,
+    };
+    // A new one, an edit, nothing to save: nothing to accept.
+    let w = wanted(Vals(&map(new_values())), None, None).unwrap();
+    assert!(warned(&create_plan(&dts, "mi-proyecto", &w).unwrap().script()).is_empty());
+    let c = cur();
+    for changes in [
+        json!({ "display_name": "x" }),
+        json!({ "mode": "manual" }),
+        json!({}),
+    ] {
+        let w = wanted(Vals(&with(&c, changes.clone())), Some(&c), None).unwrap();
+        let sc = patch_plan(&dts, &c, &w).unwrap().script();
+        assert!(warned(&sc).is_empty(), "{changes}: {sc}");
+    }
+    // A delete takes the runs and their logs.
+    assert_eq!(warned(&delete_plan(&dts, &c).unwrap().script()), [RUNS_GO]);
+
+    // A Pub/Sub-triggered one: renamed, it keeps its trigger; moved to a
+    // schedule or to on demand, it loses it for good.
+    let mut j = config();
+    j.as_object_mut().unwrap().remove("schedule");
+    j.as_object_mut().unwrap().remove("scheduleOptions");
+    j["scheduleOptionsV2"] =
+        json!({ "eventDrivenSchedule": { "pubsubSubscription": "projects/p/subscriptions/s" } });
+    let e = current_of(&j).unwrap();
+    let w = wanted(
+        Vals(&with(&e, json!({ "display_name": "x" }))),
+        Some(&e),
+        None,
+    )
+    .unwrap();
+    assert!(warned(&patch_plan(&dts, &e, &w).unwrap().script()).is_empty());
+    for changes in [
+        json!({ "mode": "schedule", "schedule": "every 24 hours" }),
+        json!({ "mode": "manual" }),
+    ] {
+        let w = wanted(Vals(&with(&e, changes.clone())), Some(&e), None).unwrap();
+        let sc = patch_plan(&dts, &e, &w).unwrap().script();
+        assert_eq!(warned(&sc), [EVENT_LOST], "{changes}");
+    }
 }
 
 #[test]

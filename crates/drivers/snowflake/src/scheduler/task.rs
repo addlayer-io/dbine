@@ -53,7 +53,10 @@ const ORPHAN: &str =
     "Es una tarea hija cuya raíz el rol no ve: no se puede cambiar ni borrar desde aquí.";
 const APP_OWNED: &str =
     "La tarea es de una aplicación nativa de Snowflake: no se puede cambiar ni borrar.";
-const SUSPENDS: &str = "Snowflake cambia un grafo (o una tarea suelta) solo con la raíz suspendida: el script la suspende primero y la reanuda al final.";
+/// The note of a change saved through the root's task graph object.
+const STAGED: &str =
+    "El grafo de tareas guarda los cambios como pendientes; el COMMIT los publica.";
+const SUSPENDS: &str ="Snowflake cambia un grafo (o una tarea suelta) solo con la raíz suspendida: el script la suspende primero y la reanuda al final.";
 const NEW_SUSPENDED: &str =
     "Snowflake crea las tareas suspendidas: el script reanuda las que el formulario deja activas.";
 
@@ -534,7 +537,10 @@ pub(crate) async fn items(r: Run<'_>) -> Result<SchedulerList> {
                     can_edit: (!mine).then_some(false),
                     can_delete: (!mine || o.in_graph).then_some(false),
                     actions: None,
-                    run_from_step: None,
+                    // A graph starts at its root (or retries from a task); a
+                    // child whose root the role doesn't see runs only with
+                    // its graph.
+                    run_from_step: o.orphan.then_some(false),
                     clear_history: None,
                 }
             })
@@ -1857,14 +1863,19 @@ pub(crate) fn alter_plan(
         }
     }
     let mut p = Plan::new(Some(id.clone()), &header(want, false));
+    if !dropped.is_empty() {
+        let names: Vec<&str> = dropped.iter().map(|m| m.name.as_str()).collect();
+        p.warn(&format!(
+            "Las tareas que se quitaron del grafo se borran: {}.",
+            names.join(", ")
+        ));
+    }
     match object {
         Some(g) => {
             let any = !mid.is_empty();
             p.steps = mid;
             if any && want.commit {
-                p.note(
-                    "El grafo de tareas guarda los cambios como pendientes; el COMMIT los publica.",
-                );
+                p.note(STAGED);
                 p.push(format!("ALTER TASK GRAPH {g} COMMIT"));
             }
         }
@@ -1955,7 +1966,27 @@ pub(crate) async fn plan(r: Run<'_>, id: Option<&str>, values: &FormValues) -> R
                 choices.keep("notification_integration", n, n);
             }
             let want = spec(values, &choices, Some(&g))?;
-            alter_plan(&cur, &want, g.root.started, g.root.graph.as_deref())
+            let mut p = alter_plan(&cur, &want, g.root.started, g.root.graph.as_deref())?;
+            // The task graph object's COMMIT publishes whatever it had
+            // staged before too: a warning when Snowflake says it has some,
+            // a note that it may when Snowflake doesn't say.
+            if let Some(obj) = g.root.graph.as_deref() {
+                let commits = p
+                    .steps
+                    .iter()
+                    .any(|s| s.starts_with("ALTER TASK GRAPH ") && s.ends_with(" COMMIT"));
+                if commits {
+                    match super::graph::has_pending(r, obj).await {
+                        Some(true) => p.warn(super::PENDING_COMMIT),
+                        Some(false) => {}
+                        None => {
+                            p.header.retain(|h| h != STAGED);
+                            p.note(super::MAY_PUBLISH_EARLIER);
+                        }
+                    }
+                }
+            }
+            Ok(p)
         }
     }
 }
@@ -1996,13 +2027,16 @@ pub(crate) fn drop_plan(g: &Graph) -> Result<Plan> {
             g.root.database,
             g.root.schema,
             g.root.name,
-            if g.members.is_empty() {
-                String::new()
-            } else {
-                format!(" y las {} tareas de su grafo", g.members.len())
+            match g.members.len() {
+                0 => String::new(),
+                1 => " y la otra tarea de su grafo".to_string(),
+                n => format!(" y las {n} tareas de su grafo"),
             }
         ),
     );
+    if !g.members.is_empty() {
+        p.warn(super::GRAPH_GOES);
+    }
     if g.root.started && !g.members.is_empty() {
         p.push(format!("ALTER TASK {id} SUSPEND"));
     }

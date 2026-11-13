@@ -1887,6 +1887,11 @@ async fn items_say_which_objects_the_role_may_change() {
         .items
         .iter()
         .all(|i| i.can_edit.is_none() && i.can_delete.is_none() && !i.system));
+    // Roots and standalone tasks start at a step as the kind says.
+    assert!(l
+        .items
+        .iter()
+        .all(|i| i.run_from_step.is_none() && i.clear_history.is_none()));
     // A task graph object's root changes in place but goes only with its
     // graph.
     f.answers[0].1 = tasks_set(r#"{"Predecessors":[],"TaskGraph":"DB.ETL.PIPE"}"#);
@@ -1933,6 +1938,10 @@ async fn items_say_which_objects_the_role_may_change() {
         (Some(false), Some(false))
     );
     assert!(other.system);
+    // The orphan child doesn't start at a step (it runs only with its
+    // graph); a standalone task is as its kind says.
+    assert_eq!(load.run_from_step, Some(false));
+    assert_eq!(other.run_from_step, None);
     // Their owners aren't asked about: the app isn't a role, and the
     // orphan is decided already.
     assert!(
@@ -2082,4 +2091,223 @@ async fn a_hidden_minimum_trigger_interval_is_left_alone() {
     let all = p.steps.join("\n");
     assert!(all.contains("UNSET SCHEDULE"), "{all}");
     assert!(all.contains(&format!("{KEY} = 60")), "{all}");
+}
+
+// ---------------------------------------------------------------------------
+// Warnings: the "⚠" lines the app lists before a script runs
+// ---------------------------------------------------------------------------
+
+/// A script's warnings, as the app reads them.
+fn warned(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[tokio::test]
+async fn a_task_change_warns_only_about_what_it_risks() {
+    let f = server(r#"{"Predecessors":[]}"#, true);
+    // Nothing to save, or one statement: nothing to accept.
+    let p = edit_plan(&f, |_| {}).await.unwrap();
+    assert!(warned(&p.script()).is_empty(), "{}", p.script());
+    let p = edit_plan(&f, |v| {
+        v.values.insert("enabled".into(), json!(false));
+    })
+    .await
+    .unwrap();
+    assert!(warned(&p.script()).is_empty(), "{}", p.script());
+    // Several statements around the started root, suspended for them.
+    let p = edit_plan(&f, |v| {
+        v.values.insert("comment".into(), json!("x"));
+    })
+    .await
+    .unwrap();
+    assert_eq!(warned(&p.script()), [NOT_ATOMIC_ROOT], "{}", p.script());
+    // Several, the root left suspended as asked: nothing to resume.
+    let p = edit_plan(&f, |v| {
+        v.values.insert("enabled".into(), json!(false));
+        v.values.insert("comment".into(), json!(""));
+    })
+    .await
+    .unwrap();
+    assert_eq!(warned(&p.script()), [NOT_ATOMIC]);
+    // A task taken out of the graph is dropped.
+    let p = edit_plan(&f, |v| {
+        v.lists
+            .get_mut("tasks")
+            .unwrap()
+            .retain(|r| r["name"] != json!("REPORT"));
+    })
+    .await
+    .unwrap();
+    assert!(p.steps.iter().any(|s| s.starts_with("DROP TASK")));
+    assert_eq!(
+        warned(&p.script()),
+        [
+            "Las tareas que se quitaron del grafo se borran: REPORT.",
+            NOT_ATOMIC_ROOT
+        ]
+    );
+    // A new graph is several statements too.
+    let s = task::spec(&new_graph_values(), &choices(), None).unwrap();
+    assert_eq!(
+        warned(&task::create_plan(&s).unwrap().script()),
+        [NOT_ATOMIC]
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_graph_warns_that_its_tasks_go_with_it() {
+    let f = server(r#"{"Predecessors":[]}"#, true);
+    let p = task::delete_plan(&f, ROOT_ID).await.unwrap();
+    assert_eq!(warned(&p.script()), [GRAPH_GOES, NOT_ATOMIC]);
+    assert!(
+        p.script()
+            .starts_with("-- Borra la tarea DB.ETL.ROOT de Snowflake y las 3 tareas de su grafo\n"),
+        "{}",
+        p.script()
+    );
+    // A root with one other task: the same sentence, and the header says
+    // it in the singular.
+    let mut g = task::read(&f, ROOT_ID).await.unwrap();
+    g.members.truncate(1);
+    let p = task::drop_plan(&g).unwrap();
+    assert_eq!(warned(&p.script()), [GRAPH_GOES, NOT_ATOMIC]);
+    assert!(
+        p.script().starts_with(
+            "-- Borra la tarea DB.ETL.ROOT de Snowflake y la otra tarea de su grafo\n"
+        ),
+        "{}",
+        p.script()
+    );
+    // A standalone task: one DROP, nothing else goes.
+    let p = task::delete_plan(&f, r#""DB"."ETL"."OTHER""#)
+        .await
+        .unwrap();
+    assert!(warned(&p.script()).is_empty(), "{}", p.script());
+}
+
+#[tokio::test]
+async fn a_commit_warns_when_it_publishes_changes_staged_before() {
+    // A task graph object's own form.
+    let rd = graph_read();
+    let cur = graph::current(&rd);
+    let same = graph::spec(&graph_values(), &choices(), Some(&rd)).unwrap();
+    assert_eq!(
+        warned(&graph::alter_plan(&cur, &same, true).script()),
+        [PENDING_COMMIT]
+    );
+    let mut v = graph_values();
+    v.values.insert("comment".into(), json!("x"));
+    let want = graph::spec(&v, &choices(), Some(&rd)).unwrap();
+    assert_eq!(
+        warned(&graph::alter_plan(&cur, &want, false).script()),
+        [NOT_ATOMIC]
+    );
+    // Not committed: the staged changes stay staged.
+    v.values.insert("commit".into(), json!(false));
+    let want = graph::spec(&v, &choices(), Some(&rd)).unwrap();
+    let p = graph::alter_plan(&cur, &want, true);
+    assert_eq!(p.steps.len(), 1);
+    assert!(warned(&p.script()).is_empty(), "{}", p.script());
+    // Dropping a started one suspends it first.
+    assert_eq!(warned(&graph::drop_plan(&rd.graph).script()), [NOT_ATOMIC]);
+
+    // Its root's graph, changed from the task's form: Snowflake says
+    // whether the object has changes staged.
+    let mut f = server(r#"{"Predecessors":[],"TaskGraph":"DB.ETL.PIPE"}"#, true);
+    let comment = |v: &mut FormValues| {
+        v.values.insert("comment".into(), json!("x"));
+    };
+    let staged = |p: &Plan| {
+        (
+            p.header.iter().any(|h| h.contains("guarda los cambios")),
+            p.header.iter().any(|h| h == MAY_PUBLISH_EARLIER),
+        )
+    };
+    // Snowflake doesn't list the object: no warning, but the note says
+    // the COMMIT may publish changes staged before.
+    let p = edit_plan(&f, comment).await.unwrap();
+    assert_eq!(warned(&p.script()), [NOT_ATOMIC]);
+    assert_eq!(staged(&p), (false, true), "{}", p.script());
+    // Nor when the read fails.
+    f.errors = vec![("SHOW TASK GRAPHS".into(), "HTTP 503".into())];
+    let p = edit_plan(&f, comment).await.unwrap();
+    assert_eq!(warned(&p.script()), [NOT_ATOMIC]);
+    assert_eq!(staged(&p), (false, true), "{}", p.script());
+    f.errors.clear();
+    let graphs = |pending: &str| {
+        set(
+            &[
+                "database_name",
+                "schema_name",
+                "name",
+                "has_pending_changes",
+            ],
+            &[&["DB", "ETL", "PIPE", pending]],
+        )
+    };
+    f.answers
+        .insert(0, ("SHOW TASK GRAPHS LIKE".into(), graphs("true")));
+    let p = edit_plan(&f, comment).await.unwrap();
+    assert_eq!(warned(&p.script()), [PENDING_COMMIT, NOT_ATOMIC]);
+    assert_eq!(staged(&p), (true, false), "{}", p.script());
+    assert!(f
+        .seen()
+        .iter()
+        .any(|s| s == r#"SHOW TASK GRAPHS LIKE 'PIPE' IN SCHEMA "DB"."ETL""#));
+    f.answers[0].1 = graphs("false");
+    let p = edit_plan(&f, comment).await.unwrap();
+    assert_eq!(warned(&p.script()), [NOT_ATOMIC]);
+    assert_eq!(staged(&p), (true, false), "{}", p.script());
+    // Another graph by that name pattern isn't this one: Snowflake didn't
+    // say.
+    f.answers[0].1 = set(
+        &[
+            "database_name",
+            "schema_name",
+            "name",
+            "has_pending_changes",
+        ],
+        &[&["DB", "OTHER", "PIPE", "false"]],
+    );
+    let p = edit_plan(&f, comment).await.unwrap();
+    assert_eq!(staged(&p), (false, true), "{}", p.script());
+    // Without the COMMIT, nothing is published.
+    f.answers[0].1 = graphs("true");
+    let p = edit_plan(&f, |v| {
+        v.values.insert("comment".into(), json!("x"));
+        v.values.insert("commit".into(), json!(false));
+    })
+    .await
+    .unwrap();
+    assert!(warned(&p.script()).is_empty(), "{}", p.script());
+}
+
+#[test]
+fn an_alert_change_warns_only_with_several_statements() {
+    let a = alert_row();
+    let cur = alert::current(&a);
+    let mut v = alert_values();
+    v.values.insert("enabled".into(), json!(true));
+    let want = alert::spec(&v, &choices(), Some(&a)).unwrap();
+    let p = alert::alter_plan(&cur, &want);
+    assert_eq!(p.steps.len(), 1);
+    assert!(warned(&p.script()).is_empty(), "{}", p.script());
+    v.values.insert("comment".into(), json!("new"));
+    let want = alert::spec(&v, &choices(), Some(&a)).unwrap();
+    assert_eq!(
+        warned(&alert::alter_plan(&cur, &want).script()),
+        [NOT_ATOMIC]
+    );
+    // Created suspended, then resumed: two statements.
+    v.values.insert("name".into(), json!("new_alert"));
+    let s = alert::spec(&v, &choices(), None).unwrap();
+    assert_eq!(warned(&alert::create_plan(&s).script()), [NOT_ATOMIC]);
+    v.values.insert("enabled".into(), json!(false));
+    let s = alert::spec(&v, &choices(), None).unwrap();
+    assert!(warned(&alert::create_plan(&s).script()).is_empty());
+    assert!(warned(&alert::drop_plan(&a).script()).is_empty());
 }

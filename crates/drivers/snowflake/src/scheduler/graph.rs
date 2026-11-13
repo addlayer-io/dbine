@@ -644,7 +644,10 @@ pub(crate) fn alter_plan(cur: &Spec, want: &Spec, pending: bool) -> Plan {
     }
     let changed = !p.steps.is_empty();
     if want.commit && (changed || pending) && want.root.is_some() {
-        p.note("Los cambios quedan pendientes hasta el COMMIT, que también publica los que hubiera pendientes de antes.");
+        p.note(super::MAY_PUBLISH_EARLIER);
+        if pending {
+            p.warn(super::PENDING_COMMIT);
+        }
         p.push(format!("ALTER TASK GRAPH {id} COMMIT"));
     }
     if want.enabled != cur.enabled {
@@ -660,6 +663,30 @@ fn pending(g: &GraphRow) -> bool {
     g.pending
         .as_deref()
         .is_some_and(|v| v.eq_ignore_ascii_case("true"))
+}
+
+/// Whether the task graph object `id` has changes staged before this one
+/// (`None`: Snowflake didn't say). Cloud services, no warehouse.
+pub(crate) async fn has_pending(r: Run<'_>, id: &str) -> Option<bool> {
+    let (db, schema, name) = jobs::parse_id(id)?;
+    let sql = format!(
+        "SHOW TASK GRAPHS LIKE {} IN SCHEMA {}.{}",
+        literal(&name),
+        quote(&db),
+        quote(&schema)
+    );
+    match r.rows(&sql).await {
+        Ok(s) => graph_rows(&s)
+            .iter()
+            .find(|g| g.name == name && g.database == db && g.schema == schema)
+            .map(pending),
+        Err(e) => {
+            tracing::debug!(
+                "snowflake scheduler: task graph {id} not read for its pending changes: {e}"
+            );
+            None
+        }
+    }
 }
 
 async fn may_change(r: Run<'_>, g: &GraphRow) -> Result<()> {

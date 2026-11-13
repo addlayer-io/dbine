@@ -13,8 +13,11 @@
 //!   creates, `PATCH` with an `updateMask` of only what changed edits in
 //!   place, `DELETE` drops it (the backups it made stay until they expire).
 //!   Spanner doesn't change a schedule's backup type: that edit deletes
-//!   the schedule and creates it again with the same id, said at the top of
-//!   the script and in the form. Save sends the same requests.
+//!   the schedule and creates it again with the same id, said in the form
+//!   and in the script's "⚠" lines, which the app asks the user to accept
+//!   (with what is lost, and that a refused create leaves it deleted); an
+//!   incremental schedule's edit warns that its chain starts again. Save
+//!   sends the same requests.
 //! - Checked before a request: ids (Spanner's id rule), that the database
 //!   exists, at most four schedules per database, the cron (five fields in
 //!   range; full backups at least 12 hours apart, incremental ones 4), the
@@ -58,6 +61,15 @@ const TYPE_CHANGE: &str = "Spanner no cambia el tipo de backup de un programa: p
 const CHAIN: &str = "Cambiar un programa incremental hace que Spanner empiece una cadena nueva, con un backup completo.";
 const NEW_DATABASE: &str = "Los programas de una base recién creada pueden tardar hasta 24 horas en hacer su primer backup.";
 const NO_HISTORY: &str = "El historial de un programa de backup son los backups que hizo: se borran desde los backups de la base, no desde el programa.";
+
+// What a script warns about ("⚠" lines: the app lists them and asks to
+// continue), each a whole sentence of its own for the message catalog. A
+// new backup type is a delete and a create (what [`TYPE_CHANGE`] tells the
+// form), and an incremental schedule's edit starts a new chain ([`CHAIN`]).
+
+const RECREATE: &str = "Spanner no cambia el tipo de backup de un programa: DBine lo borra y lo crea de nuevo con el mismo id.";
+const UPDATE_TIME_LOST: &str = "Se pierde la fecha del último cambio del programa.";
+const RECREATE_FAILS: &str = "Si Spanner no acepta crearlo de nuevo, el programa queda borrado.";
 
 fn bad(m: String) -> Error {
     Error::Query(m)
@@ -490,6 +502,9 @@ struct Plan {
     reqs: Vec<Req>,
     id: String,
     recreate: bool,
+    /// What the user loses or risks with it, one whole Spanish sentence
+    /// each: the script's "⚠" lines.
+    warnings: Vec<String>,
 }
 
 impl Plan {
@@ -499,6 +514,9 @@ impl Plan {
         let mut out = String::new();
         for l in &self.lines {
             out.push_str(&format!("# {l}\n"));
+        }
+        for w in &self.warnings {
+            out.push_str(&format!("# ⚠ {w}\n"));
         }
         for r in &self.reqs {
             out.push_str(&format!("#\n# {} {base}/v1/{}\n", r.method, r.path));
@@ -549,6 +567,7 @@ fn create_plan(instance: &str, w: &Spec) -> Plan {
         reqs: vec![create_req(instance, w)],
         id: format!("{}/{}", w.db, w.id),
         recreate: false,
+        warnings: Vec::new(),
     }
 }
 
@@ -564,11 +583,14 @@ fn edit_plan(instance: &str, o: &Spec, w: &Spec) -> Plan {
                     if o.incremental { "incrementales" } else { "completos" },
                     if w.incremental { "incrementales" } else { "completos" },
                 ),
-                TYPE_CHANGE.into(),
+                "Los backups que ya hizo se conservan.".into(),
             ],
             reqs: vec![delete_req(instance, o), create_req(instance, w)],
             id,
             recreate: true,
+            warnings: [RECREATE, UPDATE_TIME_LOST, RECREATE_FAILS]
+                .map(String::from)
+                .to_vec(),
         };
     }
     let (mask, body) = diff(o, w);
@@ -578,16 +600,18 @@ fn edit_plan(instance: &str, o: &Spec, w: &Spec) -> Plan {
             reqs: Vec::new(),
             id,
             recreate: false,
+            warnings: Vec::new(),
         };
     }
-    let mut lines = vec![format!(
+    let lines = vec![format!(
         "Cambia el programa de backup «{}» de la base «{}» de Spanner: {}.",
         o.id,
         o.db,
         mask.join(", ")
     )];
+    let mut warnings = Vec::new();
     if o.incremental {
-        lines.push(CHAIN.into());
+        warnings.push(CHAIN.to_string());
     }
     Plan {
         lines,
@@ -603,6 +627,7 @@ fn edit_plan(instance: &str, o: &Spec, w: &Spec) -> Plan {
         }],
         id,
         recreate: false,
+        warnings,
     }
 }
 
@@ -615,6 +640,7 @@ fn delete_plan(instance: &str, o: &Spec) -> Plan {
         reqs: vec![delete_req(instance, o)],
         id: format!("{}/{}", o.db, o.id),
         recreate: false,
+        warnings: Vec::new(),
     }
 }
 

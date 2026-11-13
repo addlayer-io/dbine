@@ -15,7 +15,10 @@
 //!   statement for them): `POST …/transferConfigs` creates, `PATCH` with an
 //!   `updateMask` of only what changed edits in place (the config keeps its
 //!   id and its runs), `DELETE` drops it with its runs and logs. Save sends
-//!   the same requests.
+//!   the same requests. A "⚠" line, which the app asks the user to accept,
+//!   says that a delete takes the runs and logs, and that a query run by
+//!   Pub/Sub messages loses that trigger when it moves to a schedule or to
+//!   on demand.
 //! - "Borrar historial" deletes the config's finished runs (`runs.delete`,
 //!   their logs with them). A scheduled query is one query, so there's no
 //!   "start at a step"; the service keeps no log of its own beyond each
@@ -62,6 +65,14 @@ const PARTITION_WITHOUT_TABLE: &str =
 const NEED_SCHEDULE: &str =
     "Escribí la programación (por ejemplo every 24 hours) o elegí que corra solo a pedido.";
 const NO_EVENT: &str = "Las consultas programadas que crea DBine corren según una programación o a pedido, no al llegar mensajes de Pub/Sub.";
+
+// What a script warns about ("⚠" lines: the app lists them and asks to
+// continue), each a whole sentence of its own for the message catalog.
+
+/// A delete takes the config's runs and their logs with it.
+const RUNS_GO: &str = "Se borran también su historial de ejecuciones y sus registros.";
+/// A Pub/Sub-triggered config moved to a schedule or to on demand.
+const EVENT_LOST: &str = "La consulta programada deja de correr al llegar mensajes de Pub/Sub, y DBine no puede volver a ponerla así.";
 
 fn bad(m: String) -> Error {
     Error::Query(m)
@@ -777,6 +788,9 @@ pub(crate) struct Plan {
     lines: Vec<String>,
     reqs: Vec<Req>,
     id: Option<String>,
+    /// What the user loses with it, one whole Spanish sentence each: the
+    /// script's "⚠" lines.
+    warnings: Vec<String>,
 }
 
 impl Plan {
@@ -786,6 +800,10 @@ impl Plan {
         let mut out = String::new();
         for l in &self.lines {
             out.push_str(&format!("# {l}\n"));
+        }
+        // Fixed sentences (never cut: the app matches them whole).
+        for w in &self.warnings {
+            out.push_str(&format!("# ⚠ {w}\n"));
         }
         for r in &self.reqs {
             out.push_str(&format!("#\n# {} {}\n", r.method, r.url));
@@ -842,6 +860,7 @@ fn create_plan(dts: &Dts<'_>, project: &str, w: &Spec) -> Result<Plan> {
             body: Some(create_body(w)),
         }],
         id: None,
+        warnings: Vec::new(),
     })
 }
 
@@ -855,6 +874,7 @@ fn patch_plan(dts: &Dts<'_>, cur: &Current, w: &Spec) -> Result<Plan> {
             )],
             reqs: Vec::new(),
             id: Some(cur.name.clone()),
+            warnings: Vec::new(),
         });
     }
     let parts = checked(&cur.name)?;
@@ -874,6 +894,10 @@ fn patch_plan(dts: &Dts<'_>, cur: &Current, w: &Spec) -> Result<Plan> {
             "Pasa a correr con las credenciales de la cuenta de servicio (hace falta poder actuar como ella).".into(),
         );
     }
+    let mut warnings = Vec::new();
+    if cur.spec.mode == Mode::Event && w.mode != Mode::Event {
+        warnings.push(EVENT_LOST.to_string());
+    }
     Ok(Plan {
         lines,
         reqs: vec![Req {
@@ -882,6 +906,7 @@ fn patch_plan(dts: &Dts<'_>, cur: &Current, w: &Spec) -> Result<Plan> {
             body: Some(Json::Object(body)),
         }],
         id: Some(cur.name.clone()),
+        warnings,
     })
 }
 
@@ -889,7 +914,7 @@ fn delete_plan(dts: &Dts<'_>, cur: &Current) -> Result<Plan> {
     let parts = checked(&cur.name)?;
     Ok(Plan {
         lines: vec![format!(
-            "Borra la consulta programada «{}» de BigQuery, con su historial de ejecuciones y sus registros.",
+            "Borra la consulta programada «{}» de BigQuery.",
             one(&cur.spec.name)
         )],
         reqs: vec![Req {
@@ -898,6 +923,7 @@ fn delete_plan(dts: &Dts<'_>, cur: &Current) -> Result<Plan> {
             body: None,
         }],
         id: Some(cur.name.clone()),
+        warnings: vec![RUNS_GO.to_string()],
     })
 }
 

@@ -17,7 +17,10 @@
 //!   can't remove entries from, it is one `jobs/reset` with the whole
 //!   settings instead (the job keeps its id, its runs and its permissions).
 //!   Changed permissions are a second request, `PUT
-//!   /api/2.0/permissions/jobs/<id>`, after the settings.
+//!   /api/2.0/permissions/jobs/<id>`, after the settings. The script's "⚠"
+//!   lines, which the app asks the user to accept, say that those two
+//!   requests aren't atomic, that a bundle's next deploy overwrites the
+//!   change, and that a delete takes the job's runs.
 //! - Nothing is lost on the way: every setting, task attribute and cluster
 //!   attribute the form has no field for stays in an "Otros … (JSON)" field
 //!   as the server gave it, and goes back as it is; a value a text line
