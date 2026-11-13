@@ -167,6 +167,14 @@ impl ClickHouseSession {
             .map(|v| v == 1))
     }
 
+    /// `CHECK GRANT what` for the user, without DBine's read-only mode (see
+    /// [`without_read_only`]); `None` when the server didn't answer it (no
+    /// `CHECK GRANT` before 24.5, nor on Proton).
+    pub(crate) async fn user_grant(&self, what: &str) -> Result<Option<bool>> {
+        let owned = self.read_only.then(|| without_read_only(self));
+        owned.as_ref().unwrap_or(self).grant(what).await
+    }
+
     async fn grants_of(&self, whats: &[String]) -> Result<Vec<Option<bool>>> {
         let all = futures::future::join_all(whats.iter().map(|w| self.grant(w))).await;
         all.into_iter().collect()

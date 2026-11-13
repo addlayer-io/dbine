@@ -90,8 +90,9 @@ pub(crate) fn item(p: &Plugin) -> SchedulerItem {
         description: Some(p.class.clone()).filter(|c| !c.is_empty()),
         enabled: None,
         system: p.builtin,
-        can_edit: None,
-        can_delete: None,
+        // A built-in plugin comes with IoTDB: shown only.
+        can_edit: p.builtin.then_some(false),
+        can_delete: p.builtin.then_some(false),
         actions: None,
     }
 }

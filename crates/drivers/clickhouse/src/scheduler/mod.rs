@@ -9,7 +9,8 @@
 //!   MODIFY COMMENT`, `RENAME TABLE` and `SYSTEM START | STOP VIEW`, and
 //!   created again with `CREATE OR REPLACE` only for what ClickHouse can't
 //!   change in place (the target, the engine, the columns, `APPEND`). The
-//!   history of a view's refreshes is cleared from `system.query_log`, and
+//!   history of a view's refreshes is cleared from `system.query_log` (for
+//!   a user who holds `ALTER DELETE` on it), and
 //!   the scheduler's log is the refreshes there and the view refresher's
 //!   lines in `system.text_log`.
 //! - Timeplus Proton: its tasks ([`task`]): `CREATE TASK`, `CREATE OR
@@ -191,9 +192,22 @@ impl ClickHouseSession {
             });
         }
         let w = !c.readonly;
+        // "Run now" and "stop" are the job's: `SYSTEM REFRESH | CANCEL VIEW`
+        // (both since refreshable views came, 23.12) and Proton's `SYSTEM
+        // EXECUTE TASK`; no other action applies. Neither has steps. Only
+        // ClickHouse keeps a history to clear: from 25.4, where
+        // system.query_log tags each refresh with its view, for a user who
+        // may change things, reads it and holds ALTER DELETE on it (clearing
+        // is a lightweight DELETE). `CHECK GRANT` came in 24.5, so it's
+        // there wherever the history is; a check the server doesn't answer
+        // leaves the option (the DELETE says if it's refused).
         let kind = match self.flavor {
             Flavor::ClickHouse => {
+                let clear = w
+                    && self.history().await == History::Readable
+                    && self.user_grant("ALTER DELETE ON system.query_log").await? != Some(false);
                 SchedulerKind::new("job", "Vistas refrescables", "vista refrescable")
+                    .clear_history(clear)
             }
             Flavor::Timeplus => SchedulerKind::new("job", "Tareas", "tarea"),
         };

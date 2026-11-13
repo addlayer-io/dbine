@@ -149,12 +149,13 @@ const MV2: &str = "dbine_test_sched_mv2";
 const DEP: &str = "dbine_test_sched_dep";
 const ORD: &str = "dbine_test_sched_ord";
 const APP: &str = "dbine_test_sched_app";
-const CH_CLEANUP: [&str; 5] = [
+const CH_CLEANUP: [&str; 6] = [
     "DROP DATABASE IF EXISTS dbine_test_sched_ch SYNC",
     "DROP DATABASE IF EXISTS dbine_test_sched_ch2 SYNC",
     "DROP DATABASE IF EXISTS dbine_test_sched_ord SYNC",
     "DROP USER IF EXISTS dbine_test_sched_ro",
     "DROP SETTINGS PROFILE IF EXISTS dbine_test_sched_ro",
+    "DROP USER IF EXISTS dbine_test_sched_ql",
 ];
 const CH_LEFT: &str =
     "SELECT (SELECT count() FROM system.databases WHERE startsWith(name, 'dbine_test_sched_'))
@@ -242,6 +243,9 @@ async fn clickhouse_refreshable_views_managed_whole() {
         assert_eq!((k.key.as_str(), k.label.as_str()), ("job", "Vistas refrescables"));
         assert!(k.can_create && k.can_edit && k.can_delete);
         assert!(info.logs, "the test user reads system.query_log");
+        // Refreshes tagged with their view (25.4 on): a history to clear;
+        // run and stop are the job's, no steps.
+        assert!(k.clear_history && !k.run_from_step && k.actions.is_empty(), "{k:?}");
 
         // A new view, every option the form has.
         let form = s.scheduler_form("job", None).await.expect("form");
@@ -524,6 +528,7 @@ async fn clickhouse_refreshable_views_managed_whole() {
         .await;
         let info = ro.scheduler_info().await.expect("info");
         assert!(!info.kinds[0].can_create && !info.kinds[0].can_edit && !info.kinds[0].can_delete);
+        assert!(!info.kinds[0].clear_history, "a readonly user deletes nothing");
         assert!(info.notes.iter().any(|n| n.contains("readonly")), "{info:?}");
         let form = ro.scheduler_form("job", Some(&dep)).await.expect("form");
         assert!(form.read_only && form.notes[0].contains("readonly"), "{:?}", form.notes);
@@ -531,6 +536,34 @@ async fn clickhouse_refreshable_views_managed_whole() {
         refused(ro.scheduler_delete("job", &dep).await, "readonly");
         drop(ro);
         run(&mut s, "DROP USER dbine_test_sched_ro; DROP SETTINGS PROFILE dbine_test_sched_ro").await;
+
+        // A user who reads system.query_log but can't delete from it (no
+        // ALTER DELETE), with a profile that isn't read-only, isn't offered
+        // to clear the views' history.
+        run(
+            &mut s,
+            "CREATE USER dbine_test_sched_ql IDENTIFIED BY 'Pw_sched_ql1';
+             GRANT SELECT ON *.* TO dbine_test_sched_ql;
+             GRANT SELECT ON system.query_log TO dbine_test_sched_ql;",
+        )
+        .await;
+        let mut ql = connect(&ConnectionConfig {
+            username: Some("dbine_test_sched_ql".into()),
+            password: Some("Pw_sched_ql1".into()),
+            ..c.clone()
+        })
+        .await;
+        let info = ql.scheduler_info().await.expect("info");
+        assert!(info.logs, "it reads system.query_log: {info:?}");
+        assert!(info.kinds[0].can_edit, "{info:?}");
+        assert!(!info.kinds[0].clear_history, "no ALTER DELETE on system.query_log");
+        drop(ql);
+        run(&mut s, "DROP USER dbine_test_sched_ql").await;
+        // A read-only connection of a user who holds it keeps the option
+        // (DBine's mode refuses the clearing itself).
+        let mut ro = connect(&ConnectionConfig { read_only: true, ..c.clone() }).await;
+        assert!(ro.scheduler_info().await.expect("info").kinds[0].clear_history);
+        drop(ro);
 
         // A read-only connection shows and scripts, and changes nothing.
         let mut ro = ReadOnlySession::new(connect(&ConnectionConfig { read_only: true, ..c.clone() }).await);
@@ -653,6 +686,13 @@ async fn proton_tasks_managed_whole() {
         );
         assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
         assert!(!info.logs);
+        // Proton keeps only the last run: nothing to clear, no steps, and
+        // "run now" is the job's EXECUTE TASK.
+        let k = &info.kinds[0];
+        assert!(
+            !k.clear_history && !k.run_from_step && k.actions.is_empty(),
+            "{k:?}"
+        );
 
         // A task writing into a stream.
         let form = s.scheduler_form("job", None).await.expect("form");

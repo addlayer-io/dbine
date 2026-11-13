@@ -183,8 +183,62 @@ impl V2 {
             .map_or(0, Vec::len)
     }
 
-    /// Deletes every `dbine_test_sched_*` task and label.
+    /// A threshold check named `name`: `(check id, its task's id)`.
+    async fn check(&self, org_id: &str, name: &str) -> (String, String) {
+        let flux = "from(bucket: \"test\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"m\")\n  |> filter(fn: (r) => r[\"_field\"] == \"v\")\n  |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")";
+        let v = self
+            .call(
+                reqwest::Method::POST,
+                "/api/v2/checks",
+                Some(json!({
+                    "name": name, "orgID": org_id, "type": "threshold", "status": "inactive",
+                    "every": "1h", "offset": "0s", "statusMessageTemplate": "x", "tags": [],
+                    "query": {"text": flux, "editMode": "advanced", "name": "",
+                              "builderConfig": {"buckets": [], "tags": [], "functions": []}},
+                    "thresholds": [{"type": "greater", "value": 10, "level": "CRIT", "allValues": false}],
+                })),
+            )
+            .await;
+        (
+            v["id"].as_str().unwrap().to_string(),
+            v["taskID"].as_str().unwrap().to_string(),
+        )
+    }
+
+    /// The `dbine_test_sched_*` checks.
+    async fn checks(&self) -> Vec<String> {
+        let org_id = self.org_id().await;
+        let v = self
+            .call(
+                reqwest::Method::GET,
+                &format!("/api/v2/checks?orgID={org_id}"),
+                None,
+            )
+            .await;
+        v["checks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|c| {
+                c["name"]
+                    .as_str()
+                    .is_some_and(|n| n.starts_with("dbine_test_sched_"))
+            })
+            .filter_map(|c| c["id"].as_str().map(String::from))
+            .collect()
+    }
+
+    /// Deletes every `dbine_test_sched_*` check (with its task), task and
+    /// label.
     async fn clean(&self) {
+        for id in self.checks().await {
+            self.call(
+                reqwest::Method::DELETE,
+                &format!("/api/v2/checks/{id}"),
+                None,
+            )
+            .await;
+        }
         let v = self
             .call(
                 reqwest::Method::GET,
@@ -256,6 +310,7 @@ impl V2 {
                     .is_some_and(|n| n.starts_with("dbine_test_sched_"))
             })
             .count()
+            + self.checks().await.len()
     }
 }
 
@@ -289,6 +344,12 @@ async fn influxdb2_body(v2: &V2) {
     assert_eq!(info.kinds[0].label, "Tareas");
     assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
     assert!(!info.logs);
+    // Runs live in `_tasks` (a history to clear); "run now" is the job's.
+    let k = &info.kinds[0];
+    assert!(
+        k.clear_history && !k.run_from_step && k.actions.is_empty(),
+        "{k:?}"
+    );
 
     // A new task, with an import, a label and a description.
     let form = s.scheduler_form("job", None).await.expect("form");
@@ -320,7 +381,31 @@ async fn influxdb2_body(v2: &V2) {
     let it = item(&mut s, "dbine_test_sched_task").await.unwrap();
     assert_eq!(it.id, id);
     assert_eq!(it.enabled, Some(true));
+    // A task of its own (the list carries its Flux): editable.
+    assert_eq!((it.can_edit, it.can_delete), (None, None), "{it:?}");
     assert!(s.jobs().await.unwrap().jobs.iter().any(|j| j.id == id));
+
+    // A check's task goes with its check (deleting it alone leaves the
+    // check broken: InfluxDB then refuses to read, change or delete it).
+    // InfluxDB 2.x leaves it out of the task list, so neither the tree nor
+    // the jobs offer it; a server that lists it with its `type` gets it
+    // marked neither editable nor deletable (unit tests).
+    let (check, check_task) = v2.check(&org_id, "dbine_test_sched_check").await;
+    let items = s.scheduler_items("job").await.expect("items").items;
+    assert!(items.iter().all(|i| i.id != check_task), "{items:?}");
+    assert!(s
+        .jobs()
+        .await
+        .unwrap()
+        .jobs
+        .iter()
+        .all(|j| j.id != check_task));
+    v2.call(
+        reqwest::Method::DELETE,
+        &format!("/api/v2/checks/{check}"),
+        None,
+    )
+    .await;
 
     // The form reads it back; unchanged, there's nothing to do.
     let form = s.scheduler_form("job", Some(&id)).await.expect("form");
@@ -592,6 +677,12 @@ async fn v1_body(url: &str) {
     assert_eq!(info.kinds[0].label, "Consultas continuas");
     assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
     assert!(info.notes[0].contains("ALTER"));
+    // Without query-stats-enabled there's no history to clear.
+    let k = &info.kinds[0];
+    assert!(
+        !k.clear_history && !k.run_from_step && k.actions.is_empty(),
+        "{k:?}"
+    );
 
     // New.
     let form = s.scheduler_form("job", None).await.expect("form");
@@ -794,6 +885,10 @@ async fn influxdb1_continuous_query_history_cleared() {
         };
         let before = total(&out);
         assert!(before >= 3, "{before}");
+        // With query stats on (runs recorded), the kind says there's a
+        // history to clear.
+        let info = s.scheduler_info().await.unwrap();
+        assert!(info.kinds[0].clear_history, "{info:?}");
         s.clear_job_history(&id).await.unwrap();
         let mut out = QueryOutcome::default();
         s.execute(count, 10, &mut out).await.unwrap();
@@ -930,6 +1025,12 @@ async fn v3_body(url: &str) {
     let info = s.scheduler_info().await.expect("info");
     assert_eq!(info.kinds[0].label, "Triggers");
     assert!(info.logs);
+    // No API fires a trigger nor clears the engine's log; no steps.
+    let k = &info.kinds[0];
+    assert!(
+        !k.clear_history && !k.run_from_step && k.actions.is_empty(),
+        "{k:?}"
+    );
 
     // New, with its plugin's code uploaded.
     let form = s.scheduler_form("job", None).await.expect("form");

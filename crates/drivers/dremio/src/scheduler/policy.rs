@@ -570,6 +570,52 @@ pub(crate) fn source_put(
 }
 
 // ---------------------------------------------------------------------------
+// Refreshing a table's reflections now
+// ---------------------------------------------------------------------------
+
+/// The table policies' action: refresh the table's reflections now.
+pub(crate) const REFRESH: &str = "refresh";
+
+/// `POST /api/v3/catalog/{id}/refresh`: every reflection that depends on
+/// the table, now, as its policy would (Dremio Software has no SQL for it).
+pub(crate) fn refresh_plan(uuid: &str, label: &str) -> Plan {
+    let path = format!("/api/v3/catalog/{uuid}/refresh");
+    Plan {
+        script: rest_script(
+            &format!(
+                "Refresca ahora las reflexiones de la tabla «{label}»: todas las que dependen de ella, como las refrescaría su política.\nDremio no tiene SQL para esto: DBine envía este pedido a su API REST."
+            ),
+            "POST",
+            &path,
+            None,
+        ),
+        steps: vec![Step::Rest {
+            method: Method::POST,
+            path,
+            body: None,
+        }],
+        id: Some(format!("{TABLE}:{uuid}")),
+        prefix: TABLE,
+    }
+}
+
+/// A table policy's action (only `refresh`).
+pub(crate) async fn table_action_plan(
+    s: &mut DremioSession,
+    id: &str,
+    action: &str,
+) -> Result<Plan> {
+    if action.trim() != REFRESH {
+        return Err(dbine_driver::Error::Unsupported(format!(
+            "«{}» no es una acción de las políticas de refresco de tablas de Dremio: la que hay es refrescar sus reflexiones.",
+            shown(action)
+        )));
+    }
+    let (uuid, e) = s.table_entity(id).await?;
+    Ok(refresh_plan(&uuid, &path_label(&path_of(&e))))
+}
+
+// ---------------------------------------------------------------------------
 // The server
 // ---------------------------------------------------------------------------
 
@@ -880,6 +926,29 @@ mod tests {
             assert!(j.get(k).is_some(), "{k}");
         }
         assert!(table_policy_of(&json!({"type": "PHYSICAL_DATASET"})).is_none());
+    }
+
+    #[test]
+    fn refreshing_a_tables_reflections_is_its_catalog_refresh() {
+        let u = "d215b51c-01f2-49f0-8120-74e508386c42";
+        let p = refresh_plan(u, "s.f\nDROP TABLE t");
+        assert_eq!(
+            p.steps,
+            vec![Step::Rest {
+                method: Method::POST,
+                path: format!("/api/v3/catalog/{u}/refresh"),
+                body: None,
+            }]
+        );
+        assert_eq!(p.id.as_deref(), Some(format!("table:{u}").as_str()));
+        assert!(
+            p.script.lines().all(|l| l.starts_with("-- ")),
+            "{}",
+            p.script
+        );
+        assert!(p
+            .script
+            .contains(&format!("-- POST /api/v3/catalog/{u}/refresh\n")));
     }
 
     #[test]

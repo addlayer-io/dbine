@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 const PREFIX: &str = "DBINE_TEST_SCHED_";
 const SRC: &str = "DBINE_TEST_SCHED_SRC";
 const INS: &str = "DBINE_TEST_SCHED_INS";
+const CST: &str = "DBINE_TEST_SCHED_CST";
 
 fn cfg() -> Option<ConnectionConfig> {
     let url = reqwest::Url::parse(&std::env::var("DBINE_TEST_KSQLDB_URL").ok()?).expect("URL");
@@ -66,6 +67,35 @@ fn ours(name: &str) -> bool {
     name.to_ascii_uppercase().starts_with(PREFIX)
 }
 
+/// The test's Kafka topics still there: the ones a recreate leaves (the
+/// topic stays when its stream is dropped) and the changelog ksqlDB keeps
+/// of a source table's query after the table is dropped.
+async fn topics_left(s: &mut Box<dyn Session>) -> Vec<String> {
+    names(s, "ALL TOPICS")
+        .await
+        .into_iter()
+        .filter(|t| t.to_ascii_uppercase().contains(PREFIX))
+        .collect()
+}
+
+/// Deletes a leftover topic through ksqlDB: a stream over it, dropped
+/// with its topic.
+async fn drop_topic(s: &mut Box<dyn Session>, topic: &str) {
+    let gone = format!("{PREFIX}GONE");
+    let _ = exec(s, &format!("DROP STREAM IF EXISTS `{gone}`")).await;
+    let made = exec(
+        s,
+        &format!(
+            "CREATE STREAM `{gone}` (v STRING) WITH (KAFKA_TOPIC='{}', VALUE_FORMAT='KAFKA')",
+            topic.replace('\'', "''")
+        ),
+    )
+    .await;
+    if made.is_ok() {
+        let _ = exec(s, &format!("DROP STREAM `{gone}` DELETE TOPIC")).await;
+    }
+}
+
 /// Terminates the test's queries and drops its streams and tables with
 /// their topics, until nothing of the test is left.
 async fn cleanup(c: &ConnectionConfig) {
@@ -82,11 +112,24 @@ async fn cleanup(c: &ConnectionConfig) {
         for (show, kind) in [("TABLES", "TABLE"), ("STREAMS", "STREAM")] {
             for n in names(&mut s, show).await.into_iter().filter(|n| ours(n)) {
                 left += 1;
-                let _ = exec(&mut s, &format!("DROP {kind} IF EXISTS `{n}` DELETE TOPIC")).await;
+                // A source table can't delete its topic (it reads another
+                // object's): it is dropped alone.
+                if exec(&mut s, &format!("DROP {kind} IF EXISTS `{n}` DELETE TOPIC"))
+                    .await
+                    .is_err()
+                {
+                    let _ = exec(&mut s, &format!("DROP {kind} IF EXISTS `{n}`")).await;
+                }
             }
         }
         if left == 0 {
-            return;
+            let topics = topics_left(&mut s).await;
+            if topics.is_empty() {
+                return;
+            }
+            for t in &topics {
+                drop_topic(&mut s, t).await;
+            }
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
@@ -187,6 +230,12 @@ async fn body(c: ConnectionConfig) {
     );
     assert!(info.kinds[0].can_create && info.kinds[0].can_edit && info.kinds[0].can_delete);
     assert!(info.logs);
+    // No steps, no history; PAUSE / RESUME is the enabled switch.
+    let k = &info.kinds[0];
+    assert!(
+        !k.run_from_step && !k.clear_history && k.actions.is_empty(),
+        "{k:?}"
+    );
     assert!(s.scheduler_items("schedule").await.is_err());
 
     // A new CREATE STREAM … AS SELECT.
@@ -521,6 +570,52 @@ async fn body(c: ConnectionConfig) {
         assert!(r.is_err(), "{r:?}");
     }
 
+    // The query a CREATE SOURCE TABLE keeps running (over the source
+    // stream's topic): ksqlDB ends it only with its table, so the tree
+    // lists it read-only and the designer neither opens nor deletes it.
+    exec(
+        &mut s,
+        &format!("CREATE SOURCE TABLE {CST} (id INT PRIMARY KEY, v VARCHAR, n INT) WITH (KAFKA_TOPIC='dbine_test_sched_src', VALUE_FORMAT='JSON')"),
+    )
+    .await
+    .expect("source table");
+    let cst = s
+        .scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id.starts_with(&format!("CST_{CST}")))
+        .expect("its query listed");
+    assert_eq!(
+        (cst.can_edit, cst.can_delete),
+        (Some(false), Some(false)),
+        "{cst:?}"
+    );
+    assert!(s.scheduler_form("job", Some(&cst.id)).await.is_err());
+    assert!(s.scheduler_delete("job", &cst.id).await.is_err());
+    // Its job row offers neither Detener (TERMINATE) nor the enabled switch
+    // (PAUSE / RESUME), and both are refused before reaching the server.
+    let row = job(&mut s, &cst.id).await.expect("its job listed");
+    assert!(!row.can_stop && !row.can_enable, "{row:?}");
+    assert!(s.stop_job(&cst.id).await.is_err());
+    assert!(s.set_job_enabled(&cst.id, false).await.is_err());
+    assert!(job(&mut s, &cst.id).await.is_some_and(|j| j.enabled));
+    // Its own items stay as the kind says.
+    let own = s
+        .scheduler_items("job")
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|i| i.id == new_id)
+        .expect("listed");
+    assert_eq!((own.can_edit, own.can_delete), (None, None));
+    exec(&mut s, &format!("DROP TABLE {CST}"))
+        .await
+        .expect("drop the source table");
+    wait_gone(&mut s, &cst.id).await;
+
     // Delete the rest from the designer.
     for id in [new_id, ins_id] {
         s.scheduler_delete("job", &id).await.expect("delete");
@@ -543,6 +638,7 @@ async fn persistent_queries_in_the_designer() {
     for what in ["STREAMS", "TABLES"] {
         left.extend(names(&mut s, what).await.into_iter().filter(|n| ours(n)));
     }
+    left.extend(topics_left(&mut s).await);
     if let Err(e) = r {
         std::panic::resume_unwind(e.into_panic());
     }

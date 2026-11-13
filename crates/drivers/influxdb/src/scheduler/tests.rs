@@ -533,10 +533,13 @@ mod tasks {
         let f = form_of(Some(&t), Some(&labels()), None, "dbine");
         assert!(f.read_only && f.notes[0].contains("check"));
         assert!(err(edit_plan(&t, &labels(), &as_sent(&f))).contains("check"));
-        // A Cloud script's task.
+        // It goes with its check: not deleted alone.
+        assert!(t.owned());
+        // A Cloud script's task: read-only, deleted as any other.
         let mut t = task(FLUX);
         t.flux = String::new();
         assert!(form_of(Some(&t), None, None, "o").read_only);
+        assert!(!t.owned());
         // Options DBine doesn't read: the name and schedule stay as the
         // Flux says, and the Flux goes whole.
         let odd = "option task = {name: n, every: 1h}\nfrom(bucket: \"b\")";
@@ -1054,4 +1057,75 @@ fn every_api_offers_the_scheduler() {
     for d in crate::drivers() {
         assert!(d.capabilities().scheduler, "{}", d.info().id);
     }
+}
+
+#[test]
+fn tasks_run_by_a_check_or_a_script_are_listed_read_only() {
+    let basic = json!({"id": "0a1b2c3d4e5f6a7b", "name": "t", "status": "active", "flux": "option task = {name: \"t\", every: 1h}\nfrom(bucket: \"b\")"});
+    let it = task::item_of(&basic).unwrap();
+    assert_eq!(
+        (it.can_edit, it.can_delete, it.enabled),
+        (None, None, Some(true))
+    );
+    // A list that leaves the Flux out doesn't make it a script's.
+    let mut no_flux = basic.clone();
+    no_flux.as_object_mut().unwrap().remove("flux");
+    assert_eq!(task::item_of(&no_flux).unwrap().can_edit, None);
+    // A check's or a rule's task goes with its check: neither changed nor
+    // deleted here. A Cloud script's is deleted as any other.
+    for (managed, can_delete) in [
+        (
+            json!({"id": "0a1b2c3d4e5f6a7b", "name": "c", "status": "inactive", "type": "threshold", "flux": "x"}),
+            Some(false),
+        ),
+        (
+            json!({"id": "0a1b2c3d4e5f6a7b", "name": "s", "status": "active", "scriptID": "0a1b", "flux": ""}),
+            None,
+        ),
+        (
+            json!({"id": "0a1b2c3d4e5f6a7b", "name": "s", "status": "active", "flux": ""}),
+            None,
+        ),
+    ] {
+        let it = task::item_of(&managed).unwrap();
+        assert_eq!(
+            (it.can_edit, it.can_delete),
+            (Some(false), can_delete),
+            "{managed}"
+        );
+    }
+    assert!(task::item_of(&json!({"id": "x' or 1=1", "name": "t"})).is_none());
+}
+
+#[test]
+fn clearing_task_history_takes_write_on_the_tasks_bucket() {
+    let list = |perms: &[Value]| {
+        let mut ps = perms.to_vec();
+        // A token that reads authorizations sees its own among them.
+        ps.push(json!({"action": "read", "resource": {"type": "authorizations"}}));
+        Ok(json!({"authorizations": [{"status": "active", "permissions": ps}]}))
+    };
+    let tasks_rw = [
+        json!({"action": "read", "resource": {"type": "tasks", "orgID": "0a1"}}),
+        json!({"action": "write", "resource": {"type": "tasks", "orgID": "0a1"}}),
+    ];
+    // Tasks only, no write on buckets: the delete API would refuse it.
+    assert!(!task::clears_history(list(&tasks_rw), "0a1"));
+    // Write on another bucket only.
+    let other = json!({"action": "write", "resource": {"type": "buckets", "id": "b1", "name": "test", "orgID": "0a1"}});
+    assert!(!task::clears_history(list(&[other]), "0a1"));
+    // Write on every bucket of the org, or on `_tasks`.
+    let all = json!({"action": "write", "resource": {"type": "buckets", "orgID": "0a1"}});
+    assert!(task::clears_history(list(&[all]), "0a1"));
+    let tasks_bucket = json!({"action": "write", "resource": {"type": "buckets", "id": "b2", "name": "_tasks", "orgID": "0a1"}});
+    assert!(task::clears_history(list(&[tasks_bucket]), "0a1"));
+    // Can't tell (the token doesn't read authorizations): left on.
+    assert!(task::clears_history(
+        Ok(json!({"authorizations": []})),
+        "0a1"
+    ));
+    assert!(task::clears_history(
+        Err(dbine_driver::Error::AuthFailed("forbidden".into())),
+        "0a1"
+    ));
 }

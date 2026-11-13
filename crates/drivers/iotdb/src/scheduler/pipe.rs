@@ -609,10 +609,43 @@ fn attr_fields(key: &str, value: &str) -> Vec<FormField> {
     ]
 }
 
+/// The processor's attributes show once a processor is picked: without
+/// one IoTDB runs do-nothing-processor, which takes none. `None` (always
+/// shown) when the plugins couldn't be listed, or when the pipe has
+/// processor attributes without naming a processor (hidden, they wouldn't
+/// be sent, and the save would take them out).
+fn processor_attrs_when(
+    choices: &BTreeMap<String, Vec<(String, String)>>,
+    current: Option<&Pipe>,
+) -> Option<Vec<String>> {
+    let names: Vec<String> = choices
+        .get(&format!("pipe_plugin:{}", Clause::Processor.key()))
+        .map(|l| l.iter().map(|(v, _)| v.clone()).collect())
+        .unwrap_or_default();
+    let stray = current.is_some_and(|p| {
+        plugin_of(Clause::Processor, p).is_none()
+            && Clause::Processor
+                .attrs(p)
+                .iter()
+                .any(|(k, _)| !internal(k) && !Clause::Processor.is_plugin_key(k))
+    });
+    (!names.is_empty() && !stray).then_some(names)
+}
+
 pub(crate) fn form_of(c: &Ctx, current: Option<&Pipe>, plugins: Option<&Table>) -> ObjectForm {
     let mut f = ObjectForm::default();
     let listed = plugins.map(super::plugin::plugins).unwrap_or_default();
     f.choices = plugin_choices(&listed, current);
+    let mut processor_attrs = FormList::new(
+        "processor_attrs",
+        "Atributos del procesamiento",
+        "key",
+        attr_fields("processor.down-sampling.interval-seconds", "60"),
+    );
+    if let Some(names) = processor_attrs_when(&f.choices, current) {
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        processor_attrs = processor_attrs.when(Clause::Processor.key(), &names);
+    }
     let mut general = vec![
         FormField::new("name", "Nombre", FormKind::Text)
             .required()
@@ -657,12 +690,7 @@ pub(crate) fn form_of(c: &Ctx, current: Option<&Pipe>, plugins: Option<&Table>) 
                 )
                 .help("Vacío: do-nothing-processor, los datos pasan sin cambios."),
             )
-            .list(FormList::new(
-                "processor_attrs",
-                "Atributos del procesamiento",
-                "key",
-                attr_fields("processor.down-sampling.interval-seconds", "60"),
-            )),
+            .list(processor_attrs),
         FormSection::new("sink", "Destino")
             .field(
                 FormField::new("sink", "Plugin de destino", FormKind::reference("pipe_plugin:sink", false))

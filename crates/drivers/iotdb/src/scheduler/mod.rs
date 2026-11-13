@@ -250,29 +250,40 @@ pub(crate) async fn read_plugin(s: &IotDbSession, name: &str) -> Result<plugin::
         .ok_or_else(|| bad(format!("El plugin de pipe «{}» {NOT_FOUND}.", shown(name))))
 }
 
-fn cq_item(c: &jobs::Cq) -> SchedulerItem {
+/// `Some(false)` where the item can't be changed although its kind can;
+/// `None`: as the kind says.
+fn unless(may: bool) -> Option<bool> {
+    (!may).then_some(false)
+}
+
+/// A continuous query; `may`: the user may change continuous queries (in
+/// the "job" kind, which pipes share, the kind's abilities are either's).
+fn cq_item(c: &jobs::Cq, may: bool) -> SchedulerItem {
     SchedulerItem {
         id: format!("cq:{}", c.id),
         name: c.id.clone(),
         description: c.query.as_deref().and_then(jobs::every),
         enabled: Some(c.state.eq_ignore_ascii_case("ACTIVE")),
         system: false,
-        can_edit: None,
-        can_delete: None,
+        can_edit: unless(may),
+        can_delete: unless(may),
         actions: None,
     }
 }
 
-fn pipe_item(p: &jobs::Pipe) -> SchedulerItem {
+/// A pipe; IoTDB's own (`__…`) are shown only. `START` / `STOP PIPE` is
+/// its enabled switch, so the kind has no start or stop action apart.
+fn pipe_item(p: &jobs::Pipe, may: bool) -> SchedulerItem {
     let job = jobs::pipe_job(p);
+    let may = may && !job.system;
     SchedulerItem {
         id: job.id,
         name: job.name,
         description: job.description,
         enabled: Some(job.enabled),
         system: job.system,
-        can_edit: None,
-        can_delete: None,
+        can_edit: unless(may),
+        can_delete: unless(may),
         actions: None,
     }
 }
@@ -282,18 +293,22 @@ const CQS_DENIED: &str =
 const PIPES_DENIED: &str =
     "Este usuario no puede ver los pipes (hace falta el privilegio USE_PIPE).";
 
-async fn cq_items(s: &IotDbSession, list: &mut SchedulerList) -> Result<()> {
+async fn cq_items(s: &IotDbSession, may: bool, list: &mut SchedulerList) -> Result<()> {
     match s.query("SHOW CQS", jobs::MAX_JOBS).await {
-        Ok(t) => list.items.extend(jobs::cqs(&t).iter().map(cq_item)),
+        Ok(t) => list
+            .items
+            .extend(jobs::cqs(&t).iter().map(|c| cq_item(c, may))),
         Err(e) if jobs::denied(&e) => list.notes.push(CQS_DENIED.into()),
         Err(e) => return Err(e),
     }
     Ok(())
 }
 
-async fn pipe_items(s: &IotDbSession, list: &mut SchedulerList) -> Result<()> {
+async fn pipe_items(s: &IotDbSession, may: bool, list: &mut SchedulerList) -> Result<()> {
     match s.query("SHOW PIPES", jobs::MAX_JOBS).await {
-        Ok(t) => list.items.extend(jobs::pipes(&t).iter().map(pipe_item)),
+        Ok(t) => list
+            .items
+            .extend(jobs::pipes(&t).iter().map(|p| pipe_item(p, may))),
         Err(e) if jobs::denied(&e) => list.notes.push(PIPES_DENIED.into()),
         Err(e) => return Err(e),
     }
@@ -313,10 +328,14 @@ pub(crate) async fn items(s: &mut IotDbSession, kind: &str) -> Result<SchedulerL
     let mut list = SchedulerList::default();
     match kind {
         Kind::Job => {
-            cq_items(s, &mut list).await?;
-            pipe_items(s, &mut list).await?;
+            // The kind may be changed when either may: each item says
+            // whether it can.
+            let c = ctx(s).await?;
+            cq_items(s, c.cq, &mut list).await?;
+            pipe_items(s, c.pipe, &mut list).await?;
         }
-        Kind::Pipe => pipe_items(s, &mut list).await?,
+        // The kind's abilities are already USE_PIPE's.
+        Kind::Pipe => pipe_items(s, true, &mut list).await?,
         Kind::Plugin => match plugin_table(s).await {
             Ok(t) => list.items = plugin::plugins(&t).iter().map(plugin::item).collect(),
             Err(e) if jobs::denied(&e) => list.notes.push(PIPES_DENIED.into()),

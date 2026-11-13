@@ -492,12 +492,8 @@ pub(crate) fn wanted(values: &FormValues, columns: &[String], kind: Option<RKind
                     "Una reflexión agregada necesita al menos una dimensión o una medida.".into(),
                 ));
             }
-            if !v.names("display").is_empty() {
-                return Err(bad(
-                    "Una reflexión agregada no tiene columnas de RAW: usá dimensiones y medidas."
-                        .into(),
-                ));
-            }
+            // «Columnas» is RAW's: hidden for an aggregation, it may still
+            // come with what was typed before the type changed.
         }
     }
     for r in rows(values, "partitions") {
@@ -655,27 +651,33 @@ pub(crate) fn form_of(e: Option<&Existing>, datasets: &[(String, String)]) -> Ob
     }
     if kind != Some(RKind::Raw) {
         cols = cols
-            .list(FormList::new(
-                "dimensions",
-                "Dimensiones (agregada)",
-                "column",
-                vec![
-                    column_cell(existing),
-                    FormField::new("granularity", "Granularidad", granularity())
-                        .default(json!("NORMAL"))
-                        .help("Por día agrupa una fecha u hora por su día."),
-                ],
-            ))
-            .list(FormList::new(
-                "measures",
-                "Medidas (agregada)",
-                "column",
-                vec![
-                    column_cell(existing),
-                    FormField::new("functions", "Funciones", measure_functions())
-                        .help("Sin ninguna, Dremio usa COUNT y SUM."),
-                ],
-            ));
+            .list(
+                FormList::new(
+                    "dimensions",
+                    "Dimensiones (agregada)",
+                    "column",
+                    vec![
+                        column_cell(existing),
+                        FormField::new("granularity", "Granularidad", granularity())
+                            .default(json!("NORMAL"))
+                            .help("Por día agrupa una fecha u hora por su día."),
+                    ],
+                )
+                .when("reflection_type", &["AGGREGATION"]),
+            )
+            .list(
+                FormList::new(
+                    "measures",
+                    "Medidas (agregada)",
+                    "column",
+                    vec![
+                        column_cell(existing),
+                        FormField::new("functions", "Funciones", measure_functions())
+                            .help("Sin ninguna, Dremio usa COUNT y SUM."),
+                    ],
+                )
+                .when("reflection_type", &["AGGREGATION"]),
+            );
     }
     let layout = FormSection::new("layout", "Organización")
         .list(
@@ -1508,6 +1510,13 @@ mod tests {
             wanted(&empty, &cols(), None).is_err(),
             "no dimensions nor measures"
         );
+        // «Columnas» hides for an aggregation but keeps what was typed
+        // while it was RAW: it doesn't apply, so it's left out.
+        let mut typed_before = ok.clone();
+        typed_before.values.insert("display".into(), json!(["a"]));
+        let d = wanted(&typed_before, &cols(), None).unwrap();
+        assert!(d.display.is_empty());
+        assert_eq!(d.dimensions, vec![("c".into(), "NORMAL".into())]);
     }
 
     #[test]
@@ -1525,9 +1534,22 @@ mod tests {
         assert!(f.sections[1].fields.is_empty());
         assert_eq!(f.sections[1].lists.len(), 2);
         assert_eq!(f.values["state_status"], json!("CAN_ACCELERATE"));
+        let aggregation_only = Some((
+            "reflection_type".to_string(),
+            vec!["AGGREGATION".to_string()],
+        ));
+        assert!(f.sections[1]
+            .lists
+            .iter()
+            .all(|l| l.when == aggregation_only));
         let f = form_of(None, &[("\"$scratch\".\"p\"".into(), "$scratch.p".into())]);
         assert_eq!(f.choices["dataset"].len(), 1);
         assert_eq!(f.sections[1].lists.len(), 2);
+        // A new one shows its type's: the lists only for an aggregation.
+        assert!(f.sections[1]
+            .lists
+            .iter()
+            .all(|l| l.when == aggregation_only));
         assert!(matches!(f.sections[1].fields[0].kind, FormKind::Text));
         let mut e = existing(&agg_json());
         e.external = true;

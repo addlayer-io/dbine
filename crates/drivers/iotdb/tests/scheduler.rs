@@ -196,6 +196,12 @@ async fn body(c: ConnectionConfig) {
         .iter()
         .all(|k| k.can_create && k.can_edit && k.can_delete));
     assert!(!info.logs);
+    // No steps, no run history; a pipe's START / STOP is its enabled
+    // switch, so no kind has actions apart.
+    assert!(info
+        .kinds
+        .iter()
+        .all(|k| !k.run_from_step && !k.clear_history && k.actions.is_empty()));
 
     // ---------------------------------------------------- continuous query
     let form = s.scheduler_form("job", None).await.expect("form");
@@ -346,6 +352,31 @@ async fn body(c: ConnectionConfig) {
         .await
         .expect("form as a job");
     assert_eq!(form, as_job);
+    // The processor's attributes show once a processor is picked.
+    let processors = form
+        .sections
+        .iter()
+        .flat_map(|x| x.lists.iter())
+        .find(|l| l.key == "processor_attrs")
+        .and_then(|l| l.when.clone())
+        .expect("a condition");
+    assert_eq!(processors.0, "processor");
+    assert!(
+        processors.1.iter().any(|p| p == "do-nothing-processor"),
+        "{processors:?}"
+    );
+    // Its own pipe, under both kinds: as the kind says.
+    for kind in ["pipe", "job"] {
+        let it = s
+            .scheduler_items(kind)
+            .await
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|i| i.id == pid)
+            .expect("listed");
+        assert_eq!((it.can_edit, it.can_delete, it.system), (None, None, false));
+    }
     assert!(!serde_json::to_string(&form).unwrap().contains(SECRET));
     assert_eq!(form.values["enabled"], json!(false));
     let mut v = values_of(&form);
@@ -458,6 +489,10 @@ async fn body(c: ConnectionConfig) {
         .find(|i| i.name == "DO-NOTHING-PROCESSOR")
         .expect("a built-in processor");
     assert!(builtin.system);
+    assert_eq!(
+        (builtin.can_edit, builtin.can_delete),
+        (Some(false), Some(false))
+    );
     let class = builtin.description.clone().unwrap();
     let f = s
         .scheduler_form("pipe_plugin", Some(&builtin.id))

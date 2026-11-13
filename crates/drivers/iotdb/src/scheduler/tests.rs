@@ -531,6 +531,80 @@ fn a_pipe_form_hides_its_credentials() {
     assert!(pipe::drop_plan(&sys).is_err());
 }
 
+/// The list a form has under `key`.
+fn list<'a>(f: &'a ObjectForm, key: &str) -> &'a dbine_driver::FormList {
+    f.sections
+        .iter()
+        .flat_map(|s| s.lists.iter())
+        .find(|l| l.key == key)
+        .unwrap()
+}
+
+#[test]
+fn the_processor_attributes_show_once_a_processor_is_picked() {
+    let plugins = table(
+        &["PluginName", "PluginType", "ClassName", "PluginJar"],
+        vec![
+            vec![json!("DO-NOTHING-PROCESSOR"), json!("Builtin"), json!("org.apache.iotdb.commons.pipe.agent.plugin.builtin.processor.donothing.DoNothingProcessor"), json!("")],
+            vec![json!("DO-NOTHING-SINK"), json!("Builtin"), json!("org.apache.iotdb.commons.pipe.agent.plugin.builtin.sink.donothing.DoNothingSink"), json!("")],
+            vec![json!("MY-PLUGIN"), json!("External"), json!("org.example.Mine"), json!("mine.jar")],
+        ],
+    );
+    let p = pipe_v2();
+    let f = pipe::form_of(&V205, Some(&p), Some(&plugins));
+    assert_eq!(
+        list(&f, "processor_attrs").when,
+        Some((
+            "processor".to_string(),
+            vec!["do-nothing-processor".to_string(), "my-plugin".to_string()]
+        ))
+    );
+    // The other lists always show.
+    assert!(list(&f, "source_attrs").when.is_none() && list(&f, "sink_attrs").when.is_none());
+    // Hidden, it isn't sent: nothing changes.
+    let mut v = back(&f);
+    v.lists.remove("processor_attrs");
+    let plan = pipe::plan(&V205, Some(&p), &v).unwrap();
+    assert!(plan.stmts.is_empty(), "{}", plan.script());
+    // Without the plugins listed it can't say which: always shown.
+    assert!(
+        list(&pipe::form_of(&V205, Some(&p), None), "processor_attrs")
+            .when
+            .is_none()
+    );
+    // Attributes without a processor named stay in view.
+    let stray = Pipe {
+        processor: kv(&[("processor.down-sampling.interval-seconds", "60")]),
+        ..pipe_v2()
+    };
+    let f = pipe::form_of(&V205, Some(&stray), Some(&plugins));
+    assert!(list(&f, "processor_attrs").when.is_none());
+    assert_eq!(list(&f, "processor_attrs").rows.len(), 1);
+}
+
+#[test]
+fn items_the_user_cant_change_say_so() {
+    let cq = Cq {
+        id: "dbine_test_sched_cq".into(),
+        state: "ACTIVE".into(),
+        ..Cq::default()
+    };
+    let it = cq_item(&cq, true);
+    assert_eq!((it.can_edit, it.can_delete), (None, None));
+    let it = cq_item(&cq, false);
+    assert_eq!((it.can_edit, it.can_delete), (Some(false), Some(false)));
+    let it = pipe_item(&pipe_v2(), true);
+    assert_eq!((it.can_edit, it.can_delete, it.actions), (None, None, None));
+    assert_eq!(pipe_item(&pipe_v2(), false).can_edit, Some(false));
+    let sys = Pipe {
+        name: "__consensus.x".into(),
+        ..pipe_v1()
+    };
+    let it = pipe_item(&sys, true);
+    assert!(it.system);
+    assert_eq!((it.can_edit, it.can_delete), (Some(false), Some(false)));
+}
+
 #[test]
 fn an_unchanged_pipe_needs_nothing() {
     for (ctx, p) in [(V205, pipe_v2()), (V132, pipe_v1())] {
@@ -721,6 +795,11 @@ fn pipe_plugins() {
     assert_eq!(all[1].role(), None);
     let items: Vec<SchedulerItem> = all.iter().map(plugin::item).collect();
     assert!(items[0].system && !items[1].system);
+    assert_eq!(
+        (items[0].can_edit, items[0].can_delete),
+        (Some(false), Some(false))
+    );
+    assert_eq!((items[1].can_edit, items[1].can_delete), (None, None));
     assert_eq!(items[1].id, "plugin:DBINE_TEST_SCHED_PLUGIN");
     // Built-in: read-only.
     let f = plugin::form(&V205, Some(&all[0]));

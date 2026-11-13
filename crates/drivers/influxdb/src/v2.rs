@@ -452,7 +452,7 @@ impl Session for FluxSession {
 
     /// Tasks managed whole (see [`crate::scheduler::task`]).
     async fn scheduler_info(&mut self) -> Result<dbine_driver::SchedulerInfo> {
-        Ok(crate::scheduler::task::info(self))
+        Ok(crate::scheduler::task::info(self).await)
     }
 
     async fn scheduler_items(&mut self, kind: &str) -> Result<dbine_driver::SchedulerList> {

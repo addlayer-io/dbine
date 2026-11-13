@@ -20,8 +20,12 @@
 //!   it is terminated and started again with the same `QUERY_ID`. Enabling
 //!   and disabling is `RESUME` / `PAUSE` (ksqlDB 0.26 on).
 //! - Deleting is `TERMINATE`: the stream or table it fed stays.
-//! - There is no history to clear and no steps; the scheduler's log is the
-//!   errors each query keeps (`queryErrors`).
+//! - The query a `CREATE SOURCE TABLE` runs (`CST_…`) is listed read-only:
+//!   ksqlDB refuses to terminate or pause it ("linked to a source table"),
+//!   it ends with its table.
+//! - There is no history to clear, no steps and no action besides the
+//!   enabled switch (`PAUSE` / `RESUME`); the scheduler's log is the errors
+//!   each query keeps (`queryErrors`).
 //!
 //! Saving runs one statement per request, each waiting for the previous
 //! one's command (`commandSequenceNumber`) and for its own to finish
@@ -581,6 +585,28 @@ fn paused(q: &Value) -> bool {
         return q.get("state").map(text).as_deref() == Some("PAUSED");
     }
     hosts.iter().all(|s| s == "PAUSED")
+}
+
+/// A persistent query as the tree lists it. One whose statement DBine
+/// doesn't take apart — the query a `CREATE SOURCE TABLE` keeps running
+/// (`CST_…`, which ksqlDB ends only with its table), or a statement DBine
+/// doesn't read — opens read-only and isn't deleted from the designer: its
+/// form and its `TERMINATE` both start from the statement.
+fn item_of(q: &Value, pause: bool) -> Option<SchedulerItem> {
+    let id = query_id(q)?;
+    let sinks = strings(q, "sinks");
+    let sources = strings(q, "sources");
+    let readable = query_of(q).is_some();
+    Some(SchedulerItem {
+        name: id.clone(),
+        id,
+        description: Some(format!("{} ← {}", sinks.join(", "), sources.join(", "))),
+        enabled: pause.then(|| !paused(q)),
+        system: false,
+        can_edit: (!readable).then_some(false),
+        can_delete: (!readable).then_some(false),
+        actions: None,
+    })
 }
 
 pub(crate) fn query_of(q: &Value) -> Option<Query> {
@@ -1586,7 +1612,10 @@ pub(crate) fn form_of(q: Option<&Query>, streams: &[String], pause: bool) -> Obj
             .help("ksqlDB la elige por el tipo: delete para un stream, compact para una tabla."),
         );
     }
+    // An INSERT INTO writes into a stream that exists: it has no WITH of
+    // its own, so the tab shows only for a CREATE … AS SELECT.
     let dest = FormSection::new("destination", "Destino")
+        .when("statement_kind", &["create_stream", "create_table"])
         .fields(dest_fields)
         .list(
             FormList::new(
@@ -1600,6 +1629,7 @@ pub(crate) fn form_of(q: Option<&Query>, streams: &[String], pause: bool) -> Obj
                     FormField::new("value", "Valor", FormKind::Text),
                 ],
             )
+            .when("statement_kind", &["create_stream", "create_table"])
             .rows(extra_rows),
         );
     let props = FormSection::new("properties", "Propiedades")
@@ -1912,21 +1942,7 @@ impl KsqlSession {
             .all_descriptions()
             .await?
             .iter()
-            .filter_map(|q| {
-                let id = query_id(q)?;
-                let sinks = strings(q, "sinks");
-                let sources = strings(q, "sources");
-                Some(SchedulerItem {
-                    name: id.clone(),
-                    id,
-                    description: Some(format!("{} ← {}", sinks.join(", "), sources.join(", "))),
-                    enabled: pause.then(|| !paused(q)),
-                    system: false,
-                    can_edit: None,
-                    can_delete: None,
-                    actions: None,
-                })
-            })
+            .filter_map(|q| item_of(q, pause))
             .collect();
         Ok(SchedulerList {
             items,
@@ -2504,6 +2520,52 @@ mod tests {
                 .read_only
         );
         assert!(f.notes.iter().any(|n| n.contains("PAUSE")));
+    }
+
+    #[test]
+    fn the_destination_tab_is_for_create_as_select_only() {
+        let f = form_of(None, &[], true);
+        let dest = f.sections.iter().find(|s| s.key == "destination").unwrap();
+        let only_create = Some((
+            "statement_kind".to_string(),
+            vec!["create_stream".to_string(), "create_table".to_string()],
+        ));
+        assert_eq!(dest.when, only_create);
+        assert_eq!(dest.lists[0].when, only_create);
+        // The INSERT's own fields stay in General.
+        assert!(f.sections[0].fields.iter().any(|x| x.key == "target"));
+    }
+
+    #[test]
+    fn queries_dbine_cant_read_are_listed_read_only() {
+        let q = desc(
+            "CSAS_DBINE_TEST_SCHED_OUT_855",
+            CSAS,
+            &["DBINE_TEST_SCHED_OUT"],
+            json!({}),
+            "PAUSED",
+        );
+        let it = item_of(&q, true).unwrap();
+        assert_eq!(it.id, "CSAS_DBINE_TEST_SCHED_OUT_855");
+        assert_eq!(
+            (it.can_edit, it.can_delete, it.enabled),
+            (None, None, Some(false))
+        );
+        assert_eq!(item_of(&q, false).unwrap().enabled, None);
+        // The query a CREATE SOURCE TABLE keeps running.
+        let cst = desc(
+            "CST_DBINE_TEST_SCHED_SRC_3",
+            "CREATE SOURCE TABLE DBINE_TEST_SCHED_SRC (ID INTEGER PRIMARY KEY, V STRING) WITH (KAFKA_TOPIC='t', VALUE_FORMAT='JSON');",
+            &["DBINE_TEST_SCHED_SRC"],
+            json!({}),
+            "RUNNING",
+        );
+        let it = item_of(&cst, true).unwrap();
+        assert_eq!((it.can_edit, it.can_delete), (Some(false), Some(false)));
+        // Its job row offers neither Detener nor the enabled switch.
+        let job = crate::jobs::job_of(&cst, true).unwrap();
+        assert!(!job.can_stop && !job.can_enable);
+        assert!(item_of(&json!({"id": "x; DROP STREAM S"}), true).is_none());
     }
 
     #[test]

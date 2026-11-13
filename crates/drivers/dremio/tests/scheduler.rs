@@ -15,6 +15,7 @@ use dbine_driver::read_only::ReadOnlySession;
 use dbine_driver::{ConnectionConfig, Error, FormValues, ObjectForm, QueryOutcome, Session};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 const TABLE: &str = "\"$scratch\".dbine_test_sched_t";
 const TABLE_LABEL: &str = "$scratch.dbine_test_sched_t";
@@ -187,6 +188,11 @@ async fn ids(s: &mut Box<dyn Session>, kind: &str) -> Vec<String> {
         .collect()
 }
 
+/// How many refreshes of the reflection Dremio keeps (its job's runs).
+async fn refreshes(s: &mut Box<dyn Session>, id: &str) -> usize {
+    s.job_runs(id, 50).await.map(|r| r.len()).unwrap_or(0)
+}
+
 async fn body(c: ConnectionConfig) {
     let d = &dbine_driver_dremio::drivers()[0];
     assert!(d.capabilities().scheduler && d.capabilities().jobs);
@@ -222,6 +228,18 @@ async fn body(c: ConnectionConfig) {
     );
     assert!(!info.kinds[2].can_create && info.kinds[2].can_edit && !info.kinds[2].can_delete);
     assert!(info.logs);
+    // A reflection's "run now" is the job's; a table policy refreshes its
+    // table's reflections now. No steps; Dremio expires the history itself.
+    let actions: Vec<Vec<&str>> = info
+        .kinds
+        .iter()
+        .map(|k| k.actions.iter().map(|a| a.key.as_str()).collect())
+        .collect();
+    assert_eq!(actions, [vec![], vec!["refresh"], vec![]]);
+    assert!(info
+        .kinds
+        .iter()
+        .all(|k| !k.run_from_step && !k.clear_history));
 
     // A new RAW reflection: typed columns, partition transforms, striped.
     let form = s.scheduler_form("job", None).await.expect("new form");
@@ -461,6 +479,41 @@ async fn body(c: ConnectionConfig) {
         s.scheduler_save("table_policy", None, &p).await.is_err(),
         "it has one already"
     );
+    // Its table's reflections refreshed now: the REST request, shown, then
+    // sent.
+    let sc = s
+        .scheduler_action_script("table_policy", &pol_id, "refresh")
+        .await
+        .expect("action script");
+    let uuid = pol_id.trim_start_matches("table:");
+    assert!(
+        sc.contains(&format!("-- POST /api/v3/catalog/{uuid}/refresh")),
+        "{sc}"
+    );
+    assert!(sc.lines().all(|l| l.starts_with("-- ")), "{sc}");
+    let before = refreshes(&mut s, &raw_id).await;
+    s.scheduler_action("table_policy", &pol_id, "refresh")
+        .await
+        .expect("refresh now");
+    let start = std::time::Instant::now();
+    while refreshes(&mut s, &raw_id).await <= before {
+        assert!(
+            start.elapsed() < Duration::from_secs(120),
+            "no new refresh of {raw_id} after the action"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    for (kind, id, action) in [
+        ("table_policy", pol_id.as_str(), "drop"),
+        ("table_policy", "table:../../catalog", "refresh"),
+        ("job", raw_id.as_str(), "refresh"),
+        ("source_policy", "source:x", "refresh"),
+    ] {
+        assert!(
+            s.scheduler_action(kind, id, action).await.is_err(),
+            "{kind} {id} {action}"
+        );
+    }
     let form = s
         .scheduler_form("table_policy", Some(&pol_id))
         .await
@@ -617,9 +670,15 @@ async fn body(c: ConnectionConfig) {
             .await
             .map(|_| ()),
         ro.scheduler_delete("job", &raw_id).await,
+        ro.scheduler_action("table_policy", &pol_id, "refresh")
+            .await,
     ] {
         assert!(r.is_err(), "{r:?}");
     }
+    assert!(ro
+        .scheduler_action_script("table_policy", &pol_id, "refresh")
+        .await
+        .is_ok());
 
     // The rest deleted from the designer.
     for id in [raw_id, agg_id, off_id] {

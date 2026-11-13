@@ -42,8 +42,12 @@ fn refused(e: &Error) -> bool {
 pub(crate) async fn info(s: &mut InfluxQlSession) -> Result<SchedulerInfo> {
     let kind = SchedulerKind::new("job", "Consultas continuas", "consulta continua");
     match s.cqs().await {
+        // A history exists only where `query-stats-enabled` writes the
+        // runs to `_internal` (its `cq_query` measurement is there).
         Ok(_) => Ok(SchedulerInfo {
-            kinds: vec![kind.abilities(true, true, true)],
+            kinds: vec![kind
+                .abilities(true, true, true)
+                .clear_history(s.cq_stats().await)],
             logs: false,
             notes: vec![NO_ALTER.into()],
         }),

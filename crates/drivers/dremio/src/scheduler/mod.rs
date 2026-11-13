@@ -26,9 +26,12 @@
 //! Ids are `reflection:<uuid>`, `table:<uuid>` and `source:<uuid>`: a UUID
 //! is all that reaches a path or a statement. Names and columns picked in
 //! the form are checked against the dataset's; every name is quoted.
-//! "Run now" and "stop" are the jobs' ([`crate::jobs`]); there is no history
-//! to clear (Dremio drops old materializations itself) and the scheduler's
-//! log is the reflections' refreshes (`sys.materializations`).
+//! "Run now" and "stop" are the jobs' ([`crate::jobs`]); a table policy's
+//! one action refreshes the table's reflections now (`POST
+//! /api/v3/catalog/{id}/refresh`, the same request as a reflection's "run
+//! now"). There is no history to clear (Dremio drops old materializations
+//! itself) and the scheduler's log is the reflections' refreshes
+//! (`sys.materializations`).
 
 mod policy;
 mod reflection;
@@ -36,8 +39,8 @@ mod reflection;
 use crate::jobs::is_uuid;
 use crate::{text, DremioSession};
 use dbine_driver::{
-    Error, FormValues, MonitorTable, ObjectForm, Result, SchedulerInfo, SchedulerKind,
-    SchedulerList,
+    Error, FormValues, MonitorTable, ObjectForm, Result, SchedulerAction, SchedulerInfo,
+    SchedulerKind, SchedulerList,
 };
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -417,12 +420,18 @@ impl DremioSession {
         Ok(SchedulerInfo {
             kinds: vec![
                 SchedulerKind::new("job", "Reflexiones", "reflexión").abilities(true, true, true),
+                // A reflection's "run now" is the job's (it refreshes the
+                // whole table's); a table's refresh is the policy's action.
                 SchedulerKind::new(
                     "table_policy",
                     "Políticas de refresco de tablas",
                     "política de refresco de tabla",
                 )
-                .abilities(true, true, true),
+                .abilities(true, true, true)
+                .action(SchedulerAction::new(
+                    policy::REFRESH,
+                    "Refrescar sus reflexiones ahora",
+                )),
                 SchedulerKind::new(
                     "source_policy",
                     "Políticas de refresco de orígenes",
@@ -519,6 +528,35 @@ impl DremioSession {
 
     pub(crate) async fn scheduler_delete_impl(&mut self, kind: &str, id: &str) -> Result<()> {
         let plan = self.delete_plan(kind, id).await?;
+        self.run_plan(plan).await.map(|_| ())
+    }
+
+    async fn action_plan(&mut self, kind: &str, id: &str, action: &str) -> Result<Plan> {
+        match Kind::parse(kind)? {
+            Kind::TablePolicy => policy::table_action_plan(self, id, action).await,
+            Kind::Reflection | Kind::SourcePolicy => Err(Error::Unsupported(format!(
+                "«{}» no es una acción de este tipo de objeto de Dremio.",
+                shown(action)
+            ))),
+        }
+    }
+
+    pub(crate) async fn scheduler_action_script_impl(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        Ok(self.action_plan(kind, id, action).await?.script)
+    }
+
+    pub(crate) async fn scheduler_action_impl(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<()> {
+        let plan = self.action_plan(kind, id, action).await?;
         self.run_plan(plan).await.map(|_| ())
     }
 

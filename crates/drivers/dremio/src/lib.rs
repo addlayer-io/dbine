@@ -1329,6 +1329,22 @@ impl Session for DremioSession {
         self.scheduler_delete_impl(kind, id).await
     }
 
+    /// A table policy's "refresh its reflections now".
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_action_script_impl(kind, id, action).await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        self.scheduler_action_impl(kind, id, action).await
+    }
+
     /// Dremio drops old materializations itself: there's no history to
     /// clear.
     async fn clear_job_history(&mut self, id: &str) -> Result<()> {

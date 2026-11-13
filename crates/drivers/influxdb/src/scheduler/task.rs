@@ -22,7 +22,7 @@ use super::{bad, check_line, cron_ok, duration_ok, render, shown, Req, Vals, NEW
 use crate::jobs::{bad_id, s as text_of, task_id, utc};
 use crate::v2::{flux_str, FluxSession};
 use dbine_driver::{
-    Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerInfo,
+    Access, Error, FormField, FormKind, FormSection, FormValues, ObjectForm, Result, SchedulerInfo,
     SchedulerItem, SchedulerKind, SchedulerList,
 };
 use serde_json::{json, Map, Value as J};
@@ -53,9 +53,26 @@ const MANAGED: &str = "Esta tarea la administra un check o una regla de notifica
 const NO_LABELS: &str =
     "Este token no puede leer las etiquetas de la organización: solo se pueden quitar las que tiene la tarea.";
 
-pub(crate) fn info(s: &FluxSession) -> SchedulerInfo {
+/// Clearing the history is the delete API on the `_tasks` bucket, which
+/// takes write access to it (`write:buckets` on it, the permission dropping
+/// it takes too): off only when the token's authorizations say it has none
+/// (a token scoped to tasks); on when they can't tell.
+pub(crate) fn clears_history(authorizations: Result<J>, org: &str) -> bool {
+    !matches!(
+        crate::permissions::v2(authorizations, org, Some("_tasks")).map(|p| p.drop_database),
+        Ok(Access::Denied { .. })
+    )
+}
+
+/// "Run now" is the job's (`POST /api/v2/tasks/{id}/runs`), so the kind has
+/// no action of its own; its runs live in `_tasks`, which the delete API
+/// clears.
+pub(crate) async fn info(s: &FluxSession) -> SchedulerInfo {
+    let authorizations = s.get("/api/v2/authorizations", &[]).await;
     SchedulerInfo {
-        kinds: vec![SchedulerKind::new("job", "Tareas", "tarea").abilities(true, true, true)],
+        kinds: vec![SchedulerKind::new("job", "Tareas", "tarea")
+            .abilities(true, true, true)
+            .clear_history(clears_history(authorizations, &s.org))],
         logs: false,
         notes: vec![format!(
             "Las tareas son las de la organización «{}» que este token puede leer.",
@@ -65,27 +82,39 @@ pub(crate) fn info(s: &FluxSession) -> SchedulerInfo {
 }
 
 pub(crate) async fn items(s: &FluxSession) -> Result<SchedulerList> {
-    let items = s
-        .all_tasks()
-        .await?
-        .iter()
-        .filter_map(|t| {
-            let id = text_of(t.get("id")).filter(|i| task_id(i).is_some())?;
-            Some(SchedulerItem {
-                id,
-                name: text_of(t.get("name")).unwrap_or_default(),
-                description: text_of(t.get("description")),
-                enabled: Some(t.get("status").and_then(J::as_str) == Some("active")),
-                system: false,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
-            })
-        })
-        .collect();
+    let items = s.all_tasks().await?.iter().filter_map(item_of).collect();
     Ok(SchedulerList {
         items,
         notes: Vec::new(),
+    })
+}
+
+/// A task as the tree lists it: one a check, a notification rule or a
+/// Cloud script runs is changed from them, so it opens read-only (as its
+/// form does, [`Task::managed`]). A list that leaves the Flux out doesn't
+/// make every task a script's: only a `scriptID`, or a Flux that came
+/// empty, does. A check's or a rule's task isn't deleted either: the check
+/// would be left pointing at a task that no longer exists (InfluxDB then
+/// refuses to read, change or delete it); it goes with its check. A Cloud
+/// script's task is deleted as any other.
+pub(crate) fn item_of(t: &J) -> Option<SchedulerItem> {
+    let id = text_of(t.get("id")).filter(|i| task_id(i).is_some())?;
+    let script = text_of(t.get("scriptID")).is_some()
+        || t.get("flux")
+            .is_some_and(|f| f.as_str().is_none_or(|s| s.trim().is_empty()));
+    let owned = !matches!(
+        t.get("type").and_then(J::as_str),
+        None | Some("" | "basic" | "system")
+    );
+    Some(SchedulerItem {
+        id,
+        name: text_of(t.get("name")).unwrap_or_default(),
+        description: text_of(t.get("description")),
+        enabled: Some(t.get("status").and_then(J::as_str) == Some("active")),
+        system: false,
+        can_edit: (script || owned).then_some(false),
+        can_delete: owned.then_some(false),
+        actions: None,
     })
 }
 
@@ -393,10 +422,13 @@ impl Task {
         if self.flux.trim().is_empty() {
             return Some(SCRIPT_TASK);
         }
-        match self.kind.as_deref() {
-            None | Some("" | "basic" | "system") => None,
-            Some(_) => Some(MANAGED),
-        }
+        self.owned().then_some(MANAGED)
+    }
+
+    /// Run by a check or a notification rule (its `type` says which): it
+    /// goes with them.
+    pub(crate) fn owned(&self) -> bool {
+        !matches!(self.kind.as_deref(), None | Some("" | "basic" | "system"))
     }
 }
 
@@ -1075,12 +1107,22 @@ pub(crate) fn drop_plan(t: &Task) -> Plan {
     }
 }
 
+/// The task, unless a check or a notification rule runs it: deleting it
+/// alone would leave the check pointing at a task that no longer exists.
+async fn read_deletable(s: &FluxSession, id: &str) -> Result<Task> {
+    let t = read(s, id).await?;
+    if t.owned() {
+        return Err(Error::Query(MANAGED.into()));
+    }
+    Ok(t)
+}
+
 pub(crate) async fn delete_script(s: &FluxSession, id: &str) -> Result<String> {
-    Ok(drop_plan(&read(s, id).await?).script())
+    Ok(drop_plan(&read_deletable(s, id).await?).script())
 }
 
 pub(crate) async fn delete(s: &FluxSession, id: &str) -> Result<()> {
-    let t = read(s, id).await?;
+    let t = read_deletable(s, id).await?;
     for r in &drop_plan(&t).reqs {
         call(s, r, None).await?;
     }
