@@ -42,7 +42,10 @@
 //! ([`job_item`]). Every save is a [`Plan`]: the
 //! script the designer shows, step by step, run in one transaction where
 //! the engine's changes are transactional (Db2 LUW, Informix, Dameng,
-//! Virtuoso). Values and
+//! Virtuoso). What a plan makes the user lose or risk (a drop and create,
+//! the history it takes, statements that can stop half way) is a `-- ⚠`
+//! line of its script ([`Plan::warn`]), only when the plan does it: the
+//! app asks to continue before it runs. Values and
 //! ids come from the app as untrusted text: ids are parsed and looked up,
 //! names checked against the engine's rules, and every value goes into the
 //! script as a literal of the engine (quotes doubled) or a checked
@@ -85,6 +88,11 @@ const NO_STEPS: &str =
     "las tareas de este planificador tienen un solo paso: no se pueden empezar en otro";
 /// What a save refuses while the session has changes of its own pending.
 pub(crate) const OPEN_TRANSACTION: &str = "Hay una transacción abierta en esta sesión: confirmala o deshacela antes de cambiar el planificador.";
+/// The warning of a plan whose statements run one by one ([`Plan::one_by_one`]).
+pub(crate) const ONE_BY_ONE: &str =
+    "Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.";
+/// What starts a warning's comment line ([`Plan::warn`]).
+const WARNING: &str = "⚠";
 
 /// The presets whose scheduler DBine manages.
 pub fn supported(p: &Preset) -> bool {
@@ -257,6 +265,9 @@ fn action_plan(
     };
     let mut plan = Plan::new(action_note(p, kind, action));
     plan.go = matches!(eng(p), Eng::Ase | Eng::Sqla);
+    if matches!(eng(p), Eng::Dameng) && kind.trim() == "scheduler_job" && action == STOP {
+        dameng_dbms::stop_warning(src, id, &mut plan);
+    }
     for c in stmts {
         if c.rows {
             plan.query(c.sql);
@@ -288,9 +299,7 @@ fn action_note(p: &Preset, kind: &str, action: &str) -> &'static str {
         (Eng::Dameng, "scheduler_job", RUN) => {
             "Ejecuta el job ahora, en segundo plano (RUN_JOB sin la sesión actual)."
         }
-        (Eng::Dameng, "scheduler_job", _) => {
-            "Detiene la ejecución en curso del job (STOP_JOB); si tiene AUTO_DROP, DM puede borrarlo al detenerlo."
-        }
+        (Eng::Dameng, "scheduler_job", _) => "Detiene la ejecución en curso del job (STOP_JOB).",
         (Eng::Dameng, _, RUN) => "Ejecuta el job ahora, en segundo plano (SP_DBMS_JOB_RUN_ASYNC).",
         (Eng::Dameng, _, _) => {
             "Corta la sesión del job en ejecución (SP_STOP_RUNNING_JOB); su programación sigue igual."
@@ -650,6 +659,10 @@ pub(super) fn job_item(
         Eng::Hive | Eng::Dameng if !j.can_enable => (Some(false), Some(false)),
         _ => (None, None),
     };
+    // Dameng clears the history of the jobs one manages only (a DBA's or
+    // the owner's, [`dameng::clear_plan`]): the kind offers it, these
+    // jobs refuse it.
+    let clear_history = (matches!(eng(p), Eng::Dameng) && !j.can_enable).then_some(false);
     SchedulerItem {
         id: j.id,
         name: j.name,
@@ -660,7 +673,7 @@ pub(super) fn job_item(
         can_delete,
         actions,
         run_from_step: None,
-        clear_history: None,
+        clear_history,
     }
 }
 
@@ -750,6 +763,38 @@ impl Plan {
 
     pub(crate) fn comment(&mut self, c: &str) {
         self.steps.push(Step::Comment(c.to_string()));
+    }
+
+    /// Something the user accepts before the plan runs (the object is
+    /// dropped and created again, loses its history, can be left half
+    /// changed): a `-- ⚠ …` line above the statements, after the warnings
+    /// already there, which the app lists in its confirmation. `text` is a
+    /// whole Spanish sentence of its own, a literal (or a literal format),
+    /// so the message extractor takes it and `tb()` matches it.
+    pub(crate) fn warn(&mut self, text: &str) {
+        let at = self
+            .steps
+            .iter()
+            .position(|s| !matches!(s, Step::Comment(_)))
+            .unwrap_or(self.steps.len());
+        self.steps
+            .insert(at, Step::Comment(format!("{WARNING} {}", one_line(text))));
+    }
+
+    /// The statements it runs.
+    pub(crate) fn statements(&self) -> usize {
+        self.steps
+            .iter()
+            .filter(|s| !matches!(s, Step::Comment(_)))
+            .count()
+    }
+
+    /// Warns [`ONE_BY_ONE`] when the plan runs more than one statement
+    /// outside a transaction: a failure leaves the first ones done.
+    pub(crate) fn one_by_one(&mut self) {
+        if !self.atomic && self.statements() > 1 {
+            self.warn(ONE_BY_ONE);
+        }
     }
 
     pub(crate) fn exec(&mut self, sql: String) {

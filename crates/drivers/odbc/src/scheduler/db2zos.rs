@@ -39,6 +39,13 @@ const RECREATE: &str = "Db2 for z/OS no cambia el nombre ni el trabajo (procedim
 const SAME_NAME_WORK: &str = "Para cambiar el trabajo (procedimiento o JCL) cambiá también el «Nombre»: Db2 for z/OS no lo cambia en una tarea, así que se crea una nueva antes de borrar esta, y con el mismo nombre habría que borrarla primero y podrías quedarte sin ella.";
 const PASSWORD_NOTE: &str = "La contraseña no se lee del servidor y Db2 la pide siempre que la tarea corre con un usuario: para guardar cualquier cambio hay que escribirla de nuevo.";
 const PASSWORD_NEEDED: &str = "Con un «Usuario» hace falta su «Contraseña»: Db2 la pide al crear la tarea y en cada cambio, y no se lee del servidor, así que hay que escribirla de nuevo.";
+// What a script warns about (each a sentence of its own).
+const W_RECREATE: &str = "Db2 for z/OS no cambia el nombre ni el trabajo de una tarea: se crea la tarea nueva y después se borra la anterior.";
+const W_RECREATE_BOTH: &str =
+    "Son dos llamadas sin transacción: si la anterior no se puede borrar, quedan las dos tareas.";
+const W_RECREATE_STATUS: &str =
+    "La tarea nueva empieza sin el estado de las ejecuciones de la anterior.";
+const W_DROP_STATUS: &str = "También se borra el estado de sus ejecuciones.";
 /// ADMIN_TASK_ADD's and UPDATE's password is a VARCHAR(24).
 const PASSWORD_MAX: usize = 24;
 const BEGIN_PAST: &str =
@@ -672,10 +679,7 @@ fn window(
         if t.begin != kept_begin {
             return Err(bad(BEGIN_PAST));
         }
-        plan.comment(&format!(
-            "Inicio original: {}. Db2 no acepta un inicio pasado: sin él, la tarea corre desde ya según su programación.",
-            crate::jobs::plain(t.begin.unwrap_or_default())
-        ));
+        plan.warn(&super::db2::past_begin(t.begin.unwrap_or_default()));
         "NULL".to_string()
     } else {
         ts_arg(t.begin)
@@ -762,12 +766,15 @@ pub(super) fn create_plan(
     Ok(p)
 }
 
+/// `creator`: who added the task, when it wasn't the session
+/// ([`added_by_another`]); a task added again is the session's.
 pub(super) fn alter_plan(
     cur: &Task,
     t: &Task,
     password: Option<&str>,
     reveal: Reveal,
     now: Option<i64>,
+    creator: Option<&str>,
 ) -> Result<Plan> {
     let recreate = t.name != cur.name
         || t.action != cur.action
@@ -803,8 +810,13 @@ pub(super) fn alter_plan(
     ));
     p.id = Some(t.name.clone());
     if recreate {
-        for line in RECREATE.split(". ").filter(|l| !l.is_empty()) {
-            p.comment(line.trim_end_matches('.'));
+        p.warn(W_RECREATE);
+        p.warn(W_RECREATE_BOTH);
+        p.warn(W_RECREATE_STATUS);
+        if let Some(c) = creator {
+            p.warn(&format!(
+                "La tarea nueva queda agregada por vos: quien la agregó ({c}) ya no la puede cambiar, borrar ni detener sin SYSOPR, SYSADM o SYSCTRL."
+            ));
         }
         // The new task first: if Db2 refuses it, the old one is untouched.
         add(&mut p, t, password, reveal, cur.begin, now)?;
@@ -856,7 +868,7 @@ pub(super) fn plan(
     match id {
         None => create_plan(&t, password.as_deref(), reveal, now),
         Some(id) => {
-            let (cur, s, _) = read(src, id)?;
+            let (cur, s, r) = read(src, id)?;
             let after = triggered_by(&s, &cur.name);
             if t.name != cur.name && !after.is_empty() {
                 let list: Vec<String> = after.iter().map(|n| format!("«{n}»")).collect();
@@ -865,7 +877,12 @@ pub(super) fn plan(
                     list.join(", ")
                 )));
             }
-            alter_plan(&cur, &t, password.as_deref(), reveal, now)
+            // Only a new name adds the task again (the same name with other
+            // work is refused).
+            let creator = s
+                .get(r, "CREATOR")
+                .filter(|c| t.name != cur.name && added_by_another(src, c));
+            alter_plan(&cur, &t, password.as_deref(), reveal, now, creator)
         }
     }
 }
@@ -874,6 +891,7 @@ pub(super) fn drop_plan(name: &str) -> Plan {
     let mut p = Plan::new(&format!(
         "Borra la tarea «{name}» del planificador de tareas administrativas de Db2 for z/OS"
     ));
+    p.warn(W_DROP_STATUS);
     remove(&mut p, name, check);
     p
 }

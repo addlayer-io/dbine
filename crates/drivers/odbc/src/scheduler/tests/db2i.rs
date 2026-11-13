@@ -251,6 +251,11 @@ fn a_held_entry_is_held_after_it_is_added() {
         s.ends_with("CALL QSYS2.QCMDEXC('HLDJOBSCDE JOB(NIGHTLY) ENTRYNBR(*ONLY)');\n"),
         "{s}"
     );
+    assert_eq!(
+        warnings(&s),
+        ["La entrada se agrega liberada y se retiene con otro comando: si ese falla, queda liberada y va a enviar el trabajo."],
+        "{s}"
+    );
     // Another CLEANUP exists: the new one is held by its number, found after.
     let (e1, all) = (
         e::from_values(&new_entry(json!({"name": "CLEANUP", "enabled": false}))).unwrap(),
@@ -260,6 +265,7 @@ fn a_held_entry_is_held_after_it_is_added() {
     let s = p.script();
     assert!(!s.contains("QCMDEXC('HLDJOBSCDE"), "{s}");
     assert!(s.contains("-- Hay otras entradas «CLEANUP»"), "{s}");
+    assert_eq!(warnings(&s).len(), 1, "{s}");
     let mut f = Fake::default().rows(
         "QSYS2.SCHEDULED_JOB_INFO",
         COLS,
@@ -289,6 +295,7 @@ fn a_held_entry_is_held_after_it_is_added() {
     assert!(m.contains("no se encontró su número"), "{m}");
     // An entry that needn't be held keeps the save when its id isn't found.
     let e2 = e::from_values(&new_entry(json!({"name": "CLEANUP"}))).unwrap();
+    assert!(warnings(&e::create_plan(&e2, &all).script()).is_empty());
     let mut f = Fake::default().fail("QSYS2.SCHEDULED_JOB_INFO", None);
     assert!(execute(&mut f, e::create_plan(&e2, &all)).is_ok());
 }
@@ -362,6 +369,24 @@ CALL QSYS2.QCMDEXC('CHGJOBSCDE JOB(CLEANUP) ENTRYNBR(000123) TEXT(''otra'')');
         s.contains("RLSJOBSCDE JOB(CLEANUP) ENTRYNBR(000123)"),
         "{s}"
     );
+    // Two commands without commitment control: the change can stop half way.
+    assert_eq!(
+        warnings(&s),
+        ["Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas."],
+        "{s}"
+    );
+    // Only the release: one command, nothing to warn about.
+    let v = cleanup_values(json!({"enabled": true}), kept_omit());
+    let s = script(
+        preset("db2i"),
+        &mut server(),
+        "job",
+        Some("000123/CLEANUP"),
+        &v,
+    )
+    .unwrap();
+    assert!(s.contains("RLSJOBSCDE") && !s.contains("CHGJOBSCDE"), "{s}");
+    assert!(warnings(&s).is_empty(), "{s}");
     // Nothing changed.
     let v = cleanup_values(json!({}), kept_omit());
     assert_eq!(
@@ -393,8 +418,14 @@ fn a_new_name_adds_the_entry_again_and_then_removes_the_old_one() {
     let hold = s.find("HLDJOBSCDE JOB(CLEAN2) ENTRYNBR(*ONLY)").unwrap();
     // A refused add leaves the old entry as it was.
     assert!(add < hold && hold < rm, "{s}");
-    assert!(
-        s.contains("-- IBM i no cambia el nombre de una entrada"),
+    assert_eq!(
+        warnings(&s),
+        [
+            "IBM i no cambia el nombre de una entrada: se agrega con el nombre nuevo, con otro número de entrada, y después se borra la anterior.",
+            "Son comandos sueltos, sin transacción: si la anterior no se puede borrar, quedan las dos entradas.",
+            "Se pierden las fechas de su último envío.",
+            "La entrada se agrega liberada y se retiene con otro comando: si ese falla, queda liberada y va a enviar el trabajo.",
+        ],
         "{s}"
     );
 }

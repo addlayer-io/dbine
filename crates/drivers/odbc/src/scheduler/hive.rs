@@ -23,6 +23,12 @@ use serde_json::json;
 
 pub(super) const NO_CLEAR: &str = "Hive no tiene una sentencia que borre las ejecuciones de una consulta programada: el metastore las borra solo al vencer (hive.metastore.scheduled.queries.execution.max.age)";
 const RENAME: &str = "Hive no cambia el nombre de una consulta programada: se borra y se crea de nuevo; sus ejecuciones se pierden y recibe otro id.";
+// What a script warns about (each a sentence of its own).
+const W_RENAME: &str = "Hive no cambia el nombre de una consulta programada: se borra y se crea de nuevo, y recibe otro id.";
+const W_RENAME_RUNS: &str = "Sus ejecuciones anteriores se pierden.";
+const W_RENAME_GONE: &str =
+    "Son dos sentencias sin transacción: si la creación falla, la consulta queda borrada.";
+const W_DROP_RUNS: &str = "También se borran sus ejecuciones.";
 const EXECUTED_AS: &str =
     "Solo un administrador de Hive puede hacer que una consulta corra como otro usuario.";
 const UNITS: &[&str] = &["SECOND", "MINUTE", "HOUR", "DAY"];
@@ -365,9 +371,9 @@ pub(super) fn create_plan(q: &Query) -> Plan {
 pub(super) fn alter_plan(id: u64, cur: &Query, q: &Query) -> Plan {
     if q.name != cur.name {
         let mut p = Plan::new(&format!("Consulta programada «{}» de Hive", cur.name));
-        for line in RENAME.split("; ") {
-            p.comment(line);
-        }
+        p.warn(W_RENAME);
+        p.warn(W_RENAME_RUNS);
+        p.warn(W_RENAME_GONE);
         p.exec(format!("DROP SCHEDULED QUERY `{}`", cur.name));
         p.exec(create_statement(q));
         p.lookup = Some(lookup(q.name.clone()));
@@ -405,6 +411,7 @@ pub(super) fn alter_plan(id: u64, cur: &Query, q: &Query) -> Plan {
     for s in steps {
         p.exec(s);
     }
+    p.one_by_one();
     p.id = Some(id.to_string());
     p
 }
@@ -424,9 +431,8 @@ pub(super) fn plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValue
 }
 
 pub(super) fn drop_plan(name: &str) -> Plan {
-    let mut p = Plan::new(&format!(
-        "Borra la consulta programada «{name}» de Hive y sus ejecuciones"
-    ));
+    let mut p = Plan::new(&format!("Borra la consulta programada «{name}» de Hive"));
+    p.warn(W_DROP_RUNS);
     p.exec(format!("DROP SCHEDULED QUERY `{name}`"));
     p
 }

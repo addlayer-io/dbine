@@ -62,6 +62,10 @@ const SYSTEM_GROUP_KEPT: &str =
     "Los grupos del servidor (MISC o los que tienen tareas que trae Informix) no se cambian ni se borran.";
 /// The group a task gets when none is given (ph_task.tk_group's default).
 const DEFAULT_GROUP: &str = "MISC";
+// What a script warns about (each a sentence of its own).
+const W_DROP_RUNS: &str =
+    "También se borra su historial de ejecuciones (ph_run); sus alertas quedan.";
+const W_GROUP_RENAME: &str = "Informix no cambia el nombre de un grupo: se crea el grupo nuevo, se le pasan las tareas y se borra el anterior, así que recibe otro número (group_id).";
 
 /// A task or sensor as `ph_task` has it. Times: seconds after midnight;
 /// intervals: seconds; the next run: the server's local time in ms.
@@ -832,9 +836,10 @@ fn task_plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValues) -> 
 
 pub(super) fn drop_task_plan(id: u64, name: &str) -> Plan {
     let mut p = Plan::new(&format!(
-        "Borra la tarea «{name}» del planificador de Informix, con sus parámetros y sus ejecuciones (las alertas quedan)"
+        "Borra la tarea «{name}» del planificador de Informix, con sus parámetros"
     ));
     p.atomic = true;
+    p.warn(W_DROP_RUNS);
     p.exec(format!(
         "DELETE FROM sysadmin:ph_threshold WHERE task_name = {}",
         lit(name)
@@ -1048,9 +1053,7 @@ pub(super) fn alter_group_plan(cur: (&str, &str), name: &str, description: &str)
         ));
         return p;
     }
-    p.comment(
-        "Las tareas nombran su grupo: se crea el grupo nuevo, se le pasan y se borra el viejo",
-    );
+    p.warn(W_GROUP_RENAME);
     p.exec(format!(
         "INSERT INTO sysadmin:ph_group (group_name, group_description) VALUES ({}, {})",
         lit(name),

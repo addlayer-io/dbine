@@ -28,80 +28,88 @@ const SCH_COLS: &[&str] = &[
 ];
 
 /// Event 5 `ev_nightly` (two schedules), event 6 `ev_space` (a system
-/// event with two conditions).
+/// event with two conditions), both created by DBA, the session's user.
 fn server() -> Fake {
-    Fake::default()
-        .rows_with(
-            "WHERE E.event_id = ?",
-            "5",
-            EV_COLS,
-            vec![vec![
+    server_as(Some("dba"))
+}
+
+/// [`server`] with session user `me` (`None`: it can't be read).
+fn server_as(me: Option<&'static str>) -> Fake {
+    let f = match me {
+        Some(u) => Fake::default().rows("SELECT CURRENT USER", &["u"], vec![vec![Some(u)]]),
+        None => Fake::default().fail("SELECT CURRENT USER", None),
+    };
+    f.rows_with(
+        "WHERE E.event_id = ?",
+        "5",
+        EV_COLS,
+        vec![vec![
+            Some("5"),
+            Some("ev_nightly"),
+            Some("Y"),
+            None,
+            None,
+            Some("it's nightly"),
+            Some("BEGIN\n  CALL sp_cleanup();\nEND"),
+            Some("DBA"),
+            None,
+        ]],
+    )
+    .rows_with(
+        "WHERE E.event_id = ?",
+        "6",
+        EV_COLS,
+        vec![vec![
+            Some("6"),
+            Some("ev_space"),
+            Some("N"),
+            None,
+            Some("event_condition( 'DBFreePercent' ) < 20 AND event_condition('Interval') >= 600"),
+            None,
+            Some("BEGIN MESSAGE 'low' TO CONSOLE; END"),
+            Some("DBA"),
+            Some("DBDiskSpace"),
+        ]],
+    )
+    .rows(
+        "FROM SYS.SYSSCHEDULE",
+        SCH_COLS,
+        vec![
+            vec![
                 Some("5"),
-                Some("ev_nightly"),
-                Some("Y"),
-                None,
-                None,
-                Some("it's nightly"),
-                Some("BEGIN\n  CALL sp_cleanup();\nEND"),
-                Some("DBA"),
-                None,
-            ]],
-        )
-        .rows_with(
-            "WHERE E.event_id = ?",
-            "6",
-            EV_COLS,
-            vec![vec![
-                Some("6"),
-                Some("ev_space"),
+                Some("nightly"),
                 Some("N"),
+                Some("03:00:00"),
                 None,
-                Some("event_condition( 'DBFreePercent' ) < 20 AND event_condition('Interval') >= 600"),
+                Some("2026-11-12"),
+                Some("0"),
+                Some("0"),
                 None,
-                Some("BEGIN MESSAGE 'low' TO CONSOLE; END"),
-                Some("DBA"),
-                Some("DBDiskSpace"),
-            ]],
-        )
-        .rows(
-            "FROM SYS.SYSSCHEDULE",
-            SCH_COLS,
-            vec![
-                vec![
-                    Some("5"),
-                    Some("nightly"),
-                    Some("N"),
-                    Some("03:00:00"),
-                    None,
-                    Some("2026-11-12"),
-                    Some("0"),
-                    Some("0"),
-                    None,
-                    None,
-                ],
-                vec![
-                    Some("5"),
-                    Some("office"),
-                    Some("Y"),
-                    Some("08:00:00"),
-                    Some("18:00:00"),
-                    None,
-                    Some("34"),
-                    Some("0"),
-                    Some("NN"),
-                    Some("30"),
-                ],
+                None,
             ],
-        )
-        .rows(
-            "SELECT name FROM SYS.SYSEVENTTYPE",
-            &["name"],
             vec![
-                vec![Some("DBDiskSpace")],
-                vec![Some("GrowDB")],
-                vec![Some("RAISERROR")],
+                Some("5"),
+                Some("office"),
+                Some("Y"),
+                Some("08:00:00"),
+                Some("18:00:00"),
+                None,
+                Some("34"),
+                Some("0"),
+                Some("NN"),
+                Some("30"),
             ],
-        )
+        ],
+    )
+    .rows(
+        "SELECT name FROM SYS.SYSEVENTTYPE",
+        &["name"],
+        vec![
+            vec![Some("DBDiskSpace")],
+            vec![Some("GrowDB")],
+            vec![Some("RAISERROR")],
+        ],
+    )
 }
 
 fn form_of(id: &str) -> ObjectForm {
@@ -172,6 +180,7 @@ fn a_new_event_is_create_event_with_its_schedule_handler_and_comment() {
     assert_eq!(
         script(preset("sqlanywhere"), &mut server(), "job", None, &v).unwrap(),
         "-- Evento «ev_new» de SQL Anywhere
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 CREATE EVENT \"ev_new\"
 SCHEDULE \"ev_new\" BETWEEN '08:00:00' AND '18:00:00' EVERY 15 MINUTES ON ('Monday', 'Friday') START DATE '2026-11-20'
 DISABLE
@@ -263,6 +272,7 @@ fn an_edit_is_one_alter_event_per_change() {
     assert_eq!(
         script(preset("sqlanywhere"), &mut server(), "job", Some("5"), &v).unwrap(),
         "-- Evento «ev_nightly» de SQL Anywhere
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 ALTER EVENT \"ev_nightly\" DELETE SCHEDULE \"office\"
 go
 ALTER EVENT \"ev_nightly\" MODIFY SCHEDULE \"nightly\" START TIME '04:00:00' START DATE '2026-11-12'
@@ -290,6 +300,7 @@ fn switching_what_fires_it_removes_the_old_firing_first() {
     assert_eq!(
         script(preset("sqlanywhere"), &mut server(), "job", Some("5"), &v).unwrap(),
         "-- Evento «ev_nightly» de SQL Anywhere
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 ALTER EVENT \"ev_nightly\" DELETE SCHEDULE \"nightly\"
 go
 ALTER EVENT \"ev_nightly\" DELETE SCHEDULE \"office\"
@@ -338,8 +349,8 @@ fn a_new_name_or_place_drops_and_creates_the_event() {
     assert_eq!(
         s,
         "-- Evento «ev_space» de SQL Anywhere
--- SQL Anywhere no cambia el nombre ni el lugar (AT) de un evento: se borra y se crea de nuevo
--- recibe otro id.
+-- ⚠ SQL Anywhere no cambia el nombre ni el lugar (AT) de un evento: se borra y se crea de nuevo, y recibe otro id.
+-- ⚠ Son sentencias sueltas, sin transacción: si la creación falla, el evento queda borrado.
 DROP EVENT \"ev_space\"
 go
 CREATE EVENT \"ev_disk\"
@@ -364,6 +375,35 @@ go
         "{s}"
     );
     assert!(s.contains("COMMENT ON EVENT \"ev_nightly\" IS 'it''s nightly'"));
+    assert_eq!(warnings(&s).len(), 2, "{s}");
+    // Another user's event (or the session's user can't be read): the new
+    // one is the session's, and so are the privileges its handler runs
+    // with.
+    for me in [Some("ETL"), None] {
+        let s = script(
+            preset("sqlanywhere"),
+            &mut server_as(me),
+            "job",
+            Some("5"),
+            &edit(&form_of("5"), json!({"name": "ev_nightly2"})),
+        )
+        .unwrap();
+        assert_eq!(
+            warnings(&s)[2..],
+            ["El evento nuevo queda creado por vos: su acción va a correr con tus privilegios, no con los de DBA."],
+            "{me:?}: {s}"
+        );
+        // An edit in place keeps the event, and its creator.
+        let s = script(
+            preset("sqlanywhere"),
+            &mut server_as(me),
+            "job",
+            Some("5"),
+            &edit(&form_of("5"), json!({"enabled": false})),
+        )
+        .unwrap();
+        assert!(warnings(&s).is_empty(), "{me:?}: {s}");
+    }
     assert_eq!(
         delete_script(preset("sqlanywhere"), &mut server(), "job", "5").unwrap(),
         "-- Borra el evento «ev_nightly» de SQL Anywhere\nDROP EVENT \"ev_nightly\"\ngo\n"

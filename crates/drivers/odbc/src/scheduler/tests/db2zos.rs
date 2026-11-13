@@ -368,8 +368,10 @@ fn a_schedule_change_is_admin_task_update_and_a_new_name_an_add_then_a_remove() 
         )),
         "{s}"
     );
-    assert!(
-        s.contains("-- Inicio original: 2026-01-01 00:00:00."),
+    // An update in place warns only that the passed begin isn't kept.
+    assert_eq!(
+        warnings(&s),
+        ["Db2 no acepta un inicio en el pasado: el inicio original (2026-01-01 00:00:00) no se guarda y la tarea corre desde ya según su programación."],
         "{s}"
     );
     assert!(!s.contains("'pw'"), "{s}");
@@ -432,6 +434,15 @@ fn a_schedule_change_is_admin_task_update_and_a_new_name_an_add_then_a_remove() 
         .unwrap();
     let add = s.find("ADMIN_TASK_ADD(").unwrap();
     assert!(add < rm && s.contains("'LOADK'"), "{s}");
+    assert_eq!(
+        warnings(&s)[..3],
+        [
+            "Db2 for z/OS no cambia el nombre ni el trabajo de una tarea: se crea la tarea nueva y después se borra la anterior.",
+            "Son dos llamadas sin transacción: si la anterior no se puede borrar, quedan las dos tareas.",
+            "La tarea nueva empieza sin el estado de las ejecuciones de la anterior.",
+        ],
+        "{s}"
+    );
     assert!(s.contains("el nombre de la tarea ('LOADJCL2')"), "{s}");
     let mut f = server().out(
         "ADMIN_TASK_ADD",
@@ -497,6 +508,7 @@ fn delete_is_admin_task_remove_and_history_cant_be_cleared() {
     assert_eq!(
         delete_script(preset("db2zos"), &mut f, "job", "LOADJCL").unwrap(),
         "-- Borra la tarea «LOADJCL» del planificador de tareas administrativas de Db2 for z/OS
+-- ⚠ También se borra el estado de sus ejecuciones.
 CALL SYSPROC.ADMIN_TASK_REMOVE(
     'LOADJCL',
     ?,
@@ -676,6 +688,61 @@ fn another_users_task_says_who_may_change_it_and_stays_editable() {
         !f.notes.iter().any(|n| n.contains("La agregó")),
         "{:?}",
         f.notes
+    );
+    // A new name adds the task again, as the session's: ADMIN, who added
+    // LOADJCL, loses its hold on it.
+    let v = edit(
+        &form(
+            preset("db2zos"),
+            &mut server(),
+            &ctx(),
+            "job",
+            Some("LOADJCL"),
+        )
+        .unwrap(),
+        json!({"task_name": "LOADJCL2"}),
+    );
+    let s = script(
+        preset("db2zos"),
+        &mut who("OPS", "OPS"),
+        "job",
+        Some("LOADJCL"),
+        &v,
+    )
+    .unwrap();
+    assert_eq!(
+        warnings(&s)[3..],
+        ["La tarea nueva queda agregada por vos: quien la agregó (ADMIN) ya no la puede cambiar, borrar ni detener sin SYSOPR, SYSADM o SYSCTRL."],
+        "{s}"
+    );
+    // ADMIN renaming its own task, or a session that can't be read: no
+    // such warning.
+    for mut f in [who("ADMIN", "ADMIN"), server()] {
+        let s = script(preset("db2zos"), &mut f, "job", Some("LOADJCL"), &v).unwrap();
+        assert_eq!(warnings(&s).len(), 3, "{s}");
+    }
+    // An update in place keeps the task, and who added it.
+    let s = script(
+        preset("db2zos"),
+        &mut who("OPS", "OPS"),
+        "job",
+        Some("LOADJCL"),
+        &edit(
+            &form(
+                preset("db2zos"),
+                &mut server(),
+                &ctx(),
+                "job",
+                Some("LOADJCL"),
+            )
+            .unwrap(),
+            json!({"description": "otra"}),
+        ),
+    )
+    .unwrap();
+    assert!(
+        s.contains("ADMIN_TASK_UPDATE") && warnings(&s).is_empty(),
+        "{s}"
     );
     // The tree leaves edit, delete and stop to the server.
     let j = dbine_driver::ServerJob {

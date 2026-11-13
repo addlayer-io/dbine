@@ -27,6 +27,12 @@ use serde_json::json;
 const ONLY_SUPERUSER: &str =
     "Solo un superusuario crea, cambia o borra triggers programados y programaciones en Vertica.";
 const RECREATE: &str = "Vertica no cambia el procedimiento, los argumentos ni la programación de un trigger: para cambiarlos se borra y se crea de nuevo (no guarda historial que se pierda); el script vuelve a poner su dueño y su estado.";
+// What a script warns about (each a sentence of its own).
+const W_RECREATE: &str = "Vertica no cambia el procedimiento, los argumentos ni la programación de un trigger: se borra y se crea de nuevo, y el script le vuelve a poner su dueño y su estado.";
+const W_RECREATE_GONE: &str =
+    "Vertica confirma cada sentencia por separado: si la creación falla, el trigger queda borrado.";
+const W_OWNER_AFTER: &str = "El trigger se crea con tu usuario como dueño y después se le pone el suyo: si eso falla, queda tuyo y su procedimiento corre con tus privilegios.";
+const W_DISABLED_AFTER: &str = "El trigger se crea habilitado y se deshabilita al final, con otra sentencia: si algo falla después de crearlo, queda habilitado y va a correr.";
 const ARGS_HELP: &str = "Valores literales separados por comas: números, NULL, TRUE, FALSE o textos entre comillas simples (con las comillas de adentro dobladas).";
 const ARGS_UNREADABLE: &str = "El catálogo de Vertica guarda los argumentos de este trigger sin doblar sus comillas: para cambiar el procedimiento o la programación, escribilos de nuevo.";
 
@@ -449,6 +455,7 @@ pub(super) fn create_schedule_plan(s: &Schedule) -> Plan {
     if let Some(o) = &s.owner {
         p.exec(format!("ALTER SCHEDULE {id} OWNER TO {}", q(o)));
     }
+    p.one_by_one();
     p.id = Some(id);
     p
 }
@@ -480,6 +487,7 @@ pub(super) fn alter_schedule_plan(cur: &Schedule, s: &Schedule) -> Plan {
     for st in steps {
         p.exec(st);
     }
+    p.one_by_one();
     p.id = Some(id);
     p
 }
@@ -757,6 +765,9 @@ fn enable(name_schema: &str, name: &str, on: bool) -> String {
     )
 }
 
+/// The trigger, created as this login's and enabled, then given its owner
+/// and switched off: each its own statement, so the warnings say what a
+/// failure after the creation leaves (the procedure runs AS DEFINER).
 fn create_trigger(p: &mut Plan, t: &Trigger, args: &str) {
     let id = quote_pair(&t.schema, &t.name);
     p.exec(format!(
@@ -765,9 +776,11 @@ fn create_trigger(p: &mut Plan, t: &Trigger, args: &str) {
         quote_pair(&t.procedure.0, &t.procedure.1)
     ));
     if let Some(o) = &t.owner {
+        p.warn(W_OWNER_AFTER);
         p.exec(format!("ALTER TRIGGER {id} OWNER TO {}", q(o)));
     }
     if !t.enabled {
+        p.warn(W_DISABLED_AFTER);
         p.query(enable(&t.schema, &t.name, false));
     }
 }
@@ -778,6 +791,8 @@ pub(super) fn create_trigger_plan(t: &Trigger) -> Result<Plan> {
         "Trigger programado «{}.{}» de Vertica",
         t.schema, t.name
     ));
+    // More than the creation only with an owner or switched off, which
+    // `create_trigger` warns about itself.
     create_trigger(&mut p, t, &args);
     p.id = Some(quote_pair(&t.schema, &t.name));
     Ok(p)
@@ -794,9 +809,8 @@ pub(super) fn alter_trigger_plan(cur: &Trigger, t: &Trigger) -> Result<Plan> {
     p.id = Some(new_id.clone());
     if recreate {
         let args = parse_args(&t.args)?;
-        for line in RECREATE.split("; ") {
-            p.comment(line);
-        }
+        p.warn(W_RECREATE);
+        p.warn(W_RECREATE_GONE);
         p.exec(format!(
             "DROP TRIGGER {}",
             quote_pair(&cur.schema, &cur.name)
@@ -834,6 +848,7 @@ pub(super) fn alter_trigger_plan(cur: &Trigger, t: &Trigger) -> Result<Plan> {
             quote_pair(&cur.schema, &cur.name),
         ));
     }
+    p.one_by_one();
     Ok(p)
 }
 

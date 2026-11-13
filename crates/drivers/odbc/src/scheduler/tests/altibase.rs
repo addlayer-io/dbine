@@ -173,12 +173,26 @@ fn an_edit_is_one_alter_job_per_change() {
     assert_eq!(
         script(preset("altibase"), &mut server(true), "job", Some("3"), &v).unwrap(),
         "-- Job «JOB1» de Altibase
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 ALTER JOB \"JOB1\" SET EXEC APP.LOAD_DATA(2, 'x');
 ALTER JOB \"JOB1\" SET START TO_DATE('2026-11-13 04:00:00', 'YYYY-MM-DD HH24:MI:SS');
 ALTER JOB \"JOB1\" SET INTERVAL 2 HOUR;
 ALTER JOB \"JOB1\" SET DISABLE;
 ALTER JOB \"JOB1\" SET COMMENT '';
 "
+    );
+    // One change, one ALTER: nothing to warn about.
+    let s = script(
+        preset("altibase"),
+        &mut server(true),
+        "job",
+        Some("3"),
+        &edit(&f, json!({"interval": 2})),
+    )
+    .unwrap();
+    assert!(
+        s.contains("SET INTERVAL 2 DAY") && warnings(&s).is_empty(),
+        "{s}"
     );
 }
 
@@ -201,9 +215,14 @@ fn a_new_name_or_taking_the_end_away_creates_the_job_again() {
         let drop = s.find("DROP JOB \"JOB1\";").unwrap();
         let create = s.find("CREATE JOB ").unwrap();
         assert!(drop < create, "{over}: {s}");
-        assert!(
-            s.contains("-- Altibase no cambia el nombre de un job"),
-            "{s}"
+        assert_eq!(
+            warnings(&s),
+            [
+                "Altibase no cambia el nombre de un job ni le quita el fin o el intervalo: se borra y se crea de nuevo, y recibe otro id.",
+                "Se pierden su última ejecución, la cuenta de ejecuciones y el último código de error.",
+                "Son dos sentencias sin transacción: si la creación falla, el job queda borrado.",
+            ],
+            "{over}: {s}"
         );
         assert!(s.contains("START TO_DATE('2026-11-12 03:00:00'"), "{s}");
     }

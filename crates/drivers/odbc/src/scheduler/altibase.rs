@@ -23,6 +23,12 @@ const ONLY_SYS_NOTE: &str = "En Altibase solo el usuario SYS crea, cambia y borr
 const OLD_VERSION: &str =
     "Esta versión de Altibase (anterior a la 6.5.1) no habilita, deshabilita ni comenta jobs.";
 const RECREATE: &str = "Altibase no cambia el nombre de un job ni le quita el fin o el intervalo: se borra y se crea de nuevo; pierde su última ejecución, la cuenta de ejecuciones y el último código de error, y recibe otro id.";
+// What a script warns about (each a sentence of its own).
+const W_RECREATE: &str = "Altibase no cambia el nombre de un job ni le quita el fin o el intervalo: se borra y se crea de nuevo, y recibe otro id.";
+const W_RECREATE_LOST: &str =
+    "Se pierden su última ejecución, la cuenta de ejecuciones y el último código de error.";
+const W_RECREATE_GONE: &str =
+    "Son dos sentencias sin transacción: si la creación falla, el job queda borrado.";
 const PROCS: &str = "SELECT U.USER_NAME, P.PROC_NAME FROM SYSTEM_.SYS_PROCEDURES_ P, SYSTEM_.SYS_USERS_ U WHERE P.USER_ID = U.USER_ID AND P.OBJECT_TYPE = 0 ORDER BY U.USER_NAME, P.PROC_NAME";
 const FULL: &str = "SELECT IS_ENABLE, \"COMMENT\" FROM SYSTEM_.SYS_JOBS_ WHERE JOB_ID = -1";
 
@@ -462,9 +468,9 @@ pub(super) fn alter_plan(n: u64, cur: &Job, j: &Job, full: bool) -> Result<Plan>
         || (cur.interval.is_some() && j.interval.is_none())
     {
         let mut p = Plan::new(&format!("Job «{}» de Altibase", cur.name));
-        for line in RECREATE.split("; ") {
-            p.comment(line);
-        }
+        p.warn(W_RECREATE);
+        p.warn(W_RECREATE_LOST);
+        p.warn(W_RECREATE_GONE);
         p.exec(format!("DROP JOB {}", q(&cur.name)));
         let mut j = j.clone();
         j.start = start;
@@ -508,6 +514,7 @@ pub(super) fn alter_plan(n: u64, cur: &Job, j: &Job, full: bool) -> Result<Plan>
     for s in steps {
         p.exec(s);
     }
+    p.one_by_one();
     p.id = Some(n.to_string());
     Ok(p)
 }

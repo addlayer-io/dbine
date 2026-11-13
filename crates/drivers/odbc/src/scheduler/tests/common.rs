@@ -280,6 +280,48 @@ fn a_script_shows_comments_and_ends_each_statement() {
 }
 
 #[test]
+fn warnings_go_above_the_statements_in_the_order_given() {
+    let mut p = Plan::new("Título");
+    p.warn("Se borra y se crea de nuevo.");
+    p.exec("DROP x".into());
+    p.exec("CREATE x".into());
+    p.comment("informativo");
+    // A warning found later still goes above the statements.
+    p.warn("Se pierde su historial.");
+    assert_eq!(
+        p.script(),
+        "-- Título\n-- ⚠ Se borra y se crea de nuevo.\n-- ⚠ Se pierde su historial.\nDROP x;\nCREATE x;\n-- informativo\n"
+    );
+    assert_eq!(
+        warnings(&p.script()),
+        ["Se borra y se crea de nuevo.", "Se pierde su historial."]
+    );
+    // Comments are not statements; warnings run nothing.
+    assert_eq!(p.statements(), 2);
+}
+
+#[test]
+fn statements_one_by_one_warn_only_outside_a_transaction() {
+    let mut two = Plan::new("dos");
+    two.exec("ALTER a".into());
+    two.exec("ALTER b".into());
+    two.one_by_one();
+    assert_eq!(warnings(&two.script()), [ONE_BY_ONE]);
+    // One statement can't stop half way.
+    let mut one = Plan::new("uno");
+    one.exec("ALTER a".into());
+    one.one_by_one();
+    assert!(warnings(&one.script()).is_empty());
+    // A transaction undoes the first ones.
+    let mut atomic = Plan::new("dos");
+    atomic.atomic = true;
+    atomic.exec("UPDATE a".into());
+    atomic.exec("UPDATE b".into());
+    atomic.one_by_one();
+    assert!(warnings(&atomic.script()).is_empty());
+}
+
+#[test]
 fn an_atomic_plan_runs_in_one_transaction_and_rolls_back_on_a_failure() {
     let mut p = Plan::new("dos pasos");
     p.atomic = true;

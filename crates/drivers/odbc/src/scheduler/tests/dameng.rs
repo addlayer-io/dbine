@@ -371,8 +371,76 @@ fn jobs_run_now_and_stop_and_another_users_job_is_only_read() {
         "stop",
     )
     .unwrap();
-    assert!(
-        s.contains("AUTO_DROP") && s.contains("CALL DBMS_SCHEDULER.STOP_JOB("),
+    // NIGHTLY_SJ has no AUTO_DROP: stopping it loses nothing.
+    assert!(s.contains("CALL DBMS_SCHEDULER.STOP_JOB("), "{s}");
+    assert!(warnings(&s).is_empty(), "{s}");
+    // A running job of APP, with its AUTO_DROP.
+    let sj_row = |name: &'static str, auto_drop: Option<&'static str>| {
+        vec![
+            Some("APP"),
+            Some(name),
+            Some("PLSQL_BLOCK"),
+            Some("begin null; end;"),
+            None,
+            None,
+            None,
+            Some("TRUE"),
+            auto_drop,
+            None,
+            None,
+            None,
+            Some("0"),
+            Some("RUNNING"),
+        ]
+    };
+    // TEMP_SJ has it: DM may drop it when it stops.
+    let mut f = with_procs(true).rows_with(
+        "DBA_SCHEDULER_JOBS WHERE OWNER",
+        "TEMP_SJ",
+        SJ_COLS,
+        vec![sj_row("TEMP_SJ", Some("TRUE"))],
+    );
+    let s = action_script(
+        p,
+        &mut f,
+        &ctx(),
+        "scheduler_job",
+        "\"APP\".\"TEMP_SJ\"",
+        "stop",
+    )
+    .unwrap();
+    assert!(s.contains("CALL DBMS_SCHEDULER.STOP_JOB("), "{s}");
+    assert_eq!(
+        warnings(&s),
+        ["El job tiene AUTO_DROP: DM puede borrarlo al detenerlo."],
+        "{s}"
+    );
+    // A row without AUTO_DROP (it can't be read): warned all the same.
+    let (cols, row): (Vec<&str>, Vec<Option<&str>>) = SJ_COLS
+        .iter()
+        .copied()
+        .zip(sj_row("BLIND_SJ", Some("FALSE")))
+        .filter(|(c, _)| *c != "AUTO_DROP")
+        .unzip();
+    let mut f = with_procs(true).rows_with(
+        "DBA_SCHEDULER_JOBS WHERE OWNER",
+        "BLIND_SJ",
+        &cols,
+        vec![row],
+    );
+    let s = action_script(
+        p,
+        &mut f,
+        &ctx(),
+        "scheduler_job",
+        "\"APP\".\"BLIND_SJ\"",
+        "stop",
+    )
+    .unwrap();
+    assert!(s.contains("CALL DBMS_SCHEDULER.STOP_JOB("), "{s}");
+    assert_eq!(
+        warnings(&s),
+        ["El job tiene AUTO_DROP: DM puede borrarlo al detenerlo."],
         "{s}"
     );
     // An id of the other kind, an operator, or an action DM lacks.
@@ -396,9 +464,12 @@ fn jobs_run_now_and_stop_and_another_users_job_is_only_read() {
     assert_eq!(j.id, "10");
     assert_eq!((j.can_edit, j.can_delete), (Some(false), Some(false)));
     assert_eq!(j.actions, Some(Vec::new()));
+    // Its history isn't APP's to clear either (the kind offers it).
+    assert_eq!(j.clear_history, Some(false));
     let l = items(p, &mut with_procs(false), &ctx(), "dbms_job").unwrap();
     let j = &l.items[0];
     assert_eq!((j.can_edit, j.can_delete), (None, None));
+    assert_eq!(j.clear_history, None);
     assert_eq!(j.actions, Some(vec!["run".to_string()]));
     assert!(action_script(p, &mut with_procs(false), &ctx(), "job", "10", "run").is_err());
 }
@@ -712,12 +783,24 @@ fn dbms_scheduler_jobs_change_attribute_by_attribute() {
     assert_eq!(
         sc("scheduler_job", Some(SJ), &v).unwrap(),
         "-- Job «NIGHTLY_SJ» de DBMS_SCHEDULER de DM
+-- ⚠ DBMS_SCHEDULER puede confirmar cada llamada por su cuenta: si una falla, las anteriores pueden quedar hechas.
 BEGIN
   DBMS_SCHEDULER.SET_ATTRIBUTE('APP.NIGHTLY_SJ', 'REPEAT_INTERVAL', 'FREQ=HOURLY');
   DBMS_SCHEDULER.SET_ATTRIBUTE('APP.NIGHTLY_SJ', 'COMMENTS', 'x');
   DBMS_SCHEDULER.DISABLE('APP.NIGHTLY_SJ');
 END;
 "
+    );
+    // One attribute, one call: nothing can stop half way.
+    let s = sc(
+        "scheduler_job",
+        Some(SJ),
+        &edit(&f, json!({"comments": "x"})),
+    )
+    .unwrap();
+    assert!(
+        s.contains("SET_ATTRIBUTE('APP.NIGHTLY_SJ', 'COMMENTS', 'x')") && warnings(&s).is_empty(),
+        "{s}"
     );
     let s = sc(
         "scheduler_job",
@@ -731,6 +814,16 @@ END;
     );
     // SYSDBA saves it, APP keeps it: the new job goes in APP's schema.
     assert!(s.contains("JOB_NAME => 'APP.OTHER'"), "{s}");
+    assert_eq!(
+        warnings(&s),
+        [
+            "DBMS_SCHEDULER no cambia el nombre de un job: se borra y se crea de nuevo con el nombre nuevo.",
+            "El job nuevo empieza sin historial: el de sus ejecuciones anteriores se pierde.",
+            "Los atributos del job que este formulario no muestra (como su clase) no se copian: el job nuevo los toma por defecto.",
+            "DBMS_SCHEDULER puede confirmar cada llamada por su cuenta: si la creación falla, el job puede quedar borrado.",
+        ],
+        "{s}"
+    );
     let mut f = server(true);
     let id = save(
         preset("dameng"),
@@ -836,6 +929,7 @@ fn dbms_scheduler_jobs_keep_their_program_type_and_named_schedule() {
         )
         .unwrap(),
         "-- Job «PROG_SJ» de DBMS_SCHEDULER de DM
+-- ⚠ DBMS_SCHEDULER puede confirmar cada llamada por su cuenta: si una falla, las anteriores pueden quedar hechas.
 BEGIN
   DBMS_SCHEDULER.SET_ATTRIBUTE('APP.PROG_SJ', 'COMMENTS', 'x');
   DBMS_SCHEDULER.DISABLE('APP.PROG_SJ');

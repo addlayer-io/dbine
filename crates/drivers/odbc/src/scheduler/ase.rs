@@ -93,6 +93,15 @@ const UNITS: &[&str] = &["minutes", "hours", "days"];
 const OWN_EDIT: &str = "Sin js_admin_role se cambian y borran solo los objetos propios: los jobs y calendarios compartidos de otros usuarios se usan, pero no se cambian.";
 const NOT_YOURS: &str = "Es de otro usuario: lo cambia solo su dueño o quien tenga js_admin_role.";
 const RELINK: &str = "Job Scheduler no cambia el job ni el calendario de un job programado: se borra y se crea de nuevo; recibe otro id y su historial queda con el id anterior.";
+// What a script warns about (each a sentence of its own).
+const W_RELINK: &str = "Job Scheduler no cambia el job ni el calendario de un job programado: se borra y se crea de nuevo, y recibe otro id.";
+const W_RELINK_HISTORY: &str =
+    "Su historial queda con el id anterior: el job programado nuevo empieza sin historial.";
+const W_RELINK_GONE: &str =
+    "Las llamadas corren una por una: si la creación falla, el job programado queda borrado.";
+const W_DISABLED_AFTER: &str = "El job programado se crea habilitado y se deshabilita con otra llamada: si esa falla, queda habilitado y va a correr.";
+const W_COMMAND: &str = "El SQL del job se borra y se vuelve a cargar en llamadas sueltas: si una falla, el job queda sin su SQL o con una parte.";
+const W_RESET: &str = "Para quitar un valor, el calendario se vacía (reset=true) y se le vuelven a poner los que quedan: si eso falla, queda vacío.";
 const UNREADABLE: &str = "sp_sjobhelp no devolvió la lista en un formato que DBine reconozca.";
 const OWNER_ADMIN: &str = "Cambiar el dueño pide js_admin_role.";
 /// The pieces `sp_sjobcmd … add` gets the SQL in (Job Scheduler joins
@@ -1149,6 +1158,7 @@ fn create_scheduled(p: &mut Plan, j: &Scheduled, admin: bool) {
     p.exec(exec("sp_sjobcreate", &key, joined(&parts)));
     // Disabled before another owner takes it (the creator owns it now).
     if !j.enabled {
+        p.warn(W_DISABLED_AFTER);
         switch(p, &j.name, false, admin);
     }
     let mut after: Vec<(&str, String)> = Vec::new();
@@ -1167,6 +1177,7 @@ fn create_scheduled(p: &mut Plan, j: &Scheduled, admin: bool) {
 pub(super) fn scheduled_create_plan(j: &Scheduled, admin: bool) -> Plan {
     let mut p = new_plan(&format!("Job programado «{}» de Job Scheduler", j.name));
     create_scheduled(&mut p, j, admin);
+    p.one_by_one();
     p
 }
 
@@ -1190,9 +1201,9 @@ pub(super) fn scheduled_alter_plan(
 ) -> Result<Plan> {
     if j.job != cur.job || j.schedule != cur.schedule {
         let mut p = new_plan(&format!("Job programado «{}» de Job Scheduler", cur.name));
-        for line in RELINK.split("; ") {
-            p.comment(line);
-        }
+        p.warn(W_RELINK);
+        p.warn(W_RELINK_HISTORY);
+        p.warn(W_RELINK_GONE);
         p.exec(exec(
             "sp_sjobdrop",
             &n.to_string(),
@@ -1236,6 +1247,7 @@ pub(super) fn scheduled_alter_plan(
     if switched {
         switch(&mut p, &n.to_string(), j.enabled, admin);
     }
+    p.one_by_one();
     p.id = Some(n.to_string());
     Ok(p)
 }
@@ -1258,6 +1270,7 @@ pub(super) fn job_create_plan(j: &JobDef, admin: bool) -> Plan {
     if let (true, Some(o)) = (admin, &j.owner) {
         p.exec(exec("sp_sjobmodify", &key, Some(format!("jowner={o}"))));
     }
+    p.one_by_one();
     p.lookup = Some(lookup("list,jobs", J_ID, J_NAME, j.name.clone()));
     p
 }
@@ -1290,11 +1303,17 @@ pub(super) fn job_alter_plan(n: u64, cur: &JobDef, j: &JobDef, admin: bool) -> R
         p.exec(exec("sp_sjobmodify", &key, Some(o)));
     }
     if command_changed {
+        p.warn(W_COMMAND);
         p.exec(format!(
             "exec sybmgmtdb..sp_sjobcmd @name = {}, @option = 'drop'",
             lit(&key)
         ));
         add_command(&mut p, &key, &j.command);
+    }
+    // W_COMMAND covers the SQL's own calls; the sp_sjobmodify before them
+    // stays done when they fail.
+    if !command_changed || !parts.is_empty() {
+        p.one_by_one();
     }
     p.id = Some(n.to_string());
     Ok(p)
@@ -1315,6 +1334,7 @@ pub(super) fn schedule_create_plan(s: &Schedule, admin: bool) -> Plan {
     if let (true, Some(o)) = (admin, &s.owner) {
         p.exec(exec("sp_sjobmodify", &key, Some(format!("sowner={o}"))));
     }
+    p.one_by_one();
     p.lookup = Some(lookup("list,schedules", S_ID, S_NAME, s.name.clone()));
     p
 }
@@ -1352,6 +1372,10 @@ pub(super) fn schedule_alter_plan(n: u64, cur: &Schedule, s: &Schedule, admin: b
         Some(o) => p.exec(exec("sp_sjobmodify", &key, Some(o))),
         None if !cleared => return Plan::nothing(&cur.name, n.to_string()),
         None => {}
+    }
+    // Emptied, then set again: a failure in between leaves it empty.
+    if cleared && p.statements() > 1 {
+        p.warn(W_RESET);
     }
     p.id = Some(n.to_string());
     p

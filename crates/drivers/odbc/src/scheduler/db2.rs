@@ -26,6 +26,11 @@ const BEGIN_PAST: &str =
 const END_PAST: &str =
     "«Fin» ya pasó: Db2 no acepta un fin en el pasado. Poné uno futuro o dejalo vacío.";
 const END_BEFORE: &str = "«Fin» tiene que ser posterior a «Inicio».";
+// What a script warns about (each a sentence of its own).
+const W_RECREATE: &str = "Db2 no cambia el nombre, el procedimiento ni la consulta de parámetros de una tarea: se borra y se crea de nuevo, en una transacción.";
+const W_RECREATE_LOST: &str = "La tarea pierde sus registros de estado (su historial), su cuenta de ejecuciones vuelve a cero y recibe otro id.";
+const W_DROP_STATUS: &str =
+    "También se borran sus registros de estado: el historial de sus ejecuciones.";
 
 /// A task as `SYSTOOLS.ADMIN_TASK_LIST` has it. Times are the server's
 /// local time in ms ([`parse_ts`]).
@@ -313,10 +318,7 @@ fn window(
         if t.begin != kept_begin {
             return Err(bad(BEGIN_PAST));
         }
-        plan.comment(&format!(
-            "Inicio original: {}. Db2 no acepta un inicio pasado: sin él, la tarea corre desde ya según su calendario.",
-            crate::jobs::plain(t.begin.unwrap_or_default())
-        ));
+        plan.warn(&past_begin(t.begin.unwrap_or_default()));
         "NULL".to_string()
     } else {
         ts_arg(t.begin)
@@ -325,6 +327,15 @@ fn window(
         return Err(bad(END_PAST));
     }
     Ok((begin, ts_arg(t.end)))
+}
+
+/// The warning of a save that sends a kept begin in the past as NULL (Db2
+/// LUW and z/OS refuse it): the original begin isn't kept.
+pub(super) fn past_begin(ms: i64) -> String {
+    format!(
+        "Db2 no acepta un inicio en el pasado: el inicio original ({}) no se guarda y la tarea corre desde ya según su programación.",
+        crate::jobs::plain(ms)
+    )
 }
 
 fn call(proc_name: &str, args: &[String]) -> String {
@@ -402,9 +413,8 @@ pub(super) fn alter_plan(id: u64, cur: &Task, t: &Task, now: Option<i64>) -> Res
     ));
     p.atomic = true;
     if recreate {
-        for line in RECREATE.split(". ").filter(|l| !l.is_empty()) {
-            p.comment(line.trim_end_matches('.'));
-        }
+        p.warn(W_RECREATE);
+        p.warn(W_RECREATE_LOST);
         p.exec(call("ADMIN_TASK_REMOVE", &[lit(&cur.name), "NULL".into()]));
         add(&mut p, &t, cur.begin, now)?;
         p.lookup = Some(lookup(t.name.clone()));
@@ -486,8 +496,9 @@ pub(super) fn plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValue
 
 pub(super) fn drop_plan(name: &str) -> Plan {
     let mut p = Plan::new(&format!(
-        "Borra la tarea «{name}» del planificador de tareas de Db2 y sus registros de estado"
+        "Borra la tarea «{name}» del planificador de tareas de Db2"
     ));
+    p.warn(W_DROP_STATUS);
     p.exec(call("ADMIN_TASK_REMOVE", &[lit(name), "NULL".into()]));
     p
 }

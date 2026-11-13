@@ -42,6 +42,11 @@ const RENAME: &str = "IBM i no cambia el nombre de una entrada: se agrega con el
 const IBM_SUPPLIED: &str = "Es una entrada que trae IBM i (la agregó un perfil del sistema, como QSYS, o es del respaldo de Operational Assistant, que se cambia desde GO BACKUP): se ve solo para lectura; se retiene o se libera desde la lista de jobs.";
 const Q_NAME: &str = "IBM i recomienda dejar los nombres que empiezan con Q para sus propios objetos: la entrada se agrega igual con este nombre.";
 const Q_OWN: &str = "Su nombre empieza con Q, como los objetos de IBM i, pero no la agregó un perfil del sistema: se cambia como cualquier otra entrada. Si la creó un producto, conviene cambiarla desde ese producto.";
+// What a script warns about (each a sentence of its own).
+const W_RENAME: &str = "IBM i no cambia el nombre de una entrada: se agrega con el nombre nuevo, con otro número de entrada, y después se borra la anterior.";
+const W_RENAME_BOTH: &str = "Son comandos sueltos, sin transacción: si la anterior no se puede borrar, quedan las dos entradas.";
+const W_RENAME_DATES: &str = "Se pierden las fechas de su último envío.";
+const W_HOLD_AFTER: &str = "La entrada se agrega liberada y se retiene con otro comando: si ese falla, queda liberada y va a enviar el trabajo.";
 
 const FREQS: &[&str] = &["*ONCE", "*WEEKLY", "*MONTHLY"];
 const DATE_MODES: &[&str] = &["date", "*CURRENT", "*MONTHSTR", "*MONTHEND", "*NONE"];
@@ -779,6 +784,9 @@ fn add(plan: &mut Plan, e: &Entry, others: Vec<String>) {
         cl(plan, "CHGJOB DATFMT(*YMD)");
     }
     cl(plan, &cmd);
+    if e.held {
+        plan.warn(W_HOLD_AFTER);
+    }
     let hold_later = e.held && !others.is_empty();
     if e.held && others.is_empty() {
         cl(plan, &format!("HLDJOBSCDE JOB({}) ENTRYNBR(*ONLY)", e.name));
@@ -811,9 +819,9 @@ pub(super) fn alter_plan(n: &str, cur: &Entry, e: &Entry, all: &Set) -> Plan {
             "Entrada «{}» del planificador de trabajos de IBM i",
             cur.name
         ));
-        for line in RENAME.split(": ") {
-            p.comment(line);
-        }
+        p.warn(W_RENAME);
+        p.warn(W_RENAME_BOTH);
+        p.warn(W_RENAME_DATES);
         if q_name(&e.name) {
             p.comment(Q_NAME);
         }
@@ -833,6 +841,7 @@ pub(super) fn alter_plan(n: &str, cur: &Entry, e: &Entry, all: &Set) -> Plan {
         "Entrada «{}» del planificador de trabajos de IBM i",
         cur.name
     ));
+    let changed = change.is_some();
     if let Some((cmd, dated)) = change {
         if dated {
             cl(&mut p, "CHGJOB DATFMT(*YMD)");
@@ -842,6 +851,11 @@ pub(super) fn alter_plan(n: &str, cur: &Entry, e: &Entry, all: &Set) -> Plan {
     if e.held != cur.held {
         let verb = if e.held { "HLDJOBSCDE" } else { "RLSJOBSCDE" };
         cl(&mut p, &format!("{verb} JOB({}) ENTRYNBR({n})", cur.name));
+        // CHGJOBSCDE, then the hold or the release: two commands (the
+        // date format is the session's, not a change).
+        if changed {
+            p.warn(ONE_BY_ONE);
+        }
     }
     p.id = Some(id);
     p

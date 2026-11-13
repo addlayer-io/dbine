@@ -24,6 +24,17 @@ use serde_json::json;
 const NOT_MINE: &str = "Solo un DBA o el dueño del job lo cambia o lo borra.";
 const NOT_DBMS_JOB: &str = "Este job no es de DBMS_JOB.";
 const SCHED_RENAME: &str = "DBMS_SCHEDULER no cambia el nombre de un job: se borra y se crea de nuevo; su historial se pierde.";
+// What a rename's script warns about (each a sentence of its own).
+const W_RENAME: &str =
+    "DBMS_SCHEDULER no cambia el nombre de un job: se borra y se crea de nuevo con el nombre nuevo.";
+const W_RENAME_HISTORY: &str =
+    "El job nuevo empieza sin historial: el de sus ejecuciones anteriores se pierde.";
+const W_RENAME_ATTRS: &str = "Los atributos del job que este formulario no muestra (como su clase) no se copian: el job nuevo los toma por defecto.";
+const W_RENAME_COMMIT: &str = "DBMS_SCHEDULER puede confirmar cada llamada por su cuenta: si la creación falla, el job puede quedar borrado.";
+// The same premise as W_RENAME_COMMIT (not yet tried on a DM server): an
+// in-place edit of two or more calls can stop half way.
+const W_CALLS: &str = "DBMS_SCHEDULER puede confirmar cada llamada por su cuenta: si una falla, las anteriores pueden quedar hechas.";
+const W_AUTO_DROP: &str = "El job tiene AUTO_DROP: DM puede borrarlo al detenerlo.";
 const PROGRAM_KEPT: &str = "El job corre un programa de DBMS_SCHEDULER: el programa se cambia aparte y se ve solo para lectura.";
 const SCHEDULE_KEPT: &str = "El job sigue un calendario con nombre de DBMS_SCHEDULER: el calendario se cambia aparte y se ve solo para lectura.";
 const ARGS_KEPT: &str =
@@ -602,9 +613,10 @@ pub(super) fn scheduler_alter_plan(
         }
         let mut p = Plan::new(&format!("Job «{}» de DBMS_SCHEDULER de DM", cur.name));
         p.atomic = true;
-        for line in SCHED_RENAME.split("; ") {
-            p.comment(line);
-        }
+        p.warn(W_RENAME);
+        p.warn(W_RENAME_HISTORY);
+        p.warn(W_RENAME_ATTRS);
+        p.warn(W_RENAME_COMMIT);
         p.exec(format!("CALL DBMS_SCHEDULER.DROP_JOB({job})"));
         // Same owner: in the owner's schema, not the DBA's who saves it.
         p.exec(create_block(j, Some(owner)));
@@ -665,6 +677,11 @@ pub(super) fn scheduler_alter_plan(
     }
     let mut p = Plan::new(&format!("Job «{}» de DBMS_SCHEDULER de DM", cur.name));
     p.atomic = true;
+    // One block, but the package may commit each call: the transaction
+    // can't take back the ones before a failure.
+    if lines.len() > 1 {
+        p.warn(W_CALLS);
+    }
     p.exec(format!("BEGIN\n{}\nEND", lines.join("\n")));
     p.id = Some(id);
     Ok(p)
@@ -702,6 +719,21 @@ pub(super) fn scheduler_delete_plan(src: &mut dyn JobSource, id: &str) -> Result
         return Err(Error::Unsupported(NOT_MINE.into()));
     }
     Ok(scheduler_drop_plan(&owner, &name))
+}
+
+/// Stopping a job with AUTO_DROP may drop it: the stop's warning, when
+/// the job has it or that can't be read.
+pub(super) fn stop_warning(src: &mut dyn JobSource, id: &str, plan: &mut Plan) {
+    let auto_drop = match sched_job_read(src, id) {
+        Ok((_, _, s, j, _)) => j.auto_drop || s.get(0, "AUTO_DROP").is_none(),
+        Err(e) => {
+            tracing::debug!("odbc scheduler: the job's AUTO_DROP wasn't read: {e}");
+            true
+        }
+    };
+    if auto_drop {
+        plan.warn(W_AUTO_DROP);
+    }
 }
 
 pub(super) fn scheduler_purge_plan(owner: &str, name: &str) -> Plan {

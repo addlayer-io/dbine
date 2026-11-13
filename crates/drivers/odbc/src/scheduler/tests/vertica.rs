@@ -222,6 +222,7 @@ fn schedules_are_created_with_cron_or_fixed_times() {
     assert_eq!(
         script(preset("vertica"), &mut server(true), "schedule", None, &v).unwrap(),
         "-- Programación «app.it's» de Vertica
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 CREATE SCHEDULE \"app\".\"it's\" USING CRON '0 3 * * 1-5';
 ALTER SCHEDULE \"app\".\"it's\" OWNER TO \"etl\";
 "
@@ -230,9 +231,10 @@ ALTER SCHEDULE \"app\".\"it's\" OWNER TO \"etl\";
         json!({"name": "dates", "schema": "public", "kind": "datetimes"}),
         json!({"times": [{"at": "2026-12-01T12:00:00"}, {"at": "2026-12-24T23:30"}]}),
     );
-    assert!(script(preset("vertica"), &mut server(true), "schedule", None, &v)
-        .unwrap()
-        .contains("CREATE SCHEDULE \"public\".\"dates\" USING DATETIMES('2026-12-01 12:00:00', '2026-12-24 23:30:00');"));
+    let s = script(preset("vertica"), &mut server(true), "schedule", None, &v).unwrap();
+    assert!(s.contains("CREATE SCHEDULE \"public\".\"dates\" USING DATETIMES('2026-12-01 12:00:00', '2026-12-24 23:30:00');"));
+    // One statement: nothing to warn about.
+    assert!(warnings(&s).is_empty(), "{s}");
     let v = fv(
         json!({"name": "dates", "schema": "public", "kind": "datetimes"}),
         json!({}),
@@ -291,6 +293,7 @@ fn a_schedule_changes_in_place_and_is_deleted_only_without_a_trigger() {
     assert_eq!(
         s,
         "-- Programación «public.free_sched» de Vertica
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 ALTER SCHEDULE \"public\".\"free_sched\" USING CRON '30 1 * * *';
 ALTER SCHEDULE \"public\".\"free_sched\" OWNER TO \"etl\";
 ALTER SCHEDULE \"public\".\"free_sched\" RENAME TO \"renamed\";
@@ -344,10 +347,21 @@ fn a_trigger_is_created_on_a_free_schedule() {
     assert_eq!(
         script(preset("vertica"), &mut server(true), "job", None, &v).unwrap(),
         "-- Trigger programado «app.purge_trig» de Vertica
+-- ⚠ El trigger se crea con tu usuario como dueño y después se le pone el suyo: si eso falla, queda tuyo y su procedimiento corre con tus privilegios.
+-- ⚠ El trigger se crea habilitado y se deshabilita al final, con otra sentencia: si algo falla después de crearlo, queda habilitado y va a correr.
 CREATE TRIGGER \"app\".\"purge_trig\" ON SCHEDULE \"public\".\"free_sched\" EXECUTE PROCEDURE \"app\".\"purge\"(30, 'it''s', NULL) AS DEFINER;
 ALTER TRIGGER \"app\".\"purge_trig\" OWNER TO \"etl\";
 SELECT ENABLE_TRIGGER('app.purge_trig', false);
 "
+    );
+    // Enabled and owned by whoever creates it: one statement, no warning.
+    let mut mine = v.clone();
+    mine.values.insert("enabled".into(), json!(true));
+    mine.values.insert("owner".into(), json!(null));
+    let s = script(preset("vertica"), &mut server(true), "job", None, &mine).unwrap();
+    assert!(
+        s.contains("CREATE TRIGGER") && !s.contains("ALTER TRIGGER") && warnings(&s).is_empty(),
+        "{s}"
     );
     // A schedule that already fires another trigger.
     let mut taken = v.clone();
@@ -391,6 +405,7 @@ fn a_trigger_is_renamed_moved_and_switched_in_place() {
     assert_eq!(
         edit_trigger(&v).unwrap(),
         "-- Trigger programado «public.nightly_trig» de Vertica
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 ALTER TRIGGER \"public\".\"nightly_trig\" RENAME TO \"nightly2\";
 ALTER TRIGGER \"public\".\"nightly2\" SET SCHEMA \"app\";
 SELECT ENABLE_TRIGGER('app.nightly2', false);
@@ -399,6 +414,12 @@ SELECT ENABLE_TRIGGER('app.nightly2', false);
     assert!(edit_trigger(&trigger_values(json!({})))
         .unwrap()
         .contains("no hay cambios"));
+    // Only switched off: one statement, no warning.
+    let s = edit_trigger(&trigger_values(json!({"enabled": false}))).unwrap();
+    assert!(
+        s.contains("ENABLE_TRIGGER") && warnings(&s).is_empty(),
+        "{s}"
+    );
 }
 
 #[test]
@@ -416,7 +437,26 @@ fn a_new_procedure_or_arguments_drop_and_create_the_trigger_with_its_owner() {
         .find("SELECT ENABLE_TRIGGER('public.nightly_trig', false);")
         .unwrap();
     assert!(drop < create && create < owner && owner < off, "{s}");
-    assert!(s.contains("-- Vertica no cambia el procedimiento"), "{s}");
+    // Created as this login's and enabled: a failure after the creation
+    // leaves it so, running as this login.
+    assert_eq!(
+        warnings(&s),
+        [
+            "Vertica no cambia el procedimiento, los argumentos ni la programación de un trigger: se borra y se crea de nuevo, y el script le vuelve a poner su dueño y su estado.",
+            "Vertica confirma cada sentencia por separado: si la creación falla, el trigger queda borrado.",
+            "El trigger se crea con tu usuario como dueño y después se le pone el suyo: si eso falla, queda tuyo y su procedimiento corre con tus privilegios.",
+            "El trigger se crea habilitado y se deshabilita al final, con otra sentencia: si algo falla después de crearlo, queda habilitado y va a correr.",
+        ],
+        "{s}"
+    );
+    // Enabled: nothing to switch off afterwards.
+    let s = edit_trigger(&trigger_values(json!({"args": "8, 'semanal'"}))).unwrap();
+    assert!(!s.contains("ENABLE_TRIGGER"), "{s}");
+    assert_eq!(
+        warnings(&s)[2..],
+        ["El trigger se crea con tu usuario como dueño y después se le pone el suyo: si eso falla, queda tuyo y su procedimiento corre con tus privilegios."],
+        "{s}"
+    );
     assert!(refused(edit_trigger(&trigger_values(
         json!({"args": "drop table t"})
     )))

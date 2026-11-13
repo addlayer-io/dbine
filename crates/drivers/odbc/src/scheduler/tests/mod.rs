@@ -208,6 +208,15 @@ pub(super) fn well_formed(f: &ObjectForm) {
     }
 }
 
+/// The warnings of a script, as the app reads them: the text of its
+/// `-- ⚠ …` lines, in order.
+pub(super) fn warnings(script: &str) -> Vec<&str> {
+    script
+        .lines()
+        .filter_map(|l| l.strip_prefix("-- ⚠ "))
+        .collect()
+}
+
 /// The value of a form field.
 pub(super) fn val(f: &ObjectForm, k: &str) -> Value {
     f.values.get(k).cloned().unwrap_or(Value::Null)

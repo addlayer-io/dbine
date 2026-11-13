@@ -353,7 +353,8 @@ fn delete_takes_its_parameters_and_runs_and_clear_only_the_runs() {
     let mut f = server_as("my_users");
     assert_eq!(
         delete_script(preset("informix"), &mut f, "job", "7").unwrap(),
-        "-- Borra la tarea «my_users» del planificador de Informix, con sus parámetros y sus ejecuciones (las alertas quedan)
+        "-- Borra la tarea «my_users» del planificador de Informix, con sus parámetros
+-- ⚠ También se borra su historial de ejecuciones (ph_run); sus alertas quedan.
 DELETE FROM sysadmin:ph_threshold WHERE task_name = 'my_users';
 DELETE FROM sysadmin:ph_run WHERE run_task_id = 7;
 DELETE FROM sysadmin:ph_task WHERE tk_id = 7;
@@ -508,6 +509,8 @@ INSERT INTO sysadmin:ph_group (group_name, group_description) VALUES ('BACKUPS',
     assert!(s.contains(
         "UPDATE sysadmin:ph_group SET group_description = 'otros' WHERE group_name = 'LIMPIEZA';"
     ));
+    // A description in place: nothing to warn about.
+    assert!(warnings(&s).is_empty(), "{s}");
     let p = e::alter_group_plan(("LIMPIEZA", "varios"), "VARIOS", "varios");
     assert!(p.atomic);
     let s = p.script();
@@ -519,6 +522,11 @@ INSERT INTO sysadmin:ph_group (group_name, group_description) VALUES ('BACKUPS',
         .find("DELETE FROM sysadmin:ph_group WHERE group_name = 'LIMPIEZA';")
         .unwrap();
     assert!(ins < mv && mv < del, "{s}");
+    assert_eq!(
+        warnings(&s),
+        ["Informix no cambia el nombre de un grupo: se crea el grupo nuevo, se le pasan las tareas y se borra el anterior, así que recibe otro número (group_id)."],
+        "{s}"
+    );
     // In use: refused; empty: deleted.
     let mut f = one().rows(
         "SELECT tk_name FROM sysadmin:ph_task WHERE tk_group = ?",

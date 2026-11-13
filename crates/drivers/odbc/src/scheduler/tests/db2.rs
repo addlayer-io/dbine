@@ -148,7 +148,7 @@ fn a_schedule_change_is_admin_task_update_in_place_with_a_passed_begin_as_null()
     assert_eq!(
         s,
         "-- Tarea «nightly» del planificador de tareas de Db2
--- Inicio original: 2026-01-01 00:00:00. Db2 no acepta un inicio pasado: sin él, la tarea corre desde ya según su calendario.
+-- ⚠ Db2 no acepta un inicio en el pasado: el inicio original (2026-01-01 00:00:00) no se guarda y la tarea corre desde ya según su programación.
 CALL SYSPROC.ADMIN_TASK_UPDATE(
     'nightly',
     NULL,
@@ -160,6 +160,11 @@ CALL SYSPROC.ADMIN_TASK_UPDATE(
 );
 "
     );
+    // A begin still to come goes as it is: nothing to warn about.
+    let v = values(json!({"begin": "2026-12-01T00:00:00", "remarks": "otra"}));
+    let s = script(Some("12"), &v).unwrap();
+    assert!(s.contains("ADMIN_TASK_UPDATE"), "{s}");
+    assert!(warnings(&s).is_empty(), "{s}");
 }
 
 #[test]
@@ -169,7 +174,15 @@ fn a_new_name_procedure_or_input_removes_and_adds_the_task_again() {
         json!({"procedure_input": "VALUES ('RUNSTATS ON TABLE APP.U')"}),
     ] {
         let s = script(Some("12"), &values(over.clone())).unwrap();
-        assert!(s.contains("-- Db2 no cambia el nombre"), "{s}");
+        assert_eq!(
+            warnings(&s),
+            [
+                "Db2 no cambia el nombre, el procedimiento ni la consulta de parámetros de una tarea: se borra y se crea de nuevo, en una transacción.",
+                "La tarea pierde sus registros de estado (su historial), su cuenta de ejecuciones vuelve a cero y recibe otro id.",
+                "Db2 no acepta un inicio en el pasado: el inicio original (2026-01-01 00:00:00) no se guarda y la tarea corre desde ya según su programación.",
+            ],
+            "{s}"
+        );
         let remove = s
             .find("CALL SYSPROC.ADMIN_TASK_REMOVE(\n    'nightly',\n    NULL\n)")
             .unwrap();
@@ -197,7 +210,8 @@ fn delete_and_clear_history_remove_the_task_or_only_its_finished_status() {
     let mut f = server();
     assert_eq!(
         delete_script(preset("db2"), &mut f, "job", "12").unwrap(),
-        "-- Borra la tarea «nightly» del planificador de tareas de Db2 y sus registros de estado
+        "-- Borra la tarea «nightly» del planificador de tareas de Db2
+-- ⚠ También se borran sus registros de estado: el historial de sus ejecuciones.
 CALL SYSPROC.ADMIN_TASK_REMOVE(
     'nightly',
     NULL

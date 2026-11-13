@@ -145,6 +145,7 @@ fn an_edit_is_one_alter_per_change() {
     assert_eq!(
         script(preset("hive"), &mut server(), "job", Some("5"), &v).unwrap(),
         "-- Consulta programada «sc_analyze» de Hive
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 ALTER SCHEDULED QUERY `sc_analyze` CRON '0 */15 * * * ? *';
 ALTER SCHEDULED QUERY `sc_analyze` EXECUTED AS 'o\\'neil';
 ALTER SCHEDULED QUERY `sc_analyze` DEFINED AS analyze table t compute statistics for columns;
@@ -163,9 +164,10 @@ ALTER SCHEDULED QUERY `sc_analyze` DISABLED;
         "-- «sc_analyze»: no hay cambios que guardar.\n"
     );
     let v = analyze(json!({"mode": "every", "every": 10, "unit": "MINUTE"}));
-    assert!(script(preset("hive"), &mut server(), "job", Some("5"), &v)
-        .unwrap()
-        .contains("ALTER SCHEDULED QUERY `sc_analyze` EVERY 10 MINUTES;"));
+    let s = script(preset("hive"), &mut server(), "job", Some("5"), &v).unwrap();
+    assert!(s.contains("ALTER SCHEDULED QUERY `sc_analyze` EVERY 10 MINUTES;"));
+    // One ALTER: nothing can stop half way.
+    assert!(warnings(&s).is_empty(), "{s}");
 }
 
 #[test]
@@ -175,7 +177,15 @@ fn a_new_name_drops_and_creates_the_query() {
     let drop = s.find("DROP SCHEDULED QUERY `sc_analyze`;").unwrap();
     let create = s.find("CREATE SCHEDULED QUERY `sc_analyze2`").unwrap();
     assert!(drop < create, "{s}");
-    assert!(s.contains("-- Hive no cambia el nombre"), "{s}");
+    assert_eq!(
+        warnings(&s),
+        [
+            "Hive no cambia el nombre de una consulta programada: se borra y se crea de nuevo, y recibe otro id.",
+            "Sus ejecuciones anteriores se pierden.",
+            "Son dos sentencias sin transacción: si la creación falla, la consulta queda borrada.",
+        ],
+        "{s}"
+    );
 }
 
 #[test]
@@ -230,6 +240,8 @@ fn run_now_and_stop_are_the_kinds_actions() {
         s,
         "-- Pasa la próxima ejecución de la consulta programada a ahora: la corre el planificador de Hive.\nALTER SCHEDULED QUERY `sc_analyze` EXECUTE;\n"
     );
+    // Running it now loses nothing: no warning.
+    assert!(warnings(&s).is_empty());
     let mut f = server();
     action(preset("hive"), &mut f, &ctx(), "job", "5", "run").unwrap();
     assert!(f.sent("ALTER SCHEDULED QUERY `sc_analyze` EXECUTE"));
@@ -250,7 +262,7 @@ fn run_now_and_stop_are_the_kinds_actions() {
 fn delete_save_and_info() {
     assert_eq!(
         delete_script(preset("hive"), &mut server(), "job", "5").unwrap(),
-        "-- Borra la consulta programada «sc_analyze» de Hive y sus ejecuciones\nDROP SCHEDULED QUERY `sc_analyze`;\n"
+        "-- Borra la consulta programada «sc_analyze» de Hive\n-- ⚠ También se borran sus ejecuciones.\nDROP SCHEDULED QUERY `sc_analyze`;\n"
     );
     let mut f = server().rows(
         "WHERE q.schedule_name = 'nightly_load'",

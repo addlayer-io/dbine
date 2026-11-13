@@ -192,6 +192,8 @@ fn a_new_scheduled_job_links_a_job_and_a_schedule() {
     assert_eq!(
         script(preset("sybase"), &mut server(true), "job", None, &v).unwrap(),
         "-- Job programado «weekly_report» de Job Scheduler
+-- ⚠ El job programado se crea habilitado y se deshabilita con otra llamada: si esa falla, queda habilitado y va a correr.
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 exec sybmgmtdb..sp_sjobcreate @name = 'sjname=weekly_report', @option = 'jname=load_sales,sname=daily,server=SYB2,timeout=45'
 go
 exec sybmgmtdb..sp_sjobcontrol @name = 'weekly_report', @option = 'disable,all_users'
@@ -224,6 +226,7 @@ fn an_edit_is_one_sp_sjobmodify_with_what_changed() {
     assert_eq!(
         script(preset("sybase"), &mut server(true), "job", Some("7"), &v).unwrap(),
         "-- Job programado «nightly» de Job Scheduler
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 exec sybmgmtdb..sp_sjobmodify @name = '7', @option = 'sjname=nightly2,timeout=60'
 go
 exec sybmgmtdb..sp_sjobcontrol @name = '7', @option = 'disable,all_users'
@@ -284,7 +287,35 @@ fn another_job_or_schedule_drops_and_creates_the_scheduled_job() {
         .find("sp_sjobcreate @name = 'sjname=nightly', @option = 'jname=load_sales,sname=weekly,server=SYB1,timeout=30'")
         .unwrap();
     assert!(drop < create, "{s}");
-    assert!(s.starts_with("-- Job programado «nightly» de Job Scheduler\n-- Job Scheduler no cambia el job ni el calendario"));
+    assert_eq!(
+        warnings(&s),
+        [
+            "Job Scheduler no cambia el job ni el calendario de un job programado: se borra y se crea de nuevo, y recibe otro id.",
+            "Su historial queda con el id anterior: el job programado nuevo empieza sin historial.",
+            "Las llamadas corren una por una: si la creación falla, el job programado queda borrado.",
+        ],
+        "{s}"
+    );
+    // Disabled: created enabled, then switched off by another call.
+    let s = script(
+        preset("sybase"),
+        &mut server(true),
+        "job",
+        Some("7"),
+        &edit(&f, json!({"schedule": "weekly", "enabled": false})),
+    )
+    .unwrap();
+    assert!(
+        s.find("sp_sjobcreate").unwrap()
+            < s.find("sp_sjobcontrol @name = 'nightly', @option = 'disable,all_users'")
+                .unwrap(),
+        "{s}"
+    );
+    assert_eq!(
+        warnings(&s)[3..],
+        ["El job programado se crea habilitado y se deshabilita con otra llamada: si esa falla, queda habilitado y va a correr."],
+        "{s}"
+    );
 }
 
 #[test]
@@ -298,6 +329,7 @@ fn a_job_keeps_its_sql_in_pieces_with_sp_sjobcmd() {
     let s = script(preset("sybase"), &mut server(true), "jobdef", None, &v).unwrap();
     assert!(s.starts_with(
         "-- Job «purge» de Job Scheduler
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 exec sybmgmtdb..sp_sjobcreate @name = 'jname=purge', @option = 'jdesc=borra lo viejo,jproperties=shared,default_timeout=120'
 go
 exec sybmgmtdb..sp_sjobcmd @name = 'jname=purge', @option = 'add', @text = 'delete from t where note = ''it''''s''"
@@ -343,6 +375,8 @@ fn a_jobs_new_sql_drops_the_old_and_adds_the_new() {
     assert_eq!(
         script(preset("sybase"), &mut server(true), "jobdef", Some("3"), &v).unwrap(),
         "-- Job «load_sales» de Job Scheduler
+-- ⚠ El SQL del job se borra y se vuelve a cargar en llamadas sueltas: si una falla, el job queda sin su SQL o con una parte.
+-- ⚠ Las sentencias corren una por una, sin transacción: si una falla, las anteriores quedan hechas.
 exec sybmgmtdb..sp_sjobmodify @name = 'jname=3', @option = 'jdesc=otra'
 go
 exec sybmgmtdb..sp_sjobcmd @name = 'jname=3', @option = 'drop'
@@ -351,6 +385,21 @@ exec sybmgmtdb..sp_sjobcmd @name = 'jname=3', @option = 'add', @text = 'truncate
 '
 go
 "
+    );
+    // Only the SQL: no sp_sjobmodify to leave done, its own warning only.
+    let s = script(
+        preset("sybase"),
+        &mut server(true),
+        "jobdef",
+        Some("3"),
+        &edit(&f, json!({"command": "truncate table u"})),
+    )
+    .unwrap();
+    assert!(!s.contains("sp_sjobmodify"), "{s}");
+    assert_eq!(
+        warnings(&s),
+        ["El SQL del job se borra y se vuelve a cargar en llamadas sueltas: si una falla, el job queda sin su SQL o con una parte."],
+        "{s}"
     );
 }
 
@@ -388,6 +437,7 @@ go
     assert_eq!(
         script(preset("sybase"), &mut server(true), "schedule", Some("4"), &v).unwrap(),
         "-- Calendario «daily» de Job Scheduler
+-- ⚠ Para quitar un valor, el calendario se vacía (reset=true) y se le vuelven a poner los que quedan: si eso falla, queda vacío.
 exec sybmgmtdb..sp_sjobmodify @name = 'sname=4', @option = 'reset=true'
 go
 exec sybmgmtdb..sp_sjobmodify @name = 'sname=4', @option = 'repeats=2hours,startdate=20261112,starttime=10:00,dates=1:32'

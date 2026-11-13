@@ -24,6 +24,10 @@ pub(super) fn kind(kind: &str) -> Result<()> {
 
 const PRIVILEGES: &str = "Crear, cambiar y borrar eventos pide el privilegio MANAGE ANY EVENT (en versiones anteriores a la 16, autoridad DBA).";
 const RECREATE: &str = "SQL Anywhere no cambia el nombre ni el lugar (AT) de un evento: se borra y se crea de nuevo; recibe otro id.";
+// What a script warns about (each a sentence of its own).
+const W_RECREATE: &str = "SQL Anywhere no cambia el nombre ni el lugar (AT) de un evento: se borra y se crea de nuevo, y recibe otro id.";
+const W_RECREATE_GONE: &str =
+    "Son sentencias sueltas, sin transacción: si la creación falla, el evento queda borrado.";
 const UNPARSED: &str = "Las condiciones del evento no se pudieron leer como pares de event_condition: se dejan como están en el servidor y la lista queda solo para lectura.";
 
 /// The system event types, when the server doesn't list them.
@@ -179,7 +183,28 @@ pub(super) fn parse_conditions(c: &str) -> Option<Vec<(String, String, String)>>
     Some(out)
 }
 
-fn read(src: &mut dyn JobSource, id: &str) -> Result<(u64, Event)> {
+/// The session's user.
+const ME: &str = "SELECT CURRENT USER AS u";
+
+/// The event's `creator`, when it isn't the session's user (or that can't
+/// be read): an event created again is the session's, and SQL Anywhere
+/// runs a handler with its creator's privileges (SAP's CREATE EVENT
+/// remarks; not yet tried on a server).
+fn created_by_another(src: &mut dyn JobSource, creator: Option<&str>) -> Option<String> {
+    let creator = creator.map(str::trim).filter(|c| !c.is_empty())?;
+    let me = match src.query(ME, &[]) {
+        Ok(s) => s.get(0, "u").map(|u| u.trim().to_string()),
+        Err(e) => {
+            tracing::debug!("odbc scheduler: CURRENT USER wasn't read: {e}");
+            None
+        }
+    };
+    // User ids are case-insensitive in SQL Anywhere.
+    (!me.is_some_and(|m| m.eq_ignore_ascii_case(creator))).then(|| creator.to_string())
+}
+
+/// Event `id`: its number, the event and its creator's name.
+fn read(src: &mut dyn JobSource, id: &str) -> Result<(u64, Event, Option<String>)> {
     let n = int_id(id)?;
     let s = src.query(ONE, &[&n.to_string()])?;
     if s.rows.is_empty() {
@@ -220,6 +245,7 @@ fn read(src: &mut dyn JobSource, id: &str) -> Result<(u64, Event)> {
             handler: s.get(0, "action").map(str::to_string),
             comment: s.get(0, "remarks").map(str::to_string),
         },
+        s.get(0, "creator_name").map(str::to_string),
     ))
 }
 
@@ -534,7 +560,7 @@ pub(super) fn form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectFo
             ..ObjectForm::default()
         });
     };
-    let (n, e) = read(src, id)?;
+    let (n, e, _) = read(src, id)?;
     let mut v = values_of(&e);
     v.insert("id".into(), json!(n.to_string()));
     v.insert("raw_condition".into(), jtext(e.raw_condition.as_deref()));
@@ -821,14 +847,26 @@ fn create_into(p: &mut Plan, e: &Event) {
 pub(super) fn create_plan(e: &Event) -> Plan {
     let mut p = new_plan(&format!("Evento «{}» de SQL Anywhere", e.name));
     create_into(&mut p, e);
+    p.one_by_one();
     p
 }
 
-pub(super) fn alter_plan(n: u64, cur: &Event, e: &Event) -> Plan {
-    if e.name != cur.name || e.location != cur.location {
+/// The name or `AT` changes: the event is dropped and created again.
+fn recreates(cur: &Event, e: &Event) -> bool {
+    e.name != cur.name || e.location != cur.location
+}
+
+/// `creator`: who created the event, when it isn't the session's user
+/// (whose the new one is).
+pub(super) fn alter_plan(n: u64, cur: &Event, e: &Event, creator: Option<&str>) -> Plan {
+    if recreates(cur, e) {
         let mut p = new_plan(&format!("Evento «{}» de SQL Anywhere", cur.name));
-        for line in RECREATE.split("; ") {
-            p.comment(line);
+        p.warn(W_RECREATE);
+        p.warn(W_RECREATE_GONE);
+        if let Some(c) = creator {
+            p.warn(&format!(
+                "El evento nuevo queda creado por vos: su acción va a correr con tus privilegios, no con los de {c}."
+            ));
         }
         let mut e = e.clone();
         if e.mode == "type" && e.conditions.is_empty() && cur.mode == "type" {
@@ -906,6 +944,7 @@ pub(super) fn alter_plan(n: u64, cur: &Event, e: &Event) -> Plan {
     for s in steps {
         p.exec(s);
     }
+    p.one_by_one();
     p.id = Some(n.to_string());
     p
 }
@@ -916,8 +955,13 @@ pub(super) fn plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValue
     match id {
         None => Ok(create_plan(&e)),
         Some(id) => {
-            let (n, cur) = read(src, id)?;
-            Ok(alter_plan(n, &cur, &e))
+            let (n, cur, creator) = read(src, id)?;
+            let creator = if recreates(&cur, &e) {
+                created_by_another(src, creator.as_deref())
+            } else {
+                None
+            };
+            Ok(alter_plan(n, &cur, &e, creator.as_deref()))
         }
     }
 }
@@ -929,6 +973,6 @@ pub(super) fn drop_plan(name: &str) -> Plan {
 }
 
 pub(super) fn delete_plan(src: &mut dyn JobSource, id: &str) -> Result<Plan> {
-    let (_, e) = read(src, id)?;
+    let (_, e, _) = read(src, id)?;
     Ok(drop_plan(&e.name))
 }
