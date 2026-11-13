@@ -612,9 +612,9 @@ fn password_arg(p: Option<&str>, reveal: Reveal, params: &mut Vec<Param>) -> Str
 }
 
 /// The script's line on what the markers carry (the password masked).
-fn markers_note(password: bool, name: Option<&str>) -> String {
+fn markers_note(secret_marker: bool, name: Option<&str>) -> String {
     let mut parts = Vec::new();
-    if password {
+    if secret_marker {
         parts.push(format!("la contraseña ({})", lit(SECRET_MASK)));
     }
     if let Some(n) = name {
