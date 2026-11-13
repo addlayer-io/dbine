@@ -594,17 +594,20 @@ fn int_arg(v: Option<i64>) -> String {
     v.map(|n| n.to_string()).unwrap_or_else(|| "NULL".into())
 }
 
-/// The password argument: NULL, or a marker bound to the password (the
-/// mask in the script's plan, which never runs). Never a literal: the
+/// The password argument: NULL, or a marker bound to the password (no
+/// value in the script's plan, which never runs). Never a literal: the
 /// statement's text stays in Db2's dynamic statement cache.
 fn password_arg(p: Option<&str>, reveal: Reveal, params: &mut Vec<Param>) -> String {
     let Some(p) = p else {
         return "NULL".into();
     };
-    params.push(Param::In(Some(match reveal {
-        Reveal::Mask => SECRET_MASK.to_string(),
-        Reveal::Real => p.to_string(),
-    })));
+    params.push(Param::In(match reveal {
+        // The shown plan never runs: its marker carries no value (the
+        // script's note shows the mask), so no fixed text ever stands in
+        // for the password.
+        Reveal::Mask => None,
+        Reveal::Real => Some(p.to_string()),
+    }));
     "?".into()
 }
 
