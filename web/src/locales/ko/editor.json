@@ -41,5 +41,6 @@
     "runTip": "이 문만 실행",
     "plan": "계획",
     "planTip": "이 문의 예상 실행 계획(실행하지 않음)"
-  }
+  },
+  "functionOverloads_other": "+{{count}}개 오버로드"
 }

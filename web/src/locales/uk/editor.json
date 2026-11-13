@@ -41,5 +41,9 @@
     "runTip": "Виконати лише цей оператор",
     "plan": "План",
     "planTip": "Орієнтовний план виконання цього оператора без його виконання"
-  }
+  },
+  "functionOverloads_one": "+{{count}} перевантаження",
+  "functionOverloads_few": "+{{count}} перевантаження",
+  "functionOverloads_many": "+{{count}} перевантажень",
+  "functionOverloads_other": "+{{count}} перевантаження"
 }

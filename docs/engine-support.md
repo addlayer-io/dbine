@@ -4884,22 +4884,26 @@ On every ODBC engine whose built-ins are static or generic, the user's functions
 | Neo4j | `SHOW FUNCTIONS` (4.3+) or `dbms.functions()`: built-ins and installed plugins' functions (APOC, GDS…) with the server's descriptions. If the server refuses both, or inside an explicit transaction, the built-ins of the server's version (static) |
 | Memgraph | Its documented built-ins by the version `SHOW VERSION` gives (for example `nullIf` from 3.14), plus the query modules' functions from `mg.functions()` |
 | Amazon Neptune | The openCypher functions its guide lists, by engine release (static); Neptune has no user functions |
-| Solr | Its function queries by version (static), offered inside the console's JSON string values |
+| Solr | Its function queries by version (static), offered inside the console's JSON string values. On SolrCloud, also Parallel SQL's functions from the Solr Reference Guide on the console's SQL lines: `COUNT`, `MIN`, `MAX`, `SUM`, `AVG`, plus `COUNT(DISTINCT …)` and `APPROX_COUNT_DISTINCT` from 8.10. They are offered only when the first collection's `/sql` handler loads (on Solr 9 the SQL module has to be installed); if that can't be told (no permission, no answer), they are offered. The guide documents no scalar functions (Calcite's aren't pushed down to Solr). A standalone server runs no SQL, so it gets none |
 
 **Tested against real servers:** Redis 7.4 and 6.2, Valkey 9, Dragonfly 2, etcd 3.5, MongoDB 7, CouchDB 3.5, Couchbase 8.0 (Enterprise and Community), DynamoDB Local, Cassandra 5.0, ScyllaDB 2026.3, Neo4j 5.26, Memgraph 3.13 and Solr 9.10. Following the vendors' documentation only (unit tests): FerretDB, Amazon DocumentDB, Amazon Keyspaces and Amazon Neptune.
 
 ### Elasticsearch, OpenSearch and Open Distro
 
-The consoles' JSON lines (the query DSL) call no functions, so there is nothing to complete in them. The SQL lines (those starting with `SELECT`, `SHOW`, `DESCRIBE` or `DESC`) do use functions: Elasticsearch runs them through `_sql`, OpenSearch through `_plugins/_sql`, Open Distro through `_opendistro/_sql` and Solr through Parallel SQL (`/solr/<collection>/sql`).
+The consoles' JSON lines (the query DSL) call no functions. Their SQL lines (those starting with `SELECT`, `SHOW`, `DESCRIBE` or `DESC`) get the SQL functions below, and only there. Elasticsearch runs those lines through `_sql`, OpenSearch through `_plugins/_sql` and Open Distro through `_opendistro/_sql`. Solr's SQL lines are in the Solr row above.
 
-TODO (#97): complete functions in those SQL lines. Elasticsearch lists them (`SHOW FUNCTIONS` returns each name and its type); OpenSearch and Open Distro refuse that statement and need a static list. The console's editor is JSON and does not yet complete inside SQL lines. Solr's function queries are already offered.
+| Engine | Where its functions come from |
+|---|---|
+| Elasticsearch | `SHOW FUNCTIONS` (one request; the `/_sql` endpoint exists from 7.0), with arguments and result types from a static catalog of the Elasticsearch SQL reference, plus `EXTRACT`, `MATCH` and `QUERY`, which the reference documents and the server doesn't list. `CASE` is left out (syntax, not a call). If the request is refused (401, 403, 5xx or no answer): the static catalog filtered by the server's version. Without an SQL endpoint (before 7.0, the OSS distribution, SQL disabled): none |
+| OpenSearch | Static catalog of the SQL plugin's documented functions (SQL, not PPL; the plugin refuses `SHOW FUNCTIONS`), filtered by the plugin's version from `_cat/plugins`; none when the plugin isn't installed; filtered by OpenSearch's version when `_cat/plugins` can't be read |
+| Open Distro | Static catalog of the Open Distro SQL plugin's documented functions (up to 1.13.2), filtered by the plugin's own version from `_cat/plugins` (not filtered when that can't be read); none without the plugin |
+
+**Tested against real servers:** Elasticsearch 8.15.3, OpenSearch 2.17.1, Open Distro 1.13.3 and SolrCloud 9.10; every function offered was run on the server.
 
 ### Pending items
 
 | Engine | What is missing | Reason |
 |---|---|---|
-| Elasticsearch, OpenSearch, Open Distro, Solr | Functions in the console's SQL lines | **Explicit pending item** (see the TODO above): the engines have functions and the feature is being built, not missing for lack of a capability. |
-| DataFrame SQL notebook cells | Functions (DuckDB's) | **Explicit pending item**: being built. |
 | Enterprise (gateway) connections | Every function | **Explicit pending item**: the gateway does not forward the `function_catalog` call yet, so the editor gets no list through it. Nothing is lost for direct connections. |
 | Azure Cosmos DB | The user's functions | Each user-defined function belongs to one container and is called as `udf.<name>()`, so listing them takes one request per container. **Explicit pending item.** |
 | Apache Phoenix | The user's functions | `SYSTEM."FUNCTION"`, where they are recorded, exists only when UDFs are enabled on the server. **Explicit pending item**: reading it when it is there. |

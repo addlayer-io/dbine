@@ -263,9 +263,12 @@ JOIN regiones_mongo r ON r.cliente = v.cliente
 GROUP BY ALL
 ```
 
-<!-- TODO(#97): function completion in DataFrame SQL cells (DuckDB's functions)
-is still being built; describe it here when it is done. See
-[Function completion](query-editor.md#function-completion). -->
+A DataFrame SQL cell completes DuckDB's functions as you type (see
+[Function completion](query-editor.md#function-completion)). DuckDB is
+downloaded the first time a DataFrame SQL cell runs, and asking for the
+functions never downloads it: until that first run these cells offer no
+functions, and after it they offer DuckDB's built-ins. The list is read once
+per app run.
 
 - **Cell names.** Every SQL cell has a name, shown in its header and edited
   there with a click: letters, digits and `_`, starting with a letter or `_`,

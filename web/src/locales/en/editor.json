@@ -41,5 +41,7 @@
     "runTip": "Run only this statement",
     "plan": "Plan",
     "planTip": "Estimated execution plan of this statement, without running it"
-  }
+  },
+  "functionOverloads_one": "+{{count}} overload",
+  "functionOverloads_other": "+{{count}} overloads"
 }

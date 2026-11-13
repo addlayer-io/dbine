@@ -164,21 +164,36 @@ completed as keywords, not as functions.
   the `.q` functions and the user's functions by namespace (`.u.upd`). The
   q-sql and control words stay keywords.
 
-Engines with no catalog (and Elasticsearch, OpenSearch and Open Distro in their
+- **SQL lines of the Elasticsearch, OpenSearch, Open Distro and Solr
+  consoles.** A line starting with `SELECT`, `SHOW`, `DESCRIBE` or `DESC`
+  starts an SQL statement, which ends where the console ends it (a blank line,
+  a `;` or the next request line). Inside it, the engine's SQL functions are
+  offered by the SQL rules above, with strings and comments found by scanning
+  the text, and the JSON suggestions (operators, function queries) are not.
+  Those SQL functions never appear in the JSON lines. In a string, a backslash
+  escapes a quote only when a letter or digit follows that quote (`'it\'s'`
+  reads as one string); an escaped quote followed by anything else, as in
+  `'say \'hi\' now'`, is misread, and nothing is offered after it in that
+  statement. On Solr the SQL functions exist only on SolrCloud, and only when
+  its `/sql` handler loads.
+- **DataFrame SQL notebook cells.** They have no connection, so their
+  functions are DuckDB's, read from the DuckDB DBine keeps on the computer.
+  That DuckDB is downloaded the first time a DataFrame SQL cell runs; asking
+  for the functions never downloads it. Until then these cells offer no
+  functions, and after that run they offer DuckDB's built-ins. The list is
+  read once per app run. See [Notebooks](notebooks.md).
+
+Engines with no catalog (and Elasticsearch's, OpenSearch's and Open Distro's
 JSON lines, which call no functions) get nothing extra; their completion is
 unchanged.
-
-<!-- TODO(#97): the SQL lines of the Elasticsearch, OpenSearch, Open Distro and
-Solr consoles (lines starting with SELECT, SHOW, DESCRIBE or DESC) do not
-complete functions yet; document them here when they do. -->
-<!-- TODO(#97): DataFrame SQL notebook cells do not complete functions yet;
-document them here and in notebooks.md when they do. -->
 
 ### When the list is read
 
 The catalog is read **once per connection and database**, the first time the
-editor needs it, and kept while the app runs. A reconnect reads it again, so
-functions created or dropped meanwhile show up. Reading is one request to the
+editor needs it, and kept while the app runs. It is dropped when the
+connection disconnects, reconnects, is edited or is deleted, and the next
+request reads it again, so functions created or dropped meanwhile show up. Each
+database has its own list: the editor reads the one of the database it is on. Reading is one request to the
 server (never one per function), and if it fails the editor falls back to the
 documentation catalog instead of showing an error. Connections through the
 Enterprise gateway get no functions yet

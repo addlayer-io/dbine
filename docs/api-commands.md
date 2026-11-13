@@ -714,3 +714,25 @@ Event: `datagen-progress`, with `{ id, rows, total }`. Cancel:
 - `notebook_open_link` opens only `http`, `https` and `mailto` addresses.
 - Opening a `.ipynb` from the system (`open_file`, `open_files_take`) returns
   `{ kind: "notebook", path }` and creates no connection.
+
+## Function completion ([`query-editor.md`](query-editor.md#function-completion))
+
+| Command | args | Returns |
+|---|---|---|
+| `function_catalog` | `{ connection_id, database? }` | `FunctionInfo[]` |
+| `local_function_catalog` | none | `FunctionInfo[]` |
+
+- `FunctionInfo`: `{ name, kind, args, returns, description, schema, language }`.
+  `kind` is `Scalar`, `Aggregate`, `Window`, `Table`, `Operator` or `Command`.
+  `language` is empty for the editor's own language; the SQL lines of the
+  Elasticsearch, OpenSearch, Open Distro and Solr consoles carry `sql`.
+- `function_catalog` returns the connection's functions for that database (an
+  absent or empty `database` is the connection's default). An engine without a
+  catalog returns an empty list, not an error. The list is kept per connection
+  and database until the connection disconnects, reconnects, is edited or is
+  deleted. The read runs on the database's metadata session with a 30 s limit;
+  one that runs out of time leaves an empty list until the connection
+  reconnects.
+- `local_function_catalog` returns DuckDB's functions for the notebooks'
+  DataFrame SQL cells. It never downloads DuckDB: the list is empty until
+  DuckDB is on the computer, and is read once per app run after that.
