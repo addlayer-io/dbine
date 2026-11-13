@@ -1837,6 +1837,25 @@ impl Session for OdbcSession {
 
     async fn stop_job(&mut self, id: &str) -> Result<()> {
         let (preset, id) = (self.preset, id.to_string());
+        // Db2 for z/OS's ADMIN_TASK_CANCEL answers its return code and
+        // message through output parameters, which the scheduler's plan
+        // reads: the jobs list's stop is the scheduler's "stop" action.
+        if design::eng(preset) == design::Eng::Db2zos {
+            let manual = self.scheduler_tx()?;
+            let ctx = self.jobs_ctx();
+            return self
+                .run(move |c, slot| {
+                    scheduler::action(
+                        preset,
+                        &mut scheduler::Conn::new(ConnSource { c, slot }, manual),
+                        &ctx,
+                        "job",
+                        &id,
+                        scheduler::STOP,
+                    )
+                })
+                .await;
+        }
         self.run(move |c, slot| jobs::stop(preset, &mut ConnSource { c, slot }, &id))
             .await
     }
@@ -1947,6 +1966,44 @@ impl Session for OdbcSession {
                 &mut scheduler::Conn::new(ConnSource { c, slot }, manual),
                 &kind,
                 &id,
+            )
+        })
+        .await
+    }
+
+    async fn scheduler_action_script(
+        &mut self,
+        kind: &str,
+        id: &str,
+        action: &str,
+    ) -> Result<String> {
+        let (preset, ctx) = (self.preset, self.jobs_ctx());
+        let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
+        self.run(move |c, slot| {
+            scheduler::action_script(
+                preset,
+                &mut ConnSource { c, slot },
+                &ctx,
+                &kind,
+                &id,
+                &action,
+            )
+        })
+        .await
+    }
+
+    async fn scheduler_action(&mut self, kind: &str, id: &str, action: &str) -> Result<()> {
+        let manual = self.scheduler_tx()?;
+        let (preset, ctx) = (self.preset, self.jobs_ctx());
+        let (kind, id, action) = (kind.to_string(), id.to_string(), action.to_string());
+        self.run(move |c, slot| {
+            scheduler::action(
+                preset,
+                &mut scheduler::Conn::new(ConnSource { c, slot }, manual),
+                &ctx,
+                &kind,
+                &id,
+                &action,
             )
         })
         .await

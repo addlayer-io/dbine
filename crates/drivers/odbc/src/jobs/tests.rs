@@ -806,6 +806,20 @@ fn db2_zos_tasks_from_the_table_functions() {
     let batch = &l.jobs[0];
     assert_eq!(batch.schedule.as_deref(), Some("INTERVAL 60"));
     assert_eq!(batch.last_outcome, None);
+    // Stop only while it runs (ADMIN_TASK_CANCEL, which the session runs
+    // through the scheduler's plan).
+    assert!(!reorg.running && !reorg.can_stop);
+    let mut f = zos_fake();
+    if let Some((_, Reply::Rows(s))) = f
+        .replies
+        .iter_mut()
+        .find(|(k, _)| *k == super::db2::fixtures::ZOS_STATUS)
+    {
+        s.rows[0][1] = Some("RUNNING".into());
+    }
+    let l = list(preset("db2zos"), &mut f, &ctx("")).unwrap();
+    let reorg = &l.jobs[1];
+    assert!(reorg.running && reorg.can_stop);
 
     let mut f = zos_fake();
     let d = detail(preset("db2zos"), &mut f, &ctx(""), "BATCH").unwrap();

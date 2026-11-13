@@ -358,7 +358,7 @@ pub fn runs(src: &mut dyn JobSource, id: &str, limit: u32) -> Result<Vec<JobRun>
     Ok(out)
 }
 
-pub fn run(src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<()> {
+pub(crate) fn run(src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<Control> {
     if !in_sysadmin(ctx) {
         return Err(Error::Unsupported(
             "«ejecutar ahora» usa exectask_async, que solo se puede llamar con la conexión abierta en la base sysadmin"
@@ -367,11 +367,10 @@ pub fn run(src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<()> {
     }
     let s = one(src, id)?;
     let name = s.get(0, "tk_name").ok_or_else(|| not_found(id))?;
-    src.query(
-        &format!("EXECUTE FUNCTION exectask_async({})", lit(name)),
-        &[],
-    )
-    .map(|_| ())
+    Ok(Control::query(format!(
+        "EXECUTE FUNCTION exectask_async({})",
+        lit(name)
+    )))
 }
 
 pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {

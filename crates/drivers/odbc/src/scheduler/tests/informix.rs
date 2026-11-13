@@ -35,20 +35,30 @@ const COLS: &[&str] = &[
 
 /// [`base`] with a login that is DBA of sysadmin (it may write).
 fn server() -> Fake {
-    base().rows("sysadmin:sysusers", &["usertype"], vec![vec![Some("D")]])
+    server_as("mon_users")
+}
+
+/// [`server`] with task 7 named `name` (`my_users`: a user's, not one
+/// Informix ships).
+fn server_as(name: &'static str) -> Fake {
+    base_as(name).rows("sysadmin:sysusers", &["usertype"], vec![vec![Some("D")]])
 }
 
 /// Task 7, `mon_users`: a built-in sensor every 4 hours on weekdays, with
 /// one parameter; groups MISC and PERFORMANCE; databases sysadmin and
 /// ventas. The login's privileges aren't answered.
 fn base() -> Fake {
+    base_as("mon_users")
+}
+
+fn base_as(name: &'static str) -> Fake {
     Fake::default()
         .rows(
             "WHERE t.tk_id = 7",
             COLS,
             vec![vec![
                 Some("7"),
-                Some("mon_users"),
+                Some(name),
                 Some("SENSOR"),
                 Some("PERFORMANCE"),
                 Some("Usuarios"),
@@ -81,7 +91,7 @@ fn base() -> Fake {
             &["name", "task_name", "value", "value_type", "description"],
             vec![vec![
                 Some("MAX_USERS"),
-                Some("mon_users"),
+                Some(name),
                 Some("100"),
                 Some("NUMERIC"),
                 Some("tope"),
@@ -117,7 +127,19 @@ fn new_task(over: Value, lists: Value) -> FormValues {
 }
 
 fn mon_users(over: Value, thresholds: Value) -> FormValues {
-    let f = form(preset("informix"), &mut server(), &ctx(), "job", Some("7")).unwrap();
+    task7("mon_users", over, thresholds)
+}
+
+/// Task 7's form (named `name`) with `over` on top.
+fn task7(name: &'static str, over: Value, thresholds: Value) -> FormValues {
+    let f = form(
+        preset("informix"),
+        &mut server_as(name),
+        &ctx(),
+        "job",
+        Some("7"),
+    )
+    .unwrap();
     let mut v = serde_json::to_value(&f.values).unwrap();
     for (k, x) in over.as_object().unwrap() {
         v[k] = x.clone();
@@ -130,7 +152,18 @@ fn kept() -> Value {
 }
 
 fn edit(v: &FormValues) -> String {
-    script(preset("informix"), &mut server(), "job", Some("7"), v).unwrap()
+    edit_as("mon_users", v)
+}
+
+fn edit_as(name: &'static str, v: &FormValues) -> String {
+    script(
+        preset("informix"),
+        &mut server_as(name),
+        "job",
+        Some("7"),
+        v,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -253,26 +286,36 @@ UPDATE sysadmin:ph_task SET
 
 #[test]
 fn a_new_name_moves_its_parameters_and_their_changes_follow() {
-    let v = mon_users(
-        json!({"name": "mon_users2"}),
+    let v = task7(
+        "my_users",
+        json!({"name": "my_users2"}),
         json!([
             {"name": "MAX_USERS", "value": "200", "value_type": "NUMERIC", "description": "tope"},
             {"name": "MIN_USERS", "value": "1", "value_type": "NUMERIC", "description": ""}
         ]),
     );
-    let s = edit(&v);
+    let s = edit_as("my_users", &v);
     let lines: Vec<&str> = s.lines().collect();
-    assert!(lines.contains(&"    tk_name = 'mon_users2'"), "{s}");
+    assert!(lines.contains(&"    tk_name = 'my_users2'"), "{s}");
     let moved = s
-        .find("UPDATE sysadmin:ph_threshold SET task_name = 'mon_users2' WHERE task_name = 'mon_users';")
+        .find("UPDATE sysadmin:ph_threshold SET task_name = 'my_users2' WHERE task_name = 'my_users';")
         .unwrap();
     let changed = s
-        .find("UPDATE sysadmin:ph_threshold SET value = '200', value_type = 'NUMERIC', description = 'tope' WHERE task_name = 'mon_users2' AND name = 'MAX_USERS';")
+        .find("UPDATE sysadmin:ph_threshold SET value = '200', value_type = 'NUMERIC', description = 'tope' WHERE task_name = 'my_users2' AND name = 'MAX_USERS';")
         .unwrap();
     let added = s
-        .find("INSERT INTO sysadmin:ph_threshold (name, task_name, value, value_type, description) VALUES ('MIN_USERS', 'mon_users2', '1', 'NUMERIC', '');")
+        .find("INSERT INTO sysadmin:ph_threshold (name, task_name, value, value_type, description) VALUES ('MIN_USERS', 'my_users2', '1', 'NUMERIC', '');")
         .unwrap();
     assert!(moved < changed && changed < added, "{s}");
+    // A task Informix ships keeps its name (its form has it read-only).
+    let m = refused(script(
+        preset("informix"),
+        &mut server(),
+        "job",
+        Some("7"),
+        &mon_users(json!({"name": "mon_users2"}), kept()),
+    ));
+    assert!(m.contains("no se borran ni cambian de nombre"), "{m}");
     // A parameter taken out is deleted.
     let s = edit(&mon_users(json!({}), json!([])));
     assert!(s.contains(
@@ -307,18 +350,24 @@ UPDATE sysadmin:ph_task SET
 
 #[test]
 fn delete_takes_its_parameters_and_runs_and_clear_only_the_runs() {
-    let mut f = server();
+    let mut f = server_as("my_users");
     assert_eq!(
         delete_script(preset("informix"), &mut f, "job", "7").unwrap(),
-        "-- Borra la tarea «mon_users» del planificador de Informix, con sus parámetros y sus ejecuciones (las alertas quedan)
-DELETE FROM sysadmin:ph_threshold WHERE task_name = 'mon_users';
+        "-- Borra la tarea «my_users» del planificador de Informix, con sus parámetros y sus ejecuciones (las alertas quedan)
+DELETE FROM sysadmin:ph_threshold WHERE task_name = 'my_users';
 DELETE FROM sysadmin:ph_run WHERE run_task_id = 7;
 DELETE FROM sysadmin:ph_task WHERE tk_id = 7;
 "
     );
-    let mut f = server();
+    let mut f = server_as("my_users");
     delete(preset("informix"), &mut f, "job", "7").unwrap();
     assert_eq!(f.tx, ["begin", "commit"]);
+    // A task Informix ships isn't deleted (it's disabled instead).
+    let mut f = server();
+    let m = refused(delete_script(preset("informix"), &mut f, "job", "7"));
+    assert!(m.contains("se deshabilitan"), "{m}");
+    assert!(delete(preset("informix"), &mut server(), "job", "7").is_err());
+    // Its runs are cleared like any task's.
     let mut f = server();
     clear_history(preset("informix"), &mut f, "7").unwrap();
     assert!(f.sent("DELETE FROM sysadmin:ph_run WHERE run_task_id = 7"));
@@ -424,33 +473,50 @@ fn groups_are_created_renamed_with_their_tasks_and_deleted_when_empty() {
 INSERT INTO sysadmin:ph_group (group_name, group_description) VALUES ('BACKUPS', 'copias');
 "
     );
-    let one = || {
-        server().rows(
-            "ph_group WHERE group_name = ?",
-            &["group_name", "group_description"],
-            vec![vec![Some("MISC"), Some("varios")]],
-        )
+    let group = |name: &'static str| {
+        move || {
+            server()
+                .rows(
+                    "ph_group WHERE group_name = ?",
+                    &["group_name", "group_description"],
+                    vec![vec![Some(name), Some("varios")]],
+                )
+                // mon_users (built in) is in PERFORMANCE; purge (a user's)
+                // in LIMPIEZA.
+                .rows(
+                    "SELECT tk_group, tk_name FROM sysadmin:ph_task",
+                    &["tk_group", "tk_name"],
+                    vec![
+                        vec![Some("PERFORMANCE"), Some("mon_users")],
+                        vec![Some("LIMPIEZA"), Some("purge")],
+                    ],
+                )
+        }
     };
+    let one = group("LIMPIEZA");
     let s = script(
         preset("informix"),
         &mut one(),
         "group",
-        Some("MISC"),
-        &fv(json!({"name": "MISC", "description": "otros"}), json!({})),
+        Some("LIMPIEZA"),
+        &fv(
+            json!({"name": "LIMPIEZA", "description": "otros"}),
+            json!({}),
+        ),
     )
     .unwrap();
     assert!(s.contains(
-        "UPDATE sysadmin:ph_group SET group_description = 'otros' WHERE group_name = 'MISC';"
+        "UPDATE sysadmin:ph_group SET group_description = 'otros' WHERE group_name = 'LIMPIEZA';"
     ));
-    let p = e::alter_group_plan(("MISC", "varios"), "VARIOS", "varios");
+    let p = e::alter_group_plan(("LIMPIEZA", "varios"), "VARIOS", "varios");
     assert!(p.atomic);
     let s = p.script();
     let ins = s.find("INSERT INTO sysadmin:ph_group (group_name, group_description) VALUES ('VARIOS', 'varios');").unwrap();
     let mv = s
-        .find("UPDATE sysadmin:ph_task SET tk_group = 'VARIOS' WHERE tk_group = 'MISC';")
+        .find("UPDATE sysadmin:ph_task SET tk_group = 'VARIOS' WHERE tk_group = 'LIMPIEZA';")
         .unwrap();
     let del = s
-        .find("DELETE FROM sysadmin:ph_group WHERE group_name = 'MISC';")
+        .find("DELETE FROM sysadmin:ph_group WHERE group_name = 'LIMPIEZA';")
         .unwrap();
     assert!(ins < mv && mv < del, "{s}");
     // In use: refused; empty: deleted.
@@ -459,27 +525,134 @@ INSERT INTO sysadmin:ph_group (group_name, group_description) VALUES ('BACKUPS',
         &["tk_name"],
         vec![vec![Some("purge")]],
     );
-    assert!(
-        refused(delete_script(preset("informix"), &mut f, "group", "MISC"))
-            .contains("pasalas a otro grupo")
-    );
+    assert!(refused(delete_script(
+        preset("informix"),
+        &mut f,
+        "group",
+        "LIMPIEZA"
+    ))
+    .contains("pasalas a otro grupo"));
     assert_eq!(
-        delete_script(preset("informix"), &mut one(), "group", "MISC").unwrap(),
-        "-- Borra el grupo «MISC» del planificador de Informix\nDELETE FROM sysadmin:ph_group WHERE group_name = 'MISC';\n"
+        delete_script(preset("informix"), &mut one(), "group", "LIMPIEZA").unwrap(),
+        "-- Borra el grupo «LIMPIEZA» del planificador de Informix\nDELETE FROM sysadmin:ph_group WHERE group_name = 'LIMPIEZA';\n"
     );
     let f = form(
         preset("informix"),
         &mut one(),
         &ctx(),
         "group",
-        Some("MISC"),
+        Some("LIMPIEZA"),
     )
     .unwrap();
     well_formed(&f);
     assert_eq!(val(&f, "description"), "varios");
-    let l = items(preset("informix"), &mut server(), &ctx(), "group").unwrap();
+    assert!(!f.read_only && f.notes.is_empty());
+
+    // The server's groups (MISC, and one with a built-in task) are only
+    // read: not changed, renamed nor deleted, even when empty.
+    for name in ["MISC", "PERFORMANCE"] {
+        let g = group(name);
+        let f = form(preset("informix"), &mut g(), &ctx(), "group", Some(name)).unwrap();
+        assert!(
+            f.read_only && f.notes[0].contains("grupo del servidor"),
+            "{name}"
+        );
+        let m = refused(script(
+            preset("informix"),
+            &mut g(),
+            "group",
+            Some(name),
+            &fv(json!({"name": name, "description": "otros"}), json!({})),
+        ));
+        assert!(m.contains("no se cambian ni se borran"), "{name}: {m}");
+        assert!(
+            refused(delete_script(preset("informix"), &mut g(), "group", name))
+                .contains("no se cambian ni se borran")
+        );
+        // Unchanged, it's no change at all.
+        assert!(script(
+            preset("informix"),
+            &mut g(),
+            "group",
+            Some(name),
+            &fv(json!({"name": name, "description": "varios"}), json!({})),
+        )
+        .unwrap()
+        .contains("no hay cambios"));
+    }
+    let l = items(
+        preset("informix"),
+        &mut group("LIMPIEZA")(),
+        &ctx(),
+        "group",
+    )
+    .unwrap();
     assert_eq!(l.items.len(), 2);
     assert_eq!(l.items[0].description.as_deref(), Some("varios"));
+    // The fixture lists MISC and PERFORMANCE: both the server's.
+    for i in &l.items {
+        assert!(i.system, "{}", i.name);
+        assert_eq!((i.can_edit, i.can_delete), (Some(false), Some(false)));
+        assert_eq!(i.actions, None);
+    }
+}
+
+#[test]
+fn a_task_runs_now_and_built_in_ones_keep_their_name() {
+    let p = preset("informix");
+    let i = info(p, &mut server(), &ctx()).unwrap();
+    let keys: Vec<&str> = i.kinds[0].actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, ["run"]);
+    assert!(i.kinds[0].clear_history && !i.kinds[0].run_from_step);
+    assert!(i.kinds[1].actions.is_empty() && !i.kinds[1].clear_history);
+    assert_eq!(
+        action_script(p, &mut server(), &ctx(), "job", "7", "run").unwrap(),
+        "-- Ejecuta la tarea ahora, en segundo plano (exectask_async), fuera de su programación.\nEXECUTE FUNCTION exectask_async('mon_users');\n"
+    );
+    let mut f = server();
+    action(p, &mut f, &ctx(), "job", "7", "run").unwrap();
+    assert!(f.sent("EXECUTE FUNCTION exectask_async('mon_users')"));
+    // sysadmin's functions answer only a session connected to sysadmin.
+    let other = Ctx {
+        database: "ventas".into(),
+    };
+    assert!(matches!(
+        action_script(p, &mut server(), &other, "job", "7", "run"),
+        Err(Error::Unsupported(m)) if m.contains("sysadmin")
+    ));
+    for (kind, act) in [("job", "stop"), ("group", "run")] {
+        assert!(matches!(
+            action_script(p, &mut server(), &ctx(), kind, "7", act),
+            Err(Error::Unsupported(_))
+        ));
+    }
+    // A built-in task: its name is read only, the rest is tuned.
+    let f = form(p, &mut server(), &ctx(), "job", Some("7")).unwrap();
+    well_formed(&f);
+    let name = &f.sections[0].fields[0];
+    assert!(name.key == "name" && name.read_only);
+    assert!(!f.read_only);
+    let s = edit(&mon_users(json!({"frequency": 3600}), kept()));
+    assert!(
+        s.contains("tk_frequency = INTERVAL(0 01:00:00) DAY TO SECOND"),
+        "{s}"
+    );
+    let f = form(p, &mut server_as("my_users"), &ctx(), "job", Some("7")).unwrap();
+    assert!(!f.sections[0].fields[0].read_only);
+    // The schedule tab only for timed types; the sensor tab only for
+    // sensors.
+    let tab = |k: &str| f.sections.iter().find(|s| s.key == k).unwrap().when.clone();
+    assert_eq!(
+        tab("schedule"),
+        Some(("type".into(), vec!["TASK".into(), "SENSOR".into()]))
+    );
+    assert_eq!(
+        tab("sensor"),
+        Some((
+            "type".into(),
+            vec!["SENSOR".into(), "STARTUP SENSOR".into()]
+        ))
+    );
 }
 
 #[test]

@@ -33,6 +33,134 @@ fn no_engine_here_starts_a_job_at_a_step() {
 }
 
 #[test]
+fn each_kind_offers_what_its_engine_documents() {
+    // (preset, kind, actions, clear history); every other kind of these
+    // engines offers nothing.
+    let table: &[(&str, &str, &[&str], bool)] = &[
+        ("db2", "job", &[], true),
+        ("db2zos", "job", &["stop"], false),
+        ("db2i", "job", &[], false),
+        ("informix", "job", &["run"], true),
+        ("gbase8s", "job", &["run"], true),
+        ("informix", "group", &[], false),
+        ("hive", "job", &["run", "stop"], false),
+        ("cloudera", "job", &["run", "stop"], false),
+        ("vertica", "job", &["run"], false),
+        ("vertica", "schedule", &[], false),
+        ("sybase", "job", &["run", "stop"], true),
+        ("sybase", "jobdef", &[], false),
+        ("sybase", "schedule", &[], false),
+        ("sqlanywhere", "job", &["run"], false),
+        ("iris", "job", &[], false),
+        ("cache", "job", &[], false),
+        ("dameng", "job", &["run", "stop"], true),
+        ("dameng", "dbms_job", &["run", "stop"], true),
+        ("dameng", "scheduler_job", &["run", "stop"], true),
+        ("dameng", "operator", &[], false),
+        ("dameng", "alert", &[], false),
+        ("altibase", "job", &[], false),
+        ("virtuoso", "job", &[], false),
+    ];
+    for (id, kind, actions, clear) in table {
+        let o = offers(preset(id), kind);
+        assert_eq!(o.actions, *actions, "{id} {kind}");
+        assert_eq!(o.clear_history, *clear, "{id} {kind}");
+    }
+    // An engine without actions refuses any, before the server.
+    for (id, kind) in [
+        ("db2", "job"),
+        ("db2i", "job"),
+        ("iris", "job"),
+        ("altibase", "job"),
+        ("virtuoso", "job"),
+    ] {
+        for act in ["run", "stop"] {
+            let mut f = Fake::default();
+            assert!(
+                matches!(
+                    action_script(preset(id), &mut f, &ctx(), kind, "1", act),
+                    Err(Error::Unsupported(_))
+                ),
+                "{id} {act}"
+            );
+            assert!(f.log.is_empty(), "{id} {act}");
+        }
+    }
+    // A kind the engine lacks, before the server too.
+    let mut f = Fake::default();
+    assert!(refused(action_script(
+        preset("hive"),
+        &mut f,
+        &ctx(),
+        "group",
+        "1",
+        "run"
+    ))
+    .contains("no es un tipo de objeto"));
+    assert!(f.log.is_empty());
+}
+
+#[test]
+fn an_item_offers_what_it_can_now_and_hides_what_cant_change() {
+    let job = |name: &str| dbine_driver::ServerJob {
+        id: "1".into(),
+        name: name.into(),
+        enabled: true,
+        ..Default::default()
+    };
+    // Run where the list says it runs; stop while it runs.
+    let mut j = job("a");
+    j.can_run = true;
+    let i = job_item(preset("sybase"), "job", j, true);
+    assert_eq!(i.actions, Some(vec!["run".to_string()]));
+    assert_eq!((i.can_edit, i.can_delete), (None, None));
+    let mut j = job("a");
+    j.can_stop = true;
+    j.running = true;
+    let i = job_item(preset("sybase"), "job", j, true);
+    assert_eq!(i.actions, Some(vec!["stop".to_string()]));
+    // z/OS: stop while it runs, as the jobs list says (both go through
+    // ADMIN_TASK_CANCEL's plan).
+    let mut j = job("BACKUP");
+    j.running = true;
+    j.can_stop = true;
+    let i = job_item(preset("db2zos"), "job", j, false);
+    assert_eq!(i.actions, Some(vec!["stop".to_string()]));
+    assert_eq!(i.enabled, None);
+    let i = job_item(preset("db2zos"), "job", job("BACKUP"), false);
+    assert_eq!(i.actions, Some(Vec::new()));
+    // Without actions in the kind: nothing to say.
+    assert_eq!(
+        job_item(preset("db2"), "job", job("t"), false).actions,
+        None
+    );
+    // Informix's built-in tasks aren't deleted (they're tuned); IBM i's
+    // IBM-supplied entries are only read; a Hive query of another
+    // namespace and another user's Dameng job too.
+    let mut j = job("mon_users");
+    j.system = true;
+    let i = job_item(preset("informix"), "job", j, true);
+    assert!(i.system);
+    assert_eq!((i.can_edit, i.can_delete), (None, Some(false)));
+    let mut j = job("QEZBKTMSUN");
+    j.system = true;
+    let i = job_item(preset("db2i"), "job", j, true);
+    assert_eq!((i.can_edit, i.can_delete), (Some(false), Some(false)));
+    for p in ["hive", "dameng"] {
+        let i = job_item(preset(p), "job", job("x"), true);
+        assert_eq!(
+            (i.can_edit, i.can_delete),
+            (Some(false), Some(false)),
+            "{p}"
+        );
+        let mut j = job("x");
+        j.can_enable = true;
+        let i = job_item(preset(p), "job", j, true);
+        assert_eq!((i.can_edit, i.can_delete), (None, None), "{p}");
+    }
+}
+
+#[test]
 fn a_kind_the_engine_lacks_is_refused_before_the_server() {
     for (id, kind) in [
         ("db2", "schedule"),

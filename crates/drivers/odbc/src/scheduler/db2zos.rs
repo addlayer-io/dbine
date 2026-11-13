@@ -20,7 +20,13 @@
 //! goes as a bound parameter, never in the statement's text (which Db2
 //! keeps in its dynamic statement cache), and the script shows it masked.
 //! `DSNADM.ADMIN_TASK_STATUS()` is the log; the scheduler has no call that
-//! clears a task's status.
+//! clears a task's status. `ADMIN_TASK_CANCEL` stops a running task (the
+//! "stop" action, and the jobs list's), answering the same return code
+//! and message; there is no call that runs one now. Only the task's
+//! creator or a user with SYSOPR, SYSADM or SYSCTRL updates, removes or
+//! cancels it: another user's task says so in its form, but stays
+//! editable, since that authority (installation parameters, secondary
+//! IDs, an external security product) can't be read reliably from SQL.
 
 use super::*;
 use crate::jobs::db2::{NOW, NO_READ, NO_ZOS_ATS, NO_ZOS_STATUS, ZOS_LIST, ZOS_STATUS};
@@ -305,8 +311,10 @@ pub(super) fn sections(existing: bool) -> Vec<FormSection> {
             )
             .when("trigger", &["task"])
             .help("Para un procedimiento se compara su SQLCODE; para un JCL, el código de retorno más alto."),
+            // The code goes with a condition only.
             FormField::new("trigger_task_code", "Código", FormKind::number(None, None))
-                .when("trigger", &["task"]),
+                .when("trigger", &["task"])
+                .and_when("trigger_task_cond", CONDS),
             FormField::new("begin", "Inicio", FormKind::DateTime).help(
                 "La primera vez que puede correr, en la hora del servidor. Vacío: desde ya.",
             ),
@@ -370,6 +378,12 @@ pub(super) fn form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectFo
     let mut notes = vec![PASSWORD_NOTE.to_string()];
     if let Some(r) = r {
         notes.insert(0, RECREATE.to_string());
+        if let Some(creator) = s.get(r, "CREATOR").filter(|c| added_by_another(src, c)) {
+            notes.insert(
+                0,
+                format!("La agregó {creator}: Db2 for z/OS solo deja cambiarla, borrarla o detenerla a quien la agregó o a quien tenga SYSOPR, SYSADM o SYSCTRL; si no es tu caso, el servidor lo rechaza (código de retorno 12)."),
+            );
+        }
         v.insert("creator".into(), jtext(s.get(r, "CREATOR")));
         v.insert("last_modified".into(), jtext(s.get(r, "LAST_MODIFIED")));
         if let Ok(st) = src.query(&format!("{ZOS_STATUS} WHERE S.TASK_NAME = ?"), &[&t.name]) {
@@ -388,6 +402,29 @@ pub(super) fn form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectFo
         notes,
         read_only: false,
     })
+}
+
+/// The session's authorization IDs.
+const WHOAMI: &str =
+    "SELECT CURRENT SQLID AS SQLID, SESSION_USER AS SESSION_USER FROM SYSIBM.SYSDUMMY1";
+
+/// Task `creator` was added by someone other than the session (neither its
+/// SQLID nor its user), best effort: false when they can't be read. Only
+/// a note comes of it: whether the session may still change, remove or
+/// cancel the task (SYSOPR, SYSADM or SYSCTRL, which may come from the
+/// installation parameters, a secondary ID or an external security
+/// product) can't be read reliably from SQL, so the server decides.
+fn added_by_another(src: &mut dyn JobSource, creator: &str) -> bool {
+    let Ok(s) = src.query(WHOAMI, &[]) else {
+        return false;
+    };
+    let me: Vec<String> = ["SQLID", "SESSION_USER"]
+        .iter()
+        .filter_map(|c| s.get(0, c))
+        .map(|v| v.trim().to_ascii_uppercase())
+        .filter(|v| !v.is_empty())
+        .collect();
+    !me.is_empty() && !me.contains(&creator.trim().to_ascii_uppercase())
 }
 
 /// A data set name: qualifiers of 1 to 8 of A–Z, 0–9, `@ # $ -`, not
@@ -844,6 +881,28 @@ pub(super) fn drop_plan(name: &str) -> Plan {
 pub(super) fn delete_plan(src: &mut dyn JobSource, id: &str) -> Result<Plan> {
     let (t, _, _) = read(src, id)?;
     Ok(drop_plan(&t.name))
+}
+
+/// Stops task `name`'s run: `ADMIN_TASK_CANCEL` cancels the Db2 thread or
+/// the JES job it runs in, called on the member that runs it.
+pub(super) fn stop_plan(name: &str) -> Plan {
+    let mut p = Plan::new(&format!(
+        "Detiene la ejecución en curso de la tarea «{name}»: ADMIN_TASK_CANCEL cancela el thread de Db2 o el job de JES en que corre."
+    ));
+    p.comment("Se llama en el miembro que la ejecuta (DB2_SSID de su estado). Pide MONITOR1, y para cancelar el thread o el job, autoridad para CANCEL THREAD o sobre MVS.CANCEL.JOB.");
+    p.comment(&markers_note(false, None));
+    p.call_out(
+        call("ADMIN_TASK_CANCEL", vec![lit(name), "?".into(), "?".into()]),
+        vec![Param::Out, Param::Out],
+        check,
+    );
+    p
+}
+
+/// The stop of task `id`, which has to exist.
+pub(super) fn cancel_plan(src: &mut dyn JobSource, id: &str) -> Result<Plan> {
+    let (t, _, _) = read(src, id)?;
+    Ok(stop_plan(&t.name))
 }
 
 pub(super) fn logs(src: &mut dyn JobSource) -> Result<Vec<MonitorTable>> {

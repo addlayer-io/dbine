@@ -302,16 +302,18 @@ fn managed(src: &mut dyn JobSource, id: &str) -> Result<(String, Set)> {
     Ok((lit(&dotted(&owner, &name, true)), s))
 }
 
-pub(super) fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(super) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let (job, _) = managed(src, id)?;
-    src.exec(&format!("CALL DBMS_SCHEDULER.RUN_JOB({job}, FALSE)"), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!(
+        "CALL DBMS_SCHEDULER.RUN_JOB({job}, FALSE)"
+    )))
 }
 
-pub(super) fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(super) fn stop(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let (job, _) = managed(src, id)?;
-    src.exec(&format!("CALL DBMS_SCHEDULER.STOP_JOB({job})"), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!(
+        "CALL DBMS_SCHEDULER.STOP_JOB({job})"
+    )))
 }
 
 pub(super) fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {

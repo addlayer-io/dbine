@@ -232,11 +232,10 @@ pub fn detail(src: &mut dyn JobSource, id: &str) -> Result<JobDetail> {
     })
 }
 
-pub fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let s = one(src, id)?;
     let name = s.get(0, "event_name").ok_or_else(|| not_found(id))?;
-    src.exec(&format!("TRIGGER EVENT {}", q(name)), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!("TRIGGER EVENT {}", q(name))))
 }
 
 pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {

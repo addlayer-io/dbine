@@ -34,7 +34,12 @@
 //!   DELETE on `DB.DBA.SYS_SCHEDULED_EVENT`.
 //!
 //! The job kind is "job" everywhere and its ids are the ones
-//! [`crate::jobs`] gives the same objects. Every save is a [`Plan`]: the
+//! [`crate::jobs`] gives the same objects. What else a kind offers ("run",
+//! "stop", clearing the history) is [`offers`], from each engine's
+//! documentation; an action's script is the statement the jobs list runs
+//! for the same thing, shown and confirmed first. Objects the engine
+//! ships or another user owns say what can't be done on them
+//! ([`job_item`]). Every save is a [`Plan`]: the
 //! script the designer shows, step by step, run in one transaction where
 //! the engine's changes are transactional (Db2 LUW, Informix, Dameng,
 //! Virtuoso). Values and
@@ -67,8 +72,8 @@ use crate::jobs::{self, JobSource};
 use crate::monitor::Set;
 use crate::presets::Preset;
 use dbine_driver::{
-    Error, FormValues, MonitorTable, ObjectForm, Result, SchedulerInfo, SchedulerItem,
-    SchedulerList,
+    Error, FormValues, MonitorTable, ObjectForm, Result, SchedulerAction, SchedulerInfo,
+    SchedulerItem, SchedulerList,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -109,7 +114,7 @@ fn unsupported(p: &Preset) -> Error {
 // ---------------------------------------------------------------------------
 
 pub fn info(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx) -> Result<SchedulerInfo> {
-    match eng(p) {
+    let mut info = match eng(p) {
         Eng::Db2 => db2::info(src),
         Eng::Db2zos => db2zos::info(src),
         Eng::Db2i => db2i::info(src),
@@ -123,7 +128,198 @@ pub fn info(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx) -> Result<SchedulerI
         Eng::Altibase => altibase::info(src),
         Eng::Virtuoso => virtuoso::info(src),
         _ => Err(unsupported(p)),
+    }?;
+    for k in &mut info.kinds {
+        let o = offers(p, &k.key);
+        k.actions = o.actions.iter().map(|a| action_of(a)).collect();
+        k.clear_history = o.clear_history;
+        // No engine of this family starts a job at one of its steps.
+        k.run_from_step = false;
     }
+    Ok(info)
+}
+
+// ---------------------------------------------------------------------------
+// What each kind offers besides create, edit and delete
+// ---------------------------------------------------------------------------
+
+/// "Ejecutar ahora": the job runs now, outside its schedule.
+pub(crate) const RUN: &str = "run";
+/// "Detener": its current run stops.
+pub(crate) const STOP: &str = "stop";
+
+/// What a kind offers: its actions' keys and whether its objects' run
+/// history can be deleted ([`clear_history`]). None of these engines
+/// starts a job at a step (most have one; Dameng always starts at the
+/// first).
+pub(crate) struct Offers {
+    pub(crate) actions: &'static [&'static str],
+    pub(crate) clear_history: bool,
+}
+
+/// Each engine's kinds, from its documentation:
+///
+/// - Db2 LUW: no run now, stop or enable (tasks run on their schedule
+///   only); `ADMIN_TASK_REMOVE` with an end time deletes the status
+///   records up to it and keeps the task.
+/// - Db2 for z/OS: no run now; `ADMIN_TASK_CANCEL` stops a running task;
+///   nothing clears its status.
+/// - Db2 for i: the scheduler doesn't submit an entry from SQL (option 10
+///   of WRKJOBSCDE has no command) nor stops it; it keeps no history.
+/// - Informix: `exectask_async` runs a task now; its runs are `ph_run`
+///   rows. Groups have no actions.
+/// - Hive: `ALTER SCHEDULED QUERY … EXECUTE` runs one now, `KILL QUERY`
+///   stops its executions; the metastore ages them out on its own.
+/// - Vertica: `EXECUTE_TRIGGER` runs a trigger's procedure now; no stop,
+///   no history. Schedules have no actions.
+/// - SAP ASE: `sp_sjobcontrol` `run_now` and `terminate` on a scheduled
+///   job; `sp_sjobhistory … drop` clears its history.
+/// - SQL Anywhere: `TRIGGER EVENT`; events keep no history.
+/// - IRIS: read only (ObjectScript runs and suspends tasks).
+/// - Dameng: `SP_DBMS_JOB_RUN_ASYNC` / `SP_STOP_RUNNING_JOB` and
+///   `SP_JOB_CLEAR_HISTORIES` (job system and DBMS_JOB);
+///   `DBMS_SCHEDULER.RUN_JOB` / `STOP_JOB` / `PURGE_LOG`.
+/// - Altibase and Virtuoso: no run now, no stop, only the last run kept.
+pub(crate) fn offers(p: &Preset, kind: &str) -> Offers {
+    let (actions, clear_history): (&'static [&'static str], bool) = match (eng(p), kind.trim()) {
+        (Eng::Db2, "job") => (&[], true),
+        (Eng::Db2zos, "job") => (&[STOP], false),
+        (Eng::Informix, "job") => (&[RUN], true),
+        (Eng::Hive, "job") => (&[RUN, STOP], false),
+        (Eng::Vertica, "job") => (&[RUN], false),
+        (Eng::Ase, "job") => (&[RUN, STOP], true),
+        (Eng::Sqla, "job") => (&[RUN], false),
+        (Eng::Dameng, "job" | "dbms_job" | "scheduler_job") => (&[RUN, STOP], true),
+        _ => (&[], false),
+    };
+    Offers {
+        actions,
+        clear_history,
+    }
+}
+
+/// An action with its label (literals, for the message extractor).
+fn action_of(key: &str) -> SchedulerAction {
+    match key {
+        RUN => SchedulerAction::new("run", "Ejecutar ahora"),
+        _ => SchedulerAction::new("stop", "Detener"),
+    }
+}
+
+/// The kind is one of the engine's (its key parsed as each engine does).
+fn check_kind(p: &Preset, kind: &str) -> Result<()> {
+    match eng(p) {
+        Eng::Db2 => db2::kind(kind),
+        Eng::Db2zos => db2zos::kind(kind),
+        Eng::Db2i => db2i::kind(kind),
+        Eng::Informix => informix::kind(kind).map(|_| ()),
+        Eng::Hive => hive::kind(kind),
+        Eng::Vertica => vertica::kind(kind).map(|_| ()),
+        Eng::Ase => ase::kind(kind).map(|_| ()),
+        Eng::Sqla => sqla::kind(kind),
+        Eng::Iris => iris::kind(kind),
+        Eng::Dameng => dameng::kind(kind).map(|_| ()),
+        Eng::Altibase => altibase::kind(kind),
+        Eng::Virtuoso => virtuoso::kind(kind),
+        _ => Err(unsupported(p)),
+    }
+}
+
+/// The plan of one of the kind's actions on object `id`: the statements
+/// the jobs list runs for the same thing ([`jobs::run`], [`jobs::stop`]),
+/// checked against the server the same way.
+fn action_plan(
+    p: &Preset,
+    src: &mut dyn JobSource,
+    ctx: &Ctx,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<Plan> {
+    check_kind(p, kind)?;
+    let action = action.trim();
+    if !offers(p, kind).actions.contains(&action) {
+        return Err(Error::Unsupported(format!(
+            "«{}» no es una acción de este tipo de objeto del planificador",
+            short(action)
+        )));
+    }
+    if matches!(eng(p), Eng::Dameng) {
+        dameng::check_id(kind, id)?;
+    }
+    if matches!(eng(p), Eng::Db2zos) {
+        return db2zos::cancel_plan(src, id);
+    }
+    let stmts = if action == RUN {
+        jobs::run_stmts(p, src, ctx, id)?
+    } else {
+        jobs::stop_stmts(p, src, id)?
+    };
+    let mut plan = Plan::new(action_note(p, kind, action));
+    plan.go = matches!(eng(p), Eng::Ase | Eng::Sqla);
+    for c in stmts {
+        if c.rows {
+            plan.query(c.sql);
+        } else {
+            plan.exec(c.sql);
+        }
+    }
+    Ok(plan)
+}
+
+/// What the action does, as the script's first line says it.
+fn action_note(p: &Preset, kind: &str, action: &str) -> &'static str {
+    match (eng(p), kind.trim(), action) {
+        (Eng::Informix, _, RUN) => {
+            "Ejecuta la tarea ahora, en segundo plano (exectask_async), fuera de su programación."
+        }
+        (Eng::Hive, _, RUN) => {
+            "Pasa la próxima ejecución de la consulta programada a ahora: la corre el planificador de Hive."
+        }
+        (Eng::Hive, _, _) => "Corta las ejecuciones en curso de la consulta programada (KILL QUERY).",
+        (Eng::Vertica, _, _) => {
+            "Ejecuta ahora el procedimiento del trigger (EXECUTE_TRIGGER), en esta sesión: termina cuando termina el procedimiento."
+        }
+        (Eng::Ase, _, RUN) => "Job Scheduler corre el job programado ahora (run_now).",
+        (Eng::Ase, _, _) => "Job Scheduler corta la ejecución en curso del job programado (terminate).",
+        (Eng::Sqla, _, _) => {
+            "Dispara el evento ahora (TRIGGER EVENT): su acción corre en una conexión propia."
+        }
+        (Eng::Dameng, "scheduler_job", RUN) => {
+            "Ejecuta el job ahora, en segundo plano (RUN_JOB sin la sesión actual)."
+        }
+        (Eng::Dameng, "scheduler_job", _) => {
+            "Detiene la ejecución en curso del job (STOP_JOB); si tiene AUTO_DROP, DM puede borrarlo al detenerlo."
+        }
+        (Eng::Dameng, _, RUN) => "Ejecuta el job ahora, en segundo plano (SP_DBMS_JOB_RUN_ASYNC).",
+        (Eng::Dameng, _, _) => {
+            "Corta la sesión del job en ejecución (SP_STOP_RUNNING_JOB); su programación sigue igual."
+        }
+        _ => "Acción del planificador.",
+    }
+}
+
+pub fn action_script(
+    p: &Preset,
+    src: &mut dyn JobSource,
+    ctx: &Ctx,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<String> {
+    Ok(action_plan(p, src, ctx, kind, id, action)?.script())
+}
+
+pub fn action(
+    p: &Preset,
+    src: &mut dyn Src,
+    ctx: &Ctx,
+    kind: &str,
+    id: &str,
+    action: &str,
+) -> Result<()> {
+    let plan = action_plan(p, src, ctx, kind, id, action)?;
+    execute(src, plan).map(|_| ())
 }
 
 pub fn items(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx, kind: &str) -> Result<SchedulerList> {
@@ -417,19 +613,53 @@ fn job_items(
         items: l
             .jobs
             .into_iter()
-            .map(|j| SchedulerItem {
-                id: j.id,
-                name: j.name,
-                description: j.description,
-                enabled: enabled.then_some(j.enabled),
-                system: j.system,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
-            })
+            .map(|j| job_item(p, "job", j, enabled))
             .collect(),
         notes: l.notes,
     })
+}
+
+/// A job of the jobs list as the tree lists it under kind `kind`: the
+/// actions it offers now (run where the list says it can run, stop while
+/// it runs) and what can't be changed or deleted on it (Informix's
+/// built-in tasks, IBM i's IBM-supplied entries, a Hive query of another
+/// namespace).
+pub(super) fn job_item(
+    p: &Preset,
+    kind: &str,
+    j: dbine_driver::ServerJob,
+    enabled: bool,
+) -> SchedulerItem {
+    let keys = offers(p, kind).actions;
+    let actions = (!keys.is_empty()).then(|| {
+        keys.iter()
+            .filter(|k| match **k {
+                RUN => j.can_run,
+                STOP => j.can_stop,
+                _ => false,
+            })
+            .map(|k| k.to_string())
+            .collect()
+    });
+    let (can_edit, can_delete) = match eng(p) {
+        Eng::Informix if j.system => (None, Some(false)),
+        Eng::Db2i if j.system => (Some(false), Some(false)),
+        // Another namespace's query or a name ALTER can't reach (Hive);
+        // another user's job for someone who isn't a DBA (Dameng): the
+        // jobs list's enable switch is off for the same reason.
+        Eng::Hive | Eng::Dameng if !j.can_enable => (Some(false), Some(false)),
+        _ => (None, None),
+    };
+    SchedulerItem {
+        id: j.id,
+        name: j.name,
+        description: j.description,
+        enabled: enabled.then_some(j.enabled),
+        system: j.system,
+        can_edit,
+        can_delete,
+        actions,
+    }
 }
 
 /// A kind key this engine doesn't have.

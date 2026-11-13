@@ -169,6 +169,31 @@ async fn round_trip(
         form.values.get(changed.0) == Some(&changed.1),
         format!("{} is {:?}", changed.0, form.values.get(changed.0)),
     )?;
+    // Every action the object offers now writes its script (none runs
+    // here: running would start the job on the server).
+    let listed = s.scheduler_items(kind).await.map_err(|e| e.to_string())?;
+    let item = listed
+        .items
+        .iter()
+        .find(|i| i.id == id)
+        .ok_or(format!("{id} isn't listed after the edit"))?;
+    let offered: Vec<String> = match &item.actions {
+        Some(a) => a.clone(),
+        None => info
+            .kinds
+            .iter()
+            .find(|k| k.key == kind)
+            .map(|k| k.actions.iter().map(|a| a.key.clone()).collect())
+            .unwrap_or_default(),
+    };
+    for a in offered {
+        let script = s
+            .scheduler_action_script(kind, &id, &a)
+            .await
+            .map_err(|e| format!("{a}: {e}"))?;
+        println!("{script}");
+        check(script.starts_with("-- "), format!("{a}: {script}"))?;
+    }
     println!(
         "{}",
         s.scheduler_delete_script(kind, &id)
@@ -559,8 +584,10 @@ async fn dameng_jobs_operators_alerts_and_dbms_job() {
             "list:schedules": [{"name": "daily", "type": "1", "start_time": "03:00:00",
                                 "start_date": "2030-01-01T00:00:00"}]
         }),
-        json!({"description": "otra"}),
-        ("description", json!("otra")),
+        // A new name and another change: SP_RENAME_JOB, then SP_ALTER_JOB
+        // under the new name (the same job id).
+        json!({"name": "dbine_test_sched_dm2", "description": "otra"}),
+        ("name", json!("dbine_test_sched_dm2")),
     )
     .await;
     let dbms_job = round_trip(
@@ -573,6 +600,7 @@ async fn dameng_jobs_operators_alerts_and_dbms_job() {
     )
     .await;
     quietly(&mut s, "CALL SP_DROP_JOB('dbine_test_sched_dm')").await;
+    quietly(&mut s, "CALL SP_DROP_JOB('dbine_test_sched_dm2')").await;
     quietly(&mut s, "CALL SP_DROP_OPERATOR('dbine_test_sched_op')").await;
     quietly(
         &mut s,

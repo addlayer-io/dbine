@@ -96,6 +96,111 @@ fn kept_omit() -> Value {
 }
 
 #[test]
+fn an_ibm_supplied_entry_is_only_read() {
+    let p = preset("db2i");
+    // Operational Assistant's Sunday backup, added by the security officer.
+    let mut oa = cleanup("77");
+    oa[1] = Some("QEZBKTMSUN");
+    oa[4] = Some("QSECOFR");
+    // A licensed program's entry: QSYS added it.
+    let mut sys = cleanup("78");
+    sys[1] = Some("PFRCOL");
+    sys[4] = Some("qsys");
+    // A user's own entry whose name begins with Q.
+    let mut quarterly = cleanup("79");
+    quarterly[1] = Some("QUARTERLY");
+    let server = || {
+        Fake::default().rows(
+            "QSYS2.SCHEDULED_JOB_INFO",
+            COLS,
+            vec![cleanup("123"), oa.clone(), sys.clone(), quarterly.clone()],
+        )
+    };
+    let l = items(p, &mut server(), &ctx(), "job").unwrap();
+    for name in ["QEZBKTMSUN", "PFRCOL"] {
+        let ibm = l.items.iter().find(|i| i.name == name).unwrap();
+        assert!(ibm.system, "{name}");
+        assert_eq!((ibm.can_edit, ibm.can_delete), (Some(false), Some(false)));
+    }
+    for name in ["CLEANUP", "QUARTERLY"] {
+        let mine = l.items.iter().find(|i| i.name == name).unwrap();
+        assert!(!mine.system, "{name}");
+        assert_eq!((mine.can_edit, mine.can_delete), (None, None));
+    }
+    // No run now (option 10 of WRKJOBSCDE has no command), no history.
+    let i = info(p, &mut server(), &ctx()).unwrap();
+    assert!(i.kinds[0].actions.is_empty());
+    assert!(!i.kinds[0].clear_history && !i.kinds[0].run_from_step);
+    for id in ["000077/QEZBKTMSUN", "000078/PFRCOL"] {
+        let f = form(p, &mut server(), &ctx(), "job", Some(id)).unwrap();
+        assert!(f.read_only && f.notes[0].contains("trae IBM i"), "{id}");
+        let v = fv(serde_json::to_value(&f.values).unwrap(), json!({}));
+        assert!(refused(script(p, &mut server(), "job", Some(id), &v)).contains("trae IBM i"));
+        assert!(refused(delete_script(p, &mut server(), "job", id)).contains("trae IBM i"));
+    }
+    // The user's Q-named entry is changed and deleted like any other; the
+    // form only says where such a name may come from.
+    let id = "000079/QUARTERLY";
+    let f = form(p, &mut server(), &ctx(), "job", Some(id)).unwrap();
+    assert!(!f.read_only);
+    assert!(f
+        .notes
+        .iter()
+        .any(|n| n.contains("Su nombre empieza con Q")));
+    let mut v = serde_json::to_value(&f.values).unwrap();
+    v["text"] = json!("otra");
+    let s = script(
+        p,
+        &mut server(),
+        "job",
+        Some(id),
+        &fv(v, json!({"omit": kept_omit()})),
+    )
+    .unwrap();
+    assert!(
+        s.contains("CHGJOBSCDE JOB(QUARTERLY) ENTRYNBR(000079) TEXT(''otra'')"),
+        "{s}"
+    );
+    let s = delete_script(p, &mut server(), "job", id).unwrap();
+    assert!(
+        s.contains("RMVJOBSCDE JOB(QUARTERLY) ENTRYNBR(000079)"),
+        "{s}"
+    );
+    // A new entry, or a rename, may take a Q name: the script says IBM's
+    // recommendation and adds it all the same.
+    let s = script(
+        p,
+        &mut server(),
+        "job",
+        None,
+        &new_entry(json!({"name": "qnightly"})),
+    )
+    .unwrap();
+    assert!(
+        s.contains("-- IBM i recomienda dejar los nombres que empiezan con Q"),
+        "{s}"
+    );
+    assert!(s.contains("ADDJOBSCDE JOB(QNIGHTLY)"), "{s}");
+    let s = script(
+        p,
+        &mut server(),
+        "job",
+        Some("000123/CLEANUP"),
+        &cleanup_values(json!({"name": "QCLEAN"}), kept_omit()),
+    )
+    .unwrap();
+    assert!(s.contains("empiezan con Q"), "{s}");
+    assert!(
+        s.contains("ADDJOBSCDE JOB(QCLEAN)")
+            && s.contains("RMVJOBSCDE JOB(CLEANUP) ENTRYNBR(000123)"),
+        "{s}"
+    );
+    // No such comment on a name that doesn't begin with Q.
+    let s = script(p, &mut server(), "job", None, &new_entry(json!({}))).unwrap();
+    assert!(!s.contains("empiezan con Q"), "{s}");
+}
+
+#[test]
 fn a_new_entry_is_addjobscde_through_qcmdexc_with_its_quotes_doubled_twice() {
     let s = script(
         preset("db2i"),

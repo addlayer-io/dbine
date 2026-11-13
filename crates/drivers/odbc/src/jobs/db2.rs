@@ -555,7 +555,9 @@ fn zos_job(t: &Set, r: usize, status: Option<&Set>, tz: &Tz) -> Option<ServerJob
         last_duration_ms: took,
         next_run: None,
         can_run: false,
-        can_stop: false,
+        // ADMIN_TASK_CANCEL, through the scheduler's plan (it reads the
+        // procedure's output parameters).
+        can_stop: running,
         can_enable: false,
         has_history: status.is_some(),
         has_script: true,

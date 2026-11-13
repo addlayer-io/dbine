@@ -15,13 +15,23 @@
 //! value is checked for its CL shape (IBM i names, special values, a
 //! command with its quotes and parentheses balanced) before it goes into
 //! the command, which goes into a SQL literal.
+//!
+//! An entry IBM i supplies (Operational Assistant's backup entries, or one
+//! an IBM-supplied profile such as QSYS added: see
+//! [`crate::jobs::db2i::ibm_supplied`]) is only read. A name that begins
+//! with Q is not that evidence: IBM i only recommends leaving those names
+//! to its own objects and ADDJOBSCDE takes them, so a user's QUARTERLY is
+//! changed and deleted like any other entry, and a new or renamed entry
+//! may take such a name (the script says IBM's recommendation). The
+//! scheduler has no command that submits an entry now (WRKJOBSCDE's option
+//! 10 is a panel option), so there is no "run now".
 
 use super::*;
 use crate::jobs::db2i::{
-    name_ok, parse_id, qcmdexc, row_id, special, tokens, COMMAND, DATE, DATE_VALUE, DAYS,
-    DESCRIPTION, FREQUENCY, JOBD, JOBD_LIB, JOBQ, JOBQ_LIB, KEEP, LAST_JOB, LAST_STATUS,
-    LAST_SUBMIT, LIST, MSGQ, MSGQ_LIB, NEXT, NO_READ, NO_VIEW, OMITTED, PARTIAL, RECOVERY,
-    REL_DAYS, SCHEDULED_BY, STATUS, TIME, USER,
+    ibm_supplied, name_ok, parse_id, q_name, qcmdexc, row_id, special, tokens, COMMAND, DATE,
+    DATE_VALUE, DAYS, DESCRIPTION, FREQUENCY, JOBD, JOBD_LIB, JOBQ, JOBQ_LIB, KEEP, LAST_JOB,
+    LAST_STATUS, LAST_SUBMIT, LIST, MSGQ, MSGQ_LIB, NEXT, NO_READ, NO_VIEW, OMITTED, PARTIAL,
+    RECOVERY, REL_DAYS, SCHEDULED_BY, STATUS, TIME, USER,
 };
 use crate::jobs::{code, get, not_found, parse_time};
 use dbine_driver::{FormField, FormKind, FormList, FormSection, SchedulerKind};
@@ -29,6 +39,9 @@ use serde_json::json;
 
 const JOBCTL: &str = "IBM i cambia, retiene o borra las entradas que agregaron otros usuarios solo con la autorización especial *JOBCTL.";
 const RENAME: &str = "IBM i no cambia el nombre de una entrada: se agrega con el nombre nuevo y después se borra la anterior (si el alta falla, la anterior queda), con otro número de entrada; se pierden las fechas de su último envío.";
+const IBM_SUPPLIED: &str = "Es una entrada que trae IBM i (la agregó un perfil del sistema, como QSYS, o es del respaldo de Operational Assistant, que se cambia desde GO BACKUP): se ve solo para lectura; se retiene o se libera desde la lista de jobs.";
+const Q_NAME: &str = "IBM i recomienda dejar los nombres que empiezan con Q para sus propios objetos: la entrada se agrega igual con este nombre.";
+const Q_OWN: &str = "Su nombre empieza con Q, como los objetos de IBM i, pero no la agregó un perfil del sistema: se cambia como cualquier otra entrada. Si la creó un producto, conviene cambiarla desde ese producto.";
 
 const FREQS: &[&str] = &["*ONCE", "*WEEKLY", "*MONTHLY"];
 const DATE_MODES: &[&str] = &["date", "*CURRENT", "*MONTHSTR", "*MONTHEND", "*NONE"];
@@ -378,7 +391,15 @@ pub(super) fn form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectFo
     ] {
         v.insert(k.into(), jtext(get(&s, r, c)));
     }
-    let mut notes = vec![RENAME.to_string(), JOBCTL.to_string()];
+    let supplied = ibm_supplied(&e.name, get(&s, r, SCHEDULED_BY));
+    let mut notes = if supplied {
+        vec![IBM_SUPPLIED.to_string()]
+    } else {
+        vec![RENAME.to_string(), JOBCTL.to_string()]
+    };
+    if !supplied && q_name(&e.name) {
+        notes.push(Q_OWN.to_string());
+    }
     if get(&s, r, COMMAND).is_none() {
         notes.push(PARTIAL.to_string());
     }
@@ -386,6 +407,7 @@ pub(super) fn form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectFo
         sections: sections(true, omit_rows(&e)),
         values: v,
         notes,
+        read_only: supplied,
         ..ObjectForm::default()
     })
 }
@@ -775,6 +797,9 @@ pub(super) fn create_plan(e: &Entry, all: &Set) -> Plan {
         "Entrada «{}» del planificador de trabajos de IBM i",
         e.name
     ));
+    if q_name(&e.name) {
+        p.comment(Q_NAME);
+    }
     add(&mut p, e, numbers(all, &e.name));
     p
 }
@@ -788,6 +813,9 @@ pub(super) fn alter_plan(n: &str, cur: &Entry, e: &Entry, all: &Set) -> Plan {
         ));
         for line in RENAME.split(": ") {
             p.comment(line);
+        }
+        if q_name(&e.name) {
+            p.comment(Q_NAME);
         }
         // The new entry first: if IBM i refuses it, the old one stays.
         add(&mut p, e, numbers(all, &e.name));
@@ -827,7 +855,10 @@ pub(super) fn plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValue
             Ok(create_plan(&e, &all))
         }
         Some(id) => {
-            let (n, cur, all, _) = read(src, id)?;
+            let (n, cur, all, r) = read(src, id)?;
+            if ibm_supplied(&cur.name, get(&all, r, SCHEDULED_BY)) {
+                return Err(bad(IBM_SUPPLIED));
+            }
             Ok(alter_plan(&n, &cur, &e, &all))
         }
     }
@@ -842,6 +873,9 @@ pub(super) fn drop_plan(n: &str, name: &str) -> Plan {
 }
 
 pub(super) fn delete_plan(src: &mut dyn JobSource, id: &str) -> Result<Plan> {
-    let (n, e, _, _) = read(src, id)?;
+    let (n, e, s, r) = read(src, id)?;
+    if ibm_supplied(&e.name, get(&s, r, SCHEDULED_BY)) {
+        return Err(bad(IBM_SUPPLIED));
+    }
     Ok(drop_plan(&n, &e.name))
 }

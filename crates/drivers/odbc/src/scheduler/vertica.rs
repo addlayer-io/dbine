@@ -344,16 +344,22 @@ pub(super) fn schedule_sections(
     }
     vec![
         general,
-        FormSection::new("times", "Fechas y horas").list(
-            FormList::new(
-                "times",
-                "Fechas y horas fijas",
-                "at",
-                vec![FormField::new("at", "Momento", FormKind::DateTime).required()],
-            )
-            .rows(times)
-            .orderable(),
-        ),
+        // Only a schedule of fixed dates and times has them (USING
+        // DATETIMES); a cron one neither shows nor sends the list.
+        FormSection::new("times", "Fechas y horas")
+            .when("kind", &["datetimes"])
+            .list(
+                FormList::new(
+                    "times",
+                    "Fechas y horas fijas",
+                    "at",
+                    vec![FormField::new("at", "Momento", FormKind::DateTime).required()],
+                )
+                .rows(times)
+                .orderable()
+                .min_rows(1)
+                .when("kind", &["datetimes"]),
+            ),
     ]
 }
 

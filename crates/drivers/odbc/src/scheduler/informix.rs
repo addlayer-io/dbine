@@ -14,7 +14,13 @@
 //! Texts are literals with their quotes doubled; one with a line break
 //! needs `IFX_ALLOW_NEWLINE` first, which the script calls. The alerts
 //! (`ph_alert`) and the latest runs (`ph_run`) are the scheduler's log;
-//! clearing a task's history deletes its `ph_run` rows.
+//! clearing a task's history deletes its `ph_run` rows; "run now" is
+//! `exectask_async`, as the jobs list runs it.
+//!
+//! The tasks and sensors Informix ships keep their name and aren't
+//! deleted: the guide has them tuned (schedule, enabled, parameters) and
+//! disabled, not removed. MISC (ph_task's default group) and the groups
+//! that hold them are only read.
 
 use super::*;
 use crate::jobs::informix::{built_in, NO_ACCESS, NO_SYSADMIN, NO_TABLES};
@@ -48,7 +54,14 @@ const DAYS: [(&str, &str); 7] = [
 /// INTERVAL DAY(2) TO SECOND: up to 99 days.
 const MAX_INTERVAL: i64 = 99 * 86_400 + 86_399;
 const PRIVILEGES: &str = "Cambiar el planificador pide permisos sobre la base sysadmin: el usuario informix, un DBA de sysadmin o quien tenga INSERT, UPDATE y DELETE sobre sus tablas.";
-const BUILT_IN: &str = "Es una tarea del servidor (de las que trae Informix): cambiarla o borrarla cambia lo que el servidor hace solo.";
+const BUILT_IN: &str = "Es una tarea del servidor (de las que trae Informix): se ajustan su programación y sus parámetros, como indica el manual, pero no se le cambia el nombre ni se borra.";
+const BUILT_IN_KEPT: &str =
+    "Las tareas que trae Informix no se borran ni cambian de nombre: se deshabilitan.";
+const SYSTEM_GROUP: &str = "Es un grupo del servidor (MISC, el de las tareas sin grupo, o uno con tareas que trae Informix): se ve solo para lectura.";
+const SYSTEM_GROUP_KEPT: &str =
+    "Los grupos del servidor (MISC o los que tienen tareas que trae Informix) no se cambian ni se borran.";
+/// The group a task gets when none is given (ph_task.tk_group's default).
+const DEFAULT_GROUP: &str = "MISC";
 
 /// A task or sensor as `ph_task` has it. Times: seconds after midnight;
 /// intervals: seconds; the next run: the server's local time in ms.
@@ -316,10 +329,13 @@ fn threshold_rows(t: &Task) -> Vec<BTreeMap<String, Value>> {
         .collect()
 }
 
+/// The task's form. `built_in`: one of the tasks Informix ships, whose
+/// name stays.
 pub(super) fn task_sections(
     existing: bool,
     thresholds: Vec<BTreeMap<String, Value>>,
     thresholds_ok: bool,
+    built_in: bool,
 ) -> Vec<FormSection> {
     let timed: &[&str] = &["TASK", "SENSOR"];
     let sensor: &[&str] = &["SENSOR", "STARTUP SENSOR"];
@@ -327,6 +343,7 @@ pub(super) fn task_sections(
         FormSection::new("general", "General").fields(vec![
             FormField::new("name", "Nombre", FormKind::Text)
                 .required()
+                .read_only(built_in)
                 .help("Único en el planificador, hasta 36 caracteres."),
             FormField::new(
                 "type",
@@ -355,7 +372,9 @@ pub(super) fn task_sections(
                 .required()
                 .help("Sentencias SQL, o el nombre de una función o procedimiento (recibe el id de la tarea y el número de ejecución). En un sensor, $DATA_SEQ_ID es el número de la recolección."),
         ]),
-        FormSection::new("schedule", "Programación").fields(vec![
+        // A startup task or sensor runs once, when the server starts: no
+        // schedule.
+        FormSection::new("schedule", "Programación").when("type", timed).fields(vec![
             FormField::new("start_time", "Desde", FormKind::Time)
                 .when("type", timed)
                 .help("La hora del día desde la que corre. Vacío: a cualquier hora."),
@@ -384,7 +403,7 @@ pub(super) fn task_sections(
                 .when("type", timed)
                 .help("La calcula el planificador; cambiarla mueve la próxima ejecución."),
         ]),
-        FormSection::new("sensor", "Sensor").fields(vec![
+        FormSection::new("sensor", "Sensor").when("type", sensor).fields(vec![
             FormField::new("result_table", "Tabla de resultados", FormKind::Text)
                 .when("type", sensor)
                 .help("La tabla de sysadmin donde el sensor guarda lo que recoge."),
@@ -473,7 +492,7 @@ fn task_form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectForm> {
             ..Task::default()
         };
         return Ok(ObjectForm {
-            sections: task_sections(false, Vec::new(), true),
+            sections: task_sections(false, Vec::new(), true, false),
             values: values_of(&t),
             choices,
             ..ObjectForm::default()
@@ -491,11 +510,12 @@ fn task_form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectForm> {
         v.insert(k.into(), jtext(s.get(0, c)));
     }
     let mut notes = Vec::new();
-    if built_in(&t.name) {
+    let shipped = built_in(&t.name);
+    if shipped {
         notes.push(BUILT_IN.to_string());
     }
     Ok(ObjectForm {
-        sections: task_sections(true, threshold_rows(&t), ok),
+        sections: task_sections(true, threshold_rows(&t), ok, shipped),
         values: v,
         choices,
         notes,
@@ -799,6 +819,9 @@ fn task_plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValues) -> 
         }
         Some(id) => {
             let (n, cur, _, _) = read(src, id)?;
+            if t.name != cur.name && built_in(&cur.name) {
+                return Err(bad(BUILT_IN_KEPT));
+            }
             if t.name != cur.name && name_taken(src, &t.name, Some(n)) {
                 return Err(bad(format!("Ya hay una tarea «{}».", short(&t.name))));
             }
@@ -849,6 +872,29 @@ fn group_id(id: &str) -> Result<String> {
         .ok_or_else(|| bad(format!("«{}» no es un grupo del planificador.", short(id))))
 }
 
+/// The groups the server ships: ph_group's docs say it holds the groups
+/// of the built-in tasks and sensors and the default one, MISC, but don't
+/// list them; `ph_group` has no column that tells them apart. So: MISC
+/// and every group that has one of the documented built-in tasks.
+pub(super) fn system_groups(src: &mut dyn JobSource) -> Vec<String> {
+    let mut out = vec![DEFAULT_GROUP.to_string()];
+    match src.query("SELECT tk_group, tk_name FROM sysadmin:ph_task", &[]) {
+        Ok(s) => {
+            for r in 0..s.rows.len() {
+                let (Some(g), Some(n)) = (s.get(r, "tk_group"), s.get(r, "tk_name")) else {
+                    continue;
+                };
+                let g = g.trim();
+                if built_in(n) && !out.iter().any(|x| x == g) {
+                    out.push(g.to_string());
+                }
+            }
+        }
+        Err(e) => tracing::debug!("odbc scheduler: the built-in tasks' groups weren't read: {e}"),
+    }
+    out
+}
+
 pub(super) fn group_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
     let s = match src.query("SELECT * FROM sysadmin:ph_group ORDER BY group_name", &[]) {
         Ok(s) => s,
@@ -862,19 +908,21 @@ pub(super) fn group_items(src: &mut dyn JobSource) -> Result<SchedulerList> {
             }
         }
     };
+    let shipped = system_groups(src);
     Ok(SchedulerList {
         items: (0..s.rows.len())
             .filter_map(|r| {
                 let name = s.get(r, "group_name")?.to_string();
+                let system = shipped.contains(&name);
                 Some(SchedulerItem {
                     id: name.clone(),
-                    name,
                     description: s.get(r, "group_description").map(str::to_string),
                     enabled: None,
-                    system: false,
-                    can_edit: None,
-                    can_delete: None,
+                    system,
+                    can_edit: system.then_some(false),
+                    can_delete: system.then_some(false),
                     actions: None,
+                    name,
                 })
             })
             .collect(),
@@ -947,12 +995,19 @@ fn group_form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectForm> {
             (n, d, tasks)
         }
     };
+    let system = id.is_some() && system_groups(src).contains(&name);
     Ok(ObjectForm {
         sections: group_sections(tasks),
         values: values(vec![
             ("name", json!(name)),
             ("description", json!(description)),
         ]),
+        notes: if system {
+            vec![SYSTEM_GROUP.to_string()]
+        } else {
+            Vec::new()
+        },
+        read_only: system,
         ..ObjectForm::default()
     })
 }
@@ -1025,6 +1080,9 @@ fn group_plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValues) ->
         }
         Some(id) => {
             let (n, d) = read_group(src, id)?;
+            if (name != n || description != d) && system_groups(src).contains(&n) {
+                return Err(bad(SYSTEM_GROUP_KEPT));
+            }
             if name != n && exists(src, &name) {
                 return Err(bad(format!("Ya hay un grupo «{}».", short(&name))));
             }
@@ -1080,10 +1138,16 @@ pub(super) fn delete_plan(src: &mut dyn JobSource, kind: Kind, id: &str) -> Resu
     match kind {
         Kind::Task => {
             let (n, t, _, _) = read(src, id)?;
+            if built_in(&t.name) {
+                return Err(bad(BUILT_IN_KEPT));
+            }
             Ok(drop_task_plan(n, &t.name))
         }
         Kind::Group => {
             let (name, _) = read_group(src, id)?;
+            if system_groups(src).contains(&name) {
+                return Err(bad(SYSTEM_GROUP_KEPT));
+            }
             let used = group_tasks(src, &name);
             if !used.is_empty() {
                 return Err(bad(format!(

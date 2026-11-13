@@ -79,6 +79,37 @@ pub(crate) fn parse_id(id: &str) -> Result<(String, String)> {
     Ok((format!("{n:06}"), name.to_string()))
 }
 
+/// IBM-supplied profiles that ship with no password (IBM's list of the
+/// profiles QSYRESPA resets): nobody signs on with them, so an entry they
+/// added came from IBM i or a licensed program. QSECOFR, QPGMR, QSYSOPR
+/// and the like aren't here: people sign on with them.
+const IBM_PROFILES: &[&str] = &["QSYS", "QSRVAGT", "QMGTC", "QYPSJSVR", "QPM400"];
+
+/// Operational Assistant's backup entries (GO BACKUP): `QEZBKMG<day>`, the
+/// message before the backup, and `QEZBKTM<day>`, the backup itself.
+fn oa_backup(name: &str) -> bool {
+    const DAYS: &[&str] = &["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+    let n = name.trim().to_ascii_uppercase();
+    ["QEZBKMG", "QEZBKTM"]
+        .iter()
+        .any(|p| n.strip_prefix(p).is_some_and(|d| DAYS.contains(&d)))
+}
+
+/// An entry IBM supplies: one of Operational Assistant's backup entries,
+/// or one an IBM-supplied profile added. A name that begins with Q isn't
+/// enough: IBM i only recommends leaving those names to IBM, and
+/// ADDJOBSCDE takes them.
+pub(crate) fn ibm_supplied(name: &str, scheduled_by: Option<&str>) -> bool {
+    oa_backup(name)
+        || scheduled_by
+            .is_some_and(|u| IBM_PROFILES.contains(&u.trim().to_ascii_uppercase().as_str()))
+}
+
+/// A name that begins with Q, the letter IBM i keeps for its own objects.
+pub(crate) fn q_name(name: &str) -> bool {
+    name.trim().starts_with(['Q', 'q'])
+}
+
 pub(crate) fn row_id(s: &Set, r: usize) -> Option<(String, String)> {
     let n = int(get(s, r, ENTRY))?;
     let name = get(s, r, NAME)?.to_ascii_uppercase();
@@ -169,6 +200,7 @@ fn job(s: &Set, r: usize, tz: &Tz) -> Option<ServerJob> {
     let next = get(s, r, NEXT)
         .filter(|_| enabled)
         .map(|d| format!("{} {}", d, get(s, r, TIME).unwrap_or("00:00:00")));
+    let system = ibm_supplied(&name, get(s, r, SCHEDULED_BY));
     Some(ServerJob {
         id: format!("{n}/{name}"),
         name,
@@ -188,7 +220,7 @@ fn job(s: &Set, r: usize, tz: &Tz) -> Option<ServerJob> {
         can_enable: matches!(st.as_str(), "SCHEDULED" | "HELD"),
         has_history: false,
         has_script: true,
-        system: false,
+        system,
     })
 }
 

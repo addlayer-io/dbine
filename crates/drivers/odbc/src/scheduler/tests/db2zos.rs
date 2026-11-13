@@ -550,6 +550,149 @@ fn the_form_reads_the_task_and_offers_the_other_tasks_as_triggers() {
 }
 
 #[test]
+fn a_running_task_is_stopped_with_admin_task_cancel() {
+    let i = info(preset("db2zos"), &mut server(), &ctx()).unwrap();
+    let k = &i.kinds[0];
+    let keys: Vec<&str> = k.actions.iter().map(|a| a.key.as_str()).collect();
+    // No run now; nothing clears a task's status.
+    assert_eq!(keys, ["stop"]);
+    assert_eq!(k.actions[0].label, "Detener");
+    assert!(!k.clear_history && !k.run_from_step);
+    assert_eq!(
+        action_script(preset("db2zos"), &mut server(), &ctx(), "job", "BACKUP", "stop").unwrap(),
+        "-- Detiene la ejecución en curso de la tarea «BACKUP»: ADMIN_TASK_CANCEL cancela el thread de Db2 o el job de JES en que corre.
+-- Se llama en el miembro que la ejecuta (DB2_SSID de su estado). Pide MONITOR1, y para cancelar el thread o el job, autoridad para CANCEL THREAD o sobre MVS.CANCEL.JOB.
+-- Los ? van como parámetros, en orden: el código de retorno y el mensaje, que devuelve el planificador.
+CALL SYSPROC.ADMIN_TASK_CANCEL(
+    'BACKUP',
+    ?,
+    ?
+);
+"
+    );
+    // The return code and message come back as output parameters: 12 is
+    // the scheduler's refusal, with its message.
+    let mut f = server();
+    action(preset("db2zos"), &mut f, &ctx(), "job", "BACKUP", "stop").unwrap();
+    assert!(f.sent("CALL SYSPROC.ADMIN_TASK_CANCEL("));
+    let mut f = server().out(
+        "ADMIN_TASK_CANCEL",
+        vec![Some("12"), Some("DSNA691I la tarea no está corriendo")],
+    );
+    let m = refused(action(
+        preset("db2zos"),
+        &mut f,
+        &ctx(),
+        "job",
+        "BACKUP",
+        "stop",
+    ));
+    assert!(m.contains("no está corriendo"), "{m}");
+    assert!(matches!(
+        action_script(
+            preset("db2zos"),
+            &mut server(),
+            &ctx(),
+            "job",
+            "BACKUP",
+            "run"
+        ),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(action_script(
+        preset("db2zos"),
+        &mut server(),
+        &ctx(),
+        "job",
+        "NOPE",
+        "stop"
+    )
+    .is_err());
+    // A task's code goes with a return-code condition only.
+    let f = form(preset("db2zos"), &mut server(), &ctx(), "job", None).unwrap();
+    let code = f
+        .sections
+        .iter()
+        .flat_map(|s| &s.fields)
+        .find(|x| x.key == "trigger_task_code")
+        .unwrap();
+    assert_eq!(code.when, Some(("trigger".into(), vec!["task".into()])));
+    assert_eq!(code.when_all.len(), 1);
+    assert_eq!(code.when_all[0].0, "trigger_task_cond");
+    assert!(!code.when_all[0].1.contains(&String::new()));
+}
+
+#[test]
+fn another_users_task_says_who_may_change_it_and_stays_editable() {
+    let who = |sqlid: &'static str, user: &'static str| {
+        server().rows(
+            "CURRENT SQLID",
+            &["SQLID", "SESSION_USER"],
+            vec![vec![Some(sqlid), Some(user)]],
+        )
+    };
+    // BACKUP was added by ADMIN; the session is OPS.
+    let f = form(
+        preset("db2zos"),
+        &mut who("OPS", "OPS"),
+        &ctx(),
+        "job",
+        Some("BACKUP"),
+    )
+    .unwrap();
+    assert!(!f.read_only);
+    assert!(
+        f.notes[0].starts_with("La agregó ADMIN")
+            && f.notes[0].contains("SYSOPR, SYSADM o SYSCTRL"),
+        "{:?}",
+        f.notes
+    );
+    // ADMIN itself, by its SQLID or its user: no such note.
+    for (sqlid, user) in [("admin", "OPS"), ("OPS", "ADMIN")] {
+        let f = form(
+            preset("db2zos"),
+            &mut who(sqlid, user),
+            &ctx(),
+            "job",
+            Some("BACKUP"),
+        )
+        .unwrap();
+        assert!(
+            !f.notes.iter().any(|n| n.contains("La agregó")),
+            "{:?}",
+            f.notes
+        );
+    }
+    // Who the session is can't be read: nothing is assumed.
+    let f = form(
+        preset("db2zos"),
+        &mut server(),
+        &ctx(),
+        "job",
+        Some("BACKUP"),
+    )
+    .unwrap();
+    assert!(
+        !f.notes.iter().any(|n| n.contains("La agregó")),
+        "{:?}",
+        f.notes
+    );
+    // The tree leaves edit, delete and stop to the server.
+    let j = dbine_driver::ServerJob {
+        id: "BACKUP".into(),
+        name: "BACKUP".into(),
+        owner: Some("ADMIN".into()),
+        enabled: true,
+        running: true,
+        can_stop: true,
+        ..Default::default()
+    };
+    let i = job_item(preset("db2zos"), "job", j, false);
+    assert_eq!((i.can_edit, i.can_delete), (None, None));
+    assert_eq!(i.actions, Some(vec!["stop".to_string()]));
+}
+
+#[test]
 fn info_and_logs() {
     let i = info(preset("db2zos"), &mut server(), &ctx()).unwrap();
     assert_eq!(i.kinds[0].key, "job");

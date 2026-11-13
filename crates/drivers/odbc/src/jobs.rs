@@ -241,39 +241,93 @@ pub fn runs(p: &Preset, src: &mut dyn JobSource, id: &str, limit: u32) -> Result
     Ok(out)
 }
 
-pub fn run(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<()> {
-    match eng(p) {
-        Eng::Db2 | Eng::Db2zos => Err(Error::Unsupported(db2::NO_RUN_NOW.into())),
-        Eng::Db2i => Err(Error::Unsupported(db2i::NO_RUN_NOW.into())),
-        Eng::Informix => informix::run(src, ctx, id),
-        Eng::Ase => ase::control(src, id, "run_now"),
-        Eng::Sqla => sqla::run(src, id),
-        Eng::Iris => Err(Error::Unsupported(iris::NO_CONTROL.into())),
-        Eng::Hive => hive::run(src, id),
-        Eng::Vertica => vertica::run(src, id),
-        Eng::Dameng => dameng::run(src, id),
-        Eng::Altibase => Err(Error::Unsupported(altibase::NO_RUN_NOW.into())),
-        Eng::Virtuoso => Err(Error::Unsupported(virtuoso::NO_RUN_NOW.into())),
-        _ => Err(unsupported(p)),
+/// A statement that runs a job now or stops its run: what [`run`] and
+/// [`stop`] send, and what the scheduler's actions show first.
+pub(crate) struct Control {
+    pub(crate) sql: String,
+    /// It answers rows (a function called with `SELECT` or `EXECUTE
+    /// FUNCTION`), so it goes as a query.
+    pub(crate) rows: bool,
+}
+
+impl Control {
+    pub(crate) fn exec(sql: String) -> Control {
+        Control { sql, rows: false }
+    }
+    pub(crate) fn query(sql: String) -> Control {
+        Control { sql, rows: true }
     }
 }
 
+/// Sends the statements in order.
+fn send(src: &mut dyn JobSource, stmts: Vec<Control>) -> Result<()> {
+    for c in stmts {
+        if c.rows {
+            src.query(&c.sql, &[])?;
+        } else {
+            src.exec(&c.sql, &[])?;
+        }
+    }
+    Ok(())
+}
+
+const NO_STOP: &str = "el planificador de este motor no detiene una ejecución en curso";
+
+pub fn run(p: &Preset, src: &mut dyn JobSource, ctx: &Ctx, id: &str) -> Result<()> {
+    let stmts = run_stmts(p, src, ctx, id)?;
+    send(src, stmts)
+}
+
+/// What runs job `id` now, checked against the server (it exists, the
+/// session may run it).
+pub(crate) fn run_stmts(
+    p: &Preset,
+    src: &mut dyn JobSource,
+    ctx: &Ctx,
+    id: &str,
+) -> Result<Vec<Control>> {
+    let one = match eng(p) {
+        Eng::Db2 | Eng::Db2zos => return Err(Error::Unsupported(db2::NO_RUN_NOW.into())),
+        Eng::Db2i => return Err(Error::Unsupported(db2i::NO_RUN_NOW.into())),
+        Eng::Informix => informix::run(src, ctx, id)?,
+        Eng::Ase => ase::control(src, id, "run_now")?,
+        Eng::Sqla => sqla::run(src, id)?,
+        Eng::Iris => return Err(Error::Unsupported(iris::NO_CONTROL.into())),
+        Eng::Hive => hive::run(src, id)?,
+        Eng::Vertica => vertica::run(src, id)?,
+        Eng::Dameng => dameng::run(src, id)?,
+        Eng::Altibase => return Err(Error::Unsupported(altibase::NO_RUN_NOW.into())),
+        Eng::Virtuoso => return Err(Error::Unsupported(virtuoso::NO_RUN_NOW.into())),
+        _ => return Err(unsupported(p)),
+    };
+    Ok(vec![one])
+}
+
 pub fn stop(p: &Preset, src: &mut dyn JobSource, id: &str) -> Result<()> {
+    let stmts = stop_stmts(p, src, id)?;
+    send(src, stmts)
+}
+
+/// What stops job `id`'s current run, checked against the server (it is
+/// running, the session may stop it).
+pub(crate) fn stop_stmts(p: &Preset, src: &mut dyn JobSource, id: &str) -> Result<Vec<Control>> {
     match eng(p) {
-        Eng::Ase => ase::control(src, id, "terminate"),
+        Eng::Ase => Ok(vec![ase::control(src, id, "terminate")?]),
         Eng::Hive => hive::stop(src, id),
-        Eng::Dameng => dameng::stop(src, id),
+        Eng::Dameng => Ok(vec![dameng::stop(src, id)?]),
         Eng::Iris => Err(Error::Unsupported(iris::NO_CONTROL.into())),
+        // ADMIN_TASK_CANCEL answers through output parameters, which plain
+        // statements can't read: the session stops a z/OS task with the
+        // scheduler's plan (`scheduler::action`, `db2zos::cancel_plan`),
+        // and so does the scheduler's own "stop". Nothing reaches here.
+        Eng::Db2zos => Err(unsupported(p)),
         Eng::Db2
-        | Eng::Db2zos
         | Eng::Db2i
         | Eng::Informix
         | Eng::Sqla
         | Eng::Vertica
         | Eng::Altibase
-        | Eng::Virtuoso => Err(Error::Unsupported(
-            "el planificador de este motor no detiene una ejecución en curso".into(),
-        )),
+        | Eng::Virtuoso => Err(Error::Unsupported(NO_STOP.into())),
         _ => Err(unsupported(p)),
     }
 }
@@ -282,7 +336,10 @@ pub fn set_enabled(p: &Preset, src: &mut dyn JobSource, id: &str, enabled: bool)
     match eng(p) {
         Eng::Db2i => db2i::set_enabled(src, id, enabled),
         Eng::Informix => informix::set_enabled(src, id, enabled),
-        Eng::Ase => ase::control(src, id, if enabled { "enable" } else { "disable" }),
+        Eng::Ase => {
+            let c = ase::control(src, id, if enabled { "enable" } else { "disable" })?;
+            send(src, vec![c])
+        }
         Eng::Sqla => sqla::set_enabled(src, id, enabled),
         Eng::Hive => hive::set_enabled(src, id, enabled),
         Eng::Vertica => vertica::set_enabled(src, id, enabled),

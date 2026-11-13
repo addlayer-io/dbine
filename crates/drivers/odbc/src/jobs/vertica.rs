@@ -403,10 +403,12 @@ fn controlled(src: &mut dyn JobSource, id: &str) -> Result<String> {
     Ok(meta_name(schema, name))
 }
 
-pub fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let name = controlled(src, id)?;
-    src.query(&format!("SELECT EXECUTE_TRIGGER({})", lit(&name)), &[])
-        .map(|_| ())
+    Ok(Control::query(format!(
+        "SELECT EXECUTE_TRIGGER({})",
+        lit(&name)
+    )))
 }
 
 pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {

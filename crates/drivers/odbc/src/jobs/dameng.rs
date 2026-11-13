@@ -668,7 +668,7 @@ fn managed(src: &mut dyn JobSource, id: &str) -> Result<(Set, Tables, String)> {
     Ok((s, t, n))
 }
 
-pub fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     if scheduler::is_mine(id) {
         return scheduler::run(src, id);
     }
@@ -681,11 +681,10 @@ pub fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
     if !procs(src).run {
         return Err(Error::Unsupported(NO_ASYNC.into()));
     }
-    src.exec(&format!("CALL SP_DBMS_JOB_RUN_ASYNC({n})"), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!("CALL SP_DBMS_JOB_RUN_ASYNC({n})")))
 }
 
-pub fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn stop(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     if scheduler::is_mine(id) {
         return scheduler::stop(src, id);
     }
@@ -697,8 +696,7 @@ pub fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
     if rows_of(&running, "JOBID", &n).next().is_none() {
         return Err(Error::Query(NOT_RUNNING.into()));
     }
-    src.exec(&format!("CALL SP_STOP_RUNNING_JOB({n})"), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!("CALL SP_STOP_RUNNING_JOB({n})")))
 }
 
 /// The `DBA_JOBS` (or `USER_JOBS`) row of job `n` when it's DBMS_JOB's.

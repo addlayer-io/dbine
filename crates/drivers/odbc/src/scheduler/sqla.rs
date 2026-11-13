@@ -229,7 +229,8 @@ pub(super) fn sections(existing: bool, conditions_ok: bool) -> Vec<FormSection> 
     let mut month: Vec<(String, String)> =
         (1..=31).map(|d| (d.to_string(), d.to_string())).collect();
     month.push(("0".into(), "Último día".into()));
-    let mut out = vec![
+    let mut out =
+        vec![
         FormSection::new("general", "General").fields(vec![
             FormField::new("name", "Nombre", FormKind::Text)
                 .required()
@@ -313,9 +314,12 @@ pub(super) fn sections(existing: bool, conditions_ok: bool) -> Vec<FormSection> 
                         FormField::new("value", "Valor", FormKind::number(None, None)).required(),
                     ],
                 )
-                .read_only(!conditions_ok),
+                .read_only(!conditions_ok)
+                // Conditions only filter a system event.
+                .when("mode", &["type"]),
             ),
-        FormSection::new("schedules", "Calendarios").list(
+        // Only an event fired by its schedules has them.
+        FormSection::new("schedules", "Calendarios").when("mode", &["schedule"]).list(
             FormList::new(
                 "schedules",
                 "Calendarios (SCHEDULE)",
@@ -382,7 +386,9 @@ pub(super) fn sections(existing: bool, conditions_ok: bool) -> Vec<FormSection> 
                     FormField::new("start_date", "Desde el día", FormKind::Date),
                 ],
             )
-            .rows(Vec::new()),
+            .rows(Vec::new())
+            .min_rows(1)
+            .when("mode", &["schedule"]),
         ),
         FormSection::new("handler", "Acción").field(
             FormField::new("handler", "Acción (HANDLER)", FormKind::code("sql")).help(

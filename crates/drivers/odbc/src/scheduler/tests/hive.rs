@@ -217,6 +217,36 @@ fn bad_values_are_refused() {
 }
 
 #[test]
+fn run_now_and_stop_are_the_kinds_actions() {
+    let i = info(preset("hive"), &mut server(), &ctx()).unwrap();
+    let k = &i.kinds[0];
+    let keys: Vec<&str> = k.actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, ["run", "stop"]);
+    assert_eq!(k.actions[0].label, "Ejecutar ahora");
+    // The metastore ages executions out on its own; one step per query.
+    assert!(!k.clear_history && !k.run_from_step);
+    let s = action_script(preset("hive"), &mut server(), &ctx(), "job", "5", "run").unwrap();
+    assert_eq!(
+        s,
+        "-- Pasa la próxima ejecución de la consulta programada a ahora: la corre el planificador de Hive.\nALTER SCHEDULED QUERY `sc_analyze` EXECUTE;\n"
+    );
+    let mut f = server();
+    action(preset("hive"), &mut f, &ctx(), "job", "5", "run").unwrap();
+    assert!(f.sent("ALTER SCHEDULED QUERY `sc_analyze` EXECUTE"));
+    // Another namespace's query: ALTER can't reach it.
+    assert!(action_script(preset("hive"), &mut server(), &ctx(), "job", "6", "run").is_err());
+    // Nothing running: nothing to stop.
+    let m = action_script(preset("hive"), &mut server(), &ctx(), "job", "5", "stop")
+        .unwrap_err()
+        .to_string();
+    assert!(m.contains("no se está ejecutando"), "{m}");
+    assert!(matches!(
+        action_script(preset("hive"), &mut server(), &ctx(), "job", "5", "refresh"),
+        Err(Error::Unsupported(_))
+    ));
+}
+
+#[test]
 fn delete_save_and_info() {
     assert_eq!(
         delete_script(preset("hive"), &mut server(), "job", "5").unwrap(),

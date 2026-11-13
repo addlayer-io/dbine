@@ -332,6 +332,124 @@ fn form_of(kind: &str, id: &str) -> ObjectForm {
     form(preset("dameng"), &mut server(true), &ctx(), kind, Some(id)).unwrap()
 }
 
+/// [`server`] on a DM with the run-now and stop procedures.
+fn with_procs(dba: bool) -> Fake {
+    server(dba).rows(
+        "SUBTYPE$ = 'PROC' AND NAME IN",
+        &["NAME"],
+        vec![
+            vec![Some("SP_DBMS_JOB_RUN_ASYNC")],
+            vec![Some("SP_STOP_RUNNING_JOB")],
+        ],
+    )
+}
+
+#[test]
+fn jobs_run_now_and_stop_and_another_users_job_is_only_read() {
+    let p = preset("dameng");
+    assert_eq!(
+        action_script(p, &mut with_procs(true), &ctx(), "job", "10", "run").unwrap(),
+        "-- Ejecuta el job ahora, en segundo plano (SP_DBMS_JOB_RUN_ASYNC).\nCALL SP_DBMS_JOB_RUN_ASYNC(10);\n"
+    );
+    let mut f = with_procs(true);
+    action(p, &mut f, &ctx(), "dbms_job", "11", "run").unwrap();
+    assert!(f.sent("CALL SP_DBMS_JOB_RUN_ASYNC(11)"));
+    // Not running: nothing to stop.
+    assert!(action_script(p, &mut with_procs(true), &ctx(), "job", "10", "stop").is_err());
+    // DBMS_SCHEDULER: RUN_JOB away from the session, STOP_JOB.
+    let s = action_script(p, &mut with_procs(true), &ctx(), "scheduler_job", SJ, "run").unwrap();
+    assert!(
+        s.contains("CALL DBMS_SCHEDULER.RUN_JOB(") && s.contains(", FALSE);"),
+        "{s}"
+    );
+    let s = action_script(
+        p,
+        &mut with_procs(true),
+        &ctx(),
+        "scheduler_job",
+        SJ,
+        "stop",
+    )
+    .unwrap();
+    assert!(
+        s.contains("AUTO_DROP") && s.contains("CALL DBMS_SCHEDULER.STOP_JOB("),
+        "{s}"
+    );
+    // An id of the other kind, an operator, or an action DM lacks.
+    for (kind, id, act) in [
+        ("job", SJ, "run"),
+        ("scheduler_job", "10", "run"),
+        ("operator", "1", "run"),
+        ("job", "10", "open_window"),
+    ] {
+        let mut f = with_procs(true);
+        assert!(
+            action_script(p, &mut f, &ctx(), kind, id, act).is_err(),
+            "{kind} {id} {act}"
+        );
+        assert!(!f.sent("CALL "), "{kind} {id} {act}");
+    }
+    // APP, not a DBA: job 10 is SYSDBA's (shown, not changed nor run),
+    // DBMS_JOB job 11 its own.
+    let l = items(p, &mut with_procs(false), &ctx(), "job").unwrap();
+    let j = &l.items[0];
+    assert_eq!(j.id, "10");
+    assert_eq!((j.can_edit, j.can_delete), (Some(false), Some(false)));
+    assert_eq!(j.actions, Some(Vec::new()));
+    let l = items(p, &mut with_procs(false), &ctx(), "dbms_job").unwrap();
+    let j = &l.items[0];
+    assert_eq!((j.can_edit, j.can_delete), (None, None));
+    assert_eq!(j.actions, Some(vec!["run".to_string()]));
+    assert!(action_script(p, &mut with_procs(false), &ctx(), "job", "10", "run").is_err());
+}
+
+#[test]
+fn a_running_job_stops_with_sp_stop_running_job() {
+    let p = preset("dameng");
+    // Job 10 is running now.
+    let running = || {
+        with_procs(true).rows(
+            "V$JOBS_RUNNING",
+            &["JOBID", "THIS_DATE"],
+            vec![vec![Some("10"), Some("2026-11-12 03:00:00")]],
+        )
+    };
+    let l = items(p, &mut running(), &ctx(), "job").unwrap();
+    let j = l.items.iter().find(|i| i.id == "10").unwrap();
+    assert!(
+        j.actions
+            .as_ref()
+            .is_some_and(|a| a.iter().any(|k| k == "stop")),
+        "{:?}",
+        j.actions
+    );
+    assert_eq!(
+        action_script(p, &mut running(), &ctx(), "job", "10", "stop").unwrap(),
+        "-- Corta la sesión del job en ejecución (SP_STOP_RUNNING_JOB); su programación sigue igual.\nCALL SP_STOP_RUNNING_JOB(10);\n"
+    );
+    let mut f = running();
+    action(p, &mut f, &ctx(), "job", "10", "stop").unwrap();
+    assert!(f.sent("CALL SP_STOP_RUNNING_JOB(10)"));
+}
+
+#[test]
+fn an_owner_who_isnt_a_dba_clears_the_history_of_their_own_jobs_only() {
+    let p = preset("dameng");
+    // APP's own DBMS_JOB job 11: SP_JOB_CLEAR_HISTORIES, which DM lets a
+    // user run on their own jobs.
+    let mut f = server(false);
+    clear_history(p, &mut f, "11").unwrap();
+    assert!(f.sent("CALL SP_JOB_CLEAR_HISTORIES('11')"), "{:?}", f.log);
+    // SYSDBA's job 10: refused before the server.
+    let mut f = server(false);
+    let r = clear_history(p, &mut f, "10");
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("Solo un DBA o el dueño")),
+        "{r:?}"
+    );
+    assert!(!f.sent("SP_JOB_CLEAR_HISTORIES"));
+}
+
 fn sc(kind: &str, id: Option<&str>, v: &FormValues) -> Result<String> {
     script(preset("dameng"), &mut server(true), kind, id, v)
 }
@@ -415,44 +533,80 @@ CALL SP_ADD_JOB_SCHEDULE('nightly', 'monthly', 1, 3, 1, 1, 0, '00:00:00', NULL, 
 CALL SP_JOB_CONFIG_COMMIT('nightly');
 "
     );
-    let s = sc("job", Some("10"), &edit(&f, json!({"name": "nightly2"}))).unwrap();
-    assert!(s.contains("-- DM no cambia el nombre de un job"), "{s}");
-    assert!(
-        s.contains("CALL SP_CREATE_JOB('nightly2', 1, 1, 'dba_team'"),
-        "{s}"
+    // A new name is SP_RENAME_JOB: the same job (id 10), nothing dropped
+    // nor created again.
+    assert_eq!(
+        sc("job", Some("10"), &edit(&f, json!({"name": "nightly2"}))).unwrap(),
+        "-- Job «nightly» de DM\nCALL SP_RENAME_JOB('nightly', 'nightly2');\n"
     );
-    assert!(s.ends_with("CALL SP_DROP_JOB('nightly');\n"), "{s}");
+    // Renamed and changed: the rest goes under the new name.
+    let v = edit(
+        &f,
+        json!({
+            "name": "nightly2",
+            "description": "otra",
+            "list:schedules": [scheds[0].clone()]
+        }),
+    );
+    assert_eq!(
+        sc("job", Some("10"), &v).unwrap(),
+        "-- Job «nightly» de DM
+CALL SP_RENAME_JOB('nightly', 'nightly2');
+CALL SP_JOB_CONFIG_START('nightly2');
+CALL SP_ALTER_JOB('nightly2', 1, 1, 'dba_team', 1, 0, '', 0, 'otra');
+CALL SP_DROP_JOB_SCHEDULE('nightly2', 'weekly');
+CALL SP_JOB_CONFIG_COMMIT('nightly2');
+"
+    );
+    let mut srv = server(true);
+    let id = save(preset("dameng"), &mut srv, "job", Some("10"), &v).unwrap();
+    assert_eq!(id.as_deref(), Some("10"));
+    assert!(!srv.sent("SP_DROP_JOB(") && !srv.sent("SP_CREATE_JOB("));
 }
 
 #[test]
-fn a_dba_doesnt_rename_another_users_job() {
-    // SYSDBA manages APP's job 10, but SP_CREATE_JOB would make SYSDBA its
-    // owner: the rename is refused, other changes go through.
+fn a_dba_renames_another_users_job_in_place() {
+    // SYSDBA manages APP's job 10: SP_RENAME_JOB keeps APP its owner.
     let mut srv = server_as(true, "APP");
     let f = form(preset("dameng"), &mut srv, &ctx(), "job", Some("10")).unwrap();
     assert!(!f.read_only);
     assert!(
-        f.notes.iter().any(|n| n.contains("Solo el dueño")),
+        !f.notes.iter().any(|n| n.contains("dueño")),
         "{:?}",
         f.notes
     );
-    let m = refused(script(
-        preset("dameng"),
-        &mut server_as(true, "APP"),
-        "job",
-        Some("10"),
-        &edit(&f, json!({"name": "nightly2"})),
-    ));
-    assert!(m.contains("cambiaría de dueño"), "{m}");
     let s = script(
         preset("dameng"),
         &mut server_as(true, "APP"),
         "job",
         Some("10"),
-        &edit(&f, json!({"description": "otra"})),
+        &edit(&f, json!({"name": "nightly2"})),
     )
     .unwrap();
-    assert!(s.contains("CALL SP_ALTER_JOB('nightly'"), "{s}");
+    assert!(
+        s.contains("CALL SP_RENAME_JOB('nightly', 'nightly2');"),
+        "{s}"
+    );
+    // APP, not a DBA, doesn't rename SYSDBA's job.
+    let f = form(
+        preset("dameng"),
+        &mut server(false),
+        &ctx(),
+        "job",
+        Some("10"),
+    )
+    .unwrap();
+    let r = script(
+        preset("dameng"),
+        &mut server(false),
+        "job",
+        Some("10"),
+        &edit(&f, json!({"name": "nightly2"})),
+    );
+    assert!(
+        matches!(&r, Err(Error::Unsupported(m)) if m.contains("Solo un DBA o el dueño")),
+        "{r:?}"
+    );
 }
 
 #[test]
@@ -843,9 +997,19 @@ fn info_lists_clear_history_and_steps() {
     assert_eq!(l.items[0].name, "dba_team");
     let mut f = server(true);
     clear_history(preset("dameng"), &mut f, "10").unwrap();
-    assert!(f.sent("DELETE FROM SYSJOB.SYSSTEPHISTORIES2 WHERE NAME = 'nightly'"));
-    assert!(f.sent("DELETE FROM SYSJOB.SYSJOBHISTORIES2 WHERE NAME = 'nightly'"));
+    // DM's own procedure, not DELETEs on SYSJOB's tables.
+    assert!(f.sent("CALL SP_JOB_CLEAR_HISTORIES('nightly')"));
+    assert!(!f.sent("DELETE FROM SYSJOB"));
     assert_eq!(f.tx, ["begin", "commit"]);
+    // The job kinds: run now, stop and clear history, never a step.
+    for k in i.kinds.iter().filter(|k| k.key.ends_with("job")) {
+        let keys: Vec<&str> = k.actions.iter().map(|a| a.key.as_str()).collect();
+        assert_eq!(keys, ["run", "stop"], "{}", k.key);
+        assert!(k.clear_history && !k.run_from_step, "{}", k.key);
+    }
+    for k in i.kinds.iter().filter(|k| !k.key.ends_with("job")) {
+        assert!(k.actions.is_empty() && !k.clear_history, "{}", k.key);
+    }
     assert!(matches!(
         run_from(preset("dameng"), "10", "s2"),
         Err(Error::Unsupported(m)) if m.contains("primer paso")

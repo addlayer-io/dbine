@@ -116,6 +116,51 @@ fn form_of(id: &str) -> ObjectForm {
 }
 
 #[test]
+fn an_event_is_triggered_now_and_its_lists_follow_what_fires_it() {
+    let p = preset("sqlanywhere");
+    let i = info(p, &mut server(), &ctx()).unwrap();
+    let keys: Vec<&str> = i.kinds[0].actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, ["run"]);
+    // Events keep no history.
+    assert!(!i.kinds[0].clear_history && !i.kinds[0].run_from_step);
+    let s = action_script(p, &mut server(), &ctx(), "job", "5", "run").unwrap();
+    assert!(
+        s.starts_with("-- Dispara el evento ahora (TRIGGER EVENT)")
+            && s.contains("TRIGGER EVENT ")
+            && s.contains("ev_nightly")
+            && s.ends_with("\ngo\n"),
+        "{s}"
+    );
+    let mut f = server();
+    action(p, &mut f, &ctx(), "job", "5", "run").unwrap();
+    assert!(f.sent("TRIGGER EVENT"));
+    assert!(matches!(
+        action_script(p, &mut server(), &ctx(), "job", "5", "stop"),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(action_script(p, &mut server(), &ctx(), "job", "99", "run").is_err());
+    // The conditions only with a system event; the schedules (at least
+    // one) only when they fire it.
+    let f = form_of("5");
+    let cond = f
+        .sections
+        .iter()
+        .flat_map(|s| &s.lists)
+        .find(|l| l.key == "conditions")
+        .unwrap();
+    assert_eq!(cond.when, Some(("mode".into(), vec!["type".into()])));
+    let sched = f.sections.iter().find(|s| s.key == "schedules").unwrap();
+    let on_schedule = Some(("mode".into(), vec!["schedule".into()]));
+    assert_eq!(sched.when, on_schedule);
+    assert_eq!(sched.lists[0].when, on_schedule);
+    assert_eq!(sched.lists[0].min_rows, 1);
+    // A manual event sends neither list: nothing is missing.
+    let mut v = serde_json::to_value(&f.values).unwrap();
+    v["mode"] = json!("manual");
+    assert!(script(p, &mut server(), "job", Some("5"), &fv(v, json!({}))).is_ok());
+}
+
+#[test]
 fn a_new_event_is_create_event_with_its_schedule_handler_and_comment() {
     let v = fv(
         json!({"name": "ev_new", "mode": "schedule", "enabled": false, "location": "",

@@ -9,10 +9,12 @@
 //!
 //! Steps are written again whole when any of them changes (dropped and
 //! added in their new order: DM keeps them in the order they were added);
-//! schedules are dropped, altered or added one by one, by name. DM can't
-//! rename a job: it is created with the new name and the old one dropped,
-//! and its history stays under the old name. A job is changed by a DBA or
-//! its owner; operators and alerts by a DBA. Ids are job `ID`s (DBMS_JOB's
+//! schedules are dropped, altered or added one by one, by name. A new name
+//! is `SP_RENAME_JOB`, before the rest of the changes: the job stays the
+//! same (its id, owner, steps and schedules), so a DBA may rename another
+//! user's job too. A job is changed by a DBA or its owner (another user's
+//! is listed as read-only); operators and alerts by a DBA. `SP_JOB_CLEAR_HISTORIES` clears a job's history (DBMS_JOB's
+//! jobs live in the job system too). Ids are job `ID`s (DBMS_JOB's
 //! too; DBMS_SCHEDULER's are `"OWNER"."JOB"`), operators' and alerts'
 //! `ID`s.
 
@@ -32,13 +34,9 @@ pub(super) const NO_START_AT: &str =
 const NOT_MINE: &str = "Solo un DBA o el dueño del job lo cambia o lo borra.";
 const DBA_ONLY: &str = "Los operadores y las alertas los cambia un DBA.";
 const CREATE_PRIV: &str = "Crear jobs pide el rol DBA o el privilegio ADMIN JOB; cada usuario cambia y borra los suyos y un DBA, todos.";
-const RENAME: &str = "DM no cambia el nombre de un job: se crea con el nombre nuevo y se borra el anterior; el historial queda con el nombre anterior y el job recibe otro id.";
-const RENAME_OWNER: &str = "Solo el dueño del job le cambia el nombre: DM crea el job nuevo a nombre de quien lo guarda, así que cambiaría de dueño.";
 const STEPS_AGAIN: &str = "Cambiar los pasos los vuelve a escribir todos, en el orden nuevo.";
 const NO_RENAME_OBJECT: &str =
     "DM no cambia el nombre de un operador ni de una alerta: creá otro y borrá este.";
-const NO_HISTORY_ACCESS: &str =
-    "Borrar el historial de un job pide leer y borrar las tablas de SYSJOB (rol SOI o DBA).";
 const ALERT_CODES: &str = "Los códigos de tipo de alerta, tipo de error y tipo de sentencia son los que toma SP_CREATE_ALERT (ver el manual de DM).";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,10 +142,10 @@ pub(super) fn items(
     ctx: &Ctx,
     k: Kind,
 ) -> Result<SchedulerList> {
-    let wanted = match k {
-        Kind::Job => KIND_JOB,
-        Kind::DbmsJob => KIND_DBMS_JOB,
-        Kind::SchedulerJob => KIND_SCHEDULER,
+    let (wanted, key) = match k {
+        Kind::Job => (KIND_JOB, "job"),
+        Kind::DbmsJob => (KIND_DBMS_JOB, "dbms_job"),
+        Kind::SchedulerJob => (KIND_SCHEDULER, "scheduler_job"),
         Kind::Operator => return operator_items(src),
         Kind::Alert => return alert_items(src),
     };
@@ -157,19 +155,22 @@ pub(super) fn items(
             .jobs
             .into_iter()
             .filter(|j| j.kind == wanted)
-            .map(|j| SchedulerItem {
-                id: j.id,
-                name: j.name,
-                description: j.description,
-                enabled: Some(j.enabled),
-                system: j.system,
-                can_edit: None,
-                can_delete: None,
-                actions: None,
-            })
+            // Another user's job, for someone who isn't a DBA: shown, not
+            // changed (the list's enable switch says the same).
+            .map(|j| job_item(p, key, j, true))
             .collect(),
         notes: l.notes,
     })
+}
+
+/// Id `id` is of kind `kind`'s shape: DBMS_SCHEDULER's are
+/// `"OWNER"."JOB"`, the job system's and DBMS_JOB's job numbers.
+pub(super) fn check_id(k: &str, id: &str) -> Result<()> {
+    let scheduler = crate::jobs::dameng::scheduler::is_mine(id);
+    match (kind(k)?, scheduler) {
+        (Kind::SchedulerJob, true) | (Kind::Job | Kind::DbmsJob, false) => Ok(()),
+        _ => Err(crate::jobs::bad_id(id)),
+    }
 }
 
 const OPERATORS_ALL: &str = "SELECT * FROM SYSJOB.SYSOPERATORS ORDER BY NAME";
@@ -547,7 +548,7 @@ pub(super) fn agent_sections(existing: bool, has_next: bool) -> Vec<FormSection>
         FormSection::new("general", "General").fields(vec![
             FormField::new("name", "Nombre", FormKind::Text)
                 .required()
-                .help("Cambiarlo crea el job de nuevo con ese nombre."),
+                .help("Cambiarlo renombra el job (SP_RENAME_JOB): sigue siendo el mismo, con su id, su dueño, sus pasos y sus programaciones."),
             FormField::new("enabled", "Habilitado", FormKind::Bool).default(json!(true)),
             FormField::new("description", "Descripción", FormKind::Textarea),
         ]),
@@ -755,11 +756,9 @@ fn agent_form(src: &mut dyn JobSource, id: Option<&str>) -> Result<ObjectForm> {
     ] {
         v.insert(k.into(), jtext(s.get(0, c)));
     }
-    let mut notes = vec![RENAME.to_string(), STEPS_AGAIN.to_string()];
+    let mut notes = vec![STEPS_AGAIN.to_string()];
     if !mine {
         notes.insert(0, NOT_MINE.to_string());
-    } else if !owns(&me, s.get(0, "USERNAME")) {
-        notes.push(RENAME_OWNER.to_string());
     }
     Ok(ObjectForm {
         sections: with_rows(agent_sections(true, has_next), &j, has_next),
@@ -1108,26 +1107,24 @@ pub(super) fn agent_create_plan(j: &AgentJob) -> Plan {
     p
 }
 
+/// A job's changes: `SP_RENAME_JOB` first when the name changes (the same
+/// job, its id and owner kept), then the rest under the new name.
 pub(super) fn agent_alter_plan(n: &str, cur: &AgentJob, j: &AgentJob) -> Plan {
-    if j.name != cur.name {
-        let mut p = Plan::new(&format!("Job «{}» de DM", cur.name));
-        p.atomic = true;
-        for line in RENAME.split("; ") {
-            p.comment(line);
-        }
-        create_into(&mut p, j);
-        p.exec(format!("CALL SP_DROP_JOB({})", lit(&cur.name)));
-        return p;
-    }
+    let renamed = j.name != cur.name;
+    // What changes besides the name, compared under one name.
+    let same_name = AgentJob {
+        name: j.name.clone(),
+        ..cur.clone()
+    };
     let mut body: Vec<String> = Vec::new();
-    if job_args(j) != job_args(cur) {
+    if job_args(j) != job_args(&same_name) {
         body.push(format!("CALL SP_ALTER_JOB({})", job_args(j)));
     }
     if j.steps != cur.steps {
         for s in &cur.steps {
             body.push(format!(
                 "CALL SP_DROP_JOB_STEP({}, {})",
-                lit(&cur.name),
+                lit(&j.name),
                 lit(&s.name)
             ));
         }
@@ -1137,7 +1134,7 @@ pub(super) fn agent_alter_plan(n: &str, cur: &AgentJob, j: &AgentJob) -> Plan {
         if !j.schedules.iter().any(|x| x.name == s.name) {
             body.push(format!(
                 "CALL SP_DROP_JOB_SCHEDULE({}, {})",
-                lit(&cur.name),
+                lit(&j.name),
                 lit(&s.name)
             ));
         }
@@ -1155,16 +1152,25 @@ pub(super) fn agent_alter_plan(n: &str, cur: &AgentJob, j: &AgentJob) -> Plan {
             )),
         }
     }
-    if body.is_empty() {
+    if !renamed && body.is_empty() {
         return Plan::nothing(&cur.name, n.to_string());
     }
     let mut p = Plan::new(&format!("Job «{}» de DM", cur.name));
     p.atomic = true;
-    p.exec(format!("CALL SP_JOB_CONFIG_START({})", lit(&cur.name)));
-    for b in body {
-        p.exec(b);
+    if renamed {
+        p.exec(format!(
+            "CALL SP_RENAME_JOB({}, {})",
+            lit(&cur.name),
+            lit(&j.name)
+        ));
     }
-    p.exec(format!("CALL SP_JOB_CONFIG_COMMIT({})", lit(&cur.name)));
+    if !body.is_empty() {
+        p.exec(format!("CALL SP_JOB_CONFIG_START({})", lit(&j.name)));
+        for b in body {
+            p.exec(b);
+        }
+        p.exec(format!("CALL SP_JOB_CONFIG_COMMIT({})", lit(&j.name)));
+    }
     p.id = Some(n.to_string());
     p
 }
@@ -1179,24 +1185,13 @@ fn agent_plan(src: &mut dyn JobSource, id: Option<&str>, values: &FormValues) ->
         Some(id) => {
             let (n, s, _, cur, has_next) = agent_read(src, id)?;
             let j = agent_from(values, &ops, has_next)?;
-            let me = me(src);
-            let owner = s.get(0, "USERNAME");
-            if !me.manages(owner) {
+            // SP_ALTER_JOB and SP_RENAME_JOB: a DBA or the job's owner.
+            if !me(src).manages(s.get(0, "USERNAME")) {
                 return Err(Error::Unsupported(NOT_MINE.into()));
-            }
-            // SP_CREATE_JOB makes the session's user the owner: a DBA's
-            // rename would take the job over.
-            if j.name != cur.name && !owns(&me, owner) {
-                return Err(bad(RENAME_OWNER));
             }
             Ok(agent_alter_plan(&n, &cur, &j))
         }
     }
-}
-
-/// The session's user is `owner` itself (not a DBA acting for it).
-fn owns(me: &crate::jobs::dameng::Me, owner: Option<&str>) -> bool {
-    matches!((&me.user, owner), (Some(u), Some(o)) if u.eq_ignore_ascii_case(o))
 }
 
 pub(super) fn agent_drop_plan(name: &str) -> Plan {
@@ -1208,19 +1203,15 @@ pub(super) fn agent_drop_plan(name: &str) -> Plan {
     p
 }
 
-/// Deletes the history rows of job `name` (the job system has no
-/// procedure for it): its steps' and its own.
+/// Deletes the history of job `name`: `SP_JOB_CLEAR_HISTORIES` deletes its
+/// rows in `SYSJOBHISTORIES2` and `SYSSTEPHISTORIES2` (a user who isn't a
+/// DBA, only of their own jobs).
 pub(super) fn history_plan(name: &str) -> Plan {
-    let mut p = Plan::new(&format!("Borra el historial del job «{name}» de DM"));
+    let mut p = Plan::new(&format!(
+        "Borra el historial del job «{name}» de DM (sus ejecuciones y las de sus pasos)"
+    ));
     p.atomic = true;
-    p.exec(format!(
-        "DELETE FROM SYSJOB.SYSSTEPHISTORIES2 WHERE NAME = {}",
-        lit(name)
-    ));
-    p.exec(format!(
-        "DELETE FROM SYSJOB.SYSJOBHISTORIES2 WHERE NAME = {}",
-        lit(name)
-    ));
+    p.exec(format!("CALL SP_JOB_CLEAR_HISTORIES({})", lit(name)));
     p
 }
 
@@ -1792,10 +1783,7 @@ pub(super) fn clear_plan(src: &mut dyn JobSource, id: &str) -> Result<Plan> {
     match flavor(src, id)? {
         Flavor::Scheduler => dameng_dbms::scheduler_clear_plan(src, id),
         Flavor::Agent | Flavor::DbmsJob => {
-            let (s, t, _) = one(src, id)?;
-            if t.own {
-                return Err(Error::Unsupported(NO_HISTORY_ACCESS.into()));
-            }
+            let (s, _, _) = one(src, id)?;
             if !me(src).manages(s.get(0, "USERNAME")) {
                 return Err(Error::Unsupported(NOT_MINE.into()));
             }

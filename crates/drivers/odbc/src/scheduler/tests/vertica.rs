@@ -155,6 +155,65 @@ fn info_gives_the_kinds_to_a_superuser_only() {
 }
 
 #[test]
+fn a_trigger_runs_now_and_fixed_times_show_only_for_their_kind() {
+    let i = info(preset("vertica"), &mut server(true), &ctx()).unwrap();
+    let trig = &i.kinds[0];
+    assert_eq!(trig.actions.len(), 1);
+    assert_eq!(
+        (trig.actions[0].key.as_str(), trig.actions[0].label.as_str()),
+        ("run", "Ejecutar ahora")
+    );
+    // Vertica keeps no history; schedules have no actions.
+    assert!(!trig.clear_history && !trig.run_from_step);
+    assert!(i.kinds[1].actions.is_empty() && !i.kinds[1].clear_history);
+    let id = "\"public\".\"nightly_trig\"";
+    let s = action_script(
+        preset("vertica"),
+        &mut server(true),
+        &ctx(),
+        "job",
+        id,
+        "run",
+    )
+    .unwrap();
+    assert!(
+        s.starts_with(
+            "-- Ejecuta ahora el procedimiento del trigger (EXECUTE_TRIGGER), en esta sesión"
+        ) && s.contains("SELECT EXECUTE_TRIGGER('")
+            && s.ends_with(");\n"),
+        "{s}"
+    );
+    let mut f = server(true);
+    action(preset("vertica"), &mut f, &ctx(), "job", id, "run").unwrap();
+    assert!(f.sent("SELECT EXECUTE_TRIGGER("));
+    // Not a superuser: refused before anything runs.
+    let mut f = server(false);
+    assert!(action(preset("vertica"), &mut f, &ctx(), "job", id, "run").is_err());
+    assert!(!f.sent("EXECUTE_TRIGGER"));
+    for (kind, act) in [("job", "stop"), ("schedule", "run")] {
+        assert!(matches!(
+            action_script(preset("vertica"), &mut server(true), &ctx(), kind, id, act),
+            Err(Error::Unsupported(_))
+        ));
+    }
+    // The fixed times are a list of the "datetimes" kind only.
+    let f = form(
+        preset("vertica"),
+        &mut server(true),
+        &ctx(),
+        "schedule",
+        None,
+    )
+    .unwrap();
+    well_formed(&f);
+    let times = f.sections.iter().find(|s| s.key == "times").unwrap();
+    let only = Some(("kind".to_string(), vec!["datetimes".to_string()]));
+    assert_eq!(times.when, only);
+    assert_eq!(times.lists[0].when, only);
+    assert_eq!(times.lists[0].min_rows, 1);
+}
+
+#[test]
 fn schedules_are_created_with_cron_or_fixed_times() {
     let v = fv(
         json!({"name": "it's", "schema": "APP", "owner": "etl", "kind": "cron", "cron": "0 3 * * 1-5"}),

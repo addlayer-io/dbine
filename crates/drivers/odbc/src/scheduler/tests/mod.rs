@@ -193,12 +193,17 @@ pub(super) fn well_formed(f: &ObjectForm) {
     for k in f.values.keys() {
         assert!(keys.contains(k), "value without a field: {k}");
     }
-    // A `when` names a field of the form.
+    // A `when` (and every extra condition) names a field of the form; a
+    // tab's or a list's, a top-level one.
     for s in &f.sections {
         for fl in &s.fields {
-            if let Some((other, _)) = &fl.when {
+            for (other, values) in fl.when.iter().chain(&fl.when_all) {
                 assert!(keys.contains(other), "{} when {other}", fl.key);
+                assert!(!values.is_empty(), "{} when {other}", fl.key);
             }
+        }
+        for (other, _) in s.when.iter().chain(s.lists.iter().flat_map(|l| &l.when)) {
+            assert!(keys.contains(other), "{} when {other}", s.key);
         }
     }
 }

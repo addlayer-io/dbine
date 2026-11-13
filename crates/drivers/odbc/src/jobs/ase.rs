@@ -394,17 +394,13 @@ pub fn runs(src: &mut dyn JobSource, id: &str, limit: u32) -> Result<Vec<JobRun>
 
 /// `sp_sjobcontrol` with `run_now`, `terminate`, `enable` or `disable` on
 /// scheduled job `id`.
-pub fn control(src: &mut dyn JobSource, id: &str, action: &str) -> Result<()> {
+pub(crate) fn control(src: &mut dyn JobSource, id: &str, action: &str) -> Result<Control> {
     let n = int_id(id)?;
     let a = access(src)?.map_err(|note| Error::Query(note.into()))?;
-    src.exec(
-        &format!(
-            "exec sybmgmtdb..sp_sjobcontrol @name = '{n}', @option = {}",
-            lit(&options(action, a.admin))
-        ),
-        &[],
-    )
-    .map(|_| ())
+    Ok(Control::exec(format!(
+        "exec sybmgmtdb..sp_sjobcontrol @name = '{n}', @option = {}",
+        lit(&options(action, a.admin))
+    )))
 }
 
 #[cfg(test)]

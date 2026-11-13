@@ -423,10 +423,11 @@ pub fn runs(src: &mut dyn JobSource, id: &str, limit: u32) -> Result<Vec<JobRun>
         .collect())
 }
 
-pub fn run(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn run(src: &mut dyn JobSource, id: &str) -> Result<Control> {
     let (_, name) = name_here(src, id)?;
-    src.exec(&format!("ALTER SCHEDULED QUERY `{name}` EXECUTE"), &[])
-        .map(|_| ())
+    Ok(Control::exec(format!(
+        "ALTER SCHEDULED QUERY `{name}` EXECUTE"
+    )))
 }
 
 pub fn set_enabled(src: &mut dyn JobSource, id: &str, enabled: bool) -> Result<()> {
@@ -445,7 +446,7 @@ fn query_id(v: &str) -> Option<&str> {
     ok.then_some(v)
 }
 
-pub fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
+pub(crate) fn stop(src: &mut dyn JobSource, id: &str) -> Result<Vec<Control>> {
     let (n, name) = name_here(src, id)?;
     // Only the states matter here, not the times.
     let running: Vec<String> = executions_of(src, &Tz::default(), n, &name, 20)?
@@ -458,10 +459,10 @@ pub fn stop(src: &mut dyn JobSource, id: &str) -> Result<()> {
             "la consulta programada «{name}» no se está ejecutando"
         )));
     }
-    for q in running {
-        src.exec(&format!("KILL QUERY '{q}'"), &[])?;
-    }
-    Ok(())
+    Ok(running
+        .into_iter()
+        .map(|q| Control::exec(format!("KILL QUERY '{q}'")))
+        .collect())
 }
 
 /// A Hive string literal (backslash escapes, as Hive reads them).

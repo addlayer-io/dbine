@@ -148,6 +148,39 @@ fn form_of(k: &str, id: &str) -> ObjectForm {
 }
 
 #[test]
+fn a_scheduled_job_runs_now_stops_and_clears_its_history() {
+    let i = info(preset("sybase"), &mut server(true), &ctx()).unwrap();
+    let sj = &i.kinds[0];
+    let keys: Vec<&str> = sj.actions.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, ["run", "stop"]);
+    assert!(sj.clear_history && !sj.run_from_step);
+    // Jobs and schedules are run through the scheduled jobs that use them.
+    for k in &i.kinds[1..] {
+        assert!(k.actions.is_empty() && !k.clear_history, "{}", k.key);
+    }
+    assert_eq!(
+        action_script(preset("sybase"), &mut server(true), &ctx(), "job", "7", "run").unwrap(),
+        "-- Job Scheduler corre el job programado ahora (run_now).\nexec sybmgmtdb..sp_sjobcontrol @name = '7', @option = 'run_now,all_users'\ngo\n"
+    );
+    // Without js_admin_role, only one's own: no all_users.
+    let mut f = server(false);
+    action(preset("sybase"), &mut f, &ctx(), "job", "7", "stop").unwrap();
+    assert!(f.sent("exec sybmgmtdb..sp_sjobcontrol @name = '7', @option = 'terminate'"));
+    for (kind, id, act) in [
+        ("jobdef", "3", "run"),
+        ("job", "7; drop", "run"),
+        ("job", "7", "pause"),
+    ] {
+        let mut f = server(true);
+        assert!(
+            action_script(preset("sybase"), &mut f, &ctx(), kind, id, act).is_err(),
+            "{kind} {id} {act}"
+        );
+        assert!(!f.sent("sp_sjobcontrol"));
+    }
+}
+
+#[test]
 fn a_new_scheduled_job_links_a_job_and_a_schedule() {
     let v = fv(
         json!({
