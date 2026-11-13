@@ -421,3 +421,42 @@ backend:TimescaleDB · compresión
 backend:Tipo {0}
 backend:acción {0}
 backend:clúster {0}
+backend:010 - Información
+backend:Acciones
+backend:Acción (HANDLER)
+backend:Activa
+backend:Activa (RESUME)
+backend:Causa
+backend:Condiciones (WHERE)
+backend:Condición (WHEN)
+backend:Condición (if/else)
+backend:Configuración (CONFIG)
+backend:Cubetas (BUCKET)
+backend:Código
+backend:Definidor
+backend:Dimensiones
+backend:Estándar
+backend:Excepciones
+backend:Fases
+backend:Fecha (UTC)
+backend:Fechas
+backend:Fragmentos (q)
+backend:Hipertabla
+backend:Información
+backend:Minutos
+backend:Momento
+backend:Notificación
+backend:Paquete
+backend:Pausa
+backend:Permiso
+backend:Permisos
+backend:Planes
+backend:Posiciones
+backend:Posición
+backend:Reflexión
+backend:Sesión (SESSION)
+backend:Transformación
+backend:Vencimiento
+backend:Vencimiento (EXPIRED_TIME)
+backend:reflexión
+scheduled.json:designer.scriptTitle

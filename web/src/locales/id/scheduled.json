@@ -251,6 +251,7 @@
     "tab": "Job",
     "noConnections": "Tidak ada koneksi yang menggunakan mesin dengan job server (SQL Server Agent, DBMS_SCHEDULER, tugas Snowflake, job Databricks, pg_cron, event MySQL…).",
     "none": "Server ini tidak memiliki job.",
+    "failedCount_other": "{{count}} job gagal pada eksekusi terakhir",
     "onDemand": "Sesuai permintaan",
     "showSystem_other": "Tampilkan {{count}} job sistem",
     "hideSystem_other": "Sembunyikan job sistem",
@@ -267,13 +268,16 @@
       "run": "Jalankan job «{{job}}» di {{connection}} sekarang?",
       "stop": "Hentikan eksekusi job «{{job}}» yang sedang berjalan di {{connection}}?",
       "enable": "Aktifkan job «{{job}}» di {{connection}}? Job akan kembali berjalan sesuai jadwalnya.",
-      "disable": "Nonaktifkan job «{{job}}» di {{connection}}? Job tidak lagi berjalan sesuai jadwalnya."
+      "disable": "Nonaktifkan job «{{job}}» di {{connection}}? Job tidak lagi berjalan sesuai jadwalnya.",
+      "clearHistory": "Hapus riwayat eksekusi job «{{job}}» di {{connection}}? Tindakan ini tidak dapat dibatalkan."
     },
     "done": {
       "run": "Server mulai menjalankan «{{job}}».",
       "stop": "Penghentian «{{job}}» telah diminta.",
       "enable": "«{{job}}» telah diaktifkan.",
-      "disable": "«{{job}}» telah dinonaktifkan."
+      "disable": "«{{job}}» telah dinonaktifkan.",
+      "clearHistory": "Riwayat «{{job}}» telah dihapus.",
+      "runFrom": "Server mulai menjalankan «{{job}}» dari langkah «{{step}}»."
     },
     "outcome": {
       "succeeded": "Berhasil",
@@ -303,6 +307,73 @@
     "trigger": "Pemicu",
     "message": "Pesan",
     "moreRuns": "Lihat eksekusi lainnya",
-    "failedCount_other": "{{count}} job gagal pada eksekusi terakhir"
+    "newJob": "Job baru",
+    "edit": "Edit",
+    "runFrom": "Mulai dari langkah…",
+    "clearHistory": "Hapus riwayat",
+    "delete": "Hapus",
+    "more": "Tindakan lainnya",
+    "systemObjectsHint": "Objek sistem sudah disertakan engine: bukan dibuat oleh pengguna.",
+    "log": "Log penjadwal",
+    "noItems": "Tidak ada item.",
+    "runFromDialog": {
+      "title": "Mulai dari langkah",
+      "message": "Job «{{job}}» dijalankan sekarang di {{connection}}, mulai dari langkah yang Anda pilih.",
+      "start": "Mulai",
+      "noSteps": "Job «{{job}}» tidak memiliki langkah."
+    }
+  },
+  "designer": {
+    "newTitle": "Buat {{kind}}",
+    "readOnly": "Hanya-baca",
+    "readOnlyHint": "Tidak dapat disimpan: koneksi bersifat hanya-baca, atau server tidak mengizinkan pengguna ini mengubah objek ini.",
+    "viewScript": "Lihat skrip",
+    "openInQuery": "Buka di kueri",
+    "reload": "Muat ulang",
+    "required": "Wajib",
+    "invalid": "Ada kolom yang perlu diperiksa: ditandai merah.",
+    "errors": {
+      "required": "Kolom ini harus diisi.",
+      "min": "Harus {{n}} atau lebih.",
+      "max": "Harus {{n}} atau kurang.",
+      "missing": "«{{value}}» tidak ada di antara pilihan: pilih yang lain.",
+      "minRows_other": "Memerlukan setidaknya {{count}} baris.",
+      "row": "Baris {{n}} · {{field}}: {{error}}"
+    },
+    "add": "Tambah",
+    "view": "Lihat",
+    "moveUp": "Naikkan",
+    "moveDown": "Turunkan",
+    "minRowsHint_other": "Tidak dapat dihapus: daftar memerlukan setidaknya {{count}} baris.",
+    "noRows": "Tidak ada baris.",
+    "newRow": "baris baru",
+    "secretKeep": "Tidak berubah: biarkan kosong untuk mempertahankan yang sekarang",
+    "secretMasked": "Skrip menampilkan nilai rahasia yang Anda tulis sebagai ********: hanya Simpan yang menulis nilai sebenarnya. Jika dibuka di kueri, ganti dahulu sebelum menjalankannya.",
+    "secretMaskedSave": "Skrip menampilkan nilai rahasia yang Anda tulis sebagai ********; saat disimpan, nilai sebenarnya yang ditulis.",
+    "secretComment": "Nilai rahasia ditampilkan sebagai ********: ganti dengan nilai sebenarnya sebelum menjalankan skrip ini.",
+    "seconds": "detik",
+    "untitled": "(tanpa nama)",
+    "dirtyClose": "Ada perubahan yang belum disimpan di «{{name}}». Tutup tab dan buang perubahan?",
+    "dirtyReload": "Ada perubahan yang belum disimpan di «{{name}}». Buang dan baca ulang dari server?",
+    "discard": "Buang",
+    "unsavedTitle": "Perubahan belum disimpan",
+    "scriptTitle": "Skrip · {{name}}",
+    "saveTitle": "Simpan ke server",
+    "deleteTitle": "Hapus dari server",
+    "confirmCreate": "Buat «{{name}}» ({{kind}}) di {{connection}}? Skrip ini akan dijalankan:",
+    "confirmSave": "Simpan perubahan «{{name}}» ({{kind}}) di {{connection}}? Skrip ini akan dijalankan:",
+    "confirmDelete": "Hapus «{{name}}» ({{kind}}) dari {{connection}}? Skrip ini akan dijalankan dan tidak dapat dibatalkan:",
+    "prodWarning": "{{connection}} adalah koneksi produksi.",
+    "saved": "«{{name}}» telah disimpan.",
+    "deleted": "«{{name}}» telah dihapus.",
+    "confirmAction": "«{{action}}» akan dijalankan pada «{{name}}» ({{kind}}) di {{connection}}, dengan skrip ini:",
+    "actionDone": "«{{action}}» telah dijalankan pada «{{name}}».",
+    "noScript": "Server tidak mengembalikan skrip: tidak ada perubahan untuk disimpan.",
+    "consequences": "Sebelum melanjutkan, perhatikan:",
+    "continue": "Lanjutkan"
+  },
+  "log": {
+    "tab": "Log penjadwal",
+    "empty": "Server tidak memiliki log penjadwal."
   }
 }

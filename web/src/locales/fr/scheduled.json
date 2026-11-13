@@ -255,6 +255,8 @@
     "tab": "Job",
     "noConnections": "Aucune connexion n'utilise un moteur avec des jobs de serveur (SQL Server Agent, DBMS_SCHEDULER, tâches Snowflake, jobs Databricks, pg_cron, événements MySQL…).",
     "none": "Ce serveur n'a aucun job.",
+    "failedCount_one": "{{count}} job a échoué lors de sa dernière exécution",
+    "failedCount_other": "{{count}} jobs ont échoué lors de leur dernière exécution",
     "onDemand": "À la demande",
     "showSystem_one": "Afficher celui du système",
     "showSystem_other": "Afficher les {{count}} du système",
@@ -273,13 +275,16 @@
       "run": "Exécuter maintenant le job « {{job}} » sur {{connection}} ?",
       "stop": "Arrêter l'exécution en cours du job « {{job}} » sur {{connection}} ?",
       "enable": "Activer le job « {{job}} » sur {{connection}} ? Il recommence à s'exécuter selon sa planification.",
-      "disable": "Désactiver le job « {{job}} » sur {{connection}} ? Il cesse de s'exécuter selon sa planification."
+      "disable": "Désactiver le job « {{job}} » sur {{connection}} ? Il cesse de s'exécuter selon sa planification.",
+      "clearHistory": "Supprimer l'historique d'exécutions du job « {{job}} » sur {{connection}} ? Cette action est irréversible."
     },
     "done": {
       "run": "Le serveur a commencé à exécuter « {{job}} ».",
       "stop": "L'arrêt de « {{job}} » a été demandé.",
       "enable": "« {{job}} » a été activé.",
-      "disable": "« {{job}} » a été désactivé."
+      "disable": "« {{job}} » a été désactivé.",
+      "clearHistory": "L'historique de « {{job}} » a été supprimé.",
+      "runFrom": "Le serveur a commencé à exécuter « {{job}} » à partir de l'étape « {{step}} »."
     },
     "outcome": {
       "succeeded": "Réussie",
@@ -309,8 +314,76 @@
     "trigger": "Origine",
     "message": "Message",
     "moreRuns": "Voir plus d'exécutions",
-    "failedCount_one": "{{count}} job a échoué lors de sa dernière exécution",
-    "failedCount_many": "{{count}} de jobs ont échoué lors de leur dernière exécution",
-    "failedCount_other": "{{count}} jobs ont échoué lors de leur dernière exécution"
+    "newJob": "Nouveau job",
+    "edit": "Modifier",
+    "runFrom": "Démarrer à l'étape…",
+    "clearHistory": "Supprimer l'historique",
+    "delete": "Supprimer",
+    "more": "Plus d'actions",
+    "systemObjectsHint": "Les objets système sont fournis avec le moteur : aucun utilisateur ne les a créés.",
+    "log": "Journal du planificateur",
+    "noItems": "Aucun élément.",
+    "runFromDialog": {
+      "title": "Démarrer à l'étape",
+      "message": "Le job « {{job}} » s'exécute maintenant sur {{connection}}, à partir de l'étape que vous choisissez.",
+      "start": "Démarrer",
+      "noSteps": "Le job « {{job}} » n'a pas d'étapes."
+    },
+    "failedCount_many": "{{count}} de jobs ont échoué lors de leur dernière exécution"
+  },
+  "designer": {
+    "newTitle": "Créer {{kind}}",
+    "readOnly": "Lecture seule",
+    "readOnlyHint": "Impossible d'enregistrer : la connexion est en lecture seule, ou le serveur ne permet pas à cet utilisateur de modifier cet objet.",
+    "viewScript": "Voir le script",
+    "openInQuery": "Ouvrir dans une requête",
+    "reload": "Recharger",
+    "required": "Obligatoire",
+    "invalid": "Des champs sont à vérifier : ils sont marqués en rouge.",
+    "errors": {
+      "required": "Ce champ doit être renseigné.",
+      "min": "Doit être supérieur ou égal à {{n}}.",
+      "max": "Doit être inférieur ou égal à {{n}}.",
+      "missing": "« {{value}} » ne fait pas partie des options : choisissez-en une autre.",
+      "minRows_one": "Au moins une ligne est nécessaire.",
+      "minRows_other": "Au moins {{count}} lignes sont nécessaires.",
+      "row": "Ligne {{n}} · {{field}} : {{error}}"
+    },
+    "add": "Ajouter",
+    "view": "Voir",
+    "moveUp": "Monter",
+    "moveDown": "Descendre",
+    "minRowsHint_one": "Impossible de retirer : la liste a besoin d'au moins une ligne.",
+    "minRowsHint_other": "Impossible de retirer : la liste a besoin d'au moins {{count}} lignes.",
+    "noRows": "Aucune ligne.",
+    "newRow": "nouvelle ligne",
+    "secretKeep": "Sans changement : laissez vide pour conserver l'actuel",
+    "secretMasked": "Le script affiche sous la forme ******** les valeurs secrètes que vous avez saisies : seul Enregistrer écrit les vraies. Si vous l'ouvrez dans une requête, remplacez-les avant de l'exécuter.",
+    "secretMaskedSave": "Le script affiche sous la forme ******** les valeurs secrètes que vous avez saisies ; à l'enregistrement, les vraies sont écrites.",
+    "secretComment": "Les valeurs secrètes apparaissent sous la forme ******** : remplacez-les par les vraies avant d'exécuter ce script.",
+    "seconds": "secondes",
+    "untitled": "(sans nom)",
+    "dirtyClose": "Il y a des modifications non enregistrées dans « {{name}} ». Fermer l'onglet et les abandonner ?",
+    "dirtyReload": "Il y a des modifications non enregistrées dans « {{name}} ». Les abandonner et relire depuis le serveur ?",
+    "discard": "Abandonner",
+    "unsavedTitle": "Modifications non enregistrées",
+    "scriptTitle": "Script · {{name}}",
+    "saveTitle": "Enregistrer sur le serveur",
+    "deleteTitle": "Supprimer du serveur",
+    "confirmCreate": "Créer « {{name}} » ({{kind}}) sur {{connection}} ? Ce script est exécuté :",
+    "confirmSave": "Enregistrer les modifications de « {{name}} » ({{kind}}) sur {{connection}} ? Ce script est exécuté :",
+    "confirmDelete": "Supprimer « {{name}} » ({{kind}}) de {{connection}} ? Ce script est exécuté et l'action est irréversible :",
+    "prodWarning": "{{connection}} est une connexion de production.",
+    "saved": "« {{name}} » a été enregistré.",
+    "deleted": "« {{name}} » a été supprimé.",
+    "confirmAction": "« {{action}} » va être exécuté sur « {{name}} » ({{kind}}) sur {{connection}}, avec ce script :",
+    "actionDone": "« {{action}} » a été exécuté sur « {{name}} ».",
+    "noScript": "Le serveur n'a renvoyé aucun script : il n'y a pas de modifications à enregistrer.",
+    "consequences": "Avant de continuer, gardez à l'esprit :",
+    "continue": "Continuer"
+  },
+  "log": {
+    "tab": "Journal du planificateur",
+    "empty": "Le serveur n'a pas de journaux du planificateur."
   }
 }

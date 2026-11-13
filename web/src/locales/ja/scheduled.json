@@ -251,6 +251,7 @@
     "tab": "ジョブ",
     "noConnections": "サーバーのジョブを持つエンジンを使用している接続はありません（SQL Server Agent、DBMS_SCHEDULER、Snowflake のタスク、Databricks のジョブ、pg_cron、MySQL のイベントなど）。",
     "none": "このサーバーにはジョブがありません。",
+    "failedCount_other": "{{count}} 件のジョブが前回の実行で失敗しました",
     "onDemand": "オンデマンド",
     "showSystem_other": "システムのジョブ {{count}} 件を表示",
     "hideSystem_other": "システムのジョブを非表示",
@@ -267,13 +268,16 @@
       "run": "{{connection}} のジョブ「{{job}}」を今すぐ実行しますか？",
       "stop": "{{connection}} のジョブ「{{job}}」の実行中の処理を停止しますか？",
       "enable": "{{connection}} のジョブ「{{job}}」を有効にしますか？ スケジュールに従って再び実行されます。",
-      "disable": "{{connection}} のジョブ「{{job}}」を無効にしますか？ スケジュールに従った実行が行われなくなります。"
+      "disable": "{{connection}} のジョブ「{{job}}」を無効にしますか？ スケジュールに従った実行が行われなくなります。",
+      "clearHistory": "{{connection}} のジョブ「{{job}}」の実行履歴を削除しますか? この操作は元に戻せません。"
     },
     "done": {
       "run": "サーバーが「{{job}}」の実行を開始しました。",
       "stop": "「{{job}}」の停止を要求しました。",
       "enable": "「{{job}}」を有効にしました。",
-      "disable": "「{{job}}」を無効にしました。"
+      "disable": "「{{job}}」を無効にしました。",
+      "clearHistory": "「{{job}}」の履歴を削除しました。",
+      "runFrom": "サーバーがジョブ「{{job}}」をステップ「{{step}}」から実行し始めました。"
     },
     "outcome": {
       "succeeded": "成功",
@@ -303,6 +307,73 @@
     "trigger": "トリガー",
     "message": "メッセージ",
     "moreRuns": "さらに実行を表示",
-    "failedCount_other": "{{count}} 件のジョブが前回の実行で失敗しました"
+    "newJob": "新規ジョブ",
+    "edit": "編集",
+    "runFrom": "ステップから開始…",
+    "clearHistory": "履歴を削除",
+    "delete": "削除",
+    "more": "その他の操作",
+    "systemObjectsHint": "システムオブジェクトはエンジンに付属するもので、ユーザーが作成したものではありません。",
+    "log": "スケジューラーのログ",
+    "noItems": "項目がありません。",
+    "runFromDialog": {
+      "title": "ステップから開始",
+      "message": "{{connection}} でジョブ「{{job}}」を、選択したステップから今すぐ実行します。",
+      "start": "開始",
+      "noSteps": "ジョブ「{{job}}」にはステップがありません。"
+    }
+  },
+  "designer": {
+    "newTitle": "{{kind}}を作成",
+    "readOnly": "読み取り専用",
+    "readOnlyHint": "保存できません。接続が読み取り専用か、このユーザーではサーバーがこのオブジェクトの変更を許可していません。",
+    "viewScript": "スクリプトを表示",
+    "openInQuery": "クエリで開く",
+    "reload": "再読み込み",
+    "required": "必須",
+    "invalid": "確認が必要なフィールドがあります。赤く表示されています。",
+    "errors": {
+      "required": "このフィールドを入力してください。",
+      "min": "{{n}} 以上にしてください。",
+      "max": "{{n}} 以下にしてください。",
+      "missing": "「{{value}}」は選択肢にありません。別のものを選択してください。",
+      "minRows_other": "少なくとも {{count}} 行が必要です。",
+      "row": "{{n}} 行目 · {{field}}: {{error}}"
+    },
+    "add": "追加",
+    "view": "表示",
+    "moveUp": "上へ",
+    "moveDown": "下へ",
+    "minRowsHint_other": "削除できません。リストには少なくとも {{count}} 行が必要です。",
+    "noRows": "行がありません。",
+    "newRow": "新しい行",
+    "secretKeep": "変更なし: 現在の値を維持するには空のままにしてください",
+    "secretMasked": "スクリプトでは、入力したシークレットの値が ******** と表示されます。実際の値が書き込まれるのは「保存」のみです。クエリで開く場合は、実行前に置き換えてください。",
+    "secretMaskedSave": "スクリプトでは、入力したシークレットの値が ******** と表示されます。保存時に実際の値が書き込まれます。",
+    "secretComment": "シークレットの値は ******** と表示されます。このスクリプトを実行する前に実際の値に置き換えてください。",
+    "seconds": "秒",
+    "untitled": "(名前なし)",
+    "dirtyClose": "「{{name}}」に未保存の変更があります。タブを閉じて変更を破棄しますか?",
+    "dirtyReload": "「{{name}}」に未保存の変更があります。破棄してサーバーから読み込み直しますか?",
+    "discard": "破棄",
+    "unsavedTitle": "未保存の変更",
+    "scriptTitle": "スクリプト · {{name}}",
+    "saveTitle": "サーバーに保存",
+    "deleteTitle": "サーバーから削除",
+    "confirmCreate": "{{connection}} に「{{name}}」({{kind}}) を作成しますか? 次のスクリプトが実行されます:",
+    "confirmSave": "{{connection}} の「{{name}}」({{kind}}) の変更を保存しますか? 次のスクリプトが実行されます:",
+    "confirmDelete": "{{connection}} から「{{name}}」({{kind}}) を削除しますか? 次のスクリプトが実行され、元に戻せません:",
+    "prodWarning": "{{connection}} は本番環境の接続です。",
+    "saved": "「{{name}}」を保存しました。",
+    "deleted": "「{{name}}」を削除しました。",
+    "confirmAction": "{{connection}} の「{{name}}」({{kind}}) に対して「{{action}}」を実行します。スクリプトは次のとおりです:",
+    "actionDone": "「{{name}}」に対して「{{action}}」を実行しました。",
+    "noScript": "サーバーがスクリプトを返しませんでした。保存する変更はありません。",
+    "consequences": "続行する前にご注意ください:",
+    "continue": "続行"
+  },
+  "log": {
+    "tab": "スケジューラーのログ",
+    "empty": "サーバーにスケジューラーのログがありません。"
   }
 }

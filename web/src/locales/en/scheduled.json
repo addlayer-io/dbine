@@ -254,6 +254,8 @@
     "tab": "Job",
     "noConnections": "No connection uses an engine with server jobs (SQL Server Agent, DBMS_SCHEDULER, Snowflake tasks, Databricks jobs, pg_cron, MySQL events…).",
     "none": "This server has no jobs.",
+    "failedCount_one": "{{count}} job failed on its last run",
+    "failedCount_other": "{{count}} jobs failed on their last run",
     "onDemand": "On demand",
     "showSystem_one": "Show the system one",
     "showSystem_other": "Show the {{count}} system ones",
@@ -272,13 +274,16 @@
       "run": "Run the job “{{job}}” on {{connection}} now?",
       "stop": "Stop the current run of the job “{{job}}” on {{connection}}?",
       "enable": "Enable the job “{{job}}” on {{connection}}? It runs again on its schedule.",
-      "disable": "Disable the job “{{job}}” on {{connection}}? It stops running on its schedule."
+      "disable": "Disable the job “{{job}}” on {{connection}}? It stops running on its schedule.",
+      "clearHistory": "Delete the run history of job «{{job}}» on {{connection}}? This cannot be undone."
     },
     "done": {
       "run": "The server started running “{{job}}”.",
       "stop": "Stopping “{{job}}” was requested.",
       "enable": "“{{job}}” was enabled.",
-      "disable": "“{{job}}” was disabled."
+      "disable": "“{{job}}” was disabled.",
+      "clearHistory": "The history of «{{job}}» was deleted.",
+      "runFrom": "The server started running «{{job}}» from step «{{step}}»."
     },
     "outcome": {
       "succeeded": "Succeeded",
@@ -308,7 +313,75 @@
     "trigger": "Trigger",
     "message": "Message",
     "moreRuns": "Show more runs",
-    "failedCount_one": "{{count}} job failed on its last run",
-    "failedCount_other": "{{count}} jobs failed on their last run"
+    "newJob": "New job",
+    "edit": "Edit",
+    "runFrom": "Start at step…",
+    "clearHistory": "Clear history",
+    "delete": "Delete",
+    "more": "More actions",
+    "systemObjectsHint": "System objects come with the engine: a user did not create them.",
+    "log": "Scheduler log",
+    "noItems": "No items.",
+    "runFromDialog": {
+      "title": "Start at step",
+      "message": "Job «{{job}}» runs now on {{connection}}, starting from the step you choose.",
+      "start": "Start",
+      "noSteps": "Job «{{job}}» has no steps."
+    }
+  },
+  "designer": {
+    "newTitle": "Create {{kind}}",
+    "readOnly": "Read-only",
+    "readOnlyHint": "It cannot be saved: the connection is read-only, or the server does not let this user change this object.",
+    "viewScript": "View script",
+    "openInQuery": "Open in a query",
+    "reload": "Reload",
+    "required": "Required",
+    "invalid": "Some fields need review: they are marked in red.",
+    "errors": {
+      "required": "This field must be filled in.",
+      "min": "Must be {{n}} or more.",
+      "max": "Must be {{n}} or less.",
+      "missing": "«{{value}}» is not among the options: choose another.",
+      "minRows_one": "At least one row is required.",
+      "minRows_other": "At least {{count}} rows are required.",
+      "row": "Row {{n}} · {{field}}: {{error}}"
+    },
+    "add": "Add",
+    "view": "View",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "minRowsHint_one": "It cannot be removed: the list needs at least one row.",
+    "minRowsHint_other": "It cannot be removed: the list needs at least {{count}} rows.",
+    "noRows": "No rows.",
+    "newRow": "new row",
+    "secretKeep": "Unchanged: leave it empty to keep the current one",
+    "secretMasked": "The script shows the secret values you typed as ********: only Save writes the real ones. If you open it in a query, replace them before running it.",
+    "secretMaskedSave": "The script shows the secret values you typed as ********; when saving, the real ones are written.",
+    "secretComment": "Secret values appear as ********: replace them with the real ones before running this script.",
+    "seconds": "seconds",
+    "untitled": "(unnamed)",
+    "dirtyClose": "There are unsaved changes in «{{name}}». Close the tab and discard them?",
+    "dirtyReload": "There are unsaved changes in «{{name}}». Discard them and read it again from the server?",
+    "discard": "Discard",
+    "unsavedTitle": "Unsaved changes",
+    "scriptTitle": "Script · {{name}}",
+    "saveTitle": "Save to the server",
+    "deleteTitle": "Delete from the server",
+    "confirmCreate": "Create «{{name}}» ({{kind}}) on {{connection}}? This script runs:",
+    "confirmSave": "Save the changes to «{{name}}» ({{kind}}) on {{connection}}? This script runs:",
+    "confirmDelete": "Delete «{{name}}» ({{kind}}) from {{connection}}? This script runs and cannot be undone:",
+    "prodWarning": "{{connection}} is a production connection.",
+    "saved": "«{{name}}» was saved.",
+    "deleted": "«{{name}}» was deleted.",
+    "confirmAction": "«{{action}}» will run on «{{name}}» ({{kind}}) on {{connection}}, with this script:",
+    "actionDone": "«{{action}}» ran on «{{name}}».",
+    "noScript": "The server returned no script: there are no changes to save.",
+    "consequences": "Before continuing, keep in mind:",
+    "continue": "Continue"
+  },
+  "log": {
+    "tab": "Scheduler log",
+    "empty": "The server has no scheduler logs."
   }
 }

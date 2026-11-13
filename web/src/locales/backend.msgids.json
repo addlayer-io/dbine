@@ -368,6 +368,9 @@
  "(sin _id)": [
   "crates/drivers/mongodb/src/transfer.rs"
  ],
+ "(sin instancia)": [
+  "crates/drivers/sqlserver/src/agent/choices.rs"
+ ],
  "(sin límite)": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -434,6 +437,9 @@
  ", {0} entre las {1} y las {2}": [
   "crates/drivers/odbc/src/jobs/dameng.rs",
   "crates/drivers/sqlserver/src/jobs.rs"
+ ],
+ "-- Ahora no hay ningún agente de pgAgent conectado: el job empieza cuando se conecte uno.\n": [
+  "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
  "-- Al terminar, DBine la pausa: PAUSE <id que le dé ksqlDB>;\n": [
   "crates/drivers/ksqldb/src/scheduler.rs"
@@ -556,6 +562,9 @@
  ],
  "-- ksqlDB reemplaza el valor completo de la clave: las columnas que no figuran quedan en NULL.": [
   "crates/drivers/ksqldb/src/ddl.rs"
+ ],
+ "-- pgAgent: programar el job «{0}» para ahora; un agente lo inicia en su próxima revisión (cada 10 segundos, salvo que se lo inicie con otro -t) y DBine no espera a que termine.\n": [
+  "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
  "-- pg_cron: {0}\n-- Se crea en la base de pg_cron («{1}»).\n": [
   "crates/drivers/postgres/src/jobs/cron.rs"
@@ -1091,6 +1100,9 @@
  "Abortos": [
   "crates/drivers/spanner/src/monitor.rs"
  ],
+ "Abre la ventana {0} ahora, por su duración ({1}).": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Abre únicamente el archivo elegido (también un .xlsx), no toda la carpeta.": [
   "crates/drivers/duckdb/src/files.rs"
  ],
@@ -1099,6 +1111,9 @@
   "crates/drivers/oracle/src/scheduler/timing.rs",
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs",
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
+ ],
+ "Abrir ahora": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Abstracta": [
   "crates/drivers/orientdb/src/ddl.rs"
@@ -1183,6 +1198,9 @@
  ],
  "Acción de validación": [
   "crates/drivers/mongodb/src/ddl.rs"
+ ],
+ "Acción del planificador.": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
  ],
  "Acción en caso de error": [
   "crates/drivers/sqlserver/src/agent/job.rs"
@@ -2470,6 +2488,7 @@
   "crates/drivers/bigquery/src/gcp.rs",
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/clickhouse/src/security.rs",
+  "crates/drivers/couchdb/src/replication/doc.rs",
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/drill/src/lib.rs",
   "crates/drivers/dynamodb/src/aws.rs",
@@ -2508,6 +2527,7 @@
   "crates/drivers/bigquery/src/transfer.rs",
   "crates/drivers/cosmosdb/src/lib.rs",
   "crates/drivers/cosmosdb/src/transfer.rs",
+  "crates/drivers/couchdb/src/replication/doc.rs",
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/databricks/src/transfer.rs",
   "crates/drivers/dremio/src/lib.rs",
@@ -2903,6 +2923,9 @@
   "crates/drivers/postgres/src/scheduler/crdb.rs",
   "crates/drivers/spanner/src/jobs.rs"
  ],
+ "Backup completo ahora": [
+  "crates/drivers/couchbase/src/backup/mod.rs"
+ ],
  "Backup completo de «{0}», cron {1} (UTC)": [
   "crates/drivers/spanner/src/scheduler.rs"
  ],
@@ -3203,6 +3226,7 @@
  ],
  "Bearer {0}": [
   "crates/drivers/bigquery/src/gcp.rs",
+  "crates/drivers/couchdb/src/replication/doc.rs",
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/dremio/src/lib.rs",
   "crates/drivers/snowflake/src/lib.rs",
@@ -3673,7 +3697,7 @@
  "Borra el historial del job «{0}» de DBMS_SCHEDULER de DM": [
   "crates/drivers/odbc/src/scheduler/dameng_dbms.rs"
  ],
- "Borra el historial del job «{0}» de DM": [
+ "Borra el historial del job «{0}» de DM (sus ejecuciones y las de sus pasos)": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
  "Borra el historial y la salida de las ejecuciones terminadas del job programado «{0}» (las que siguen corriendo quedan)": [
@@ -3904,9 +3928,6 @@
  ],
  "Borrar el evento (ON COMPLETION NOT PRESERVE)": [
   "crates/drivers/mysql/src/scheduler/events.rs"
- ],
- "Borrar el historial de un job pide leer y borrar las tablas de SYSJOB (rol SOI o DBA).": [
-  "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
  "Borrar la tabla de salida al borrar la de origen (DELETE_OUTPUT_TABLE)": [
   "crates/drivers/tdengine/src/scheduler/mod.rs"
@@ -5278,8 +5299,7 @@
   "crates/drivers/sqlserver/src/properties.rs"
  ],
  "Cambiarlo crea el job de nuevo con ese nombre.": [
-  "crates/drivers/hana/src/scheduler/mod.rs",
-  "crates/drivers/odbc/src/scheduler/dameng.rs"
+  "crates/drivers/hana/src/scheduler/mod.rs"
  ],
  "Cambiarlo crea un watch nuevo y borra el anterior.": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
@@ -5294,6 +5314,9 @@
  ],
  "Cambiarlo pasa sus tareas al nombre nuevo.": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
+ ],
+ "Cambiarlo renombra el job (SP_RENAME_JOB): sigue siendo el mismo, con su id, su dueño, sus pasos y sus programaciones.": [
+  "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
  "Cambiarlo vuelve a crear el evento.": [
   "crates/drivers/odbc/src/scheduler/sqla.rs"
@@ -5696,6 +5719,9 @@
  "Cerca del máximo, las conexiones nuevas se rechazan. Revisá si hay aplicaciones que no cierran sus conexiones o subí el límite.": [
   "src-tauri/src/commands/db_health.rs"
  ],
+ "Cerrar ahora": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Cerrar automáticamente (AUTO_CLOSE)": [
   "crates/drivers/sqlserver/src/properties.rs"
  ],
@@ -5771,6 +5797,9 @@
  ],
  "Ciclos completos del recolector de basura de Go. Muchos por segundo indican que el servidor asigna y descarta memoria a un ritmo alto, típico de consultas que leen muchos puntos.": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "Cierra la ventana {0} ahora, antes de su hora.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Cifra la conexión (obligatorio en SAP HANA Cloud). Por un túnel SSH el certificado se verifica contra 127.0.0.1: el cliente no permite indicar el nombre real del servidor.": [
   "crates/drivers/hana/src/lib.rs"
@@ -6259,7 +6288,8 @@
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "CockroachDB no ejecuta en el momento este tipo de schedule": [
-  "crates/drivers/postgres/src/jobs/cockroach.rs"
+  "crates/drivers/postgres/src/jobs/cockroach.rs",
+  "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "CockroachDB no le quita el cifrado a un backup programado: creá otro schedule sin cifrar.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
@@ -6976,7 +7006,7 @@
  "Con un nivel más viejo la base no usa las mejoras del optimizador. Subirlo puede cambiar planes: probalo antes en otro ambiente.": [
   "crates/drivers/sqlserver/src/health.rs"
  ],
- "Con un usuario, su contraseña.": [
+ "Con un token, el encabezado Authorization de «{0}» sale del campo Token: sacalo de los encabezados.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Con un «Usuario» hace falta su «Contraseña»: Db2 la pide al crear la tarea y en cada cambio, y no se lee del servidor, así que hay que escribirla de nuevo.": [
@@ -7392,6 +7422,9 @@
  "Conexión de solo lectura: no se pueden borrar objetos del planificador.": [
   "crates/dbine-driver/src/read_only.rs"
  ],
+ "Conexión de solo lectura: no se pueden cambiar jobs del servidor.": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
+ ],
  "Conexión de solo lectura: no se pueden cancelar comandos de otros clientes.": [
   "crates/drivers/redis/src/processes.rs"
  ],
@@ -7457,11 +7490,15 @@
  "Conexión de solo lectura: no se pueden detener tareas.": [
   "crates/drivers/influxdb/src/jobs.rs"
  ],
+ "Conexión de solo lectura: no se pueden ejecutar acciones del planificador.": [
+  "crates/dbine-driver/src/read_only.rs"
+ ],
  "Conexión de solo lectura: no se pueden ejecutar jobs del servidor.": [
   "crates/dbine-driver/src/read_only.rs",
   "crates/drivers/couchbase/src/jobs.rs",
   "crates/drivers/couchdb/src/jobs.rs",
-  "crates/drivers/elasticsearch/src/jobs.rs"
+  "crates/drivers/elasticsearch/src/jobs.rs",
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "Conexión de solo lectura: no se pueden ejecutar tareas.": [
   "crates/drivers/influxdb/src/jobs.rs"
@@ -8449,6 +8486,12 @@
  "Corrientes": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "Corta la sesión del job en ejecución (SP_STOP_RUNNING_JOB); su programación sigue igual.": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
+ "Corta las ejecuciones en curso de la consulta programada (KILL QUERY).": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
  "Cosmos DB acepta consultas SELECT, `USE <contenedor>` y estas sentencias de DBine: CREATE CONTAINER [IF NOT EXISTS] \"c\" {0} · DROP CONTAINER [IF EXISTS] \"c\" · INSERT INTO \"c\" {1} · UPSERT INTO \"c\" {2} · UPDATE \"c\" SET {3} WHERE {4} · DELETE FROM \"c\" WHERE {5} · CREATE USER \"u\" · DROP USER \"u\" · GRANT ALL|READ ON \"c\" TO \"u\" · REVOKE ALL|READ ON \"c\" FROM \"u\"": [
   "crates/drivers/cosmosdb/src/ddl.rs"
  ],
@@ -9312,6 +9355,9 @@
  "Cómo se generan los SERIAL (serial_normalization)": [
   "crates/drivers/postgres/src/properties.rs"
  ],
+ "Cómo se identifica el replicador ante esta base de datos: con un usuario y su contraseña (auth.basic), o con un token, como un JWT, en el encabezado Authorization.": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
+ ],
  "Cómo se manda un script al servidor. Si el motor acepta varias sentencias por pedido, «Todo el texto de una vez» respeta bloques como BEGIN … END.": [
   "crates/drivers/odbc/src/lib.rs"
  ],
@@ -9430,6 +9476,9 @@
  ],
  "DBine no crea claves foráneas en DSQL: se omiten las de {0}.": [
   "crates/drivers/dsql/src/sync.rs"
+ ],
+ "DBine no encuentra el schedule de la TTL de esta tabla (o tu usuario no puede ver los schedules).": [
+  "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "DBine no encuentra la tabla de este schedule de TTL.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
@@ -9559,9 +9608,6 @@
  "DM corre un job siempre desde su primer paso: no tiene una forma de empezarlo en otro": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
- "DM no cambia el nombre de un job: se crea con el nombre nuevo y se borra el anterior; el historial queda con el nombre anterior y el job recibe otro id.": [
-  "crates/drivers/odbc/src/scheduler/dameng.rs"
- ],
  "DM no cambia el nombre de un operador ni de una alerta: creá otro y borrá este.": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
@@ -9589,6 +9635,9 @@
  "DSQL no pasa una columna existente a NOT NULL: {0}.{1} sigue aceptando NULL.": [
   "crates/drivers/dsql/src/sync.rs"
  ],
+ "Da por terminada la ejecución en curso del job {0}, que ejecuta un programa desacoplado.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Daemon": [
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/mysql/src/processes.rs"
@@ -9598,6 +9647,9 @@
  ],
  "Dameng restaura la base con DMRMAN y el servidor detenido": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "Dar por terminada la ejecución": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Dashboard": [
   "crates/drivers/databricks/src/jobs.rs",
@@ -10213,7 +10265,6 @@
   "crates/drivers/mysql/src/jobs/doris.rs"
  ],
  "Definición": [
-  "crates/drivers/elasticsearch/src/scheduler/mod.rs",
   "crates/drivers/snowflake/src/scheduler/alert.rs"
  ],
  "Definición incompleta: {0}": [
@@ -10589,6 +10640,9 @@
   "crates/drivers/influxdb/src/jobs.rs",
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
  ],
+ "Deshabilita la alerta «{0}» del Agente SQL Server": [
+  "crates/drivers/sqlserver/src/agent/alert.rs"
+ ],
  "Deshabilitada": [
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/sqlserver/src/properties.rs"
@@ -10613,6 +10667,9 @@
  ],
  "Deshabilitado es «roto» (BROKEN) para DBMS_JOB: no se ejecuta.": [
   "crates/drivers/oracle/src/scheduler/job.rs"
+ ],
+ "Deshabilitar": [
+  "crates/drivers/sqlserver/src/agent/mod.rs"
  ],
  "Deshabilitarla borra sus datos y la saca de las consultas; al habilitarla, Dremio la materializa de nuevo.": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
@@ -10655,6 +10712,9 @@
  ],
  "Después no se puede bajar: kdb+ solo deja subir el límite. Dura hasta que el proceso se reinicie.": [
   "crates/drivers/kdb/src/props.rs"
+ ],
+ "Después solo se puede restaurar el estado del más reciente: los puntos intermedios dejan de estar.": [
+  "crates/drivers/couchbase/src/backup/repo.rs"
  ],
  "Destinatarios": [
   "crates/drivers/oracle/src/scheduler/job.rs"
@@ -10747,12 +10807,24 @@
  "Detención automática": [
   "crates/drivers/databricks/src/monitor.rs"
  ],
+ "Detener": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
  "Detener al cerrar la ventana": [
   "crates/drivers/oracle/src/jobs.rs",
   "crates/drivers/oracle/src/scheduler/job.rs"
  ],
  "Detener ejecuta TERMINATE: la consulta se borra para siempre y el stream o la tabla que alimenta quedan sin quien escriba en ellos. Para frenarla un tiempo, deshabilitala (PAUSE).": [
   "crates/drivers/ksqldb/src/jobs.rs"
+ ],
+ "Detiene el job {0} en el acto (STOP_JOB con force => TRUE).": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "Detiene la ejecución en curso de la tarea «{0}»: ADMIN_TASK_CANCEL cancela el thread de Db2 o el job de JES en que corre.": [
+  "crates/drivers/odbc/src/scheduler/db2zos.rs"
+ ],
+ "Detiene la ejecución en curso del job (STOP_JOB); si tiene AUTO_DROP, DM puede borrarlo al detenerlo.": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
  ],
  "Detiene todos los jobs del Scheduler. Oracle no lo permite dentro de una base enchufable (PDB).": [
   "crates/drivers/oracle/src/scheduler/global.rs"
@@ -11030,6 +11102,9 @@
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/postgres/src/plan.rs"
  ],
+ "Dispara el evento ahora (TRIGGER EVENT): su acción corre en una conexión propia.": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
  "Disparada": [
   "crates/drivers/snowflake/src/scheduler/logs.rs"
  ],
@@ -11288,7 +11363,8 @@
   "crates/drivers/mysql/src/jobs/doris.rs"
  ],
  "Doris no ejecuta un job a pedido: solo según su programación": [
-  "crates/drivers/mysql/src/jobs/doris.rs"
+  "crates/drivers/mysql/src/jobs/doris.rs",
+  "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
  "Doris no informa en qué base se creó el job: si su instrucción nombra tablas sin la base, elegí la base antes de guardar un cambio que lo vuelva a crear.": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
@@ -11319,6 +11395,9 @@
  ],
  "Doris no tiene un tipo binario para tablas: los bytes se guardan como STRING.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "Doris solo aplica propiedades a un job continuo: en un job programado las acepta pero no las guarda ni las usa.": [
+  "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
  "Dos desplazamientos al pasado, como -300d,-20d; 0,0: de -KEEP2 a -DURATION.": [
   "crates/drivers/tdengine/src/properties.rs"
@@ -11987,16 +12066,46 @@
   "crates/drivers/odbc/src/scheduler/db2zos.rs",
   "crates/drivers/odbc/src/scheduler/informix.rs"
  ],
+ "Ejecuta ahora el grafo de tareas {0}.{1}.{2} de Snowflake (su versión publicada)": [
+  "crates/drivers/snowflake/src/scheduler/graph.rs"
+ ],
+ "Ejecuta ahora el procedimiento del trigger (EXECUTE_TRIGGER), en esta sesión: termina cuando termina el procedimiento.": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
+ "Ejecuta ahora la alerta {0}.{1}.{2} de Snowflake: evalúa su condición y, si devuelve filas, ejecuta su acción": [
+  "crates/drivers/snowflake/src/scheduler/alert.rs"
+ ],
  "Ejecuta como": [
   "crates/drivers/odbc/src/jobs/hive.rs",
   "crates/drivers/odbc/src/jobs/iris.rs",
   "crates/drivers/odbc/src/scheduler/hive.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs"
  ],
+ "Ejecuta el job ahora, en segundo plano (RUN_JOB sin la sesión actual).": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
+ "Ejecuta el job ahora, en segundo plano (SP_DBMS_JOB_RUN_ASYNC).": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
+ "Ejecuta el programa {0} ahora, en un job de una sola vez que Oracle borra al terminar.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "Ejecuta la cadena {0} ahora, desde el principio: sus reglas eligen los primeros pasos.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "Ejecuta la tarea ahora, en segundo plano (exectask_async), fuera de su programación.": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
  "Ejecutable": [
   "crates/drivers/oracle/src/jobs.rs",
   "crates/drivers/oracle/src/scheduler/job.rs",
   "crates/drivers/oracle/src/scheduler/program.rs"
+ ],
+ "Ejecutar ahora": [
+  "crates/drivers/odbc/src/scheduler/mod.rs",
+  "crates/drivers/oracle/src/scheduler/action.rs",
+  "crates/drivers/postgres/src/scheduler/mod.rs",
+  "crates/drivers/snowflake/src/scheduler/mod.rs"
  ],
  "Ejecutar como": [
   "crates/drivers/databricks/src/jobs.rs",
@@ -12020,6 +12129,9 @@
  "Ejecutar si": [
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/databricks/src/scheduler/spec.rs"
+ ],
+ "Ejecutarlo ahora crea un job de una sola vez: hace falta el privilegio CREATE JOB.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Ejecutá la celda para calcular el gráfico sobre todo su resultado": [
   "src-tauri/src/notebook/local.rs"
@@ -12381,6 +12493,9 @@
  "El consumidor {0} de Performance Schema está desactivado: no se ve la CPU.": [
   "crates/drivers/mysql/src/profiler.rs"
  ],
+ "El contador «{0}» no tiene la instancia «{1}».": [
+  "crates/drivers/sqlserver/src/agent/alert.rs"
+ ],
  "El contenedor {0} no existe; no se borró nada.": [
   "crates/drivers/cosmosdb/src/lib.rs"
  ],
@@ -12459,6 +12574,9 @@
   "crates/drivers/oracle/src/scheduler/job.rs"
  ],
  "El definidor de este evento es otro usuario y este no tiene SET_USER_ID (ni SUPER): para guardarlo, elegí tu usuario como definidor (el evento pasará a correr con tus privilegios).": [
+  "crates/drivers/mysql/src/scheduler/events.rs"
+ ],
+ "El definidor de este evento tiene el privilegio SYSTEM_USER y este usuario no: el servidor no le deja cambiar ni borrar el evento.": [
   "crates/drivers/mysql/src/scheduler/events.rs"
  ],
  "El del programa, si lo define.": [
@@ -12763,6 +12881,12 @@
  "El job es de un tipo que DBine no escribe (ni bloque PL/SQL ni procedimiento): lo que corre se ve solo para lectura.": [
   "crates/drivers/odbc/src/scheduler/dameng_dbms.rs"
  ],
+ "El job está deshabilitado: openGauss no lo ejecuta hasta habilitarlo.": [
+  "crates/drivers/postgres/src/scheduler/dbms_job.rs"
+ ],
+ "El job está deshabilitado: pgAgent no lo ejecuta hasta habilitarlo.": [
+  "crates/drivers/postgres/src/scheduler/pgagent.rs"
+ ],
  "El job necesita un cron.": [
   "crates/drivers/hana/src/scheduler/mod.rs"
  ],
@@ -12787,8 +12911,17 @@
  "El job que lo ejecuta no termina cuando termina el programa: lo da por terminado una llamada a END_DETACHED_JOB_RUN.": [
   "crates/drivers/oracle/src/scheduler/program.rs"
  ],
+ "El job que refresca la vista «{0}.{1}» está {2}: Doris no la refresca.": [
+  "crates/drivers/mysql/src/scheduler/doris.rs"
+ ],
  "El job se borra solo cuando ya no tiene ejecuciones por delante.": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
+ ],
+ "El job se crea en el esquema {0} con el nombre que da GENERATE_JOB_NAME; su ejecución queda en el registro de jobs.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "El job se está ejecutando: pgAgent calcula su próxima ejecución cuando termina.": [
+  "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
  "El job sigue un calendario con nombre de DBMS_SCHEDULER: el calendario se cambia aparte y se ve solo para lectura.": [
   "crates/drivers/odbc/src/scheduler/dameng_dbms.rs"
@@ -12798,6 +12931,12 @@
  ],
  "El job {0} no es una {1}.": [
   "crates/drivers/postgres/src/scheduler/timescale.rs"
+ ],
+ "El job {0} no está ejecutando un programa desacoplado: no hay una ejecución que dar por terminada.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "El job {0} no se está ejecutando.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "El log comparte espacio con los datos": [
   "crates/drivers/odbc/src/health.rs"
@@ -12955,8 +13094,14 @@
  "El objeto cambió en el servidor desde que se abrió el diseñador: volvé a abrirlo antes de guardar, para no deshacer esos cambios.": [
   "crates/drivers/oracle/src/scheduler/mod.rs"
  ],
+ "El objeto de rendimiento «{0}» no existe en este servidor.": [
+  "crates/drivers/sqlserver/src/agent/alert.rs"
+ ],
  "El objeto schedule de Watcher, para lo que los campos no expresan (varias combinaciones de días y horas).": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
+ ],
+ "El objeto «{0}» no tiene el contador «{1}».": [
+  "crates/drivers/sqlserver/src/agent/alert.rs"
  ],
  "El operador necesita un nombre.": [
   "crates/drivers/sqlserver/src/agent/operator.rs"
@@ -13126,6 +13271,9 @@
  "El plan «{0}» no tiene la tarea «{1}».": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
+ "El planificador de Snowflake no tiene la acción «{0}» para este tipo de objeto.": [
+  "crates/drivers/snowflake/src/scheduler/mod.rs"
+ ],
  "El planificador de Virtuoso está apagado (SchedulerInterval = 0 en virtuoso.ini): los eventos no se ejecutan.": [
   "crates/drivers/odbc/src/jobs/virtuoso.rs"
  ],
@@ -13202,6 +13350,12 @@
  "El programa lo usan {0} job(s) ({1}): DBMS_SCHEDULER no lo cambia, y para crearlo de nuevo no tiene que usarlo ninguno.": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
+ "El programa {0} está deshabilitado: habilitalo para ejecutarlo.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "El programa {0} tiene argumentos sin valor propio: para ejecutarlo hace falta un job que se los dé.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "El programador de eventos del servidor está apagado (event_scheduler = OFF): los eventos no se ejecutan.": [
   "crates/drivers/mysql/src/jobs/events.rs"
  ],
@@ -13239,6 +13393,9 @@
  ],
  "El reclustering automático consume créditos de servicio cada vez que la tabla cambia; en tablas de menos de 100 GB casi nunca se nota en las consultas. Suspendelo si no ves la diferencia (AUTOMATIC_CLUSTERING_HISTORY muestra lo que cuesta).": [
   "crates/drivers/snowflake/src/health.rs"
+ ],
+ "El refresco corre en segundo plano: su resultado queda en el historial de la vista.": [
+  "crates/drivers/mysql/src/scheduler/mod.rs"
  ],
  "El refresco de una vista materializada se crea y se borra con la vista.": [
   "crates/drivers/mysql/src/scheduler/doris.rs",
@@ -13278,6 +13435,12 @@
  "El repositorio que se archiva.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
+ "El repositorio «{0}» no tiene backups: no hay nada que unir.": [
+  "crates/drivers/couchbase/src/backup/repo.rs"
+ ],
+ "El repositorio «{0}» tiene un solo backup: hacen falta al menos dos para unirlos.": [
+  "crates/drivers/couchbase/src/backup/repo.rs"
+ ],
  "El resultado pasa los 25 MiB que Databricks entrega en la respuesta, y no se pudo leer de su almacenamiento en la nube: {0}. Probá con un LIMIT o con menos columnas.": [
   "crates/drivers/databricks/src/results.rs"
  ],
@@ -13292,6 +13455,9 @@
  ],
  "El runbook admite hasta 2048 caracteres.": [
   "crates/drivers/snowflake/src/scheduler/alert.rs"
+ ],
+ "El schedule está en pausa: CockroachDB no lo ejecuta hasta reanudarlo.": [
+  "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "El scheduler job {0} ya no existe: SAP HANA confirmó su borrado aunque el resto del script falló. {1}": [
   "crates/drivers/hana/src/scheduler/mod.rs"
@@ -13566,6 +13732,9 @@
  "El token de acceso personal, o un token de Entra ID (p. ej. az account get-access-token --resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d).": [
   "crates/drivers/databricks/src/lib.rs"
  ],
+ "El token de «{0}» no puede tener saltos de línea.": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
+ ],
  "El topic {0} queda con lo que tenía; la consulta nueva escribe en {1}.": [
   "crates/drivers/ksqldb/src/scheduler.rs"
  ],
@@ -13579,6 +13748,9 @@
  "El transform nuevo, «{0}».": [
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs",
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs"
+ ],
+ "El transform «{0}» no está detenido (estado: {1}): hay que detenerlo antes de restablecerlo.": [
+  "crates/drivers/elasticsearch/src/scheduler/es_transform.rs"
  ],
  "El trigger necesita un nombre.": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
@@ -13657,6 +13829,9 @@
  ],
  "El valor de la propiedad «{0}» no puede tener saltos de línea.": [
   "crates/drivers/mysql/src/scheduler/mod.rs"
+ ],
+ "El valor de una alerta de rendimiento no puede ser negativo.": [
+  "crates/drivers/sqlserver/src/agent/alert.rs"
  ],
  "El valor del parámetro {0} es demasiado largo.": [
   "crates/drivers/hana/src/scheduler/mod.rs"
@@ -13807,6 +13982,9 @@
  "El ítem «{0}» tiene el campo «{1}», que no estaba al leer las columnas: el contenedor cambió durante la copia. Volvé a copiarlo.": [
   "crates/drivers/cosmosdb/src/transfer.rs"
  ],
+ "Elastic Cloud toma los snapshots del deployment con esta política: se pueden cambiar su programación, su retención y las opciones de los snapshots, pero no su id ni su repositorio, y no se borra desde aquí.": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
+ ],
  "Elastic Cloud: si se completa, reemplaza al servidor y al puerto.": [
   "crates/drivers/elasticsearch/src/lib.rs"
  ],
@@ -13927,6 +14105,9 @@
   "crates/drivers/cosmosdb/src/lib.rs",
   "crates/drivers/couchdb/src/lib.rs",
   "crates/drivers/orientdb/src/lib.rs"
+ ],
+ "Elegí una instancia del contador «{0}».": [
+  "crates/drivers/sqlserver/src/agent/alert.rs"
  ],
  "Element": [
   "crates/dbine-core/src/conn_import/ssms.rs"
@@ -14471,7 +14652,6 @@
  ],
  "Entradas": [
   "crates/drivers/elasticsearch/src/jobs.rs",
-  "crates/drivers/elasticsearch/src/scheduler/mod.rs",
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
  "Entradas de planificación": [
@@ -14632,9 +14812,21 @@
  "Es el índice de una tabla organizada por índice (IOT): guarda la tabla misma y Oracle no permite hacerlo invisible.": [
   "crates/drivers/oracle/src/index_usage.rs"
  ],
+ "Es la consulta de una tabla de origen (CREATE SOURCE TABLE): ksqlDB no la deja detener ni deshabilitar, termina cuando se borra la tabla.": [
+  "crates/drivers/ksqldb/src/jobs.rs"
+ ],
  "Es plantilla (IS_TEMPLATE)": [
   "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "Es un grupo del servidor (MISC, el de las tareas sin grupo, o uno con tareas que trae Informix): se ve solo para lectura.": [
+  "crates/drivers/odbc/src/scheduler/informix.rs"
+ ],
+ "Es un objeto de Oracle (de SYS o de un esquema que mantiene Oracle): se puede ver, pero no cambiar ni borrar.": [
+  "crates/drivers/oracle/src/scheduler/mod.rs"
+ ],
+ "Es un objeto de Oracle: lo ejecutan sus propios jobs, no se ejecuta aparte.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Es un pipe interno de IoTDB: DBine no lo modifica ni lo borra.": [
   "crates/drivers/iotdb/src/scheduler/pipe.rs"
@@ -14657,14 +14849,17 @@
  "Es una categoría del sistema: no se puede cambiar ni borrar.": [
   "crates/drivers/sqlserver/src/agent/category.rs"
  ],
- "Es una clase de Oracle: cambiarla cambia cómo se ejecutan y registran sus jobs.": [
-  "crates/drivers/oracle/src/scheduler/class.rs"
- ],
  "Es una conexión TNS: revisá el descriptor de conexión en DBine.": [
   "crates/dbine-core/src/conn_import/dbeaver.rs"
  ],
+ "Es una cuenta regresiva (apoc.periodic.countdown): «Detener» no la frena. APOC no puede cancelarla entre dos ejecuciones: la próxima ya está programada y la vuelve a armar, hasta que su consulta devuelva 0 o se reinicie el servidor.": [
+  "crates/drivers/neo4j/src/jobs.rs"
+ ],
  "Es una cuenta regresiva: APOC no la puede reemplazar con el mismo nombre, porque su próxima ejecución pisaría al job nuevo. Guardala con otro nombre.": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
+ ],
+ "Es una entrada que trae IBM i (la agregó un perfil del sistema, como QSYS, o es del respaldo de Operational Assistant, que se cambia desde GO BACKUP): se ve solo para lectura; se retiene o se libera desde la lista de jobs.": [
+  "crates/drivers/odbc/src/scheduler/db2i.rs"
  ],
  "Es una programación por evento: no se puede cambiar a una por tiempo.": [
   "crates/drivers/oracle/src/scheduler/schedule.rs"
@@ -14678,7 +14873,7 @@
  "Es una replicación transitoria (POST /_replicate): no tiene documento, se pierde si el servidor se reinicia y su script se arma con lo que informa el planificador, sin credenciales ni filtros.": [
   "crates/drivers/couchdb/src/jobs.rs"
  ],
- "Es una tarea del servidor (de las que trae Informix): cambiarla o borrarla cambia lo que el servidor hace solo.": [
+ "Es una tarea del servidor (de las que trae Informix): se ajustan su programación y sus parámetros, como indica el manual, pero no se le cambia el nombre ni se borra.": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
  ],
  "Es una tarea hija cuya raíz el rol no ve: Snowflake la ejecuta solo con su grafo.": [
@@ -15355,6 +15550,9 @@
  "Esquemas y tamaños": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "Esta acción requiere el privilegio MANAGE SCHEDULER.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Esta base de datos": [
   "crates/drivers/postgres/src/backup.rs"
  ],
@@ -15425,6 +15623,9 @@
  ],
  "Esta tarea es de otro usuario: solo su dueño o un superusuario puede cambiarla.": [
   "crates/drivers/postgres/src/scheduler/cron.rs"
+ ],
+ "Esta tarea es de un pipe (CREATE PIPE): StarRocks la crea y la borra con las cargas del pipe, así que DBine no la cambia ni la borra. Para cambiarla, cambiá el pipe.": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
  "Esta tarea la administra un check o una regla de notificación de InfluxDB: se cambia desde ellos.": [
   "crates/drivers/influxdb/src/scheduler/task.rs"
@@ -15606,6 +15807,9 @@
  "Estado de la cuenta": [
   "crates/drivers/oracle/src/properties.rs"
  ],
+ "Estado de la ejecución": [
+  "crates/drivers/mysql/src/scheduler/doris.rs"
+ ],
  "Estado de la vista": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
@@ -15678,6 +15882,9 @@
   "crates/drivers/oracle/src/health.rs",
   "crates/drivers/postgres/src/health.rs",
   "crates/drivers/sqlserver/src/health.rs"
+ ],
+ "Estadísticas de carga": [
+  "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
  "Estadísticas del": [
   "crates/drivers/phoenix/src/monitor.rs"
@@ -15928,6 +16135,9 @@
  "Este usuario no puede leer los jobs del Scheduler: {0}": [
   "crates/drivers/oracle/src/jobs.rs"
  ],
+ "Este usuario no puede usar {0}: hace falta ser su dueño, tener EXECUTE sobre él o el privilegio EXECUTE ANY PROGRAM.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Este usuario no puede ver el servicio de backup (hace falta el rol Read-Only Admin, Backup Full Admin o Full Admin).": [
   "crates/drivers/couchbase/src/jobs.rs"
  ],
@@ -15998,6 +16208,9 @@
  ],
  "Este warehouse no lista usuarios (SHOW USERS): se ve solo el propio": [
   "crates/drivers/databricks/src/security.rs"
+ ],
+ "Este watch lo crea y lo mantiene Elasticsearch (las alertas del clúster de Monitoring): no se cambia ni se borra desde aquí.": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "Estilo": [
   "crates/drivers/oracle/src/jobs.rs",
@@ -16600,6 +16813,9 @@
  ],
  "Falta el tipo del campo «{0}».": [
   "crates/drivers/solr/src/ddl.rs"
+ ],
+ "Falta el token de «{0}».": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Falta el usuario de «{0}».": [
   "crates/drivers/couchdb/src/replication/doc.rs"
@@ -17248,6 +17464,9 @@
  "Fin de la programación": [
   "crates/drivers/bigquery/src/jobs.rs"
  ],
+ "Fin del origen": [
+  "crates/drivers/mysql/src/scheduler/doris.rs"
+ ],
  "Finalizador": [
   "crates/drivers/snowflake/src/scheduler/graph.rs"
  ],
@@ -17443,6 +17662,9 @@
  ],
  "Forzada": [
   "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "Forzar la detención": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Forzar la instancia": [
   "crates/drivers/oracle/src/scheduler/job.rs"
@@ -18115,6 +18337,9 @@
  "Habilita": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
  ],
+ "Habilita la alerta «{0}» del Agente SQL Server": [
+  "crates/drivers/sqlserver/src/agent/alert.rs"
+ ],
  "Habilitada": [
   "crates/drivers/bigquery/src/scheduler.rs",
   "crates/drivers/clickhouse/src/scheduler/refresh.rs",
@@ -18171,11 +18396,17 @@
  "Habilitado en el sistema de jobs": [
   "crates/drivers/odbc/src/scheduler/dameng_dbms.rs"
  ],
+ "Habilitar": [
+  "crates/drivers/sqlserver/src/agent/mod.rs"
+ ],
  "Habilitar un índice deshabilitado lo reconstruye entero (REBUILD): en una tabla grande tarda y la bloquea mientras tanto.": [
   "crates/drivers/sqlserver/src/index_usage.rs"
  ],
  "Habilitarlo lo reconstruye entero: en una tabla grande tarda.": [
   "crates/drivers/odbc/src/index_usage.rs"
+ ],
+ "Hace ahora un backup completo del repositorio «{0}» («Ejecutar ahora» hace uno incremental).": [
+  "crates/drivers/couchbase/src/backup/repo.rs"
  ],
  "Hace falta ser admin, o el dueño de la base con CREATEDB.": [
   "crates/drivers/postgres/src/rename.rs"
@@ -18718,6 +18949,9 @@
  ],
  "IBM i no tiene roles de SQL: los grupos son perfiles de grupo del sistema operativo (CRTUSRPRF … GRPPRF)": [
   "crates/drivers/odbc/src/security/ibm.rs"
+ ],
+ "IBM i recomienda dejar los nombres que empiezan con Q para sus propios objetos: la entrada se agrega igual con este nombre.": [
+  "crates/drivers/odbc/src/scheduler/db2i.rs"
  ],
  "ID de acceso al servicio de claves": [
   "crates/drivers/couchbase/src/backup/repo.rs"
@@ -19915,6 +20149,12 @@
  "Job ": [
   "crates/drivers/oracle/src/scheduler/choices.rs"
  ],
+ "Job Scheduler corre el job programado ahora (run_now).": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
+ "Job Scheduler corta la ejecución en curso del job programado (terminate).": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
  "Job Scheduler está apagado: los jobs no se ejecutan hasta activar «enable job scheduler».": [
   "crates/drivers/odbc/src/jobs/ase.rs"
  ],
@@ -20255,6 +20495,9 @@
  "La acción del job tiene más de 4000 bytes, lo que Oracle acepta: pasala a un procedimiento o un programa.": [
   "crates/drivers/oracle/src/scheduler/job.rs"
  ],
+ "La agregó {0}: Db2 for z/OS solo deja cambiarla, borrarla o detenerla a quien la agregó o a quien tenga SYSOPR, SYSADM o SYSCTRL; si no es tu caso, el servidor lo rechaza (código de retorno 12).": [
+  "crates/drivers/odbc/src/scheduler/db2zos.rs"
+ ],
  "La alerta WMI necesita el espacio de nombres.": [
   "crates/drivers/sqlserver/src/agent/alert.rs"
  ],
@@ -20427,6 +20670,9 @@
  ],
  "La cadena predeterminada usa variables de entorno, ~/.aws, SSO o el rol de la instancia.": [
   "crates/drivers/dynamodb/src/aws.rs"
+ ],
+ "La cadena {0} está deshabilitada: habilitala para ejecutarla.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "La calcula el planificador; cambiarla mueve la próxima ejecución.": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
@@ -20796,6 +21042,9 @@
  ],
  "La consulta tiene que empezar con SELECT.": [
   "crates/drivers/influxdb/src/scheduler/cq.rs"
+ ],
+ "La contraseña del usuario.": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "La contraseña no puede tener caracteres de control.": [
   "crates/drivers/etcd/src/security.rs",
@@ -21421,6 +21670,15 @@
  "La validación de {0} no se quita: CouchDB necesita la revisión (_rev) del documento de diseño; quitala a mano.": [
   "crates/drivers/couchdb/src/sync.rs"
  ],
+ "La ventana {0} está deshabilitada: Oracle no abre una ventana deshabilitada. Habilitala primero.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "La ventana {0} no está abierta.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "La ventana {0} ya está abierta.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "La versión de Flathub de DBine no puede programar tareas en el sistema (el sandbox de Flatpak no tiene acceso a systemd ni a cron): la tarea quedó guardada y podés ejecutarla desde DBine.": [
   "src-tauri/src/tasks/os.rs"
  ],
@@ -21435,6 +21693,9 @@
  ],
  "La versión de intercalación cambió: reconstruí los índices sobre textos (REINDEX) y después actualizá la versión registrada.": [
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "La vista materializada «{0}» está inactiva: StarRocks no la refresca. Activala antes, en su refresco.": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
  "La vista se crea con el nombre nuevo y se borra la anterior: pierde sus reflexiones, su wiki, sus etiquetas y los permisos otorgados sobre ella.": [
   "crates/drivers/dremio/src/rename.rs"
@@ -21484,6 +21745,9 @@
  ],
  "Label": [
   "crates/drivers/influxdb/src/plan.rs"
+ ],
+ "Lag": [
+  "crates/drivers/mysql/src/jobs/doris.rs"
  ],
  "Large": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
@@ -21573,7 +21837,7 @@
  "Las contraseñas y claves de los pipes se ocultan (******): el script no las trae y hay que agregarlas antes de ejecutarlo.": [
   "crates/drivers/iotdb/src/jobs.rs"
  ],
- "Las contraseñas y los encabezados secretos no se muestran: una contraseña vacía y los encabezados con asteriscos quedan como están.": [
+ "Las contraseñas, los tokens y los encabezados secretos no se muestran: una contraseña o un token vacíos y los encabezados con asteriscos quedan como están.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Las credenciales del entorno": [
@@ -21582,7 +21846,7 @@
  "Las de la instancia (servicio de metadatos)": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
- "Las del job: las de un job continuo (max_interval, s3.max_batch_files, s3.max_batch_bytes…) y variables de sesión como session.query_timeout.": [
+ "Las de un job continuo: max_interval, s3.max_batch_files, s3.max_batch_bytes y variables de sesión como session.query_timeout.": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
  "Las del refresco: partition_refresh_number, auto_refresh_partitions_limit, excluded_trigger_tables, resource_group, mv_rewrite_staleness_second, session.…": [
@@ -21776,6 +22040,9 @@
  ],
  "Las tareas programadas no se registran desde una versión de desarrollo: usá la app instalada.": [
   "src-tauri/src/tasks/os.rs"
+ ],
+ "Las tareas que trae Informix no se borran ni cambian de nombre: se deshabilitan.": [
+  "crates/drivers/odbc/src/scheduler/informix.rs"
  ],
  "Las tareas son las de la organización «{0}» que este token puede leer.": [
   "crates/drivers/influxdb/src/scheduler/task.rs"
@@ -22042,6 +22309,9 @@
  "Leído de disco en esas consultas": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
+ "Leído hasta": [
+  "crates/drivers/mysql/src/scheduler/doris.rs"
+ ],
  "Liam": [
   "src-tauri/src/commands/datagen.rs"
  ],
@@ -22070,17 +22340,23 @@
  "List": [
   "crates/drivers/redis/src/ddl.rs"
  ],
- "Lista de disparadores (query_level_trigger, bucket_level_trigger o document_level_trigger): name, severity (1 a 5), condition y actions (cada una con destination_id = el id de un canal, message_template, throttle).": [
+ "Lista de bucket_level_trigger: name, severity (1 a 5), condition (buckets_path, parent_bucket_path = la agregación composite, y un script por bucket) y actions.": [
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
  "Lista de disparadores: name, severity (1 a 5), condition (un script) y actions (cada una con destination_id, message_template y throttle).": [
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
- "Lista de entradas: search (índices y consulta), doc_level_input (índices y consultas por documento) o uri (API del clúster).": [
+ "Lista de document_level_trigger: name, severity (1 a 5), condition (un script que nombra las consultas: query[name=…], query[tag=…]) y actions.": [
+  "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
+ ],
+ "Lista de entradas: search (índices y consulta) o http.": [
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
  "Lista de estados: name, actions (rollover, force_merge, read_only, replica_count, shrink, snapshot, delete, notification…) y transitions (state_name y conditions).": [
   "crates/drivers/elasticsearch/src/scheduler/lifecycle.rs"
+ ],
+ "Lista de query_level_trigger: name, severity (1 a 5), condition (un script sobre ctx.results) y actions (cada una con destination_id = el id de un canal, message_template y throttle).": [
+  "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
  "Lista de salida": [
   "crates/drivers/odbc/src/plan.rs"
@@ -22454,6 +22730,9 @@
  "Los enteros son de 8 bytes: el valor queda como FLOAT y pierde precisión pasados los 15 dígitos.": [
   "crates/dbine-schema/src/dialect/graph.rs"
  ],
+ "Los eventos cuyo definidor tiene el privilegio SYSTEM_USER solo los cambia o los borra un usuario que también lo tenga.": [
+  "crates/drivers/mysql/src/scheduler/events.rs"
+ ],
  "Los eventos programados son de cada base: elegí una base de datos para administrarlos.": [
   "crates/drivers/orientdb/src/scheduler/mod.rs"
  ],
@@ -22462,6 +22741,9 @@
  ],
  "Los grafos de tareas como objeto (TASK GRAPH) están en vista previa en Snowflake.": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
+ ],
+ "Los grupos del servidor (MISC o los que tienen tareas que trae Informix) no se cambian ni se borran.": [
+  "crates/drivers/odbc/src/scheduler/informix.rs"
  ],
  "Los gráficos se incluyen al exportar desde la app.": [
   "src-tauri/src/tasks/steps.rs"
@@ -22531,9 +22813,6 @@
  ],
  "Los parámetros tienen que ser un objeto JSON ({0}).": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
- ],
- "Los pasos y las programaciones son de los jobs de pgAgent: los demás planificadores no los usan.": [
-  "crates/drivers/postgres/src/scheduler/mod.rs"
  ],
  "Los pasos y las programaciones son de los jobs de pgAgent: quitalos o elegí pgAgent como planificador.": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
@@ -24032,6 +24311,9 @@
  "Miembros del replica set": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "Mientras está abierta rige su plan de recursos y pueden correr los jobs que la usan.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Mientras esté deshabilitado no impide valores repetidos. Si sostiene una restricción UNIQUE o una clave foránea, el servidor lo rechaza.": [
   "crates/drivers/odbc/src/index_usage.rs"
  ],
@@ -25015,6 +25297,9 @@
   "crates/drivers/tdengine/src/create_db.rs",
   "crates/drivers/tdengine/src/properties.rs"
  ],
+ "Ninguna acción del watch «{0}» espera un reconocimiento: se reconoce una acción que se ejecutó porque se cumplió la condición.": [
+  "crates/drivers/elasticsearch/src/scheduler/watch.rs"
+ ],
  "Ninguna falló": [
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
@@ -25351,6 +25636,9 @@
   "crates/drivers/orientdb/src/lib.rs"
  ],
  "No hay nada que borrar.": [
+  "crates/drivers/postgres/src/scheduler/crdb.rs"
+ ],
+ "No hay nada que ejecutar.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "No hay ninguna petición para ejecutar.": [
@@ -27589,7 +27877,6 @@
  ],
  "Opciones": [
   "crates/drivers/elasticsearch/src/scheduler/lifecycle.rs",
-  "crates/drivers/elasticsearch/src/scheduler/mod.rs",
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs",
   "crates/drivers/elasticsearch/src/scheduler/watch.rs",
   "crates/drivers/neo4j/src/properties.rs",
@@ -27635,6 +27922,9 @@
  ],
  "OpenEdge respalda con la herramienta probkup, no con SQL": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "OpenSearch ejecuta este job según su programación: no hay forma de empezarlo a mano, ni en un paso": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "OpenSearch ejecuta los transforms según su intervalo: no hay forma de dispararlos a mano": [
   "crates/drivers/elasticsearch/src/jobs.rs"
@@ -27800,6 +28090,12 @@
  "Oracle cuenta los accesos a cada índice sin distinguir búsquedas de recorridos completos": [
   "crates/drivers/oracle/src/index_usage.rs"
  ],
+ "Oracle instaló este objeto: se puede cambiar o deshabilitar, pero no borrar.": [
+  "crates/drivers/oracle/src/scheduler/mod.rs"
+ ],
+ "Oracle la registra como terminada sin error (error_number => 0).": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Oracle limita la columna a {0} bytes: con caracteres de varios bytes pueden entrar menos de {1} caracteres.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
@@ -27856,6 +28152,9 @@
  ],
  "Oracle solo registra si cada índice se usó desde que se activó MONITORING USAGE, no cuántas veces: cada índice usado cuenta como una lectura.": [
   "crates/drivers/oracle/src/index_usage.rs"
+ ],
+ "Oracle termina el proceso que lo ejecuta sin esperar a que se detenga solo: es para cuando «Detener» no alcanzó.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Orden de clustering": [
   "crates/drivers/cassandra/src/ddl.rs"
@@ -28447,6 +28746,9 @@
  ],
  "Pasa la base a otro rol (con sus permisos actuales copiados). Si tu rol no hereda el nuevo, puede perder el permiso de modificarla o borrarla.": [
   "crates/drivers/snowflake/src/properties.rs"
+ ],
+ "Pasa la próxima ejecución de la consulta programada a ahora: la corre el planificador de Hive.": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
  ],
  "Pasado este tiempo sin un refresco que funcione, Dremio deja de usar la reflexión.": [
   "crates/drivers/dremio/src/scheduler/policy.rs"
@@ -29709,7 +30011,6 @@
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/dremio/src/scheduler/policy.rs",
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs",
-  "crates/drivers/elasticsearch/src/scheduler/mod.rs",
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs",
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs",
   "crates/drivers/elasticsearch/src/scheduler/slm.rs",
@@ -29786,6 +30087,9 @@
  "Programado (REFRESH ASYNC … EVERY)": [
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
+ "Programar para ahora": [
+  "crates/drivers/postgres/src/scheduler/mod.rs"
+ ],
  "Programas": [
   "crates/drivers/oracle/src/scheduler/mod.rs",
   "crates/drivers/oracle/src/scheduler/resource.rs",
@@ -29802,7 +30106,8 @@
  ],
  "Progreso": [
   "crates/drivers/clickhouse/src/jobs.rs",
-  "crates/drivers/mysql/src/backup.rs"
+  "crates/drivers/mysql/src/backup.rs",
+  "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
  "Progreso (%)": [
   "crates/drivers/mysql/src/backup.rs"
@@ -30356,6 +30661,9 @@
  "RU/s: «{0}» no es un valor válido (desde 400, de a 100)": [
   "crates/drivers/cosmosdb/src/properties.rs"
  ],
+ "RUN_CHAIN crea un job de una sola vez en el esquema {0} (RUN_CHAIN$…) que Oracle borra al terminar. La cadena necesita dos procesos de jobs libres: el del job y el de cada paso.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Rack": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
@@ -30419,6 +30727,12 @@
  "Reanuda el repositorio «{0}».": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
+ "Reanuda la programación de la tarea «{0}» de StarRocks": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
+ ],
+ "Reanudar": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
+ ],
  "Reanudarla (ALTER TASK … RESUME)": [
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
@@ -30470,6 +30784,12 @@
  ],
  "Recompilaciones": [
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "Reconoce las acciones del watch «{0}»: Watcher no las vuelve a ejecutar hasta que su condición deje de cumplirse.": [
+  "crates/drivers/elasticsearch/src/scheduler/watch.rs"
+ ],
+ "Reconocer las acciones del watch": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "Recorre el table space completo": [
   "crates/drivers/odbc/src/plan.rs"
@@ -30753,17 +31073,35 @@
  "Reflexión «{0}»: Dremio no tiene SQL para cambiar una reflexión, así que DBine la cambia con su API REST, en el lugar (conserva su id y su historial).": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
  ],
+ "Refresca ahora la vista materializada «{0}» entera: todas sus particiones.": [
+  "crates/drivers/mysql/src/scheduler/mod.rs"
+ ],
+ "Refresca ahora la vista materializada «{0}»: solo las particiones cuyas tablas base cambiaron.": [
+  "crates/drivers/mysql/src/scheduler/mod.rs"
+ ],
+ "Refresca ahora las reflexiones de la tabla «{0}»: todas las que dependen de ella, como las refrescaría su política.\nDremio no tiene SQL para esto: DBine envía este pedido a su API REST.": [
+  "crates/drivers/dremio/src/scheduler/policy.rs"
+ ],
  "Refresca después de que se refresquen esas vistas.": [
   "crates/drivers/clickhouse/src/scheduler/refresh.rs"
  ],
  "Refrescar": [
   "crates/drivers/dremio/src/scheduler/policy.rs"
  ],
+ "Refrescar ahora": [
+  "crates/drivers/mysql/src/scheduler/mod.rs"
+ ],
  "Refrescar cada": [
   "crates/drivers/dremio/src/scheduler/policy.rs"
  ],
  "Refrescar en todas las réplicas": [
   "crates/drivers/clickhouse/src/scheduler/refresh.rs"
+ ],
+ "Refrescar sus reflexiones ahora": [
+  "crates/drivers/dremio/src/scheduler/mod.rs"
+ ],
+ "Refrescar todo ahora": [
+  "crates/drivers/mysql/src/scheduler/mod.rs"
  ],
  "Refresco": [
   "crates/drivers/dremio/src/jobs.rs",
@@ -31142,7 +31480,6 @@
   "crates/drivers/clickhouse/src/monitor.rs",
   "crates/drivers/couchdb/src/jobs.rs",
   "crates/drivers/couchdb/src/monitor.rs",
-  "crates/drivers/couchdb/src/replication/doc.rs",
   "crates/drivers/etcd/src/lib.rs",
   "crates/drivers/firebird/src/properties.rs",
   "crates/drivers/hana/src/monitor.rs",
@@ -31332,8 +31669,17 @@
  "Respuestas de error del servidor (500 a 599). Deberían ser cero o casi; si aparecen, buscá la causa en el log de CouchDB.": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
- "Restablecer el recuento al guardar": [
+ "Restablece el recuento de la alerta «{0}» del Agente SQL Server": [
   "crates/drivers/sqlserver/src/agent/alert.rs"
+ ],
+ "Restablece el transform «{0}»: borra sus checkpoints, su estado y sus estadísticas; al iniciarlo de nuevo procesa el origen desde el principio.": [
+  "crates/drivers/elasticsearch/src/scheduler/es_transform.rs"
+ ],
+ "Restablecer el recuento": [
+  "crates/drivers/sqlserver/src/agent/mod.rs"
+ ],
+ "Restablecer el transform": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "Restaurable desde": [
   "crates/drivers/cassandra/src/backup.rs"
@@ -31452,6 +31798,7 @@
   "crates/drivers/influxdb/src/scheduler/task.rs"
  ],
  "Retraso": [
+  "crates/drivers/mysql/src/scheduler/doris.rs",
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/sqlserver/src/babelfish.rs"
  ],
@@ -32621,6 +32968,9 @@
  "Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/oracle/src/index_usage.rs"
  ],
+ "Se llama en el miembro que la ejecuta (DB2_SSID de su estado). Pide MONITOR1, y para cancelar el thread o el job, autoridad para CANCEL THREAD o sobre MVS.CANCEL.JOB.": [
+  "crates/drivers/odbc/src/scheduler/db2zos.rs"
+ ],
  "Se muestra la política de refresco de las primeras {0} reflexiones.": [
   "crates/drivers/dremio/src/jobs.rs"
  ],
@@ -33685,6 +34035,12 @@
  "Si el snapshot tarda más, la ejecución se da por fallida.": [
   "crates/drivers/elasticsearch/src/scheduler/sm.rs"
  ],
+ "Si el transform creó su índice de destino, Elasticsearch también borra ese índice; un índice de destino creado aparte se conserva.": [
+  "crates/drivers/elasticsearch/src/scheduler/es_transform.rs"
+ ],
+ "Si es una cuenta regresiva (apoc.periodic.countdown; después de su primera ejecución APOC la lista como un job de una vez), «Detener» no la frena: su próxima ejecución ya programada la vuelve a armar, hasta que su consulta devuelva 0 o se reinicie el servidor.": [
+  "crates/drivers/neo4j/src/jobs.rs"
+ ],
  "Si es una cuenta regresiva (después de su primera ejecución APOC la lista como un job de una vez), cancelarla no la detiene: su próxima ejecución la vuelve a armar y reemplaza al job que tenga su nombre.": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
  ],
@@ -34024,6 +34380,9 @@
  ],
  "Sin contabilidad de espacio libre no se disparan los umbrales (thresholds) de los segmentos de datos.": [
   "crates/drivers/odbc/src/properties.rs"
+ ],
+ "Sin credenciales": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Sin desalojo (noEviction)": [
   "crates/drivers/couchbase/src/create_db.rs",
@@ -34728,9 +35087,6 @@
  "Solo el dueño del job (o un superusuario) puede cambiarlo.": [
   "crates/drivers/postgres/src/scheduler/timescale.rs"
  ],
- "Solo el dueño del job le cambia el nombre: DM crea el job nuevo a nombre de quien lo guarda, así que cambiaría de dueño.": [
-  "crates/drivers/odbc/src/scheduler/dameng.rs"
- ],
  "Solo el propietario del job o un miembro de sysadmin puede cambiarlo.": [
   "crates/drivers/sqlserver/src/agent/job.rs"
  ],
@@ -34860,6 +35216,9 @@
  "Solo puede crecer: para achicar un archivo se usa DBCC SHRINKFILE.": [
   "crates/drivers/sqlserver/src/properties.rs"
  ],
+ "Solo puede haber una ventana abierta: cierra la que está abierta ahora, {0} (force => TRUE).": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Solo quien tiene el privilegio MANAGE SCHEDULER puede cambiar este objeto.": [
   "crates/drivers/oracle/src/scheduler/mod.rs"
  ],
@@ -34915,6 +35274,9 @@
  "Solo un administrador del servidor ve las replicaciones (/_scheduler): este usuario no lo es.": [
   "crates/drivers/couchdb/src/jobs.rs"
  ],
+ "Solo un job de tipo «Procedimiento almacenado» tiene argumentos: quitalos o cambiá el tipo.": [
+  "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
+ ],
  "Solo un miembro de sysadmin puede cambiar este objeto.": [
   "crates/drivers/sqlserver/src/agent/mod.rs"
  ],
@@ -34926,6 +35288,9 @@
  ],
  "Solo un miembro de sysadmin ve los subsistemas y las entidades de seguridad de un proxy.": [
   "crates/drivers/sqlserver/src/agent/proxy.rs"
+ ],
+ "Solo un programa de tipo «Procedimiento almacenado» tiene argumentos: quitalos o cambiá el tipo.": [
+  "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
  "Solo un superusuario crea, cambia o borra triggers programados y programaciones en Vertica.": [
   "crates/drivers/odbc/src/scheduler/vertica.rs"
@@ -34940,6 +35305,9 @@
   "crates/drivers/odbc/src/health.rs"
  ],
  "Solo un usuario con SET_USER_ID (o SUPER) puede poner a otro como definidor de un evento.": [
+  "crates/drivers/mysql/src/scheduler/events.rs"
+ ],
+ "Solo un usuario con el privilegio SYSTEM_USER puede poner como definidor a una cuenta que lo tiene.": [
   "crates/drivers/mysql/src/scheduler/events.rs"
  ],
  "Solo una sesión podrá usar la base; el cambio falla si hay otras conectadas.": [
@@ -35182,6 +35550,9 @@
  "StarRocks no cambia la programación, la instrucción, la base ni el nombre de una tarea: guardar uno de ellos la borra y la vuelve a crear, y se pierden su historial de ejecuciones y su suspensión.": [
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
+ "StarRocks no ejecuta una tarea a pedido: no tiene una instrucción para eso (ALTER TASK solo la suspende, la reanuda o cambia sus propiedades).": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
+ ],
  "StarRocks no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/mysql/src/index_usage.rs"
  ],
@@ -35195,6 +35566,9 @@
   "crates/drivers/mysql/src/jobs/starrocks.rs"
  ],
  "StarRocks no informa si una tarea periódica está suspendida: el formulario pregunta qué hacer con su programación al guardar.": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
+ ],
+ "StarRocks no informa si ya lo estaba: repetirlo no cambia nada.": [
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
  "StarRocks no otorga permisos sobre «{0}»": [
@@ -35350,6 +35724,9 @@
  "Su dueño (DEFINER)": [
   "crates/drivers/firebird/src/properties.rs"
  ],
+ "Su nombre empieza con Q, como los objetos de IBM i, pero no la agregó un perfil del sistema: se cambia como cualquier otra entrada. Si la creó un producto, conviene cambiarla desde ese producto.": [
+  "crates/drivers/odbc/src/scheduler/db2i.rs"
+ ],
  "Su propia acción, cada cierto tiempo": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
@@ -35478,9 +35855,15 @@
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
+ "Suspende la programación de la tarea «{0}» de StarRocks": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
+ ],
  "Suspended": [
   "crates/drivers/odbc/src/jobs/iris.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs"
+ ],
+ "Suspender": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
  "Suspender la programación (ALTER TASK … SUSPEND)": [
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
@@ -37499,6 +37882,7 @@
   "crates/drivers/sqlserver/src/health.rs"
  ],
  "Token": [
+  "crates/drivers/couchdb/src/replication/doc.rs",
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/databricks/src/u2m.rs",
   "crates/drivers/flightsql/src/lib.rs",
@@ -37506,6 +37890,9 @@
   "crates/drivers/influxdb/src/v3.rs",
   "crates/drivers/libsql/src/lib.rs",
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "Token (Authorization: Bearer)": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Token bearer en lugar de usuario y contraseña (InfluxDB 3, Dremio PAT…).": [
   "crates/drivers/flightsql/src/lib.rs"
@@ -38367,9 +38754,6 @@
  "Un job continuo se cambia en su lugar (ALTER JOB) mientras está pausado: el script lo pausa y, si queda habilitado, lo reanuda.": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
- "Un job de tipo {0} no recibe argumentos: quitalos de la lista «Argumentos».": [
-  "crates/drivers/oracle/src/scheduler/job.rs"
- ],
  "Un job de una sola vez necesita «Fecha y hora».": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
@@ -38503,8 +38887,8 @@
  "Un programa con una programación": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
- "Un programa de tipo {0} no recibe argumentos: quitalos de la lista «Argumentos».": [
-  "crates/drivers/oracle/src/scheduler/program.rs"
+ "Un programa de tipo {0} necesita una credencial (y una conexión o un destino) para ejecutarse: creá un job que lo use.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "Un programa recibe a lo sumo 255 argumentos.": [
   "crates/drivers/oracle/src/scheduler/program.rs"
@@ -38724,6 +39108,18 @@
  "Una entrada de una sola vez queda guardada después de enviar el trabajo.": [
   "crates/drivers/odbc/src/scheduler/db2i.rs"
  ],
+ "Una entrada doc_level_input: los índices y las consultas por documento (id, name, query en sintaxis de query string, tags).": [
+  "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
+ ],
+ "Una entrada search cuya consulta agrupa con una agregación composite: cada bucket se evalúa por separado.": [
+  "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
+ ],
+ "Una entrada search: los índices y la consulta (query DSL) que corre en cada ejecución; los disparadores leen su respuesta en ctx.results[0].": [
+  "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
+ ],
+ "Una entrada uri: la API del clúster que se consulta (api_type, path y path_params, como CLUSTER_HEALTH, CLUSTER_STATS o NODES_STATS).": [
+  "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
+ ],
  "Una excepción de «{0}» no tiene fecha ni hora: necesita al menos una.": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
@@ -38900,14 +39296,8 @@
  "Una reflexión agregada necesita al menos una dimensión o una medida.": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
  ],
- "Una reflexión agregada no tiene columnas de RAW: usá dimensiones y medidas.": [
-  "crates/drivers/dremio/src/scheduler/reflection.rs"
- ],
  "Una región (SingleRegionStrategy)": [
   "crates/drivers/cassandra/src/create_db.rs"
- ],
- "Una replicación tiene un solo paso, «{0}»: «{1}» no es uno.": [
-  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Una replicación transitoria no se puede cambiar: no tiene documento. Borrarla la cancela.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
@@ -38987,6 +39377,9 @@
  "Una tarea sin programación corre en cuanto se crea: volver a crearla la ejecuta otra vez.": [
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
+ "Una tarea sin programación no se suspende ni se reanuda: corre una sola vez, al crearse.": [
+  "crates/drivers/mysql/src/scheduler/starrocks.rs"
+ ],
  "Una transacción abierta hace {0} transacciones frena la limpieza": [
   "crates/drivers/firebird/src/health.rs"
  ],
@@ -39043,6 +39436,9 @@
  ],
  "Unavailable": [
   "crates/drivers/flightsql/src/lib.rs"
+ ],
+ "Une en uno los {0} backups del repositorio «{1}»: los de hoy hasta {2} días atrás, donde está el más viejo.": [
+  "crates/drivers/couchbase/src/backup/repo.rs"
  ],
  "Une los backups hechos entre «Hasta» y «Desde» días atrás (0: hoy). Vacíos los dos: los que el servicio elija.": [
   "crates/drivers/couchbase/src/backup/plan.rs"
@@ -39104,6 +39500,9 @@
  ],
  "Unique index lookup": [
   "crates/drivers/mysql/src/plan.rs"
+ ],
+ "Unir todos los backups ahora": [
+  "crates/drivers/couchbase/src/backup/mod.rs"
  ],
  "Universal": [
   "crates/drivers/clickhouse/src/transfer.rs",
@@ -39401,6 +39800,7 @@
   "crates/drivers/elasticsearch/src/security.rs"
  ],
  "Usuario y contraseña": [
+  "crates/drivers/couchdb/src/replication/doc.rs",
   "crates/drivers/mongodb/src/lib.rs",
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
@@ -39470,6 +39870,9 @@
  ],
  "VERIFY_IDENTITY (verifica la CA y el nombre)": [
   "crates/drivers/mysql/src/lib.rs"
+ ],
+ "Va en el encabezado Authorization: Bearer; se puede escribir con o sin «Bearer».": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Vaciados del log": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -39928,6 +40331,9 @@
  "Vacío: lo decide el cluster.": [
   "crates/drivers/iotdb/src/create_db.rs"
  ],
+ "Vacío: lo ejecuta cualquier agente.": [
+  "crates/drivers/postgres/src/scheduler/pgagent.rs"
+ ],
  "Vacío: lo ejecuta cualquier agente. Agentes conectados ahora: {0}.": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
@@ -39972,6 +40378,9 @@
  ],
  "Vacío: por la clave primaria o la primera columna. RANDOMLY para reparto al azar.": [
   "crates/drivers/postgres/src/design.rs"
+ ],
+ "Vacío: queda el que tiene.": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "Vacío: según la programación de la creación.": [
   "crates/drivers/elasticsearch/src/scheduler/sm.rs"
@@ -40640,6 +41049,9 @@
  "Volver a crear un pipe lo hace empezar de cero: vuelve a enviar lo histórico según source.history.* y source.start-time.": [
   "crates/drivers/iotdb/src/scheduler/pipe.rs"
  ],
+ "Vuelve el plan de recursos de antes; los jobs de la ventana que tienen «Detener al cerrar la ventana» se detienen.": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
  "Vuelve enseguida; el avance se ve en el historial.": [
   "crates/drivers/clickhouse/src/backup.rs"
  ],
@@ -41093,6 +41505,9 @@
  "Zulu": [
   "crates/drivers/clickhouse/src/transfer.rs",
   "crates/drivers/mysql/src/jobs/clock.rs"
+ ],
+ "[{ \"query_level_trigger\": { \"name\": \"hay errores\", \"severity\": \"1\", \"condition\": { \"script\": {0} }, \"actions\": [] } }]": [
+  "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
  "\\connect {0}: DBine no cambia de base dentro de una sesión de PostgreSQL. Abrí esa base en otra pestaña y ejecutá allí el resto del script.": [
   "crates/drivers/postgres/src/session.rs"
@@ -43265,6 +43680,9 @@
  "el job {0} no tiene programación, disparador ni modo continuo que habilitar o deshabilitar": [
   "crates/drivers/databricks/src/jobs.rs"
  ],
+ "el job «{0}»": [
+  "crates/drivers/postgres/src/scheduler/timescale.rs"
+ ],
  "el job «{0}» no existe o este usuario no lo puede administrar": [
   "crates/drivers/oracle/src/jobs.rs"
  ],
@@ -43600,9 +44018,6 @@
  "el planificador de trabajos de IBM i no guarda el historial de sus entradas: se ve en el registro histórico (QHST)": [
   "crates/drivers/odbc/src/jobs/db2i.rs"
  ],
- "el plugin Alerting ejecuta el monitor entero: solo se puede empezar por sus entradas": [
-  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
- ],
  "el plugin de seguridad de OpenSearch no está instalado o está deshabilitado: no hay usuarios ni roles que administrar": [
   "crates/drivers/elasticsearch/src/security.rs"
  ],
@@ -43882,10 +44297,14 @@
   "crates/drivers/libsql/src/hrana.rs"
  ],
  "el servidor no ejecuta un evento a pedido: solo según su programación": [
-  "crates/drivers/mysql/src/jobs.rs"
+  "crates/drivers/mysql/src/jobs.rs",
+  "crates/drivers/mysql/src/scheduler/events.rs"
  ],
  "el servidor no ejecuta una tarea fuera de su programación": [
   "crates/drivers/postgres/src/jobs.rs"
+ ],
+ "el servidor no ejecuta una tarea fuera de su programación: para probarla, ejecutá su comando en una consulta": [
+  "crates/drivers/postgres/src/scheduler/mod.rs"
  ],
  "el servidor no guarda el historial de sus eventos": [
   "crates/drivers/mysql/src/jobs/events.rs"
@@ -44938,10 +45357,12 @@
   "crates/drivers/clickhouse/src/jobs.rs"
  ],
  "esta versión de CockroachDB no ejecuta un schedule en el momento (ALTER BACKUP SCHEDULE … EXECUTE IMMEDIATELY llegó en la 24.1)": [
-  "crates/drivers/postgres/src/jobs/cockroach.rs"
+  "crates/drivers/postgres/src/jobs/cockroach.rs",
+  "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "esta versión de CockroachDB solo ejecuta en el momento los schedules de backup (EXECUTE SCHEDULE llegó en la 26.1)": [
-  "crates/drivers/postgres/src/jobs/cockroach.rs"
+  "crates/drivers/postgres/src/jobs/cockroach.rs",
+  "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "esta versión de DBine no sabe ejecutar pasos «{0}»": [
   "src-tauri/src/tasks/steps.rs"
@@ -45069,6 +45490,9 @@
  "este clúster administra jobs (transforms, watches, monitores y políticas de snapshots) y políticas de ciclo de vida de los índices (ILM en Elasticsearch, ISM en OpenSearch)": [
   "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
+ "este clúster no restablece transforms (_reset llegó en Elasticsearch 8.1)": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
+ ],
  "este clúster no tiene el plugin Alerting: no hay monitores": [
   "crates/drivers/elasticsearch/src/jobs.rs",
   "crates/drivers/elasticsearch/src/scheduler/mod.rs"
@@ -45104,6 +45528,9 @@
  ],
  "este host no incluye el driver «{0}»": [
   "crates/dbine-plugin-host/src/main.rs"
+ ],
+ "este job se ejecuta entero: no empieza en uno de sus pasos (eso es para las acciones de un watch); para correrlo ahora está «Ejecutar ahora»": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "este monitor lo administra {0}: el plugin Alerting no deja cambiarlo desde aquí": [
   "crates/drivers/elasticsearch/src/scheduler/mod.rs",
@@ -45318,6 +45745,9 @@
  ],
  "este motor no ofrece el operador «{0}»": [
   "src-tauri/src/commands/query_builder.rs"
+ ],
+ "este motor no ofrece esa acción en su planificador": [
+  "crates/dbine-driver/src/lib.rs"
  ],
  "este motor no ofrece {0}": [
   "src-tauri/src/commands/query_builder.rs"
@@ -48338,6 +48768,9 @@
  "la zona no existe": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "la {0} de {1}": [
+  "crates/drivers/postgres/src/scheduler/timescale.rs"
+ ],
  "la última ejecución se muestra para los jobs que están entre las {0} ejecuciones más recientes del workspace": [
   "crates/drivers/databricks/src/jobs.rs"
  ],
@@ -48457,6 +48890,9 @@
  ],
  "las perdería": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "las políticas de ciclo de vida no tienen acciones: se aplican solas a sus índices": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "las regiones y la supervivencia necesitan una región principal (PRIMARY REGION)": [
   "crates/drivers/postgres/src/create_db.rs"
@@ -49239,6 +49675,7 @@
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
  "no existe el programa «{0}» o este usuario no lo puede ver": [
+  "crates/drivers/oracle/src/scheduler/action.rs",
   "crates/drivers/oracle/src/scheduler/program.rs"
  ],
  "no existe el recurso «{0}» o este usuario no lo puede ver": [
@@ -49301,6 +49738,7 @@
   "crates/drivers/tdengine/src/properties.rs"
  ],
  "no existe la cadena «{0}» o este usuario no la puede ver": [
+  "crates/drivers/oracle/src/scheduler/action.rs",
   "crates/drivers/oracle/src/scheduler/chain.rs"
  ],
  "no existe la carpeta «{0}»": [
@@ -51391,6 +51829,9 @@
  "pg_cron no ejecuta un job fuera de su programación": [
   "crates/drivers/postgres/src/jobs.rs"
  ],
+ "pg_cron no ejecuta un job fuera de su programación: para probarlo, ejecutá su comando en una consulta": [
+  "crates/drivers/postgres/src/scheduler/mod.rs"
+ ],
  "pg_cron no está en esta base (o tu usuario no puede leerlo)": [
   "crates/drivers/postgres/src/scheduler/cron.rs"
  ],
@@ -52547,6 +52988,9 @@
  "solo las operaciones que cumplen el filtro del profiler": [
   "crates/drivers/mongodb/src/profiler.rs"
  ],
+ "solo los repositorios activos tienen acciones (un backup completo o unir sus backups ahora)": [
+  "crates/drivers/couchbase/src/backup/mod.rs"
+ ],
  "solo se abren enlaces http, https o mailto": [
   "src-tauri/src/commands/notebook.rs"
  ],
@@ -53109,6 +53553,9 @@
  "un changefeed es un solo job que sigue corriendo: no tiene ejecuciones anteriores": [
   "crates/drivers/postgres/src/jobs.rs"
  ],
+ "un changefeed ya está corriendo: se reanuda con «Activo»": [
+  "crates/drivers/postgres/src/scheduler/crdb.rs"
+ ],
  "un changefeed ya está corriendo: se reanuda con «Habilitar»": [
   "crates/drivers/postgres/src/jobs.rs"
  ],
@@ -53139,6 +53586,9 @@
  ],
  "un job de DBMS_JOB es un solo comando: no tiene pasos": [
   "crates/drivers/postgres/src/scheduler/dbms_job.rs"
+ ],
+ "un job de DBMS_JOB no se puede detener ni dar por terminado: hay que terminar la sesión que lo ejecuta": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
  ],
  "un job de DBMS_JOB no se puede detener: hay que terminar la sesión que lo ejecuta": [
   "crates/drivers/oracle/src/jobs.rs"
@@ -53224,6 +53674,9 @@
  ],
  "un topic no tiene columnas: se lee a través de un stream": [
   "crates/drivers/ksqldb/src/transfer.rs"
+ ],
+ "un transform se ejecuta entero, no desde uno de sus pasos: se inicia con el interruptor de habilitado (y uno continuo ya iniciado se ejecuta de nuevo con «Ejecutar ahora»)": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
  "un usuario": [
   "crates/drivers/etcd/src/security.rs"
@@ -53343,6 +53796,9 @@
  ],
  "una página de la lectura superó {0} MiB: los documentos tienen tamaños muy desparejos y este servidor solo se lee con scroll, que no deja achicar la página a mitad de camino": [
   "crates/drivers/elasticsearch/src/transfer.rs"
+ ],
+ "una replicación se ejecuta entera: no empieza en uno de sus pasos; para correrla de nuevo está «Ejecutar ahora»": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "una replicación transitoria no se puede volver a ejecutar: hay que iniciarla de nuevo con POST /_replicate": [
   "crates/drivers/couchdb/src/jobs.rs"
@@ -55244,6 +55700,9 @@
  "{0}: crecimiento automático": [
   "crates/drivers/sqlserver/src/properties.rs"
  ],
+ "{0}: ejecutar ahora el job «{1}» (DBMS_SCHEDULER.RUN_JOB), en esta sesión: DBine espera a que termine.": [
+  "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
+ ],
  "{0}: el DEFAULT de la columna [{1}] usa {2}, que no se clona (usa tablas u objetos que no se clonan); la columna queda sin ese DEFAULT": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -56970,9 +57429,6 @@
  "«{0}» no es un par [clave, valor]": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
- "«{0}» no es un paso de este job.": [
-  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
- ],
  "«{0}» no es un permiso de Cassandra": [
   "crates/drivers/cassandra/src/security.rs"
  ],
@@ -57275,11 +57731,36 @@
  "«{0}» no es una URL válida: {1}": [
   "src-tauri/src/notebook/remote.rs"
  ],
+ "«{0}» no es una acción de este objeto del planificador.": [
+  "crates/drivers/mysql/src/scheduler/mod.rs",
+  "crates/drivers/postgres/src/scheduler/mod.rs"
+ ],
+ "«{0}» no es una acción de este tipo de job.": [
+  "crates/drivers/elasticsearch/src/scheduler/mod.rs"
+ ],
+ "«{0}» no es una acción de este tipo de objeto de Dremio.": [
+  "crates/drivers/dremio/src/scheduler/mod.rs"
+ ],
+ "«{0}» no es una acción de este tipo de objeto del Scheduler de Oracle": [
+  "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "«{0}» no es una acción de este tipo de objeto del planificador": [
+  "crates/drivers/odbc/src/scheduler/mod.rs"
+ ],
  "«{0}» no es una acción de este watch.": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
  ],
+ "«{0}» no es una acción de las políticas de refresco de tablas de Dremio: la que hay es refrescar sus reflexiones.": [
+  "crates/drivers/dremio/src/scheduler/policy.rs"
+ ],
  "«{0}» no es una acción de pgAgent para un paso que falla.": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
+ ],
+ "«{0}» no es una acción de un repositorio de backup.": [
+  "crates/drivers/couchbase/src/backup/repo.rs"
+ ],
+ "«{0}» no es una acción del Agente SQL Server para este objeto.": [
+  "crates/drivers/sqlserver/src/agent/mod.rs"
  ],
  "«{0}» no es una acción válida de MongoDB (find, insert, update, remove…)": [
   "crates/drivers/mongodb/src/security.rs"
@@ -57389,6 +57870,9 @@
  ],
  "«{0}» no es una forma de acceder al servicio de claves.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
+ ],
+ "«{0}» no es una forma de autenticación de «{1}».": [
+  "crates/drivers/couchdb/src/replication/doc.rs"
  ],
  "«{0}» no es una forma de disparar un trigger.": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
@@ -58399,6 +58883,9 @@
   "crates/drivers/snowflake/src/jobs.rs",
   "crates/drivers/snowflake/src/scheduler/graph.rs",
   "crates/drivers/snowflake/src/scheduler/task.rs"
+ ],
+ "Última tarea correcta": [
+  "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
  "Última transacción confirmada": [
   "crates/drivers/neo4j/src/properties.rs"

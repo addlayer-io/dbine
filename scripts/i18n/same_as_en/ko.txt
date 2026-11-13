@@ -822,3 +822,5 @@ enterprise.json:header
 enterprise.json:headerSignedIn
 enterprise.json:signIn.title
 backend:Id de Snowflake
+backend:Finalizador
+backend:Replicador
