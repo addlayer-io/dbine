@@ -37,6 +37,7 @@ import {
   moveFileAliases, projectDefaultTarget, rememberAlias, rememberFileAlias, resolveTarget, targetText, type FileKey, type ResolvedTarget,
 } from '../composables/notebookTargets';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
+import { functionCatalog, loadFunctionCatalog, localFunctionCatalog, loadLocalFunctionCatalog, localDuckdbUsed } from '../composables/functionCatalog';
 import { fileDocs, type FileDocHandle } from '../composables/tabDocument';
 import { notebookTitle } from '../composables/tabTitle';
 import { registerEditor, useAiStore } from '../stores/ai';
@@ -750,6 +751,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
         language: 'sql', dialect: duck?.dialect, schema: localSchema(c), snippets: snippetsFor(duck, userSnippets.value),
         target: t('notebook:target.dataframeSql'), overridden: !emptyTarget(c.target), unresolved: false,
         localFiles: true, grantedFiles: grantedFiles.value, params: paramCompletions.value,
+        functions: localFunctionCatalog(),
       };
       continue;
     }
@@ -764,6 +766,7 @@ const contexts = computed<Record<string, CellContext>>(() => {
       overridden: !emptyTarget(c.target),
       unresolved: !r.ok,
       params: paramCompletions.value,
+      functions: r.ok ? functionCatalog(r.target.connectionId, r.target.database) : undefined,
     };
   }
   return out;
@@ -781,6 +784,13 @@ watch(() => [...new Set((nb.value?.cells ?? []).flatMap((c) => {
 function needNames(cell: NotebookCell) {
   const r = resolved(cell);
   if (r.ok && !conns.isConnected(r.target.connectionId)) void conns.ensureConnected(r.target.connectionId, { auto: true });
+}
+/** A cell's editor asked for its target's functions (on focus, on completion);
+ *  a "DataFrame SQL" cell, for DuckDB's on the local DuckDB. */
+function needFunctions(cell: NotebookCell) {
+  if (isLocal(cell)) return loadLocalFunctionCatalog();
+  const r = resolved(cell);
+  if (r.ok) loadFunctionCatalog(r.target.connectionId, r.target.database);
 }
 function needColumns(cell: NotebookCell, path: string[]) {
   const r = resolved(cell);
@@ -1086,6 +1096,8 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
       if (decision === 'always') void loadGrantedFiles();
       r = await notebookApi.runLocal({ ...args, approval: req.token });
     }
+    // It ran on DuckDB, downloaded by now: its functions can be read.
+    localDuckdbUsed();
     const o = r.outcome;
     cell.execution_count = ++counter;
     const params = recordedValues(usedNames);
@@ -1613,6 +1625,7 @@ const breadcrumbDir = computed(() => {
           @save="save"
           @need-columns="(p: string[]) => needColumns(cell, p)"
           @need-names="needNames(cell)"
+          @need-functions="needFunctions(cell)"
           @write-to="writeTo(cell)"
         />
       </template>

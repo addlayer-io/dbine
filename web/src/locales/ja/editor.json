@@ -41,5 +41,6 @@
     "runTip": "このステートメントだけを実行",
     "plan": "プラン",
     "planTip": "このステートメントの推定実行プラン（実行はしません）"
-  }
+  },
+  "functionOverloads_other": "+{{count}} 件のオーバーロード"
 }

@@ -1,0 +1,326 @@
+# Apache Drill built-in functions (see dbine_driver::functions::parse_catalog), generated from
+# sys.functions on Drill 1.22.0: one line per name and number of arguments, `any` where the
+# overloads take different types; implementation names (castBIGINT, extractDay, equal…) left out.
+# The window functions at the end come from Drill's documentation: the planner provides them and
+# sys.functions doesn't list them. Kinds: aggregates from Drill's documentation.
+s abs(any)
+s acos(any) -> float8
+s address_count(varchar) -> bigint
+s aes_decrypt(varchar, varchar) -> varchar
+s aes_encrypt(varchar, varchar) -> varchar
+s age(any) -> interval
+s age(any, any) -> interval
+a any_value(any)
+a approx_count_dups(any) -> bigint
+s ascii(varchar) -> int
+s asin(any) -> float8
+s atan(any) -> float8
+a avg(any)
+s binary_string(varchar) -> varbinary
+a bit_and(any)
+s bit_length(varchar) -> bigint
+a bit_or(any)
+a bit_xor(any)
+a bool_and(bit) -> bit
+a bool_or(bit) -> bit
+s broadcast_address(varchar) -> varchar
+s btrim(varchar) -> varchar
+s btrim(varchar, varchar) -> varchar
+s byte_substr(varbinary, bigint, bigint) -> varbinary
+s caverphone1(varchar) -> varchar
+s caverphone2(varchar) -> varchar
+s cbrt(any) -> float8
+s ceil(any)
+s ceiling(vardecimal) -> vardecimal
+s char_length(varchar) -> bigint
+s character_length(varchar) -> bigint
+s chr(int) -> varchar
+a collect_to_list(any...)
+s cologne_phonetic(varchar) -> varchar
+s concat(varchar, varchar) -> varchar
+s convert_from() -> varbinary
+s convert_to() -> varbinary
+a corr(any, any) -> float8
+a correlation(any, any) -> float8
+s cos(any) -> float8
+s cosh(any) -> float8
+s cosine_distance(varchar, varchar) -> float8
+s cot(any) -> float8
+a count(any) -> bigint
+a covar_pop(any, any) -> float8
+a covar_samp(any, any) -> float8
+a covariance(any, any) -> float8
+s current_date() -> date
+s current_schema() -> varchar
+s current_time() -> time
+s current_timestamp() -> timestamp
+s date_add(any, any)
+s date_diff(any, any)
+s date_part(varchar, date) -> bigint
+s date_sub(any, any)
+s date_trunc(varchar, any)
+s degrees(any) -> float8
+s div(any, any)
+s dm_soundex(varchar) -> varchar
+s dns(varchar)
+s dns(varchar, varchar)
+s dns_lookup(varchar)
+s dns_lookup(varchar, varchar)
+s dnsLookup(varchar)
+s dnsLookup(varchar, varchar)
+s double_metaphone(varchar) -> varchar
+s drillTypeOf(any) -> varchar
+s entropy(varchar) -> float8
+s entropy_per_byte(varchar) -> float8
+s entropyPerByte(varchar) -> float8
+a every(any)
+s exp(any) -> float8
+s flatten()
+s floor(any)
+s fuzzy_score(varchar, varchar) -> float8
+s get_host_address(varchar) -> varchar
+s get_host_name(varchar) -> varchar
+s get_map_schema(any)
+s getHostAddress(varchar) -> varchar
+s getHostName(varchar) -> varchar
+s getMapSchema(any)
+s hamming_distance(varchar, varchar) -> float8
+s hash(any) -> int
+s hash32(any) -> int
+s hash32(any, int) -> int
+s hash32AsDouble(any) -> int
+s hash32AsDouble(any, int) -> int
+s hash64(any) -> bigint
+s hash64(any, bigint) -> bigint
+s hash64AsDouble(any) -> bigint
+s hash64AsDouble(any, bigint) -> bigint
+s high_address(varchar) -> varchar
+a hll(any) -> varbinary
+s hll_decode(varbinary) -> bigint
+a hll_merge(varbinary) -> varbinary
+s host_lookup(varchar) -> varchar
+s hostLookup(varchar) -> varchar
+s http_get(varchar, varchar...)
+s http_request(varchar, varchar...)
+s httpGet(varchar, varchar...)
+s httpRequest(varchar, varchar...)
+s ilike(varchar, varchar) -> bit
+s ilike(varchar, varchar, varchar) -> bit
+s imaxdir(varchar) -> varchar
+s imaxdir(varchar, varchar) -> varchar
+s imindir(varchar) -> varchar
+s imindir(varchar, varchar) -> varchar
+s in_network(varchar, varchar) -> bit
+s inet_aton(varchar) -> bigint
+s inet_ntoa(bigint) -> varchar
+s initcap(varchar) -> varchar
+s is_empty(any) -> bit
+s is_private_ip(varchar) -> bit
+s is_valid_IP(varchar) -> bit
+s is_valid_IPv4(varchar) -> bit
+s is_valid_IPv6(varchar) -> bit
+s isdate(varchar) -> bit
+s isempty(any) -> bit
+s isnumeric(any) -> int
+s jaccard_distance(varchar, varchar) -> float8
+s jaro_distance(varchar, varchar) -> float8
+a kendall_correlation(float8, float8) -> float8
+s kendall_tau(float8, float8) -> float8
+a kendallCorrelation(float8, float8) -> float8
+s kendallTau(float8, float8) -> float8
+s kvgen(any)
+s last_day(timestamp) -> date
+s left(varchar, bigint) -> varchar
+s length(any) -> bigint
+s lengthUtf8(varbinary) -> bigint
+s levenshtein_distance(varchar, varchar) -> float8
+s like(varchar, varchar) -> bit
+s like(varchar, varchar, varchar) -> bit
+s localtime() -> time
+s localtimestamp() -> timestamp
+s log(any) -> float8
+s log(any, any) -> float8
+s log10(any) -> float8
+s longest_common_substring_distance(varchar, varchar) -> float8
+s low_address(varchar) -> varchar
+s lower(varchar) -> varchar
+s lpad(varchar, bigint) -> varchar
+s lpad(varchar, bigint, varchar) -> varchar
+s lshift(any, any)
+s ltrim(varchar) -> varchar
+s ltrim(varchar, varchar) -> varchar
+s mappify(any)
+s match_rating_encoder(varchar) -> varchar
+a max(any)
+s maxdir(varchar) -> varchar
+s maxdir(varchar, varchar) -> varchar
+s md2(varchar) -> varchar
+s md5(varchar) -> varchar
+a median(any)
+s metaphone(varchar) -> varchar
+a min(any)
+s mindir(varchar) -> varchar
+s mindir(varchar, varchar) -> varchar
+s mod(any, any)
+s modeOf(any) -> varchar
+s nearest_date(timestamp, varchar) -> timestamp
+s nearest_date(varchar, varchar, varchar) -> timestamp
+s nearestDate(timestamp, varchar) -> timestamp
+s nearestDate(varchar, varchar, varchar) -> timestamp
+s netmask(varchar) -> varchar
+s now() -> timestamp
+s nysiis(varchar) -> varchar
+s octet_length(varchar) -> bigint
+s parse_query(varchar)
+s parse_url(varchar)
+s parse_user_agent(varchar...)
+s parse_user_agent(varchar, varchar) -> varchar
+s percent_change(float8, float8) -> float8
+s percentChange(float8, float8) -> float8
+s pi() -> float8
+s position(varchar, varchar) -> bigint
+s power(float8, float8) -> float8
+s punctuation_pattern(varchar) -> varchar
+s punctuationPattern(varchar) -> varchar
+s radians(any) -> float8
+s rand() -> float8
+s rand(bigint) -> float8
+s random() -> float8
+s refined_soundex(varchar) -> varchar
+s regexp_extract(varchar, varchar)
+s regexp_extract(varchar, varchar, int) -> varchar
+s regexp_matches(varchar, varchar) -> bit
+s regexp_replace(varchar, varchar, varchar) -> varchar
+a regr_intercept(float8, float8) -> float8
+a regr_slope(float8, float8) -> float8
+a regrIntercept(float8, float8) -> float8
+a regrSlope(float8, float8) -> float8
+s repeat(varchar, int) -> varchar
+s repeated_contains(any, any) -> bit
+s repeated_count(any) -> int
+s replace(varchar, varchar, varchar) -> varchar
+s reverse(varchar) -> varchar
+s reverse_ip_lookup(varchar) -> varchar
+s right(varchar, bigint) -> varchar
+s round(any)
+s round(any, int)
+s rpad(varchar, bigint) -> varchar
+s rpad(varchar, bigint, varchar) -> varchar
+s rshift(any, any)
+s rtrim(varchar) -> varchar
+s rtrim(varchar, varchar) -> varchar
+s session_id() -> varchar
+s session_user() -> varchar
+s sha(varchar) -> varchar
+s sha1(varchar) -> varchar
+s sha2(varchar) -> varchar
+s sha256(varchar) -> varchar
+s sha384(varchar) -> varchar
+s sha512(varchar) -> varchar
+s sign(any) -> int
+s similar(varchar, varchar) -> bit
+s similar(varchar, varchar, varchar) -> bit
+s similar_to(varchar, varchar) -> bit
+s similar_to(varchar, varchar, varchar) -> bit
+s sin(any) -> float8
+s sinh(any) -> float8
+s soundex(varchar) -> varchar
+s split(varchar, varchar)
+s split_part(varchar, varchar, int) -> varchar
+s split_part(varchar, varchar, int, int) -> varchar
+s sql_to_date(varchar, varchar) -> date
+s sql_to_time(varchar, varchar) -> time
+s sql_to_timestamp(varchar, varchar) -> timestamp
+s sqlTypeOf(any) -> varchar
+s sqrt(any) -> float8
+s st_asgeojson(varbinary) -> varchar
+s st_asjson(varbinary) -> varchar
+s st_astext(varbinary) -> varchar
+s st_buffer(varbinary, float8) -> varbinary
+s st_contains(varbinary, varbinary) -> bit
+s st_crosses(varbinary, varbinary) -> bit
+s st_difference(varbinary, varbinary) -> varbinary
+s st_disjoint(varbinary, varbinary) -> bit
+s st_distance(varbinary, varbinary) -> float8
+s st_dwithin(varbinary, varbinary, float8) -> bit
+s st_envelope(varbinary) -> varbinary
+s st_equals(varbinary, varbinary) -> bit
+s st_geomfromtext(varchar) -> varbinary
+s st_geomfromtext(varchar, int) -> varbinary
+s st_intersects(varbinary, varbinary) -> bit
+s st_overlaps(varbinary, varbinary) -> bit
+s st_point(float8, float8) -> varbinary
+s st_relate(varbinary, varbinary, varchar) -> bit
+s st_touches(varbinary, varbinary) -> bit
+s st_transform(varbinary, int, int) -> varbinary
+s st_union(varbinary, varbinary) -> varbinary
+a st_unionaggregate(varbinary) -> varbinary
+s st_within(varbinary, varbinary) -> bit
+s st_x(varbinary) -> float8
+s st_xmax(varbinary) -> float8
+s st_xmin(varbinary) -> float8
+s st_y(varbinary) -> float8
+s st_ymax(varbinary) -> float8
+s st_ymin(varbinary) -> float8
+s statement_timestamp() -> timestamp
+a stddev(any)
+a stddev_pop(any)
+a stddev_samp(any)
+s string_binary(varbinary) -> varchar
+s strpos(varchar, varchar) -> bigint
+s substr(varchar, any) -> varchar
+s substr(varchar, bigint, bigint) -> varchar
+s substring(varchar, any) -> varchar
+s substring(varchar, bigint, bigint) -> varchar
+a sum(any)
+s system_user() -> varchar
+s tan(any) -> float8
+s tanh(any) -> float8
+a tdigest(any) -> varbinary
+a tdigest_merge(varbinary) -> varbinary
+s time_bucket(any, bigint)
+s time_bucket_ns(bigint, bigint) -> bigint
+s timeofday() -> varchar
+s to_char(any, varchar) -> varchar
+s to_date(any) -> date
+s to_date(varchar, varchar) -> date
+s to_number(varchar, varchar) -> float8
+s to_string(varchar, bigint) -> var16char
+s to_time(int) -> time
+s to_time(varchar, varchar) -> time
+s to_timestamp(any) -> timestamp
+s to_timestamp(varchar, varchar) -> timestamp
+s to_var16char(varchar, bigint) -> var16char
+s toascii(varchar, varchar) -> varchar
+s transaction_timestamp() -> timestamp
+s trunc(any)
+s trunc(any, int)
+s truncate(vardecimal) -> vardecimal
+s truncate(vardecimal, int) -> vardecimal
+s typeOf(any) -> varchar
+s unix_timestamp() -> bigint
+s unix_timestamp(varchar) -> bigint
+s unix_timestamp(varchar, varchar) -> bigint
+s upper(varchar) -> varchar
+s url_decode(varchar) -> varchar
+s url_encode(varchar) -> varchar
+s user() -> varchar
+a var_pop(any)
+a var_samp(any)
+a variance(any)
+s whois(varchar)
+s whois(varchar, varchar)
+s width_bucket(float8, float8, float8, int) -> int
+s widthBucket(float8, float8, float8, int) -> int
+s year_week(varchar) -> int
+s yearweek(varchar) -> int
+w row_number() -> bigint
+w rank() -> bigint
+w dense_rank() -> bigint
+w percent_rank() -> double
+w cume_dist() -> double
+w ntile(n) -> int
+w lag(expr[, offset])
+w lead(expr[, offset])
+w first_value(expr)
+w last_value(expr)

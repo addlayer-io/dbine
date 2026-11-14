@@ -1,0 +1,178 @@
+# IBM Netezza Performance Server: the built-in functions of the Netezza
+# SQL reference (7.2 to 11.x).
+
+# Aggregate
+a AVG([DISTINCT] expr)
+a COUNT(* | [DISTINCT] expr) -> BIGINT
+a GROUPING(column) -> INTEGER
+a MAX([DISTINCT] expr)
+a MIN([DISTINCT] expr)
+a STDDEV(expr) -> DOUBLE
+a STDDEV_POP(expr) -> DOUBLE
+a STDDEV_SAMP(expr) -> DOUBLE
+a SUM([DISTINCT] expr)
+a VAR_POP(expr) -> DOUBLE
+a VAR_SAMP(expr) -> DOUBLE
+a VARIANCE(expr) -> DOUBLE
+a CORR(expr1, expr2) -> DOUBLE
+a COVAR_POP(expr1, expr2) -> DOUBLE
+a COVAR_SAMP(expr1, expr2) -> DOUBLE
+a PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY expr)
+a PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY expr)
+
+# Window
+w CUME_DIST() OVER (window_specification) -> DOUBLE
+w DENSE_RANK() OVER (window_specification) -> BIGINT
+w FIRST_VALUE(expr [IGNORE NULLS]) OVER (window_specification)
+w LAG(expr [, offset [, default]]) OVER (window_specification)
+w LAST_VALUE(expr [IGNORE NULLS]) OVER (window_specification)
+w LEAD(expr [, offset [, default]]) OVER (window_specification)
+w NTILE(n) OVER (window_specification) -> INTEGER
+w PERCENT_RANK() OVER (window_specification) -> DOUBLE
+w RANK() OVER (window_specification) -> BIGINT
+w ROW_NUMBER() OVER (window_specification) -> BIGINT
+
+# Numeric
+s ABS(x)
+s ACOS(x) -> DOUBLE
+s ASIN(x) -> DOUBLE
+s ATAN(x) -> DOUBLE
+s ATAN2(y, x) -> DOUBLE
+s CEIL(x)
+s CEILING(x)
+s COS(x) -> DOUBLE
+s COT(x) -> DOUBLE
+s DEGREES(x) -> DOUBLE
+s DEXP(x) -> DOUBLE
+s DLOG10(x) -> DOUBLE
+s DLN(x) -> DOUBLE
+s EXP(x) -> DOUBLE
+s FLOOR(x)
+s FPOW(x, y) -> DOUBLE
+s GREATEST(expr, expr [, expr]...)
+s INT1AND(x, y) -> BYTEINT
+s INT1NOT(x) -> BYTEINT
+s INT1OR(x, y) -> BYTEINT
+s INT1XOR(x, y) -> BYTEINT
+s INT2AND(x, y) -> SMALLINT
+s INT2NOT(x) -> SMALLINT
+s INT2OR(x, y) -> SMALLINT
+s INT2XOR(x, y) -> SMALLINT
+s INT4AND(x, y) -> INTEGER
+s INT4NOT(x) -> INTEGER
+s INT4OR(x, y) -> INTEGER
+s INT4XOR(x, y) -> INTEGER
+s INT8AND(x, y) -> BIGINT
+s INT8NOT(x) -> BIGINT
+s INT8OR(x, y) -> BIGINT
+s INT8XOR(x, y) -> BIGINT
+s LEAST(expr, expr [, expr]...)
+s LN(x) -> DOUBLE
+s LOG(x [, base]) -> DOUBLE
+s MOD(x, y)
+s NUMERIC_SQRT(x) -> NUMERIC
+s PI() -> DOUBLE
+s POW(x, y)
+s POWER(x, y)
+s RADIANS(x) -> DOUBLE
+s RANDOM() -> DOUBLE
+s ROUND(x [, places])
+s SETSEED(seed)
+s SIGN(x)
+s SIN(x) -> DOUBLE
+s SQRT(x) -> DOUBLE
+s TAN(x) -> DOUBLE
+s TRUNC(x [, places])
+
+# String
+s ASCII(s) -> INTEGER
+s BTRIM(s [, t]) -> VARCHAR
+s CHR(n) -> CHAR
+s DLE_DST(s1, s2) -> INTEGER
+s INITCAP(s) -> VARCHAR
+s INSTR(s1, s2 [, n [, m]]) -> INTEGER
+s LE_DST(s1, s2) -> INTEGER
+s LENGTH(s) -> INTEGER
+s LOWER(s) -> VARCHAR
+s LPAD(s, n [, t]) -> VARCHAR
+s LTRIM(s [, t]) -> VARCHAR
+s NYSIIS(s) -> VARCHAR
+s DBL_MP(s) -> INTEGER
+s PRI_MP(s) -> VARCHAR
+s SCORE_MP(s1, s2 [, strong, normal, minor, weak]) -> INTEGER
+s SEC_MP(s) -> VARCHAR
+s REPEAT(s, n) -> VARCHAR
+s REPLACE(s, find, repl) -> VARCHAR
+s REVERSE(s) -> VARCHAR
+s RPAD(s, n [, t]) -> VARCHAR
+s RTRIM(s [, t]) -> VARCHAR
+s STRLEFT(s, n) -> VARCHAR
+s STRPOS(s, b) -> INTEGER
+s STRRIGHT(s, n) -> VARCHAR
+s SUBSTR(s, p [, l]) -> VARCHAR
+s SUBSTRING(s FROM p [FOR l]) -> VARCHAR
+s TRANSLATE(s, from, to) -> VARCHAR
+s TRIM([BOTH | LEADING | TRAILING] [t] FROM s) -> VARCHAR
+s UNICHR(n) -> NVARCHAR
+s UNICODE(s) -> INTEGER
+s UNICODES(s, unit, base) -> VARCHAR
+s UPPER(s) -> VARCHAR
+s REGEXP_EXTRACT(input, pattern [, start [, reference [, flags]]]) -> VARCHAR
+s REGEXP_EXTRACT_ALL(input, pattern [, start [, flags]]) -> VARCHAR
+s REGEXP_INSTR(input, pattern [, start [, reference [, flags]]]) -> INTEGER
+s REGEXP_LIKE(input, pattern [, start [, flags]]) -> BOOLEAN
+s REGEXP_MATCH_COUNT(input, pattern [, start [, flags]]) -> INTEGER
+s REGEXP_REPLACE(input, pattern, replacement [, start [, reference [, flags]]]) -> VARCHAR
+
+# Date and time
+s ADD_MONTHS(date, n) -> DATE
+s AGE(ts1 [, ts2]) -> INTERVAL
+s CURRENT_DATE -> DATE
+s CURRENT_TIME -> TIME
+s CURRENT_TIMESTAMP -> TIMESTAMP
+s DATE_PART(field, source) -> DOUBLE
+s DATE_TRUNC(field, source) -> TIMESTAMP
+s DAYS_BETWEEN(t1, t2) -> BIGINT
+s EXTRACT(field FROM source) -> DOUBLE
+s HOURS_BETWEEN(t1, t2) -> BIGINT
+s LAST_DAY(date) -> DATE
+s MINUTES_BETWEEN(t1, t2) -> BIGINT
+s MONTHS_BETWEEN(date1, date2) -> DOUBLE
+s NEXT_DAY(date, weekday) -> DATE
+s NOW() -> TIMESTAMP
+s OVERLAPS(start1, end1, start2, end2) -> BOOLEAN
+s SECONDS_BETWEEN(t1, t2) -> BIGINT
+s THIS_WEEK(date) -> DATE
+s TIMEOFDAY() -> VARCHAR
+s TIMEZONE(timestamp, from_tz, to_tz) -> TIMESTAMP
+s WEEKS_BETWEEN(t1, t2) -> BIGINT
+
+# Conversion
+s CAST(expr AS type)
+s TO_CHAR(value, template) -> VARCHAR
+s TO_DATE(text, template) -> DATE
+s TO_NUMBER(text, template) -> NUMERIC
+s TO_TIMESTAMP(text, template) -> TIMESTAMP
+
+# Conditional and miscellaneous
+s COALESCE(expr, expr [, expr]...)
+s CURRENT_CATALOG -> VARCHAR
+s CURRENT_DB -> VARCHAR
+s CURRENT_SCHEMA -> VARCHAR
+s CURRENT_SID -> BIGINT
+s CURRENT_USER -> VARCHAR
+s CURRENT_USERID -> BIGINT
+s DECODE(expr, search, result [, search, result]... [, default])
+s HASH(expr [, algorithm]) -> VARCHAR
+s HASH4(expr [, algorithm]) -> INTEGER
+s HASH8(expr [, algorithm]) -> BIGINT
+s ISFALSE(expr) -> BOOLEAN
+s ISNOTFALSE(expr) -> BOOLEAN
+s ISNOTTRUE(expr) -> BOOLEAN
+s ISTRUE(expr) -> BOOLEAN
+s NULLIF(expr1, expr2)
+s NVL(expr1, expr2)
+s NVL2(expr1, expr2, expr3)
+s SESSION_USER -> VARCHAR
+s USER -> VARCHAR
+s VERSION() -> VARCHAR

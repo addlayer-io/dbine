@@ -629,6 +629,12 @@ pub enum Call {
     SchedulerLogs {
         session: u64,
     },
+    /// The functions (or commands, operators) the editor completes
+    /// (`Session::function_catalog`). A host published before it answers
+    /// `Unsupported`, which the app reads as an empty catalog.
+    FunctionCatalog {
+        session: u64,
+    },
 }
 
 /// Host → app.
@@ -743,6 +749,7 @@ pub enum Reply {
     SchedulerList(dbine_driver::SchedulerList),
     ObjectForm(dbine_driver::ObjectForm),
     SchedulerLogs(Vec<dbine_driver::MonitorTable>),
+    Functions(Vec<dbine_driver::FunctionInfo>),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -1680,6 +1687,7 @@ mod tests {
                 },
                 "SchedulerActionForm",
             ),
+            (54, Call::FunctionCatalog { session: 3 }, "FunctionCatalog"),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -1738,6 +1746,62 @@ mod tests {
                 call: Call::SchedulerSave { values: back, .. },
                 ..
             } => assert_eq!(back, values),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_function_catalog_round_trips_and_reads_with_missing_fields() {
+        use dbine_driver::{FunctionInfo, FunctionKind};
+        let catalog = vec![
+            FunctionInfo::new("approx_distinct", FunctionKind::Aggregate)
+                .args("(x)")
+                .returns("bigint")
+                .description("Returns the approximate number of distinct input values."),
+            FunctionInfo::new("total", FunctionKind::Scalar)
+                .args("(id integer)")
+                .schema("sales"),
+            FunctionInfo::new("HSET", FunctionKind::Command).args("key field value"),
+        ];
+        let body = rmp_serde::to_vec_named(&Reply::Functions(catalog.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::Functions(back) => assert_eq!(back, catalog),
+            other => panic!("{other:?}"),
+        }
+        // A host that only sends the name and the kind: the rest is empty.
+        #[derive(Serialize)]
+        struct Bare {
+            name: &'static str,
+            kind: FunctionKind,
+        }
+        #[derive(Serialize)]
+        enum OldReply {
+            Functions(Vec<Bare>),
+        }
+        let body = rmp_serde::to_vec_named(&OldReply::Functions(vec![Bare {
+            name: "$match",
+            kind: FunctionKind::Operator,
+        }]))
+        .unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::Functions(back) => {
+                assert_eq!(
+                    back,
+                    vec![FunctionInfo::new("$match", FunctionKind::Operator)]
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        let call = rmp_serde::to_vec_named(&ToHost::Call {
+            id: 7,
+            call: Call::FunctionCatalog { session: 2 },
+        })
+        .unwrap();
+        match rmp_serde::from_slice::<ToHost>(&call).unwrap() {
+            ToHost::Call {
+                id: 7,
+                call: Call::FunctionCatalog { session: 2 },
+            } => {}
             other => panic!("{other:?}"),
         }
     }

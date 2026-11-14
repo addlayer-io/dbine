@@ -15,6 +15,7 @@ import {
 import { FAMILY_LABELS, type Family } from '../api/types';
 import CodeEditor from '../components/CodeEditor.vue';
 import { newQuery } from '../composables/actions';
+import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import { saveTextFile } from '../composables/files';
 import { dbKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type MigrationTab } from '../stores/tabs';
@@ -1132,7 +1133,11 @@ function saveScript() {
         </h3>
         <p class="mg-muted mg-small">{{ mode === 'clone' ? $t('migration:clone.scriptHelp') : $t('migration:script.help') }}</p>
         <div class="mg-script">
-          <CodeEditor v-model="script" :language="targetInfo?.language ?? 'sql'" :dialect="targetInfo?.dialect ?? ''" />
+          <CodeEditor
+            v-model="script" :language="targetInfo?.language ?? 'sql'" :dialect="targetInfo?.dialect ?? ''"
+            :functions="targetConnection ? functionCatalog(targetConnection, targetDatabase) : undefined"
+            @need-functions="loadFunctionCatalog(targetConnection, targetDatabase)"
+          />
         </div>
       </section>
     </template>

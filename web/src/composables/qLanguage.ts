@@ -1,5 +1,6 @@
 import { StreamLanguage, type StreamParser, type StringStream } from '@codemirror/language';
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
+import type { FunctionInfo } from '../api/types';
 
 // KDB+'s q in the query editor (the driver says `dialect: "q"`): a small
 // tokenizer for highlighting and the completion of q's words and the
@@ -16,7 +17,10 @@ import type { Completion, CompletionContext, CompletionResult } from '@codemirro
 //
 // Completion: q's keywords and built-ins (`.Q`, `.z`, `.h`, `.j` included),
 // the connection's tables, views, functions and variables (`.u.upd`), and the
-// columns of the tables the statement at the cursor names.
+// columns of the tables the statement at the cursor names. The driver's
+// function catalog (`Session::function_catalog`: `.Q.res`, `.q`, the user's
+// functions with their parameters) is merged in: a name already offered
+// gains its parameters, the others are added.
 
 /** q-sql's words. */
 export const Q_KEYWORDS = ['select', 'exec', 'update', 'delete', 'from', 'by', 'where'];
@@ -178,6 +182,14 @@ export interface QNames {
   tables: Record<string, string[]>;
   /** The connection's other names: functions, variables. */
   others: { label: string; kind: string }[];
+  /** The driver's function catalog, when loaded. */
+  functions?: readonly FunctionInfo[] | null;
+}
+
+/** A catalog entry's name as q writes it: `.u.upd` for `upd` in `.u`. */
+export function qFunctionLabel(f: FunctionInfo): string {
+  if (!f.schema || f.name.startsWith('.')) return f.name;
+  return `${f.schema.startsWith('.') ? f.schema : `.${f.schema}`}.${f.name}`;
 }
 
 /** The statement around `pos`: the lines from the last one that doesn't
@@ -240,11 +252,29 @@ export function qCompletion(ctx: CompletionContext, names: QNames): { result: Co
     }
   }
   if (!symbol) {
-    for (const o of names.others) options.push({ label: o.label, type: kindType(o.kind), boost: 1 });
-    for (const k of Q_KEYWORDS) options.push({ label: k, type: 'keyword' });
-    for (const k of Q_CONTROL) options.push({ label: k, type: 'keyword' });
-    for (const b of Q_BUILTINS) options.push({ label: b, type: 'function', boost: -1 });
-    for (const b of Q_NAMESPACED) options.push({ label: b, type: 'function', boost: -2 });
+    // The catalog's entry for a name: its parameters and description.
+    const catalog = new Map<string, FunctionInfo>();
+    for (const f of names.functions ?? []) {
+      const label = qFunctionLabel(f);
+      if (label && !catalog.has(label)) catalog.set(label, f);
+    }
+    const offered = new Set<string>();
+    const push = (o: Completion) => {
+      if (offered.has(o.label)) return;
+      offered.add(o.label);
+      const f = catalog.get(o.label);
+      if (f?.args) o.detail = f.args + (f.returns ? ` → ${f.returns}` : '');
+      if (f?.description) o.info = f.description;
+      options.push(o);
+    };
+    for (const o of names.others) push({ label: o.label, type: kindType(o.kind), boost: 1 });
+    for (const k of Q_KEYWORDS) push({ label: k, type: 'keyword' });
+    for (const k of Q_CONTROL) push({ label: k, type: 'keyword' });
+    for (const b of Q_BUILTINS) push({ label: b, type: 'function', boost: -1 });
+    for (const b of Q_NAMESPACED) push({ label: b, type: 'function', boost: -2 });
+    for (const [label, f] of catalog) {
+      push({ label, type: f.kind === 'operator' || f.kind === 'command' ? 'keyword' : 'function', boost: f.schema ? 1 : -1 });
+    }
   }
   return { result: { from, options, validFor: /^[\w.]*$/ }, needColumns };
 }

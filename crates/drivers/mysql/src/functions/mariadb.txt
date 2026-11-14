@@ -1,0 +1,501 @@
+# MariaDB's built-in functions (MariaDB Knowledge Base, as its help tables
+# list them), for servers whose help tables are empty or unreadable and to
+# complete them. See functions::parse_catalog for the format.
+s BIT_COUNT(N)
+s COALESCE(value,...)
+s GREATEST(value1,value2,...)
+s INTERVAL(N,N1,N2,N3,...)
+s ISNULL(expr)
+s LEAST(value1,value2,...)
+s IF(expr1,expr2,expr3)
+s IFNULL(expr1,expr2)
+s NVL(expr1,expr2) since=10.3.0
+s NULLIF(expr1,expr2)
+s NVL2(expr1,expr2,expr3) since=10.3.0
+s ADDDATE(date,INTERVAL expr unit)
+s ADDDATE(expr,days)
+s ADDTIME(expr1,expr2)
+s ADD_MONTHS(date, months) since=10.6.1
+s CONVERT_TZ(dt,from_tz,to_tz)
+s CURDATE()
+s CURRENT_DATE()
+s CURRENT_TIME([precision])
+s CURRENT_TIMESTAMP([precision])
+s CURTIME([precision])
+s DATE(expr)
+s DATEDIFF(expr1,expr2)
+s DATE_ADD(date,INTERVAL expr unit)
+s DATE_FORMAT(date, format[, locale])
+s DATE_SUB(date,INTERVAL expr unit)
+s DAY(date)
+s DAYNAME(date)
+s DAYOFMONTH(date)
+s DAYOFWEEK(date)
+s DAYOFYEAR(date)
+s EXTRACT(unit FROM date)
+s FORMAT_PICO_TIME(time_val) since=11.0.2
+s FROM_DAYS(N)
+s FROM_UNIXTIME(unix_timestamp)
+s FROM_UNIXTIME(unix_timestamp,format)
+s GET_FORMAT({DATE|DATETIME|TIME}, {'EUR'|'USA'|'JIS'|'ISO'|'INTERNAL'})
+s HOUR(time)
+s LAST_DAY(date)
+s LOCALTIME([precision])
+s LOCALTIMESTAMP([precision])
+s MAKEDATE(year,dayofyear)
+s MAKETIME(hour,minute,second)
+s MICROSECOND(expr)
+s MINUTE(time)
+s MONTH(date)
+s MONTHNAME(date)
+s NOW([precision])
+s PERIOD_ADD(P,N)
+s PERIOD_DIFF(P1,P2)
+s QUARTER(date)
+s SECOND(time)
+s SEC_TO_TIME(seconds)
+s STR_TO_DATE(str,format)
+s SUBDATE(date,INTERVAL expr unit)
+s SUBDATE(expr,days)
+s SUBTIME(expr1,expr2)
+s SYSDATE([precision])
+s TIME(expr)
+s TIMEDIFF(expr1,expr2)
+s TIMESTAMP(expr)
+s TIMESTAMP(expr1,expr2)
+s TIMESTAMPADD(unit,interval,datetime_expr)
+s TIMESTAMPDIFF(unit,datetime_expr1,datetime_expr2)
+s TIME_FORMAT(time,format)
+s TIME_TO_SEC(time)
+s TO_DAYS(date)
+s TO_SECONDS(expr)
+s UNIX_TIMESTAMP()
+s UNIX_TIMESTAMP(date)
+s UTC_DATE()
+s UTC_TIME([precision])
+s UTC_TIMESTAMP([precision])
+s WEEK(date[,mode])
+s WEEKDAY(date)
+s WEEKOFYEAR(date)
+s YEAR(date)
+s YEARWEEK(date)
+s YEARWEEK(date,mode)
+s COLUMN_ADD(dyncol_blob, column_nr, value [as type], [column_nr, value [as type]]...)
+s COLUMN_ADD(dyncol_blob, column_name, value [as type], [column_name, value [as type]]...)
+s COLUMN_CHECK(dyncol_blob) since=10.0.1
+s COLUMN_CREATE(column_nr, value [as type], [column_nr, value [as type]]...)
+s COLUMN_CREATE(column_name, value [as type], [column_name, value [as type]]...)
+s COLUMN_DELETE(dyncol_blob, column_nr, column_nr...)
+s COLUMN_DELETE(dyncol_blob, column_name, column_name...)
+s COLUMN_EXISTS(dyncol_blob, column_nr)
+s COLUMN_EXISTS(dyncol_blob, column_name)
+s COLUMN_GET(dyncol_blob, column_nr as type)
+s COLUMN_GET(dyncol_blob, column_name as type)
+s COLUMN_JSON(dyncol_blob) since=10.0.1
+s COLUMN_LIST(dyncol_blob)
+s AES_DECRYPT(crypt_str,key_str)
+s AES_ENCRYPT(crypt_str, key_str, [, iv [, mode]])
+s AES_ENCRYPT(str,key_str)
+s AES_ENCRYPT(str, key, [, iv [, mode]])
+s COMPRESS(string_to_compress)
+s DECODE(crypt_str,pass_str)
+s DECODE(expr, search_expr, result_expr [, search_expr2, result_expr2 ...] [default_expr])
+s DECODE_ORACLE(expr, search_expr, result_expr [, search_expr2, result_expr2 ...] [default_expr]) since=10.3.2
+s DES_DECRYPT(crypt_str[,key_str])
+s DES_ENCRYPT(str[,{key_num|key_str}])
+s ENCODE(str,pass_str)
+s ENCRYPT(str[,salt])
+s KDF(key_str, salt [, {info | iterations} [, kdf_name [, width ]]]) since=11.3.0
+s MD5(str)
+s OLD_PASSWORD(str)
+s PASSWORD(str)
+s RANDOM_BYTES(length) since=10.10.0
+s SHA1(str)
+s SHA(str)
+s SHA2(str,hash_len)
+s UNCOMPRESS(string_to_uncompress)
+a AVG([DISTINCT] expr)
+a BIT_AND(expr)
+a BIT_OR(expr)
+a BIT_XOR(expr)
+a COUNT(expr)
+a COUNT(DISTINCT expr,[expr...])
+a GROUP_CONCAT(expr)
+a MAX([DISTINCT] expr)
+a MIN([DISTINCT] expr)
+a STD(expr)
+a STDDEV(expr)
+a STDDEV_POP(expr)
+a STDDEV_SAMP(expr)
+a SUM([DISTINCT] expr)
+a VARIANCE(expr)
+a VAR_POP(expr)
+a VAR_SAMP(expr)
+s WSREP_LAST_SEEN_GTID() since=10.4.2
+s WSREP_LAST_WRITTEN_GTID() since=10.4.2
+s WSREP_SYNC_WAIT_UPTO_GTID(gtid[,timeout]) since=10.4.2
+s ST_AsGeoJSON(g[, max_decimals[, options]]) since=10.2.4
+s ST_GeomFromGeoJSON(g[, option]) since=10.2.4
+s BUFFER(g1,r)
+s CONVEXHULL(g)
+s GeometryCollection(g1,g2,...)
+s LineString(pt1,pt2,...)
+s MultiLineString(ls1,ls2,...)
+s MultiPoint(pt1,pt2,...)
+s MultiPolygon(poly1,poly2,...)
+s Point(x,y)
+s PointOnSurface(g) since=10.1.2
+s Polygon(ls1,ls2,...)
+s ST_BUFFER(g1,r)
+s ST_ConvexHull(g)
+s ST_INTERSECTION(g1,g2)
+s ST_PointOnSurface(g) since=10.1.2
+s ST_SYMDIFFERENCE(g1,g2)
+s ST_UNION(g1,g2)
+s BOUNDARY(g) since=10.1.2
+s DIMENSION(g)
+s ENVELOPE(g)
+s GeometryN(gc,N)
+s GeometryType(g)
+s IsClosed(g)
+s IsEmpty(g)
+s IsRing(g) since=10.1.2
+s IsSimple(g)
+s NumGeometries(gc)
+s SRID(g)
+s ST_BOUNDARY(g) since=10.1.2
+s ST_Dimension(g)
+s ST_ENVELOPE(g)
+s ST_GeometryN(gc,N)
+s ST_GeometryType(g)
+s ST_IsClosed(g)
+s ST_IsEmpty(g)
+s ST_IsRing(g) since=10.1.2
+s ST_IsSimple(g)
+s ST_NumGeometries(gc)
+s ST_Relate(g1, g2, i) since=10.1.2
+s ST_SRID(g)
+s Contains(g1,g2)
+s Crosses(g1,g2)
+s Disjoint(g1,g2)
+s Equals(g1,g2)
+s MBREQUALS(g1,g2)
+s INTERSECTS(g1,g2)
+s OVERLAPS(g1,g2)
+s ST_CONTAINS(g1,g2)
+s ST_CROSSES(g1,g2)
+s ST_DIFFERENCE(g1,g2)
+s ST_DISJOINT(g1,g2)
+s ST_DISTANCE(g1,g2)
+s ST_DISTANCE_SPHERE(g1,g2,[r]) since=10.2.38
+s ST_EQUALS(g1,g2)
+s ST_INTERSECTS(g1,g2)
+s ST_LENGTH(ls)
+s ST_OVERLAPS(g1,g2)
+s ST_TOUCHES(g1,g2)
+s ST_WITHIN(g1,g2)
+s Touches(g1,g2)
+s Within(g1,g2)
+s BENCHMARK(count,expr)
+s BINLOG_GTID_POS(binlog_filename,binlog_offset)
+s CHARSET(str)
+s COERCIBILITY(str)
+s COLLATION(str)
+s CONNECTION_ID()
+s CURRENT_ROLE()
+s CURRENT_USER()
+s DATABASE()
+s SCHEMA()
+s DECODE_HISTOGRAM(hist_type,histogram) since=10.0.2
+s DEFAULT(col_name)
+s FOUND_ROWS()
+s LAST_INSERT_ID()
+s LAST_INSERT_ID(expr)
+s LAST_VALUE(expr,[expr,...])
+s LAST_VALUE(expr)
+s ROWNUM() since=10.6.1
+s ROW_COUNT()
+s SESSION_USER()
+s SYSTEM_USER()
+s USER()
+s VERSION()
+s JSON_ARRAY([value[, value2] ...]) since=10.2.3
+a JSON_ARRAYAGG(column_or_expression) since=10.5.0
+s JSON_ARRAY_APPEND(json_doc, path, value[, path, value] ...) since=10.2.3
+s JSON_ARRAY_INSERT(json_doc, path, value[, path, value] ...) since=10.2.3
+s JSON_ARRAY_INTERSECT(arr1, arr2) since=11.2.0
+s JSON_COMPACT(json_doc) since=10.2.4
+s JSON_CONTAINS(json_doc, val[, path]) since=10.2.3
+s JSON_CONTAINS_PATH(json_doc, return_arg, path[, path] ...) since=10.2.3
+s JSON_DEPTH(json_doc) since=10.2.3
+s JSON_DETAILED(json_doc[, tab_size]) since=10.2.4
+s JSON_PRETTY(json_doc[, tab_size]) since=10.4.28
+s JSON_EQUALS(json1, json2) since=10.7.0
+s JSON_EXTRACT(json_doc, path[, path] ...) since=10.2.3
+s JSON_INSERT(json_doc, path, val[, path, val] ...) since=10.2.3
+s JSON_KEYS(json_doc[, path]) since=10.2.3
+s JSON_LENGTH(json_doc[, path]) since=10.2.3
+s JSON_LOOSE(json_doc) since=10.2.4
+s JSON_MERGE(json_doc, json_doc[, json_doc] ...) since=10.2.3
+s JSON_MERGE_PATCH(json_doc, json_doc[, json_doc] ...) since=10.2.25
+s JSON_MERGE_PRESERVE(json_doc, json_doc[, json_doc] ...) since=10.2.25
+s JSON_NORMALIZE(json) since=10.7.0
+s JSON_OBJECT([key, value[, key, value] ...]) since=10.2.3
+a JSON_OBJECTAGG(key, value) since=10.5.0
+s JSON_OBJECT_FILTER_KEYS(obj, array_keys) since=11.2.0
+s JSON_OBJECT_TO_ARRAY(Obj) since=11.2.0
+s JSON_OVERLAPS(json_doc1, json_doc2) since=10.9.0
+s JSON_QUERY(json_doc, path) since=10.2.3
+s JSON_QUOTE(json_value) since=10.2.3
+s JSON_REMOVE(json_doc, path[, path] ...) since=10.2.3
+s JSON_REPLACE(json_doc, path, val[, path, val] ...) since=10.2.3
+s JSON_SCHEMA_VALID(schema, json) since=11.1.0
+s JSON_SEARCH(json_doc, return_arg, search_str[, escape_char[, path] ...]) since=10.2.3
+s JSON_SET(json_doc, path, val[, path, val] ...) since=10.2.3
+t JSON_TABLE(json_doc, context_path COLUMNS (column_list)) since=10.6.0
+s JSON_TYPE(json_val) since=10.2.3
+s JSON_UNQUOTE(val) since=10.2.3
+s JSON_VALID(value) since=10.2.3
+s JSON_VALUE(json_doc, path) since=10.2.3
+s ENDPOINT(ls)
+s GLength(ls)
+s NumPoints(ls)
+s PointN(ls,N)
+s STARTPOINT(ls)
+s ST_EndPoint(ls)
+s ST_NumPoints(ls)
+s ST_PointN(ls,N)
+s ST_StartPoint(ls)
+s MBRContains(g1,g2)
+s MBRDisjoint(g1,g2)
+s MBREqual(g1,g2)
+s MBRIntersects(g1,g2)
+s MBROverlaps(g1,g2)
+s MBRTouches(g1,g2)
+s MBRWithin(g1,g2)
+s GET_LOCK(str,timeout)
+s INET6_ATON(expr) since=10.0.12
+s INET6_NTOA(expr) since=10.0.12
+s INET_ATON(expr)
+s INET_NTOA(expr)
+s IS_FREE_LOCK(str)
+s IS_IPV4(expr) since=10.0.12
+s IS_IPV4_COMPAT(expr) since=10.0.12
+s IS_IPV4_MAPPED(expr) since=10.0.12
+s IS_IPV6(expr) since=10.0.12
+s IS_USED_LOCK(str)
+s MASTER_GTID_WAIT(gtid-list[, timeout) since=10.0.9
+s MASTER_POS_WAIT(log_name,log_pos[,timeout,["connection_name"]])
+s NAME_CONST(name,value)
+s RELEASE_ALL_LOCKS()
+s RELEASE_LOCK(str)
+s SLEEP(duration)
+s SYS_GUID() since=10.6.1
+s UUID()
+s UUID_SHORT()
+s ABS(X)
+s ACOS(X)
+s ASIN(X)
+s ATAN(X)
+s ATAN(Y,X)
+s ATAN2(Y,X)
+s CEIL(X)
+s CEILING(X)
+s CONV(N,from_base,to_base)
+s COS(X)
+s COT(X)
+s CRC32(expr)
+s CRC32([par,]expr) since=10.8.0
+s CRC32C([par,]expr) since=10.8.0
+s DEGREES(X)
+s EXP(X)
+s FLOOR(X)
+s LN(X)
+s LOG(X)
+s LOG(B,X)
+s LOG10(X)
+s LOG2(X)
+s MOD(N,M)
+s OCT(N)
+s PI()
+s POW(X,Y)
+s POWER(X,Y)
+s RADIANS(X)
+s RAND()
+s RAND(N)
+s ROUND(X)
+s ROUND(X,D)
+s SIGN(X)
+s SIN(X)
+s SQRT(X)
+s TAN(X)
+s TRUNCATE(X,D)
+s ST_X(p)
+s X(p)
+s ST_Y(p)
+s Y(p)
+s AREA(poly)
+s CENTROID(mpoly)
+s ExteriorRing(poly)
+s InteriorRingN(poly,N)
+s NumInteriorRings(poly)
+s ST_Area(poly)
+s ST_Centroid(mpoly)
+s ST_ExteriorRing(poly)
+s ST_InteriorRingN(poly,N)
+s ST_NumInteriorRings(poly)
+s NEXTVAL(sequence_name) since=10.3.0
+s LASTVAL(sequence_name) since=10.3.0
+s SETVAL(sequence_name, next_value, [is_used, [round]]) since=10.3.0
+s ASCII(str)
+s BIN(N)
+s BIT_LENGTH(str)
+s CAST(expr AS type)
+s CHAR(N,... [USING charset_name])
+s CHAR_LENGTH(str)
+s CHARACTER_LENGTH(str)
+s CHR(N) since=10.3.1
+s CONCAT(str1,str2,...)
+s CONCAT_WS(separator,str1,str2,...)
+s CONVERT(expr,type)
+s CONVERT(expr USING transcoding_name)
+s ELT(N, str1[, str2, str3,...])
+s EXPORT_SET(bits, on, off[, separator[, number_of_bits]])
+s EXTRACTVALUE(xml_frag, xpath_expr)
+s FIELD(pattern, str1[,str2,...])
+s FIND_IN_SET(pattern, strlist)
+s FORMAT(num, decimal_position[, locale])
+s FROM_BASE64(str) since=10.0.5
+s HEX(N_or_S)
+s INSERT(str,pos,len,newstr)
+s INSTR(str,substr)
+s LCASE(str)
+s LEFT(str,len)
+s LENGTH(str)
+s LENGTHB(str) since=10.3.1
+s LOAD_FILE(file_name)
+s LOCATE(substr,str)
+s LOCATE(substr,str,pos)
+s LOWER(str)
+s LPAD(str, len [,padstr])
+s LTRIM(str)
+s MAKE_SET(bits,str1,str2,...)
+s MATCH(col1,col2,...)
+s MID(str,pos,len)
+s NATURAL_SORT_KEY(str) since=10.7.0
+s OCTET_LENGTH(str)
+s ORD(str)
+s POSITION(substr IN str)
+s QUOTE(str)
+s REGEXP_INSTR(subject, pattern) since=10.0.5
+s REGEXP_REPLACE(subject, pattern, replace) since=10.0.5
+s REGEXP_SUBSTR(subject,pattern) since=10.0.5
+s REPEAT(str,count)
+s REPLACE(str,from_str,to_str)
+s REVERSE(str)
+s RIGHT(str,len)
+s RPAD(str, len [, padstr])
+s RTRIM(str)
+s SOUNDEX(str)
+s SPACE(N)
+s STRCMP(expr1,expr2)
+s SUBSTR(str,pos)
+s SUBSTR(str FROM pos)
+s SUBSTR(str,pos,len)
+s SUBSTR(str FROM pos FOR len)
+s SUBSTRING(str,pos)
+s SUBSTRING(str FROM pos)
+s SUBSTRING(str,pos,len)
+s SUBSTRING(str FROM pos FOR len)
+s SUBSTRING_INDEX(str,delim,count)
+s TO_BASE64(str) since=10.0.5
+s TO_CHAR(expr[, fmt]) since=10.6.1
+s TRIM([{BOTH | LEADING | TRAILING} [remstr] FROM] str)
+s TRIM([remstr FROM] str)
+s TRIM_ORACLE([{BOTH | LEADING | TRAILING} [remstr] FROM] str) since=10.3.6
+s UCASE(str)
+s UNCOMPRESSED_LENGTH(compressed_string)
+s UNHEX(str)
+s UpdateXML(xml_target, xpath_expr, new_xml)
+s UPPER(str)
+s WEIGHT_STRING(str [AS {CHAR|BINARY}(N)] [LEVEL levels] [flags])
+w CUME_DIST() since=10.2.0
+w DENSE_RANK() since=10.2.0
+w FIRST_VALUE(expr) since=10.2.0
+w LAG(expr[, offset]) since=10.2.0
+w LEAD(expr[, offset]) since=10.2.0
+w MEDIAN(median expression) since=10.3.3
+w NTH_VALUE(expr[, num_row]) since=10.2.0
+w NTILE(expr) since=10.2.0
+w PERCENT_RANK() since=10.2.0
+w RANK() since=10.2.0
+w ROW_NUMBER() since=10.2.0
+s AsBinary(g)
+s AsWKB(g)
+s GeomCollFromWKB(wkb[,srid])
+s GeometryCollectionFromWKB(wkb[,srid])
+s GeometryFromWKB(wkb[,srid])
+s GeomFromWKB(wkb[,srid])
+s LineFromWKB(wkb[,srid])
+s LineStringFromWKB(wkb[,srid])
+s MLineFromWKB(wkb[,srid])
+s MultiLineStringFromWKB(wkb[,srid])
+s MPointFromWKB(wkb[,srid])
+s MultiPointFromWKB(wkb[,srid])
+s MPolyFromWKB(wkb[,srid])
+s MultiPolygonFromWKB(wkb[,srid])
+s PointFromWKB(wkb[,srid])
+s PolyFromWKB(wkb[,srid])
+s PolygonFromWKB(wkb[,srid])
+s ST_AsBinary(g)
+s ST_AsWKB(g)
+s ST_GeomCollFromWKB(wkb[,srid])
+s ST_GeometryCollectionFromWKB(wkb[,srid])
+s ST_GeometryFromWKB(wkb[,srid])
+s ST_GeomFromWKB(wkb[,srid])
+s ST_LineFromWKB(wkb[,srid])
+s ST_LineStringFromWKB(wkb[,srid])
+s ST_PointFromWKB(wkb[,srid])
+s ST_PolyFromWKB(wkb[,srid])
+s ST_PolygonFromWKB(wkb[,srid])
+s AsText(g)
+s AsWKT(g)
+s GeomCollFromText(wkt[,srid])
+s GeometryCollectionFromText(wkt[,srid])
+s GeometryFromText(wkt[,srid])
+s GeomFromText(wkt[,srid])
+s LineFromText(wkt[,srid])
+s LineStringFromText(wkt[,srid])
+s MLineFromText(wkt[,srid])
+s MultiLineStringFromText(wkt[,srid])
+s MPointFromText(wkt[,srid])
+s MultiPointFromText(wkt[,srid])
+s MPolyFromText(wkt[,srid])
+s MultiPolygonFromText(wkt[,srid])
+s PointFromText(wkt[,srid])
+s PolyFromText(wkt[,srid])
+s PolygonFromText(wkt[,srid])
+s ST_AsText(g)
+s ST_AsWKT(g)
+s ST_GeomCollFromText(wkt[,srid])
+s ST_GeometryCollectionFromText(wkt[,srid])
+s ST_GeometryFromText(wkt[,srid])
+s ST_GeomFromText(wkt[,srid])
+s ST_LineFromText(wkt[,srid])
+s ST_LineStringFromText(wkt[,srid])
+s ST_PointFromText(wkt[,srid])
+s ST_PolyFromText(wkt[,srid])
+s ST_PolygonFromText(wkt[,srid])
+# Documented, without a syntax in the help tables.
+s JSON_EXISTS(json_doc, path) since=10.2.3
+s JSON_KEY_VALUE(obj, json_path) since=11.3.0
+s SFORMAT(fmt, arg1 [, arg2 ...]) since=10.7.0
+w PERCENTILE_CONT(fraction) since=10.3.3
+w PERCENTILE_DISC(fraction) since=10.3.3
+s UUID_v4() since=11.7.0
+s UUID_v7() since=11.7.0
+s VEC_FromText(text) since=11.7.0
+s VEC_ToText(vector) since=11.7.0
+s VEC_DISTANCE_EUCLIDEAN(v1, v2) since=11.7.0
+s VEC_DISTANCE_COSINE(v1, v2) since=11.7.0
+s VEC_DISTANCE(v1, v2) since=11.8.0

@@ -1,0 +1,239 @@
+# Exasol: the built-in functions of the Exasol SQL reference (7.x and 8.x).
+# `since` is the Exasol version that added one.
+
+# Aggregate
+a ANY(condition) -> BOOLEAN
+a APPROXIMATE_COUNT_DISTINCT(expr) -> DECIMAL
+a AVG([DISTINCT | ALL] expr) -> DOUBLE
+a CORR(expr1, expr2) -> DOUBLE
+a COUNT([DISTINCT | ALL] expr | *) -> DECIMAL
+a COVAR_POP(expr1, expr2) -> DOUBLE
+a COVAR_SAMP(expr1, expr2) -> DOUBLE
+a EVERY(condition) -> BOOLEAN
+a FIRST_VALUE(expr [RESPECT NULLS | IGNORE NULLS])
+a GROUP_CONCAT([DISTINCT] expr [ORDER BY expr [ASC | DESC]] [SEPARATOR sep_string]) -> VARCHAR
+a GROUPING(expr [, expr]...) -> DECIMAL
+a GROUPING_ID(expr [, expr]...) -> DECIMAL
+a LAST_VALUE(expr [RESPECT NULLS | IGNORE NULLS])
+a LISTAGG([DISTINCT] expr [, delimiter] [ON OVERFLOW {ERROR | TRUNCATE [...]}]) WITHIN GROUP (ORDER BY expr) -> VARCHAR
+a MAX([DISTINCT | ALL] expr)
+a MEDIAN(expr)
+a MIN([DISTINCT | ALL] expr)
+a MUL([DISTINCT | ALL] expr)
+a PERCENTILE_CONT(expr) WITHIN GROUP (ORDER BY expr [ASC | DESC])
+a PERCENTILE_DISC(expr) WITHIN GROUP (ORDER BY expr [ASC | DESC])
+a REGR_AVGX(y, x) -> DOUBLE
+a REGR_AVGY(y, x) -> DOUBLE
+a REGR_COUNT(y, x) -> DECIMAL
+a REGR_INTERCEPT(y, x) -> DOUBLE
+a REGR_R2(y, x) -> DOUBLE
+a REGR_SLOPE(y, x) -> DOUBLE
+a REGR_SXX(y, x) -> DOUBLE
+a REGR_SXY(y, x) -> DOUBLE
+a REGR_SYY(y, x) -> DOUBLE
+a SOME(condition) -> BOOLEAN
+a ST_INTERSECTION(geometry) -> GEOMETRY
+a ST_UNION(geometry) -> GEOMETRY
+a STDDEV([DISTINCT | ALL] expr) -> DOUBLE
+a STDDEV_POP([DISTINCT | ALL] expr) -> DOUBLE
+a STDDEV_SAMP([DISTINCT | ALL] expr) -> DOUBLE
+a SUM([DISTINCT | ALL] expr)
+a VAR_POP([DISTINCT | ALL] expr) -> DOUBLE
+a VAR_SAMP([DISTINCT | ALL] expr) -> DOUBLE
+a VARIANCE([DISTINCT | ALL] expr) -> DOUBLE
+
+# Analytic
+w CUME_DIST() OVER (window_specification) -> DOUBLE
+w DENSE_RANK() OVER (window_specification) -> DECIMAL
+w LAG(expr [, offset [, default]]) OVER (window_specification)
+w LEAD(expr [, offset [, default]]) OVER (window_specification)
+w NTH_VALUE(expr, n) [FROM FIRST | FROM LAST] [RESPECT NULLS | IGNORE NULLS] OVER (window_specification)
+w NTILE(expr) OVER (window_specification) -> DECIMAL
+w PERCENT_RANK() OVER (window_specification) -> DOUBLE
+w RANK() OVER (window_specification) -> DECIMAL
+w RATIO_TO_REPORT(expr) OVER (window_specification) -> DOUBLE
+w ROW_NUMBER() OVER (window_specification) -> DECIMAL
+
+# Numeric
+s ABS(n)
+s ACOS(n) -> DOUBLE
+s ASIN(n) -> DOUBLE
+s ATAN(n) -> DOUBLE
+s ATAN2(n1, n2) -> DOUBLE
+s BIT_AND(integer, integer) -> DECIMAL
+s BIT_CHECK(integer, pos) -> BOOLEAN
+s BIT_LROTATE(integer, n) -> DECIMAL
+s BIT_LSHIFT(integer, n) -> DECIMAL
+s BIT_NOT(integer) -> DECIMAL
+s BIT_OR(integer, integer) -> DECIMAL
+s BIT_RROTATE(integer, n) -> DECIMAL
+s BIT_RSHIFT(integer, n) -> DECIMAL
+s BIT_SET(integer, pos) -> DECIMAL
+s BIT_TO_NUM(digit [, digit]...) -> DECIMAL
+s BIT_XOR(integer, integer) -> DECIMAL
+s CEIL(n)
+s CEILING(n)
+s COS(n) -> DOUBLE
+s COSH(n) -> DOUBLE
+s COT(n) -> DOUBLE
+s DEGREES(n) -> DOUBLE
+s DIV(m, n) -> DECIMAL
+s EXP(n) -> DOUBLE
+s FLOOR(n)
+s LN(n) -> DOUBLE
+s LOG(base, n) -> DOUBLE
+s LOG10(n) -> DOUBLE
+s LOG2(n) -> DOUBLE
+s MOD(m, n)
+s PI() -> DOUBLE
+s POWER(base, exponent) -> DOUBLE
+s RADIANS(n) -> DOUBLE
+s RAND([min [, max]]) -> DOUBLE
+s RANDOM([min [, max]]) -> DOUBLE
+s ROUND(n [, integer])
+s SIGN(n) -> DECIMAL
+s SIN(n) -> DOUBLE
+s SINH(n) -> DOUBLE
+s SQRT(n) -> DOUBLE
+s TAN(n) -> DOUBLE
+s TANH(n) -> DOUBLE
+s TO_CHAR(number [, format]) -> VARCHAR
+s TO_NUMBER(string [, format]) -> DECIMAL
+s TRUNC(n [, integer])
+s TRUNCATE(n [, integer])
+
+# String
+s ASCII(string) -> DECIMAL
+s BIT_LENGTH(string) -> DECIMAL
+s CHARACTER_LENGTH(string) -> DECIMAL
+s CHAR(n) -> CHAR
+s CHR(n) -> CHAR
+s COLOGNE_PHONETIC(string) -> VARCHAR
+s CONCAT(string [, string]...) -> VARCHAR
+s DUMP(expr [, format [, start_position [, length]]]) -> VARCHAR
+s EDIT_DISTANCE(string1, string2) -> DECIMAL
+s INITCAP(string) -> VARCHAR
+s INSERT(string, position, length, new_string) -> VARCHAR
+s INSTR(string, search_string [, position [, occurrence]]) -> DECIMAL
+s LCASE(string) -> VARCHAR
+s LEFT(string, length) -> VARCHAR
+s LENGTH(string) -> DECIMAL
+s LOCATE(search_string, string [, position]) -> DECIMAL
+s LOWER(string) -> VARCHAR
+s LPAD(string, n [, padding]) -> VARCHAR
+s LTRIM(string [, trim_chars]) -> VARCHAR
+s MID(string, position [, length]) -> VARCHAR
+s OCTET_LENGTH(string) -> DECIMAL
+s POSITION(search_string IN string) -> DECIMAL
+s REGEXP_INSTR(string, pattern [, position [, occurrence]]) -> DECIMAL
+s REGEXP_REPLACE(string, pattern [, replace_string [, position [, occurrence]]]) -> VARCHAR
+s REGEXP_SUBSTR(string, pattern [, position [, occurrence]]) -> VARCHAR
+s REPEAT(string, n) -> VARCHAR
+s REPLACE(string, search_string [, replace_string]) -> VARCHAR
+s REVERSE(string) -> VARCHAR
+s RIGHT(string, length) -> VARCHAR
+s RPAD(string, n [, padding]) -> VARCHAR
+s RTRIM(string [, trim_chars]) -> VARCHAR
+s SOUNDEX(string) -> VARCHAR
+s SPACE(n) -> VARCHAR
+s SUBSTR(string, position [, length]) -> VARCHAR
+s SUBSTRING(string FROM position [FOR length]) -> VARCHAR
+s TRANSLATE(string, from_string, to_string) -> VARCHAR
+s TRIM([[LEADING | TRAILING | BOTH] [trim_chars] FROM] string) -> VARCHAR
+s UCASE(string) -> VARCHAR
+s UNICODE(char) -> DECIMAL
+s UNICODECHR(n) -> VARCHAR
+s UPPER(string) -> VARCHAR
+
+# Date and time
+s ADD_DAYS(datetime, n)
+s ADD_HOURS(datetime, n) -> TIMESTAMP
+s ADD_MINUTES(datetime, n) -> TIMESTAMP
+s ADD_MONTHS(datetime, n)
+s ADD_SECONDS(datetime, n) -> TIMESTAMP
+s ADD_WEEKS(datetime, n)
+s ADD_YEARS(datetime, n)
+s CONVERT_TZ(datetime, from_tz, to_tz [, options]) -> TIMESTAMP
+s CURDATE() -> DATE
+s CURRENT_DATE -> DATE
+s CURRENT_TIMESTAMP -> TIMESTAMP WITH LOCAL TIME ZONE
+s DATE_TRUNC(format, datetime)
+s DAY(date) -> DECIMAL
+s DAYS_BETWEEN(datetime1, datetime2) -> DECIMAL
+s DBTIMEZONE -> VARCHAR
+s EXTRACT(field FROM datetime_or_interval)
+s FROM_POSIX_TIME(number) -> TIMESTAMP
+s HOUR(datetime) -> DECIMAL
+s HOURS_BETWEEN(datetime1, datetime2) -> DOUBLE
+s LOCALTIMESTAMP -> TIMESTAMP
+s MINUTE(datetime) -> DECIMAL
+s MINUTES_BETWEEN(datetime1, datetime2) -> DOUBLE
+s MONTH(date) -> DECIMAL
+s MONTHS_BETWEEN(datetime1, datetime2) -> DOUBLE
+s NOW() -> TIMESTAMP
+s NUMTODSINTERVAL(n, unit) -> INTERVAL DAY TO SECOND
+s NUMTOYMINTERVAL(n, unit) -> INTERVAL YEAR TO MONTH
+s POSIX_TIME([datetime]) -> DECIMAL
+s ROUND(datetime [, format])
+s SECOND(datetime [, precision]) -> DECIMAL
+s SECONDS_BETWEEN(datetime1, datetime2) -> DOUBLE
+s SESSIONTIMEZONE -> VARCHAR
+s SYSDATE -> DATE
+s SYSTIMESTAMP -> TIMESTAMP
+s TO_DATE(string [, format]) -> DATE
+s TO_DSINTERVAL(string) -> INTERVAL DAY TO SECOND
+s TO_TIMESTAMP(string [, format]) -> TIMESTAMP
+s TO_YMINTERVAL(string) -> INTERVAL YEAR TO MONTH
+s TRUNC(datetime [, format])
+s WEEK(date) -> DECIMAL
+s YEAR(date) -> DECIMAL
+s YEARS_BETWEEN(datetime1, datetime2) -> DOUBLE
+
+# Conversion
+s CAST(expr AS data_type)
+s CONVERT(data_type, expr)
+s IS_BOOLEAN(expr [, format]) -> BOOLEAN
+s IS_DATE(expr [, format]) -> BOOLEAN
+s IS_DSINTERVAL(expr) -> BOOLEAN
+s IS_NUMBER(expr [, format]) -> BOOLEAN
+s IS_TIMESTAMP(expr [, format]) -> BOOLEAN
+s IS_YMINTERVAL(expr) -> BOOLEAN
+
+# Hashing and miscellaneous
+s CASE_INSENSITIVE_HASH(expr) -> VARCHAR
+s COALESCE(expr [, expr]...)
+s CURRENT_CLUSTER -> VARCHAR since=8.0
+s CURRENT_SCHEMA -> VARCHAR
+s CURRENT_SESSION -> DECIMAL
+s CURRENT_STATEMENT -> DECIMAL
+s CURRENT_USER -> VARCHAR
+s DECODE(expr, search, result [, search, result]... [, default])
+s GREATEST(expr [, expr]...)
+s HASH_MD5(expr [, expr]...) -> CHAR
+s HASH_SHA(expr [, expr]...) -> CHAR
+s HASH_SHA1(expr [, expr]...) -> CHAR
+s HASH_SHA256(expr [, expr]...) -> CHAR
+s HASH_SHA512(expr [, expr]...) -> CHAR
+s HASH_TIGER(expr [, expr]...) -> CHAR
+s HASHTYPE_MD5(expr [, expr]...) -> HASHTYPE
+s HASHTYPE_SHA1(expr [, expr]...) -> HASHTYPE
+s HASHTYPE_SHA256(expr [, expr]...) -> HASHTYPE
+s HASHTYPE_SHA512(expr [, expr]...) -> HASHTYPE
+s HASHTYPE_TIGER(expr [, expr]...) -> HASHTYPE
+s IPROC() -> DECIMAL
+s LEAST(expr [, expr]...)
+s NPROC() -> DECIMAL
+s NULLIF(expr1, expr2)
+s NULLIFZERO(n)
+s NVL(expr1, expr2)
+s NVL2(expr1, expr2, expr3)
+s SCOPE_USER -> VARCHAR
+s SYS_GUID() -> CHAR
+s TYPEOF(expr) -> VARCHAR
+s USER -> VARCHAR
+s VALUE2PROC(expr) -> DECIMAL
+s ZEROIFNULL(n)
+
+# JSON
+s JSON_EXTRACT(json_string, json_path [, json_path]...) EMITS (columns)
+s JSON_VALUE(json_string, json_path [RETURNING data_type] [ON EMPTY] [ON ERROR])

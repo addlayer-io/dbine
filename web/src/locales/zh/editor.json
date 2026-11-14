@@ -41,5 +41,6 @@
     "runTip": "仅运行此语句",
     "plan": "计划",
     "planTip": "此语句的预估执行计划，不会运行它"
-  }
+  },
+  "functionOverloads_other": "+{{count}} 个重载"
 }

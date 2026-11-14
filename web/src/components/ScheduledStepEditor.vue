@@ -6,6 +6,7 @@ import type { Step, StepConfig } from '../api/scheduled';
 import type { Language, ProjectTarget } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
+import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import CodeEditor from './CodeEditor.vue';
 import OptionField from './OptionField.vue';
 import ProjectTargetPicker from './ProjectTargetPicker.vue';
@@ -83,7 +84,11 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
       <template v-if="step.kind === 'run_script' || step.kind === 'export'">
         <el-form-item :label="step.kind === 'export' ? $t('scheduled:step.query') : $t('scheduled:step.script')">
           <div class="se-editor">
-            <CodeEditor v-model="c.sql" :language="language" :dialect="driver?.id ?? ''" @update:model-value="emit('change')" />
+            <CodeEditor
+              v-model="c.sql" :language="language" :dialect="driver?.id ?? ''"
+              :functions="c.connection_id ? functionCatalog(c.connection_id, c.database) : undefined"
+              @update:model-value="emit('change')" @need-functions="loadFunctionCatalog(c.connection_id, c.database)"
+            />
           </div>
         </el-form-item>
         <el-checkbox v-if="step.kind === 'run_script'" :model-value="c.continue_on_error === true" @update:model-value="(v: any) => { c.continue_on_error = v ? true : null; emit('change'); }">

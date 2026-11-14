@@ -245,6 +245,51 @@ pub(crate) async fn open_session() -> dbine_driver::Result<Box<dyn Session>> {
     dbine_drivers::open_session(&config(), None).await
 }
 
+/// The DuckDB driver's `no_download` option (`dbine_driver_duckdb::NO_DOWNLOAD`;
+/// release builds don't compile that crate into the app, its host serves it).
+const NO_DOWNLOAD: &str = "no_download";
+
+/// [`config`] that never downloads DuckDB's library: the driver answers
+/// `Unsupported` when it isn't loaded or on disk yet.
+pub(crate) fn config_without_download() -> ConnectionConfig {
+    let mut cfg = config();
+    cfg.options.insert(NO_DOWNLOAD.into(), "true".into());
+    cfg
+}
+
+/// Whether the DuckDB driver is here: release builds download each
+/// driver's host apart, and connecting to one not on disk downloads it.
+#[cfg(feature = "plugins")]
+fn driver_on_disk() -> bool {
+    // Its package (the driver crate's feature), not a label to translate.
+    const PACKAGE: &str = "duckdb";
+    dbine_drivers::plugins::updater()
+        .info(PACKAGE)
+        .is_some_and(|i| i.installed.is_some())
+}
+
+/// Built in (or left out of the build: then there is no DuckDB at all).
+#[cfg(not(feature = "plugins"))]
+fn driver_on_disk() -> bool {
+    true
+}
+
+/// [`open_session`] only when DuckDB is here already (its driver and its
+/// library, on disk or loaded): `None` otherwise. It never downloads
+/// either; asked again once a DuckDB session downloaded them, it opens.
+pub(crate) async fn open_session_if_installed() -> dbine_driver::Result<Option<Box<dyn Session>>> {
+    if !driver_on_disk() {
+        return Ok(None);
+    }
+    match dbine_drivers::open_session(&config_without_download(), None).await {
+        Ok(s) => Ok(Some(s)),
+        // Not downloaded yet, not published for this platform, or no DuckDB
+        // driver in this build.
+        Err(dbine_driver::Error::Unsupported(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Delete files, trying again for a moment while one is still open (on
 /// Windows a file DuckDB hasn't let go of yet can't be deleted).
 pub(crate) async fn remove_paths(paths: &[PathBuf]) {
@@ -316,6 +361,16 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn the_catalog_read_never_downloads_duckdb() {
+        let cfg = config_without_download();
+        assert_eq!(cfg.driver, "duckdb");
+        assert_eq!(cfg.option("isolated"), Some("true"));
+        assert_eq!(cfg.option(NO_DOWNLOAD), Some("true"));
+        // The usual session downloads on first use.
+        assert_eq!(config().option(NO_DOWNLOAD), None);
+    }
 
     #[test]
     fn the_check_follows_the_alias() {

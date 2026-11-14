@@ -1,0 +1,136 @@
+# Open Distro for Elasticsearch SQL: the functions its SQL reference
+# documents (docs/user/dql/functions.rst, window.rst and
+# beyond/fulltext.rst of opendistro-for-elasticsearch/sql, up to its last
+# release, 1.13.2.1), plus MODULUS (see its line). `since=` is the first
+# plugin release whose reference lists the function (the plugin's own
+# version, as `_cat/plugins` gives it, not Elasticsearch's). The plugin has
+# no SHOW FUNCTIONS. CASE is syntax, not a call, and is left out.
+
+# Type conversion
+s CAST(expr AS type)
+
+# Mathematical
+s ABS(x)
+s ACOS(x) -> DOUBLE
+s ADD(x, y)
+s ASIN(x) -> DOUBLE
+s ATAN(x) -> DOUBLE
+s ATAN(y, x) -> DOUBLE
+s ATAN2(y, x) -> DOUBLE
+s CBRT(x)
+s CEIL(x)
+s CONV(x, a, b) -> STRING since=1.9.0.1
+s COS(x) -> DOUBLE
+s COSH(x) -> DOUBLE
+s COT(x) -> DOUBLE
+s CRC32(str) -> LONG since=1.9.0.1
+s DEGREES(x) -> DOUBLE
+s DIVIDE(x, y) -> DOUBLE
+s EXP(x)
+s EXPM1(x)
+s FLOOR(x)
+s LN(x) -> DOUBLE
+s LOG(x) -> DOUBLE
+s LOG(b, x) -> DOUBLE
+s LOG2(x) -> DOUBLE
+s LOG10(x) -> DOUBLE
+s MOD(n, m) since=1.9.0.1
+# Documented only from 1.7.0.0 to 1.9.0.0 (MOD replaced it in the
+# reference), but the plugin still runs it, through its legacy engine: the
+# live test (tests/functions.rs) runs it on 1.13.
+s MODULUS(x, y)
+s MULTIPLY(x, y)
+s PI() -> DOUBLE
+s POW(x, y) -> DOUBLE
+s POWER(x, y) -> DOUBLE
+s RADIANS(x) -> DOUBLE
+s RAND() -> FLOAT
+s RAND(N) -> FLOAT
+s RINT(x)
+s ROUND(x, d)
+s SIGN(x) -> INTEGER
+s SIGNUM(x)
+s SIN(x) -> DOUBLE
+s SINH(x) -> DOUBLE
+s SQRT(x)
+s STRCMP(str1, str2) -> INTEGER since=1.11
+s SUBTRACT(x, y)
+s TAN(x) -> DOUBLE
+s TRUNCATE(x, d) since=1.9.0.1
+
+# Date and time
+s ADDDATE(date, INTERVAL expr unit) since=1.11
+s ADDDATE(date, days) since=1.11
+s CURDATE() -> DATE
+s DATE(expr) -> DATE
+s DATE_ADD(date, INTERVAL expr unit) since=1.11
+s DATE_ADD(date, days) since=1.11
+s DATE_FORMAT(date, format) -> STRING
+s DATE_SUB(date, INTERVAL expr unit) since=1.11
+s DATE_SUB(date, days) since=1.11
+s DAY(date) -> INTEGER since=1.11
+s DAYNAME(date) -> STRING since=1.11
+s DAYOFMONTH(date) -> INTEGER
+s DAYOFWEEK(date) -> INTEGER since=1.11
+s DAYOFYEAR(date) -> INTEGER since=1.11
+s FROM_DAYS(N) -> DATE since=1.11
+s HOUR(time) -> INTEGER since=1.11
+s MAKETIME(hour, minute, second)
+s MICROSECOND(expr) -> INTEGER since=1.11
+s MINUTE(time) -> INTEGER since=1.11
+s MONTH(date) -> INTEGER
+s MONTHNAME(date) -> STRING
+s NOW()
+s QUARTER(date) -> INTEGER since=1.11
+s SECOND(time) -> INTEGER since=1.11
+s SUBDATE(date, INTERVAL expr unit) since=1.11
+s SUBDATE(date, days) since=1.11
+s TIME(expr) -> TIME since=1.11
+s TIME_TO_SEC(time) -> LONG since=1.11
+s TIMESTAMP(expr) -> TIMESTAMP
+s TO_DAYS(date) -> LONG since=1.11
+s WEEK(date[, mode]) -> INTEGER since=1.11
+s YEAR(date) -> INTEGER
+
+# String
+s ASCII(str) -> INTEGER
+s CONCAT(str1, str2) -> STRING
+s CONCAT_WS(sep, str1, str2) -> STRING
+s LEFT(str, len)
+s LENGTH(str) -> INTEGER
+s LOCATE(substr, str) -> INTEGER
+s LOCATE(substr, str, pos) -> INTEGER
+s LOWER(str) -> STRING
+s LTRIM(str) -> STRING
+s REPLACE(str, from_str, to_str)
+s RIGHT(str, len) -> STRING
+s RTRIM(str) -> STRING
+s SUBSTRING(str, start) -> STRING
+s SUBSTRING(str, start, length) -> STRING
+s TRIM(str) -> STRING
+s UPPER(str) -> STRING
+
+# Conditional
+s IF(condition, expr1, expr2)
+s IFNULL(expr1, expr2)
+s ISNULL(expr) -> INTEGER
+s NULLIF(expr1, expr2) since=1.13
+
+# Full-text search
+s MATCH_QUERY(field, text)
+s MATCH_PHRASE(field, text)
+s MULTI_MATCH('query'=text, 'fields'=field_pattern)
+s QUERY(query_string)
+s SCORE(full_text_query, boost)
+
+# Aggregates
+a COUNT(expr)
+a SUM(expr)
+a AVG(expr)
+a MAX(expr)
+a MIN(expr)
+
+# Window (ranking)
+w ROW_NUMBER() since=1.11
+w RANK() since=1.11
+w DENSE_RANK() since=1.11

@@ -41,5 +41,8 @@
     "runTip": "Executar somente esta instrução",
     "plan": "Plano",
     "planTip": "Plano de execução estimado desta instrução, sem executá-la"
-  }
+  },
+  "functionOverloads_one": "+{{count}} sobrecarga",
+  "functionOverloads_many": "+{{count}} sobrecargas",
+  "functionOverloads_other": "+{{count}} sobrecargas"
 }

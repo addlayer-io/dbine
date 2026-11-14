@@ -21,7 +21,9 @@ use dbine_driver::{
 };
 use dbine_driver_sqlite::properties::{self, Flavor};
 use dbine_driver_sqlite::schema::Rows;
-use dbine_driver_sqlite::{index_usage, monitor as sqlite_monitor, plan, schema, stats};
+use dbine_driver_sqlite::{
+    functions as sqlite_functions, index_usage, monitor as sqlite_monitor, plan, schema, stats,
+};
 use hrana::{Client, StmtResult};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -412,6 +414,43 @@ impl Session for LibsqlSession {
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         Ok(vec!["main".into()])
+    }
+
+    /// What `pragma_function_list` lists on the server (libSQL's own
+    /// functions and the extensions it loads included), with the SQLite
+    /// catalog's argument names; the static catalog for the server's SQLite
+    /// version where the pragma isn't there (see the SQLite driver's
+    /// `functions`).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        match self.client.execute(sqlite_functions::LIST).await {
+            Ok(r) => {
+                let version = r
+                    .rows
+                    .first()
+                    .and_then(|row| row.get(3))
+                    .and_then(text)
+                    .unwrap_or_default();
+                let rows: Vec<(String, String, i64)> = r
+                    .rows
+                    .iter()
+                    .filter_map(|row| {
+                        Some((text(row.first()?)?, text(row.get(1)?)?, int(row.get(2)?)))
+                    })
+                    .collect();
+                Ok(sqlite_functions::from_server(&rows, &version))
+            }
+            Err(e) => {
+                tracing::debug!("libsql: pragma_function_list unavailable: {e}");
+                let r = self.client.execute("SELECT sqlite_version()").await?;
+                let version = r
+                    .rows
+                    .first()
+                    .and_then(|row| row.first())
+                    .and_then(text)
+                    .unwrap_or_default();
+                Ok(sqlite_functions::fallback(&version))
+            }
+        }
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

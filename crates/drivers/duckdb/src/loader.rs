@@ -97,6 +97,32 @@ pub async fn ensure() -> Result<()> {
         Some(p) => PathBuf::from(p),
         None => install().await?,
     };
+    load_once(path).await
+}
+
+/// Whether DuckDB is usable without downloading anything: loaded in this
+/// process already, or its library on disk (downloaded before, or the
+/// `DBINE_DUCKDB_LIB` override). It never downloads.
+pub fn installed() -> bool {
+    READY.get().is_some() || on_disk().is_some()
+}
+
+/// [`ensure`] without the download: load DuckDB only when [`installed`];
+/// otherwise `Error::Unsupported`, and nothing is fetched. A download in
+/// progress isn't waited for (also `Unsupported`: not there yet).
+pub async fn ensure_installed() -> Result<()> {
+    if READY.get().is_some() {
+        return Ok(());
+    }
+    let not_yet = || Error::Unsupported("DuckDB isn't downloaded yet".into());
+    let _guard = INSTALL.try_lock().map_err(|_| not_yet())?;
+    if READY.get().is_some() {
+        return Ok(());
+    }
+    load_once(on_disk().ok_or_else(not_yet)?).await
+}
+
+async fn load_once(path: PathBuf) -> Result<()> {
     tokio::task::spawn_blocking(move || load(&path))
         .await
         .map_err(|e| Error::State(e.to_string()))??;
@@ -104,12 +130,31 @@ pub async fn ensure() -> Result<()> {
     Ok(())
 }
 
+/// Where the download leaves DuckDB's folder.
+fn install_dir() -> PathBuf {
+    components_dir().join(format!("duckdb-{VERSION}"))
+}
+
+/// The library to load without a download, if it's on disk.
+fn on_disk() -> Option<PathBuf> {
+    local_library(
+        std::env::var_os("DBINE_DUCKDB_LIB").map(PathBuf::from),
+        ASSET.as_ref().map(|a| install_dir().join(a.lib)),
+    )
+}
+
+/// The override when it's set (even if it isn't there: then nothing, never
+/// the download), else the downloaded library; only an existing file.
+fn local_library(override_lib: Option<PathBuf>, downloaded: Option<PathBuf>) -> Option<PathBuf> {
+    override_lib.or(downloaded).filter(|p| p.is_file())
+}
+
 /// The library's path, downloading and unpacking it the first time.
 async fn install() -> Result<PathBuf> {
     let a = ASSET.as_ref().ok_or_else(|| {
         Error::Unsupported("DuckDB no publica su librería para esta plataforma".into())
     })?;
-    let dir = components_dir().join(format!("duckdb-{VERSION}"));
+    let dir = install_dir();
     let lib = dir.join(a.lib);
     if lib.is_file() {
         return Ok(lib);
@@ -344,4 +389,46 @@ pub fn ensure_blocking() {
         .unwrap()
         .block_on(ensure())
         .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_library_on_disk_loads_without_a_download() {
+        let dir = std::env::temp_dir().join(format!("dbine-duckdb-loader-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let there = dir.join("libduckdb-there");
+        std::fs::write(&there, b"x").unwrap();
+        let missing = dir.join("libduckdb-missing");
+        // Nothing downloaded and no override: nothing to load.
+        assert_eq!(local_library(None, None), None);
+        assert_eq!(local_library(None, Some(missing.clone())), None);
+        // The downloaded library.
+        assert_eq!(
+            local_library(None, Some(there.clone())),
+            Some(there.clone())
+        );
+        // The override wins, and one that isn't there never falls back to
+        // the download's folder.
+        assert_eq!(
+            local_library(Some(there.clone()), Some(missing.clone())),
+            Some(there.clone())
+        );
+        assert_eq!(
+            local_library(Some(missing.clone()), Some(there.clone())),
+            None
+        );
+        // A folder isn't a library.
+        assert_eq!(local_library(None, Some(dir.clone())), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn once_loaded_it_is_installed_and_loads_without_a_download() {
+        ensure().await.unwrap();
+        assert!(installed());
+        ensure_installed().await.unwrap();
+    }
 }

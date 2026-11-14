@@ -435,6 +435,7 @@ impl Call {
             | RunJobFrom { session, .. }
             | ClearJobHistory { session, .. }
             | SchedulerLogs { session }
+            | FunctionCatalog { session }
             | ExecuteBound { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
@@ -1498,6 +1499,14 @@ impl State {
                     .lock()
                     .await
                     .scheduler_logs()
+                    .await?,
+            ),
+            Call::FunctionCatalog { session } => Reply::Functions(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .function_catalog()
                     .await?,
             ),
         })

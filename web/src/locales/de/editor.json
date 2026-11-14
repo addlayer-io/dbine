@@ -41,5 +41,7 @@
     "runTip": "Nur diese Anweisung ausführen",
     "plan": "Plan",
     "planTip": "Geschätzter Ausführungsplan dieser Anweisung, ohne sie auszuführen"
-  }
+  },
+  "functionOverloads_one": "+{{count}} Überladung",
+  "functionOverloads_other": "+{{count}} Überladungen"
 }

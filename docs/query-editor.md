@@ -89,6 +89,128 @@ statement by statement, its messages and its errors are in
 [Script execution](script-execution.md). Every key above can be changed:
 [Keyboard shortcuts](#keyboard-shortcuts).
 
+## Function completion
+
+The editor suggests the functions of the tab's engine, or what plays their
+part in its language, next to the keywords, tables and columns it already
+suggests. Where each engine's list comes from, and what it leaves out, is in
+[Engine support](engine-support.md#function-completion).
+
+Each suggestion shows:
+
+- the **signature** and the **return type** (`(x, y) → integer`), when the
+  source has them;
+- the **description** the server gives, exactly as the server writes it
+  (usually English). Engines that list no descriptions, and the lists DBine
+  carries for engines that have no catalog to read, show none;
+- **`+N overloads`** when a name has several signatures. They are one
+  suggestion, not one per signature; the detail shows the first signature.
+
+Picking one inserts `name()` with the cursor between the parentheses (just the
+name when a `(` already follows). Functions rank above keywords, and a keyword
+that has the same name as a function in the list (ignoring case) is left out,
+so the function is offered once. A function in a schema or package is found by
+its name (`toUp`) and shown and inserted whole (`strings.toUpper`).
+
+The list follows the **server's version** and what is installed on it
+(extensions, plugins, modules), and includes the user's own functions with
+their schema. Where a server lists no functions, DBine uses a catalog built
+from the engine's documentation and filtered by the server's version.
+
+### Where it appears
+
+In SQL-like languages (SQL, CQL, PartiQL, SQL++), Cypher and Flux:
+
+- **Scalar, aggregate and window functions** where an expression starts: after
+  `SELECT`, `WHERE`, `ON`, `BY`, `THEN`, an operator, `(` or a comma. Not in a
+  column or parameter list being defined, and not inside a Cypher map or a Flux
+  call, where the next word is a key.
+- **Table functions** where a table goes: after `FROM`, `JOIN`, `LATERAL`,
+  `APPLY`, `TABLE(` or a comma in a `FROM` list.
+- **Never** in a string or a comment, where a name goes (an alias, after
+  `AS`, the table after `INTO`), after a whole expression (where a clause
+  keyword goes) or after a dot, unless the name before the dot is the
+  functions' schema or package (`sales.`, `strings.`, `apoc.coll.`).
+
+Functions that SQL writes without parentheses (`CURRENT_DATE`, `USER`…) are
+completed as keywords, not as functions.
+
+### By language
+
+- **SQL dialects.** The engine's built-in functions, plus its stored and
+  loadable functions, aggregates and table functions, as above.
+- **Cypher and Flux.** The language's own functions: Neo4j's, with the
+  installed plugins' (`apoc.coll.sum`), Memgraph's and Neptune's; Flux's
+  prelude and the standard library's packages (`strings.toUpper`, shown with
+  the package's import path as its schema). Neither has a grammar in the
+  editor, so strings and comments are found by scanning the text with the same
+  rules.
+- **Redis, Valkey, Dragonfly and etcd.** Commands, offered as the **first
+  word of a line**. After a command that has subcommands, its subcommands
+  follow (`CLIENT ` offers `CLIENT KILL`). Picking one inserts `NAME ` with the
+  blank. Inside an open `MULTI`, nothing is sent to the server to read the
+  list: Redis offers the catalog DBine carries.
+- **MongoDB, FerretDB, Amazon DocumentDB and CouchDB.** Operators where a key
+  starts with `$`, quoted or not (`$match`, `$group`, `$gt`, `$set`; in CouchDB
+  the Mango operators). A `$` in a **value** is a field path or a variable
+  (`"$total"`, `"$$ROOT"`), so no operators are offered there. After a dot that
+  follows a name, `)` or `]`, the shell's methods are offered
+  (`db.orders.find`).
+- **Solr.** Function queries inside JSON string values, because its catalog
+  has no operators. Where operators exist (MongoDB, CouchDB), string values
+  are data and get no suggestions.
+- **q (kdb+).** The catalog joins q's own completion: a name that q already
+  offers gains its parameters (`[x;y]`), and the others are added: q's words,
+  the `.q` functions and the user's functions by namespace (`.u.upd`). The
+  q-sql and control words stay keywords.
+
+- **SQL lines of the Elasticsearch, OpenSearch, Open Distro and Solr
+  consoles.** A line starting with `SELECT`, `SHOW`, `DESCRIBE` or `DESC`
+  starts an SQL statement, which ends where the console ends it (a blank line,
+  a `;` or the next request line). Inside it, the engine's SQL functions are
+  offered by the SQL rules above, with strings and comments found by scanning
+  the text, and the JSON suggestions (operators, function queries) are not.
+  Those SQL functions never appear in the JSON lines. In a string, a backslash
+  escapes a quote only when a letter or digit follows that quote (`'it\'s'`
+  reads as one string); an escaped quote followed by anything else, as in
+  `'say \'hi\' now'`, is misread, and nothing is offered after it in that
+  statement. On Solr the SQL functions exist only on SolrCloud, and only when
+  its `/sql` handler loads.
+- **DataFrame SQL notebook cells.** They have no connection, so their
+  functions are DuckDB's, read from the DuckDB DBine keeps on the computer.
+  That DuckDB is downloaded the first time a DataFrame SQL cell runs; asking
+  for the functions never downloads it. Until then these cells offer no
+  functions, and after that run they offer DuckDB's built-ins. The list is
+  read once per app run. See [Notebooks](notebooks.md).
+
+Engines with no catalog (and Elasticsearch's, OpenSearch's and Open Distro's
+JSON lines, which call no functions) get nothing extra; their completion is
+unchanged.
+
+### When the list is read
+
+The catalog is read **once per connection and database**, the first time the
+editor needs it, and kept while the app runs. It is dropped when the
+connection disconnects, reconnects, is edited or is deleted, and the next
+request reads it again, so functions created or dropped meanwhile show up. Each
+database has its own list: the editor reads the one of the database it is on. Reading is one request to the
+server (never one per function), and if it fails the editor falls back to the
+documentation catalog instead of showing an error. Connections through the
+Enterprise gateway get no functions yet
+([Engine support](engine-support.md#function-completion)).
+
+### Contract
+
+A driver offers the list through `Session::function_catalog`, which by default
+returns `Error::Unsupported` (the editor then offers nothing extra; the Tauri
+command `function_catalog` turns it into an empty list). Each entry is a
+`FunctionInfo` with `name`, `kind`, `args`, `returns`, `description` and
+`schema`. `kind` is one of `Scalar`, `Aggregate`, `Window`, `Table`,
+`Operator` (MongoDB and CouchDB operators) or `Command` (Redis and etcd). A
+read-only session forwards the call. Documentation catalogs are text files with
+one entry per line, `<kind> name(args) [-> returns] [since=x.y] [until=x.y]`,
+read with `functions::parse_catalog(text, version)`.
+
 ## Go to definition from code
 
 - **⌘+click** (Ctrl+click on Windows and Linux) on the name of a table, view,

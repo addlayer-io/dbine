@@ -11,6 +11,7 @@
 
 mod avatica;
 mod ddl;
+mod functions;
 mod index_usage;
 mod monitor;
 mod plan;
@@ -1192,6 +1193,23 @@ impl Session for PhoenixSession {
             _ => String::new(),
         };
         Ok(format!("Apache Phoenix {v}").trim().to_string())
+    }
+
+    /// Phoenix's built-ins (static); a generic Avatica server's from its
+    /// JDBC function lists plus the SQL standard's (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        if !self.generic {
+            return Ok(functions::phoenix());
+        }
+        let props = match self.client.call(Req::DatabaseProperties).await {
+            Ok(Resp::Properties(p)) => p,
+            Ok(_) => Vec::new(),
+            Err(e) => {
+                tracing::debug!("avatica database properties: {e}");
+                Vec::new()
+            }
+        };
+        Ok(functions::avatica(&props))
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {

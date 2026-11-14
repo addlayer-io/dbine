@@ -2120,6 +2120,16 @@ impl Session for RemoteSession {
             _ => Err(unexpected()),
         }
     }
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        match self
+            .host
+            .call(Call::FunctionCatalog { session: self.id })
+            .await?
+        {
+            Reply::Functions(v) => Ok(v),
+            _ => Err(unexpected()),
+        }
+    }
     async fn job_script(&mut self, id: &str) -> Result<String> {
         match self
             .host

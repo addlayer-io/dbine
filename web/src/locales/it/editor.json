@@ -41,5 +41,8 @@
     "runTip": "Esegui solo questa istruzione",
     "plan": "Piano",
     "planTip": "Piano di esecuzione stimato di questa istruzione, senza eseguirla"
-  }
+  },
+  "functionOverloads_one": "+{{count}} overload",
+  "functionOverloads_many": "+{{count}} overload",
+  "functionOverloads_other": "+{{count}} overload"
 }

@@ -934,7 +934,33 @@ impl Session for FluxSession {
         let list = self.get("/api/v2/authorizations", &[]).await;
         crate::permissions::v2(list, &self.org, database)
     }
+
+    /// The prelude the server suggests plus the standard library's packages
+    /// for its Flux version; all static when the server lists nothing (see
+    /// [`crate::functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let flux_version = match self.values(FLUX_VERSION).await {
+            Ok(v) => v.into_iter().next(),
+            Err(e) => {
+                tracing::debug!("influxdb flux version: {e}");
+                None
+            }
+        };
+        let flux_version = flux_version.as_deref();
+        let suggested = match self.get("/api/v2/query/suggestions", &[]).await {
+            Ok(answer) => crate::functions::flux_with_suggestions(&answer, flux_version),
+            Err(e) => {
+                tracing::debug!("influxdb flux suggestions: {e}");
+                None
+            }
+        };
+        Ok(suggested.unwrap_or_else(|| crate::functions::flux_static(flux_version)))
+    }
 }
+
+/// The server's Flux version (`v0.200.0`), as one `_value`.
+const FLUX_VERSION: &str = "import \"array\"\nimport \"runtime\"\n\
+                            array.from(rows: [{_value: runtime.version()}])";
 
 /// The script with the query and operator profilers on: `import "profiler"`
 /// with the other imports (which must come first) and the option after them.

@@ -665,6 +665,8 @@ pub fn run() {
             commands::jobs::jobs_run_from,
             commands::jobs::jobs_clear_history,
             commands::jobs::scheduler_logs,
+            commands::functions::function_catalog,
+            commands::functions::local_function_catalog,
             commands::profiler::profiler_start,
             commands::profiler::profiler_poll,
             commands::profiler::profiler_stop,

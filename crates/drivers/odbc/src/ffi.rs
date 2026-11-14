@@ -52,6 +52,12 @@ pub const SQL_DBMS_NAME: u16 = 17;
 pub const SQL_DBMS_VER: u16 = 18;
 pub const SQL_SEARCH_PATTERN_ESCAPE: u16 = 14;
 pub const SQL_IDENTIFIER_QUOTE_CHAR: u16 = 29;
+/// The scalar and aggregate functions the driver supports, as bitmasks.
+pub const SQL_CONVERT_FUNCTIONS: u16 = 48;
+pub const SQL_NUMERIC_FUNCTIONS: u16 = 49;
+pub const SQL_STRING_FUNCTIONS: u16 = 50;
+pub const SQL_TIMEDATE_FUNCTIONS: u16 = 52;
+pub const SQL_AGGREGATE_FUNCTIONS: u16 = 169;
 
 // SQLStatistics
 pub const SQL_INDEX_ALL: u16 = 1;
@@ -167,6 +173,7 @@ api! {
     SQLColumnsW: fn(Handle, *const u16, i16, *const u16, i16, *const u16, i16, *const u16, i16) -> SqlReturn;
     SQLPrimaryKeysW: fn(Handle, *const u16, i16, *const u16, i16, *const u16, i16) -> SqlReturn;
     SQLProceduresW: fn(Handle, *const u16, i16, *const u16, i16, *const u16, i16) -> SqlReturn;
+    SQLProcedureColumnsW: fn(Handle, *const u16, i16, *const u16, i16, *const u16, i16, *const u16, i16) -> SqlReturn;
     SQLForeignKeysW: fn(Handle, *const u16, i16, *const u16, i16, *const u16, i16, *const u16, i16, *const u16, i16, *const u16, i16) -> SqlReturn;
     SQLStatisticsW: fn(Handle, *const u16, i16, *const u16, i16, *const u16, i16, u16, u16) -> SqlReturn;
     SQLCancel: fn(Handle) -> SqlReturn;

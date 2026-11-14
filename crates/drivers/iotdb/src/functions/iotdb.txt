@@ -1,0 +1,107 @@
+# Apache IoTDB / TimechoDB, tree model: the built-in functions of the
+# "Function and Expression" reference, with the versions of the release
+# notes (since= is the first release that has it, until= the first that no
+# longer does). The server's `SHOW FUNCTIONS` is the source; this catalog
+# gives its entries their arguments and stands in when it can't be read.
+# Arguments as the reference writes them, attributes as 'key'='value'.
+
+# Aggregate functions
+a AVG(ts)
+a COUNT(ts)
+a COUNT_IF(predicate, keep[, 'ignoreNull'='true|false']) since=1.1
+a COUNT_TIME(*) since=1.2.2
+a EXTREME(ts)
+a FIRST_VALUE(ts)
+a LAST_VALUE(ts)
+a MAX_BY(x, y) since=1.3.2
+a MAX_TIME(ts)
+a MAX_VALUE(ts)
+a MIN_BY(x, y) since=1.3.2
+a MIN_TIME(ts)
+a MIN_VALUE(ts)
+a MODE(ts) since=1.2
+a STDDEV(ts) since=1.3.1
+a STDDEV_POP(ts) since=1.3.1
+a STDDEV_SAMP(ts) since=1.3.1
+a SUM(ts)
+a TIME_DURATION(ts) since=1.2
+a VARIANCE(ts) since=1.3.1
+a VAR_POP(ts) since=1.3.1
+a VAR_SAMP(ts) since=1.3.1
+
+# Built-in scalar functions
+s CAST(ts AS type)
+s DIFF(ts[, 'ignoreNull'='true|false']) since=1.1
+s REPLACE(ts, 'from', 'to') since=1.2
+s ROUND(ts[, places]) since=1.2
+s SUBSTRING(ts FROM start [FOR length]) since=1.2
+
+# Mathematical functions
+s ABS(ts)
+s ACOS(ts)
+s ASIN(ts)
+s ATAN(ts)
+s CEIL(ts)
+s COS(ts)
+s COSH(ts)
+s DEGREES(ts)
+s EXP(ts)
+s FLOOR(ts)
+s LN(ts)
+s LOG10(ts)
+s RADIANS(ts)
+s SIGN(ts)
+s SIN(ts)
+s SINH(ts)
+s SQRT(ts)
+s TAN(ts)
+s TANH(ts)
+
+# String functions
+s CONCAT(ts, ['target1'='…', ]['series_behind'='true|false'])
+s ENDSWITH(ts, 'target'='…')
+s LENGTH(ts)
+s LOCATE(ts, 'target'='…'[, 'reverse'='true|false'])
+s LOWER(ts)
+s STARTSWITH(ts, 'target'='…')
+s STRCMP(ts1, ts2)
+s STRING_CONTAINS(ts, 's'='…')
+s STRING_MATCHES(ts, 'regex'='…')
+s TRIM(ts)
+s UPPER(ts)
+
+# Constant time series
+s CONST(ts, 'value'='…', 'type'='…')
+s E()
+s PI()
+
+# Selection
+s BOTTOM_K(ts, 'k'='…')
+s TOP_K(ts, 'k'='…')
+
+# Continuous intervals
+s NON_ZERO_COUNT(ts[, 'min'='…', 'max'='…'])
+s NON_ZERO_DURATION(ts[, 'min'='…', 'max'='…'])
+s ZERO_COUNT(ts[, 'min'='…', 'max'='…'])
+s ZERO_DURATION(ts[, 'min'='…', 'max'='…'])
+
+# Variation trend
+s DERIVATIVE(ts)
+s DIFFERENCE(ts)
+s NON_NEGATIVE_DERIVATIVE(ts)
+s NON_NEGATIVE_DIFFERENCE(ts)
+s TIME_DIFFERENCE(ts)
+
+# Sampling
+s EQUAL_SIZE_BUCKET_AGG_SAMPLE(ts, 'type'='avg|max|min|sum|extreme|variance', 'proportion'='…')
+s EQUAL_SIZE_BUCKET_M4_SAMPLE(ts, 'proportion'='…')
+s EQUAL_SIZE_BUCKET_OUTLIER_SAMPLE(ts, 'type'='avg|stendis|cos|prenextdis', 'proportion'='…', 'number'='…')
+s EQUAL_SIZE_BUCKET_RANDOM_SAMPLE(ts, 'proportion'='…')
+s M4(ts, 'windowSize'='…' | 'timeInterval'='…'[, 'slidingStep'='…', 'displayWindowBegin'='…', 'displayWindowEnd'='…'])
+
+# Other
+s CHANGE_POINTS(ts)
+s IN_RANGE(ts, 'lower'='…', 'upper'='…')
+s JEXL(ts, 'expr'='…') until=2.0.7
+s MASTER_REPAIR(t1, t2, t3, m1, m2, m3[, 'omega'='…', 'eta'='…', 'k'='…', 'output_column'='…'])
+s ON_OFF(ts, 'threshold'='…')

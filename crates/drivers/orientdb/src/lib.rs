@@ -27,6 +27,7 @@
 
 mod create_db;
 mod ddl;
+mod functions;
 mod index_usage;
 mod jobs;
 mod monitor;
@@ -1105,6 +1106,21 @@ impl Session for OrientSession {
             .map(as_text)
             .unwrap_or_default();
         Ok(format!("OrientDB {v}").trim().to_string())
+    }
+
+    /// The bundled functions for the server's version plus the database's
+    /// own (`OFunction`), without those when there is no database or they
+    /// can't be read (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let version = self.server_version().await.ok();
+        let mut catalog = functions::bundled(version.as_deref());
+        if !self.db.is_empty() {
+            match self.command(functions::DATABASE_FUNCTIONS, 10_000).await {
+                Ok(rows) => catalog.extend(functions::database_functions(&rows.records)),
+                Err(e) => tracing::debug!("orientdb OFunction: {e}"),
+            }
+        }
+        Ok(catalog)
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {

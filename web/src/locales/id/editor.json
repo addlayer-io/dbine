@@ -41,5 +41,6 @@
     "runTip": "Jalankan hanya pernyataan ini",
     "plan": "Rencana",
     "planTip": "Perkiraan rencana eksekusi pernyataan ini, tanpa menjalankannya"
-  }
+  },
+  "functionOverloads_other": "+{{count}} overload"
 }

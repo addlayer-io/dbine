@@ -7,6 +7,7 @@ mod backup;
 mod blocks;
 mod create_db;
 mod ddl;
+mod functions;
 mod gcp;
 mod health;
 mod index_usage;
@@ -937,6 +938,12 @@ fn u64_field(v: &Json, key: &str) -> Option<u64> {
 
 #[async_trait]
 impl Session for BigQuerySession {
+    /// Static built-ins plus `INFORMATION_SCHEMA.ROUTINES` (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
+    }
+
     async fn server_version(&mut self) -> Result<String> {
         Ok(if self.api.emulator {
             format!("BigQuery (emulador, proyecto {})", self.api.project)

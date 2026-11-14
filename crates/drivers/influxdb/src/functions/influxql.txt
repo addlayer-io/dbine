@@ -1,0 +1,73 @@
+# InfluxQL (InfluxDB 1.x): the functions of the InfluxQL reference
+# (docs.influxdata.com/influxdb/v1/query_language/functions/), with the
+# versions of the 1.x changelog: since= is the first release that has it.
+# Selectors count as aggregates. HISTOGRAM() is documented but not
+# implemented, so it's left out.
+
+# Aggregations
+a COUNT(field_key)
+a DISTINCT(field_key)
+a INTEGRAL(field_key[, unit]) since=1.3
+a MEAN(field_key)
+a MEDIAN(field_key)
+a MODE(field_key)
+a SPREAD(field_key)
+a STDDEV(field_key)
+a SUM(field_key)
+
+# Selectors
+a BOTTOM(field_key[, tag_key(s)], N)
+a FIRST(field_key)
+a LAST(field_key)
+a MAX(field_key)
+a MIN(field_key)
+a PERCENTILE(field_key, N)
+a SAMPLE(field_key, N) since=1.1
+a TOP(field_key[, tag_key(s)], N)
+
+# Transformations
+s ABS(field_key) since=1.6
+s ACOS(field_key) since=1.6
+s ASIN(field_key) since=1.6
+s ATAN(field_key) since=1.6
+s ATAN2(y, x) since=1.6
+s CEIL(field_key) since=1.6
+s COS(field_key) since=1.6
+s CUMULATIVE_SUM(field_key) since=1.1
+s DERIVATIVE(field_key[, unit])
+s DIFFERENCE(field_key)
+s ELAPSED(field_key[, unit])
+s EXP(field_key) since=1.6
+s FLOOR(field_key) since=1.6
+s LN(field_key) since=1.6
+s LOG(field_key, b) since=1.6
+s LOG2(field_key) since=1.6
+s LOG10(field_key) since=1.6
+s MOVING_AVERAGE(field_key, N)
+s NON_NEGATIVE_DERIVATIVE(field_key[, unit])
+s NON_NEGATIVE_DIFFERENCE(field_key) since=1.3
+s POW(field_key, x) since=1.6
+s ROUND(field_key) since=1.6
+s SIN(field_key) since=1.6
+s SQRT(field_key) since=1.6
+s TAN(field_key) since=1.6
+
+# Predictors
+s HOLT_WINTERS(function(field_key), N, S)
+s HOLT_WINTERS_WITH_FIT(function(field_key), N, S)
+
+# Technical analysis
+s CHANDE_MOMENTUM_OSCILLATOR(field_key, period[, hold_period[, warmup_type]]) since=1.6
+s EXPONENTIAL_MOVING_AVERAGE(field_key, period[, hold_period[, warmup_type]]) since=1.6
+s DOUBLE_EXPONENTIAL_MOVING_AVERAGE(field_key, period[, hold_period[, warmup_type]]) since=1.6
+s KAUFMANS_EFFICIENCY_RATIO(field_key, period[, hold_period]) since=1.6
+s KAUFMANS_ADAPTIVE_MOVING_AVERAGE(field_key, period[, hold_period]) since=1.6
+s TRIPLE_EXPONENTIAL_MOVING_AVERAGE(field_key, period[, hold_period[, warmup_type]]) since=1.6
+s TRIPLE_EXPONENTIAL_DERIVATIVE(field_key, period[, hold_period[, warmup_type]]) since=1.6
+s RELATIVE_STRENGTH_INDEX(field_key, period[, hold_period[, warmup_type]]) since=1.6
+
+# Clauses written as calls
+s now()
+s time(time_interval[, offset_interval])
+s fill(linear|none|null|previous|value)
+s tz(time_zone) since=1.3

@@ -1,0 +1,12 @@
+# Solr's Parallel SQL (the /sql handler, SolrCloud only): the functions the
+# Solr Reference Guide documents for it ("Statistical Functions" and the
+# GROUP BY aggregates of the SQL Query Language page). `since=` is the
+# first release whose guide lists the function. The guide documents no
+# scalar functions: Calcite's aren't pushed down to Solr.
+a COUNT(*)
+a COUNT(DISTINCT field) since=8.10
+a APPROX_COUNT_DISTINCT(field) since=8.10
+a MIN(field)
+a MAX(field)
+a SUM(field)
+a AVG(field)

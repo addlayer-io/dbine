@@ -8,6 +8,7 @@
 
 mod backup;
 mod files;
+mod functions;
 mod index_usage;
 mod loader;
 mod monitor;
@@ -34,6 +35,15 @@ use duckdb::types::Value;
 use duckdb::{AccessMode, Config, Connection, InterruptHandle};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
+
+pub use loader::installed as library_installed;
+
+/// The connection option (`"true"`) that never downloads DuckDB's library:
+/// a connection made with it fails with `Error::Unsupported` unless the
+/// library is loaded or on disk already ([`library_installed`]). The app
+/// reads the local DuckDB's function catalog with it (its
+/// `local_duckdb::config_without_download`), also through a driver host.
+pub const NO_DOWNLOAD: &str = "no_download";
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![
@@ -295,13 +305,19 @@ impl Driver for DuckDbDriver {
 
     /// `cfg.host` is the database file (empty or `:memory:` for an in-memory
     /// one; ignored with the `isolated` option, always a new in-memory one);
-    /// `database` is an attached catalog to `USE`.
+    /// `database` is an attached catalog to `USE`. With the
+    /// [`NO_DOWNLOAD`] option, DuckDB's library is only loaded if it's on
+    /// disk already: `Error::Unsupported` otherwise, nothing downloaded.
     async fn connect(
         &self,
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
-        loader::ensure().await?;
+        if cfg.option(NO_DOWNLOAD) == Some("true") {
+            loader::ensure_installed().await?;
+        } else {
+            loader::ensure().await?;
+        }
         if self.files {
             return connect_files(cfg).await;
         }
@@ -611,6 +627,44 @@ impl Session for DuckDbSession {
             .strings("SELECT database_name FROM duckdb_databases() WHERE NOT internal ORDER BY database_name", vec![], 1)
             .await?;
         Ok(rows.into_iter().filter_map(|mut r| r.remove(0)).collect())
+    }
+
+    /// `duckdb_functions()`: the built-ins of this DuckDB with their
+    /// descriptions, the loaded extensions' functions and the macros of the
+    /// open database, plus the window functions (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let catalog = self.catalog.clone();
+        self.with(move |c| {
+            let version = c.version().map_err(Error::query)?;
+            let mut stmt = c.prepare(functions::LIST).map_err(Error::query)?;
+            let text = |v: Value| match v {
+                Value::Text(s) => s,
+                _ => String::new(),
+            };
+            let list = |v: Value| match v {
+                Value::List(items) | Value::Array(items) => items.into_iter().map(text).collect(),
+                _ => Vec::new(),
+            };
+            let rows = stmt
+                .query_map([&catalog], |r| {
+                    Ok(functions::Row {
+                        schema: text(r.get(0)?),
+                        name: text(r.get(1)?),
+                        kind: text(r.get(2)?),
+                        description: text(r.get(3)?),
+                        returns: text(r.get(4)?),
+                        params: list(r.get(5)?),
+                        types: list(r.get(6)?),
+                        varargs: text(r.get(7)?),
+                        internal: r.get::<_, Option<bool>>(8)?.unwrap_or(true),
+                    })
+                })
+                .map_err(Error::query)?
+                .collect::<duckdb::Result<Vec<_>>>()
+                .map_err(Error::query)?;
+            Ok(functions::catalog(&rows, &version))
+        })
+        .await
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -1632,6 +1686,23 @@ mod tests {
         }
         // Nothing on disk: no file named after the host.
         assert!(!std::path::Path::new(":memory:").exists());
+    }
+
+    #[tokio::test]
+    async fn without_download_it_connects_once_duckdb_is_there() {
+        loader::ensure().await.unwrap();
+        let [duck, _] = <[_; 2]>::try_from(drivers()).ok().unwrap();
+        let mut cfg = ConnectionConfig {
+            driver: "duckdb".into(),
+            host: ":memory:".into(),
+            ..Default::default()
+        };
+        cfg.options.insert("isolated".into(), "true".into());
+        cfg.options.insert(NO_DOWNLOAD.into(), "true".into());
+        assert!(library_installed());
+        let mut s = duck.connect(&cfg, None).await.unwrap();
+        let catalog = s.function_catalog().await.unwrap();
+        assert!(catalog.iter().any(|f| f.name == "upper"), "the built-ins");
     }
 
     #[tokio::test]

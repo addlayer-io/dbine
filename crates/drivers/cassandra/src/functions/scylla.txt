@@ -1,0 +1,68 @@
+# ScyllaDB's built-in CQL functions, for the editor's completion, as
+# ScyllaDB's CQL reference lists them. `since=` is in ScyllaDB's own
+# versions (the vector similarity functions came with vector search,
+# 2025.4); they don't follow Cassandra's. The user's functions and
+# aggregates (Lua/WASM) come from system_schema.
+s token(partition_key, ...)
+s ttl(column) -> int
+s writetime(column) -> bigint
+s cast(value AS type)
+s now() -> timeuuid
+s uuid() -> uuid
+s currentTimeUUID() -> timeuuid
+s currentTimestamp() -> timestamp
+s currentDate() -> date
+s currentTime() -> time
+s minTimeuuid(timestamp) -> timeuuid
+s maxTimeuuid(timestamp) -> timeuuid
+s toDate(value) -> date
+s toTimestamp(value) -> timestamp
+s toUnixTimestamp(value) -> bigint
+s toJson(value) -> text
+s fromJson(json)
+s dateOf(timeuuid) -> timestamp
+s unixTimestampOf(timeuuid) -> bigint
+s asciiAsBlob(value) -> blob
+s blobAsAscii(value) -> ascii
+s bigintAsBlob(value) -> blob
+s blobAsBigint(value) -> bigint
+s booleanAsBlob(value) -> blob
+s blobAsBoolean(value) -> boolean
+s dateAsBlob(value) -> blob
+s blobAsDate(value) -> date
+s decimalAsBlob(value) -> blob
+s blobAsDecimal(value) -> decimal
+s doubleAsBlob(value) -> blob
+s blobAsDouble(value) -> double
+s floatAsBlob(value) -> blob
+s blobAsFloat(value) -> float
+s inetAsBlob(value) -> blob
+s blobAsInet(value) -> inet
+s intAsBlob(value) -> blob
+s blobAsInt(value) -> int
+s smallintAsBlob(value) -> blob
+s blobAsSmallint(value) -> smallint
+s textAsBlob(value) -> blob
+s blobAsText(value) -> text
+s timeAsBlob(value) -> blob
+s blobAsTime(value) -> time
+s timestampAsBlob(value) -> blob
+s blobAsTimestamp(value) -> timestamp
+s timeuuidAsBlob(value) -> blob
+s blobAsTimeuuid(value) -> timeuuid
+s tinyintAsBlob(value) -> blob
+s blobAsTinyint(value) -> tinyint
+s uuidAsBlob(value) -> blob
+s blobAsUuid(value) -> uuid
+s varcharAsBlob(value) -> blob
+s blobAsVarchar(value) -> varchar
+s varintAsBlob(value) -> blob
+s blobAsVarint(value) -> varint
+s similarity_cosine(vector, vector) -> float since=2025.4
+s similarity_euclidean(vector, vector) -> float since=2025.4
+s similarity_dot_product(vector, vector) -> float since=2025.4
+a count(column) -> bigint
+a min(column)
+a max(column)
+a sum(column)
+a avg(column)

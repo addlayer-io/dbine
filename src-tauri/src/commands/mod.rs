@@ -19,6 +19,7 @@ pub mod explorer;
 pub mod export;
 pub mod feedback;
 pub mod folders;
+pub mod functions;
 pub mod git_cli;
 #[cfg(test)]
 mod grid_new_rows_live_tests;

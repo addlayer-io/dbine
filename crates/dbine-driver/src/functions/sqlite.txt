@@ -1,0 +1,200 @@
+# Static function catalog (see functions::parse_catalog). Filled per engine from its documentation.
+# SQLite (also libSQL / Turso): core, date and time, aggregate, window, math
+# and JSON functions, and the table-valued PRAGMA functions, from
+# sqlite.org/lang_corefunc.html, lang_datefunc.html, lang_aggfunc.html,
+# windowfunctions.html, lang_mathfunc.html, json1.html and pragma.html.
+# Where the server answers pragma_function_list the driver keeps only what
+# it lists; this file then gives the argument names.
+
+# Core functions
+s abs(x)
+s changes() -> integer
+s char(x1, x2, ...) -> text
+s coalesce(x, y, ...)
+s concat(x, ...) -> text since=3.44.0
+s concat_ws(sep, x, ...) -> text since=3.44.0
+s format(format, ...) -> text since=3.38.0
+s glob(x, y) -> integer
+s hex(x) -> text
+s if(b1, v1, ...) since=3.48.0
+s ifnull(x, y)
+s iif(b1, v1, ...) since=3.32.0
+s instr(x, y) -> integer since=3.7.15
+s last_insert_rowid() -> integer
+s length(x) -> integer
+s like(x, y) -> integer
+s like(x, y, z) -> integer
+s likelihood(x, y) since=3.8.1
+s likely(x) since=3.8.2
+s load_extension(x)
+s load_extension(x, y)
+s lower(x) -> text
+s ltrim(x) -> text
+s ltrim(x, y) -> text
+s max(x, y, ...)
+s min(x, y, ...)
+s nullif(x, y)
+s octet_length(x) -> integer since=3.43.0
+s printf(format, ...) -> text since=3.8.3
+s quote(x) -> text
+s random() -> integer
+s randomblob(n) -> blob
+s replace(x, y, z) -> text
+s round(x) -> real
+s round(x, y) -> real
+s rtrim(x) -> text
+s rtrim(x, y) -> text
+s sign(x) -> integer since=3.35.0
+s soundex(x) -> text
+s sqlite_compileoption_get(n) -> text
+s sqlite_compileoption_used(x) -> integer
+s sqlite_offset(x) -> integer since=3.28.0
+s sqlite_source_id() -> text
+s sqlite_version() -> text
+s substr(x, y) -> text
+s substr(x, y, z) -> text
+s substring(x, y) -> text since=3.34.0
+s substring(x, y, z) -> text since=3.34.0
+s total_changes() -> integer
+s trim(x) -> text
+s trim(x, y) -> text
+s typeof(x) -> text
+s unhex(x) -> blob since=3.41.0
+s unhex(x, y) -> blob since=3.41.0
+s unicode(x) -> integer
+s unistr(x) -> text since=3.50.0
+s unistr_quote(x) -> text since=3.50.0
+s unlikely(x) since=3.8.1
+s upper(x) -> text
+s zeroblob(n) -> blob
+
+# Date and time functions
+s date(time_value, modifier, ...) -> text
+s time(time_value, modifier, ...) -> text
+s datetime(time_value, modifier, ...) -> text
+s julianday(time_value, modifier, ...) -> real
+s unixepoch(time_value, modifier, ...) -> integer since=3.38.0
+s strftime(format, time_value, modifier, ...) -> text
+s timediff(time_value, time_value) -> text since=3.43.0
+
+# Aggregate functions
+a avg(x) -> real
+a count(*) -> integer
+a count(x) -> integer
+a group_concat(x) -> text
+a group_concat(x, y) -> text
+a max(x)
+a min(x)
+a string_agg(x, y) -> text since=3.44.0
+a sum(x)
+a total(x) -> real
+a median(x) -> real since=3.47.0
+a percentile(y, p) -> real since=3.47.0
+a percentile_cont(y, p) -> real since=3.47.0
+a percentile_disc(y, p) since=3.47.0
+
+# Window functions
+w row_number() -> integer since=3.25.0
+w rank() -> integer since=3.25.0
+w dense_rank() -> integer since=3.25.0
+w percent_rank() -> real since=3.25.0
+w cume_dist() -> real since=3.25.0
+w ntile(n) -> integer since=3.25.0
+w lag(expr) since=3.25.0
+w lag(expr, offset) since=3.25.0
+w lag(expr, offset, default) since=3.25.0
+w lead(expr) since=3.25.0
+w lead(expr, offset) since=3.25.0
+w lead(expr, offset, default) since=3.25.0
+w first_value(expr) since=3.25.0
+w last_value(expr) since=3.25.0
+w nth_value(expr, n) since=3.25.0
+
+# Math functions (builds with SQLITE_ENABLE_MATH_FUNCTIONS)
+s acos(x) -> real since=3.35.0
+s acosh(x) -> real since=3.35.0
+s asin(x) -> real since=3.35.0
+s asinh(x) -> real since=3.35.0
+s atan(x) -> real since=3.35.0
+s atan2(y, x) -> real since=3.35.0
+s atanh(x) -> real since=3.35.0
+s ceil(x) since=3.35.0
+s ceiling(x) since=3.35.0
+s cos(x) -> real since=3.35.0
+s cosh(x) -> real since=3.35.0
+s degrees(x) -> real since=3.35.0
+s exp(x) -> real since=3.35.0
+s floor(x) since=3.35.0
+s ln(x) -> real since=3.35.0
+s log(x) -> real since=3.35.0
+s log(b, x) -> real since=3.35.0
+s log10(x) -> real since=3.35.0
+s log2(x) -> real since=3.35.0
+s mod(x, y) -> real since=3.35.0
+s pi() -> real since=3.35.0
+s pow(x, y) -> real since=3.35.0
+s power(x, y) -> real since=3.35.0
+s radians(x) -> real since=3.35.0
+s sin(x) -> real since=3.35.0
+s sinh(x) -> real since=3.35.0
+s sqrt(x) -> real since=3.35.0
+s tan(x) -> real since=3.35.0
+s tanh(x) -> real since=3.35.0
+s trunc(x) since=3.35.0
+
+# JSON functions (json1; built in since 3.38.0)
+s json(json) -> text since=3.9.0
+s jsonb(json) -> blob since=3.45.0
+s json_array(value, ...) -> text since=3.9.0
+s jsonb_array(value, ...) -> blob since=3.45.0
+s json_array_length(json) -> integer since=3.9.0
+s json_array_length(json, path) -> integer since=3.9.0
+s json_error_position(json) -> integer since=3.42.0
+s json_extract(json, path, ...) since=3.9.0
+s jsonb_extract(json, path, ...) since=3.45.0
+s json_insert(json, path, value, ...) -> text since=3.9.0
+s jsonb_insert(json, path, value, ...) -> blob since=3.45.0
+s json_object(label, value, ...) -> text since=3.9.0
+s jsonb_object(label, value, ...) -> blob since=3.45.0
+s json_patch(json, json) -> text since=3.18.0
+s jsonb_patch(json, json) -> blob since=3.45.0
+s json_pretty(json) -> text since=3.46.0
+s json_pretty(json, indent) -> text since=3.46.0
+s json_quote(value) -> text since=3.14.0
+s json_remove(json, path, ...) -> text since=3.9.0
+s jsonb_remove(json, path, ...) -> blob since=3.45.0
+s json_replace(json, path, value, ...) -> text since=3.9.0
+s jsonb_replace(json, path, value, ...) -> blob since=3.45.0
+s json_set(json, path, value, ...) -> text since=3.9.0
+s jsonb_set(json, path, value, ...) -> blob since=3.45.0
+s json_type(json) -> text since=3.9.0
+s json_type(json, path) -> text since=3.9.0
+s json_valid(json) -> integer since=3.9.0
+s json_valid(json, flags) -> integer since=3.45.0
+a json_group_array(value) -> text since=3.14.0
+a jsonb_group_array(value) -> blob since=3.45.0
+a json_group_object(label, value) -> text since=3.14.0
+a jsonb_group_object(label, value) -> blob since=3.45.0
+t json_each(json) since=3.9.0
+t json_each(json, path) since=3.9.0
+t json_tree(json) since=3.9.0
+t json_tree(json, path) since=3.9.0
+t jsonb_each(json) since=3.45.0
+t jsonb_each(json, path) since=3.45.0
+t jsonb_tree(json) since=3.45.0
+t jsonb_tree(json, path) since=3.45.0
+
+# Table-valued PRAGMA functions
+t pragma_collation_list() since=3.16.0
+t pragma_compile_options() since=3.16.0
+t pragma_database_list() since=3.16.0
+t pragma_foreign_key_list(table) since=3.16.0
+t pragma_function_list() since=3.30.0
+t pragma_index_info(index) since=3.16.0
+t pragma_index_list(table) since=3.16.0
+t pragma_index_xinfo(index) since=3.16.0
+t pragma_module_list() since=3.30.0
+t pragma_pragma_list() since=3.30.0
+t pragma_table_info(table) since=3.16.0
+t pragma_table_list() since=3.37.0
+t pragma_table_xinfo(table) since=3.26.0

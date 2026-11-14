@@ -41,5 +41,9 @@
     "runTip": "Uruchom tylko tę instrukcję",
     "plan": "Plan",
     "planTip": "Szacowany plan wykonania tej instrukcji, bez jej uruchamiania"
-  }
+  },
+  "functionOverloads_one": "+{{count}} przeciążenie",
+  "functionOverloads_few": "+{{count}} przeciążenia",
+  "functionOverloads_many": "+{{count}} przeciążeń",
+  "functionOverloads_other": "+{{count}} przeciążenia"
 }

@@ -1240,6 +1240,13 @@ impl Session for InfluxQlSession {
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         crate::permissions::v1(self, database).await
     }
+
+    /// InfluxQL's functions for the server's version: it lists none, so they
+    /// come from the static catalog (see [`crate::functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let version = self.server_version().await.ok();
+        Ok(crate::functions::influxql(version.as_deref()))
+    }
 }
 
 /// A text as a regular expression that matches it literally, between the

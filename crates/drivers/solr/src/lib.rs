@@ -12,6 +12,7 @@
 
 mod backup;
 mod ddl;
+mod functions;
 mod monitor;
 mod permissions;
 mod plan;
@@ -1194,6 +1195,13 @@ impl Session for SolrSession {
     /// security.json's rule-based authorization (see `permissions`).
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self).await
+    }
+
+    /// The function queries of the server's version and, on SolrCloud where
+    /// Parallel SQL runs, the functions of the console's SQL lines (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        Ok(functions::catalog(self).await)
     }
 }
 

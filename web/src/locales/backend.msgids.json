@@ -1,4 +1,7 @@
 {
+ "\n    ABS ACOS ASIN ATAN ATAN2 BITAND CEIL COS COSH EXP FLOOR LN LOG MOD POWER ROUND SIGN SIN SINH\n    SQRT TAN TANH TRUNC\n    ASCII CHR CONCAT INITCAP INSTR INSTRB LENGTH LENGTHB LOWER LPAD LTRIM REGEXP_INSTR REGEXP_LIKE\n    REGEXP_REPLACE REGEXP_SUBSTR REPLACE RPAD RTRIM SOUNDEX SUBSTR SUBSTRB TRANSLATE TRIM UPPER\n    ADD_MONTHS CURRENT_DATE CURRENT_TIMESTAMP DBTIMEZONE EXTRACT FROM_TZ LAST_DAY LOCALTIMESTAMP\n    MONTHS_BETWEEN NEXT_DAY NUMTODSINTERVAL NUMTOYMINTERVAL SESSIONTIMEZONE SYSDATE SYSTIMESTAMP\n    TO_TIMESTAMP TZ_OFFSET\n    CAST COALESCE DECODE GREATEST HEXTORAW LEAST NULLIF NVL NVL2 RAWTOHEX TO_BLOB TO_CHAR TO_DATE\n    TO_NUMBER\n    EMPTY_BLOB EMPTY_CLOB SYS_CONNECT_BY_PATH SYS_CONTEXT SYS_GUID UID USER USERENV\n    AVG CORR COUNT COVAR_POP COVAR_SAMP GROUPING LISTAGG MAX MEDIAN MIN PERCENTILE_CONT\n    PERCENTILE_DISC STDDEV STDDEV_POP STDDEV_SAMP SUM VAR_POP VAR_SAMP VARIANCE\n    CUME_DIST DENSE_RANK FIRST_VALUE LAG LAST_VALUE LEAD NTH_VALUE NTILE PERCENT_RANK RANK\n    RATIO_TO_REPORT ROW_NUMBER\n": [
+  "crates/drivers/odbc/src/functions.rs"
+ ],
  "\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON {0} TO {1};": [
   "crates/drivers/dremio/src/security.rs"
  ],
@@ -1523,6 +1526,7 @@
  "Aggregate": [
   "crates/drivers/cosmosdb/src/plan.rs",
   "crates/drivers/dsql/src/plan.rs",
+  "crates/drivers/mysql/src/functions.rs",
   "crates/drivers/postgres/src/plan.rs"
  ],
  "Aggregates": [
@@ -10663,9 +10667,12 @@
   "crates/drivers/odbc/src/scheduler/informix.rs"
  ],
  "Description": [
+  "crates/drivers/athena/src/functions.rs",
   "crates/drivers/clickhouse/src/plan.rs",
+  "crates/drivers/mysql/src/functions.rs",
   "crates/drivers/odbc/src/jobs/iris.rs",
-  "crates/drivers/odbc/src/scheduler/iris.rs"
+  "crates/drivers/odbc/src/scheduler/iris.rs",
+  "crates/drivers/trino/src/functions.rs"
  ],
  "Descriptores abiertos": [
   "crates/drivers/elasticsearch/src/monitor.rs",
@@ -15179,6 +15186,9 @@
  ],
  "Error de comunicación con el servidor: {0}": [
   "crates/drivers/elasticsearch/src/http.rs"
+ ],
+ "Error loading class": [
+  "crates/drivers/solr/src/functions.rs"
  ],
  "Error occurred during query planning": [
   "crates/drivers/databricks/src/lib.rs"
@@ -20328,6 +20338,9 @@
  "Intercalar en la tabla padre": [
   "crates/drivers/spanner/src/lib.rs"
  ],
+ "Internal": [
+  "crates/drivers/clickhouse/src/functions.rs"
+ ],
  "Interrumpido (BROKEN)": [
   "crates/drivers/odbc/src/scheduler/dameng_dbms.rs"
  ],
@@ -24085,6 +24098,7 @@
   "crates/drivers/snowflake/src/scheduler/mod.rs"
  ],
  "Memgraph": [
+  "crates/drivers/neo4j/src/functions.rs",
   "crates/drivers/neo4j/src/lib.rs"
  ],
  "Memgraph no deshabilita usuarios: cambiale la contraseña o borralo": [
@@ -35025,6 +35039,7 @@
   "crates/drivers/hana/src/scheduler/mod.rs"
  ],
  "Signature": [
+  "crates/drivers/mysql/src/functions.rs",
   "crates/drivers/neo4j/src/neptune.rs"
  ],
  "Sigue copiando los cambios nuevos; si no, termina al alcanzar al origen.": [
@@ -36457,6 +36472,7 @@
   "crates/dbine-transfer/src/clone_table/analytics.rs",
   "crates/drivers/athena/src/lib.rs",
   "crates/drivers/athena/src/plan.rs",
+  "crates/drivers/iotdb/src/functions.rs",
   "crates/drivers/iotdb/src/jobs.rs",
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/mysql/src/monitor.rs",
@@ -36754,6 +36770,9 @@
  ],
  "Sybase ASE no da cifras reales por operador por ODBC: se muestra el plan con el resultado.": [
   "crates/drivers/odbc/src/explain.rs"
+ ],
+ "Syntax": [
+  "crates/drivers/mysql/src/functions.rs"
  ],
  "Syntax error": [
   "crates/drivers/clickhouse/src/jobs.rs"
@@ -43768,6 +43787,9 @@
  "dropIndex necesita el nombre o las claves del índice": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
+ "dsql: pg_proc listed no functions": [
+  "crates/drivers/dsql/src/lib.rs"
+ ],
  "dsql: {0} has no primary key; read in one statement": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
@@ -46709,6 +46731,9 @@
  "este motor no ofrece esa acción en su planificador": [
   "crates/dbine-driver/src/lib.rs"
  ],
+ "este motor no ofrece un catálogo de funciones": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no ofrece {0}": [
   "src-tauri/src/commands/query_builder.rs"
  ],
@@ -47734,6 +47759,9 @@
  ],
  "guardá el notebook para recordar qué archivos puede leer": [
   "src-tauri/src/notebook/access.rs"
+ ],
+ "h2: no version: {0}": [
+  "crates/drivers/postgres/src/functions.rs"
  ],
  "habilitar y deshabilitar actúa sobre la tarea raíz: las hijas corren cuando corre la raíz, salvo las suspendidas": [
   "crates/drivers/snowflake/src/jobs.rs"
@@ -53294,6 +53322,9 @@
  "revisión {0}": [
   "crates/drivers/etcd/src/lib.rs"
  ],
+ "risingwave: no version: {0}": [
+  "crates/drivers/postgres/src/functions.rs"
+ ],
  "rojo (hay shards primarios sin asignar)": [
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
@@ -53396,6 +53427,9 @@
  "réplicas: «{0}» no es un valor válido": [
   "crates/drivers/influxdb/src/create_db.rs",
   "crates/drivers/influxdb/src/properties.rs"
+ ],
+ "s SIN(float_exp) -> FLOAT": [
+  "crates/drivers/odbc/src/functions.rs"
  ],
  "sa_role o ser el dueño de la base": [
   "crates/drivers/odbc/src/permissions.rs"
@@ -56913,6 +56947,9 @@
  ],
  "{0}: pasar de tabla a supertabla (o al revés) requiere recrearla; se deja como está.": [
   "crates/drivers/tdengine/src/sync.rs"
+ ],
+ "{0}: pg_proc listed no functions": [
+  "crates/drivers/postgres/src/functions.rs"
  ],
  "{0}: programación «{1}» (DBMS_SCHEDULER)": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"

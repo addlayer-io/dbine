@@ -48,6 +48,7 @@ mod bolt;
 mod create_db;
 mod cypher;
 mod ddl;
+mod functions;
 mod index_usage;
 mod jobs;
 mod monitor;
@@ -2313,6 +2314,52 @@ impl Session for GraphSession {
     /// The user's own privileges, per flavor (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    /// The functions per flavor (see [`functions`]): Neo4j's listing with
+    /// a static fallback, Memgraph's built-ins plus its modules',
+    /// Neptune's documented ones.
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        // A failed statement would end the user's open transaction: inside
+        // one, the documented catalogs only.
+        if self.tx {
+            return Ok(match self.flavor {
+                Flavor::Neo4j => functions::neo4j_static(None),
+                Flavor::Memgraph => functions::memgraph_static(None),
+                Flavor::Neptune => functions::neptune_static(None),
+            });
+        }
+        match self.flavor {
+            Flavor::Neo4j => {
+                for q in [functions::SHOW_FUNCTIONS, functions::DBMS_FUNCTIONS] {
+                    if let Ok(rows) = self.records(q).await {
+                        let list = functions::from_neo4j(&rows);
+                        if !list.is_empty() {
+                            return Ok(list);
+                        }
+                    }
+                }
+                let version = self.server_version().await.ok();
+                Ok(functions::neo4j_static(version.as_deref()))
+            }
+            Flavor::Memgraph => {
+                let version = self.server_version().await.ok();
+                let mut out = functions::memgraph_static(version.as_deref());
+                if let Ok(rows) = self.records(functions::MG_FUNCTIONS).await {
+                    // The documented list has a few module functions too.
+                    let modules: Vec<_> = functions::from_memgraph(&rows)
+                        .into_iter()
+                        .filter(|m| !out.iter().any(|f| f.name == m.name && f.schema == m.schema))
+                        .collect();
+                    out.extend(modules);
+                }
+                Ok(out)
+            }
+            Flavor::Neptune => {
+                let version = self.server_version().await.ok();
+                Ok(functions::neptune_static(version.as_deref()))
+            }
+        }
     }
 
     async fn index_usage(

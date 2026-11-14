@@ -33,6 +33,7 @@ mod clone;
 pub mod conn;
 mod delta;
 pub mod edit;
+mod functions;
 pub mod guard;
 mod health;
 pub mod ipc;
@@ -883,6 +884,26 @@ impl Session for KdbSession {
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
         Ok(vec!["default".into()])
+    }
+
+    /// q's words and `.q`'s functions as this server has them, and the
+    /// user's functions per namespace with their parameters, in one fixed
+    /// read (as the explorer's); the static catalog when it can't be read
+    /// (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        match self.q(functions::CATALOG).await {
+            Ok(k) => {
+                let catalog = functions::from_server(&k);
+                if !catalog.is_empty() {
+                    return Ok(catalog);
+                }
+            }
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            // An old kdb+ or a restricted one: the static catalog.
+            Err(_) => {}
+        }
+        Ok(functions::static_catalog())
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

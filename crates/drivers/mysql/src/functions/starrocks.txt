@@ -1,0 +1,594 @@
+# StarRocks' built-in functions (StarRocks documentation, as SHOW FULL BUILTIN
+# FUNCTIONS lists them in 4.1), one signature per name and argument count, for
+# servers where that statement fails. See functions::parse_catalog for the format.
+s abs(BIGINT) -> LARGEINT
+s acos(DOUBLE) -> DOUBLE
+s add(BIGINT,BIGINT) -> BIGINT
+s add_months(DATETIME,INT) -> DATETIME
+s adddate(DATETIME,INT) -> DATETIME
+s aes_decrypt(VARCHAR,VARCHAR) -> VARCHAR
+s aes_decrypt(VARCHAR,VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+s aes_decrypt(VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+s aes_encrypt(VARCHAR,VARCHAR) -> VARCHAR
+s aes_encrypt(VARCHAR,VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+s aes_encrypt(VARCHAR,VARCHAR,VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+s ai_query(VARCHAR,JSON) -> VARCHAR
+s all_match(INVALID_TYPE) -> BOOLEAN
+s any_match(INVALID_TYPE) -> BOOLEAN
+a any_value(BIGINT) -> BIGINT
+s any_value_state(BIGINT) -> BIGINT
+s append_trailing_char_if_absent(VARCHAR,VARCHAR) -> VARCHAR
+s approx_cosine_similarity(INVALID_TYPE,INVALID_TYPE) -> FLOAT
+a approx_count_distinct(BIGINT) -> BIGINT
+s approx_count_distinct_state(BIGINT) -> VARBINARY
+s approx_l2_distance(INVALID_TYPE,INVALID_TYPE) -> FLOAT
+a approx_top_k(BIGINT)
+a approx_top_k(BIGINT,INT)
+a approx_top_k(BIGINT,INT,INT)
+a array_agg(INVALID_TYPE, ...)
+a array_agg_distinct(BIGINT)
+s array_agg_distinct_state(BIGINT)
+s array_agg_state(INVALID_TYPE)
+a array_agg_union(INVALID_TYPE)
+s array_append(INVALID_TYPE,INVALID_TYPE)
+s array_avg(INVALID_TYPE) -> DOUBLE
+s array_concat(INVALID_TYPE, ...)
+s array_contains(INVALID_TYPE,BIGINT) -> BOOLEAN
+s array_contains_all(INVALID_TYPE,INVALID_TYPE) -> BOOLEAN
+s array_contains_seq(INVALID_TYPE,INVALID_TYPE) -> BOOLEAN
+s array_cum_sum(INVALID_TYPE)
+s array_difference(INVALID_TYPE)
+s array_distinct(INVALID_TYPE)
+s array_filter(INVALID_TYPE,INVALID_TYPE)
+s array_flatten(INVALID_TYPE)
+s array_generate(BIGINT,BIGINT,BIGINT)
+s array_generate(DATE,DATE,INT,VARCHAR)
+s array_intersect(INVALID_TYPE, ...)
+s array_join(INVALID_TYPE,VARCHAR) -> VARCHAR
+s array_join(INVALID_TYPE,VARCHAR,VARCHAR) -> VARCHAR
+s array_length(INVALID_TYPE) -> INT
+s array_map(FUNCTION,INVALID_TYPE, ...)
+s array_max(INVALID_TYPE) -> BOOLEAN
+s array_min(INVALID_TYPE) -> BOOLEAN
+s array_position(INVALID_TYPE,BIGINT) -> INT
+s array_remove(INVALID_TYPE,INVALID_TYPE)
+s array_repeat(INVALID_TYPE,INT)
+s array_slice(INVALID_TYPE,BIGINT)
+s array_slice(INVALID_TYPE,BIGINT,BIGINT)
+s array_sort(INVALID_TYPE)
+s array_sort_lambda(INVALID_TYPE,FUNCTION)
+s array_sortby(INVALID_TYPE,INVALID_TYPE)
+s array_sortby(INVALID_TYPE,INVALID_TYPE,INVALID_TYPE, ...)
+s array_sum(INVALID_TYPE) -> BIGINT
+s array_to_bitmap(INVALID_TYPE) -> BITMAP
+s array_top_n(INVALID_TYPE,INT)
+a array_unique_agg(INVALID_TYPE)
+s array_unique_agg_state(INVALID_TYPE)
+s arrays_overlap(INVALID_TYPE,INVALID_TYPE) -> BOOLEAN
+s arrays_zip(INVALID_TYPE, ...)
+s ascii(VARCHAR) -> INT
+s asin(DOUBLE) -> DOUBLE
+s assert_true(BOOLEAN) -> BOOLEAN
+s assert_true(BOOLEAN,VARCHAR) -> BOOLEAN
+s atan(DOUBLE) -> DOUBLE
+s atan2(DOUBLE,DOUBLE) -> DOUBLE
+a avg(BIGINT) -> DOUBLE
+s avg_state(BIGINT) -> VARBINARY
+s bar(BIGINT,BIGINT,BIGINT,BIGINT) -> VARCHAR
+s base64_decode_binary(VARCHAR) -> VARBINARY
+s base64_decode_string(VARCHAR) -> VARCHAR
+s base64_to_bitmap(VARCHAR) -> BITMAP
+s bin(BIGINT) -> VARCHAR
+s bit_shift_left(BIGINT,BIGINT) -> BIGINT
+s bit_shift_right(BIGINT,BIGINT) -> BIGINT
+s bit_shift_right_logical(BIGINT,BIGINT) -> BIGINT
+s bitand(BIGINT,BIGINT) -> BIGINT
+a bitmap_agg(BIGINT) -> BITMAP
+s bitmap_agg_state(BIGINT) -> BITMAP
+s bitmap_and(BITMAP,BITMAP) -> BITMAP
+s bitmap_andnot(BITMAP,BITMAP) -> BITMAP
+s bitmap_contains(BITMAP,BIGINT) -> BOOLEAN
+s bitmap_count(BITMAP) -> BIGINT
+s bitmap_empty() -> BITMAP
+s bitmap_from_binary(VARBINARY) -> BITMAP
+s bitmap_from_string(VARCHAR) -> BITMAP
+s bitmap_has_any(BITMAP,BITMAP) -> BOOLEAN
+s bitmap_hash(VARCHAR) -> BITMAP
+s bitmap_hash64(VARCHAR) -> BITMAP
+a bitmap_intersect(BITMAP) -> BITMAP
+s bitmap_max(BITMAP) -> LARGEINT
+s bitmap_min(BITMAP) -> LARGEINT
+s bitmap_or(BITMAP,BITMAP) -> BITMAP
+s bitmap_remove(BITMAP,BIGINT) -> BITMAP
+s bitmap_subset_in_range(BITMAP,BIGINT,BIGINT) -> BITMAP
+s bitmap_subset_limit(BITMAP,BIGINT,BIGINT) -> BITMAP
+s bitmap_to_array(BITMAP)
+s bitmap_to_base64(BITMAP) -> VARCHAR
+s bitmap_to_binary(BITMAP) -> VARBINARY
+s bitmap_to_string(BITMAP) -> VARCHAR
+a bitmap_union(BITMAP) -> BITMAP
+a bitmap_union_count(BITMAP) -> BIGINT
+a bitmap_union_int(BIGINT) -> BIGINT
+s bitmap_union_int_state(BIGINT) -> BITMAP
+s bitmap_union_state(BITMAP) -> BITMAP
+s bitmap_xor(BITMAP,BITMAP) -> BITMAP
+s bitnot(BIGINT) -> BIGINT
+s bitor(BIGINT,BIGINT) -> BIGINT
+s bitshiftleft(BIGINT,BIGINT) -> BIGINT
+s bitshiftright(BIGINT,BIGINT) -> BIGINT
+s bitshiftrightlogical(BIGINT,BIGINT) -> BIGINT
+s bitxor(BIGINT,BIGINT) -> BIGINT
+a bool_or(BOOLEAN) -> BOOLEAN
+s bool_or_state(BOOLEAN) -> BOOLEAN
+s cardinality(INVALID_TYPE) -> INT
+s cbrt(DOUBLE) -> DOUBLE
+s ceil(DOUBLE) -> BIGINT
+s ceiling(DOUBLE) -> BIGINT
+s char(INT) -> VARCHAR
+s char_length(VARCHAR) -> INT
+s character_length(VARCHAR) -> INT
+s coalesce(BIGINT, ...) -> BIGINT
+a column_compressed_size(INVALID_TYPE) -> BIGINT
+s column_compressed_size_state(INVALID_TYPE) -> BIGINT
+a column_size(INVALID_TYPE) -> BIGINT
+s column_size_state(INVALID_TYPE) -> BIGINT
+s concat(VARCHAR, ...) -> VARCHAR
+s concat_ws(VARCHAR,INVALID_TYPE) -> VARCHAR
+s concat_ws(VARCHAR,VARCHAR, ...) -> VARCHAR
+s conv(BIGINT,TINYINT,TINYINT) -> VARCHAR
+s convert_tz(DATETIME,VARCHAR,VARCHAR) -> DATETIME
+a corr(BIGINT,BIGINT) -> DOUBLE
+s corr_state(BIGINT,BIGINT) -> VARBINARY
+s cos(DOUBLE) -> DOUBLE
+s cosh(DOUBLE) -> DOUBLE
+s cosine_similarity(INVALID_TYPE,INVALID_TYPE) -> FLOAT
+s cosine_similarity_norm(INVALID_TYPE,INVALID_TYPE) -> FLOAT
+s cot(DOUBLE) -> DOUBLE
+a count() -> BIGINT
+a count(BIGINT) -> BIGINT
+s count_state() -> BIGINT
+s count_state(BIGINT) -> BIGINT
+a covar_pop(BIGINT,BIGINT) -> DOUBLE
+s covar_pop_state(BIGINT,BIGINT) -> VARBINARY
+a covar_samp(BIGINT,BIGINT) -> DOUBLE
+s covar_samp_state(BIGINT,BIGINT) -> VARBINARY
+s crc32(VARCHAR) -> BIGINT
+s crc32_hash(INVALID_TYPE) -> BIGINT
+w cume_dist() -> DOUBLE
+s curdate() -> DATE
+s current_date() -> DATE
+s current_time() -> TIME
+s current_timestamp() -> DATETIME
+s current_timestamp(INT) -> DATETIME
+s current_timezone() -> VARCHAR
+s current_version() -> VARCHAR
+s curtime() -> TIME
+s date(DATETIME) -> DATE
+s date_add(DATETIME,INT) -> DATETIME
+s date_diff(VARCHAR,DATETIME,DATETIME) -> BIGINT
+s date_format(DATE,VARCHAR) -> VARCHAR
+s date_slice(DATE,INT,VARCHAR) -> DATE
+s date_slice(DATE,INT,VARCHAR,VARCHAR) -> DATE
+s date_sub(DATETIME,INT) -> DATETIME
+s date_trunc(VARCHAR,DATE) -> DATE
+s datediff(DATETIME,DATETIME) -> INT
+s day(DATE) -> TINYINT
+s dayname(DATETIME) -> VARCHAR
+s dayofmonth(DATETIME) -> TINYINT
+s dayofweek(DATETIME) -> INT
+s dayofweek_iso(DATETIME) -> INT
+s dayofyear(DATETIME) -> INT
+s days_add(DATETIME,INT) -> DATETIME
+s days_diff(DATETIME,DATETIME) -> BIGINT
+s days_sub(DATETIME,INT) -> DATETIME
+s dceil(DOUBLE) -> BIGINT
+s degrees(DOUBLE) -> DOUBLE
+w dense_rank() -> BIGINT
+s dexp(DOUBLE) -> DOUBLE
+s dfloor(DOUBLE) -> BIGINT
+s distinct_map_keys(INVALID_TYPE)
+s divide(DECIMAL128,DECIMAL128) -> DECIMAL128
+s dlog1(DOUBLE) -> DOUBLE
+s dlog10(DOUBLE) -> DOUBLE
+s dpow(DOUBLE,DOUBLE) -> DOUBLE
+s dround(DECIMAL128) -> DECIMAL128
+s dround(DECIMAL128,INT) -> DECIMAL128
+a ds_hll_accumulate(BIGINT) -> VARBINARY
+a ds_hll_accumulate(BIGINT,INT) -> VARBINARY
+a ds_hll_accumulate(BIGINT,INT,VARCHAR) -> VARBINARY
+a ds_hll_count_distinct(BIGINT) -> BIGINT
+a ds_hll_count_distinct(BIGINT,INT) -> BIGINT
+a ds_hll_count_distinct(BIGINT,INT,VARCHAR) -> BIGINT
+s ds_hll_count_distinct_state(BIGINT) -> VARBINARY
+s ds_hll_count_distinct_state(BIGINT,INT) -> VARBINARY
+s ds_hll_count_distinct_state(BIGINT,INT,VARCHAR) -> VARBINARY
+a ds_hll_estimate(VARBINARY) -> BIGINT
+a ds_theta_count_distinct(BIGINT) -> BIGINT
+s ds_theta_count_distinct_state(BIGINT) -> VARBINARY
+s dsqrt(DOUBLE) -> DOUBLE
+s e() -> DOUBLE
+s encode_fingerprint_sha256(INVALID_TYPE, ...) -> VARBINARY
+s encode_sort_key(INVALID_TYPE, ...) -> VARBINARY
+s ends_with(VARCHAR,VARCHAR) -> BOOLEAN
+s equiwidth_bucket(BIGINT,BIGINT,BIGINT,BIGINT) -> BIGINT
+s esquery(VARCHAR,VARCHAR) -> BOOLEAN
+a exchange_bytes(INVALID_TYPE, ...) -> BIGINT
+a exchange_speed(INVALID_TYPE, ...) -> VARCHAR
+s exp(DOUBLE) -> DOUBLE
+s field(BIGINT, ...) -> INT
+s find_in_set(VARCHAR,VARCHAR) -> INT
+w first_value(BIGINT) -> BIGINT
+a first_value_rewrite(BIGINT,BIGINT) -> BIGINT
+a flat_json_meta(INVALID_TYPE)
+s floor(DOUBLE) -> BIGINT
+s fmod(DOUBLE,DOUBLE) -> DOUBLE
+s format_bytes(BIGINT) -> VARCHAR
+s fpow(DOUBLE,DOUBLE) -> DOUBLE
+s from_base64(VARCHAR) -> VARCHAR
+s from_binary(VARBINARY) -> VARCHAR
+s from_binary(VARBINARY,VARCHAR) -> VARCHAR
+s from_days(INT) -> DATE
+s from_unixtime(BIGINT) -> VARCHAR
+s from_unixtime(BIGINT,VARCHAR) -> VARCHAR
+s from_unixtime(BIGINT,VARCHAR,VARCHAR) -> VARCHAR
+s from_unixtime_ms(BIGINT) -> VARCHAR
+a fused_multi_distinct_count(BIGINT)
+a fused_multi_distinct_count_avg(BIGINT)
+s fused_multi_distinct_count_avg_state(BIGINT) -> VARBINARY
+s fused_multi_distinct_count_state(BIGINT) -> VARBINARY
+a fused_multi_distinct_count_sum(BIGINT)
+a fused_multi_distinct_count_sum_avg(BIGINT)
+s fused_multi_distinct_count_sum_avg_state(BIGINT) -> VARBINARY
+s fused_multi_distinct_count_sum_state(BIGINT) -> VARBINARY
+t generate_series(BIGINT,BIGINT,BIGINT)
+s get_json_bool(JSON,VARCHAR) -> BOOLEAN
+s get_json_double(JSON,VARCHAR) -> DOUBLE
+s get_json_int(JSON,VARCHAR) -> BIGINT
+s get_json_object(JSON,VARCHAR) -> VARCHAR
+s get_json_string(JSON,VARCHAR) -> VARCHAR
+s get_query_profile(VARCHAR) -> VARCHAR
+s get_variant_bool(VARIANT,VARCHAR) -> BOOLEAN
+s get_variant_date(VARIANT,VARCHAR) -> DATE
+s get_variant_datetime(VARIANT,VARCHAR) -> DATETIME
+s get_variant_double(VARIANT,VARCHAR) -> DOUBLE
+s get_variant_int(VARIANT,VARCHAR) -> BIGINT
+s get_variant_string(VARIANT,VARCHAR) -> VARCHAR
+s get_variant_time(VARIANT,VARCHAR) -> TIME
+s greatest(BIGINT, ...) -> BIGINT
+a group_concat(INVALID_TYPE, ...) -> VARCHAR
+s grouping(BIGINT) -> BIGINT
+s grouping_id(BIGINT) -> BIGINT
+s hex(BIGINT) -> VARCHAR
+s hex_decode_binary(VARCHAR) -> VARBINARY
+s hex_decode_string(VARCHAR) -> VARCHAR
+a histogram(BIGINT,INT,DOUBLE) -> VARCHAR
+a histogram(BIGINT,INT,DOUBLE,VARCHAR) -> VARCHAR
+a histogram_hll_ndv(BIGINT,VARCHAR) -> VARCHAR
+s hll_cardinality(HLL) -> BIGINT
+s hll_deserialize(VARCHAR) -> HLL
+s hll_empty() -> HLL
+s hll_hash(VARCHAR) -> HLL
+a hll_raw(BIGINT) -> HLL
+a hll_raw_agg(HLL) -> HLL
+s hll_serialize(HLL) -> VARCHAR
+a hll_union(HLL) -> HLL
+a hll_union_agg(HLL) -> BIGINT
+s hll_union_state(HLL) -> HLL
+s host_name() -> VARCHAR
+s hour(DATETIME) -> TINYINT
+s hour_from_unixtime(BIGINT) -> TINYINT
+s hours_add(DATETIME,INT) -> DATETIME
+s hours_diff(DATETIME,DATETIME) -> BIGINT
+s hours_sub(DATETIME,INT) -> DATETIME
+s if(BOOLEAN,BIGINT,BIGINT) -> BIGINT
+s ifnull(BIGINT,BIGINT) -> BIGINT
+s inet_aton(VARCHAR) -> BIGINT
+s initcap(VARCHAR) -> VARCHAR
+s instr(VARCHAR,VARCHAR) -> INT
+s int_divide(BIGINT,BIGINT) -> BIGINT
+a intersect_count(BITMAP,BIGINT,BIGINT, ...) -> BIGINT
+s is_role_in_session(VARCHAR) -> BOOLEAN
+s jodatime_format(DATE,VARCHAR) -> VARCHAR
+s json_array() -> JSON
+s json_array(JSON, ...) -> JSON
+s json_contains(JSON,JSON) -> BOOLEAN
+t json_each(JSON)
+s json_exists(JSON,VARCHAR) -> BOOLEAN
+s json_keys(JSON) -> JSON
+s json_keys(JSON,VARCHAR) -> JSON
+s json_length(JSON) -> INT
+s json_length(JSON,VARCHAR) -> INT
+s json_object() -> JSON
+s json_object(JSON, ...) -> JSON
+s json_pretty(JSON) -> VARCHAR
+s json_query(JSON,VARCHAR) -> JSON
+s json_remove(JSON,VARCHAR, ...) -> JSON
+s json_set(JSON,JSON, ...) -> JSON
+s json_string(JSON) -> VARCHAR
+s l2_distance(INVALID_TYPE,INVALID_TYPE) -> FLOAT
+w lag(BIGINT) -> BIGINT
+w lag(BIGINT,BIGINT) -> BIGINT
+w lag(BIGINT,BIGINT,BIGINT) -> BIGINT
+s last_day(DATE) -> DATE
+s last_day(DATE,VARCHAR) -> DATE
+s last_query_id() -> VARCHAR
+w last_value(BIGINT) -> BIGINT
+s lcase(VARCHAR) -> VARCHAR
+w lead(BIGINT) -> BIGINT
+w lead(BIGINT,BIGINT) -> BIGINT
+w lead(BIGINT,BIGINT,BIGINT) -> BIGINT
+s least(BIGINT, ...) -> BIGINT
+s left(VARCHAR,INT) -> VARCHAR
+s length(VARCHAR) -> INT
+s like(VARCHAR,VARCHAR) -> BOOLEAN
+t list_rowsets(BIGINT,BIGINT)
+s ln(DOUBLE) -> DOUBLE
+s localtime() -> DATETIME
+s localtimestamp() -> DATETIME
+s locate(VARCHAR,VARCHAR) -> INT
+s locate(VARCHAR,VARCHAR,INT) -> INT
+s log(DOUBLE) -> DOUBLE
+s log(DOUBLE,DOUBLE) -> DOUBLE
+s log10(DOUBLE) -> DOUBLE
+s log2(DOUBLE) -> DOUBLE
+s lower(VARCHAR) -> VARCHAR
+s lpad(VARCHAR,INT,VARCHAR) -> VARCHAR
+s ltrim(VARCHAR) -> VARCHAR
+s ltrim(VARCHAR,VARCHAR) -> VARCHAR
+s makedate(INT,INT) -> DATE
+a mann_whitney_u_test(DOUBLE,BOOLEAN) -> JSON
+a mann_whitney_u_test(DOUBLE,BOOLEAN,VARCHAR) -> JSON
+a mann_whitney_u_test(DOUBLE,BOOLEAN,VARCHAR,BIGINT) -> JSON
+s mann_whitney_u_test_state(DOUBLE,BOOLEAN) -> VARBINARY
+s mann_whitney_u_test_state(DOUBLE,BOOLEAN,VARCHAR) -> VARBINARY
+s mann_whitney_u_test_state(DOUBLE,BOOLEAN,VARCHAR,BIGINT) -> VARBINARY
+a map_agg(BIGINT,INVALID_TYPE)
+s map_apply(FUNCTION,INVALID_TYPE)
+s map_concat(INVALID_TYPE, ...)
+s map_entries(INVALID_TYPE)
+s map_filter(INVALID_TYPE,INVALID_TYPE)
+s map_from_arrays(INVALID_TYPE,INVALID_TYPE)
+s map_keys(INVALID_TYPE)
+s map_size(INVALID_TYPE) -> INT
+s map_values(INVALID_TYPE)
+a max(BIGINT) -> BIGINT
+a max_by(BIGINT,BIGINT) -> BIGINT
+s max_by_state(BIGINT,BIGINT) -> VARBINARY
+s max_state(BIGINT) -> BIGINT
+s md5(VARCHAR) -> VARCHAR
+s md5sum(VARCHAR, ...) -> VARCHAR
+s md5sum_numeric(VARCHAR, ...) -> LARGEINT
+s microseconds_add(DATETIME,INT) -> DATETIME
+s microseconds_sub(DATETIME,INT) -> DATETIME
+s milliseconds_add(DATETIME,INT) -> DATETIME
+s milliseconds_diff(DATETIME,DATETIME) -> BIGINT
+s milliseconds_sub(DATETIME,INT) -> DATETIME
+a min(BIGINT) -> BIGINT
+a min_by(BIGINT,BIGINT) -> BIGINT
+s min_by_state(BIGINT,BIGINT) -> VARBINARY
+s min_state(BIGINT) -> BIGINT
+s minute(DATETIME) -> TINYINT
+s minutes_add(DATETIME,INT) -> DATETIME
+s minutes_diff(DATETIME,DATETIME) -> BIGINT
+s minutes_sub(DATETIME,INT) -> DATETIME
+s mod(BIGINT,BIGINT) -> BIGINT
+s money_format(BIGINT) -> VARCHAR
+s month(DATE) -> TINYINT
+s monthname(DATETIME) -> VARCHAR
+s months_add(DATETIME,INT) -> DATETIME
+s months_diff(DATETIME,DATETIME) -> BIGINT
+s months_sub(DATETIME,INT) -> DATETIME
+a multi_distinct_count(BIGINT) -> BIGINT
+s multi_distinct_count_state(BIGINT) -> VARBINARY
+a multi_distinct_sum(BIGINT) -> BIGINT
+s multi_distinct_sum_state(BIGINT) -> VARBINARY
+s multiply(BIGINT,BIGINT) -> BIGINT
+s murmur_hash3_32(VARCHAR, ...) -> INT
+s named_struct(INVALID_TYPE, ...)
+a ndv(BIGINT) -> BIGINT
+s ndv_state(BIGINT) -> VARBINARY
+s negative(BIGINT) -> BIGINT
+s next_day(DATETIME,VARCHAR) -> DATE
+s ngram_search(VARCHAR,VARCHAR,INT) -> DOUBLE
+s ngram_search_case_insensitive(VARCHAR,VARCHAR,INT) -> DOUBLE
+s now() -> DATETIME
+s now(INT) -> DATETIME
+w ntile(BIGINT) -> BIGINT
+s null_or_empty(INVALID_TYPE) -> BOOLEAN
+s nullif(BIGINT,BIGINT) -> BIGINT
+s parse_json(VARCHAR) -> JSON
+s parse_url(VARCHAR,VARCHAR) -> VARCHAR
+w percent_rank() -> DOUBLE
+a percentile_approx(DOUBLE,DOUBLE) -> DOUBLE
+a percentile_approx(DOUBLE,DOUBLE,DOUBLE) -> DOUBLE
+s percentile_approx_raw(PERCENTILE,DOUBLE) -> DOUBLE
+s percentile_approx_state(DOUBLE,DOUBLE) -> VARBINARY
+s percentile_approx_state(DOUBLE,DOUBLE,DOUBLE) -> VARBINARY
+a percentile_approx_weighted(DOUBLE,BIGINT,DOUBLE) -> DOUBLE
+a percentile_approx_weighted(DOUBLE,BIGINT,DOUBLE,DOUBLE) -> DOUBLE
+s percentile_approx_weighted_state(DOUBLE,BIGINT,DOUBLE) -> VARBINARY
+s percentile_approx_weighted_state(DOUBLE,BIGINT,DOUBLE,DOUBLE) -> VARBINARY
+a percentile_cont(DATE,DOUBLE) -> DATE
+s percentile_cont_state(DATE,DOUBLE) -> VARBINARY
+a percentile_disc(BIGINT,DOUBLE) -> BIGINT
+a percentile_disc_lc(BIGINT,DOUBLE) -> BIGINT
+s percentile_disc_state(BIGINT,DOUBLE) -> VARBINARY
+s percentile_empty() -> PERCENTILE
+s percentile_hash(DOUBLE) -> PERCENTILE
+s percentile_union_state(PERCENTILE) -> PERCENTILE
+s pi() -> DOUBLE
+s pmod(BIGINT,BIGINT) -> BIGINT
+s positive(BIGINT) -> BIGINT
+s pow(DOUBLE,DOUBLE) -> DOUBLE
+s power(DOUBLE,DOUBLE) -> DOUBLE
+s previous_day(DATETIME,VARCHAR) -> DATE
+s quarter(DATETIME) -> INT
+s quarters_add(DATETIME,INT) -> DATETIME
+s quarters_sub(DATETIME,INT) -> DATETIME
+s query_id() -> VARCHAR
+s radians(DOUBLE) -> DOUBLE
+s raise_error(VARCHAR) -> BOOLEAN
+s rand() -> DOUBLE
+s rand(BIGINT) -> DOUBLE
+s random() -> DOUBLE
+s random(BIGINT) -> DOUBLE
+w rank() -> BIGINT
+s regexp(VARCHAR,VARCHAR) -> BOOLEAN
+s regexp_count(VARCHAR,VARCHAR) -> BIGINT
+s regexp_extract(VARCHAR,VARCHAR,BIGINT) -> VARCHAR
+s regexp_extract_all(VARCHAR,VARCHAR,BIGINT)
+s regexp_replace(VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+s regexp_split(VARCHAR,VARCHAR)
+s regexp_split(VARCHAR,VARCHAR,INT)
+s repeat(VARCHAR,INT) -> VARCHAR
+s replace(VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+s replace_old(VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+a retention(INVALID_TYPE)
+s retention_state(INVALID_TYPE) -> BIGINT
+s reverse(INVALID_TYPE)
+s right(VARCHAR,INT) -> VARCHAR
+s round(DECIMAL128) -> DECIMAL128
+s round(DECIMAL128,INT) -> DECIMAL128
+s row(INVALID_TYPE, ...)
+w row_number() -> BIGINT
+s rpad(VARCHAR,INT,VARCHAR) -> VARCHAR
+s rtrim(VARCHAR) -> VARCHAR
+s rtrim(VARCHAR,VARCHAR) -> VARCHAR
+s sec_to_time(BIGINT) -> TIME
+s second(DATETIME) -> TINYINT
+s seconds_add(DATETIME,INT) -> DATETIME
+s seconds_diff(DATETIME,DATETIME) -> BIGINT
+s seconds_sub(DATETIME,INT) -> DATETIME
+w session_number(BIGINT,INT) -> BIGINT
+s sha2(VARCHAR,INT) -> VARCHAR
+s sign(DOUBLE) -> FLOAT
+s sin(DOUBLE) -> DOUBLE
+s sinh(DOUBLE) -> DOUBLE
+s sleep(INT) -> BOOLEAN
+s sm3(VARCHAR) -> VARCHAR
+s space(INT) -> VARCHAR
+s split(VARCHAR,VARCHAR)
+s split_part(VARCHAR,VARCHAR,INT) -> VARCHAR
+s sqrt(DOUBLE) -> DOUBLE
+s square(DOUBLE) -> DOUBLE
+s st_astext(VARCHAR) -> VARCHAR
+s st_aswkt(VARCHAR) -> VARCHAR
+s st_circle(DOUBLE,DOUBLE,DOUBLE) -> VARCHAR
+s st_contains(VARCHAR,VARCHAR) -> BOOLEAN
+s st_distance_sphere(DOUBLE,DOUBLE,DOUBLE,DOUBLE) -> DOUBLE
+s st_geometryfromtext(VARCHAR) -> VARCHAR
+s st_geomfromtext(VARCHAR) -> VARCHAR
+s st_linefromtext(VARCHAR) -> VARCHAR
+s st_linestringfromtext(VARCHAR) -> VARCHAR
+s st_point(DOUBLE,DOUBLE) -> VARCHAR
+s st_polyfromtext(VARCHAR) -> VARCHAR
+s st_polygon(VARCHAR) -> VARCHAR
+s st_polygonfromtext(VARCHAR) -> VARCHAR
+s st_x(VARCHAR) -> DOUBLE
+s st_y(VARCHAR) -> DOUBLE
+s starts_with(VARCHAR,VARCHAR) -> BOOLEAN
+a std(BIGINT) -> DOUBLE
+s std_state(BIGINT) -> VARBINARY
+a stddev(BIGINT) -> DOUBLE
+a stddev_pop(BIGINT) -> DOUBLE
+s stddev_pop_state(BIGINT) -> VARBINARY
+a stddev_samp(BIGINT) -> DOUBLE
+s stddev_samp_state(BIGINT) -> VARBINARY
+s stddev_state(BIGINT) -> VARBINARY
+s str2date(VARCHAR,VARCHAR) -> DATE
+s str_to_date(VARCHAR,VARCHAR) -> DATETIME
+s str_to_jodatime(VARCHAR,VARCHAR) -> DATETIME
+s str_to_map(INVALID_TYPE,VARCHAR)
+s str_to_map(VARCHAR,VARCHAR,VARCHAR)
+s strcmp(VARCHAR,VARCHAR) -> INT
+s strleft(VARCHAR,INT) -> VARCHAR
+s strpos(VARCHAR,VARCHAR) -> BIGINT
+s strpos(VARCHAR,VARCHAR,INT) -> BIGINT
+s strright(VARCHAR,INT) -> VARCHAR
+s sub_bitmap(BITMAP,BIGINT,BIGINT) -> BITMAP
+s subdate(DATETIME,INT) -> DATETIME
+t subdivide_bitmap(BITMAP,BIGINT)
+s substr(VARCHAR,INT) -> VARCHAR
+s substr(VARCHAR,INT,INT) -> VARCHAR
+s substring(VARCHAR,INT) -> VARCHAR
+s substring(VARCHAR,INT,INT) -> VARCHAR
+s substring_index(VARCHAR,VARCHAR,INT) -> VARCHAR
+s subtract(BIGINT,BIGINT) -> BIGINT
+a sum(BIGINT) -> BIGINT
+a sum_map(INVALID_TYPE)
+s sum_state(BIGINT) -> BIGINT
+s tan(DOUBLE) -> DOUBLE
+s tanh(DOUBLE) -> DOUBLE
+s time_format(TIME,VARCHAR) -> VARCHAR
+s time_slice(DATETIME,INT,VARCHAR) -> DATETIME
+s time_slice(DATETIME,INT,VARCHAR,VARCHAR) -> DATETIME
+s time_to_sec(TIME) -> BIGINT
+s timediff(DATETIME,DATETIME) -> TIME
+s timestamp(DATETIME) -> DATETIME
+s to_base64(VARBINARY) -> VARCHAR
+s to_binary(VARCHAR) -> VARBINARY
+s to_binary(VARCHAR,VARCHAR) -> VARBINARY
+s to_bitmap(BIGINT) -> BITMAP
+s to_date(DATETIME) -> DATE
+s to_datetime(BIGINT) -> DATETIME
+s to_datetime(BIGINT,INT) -> DATETIME
+s to_datetime_ntz(BIGINT) -> DATETIME
+s to_datetime_ntz(BIGINT,INT) -> DATETIME
+s to_days(DATE) -> INT
+s to_iso8601(DATE) -> VARCHAR
+s to_json(INVALID_TYPE) -> JSON
+s to_tera_date(VARCHAR,VARCHAR) -> DATE
+s to_tera_timestamp(VARCHAR,VARCHAR) -> DATETIME
+s tokenize(VARCHAR,VARCHAR)
+s translate(VARCHAR,VARCHAR,VARCHAR) -> VARCHAR
+s trim(VARCHAR) -> VARCHAR
+s trim(VARCHAR,VARCHAR) -> VARCHAR
+s truncate(DECIMAL128,INT) -> DECIMAL128
+s ucase(VARCHAR) -> VARCHAR
+s unhex(VARCHAR) -> VARCHAR
+s unix_timestamp() -> BIGINT
+s unix_timestamp(DATE) -> BIGINT
+s unix_timestamp(VARCHAR,VARCHAR) -> BIGINT
+t unnest(INVALID_TYPE, ...)
+t unnest_bitmap(BITMAP)
+s upper(VARCHAR) -> VARCHAR
+s url_decode(VARCHAR) -> VARCHAR
+s url_encode(VARCHAR) -> VARCHAR
+s url_extract_host(VARCHAR) -> VARCHAR
+s url_extract_parameter(VARCHAR,VARCHAR) -> VARCHAR
+s utc_time() -> TIME
+s utc_timestamp() -> DATETIME
+s uuid() -> VARCHAR
+s uuid_numeric() -> LARGEINT
+s uuid_v7() -> VARCHAR
+s uuid_v7_numeric() -> LARGEINT
+a var_pop(BIGINT) -> DOUBLE
+s var_pop_state(BIGINT) -> VARBINARY
+a var_samp(BIGINT) -> DOUBLE
+s var_samp_state(BIGINT) -> VARBINARY
+a variance(BIGINT) -> DOUBLE
+a variance_pop(BIGINT) -> DOUBLE
+s variance_pop_state(BIGINT) -> VARBINARY
+a variance_samp(BIGINT) -> DOUBLE
+s variance_samp_state(BIGINT) -> VARBINARY
+s variance_state(BIGINT) -> VARBINARY
+s variant_query(VARIANT,VARCHAR) -> VARIANT
+s variant_typeof(VARIANT) -> VARCHAR
+s version() -> VARCHAR
+s week(DATETIME) -> INT
+s week(DATETIME,INT) -> INT
+s week_iso(DATETIME) -> INT
+s weekday(DATETIME) -> INT
+s weekofyear(DATETIME) -> INT
+s weeks_add(DATETIME,INT) -> DATETIME
+s weeks_diff(DATETIME,DATETIME) -> BIGINT
+s weeks_sub(DATETIME,INT) -> DATETIME
+a window_funnel(BIGINT,BIGINT,INT,INVALID_TYPE) -> INT
+s xx_hash3_128(VARCHAR, ...) -> LARGEINT
+s xx_hash3_64(VARCHAR, ...) -> BIGINT
+s year(DATE) -> SMALLINT
+s years_add(DATETIME,INT) -> DATETIME
+s years_diff(DATETIME,DATETIME) -> BIGINT
+s years_sub(DATETIME,INT) -> DATETIME
+s yearweek(DATETIME) -> INT
+s yearweek(DATETIME,INT) -> INT

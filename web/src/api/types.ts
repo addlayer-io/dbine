@@ -9,6 +9,31 @@ export type Family =
 
 export type Language = 'sql' | 'cql' | 'json' | 'redis' | 'flux' | 'cypher';
 
+/** What a function catalog entry is (crates/dbine-driver/src/functions.rs):
+ *  where the editor offers it and what picking it inserts. */
+export type FunctionKind = 'scalar' | 'aggregate' | 'window' | 'table' | 'operator' | 'command';
+
+/** One entry of an engine's function catalog, for completion. Overloads are
+ *  separate entries with the same name. */
+export interface FunctionInfo {
+  name: string;
+  kind: FunctionKind;
+  /** As the engine documents them, with their parentheses; '' : nothing to show. */
+  args: string;
+  /** The result type; '' : unknown. */
+  returns: string;
+  /** What the server says about it, as it says it; '' for static catalogs. */
+  description: string;
+  /** The schema, package or namespace it lives in when it isn't a built-in
+   *  reached by its bare name (a user's function in `sales`, Flux's
+   *  `strings`); '' otherwise. */
+  schema: string;
+  /** The editor language the entry belongs to when it isn't the driver's
+   *  own: 'sql' for the SQL lines of a JSON console (Elasticsearch,
+   *  OpenSearch, Solr); '' for the driver's language. */
+  language?: string;
+}
+
 export type FieldKind =
   | { type: 'text' } | { type: 'number' } | { type: 'password' } | { type: 'bool' }
   | { type: 'file' } | { type: 'textarea' }

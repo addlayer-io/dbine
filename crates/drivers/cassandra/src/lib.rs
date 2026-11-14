@@ -10,6 +10,7 @@ mod backup;
 mod cql;
 mod create_db;
 mod ddl;
+mod functions;
 mod index_usage;
 mod monitor;
 mod permissions;
@@ -1895,6 +1896,28 @@ impl DbSession for CassandraSession {
     /// The role's own permissions and superuser status (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    /// The engine's built-ins plus the user's functions and aggregates
+    /// (see [`functions`]); without `system_schema` access, the built-ins.
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let version = self.server_version().await.ok();
+        let engine = match (self.flavor, version.as_deref()) {
+            (Flavor::Keyspaces, _) => functions::Engine::Keyspaces,
+            (_, Some(v)) if v.starts_with("ScyllaDB") => functions::Engine::Scylla,
+            (Flavor::Scylla, _) => functions::Engine::Scylla,
+            _ => functions::Engine::Cassandra,
+        };
+        let mut out = functions::builtins(engine, version.as_deref());
+        if engine != functions::Engine::Keyspaces {
+            if let Ok(rows) = self.rows(functions::USER_FUNCTIONS, ()).await {
+                out.extend(rows.iter().map(functions::user_function));
+            }
+            if let Ok(rows) = self.rows(functions::USER_AGGREGATES, ()).await {
+                out.extend(rows.iter().map(functions::user_aggregate));
+            }
+        }
+        Ok(out)
     }
 
     async fn index_usage(

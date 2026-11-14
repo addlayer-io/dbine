@@ -7,6 +7,7 @@
 mod backup;
 mod command;
 mod ddl;
+mod functions;
 mod monitor;
 mod permissions;
 mod pinned;
@@ -1102,6 +1103,11 @@ impl Session for RedisSession {
     /// matter, ACL rules are server-wide.
     async fn permissions(&mut self, _database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self).await
+    }
+
+    /// The server's commands, from `COMMAND DOCS` (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        Ok(functions::catalog(self).await)
     }
 }
 

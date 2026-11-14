@@ -1,0 +1,116 @@
+# Microsoft Access (Access database engine / Jet SQL, also the dBase
+# driver): the functions a query can call, from the Access SQL reference
+# and the VBA expression functions the engine evaluates.
+
+# Aggregate
+a Avg(expr) -> Double
+a Count(* | expr) -> Long
+a First(expr)
+a Last(expr)
+a Max(expr)
+a Min(expr)
+a StDev(expr) -> Double
+a StDevP(expr) -> Double
+a Sum(expr)
+a Var(expr) -> Double
+a VarP(expr) -> Double
+
+# Conversion
+s Asc(string) -> Integer
+s CBool(expr) -> Boolean
+s CByte(expr) -> Byte
+s CCur(expr) -> Currency
+s CDate(expr) -> Date
+s CDbl(expr) -> Double
+s CDec(expr) -> Decimal
+s Chr(charcode) -> String
+s CInt(expr) -> Integer
+s CLng(expr) -> Long
+s CSng(expr) -> Single
+s CStr(expr) -> String
+s CVar(expr)
+s Hex(number) -> String
+s Oct(number) -> String
+s Str(number) -> String
+s Val(string) -> Double
+
+# Date and time
+s Date() -> Date
+s DateAdd(interval, number, date) -> Date
+s DateDiff(interval, date1, date2 [, firstdayofweek [, firstweekofyear]]) -> Long
+s DatePart(interval, date [, firstdayofweek [, firstweekofyear]]) -> Integer
+s DateSerial(year, month, day) -> Date
+s DateValue(date) -> Date
+s Day(date) -> Integer
+s Hour(time) -> Integer
+s Minute(time) -> Integer
+s Month(date) -> Integer
+s MonthName(month [, abbreviate]) -> String
+s Now() -> Date
+s Second(time) -> Integer
+s Time() -> Date
+s Timer() -> Single
+s TimeSerial(hour, minute, second) -> Date
+s TimeValue(time) -> Date
+s Weekday(date [, firstdayofweek]) -> Integer
+s WeekdayName(weekday [, abbreviate [, firstdayofweek]]) -> String
+s Year(date) -> Integer
+
+# Math
+s Abs(number)
+s Atn(number) -> Double
+s Cos(number) -> Double
+s Exp(number) -> Double
+s Fix(number)
+s Int(number)
+s Log(number) -> Double
+s Rnd([number]) -> Single
+s Round(expression [, numdecimalplaces])
+s Sgn(number) -> Integer
+s Sin(number) -> Double
+s Sqr(number) -> Double
+s Tan(number) -> Double
+
+# Text
+s Format(expression [, format [, firstdayofweek [, firstweekofyear]]]) -> String
+s InStr([start,] string1, string2 [, compare]) -> Long
+s InStrRev(stringcheck, stringmatch [, start [, compare]]) -> Long
+s LCase(string) -> String
+s Left(string, length) -> String
+s Len(string) -> Long
+s LTrim(string) -> String
+s Mid(string, start [, length]) -> String
+s Replace(expression, find, replace [, start [, count [, compare]]]) -> String
+s Right(string, length) -> String
+s RTrim(string) -> String
+s Space(number) -> String
+s StrComp(string1, string2 [, compare]) -> Integer
+s StrConv(string, conversion [, LCID]) -> String
+s StrReverse(expression) -> String
+s String(number, character) -> String
+s Trim(string) -> String
+s UCase(string) -> String
+
+# Program flow and inspection
+s Choose(index, choice1 [, choice2]...)
+s IIf(expr, truepart, falsepart)
+s IsDate(expression) -> Boolean
+s IsEmpty(expression) -> Boolean
+s IsNull(expression) -> Boolean
+s IsNumeric(expression) -> Boolean
+s Partition(number, start, stop, interval) -> String
+s Switch(expr1, value1 [, expr2, value2]...)
+s TypeName(varname) -> String
+s VarType(varname) -> Integer
+
+# Financial
+s DDB(cost, salvage, life, period [, factor]) -> Double
+s FV(rate, nper, pmt [, pv [, type]]) -> Double
+s IPmt(rate, per, nper, pv [, fv [, type]]) -> Double
+s NPer(rate, pmt, pv [, fv [, type]]) -> Double
+s Pmt(rate, nper, pv [, fv [, type]]) -> Double
+s PPmt(rate, per, nper, pv [, fv [, type]]) -> Double
+s PV(rate, nper, pmt [, fv [, type]]) -> Double
+s Rate(nper, pmt, pv [, fv [, type [, guess]]]) -> Double
+s SLN(cost, salvage, life) -> Double
+s SYD(cost, salvage, life, period) -> Double

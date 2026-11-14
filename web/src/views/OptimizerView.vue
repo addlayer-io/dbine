@@ -11,6 +11,7 @@ import type { Plan } from '../api/types';
 import { language, locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
+import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import CodeEditor from '../components/CodeEditor.vue';
 import PlanView from '../components/PlanView.vue';
 import { useConnectionsStore } from '../stores/connections';
@@ -472,7 +473,7 @@ const sourceLabel = (s: string) => t(`optimizer:source.${s}`);
 
     <el-dialog v-model="ownOpen" :title="$t('optimizer:ownTitle')" width="760px" append-to-body>
       <p class="nm-muted ov-own-hint">{{ $t('optimizer:ownHint') }}</p>
-      <div class="ov-own"><CodeEditor v-model="ownText" :language="driver?.language" :dialect="driver?.dialect" /></div>
+      <div class="ov-own"><CodeEditor v-model="ownText" :language="driver?.language" :dialect="driver?.dialect" :functions="functionCatalog(tab.connectionId, tab.database)" @need-functions="loadFunctionCatalog(tab.connectionId, tab.database)" /></div>
       <template #footer>
         <el-button @click="ownOpen = false">{{ $t('common:cancel') }}</el-button>
         <el-button type="primary" @click="saveOwn">{{ $t('optimizer:add') }}</el-button>

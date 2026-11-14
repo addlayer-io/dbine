@@ -1,0 +1,158 @@
+# IBM Informix (also GBase 8s): the built-in functions of the Informix
+# Guide to SQL: Syntax (11.70 to 15). `since` is the Informix version that
+# added one.
+
+# Aggregate
+a AVG([ALL | DISTINCT | UNIQUE] expr)
+a COUNT(* | [ALL | DISTINCT | UNIQUE] expr) -> INTEGER
+a MAX([ALL | DISTINCT | UNIQUE] expr)
+a MIN([ALL | DISTINCT | UNIQUE] expr)
+a RANGE([ALL | DISTINCT | UNIQUE] expr)
+a STDEV([ALL | DISTINCT | UNIQUE] expr) -> FLOAT
+a SUM([ALL | DISTINCT | UNIQUE] expr)
+a VARIANCE([ALL | DISTINCT | UNIQUE] expr) -> FLOAT
+
+# OLAP window functions
+w CUME_DIST() OVER (window_specification) since=12.10
+w DENSE_RANK() OVER (window_specification) since=12.10
+w FIRST_VALUE(expr [IGNORE NULLS | RESPECT NULLS]) OVER (window_specification) since=12.10
+w LAG(expr [, offset [, default]]) [IGNORE NULLS | RESPECT NULLS] OVER (window_specification) since=12.10
+w LAST_VALUE(expr [IGNORE NULLS | RESPECT NULLS]) OVER (window_specification) since=12.10
+w LEAD(expr [, offset [, default]]) [IGNORE NULLS | RESPECT NULLS] OVER (window_specification) since=12.10
+w NTILE(n) OVER (window_specification) since=12.10
+w PERCENT_RANK() OVER (window_specification) since=12.10
+w RANK() OVER (window_specification) since=12.10
+w RATIO_TO_REPORT(expr) OVER (window_specification) since=12.10
+w ROW_NUMBER() OVER (window_specification) since=12.10
+
+# Algebraic and trigonometric
+s ABS(num_expr)
+s ACOS(num_expr) -> FLOAT
+s ASIN(num_expr) -> FLOAT
+s ATAN(num_expr) -> FLOAT
+s ATAN2(y, x) -> FLOAT
+s CEIL(num_expr)
+s COS(num_expr) -> FLOAT
+s DEGREES(num_expr) -> FLOAT
+s EXP(num_expr) -> FLOAT
+s FLOOR(num_expr)
+s GREATEST(expr, expr [, expr]...) since=12.10
+s LEAST(expr, expr [, expr]...) since=12.10
+s LOG10(num_expr) -> FLOAT
+s LOGN(num_expr) -> FLOAT
+s MOD(dividend, divisor)
+s POW(base, exponent) -> FLOAT
+s POWER(base, exponent) -> FLOAT
+s RADIANS(num_expr) -> FLOAT
+s ROOT(radicand [, index]) -> FLOAT
+s ROUND(expr [, rounding_factor])
+s SIGN(num_expr) -> INTEGER since=12.10
+s SIN(num_expr) -> FLOAT
+s SQRT(num_expr) -> FLOAT
+s TAN(num_expr) -> FLOAT
+s TRUNC(expr [, truncate_factor])
+
+# Bitwise
+s BITAND(num1, num2) since=11.70
+s BITANDNOT(num1, num2) since=11.70
+s BITNOT(num) since=11.70
+s BITOR(num1, num2) since=11.70
+s BITXOR(num1, num2) since=11.70
+
+# String
+s ASCII(char_expr) -> INTEGER since=12.10
+s CHAR_LENGTH(expr) -> INTEGER
+s CHARACTER_LENGTH(expr) -> INTEGER
+s CHARINDEX(substring, source [, start]) -> INTEGER since=11.70
+s CONCAT(expr1, expr2)
+s FORMAT_UNITS(number [, units [, precision]]) -> VARCHAR
+s HEX(expr) -> CHAR
+s INITCAP(expr)
+s INSTR(source, substring [, start [, count]]) -> INTEGER since=11.70
+s LEFT(source, n) since=11.70
+s LEN(expr) -> INTEGER since=11.70
+s LENGTH(expr) -> INTEGER
+s LOWER(expr)
+s LPAD(source, length [, pad])
+s LTRIM(source [, pad])
+s OCTET_LENGTH(expr) -> INTEGER
+s REPLACE(source, old [, new])
+s REVERSE(source) since=11.70
+s RIGHT(source, n) since=11.70
+s RPAD(source, length [, pad])
+s RTRIM(source [, pad])
+s SPACE(n) since=11.70
+s SUBSTR(source, start [, length])
+s SUBSTRING(source FROM start [FOR length])
+s SUBSTRING_INDEX(source, delimiter, count) since=11.70
+s TRIM([[LEADING | TRAILING | BOTH] [pad] FROM] source)
+s UPPER(expr)
+
+# Time
+s ADD_MONTHS(date_expr, n)
+s CURRENT -> DATETIME
+s CURRENT_ROLE -> VARCHAR
+s CURRENT_USER -> VARCHAR
+s DATE(expr) -> DATE
+s DAY(date_expr) -> INTEGER
+s DBINFO(keyword [, expr])
+s DBSERVERNAME -> VARCHAR
+s EXTEND(datetime_expr [, first TO last]) -> DATETIME
+s LAST_DAY(date_expr) -> DATE
+s MDY(month, day, year) -> DATE
+s MONTH(date_expr) -> INTEGER
+s MONTHS_BETWEEN(date1, date2) -> DECIMAL
+s NEXT_DAY(date_expr, weekday) -> DATE
+s SITENAME -> VARCHAR
+s SYSDATE -> DATETIME
+s TODAY -> DATE
+s USER -> VARCHAR
+s WEEKDAY(date_expr) -> INTEGER
+s YEAR(date_expr) -> INTEGER
+
+# Conversion and formatting
+s CAST(expr AS data_type)
+s TO_CHAR(expr [, format]) -> LVARCHAR
+s TO_DATE(char_expr, format) -> DATETIME
+s TO_NUMBER(char_expr) -> DECIMAL
+s TO_SECONDS(datetime_expr) -> INTEGER since=12.10
+s TO_DSINTERVAL(char_expr) since=12.10
+s TO_YMINTERVAL(char_expr) since=12.10
+
+# Conditional and NULL handling
+s COALESCE(expr, expr [, expr]...) since=12.10
+s DECODE(expr, when_expr, then_expr [, when_expr, then_expr]... [, else_expr])
+s NULLIF(expr1, expr2)
+s NVL(expr, default)
+s NVL2(expr, not_null_expr, null_expr) since=12.10
+
+# Smart large objects and files
+s FILETOBLOB(pathname, {'server' | 'client'} [, table, column]) -> BLOB
+s FILETOCLOB(pathname, {'server' | 'client'} [, table, column]) -> CLOB
+s LOCOPY(lob [, table, column])
+s LOTOFILE(lob, pathname, {'server' | 'client'})
+
+# Encryption
+s DECRYPT_BINARY(data [, password])
+s DECRYPT_CHAR(data [, password])
+s ENCRYPT_AES(data [, password [, hint]])
+s ENCRYPT_TDES(data [, password [, hint]])
+s GETHINT(data)
+
+# Sequences and identifiers
+s SYS_GUID() -> CHAR since=12.10
+
+# JSON and BSON
+s BSON_GET(bson_column, field_name) since=12.10
+s BSON_KEYS_EXIST(bson_column, key [, key]...) since=12.10
+s BSON_SIZE(bson_column, field_name) -> INTEGER since=12.10
+s BSON_UPDATE(bson_column, update_document) since=12.10
+s BSON_VALUE_BIGINT(bson_column, field_name) -> BIGINT since=12.10
+s BSON_VALUE_BOOLEAN(bson_column, field_name) -> BOOLEAN since=12.10
+s BSON_VALUE_DATE(bson_column, field_name) -> DATE since=12.10
+s BSON_VALUE_DOUBLE(bson_column, field_name) -> FLOAT since=12.10
+s BSON_VALUE_INT(bson_column, field_name) -> INTEGER since=12.10
+s BSON_VALUE_LVARCHAR(bson_column, field_name) -> LVARCHAR since=12.10
+s BSON_VALUE_TIMESTAMP(bson_column, field_name) -> DATETIME since=12.10
+s BSON_VALUE_VARCHAR(bson_column, field_name) -> VARCHAR since=12.10
+s GENBSON(row_or_value [, flag]) since=12.10

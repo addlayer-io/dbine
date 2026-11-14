@@ -6,6 +6,7 @@
 //! Firebird connection is one database file, so there's a single namespace.
 
 mod create_db;
+mod functions;
 mod health;
 mod index_usage;
 mod monitor;
@@ -1157,6 +1158,12 @@ impl Session for FirebirdSession {
     /// and domains (see `stats`).
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         self.object_comments_impl().await
+    }
+
+    /// The built-ins of the engine version and RDB$FUNCTIONS (see
+    /// `functions`).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_catalog_impl().await
     }
 
     /// "Chequeo de salud" of the database (see `health`).

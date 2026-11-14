@@ -2438,6 +2438,11 @@ impl Session for MySqlSession {
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         crate::permissions::check(self, database).await
     }
+
+    /// Built-in and user functions for the editor (see `functions`).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_catalog_impl().await
+    }
 }
 
 #[cfg(test)]

@@ -13,6 +13,7 @@
 
 mod create_db;
 mod ddl;
+mod functions;
 mod jobs;
 mod permissions;
 mod processes;
@@ -741,6 +742,21 @@ impl Session for TdSession {
                 .cloned()
                 .unwrap_or_default()
         ))
+    }
+
+    /// The built-ins for the server's version plus the user's UDFs (see
+    /// [`functions`]); without the UDFs when they can't be read.
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        let version = self.server_version().await.ok();
+        let mut catalog = functions::builtins(version.as_deref());
+        match self.query(functions::UDFS).await {
+            Ok(a) => {
+                let cols: Vec<String> = a.columns.into_iter().map(|(n, _)| n).collect();
+                catalog.extend(functions::udfs(&cols, &a.data));
+            }
+            Err(e) => tracing::debug!("tdengine ins_functions: {e}"),
+        }
+        Ok(catalog)
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {

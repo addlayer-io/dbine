@@ -1,0 +1,271 @@
+# MongoDB's aggregation stages and expression operators, query and update
+# operators and system variables, for the editor's completion, as the
+# MongoDB manual lists them. Each name once (`$set` is a stage and an
+# update operator), with `since=` the first MongoDB version that has it in
+# any of its uses. Atlas-only stages ($search, $searchMeta) carry no
+# version.
+o $addFields since=3.4
+o $bucket since=3.4
+o $bucketAuto since=3.4
+o $changeStream since=3.6
+o $changeStreamSplitLargeEvent since=7.0
+o $collStats since=3.4
+o $count since=3.4
+o $currentOp since=3.6
+o $densify since=5.1
+o $documents since=5.1
+o $facet since=3.4
+o $fill since=5.3
+o $geoNear
+o $graphLookup since=3.4
+o $group
+o $indexStats since=3.2
+o $limit
+o $listLocalSessions since=3.6
+o $listSampledQueries since=7.0
+o $listSearchIndexes since=6.0.7
+o $listSessions since=3.6
+o $lookup since=3.2
+o $match
+o $merge since=4.2
+o $out
+o $planCacheStats since=4.2
+o $project
+o $querySettings since=8.0
+o $rankFusion since=8.0
+o $redact
+o $replaceRoot since=3.4
+o $replaceWith since=4.2
+o $sample since=3.2
+o $scoreFusion since=8.3
+o $search
+o $searchMeta
+o $set
+o $setWindowFields since=5.0
+o $shardedDataDistribution since=6.0.3
+o $skip
+o $sort
+o $sortByCount since=3.4
+o $unionWith since=4.4
+o $unset
+o $unwind
+o $vectorSearch since=6.0.11
+o $abs since=3.2
+o $add
+o $ceil since=3.2
+o $divide
+o $exp since=3.2
+o $floor since=3.2
+o $ln since=3.2
+o $log since=3.2
+o $log10 since=3.2
+o $mod
+o $multiply
+o $pow since=3.2
+o $round since=4.2
+o $sigmoid since=8.3
+o $sqrt since=3.2
+o $subtract
+o $trunc since=3.2
+o $arrayElemAt since=3.2
+o $arrayToObject since=3.4.4
+o $concatArrays since=3.2
+o $filter since=3.2
+o $first
+o $firstN since=5.2
+o $in
+o $indexOfArray since=3.4
+o $isArray since=3.2
+o $last
+o $lastN since=5.2
+o $map
+o $maxN since=5.2
+o $minN since=5.2
+o $objectToArray since=3.4.4
+o $range since=3.4
+o $reduce since=3.4
+o $reverseArray since=3.4
+o $size
+o $slice
+o $sortArray since=5.2
+o $zip since=3.4
+o $bitAnd since=6.3
+o $bitNot since=6.3
+o $bitOr since=6.3
+o $bitXor since=6.3
+o $and
+o $not
+o $or
+o $cmp
+o $eq
+o $gt
+o $gte
+o $lt
+o $lte
+o $ne
+o $cond
+o $ifNull
+o $switch since=3.4
+o $accumulator since=4.4
+o $function since=4.4
+o $binarySize since=4.4
+o $bsonSize since=4.4
+o $dateAdd since=5.0
+o $dateDiff since=5.0
+o $dateFromParts since=3.6
+o $dateFromString since=3.6
+o $dateSubtract since=5.0
+o $dateToParts since=3.6
+o $dateToString since=3.0
+o $dateTrunc since=5.0
+o $dayOfMonth
+o $dayOfWeek
+o $dayOfYear
+o $hour
+o $isoDayOfWeek since=3.4
+o $isoWeek since=3.4
+o $isoWeekYear since=3.4
+o $millisecond
+o $minute
+o $month
+o $second
+o $toDate since=4.0
+o $week
+o $year
+o $literal
+o $getField since=5.0
+o $rand since=4.4.2
+o $sampleRate since=4.4.2
+o $toHashedIndexKey since=7.0
+o $mergeObjects since=3.6
+o $setField since=5.0
+o $unsetField since=5.0
+o $let
+o $allElementsTrue
+o $anyElementTrue
+o $setDifference
+o $setEquals
+o $setIntersection
+o $setIsSubset
+o $setUnion
+o $concat
+o $indexOfBytes since=3.4
+o $indexOfCP since=3.4
+o $ltrim since=4.0
+o $regexFind since=4.2
+o $regexFindAll since=4.2
+o $regexMatch since=4.2
+o $replaceAll since=4.4
+o $replaceOne since=4.4
+o $rtrim since=4.0
+o $split since=3.4
+o $strLenBytes since=3.4
+o $strLenCP since=3.4
+o $strcasecmp
+o $substr
+o $substrBytes since=3.4
+o $substrCP since=3.4
+o $toLower
+o $toString since=4.0
+o $toUpper
+o $trim since=4.0
+o $meta
+o $tsIncrement since=5.1
+o $tsSecond since=5.1
+o $sin since=4.2
+o $cos since=4.2
+o $tan since=4.2
+o $asin since=4.2
+o $acos since=4.2
+o $atan since=4.2
+o $atan2 since=4.2
+o $asinh since=4.2
+o $acosh since=4.2
+o $atanh since=4.2
+o $sinh since=4.2
+o $cosh since=4.2
+o $tanh since=4.2
+o $degreesToRadians since=4.2
+o $radiansToDegrees since=4.2
+o $convert since=4.0
+o $isNumber since=4.4
+o $toBool since=4.0
+o $toDecimal since=4.0
+o $toDouble since=4.0
+o $toInt since=4.0
+o $toLong since=4.0
+o $toObjectId since=4.0
+o $toUUID since=8.0
+o $type
+o $addToSet
+o $avg
+o $bottom since=5.2
+o $bottomN since=5.2
+o $max
+o $median since=7.0
+o $min
+o $percentile since=7.0
+o $push
+o $stdDevPop since=3.2
+o $stdDevSamp since=3.2
+o $sum
+o $top since=5.2
+o $topN since=5.2
+o $covariancePop since=5.0
+o $covarianceSamp since=5.0
+o $denseRank since=5.0
+o $derivative since=5.0
+o $documentNumber since=5.0
+o $expMovingAvg since=5.0
+o $integral since=5.0
+o $linearFill since=5.3
+o $locf since=5.2
+o $rank since=5.0
+o $shift since=5.0
+o $nin
+o $nor
+o $exists
+o $expr since=3.6
+o $jsonSchema since=3.6
+o $regex
+o $text
+o $where
+o $geoIntersects
+o $geoWithin
+o $near
+o $nearSphere
+o $box
+o $center
+o $centerSphere
+o $geometry
+o $maxDistance
+o $minDistance
+o $polygon
+o $all
+o $elemMatch
+o $bitsAllClear since=3.2
+o $bitsAllSet since=3.2
+o $bitsAnyClear since=3.2
+o $bitsAnySet since=3.2
+o $comment
+o $natural
+o $currentDate
+o $inc
+o $mul
+o $rename
+o $setOnInsert
+o $pop
+o $pull
+o $pullAll
+o $each
+o $position
+o $bit
+o $$NOW since=4.2
+o $$CLUSTER_TIME since=4.2
+o $$ROOT
+o $$CURRENT
+o $$REMOVE since=3.6
+o $$DESCEND
+o $$PRUNE
+o $$KEEP
+o $$USER_ROLES since=7.0

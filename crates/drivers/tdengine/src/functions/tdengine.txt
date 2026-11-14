@@ -1,0 +1,191 @@
+# TDengine 3.x: the built-in functions of the SQL reference ("Functions"),
+# with the versions the reference gives (since= is the first release that
+# has it). Where the reference gives none, since= is the first release tag
+# whose source/libs/function/src/builtins.c registers it (MD5, CRC32,
+# TO_BASE64). Pseudocolumns (_wstart, _irowts…) aren't functions and aren't
+# here. The user's UDFs come from information_schema.ins_functions.
+
+# Mathematical functions
+s ABS(expr)
+s ACOS(expr)
+s ASIN(expr)
+s ATAN(expr)
+s CEIL(expr)
+s COS(expr)
+s DEGREES(expr) since=3.3.3.0
+s EXP(expr) since=3.3.3.0
+s FLOOR(expr)
+s GREATEST(expr1, expr2[, expr]...) since=3.3.6.0
+s LEAST(expr1, expr2[, expr]...) since=3.3.6.0
+s LN(expr) since=3.3.3.0
+s LOG(expr1[, expr2])
+s MOD(expr1, expr2) since=3.3.3.0
+s PI() since=3.3.3.0
+s POW(expr1, expr2)
+s RADIANS(expr) since=3.3.3.0
+s RAND([seed]) since=3.3.3.0
+s ROUND(expr[, digits])
+s SIGN(expr) since=3.3.3.0
+s SIN(expr)
+s SQRT(expr)
+s TAN(expr)
+s TRUNCATE(expr, digits) since=3.3.3.0
+
+# String functions
+s ASCII(expr) since=3.3.3.0
+s CHAR(expr1[, expr2] ...) since=3.3.3.0
+s CHAR_LENGTH(expr)
+s CONCAT(expr1, expr2[, expr] ...)
+s CONCAT_WS(separator_expr, expr1, expr2[, expr] ...)
+s FIND_IN_SET(expr1, expr2[, expr3]) since=3.3.8.0
+s LENGTH(expr)
+s LIKE_IN_SET(expr1, expr2[, expr3]) since=3.3.8.0
+s LOWER(expr)
+s LTRIM(expr)
+s POSITION(expr1 IN expr2) since=3.3.3.0
+s REGEXP_EXTRACT(expr, pattern[, group_idx]) since=3.4.2.0
+s REGEXP_IN_SET(expr1, expr2[, expr3]) since=3.3.8.0
+s REPEAT(expr, count) since=3.3.3.0
+s REPLACE(expr, from_str, to_str) since=3.3.3.0
+s RTRIM(expr)
+s SUBSTR(expr, pos[, len])
+s SUBSTRING(expr, pos[, len]) since=3.3.3.0
+s SUBSTRING_INDEX(expr, delim, count) since=3.3.3.0
+s TRIM([{LEADING | TRAILING | BOTH} [remstr] FROM] expr) since=3.3.3.0
+s UPPER(expr)
+
+# Encoding, hashing, masking and encryption
+s AES_DECRYPT(str, key_str[, init_vector[, iv_mode]]) since=3.4.0.0
+s AES_ENCRYPT(str, key_str[, init_vector]) since=3.4.0.0
+s CRC32(expr) since=3.3.6.6
+s FROM_BASE64(expr) since=3.4.0.0
+s MASK_FULL(str, replace_value) since=3.4.0.0
+s MASK_NONE(str) since=3.4.0.0
+s MASK_PARTIAL(str, prefix_length, suffix_length, mask_char) since=3.4.0.0
+s MD5(expr) since=3.3.0.0
+s SHA(expr) since=3.4.0.0
+s SHA1(expr) since=3.4.0.0
+s SHA2(expr, hash_length) since=3.4.0.0
+s SM4_DECRYPT(str, key_str) since=3.4.0.0
+s SM4_ENCRYPT(str, key_str) since=3.4.0.0
+s TO_BASE64(expr) since=3.3.6.13
+
+# Conversion functions
+s CAST(expr AS type_name)
+s TO_CHAR(ts, format_str_literal[, timezone]) since=3.2.2.0
+s TO_ISO8601(expr[, timezone])
+s TO_JSON(str_literal)
+s TO_TIMESTAMP(ts_str_literal, format_str_literal) since=3.2.2.0
+s TO_UNIXTIMESTAMP(expr[, return_timestamp])
+
+# Time and date functions
+s DATE(expr) since=3.3.8.0
+s DAYOFWEEK(expr) since=3.3.3.0
+s NOW()
+s TIMEDIFF(expr1, expr2[, time_unit])
+s TIMETRUNCATE(expr, time_unit[, timezone_or_flag])
+s TIMEZONE()
+s TODAY()
+s WEEK(expr[, mode]) since=3.3.3.0
+s WEEKDAY(expr) since=3.3.3.0
+s WEEKOFYEAR(expr) since=3.3.3.0
+
+# Aggregate functions
+a APERCENTILE(expr, p[, algo_type])
+a AVG(expr)
+a CORR(expr1, expr2) since=3.3.8.0
+a COUNT({* | expr})
+a GROUP_CONCAT(expr) since=3.3.8.0
+a HISTOGRAM(expr, bin_type, bin_description, normalized)
+a HYPERLOGLOG(expr)
+a LEASTSQUARES(expr, start_val, step_val)
+a PERCENTILE(expr, p[, p1] ...)
+a SPREAD(expr)
+a STD(expr) since=3.3.8.0
+a STDDEV(expr)
+a STDDEV_POP(expr) since=3.3.3.0
+a STDDEV_SAMP(expr) since=3.3.8.0
+a SUM(expr)
+a VARIANCE(expr) since=3.3.8.0
+a VAR_POP(expr) since=3.3.3.0
+a VAR_SAMP(expr) since=3.3.8.0
+
+# Comparison functions
+s COALESCE(expr1, expr2[, expr] ...) since=3.3.8.0
+s IF(expr1, expr2, expr3) since=3.3.8.0
+s IFNULL(expr1, expr2) since=3.3.8.0
+s ISNOTNULL(expr) since=3.3.8.0
+s ISNULL(expr) since=3.3.8.0
+s NULLIF(expr1, expr2) since=3.3.8.0
+s NVL(expr1, expr2) since=3.3.8.0
+s NVL2(expr1, expr2, expr3) since=3.3.8.0
+
+# Selection functions
+a BOTTOM(expr, k)
+a COLS(func(expr), output_expr1[, output_expr2] ...) since=3.3.6.0
+a FIRST(expr)
+a LAST(expr)
+a LAST_ROW(expr)
+a MAX(expr)
+a MIN(expr)
+a MODE(expr)
+a SAMPLE(expr, k)
+a TAIL(expr, k[, offset_rows])
+a TOP(expr, k)
+a UNIQUE(expr)
+
+# Sequential analysis
+s CSUM(expr)
+s DERIVATIVE(expr, time_interval, ignore_negative)
+s DIFF(expr[, ignore_option])
+s FILL_FORWARD(expr) since=3.4.0.2
+s LAG(expr[, offset[, default_val]]) since=3.4.1.0
+s LEAD(expr[, offset[, default_val]]) since=3.4.1.0
+s MAVG(expr, k)
+s STATECOUNT(expr, oper, val)
+s STATEDURATION(expr, oper, val[, unit])
+
+# Time-series aggregates
+a BIT_CHANGES(expr[, mask[, flag]]) since=3.4.3.0
+a BIT_DURATION(expr[, mask[, flag]]) since=3.4.3.7
+a ELAPSED(ts_primary_key[, time_unit])
+a IRATE(expr)
+a TWA(expr)
+a TWAVG_LINEAR(expr) since=3.4.3.0
+a TWAVG_LOCF(expr) since=3.4.3.0
+a TWSUM_LINEAR(expr[, time_unit]) since=3.4.3.0
+a TWSUM_LOCF(expr[, time_unit]) since=3.4.3.0
+a TWVAR_LINEAR(expr) since=3.4.3.0
+a TWVAR_LOCF(expr) since=3.4.3.0
+a VALUE_CHANGES(expr[, ignore_null]) since=3.4.3.0
+
+# Window functions (with OVER)
+w CUME_DIST() since=3.4.2.0
+w DENSE_RANK() since=3.4.2.0
+w FIRST_VALUE(expr) since=3.4.2.0
+w LAST_VALUE(expr) since=3.4.2.0
+w NTH_VALUE(expr, n) since=3.4.2.0
+w PERCENT_RANK() since=3.4.2.0
+w RANK() since=3.4.2.0
+w ROW_NUMBER() since=3.4.2.0
+
+# Interpolation
+s INTERP(expr[, ignore_null_values])
+
+# System and metadata
+s CLIENT_VERSION()
+s CURRENT_USER()
+s DATABASE()
+s SERVER_STATUS()
+s SERVER_VERSION()
+s SLEEP(seconds) since=3.4.2.0
+
+# Geometry
+s ST_AsText(geom)
+s ST_Contains(geomA, geomB)
+s ST_ContainsProperly(geomA, geomB)
+s ST_Covers(geomA, geomB)
+s ST_Equals(geomA, geomB)
+s ST_GeomFromText(wkt)
+s ST_Intersects(geomA, geomB)
+s ST_Touches(geomA, geomB)

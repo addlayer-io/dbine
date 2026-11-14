@@ -1,0 +1,32 @@
+# The etcdctl commands DBine's editor runs (see src/command.rs), for the
+# editor's completion. A command with a subcommand is written
+# VERB|SUBCOMMAND and shown as `verb subcommand`. `since=` is the etcd
+# version that added it (AuthStatus is etcd 3.5's).
+c get <key> [<range_end>] [--prefix] [--from-key] [--limit=N] [--rev=N] [--keys-only] [--count-only] [--order=ASCEND|DESCEND] [--sort-by=KEY|VERSION|CREATE|MODIFY|VALUE]
+c put <key> <value> [--lease=<id>] [--ttl=<seconds>] [--prev-kv]
+c del <key> [<range_end>] [--prefix] [--from-key] [--prev-kv]
+c lease|grant <ttl>
+c lease|revoke <id>
+c lease|timetolive <id> [--keys]
+c lease|list
+c member|list
+c endpoint|status
+c alarm|list
+c compaction <rev> [--physical]
+c user|list
+c user|add <name> <password> [--no-password]
+c user|get <name>
+c user|delete <name>
+c user|passwd <name> <password>
+c user|grant-role <user> <role>
+c user|revoke-role <user> <role>
+c role|list
+c role|add <role>
+c role|get <role>
+c role|delete <role>
+c role|grant-permission <role> read|write|readwrite <key> [<range_end>] [--prefix] [--from-key]
+c role|revoke-permission <role> <key> [<range_end>] [--prefix] [--from-key]
+c auth|status since=3.5
+c auth|enable
+c auth|disable
+c snapshot|save <file>

@@ -1,0 +1,254 @@
+# H2's built-in functions (see dbine_driver::functions::parse_catalog), from
+# h2database.com/html/functions.html, functions-aggregate.html and
+# functions-window.html (H2 2.x, which DBine reaches through its PostgreSQL
+# server). H2 lists only the user's routines (INFORMATION_SCHEMA.ROUTINES),
+# so the built-ins come from here. Names are case-insensitive.
+
+# Numeric
+s abs(numeric)
+s acos(numeric) -> double precision
+s asin(numeric) -> double precision
+s atan(numeric) -> double precision
+s atan2(y numeric, x numeric) -> double precision
+s bitand(expression, expression)
+s bitcount(expression) -> bigint
+s bitget(expression, int) -> boolean
+s bitnand(expression, expression)
+s bitnor(expression, expression)
+s bitnot(expression)
+s bitor(expression, expression)
+s bitxnor(expression, expression)
+s bitxor(expression, expression)
+s ceil(numeric)
+s ceiling(numeric)
+s compress(data binary [, algorithm varchar]) -> binary
+s cos(numeric) -> double precision
+s cosh(numeric) -> double precision
+s cot(numeric) -> double precision
+s decrypt(algorithm varchar, key binary, data binary) -> binary
+s degrees(numeric) -> double precision
+s encrypt(algorithm varchar, key binary, data binary) -> binary
+s exp(numeric) -> double precision
+s expand(binary) -> binary
+s floor(numeric)
+s hash(algorithm varchar, expression [, iterations int]) -> binary
+s ln(numeric) -> double precision
+s log(base numeric, x numeric) -> double precision
+s log10(numeric) -> double precision
+s lshift(expression, int)
+s mod(dividend, divisor)
+s ora_hash(expression [, bucket int [, seed int]]) -> bigint
+s pi() -> double precision
+s power(numeric, numeric) -> double precision
+s radians(numeric) -> double precision
+s rand([seed int]) -> double precision
+s random([seed int]) -> double precision
+s random_uuid([version int]) -> uuid
+s rotateleft(expression, int)
+s rotateright(expression, int)
+s round(numeric [, digits int])
+s roundmagic(numeric) -> double precision
+s rshift(expression, int)
+s secure_rand(int) -> binary
+s sign(numeric) -> int
+s sin(numeric) -> double precision
+s sinh(numeric) -> double precision
+s sqrt(numeric) -> double precision
+s tan(numeric) -> double precision
+s tanh(numeric) -> double precision
+s trunc(numeric [, digits int])
+s truncate(numeric [, digits int])
+s ulshift(expression, int)
+s urshift(expression, int)
+s uuid() -> uuid
+s zero() -> int
+
+# String
+s ascii(string) -> int
+s bit_length(bytes) -> bigint
+s btrim(string [, characters]) -> varchar since=2.2.220
+s char(int) -> varchar
+s char_length(string) -> bigint
+s character_length(string) -> bigint
+s chr(int) -> varchar
+s concat(string, string [, ...]) -> varchar
+s concat_ws(separator, string, string [, ...]) -> varchar
+s difference(string, string) -> int
+s hextoraw(string) -> varchar
+s insert(original, start int, length int, add) -> varchar
+s instr(string, search [, start int]) -> int
+s lcase(string) -> varchar
+s left(string, int) -> varchar
+s length(string) -> bigint
+s locate(search, string [, start int]) -> int
+s lower(string) -> varchar
+s lpad(string, int [, padding]) -> varchar
+s ltrim(string [, characters]) -> varchar
+s octet_length(bytes) -> bigint
+s position(search, string) -> int
+s quote_ident(string) -> varchar
+s rawtohex(string) -> varchar
+s regexp_like(input, regex [, flags]) -> boolean
+s regexp_replace(input, regex, replacement [, flags]) -> varchar
+s regexp_substr(input, regex [, position [, occurrence [, flags [, group]]]]) -> varchar
+s repeat(string, int) -> varchar
+s replace(string, search [, replacement]) -> varchar
+s right(string, int) -> varchar
+s rpad(string, int [, padding]) -> varchar
+s rtrim(string [, characters]) -> varchar
+s soundex(string) -> varchar
+s space(int) -> varchar
+s stringdecode(string) -> varchar
+s stringencode(string) -> varchar
+s stringtoutf8(string) -> binary
+s substr(string, start int [, length int]) -> varchar
+s substring(string FROM start [FOR length]) -> varchar
+s to_char(value [, format [, nls_lang]]) -> varchar
+s translate(value, search, replacement) -> varchar
+s trim([{LEADING | TRAILING | BOTH} [characters] FROM] string) -> varchar
+s ucase(string) -> varchar
+s upper(string) -> varchar
+s utf8tostring(bytes) -> varchar
+s xmlattr(name, value) -> varchar
+s xmlcdata(value) -> varchar
+s xmlcomment(comment) -> varchar
+s xmlnode(element [, attributes [, content [, indent boolean]]]) -> varchar
+s xmlstartdoc() -> varchar
+s xmltext(value [, escape_newline boolean]) -> varchar
+
+# Date and time
+s date_trunc(datetime_field, datetime) -> timestamp
+s dateadd(datetime_field, add_int, datetime)
+s datediff(datetime_field, start, end) -> bigint
+s day_of_month(datetime) -> int
+s day_of_week(datetime) -> int
+s day_of_year(datetime) -> int
+s dayname(datetime) -> varchar
+s extract(datetime_field FROM datetime)
+s formatdatetime(datetime, format [, locale [, timezone]]) -> varchar
+s hour(datetime) -> int
+s iso_day_of_week(datetime) -> int
+s iso_week(datetime) -> int
+s iso_year(datetime) -> int
+s minute(datetime) -> int
+s month(datetime) -> int
+s monthname(datetime) -> varchar
+s parsedatetime(string, format [, locale [, timezone]]) -> timestamp with time zone
+s quarter(datetime) -> int
+s second(datetime) -> int
+s timestampadd(datetime_field, add_int, datetime)
+s timestampdiff(datetime_field, start, end) -> bigint
+s week(datetime) -> int
+s year(datetime) -> int
+
+# JSON
+s json_array([expression [, ...]] [{NULL | ABSENT} ON NULL]) -> json
+s json_object([key VALUE value [, ...]] [{NULL | ABSENT} ON NULL] [{WITH | WITHOUT} UNIQUE KEYS]) -> json
+
+# Arrays
+s array_append(array, value) -> array
+s array_cat(array, array) -> array
+s array_contains(array, value) -> boolean
+s array_max_cardinality(array) -> int
+s array_slice(array, lower int, upper int) -> array
+s cardinality(array) -> int
+s trim_array(array, int) -> array
+
+# Conditional and system
+s abort_session(session_id int) -> boolean
+s autocommit() -> boolean
+s cancel_session(session_id int) -> boolean
+s casewhen(condition, then, else)
+s coalesce(value [, ...])
+s convert(value, data_type)
+s csvwrite(file_name, query [, csv_options [, ...]]) -> int
+s data_type_sql(object_schema, object_name, object_type, type_identifier) -> varchar
+s database_path() -> varchar
+s db_object_id(object_type, object_schema, object_name) -> int
+s db_object_sql(object_type, object_schema, object_name) -> varchar
+s decode(value, when, then [, when, then ...] [, else])
+s disk_space_used(table_name) -> bigint
+s estimated_envelope(table_name, column_name) -> geometry
+s file_read(file_name [, encoding]) -> blob
+s file_write(blob, file_name) -> bigint
+s greatest(value [, ...])
+s h2version() -> varchar
+s ifnull(value, value)
+s least(value [, ...])
+s lock_mode() -> int
+s lock_timeout() -> int
+s memory_free() -> bigint
+s memory_used() -> bigint
+s nullif(value, value)
+s nvl2(test_value, value_if_not_null, value_if_null)
+s readonly() -> boolean
+s rownum() -> bigint
+s session_id() -> int
+s set(@variable_name, value)
+s signal(sql_state, message)
+s truncate_value(value, length int, force boolean)
+
+# Aggregate
+a any_value(expression) since=2.2.220
+a array_agg([DISTINCT] expression [ORDER BY sort_specification]) -> array
+a avg([DISTINCT] numeric)
+a bit_and_agg(expression)
+a bit_nand_agg(expression)
+a bit_nor_agg(expression)
+a bit_or_agg(expression)
+a bit_xnor_agg(expression)
+a bit_xor_agg(expression)
+a bool_and(boolean) -> boolean
+a bool_or(boolean) -> boolean
+a corr(y, x) -> double precision
+a count(*) -> bigint
+a count([DISTINCT] expression) -> bigint
+a covar_pop(y, x) -> double precision
+a covar_samp(y, x) -> double precision
+a envelope(geometry) -> geometry
+a every(boolean) -> boolean
+a histogram(expression) -> array
+a json_arrayagg([DISTINCT] expression [ORDER BY sort_specification] [{NULL | ABSENT} ON NULL]) -> json
+a json_objectagg(key VALUE value [{NULL | ABSENT} ON NULL] [{WITH | WITHOUT} UNIQUE KEYS]) -> json
+a listagg([DISTINCT] string [, separator]) WITHIN GROUP (ORDER BY sort_specification) -> varchar
+a max(value)
+a median([DISTINCT] value)
+a min(value)
+a mode() WITHIN GROUP (ORDER BY sort_specification)
+a percentile_cont(numeric) WITHIN GROUP (ORDER BY sort_specification)
+a percentile_disc(numeric) WITHIN GROUP (ORDER BY sort_specification)
+a regr_avgx(y, x) -> double precision
+a regr_avgy(y, x) -> double precision
+a regr_count(y, x) -> bigint
+a regr_intercept(y, x) -> double precision
+a regr_r2(y, x) -> double precision
+a regr_slope(y, x) -> double precision
+a regr_sxx(y, x) -> double precision
+a regr_sxy(y, x) -> double precision
+a regr_syy(y, x) -> double precision
+a stddev_pop([DISTINCT] numeric) -> double precision
+a stddev_samp([DISTINCT] numeric) -> double precision
+a sum([DISTINCT] numeric)
+a var_pop([DISTINCT] numeric) -> double precision
+a var_samp([DISTINCT] numeric) -> double precision
+
+# Window
+w row_number() -> bigint
+w rank() -> bigint
+w dense_rank() -> bigint
+w percent_rank() -> double precision
+w cume_dist() -> double precision
+w ntile(int) -> bigint
+w lead(value [, offset [, default]]) [{RESPECT | IGNORE} NULLS]
+w lag(value [, offset [, default]]) [{RESPECT | IGNORE} NULLS]
+w first_value(value) [{RESPECT | IGNORE} NULLS]
+w last_value(value) [{RESPECT | IGNORE} NULLS]
+w nth_value(value, n) [FROM {FIRST | LAST}] [{RESPECT | IGNORE} NULLS]
+w ratio_to_report(value) -> double precision
+
+# Table functions
+t csvread(file_name [, column_names [, csv_options]]) -> result set
+t link_schema(target_schema, driver, url, user, password, source_schema) -> result set
+t table(name data_type = array [, ...]) -> result set
+t table_distinct(name data_type = array [, ...]) -> result set
+t unnest(array [, ...]) [WITH ORDINALITY] -> result set

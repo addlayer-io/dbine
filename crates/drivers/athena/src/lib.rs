@@ -6,6 +6,7 @@
 mod aws;
 mod create_db;
 mod ddl;
+mod functions;
 #[path = "../../trino/src/literal.rs"]
 mod literal;
 mod monitor;
@@ -701,6 +702,11 @@ impl Session for AthenaSession {
             "Amazon Athena ({}, workgroup {})",
             self.region, self.workgroup
         ))
+    }
+
+    /// `SHOW FUNCTIONS` (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {

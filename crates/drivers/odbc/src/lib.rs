@@ -13,6 +13,7 @@ mod create_db;
 mod design;
 mod explain;
 mod ffi;
+mod functions;
 mod health;
 mod index_usage;
 mod jobs;
@@ -1680,6 +1681,12 @@ impl Session for OdbcSession {
     /// them (see `stats`).
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         self.object_comments_impl().await
+    }
+
+    /// The engine's functions: its catalog where it lists them, else its
+    /// static catalog or the driver's ODBC functions (see `functions`).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_catalog_impl().await
     }
 
     /// "Chequeo de salud" for the presets whose catalog answers it (see `health`).

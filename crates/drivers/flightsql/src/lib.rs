@@ -15,6 +15,7 @@
 //! InfluxDB 3 system tables for the monitor, plus the server's `SqlInfo`.
 
 mod cells;
+mod functions;
 mod index_usage;
 mod plan;
 mod stats;
@@ -508,6 +509,15 @@ struct ServerInfo {
 }
 
 impl ServerInfo {
+    /// SQLite behind the server (GizmoSQL's SQLite backend, Arrow's SQLite
+    /// example server), by its name or version. [`ServerInfo::engine`] counts
+    /// it with DuckDB, but its function list is SQLite's.
+    fn is_sqlite(&self) -> bool {
+        [&self.name, &self.version]
+            .iter()
+            .any(|s| s.to_ascii_lowercase().contains("sqlite"))
+    }
+
     fn engine(&self) -> Engine {
         let n = self.name.to_ascii_lowercase();
         if n.contains("duckdb") || n.contains("gizmo") || n.contains("sqlite") {
@@ -1059,6 +1069,12 @@ impl Session for FlightSession {
                 (n, v) => format!("{n} {v}").trim().to_string(),
             },
         )
+    }
+
+    /// The server's own list, or `GetSqlInfo`'s plus the standard's (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
@@ -1898,6 +1914,13 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(s.engine(), Engine::DuckDb);
+        assert!(!s.is_sqlite());
+        assert!(ServerInfo {
+            name: "db_name".into(),
+            version: "sqlite 3".into(),
+            ..Default::default()
+        }
+        .is_sqlite());
         assert_eq!(
             ServerInfo {
                 name: "Dremio".into(),

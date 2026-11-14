@@ -48,6 +48,7 @@ const COMPRESSIONS: &[&str] = &["UNCOMPRESSED", "SNAPPY", "LZ4", "GZIP", "ZSTD",
 const ROW_LIMIT_EXCEEDED: i64 = 708;
 
 mod create_db;
+mod functions;
 mod jobs;
 mod monitor;
 mod permissions;
@@ -1069,6 +1070,23 @@ impl Session for IotDbSession {
         )
         .trim()
         .to_string())
+    }
+
+    /// `SHOW FUNCTIONS` (built-ins and UDFs); the static catalog for the
+    /// server's version when it can't be read (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        match self.query(functions::SHOW_FUNCTIONS, 10_000).await {
+            Ok(t) => {
+                let cols: Vec<String> = t.columns.iter().map(|c| c.name.clone()).collect();
+                let catalog = functions::from_show_functions(&cols, &t.rows);
+                if !catalog.is_empty() {
+                    return Ok(catalog);
+                }
+            }
+            Err(e) => tracing::debug!("iotdb SHOW FUNCTIONS: {e}"),
+        }
+        let version = self.server_version().await.ok();
+        Ok(functions::static_catalog(version.as_deref()))
     }
 
     async fn processes(&mut self) -> Result<Vec<dbine_driver::ServerProcess>> {

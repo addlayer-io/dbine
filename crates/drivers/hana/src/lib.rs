@@ -7,6 +7,7 @@
 mod backup;
 mod blocking;
 mod create_db;
+mod functions;
 mod health;
 mod index_usage;
 mod jobs;
@@ -1151,6 +1152,12 @@ impl Session for HanaSession {
     /// SYS.VIEWS.COMMENTS (see `stats`).
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         self.object_comments_impl().await
+    }
+
+    /// The built-ins of the server's version and the schema's functions
+    /// from SYS.FUNCTIONS (see `functions`).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_catalog_impl().await
     }
 
     /// "Chequeo de salud" of the schema (see `health`).

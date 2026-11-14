@@ -1,0 +1,34 @@
+# IBM Db2 LUW only: the built-ins of the Db2 LUW SQL Reference that Db2 for
+# i and z/OS don't have (the Netezza and Oracle compatibility functions).
+# Added to db2.txt for Db2 LUW. `since` is the Db2 LUW release that added one.
+
+# String
+s REGEXP_EXTRACT(source_string, pattern [, start [, occurrence [, flags [, group]]]]) since=11.1
+s SUBSTR2(string, start [, length])
+s SUBSTRB(string, start [, length]) since=9.7
+s TO_SINGLE_BYTE(string) since=11.1
+
+# Date and time
+s AGE(expression [, expression]) -> INTEGER since=11.1
+s DATE_PART(format_string, datetime_expression) -> BIGINT since=11.1
+s DATE_TRUNC(format_string, datetime_expression) since=11.1
+s DAYS_BETWEEN(expression1, expression2) -> INTEGER since=11.1
+s DAYS_TO_END_OF_MONTH(expression) -> INTEGER since=11.1
+s HOURS_BETWEEN(expression1, expression2) -> BIGINT since=11.1
+s MINUTES_BETWEEN(expression1, expression2) -> BIGINT since=11.1
+s NEXT_MONTH(expression) -> DATE since=11.1
+s NEXT_QUARTER(expression) -> DATE since=11.1
+s NEXT_WEEK(expression) -> DATE since=11.1
+s NEXT_YEAR(expression) -> DATE since=11.1
+s SECONDS_BETWEEN(expression1, expression2) -> BIGINT since=11.1
+s THIS_MONTH(expression) -> DATE since=11.1
+s THIS_QUARTER(expression) -> DATE since=11.1
+s THIS_WEEK(expression) -> DATE since=11.1
+s THIS_YEAR(expression) -> DATE since=11.1
+s WEEKS_BETWEEN(expression1, expression2) -> INTEGER since=11.1
+s YEARS_BETWEEN(expression1, expression2) -> INTEGER since=11.1
+s YMD_BETWEEN(expression1, expression2) -> DECIMAL since=11.1
+
+# Comparison, NULL handling and miscellaneous
+s HASH4(expression [, algorithm]) -> BIGINT since=11.1
+s HASH8(expression [, algorithm]) -> BIGINT since=11.1

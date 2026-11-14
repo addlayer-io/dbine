@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import type { Language, LoadedTable, NotebookCell, QueryOutcome } from '../../api/types';
+import type { FunctionInfo, Language, LoadedTable, NotebookCell, QueryOutcome } from '../../api/types';
 import type { Snippet } from '../../composables/snippets';
 import { renderMarkdown } from '../../composables/markdown';
 import { onMarkdownClick } from '../../composables/externalLink';
@@ -34,6 +34,9 @@ export interface CellContext {
   grantedFiles?: string[];
   /** The notebook's parameters, offered by completion as `{{name}}`. */
   params?: { name: string; detail?: string }[];
+  /** The target's function catalog, DuckDB's for a "DataFrame SQL" cell
+   *  (null: not loaded yet, asked for with `needFunctions`; absent: none). */
+  functions?: FunctionInfo[] | null;
 }
 
 const props = defineProps<{
@@ -78,6 +81,8 @@ const emit = defineEmits<{
   save: [];
   needColumns: [path: string[]];
   needNames: [];
+  /** The editor wants the target's functions (`ctx.functions` is null). */
+  needFunctions: [];
   /** A new name for the cell (the view checks it). */
   rename: [name: string];
   /** "Escribir en una tabla…": a write cell under it, writing its DataFrame. */
@@ -234,6 +239,7 @@ function endRename(save: boolean) {
             :granted-files="ctx.grantedFiles ?? []"
             :pick-file="ctx.localFiles ? pickDataFile : null"
             :params="ctx.params ?? []"
+            :functions="ctx.functions"
             :placeholder="$t('notebook:cell.sqlPlaceholder')"
             run-actions
             @update:model-value="(v: string) => emit('source', v)"
@@ -242,6 +248,7 @@ function endRename(save: boolean) {
             @save="emit('save')"
             @need-columns="(p: string[]) => emit('needColumns', p)"
             @need-names="emit('needNames')"
+            @need-functions="emit('needFunctions')"
           />
         </div>
         <NotebookResult

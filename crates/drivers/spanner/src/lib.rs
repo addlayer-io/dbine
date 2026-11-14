@@ -5,6 +5,7 @@
 
 mod backup;
 mod create_db;
+mod functions;
 #[path = "../../bigquery/src/gcp.rs"]
 mod gcp;
 mod index_usage;
@@ -1032,6 +1033,12 @@ fn schema_of(s: Option<String>) -> Option<String> {
 
 #[async_trait]
 impl Session for SpannerSession {
+    /// Static built-ins plus `INFORMATION_SCHEMA.ROUTINES` (see
+    /// [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
+    }
+
     async fn server_version(&mut self) -> Result<String> {
         let emulated = !self.api.base.starts_with(API);
         Ok(format!(

@@ -1,0 +1,226 @@
+# Apache Hive: the built-in functions of the Hive Language Manual (2.x to
+# 4.x). Used to name what SHOW FUNCTIONS lists (kind and arguments), and
+# on its own when SHOW FUNCTIONS can't be read.
+
+# Aggregate (UDAF)
+a avg(col) -> double
+a collect_list(col) -> array
+a collect_set(col) -> array
+a corr(col1, col2) -> double
+a count(* | [DISTINCT] expr [, expr...]) -> bigint
+a covar_pop(col1, col2) -> double
+a covar_samp(col1, col2) -> double
+a histogram_numeric(col, b) -> array
+a max(col)
+a min(col)
+a percentile(bigint_col, p) -> double
+a percentile_approx(double_col, p [, B]) -> double
+a regr_avgx(y, x) -> double
+a regr_avgy(y, x) -> double
+a regr_count(y, x) -> bigint
+a regr_intercept(y, x) -> double
+a regr_r2(y, x) -> double
+a regr_slope(y, x) -> double
+a regr_sxx(y, x) -> double
+a regr_sxy(y, x) -> double
+a regr_syy(y, x) -> double
+a stddev_pop(col) -> double
+a stddev_samp(col) -> double
+a sum(col)
+a var_pop(col) -> double
+a var_samp(col) -> double
+a variance(col) -> double
+a compute_stats(col, method)
+
+# Window and analytics
+w cume_dist() -> double
+w dense_rank() -> int
+w first_value(expr [, skip_nulls])
+w lag(col [, offset [, default]])
+w last_value(expr [, skip_nulls])
+w lead(col [, offset [, default]])
+w ntile(integer_x) -> int
+w percent_rank() -> double
+w rank() -> int
+w row_number() -> int
+
+# Table-generating (UDTF): written in the SELECT list or after LATERAL VIEW,
+# so offered where expressions go
+s explode(array | map)
+s inline(array_of_structs)
+s json_tuple(jsonStr, k1, k2, ...)
+s parse_url_tuple(url, p1, p2, ...)
+s posexplode(array)
+s stack(n, v_1, v_2, ..., v_k)
+
+# Mathematical
+s abs(a)
+s acos(a) -> double
+s asin(a) -> double
+s atan(a) -> double
+s bin(a) -> string
+s bround(a [, d]) -> double
+s cbrt(a) -> double
+s ceil(a) -> bigint
+s ceiling(a) -> bigint
+s conv(num, from_base, to_base) -> string
+s cos(a) -> double
+s degrees(a) -> double
+s e() -> double
+s exp(a) -> double
+s factorial(a) -> bigint
+s floor(a) -> bigint
+s greatest(t v1, t v2, ...)
+s hex(a) -> string
+s least(t v1, t v2, ...)
+s ln(a) -> double
+s log(base, a) -> double
+s log10(a) -> double
+s log2(a) -> double
+s negative(a)
+s pi() -> double
+s pmod(a, b)
+s positive(a)
+s pow(a, p) -> double
+s power(a, p) -> double
+s radians(a) -> double
+s rand([seed]) -> double
+s round(a [, d]) -> double
+s shiftleft(a, b)
+s shiftright(a, b)
+s shiftrightunsigned(a, b)
+s sign(a)
+s sin(a) -> double
+s sqrt(a) -> double
+s tan(a) -> double
+s unhex(a) -> binary
+s width_bucket(expr, min_value, max_value, num_buckets) -> int
+
+# Collections
+s array(val1, val2, ...) -> array
+s array_contains(array, value) -> boolean
+s map(key1, value1, ...) -> map
+s map_keys(map) -> array
+s map_values(map) -> array
+s named_struct(name1, val1, ...) -> struct
+s size(array | map) -> int
+s sort_array(array) -> array
+s struct(val1, val2, ...) -> struct
+
+# Type conversion
+s binary(string | binary) -> binary
+s cast(expr AS type)
+
+# Date
+s add_months(start_date, num_months [, output_date_format]) -> string
+s current_date -> date
+s current_timestamp -> timestamp
+s date_add(startdate, days) -> date
+s date_format(date, fmt) -> string
+s date_sub(startdate, days) -> date
+s datediff(enddate, startdate) -> int
+s day(date) -> int
+s dayofmonth(date) -> int
+s extract(field FROM source) -> int
+s from_unixtime(unixtime [, pattern]) -> string
+s from_utc_timestamp(timestamp, timezone) -> timestamp
+s hour(date) -> int
+s last_day(date) -> string
+s minute(date) -> int
+s month(date) -> int
+s months_between(date1, date2) -> double
+s next_day(start_date, day_of_week) -> string
+s quarter(date) -> int
+s second(date) -> int
+s to_date(timestamp) -> date
+s to_utc_timestamp(timestamp, timezone) -> timestamp
+s trunc(date, format) -> string
+s unix_timestamp([date [, pattern]]) -> bigint
+s weekofyear(date) -> int
+s year(date) -> int
+
+# Conditional
+s assert_true(condition)
+s coalesce(v1, v2, ...)
+s if(testCondition, valueTrue, valueFalseOrNull)
+s isnotnull(a) -> boolean
+s isnull(a) -> boolean
+s nullif(a, b)
+s nvl(value, default_value)
+
+# String
+s ascii(str) -> int
+s base64(bin) -> string
+s character_length(str) -> int
+s chr(a) -> string
+s concat(str_or_bin1, str_or_bin2, ...) -> string
+s concat_ws(separator, str1, str2, ...) -> string
+s context_ngrams(array, array, k, pf) -> array
+s decode(bin, charset) -> string
+s elt(n, str1, str2, ...) -> string
+s encode(src, charset) -> binary
+s field(val, val1, val2, ...) -> int
+s find_in_set(str, strList) -> int
+s format_number(x, d) -> string
+s get_json_object(json_string, path) -> string
+s in_file(str, filename) -> boolean
+s initcap(a) -> string
+s instr(str, substr) -> int
+s length(a) -> int
+s levenshtein(a, b) -> int
+s locate(substr, str [, pos]) -> int
+s lower(a) -> string
+s lcase(a) -> string
+s lpad(str, len, pad) -> string
+s ltrim(a) -> string
+s ngrams(array, n, k, pf) -> array
+s octet_length(str) -> int
+s parse_url(urlString, partToExtract [, keyToExtract]) -> string
+s printf(format, obj1, ...) -> string
+s quote(str) -> string
+s regexp_extract(subject, pattern, index) -> string
+s regexp_replace(initial_string, pattern, replacement) -> string
+s repeat(str, n) -> string
+s replace(a, old, new) -> string
+s reverse(a) -> string
+s rpad(str, len, pad) -> string
+s rtrim(a) -> string
+s sentences(str [, lang, locale]) -> array
+s soundex(a) -> string
+s space(n) -> string
+s split(str, pat) -> array
+s str_to_map(text [, delimiter1, delimiter2]) -> map
+s substr(str_or_binary, start [, len])
+s substring(str_or_binary, start [, len])
+s substring_index(str, delim, count) -> string
+s translate(input, from, to) -> string
+s trim(a) -> string
+s unbase64(str) -> binary
+s upper(a) -> string
+s ucase(a) -> string
+
+# Data masking
+s mask(str [, upper [, lower [, number]]]) -> string
+s mask_first_n(str [, n]) -> string
+s mask_hash(str) -> string
+s mask_last_n(str [, n]) -> string
+s mask_show_first_n(str [, n]) -> string
+s mask_show_last_n(str [, n]) -> string
+
+# Miscellaneous
+s aes_decrypt(input, key) -> binary
+s aes_encrypt(input, key) -> binary
+s crc32(string_or_binary) -> bigint
+s current_database() -> string
+s current_user() -> string
+s hash(a1 [, a2...]) -> int
+s java_method(class, method [, arg1 [, arg2..]])
+s logged_in_user() -> string
+s md5(string_or_binary) -> string
+s reflect(class, method [, arg1 [, arg2..]])
+s sha1(string_or_binary) -> string
+s sha2(string_or_binary, int) -> string
+s surrogate_key([write_id_bits, task_id_bits]) -> bigint
+s version() -> string
+s xpath(xml, xpath) -> array
+s xpath_string(xml, xpath) -> string

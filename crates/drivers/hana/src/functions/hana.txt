@@ -1,0 +1,245 @@
+# SAP HANA: the built-in SQL functions of the SAP HANA SQL Reference
+# (HANA 1.0 SPS12, 2.0 and HANA Cloud). HANA lists none of them in its
+# catalog. `since` is the HANA version that added one.
+
+# Aggregate
+a AVG([ALL | DISTINCT] expression)
+a CORR(y, x) -> DOUBLE
+a CORR_SPEARMAN(y, x) -> DOUBLE
+a COUNT(* | [ALL | DISTINCT] expression) -> BIGINT
+a COVAR_POP(y, x) -> DOUBLE
+a COVAR_SAMP(y, x) -> DOUBLE
+a FIRST_VALUE(expression [ORDER BY order_by_clause])
+a LAST_VALUE(expression [ORDER BY order_by_clause])
+a MAX([ALL | DISTINCT] expression)
+a MEDIAN(expression)
+a MIN([ALL | DISTINCT] expression)
+a NTH_VALUE(expression, n [ORDER BY order_by_clause])
+a STDDEV(expression) -> DOUBLE
+a STDDEV_POP(expression) -> DOUBLE
+a STDDEV_SAMP(expression) -> DOUBLE
+a STRING_AGG(expression [, delimiter] [ORDER BY order_by_clause]) -> NVARCHAR
+a SUM([ALL | DISTINCT] expression)
+a VAR(expression) -> DOUBLE
+a VAR_POP(expression) -> DOUBLE
+a VAR_SAMP(expression) -> DOUBLE
+a ARRAY_AGG(expression [ORDER BY order_by_clause])
+a GROUPING(column) -> INTEGER
+a GROUPING_ID(column [, column]...) -> INTEGER
+a AUTO_CORR(expression, max_lag ORDER BY order_by_clause)
+a CROSS_CORR(expression1, expression2, max_lag ORDER BY order_by_clause)
+a DFT(expression, n ORDER BY order_by_clause)
+a PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY expression [ASC | DESC])
+a PERCENTILE_DISC(fraction) WITHIN GROUP (ORDER BY expression [ASC | DESC])
+
+# Window
+w BINNING(VALUE => expression, {BIN_COUNT | BIN_WIDTH | TILE_COUNT | STDDEV_COUNT} => n) OVER (window_specification)
+w CUBIC_SPLINE_APPROX(expression [, boundary_condition]) OVER (window_specification)
+w CUME_DIST() OVER (window_specification) -> DOUBLE
+w DENSE_RANK() OVER (window_specification) -> BIGINT
+w LAG(expression [, offset [, default]]) OVER (window_specification)
+w LEAD(expression [, offset [, default]]) OVER (window_specification)
+w LINEAR_APPROX(expression [, extrapolation]) OVER (window_specification)
+w NTILE(n) OVER (window_specification) -> INTEGER
+w PERCENT_RANK() OVER (window_specification) -> DOUBLE
+w RANDOM_PARTITION(training, validation, test, seed) OVER (window_specification) -> INTEGER
+w RANK() OVER (window_specification) -> BIGINT
+w ROW_NUMBER() OVER (window_specification) -> BIGINT
+w SERIES_FILTER(VALUE => expression, METHOD_NAME => method [, ALPHA => alpha [, BETA => beta]]) OVER (window_specification)
+w WEIGHTED_AVG(expression) OVER (window_specification) -> DOUBLE
+
+# Date and time
+s ADD_DAYS(date, n)
+s ADD_MONTHS(date, n)
+s ADD_MONTHS_LAST(date, n)
+s ADD_NANO100(time, n)
+s ADD_SECONDS(time, n)
+s ADD_WORKDAYS(factory_calendar_id, start_date, workdays [, source_schema [, client]])
+s ADD_YEARS(date, n)
+s CURRENT_DATE -> DATE
+s CURRENT_TIME -> TIME
+s CURRENT_TIMESTAMP -> TIMESTAMP
+s CURRENT_UTCDATE -> DATE
+s CURRENT_UTCTIME -> TIME
+s CURRENT_UTCTIMESTAMP -> TIMESTAMP
+s DAYNAME(date) -> VARCHAR
+s DAYOFMONTH(date) -> INTEGER
+s DAYOFYEAR(date) -> INTEGER
+s DAYS_BETWEEN(date1, date2) -> INTEGER
+s EXTRACT({YEAR | MONTH | DAY | HOUR | MINUTE | SECOND} FROM date) -> INTEGER
+s HOUR(time) -> INTEGER
+s ISOWEEK(date) -> VARCHAR
+s LAST_DAY(date) -> DATE
+s LOCALTOUTC(time [, timezone [, timezone_dataset]])
+s MINUTE(time) -> INTEGER
+s MONTH(date) -> INTEGER
+s MONTHNAME(date) -> VARCHAR
+s MONTHS_BETWEEN(date1, date2) -> INTEGER
+s NANO100_BETWEEN(time1, time2) -> BIGINT
+s NEXT_DAY(date) -> DATE
+s NOW() -> TIMESTAMP
+s QUARTER(date [, start_month]) -> VARCHAR
+s SECOND(time) -> DECIMAL
+s SECONDS_BETWEEN(date1, date2) -> BIGINT
+s UTCTOLOCAL(time [, timezone [, timezone_dataset]])
+s WEEK(date) -> INTEGER
+s WEEKDAY(date) -> INTEGER
+s WORKDAYS_BETWEEN(factory_calendar_id, start_date, end_date [, source_schema [, client]]) -> INTEGER
+s YEAR(date) -> INTEGER
+s YEARS_BETWEEN(date1, date2) -> INTEGER
+
+# Data type conversion
+s CAST(expression AS data_type)
+s TO_ALPHANUM(value) -> ALPHANUM
+s TO_BIGINT(value) -> BIGINT
+s TO_BINARY(value) -> VARBINARY
+s TO_BLOB(value) -> BLOB
+s TO_CLOB(value) -> CLOB
+s TO_DATE(date [, format]) -> DATE
+s TO_DATS(date) -> VARCHAR
+s TO_DECIMAL(value [, precision, scale]) -> DECIMAL
+s TO_DOUBLE(value) -> DOUBLE
+s TO_FIXEDCHAR(string, length) -> NCHAR
+s TO_INT(value) -> INTEGER
+s TO_INTEGER(value) -> INTEGER
+s TO_NCLOB(value) -> NCLOB
+s TO_NVARCHAR(value [, format]) -> NVARCHAR
+s TO_REAL(value) -> REAL
+s TO_SECONDDATE(value [, format]) -> SECONDDATE
+s TO_SMALLDECIMAL(value) -> SMALLDECIMAL
+s TO_SMALLINT(value) -> SMALLINT
+s TO_TIME(time [, format]) -> TIME
+s TO_TIMESTAMP(value [, format]) -> TIMESTAMP
+s TO_TINYINT(value) -> TINYINT
+s TO_VARCHAR(value [, format]) -> VARCHAR
+
+# Numeric
+s ABS(n)
+s ACOS(n) -> DOUBLE
+s ASIN(n) -> DOUBLE
+s ATAN(n) -> DOUBLE
+s ATAN2(n, m) -> DOUBLE
+s BITAND(n, m)
+s BITCOUNT(n) -> INTEGER
+s BITNOT(n)
+s BITOR(n, m)
+s BITSET(target, start_bit, num_to_set)
+s BITUNSET(target, start_bit, num_to_unset)
+s BITXOR(n, m)
+s CEIL(n)
+s COS(n) -> DOUBLE
+s COSH(n) -> DOUBLE
+s COT(n) -> DOUBLE
+s EXP(n) -> DOUBLE
+s FLOOR(n)
+s GREATEST(argument [, argument]...)
+s HEXTOBIN(value) -> VARBINARY
+s LEAST(argument [, argument]...)
+s LN(n) -> DOUBLE
+s LOG(b, n) -> DOUBLE
+s MOD(n, d)
+s NDIV0(n, d)
+s POWER(b, e) -> DOUBLE
+s RAND() -> DOUBLE
+s RAND_SECURE() -> DOUBLE
+s ROUND(n [, pos [, rounding_mode]])
+s SIGN(n) -> INTEGER
+s SIN(n) -> DOUBLE
+s SINH(n) -> DOUBLE
+s SQRT(n) -> DOUBLE
+s TAN(n) -> DOUBLE
+s TANH(n) -> DOUBLE
+s UMINUS(n)
+
+# String
+s ABAP_ALPHANUM(string, chars) -> NVARCHAR
+s ABAP_LOWER(string) -> NVARCHAR
+s ABAP_NUMC(string, chars) -> NVARCHAR
+s ABAP_UPPER(string) -> NVARCHAR
+s ASCII(c) -> INTEGER
+s BINTOHEX(expression) -> VARCHAR
+s BINTONHEX(expression) -> NVARCHAR
+s BINTOSTR(varbinary_string) -> NVARCHAR
+s CHAR(n) -> VARCHAR
+s CONCAT(str1, str2)
+s CONCAT_NAZ(str1, str2)
+s ESCAPE_DOUBLE_QUOTES(string) -> NVARCHAR
+s ESCAPE_SINGLE_QUOTES(string) -> NVARCHAR
+s HAMMING_DISTANCE(string1, string2) -> INTEGER
+s INITCAP(string) -> NVARCHAR
+s IS_SQL_INJECTION_SAFE(value [, max_tokens]) -> INTEGER
+s LCASE(string)
+s LEFT(string, n)
+s LENGTH(string) -> INTEGER
+s LOCATE(haystack, needle [, start_position [, occurrences]]) -> INTEGER
+s LOCATE_REGEXPR(pattern [FLAG flag] IN subject [FROM start_position] [OCCURRENCE occurrence] [GROUP group]) -> INTEGER
+s LOWER(string)
+s LPAD(string, n [, pattern])
+s LTRIM(string [, remove_set])
+s NCHAR(n) -> NVARCHAR
+s OCCURRENCES_REGEXPR(pattern [FLAG flag] IN subject [FROM start_position]) -> INTEGER
+s REPLACE(original_string, search_string, replace_string)
+s REPLACE_REGEXPR(pattern [FLAG flag] IN subject [WITH replacement] [FROM start_position] [OCCURRENCE occurrence])
+s RIGHT(string, n)
+s RPAD(string, n [, pattern])
+s RTRIM(string [, remove_set])
+s SOUNDEX(string) -> VARCHAR
+s STRTOBIN(string, codepage) -> VARBINARY
+s SUBSTR_AFTER(string, pattern)
+s SUBSTR_BEFORE(string, pattern)
+s SUBSTRING(string, start_position [, string_length])
+s SUBSTRING_REGEXPR(pattern [FLAG flag] IN subject [FROM start_position] [OCCURRENCE occurrence] [GROUP group])
+s TRIM([[LEADING | TRAILING | BOTH] trim_char FROM] string)
+s UCASE(string)
+s UNICODE(c) -> INTEGER
+s UPPER(string)
+
+# Miscellaneous
+s COALESCE(expression [, expression]...)
+s CONVERT_CURRENCY(AMOUNT => amount, SOURCE_UNIT => currency, TARGET_UNIT => currency, REFERENCE_DATE => date, SCHEMA => schema, CLIENT => client [, parameter => value]...)
+s CONVERT_UNIT(QUANTITY => quantity, SOURCE_UNIT => unit, TARGET_UNIT => unit, SCHEMA => schema, CLIENT => client [, parameter => value]...)
+s CURRENT_CONNECTION -> INTEGER
+s CURRENT_SCHEMA -> NVARCHAR
+s CURRENT_TRANSACTION_ISOLATION_LEVEL -> VARCHAR
+s CURRENT_USER -> NVARCHAR
+s HASH_MD5(value [, value]...) -> VARBINARY
+s HASH_SHA256(value [, value]...) -> VARBINARY
+s IFNULL(expression1, expression2)
+s MAP(expression, search1, result1 [, search, result]... [, default_result])
+s NEWUID() -> VARBINARY
+s NULLIF(expression1, expression2)
+s RECORD_COMMIT_TIMESTAMP(table_name) -> BIGINT
+s SESSION_CONTEXT(session_variable) -> NVARCHAR
+s SESSION_USER -> NVARCHAR
+s SYSUUID -> VARBINARY
+
+# Full-text search
+s SCORE() -> REAL
+
+# Arrays
+s CARDINALITY(array) -> INTEGER
+s MEMBER_AT(array, position)
+s TRIM_ARRAY(array, n)
+t UNNEST(array [, array]...) [WITH ORDINALITY] [AS] alias (column [, column]...)
+
+# JSON
+s JSON_QUERY(json_document, path [RETURNING data_type] [wrapper] [on_empty] [on_error]) since=2.0
+s JSON_VALUE(json_document, path [RETURNING data_type] [on_empty] [on_error]) since=2.0
+t JSON_TABLE(json_document, path [error_behavior] COLUMNS (column_definition [, column_definition]...)) since=2.0
+
+# Series data
+t SERIES_GENERATE_DATE(increment_by, min_value, max_value)
+t SERIES_GENERATE_DECIMAL(increment_by, min_value, max_value)
+t SERIES_GENERATE_INTEGER(increment_by, min_value, max_value)
+t SERIES_GENERATE_SECONDDATE(increment_by, min_value, max_value)
+t SERIES_GENERATE_TIME(increment_by, min_value, max_value)
+t SERIES_GENERATE_TIMESTAMP(increment_by, min_value, max_value)
+t SERIES_DISAGGREGATE_DATE(source_increment_by, generated_increment_by, min_value, max_value)
+t SERIES_DISAGGREGATE_DECIMAL(source_increment_by, generated_increment_by, min_value, max_value)
+t SERIES_DISAGGREGATE_INTEGER(source_increment_by, generated_increment_by, min_value, max_value)
+t SERIES_DISAGGREGATE_SECONDDATE(source_increment_by, generated_increment_by, min_value, max_value)
+t SERIES_DISAGGREGATE_TIME(source_increment_by, generated_increment_by, min_value, max_value)
+t SERIES_DISAGGREGATE_TIMESTAMP(source_increment_by, generated_increment_by, min_value, max_value)
+s SERIES_ELEMENT_TO_PERIOD(element_number, increment_by, min_value, max_value)
+s SERIES_PERIOD_TO_ELEMENT(value, increment_by, min_value, max_value [, rounding_mode]) -> INTEGER
+s SERIES_ROUND(value, interval_literal [, rounding_mode [, alignment_expression]])

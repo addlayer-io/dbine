@@ -9,6 +9,7 @@
 
 mod backup;
 mod create_db;
+mod functions;
 mod health;
 mod index_usage;
 mod jobs;
@@ -1244,6 +1245,11 @@ impl Session for ClickHouseSession {
 
     async fn monitor(&mut self) -> Result<dbine_driver::MonitorSnapshot> {
         self.snapshot().await
+    }
+
+    /// `system.functions` and `system.table_functions` (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        self.function_list().await
     }
 
     /// The queries running now (`system.processes`): ClickHouse has no

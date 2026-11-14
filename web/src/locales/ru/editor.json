@@ -41,5 +41,9 @@
     "runTip": "Выполнить только эту инструкцию",
     "plan": "План",
     "planTip": "Оценочный план выполнения этой инструкции без её выполнения"
-  }
+  },
+  "functionOverloads_one": "+{{count}} перегрузка",
+  "functionOverloads_few": "+{{count}} перегрузки",
+  "functionOverloads_many": "+{{count}} перегрузок",
+  "functionOverloads_other": "+{{count}} перегрузки"
 }

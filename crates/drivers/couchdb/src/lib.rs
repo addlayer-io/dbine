@@ -46,6 +46,7 @@
 
 mod create_db;
 mod ddl;
+mod functions;
 mod index_usage;
 mod jobs;
 mod monitor;
@@ -1337,6 +1338,11 @@ impl Session for CouchSession {
     /// `_session` roles and the database's `_security` (see `permissions`).
     async fn permissions(&mut self, database: Option<&str>) -> Result<dbine_driver::Permissions> {
         permissions::check(self, database).await
+    }
+
+    /// The Mango operators of the server's version (see [`functions`]).
+    async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
+        Ok(functions::catalog(Some(&self.version)))
     }
 
     /// Only `_all_docs` has indexes (views are indexes themselves).
