@@ -30,17 +30,28 @@
     "loading": "正在加载列…",
     "empty": "此表没有可用的元数据。",
     "error": "无法读取列：{{error}}",
-    "primaryKey": "主键"
+    "primaryKey": "主键",
+    "kind": {
+      "column": "列",
+      "measure": "度量值",
+      "queryColumn": "查询中的列",
+      "queryMeasure": "查询中的度量值"
+    },
+    "format": "格式",
+    "unknown": "资源管理器不识别具有此名称的列或度量值。",
+    "loadingDefinition": "正在读取定义…",
+    "definitionError": "无法读取定义：{{error}}",
+    "noExpression": "无权查看表达式。"
   },
   "insertColumn": "第 {{n}} 列，共 {{total}} 列：{{name}}",
   "insertExtra": "第 {{n}} 个值：列表有 {{total}} 列",
   "pickFile": "选择文件…",
+  "functionOverloads_other": "+{{count}} 个重载",
   "dataFiles": "数据文件（CSV、Parquet、JSON、Excel）",
   "lens": {
     "run": "运行",
     "runTip": "仅运行此语句",
     "plan": "计划",
     "planTip": "此语句的预估执行计划，不会运行它"
-  },
-  "functionOverloads_other": "+{{count}} 个重载"
+  }
 }

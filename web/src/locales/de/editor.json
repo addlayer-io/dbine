@@ -30,18 +30,29 @@
     "loading": "Spalten werden geladen …",
     "empty": "Für diese Tabelle sind keine Metadaten verfügbar.",
     "error": "Die Spalten konnten nicht gelesen werden: {{error}}",
-    "primaryKey": "Primärschlüssel"
+    "primaryKey": "Primärschlüssel",
+    "kind": {
+      "column": "Spalte",
+      "measure": "Measure",
+      "queryColumn": "Abfragespalte",
+      "queryMeasure": "Abfrage-Measure"
+    },
+    "format": "Format",
+    "unknown": "Der Explorer kennt keine Spalte und kein Measure mit diesem Namen.",
+    "loadingDefinition": "Definition wird gelesen…",
+    "definitionError": "Die Definition konnte nicht gelesen werden: {{error}}",
+    "noExpression": "Keine Berechtigung, den Ausdruck anzuzeigen."
   },
   "insertColumn": "Spalte {{n}} von {{total}}: {{name}}",
   "insertExtra": "Wert {{n}}: Die Liste hat {{total}} Spalten",
   "pickFile": "Datei auswählen…",
+  "functionOverloads_one": "+{{count}} Überladung",
+  "functionOverloads_other": "+{{count}} Überladungen",
   "dataFiles": "Datendateien (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Ausführen",
     "runTip": "Nur diese Anweisung ausführen",
     "plan": "Plan",
     "planTip": "Geschätzter Ausführungsplan dieser Anweisung, ohne sie auszuführen"
-  },
-  "functionOverloads_one": "+{{count}} Überladung",
-  "functionOverloads_other": "+{{count}} Überladungen"
+  }
 }

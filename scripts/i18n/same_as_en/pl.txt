@@ -235,3 +235,6 @@ backend:Write
 snippets.json:families.dax
 backend:Modelo
 backend:importación
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title
+editor.json:tableHover.format

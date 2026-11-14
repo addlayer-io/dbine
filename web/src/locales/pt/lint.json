@@ -27,7 +27,8 @@
     "search": "Elasticsearch, OpenSearch e Solr",
     "redis": "Redis, Valkey e Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j, Memgraph e Neptune"
+    "cypher": "Neo4j, Memgraph e Neptune",
+    "dax": "Power BI (DAX)"
   },
   "problems": {
     "button": "Ver problemas",
@@ -230,6 +231,56 @@
       "title": "DETACH DELETE sem WHERE",
       "message": "DETACH DELETE sem WHERE apaga todos os nós que o MATCH encontra",
       "why": "Apaga os nós e todas as suas relações. Sem um WHERE ou um filtro de propriedades, leva todos os nós do padrão. Revise o MATCH; para apagar muitos, faça em lotes (CALL { … } IN TRANSACTIONS)."
+    },
+    "filter-whole-table": {
+      "title": "FILTER sobre uma tabela inteira em CALCULATE",
+      "message": "FILTER({{table}}, …) filtra a tabela inteira: use uma condição sobre a coluna ou KEEPFILTERS",
+      "why": "Como filtro do CALCULATE, o FILTER percorre todas as linhas da tabela (e de suas tabelas relacionadas) e o filtro que ele monta abrange todas as colunas: é lento e pode dar resultados inesperados. Escreva a condição sobre a coluna ('Tabela'[Coluna] = valor) ou, para respeitar os filtros que já existem, KEEPFILTERS('Tabela'[Coluna] = valor). Se você filtra por uma medida, use FILTER sobre os valores de uma coluna (VALUES ou ALL da coluna), não sobre a tabela."
+    },
+    "error-functions": {
+      "title": "IFERROR e ISERROR",
+      "message": "{{fn}} obriga a avaliar passo a passo e esconde erros",
+      "why": "As funções de erro impedem que o motor resolva a expressão de uma só vez e ocultam erros reais do modelo. Para uma divisão, use DIVIDE; nos demais casos, verifique a condição antes (ISBLANK, IF com a validação) em vez de capturar o erro."
+    },
+    "divide-operator": {
+      "title": "Divisão com /",
+      "message": "O denominador de / pode ser zero ou vazio: use DIVIDE",
+      "why": "No DAX, dividir por zero ou por um valor vazio não gera erro: dá infinito ou NaN, e isso aparece nos relatórios. DIVIDE(numerador, denominador) retorna vazio nesses casos, ou o resultado alternativo que você passar. Se o denominador for uma constante, / está bem."
+    },
+    "summarize-extension-columns": {
+      "title": "SUMMARIZE com colunas calculadas",
+      "message": "SUMMARIZE calcula a coluna {{name}}: use SUMMARIZECOLUMNS ou ADDCOLUMNS",
+      "why": "As colunas que o SUMMARIZE calcula são avaliadas em um contexto de filtro difícil de prever, o que pode dar resultados incorretos, e são mais lentas. Use SUMMARIZE apenas para agrupar e adicione os cálculos com ADDCOLUMNS (com CALCULATE em volta do que não for uma medida), ou use SUMMARIZECOLUMNS."
+    },
+    "topn-without-order-by": {
+      "title": "TOPN sem ORDER BY",
+      "message": "TOPN escolhe as linhas, mas não as ordena: adicione ORDER BY ao EVALUATE",
+      "why": "TOPN não garante nenhuma ordem no resultado: as linhas podem chegar em qualquer ordem. Para vê-las ordenadas, adicione ORDER BY no final do EVALUATE com o mesmo critério e o mesmo sentido (se não for indicado, TOPN pega as de maior valor). Só é marcado um TOPN que ordena por algo: sem expressão de ordem, ou com uma só linha, não há ordem a manter."
+    },
+    "redundant-calculate": {
+      "title": "CALCULATE desnecessário",
+      "message": "{{fn}} sem filtros não altera o resultado",
+      "why": "Uma referência a uma medida já traz um CALCULATE implícito, e um CALCULATE dentro de outro já faz a transição de contexto: o de fora, sem filtros próprios, só adiciona trabalho e ruído. Remova-o e deixe a medida ou o CALCULATE de dentro."
+    },
+    "hasonevalue-values": {
+      "title": "IF(HASONEVALUE(…), VALUES(…))",
+      "message": "Use SELECTEDVALUE({{column}})",
+      "why": "SELECTEDVALUE retorna o valor da coluna quando o contexto tem apenas um e, caso contrário, o resultado alternativo: é a forma curta e equivalente de IF(HASONEVALUE(…), VALUES(…), …)."
+    },
+    "unqualified-column": {
+      "title": "Coluna sem sua tabela",
+      "message": "“{{column}}” é uma coluna: escreva-a com sua tabela, {{qualified}}",
+      "why": "No DAX, as colunas são escritas com sua tabela e as medidas sem ela: assim se distinguem à primeira vista e a fórmula não muda de sentido se alguém criar uma medida com o mesmo nome. Só são marcadas as colunas que o próprio script escreve com sua tabela onde só cabe uma coluna."
+    },
+    "qualified-measure": {
+      "title": "Medida com sua tabela",
+      "message": "“{{measure}}” é uma medida: escreva-a sem a tabela",
+      "why": "No DAX, as medidas são escritas sem tabela ([Medida]) e as colunas com ela ('Tabela'[Coluna]): assim se distinguem e a fórmula continua funcionando se a medida passar para outra tabela. Só são marcadas as medidas que o script define com MEASURE, escritas com sua própria tabela: o mesmo nome em outra tabela é uma coluna."
+    },
+    "earlier": {
+      "title": "EARLIER e EARLIEST",
+      "message": "{{fn}}: guarde o valor em uma variável",
+      "why": "EARLIER e EARLIEST leem um contexto de linha anterior e dificultam o acompanhamento da fórmula. Guarde o valor em uma variável (VAR) antes do iterador e use-a dentro: o resultado é o mesmo e a fórmula se lê de cima para baixo."
     },
     "unknown-table": {
       "title": "Tabela desconhecida",

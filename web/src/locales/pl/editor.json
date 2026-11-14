@@ -30,11 +30,24 @@
     "loading": "Wczytywanie kolumn…",
     "empty": "Brak metadanych dla tej tabeli.",
     "error": "Nie można odczytać kolumn: {{error}}",
-    "primaryKey": "Klucz podstawowy"
+    "primaryKey": "Klucz podstawowy",
+    "kind": {
+      "column": "Kolumna",
+      "measure": "Miara",
+      "queryColumn": "Kolumna zapytania",
+      "queryMeasure": "Miara zapytania"
+    },
+    "format": "format",
+    "unknown": "Eksplorator nie zna kolumny ani miary o tej nazwie.",
+    "loadingDefinition": "Odczytywanie definicji…",
+    "definitionError": "Nie można odczytać definicji: {{error}}",
+    "noExpression": "Brak uprawnień do wyświetlenia wyrażenia."
   },
   "insertColumn": "Kolumna {{n}} z {{total}}: {{name}}",
   "insertExtra": "Wartość {{n}}: lista ma kolumn: {{total}}",
   "pickFile": "Wybierz plik…",
+  "functionOverloads_one": "+{{count}} przeciążenie",
+  "functionOverloads_other": "+{{count}} przeciążenia",
   "dataFiles": "Pliki danych (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Uruchom",
@@ -42,8 +55,6 @@
     "plan": "Plan",
     "planTip": "Szacowany plan wykonania tej instrukcji, bez jej uruchamiania"
   },
-  "functionOverloads_one": "+{{count}} przeciążenie",
   "functionOverloads_few": "+{{count}} przeciążenia",
-  "functionOverloads_many": "+{{count}} przeciążeń",
-  "functionOverloads_other": "+{{count}} przeciążenia"
+  "functionOverloads_many": "+{{count}} przeciążeń"
 }

@@ -866,3 +866,5 @@ backend:Undefined
 backend:Variant
 backend:Viewer
 backend:Write
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title

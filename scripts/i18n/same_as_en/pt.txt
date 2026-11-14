@@ -255,3 +255,6 @@ backend:s SIN(float_exp) -> FLOAT
 backend:{0}: pg_proc listed no functions
 snippets.json:families.dax
 backend:Área de trabajo
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title
+lint.json:rules.hasonevalue-values.message

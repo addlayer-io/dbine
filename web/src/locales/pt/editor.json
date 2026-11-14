@@ -30,11 +30,24 @@
     "loading": "Carregando colunas…",
     "empty": "Não há metadados disponíveis para esta tabela.",
     "error": "Não foi possível ler as colunas: {{error}}",
-    "primaryKey": "Chave primária"
+    "primaryKey": "Chave primária",
+    "kind": {
+      "column": "Coluna",
+      "measure": "Medida",
+      "queryColumn": "Coluna da consulta",
+      "queryMeasure": "Medida da consulta"
+    },
+    "format": "formato",
+    "unknown": "O explorador não conhece uma coluna nem uma medida com esse nome.",
+    "loadingDefinition": "Lendo a definição…",
+    "definitionError": "Não foi possível ler a definição: {{error}}",
+    "noExpression": "Sem permissão para ver a expressão."
   },
   "insertColumn": "Coluna {{n}} de {{total}}: {{name}}",
   "insertExtra": "Valor {{n}}: a lista tem {{total}} colunas",
   "pickFile": "Escolher arquivo…",
+  "functionOverloads_one": "+{{count}} sobrecarga",
+  "functionOverloads_other": "+{{count}} sobrecargas",
   "dataFiles": "Arquivos de dados (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Executar",
@@ -42,7 +55,5 @@
     "plan": "Plano",
     "planTip": "Plano de execução estimado desta instrução, sem executá-la"
   },
-  "functionOverloads_one": "+{{count}} sobrecarga",
-  "functionOverloads_many": "+{{count}} sobrecargas",
-  "functionOverloads_other": "+{{count}} sobrecargas"
+  "functionOverloads_many": "+{{count}} sobrecargas"
 }

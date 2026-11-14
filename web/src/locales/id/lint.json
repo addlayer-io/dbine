@@ -27,7 +27,8 @@
     "search": "Elasticsearch, OpenSearch, dan Solr",
     "redis": "Redis, Valkey, dan Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j, Memgraph, dan Neptune"
+    "cypher": "Neo4j, Memgraph, dan Neptune",
+    "dax": "Power BI (DAX)"
   },
   "problems": {
     "button": "Lihat masalah",
@@ -228,6 +229,56 @@
       "title": "DETACH DELETE tanpa WHERE",
       "message": "DETACH DELETE tanpa WHERE menghapus semua node yang ditemukan MATCH",
       "why": "Menghapus node beserta semua relasinya. Tanpa WHERE atau filter properti, semua node dalam pola ikut terhapus. Periksa MATCH-nya; untuk menghapus dalam jumlah besar, lakukan secara bertahap (CALL { … } IN TRANSACTIONS)."
+    },
+    "filter-whole-table": {
+      "title": "FILTER pada seluruh tabel di dalam CALCULATE",
+      "message": "FILTER({{table}}, …) memfilter seluruh tabel: gunakan kondisi pada kolom atau KEEPFILTERS",
+      "why": "Sebagai filter CALCULATE, FILTER menelusuri semua baris tabel (dan tabel terkait), dan filter yang dibuatnya mencakup semua kolomnya: lambat dan dapat memberi hasil yang tak terduga. Tulis kondisi pada kolom ('Tabel'[Kolom] = nilai) atau, untuk menghormati filter yang sudah ada, KEEPFILTERS('Tabel'[Kolom] = nilai). Jika memfilter berdasarkan measure, gunakan FILTER pada nilai kolom (VALUES atau ALL dari kolom), bukan pada tabel."
+    },
+    "error-functions": {
+      "title": "IFERROR dan ISERROR",
+      "message": "{{fn}} memaksa evaluasi bertahap dan menyembunyikan error",
+      "why": "Fungsi error membuat mesin tidak dapat menyelesaikan ekspresi sekaligus dan menyembunyikan error nyata pada model. Untuk pembagian, gunakan DIVIDE; pada kasus lain, periksa kondisinya terlebih dahulu (ISBLANK, IF dengan validasi) alih-alih menangkap error."
+    },
+    "divide-operator": {
+      "title": "Pembagian dengan /",
+      "message": "Penyebut / bisa nol atau kosong: gunakan DIVIDE",
+      "why": "Di DAX, membagi dengan nol atau nilai kosong tidak menimbulkan error: hasilnya tak terhingga atau NaN, dan itu muncul di laporan. DIVIDE(pembilang, penyebut) mengembalikan nilai kosong dalam kasus itu, atau hasil alternatif yang Anda berikan. Jika penyebutnya konstanta, / tidak masalah."
+    },
+    "summarize-extension-columns": {
+      "title": "SUMMARIZE dengan kolom terhitung",
+      "message": "SUMMARIZE menghitung kolom {{name}}: gunakan SUMMARIZECOLUMNS atau ADDCOLUMNS",
+      "why": "Kolom yang dihitung SUMMARIZE dievaluasi dalam konteks filter yang sulit diprediksi, sehingga dapat memberi hasil yang salah, dan lebih lambat. Gunakan SUMMARIZE hanya untuk pengelompokan dan tambahkan perhitungan dengan ADDCOLUMNS (dengan CALCULATE di sekitar yang bukan measure), atau gunakan SUMMARIZECOLUMNS."
+    },
+    "topn-without-order-by": {
+      "title": "TOPN tanpa ORDER BY",
+      "message": "TOPN memilih baris tetapi tidak mengurutkannya: tambahkan ORDER BY pada EVALUATE",
+      "why": "TOPN tidak menjamin urutan apa pun pada hasilnya: baris dapat datang dalam urutan apa saja. Agar terurut, tambahkan ORDER BY di akhir EVALUATE dengan kriteria dan arah yang sama (jika tidak ditentukan, TOPN mengambil baris bernilai terbesar). Hanya TOPN yang mengurutkan berdasarkan sesuatu yang ditandai: tanpa ekspresi urutan, atau dengan satu baris, tidak ada urutan yang perlu dipertahankan."
+    },
+    "redundant-calculate": {
+      "title": "CALCULATE yang berlebih",
+      "message": "{{fn}} tanpa filter tidak mengubah hasil",
+      "why": "Referensi ke measure sudah membawa CALCULATE implisit, dan CALCULATE di dalam CALCULATE lain sudah melakukan transisi konteks: yang di luar, tanpa filter sendiri, hanya menambah pekerjaan dan kebisingan. Hapus, lalu pertahankan measure atau CALCULATE di dalamnya."
+    },
+    "hasonevalue-values": {
+      "title": "IF(HASONEVALUE(…), VALUES(…))",
+      "message": "Gunakan SELECTEDVALUE({{column}})",
+      "why": "SELECTEDVALUE mengembalikan nilai kolom ketika konteks hanya memiliki satu nilai dan, jika tidak, hasil alternatif: ini bentuk singkat yang setara dengan IF(HASONEVALUE(…), VALUES(…), …)."
+    },
+    "unqualified-column": {
+      "title": "Kolom tanpa tabelnya",
+      "message": "“{{column}}” adalah kolom: tulis bersama tabelnya, {{qualified}}",
+      "why": "Di DAX, kolom ditulis dengan tabelnya dan measure tanpa tabel: dengan begitu keduanya mudah dibedakan dan rumus tidak berubah makna jika seseorang membuat measure dengan nama yang sama. Hanya kolom yang ditulis skrip itu sendiri tanpa tabel di tempat yang hanya boleh berisi kolom yang ditandai."
+    },
+    "qualified-measure": {
+      "title": "Measure dengan tabelnya",
+      "message": "“{{measure}}” adalah measure: tulis tanpa tabel",
+      "why": "Di DAX, measure ditulis tanpa tabel ([Measure]) dan kolom dengan tabel ('Tabel'[Kolom]): dengan begitu keduanya mudah dibedakan dan rumus tetap berfungsi jika measure dipindahkan ke tabel lain. Hanya measure yang didefinisikan skrip dengan MEASURE dan ditulis dengan tabelnya sendiri yang ditandai: nama yang sama di tabel lain adalah kolom."
+    },
+    "earlier": {
+      "title": "EARLIER dan EARLIEST",
+      "message": "{{fn}}: simpan nilai dalam variabel",
+      "why": "EARLIER dan EARLIEST membaca konteks baris sebelumnya dan membuat rumus sulit diikuti. Simpan nilai dalam variabel (VAR) sebelum iterator dan gunakan di dalamnya: hasilnya sama dan rumus terbaca dari atas ke bawah."
     },
     "unknown-table": {
       "title": "Tabel tidak dikenal",

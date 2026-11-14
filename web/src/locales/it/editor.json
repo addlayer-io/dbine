@@ -30,11 +30,24 @@
     "loading": "Caricamento delle colonne…",
     "empty": "Nessun metadato disponibile per questa tabella.",
     "error": "Impossibile leggere le colonne: {{error}}",
-    "primaryKey": "Chiave primaria"
+    "primaryKey": "Chiave primaria",
+    "kind": {
+      "column": "Colonna",
+      "measure": "Misura",
+      "queryColumn": "Colonna della query",
+      "queryMeasure": "Misura della query"
+    },
+    "format": "formato",
+    "unknown": "L'explorer non conosce una colonna né una misura con questo nome.",
+    "loadingDefinition": "Lettura della definizione…",
+    "definitionError": "Impossibile leggere la definizione: {{error}}",
+    "noExpression": "Nessun permesso per vedere l'espressione."
   },
   "insertColumn": "Colonna {{n}} di {{total}}: {{name}}",
   "insertExtra": "Valore {{n}}: l'elenco ha {{total}} colonne",
   "pickFile": "Scegli file…",
+  "functionOverloads_one": "+{{count}} overload",
+  "functionOverloads_other": "+{{count}} overload",
   "dataFiles": "File di dati (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Esegui",
@@ -42,7 +55,5 @@
     "plan": "Piano",
     "planTip": "Piano di esecuzione stimato di questa istruzione, senza eseguirla"
   },
-  "functionOverloads_one": "+{{count}} overload",
-  "functionOverloads_many": "+{{count}} overload",
-  "functionOverloads_other": "+{{count}} overload"
+  "functionOverloads_many": "+{{count}} overload"
 }

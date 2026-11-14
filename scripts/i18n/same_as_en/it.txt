@@ -369,3 +369,5 @@ editor.json:functionOverloads_one
 dataCompare.json:query.queryOf
 snippets.json:families.dax
 backend:Inquilino (tenant)
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title

@@ -469,3 +469,7 @@ backend:Confirmación
 backend:Inquilino (tenant)
 backend:Modelo
 backend:compilación
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title
+editor.json:tableHover.kind.measure
+editor.json:tableHover.format

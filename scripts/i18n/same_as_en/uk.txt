@@ -117,3 +117,5 @@ backend:Variant
 backend:Viewer
 backend:Write
 snippets.json:families.dax
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title

@@ -30,17 +30,28 @@
     "loading": "열을 불러오는 중…",
     "empty": "이 테이블에 사용할 수 있는 메타데이터가 없습니다.",
     "error": "열을 읽을 수 없습니다: {{error}}",
-    "primaryKey": "기본 키"
+    "primaryKey": "기본 키",
+    "kind": {
+      "column": "열",
+      "measure": "측정값",
+      "queryColumn": "쿼리의 열",
+      "queryMeasure": "쿼리의 측정값"
+    },
+    "format": "형식",
+    "unknown": "탐색기에서 이 이름의 열이나 측정값을 알 수 없습니다.",
+    "loadingDefinition": "정의를 읽는 중…",
+    "definitionError": "정의를 읽을 수 없습니다: {{error}}",
+    "noExpression": "식을 볼 수 있는 권한이 없습니다."
   },
   "insertColumn": "열 {{n}}/{{total}}: {{name}}",
   "insertExtra": "값 {{n}}: 목록에 열이 {{total}}개 있습니다",
   "pickFile": "파일 선택…",
+  "functionOverloads_other": "+{{count}}개 오버로드",
   "dataFiles": "데이터 파일(CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "실행",
     "runTip": "이 문만 실행",
     "plan": "계획",
     "planTip": "이 문의 예상 실행 계획(실행하지 않음)"
-  },
-  "functionOverloads_other": "+{{count}}개 오버로드"
+  }
 }

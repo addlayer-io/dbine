@@ -477,3 +477,6 @@ backend:30 minutos
 backend:Limitación
 backend:Perspectivas
 backend:Referencia cultural
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title
+editor.json:tableHover.format

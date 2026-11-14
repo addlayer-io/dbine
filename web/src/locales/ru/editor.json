@@ -30,11 +30,24 @@
     "loading": "Загрузка столбцов…",
     "empty": "Для этой таблицы нет метаданных.",
     "error": "Не удалось прочитать столбцы: {{error}}",
-    "primaryKey": "Первичный ключ"
+    "primaryKey": "Первичный ключ",
+    "kind": {
+      "column": "Столбец",
+      "measure": "Мера",
+      "queryColumn": "Столбец запроса",
+      "queryMeasure": "Мера запроса"
+    },
+    "format": "формат",
+    "unknown": "Проводник не знает столбца или меры с таким именем.",
+    "loadingDefinition": "Чтение определения…",
+    "definitionError": "Не удалось прочитать определение: {{error}}",
+    "noExpression": "Нет разрешения на просмотр выражения."
   },
   "insertColumn": "Столбец {{n}} из {{total}}: {{name}}",
   "insertExtra": "Значение {{n}}: в списке столбцов: {{total}}",
   "pickFile": "Выбрать файл…",
+  "functionOverloads_one": "+{{count}} перегрузка",
+  "functionOverloads_other": "+{{count}} перегрузки",
   "dataFiles": "Файлы данных (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Выполнить",
@@ -42,8 +55,6 @@
     "plan": "План",
     "planTip": "Оценочный план выполнения этой инструкции без её выполнения"
   },
-  "functionOverloads_one": "+{{count}} перегрузка",
   "functionOverloads_few": "+{{count}} перегрузки",
-  "functionOverloads_many": "+{{count}} перегрузок",
-  "functionOverloads_other": "+{{count}} перегрузки"
+  "functionOverloads_many": "+{{count}} перегрузок"
 }

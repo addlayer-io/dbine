@@ -133,6 +133,34 @@
     "mongo_where": {
       "title": "$where → query operators",
       "explain": "$where runs JavaScript on every document and doesn't use indexes; the equivalent operators do. With fields that are arrays or mix types the result may change: compare it before using it."
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "FILTER over the whole table → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) walks the whole table, with its related tables, to build the filter. KEEPFILTERS with the same condition filters only the columns it uses and respects the filters already in place. If the measure uses related tables, if there are other modifiers (ALL…) or if the CALCULATE is inside an iterator, the result can change: compare it before using it."
+    },
+    "dax_iferror_to_divide": {
+      "title": "IFERROR with a division → DIVIDE",
+      "explain": "IFERROR forces step-by-step evaluation; DIVIDE resolves {{division}} without trapping errors. In DAX, dividing by zero is not an error (it gives infinity), so IFERROR didn't cover it and DIVIDE returns the alternate result: compare it before using it."
+    },
+    "dax_iserror_to_divide": {
+      "title": "IF(ISERROR(…)) with a division → DIVIDE",
+      "explain": "ISERROR forces step-by-step evaluation and calculates {{division}} twice; DIVIDE calculates it once. In DAX, dividing by zero is not an error (it gives infinity), so ISERROR didn't cover it and DIVIDE returns the alternate result: compare it before using it."
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) is the short, equivalent form: it returns the value when there is only one and, otherwise, the alternate result."
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "SUMMARIZE with calculated columns → ADDCOLUMNS",
+      "explain": "SUMMARIZE stays only for grouping and the calculated columns ({{name}}…) move to ADDCOLUMNS, with CALCULATE to compute them per group: it is faster and its context is the expected one. With complex relationships the result can change: compare it before using it."
+    },
+    "dax_redundant_calculate": {
+      "title": "Unnecessary CALCULATE without filters",
+      "explain": "{{fn}} without filters around a measure or another {{fn}} doesn't change the result: the measure already has its implicit CALCULATE and the inner one already does the context transition."
+    },
+    "dax_topn_order_by": {
+      "title": "TOPN without ORDER BY → ORDER BY",
+      "explain": "TOPN picks the rows but doesn't sort them. {{order}} is added to the EVALUATE, with TOPN's criterion and direction."
     }
   },
   "notesText": {

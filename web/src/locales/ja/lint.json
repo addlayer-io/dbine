@@ -27,7 +27,8 @@
     "search": "Elasticsearch、OpenSearch、Solr",
     "redis": "Redis、Valkey、Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j、Memgraph、Neptune"
+    "cypher": "Neo4j、Memgraph、Neptune",
+    "dax": "Power BI (DAX)"
   },
   "problems": {
     "button": "問題を表示",
@@ -228,6 +229,56 @@
       "title": "WHERE のない DETACH DELETE",
       "message": "WHERE のない DETACH DELETE は、MATCH が見つけたすべてのノードを削除します",
       "why": "ノードとそのすべてのリレーションシップを削除します。WHERE やプロパティのフィルターがないと、パターンのすべてのノードが対象になります。MATCH を確認してください。大量に削除する場合はバッチで行います(CALL { … } IN TRANSACTIONS)。"
+    },
+    "filter-whole-table": {
+      "title": "CALCULATE 内でテーブル全体に FILTER を使用",
+      "message": "FILTER({{table}}, …) はテーブル全体をフィルターします。列に対する条件か KEEPFILTERS を使用してください",
+      "why": "CALCULATE のフィルターとして使うと、FILTER はテーブル(および関連テーブル)のすべての行を走査し、作成されるフィルターはすべての列に及びます。遅くなるうえ、予期しない結果になることがあります。条件は列に対して記述してください('テーブル'[列] = 値)。既存のフィルターを維持するには KEEPFILTERS('テーブル'[列] = 値) を使います。メジャーで絞り込む場合は、テーブルではなく列の値(列の VALUES または ALL)に対して FILTER を使ってください。"
+    },
+    "error-functions": {
+      "title": "IFERROR と ISERROR",
+      "message": "{{fn}} は式を段階的に評価させ、エラーを隠してしまいます",
+      "why": "エラー関数があるとエンジンが式を一度に解決できなくなり、モデルの本当のエラーも隠れます。除算には DIVIDE を使い、それ以外の場合はエラーを捕捉せず、先に条件を確認してください(ISBLANK、検証付きの IF)。"
+    },
+    "divide-operator": {
+      "title": "/ による除算",
+      "message": "/ の分母は 0 または空になる可能性があります。DIVIDE を使用してください",
+      "why": "DAX では、0 や空の値で割ってもエラーにならず、無限大または NaN になり、それがレポートに表示されます。DIVIDE(分子, 分母) はそのような場合に空の値、または指定した代替結果を返します。分母が定数なら / で問題ありません。"
+    },
+    "summarize-extension-columns": {
+      "title": "計算列を含む SUMMARIZE",
+      "message": "SUMMARIZE が列 {{name}} を計算しています。SUMMARIZECOLUMNS または ADDCOLUMNS を使用してください",
+      "why": "SUMMARIZE が計算する列は予測しにくいフィルターコンテキストで評価され、誤った結果になることがあり、処理も遅くなります。SUMMARIZE はグループ化のみに使い、計算は ADDCOLUMNS で追加するか(メジャー以外は CALCULATE で囲みます)、SUMMARIZECOLUMNS を使用してください。"
+    },
+    "topn-without-order-by": {
+      "title": "ORDER BY のない TOPN",
+      "message": "TOPN は行を選ぶだけで並べ替えません。EVALUATE に ORDER BY を追加してください",
+      "why": "TOPN は結果の順序を保証しません。行は任意の順序で返されることがあります。並べ替えて表示するには、EVALUATE の末尾に同じ基準と同じ方向で ORDER BY を追加します(指定がない場合、TOPN は値が最大のものを取ります)。並べ替え基準のある TOPN のみが対象です。並べ替え式がない場合や 1 行のみの場合は、維持すべき順序がありません。"
+    },
+    "redundant-calculate": {
+      "title": "不要な CALCULATE",
+      "message": "フィルターのない {{fn}} は結果を変えません",
+      "why": "メジャーの参照には暗黙の CALCULATE が含まれ、別の CALCULATE の内側にある CALCULATE はすでにコンテキスト遷移を行っています。外側の独自フィルターのない CALCULATE は、処理とノイズを増やすだけです。外して、メジャーまたは内側の CALCULATE を残してください。"
+    },
+    "hasonevalue-values": {
+      "title": "IF(HASONEVALUE(…), VALUES(…))",
+      "message": "SELECTEDVALUE({{column}}) を使用してください",
+      "why": "SELECTEDVALUE は、コンテキストに値が 1 つだけある場合はその列の値を、そうでなければ代替結果を返します。IF(HASONEVALUE(…), VALUES(…), …) の短く同等な書き方です。"
+    },
+    "unqualified-column": {
+      "title": "テーブル名のない列",
+      "message": "「{{column}}」は列です。テーブル名を付けて記述してください: {{qualified}}",
+      "why": "DAX では列はテーブル名付きで、メジャーはテーブル名なしで記述します。ひと目で区別でき、同じ名前のメジャーが作られても数式の意味が変わりません。対象となるのは、列しか指定できない場所で、スクリプト自身がテーブル名なしで記述している列のみです。"
+    },
+    "qualified-measure": {
+      "title": "テーブル名付きのメジャー",
+      "message": "「{{measure}}」はメジャーです。テーブル名なしで記述してください",
+      "why": "DAX ではメジャーはテーブル名なし([メジャー])、列はテーブル名付き('テーブル'[列])で記述します。区別しやすく、メジャーを別のテーブルに移しても数式は動作し続けます。対象となるのは、スクリプトが MEASURE で定義し、自身のテーブル名付きで記述しているメジャーのみです。別のテーブルの同じ名前は列です。"
+    },
+    "earlier": {
+      "title": "EARLIER と EARLIEST",
+      "message": "{{fn}}: 値を変数に保存してください",
+      "why": "EARLIER と EARLIEST は以前の行コンテキストを読み取るため、数式が追いにくくなります。イテレーターの前に値を変数(VAR)に保存し、その内側で使用してください。結果は同じで、数式を上から下へ読めるようになります。"
     },
     "unknown-table": {
       "title": "不明なテーブル",

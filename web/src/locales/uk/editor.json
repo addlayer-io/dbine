@@ -30,11 +30,24 @@
     "loading": "Завантаження стовпців…",
     "empty": "Для цієї таблиці немає метаданих.",
     "error": "Не вдалося прочитати стовпці: {{error}}",
-    "primaryKey": "Первинний ключ"
+    "primaryKey": "Первинний ключ",
+    "kind": {
+      "column": "Стовпець",
+      "measure": "Міра",
+      "queryColumn": "Стовпець запиту",
+      "queryMeasure": "Міра запиту"
+    },
+    "format": "формат",
+    "unknown": "Провідник не знає стовпця чи міри з такою назвою.",
+    "loadingDefinition": "Читання визначення…",
+    "definitionError": "Не вдалося прочитати визначення: {{error}}",
+    "noExpression": "Немає дозволу на перегляд виразу."
   },
   "insertColumn": "Стовпець {{n}} із {{total}}: {{name}}",
   "insertExtra": "Значення {{n}}: у списку стовпців {{total}}",
   "pickFile": "Вибрати файл…",
+  "functionOverloads_one": "+{{count}} перевантаження",
+  "functionOverloads_other": "+{{count}} перевантаження",
   "dataFiles": "Файли даних (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Виконати",
@@ -42,8 +55,6 @@
     "plan": "План",
     "planTip": "Орієнтовний план виконання цього оператора без його виконання"
   },
-  "functionOverloads_one": "+{{count}} перевантаження",
   "functionOverloads_few": "+{{count}} перевантаження",
-  "functionOverloads_many": "+{{count}} перевантажень",
-  "functionOverloads_other": "+{{count}} перевантаження"
+  "functionOverloads_many": "+{{count}} перевантажень"
 }

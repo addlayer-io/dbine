@@ -27,7 +27,8 @@
     "search": "Elasticsearch, OpenSearch und Solr",
     "redis": "Redis, Valkey und Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j, Memgraph und Neptune"
+    "cypher": "Neo4j, Memgraph und Neptune",
+    "dax": "Power BI (DAX)"
   },
   "problems": {
     "button": "Probleme anzeigen",
@@ -229,6 +230,56 @@
       "title": "DETACH DELETE ohne WHERE",
       "message": "DETACH DELETE ohne WHERE löscht alle Knoten, die das MATCH findet",
       "why": "Es löscht die Knoten und alle ihre Beziehungen. Ohne WHERE oder Eigenschaftsfilter nimmt es alle Knoten des Musters mit. Prüfen Sie das MATCH; zum Löschen vieler Knoten arbeiten Sie in Batches (CALL { … } IN TRANSACTIONS)."
+    },
+    "filter-whole-table": {
+      "title": "FILTER über eine ganze Tabelle in CALCULATE",
+      "message": "FILTER({{table}}, …) filtert die ganze Tabelle: Verwenden Sie eine Bedingung auf die Spalte oder KEEPFILTERS",
+      "why": "Als Filter von CALCULATE durchläuft FILTER alle Zeilen der Tabelle (und ihrer verknüpften Tabellen), und der aufgebaute Filter umfasst alle ihre Spalten: Das ist langsam und kann unerwartete Ergebnisse liefern. Schreiben Sie die Bedingung auf die Spalte ('Tabelle'[Spalte] = Wert) oder, um die bestehenden Filter zu beachten, KEEPFILTERS('Tabelle'[Spalte] = Wert). Wenn Sie nach einem Measure filtern, verwenden Sie FILTER über die Werte einer Spalte (VALUES oder ALL der Spalte), nicht über die Tabelle."
+    },
+    "error-functions": {
+      "title": "IFERROR und ISERROR",
+      "message": "{{fn}} erzwingt eine schrittweise Auswertung und verbirgt Fehler",
+      "why": "Fehlerfunktionen verhindern, dass die Engine den Ausdruck in einem Durchgang auflöst, und verbergen echte Fehler im Modell. Verwenden Sie für eine Division DIVIDE; prüfen Sie in den übrigen Fällen zuerst die Bedingung (ISBLANK, IF mit der Prüfung), statt den Fehler abzufangen."
+    },
+    "divide-operator": {
+      "title": "Division mit /",
+      "message": "Der Nenner von / kann null oder leer sein: Verwenden Sie DIVIDE",
+      "why": "Eine Division durch null oder durch einen leeren Wert löst in DAX keinen Fehler aus: Sie ergibt unendlich oder NaN, und das erscheint in den Berichten. DIVIDE(Zähler, Nenner) gibt in diesen Fällen leer zurück oder das alternative Ergebnis, das Sie übergeben. Ist der Nenner eine Konstante, ist / in Ordnung."
+    },
+    "summarize-extension-columns": {
+      "title": "SUMMARIZE mit berechneten Spalten",
+      "message": "SUMMARIZE berechnet die Spalte {{name}}: Verwenden Sie SUMMARIZECOLUMNS oder ADDCOLUMNS",
+      "why": "Die von SUMMARIZE berechneten Spalten werden in einem schwer vorhersehbaren Filterkontext ausgewertet, was zu falschen Ergebnissen führen kann, und sie sind langsamer. Verwenden Sie SUMMARIZE nur zum Gruppieren und fügen Sie die Berechnungen mit ADDCOLUMNS hinzu (mit CALCULATE um alles, was kein Measure ist), oder verwenden Sie SUMMARIZECOLUMNS."
+    },
+    "topn-without-order-by": {
+      "title": "TOPN ohne ORDER BY",
+      "message": "TOPN wählt die Zeilen aus, sortiert sie aber nicht: Fügen Sie dem EVALUATE ORDER BY hinzu",
+      "why": "TOPN garantiert keine Reihenfolge im Ergebnis: Die Zeilen können in beliebiger Reihenfolge ankommen. Um sie sortiert zu sehen, fügen Sie am Ende des EVALUATE ORDER BY mit demselben Kriterium und derselben Richtung hinzu (ohne Angabe nimmt TOPN die größten Werte). Markiert wird nur ein TOPN, das nach etwas sortiert: Ohne Sortierausdruck oder mit nur einer Zeile gibt es keine Reihenfolge zu erhalten."
+    },
+    "redundant-calculate": {
+      "title": "Überflüssiges CALCULATE",
+      "message": "{{fn}} ohne Filter ändert das Ergebnis nicht",
+      "why": "Ein Verweis auf ein Measure enthält bereits ein implizites CALCULATE, und ein CALCULATE in einem anderen vollzieht bereits den Kontextübergang: Das äußere ohne eigene Filter erzeugt nur Mehraufwand und Rauschen. Entfernen Sie es und behalten Sie das Measure oder das innere CALCULATE."
+    },
+    "hasonevalue-values": {
+      "title": "IF(HASONEVALUE(…), VALUES(…))",
+      "message": "Verwenden Sie SELECTEDVALUE({{column}})",
+      "why": "SELECTEDVALUE gibt den Wert der Spalte zurück, wenn der Kontext nur einen hat, und sonst das alternative Ergebnis: Es ist die kurze, gleichwertige Form von IF(HASONEVALUE(…), VALUES(…), …)."
+    },
+    "unqualified-column": {
+      "title": "Spalte ohne ihre Tabelle",
+      "message": "„{{column}}“ ist eine Spalte: Schreiben Sie sie mit ihrer Tabelle, {{qualified}}",
+      "why": "In DAX werden Spalten mit ihrer Tabelle und Measures ohne sie geschrieben: So lassen sie sich auf einen Blick unterscheiden, und die Formel ändert ihre Bedeutung nicht, wenn jemand ein Measure mit demselben Namen anlegt. Markiert werden nur die Spalten, die das Skript selbst mit ihrer Tabelle schreibt, wo nur eine Spalte passt."
+    },
+    "qualified-measure": {
+      "title": "Measure mit seiner Tabelle",
+      "message": "„{{measure}}“ ist ein Measure: Schreiben Sie es ohne die Tabelle",
+      "why": "In DAX werden Measures ohne Tabelle ([Measure]) und Spalten mit ihr ('Tabelle'[Spalte]) geschrieben: So lassen sie sich unterscheiden, und die Formel funktioniert weiter, wenn das Measure in eine andere Tabelle wechselt. Markiert werden nur die Measures, die das Skript mit MEASURE definiert und mit der eigenen Tabelle schreibt: Derselbe Name in einer anderen Tabelle ist eine Spalte."
+    },
+    "earlier": {
+      "title": "EARLIER und EARLIEST",
+      "message": "{{fn}}: Speichern Sie den Wert in einer Variablen",
+      "why": "EARLIER und EARLIEST lesen einen früheren Zeilenkontext und erschweren das Nachvollziehen der Formel. Speichern Sie den Wert vor dem Iterator in einer Variablen (VAR) und verwenden Sie sie darin: Das Ergebnis ist dasselbe, und die Formel liest sich von oben nach unten."
     },
     "unknown-table": {
       "title": "Unbekannte Tabelle",
