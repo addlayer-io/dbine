@@ -30,7 +30,18 @@
     "loading": "Cargando columnas…",
     "empty": "No hay metadatos disponibles para esta tabla.",
     "error": "No se pudieron leer las columnas: {{error}}",
-    "primaryKey": "Clave primaria"
+    "primaryKey": "Clave primaria",
+    "kind": {
+      "column": "Columna",
+      "measure": "Medida",
+      "queryColumn": "Columna de la consulta",
+      "queryMeasure": "Medida de la consulta"
+    },
+    "format": "formato",
+    "unknown": "El explorador no conoce una columna ni una medida con ese nombre.",
+    "loadingDefinition": "Leyendo la definición…",
+    "definitionError": "No se pudo leer la definición: {{error}}",
+    "noExpression": "Sin permiso para ver la expresión."
   },
   "insertColumn": "Columna {{n}} de {{total}}: {{name}}",
   "insertExtra": "Valor {{n}}: la lista tiene {{total}} columnas",

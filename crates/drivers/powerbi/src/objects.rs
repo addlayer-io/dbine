@@ -12,7 +12,9 @@
 //!   `primary_key` = IsKey, else the one side of a relationship; a
 //!   hierarchy's columns are its levels. No Min/Max anywhere (S4).
 //! - `definition`: table → the calculated table's DAX or the partition
-//!   source (embedded data replaced); measure → `MEASURE 'T'[M] = …`;
+//!   source (embedded data replaced); measure → its description,
+//!   `MEASURE 'T'[M] = …` (a comment when the user may not see the
+//!   expression), its type and its format string;
 //!   calculation group → items and expressions; relationship → cardinality,
 //!   direction, active, security filtering; role → filters and column
 //!   permissions; `None` where the tier has no text.
@@ -255,6 +257,12 @@ fn permission_text(p: &str) -> String {
     }
 }
 
+/// The lines a measure's definition ends with, after its expression: its
+/// type and its format string (the editor's hover reads them; the code
+/// search leaves them out).
+pub(crate) const MEASURE_TYPE_LINE: &str = "// Tipo de dato: ";
+pub(crate) const MEASURE_FORMAT_LINE: &str = "// Formato: ";
+
 /// An object's source, as the definition tab and the code search read it.
 pub(crate) fn definition_of(meta: &ModelMeta, o: &ObjectRef) -> Option<String> {
     let mut out = String::new();
@@ -334,14 +342,23 @@ pub(crate) fn definition_of(meta: &ModelMeta, o: &ObjectRef) -> Option<String> {
             }
         }
         MEASURE => {
+            // The editor's hover reads these lines (web/src/composables/daxHover.ts,
+            // `measureDetails`): keep their shape.
             let m = meta.measure(&o.name)?;
-            let e = m.expression.as_deref()?;
             described(&mut out, m.description.as_deref());
-            out.push_str(&assigned(
-                &format!("MEASURE {}", column_ref(&m.table, &m.name)),
-                e,
-            ));
+            let head = format!("MEASURE {}", column_ref(&m.table, &m.name));
+            match m.expression.as_deref() {
+                Some(e) => out.push_str(&assigned(&head, e)),
+                // Hidden from users without write permission (INFO.VIEW).
+                None => out.push_str(&format!("// {head}: sin permiso para ver la expresión")),
+            }
             out.push('\n');
+            if let Some(t) = m.data_type {
+                out.push_str(&format!("{MEASURE_TYPE_LINE}{}\n", t.name()));
+            }
+            if let Some(f) = &m.format_string {
+                out.push_str(&format!("{MEASURE_FORMAT_LINE}{f}\n"));
+            }
         }
         HIERARCHY => {
             let h = hierarchy(meta, &o.name)?;
@@ -650,7 +667,7 @@ pub(crate) mod tests {
         let meta = sample();
         assert_eq!(
             definition_of(&meta, &r(MEASURE, "Total Sales")).unwrap(),
-            "// Suma de importes\nMEASURE 'Sales'[Total Sales] = SUM ( Sales[Amount] )\n"
+            "// Suma de importes\nMEASURE 'Sales'[Total Sales] = SUM ( Sales[Amount] )\n// Formato: \\$#,0\n"
         );
         let yoy = definition_of(&meta, &r(MEASURE, "Sales YoY")).unwrap();
         assert!(
@@ -696,6 +713,28 @@ pub(crate) mod tests {
             .unwrap()
             .contains("medida [Total Sales]"));
         assert!(definition_of(&meta, &r(TABLE, "Nope")).is_none());
+    }
+
+    #[test]
+    fn a_measures_definition_has_its_type_and_format_even_when_its_expression_is_hidden() {
+        let mut meta = sample();
+        let m = meta
+            .measures
+            .iter_mut()
+            .find(|m| m.name == "Total Sales")
+            .unwrap();
+        m.data_type = Some(crate::meta::DataType::Decimal);
+        m.format_string = Some("$ #,0".into());
+        assert_eq!(
+            definition_of(&meta, &r(MEASURE, "Total Sales")).unwrap(),
+            "// Suma de importes\nMEASURE 'Sales'[Total Sales] = SUM ( Sales[Amount] )\n// Tipo de dato: Decimal\n// Formato: $ #,0\n"
+        );
+        // INFO.VIEW hides the expression from users without write permission.
+        meta.measures[0].expression = None;
+        assert_eq!(
+            definition_of(&meta, &r(MEASURE, "Total Sales")).unwrap(),
+            "// Suma de importes\n// MEASURE 'Sales'[Total Sales]: sin permiso para ver la expresión\n// Tipo de dato: Decimal\n// Formato: $ #,0\n"
+        );
     }
 
     #[test]

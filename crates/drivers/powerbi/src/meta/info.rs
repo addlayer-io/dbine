@@ -592,6 +592,10 @@ fn build(view: &[Rowset], admin: &BTreeMap<&'static str, Rowset>) -> ModelMeta {
             name,
             expression: opt(r.str("Expression")),
             description: opt(r.str("Description")),
+            data_type: r
+                .str("DataType")
+                .map(|d| DataType::parse(&d))
+                .filter(|t| *t != DataType::Unknown),
             format_string: opt(r.str("FormatString")),
             display_folder: opt(r.str("DisplayFolder")),
             hidden: r.bool("IsHidden"),
@@ -1399,6 +1403,10 @@ pub(crate) mod tests {
         );
         assert_eq!(meta.measures.len(), 2);
         assert_eq!(meta.measures[1].state.as_deref(), Some("SemanticError"));
+        // The result's type, in the explorer's names (the editor's hover).
+        assert_eq!(meta.measures[0].data_type, Some(DataType::Decimal));
+        assert_eq!(meta.measures[0].format_string.as_deref(), Some("$ #,0"));
+        assert_eq!(meta.measures[1].data_type, Some(DataType::Variant));
         let r = &meta.relationships[0];
         assert_eq!(
             (

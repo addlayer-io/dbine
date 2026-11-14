@@ -698,11 +698,17 @@
  "// Replicación transitoria: CouchDB no guarda su definición. Este script se arma con el origen y el destino que informa el planificador (sin credenciales ni filtros).\nPOST /_replicate\n{0}\n": [
   "crates/drivers/couchdb/src/jobs.rs"
  ],
+ "// Tipo de dato: ": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "// Tipo de relación :{0} — {1} relaciones\n": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
  "// {0} {1}: en Cypher no se crea por separado, existe mientras haya {2} que la usen": [
   "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "// {0}: sin permiso para ver la expresión": [
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "// «{0}» puede ser un usuario o un rol: cada comando se aplica solo si existe (extensión de DBine).\n{1}\n{2}": [
   "crates/drivers/mongodb/src/security.rs"
@@ -5958,6 +5964,9 @@
  "Cerrá antes las demás sesiones conectadas a la base: con alguna abierta, {0} puede rechazar el cambio. {1}": [
   "crates/drivers/postgres/src/rename.rs"
  ],
+ "Certificado": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Certificado del cliente": [
   "crates/drivers/couchdb/src/replication/settings.rs"
  ],
@@ -5967,6 +5976,9 @@
  ],
  "Certificados de confianza": [
   "crates/drivers/couchdb/src/replication/settings.rs"
+ ],
+ "Certificate": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
  ],
  "Changed database context": [
   "crates/drivers/sqlserver/src/script_live.rs"
@@ -8643,6 +8655,9 @@
  ],
  "Contraseña de las credenciales específicas del servicio.": [
   "crates/drivers/cassandra/src/lib.rs"
+ ],
+ "Contraseña del certificado": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Contraseña del túnel SSH": [
   "src-tauri/src/secret_sources/mod.rs"
@@ -15418,6 +15433,9 @@
  "Entidad de servicio": [
   "crates/drivers/powerbi/src/security.rs"
  ],
+ "Entidad de servicio (Client ID y certificado)": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Entidad de servicio (Client ID y secreto)": [
   "crates/drivers/powerbi/src/lib.rs"
  ],
@@ -17915,6 +17933,9 @@
  ],
  "Falta «Unidades»: cuántas tiene el recurso.": [
   "crates/drivers/oracle/src/scheduler/resource.rs"
+ ],
+ "Faltan el Client ID o el certificado de la entidad de servicio.": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "Faltan el Client ID o el secreto de la entidad de servicio.": [
   "crates/drivers/powerbi/src/config.rs"
@@ -22271,6 +22292,9 @@
  "La definición tiene un «;» o un comentario sin cerrar: el script no sería una sola instrucción.": [
   "crates/drivers/clickhouse/src/scheduler/mod.rs"
  ],
+ "La del PFX o la de la clave privada cifrada. Vacía si no tiene.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "La del Query Server (phoenix.queryserver.serialization).": [
   "crates/drivers/phoenix/src/lib.rs"
  ],
@@ -22294,6 +22318,9 @@
  ],
  "La ejecuta el trigger «{0}»": [
   "src-tauri/src/commands/rename.rs"
+ ],
+ "La entidad de servicio necesita el inquilino, el Client ID y el certificado.": [
+  "crates/drivers/powerbi/src/auth/service.rs"
  ],
  "La entidad de servicio necesita el inquilino, el Client ID y el secreto.": [
   "crates/drivers/powerbi/src/auth/service.rs"
@@ -25688,6 +25715,9 @@
  "Microsoft Entra ID (navegador, con MFA)": [
   "crates/drivers/powerbi/src/lib.rs"
  ],
+ "Microsoft Entra ID no acepta el certificado con huella {0} para la aplicación (AADSTS700027): subí el certificado (sin la clave) en Certificados y secretos del registro de la aplicación y revisá que no haya vencido.": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "Microsoft Entra ID no dijo para quién es el token": [
   "src-tauri/src/secret_sources/azure.rs"
  ],
@@ -25698,6 +25728,9 @@
   "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs",
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Microsoft Entra ID rechazó la aserción por la hora (AADSTS700024): revisá que el reloj de esta computadora esté en hora.": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
  ],
  "Microsoft Entra ID renovó la sesión con otra cuenta que la de esta conexión: volvé a intentar para iniciar sesión de nuevo.": [
   "crates/drivers/powerbi/src/auth/mod.rs"
@@ -40672,6 +40705,9 @@
  "Un INSERT INTO … SELECT …; en un job continuo, desde una función de tabla de archivos como S3(…).": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
+ "Un PEM con el certificado y su clave privada (PKCS#8, con o sin contraseña), o un PFX / PKCS#12. La clave tiene que ser RSA. El certificado sin la clave se sube en Certificados y secretos del registro de la aplicación.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Un SELECT o VALUES que devuelve una fila con los argumentos de entrada del procedimiento. Vacío: el procedimiento no recibe argumentos.": [
   "crates/drivers/odbc/src/scheduler/db2.rs"
  ],
@@ -45274,6 +45310,9 @@
  "el JSON repite la clave «{0}»": [
   "crates/drivers/mongodb/src/transfer.rs"
  ],
+ "el PFX no tiene la clave privada del certificado": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "el SQL de InfluxDB 3 no puede borrar una tabla, así que si la copia fallara a medias DBine no podría deshacer el clon": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
@@ -45314,6 +45353,12 @@
  "el alias de ~/.ssh/config no es válido": [
   "src-tauri/src/commands/ssh_profiles.rs"
  ],
+ "el archivo PEM está incompleto o dañado": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
+ "el archivo PEM no tiene la clave privada: hace falta el certificado y su clave en el mismo archivo, o un PFX": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "el archivo PKCS#12 no tiene el certificado de la clave": [
   "src-tauri/src/secret_sources/https.rs"
  ],
@@ -45352,6 +45397,9 @@
  ],
  "el archivo no quedó escrito": [
   "crates/dbine-sync/src/folder.rs"
+ ],
+ "el archivo no tiene el certificado, solo la clave privada": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
  ],
  "el archivo no trae {0}": [
   "crates/dbine-ai/src/embedded.rs",
@@ -49053,6 +49101,9 @@
  "formato de almacenamiento": [
   "crates/drivers/neo4j/src/create_db.rs"
  ],
+ "formato de clave privada desconocido ({0})": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "formato de credenciales desconocido": [
   "crates/dbine-core/src/secrets.rs"
  ],
@@ -49996,6 +50047,9 @@
  "la clave de {0} nombra la columna «{1}», que la tabla no tiene.": [
   "crates/drivers/kdb/src/sync.rs"
  ],
+ "la clave del certificado no es RSA: DBine firma la aserción con RSA (PS256), como pide Microsoft Entra ID": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "la clave del documento (META().id) no es un campo y no se puede renombrar": [
   "crates/drivers/couchbase/src/rename.rs"
  ],
@@ -50048,10 +50102,23 @@
   "src-tauri/src/secret_sources/https.rs"
  ],
  "la clave privada cifrada no es válida": [
+  "crates/drivers/powerbi/src/auth/certificate.rs",
   "src-tauri/src/secret_sources/https.rs"
  ],
  "la clave privada de la organización de Zoho Vault tiene un formato que DBine no reconoce": [
   "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "la clave privada del certificado no es válida ({0})": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
+ "la clave privada está cifrada con el formato tradicional de OpenSSL: convertila a PKCS#8 (openssl pkcs8 -topk8 -v2 aes-256-cbc) o usá un PFX": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
+ "la clave privada está cifrada con un algoritmo que DBine no admite (PBES1, DES u otro antiguo): volvé a cifrarla con openssl pkcs8 -topk8 -v2 aes-256-cbc o usá un PFX": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
+ "la clave privada está cifrada: escribí la contraseña del certificado": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
  ],
  "la clave privada está cifrada: escribí su frase de contraseña": [
   "src-tauri/src/secret_sources/https.rs"
@@ -51978,6 +52045,9 @@
   "src-tauri/src/notebook/files.rs",
   "src-tauri/src/notebook/remote.rs"
  ],
+ "ningún certificado del archivo corresponde a su clave privada": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "ningún job": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
@@ -52116,8 +52186,10 @@
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET": [
-  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": [
+  "crates/drivers/powerbi/src/auth/service.rs"
  ],
  "no existe el archivo HTML del cuerpo {0}": [
   "src-tauri/src/tasks/mail.rs"
@@ -52785,6 +52857,12 @@
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
+ "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
+ "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "no se pudo abrir el driver «{0}»: {1}": [
   "crates/dbine-plugin/src/remote.rs"
  ],
@@ -53171,6 +53249,9 @@
  "no se pudo descifrar la clave privada de la cuenta de Bitwarden": [
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
+ "no se pudo descifrar la clave privada: la contraseña no es la correcta": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
+ ],
  "no se pudo descifrar la clave que acompaña al token de Bitwarden Secrets Manager": [
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
@@ -53248,6 +53329,9 @@
  ],
  "no se pudo firmar el token de IAM: {0}": [
   "crates/drivers/dsql/src/lib.rs"
+ ],
+ "no se pudo firmar la aserción con la clave del certificado": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
  ],
  "no se pudo guardar DuckDB en {0}: {1}": [
   "crates/drivers/duckdb/src/loader.rs"
@@ -53357,6 +53441,9 @@
  "no se pudo leer el certificado de la CA {0}: {1}": [
   "src-tauri/src/secret_sources/https.rs",
   "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "no se pudo leer el certificado «{0}»: {1}": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
  ],
  "no se pudo leer el contador del IDENTITY; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -59615,6 +59702,9 @@
  ],
  "«{0}» no es un cambio de un paso de una cadena en curso.": [
   "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "«{0}» no es un certificado: pesa más de 1 MB": [
+  "crates/drivers/powerbi/src/auth/certificate.rs"
  ],
  "«{0}» no es un comportamiento ante errores (log, retry o disable).": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"

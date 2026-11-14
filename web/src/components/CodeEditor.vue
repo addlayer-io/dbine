@@ -47,7 +47,7 @@ import {
 import { functionCompletion, functionFlavor, functionIndex, offersAny, withoutFunctionNames, type FunctionIndex } from '../composables/functionCompletion';
 import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand, runCommand } from '../composables/commands';
 import { useSettingsStore } from '../stores/settings';
-import type { TableHoverState, TableHoverTarget } from '../composables/tableHover';
+import type { HoverItem, TableHoverState, TableHoverTarget } from '../composables/tableHover';
 import type { RunLens } from '../composables/resultNames';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
@@ -609,6 +609,8 @@ function fillTableHover(body: HTMLElement, s: TableHoverState) {
   if (s.status === 'loading') return note(t('editor:tableHover.loading'));
   if (s.status === 'empty') return note(t('editor:tableHover.empty'));
   if (s.status === 'error') return note(t('editor:tableHover.error', { error: s.message, interpolation: { escapeValue: false } }), 'is-error');
+  if (s.status === 'unknown') return note(t('editor:tableHover.unknown'));
+  if (s.status === 'item') return fillHoverItem(body, s.item, note);
   if (s.comment) note(s.comment, 'is-comment');
   const table = document.createElement('table');
   for (const c of s.columns) {
@@ -637,6 +639,38 @@ function fillTableHover(body: HTMLElement, s: TableHoverState) {
   body.append(table);
 }
 
+/** A DAX [column] or [measure]: what it is, its type (and key or format),
+ *  its description and a measure's expression. */
+function fillHoverItem(body: HTMLElement, it: HoverItem, note: (text: string, cls?: string) => void) {
+  const span = (cls: string, text: string) => {
+    const e = document.createElement('span');
+    e.className = cls;
+    e.textContent = text;
+    return e;
+  };
+  const head = document.createElement('div');
+  head.className = 'cm-table-hover-note cm-table-hover-kind';
+  head.append(span('', t(`editor:tableHover.kind.${it.kind}`)));
+  if (it.data_type) head.append(' · ', span('cm-table-hover-type', it.data_type));
+  if (it.primary_key) {
+    const pk = span('cm-table-hover-pk', 'PK');
+    pk.title = t('editor:tableHover.primaryKey');
+    head.append(' ', pk);
+  }
+  if (it.format) head.append(' · ', t('editor:tableHover.format'), ' ', span('cm-table-hover-type', it.format));
+  body.append(head);
+  if (it.comment) note(it.comment, 'is-comment');
+  if (it.expression) {
+    const pre = document.createElement('pre');
+    pre.className = 'cm-table-hover-expr';
+    pre.textContent = it.expression;
+    body.append(pre);
+  }
+  if (it.loading) note(t('editor:tableHover.loadingDefinition'));
+  else if (it.error) note(t('editor:tableHover.definitionError', { error: it.error, interpolation: { escapeValue: false } }), 'is-error');
+  else if (it.hidden) note(t('editor:tableHover.noExpression'));
+}
+
 function tableHoverView(v: EditorView, target: TableHoverTarget): TooltipView {
   const dom = document.createElement('div');
   dom.className = 'cm-table-hover';
@@ -648,6 +682,8 @@ function tableHoverView(v: EditorView, target: TableHoverTarget): TooltipView {
   dom.append(title, body);
   let mounted = false;
   const stop = target.watch((s) => {
+    // A DAX reference's own `'Table'[name]`, once known.
+    title.textContent = s.status === 'item' ? s.item.title : target.title;
     fillTableHover(body, s);
     // A new size: placed again (not from inside the editor's own update).
     if (mounted) requestAnimationFrame(() => repositionTooltips(v));
@@ -687,6 +723,11 @@ const tableHoverExt = [
     '.cm-table-hover-type': { fontFamily: 'var(--nm-mono)', color: 'var(--nm-syn-type)' },
     '.cm-table-hover-null': { fontFamily: 'var(--nm-mono)', fontSize: '11px', color: 'var(--nm-text-muted)' },
     '.cm-table-hover td.cm-table-hover-comment': { color: 'var(--nm-text-dim)', whiteSpace: 'normal', minWidth: '120px', maxWidth: '280px' },
+    '.cm-table-hover-note.cm-table-hover-kind': { color: 'var(--nm-text)' },
+    '.cm-table-hover-expr': {
+      margin: '2px 0 0', padding: '4px 8px', fontFamily: 'var(--nm-mono)', fontSize: '12px', whiteSpace: 'pre', color: 'var(--nm-text)',
+      borderTop: '1px solid var(--nm-border)',
+    },
     '.cm-table-hover-pk': {
       fontSize: '10px', padding: '0 3px', borderRadius: '3px', color: 'var(--nm-warn-fg)', border: '1px solid currentColor',
     },

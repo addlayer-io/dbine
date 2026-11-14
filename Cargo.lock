@@ -3307,11 +3307,14 @@ dependencies = [
  "arrow-cast 58.4.1",
  "arrow-ipc",
  "arrow-schema 58.4.1",
+ "aws-lc-rs",
  "base64 0.22.1",
  "chrono",
  "dbine-driver",
  "futures",
  "getrandom 0.2.17",
+ "p12-keystore",
+ "pkcs8",
  "reqwest",
  "serde",
  "serde_json",
@@ -3319,6 +3322,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -8224,9 +8228,11 @@ dependencies = [
  "aes-gcm 0.11.1",
  "cbc",
  "der",
+ "des",
  "pbkdf2 0.13.0",
  "rand_core 0.10.1",
  "scrypt",
+ "sha1 0.11.0",
  "sha2 0.11.0",
  "spki",
 ]

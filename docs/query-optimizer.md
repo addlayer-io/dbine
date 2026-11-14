@@ -63,7 +63,29 @@ According to the code, the rules **don't apply** to the query of Cosmos DB,
 PartiQL (DynamoDB), ksqlDB, IoTDB, TDengine, InfluxQL, OrientDB or N1QL: the
 analysis answers **The rewrite rules don't apply to this engine's language**
 and the AI and your own alternatives remain. In non-SQL engines, only
-`mongo_where` exists.
+`mongo_where` and the DAX rules exist.
+
+### DAX (Power BI)
+
+The DAX rewrites come from the same matches as the code quality rules
+([`code-quality.md`](code-quality.md#power-bi-dax)): an alternative is
+offered exactly where the editor marks the problem, and only when the
+rewrite can be written from the text. The ones marked **compare before
+using it** aren't equivalent in every model.
+
+| Rule | What it does | When it applies |
+|---|---|---|
+| `dax_filter_to_keepfilters` | `CALCULATE(…, FILTER('T', condition))` becomes `CALCULATE(…, KEEPFILTERS(condition))` (inside a `KEEPFILTERS`, the condition alone). | The condition is a valid boolean filter: columns of that same table, constants, variables and scalar functions (no measures, no aggregations). A `'T'[name]` the script defines as a measure of `'T'` (`DEFINE MEASURE`) counts as a measure, so the rewrite isn't offered; a measure of the model the script doesn't define can't be told from a column, and the rewritten query then fails with an error rather than giving another result. **Compare before using it**: `FILTER` filtered the expanded table and overwrote the filters already there (inside an iterator, the row's own); `KEEPFILTERS` filters only those columns and keeps them. |
+| `dax_iferror_to_divide` | `IFERROR(a / b, alt)` becomes `DIVIDE(a, b, alt)` (`DIVIDE(a, b)` when `alt` is `BLANK()`). | The whole first argument is a division. **Compare before using it**: in DAX a division by zero isn't an error (it gives infinity), so `IFERROR` didn't catch it and `DIVIDE` returns `alt`. |
+| `dax_iserror_to_divide` | `IF(ISERROR(a / b), alt, a / b)` becomes `DIVIDE(a, b, alt)`. | The same division in the test and in the result. **Compare before using it**, for the same reason. |
+| `dax_selectedvalue` | `IF(HASONEVALUE(c), VALUES(c), alt)` becomes `SELECTEDVALUE(c, alt)`. | The same column in both: it is `SELECTEDVALUE`'s own definition. |
+| `dax_summarize_to_addcolumns` | `SUMMARIZE('T', groups, "Name", expression…)` becomes `ADDCOLUMNS(SUMMARIZE('T', groups), "Name", CALCULATE(expression)…)` (a measure stays as it is). | The table is a table name, the groups are columns and there's no `ROLLUP`. **Compare before using it**: the context of `SUMMARIZE`'s columns isn't the same in every model. |
+| `dax_redundant_calculate` | Removes a `CALCULATE` without filters around a measure, or around another `CALCULATE` whose filters don't depend on the context. | See `redundant-calculate` in code quality: only then is it equivalent. |
+| `dax_topn_order_by` | Adds to an `EVALUATE TOPN(…)` the `ORDER BY` of `TOPN`'s own order (descending when `TOPN` doesn't say). | The `EVALUATE` is the `TOPN` itself (or the one after its `RETURN`), `TOPN` has an order expression and its N isn't `1` (`TOPN(n, 'T')` and `TOPN(1, …)` have no order to keep), and its order expressions don't use the `EVALUATE`'s variables. |
+
+`/` without `DIVIDE`, the names with or without their table and `EARLIER`
+have no rewrite: they're style, not speed, and the editor already marks
+them.
 
 ## Suggested indexes
 
@@ -119,7 +141,8 @@ session** and compares:
   compared:
   - **Same result**: same rows and same content. If the original doesn't
     sort, row order doesn't count; if it has an `ORDER BY` (or a `sort` in
-    MongoDB) at the top level, it does.
+    MongoDB, or an `ORDER BY` of an `EVALUATE` in DAX) at the top level, it
+    does.
   - **NOT equivalent**: the result differs. The version is marked.
   - **More than N rows: not compared**: it returned more than the maximum, so
     its result isn't verified.
@@ -155,7 +178,7 @@ is only skipped for a rule proven equivalent, or a version that already gave
 - Plans and suggested indexes depend on the engine giving execution plans
   ([`engine-support.md`](engine-support.md#planes-de-ejecución)).
 - The rules change with the dialect (see above), and `function_to_range` is
-  only in four.
+  only in four. DAX (Power BI) has its own (see [DAX](#dax-power-bi)).
 - What each engine doesn't do is in
   [`engine-support.md`](engine-support.md#optimize-query).
 

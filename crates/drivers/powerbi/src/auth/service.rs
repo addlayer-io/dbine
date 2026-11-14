@@ -1,9 +1,12 @@
 //! Sign-ins without a browser (spec §3.3–§3.5). Owned by part B.
 //!
-//! - `entra_sp`: client credentials, `scope={res}/.default`.
+//! - `entra_sp`: client credentials, `scope={res}/.default`, with the
+//!   client secret, or (`entra_sp_cert`) a client assertion signed with the
+//!   certificate ([`super::certificate`]).
 //! - `entra_msi`: IMDS / App Service endpoint with `resource={res}`.
 //! - `entra_default`: `AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/
-//!   `AZURE_CLIENT_SECRET`, then managed identity, then `az account
+//!   `AZURE_CLIENT_SECRET` (or `AZURE_CLIENT_CERTIFICATE_PATH` and
+//!   `AZURE_CLIENT_CERTIFICATE_PASSWORD`), then managed identity, then `az account
 //!   get-access-token --resource {res}`, then `azd auth token --scope
 //!   {res}/.default`.
 //! - `token`: the pasted token as is; its `aud` is checked only to say
@@ -14,10 +17,11 @@
 //! Adapted from `sqlserver/src/entra.rs` (managed identity, the default
 //! chain and the CLIs: no shell, fixed arguments, a 30 s limit).
 
+use super::certificate::{self, Alg, Certificate, ASSERTION_TYPE};
 use super::cloud::POWER_BI_APP_ID;
 use super::{
-    auth, claims, now, number, resource, short, token_endpoint, AccessToken, Audience, Endpoints,
-    TokenSet,
+    auth, claims, now, number, resource, short, token_endpoint, token_url, AccessToken, Audience,
+    Endpoints, TokenSet,
 };
 use crate::config::{Secret, Settings};
 use dbine_driver::{Error, Result};
@@ -46,23 +50,78 @@ pub(crate) async fn client_credentials_at(
     ep: &Endpoints,
     audience: Audience,
 ) -> Result<TokenSet> {
-    let (Some(tenant), Some(client), Some(secret)) = (
+    let (credential, missing) = match (&settings.client_certificate, &settings.client_secret) {
+        (Some(c), _) => (
+            Some(SpCredential::Certificate {
+                path: c.path.clone(),
+                password: c.password.clone(),
+            }),
+            "La entidad de servicio necesita el inquilino, el Client ID y el certificado.",
+        ),
+        (None, secret) => (
+            secret.clone().map(SpCredential::Secret),
+            "La entidad de servicio necesita el inquilino, el Client ID y el secreto.",
+        ),
+    };
+    let (Some(tenant), Some(client), Some(credential)) = (
         settings.tenant.as_deref(),
         settings.client_id.as_deref(),
-        settings.client_secret.as_ref(),
+        credential,
     ) else {
-        return Err(auth(
-            "La entidad de servicio necesita el inquilino, el Client ID y el secreto.",
-        ));
+        return Err(auth(missing));
     };
+    sp_token(settings, ep, audience, tenant, client, &credential).await
+}
+
+/// How a service principal proves itself.
+#[derive(Debug, PartialEq)]
+enum SpCredential {
+    Secret(Secret),
+    /// A PEM or PFX file and its password ([`certificate`]).
+    Certificate {
+        path: String,
+        password: Option<Secret>,
+    },
+}
+
+/// Client credentials at the tenant's token endpoint, with the secret or
+/// with a client assertion signed by the certificate.
+async fn sp_token(
+    settings: &Settings,
+    ep: &Endpoints,
+    audience: Audience,
+    tenant: &str,
+    client: &str,
+    credential: &SpCredential,
+) -> Result<TokenSet> {
     let scope = format!("{}/.default", resource(settings.cloud, audience));
-    let form = [
-        ("grant_type", "client_credentials"),
-        ("client_id", client),
-        ("client_secret", secret.expose()),
-        ("scope", scope.as_str()),
+    let mut form = vec![
+        ("grant_type", "client_credentials".to_string()),
+        ("client_id", client.to_string()),
+        ("scope", scope),
     ];
-    token_endpoint(settings, &ep.login, tenant, &form).await
+    let thumbprint = match credential {
+        SpCredential::Secret(secret) => {
+            form.push(("client_secret", secret.expose().to_string()));
+            None
+        }
+        SpCredential::Certificate { path, password } => {
+            // The key lives only for this signature: dropped before the
+            // request.
+            let cert = Certificate::load(path, password.as_ref().map(Secret::expose))?;
+            let aud = token_url(&ep.login, tenant)?;
+            let assertion = cert.assertion(client, aud.as_str(), Alg::Ps256, now())?;
+            form.push(("client_assertion_type", ASSERTION_TYPE.to_string()));
+            form.push(("client_assertion", assertion));
+            Some(cert.thumbprint())
+        }
+    };
+    let form: Vec<(&str, &str)> = form.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let result = token_endpoint(settings, &ep.login, tenant, &form).await;
+    match thumbprint {
+        Some(t) => result.map_err(|e| certificate::explain_refusal(e, &t)),
+        None => result,
+    }
 }
 
 // ------------------------------------------------ managed identity (MSI)
@@ -234,23 +293,35 @@ fn chain_error(tried: &[(&str, Error)]) -> Error {
     ))
 }
 
-/// `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`, all set.
-fn env_triplet(get: impl Fn(&str) -> Option<String>) -> Result<(String, String, String)> {
+/// `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` with `AZURE_CLIENT_SECRET`, or
+/// else with `AZURE_CLIENT_CERTIFICATE_PATH` (a PEM or PFX) and its
+/// optional `AZURE_CLIENT_CERTIFICATE_PASSWORD`, as Azure Identity's
+/// environment credential reads them.
+fn env_service_principal(
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<(String, String, SpCredential)> {
     let get = |k: &str| {
         get(k)
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
     };
-    match (
-        get("AZURE_TENANT_ID"),
-        get("AZURE_CLIENT_ID"),
-        get("AZURE_CLIENT_SECRET"),
-    ) {
-        (Some(t), Some(c), Some(s)) => Ok((t, c, s)),
-        _ => Err(auth(
-            "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET",
-        )),
-    }
+    let missing = || {
+        auth("no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)")
+    };
+    let (Some(tenant), Some(client)) = (get("AZURE_TENANT_ID"), get("AZURE_CLIENT_ID")) else {
+        return Err(missing());
+    };
+    let credential = if let Some(secret) = get("AZURE_CLIENT_SECRET") {
+        SpCredential::Secret(Secret::new(secret))
+    } else if let Some(path) = get("AZURE_CLIENT_CERTIFICATE_PATH") {
+        SpCredential::Certificate {
+            path,
+            password: get("AZURE_CLIENT_CERTIFICATE_PASSWORD").map(Secret::new),
+        }
+    } else {
+        return Err(missing());
+    };
+    Ok((tenant, client, credential))
 }
 
 async fn env_credential(
@@ -259,15 +330,8 @@ async fn env_credential(
     audience: Audience,
     get: impl Fn(&str) -> Option<String>,
 ) -> Result<TokenSet> {
-    let (tenant, client, secret) = env_triplet(get)?;
-    let scope = format!("{}/.default", resource(settings.cloud, audience));
-    let form = [
-        ("grant_type", "client_credentials"),
-        ("client_id", client.as_str()),
-        ("client_secret", secret.as_str()),
-        ("scope", scope.as_str()),
-    ];
-    token_endpoint(settings, &ep.login, &tenant, &form).await
+    let (tenant, client, credential) = env_service_principal(get)?;
+    sp_token(settings, ep, audience, &tenant, &client, &credential).await
 }
 
 /// How long a CLI may take (Azure CLI starts Python).
@@ -506,8 +570,11 @@ pub fn pasted(settings: &Settings, audience: Audience) -> Result<TokenSet> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::certificate::tests::{fixture, PASSWORD};
     use crate::auth::tests::{jwt, settings};
     use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn msi_requests_carry_the_power_bi_resource() {
@@ -584,21 +651,205 @@ mod tests {
     }
 
     #[test]
-    fn env_credentials_need_all_three() {
+    fn env_credentials_need_a_secret_or_a_certificate() {
         let get = |k: &str| match k {
             "AZURE_TENANT_ID" => Some("t".to_string()),
             "AZURE_CLIENT_ID" => Some(" c ".to_string()),
             _ => None,
         };
-        assert!(env_triplet(get).is_err());
+        assert!(env_service_principal(get).is_err());
+        // The secret first, as Azure Identity does.
         let all = |k: &str| Some(format!("{k}-v"));
         assert_eq!(
-            env_triplet(all).unwrap(),
+            env_service_principal(all).unwrap(),
             (
                 "AZURE_TENANT_ID-v".into(),
                 "AZURE_CLIENT_ID-v".into(),
-                "AZURE_CLIENT_SECRET-v".into()
+                SpCredential::Secret(Secret::new("AZURE_CLIENT_SECRET-v"))
             )
+        );
+        let cert = |k: &str| match k {
+            "AZURE_TENANT_ID" => Some("t".to_string()),
+            "AZURE_CLIENT_ID" => Some("c".to_string()),
+            "AZURE_CLIENT_CERTIFICATE_PATH" => Some("/certs/sp.pfx".to_string()),
+            "AZURE_CLIENT_CERTIFICATE_PASSWORD" => Some("pw".to_string()),
+            _ => None,
+        };
+        assert_eq!(
+            env_service_principal(cert).unwrap().2,
+            SpCredential::Certificate {
+                path: "/certs/sp.pfx".into(),
+                password: Some(Secret::new("pw")),
+            }
+        );
+    }
+
+    /// An app the fake endpoint has no certificate for.
+    const UNREGISTERED: &str = "app-without-this-certificate";
+
+    /// The fake token endpoint for a certificate: it checks the assertion
+    /// as Entra does (type, `aud` = its own URL, `iss` = `sub` = client,
+    /// `x5t#S256`, the PS256 signature with the certificate's public key)
+    /// and that no secret is sent.
+    async fn assertion_endpoint(seen: Arc<Mutex<Vec<String>>>) -> String {
+        use crate::http::testing::{serve, Reply};
+        use aws_lc_rs::signature::{UnparsedPublicKey, RSA_PSS_2048_8192_SHA256};
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        let public = std::fs::read(fixture("sp_public.der")).unwrap();
+        let base = Arc::new(Mutex::new(String::new()));
+        let at = base.clone();
+        let url = serve(Arc::new(move |req| {
+            let form: HashMap<String, String> = reqwest::Url::parse(&format!("http://x/?{}", req.body))
+                .unwrap()
+                .query_pairs()
+                .into_owned()
+                .collect();
+            let jwt = form.get("client_assertion").cloned().unwrap_or_default();
+            let parts: Vec<&str> = jwt.split('.').collect();
+            let part = |i: usize| -> Value {
+                serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[i]).unwrap()).unwrap()
+            };
+            let (header, claims) = (part(0), part(1));
+            let signature = URL_SAFE_NO_PAD.decode(parts[2]).unwrap();
+            let signed = format!("{}.{}", parts[0], parts[1]);
+            let verified = UnparsedPublicKey::new(&RSA_PSS_2048_8192_SHA256, &public)
+                .verify(signed.as_bytes(), &signature)
+                .is_ok();
+            let me = format!("{}{}", at.lock().unwrap(), req.path);
+            let ok = verified
+                && form.get("client_assertion_type").map(String::as_str) == Some(ASSERTION_TYPE)
+                && !form.contains_key("client_secret")
+                && header["alg"] == "PS256"
+                && header["x5t#S256"] == "VaSm7tyz8X-YzuC4-Omv_-rdaLJ_CQjI9Ck0rpI9uC0"
+                && claims["aud"] == me.as_str()
+                && claims["iss"] == form["client_id"].as_str()
+                && claims["sub"] == form["client_id"].as_str()
+                && form["client_id"] != UNREGISTERED;
+            seen.lock().unwrap().push(format!("{} {}", req.path, req.body));
+            if ok {
+                Reply::json(200, r#"{"access_token":"cert-token","expires_in":3599}"#)
+            } else {
+                Reply::json(
+                    401,
+                    r#"{"error":"invalid_client","error_description":"AADSTS700027: The certificate with identifier used to sign the client assertion is not registered on application."}"#,
+                )
+            }
+        }))
+        .await;
+        *base.lock().unwrap() = url.clone();
+        url
+    }
+
+    #[tokio::test]
+    async fn a_certificate_signs_in_with_a_client_assertion() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let base = assertion_endpoint(seen.clone()).await;
+        let ep = Endpoints::test(&base);
+        let tenant = "contoso.onmicrosoft.com";
+        for (file, password) in [
+            ("sp.pem", ""),
+            ("sp_encrypted.pem", PASSWORD),
+            ("sp.pfx", PASSWORD),
+        ] {
+            let path = fixture(file);
+            let s = settings(
+                &[
+                    ("auth_mode", "entra_sp_cert"),
+                    ("tenant", tenant),
+                    ("client_id", "app-cert"),
+                    // Left from the secret mode: never sent.
+                    ("client_secret", "leftover-secret"),
+                    ("client_certificate", &path),
+                    ("client_certificate_password", password),
+                ],
+                true,
+            );
+            let t = client_credentials_at(&s, &ep, Audience::PowerBi)
+                .await
+                .unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(t.access.token.expose(), "cert-token");
+        }
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 3);
+        for s in &seen {
+            assert!(
+                s.starts_with("/login/contoso.onmicrosoft.com/oauth2/v2.0/token "),
+                "{s}"
+            );
+            assert!(
+                !s.contains("leftover-secret") && !s.contains("client_secret"),
+                "{s}"
+            );
+            assert!(s.contains("grant_type=client_credentials"), "{s}");
+        }
+        // The environment's certificate (default chain), on the same path.
+        let env = |k: &str| match k {
+            "AZURE_TENANT_ID" => Some(tenant.to_string()),
+            "AZURE_CLIENT_ID" => Some("app-env".to_string()),
+            "AZURE_CLIENT_CERTIFICATE_PATH" => Some(fixture("sp.pfx")),
+            "AZURE_CLIENT_CERTIFICATE_PASSWORD" => Some(PASSWORD.to_string()),
+            _ => None,
+        };
+        let s = settings(&[("auth_mode", "entra_default")], true);
+        let t = env_credential(&s, &ep, Audience::PowerBi, env)
+            .await
+            .unwrap();
+        assert_eq!(t.access.token.expose(), "cert-token");
+    }
+
+    #[tokio::test]
+    async fn a_certificate_entra_doesnt_know_names_its_thumbprint() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let base = assertion_endpoint(seen).await;
+        let ep = Endpoints::test(&base);
+        // The fake endpoint doesn't know this app's certificate.
+        let s = settings(
+            &[
+                ("auth_mode", "entra_sp_cert"),
+                ("tenant", "contoso.onmicrosoft.com"),
+                ("client_id", UNREGISTERED),
+                ("client_certificate", &fixture("sp_pkcs1.pem")),
+            ],
+            true,
+        );
+        let e = client_credentials_at(&s, &ep, Audience::PowerBi)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.contains("AADSTS700027") && e.contains("B6814EA4B718AF44C86D4FC24FC59D45D98A88B8"),
+            "{e}"
+        );
+        // A file that can't be read fails before any request.
+        let mut missing = s.clone();
+        missing.client_certificate = Some(crate::config::ClientCertificate {
+            path: "/nonexistent/dbine/sp.pem".into(),
+            password: None,
+        });
+        let e = client_credentials_at(&missing, &ep, Audience::PowerBi)
+            .await
+            .unwrap_err();
+        assert!(
+            e.to_string().contains("no se pudo leer el certificado"),
+            "{e}"
+        );
+        // The default chain cuts each step's error short: the environment's
+        // certificate still shows its thumbprint.
+        let env = |k: &str| match k {
+            "AZURE_TENANT_ID" => Some("contoso.onmicrosoft.com".to_string()),
+            "AZURE_CLIENT_ID" => Some(UNREGISTERED.to_string()),
+            "AZURE_CLIENT_CERTIFICATE_PATH" => Some(fixture("sp.pem")),
+            _ => None,
+        };
+        let s = settings(&[("auth_mode", "entra_default")], true);
+        let step = env_credential(&s, &ep, Audience::PowerBi, env)
+            .await
+            .unwrap_err();
+        let e = chain_error(&[("variables de entorno", step)]).to_string();
+        assert!(
+            e.contains("AADSTS700027") && e.contains("B6814EA4B718AF44C86D4FC24FC59D45D98A88B8"),
+            "{e}"
         );
     }
 
@@ -647,7 +898,6 @@ mod tests {
     #[tokio::test]
     async fn client_credentials_against_a_fake_token_endpoint() {
         use crate::http::testing::{serve, Reply};
-        use std::sync::{Arc, Mutex};
         let seen = Arc::new(Mutex::new(String::new()));
         let log = seen.clone();
         let base = serve(Arc::new(move |req| {

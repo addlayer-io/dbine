@@ -170,6 +170,8 @@ pub struct Measure {
     pub name: String,
     pub expression: Option<String>,
     pub description: Option<String>,
+    /// The result's type, when the tier says it (`INFO.VIEW.MEASURES[DataType]`).
+    pub data_type: Option<DataType>,
     pub format_string: Option<String>,
     pub display_folder: Option<String>,
     pub hidden: bool,

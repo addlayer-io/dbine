@@ -713,7 +713,7 @@ async fn build_system(
                     &[("engine", info.name), ("language", &lang)]
                 )
             ));
-            if let Some(hint) = dialect_hint(info.dialect) {
+            if let Some(hint) = dialect_hint(info.language, info.dialect) {
                 s.push_str(&format!("{}\n", p.text(hint)));
             }
             summary.push(ContextItem::Engine {
@@ -886,8 +886,12 @@ async fn build_system(
 }
 
 /// What small models get wrong most in each dialect: quoting, naming another
-/// database, limiting rows. The prompt key of its hint.
-fn dialect_hint(dialect: &str) -> Option<&'static str> {
+/// database, limiting rows; in DAX (Power BI), writing SQL instead. The
+/// prompt key of its hint.
+fn dialect_hint(language: Language, dialect: &str) -> Option<&'static str> {
+    if language == Language::Dax {
+        return Some("assistant.dialect_dax");
+    }
     Some(match dialect {
         "mssql" | "sybase" => "assistant.dialect_mssql",
         "postgres" => "assistant.dialect_postgres",
@@ -1820,15 +1824,23 @@ mod tests {
     #[test]
     fn dialect_hints() {
         let p = prompts::get("es");
+        let sql = |d| dialect_hint(Language::Sql, d);
         assert!(p
-            .text(dialect_hint("mssql").unwrap())
+            .text(sql("mssql").unwrap())
             .contains("[base].esquema.tabla"));
-        assert!(p.text(dialect_hint("sybase").unwrap()).contains("TOP n"));
-        assert!(p.text(dialect_hint("postgres").unwrap()).contains("LIMIT"));
+        assert!(p.text(sql("sybase").unwrap()).contains("TOP n"));
+        assert!(p.text(sql("postgres").unwrap()).contains("LIMIT"));
         assert!(prompts::get("en")
-            .text(dialect_hint("oracle").unwrap())
+            .text(sql("oracle").unwrap())
             .contains("FETCH FIRST n ROWS ONLY"));
-        assert!(dialect_hint("standard").is_none());
+        assert!(sql("standard").is_none());
+        // DAX by its language, whatever the driver's dialect is called.
+        let dax = dialect_hint(Language::Dax, "powerbi").unwrap();
+        assert!(p.text(dax).contains("EVALUATE") && p.text(dax).contains("TOPN"));
+        assert!(prompts::get("en")
+            .text(dax)
+            .contains("SUMMARIZECOLUMNS('Table'[Column]"));
+        assert!(dialect_hint(Language::Cypher, "neo4j").is_none());
     }
 
     /// Every text that goes to the model comes from the UI language's file;
@@ -1854,6 +1866,7 @@ mod tests {
                 "assistant.dialect_mysql",
                 "assistant.dialect_oracle",
                 "assistant.dialect_sqlite",
+                "assistant.dialect_dax",
             ] {
                 assert!(!p.text(k).is_empty(), "{l}: {k}");
             }

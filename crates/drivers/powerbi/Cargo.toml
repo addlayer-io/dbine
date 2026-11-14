@@ -22,6 +22,18 @@ uuid.workspace = true
 # Entra ID sign-in: PKCE (S256) and the random `state` / verifier.
 sha2 = "0.10"
 getrandom = "0.2"
+# A service principal's certificate (auth/certificate.rs): the client
+# assertion's RSA signature and thumbprints in AWS-LC (already in the build
+# through rustls), PFX / PKCS#12 files and encrypted PKCS#8 PEM keys. The
+# versions the app's secret sources already use: no new crate in the lock.
+# `sha1-insecure` (PBKDF2 with HMAC-SHA1, what LibreSSL and OpenSSL 1.0 write
+# with `-v2 aes-256-cbc`) and `3des` (`-v2 des3`) only decrypt older keys;
+# sha1 and des are already in the lock through p12-keystore.
+aws-lc-rs = "1"
+p12-keystore = "0.4"
+pkcs8 = { version = "0.11", features = ["encryption", "sha1-insecure", "3des"] }
+# Wipes the buffers that hold the file and the key once they're read.
+zeroize = "1"
 # `executeDaxQueries` answers Arrow IPC streams, LZ4_FRAME-compressed; the
 # same arrow version as the Flight SQL driver.
 arrow-ipc = { version = "58.4", features = ["lz4"] }

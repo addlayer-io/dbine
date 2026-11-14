@@ -814,12 +814,14 @@ cloud, an account and optionally a workspace; each semantic model is a
   their home table), hierarchies, relationships, DAX user-defined functions,
   security roles (RLS), perspectives and shared expressions; the structure
   with relationships as foreign keys, and each object's definition (a
-  measure as `MEASURE 'T'[M] = …`, a calculated table as `TABLE 'T' = …`).
+  measure as `MEASURE 'T'[M] = …` with its type and format string, a
+  calculated table as `TABLE 'T' = …`).
   Where the metadata comes from depends on the account (three tiers, below).
   Names are quoted as DAX quotes them (`'Sales'`, `'Sales'[Amount]`).
 - **Query editor:** DAX, one unit per `DEFINE` plus its `EVALUATE`s (or per
   bare `EVALUATE`), with highlighting, completion of tables, columns,
-  measures and functions, snippets and `.dax` files
+  measures and functions, hover on tables, columns and measures, snippets
+  and `.dax` files
   ([`query-editor.md`](query-editor.md#dax-power-bi)). A unit must start with
   `DEFINE` or `EVALUATE`: anything else is refused before any request, and
   DAX queries can't change a model.
@@ -856,8 +858,9 @@ cloud, an account and optionally a workspace; each semantic model is a
   which can't write); anything else asks, as on other engines
   ([Server-enforced reads](#server-enforced-reads-mcp-and-the-ai-assistant)).
   The assistant gets the model's structure with its measures
-  (`measure 'T'[M]`). The driver's own admin commands are refused to MCP
-  reads.
+  (`measure 'T'[M]`) and a DAX hint (DAX is not SQL; how tables, columns
+  and measures are written, `DEFINE`, `TOPN`, `BLANK`). The driver's own
+  admin commands are refused to MCP reads.
 - **Refreshes:** the models' refresh history, refresh now, cancel and
   schedules, as server jobs and in the scheduler designer
   ([`server-jobs.md`](server-jobs.md#power-bi-refreshes)).
@@ -946,12 +949,9 @@ DBine's app and the Azure CLI client's sign-in; and the sovereign clouds.
 | Power BI | Result columns of an empty `executeQueries` result | The JSON API returns rows as objects, so with no rows there are no column names (`executeDaxQueries` returns the schema). DBine's own table browses take the columns from the metadata. |
 | Power BI | Results past 100,000 rows, 1,000,000 values or 15 MB on `executeQueries` | The API's cap. The grid marks the result partial with a warning; exports, charts, notebook loads and the query compare fail rather than write or compare a partial result. Tables are read whole (see above); arbitrary queries aren't. A result cut by DBine's own cap (a chart's 1,000,000 rows, a notebook's row limit) is capped as on every engine. |
 | Power BI | Monitor: CPU, sessions, running queries | The REST APIs don't report them (the Fabric Capacity Metrics app has them). Model memory needs model admin on capacity. See [Server monitor](#what-each-engine-does-not-report). |
-| Power BI | Certificates for a service principal | **Explicit pending item**: a certificate credential needs a client assertion signed with the certificate's key; only the client secret is supported. |
 | Power BI | A DAX query builder | **Explicit pending item** (decision D7): the builder writes `SELECT` with joins; DAX needs its own (columns, measures and filters into `SUMMARIZECOLUMNS` and `TREATAS`). |
-| Power BI | Code quality rules and DAX rewrite rules | **Explicit pending item**: there are no DAX rules yet (`FILTER` over a whole table inside `CALCULATE`, `IFERROR`, unqualified columns, `SUMMARIZE` with extension columns…). |
-| Power BI | Naming each `EVALUATE` of a `DEFINE` unit by the comment above it | **Explicit pending item**, see [Named results](#named-results). |
-| Power BI | Type and description on hover for columns and measures | **Explicit pending item**: hovering a table shows its columns; a column or a measure shows nothing yet. |
-| Power BI | A DAX hint in the AI assistant's prompts | **Explicit pending item**: it needs an `assistant.dialect_dax` entry in each of the thirteen `crates/dbine-ai/prompts/<lang>.json`. The assistant still gets the model's structure and its measures. |
+| Power BI | Code quality: unqualified columns and qualified measures the script doesn't define | The DAX rules and rewrites are in (see [Code quality](#code-quality) and [Optimize query](#optimize-query)), but the analysis is text only: `qualified-measure` knows the measures the script defines, each with its table (it flags `'T'[M]` only when `M` is a measure of `'T'`, so another table's column with the same name isn't flagged), and `unqualified-column` the columns it writes with their table where only a column fits. A model measure written with its table, or a column the script only writes without one, needs the model's names in the editor, the way `unknown-table` and `unknown-column` check SQL; without them, the `dax_filter_to_keepfilters` rewrite (marked to compare first) can't tell a model measure written with its table from a column, and the rewritten query fails with an error instead of giving another result. **Explicit pending item.** |
+| Power BI | A measure's type on hover when the metadata comes from the model's definition | TMSL leaves out a measure's type (the engine works it out from the expression); with the `INFO` functions the hover shows it. Without write permission the `INFO` functions hide the expression, so the hover shows the measure's description, type and format string only. |
 | Power BI | GCC High, DoD and China | They work with **Propia (Client ID)** (an app registered in that cloud) and were not tried. The Fabric definition API, and so renaming and describing a model, is offered in the public cloud only. |
 | Power BI | Models of **Mi área de trabajo**: renaming, describing | Fabric's update call names the workspace, and **Mi área de trabajo** has no workspace id. |
 | Power BI | The phone companion's server jobs | The phone app has no server jobs: its list of requests is closed ([`mobile-security.md`](mobile-security.md)), so refreshes don't reach it. |
@@ -1352,7 +1352,7 @@ that it writes in the right syntax.
 The database structure it receives as context comes from `database_schema`.
 In an engine that does not implement it, the assistant answers without
 structure and tells the user so; there are no other differences. Details in
-`docs/ai-assistant.md`. In Power BI the structure also lists the model's measures (`measure 'T'[M]`), so the assistant writes `[Total Sales]` and not a rebuilt `SUM`; it has no DAX-specific prompt yet (pending, see [Power BI](#power-bi-semantic-models)).
+`docs/ai-assistant.md`. In Power BI the structure also lists the model's measures (`measure 'T'[M]`), so the assistant writes `[Total Sales]` and not a rebuilt `SUM`, and a DAX hint tells it that DAX is not SQL and how it names tables, columns and measures, defines measures, limits rows and treats `BLANK`.
 
 ## Server-enforced reads (MCP and the AI assistant)
 
@@ -3299,7 +3299,6 @@ name it.
 | Snowflake, BigQuery, InfluxDB 2 (Flux) | A script of several statements keeps its results in the run's tab (a failed statement's error, where the engine says which one it was, goes to that statement's tab); only a run of one statement takes its name | The server answers the whole text as one request, without saying which statement each result came from. |
 | Engines whose plan runs the text whole | The plan of several statements isn't split | Same: the plan's results don't carry their statement. A plan of one statement takes its name. |
 | SQL Server, Sybase (and the ODBC presets with `GO`) | A batch of several statements, a script without `GO` included, isn't split by name: its results stay in the run's tab | The batch is what runs, and its results come back as the batch's. **Run the statement at the cursor** and the lens run one statement of the batch, and that one takes its name. |
-| Power BI | The results of a `DEFINE` followed by several `EVALUATE`s go to one tab, named by the comment above `DEFINE`; a comment above each `EVALUATE` doesn't name its result yet | Explicit pending item: the app keeps where each `EVALUATE`'s result starts, but the editor still names results by unit. Bare `EVALUATE`s (no `DEFINE`) are units of their own and each takes its name. |
 
 ### Manual transactions
 
@@ -3916,7 +3915,7 @@ a password ([`cloud-authentication.md`](cloud-authentication.md)).
 | Cloud SQL for MySQL | **Google Cloud IAM**. |
 | Amazon Aurora DSQL | Already signs in with IAM (its own driver, AWS SDK). |
 | SQL Server, Azure SQL Database, Microsoft Fabric | Already have Microsoft Entra ID, with more methods ([`integrated-authentication.md`](integrated-authentication.md#microsoft-entra-id-sql-server-azure-sql-database-microsoft-fabric)). |
-| Power BI (semantic models) | **Microsoft Entra ID** is the only sign-in: the browser (PKCE, with DBine's app, the Azure CLI client or your own), a service principal's secret, the default chain and managed identity, or a pasted token. Details, scopes and tenant settings in [`cloud-authentication.md`](cloud-authentication.md#power-bi-and-fabric-semantic-models-entra-id). |
+| Power BI (semantic models) | **Microsoft Entra ID** is the only sign-in: the browser (PKCE, with DBine's app, the Azure CLI client or your own), a service principal's secret or certificate (PEM or PFX, a client assertion signed with PS256), the default chain and managed identity, or a pasted token. Details, scopes and tenant settings in [`cloud-authentication.md`](cloud-authentication.md#power-bi-and-fabric-semantic-models-entra-id). |
 | BigQuery, Spanner, Athena, DynamoDB, Cosmos DB, Snowflake, Databricks and other cloud services | They already use the cloud identity in their own form (service accounts, AWS profiles, Entra ID). |
 
 ### Engines without cloud sign-in
@@ -3935,6 +3934,18 @@ a password ([`cloud-authentication.md`](cloud-authentication.md)).
 | SQLite, DuckDB, libSQL and other local-file engines | There is no server to sign in to. |
 | The other engines (ClickHouse, Neo4j, Couchbase, CouchDB, Firebird…) | The engine or its managed service has no token sign-in tied to an AWS, Google or Entra ID identity. |
 
+### Service principal certificates
+
+A Microsoft Entra ID service principal can prove itself with a certificate
+instead of a secret: a client assertion signed with the certificate's key
+([`cloud-authentication.md`](cloud-authentication.md#service-principal-certificate)).
+
+| Engine | What there is |
+|---|---|
+| Power BI (semantic models) | **Service principal (certificate)** (PEM, encrypted PEM or PFX), and `AZURE_CLIENT_CERTIFICATE_PATH` / `AZURE_CLIENT_CERTIFICATE_PASSWORD` in the default credential. |
+| SQL Server, Azure SQL Database, Microsoft Fabric (`entra_sp`, `entra_default`) | **Explicit pending item**: the service principal takes the client secret only, and the default chain reads `AZURE_CLIENT_SECRET` only, not `AZURE_CLIENT_CERTIFICATE_PATH`. The assertion signing lives in the Power BI driver (`crates/drivers/powerbi/src/auth/certificate.rs`); it has to move to a crate both drivers use, and the SQL Server driver needs the certificate fields. |
+| Azure Databricks (`entra_sp`) | **Explicit pending item**: the Entra ID service principal takes the client secret only, for the same reason; the Databricks driver needs the certificate fields too. |
+
 ### Tested
 
 - Unit: SigV4 presigning against the AWS signing test suite, RDS tokens
@@ -3946,7 +3957,7 @@ a password ([`cloud-authentication.md`](cloud-authentication.md)).
 - On this machine: Azure CLI returns an `oss-rdbms` token and its identity.
 - **Not tested end to end**: there are no RDS, Cloud SQL, AlloyDB or Azure
   databases in the test environment.
-- Power BI: unit tests of the scopes per connection, the cloud table and host allowlist, the account binding and the consent errors, with fake token endpoints. **Not tested end to end**: no Power BI tenant was available, so DBine's app, the Azure CLI client's sign-in, service principals, managed identity and the sovereign clouds were not tried.
+- Power BI: unit tests of the scopes per connection, the cloud table and host allowlist, the account binding and the consent errors, with fake token endpoints. Service principal certificates: fixtures made with OpenSSL and macOS's LibreSSL (PEM, PKCS#1, encrypted PKCS#8 with PBKDF2 over HMAC-SHA-256 and HMAC-SHA-1, AES and 3DES, PFX and legacy PFX, and the refused PBES1 and PKCS#12 PBE keys), the assertion checked against the certificate's public key, and the thumbprint in an `AADSTS700027` refusal, also in the default credential's list. **Not tested end to end**: no Power BI tenant was available, so DBine's app, the Azure CLI client's sign-in, service principals, managed identity and the sovereign clouds were not tried.
 
 ## Passwords from a command or a secret manager
 
@@ -4445,8 +4456,9 @@ Code quality ([`code-quality.md`](code-quality.md)) flags problems in the editor
 | Redis | Redis, Valkey and Dragonfly |
 | etcd | etcd |
 | Cypher | Neo4j, Memgraph and Amazon Neptune |
+| DAX (its own lexical analyzer) | Power BI and Fabric semantic models |
 
-**Tested:** the rules of all families and the assignment of engines to families have automated tests over text (`src-tauri/src/lint/tests.rs` and `src-tauri/src/commands/lint.rs`). Since the analysis does not use the server, there are no tests against real servers and none are needed.
+**Tested:** the rules of all families and the assignment of engines to families have automated tests over text (`src-tauri/src/lint/tests.rs`, `src-tauri/src/lint/dax/tests.rs` and `src-tauri/src/commands/lint.rs`). Since the analysis does not use the server, there are no tests against real servers and none are needed.
 
 | Engine | What is missing | Reason |
 |---|---|---|
@@ -4454,7 +4466,7 @@ Code quality ([`code-quality.md`](code-quality.md)) flags problems in the editor
 | SQL engines without a family of their own (SQLite, libSQL, DuckDB, ClickHouse, Snowflake, BigQuery, Databricks, Spanner, Trino, Athena, SAP HANA, Firebird, Db2, Teradata, Vertica and the rest of the ODBC presets) | The engine's own rules | Explicit pending item: they only receive the common SQL rules. Each family's rules are missing. |
 | Cosmos DB, DynamoDB (PartiQL), Couchbase (N1QL), OrientDB, ksqlDB, IoTDB, TDengine | The engine's own rules | Explicit pending item: their languages look like SQL and receive the common SQL rules, but there are no rules of their own for each dialect. |
 | Elasticsearch, OpenSearch, Solr | Rules other than `leading-wildcard` and `write-all` | Explicit pending item: rules for their consoles are missing (for example, reads without a filter). |
-| Power BI (DAX) | All rules | **Explicit pending item**: there is no DAX lexical profile or rules yet (`FILTER` over a whole table inside `CALCULATE`, `IFERROR`, unqualified columns, `SUMMARIZE` with extension columns…). The DAX profile has none. |
+| Power BI (DAX) | `unqualified-column` and `qualified-measure` for names the script doesn't show | The analysis doesn't read the model: `qualified-measure` knows only the measures the script defines (`DEFINE MEASURE`), each with its table, and flags one only when it's written with that table; `unqualified-column` only the columns it writes with their table where only a column fits, in one table. The model's own measures and columns need the explorer's names in the editor, as `unknown-table` and `unknown-column` do for SQL. **Explicit pending item.** |
 
 ## Document the database
 
@@ -4525,7 +4537,7 @@ What each engine offers (what is not in the table it offers in full: `INNER`, `L
 | Those that give no plan: Redis, Valkey, Dragonfly, etcd, IoTDB, FerretDB, InfluxDB 2 (Flux), and through ODBC Exasol, CUBRID, Informix, GBase 8s, Altibase, Db2 for i, Ingres, Mimer, Caché, Zen, Access, dBase, NetSuite and OpenEdge | Suggested indexes, **Plan warnings** and the cost in **Compare** | The engine has no execution plans or does not deliver them through the available protocol. The reason for each is in [Execution plans](#execution-plans). **Compare** still measures times and result. |
 | All except SQL Server | Index suggested by the engine itself | Only SQL Server reports missing indexes in its plan. In the others, the suggestion comes from a full scan of a table that the query filters or joins by columns that no index starts with (in MongoDB, a `COLLSCAN`). |
 | Those that write data (`INSERT`, `UPDATE`, `DELETE`, and everything non-SQL that writes) | Execution in **Compare** | A query that writes is never run: only its estimated plan is compared. In non-SQL languages the read-only session rejects the write. |
-| Power BI (DAX) | Rewrite rules, suggested indexes and **Plan warnings** | No DAX rules yet (**explicit pending item**), and the REST APIs return no plan and VertiPaq has no indexes. The AI alternatives and **Compare** (times and result, on a read-only session) work. |
+| Power BI (DAX) | Suggested indexes and **Plan warnings** | The REST APIs return no plan and VertiPaq has no indexes. The DAX rewrite rules (`dax_*`, from the code quality matches; unit tests over text in `src-tauri/src/optimizer/dax.rs`, no tenant to run **Compare** against), the AI alternatives and **Compare** (times and result, on a read-only session) work. |
 
 ## Search
 
@@ -4545,7 +4557,7 @@ Fast path through the catalog, according to each `search.rs`:
 | Snowflake | `FUNCTIONS`, `PROCEDURES` and `SEQUENCES` of `INFORMATION_SCHEMA` | Tables, views, streams and tasks (`GET_DDL`, one call per object) and overloaded routines |
 | Databricks | `routine_definition` of the functions | Tables, views and materialized views (`SHOW CREATE TABLE`, one statement per object) |
 | ODBC presets | Each preset's definition queries, run once for all objects | Types whose source is not a query (`SHOW …` in Hive, Impala, Spark and Teradata; `GET_DDL(?)`; Netezza) and the generic preset, which guesses `INFORMATION_SCHEMA` |
-| Power BI | One metadata read, matched in DBine: measure, calculated column and table, calculation item, user-defined function, RLS filter and partition (M) expressions, where the account's tier gives them | — (the hits' lines match the definition tab) |
+| Power BI | One metadata read, matched in DBine: measure, calculated column and table, calculation item, user-defined function, RLS filter and partition (M) expressions, where the account's tier gives them. A measure's type and format string, which its definition tab shows below the expression, aren't searched: they would match every measure | — (the hits' lines match the definition tab) |
 | All the others (MySQL and family, SQLite, libSQL, DuckDB, Trino, Athena, Spanner, Cassandra, MongoDB, etc.) | — | Everything, object by object. Explicit pending item: a catalog path; drivers that do not have it read each definition separately and take longer on databases with thousands of routines. |
 
 Without definitions to read, only names and columns are searched: engines whose object types have no code (key-value, time series, most document ones).

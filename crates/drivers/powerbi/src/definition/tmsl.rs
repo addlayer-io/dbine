@@ -144,6 +144,9 @@ pub fn parse(model_bim: &serde_json::Value) -> Result<ModelMeta> {
                     name: mname,
                     expression: dax(m.get("expression")),
                     description: text(m.get("description")),
+                    data_type: s(m, "dataType")
+                        .map(|d| DataType::parse(&d))
+                        .filter(|t| *t != DataType::Unknown),
                     format_string: s(m, "formatString"),
                     display_folder: s(m, "displayFolder"),
                     hidden: b(m, "isHidden", false),

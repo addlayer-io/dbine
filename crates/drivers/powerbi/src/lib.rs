@@ -72,7 +72,13 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 /// The connection form (spec §2). Keys other than `username`, `database`
 /// and `read_only` go to `cfg.options` ([`config::Settings`] reads them).
 fn fields() -> Vec<Field> {
-    let auth_modes = &["entra_mfa", "entra_sp", "entra_default", "entra_msi"];
+    let auth_modes = &[
+        "entra_mfa",
+        "entra_sp",
+        "entra_sp_cert",
+        "entra_default",
+        "entra_msi",
+    ];
     vec![
         Field::new(
             "auth_mode",
@@ -80,6 +86,7 @@ fn fields() -> Vec<Field> {
             FieldKind::Select(vec![
                 ("entra_mfa", "Microsoft Entra ID (navegador, con MFA)"),
                 ("entra_sp", "Entidad de servicio (Client ID y secreto)"),
+                ("entra_sp_cert", "Entidad de servicio (Client ID y certificado)"),
                 (
                     "entra_default",
                     "Credencial predeterminada (variables de entorno, identidad administrada, Azure CLI)",
@@ -100,10 +107,22 @@ fn fields() -> Vec<Field> {
         Field::new("client_id", "Client ID", FieldKind::Text)
             .placeholder("00000000-0000-0000-0000-000000000000")
             .help("El Client ID de la entidad de servicio, o el de una identidad administrada asignada por el usuario (vacío: la del sistema).")
-            .when("auth_mode", &["entra_sp", "entra_msi"]),
+            .when("auth_mode", &["entra_sp", "entra_sp_cert", "entra_msi"]),
         Field::new("client_secret", "Secreto del cliente", FieldKind::Password)
             .secret()
             .when("auth_mode", &["entra_sp"]),
+        Field::new("client_certificate", "Certificado", FieldKind::File)
+            .placeholder("certificado.pem o .pfx")
+            .help("Un PEM con el certificado y su clave privada (PKCS#8, con o sin contraseña), o un PFX / PKCS#12. La clave tiene que ser RSA. El certificado sin la clave se sube en Certificados y secretos del registro de la aplicación.")
+            .when("auth_mode", &["entra_sp_cert"]),
+        Field::new(
+            "client_certificate_password",
+            "Contraseña del certificado",
+            FieldKind::Password,
+        )
+        .secret()
+        .help("La del PFX o la de la clave privada cifrada. Vacía si no tiene.")
+        .when("auth_mode", &["entra_sp_cert"]),
         Field::new("access_token", "Token de acceso", FieldKind::Textarea)
             .secret()
             .help("Un token para Power BI de la nube elegida. DBine no lo renueva: cuando vence hay que pegar otro.")
@@ -625,9 +644,20 @@ mod tests {
         assert!(d.supports_dependencies() && !d.supports_explain() && !d.supports_profiler());
         assert!(!d.cross_database() && d.key_search().is_none());
         // Secrets go to the keychain.
-        for k in ["client_secret", "access_token"] {
+        for k in [
+            "client_secret",
+            "client_certificate_password",
+            "access_token",
+        ] {
             assert!(i.fields.iter().any(|f| f.key == k && f.secret), "{k}");
         }
+        // The certificate is a file picked in the form (a path, no secret).
+        let cert = i
+            .fields
+            .iter()
+            .find(|f| f.key == "client_certificate")
+            .unwrap();
+        assert!(matches!(cert.kind, FieldKind::File) && !cert.secret);
         // Every option key the settings read is a field of the form.
         for k in config::OPTION_KEYS {
             assert!(i.fields.iter().any(|f| f.key == *k), "{k}");

@@ -554,6 +554,36 @@ fn power_bi_cells_run_dax_through_execute_queries() {
     ] {
         assert!(all.contains(want), "{want}\n{all}");
     }
+    // A service principal's certificate: the file's path (a local path isn't
+    // copied into the notebook) and its optional password from the
+    // environment.
+    let c = cfg(
+        "powerbi",
+        "",
+        0,
+        "Finanzas › Ventas 2026",
+        "",
+        &[
+            ("auth_mode", "entra_sp_cert"),
+            ("tenant", "contoso.onmicrosoft.com"),
+            ("client_certificate", "/certs/sp.pfx"),
+        ],
+    );
+    let text = python(
+        &nb,
+        &HashMap::from([("q".to_string(), conn("PBI", c))]),
+        &PyExport::default(),
+    );
+    let v: Value = serde_json::from_str(&text).unwrap();
+    let all = sources(&v).join("\n");
+    assert!(
+        all.contains("azure.identity.CertificateCredential(\"contoso.onmicrosoft.com\", ")
+            && all.contains(
+                "_CLIENT_CERTIFICATE\"], password=os.environ.get(\"DBINE_PBI_CLIENT_CERTIFICATE_PASSWORD\"))"
+            )
+            && !all.contains("/certs/sp.pfx"),
+        "{all}"
+    );
 }
 
 #[test]

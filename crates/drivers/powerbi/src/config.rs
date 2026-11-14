@@ -16,6 +16,8 @@ pub const OPTION_KEYS: &[&str] = &[
     "tenant",
     "client_id",
     "client_secret",
+    "client_certificate",
+    "client_certificate_password",
     "access_token",
     "workspace",
     "cloud",
@@ -34,7 +36,9 @@ pub const OPTION_KEYS: &[&str] = &[
 pub enum AuthMode {
     /// Interactive browser sign-in with PKCE (MFA works).
     EntraMfa,
-    /// Client credentials of a service principal.
+    /// Client credentials of a service principal: its secret, or its
+    /// certificate ([`Settings::client_certificate`], the form's
+    /// `entra_sp_cert`).
     EntraSp,
     /// Environment, managed identity, Azure CLI, azd (in that order).
     EntraDefault,
@@ -85,6 +89,15 @@ impl fmt::Debug for Secret {
     }
 }
 
+/// A service principal's certificate: a PEM (certificate and private key)
+/// or a PFX / PKCS#12 file, read at each sign-in
+/// ([`crate::auth::certificate`]). The path is no secret; the password is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientCertificate {
+    pub path: String,
+    pub password: Option<Secret>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub auth: AuthMode,
@@ -96,7 +109,10 @@ pub struct Settings {
     pub username: Option<String>,
     /// Service principal or user-assigned managed identity.
     pub client_id: Option<String>,
+    /// The service principal's secret (`entra_sp` only).
     pub client_secret: Option<Secret>,
+    /// The service principal's certificate (`entra_sp_cert` only).
+    pub client_certificate: Option<ClientCertificate>,
     pub access_token: Option<Secret>,
     pub client_app: ClientApp,
     /// Name or id; `None`: every workspace the account sees.
@@ -136,9 +152,10 @@ impl Settings {
     pub fn from_config(cfg: &ConnectionConfig) -> Result<Settings> {
         let opt = |k: &str| cfg.option(k).map(str::trim).filter(|v| !v.is_empty());
         let text = |k: &str| opt(k).map(str::to_string);
-        let auth = match opt("auth_mode").unwrap_or("entra_mfa") {
+        let mode = opt("auth_mode").unwrap_or("entra_mfa");
+        let auth = match mode {
             "entra_mfa" => AuthMode::EntraMfa,
-            "entra_sp" => AuthMode::EntraSp,
+            "entra_sp" | "entra_sp_cert" => AuthMode::EntraSp,
             "entra_default" => AuthMode::EntraDefault,
             "entra_msi" => AuthMode::EntraMsi,
             "token" => AuthMode::Token,
@@ -158,7 +175,23 @@ impl Settings {
             _ => return Err(bad("aplicación de inicio de sesión desconocida")),
         };
         let client_id = text("client_id");
-        let client_secret = opt("client_secret").map(Secret::new);
+        // Each service principal mode reads only its own credential: a
+        // value left in the other field from before the switch is ignored.
+        let with_certificate = mode == "entra_sp_cert";
+        let client_secret = opt("client_secret")
+            .filter(|_| !with_certificate)
+            .map(Secret::new);
+        let client_certificate =
+            text("client_certificate")
+                .filter(|_| with_certificate)
+                .map(|path| ClientCertificate {
+                    path,
+                    // A password may begin or end with spaces: taken as typed.
+                    password: cfg
+                        .option("client_certificate_password")
+                        .filter(|p| !p.is_empty())
+                        .map(Secret::new),
+                });
         let access_token = opt("access_token").map(Secret::new);
         match auth {
             AuthMode::EntraSp => {
@@ -167,7 +200,12 @@ impl Settings {
                         "Falta el inquilino (tenant): la entidad de servicio lo necesita.",
                     ));
                 }
-                if client_id.is_none() || client_secret.is_none() {
+                if with_certificate && (client_id.is_none() || client_certificate.is_none()) {
+                    return Err(Error::AuthFailed(
+                        "Faltan el Client ID o el certificado de la entidad de servicio.".into(),
+                    ));
+                }
+                if !with_certificate && (client_id.is_none() || client_secret.is_none()) {
                     return Err(Error::AuthFailed(
                         "Faltan el Client ID o el secreto de la entidad de servicio.".into(),
                     ));
@@ -219,6 +257,7 @@ impl Settings {
                 .map(str::to_string),
             client_id,
             client_secret,
+            client_certificate,
             access_token,
             client_app,
             workspace: text("workspace"),
@@ -280,6 +319,43 @@ mod tests {
     }
 
     #[test]
+    fn each_service_principal_mode_reads_its_own_credential() {
+        let both = |mode: &str| {
+            Settings::from_config(&cfg(&[
+                ("auth_mode", mode),
+                ("tenant", "contoso.onmicrosoft.com"),
+                ("client_id", "c"),
+                ("client_secret", "old-secret"),
+                ("client_certificate", " /certs/sp.pfx "),
+                ("client_certificate_password", " hunter2 "),
+            ]))
+            .unwrap()
+        };
+        let cert = both("entra_sp_cert");
+        assert_eq!(cert.auth, AuthMode::EntraSp);
+        assert!(cert.client_secret.is_none());
+        let c = cert.client_certificate.clone().unwrap();
+        assert_eq!(c.path, "/certs/sp.pfx");
+        // The password as typed.
+        assert_eq!(c.password.unwrap().expose(), " hunter2 ");
+        let dbg = format!("{cert:?}");
+        assert!(!dbg.contains("hunter2"), "{dbg}");
+        let secret = both("entra_sp");
+        assert!(secret.client_certificate.is_none());
+        assert_eq!(secret.client_secret.unwrap().expose(), "old-secret");
+        // No password: none.
+        let s = Settings::from_config(&cfg(&[
+            ("auth_mode", "entra_sp_cert"),
+            ("tenant", "t"),
+            ("client_id", "c"),
+            ("client_certificate", "/certs/sp.pem"),
+            ("client_certificate_password", ""),
+        ]))
+        .unwrap();
+        assert!(s.client_certificate.unwrap().password.is_none());
+    }
+
+    #[test]
     fn refuses_what_cant_work() {
         for opts in [
             vec![("auth_mode", "entra_sp")],
@@ -290,6 +366,19 @@ mod tests {
             ],
             vec![("auth_mode", "token")],
             vec![("auth_mode", "nope")],
+            // The certificate mode doesn't take the secret instead.
+            vec![
+                ("auth_mode", "entra_sp_cert"),
+                ("tenant", "t"),
+                ("client_id", "c"),
+                ("client_secret", "s"),
+            ],
+            vec![
+                ("auth_mode", "entra_sp"),
+                ("tenant", "t"),
+                ("client_id", "c"),
+                ("client_certificate", "/certs/sp.pem"),
+            ],
             vec![("tenant", "contoso.com/../x")],
             vec![("cloud", "mars")],
             vec![("query_api", "xmla")],

@@ -279,10 +279,13 @@ files before they have a connection.
   lens, **Run the statement at the cursor** and the [named
   results](#named-results) work on those units. The comment line above a
   unit (`//` or `--`) names its result. A `DEFINE` followed by several
-  `EVALUATE`s answers one result per `EVALUATE`, shown in the unit's tab
-  and named by the unit's comment; naming each `EVALUATE` by the comment
-  above it is pending
-  ([engine support](engine-support.md#named-results)).
+  `EVALUATE`s answers one result per `EVALUATE`: the comment line right
+  above an `EVALUATE` names its result, which gets a tab of its own, and
+  the others stay with the unit (in its tab, or in the run's when the unit
+  has no name). A named `EVALUATE`'s tab holds the whole unit, its
+  `DEFINE` with it: **Run again** runs the unit and sends each result to
+  its tab again, and **Export** and the chart over the whole result run
+  only that `EVALUATE`, with the unit's `DEFINE`.
 - **Completion.** The tables, columns and measures come from the explorer,
   and the functions from the model's catalog
   ([function completion](#function-completion)).
@@ -310,9 +313,28 @@ files before they have a connection.
   tab: export, chart and the other result features work on it.
 - **Navigation.** ⌘/Ctrl+click on a table opens its structure, on a
   `[Measure]` its definition (the measure of the table written before it
-  first), and on `'T'[col]` the structure of `T`. Hovering a table's name
-  shows its columns; hovering a column or a measure shows nothing yet
-  (pending).
+  first), and on `'T'[col]` the structure of `T`.
+- **Hover.** Resting the pointer on a table's name shows its columns. On a
+  `[column]` or a `[measure]`, alone or after its table, it shows what it
+  is, with its full `'Table'[name]`:
+  - a column: its type, whether it's a key, and its description;
+  - a model measure: its description, expression, type and format string
+    (without write permission on the model the expression is hidden, and
+    the popup says so);
+  - a measure or column of the query's own `DEFINE`: its expression, which
+    hides the model's one of the same name;
+  - a column the query makes itself (named by a string, as in
+    `ADDCOLUMNS(…, "Margin", …)`): that it comes from the query.
+
+  A name written after its table is that table's measure, then its column,
+  then another table's measure. A name alone is the query's or the model's
+  measure, a column the query makes, then a column of the table that gives
+  it its row context (the table of the `FILTER`, `ADDCOLUMNS`, `SUMX` or
+  other iterator around it, the closest first), then of the tables its own
+  `EVALUATE` or `DEFINE` definition names, then of the rest of the unit's,
+  in their order: in a star schema, keys and dates often share names
+  across tables. A name nothing knows says so when a model table is
+  written before it or named in the unit; otherwise there is no popup.
 - **Snippets** (type the abbreviation and press **Tab**):
 
   | Abbreviation | Inserts |
@@ -332,7 +354,13 @@ files before they have a connection.
   takes only the DAX text, which has no marker for one; a notebook's
   `{{name}}` parameters do work, written as DAX literals) and no
   **Format** (no DAX formatter runs inside the app, and the online ones
-  would receive your code). Code quality has no DAX rules yet.
+  would receive your code).
+- **Code quality.** The editor marks the DAX best practices (`FILTER`
+  over a whole table in `CALCULATE`, `IFERROR`, `/` instead of `DIVIDE`,
+  `SUMMARIZE` with calculated columns, `TOPN` without `ORDER BY`…; see
+  [`code-quality.md`](code-quality.md#power-bi-dax)), and **Optimize**
+  offers the DAX rewrites
+  ([`query-optimizer.md`](query-optimizer.md#dax-power-bi)).
 
 ## Parameters
 

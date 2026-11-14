@@ -7,7 +7,8 @@ import { daxRefAt } from './daxLanguage';
 // `tableHover`). This finds which table the name under the pointer stands
 // for, with the same name reading as ⌘/Ctrl+click (composables/nameRefs.ts):
 // quoted identifiers, `schema.table`, an alias's table and, on engines whose
-// queries read other databases, `db.table` / `db.schema.table`.
+// queries read other databases, `db.table` / `db.schema.table`. In DAX a
+// `[column]` or a `[measure]` shows itself too (daxHover.ts).
 
 /** What the editor knows of the tab's database and the connection's others. */
 export interface HoverIndex {
@@ -115,11 +116,37 @@ export interface HoverColumn {
   comment: string | null;
 }
 
+/** A DAX `[column]` or `[measure]` as the popup shows it (daxHover.ts):
+ *  what it is, and what the explorer or the query says of it. */
+export interface HoverItem {
+  /** A model column or measure, or one the query defines or makes. */
+  kind: 'column' | 'measure' | 'queryColumn' | 'queryMeasure';
+  /** `'Table'[name]` once known: it replaces the target's title. */
+  title: string;
+  data_type: string | null;
+  primary_key: boolean;
+  comment: string | null;
+  /** A measure's DAX (the query's own, or the model's when the user may
+   *  see it). */
+  expression: string | null;
+  /** A model measure's format string. */
+  format: string | null;
+  /** A model measure whose expression the user may not see. */
+  hidden: boolean;
+  /** Its details are still being read. */
+  loading: boolean;
+  /** They couldn't be read. */
+  error: string | null;
+}
+
 export type TableHoverState =
   | { status: 'loading' }
   | { status: 'ready'; columns: HoverColumn[]; comment: string | null }
   | { status: 'empty' }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string }
+  | { status: 'item'; item: HoverItem }
+  /** A DAX reference neither the query nor the explorer knows. */
+  | { status: 'unknown' };
 
 /** What the editor asks for a name: where it is, its title and its columns
  *  (`watch` calls back with each new state until the returned stop). */

@@ -343,7 +343,7 @@ const sourceLabel = (s: string) => t(`optimizer:source.${s}`);
           <p v-if="aiInfo" class="nm-muted ov-ai-info">{{ aiInfo.text }}</p>
 
           <p v-if="!candidates.length" class="nm-muted ov-none">
-            {{ analysis.language === 'sql' || analysis.language === 'json' ? $t('optimizer:noAlternatives') : $t('optimizer:noRulesEngine') }}
+            {{ ['sql', 'json', 'dax'].includes(analysis.language) ? $t('optimizer:noAlternatives') : $t('optimizer:noRulesEngine') }}
           </p>
 
           <template v-else>

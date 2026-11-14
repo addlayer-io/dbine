@@ -261,8 +261,10 @@ formats are the ones other tools use to reach it:
   (`${DB_ACCESS_TOKEN}`); with a pasted token it follows the **Incluir
   contraseña** rule.
 - **Python (azure-identity):** the credential that matches the connection's
-  sign-in (browser, service principal or default) and a call that gets a
-  token for the cloud's Power BI resource.
+  sign-in (browser; service principal with `ClientSecretCredential`, or with
+  `CertificateCredential` and the same PEM or PFX file; or default) and a
+  call that gets a token for the cloud's Power BI resource. The secret or the
+  certificate's password follows the **Incluir contraseña** rule.
 
 ## Commands
 

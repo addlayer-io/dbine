@@ -3548,6 +3548,28 @@ fn powerbi(b: &mut B) {
                 }
             )
         }
+        // A PEM or PFX file, as DBine signs in with it; the password
+        // follows the secrets' rule and is left out when there's none.
+        Some("entra_sp_cert") => {
+            let client = c
+                .opt("client_id")
+                .map(py)
+                .unwrap_or_else(|| py("${DB_CLIENT_ID}"));
+            let path = c
+                .opt("client_certificate")
+                .map(py)
+                .unwrap_or_else(|| py("${DB_CLIENT_CERTIFICATE}"));
+            let password = b
+                .s("client_certificate_password")
+                .map(|v| match &v {
+                    V::T(s) | V::R(s) => format!(", password={}", py(s)),
+                })
+                .unwrap_or_default();
+            format!(
+                "azure.identity.CertificateCredential({}, {client}, {path}{password})",
+                tenant.clone().unwrap_or_else(|| py("${DB_TENANT}")),
+            )
+        }
         Some("entra_default") | Some("entra_msi") => {
             "azure.identity.DefaultAzureCredential()".into()
         }

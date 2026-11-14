@@ -552,6 +552,38 @@ fn power_bi_xmla_rest_and_python() {
 }
 
 #[test]
+fn power_bi_service_principal_certificate_in_python() {
+    let mut x = cfg("powerbi", "", 0, "Finanzas › Ventas", "");
+    for (k, v) in [
+        ("auth_mode", "entra_sp_cert"),
+        ("tenant", "contoso.onmicrosoft.com"),
+        ("client_id", "app-1"),
+        ("client_certificate", "/certs/sp.pfx"),
+    ] {
+        x.options.insert(k.into(), v.into());
+    }
+    let c = conn_of(&x);
+    assert!(
+        text(&c, "python", &Fill::Placeholder).contains(
+            "azure.identity.CertificateCredential(\"contoso.onmicrosoft.com\", \"app-1\", \"/certs/sp.pfx\", password=\"${DB_CLIENT_CERTIFICATE_PASSWORD}\")"
+        )
+    );
+    // The password where secrets go, and none when the file has none.
+    let v = values(&[("client_certificate_password", "hunter2")]);
+    let built = build(&c, "python", &Fill::Values(&v)).unwrap();
+    assert!(
+        built.text.contains("password=\"hunter2\""),
+        "{}",
+        built.text
+    );
+    assert!(!text(&c, "python", &Fill::Masked).contains("hunter2"));
+    let none = BTreeMap::new();
+    assert!(text(&c, "python", &Fill::Values(&none)).contains(
+        "CertificateCredential(\"contoso.onmicrosoft.com\", \"app-1\", \"/certs/sp.pfx\")"
+    ));
+}
+
+#[test]
 fn kdb_handle_and_pykx() {
     let mut x = cfg("kdb", "db.example.com", 0, "", "u");
     x.options.insert("tcps".into(), "false".into());

@@ -133,6 +133,34 @@
     "mongo_where": {
       "title": "$where → operadores de consulta",
       "explain": "$where ejecuta JavaScript en cada documento y no usa índices; los operadores equivalentes sí. Con campos que son arrays o que mezclan tipos el resultado puede cambiar: comparala antes de usarla."
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "FILTER sobre toda la tabla → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) recorre la tabla entera, con sus tablas relacionadas, para armar el filtro. KEEPFILTERS con la misma condición filtra solo las columnas que usa y respeta los filtros que ya había. Si la medida usa tablas relacionadas, si hay otros modificadores (ALL…) o si el CALCULATE está dentro de un iterador, el resultado puede cambiar: comparala antes de usarla."
+    },
+    "dax_iferror_to_divide": {
+      "title": "IFERROR con una división → DIVIDE",
+      "explain": "IFERROR obliga a evaluar paso a paso; DIVIDE resuelve {{division}} sin atrapar errores. En DAX dividir por cero no es un error (da infinito), así que IFERROR no lo cubría y DIVIDE devuelve el resultado alternativo: comparala antes de usarla."
+    },
+    "dax_iserror_to_divide": {
+      "title": "IF(ISERROR(…)) con una división → DIVIDE",
+      "explain": "ISERROR obliga a evaluar paso a paso y calcula {{division}} dos veces; DIVIDE la calcula una vez. En DAX dividir por cero no es un error (da infinito), así que ISERROR no lo cubría y DIVIDE devuelve el resultado alternativo: comparala antes de usarla."
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) es la forma corta y equivalente: devuelve el valor cuando hay uno solo y, si no, el resultado alternativo."
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "SUMMARIZE con columnas calculadas → ADDCOLUMNS",
+      "explain": "SUMMARIZE queda solo para agrupar y las columnas calculadas ({{name}}…) pasan a ADDCOLUMNS, con CALCULATE para calcularlas por grupo: es más rápido y su contexto es el esperado. Con relaciones complejas el resultado puede cambiar: comparala antes de usarla."
+    },
+    "dax_redundant_calculate": {
+      "title": "CALCULATE sin filtros que sobra",
+      "explain": "{{fn}} sin filtros alrededor de una medida o de otro {{fn}} no cambia el resultado: la medida ya tiene su CALCULATE implícito y el de adentro ya hace la transición de contexto."
+    },
+    "dax_topn_order_by": {
+      "title": "TOPN sin ORDER BY → ORDER BY",
+      "explain": "TOPN elige las filas pero no las ordena. Se agrega {{order}} al EVALUATE, con el criterio y el sentido de TOPN."
     }
   },
   "notesText": {

@@ -1556,6 +1556,25 @@ fn powerbi_setup(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
             sec.get("CLIENT_ID", "the service principal's client ID", true),
             sec.get("CLIENT_SECRET", "the service principal's secret", true)
         ),
+        Some("entra_sp_cert") => format!(
+            "azure.identity.CertificateCredential({}, {}, {}, password={})",
+            tenant.clone().unwrap_or_else(|| sec.get(
+                "TENANT",
+                "the tenant (GUID or domain)",
+                true
+            )),
+            sec.get("CLIENT_ID", "the service principal's client ID", true),
+            sec.get(
+                "CLIENT_CERTIFICATE",
+                "the path of the service principal's certificate (a PEM or PFX file)",
+                true
+            ),
+            sec.get(
+                "CLIENT_CERTIFICATE_PASSWORD",
+                "the certificate's password (optional)",
+                false
+            )
+        ),
         Some("entra_default") | Some("entra_msi") => {
             "azure.identity.DefaultAzureCredential()".into()
         }

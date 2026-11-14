@@ -30,6 +30,7 @@
 //! secret, not even through `Debug`.
 
 pub mod browser;
+pub mod certificate;
 pub mod cloud;
 pub mod service;
 
@@ -173,6 +174,17 @@ impl TokenSet {
     }
 }
 
+/// `{login}/{tenant}/oauth2/v2.0/token` (also a client assertion's `aud`).
+pub(crate) fn token_url(login: &str, tenant: &str) -> Result<reqwest::Url> {
+    crate::config::valid_tenant(tenant)?;
+    let mut url =
+        reqwest::Url::parse(login).map_err(|_| auth("dirección de inicio de sesión no válida"))?;
+    url.path_segments_mut()
+        .map_err(|_| auth("dirección de inicio de sesión no válida"))?
+        .extend([tenant, "oauth2", "v2.0", "token"]);
+    Ok(url)
+}
+
 /// The token endpoint of the connection's tenant (`organizations` without
 /// one): the token set, or the sign-in error in Spanish.
 pub(crate) async fn token_endpoint(
@@ -181,12 +193,7 @@ pub(crate) async fn token_endpoint(
     tenant: &str,
     form: &[(&str, &str)],
 ) -> Result<TokenSet> {
-    crate::config::valid_tenant(tenant)?;
-    let mut url =
-        reqwest::Url::parse(login).map_err(|_| auth("dirección de inicio de sesión no válida"))?;
-    url.path_segments_mut()
-        .map_err(|_| auth("dirección de inicio de sesión no válida"))?
-        .extend([tenant, "oauth2", "v2.0", "token"]);
+    let url = token_url(login, tenant)?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
@@ -341,11 +348,16 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn fingerprint(settings: &Settings) -> String {
-    let secret = settings
-        .client_secret
-        .as_ref()
-        .map(|s| hex(&Sha256::digest(s.expose().as_bytes())[..12]))
-        .unwrap_or_default();
+    let hash = |s: &str| hex(&Sha256::digest(s.as_bytes())[..12]);
+    let secret = match (&settings.client_certificate, &settings.client_secret) {
+        (Some(c), _) => hash(&format!(
+            "certificate\0{}\0{}",
+            c.path,
+            c.password.as_ref().map_or("", |p| p.expose())
+        )),
+        (None, Some(s)) => hash(s.expose()),
+        (None, None) => String::new(),
+    };
     format!(
         "{:?}|{:?}|{}|{}|{}|{}",
         settings.auth,
@@ -958,6 +970,25 @@ pub(crate) mod tests {
         };
         assert_ne!(sp("one"), sp("two"));
         assert!(!sp("hunter2").contains("hunter2"));
+        // Another certificate file or password is another identity, and a
+        // certificate isn't the secret's.
+        let cert = |path: &str, password: &str| {
+            fingerprint(&settings(
+                &[
+                    ("auth_mode", "entra_sp_cert"),
+                    ("tenant", "t"),
+                    ("client_id", "c"),
+                    ("client_certificate", path),
+                    ("client_certificate_password", password),
+                ],
+                true,
+            ))
+        };
+        assert_ne!(cert("/a.pfx", "hunter2"), cert("/b.pfx", "hunter2"));
+        assert_ne!(cert("/a.pfx", "hunter2"), cert("/a.pfx", "other"));
+        assert_ne!(cert("/a.pfx", "hunter2"), sp("hunter2"));
+        assert_ne!(cert("/a.pfx", ""), cert("/a.pfx", "hunter2"));
+        assert!(!cert("/a.pfx", "hunter2").contains("hunter2"));
         // The user is case-insensitive.
         let mut lower = settings(&[], true);
         lower.username = Some("ana@contoso.com".into());
