@@ -172,6 +172,7 @@ code; the app shows them in the interface language.
 | Elasticsearch (8.7+) | **Iniciar desde…** | A time, **Desde (UTC)**, never in the future; the default is now minus the transform's sync delay. It sends `POST _transform/<id>/_start?from=<time>`. Offered on a stopped continuous transform that hasn't completed a checkpoint (new, or just reset). |
 | Elasticsearch | **Reconocer acciones…** | The watch's actions waiting for an acknowledgement, all picked by default. It sends `PUT _watcher/watch/<id>/_ack/<a>,<b>`. |
 | OpenSearch, Open Distro | **Reconocer alertas…** | The monitor's active alerts, labelled by trigger, bucket keys or documents, severity and start time. It sends `POST _plugins/_alerting/monitors/<id>/_acknowledge/alerts` (`_opendistro` on Open Distro). |
+| Power BI (on capacity) | **Actualizar ahora…** | The kind of refresh (full, clear values, recalculate, data only, automatic, defragment), commit mode (transactional or in batches), maximum parallelism, retries and a time limit (`hh:mm:ss`), the tables and partitions to refresh (empty: the whole model) and, in a transactional refresh, whether to apply the incremental policy and from which date. The script is a `POST …/refreshes` with an enhanced refresh body. In batches, Power BI requires the incremental policy off, so tables with one are refreshed whole and the script says so. On shared capacity it asks for nothing: it sends a standard refresh. |
 
 On Oracle, changing the state of a step, stopping one or taking a pause off
 makes the chain evaluate its rules again, so other steps may start or the
@@ -213,3 +214,73 @@ On a read-only connection you can open every form and view every script, and
 open a script in a query. You cannot save, delete, run an action, start at a
 step or clear a history: DBine doesn't offer them, and the connection refuses
 them if asked.
+
+## Power BI refreshes
+
+A Power BI connection (semantic models) has the **refresh** of the models as
+its server jobs: each model that can refresh is a job, kind **Actualización
+programada**, in the group of the connection's workspace. The refresh is
+the service's, so DBine only asks for it, follows it and edits its schedule;
+nothing refreshes unless the connection isn't read-only.
+
+**The list.** Each job shows the model, the workspace, its owner, the
+schedule (`lun, mié, vie · 05:00, 17:30 · Argentina Standard Time`) or
+**On demand**, whether it is enabled, whether it is running, and the result
+and duration of its last refresh. A model that refreshes its DirectQuery
+cache has a second job, **Actualización de caché (DirectQuery)**. The next
+run isn't shown: the API doesn't give it. With no workspace on the
+connection and no model chosen, the list shows only the models the account
+can write to, at most 25, and says how many were left out: set a workspace
+to see them all. Schedules and recent refreshes are cached for 60 seconds.
+
+**History.** A job's **History** is the model's refreshes (newest first,
+up to 500), each with its type (scheduled, manual from the portal, by API,
+enhanced API, XMLA, manual with training), its result and the service's
+error code, and its attempts as steps. The service shows the history only to
+someone with write permission on the model; without it the job lists with a
+note and no history. The DirectQuery cache has no history.
+
+**Run now** asks for a refresh and returns when the service takes it. On
+shared capacity it is a standard refresh, which counts against the limit of
+8 a day (scheduled refreshes count too), can't be cancelled, and is the only
+one the service accepts there. The service runs one refresh at a time per
+model: a second request while one runs is refused. A refusal because the
+daily limit is reached is reported, not retried.
+
+**Stop** cancels the refresh in progress, only for an enhanced refresh
+(the ones DBine asks for on capacity): scheduled refreshes and the ones
+started from the portal can't be cancelled through the API, and the job says
+so. The designer's **Cancelar la actualización en curso** does the same.
+
+**The schedule** is edited in the scheduler designer, under **Programaciones
+de actualización** (and **Actualización de caché (DirectQuery)**). Schedules
+are edited, never created or deleted: a schedule is disabled instead.
+
+- The form has **Activada**, **Días**, **Horarios** (`HH:MM` on the hour or
+  the half hour, up to 8 a day on shared capacity and 48 on capacity),
+  **Zona horaria** (a Windows time zone) and the notification (e-mail on
+  failure or none; a service principal can choose only none). For the cache,
+  the frequency in minutes or the days and times.
+- Only the model's **owner** can change a schedule; a model the account
+  doesn't own opens read only with the reason. Disabling sends nothing but
+  the disabled flag, as the service requires.
+- **Actualizar ahora…** is the action above, and **Cancelar la actualización
+  en curso** the cancel.
+- The script is shown before saving or running: a `PATCH …/refreshSchedule`
+  or `POST …/refreshes` with its body as comment lines, the `⚠` warnings
+  first (owner only, a disable carries nothing else, the daily limit).
+  Nothing runs without the yes.
+
+**Limits.**
+
+- Read-only connections show everything and refuse run, stop, enable or
+  disable and every save before sending any request, whatever the token's
+  permissions.
+- The refresh needs the `Dataset.ReadWrite.All` permission, which DBine asks
+  for only when the connection isn't read-only
+  ([cloud sign-in](cloud-authentication.md#power-bi-and-fabric-semantic-models-entra-id)).
+- A job's history, the schedule's owner and the editable fields depend on
+  the account's rights on the model; the notes say which limit applies.
+- The phone app doesn't get these jobs: it has no server jobs.
+- What isn't offered, and why, is in
+  [engine support](engine-support.md#power-bi-semantic-models).

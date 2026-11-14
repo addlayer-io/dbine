@@ -53,7 +53,7 @@ without escaping.
   - Renaming a folder moves everything inside it. Deleting it moves its
     scripts and subfolders up one level: it never deletes scripts.
 - **Import:** files or a whole folder of scripts (`.sql`, `.js`, `.json`,
-  `.cql`, `.redis`, `.flux`, `.cypher`, `.txt`…). Subfolders become library
+  `.cql`, `.redis`, `.flux`, `.cypher`, `.dax`, `.txt`…). Subfolders become library
   folders, and a comment on the first line becomes the description. If the
   same folder is imported again, the scripts are updated instead of
   duplicated.
@@ -70,6 +70,7 @@ without escaping.
   | Redis commands | `.redis` |
   | Flux | `.flux` |
   | Cypher | `.cypher` |
+  | DAX (Power BI) | `.dax` |
 
   The description goes as a comment on the first line, with the language's
   syntax: `--` or `//`. JSON and Redis have no comments, so none is added
@@ -98,6 +99,7 @@ Azure DevOps…), as a backup or to share it with the team.
   - `.redis`: Redis;
   - `.cypher`: Neo4j;
   - `.flux`: InfluxDB;
+  - `.dax`: Power BI;
   - `.json`: all engines.
 - **Git window:** the library's uncommitted changes, how many commits there
   are to push and to pull, and the buttons **Commit**, **Pull**, **Push** and

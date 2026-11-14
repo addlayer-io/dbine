@@ -736,3 +736,44 @@ Event: `datagen-progress`, with `{ id, rows, total }`. Cancel:
 - `local_function_catalog` returns DuckDB's functions for the notebooks'
   DataFrame SQL cells. It never downloads DuckDB: the list is empty until
   DuckDB is on the computer, and is read once per app run after that.
+
+## Data compare of two queries ([`data-compare.md`](data-compare.md))
+
+| Command | args | Returns |
+|---|---|---|
+| `data_compare_query` | `{ left, right, columns, options?, run? }` | `{ …DataCompareResult, right_columns, right_types }` |
+| `data_compare_query_columns` | `{ side, run? }` | `{ columns, sample }` |
+
+- `left`, `right` and `side` are `{ connection_id, database?, query }`: the
+  connection, its database (empty: the connection's default) and a query in
+  that engine's language. `connection_id` and `query` can't be empty.
+- `columns` is `[{ left, right, key? }]`: each compared column's name in the
+  left result and in the right one; those with `key: true` pair the rows, and
+  at least one is needed.
+- `options` is `{ absolute?, relative?, null_as_blank?, ignore_case?, trim? }`,
+  all optional: `absolute` is the largest difference between two numbers that
+  still counts as equal, and `relative` the same as a fraction of the larger
+  one (`0.001` is 0.1 %); `null_as_blank` makes NULL equal a blank value
+  (0, an empty text or false); `ignore_case` and `trim` apply to text, keys
+  included. The key never takes a tolerance.
+- `data_compare_query` reads both results whole, each on a read-only session
+  of its own (`dcmp:<run>:left` and `dcmp:<run>:right`), and returns the
+  table compare's result (`id`, `key`, `columns`, `types`, `counts`, the
+  sample rows, `duplicate_keys`, `diff_truncated`, `diff_limit`, `listed`…)
+  plus `right_columns` and `right_types`, the right side's names and types of
+  the compared columns (`columns` and `types` are the left's). The `id` works
+  with `data_compare_rows`, `data_compare_explain` and
+  `data_compare_ai_filter` as a table compare's does; `data_compare_script`
+  refuses it (a query isn't a table, so there is no script). It fails, with
+  the reason, instead of comparing a result partially: one the engine cut, a
+  query with more than one result set or none with columns, a paired column
+  missing, or a repeated column name.
+- `data_compare_query_columns` runs the query until its first row, on a
+  read-only session of its own, and returns `columns` (`[{ name, type_name }]`
+  of the first result that has columns) and `sample`, that result's first row
+  when it has one. It is what the key suggestion looks at.
+- **Event:** `data-compare-progress` `{ run, side, rows, phase, differences }`
+  while `data_compare_query` runs, as for tables.
+- **Cancel:** `data_compare_cancel { run }` stops both reads and the work on
+  disk of `data_compare_query`, and the read of `data_compare_query_columns`.
+  `run` is the UI's id (empty: the command makes one).

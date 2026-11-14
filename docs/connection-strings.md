@@ -249,6 +249,21 @@ node-odbc…). Where a format doesn't apply to an engine, the reason is in
 | Yellowbrick | URI (postgresql://); libpq (psql, psycopg); ADO.NET (Npgsql); JDBC; Python (SQLAlchemy); ODBC; Node.js (pg); Go (pgx) |
 | YugabyteDB | URI (postgresql://); libpq (psql, psycopg); ADO.NET (Npgsql); JDBC; Python (SQLAlchemy); ODBC; Node.js (pg); Go (pgx) |
 
+**Power BI.** A semantic model has no database connection string; the three
+formats are the ones other tools use to reach it:
+
+- **XMLA (Excel, Power BI Desktop, SSMS):** `Data Source=powerbi://api.powerbi.com/v1.0/myorg/<workspace>;Initial Catalog=<model>;`
+  (the cloud's own host in the government and China clouds). It is written
+  only when the workspace is known, and the XMLA endpoint exists only on
+  Premium, Premium Per User and Fabric capacity.
+- **REST (`executeQueries`):** the request DBine's queries go to, with an
+  `Authorization: Bearer` header. The token is a placeholder
+  (`${DB_ACCESS_TOKEN}`); with a pasted token it follows the **Incluir
+  contraseña** rule.
+- **Python (azure-identity):** the credential that matches the connection's
+  sign-in (browser, service principal or default) and a call that gets a
+  token for the cloud's Power BI resource.
+
 ## Commands
 
 `connection_string_info` and `connection_string_build`

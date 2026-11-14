@@ -328,6 +328,52 @@ per app run.
   gone, the cell hasn't run in it, or a DataFrame it reads was loaded again
   since (its source ran again), it asks to run the cell first.
 
+### Example: a Power BI model against its source
+
+A semantic model's numbers can be checked against the database they come
+from with three cells. The first two run on their own connection, the third
+joins their results on your computer.
+
+A **DAX cell** on the Power BI connection (a cell on a Power BI connection is
+written in DAX; its results and `{{name}}` parameters work as in any other
+language, the parameters going in as DAX literals), named `modelo`:
+
+```dax
+EVALUATE
+SUMMARIZECOLUMNS('Date'[Year], "Ventas", [Total Sales])
+```
+
+A **SQL cell** on the source (SQL Server here), named `fuente`:
+
+```sql
+SELECT YEAR(order_date) AS year, SUM(amount) AS ventas
+FROM sales
+GROUP BY YEAR(order_date)
+```
+
+A **DataFrame SQL cell** that joins them and keeps the differences. A DAX
+result names its columns as DAX does (`Date[Year]`, `[Ventas]`), so DuckDB
+needs them quoted:
+
+```sql
+SELECT coalesce(m."Date[Year]", f.year) AS year,
+       m."[Ventas]" AS modelo,
+       f.ventas AS fuente,
+       coalesce(m."[Ventas]", 0) - coalesce(f.ventas, 0) AS diferencia
+FROM modelo m
+FULL JOIN fuente f ON m."Date[Year]" = f.year
+WHERE abs(coalesce(m."[Ventas]", 0) - coalesce(f.ventas, 0)) > 0.01
+```
+
+Years only one side has come out with a NULL on the other, and the rest
+show the gap beyond rounding. The DAX cell's rows load whole into the
+DataFrame: a model that answers through `executeQueries` (the
+service's JSON API, used when `executeDaxQueries` isn't available for it)
+returns at most 100,000 rows, 1,000,000 values or 15 MB per query, and a result the service cut fails the
+load instead of being loaded as if it were whole. For a one-click version
+without cells, see [comparing two
+queries](data-compare.md#comparing-two-queries).
+
 ### Reading local files
 
 A DataFrame SQL cell can also read local data files with DuckDB's readers and

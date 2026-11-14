@@ -270,6 +270,11 @@ and queries are organized inside each database.
     a rounding, a sync running late), filters them from a request in words and
     suggests a key for a table without one. The AI gets counts, names and
     types, never the rows.
+  - It also compares the whole results of two queries, each on any connection
+    and in its engine's language: a Power BI measure against the `SUM` in the
+    database it comes from, for example, with a tolerance for numbers. It is
+    read-only, and it refuses a result the engine cut rather than compare it
+    partially.
 
   Details: [`docs/data-compare.md`](docs/data-compare.md).
 - **Clone table:** from the explorer, a table, collection or index is cloned
@@ -334,7 +339,7 @@ and queries are organized inside each database.
   data. Details: [`docs/scheduled-tasks.md`](docs/scheduled-tasks.md).
 - **Server jobs:** each server's own scheduled work next to DBine's tasks —
   SQL Server Agent, Oracle DBMS_SCHEDULER, pg_cron, pgAgent, TimescaleDB,
-  Snowflake tasks, Databricks jobs, MySQL events and more — with their steps
+  Snowflake tasks, Databricks jobs, Power BI refreshes, MySQL events and more — with their steps
   and run history, and run now, stop, enable or script them where the engine
   allows it. Details: [`docs/server-jobs.md`](docs/server-jobs.md).
 
@@ -443,7 +448,7 @@ all of them. The exceptions, with their reason, are in
 | Family | Engines |
 |---|---|
 | Relational | SQL Server · PostgreSQL · CockroachDB · YugabyteDB · TimescaleDB · Greenplum · KingbaseES · Denodo · MySQL · MariaDB · TiDB · OceanBase · SingleStore · SQLite · libSQL / Turso · Oracle · Oracle Autonomous · Firebird · SAP HANA · Aurora DSQL · Cloud Spanner · ODBC (Db2, Sybase ASE, SQL Anywhere, Informix and more) |
-| Analytical | DuckDB · CSV / Parquet / JSON files · ClickHouse · Trino · Presto · Starburst · BigQuery · Athena · Snowflake · Databricks · Redshift · StarRocks · Doris · Databend · Hive · Impala · Drill · Dremio · Calcite Avatica · Flight SQL · Teradata · Vertica · Exasol · Netezza · Ocient |
+| Analytical | DuckDB · CSV / Parquet / JSON files · ClickHouse · Trino · Presto · Starburst · BigQuery · Athena · Snowflake · Databricks · Redshift · StarRocks · Doris · Databend · Hive · Impala · Drill · Dremio · Calcite Avatica · Flight SQL · Teradata · Vertica · Exasol · Netezza · Ocient · Power BI (semantic models, with Microsoft Fabric) |
 | Document | MongoDB · CouchDB · Couchbase · Azure Cosmos DB |
 | Key-value | Redis · Valkey · Dragonfly · DynamoDB · etcd |
 | Graph | Neo4j · Memgraph · Amazon Neptune · OrientDB |
