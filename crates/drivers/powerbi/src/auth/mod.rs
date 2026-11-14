@@ -755,7 +755,7 @@ pub(crate) mod tests {
             refresh: Some(Secret::new("refresh-secret")),
         };
         let shown = format!("{c:?}");
-        assert!(!shown.contains("secret"), "{shown}");
+        assert!(!shown.contains("secret"), "a token shows in Debug");
         let set = TokenSet::from_oauth(
             &json!({"access_token": "a-tok", "expires_in": "60", "refresh_token": "r-tok"}),
             100,
@@ -764,7 +764,7 @@ pub(crate) mod tests {
         let shown = format!("{set:?}");
         assert!(
             !shown.contains("a-tok") && !shown.contains("r-tok"),
-            "{shown}"
+            "a token shows in Debug"
         );
         assert_eq!(
             set.access.expires_at,
@@ -781,7 +781,7 @@ pub(crate) mod tests {
         ))
         .unwrap();
         let shown = format!("{p:?}");
-        assert!(!shown.contains("hunter2"), "{shown}");
+        assert!(!shown.contains("hunter2"), "a secret shows in Debug");
     }
 
     #[tokio::test]

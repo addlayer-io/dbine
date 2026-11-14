@@ -585,10 +585,13 @@ pub(crate) mod tests {
     fn the_key_never_shows() {
         let c = Certificate::load(&fixture("sp_encrypted.pem"), Some(PASSWORD)).unwrap();
         let shown = format!("{c:?}");
-        assert!(shown.contains(THUMBPRINT), "{shown}");
+        assert!(
+            shown.contains(THUMBPRINT),
+            "the thumbprint is missing from Debug"
+        );
         let key = blocks_of(&pem("sp.pem"), "PRIVATE KEY");
         let body: String = key.lines().filter(|l| !l.starts_with("-----")).collect();
-        assert!(!shown.contains(&body[..40]), "{shown}");
+        assert!(!shown.contains(&body[..40]), "the key shows in Debug");
         // Errors never quote the file's content either.
         let e = Certificate::from_bytes(pem("sp_encrypted.pem").as_bytes(), Some("wrong"))
             .unwrap_err()

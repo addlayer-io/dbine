@@ -775,13 +775,16 @@ mod tests {
         for s in &seen {
             assert!(
                 s.starts_with("/login/contoso.onmicrosoft.com/oauth2/v2.0/token "),
-                "{s}"
+                "the request went to another path"
             );
             assert!(
                 !s.contains("leftover-secret") && !s.contains("client_secret"),
-                "{s}"
+                "a secret was sent"
             );
-            assert!(s.contains("grant_type=client_credentials"), "{s}");
+            assert!(
+                s.contains("grant_type=client_credentials"),
+                "not a client-credentials request"
+            );
         }
         // The environment's certificate (default chain), on the same path.
         let env = |k: &str| match k {

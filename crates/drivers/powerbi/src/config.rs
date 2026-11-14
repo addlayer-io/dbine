@@ -314,7 +314,7 @@ mod tests {
         ]))
         .unwrap();
         let dbg = format!("{s:?}");
-        assert!(!dbg.contains("hunter2"), "{dbg}");
+        assert!(!dbg.contains("hunter2"), "the password shows in Debug");
         assert_eq!(s.client_secret.unwrap().expose(), "hunter2-secret");
     }
 
@@ -339,7 +339,7 @@ mod tests {
         // The password as typed.
         assert_eq!(c.password.unwrap().expose(), " hunter2 ");
         let dbg = format!("{cert:?}");
-        assert!(!dbg.contains("hunter2"), "{dbg}");
+        assert!(!dbg.contains("hunter2"), "the password shows in Debug");
         let secret = both("entra_sp");
         assert!(secret.client_certificate.is_none());
         assert_eq!(secret.client_secret.unwrap().expose(), "old-secret");

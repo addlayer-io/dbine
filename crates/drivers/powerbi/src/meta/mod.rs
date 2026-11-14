@@ -843,14 +843,17 @@ mod tests {
     fn embedded_data_and_url_secrets_never_show() {
         let m = "let\n    Source = Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText(\"i45WMlTSUTJUitWJVjICcozBHBMgxwTCMQVyTJViYwE=\", BinaryEncoding.Base64), Compression.Deflate)), let _t = ((type nullable text) meta [Serialized.Text = true]) in type table [Id = _t])\nin\n    Source";
         let r = redact_m(m);
-        assert!(!r.contains("i45W"), "{r}");
+        assert!(!r.contains("i45W"), "the embedded data was not redacted");
         assert!(
             r.contains("Binary.FromText(\"(datos incrustados omitidos)\", BinaryEncoding.Base64)")
         );
         let web =
             "Web.Contents(\"https://api.example.com/v1/sales?region=west&api_key=abc123&sig=zz\")";
         let r = redact_m(web);
-        assert!(!r.contains("abc123") && !r.contains("=zz"), "{r}");
+        assert!(
+            !r.contains("abc123") && !r.contains("=zz"),
+            "a URL secret was not redacted"
+        );
         assert!(r.contains("region=west") && r.contains("api_key=***"));
         // A string with a doubled quote and no URL is left alone.
         assert_eq!(redact_m("\"a\"\"b\" & x"), "\"a\"\"b\" & x");
@@ -859,7 +862,7 @@ mod tests {
         let m = "let\n    // token = \"in a comment\"\n    apiKey = \"k-123\",\n    Source = Json.Document(Web.Contents(\"https://api.example.com/v1\", [Headers=[Authorization=\"Bearer eyJ0e\", #\"Ocp-Apim-Subscription-Key\" = \"s-456\", Accept=\"application/json\"], Query=[api_key=\"q-789\", region=\"west\"]]))\nin\n    Source";
         let r = redact_m(m);
         for secret in ["k-123", "eyJ0e", "s-456", "q-789"] {
-            assert!(!r.contains(secret), "{secret}: {r}");
+            assert!(!r.contains(secret), "a secret was not redacted");
         }
         for kept in [
             "apiKey = \"***\"",
