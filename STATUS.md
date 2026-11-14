@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.6.0 | 2026-11-14 | e50a062f..bbb180dc, from the end of the v1.5.0 scan to the 1.6.0 candidate, every changed file (docs, changelog translations, icons and agent files skipped as text or images), which also covers 8d440027 (#75), the commit 1.5.0 shipped unscanned; bbb180dc..8385a377 in web, the fix for the one LOW finding, the only code that range changes | 0 open | release-notes and translation text |
 | codeql | 2026-11-14 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-14 | every lockfile (Cargo, npm) at [`c07c273ce`](https://github.com/addlayer-io/dbine/commit/c07c273ce95b) | 0 open | — |
-| scorecard | 2026-11-14 | repository settings and workflows at [`064ef8d6e`](https://github.com/addlayer-io/dbine/commit/064ef8d6ed18) | score 7.3/10 | — |
-| trivy | 2026-11-14 | whole repository at [`c07c273ce`](https://github.com/addlayer-io/dbine/commit/c07c273ce95b) | 0 open | — |
+| osv | 2026-11-14 | every lockfile (Cargo, npm) at [`74e258a20`](https://github.com/addlayer-io/dbine/commit/74e258a20617) | 0 open | — |
+| scorecard | 2026-11-14 | repository settings and workflows at [`c07c273ce`](https://github.com/addlayer-io/dbine/commit/c07c273ce95b) | score 7.5/10 | — |
+| trivy | 2026-11-14 | whole repository at [`74e258a20`](https://github.com/addlayer-io/dbine/commit/74e258a20617) | 0 open | — |
 
 ## Not counted, and why
 
@@ -390,15 +390,15 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.3/10** (2026-11-14). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.5/10** (2026-11-14). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/3 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/4 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 7 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 7/10 — 3 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| CI-Tests: 7/10 — 3 out of 4 merged PRs checked by a CI test -- score normalized to 7 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

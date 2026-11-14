@@ -1,38 +1,6 @@
 {
   "scans": [
     {
-      "source": "osv",
-      "date": "2026-11-14",
-      "revision": "c07c273ce95b",
-      "kind": "full",
-      "scope": "every lockfile (Cargo, npm)",
-      "found": 0
-    },
-    {
-      "source": "trivy",
-      "date": "2026-11-14",
-      "revision": "c07c273ce95b",
-      "kind": "full",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "codeql",
-      "date": "2026-11-14",
-      "revision": "",
-      "kind": "full",
-      "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
-    },
-    {
-      "source": "scorecard",
-      "date": "2026-11-14",
-      "revision": "064ef8d6ed18",
-      "kind": "full",
-      "scope": "repository settings and workflows",
-      "score": 7.3
-    },
-    {
       "source": "claude-security",
       "release": "v1.6.0",
       "scan_id": "359e42f8-a802-46ff-8f3c-5ff09728e70e",
@@ -51,6 +19,38 @@
       "kind": "changes",
       "scope": "bbb180dc5e86507c7c0b647a79444e459db1cbd8..8385a3777d95ac7eff31140d13e6bfb86f2d35c9",
       "found": 0
+    },
+    {
+      "source": "osv",
+      "date": "2026-11-14",
+      "revision": "74e258a20617",
+      "kind": "full",
+      "scope": "every lockfile (Cargo, npm)",
+      "found": 0
+    },
+    {
+      "source": "trivy",
+      "date": "2026-11-14",
+      "revision": "74e258a20617",
+      "kind": "full",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "codeql",
+      "date": "2026-11-14",
+      "revision": "",
+      "kind": "full",
+      "scope": "Rust, TypeScript/Vue and workflows",
+      "found": 0
+    },
+    {
+      "source": "scorecard",
+      "date": "2026-11-14",
+      "revision": "c07c273ce95b",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 7.5
     }
   ],
   "findings": [
@@ -4458,6 +4458,17 @@
       "status": "open"
     },
     {
+      "id": "SC-CI-Tests",
+      "source": "scorecard",
+      "severity": "LOW",
+      "kind": "Repository practice",
+      "title": "CI-Tests: 7/10 — 3 out of 4 merged PRs checked by a CI test -- score normalized to 7",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
+      "found": "2026-11-14",
+      "status": "open"
+    },
+    {
       "id": "SC-CII-Best-Practices",
       "source": "scorecard",
       "severity": "LOW",
@@ -4473,7 +4484,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/3 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/4 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4510,17 +4521,6 @@
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases",
       "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "SC-Vulnerabilities",
-      "source": "scorecard",
-      "severity": "HIGH",
-      "kind": "Repository practice",
-      "title": "Vulnerabilities: 7/10 — 3 existing vulnerabilities detected",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
-      "found": "2026-11-13",
       "status": "open"
     }
   ],
