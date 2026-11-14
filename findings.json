@@ -53,15 +53,15 @@
     {
       "source": "osv",
       "date": "2026-11-14",
-      "revision": "064ef8d6ed18",
+      "revision": "c07c273ce95b",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 6
+      "found": 0
     },
     {
       "source": "trivy",
       "date": "2026-11-14",
-      "revision": "064ef8d6ed18",
+      "revision": "c07c273ce95b",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -77,7 +77,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-14",
-      "revision": "fa8ee12cc288",
+      "revision": "064ef8d6ed18",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.3
@@ -4466,78 +4466,6 @@
       "by": "mpanichella"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0523-quinn-proto-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "quinn-proto 0.11.18: MAX_STREAM_DATA frame can open streams beyond the stream limit",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0523",
-      "fixed_version": "0.11.19",
-      "found": "2026-11-13",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0523-quinn-proto-c4afe4",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "quinn-proto 0.11.18: MAX_STREAM_DATA frame can open streams beyond the stream limit",
-      "component": "fuzz/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0523",
-      "fixed_version": "0.11.19",
-      "found": "2026-11-13",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0524-quinn-proto-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "quinn-proto 0.11.18: Long Retry token can panic or exhaust memory in a QUIC client",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0524",
-      "fixed_version": "0.11.19",
-      "found": "2026-11-13",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0524-quinn-proto-c4afe4",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "quinn-proto 0.11.18: Long Retry token can panic or exhaust memory in a QUIC client",
-      "component": "fuzz/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0524",
-      "fixed_version": "0.11.19",
-      "found": "2026-11-13",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0538-quinn-udp-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "quinn-udp 0.5.15: Receive loop can spin after a truncated datagram",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0538",
-      "fixed_version": "0.5.16, 0.6.3",
-      "found": "2026-11-13",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0538-quinn-udp-c4afe4",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "quinn-udp 0.5.15: Receive loop can spin after a truncated datagram",
-      "component": "fuzz/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0538",
-      "fixed_version": "0.5.16, 0.6.3",
-      "found": "2026-11-13",
-      "status": "open"
-    },
-    {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4575,7 +4503,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/5 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/3 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
