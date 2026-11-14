@@ -1,56 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "2de6ed5d-1bad-4e1e-b3b0-5e6fc27f0941",
-      "date": "2026-11-11",
-      "revision": "611d1a1006cf",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 3
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "6403b1ff-13f0-4876-8536-e9d948f1321e",
-      "date": "2026-11-11",
-      "revision": "922d9ec0915f",
-      "kind": "changes",
-      "scope": "vendor/winauth, crates/drivers/kdb",
-      "found": 4
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "3a353d9c-1c87-4c45-878a-3713b0184a50",
-      "date": "2026-11-11",
-      "revision": "e8d6961ef672",
-      "kind": "changes",
-      "scope": "vendor/winauth, crates/drivers/kdb",
-      "found": 4
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "be2b7bb0-5994-472f-afad-56fb86968e1a",
-      "date": "2026-11-11",
-      "revision": "21d8d96f1b2d",
-      "kind": "changes",
-      "scope": "src-tauri, crates/dbine-core, crates/drivers/kdb, web/src",
-      "found": 4
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.5.0",
-      "scan_id": "9402d2dd-5766-4b1b-ada4-572f7dde4eca",
-      "date": "2026-11-11",
-      "revision": "e50a062fe839",
-      "kind": "changes",
-      "scope": "src-tauri, crates/dbine-core, web/src",
-      "found": 0
-    },
-    {
       "source": "osv",
       "date": "2026-11-14",
       "revision": "c07c273ce95b",
@@ -81,6 +31,26 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.3
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.6.0",
+      "scan_id": "359e42f8-a802-46ff-8f3c-5ff09728e70e",
+      "date": "2026-11-14",
+      "revision": "bbb180dc5e86",
+      "kind": "changes",
+      "scope": "e50a062fe839fb4441737d33e90ff9a36ac53193..bbb180dc5e86507c7c0b647a79444e459db1cbd8",
+      "found": 1
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.6.0",
+      "scan_id": "b99bf4bb-8a72-4559-a094-960c71e19738",
+      "date": "2026-11-14",
+      "revision": "8385a3777d95",
+      "kind": "changes",
+      "scope": "bbb180dc5e86507c7c0b647a79444e459db1cbd8..8385a3777d95ac7eff31140d13e6bfb86f2d35c9",
+      "found": 0
     }
   ],
   "findings": [
@@ -4555,8 +4525,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.5.0",
-    "scanned": "6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e in vendor/winauth and crates/drivers/kdb, the only code that range changes; e8d6961e..e50a062f, the fixes for the open findings, in src-tauri, crates/dbine-core, crates/drivers/kdb and web/src",
-    "not_covered": "8d440027, the query editor's result tabs (#75, web/src only), released without a scan by the owner's decision; release-notes and translation text"
+    "release": "v1.6.0",
+    "scanned": "e50a062f..bbb180dc, from the end of the v1.5.0 scan to the 1.6.0 candidate, every changed file (docs, changelog translations, icons and agent files skipped as text or images), which also covers 8d440027 (#75), the commit 1.5.0 shipped unscanned; bbb180dc..8385a377 in web, the fix for the one LOW finding, the only code that range changes",
+    "not_covered": "release-notes and translation text"
   }
 }

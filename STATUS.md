@@ -21,7 +21,7 @@ _None._
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.5.0 | 2026-11-11 | 6efc997a..611d1a10, from the end of the v1.4.2 scan to the 1.5.0 candidate, every changed file; 611d1a10..e8d6961e in vendor/winauth and crates/drivers/kdb, the only code that range changes; e8d6961e..e50a062f, the fixes for the open findings, in src-tauri, crates/dbine-core, crates/drivers/kdb and web/src | 0 open | 8d440027, the query editor's result tabs (#75, web/src only), released without a scan by the owner's decision; release-notes and translation text |
+| claude-security, release v1.6.0 | 2026-11-14 | e50a062f..bbb180dc, from the end of the v1.5.0 scan to the 1.6.0 candidate, every changed file (docs, changelog translations, icons and agent files skipped as text or images), which also covers 8d440027 (#75), the commit 1.5.0 shipped unscanned; bbb180dc..8385a377 in web, the fix for the one LOW finding, the only code that range changes | 0 open | release-notes and translation text |
 | codeql | 2026-11-14 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-11-14 | every lockfile (Cargo, npm) at [`c07c273ce`](https://github.com/addlayer-io/dbine/commit/c07c273ce95b) | 0 open | — |
 | scorecard | 2026-11-14 | repository settings and workflows at [`064ef8d6e`](https://github.com/addlayer-io/dbine/commit/064ef8d6ed18) | score 7.3/10 | — |
