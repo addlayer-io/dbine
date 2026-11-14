@@ -1,6 +1,7 @@
 import type { DbObject, Language, ObjectKindInfo } from '../api/types';
 import { KEYWORDS, aliasesIn, chainAt, findObjects, nameAt } from './nameRefs';
 import { lexRegions, lexSyntax, maskCode, regionAt } from './sqlLexer';
+import { daxRefAt } from './daxLanguage';
 
 // Hovering a table's name in the editor shows its columns (CodeEditor's
 // `tableHover`). This finds which table the name under the pointer stands
@@ -49,6 +50,15 @@ function databaseNamed(idx: HoverIndex, name: string): string | null {
  *  name, a keyword, a column, a schema or a database, or nothing known by
  *  that name. */
 export function tableAt(idx: HoverIndex, doc: string, pos: number): TableRef | null {
+  if (idx.language === 'dax') {
+    // A table's name, quoted ('Sales Order') or bare (Sales); not a
+    // [column] or a [measure].
+    const r = daxRefAt(doc, pos);
+    if (r?.kind !== 'table') return null;
+    const objects = idx.objects.filter((o) => !o.parent && o.kind !== 'hierarchy');
+    const t = tableNamed(idx, idx.database, objects, [r.name]);
+    return t ? { from: r.from, to: r.to, database: idx.database, object: t, path: [t.name] } : null;
+  }
   const sqlLike = idx.language === 'sql' || idx.language === 'cql';
   if (!sqlLike) {
     // mongosh, HTTP consoles, Cypher…: the word the explorer knows.

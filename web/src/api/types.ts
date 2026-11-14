@@ -7,7 +7,9 @@ export type Family =
   | 'relational' | 'analytical' | 'document' | 'key_value'
   | 'wide_column' | 'search' | 'time_series' | 'streaming' | 'graph';
 
-export type Language = 'sql' | 'cql' | 'json' | 'redis' | 'flux' | 'cypher';
+/** `unknown`: a language a newer driver declares that this app doesn't
+ *  know (Rust's `#[serde(other)]`); the editor treats it as plain text. */
+export type Language = 'sql' | 'cql' | 'json' | 'redis' | 'flux' | 'cypher' | 'dax' | 'unknown';
 
 /** What a function catalog entry is (crates/dbine-driver/src/functions.rs):
  *  where the editor offers it and what picking it inserts. */

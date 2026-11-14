@@ -35,7 +35,9 @@ const kind = computed(() => driver.value?.object_kinds.find((k) => k.id === prop
 const views = computed(() => {
   const v: { id: ObjectView; label: string }[] = [];
   if (kind.value?.browsable ?? true) v.push({ id: 'data', label: t('query:object.data') });
-  if (kind.value?.has_columns ?? true) v.push({ id: 'structure', label: driver.value?.language === 'sql' ? t('query:object.columns') : t('query:object.fields') });
+  // A Power BI model's tables have columns, as SQL's do.
+  const columns = driver.value?.language === 'sql' || driver.value?.language === 'dax';
+  if (kind.value?.has_columns ?? true) v.push({ id: 'structure', label: columns ? t('query:object.columns') : t('query:object.fields') });
   if (kind.value?.has_definition ?? true) v.push({ id: 'definition', label: t('query:object.definition') });
   return v;
 });

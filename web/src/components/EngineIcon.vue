@@ -16,6 +16,7 @@ const ICON_OF: Record<string, string> = {
   dsql: 'amazonwebservices', athena: 'amazonwebservices', documentdb: 'amazonwebservices',
   keyspaces: 'amazonwebservices', neptune: 'amazonwebservices', timestream: 'amazonwebservices',
   dynamodb: 'dynamodb', cosmosdb: 'cosmosdb', azuresql: 'azuresqldatabase', fabric: 'azure', azure_databricks: 'databricks',
+  powerbi: 'powerbi',
   mysql: 'mysql', mariadb: 'mariadb', tidb: 'tidb', singlestore: 'singlestore', doris: 'apachedoris', velodb: 'apachedoris',
   planetscale: 'planetscale',
   sqlserver: 'microsoftsqlserver', babelfish: 'amazonwebservices',

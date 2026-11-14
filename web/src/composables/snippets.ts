@@ -27,7 +27,7 @@ export interface Snippet {
 
 /** The families with their own built-in set. */
 export const SNIPPET_FAMILIES = [
-  'tsql', 'postgres', 'mysql', 'oracle', 'sqlite', 'db2', 'sql', 'cql', 'mongodb', 'redis', 'cypher', 'flux', 'search', 'couchdb', 'etcd', 'q',
+  'tsql', 'postgres', 'mysql', 'oracle', 'sqlite', 'db2', 'sql', 'cql', 'mongodb', 'redis', 'cypher', 'flux', 'search', 'couchdb', 'etcd', 'q', 'dax',
 ] as const;
 export type SnippetFamily = (typeof SNIPPET_FAMILIES)[number];
 
@@ -38,6 +38,9 @@ export function snippetFamily(d: DriverInfo | undefined | null): SnippetFamily |
     case 'cql': return 'cql';
     case 'cypher': return 'cypher';
     case 'flux': return 'flux';
+    case 'dax': return 'dax';
+    // A language this app doesn't know (a newer driver's): no set fits it.
+    case 'unknown': return null;
     case 'redis': return d.dialect === 'etcd' ? 'etcd' : d.dialect === 'q' ? 'q' : 'redis';
     case 'json':
       if (['mongodb', 'ferretdb', 'documentdb'].includes(d.id)) return 'mongodb';
@@ -206,6 +209,19 @@ function builtIn(family: SnippetFamily, dialect: string): Snippet[] {
     case 'flux': return [
       s('sel', 'from(bucket: "${1:bucket}")\n\t|> range(start: ${2:-1h})\n\t|> filter(fn: (r) => r._measurement == "${3:measurement}")\n\t|> limit(n: ${4:100})', 'from() |> range() |> filter()'),
       s('agg', 'from(bucket: "${1:bucket}")\n\t|> range(start: ${2:-1h})\n\t|> filter(fn: (r) => r._measurement == "${3:measurement}")\n\t|> aggregateWindow(every: ${4:1m}, fn: ${5:mean})', 'aggregateWindow()'),
+    ];
+    // DAX queries (Power BI semantic models). `cmp` puts a measure next to
+    // a plain sum of a column, by year: the model's numbers against the
+    // source's.
+    case 'dax': return [
+      s('ev', "EVALUATE\n\tTOPN(${2:100}, '${1:Table}')", "EVALUATE TOPN(n, 'Table')"),
+      s('def', "DEFINE\n\tMEASURE '${1:Table}'[${2:Measure}] = ${3:expression}\nEVALUATE\n\t{ [${2:Measure}] }", 'DEFINE MEASURE … EVALUATE'),
+      s('sc', "EVALUATE\n\tSUMMARIZECOLUMNS(\n\t\t'${1:Table}'[${2:Column}],\n\t\t\"${3:Total}\", [${4:Measure}]\n\t)", 'EVALUATE SUMMARIZECOLUMNS(…)'),
+      s('topn', "TOPN(${1:10}, '${2:Table}', [${3:Measure}], DESC)", 'TOPN(n, …, DESC)'),
+      s('calc', 'CALCULATE([${1:Measure}], ${2:filter})', 'CALCULATE(…, …)'),
+      s('var', 'VAR ${1:name} = ${2:expression}\nRETURN\n\t${1:name}', 'VAR … RETURN …'),
+      s('info', 'EVALUATE\n\tINFO.VIEW.TABLES()', 'EVALUATE INFO.VIEW.TABLES()'),
+      s('cmp', "EVALUATE\n\tSUMMARIZECOLUMNS(\n\t\t'${1:Date}'[${2:Year}],\n\t\t\"${3:Model}\", [${4:Sales}],\n\t\t\"${5:Sum}\", SUM('${6:Sales}'[${7:Amount}])\n\t)", 'SUMMARIZECOLUMNS(…, [Measure], SUM(…))'),
     ];
     case 'search': return [
       s('sel', 'GET /${1:index}/_search\n{\n\t"query": { "match_all": {} },\n\t"size": ${2:20}\n}', 'GET /index/_search'),

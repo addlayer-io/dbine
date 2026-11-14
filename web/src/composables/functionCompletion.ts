@@ -6,7 +6,8 @@
 // Flux functions). Only the editor's language, its dialect and the entries'
 // kinds decide where they are offered, never the engine.
 //
-// - **SQL-like languages** (SQL, CQL, PartiQL, N1QL…), **Cypher** and **Flux**:
+// - **SQL-like languages** (SQL, CQL, PartiQL, N1QL…), **Cypher**, **Flux**
+//   and **DAX**:
 //   - scalar, aggregate and window functions where an expression starts:
 //     after SELECT, WHERE, ON, BY, THEN…, an operator, `(` or a comma (not in
 //     a column or parameter list being defined, not inside a Cypher map or
@@ -23,8 +24,15 @@
 //     (just the name when a `(` follows already). Keywords that name a
 //     function the list offers are left out of it (CodeEditor), and
 //     functions rank above keywords.
-//   Cypher and Flux have no grammar in the editor: strings and comments are
-//   found by a lexical scan with the same rules.
+//   Cypher, Flux and DAX have no grammar in the editor: strings and comments
+//   are found by a lexical scan with the same rules.
+//   DAX (Power BI): every kind wherever an expression starts (a table
+//   function goes in any argument, DAX has no FROM): after EVALUATE, RETURN,
+//   IN, NOT, ORDER BY, START AT, `=`, an operator, `(`, `{` or a comma; never
+//   inside a 'table name' or a [column], nor where a name is given (after
+//   VAR, MEASURE, TABLE…, and in a user-defined function's parameter list,
+//   `FUNCTION f = (a : SCALAR, b`). Names are whole with their dots
+//   (`INFO.VIEW.TABLES`, `STDEVX.S`).
 // - **Redis and etcd**: the commands, as the first word of a line, and a
 //   container's subcommands after it (`CLIENT ` → `CLIENT KILL`). Picking
 //   one inserts `NAME `.
@@ -56,8 +64,8 @@ import type { FunctionInfo, FunctionKind, Language } from '../api/types';
 import { inStringOrComment, isTableSlot, maskSql, parentsBefore, statementAt } from './sqlCompletion';
 
 /** How an editor's language takes functions. */
-export type FunctionFlavor = 'sql' | 'cypher' | 'flux' | 'json' | 'commands';
-type CodeFlavor = 'sql' | 'cypher' | 'flux';
+export type FunctionFlavor = 'sql' | 'cypher' | 'flux' | 'dax' | 'json' | 'commands';
+type CodeFlavor = 'sql' | 'cypher' | 'flux' | 'dax';
 
 /** The flavor of an editor's language, or null where the catalog isn't
  *  offered this way (q merges it into its own completion: qLanguage.ts). */
@@ -68,6 +76,7 @@ export function functionFlavor(language: Language | undefined, dialect: string |
     case 'cql': return 'sql';
     case 'cypher': return 'cypher';
     case 'flux': return 'flux';
+    case 'dax': return 'dax';
     case 'json': return 'json';
     case 'redis': return 'commands';
     default: return null;
@@ -201,9 +210,10 @@ export function matchShown(c: Completion, matched?: readonly number[]): readonly
   return shift ? matched.map((p) => p + shift) : matched;
 }
 
-function buildIndex(list: readonly FunctionInfo[], overloads: (n: number) => string, sql: FunctionIndex | null): FunctionIndex {
-  const expr = groupsOf(list, ['scalar', 'aggregate', 'window'], 'qualified');
-  const table = groupsOf(list, ['table'], 'qualified');
+function buildIndex(list: readonly FunctionInfo[], overloads: (n: number) => string, sql: FunctionIndex | null, dotted = false): FunctionIndex {
+  const mode = dotted ? 'raw' : 'qualified';
+  const expr = groupsOf(list, ['scalar', 'aggregate', 'window'], mode);
+  const table = groupsOf(list, ['table'], mode);
   return {
     expr,
     table,
@@ -219,11 +229,12 @@ function buildIndex(list: readonly FunctionInfo[], overloads: (n: number) => str
 
 /** The catalog's index: the language's own entries (no `language`), and
  *  the SQL lines' (`language` `sql`) apart. An entry of any other language
- *  is never offered. */
-export function functionIndex(list: readonly FunctionInfo[], overloads: (n: number) => string): FunctionIndex {
+ *  is never offered. `dotted`: a dot is part of a function's name, not a
+ *  path to it (DAX's `INFO.VIEW.TABLES`): each name is offered whole. */
+export function functionIndex(list: readonly FunctionInfo[], overloads: (n: number) => string, dotted = false): FunctionIndex {
   const own = list.filter((f) => !f.language);
   const sql = list.filter((f) => f.language === 'sql');
-  return buildIndex(own, overloads, sql.length ? buildIndex(sql, overloads, null) : null);
+  return buildIndex(own, overloads, sql.length ? buildIndex(sql, overloads, null) : null, dotted);
 }
 
 /** The JSON rules have something to offer. */
@@ -263,9 +274,16 @@ function qualifiedOptions(groups: Group[], parents: string[], overloads: (n: num
 interface LexRules {
   /** `/* … *\/` comments. */
   block: boolean;
-  /** What starts a comment to the line's end: `//` (the default), SQL's `--`. */
-  line?: string;
+  /** What starts a comment to the line's end: `//` (the default), SQL's
+   *  `--`, or several (DAX takes both). */
+  line?: string | string[];
   quotes: string;
+  /** The quotes of `quotes` whose run ends at the line's end (DAX's
+   *  'table names'). */
+  oneLineQuotes?: string;
+  /** `[…]` is a name, masked like a string, a `]` inside doubled; it ends
+   *  at the line's end (DAX's columns and measures). */
+  brackets?: boolean;
   /** A backslash escapes the next character in a string (true, the
    *  default); SQL doubles its quotes instead (false). `'quote'`: the SQL
    *  lines of a JSON console, where Elasticsearch takes a backslash as
@@ -282,12 +300,15 @@ interface LexRules {
   /** `/…/` regex literals (the MongoDB shell's, Flux's). */
   regex: boolean;
 }
-const LEX: Record<'cypher' | 'flux' | 'json' | 'sql', LexRules> = {
+const LEX: Record<'cypher' | 'flux' | 'dax' | 'json' | 'sql', LexRules> = {
   cypher: { block: true, quotes: `'"\``, oneLine: false, regex: false },
   flux: { block: false, quotes: '"', oneLine: false, regex: true },
   json: { block: true, quotes: `"'`, oneLine: true, regex: true },
   // The SQL lines of a JSON console: strings, quoted names, `--` and `/* */`.
   sql: { block: true, line: '--', quotes: `'"\``, escapes: 'quote', oneLine: false, regex: false },
+  // "strings" (across lines), 'table names' and [columns] (one line each),
+  // a closing character doubled inside; `//`, `--` and `/* */` comments.
+  dax: { block: true, line: ['//', '--'], quotes: `"'`, escapes: false, oneLine: false, oneLineQuotes: "'", brackets: true, regex: false },
 };
 
 /** Where a lexical scan of a text ended: `masked` is the text with the
@@ -308,7 +329,7 @@ export function scanCode(text: string, rules: LexRules): Scan {
   let lastCode = '';
   let i = 0;
   const end = (inside: Scan['inside'], quote = '', stringStart = -1): Scan => ({ masked: out.join(''), inside, quote, stringStart });
-  const line = rules.line ?? '//';
+  const lines = Array.isArray(rules.line) ? rules.line : [rules.line ?? '//'];
   const escapes = rules.escapes ?? true;
   /** How far a string's character at `j` (closed by `q`) goes. */
   const step = (j: number, q: string) => {
@@ -319,18 +340,29 @@ export function scanCode(text: string, rules: LexRules): Scan {
   while (i < n) {
     const c = text[i];
     const two = text.slice(i, i + 2);
-    if (two === line || (rules.block && two === '/*')) {
-      const close = two === line ? text.indexOf('\n', i) : text.indexOf('*/', i + 2);
+    const lineComment = lines.includes(two);
+    if (lineComment || (rules.block && two === '/*')) {
+      const close = lineComment ? text.indexOf('\n', i) : text.indexOf('*/', i + 2);
       if (close < 0) { out.push(blank(text.slice(i))); return end('comment'); }
-      const to = two === line ? close : close + 2;
+      const to = lineComment ? close : close + 2;
       out.push(blank(text.slice(i, to)));
       i = to;
       continue;
     }
+    if (rules.brackets && c === '[') {
+      let j = i + 1;
+      while (j < n && text[j] !== '\n' && !(text[j] === ']' && text[j + 1] !== ']')) j += text[j] === ']' ? 2 : 1;
+      if (j >= n) { out.push(c + blank(text.slice(i + 1))); return end('string', c, i); }
+      out.push(c + blank(text.slice(i + 1, j)) + (text[j] === ']' ? ']' : ''));
+      lastCode = ']';
+      i = text[j] === ']' ? j + 1 : j;
+      continue;
+    }
     const regex = rules.regex && c === '/' && (lastCode === '' || /[(,:=[!&|?{};~]/.test(lastCode));
     if (rules.quotes.includes(c) || regex) {
+      const oneLine = rules.oneLine || regex || (rules.oneLineQuotes ?? '').includes(c);
       let j = i + 1;
-      while (j < n && text[j] !== c && !((rules.oneLine || regex) && text[j] === '\n')) j += step(j, c);
+      while (j < n && text[j] !== c && !(oneLine && text[j] === '\n')) j += step(j, c);
       if (j >= n) { out.push(c + blank(text.slice(i + 1))); return end('string', c, i); }
       if (text[j] === '\n') {
         // An unclosed string ends with its line; a `/` that opens no regex is a `/`.
@@ -399,6 +431,9 @@ const PATH = String.raw`${ID}(?:\s*\.\s*${ID})*`;
 
 /** The words after which an expression starts. */
 const OPENERS: Record<CodeFlavor, Set<string>> = {
+  // DAX: `ORDER BY` and `START AT` items are expressions; after VAR,
+  // MEASURE, COLUMN, TABLE or FUNCTION a name is given instead.
+  dax: new Set('evaluate return in not by at'.split(' ')),
   sql: new Set(
     'select distinct where and or not xor on having qualify by when then else case like ilike rlike regexp between in returning return if elseif elsif while print default div mod'.split(' '),
   ),
@@ -408,7 +443,7 @@ const OPENERS: Record<CodeFlavor, Set<string>> = {
 
 /** A word right after these is a parameter, a variable or a label, never a
  *  function: T-SQL `@x`, `:bind`, `::type`, Cypher `$param`, `(n:Label)`. */
-const ADJACENT: Record<CodeFlavor, RegExp> = { sql: /[@:]$/, cypher: /[$:]$/, flux: /(?!)/ };
+const ADJACENT: Record<CodeFlavor, RegExp> = { sql: /[@:]$/, cypher: /[$:]$/, flux: /(?!)/, dax: /(?!)/ };
 
 /** Before a `(` in SQL, a list of names being defined or listed, not
  *  expressions: `CREATE TABLE t (`, `INSERT INTO t (`, `USING (`,
@@ -419,6 +454,8 @@ const SQL_NAME_LIST = new RegExp(String.raw`(?:${NAME_LIST_HEAD})\s*$`, 'i');
 /** Right after `(`, a window's `OVER (` too (PARTITION BY, ORDER BY or a
  *  window's name come first); the items of its lists are expressions. */
 const SQL_NAME_LIST_OPEN = new RegExp(String.raw`(?:${NAME_LIST_HEAD}|\bover)\s*$`, 'i');
+/** DAX: what comes before a user-defined function's parameter list. */
+const DAX_PARAMS_HEAD = /\bfunction\s+[\w.]+\s*=\s*$/i;
 
 /** The innermost bracket still open at the end of `text`: its index and
  *  character, or null. */
@@ -458,6 +495,14 @@ export function exprSlot(before: string, flavor: CodeFlavor): boolean {
     const open = openBracket(trimmed);
     if (!open || (open.ch === '{' && /=>\s*$/.test(trimmed.slice(0, open.at)))) return true;
   }
+  // DAX: a call's arguments and a table constructor's items are expressions;
+  // a user-defined function's parameter list (`FUNCTION f = (a : SCALAR, b`)
+  // takes parameter names instead.
+  if (flavor === 'dax' && (last === '(' || last === '{' || last === ',')) {
+    if (last === '{') return true;
+    const open = openBracket(trimmed);
+    return !(open?.ch === '(' && DAX_PARAMS_HEAD.test(trimmed.slice(0, open.at)));
+  }
   if (last === '(') {
     const head = trimmed.slice(0, -1);
     if (flavor === 'flux') return false; // a call's first parameter name, a lambda's parameters
@@ -479,7 +524,8 @@ export function exprSlot(before: string, flavor: CodeFlavor): boolean {
     return true;
   }
   if (last === '*') return !/(?:^|\bselect|\bdistinct|\breturn|\bwith|,|\(|\.)\s*\*$/i.test(trimmed);
-  if (last === ':') return flavor !== 'sql';
+  // DAX: a user-defined function's parameter type follows (`x : SCALAR`).
+  if (last === ':') return flavor !== 'sql' && flavor !== 'dax';
   if ('=<>+-/%|&^~![?'.includes(last)) return true;
   const word = /[\w$#@]+$/.exec(trimmed);
   if (!word) return false;
@@ -490,8 +536,9 @@ export function exprSlot(before: string, flavor: CodeFlavor): boolean {
   return OPENERS[flavor].has(w);
 }
 
-const WORD: Record<CodeFlavor, RegExp> = { sql: /[\w$#]*$/, cypher: /\w*$/, flux: /\w*$/ };
-const VALID: Record<CodeFlavor, RegExp> = { sql: /^[\w$#]*$/, cypher: /^\w*$/, flux: /^\w*$/ };
+// DAX's names hold dots (INFO.VIEW.TABLES): the whole name is the word.
+const WORD: Record<CodeFlavor, RegExp> = { sql: /[\w$#]*$/, cypher: /\w*$/, flux: /\w*$/, dax: /[\w.]*$/ };
+const VALID: Record<CodeFlavor, RegExp> = { sql: /^[\w$#]*$/, cypher: /^\w*$/, flux: /^\w*$/, dax: /^[\w.]*$/ };
 
 function codeCompletion(ctx: CompletionContext, index: FunctionIndex, flavor: CodeFlavor): CompletionResult | null {
   const word = ctx.matchBefore(WORD[flavor]) ?? { from: ctx.pos, text: '' };
@@ -531,7 +578,9 @@ function codeAt(ctx: CompletionContext, index: FunctionIndex, flavor: CodeFlavor
     if (slot === 'name') return null;
     if (slot === 'function') return done(index.tableOptions);
   }
-  return exprSlot(before, flavor) ? done(index.exprOptions) : null;
+  if (!exprSlot(before, flavor)) return null;
+  // DAX: a table function fits anywhere an expression does.
+  return done(flavor === 'dax' ? [...index.exprOptions, ...index.tableOptions] : index.exprOptions);
 }
 
 // -- Redis, etcd -----------------------------------------------------------------------------------

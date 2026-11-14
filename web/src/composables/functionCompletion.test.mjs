@@ -64,6 +64,7 @@ test('each language takes the catalog its way; q merges it into its own completi
   assert.equal(functionFlavor('redis', ''), 'commands');
   assert.equal(functionFlavor('redis', 'etcd'), 'commands');
   assert.equal(functionFlavor('redis', 'q'), null);
+  assert.equal(functionFlavor('dax', 'powerbi'), 'dax');
 });
 
 test('an entry shows its arguments and type; overloads are one entry, with their count', () => {
@@ -258,6 +259,82 @@ test("Flux: a package's functions after its name (an import path's last part), w
   const r = flux('toU‸');
   assert.equal(r.options.find((o) => o.label === 'toUpper').displayLabel, 'strings.toUpper');
   assert.equal(pick(r, 'toUpper', 'x = toU‸'.replace('x = ', '')), 'strings.toUpper(‸)');
+});
+
+// -- DAX ---------------------------------------------------------------------------------------
+const DAX_LIST = [
+  F('SUM', 'aggregate', { args: '(ColumnName)', returns: 'Decimal' }),
+  F('CALCULATE', 'scalar', { args: '(Expression, Filter1, …)' }),
+  F('FILTER', 'table', { args: '(Table, FilterExpression)' }),
+  F('SUMMARIZECOLUMNS', 'table', { args: '(GroupBy_ColumnName, …)' }),
+  F('INFO.VIEW.TABLES', 'table', { args: '()' }),
+  F('INFO.VIEW.COLUMNS', 'table', { args: '()' }),
+  F('STDEVX.S', 'aggregate', { args: '(Table, Expression)' }),
+  F('NOT', 'scalar', { args: '(Logical)' }),
+];
+const DAX = functionIndex(DAX_LIST, overloads, true);
+const dax = (text, explicit = false) => functionCompletion(ctxOf(text, { lang: null, explicit }), DAX, 'dax');
+const DAX_ALL = ['CALCULATE', 'FILTER', 'INFO.VIEW.COLUMNS', 'INFO.VIEW.TABLES', 'NOT', 'STDEVX.S', 'SUM', 'SUMMARIZECOLUMNS'];
+
+test('DAX: every kind where an expression starts, table functions included', () => {
+  for (const text of [
+    'EVALUATE S‸', 'EVALUATE\n\tS‸', 'evaluate s‸', 'DEFINE VAR x = S‸', 'DEFINE MEASURE T[m] = S‸', 'EVALUATE { S‸', 'EVALUATE { 1, S‸',
+    'EVALUATE FILTER(S‸', 'EVALUATE FILTER(t, S‸', 'EVALUATE ROW("a", S‸', 'VAR x = 1 RETURN S‸', 'EVALUATE t ORDER BY S‸',
+    'EVALUATE t ORDER BY a, S‸', 'EVALUATE FILTER(t, a > 1 && S‸', 'EVALUATE FILTER(t, a || S‸', 'EVALUATE FILTER(t, a IN S‸',
+    'EVALUATE FILTER(t, NOT S‸', "EVALUATE FILTER(t, 'T'[a] = S‸", 'EVALUATE { [x] + S‸', 'EVALUATE { "a" & S‸', 'EVALUATE t START AT S‸',
+    "EVALUATE FILTER('Sales Order', S‸", 'EVALUATE FILTER(Sales[Amount], S‸', '// a note\nEVALUATE S‸', '-- a note\nEVALUATE S‸',
+    'EVALUATE { "it""s", S‸',
+  ]) {
+    assert.deepEqual(labels(dax(text)).sort(), DAX_ALL, text);
+  }
+  assert.deepEqual(labels(dax('EVALUATE ‸', true)).sort(), DAX_ALL);
+});
+
+test('DAX: nowhere else (names, comments, strings, table names, references, where a name is given)', () => {
+  for (const text of [
+    'S‸', 'EVALUATE t S‸', 'DEFINE S‸', 'DEFINE VAR S‸', 'DEFINE MEASURE S‸', 'DEFINE TABLE S‸', 'DEFINE COLUMN S‸', 'EVALUATE t ORDER BY a S‸',
+    'EVALUATE "S‸', 'EVALUATE "a""S‸', '// S‸', '-- S‸', '/* S‸', "EVALUATE 'S‸", "EVALUATE 'a''S‸", 'EVALUATE [S‸', "EVALUATE 'T'[S‸",
+    'EVALUATE [a]]S‸', 'EVALUATE ‸', 'EVALUATE 1.5‸', 'EVALUATE { [x] S‸', "EVALUATE { 'T' S‸",
+    'DEFINE FUNCTION f = (x : S‸', 'DEFINE FUNCTION f = (S‸', 'DEFINE FUNCTION f = (a : SCALAR, S‸',
+    'DEFINE FUNCTION Local.Add = (\n\ta : SCALAR VAL,\n\tS‸',
+  ]) {
+    assert.equal(dax(text), null, text);
+  }
+  // The function's body is an expression again, its calls' arguments too.
+  for (const text of ['DEFINE FUNCTION f = (a : SCALAR) => S‸', 'DEFINE FUNCTION f = (a : SCALAR) => CALCULATE(S‸', 'DEFINE FUNCTION f = (a) => SUM(t, S‸']) {
+    assert.deepEqual(labels(dax(text)).sort(), DAX_ALL, text);
+  }
+  // A string across lines, closed: back in code.
+  assert.ok(labels(dax('EVALUATE { "a\nb", S‸')).length);
+  // A table name or a reference ends at its line.
+  assert.ok(labels(dax("EVALUATE { 'a\n, S‸")).length);
+});
+
+test('DAX: dotted names are whole, matched as typed and inserted as calls', () => {
+  const r = dax('EVALUATE INFO.V‸');
+  assert.equal(r.from, 'EVALUATE '.length);
+  assert.ok(labels(r).includes('INFO.VIEW.TABLES'));
+  assert.equal(r.options.find((o) => o.label === 'INFO.VIEW.TABLES').displayLabel, undefined);
+  assert.ok(r.validFor.test('INFO.VIEW.T'));
+  assert.equal(pick(dax('EVALUATE INFO.V‸'), 'INFO.VIEW.TABLES', 'EVALUATE INFO.V‸'), 'EVALUATE INFO.VIEW.TABLES(‸)');
+  assert.equal(pick(dax('EVALUATE { STD‸ }'), 'STDEVX.S', 'EVALUATE { STD‸ }'), 'EVALUATE { STDEVX.S(‸) }');
+  assert.equal(pick(dax('EVALUATE FIL‸(t, x)'), 'FILTER', 'EVALUATE FIL‸(t, x)'), 'EVALUATE FILTER(‸t, x)');
+  // Without the dotted index, a dot is a path (the other languages).
+  assert.deepEqual(labels(functionCompletion(ctxOf('x = INFO.VIEW.‸', { lang: null }), functionIndex(DAX_LIST, overloads), 'flux')), []);
+});
+
+test('DAX: the lexical scan reads "" strings, quoted names, references and both line comments', () => {
+  const masked = (text) => scanCode(text, { block: true, line: ['//', '--'], quotes: `"'`, escapes: false, oneLine: false, oneLineQuotes: "'", brackets: true, regex: false });
+  let s = masked(`EVALUATE "a""b" & 'T''s'[c]]d] // x\n-- y\nz`);
+  assert.equal(s.inside, 'code');
+  // A doubled quote closes a run and opens the next: both stay blanked.
+  assert.equal(s.masked, `EVALUATE " "" " & ' '' '[    ]     \n    \nz`);
+  s = masked('EVALUATE [a]]');
+  assert.equal(s.inside, 'string');
+  assert.equal(s.quote, '[');
+  assert.equal(masked('x -- y').inside, 'comment');
+  assert.equal(masked("x 'a\ny").inside, 'code');
+  assert.equal(masked('x "a\ny').inside, 'string');
 });
 
 // -- Redis, etcd -----------------------------------------------------------------------------
@@ -500,6 +577,14 @@ test('the expression rule, flavor by flavor', () => {
   assert.equal(exprSlot('SELECT f() OVER (', 'sql'), false);
   assert.equal(exprSlot('SELECT f() OVER (PARTITION BY a, ', 'sql'), true);
   assert.equal(exprSlot('SELECT * FROM a JOIN b USING (x, ', 'sql'), false);
+  assert.equal(exprSlot('', 'dax'), false);
+  assert.equal(exprSlot('EVALUATE ', 'dax'), true);
+  assert.equal(exprSlot('EVALUATE t ', 'dax'), false);
+  assert.equal(exprSlot('f(', 'dax'), true);
+  assert.equal(exprSlot('{ ', 'dax'), true);
+  assert.equal(exprSlot('{ 1, ', 'dax'), true);
+  assert.equal(exprSlot('VAR ', 'dax'), false);
+  assert.equal(exprSlot('(x :', 'dax'), false);
 });
 
 // -- q ---------------------------------------------------------------------------------------------

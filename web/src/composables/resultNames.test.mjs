@@ -23,6 +23,7 @@ test('the markers follow the engine', () => {
   assert.deepEqual(commentMarkers('cypher', ''), ['//']);
   assert.deepEqual(commentMarkers('redis', ''), ['#']);
   assert.deepEqual(commentMarkers('sql', 'q'), ['/']);
+  assert.deepEqual(commentMarkers('dax', 'powerbi'), ['//', '--']);
 });
 
 test('the comment right above a statement names it', () => {

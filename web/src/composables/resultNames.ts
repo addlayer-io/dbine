@@ -21,10 +21,11 @@ export interface RunLens {
  *  family, `#` where its dialect has hash comments (the MySQL family,
  *  ClickHouse, BigQuery, Spanner; Redis's and the JSON consoles' `#`
  *  lines), `//` where it has slash comments (Snowflake, Dremio, Drill, CQL,
- *  the JSON consoles and MongoDB's JavaScript, Cypher, Flux) and `/` in
- *  KDB+'s q. */
+ *  the JSON consoles and MongoDB's JavaScript, Cypher, Flux), `/` in
+ *  KDB+'s q, and both `//` and `--` in DAX. */
 export function commentMarkers(language: string | undefined, dialect: string | undefined): string[] {
   if (dialect === 'q') return ['/'];
+  if (language === 'dax') return ['//', '--'];
   const out: string[] = [];
   if (language === 'json' || language === 'cypher' || language === 'flux' || language === 'cql'
     || dialect === 'snowflake' || dialect === 'dremio' || dialect === 'drill') out.push('//');

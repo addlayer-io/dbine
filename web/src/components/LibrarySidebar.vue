@@ -110,7 +110,7 @@ async function importFiles(folders: boolean) {
       multiple: !folders,
       directory: folders,
       title: folders ? t('library:sidebar.importFolderTitle') : t('library:sidebar.importFilesTitle'),
-      filters: folders ? undefined : [{ name: 'Scripts', extensions: ['sql', 'cql', 'js', 'json', 'txt', 'cypher', 'flux'] }],
+      filters: folders ? undefined : [{ name: 'Scripts', extensions: ['sql', 'cql', 'js', 'json', 'txt', 'cypher', 'flux', 'dax'] }],
     });
   } catch { return; }
   if (!picked) return;

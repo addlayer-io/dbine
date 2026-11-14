@@ -31,6 +31,7 @@ import {
 } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
 import { qCompletion, qLanguage, qPath } from '../composables/qLanguage';
+import { daxCompletion, daxInName, daxLanguage, type DaxOther } from '../composables/daxLanguage';
 import { editorTheme } from '../composables/editorTheme';
 import { editorFontSize, resolvedTheme } from '../composables/appearance';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
@@ -102,8 +103,9 @@ const props = withDefaults(defineProps<{
    *  pointer rests on it (composables/tableHover.ts), or null. */
   tableHover?: ((doc: string, pos: number) => TableHoverTarget | null) | null;
   /** Names completion offers besides the tables in `schema` (KDB+'s
-   *  functions and variables), each with its object kind. */
-  otherNames?: { label: string; kind: string }[];
+   *  functions and variables; a Power BI model's measures, with their home
+   *  table as `parent`), each with its object kind. */
+  otherNames?: DaxOther[];
   /** The engine's function catalog (`Session::function_catalog`) for
    *  completion. Null: not loaded yet, asked for with `needFunctions` on
    *  focus and on completion; absent: none for this editor. */
@@ -290,11 +292,15 @@ let reopenAt: number | null = null;
 
 // -- the engine's functions (composables/functionCompletion.ts) -----------------------------
 /** The index of `functions`, built once per catalog. */
-let functionsOf: { list: readonly FunctionInfo[]; index: FunctionIndex } | null = null;
+let functionsOf: { list: readonly FunctionInfo[]; dotted: boolean; index: FunctionIndex } | null = null;
 function functionIndexNow(): FunctionIndex | null {
   const list = props.functions;
   if (!list) return null;
-  if (functionsOf?.list !== list) functionsOf = { list, index: functionIndex(list, (n) => t('editor:functionOverloads', { count: n })) };
+  // DAX's dots are part of a function's name (INFO.VIEW.TABLES).
+  const dotted = props.language === 'dax';
+  if (functionsOf?.list !== list || functionsOf.dotted !== dotted) {
+    functionsOf = { list, dotted, index: functionIndex(list, (n) => t('editor:functionOverloads', { count: n }), dotted) };
+  }
   return functionsOf.index;
 }
 /** Where the cursor was when completion found the catalog not loaded yet. */
@@ -379,9 +385,33 @@ function qExtension(): Extension {
   return [qLanguage, qLanguage.data.of({ autocomplete: source })];
 }
 
+/** DAX (Power BI): its tokenizer, and completion of the model's tables,
+ *  columns, measures and the query's own names (composables/daxLanguage.ts);
+ *  the functions come from the catalog (`functionsAt`, the `dax` flavor). */
+function daxExtension(): Extension {
+  const source = (ctx: CompletionContext): CompletionResult | null => {
+    const n = names();
+    const { result, needColumns } = daxCompletion(ctx, { tables: props.schema, others: props.otherNames, functions: props.functions });
+    if ((result || ctx.explicit) && !Object.keys(props.schema).length && !props.otherNames.length && !n.namesAsked) {
+      n.namesAsked = true;
+      reopenAt = ctx.pos;
+      emit('needNames');
+    }
+    for (const table of needColumns) {
+      if (n.asked.has(table)) continue;
+      n.asked.add(table);
+      reopenAt = ctx.pos;
+      emit('needColumns', [table]);
+    }
+    return result;
+  };
+  return [daxLanguage, daxLanguage.data.of({ autocomplete: source })];
+}
+
 function languageExt(): Extension {
   if (props.dialect === 'q') return qExtension();
   switch (props.language) {
+    case 'dax': return daxExtension();
     case 'json': return json();
     case 'cql': return sqlLanguage(Cassandra);
     case 'sql': return sqlLanguage(DIALECTS[props.dialect] ?? StandardSQL);
@@ -415,15 +445,21 @@ function abbreviationBefore(state: EditorState, pos: number): { from: number; te
 
 function inStringOrComment(state: EditorState, pos: number): boolean {
   // Lezer grammars name them `String`, `LineComment`; stream languages
-  // (q) by their highlighting tag, `string`, `comment`.
+  // (q, DAX) by their highlighting tag, `string`, `comment`.
   return /string|comment/i.test(syntaxTree(state).resolveInner(pos, -1).name);
+}
+
+/** Where no snippet or parameter goes: a string, a comment, and DAX's
+ *  'table names' and [column or measure] references (`[ca‸` is a name). */
+function noSnippetAt(state: EditorState, pos: number): boolean {
+  return inStringOrComment(state, pos) || daxInName(state, pos);
 }
 
 /** Tab after an abbreviation: the snippet replaces it, with its tab stops. */
 function expandSnippet(v: EditorView): boolean {
   if (props.readOnly || !props.snippets.length) return false;
   const sel = v.state.selection.main;
-  if (!sel.empty || inStringOrComment(v.state, sel.head)) return false;
+  if (!sel.empty || noSnippetAt(v.state, sel.head)) return false;
   const word = abbreviationBefore(v.state, sel.head);
   if (!word) return false;
   const s = props.snippets.find((x) => x.abbr === word.text) ?? props.snippets.find((x) => x.abbr.toLowerCase() === word.text.toLowerCase());
@@ -435,7 +471,7 @@ function expandSnippet(v: EditorView): boolean {
 
 /** The snippets as completion entries too (any language: not tied to one). */
 const snippetSource = (ctx: CompletionContext): CompletionResult | null => {
-  if (!props.snippets.length || props.readOnly || inStringOrComment(ctx.state, ctx.pos)) return null;
+  if (!props.snippets.length || props.readOnly || noSnippetAt(ctx.state, ctx.pos)) return null;
   const word = abbreviationBefore(ctx.state, ctx.pos);
   // Not after a dot (`sales.`, `sales.or`): a name goes there, not a snippet,
   // even when the list was opened explicitly.
@@ -450,8 +486,8 @@ const snippetSource = (ctx: CompletionContext): CompletionResult | null => {
 /** A notebook's parameters as `{{name}}`: after a typed `{{` (the closing
  *  braces the editor added are replaced too), or on ⌃Space in code. */
 const paramSource = (ctx: CompletionContext): CompletionResult | null => {
-  // Never inside a string or a comment: a parameter there doesn't run.
-  if (!props.params.length || props.readOnly || inStringOrComment(ctx.state, ctx.pos)) return null;
+  // Never inside a string, a comment or a DAX name: a parameter there doesn't run.
+  if (!props.params.length || props.readOnly || noSnippetAt(ctx.state, ctx.pos)) return null;
   const typed = ctx.matchBefore(/\{\{[ \t]*\w*$/);
   if (!typed && !ctx.explicit) return null;
   const word = typed ?? ctx.matchBefore(/\w*$/);
