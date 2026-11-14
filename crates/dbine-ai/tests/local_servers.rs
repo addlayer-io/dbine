@@ -93,12 +93,30 @@ async fn serve(route: Route) -> Server {
     Server { base, seen }
 }
 
-/// A port nothing listens on.
-async fn down() -> String {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", l.local_addr().unwrap());
-    drop(l);
-    base
+/// An address nothing answers on: a socket bound to a free port that never
+/// listens, so every connection to it is refused. While it lives the port
+/// stays taken. A listener bound and dropped left the port free, and a
+/// server another test started meanwhile could get it and answer.
+struct Down {
+    base: String,
+    _socket: tokio::net::TcpSocket,
+}
+
+impl std::ops::Deref for Down {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.base
+    }
+}
+
+async fn down() -> Down {
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let base = format!("http://{}", socket.local_addr().unwrap());
+    Down {
+        base,
+        _socket: socket,
+    }
 }
 
 fn request(kind: ProviderKind, model: Option<&str>) -> ChatRequest {

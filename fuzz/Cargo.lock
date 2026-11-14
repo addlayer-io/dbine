@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-core"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "aes 0.9.4",
  "base64 0.22.1",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-link"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-plugin"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

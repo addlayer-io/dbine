@@ -94,6 +94,29 @@ function parse<T>(v: string | null, def: T): T {
 let writes: Promise<unknown> = Promise.resolve();
 /** The archive as this window last wrote it: what it shows without a vault. */
 let memArchive: SavedChat[] = [];
+/** Without a vault, the chat id of the conversation DBine 1.5 left in
+ *  plaintext, which moveLegacy keeps; `null` when there is none. */
+let legacyChatId: string | null = null;
+
+/** Without a vault, the plaintext copies DBine 1.5 left stay where they were
+ *  (moveLegacy). So a chat the user deletes has to leave them too, or it stays
+ *  readable on disk and comes back on the next start. `ids`: the chats
+ *  deleted; `null`: the whole history, except `current`, the conversation
+ *  open now, which isn't in it. With a vault the keys are already gone. */
+function forgetLegacy(ids: Set<string> | null, current?: string) {
+  try {
+    const legacy = ids ? readJson<SavedChat[] | null>(LEGACY_ARCHIVE_KEY, null) : null;
+    const rest = legacy ? legacy.filter((c) => !ids?.has(c.id)) : [];
+    if (rest.length) {
+      if (rest.length !== legacy?.length) localStorage.setItem(LEGACY_ARCHIVE_KEY, JSON.stringify(rest));
+    } else localStorage.removeItem(LEGACY_ARCHIVE_KEY);
+    if (legacyChatId && (ids ? ids.has(legacyChatId) : legacyChatId !== current)) {
+      localStorage.removeItem(LEGACY_CONVERSATION_KEY);
+      localStorage.removeItem(LEGACY_CHAT_ID_KEY);
+      legacyChatId = null;
+    }
+  } catch { /* storage blocked */ }
+}
 /** The saved conversation's load (`ready`). */
 let loading: Promise<void> | null = null;
 
@@ -292,10 +315,14 @@ export const useAiStore = defineStore('ai', {
       if (kept) {
         localStorage.removeItem(LEGACY_CONVERSATION_KEY);
         localStorage.removeItem(LEGACY_CHAT_ID_KEY);
-      } else if (!this.messages.length) {
-        // No vault: shown from the old copy, kept in memory from here on.
-        this.messages = conversation.messages;
-        this.chatId = chatId;
+      } else {
+        // No vault: the old copy stays until that chat is deleted.
+        legacyChatId = chatId;
+        if (!this.messages.length) {
+          // Shown from the old copy, kept in memory from here on.
+          this.messages = conversation.messages;
+          this.chatId = chatId;
+        }
       }
     },
     async refresh() {
@@ -366,9 +393,11 @@ export const useAiStore = defineStore('ai', {
       });
     },
     async deleteChat(id: string) {
+      forgetLegacy(new Set([id]));
       await this.changeArchive((list) => list.filter((c) => c.id !== id));
     },
     async clearHistory() {
+      forgetLegacy(null, this.chatId);
       memArchive = [];
       await enqueue(() => sealedApi.delete('ai_history').then(() => true, () => false));
       await this.loadHistory();
