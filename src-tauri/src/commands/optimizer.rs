@@ -319,6 +319,8 @@ pub async fn optimizer_ai(
             Language::Redis => p.text("optimizer.language_redis").into(),
             Language::Flux => "Flux".into(),
             Language::Cypher => "Cypher".into(),
+            Language::Dax => "DAX".into(),
+            Language::Unknown => info.name.into(),
         };
         ai_task::ready(&ai, args.provider, &cancel).await?;
         let req = ChatRequest {

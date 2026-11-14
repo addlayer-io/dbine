@@ -40,6 +40,7 @@ mod odbc_engines;
 mod oracle;
 mod phoenix;
 mod postgres;
+mod powerbi;
 mod snowflake;
 mod solr;
 mod spanner;
@@ -252,6 +253,7 @@ const LOOKUPS: &[Lookup] = &[
     netezza::lookup,
     odbc_engines::lookup,
     phoenix::lookup,
+    powerbi::lookup,
     snowflake::lookup,
     solr::lookup,
     spanner::lookup,

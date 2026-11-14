@@ -158,6 +158,31 @@ fn notebook_scope(
     }
 }
 
+/// What an unattended script (a task's script step, a scheduled notebook's
+/// cell) writes on a connection of `driver`, for the write approval: the
+/// first write, or `None` when it only reads. A read-only connection never
+/// writes. DAX queries can't write; any other unit of a DAX script (the
+/// driver's own commands) counts as a write. Other engines that aren't
+/// SQL: no reliable way to tell a read from a write.
+pub(crate) fn script_write(
+    driver: &dyn dbine_driver::Driver,
+    read_only: bool,
+    sql: &str,
+) -> Option<String> {
+    if read_only {
+        return None;
+    }
+    match driver.info().language {
+        dbine_driver::Language::Sql => {
+            dbine_driver::read_only::first_write_in(sql, &driver.script_dialect())
+        }
+        dbine_driver::Language::Dax => {
+            dbine_driver::read_only::dax_first_write(&driver.split_script(sql))
+        }
+        _ => (!sql.trim().is_empty()).then(|| format!("script de {}", driver.info().name)),
+    }
+}
+
 fn script_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
     let t = target(step);
     let Ok(Some(conn)) = state.store.get_connection(&t.connection_id) else {
@@ -168,14 +193,8 @@ fn script_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
         return;
     }
     let sql = text(&step.config, "sql");
-    let what = match dbine_drivers::find(&conn.config.driver) {
-        Some(d) if d.info().language == dbine_driver::Language::Sql => {
-            dbine_driver::read_only::first_write_in(sql, &d.script_dialect())
-        }
-        // Not SQL: no reliable way to tell a read from a write.
-        Some(d) => (!sql.trim().is_empty()).then(|| format!("script de {}", d.info().name)),
-        None => None,
-    };
+    let what = dbine_drivers::find(&conn.config.driver)
+        .and_then(|d| script_write(d.as_ref(), conn.config.read_only, sql));
     let Some(what) = what else { return };
     let production = conn
         .tags
@@ -688,6 +707,69 @@ pub fn load(state: &AppState, id: &str) -> CommandResult<ScheduledTask> {
         .store
         .get_task(id)?
         .ok_or_else(|| CommandError::NotFound(format!("no existe la tarea programada '{id}'")))
+}
+
+/// A DAX engine for the write guards' tests (tasks, headless notebooks,
+/// "varias bases"): its splitter makes a unit of each line, comment lines
+/// dropped, as every splitter drops comment-only units.
+#[cfg(test)]
+pub(crate) mod fake_dax {
+    use dbine_driver::sql::{ScriptStatement, StatementKind};
+    use dbine_driver::{
+        async_trait, ConnectionConfig, Driver, DriverInfo, Error, Family, Language, Session,
+    };
+
+    pub(crate) struct Dax(DriverInfo);
+
+    pub(crate) fn driver() -> Dax {
+        Dax(DriverInfo {
+            id: "dax-test",
+            name: "DAX",
+            family: Family::Analytical,
+            language: Language::Dax,
+            dialect: "powerbi",
+            default_port: 443,
+            fields: vec![],
+            databases_label: "",
+            has_schemas: false,
+            object_kinds: vec![],
+            tls: Default::default(),
+            tls_port: None,
+        })
+    }
+
+    #[async_trait]
+    impl Driver for Dax {
+        fn info(&self) -> &DriverInfo {
+            &self.0
+        }
+        fn split_script(&self, text: &str) -> Vec<ScriptStatement> {
+            let mut start = 0;
+            let mut out = Vec::new();
+            for (i, l) in text.split_inclusive('\n').enumerate() {
+                if !l.trim().is_empty() && !l.trim().starts_with("//") {
+                    out.push(ScriptStatement {
+                        text: l.trim().into(),
+                        start,
+                        end: start + l.len(),
+                        line: i as u32 + 1,
+                        kind: StatementKind::Sql,
+                        repeat: 1,
+                        error: None,
+                    });
+                }
+                start += l.len();
+            }
+            out
+        }
+        async fn connect(
+            &self,
+            _: &ConnectionConfig,
+            _: Option<&str>,
+        ) -> dbine_driver::Result<Box<dyn Session>> {
+            Err(Error::Unsupported("test".into()))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1226,5 +1308,51 @@ mod tests {
             ["a"]
         );
         assert_eq!(step_secret_name("t", "s"), "task-secret:t:s");
+    }
+
+    /// G5: a DAX script needs the write approval only for the driver's own
+    /// commands, never for its queries, and never on a read-only connection.
+    #[test]
+    fn dax_scripts_write_only_through_the_drivers_own_commands() {
+        let d = fake_dax::driver();
+        for reads in [
+            "EVALUATE {1}",
+            "EVALUATE {1}\n// x\nEVALUATE {2}",
+            "DEFINE VAR x = 1 EVALUATE {x}",
+            "",
+        ] {
+            assert_eq!(script_write(&d, false, reads), None, "{reads:?}");
+        }
+        assert_eq!(
+            script_write(&d, false, "EVALUATE {1}\nGRANT Read TO \"ana@contoso.com\"").as_deref(),
+            Some("GRANT")
+        );
+        assert_eq!(
+            script_write(&d, false, "// x\nrevoke ALL FROM \"ana@contoso.com\"").as_deref(),
+            Some("REVOKE")
+        );
+        assert_eq!(
+            script_write(&d, false, "RENAME MODEL \"a\" TO \"b\"").as_deref(),
+            Some("RENAME")
+        );
+        // Not a query and not a command: a write too (the driver refuses it).
+        assert_eq!(script_write(&d, false, "{1}").as_deref(), Some("…"));
+        // A read-only connection stays read-only: nothing to approve.
+        for s in [
+            "GRANT Read TO \"ana@contoso.com\"",
+            "REVOKE ALL FROM \"ana@contoso.com\"",
+            "EVALUATE {1}",
+        ] {
+            assert_eq!(script_write(&d, true, s), None, "{s:?}");
+        }
+        // Other engines keep their rules: SQL by statement, the rest by
+        // having any text at all.
+        let sqlite = dbine_drivers::find("sqlite").unwrap();
+        assert_eq!(script_write(sqlite.as_ref(), false, "SELECT 1"), None);
+        assert_eq!(
+            script_write(sqlite.as_ref(), false, "SELECT 1; DELETE FROM t").as_deref(),
+            Some("DELETE")
+        );
+        assert_eq!(script_write(sqlite.as_ref(), true, "DELETE FROM t"), None);
     }
 }

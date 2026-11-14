@@ -1574,3 +1574,50 @@ fn notebook_headless_scrubs_backslash_escaped_credentials() {
     let text = format!("{:?}", nb.cells[0].result);
     assert!(!text.contains("w0rd"), "{text}");
 }
+
+/// G5 on scheduled notebooks, with the Power BI driver: a DAX query cell
+/// needs no write approval, a cell with one of the driver's own commands
+/// does, and a read-only connection never does. (The guard's rules unit by
+/// unit are tested on `tasks::script_write`; these inputs hold with any
+/// DAX splitter.)
+#[test]
+fn notebook_headless_dax_cells_write_only_through_commands() {
+    let w = world("dax", vec![]);
+    for (id, name, read_only) in [("pb", "Modelo", false), ("pbro", "Modelo RO", true)] {
+        save_conn(
+            &w.state,
+            id,
+            name,
+            ConnectionConfig {
+                driver: "powerbi".into(),
+                read_only,
+                ..Default::default()
+            },
+            vec![],
+        );
+    }
+    let dax = |id: &str, conn: &str, source: &str| NotebookCell {
+        language: Some("dax".into()),
+        ..cell(id, id, on(conn), source)
+    };
+    let grant = "GRANT Read TO \"ana@contoso.com\"";
+    let path = w.dir.join("dax.ipynb");
+    write_nb(
+        &path,
+        vec![
+            dax("c1", "Modelo", "EVALUATE {1}"),
+            dax("c2", "Modelo", "// total\nEVALUATE { COUNTROWS('Ventas') }"),
+            dax("c3", "Modelo", grant),
+            dax("c4", "Modelo RO", grant),
+        ],
+    );
+    let p = plan(&w.state, &opts(&path), Policy::default()).unwrap();
+    let writes: Vec<_> = p.cells.iter().map(|c| c.writes.as_deref()).collect();
+    assert_eq!(writes, [None, None, Some("GRANT"), None]);
+    let nb = load(&opts(&path)).unwrap();
+    let writing: Vec<_> = writing_cells(&w.state, &opts(&path), &nb)
+        .into_iter()
+        .map(|(cell, _, what, _)| (cell, what))
+        .collect();
+    assert_eq!(writing, [("c3".to_string(), "GRANT".to_string())]);
+}

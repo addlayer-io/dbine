@@ -660,6 +660,24 @@ fn contexts_block(
     (block, count, left_out)
 }
 
+/// An object as the local model's summary lists it: `kind schema.name`.
+/// Objects under another one (columns, indexes…) are left out, except a DAX
+/// model's measures, which live under their home table and are what DAX
+/// queries name: `measure 'Ventas'[Total ventas]`.
+fn summary_name(o: &dbine_driver::DbObject, dax: bool) -> Option<String> {
+    match (&o.parent, o.schema.as_deref().filter(|x| !x.is_empty())) {
+        (Some(table), _) if dax && o.kind == "measure" => Some(format!(
+            "{} '{}'[{}]",
+            o.kind,
+            table.replace('\'', "''"),
+            o.name.replace(']', "]]")
+        )),
+        (Some(_), _) => None,
+        (None, Some(sc)) => Some(format!("{} {sc}.{}", o.kind, o.name)),
+        (None, None) => Some(format!("{} {}", o.kind, o.name)),
+    }
+}
+
 async fn build_system(
     app: &AppHandle,
     state: &AppState,
@@ -685,6 +703,8 @@ async fn build_system(
                 Language::Redis => p.text("assistant.language_redis").into(),
                 Language::Flux => "Flux (InfluxDB)".into(),
                 Language::Cypher => "Cypher".into(),
+                Language::Dax => "DAX (Power BI)".into(),
+                Language::Unknown => info.name.into(),
             };
             s.push_str(&format!(
                 "\n{}\n",
@@ -726,13 +746,10 @@ async fn build_system(
                 .await
             {
                 Ok(objects) => {
+                    let dax = info.is_some_and(|i| i.language == Language::Dax);
                     let names: Vec<String> = objects
                         .iter()
-                        .filter(|o| o.parent.is_none())
-                        .map(|o| match o.schema.as_deref().filter(|x| !x.is_empty()) {
-                            Some(sc) => format!("{} {sc}.{}", o.kind, o.name),
-                            None => format!("{} {}", o.kind, o.name),
-                        })
+                        .filter_map(|o| summary_name(o, dax))
                         .collect();
                     let shown = names.len().min(SUMMARY_NAMES);
                     let more = if names.len() > shown {
@@ -1446,6 +1463,34 @@ fn compact_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_summary_lists_a_dax_models_measures() {
+        let o = |kind: &str, schema: Option<&str>, name: &str, parent: Option<&str>| {
+            dbine_driver::DbObject {
+                kind: kind.into(),
+                schema: schema.map(Into::into),
+                name: name.into(),
+                parent: parent.map(Into::into),
+            }
+        };
+        let m = o("measure", None, "Total [neto]", Some("Ventas d'Or"));
+        assert_eq!(
+            summary_name(&m, true).as_deref(),
+            Some("measure 'Ventas d''Or'[Total [neto]]]")
+        );
+        // Elsewhere, objects under another one stay out.
+        assert_eq!(summary_name(&m, false), None);
+        assert_eq!(summary_name(&o("index", None, "ix", Some("t")), true), None);
+        assert_eq!(
+            summary_name(&o("table", Some("dbo"), "t", None), false).as_deref(),
+            Some("table dbo.t")
+        );
+        assert_eq!(
+            summary_name(&o("function", None, "Margen", None), true).as_deref(),
+            Some("function Margen")
+        );
+    }
 
     #[test]
     fn tool_calls() {

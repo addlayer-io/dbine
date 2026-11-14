@@ -722,6 +722,7 @@ pub fn build_all(c: &Conn, fill: &Fill) -> Vec<Built> {
         "firebird" => firebird(&mut b),
         "tdengine" => tdengine(&mut b),
         "kdb" => kdb(&mut b),
+        "powerbi" => powerbi(&mut b),
         "influxdb" | "influxdb1" | "influxdb3" => influx(&mut b),
         "oracle" | "oracle_adb" => oracle(&mut b),
         "elasticsearch" | "opensearch" | "opendistro" | "solr" | "couchdb" | "ksqldb"
@@ -3453,6 +3454,116 @@ fn kdb(b: &mut B) {
         "Python (PyKX)",
         format!("kx.SyncQConnection({})", args.join(", ")),
         notes,
+    );
+}
+
+/// Power BI / Fabric semantic models: the XMLA endpoint (Excel, Power BI
+/// Desktop, SSMS and Analysis Services clients; Premium, Premium Per User
+/// and Fabric capacity only), the REST call DBine's queries go to
+/// (`executeQueries`, with the ids the service gives the workspace and the
+/// model), and the Python sign-in with azure-identity.
+fn powerbi(b: &mut B) {
+    let c = b.c;
+    let (api, xmla_host, resource) = match c.opt("cloud").unwrap_or("public") {
+        "gcc" => (
+            "https://api.powerbigov.us/v1.0/myorg",
+            "api.powerbigov.us",
+            "https://analysis.usgovcloudapi.net/powerbi/api",
+        ),
+        "gcc_high" => (
+            "https://api.high.powerbigov.us/v1.0/myorg",
+            "api.high.powerbigov.us",
+            "https://high.analysis.usgovcloudapi.net/powerbi/api",
+        ),
+        "dod" => (
+            "https://api.mil.powerbigov.us/v1.0/myorg",
+            "api.mil.powerbigov.us",
+            "https://mil.analysis.usgovcloudapi.net/powerbi/api",
+        ),
+        "china" => (
+            "https://api.powerbi.cn/v1.0/myorg",
+            "api.powerbi.cn",
+            "https://analysis.chinacloudapi.cn/powerbi/api",
+        ),
+        _ => (
+            "https://api.powerbi.com/v1.0/myorg",
+            "api.powerbi.com",
+            "https://analysis.windows.net/powerbi/api",
+        ),
+    };
+    // The model as DBine lists it: `<workspace> › <model>` when the
+    // connection doesn't name a workspace.
+    let (workspace, model) = match (c.opt("workspace"), c.database.split_once(" › ")) {
+        (None, Some((w, m))) => (Some(w.to_string()), m.to_string()),
+        (w, _) => (w.map(str::to_string), c.database.clone()),
+    };
+    let workspace = workspace.filter(|w| !w.is_empty() && w != "Mi área de trabajo");
+    let one_line = |s: &str| s.replace(['\r', '\n'], " ");
+    if let Some(w) = &workspace {
+        let mut text = format!(
+            "Data Source={};",
+            ado_val(&format!("powerbi://{xmla_host}/v1.0/myorg/{}", one_line(w)))
+        );
+        if !model.is_empty() {
+            text.push_str(&format!("Initial Catalog={};", ado_val(&one_line(&model))));
+        }
+        b.push("xmla", "XMLA (Excel, Power BI Desktop, SSMS)", text, vec![]);
+    }
+    let path = if workspace.is_some() {
+        "/groups/{groupId}/datasets/{datasetId}/executeQueries"
+    } else {
+        "/datasets/{datasetId}/executeQueries"
+    };
+    let token = if c.auth.as_deref() == Some("token") {
+        b.s("access_token")
+    } else {
+        None
+    }
+    .unwrap_or_else(|| V::R("${DB_ACCESS_TOKEN}".into()));
+    b.push(
+        "rest",
+        "REST (executeQueries)",
+        format!(
+            "POST {api}{path}\nAuthorization: Bearer {}",
+            token.esc(|t| one_line(t))
+        ),
+        vec![],
+    );
+    let py = python::py_lit;
+    let tenant = c.opt("tenant").map(py);
+    let credential = match c.auth.as_deref() {
+        Some("entra_sp") => {
+            let secret = b
+                .s("client_secret")
+                .unwrap_or_else(|| V::R(placeholder("client_secret")));
+            let client = c
+                .opt("client_id")
+                .map(py)
+                .unwrap_or_else(|| py("${DB_CLIENT_ID}"));
+            format!(
+                "azure.identity.ClientSecretCredential({}, {client}, {})",
+                tenant.clone().unwrap_or_else(|| py("${DB_TENANT}")),
+                match &secret {
+                    V::T(s) | V::R(s) => py(s),
+                }
+            )
+        }
+        Some("entra_default") | Some("entra_msi") => {
+            "azure.identity.DefaultAzureCredential()".into()
+        }
+        _ => format!(
+            "azure.identity.InteractiveBrowserCredential({})",
+            tenant.map(|t| format!("tenant_id={t}")).unwrap_or_default()
+        ),
+    };
+    b.push(
+        "python",
+        "Python (azure-identity)",
+        format!(
+            "credential = {credential}\ntoken = credential.get_token({}).token",
+            py(&format!("{resource}/.default"))
+        ),
+        vec![],
     );
 }
 

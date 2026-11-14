@@ -218,6 +218,7 @@ node-odbc…). Where a format doesn't apply to an engine, the reason is in
 | Oracle NetSuite (SuiteAnalytics Connect) | ODBC; JDBC |
 | OrientDB | URL (REST); JDBC (orientdb-jdbc) |
 | PostgreSQL | URI (postgresql://); libpq (psql, psycopg); ADO.NET (Npgsql); JDBC; Python (SQLAlchemy); ODBC; Node.js (pg); Go (pgx) |
+| Power BI | XMLA (Excel, Power BI Desktop, SSMS; when the model's workspace is known); REST (executeQueries); Python (azure-identity) |
 | Presto | JDBC; Python (SQLAlchemy) |
 | Progress OpenEdge | ODBC; JDBC |
 | Redis | URI (redis://); ADO.NET (StackExchange.Redis) |

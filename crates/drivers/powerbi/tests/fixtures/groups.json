@@ -1,0 +1,24 @@
+{
+  "value": [
+    {
+      "id": "f089354e-8366-4e18-aea3-4cb4a3a50b48",
+      "isReadOnly": false,
+      "isOnDedicatedCapacity": false,
+      "name": "sample group"
+    },
+    {
+      "id": "3d9b93c6-7b6d-4801-a491-1738910904fd",
+      "isReadOnly": false,
+      "isOnDedicatedCapacity": false,
+      "name": "marketing group"
+    },
+    {
+      "id": "a2f89923-421a-464e-bf4c-25eab39bb09f",
+      "isReadOnly": false,
+      "isOnDedicatedCapacity": true,
+      "capacityId": "0f084df7-c13d-451b-af5f-ed0c466403b2",
+      "name": "contoso",
+      "defaultDatasetStorageFormat": "Small"
+    }
+  ]
+}

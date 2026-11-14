@@ -1,0 +1,26 @@
+{
+  "error": {
+    "code": "DatasetExecuteQueriesError",
+    "pbi.error": {
+      "code": "DatasetExecuteQueriesError",
+      "parameters": {},
+      "details": [
+        {
+          "code": "DetailsMessage",
+          "detail": {
+            "type": 1,
+            "value": "Query (3, 12) The syntax for 'SUMX' is incorrect. (DAX(EVALUATE ROW(\"x\", SUMX(Sales[Amount]))))."
+          }
+        },
+        {
+          "code": "AnalysisServicesErrorCode",
+          "detail": {
+            "type": 1,
+            "value": "3238002695"
+          }
+        }
+      ],
+      "exceptionCulprit": 1
+    }
+  }
+}

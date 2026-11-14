@@ -14,7 +14,7 @@
 use std::future::Future;
 
 mod allowlist;
-pub(crate) use allowlist::approval_free;
+pub(crate) use allowlist::{approval_free, dax_approval_free};
 
 /// How a read was allowed to run: the activity log says it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

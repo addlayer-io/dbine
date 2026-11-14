@@ -505,6 +505,53 @@ fn every_engine_has_a_format_and_is_documented() {
 }
 
 #[test]
+fn power_bi_xmla_rest_and_python() {
+    let mut x = cfg("powerbi", "", 0, "Finanzas › Ventas; 2026", "");
+    x.options.insert("auth_mode".into(), "entra_sp".into());
+    x.options
+        .insert("tenant".into(), "contoso.onmicrosoft.com".into());
+    x.options.insert(
+        "client_id".into(),
+        "11111111-2222-3333-4444-555555555555".into(),
+    );
+    x.options
+        .insert("client_secret".into(), "hunter2-secret".into());
+    let c = conn_of(&x);
+    assert_eq!(
+        text(&c, "xmla", &Fill::Placeholder),
+        "Data Source=powerbi://api.powerbi.com/v1.0/myorg/Finanzas;Initial Catalog=\"Ventas; 2026\";"
+    );
+    assert_eq!(
+        text(&c, "rest", &Fill::Placeholder),
+        "POST https://api.powerbi.com/v1.0/myorg/groups/{groupId}/datasets/{datasetId}/executeQueries\nAuthorization: Bearer ${DB_ACCESS_TOKEN}"
+    );
+    let py = text(&c, "python", &Fill::Placeholder);
+    assert!(
+        py.contains("ClientSecretCredential(\"contoso.onmicrosoft.com\", \"11111111-2222-3333-4444-555555555555\", \"${DB_CLIENT_SECRET}\")")
+            && py.contains("\"https://analysis.windows.net/powerbi/api/.default\""),
+        "{py}"
+    );
+    // The saved secret never shows; the copied value does, as a literal.
+    for fill in [Fill::Placeholder, Fill::Masked] {
+        for b in build_all(&c, &fill) {
+            assert!(!b.text.contains("hunter2"), "{}: {}", b.id, b.text);
+        }
+    }
+    let v = values(&[("client_secret", NASTY)]);
+    let built = build(&c, "python", &Fill::Values(&v)).unwrap();
+    assert!(built.secret && built.text.contains(&python::py_lit(NASTY)));
+    // My workspace: no XMLA, the REST path without a group; another cloud.
+    let mut me = cfg("powerbi", "", 0, "Mi área de trabajo › Personal", "");
+    me.options.insert("cloud".into(), "gcc".into());
+    let c = conn_of(&me);
+    assert!(build(&c, "xmla", &Fill::Placeholder).is_none());
+    assert!(text(&c, "rest", &Fill::Placeholder).starts_with(
+        "POST https://api.powerbigov.us/v1.0/myorg/datasets/{datasetId}/executeQueries"
+    ));
+    assert!(text(&c, "python", &Fill::Placeholder).contains("InteractiveBrowserCredential()"));
+}
+
+#[test]
 fn kdb_handle_and_pykx() {
     let mut x = cfg("kdb", "db.example.com", 0, "", "u");
     x.options.insert("tcps".into(), "false".into());

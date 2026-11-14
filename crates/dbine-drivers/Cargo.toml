@@ -54,6 +54,7 @@ dbine-driver-etcd = { path = "../drivers/etcd", optional = true }
 dbine-driver-flightsql = { path = "../drivers/flightsql", optional = true }
 dbine-driver-tdengine = { path = "../drivers/tdengine", optional = true }
 dbine-driver-kdb = { path = "../drivers/kdb", optional = true }
+dbine-driver-powerbi = { path = "../drivers/powerbi", optional = true }
 
 # Every driver is on by default; a build can leave heavy ones out, e.g.
 # `cargo build --no-default-features --features postgres,mysql,sqlite`.
@@ -105,6 +106,7 @@ default = [
     "flightsql",
     "tdengine",
     "kdb",
+    "powerbi",
 ]
 athena = ["dep:dbine-driver-athena"]
 bigquery = ["dep:dbine-driver-bigquery"]
@@ -146,3 +148,4 @@ etcd = ["dep:dbine-driver-etcd"]
 flightsql = ["dep:dbine-driver-flightsql"]
 tdengine = ["dep:dbine-driver-tdengine"]
 kdb = ["dep:dbine-driver-kdb"]
+powerbi = ["dep:dbine-driver-powerbi"]

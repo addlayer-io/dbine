@@ -1003,10 +1003,15 @@ pub(super) fn refuse_writes_in(language: Language, query: &str) -> Result<(), St
 }
 
 /// Whether `query` may skip the approval where the engine enforces reads:
-/// it calls only side-effect-free built-ins (`reads::approval_free`).
+/// it calls only side-effect-free built-ins (`reads::approval_free`), or,
+/// in DAX, it's a single query as the driver's own splitter cuts it
+/// (`reads::dax_approval_free`).
 fn approval_free(conn: &SavedConnection, query: &str) -> bool {
     dbine_drivers::find(&conn.config.driver).is_some_and(|d| {
         let info = d.info();
+        if info.language == Language::Dax {
+            return reads::dax_approval_free(&d.split_script(query)).is_ok();
+        }
         reads::approval_free(info.language, info.dialect, &d.script_dialect(), query).is_ok()
     })
 }
@@ -1014,6 +1019,15 @@ fn approval_free(conn: &SavedConnection, query: &str) -> bool {
 fn refuse_writes(conn: &SavedConnection, query: &str) -> Result<(), String> {
     let driver = dbine_drivers::find(&conn.config.driver)
         .ok_or_else(|| format!("esta versión no incluye el driver '{}'", conn.config.driver))?;
+    // DAX: only queries; the driver's own commands (permissions, renames)
+    // change the model.
+    if driver.info().language == Language::Dax {
+        if let Some(kw) = dbine_driver::read_only::dax_first_write(&driver.split_script(query)) {
+            return Err(format!(
+                "DBine solo permite lecturas por MCP: la consulta tiene un comando {kw}"
+            ));
+        }
+    }
     refuse_writes_in(driver.info().language, query)
 }
 

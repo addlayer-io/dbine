@@ -531,7 +531,8 @@ and SAP HANA (other schemas); TDengine; and Virtuoso.
   Greengage DB, Apache Cloudberry, EDB Postgres Advanced Server, Fujitsu
   Enterprise Postgres, KingbaseES, openGauss), Azure SQL Database and
   Babelfish for PostgreSQL (one database per connection), Google Cloud
-  Spanner, Azure Cosmos DB, InfluxDB 3 (SQL), OrientDB.
+  Spanner, Azure Cosmos DB, InfluxDB 3 (SQL), OrientDB, Power BI (a DAX
+  query reads one semantic model).
 - **Not SQL, or no database prefix:** MongoDB, Amazon DocumentDB, FerretDB,
   CouchDB, Redis, Valkey, Dragonfly, Neo4j, Memgraph, InfluxDB 2 (Flux).
 - **Another syntax for the prefix:** IBM Informix and GBase 8s
@@ -3045,6 +3046,7 @@ name it.
 | Snowflake, BigQuery, InfluxDB 2 (Flux) | A script of several statements keeps its results in the run's tab (a failed statement's error, where the engine says which one it was, goes to that statement's tab); only a run of one statement takes its name | The server answers the whole text as one request, without saying which statement each result came from. |
 | Engines whose plan runs the text whole | The plan of several statements isn't split | Same: the plan's results don't carry their statement. A plan of one statement takes its name. |
 | SQL Server, Sybase (and the ODBC presets with `GO`) | A batch of several statements, a script without `GO` included, isn't split by name: its results stay in the run's tab | The batch is what runs, and its results come back as the batch's. **Run the statement at the cursor** and the lens run one statement of the batch, and that one takes its name. |
+| Power BI | The results of a `DEFINE` followed by several `EVALUATE`s go to one tab, named by the comment above `DEFINE`; a comment above each `EVALUATE` doesn't name its result yet | Explicit pending item: the app keeps where each `EVALUATE`'s result starts, but the editor still names results by unit. Bare `EVALUATE`s (no `DEFINE`) are units of their own and each takes its name. |
 
 ### Manual transactions
 

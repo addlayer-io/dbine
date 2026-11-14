@@ -515,6 +515,48 @@ fn tunnels_secret_managers_and_cloud_sign_in_become_notes() {
 }
 
 #[test]
+fn power_bi_cells_run_dax_through_execute_queries() {
+    let c = cfg(
+        "powerbi",
+        "",
+        0,
+        "Finanzas › Ventas 2026",
+        "",
+        &[
+            ("auth_mode", "entra_sp"),
+            ("tenant", "contoso.onmicrosoft.com"),
+        ],
+    );
+    let mut nb = empty_nb();
+    nb.cells = vec![cell(
+        "q",
+        CellKind::Sql,
+        "EVALUATE SUMMARIZECOLUMNS('Fecha'[Año], \"Ventas\", [Total ventas])",
+        on("PBI"),
+        Some("ventas"),
+    )];
+    let text = python(
+        &nb,
+        &HashMap::from([("q".to_string(), conn("PBI", c))]),
+        &PyExport::default(),
+    );
+    assert!(!text.contains(MARK));
+    let v: Value = serde_json::from_str(&text).unwrap();
+    let all = sources(&v).join("\n");
+    for want in [
+        "azure.identity.ClientSecretCredential(\"contoso.onmicrosoft.com\"",
+        "https://api.powerbi.com/v1.0/myorg",
+        "https://analysis.windows.net/powerbi/api/.default",
+        ".workspace = \"Finanzas\"",
+        ".model = \"Ventas 2026\"",
+        "def dax_frame(",
+        "ventas = dax_frame(pbi_pbi, ",
+    ] {
+        assert!(all.contains(want), "{want}\n{all}");
+    }
+}
+
+#[test]
 fn unmappable_and_unresolved_cells_are_commented() {
     let mut nb = empty_nb();
     nb.cells = vec![

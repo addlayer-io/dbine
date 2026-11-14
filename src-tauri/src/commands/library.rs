@@ -77,6 +77,7 @@ pub struct ImportOut {
 /// Extensions read as scripts (import, and the git copy).
 pub(crate) const SCRIPT_EXTS: &[&str] = &[
     "sql", "cql", "js", "json", "txt", "redis", "cypher", "flux", "ksql", "n1ql", "psql", "q",
+    "dax",
 ];
 
 /// A script's file extension, from the query language of the engines it's
@@ -97,6 +98,9 @@ pub(crate) fn script_ext(engines: &[String]) -> &'static str {
         Language::Redis => "redis",
         Language::Flux => "flux",
         Language::Cypher => "cypher",
+        Language::Dax => "dax",
+        // A newer driver's language: plain text.
+        Language::Unknown => "txt",
         Language::Json => match info.dialect {
             // PartiQL (DynamoDB) and Cosmos DB's SQL are queries, not documents.
             "partiql" | "cosmos" => "sql",
@@ -119,6 +123,7 @@ pub(crate) fn engines_for_ext(ext: &str) -> Vec<String> {
         "q" => one("kdb"),
         "cypher" => one("neo4j"),
         "flux" => one("influxdb"),
+        "dax" => one("powerbi"),
         "json" => Vec::new(),
         _ => one("*sql"),
     }
@@ -132,7 +137,7 @@ const MONGO_SHELL: &[&str] = &["mongodb", "documentdb", "ferretdb"];
 pub(crate) fn line_comment(ext: &str) -> Option<&'static str> {
     match ext {
         "sql" | "cql" | "psql" | "ksql" | "n1ql" => Some("--"),
-        "js" | "cypher" | "flux" => Some("//"),
+        "js" | "cypher" | "flux" | "dax" => Some("//"),
         "q" => Some("/"),
         _ => None,
     }

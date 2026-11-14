@@ -432,6 +432,7 @@ dependencies = [
  "arrow-schema 58.4.1",
  "arrow-select 58.4.1",
  "flatbuffers",
+ "lz4_flex 0.13.1",
 ]
 
 [[package]]
@@ -3298,6 +3299,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbine-driver-powerbi"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 58.4.1",
+ "arrow-buffer 58.4.1",
+ "arrow-cast 58.4.1",
+ "arrow-ipc",
+ "arrow-schema 58.4.1",
+ "base64 0.22.1",
+ "chrono",
+ "dbine-driver",
+ "futures",
+ "getrandom 0.2.17",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "dbine-driver-redis"
 version = "0.1.11"
 dependencies = [
@@ -3457,6 +3481,7 @@ dependencies = [
  "dbine-driver-orientdb",
  "dbine-driver-phoenix",
  "dbine-driver-postgres",
+ "dbine-driver-powerbi",
  "dbine-driver-redis",
  "dbine-driver-snowflake",
  "dbine-driver-solr",
@@ -6397,6 +6422,15 @@ name = "lz4_flex"
 version = "0.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
+name = "lz4_flex"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
 dependencies = [
  "twox-hash",
 ]

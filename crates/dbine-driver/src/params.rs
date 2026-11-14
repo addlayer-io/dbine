@@ -447,6 +447,76 @@ pub fn literal(
                 }
             }
         },
+        Language::Dax => dax_literal(v)?,
+        Language::Unknown => {
+            return Err(Error::Unsupported(
+                "esta versión de DBine no conoce el lenguaje de este motor: actualizala para usar parámetros".into(),
+            ))
+        }
+    })
+}
+
+/// `s` as a DAX string: in double quotes, a quote doubled (DAX strings have
+/// no backslash escapes; line breaks are part of the string).
+pub fn dax_string(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+/// A DAX literal. Dates and times are built from numbers (`DATE(2026, 10,
+/// 18) + TIME(14, 30, 5)`): every part is parsed, so a value that isn't
+/// one (a deserialized one isn't checked when made) is an error, never text
+/// in the query. Fractions of a second are added as a fraction of a day.
+fn dax_literal(v: &ParamValue) -> Result<String> {
+    let bad = || Error::Query("el valor del parámetro no es válido".into());
+    Ok(match v {
+        ParamValue::Null => "BLANK()".into(),
+        ParamValue::Bool(b) => if *b { "TRUE()" } else { "FALSE()" }.into(),
+        ParamValue::Number(n) if is_number(n) => n.clone(),
+        ParamValue::Number(_) => return Err(bad()),
+        ParamValue::Text(s) => dax_string(s),
+        ParamValue::Date(_) | ParamValue::DateTime(_) => {
+            let (d, t) = v.date_time();
+            if !is_date(d) {
+                return Err(bad());
+            }
+            let date = format!(
+                "DATE({}, {}, {})",
+                num(&d[..4]),
+                num(&d[5..7]),
+                num(&d[8..10])
+            );
+            let Some(t) = t else {
+                return Ok(date);
+            };
+            // `HH:MM:SS[.fff]`, as `ParamValue::datetime` keeps it.
+            let b = t.as_bytes();
+            let digits = |r: std::ops::Range<usize>| {
+                b.get(r.clone())
+                    .filter(|x| x.iter().all(u8::is_ascii_digit))
+                    .map(|_| num(&t[r]))
+            };
+            let (Some(h), Some(mi), Some(s)) = (digits(0..2), digits(3..5), digits(6..8)) else {
+                return Err(bad());
+            };
+            if b.get(2) != Some(&b':') || b.get(5) != Some(&b':') || h > 23 || mi > 59 || s > 59 {
+                return Err(bad());
+            }
+            let frac = match &b[8..] {
+                [] => "",
+                [b'.', f @ ..]
+                    if !f.is_empty() && f.len() <= 9 && f.iter().all(u8::is_ascii_digit) =>
+                {
+                    &t[9..]
+                }
+                _ => return Err(bad()),
+            };
+            let time = format!("{date} + TIME({h}, {mi}, {s})");
+            if frac.bytes().all(|c| c == b'0') {
+                time
+            } else {
+                format!("{time} + 0.{frac} / 86400")
+            }
+        }
     })
 }
 
@@ -533,10 +603,119 @@ mod tests {
                 Language::Redis,
                 Language::Flux,
                 Language::Cypher,
+                Language::Dax,
+                Language::Unknown,
             ] {
                 let _ = literal(lang, "postgres", "x", &v);
             }
         }
+    }
+
+    fn dax(v: &ParamValue) -> Result<String> {
+        literal(Language::Dax, "powerbi", "powerbi", v)
+    }
+
+    /// A DAX string at the start of `s` (`"…"`, `""` a quote): its value and
+    /// where it ends.
+    fn read_dax_string(s: &str) -> Option<(String, usize)> {
+        let b: Vec<char> = s.chars().collect();
+        if b.first() != Some(&'"') {
+            return None;
+        }
+        let mut out = String::new();
+        let mut i = 1;
+        while i < b.len() {
+            match b[i] {
+                '"' if b.get(i + 1) == Some(&'"') => {
+                    out.push('"');
+                    i += 2;
+                }
+                '"' => return Some((out, b[..=i].iter().collect::<String>().len())),
+                c => {
+                    out.push(c);
+                    i += 1;
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn dax_literals() {
+        assert_eq!(dax(&ParamValue::Null).unwrap(), "BLANK()");
+        assert_eq!(dax(&ParamValue::Bool(true)).unwrap(), "TRUE()");
+        assert_eq!(dax(&ParamValue::Bool(false)).unwrap(), "FALSE()");
+        assert_eq!(dax(&ParamValue::number("-2.5").unwrap()).unwrap(), "-2.5");
+        assert_eq!(dax(&text("O\"Brien")).unwrap(), "\"O\"\"Brien\"");
+        // A backslash is just a character in DAX: nothing to escape.
+        assert_eq!(dax(&text("a\\\"b")).unwrap(), "\"a\\\"\"b\"");
+        assert_eq!(
+            dax(&ParamValue::date("2026-01-08").unwrap()).unwrap(),
+            "DATE(2026, 1, 8)"
+        );
+        assert_eq!(
+            dax(&ParamValue::datetime("2026-10-18 14:30").unwrap()).unwrap(),
+            "DATE(2026, 10, 18) + TIME(14, 30, 0)"
+        );
+        assert_eq!(
+            dax(&ParamValue::datetime("2026-10-18T14:30:05.250").unwrap()).unwrap(),
+            "DATE(2026, 10, 18) + TIME(14, 30, 5) + 0.250 / 86400"
+        );
+        assert_eq!(
+            dax(&ParamValue::datetime("2026-10-18T14:30:05.000").unwrap()).unwrap(),
+            "DATE(2026, 10, 18) + TIME(14, 30, 5)"
+        );
+        // Unchecked (deserialized) values that aren't what they say are
+        // refused, never written into the query.
+        for bad in [
+            ParamValue::Number("1) EVALUATE 'Secret'".into()),
+            ParamValue::Date("2026-10-1\") EVALUATE x".into()),
+            ParamValue::Date("x".into()),
+            ParamValue::DateTime("2026-10-18T14:30:0x".into()),
+            ParamValue::DateTime("2026-10-18T14:30".into()),
+            ParamValue::DateTime("2026-10-18T14:30:05.1) + 1".into()),
+            ParamValue::DateTime("2026-10-18T99:30:05".into()),
+            ParamValue::DateTime("2026-10-1é 00:00:00".into()),
+        ] {
+            assert!(dax(&bad).is_err(), "{bad:?}");
+        }
+    }
+
+    /// Whatever the text, the DAX literal is one string that holds it: a
+    /// value made to break out (`"); EVALUATE …`) stays inside.
+    #[test]
+    fn a_dax_literal_never_ends_early() {
+        for s in [
+            "\"); EVALUATE 'Secret' //",
+            "\"",
+            "\"\"",
+            "\\\"",
+            "a\nb\" --",
+            "' [x]] /*",
+            "\u{0}\"",
+            "",
+        ] {
+            let lit = dax(&text(s)).unwrap();
+            assert_eq!(
+                read_dax_string(&lit),
+                Some((s.to_string(), lit.len())),
+                "{s:?} -> {lit}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_language_takes_no_literals() {
+        assert!(matches!(
+            literal(Language::Unknown, "", "x", &text("a")),
+            Err(Error::Unsupported(_))
+        ));
+        // A newer driver's language reads as Unknown, not an error.
+        let l: Language = serde_json::from_value(serde_json::json!("gremlin")).unwrap();
+        assert_eq!(l, Language::Unknown);
+        let l: Language = serde_json::from_value(serde_json::json!("dax")).unwrap();
+        assert_eq!(l, Language::Dax);
+        assert_eq!(serde_json::to_value(Language::Dax).unwrap(), "dax");
     }
 
     #[test]

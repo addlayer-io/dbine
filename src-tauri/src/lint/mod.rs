@@ -194,7 +194,8 @@ impl Profile {
             Language::Redis if info.dialect == "q" => Profile::None,
             Language::Redis => Profile::Redis,
             Language::Cypher => Profile::Cypher,
-            Language::Flux => Profile::None,
+            // No DAX rules yet (an explicit pending item, docs/engine-support.md).
+            Language::Flux | Language::Dax | Language::Unknown => Profile::None,
         }
     }
 }

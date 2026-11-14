@@ -1,0 +1,25 @@
+{
+  "value": [
+    {
+      "refreshType": "ViaApi",
+      "startTime": "2017-06-13T09:25:43.153Z",
+      "endTime": "2017-06-13T09:31:43.153Z",
+      "status": "Completed",
+      "requestId": "9399bb89-25d1-44f8-8576-136d7e9014b1",
+      "refreshAttempts": [
+        {
+          "attemptId": 1,
+          "startTime": "2017-06-13T09:25:43.153Z",
+          "endTime": "2017-06-13T09:31:40.153Z",
+          "type": "Data"
+        },
+        {
+          "attemptId": 1,
+          "startTime": "2017-06-13T09:31:40.156Z",
+          "endTime": "2017-06-13T09:31:43.153Z",
+          "type": "Query"
+        }
+      ]
+    }
+  ]
+}

@@ -598,6 +598,88 @@ fn clike_tokens(text: &str, l: CLike) -> Vec<NameToken<'_>> {
     out
 }
 
+/// The tokens of a DAX text: `"…"` strings (`""` a quote), `'…'` table
+/// names (`''`) and `[…]` column and measure names (`]]`) as quoted names,
+/// words, punctuation; `//`, `--` and `/* */` comments and spaces left out.
+fn dax_tokens(text: &str) -> Vec<NameToken<'_>> {
+    let b = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if (c == b'/' && b.get(i + 1) == Some(&b'/')) || (c == b'-' && b.get(i + 1) == Some(&b'-'))
+        {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == b'/' && b.get(i + 1) == Some(&b'*') {
+            i = text[i + 2..].find("*/").map_or(b.len(), |p| i + 2 + p + 2);
+            continue;
+        }
+        let close = match c {
+            b'"' => Some((b'"', TokenKind::String)),
+            b'\'' => Some((b'\'', TokenKind::Name)),
+            b'[' => Some((b']', TokenKind::Name)),
+            _ => None,
+        };
+        if let Some((q, kind)) = close {
+            // Up to the closing quote; a doubled one is part of the text.
+            let mut j = i + 1;
+            while j < b.len() {
+                if b[j] == q {
+                    if b.get(j + 1) == Some(&q) {
+                        j += 2;
+                        continue;
+                    }
+                    break;
+                }
+                j += 1;
+            }
+            let end = (j + 1).min(b.len());
+            out.push(NameToken {
+                kind,
+                text: &text[i..end],
+                start: i,
+                end,
+            });
+            i = end;
+            continue;
+        }
+        if c.is_ascii_alphanumeric() || c == b'_' || c >= 0x80 {
+            let mut j = i;
+            while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] >= 0x80) {
+                j += 1;
+            }
+            out.push(NameToken {
+                kind: TokenKind::Name,
+                text: &text[i..j],
+                start: i,
+                end: j,
+            });
+            i = j;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < b.len() && !text.is_char_boundary(j) {
+            j += 1;
+        }
+        out.push(NameToken {
+            kind: TokenKind::Punct,
+            text: &text[i..j],
+            start: i,
+            end: j,
+        });
+        i = j;
+    }
+    out
+}
+
 /// What a cell's text is written in, for finding its parameters and
 /// writing their values.
 pub enum Engine<'a> {
@@ -671,7 +753,7 @@ impl Engine<'_> {
                     hash: false,
                 },
             ),
-            Language::Cypher => clike_tokens(
+            Language::Cypher | Language::Unknown => clike_tokens(
                 text,
                 CLike {
                     single: true,
@@ -679,6 +761,7 @@ impl Engine<'_> {
                     hash: false,
                 },
             ),
+            Language::Dax => dax_tokens(text),
         }
     }
 }
@@ -753,7 +836,10 @@ pub fn markers(
             t.is_some_and(|t| t.kind == TokenKind::Punct && t.text == c)
         };
         // `t.{{c}}`, `{{s}}.t`, `{{f}}(…)`.
-        if punct(prev, ".") || punct(next, ".") || (sql && punct(next, "(")) {
+        if punct(prev, ".")
+            || punct(next, ".")
+            || ((sql || language == Language::Dax) && punct(next, "("))
+        {
             return Err(ident());
         }
         let word = |t: Option<&NameToken<'_>>| {
@@ -800,7 +886,9 @@ pub fn markers(
                     return Err(ident());
                 }
             }
-            Language::Flux => {}
+            // A table or column name is quoted (`'…'`, `[…]`, above) or
+            // glued to its column (`{{t}}[c]`, above): a value elsewhere.
+            Language::Flux | Language::Dax | Language::Unknown => {}
         }
         out.push(Marker {
             name: p.name.clone(),

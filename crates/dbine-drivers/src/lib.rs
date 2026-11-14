@@ -108,6 +108,7 @@ packages! {
     "flightsql" => dbine_driver_flightsql,
     "tdengine" => dbine_driver_tdengine,
     "kdb" => dbine_driver_kdb,
+    "powerbi" => dbine_driver_powerbi,
 }
 
 /// A driver crate that serves engines of another one with something more,

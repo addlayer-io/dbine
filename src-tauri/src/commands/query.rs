@@ -669,6 +669,28 @@ fn rebase_line(line: &mut Option<u32>, unit: Option<&ScriptStatement>) {
     }
 }
 
+/// A unit's result placed in the script: its statement, and where it
+/// starts. A driver that answers several results for one unit (a DAX
+/// `DEFINE` followed by several `EVALUATE`s) may say where each one starts,
+/// relative to the unit's text (`offset`, `line`): kept, moved to the
+/// script. A line alone gives the offset where that line's code starts, so
+/// what names results by offset (the editor) finds that result too.
+/// Otherwise the result starts where its unit does.
+fn place_result(res: &mut StatementResult, idx: usize, unit: &ScriptStatement) {
+    res.statement = Some(idx);
+    let inner = match (res.offset, res.line) {
+        (Some(o), _) => Some(o.min(unit.text.len())),
+        (None, Some(l)) => Some(line_start(&unit.text, l)),
+        (None, None) => None,
+    };
+    res.line = Some(match (res.line, inner) {
+        (Some(l), _) => unit.line + l.saturating_sub(1),
+        (None, Some(o)) => unit.line + line_of(&unit.text, o) - 1,
+        (None, None) => unit.line,
+    });
+    res.offset = Some(unit.start + inner.unwrap_or(0));
+}
+
 /// A unit's error as the driver placed it (offset and line relative to the
 /// unit's text), with a line always: from its offset, or the unit's first.
 fn unit_error(e: &Error, unit: &ScriptStatement) -> ScriptError {
@@ -804,9 +826,7 @@ async fn run_script(
                 }
             };
             for res in &mut out.results[r0..] {
-                res.statement = Some(idx);
-                res.offset = Some(unit.start);
-                res.line = Some(unit.line);
+                place_result(res, idx, unit);
                 res.elapsed_ms.get_or_insert(elapsed_ms);
             }
             for m in &mut out.log[l0..] {
@@ -960,6 +980,18 @@ pub(crate) async fn run_on_entry(
 /// returned it only to say the call failed.
 fn recorded(errors: &[ScriptError], e: &Error) -> bool {
     !matches!(e, Error::Cancelled) && errors.iter().any(|x| x.message == e.to_string())
+}
+
+/// Byte offset where the 1-based `line` of `text` starts, past its indent;
+/// the end of the text when it has fewer lines.
+fn line_start(text: &str, line: u32) -> usize {
+    let start: usize = text
+        .split_inclusive('\n')
+        .take(line.saturating_sub(1) as usize)
+        .map(str::len)
+        .sum();
+    let rest = &text[start..];
+    start + rest.len() - rest.trim_start_matches([' ', '\t']).len()
 }
 
 /// 1-based line of a byte offset.
@@ -1796,6 +1828,66 @@ select
                 .line,
             Some(4)
         );
+    }
+
+    #[test]
+    fn a_driver_can_place_each_result_of_a_unit() {
+        // A DAX unit: one DEFINE, two EVALUATEs, each with its comment.
+        let script = "EVALUATE {1}\n\nDEFINE MEASURE 'T'[m] = 1\n// first\nEVALUATE {[m]}\n// second\nEVALUATE {[m] + 1}";
+        let unit_start = script.find("DEFINE").unwrap();
+        let unit = ScriptStatement {
+            text: script[unit_start..].to_string(),
+            start: unit_start,
+            end: script.len(),
+            line: 3,
+            kind: StatementKind::Block,
+            repeat: 1,
+            error: None,
+        };
+        let second = unit.text.find("EVALUATE {[m] + 1}").unwrap();
+        // The driver says where each one starts (offset, or line, or both).
+        let mut a = StatementResult {
+            offset: Some(unit.text.find("EVALUATE {[m]}").unwrap()),
+            ..Default::default()
+        };
+        let mut b = StatementResult {
+            offset: Some(second),
+            line: Some(5),
+            ..Default::default()
+        };
+        place_result(&mut a, 1, &unit);
+        place_result(&mut b, 1, &unit);
+        assert_eq!((a.statement, a.line), (Some(1), Some(5)));
+        assert_eq!(&script[a.offset.unwrap()..][..14], "EVALUATE {[m]}");
+        assert_eq!((b.statement, b.line), (Some(1), Some(7)));
+        assert_eq!(&script[b.offset.unwrap()..][..18], "EVALUATE {[m] + 1}");
+        // A line alone: the offset follows it, so naming by offset works.
+        let mut e = StatementResult {
+            line: Some(5),
+            ..Default::default()
+        };
+        place_result(&mut e, 1, &unit);
+        assert_eq!(e.line, Some(7));
+        assert_eq!(e.offset, b.offset);
+        // A line past the unit's text: its end.
+        let mut f = StatementResult {
+            line: Some(99),
+            ..Default::default()
+        };
+        place_result(&mut f, 1, &unit);
+        assert_eq!(f.offset, Some(script.len()));
+        assert_eq!(line_start("a\n  \tEVALUATE {1}", 2), 5);
+        // A driver that says nothing: where the unit starts, as before.
+        let mut c = StatementResult::default();
+        place_result(&mut c, 1, &unit);
+        assert_eq!((c.offset, c.line), (Some(unit_start), Some(3)));
+        // An offset past the unit's text stays inside it.
+        let mut d = StatementResult {
+            offset: Some(10_000),
+            ..Default::default()
+        };
+        place_result(&mut d, 1, &unit);
+        assert_eq!(d.offset, Some(script.len()));
     }
 
     #[tokio::test]

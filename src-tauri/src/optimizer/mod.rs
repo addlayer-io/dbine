@@ -83,6 +83,12 @@ pub fn ordered(src: &str, language: dbine_driver::Language, dialect: &str) -> bo
                 .any(|b| b.depth == 0 && b.order_by.is_some())
         }
         dbine_driver::Language::Cypher => src.to_lowercase().contains("order by"),
+        // DAX: an `EVALUATE … ORDER BY` (the words may be on two lines).
+        dbine_driver::Language::Dax => src
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|w| w[0].eq_ignore_ascii_case("order") && w[1].eq_ignore_ascii_case("by")),
         _ => src.contains(".sort(") || src.contains("$sort") || src.contains("\"sort\""),
     }
 }
@@ -106,6 +112,12 @@ mod tests {
         ));
         assert!(ordered("db.c.find({}).sort({a: 1})", Language::Json, ""));
         assert!(!ordered("db.c.find({})", Language::Json, ""));
+        assert!(ordered(
+            "EVALUATE TOPN(10, 'Ventas')\nORDER\n  BY 'Ventas'[Fecha] DESC",
+            Language::Dax,
+            "powerbi"
+        ));
+        assert!(!ordered("EVALUATE 'Ventas'", Language::Dax, "powerbi"));
     }
 
     #[test]

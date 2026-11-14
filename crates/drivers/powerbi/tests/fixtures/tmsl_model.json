@@ -1,0 +1,282 @@
+{
+  "name": "Ventas",
+  "compatibilityLevel": 1601,
+  "model": {
+    "culture": "es-AR",
+    "defaultPowerBIDataSourceVersion": "powerBI_V3",
+    "sourceQueryCulture": "es-AR",
+    "dataAccessOptions": {
+      "legacyRedirects": true,
+      "returnErrorValuesAsNull": true
+    },
+    "tables": [
+      {
+        "name": "Sales",
+        "description": "Ventas por línea",
+        "lineageTag": "1f1c7d1a-1b1e-4d1c-9a51-8b1e3a1b1c1d",
+        "columns": [
+          {
+            "name": "CustomerKey",
+            "dataType": "int64",
+            "isHidden": true,
+            "sourceColumn": "CustomerKey",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Order Date",
+            "dataType": "dateTime",
+            "formatString": "General Date",
+            "sourceColumn": "OrderDate"
+          },
+          {
+            "name": "Amount",
+            "dataType": "decimal",
+            "description": "Importe con IVA",
+            "formatString": "\\$#,0.00;(\\$#,0.00);\\$#,0.00",
+            "sourceColumn": "Amount",
+            "isNullable": false
+          },
+          {
+            "type": "calculated",
+            "name": "Margin",
+            "dataType": "double",
+            "isDataTypeInferred": true,
+            "expression": "[Amount] - RELATED('Customer'[Cost])"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Sales-8a1f",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "    Source = Sql.Database(\"sql.contoso.com\", \"dw\"),",
+                "    Sales = Source{[Schema=\"dbo\",Item=\"FactSales\"]}[Data]",
+                "in",
+                "    Sales"
+              ]
+            }
+          }
+        ],
+        "measures": [
+          {
+            "name": "Total Sales",
+            "description": "Suma de importes",
+            "expression": "SUM ( Sales[Amount] )",
+            "formatString": "\\$#,0",
+            "displayFolder": "KPIs"
+          },
+          {
+            "name": "Sales YoY",
+            "expression": [
+              "",
+              "VAR prev = CALCULATE ( [Total Sales], SAMEPERIODLASTYEAR ( 'Date'[Date] ) )",
+              "RETURN",
+              "    DIVIDE ( [Total Sales] - prev, prev )"
+            ],
+            "isHidden": true
+          }
+        ]
+      },
+      {
+        "name": "Customer",
+        "columns": [
+          {
+            "name": "CustomerKey",
+            "dataType": "int64",
+            "isKey": true,
+            "isUnique": true,
+            "sourceColumn": "CustomerKey"
+          },
+          {
+            "name": "City",
+            "dataType": "string",
+            "sourceColumn": "City"
+          },
+          {
+            "name": "Cost",
+            "dataType": "double",
+            "sourceColumn": "Cost"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Customer",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText(\"i45WMlTSUTJUitWJVjICcozBHBMgxwTCMQVyTJViYwE=\", BinaryEncoding.Base64), Compression.Deflate)), let _t = ((type nullable text) meta [Serialized.Text = true]) in type table [CustomerKey = _t, City = _t, Cost = _t])\nin\n    Source"
+            }
+          }
+        ],
+        "hierarchies": [
+          {
+            "name": "Geography",
+            "description": "País y ciudad",
+            "levels": [
+              { "name": "Ciudad", "ordinal": 1, "column": "City" },
+              { "name": "Cliente", "ordinal": 0, "column": "CustomerKey" }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Date",
+        "columns": [
+          {
+            "type": "calculatedTableColumn",
+            "name": "Date",
+            "dataType": "dateTime",
+            "isNameInferred": true,
+            "sourceColumn": "[Date]"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Date",
+            "mode": "import",
+            "source": {
+              "type": "calculated",
+              "expression": "CALENDAR ( DATE ( 2020, 1, 1 ), DATE ( 2026, 12, 31 ) )"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Time Intelligence",
+        "calculationGroup": {
+          "precedence": 1,
+          "calculationItems": [
+            {
+              "name": "YTD",
+              "ordinal": 1,
+              "expression": "CALCULATE ( SELECTEDMEASURE (), DATESYTD ( 'Date'[Date] ) )"
+            },
+            {
+              "name": "Actual",
+              "ordinal": 0,
+              "expression": "SELECTEDMEASURE ()",
+              "formatStringDefinition": { "expression": "SELECTEDMEASUREFORMATSTRING ()" }
+            }
+          ]
+        },
+        "columns": [
+          { "name": "Name", "dataType": "string", "sourceColumn": "Name", "sortByColumn": "Ordinal" },
+          { "name": "Ordinal", "dataType": "int64", "isHidden": true, "sourceColumn": "Ordinal" }
+        ],
+        "partitions": [
+          {
+            "name": "Partition",
+            "mode": "import",
+            "source": { "type": "calculationGroup" }
+          }
+        ]
+      },
+      {
+        "name": "LocalDateTable_0c0a3e44-8a7b-4c5b-9f43-3c0d9b8e2f11",
+        "isHidden": true,
+        "isPrivate": true,
+        "showAsVariationsOnly": true,
+        "columns": [
+          { "type": "calculatedTableColumn", "name": "Date", "dataType": "dateTime", "sourceColumn": "[Date]" }
+        ],
+        "partitions": [
+          {
+            "name": "LocalDateTable_0c0a3e44",
+            "mode": "import",
+            "source": {
+              "type": "calculated",
+              "expression": "Calendar(Date(Year(MIN('Sales'[Order Date])), 1, 1), Date(Year(MAX('Sales'[Order Date])), 12, 31))"
+            }
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "name": "2f0d3c3e-9a4b-4b0e-8b1a-3c1f2e9d7a11",
+        "fromTable": "Sales",
+        "fromColumn": "CustomerKey",
+        "toTable": "Customer",
+        "toColumn": "CustomerKey"
+      },
+      {
+        "name": "8c1e5f22-4b6a-4f0e-a1c3-55e0f8a9d2b7",
+        "fromTable": "Sales",
+        "fromColumn": "Order Date",
+        "toTable": "Date",
+        "toColumn": "Date",
+        "crossFilteringBehavior": "bothDirections",
+        "isActive": false
+      },
+      {
+        "name": "6d7c9a1e-2b3f-4e8a-9c0d-1f2e3a4b5c6d",
+        "fromTable": "Sales",
+        "fromColumn": "Order Date",
+        "toTable": "LocalDateTable_0c0a3e44-8a7b-4c5b-9f43-3c0d9b8e2f11",
+        "toColumn": "Date",
+        "joinOnDateBehavior": "datePartOnly"
+      }
+    ],
+    "roles": [
+      {
+        "name": "West",
+        "description": "Solo el oeste",
+        "modelPermission": "read",
+        "members": [
+          { "memberName": "ana@contoso.com", "identityProvider": "AzureAD" }
+        ],
+        "tablePermissions": [
+          {
+            "name": "Customer",
+            "filterExpression": "[City] = \"Seattle\"",
+            "columnPermissions": [
+              { "name": "Cost", "metadataPermission": "none" }
+            ]
+          }
+        ]
+      }
+    ],
+    "perspectives": [
+      {
+        "name": "Comercial",
+        "tables": [
+          {
+            "name": "Sales",
+            "columns": [ { "name": "Amount" } ],
+            "measures": [ { "name": "Total Sales" } ]
+          }
+        ]
+      }
+    ],
+    "expressions": [
+      {
+        "name": "Servidor",
+        "kind": "m",
+        "expression": "\"sql.contoso.com\" meta [IsParameterQuery=true, Type=\"Text\", IsParameterQueryRequired=true]"
+      },
+      {
+        "name": "Origen web",
+        "kind": "m",
+        "expression": [
+          "let",
+          "    Source = Json.Document(Web.Contents(\"https://api.contoso.com/v1/ventas?region=oeste&api_key=abc123\"))",
+          "in",
+          "    Source"
+        ]
+      }
+    ],
+    "functions": [
+      {
+        "name": "AddTax",
+        "description": "Suma el IVA",
+        "expression": "( amount : NUMERIC ) => amount * 1.21"
+      }
+    ],
+    "annotations": [
+      { "name": "PBI_QueryOrder", "value": "[\"Sales\",\"Customer\"]" }
+    ]
+  }
+}

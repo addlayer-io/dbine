@@ -35,6 +35,14 @@ pub enum Language {
     Flux,
     /// Cypher / openCypher (Neo4j, Neptune, Memgraph…).
     Cypher,
+    /// DAX queries (Power BI and Fabric semantic models, Analysis Services
+    /// Tabular): `EVALUATE`, `DEFINE`, `'Table'[Column]`, `[Measure]`.
+    Dax,
+    /// A language a newer driver declares that this app doesn't know: its
+    /// manifest still reads, and the app treats the language as plain text
+    /// (no parameters as literals, every script a possible write).
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
