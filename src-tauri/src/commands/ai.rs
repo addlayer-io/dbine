@@ -660,6 +660,24 @@ fn contexts_block(
     (block, count, left_out)
 }
 
+/// An object as the local model's summary lists it: `kind schema.name`.
+/// Objects under another one (columns, indexes…) are left out, except a DAX
+/// model's measures, which live under their home table and are what DAX
+/// queries name: `measure 'Ventas'[Total ventas]`.
+fn summary_name(o: &dbine_driver::DbObject, dax: bool) -> Option<String> {
+    match (&o.parent, o.schema.as_deref().filter(|x| !x.is_empty())) {
+        (Some(table), _) if dax && o.kind == "measure" => Some(format!(
+            "{} '{}'[{}]",
+            o.kind,
+            table.replace('\'', "''"),
+            o.name.replace(']', "]]")
+        )),
+        (Some(_), _) => None,
+        (None, Some(sc)) => Some(format!("{} {sc}.{}", o.kind, o.name)),
+        (None, None) => Some(format!("{} {}", o.kind, o.name)),
+    }
+}
+
 async fn build_system(
     app: &AppHandle,
     state: &AppState,
@@ -685,6 +703,8 @@ async fn build_system(
                 Language::Redis => p.text("assistant.language_redis").into(),
                 Language::Flux => "Flux (InfluxDB)".into(),
                 Language::Cypher => "Cypher".into(),
+                Language::Dax => "DAX (Power BI)".into(),
+                Language::Unknown => info.name.into(),
             };
             s.push_str(&format!(
                 "\n{}\n",
@@ -693,7 +713,7 @@ async fn build_system(
                     &[("engine", info.name), ("language", &lang)]
                 )
             ));
-            if let Some(hint) = dialect_hint(info.dialect) {
+            if let Some(hint) = dialect_hint(info.language, info.dialect) {
                 s.push_str(&format!("{}\n", p.text(hint)));
             }
             summary.push(ContextItem::Engine {
@@ -726,13 +746,10 @@ async fn build_system(
                 .await
             {
                 Ok(objects) => {
+                    let dax = info.is_some_and(|i| i.language == Language::Dax);
                     let names: Vec<String> = objects
                         .iter()
-                        .filter(|o| o.parent.is_none())
-                        .map(|o| match o.schema.as_deref().filter(|x| !x.is_empty()) {
-                            Some(sc) => format!("{} {sc}.{}", o.kind, o.name),
-                            None => format!("{} {}", o.kind, o.name),
-                        })
+                        .filter_map(|o| summary_name(o, dax))
                         .collect();
                     let shown = names.len().min(SUMMARY_NAMES);
                     let more = if names.len() > shown {
@@ -869,8 +886,12 @@ async fn build_system(
 }
 
 /// What small models get wrong most in each dialect: quoting, naming another
-/// database, limiting rows. The prompt key of its hint.
-fn dialect_hint(dialect: &str) -> Option<&'static str> {
+/// database, limiting rows; in DAX (Power BI), writing SQL instead. The
+/// prompt key of its hint.
+fn dialect_hint(language: Language, dialect: &str) -> Option<&'static str> {
+    if language == Language::Dax {
+        return Some("assistant.dialect_dax");
+    }
     Some(match dialect {
         "mssql" | "sybase" => "assistant.dialect_mssql",
         "postgres" => "assistant.dialect_postgres",
@@ -1448,6 +1469,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_summary_lists_a_dax_models_measures() {
+        let o = |kind: &str, schema: Option<&str>, name: &str, parent: Option<&str>| {
+            dbine_driver::DbObject {
+                kind: kind.into(),
+                schema: schema.map(Into::into),
+                name: name.into(),
+                parent: parent.map(Into::into),
+            }
+        };
+        let m = o("measure", None, "Total [neto]", Some("Ventas d'Or"));
+        assert_eq!(
+            summary_name(&m, true).as_deref(),
+            Some("measure 'Ventas d''Or'[Total [neto]]]")
+        );
+        // Elsewhere, objects under another one stay out.
+        assert_eq!(summary_name(&m, false), None);
+        assert_eq!(summary_name(&o("index", None, "ix", Some("t")), true), None);
+        assert_eq!(
+            summary_name(&o("table", Some("dbo"), "t", None), false).as_deref(),
+            Some("table dbo.t")
+        );
+        assert_eq!(
+            summary_name(&o("function", None, "Margen", None), true).as_deref(),
+            Some("function Margen")
+        );
+    }
+
+    #[test]
     fn tool_calls() {
         let (n, a) = tool_call("<tool>{\"name\": \"describe_object\", \"arguments\": {\"database\": \"b\", \"object\": \"ventas.clientes\"}}</tool>").unwrap();
         assert_eq!(n, "describe_object");
@@ -1775,15 +1824,23 @@ mod tests {
     #[test]
     fn dialect_hints() {
         let p = prompts::get("es");
+        let sql = |d| dialect_hint(Language::Sql, d);
         assert!(p
-            .text(dialect_hint("mssql").unwrap())
+            .text(sql("mssql").unwrap())
             .contains("[base].esquema.tabla"));
-        assert!(p.text(dialect_hint("sybase").unwrap()).contains("TOP n"));
-        assert!(p.text(dialect_hint("postgres").unwrap()).contains("LIMIT"));
+        assert!(p.text(sql("sybase").unwrap()).contains("TOP n"));
+        assert!(p.text(sql("postgres").unwrap()).contains("LIMIT"));
         assert!(prompts::get("en")
-            .text(dialect_hint("oracle").unwrap())
+            .text(sql("oracle").unwrap())
             .contains("FETCH FIRST n ROWS ONLY"));
-        assert!(dialect_hint("standard").is_none());
+        assert!(sql("standard").is_none());
+        // DAX by its language, whatever the driver's dialect is called.
+        let dax = dialect_hint(Language::Dax, "powerbi").unwrap();
+        assert!(p.text(dax).contains("EVALUATE") && p.text(dax).contains("TOPN"));
+        assert!(prompts::get("en")
+            .text(dax)
+            .contains("SUMMARIZECOLUMNS('Table'[Column]"));
+        assert!(dialect_hint(Language::Cypher, "neo4j").is_none());
     }
 
     /// Every text that goes to the model comes from the UI language's file;
@@ -1809,6 +1866,7 @@ mod tests {
                 "assistant.dialect_mysql",
                 "assistant.dialect_oracle",
                 "assistant.dialect_sqlite",
+                "assistant.dialect_dax",
             ] {
                 assert!(!p.text(k).is_empty(), "{l}: {k}");
             }

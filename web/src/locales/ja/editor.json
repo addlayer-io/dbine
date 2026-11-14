@@ -30,17 +30,28 @@
     "loading": "列を読み込み中…",
     "empty": "このテーブルで利用できるメタデータはありません。",
     "error": "列を読み取れませんでした: {{error}}",
-    "primaryKey": "主キー"
+    "primaryKey": "主キー",
+    "kind": {
+      "column": "列",
+      "measure": "メジャー",
+      "queryColumn": "クエリの列",
+      "queryMeasure": "クエリのメジャー"
+    },
+    "format": "形式",
+    "unknown": "エクスプローラーはこの名前の列もメジャーも認識していません。",
+    "loadingDefinition": "定義を読み込み中…",
+    "definitionError": "定義を読み取れませんでした: {{error}}",
+    "noExpression": "式を表示する権限がありません。"
   },
   "insertColumn": "{{total}} 列中 {{n}} 列目: {{name}}",
   "insertExtra": "値 {{n}}: リストには {{total}} 列あります",
   "pickFile": "ファイルを選択…",
+  "functionOverloads_other": "+{{count}} 件のオーバーロード",
   "dataFiles": "データファイル(CSV、Parquet、JSON、Excel)",
   "lens": {
     "run": "実行",
     "runTip": "このステートメントだけを実行",
     "plan": "プラン",
     "planTip": "このステートメントの推定実行プラン（実行はしません）"
-  },
-  "functionOverloads_other": "+{{count}} 件のオーバーロード"
+  }
 }

@@ -127,7 +127,7 @@
     "noGit": "git на цьому комп'ютері не знайдено",
     "noGitHelp": "Встановіть його з git-scm.com (на macOS він також входить до Command Line Tools) і знову відкрийте це вікно.",
     "help": "Зберігайте бібліотеку в репозиторії git (GitHub, GitLab, Azure DevOps…) як резервну копію або щоб ділитися нею.",
-    "helpFiles": "Кожен скрипт зберігається як файл у своїй теці з розширенням своєї мови: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux} або {cypher}.",
+    "helpFiles": "Кожен скрипт зберігається як файл у своїй теці з розширенням своєї мови: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux}, {cypher} або {dax} (Power BI).",
     "repository": "Репозиторій",
     "repositoryPlaceholder": "git@github.com:company/dba-scripts.git або https://…",
     "branch": "Гілка",

@@ -543,16 +543,14 @@ fn stored_text(t: Option<&NotebookTarget>) -> String {
     }
 }
 
-/// The first statement of `sql` that writes on `connection_id` (any
-/// script on an engine that isn't SQL).
+/// The first statement of `sql` that writes on `connection_id`, as a
+/// task's script step reads it ([`crate::tasks::script_write`]: SQL by
+/// statement, DAX by unit, any script on the other engines; nothing on a
+/// read-only connection).
 fn first_write(ctx: &Context, connection_id: &str, sql: &str) -> Option<String> {
     let conn = ctx.conn(connection_id)?;
     let d = dbine_drivers::find(&conn.config.driver)?;
-    if d.info().language == dbine_driver::Language::Sql {
-        dbine_driver::read_only::first_write_in(sql, &d.script_dialect())
-    } else {
-        (!sql.trim().is_empty()).then(|| format!("script de {}", d.info().name))
-    }
+    crate::tasks::script_write(d.as_ref(), conn.config.read_only, sql)
 }
 
 fn read_notebook(path: &str) -> CommandResult<Notebook> {

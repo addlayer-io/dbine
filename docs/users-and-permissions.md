@@ -92,6 +92,49 @@ After it runs, the list is refreshed and the new user is selected.
   scripts are requests to `/admin/authentication`. Granting permissions or
   roles is done from the console, because Solr replaces the whole list.
 - **Couchbase:** uses SQL++ user commands, which exist since version 8.0.
+- **Power BI:** the tab is the model's. It lists the workspace's users and
+  groups with their role (Admin, Member, Contributor, Viewer), the model's
+  users with their rights, and the model's row-level security roles with
+  their members. The model's rights are **Read**, **Build** and **Reshare**
+  (and **Write**, shown but never changed from DBine). Permissions are on the
+  whole model, not on tables, and there are no passwords, users to create or
+  roles to create: identities belong to Microsoft Entra ID and RLS roles to
+  the model. See [Power BI](#power-bi-model-permissions).
+
+## Power BI model permissions
+
+On a Power BI connection that isn't read-only, the tab grants and revokes a
+user's or group's rights on the model. Each change is a **script** that is
+shown before running, in the driver's own commands, one per line, with the
+names as DAX strings:
+
+```text
+GRANT Read, Build TO "ana@contoso.com"          -- AS GROUP when the name is an object id
+REVOKE Reshare FROM "ana@contoso.com"
+REVOKE ALL FROM "ana@contoso.com"
+```
+
+- Power BI keeps **one combined right** per user. DBine reads the current
+  one first (`GET …/datasets/{d}/users`, which needs Read, Write and Reshare
+  on the model), works out the new combined right, and sends it: a `POST` for
+  someone not listed yet, a `PUT` for someone who is. Taking away **Read**,
+  or leaving nothing, removes the user's access to the model. If the current
+  right can't be read, nothing is sent.
+- **Refused before any request**, with the reason: giving or taking
+  **Write** (the API can't; it comes from a workspace role), service
+  principals (`AS APP`), a right the user holds through a workspace role (to
+  remove it, change the role in the workspace), and anything on a read-only
+  connection.
+- Granting offers **Read**, **Build** and **Reshare**; **Read** is always
+  included.
+- The commands run through the editor too (any unit that starts with
+  `GRANT`, `REVOKE`, `RENAME` or `ALTER` is one of them). The scheduled-task,
+  notebook, "Run on several databases" and MCP guards count such a unit as a
+  write (a DAX query, by contrast, isn't one).
+- The script and the confirmation are the tab's own: nothing runs without
+  clicking **Run**. The same rule covers renaming, describing and deleting
+  the model: [Rename](rename.md#renaming-a-database),
+  [Database properties](database-properties.md) and **Delete database**.
 
 ## Contract
 

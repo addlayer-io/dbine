@@ -1,0 +1,15 @@
+{
+  "value": [
+    {
+      "id": "0f084df7-c13d-451b-af5f-ed0c466403b2",
+      "displayName": "MyCapacity",
+      "admins": [
+        "john@contoso.com"
+      ],
+      "sku": "A1",
+      "state": "Active",
+      "region": "West Central US",
+      "capacityUserAccessRight": "Admin"
+    }
+  ]
+}

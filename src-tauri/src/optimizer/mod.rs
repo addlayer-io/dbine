@@ -7,6 +7,7 @@
 pub mod ai;
 pub mod catalog;
 pub mod compare;
+pub mod dax;
 pub mod hints;
 pub mod lex;
 #[cfg(test)]
@@ -68,6 +69,7 @@ pub fn rewrites(
     match language {
         dbine_driver::Language::Sql => rules::analyze(src, dialect, tables),
         dbine_driver::Language::Json => (mongo::where_to_operators(src), Vec::new()),
+        dbine_driver::Language::Dax => dax::analyze(src),
         _ => (Vec::new(), Vec::new()),
     }
 }
@@ -83,6 +85,8 @@ pub fn ordered(src: &str, language: dbine_driver::Language, dialect: &str) -> bo
                 .any(|b| b.depth == 0 && b.order_by.is_some())
         }
         dbine_driver::Language::Cypher => src.to_lowercase().contains("order by"),
+        // DAX: an `EVALUATE … ORDER BY` (the words may be on two lines).
+        dbine_driver::Language::Dax => dax::ordered(src),
         _ => src.contains(".sort(") || src.contains("$sort") || src.contains("\"sort\""),
     }
 }
@@ -106,6 +110,12 @@ mod tests {
         ));
         assert!(ordered("db.c.find({}).sort({a: 1})", Language::Json, ""));
         assert!(!ordered("db.c.find({})", Language::Json, ""));
+        assert!(ordered(
+            "EVALUATE TOPN(10, 'Ventas')\nORDER\n  BY 'Ventas'[Fecha] DESC",
+            Language::Dax,
+            "powerbi"
+        ));
+        assert!(!ordered("EVALUATE 'Ventas'", Language::Dax, "powerbi"));
     }
 
     #[test]
@@ -122,6 +132,14 @@ mod tests {
             "db.c.find({$where: 'this.a > 1'})",
             Language::Json,
             "",
+            None
+        )
+        .0
+        .is_empty());
+        assert!(!rewrites(
+            "EVALUATE ROW(\"x\", CALCULATE([Sales]))",
+            Language::Dax,
+            "powerbi",
             None
         )
         .0

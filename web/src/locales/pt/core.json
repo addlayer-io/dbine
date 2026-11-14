@@ -43,6 +43,7 @@
   },
   "format": {
     "redis": "Os comandos do Redis vão um por linha: não há nada para formatar.",
+    "dax": "O DBine ainda não formata DAX: não há um formatador que funcione dentro do aplicativo, e os que estão na internet receberiam seu código.",
     "unavailable": "Ainda não há um formatador para esta linguagem."
   },
   "copy": {

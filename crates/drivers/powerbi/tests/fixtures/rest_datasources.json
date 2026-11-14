@@ -1,0 +1,22 @@
+{
+  "value": [
+    {
+      "datasourceType": "AnalysisServices",
+      "connectionDetails": {
+        "server": "My-As-Server",
+        "database": "My-As-Database"
+      },
+      "datasourceId": "33cc5222-3fb9-44f7-b19d-ffbff18aaaf5",
+      "gatewayId": "0a2dafe6-0e93-4120-8d2c-fae123c111b1"
+    },
+    {
+      "datasourceType": "Extension",
+      "datasourceId": "70540d95-4c8e-41ae-88c6-27a103b12841",
+      "gatewayId": "7f1c4e55-544b-403f-b132-da0d3a024674",
+      "connectionDetails": {
+        "kind": "AzureDataExplorer",
+        "path": "https://myserver.kusto.windows.net"
+      }
+    }
+  ]
+}

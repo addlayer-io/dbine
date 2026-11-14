@@ -116,7 +116,16 @@ export interface ConnectionFormTab extends TabBase {
 /** "Comparar esquemas": this database (left) against another one. */
 /** What a compare tab had picked (kept across restarts; not its result). */
 export interface ComparePick { connectionId: string; database: string; schema?: string; table?: string }
-export interface ComparePicks { left: ComparePick; right: ComparePick; key?: string[] }
+/** A side of a data compare of two queries: where its query runs, and the query. */
+export interface QueryComparePick { connectionId: string; database: string; query: string }
+export interface ComparePicks {
+  left: ComparePick;
+  right: ComparePick;
+  key?: string[];
+  /** A data compare's mode: tables (the default) or two queries' results. */
+  mode?: 'tables' | 'queries';
+  queries?: { left: QueryComparePick; right: QueryComparePick };
+}
 
 export interface CompareTab extends TabBase {
   kind: 'compare';
@@ -828,8 +837,9 @@ export const useTabsStore = defineStore('tabs', {
       this.persist();
     },
 
-    openDataCompare(connectionId: string, database: string, object: ObjectRef | null) {
-      this.place({ id: newId(), kind: 'dataCompare', connectionId, database, object, preview: false });
+    /** `picks`: what it starts with ("Comparar con…" from a query: its query on the left). */
+    openDataCompare(connectionId: string, database: string, object: ObjectRef | null, picks?: ComparePicks) {
+      this.place({ id: newId(), kind: 'dataCompare', connectionId, database, object, preview: false, ...(picks ? { picks } : {}) });
     },
 
     /** A saved migration's tab (focused if open); without `migrationId`, a new draft. */

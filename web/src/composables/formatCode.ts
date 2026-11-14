@@ -6,7 +6,8 @@ import { rt } from './i18nLabels';
 // use (dynamic import), so they don't weigh on the app's start.
 // - SQL (and CQL): sql-formatter, with the driver's dialect.
 // - JSON / MongoDB shell: JSON when it parses, else js-beautify.
-// - Redis, Flux, Cypher: no formatter (the button says why).
+// - Redis, Flux, Cypher, DAX: no formatter (the button says why). DAX has
+//   none that runs in the app; the hosted ones would get the user's code.
 
 /** Why a language can't be formatted, or null when it can. KDB+'s q
  *  (dialect `q`, labelled with Redis's language) has no formatter either. */
@@ -19,6 +20,8 @@ export function formatUnavailable(language: Language | undefined, dialect = ''):
       return null;
     case 'redis':
       return rt('core:format.redis');
+    case 'dax':
+      return rt('core:format.dax');
     default:
       return rt('core:format.unavailable');
   }

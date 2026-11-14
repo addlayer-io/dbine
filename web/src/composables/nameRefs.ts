@@ -2,6 +2,7 @@ import type { DbObject, Language, ObjectKindInfo } from '../api/types';
 import type { LintFinding } from '../api/lint';
 import type { ObjectView } from '../stores/tabs';
 import { lexRegions, lexSyntax, maskCode, regionAt } from './sqlLexer';
+import { daxRefAt } from './daxLanguage';
 
 // Names in the editor's text, resolved against the explorer's objects of the
 // tab's database (stores/connections, filled from the explorer cache first):
@@ -95,9 +96,33 @@ function splitChain(chain: string, base = 0): ChainPart[] {
   return [...chain.matchAll(PART)].map((m) => ({ text: unquote(m[0]), from: base + m.index!, to: base + m.index! + m[0].length, quoted: /^[["`]/.test(m[0]) }));
 }
 
+/** DAX (Power BI): a table's name, quoted or bare, opens the table; a
+ *  `[name]` opens the measure of that name (its definition: the model's
+ *  measures carry their home table as `parent`, which `'Table'[name]`
+ *  prefers), else, written after its table, that table's columns. */
+function daxNameAt(idx: NameIndex, doc: string, pos: number): NameHit | null {
+  const r = daxRefAt(doc, pos);
+  if (!r) return null;
+  const kindOf = (o: DbObject) => idx.kinds.find((k) => k.id === o.kind);
+  const pick = (list: DbObject[], name: string) => list.find((o) => o.name === name) ?? list.find((o) => eq(o.name, name)) ?? null;
+  const tableNamed = (name: string) => pick(idx.objects.filter((o) => !o.parent && o.kind !== 'hierarchy' && kindOf(o)?.has_columns), name);
+  const hit = (o: DbObject, view: ObjectView): NameHit => ({ from: r.from, to: r.to, object: o, view });
+  if (r.kind === 'table') {
+    const t = tableNamed(r.name);
+    return t ? hit(t, viewFor(idx, t)) : null;
+  }
+  const measures = idx.objects.filter((o) => o.kind === 'measure');
+  const own = r.table ? pick(measures.filter((o) => eq(o.parent, r.table!)), r.name) : null;
+  const m = own ?? pick(measures, r.name);
+  if (m) return hit(m, kindOf(m)?.has_definition ? 'definition' : viewFor(idx, m));
+  const t = r.table ? tableNamed(r.table) : null;
+  return t ? hit(t, viewFor(idx, t)) : null;
+}
+
 /** The name at `pos` and the object it stands for, or null. */
 export function nameAt(idx: NameIndex, doc: string, pos: number): NameHit | null {
   if (!idx.objects.length) return null;
+  if (idx.language === 'dax') return daxNameAt(idx, doc, pos);
   const sqlLike = idx.language === 'sql' || idx.language === 'cql';
   const syn = lexSyntax(idx.language, idx.dialect);
   if (sqlLike) {

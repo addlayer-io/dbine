@@ -133,6 +133,34 @@
     "mongo_where": {
       "title": "$where → Abfrageoperatoren",
       "explain": "$where führt JavaScript auf jedem Dokument aus und nutzt keine Indizes; die äquivalenten Operatoren tun es. Bei Feldern, die Arrays sind oder Typen mischen, kann sich das Ergebnis ändern: Vergleichen Sie es vor der Verwendung."
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "FILTER über die ganze Tabelle → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) durchläuft die ganze Tabelle samt verknüpften Tabellen, um den Filter aufzubauen. KEEPFILTERS mit derselben Bedingung filtert nur die verwendeten Spalten und beachtet die bestehenden Filter. Wenn das Measure verknüpfte Tabellen verwendet, andere Modifizierer (ALL…) vorhanden sind oder das CALCULATE in einem Iterator steht, kann sich das Ergebnis ändern: Vergleichen Sie es vor der Verwendung."
+    },
+    "dax_iferror_to_divide": {
+      "title": "IFERROR mit einer Division → DIVIDE",
+      "explain": "IFERROR erzwingt eine schrittweise Auswertung; DIVIDE löst {{division}} ohne Fehlerabfang auf. In DAX ist eine Division durch null kein Fehler (sie ergibt unendlich), daher deckte IFERROR sie nicht ab, und DIVIDE gibt das alternative Ergebnis zurück: Vergleichen Sie es vor der Verwendung."
+    },
+    "dax_iserror_to_divide": {
+      "title": "IF(ISERROR(…)) mit einer Division → DIVIDE",
+      "explain": "ISERROR erzwingt eine schrittweise Auswertung und berechnet {{division}} zweimal; DIVIDE berechnet sie einmal. In DAX ist eine Division durch null kein Fehler (sie ergibt unendlich), daher deckte ISERROR sie nicht ab, und DIVIDE gibt das alternative Ergebnis zurück: Vergleichen Sie es vor der Verwendung."
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) ist die kurze, gleichwertige Form: Sie gibt den Wert zurück, wenn es nur einen gibt, und sonst das alternative Ergebnis."
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "SUMMARIZE mit berechneten Spalten → ADDCOLUMNS",
+      "explain": "SUMMARIZE bleibt nur zum Gruppieren, und die berechneten Spalten ({{name}}…) wandern zu ADDCOLUMNS, mit CALCULATE zur Berechnung pro Gruppe: Das ist schneller, und der Kontext ist der erwartete. Bei komplexen Beziehungen kann sich das Ergebnis ändern: Vergleichen Sie es vor der Verwendung."
+    },
+    "dax_redundant_calculate": {
+      "title": "Überflüssiges CALCULATE ohne Filter",
+      "explain": "{{fn}} ohne Filter um ein Measure oder ein weiteres {{fn}} ändert das Ergebnis nicht: Das Measure hat bereits sein implizites CALCULATE, und das innere vollzieht bereits den Kontextübergang."
+    },
+    "dax_topn_order_by": {
+      "title": "TOPN ohne ORDER BY → ORDER BY",
+      "explain": "TOPN wählt die Zeilen aus, sortiert sie aber nicht. {{order}} wird dem EVALUATE hinzugefügt, mit Kriterium und Richtung von TOPN."
     }
   },
   "notesText": {

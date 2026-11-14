@@ -133,6 +133,34 @@
     "mongo_where": {
       "title": "$where → opérateurs de requête",
       "explain": "$where exécute du JavaScript sur chaque document et n'utilise pas d'index ; les opérateurs équivalents le font. Avec des champs qui sont des tableaux ou qui mélangent des types, le résultat peut changer : comparez avant d'utiliser."
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "FILTER sur toute la table → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) parcourt la table entière, avec ses tables liées, pour construire le filtre. KEEPFILTERS avec la même condition filtre uniquement les colonnes qu'il utilise et respecte les filtres déjà présents. Si la mesure utilise des tables liées, s'il y a d'autres modificateurs (ALL…) ou si le CALCULATE est dans un itérateur, le résultat peut changer : comparez-la avant de l'utiliser."
+    },
+    "dax_iferror_to_divide": {
+      "title": "IFERROR avec une division → DIVIDE",
+      "explain": "IFERROR force une évaluation pas à pas ; DIVIDE résout {{division}} sans intercepter d'erreurs. En DAX, diviser par zéro n'est pas une erreur (cela donne l'infini), donc IFERROR ne le couvrait pas et DIVIDE renvoie le résultat alternatif : comparez-la avant de l'utiliser."
+    },
+    "dax_iserror_to_divide": {
+      "title": "IF(ISERROR(…)) avec une division → DIVIDE",
+      "explain": "ISERROR force une évaluation pas à pas et calcule {{division}} deux fois ; DIVIDE la calcule une seule fois. En DAX, diviser par zéro n'est pas une erreur (cela donne l'infini), donc ISERROR ne le couvrait pas et DIVIDE renvoie le résultat alternatif : comparez-la avant de l'utiliser."
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) est la forme courte et équivalente : elle renvoie la valeur quand il n'y en a qu'une et, sinon, le résultat alternatif."
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "SUMMARIZE avec des colonnes calculées → ADDCOLUMNS",
+      "explain": "SUMMARIZE ne sert plus qu'à regrouper et les colonnes calculées ({{name}}…) passent à ADDCOLUMNS, avec CALCULATE pour les calculer par groupe : c'est plus rapide et son contexte est celui attendu. Avec des relations complexes, le résultat peut changer : comparez-la avant de l'utiliser."
+    },
+    "dax_redundant_calculate": {
+      "title": "CALCULATE superflu sans filtres",
+      "explain": "{{fn}} sans filtres autour d'une mesure ou d'un autre {{fn}} ne change pas le résultat : la mesure a déjà son CALCULATE implicite et celui de l'intérieur fait déjà la transition de contexte."
+    },
+    "dax_topn_order_by": {
+      "title": "TOPN sans ORDER BY → ORDER BY",
+      "explain": "TOPN choisit les lignes mais ne les trie pas. {{order}} est ajouté à l'EVALUATE, avec le critère et le sens de TOPN."
     }
   },
   "notesText": {

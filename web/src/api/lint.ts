@@ -7,7 +7,7 @@ export type LintSeverity = 'error' | 'warning' | 'info';
 
 export type LintGroup =
   | 'sql' | 'tsql' | 'postgres' | 'mysql' | 'oracle' | 'influxql' | 'cql'
-  | 'mongodb' | 'couchdb' | 'search' | 'redis' | 'etcd' | 'cypher';
+  | 'mongodb' | 'couchdb' | 'search' | 'redis' | 'etcd' | 'cypher' | 'dax';
 
 export interface LintRule {
   id: string;

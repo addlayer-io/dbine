@@ -249,13 +249,15 @@ const gridEdits = computed<Edits>(() => {
 
 /** The current result's own statement (`resultSql`), and its place among
  *  that statement's results: by index (an export runs the statement and
- *  takes that one) and among those with rows (the SELECT behind it). */
+ *  takes that one) and among those with rows (the SELECT behind it). The
+ *  results of one statement with texts of their own (a DAX `EVALUATE` with
+ *  its `DEFINE`) each run theirs. */
 const own = computed(() => {
   const i = active.value;
   const sql = typeof i === 'number' ? props.resultSql?.[i] : null;
   const results = props.outcome?.results ?? [];
   if (!sql || typeof i !== 'number' || !results[i]) return null;
-  const before = results.slice(0, i).filter((r) => r.statement === results[i].statement);
+  const before = results.slice(0, i).filter((r, k) => r.statement === results[i].statement && props.resultSql?.[k] === sql);
   return { sql, index: before.length, set: before.filter((r) => r.columns.length).length };
 });
 /** The script whose `pos`-th SELECT the current result came from: its own

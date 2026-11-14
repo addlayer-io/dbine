@@ -132,6 +132,34 @@
     "mongo_where": {
       "title": "$where → 查询运算符",
       "explain": "$where 对每个文档运行 JavaScript，且不使用索引；等价的运算符则会使用。对于数组或混合类型的字段，结果可能改变：使用前请先比较。"
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "对整个表使用 FILTER → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) 会遍历整个表及其相关表来构建筛选器。使用相同条件的 KEEPFILTERS 只筛选其用到的列，并保留已有的筛选器。如果度量值使用相关表、存在其他修饰符（ALL…），或 CALCULATE 位于迭代器内部，结果可能会改变：使用前请先比较。"
+    },
+    "dax_iferror_to_divide": {
+      "title": "带除法的 IFERROR → DIVIDE",
+      "explain": "IFERROR 会迫使引擎逐步求值；DIVIDE 无需捕获错误即可解析 {{division}}。在 DAX 中除以零不是错误（结果为无穷大），因此 IFERROR 并未覆盖这种情况，而 DIVIDE 会返回替代结果：使用前请先比较。"
+    },
+    "dax_iserror_to_divide": {
+      "title": "带除法的 IF(ISERROR(…)) → DIVIDE",
+      "explain": "ISERROR 会迫使引擎逐步求值，并将 {{division}} 计算两次；DIVIDE 只计算一次。在 DAX 中除以零不是错误（结果为无穷大），因此 ISERROR 并未覆盖这种情况，而 DIVIDE 会返回替代结果：使用前请先比较。"
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) 是简短的等价写法：只有一个值时返回该值，否则返回替代结果。"
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "带计算列的 SUMMARIZE → ADDCOLUMNS",
+      "explain": "SUMMARIZE 仅用于分组，计算列（{{name}}…）改用 ADDCOLUMNS，并用 CALCULATE 按组计算：速度更快，上下文也符合预期。在关系复杂的情况下结果可能会改变：使用前请先比较。"
+    },
+    "dax_redundant_calculate": {
+      "title": "多余的无筛选器 CALCULATE",
+      "explain": "围绕度量值或另一个 {{fn}} 的无筛选器 {{fn}} 不会改变结果：度量值本身已带有隐式 CALCULATE，内层的已经完成了上下文转换。"
+    },
+    "dax_topn_order_by": {
+      "title": "没有 ORDER BY 的 TOPN → ORDER BY",
+      "explain": "TOPN 只选取行，不排序。将在 EVALUATE 中添加 {{order}}，使用与 TOPN 相同的条件和方向。"
     }
   },
   "notesText": {

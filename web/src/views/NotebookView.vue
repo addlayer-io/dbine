@@ -37,6 +37,7 @@ import {
   moveFileAliases, projectDefaultTarget, rememberAlias, rememberFileAlias, resolveTarget, targetText, type FileKey, type ResolvedTarget,
 } from '../composables/notebookTargets';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
+import { daxOtherNames } from '../composables/daxLanguage';
 import { functionCatalog, loadFunctionCatalog, localFunctionCatalog, loadLocalFunctionCatalog, localDuckdbUsed } from '../composables/functionCatalog';
 import { fileDocs, type FileDocHandle } from '../composables/tabDocument';
 import { notebookTitle } from '../composables/tabTitle';
@@ -767,6 +768,8 @@ const contexts = computed<Record<string, CellContext>>(() => {
       unresolved: !r.ok,
       params: paramCompletions.value,
       functions: r.ok ? functionCatalog(r.target.connectionId, r.target.database) : undefined,
+      // A Power BI model's measures, for its DAX cells.
+      otherNames: r.ok && d?.language === 'dax' ? daxOtherNames(conns.objects[dbKey(r.target.connectionId, r.target.database)]?.items ?? []) : undefined,
     };
   }
   return out;

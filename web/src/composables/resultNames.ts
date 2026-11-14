@@ -21,10 +21,11 @@ export interface RunLens {
  *  family, `#` where its dialect has hash comments (the MySQL family,
  *  ClickHouse, BigQuery, Spanner; Redis's and the JSON consoles' `#`
  *  lines), `//` where it has slash comments (Snowflake, Dremio, Drill, CQL,
- *  the JSON consoles and MongoDB's JavaScript, Cypher, Flux) and `/` in
- *  KDB+'s q. */
+ *  the JSON consoles and MongoDB's JavaScript, Cypher, Flux), `/` in
+ *  KDB+'s q, and both `//` and `--` in DAX. */
 export function commentMarkers(language: string | undefined, dialect: string | undefined): string[] {
   if (dialect === 'q') return ['/'];
+  if (language === 'dax') return ['//', '--'];
   const out: string[] = [];
   if (language === 'json' || language === 'cypher' || language === 'flux' || language === 'cql'
     || dialect === 'snowflake' || dialect === 'dremio' || dialect === 'drill') out.push('//');
@@ -199,6 +200,9 @@ export interface NamedPart {
   name: string;
   /** Its statement index in the outcome (the index of its unit in `units`). */
   unit: number;
+  /** Named by the comment above where its results start in their unit
+   *  ({@link ByPlace}), not by its unit's: only some of the unit's results. */
+  placed?: boolean;
   /** Its results, messages and errors, with offsets and lines from the
    *  unit's own start (the tab's script is the unit's text). */
   outcome: QueryOutcome;
@@ -206,40 +210,111 @@ export interface NamedPart {
 
 const empty = (): QueryOutcome => ({ results: [], messages: [], error: null, elapsed_ms: 0, plans: [], log: [], errors: [] });
 
+/** The statements of a run whose results start in different places (a DAX
+ *  `DEFINE` and its `EVALUATE`s, one result each), with those places: where
+ *  in the text sent, sorted. A statement whose results all start in one
+ *  place (every SQL statement, where they start where it does) isn't one. */
+export function resultPlaces(o: QueryOutcome): Map<number, number[]> {
+  const at = new Map<number, Set<number>>();
+  for (const r of o.results) {
+    if (r.statement == null || r.offset == null) continue;
+    let s = at.get(r.statement);
+    if (!s) at.set(r.statement, (s = new Set()));
+    s.add(r.offset);
+  }
+  const out = new Map<number, number[]>();
+  for (const [s, places] of at) if (places.size > 1) out.set(s, [...places].sort((a, b) => a - b));
+  return out;
+}
+
+/** Results named by where they start: in a statement whose results start in
+ *  different places ({@link resultPlaces}), the comment above a result's
+ *  place names it, and it goes to a tab of its own; one without such a
+ *  comment stays with its statement. */
+export interface ByPlace {
+  /** The name above `offset` of the text sent, in statement `unit`. */
+  nameAt: (offset: number, unit: number) => string | null;
+  /** The name of the tab the run is in: a result with it stays there. */
+  kept?: string | null;
+}
+
+/** Each result's own name by its place ({@link ByPlace}), by result index:
+ *  null where it has none, or where its statement's results all start in
+ *  one place. A name a statement of the run has, or an earlier result
+ *  started elsewhere, is that one's: the result stays with its statement. */
+function placeNames(o: QueryOutcome, units: ({ name: string | null } | undefined)[], nameAt: ByPlace['nameAt']): (string | null)[] {
+  const places = resultPlaces(o);
+  if (!places.size) return o.results.map(() => null);
+  const taken = new Set(units.map((u) => u?.name).filter((n): n is string => !!n));
+  const where = new Map<string, string>();
+  return o.results.map((r) => {
+    if (r.statement == null || r.offset == null || !places.has(r.statement) || !units[r.statement]) return null;
+    const name = nameAt(r.offset, r.statement);
+    if (!name || taken.has(name)) return null;
+    const place = `${r.statement}:${r.offset}`;
+    if ((where.get(name) ?? place) !== place) return null;
+    where.set(name, place);
+    return name;
+  });
+}
+
+/** In a statement whose results start in different places (`places`: where
+ *  in its `text`, sorted), the text that gives the one at `place` by itself
+ *  (its export and its chart run it, since a tab holds only some of them):
+ *  what comes before the first place, which they share (a DAX `DEFINE`),
+ *  and its own text up to the next place, without the comment lines at its
+ *  end (the next one's). */
+export function placeText(text: string, places: number[], place: number, markers: string[]): string {
+  const next = places.find((p) => p > place) ?? text.length;
+  const own = text.slice(place, trimTail(text, place, next, markers));
+  const shared = text.slice(0, trimTail(text, 0, Math.min(places[0] ?? place, place), markers));
+  return shared ? `${shared}\n${own}` : own;
+}
+
 /** A run's outcome split by statement: the parts of each named unit (its
  *  results, log entries and errors, by statement index), in the order the
  *  units ran, and what's left (unnamed statements, what has no statement,
- *  plans and plain messages), or null when nothing is. */
-export function splitOutcome(o: QueryOutcome, units: (Pick<RunUnit, 'start' | 'line' | 'name'> | undefined)[]): { rest: QueryOutcome | null; parts: NamedPart[] } {
+ *  plans and plain messages), or null when nothing is. With `byPlace`, a
+ *  result named by its place has a part of its own, after its unit's. */
+export function splitOutcome(
+  o: QueryOutcome,
+  units: (Pick<RunUnit, 'start' | 'line' | 'name'> | undefined)[],
+  byPlace?: ByPlace,
+): { rest: QueryOutcome | null; parts: NamedPart[] } {
   const named = (s: number | null | undefined) => (s != null && units[s]?.name ? s : null);
-  const parts = new Map<number, QueryOutcome>();
-  const partOf = (s: number) => {
-    let p = parts.get(s);
-    if (!p) parts.set(s, (p = empty()));
-    return p;
+  // By its unit's index, or by the name a result gives itself.
+  const parts = new Map<number | string, { unit: number; outcome: QueryOutcome }>();
+  const partOf = (key: number | string, s: number) => {
+    let p = parts.get(key);
+    if (!p) parts.set(key, (p = { unit: s, outcome: empty() }));
+    return p.outcome;
   };
   const rest = empty();
   const shiftLine = (line: number | null | undefined, s: number) => (line == null ? line ?? null : Math.max(1, line - units[s]!.line + 1));
   const shiftOffset = (offset: number | null | undefined, s: number) => (offset == null ? offset ?? null : Math.max(0, offset - units[s]!.start));
 
-  for (const r of o.results) {
-    const s = named(r.statement);
-    if (s === null) { rest.results.push(r); continue; }
+  const own = byPlace ? placeNames(o, units, byPlace.nameAt) : [];
+  o.results.forEach((r, i) => {
+    const name = own[i] ?? null;
+    // Named as the tab the run is in: it stays there.
+    if (name !== null && name === byPlace?.kept) { rest.results.push(r); return; }
+    const s = name !== null ? r.statement! : named(r.statement);
+    if (s === null) { rest.results.push(r); return; }
     const moved: StatementResult = { ...r, offset: shiftOffset(r.offset, s), line: shiftLine(r.line, s) };
-    partOf(s).results.push(moved);
-  }
+    partOf(name ?? s, s).results.push(moved);
+  });
   for (const m of o.log ?? []) {
     const s = named(m.statement);
     if (s === null) { rest.log!.push(m); continue; }
     const moved: Message = { ...m, line: shiftLine(m.line, s) };
-    partOf(s).log!.push(moved);
+    partOf(s, s).log!.push(moved);
   }
   const movedErrors = new Set<string>();
   for (const e of o.errors ?? []) {
     const s = named(e.statement);
     if (s === null) { rest.errors!.push(e); continue; }
     const moved: ScriptError = { ...e, offset: shiftOffset(e.offset, s), line: shiftLine(e.line, s) };
-    partOf(s).errors!.push(moved);
+    partOf(s, s).errors!.push(moved);
     movedErrors.add(e.message);
   }
   if (!parts.size) return { rest: o, parts: [] };
@@ -249,12 +324,15 @@ export function splitOutcome(o: QueryOutcome, units: (Pick<RunUnit, 'start' | 'l
   const texts = (log: Message[]) => log.filter((m) => m.level !== 'error').map((m) => m.text);
   const logged = texts(o.log ?? []).length;
   let named_ms = 0;
-  const out: NamedPart[] = [...parts.entries()].sort((a, b) => a[0] - b[0]).map(([s, p]) => {
+  // In the order the units ran; a unit's results named by their place after
+  // its own part, in the order they came (a stable sort keeps it).
+  const ordered = [...parts.entries()].sort((a, b) => a[1].unit - b[1].unit || Number(typeof a[0] === 'string') - Number(typeof b[0] === 'string'));
+  const out: NamedPart[] = ordered.map(([key, { unit, outcome: p }]) => {
     p.messages = texts(p.log!);
     p.error = p.errors![0]?.message ?? null;
     p.elapsed_ms = p.results.reduce((n, r) => n + (r.elapsed_ms ?? 0), 0);
     named_ms += p.elapsed_ms;
-    return { name: units[s]!.name!, unit: s, outcome: p };
+    return typeof key === 'string' ? { name: key, unit, placed: true, outcome: p } : { name: units[unit]!.name!, unit, outcome: p };
   });
   rest.messages = [...texts(rest.log!), ...o.messages.slice(logged)];
   rest.plans = o.plans;

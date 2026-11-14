@@ -31,6 +31,7 @@ import {
 } from '@codemirror/lang-sql';
 import { json } from '@codemirror/lang-json';
 import { qCompletion, qLanguage, qPath } from '../composables/qLanguage';
+import { daxCompletion, daxInName, daxLanguage, type DaxOther } from '../composables/daxLanguage';
 import { editorTheme } from '../composables/editorTheme';
 import { editorFontSize, resolvedTheme } from '../composables/appearance';
 import { linter, lintGutter, type Diagnostic } from '@codemirror/lint';
@@ -46,7 +47,7 @@ import {
 import { functionCompletion, functionFlavor, functionIndex, offersAny, withoutFunctionNames, type FunctionIndex } from '../composables/functionCompletion';
 import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand, runCommand } from '../composables/commands';
 import { useSettingsStore } from '../stores/settings';
-import type { TableHoverState, TableHoverTarget } from '../composables/tableHover';
+import type { HoverItem, TableHoverState, TableHoverTarget } from '../composables/tableHover';
 import type { RunLens } from '../composables/resultNames';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
@@ -102,8 +103,9 @@ const props = withDefaults(defineProps<{
    *  pointer rests on it (composables/tableHover.ts), or null. */
   tableHover?: ((doc: string, pos: number) => TableHoverTarget | null) | null;
   /** Names completion offers besides the tables in `schema` (KDB+'s
-   *  functions and variables), each with its object kind. */
-  otherNames?: { label: string; kind: string }[];
+   *  functions and variables; a Power BI model's measures, with their home
+   *  table as `parent`), each with its object kind. */
+  otherNames?: DaxOther[];
   /** The engine's function catalog (`Session::function_catalog`) for
    *  completion. Null: not loaded yet, asked for with `needFunctions` on
    *  focus and on completion; absent: none for this editor. */
@@ -290,11 +292,15 @@ let reopenAt: number | null = null;
 
 // -- the engine's functions (composables/functionCompletion.ts) -----------------------------
 /** The index of `functions`, built once per catalog. */
-let functionsOf: { list: readonly FunctionInfo[]; index: FunctionIndex } | null = null;
+let functionsOf: { list: readonly FunctionInfo[]; dotted: boolean; index: FunctionIndex } | null = null;
 function functionIndexNow(): FunctionIndex | null {
   const list = props.functions;
   if (!list) return null;
-  if (functionsOf?.list !== list) functionsOf = { list, index: functionIndex(list, (n) => t('editor:functionOverloads', { count: n })) };
+  // DAX's dots are part of a function's name (INFO.VIEW.TABLES).
+  const dotted = props.language === 'dax';
+  if (functionsOf?.list !== list || functionsOf.dotted !== dotted) {
+    functionsOf = { list, dotted, index: functionIndex(list, (n) => t('editor:functionOverloads', { count: n }), dotted) };
+  }
   return functionsOf.index;
 }
 /** Where the cursor was when completion found the catalog not loaded yet. */
@@ -379,9 +385,33 @@ function qExtension(): Extension {
   return [qLanguage, qLanguage.data.of({ autocomplete: source })];
 }
 
+/** DAX (Power BI): its tokenizer, and completion of the model's tables,
+ *  columns, measures and the query's own names (composables/daxLanguage.ts);
+ *  the functions come from the catalog (`functionsAt`, the `dax` flavor). */
+function daxExtension(): Extension {
+  const source = (ctx: CompletionContext): CompletionResult | null => {
+    const n = names();
+    const { result, needColumns } = daxCompletion(ctx, { tables: props.schema, others: props.otherNames, functions: props.functions });
+    if ((result || ctx.explicit) && !Object.keys(props.schema).length && !props.otherNames.length && !n.namesAsked) {
+      n.namesAsked = true;
+      reopenAt = ctx.pos;
+      emit('needNames');
+    }
+    for (const table of needColumns) {
+      if (n.asked.has(table)) continue;
+      n.asked.add(table);
+      reopenAt = ctx.pos;
+      emit('needColumns', [table]);
+    }
+    return result;
+  };
+  return [daxLanguage, daxLanguage.data.of({ autocomplete: source })];
+}
+
 function languageExt(): Extension {
   if (props.dialect === 'q') return qExtension();
   switch (props.language) {
+    case 'dax': return daxExtension();
     case 'json': return json();
     case 'cql': return sqlLanguage(Cassandra);
     case 'sql': return sqlLanguage(DIALECTS[props.dialect] ?? StandardSQL);
@@ -415,15 +445,21 @@ function abbreviationBefore(state: EditorState, pos: number): { from: number; te
 
 function inStringOrComment(state: EditorState, pos: number): boolean {
   // Lezer grammars name them `String`, `LineComment`; stream languages
-  // (q) by their highlighting tag, `string`, `comment`.
+  // (q, DAX) by their highlighting tag, `string`, `comment`.
   return /string|comment/i.test(syntaxTree(state).resolveInner(pos, -1).name);
+}
+
+/** Where no snippet or parameter goes: a string, a comment, and DAX's
+ *  'table names' and [column or measure] references (`[ca‸` is a name). */
+function noSnippetAt(state: EditorState, pos: number): boolean {
+  return inStringOrComment(state, pos) || daxInName(state, pos);
 }
 
 /** Tab after an abbreviation: the snippet replaces it, with its tab stops. */
 function expandSnippet(v: EditorView): boolean {
   if (props.readOnly || !props.snippets.length) return false;
   const sel = v.state.selection.main;
-  if (!sel.empty || inStringOrComment(v.state, sel.head)) return false;
+  if (!sel.empty || noSnippetAt(v.state, sel.head)) return false;
   const word = abbreviationBefore(v.state, sel.head);
   if (!word) return false;
   const s = props.snippets.find((x) => x.abbr === word.text) ?? props.snippets.find((x) => x.abbr.toLowerCase() === word.text.toLowerCase());
@@ -435,7 +471,7 @@ function expandSnippet(v: EditorView): boolean {
 
 /** The snippets as completion entries too (any language: not tied to one). */
 const snippetSource = (ctx: CompletionContext): CompletionResult | null => {
-  if (!props.snippets.length || props.readOnly || inStringOrComment(ctx.state, ctx.pos)) return null;
+  if (!props.snippets.length || props.readOnly || noSnippetAt(ctx.state, ctx.pos)) return null;
   const word = abbreviationBefore(ctx.state, ctx.pos);
   // Not after a dot (`sales.`, `sales.or`): a name goes there, not a snippet,
   // even when the list was opened explicitly.
@@ -450,8 +486,8 @@ const snippetSource = (ctx: CompletionContext): CompletionResult | null => {
 /** A notebook's parameters as `{{name}}`: after a typed `{{` (the closing
  *  braces the editor added are replaced too), or on ⌃Space in code. */
 const paramSource = (ctx: CompletionContext): CompletionResult | null => {
-  // Never inside a string or a comment: a parameter there doesn't run.
-  if (!props.params.length || props.readOnly || inStringOrComment(ctx.state, ctx.pos)) return null;
+  // Never inside a string, a comment or a DAX name: a parameter there doesn't run.
+  if (!props.params.length || props.readOnly || noSnippetAt(ctx.state, ctx.pos)) return null;
   const typed = ctx.matchBefore(/\{\{[ \t]*\w*$/);
   if (!typed && !ctx.explicit) return null;
   const word = typed ?? ctx.matchBefore(/\w*$/);
@@ -573,6 +609,8 @@ function fillTableHover(body: HTMLElement, s: TableHoverState) {
   if (s.status === 'loading') return note(t('editor:tableHover.loading'));
   if (s.status === 'empty') return note(t('editor:tableHover.empty'));
   if (s.status === 'error') return note(t('editor:tableHover.error', { error: s.message, interpolation: { escapeValue: false } }), 'is-error');
+  if (s.status === 'unknown') return note(t('editor:tableHover.unknown'));
+  if (s.status === 'item') return fillHoverItem(body, s.item, note);
   if (s.comment) note(s.comment, 'is-comment');
   const table = document.createElement('table');
   for (const c of s.columns) {
@@ -601,6 +639,38 @@ function fillTableHover(body: HTMLElement, s: TableHoverState) {
   body.append(table);
 }
 
+/** A DAX [column] or [measure]: what it is, its type (and key or format),
+ *  its description and a measure's expression. */
+function fillHoverItem(body: HTMLElement, it: HoverItem, note: (text: string, cls?: string) => void) {
+  const span = (cls: string, text: string) => {
+    const e = document.createElement('span');
+    e.className = cls;
+    e.textContent = text;
+    return e;
+  };
+  const head = document.createElement('div');
+  head.className = 'cm-table-hover-note cm-table-hover-kind';
+  head.append(span('', t(`editor:tableHover.kind.${it.kind}`)));
+  if (it.data_type) head.append(' · ', span('cm-table-hover-type', it.data_type));
+  if (it.primary_key) {
+    const pk = span('cm-table-hover-pk', 'PK');
+    pk.title = t('editor:tableHover.primaryKey');
+    head.append(' ', pk);
+  }
+  if (it.format) head.append(' · ', t('editor:tableHover.format'), ' ', span('cm-table-hover-type', it.format));
+  body.append(head);
+  if (it.comment) note(it.comment, 'is-comment');
+  if (it.expression) {
+    const pre = document.createElement('pre');
+    pre.className = 'cm-table-hover-expr';
+    pre.textContent = it.expression;
+    body.append(pre);
+  }
+  if (it.loading) note(t('editor:tableHover.loadingDefinition'));
+  else if (it.error) note(t('editor:tableHover.definitionError', { error: it.error, interpolation: { escapeValue: false } }), 'is-error');
+  else if (it.hidden) note(t('editor:tableHover.noExpression'));
+}
+
 function tableHoverView(v: EditorView, target: TableHoverTarget): TooltipView {
   const dom = document.createElement('div');
   dom.className = 'cm-table-hover';
@@ -612,6 +682,8 @@ function tableHoverView(v: EditorView, target: TableHoverTarget): TooltipView {
   dom.append(title, body);
   let mounted = false;
   const stop = target.watch((s) => {
+    // A DAX reference's own `'Table'[name]`, once known.
+    title.textContent = s.status === 'item' ? s.item.title : target.title;
     fillTableHover(body, s);
     // A new size: placed again (not from inside the editor's own update).
     if (mounted) requestAnimationFrame(() => repositionTooltips(v));
@@ -651,6 +723,11 @@ const tableHoverExt = [
     '.cm-table-hover-type': { fontFamily: 'var(--nm-mono)', color: 'var(--nm-syn-type)' },
     '.cm-table-hover-null': { fontFamily: 'var(--nm-mono)', fontSize: '11px', color: 'var(--nm-text-muted)' },
     '.cm-table-hover td.cm-table-hover-comment': { color: 'var(--nm-text-dim)', whiteSpace: 'normal', minWidth: '120px', maxWidth: '280px' },
+    '.cm-table-hover-note.cm-table-hover-kind': { color: 'var(--nm-text)' },
+    '.cm-table-hover-expr': {
+      margin: '2px 0 0', padding: '4px 8px', fontFamily: 'var(--nm-mono)', fontSize: '12px', whiteSpace: 'pre', color: 'var(--nm-text)',
+      borderTop: '1px solid var(--nm-border)',
+    },
     '.cm-table-hover-pk': {
       fontSize: '10px', padding: '0 3px', borderRadius: '3px', color: 'var(--nm-warn-fg)', border: '1px solid currentColor',
     },

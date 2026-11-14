@@ -231,9 +231,15 @@ It is built in `src-tauri/src/commands/ai.rs`:
   - Cap: about 150,000 characters.
 - **Editor:** the text of the open query, the selection and the error of the
   last run.
-- **Dialect hints** (SQL Server, PostgreSQL, MySQL, Oracle, SQLite): how names
+- **Dialect hints** (SQL Server, PostgreSQL, MySQL, Oracle, SQLite, Power BI
+  (DAX)): how names
   are quoted, how a table from another database is named and how rows are
-  limited, which is where small models get it wrong the most.
+  limited, which is where small models get it wrong the most. In DAX (Power
+  BI) the hint says DAX is not SQL, that `EVALUATE` returns a table, how
+  tables, columns and measures are written and their quotes and brackets
+  doubled, `DEFINE MEASURE` and `VAR`, `TOPN`, `SUMMARIZECOLUMNS` and
+  `CALCULATETABLE`, how `BLANK` compares, to use the model's measures, and
+  that DAX queries only read.
 - **Data rows are never sent.**
 - **Contexts:** the user's notes, see the next section.
 

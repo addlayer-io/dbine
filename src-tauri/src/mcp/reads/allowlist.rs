@@ -8,7 +8,10 @@
 //! family. Anything else (a function not listed, a user-defined one, a
 //! qualified or quoted name, a non-SQL language) goes to the user's approval.
 
-use dbine_driver::sql::{expose_versioned, name_tokens, NameToken, ScriptDialect, TokenKind};
+use dbine_driver::sql::{
+    expose_versioned, name_tokens, NameToken, ScriptDialect, ScriptStatement, StatementKind,
+    TokenKind,
+};
 use dbine_driver::Language;
 
 /// The engine families with their own built-ins.
@@ -872,6 +875,33 @@ const READ_PRAGMAS: &[&str] = &[
 /// Whether `query` may run on the approval-free path: `Ok` when every
 /// function it calls is a listed built-in of the engine's family; `Err`
 /// names the first one that isn't (or why the statement can't be checked).
+/// DAX: `Ok` when the query is one unit, as the driver's own splitter cut
+/// it ([`dbine_driver::Driver::split_script`]: the same rules its
+/// `Session::run_read_only` checks again), that is a DAX query
+/// ([`dbine_driver::read_only::dax_is_query`]) with a single `EVALUATE`
+/// (the splitter marks a `DEFINE` followed by several as
+/// [`StatementKind::Block`]). DAX has no function with a side effect, and
+/// the query APIs run nothing but DAX queries: the service enforces the
+/// read. Anything else goes to the user's approval.
+pub(crate) fn dax_approval_free(units: &[ScriptStatement]) -> Result<(), String> {
+    let [unit] = units else {
+        return Err(format!(
+            "{} DAX units: only a single query runs without approval",
+            units.len()
+        ));
+    };
+    if let Some(e) = &unit.error {
+        return Err(e.clone());
+    }
+    if unit.kind != StatementKind::Sql {
+        return Err("more than one EVALUATE".into());
+    }
+    if !dbine_driver::read_only::dax_is_query(&unit.text) {
+        return Err("not a DAX query (DEFINE / EVALUATE)".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn approval_free(
     language: Language,
     hint: &str,
@@ -1173,6 +1203,76 @@ mod tests {
             "RETURN 1"
         )
         .is_err());
+        // DAX goes through the driver's own units, never this lexer.
+        assert!(approval_free(
+            Language::Dax,
+            "powerbi",
+            &ScriptDialect::generic(),
+            "EVALUATE {1}"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_single_dax_query_runs_without_approval() {
+        let unit = |text: &str, kind: StatementKind| ScriptStatement {
+            text: text.into(),
+            start: 0,
+            end: text.len(),
+            line: 1,
+            kind,
+            repeat: 1,
+            error: None,
+        };
+        let q = |t: &str| unit(t, StatementKind::Sql);
+        assert_eq!(dax_approval_free(&[q("EVALUATE 'Ventas'")]), Ok(()));
+        assert_eq!(
+            dax_approval_free(&[q("DEFINE MEASURE 'T'[m] = 1\nEVALUATE {[m]}")]),
+            Ok(())
+        );
+        // Two units, several EVALUATEs in one, an empty script.
+        assert!(dax_approval_free(&[q("EVALUATE {1}"), q("EVALUATE {2}")]).is_err());
+        assert!(dax_approval_free(&[unit(
+            "DEFINE VAR x = 1 EVALUATE {x} EVALUATE {x}",
+            StatementKind::Block
+        )])
+        .is_err());
+        assert!(dax_approval_free(&[]).is_err());
+        // The driver's own commands, or anything that isn't a query.
+        assert!(dax_approval_free(&[q("GRANT Read TO \"ana@contoso.com\"")]).is_err());
+        assert!(dax_approval_free(&[q("{1}")]).is_err());
+        // A unit the splitter flagged.
+        let mut bad = q("DEFINE VAR x = 1");
+        bad.error = Some("Falta EVALUATE después de DEFINE".into());
+        assert!(dax_approval_free(&[bad]).is_err());
+    }
+
+    /// The check above trusts the units the Power BI driver cuts (the
+    /// `Block` mark above all): the same inputs through its real splitter,
+    /// as `mcp/tools.rs::approval_free` passes them.
+    #[test]
+    #[ignore = "needs part B's DAX splitter (crates/drivers/powerbi/src/dax/split.rs): the phase 1 fallback never marks a unit Block and doesn't cut at EVALUATE"]
+    fn dax_approval_free_through_the_power_bi_splitter() {
+        let d = dbine_drivers::find("powerbi").expect("the Power BI driver");
+        let check = |q: &str| dax_approval_free(&d.split_script(q));
+        assert_eq!(check("// n\nEVALUATE 'T'"), Ok(()));
+        assert_eq!(
+            check("DEFINE MEASURE 'T'[m] = 1\nEVALUATE {[m]}\nORDER BY [m]"),
+            Ok(())
+        );
+        // Two EVALUATEs, without `;`: two units, or one unit with several.
+        assert!(check("EVALUATE {1}\nEVALUATE {2}").is_err());
+        assert!(check("EVALUATE {1} EVALUATE {2}").is_err());
+        assert!(check("DEFINE VAR x = 1 EVALUATE {x} EVALUATE {x}").is_err());
+        assert!(check("DEFINE VAR x = 1\nEVALUATE {x}\n// b\nEVALUATE {x}").is_err());
+        // One of the driver's commands; a DEFINE alone.
+        assert!(check("GRANT Read TO \"ana@contoso.com\"").is_err());
+        assert!(check("DEFINE VAR x = 1").is_err());
+        // EVALUATE inside a string, a name, a ref or a comment doesn't count.
+        assert_eq!(check("EVALUATE { \"EVALUATE\" } // EVALUATE {2}"), Ok(()));
+        assert_eq!(check("EVALUATE 'EVALUATE'"), Ok(()));
+        assert_eq!(check("EVALUATE {[EVALUATE]}"), Ok(()));
+        assert_eq!(check("EVALUATE {1} /* EVALUATE {2} */"), Ok(()));
     }
 
     #[test]

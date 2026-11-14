@@ -27,7 +27,8 @@
     "search": "Elasticsearch, OpenSearch, Solr",
     "redis": "Redis, Valkey, Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j, Memgraph, Neptune"
+    "cypher": "Neo4j, Memgraph, Neptune",
+    "dax": "Power BI (DAX)"
   },
   "problems": {
     "button": "문제 보기",
@@ -228,6 +229,56 @@
       "title": "WHERE 없는 DETACH DELETE",
       "message": "WHERE 없는 DETACH DELETE는 MATCH가 찾은 모든 노드를 삭제합니다",
       "why": "노드와 그 관계를 모두 삭제합니다. WHERE나 속성 필터가 없으면 패턴의 모든 노드가 삭제됩니다. MATCH를 검토하세요. 많은 노드를 삭제할 때는 배치(CALL { … } IN TRANSACTIONS)로 나누어 삭제하세요."
+    },
+    "filter-whole-table": {
+      "title": "CALCULATE에서 전체 테이블에 FILTER 사용",
+      "message": "FILTER({{table}}, …)는 전체 테이블을 필터링합니다. 열에 대한 조건이나 KEEPFILTERS를 사용하세요",
+      "why": "CALCULATE의 필터로 쓰이면 FILTER는 테이블(및 관련 테이블)의 모든 행을 순회하고, 만들어지는 필터는 모든 열에 걸칩니다. 느리고 예상치 못한 결과가 나올 수 있습니다. 조건은 열에 대해 작성하세요('테이블'[열] = 값). 이미 적용된 필터를 유지하려면 KEEPFILTERS('테이블'[열] = 값)를 사용합니다. 측정값으로 필터링한다면 테이블이 아니라 열의 값(해당 열의 VALUES 또는 ALL)에 FILTER를 사용하세요."
+    },
+    "error-functions": {
+      "title": "IFERROR 및 ISERROR",
+      "message": "{{fn}}은(는) 식을 단계별로 평가하게 하고 오류를 숨깁니다",
+      "why": "오류 함수는 엔진이 식을 한 번에 처리하지 못하게 하고 모델의 실제 오류를 숨깁니다. 나눗셈에는 DIVIDE를 사용하고, 그 밖의 경우에는 오류를 잡는 대신 조건을 먼저 확인하세요(ISBLANK, 검증이 포함된 IF)."
+    },
+    "divide-operator": {
+      "title": "/ 나눗셈",
+      "message": "/의 분모가 0이거나 비어 있을 수 있습니다. DIVIDE를 사용하세요",
+      "why": "DAX에서 0이나 빈 값으로 나눠도 오류가 나지 않고 무한대 또는 NaN이 되며, 이것이 보고서에 표시됩니다. DIVIDE(분자, 분모)는 이런 경우 빈 값 또는 지정한 대체 결과를 반환합니다. 분모가 상수이면 /를 써도 됩니다."
+    },
+    "summarize-extension-columns": {
+      "title": "계산 열이 있는 SUMMARIZE",
+      "message": "SUMMARIZE가 열 {{name}}을(를) 계산합니다. SUMMARIZECOLUMNS 또는 ADDCOLUMNS를 사용하세요",
+      "why": "SUMMARIZE가 계산하는 열은 예측하기 어려운 필터 컨텍스트에서 평가되어 잘못된 결과가 나올 수 있고 더 느립니다. SUMMARIZE는 그룹화에만 사용하고 계산은 ADDCOLUMNS로 추가하거나(측정값이 아닌 부분은 CALCULATE로 감쌉니다) SUMMARIZECOLUMNS를 사용하세요."
+    },
+    "topn-without-order-by": {
+      "title": "ORDER BY가 없는 TOPN",
+      "message": "TOPN은 행을 선택만 하고 정렬하지 않습니다. EVALUATE에 ORDER BY를 추가하세요",
+      "why": "TOPN은 결과의 순서를 보장하지 않으므로 행이 임의의 순서로 나올 수 있습니다. 정렬된 결과를 보려면 EVALUATE 끝에 같은 기준과 같은 방향으로 ORDER BY를 추가하세요(지정하지 않으면 TOPN은 값이 큰 행을 가져옵니다). 정렬 기준이 있는 TOPN만 표시됩니다. 정렬 식이 없거나 행이 하나뿐이면 유지할 순서가 없습니다."
+    },
+    "redundant-calculate": {
+      "title": "불필요한 CALCULATE",
+      "message": "필터가 없는 {{fn}}은(는) 결과를 바꾸지 않습니다",
+      "why": "측정값 참조에는 이미 암시적 CALCULATE가 있고, 다른 CALCULATE 안의 CALCULATE는 이미 컨텍스트 전환을 수행합니다. 자체 필터가 없는 바깥쪽 CALCULATE는 작업량과 노이즈만 늘립니다. 제거하고 측정값이나 안쪽 CALCULATE만 남기세요."
+    },
+    "hasonevalue-values": {
+      "title": "IF(HASONEVALUE(…), VALUES(…))",
+      "message": "SELECTEDVALUE({{column}})를 사용하세요",
+      "why": "SELECTEDVALUE는 컨텍스트에 값이 하나뿐이면 그 열의 값을, 아니면 대체 결과를 반환합니다. IF(HASONEVALUE(…), VALUES(…), …)와 동등한 짧은 형태입니다."
+    },
+    "unqualified-column": {
+      "title": "테이블 없는 열",
+      "message": "“{{column}}”은(는) 열입니다. 테이블과 함께 작성하세요: {{qualified}}",
+      "why": "DAX에서 열은 테이블과 함께, 측정값은 테이블 없이 작성합니다. 한눈에 구분되고, 같은 이름의 측정값이 만들어져도 수식의 의미가 바뀌지 않습니다. 열만 올 수 있는 위치에서 스크립트가 직접 테이블 없이 쓴 열만 표시됩니다."
+    },
+    "qualified-measure": {
+      "title": "테이블이 붙은 측정값",
+      "message": "“{{measure}}”은(는) 측정값입니다. 테이블 없이 작성하세요",
+      "why": "DAX에서 측정값은 테이블 없이([측정값]), 열은 테이블과 함께('테이블'[열]) 작성합니다. 구분하기 쉽고 측정값이 다른 테이블로 옮겨져도 수식이 계속 동작합니다. 스크립트가 MEASURE로 정의하면서 자신의 테이블과 함께 쓴 측정값만 표시됩니다. 다른 테이블의 같은 이름은 열입니다."
+    },
+    "earlier": {
+      "title": "EARLIER 및 EARLIEST",
+      "message": "{{fn}}: 값을 변수에 저장하세요",
+      "why": "EARLIER와 EARLIEST는 이전 행 컨텍스트를 읽기 때문에 수식을 따라가기 어렵게 만듭니다. 반복기 앞에서 값을 변수(VAR)에 저장하고 안에서 사용하세요. 결과는 같고 수식을 위에서 아래로 읽을 수 있습니다."
     },
     "unknown-table": {
       "title": "알 수 없는 테이블",

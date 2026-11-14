@@ -20,6 +20,7 @@
  "assistant.dialect_mysql": "MySQL 语法：含连字符或保留字的名称要放在反引号中（`my-db`）。同一服务器上另一个数据库中的表命名为 database.table。要限制行数，使用 LIMIT n。",
  "assistant.dialect_oracle": "Oracle 语法：含小写字母、连字符或保留字的名称要放在双引号中。另一个架构中的表命名为 SCHEMA.TABLE。要限制行数，使用 FETCH FIRST n ROWS ONLY（12c 起）；没有 LIMIT 或 TOP。",
  "assistant.dialect_sqlite": "SQLite 语法：要限制行数，使用 LIMIT n。每个数据库是一个文件；使用 ATTACH 来使用另一个数据库。",
+ "assistant.dialect_dax": "DAX（Power BI）语法，不是 SQL：没有 SELECT、FROM、WHERE、JOIN 或 GROUP BY。查询由 EVALUATE 加一个表表达式构成，返回一张表；单个值放在花括号中（EVALUATE { [销售总额] }）或放在 ROW(\"销售\", [销售总额]) 中。表名写在单引号中（'销售明细'；如果名称包含空格或特殊字符，或是保留字，则必须加引号），列始终带表名书写（'销售'[金额]），度量值不带表名（[销售总额]）。表名中的单引号要重复一次（'O''Brien'），列名或度量值名称中的右方括号也一样（[Price [USD]]]）；在文本（\"…\"）中，双引号要重复一次。定义写在唯一的一个 DEFINE 之后、第一个 EVALUATE 之前（MEASURE '销售'[利润] = …、VAR 上限 = …、TABLE、COLUMN），对后面所有的 EVALUATE 都有效；表达式内部使用 VAR … RETURN。要限制行数，使用 TOPN(n, 表, 排序, DESC)（没有 LIMIT 或 TOP），它不会排序：结果的顺序由 EVALUATE 末尾的 ORDER BY 决定。分组使用 SUMMARIZECOLUMNS('表'[列], \"名称\", [度量值])；筛选使用 CALCULATETABLE(表, 筛选器) 或 FILTER，取单个值使用 CALCULATE。表之间通过模型的关系（RELATED、RELATEDTABLE、USERELATIONSHIP）关联，而不是使用 join，且一次查询只读取一个模型。空值是 BLANK()，不是 NULL：用 ISBLANK() 判断；使用 = 时它等于 0 和 \"\"（== 可以区分它们），SUMMARIZECOLUMNS 会省略所有度量值都为 BLANK 的行。请使用模型中的度量值，而不要用 SUM 重新构建。DAX 查询只读：不会更改数据或模型，DEFINE MEASURE 仅在查询运行期间存在。",
  "assistant.database": "当前数据库：{database}。",
  "assistant.read_only": "该连接是只读的：DBine 会阻止所有非读取操作。",
  "assistant.object": "用户正在查看对象 {object}。",

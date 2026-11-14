@@ -1,12 +1,14 @@
 import type { DbObject, Language, ObjectKindInfo } from '../api/types';
 import { KEYWORDS, aliasesIn, chainAt, findObjects, nameAt } from './nameRefs';
 import { lexRegions, lexSyntax, maskCode, regionAt } from './sqlLexer';
+import { daxRefAt } from './daxLanguage';
 
 // Hovering a table's name in the editor shows its columns (CodeEditor's
 // `tableHover`). This finds which table the name under the pointer stands
 // for, with the same name reading as ⌘/Ctrl+click (composables/nameRefs.ts):
 // quoted identifiers, `schema.table`, an alias's table and, on engines whose
-// queries read other databases, `db.table` / `db.schema.table`.
+// queries read other databases, `db.table` / `db.schema.table`. In DAX a
+// `[column]` or a `[measure]` shows itself too (daxHover.ts).
 
 /** What the editor knows of the tab's database and the connection's others. */
 export interface HoverIndex {
@@ -49,6 +51,15 @@ function databaseNamed(idx: HoverIndex, name: string): string | null {
  *  name, a keyword, a column, a schema or a database, or nothing known by
  *  that name. */
 export function tableAt(idx: HoverIndex, doc: string, pos: number): TableRef | null {
+  if (idx.language === 'dax') {
+    // A table's name, quoted ('Sales Order') or bare (Sales); not a
+    // [column] or a [measure].
+    const r = daxRefAt(doc, pos);
+    if (r?.kind !== 'table') return null;
+    const objects = idx.objects.filter((o) => !o.parent && o.kind !== 'hierarchy');
+    const t = tableNamed(idx, idx.database, objects, [r.name]);
+    return t ? { from: r.from, to: r.to, database: idx.database, object: t, path: [t.name] } : null;
+  }
   const sqlLike = idx.language === 'sql' || idx.language === 'cql';
   if (!sqlLike) {
     // mongosh, HTTP consoles, Cypher…: the word the explorer knows.
@@ -105,11 +116,37 @@ export interface HoverColumn {
   comment: string | null;
 }
 
+/** A DAX `[column]` or `[measure]` as the popup shows it (daxHover.ts):
+ *  what it is, and what the explorer or the query says of it. */
+export interface HoverItem {
+  /** A model column or measure, or one the query defines or makes. */
+  kind: 'column' | 'measure' | 'queryColumn' | 'queryMeasure';
+  /** `'Table'[name]` once known: it replaces the target's title. */
+  title: string;
+  data_type: string | null;
+  primary_key: boolean;
+  comment: string | null;
+  /** A measure's DAX (the query's own, or the model's when the user may
+   *  see it). */
+  expression: string | null;
+  /** A model measure's format string. */
+  format: string | null;
+  /** A model measure whose expression the user may not see. */
+  hidden: boolean;
+  /** Its details are still being read. */
+  loading: boolean;
+  /** They couldn't be read. */
+  error: string | null;
+}
+
 export type TableHoverState =
   | { status: 'loading' }
   | { status: 'ready'; columns: HoverColumn[]; comment: string | null }
   | { status: 'empty' }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string }
+  | { status: 'item'; item: HoverItem }
+  /** A DAX reference neither the query nor the explorer knows. */
+  | { status: 'unknown' };
 
 /** What the editor asks for a name: where it is, its title and its columns
  *  (`watch` calls back with each new state until the returned stop). */

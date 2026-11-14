@@ -27,10 +27,20 @@
 //! thread: a host's batches reach the sink on the task that reads
 //! (`RemoteSession::read_batches`), with the host's window as the
 //! backpressure, so the scratch DuckDB's replies, on the same host or not,
-//! keep coming.
+//! keep coming. A query's rows come through `execute`'s row sink, which
+//! has no window: they queue for the task that reads, a bounded queue
+//! ([`Relay`]) that holds the host's reader thread when full, except on the
+//! DuckDB host, where a result that far ahead stops the compare instead.
 //!
 //! Both paths give the same result: the same equality ([`canon`]), the first
 //! row read of a repeated key compared, and the lists in the same key order.
+//!
+//! A query compare (`data_compare_query`) runs on the same machinery
+//! ([`compare_with`]): each side reads a query's whole result instead of a
+//! table ([`Read::Query`]), its columns are paired by the user rather than
+//! by name ([`Pairs`]), and its values compare by looser [`Rules`] (a
+//! tolerance on numbers, NULL as BLANK…), which the scratch DuckDB applies
+//! too, from a few columns more per compared column.
 
 use super::{as_bool, canon, is_bool_type, sort_value, ChangedRow, Counts, SortValue};
 use crate::error::{CommandError, CommandResult};
@@ -177,6 +187,114 @@ pub(crate) struct Side<'a> {
     pub object: &'a ObjectRef,
 }
 
+/// What a side of [`compare_with`] reads: a table whole, with its driver's
+/// batched read, or the whole result of a query, streamed by `execute`
+/// (never only the rows a grid would show).
+#[derive(Clone, Copy)]
+pub(crate) enum Read<'a> {
+    Table(&'a ObjectRef),
+    Query(&'a str),
+}
+
+/// One side of [`compare_with`]: its session and what it reads.
+pub(crate) struct Source<'a> {
+    pub session: &'a mut dyn Session,
+    pub read: Read<'a>,
+    /// A query's rows that arrive off the runtime (a driver host's reader
+    /// thread) may be held there while the compare catches up ([`Relay`]).
+    /// `false` when that thread also brings the scratch DuckDB's replies (a
+    /// side on the DuckDB host, `duckdb` or `duckdb_files`): holding it
+    /// there would wait forever, so a result that runs too far ahead is
+    /// refused instead. A table's batched read has the host's window and
+    /// doesn't use it.
+    pub hold: bool,
+}
+
+impl<'a> From<Side<'a>> for Source<'a> {
+    fn from(s: Side<'a>) -> Source<'a> {
+        Source {
+            session: s.session,
+            read: Read::Table(s.object),
+            hold: true,
+        }
+    }
+}
+
+/// How values are matched and compared. The table compare's ([`Exact`]):
+/// keys and values by their canonical form ([`canon`]), one hash per row
+/// in the scratch DuckDB. Looser rules (a query compare's tolerance on
+/// numbers, NULL as BLANK…) keep a few more cells per compared column
+/// there ([`Rules::columns`]) and say in SQL what the hashes alone can't
+/// ([`Rules::same_sql`]); both paths then agree with [`Rules::same`].
+pub(crate) trait Rules: Send + Sync {
+    /// A key column's value as rows are matched by it.
+    fn key(&self, v: &Value) -> String {
+        canon(v)
+    }
+    /// Whether a compared column's two values are the same. Values with
+    /// the same canonical form must be (equal hashes decide first).
+    fn same(&self, l: &Value, r: &Value) -> bool {
+        canon(l) == canon(r)
+    }
+    /// The scratch table's columns kept per compared non-key column
+    /// (suffix, DuckDB type); none: the hashes decide.
+    fn columns(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+    /// A value's cells for [`Rules::columns`], in their order.
+    fn cells(&self, _v: &Value) -> Vec<Cell> {
+        Vec::new()
+    }
+    /// SQL that says, never NULL, whether compared column `i`'s values are
+    /// the same on the views `l` and `r` (its cells are `l.<suffix><i>`…),
+    /// exactly as [`Rules::same`] does.
+    fn same_sql(&self, _i: usize) -> String {
+        "false".into()
+    }
+    /// Whether a row found on one side only is the same as the row the
+    /// other side left out, by its compared non-key `values` (never when
+    /// there are none): a query compare's NULL as BLANK, since DAX leaves
+    /// out the rows whose measures are all BLANK.
+    fn lone_same(&self, _values: &[Value]) -> bool {
+        false
+    }
+    /// SQL that says, never NULL, what [`Rules::lone_same`] says of compared
+    /// column `i` on view `view` (`l` or `r`); every compared non-key column
+    /// has to say so. `None`: never the same.
+    fn lone_same_sql(&self, _view: &str, _i: usize) -> Option<String> {
+        None
+    }
+}
+
+/// The table compare's rules: canonical values, hashes decide.
+pub(crate) struct Exact;
+
+impl Rules for Exact {}
+
+/// The compared columns given as (left, right) pairs, the key's first: a
+/// query's columns needn't share names (DAX's `Date[Year]` against SQL's
+/// `year`).
+pub(crate) struct Pairs {
+    pub columns: Vec<(String, String)>,
+    pub nk: usize,
+}
+
+/// How [`compare_with`] pairs columns and compares values.
+pub(crate) struct How {
+    /// `None`: by name, from [`Input::key`] and [`Input::wanted`].
+    pub pairs: Option<Pairs>,
+    pub rules: Arc<dyn Rules>,
+}
+
+impl Default for How {
+    fn default() -> How {
+        How {
+            pairs: None,
+            rules: Arc::new(Exact),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Phase {
     Reading,
@@ -278,6 +396,70 @@ impl Projection {
         })
     }
 
+    /// The columns as paired (the key's first): each name must be among
+    /// its side's (ignoring case), and a left column is compared once.
+    fn paired(
+        input: &Input,
+        pairs: &Pairs,
+        lnames: &[String],
+        rnames: &[String],
+    ) -> CommandResult<Projection> {
+        let find = |names: &[String], n: &str| {
+            names
+                .iter()
+                .position(|x| x == n)
+                .or_else(|| names.iter().position(|x| x.eq_ignore_ascii_case(n)))
+        };
+        if pairs.nk == 0 || pairs.nk > pairs.columns.len() {
+            return Err(CommandError::BadRequest(
+                "elegí las columnas que identifican cada fila (la clave)".into(),
+            ));
+        }
+        let mut columns: Vec<(String, String)> = Vec::with_capacity(pairs.columns.len());
+        for (l, r) in &pairs.columns {
+            let (Some(li), Some(ri)) = (find(lnames, l), find(rnames, r)) else {
+                return Err(CommandError::BadRequest(format!(
+                    "la columna «{l}» / «{r}» no está en los dos resultados"
+                )));
+            };
+            if columns.iter().any(|c| c.0 == lnames[li]) {
+                return Err(CommandError::BadRequest(format!(
+                    "la columna «{l}» se compara dos veces"
+                )));
+            }
+            columns.push((lnames[li].clone(), rnames[ri].clone()));
+        }
+        let booleans = |cols: &[ColumnInfo], name: &str| {
+            cols.iter()
+                .any(|c| c.name.eq_ignore_ascii_case(name) && is_bool_type(&c.data_type))
+        };
+        let bools = [
+            columns
+                .iter()
+                .map(|c| booleans(&input.cols[0], &c.0))
+                .collect(),
+            columns
+                .iter()
+                .map(|c| booleans(&input.cols[1], &c.1))
+                .collect(),
+        ];
+        Ok(Projection {
+            nk: pairs.nk,
+            only_left_columns: lnames
+                .iter()
+                .filter(|n| !columns.iter().any(|c| &c.0 == *n))
+                .cloned()
+                .collect(),
+            only_right_columns: rnames
+                .iter()
+                .filter(|n| !columns.iter().any(|c| &c.1 == *n))
+                .cloned()
+                .collect(),
+            columns,
+            bools,
+        })
+    }
+
     /// The compared columns' names on `side`.
     fn names(&self, side: usize) -> Vec<String> {
         self.columns
@@ -302,6 +484,8 @@ pub(crate) struct Compared {
     pub last_keys: Option<(Option<Value>, Option<Value>)>,
     /// The rows went through the scratch DuckDB.
     pub spilled: bool,
+    /// The columns each side's query returned (empty for a table).
+    pub query_columns: [Vec<ResultColumn>; 2],
 }
 
 // ---------------------------------------------------------------------------
@@ -326,8 +510,25 @@ pub(crate) fn value_of(c: Cell) -> Value {
 
 /// A projected row's key as compared: the canonical values of its key
 /// columns.
+#[cfg(test)]
 pub(crate) fn key_of(p: &[Value], nk: usize) -> String {
-    p[..nk].iter().map(canon).collect::<Vec<_>>().join("\u{1}")
+    key_with(&Exact, p, nk)
+}
+
+/// A projected row's key as `rules` match it.
+fn key_with(rules: &dyn Rules, p: &[Value], nk: usize) -> String {
+    p[..nk]
+        .iter()
+        .map(|v| rules.key(v))
+        .collect::<Vec<_>>()
+        .join("\u{1}")
+}
+
+/// The compared non-key columns that differ between two projected rows.
+fn differing(rules: &dyn Rules, l: &[Value], r: &[Value], nk: usize) -> Vec<usize> {
+    (nk..l.len())
+        .filter(|&i| !rules.same(&l[i], r.get(i).unwrap_or(&Value::Null)))
+        .collect()
 }
 
 /// Text that sorts (byte by byte) as the key's values do in the UI's sort
@@ -371,19 +572,76 @@ fn hash_of(p: &[Value], nk: usize) -> (i64, i64) {
     (half(0..8), half(8..16))
 }
 
-/// A projected row as the scratch table's cells.
-fn cells(side: usize, n: u64, p: &[Value], nk: usize) -> Vec<Cell> {
+/// A projected row as the scratch table's cells: [`COLUMNS`], then what
+/// `rules` keep of each compared non-key column ([`Layout`]).
+fn cells(side: usize, n: u64, p: &[Value], nk: usize, rules: &dyn Rules) -> Vec<Cell> {
     let (h1, h2) = hash_of(p, nk);
-    vec![
+    let mut c = vec![
         Cell::Int(side as i64),
         Cell::Int(n as i64),
-        Cell::Text(key_of(p, nk)),
+        Cell::Text(key_with(rules, p, nk)),
         Cell::Text(order_key(&p[..nk])),
         Cell::Int(h1),
         Cell::Int(h2),
         Cell::Text(serde_json::to_string(p).unwrap_or_else(|_| "null".into())),
-    ]
+    ];
+    if !rules.columns().is_empty() {
+        for v in &p[nk..] {
+            c.extend(rules.cells(v));
+        }
+    }
+    c
 }
+
+/// The scratch table's columns past [`COLUMNS`]: what looser [`Rules`]
+/// keep of each compared non-key column, and the SQL that compares rows
+/// with them. The table compare has none (the hashes decide).
+#[derive(Clone)]
+struct Layout {
+    rules: Arc<dyn Rules>,
+    /// The compared non-key columns' places in a projected row.
+    values: std::ops::Range<usize>,
+}
+
+impl Layout {
+    fn columns(&self) -> Vec<(String, &'static str)> {
+        let mut out = Vec::new();
+        for i in self.values.clone() {
+            for (suffix, ty) in self.rules.columns() {
+                out.push((format!("{suffix}{i}"), *ty));
+            }
+        }
+        out
+    }
+
+    /// Whether two rows of the same key are the same, over the views `l`
+    /// and `r`: equal hashes, or every column the same by the rules.
+    fn same_sql(&self) -> String {
+        let each: Vec<String> = self
+            .values
+            .clone()
+            .map(|i| self.rules.same_sql(i))
+            .collect();
+        format!("({HASHES_SAME} OR ({}))", each.join(" AND "))
+    }
+
+    /// Whether a row of view `view` (`l` or `r`) whose key the other side
+    /// doesn't have counts as the same ([`Rules::lone_same`]).
+    fn lone_same_sql(&self, view: &str) -> String {
+        let each: Option<Vec<String>> = self
+            .values
+            .clone()
+            .map(|i| self.rules.lone_same_sql(view, i))
+            .collect();
+        match each {
+            Some(each) if !each.is_empty() => format!("coalesce(({}), false)", each.join(" AND ")),
+            _ => "false".into(),
+        }
+    }
+}
+
+/// Two rows of the same key are the same by their hashes.
+const HASHES_SAME: &str = "(l.h1 = r.h1 AND l.h2 = r.h2)";
 
 const COLUMNS: [(&str, &str); 7] = [
     ("s", "BIGINT"),
@@ -418,6 +676,9 @@ struct Buf {
 struct Job {
     ctl: Arc<Ctl>,
     projection: Arc<Projection>,
+    rules: Arc<dyn Rules>,
+    /// The columns each side's query returned (none for tables).
+    query_columns: [Mutex<Vec<ResultColumn>>; 2],
     in_memory_rows: usize,
     in_memory_bytes: usize,
     bufs: [Mutex<Buf>; 2],
@@ -447,6 +708,8 @@ impl Job {
         Job {
             ctl,
             projection,
+            rules: Arc::new(Exact),
+            query_columns: Default::default(),
             in_memory_rows: opts.in_memory_rows.max(1),
             in_memory_bytes: opts.in_memory_bytes.max(1),
             bufs: Default::default(),
@@ -467,6 +730,15 @@ impl Job {
 
     fn set_phase(&self, p: Phase) {
         self.phase.store(p as u8, Ordering::SeqCst);
+    }
+
+    /// The scratch table's extra columns, when the rules keep any.
+    fn layout(&self) -> Option<Layout> {
+        let p = &self.projection;
+        (!self.rules.columns().is_empty() && p.columns.len() > p.nk).then(|| Layout {
+            rules: self.rules.clone(),
+            values: p.nk..p.columns.len(),
+        })
     }
 
     fn progress(&self) -> Progress {
@@ -491,6 +763,19 @@ impl Job {
         rows > self.in_memory_rows / share || bytes > self.in_memory_bytes / share
     }
 
+    /// The estimated bytes of a query's rows that may queue between a
+    /// driver host's reader thread and the task that reads ([`Relay`]):
+    /// held there, as much as the loader's queue; on the DuckDB host, which
+    /// can't be held, twice what stays in memory before the compare stops.
+    fn relay_cap(&self, hold: bool) -> usize {
+        let twice = self.in_memory_bytes.saturating_mul(2);
+        if hold {
+            twice.min(QUEUE_BYTES as usize)
+        } else {
+            twice
+        }
+    }
+
     /// A batch of `side`'s projected rows (with their estimated sizes), from
     /// its sink.
     fn take(&self, side: usize, rows: Vec<(Vec<Value>, usize)>) -> std::io::Result<()> {
@@ -506,7 +791,7 @@ impl Job {
                 b.bytes += size;
                 continue;
             }
-            let c = cells(side, seq, &row, nk);
+            let c = cells(side, seq, &row, nk, &*self.rules);
             b.batch_bytes += c.iter().map(Cell::size).sum::<usize>();
             b.batch.push(c);
             if b.batch.len() >= BATCH_ROWS || b.batch_bytes >= BATCH_BYTES {
@@ -614,7 +899,7 @@ impl Job {
                 ..Default::default()
             };
             for (n, row) in rows.into_iter().enumerate() {
-                let c = cells(side, n as u64, &row, nk);
+                let c = cells(side, n as u64, &row, nk, &*self.rules);
                 batch.batch_bytes += c.iter().map(Cell::size).sum::<usize>();
                 batch.batch.push(c);
                 if batch.batch.len() >= BATCH_ROWS || batch.batch_bytes >= BATCH_BYTES {
@@ -773,16 +1058,25 @@ impl BatchSink for SideSink {
 }
 
 /// A side's columns: its catalog's, or (a catalog that lists none) those of
-/// a one-row read.
+/// a one-row read. A query's are the ones given (its result's, which the
+/// UI read before): a query isn't run twice to learn them.
 async fn names_of(
     ctl: &Ctl,
     s: &mut dyn Session,
-    obj: &ObjectRef,
+    read: Read<'_>,
     cols: &[ColumnInfo],
 ) -> CommandResult<Vec<String>> {
     if !cols.is_empty() {
         return Ok(cols.iter().map(|c| c.name.clone()).collect());
     }
+    let obj = match read {
+        Read::Table(obj) => obj,
+        Read::Query(_) => {
+            return Err(CommandError::BadRequest(
+                "faltan las columnas del resultado de la consulta".into(),
+            ))
+        }
+    };
     let sql = s.browse_query(obj, 1);
     let mut out = QueryOutcome::default();
     tokio::select! {
@@ -805,8 +1099,13 @@ async fn read_side(
     job: &Arc<Job>,
     side: usize,
     s: &mut dyn Session,
-    obj: &ObjectRef,
+    read: Read<'_>,
+    hold: bool,
 ) -> CommandResult<()> {
+    let obj = match read {
+        Read::Table(obj) => obj,
+        Read::Query(sql) => return read_query(job, side, s, sql, hold).await,
+    };
     let sink = Arc::new(Mutex::new(SideSink {
         side,
         job: job.clone(),
@@ -828,6 +1127,322 @@ async fn read_side(
     Ok(())
 }
 
+/// "la izquierda" / "la derecha", for what the user reads.
+fn side_name(side: usize) -> &'static str {
+    if side == 0 {
+        "la izquierda"
+    } else {
+        "la derecha"
+    }
+}
+
+/// A projected value's estimated size in memory (as [`Cell::size`]).
+fn value_size(v: &Value) -> usize {
+    16 + match v {
+        Value::String(s) => s.len(),
+        Value::Array(_) | Value::Object(_) => v.to_string().len(),
+        _ => 0,
+    }
+}
+
+/// A query's row sink: it projects each row to the compared columns and
+/// hands them over in batches.
+///
+/// - An in-process driver calls it on the runtime (the task that reads, or
+///   a blocking thread of it): the batch goes to the compare right there,
+///   and waiting for room holds the driver back, as a table read's sink
+///   does.
+/// - A driver host calls it on its reader thread: the batch goes to the
+///   task that reads ([`read_query`]), which waits for room. The host's
+///   protocol has no window for a run's rows (as it has for
+///   `ReadBatches`), so what queues meanwhile is bounded here
+///   ([`Relay::cap`]): past it, the reader thread waits for the task to
+///   take them, which holds the host back. Not on the DuckDB host
+///   ([`Source::hold`] false): its reader thread also brings the scratch
+///   DuckDB's replies, the very ones the task may be waiting for, so there
+///   it never waits, and a result that runs that far ahead stops the
+///   compare with a message instead of filling the memory.
+struct Relay {
+    side: usize,
+    job: Arc<Job>,
+    tx: mpsc::UnboundedSender<Vec<(Vec<Value>, usize)>>,
+    /// Estimated bytes sent to the task that reads and not taken yet.
+    queued: Arc<AtomicUsize>,
+    /// Past this many queued bytes the reader thread waits, or (`hold`
+    /// false) the compare stops.
+    cap: usize,
+    hold: bool,
+    /// The result set compared (the first with columns), and where each
+    /// compared column is in it (an earlier compared column's place when
+    /// it's the same one).
+    index: Option<usize>,
+    pick: Vec<(usize, Option<usize>)>,
+    bools: Vec<bool>,
+    batch: Vec<(Vec<Value>, usize)>,
+    batch_bytes: usize,
+}
+
+impl Relay {
+    fn refuse(&self, e: CommandError) -> std::io::Error {
+        let io = std::io::Error::other(e.to_string());
+        self.job.ctl.fail(e);
+        io
+    }
+
+    /// Hand the batch over: to the compare on the runtime, else (a host's
+    /// reader thread) to the task that reads, within [`Relay::cap`].
+    fn send(&mut self) -> std::io::Result<()> {
+        if self.batch.is_empty() {
+            return Ok(());
+        }
+        let bytes = std::mem::take(&mut self.batch_bytes);
+        let rows = std::mem::take(&mut self.batch);
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return self.job.take(self.side, rows);
+        }
+        let queued = self.queued.fetch_add(bytes, Ordering::SeqCst) + bytes;
+        self.tx
+            .send(rows)
+            .map_err(|_| std::io::Error::other("la lectura terminó"))?;
+        if queued <= self.cap {
+            return Ok(());
+        }
+        if !self.hold {
+            return Err(self.refuse(CommandError::State(format!(
+                "la consulta de {} trae filas más rápido de lo que DBine las puede guardar para compararlas: acotala (menos filas o columnas) o compará la tabla o la vista",
+                side_name(self.side)
+            ))));
+        }
+        // Hold the reader thread (and so the host) until the task took
+        // enough, the compare stopped or the read ended.
+        while self.queued.load(Ordering::SeqCst) > self.cap {
+            if self.job.ctl.is_stopped() {
+                return Err(std::io::Error::other("la comparación se detuvo"));
+            }
+            if self.tx.is_closed() {
+                return Err(std::io::Error::other("la lectura terminó"));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(())
+    }
+}
+
+/// A result's column that comes twice (ignoring case): which of the two
+/// would be compared?
+pub(crate) fn repeated_column(columns: &[ResultColumn]) -> Option<&str> {
+    let mut seen = HashSet::with_capacity(columns.len());
+    columns
+        .iter()
+        .find(|c| !seen.insert(c.name.to_lowercase()))
+        .map(|c| c.name.as_str())
+}
+
+/// What the user reads about a result with a repeated column: of the
+/// query being read (`side` `None`) or of one side's.
+pub(crate) fn repeated_column_error(side: Option<usize>, name: &str) -> CommandError {
+    let unnamed = name.trim().is_empty();
+    CommandError::BadRequest(match side {
+        None if unnamed => {
+            "la consulta devuelve más de una columna sin nombre: poneles un alias".into()
+        }
+        None => format!("la consulta devuelve dos columnas «{name}»: poneles un alias"),
+        Some(side) if unnamed => format!(
+            "la consulta de {} devuelve más de una columna sin nombre: poneles un alias",
+            side_name(side)
+        ),
+        Some(side) => format!(
+            "la consulta de {} devuelve dos columnas «{name}»: poneles un alias",
+            side_name(side)
+        ),
+    })
+}
+
+impl RowSink for Relay {
+    fn begin(&mut self, index: usize, columns: &[ResultColumn]) -> std::io::Result<()> {
+        if columns.is_empty() {
+            return Ok(());
+        }
+        if self.index.is_some() {
+            return Err(self.refuse(CommandError::BadRequest(format!(
+                "la consulta de {} devuelve más de un resultado: dejá una sola consulta",
+                side_name(self.side)
+            ))));
+        }
+        if let Some(name) = repeated_column(columns) {
+            return Err(self.refuse(repeated_column_error(Some(self.side), name)));
+        }
+        let find = |n: &str| {
+            columns
+                .iter()
+                .position(|c| c.name == n)
+                .or_else(|| columns.iter().position(|c| c.name.eq_ignore_ascii_case(n)))
+        };
+        let mut pick: Vec<(usize, Option<usize>)> = Vec::new();
+        let mut bools = Vec::new();
+        for name in self.job.projection.names(self.side) {
+            let Some(at) = find(&name) else {
+                return Err(self.refuse(CommandError::BadRequest(format!(
+                    "el resultado de {} no trae la columna «{name}»: volvé a leer sus columnas",
+                    side_name(self.side)
+                ))));
+            };
+            let earlier = pick.iter().position(|(x, _)| *x == at);
+            pick.push((at, earlier));
+            bools.push(is_bool_type(&columns[at].type_name));
+        }
+        *lock(&self.job.query_columns[self.side]) = columns.to_vec();
+        self.index = Some(index);
+        self.pick = pick;
+        self.bools = bools;
+        Ok(())
+    }
+
+    fn row(&mut self, index: usize, row: &[Value]) -> std::io::Result<()> {
+        if self.job.ctl.is_stopped() {
+            return Err(std::io::Error::other("la comparación se detuvo"));
+        }
+        if self.index != Some(index) {
+            return Ok(());
+        }
+        let mut size = 0;
+        let mut out: Vec<Value> = Vec::with_capacity(self.pick.len());
+        for (i, &(at, earlier)) in self.pick.iter().enumerate() {
+            let v = match earlier {
+                Some(e) => out[e].clone(),
+                None => {
+                    let v = row.get(at).cloned().unwrap_or(Value::Null);
+                    size += value_size(&v);
+                    v
+                }
+            };
+            out.push(if self.bools[i] { as_bool(v) } else { v });
+        }
+        self.batch.push((out, size));
+        self.batch_bytes += size;
+        if self.batch.len() >= BATCH_ROWS || self.batch_bytes >= BATCH_BYTES {
+            self.send()?;
+        }
+        Ok(())
+    }
+}
+
+/// Read a query's whole result: `execute` with no row limit, its rows
+/// streamed to a [`Relay`] and taken here. Only its first result set with
+/// columns is compared, and a second one is refused (which rows would be
+/// compared?). A result the engine cut (an API's row cap, flagged by the
+/// driver as `truncated`) is refused: a compare is whole or it isn't.
+async fn read_query(
+    job: &Arc<Job>,
+    side: usize,
+    s: &mut dyn Session,
+    sql: &str,
+    hold: bool,
+) -> CommandResult<()> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let queued = Arc::new(AtomicUsize::new(0));
+    let relay = Arc::new(Mutex::new(Relay {
+        side,
+        job: job.clone(),
+        tx,
+        queued: queued.clone(),
+        cap: job.relay_cap(hold),
+        hold,
+        index: None,
+        pick: Vec::new(),
+        bools: Vec::new(),
+        batch: Vec::new(),
+        batch_bytes: 0,
+    }));
+    let mut out = QueryOutcome {
+        sink: Some(RowSinkRef(relay.clone())),
+        ..Default::default()
+    };
+    // The first failure to take rows (the scratch DuckDB stopped taking
+    // them); the compare stops with it.
+    let mut fed: CommandResult<()> = Ok(());
+    let give = |rows: Vec<(Vec<Value>, usize)>, fed: &mut CommandResult<()>| {
+        if fed.is_ok() && !rows.is_empty() {
+            if let Err(e) = job.take(side, rows) {
+                let e = CommandError::Internal(e.to_string());
+                job.ctl.fail(e.clone());
+                *fed = Err(e);
+            }
+        }
+    };
+    // A batch the relay queued: taken (once the compare has room for it),
+    // it leaves the relay's count, which lets a held reader thread go on.
+    let unqueue = |rows: Vec<(Vec<Value>, usize)>, fed: &mut CommandResult<()>| {
+        let bytes: usize = rows.iter().map(|r| r.1).sum();
+        give(rows, fed);
+        queued.fetch_sub(bytes, Ordering::SeqCst);
+    };
+    let ran = {
+        let run = s.execute(sql, usize::MAX, &mut out);
+        tokio::pin!(run);
+        let mut open = true;
+        loop {
+            tokio::select! {
+                biased;
+                rows = rx.recv(), if open => match rows {
+                    Some(rows) => unqueue(rows, &mut fed),
+                    None => open = false,
+                },
+                r = &mut run => break Some(r),
+                () = job.ctl.stopped() => break None,
+            }
+        }
+    };
+    out.sink = None;
+    let Some(ran) = ran.filter(|_| !job.ctl.is_stopped()) else {
+        return Err(job.ctl.error());
+    };
+    // What's still queued, then the batch the relay was filling.
+    while let Ok(rows) = rx.try_recv() {
+        unqueue(rows, &mut fed);
+    }
+    let rest = std::mem::take(&mut lock(&relay).batch);
+    give(rest, &mut fed);
+    let failed =
+        |e: String| CommandError::Sql(format!("la consulta de {} falló: {e}", side_name(side)));
+    ran.map_err(|e| failed(e.to_string()))?;
+    if let Some(e) = out.error.take() {
+        return Err(failed(e));
+    }
+    if job.ctl.is_stopped() {
+        return Err(job.ctl.error());
+    }
+    if let Some(e) = out.sink_error.take() {
+        return Err(CommandError::Internal(e));
+    }
+    fed?;
+    if lock(&relay).index.is_none() {
+        return Err(CommandError::BadRequest(format!(
+            "la consulta de {} no devolvió un resultado con columnas",
+            side_name(side)
+        )));
+    }
+    if out.results.iter().any(|r| r.truncated) {
+        return Err(CommandError::BadRequest(format!(
+            "el motor cortó el resultado de {}: no se comparan resultados parciales",
+            side_name(side)
+        )));
+    }
+    // A driver that learns the types as the run ends (PostgreSQL's, which
+    // streams rows before it says them) gives them with the results: the
+    // result's screen shows them.
+    let mut qc = lock(&job.query_columns[side]);
+    if qc.iter().all(|c| c.type_name.is_empty()) {
+        let same_names = |cols: &[ResultColumn]| {
+            cols.len() == qc.len() && cols.iter().zip(qc.iter()).all(|(a, b)| a.name == b.name)
+        };
+        if let Some(r) = out.results.iter().find(|r| same_names(&r.columns)) {
+            *qc = r.columns.clone();
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // The scratch DuckDB
 
@@ -836,6 +1451,8 @@ async fn read_side(
 struct Scratch {
     session: Option<Box<dyn Session>>,
     dir: PathBuf,
+    /// The columns past [`COLUMNS`] (none: the hashes decide).
+    layout: Option<Layout>,
 }
 
 /// What the user reads when a big table can't go to DuckDB.
@@ -867,6 +1484,7 @@ impl Scratch {
         let mut scratch = Scratch {
             session: None,
             dir: dir.clone(),
+            layout: None,
         };
         // A key for this compare only, in memory only.
         let opened = async move {
@@ -923,8 +1541,53 @@ impl Scratch {
         }
     }
 
+    /// The scratch table's columns: [`COLUMNS`], then the layout's (which
+    /// may be NULL).
+    fn table_columns(&self) -> Vec<(String, &'static str, bool)> {
+        let extra = self
+            .layout
+            .as_ref()
+            .map(Layout::columns)
+            .unwrap_or_default();
+        COLUMNS
+            .iter()
+            .map(|(n, t)| (n.to_string(), *t, false))
+            .chain(extra.into_iter().map(|(n, t)| (n, t, true)))
+            .collect()
+    }
+
+    /// The layout's columns as a view selects them (`, c2, x2…`).
+    fn extra_select(&self) -> String {
+        self.layout
+            .as_ref()
+            .map(Layout::columns)
+            .unwrap_or_default()
+            .iter()
+            .map(|(n, _)| format!(", {n}"))
+            .collect()
+    }
+
+    /// Whether two rows of the same key are the same, over `l` and `r`.
+    fn same_sql(&self) -> String {
+        self.layout
+            .as_ref()
+            .map_or_else(|| HASHES_SAME.to_string(), Layout::same_sql)
+    }
+
+    /// Whether a row of `view` whose key the other side lacks counts as
+    /// the same ([`Rules::lone_same`]).
+    fn lone_same_sql(&self, view: &str) -> String {
+        self.layout
+            .as_ref()
+            .map_or_else(|| "false".to_string(), |l| l.lone_same_sql(view))
+    }
+
     async fn create(&mut self, ctl: &Ctl) -> CommandResult<()> {
-        let defs: Vec<String> = COLUMNS.iter().map(|(n, t)| format!("{n} {t}")).collect();
+        let defs: Vec<String> = self
+            .table_columns()
+            .iter()
+            .map(|(n, t, _)| format!("{n} {t}"))
+            .collect();
         self.exec(
             ctl,
             &format!("CREATE TABLE main.rows ({})", defs.join(", ")),
@@ -935,24 +1598,25 @@ impl Scratch {
 
     /// Load every batch until the channel closes.
     async fn load(&mut self, ctl: &Ctl, source: &mut Feed) -> CommandResult<u64> {
+        let columns = self.table_columns();
         let spec = LoadSpec {
             table: ObjectRef {
                 kind: "table".into(),
                 schema: Some("main".into()),
                 name: "rows".into(),
             },
-            columns: COLUMNS.iter().map(|(n, _)| n.to_string()).collect(),
+            columns: columns.iter().map(|(n, _, _)| n.clone()).collect(),
             table_lock: false,
             keep_identity: false,
             commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
             commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
         };
-        let tcols: Vec<TransferColumn> = COLUMNS
+        let tcols: Vec<TransferColumn> = columns
             .iter()
-            .map(|(n, t)| TransferColumn {
-                name: n.to_string(),
+            .map(|(n, t, nullable)| TransferColumn {
+                name: n.clone(),
                 type_name: t.to_string(),
-                nullable: false,
+                nullable: *nullable,
             })
             .collect();
         let s = self.session();
@@ -989,23 +1653,32 @@ impl Scratch {
             } else {
                 ""
             };
+            let extra = self.extra_select();
             self.exec(
                 ctl,
                 &format!(
-                    "CREATE TEMP VIEW {view} AS SELECT k, o, h1, h2, v FROM {ALIAS}.main.rows WHERE s = {side}{first}"
+                    "CREATE TEMP VIEW {view} AS SELECT k, o, h1, h2, v{extra} FROM {ALIAS}.main.rows WHERE s = {side}{first}"
                 ),
             )
             .await?;
         }
+        // Never NULL: a pair is either the same or changed, and a row on
+        // one side only is either the same (all blank, under NULL as BLANK)
+        // or only there.
+        let same = self.same_sql();
+        let (lone_l, lone_r) = (self.lone_same_sql("l"), self.lone_same_sql("r"));
         let out = self
             .exec(
                 ctl,
-                "SELECT \
-                 count(*) FILTER (WHERE l.k IS NOT NULL AND r.k IS NOT NULL AND l.h1 = r.h1 AND l.h2 = r.h2), \
-                 count(*) FILTER (WHERE l.k IS NOT NULL AND r.k IS NOT NULL AND (l.h1 <> r.h1 OR l.h2 <> r.h2)), \
-                 count(*) FILTER (WHERE r.k IS NULL), \
-                 count(*) FILTER (WHERE l.k IS NULL) \
-                 FROM l FULL OUTER JOIN r ON l.k = r.k",
+                &format!(
+                    "SELECT \
+                     count(*) FILTER (WHERE (l.k IS NOT NULL AND r.k IS NOT NULL AND {same}) \
+                         OR (r.k IS NULL AND {lone_l}) OR (l.k IS NULL AND {lone_r})), \
+                     count(*) FILTER (WHERE l.k IS NOT NULL AND r.k IS NOT NULL AND NOT {same}), \
+                     count(*) FILTER (WHERE r.k IS NULL AND NOT {lone_l}), \
+                     count(*) FILTER (WHERE l.k IS NULL AND NOT {lone_r}) \
+                     FROM l FULL OUTER JOIN r ON l.k = r.k"
+                ),
             )
             .await?;
         let row = local_duckdb::first_row(&out);
@@ -1030,6 +1703,8 @@ impl Scratch {
         nk: usize,
         max: usize,
     ) -> CommandResult<Lists> {
+        let same = self.same_sql();
+        let (lone_l, lone_r) = (self.lone_same_sql("l"), self.lone_same_sql("r"));
         self.exec(
             ctl,
             &format!(
@@ -1037,7 +1712,8 @@ impl Scratch {
                  SELECT CASE WHEN r.k IS NULL THEN 0 WHEN l.k IS NULL THEN 1 ELSE 2 END AS kind, \
                  coalesce(l.o, r.o) AS o, coalesce(l.k, r.k) AS k \
                  FROM l FULL OUTER JOIN r ON l.k = r.k \
-                 WHERE r.k IS NULL OR l.k IS NULL OR l.h1 <> r.h1 OR l.h2 <> r.h2 \
+                 WHERE (r.k IS NULL AND NOT {lone_l}) OR (l.k IS NULL AND NOT {lone_r}) \
+                     OR (l.k IS NOT NULL AND r.k IS NOT NULL AND NOT {same}) \
                  ORDER BY o, k LIMIT {max}"
             ),
         )
@@ -1134,9 +1810,7 @@ impl RowSink for DiffSink {
             Some(0) => parse(1).map(|p| self.lists.only_left.push(p)),
             Some(1) => parse(2).map(|p| self.lists.only_right.push(p)),
             Some(2) => parse(1).zip(parse(2)).map(|(l, r)| {
-                let diff = (self.nk..l.len())
-                    .filter(|&i| canon(&l[i]) != canon(&r[i]))
-                    .collect();
+                let diff = differing(&*self.job.rules, &l, &r, self.nk);
                 self.lists.changed.push(ChangedRow {
                     left: l,
                     right: r,
@@ -1177,7 +1851,12 @@ struct Lists {
 
 /// The comparison in memory (both sides small): by key, the first row read
 /// of a repeated key compared.
-fn in_memory(nk: usize, left: Vec<Vec<Value>>, right: Vec<Vec<Value>>) -> (Counts, Lists, u64) {
+fn in_memory(
+    nk: usize,
+    left: Vec<Vec<Value>>,
+    right: Vec<Vec<Value>>,
+    rules: &dyn Rules,
+) -> (Counts, Lists, u64) {
     let mut duplicate_keys = 0;
     let mut counts = Counts {
         left: left.len() as u64,
@@ -1186,7 +1865,7 @@ fn in_memory(nk: usize, left: Vec<Vec<Value>>, right: Vec<Vec<Value>>) -> (Count
     };
     let mut rmap: HashMap<String, Vec<Value>> = HashMap::with_capacity(right.len());
     for p in right {
-        match rmap.entry(key_of(&p, nk)) {
+        match rmap.entry(key_with(rules, &p, nk)) {
             std::collections::hash_map::Entry::Occupied(_) => duplicate_keys += 1,
             std::collections::hash_map::Entry::Vacant(e) => {
                 e.insert(p);
@@ -1196,17 +1875,16 @@ fn in_memory(nk: usize, left: Vec<Vec<Value>>, right: Vec<Vec<Value>>) -> (Count
     let mut lists = Lists::default();
     let mut seen = HashSet::with_capacity(left.len());
     for p in left {
-        let k = key_of(&p, nk);
+        let k = key_with(rules, &p, nk);
         if !seen.insert(k.clone()) {
             duplicate_keys += 1;
             continue;
         }
         match rmap.remove(&k) {
+            None if rules.lone_same(&p[nk..]) => counts.same += 1,
             None => lists.only_left.push(p),
             Some(rp) => {
-                let diff: Vec<usize> = (nk..p.len())
-                    .filter(|&i| canon(&p[i]) != canon(&rp[i]))
-                    .collect();
+                let diff = differing(rules, &p, &rp, nk);
                 if diff.is_empty() {
                     counts.same += 1;
                 } else {
@@ -1219,7 +1897,13 @@ fn in_memory(nk: usize, left: Vec<Vec<Value>>, right: Vec<Vec<Value>>) -> (Count
             }
         }
     }
-    lists.only_right = rmap.into_values().collect();
+    for p in rmap.into_values() {
+        if rules.lone_same(&p[nk..]) {
+            counts.same += 1;
+        } else {
+            lists.only_right.push(p);
+        }
+    }
     counts.only_left = lists.only_left.len() as u64;
     counts.only_right = lists.only_right.len() as u64;
     counts.changed = lists.changed.len() as u64;
@@ -1228,22 +1912,27 @@ fn in_memory(nk: usize, left: Vec<Vec<Value>>, right: Vec<Vec<Value>>) -> (Count
 
 /// Each list in key order and, past `max` rows in all, only the first
 /// `max` of the three together in that order.
-fn finish(nk: usize, lists: Lists, max: usize) -> Lists {
+fn finish(nk: usize, lists: Lists, max: usize, rules: &dyn Rules) -> Lists {
     type Keyed<T> = Vec<((String, String), T)>;
-    fn keyed<T>(rows: Vec<T>, nk: usize, row: impl Fn(&T) -> &[Value]) -> Keyed<T> {
+    fn keyed<T>(
+        rows: Vec<T>,
+        nk: usize,
+        rules: &dyn Rules,
+        row: impl Fn(&T) -> &[Value],
+    ) -> Keyed<T> {
         let mut k: Keyed<T> = rows
             .into_iter()
             .map(|r| {
                 let p = row(&r);
-                ((order_key(&p[..nk]), key_of(p, nk)), r)
+                ((order_key(&p[..nk]), key_with(rules, p, nk)), r)
             })
             .collect();
         k.sort_by(|a, b| a.0.cmp(&b.0));
         k
     }
-    let mut ol = keyed(lists.only_left, nk, |r| &r[..]);
-    let mut or = keyed(lists.only_right, nk, |r| &r[..]);
-    let mut ch = keyed(lists.changed, nk, |r| &r.left[..]);
+    let mut ol = keyed(lists.only_left, nk, rules, |r| &r[..]);
+    let mut or = keyed(lists.only_right, nk, rules, |r| &r[..]);
+    let mut ch = keyed(lists.changed, nk, rules, |r| &r.left[..]);
     if ol.len() + or.len() + ch.len() > max {
         let (mut i, mut j, mut c) = (0, 0, 0);
         for _ in 0..max {
@@ -1280,17 +1969,45 @@ pub(crate) async fn compare(
     ctl: &Arc<Ctl>,
     progress: &(dyn Fn(&Progress) + Send + Sync),
 ) -> CommandResult<Compared> {
+    compare_with(
+        left.into(),
+        right.into(),
+        input,
+        How::default(),
+        opts,
+        ctl,
+        progress,
+    )
+    .await
+}
+
+/// [`compare`] for any two sources (tables or queries), with the columns
+/// paired and the values compared as `how` says.
+pub(crate) async fn compare_with(
+    left: Source<'_>,
+    right: Source<'_>,
+    input: Input,
+    how: How,
+    opts: &Options,
+    ctl: &Arc<Ctl>,
+    progress: &(dyn Fn(&Progress) + Send + Sync),
+) -> CommandResult<Compared> {
     // The compared columns, before reading: each side then projects its
     // rows as they come, whatever the other side is doing.
     let names = async {
         tokio::try_join!(
-            names_of(ctl, left.session, left.object, &input.cols[0]),
-            names_of(ctl, right.session, right.object, &input.cols[1])
+            names_of(ctl, left.session, left.read, &input.cols[0]),
+            names_of(ctl, right.session, right.read, &input.cols[1])
         )
     };
     let (lnames, rnames) = names.await?;
-    let projection = Arc::new(Projection::new(&input, &lnames, &rnames)?);
-    let job = Arc::new(Job::new(ctl.clone(), projection, opts));
+    let projection = Arc::new(match &how.pairs {
+        None => Projection::new(&input, &lnames, &rnames)?,
+        Some(pairs) => Projection::paired(&input, pairs, &lnames, &rnames)?,
+    });
+    let mut job = Job::new(ctl.clone(), projection, opts);
+    job.rules = how.rules;
+    let job = Arc::new(job);
     let mut scratch: Option<Scratch> = None;
     let ticker = async {
         let mut last: Option<Progress> = None;
@@ -1317,16 +2034,16 @@ pub(crate) async fn compare(
 
 async fn run(
     job: &Arc<Job>,
-    left: Side<'_>,
-    right: Side<'_>,
+    left: Source<'_>,
+    right: Source<'_>,
     opts: &Options,
     scratch: &mut Option<Scratch>,
 ) -> CommandResult<Compared> {
     let ctl = &job.ctl;
     let reads = async {
         let r = tokio::try_join!(
-            read_side(job, 0, left.session, left.object),
-            read_side(job, 1, right.session, right.object)
+            read_side(job, 0, left.session, left.read, left.hold),
+            read_side(job, 1, right.session, right.read, right.hold)
         );
         if let Err(e) = &r {
             ctl.fail(e.clone());
@@ -1370,13 +2087,15 @@ async fn run(
         None => {
             let take = |side: usize| std::mem::take(&mut lock(&job.bufs[side]).rows);
             let (l, r) = (take(0), take(1));
-            in_memory(nk, l, r)
+            in_memory(nk, l, r, &*job.rules)
         }
     };
     let total = counts.only_left + counts.only_right + counts.changed;
-    let lists = finish(nk, lists, opts.max_diff_rows);
+    let lists = finish(nk, lists, opts.max_diff_rows, &*job.rules);
     let last = |side: usize| lock(&job.bufs[side]).last.as_ref().map(|(_, v)| v.clone());
+    let query_columns = |side: usize| std::mem::take(&mut *lock(&job.query_columns[side]));
     Ok(Compared {
+        query_columns: [query_columns(0), query_columns(1)],
         last_keys: (nk == 1).then(|| (last(0), last(1))),
         counts,
         only_left: lists.only_left,
@@ -1429,6 +2148,7 @@ async fn spill(
             return (None, Err(e));
         }
     };
+    scratch.layout = job.layout();
     let r = async {
         scratch.create(ctl).await?;
         let (tx, rx) = mpsc::unbounded_channel();

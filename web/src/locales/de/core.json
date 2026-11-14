@@ -43,6 +43,7 @@
   },
   "format": {
     "redis": "Redis-Befehle stehen einzeln pro Zeile: Es gibt nichts zu formatieren.",
+    "dax": "DBine formatiert DAX noch nicht: Es gibt keinen Formatierer, der innerhalb der Anwendung funktioniert, und die im Internet würden Ihren Code erhalten.",
     "unavailable": "Für diese Sprache gibt es noch keinen Formatierer."
   },
   "copy": {

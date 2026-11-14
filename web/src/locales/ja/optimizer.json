@@ -132,6 +132,34 @@
     "mongo_where": {
       "title": "$where → クエリ演算子",
       "explain": "$where はドキュメントごとに JavaScript を実行し、インデックスを使いません。同等の演算子ならインデックスを使えます。配列のフィールドや型が混在するフィールドでは結果が変わる場合があるため、使用する前に比較してください。"
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "テーブル全体への FILTER → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) はフィルターを作るためにテーブル全体を関連テーブルも含めて走査します。同じ条件の KEEPFILTERS は、使用する列だけをフィルターし、既存のフィルターを維持します。メジャーが関連テーブルを使う場合、他の修飾子(ALL など)がある場合、または CALCULATE がイテレーターの内側にある場合は、結果が変わることがあります。使用前に比較してください。"
+    },
+    "dax_iferror_to_divide": {
+      "title": "除算を含む IFERROR → DIVIDE",
+      "explain": "IFERROR は式を段階的に評価させますが、DIVIDE はエラーを捕捉せずに {{division}} を解決します。DAX では 0 での除算はエラーではなく(無限大になる)、IFERROR では対処できませんでしたが、DIVIDE は代替結果を返します。使用前に比較してください。"
+    },
+    "dax_iserror_to_divide": {
+      "title": "除算を含む IF(ISERROR(…)) → DIVIDE",
+      "explain": "ISERROR は式を段階的に評価させ、{{division}} を 2 回計算しますが、DIVIDE は 1 回だけ計算します。DAX では 0 での除算はエラーではなく(無限大になる)、ISERROR では対処できませんでしたが、DIVIDE は代替結果を返します。使用前に比較してください。"
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) は短く同等な書き方です。値が 1 つだけの場合はその値を、そうでなければ代替結果を返します。"
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "計算列を含む SUMMARIZE → ADDCOLUMNS",
+      "explain": "SUMMARIZE はグループ化のみに使い、計算列({{name}}…)は ADDCOLUMNS に移して、CALCULATE でグループごとに計算します。より高速で、コンテキストも期待どおりになります。リレーションが複雑な場合は結果が変わることがあります。使用前に比較してください。"
+    },
+    "dax_redundant_calculate": {
+      "title": "不要なフィルターなしの CALCULATE",
+      "explain": "メジャーまたは別の {{fn}} を囲むフィルターなしの {{fn}} は結果を変えません。メジャーにはすでに暗黙の CALCULATE があり、内側の CALCULATE がすでにコンテキスト遷移を行っています。"
+    },
+    "dax_topn_order_by": {
+      "title": "ORDER BY のない TOPN → ORDER BY",
+      "explain": "TOPN は行を選ぶだけで並べ替えません。TOPN の基準と方向で、EVALUATE に {{order}} を追加します。"
     }
   },
   "notesText": {

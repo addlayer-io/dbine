@@ -310,6 +310,55 @@ pub fn first_write_in(sql: &str, dialect: &ScriptDialect) -> Option<String> {
     writes_in(&expose_versioned(sql, dialect), dialect)
 }
 
+/// DAX ([`crate::Language::Dax`]): whether one unit of a script, as the
+/// driver's own splitter cut it ([`crate::Driver::split_script`]), is a
+/// query: its first word, after whitespace and comments (`//`, `--`,
+/// `/* */`), is `DEFINE` or `EVALUATE`. The query APIs run only DAX
+/// queries, which can't change a model; any other unit is something the
+/// driver either runs as one of its own commands (model permissions, a
+/// rename) or refuses.
+pub fn dax_is_query(unit: &str) -> bool {
+    let word = dax_first_word(unit);
+    word.eq_ignore_ascii_case("define") || word.eq_ignore_ascii_case("evaluate")
+}
+
+/// The first unit of a DAX script (as [`dax_is_query`] reads each unit)
+/// that isn't a query: its first word (`"…"` when it has none), or `None`
+/// when every unit is a query. What scheduled tasks, headless notebooks and
+/// "Ejecutar en varias bases…" treat as a write.
+pub fn dax_first_write(units: &[crate::sql::ScriptStatement]) -> Option<String> {
+    units
+        .iter()
+        .filter(|u| u.kind != StatementKind::ClientCommand)
+        .find(|u| !dax_is_query(&u.text))
+        .map(|u| match dax_first_word(&u.text) {
+            "" => "…".to_string(),
+            w => w.to_ascii_uppercase(),
+        })
+}
+
+/// The word a DAX unit starts with (letters, digits, `_`), past whitespace
+/// and comments; empty when it starts with anything else.
+fn dax_first_word(unit: &str) -> &str {
+    let mut s = unit;
+    loop {
+        let t = s.trim_start();
+        if let Some(rest) = t.strip_prefix("//").or_else(|| t.strip_prefix("--")) {
+            s = rest.find('\n').map_or("", |i| &rest[i..]);
+        } else if let Some(rest) = t.strip_prefix("/*") {
+            // An unclosed block comment runs to the end.
+            s = rest.find("*/").map_or("", |i| &rest[i + 2..]);
+        } else {
+            s = t;
+            break;
+        }
+    }
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
 /// A space-like character some servers may read as whitespace between
 /// statements while the guard reads it as part of a word (NBSP, the
 /// Unicode spaces, line and paragraph separators, BOM): refused.
@@ -950,6 +999,51 @@ impl Session for ReadOnlySession {
 #[cfg(test)]
 mod tests {
     use super::first_write;
+
+    #[test]
+    fn dax_units_are_queries_only_by_their_first_word() {
+        use super::{dax_first_write, dax_is_query};
+        use crate::sql::{ScriptStatement, StatementKind};
+        for q in [
+            "EVALUATE 'Sales'",
+            "evaluate {1}",
+            "DEFINE MEASURE 'T'[m] = 1 EVALUATE {[m]}",
+            "// name\n-- other\n/* block */ EVALUATE\n'T'",
+            "\tEVALUATE\n{1}",
+        ] {
+            assert!(dax_is_query(q), "{q}");
+        }
+        for w in [
+            "GRANT Read TO \"ana@contoso.com\"",
+            "EVALUATEX 'T'",
+            "'T'",
+            "",
+            "// EVALUATE\nRENAME MODEL \"a\" TO \"b\"",
+            "/* EVALUATE",
+            "-- EVALUATE",
+            "\u{a0}REVOKE ALL FROM \"x\"",
+        ] {
+            assert!(!dax_is_query(w), "{w:?}");
+        }
+        let unit = |text: &str| ScriptStatement {
+            text: text.into(),
+            start: 0,
+            end: text.len(),
+            line: 1,
+            kind: StatementKind::Sql,
+            repeat: 1,
+            error: None,
+        };
+        assert_eq!(
+            dax_first_write(&[unit("EVALUATE {1}"), unit("DEFINE VAR x = 1 EVALUATE {x}")]),
+            None
+        );
+        assert_eq!(
+            dax_first_write(&[unit("EVALUATE {1}"), unit("grant Read TO \"a\"")]),
+            Some("GRANT".into())
+        );
+        assert_eq!(dax_first_write(&[unit("{1}")]), Some("…".into()));
+    }
 
     #[test]
     fn reads_pass() {

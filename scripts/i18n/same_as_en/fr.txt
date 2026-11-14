@@ -470,3 +470,13 @@ backend:h2: no version: {0}
 backend:risingwave: no version: {0}
 backend:s SIN(float_exp) -> FLOAT
 backend:{0}: pg_proc listed no functions
+dataCompare.json:query.modeTables
+snippets.json:families.dax
+backend:15 minutos
+backend:30 minutos
+backend:Limitación
+backend:Perspectivas
+backend:Referencia cultural
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title
+editor.json:tableHover.format

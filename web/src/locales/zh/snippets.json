@@ -31,6 +31,7 @@
     "search": "Elasticsearch、OpenSearch 和 Solr",
     "couchdb": "CouchDB",
     "etcd": "etcd",
-    "q": "KDB+ (q)"
+    "q": "KDB+ (q)",
+    "dax": "Power BI (DAX)"
   }
 }

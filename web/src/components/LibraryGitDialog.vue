@@ -30,7 +30,7 @@ const open = defineModel<boolean>({ required: true });
 const lib = useLibraryStore();
 const { t } = useTranslation();
 /** File extensions named in the help (one slot each). */
-const EXTS = ['sql', 'js', 'json', 'cql', 'redis', 'flux', 'cypher'];
+const EXTS = ['sql', 'js', 'json', 'cql', 'redis', 'flux', 'cypher', 'dax'];
 
 const status = ref<LibraryGitStatus | null>(null);
 const loading = ref(false);

@@ -133,6 +133,34 @@
     "mongo_where": {
       "title": "$where → operatori di query",
       "explain": "$where esegue JavaScript su ogni documento e non usa indici; gli operatori equivalenti sì. Con campi che sono array o che mescolano tipi il risultato può cambiare: confrontala prima di usarla."
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "FILTER su tutta la tabella → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) scorre l'intera tabella, con le sue tabelle correlate, per costruire il filtro. KEEPFILTERS con la stessa condizione filtra solo le colonne che usa e rispetta i filtri già presenti. Se la misura usa tabelle correlate, se ci sono altri modificatori (ALL…) o se il CALCULATE è dentro un iteratore, il risultato può cambiare: confrontala prima di usarla."
+    },
+    "dax_iferror_to_divide": {
+      "title": "IFERROR con una divisione → DIVIDE",
+      "explain": "IFERROR obbliga a valutare passo per passo; DIVIDE risolve {{division}} senza intercettare errori. In DAX dividere per zero non è un errore (dà infinito), quindi IFERROR non lo copriva e DIVIDE restituisce il risultato alternativo: confrontala prima di usarla."
+    },
+    "dax_iserror_to_divide": {
+      "title": "IF(ISERROR(…)) con una divisione → DIVIDE",
+      "explain": "ISERROR obbliga a valutare passo per passo e calcola {{division}} due volte; DIVIDE la calcola una volta sola. In DAX dividere per zero non è un errore (dà infinito), quindi ISERROR non lo copriva e DIVIDE restituisce il risultato alternativo: confrontala prima di usarla."
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) è la forma breve ed equivalente: restituisce il valore quando ce n'è uno solo e, altrimenti, il risultato alternativo."
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "SUMMARIZE con colonne calcolate → ADDCOLUMNS",
+      "explain": "SUMMARIZE resta solo per raggruppare e le colonne calcolate ({{name}}…) passano a ADDCOLUMNS, con CALCULATE per calcolarle per gruppo: è più veloce e il suo contesto è quello atteso. Con relazioni complesse il risultato può cambiare: confrontala prima di usarla."
+    },
+    "dax_redundant_calculate": {
+      "title": "CALCULATE superfluo senza filtri",
+      "explain": "{{fn}} senza filtri attorno a una misura o a un altro {{fn}} non cambia il risultato: la misura ha già il suo CALCULATE implicito e quello interno fa già la transizione di contesto."
+    },
+    "dax_topn_order_by": {
+      "title": "TOPN senza ORDER BY → ORDER BY",
+      "explain": "TOPN sceglie le righe ma non le ordina. Si aggiunge {{order}} all'EVALUATE, con il criterio e il verso di TOPN."
     }
   },
   "notesText": {

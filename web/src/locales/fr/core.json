@@ -43,6 +43,7 @@
   },
   "format": {
     "redis": "Les commandes Redis s'écrivent une par ligne : il n'y a rien à formater.",
+    "dax": "DBine ne formate pas encore le DAX : il n'existe pas de formateur fonctionnant dans l'application, et ceux d'Internet recevraient votre code.",
     "unavailable": "Il n'y a pas encore de formateur pour ce langage."
   },
   "copy": {

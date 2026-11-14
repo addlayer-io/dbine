@@ -31,8 +31,6 @@
   "aiNone": "AI nie znalazło ulepszeń dla tego zapytania.",
   "aiNothing": "Odpowiedź AI nie zawierała alternatyw w żądanym formacie. Spróbuj ponownie lub z innym modelem.",
   "aiDiscarded_one": "Odrzucono {{count}} alternatywę, ponieważ nie kompiluje się w bazie, nawet po poproszeniu AI o jej poprawienie.",
-  "aiDiscarded_few": "Odrzucono {{count}} alternatywy, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie.",
-  "aiDiscarded_many": "Odrzucono {{count}} alternatyw, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie.",
   "aiDiscarded_other": "Odrzucono {{count}} alternatywy, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie.",
   "aiSent": "Do {{provider}} wysłano zapytanie oraz {{what}}. Wiersze nigdy nie są wysyłane.",
   "aiSentOnly": "Do {{provider}} wysłano tylko zapytanie. Wiersze nigdy nie są wysyłane.",
@@ -135,6 +133,34 @@
     "mongo_where": {
       "title": "$where → operatory zapytań",
       "explain": "$where wykonuje JavaScript dla każdego dokumentu i nie używa indeksów; równoważne operatory używają. Przy polach będących tablicami lub mieszających typy wynik może się zmienić: porównaj go przed użyciem."
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "FILTER na całej tabeli → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) przegląda całą tabelę wraz z tabelami powiązanymi, aby zbudować filtr. KEEPFILTERS z tym samym warunkiem filtruje tylko używane kolumny i zachowuje istniejące filtry. Jeśli miara używa tabel powiązanych, są inne modyfikatory (ALL…) lub CALCULATE znajduje się wewnątrz iteratora, wynik może się zmienić: porównaj go przed użyciem."
+    },
+    "dax_iferror_to_divide": {
+      "title": "IFERROR z dzieleniem → DIVIDE",
+      "explain": "IFERROR wymusza obliczanie krok po kroku; DIVIDE rozwiązuje {{division}} bez przechwytywania błędów. W DAX dzielenie przez zero nie jest błędem (daje nieskończoność), więc IFERROR go nie obejmował, a DIVIDE zwraca wynik alternatywny: porównaj go przed użyciem."
+    },
+    "dax_iserror_to_divide": {
+      "title": "IF(ISERROR(…)) z dzieleniem → DIVIDE",
+      "explain": "ISERROR wymusza obliczanie krok po kroku i oblicza {{division}} dwa razy; DIVIDE oblicza to raz. W DAX dzielenie przez zero nie jest błędem (daje nieskończoność), więc ISERROR go nie obejmował, a DIVIDE zwraca wynik alternatywny: porównaj go przed użyciem."
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) to krótka, równoważna forma: zwraca wartość, gdy jest tylko jedna, a w przeciwnym razie wynik alternatywny."
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "SUMMARIZE z kolumnami obliczanymi → ADDCOLUMNS",
+      "explain": "SUMMARIZE zostaje tylko do grupowania, a kolumny obliczane ({{name}}…) przechodzą do ADDCOLUMNS, z CALCULATE do obliczania w grupach: jest szybciej, a kontekst jest oczekiwany. Przy złożonych relacjach wynik może się zmienić: porównaj go przed użyciem."
+    },
+    "dax_redundant_calculate": {
+      "title": "Zbędny CALCULATE bez filtrów",
+      "explain": "{{fn}} bez filtrów wokół miary lub innego {{fn}} nie zmienia wyniku: miara ma już niejawny CALCULATE, a wewnętrzny już wykonuje przejście kontekstu."
+    },
+    "dax_topn_order_by": {
+      "title": "TOPN bez ORDER BY → ORDER BY",
+      "explain": "TOPN wybiera wiersze, ale ich nie sortuje. Do EVALUATE zostaje dodane {{order}} z kryterium i kierunkiem TOPN."
     }
   },
   "notesText": {
@@ -143,5 +169,7 @@
     "not_in_nullable": "NOT IN z {{column}}: jeśli podzapytanie zwróci jakikolwiek NULL, zapytanie nie zwróci żadnego wiersza. Jeśli nie o to chodzi, użyj NOT EXISTS.",
     "text_vs_number": "{{column}} ma typ {{type}} i jest porównywana z liczbą {{value}}: silnik konwertuje kolumnę w każdym wierszu i nie może użyć jej indeksu. Jeśli wartości są tekstem, porównaj z '{{value}}' (sprawdź, czy wynik jest taki sam).",
     "nvarchar_literal": "{{column}} ma typ {{type}} i jest porównywana z tekstem N'…' (Unicode): SQL Server konwertuje kolumnę i może nie użyć jej indeksu. Usuń N, jeśli wartość nie zawiera znaków spoza strony kodowej kolumny."
-  }
+  },
+  "aiDiscarded_few": "Odrzucono {{count}} alternatywy, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie.",
+  "aiDiscarded_many": "Odrzucono {{count}} alternatyw, ponieważ nie kompilują się w bazie, nawet po poproszeniu AI o ich poprawienie."
 }

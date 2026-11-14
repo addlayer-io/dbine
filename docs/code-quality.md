@@ -143,6 +143,41 @@ In addition to `select-star`, `dml-without-where` and `leading-wildcard`:
 | `cartesian-product` | Warning | Disconnected patterns, separated by a comma. |
 | `detach-delete-all` | Error | `DETACH DELETE` without `WHERE`. |
 
+### Power BI (DAX)
+
+The DAX best practices from Microsoft Learn
+([DAX best practices](https://learn.microsoft.com/dax/best-practices/)) and
+the best-practice rules Microsoft publishes for tabular models. DAX has its own lexical analyzer: `"…"` strings, `'Table'` names,
+`[Column]` references and `//`, `--` and `/* */` comments.
+
+| Rule | Severity | Detects |
+|---|---|---|
+| `filter-whole-table` | Warning | `FILTER('Table', …)` as a filter argument of `CALCULATE` or `CALCULATETABLE` (also under `KEEPFILTERS`): it iterates the whole table and filters all its columns. Use a condition on the column (`'T'[c] = 1`) or `KEEPFILTERS('T'[c] = 1)`; to filter by a measure, `FILTER` over a column's values. |
+| `error-functions` | Warning | `IFERROR` and `ISERROR`: they force a step-by-step evaluation and hide the model's errors. Use `DIVIDE` for a division, or check the condition first. |
+| `divide-operator` | Warning | `/` with a denominator that isn't a constant: in DAX a division by zero or by BLANK gives infinity or NaN, not an error. Use `DIVIDE`. |
+| `summarize-extension-columns` | Warning | `SUMMARIZE` with calculated columns (`"Name", expression`): they're evaluated in a hard-to-predict filter context. Group with `SUMMARIZE` and add them with `ADDCOLUMNS`, or use `SUMMARIZECOLUMNS`. |
+| `topn-without-order-by` | Warning | An `EVALUATE` whose rows come from `TOPN` (directly, or through `ADDCOLUMNS`, `SELECTCOLUMNS`, `FILTER`, `CALCULATETABLE` or a `VAR … RETURN`) without `ORDER BY`: `TOPN` doesn't sort its result. Only a `TOPN` with an order expression and an N other than `1`: `TOPN(n, 'Table')` takes a sample (the explorer's table browse, the `ev` snippet) and `TOPN(1, …)` gives one row or its ties, so neither has an order to keep. |
+| `redundant-calculate` | Suggestion | `CALCULATE` without filters around a measure (it already has an implicit `CALCULATE`), or around another `CALCULATE` whose filters don't depend on the context (column conditions with constants, `ALL`, `REMOVEFILTERS`, `ALLEXCEPT`, `USERELATIONSHIP`, `CROSSFILTER`, `TREATAS` of constants, `KEEPFILTERS` of them). |
+| `hasonevalue-values` | Suggestion | `IF(HASONEVALUE(c), VALUES(c), …)`: `SELECTEDVALUE(c, …)` is the same. |
+| `unqualified-column` | Suggestion | A column written without its table (`[Amount]` instead of `'Sales'[Amount]`). |
+| `qualified-measure` | Suggestion | A measure written with its table (`'Sales'[Total]` instead of `[Total]`). Only with the measure's own table: in `MEASURE '_Measures'[Sales] = SUM('Sales'[Sales])`, `'Sales'[Sales]` is a column. |
+| `earlier` | Suggestion | `EARLIER` and `EARLIEST`: a variable before the iterator says the same and reads top to bottom. |
+
+The analysis doesn't read the model, so the two rules about names only know
+what the script itself shows: `qualified-measure` knows the measures the
+script defines (`DEFINE MEASURE`) with their table, and flags one only
+when it's written with that table and the script doesn't use that same
+name as a column of it; `unqualified-column` knows the columns it
+writes with their table where only a column fits (`DEFINE COLUMN`, the
+argument of `SUM`, `VALUES`, `ALL`, `SELECTEDVALUE`, the time intelligence
+functions, the grouping columns of `SUMMARIZECOLUMNS`…) and in only one
+table. A name the query gives to a new column (`"Region"` in `ADDCOLUMNS`,
+`SELECTCOLUMNS`, `SUMMARIZECOLUMNS`…) is referenced without a table and
+isn't flagged.
+
+Several of these rules have a rewrite in **Optimize query**
+([`query-optimizer.md`](query-optimizer.md#dax-power-bi)).
+
 The rest of the engines (for example InfluxDB 2 with Flux) have no rules.
 Which engine gets which group is in
 [`engine-support.md`](engine-support.md#code-quality).

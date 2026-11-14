@@ -18,17 +18,17 @@
     "importFolderTitle": "Папка со скриптами для импорта",
     "importFilesTitle": "Скрипты для импорта",
     "imported_one": "Импортирован {{count}} скрипт для {{engines}}. Движок можно изменить при редактировании.",
-    "imported_few": "Импортировано {{count}} скрипта для {{engines}}. Движок можно изменить при редактировании.",
     "imported_other": "Импортировано {{count}} скрипта для {{engines}}. Движок можно изменить при редактировании.",
     "skipped": "Пропущено: {{list}}",
     "exportAllTitle": "Папка для экспорта библиотеки",
     "exported_one": "Экспортирован {{count}} скрипт в {{dir}}",
-    "exported_few": "Экспортировано {{count}} скрипта в {{dir}}",
     "exported_other": "Экспортировано {{count}} скрипта в {{dir}}",
     "exportOneTitle": "Папка для сохранения «{{name}}»",
     "exportedOne": "Экспортировано",
     "imported_many": "Импортировано скриптов для {{engines}}: {{count}}. Движок можно изменить при редактировании.",
-    "exported_many": "Экспортировано скриптов в {{dir}}: {{count}}"
+    "exported_many": "Экспортировано скриптов в {{dir}}: {{count}}",
+    "imported_few": "Импортировано {{count}} скрипта для {{engines}}. Движок можно изменить при редактировании.",
+    "exported_few": "Экспортировано {{count}} скрипта в {{dir}}"
   },
   "menu": {
     "openNew": "Открыть в новом запросе",
@@ -53,9 +53,9 @@
     "delete": "Удалить папку",
     "deleteConfirm": "Удалить папку «{{path}}»?",
     "deleteConfirmScripts_one": "Удалить папку «{{path}}»? Её скрипт переместится в родительскую папку; он не удаляется.",
-    "deleteConfirmScripts_few": "Удалить папку «{{path}}»? Её скрипты ({{count}}) переместятся в родительскую папку; ни один не удаляется.",
     "deleteConfirmScripts_other": "Удалить папку «{{path}}»? Её скрипты ({{count}}) переместятся в родительскую папку; ни один не удаляется.",
-    "deleteConfirmScripts_many": "Удалить папку «{{path}}»? Её скрипты ({{count}}) переместятся в родительскую папку; ни один не удаляется."
+    "deleteConfirmScripts_many": "Удалить папку «{{path}}»? Её скрипты ({{count}}) переместятся в родительскую папку; ни один не удаляется.",
+    "deleteConfirmScripts_few": "Удалить папку «{{path}}»? Её скрипты ({{count}}) переместятся в родительскую папку; ни один не удаляется."
   },
   "dialogs": {
     "param": {
@@ -98,13 +98,10 @@
   "git": {
     "title": "Библиотека в git",
     "added_one": "{{count}} новый",
-    "added_few": "{{count}} новых",
     "added_other": "{{count}} новых",
     "updated_one": "{{count}} обновлён",
-    "updated_few": "{{count}} обновлённых",
     "updated_other": "{{count}} обновлённых",
     "deleted_one": "{{count}} удалён",
-    "deleted_few": "{{count}} удалённых",
     "deleted_other": "{{count}} удалённых",
     "repoScripts": "Скрипты репозитория: {{list}}.",
     "upToDate": "Библиотека уже была синхронизирована с репозиторием.",
@@ -124,7 +121,7 @@
     "noGit": "git не найден на этом компьютере",
     "noGitHelp": "Установите его с git-scm.com (в macOS он также входит в Command Line Tools) и снова откройте это окно.",
     "help": "Храните библиотеку в репозитории git (GitHub, GitLab, Azure DevOps…) как резервную копию или чтобы делиться ею.",
-    "helpFiles": "Каждый скрипт хранится как файл в своей папке с расширением своего языка: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux} или {cypher}.",
+    "helpFiles": "Каждый скрипт хранится как файл в своей папке с расширением своего языка: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux}, {cypher} или {dax} (Power BI).",
     "repository": "Репозиторий",
     "repositoryPlaceholder": "git@github.com:company/dba-scripts.git или https://…",
     "branch": "Ветка",
@@ -142,6 +139,9 @@
     "sync": "Синхронизировать",
     "added_many": "{{count}} новых",
     "updated_many": "{{count}} обновлённых",
-    "deleted_many": "{{count}} удалённых"
+    "deleted_many": "{{count}} удалённых",
+    "added_few": "{{count}} новых",
+    "updated_few": "{{count}} обновлённых",
+    "deleted_few": "{{count}} удалённых"
   }
 }

@@ -61,9 +61,11 @@ const KEPT_OPTIONS: &[&str] = &[
     "role",
     "schema",
     "service",
+    "tenant",
     "wallet_dir",
     "warehouse",
     "workgroup",
+    "workspace",
 ];
 
 /// An SSH tunnel DBine opens for a connection: where it goes (no credentials).
@@ -482,6 +484,8 @@ const RESERVED_NAMES: &[&str] = &[
     "http_frame",
     "dynamo_frame",
     "flight_frame",
+    "dax_frame",
+    "azure",
     "display",
 ];
 
@@ -578,6 +582,8 @@ enum Kind {
     Dynamo,
     Couchbase,
     Flight,
+    /// Power BI's REST API (`executeQueries`) with azure-identity: `dax_frame`.
+    PowerBi,
     /// The client is set up but its queries need something the cell doesn't say.
     Cosmos,
     /// No client: the cells are commented.
@@ -792,6 +798,8 @@ fn sign_in_notes(c: &PyConn, s: &mut Setup) {
             "«{name}» signs in with AWS IAM in DBine: generate an auth token (`boto3.client(\"rds\").generate_db_auth_token(…)`) and put it in the password variable."
         )),
         Some("gcp_iam") => s.notes.push(format!("«{name}» signs in with Google Cloud IAM in DBine: put an access token (`gcloud auth print-access-token`) in the password variable.")),
+        // Power BI's export signs in with azure-identity itself.
+        _ if c.driver == "powerbi" => {}
         Some("azure_entra") | Some("entra") | Some("entra_interactive") | Some("entra_password") | Some("entra_sp") | Some("entra_token") => s.notes.push(format!(
             "«{name}» signs in with Microsoft Entra ID in DBine: put an access token for the database in the password variable, or sign in the way your client library supports."
         )),
@@ -1178,6 +1186,7 @@ fn setup_inner(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
             st.notes.push(format!("«{}» is Aurora DSQL: generate an auth token (`boto3.client(\"dsql\").generate_db_connect_admin_auth_token(…)`) and put it in its variable.", c.name));
             return st;
         }
+        "powerbi" => return powerbi_setup(c, var, sec),
         "iotdb" | "timechodb" => return Setup::none("DBine reads IoTDB through its REST API; the Python client (apache-iotdb) uses the session port and another API: write that query by hand"),
         "ksqldb" => return Setup::none("ksqlDB has no maintained Python client: post the statement to its REST API (`/query-stream`) with requests"),
         "orientdb" => return Setup::none("OrientDB has no maintained Python client for its current versions: run the query through its REST API with requests"),
@@ -1493,6 +1502,129 @@ const DYNAMO_HELPER: &str = r##"def dynamo_frame(client, statement):
         token = page.get("NextToken")
         if not token:
             return pd.DataFrame(items)"##;
+
+/// Power BI / Fabric semantic models: the cloud's REST API and the model by
+/// name (`<workspace> › <model>` as DBine lists it, or the connection's
+/// workspace), signed in with azure-identity as the connection does in
+/// DBine. Cells run through `executeQueries` (any license; up to 100,000
+/// rows per query).
+fn powerbi_setup(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
+    let mut st = Setup {
+        packages: vec!["requests", "azure-identity"],
+        imports: vec!["import os", "import requests", "import azure.identity"],
+        helpers: vec![POWERBI_HELPER],
+        ..Setup::new(Kind::PowerBi)
+    };
+    let (base, scope) = match c.opt("cloud").unwrap_or("public") {
+        "gcc" => (
+            "https://api.powerbigov.us/v1.0/myorg",
+            "https://analysis.usgovcloudapi.net/powerbi/api/.default",
+        ),
+        "gcc_high" => (
+            "https://api.high.powerbigov.us/v1.0/myorg",
+            "https://high.analysis.usgovcloudapi.net/powerbi/api/.default",
+        ),
+        "dod" => (
+            "https://api.mil.powerbigov.us/v1.0/myorg",
+            "https://mil.analysis.usgovcloudapi.net/powerbi/api/.default",
+        ),
+        "china" => (
+            "https://api.powerbi.cn/v1.0/myorg",
+            "https://analysis.chinacloudapi.cn/powerbi/api/.default",
+        ),
+        _ => (
+            "https://api.powerbi.com/v1.0/myorg",
+            "https://analysis.windows.net/powerbi/api/.default",
+        ),
+    };
+    // The database is the model, as DBine lists it: `<workspace> › <model>`
+    // when the connection doesn't name a workspace.
+    let (workspace, model) = match c.database.split_once(" › ") {
+        Some((w, m)) if c.opt("workspace").is_none() => (Some(w.to_string()), m.to_string()),
+        _ => (c.opt("workspace").map(str::to_string), c.database.clone()),
+    };
+    let workspace = workspace.filter(|w| w != "Mi área de trabajo" && !w.is_empty());
+    let tenant = c.opt("tenant").map(py_lit);
+    let credential = match c.auth.as_deref() {
+        Some("entra_sp") => format!(
+            "azure.identity.ClientSecretCredential({}, {}, {})",
+            tenant.clone().unwrap_or_else(|| sec.get(
+                "TENANT",
+                "the tenant (GUID or domain)",
+                true
+            )),
+            sec.get("CLIENT_ID", "the service principal's client ID", true),
+            sec.get("CLIENT_SECRET", "the service principal's secret", true)
+        ),
+        Some("entra_sp_cert") => format!(
+            "azure.identity.CertificateCredential({}, {}, {}, password={})",
+            tenant.clone().unwrap_or_else(|| sec.get(
+                "TENANT",
+                "the tenant (GUID or domain)",
+                true
+            )),
+            sec.get("CLIENT_ID", "the service principal's client ID", true),
+            sec.get(
+                "CLIENT_CERTIFICATE",
+                "the path of the service principal's certificate (a PEM or PFX file)",
+                true
+            ),
+            sec.get(
+                "CLIENT_CERTIFICATE_PASSWORD",
+                "the certificate's password (optional)",
+                false
+            )
+        ),
+        Some("entra_default") | Some("entra_msi") => {
+            "azure.identity.DefaultAzureCredential()".into()
+        }
+        Some("token") => {
+            st.notes.push(format!("«{}» uses a pasted access token in DBine: put a current one for Power BI in its variable (it isn't refreshed).", c.name));
+            "None".into()
+        }
+        _ => format!(
+            "azure.identity.InteractiveBrowserCredential({})",
+            kwargs(&[("tenant_id", tenant)])
+        ),
+    };
+    st.code.push(format!("{var} = requests.Session()"));
+    st.code.push(format!("{var}.base_url = {}", py_lit(base)));
+    st.code.push(format!("{var}.scope = {}", py_lit(scope)));
+    st.code.push(format!("{var}.credential = {credential}"));
+    if c.auth.as_deref() == Some("token") {
+        st.code.push(format!(
+            "{var}.token = {}",
+            sec.get("ACCESS_TOKEN", "an access token for Power BI", true)
+        ));
+    }
+    st.code.push(format!(
+        "{var}.workspace = {}",
+        workspace.as_deref().map_or("None".into(), py_lit)
+    ));
+    st.code.push(format!("{var}.model = {}", py_lit(&model)));
+    st
+}
+
+const POWERBI_HELPER: &str = r##"def dax_frame(client, dax):
+    """A DAX query on the client's semantic model (executeQueries) as a DataFrame."""
+    token = client.credential.get_token(client.scope).token if client.credential else client.token
+    client.headers["Authorization"] = "Bearer " + token
+    base = client.base_url
+    if client.workspace:
+        name = client.workspace.replace("'", "''")
+        r = client.get(base + "/groups", params={"$filter": "name eq '" + name + "'"}, timeout=120)
+        r.raise_for_status()
+        base += "/groups/" + r.json()["value"][0]["id"]
+    r = client.get(base + "/datasets", timeout=120)
+    r.raise_for_status()
+    model = next(d["id"] for d in r.json()["value"] if d["name"] == client.model)
+    body = {"queries": [{"query": dax}], "serializerSettings": {"includeNulls": True}}
+    r = client.post(base + "/datasets/" + model + "/executeQueries", json=body, timeout=600)
+    r.raise_for_status()
+    result = r.json()["results"][0]
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    return pd.DataFrame(result["tables"][0]["rows"])"##;
 
 const FLIGHT_HELPER: &str = r##"def flight_frame(conn, sql):
     with conn.cursor() as cur:
@@ -1820,6 +1952,7 @@ fn query_code(
         Kind::Dynamo => format!("{var} = dynamo_frame({client}, {})", py_block(source.trim().trim_end_matches(';'))),
         Kind::Couchbase => format!("{var} = pd.DataFrame(list({client}.query({lit})))"),
         Kind::Flight => format!("{var} = flight_frame({client}, {lit})"),
+        Kind::PowerBi => format!("{var} = dax_frame({client}, {lit})"),
         Kind::Http(flavor) => {
             let (method, path, body) = http_request(source, flavor, &c.database)?;
             let body = body.map(|b| format!(", {}", py_value(&b))).unwrap_or_default();
@@ -2181,6 +2314,7 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
             Kind::Dynamo => "dynamo",
             Kind::Couchbase => "cb",
             Kind::Flight => "flight",
+            Kind::PowerBi => "pbi",
             Kind::Cosmos => "cosmos",
             Kind::None => "conn",
         };
@@ -2568,6 +2702,7 @@ pub fn mapping_of(c: &PyConn) -> (String, Option<String>) {
         Kind::Dynamo => "boto3",
         Kind::Couchbase => "couchbase",
         Kind::Flight => "adbc-driver-flightsql",
+        Kind::PowerBi => "requests + azure-identity",
         Kind::Cosmos => "azure-cosmos (commented cells)",
         Kind::None => "none",
     };

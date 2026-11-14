@@ -936,6 +936,8 @@ fn count_text(driver: &dyn Driver, t: &TableSchema) -> Option<String> {
             format!("GET /{}/_count", t.name)
         }
         (Language::Json, "solr") => format!("GET /solr/{}/select?q=*:*&rows=0", t.name),
+        // A semantic model's table: one row, one value.
+        (Language::Dax, _) => format!("EVALUATE {{ COUNTROWS('{}') }}", t.name.replace('\'', "''")),
         _ => return None,
     })
 }
@@ -3150,6 +3152,18 @@ mod tests {
         assert_eq!(
             text(driver("influxdb", "", Family::TimeSeries, Language::Flux)),
             None
+        );
+        let dax = TableSchema {
+            name: "Ventas d'Or".into(),
+            ..sample()
+        };
+        assert_eq!(
+            count_text(
+                &driver("powerbi", "powerbi", Family::Analytical, Language::Dax),
+                &dax
+            )
+            .as_deref(),
+            Some("EVALUATE { COUNTROWS('Ventas d''Or') }")
         );
     }
 

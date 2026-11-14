@@ -115,6 +115,164 @@ access to the system's programs): those steps answer that they aren't
 available in the sandbox. AWS keys in the environment or in
 `~/.aws/credentials` still work there, when the sandbox can read them.
 
+## Power BI and Fabric semantic models (Entra ID)
+
+The **Power BI** engine (semantic models in the Power BI service and Microsoft
+Fabric) signs in only with Microsoft Entra ID, and uses the token as the
+bearer of the REST APIs: there is no database password. **Authentication**
+has six methods, and every one ends in a token for the cloud's Power BI
+resource (`https://analysis.windows.net/powerbi/api` in the public cloud).
+
+| Method | Fields | How |
+|---|---|---|
+| **Microsoft Entra ID (browser, with MFA)**, the default | **Usuario** (optional), **Inquilino** (optional), **Aplicación para iniciar sesión** (advanced) | Authorization code with PKCE in the system browser, through a loopback redirect (`http://localhost:<port>`), so the organization's sign-in, MFA and conditional access apply. The browser opens only the selected cloud's own sign-in page, and the wait ends after five minutes. |
+| **Service principal (secret)** | **Inquilino** (required), **Client ID**, **Secreto del cliente** | Client credentials with the app's secret. |
+| **Service principal (certificate)** | **Inquilino** (required), **Client ID**, **Certificado** (a file), **Contraseña del certificado** (secret, optional) | Client credentials with a client assertion signed with the certificate's private key, instead of a secret ([below](#service-principal-certificate)). |
+| **Default credential** | **Inquilino** (optional) | In this order: the `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` variables with `AZURE_CLIENT_SECRET`, or with `AZURE_CLIENT_CERTIFICATE_PATH` (a PEM or PFX, signed in as the certificate method does) and `AZURE_CLIENT_CERTIFICATE_PASSWORD`; a managed identity; `az account get-access-token --resource <Power BI resource>`; then `azd auth token`. The CLIs run without a shell and with fixed arguments. |
+| **Managed identity** | **Client ID** (optional: a user-assigned identity; empty is the system's) | The Azure instance metadata endpoint, or the App Service endpoint, with the Power BI resource. |
+| **Access token** | **Token de acceso** (secret) | A token pasted by hand for the cloud's Power BI resource. DBine never renews it: when it expires the connection says so and a new one has to be pasted. Its audience is read locally only to give a clear message. |
+
+Managed identities are service principals for Power BI, so everything said
+about service principals applies to them.
+
+### Service principal (certificate)
+
+The certificate method follows Microsoft Learn's *certificate credentials*:
+the token request carries `client_assertion_type`
+`urn:ietf:params:oauth:client-assertion-type:jwt-bearer` and a
+`client_assertion`, a JWT that DBine signs at each sign-in:
+
+- header: `alg` `PS256` (RSASSA-PSS with SHA-256), `typ` `JWT` and
+  `x5t#S256`, the base64url SHA-256 thumbprint of the certificate;
+- claims: `aud` the tenant's token endpoint
+  (`https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token`, or the
+  chosen cloud's), `iss` and `sub` the Client ID, a new `jti`, `nbf` and
+  `iat` now, and `exp` ten minutes later.
+
+**Certificado** is picked with a file field and takes:
+
+- a PEM with the certificate and its private key in the same file, the key
+  as PKCS#8 (`PRIVATE KEY`), PKCS#8 encrypted with a password (`ENCRYPTED
+  PRIVATE KEY`: PBES2 with AES or 3DES, and PBKDF2 with HMAC-SHA-256 or
+  HMAC-SHA-1, so what `openssl pkcs8 -topk8 -v2 aes-256-cbc` writes with
+  OpenSSL 1.1 or later, OpenSSL 1.0 or the LibreSSL that macOS ships as
+  `openssl`) or PKCS#1 (`RSA PRIVATE KEY`). A key encrypted in OpenSSL's
+  traditional format (`Proc-Type: 4,ENCRYPTED`), with PBES1 (what macOS's
+  `openssl pkcs8 -topk8` writes without `-v2`) or with PKCS#12's PBE is
+  refused with the command that re-encrypts it, and not as a wrong password;
+- a PFX / PKCS#12 file (`.pfx`, `.p12`) with its password, including the
+  older ones Windows exports (3DES and RC2).
+
+The key has to be RSA, as the assertion is signed with RSA. When the file
+holds a chain, DBine uses the certificate whose public key is the key's. The
+app registration gets the certificate only (the `.cer` or a PEM without the
+key) under **Certificates & secrets**. If Entra doesn't know the certificate
+(`AADSTS700027`), the error names its SHA-1 thumbprint, the one the app
+registration shows, at the start of the message (also in the default
+credential's list of what it tried); an assertion refused for its time
+(`AADSTS700024`) points to this computer's clock.
+
+The file is read at each sign-in, so a certificate renewed in the same path
+is used from the next token on. The connection stores only the file's path;
+**Contraseña del certificado** is a secret, kept in the system keychain
+like the client secret. The key isn't kept between sign-ins: DBine wipes
+the buffers it reads the file and the key into once they are used (the PFX
+reader frees its own decrypted copy of the key without wiping it), and
+neither the key nor the password reaches the state file, an error or the
+logs. Signing and the thumbprints use AWS-LC, the library the TLS
+connections already use.
+
+Only Power BI signs a service principal in with a certificate so far: the
+service principal of SQL Server, Azure SQL Database and Fabric, and of
+Azure Databricks, still takes the client secret only (an explicit pending
+item in [`engine-support.md`](engine-support.md#service-principal-certificates)).
+
+### The browser sign-in and its app
+
+**Aplicación para iniciar sesión** (under advanced options) picks the
+registered app the sign-in uses:
+
+- **DBine (predeterminada):** the app "DBine Database Sign-in" (a public
+  client; its id is not a secret).
+- **Cliente de Azure CLI:** the Azure CLI's own public client, which many
+  tenants already allow. It asks for the whole Power BI resource
+  (`.default`), so its token carries every permission the account has
+  consented to.
+- **Propia (Client ID):** an app registered in your tenant, as a public
+  client with the delegated Power BI permissions and the redirect URI
+  `http://localhost`. It is needed for GCC High, DoD and China, because
+  DBine's app is registered in the public cloud.
+
+The permissions DBine's app asks for are delegated and only the ones the
+connection needs:
+
+- always: `Dataset.Read.All` and `Workspace.Read.All` of Power BI, plus
+  `offline_access`, `openid` and `profile`;
+- `Capacity.Read.All`, to show the capacity's SKU and state;
+- `Dataset.ReadWrite.All`, only when the connection is not read-only
+  (refresh now, cancel, schedules, model permissions, delete);
+- `SemanticModel.ReadWrite.All` of the Fabric API
+  (`api.fabric.microsoft.com`), only with **Leer la definición completa del
+  modelo (API de Fabric)** on, which is the default. It reads the model's
+  definition and renames or describes the model; DBine never writes a model
+  definition. It needs write permission on the model.
+
+Asking for fewer permissions only avoids requesting a consent that isn't
+needed: it is not what keeps a read-only connection read-only. Once a
+permission has been consented, Entra puts it in every later token of that
+user, and the Azure CLI client's token carries all of them. The read-only
+connection refuses refresh, cancel, schedule, permission, rename and delete
+calls itself, before any request.
+
+If the tenant has not approved DBine's app (Entra answers
+`AADSTS650057`, `AADSTS65001` or `AADSTS90094`), the error says so and
+names the two ways out: ask an administrator to approve the app, or choose
+**Cliente de Azure CLI**. A Conditional Access block (`AADSTS53003`) is
+reported the same way. DBine never opens a second browser sign-in by
+itself.
+
+Connections that leave **Usuario** empty share one signed-in account per
+cloud, tenant and sign-in app. Signing in with another account in the
+browser, or changing the Azure CLI account with `az login` for the default
+credential, moves every such connection to that account. To keep two
+accounts apart, write each one in **Usuario**. A connection that names a
+user refuses a sign-in as another account and asks again on the next
+attempt. A token renewal that comes back as another account is refused the
+same way. When **Inquilino** is a GUID, a token from another tenant is
+refused.
+
+### Tenant settings and permissions
+
+What the Power BI tenant and the model must allow:
+
+- **Everyone:** workspace access plus **Read** and **Build** on the model,
+  and the tenant setting **Semantic Model Execute Queries REST API**
+  (Integration settings).
+- **executeDaxQueries (Premium, Fabric or Embedded capacity):** the tenant
+  setting **Allow XMLA endpoints and Analyze in Excel with on-premises
+  semantic models** as well. Without it the model falls back to
+  `executeQueries`, and the editor says so once.
+- **Service principals and managed identities:** the tenant setting
+  **Service principals can call Fabric public APIs** (Developer settings),
+  the principal added to the workspace (Viewer with Build on the model, or
+  Contributor and above) or given Build on the model, and no admin-consented
+  Power BI application permissions on its app. `executeQueries` doesn't
+  serve a service principal on a model with row-level security or single
+  sign-on, and on `executeDaxQueries` a service principal can test roles only
+  as a workspace admin. A service principal's refreshes and schedules go
+  without e-mail notification.
+- **Reading the full definition** (measures, relationships and hierarchies on
+  Pro workspaces): read and write permission on the model.
+
+### Clouds
+
+**Nube** picks the sign-in host and the API host together, from a fixed
+table (the API host is never a free field, so a token can't be sent
+elsewhere): Public (`api.powerbi.com`), US Government GCC, GCC High and DoD,
+and China (21Vianet). DBine's app serves the public cloud and GCC; GCC High,
+DoD and China need **Propia (Client ID)**. The Fabric definition API is
+offered in the public cloud only. The sovereign clouds are untested.
+
 ## Secrets
 
 Tokens and cloud credentials live in the memory of the driver process only.
@@ -143,6 +301,19 @@ is no password to save or ask for.
   login` profile and reports its expired session.
 - Against the `dbine-test-postgres`, `dbine-test-mysql` and
   `dbine-test-mariadb` containers: the password sign-in is unchanged.
+- Power BI: unit tests with fixtures shaped like Microsoft Learn's samples
+  and fake token endpoints (scopes per connection, the host allowlist, the
+  account binding, consent errors). The certificate method against a
+  test-only certificate made with OpenSSL 3 (`crates/drivers/powerbi/tests/fixtures/certificate`),
+  in every accepted format (PEM with PKCS#8, encrypted PKCS#8 and PKCS#1
+  keys; PFX with AES and the older 3DES/RC2): the thumbprints equal
+  OpenSSL's, the assertion's header and claims are Microsoft Learn's, its
+  PS256 and RS256 signatures verify with the public key OpenSSL extracted,
+  and a fake token endpoint checks the assertion (its `aud` is the
+  endpoint's own URL) and that no secret is sent. No Power BI tenant was
+  available: the sign-in with DBine's app and with the Azure CLI client, the
+  service principal (secret and certificate), managed identity and the
+  sovereign clouds were not tried against real services.
 - **Not tested against real cloud databases** (there are none in the test
   environment): RDS / Aurora with IAM, Cloud SQL and AlloyDB with IAM,
   Azure Database for PostgreSQL / MySQL with Entra ID, the metadata servers

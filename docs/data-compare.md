@@ -5,6 +5,10 @@ the other. The tables can be on the same connection, on different
 connections or on different engines. It complements
 [schema compare](schema-compare.md).
 
+It also compares the whole results of **two queries**, on any connections
+and engines (a Power BI measure against the `SUM` in its source database,
+for instance), read-only: see [Comparing two queries](#comparing-two-queries).
+
 ## How to use it
 
 - Right-click a table › **Compare data…**: opens a tab with that table on the
@@ -176,6 +180,126 @@ values: it gets counts, the columns' names and types, and what you type.
 
   The comparison says if the key repeats.
 
+## Comparing two queries
+
+Besides two tables, a data compare can compare the results of two
+**queries**: a Power BI measure against the `SUM` in the database it comes
+from, a report query on two servers, a Parquet file against a warehouse.
+Each side is any connection (and database) and a query in that engine's
+language: SQL, DAX, a MongoDB `find`, a Redis command…
+
+**Where.**
+
+- In the data compare tab, the **Tablas / Consultas** switch. In **Consultas**
+  each side has a connection, a database and a query box.
+- In a query editor, **Comparar con…** in the editor's menu (the selection,
+  or else the statement at the cursor), and in a result tab's menu (that
+  result's query; off for the result of a run on several databases). Both
+  open a compare with that query on the left and the right side empty:
+  choose the right side's connection and write its query. The statement's
+  `:name` parameters are asked for first, as running it does.
+
+**Columns and key.**
+
+- **Leer columnas** (or the first **Compare**, and again whenever a query
+  changes) runs each query until its first row to read its columns, and
+  stops there. If the engine answers an error after that first row (one
+  that cuts the result at the rows asked for), the columns read stand; the
+  compare runs the query again and shows any real error.
+- The columns are **paired** by name, then by their bare name
+  (`Date[Year]` with `year`, `[Total Sales]` with `total_sales`), then in
+  order for those left over. The pairs and the key are shown in a column
+  table and can be changed; a pair can be switched off (**No se compara**).
+  Right-hand columns with no pair are listed and not compared. When a query
+  changes, the user's pairs and key are kept where the columns still exist.
+- The **key** is suggested: on a DAX side, its `Table[Column]` columns; else a
+  column that looks like an id; else the columns that describe rather than
+  measure. At least one key column is needed. If the key repeats, the result
+  says so and hints that the key may be missing a column.
+- A result with two columns of the same name (case-insensitive, such as
+  `SELECT *` over a join) is refused, both when reading its columns and when
+  comparing: give them aliases. A DAX result names its columns as DAX does
+  (`'Date'[Year]` comes back as `Date[Year]`, a measure or extension column
+  as `[Sales]`); rename them in the query (`SELECTCOLUMNS`, or the names given
+  in `SUMMARIZECOLUMNS`) when the bare names don't pair.
+
+**Options.**
+
+- **Tolerance on numbers:** an *absolute* difference (±0.01) and/or a
+  *relative* one, as a percentage of the larger number. Two numbers within
+  either are the same. It is for a measure against a `SUM` that differs by
+  rounding. The key never takes a tolerance.
+- **NULL igual a vacío (BLANK):** NULL equals a blank value (0, an empty
+  text or false), as DAX's BLANK does; a row only one side has counts as the
+  same when all its compared non-key values are blank (DAX's
+  `SUMMARIZECOLUMNS` leaves out the rows whose measures are all BLANK, where
+  SQL over a date table returns them with NULL or 0). A row with any value
+  that isn't blank is still only on its side, and so is every row when only
+  key columns are compared. It is switched on by itself when a side is a
+  Power BI connection.
+- **Sin distinguir mayúsculas** and **Sin espacios al principio y al final**
+  for text, keys included.
+
+**Whole results.**
+
+- Both results are read whole, each on a read-only session of its own, never
+  only the rows a grid shows. While both are under 250,000 rows and 256 MB
+  they are compared in memory; past that they go to the same encrypted,
+  temporary local DuckDB the table compare uses, with the same folder, key,
+  cleanup and limits (see [How it compares](#how-it-compares)).
+- Without a tolerance, two numbers are equal only when they are the same
+  number digit by digit (`1`, `1.0` and `"1.00"` are); a tolerance compares
+  them as doubles. A date equals a timestamp at its midnight, text compares
+  exactly, and PostgreSQL's `t` and `f` equal another engine's `true` and
+  `false` (or `1` and `0`), keys too.
+- While the compare can't take a driver host's rows (the local DuckDB still
+  opening, or downloading on first use), at most 64 MB of rows wait per side
+  and the host is held until there is room. A `duckdb` or `duckdb_files`
+  side shares its host with the local DuckDB and can't be held: if its result
+  gets 512 MB ahead of the compare, the compare stops and says so (narrow the
+  query, or compare the table or view).
+
+**It refuses rather than compare partially.** A compare stops, with the
+reason, when:
+
+- the engine cut a result (an API's row cap, such as Power BI's
+  `executeQueries`: 100,000 rows, 1,000,000 values or 15 MB), since the totals
+  would be wrong;
+- a query returns more than one result set, or none with columns;
+- a paired column is missing from a result;
+- a column name repeats (above).
+
+**Results** are the table compare's: same, different (with the differing
+columns), only on the left, only on the right, exact counts, repeated keys,
+and [sorting and filtering](#sorting-and-filtering-the-differences) and
+[the AI](#with-ai) over all the rows (the AI still never sees a value).
+
+**Read-only.** A query isn't a table: there are no arrows and no sync
+script, and `data_compare_script` refuses a query compare. The two queries
+run on read-only sessions, so a statement that writes is refused (checked
+live with six writes that return rows on PostgreSQL, SQL Server and
+MongoDB: each was refused and nothing was written).
+
+**Example: a Power BI measure against the source.** Left, the model's
+connection:
+
+```dax
+EVALUATE
+SUMMARIZECOLUMNS('Date'[Year], "Sales", [Total Sales])
+```
+
+Right, the SQL Server or PostgreSQL database the model is loaded from:
+
+```sql
+SELECT year, SUM(amount) AS sales FROM sales GROUP BY year
+```
+
+The columns pair by bare name (`Date[Year]` with `year`, `[Sales]` with
+`sales`), the key is the year, and NULL equals blank is already on. With
+**absolute** `0.01` the years whose total differs only by rounding are
+"same"; the rest show as different with both values, and a year that only
+one side has shows in its own list.
+
 ## Commands
 
 - `data_compare { left, right, key, columns, run }` → the totals, the sample
@@ -198,6 +322,11 @@ values: it gets counts, the columns' names and types, and what you type.
   `only_right`; each carries `all` (`"left"`, `"right"` or `"none"`) and
   `rows`, the exceptions `[index, direction]` over the complete list of that
   view.
+- `data_compare_query { left, right, columns, options, run }` and
+  `data_compare_query_columns { side, run }` compare two queries and read
+  one's columns ([`api-commands.md`](api-commands.md#data-compare-of-two-queries-data-comparemd)).
+  Its progress event and `data_compare_cancel { run }` are the table
+  compare's; cancelling also stops the column reads.
 - `data_compare_explain { id, asker }` → `{ text }`, Markdown from the profile
   (`src-tauri/src/commands/data_compare_ai.rs`).
 - `data_compare_ai_filter { id, kind, request, asker }` → `{ filters,

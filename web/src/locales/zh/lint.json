@@ -27,7 +27,8 @@
     "search": "Elasticsearch、OpenSearch 和 Solr",
     "redis": "Redis、Valkey 和 Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j、Memgraph 和 Neptune"
+    "cypher": "Neo4j、Memgraph 和 Neptune",
+    "dax": "Power BI (DAX)"
   },
   "problems": {
     "button": "查看问题",
@@ -228,6 +229,56 @@
       "title": "不带 WHERE 的 DETACH DELETE",
       "message": "不带 WHERE 的 DETACH DELETE 会删除 MATCH 找到的所有节点",
       "why": "它会删除节点及其所有关系。没有 WHERE 或属性过滤时，会把模式中的所有节点都带走。请检查 MATCH；要删除大量数据，请分批进行（CALL { … } IN TRANSACTIONS）。"
+    },
+    "filter-whole-table": {
+      "title": "CALCULATE 中对整个表使用 FILTER",
+      "message": "FILTER({{table}}, …) 会筛选整个表：请对列使用条件，或使用 KEEPFILTERS",
+      "why": "作为 CALCULATE 的筛选器，FILTER 会遍历表（及其相关表）的所有行，生成的筛选器涵盖其所有列：速度慢，还可能产生意外结果。请针对列编写条件（'表'[列] = 值），若要保留已有的筛选器，则使用 KEEPFILTERS('表'[列] = 值)。如果按度量值筛选，请对某一列的值（该列的 VALUES 或 ALL）使用 FILTER，而不是对整个表使用。"
+    },
+    "error-functions": {
+      "title": "IFERROR 和 ISERROR",
+      "message": "{{fn}} 会迫使引擎逐步求值，并掩盖错误",
+      "why": "错误处理函数会让引擎无法一次性解析表达式，还会隐藏模型中的真实错误。除法请使用 DIVIDE；其他情况请先检查条件（ISBLANK，或带验证的 IF），而不是捕获错误。"
+    },
+    "divide-operator": {
+      "title": "使用 / 做除法",
+      "message": "/ 的分母可能为零或为空：请使用 DIVIDE",
+      "why": "在 DAX 中，除以零或空值不会报错：结果是无穷大或 NaN，并会显示在报表中。在这些情况下，DIVIDE(分子, 分母) 返回空值，或返回您指定的替代结果。如果分母是常量，使用 / 即可。"
+    },
+    "summarize-extension-columns": {
+      "title": "带计算列的 SUMMARIZE",
+      "message": "SUMMARIZE 计算了列 {{name}}：请使用 SUMMARIZECOLUMNS 或 ADDCOLUMNS",
+      "why": "SUMMARIZE 计算的列在难以预测的筛选上下文中求值，可能得到错误结果，而且更慢。SUMMARIZE 仅用于分组，计算请用 ADDCOLUMNS 添加（非度量值的部分外面套 CALCULATE），或使用 SUMMARIZECOLUMNS。"
+    },
+    "topn-without-order-by": {
+      "title": "没有 ORDER BY 的 TOPN",
+      "message": "TOPN 只选取行，不排序：请在 EVALUATE 中添加 ORDER BY",
+      "why": "TOPN 不保证结果的任何顺序：行可能以任意顺序返回。若要有序查看，请在 EVALUATE 末尾添加 ORDER BY，使用相同的条件和方向（未指定时，TOPN 取值最大的行）。只会标记按某个条件排序的 TOPN：没有排序表达式或只有一行时，无需保持顺序。"
+    },
+    "redundant-calculate": {
+      "title": "多余的 CALCULATE",
+      "message": "没有筛选器的 {{fn}} 不会改变结果",
+      "why": "对度量值的引用已经带有隐式 CALCULATE，嵌套在另一个 CALCULATE 中的 CALCULATE 已经完成了上下文转换：外层没有自己的筛选器，只会增加工作量和干扰。请去掉它，只保留度量值或内层的 CALCULATE。"
+    },
+    "hasonevalue-values": {
+      "title": "IF(HASONEVALUE(…), VALUES(…))",
+      "message": "请使用 SELECTEDVALUE({{column}})",
+      "why": "当上下文中只有一个值时，SELECTEDVALUE 返回该列的值，否则返回替代结果：它是 IF(HASONEVALUE(…), VALUES(…), …) 的简短等价写法。"
+    },
+    "unqualified-column": {
+      "title": "列未带表名",
+      "message": "“{{column}}”是一列：请带上表名书写，{{qualified}}",
+      "why": "在 DAX 中，列带表名书写，度量值不带表名：这样一眼就能区分，即使有人创建了同名度量值，公式的含义也不会改变。只会标记脚本本身在只能放列的位置不带表名书写的列。"
+    },
+    "qualified-measure": {
+      "title": "度量值带了表名",
+      "message": "“{{measure}}”是一个度量值：请不带表名书写",
+      "why": "在 DAX 中，度量值不带表名书写（[度量值]），列则带表名（'表'[列]）：这样便于区分，即使度量值移到其他表，公式也仍然有效。只会标记脚本用 MEASURE 定义、却带着自己表名书写的度量值：其他表中的同名项是列。"
+    },
+    "earlier": {
+      "title": "EARLIER 和 EARLIEST",
+      "message": "{{fn}}：请将值保存到变量中",
+      "why": "EARLIER 和 EARLIEST 会读取上一级行上下文，使公式难以理解。请在迭代器之前把值保存到变量（VAR）中，并在内部使用：结果相同，公式也可以自上而下阅读。"
     },
     "unknown-table": {
       "title": "未知的表",

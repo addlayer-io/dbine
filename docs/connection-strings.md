@@ -218,6 +218,7 @@ node-odbc…). Where a format doesn't apply to an engine, the reason is in
 | Oracle NetSuite (SuiteAnalytics Connect) | ODBC; JDBC |
 | OrientDB | URL (REST); JDBC (orientdb-jdbc) |
 | PostgreSQL | URI (postgresql://); libpq (psql, psycopg); ADO.NET (Npgsql); JDBC; Python (SQLAlchemy); ODBC; Node.js (pg); Go (pgx) |
+| Power BI | XMLA (Excel, Power BI Desktop, SSMS; when the model's workspace is known); REST (executeQueries); Python (azure-identity) |
 | Presto | JDBC; Python (SQLAlchemy) |
 | Progress OpenEdge | ODBC; JDBC |
 | Redis | URI (redis://); ADO.NET (StackExchange.Redis) |
@@ -247,6 +248,23 @@ node-odbc…). Where a format doesn't apply to an engine, the reason is in
 | Vertica | ODBC; JDBC; ADO.NET (Vertica.Data); Python (SQLAlchemy) |
 | Yellowbrick | URI (postgresql://); libpq (psql, psycopg); ADO.NET (Npgsql); JDBC; Python (SQLAlchemy); ODBC; Node.js (pg); Go (pgx) |
 | YugabyteDB | URI (postgresql://); libpq (psql, psycopg); ADO.NET (Npgsql); JDBC; Python (SQLAlchemy); ODBC; Node.js (pg); Go (pgx) |
+
+**Power BI.** A semantic model has no database connection string; the three
+formats are the ones other tools use to reach it:
+
+- **XMLA (Excel, Power BI Desktop, SSMS):** `Data Source=powerbi://api.powerbi.com/v1.0/myorg/<workspace>;Initial Catalog=<model>;`
+  (the cloud's own host in the government and China clouds). It is written
+  only when the workspace is known, and the XMLA endpoint exists only on
+  Premium, Premium Per User and Fabric capacity.
+- **REST (`executeQueries`):** the request DBine's queries go to, with an
+  `Authorization: Bearer` header. The token is a placeholder
+  (`${DB_ACCESS_TOKEN}`); with a pasted token it follows the **Incluir
+  contraseña** rule.
+- **Python (azure-identity):** the credential that matches the connection's
+  sign-in (browser; service principal with `ClientSecretCredential`, or with
+  `CertificateCredential` and the same PEM or PFX file; or default) and a
+  call that gets a token for the cloud's Power BI resource. The secret or the
+  certificate's password follows the **Incluir contraseña** rule.
 
 ## Commands
 

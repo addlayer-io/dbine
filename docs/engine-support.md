@@ -109,6 +109,7 @@ When the catalog returns a CHECK, a column default or a computed column's expres
 | Dremio | Iceberg table (PARTITION BY, LOCALSORT) | no foreign keys or indexes | yes (spaces) | Does not preserve NOT NULL. |
 | etcd | key (value and TTL) | — | no (a single keyspace) | etcdctl commands; `watch`, `lock` and `elect` are rejected. |
 | Arrow Flight SQL | — | depends on the engine | no | Generic (GizmoSQL, Dremio, InfluxDB 3, Doris). No "trust the certificate": tonic does not allow it. |
+| Power BI (semantic models) | — (a model is read, not designed) | tables and columns, and relationships as foreign keys | no create; **Delete database** deletes the model | A database is a semantic model. Reads go through `INFO` functions, the Fabric definition API or `COLUMNSTATISTICS()` depending on the account; see [Power BI](#power-bi-semantic-models). |
 
 ## Result export
 
@@ -137,6 +138,10 @@ CSV, CSV for Excel (UTF-8 with BOM, `;` and CRLF), TSV, Excel (.xlsx) and XML.
 - Excel allows up to 1,048,576 rows per sheet; for more, CSV is better.
 - In Elasticsearch/OpenSearch, "all rows" of an index is limited by the
   server's `index.max_result_window` (10,000 by default).
+- In Power BI, a result that `executeQueries` cuts (100,000 rows, 1,000,000
+  values or 15 MB) makes "all rows" fail instead of writing a partial file;
+  a model that answers through `executeDaxQueries` has no fixed cap (the
+  export sends its own row limit).
 
 ## Result charts
 
@@ -184,6 +189,7 @@ the generated statement (SQL and CQL), or in the driver's read-only mode
 | Cosmos DB, Couchbase (N1QL), DynamoDB (PartiQL), ksqlDB, InfluxDB 1 (InfluxQL), IoTDB | in DBine | their queries aren't plain SQL over rows (`c`, `d.*`, push queries, series paths) |
 | Cassandra, ScyllaDB, Keyspaces | in DBine | CQL has no subqueries |
 | KDB+ | server, its own: `n sublist keys xasc 0!select … by … from 0!(query)`; `count` of a column counts non-null cells, sum / avg / min / max skip nulls | tested live (`tests/live.rs`), through `reval`. Several statements, system commands and columns q-sql can't name are aggregated in DBine |
+| Power BI | server, its own: `GROUPBY` over the query as a `VAR`, with `SUMX(CURRENTGROUP(), …)` for the measures, `TOPN` over the groups and `ORDER BY`; a query with several `EVALUATE`s or a `START AT` is aggregated in DBine | unit tests with fixtures; `GROUPBY` over extension columns is still to be checked against a tenant. The chart is exact even when the raw result passes `executeQueries`' cap |
 | MongoDB and variants, Elasticsearch, OpenSearch, Solr, CouchDB, Neo4j, Memgraph, Neptune, InfluxDB 2 (Flux), Redis and variants, etcd | in DBine | not SQL; tested live on MongoDB and Redis |
 
 Live tests: `src-tauri/src/commands/chart_live_tests.rs` (SQLite always; the
@@ -374,6 +380,7 @@ on the right, and arrows that get thicker the more rows pass through.
 | Databricks | `EXPLAIN FORMATTED` | query totals only; there are no per-operator metrics outside the Spark UI | fixture |
 | ksqlDB | `EXPLAIN` | estimated + results | live |
 | Phoenix | `EXPLAIN` | estimated + results | live |
+| Power BI | **no** | **no** | The REST APIs return no plan. DAX plans come only from Analysis Services trace events over XMLA (Premium, Premium Per User and Fabric capacity), which is out of scope, and not at all on Pro. |
 
 ### Documents, search, key-value and time series
 
@@ -482,6 +489,7 @@ still appears.
 | OrientDB | CPU, memory, QPS | Only with the Enterprise profiler. |
 | FerretDB | memory, connections, network, `top`, replicas | FerretDB 2 does not implement those `serverStatus` sections. |
 | **No monitor:** Spark Thrift, Kyuubi, Actian Zen, Mimer, NetSuite, Apache Calcite Avatica, generic ODBC with an unknown engine | everything | The metrics are only in the engine's own UI or API (Spark UI, Zen Monitor, `sqlmonitor`), or the protocol does not expose them. |
+| Power BI | CPU, memory, sessions, running queries | The REST APIs don't report them: they are in the Fabric Capacity Metrics app. The Monitor shows DBine's own query rate against the limit, the model's memory (needs model admin on capacity), the size and rows by table, and the last refreshes; the capacity's SKU only when the account may see it. |
 
 ### Tested against real servers
 
@@ -531,7 +539,8 @@ and SAP HANA (other schemas); TDengine; and Virtuoso.
   Greengage DB, Apache Cloudberry, EDB Postgres Advanced Server, Fujitsu
   Enterprise Postgres, KingbaseES, openGauss), Azure SQL Database and
   Babelfish for PostgreSQL (one database per connection), Google Cloud
-  Spanner, Azure Cosmos DB, InfluxDB 3 (SQL), OrientDB.
+  Spanner, Azure Cosmos DB, InfluxDB 3 (SQL), OrientDB, Power BI (a DAX
+  query reads one semantic model).
 - **Not SQL, or no database prefix:** MongoDB, Amazon DocumentDB, FerretDB,
   CouchDB, Redis, Valkey, Dragonfly, Neo4j, Memgraph, InfluxDB 2 (Flux).
 - **Another syntax for the prefix:** IBM Informix and GBase 8s
@@ -559,6 +568,7 @@ Known engines that DBine does not support, and why.
 | Raima RDM | by DSN | Its ODBC driver does not document a DSN-less connection: use the generic preset with a DSN. |
 | Windows Management Instrumentation | no | It only exists on Windows and is not a database. |
 | Jennifer, SnappyData, GemFire XD | no | Jennifer is an APM; SnappyData and GemFire XD are discontinued and only have JDBC. |
+| SQL Server Analysis Services and Azure Analysis Services | no | The REST APIs of the Power BI service don't serve them: they are reached only through XMLA (the Analysis Services protocol), which DBine doesn't speak. The `powerbi` driver's dialect (`powerbi`) leaves room for a driver with the same language, DAX, over XMLA. |
 
 ## KDB+ (kdb+ and q)
 
@@ -789,6 +799,163 @@ processes), every write mode and a clone between two kdb+ processes (the
 counts, the health checks and every property, on read-write and read-only
 sessions, and attributes set, removed and kept through a sync.
 
+## Power BI (semantic models)
+
+The `powerbi` driver (`crates/drivers/powerbi`) talks to the semantic models
+of the Power BI service and Microsoft Fabric through Microsoft's public REST
+APIs only (no XMLA, no local Analysis Services). One connection is a
+cloud, an account and optionally a workspace; each semantic model is a
+"database". It signs in with Microsoft Entra ID
+([`cloud-authentication.md`](cloud-authentication.md#power-bi-and-fabric-semantic-models-entra-id)).
+
+**What it does:**
+
+- **Explorer:** per model, tables, calculation groups, measures (under
+  their home table), hierarchies, relationships, DAX user-defined functions,
+  security roles (RLS), perspectives and shared expressions; the structure
+  with relationships as foreign keys, and each object's definition (a
+  measure as `MEASURE 'T'[M] = …` with its type and format string, a
+  calculated table as `TABLE 'T' = …`).
+  Where the metadata comes from depends on the account (three tiers, below).
+  Names are quoted as DAX quotes them (`'Sales'`, `'Sales'[Amount]`).
+- **Query editor:** DAX, one unit per `DEFINE` plus its `EVALUATE`s (or per
+  bare `EVALUATE`), with highlighting, completion of tables, columns,
+  measures and functions, hover on tables, columns and measures, snippets
+  and `.dax` files
+  ([`query-editor.md`](query-editor.md#dax-power-bi)). A unit must start with
+  `DEFINE` or `EVALUATE`: anything else is refused before any request, and
+  DAX queries can't change a model.
+- **Query API:** `executeDaxQueries` (Arrow, several `EVALUATE`s in one
+  request) where the model takes it, else `executeQueries` (JSON, one
+  `EVALUATE` per request). The automatic choice tries Arrow first, on Pro
+  workspaces too, and falls back to JSON for that account and model when the
+  service answers 404, 405 or 501, the tenant setting for XMLA endpoints
+  error, or a shared-capacity refusal (for the driver host's life), or any
+  other "not available" refusal (for 10 minutes, then Arrow is asked again).
+  A paused or inactive capacity fails that query only. The fallback is said
+  once, and DBine's own metadata reads never change the choice. The rate
+  window is 120 calls per minute per user (40 for Arrow on Pro, Premium Per
+  User or an unknown SKU), shared by every session; DBine's background reads
+  leave the last 20 %, and a wait over a second says so.
+- **Data:** a table opens with `EVALUATE TOPN(n, 'T')`, a measure with
+  `EVALUATE { [M] }` (its grand total), a hierarchy with `SUMMARIZECOLUMNS`
+  over its levels. Per-column filters and sorting go to the server in DAX
+  (see their sections).
+- **Structure for compare, migration and DataFrame SQL:** tables read whole
+  (`read_batches`): Arrow in one stream, after counting the rows with
+  `COUNTROWS`, and with a row limit above that count (a read that returns
+  fewer rows than counted, or reaches the limit, is an error). On
+  `executeQueries`, by pages that ask only for the wanted columns and the
+  key, ordered by a unique column (the blank key is read first); a table
+  with no unique column is paged with `TOPNSKIP` ordered by every column, up
+  to 2,000,000 rows, and past that the read fails with the reason. Both
+  paths count the rows again at the end and fail if the table changed during
+  the read. A read is never returned partial.
+- **Charts over the whole result:** `GROUPBY` on the server for a one-`EVALUATE`
+  query (see [Chart aggregation](#chart-aggregation-over-the-whole-result)).
+- **MCP and the AI assistant:** a query that is one unit with one
+  `EVALUATE` runs without asking (the service itself only runs DAX queries,
+  which can't write); anything else asks, as on other engines
+  ([Server-enforced reads](#server-enforced-reads-mcp-and-the-ai-assistant)).
+  The assistant gets the model's structure with its measures
+  (`measure 'T'[M]`) and a DAX hint (DAX is not SQL; how tables, columns
+  and measures are written, `DEFINE`, `TOPN`, `BLANK`). The driver's own
+  admin commands are refused to MCP reads.
+- **Refreshes:** the models' refresh history, refresh now, cancel and
+  schedules, as server jobs and in the scheduler designer
+  ([`server-jobs.md`](server-jobs.md#power-bi-refreshes)).
+- **Administering a model (owner decision D4):** grant, change and revoke a
+  user's or group's rights on the model (Read, Build, Reshare), rename the
+  model, edit its description and delete it. Each is a script shown before
+  it runs, and every one is refused on a read-only connection before any
+  request. Workspace administration is out of scope. See
+  [`users-and-permissions.md`](users-and-permissions.md#power-bi-model-permissions)
+  and [`rename.md`](rename.md#renaming-a-database).
+- **Also:** dependencies, search, health check, database properties (facts,
+  plus the model's description), approximate rows (the table's row count),
+  object comments, the Monitor (DBine's own call rate, model memory, sizes
+  by table and the last refreshes), the ER diagram and the database
+  document, compare schemas (compare only), schema conversion from a model's
+  types, and bulk transfer and data compare as a source. Models can be
+  compared with their source database with the
+  [query compare](#data-compare).
+- **Metadata tiers.** `INFO` functions on capacity (Premium, Premium Per
+  User, Fabric, Embedded) give a model admin everything, and a Read/Build
+  user tables, columns, measures and relationships (`INFO.VIEW.*`). The
+  Fabric definition API (`getDefinition`, TMSL) serves a user with write
+  permission, on Pro too, and is on by default (**Leer la definición
+  completa del modelo**; it asks for `SemanticModel.ReadWrite.All` and only
+  reads). `COLUMNSTATISTICS()` serves anyone with Build on Pro: tables and
+  columns only. Column types there are inferred from each column's minimum
+  and maximum, and numeric columns are reported as Double because whole and
+  decimal columns can't be told apart, so transfers and schema conversion
+  make floating-point columns for them. The minimum and maximum are never
+  stored. "Enter data" rows embedded in an M source are replaced by a
+  placeholder, and values that look like secrets (URL query parameters,
+  record fields or `let` names such as Authorization, api_key, token,
+  password or names ending in Key) are masked. Without write permission the
+  expressions are hidden and listed as unreadable. Auto date/time tables and
+  their relationships are hidden in the explorer, the ER diagram, schema
+  compare, dependencies and the relationship checks; a health check reports
+  them.
+- **Connecting:** opening a model by name uses the last listing of the
+  account's models (up to six hours old) and refreshes it in the background,
+  so a connect doesn't scan every workspace; when a scan is needed and the
+  tenant has many workspaces, set the workspace on the connection. A model
+  id still opens when the scan doesn't finish in time, through the endpoints
+  without a workspace. A repeated name in one workspace gets ` [<8 hex of
+  its id>]`.
+
+**Tested.** There is no Docker image or emulator for Power BI and no tenant
+was available while it was built, so **nothing was tried against the real
+service**. What exists: unit tests with fixtures shaped like Microsoft
+Learn's samples and fake servers (the HTTP layer, the sign-in flows, both
+query APIs' parsing including Arrow with LZ4, the splitter, the generated
+DAX, metadata in each tier, refreshes, the admin commands, and that a
+read-only connection sends no write whatever the token's scopes), and tests
+of the app side with the fake driver and the real splitter. Live tests are
+written (`crates/drivers/powerbi/tests/live*.rs`, all `#[ignore]`, read
+`DBINE_TEST_POWERBI_*`) and have not been run. Everything below follows
+Microsoft Learn. Still to check against a tenant: whether `executeDaxQueries`
+works on Pro and the text of its refusals; the real `executeQueries` error
+bodies and positions; Arrow past `resultSetRowCountLimit` and the 1,000,000
+default; whether `INFO.VIEW.*` runs for Read/Build users and whether one
+refused `EVALUATE` fails a multi-`EVALUATE` request; `GROUPBY` over extension
+columns; the column names Arrow returns; `TOPNSKIP` ties; the cost of
+`COLUMNSTATISTICS` on DirectQuery models; `getDefinition` on Pro; whether a
+grant adds to or replaces an existing right; the owner-only schedule `PATCH`,
+enhanced refresh and cancel; the Fabric `PATCH` of a model; consent for
+DBine's app and the Azure CLI client's sign-in; and the sovereign clouds.
+
+**Not available, and why:**
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Power BI | Execution plans, Profiler | The REST APIs have no plan or trace call. DAX query plans and traces come only from Analysis Services trace events over the XMLA endpoint, which exists on Premium, Premium Per User and Fabric capacity and needs Microsoft's own protocol stack (MSOLAP), with no Rust client. XMLA is out of scope for this version (decision of 2026-11-13). On Pro workspaces it doesn't exist at all. Other clients' queries are also stored by Fabric workspace monitoring and Log Analytics in Kusto, and DBine has no Kusto driver. |
+| Power BI | Processes, Locks, ending sessions, cancelling another client's query | The REST APIs list no sessions, locks or running queries and have no cancel call; they are XMLA's `DISCOVER_SESSIONS`, `DISCOVER_LOCKS` and `<Cancel>` (out of scope, as above). |
+| Power BI | Cancelling a running query on the service | Neither `executeQueries` nor `executeDaxQueries` can be cancelled: the tab stops waiting at once and the service finishes the query (`executeDaxQueries` runs with the connection's **Tiempo máximo de consulta**; `executeQueries` has no server timeout, so DBine waits that long). |
+| Power BI | Measures, relationships, hierarchies, roles and definitions for a Build-only user on a Pro workspace | `executeQueries` doesn't run `INFO` functions, and the definition API needs write permission on the model; with only `COLUMNSTATISTICS()` the explorer shows tables and columns. |
+| Power BI | Editing the model's definition (the designer, Modify…, sync scripts, rename of objects inside the model, clone, test data, notebook write cells, import into a table, the generated structure script) | Decision of 2026-11-13: DBine reads a model's definition and administers the model (rights, name, description, delete) but never writes its definition, which would be `updateDefinition` of Fabric or TMSL over XMLA. |
+| Power BI | Editing data (cell edits, adding and deleting rows, bulk load, native copy, write modes, row sync) | An imported model has no row API: only deprecated push datasets take rows through REST, and DBine doesn't support them. |
+| Power BI | Creating a model, and creating users, roles or passwords | A model is published from Power BI Desktop or created in Fabric from a definition, which DBine doesn't write. Users and groups are Microsoft Entra ID identities, and RLS roles are part of the model's definition. |
+| Power BI | Granting or revoking **Write**, granting to service principals, removing a right the user holds through a workspace role | The model-user API neither adds nor removes Write and takes no service principals; a workspace role gives its rights to the model, and they change by changing the role in the workspace. Refused with the reason before any request. |
+| Power BI | Workspace administration (workspace roles, creating workspaces) | Outside what DBine does with a model (decision of 2026-11-13). |
+| Power BI | Backups, and the DBine copy | The REST APIs have no backup call: model backup and restore are XMLA commands on capacity with an ADLS Gen2 account attached. A DBine copy is a script of DDL and inserts, which a model doesn't take. |
+| Power BI | Index usage and disabling indexes | VertiPaq keeps dictionaries and segments, not indexes. |
+| Power BI | Manual transactions, `USE` | DAX queries have no transactions, and a query reads one model. |
+| Power BI | Completion across databases, queries across models | A DAX query reads one model (see [Completion across databases](#completion-across-databases)). |
+| Power BI | Query parameters (`:name`) | The query APIs take the DAX text and nothing else, and DAX has no marker for a parameter. A notebook's `{{name}}` parameters work, written as DAX literals. |
+| Power BI | Format code | No reliable DAX formatter runs in the browser, and the hosted ones would receive the user's code. |
+| Power BI | Result columns of an empty `executeQueries` result | The JSON API returns rows as objects, so with no rows there are no column names (`executeDaxQueries` returns the schema). DBine's own table browses take the columns from the metadata. |
+| Power BI | Results past 100,000 rows, 1,000,000 values or 15 MB on `executeQueries` | The API's cap. The grid marks the result partial with a warning; exports, charts, notebook loads and the query compare fail rather than write or compare a partial result. Tables are read whole (see above); arbitrary queries aren't. A result cut by DBine's own cap (a chart's 1,000,000 rows, a notebook's row limit) is capped as on every engine. |
+| Power BI | Monitor: CPU, sessions, running queries | The REST APIs don't report them (the Fabric Capacity Metrics app has them). Model memory needs model admin on capacity. See [Server monitor](#what-each-engine-does-not-report). |
+| Power BI | A DAX query builder | **Explicit pending item** (decision D7): the builder writes `SELECT` with joins; DAX needs its own (columns, measures and filters into `SUMMARIZECOLUMNS` and `TREATAS`). |
+| Power BI | Code quality: unqualified columns and qualified measures the script doesn't define | The DAX rules and rewrites are in (see [Code quality](#code-quality) and [Optimize query](#optimize-query)), but the analysis is text only: `qualified-measure` knows the measures the script defines, each with its table (it flags `'T'[M]` only when `M` is a measure of `'T'`, so another table's column with the same name isn't flagged), and `unqualified-column` the columns it writes with their table where only a column fits. A model measure written with its table, or a column the script only writes without one, needs the model's names in the editor, the way `unknown-table` and `unknown-column` check SQL; without them, the `dax_filter_to_keepfilters` rewrite (marked to compare first) can't tell a model measure written with its table from a column, and the rewritten query fails with an error instead of giving another result. **Explicit pending item.** |
+| Power BI | A measure's type on hover when the metadata comes from the model's definition | TMSL leaves out a measure's type (the engine works it out from the expression); with the `INFO` functions the hover shows it. Without write permission the `INFO` functions hide the expression, so the hover shows the measure's description, type and format string only. |
+| Power BI | GCC High, DoD and China | They work with **Propia (Client ID)** (an app registered in that cloud) and were not tried. The Fabric definition API, and so renaming and describing a model, is offered in the public cloud only. |
+| Power BI | Models of **Mi área de trabajo**: renaming, describing | Fabric's update call names the workspace, and **Mi área de trabajo** has no workspace id. |
+| Power BI | The phone companion's server jobs | The phone app has no server jobs: its list of requests is closed ([`mobile-security.md`](mobile-security.md)), so refreshes don't reach it. |
+
 ## Per-column filters on table data
 
 The filter row under the headers (`Driver::filtered_browse`) is applied on
@@ -816,6 +983,7 @@ the chosen row limit) and says so in the filter bar, with the reason.
 | InfluxDB 2 (Flux) | `filter()` after the pivot | SQL conditions |
 | Neo4j, Memgraph, Neptune | `WHERE n.prop …` before the `RETURN` | the grid shows the whole node in one column, so in practice it filters over the loaded rows; SQL conditions |
 | Redis, etcd | — | everything: whole keys or prefixes are read and there are no values to filter by |
+| Power BI | `FILTER('T', …)` over the driver's own table browse: `==` for equality, `NOT ISBLANK(…) &&` for inequalities and ranges (DAX compares BLANK as 0, the grid's NULL never matches), `CONTAINSSTRING`, `LEFT` / `RIGHT`, `ISBLANK`, `IN { … }` | SQL conditions, and any query that isn't the driver's own browse. Unit tests with fixtures; not tried against a tenant |
 
 SQL conditions ("SQL condition…") cannot be evaluated over the loaded rows:
 in the engines that filter in the grid, they are ignored.
@@ -855,7 +1023,7 @@ whose driver reports foreign keys (`Capabilities::foreign_keys`):
 PostgreSQL and its variants with foreign keys, MySQL, MariaDB and their
 variants with foreign keys, SQL Server, Azure SQL Database, Babelfish,
 Fabric Data Warehouse, Oracle, SQLite, libSQL, DuckDB, Firebird, SAP HANA,
-Spanner, OrientDB (its links), KDB+ (its linked columns, `` `t2$ ``), the
+Spanner, Power BI (its relationships, from the many side to the one), OrientDB (its links), KDB+ (its linked columns, `` `t2$ ``), the
 ODBC presets that report them, and
 BigQuery, Snowflake and Databricks, whose foreign keys are informational
 (declared, not enforced: the jump finds what the data has).
@@ -951,6 +1119,7 @@ engine; the header arrow shows the order.
 | Solr | the `sort=a asc,b desc` parameter. Sort syntax can't quote a name: only names of letters, digits, `_`, `.` and `-` go to the server. A tokenized or multi-valued text field (schemaless guessing makes strings `text_general`) is rejected by the server, as the driver can't see the schema; DBine then sorts the loaded rows, showing the server's reason | yes (not text fields) |
 | CouchDB | only by `_id`, with the `_all_docs` index (`"_id": {"$gt": null}` joined to the selector). Any other field needs a Mango index over it, and views come sorted by their key: the loaded rows | `_id` only |
 | OrientDB | `ORDER BY` with backquotes (contract default); not tested against a server | yes |
+| Power BI | its own: `TOPN(n, FILTER(…), 'T'[c1], DESC, 'T'[c2], ASC)` plus `ORDER BY` (the `ASC`/`DESC` are always written: `TOPN`'s default order is descending) | yes; unit tests with fixtures, not tried against a tenant |
 
 ClickHouse, BigQuery, Databricks and the Hive, Impala and Spark ODBC
 presets write a quote inside a string literal as `\'`, which the
@@ -1008,6 +1177,7 @@ Shape of the code per engine:
 | ksqlDB (streams) | Streams only accept appending events |
 | Redis streams | Stream entries cannot be modified |
 | CouchDB views | They are computed results, not documents |
+| Power BI | A model has no row API (see [Power BI](#power-bi-semantic-models)): only deprecated push datasets take rows through REST |
 
 **Cases the engine rejects even though the code is generated:**
 
@@ -1051,6 +1221,7 @@ Engines that do not delete rows (the item shows disabled with the reason):
 | ksqlDB | It has no DELETE: a table row is deleted with a tombstone written directly to the Kafka topic, and streams only accept appending events |
 | InfluxDB 2 (Flux) | Flux does not delete points: they are deleted with the `/api/v2/delete` API, by time range and predicate on the tags |
 | InfluxDB 3 (SQL) | Its SQL is read-only and does not delete individual points |
+| Power BI | A model has no row API, so there are no rows to delete from DBine |
 | NetSuite (ODBC) | SuiteAnalytics Connect is read-only |
 
 **Cases the engine rejects per row** (the reason shows in the changes bar):
@@ -1097,6 +1268,7 @@ the reason):
 |---|---|
 | Apache Drill | It has no INSERT: tables are only recreated with CTAS |
 | InfluxDB 1 / 2 / 3 | Points are written with line protocol, and no query language of the engine expresses it |
+| Power BI | A model has no row API, so there are no rows to add from DBine |
 
 ## JSON tree view
 
@@ -1169,18 +1341,18 @@ unnamed field in a row that also has named ones is shown as `field<i>`
   `DB_TYPE_OBJECT` values; `JSON_OBJECT(…)` in the query shows them as JSON.
 - **Engines without structured types** (MySQL and MariaDB, SQL Server,
   SQLite and libSQL, Firebird, SAP HANA, Phoenix, Aurora DSQL, InfluxDB,
-  IoTDB, TDengine, Redis, etcd): nothing to show.
+  IoTDB, TDengine, Redis, etcd, Power BI): nothing to show.
 
 ## AI assistant
 
 It works with **all engines**. The prompt tells it each engine's query
-language (SQL with its dialect, CQL, JSON/Mongo, Redis, Flux or Cypher) so
+language (SQL with its dialect, CQL, JSON/Mongo, Redis, Flux, Cypher or DAX) so
 that it writes in the right syntax.
 
 The database structure it receives as context comes from `database_schema`.
 In an engine that does not implement it, the assistant answers without
 structure and tells the user so; there are no other differences. Details in
-`docs/ai-assistant.md`.
+`docs/ai-assistant.md`. In Power BI the structure also lists the model's measures (`measure 'T'[M]`), so the assistant writes `[Total Sales]` and not a rebuilt `SUM`, and a DAX hint tells it that DAX is not SQL and how it names tables, columns and measures, defines measures, limits rows and treats `BLANK`.
 
 ## Server-enforced reads (MCP and the AI assistant)
 
@@ -1201,6 +1373,7 @@ paths, not the boundary.
 | EDB, KingbaseES, openGauss | no: approval | Autonomous transactions commit outside the read-only transaction |
 | Denodo, RisingWave, Materialize, CrateDB, H2 | no: approval | No read-only transaction the server enforces |
 | The other engines of the MySQL driver | no: approval | Not verified to enforce read-only transactions |
+| Power BI | yes (the API itself) | The query APIs only run DAX queries, which can't change a model, so there is no read-only transaction to open: the boundary is the service. A query that is one unit with one `EVALUATE` runs at once (through the driver's own splitter, at background priority, always with a timeout and a row limit); `DEFINE` plus several `EVALUATE`s, or anything else, asks for approval. The driver's `GRANT`, `REVOKE`, `RENAME` and `ALTER` commands are never read-only. Not tried against a tenant |
 | Every other engine | no: approval | Not implemented in its driver yet (`Unsupported`) |
 
 A driver downloaded before this version doesn't know the call and answers
@@ -1235,6 +1408,7 @@ app sends it with literals.
 | Redis, Valkey, Dragonfly | Literals: redis-cli quoting (`"…"` with `\xHH`) | NULL is refused: Redis has no null |
 | InfluxDB (Flux) | Literals: Flux strings (`\${` escaped), RFC 3339 times | NULL is refused |
 | Neo4j, Memgraph, Neptune | Literals: Cypher strings, `date('…')` / `localdatetime('…')` | Binding Cypher's `$name` parameters: explicit pending item |
+| Power BI | Literals: DAX strings (`"…"`, a quote doubled), `TRUE()` / `FALSE()`, `BLANK()` for NULL, `DATE(y, m, d)` and `DATE(…) + TIME(…)` for dates | The query APIs take no parameters. A value that can't be a DAX literal is refused; `{{name}}` is never replaced inside a `'table name'`, a `[column]` or a string |
 | Every other engine | Literals of its language and dialect | Binding in the drivers whose client takes bound values (Snowflake, BigQuery, Trino, Cassandra, Spanner, DuckDB…): explicit pending item |
 
 A driver downloaded before this version doesn't know `ExecuteBound` or
@@ -1259,7 +1433,7 @@ loaded the first time they are used (`web/src/composables/formatCode.ts`).
 
 **No formatter** (the button is disabled and explains why): Redis (one command
 per line, nothing to format), Flux (InfluxDB 2) and Cypher (Neo4j, Memgraph,
-Neptune): there is no reliable formatter for the browser.
+Neptune), and DAX (Power BI): there is no reliable formatter for the browser, and the online DAX ones would receive the code.
 
 ## Profiler
 
@@ -1419,6 +1593,7 @@ minimum, p95 and maximum of each figure, in addition to the duration.
 | Amazon Keyspaces | Other clients' queries are only left in CloudTrail |
 | DynamoDB, Cosmos DB (NoSQL) | Only in CloudTrail or Azure Monitor, outside the protocol |
 | CouchDB, etcd, OrientDB, Phoenix, Solr, ksqlDB, Flight SQL | Their protocol has no way to see other clients' queries |
+| Power BI | The REST APIs have no trace: other clients' queries are visible only through XMLA traces (Premium, Premium Per User and Fabric; out of scope) or Fabric workspace monitoring and Log Analytics, which store them in Kusto |
 | Cassandra 3.x | `system_views` exists since 4.0 |
 | ODBC presets | Depends on the engine behind each preset: pending, preset by preset |
 
@@ -1576,6 +1751,18 @@ differ by their current value.
 **DynamoDB.** Index projections (`INCLUDE`, `KEYS_ONLY`).
 
 **TDengine.** Tag indexes.
+
+**Power BI.** Tables and columns (with their model types: `Int64`, `Decimal`,
+`Double`, `String`, `DateTime`, `Boolean`, `Binary`, `Variant`), the key
+column and the relationships as foreign keys, read by `database_schema` in one
+metadata read; calculated columns say so. **Compare only**: the model is
+read, never written, so no sync script is written for a model (the other
+side's, if it takes one, is the target's driver's) and there is no **Modify…**. A model read with only `COLUMNSTATISTICS()` has
+inferred types (see [Power BI](#power-bi-semantic-models)). Schema conversion
+reads a model's types (`Int64` to bigint, `Decimal` to decimal(19,4), `Double`
+to double, `String` to text, `DateTime` to timestamp, `Boolean` to boolean,
+`Binary` to blob, `Variant` to text with a review note) and refuses to write
+to one.
 
 ### What is not compared
 
@@ -1856,6 +2043,7 @@ The migration uses generic batched insertion there.
 | Flight SQL: GizmoSQL (DuckDB) | Loading only some columns when a `HUGEINT` has more than 38 digits | GizmoSQL passes each parameter of the prepared `INSERT` through its text, and there a 39-digit `HUGEINT` fails (the load rejects it). Loading all the columns has no limit. |
 | Flight SQL: GizmoSQL (DuckDB) | `UHUGEINT`, `BIT`, `BIGNUM` or `TIMETZ` inside a nested type (such as `UHUGEINT[]` or `STRUCT(a BIT)`), on read and on load | Over Arrow they arrive as the raw bits of a `DECIMAL(38,0)`, DuckDB's internal bytes or a time without its zone. On their own they are read and loaded as text, converted on the server; inside a nested type there is no way to do it, and they are rejected. |
 | Flight SQL without transactions | Rolling back a commit window that fails | Each batch (or each round of the prepared `INSERT`) is committed separately: what was already committed stays, and the error says so. |
+| Power BI | Bulk load, native copy | A model has no row API for imported models (only deprecated push datasets take rows through REST, which DBine doesn't support), so a model is a source of a migration and never a target. |
 
 ## Bulk transfer (migrating data)
 
@@ -2191,6 +2379,17 @@ saying so.
   not read to the end (it only answers push queries) and gives `Unsupported`.
   A `TIME` loses milliseconds.
 
+**Power BI.** A model is a **source** only. A table is read whole by its
+driver's batched read (`read_batches`): `executeDaxQueries` in one stream
+after counting the rows with `COUNTROWS`; `executeQueries` in pages by a
+unique column, else by `TOPNSKIP` over every column up to 2,000,000 rows.
+A read that comes back with fewer rows than counted, a table that changed
+while it was read, or one that no API call can read whole, fails with the
+reason: it is never returned partial. A model's types map as in
+[Compare schemas](#compare-schemas) (a model read with only
+`COLUMNSTATISTICS()` types its numbers as Double). Not tried against a
+tenant.
+
 **Shared by all**
 
 - The source is always read-only, also in direct copy.
@@ -2231,6 +2430,50 @@ with no row limit, streamed, as before (one query for the whole table):
   module types. A server that caps the limit of that query answers with its
   own error (not tested live).
 
+**Power BI** is read through `read_batches` as a source: the model's side has
+no sync script (it's read-only), and the other side's script, "make the
+source match the model", is the other driver's and is not tried; the reverse is
+refused with the reason.
+
+### Data compare of two queries
+
+"Comparar con…" and the **Consultas** mode of the data compare
+([`data-compare.md`](data-compare.md#comparing-two-queries)) compare the whole
+results of two queries, each on any connection. It is app-level, so it works
+in **every engine**: a query's whole result comes through the driver's
+`execute` on a read-only session, with no new method in the contract. It is
+read-only on every engine: a query isn't a table, so there is no sync script.
+
+- **Refused instead of partial:** a result the engine cut (Power BI's
+  `executeQueries` cap of 100,000 rows or 1,000,000 values or 15 MB, flagged by
+  the driver), a query with more than one result set, a paired column missing
+  and a repeated column name.
+- **Memory:** a driver host's rows wait, at most 64 MB per side, while the
+  compare can't take them, and the host is held; a `duckdb` or `duckdb_files`
+  side shares its host with the local DuckDB and can't be held, so a result
+  that gets 512 MB ahead of the compare stops it, with a message to narrow the
+  query or compare the table.
+- **PostgreSQL's types** come only after the run ends: the compare treats the
+  text `t` and `f` as booleans, keys included.
+- **Tested against real servers** (`data_compare_query_live_tests.rs`,
+  `dbine-test-*`): PostgreSQL (through a driver host and in process) against
+  SQL Server, with an aggregate and 50,000 detail rows (exact and ±0.01, the
+  detail rows through the local DuckDB); MongoDB `find` against PostgreSQL
+  with and without NULL igual a vacío; Redis `HGETALL` and `SMEMBERS` against
+  PostgreSQL; a T-SQL batch with two results refused; and six writes that
+  return rows on read-only PostgreSQL, SQL Server and MongoDB, each refused
+  with nothing written. Power BI against SQL Server and PostgreSQL ran on
+  fixtures shaped like the service's answers, with a real local DuckDB, exact
+  and with tolerance; not against a tenant. The other engines use the same
+  path through `execute` and have no live test of the query compare.
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Every engine | A sync script, arrows, **Make the right match** | A query isn't a table: there is nothing to insert into or update. Compare tables to get a script. |
+| Every engine | A result the engine cut, or with several result sets | The totals would be wrong, so the compare refuses with the reason. |
+| Engines whose driver doesn't type results while streaming (PostgreSQL) | Column types in the first rows | The types arrive after the run; the compare reads `t` / `f` as booleans meanwhile. **Explicit pending item** (the driver reporting the types when the row description arrives). |
+| Driver hosts | Flow control for the rows of a query | The host protocol has no acknowledgements: the compare holds the host's reader thread instead (64 MB per side), and can't for DuckDB sides (512 MB). **Explicit pending item**: acknowledgements in the host protocol (a versioned change). |
+
 ## SSH tunnel
 
 All engines that connect over the network can use an SSH tunnel
@@ -2241,6 +2484,7 @@ not depend on the driver.
 |---|---|
 | SQLite, DuckDB and other local-file engines | There is no server: a file on the machine is opened. |
 | ODBC with DSN | The connection is built by the system's ODBC driver from the DSN; DBine does not see the server to redirect it. A tunnel can be used with a DSN that points to `127.0.0.1`. |
+| Power BI | It reaches fixed Microsoft cloud hosts over HTTPS: there is no server of yours to tunnel to. A corporate proxy comes from the environment (`HTTPS_PROXY`). |
 
 ## Connection encryption
 
@@ -2256,7 +2500,9 @@ TLS, says which option to change. The per-engine design is in
 
 Always encrypted and verified, with nothing to choose: Amazon Aurora DSQL,
 Amazon Keyspaces, Microsoft Fabric Data Warehouse, Oracle Autonomous
-Database and Oracle NetSuite (SuiteAnalytics Connect).
+Database, Oracle NetSuite (SuiteAnalytics Connect) and Power BI (HTTPS to
+fixed Microsoft hosts, with the system's root certificates; no TLS fields and
+no certificate pinning).
 
 Decided by the address or the driver's own configuration (`https://` in an
 endpoint, the scheme of a URL, the ODBC driver's settings): InterSystems
@@ -2340,6 +2586,7 @@ documentation, without a test server.
 | Elasticsearch, OpenSearch, Solr | Everything | There are no transactions or locks between clients. |
 | InfluxDB, IoTDB, TDengine, ksqlDB, BigQuery, Athena, Dremio, Drill, Phoenix, Couchbase, CouchDB, DynamoDB, Flight SQL, libSQL, Aurora DSQL | Everything | They do not report lock waits between sessions that can be queried. |
 | SQLite, DuckDB | Everything | They are file databases without a server: there are no other sessions to see. |
+| Power BI | Everything | The REST APIs report no sessions or locks; they are XMLA's `DISCOVER_LOCKS` and `DISCOVER_SESSIONS` (out of scope: see [Power BI](#power-bi-semantic-models)). |
 
 ## Users and permissions
 
@@ -2351,7 +2598,7 @@ These have it:
   - PostgreSQL family: PostgreSQL, TimescaleDB, YugabyteDB, openGauss, Cloudberry, Greengage, Greenplum, KingbaseES, EDB, Fujitsu, Yellowbrick, AlloyDB, Cloud SQL, Aurora PostgreSQL, Aurora DSQL, CockroachDB, Materialize, Redshift, CrateDB, H2 and RisingWave.
   - MySQL family: MySQL, Aurora MySQL, Cloud SQL para MySQL, MariaDB, TiDB, OceanBase, SingleStore, StarRocks, Apache Doris, VeloDB and Databend.
   - Others: Oracle, SAP HANA and Firebird.
-- **Analytical and cloud:** ClickHouse, Timeplus Proton, Snowflake, Databricks, BigQuery, Cloud Spanner, Trino, Presto, Starburst and Dremio.
+- **Analytical and cloud:** ClickHouse, Timeplus Proton, Snowflake, Databricks, BigQuery, Cloud Spanner, Trino, Presto, Starburst, Dremio and Power BI (model rights).
 - **Documents, graphs and key-value:** MongoDB, FerretDB (users only), Amazon DocumentDB, Couchbase, CouchDB, Azure Cosmos DB, OrientDB, Neo4j, Memgraph, Cassandra, ScyllaDB, Redis, Valkey, Dragonfly and etcd.
 - **Search and time series:** Elasticsearch, OpenSearch, Solr, InfluxDB 1.x, TDengine, IoTDB and TimechoDB.
 - **Through ODBC:** Db2 LUW, Db2 for i, Db2 for z/OS, Hive/Cloudera, Impala, Vertica, Exasol, Teradata, Sybase ASE, SQL Anywhere, Informix, GBase 8s, Netezza, Altibase, Dameng, CUBRID, Zen, Mimer, MonetDB, IRIS/Caché, MaxDB, NuoDB, HeavyDB, SQream, Ingres, Virtuoso, OpenEdge, Machbase, Ignite and Ocient.
@@ -2366,7 +2613,7 @@ Tested against real servers:
 - Cosmos DB and Aurora DSQL: against the Cosmos emulator and, for DSQL, against a test PostgreSQL.
 - Spanner and BigQuery: their emulators run the scripts but do not enforce permissions.
 
-The rest was implemented following the vendor's documentation, with unit tests: HANA, Snowflake, Databricks, Fabric, SingleStore, OceanBase, Firebird, CouchDB and the ODBC presets. In the ODBC presets there are catalog details still to be confirmed against a server: Netezza's privilege bits, Teradata's codes and SQream's columns.
+The rest was implemented following the vendor's documentation, with unit tests: HANA, Snowflake, Databricks, Power BI (with fixtures shaped like Microsoft Learn's samples), Fabric, SingleStore, OceanBase, Firebird, CouchDB and the ODBC presets. In the ODBC presets there are catalog details still to be confirmed against a server: Netezza's privilege bits, Teradata's codes and SQream's columns.
 
 | Engine | What is missing | Reason |
 |---|---|---|
@@ -2403,6 +2650,7 @@ The rest was implemented following the vendor's documentation, with unit tests: 
 | Azure Cosmos DB | Roles, passwords, disable | They are data-plane users and permissions (resource tokens); Entra ID access control belongs to Azure's control plane. |
 | Dremio | Everything in the OSS edition; permissions on a whole space or source | Permissions are Enterprise and Cloud; from the name it is not known whether it goes `ON SPACE` or `ON SOURCE`. |
 | Microsoft Fabric Data Warehouse | Passwords, disable, dropping users | Users are Entra ID identities and access is given with workspace roles; `DROP USER` is not documented. |
+| Power BI | Creating users, roles and passwords; permissions on tables; granting or revoking Write; service principals | Users and groups are Microsoft Entra ID identities and RLS roles are part of the model's definition (which DBine doesn't write). Rights are the model's (Read, Build, Reshare), one combined right per principal; the API neither adds nor removes Write and takes no service principals; a right held through a workspace role can't be removed. Reading a model's users needs Read, Write and Reshare on it, and each part the account can't read is skipped with a note. Only the model's rights are written (see [Power BI](#power-bi-semantic-models)). |
 | Babelfish | `DENY`, permissions on the whole database, `ALTER`/`CONTROL`/`VIEW DEFINITION`, names with `]` | Babelfish rejects them. |
 | H2 | Disable, `WITH GRANT OPTION` | H2 does not have them. It lowercases user names. |
 | RisingWave | Roles, memberships, permissions on the current database without a name | RisingWave has no roles; permissions on a database are given by choosing it by name. |
@@ -2445,6 +2693,7 @@ is used instead. Every engine still accepts a typed permission.
 | InfluxDB 1.x, TDengine | Documented list. |
 | IoTDB, TimechoDB | `LIST PRIVILEGES OF USER root` when the login can read it, else the documented list. |
 | ODBC presets | Each engine's documented list. |
+| Power BI | Documented list: Read, Build and Reshare (Write is shown, never granted). |
 
 ### Map login
 
@@ -2557,6 +2806,7 @@ Dremio.
 | Calcite Avatica (generic Phoenix) | The DDL is that of the engine behind the Avatica server, and it is not known which one it is. |
 | CrateDB | It has no `CREATE SCHEMA` or `DROP SCHEMA`: a schema exists while it has some table. |
 | Denodo | It has no schemas: a virtual database contains its views directly. |
+| Power BI | A model has no schemas: tables are objects of the model. |
 | The other document, key-value, search and time series engines; Cassandra, ScyllaDB (keyspaces), Apache Drill (workspaces) | Their explorer has no schema level. |
 
 ### Differences by engine
@@ -2683,6 +2933,7 @@ PostgreSQL.
 | Denodo | create databases | Databases are created from Denodo. |
 | Manticore | create databases | It has no databases. |
 | Db2, Informix, Teradata | create databases | They do not create databases from DBine. See pending items. |
+| Power BI | create databases | A model is published from Power BI Desktop or created in Fabric from a definition, which DBine doesn't write. Deleting one is **Delete database**, and renaming and describing it are offered (see [Power BI](#power-bi-semantic-models)). |
 
 **Explicit pending items:**
 
@@ -2789,6 +3040,7 @@ those not in it only have DBine copies.
 | Db2 for z/OS, Teradata, Netezza, Exasol, IRIS, OpenEdge, Ingres, CUBRID, Zen, MaxDB, NuoDB, Ignite, Ocient, SQream, HeavyDB, Altibase (ODBC) | Server backups | They are done with their own tools or outside SQL. On z/OS, `DSNUTILU` returns the result in an output parameter that the script runner does not bind. |
 | Hive, Impala, Spark, Kyuubi (ODBC) | Server backups | The data lives in HDFS or S3. Hive only has `EXPORT TABLE`, one table at a time. |
 | Access, dBase, NetSuite, generic ODBC | Server backups | Access and dBase: the file is copied. NetSuite: it is read-only. Generic ODBC: it is not known which engine is behind. |
+| Power BI | Server backups and the DBine copy | The REST APIs have no backup call; semantic model backup and restore are XMLA commands on capacity, with an ADLS Gen2 account attached. A DBine copy needs the DDL and inserts that a model doesn't take. |
 
 **Not tested against a server, to be confirmed:**
 - **Databricks:** that the statement execution API accepts a `BEGIN … END` block.
@@ -2835,6 +3087,7 @@ does not apply.
 | IoTDB | Series with aliases, tags or attributes, and series that are views | DBine does not read them yet in the device structure; the clone is rejected with the list of series. Pending: reading and recreating them. |
 | Cassandra, ScyllaDB, Keyspaces | Tables with `counter` columns | A counter only changes by adding (`UPDATE … SET c = c + n`), not with `INSERT`, and a retry of the addition would duplicate the value. |
 | CouchDB | Not cloned | Its documents (`_all_docs`) are the whole database, not a table inside it: the clone would be another database. To copy it, create another database and use "Migrate…". |
+| Power BI | Not cloned | The clone's table would have to be written, and a model has no row API or table DDL from DBine. |
 
 **Particulars:**
 - **TDengine:** the clone of a normal table is created with its own `SHOW CREATE TABLE`
@@ -2937,6 +3190,7 @@ permission).
 | CouchDB | Create and drop databases; users only to enable | `_admin` role and the database's administrators. |
 | Couchbase | Profiler, create and drop buckets, users | `checkPermissions`, which includes all roles. |
 | OrientDB | Create and drop databases, users; only to enable | Server user or role with all permissions. |
+| Power BI | Delete the model (write permission on it), users and permissions | The model's `Write` right from its metadata; managing security is checked by reading the model's users (it needs Read, Write and Reshare). Backup, restore, profiler, ending sessions, creating databases and schemas are denied with the reason (XMLA or no API). |
 
 Flight SQL, ksqlDB, Phoenix and libSQL have none of these actions.
 
@@ -3063,6 +3317,7 @@ Trino, Spanner, Neo4j and Couchbase.
 | MySQL, TiDB (autocommit off) | A `SELECT` leaves the transaction "open" | That is what the server reports (`SERVER_STATUS_IN_TRANS`). |
 | Trino | After an error the transaction is left "failed" | The server aborts it and the following statements give `TRANSACTION_ALREADY_ABORTED` until it is rolled back. |
 | SQL Server | A transaction that cannot be committed is rolled back at the end of the batch | The server does it (error 3998). |
+| Power BI | Manual transactions | DAX queries have no transactions. |
 
 The other engines do not offer Auto/Manual; the selector does not appear.
 
@@ -3079,6 +3334,7 @@ Particulars:
 | InfluxDB 1 | `USE db[.rp]` can end at its line without `;`; it is checked with `SHOW DATABASES` / `SHOW RETENTION POLICIES` | It is InfluxQL syntax. |
 | Redis | `SELECT n` switches to `db{n}`; inside `MULTI` the change happens at `EXEC`, and not if the `EXEC` fails, there is a `DISCARD` or `EXECABORT` | The server does not switch database until the transaction runs. |
 | ODBC | Only in presets that have a database list | Hive, Teradata and similar do not have the concept. |
+| Power BI | `USE` | A query reads one model, and the tab's database is the model: it is changed in the tab. |
 
 ### Cancel
 
@@ -3086,6 +3342,8 @@ They keep the session: all, except Oracle and Babelfish (see
 [Cancel](script-execution.md#cancel)). In Elasticsearch, if a request ignores
 the `_tasks` cancellation (for example, a cluster health wait), the
 cancellation waits for that request to finish; the following ones do not run.
+
+In Power BI neither query API has a cancel call: Cancel stops the tab at once (it aborts the request and any wait for a rate-limit slot) and the service finishes the query on its own.
 
 ### What is missing
 
@@ -3109,6 +3367,7 @@ cancellation waits for that request to finish; the following ones do not run.
 | Phoenix | An uncommitted `UPSERT` is not seen in a `COUNT` inside the transaction | Phoenix behavior with non-transactional tables. |
 | Timeplus, Proton | Untested | The `dbine-test-proton` container was not started. |
 | Firebird | The live test suite must run with `--test-threads=1` | The tests share one `test.fdb` and collide on concurrent DDL; it is not the driver's fault. |
+| Power BI | `DEFINE` with several `EVALUATE`s answers one result each, in the unit's tab | See [Named results](#named-results). `executeQueries` takes one `EVALUATE` per request, so the driver sends the unit's `DEFINE` in front of each, stopping at the first error. |
 
 ### psql scripts in PostgreSQL and compatibles
 
@@ -3226,6 +3485,7 @@ The **Indexes** folder and tab do not appear (`supports_index_usage` is
 false) where there are no indexes to show:
 
 - **Fabric Warehouse**: it has no indexes.
+- **Power BI**: VertiPaq keeps dictionaries and segments, not indexes.
 - **Denodo**: it has no indexes.
 - **Amazon Neptune**: it has no user-defined indexes.
 - **Elasticsearch, OpenSearch**: an Elasticsearch index is the table; each
@@ -3400,6 +3660,13 @@ routines, triggers, packages, synonyms, aliases, streams, tasks and sinks
   columns in the others). Encrypted modules are listed as unreadable.
   **Babelfish** and **Fabric Warehouse** use the default version if their
   catalog does not have that view.
+- **Power BI**: relationships on a column are foreign keys, and measures,
+  calculated columns and tables, calculation items and RLS filters come from
+  `INFO.CALCDEPENDENCY()` (**Confirmed**) when the account has write
+  permission on a model on capacity, else from a DAX-aware scan of the
+  definitions (**Probable** / **Review**); the default scan can't read DAX.
+  A model read with only `COLUMNSTATISTICS()` has nothing readable but its
+  tables and columns, and the report says so.
 - **The other engines**: the default version. In a database with thousands
   of routines it is slow, because it reads each definition separately. The
   versions with the PostgreSQL catalog (`pg_depend`), Oracle
@@ -3496,6 +3763,7 @@ engine has no native way to turn an index off without dropping it:
 - **FerretDB**: rejects `hidden` (tested against `dbine-test-ferretdb`).
   **Amazon DocumentDB**: it has no hidden indexes (according to AWS
   documentation, untested).
+- **Power BI**: VertiPaq has no indexes to disable.
 - **Apache Cassandra, ScyllaDB, Amazon Keyspaces, Couchbase, CouchDB, Azure
   Cosmos DB, Amazon DynamoDB, Neo4j, Memgraph, OrientDB**: no way to turn a
   secondary index off without dropping it.
@@ -3541,6 +3809,10 @@ starts and those running are interrupted, like the editor's Cancel).
   read-only guard), or the engine is not SQL and it cannot be verified, it
   asks for confirmation saying how many databases it will run on. It never
   runs by itself.
+- **Power BI**: each model is a database, so a DAX query runs on several
+  models. A script of `DEFINE` / `EVALUATE` units counts as a read and asks no
+  confirmation; the driver's `GRANT`, `REVOKE`, `RENAME` and `ALTER` commands
+  count as writes and do.
 - **Results**: if the first result of each database that finished well has
   the same columns (case-insensitive), a single grid is shown with a first
   column `database`; it is exported and copied like any grid (the loaded
@@ -3611,6 +3883,7 @@ Sign in with the domain account instead of a database user
 | Arrow Flight SQL | The protocol only defines username and password or a token. |
 | BigQuery, Spanner, Snowflake, Databricks, Athena, DynamoDB, Cosmos DB and other cloud services | They use the cloud identity (service accounts, IAM, tokens), not the domain's. |
 | SQLite, DuckDB, libSQL and other local-file engines | There is no server to authenticate to. |
+| Power BI | It signs in only with Microsoft Entra ID (browser, service principal, managed identity, default credential or a token): see [Cloud sign-in](#cloud-sign-in-aws-iam-google-cloud-iam-entra-id). |
 
 ### Tested
 
@@ -3642,6 +3915,7 @@ a password ([`cloud-authentication.md`](cloud-authentication.md)).
 | Cloud SQL for MySQL | **Google Cloud IAM**. |
 | Amazon Aurora DSQL | Already signs in with IAM (its own driver, AWS SDK). |
 | SQL Server, Azure SQL Database, Microsoft Fabric | Already have Microsoft Entra ID, with more methods ([`integrated-authentication.md`](integrated-authentication.md#microsoft-entra-id-sql-server-azure-sql-database-microsoft-fabric)). |
+| Power BI (semantic models) | **Microsoft Entra ID** is the only sign-in: the browser (PKCE, with DBine's app, the Azure CLI client or your own), a service principal's secret or certificate (PEM or PFX, a client assertion signed with PS256), the default chain and managed identity, or a pasted token. Details, scopes and tenant settings in [`cloud-authentication.md`](cloud-authentication.md#power-bi-and-fabric-semantic-models-entra-id). |
 | BigQuery, Spanner, Athena, DynamoDB, Cosmos DB, Snowflake, Databricks and other cloud services | They already use the cloud identity in their own form (service accounts, AWS profiles, Entra ID). |
 
 ### Engines without cloud sign-in
@@ -3660,6 +3934,18 @@ a password ([`cloud-authentication.md`](cloud-authentication.md)).
 | SQLite, DuckDB, libSQL and other local-file engines | There is no server to sign in to. |
 | The other engines (ClickHouse, Neo4j, Couchbase, CouchDB, Firebird…) | The engine or its managed service has no token sign-in tied to an AWS, Google or Entra ID identity. |
 
+### Service principal certificates
+
+A Microsoft Entra ID service principal can prove itself with a certificate
+instead of a secret: a client assertion signed with the certificate's key
+([`cloud-authentication.md`](cloud-authentication.md#service-principal-certificate)).
+
+| Engine | What there is |
+|---|---|
+| Power BI (semantic models) | **Service principal (certificate)** (PEM, encrypted PEM or PFX), and `AZURE_CLIENT_CERTIFICATE_PATH` / `AZURE_CLIENT_CERTIFICATE_PASSWORD` in the default credential. |
+| SQL Server, Azure SQL Database, Microsoft Fabric (`entra_sp`, `entra_default`) | **Explicit pending item**: the service principal takes the client secret only, and the default chain reads `AZURE_CLIENT_SECRET` only, not `AZURE_CLIENT_CERTIFICATE_PATH`. The assertion signing lives in the Power BI driver (`crates/drivers/powerbi/src/auth/certificate.rs`); it has to move to a crate both drivers use, and the SQL Server driver needs the certificate fields. |
+| Azure Databricks (`entra_sp`) | **Explicit pending item**: the Entra ID service principal takes the client secret only, for the same reason; the Databricks driver needs the certificate fields too. |
+
 ### Tested
 
 - Unit: SigV4 presigning against the AWS signing test suite, RDS tokens
@@ -3671,6 +3957,7 @@ a password ([`cloud-authentication.md`](cloud-authentication.md)).
 - On this machine: Azure CLI returns an `oss-rdbms` token and its identity.
 - **Not tested end to end**: there are no RDS, Cloud SQL, AlloyDB or Azure
   databases in the test environment.
+- Power BI: unit tests of the scopes per connection, the cloud table and host allowlist, the account binding and the consent errors, with fake token endpoints. Service principal certificates: fixtures made with OpenSSL and macOS's LibreSSL (PEM, PKCS#1, encrypted PKCS#8 with PBKDF2 over HMAC-SHA-256 and HMAC-SHA-1, AES and 3DES, PFX and legacy PFX, and the refused PBES1 and PKCS#12 PBE keys), the assertion checked against the certificate's public key, and the thumbprint in an `AADSTS700027` refusal, also in the default credential's list. **Not tested end to end**: no Power BI tenant was available, so DBine's app, the Azure CLI client's sign-in, service principals, managed identity and the sovereign clouds were not tried.
 
 ## Passwords from a command or a secret manager
 
@@ -3786,6 +4073,7 @@ responses.
 | Mimer SQL (ODBC) | Everything | It does not expose its sessions through SQL: they are seen with `sqlmonitor`. |
 | NetSuite (ODBC) | Everything | SuiteAnalytics Connect is a read-only service: it does not report sessions. |
 | Access, dBase (ODBC) | Everything | They are file databases without a server: they have no sessions to list. |
+| Power BI | Everything | The REST APIs list no sessions or running queries and can't cancel one: they exist only on the XMLA endpoint (`DISCOVER_SESSIONS`, `<Cancel>`), which is out of scope. |
 | Generic ODBC | Everything | The generic preset does not know the engine's session views: the engine's preset has to be used. |
 | Informix, Cubrid, MonetDB, IRIS, OpenEdge, MaxDB, NuoDB, HeavyDB, Machbase, Ignite, Ignite3, Ocient, SQream, Ingres, Virtuoso, Impala (ODBC) | Everything | **Pending**, not impossible: DBine does not list these engines' processes yet. For each one, the query to its session views still has to be written (in the code the preset answers "this engine's processes aren't listed in DBine yet"). |
 
@@ -3808,6 +4096,7 @@ Registration in the system scheduler (LaunchAgent, Task Scheduler, systemd or cr
 | Engine | What is missing | Reason |
 |---|---|---|
 | Those in the "What is missing and why" list of [Backups](#backups) | Engine backup | Without their own backups through SQL or the protocol, the step offers only the **DBine copy**. The reasons for each engine are in that section. |
+| Power BI | Engine backup and DBine copy | A model has neither (see [Backups](#backups)): the backup step has nothing to do on it. Run a script (a DAX query), Export, Compare schemas (compare only), Document the database and Run a notebook work. |
 | Those in the [Compare schemas](#compare-schemas) section with limits | What the comparison does not cover | The task compares the same as the feature; the limits and their reasons are in that section. |
 | Connections that do not save their password | Unattended runs | The task reads the password from the system keychain; without a saved password there is no one to type it. |
 | Any | **Only if…** in steps other than **Send an email** and **Send a message** | The task engine evaluates the condition in any step, but the interface only offers it in those two. Explicit pending item: offering it in the other step types. |
@@ -3873,6 +4162,7 @@ The contract is `Driver::supports_jobs` (the `jobs` capability) plus the session
 | ksqlDB | Persistent queries | — ²⁹ | ✓ ²⁹ | ✓ ²⁹ | — ²⁹ | ✓ |
 | Cloud Spanner | Backup schedules | — ³⁰ | — ³⁰ | — ³⁰ | ✓ ³⁰ | ✓ |
 | Dremio | Reflections and their refreshes | ✓ ³¹ | ✓ ³¹ | — ³¹ | ✓ | ✓ |
+| Power BI | Refreshes of the semantic models (and the DirectQuery cache's) | ✓ ³² | ✓ ³² | ✓ ³² | ✓ ³² | ✓ |
 
 1. SQL Server Express has no SQL Server Agent, so its jobs never run on a schedule and cannot be started. They are still read, and enabling or disabling still edits `msdb`; the list says so. The same applies to every edition when the Agent is stopped: Run now and Stop are not offered and the next run is left empty.
 2. A `DBMS_JOB` job (Oracle 12.1 to 18c) cannot be stopped (only ending the session that runs it does) and keeps no run history.
@@ -3905,6 +4195,7 @@ The contract is `Driver::supports_jobs` (the `jobs` capability) plus the session
 29. A persistent query always runs, so there is no Run now and no history (only the query's errors, shown in the detail). Enable and disable are `RESUME` / `PAUSE` (ksqlDB 0.26+). Stop is `TERMINATE`, which is permanent; the tab says so.
 30. The API has no run-now, stop or pause for a backup schedule. History is the backups the schedule created; a failed scheduled backup leaves none, so failures don't show.
 31. Run now is offered for physical datasets only (a view's reflection has none) and refreshes the dataset. Stop cancels the refresh in progress. Enable and disable are not offered: disabling a reflection drops its data and takes it out of queries, and the refresh policy belongs to the whole table or source.
+32. The service runs one refresh at a time per model. **Run now** is a standard refresh on shared capacity (it counts against the 8 a day, scheduled ones included, and can't be cancelled) and an enhanced one on capacity. **Stop** only cancels an enhanced refresh (scheduled and portal refreshes can't be cancelled). **Enable / disable** edits the refresh schedule and only the model's owner may. **History** needs write permission on the model (the service returns 60 entries by default, DBine asks for up to 500). The API gives no next run. The DirectQuery cache's schedule has no history and no run now. Without a workspace on the connection and no model chosen, only the models the account can write to are listed (at most 25, with a note saying how many were left out). A read-only connection offers none of the three that change something. Built from documentation, not tested against a tenant. Detail in [`server-jobs.md`](server-jobs.md#power-bi-refreshes).
 
 ### System jobs
 
@@ -3938,6 +4229,7 @@ These are limits of the engine, not missing work:
 - **Neo4j:** APOC's periodic jobs live in the server's memory, are lost on a restart and keep neither their statement nor their runs.
 - **Vertica:** when the catalog is refused to a non-superuser the list is empty and says only a superuser sees the triggers. The server keeps only counters, not runs, and only a superuser may call `EXECUTE_TRIGGER`.
 - **Dameng:** without the `SOI` role the list falls back to the user's own views, with a note.
+- **Power BI:** the history, the schedule's owner and the editable fields depend on the account's rights on the model, and each note says which limit applies. Pro (shared capacity) allows 8 refreshes a day and only standard refreshes; a schedule has 8 time slots on shared capacity and 48 on capacity. A refresh that the service refuses because one is already running, or because the daily limit is reached, is reported and not retried.
 
 ### Engines without server jobs
 
@@ -4066,6 +4358,7 @@ In the table, **Actions** are the ones a kind has besides create, edit and delet
 | OrientDB ⁴⁹ | Scheduled events (`OSchedule`) | ✓ | — | — | — | — |
 | Neo4j (APOC) ⁵⁰ | APOC background jobs | ✓ | — | — | — | — |
 | SAP HANA ⁵¹ | Scheduler jobs | ✓ | — | — | — | — |
+| Power BI ⁵² | Refresh schedules, DirectQuery cache schedules | Edit only | Refresh schedules: refresh now, cancel the refresh in progress | — | — | — |
 
 1. Each save is one T-SQL script of msdb's documented procedures in one transaction, a diff against what msdb has: a job is changed in place (id and history stay), its steps inserted, updated, deleted and renumbered by msdb. `sp_delete_jobstep` turns a reference to the step after the deleted one into "quit"; the same script sets it back. Revoking a role or Windows principal from a proxy, and granting a Windows login, run after the commit: msdb checks them by impersonating the principal inside a TRY/CATCH, which dooms an open transaction. `sp_update_proxy` cannot empty a proxy's description. A job's new schedule belongs to the job's owner (`sp_add_jobschedule`); removing a schedule from a job deletes it when no other job uses it and the login may (sysadmin or the schedule's owner), otherwise it is only detached. Who may do what follows msdb: sysadmin changes anything; SQLAgent role members create jobs and schedules and change their own; operators, alerts, proxies and categories are sysadmin's. The tree offers no edit or delete where msdb refuses it: a job a master server sent (14274), another owner's job or shared schedule for a login without sysadmin (14525, 14394), or a system category (id under 100, 14276). **Alerts** (sysadmin) have three actions: reset the count (`sp_update_alert` with `@occurrence_count = 0` and the server's date and time), enable and disable. A performance condition picks its object, then a counter of it, then an instance of that counter, from `sys.dm_os_performance_counters` (typed if the login lacks `VIEW SERVER STATE`); a new or changed condition is checked as `sp_verify_performance_condition` does, matching the object past its instance prefix and saving it with this server's. msdb checks the stored condition on every `sp_update_alert`, so an alert whose counter instance is gone cannot be saved, reset, enabled or disabled until its condition changes. **Start at a step** needs the Agent running and `EXECUTE` on `sp_start_job` (SQLAgent roles). **Clear history** needs `EXECUTE` on `sp_purge_jobhistory` (`SQLAgentOperatorRole` or sysadmin), even for a job the login owns; where the login can't, the tab doesn't offer it. **Log:** the Agent's error log and its archives (`sp_readerrorlog … 2`): `securityadmin`, or `VIEW SERVER STATE` / `VIEW ANY ERROR LOG` from SQL Server 2022. Recycling the log is not offered: logs are not a kind, so the contract has nowhere to put an action on them.
 2. Managed Instance has no alerts, proxies or idle-CPU schedules; the step types are the ones its Agent lists.
@@ -4118,6 +4411,7 @@ In the table, **Actions** are the ones a kind has besides create, edit and delet
 49. `INSERT` / `UPDATE` (only what changed) / `DELETE FROM OSchedule`; a new name inserts the event under it and deletes the old record (the run count starts again). Create, edit and delete follow the database's roles. OrientDB cannot stop or pause an event by writing its status (only deleting the record removes it), has no call to run an event on demand, and keeps no run history or log.
 50. APOC's jobs live in memory (a restart loses them) and APOC does not report their statement or parameters, so they are typed again. An edit creates the job again: with the same name APOC cancels the old one; with another name the new is scheduled, then the old cancelled. APOC cannot cancel a countdown between two runs, so Stop does not stop it: its pending run re-arms it and replaces any job with its name, until its statement returns 0 or the server restarts. DBine refuses to save a known countdown under its own name, and the form, detail and delete script say so. A login whose only roles are `reader` and `PUBLIC` (Enterprise) cannot create or edit. Without APOC there are no kinds, with a note. APOC keeps neither runs nor steps; no log. The Enterprise role check was not tested (no Enterprise container with APOC).
 51. `CREATE` / `ALTER SCHEDULER JOB` (cron and FROM / UNTIL, enable / disable, parameters), `COMMENT ON`, `DROP`. A new name, schema or procedure, a removed bound or every parameter removed creates the job again (run history lost; the script and form say so). Several statements run in one transaction (auto-commit off, `SET TRANSACTION AUTOCOMMIT DDL OFF`, then `COMMIT` or `ROLLBACK`); a server that refuses it gets them one by one. After a failed recreation DBine checks that the old job still exists and says so if the server kept its `DROP`. Privileges come from `SYS.EFFECTIVE_PRIVILEGES` and the schemas the login owns: `CREATE ANY` on the schema to create; the job's owner, or `ALTER` / `DROP` on the job or its schema, to change or delete it; `DATA ADMIN` for anything. Other jobs open read only with a note; if the privileges cannot be read everything is offered and the server decides. `SYS` and `_SYS*` jobs are read only. HANA has no statement to run a job, and its runs are the job's history. Built from documentation, not tested against a server; still to verify: whether scheduler-job DDL is transactional under `AUTOCOMMIT DDL OFF`, `COMMENT ON SCHEDULER JOB`, whether `ALTER … PARAMETERS` replaces the whole list, and how `EFFECTIVE_PRIVILEGES` names a scheduler-job privilege.
+52. `PATCH …/refreshSchedule` (and `directQueryRefreshSchedule`): a schedule is edited, never created or deleted (disable it instead), and only its owner may. The form has **Activada**, **Días**, **Horarios** (`HH:MM` on the hour or half hour, at most 8 a day on shared capacity and 48 on capacity), **Zona horaria** (a Windows time zone) and the notification (e-mail on failure or none; service principals only none); for the cache, the frequency or days and times. A disable carries nothing else, as the service requires. The script is comment lines (`// ⚠` warnings, then `// PATCH <url>` and the body). **Actualizar ahora…** is an enhanced refresh on capacity (type, commit mode, parallelism, retries, time limit, tables and partitions, incremental policy and its date; in batches the incremental policy is off, and the script warns that tables with one refresh whole) and a standard one on shared capacity (no fields: it counts against the 8 a day). **Cancelar la actualización en curso** only cancels an enhanced refresh. No steps (a refresh has none to start from), no history to clear (the API has no call) and no scheduler log. Every write is refused on read-only connections before any request. Built from documentation, not tested against a tenant.
 
 PostgreSQL may have several schedulers at once (pg_cron, pgAgent and TimescaleDB, for instance): the Jobs kind lists them all, with the ids of Server jobs, and a new job's form starts with the scheduler to create it in; each scheduler's tabs and lists show only while it is the one picked. A field two schedulers name alike but describe differently stays each one's. The kind's actions, edit and delete show only on the jobs where they apply. PostgreSQL and Greengage without pg_cron, pgAgent or TimescaleDB show no kinds, with a note. Every PostgreSQL-family scheduler runs a job whole (one command or statement, or, for pgAgent, all steps in order), which is why none offers Start at a step.
 
@@ -4130,7 +4424,7 @@ PostgreSQL may have several schedulers at once (pg_cron, pgAgent and TimescaleDB
 - ClickHouse 26.9 (including an Ordinary database and a user without `ALTER DELETE` on `system.query_log`) and 22.8 (no kinds), Timeplus Proton, InfluxDB 2.9 (including a threshold check's task), 1.8 (the history clear needs a server with query stats and was not run) and 3 Core, IoTDB 1.3.2 and 2.0.5, TDengine 3.3.6 and 3.4.3.9, ksqlDB 7.7.1 (including a source table's query), Dremio OSS and Flight SQL (the refusal).
 - Elasticsearch 8.15 (trial license, with a Monitoring-type watch and a `cloud-snapshot-policy` made by the test; basic license), OpenSearch 2.17, Open Distro 1.13, Couchbase Enterprise 8.0, CouchDB 3, OrientDB 3.2, Neo4j 5.26 with APOC and without it.
 
-Built from the vendor's documentation, not run against a real server through DBine (unit and fixture tests only): EDB Postgres Advanced Server, KingbaseES, Fujitsu Enterprise Postgres and the managed pg_cron services, Greenplum with pg_cron, TimescaleDB before 2.30, Azure SQL Managed Instance, SQL Server Express and 2008 R2 / 2012, SQL Server master/target (MSX/TSX) setups, Oracle Autonomous Database, Oracle before 19c and remote destinations, OceanBase, VeloDB, every engine reached through ODBC (Db2, Informix and GBase, Hive, Vertica, SAP ASE, SQL Anywhere, IRIS, Dameng, Altibase, Virtuoso), SAP HANA, Snowflake, Databricks, BigQuery (the emulator has no Data Transfer Service), Cloud Spanner (the emulator answers `UNIMPLEMENTED`), InfluxDB Cloud and 3 Enterprise, TimechoDB, Dremio Enterprise and Cloud, ksqlDB before 0.26 and Confluent Cloud, ClickHouse 23.12 to 24.9, Neo4j Enterprise roles, Couchbase cloud repositories. The live tests that need an account or an ODBC driver skip without one (`crates/drivers/odbc/tests/scheduler.rs`, the Snowflake and Databricks `tests/scheduler.rs`).
+Built from the vendor's documentation, not run against a real server through DBine (unit and fixture tests only): EDB Postgres Advanced Server, KingbaseES, Fujitsu Enterprise Postgres and the managed pg_cron services, Greenplum with pg_cron, TimescaleDB before 2.30, Azure SQL Managed Instance, SQL Server Express and 2008 R2 / 2012, SQL Server master/target (MSX/TSX) setups, Oracle Autonomous Database, Oracle before 19c and remote destinations, OceanBase, VeloDB, every engine reached through ODBC (Db2, Informix and GBase, Hive, Vertica, SAP ASE, SQL Anywhere, IRIS, Dameng, Altibase, Virtuoso), SAP HANA, Snowflake, Databricks, BigQuery (the emulator has no Data Transfer Service), Cloud Spanner (the emulator answers `UNIMPLEMENTED`), Power BI (the refresh history, run, cancel and schedule edits, with fixtures shaped like Microsoft Learn's samples; no tenant), InfluxDB Cloud and 3 Enterprise, TimechoDB, Dremio Enterprise and Cloud, ksqlDB before 0.26 and Confluent Cloud, ClickHouse 23.12 to 24.9, Neo4j Enterprise roles, Couchbase cloud repositories. The live tests that need an account or an ODBC driver skip without one (`crates/drivers/odbc/tests/scheduler.rs`, the Snowflake and Databricks `tests/scheduler.rs`).
 
 #### Pending in the scheduler designer
 
@@ -4162,8 +4456,9 @@ Code quality ([`code-quality.md`](code-quality.md)) flags problems in the editor
 | Redis | Redis, Valkey and Dragonfly |
 | etcd | etcd |
 | Cypher | Neo4j, Memgraph and Amazon Neptune |
+| DAX (its own lexical analyzer) | Power BI and Fabric semantic models |
 
-**Tested:** the rules of all families and the assignment of engines to families have automated tests over text (`src-tauri/src/lint/tests.rs` and `src-tauri/src/commands/lint.rs`). Since the analysis does not use the server, there are no tests against real servers and none are needed.
+**Tested:** the rules of all families and the assignment of engines to families have automated tests over text (`src-tauri/src/lint/tests.rs`, `src-tauri/src/lint/dax/tests.rs` and `src-tauri/src/commands/lint.rs`). Since the analysis does not use the server, there are no tests against real servers and none are needed.
 
 | Engine | What is missing | Reason |
 |---|---|---|
@@ -4171,6 +4466,7 @@ Code quality ([`code-quality.md`](code-quality.md)) flags problems in the editor
 | SQL engines without a family of their own (SQLite, libSQL, DuckDB, ClickHouse, Snowflake, BigQuery, Databricks, Spanner, Trino, Athena, SAP HANA, Firebird, Db2, Teradata, Vertica and the rest of the ODBC presets) | The engine's own rules | Explicit pending item: they only receive the common SQL rules. Each family's rules are missing. |
 | Cosmos DB, DynamoDB (PartiQL), Couchbase (N1QL), OrientDB, ksqlDB, IoTDB, TDengine | The engine's own rules | Explicit pending item: their languages look like SQL and receive the common SQL rules, but there are no rules of their own for each dialect. |
 | Elasticsearch, OpenSearch, Solr | Rules other than `leading-wildcard` and `write-all` | Explicit pending item: rules for their consoles are missing (for example, reads without a filter). |
+| Power BI (DAX) | `unqualified-column` and `qualified-measure` for names the script doesn't show | The analysis doesn't read the model: `qualified-measure` knows only the measures the script defines (`DEFINE MEASURE`), each with its table, and flags one only when it's written with that table; `unqualified-column` only the columns it writes with their table where only a column fits, in one table. The model's own measures and columns need the explorer's names in the editor, as `unknown-table` and `unknown-column` do for SQL. **Explicit pending item.** |
 
 ## Document the database
 
@@ -4209,6 +4505,7 @@ What each engine offers (what is not in the table it offers in full: `INNER`, `L
 | ksqlDB | `DISTINCT`, `ORDER BY` and `COUNT DISTINCT` | Explicit pending item: the code does not record the engine's reason. |
 | OrientDB | `HAVING` and `COUNT DISTINCT` | Explicit pending item: the code does not record the engine's reason. |
 | TDengine, MS Access | `COUNT DISTINCT` | Explicit pending item: the code does not record the engine's reason. |
+| Power BI (DAX) | **Design query…** | **Explicit pending item** (decision D7): the builder writes `SELECT` with joins; a DAX builder (columns, measures and filters into `SUMMARIZECOLUMNS` and `TREATAS`) is a different design. |
 
 ## Copy a subset
 
@@ -4222,6 +4519,7 @@ What each engine offers (what is not in the table it offers in full: `INNER`, `L
 | Those that do not filter on the server (see [Per-column filters](#per-column-filters-on-table-data)) | Filter on the starting table, and finding parents and children by key | The copy asks the driver for the filters (`filtered_browse`); where the driver does not apply them, the copy may fail with that error. Redis and etcd are the cases that section declares without a filter on the server. |
 | Engines without a condition language (those that are neither SQL nor CQL) | **Condition** | Only the **By column** filter, that of the data grid, is offered. |
 | Any, with a target of another engine | Tables that cannot be created | If converting the structure to the target engine fails, the table is marked **cannot be copied** with the error and blocks the copy: it has to be created in the target beforehand. |
+| Power BI | Being the target | A model has no row API or table DDL from DBine. As a source it works: `filtered_browse` with `IN` finds parents and children through the relationships. |
 | Any | Copying more than 2,000,000 rows, or more than 1,000,000 from the starting table; undoing a partial copy | Limits of the feature: rows are gathered in memory before being written, and there is no transaction around the copy. Explicit pending item: copying in batches without gathering everything in memory. |
 
 ## Optimize query
@@ -4239,6 +4537,7 @@ What each engine offers (what is not in the table it offers in full: `INNER`, `L
 | Those that give no plan: Redis, Valkey, Dragonfly, etcd, IoTDB, FerretDB, InfluxDB 2 (Flux), and through ODBC Exasol, CUBRID, Informix, GBase 8s, Altibase, Db2 for i, Ingres, Mimer, Caché, Zen, Access, dBase, NetSuite and OpenEdge | Suggested indexes, **Plan warnings** and the cost in **Compare** | The engine has no execution plans or does not deliver them through the available protocol. The reason for each is in [Execution plans](#execution-plans). **Compare** still measures times and result. |
 | All except SQL Server | Index suggested by the engine itself | Only SQL Server reports missing indexes in its plan. In the others, the suggestion comes from a full scan of a table that the query filters or joins by columns that no index starts with (in MongoDB, a `COLLSCAN`). |
 | Those that write data (`INSERT`, `UPDATE`, `DELETE`, and everything non-SQL that writes) | Execution in **Compare** | A query that writes is never run: only its estimated plan is compared. In non-SQL languages the read-only session rejects the write. |
+| Power BI (DAX) | Suggested indexes and **Plan warnings** | The REST APIs return no plan and VertiPaq has no indexes. The DAX rewrite rules (`dax_*`, from the code quality matches; unit tests over text in `src-tauri/src/optimizer/dax.rs`, no tenant to run **Compare** against), the AI alternatives and **Compare** (times and result, on a read-only session) work. |
 
 ## Search
 
@@ -4258,6 +4557,7 @@ Fast path through the catalog, according to each `search.rs`:
 | Snowflake | `FUNCTIONS`, `PROCEDURES` and `SEQUENCES` of `INFORMATION_SCHEMA` | Tables, views, streams and tasks (`GET_DDL`, one call per object) and overloaded routines |
 | Databricks | `routine_definition` of the functions | Tables, views and materialized views (`SHOW CREATE TABLE`, one statement per object) |
 | ODBC presets | Each preset's definition queries, run once for all objects | Types whose source is not a query (`SHOW …` in Hive, Impala, Spark and Teradata; `GET_DDL(?)`; Netezza) and the generic preset, which guesses `INFORMATION_SCHEMA` |
+| Power BI | One metadata read, matched in DBine: measure, calculated column and table, calculation item, user-defined function, RLS filter and partition (M) expressions, where the account's tier gives them. A measure's type and format string, which its definition tab shows below the expression, aren't searched: they would match every measure | — (the hits' lines match the definition tab) |
 | All the others (MySQL and family, SQLite, libSQL, DuckDB, Trino, Athena, Spanner, Cassandra, MongoDB, etc.) | — | Everything, object by object. Explicit pending item: a catalog path; drivers that do not have it read each definition separately and take longer on databases with thousands of routines. |
 
 Without definitions to read, only names and columns are searched: engines whose object types have no code (key-value, time series, most document ones).
@@ -4289,6 +4589,7 @@ Own checks (one `health.rs` per driver):
 | BigQuery | Large unpartitioned tables, partition filter, expiration, billing model, *time travel* | Cost and maintenance only, with the REST API (free metadata, no jobs) |
 | Databricks | Auto-stop, predictive optimization, deleted file retention, non-Delta tables | Large tables without *clustering*: the size requires `DESCRIBE DETAIL` on a *warehouse*, and this check uses none |
 | ODBC: Db2 LUW, Sybase ASE, Informix and GBase 8s | See [`health-check.md`](health-check.md) | Db2 for i and z/OS, Teradata, Vertica and the other presets: their catalogs are not read yet (explicit pending item); the generic preset does not know the engine |
+| Power BI | A refresh that failed (the error code only) or none in 7 days, a disabled schedule, measures in an error state (SemanticError, EvaluationError, DependencyError, SyntaxError, Error, Invalid), bidirectional, many-to-many and inactive relationships, auto date/time tables (advice: turn *Auto date/time* off in Desktop), calculated columns on tables over 1 million rows, columns over 10 % of the model's memory, RLS roles without members on models that need an effective identity, the model's size against its capacity's limit | Each check is skipped, and listed under **Could not be checked**, when the account can't read what it needs (history, schedule and write-permission checks; memory checks need model admin; the size limit needs the SKU). The fixes are advice, never scripts: DBine doesn't edit models. No Monitor connections, processes or backups checks |
 | All the others (Cassandra, MongoDB, Redis, Neo4j, DuckDB, SQLite, etc.) | Only the common ones | Explicit pending item: there are no checks of their own; what is worth checking in each one still has to be defined |
 
 Each own check is a separate query: if it fails (old version, permissions), it is skipped and listed under **Could not be checked**.
@@ -4304,6 +4605,7 @@ These have their own `insert_script`: Athena, BigQuery, Cassandra, ClickHouse, C
 | Engine | What is missing | Reason |
 |---|---|---|
 | Apache Drill | Everything | Drill has no `INSERT`: tables are created with `CREATE TABLE AS SELECT`. |
+| Power BI | Everything | A model has no row API (see [Power BI](#power-bi-semantic-models)). |
 | InfluxDB 1, 2 and 3 | Everything | Flux has no insert language, InfluxQL has no `INSERT` over the HTTP API and InfluxDB 3's SQL is read-only: points are written with *line protocol*. Explicit pending item: generating and sending *line protocol*. |
 | ksqlDB | Inserting into topics | ksqlDB does not insert into topics: it has to be done into a stream. |
 | IoTDB | Tables without a `Time` column | IoTDB needs the timestamp to insert rows. |
@@ -4331,6 +4633,8 @@ Data only, with nothing to change:
 | Dremio (spaces and homes) | They only have a name; sources do have refresh policies. |
 | Spanner with PostgreSQL dialect | They are shown but not changed: the driver speaks GoogleSQL. |
 | Cosmos DB without its own throughput | With per-container or *serverless* throughput there is no database offer to change. |
+
+Power BI shows a model's facts (workspace, capacity, storage mode, compatibility level, who configured it, data sources, the query API in use, the metadata tier and what it can't read) and edits only its **description**, through Fabric (write permission on the model; public cloud; not for **Mi área de trabajo**). The rest isn't editable from the REST APIs without writing the model's definition.
 
 With properties that are not offered even though they are shown: Firebird (read-only, forced writes and *sweep* interval go through the services API, which the client used does not have; encryption needs a plugin and a key that a connection does not see), Athena (its DDL does not change the description or the location, nor remove properties), Databricks (storage root, isolation and catalog type do not change through SQL), TDengine (`MAXROWS` and `KEEP_TIME_OFFSET`: 3.3 rejects the first and takes the second without applying it) and Couchbase (type, storage engine and conflict resolution are not edited after creating the *bucket*; auto-compaction and encryption at rest are left out).
 
@@ -4424,6 +4728,7 @@ not offer **Rename…** in that engine.
 | TDengine | yes | ordinary table columns (`ALTER TABLE … RENAME COLUMN a b`, the timestamp one included) and supertable tags (`ALTER STABLE … RENAME TAG a b`) | the tag's index | streams that use the name are dropped before and created again after, rewritten, over the same output table (a tag used by a stream goes the same way) | it does not rename tables, supertables, supertable columns, subtables, views, streams, topics or databases; the server rejects a column or tag used by a topic; what arrives while the stream is dropped is not processed |
 | OrientDB | yes | vertex, edge and document classes (`ALTER CLASS … NAME`, `UNSAFE` on edges) and properties (`ALTER PROPERTY … NAME` + `UPDATE … SET new = old REMOVE old`) | — | they are listed, not rewritten (functions) | their indexes are dropped and recreated (they keep the name), read from the class structure; on edges the vertices' `out_`/`in_` fields are moved; it is not atomic; it does not rename indexes, functions or sequences, nor V/E, `out`/`in`, or `@` attributes |
 | Neo4j, Memgraph, Amazon Neptune | not offered | — | — | — | A label or relationship type is not renamed: changing it is `SET n:New REMOVE n:Old` on every node (or recreating each relationship), which rewrites the data, can take hours on a large graph, is not atomic outside a transaction the size of the graph and forces recreating the label's indexes and constraints. Queries saved outside the database are not seen either. |
+| Power BI | yes (the model only) | the semantic model's own name (`RENAME MODEL`, through Fabric's Update Semantic Model); nothing inside it | — | — | public cloud only; not for models of **Mi área de trabajo**; needs write permission on the model; reports follow the model by id, XMLA and Excel connections that name it stop finding it; objects inside a model (tables, columns, measures) aren't renamed because DBine doesn't write a model's definition |
 
 ### Renaming a database
 
@@ -4431,8 +4736,8 @@ not offer **Rename…** in that engine.
 Database and Babelfish), the PostgreSQL family (PostgreSQL, Aurora, AlloyDB,
 Cloud SQL, Timescale, YugabyteDB, Greenplum, Cloudberry, Greengage, EDB,
 KingbaseES, Fujitsu, openGauss, CockroachDB, RisingWave, Redshift,
-Yellowbrick), MySQL, MariaDB, Aurora MySQL, Cloud SQL for MySQL, Snowflake and
-MongoDB. Details of each are in [`rename.md`](rename.md#renaming-a-database).
+Yellowbrick), MySQL, MariaDB, Aurora MySQL, Cloud SQL for MySQL, Snowflake,
+MongoDB and Power BI (a semantic model). Details of each are in [`rename.md`](rename.md#renaming-a-database).
 
 Tested against real servers: SQL Server, Babelfish, PostgreSQL, CockroachDB,
 MySQL, MariaDB and MongoDB (SQL Server, PostgreSQL and CockroachDB
@@ -4545,6 +4850,7 @@ else only has unit tests** and follows the vendor's documentation.
 | `redis` (and Valkey, Dragonfly) | number of keys in the logical database (`keys=` of `INFO keyspace`), **per database and not per collection**: it does not appear under any table in the document | none |
 | `etcd` | `etcd_debugging_mvcc_keys_total` gauge from `/metrics`, of the **whole keyspace** (etcd keeps no count per prefix): it does not appear under any table in the document; a connection limited to a prefix, or without access to `/metrics`, gets nothing | none |
 | `spanner` | none: it stores no row counts (`SPANNER_SYS` only reports sizes in bytes) | none: GoogleSQL has no `COMMENT` |
+| `powerbi` | `INFO.STORAGETABLES` row counts for a model admin on capacity; otherwise the `RowNumber` cardinality that `COLUMNSTATISTICS()` reports (statistics the engine keeps, no scan) | `description` of measures, hierarchies, calculation groups, roles, perspectives and functions |
 | `iotdb` | none: the schema stores no counts per device, and counting would be a `SELECT COUNT(*)` over the TsFiles, which the no-scan rule forbids | none: it has no comments |
 | `ksqldb` | none: it exposes no message count per stream or table | none: it has no comments |
 
@@ -4586,6 +4892,7 @@ here: that is **Rename…**.
 | InfluxDB (v1, v2, v3) | Modify… | No designer or DDL: measurements and their fields are created when data is written. |
 | Apache Drill | Modify… | No designer or sync: its tables are files created with `CREATE TABLE AS`, with no columns to modify. |
 | Apache Arrow Flight SQL | Modify… | It is a protocol, not an engine: the DDL depends on the backend and there is no portable one. Connect with the database's own driver. |
+| Power BI | Modify… | A model has no designer and no sync: DBine reads its definition and never writes it (see [Power BI](#power-bi-semantic-models)). Compare schemas still works, compare only. |
 | CouchDB | Modify… | It has sync (indexes and design docs), but no designer: documents have no schema, so there is no table to open. |
 | Redis, Valkey, Dragonfly | Modify… | They have a key designer, but no sync: keys have no schema to alter. |
 | etcd | Modify… | It has a key designer, but no sync: it has no schema, only keys with values. |
@@ -4631,6 +4938,7 @@ mode, in the unit tests.
 |---|---|---|
 | CockroachDB, Redshift, CrateDB, H2, Denodo, RisingWave, Yellowbrick, Materialize, Fabric, Babelfish, Manticore, Hive/Impala/Spark (ODBC), Amazon Neptune | Every mode | No bulk load: their only insert path (`insert_script`) writes the values into the statement's text. |
 | Drill, NetSuite | Every mode | Read-only. |
+| Power BI | Every mode | A model has no row API (see [Power BI](#power-bi-semantic-models)). |
 | ClickHouse, Timeplus | Update, upsert, replace | No transactions, and `UPDATE` / `DELETE` are asynchronous mutations: an atomic write by key is not possible. Insert works. |
 | Cassandra, ScyllaDB, Keyspaces | Update, upsert, replace | An `INSERT` already replaces the row with the same primary key, and rows can only be addressed by it: an update by another key isn't possible, and there are no multi-row transactions. Insert works (it upserts by the primary key). |
 | Redis, Valkey, Dragonfly, etcd | Update, upsert, replace | Key-value: the bulk load writes each key whole (insert is already "set"); there is no table to replace or column to match. Insert works. |
@@ -4662,6 +4970,7 @@ mode, in the unit tests.
 | InfluxDB 2 and 3 | Token in the URL | The token goes in a header: it is in the Node.js object. |
 | Azure Cosmos DB | Every format but its connection string | The SDKs (.NET, Node.js, Python, Java) take the `AccountEndpoint=…;AccountKey=…` string. |
 | Amazon DynamoDB | Connection string | There is none: the AWS SDK takes a region, an endpoint and credentials (an SDK configuration object). |
+| Power BI | URI, ADO.NET, JDBC, ODBC, Node.js, Go, SQLAlchemy | A model isn't reached at a server address: the formats are XMLA (when the workspace is known; only on Premium, Premium Per User and Fabric capacity), the REST call `executeQueries` and a Python sign-in with azure-identity. |
 | Amazon Athena, BigQuery, Spanner | URI, ADO.NET, Node.js | No connection string beyond JDBC/ODBC and SQLAlchemy; the cloud SDKs take a project or region and the cloud's credentials. BigQuery and Spanner: no ODBC string either (their ODBC drivers are configured with a key file in a DSN). |
 | DuckDB, SQLite | Credentials | Embedded files: no server and no sign-in. A folder of files (CSV / Parquet / JSON) is only its path. |
 | Every engine | Secrets with Vault database credentials | Leased credentials DBine revokes on disconnect: not copied. |
@@ -4863,6 +5172,7 @@ On every ODBC engine whose built-ins are static or generic, the user's functions
 | OrientDB | Bundled, full-text and spatial functions from a static catalog filtered by the server's version, plus the database's own functions (`OFunction`) | Methods (`.append()`…), called after a dot |
 | KDB+ | One request: q's keywords that are functions (`.Q.res`), `.q`'s named functions and the user's functions per namespace with their parameters (`[x;y]`); a static catalog if it can't be read | kdb+'s own namespaces (`.q`, `.Q`, `.h`, `.j`, `.o`, `.s`, `.z`) and DBine's staging one; q-sql and control words (completed as keywords) |
 | Azure Cosmos DB | Static catalog of the system functions (126), taken from each function's page. The service has no version | The user's functions (see the pending items) |
+| Power BI (DAX) | `INFO.FUNCTIONS()` (names, parameters, return type and the server's description) plus the model's own DAX functions (`INFO.USERDEFINEDFUNCTIONS()`), where the model takes `executeDaxQueries` and the user may run them; otherwise a static catalog of 457 functions from the DAX reference and the `INFO` pages (no descriptions) plus the model's functions from its definition. Kinds: `Table` for functions that return tables, `Aggregate` for the aggregators, `Scalar` for the rest. Dotted names (`INFO.VIEW.TABLES`) are offered whole | Functions that are only syntax |
 
 **Tested against real servers:** TDengine 3.3 and 3.4, kdb+ 5, InfluxDB 2.9, InfluxQL 1.8, InfluxDB 3.11, IoTDB 1.3 and 2.0 (also as TimechoDB), ksqlDB (Confluent Platform 7.7), Phoenix 5.0, OrientDB 3.2 and the Cosmos DB emulator. The IoTDB and ksqlDB tests check that the catalog has exactly the server's `SHOW FUNCTIONS` names, and the Flux test that the prelude is the server's suggestions.
 
@@ -4920,4 +5230,5 @@ The consoles' JSON lines (the query DSL) call no functions. Their SQL lines (tho
 | Databend, SingleStore, Manticore Search, GreptimeDB | Per-version filtering | Per-function versions could not be confirmed from the vendors' documentation, so the catalog describes the current release. **Explicit pending item.** |
 | Oracle | Descriptions of the built-ins | `V$SQLFN_METADATA`'s description only repeats the function name, and the documented catalog carries none. |
 | Fabric through a plain SQL Server connection | Exact function list | Edition 11 is shared by Synapse serverless and Fabric, and the two can't be told apart through that connection: it gets Synapse's list, so some functions are missing rather than wrong. |
+| Power BI | Live test | No tenant or emulator: the `INFO.FUNCTIONS` read and the permissions it needs were checked against fixtures only. **Explicit pending item.** |
 | ODBC engines | `UCASE`, `LCASE`, `IFNULL`, `DAYOFWEEK`, `CURDATE`… (ODBC escape-only names) | A bare call fails where the engine lacks the name, and inserting them as `{fn …}` escapes needs an escape flag in the contract. **Explicit pending item.** |

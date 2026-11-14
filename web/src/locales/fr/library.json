@@ -118,7 +118,7 @@
     "noGit": "git est introuvable sur cette machine",
     "noGitHelp": "Installez-le depuis git-scm.com (sur macOS il est aussi fourni avec les Command Line Tools) et rouvrez cette fenêtre.",
     "help": "Stockez la bibliothèque dans un dépôt git (GitHub, GitLab, Azure DevOps…) comme sauvegarde ou pour la partager.",
-    "helpFiles": "Chaque script est stocké comme un fichier dans son dossier, avec l'extension de son langage : {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux} ou {cypher}.",
+    "helpFiles": "Chaque script est conservé comme un fichier dans son dossier, avec l'extension de son langage : {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux}, {cypher} ou {dax} (Power BI).",
     "repository": "Dépôt",
     "repositoryPlaceholder": "git@github.com:entreprise/scripts-dba.git ou https://…",
     "branch": "Branche",

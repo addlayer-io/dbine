@@ -114,6 +114,22 @@ Per engine:
   `ORACLE` or `MSSQL` mode or is gone.
 - **Snowflake:** `ALTER DATABASE … RENAME TO`. Granted privileges follow.
   Names with a backslash are not renamed from DBine.
+- **Power BI:** the model's name, through Fabric's Update Semantic Model
+  (`PATCH /workspaces/<workspace>/semanticModels/<model>`), with a script
+  that is one command, `RENAME MODEL "<model>" TO "<new name>"`. Nothing
+  inside the model changes, and no sessions are closed. Reports connected to
+  the model follow it by id, but connections that name it (XMLA, Excel) stop
+  finding it, and the dialog says so. The model gets its own name: the
+  `<workspace> › ` prefix and the ` [<id>]` suffix that DBine's list adds
+  are dropped, the first line of the warning shows the name Power BI will
+  get, and a name that still has ` › ` is refused (a rename doesn't move the
+  model to another workspace). An unchanged name sends nothing. It needs
+  write permission on the model and the Fabric permission
+  `SemanticModel.ReadWrite.All`; it is available in the public cloud only
+  and not for the models of **Mi área de trabajo**. **Delete database** on a
+  model deletes it (`DELETE /groups/<workspace>/datasets/<model>`) after the
+  usual confirmation and needs write permission on it. Both are refused on
+  read-only connections before any request.
 - **MongoDB:** `renameCollection` from `admin`, one collection at a time;
   views are recreated in the new database and `system.views` of the old one
   is dropped. Users and roles are not moved, and time series collections

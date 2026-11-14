@@ -376,6 +376,8 @@ pub fn run() {
             commands::data_compare_ai::data_compare_ai_filter,
             commands::data_compare_ai::data_compare_key_hint,
             commands::data_compare::data_compare_script,
+            commands::data_compare_query::data_compare_query,
+            commands::data_compare_query::data_compare_query_columns,
             commands::security::security_principals,
             commands::security::security_unmapped_logins,
             commands::security::security_map_login_script,

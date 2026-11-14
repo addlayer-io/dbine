@@ -1,11 +1,32 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Asker } from './aiTask';
 import type { ColumnFilter } from '../composables/gridFilter';
-import type { Cell, ObjectRef, SortKey } from './types';
+import type { Cell, ObjectRef, ResultColumn, SortKey } from './types';
 
 // Data compare (docs/data-compare.md).
 
 export interface DataSide { connection_id: string; database: string; object: ObjectRef }
+
+/** A side of a query compare (`data_compare_query`): where its query runs. */
+export interface QuerySide { connection_id: string; database: string; query: string }
+/** A compared column: its name in each result; `key` ones pair the rows. */
+export interface ColumnPair { left: string; right: string; key: boolean }
+/** How a query compare's values compare beyond their type. */
+export interface QueryOptions {
+  /** Two numbers at most this far apart are the same (0: exactly)… */
+  absolute: number;
+  /** …or this far relative to the larger (0.001 is 0.1 %). */
+  relative: number;
+  /** NULL equals a blank value (0, "" or false), as DAX's BLANK. */
+  null_as_blank: boolean;
+  ignore_case: boolean;
+  trim: boolean;
+}
+/** The table compare's result, plus each compared column's name and type on
+ *  the right (`columns` and `types` are the left's). */
+export interface QueryCompareResult extends DataCompareResult { right_columns: string[]; right_types: string[] }
+/** A query's result columns, and its first row (what the suggested key looks at). */
+export interface QueryColumns { columns: ResultColumn[]; sample: Cell[] | null }
 
 export interface ChangedRow { left: Cell[]; right: Cell[]; diff: number[] }
 
@@ -107,4 +128,9 @@ export const dataCompareApi = {
   keyHint: (left: DataSide, asker: Asker | null) => invoke<KeyHint>('data_compare_key_hint', { args: { left, asker } }),
   /** One script per side that changes. */
   scripts: (id: string, choices: Choices) => invoke<DataScript[]>('data_compare_script', { args: { id, choices } }),
+  /** Two queries' whole results, read-only (no script); `run` as in `compare`. */
+  compareQueries: (left: QuerySide, right: QuerySide, columns: ColumnPair[], options: QueryOptions, run: string) =>
+    invoke<QueryCompareResult>('data_compare_query', { args: { left, right, columns, options, run } }),
+  /** A query's result columns (it stops at its first row); `cancel(run)` stops it. */
+  queryColumns: (side: QuerySide, run: string) => invoke<QueryColumns>('data_compare_query_columns', { args: { side, run } }),
 };

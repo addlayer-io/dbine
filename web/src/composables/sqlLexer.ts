@@ -25,6 +25,8 @@ export interface LexSyntax {
   /** KDB+'s q: `/` comments (after a blank, and `/` … `\` blocks), `"…"`
    *  strings; `'` is an adverb and `` ` `` starts a symbol, neither a quote. */
   q?: boolean;
+  /** `'…'` is a quoted name, not a string (DAX's table names). */
+  singleQuoteIdent?: boolean;
 }
 
 export type RegionKind = 'code' | 'string' | 'comment' | 'ident';
@@ -53,6 +55,14 @@ export function lexSyntax(language: Language | undefined, dialect: string): LexS
       brackets: ['mssql', 'sybase', 'access'].includes(dialect),
       dollarQuotes: true,
       oracleQ: dialect === 'oracle',
+    };
+  }
+  if (language === 'dax') {
+    // DAX: `//` and `--` comments, "strings" with "" inside, 'table names'
+    // and [columns or measures], each with its closing character doubled.
+    return {
+      dashComment: true, slashComment: true, hashComment: false, backslash: false, doubleQuoteString: true, brackets: true,
+      dollarQuotes: false, oracleQ: false, singleQuoteIdent: true,
     };
   }
   if (language === 'cql') {
@@ -122,9 +132,9 @@ export function lexRegions(doc: string, syn: LexSyntax): Region[] {
       i = end;
     } else if (c === "'") {
       // PostgreSQL's E'…' takes backslash escapes.
-      const eString = (prev === 'E' || prev === 'e') && !WORD.test(i > 1 ? doc[i - 2] : '');
+      const eString = !syn.singleQuoteIdent && (prev === 'E' || prev === 'e') && !WORD.test(i > 1 ? doc[i - 2] : '');
       const end = quoted(i, "'", syn.backslash || eString);
-      push('string', i, end);
+      push(syn.singleQuoteIdent ? 'ident' : 'string', i, end);
       i = end;
     } else if (c === '"') {
       const end = quoted(i, '"', syn.backslash && syn.doubleQuoteString);

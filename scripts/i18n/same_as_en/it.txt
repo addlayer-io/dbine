@@ -366,3 +366,8 @@ backend:risingwave: no version: {0}
 backend:s SIN(float_exp) -> FLOAT
 backend:{0}: pg_proc listed no functions
 editor.json:functionOverloads_one
+dataCompare.json:query.queryOf
+snippets.json:families.dax
+backend:Inquilino (tenant)
+lint.json:groups.dax
+optimizer.json:rules.dax_selectedvalue.title

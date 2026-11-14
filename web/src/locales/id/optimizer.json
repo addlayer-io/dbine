@@ -132,6 +132,34 @@
     "mongo_where": {
       "title": "$where → operator kueri",
       "explain": "$where menjalankan JavaScript pada setiap dokumen dan tidak memakai indeks; operator yang setara memakainya. Pada field berupa array atau bertipe campuran hasilnya dapat berubah: bandingkan sebelum menggunakannya."
+    },
+    "dax_filter_to_keepfilters": {
+      "title": "FILTER pada seluruh tabel → KEEPFILTERS",
+      "explain": "FILTER({{table}}, …) menelusuri seluruh tabel beserta tabel terkaitnya untuk membangun filter. KEEPFILTERS dengan kondisi yang sama hanya memfilter kolom yang dipakainya dan menghormati filter yang sudah ada. Jika measure memakai tabel terkait, ada pengubah lain (ALL…), atau CALCULATE berada di dalam iterator, hasilnya dapat berubah: bandingkan dahulu sebelum digunakan."
+    },
+    "dax_iferror_to_divide": {
+      "title": "IFERROR dengan pembagian → DIVIDE",
+      "explain": "IFERROR memaksa evaluasi bertahap; DIVIDE menyelesaikan {{division}} tanpa menangkap error. Di DAX, pembagian dengan nol bukan error (hasilnya tak terhingga), sehingga IFERROR tidak mencakupnya dan DIVIDE mengembalikan hasil alternatif: bandingkan dahulu sebelum digunakan."
+    },
+    "dax_iserror_to_divide": {
+      "title": "IF(ISERROR(…)) dengan pembagian → DIVIDE",
+      "explain": "ISERROR memaksa evaluasi bertahap dan menghitung {{division}} dua kali; DIVIDE menghitungnya sekali. Di DAX, pembagian dengan nol bukan error (hasilnya tak terhingga), sehingga ISERROR tidak mencakupnya dan DIVIDE mengembalikan hasil alternatif: bandingkan dahulu sebelum digunakan."
+    },
+    "dax_selectedvalue": {
+      "title": "IF(HASONEVALUE(…), VALUES(…)) → SELECTEDVALUE",
+      "explain": "SELECTEDVALUE({{column}}) adalah bentuk singkat yang setara: mengembalikan nilai ketika hanya ada satu dan, jika tidak, hasil alternatif."
+    },
+    "dax_summarize_to_addcolumns": {
+      "title": "SUMMARIZE dengan kolom terhitung → ADDCOLUMNS",
+      "explain": "SUMMARIZE hanya untuk pengelompokan dan kolom terhitung ({{name}}…) dipindahkan ke ADDCOLUMNS, dengan CALCULATE untuk menghitungnya per grup: lebih cepat dan konteksnya sesuai harapan. Pada relasi yang kompleks hasilnya dapat berubah: bandingkan dahulu sebelum digunakan."
+    },
+    "dax_redundant_calculate": {
+      "title": "CALCULATE tanpa filter yang berlebih",
+      "explain": "{{fn}} tanpa filter di sekitar measure atau {{fn}} lain tidak mengubah hasil: measure sudah memiliki CALCULATE implisit dan yang di dalam sudah melakukan transisi konteks."
+    },
+    "dax_topn_order_by": {
+      "title": "TOPN tanpa ORDER BY → ORDER BY",
+      "explain": "TOPN memilih baris tetapi tidak mengurutkannya. {{order}} ditambahkan pada EVALUATE, dengan kriteria dan arah TOPN."
     }
   },
   "notesText": {

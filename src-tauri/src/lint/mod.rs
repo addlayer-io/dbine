@@ -8,6 +8,7 @@
 mod console;
 mod cql;
 mod cypher;
+pub(crate) mod dax;
 mod lex;
 mod mongo;
 mod shell;
@@ -46,6 +47,8 @@ pub enum Group {
     Redis,
     Etcd,
     Cypher,
+    /// Power BI semantic models.
+    Dax,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -106,6 +109,16 @@ pub const RULES: &[Rule] = &[
     rule("match-without-label", W, &[G::Cypher]),
     rule("cartesian-product", W, &[G::Cypher]),
     rule("detach-delete-all", E, &[G::Cypher]),
+    rule("filter-whole-table", W, &[G::Dax]),
+    rule("error-functions", W, &[G::Dax]),
+    rule("divide-operator", W, &[G::Dax]),
+    rule("summarize-extension-columns", W, &[G::Dax]),
+    rule("topn-without-order-by", W, &[G::Dax]),
+    rule("redundant-calculate", I, &[G::Dax]),
+    rule("hasonevalue-values", I, &[G::Dax]),
+    rule("unqualified-column", I, &[G::Dax]),
+    rule("qualified-measure", I, &[G::Dax]),
+    rule("earlier", I, &[G::Dax]),
 ];
 
 pub fn severity(rule: &str) -> Severity {
@@ -163,6 +176,7 @@ pub enum Profile {
     Redis,
     Etcd,
     Cypher,
+    Dax,
     /// No rules (Flux).
     None,
 }
@@ -194,7 +208,8 @@ impl Profile {
             Language::Redis if info.dialect == "q" => Profile::None,
             Language::Redis => Profile::Redis,
             Language::Cypher => Profile::Cypher,
-            Language::Flux => Profile::None,
+            Language::Dax => Profile::Dax,
+            Language::Flux | Language::Unknown => Profile::None,
         }
     }
 }
@@ -211,6 +226,7 @@ pub fn lint(script: &str, profile: Profile) -> Vec<Finding> {
         Profile::Redis => shell::lint_redis(script, &mut out),
         Profile::Etcd => shell::lint_etcd(script, &mut out),
         Profile::Cypher => cypher::lint(script, &mut out),
+        Profile::Dax => dax::lint(script, &mut out),
         Profile::None => {}
     }
     out.sort_by_key(|f| (f.start, f.end));

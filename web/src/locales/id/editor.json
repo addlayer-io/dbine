@@ -30,17 +30,28 @@
     "loading": "Memuat kolom…",
     "empty": "Tidak ada metadata untuk tabel ini.",
     "error": "Tidak dapat membaca kolom: {{error}}",
-    "primaryKey": "Kunci primer"
+    "primaryKey": "Kunci primer",
+    "kind": {
+      "column": "Kolom",
+      "measure": "Measure",
+      "queryColumn": "Kolom kueri",
+      "queryMeasure": "Measure kueri"
+    },
+    "format": "format",
+    "unknown": "Penjelajah tidak mengenal kolom atau measure dengan nama itu.",
+    "loadingDefinition": "Membaca definisi…",
+    "definitionError": "Definisi tidak dapat dibaca: {{error}}",
+    "noExpression": "Tidak ada izin untuk melihat ekspresi."
   },
   "insertColumn": "Kolom {{n}} dari {{total}}: {{name}}",
   "insertExtra": "Nilai {{n}}: daftar memiliki {{total}} kolom",
   "pickFile": "Pilih berkas…",
+  "functionOverloads_other": "+{{count}} overload",
   "dataFiles": "Berkas data (CSV, Parquet, JSON, Excel)",
   "lens": {
     "run": "Jalankan",
     "runTip": "Jalankan hanya pernyataan ini",
     "plan": "Rencana",
     "planTip": "Perkiraan rencana eksekusi pernyataan ini, tanpa menjalankannya"
-  },
-  "functionOverloads_other": "+{{count}} overload"
+  }
 }

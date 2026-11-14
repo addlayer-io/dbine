@@ -109,7 +109,7 @@
     "noGit": "git tidak ditemukan di komputer ini",
     "noGitHelp": "Pasang dari git-scm.com (di macOS juga ada di Command Line Tools) lalu buka jendela ini lagi.",
     "help": "Simpan pustaka di repositori git (GitHub, GitLab, Azure DevOps…) sebagai cadangan atau untuk dibagikan.",
-    "helpFiles": "Setiap skrip menjadi satu berkas di foldernya, dengan ekstensi bahasanya: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux} atau {cypher}.",
+    "helpFiles": "Setiap skrip menjadi satu berkas di foldernya, dengan ekstensi bahasanya: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux}, {cypher} atau {dax} (Power BI).",
     "repository": "Repositori",
     "repositoryPlaceholder": "git@github.com:perusahaan/skrip-dba.git atau https://…",
     "branch": "Cabang",

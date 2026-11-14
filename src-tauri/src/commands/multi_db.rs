@@ -160,10 +160,12 @@ impl DbOutcome {
 /// The first statement of `sql` that isn't a read, as the read-only guard
 /// classifies them; `Some("")` when the engine's language can't be checked.
 fn write_keyword(driver: &dyn Driver, sql: &str) -> Option<String> {
-    if driver.info().language != Language::Sql {
-        return Some(String::new());
+    match driver.info().language {
+        Language::Sql => dbine_driver::read_only::first_write_in(sql, &driver.script_dialect()),
+        // DAX queries can't write; the driver's own commands can.
+        Language::Dax => dbine_driver::read_only::dax_first_write(&driver.split_script(sql)),
+        _ => Some(String::new()),
     }
-    dbine_driver::read_only::first_write_in(sql, &driver.script_dialect())
 }
 
 /// Merge the databases' outcomes: one grid when the first result set of
@@ -601,6 +603,16 @@ mod tests {
             rows,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn dax_scripts_write_only_through_the_drivers_own_commands() {
+        let d = crate::tasks::fake_dax::driver();
+        assert_eq!(write_keyword(&d, "EVALUATE {1}\n// x\nEVALUATE {2}"), None);
+        assert_eq!(
+            write_keyword(&d, "EVALUATE {1}\nREVOKE ALL FROM \"ana@contoso.com\"").as_deref(),
+            Some("REVOKE")
+        );
     }
 
     fn ok(db: &str, results: Vec<StatementResult>) -> DbOutcome {

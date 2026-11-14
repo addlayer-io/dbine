@@ -194,6 +194,48 @@ fn where_a_name_goes_is_refused() {
 }
 
 #[test]
+fn dax_cells_take_dax_literals() {
+    let v = json!({ "mes": "a\"); EVALUATE 'Secreto' //", "desde": "2026-10-01", "activo": true });
+    assert_eq!(
+        lit(
+            "powerbi",
+            "EVALUATE FILTER('Ventas', 'Ventas'[Mes] = {{mes}} && 'Ventas'[Activo] = {{activo}} && 'Ventas'[Fecha] >= {{desde}} && [Total] > {{tope}})",
+            v.clone()
+        ),
+        "EVALUATE FILTER('Ventas', 'Ventas'[Mes] = \"a\"\"); EVALUATE 'Secreto' //\" && 'Ventas'[Activo] = TRUE() && 'Ventas'[Fecha] >= DATE(2026, 10, 1) && [Total] > 10)"
+    );
+    // Comments keep them as text, and so does an undefined one.
+    for text in [
+        "EVALUATE {1} // {{mes}}",
+        "EVALUATE {1} -- {{mes}}",
+        "EVALUATE {1} /* {{mes}} */",
+        "EVALUATE {{otro}}",
+    ] {
+        assert_eq!(lit("powerbi", text, v.clone()), text);
+    }
+    // In a string, a table or column name, or where a name goes: refused.
+    assert!(matches!(
+        prep("powerbi", "EVALUATE { \"x{{mes}}\" }", v.clone()),
+        Err(ParamError::InString { .. })
+    ));
+    for text in [
+        "EVALUATE '{{mes}}'",
+        "EVALUATE 'Ventas'[{{mes}}]",
+        "EVALUATE { [{{mes}}] }",
+        "EVALUATE {{mes}}[Importe]",
+        "EVALUATE { {{mes}}(1) }",
+    ] {
+        assert!(
+            matches!(
+                prep("powerbi", text, v.clone()),
+                Err(ParamError::Identifier { .. })
+            ),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn undefined_names_are_an_error_in_sql_only() {
     let v = json!({ "mes": "x" });
     assert!(

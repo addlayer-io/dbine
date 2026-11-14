@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import type { FunctionInfo, Language, LoadedTable, NotebookCell, QueryOutcome } from '../../api/types';
 import type { Snippet } from '../../composables/snippets';
+import type { DaxOther } from '../../composables/daxLanguage';
 import { renderMarkdown } from '../../composables/markdown';
 import { onMarkdownClick } from '../../composables/externalLink';
 import { pickDataFile } from '../../composables/files';
@@ -37,6 +38,9 @@ export interface CellContext {
   /** The target's function catalog, DuckDB's for a "DataFrame SQL" cell
    *  (null: not loaded yet, asked for with `needFunctions`; absent: none). */
   functions?: FunctionInfo[] | null;
+  /** Names completion offers besides `schema`'s tables (a Power BI
+   *  model's measures). */
+  otherNames?: DaxOther[];
 }
 
 const props = defineProps<{
@@ -240,6 +244,7 @@ function endRename(save: boolean) {
             :pick-file="ctx.localFiles ? pickDataFile : null"
             :params="ctx.params ?? []"
             :functions="ctx.functions"
+            :other-names="ctx.otherNames ?? []"
             :placeholder="$t('notebook:cell.sqlPlaceholder')"
             run-actions
             @update:model-value="(v: string) => emit('source', v)"

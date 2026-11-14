@@ -85,6 +85,8 @@ test('prompts per target language; the outline fences each cell in its language'
   assert.equal(promptVariant(null), 'sql');
   assert.equal(promptVariant('redis'), 'native');
   assert.equal(promptVariant('json'), 'native');
+  // A Power BI model's DAX cells are native cells too.
+  assert.equal(promptVariant('dax'), 'native');
   const cells = [
     { ...emptyNotebook(false).cells[0], source: 'GET k', language: 'redis' },
     { ...emptyNotebook(false).cells[0], source: 'SELECT 1' },
