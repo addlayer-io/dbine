@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-kdb"
-version = "0.1.2"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.3"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 description = "DBine driver for kdb+ (KX), over q's IPC protocol"
