@@ -208,6 +208,10 @@ plugins = [
     "getrandom/std",
     "rustls/default",
     "serde_json/preserve_order",
+    # Power BI's service principal certificates: PKCS#8 keys encrypted the
+    # old way (3DES, PBKDF2 with HMAC-SHA1).
+    "pkcs8/3des",
+    "pkcs8/sha1-insecure",
     "tracing/log",
     "dep:ahash",
     "dep:arrayvec",
