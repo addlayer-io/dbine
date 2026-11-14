@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-14
+
 ### New
 - **Server jobs:** **Scheduled** now has two sections: **In DBine**, the tasks DBine runs, and **On the servers**, the jobs each database server runs on its own. Those include SQL Server Agent jobs, Oracle DBMS_SCHEDULER, pg_cron, pgAgent and TimescaleDB jobs, Snowflake tasks, Databricks jobs, MySQL events, BigQuery scheduled queries, Couchbase backups, CouchDB replications and more. Each job shows its schedule, steps and run history with messages, and offers **Run now**, **Stop**, **Enable** / **Disable** and **View script** where the engine allows them. Jobs that come with the engine are hidden until you show them, and read-only connections only show jobs. **Server jobs** on a connection's menu opens its group.
 - **Results kept when DBine closes:** each query editor's result tabs are saved to an encrypted file on your computer, so after closing DBine, or a crash, every editor shows them again as they were, pinned ones included, without running anything. The key never leaves your computer and user; **Settings › General** sets the space they may take, clears them, or turns it off.
@@ -36,6 +38,7 @@
 - **Snowflake task graphs:** a graph's finalizer was listed as a separate job; it's now part of its root's job.
 - **Choosing the key in Compare data:** after a comparison, picking other tables left the key list with the previous comparison's columns; it now offers the new table's, and a result is dropped as soon as either side changes.
 - **Actual plan shortcut:** the tooltip of **Run and include the actual plan** showed ⌘⇧↵ in some languages; it's ⌘⇧L.
+- **Security, dependencies:** the QUIC libraries under the HTTP client of DBine and its drivers are updated past three advisories (RUSTSEC-2026-0523, RUSTSEC-2026-0524, RUSTSEC-2026-0538). A server could open more streams than allowed, crash the client or exhaust its memory with a long Retry token, or keep it spinning with a truncated datagram. The updated drivers download by themselves.
 
 ## [1.5.0] - 2026-11-11
 
