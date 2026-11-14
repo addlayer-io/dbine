@@ -50,8 +50,8 @@ import {
   KEEP_RESULTS_SETTING, RESULTS_SPACE_SETTING, forget, keepResults, loadRestored, restoredRun, resultsClears, resultsSpace, storeArgs,
 } from '../composables/resultsStore';
 import {
-  LENS_MAX_CHARS, LENS_MAX_STATEMENTS, RUN_LENS_SETTING, commentMarkers, linesAt, numberedStatements, oneStatementEach, splitOutcome,
-  statementHead, uniqueNames, type RunLens, type RunUnit,
+  LENS_MAX_CHARS, LENS_MAX_STATEMENTS, RUN_LENS_SETTING, commentMarkers, linesAt, numberedStatements, oneStatementEach, placeText,
+  resultPlaces, splitOutcome, statementHead, uniqueNames, type RunLens, type RunUnit,
 } from '../composables/resultNames';
 
 // A saved query, or a project's file, open in the editor. A query's text is
@@ -683,8 +683,19 @@ const commentMarks = computed(() => commentMarkers(driver.value?.language, drive
  *  script's units one by one (a result's `statement` is its unit's index),
  *  some named; their parts move to their tabs when it ends. `numbered`: the
  *  engine gets the text whole (or a plan runs it whole), so its statements
- *  are the ones its outcome numbers, found when it ends. */
-interface RunNaming { whole: string | null; units: RunUnit[] | null; numbered: Numbered | null }
+ *  are the ones its outcome numbers, found when it ends. `byPlace`: where a
+ *  statement's results start in different places (a DAX `DEFINE` and its
+ *  `EVALUATE`s), the name above an offset of the text sent (`end`: where
+ *  its statement ends), which gives a result a tab of its own. `late`: the
+ *  units of a run that isn't split by their names, asked for when it ends
+ *  only if one returned results from different places. */
+interface RunNaming {
+  whole: string | null;
+  units: RunUnit[] | null;
+  numbered: Numbered | null;
+  byPlace?: ((offset: number, end: number) => string | null) | null;
+  late?: (() => Promise<RunUnit[] | null>) | null;
+}
 interface Numbered {
   /** The text sent. */
   sent: string;
@@ -696,11 +707,33 @@ interface Numbered {
 }
 
 /** "Volver a ejecutar" on a script's tab whose named statements went to
- *  their tabs: the same split again, with the names they had (by statement). */
+ *  their tabs: the same split again, with the names they had (by statement).
+ *  On any tab, results named by their place go to their tabs again. */
 async function rerunNaming(r: ResultRun): Promise<RunNaming | null> {
   const parts = r.parts;
-  if (!parts?.some(Boolean)) return null;
-  if (!(perStatement.value && r.plan === 'none')) {
+  // A result named by its place: by the comment above it in the tab's script.
+  const marks = commentMarks.value;
+  const byPlace = marks.some((m) => r.script.includes(m))
+    ? (offset: number, end: number) => statementHead(r.script, offset, end, marks, driver.value?.dialect).name
+    : null;
+  const perUnit = perStatement.value && r.plan === 'none';
+  if (!parts?.some(Boolean)) {
+    if (!byPlace || !perUnit) return null;
+    // Nothing named by statement: its units only when its results name themselves.
+    const late = async () => {
+      try {
+        const units = await api.splitScript({ connectionId: r.connectionId, sql: r.script });
+        return units.map((u): RunUnit => ({
+          start: u.start, end: u.end, line: u.line, text: u.text, editorStart: r.runBase + u.start, editorLine: (r.lineOffset ?? 0) + u.line,
+          client: u.kind === 'client_command', name: null,
+        }));
+      } catch {
+        return null;
+      }
+    };
+    return { whole: null, units: null, numbered: null, byPlace, late };
+  }
+  if (!perUnit) {
     // The engine numbers the same statements the same way.
     const resolve = (statements: { statement: number; start: number; end: number }[]) => {
       const lines = linesAt(r.script, statements.map((s) => s.start));
@@ -709,7 +742,7 @@ async function rerunNaming(r: ResultRun): Promise<RunNaming | null> {
         editorStart: r.runBase + s.start, editorLine: (r.lineOffset ?? 0) + lines[i], client: false, name: parts[s.statement] ?? null,
       }));
     };
-    return { whole: null, units: null, numbered: { sent: r.script, resolve, single: null } };
+    return { whole: null, units: null, numbered: { sent: r.script, resolve, single: null }, byPlace };
   }
   let units: ScriptUnit[];
   try {
@@ -721,6 +754,7 @@ async function rerunNaming(r: ResultRun): Promise<RunNaming | null> {
   return {
     whole: null,
     numbered: null,
+    byPlace,
     units: units.map((u, i) => ({
       start: u.start, end: u.end, line: u.line, text: u.text, editorStart: r.runBase + u.start, editorLine: (r.lineOffset ?? 0) + u.line,
       client: u.kind === 'client_command', name: parts[i],
@@ -730,7 +764,9 @@ async function rerunNaming(r: ResultRun): Promise<RunNaming | null> {
 
 /** The names of a run, read from `doc` (the editor's text): `base` is where
  *  `script` (as written) starts in it, `sent` the text that runs (its
- *  parameters filled). Null: nothing named. */
+ *  parameters filled). Null: nothing named. Where the app runs the units
+ *  one by one, a run whose units have no names may still be split by its
+ *  results' own (`late`). */
 async function nameRun(doc: string, base: number, script: string, sent: string, plan: PlanMode): Promise<RunNaming | null> {
   const marks = commentMarks.value;
   const dialect = driver.value?.dialect;
@@ -785,10 +821,18 @@ async function nameRun(doc: string, base: number, script: string, sent: string, 
     };
   }));
   const statements = named.filter((u) => !u.client);
+  // A result named by its place (resultNames.ts, `ByPlace`): the comment above where it starts.
+  const byPlace = (offset: number, end: number) => statementHead(doc, at(offset), at(end), marks, dialect).name;
   if (perStatement.value) {
-    if (statements.length === 1) return statements[0].name ? { whole: statements[0].name, units: null, numbered: null } : null;
+    // Not split by the units' names: by their results' own, if they have them.
+    const late = async () => named;
+    if (statements.length === 1) return { whole: statements[0].name, units: null, numbered: null, byPlace, late };
     // Several, run one by one by the app.
-    if (plan === 'none') return named.some((u) => u.name) ? { whole: null, units: uniqueNames(named), numbered: null } : null;
+    if (plan === 'none') {
+      return named.some((u) => u.name)
+        ? { whole: null, units: uniqueNames(named), numbered: null, byPlace }
+        : { whole: null, units: null, numbered: null, byPlace, late };
+    }
   }
   // The engine gets the text whole (or its plan does): when the run ends,
   // its outcome says where each statement starts, and the editor names it.
@@ -800,15 +844,17 @@ async function nameRun(doc: string, base: number, script: string, sent: string, 
       editorStart: at(s.start), editorLine: inDoc[i], client: false, name: head(s.start, s.end).name,
     }))));
   };
-  return { whole: null, units: null, numbered: { sent, resolve, single: statements.length === 1 ? statements[0].name : null } };
+  return { whole: null, units: null, numbered: { sent, resolve, single: statements.length === 1 ? statements[0].name : null }, byPlace };
 }
 
 /** A script with named statements ended: each one's results, messages and
  *  errors go to its name's tab (refreshed in place, or a new one after the
- *  run's), the rest stays in the run's tab, which closes when nothing is
- *  left (the run's first named tab shows instead). `clears`: the store's
- *  clears when it started (one since: nothing is stored). */
-function splitRun(r: ResultRun, o: QueryOutcome, naming: RunNaming, clears: number) {
+ *  run's), and so does each result named by its place (`byPlace`); the rest
+ *  stays in the run's tab, which closes when nothing is left (the run's
+ *  first named tab shows instead). `clears`: the store's clears when it
+ *  started (one since: nothing is stored). `stored`: the run was stored as
+ *  it ran (`late`), so nothing is stored again when nothing moves. */
+function splitRun(r: ResultRun, o: QueryOutcome, naming: RunNaming, clears: number, stored = false) {
   // Each statement of the outcome as its unit: by index where the app ran
   // them one by one, or by where the engine's numbering puts them.
   let byStatement: (RunUnit | undefined)[] = [];
@@ -825,24 +871,45 @@ function splitRun(r: ResultRun, o: QueryOutcome, naming: RunNaming, clears: numb
       };
     }
   }
+  // The names the units have, kept by a result named by its place: running
+  // its tab again sends its unit's other results to the unit's tab.
+  const given = byStatement;
   // The run's own tab may have been given a statement's name: that one stays in it.
   if (r.name) byStatement = Array.from(byStatement, (u) => (u && u.name === r.name ? { ...u, name: null } : u));
   if (whole?.name === r.name) whole = null;
-  const { rest, parts } = whole ? { rest: null, parts: [{ name: whole.name!, unit: 0, outcome: o }] } : splitOutcome(o, byStatement);
+  const nameAt = naming.byPlace;
+  const byPlace = nameAt
+    ? { nameAt: (offset: number, s: number) => (byStatement[s] ? nameAt(offset, byStatement[s]!.end) : null), kept: r.name ?? null }
+    : undefined;
+  const { rest, parts } = whole ? { rest: null, parts: [{ name: whole.name!, unit: 0, outcome: o }] } : splitOutcome(o, byStatement, byPlace);
   if (whole) byStatement = [whole];
   if (!parts.length) {
-    persistRun(r, clears);
+    if (!stored) persistRun(r, clears);
     return;
   }
+  // A statement whose results start in different places (a DAX `DEFINE` and
+  // its `EVALUATE`s): a tab holds only some of them, so each one's export
+  // and chart run its own text, not the whole statement.
+  const places = resultPlaces(o);
+  const ownSql = (s: number, offset: number | null | undefined) => {
+    const u = byStatement[s];
+    const at = places.get(s);
+    if (!u || !at || offset == null) return null;
+    return placeText(u.text, at.map((x) => Math.max(0, x - u.start)), Math.max(0, offset - u.start), commentMarks.value);
+  };
   let at = runs.value.indexOf(r) + 1;
   const tabs: ResultRun[] = [];
   for (const p of parts) {
     const u = byStatement[p.unit]!;
     // The tab holds its statement: "Volver a ejecutar" and exports run only
     // it (a whole run's plan with it; a part's plans stay in the run's tab).
+    // A result named by its place holds its whole statement (its `DEFINE`
+    // with it): run again, the statement's other results go to their tabs.
+    const unitName = p.placed ? given[p.unit]?.name ?? null : null;
     const fields = {
       outcome: p.outcome, script: u.text, plan: whole ? r.plan : 'none' as PlanMode, connectionId: r.connectionId, database: r.database,
-      language: r.language, multi: null, lineOffset: u.editorLine - 1, runBase: u.editorStart, parts: null, label: null, resultSql: null,
+      language: r.language, multi: null, lineOffset: u.editorLine - 1, runBase: u.editorStart, parts: unitName ? [unitName] : null, label: null,
+      resultSql: places.has(p.unit) ? p.outcome.results.map((x) => ownSql(p.unit, x.offset == null ? null : x.offset + u.start)) : null,
     };
     let tab = runs.value.find((x) => x !== r && x.name === p.name);
     if (tab) Object.assign(tab, fields, { at: Date.now(), restored: false });
@@ -863,7 +930,10 @@ function splitRun(r: ResultRun, o: QueryOutcome, naming: RunNaming, clears: numb
     r.label = first ? runLabel(first.text) : null;
     // Its results are some of the script's: export, editing and the chart
     // read each one's own statement, not the whole script.
-    r.resultSql = rest.results.map((x) => (x.statement != null ? byStatement[x.statement]?.text ?? null : null));
+    r.resultSql = rest.results.map((x) => {
+      if (x.statement == null) return null;
+      return places.has(x.statement) ? ownSql(x.statement, x.offset) : byStatement[x.statement]?.text ?? null;
+    });
     persistRun(r, clears);
   } else {
     const shown = activeRunId.value === r.id;
@@ -977,6 +1047,11 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
       if (o.error) output.add('error', `${firstLine}\n${tb(o.error)}`, { where, elapsedMs: o.elapsed_ms });
       else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });
       if (split) splitRun(r, o, split, clears);
+      else if (naming?.late && resultPlaces(o).size) {
+        // A unit's results from different places, some maybe named by theirs.
+        const units = await naming.late();
+        if (units) splitRun(r, o, { ...naming, units }, clears, true);
+      }
     }
   } catch (e) {
     r.outcome = { results: [], messages: [], error: errorMessage(e), elapsed_ms: Date.now() - startedAt.value, plans: [] };

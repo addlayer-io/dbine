@@ -35,12 +35,16 @@ export interface ResultRun {
   name?: string | null;
   /** A script whose named statements went to their tabs: the names of its
    *  units (a rerun splits it again), and what its tab shows instead of the
-   *  script's first line (its first unnamed statement). */
+   *  script's first line (its first unnamed statement). A result named by
+   *  its place (resultNames.ts, `ByPlace`): its unit's name, so a rerun
+   *  sends the unit's other results to that tab. */
   parts?: (string | null)[] | null;
   label?: string | null;
   /** Such a script's tab: the statement each of its results came from (by
    *  result index), which its export, editing and chart read, since its
-   *  results are only some of the script's. */
+   *  results are only some of the script's. Where one statement's results
+   *  start in different places (a DAX `DEFINE` and its `EVALUATE`s), any
+   *  tab of them: each one's own text (resultNames.ts, `placeText`). */
   resultSql?: (string | null)[] | null;
   /** A run on several databases: its sub-tab labels and summary. */
   multi: { labels: string[]; summary: string } | null;

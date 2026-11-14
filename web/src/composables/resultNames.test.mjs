@@ -1,13 +1,14 @@
 // Tests for named results: the comment markers, the name above a statement
 // (or at its head, where the engine's splitter keeps the comment in it), the
 // statements an engine numbers itself, batches of several statements, a
-// run's outcome split by statement, and the kept limit sparing named tabs.
+// run's outcome split by statement (and a DAX unit's by `EVALUATE`), and the
+// kept limit sparing named tabs.
 // Run: `node --test src/composables/resultNames.test.mjs` from web/ (Node
 // 23.6+ strips the TypeScript types itself). Not part of the app's build.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  commentMarkers, linesAt, nameAbove, numberedStatements, oneStatementEach, splitOutcome, statementHead, uniqueNames,
+  commentMarkers, linesAt, nameAbove, numberedStatements, oneStatementEach, placeText, resultPlaces, splitOutcome, statementHead, uniqueNames,
 } from './resultNames.ts';
 import { overflow } from './resultRuns.ts';
 
@@ -219,6 +220,96 @@ test('a batch of several statements takes no name', () => {
   // GO between them: two batches, one statement each.
   const two = [{ start: 12, end: 40, name: 'Clientes' }, { start: 63, end: 90, name: 'Proveedores' }];
   assert.deepEqual(oneStatementEach(two, [63, 12]).map((u) => u.name), ['Clientes', 'Proveedores']);
+});
+
+// A DAX script as Power BI's splitter cuts it: a bare `EVALUATE`, then a
+// `DEFINE` unit whose `EVALUATE`s each give a result, placed where it starts.
+const DAX = commentMarkers('dax', 'powerbi');
+const lineOf = (t, at) => t.slice(0, at).split('\n').length;
+const daxRun = (head = '// Ventas\n', first = '// Por región\n', second = '// Por mes\n') => {
+  const doc = `EVALUATE { 1 }\n\n${head}DEFINE\n  MEASURE Sales[Total] = SUM(Sales[Amount])\n${first}`
+    + `EVALUATE SUMMARIZECOLUMNS(Region[Name], "Total", [Total])\n${second}`
+    + 'EVALUATE SUMMARIZECOLUMNS(Date[Month], "Total", [Total])\nEVALUATE { [Total] }';
+  const define = doc.indexOf('DEFINE');
+  const units = [
+    { start: 0, end: 14, line: 1, name: null },
+    { start: define, end: doc.length, line: lineOf(doc, define), name: statementHead(doc, define, doc.length, DAX).name },
+  ];
+  const at = ['EVALUATE SUMMARIZECOLUMNS(Region', 'EVALUATE SUMMARIZECOLUMNS(Date', 'EVALUATE { [Total]'].map((e) => doc.indexOf(e));
+  const o = {
+    results: [res(0, 0, 1), ...at.map((x) => res(1, x, lineOf(doc, x)))],
+    messages: [], error: null, elapsed_ms: 50, plans: [], log: [], errors: [],
+  };
+  // The comment above where a result starts (QueryView: `statementHead(doc, at(offset), at(end))`).
+  const nameAt = (offset, s) => statementHead(doc, offset, units[s].end, DAX).name;
+  return { doc, units, at, o, nameAt };
+};
+
+test("a DAX unit's results start where their EVALUATEs do; a SQL statement's, where it does", () => {
+  const { at, o } = daxRun();
+  assert.deepEqual([...resultPlaces(o)], [[1, at]]);
+  // Two results of one statement in one place (a procedure's result sets): not placed apart.
+  assert.equal(resultPlaces({ ...o, results: [res(0, 0, 1), res(0, 0, 1), res(1, 20, 2)] }).size, 0);
+});
+
+test('each EVALUATE of a DEFINE unit named by the comment above it has a tab of its own', () => {
+  const { doc, units, at, o, nameAt } = daxRun();
+  assert.equal(units[1].name, 'Ventas');
+  const { rest, parts } = splitOutcome(o, units, { nameAt });
+  // The unit's own part first (the EVALUATE without a comment), then each named one, in order.
+  assert.deepEqual(parts.map((p) => [p.name, p.unit, !!p.placed]), [['Ventas', 1, false], ['Por región', 1, true], ['Por mes', 1, true]]);
+  const [ventas, region, mes] = parts.map((p) => p.outcome);
+  assert.deepEqual(ventas.results.map((r) => r.offset), [at[2] - units[1].start]);
+  // Offsets and lines from the unit's start: the tab's script is the whole unit, its DEFINE with it.
+  assert.deepEqual([region.results[0].offset, region.results[0].line], [at[0] - units[1].start, lineOf(doc, at[0]) - units[1].line + 1]);
+  assert.deepEqual([mes.results[0].offset, mes.results[0].line], [at[1] - units[1].start, lineOf(doc, at[1]) - units[1].line + 1]);
+  assert.deepEqual([region.elapsed_ms, mes.elapsed_ms], [10, 10]);
+  // The bare EVALUATE without a name stays in the run's tab.
+  assert.deepEqual(rest.results.map((r) => r.statement), [0]);
+  assert.equal(rest.elapsed_ms, 20);
+});
+
+test("a DEFINE without a name: its EVALUATEs without one stay in the run's tab", () => {
+  const { units, o, nameAt } = daxRun('');
+  assert.equal(units[1].name, null);
+  const { rest, parts } = splitOutcome(o, units, { nameAt });
+  assert.deepEqual(parts.map((p) => p.name), ['Por región', 'Por mes']);
+  assert.deepEqual(rest.results.map((r) => r.offset), [0, o.results[3].offset]);
+  // Nothing named by its place either: nothing moves.
+  const bare = daxRun('', '', '');
+  assert.equal(splitOutcome(bare.o, bare.units, { nameAt: bare.nameAt }).rest, bare.o);
+});
+
+test("a name taken stays with the result's unit; the run's tab keeps its own", () => {
+  // The unit's name, and the same name twice: the unit's, and the first one's.
+  const taken = daxRun('// Ventas\n', '// Ventas\n', '// Detalle\n');
+  assert.deepEqual(splitOutcome(taken.o, taken.units, { nameAt: taken.nameAt }).parts.map((p) => [p.name, p.outcome.results.length]), [['Ventas', 2], ['Detalle', 1]]);
+  const twice = daxRun('// Ventas\n', '// Detalle\n', '// Detalle\n');
+  assert.deepEqual(splitOutcome(twice.o, twice.units, { nameAt: twice.nameAt }).parts.map((p) => [p.name, p.outcome.results.length]), [['Ventas', 2], ['Detalle', 1]]);
+  // Run again in the tab of "Por mes" (its whole unit): that result stays there.
+  const { units, o, nameAt } = daxRun();
+  const { rest, parts } = splitOutcome(o, units, { nameAt, kept: 'Por mes' });
+  assert.deepEqual(parts.map((p) => p.name), ['Ventas', 'Por región']);
+  assert.deepEqual(rest.results.map((r) => r.offset), [0, o.results[2].offset]);
+});
+
+test('results of a statement that start where it does split as before', () => {
+  const units = [{ start: 5, line: 2, name: 'A' }, { start: 15, line: 3, name: null }];
+  const o = { results: [res(0, 5, 2), res(0, 5, 2), res(1, 15, 3)], messages: [], error: null, elapsed_ms: 30, plans: [], log: [], errors: [] };
+  const named = () => '-- otro';
+  assert.deepEqual(splitOutcome(o, units, { nameAt: named }), splitOutcome(o, units));
+});
+
+test("an EVALUATE's own text: the unit's DEFINE and it, without the next one's comment", () => {
+  const { doc, units, at } = daxRun();
+  const unit = doc.slice(units[1].start, units[1].end);
+  const places = at.map((x) => x - units[1].start);
+  const define = 'DEFINE\n  MEASURE Sales[Total] = SUM(Sales[Amount])';
+  assert.equal(placeText(unit, places, places[0], DAX), `${define}\nEVALUATE SUMMARIZECOLUMNS(Region[Name], "Total", [Total])`);
+  assert.equal(placeText(unit, places, places[1], DAX), `${define}\nEVALUATE SUMMARIZECOLUMNS(Date[Month], "Total", [Total])`);
+  assert.equal(placeText(unit, places, places[2], DAX), `${define}\nEVALUATE { [Total] }`);
+  // Results placed from the statement's start share nothing before them.
+  assert.equal(placeText('SELECT 1;\n-- B\nSELECT 2;', [0, 15], 0, SQL), 'SELECT 1;');
 });
 
 const run = (id, extra = {}) => ({ id, key: String(id), outcome: null, script: '', connectionId: 'c', database: '', language: 'sql', plan: 'none', at: id, pinned: false, multi: null, lineOffset: 0, runBase: 0, ...extra });
