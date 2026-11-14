@@ -16,6 +16,7 @@ import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useSettingsStore } from '../stores/settings';
 import { baseName, busyTabs, closeGuards, disconnectGuards, runningStatements, runningTabs, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
+import { compareWithPicks } from '../composables/queryCompare';
 import { useProjectsStore } from '../stores/projects';
 import {
   extFitsDriver, extOf, isScriptFile, languageForExt, useFileDocument, useQueryDocument, type TabDocument,
@@ -30,6 +31,7 @@ import { confirmMultiDb, multiDbOutcome, rememberSelection, runSummary, startMul
 import { useTasksStore } from '../stores/tasks';
 import { lintSourceFor, type LintProblem } from '../composables/lint';
 import { nameAt, unknownNames, type NameIndex } from '../composables/nameRefs';
+import { daxOtherNames } from '../composables/daxLanguage';
 import { useTableHover } from '../composables/tableHoverData';
 import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import {
@@ -220,10 +222,11 @@ function namesIn(database: string, objs: DbObject[]): Record<string, string[]> {
 }
 const schema = computed(() => namesIn(props.tab.database, conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? []));
 /** q completes the connection's functions and variables too (they have no
- *  columns, so they aren't in `schema`). */
+ *  columns, so they aren't in `schema`); DAX, the model's measures. */
 const otherNames = computed(() => {
-  if (driver.value?.dialect !== 'q') return [];
   const objs = conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? [];
+  if (driver.value?.language === 'dax') return daxOtherNames(objs);
+  if (driver.value?.dialect !== 'q') return [];
   return objs
     .filter((o) => !driver.value?.object_kinds.find((k) => k.id === o.kind)?.has_columns)
     .map((o) => ({ label: o.schema ? `${o.schema}.${o.name}` : o.name, kind: o.kind }));
@@ -340,6 +343,7 @@ function editorMenu(): MenuItem[] {
     items.push({ label: t('editor:menu.revealInExplorer'), disabled: !known, action: () => openNameAt(text.value, at, true) });
   }
   if (runnable.value && !unbound.value) items.push({ label: t('editor:menu.optimize'), divided: true, action: optimize });
+  if (runnable.value && !unbound.value) items.push({ label: t('dataCompare:query.compareWith'), action: compareWith });
   if (lintSource.value) items.push({ label: t('editor:menu.problems'), action: () => { problemsOpen.value = true; } });
   if (runnable.value && paramTarget.value && paramMarkers(paramTarget.value)) {
     items.push({ label: t('editor:menu.detectParams'), checked: !props.tab.paramsOff, divided: true, action: () => tabs.setQueryOptions(props.tab.id, { paramsOff: !props.tab.paramsOff }) });
@@ -1100,6 +1104,26 @@ async function optimize() {
   tabs.openOptimizer(props.tab.connectionId, props.tab.database, doc.slice(from, to), props.tab.id, from, to);
 }
 
+/** "Comparar con…" (docs/data-compare.md, "Comparing two queries"): a data compare of
+ *  two queries with this one on the left (the selection, or the statement at the cursor). */
+async function compareWith() {
+  if (!editor.value || unbound.value) return;
+  let sql = editor.value.selectionText();
+  if (!sql.trim()) {
+    const doc = text.value;
+    const cursor = editor.value.cursor();
+    let units;
+    try { units = (await api.splitScript({ connectionId: props.tab.connectionId, sql: doc, statements: true })).filter((u) => u.kind !== 'client_command'); } catch (e) { ElMessage.error(errorMessage(e)); return; }
+    const unit = units.find((u) => cursor >= u.start && cursor <= u.end) ?? [...units].reverse().find((u) => u.start <= cursor) ?? units[0];
+    sql = unit ? doc.slice(unit.start, unit.end) : '';
+  }
+  if (!sql.trim()) { ElMessage.info({ message: t('optimizer:noStatement'), duration: 2500 }); return; }
+  // Its parameters filled, as a run fills them: the compare runs it as is.
+  const filled = await withParams(sql.trim());
+  if (filled === null) return;
+  tabs.openDataCompare(props.tab.connectionId, props.tab.database, null, compareWithPicks(props.tab.connectionId, props.tab.database, filled));
+}
+
 /** A message's line was clicked: the cursor goes there in the editor. */
 function goTo(at: { offset: number | null; line: number | null }) {
   const r = activeRun.value;
@@ -1273,6 +1297,8 @@ function openRunMenu(e: MouseEvent | KeyboardEvent, r: ResultRun) {
       { label: t('query:runs.rerun'), action: () => void rerun(r), disabled: !!blocked || running.value, hint: blocked ?? undefined },
       { label: t('query:runs.rename'), shortcut: 'F2', action: () => startRename(r), disabled: r === liveRun },
       { label: t('query:runs.copySql'), action: () => void copyRunSql(r) },
+      // A data compare of two queries with this result's on the left (one database's run only).
+      { label: t('dataCompare:query.compareWith'), disabled: !!r.multi, action: () => tabs.openDataCompare(r.connectionId, r.database, null, compareWithPicks(r.connectionId, r.database, r.script.trim())) },
       { label: t('common:close'), action: () => closeRun(r), disabled: r === liveRun, divided: true },
       { label: t('query:runs.closeOthers'), action: () => closeUnpinned(r), disabled: !others },
       { label: t('query:runs.closeUnpinned'), action: () => closeUnpinned(), disabled: !runs.value.some((x) => !x.pinned && x !== liveRun) },

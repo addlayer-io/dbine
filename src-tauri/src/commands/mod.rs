@@ -11,6 +11,7 @@ pub mod connstring;
 pub mod contexts;
 pub mod data_compare;
 pub mod data_compare_ai;
+pub mod data_compare_query;
 pub mod datagen;
 pub mod db_health;
 pub mod dbdocs;

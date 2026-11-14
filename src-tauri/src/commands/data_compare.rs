@@ -23,15 +23,15 @@ pub(crate) mod whole;
 mod live_tests;
 
 /// Rows of a side kept in memory…
-const IN_MEMORY_ROWS: usize = 250_000;
+pub(crate) const IN_MEMORY_ROWS: usize = 250_000;
 /// …and their estimated bytes: past either, both sides go to a scratch
 /// DuckDB on disk (`whole`), which starts opening at half of them.
-const IN_MEMORY_BYTES: usize = 256 << 20;
+pub(crate) const IN_MEMORY_BYTES: usize = 256 << 20;
 /// Differing rows the screen and the script get, all kinds together (the
 /// counts are exact past it).
-const MAX_DIFF_ROWS: usize = 1_000_000;
+pub(crate) const MAX_DIFF_ROWS: usize = 1_000_000;
 /// Rows of each kind sent to the UI (the counts and the script use them all).
-const SHOWN: usize = 2_000;
+pub(crate) const SHOWN: usize = 2_000;
 /// Longest compare id the UI may give.
 const MAX_RUN: usize = 128;
 
@@ -40,6 +40,15 @@ pub struct Side {
     pub connection_id: String,
     pub database: String,
     pub object: ObjectRef,
+}
+
+/// The object kind of a query compare's sides (`data_compare_query`): a
+/// query's result, which no script can change.
+pub(crate) const QUERY_KIND: &str = "query";
+
+/// A side that is a query's result, not a table.
+pub(crate) fn is_query(side: &Side) -> bool {
+    side.object.kind == QUERY_KIND
 }
 
 #[derive(Deserialize)]
@@ -293,21 +302,35 @@ fn write_as(target_type: &str, source_type: &str, v: Value) -> Value {
 
 /// A value as compared: numbers by value (`1` = `1.0` = `"1.00"`), dates
 /// with `T` or a space alike, the rest as text.
+///
+/// Integers and plain decimals keep every digit: two int64 keys past 2^53
+/// (`9007199254740993` and `…992`, which `json_i64` sends as text) or a
+/// `numeric(38,20)` stay distinct. Only a number with an exponent (`1e3`)
+/// goes through `f64`, and a JSON float is written as `f64` prints it (the
+/// shortest text that reads back as it), which the same decimal as text
+/// matches.
 pub(crate) fn canon(v: &Value) -> String {
     match v {
         Value::Null => "\u{0}null".into(),
         Value::Bool(b) => if *b { "1" } else { "0" }.into(),
-        Value::Number(n) => n.as_f64().map(num).unwrap_or_else(|| n.to_string()),
+        Value::Number(n) => match (n.as_i64(), n.as_u64()) {
+            (Some(i), _) => i.to_string(),
+            (_, Some(u)) => u.to_string(),
+            _ => n.as_f64().map(num).unwrap_or_else(|| n.to_string()),
+        },
         Value::String(s) => {
             let t = s.trim();
-            if let Ok(f) = t.parse::<f64>() {
-                // A code with leading zeros ("007") is text, not a number.
-                let leading_zero = t.len() > 1 && t.starts_with('0') && !t.starts_with("0.");
-                if !t.is_empty()
-                    && !leading_zero
-                    && t.chars()
-                        .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
-                {
+            // A code with leading zeros ("007") is text, not a number.
+            let leading_zero = t.len() > 1 && t.starts_with('0') && !t.starts_with("0.");
+            if !t.is_empty()
+                && !leading_zero
+                && t.chars()
+                    .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+            {
+                if let Some(exact) = plain_decimal(t) {
+                    return exact;
+                }
+                if let Ok(f) = t.parse::<f64>() {
                     return num(f);
                 }
             }
@@ -343,6 +366,37 @@ pub(crate) fn canon(v: &Value) -> String {
     }
 }
 
+/// Plain decimal text (`-12.50`, `+7`, `.5`, `-007`) written as [`num`]
+/// writes the same number, without going through `f64`: no `+`, no
+/// leading zeros, no trailing zeros in the fraction, `0` before a bare
+/// point and no sign on zero. `None`: not one (an exponent, a lone sign or
+/// point).
+fn plain_decimal(t: &str) -> Option<String> {
+    let (negative, body) = match t.as_bytes().first()? {
+        b'-' => (true, &t[1..]),
+        b'+' => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let (int, frac) = body.split_once('.').unwrap_or((body, ""));
+    let digits = |s: &str| s.bytes().all(|c| c.is_ascii_digit());
+    if (int.is_empty() && frac.is_empty()) || !digits(int) || !digits(frac) {
+        return None;
+    }
+    let int = int.trim_start_matches('0');
+    let frac = frac.trim_end_matches('0');
+    let int = if int.is_empty() { "0" } else { int };
+    let mut out = String::with_capacity(int.len() + frac.len() + 2);
+    if negative && (int != "0" || !frac.is_empty()) {
+        out.push('-');
+    }
+    out.push_str(int);
+    if !frac.is_empty() {
+        out.push('.');
+        out.push_str(frac);
+    }
+    Some(out)
+}
+
 fn num(f: f64) -> String {
     if f == f.trunc() && f.abs() < 1e15 {
         format!("{}", f as i64)
@@ -359,10 +413,10 @@ fn running() -> &'static Mutex<HashMap<String, Arc<whole::Ctl>>> {
 }
 
 /// A compare's place in [`running`], left when it ends.
-struct Running(String);
+pub(crate) struct Running(String);
 
 impl Running {
-    fn register(run: &str, ctl: Arc<whole::Ctl>) -> CommandResult<Running> {
+    pub(crate) fn register(run: &str, ctl: Arc<whole::Ctl>) -> CommandResult<Running> {
         let mut all = running().lock().unwrap_or_else(|p| p.into_inner());
         if all.contains_key(run) {
             return Err(CommandError::BadRequest(
@@ -385,9 +439,9 @@ impl Drop for Running {
 
 /// The sessions a compare opened (`state.sessions`), closed when it ends
 /// however it ends.
-struct Sessions<'a> {
-    state: &'a AppState,
-    keys: [String; 2],
+pub(crate) struct Sessions<'a> {
+    pub(crate) state: &'a AppState,
+    pub(crate) keys: [String; 2],
 }
 
 impl Drop for Sessions<'_> {
@@ -401,14 +455,14 @@ impl Drop for Sessions<'_> {
 /// A run id as the UI gives it: only to key sessions and events. It may hold
 /// `../` or any other text, so it must never go into a path (the scratch
 /// folder is named after a UUID the backend makes, never after this).
-fn valid_run(s: &str) -> bool {
+pub(crate) fn valid_run(s: &str) -> bool {
     !s.is_empty() && s.len() <= MAX_RUN && s.chars().all(|c| !c.is_control())
 }
 
 /// Where the scratch DuckDBs of big compares go: a folder of their own next
 /// to the vault, never the results store's (`results_store::clear` deletes
 /// that one).
-fn scratch_root() -> Option<std::path::PathBuf> {
+pub(crate) fn scratch_root() -> Option<std::path::PathBuf> {
     dbine_core::secrets::vault_dir().map(|d| d.join("compare"))
 }
 
@@ -426,16 +480,16 @@ pub(crate) fn purge_scratch() {
 /// What the UI gets while a compare runs (`data-compare-progress`), about
 /// four times a second per side.
 #[derive(Serialize, Clone)]
-struct ProgressEvent<'a> {
-    run: &'a str,
-    side: &'static str,
+pub(crate) struct ProgressEvent<'a> {
+    pub(crate) run: &'a str,
+    pub(crate) side: &'static str,
     /// Rows read on that side.
-    rows: u64,
+    pub(crate) rows: u64,
     /// "reading", "preparing" (a read waits for the scratch DuckDB),
     /// "comparing" or "loading_differences".
-    phase: &'static str,
+    pub(crate) phase: &'static str,
     /// Differing rows brought back so far (while loading them).
-    differences: u64,
+    pub(crate) differences: u64,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -1093,6 +1147,11 @@ pub async fn data_compare_script(
     let d = all.get(&args.id).ok_or_else(|| {
         CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
     })?;
+    if is_query(&d.left) || is_query(&d.right) {
+        return Err(CommandError::BadRequest(
+            "una comparación de consultas no genera script: una consulta no es una tabla".into(),
+        ));
+    }
     let (right, left) = plans(d, &args.choices)?;
     let mut out = Vec::new();
     for (to_right, plan) in [(false, left), (true, right)] {
@@ -1937,6 +1996,34 @@ mod tests {
             canon(&json!("7")),
             "a code with leading zeros is text"
         );
+        // Integers past 2^53 keep every digit, as text (`json_i64`) or as
+        // JSON numbers, and plain decimals too.
+        assert_ne!(
+            canon(&json!("9007199254740993")),
+            canon(&json!("9007199254740992"))
+        );
+        assert_ne!(
+            canon(&json!(9007199254740993i64)),
+            canon(&json!(9007199254740992i64))
+        );
+        assert_ne!(canon(&json!(u64::MAX)), canon(&json!(u64::MAX - 1)));
+        assert_eq!(
+            canon(&json!(9007199254740993i64)),
+            canon(&json!("9007199254740993"))
+        );
+        assert_eq!(canon(&json!("+00042.500")), "42.5");
+        assert_eq!(canon(&json!("-0.000")), "0");
+        assert_eq!(canon(&json!("-.5")), canon(&json!(-0.5)));
+        assert_ne!(
+            canon(&json!("0.12345678901234567890")),
+            canon(&json!("0.1234567890123456789001"))
+        );
+        // The same number however it's written: exponents, floats, text.
+        assert_eq!(canon(&json!("1e3")), canon(&json!(1000)));
+        assert_eq!(canon(&json!("1.5E2")), canon(&json!("150.00")));
+        assert_eq!(canon(&json!(1e21)), canon(&json!("1000000000000000000000")));
+        assert_eq!(canon(&json!(0.1)), canon(&json!("0.10")));
+        assert_eq!(canon(&json!(-2.5)), canon(&json!("-2.50")));
         // A fraction followed by an offset: only its digits lose their
         // trailing zeros, and UTC is UTC however it's written.
         assert_eq!(

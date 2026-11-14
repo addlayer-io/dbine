@@ -9,15 +9,17 @@ import { aiTaskApi } from '../api/aiTask';
 import { asker, providerLabel } from '../composables/aiTask';
 import { markdownParts } from '../composables/markdown';
 import { useUiStore } from '../stores/ui';
-import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
-import type { Cell, ObjectRef, QueryProgress, SortKey } from '../api/types';
+import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir, type QuerySide } from '../api/dataCompare';
+import type { Cell, ObjectRef, QueryProgress, ResultColumn, SortKey } from '../api/types';
+import DataCompareQueries from '../components/DataCompareQueries.vue';
+import { DEFAULT_FORM, comparedPairs, mergePairs, pairRows, queryOptions, sideSignature, type PairRow, type ToleranceForm } from '../composables/queryCompare';
 import { columnKind, menuFor, type ColumnFilter, type FilterOp } from '../composables/gridFilter';
 import { nextSort } from '../composables/gridSort';
 import { newQuery } from '../composables/actions';
 import { listOf, locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
-import { useTabsStore, type DataCompareTab } from '../stores/tabs';
+import { useTabsStore, type DataCompareTab, type QueryComparePick } from '../stores/tabs';
 import { formatElapsed, startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
 
@@ -39,6 +41,73 @@ const kept = (s: 'left' | 'right') => {
 };
 const left = reactive<Pick>(kept('left') ?? { connectionId: props.tab.connectionId, database: props.tab.database, table: tableId(props.tab.object) });
 const right = reactive<Pick>(kept('right') ?? { connectionId: props.tab.connectionId, database: props.tab.database, table: '' });
+
+// -- two queries instead of two tables ("Comparar con el origen…", docs/data-compare.md,
+// "Comparing two queries"): each side's query read whole, columns paired by the user,
+// values compared with a tolerance; read-only, so no arrows and no script. --------------
+const mode = ref<'tables' | 'queries'>(props.tab.picks?.mode ?? 'tables');
+const readOnly = computed(() => mode.value === 'queries');
+/** Last time's query sides, when their connections still exist. */
+const keptQuery = (s: 'left' | 'right'): QueryComparePick | null => {
+  const q = props.tab.picks?.queries?.[s];
+  return q ? { ...q, connectionId: q.connectionId && conns.byId(q.connectionId) ? q.connectionId : '' } : null;
+};
+const qLeft = ref<QueryComparePick>(keptQuery('left') ?? { connectionId: props.tab.connectionId, database: props.tab.database, query: '' });
+const qRight = ref<QueryComparePick>(keptQuery('right') ?? { connectionId: '', database: '', query: '' });
+/** The column table: each left column, its pair on the right and the key. */
+const pairs = ref<PairRow[]>([]);
+/** Each result's columns, as last read, and what they were read for. */
+const qColumns = reactive<{ left: ResultColumn[]; right: ResultColumn[] }>({ left: [], right: [] });
+const readFor = reactive({ left: '', right: '' });
+const form = ref<ToleranceForm>({ ...DEFAULT_FORM });
+const columnsStale = computed(() => !pairs.value.length || readFor.left !== sideSignature(qLeft.value) || readFor.right !== sideSignature(qRight.value));
+/** DAX answers BLANK as NULL: once a side is a model, NULL is BLANK (the user can turn it off). */
+const againstModel = computed(() => [qLeft.value, qRight.value].some((q) => conns.driverOf(q.connectionId)?.language === 'dax'));
+watch(againstModel, (dax) => { if (dax) form.value.nullAsBlank = true; }, { immediate: true });
+const querySide = (q: QueryComparePick): QuerySide => ({ connection_id: q.connectionId, database: q.database, query: q.query });
+/** The right side's name of each compared column of the last query compare (its header's tooltip). */
+const rightNames = ref<string[]>([]);
+/** Reads both results' columns (each query stops at its first row) and pairs them,
+ *  keeping the user's pairs and key where the columns are still there. */
+async function readColumns(run: string): Promise<void> {
+  // Which side failed, in what the user reads; a cancel stays a cancel.
+  const read = (q: QueryComparePick, s: 'left' | 'right') => dataCompareApi.queryColumns(querySide(q), `${run}:${s}`)
+    .catch((e) => {
+      throw { kind: errorKind(e) ?? 'sql', message: t('dataCompare:query.sideError', { side: t(`dataCompare:${s}`), error: errorMessage(e) }) };
+    });
+  const asked = [sideSignature(qLeft.value), sideSignature(qRight.value)];
+  const [l, r] = await Promise.all([read(qLeft.value, 'left'), read(qRight.value, 'right')]);
+  qColumns.left = l.columns;
+  qColumns.right = r.columns;
+  pairs.value = mergePairs(pairs.value, pairRows(l.columns, r.columns, l.sample, r.sample), r.columns);
+  [readFor.left, readFor.right] = asked;
+}
+/** "Leer columnas": the column table, without comparing (shown like a compare's
+ *  first phase, with Cancelar). */
+async function onlyColumns(run: string): Promise<null> {
+  live.phase = 'columns';
+  await readColumns(run);
+  return null;
+}
+const queriesPicked = () => [qLeft.value, qRight.value].every((q) => q.connectionId && q.query.trim());
+/** The query compare: the columns read first when a side changed since. */
+async function compareQueries(run: string): Promise<DataCompareResult | null> {
+  if (columnsStale.value) {
+    live.phase = 'columns';
+    await readColumns(run);
+    live.phase = 'reading';
+  }
+  const columns = comparedPairs(pairs.value);
+  if (!columns.some((c) => c.key)) { error.value = t('dataCompare:query.pickKey'); return null; }
+  const got = await dataCompareApi.compareQueries(querySide(qLeft.value), querySide(qRight.value), columns, queryOptions(form.value), run);
+  rightNames.value = got.right_columns;
+  return got;
+}
+/** A compared column's header tooltip: its name on the right, when another. */
+const rightNameOf = (j: number) => {
+  const r = readOnly.value ? rightNames.value[j] : undefined;
+  return r && r !== result.value?.columns[j] ? t('dataCompare:query.rightName', { column: r }) : undefined;
+};
 
 /** The databases and tables to choose from, per side. */
 function dbsOf(p: Pick): string[] {
@@ -155,8 +224,10 @@ const error = ref<string | null>(null);
 const view = ref<'changed' | 'only_left' | 'only_right'>('changed');
 const key = ref<string[]>(props.tab.picks?.key ?? []);
 const tabs = useTabsStore();
-/** What a result compared: the tables of both sides. */
-const picked = () => [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table].join('\u0001');
+/** What a result compared: the tables of both sides, or the queries. */
+const picked = () => (mode.value === 'queries'
+  ? ['queries', sideSignature(qLeft.value), sideSignature(qRight.value)]
+  : [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table]).join('\u0001');
 // A result belongs to the tables it compared: picking another table (or
 // connection, or database) on either side drops it, and with it its
 // columns, which the key list offered instead of the new table's (#92).
@@ -165,10 +236,20 @@ watch(picked, () => {
   error.value = null;
   cancelled.value = false;
 });
+const savePicks = () => tabs.setPicks(props.tab.id, {
+  left: { ...left }, right: { ...right }, key: [...key.value],
+  mode: mode.value, queries: { left: { ...qLeft.value }, right: { ...qRight.value } },
+});
+// A query being typed is saved once it settles, not at every key.
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
-  () => [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table, key.value.join('\u0001')],
-  () => tabs.setPicks(props.tab.id, { left: { ...left }, right: { ...right }, key: [...key.value] }),
+  () => [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table, key.value.join('\u0001'), mode.value, sideSignature(qLeft.value), sideSignature(qRight.value)],
+  () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { saveTimer = null; savePicks(); }, 400);
+  },
 );
+onBeforeUnmount(() => { if (saveTimer) { clearTimeout(saveTimer); savePicks(); } });
 
 /** The left table's columns, to choose the key before comparing (a table
  *  without a primary key needs one). */
@@ -194,7 +275,8 @@ const live = reactive({
   run: '',
   left: 0,
   right: 0,
-  phase: 'reading' as DataCompareProgress['phase'],
+  /** `columns`: a query compare reads its results' columns first. */
+  phase: 'reading' as DataCompareProgress['phase'] | 'columns',
   differences: 0,
   started: 0,
   cancelling: false,
@@ -202,13 +284,25 @@ const live = reactive({
 const now = ref(Date.now());
 const cancelled = ref(false);
 const elapsed = computed(() => formatElapsed(Math.max(0, now.value - live.started)));
-const phaseText = computed(() => t(`dataCompare:progress.${live.phase === 'loading_differences' ? 'loadingDifferences' : live.phase}`));
+const phaseText = computed(() => (live.phase === 'columns'
+  ? t('dataCompare:query.readingColumns')
+  : readOnly.value && live.phase === 'reading'
+    ? t('dataCompare:query.reading')
+    : t(`dataCompare:progress.${live.phase === 'loading_differences' ? 'loadingDifferences' : live.phase}`)));
 
-async function compare() {
-  const l = side(left);
-  const r = side(right);
-  if (!l || !r) { ElMessage.warning(t('dataCompare:pickBoth')); return; }
+/** Compares (`columns`: in a query compare, only reads the columns of the results). */
+async function compare(columns = false) {
   if (running.value) return;
+  let work: (run: string) => Promise<DataCompareResult | null>;
+  if (readOnly.value) {
+    if (!queriesPicked()) { ElMessage.warning(t('dataCompare:query.pickBoth')); return; }
+    work = columns ? onlyColumns : compareQueries;
+  } else {
+    const l = side(left);
+    const r = side(right);
+    if (!l || !r) { ElMessage.warning(t('dataCompare:pickBoth')); return; }
+    work = (run) => dataCompareApi.compare(l, r, key.value, run);
+  }
   running.value = true;
   error.value = null;
   cancelled.value = false;
@@ -226,12 +320,12 @@ async function compare() {
   }).catch(() => null);
   const asked = picked();
   try {
-    const got = await dataCompareApi.compare(l, r, key.value, run);
-    // The tables changed while it ran: it isn't theirs.
-    if (picked() !== asked) return;
+    const got = await work(run);
+    // The tables (or queries) changed while it ran: it isn't theirs.
+    if (!got || picked() !== asked) return;
     result.value = got;
-    key.value = result.value.key;
-    view.value = result.value.counts.changed ? 'changed' : result.value.counts.only_left ? 'only_left' : 'only_right';
+    if (!readOnly.value) key.value = got.key;
+    view.value = got.counts.changed ? 'changed' : got.counts.only_left ? 'only_left' : 'only_right';
   } catch (e) {
     if (errorKind(e) === 'cancelled') cancelled.value = true;
     else error.value = errorMessage(e);
@@ -243,14 +337,18 @@ async function compare() {
     running.value = false;
   }
 }
+/** A compare's runs: its own, and (a query compare) its reads of the columns. */
+const runsOf = (run: string) => [run, `${run}:left`, `${run}:right`];
 /** Cancelar while comparing: both reads and the work on disk stop. */
 function cancelCompare() {
   if (!live.run || live.cancelling) return;
   live.cancelling = true;
-  dataCompareApi.cancel(live.run).catch(() => {});
+  for (const r of runsOf(live.run)) dataCompareApi.cancel(r).catch(() => {});
 }
 // Closing the tab stops a compare still running: nobody would see it.
-onBeforeUnmount(() => { if (live.run) dataCompareApi.cancel(live.run).catch(() => {}); });
+onBeforeUnmount(() => {
+  if (live.run) for (const r of runsOf(live.run)) dataCompareApi.cancel(r).catch(() => {});
+});
 
 const fmtN = (n: number) => n.toLocaleString(locale());
 function show(v: Cell): string {
@@ -900,7 +998,15 @@ async function suggestKey() {
 <template>
   <div class="dc">
     <div class="dc-pick">
-      <div v-for="(p, i) in [left, right]" :key="i" class="dc-side">
+      <el-radio-group v-model="mode" size="small" class="dc-mode" :aria-label="$t('dataCompare:query.mode')">
+        <el-radio-button value="tables">{{ $t('dataCompare:query.modeTables') }}</el-radio-button>
+        <el-radio-button value="queries">{{ $t('dataCompare:query.modeQueries') }}</el-radio-button>
+      </el-radio-group>
+      <DataCompareQueries
+        v-if="readOnly" v-model:left="qLeft" v-model:right="qRight" v-model:pairs="pairs" v-model:form="form"
+        :columns="qColumns" :stale="columnsStale" :busy="running" @read="compare(true)"
+      />
+      <div v-for="(p, i) in (readOnly ? [] : [left, right])" :key="i" class="dc-side">
         <span class="dc-side-label">{{ i === 0 ? $t('dataCompare:left') : $t('dataCompare:right') }}</span>
         <el-select v-model="p.connectionId" filterable size="small" class="dc-conn">
           <el-option v-for="c in conns.list" :key="c.id" :label="c.name" :value="c.id" />
@@ -927,23 +1033,25 @@ async function suggestKey() {
         </el-select>
       </div>
       <div class="dc-actions">
-        <span class="dc-side-label">{{ $t('dataCompare:keyLabel') }}</span>
-        <el-select v-model="key" multiple filterable collapse-tags size="small" class="dc-key" :placeholder="$t('dataCompare:key')">
-          <el-option v-for="c in (result?.columns.length ? result.columns : leftColumns)" :key="c" :label="c" :value="c" />
-        </el-select>
-        <el-button v-if="!key.length && needsKey" size="small" text :loading="aiBusy === 'key'" :title="$t('dataCompare:ai.keyHint')" @click="suggestKey"><el-icon><ei-magic-stick /></el-icon>&nbsp;{{ $t('dataCompare:ai.key') }}</el-button>
-        <el-button :type="result ? 'default' : 'primary'" size="small" :loading="running" @click="compare">{{ $t('dataCompare:compare') }}</el-button>
+        <template v-if="!readOnly">
+          <span class="dc-side-label">{{ $t('dataCompare:keyLabel') }}</span>
+          <el-select v-model="key" multiple filterable collapse-tags size="small" class="dc-key" :placeholder="$t('dataCompare:key')">
+            <el-option v-for="c in (result?.columns.length ? result.columns : leftColumns)" :key="c" :label="c" :value="c" />
+          </el-select>
+          <el-button v-if="!key.length && needsKey" size="small" text :loading="aiBusy === 'key'" :title="$t('dataCompare:ai.keyHint')" @click="suggestKey"><el-icon><ei-magic-stick /></el-icon>&nbsp;{{ $t('dataCompare:ai.key') }}</el-button>
+        </template>
+        <el-button :type="result ? 'default' : 'primary'" size="small" :loading="running" @click="compare()">{{ $t('dataCompare:compare') }}</el-button>
         <!-- Same as the schema compare: choose with the arrows, then sync. -->
-        <el-button v-if="result" size="small" :type="totalChosen ? 'primary' : 'default'" :disabled="!totalChosen" @click="openSync">
+        <el-button v-if="result && !readOnly" size="small" :type="totalChosen ? 'primary' : 'default'" :disabled="!totalChosen" @click="openSync">
           {{ $t('compare:sync.button') }}<span v-if="totalChosen" class="dc-count">{{ fmtN(totalChosen) }}</span>
         </el-button>
       </div>
     </div>
 
-    <div v-if="mismatch" class="dc-mismatch" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ mismatchText }}</div>
+    <div v-if="mismatch && !readOnly" class="dc-mismatch" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ mismatchText }}</div>
     <div v-if="running && live.run" class="dc-progress" role="status">
       <span class="dc-progress-phase">{{ live.cancelling ? $t('dataCompare:progress.cancelling') : phaseText }}</span>
-      <span>{{ $t('dataCompare:progress.rows', { left: fmtN(live.left), right: fmtN(live.right) }) }}</span>
+      <span v-if="live.phase !== 'columns'">{{ $t('dataCompare:progress.rows', { left: fmtN(live.left), right: fmtN(live.right) }) }}</span>
       <span v-if="live.phase === 'loading_differences'">{{ $t('dataCompare:progress.differences', { n: fmtN(live.differences) }) }}</span>
       <span class="dc-progress-time">{{ elapsed }}</span>
       <span style="flex: 1" />
@@ -960,10 +1068,13 @@ async function suggestKey() {
         <button :class="{ on: view === 'only_left' }" @click="view = 'only_left'"><b>{{ fmtN(result.counts.only_left) }}</b> {{ $t('dataCompare:onlyLeft') }}</button>
         <button :class="{ on: view === 'only_right' }" @click="view = 'only_right'"><b>{{ fmtN(result.counts.only_right) }}</b> {{ $t('dataCompare:onlyRight') }}</button>
         <span style="flex: 1" />
-        <el-button size="small" :disabled="filtering || (!result.counts.changed && !result.counts.only_left)" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
-        <el-button size="small" :disabled="filtering || (!result.counts.changed && !result.counts.only_right)" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
+        <span v-if="readOnly" class="dc-ro" :title="$t('dataCompare:query.readOnly')">{{ $t('dataCompare:query.readOnlyShort') }}</span>
+        <template v-else>
+          <el-button size="small" :disabled="filtering || (!result.counts.changed && !result.counts.only_left)" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('right')">{{ $t('dataCompare:syncRight') }}</el-button>
+          <el-button size="small" :disabled="filtering || (!result.counts.changed && !result.counts.only_right)" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
+        </template>
       </div>
-      <div v-if="(view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right)" class="dc-bulk">
+      <div v-if="!readOnly && (view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right)" class="dc-bulk">
         <span>{{ $t('dataCompare:bulk', { count: chosen(view), n: fmtN(chosen(view)) }) }}</span>
         <button :class="{ on: allIs(view, 'left') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'left')" @click="setAll(view, 'left')">{{ $t('dataCompare:allLeft') }}</button>
         <button :class="{ on: allIs(view, 'right') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'right')" @click="setAll(view, 'right')">{{ $t('dataCompare:allRight') }}</button>
@@ -971,7 +1082,7 @@ async function suggestKey() {
       </div>
       <div v-if="result.diff_truncated || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
         <div v-if="result.diff_truncated">{{ $t('dataCompare:truncated', { total: fmtN(totalDiffs), limit: fmtN(result.diff_limit) }) }}</div>
-        <div v-if="result.duplicate_keys">{{ $t('dataCompare:duplicates', { count: result.duplicate_keys }) }}</div>
+        <div v-if="result.duplicate_keys">{{ $t('dataCompare:duplicates', { count: result.duplicate_keys }) }}<template v-if="readOnly"> {{ $t('dataCompare:query.duplicatesHint') }}</template></div>
         <div v-if="result.only_left_columns.length">{{ $t('dataCompare:onlyLeftColumns', { list: result.only_left_columns.join(', ') }) }}</div>
         <div v-if="result.only_right_columns.length">{{ $t('dataCompare:onlyRightColumns', { list: result.only_right_columns.join(', ') }) }}</div>
       </div>
@@ -1008,8 +1119,8 @@ async function suggestKey() {
         <table class="dc-grid">
           <thead>
             <tr>
-              <th class="dc-arrows-h" />
-              <th v-for="(c, j) in result.columns" :key="c" :class="{ key: j < result.key.length }">
+              <th v-if="!readOnly" class="dc-arrows-h" />
+              <th v-for="(c, j) in result.columns" :key="c" :class="{ key: j < result.key.length }" :title="rightNameOf(j)">
                 <span class="dc-th">
                   <button class="dc-th-name" :title="$t('dataCompare:sortHint')" @click="sortClick($event, c)">
                     {{ c }}<span v-if="sortOf(c)" class="dc-th-sort">{{ sortOf(c)!.descending ? '▼' : '▲' }}<sup v-if="sort.length > 1">{{ sortPlace(c) }}</sup></span>
@@ -1025,7 +1136,7 @@ async function suggestKey() {
           </thead>
           <tbody>
             <tr v-for="r in shown" :key="r.index" :class="`go-${dirOf(view, r.index)}`">
-              <td class="dc-arrows">
+              <td v-if="!readOnly" class="dc-arrows">
                 <button :class="{ on: dirOf(view, r.index) === 'left' }" :title="arrowTip(view, 'left')" @click="toggle(view, r.index, 'left')">←</button>
                 <button :class="{ on: dirOf(view, r.index) === 'right' }" :title="arrowTip(view, 'right')" @click="toggle(view, r.index, 'right')">→</button>
               </td>
@@ -1059,7 +1170,7 @@ async function suggestKey() {
         </div>
       </div>
     </template>
-    <div v-else-if="!running && !error" class="dc-hint">{{ $t('dataCompare:hint') }}</div>
+    <div v-else-if="!running && !error" class="dc-hint">{{ $t(readOnly ? 'dataCompare:query.hint' : 'dataCompare:hint') }}</div>
 
     <el-dialog v-model="sync.open" :title="$t('dataCompare:syncTitle')" width="760px" append-to-body>
       <div v-if="building" v-loading="true" class="dc-building" />
@@ -1108,6 +1219,8 @@ async function suggestKey() {
 .dc-table { width: 220px; }
 .dc-schema { width: 150px; }
 .dc-actions { display: flex; gap: 6px; align-items: center; flex-basis: 100%; }
+.dc-mode { flex-basis: 100%; }
+.dc-ro { font-size: 12px; color: var(--nm-text-dim); }
 .dc-key { width: 320px; }
 .dc-ai { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px 14px; border-bottom: 1px solid var(--nm-border); }
 .dc-ai-ask { width: 420px; max-width: 100%; }
